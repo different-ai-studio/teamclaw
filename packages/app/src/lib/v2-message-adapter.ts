@@ -50,6 +50,8 @@ function parseMentionDeliverySnapshot(
 export function adaptTeamclawMessageToSdk(m: TeamclawMessage): SdkMessage {
   const mentionActorIds = parseDisplayMentionActorIds(m);
   const mentionDeliverySnapshot = parseMentionDeliverySnapshot(m);
+  const replyTo = m.replyToMessageId?.trim() || undefined;
+  const turnId = m.turnId?.trim() || undefined;
   return {
     id: m.messageId,
     sessionId: m.sessionId,
@@ -59,6 +61,8 @@ export function adaptTeamclawMessageToSdk(m: TeamclawMessage): SdkMessage {
     mentionActorIds,
     mentionDeliverySnapshot,
     modelID: m.model || undefined,
+    replyToMessageId: replyTo,
+    turnId,
     parts: [
       {
         id: `${m.messageId}-p0`,
@@ -265,6 +269,15 @@ function compareTeamclawMessages(a: TeamclawMessage, b: TeamclawMessage): number
   return a.messageId.localeCompare(b.messageId);
 }
 
+/** Prefer the first non-empty reply_to on a same-turn group. */
+function firstNonEmptyReplyToMessageId(group: TeamclawMessage[]): string | undefined {
+  for (const message of group) {
+    const id = message.replyToMessageId?.trim();
+    if (id) return id;
+  }
+  return undefined;
+}
+
 /** Collapse a run of consecutive same-(senderActorId, turnId) assistant
  * messages into one SdkMessage. Thinking → reasoning part. Tool calls →
  * toolCalls[] matched with results by metadata.tool_id. Replies →
@@ -390,6 +403,8 @@ function buildTurnSdkMessage(group: TeamclawMessage[]): SdkMessage {
       modelID: canonicalModelID,
       parts: mergedPersistedParts,
       toolCalls: canonicalToolCalls,
+      replyToMessageId: firstNonEmptyReplyToMessageId(group),
+      turnId: group[0]?.turnId?.trim() || undefined,
       timestamp: new Date(Number(group[0].createdAt) * 1000),
     };
   }
@@ -420,6 +435,8 @@ function buildTurnSdkMessage(group: TeamclawMessage[]): SdkMessage {
         modelID: canonicalModelID,
         parts: canonicalParts,
         toolCalls: canonicalToolCalls,
+        replyToMessageId: firstNonEmptyReplyToMessageId(group),
+        turnId: group[0]?.turnId?.trim() || undefined,
         timestamp: new Date(Number(group[0].createdAt) * 1000),
       };
     }
@@ -481,6 +498,8 @@ function buildTurnSdkMessage(group: TeamclawMessage[]): SdkMessage {
     modelID,
     parts,
     toolCalls,
+    replyToMessageId: firstNonEmptyReplyToMessageId(group),
+    turnId: group[0]?.turnId?.trim() || undefined,
     timestamp: new Date(Number(group[0].createdAt) * 1000),
   };
 }

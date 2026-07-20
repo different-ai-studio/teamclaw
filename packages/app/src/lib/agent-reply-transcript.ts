@@ -47,6 +47,42 @@ export function priorTextBodiesBeforeLastTool(parts: MessagePart[]): string[] {
 }
 
 /**
+ * Split a completed assistant transcript into process vs final reply.
+ *
+ * Boundary = last non-text process activity (`reasoning` | `tool-call`), not
+ * merely the last tool-call — a trailing thinking block may sit after tools
+ * and before the final answer text.
+ *
+ * - process: everything through that last activity (keeps interleaved mid-turn
+ *   narrations in chronological order with tools/thinking)
+ * - final: trailing contiguous `text` parts after that boundary
+ * - no process activity: process empty, all text is final
+ */
+export function splitAssistantProcessAndFinalParts<T extends TranscriptPart>(
+  parts: T[],
+): { processParts: T[]; finalTextParts: T[] } {
+  let lastProcessIndex = -1;
+  for (let index = 0; index < parts.length; index += 1) {
+    const type = parts[index]?.type;
+    if (type === "reasoning" || type === "tool-call") {
+      lastProcessIndex = index;
+    }
+  }
+  if (lastProcessIndex < 0) {
+    return {
+      processParts: [],
+      finalTextParts: parts.filter((part) => part.type === "text"),
+    };
+  }
+  return {
+    processParts: parts.slice(0, lastProcessIndex + 1),
+    finalTextParts: parts
+      .slice(lastProcessIndex + 1)
+      .filter((part) => part.type === "text"),
+  };
+}
+
+/**
  * When acp.output sends a cumulative chunk after tools, keep only the post-tool
  * suffix so earlier text parts are not duplicated.
  */

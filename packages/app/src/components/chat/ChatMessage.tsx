@@ -18,6 +18,7 @@ import {
 import { ToolCallCard } from "./ToolCallCard";
 import { StreamMarkdown } from "./StreamMarkdown";
 import { ThinkingBlock } from "./ThinkingBlock";
+import { AgentProcessCollapsible } from "./AgentProcessCollapsible";
 import { UserMessageWithMentions } from "./UserMessageWithMentions";
 import { MessageStatusDot } from "./MessageStatusDot";
 import { ActorLabel } from "./ActorLabel";
@@ -26,6 +27,13 @@ import { MessageTokenSummary } from "./MessageTokenSummary";
 import { MessageFeedback } from "./MessageFeedback";
 import { MessageStarRating } from "./MessageStarRating";
 import { RetrievedChunksCard } from "./RetrievedChunksCard";
+import { splitAssistantProcessAndFinalParts } from "@/lib/agent-reply-transcript";
+import {
+  AgentReplyQuote,
+  jumpToMessageById,
+} from "./AgentReplyQuote";
+import { useActorDisplayName } from "@/hooks/useActorDisplayName";
+import { useCurrentTeamStore } from "@/stores/current-team";
 
 /** Renders a single message with all its parts. Memoized to avoid re-renders when siblings change. */
 export const ChatMessage = React.memo(function ChatMessage({
@@ -35,6 +43,7 @@ export const ChatMessage = React.memo(function ChatMessage({
   shouldShowThinking = true,
   showStarRating = false,
   tokenGroupInfo,
+  replyToMessage,
 }: {
   message: StoreMessage;
   activeSessionId?: string | null;
@@ -45,10 +54,25 @@ export const ChatMessage = React.memo(function ChatMessage({
     hideTokenUsage: boolean;
     groupSummary?: { steps: number; totalInput: number; totalOutput: number; totalCost: number };
   };
+  /** Parent user message when this assistant turn quotes one. */
+  replyToMessage?: StoreMessage | null;
 }) {
   const { t } = useTranslation();
   const isUser = message.role === "user";
   const [copied, setCopied] = React.useState(false);
+  const replyAuthorResolved = useActorDisplayName(replyToMessage?.senderActorId);
+  const myActorId = useCurrentTeamStore((s) => s.currentMember?.id);
+  const replyAuthorName = React.useMemo(() => {
+    if (!replyToMessage) return "";
+    if (
+      myActorId &&
+      replyToMessage.senderActorId &&
+      replyToMessage.senderActorId === myActorId
+    ) {
+      return t("chat.you", "你");
+    }
+    return replyAuthorResolved || t("chat.someone", "某人");
+  }, [replyToMessage, myActorId, replyAuthorResolved, t]);
 
   // Use streaming content for the actively streaming message.
   // PERF: Only the streaming message subscribes to high-frequency updates (trigger/content).
@@ -126,11 +150,33 @@ export const ChatMessage = React.memo(function ChatMessage({
   );
   const hasOrderedToolParts = orderedRenderableParts.some((p) => p.type === "tool-call");
   const hasOrderedReasoningParts = orderedRenderableParts.some((p) => p.type === "reasoning");
+  const { processParts: orderedProcessParts, finalTextParts: orderedTextParts } =
+    React.useMemo(
+      () => splitAssistantProcessAndFinalParts(orderedRenderableParts),
+      [orderedRenderableParts],
+    );
   const shouldRenderOrderedAssistantParts =
     !isUser &&
     (hasOrderedToolParts ||
       (hasOrderedReasoningParts &&
         (orderedRenderableParts.some((p) => p.type === "text") || !textContent)));
+
+  const fallbackProcessSummary = React.useMemo(() => {
+    const bits: string[] = [];
+    if (hasReasoning) bits.push("Thinking");
+    if (hasToolCalls && !hasOrderedToolParts) {
+      bits.push(`${latestMessage.toolCalls!.length} tool`);
+    }
+    return bits.join(" · ") || undefined;
+  }, [hasReasoning, hasToolCalls, hasOrderedToolParts, latestMessage.toolCalls]);
+
+  const orderedProcessSummary = React.useMemo(() => {
+    const toolCount = orderedProcessParts.filter((p) => p.type === "tool-call").length;
+    const bits: string[] = [];
+    if (hasOrderedReasoningParts) bits.push("Thinking");
+    if (toolCount > 0) bits.push(`${toolCount} tool`);
+    return bits.join(" · ") || undefined;
+  }, [orderedProcessParts, hasOrderedReasoningParts]);
 
   const hasActiveToolCalls =
     latestMessage.toolCalls?.some(
@@ -236,7 +282,33 @@ export const ChatMessage = React.memo(function ChatMessage({
         modelOverride={message.modelID}
         isUser={isUser}
       />
-      {/* Thinking indicator - MUST be first for assistant messages during streaming */}
+      {!isUser && replyToMessage ? (
+        <AgentReplyQuote
+          authorName={replyAuthorName}
+          content={replyToMessage.content || ""}
+          onJump={() => jumpToMessageById(replyToMessage.id)}
+        />
+      ) : null}
+      {/* Reasoning / tools — collapsed「处理过程」above final text when not streaming */}
+      {!isUser &&
+        !latestMessage.isStreaming &&
+        !shouldRenderOrderedAssistantParts &&
+        (hasReasoning || (hasToolCalls && !hasOrderedToolParts)) && (
+          <div className="mb-0.5 pl-1">
+            <AgentProcessCollapsible summary={fallbackProcessSummary}>
+              {hasReasoning ? (
+                <ThinkingBlock content={reasoningContent} isOpen={false} />
+              ) : null}
+              {hasToolCalls && !hasOrderedToolParts
+                ? latestMessage.toolCalls!.map((toolCall) => (
+                    <ToolCallCard key={toolCall.id} toolCall={toolCall} />
+                  ))
+                : null}
+            </AgentProcessCollapsible>
+          </div>
+        )}
+
+      {/* Streaming-only thinking indicator (live path uses Composer dock) */}
       {showThinkingOnly && !hasReasoning && (
         <div className="flex items-start gap-2 pl-1 mb-2">
           <ThinkingBlock
@@ -261,12 +333,15 @@ export const ChatMessage = React.memo(function ChatMessage({
         </div>
       )}
 
-      {/* Reasoning block - always before main content */}
-      {!isUser && hasReasoning && !hasOrderedReasoningParts && (
+      {/* Legacy streaming reasoning (v1) — keep above content while streaming */}
+      {!isUser &&
+        hasReasoning &&
+        !hasOrderedReasoningParts &&
+        latestMessage.isStreaming && (
         <div className="mb-0.5">
           <ThinkingBlock
             content={reasoningContent}
-            isStreaming={latestMessage.isStreaming && !textContent && !hasToolCalls}
+            isStreaming={!textContent && !hasToolCalls}
             isOpen={false}
           />
         </div>
@@ -316,8 +391,44 @@ export const ChatMessage = React.memo(function ChatMessage({
       {/* Assistant message - either dynamic UI or text */}
       {!isUser && shouldRenderOrderedAssistantParts && (
         <div className="mt-2 space-y-1">
-          {orderedRenderableParts.map((part, index) => {
+          {orderedProcessParts.length > 0 && !latestMessage.isStreaming ? (
+            <AgentProcessCollapsible summary={orderedProcessSummary}>
+              {orderedProcessParts.map((part) => {
+                if (part.type === "reasoning") {
+                  const reasoningText = part.text || part.content || "";
+                  if (!reasoningText) return null;
+                  return (
+                    <ThinkingBlock
+                      key={part.id}
+                      content={reasoningText}
+                      isOpen={false}
+                    />
+                  );
+                }
+                if (part.type === "tool-call" && part.toolCall) {
+                  return <ToolCallCard key={part.id} toolCall={part.toolCall} />;
+                }
+                if (part.type === "text") {
+                  const partText = part.text || part.content || "";
+                  if (!partText) return null;
+                  return (
+                    <Message key={part.id} from="assistant" basePath={basePath}>
+                      <MessageContent>
+                        <MessageResponse>{partText}</MessageResponse>
+                      </MessageContent>
+                    </Message>
+                  );
+                }
+                return null;
+              })}
+            </AgentProcessCollapsible>
+          ) : null}
+          {(latestMessage.isStreaming
+            ? orderedRenderableParts
+            : orderedTextParts
+          ).map((part, index, arr) => {
             if (part.type === "reasoning") {
+              if (!latestMessage.isStreaming) return null;
               const reasoningText = part.text || part.content || "";
               if (!reasoningText) return null;
               return (
@@ -325,27 +436,24 @@ export const ChatMessage = React.memo(function ChatMessage({
                   key={part.id}
                   content={reasoningText}
                   isStreaming={
-                    latestMessage.isStreaming &&
-                    index === orderedRenderableParts.length - 1 &&
-                    !textContent
+                    index === arr.length - 1 && !textContent
                   }
                   isOpen={false}
                 />
               );
             }
             if (part.type === "tool-call" && part.toolCall) {
+              if (!latestMessage.isStreaming) return null;
               return <ToolCallCard key={part.id} toolCall={part.toolCall} />;
             }
+            if (part.type !== "text") return null;
             const partText = part.text || part.content || "";
             if (!partText) return null;
             const isGrowingPart =
-              latestMessage.isStreaming &&
-              index === orderedRenderableParts.length - 1;
+              latestMessage.isStreaming && index === arr.length - 1;
             return (
               <Message key={part.id} from="assistant" basePath={basePath}>
                 <MessageContent>
-                  {/* PERF: while streaming, render through the stable-block
-                      splitter so only the growing tail re-parses per frame. */}
                   {isGrowingPart ? (
                     <StreamMarkdown text={partText} />
                   ) : (
@@ -355,6 +463,18 @@ export const ChatMessage = React.memo(function ChatMessage({
               </Message>
             );
           })}
+          {!latestMessage.isStreaming &&
+            orderedTextParts.length === 0 &&
+            textContent &&
+            // Mid-turn narrations already live inside process; don't re-render
+            // message.content as a duplicate final body.
+            !orderedProcessParts.some((part) => part.type === "text") && (
+              <Message from="assistant" basePath={basePath}>
+                <MessageContent>
+                  <MessageResponse>{textContent}</MessageResponse>
+                </MessageContent>
+              </Message>
+            )}
           {latestMessage.isStreaming && textContent && (
             <span className="inline-flex items-center gap-0.5 ml-1.5 align-middle">
               <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-[bounce_1s_ease-in-out_infinite]" />
@@ -415,8 +535,11 @@ export const ChatMessage = React.memo(function ChatMessage({
         </div>
       )}
 
-      {/* Tool calls */}
-      {!isUser && hasToolCalls && !hasOrderedToolParts && (
+      {/* Tool calls — only while streaming on fallback path; completed uses process shell above */}
+      {!isUser &&
+        hasToolCalls &&
+        !hasOrderedToolParts &&
+        latestMessage.isStreaming && (
         <div className="mt-1 space-y-0.5 pl-1">
           {latestMessage.toolCalls!.map((toolCall) => (
             <ToolCallCard key={toolCall.id} toolCall={toolCall} />

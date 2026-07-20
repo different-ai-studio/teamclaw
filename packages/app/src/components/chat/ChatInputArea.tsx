@@ -580,7 +580,7 @@ export function ChatInputArea({
             <PromptInputTextarea
               placeholder={
                 isStreaming
-                  ? t('chat.inputPlaceholderQueue', 'Type to queue message...')
+                  ? t('chat.inputPlaceholderContinue', 'Continue typing...')
                   : attachedFiles.length > 0
                     ? t('chat.inputPlaceholderDescription', 'Add a description...')
                     : t('chat.inputPlaceholderMention', 'Mention with @, reference files with #...')

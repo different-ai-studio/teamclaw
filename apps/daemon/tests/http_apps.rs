@@ -238,6 +238,7 @@ impl Backend for CredentialMockBackend {
         _metadata_json: &str,
         _model: &str,
         _turn_id: &str,
+        _reply_to_message_id: &str,
         _sequence: u64,
     ) -> BackendResult<()> {
         unimplemented!("not used by seed test")
