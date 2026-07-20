@@ -1201,6 +1201,7 @@ impl SessionManager {
         metadata_json: &str,
         model: &str,
         turn_id: &str,
+        reply_to_message_id: &str,
         sequence: u64,
         persist_backend: bool,
         backend: Option<&std::sync::Arc<dyn Backend>>,
@@ -1218,6 +1219,7 @@ impl SessionManager {
             model: model.to_string(),
             metadata_json: metadata_json.to_string(),
             turn_id: turn_id.to_string(),
+            reply_to_message_id: reply_to_message_id.to_string(),
             ..Default::default()
         };
 
@@ -1261,6 +1263,7 @@ impl SessionManager {
                 let meta_owned = metadata_json.to_string();
                 let model_owned = model.to_string();
                 let turn_owned = turn_id.to_string();
+                let reply_to_owned = reply_to_message_id.to_string();
                 let sb_clone = sb.clone();
                 tokio::spawn(async move {
                     if let Err(e) = sb_clone
@@ -1274,6 +1277,7 @@ impl SessionManager {
                             &meta_owned,
                             &model_owned,
                             &turn_owned,
+                            &reply_to_owned,
                             sequence,
                         )
                         .await
@@ -2116,5 +2120,35 @@ mod tests {
 
         let result = sm.sessions_for_agent("agent1");
         assert!(result.is_empty());
+    }
+
+    #[tokio::test]
+    async fn emit_agent_message_persists_reply_to_message_id() {
+        let tmp = TempDir::new().unwrap();
+        let sm = dummy_session_manager(tmp.path());
+
+        sm.emit_agent_message(
+            "s-quote",
+            "agent-a",
+            teamclaw::MessageKind::AgentReply,
+            "final answer",
+            "{}",
+            "model-x",
+            "turn-quote",
+            "user-parent-1",
+            7,
+            false,
+            None,
+        )
+        .await;
+
+        let store = MessageStore::load(tmp.path(), "s-quote").unwrap();
+        assert_eq!(store.messages.len(), 1);
+        let msg = &store.messages[0];
+        assert_eq!(msg.reply_to_message_id, "user-parent-1");
+        assert_eq!(msg.turn_id, "turn-quote");
+        assert_eq!(msg.content, "final answer");
+        let proto = MessageStore::to_proto(msg);
+        assert_eq!(proto.reply_to_message_id, "user-parent-1");
     }
 }

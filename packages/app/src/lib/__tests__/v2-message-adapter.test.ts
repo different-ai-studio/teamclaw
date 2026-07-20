@@ -17,6 +17,7 @@ function tmsg(o: {
   metadataJson?: string;
   model?: string;
   turnId?: string;
+  replyToMessageId?: string;
   t?: number;
   sessionId?: string;
   sequence?: number;
@@ -31,6 +32,7 @@ function tmsg(o: {
     metadataJson: o.metadataJson ?? "",
     model: o.model ?? "",
     turnId: o.turnId ?? "",
+    replyToMessageId: o.replyToMessageId ?? "",
     createdAt: BigInt(o.t ?? 0),
   });
   if (o.sequence !== undefined) {
@@ -685,5 +687,53 @@ describe("adaptTeamclawMessages", () => {
     expect(result[0].timestamp).toEqual(new Date(10 * 1000));
     // content joined in sorted order
     expect(result[0].content).toBe("first\n\nsecond");
+  });
+
+  it("passes replyToMessageId through single and grouped turns", () => {
+    const single = adaptTeamclawMessages([
+      tmsg({
+        kind: MessageKind.AGENT_REPLY,
+        content: "hi",
+        turnId: "t-reply",
+        replyToMessageId: "user-1",
+      }),
+    ]);
+    expect(single?.[0]?.replyToMessageId).toBe("user-1");
+
+    const grouped = adaptTeamclawMessages([
+      tmsg({
+        kind: MessageKind.AGENT_THINKING,
+        content: "think",
+        turnId: "t-g",
+        replyToMessageId: "",
+      }),
+      tmsg({
+        kind: MessageKind.AGENT_REPLY,
+        content: "done",
+        turnId: "t-g",
+        replyToMessageId: "user-9",
+      }),
+    ]);
+    expect(grouped?.[0]?.replyToMessageId).toBe("user-9");
+  });
+
+  it("keeps replyToMessageId on mergedPersistedParts path (completed stream)", () => {
+    const partsJson = JSON.stringify([
+      { id: "p1", type: "reasoning", text: "think", content: "think" },
+      { id: "p2", type: "text", text: "final", content: "final" },
+    ]);
+    const result = adaptTeamclawMessages([
+      tmsg({
+        kind: MessageKind.AGENT_REPLY,
+        content: "final",
+        turnId: "t-parts",
+        replyToMessageId: "user-parent",
+        partsJson,
+      }),
+    ]);
+    expect(result).toHaveLength(1);
+    expect(result?.[0]?.replyToMessageId).toBe("user-parent");
+    expect(result?.[0]?.turnId).toBe("t-parts");
+    expect(result?.[0]?.parts?.some((p) => p.type === "text")).toBe(true);
   });
 });

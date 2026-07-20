@@ -2,6 +2,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const mocks = vi.hoisted(() => ({
   replyAcpPermission: vi.fn(() => Promise.resolve()),
+  currentMemberId: "me-actor" as string | null,
   byKey: {} as Record<
     string,
     {
@@ -14,6 +15,7 @@ const mocks = vi.hoisted(() => ({
           toolName: string;
           description: string;
           params: Record<string, string>;
+          requesterActorId?: string;
         }
       >;
     }
@@ -30,12 +32,23 @@ vi.mock("@/stores/v2-streaming-store", () => ({
   },
 }));
 
+vi.mock("@/stores/current-team", () => ({
+  useCurrentTeamStore: {
+    getState: () => ({
+      currentMember: mocks.currentMemberId
+        ? { id: mocks.currentMemberId }
+        : null,
+    }),
+  },
+}));
+
 import { flushSessionPendingPermissions } from "../flush-session-pending-permissions";
 
 describe("flushSessionPendingPermissions", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     mocks.byKey = {};
+    mocks.currentMemberId = "me-actor";
   });
 
   it("auto-allows all pending permissions for the session", async () => {
@@ -122,6 +135,39 @@ describe("flushSessionPendingPermissions", () => {
     await flushSessionPendingPermissions("sess-1");
 
     expect(mocks.replyAcpPermission).toHaveBeenCalledTimes(3);
+  });
+
+  it("skips bystander-stamped pending permissions", async () => {
+    mocks.byKey["sess-1::agent-a"] = {
+      sessionId: "sess-1",
+      actorId: "agent-a",
+      pendingPermissionsByRequestId: {
+        mine: {
+          requestId: "mine",
+          toolName: "bash",
+          description: "",
+          params: { requester_actor_id: "me-actor" },
+          requesterActorId: "me-actor",
+        },
+        theirs: {
+          requestId: "theirs",
+          toolName: "bash",
+          description: "",
+          params: { requester_actor_id: "other-actor" },
+          requesterActorId: "other-actor",
+        },
+      },
+    };
+
+    await flushSessionPendingPermissions("sess-1");
+
+    expect(mocks.replyAcpPermission).toHaveBeenCalledTimes(1);
+    expect(mocks.replyAcpPermission).toHaveBeenCalledWith({
+      sessionId: "sess-1",
+      agentActorId: "agent-a",
+      requestId: "mine",
+      decision: "allow",
+    });
   });
 
   it("keeps pending when auto-allow fails", async () => {

@@ -185,7 +185,7 @@ impl DaemonServer {
                 if !reply.content.is_empty() {
                     if let Some(tc) = self.teamclaw.as_ref() {
                         let actor_id = self.actor_id.clone();
-                        let (model, seq) = {
+                        let (model, seq, reply_to) = {
                             let mut mgr = self.agents.lock().await;
                             let agent_id =
                                 mgr.agent_id_by_acp_session(&acp_sid).unwrap_or_default();
@@ -194,7 +194,11 @@ impl DaemonServer {
                                 .get_handle_mut(&agent_id)
                                 .map(|h| h.next_sequence())
                                 .unwrap_or(0);
-                            (model, seq)
+                            let reply_to = mgr
+                                .get_handle(&agent_id)
+                                .and_then(|h| h.pending_reply_to_message_id.clone())
+                                .unwrap_or_default();
+                            (model, seq, reply_to)
                         };
                         tc.emit_agent_message(
                             &remote_session_id,
@@ -204,6 +208,7 @@ impl DaemonServer {
                             &reply.metadata_json,
                             &model,
                             &reply.turn_id,
+                            &reply_to,
                             seq,
                             true,
                             Some(&self.backend),
@@ -309,7 +314,7 @@ impl DaemonServer {
             let (turn, _again) = mgr
                 .checkout_turn_for_acp(acp_sid)
                 .map_err(|e| anyhow::anyhow!("checkout_turn_for_acp: {e}"))?;
-            mgr.send_prompt_raw(&turn.agent_id, prompt, vec![])
+            mgr.send_prompt_raw(&turn.agent_id, prompt, vec![], None, None)
                 .await
                 .map_err(|e| anyhow::anyhow!("send_prompt_raw: {e}"))?;
             (turn.agent_id, turn.event_rx)

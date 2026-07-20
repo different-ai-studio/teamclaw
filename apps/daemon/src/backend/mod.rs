@@ -440,6 +440,7 @@ pub trait Backend: Send + Sync {
         metadata_json: &str,
         model: &str,
         turn_id: &str,
+        reply_to_message_id: &str,
         sequence: u64,
     ) -> BackendResult<()>;
 }

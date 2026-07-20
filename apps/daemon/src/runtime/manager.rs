@@ -698,6 +698,20 @@ impl RuntimeManager {
         text: &str,
         attachment_urls: Vec<String>,
     ) -> crate::error::Result<Vec<String>> {
+        self.send_prompt_with_requester(agent_id, text, attachment_urls, None, None)
+            .await
+    }
+
+    /// Like [`send_prompt`], but stamps turn-scoped requester / reply_to onto the
+    /// ACP prompt job (bound when the prompt worker starts the turn).
+    pub async fn send_prompt_with_requester(
+        &mut self,
+        agent_id: &str,
+        text: &str,
+        attachment_urls: Vec<String>,
+        requester_actor_id: Option<String>,
+        reply_to_message_id: Option<String>,
+    ) -> crate::error::Result<Vec<String>> {
         let (final_text, drained_ids, drained_messages, drained_injected, drained_next_context) =
             if let Some(handle) = self.agents.get_mut(agent_id) {
                 let drained_messages = handle.pending_silent.clone();
@@ -737,7 +751,13 @@ impl RuntimeManager {
             };
 
         if let Err(err) = self
-            .send_prompt_raw(agent_id, &final_text, attachment_urls)
+            .send_prompt_raw(
+                agent_id,
+                &final_text,
+                attachment_urls,
+                requester_actor_id,
+                reply_to_message_id,
+            )
             .await
         {
             if let Some(handle) = self.agents.get_mut(agent_id) {
@@ -768,10 +788,15 @@ impl RuntimeManager {
         agent_id: &str,
         text: &str,
         attachment_urls: Vec<String>,
+        requester_actor_id: Option<String>,
+        reply_to_message_id: Option<String>,
     ) -> crate::error::Result<()> {
         #[cfg(test)]
         {
-            let _ = &attachment_urls;
+            let _ = (
+                &attachment_urls,
+                &requester_actor_id,
+            );
             if let Some(message) = self.send_failures.remove(agent_id) {
                 return Err(crate::error::AmuxError::Agent(message));
             }
@@ -785,18 +810,22 @@ impl RuntimeManager {
                 .insert(agent_id.to_string(), text.to_string());
             if let Some(event_tx) = event_tx {
                 let text = text.to_string();
+                let reply_to = reply_to_message_id.clone();
                 tokio::spawn(async move {
                     let _ = event_tx
-                        .send(AcpEventFrame::new(
-                            "",
-                            amux::AcpEvent {
-                                event: Some(amux::acp_event::Event::Output(amux::AcpOutput {
-                                    text,
-                                    is_complete: true,
-                                })),
-                                model: String::new(),
-                            },
-                        ))
+                        .send(
+                            AcpEventFrame::new(
+                                "",
+                                amux::AcpEvent {
+                                    event: Some(amux::acp_event::Event::Output(amux::AcpOutput {
+                                        text,
+                                        is_complete: true,
+                                    })),
+                                    model: String::new(),
+                                },
+                            )
+                            .with_reply_to(reply_to),
+                        )
                         .await;
                 });
             }
@@ -820,7 +849,9 @@ impl RuntimeManager {
                 crate::error::AmuxError::Agent(format!("agent {} not found", agent_id))
             })?;
             handle.bump_activity();
-            handle.send_prompt(text, attachment_urls).await
+            handle
+                .send_prompt(text, attachment_urls, requester_actor_id, reply_to_message_id)
+                .await
         }
     }
 

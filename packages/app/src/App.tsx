@@ -109,6 +109,7 @@ import {
   streamActorIdFromLiveEvent,
 } from "@/lib/teamclaw-events";
 import { handleAcpPermissionRequest } from "@/lib/teamclaw/handle-acp-permission-request";
+import { handleSessionEventPermissionResolved } from "@/lib/teamclaw/handle-session-event-permission-resolved";
 import { tryBindChildFromPermission } from "@/lib/teamclaw/subagent-acp-binding";
 import { routeSubagentAcpEvent } from "@/lib/teamclaw/subagent-acp-route";
 import {
@@ -122,6 +123,10 @@ import {
   messageKindUpdatesSessionPreview,
 } from "@/lib/session-list-preview";
 import { executeAgentTurnFlush } from "@/lib/agent-turn-flush";
+import {
+  removePendingAgentReplyTo,
+  resolvePendingAgentReplyTo,
+} from "@/lib/pending-agent-reply-to";
 import {
   bufferStreamDelta,
   flushStreamDeltasFor,
@@ -967,6 +972,14 @@ function AppContent() {
       actorId,
       snapshot,
     );
+    const pendingReplyTo = resolvePendingAgentReplyTo(
+      sessionId,
+      actorId,
+      syntheticReply.replyToMessageId,
+    );
+    if (pendingReplyTo) {
+      syntheticReply.replyToMessageId = pendingReplyTo;
+    }
     logInterruptMsgDiag("flush.interrupted.start", {
       sessionId,
       actorId,
@@ -1076,6 +1089,15 @@ function AppContent() {
         ...flushDecision,
       });
       return false;
+    }
+
+    const pendingReplyTo = resolvePendingAgentReplyTo(
+      sessionId,
+      actorId,
+      mergedReply.replyToMessageId,
+    );
+    if (pendingReplyTo) {
+      mergedReply.replyToMessageId = pendingReplyTo;
     }
 
     logInterruptMsgDiag("flush.start", {
@@ -1416,6 +1438,13 @@ function AppContent() {
               // real reply doesn't duplicate it (survives reload otherwise).
               if (senderActorId && msg.kind === MessageKind.AGENT_REPLY) {
                 removeInterruptedStreamPlaceholderForRealReply(sid, senderActorId);
+                // Direct-append skips flushTurnAgentReply — still drop the
+                // stamped parent from the local FIFO so a later flush cannot
+                // reuse a stale user message id.
+                const stampedReplyTo = msg.replyToMessageId?.trim();
+                if (stampedReplyTo) {
+                  removePendingAgentReplyTo(sid, senderActorId, stampedReplyTo);
+                }
               }
               useSessionMessageStore.getState().appendMessage(sid, decoded.message);
             }
@@ -1482,7 +1511,7 @@ function AppContent() {
                 sessionId: m.sessionId,
                 turnId: m.turnId || null,
                 senderActorId: m.senderActorId || null,
-                replyToMessageId: null,
+                replyToMessageId: m.replyToMessageId?.trim() || null,
                 kind: kindStr,
                 content: m.content,
                 metadataJson: m.metadataJson || null,
@@ -1518,6 +1547,22 @@ function AppContent() {
                 content: dm.content,
               }).catch((e) => {
                 console.warn("[notifications] maybeNotify failed:", e);
+              });
+            }
+            return;
+          }
+
+          // Case 2a: SessionEvent (e.g. PermissionResolved) arrives as
+          // LiveEventEnvelope event_type=acp.event with Amux payload.sessionEvent.
+          // Must run outside `if (decoded.acpEvent)` — that field is only set for
+          // payload.case === "acpEvent".
+          if (decoded.amuxEnvelope?.payload?.case === "sessionEvent") {
+            const se = decoded.amuxEnvelope.payload.value?.event;
+            if (se?.case === "permissionResolved") {
+              const requestId = (se.value as { requestId?: string })?.requestId ?? "";
+              handleSessionEventPermissionResolved({
+                requestId,
+                sessionIdHint: sid,
               });
             }
             return;
@@ -1666,7 +1711,8 @@ function AppContent() {
                 clearTerminalFlushPending(agentStreamKey(sid, actorId));
                 useV2StreamingStore.getState().beginPlanningPlaceholder(sid, actorId);
               } else if (isTerminalAgentStatus(sc.newStatus)) {
-                terminalFlushPendingRef.current[agentStreamKey(sid, actorId)] = true;
+                const streamKey = agentStreamKey(sid, actorId);
+                terminalFlushPendingRef.current[streamKey] = true;
                 const flushed = flushTurnAgentReply(
                   sid,
                   actorId,
@@ -1679,42 +1725,35 @@ function AppContent() {
                   newStatus: sc.newStatus,
                   flushed,
                   ...summarizePendingReplies(
-                    pendingStreamRepliesRef.current[agentStreamKey(sid, actorId)],
+                    pendingStreamRepliesRef.current[streamKey],
                   ),
                   ...summarizeStreamEntry(
-                    useV2StreamingStore.getState().byKey[agentStreamKey(sid, actorId)],
+                    useV2StreamingStore.getState().byKey[streamKey],
                     "live",
                   ),
                 });
-                if (!flushed) {
-                  const streamEntry = useV2StreamingStore.getState().byKey[
-                    agentStreamKey(sid, actorId)
-                  ];
+                if (flushed) {
+                  clearTerminalFlushPending(streamKey);
+                } else {
+                  const streamEntry =
+                    useV2StreamingStore.getState().byKey[streamKey];
                   if (streamEntryHasVisibleContent(streamEntry)) {
-                    const interruptedPending = useV2StreamingStore
-                      .getState()
-                      .isInterruptedFlushPending(sid, actorId);
-                    logInterruptMsgDiag("mqtt.statusChange.terminal.finishOnly", {
+                    // Live Dock only shows active streams; when daemon
+                    // message.created lags statusChange.terminal, flush from
+                    // the in-memory transcript instead of dropping the turn.
+                    const eagerFlushed = flushInterruptedStreamArtifacts(
+                      sid,
+                      actorId,
+                      "mqtt.statusChange.terminal.eager",
+                    );
+                    logInterruptMsgDiag("mqtt.statusChange.terminal.eager", {
                       sessionId: sid,
                       actorId,
-                      interruptedPending,
+                      eagerFlushed,
                       ...summarizeStreamEntry(streamEntry, "live"),
                     });
-                    if (interruptedPending) {
-                      const eagerFlushed = flushInterruptedStreamArtifacts(
-                        sid,
-                        actorId,
-                        "mqtt.statusChange.terminal.finishOnly",
-                      );
-                      if (eagerFlushed) {
-                        useV2StreamingStore
-                          .getState()
-                          .clearInterruptedFlushPending(sid, actorId);
-                      } else {
-                        useV2StreamingStore.getState().finishSessionActor(sid, actorId, {
-                          reason: "statusChange.terminal",
-                        });
-                      }
+                    if (eagerFlushed) {
+                      clearTerminalFlushPending(streamKey);
                     } else {
                       useV2StreamingStore.getState().finishSessionActor(sid, actorId, {
                         reason: "statusChange.terminal",
@@ -1786,6 +1825,7 @@ function AppContent() {
                   toolName: pr.toolName ?? "",
                   description: pr.description ?? "",
                   params: pr.params ?? {},
+                  requesterActorId: pr.params?.requester_actor_id?.trim() || undefined,
                   options: (pr.options ?? []).map((o) => ({
                     optionId: o.optionId ?? "",
                     kind: o.kind ?? "",

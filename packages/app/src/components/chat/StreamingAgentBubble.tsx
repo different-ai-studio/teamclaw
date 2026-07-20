@@ -130,7 +130,8 @@ export const StreamingAgentBubble = React.memo(function StreamingAgentBubble({
   variant = "default",
 }: {
   entry: AgentStreamEntry;
-  variant?: "default" | "nested";
+  /** `dock` hides ActorLabel — Composer agent strip already shows identity. */
+  variant?: "default" | "nested" | "dock";
 }) {
   // After finalize (active=false), the persisted AGENT_REPLY ChatMessage
   // takes over the reply text — suppress outputText here to avoid showing
@@ -140,6 +141,7 @@ export const StreamingAgentBubble = React.memo(function StreamingAgentBubble({
   // Plan entries are NOT rendered here — they surface in the TodoList dock
   // above the prompt input (v1 style).
   const isNested = variant === "nested";
+  const isDock = variant === "dock";
   const skipToolNames = React.useMemo(
     () => (isNested ? new Set(["task"]) : undefined),
     [isNested],
@@ -204,7 +206,7 @@ export const StreamingAgentBubble = React.memo(function StreamingAgentBubble({
     }
   }, [entry.active, awaitingNextEvent, hasTranscriptText]);
 
-  // Nested subagent streams already sit inside TaskToolCard — skip idle dots there.
+  // Nested/dock: nested skips idle dots (TaskToolCard); dock keeps dots for live feel.
   const showStreamLoadingDots = !isNested;
   // Align with agent bar on statusChange ACTIVE — show immediately, no idle debounce.
   const showPlanningInitial =
@@ -230,14 +232,14 @@ export const StreamingAgentBubble = React.memo(function StreamingAgentBubble({
 
   return (
     <div
-      className="mb-1.5"
+      className={isDock ? "mb-0" : "mb-1.5"}
       data-testid="v2-streaming-agent"
       data-session-id={entry.sessionId}
       data-actor-id={entry.actorId}
       data-active={entry.active ? "true" : "false"}
       data-variant={variant}
     >
-      {!isNested ? (
+      {!isNested && !isDock ? (
         <ActorLabel senderActorId={entry.actorId} isUser={false} />
       ) : null}
       <Message from="assistant">
