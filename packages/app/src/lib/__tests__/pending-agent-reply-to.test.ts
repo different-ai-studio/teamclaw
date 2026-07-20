@@ -45,4 +45,11 @@ describe("pending-agent-reply-to", () => {
     expect(resolvePendingAgentReplyTo("s1", "agent-a", "")).toBe("u1");
     expect(resolvePendingAgentReplyTo("s1", "agent-a", null)).toBeNull();
   });
+
+  it("direct-append drain via remove leaves other queued parents intact", () => {
+    notePendingAgentReplyTo("s1", ["agent-a"], "u1");
+    notePendingAgentReplyTo("s1", ["agent-a"], "u2");
+    expect(removePendingAgentReplyTo("s1", "agent-a", "u1")).toBe(true);
+    expect(peekPendingAgentReplyTo("s1", "agent-a")).toBe("u2");
+  });
 });
