@@ -300,12 +300,21 @@
     "generatingComponents": "生成中... ({{count}} 个组件)",
     "thinking": "思考中...",
     "thinkingProcess": "思考过程",
+    "process": "处理过程",
+    "replyTo": "回复 {{name}}",
+    "replyToPrefix": "回复",
+    "you": "你",
+    "someone": "某人",
     "messagesQueued": "{{count}} 条消息排队中",
     "showMore": "展开全文",
     "showLess": "收起",
     "streamingBar": {
       "streamingActive": "正在回复",
-      "waitingApproval": "等待你审批后继续…"
+      "waitingApproval": "等待你审批后继续…",
+      "expand": "展开",
+      "collapse": "收起",
+      "enlarge": "放大",
+      "restore": "还原"
     },
     "permissionCard": {
       "requestExecuteCommand": "请求执行命令",
@@ -450,6 +459,7 @@
       "humanMentionInstruction": "这条信息还提及了人类 {{name}}"
     },
     "inputPlaceholderQueue": "输入消息以加入队列...",
+    "inputPlaceholderContinue": "继续输入...",
     "newSession": "新会话",
     "refreshMessages": "刷新消息",
     "startingAgent": "正在启动助手...",

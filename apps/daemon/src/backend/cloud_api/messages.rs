@@ -202,6 +202,7 @@ impl CloudApiBackend {
         metadata_json: &str,
         model: &str,
         turn_id: &str,
+        reply_to_message_id: &str,
         sequence: u64,
     ) -> BackendResult<()> {
         let metadata = serde_json::from_str(metadata_json).unwrap_or(Value::Null);
@@ -224,7 +225,7 @@ impl CloudApiBackend {
                     kind,
                     metadata,
                     turn_id: empty_to_none(turn_id),
-                    reply_to_message_id: None,
+                    reply_to_message_id: empty_to_none(reply_to_message_id),
                     model: empty_to_none(model),
                     created_at: None,
                 },

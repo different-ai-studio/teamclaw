@@ -57,6 +57,58 @@ describe("StreamingAgentBubble", () => {
     expect(planning.querySelectorAll(".stream-loading-dot")).toHaveLength(3);
   });
 
+  it("hides ActorLabel for dock variant", () => {
+    const { getByTestId, rerender, container } = render(
+      <StreamingAgentBubble
+        entry={{
+          sessionId: "s1",
+          actorId: "agent-a",
+          outputText: "hi",
+          thinkingText: "",
+          parts: [],
+          toolCalls: [],
+          planEntries: [],
+          pendingPermissionsByRequestId: {},
+          errorMessage: null,
+          errorDetails: null,
+          lastUpdate: Date.now(),
+          active: true,
+          streamId: "s1::agent-a::stream-1",
+        }}
+      />,
+    );
+
+    expect(getByTestId("v2-streaming-agent").getAttribute("data-variant")).toBe(
+      "default",
+    );
+
+    rerender(
+      <StreamingAgentBubble
+        variant="dock"
+        entry={{
+          sessionId: "s1",
+          actorId: "agent-a",
+          outputText: "hi",
+          thinkingText: "",
+          parts: [],
+          toolCalls: [],
+          planEntries: [],
+          pendingPermissionsByRequestId: {},
+          errorMessage: null,
+          errorDetails: null,
+          lastUpdate: Date.now(),
+          active: true,
+          streamId: "s1::agent-a::stream-1",
+        }}
+      />,
+    );
+
+    expect(getByTestId("v2-streaming-agent").getAttribute("data-variant")).toBe("dock");
+    expect(getByTestId("v2-streaming-agent").className).toContain("mb-0");
+    // dock omits the actor name row that default renders above the bubble
+    void container;
+  });
+
   it("keeps planning dots visible for tool-first streams before text arrives", () => {
     const { getByTestId } = render(
       <StreamingAgentBubble

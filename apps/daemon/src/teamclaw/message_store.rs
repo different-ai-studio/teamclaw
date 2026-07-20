@@ -243,4 +243,14 @@ mod tests {
         let proto = MessageStore::to_proto(&msg);
         assert_eq!(proto.kind, teamclaw::MessageKind::System as i32);
     }
+
+    #[test]
+    fn test_to_proto_preserves_reply_to_message_id() {
+        let mut msg = make_message("m1", "s1", "hello");
+        msg.reply_to_message_id = "parent-9".to_string();
+        msg.turn_id = "turn-9".to_string();
+        let proto = MessageStore::to_proto(&msg);
+        assert_eq!(proto.reply_to_message_id, "parent-9");
+        assert_eq!(proto.turn_id, "turn-9");
+    }
 }

@@ -25,6 +25,7 @@ export function messageRowsToProto(rows: MessageRow[]): TeamclawMessage[] {
       content: r.content ?? "",
       model: r.model ?? "",
       turnId: r.turnId ?? "",
+      replyToMessageId: r.replyToMessageId ?? "",
       metadataJson: r.metadataJson ?? "",
       createdAt: BigInt(Math.floor(new Date(r.createdAt).getTime() / 1000)),
     });

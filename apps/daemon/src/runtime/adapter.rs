@@ -56,6 +56,8 @@ pub enum AcpCommand {
         attachment_urls: Vec<String>,
         /// Human actor that started this turn; stamped onto PermissionRequest params.
         requester_actor_id: Option<String>,
+        /// User message id that triggered this turn; stamped onto AgentReply emits.
+        reply_to_message_id: Option<String>,
     },
     /// Cancel the current turn for a bound session.
     Cancel { acp_session_id: String },
@@ -178,6 +180,8 @@ struct SessionRoute {
     pending_permissions: HashMap<String, oneshot::Sender<PermissionResolution>>,
     /// Human actor id for the in-flight collab turn (PermissionRequest stamp).
     turn_requester_actor_id: Option<String>,
+    /// User message id for the in-flight turn (AgentReply `reply_to_message_id`).
+    turn_reply_to_message_id: Option<String>,
     tool_progress_deduper: RefCell<ToolProgressDeduper>,
     /// Count of `session_notification` handlers currently between "entered"
     /// and "finished pushing their events onto `event_tx`". The ACP crate
@@ -545,17 +549,21 @@ impl acp::Client for AmuxClient {
                     r.event_tx.clone(),
                     r.notif_inflight.clone(),
                     r.notif_finished.clone(),
+                    r.turn_reply_to_message_id.clone(),
                 )
             })
         };
-        if let Some((event_tx, inflight, finished)) = route {
+        if let Some((event_tx, inflight, finished, turn_reply_to)) = route {
             let _inflight_guard = NotifInflightGuard::new(inflight, finished);
             for event in &events {
                 super::agent_trace::log_acp_event(&session_id, event);
             }
             for event in events {
                 let _ = event_tx
-                    .send(AcpEventFrame::new(session_id.clone(), event))
+                    .send(
+                        AcpEventFrame::new(session_id.clone(), event)
+                            .with_reply_to(turn_reply_to.clone()),
+                    )
                     .await;
             }
         } else {
@@ -947,8 +955,8 @@ mod spawn_path_tests {
 // ---------------------------------------------------------------------------
 
 struct ActiveSession {
-    /// text, attachment_urls, optional turn requester_actor_id
-    prompt_tx: mpsc::Sender<(String, Vec<String>, Option<String>)>,
+    /// Prompt jobs: text, attachments, optional turn requester, optional reply_to.
+    prompt_tx: mpsc::Sender<(String, Vec<String>, Option<String>, Option<String>)>,
 }
 
 fn build_acp_process_command(
@@ -1192,6 +1200,7 @@ async fn attach_acp_session_on_conn(
             is_gateway,
             pending_permissions: HashMap::new(),
             turn_requester_actor_id: None,
+            turn_reply_to_message_id: None,
             tool_progress_deduper: RefCell::new(ToolProgressDeduper::default()),
             notif_inflight: Rc::new(Cell::new(0)),
             notif_finished: Rc::new(Cell::new(0)),
@@ -1257,7 +1266,7 @@ fn spawn_prompt_worker(
     session_id: acp::SessionId,
     event_tx: mpsc::Sender<AcpEventFrame>,
     registry: Rc<RefCell<SessionRegistry>>,
-    mut prompt_rx: mpsc::Receiver<(String, Vec<String>, Option<String>)>,
+    mut prompt_rx: mpsc::Receiver<(String, Vec<String>, Option<String>, Option<String>)>,
 ) {
     let acp_session_key = session_id.to_string();
     tokio::task::spawn_local(async move {
@@ -1274,14 +1283,18 @@ fn spawn_prompt_worker(
             .and_then(|v| v.parse::<u64>().ok())
             .map(Duration::from_secs)
             .unwrap_or_else(|| Duration::from_secs(90));
-        while let Some((text, attachment_urls, requester_actor_id)) = prompt_rx.recv().await {
-            // Bind collab requester to THIS worker iteration only — never at
+        while let Some((text, attachment_urls, requester_actor_id, reply_to_message_id)) =
+            prompt_rx.recv().await
+        {
+            // Bind collab turn stamps to THIS worker iteration only — never at
             // Prompt enqueue time, or a queued second prompt would overwrite
             // the in-flight turn's stamp.
+            let turn_reply_to = reply_to_message_id.filter(|id| !id.is_empty());
             if let Some(route) = registry.borrow_mut().resolve_event_route_mut(&acp_session_key)
             {
                 route.turn_requester_actor_id =
                     requester_actor_id.filter(|id| !id.is_empty());
+                route.turn_reply_to_message_id = turn_reply_to.clone();
             }
 
             let attachment_count = attachment_urls.len();
@@ -1299,7 +1312,10 @@ fn spawn_prompt_worker(
             };
             super::agent_trace::log_acp_event(&acp_session_key, &status_active);
             let _ = event_tx
-                .send(AcpEventFrame::new(acp_session_key.clone(), status_active))
+                .send(
+                    AcpEventFrame::new(acp_session_key.clone(), status_active)
+                        .with_reply_to(turn_reply_to.clone()),
+                )
                 .await;
 
             let mut blocks: Vec<acp::ContentBlock> = vec![text.into()];
@@ -1374,12 +1390,16 @@ fn spawn_prompt_worker(
             };
             super::agent_trace::log_acp_event(&acp_session_key, &status_idle);
             let _ = event_tx
-                .send(AcpEventFrame::new(acp_session_key.clone(), status_idle))
+                .send(
+                    AcpEventFrame::new(acp_session_key.clone(), status_idle)
+                        .with_reply_to(turn_reply_to.clone()),
+                )
                 .await;
 
-            // Clear collab turn requester so it cannot leak into the next turn.
+            // Clear collab turn stamps so they cannot leak into the next turn.
             if let Some(route) = registry.borrow_mut().resolve_event_route_mut(&acp_session_key) {
                 route.turn_requester_actor_id = None;
+                route.turn_reply_to_message_id = None;
             }
 
             let elapsed_ms = turn_started.elapsed().as_millis() as u64;
@@ -1580,7 +1600,7 @@ async fn run_acp_host(
                                 if !initial_prompt.is_empty() {
                                     let _ = active
                                         .prompt_tx
-                                        .send((initial_prompt, Vec::new(), None))
+                                        .send((initial_prompt, Vec::new(), None, None))
                                         .await;
                                 }
                                 continue;
@@ -1605,7 +1625,7 @@ async fn run_acp_host(
                                 let acp_sid = meta.acp_session_id.clone();
                                 let session_id = acp::SessionId::new(acp_sid.clone());
                                 let (prompt_tx, prompt_rx) =
-                                    mpsc::channel::<(String, Vec<String>, Option<String>)>(64);
+                                    mpsc::channel::<(String, Vec<String>, Option<String>, Option<String>)>(64);
                                 spawn_prompt_worker(
                                     conn.clone(),
                                     session_id,
@@ -1619,7 +1639,7 @@ async fn run_acp_host(
                                     if let Some(active) = active_sessions.get(&acp_sid) {
                                         let _ = active
                                             .prompt_tx
-                                            .send((initial_prompt, Vec::new(), None))
+                                            .send((initial_prompt, Vec::new(), None, None))
                                             .await;
                                     }
                                 }
@@ -1643,11 +1663,12 @@ async fn run_acp_host(
                         text,
                         attachment_urls,
                         requester_actor_id,
+                        reply_to_message_id,
                     } => {
                         if let Some(active) = active_sessions.get(&acp_session_id) {
                             if active
                                 .prompt_tx
-                                .send((text, attachment_urls, requester_actor_id))
+                                .send((text, attachment_urls, requester_actor_id, reply_to_message_id))
                                 .await
                                 .is_err()
                             {
@@ -2377,6 +2398,7 @@ mod tests {
                 is_gateway: false,
                 pending_permissions: HashMap::new(),
                 turn_requester_actor_id: None,
+                turn_reply_to_message_id: None,
                 tool_progress_deduper: RefCell::new(ToolProgressDeduper::default()),
                 notif_inflight: Rc::new(Cell::new(0)),
                 notif_finished: Rc::new(Cell::new(0)),

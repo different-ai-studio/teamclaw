@@ -195,6 +195,15 @@ export const MessageList = React.forwardRef<MessageListHandle, MessageListProps>
       return info;
     }, [renderedMessages]);
 
+    // Full timeline — parent of a quote may sit above the visible window.
+    const messagesById = React.useMemo(() => {
+      const map = new Map<string, Message>();
+      for (const message of messages) {
+        map.set(message.id, message);
+      }
+      return map;
+    }, [messages]);
+
     // ── Local state ──────────────────────────────────────────────────────
     const [showScrollButton, setShowScrollButton] = React.useState(false);
     const [inputAreaHeight, setInputAreaHeight] = React.useState(DEFAULT_INPUT_AREA_HEIGHT);
@@ -560,6 +569,11 @@ export const MessageList = React.forwardRef<MessageListHandle, MessageListProps>
                                   tokenGroupInfo={tokenGroupInfo.get(
                                     message.id,
                                   )}
+                                  replyToMessage={
+                                    message.replyToMessageId
+                                      ? messagesById.get(message.replyToMessageId) ?? null
+                                      : null
+                                  }
                                 />
                               </ErrorBoundary>
                             </div>
@@ -587,6 +601,11 @@ export const MessageList = React.forwardRef<MessageListHandle, MessageListProps>
                                 index === lastCompletedAssistantIdx
                               }
                               tokenGroupInfo={tokenGroupInfo.get(message.id)}
+                              replyToMessage={
+                                message.replyToMessageId
+                                  ? messagesById.get(message.replyToMessageId) ?? null
+                                  : null
+                              }
                             />
                           </ErrorBoundary>
                         </div>

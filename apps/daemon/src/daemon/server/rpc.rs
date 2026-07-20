@@ -550,6 +550,7 @@ impl DaemonServer {
                                         &prompt.text,
                                         prompt.attachment_urls.clone(),
                                         requester,
+                                        None,
                                     )
                                     .await;
                                 if let Err(e) = send_res {
@@ -686,6 +687,7 @@ impl DaemonServer {
                         &prompt.text,
                         prompt.attachment_urls.clone(),
                         requester,
+                        None,
                     )
                     .await;
                 match send_res {

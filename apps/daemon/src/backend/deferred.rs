@@ -420,6 +420,7 @@ impl Backend for DeferredBackend {
         metadata_json: &str,
         model: &str,
         turn_id: &str,
+        reply_to_message_id: &str,
         sequence: u64,
     ) -> BackendResult<()> {
         self.inner()?
@@ -433,6 +434,7 @@ impl Backend for DeferredBackend {
                 metadata_json,
                 model,
                 turn_id,
+                reply_to_message_id,
                 sequence,
             )
             .await

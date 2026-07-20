@@ -18,6 +18,7 @@ import { useTeamModeStore } from "@/stores/team-mode";
 import { useCurrentTeamStore } from "@/stores/current-team";
 import { TEAMCLAW_DIR, CONFIG_FILE_NAME, TEAM_REPO_DIR } from "@/lib/build-config";
 import { adaptTeamclawMessages } from "@/lib/v2-message-adapter";
+import { notePendingAgentReplyTo } from "@/lib/pending-agent-reply-to";
 import { logInterruptMsgDiag } from "@/lib/interrupt-msg-diag";
 import { useAuthStore } from "@/stores/auth-store";
 import { bumpSessionListLastMessage } from "@/lib/session-list-preview";
@@ -78,7 +79,6 @@ import {
   selectPersistedPlanForSession,
   type StreamingPlanEntry,
 } from "@/stores/v2-streaming-store";
-import { StreamingAgentBubble } from "./StreamingAgentBubble";
 import { uploadAttachment } from "@/lib/attachment-upload";
 import { loadSessionActiveModel } from "@/lib/session-active-model";
 import { ensureSessionLiveSubscribed } from "@/lib/session-live-subscriptions";
@@ -536,21 +536,6 @@ export function ChatPanel({ compact = false }: ChatPanelProps) {
     [activeSessionId, engagedUiEntries, removeAgentForSession, addAgentForSession],
   );
 
-  const activeStreamingAgents = React.useMemo(() => {
-    const seen = new Set<string>();
-    const agents: Array<{ actorId: string; displayName?: string }> = [];
-    for (const entry of v2Streams) {
-      if (!isStreamInterruptible(entry) || seen.has(entry.actorId)) continue;
-      seen.add(entry.actorId);
-      const engaged = engagedAgents.find((agent) => agent.id === entry.actorId);
-      agents.push({
-        actorId: entry.actorId,
-        displayName: engaged?.displayName,
-      });
-    }
-    return agents;
-  }, [v2Streams, engagedAgents]);
-
   // Existing sessions can be reopened after a reload with no in-memory
   // engaged agents selected. Solo sessions (2 participants: 1 human + 1 agent)
   // auto-engage the agent pill so sends still trigger a reply.
@@ -795,6 +780,26 @@ export function ChatPanel({ compact = false }: ChatPanelProps) {
     () => adaptTeamclawMessages(displayMessagesRaw),
     [displayMessagesRaw],
   );
+
+  const activeStreamingAgents = React.useMemo(() => {
+    const seen = new Set<string>();
+    const agents: Array<{
+      actorId: string;
+      displayName?: string;
+      entry: (typeof v2Streams)[number];
+    }> = [];
+    for (const entry of v2Streams) {
+      if (!isStreamInterruptible(entry) || seen.has(entry.actorId)) continue;
+      seen.add(entry.actorId);
+      const engaged = engagedAgents.find((agent) => agent.id === entry.actorId);
+      agents.push({
+        actorId: entry.actorId,
+        displayName: engaged?.displayName,
+        entry,
+      });
+    }
+    return agents;
+  }, [v2Streams, engagedAgents]);
 
   const SESSION_FADE_MS = 150;
 
@@ -1479,6 +1484,10 @@ export function ChatPanel({ compact = false }: ChatPanelProps) {
               useSessionMessageStore.getState().messages[sid]?.length ?? 0,
           });
 
+          if (agentRuntimeIdsForSend.length > 0) {
+            notePendingAgentReplyTo(sid, agentRuntimeIdsForSend, messageId);
+          }
+
           // 2. Enqueue to outbox — status dot beside the bubble tracks
           //    pending/inFlight/delivered. Network + runtime work continue
           //    asynchronously after the bubble is visible.
@@ -1983,8 +1992,8 @@ export function ChatPanel({ compact = false }: ChatPanelProps) {
       ? error
       : null;
 
-  // Keep inactive current-turn streams visible until releaseActorAfterPersist
-  // moves artifacts into the persisted ChatMessage (see StreamingAgentBubble).
+  // Live streams render in Composer Live Dock. Keep displayV2Streams for
+  // timeline diagnostics only (inactive/archived still live in the store).
   const v2DisplayRevision = useV2StreamingStore((s) =>
     displaySessionId ? (s.revisionBySession[displaySessionId] ?? 0) : 0,
   );
@@ -2042,19 +2051,9 @@ export function ChatPanel({ compact = false }: ChatPanelProps) {
     displaySessionId ? (s.bySession[displaySessionId]?.length ?? 0) > 0 : false,
   );
   const messageBottomContent = !isViewingChild &&
-    (displayV2Streams.length > 0 || visibleSessionError || visibleError || hasSessionNotices) ? (
+    (visibleSessionError || visibleError || hasSessionNotices) ? (
     <>
       {hasSessionNotices ? <SessionNoticeList sessionId={displaySessionId} /> : null}
-      {displayV2Streams.map((entry) => (
-        <StreamingAgentBubble
-          key={
-            "archiveId" in entry && entry.archiveId
-              ? `archived::${entry.archiveId}`
-              : `current::${entry.actorId}::${entry.streamId}`
-          }
-          entry={entry}
-        />
-      ))}
       {visibleSessionError ? (
         <SessionErrorAlert
           error={visibleSessionError}

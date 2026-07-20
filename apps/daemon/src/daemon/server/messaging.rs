@@ -115,6 +115,17 @@ impl DaemonServer {
 
     pub(crate) async fn forward_agent_event(&mut self, agent_id: &str, frame: AcpEventFrame) {
         let acp_session_id = frame.acp_session_id.clone();
+        // Sync turn-scoped reply_to from the prompt worker (bound at dequeue).
+        if let Some(reply_to) = frame
+            .turn_reply_to_message_id
+            .as_deref()
+            .filter(|id| !id.is_empty())
+        {
+            let mut agents = self.agents.lock().await;
+            if let Some(handle) = agents.get_handle_mut(agent_id) {
+                handle.pending_reply_to_message_id = Some(reply_to.to_string());
+            }
+        }
         let is_child_event = {
             let agents = self.agents.lock().await;
             agents
@@ -336,28 +347,33 @@ impl DaemonServer {
         // emitted messages (cloud `messages.sequence`). The envelope
         // append below uses the same value, keeping a 1:1 link between an
         // ACP event boundary and the messages that flowed from it.
-        let (emitted, turn_id, seq) = {
+        let (emitted, turn_id, seq, reply_to_message_id, clear_reply_to) = {
             let mut agents = self.agents.lock().await;
             let seq = agents
                 .get_handle_mut(agent_id)
                 .map(|h| h.next_sequence())
                 .unwrap_or(0);
+            let reply_to_message_id = agents
+                .get_handle(agent_id)
+                .and_then(|h| h.pending_reply_to_message_id.clone())
+                .unwrap_or_default();
+            let clear_reply_to = matches!(
+                acp_event.event.as_ref(),
+                Some(amux::acp_event::Event::StatusChange(sc))
+                    if sc.old_status == amux::AgentStatus::Active as i32
+                        && sc.new_status == amux::AgentStatus::Idle as i32
+            );
             match agents.aggregator_mut(agent_id) {
                 Some(agg) if !is_child_event => {
-                    // ingest may transition Active→Idle, which clears
-                    // current_turn_id. Read AFTER ingest so the envelope for
-                    // the final status-change carries an empty turn_id (the
-                    // turn just ended); deltas / completions within an active
-                    // turn capture the still-Some id.
                     let emitted = agg.ingest(&acp_event);
                     let turn_id = agg.current_turn_id().unwrap_or("").to_string();
-                    (emitted, turn_id, seq)
+                    (emitted, turn_id, seq, reply_to_message_id, clear_reply_to)
                 }
                 Some(agg) => {
                     let turn_id = agg.current_turn_id().unwrap_or("").to_string();
-                    (Vec::new(), turn_id, seq)
+                    (Vec::new(), turn_id, seq, reply_to_message_id, clear_reply_to)
                 }
-                None => (Vec::new(), String::new(), seq),
+                None => (Vec::new(), String::new(), seq, reply_to_message_id, clear_reply_to),
             }
         };
         if !collab_sessions.is_empty() && !emitted.is_empty() {
@@ -373,15 +389,6 @@ impl DaemonServer {
                 for msg in emitted {
                     let persist =
                         crate::runtime::turn_aggregator::TurnAggregator::cloud_persistent(&msg);
-                    // Non-persistent kinds (AgentThinking / AgentToolCall /
-                    // AgentToolResult) are already fully covered by the
-                    // acp.event stream below — re-publishing them as
-                    // message.created on session/live just makes iOS
-                    // render the same content twice (folded thinking card
-                    // + plain bubble via handleIncomingChatMessage). Only
-                    // AgentReply needs message.created, since that is the
-                    // turn-finalized form persisted to the cloud backend and used
-                    // by historical replay / other collaborators.
                     if !persist {
                         continue;
                     }
@@ -398,6 +405,7 @@ impl DaemonServer {
                             &metadata_json,
                             &model,
                             &turn_id,
+                            &reply_to_message_id,
                             seq,
                             persist,
                             Some(&self.backend),
@@ -405,6 +413,11 @@ impl DaemonServer {
                         .await;
                     }
                 }
+            }
+        }
+        if clear_reply_to {
+            if let Some(handle) = self.agents.lock().await.get_handle_mut(agent_id) {
+                handle.pending_reply_to_message_id = None;
             }
         }
 
@@ -692,6 +705,8 @@ impl DaemonServer {
                 .await;
                 let requester = (!message.sender_actor_id.is_empty())
                     .then(|| message.sender_actor_id.clone());
+                let reply_to = (!message.message_id.is_empty())
+                    .then(|| message.message_id.clone());
                 let send_res = self
                     .agents
                     .lock()
@@ -701,6 +716,7 @@ impl DaemonServer {
                         message.content.as_str(),
                         attachment_urls.clone(),
                         requester,
+                        reply_to,
                     )
                     .await;
                 let _drained = match send_res {
@@ -711,6 +727,9 @@ impl DaemonServer {
                             drained_silent = d.len(),
                             "route_session_message: send_prompt ok"
                         );
+                        // reply_to is bound when the prompt worker starts this
+                        // turn (via AcpEventFrame) — do not stamp handle here
+                        // or a queued second prompt overwrites the in-flight turn.
                         d
                     }
                     Err(e) => {

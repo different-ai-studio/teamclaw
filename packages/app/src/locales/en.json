@@ -300,12 +300,21 @@
     "generatingComponents": "Generating... ({{count}} components)",
     "thinking": "Thinking...",
     "thinkingProcess": "Thinking Process",
+    "process": "Process",
+    "replyTo": "Reply to {{name}}",
+    "replyToPrefix": "Reply to",
+    "you": "You",
+    "someone": "Someone",
     "messagesQueued": "{{count}} messages queued",
     "showMore": "Show more",
     "showLess": "Show less",
     "streamingBar": {
       "streamingActive": "Replying",
-      "waitingApproval": "Waiting for your approval…"
+      "waitingApproval": "Waiting for your approval…",
+      "expand": "Expand",
+      "collapse": "Collapse",
+      "enlarge": "Enlarge",
+      "restore": "Restore"
     },
     "permissionCard": {
       "requestExecuteCommand": "requests to execute a command",
@@ -450,6 +459,7 @@
       "humanMentionInstruction": "This message also mentions human {{name}}"
     },
     "inputPlaceholderQueue": "Type to queue message...",
+    "inputPlaceholderContinue": "Continue typing...",
     "newSession": "New Session",
     "refreshMessages": "Refresh messages",
     "startingAgent": "Starting agent...",

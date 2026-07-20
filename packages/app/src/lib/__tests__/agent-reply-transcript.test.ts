@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   deriveAgentReplyContent,
   joinTextPartsFromParts,
+  splitAssistantProcessAndFinalParts,
   stripPriorTranscriptTextPrefix,
 } from "@/lib/agent-reply-transcript";
 
@@ -65,5 +66,49 @@ describe("agent reply transcript", () => {
     ] as never;
     const pending = [{ messageId: "m1", content: final }] as never;
     expect(deriveAgentReplyContent(parts, pending)).toBe(`${intro}\n\n${final}`);
+  });
+
+  it("splits process vs final after last tool or trailing thinking", () => {
+    const mid1 = "Now trying remaining tools:";
+    const mid2 = "More tools:";
+    const final = "全部工具执行完毕。汇总：";
+    const parts = [
+      { type: "reasoning", text: "plan" },
+      { type: "text", text: mid1 },
+      { type: "tool-call", toolCall: { id: "t1" } },
+      { type: "text", text: mid2 },
+      { type: "tool-call", toolCall: { id: "t2" } },
+      { type: "reasoning", text: "wrap up" },
+      { type: "text", text: final },
+    ];
+    const { processParts, finalTextParts } = splitAssistantProcessAndFinalParts(parts);
+    expect(processParts.map((p) => p.type)).toEqual([
+      "reasoning",
+      "text",
+      "tool-call",
+      "text",
+      "tool-call",
+      "reasoning",
+    ]);
+    expect(finalTextParts.map((p) => (p as { text?: string }).text)).toEqual([final]);
+  });
+
+  it("treats all text as final when there is no process activity", () => {
+    const parts = [{ type: "text", text: "Hello only." }];
+    const { processParts, finalTextParts } = splitAssistantProcessAndFinalParts(parts);
+    expect(processParts).toEqual([]);
+    expect(finalTextParts).toEqual(parts);
+  });
+
+  it("keeps mid-turn narration in process when there is no trailing final text", () => {
+    const mid = "Now trying remaining tools:";
+    const parts = [
+      { type: "text", text: mid },
+      { type: "tool-call", toolCall: { id: "t1" } },
+    ];
+    const { processParts, finalTextParts } = splitAssistantProcessAndFinalParts(parts);
+    expect(processParts.map((p) => p.type)).toEqual(["text", "tool-call"]);
+    expect(finalTextParts).toEqual([]);
+    expect(processParts.some((p) => p.type === "text")).toBe(true);
   });
 });
