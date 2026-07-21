@@ -447,10 +447,7 @@ pub async fn env_catalog_list(
     // team_id is required for the `_team_secret.{team_id}` personal-blob secret
     // fallback: when `teamclaw.json` carries no inline `team.envSecret` (the
     // common case), passing None here leaves every team var undecryptable.
-    let team_id = team_id
-        .as_deref()
-        .map(str::trim)
-        .filter(|s| !s.is_empty());
+    let team_id = team_id.as_deref().map(str::trim).filter(|s| !s.is_empty());
     Ok(teamclaw_runtime_env::env_catalog::load_env_catalog(
         Path::new(&workspace_path),
         team_id,
@@ -526,11 +523,9 @@ pub async fn team_env_diagnostics(
         })
         .unwrap_or(0);
 
-    let secret_configured = teamclaw_runtime_env::env_catalog::resolve_team_env_secret(
-        ws,
-        team_id_trimmed.as_deref(),
-    )
-    .is_some();
+    let secret_configured =
+        teamclaw_runtime_env::env_catalog::resolve_team_env_secret(ws, team_id_trimmed.as_deref())
+            .is_some();
 
     Ok(TeamEnvDiagnostics {
         team_id_present: team_id_trimmed.is_some(),
