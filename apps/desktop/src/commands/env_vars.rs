@@ -440,13 +440,109 @@ pub(crate) async fn env_var_delete_for_workspace(
 pub async fn env_catalog_list(
     window: tauri::WebviewWindow,
     registry: State<'_, super::window::WindowRegistry>,
+    team_id: Option<String>,
     workspace_path: Option<String>,
 ) -> Result<teamclaw_runtime_env::env_catalog::EnvCatalog, String> {
     let workspace_path = resolve_workspace_path(workspace_path, &window, &registry)?;
+    // team_id is required for the `_team_secret.{team_id}` personal-blob secret
+    // fallback: when `teamclaw.json` carries no inline `team.envSecret` (the
+    // common case), passing None here leaves every team var undecryptable.
+    let team_id = team_id
+        .as_deref()
+        .map(str::trim)
+        .filter(|s| !s.is_empty());
     Ok(teamclaw_runtime_env::env_catalog::load_env_catalog(
         Path::new(&workspace_path),
-        None,
+        team_id,
     ))
+}
+
+/// Diagnostics for the team env-var sync chain, surfaced in the settings UI so
+/// a member whose team variables aren't syncing can see *where* the chain is
+/// broken. Contains no secret material — only presence/path booleans.
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct TeamEnvDiagnostics {
+    /// A non-empty team id was supplied by the caller.
+    pub team_id_present: bool,
+    /// The workspace's team directory (usually the `teamclaw-team` symlink).
+    pub team_link_path: String,
+    /// The team dir / link exists on disk.
+    pub link_exists: bool,
+    /// The team dir entry is a symlink (vs a real directory).
+    pub link_is_symlink: bool,
+    /// The symlink target path, when the entry is a symlink.
+    pub link_target: Option<String>,
+    /// The path is accessible following the link (a dangling symlink is false).
+    pub target_accessible: bool,
+    /// A `_secrets/` directory exists under the team dir.
+    pub secrets_dir_exists: bool,
+    /// Count of `*.enc.json` secret files present under `_secrets/`.
+    pub secret_file_count: usize,
+    /// A local team secret is resolvable, so shared writes can be encrypted and
+    /// existing secrets decrypted.
+    pub secret_configured: bool,
+}
+
+/// Gather team env-var sync diagnostics for the given workspace/team.
+#[tauri::command]
+pub async fn team_env_diagnostics(
+    window: tauri::WebviewWindow,
+    registry: State<'_, super::window::WindowRegistry>,
+    team_id: Option<String>,
+    workspace_path: Option<String>,
+) -> Result<TeamEnvDiagnostics, String> {
+    let workspace_path = resolve_workspace_path(workspace_path, &window, &registry)?;
+    let team_id_trimmed = team_id
+        .as_deref()
+        .map(str::trim)
+        .filter(|s| !s.is_empty())
+        .map(str::to_string);
+    let ws = Path::new(&workspace_path);
+
+    let link = teamclaw_runtime_env::env_catalog::resolve_team_dir_for_workspace(ws);
+    let symlink_meta = std::fs::symlink_metadata(&link).ok();
+    let link_is_symlink = symlink_meta
+        .as_ref()
+        .map(|m| m.file_type().is_symlink())
+        .unwrap_or(false);
+    let link_target = if link_is_symlink {
+        std::fs::read_link(&link)
+            .ok()
+            .map(|p| p.display().to_string())
+    } else {
+        None
+    };
+    // `metadata` follows symlinks: a dangling link yields Err → not accessible.
+    let target_accessible = std::fs::metadata(&link).is_ok();
+
+    let secrets_dir = link.join(super::shared_secrets::SECRETS_DIR);
+    let secrets_dir_exists = secrets_dir.exists();
+    let secret_file_count = std::fs::read_dir(&secrets_dir)
+        .map(|rd| {
+            rd.flatten()
+                .filter(|e| e.file_name().to_string_lossy().ends_with(".enc.json"))
+                .count()
+        })
+        .unwrap_or(0);
+
+    let secret_configured = teamclaw_runtime_env::env_catalog::resolve_team_env_secret(
+        ws,
+        team_id_trimmed.as_deref(),
+    )
+    .is_some();
+
+    Ok(TeamEnvDiagnostics {
+        team_id_present: team_id_trimmed.is_some(),
+        team_link_path: link.display().to_string(),
+        link_exists: symlink_meta.is_some(),
+        link_is_symlink,
+        link_target,
+        target_accessible,
+        secrets_dir_exists,
+        secret_file_count,
+        secret_configured,
+    })
 }
 
 fn parse_env_scope(scope: &str) -> Result<&'static str, String> {
