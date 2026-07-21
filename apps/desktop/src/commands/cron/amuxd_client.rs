@@ -168,6 +168,110 @@ pub async fn prompt_await_at(
     })
 }
 
+/// Eagerly create the cloud session for a cron run via amuxd's
+/// `cron-prepare-session` command, returning the cloud `sessions.id`. This is
+/// fast (no ACP runtime spawn / turn), so the scheduler can stamp `session_id`
+/// into the run record — and the desktop UI can navigate to the session —
+/// within a second or two of "Run Now". The subsequent `prompt-await` for the
+/// same `session_key` reuses this session.
+pub async fn prepare_cron_session(
+    session_key: &str,
+    job_name: Option<&str>,
+) -> Result<String, String> {
+    #[cfg(windows)]
+    {
+        let _ = (session_key, job_name);
+        return Err(AMUXD_UNSUPPORTED.into());
+    }
+    #[cfg(unix)]
+    {
+        let path = crate::commands::gateway::sock_path();
+        prepare_cron_session_at(&path, session_key, job_name).await
+    }
+}
+
+#[cfg(windows)]
+pub async fn prepare_cron_session_at(
+    _sock_path: &Path,
+    _session_key: &str,
+    _job_name: Option<&str>,
+) -> Result<String, String> {
+    Err(AMUXD_UNSUPPORTED.into())
+}
+
+#[cfg(unix)]
+pub async fn prepare_cron_session_at(
+    sock_path: &Path,
+    session_key: &str,
+    job_name: Option<&str>,
+) -> Result<String, String> {
+    let mut req = serde_json::json!({
+        "cmd": "cron-prepare-session",
+        "session_key": session_key,
+    });
+    if let Some(name) = job_name.filter(|s| !s.is_empty()) {
+        req["job_name"] = serde_json::Value::String(name.to_string());
+    }
+
+    let mut stream = UnixStream::connect(sock_path)
+        .await
+        .map_err(|e| format!("amuxd unreachable at {}: {e}", sock_path.display()))?;
+    let line = serde_json::to_string(&req).map_err(|e| format!("encode request: {e}"))?;
+    stream
+        .write_all(line.as_bytes())
+        .await
+        .map_err(|e| format!("amuxd sock IO (write): {e}"))?;
+    stream
+        .write_all(b"\n")
+        .await
+        .map_err(|e| format!("amuxd sock IO (write nl): {e}"))?;
+    stream
+        .flush()
+        .await
+        .map_err(|e| format!("amuxd sock IO (flush): {e}"))?;
+
+    const MAX_RESPONSE_BYTES: usize = 1024 * 1024;
+    let mut buf = Vec::with_capacity(4096);
+    let mut byte = [0u8; 1];
+    loop {
+        if buf.len() >= MAX_RESPONSE_BYTES {
+            return Err("amuxd response exceeded 1 MB".into());
+        }
+        match stream.read(&mut byte).await {
+            Ok(0) => break,
+            Ok(_) if byte[0] == b'\n' => break,
+            Ok(_) => buf.push(byte[0]),
+            Err(e) => return Err(format!("amuxd sock IO (read): {e}")),
+        }
+    }
+    let body = String::from_utf8(buf).map_err(|e| format!("amuxd bad response: not utf8: {e}"))?;
+
+    #[derive(serde::Deserialize)]
+    struct Wire {
+        ok: bool,
+        #[serde(default)]
+        error: Option<String>,
+        #[serde(default)]
+        result: Option<WireResult>,
+    }
+    #[derive(serde::Deserialize)]
+    struct WireResult {
+        session_id: String,
+    }
+
+    let parsed: Wire = serde_json::from_str(body.trim())
+        .map_err(|e| format!("amuxd bad response: {e} (body={body:?})"))?;
+    if !parsed.ok {
+        return Err(parsed
+            .error
+            .unwrap_or_else(|| "unknown amuxd error".to_string()));
+    }
+    parsed
+        .result
+        .map(|r| r.session_id)
+        .ok_or_else(|| "amuxd bad response: ok=true but missing result".to_string())
+}
+
 /// Send a proactive message through amuxd's running channel gateway.
 /// `target` must use the daemon dispatch shape: `user:<id>` or `chat:<id>`.
 pub async fn channel_send(channel: &str, target: &str, message: &str) -> Result<(), String> {
@@ -511,6 +615,55 @@ mod tests {
         .await
         .unwrap_err();
         assert!(err.contains("missing result"), "got: {err}");
+    }
+
+    #[tokio::test]
+    async fn prepare_cron_session_sends_request_and_parses_session_id() {
+        let sock_path = mock_server(|req| {
+            assert_eq!(req["cmd"].as_str(), Some("cron-prepare-session"));
+            assert_eq!(req["session_key"].as_str(), Some("cron/j1/r1"));
+            assert_eq!(req["job_name"].as_str(), Some("Nightly digest"));
+            serde_json::json!({
+                "ok": true,
+                "result": { "session_id": "sid-prepared" }
+            })
+            .to_string()
+        })
+        .await;
+
+        let sid = prepare_cron_session_at(&sock_path, "cron/j1/r1", Some("Nightly digest"))
+            .await
+            .unwrap();
+        assert_eq!(sid, "sid-prepared");
+    }
+
+    #[tokio::test]
+    async fn prepare_cron_session_omits_empty_job_name() {
+        let sock_path = mock_server(|req| {
+            assert!(
+                req.get("job_name").is_none(),
+                "empty job_name must be omitted; got: {req}"
+            );
+            serde_json::json!({ "ok": true, "result": { "session_id": "sid-2" } }).to_string()
+        })
+        .await;
+
+        prepare_cron_session_at(&sock_path, "cron/j1/r1", Some(""))
+            .await
+            .unwrap();
+    }
+
+    #[tokio::test]
+    async fn prepare_cron_session_surfaces_error() {
+        let sock_path = mock_server(|_req| {
+            serde_json::json!({ "ok": false, "error": "no team_id" }).to_string()
+        })
+        .await;
+
+        let err = prepare_cron_session_at(&sock_path, "cron/j1/r1", None)
+            .await
+            .unwrap_err();
+        assert!(err.contains("no team_id"), "got: {err}");
     }
 
     #[tokio::test]
