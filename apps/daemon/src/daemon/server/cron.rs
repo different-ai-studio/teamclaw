@@ -311,6 +311,7 @@ impl DaemonServer {
                     "",
                     "",
                     "",
+                    "",
                     0,
                 )
                 .await

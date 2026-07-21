@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { CloudApiError, createCloudApiClient } from "../http";
+import { createCloudApiClient } from "../http";
 
 const sessionMocks = vi.hoisted(() => ({
   accessToken: "token-a",

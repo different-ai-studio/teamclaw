@@ -1118,7 +1118,6 @@
       "teamSharedModelTooltip": "配置团队共享 AI 模型的代理地址与模型列表",
       "teamSharedBadge": "团队共享",
       "teamSharedNoModelsDetected": "未检测到可用模型",
-      "teamSharedModelsCount": "{{count}} 个共享模型",
       "teamSharedReadOnly": "仅团队 owner 可编辑",
       "refreshTooltip": "从 OpenCode 刷新提供商",
       "refreshing": "刷新中...",
