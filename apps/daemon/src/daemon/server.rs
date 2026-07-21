@@ -303,6 +303,12 @@ pub(crate) enum SockCommand {
         payload: serde_json::Value,
         reply_tx: oneshot::Sender<String>,
     },
+    /// Re-prewarm ACP hosts for a workspace after a provider/env reload evicted
+    /// them (bridged from `RuntimeSupervisor`'s prewarm notifier). One-way.
+    PrewarmWorkspace {
+        workspace_id: String,
+        path: String,
+    },
     /// Fetch a fresh WeChat (iLink) bot QR code. One-shot HTTP call to the
     /// ilink backend via `teamclaw_gateway::wechat::fetch_qr_code`. Reply is
     /// `{ok, result?, error?}` where result is the raw `WeChatQrLoginResponse`.
@@ -855,6 +861,9 @@ impl DaemonServer {
         ));
         let mqtt_connected_flag = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
         self.mqtt_connected_flag = Some(mqtt_connected_flag.clone());
+        // Escapes the HTTP-setup block so the prewarm notifier can be installed
+        // once the sock command channel exists (below).
+        let mut supervisor_for_prewarm: Option<Arc<crate::runtime::RuntimeSupervisor>> = None;
         let _http_handle = {
             let mut meta = crate::http::server::metadata(self.actor_id.clone(), "amuxd");
             // Expose configured backends so the model-catalog endpoint can
@@ -866,6 +875,7 @@ impl DaemonServer {
             // The HTTP workspace runtime endpoints share this supervisor's
             // refresh coordinator for status + apply-intent semantics.
             let runtime_supervisor = crate::runtime::RuntimeSupervisor::new(self.agents.clone());
+            supervisor_for_prewarm = Some(runtime_supervisor.clone());
             runtime_supervisor.clone().start_refresh_auto_applier();
             let refresh_coordinator = runtime_supervisor.refresh_coordinator();
             self.refresh_coordinator = Some(refresh_coordinator.clone());
@@ -942,27 +952,34 @@ impl DaemonServer {
         // Spawned here (after the HTTP setup released its `self.agents` lock) so
         // the long-held prewarm lock can't stall the listener bind.
         {
-            // Resolve the primary workspace's *real* spawn env up front (writes
-            // provider.team, warms the managed-LLM cache, and yields the exact
-            // extra_env the first session will use) so the prewarmed host's
-            // env_fingerprint matches and is actually reused. The empty-env
-            // prewarm never matched a team session, so the first opencode
-            // session still paid the full 20s+ cold spawn. Falls back to
-            // empty-env when no workspace exists yet (fresh install).
-            let prewarm_env = self.resolve_primary_prewarm_env().await;
+            // Resolve *real* spawn envs for every linkable workspace up front
+            // (writes provider.team, warms the managed-LLM cache, and yields the
+            // exact extra_env the first session will use) so each prewarmed
+            // host's env_fingerprint matches and is actually reused. Covering
+            // all workspaces (not just the first) matters because cron's default
+            // workspace is the agent's `default_workspace_id`, which need not be
+            // the team list's head. Falls back to empty-env when no workspace
+            // exists yet (fresh install).
+            let prewarm_envs = self.resolve_all_prewarm_envs().await;
             let agents = self.agents.clone();
             tokio::spawn(async move {
-                let mut mgr = agents.lock().await;
-                match prewarm_env {
-                    Some((worktree, extra_env, force_env_override)) => {
-                        mgr.prewarm_acp_hosts_with_env(
-                            extra_env,
-                            force_env_override,
-                            Some(worktree.as_str()),
-                        )
-                        .await;
-                    }
-                    None => mgr.prewarm_acp_hosts().await,
+                if prewarm_envs.is_empty() {
+                    let mut mgr = agents.lock().await;
+                    mgr.prewarm_acp_hosts().await;
+                    return;
+                }
+                // Sequential, one manager-lock scope per workspace: cold host
+                // spawns take 20s+ each, and re-acquiring the lock between
+                // workspaces lets real session/cron traffic interleave instead
+                // of queueing behind the whole prewarm sweep.
+                for (worktree, extra_env, force_env_override) in prewarm_envs {
+                    let mut mgr = agents.lock().await;
+                    mgr.prewarm_acp_hosts_with_env(
+                        extra_env,
+                        force_env_override,
+                        Some(worktree.as_str()),
+                    )
+                    .await;
                 }
             });
         }
@@ -1040,6 +1057,26 @@ impl DaemonServer {
         let (sock_tx, mut sock_rx) = mpsc::channel::<SockCommand>(16);
         let sock_path = DaemonConfig::sock_path();
         spawn_sock_listener(sock_path.clone(), sock_tx.clone());
+
+        // Bridge the supervisor's "provider hosts evicted" notifications into
+        // the command loop, where `kick_prewarm_for_workspace` re-warms the
+        // evicted hosts in the background. Same shape as register-workspace.
+        if let Some(supervisor) = &supervisor_for_prewarm {
+            let (prewarm_tx, mut prewarm_rx) = mpsc::channel::<(String, String)>(8);
+            supervisor.set_prewarm_notifier(prewarm_tx);
+            let bridge_tx = sock_tx.clone();
+            tokio::spawn(async move {
+                while let Some((workspace_id, path)) = prewarm_rx.recv().await {
+                    if bridge_tx
+                        .send(SockCommand::PrewarmWorkspace { workspace_id, path })
+                        .await
+                        .is_err()
+                    {
+                        break;
+                    }
+                }
+            });
+        }
 
         // Forward HTTP register-workspace requests into the command loop. Runs
         // for the lifetime of the daemon; exits if either channel closes.
@@ -1505,6 +1542,11 @@ impl DaemonServer {
                                 };
                                 let _ = reply_tx.send(resp.to_string());
                             }
+                            Some(SockCommand::PrewarmWorkspace { workspace_id, path }) => {
+                                // Env assembly runs inline (fast); the host
+                                // spawn itself is detached inside.
+                                self.kick_prewarm_for_workspace(&path, &workspace_id).await;
+                            }
                             Some(SockCommand::WechatQrStart { reply_tx }) => {
                                 let base_url = teamclaw_gateway::wechat_config::default_ilink_base_url();
                                 let resp = match teamclaw_gateway::wechat::fetch_qr_code(&base_url).await {
@@ -1901,6 +1943,11 @@ impl DaemonServer {
                                     Err(e) => serde_json::json!({ "ok": false, "error": e.to_string() }),
                                 };
                                 let _ = reply_tx.send(resp.to_string());
+                            }
+                            Some(SockCommand::PrewarmWorkspace { workspace_id, path }) => {
+                                // Env assembly runs inline (fast); the host
+                                // spawn itself is detached inside.
+                                self.kick_prewarm_for_workspace(&path, &workspace_id).await;
                             }
                             Some(SockCommand::WechatQrStart { reply_tx }) => {
                                 let base_url = teamclaw_gateway::wechat_config::default_ilink_base_url();

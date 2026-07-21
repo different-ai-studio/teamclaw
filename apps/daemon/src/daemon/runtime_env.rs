@@ -32,38 +32,45 @@ impl DaemonServer {
             .or_else(fallback)
     }
 
-    /// Resolve the real spawn env for the team's primary (first linkable)
-    /// workspace, for ACP host prewarming. Returns `(extra_env,
-    /// force_env_override)`.
+    /// Resolve real spawn envs for ALL of the team's linkable on-disk
+    /// workspaces, for ACP host prewarming at daemon start. One entry per
+    /// workspace: `(worktree_path, extra_env, force_env_override)`.
     ///
     /// Reusing `assemble_spawn_runtime_env_for_worktree` here is deliberate: it
-    /// (a) writes `provider.team` into that workspace's `opencode.json` so the
+    /// (a) writes `provider.team` into each workspace's `opencode.json` so the
     /// prewarmed host advertises the team model list, (b) warms the
     /// `managed_llm_cache` so the first real session skips the cloud round-trip,
     /// and (c) yields the exact `extra_env` the first `attach_session` will use,
     /// so the prewarmed host's `env_fingerprint` matches and gets reused.
     ///
-    /// Returns `None` when the team has no linkable workspace yet (fresh install
-    /// before any workspace is created) — the caller then falls back to an
-    /// empty-env prewarm.
-    pub(super) async fn resolve_primary_prewarm_env(
+    /// Covering every workspace (not just the first) matters because sessions
+    /// and cron runs are not confined to the list head: cron's default
+    /// workspace is the agent's `default_workspace_id`, which need not be the
+    /// team list's first row. Workspaces whose env fails to assemble are
+    /// skipped with a warning.
+    ///
+    /// Returns an empty vec when the team has no linkable workspace yet (fresh
+    /// install) — the caller then falls back to an empty-env prewarm.
+    pub(super) async fn resolve_all_prewarm_envs(
         &self,
-    ) -> Option<(String, std::collections::HashMap<String, String>, bool)> {
-        let ws = self.cloud_workspace_list().await.into_iter().next()?;
-        match self
-            .assemble_spawn_runtime_env_for_worktree(&ws.path, &ws.workspace_id)
-            .await
-        {
-            Ok(env) => Some((ws.path, env.extra_env, env.force_env_override)),
-            Err(e) => {
-                tracing::warn!(
-                    workspace = %ws.path,
-                    error = %e,
-                    "prewarm: failed to assemble primary workspace env; falling back to empty-env prewarm"
-                );
-                None
+    ) -> Vec<(String, std::collections::HashMap<String, String>, bool)> {
+        let mut out = Vec::new();
+        for ws in self.cloud_workspace_list().await {
+            match self
+                .assemble_spawn_runtime_env_for_worktree(&ws.path, &ws.workspace_id)
+                .await
+            {
+                Ok(env) => out.push((ws.path, env.extra_env, env.force_env_override)),
+                Err(e) => {
+                    tracing::warn!(
+                        workspace = %ws.path,
+                        error = %e,
+                        "prewarm: failed to assemble workspace env; skipping this workspace"
+                    );
+                }
             }
         }
+        out
     }
 
     /// Fire-and-forget: warm an ACP host for `worktree`'s real spawn env so the
