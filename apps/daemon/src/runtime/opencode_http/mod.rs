@@ -101,6 +101,10 @@ pub(crate) struct Route {
     pub(crate) turn_reply_to: Option<String>,
     pub(crate) turn_requester: Option<String>,
     pub(crate) translate: TranslateState,
+    /// MCP server names amuxd injected into the worktree's `opencode.json`
+    /// for this session (gateway `send` tool / remote tools). Pruned back out
+    /// on detach / re-attach so stale entries don't accumulate.
+    pub(crate) injected_mcp: Vec<String>,
 }
 
 pub(crate) struct Shared {
@@ -165,8 +169,10 @@ impl AcpHostPool {
         usize::from(self.shared.serve.is_running())
     }
 
-    /// Restart the serve process so new sessions pick up provider auth/config
-    /// changes. All agent types map to the single opencode backend now.
+    /// Restart the single global `opencode serve` process so new sessions
+    /// pick up provider auth/config changes. The parameter is ignored — there
+    /// is no per-agent-type host to filter anymore; the name and signature
+    /// are kept only for `RuntimeManager` compatibility.
     pub fn evict_agent_types(&mut self, _agent_types: &[amux::AgentType]) -> usize {
         usize::from(self.shared.serve.shutdown())
     }
@@ -300,15 +306,23 @@ struct AttachArgs {
     forbid_new_session_fallback: bool,
 }
 
-/// Merge a gateway `mcpServers` config file into the worktree's
-/// `opencode.json` `mcp` map so serve-created sessions get the amuxd `send`
-/// tool. (serve has no per-session MCP parameter; config is per-directory.)
-fn merge_mcp_config_into_worktree(worktree: &str, mcp_config_path: &Path) {
-    let merge = || -> anyhow::Result<()> {
+/// Merge an amuxd-written `mcpServers` config file (gateway `send` tool or
+/// remote-tools bridge — both use the same `mcpServers` shape) into the
+/// worktree's `opencode.json` `mcp` map so serve-created sessions get the
+/// tools. (serve has no per-session MCP parameter; config is per-directory.)
+///
+/// The merge is key-wise (`mcp.<name>` entries are inserted individually, the
+/// map is never replaced wholesale), so gateway and remote-tools writes into
+/// the same file cannot clobber each other's entries.
+///
+/// Returns the server names present in the source config so callers can
+/// record them on the session route and prune them on detach.
+fn merge_mcp_config_into_worktree(worktree: &str, mcp_config_path: &Path) -> Vec<String> {
+    let merge = || -> anyhow::Result<Vec<String>> {
         let body = std::fs::read_to_string(mcp_config_path)?;
         let root: serde_json::Value = serde_json::from_str(&body)?;
         let Some(servers) = root.get("mcpServers").and_then(|v| v.as_object()) else {
-            return Ok(());
+            return Ok(Vec::new());
         };
         let config_path = Path::new(worktree).join("opencode.json");
         let mut config: serde_json::Value = if config_path.exists() {
@@ -347,19 +361,76 @@ fn merge_mcp_config_into_worktree(worktree: &str, mcp_config_path: &Path) {
         if changed {
             std::fs::write(&config_path, serde_json::to_string_pretty(&config)?)?;
         }
+        Ok(servers.keys().cloned().collect())
+    };
+    match merge() {
+        Ok(names) => names,
+        Err(e) => {
+            warn!(worktree, mcp_config = %mcp_config_path.display(), error = %e,
+                  "failed to merge amuxd MCP config into worktree opencode.json");
+            Vec::new()
+        }
+    }
+}
+
+/// Remove amuxd-injected server names from the worktree's `opencode.json`
+/// `mcp` map. Only the given names are touched; user-authored entries stay.
+fn prune_mcp_servers_from_worktree(worktree: &str, names: &[String]) {
+    if names.is_empty() {
+        return;
+    }
+    let prune = || -> anyhow::Result<()> {
+        let config_path = Path::new(worktree).join("opencode.json");
+        if !config_path.exists() {
+            return Ok(());
+        }
+        let mut config: serde_json::Value =
+            serde_json::from_str(&std::fs::read_to_string(&config_path)?)?;
+        let Some(mcp_obj) = config.get_mut("mcp").and_then(|v| v.as_object_mut()) else {
+            return Ok(());
+        };
+        let mut changed = false;
+        for name in names {
+            changed |= mcp_obj.remove(name).is_some();
+        }
+        if changed {
+            std::fs::write(&config_path, serde_json::to_string_pretty(&config)?)?;
+        }
         Ok(())
     };
-    if let Err(e) = merge() {
-        warn!(worktree, mcp_config = %mcp_config_path.display(), error = %e,
-              "failed to merge gateway MCP config into worktree opencode.json");
+    if let Err(e) = prune() {
+        warn!(worktree, error = %e,
+              "failed to prune amuxd MCP entries from worktree opencode.json");
     }
+}
+
+/// Names in `candidates` that no *other* live route in `directory` also
+/// injected — i.e. the ones safe to prune from that worktree's opencode.json.
+fn prunable_mcp_names(
+    routes: &HashMap<String, Route>,
+    exclude_session: &str,
+    directory: &str,
+    candidates: &[String],
+) -> Vec<String> {
+    candidates
+        .iter()
+        .filter(|name| {
+            !routes.iter().any(|(sid, r)| {
+                sid != exclude_session
+                    && r.directory == directory
+                    && r.injected_mcp.iter().any(|n| n == *name)
+            })
+        })
+        .cloned()
+        .collect()
 }
 
 async fn attach(shared: &Arc<Shared>, args: AttachArgs) -> Result<AcpStartupMetadata, String> {
     let directory = canonical_dir(&args.worktree);
-    if let Some(mcp_path) = args.mcp_config_path.as_deref() {
-        merge_mcp_config_into_worktree(&args.worktree, mcp_path);
-    }
+    let injected_mcp = match args.mcp_config_path.as_deref() {
+        Some(mcp_path) => merge_mcp_config_into_worktree(&args.worktree, mcp_path),
+        None => Vec::new(),
+    };
     let client = shared
         .serve
         .ensure()
@@ -409,19 +480,39 @@ async fn attach(shared: &Arc<Shared>, args: AttachArgs) -> Result<AcpStartupMeta
         .or_else(|| available_models.first().map(|m| m.id.clone()));
     let model = initial_model.as_deref().and_then(client::split_model_id);
 
-    shared.routes.lock().insert(
-        session_id.clone(),
-        Route {
-            event_tx: args.event_tx,
-            is_gateway: args.is_gateway,
-            directory: directory.clone(),
-            model,
-            turn_active: false,
-            turn_reply_to: None,
-            turn_requester: None,
-            translate: TranslateState::default(),
-        },
-    );
+    {
+        let mut routes = shared.routes.lock();
+        // Replace-don't-accumulate: when re-attaching the same session with a
+        // new MCP config, entries we previously injected but that are absent
+        // from the new config get pruned (unless another live session in the
+        // same worktree still needs them).
+        let stale: Vec<String> = routes
+            .get(&session_id)
+            .map(|old| {
+                old.injected_mcp
+                    .iter()
+                    .filter(|n| !injected_mcp.contains(n))
+                    .cloned()
+                    .collect()
+            })
+            .unwrap_or_default();
+        let stale = prunable_mcp_names(&routes, &session_id, &directory, &stale);
+        prune_mcp_servers_from_worktree(&directory, &stale);
+        routes.insert(
+            session_id.clone(),
+            Route {
+                event_tx: args.event_tx,
+                is_gateway: args.is_gateway,
+                directory: directory.clone(),
+                model,
+                turn_active: false,
+                turn_reply_to: None,
+                turn_requester: None,
+                translate: TranslateState::default(),
+                injected_mcp,
+            },
+        );
+    }
 
     info!(
         session_id = %session_id,
@@ -688,7 +779,22 @@ async fn command_loop(shared: Arc<Shared>, mut cmd_rx: mpsc::Receiver<AcpCommand
                 None => warn!(model_id = %model_id, "set_model: expected provider/model id"),
             },
             AcpCommand::DetachSession { acp_session_id } => {
-                shared.routes.lock().remove(&acp_session_id);
+                let pruned = {
+                    let mut routes = shared.routes.lock();
+                    let removed = routes.remove(&acp_session_id);
+                    removed.map(|route| {
+                        let names = prunable_mcp_names(
+                            &routes,
+                            &acp_session_id,
+                            &route.directory,
+                            &route.injected_mcp,
+                        );
+                        (route.directory, names)
+                    })
+                };
+                if let Some((directory, names)) = pruned {
+                    prune_mcp_servers_from_worktree(&directory, &names);
+                }
                 shared
                     .permissions
                     .lock()
@@ -863,5 +969,78 @@ mod pool_tests {
     async fn evict_without_serve_is_zero() {
         let mut pool = AcpHostPool::new();
         assert_eq!(pool.evict_agent_types(&[amux::AgentType::Opencode]), 0);
+    }
+
+    #[test]
+    fn merge_then_prune_mcp_roundtrip_preserves_user_entries() {
+        let dir = tempfile::tempdir().unwrap();
+        let worktree = dir.path().to_string_lossy().into_owned();
+        // Pre-existing user config with its own mcp entry.
+        std::fs::write(
+            dir.path().join("opencode.json"),
+            serde_json::to_string_pretty(&serde_json::json!({
+                "mcp": { "user-server": { "type": "local", "enabled": true, "command": ["u"] } }
+            }))
+            .unwrap(),
+        )
+        .unwrap();
+        let mcp_cfg = dir.path().join("gateway-mcp.json");
+        std::fs::write(
+            &mcp_cfg,
+            serde_json::json!({
+                "mcpServers": { "amuxd-send": { "command": "/bin/amuxd", "args": ["mcp-server"] } }
+            })
+            .to_string(),
+        )
+        .unwrap();
+
+        let names = merge_mcp_config_into_worktree(&worktree, &mcp_cfg);
+        assert_eq!(names, vec!["amuxd-send".to_string()]);
+        let cfg: serde_json::Value = serde_json::from_str(
+            &std::fs::read_to_string(dir.path().join("opencode.json")).unwrap(),
+        )
+        .unwrap();
+        assert!(cfg["mcp"]["amuxd-send"].is_object());
+        assert!(
+            cfg["mcp"]["user-server"].is_object(),
+            "key-wise merge keeps user entries"
+        );
+
+        prune_mcp_servers_from_worktree(&worktree, &names);
+        let cfg: serde_json::Value = serde_json::from_str(
+            &std::fs::read_to_string(dir.path().join("opencode.json")).unwrap(),
+        )
+        .unwrap();
+        assert!(
+            cfg["mcp"].get("amuxd-send").is_none(),
+            "injected entry pruned"
+        );
+        assert!(
+            cfg["mcp"]["user-server"].is_object(),
+            "user entry survives prune"
+        );
+    }
+
+    #[test]
+    fn prunable_names_respect_other_sessions_in_same_directory() {
+        let mut routes: HashMap<String, Route> = HashMap::new();
+        let (tx, _rx) = mpsc::channel(1);
+        routes.insert(
+            "other".to_string(),
+            Route {
+                event_tx: tx,
+                is_gateway: true,
+                directory: "/ws".to_string(),
+                model: None,
+                turn_active: false,
+                turn_reply_to: None,
+                turn_requester: None,
+                translate: TranslateState::default(),
+                injected_mcp: vec!["amuxd-send".to_string()],
+            },
+        );
+        let candidates = vec!["amuxd-send".to_string(), "remote-tools".to_string()];
+        let prunable = prunable_mcp_names(&routes, "me", "/ws", &candidates);
+        assert_eq!(prunable, vec!["remote-tools".to_string()]);
     }
 }

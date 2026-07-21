@@ -16,10 +16,9 @@ pub async fn default_daemon_workspace_path() -> Option<String> {
     crate::commands::daemon_http::fetch_daemon_default_workspace_path().await
 }
 
-/// Load valid model refs across every configured backend from the daemon's
-/// model-catalog API. Covers OpenCode, Claude Code, and Codex, so a cron job
-/// pinning a Claude/Codex model validates correctly (the OpenCode-only provider
-/// list used previously rejected those as "stale").
+/// Load valid model refs from the daemon's model-catalog API (single-agent
+/// mode: the OpenCode catalog, live serve list when reachable, else the
+/// daemon's static opencode fallback table).
 pub async fn list_workspace_model_keys(workspace_path: &str) -> HashSet<String> {
     crate::commands::daemon_http::fetch_workspace_model_catalog_keys(workspace_path)
         .await
@@ -63,7 +62,8 @@ mod tests {
     #[test]
     fn resolve_rejects_stale_model() {
         let mut available = HashSet::new();
-        available.insert("anthropic/claude-sonnet-4-6".into());
+        // Daemon's opencode fallback default (see amuxd runtime/models.rs).
+        available.insert("opencode/deepseek-v4-flash-free".into());
         let out = resolve_cron_model_override(&available, Some("/ws"), Some("scnet/MiniMax-M2.5"));
         assert!(out.is_none());
     }

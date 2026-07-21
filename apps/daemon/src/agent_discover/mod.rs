@@ -1,9 +1,10 @@
-//! Auto-discover agent backends on the host and merge into `daemon.toml`.
+//! Auto-discover the opencode backend on the host and merge into `daemon.toml`.
 //!
-//! Policy (option 3): probe opencode, claude-code, and codex; write every
-//! backend that is found but not yet configured. Never overwrite existing
-//! `[agents.*]` sections. Cloud `default_agent_type` is always `opencode` when
-//! opencode is among the supported backends.
+//! Single-agent mode: opencode is the only backend probed or registered.
+//! Legacy `[agents.claude_code]` / `[agents.codex]` sections in existing
+//! config files are still parsed (and preserved on save) but never created
+//! here and never advertised. Never overwrite an existing `[agents.opencode]`
+//! section.
 
 use std::path::Path;
 
@@ -24,10 +25,6 @@ pub struct DiscoverReport {
     pub skipped: bool,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub opencode: Option<DiscoveredAgent>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub claude_code: Option<DiscoveredAgent>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub codex: Option<DiscoveredAgent>,
 }
 
 impl DiscoverReport {
@@ -61,35 +58,9 @@ pub fn discover_and_merge(config: &mut DaemonConfig) -> DiscoverReport {
         }
     }
 
-    if config.agents.claude_code.is_none() {
-        if let Some(binary) = discover_claude_binary() {
-            let version = probe_version(&binary, &["--version"]);
-            config.agents.claude_code = Some(AgentBackendConfig {
-                binary: binary.clone(),
-                default_flags: Vec::new(),
-            });
-            report.claude_code = Some(DiscoveredAgent { binary, version });
-            report.changed = true;
-        }
-    }
-
-    if config.agents.codex.is_none() {
-        if let Some(binary) = resolve_command("codex") {
-            let version = probe_version(&binary, &["--version"]);
-            config.agents.codex = Some(AgentBackendConfig {
-                binary: binary.clone(),
-                default_flags: Vec::new(),
-            });
-            report.codex = Some(DiscoveredAgent { binary, version });
-            report.changed = true;
-        }
-    }
-
     if report.changed {
         info!(
             opencode = report.opencode.is_some(),
-            claude_code = report.claude_code.is_some(),
-            codex = report.codex.is_some(),
             "auto-discovered agent backends"
         );
     }
@@ -115,66 +86,6 @@ fn auto_discover_disabled(config: &DaemonConfig) -> bool {
         return true;
     }
     !config.agents.auto_discover
-}
-
-/// Claude Code: prefer a real `claude` binary; fall back to `npx` (spawn uses
-/// the `@zed-industries/claude-agent-acp` wrapper when binary name is `claude`).
-fn discover_claude_binary() -> Option<String> {
-    resolve_command("claude").or_else(|| {
-        resolve_command("npx").map(|_| "claude".to_string())
-    })
-}
-
-fn resolve_command(name: &str) -> Option<String> {
-    let path = crate::runtime::adapter::enriched_spawn_path(
-        std::env::var("PATH").ok().as_deref(),
-        dirs::home_dir().as_deref(),
-    );
-    let script = format!(
-        "PATH={} command -v {}",
-        shell_escape(&path),
-        shell_escape(name)
-    );
-    let out = std::process::Command::new("sh")
-        .arg("-lc")
-        .arg(&script)
-        .output()
-        .ok()?;
-    if !out.status.success() {
-        return None;
-    }
-    let resolved = String::from_utf8_lossy(&out.stdout)
-        .lines()
-        .next()
-        .unwrap_or("")
-        .trim()
-        .to_string();
-    (!resolved.is_empty()).then_some(resolved)
-}
-
-fn probe_version(binary: &str, args: &[&str]) -> Option<String> {
-    let out = std::process::Command::new(binary).args(args).output().ok()?;
-    if !out.status.success() {
-        return None;
-    }
-    let line = String::from_utf8_lossy(&out.stdout)
-        .lines()
-        .next()
-        .unwrap_or("")
-        .trim()
-        .to_string();
-    (!line.is_empty()).then_some(line)
-}
-
-fn shell_escape(value: &str) -> String {
-    if value
-        .chars()
-        .all(|c| c.is_ascii_alphanumeric() || "/._-:".contains(c))
-    {
-        value.to_string()
-    } else {
-        format!("'{}'", value.replace('\'', "'\\''"))
-    }
 }
 
 fn save_atomically(config: &DaemonConfig, path: &Path) -> crate::error::Result<()> {
@@ -275,10 +186,5 @@ mod tests {
             "/tmp/opencode"
         );
         let _ = report;
-    }
-
-    #[test]
-    fn resolve_command_finds_sh() {
-        assert!(resolve_command("sh").is_some());
     }
 }
