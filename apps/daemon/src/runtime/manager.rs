@@ -4,9 +4,9 @@ use tokio::sync::mpsc;
 use tracing::{info, warn};
 use uuid::Uuid;
 
-use super::acp_host::AcpHostPool;
 use super::agent_runtime_state::PerAgentRuntimeState;
 use super::handle::RuntimeHandle;
+use super::opencode_http::AcpHostPool;
 use super::refresh::RuntimeRefreshCoordinator;
 use std::sync::Arc;
 
@@ -676,6 +676,15 @@ impl RuntimeManager {
         }
     }
 
+    /// Model catalog for a workspace directory via the global opencode serve
+    /// instance (cron catalog UI).
+    pub async fn probe_opencode_models(
+        &mut self,
+        workspace_path: &std::path::Path,
+    ) -> crate::error::Result<Vec<amux::ModelInfo>> {
+        self.acp_host_pool.model_catalog(workspace_path).await
+    }
+
     /// Invalidate long-lived OpenCode/Codex ACP hosts after provider credentials change.
     pub fn evict_acp_hosts_after_provider_auth_change(&mut self) {
         let removed = self
@@ -793,10 +802,7 @@ impl RuntimeManager {
     ) -> crate::error::Result<()> {
         #[cfg(test)]
         {
-            let _ = (
-                &attachment_urls,
-                &requester_actor_id,
-            );
+            let _ = (&attachment_urls, &requester_actor_id);
             if let Some(message) = self.send_failures.remove(agent_id) {
                 return Err(crate::error::AmuxError::Agent(message));
             }
@@ -850,7 +856,12 @@ impl RuntimeManager {
             })?;
             handle.bump_activity();
             handle
-                .send_prompt(text, attachment_urls, requester_actor_id, reply_to_message_id)
+                .send_prompt(
+                    text,
+                    attachment_urls,
+                    requester_actor_id,
+                    reply_to_message_id,
+                )
                 .await
         }
     }
@@ -1865,11 +1876,10 @@ mod tests {
             )
             .await;
 
-        let err = result.expect_err("missing ACP binary should fail startup");
+        let err = result.expect_err("missing agent binary should fail startup");
         assert!(
-            err.to_string().contains("ACP host init")
-                || err.to_string().contains("ACP attach failed")
-                || err.to_string().contains("spawn ACP host"),
+            err.to_string().contains("spawn opencode serve")
+                || err.to_string().contains("opencode serve unavailable"),
             "got: {err}"
         );
         assert_eq!(mgr.agent_count(), 0);

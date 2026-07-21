@@ -11,6 +11,8 @@ mod error;
 mod http;
 #[path = "../../src/mcp_probe.rs"]
 mod mcp_probe;
+#[path = "../../src/opencode_install/mod.rs"]
+mod opencode_install;
 #[path = "../../src/opencode_settings/mod.rs"]
 mod opencode_settings;
 #[path = "../../src/proto.rs"]
