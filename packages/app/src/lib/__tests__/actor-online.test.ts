@@ -1,5 +1,8 @@
-import { describe, expect, it } from 'vitest'
+import { beforeEach, describe, expect, it } from 'vitest'
 import { resolveActorOnlineStatus } from '@/lib/actor-online'
+import { __resetLocalDaemonSignalCacheForTest } from '@/lib/agent-device-reachability'
+import { __resetLocalDaemonIdentityForTest } from '@/lib/local-daemon-identity'
+import { useActorPresenceStore } from '@/stores/actor-presence-store'
 
 describe('resolveActorOnlineStatus', () => {
   const member = {
@@ -7,6 +10,12 @@ describe('resolveActorOnlineStatus', () => {
     actor_type: 'member' as const,
     last_active_at: '2020-01-01T00:00:00.000Z',
   }
+
+  beforeEach(() => {
+    __resetLocalDaemonSignalCacheForTest()
+    __resetLocalDaemonIdentityForTest()
+    useActorPresenceStore.setState({ byActorId: {} })
+  })
 
   it('treats the current member as online even when last_active_at is stale', () => {
     expect(resolveActorOnlineStatus(member, { currentMemberActorId: 'member-1' })).toBe(true)
@@ -16,9 +25,19 @@ describe('resolveActorOnlineStatus', () => {
     expect(resolveActorOnlineStatus(member, { currentMemberActorId: 'member-2' })).toBe(false)
   })
 
-  it('prefers MQTT presence for agents', () => {
+  it('falls back to agentPresence when MQTT store has no retain', () => {
     const agent = { id: 'agent-1', actor_type: 'agent' as const, last_active_at: null }
     expect(resolveActorOnlineStatus(agent, { agentPresence: { online: true } })).toBe(true)
     expect(resolveActorOnlineStatus(agent, { agentPresence: { online: false } })).toBe(false)
+  })
+
+  it('prefers shared device-presence merge from the MQTT store', () => {
+    const agent = { id: 'agent-1', actor_type: 'agent' as const, last_active_at: null }
+    useActorPresenceStore.getState().upsert('agent-1', {
+      online: true,
+      displayName: 'a',
+      lastUpdated: Date.now(),
+    })
+    expect(resolveActorOnlineStatus(agent, { agentPresence: { online: false } })).toBe(true)
   })
 })

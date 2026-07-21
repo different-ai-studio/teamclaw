@@ -1,3 +1,5 @@
+import { resolveAgentDevicePresenceSync } from '@/lib/agent-device-reachability'
+
 export type ActorOnlineRow = {
   id: string
   actor_type: 'member' | 'agent'
@@ -11,7 +13,12 @@ export function isActorOnline(lastActiveAt: string | null): boolean {
   return Date.now() - t < 5 * 60 * 1000
 }
 
-/** Resolve online/offline for a directory row, overlaying MQTT agent presence. */
+/**
+ * Resolve online/offline for a directory row.
+ *
+ * Agents use the shared device-presence merge (MQTT store + local daemon cache).
+ * `agentPresence` remains as a test/fallback when the store has no retain yet.
+ */
 export function resolveActorOnlineStatus(
   actor: ActorOnlineRow,
   options: {
@@ -21,8 +28,11 @@ export function resolveActorOnlineStatus(
 ): boolean {
   const isAgent = actor.actor_type === 'agent'
   if (isAgent) {
-    const presence = options.agentPresence
-    return presence ? presence.online : isActorOnline(actor.last_active_at)
+    const merged = resolveAgentDevicePresenceSync(actor.id)
+    if (merged === 'online') return true
+    if (merged === 'offline') return false
+    if (options.agentPresence) return options.agentPresence.online
+    return isActorOnline(actor.last_active_at)
   }
   if (options.currentMemberActorId && actor.id === options.currentMemberActorId) {
     return true

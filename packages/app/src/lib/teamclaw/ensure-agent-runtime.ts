@@ -1,5 +1,9 @@
 import { getBackend } from "@/lib/backend";
 import i18n from "@/lib/i18n";
+import {
+  resolveAgentDevicePresence,
+  type AgentDevicePresence,
+} from "@/lib/agent-device-reachability";
 import { ensureSessionLiveSubscribed, ensureTeamSessionLiveSubscribed } from "@/lib/session-live-subscriptions";
 import {
   startAgentRuntimesAsync,
@@ -7,11 +11,13 @@ import {
   type RuntimeStartFailureCode,
 } from "@/lib/session-create";
 import { waitForTeamclawRpcReady } from "@/lib/teamclaw-rpc";
-import { useActorPresenceStore } from "@/stores/actor-presence-store";
 import { useRuntimeStateStore } from "@/stores/runtime-state-store";
 import { resolveRuntimeStateEntryForAgent } from "@/lib/runtime-state-resolve";
 import { resolveSessionWorkspaceHintForRuntimeStart } from "@/lib/teamclaw/resolve-runtime-start-workspace";
-import { recordRuntimeEnsureAttempt } from "@/lib/teamclaw/runtime-ensure-scheduler";
+import {
+  recordRuntimeEnsureAttempt,
+  shouldSkipAlreadyReadyRuntimeEnsure,
+} from "@/lib/teamclaw/runtime-ensure-scheduler";
 import {
   DEVICE_PRESENCE_GATE_TIMEOUT_MS,
   RUNTIME_START_RPC_TIMEOUT_MS,
@@ -20,53 +26,11 @@ import { sessionFlowError, sessionFlowLog } from "@/lib/session-flow-log";
 import { useWorkspaceStore } from "@/stores/workspace";
 import { useMqttReconnectStore } from "@/stores/mqtt-reconnect";
 
+export type { AgentDevicePresence };
+export { resolveAgentDevicePresence };
+
 type InFlightEntry = { promise: Promise<void>; startedAt: number };
 const inFlight = new Map<string, InFlightEntry>();
-
-export type AgentDevicePresence = "online" | "offline" | "unknown";
-
-/**
- * Resolve whether an agent's daemon is reachable.
- *
- * MQTT retained ActorPresence can arrive slightly after subscribe — `undefined`
- * in actor-presence-store means "not yet known", not offline (see
- * SessionActorSheet computeDotStateAndAnimation). Only explicit `online:
- * false` (LWT) counts as offline. For the local desktop agent, HTTP probe
- * is used as a bootstrap when MQTT retain hasn't landed yet.
- */
-export async function resolveAgentDevicePresence(
-  agentActorId: string,
-  opts?: { timeoutMs?: number },
-): Promise<AgentDevicePresence> {
-  const timeoutMs = opts?.timeoutMs ?? DEVICE_PRESENCE_GATE_TIMEOUT_MS;
-  const deadline = Date.now() + timeoutMs;
-
-  while (Date.now() < deadline) {
-    const entry = useActorPresenceStore.getState().byActorId[agentActorId];
-    if (entry?.online === true) return "online";
-    if (entry?.online === false) return "offline";
-    await new Promise((r) => setTimeout(r, 100));
-  }
-
-  const entry = useActorPresenceStore.getState().byActorId[agentActorId];
-  if (entry?.online === true) return "online";
-  if (entry?.online === false) return "offline";
-
-  const { isTauri } = await import("@/lib/utils");
-  if (isTauri()) {
-    const { getLocalDaemonActorId } = await import("@/lib/daemon-agent-admin");
-    const { probeDaemonHttp } = await import("@/lib/daemon-local-client");
-    const localId = await getLocalDaemonActorId();
-    if (localId === agentActorId) {
-      const probe = await probeDaemonHttp();
-      // HTTP probe failure during bootstrap is not authoritative offline — MQTT
-      // retain may still be in flight.
-      return probe.ok ? "online" : "unknown";
-    }
-  }
-
-  return "unknown";
-}
 
 function logDebug(
   eventCase: string,
@@ -170,15 +134,9 @@ export type EnsureAgentRuntimeArgs = {
  * Idempotent: ensure session live subscription, session membership, and
  * daemon runtimeStart for each agent. Safe to call on @-mention and on send.
  *
- * TODO(perf-runtime-start-throttle): Opening or re-activating a session often
- * fires runtimeStart even when the daemon dedup-reuses an existing runtime.
- * That path still does Cloud session fetch, MQTT live unsub/sub on switch, and
- * full-history `reconcile_runtime_cursor` (see `apply_start_runtime` dedup in
- * amuxd). Consider client-side TTL dedupe by (sessionId, workspace, agentIds)
- * and a daemon fast path that skips full reconcile/catchup when already live.
- *
- * Do NOT implement this TODO unless the user explicitly requests it — ignore
- * during routine work. 无用户明确指令时不要实现本 TODO，日常开发请忽略。
+ * Wake/focus/reconnect reasons skip when MQTT retains already show ACTIVE
+ * runtimes with models (`shouldSkipAlreadyReadyRuntimeEnsure`). Create/send
+ * paths always proceed so a new session can bind.
  */
 export async function ensureAgentRuntimesForSession(args: EnsureAgentRuntimeArgs): Promise<void> {
   const agentActorIds = [...new Set(args.agentActorIds.map((id) => id.trim()).filter(Boolean))];
@@ -186,6 +144,16 @@ export async function ensureAgentRuntimesForSession(args: EnsureAgentRuntimeArgs
 
   const key = `${args.sessionId}::${agentActorIds.slice().sort().join(",")}`;
   const reason = args.reason ?? "unknown";
+  if (shouldSkipAlreadyReadyRuntimeEnsure(agentActorIds, reason)) {
+    sessionFlowLog("ensure_agent_runtime.skip_already_ready", {
+      sessionId: args.sessionId,
+      teamId: args.teamId,
+      reason,
+      agentActorIds,
+    });
+    return;
+  }
+
   const existing = inFlight.get(key);
   if (existing) return existing.promise;
 

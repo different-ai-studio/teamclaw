@@ -1,4 +1,5 @@
 import * as React from 'react'
+import { mergeAgentDevicePresence, noteLocalDaemonSignals } from '@/lib/agent-device-reachability'
 import { probeDaemonHttp } from '@/lib/daemon-local-client'
 import { getDaemonMqttConnected } from '@/lib/daemon-agent-admin'
 import { QUICK_CHAT_DAEMON_PROBE_INTERVAL_MS } from '@/lib/session-agent-probe'
@@ -58,14 +59,16 @@ export function resolveLocalDaemonRuntimeStatus(input: {
   // HTTP reachable: surface Desktop MQTT disconnect before stale presence can
   // read as "online".
   if (input.mqttConnected === false) return 'mqttDisconnected'
-  if (input.httpStatus === 'online') {
-    // Trust the daemon's live mqtt_connected flag over a brief stale offline
-    // retain that can appear during JWT rotation / broker reconnect.
-    if (input.daemonMqttConnected === true) return 'online'
-    if (input.daemonMqttConnected === false) return 'offline'
-  }
-  if (input.presenceOnline === false) return 'offline'
-  if (input.httpStatus === 'online') return 'online'
+
+  // Shared device-reachability merge (same rule as runtime-start gate).
+  const devicePresence = mergeAgentDevicePresence({
+    mqttOnline: input.presenceOnline,
+    isLocalDaemon: true,
+    daemonMqttConnected: input.daemonMqttConnected ?? null,
+    localHttpOk: input.httpStatus === 'online' ? true : null,
+  })
+  if (devicePresence === 'online') return 'online'
+  if (devicePresence === 'offline') return 'offline'
   return 'checking'
 }
 
@@ -83,7 +86,7 @@ export function useLocalDaemonRuntimeStatus(
   const [daemonMqttConnected, setDaemonMqttConnected] = React.useState<boolean | null>(null)
 
   React.useEffect(() => {
-    if (!enabled || !daemonOnboardingReady) {
+    if (!enabled || !daemonOnboardingReady || !actorId) {
       setDaemonMqttConnected(null)
       return
     }
@@ -91,7 +94,13 @@ export function useLocalDaemonRuntimeStatus(
     let cancelled = false
     const poll = async () => {
       const connected = await getDaemonMqttConnected()
-      if (!cancelled) setDaemonMqttConnected(connected)
+      if (cancelled) return
+      setDaemonMqttConnected(connected)
+      noteLocalDaemonSignals({
+        actorId,
+        daemonMqttConnected: connected,
+        localHttpOk: httpStatus === 'online' ? true : httpStatus === 'offline' ? false : null,
+      })
     }
 
     void poll()
@@ -100,7 +109,7 @@ export function useLocalDaemonRuntimeStatus(
       cancelled = true
       clearInterval(interval)
     }
-  }, [daemonOnboardingReady, enabled])
+  }, [actorId, daemonOnboardingReady, enabled, httpStatus])
 
   return resolveLocalDaemonRuntimeStatus({
     daemonOnboardingReady,

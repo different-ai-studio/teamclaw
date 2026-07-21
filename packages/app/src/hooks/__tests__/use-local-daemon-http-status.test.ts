@@ -46,13 +46,25 @@ describe('resolveLocalDaemonRuntimeStatus', () => {
     ).toBe('mqttDisconnected')
   })
 
-  it('returns offline when presence is explicitly offline and mqtt is up', () => {
+  it('stays checking when presence is offline but HTTP is up and daemon mqtt is still unknown', () => {
     expect(
       resolveLocalDaemonRuntimeStatus({
         daemonOnboardingReady: true,
         httpStatus: 'online',
         presenceOnline: false,
         mqttConnected: true,
+      }),
+    ).toBe('checking')
+  })
+
+  it('returns offline when presence and daemon mqtt both report offline', () => {
+    expect(
+      resolveLocalDaemonRuntimeStatus({
+        daemonOnboardingReady: true,
+        httpStatus: 'online',
+        presenceOnline: false,
+        mqttConnected: true,
+        daemonMqttConnected: false,
       }),
     ).toBe('offline')
   })
