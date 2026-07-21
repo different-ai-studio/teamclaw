@@ -104,7 +104,7 @@ impl DaemonServer {
                 "resume_stored_collab_runtimes: resuming stored runtime with prior ACP session"
             );
 
-            self.suppress_internal_opencode_writes(&stored.worktree);
+            // opencode.json suppress is inside assemble (after managed-LLM await).
             let runtime_env = match self
                 .assemble_spawn_runtime_env_for_worktree(&stored.worktree, &stored.workspace_id)
                 .await

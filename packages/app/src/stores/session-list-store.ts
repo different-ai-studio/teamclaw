@@ -14,6 +14,7 @@ import {
 } from "@/lib/local-cache";
 import { removeLinkSessionEntriesForSession } from "@/lib/extension-link-session";
 import type { SessionListCursor, SessionListPage } from "@/lib/backend/types";
+import { sortSessionListRows } from "@/lib/session-list-sort";
 
 // localStorage key for the most-recently-known teamId. Persisted so that
 // on first ever app boot the libsql phase-1 hydrate can fire — without it,
@@ -100,19 +101,8 @@ function mapCacheToEntry(r: SessionRow): SessionListEntry {
   };
 }
 
-/** Sort entries: null last_message_at first, then by last_message_at DESC */
 function sortEntries(entries: SessionListEntry[]): SessionListEntry[] {
-  return [...entries].sort((a, b) => {
-    if (!a.last_message_at && b.last_message_at) return -1;
-    if (a.last_message_at && !b.last_message_at) return 1;
-    if (a.last_message_at && b.last_message_at) {
-      const byLastMessage = b.last_message_at.localeCompare(a.last_message_at);
-      if (byLastMessage !== 0) return byLastMessage;
-    }
-    const byCreated = (b.created_at ?? "").localeCompare(a.created_at ?? "");
-    if (byCreated !== 0) return byCreated;
-    return b.id.localeCompare(a.id);
-  });
+  return sortSessionListRows(entries);
 }
 
 interface State {

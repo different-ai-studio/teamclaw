@@ -2,6 +2,7 @@ use anyhow::Result;
 use rumqttc::{AsyncClient, EventLoop, LastWill, MqttOptions, QoS, TlsConfiguration, Transport};
 use std::sync::Arc;
 use std::time::Duration;
+use teamclaw_transport::MqttBroker;
 use tokio::sync::Mutex;
 
 pub struct ClientConfig {
@@ -22,26 +23,37 @@ pub struct MqttClient {
 }
 
 impl MqttClient {
+    fn resolve_broker(cfg: &ClientConfig) -> MqttBroker {
+        let broker_url = cfg
+            .broker_url
+            .as_deref()
+            .filter(|url| !url.trim().is_empty())
+            .map(str::to_string)
+            .unwrap_or_else(|| {
+                let scheme = if cfg.use_tls { "mqtts" } else { "mqtt" };
+                format!("{}://{}:{}", scheme, cfg.broker_host, cfg.broker_port)
+            });
+        MqttBroker::parse(&broker_url)
+    }
+
     pub fn connect(cfg: ClientConfig) -> Result<Self> {
-        let broker_url = cfg.broker_url.as_deref().unwrap_or_default();
-        let is_websocket = broker_url.starts_with("ws://") || broker_url.starts_with("wss://");
-        let broker_address = if is_websocket {
-            broker_url
-        } else {
-            cfg.broker_host.as_str()
-        };
-        let mut opts = MqttOptions::new(&cfg.client_id, broker_address, cfg.broker_port);
+        let broker = Self::resolve_broker(&cfg);
+        let mut opts = MqttOptions::new(
+            &cfg.client_id,
+            broker.connection_address(),
+            broker.port,
+        );
         opts.set_credentials(&cfg.username, &cfg.password);
         opts.set_clean_session(false);
         opts.set_keep_alive(Duration::from_secs(30));
         // Attachments + ACP events can be a few hundred KB. Keep room.
         opts.set_max_packet_size(4 * 1024 * 1024, 4 * 1024 * 1024);
 
-        if broker_url.starts_with("ws://") {
-            opts.set_transport(Transport::Ws);
-        } else if broker_url.starts_with("wss://") {
+        if broker.is_websocket() && broker.use_tls {
             opts.set_transport(Transport::wss_with_default_config());
-        } else if cfg.use_tls {
+        } else if broker.is_websocket() {
+            opts.set_transport(Transport::Ws);
+        } else if broker.use_tls {
             // `TlsConfiguration::default()` (use-rustls) loads the OS native
             // trust roots and builds a `ClientConfig` with no client auth.
             // Good enough for connecting to a public broker over TLS.
@@ -65,6 +77,27 @@ impl MqttClient {
             event_loop: Arc::new(Mutex::new(event_loop)),
             client_id: cfg.client_id,
         })
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn wss_bootstrap_url_uses_port_443_not_js_fallback_1883() {
+        let broker = MqttClient::resolve_broker(&ClientConfig {
+            broker_url: Some("wss://mqtt.example.com/mqtt".into()),
+            broker_host: "mqtt.example.com".into(),
+            broker_port: 1883,
+            client_id: "teamclaw-test".into(),
+            username: "actor".into(),
+            password: "token".into(),
+            team_id: "team-1".into(),
+            use_tls: true,
+        });
+        assert_eq!(broker.connection_address(), "wss://mqtt.example.com/mqtt");
+        assert_eq!(broker.port, 443);
     }
 }
 
