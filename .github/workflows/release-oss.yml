@@ -138,6 +138,14 @@ jobs:
           workspaces: |
             . -> target
           key: ${{ matrix.target }}
+          # sccache (set up above, wired via the job-level RUSTC_WRAPPER) already
+          # caches every crate's compiled output. Caching target/ here too is
+          # redundant, and both caches compete for the repo's shared 10 GB Actions
+          # cache — so the target/ copy just evicts sccache entries and lowers the
+          # hit rate. Keep only the ~/.cargo registry/index cache (dep downloads,
+          # which sccache does NOT cover) and let sccache own compilation. Also
+          # drops the multi-minute "Post Rust cache" save of a huge target/ dir.
+          cache-targets: false
 
       - name: Install protoc (for prost_build)
         run: brew install protobuf
@@ -458,6 +466,11 @@ jobs:
           # cargo puts every member's output under the root target/.
           workspaces: |
             . -> target
+          # See build-macos: sccache owns compiled artifacts, so caching target/
+          # here is redundant and competes with sccache for the shared 10 GB
+          # Actions cache. Keep only ~/.cargo, and cut the ~181s "Post Rust cache"
+          # save of the Windows target/ dir.
+          cache-targets: false
 
       - name: Install protoc (for prost_build)
         shell: bash
