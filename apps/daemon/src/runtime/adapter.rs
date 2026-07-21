@@ -414,6 +414,35 @@ fn stall_error_message(stall_secs: u64, tool_in_flight: bool) -> String {
     }
 }
 
+/// Map a raw ACP prompt-failure string to a `(title, user_message)` pair.
+///
+/// The OpenCode session service failing (`OpenCode service failure:
+/// {"service":"session"}`) currently reaches the user as an opaque
+/// "ACP prompt failed", which reads like a model or connectivity problem even
+/// though it is a transient session/instance-cache fault that a resend usually
+/// clears (issue #550). Give it a distinct, actionable classification. Other
+/// errors keep the generic title and their original text.
+fn classify_prompt_error(raw: &str) -> (&'static str, String) {
+    if is_opencode_session_service_failure(raw) {
+        (
+            "Session service error",
+            "The session service hit a transient fault (opencode_session_service_failed). \
+             This is not a model or network problem — please resend your message."
+                .to_string(),
+        )
+    } else {
+        ("ACP prompt failed", raw.to_string())
+    }
+}
+
+/// True when the error text is the OpenCode session-service failure signature.
+fn is_opencode_session_service_failure(raw: &str) -> bool {
+    let lower = raw.to_ascii_lowercase();
+    lower.contains("opencode service failure")
+        && lower.contains("\"service\"")
+        && lower.contains("session")
+}
+
 struct AmuxClient {
     registry: Rc<RefCell<SessionRegistry>>,
 }
@@ -1526,15 +1555,15 @@ fn spawn_prompt_worker(
                         super::agent_trace::log_prompt_end(&acp_session_key, true, "", elapsed_ms);
                     }
                     Err(e) => {
-                        let details = format!("ACP prompt failed: {e}");
+                        let raw = format!("ACP prompt failed: {e}");
+                        let (title, details) = classify_prompt_error(&raw);
                         super::agent_trace::log_prompt_end(
                             &acp_session_key,
                             false,
                             &details,
                             elapsed_ms,
                         );
-                        emit_acp_error(&event_tx, &acp_session_key, "ACP prompt failed", details)
-                            .await;
+                        emit_acp_error(&event_tx, &acp_session_key, title, details).await;
                     }
                 }
             }
@@ -1982,6 +2011,21 @@ mod tests {
             Some((_, ToolPhase::Ended))
         ));
         assert!(tool_call_phase(&no_status).is_none());
+    }
+
+    #[test]
+    fn classify_prompt_error_flags_opencode_session_service_failure() {
+        let raw = "ACP prompt failed: Internal error: OpenCode service failure: {\"service\":\"session\"}";
+        let (title, msg) = classify_prompt_error(raw);
+        assert_eq!(title, "Session service error");
+        assert!(msg.contains("opencode_session_service_failed"));
+        assert!(msg.contains("resend"));
+
+        // Unrelated failures keep the generic classification + original text.
+        let other = "ACP prompt failed: model overloaded";
+        let (title2, msg2) = classify_prompt_error(other);
+        assert_eq!(title2, "ACP prompt failed");
+        assert_eq!(msg2, other);
     }
 
     #[test]
