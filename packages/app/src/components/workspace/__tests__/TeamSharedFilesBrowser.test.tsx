@@ -15,6 +15,7 @@ const teamModeState = vi.hoisted(() => ({
 
 const teamShareState = vi.hoisted(() => ({
   mode: null as 'oss' | 'managed_git' | 'custom_git' | null,
+  globalPath: '/home/.amuxd/teams/team-1/teamclaw-team' as string | null,
   refresh: vi.fn().mockResolvedValue({ mode: null }),
 }))
 
@@ -28,7 +29,7 @@ const currentTeamState = vi.hoisted(() => ({
   teamId: 'team-1' as string | null,
 }))
 
-const isTauriMock = vi.hoisted(() => vi.fn(() => false))
+const isTauriMock = vi.hoisted(() => vi.fn(() => true))
 
 vi.mock('react-i18next', () => ({
   useTranslation: () => ({
@@ -42,6 +43,7 @@ vi.mock('sonner', () => ({
 
 vi.mock('@tauri-apps/plugin-fs', () => ({
   exists: vi.fn().mockResolvedValue(true),
+  readDir: vi.fn().mockResolvedValue([{ name: 'a.md', isDirectory: false }]),
 }))
 
 vi.mock('@/components/workspace/FileBrowser', () => ({
@@ -75,12 +77,12 @@ vi.mock('@/stores/team-share', async (importOriginal) => {
     ...actual,
     useTeamShareStore: (
       selector: (state: {
-        status: { mode: typeof teamShareState.mode }
+        status: { mode: typeof teamShareState.mode; globalPath: string | null }
         refresh: typeof teamShareState.refresh
       }) => unknown,
     ) =>
       selector({
-        status: { mode: teamShareState.mode },
+        status: { mode: teamShareState.mode, globalPath: teamShareState.globalPath },
         refresh: teamShareState.refresh,
       }),
   }
@@ -105,35 +107,56 @@ vi.mock('@/lib/build-config', () => ({
 }))
 
 vi.mock('@/lib/team-skill-paths', () => ({
-  resolveTeamDir: vi.fn(),
+  globalTeamShareDir: vi.fn().mockResolvedValue('/home/.amuxd/teams/team-1/teamclaw-team'),
+  TEAM_SHARE_LINK_DIR: 'teamclaw-team',
 }))
 
 import { TeamSharedFilesBrowser } from '../TeamSharedFilesBrowser'
 
 describe('TeamSharedFilesBrowser', () => {
-  beforeEach(() => {
+  beforeEach(async () => {
     vi.clearAllMocks()
     workspaceState.workspacePath = '/workspace'
     teamModeState.teamModeType = null
     teamShareState.mode = null
+    teamShareState.globalPath = '/home/.amuxd/teams/team-1/teamclaw-team'
     teamShareState.refresh = vi.fn().mockResolvedValue({ mode: null })
     currentTeamState.teamId = 'team-1'
-    isTauriMock.mockReturnValue(false)
+    isTauriMock.mockReturnValue(true)
+    const { exists, readDir } = await import('@tauri-apps/plugin-fs')
+    vi.mocked(exists).mockResolvedValue(true)
+    vi.mocked(readDir).mockResolvedValue([
+      { name: 'a.md', isDirectory: false } as never,
+    ])
   })
 
-  it('scopes FileBrowser to the workspace team shared directory', async () => {
+  it('renders FileBrowser through the in-workspace teamclaw-team symlink when populated', async () => {
     render(<TeamSharedFilesBrowser />)
 
     await vi.waitFor(() => {
       expect(fileBrowserMock).toHaveBeenCalled()
     })
 
+    // The daemon-owned global dir is outside the workspace boundary, so the
+    // panel renders via the in-workspace symlink (workspacePath/teamclaw-team)
+    // rather than the global path — otherwise the workspace-scoped file
+    // commands reject it and the tree comes back empty.
     const props = fileBrowserMock.mock.calls.at(-1)?.[0] as Record<string, unknown>
     expect(props.rootPath).toBe('/workspace/teamclaw-team')
     expect(props.hideGitStatus).toBe(false)
   })
 
-  it('shows unavailable state when workspace path is missing', () => {
+  it('ensures the in-workspace symlink exists before rendering', async () => {
+    const { linkDaemonTeamWorkspace } = await import('@/lib/daemon-local-client')
+    render(<TeamSharedFilesBrowser />)
+
+    await vi.waitFor(() => {
+      expect(fileBrowserMock).toHaveBeenCalled()
+    })
+    expect(linkDaemonTeamWorkspace).toHaveBeenCalledWith('/workspace')
+  })
+
+  it('renders nothing when workspace path is missing', () => {
     workspaceState.workspacePath = null as unknown as string
     const { container } = render(<TeamSharedFilesBrowser />)
     expect(container).toBeEmptyDOMElement()
@@ -182,19 +205,29 @@ describe('TeamSharedFilesBrowser', () => {
     expect(props.actionIcons).toBeUndefined()
   })
 
-  it('shows unavailable message when team directory cannot be resolved', async () => {
-    isTauriMock.mockReturnValue(true)
+  it('shows the directory-missing state when the global dir does not exist', async () => {
     const { exists } = await import('@tauri-apps/plugin-fs')
     vi.mocked(exists).mockResolvedValue(false)
-    const { resolveTeamDir } = await import('@/lib/team-skill-paths')
-    vi.mocked(resolveTeamDir).mockResolvedValue(null)
 
     render(<TeamSharedFilesBrowser />)
 
     expect(
       await screen.findByText(
-        'Team shared directory is not set up yet. Enable team share in Settings → Team.',
+        'Team shared directory does not exist yet. Sync to fetch it from the team.',
       ),
     ).toBeTruthy()
+    expect(fileBrowserMock).not.toHaveBeenCalled()
+  })
+
+  it('shows the empty state when the global dir exists but has no entries', async () => {
+    const { readDir } = await import('@tauri-apps/plugin-fs')
+    vi.mocked(readDir).mockResolvedValue([])
+
+    render(<TeamSharedFilesBrowser />)
+
+    expect(
+      await screen.findByText('This team shared directory is empty.'),
+    ).toBeTruthy()
+    expect(fileBrowserMock).not.toHaveBeenCalled()
   })
 })

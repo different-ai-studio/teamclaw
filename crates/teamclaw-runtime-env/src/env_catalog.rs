@@ -37,6 +37,23 @@ pub struct TeamEnvListing {
     pub created_by: String,
     pub updated_by: String,
     pub updated_at: String,
+    /// `true` when the encrypted file decrypted with the local team secret.
+    /// `false` means the file exists (so the key is known from its name) but the
+    /// local secret is missing or wrong — the metadata/value could not be read.
+    /// The UI surfaces these as "not decrypted" rather than dropping the key.
+    #[serde(default = "default_decrypted")]
+    pub decrypted: bool,
+    /// Only meaningful when `decrypted == false`. `true` means a local team
+    /// secret *was* available but this file failed to decrypt under it (wrong /
+    /// rotated key). `false` means no local secret was available at all
+    /// (missing). Lets the UI say "key mismatch" vs "no local key".
+    #[serde(default)]
+    pub key_mismatch: bool,
+}
+
+/// Entries predate the `decrypted` field, so a missing field means it decrypted.
+fn default_decrypted() -> bool {
+    true
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -125,18 +142,71 @@ fn derive_key(env_secret: &str) -> anyhow::Result<[u8; 32]> {
     Ok(team_crypto::derive_key(env_secret)?)
 }
 
-fn load_team_env_metas_from_dir(
-    secrets_dir: &Path,
-    env_secret: &str,
-) -> anyhow::Result<Vec<TeamEnvListing>> {
+/// A key-only listing for a secret file that could not be decrypted. The key
+/// name is still recoverable from the file name, so the UI can show the key with
+/// a "not decrypted" warning instead of the key vanishing entirely.
+/// `key_mismatch = true` when a local secret was present but decryption failed
+/// (wrong / rotated key); `false` when no local secret was available at all.
+fn undecrypted_listing(key_id: String, key_mismatch: bool) -> TeamEnvListing {
+    TeamEnvListing {
+        key_id,
+        description: String::new(),
+        category: "team".to_string(),
+        created_by: String::new(),
+        updated_by: String::new(),
+        updated_at: String::new(),
+        decrypted: false,
+        key_mismatch,
+    }
+}
+
+fn key_id_from_file_name(file_name: &str) -> Option<String> {
+    file_name.strip_suffix(".enc.json").map(str::to_string)
+}
+
+/// List every `<key_id>.enc.json` in `secrets_dir` as an undecrypted listing.
+/// `key_mismatch` distinguishes "secret present but couldn't decrypt this dir"
+/// (malformed secret) from "no secret available at all".
+fn load_team_env_keys_from_dir(secrets_dir: &Path, key_mismatch: bool) -> Vec<TeamEnvListing> {
+    let Ok(read_dir) = std::fs::read_dir(secrets_dir) else {
+        return Vec::new();
+    };
+    read_dir
+        .flatten()
+        .filter_map(|entry| key_id_from_file_name(&entry.file_name().to_string_lossy()))
+        .map(|key_id| undecrypted_listing(key_id, key_mismatch))
+        .collect()
+}
+
+/// Decrypt every secret file under `secrets_dir`. A file that cannot be read,
+/// parsed, or decrypted still yields a key-only (`decrypted: false`) listing so
+/// the key stays visible with a warning rather than silently disappearing.
+fn load_team_env_metas_from_dir(secrets_dir: &Path, env_secret: &str) -> Vec<TeamEnvListing> {
     if !secrets_dir.exists() {
-        return Ok(Vec::new());
+        return Vec::new();
     }
 
-    let key = derive_key(env_secret)?;
-    let mut out = Vec::new();
+    // A malformed team secret (wrong length / non-hex) can't decrypt anything;
+    // fall back to key-only listings for the whole directory. A secret *was*
+    // present, so mark these as a key mismatch.
+    let key = match derive_key(env_secret) {
+        Ok(key) => key,
+        Err(e) => {
+            warn!(dir = %secrets_dir.display(), "env_catalog: invalid team secret, listing keys only: {e}");
+            return load_team_env_keys_from_dir(secrets_dir, true);
+        }
+    };
 
-    for entry in std::fs::read_dir(secrets_dir)? {
+    let read_dir = match std::fs::read_dir(secrets_dir) {
+        Ok(read_dir) => read_dir,
+        Err(e) => {
+            warn!(dir = %secrets_dir.display(), "env_catalog: failed to read team secret directory: {e}");
+            return Vec::new();
+        }
+    };
+
+    let mut out = Vec::new();
+    for entry in read_dir {
         let path = match entry {
             Ok(entry) => entry.path(),
             Err(e) => {
@@ -147,13 +217,14 @@ fn load_team_env_metas_from_dir(
         let Some(file_name) = path.file_name().and_then(|n| n.to_str()) else {
             continue;
         };
-        if !file_name.ends_with(".enc.json") {
+        let Some(file_key) = key_id_from_file_name(file_name) else {
             continue;
-        }
+        };
         let body = match std::fs::read_to_string(&path) {
             Ok(body) => body,
             Err(e) => {
                 warn!(path = %path.display(), "env_catalog: failed to read team secret file: {e}");
+                out.push(undecrypted_listing(file_key, true));
                 continue;
             }
         };
@@ -161,6 +232,7 @@ fn load_team_env_metas_from_dir(
             Ok(envelope) => envelope,
             Err(e) => {
                 warn!(path = %path.display(), "env_catalog: failed to parse team secret file: {e}");
+                out.push(undecrypted_listing(file_key, true));
                 continue;
             }
         };
@@ -168,6 +240,7 @@ fn load_team_env_metas_from_dir(
             Ok(secret) => secret,
             Err(e) => {
                 warn!(path = %path.display(), "env_catalog: failed to decrypt team secret file: {e}");
+                out.push(undecrypted_listing(file_key, true));
                 continue;
             }
         };
@@ -182,70 +255,42 @@ fn load_team_env_metas_from_dir(
             created_by: secret.created_by,
             updated_by: secret.updated_by,
             updated_at: secret.updated_at,
+            decrypted: true,
+            key_mismatch: false,
         });
     }
-    Ok(out)
-}
-
-fn load_team_env_keys_from_dir(secrets_dir: &Path) -> Vec<String> {
-    let Ok(read_dir) = std::fs::read_dir(secrets_dir) else {
-        return Vec::new();
-    };
-    read_dir
-        .flatten()
-        .filter_map(|entry| {
-            entry
-                .file_name()
-                .to_string_lossy()
-                .strip_suffix(".enc.json")
-                .map(str::to_string)
-        })
-        .collect()
-}
-
-/// Load team secret metadata by scanning all workspace `_secrets/` candidates.
-pub fn load_team_env_listings(
-    workspace: &Path,
-    team_id: Option<&str>,
-) -> Vec<TeamEnvListing> {
-    let shared_dir_name = team_provider::resolve_shared_dir_name(workspace);
-    let Some(env_secret) = resolve_team_env_secret(workspace, team_id) else {
-        return load_team_env_key_only_listings(workspace, &shared_dir_name);
-    };
-
-    let mut out = Vec::new();
-    let mut seen = HashSet::new();
-    for secrets_dir in team_secrets_dir_candidates_workspace(workspace, &shared_dir_name) {
-        let Ok(metas) = load_team_env_metas_from_dir(&secrets_dir, &env_secret) else {
-            continue;
-        };
-        for meta in metas {
-            if seen.insert(meta.key_id.to_ascii_lowercase()) {
-                out.push(meta);
-            }
-        }
-    }
-    out.sort_by(|a, b| a.key_id.cmp(&b.key_id));
     out
 }
 
-fn load_team_env_key_only_listings(
-    workspace: &Path,
-    shared_dir_name: &str,
-) -> Vec<TeamEnvListing> {
-    let mut out = Vec::new();
-    let mut seen = HashSet::new();
-    for secrets_dir in team_secrets_dir_candidates_workspace(workspace, shared_dir_name) {
-        for key in load_team_env_keys_from_dir(&secrets_dir) {
-            if seen.insert(key.to_ascii_lowercase()) {
-                out.push(TeamEnvListing {
-                    key_id: key,
-                    description: String::new(),
-                    category: "team".to_string(),
-                    created_by: String::new(),
-                    updated_by: String::new(),
-                    updated_at: String::new(),
-                });
+/// Load team secret metadata by scanning all workspace `_secrets/` candidates.
+///
+/// When the local team secret is missing or wrong, keys are still listed (from
+/// the file names) with `decrypted: false`. A decrypted listing always wins over
+/// an undecrypted one for the same key across candidate directories.
+pub fn load_team_env_listings(workspace: &Path, team_id: Option<&str>) -> Vec<TeamEnvListing> {
+    let shared_dir_name = team_provider::resolve_shared_dir_name(workspace);
+    let env_secret = resolve_team_env_secret(workspace, team_id);
+
+    let mut out: Vec<TeamEnvListing> = Vec::new();
+    let mut index: std::collections::HashMap<String, usize> = std::collections::HashMap::new();
+    for secrets_dir in team_secrets_dir_candidates_workspace(workspace, &shared_dir_name) {
+        let listings = match &env_secret {
+            Some(secret) => load_team_env_metas_from_dir(&secrets_dir, secret),
+            None => load_team_env_keys_from_dir(&secrets_dir, false),
+        };
+        for listing in listings {
+            let lower = listing.key_id.to_ascii_lowercase();
+            match index.get(&lower) {
+                // Prefer a decrypted listing over a previously-seen undecrypted one.
+                Some(&i) => {
+                    if listing.decrypted && !out[i].decrypted {
+                        out[i] = listing;
+                    }
+                }
+                None => {
+                    index.insert(lower, out.len());
+                    out.push(listing);
+                }
             }
         }
     }
@@ -386,6 +431,63 @@ mod tests {
         assert_eq!(team.len(), 1);
         assert_eq!(team[0].key_id, "git_key");
         assert_eq!(team[0].description, "desc");
+    }
+
+    #[test]
+    fn wrong_team_secret_keeps_key_visible_as_undecrypted() {
+        let tmp = tempfile::tempdir().unwrap();
+        let real_secret = "55".repeat(32);
+        let wrong_secret = "66".repeat(32);
+        std::fs::create_dir_all(tmp.path().join(".teamclaw")).unwrap();
+        std::fs::write(
+            tmp.path().join(".teamclaw/teamclaw.json"),
+            serde_json::json!({
+                "team": { "sharedDirName": "teamclaw", "envSecret": wrong_secret }
+            })
+            .to_string(),
+        )
+        .unwrap();
+        let secrets_dir = tmp.path().join("teamclaw/_secrets");
+        std::fs::create_dir_all(&secrets_dir).unwrap();
+        // Encrypted under the REAL secret, but the workspace config carries the WRONG one.
+        std::fs::write(
+            secrets_dir.join("api_key.enc.json"),
+            encrypted_secret_file(&real_secret, "api_key", "secret"),
+        )
+        .unwrap();
+
+        let team = load_team_env_listings(tmp.path(), None);
+        assert_eq!(team.len(), 1, "key must stay visible, not vanish");
+        assert_eq!(team[0].key_id, "api_key");
+        assert!(!team[0].decrypted, "wrong key → marked not decrypted");
+        assert!(team[0].key_mismatch, "secret present but wrong → mismatch");
+        assert!(team[0].description.is_empty());
+    }
+
+    #[test]
+    fn missing_team_secret_lists_keys_only_as_undecrypted() {
+        let tmp = tempfile::tempdir().unwrap();
+        let real_secret = "55".repeat(32);
+        // Team config with NO envSecret and no team_id fallback → secret unresolved.
+        std::fs::create_dir_all(tmp.path().join(".teamclaw")).unwrap();
+        std::fs::write(
+            tmp.path().join(".teamclaw/teamclaw.json"),
+            serde_json::json!({ "team": { "sharedDirName": "teamclaw" } }).to_string(),
+        )
+        .unwrap();
+        let secrets_dir = tmp.path().join("teamclaw/_secrets");
+        std::fs::create_dir_all(&secrets_dir).unwrap();
+        std::fs::write(
+            secrets_dir.join("api_key.enc.json"),
+            encrypted_secret_file(&real_secret, "api_key", "secret"),
+        )
+        .unwrap();
+
+        let team = load_team_env_listings(tmp.path(), None);
+        assert_eq!(team.len(), 1);
+        assert_eq!(team[0].key_id, "api_key");
+        assert!(!team[0].decrypted);
+        assert!(!team[0].key_mismatch, "no secret at all → missing, not mismatch");
     }
 
     #[test]
