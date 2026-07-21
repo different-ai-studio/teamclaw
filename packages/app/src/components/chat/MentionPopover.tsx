@@ -4,6 +4,10 @@ import { useTranslation } from 'react-i18next'
 import { cn } from '@/lib/utils'
 import { getBackend } from '@/lib/backend'
 import { useSessionSelectionStore } from '@/stores/session-selection-store'
+import {
+  presenceOnlineFlag,
+  resolveAgentDevicePresenceSync,
+} from '@/lib/agent-device-reachability'
 import { useActorPresenceStore } from '@/stores/actor-presence-store'
 import { isSupersededLocalAgent } from '@/lib/local-daemon-identity'
 import { type MentionedPerson } from '@/packages/ai/prompt-input'
@@ -110,7 +114,8 @@ export function MentionPopover({
 }: MentionPopoverProps) {
   const { t } = useTranslation()
   const sessionId = useSessionSelectionStore(s => s.currentSessionId)
-  const presenceByActor = useActorPresenceStore((s) => s.byActorId)
+  // Keep a subscription so agent status labels refresh with presence changes.
+  useActorPresenceStore((s) => s.byActorId)
   const [rows, setRows] = React.useState<ParticipantRow[]>([])
   const [loading, setLoading] = React.useState(false)
   const [error, setError] = React.useState(false)
@@ -429,13 +434,13 @@ export function MentionPopover({
               </div>
               {agents.map(a => {
                 const index = currentIndex++
-                const presence = presenceByActor[a.id]
+                const online = presenceOnlineFlag(resolveAgentDevicePresenceSync(a.id))
                 const stale = isSupersededLocalAgent(a.id)
                 const statusLabel = stale
                   ? t('chat.sessionAgent.mentionStale')
-                  : presence?.online === false
+                  : online === false
                     ? t('chat.sessionAgent.mentionOffline')
-                    : presence?.online === true
+                    : online === true
                       ? null
                       : t('chat.sessionAgent.mentionConnecting')
                 return (

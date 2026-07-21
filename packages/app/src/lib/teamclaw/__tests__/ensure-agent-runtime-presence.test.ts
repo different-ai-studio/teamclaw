@@ -1,10 +1,12 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const mockGetLocalDaemonActorId = vi.fn();
+const mockGetDaemonMqttConnected = vi.fn();
 const mockProbeDaemonHttp = vi.fn();
 
 vi.mock("@/lib/daemon-agent-admin", () => ({
   getLocalDaemonActorId: () => mockGetLocalDaemonActorId(),
+  getDaemonMqttConnected: () => mockGetDaemonMqttConnected(),
 }));
 
 vi.mock("@/lib/daemon-local-client", () => ({
@@ -16,10 +18,16 @@ vi.mock("@/lib/utils", () => ({
 }));
 
 describe("resolveAgentDevicePresence", () => {
-  beforeEach(() => {
+  beforeEach(async () => {
     vi.useFakeTimers();
     mockGetLocalDaemonActorId.mockReset();
+    mockGetDaemonMqttConnected.mockReset();
     mockProbeDaemonHttp.mockReset();
+    mockGetDaemonMqttConnected.mockResolvedValue(null);
+    const { __resetLocalDaemonSignalCacheForTest } = await import("@/lib/agent-device-reachability");
+    const { __resetLocalDaemonIdentityForTest } = await import("@/lib/local-daemon-identity");
+    __resetLocalDaemonSignalCacheForTest();
+    __resetLocalDaemonIdentityForTest();
   });
 
   afterEach(async () => {
@@ -69,6 +77,52 @@ describe("resolveAgentDevicePresence", () => {
     });
 
     await expect(resolveAgentDevicePresence("agent-1", { timeoutMs: 0 })).resolves.toBe("offline");
+  });
+
+  it("returns online for the local daemon when MQTT is stale offline but daemon mqtt is connected", async () => {
+    const { resolveAgentDevicePresence } = await import("../ensure-agent-runtime");
+    const { useActorPresenceStore } = await import("@/stores/actor-presence-store");
+
+    mockGetLocalDaemonActorId.mockResolvedValue("local-agent");
+    mockGetDaemonMqttConnected.mockResolvedValue(true);
+    useActorPresenceStore.getState().upsert("local-agent", {
+      online: false,
+      displayName: "b001-agent",
+      lastUpdated: Date.now(),
+    });
+
+    await expect(resolveAgentDevicePresence("local-agent", { timeoutMs: 0 })).resolves.toBe("online");
+    expect(mockProbeDaemonHttp).not.toHaveBeenCalled();
+  });
+
+  it("returns offline for the local daemon when MQTT ghost-online but daemon mqtt is down", async () => {
+    const { resolveAgentDevicePresence } = await import("../ensure-agent-runtime");
+    const { useActorPresenceStore } = await import("@/stores/actor-presence-store");
+
+    mockGetLocalDaemonActorId.mockResolvedValue("local-agent");
+    mockGetDaemonMqttConnected.mockResolvedValue(false);
+    useActorPresenceStore.getState().upsert("local-agent", {
+      online: true,
+      displayName: "b001-agent",
+      lastUpdated: Date.now(),
+    });
+
+    await expect(resolveAgentDevicePresence("local-agent", { timeoutMs: 0 })).resolves.toBe("offline");
+  });
+
+  it("returns offline for the local daemon when both MQTT and daemon mqtt report offline", async () => {
+    const { resolveAgentDevicePresence } = await import("../ensure-agent-runtime");
+    const { useActorPresenceStore } = await import("@/stores/actor-presence-store");
+
+    mockGetLocalDaemonActorId.mockResolvedValue("local-agent");
+    mockGetDaemonMqttConnected.mockResolvedValue(false);
+    useActorPresenceStore.getState().upsert("local-agent", {
+      online: false,
+      displayName: "b001-agent",
+      lastUpdated: Date.now(),
+    });
+
+    await expect(resolveAgentDevicePresence("local-agent", { timeoutMs: 0 })).resolves.toBe("offline");
   });
 
   it("returns unknown when retain is missing and agent is not the local daemon", async () => {

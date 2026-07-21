@@ -6,6 +6,7 @@ import {
 import type { EngagedAgentUiEntry } from '@/hooks/use-engaged-agent-ui-states'
 import {
   resetRuntimeEnsureThrottle,
+  shouldSkipAlreadyReadyRuntimeEnsure,
   shouldSkipThrottledRuntimeEnsure,
 } from '@/lib/teamclaw/runtime-ensure-scheduler'
 import { useActorPresenceStore } from '@/stores/actor-presence-store'
@@ -47,6 +48,7 @@ export function useReensureRuntimesOnMqttReconnect(args: {
       presenceByActor,
     )
     if (agentActorIds.length === 0) return
+    if (shouldSkipAlreadyReadyRuntimeEnsure(agentActorIds, 'mqtt_reconnect_ensure')) return
 
     resetRuntimeEnsureThrottle()
     if (shouldSkipThrottledRuntimeEnsure(sessionId, agentActorIds)) return
