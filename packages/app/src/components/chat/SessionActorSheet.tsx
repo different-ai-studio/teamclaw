@@ -17,6 +17,10 @@ import { syncActorsForTeam } from '@/lib/sync/actor-sync'
 import { syncParticipantsForSession } from '@/lib/sync/session-participant-sync'
 import { cn } from '@/lib/utils'
 import { useRuntimeStateStore } from '@/stores/runtime-state-store'
+import {
+  presenceOnlineFlag,
+  resolveAgentDevicePresenceSync,
+} from '@/lib/agent-device-reachability'
 import { useActorPresenceStore } from '@/stores/actor-presence-store'
 import { RuntimeLifecycle, AgentStatus, type RuntimeInfo } from '@/lib/proto/amux_pb'
 import { resolveAmuxAgentType } from '@/lib/amux-agent-type'
@@ -228,12 +232,13 @@ function ActorRowView({
   const { t } = useTranslation()
   const isAgent = actor.actor_type === 'agent'
   const initials = actor.display_name?.slice(0, 2).toUpperCase() || ''
-  // For agents, presence is keyed by the agent's actor id. `undefined` (no
-  // retain yet) ≠ `false` (LWT fired): only the explicit `false` should
-  // suppress the green dot.
-  const agentDeviceOnline = useActorPresenceStore((s) =>
-    isAgent ? s.byActorId[actor.id]?.online : undefined,
-  )
+  // Shared device-presence merge (same rule as runtime gate / sidebar).
+  // Subscribe to MQTT presence so re-renders happen; resolve via sync helper
+  // which can override stale LWT with cached local daemon signals.
+  useActorPresenceStore((s) => (isAgent ? s.byActorId[actor.id]?.online : undefined))
+  const agentDeviceOnline = isAgent
+    ? presenceOnlineFlag(resolveAgentDevicePresenceSync(actor.id))
+    : undefined
   const { color: dotColor, breathing } = computeDotStateAndAnimation(actor, runtimeInfo, agentDeviceOnline)
   // For agents, show "<backend type> · <model>" — e.g. "claude · claude-opus-4-7".
   // backend type = default_agent_type (claude | opencode | codex).

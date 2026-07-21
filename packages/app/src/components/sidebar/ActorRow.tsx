@@ -32,9 +32,10 @@ export function ActorRow({
 }: Props) {
   const { t } = useTranslation()
   const isAgent = actor.actor_type === 'agent'
-  const agentPresence = useActorPresenceStore((s) => isAgent ? s.byActorId[actor.id] : undefined)
+  // Subscribe so agent rows re-render when MQTT presence / local cache changes.
+  useActorPresenceStore((s) => (isAgent ? s.byActorId[actor.id]?.online : undefined))
   const currentMemberActorId = useCurrentTeamStore((s) => s.currentMember?.id ?? null)
-  const online = resolveActorOnlineStatus(actor, { currentMemberActorId, agentPresence })
+  const online = resolveActorOnlineStatus(actor, { currentMemberActorId })
   const c = actorAvatarColor(actor.id)
 
   return (
