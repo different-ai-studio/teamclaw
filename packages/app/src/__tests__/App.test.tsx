@@ -85,6 +85,8 @@ vi.mock('@/lib/utils', () => ({
   removeStartupSkeleton: () => {},
 }))
 vi.mock('@/lib/platform', () => ({
+  isChromeExtension: () => false,
+  getAppPlatform: () => 'web',
   capabilities: {
     workspace: true,
     tauriInvoke: false,

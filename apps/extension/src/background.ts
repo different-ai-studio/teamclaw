@@ -10,12 +10,20 @@ chrome.sidePanel
   .setPanelBehavior({ openPanelOnActionClick: true })
   .catch((e) => console.warn('[bg] setPanelBehavior failed', e))
 
-async function enableSidePanelForTab(tabId: number): Promise<void> {
-  await chrome.sidePanel.setOptions({
-    tabId,
-    path: SIDE_PANEL_PATH,
-    enabled: true,
-  })
+/**
+ * Global (window-scoped) panel only.
+ * Never call setOptions({ tabId, path }) — Chrome treats that as a *second*
+ * sidepanel/index.html instance when path matches side_panel.default_path.
+ */
+async function ensureGlobalSidePanel(): Promise<void> {
+  try {
+    await chrome.sidePanel.setOptions({
+      path: SIDE_PANEL_PATH,
+      enabled: true,
+    })
+  } catch (e) {
+    console.warn('[bg] ensureGlobalSidePanel failed', e)
+  }
 }
 
 async function injectContentScript(tabId: number): Promise<void> {
@@ -35,29 +43,33 @@ async function injectOpenHttpTabs(): Promise<void> {
   await Promise.all(
     tabs.map(async (tab) => {
       if (!tab.id) return
-      await enableSidePanelForTab(tab.id)
       await injectContentScript(tab.id)
     }),
   )
 }
 
+async function bootstrapSidePanel(): Promise<void> {
+  await ensureGlobalSidePanel()
+  await injectOpenHttpTabs()
+}
+
 chrome.runtime.onInstalled.addListener(() => {
-  void injectOpenHttpTabs()
+  void bootstrapSidePanel()
 })
 
 chrome.runtime.onStartup.addListener(() => {
-  void injectOpenHttpTabs()
+  void bootstrapSidePanel()
 })
 
 chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
   if (isOpenSidePanel(msg)) {
-    const tabId = sender.tab?.id
-    if (!tabId) {
-      sendResponse({ ok: false, error: 'no-tab' })
+    const windowId = sender.tab?.windowId
+    if (windowId == null) {
+      sendResponse({ ok: false, error: 'no-window' })
       return true
     }
 
-    void openSidePanelFromUserGesture(msg, tabId, sender.tab?.windowId).then(sendResponse)
+    void openSidePanelFromUserGesture(msg, windowId).then(sendResponse)
     return true
   }
 
