@@ -108,6 +108,7 @@ vi.mock('@/lib/build-config', () => ({
 
 vi.mock('@/lib/team-skill-paths', () => ({
   globalTeamShareDir: vi.fn().mockResolvedValue('/home/.amuxd/teams/team-1/teamclaw-team'),
+  TEAM_SHARE_LINK_DIR: 'teamclaw-team',
 }))
 
 import { TeamSharedFilesBrowser } from '../TeamSharedFilesBrowser'
@@ -129,16 +130,30 @@ describe('TeamSharedFilesBrowser', () => {
     ])
   })
 
-  it('scopes FileBrowser to the global team shared directory when populated', async () => {
+  it('renders FileBrowser through the in-workspace teamclaw-team symlink when populated', async () => {
     render(<TeamSharedFilesBrowser />)
 
     await vi.waitFor(() => {
       expect(fileBrowserMock).toHaveBeenCalled()
     })
 
+    // The daemon-owned global dir is outside the workspace boundary, so the
+    // panel renders via the in-workspace symlink (workspacePath/teamclaw-team)
+    // rather than the global path — otherwise the workspace-scoped file
+    // commands reject it and the tree comes back empty.
     const props = fileBrowserMock.mock.calls.at(-1)?.[0] as Record<string, unknown>
-    expect(props.rootPath).toBe('/home/.amuxd/teams/team-1/teamclaw-team')
+    expect(props.rootPath).toBe('/workspace/teamclaw-team')
     expect(props.hideGitStatus).toBe(false)
+  })
+
+  it('ensures the in-workspace symlink exists before rendering', async () => {
+    const { linkDaemonTeamWorkspace } = await import('@/lib/daemon-local-client')
+    render(<TeamSharedFilesBrowser />)
+
+    await vi.waitFor(() => {
+      expect(fileBrowserMock).toHaveBeenCalled()
+    })
+    expect(linkDaemonTeamWorkspace).toHaveBeenCalledWith('/workspace')
   })
 
   it('renders nothing when workspace path is missing', () => {
