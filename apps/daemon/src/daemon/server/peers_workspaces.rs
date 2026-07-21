@@ -166,7 +166,10 @@ impl DaemonServer {
         let rows = match self.backend.get_workspaces_by_team(team_id).await {
             Ok(rows) => rows,
             Err(e) => {
-                warn!(team_id, "cloud_workspace_list: get_workspaces_by_team failed: {e}");
+                warn!(
+                    team_id,
+                    "cloud_workspace_list: get_workspaces_by_team failed: {e}"
+                );
                 return Vec::new();
             }
         };
@@ -227,13 +230,7 @@ impl DaemonServer {
         }
         let canonical = match p.canonicalize() {
             Ok(c) => c,
-            Err(e) => {
-                return (
-                    false,
-                    format!("canonicalize {}: {}", add.path, e),
-                    None,
-                )
-            }
+            Err(e) => return (false, format!("canonicalize {}: {}", add.path, e), None),
         };
         let canonical_str = canonical.to_string_lossy().to_string();
         let display_name = canonical
@@ -311,20 +308,20 @@ impl DaemonServer {
                         error = %err,
                         "initial team sync after workspace add failed (will retry via timer/self-heal)"
                     ),
-                    None => info!(team_id = %team, "initial team sync after workspace add complete"),
+                    None => {
+                        info!(team_id = %team, "initial team sync after workspace add complete")
+                    }
                 }
             });
         }
         if let Some(registry) = self.refresh_watch_registry.as_ref() {
             registry
-                .upsert_workspace(
-                    crate::runtime::refresh::refresh_watch::WatchedWorkspace {
-                        workspace_id: crate::runtime::refresh::refresh_watch::workspace_runtime_id(
-                            &canonical,
-                        ),
-                        workspace_path: canonical.clone(),
-                    },
-                )
+                .upsert_workspace(crate::runtime::refresh::refresh_watch::WatchedWorkspace {
+                    workspace_id: crate::runtime::refresh::refresh_watch::workspace_runtime_id(
+                        &canonical,
+                    ),
+                    workspace_path: canonical.clone(),
+                })
                 .await;
         }
         info!(workspace_id = %remote.id, path = %canonical_str, "workspace added");

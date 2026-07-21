@@ -17,6 +17,7 @@ use super::config;
 use super::limit::{body_limit_layer, rate_limit_layer};
 use super::live_events;
 use super::observ::request_id_layer;
+use super::rpc;
 use super::sessions;
 use super::setup;
 use super::state::HttpState;
@@ -75,6 +76,10 @@ pub fn build(state: HttpState) -> Router {
         // Local fast-path: mirrors session/live MQTT publishes over SSE so a
         // same-machine UI streams independently of broker RTT/availability.
         .route("/v1/live/events", get(live_events::stream))
+        // Local fast-path RPC: same protobuf envelope as the MQTT
+        // `amux/{team}/{actor}/rpc/req` topic, dispatched over loopback so a
+        // same-machine UI's commands skip the broker round-trip.
+        .route("/v1/rpc", post(rpc::dispatch))
         // Register a workspace into the cloud `amux.workspaces` table
         // (idempotent). Used by the desktop on first launch to ensure its
         // default team workspace (`~/.amuxd/teams/<teamId>`) exists there.

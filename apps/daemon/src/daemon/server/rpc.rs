@@ -8,7 +8,7 @@ impl DaemonServer {
     /// delegates session/idea methods to SessionManager, and handles non-session
     /// methods locally. Publishes the response to the sender's rpc/res topic.
     pub(crate) async fn handle_rpc_request(&mut self, topic: &str, payload: &[u8]) {
-        use crate::proto::teamclaw::{rpc_request::Method, RpcRequest, RpcResponse};
+        use crate::proto::teamclaw::RpcRequest;
         use prost::Message as ProstMessage;
 
         let request = match RpcRequest::decode(payload) {
@@ -37,7 +37,59 @@ impl DaemonServer {
             return;
         }
 
-        let response: RpcResponse = match &request.method {
+        let response = self.dispatch_rpc_request(request.clone()).await;
+
+        // Publish response on the requester's rpc/res topic (mirrors
+        // RpcServer::respond). The requester subscribes on its own actor
+        // namespace `amux/{team}/{actor}/rpc/res`.
+        let res_topic = self.topics.rpc_res_for(&request.requester_actor_id);
+        let bytes = response.encode_to_vec();
+        info!(
+            request_id = %request.request_id,
+            res_topic = %res_topic,
+            success = response.success,
+            "publishing RpcResponse"
+        );
+        if let Err(e) = self
+            .mqtt
+            .client
+            .publish(res_topic, rumqttc::QoS::AtLeastOnce, false, bytes)
+            .await
+        {
+            warn!("failed to publish RpcResponse: {}", e);
+        }
+    }
+
+    /// Local fast-path dispatch for `POST /v1/rpc`: same decode + method
+    /// dispatch as the MQTT `rpc/req` path, but the encoded `RpcResponse`
+    /// bytes are returned to the HTTP caller instead of being published to
+    /// the requester's `rpc/res` topic. The topic-actor guard in
+    /// [`Self::handle_rpc_request`] is unnecessary here — loopback HTTP can
+    /// only ever reach this daemon.
+    pub(crate) async fn dispatch_local_rpc(&mut self, payload: &[u8]) -> Result<Vec<u8>, String> {
+        use crate::proto::teamclaw::RpcRequest;
+        use prost::Message as ProstMessage;
+
+        let request =
+            RpcRequest::decode(payload).map_err(|e| format!("failed to decode RpcRequest: {e}"))?;
+        info!(
+            request_id = %request.request_id,
+            requester_actor_id = %request.requester_actor_id,
+            "dispatching local (HTTP) RpcRequest"
+        );
+        let response = self.dispatch_rpc_request(request).await;
+        Ok(response.encode_to_vec())
+    }
+
+    /// Transport-agnostic RPC method dispatch shared by the MQTT `rpc/req`
+    /// path and the local HTTP `/v1/rpc` path.
+    pub(crate) async fn dispatch_rpc_request(
+        &mut self,
+        request: crate::proto::teamclaw::RpcRequest,
+    ) -> crate::proto::teamclaw::RpcResponse {
+        use crate::proto::teamclaw::{rpc_request::Method, RpcResponse};
+
+        match &request.method {
             // ─── Session/idea methods — delegate to SessionManager ───
             Some(Method::CreateSession(_))
             | Some(Method::FetchSession(_))
@@ -81,26 +133,6 @@ impl DaemonServer {
                 requester_actor_id: request.requester_actor_id.clone(),
                 result: None,
             },
-        };
-
-        // Publish response on the requester's rpc/res topic (mirrors
-        // RpcServer::respond). The requester subscribes on its own actor
-        // namespace `amux/{team}/{actor}/rpc/res`.
-        let res_topic = self.topics.rpc_res_for(&request.requester_actor_id);
-        let bytes = response.encode_to_vec();
-        info!(
-            request_id = %request.request_id,
-            res_topic = %res_topic,
-            success = response.success,
-            "publishing RpcResponse"
-        );
-        if let Err(e) = self
-            .mqtt
-            .client
-            .publish(res_topic, rumqttc::QoS::AtLeastOnce, false, bytes)
-            .await
-        {
-            warn!("failed to publish RpcResponse: {}", e);
         }
     }
 
@@ -539,8 +571,8 @@ impl DaemonServer {
                                     &sender_actor_id,
                                 )
                                 .await;
-                                let requester = (!sender_actor_id.is_empty())
-                                    .then(|| sender_actor_id.clone());
+                                let requester =
+                                    (!sender_actor_id.is_empty()).then(|| sender_actor_id.clone());
                                 let send_res = self
                                     .agents
                                     .lock()
@@ -676,8 +708,7 @@ impl DaemonServer {
                     .unwrap_or_default();
                 self.prepare_remote_tool_context_for_turn(agent_id, &session_id, &sender_actor_id)
                     .await;
-                let requester =
-                    (!sender_actor_id.is_empty()).then(|| sender_actor_id.clone());
+                let requester = (!sender_actor_id.is_empty()).then(|| sender_actor_id.clone());
                 let send_res = self
                     .agents
                     .lock()

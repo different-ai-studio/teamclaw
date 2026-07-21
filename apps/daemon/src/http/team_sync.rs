@@ -52,7 +52,11 @@ pub async fn sync_now(
             },
         )
         .await;
-    if let Some(err) = status.last_error.as_deref().filter(|e| !e.trim().is_empty()) {
+    if let Some(err) = status
+        .last_error
+        .as_deref()
+        .filter(|e| !e.trim().is_empty())
+    {
         if crate::sync::git::is_not_git_repo_error(err) {
             return Err(HttpError::team_shared_dir_not_git(format!(
                 "shared directory exists but is not a git repository ({err})"
@@ -276,7 +280,6 @@ pub async fn resolve_conflict(
     Ok(Json(serde_json::json!({ "ok": true })))
 }
 
-
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct VersionsQuery {
@@ -318,7 +321,11 @@ async fn fc_client_from_store(
     let base = fc_endpoint
         .filter(|s| !s.trim().is_empty())
         .or_else(|| state.sync_dispatcher.fc_endpoint().ok())
-        .ok_or_else(|| HttpError::internal("FC endpoint not configured: no cloud backend URL available".to_string()))?;
+        .ok_or_else(|| {
+            HttpError::internal(
+                "FC endpoint not configured: no cloud backend URL available".to_string(),
+            )
+        })?;
     Ok((
         crate::sync::oss::fc_client::FcClient::new(base, jwt),
         team_secret,

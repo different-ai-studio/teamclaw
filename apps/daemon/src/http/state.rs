@@ -38,6 +38,19 @@ pub struct RegisterWorkspaceRequest {
 /// Producer side of the register-workspace bridge handed to `HttpState`.
 pub type RegisterWorkspaceTx = mpsc::Sender<RegisterWorkspaceRequest>;
 
+/// One local RPC dispatch (`POST /v1/rpc`) forwarded to the daemon actor
+/// loop. `payload` is the exact `teamclaw.RpcRequest` protobuf bytes a client
+/// would otherwise publish to `amux/{team}/{actor}/rpc/req`; `reply_tx`
+/// carries back the encoded `teamclaw.RpcResponse` bytes (the same bytes the
+/// MQTT reply would carry) or a dispatch error string.
+pub struct LocalRpcRequest {
+    pub payload: Vec<u8>,
+    pub reply_tx: oneshot::Sender<Result<Vec<u8>, String>>,
+}
+
+/// Producer side of the local RPC bridge handed to `HttpState`.
+pub type LocalRpcTx = mpsc::Sender<LocalRpcRequest>;
+
 /// Process metadata surfaced via `/v1/info`. Filled in at startup and
 /// treated as immutable thereafter.
 #[derive(Debug, Clone)]
@@ -124,6 +137,11 @@ pub struct HttpState {
     /// itself, so this module stays usable from the `#[path]`-included test
     /// crates that have no daemon module tree.
     pub onboarding: Option<Arc<dyn super::setup::OnboardingService>>,
+    /// Bridge to the daemon actor loop for `POST /v1/rpc` — the local
+    /// fast-path twin of the MQTT `rpc/req` topic. `None` in focused tests
+    /// and when the HTTP server runs without a daemon actor behind it; the
+    /// route then returns 503.
+    pub local_rpc_tx: Option<LocalRpcTx>,
 }
 
 impl HttpState {
@@ -164,6 +182,7 @@ impl HttpState {
             config_path: None,
             channel_reload_tx: None,
             onboarding: None,
+            local_rpc_tx: None,
         }
     }
 
@@ -195,6 +214,12 @@ impl HttpState {
         managed_llm: Option<Arc<crate::runtime::managed_llm::ManagedLlmResolver>>,
     ) -> Self {
         self.managed_llm = managed_llm;
+        self
+    }
+
+    /// Attach the local RPC bridge (enables `POST /v1/rpc`).
+    pub fn with_local_rpc(mut self, tx: Option<LocalRpcTx>) -> Self {
+        self.local_rpc_tx = tx;
         self
     }
 

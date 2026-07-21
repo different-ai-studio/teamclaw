@@ -357,6 +357,7 @@ pub fn run() {
             commands::greet,
             commands::os_full_name,
             commands::get_device_hostname,
+            commands::daemon_http::daemon_rpc,
             commands::daemon_http::get_daemon_http_info,
             commands::daemon_http::get_daemon_team_id,
             commands::daemon_http::list_local_daemon_workspaces,

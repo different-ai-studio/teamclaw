@@ -229,6 +229,110 @@ struct DaemonAuthExchangeResponse {
     token: String,
 }
 
+/// Cached `sessions:write` session token for the local RPC fast path, keyed
+/// by base URL (the daemon binds a fresh loopback port on every restart).
+/// Avoids one `/v1/auth/exchange` round-trip per RPC.
+static DAEMON_RPC_TOKEN: std::sync::Mutex<Option<(String, String, std::time::Instant)>> =
+    std::sync::Mutex::new(None);
+
+async fn daemon_rpc_session_token(
+    client: &reqwest::Client,
+    base: &str,
+    root_token: &str,
+) -> Result<String, String> {
+    if let Some((cached_base, token, expires_at)) = DAEMON_RPC_TOKEN.lock().unwrap().clone() {
+        if cached_base == base && std::time::Instant::now() < expires_at {
+            return Ok(token);
+        }
+    }
+    let exchange: DaemonAuthExchangeResponse = client
+        .post(format!("{base}/v1/auth/exchange"))
+        .header("Authorization", format!("Bearer {root_token}"))
+        .json(&serde_json::json!({
+            "scopes": ["sessions:write"],
+            "ttl_seconds": 3600,
+        }))
+        .send()
+        .await
+        .and_then(|r| r.error_for_status())
+        .map_err(|e| format!("auth exchange: {e}"))?
+        .json()
+        .await
+        .map_err(|e| format!("auth exchange decode: {e}"))?;
+    // Refresh 5 minutes before the daemon-side expiry.
+    let expires_at = std::time::Instant::now() + std::time::Duration::from_secs(3600 - 300);
+    *DAEMON_RPC_TOKEN.lock().unwrap() =
+        Some((base.to_string(), exchange.token.clone(), expires_at));
+    Ok(exchange.token)
+}
+
+/// Local fast-path RPC: POST the given `teamclaw.RpcRequest` protobuf bytes
+/// (base64) to the daemon's loopback `POST /v1/rpc` and return the
+/// `teamclaw.RpcResponse` protobuf bytes (base64).
+///
+/// The webview calls this only when the target actor is this machine's
+/// daemon; any error here makes the frontend fall back to the MQTT RPC path
+/// transparently, so failures are returned as plain strings, never panics.
+#[tauri::command]
+pub async fn daemon_rpc(payload_b64: String) -> Result<String, String> {
+    use base64::{engine::general_purpose::STANDARD, Engine as _};
+
+    let payload = STANDARD
+        .decode(payload_b64.as_bytes())
+        .map_err(|e| format!("invalid base64 payload: {e}"))?;
+    let (base, root_token) =
+        daemon_http_base().ok_or_else(|| "daemon http port/token files not present".to_string())?;
+
+    let client = reqwest::Client::builder()
+        .timeout(std::time::Duration::from_secs(10))
+        .build()
+        .map_err(|e| format!("http client: {e}"))?;
+
+    let token = daemon_rpc_session_token(&client, &base, &root_token).await?;
+    let send = |token: String, payload: Vec<u8>| {
+        let client = client.clone();
+        let base = base.clone();
+        async move {
+            client
+                .post(format!("{base}/v1/rpc"))
+                .header("Authorization", format!("Bearer {token}"))
+                .header("Content-Type", "application/x-protobuf")
+                .body(payload)
+                .send()
+                .await
+                .map_err(|e| format!("rpc post: {e}"))
+        }
+    };
+
+    let mut resp = send(token, payload.clone()).await?;
+    if resp.status().as_u16() == 401 {
+        // Session token revoked (e.g. daemon restart with a reused port) —
+        // drop the cache and retry once with a fresh exchange.
+        *DAEMON_RPC_TOKEN.lock().unwrap() = None;
+        let token = daemon_rpc_session_token(&client, &base, &root_token).await?;
+        resp = send(token, payload).await?;
+    }
+    let resp = resp
+        .error_for_status()
+        .map_err(|e| format!("rpc status: {e}"))?;
+    let bytes = resp.bytes().await.map_err(|e| format!("rpc body: {e}"))?;
+    Ok(STANDARD.encode(&bytes))
+}
+
+fn daemon_http_base() -> Option<(String, String)> {
+    let amuxd_dir = dirs::home_dir()?.join(".amuxd");
+    let port: u16 = std::fs::read_to_string(amuxd_dir.join("amuxd.http.port"))
+        .ok()?
+        .trim()
+        .parse()
+        .ok()?;
+    let root_token = std::fs::read_to_string(amuxd_dir.join("amuxd.http.token"))
+        .ok()?
+        .trim()
+        .to_string();
+    Some((format!("http://127.0.0.1:{port}"), root_token))
+}
+
 #[derive(Debug, Deserialize)]
 struct DaemonProviderInfo {
     id: String,
