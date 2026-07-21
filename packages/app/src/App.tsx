@@ -123,6 +123,7 @@ import {
   messageKindUpdatesSessionPreview,
 } from "@/lib/session-list-preview";
 import { executeAgentTurnFlush } from "@/lib/agent-turn-flush";
+import { resolveInterruptedPlaceholdersToDrop } from "@/lib/interrupted-stream-placeholder";
 import {
   removePendingAgentReplyTo,
   resolvePendingAgentReplyTo,
@@ -779,13 +780,19 @@ function AppContent() {
     void useSessionListStore.getState().load();
   }, []);
 
-  // Hand off from the static #skeleton the moment the workspace resolves to
+  // Desktop: hand off from the static #skeleton once the workspace resolves to
   // real three-column content. AuthGate keeps the skeleton up through every
-  // loading gate and lets App own the final removal, so the cold-start hand-off
-  // is skeleton → real UI with no intermediate blank or spinner. Also stamp
-  // first-content for the perf timeline on the happy path.
+  // loading gate and lets App own the final removal, so cold start is
+  // skeleton → real UI with no intermediate blank.
+  //
+  // Extension/web: there is no workspace gate — initialWorkspaceResolved flips
+  // true almost immediately. App must NOT tear the skeleton down here while
+  // AuthGate still returns null (auth hydrate / team bootstrap / myTeams);
+  // otherwise #root is empty and the side panel flashes white for seconds.
+  // AuthGate removes the skeleton when it finally renders children.
   useEffect(() => {
     if (!initialWorkspaceResolved) return;
+    if (!capabilities.workspace) return;
     removeStartupSkeleton();
     if (workspacePath) markStartup("first-content");
   }, [initialWorkspaceResolved, workspacePath]);
@@ -883,6 +890,8 @@ function AppContent() {
   const interruptedStreamFlushRef = useRef<
     Record<string, { streamId: string; messageId: string }>
   >({});
+  /** Real AGENT_REPLY won the race — in-flight eager flush must not commit. */
+  const interruptedFlushSupersededRef = useRef<Record<string, boolean>>({});
 
   // Drop the synthetic interrupt-<streamId> anchor from BOTH the in-memory
   // message store AND the libsql cache, so it never survives a reload as a
@@ -932,30 +941,39 @@ function AppContent() {
   // When the daemon's REAL agent_reply for a turn arrives after the live stream
   // was already detached (mid-stream interrupt eager-flush), the parking branch
   // no longer finds a live streamEntry and falls through to plain appendMessage.
-  // The streamId is gone, so remove whatever synthetic anchor we recorded for
-  // this session::actor by key — from store + cache — before the real reply is
-  // appended, so the two do not coexist permanently.
+  // Drop every synthetic interrupt-* for this actor (tracked ref + store rows)
+  // and mark the in-flight eager flush superseded so it cannot re-insert.
   function removeInterruptedStreamPlaceholderForRealReply(
     sessionId: string,
     actorId: string,
   ) {
     const streamKey = agentStreamKey(sessionId, actorId);
-    const placeholder = interruptedStreamFlushRef.current[streamKey];
-    if (!placeholder) {
+    interruptedFlushSupersededRef.current[streamKey] = true;
+    const tracked = interruptedStreamFlushRef.current[streamKey];
+    const { messageIds } = resolveInterruptedPlaceholdersToDrop({
+      tracked,
+      messages: useSessionMessageStore.getState().messages[sessionId] ?? [],
+      actorId,
+    });
+    if (messageIds.length === 0 && !tracked) {
       logExtMsgDiag("interrupt.removeForRealReply.miss", {
         sessionId,
         actorId,
-        note: "real AGENT_REPLY arrived but placeholder ref empty — interrupt may remain → duplicate header",
+        note: "no tracked placeholder and no interrupt-* rows — ok if eager flush never ran",
       });
       return;
     }
     logExtMsgDiag("interrupt.removeForRealReply.hit", {
       sessionId,
       actorId,
-      placeholderMessageId: placeholder.messageId,
-      placeholderStreamId: placeholder.streamId,
+      placeholderMessageId: tracked?.messageId ?? null,
+      placeholderStreamId: tracked?.streamId ?? null,
+      droppedIds: messageIds,
+      superseded: true,
     });
-    dropInterruptedPlaceholderRow(sessionId, placeholder.messageId);
+    for (const messageId of messageIds) {
+      dropInterruptedPlaceholderRow(sessionId, messageId);
+    }
     delete interruptedStreamFlushRef.current[streamKey];
   }
 
@@ -1035,6 +1053,19 @@ function AppContent() {
       ...summarizeStreamEntry(snapshot, "snapshot"),
     });
 
+    // Register BEFORE async persist so a racing real AGENT_REPLY can find and
+    // supersede this placeholder (previously only set in afterEnriched).
+    interruptedFlushSupersededRef.current[streamKey] = false;
+    interruptedStreamFlushRef.current[streamKey] = {
+      streamId: snapshot.streamId,
+      messageId: syntheticReply.messageId,
+    };
+    logExtMsgDiag("flush.interrupted.placeholderRecorded.early", {
+      sessionId,
+      actorId,
+      ...summarizeProtoForExtDiag(syntheticReply),
+    });
+
     flushTurnAgentReplyInFlightRef.current[streamKey] = true;
     const streamEntrySnapshot = snapshot;
     useV2StreamingStore
@@ -1050,7 +1081,18 @@ function AppContent() {
       pendingReplies: [],
       streamEntrySnapshot,
       persistedStage: "flush.interrupted.persisted",
+      shouldCommit: () => !interruptedFlushSupersededRef.current[streamKey],
       afterEnriched: (enrichedReply) => {
+        if (interruptedFlushSupersededRef.current[streamKey]) {
+          logExtMsgDiag("flush.interrupted.superseded.beforeCommit", {
+            sessionId,
+            actorId,
+            ...summarizeProtoForExtDiag(enrichedReply),
+          });
+          dropInterruptedPlaceholderRow(sessionId, enrichedReply.messageId);
+          delete interruptedStreamFlushRef.current[streamKey];
+          return;
+        }
         interruptedStreamFlushRef.current[streamKey] = {
           streamId: snapshot.streamId,
           messageId: enrichedReply.messageId,
@@ -2022,6 +2064,7 @@ function AppContent() {
       pendingStreamRepliesRef.current = {};
       terminalFlushPendingRef.current = {};
       interruptedStreamFlushRef.current = {};
+      interruptedFlushSupersededRef.current = {};
       disposeTeamclawRpc();
       disposeRemoteToolsRpcServer();
       disposeRuntimeStateStore();

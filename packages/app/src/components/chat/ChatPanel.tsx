@@ -1892,11 +1892,6 @@ export function ChatPanel({ compact = false }: ChatPanelProps) {
     }
   }, [restoreSession, viewingArchivedSessionId]);
 
-  const handlePrefillComposer = React.useCallback((text: string) => {
-    setInputValue(text);
-    useUIStore.getState().requestComposerFocus();
-  }, [setInputValue]);
-
   const emptyState = React.useMemo(() => {
     if (activeSessionId) {
       if (compact) {
@@ -1905,7 +1900,6 @@ export function ChatPanel({ compact = false }: ChatPanelProps) {
       return (
         <SessionEmptyThreadState
           sessionId={activeSessionId}
-          onPrefillComposer={handlePrefillComposer}
         />
       );
     }
@@ -1993,7 +1987,6 @@ export function ChatPanel({ compact = false }: ChatPanelProps) {
     handleLocalAgentQuickAction,
     handleOpenAgentSettings,
     activeSessionId,
-    handlePrefillComposer,
   ]);
 
   const visibleSessionError =

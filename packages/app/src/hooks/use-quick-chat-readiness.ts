@@ -83,6 +83,9 @@ export function useQuickChatReadiness(): QuickChatState {
     prevMqttConnectedRef.current = null
     prevMqttNonceRef.current = mqttReconnectNonce
     resolveSettledRef.current = false
+    // Team switch must not keep the previous team's agent on screen.
+    setTarget(null)
+    setResolving(Boolean(teamId))
   }, [teamId])
 
   React.useEffect(() => {
@@ -150,7 +153,13 @@ export function useQuickChatReadiness(): QuickChatState {
     }
 
     let cancelled = false
-    setResolving(true)
+    const hadTarget = Boolean(targetRef.current)
+    // Keep the last ready agent visible during silent re-resolves (MQTT /
+    // prefs refresh). Only show the full-page spinner when we have nothing
+    // to paint yet — otherwise the extension welcome flash: ready → spinner → ready.
+    if (!hadTarget) {
+      setResolving(true)
+    }
     resolveSettledRef.current = false
 
     void resolveQuickChatTarget(teamId, { workspacePath })

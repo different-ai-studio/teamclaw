@@ -10,6 +10,7 @@ import type { EngagedAgentUiEntry } from '@/hooks/use-engaged-agent-ui-states'
 
 const mocks = vi.hoisted(() => ({
   runtimeStates: {} as Record<string, unknown>,
+  isInternalBuild: vi.fn(() => false),
 }))
 
 vi.mock('react-i18next', () => ({
@@ -25,6 +26,10 @@ vi.mock('@/stores/runtime-state-store', () => ({
 
 vi.mock('@/lib/teamclaw-rpc', () => ({
   setModel: vi.fn(),
+}))
+
+vi.mock('@/lib/internal-build', () => ({
+  isInternalBuild: () => mocks.isInternalBuild(),
 }))
 
 function dockProps(
@@ -50,6 +55,7 @@ describe('AgentSelectorDock', () => {
   beforeEach(() => {
     vi.clearAllMocks()
     mocks.runtimeStates = {}
+    mocks.isInternalBuild.mockReturnValue(false)
     useAgentModelPickStore.setState({ bySessionAgent: {} })
     useActorPresenceStore.setState({ byActorId: {} })
   })
@@ -144,6 +150,34 @@ describe('AgentSelectorDock', () => {
 
     expect(await screen.findByText('new-model')).toBeInTheDocument()
     expect(screen.queryByText('old-model')).not.toBeInTheDocument()
+  })
+
+  it('hides model label on the pill in internal builds', async () => {
+    mocks.isInternalBuild.mockReturnValue(true)
+    mocks.runtimeStates = {
+      'runtime-1': {
+        daemonActorId: 'a-1',
+        lastUpdated: Date.now(),
+        info: {
+          availableModels: [{ id: 'opencode/big-pickle', displayName: 'Big Pickle' }],
+          currentModel: 'opencode/big-pickle',
+          state: RuntimeLifecycle.ACTIVE,
+        },
+      },
+    }
+
+    render(
+      <AgentSelectorDock
+        {...dockProps({
+          activeSessionId: 'session-1',
+          engagedAgents: [{ id: 'a-1', displayName: 'OpenCode Bot' }],
+          agentToRuntimeId: new Map([['a-1', 'runtime-1']]),
+        })}
+      />,
+    )
+
+    expect(await screen.findByRole('button', { name: /OpenCode Bot/i })).toBeInTheDocument()
+    expect(screen.queryByText('Big Pickle')).not.toBeInTheDocument()
   })
 
   it('shows no-models hint when ACP retain has no available_models and runtime is active', async () => {

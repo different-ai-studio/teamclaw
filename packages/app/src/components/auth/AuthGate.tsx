@@ -285,10 +285,14 @@ export function AuthGate({ children }: AuthGateProps) {
   // Each gate below either (a) is a pure-loading state — return null so the
   // static #skeleton (z-9999, mirrors the real shell) keeps showing through an
   // empty #root, no blank flash; or (b) renders real/interactive UI — tear the
-  // skeleton down first so the screen is visible and clickable. The happy path
-  // (children) deliberately does NOT remove the skeleton here: App removes it
-  // once the workspace resolves, so the hand-off goes skeleton → real UI with
-  // no intermediate spinner.
+  // skeleton down first so the screen is visible and clickable.
+  //
+  // Desktop happy path: children deliberately do NOT remove the skeleton —
+  // App removes it once the workspace resolves (skeleton → real UI).
+  // Extension/web: there is no workspace gate, so AuthGate removes the
+  // skeleton when rendering children. If App tore it down earlier, #root
+  // would stay empty through auth hydrate / team bootstrap / myTeams and
+  // the side panel would flash white for seconds.
 
   // First-run: in Tauri, ensure local prerequisites (amuxd/opencode) before auth.
   if (isTauri() && !setupAck) {
@@ -321,7 +325,8 @@ export function AuthGate({ children }: AuthGateProps) {
 
   // Team bootstrap failed (e.g. createTeam rejected by a drifted backend).
   // Surface it with a retry; `retrying` keeps this up while a retry re-resolves.
-  if (isTauri() && (bootstrap === "error" || retrying)) {
+  // Applies on extension/web too — team-scoped UI cannot run without a team.
+  if (bootstrap === "error" || retrying) {
     removeStartupSkeleton();
     return (
       <TeamBootstrapErrorScreen
@@ -333,7 +338,10 @@ export function AuthGate({ children }: AuthGateProps) {
     );
   }
 
-  if (isTauri() && bootstrap !== "ready") {
+  // Hold the skeleton through team bootstrap on every platform. Extension/web
+  // used to fall through here and paint children, then bounce back to null
+  // while myTeams loaded — a white flash once the skeleton was already gone.
+  if (bootstrap !== "ready") {
     return null;
   }
 
@@ -343,7 +351,7 @@ export function AuthGate({ children }: AuthGateProps) {
   // the team server-side, adopts the org-switched JWT, switches current team,
   // and refreshes the daemon) — so the daemon gate below then evaluates against
   // the chosen team and triggers re-onboard on mismatch.
-  if (session && bootstrap === "ready" && !teamChosen) {
+  if (session && !teamChosen) {
     if (myTeams === null) {
       return null; // Still loading the team list — keep the skeleton.
     }
@@ -379,6 +387,9 @@ export function AuthGate({ children }: AuthGateProps) {
   }
 
   markStartup("authgate:children");
+  if (!isTauri()) {
+    removeStartupSkeleton();
+  }
   // Rendered alongside the app rather than as a gate: an unaccepted invite is
   // not a reason to withhold the workspace the user already has.
   return (
