@@ -42,6 +42,14 @@ jobs:
           - target: x86_64-apple-darwin
             runner: macos-latest
     runs-on: ${{ matrix.runner }}
+    # Job-level, not step-level: these used to sit only on the tauri-action step,
+    # so the introspect + amuxd sidecar builds in "Build all (parallel)" compiled
+    # with no sccache despite sharing most of their dependency graph with the
+    # tauri build. Every cargo invocation in this job now shares one sccache.
+    env:
+      SCCACHE_GHA_ENABLED: "true"
+      RUSTC_WRAPPER: sccache
+      CARGO_INCREMENTAL: "0"
     steps:
       - uses: actions/checkout@v7
 
@@ -124,6 +132,12 @@ jobs:
           workspaces: |
             . -> target
           key: ${{ matrix.target }}
+          # sccache (wired via the job-level RUSTC_WRAPPER) already caches every
+          # crate's compiled output, so caching target/ here too is redundant and
+          # both caches compete for the repo's shared 10 GB Actions cache. Keep
+          # only the ~/.cargo registry cache and let sccache own compilation; also
+          # drops the multi-minute "Post Rust cache" save of a large target/ dir.
+          cache-targets: false
 
       - name: Install protoc (for prost_build)
         run: brew install protobuf
@@ -285,9 +299,6 @@ jobs:
           TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
           UPDATER_GITHUB_TOKEN: ${{ secrets.UPDATER_GITHUB_TOKEN }}
           DEVICE_JWT_SECRET: ${{ secrets.DEVICE_JWT_SECRET }}
-          SCCACHE_GHA_ENABLED: "true"
-          RUSTC_WRAPPER: sccache
-          CARGO_INCREMENTAL: "0"
         with:
           tagName: ${{ github.ref_name }}
           releaseName: "${{ steps.release_notes.outputs.app_name }} ${{ github.ref_name }}"
@@ -302,6 +313,12 @@ jobs:
     permissions:
       contents: write
     runs-on: windows-latest
+    # See release-macos: hoisted off the tauri-action step so the introspect and
+    # amuxd sidecar builds get sccache too.
+    env:
+      SCCACHE_GHA_ENABLED: "true"
+      RUSTC_WRAPPER: sccache
+      CARGO_INCREMENTAL: "0"
     steps:
       - uses: actions/checkout@v7
 
@@ -383,6 +400,10 @@ jobs:
           # cargo puts every member's output under the root target/.
           workspaces: |
             . -> target
+          # See release-macos: sccache owns compiled artifacts, so caching target/
+          # here is redundant and competes with sccache for the shared 10 GB
+          # Actions cache. Keep only ~/.cargo and cut the "Post Rust cache" save.
+          cache-targets: false
 
       - name: Install protoc (for prost_build)
         shell: bash
@@ -478,9 +499,6 @@ jobs:
           TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
           TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
           DEVICE_JWT_SECRET: ${{ secrets.DEVICE_JWT_SECRET }}
-          SCCACHE_GHA_ENABLED: "true"
-          RUSTC_WRAPPER: sccache
-          CARGO_INCREMENTAL: "0"
         with:
           tagName: ${{ github.ref_name }}
           releaseName: "${{ steps.release_notes.outputs.app_name }} ${{ github.ref_name }}"
