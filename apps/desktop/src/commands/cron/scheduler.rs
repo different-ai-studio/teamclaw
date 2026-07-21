@@ -491,6 +491,30 @@ impl CronScheduler {
             wt_guard.path.as_deref(),
         );
 
+        // Eagerly create the cloud session and stamp its id into the run record
+        // now — before the (cold-starting) ACP runtime spawn inside prompt-await
+        // — so the desktop UI can navigate to the session within a couple of
+        // seconds of "Run Now" instead of waiting out the whole turn. Best
+        // effort: if it fails, prompt-await still creates the session later and
+        // stamps it then; we just lose the early navigation for this run.
+        match crate::commands::cron::amuxd_client::prepare_cron_session(
+            &session_key,
+            Some(&job.name),
+        )
+        .await
+        {
+            Ok(session_id) => {
+                record.session_id = Some(session_id);
+                self.persist_run_and_notify_ui(&record).await;
+            }
+            Err(e) => {
+                tracing::warn!(
+                    session_key = %session_key,
+                    "cron: eager session prepare failed ({e}); will stamp after turn"
+                );
+            }
+        }
+
         // Honor `payload.model` only when that pair still exists in the workspace
         // config for this run (workspace-scoped path, or daemon default for global).
         let model_workspace_path = match working_directory.clone() {
