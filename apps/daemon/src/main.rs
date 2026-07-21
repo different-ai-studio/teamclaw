@@ -113,9 +113,9 @@ fn main() -> anyhow::Result<()> {
             let rt = tokio::runtime::Runtime::new()?;
             rt.block_on(async {
                 let (tx, mut rx) = tokio::sync::mpsc::channel(256);
-                let binary = "claude".to_string();
+                let binary = "opencode".to_string();
                 println!(
-                    "Spawning ACP agent: {} with prompt \"{}\" in {}",
+                    "Spawning opencode agent: {} with prompt \"{}\" in {}",
                     binary, prompt, worktree
                 );
 
@@ -127,7 +127,7 @@ fn main() -> anyhow::Result<()> {
                     Vec::new(),
                     worktree.clone(),
                     prompt.clone(),
-                    proto::amux::AgentType::ClaudeCode,
+                    proto::amux::AgentType::Opencode,
                     tx,
                     None,
                     startup_tx,

@@ -69,8 +69,8 @@ fn sanitize_for_filename(s: &str) -> String {
         .collect()
 }
 
-/// Path of the per-session MCP config file emitted before claude-code
-/// is spawned. Filename is keyed by `logical_session_id` (the amuxd-side
+/// Path of the per-session MCP config file emitted before the session is
+/// attached. Filename is keyed by `logical_session_id` (the amuxd-side
 /// session key — for gateway sessions this is the SQL-minted
 /// `acp_session_id` hex) so the same file is reused if the runtime is
 /// re-spawned under the same logical id (e.g. after `/reset`).
@@ -81,9 +81,11 @@ pub fn gateway_mcp_config_path(logical_session_id: &str) -> PathBuf {
     ))
 }
 
-/// Write the per-session MCP config that points claude-code at
-/// amuxd's own `mcp-server` subcommand. The resulting file path is
-/// passed to claude via `--mcp-config <path>`.
+/// Write the per-session MCP config that points the agent at amuxd's own
+/// `mcp-server` subcommand. The resulting file path is passed to the
+/// opencode HTTP backend, which merges its `mcpServers` entries into the
+/// worktree's `opencode.json` `mcp` map before attaching the session (the
+/// global `opencode serve` has no per-session MCP parameter).
 ///
 /// `logical_session_id` is what AmuxdAcpHandle uses as its map key
 /// (gateway → SQL-minted acp_session_id); the MCP server forwards it
@@ -131,11 +133,10 @@ fn write_gateway_mcp_config(
     Ok(path)
 }
 
-/// Translate a gateway-facing short model name ("sonnet", "opus", "haiku")
-/// to the full ACP model id used by `claude-agent-acp`. Returns `None` for
-/// unknown short names so callers can fall through to passing the input
-/// verbatim (supports full ids like "claude-sonnet-4-6" without a separate
-/// validation branch).
+/// Translate a legacy gateway-facing short model name ("sonnet", "opus",
+/// "haiku") to a full model id. Returns `None` for unknown short names so
+/// callers can fall through to passing the input verbatim (supports full ids
+/// like "claude-sonnet-4-6" without a separate validation branch).
 pub fn model_id_for_short_name(short: &str) -> Option<String> {
     match short {
         "sonnet" => Some("claude-sonnet-4-6".to_string()),
@@ -1145,8 +1146,8 @@ impl RuntimeManager {
             .as_ref()
             .map(|(provider, model)| resolve_initial_model(agent_type, provider, model));
 
-        // Write the MCP config BEFORE spawning claude-code so the
-        // `--mcp-config` path it gets points at a real file. The config
+        // Write the MCP config BEFORE attaching the session so the opencode
+        // backend can merge it into the worktree's opencode.json. The config
         // mounts amuxd's own `mcp-server` subcommand which exposes the
         // `send` tool for proactive replies/file uploads back to the
         // gateway chat. Failures here are non-fatal — we still spawn

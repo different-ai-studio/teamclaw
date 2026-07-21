@@ -22,7 +22,10 @@ use std::collections::HashMap;
 use std::sync::Arc;
 use tokio::sync::Mutex;
 
-use teamclaw_gateway::{AcpAvailableCommand, AgentInfo, AcpError, AcpHandle, AcpTurnOutcome, AmuxSessionId, ModelInfo, WorkspaceInfo};
+use teamclaw_gateway::{
+    AcpAvailableCommand, AcpError, AcpHandle, AcpTurnOutcome, AgentInfo, AmuxSessionId, ModelInfo,
+    WorkspaceInfo,
+};
 
 use crate::backend::Backend;
 use crate::proto::amux;
@@ -200,8 +203,7 @@ impl AmuxdAcpHandle {
             let overrides = self.model_override.lock().await;
             overrides.get(session).cloned()
         };
-        let (workspace_dir, agent_type) =
-            self.resolve_spawn_target(session, &binding).await;
+        let (workspace_dir, agent_type) = self.resolve_spawn_target(session, &binding).await;
         let real = {
             let mut mgr = self.manager.lock().await;
             mgr.create_gateway_session_with_model(
@@ -689,7 +691,11 @@ impl AcpHandle for AmuxdAcpHandle {
                         .map(|c| AcpAvailableCommand {
                             name: c.name,
                             description: c.description,
-                            input_hint: if c.input_hint.is_empty() { None } else { Some(c.input_hint) },
+                            input_hint: if c.input_hint.is_empty() {
+                                None
+                            } else {
+                                Some(c.input_hint)
+                            },
                         })
                         .collect()
                 } else {
@@ -703,7 +709,10 @@ impl AcpHandle for AmuxdAcpHandle {
         // Resolve agent type: per-session override → default → ClaudeCode fallback.
         let agent_type = {
             let overrides = self.agent_type_override.lock().await;
-            overrides.get(session.as_str()).copied().or(self.default_agent_type)
+            overrides
+                .get(session.as_str())
+                .copied()
+                .or(self.default_agent_type)
         };
 
         // ── 2. Agent built-in commands (ClaudeCode doesn't report via AcpAvailableCommands) ──
@@ -719,7 +728,11 @@ impl AcpHandle for AmuxdAcpHandle {
                 result.push(AcpAvailableCommand {
                     name: name.to_string(),
                     description: description.to_string(),
-                    input_hint: if hint.is_empty() { None } else { Some(hint.to_string()) },
+                    input_hint: if hint.is_empty() {
+                        None
+                    } else {
+                        Some(hint.to_string())
+                    },
                 });
             }
         }
@@ -769,40 +782,38 @@ impl AcpHandle for AmuxdAcpHandle {
         active_session: &AmuxSessionId,
     ) -> Result<Vec<(AmuxSessionId, bool)>, AcpError> {
         let map = self.logical_to_acp.lock().await;
-        Ok(map.keys().map(|k| (k.clone(), k == active_session)).collect())
+        Ok(map
+            .keys()
+            .map(|k| (k.clone(), k == active_session))
+            .collect())
     }
 
-    async fn list_agents(
-        &self,
-        session: &AmuxSessionId,
-    ) -> Result<Vec<AgentInfo>, AcpError> {
-        let current = {
-            let overrides = self.agent_type_override.lock().await;
-            overrides
-                .get(session.as_str())
-                .copied()
-                .or(self.default_agent_type)
-                .unwrap_or(amux::AgentType::ClaudeCode)
-        };
-        Ok(vec![
-            AgentInfo { agent_type: "claude-code".to_string(), is_current: current == amux::AgentType::ClaudeCode },
-            AgentInfo { agent_type: "opencode".to_string(), is_current: current == amux::AgentType::Opencode },
-            AgentInfo { agent_type: "codex".to_string(), is_current: current == amux::AgentType::Codex },
-        ])
+    /// Single-agent mode: opencode is the only backend, so it is always the
+    /// (only) advertised and current agent.
+    async fn list_agents(&self, _session: &AmuxSessionId) -> Result<Vec<AgentInfo>, AcpError> {
+        Ok(vec![AgentInfo {
+            agent_type: "opencode".to_string(),
+            is_current: true,
+        }])
     }
 
-    async fn set_agent(
-        &self,
-        session: &AmuxSessionId,
-        agent_type: &str,
-    ) -> Result<(), AcpError> {
+    /// Accepts the legacy `claude-code` / `codex` names for back-compat, but
+    /// every request resolves to opencode (single-agent mode).
+    async fn set_agent(&self, session: &AmuxSessionId, agent_type: &str) -> Result<(), AcpError> {
         let t = match agent_type {
-            "claude-code" => amux::AgentType::ClaudeCode,
             "opencode" => amux::AgentType::Opencode,
-            "codex" => amux::AgentType::Codex,
-            other => return Err(AcpError::NotFound(format!(
-                "unknown agent type '{other}'; valid: claude-code, opencode, codex"
-            ))),
+            "claude-code" | "claude" | "claude_code" | "codex" => {
+                tracing::warn!(
+                    requested = agent_type,
+                    "legacy agent type requested; rerouting to opencode (single-agent mode)"
+                );
+                amux::AgentType::Opencode
+            }
+            other => {
+                return Err(AcpError::NotFound(format!(
+                    "unknown agent type '{other}'; valid: opencode"
+                )))
+            }
         };
         {
             let mut overrides = self.agent_type_override.lock().await;
@@ -856,7 +867,9 @@ impl AcpHandle for AmuxdAcpHandle {
             .into_iter()
             .filter_map(|row| {
                 let path = row.path.as_deref()?.trim();
-                if path.is_empty() || !crate::config::workspace_path::is_linkable_workspace_path(path) {
+                if path.is_empty()
+                    || !crate::config::workspace_path::is_linkable_workspace_path(path)
+                {
                     return None;
                 }
                 if !std::path::Path::new(path).is_dir() {
@@ -943,6 +956,30 @@ mod tests {
         }
     }
 
+    #[tokio::test]
+    async fn list_agents_returns_only_opencode() {
+        let handle = make_handle();
+        let agents = handle
+            .list_agents(&AmuxSessionId::from("sess-1".to_string()))
+            .await
+            .unwrap();
+        assert_eq!(agents.len(), 1);
+        assert_eq!(agents[0].agent_type, "opencode");
+        assert!(agents[0].is_current);
+    }
+
+    #[tokio::test]
+    async fn set_agent_reroutes_legacy_names_to_opencode() {
+        let handle = make_handle();
+        let sid = AmuxSessionId::from("sess-1".to_string());
+        for name in ["claude-code", "claude", "claude_code", "codex", "opencode"] {
+            handle.set_agent(&sid, name).await.unwrap();
+            let ov = handle.agent_type_override.lock().await;
+            assert_eq!(ov.get("sess-1"), Some(&amux::AgentType::Opencode), "{name}");
+        }
+        assert!(handle.set_agent(&sid, "gpt").await.is_err());
+    }
+
     /// Drive a `TurnAggregator` and `absorb_emitted` — the same pair
     /// `run_turn` uses — over a scripted event stream.
     fn segments_from(events: &[amux::AcpEvent]) -> Vec<String> {
@@ -986,10 +1023,12 @@ mod tests {
 
     fn turn_end() -> amux::AcpEvent {
         amux::AcpEvent {
-            event: Some(amux::acp_event::Event::StatusChange(amux::AcpStatusChange {
-                old_status: amux::AgentStatus::Active as i32,
-                new_status: amux::AgentStatus::Idle as i32,
-            })),
+            event: Some(amux::acp_event::Event::StatusChange(
+                amux::AcpStatusChange {
+                    old_status: amux::AgentStatus::Active as i32,
+                    new_status: amux::AgentStatus::Idle as i32,
+                },
+            )),
             model: String::new(),
         }
     }
@@ -1052,8 +1091,14 @@ mod tests {
 
     #[test]
     fn bot_id_parsed_from_wecom_binding() {
-        assert_eq!(bot_id_from_binding("wecom://botX/botX/single/u1"), Some("botX"));
-        assert_eq!(bot_id_from_binding("wecom://botY/botY/group/c9"), Some("botY"));
+        assert_eq!(
+            bot_id_from_binding("wecom://botX/botX/single/u1"),
+            Some("botX")
+        );
+        assert_eq!(
+            bot_id_from_binding("wecom://botY/botY/group/c9"),
+            Some("botY")
+        );
         assert_eq!(bot_id_from_binding("discord://g/c"), None);
         assert_eq!(bot_id_from_binding(""), None);
     }
@@ -1075,16 +1120,26 @@ mod tests {
         handle.default_workspace_dir = Some("/ws/global".into());
         handle.default_agent_type = Some(AgentType::ClaudeCode);
 
-        let (ws, at) = handle.resolve_spawn_target("sess-A", "wecom://botA/botA/single/u").await;
+        let (ws, at) = handle
+            .resolve_spawn_target("sess-A", "wecom://botA/botA/single/u")
+            .await;
         assert_eq!(ws.as_deref(), Some("/ws/bot-a"));
         assert_eq!(at, Some(AgentType::Opencode));
 
-        let (ws2, at2) = handle.resolve_spawn_target("sess-Z", "wecom://botZ/botZ/single/u").await;
+        let (ws2, at2) = handle
+            .resolve_spawn_target("sess-Z", "wecom://botZ/botZ/single/u")
+            .await;
         assert_eq!(ws2.as_deref(), Some("/ws/global"));
         assert_eq!(at2, Some(AgentType::ClaudeCode));
 
-        handle.agent_type_override.lock().await.insert("sess-A".into(), AgentType::Codex);
-        let (_ws3, at3) = handle.resolve_spawn_target("sess-A", "wecom://botA/botA/single/u").await;
+        handle
+            .agent_type_override
+            .lock()
+            .await
+            .insert("sess-A".into(), AgentType::Codex);
+        let (_ws3, at3) = handle
+            .resolve_spawn_target("sess-A", "wecom://botA/botA/single/u")
+            .await;
         assert_eq!(at3, Some(AgentType::Codex));
     }
 
@@ -1166,7 +1221,12 @@ mod tests {
 
     #[test]
     fn preamble_includes_bot_system_prompt() {
-        let p = build_first_turn_prompt("wecom", Some("你是法务助手，只用中文回答。"), "Alice", "你好");
+        let p = build_first_turn_prompt(
+            "wecom",
+            Some("你是法务助手，只用中文回答。"),
+            "Alice",
+            "你好",
+        );
         assert!(p.contains("你是法务助手"));
         assert!(p.contains("[Alice] 你好"));
         assert!(p.contains("amuxd-send"), "keeps the send-tool note");

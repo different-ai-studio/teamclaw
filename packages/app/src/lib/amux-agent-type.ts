@@ -42,5 +42,6 @@ export function resolveAmuxAgentType(
       return AgentType.CODEX
   }
 
-  return AgentType.CLAUDE_CODE
+  // Single-agent mode: unknown agent-type strings default to opencode.
+  return AgentType.OPENCODE
 }

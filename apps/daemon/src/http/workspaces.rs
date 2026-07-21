@@ -458,11 +458,8 @@ pub async fn delete_provider_auth(
 pub struct CatalogModel {
     /// Stable reference stored as the cron payload model string. Always
     /// `"<providerSegment>/<modelId>"` so the existing `provider/model` wire
-    /// format (parsed by `parse_model_preference`) keeps working:
-    /// - opencode: `"<provider>/<modelId>"` (the ACP model id)
-    /// - claude: `"claude-code/<modelId>"` (provider segment is a marker;
-    ///   `resolve_initial_model` ignores it for ClaudeCode)
-    /// - codex: `"codex/<modelId>"`
+    /// format (parsed by `parse_model_preference`) keeps working. Single-agent
+    /// mode: always the opencode form `"<provider>/<modelId>"`.
     #[serde(rename = "ref")]
     pub model_ref: String,
     pub model_id: String,
@@ -472,7 +469,7 @@ pub struct CatalogModel {
 /// Models available under one agent backend.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 pub struct BackendCatalog {
-    /// Backend id as reported by the daemon: `"opencode" | "claude" | "codex"`.
+    /// Backend id as reported by the daemon (single-agent mode: `"opencode"`).
     pub backend: String,
     /// Human-readable label for the backend group header.
     pub label: String,
@@ -482,9 +479,8 @@ pub struct BackendCatalog {
 /// Full per-backend model catalog for a workspace.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 pub struct ModelCatalog {
-    /// Backend a cron job runs on when it doesn't specify one — mirrors the
-    /// daemon's `default_agent_type` precedence (opencode → claude → codex).
-    /// `None` when no backend is configured.
+    /// Backend a cron job runs on when it doesn't specify one — always
+    /// `"opencode"` in single-agent mode; `None` when no backend is configured.
     pub automation_default_backend: Option<String>,
     pub backends: Vec<BackendCatalog>,
 }
@@ -531,30 +527,23 @@ pub fn build_model_catalog(
 ) -> ModelCatalog {
     let mut backends = Vec::new();
 
+    // Single-agent mode: only the opencode backend group is ever served.
+    // (`configured_agent_types` comes from `supported_agent_type_names`, which
+    // now only emits "opencode"; anything else is skipped defensively.)
     for backend in configured_agent_types {
-        let models: Vec<CatalogModel> = match backend.as_str() {
-            "opencode" => opencode_acp_models
-                .filter(|m| !m.is_empty())
-                .map(catalog_models_from_acp)
-                .unwrap_or_else(|| catalog_models_from_opencode_json(opencode_providers)),
-            "claude" => crate::runtime::models::available_models_for(amux::AgentType::ClaudeCode)
-                .into_iter()
-                .map(|m| CatalogModel {
-                    model_ref: format!("claude-code/{}", m.id),
-                    model_id: m.id,
-                    display_name: m.display_name,
-                })
-                .collect(),
-            "codex" => crate::runtime::models::available_models_for(amux::AgentType::Codex)
-                .into_iter()
-                .map(|m| CatalogModel {
-                    model_ref: format!("codex/{}", m.id),
-                    model_id: m.id,
-                    display_name: m.display_name,
-                })
-                .collect(),
-            _ => Vec::new(),
-        };
+        if backend != "opencode" {
+            continue;
+        }
+        let mut models: Vec<CatalogModel> = opencode_acp_models
+            .filter(|m| !m.is_empty())
+            .map(catalog_models_from_acp)
+            .unwrap_or_else(|| catalog_models_from_opencode_json(opencode_providers));
+        if models.is_empty() {
+            // Static opencode fallback table (serve unreachable, no providers).
+            models = catalog_models_from_acp(&crate::runtime::models::available_models_for(
+                amux::AgentType::Opencode,
+            ));
+        }
         backends.push(BackendCatalog {
             backend: backend.clone(),
             label: backend_label(backend).to_string(),
@@ -562,11 +551,10 @@ pub fn build_model_catalog(
         });
     }
 
-    // Mirror RuntimeManager::default_agent_type precedence.
-    let automation_default_backend = ["opencode", "claude", "codex"]
+    let automation_default_backend = backends
         .iter()
-        .find(|b| configured_agent_types.iter().any(|c| c == *b))
-        .map(|s| s.to_string());
+        .any(|b| b.backend == "opencode")
+        .then(|| "opencode".to_string());
 
     ModelCatalog {
         automation_default_backend,
@@ -1151,41 +1139,35 @@ mod tests {
     }
 
     #[test]
-    fn claude_models_use_static_table_with_claude_code_prefix() {
-        let catalog = build_model_catalog(&["claude".to_string()], None, &[]);
-
-        assert_eq!(
-            catalog.automation_default_backend.as_deref(),
-            Some("claude")
+    fn legacy_backend_names_yield_no_catalog_groups() {
+        // Single-agent mode: only "opencode" is served; legacy names are
+        // skipped defensively even if they somehow reach the catalog builder.
+        let catalog = build_model_catalog(
+            &[
+                "claude".to_string(),
+                "codex".to_string(),
+                "opencode".to_string(),
+            ],
+            None,
+            &[],
         );
-        let claude = &catalog.backends[0];
-        assert_eq!(claude.backend, "claude");
-        assert_eq!(claude.label, "Claude Code");
-        assert!(!claude.models.is_empty(), "claude has a static model table");
-        // Every ref is "claude-code/<id>" so parse_model_preference yields a
-        // ("claude-code", <id>) pair; resolve_initial_model ignores the
-        // provider segment for ClaudeCode.
-        for m in &claude.models {
-            assert_eq!(m.model_ref, format!("claude-code/{}", m.model_id));
-        }
-        assert!(claude
-            .models
-            .iter()
-            .any(|m| m.model_id == "claude-sonnet-4-6"));
-    }
-
-    #[test]
-    fn multiple_backends_preserve_order_and_default_precedence() {
-        // Configured in a non-precedence order; default must still be opencode.
-        let catalog =
-            build_model_catalog(&["claude".to_string(), "opencode".to_string()], None, &[]);
         assert_eq!(
             catalog.automation_default_backend.as_deref(),
             Some("opencode")
         );
-        // Backends keep the configured order (claude first here).
-        assert_eq!(catalog.backends[0].backend, "claude");
-        assert_eq!(catalog.backends[1].backend, "opencode");
+        assert_eq!(catalog.backends.len(), 1);
+        assert_eq!(catalog.backends[0].backend, "opencode");
+    }
+
+    #[test]
+    fn opencode_without_live_or_provider_models_uses_static_fallback() {
+        let catalog = build_model_catalog(&["opencode".to_string()], None, &[]);
+        let oc = &catalog.backends[0];
+        assert_eq!(oc.models.len(), 1);
+        assert_eq!(
+            oc.models[0].model_ref,
+            crate::runtime::models::OPENCODE_FALLBACK_MODEL_ID
+        );
     }
 
     #[test]
@@ -1193,15 +1175,5 @@ mod tests {
         let catalog = build_model_catalog(&[], None, &[]);
         assert!(catalog.automation_default_backend.is_none());
         assert!(catalog.backends.is_empty());
-    }
-
-    #[test]
-    fn codex_backend_is_present_even_when_model_table_empty() {
-        let catalog = build_model_catalog(&["codex".to_string()], None, &[]);
-        assert_eq!(catalog.automation_default_backend.as_deref(), Some("codex"));
-        assert_eq!(catalog.backends[0].backend, "codex");
-        // Static codex table is empty today; the group still appears so the UI
-        // can show a "no models" hint rather than hiding the backend.
-        assert!(catalog.backends[0].models.is_empty());
     }
 }

@@ -408,16 +408,16 @@ impl RefreshChangeKind {
         }
     }
 
-    /// Whether applying this change requires evicting the long-lived ACP
-    /// provider hosts so a freshly-spawned process picks it up.
+    /// Whether applying this change requires restarting the global
+    /// `opencode serve` process so freshly-created sessions pick it up.
     ///
     /// Only provider-auth / provider-config kinds do. `Skills` and
-    /// `TeamclawConfig` don't touch the provider process; `Mcp` config is passed
-    /// per-session via `attach_session(mcp_config_path)` rather than baked into
-    /// the host; `Permissions` are enforced per-turn. Evicting for those merely
-    /// discards a prewarmed host and forces the next session to cold-start the
-    /// binary again (20s+ for opencode/claude) — the exact regression this
-    /// predicate guards against.
+    /// `TeamclawConfig` don't touch the serve process; `Mcp` config is merged
+    /// into the worktree's `opencode.json` at `attach_session(mcp_config_path)`
+    /// time rather than baked into the process; `Permissions` are enforced
+    /// per-turn. Restarting for those merely discards a warm serve instance
+    /// and forces the next session to cold-start the binary again — the exact
+    /// regression this predicate guards against.
     pub fn requires_provider_host_evict(self) -> bool {
         matches!(
             self,
