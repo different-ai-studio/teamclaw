@@ -28,16 +28,28 @@ async function globalTeamDir(teamId: string): Promise<string> {
 }
 
 /**
- * Resolve the workspace team dir, falling back to the global copy when the
- * in-workspace `teamclaw-team` link is missing or dangling.
+ * The single global team share dir `~/.amuxd/teams/<team_id>/teamclaw-team`,
+ * regardless of whether it exists on disk. Returns `null` only when no team is
+ * onboarded (no `team_id` in `~/.amuxd/daemon.toml`).
+ *
+ * This is the daemon-owned canonical copy. We intentionally do NOT consider the
+ * per-workspace `teamclaw-team` symlink here — reading the global dir directly
+ * is robust against a missing or dangling workspace link.
  */
-export async function resolveTeamDir(workspacePath: string): Promise<string | null> {
-  const linkDir = `${workspacePath}/${TEAM_SHARE_LINK_DIR}`
-  if (await exists(linkDir)) return linkDir
-
+export async function globalTeamShareDir(): Promise<string | null> {
   const teamId = await readOnboardedTeamId()
   if (!teamId) return null
-  const globalDir = await globalTeamDir(teamId)
+  return globalTeamDir(teamId)
+}
+
+/**
+ * Resolve the global team share dir, but only when it actually exists on disk.
+ * Used by callers that want to enumerate real content (skills, knowledge); they
+ * treat `null` as "nothing to contribute".
+ */
+export async function resolveTeamDir(_workspacePath: string): Promise<string | null> {
+  const globalDir = await globalTeamShareDir()
+  if (!globalDir) return null
   return (await exists(globalDir)) ? globalDir : null
 }
 
