@@ -20,6 +20,8 @@ import { TEAMCLAW_DIR, CONFIG_FILE_NAME, TEAM_REPO_DIR } from "@/lib/build-confi
 import { adaptTeamclawMessages } from "@/lib/v2-message-adapter";
 import { notePendingAgentReplyTo } from "@/lib/pending-agent-reply-to";
 import { logInterruptMsgDiag } from "@/lib/interrupt-msg-diag";
+import { logExtMsgDiag } from "@/lib/extension-msg-diag";
+import { isChromeExtension } from "@/lib/platform";
 import { useAuthStore } from "@/stores/auth-store";
 import { bumpSessionListLastMessage } from "@/lib/session-list-preview";
 import { useSessionListStore } from "@/stores/session-list-store";
@@ -2056,6 +2058,33 @@ export function ChatPanel({ compact = false }: ChatPanelProps) {
         lastUpdate: entry.lastUpdate,
       })),
     });
+    if (isChromeExtension()) {
+      const assistantTail = timelineMessages
+        .filter((m) => m.role !== "user" && m.role !== "system")
+        .slice(-6);
+      logExtMsgDiag("ui.timeline", {
+        sessionId: displaySessionId,
+        assistantTail: assistantTail.map((m) => ({
+          id: m.id,
+          role: m.role,
+          turnId: m.turnId ?? "",
+          replyTo: m.replyToMessageId ?? "",
+          contentLen: (m.content ?? "").trim().length,
+          isInterrupt: m.id.startsWith("interrupt-"),
+          toolCount: m.toolCalls?.length ?? 0,
+          partTypes: m.parts?.map((p) => p.type) ?? [],
+          hasProcessParts: (m.parts ?? []).some(
+            (p) => p.type === "reasoning" || p.type === "tool-call",
+          ),
+        })),
+        interruptVisible: assistantTail.filter((m) =>
+          m.id.startsWith("interrupt-"),
+        ).length,
+        replyToHeaders: assistantTail.filter((m) =>
+          Boolean(m.replyToMessageId?.trim()),
+        ).length,
+      });
+    }
   }, [displaySessionId, displayMessages, displayV2Streams]);
 
   const hasSessionNotices = useSessionNoticeStore((s) =>

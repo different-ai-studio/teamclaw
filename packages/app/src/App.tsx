@@ -10,7 +10,7 @@ import { useTranslation } from "react-i18next";
 import i18n from "@/lib/i18n";
 import { Toaster, toast } from "sonner";
 import { cn, isTauri, removeStartupSkeleton } from "@/lib/utils";
-import { capabilities } from "@/lib/platform";
+import { capabilities, isChromeExtension } from "@/lib/platform";
 import { scheduleReleaseStuckModalLayers } from "@/lib/modal-layer-cleanup";
 import { appDisplayName, buildConfig } from "@/lib/build-config";
 import { buildSessionDeeplink } from "@/lib/session-deeplink";
@@ -148,6 +148,11 @@ import {
   summarizePendingReplies,
   summarizeStreamEntry,
 } from "@/lib/interrupt-msg-diag";
+import {
+  logExtMsgDiag,
+  summarizeProtoForExtDiag,
+  summarizeProtosForExtDiag,
+} from "@/lib/extension-msg-diag";
 import { logStreamToolDiag } from "@/lib/stream-tool-diag";
 import { useOutboxStore } from "@/stores/outbox-store";
 import { startOutboxSender } from "@/services/outbox-sender";
@@ -161,6 +166,7 @@ import { getDesktopDeviceId } from "./lib/backend/cloud-api/device-id";
 import { create as createMessage } from "@bufbuild/protobuf";
 import { MessageSchema, MessageKind, type Message as TeamclawMessage } from "@/lib/proto/teamclaw_pb";
 import { messageRowsToProto } from "@/lib/session-export/collect";
+import { historyRowsToMessageRows } from "@/lib/message-history-map";
 import {
   agentStreamKey,
   buildInterruptedStreamAnchor,
@@ -882,12 +888,22 @@ function AppContent() {
   // message store AND the libsql cache, so it never survives a reload as a
   // duplicate bubble alongside the real reply.
   function dropInterruptedPlaceholderRow(sessionId: string, messageId: string) {
+    logExtMsgDiag("interrupt.drop", {
+      sessionId,
+      messageId,
+      isInterrupt: messageId.startsWith("interrupt-"),
+    });
     useSessionMessageStore.getState().removeMessageById(sessionId, messageId);
     void softDeleteMessage(messageId, new Date().toISOString()).catch((e) => {
       console.warn(
         "[interrupt] cache removal of synthetic placeholder failed",
         e,
       );
+      logExtMsgDiag("interrupt.drop.cacheFail", {
+        sessionId,
+        messageId,
+        error: e instanceof Error ? e.message : String(e),
+      });
     });
   }
 
@@ -898,7 +914,17 @@ function AppContent() {
   ) {
     const streamKey = agentStreamKey(sessionId, actorId);
     const placeholder = interruptedStreamFlushRef.current[streamKey];
-    if (!placeholder || !streamId || placeholder.streamId !== streamId) return;
+    if (!placeholder || !streamId || placeholder.streamId !== streamId) {
+      logExtMsgDiag("interrupt.removeByStream.miss", {
+        sessionId,
+        actorId,
+        streamId: streamId ?? null,
+        hasPlaceholder: Boolean(placeholder),
+        placeholderStreamId: placeholder?.streamId ?? null,
+        placeholderMessageId: placeholder?.messageId ?? null,
+      });
+      return;
+    }
     dropInterruptedPlaceholderRow(sessionId, placeholder.messageId);
     delete interruptedStreamFlushRef.current[streamKey];
   }
@@ -915,7 +941,20 @@ function AppContent() {
   ) {
     const streamKey = agentStreamKey(sessionId, actorId);
     const placeholder = interruptedStreamFlushRef.current[streamKey];
-    if (!placeholder) return;
+    if (!placeholder) {
+      logExtMsgDiag("interrupt.removeForRealReply.miss", {
+        sessionId,
+        actorId,
+        note: "real AGENT_REPLY arrived but placeholder ref empty — interrupt may remain → duplicate header",
+      });
+      return;
+    }
+    logExtMsgDiag("interrupt.removeForRealReply.hit", {
+      sessionId,
+      actorId,
+      placeholderMessageId: placeholder.messageId,
+      placeholderStreamId: placeholder.streamId,
+    });
     dropInterruptedPlaceholderRow(sessionId, placeholder.messageId);
     delete interruptedStreamFlushRef.current[streamKey];
   }
@@ -988,6 +1027,13 @@ function AppContent() {
       messageId: syntheticReply.messageId,
       ...summarizeStreamEntry(snapshot, "snapshot"),
     });
+    logExtMsgDiag("flush.interrupted.start", {
+      sessionId,
+      actorId,
+      trigger,
+      ...summarizeProtoForExtDiag(syntheticReply),
+      ...summarizeStreamEntry(snapshot, "snapshot"),
+    });
 
     flushTurnAgentReplyInFlightRef.current[streamKey] = true;
     const streamEntrySnapshot = snapshot;
@@ -1009,6 +1055,14 @@ function AppContent() {
           streamId: snapshot.streamId,
           messageId: enrichedReply.messageId,
         };
+        logExtMsgDiag("flush.interrupted.placeholderRecorded", {
+          sessionId,
+          actorId,
+          ...summarizeProtoForExtDiag(enrichedReply),
+          store: summarizeProtosForExtDiag(
+            useSessionMessageStore.getState().messages[sessionId] ?? [],
+          ),
+        });
       },
     }).finally(() => {
       delete flushTurnAgentReplyInFlightRef.current[streamKey];
@@ -1445,8 +1499,22 @@ function AppContent() {
                 if (stampedReplyTo) {
                   removePendingAgentReplyTo(sid, senderActorId, stampedReplyTo);
                 }
+                logExtMsgDiag("mqtt.agentReply.lateAppend.noPartsPersist", {
+                  sessionId: sid,
+                  actorId: senderActorId,
+                  note: "late AGENT_REPLY after stream detach — append without persistStreamingPartsForReply",
+                  ...summarizeProtoForExtDiag(msg),
+                });
               }
               useSessionMessageStore.getState().appendMessage(sid, decoded.message);
+              if (senderActorId && msg.kind === MessageKind.AGENT_REPLY) {
+                logExtMsgDiag("mqtt.agentReply.lateAppend.storeSnapshot", {
+                  sessionId: sid,
+                  ...summarizeProtosForExtDiag(
+                    useSessionMessageStore.getState().messages[sid] ?? [],
+                  ),
+                });
+              }
             }
 
             if (
@@ -2010,7 +2078,9 @@ function AppContent() {
   //   1. Tauri: hydrate immediately from local libsql cache (no Supabase wait).
   //   2. Background: delta-sync from Supabase (watermark-based), upsert local,
   //      re-render if anything new arrived.
-  //   3. Non-Tauri: full Supabase pull (unchanged behaviour).
+  //   3. Extension: chrome.storage.local cache (same MessageRow shape) + full
+  //      cloud pull; COALESCE preserves local parts_json.
+  //   4. Other Non-Tauri: full backend pull.
   // agent_runtime_event table is no longer read here — those rows were written
   // with origin="mqtt-live" into the message table by new envelope handler code.
   // TODO(cleanup): remove agent_runtime_event table once all clients have
@@ -2020,6 +2090,15 @@ function AppContent() {
   const messageRefreshTrigger = useSessionMessageStore((s) => s.messageRefreshTrigger);
   const messageRefreshForceFull = useSessionMessageStore((s) => s.messageRefreshForceFull);
   const prevRefreshTriggerRef = useRef(0);
+
+  // Extension: prune message cache on sidepanel open (in addition to write/load).
+  useEffect(() => {
+    if (!isChromeExtension()) return;
+    void import("@/lib/extension-message-cache").then(({ pruneExtensionMessageCache }) =>
+      pruneExtensionMessageCache(),
+    );
+  }, []);
+
   useEffect(() => {
     if (!currentSessionId) return;
     if (isV2E2EControlActive()) return;
@@ -2098,7 +2177,76 @@ function AppContent() {
         return;
       }
 
-      // ── Non-Tauri: full backend pull ──────────────────────────────
+      // ── Extension: local-first (chrome.storage) + full cloud pull ─
+      // Same shape as desktop: hydrate cache → upsert cloud rows (COALESCE
+      // parts_json) → re-read. Eviction runs inside the cache writes / load.
+      if (isChromeExtension()) {
+        const { loadMessagesForSession, upsertMessagesBatch } = await import(
+          "@/lib/local-cache"
+        );
+        const localMsgs = await loadMessagesForSession(currentSessionId, false);
+        if (cancelled) return;
+        if (localMsgs.length > 0) {
+          const localProtos = messageRowsToProto(localMsgs);
+          useSessionMessageStore
+            .getState()
+            .setMessages(currentSessionId, localProtos);
+          logExtMsgDiag("history.ext.hydrateLocal", {
+            sessionId: currentSessionId,
+            ...summarizeProtosForExtDiag(localProtos),
+          });
+        }
+
+        let historyRows;
+        try {
+          historyRows = await getBackend().messages.listMessages(currentSessionId);
+        } catch (error) {
+          console.warn(
+            "[history] load failed:",
+            error instanceof Error ? error.message : error,
+          );
+          if (!cancelled && localMsgs.length === 0) {
+            useSessionMessageStore.getState().setMessages(currentSessionId, []);
+          }
+          return;
+        }
+        if (cancelled) return;
+
+        const teamId =
+          useSessionListStore.getState().rows.find((r) => r.id === currentSessionId)
+            ?.team_id ?? "";
+        const memoryBeforeCloud = useSessionMessageStore.getState().messages[
+          currentSessionId
+        ] ?? [];
+        logExtMsgDiag("history.ext.beforeCloudUpsert", {
+          sessionId: currentSessionId,
+          cloudCount: historyRows.length,
+          memory: summarizeProtosForExtDiag(memoryBeforeCloud),
+        });
+        await upsertMessagesBatch(
+          historyRowsToMessageRows(historyRows, {
+            teamId,
+            origin: getBackend().kind,
+          }),
+        );
+        if (cancelled) return;
+
+        const fresh = await loadMessagesForSession(currentSessionId, false);
+        if (!cancelled) {
+          const freshProtos = messageRowsToProto(fresh);
+          useSessionMessageStore
+            .getState()
+            .setMessages(currentSessionId, freshProtos);
+          logExtMsgDiag("history.ext.afterSetMessages", {
+            sessionId: currentSessionId,
+            note: "whole-replace from cache after cloud upsert — check partsLen / interruptCount",
+            ...summarizeProtosForExtDiag(freshProtos),
+          });
+        }
+        return;
+      }
+
+      // ── Non-Tauri web: full backend pull ──────────────────────────
       let historyRows;
       try {
         historyRows = await getBackend().messages.listMessages(currentSessionId);
@@ -2110,17 +2258,26 @@ function AppContent() {
         return;
       }
       if (cancelled) return;
-      const backendMsgs = historyRows.map((r) =>
-        createMessage(MessageSchema, {
+      const backendMsgs = historyRows.map((r) => {
+        const metadataJson =
+          r.metadata == null
+            ? ""
+            : typeof r.metadata === "string"
+              ? r.metadata
+              : JSON.stringify(r.metadata);
+        return createMessage(MessageSchema, {
           messageId: r.id,
           sessionId: r.session_id,
           senderActorId: r.sender_actor_id ?? "",
           kind: kindMap[r.kind] ?? MessageKind.TEXT,
           content: r.content ?? "",
           model: r.model ?? "",
+          turnId: r.turn_id ?? "",
+          replyToMessageId: r.reply_to_message_id ?? "",
+          metadataJson,
           createdAt: BigInt(Math.floor(new Date(r.created_at).getTime() / 1000)),
-        }),
-      );
+        });
+      });
       useSessionMessageStore.getState().setMessages(currentSessionId, backendMsgs);
     })();
     return () => {
