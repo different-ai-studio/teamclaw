@@ -285,6 +285,14 @@ pub(crate) enum SockCommand {
         payload: serde_json::Value,
         reply_tx: oneshot::Sender<String>,
     },
+    /// Eagerly create the cloud session for a cron run (no ACP turn), so the
+    /// desktop can stamp `session_id` into the run record and navigate to the
+    /// session within seconds of "Run Now". Reply is
+    /// `{ "ok": true, "result": { "session_id": ... } }` or `{ "ok": false, "error": ... }`.
+    CronPrepareSession {
+        payload: serde_json::Value,
+        reply_tx: oneshot::Sender<String>,
+    },
     /// Fetch a fresh WeChat (iLink) bot QR code. One-shot HTTP call to the
     /// ilink backend via `teamclaw_gateway::wechat::fetch_qr_code`. Reply is
     /// `{ok, result?, error?}` where result is the raw `WeChatQrLoginResponse`.
@@ -1467,6 +1475,13 @@ impl DaemonServer {
                                 };
                                 let _ = reply_tx.send(resp.to_string());
                             }
+                            Some(SockCommand::CronPrepareSession { payload, reply_tx }) => {
+                                let resp = match self.handle_cron_prepare_session(&payload).await {
+                                    Ok(v) => serde_json::json!({ "ok": true, "result": v }),
+                                    Err(e) => serde_json::json!({ "ok": false, "error": e.to_string() }),
+                                };
+                                let _ = reply_tx.send(resp.to_string());
+                            }
                             Some(SockCommand::WechatQrStart { reply_tx }) => {
                                 let base_url = teamclaw_gateway::wechat_config::default_ilink_base_url();
                                 let resp = match teamclaw_gateway::wechat::fetch_qr_code(&base_url).await {
@@ -1838,6 +1853,13 @@ impl DaemonServer {
                             }
                             Some(SockCommand::PromptAwait { payload, reply_tx }) => {
                                 let resp = match self.handle_prompt_await(&payload).await {
+                                    Ok(v) => serde_json::json!({ "ok": true, "result": v }),
+                                    Err(e) => serde_json::json!({ "ok": false, "error": e.to_string() }),
+                                };
+                                let _ = reply_tx.send(resp.to_string());
+                            }
+                            Some(SockCommand::CronPrepareSession { payload, reply_tx }) => {
+                                let resp = match self.handle_cron_prepare_session(&payload).await {
                                     Ok(v) => serde_json::json!({ "ok": true, "result": v }),
                                     Err(e) => serde_json::json!({ "ok": false, "error": e.to_string() }),
                                 };
@@ -2261,6 +2283,32 @@ where
                                 }
                                 Err(_) => {
                                     warn!("amuxd.sock: prompt-await reply dropped");
+                                }
+                            }
+                        } else if cmd == "cron-prepare-session" {
+                            let (reply_tx, reply_rx) = oneshot::channel();
+                            if tx
+                                .send(SockCommand::CronPrepareSession {
+                                    payload: v,
+                                    reply_tx,
+                                })
+                                .await
+                                .is_err()
+                            {
+                                return;
+                            }
+                            match reply_rx.await {
+                                Ok(body) => {
+                                    let mut stream = reader.into_inner();
+                                    if let Err(e) = stream.write_all(body.as_bytes()).await {
+                                        warn!("amuxd.sock: cron-prepare-session write failed: {e}");
+                                        return;
+                                    }
+                                    let _ = stream.write_all(b"\n").await;
+                                    let _ = stream.shutdown().await;
+                                }
+                                Err(_) => {
+                                    warn!("amuxd.sock: cron-prepare-session reply dropped");
                                 }
                             }
                         } else {

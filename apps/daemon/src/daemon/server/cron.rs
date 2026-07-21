@@ -29,6 +29,13 @@ use super::DaemonServer;
 #[derive(Debug, Default)]
 pub(crate) struct CronSessionCache {
     inner: HashMap<String, (String, String)>,
+    /// Cloud `sessions.id` created eagerly by `cron-prepare-session`, before the
+    /// (slow) ACP runtime spawn. Keyed by `session_key`. `handle_prompt_await`
+    /// consumes this so it reuses the already-created cloud session instead of
+    /// creating a second one. Lets the desktop stamp `session_id` into the run
+    /// record — and navigate — seconds after "Run Now", without waiting for the
+    /// runtime to cold-start.
+    prepared: HashMap<String, String>,
 }
 
 impl CronSessionCache {
@@ -50,6 +57,21 @@ impl CronSessionCache {
     ) {
         self.inner
             .insert(key.into(), (cloud_session_id.into(), acp_session_id.into()));
+    }
+
+    /// Records a pre-created cloud session id for `key` (see `prepared`).
+    pub(crate) fn insert_prepared(&mut self, key: impl Into<String>, cloud_session_id: impl Into<String>) {
+        self.prepared.insert(key.into(), cloud_session_id.into());
+    }
+
+    /// Returns the pre-created cloud session id for `key` without consuming it.
+    pub(crate) fn get_prepared(&self, key: &str) -> Option<String> {
+        self.prepared.get(key).cloned()
+    }
+
+    /// Removes and returns the pre-created cloud session id for `key`.
+    pub(crate) fn take_prepared(&mut self, key: &str) -> Option<String> {
+        self.prepared.remove(key)
     }
 }
 
@@ -106,19 +128,15 @@ impl DaemonServer {
                     anyhow::bail!("no local agent runtime");
                 }
 
-                let primary_agent_actor_id = self.actor_id.clone();
-                let title = match parsed.job_name {
-                    Some(n) if !n.is_empty() => {
-                        format!("Cron: {}", n.chars().take(60).collect::<String>())
-                    }
-                    _ => "Cron job".to_string(),
+                // Reuse the cloud session `cron-prepare-session` already created
+                // for this run (the common path when Run Now goes through the
+                // scheduler); otherwise create it now (e.g. scheduled runs).
+                let sb_sid = match self.cron_sessions.take_prepared(parsed.session_key) {
+                    Some(prepared) => prepared,
+                    None => self
+                        .create_cron_cloud_session(&team_id, parsed.job_name)
+                        .await?,
                 };
-
-                let sb_sid = self
-                    .backend
-                    .create_cron_session(&team_id, &primary_agent_actor_id, &title)
-                    .await
-                    .map_err(|e| anyhow::anyhow!("create_cron_session: {e}"))?;
 
                 // Resolve the job's pinned backend (if any) against the
                 // daemon's configured agents. `None` (no agent_type on the
@@ -244,6 +262,81 @@ impl DaemonServer {
                 "agent_error": e.to_string(),
             })),
         }
+    }
+
+    /// Cron cloud session title, matching what the desktop expects: `Cron: <job
+    /// name, first 60 chars>`, falling back to `Cron job`.
+    fn cron_session_title(job_name: Option<&str>) -> String {
+        match job_name {
+            Some(n) if !n.is_empty() => {
+                format!("Cron: {}", n.chars().take(60).collect::<String>())
+            }
+            _ => "Cron job".to_string(),
+        }
+    }
+
+    /// Create the cloud `sessions` row for a cron run (seeding the primary agent
+    /// + human admins as participants so the desktop can see/open it). Returns
+    /// the cloud session id. Shared by `cron-prepare-session` and the
+    /// prompt-await create path.
+    async fn create_cron_cloud_session(
+        &self,
+        team_id: &str,
+        job_name: Option<&str>,
+    ) -> anyhow::Result<String> {
+        let primary_agent_actor_id = self.actor_id.clone();
+        let title = Self::cron_session_title(job_name);
+        self.backend
+            .create_cron_session(team_id, &primary_agent_actor_id, &title)
+            .await
+            .map_err(|e| anyhow::anyhow!("create_cron_session: {e}"))
+    }
+
+    /// Eagerly create the cloud session for a cron run and cache it, returning
+    /// `{ "session_id": "<uuid>" }`. Fast (no ACP runtime spawn), so the desktop
+    /// scheduler can stamp `session_id` into the run record — and the UI can
+    /// navigate to the session — within a second or two of "Run Now", long
+    /// before the (cold-starting) runtime finishes the turn. The subsequent
+    /// `prompt-await` reuses this cached session instead of creating a new one.
+    pub(super) async fn handle_cron_prepare_session(
+        &mut self,
+        payload: &serde_json::Value,
+    ) -> anyhow::Result<serde_json::Value> {
+        let session_key = payload
+            .get("session_key")
+            .and_then(|v| v.as_str())
+            .ok_or_else(|| anyhow::anyhow!("cron-prepare-session: missing 'session_key'"))?;
+        if !session_key.starts_with("cron/") {
+            anyhow::bail!("cron-prepare-session: session_key must start with 'cron/'");
+        }
+        let job_name = payload
+            .get("job_name")
+            .and_then(|v| v.as_str())
+            .filter(|s| !s.is_empty());
+
+        // Idempotent: if this run's session already exists (prepared or fully
+        // paired), return it rather than creating a duplicate.
+        if let Some((sb, _)) = self.cron_sessions.get_pair(session_key) {
+            return Ok(serde_json::json!({ "session_id": sb }));
+        }
+        if let Some(sb) = self.cron_sessions.get_prepared(session_key) {
+            return Ok(serde_json::json!({ "session_id": sb }));
+        }
+
+        let team_id = self
+            .config
+            .team_id
+            .clone()
+            .ok_or_else(|| anyhow::anyhow!("daemon has no team_id; run `amuxd init` first"))?;
+
+        let sb_sid = self.create_cron_cloud_session(&team_id, job_name).await?;
+        self.cron_sessions.insert_prepared(session_key, &sb_sid);
+        info!(
+            session_key = %session_key,
+            session_id = %sb_sid,
+            "cron: prepared cloud session (eager)"
+        );
+        Ok(serde_json::json!({ "session_id": sb_sid }))
     }
 
     /// Persist the cron job prompt as a `text` message on the cloud session.
