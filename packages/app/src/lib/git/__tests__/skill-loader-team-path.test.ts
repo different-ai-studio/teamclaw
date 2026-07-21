@@ -188,28 +188,34 @@ describe("skill-loader dynamic team paths (from teamclaw.json)", () => {
     expect(skills.some((s) => s.source === "team" && s.filename === "shared-skill")).toBe(true)
   })
 
-  it("auto-loads teamclaw-team/skills without teamclaw.json skills.paths", async () => {
-    const teamDir = `${workspacePath}/${TEAM_SHARE_LINK_DIR}/skills`
+  it("auto-loads the global team skills dir without teamclaw.json skills.paths", async () => {
+    // No workspace-link fallback anymore: skills come from the daemon-owned
+    // global dir `~/.amuxd/teams/<team_id>/teamclaw-team/skills`.
     expect(TEAM_SHARE_LINK_DIR).toBe("teamclaw-team")
+    const globalTeamDir = `/home/user/.amuxd/teams/team-abc/${TEAM_SHARE_LINK_DIR}`
+    const globalSkills = `${globalTeamDir}/skills`
 
     mockExists.mockImplementation((path: string) => {
-      if (path === teamDir) return Promise.resolve(true)
-      if (path === `${workspacePath}/${TEAM_SHARE_LINK_DIR}`) return Promise.resolve(true)
+      if (path === `/home/user/.amuxd/daemon.toml`) return Promise.resolve(true)
+      if (path === globalTeamDir) return Promise.resolve(true)
+      if (path === globalSkills) return Promise.resolve(true)
       if (path.includes("shared-skill") && path.endsWith("SKILL.md")) return Promise.resolve(true)
       return Promise.resolve(false)
     })
     mockReadDir.mockImplementation((path: string) => {
-      if (path === teamDir)
+      if (path === globalSkills)
         return Promise.resolve([{ name: "shared-skill", isDirectory: true }])
       return Promise.resolve([])
     })
     mockReadTextFile.mockImplementation((path: string) => {
+      if (path === `/home/user/.amuxd/daemon.toml`)
+        return Promise.resolve('team_id = "team-abc"\n')
       if (path.includes("shared-skill")) return Promise.resolve("# shared-skill\n")
       return Promise.resolve("")
     })
 
     const paths = await collectTeamSkillPaths(workspacePath)
-    expect(paths).toContain(teamDir)
+    expect(paths).toContain(globalSkills)
 
     const { skills } = await loadAllSkills(workspacePath)
     expect(skills.some((s) => s.source === "team" && s.filename === "shared-skill")).toBe(true)

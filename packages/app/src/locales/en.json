@@ -200,6 +200,8 @@
     "teamSharedFiles": "team shared files",
     "teamSharedFilesLoading": "Loading team shared files...",
     "teamSharedFilesUnavailable": "Team shared directory is not set up yet. Enable team share in Settings → Team.",
+    "teamSharedFilesDirMissing": "Team shared directory does not exist yet. Sync to fetch it from the team.",
+    "teamSharedFilesEmpty": "This team shared directory is empty.",
     "actors": "Actors",
     "ideas": "Ideas",
     "hideTabs": "Hide files",
