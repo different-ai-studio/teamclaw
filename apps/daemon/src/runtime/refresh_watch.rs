@@ -574,6 +574,66 @@ mod tests {
         assert!(coordinator.workspace_state(&workspace_id).await.is_none());
     }
 
+    /// Spawn env assembly awaits managed-LLM longer than a short suppress window.
+    /// Suppressing *before* that await lets the window expire; the subsequent
+    /// opencode.json write is recorded as Pending. Suppressing *after* the await
+    /// (immediately before disk writes) covers the write — the production order
+    /// in `assemble_spawn_runtime_env_for_worktree`.
+    #[tokio::test]
+    async fn suppress_after_await_covers_opencode_write_unlike_suppress_before_await() {
+        let dir = tempfile::tempdir().unwrap();
+        let workspace_id = workspace_runtime_id(dir.path());
+        let workspaces = vec![WatchedWorkspace {
+            workspace_id: workspace_id.clone(),
+            workspace_path: dir.path().to_path_buf(),
+        }];
+        let opencode = dir.path().join("opencode.json");
+        let content = r#"{"$schema":"https://opencode.ai/config.json"}"#;
+
+        // --- buggy order: suppress → await past window → write ---
+        let leaky = RuntimeRefreshCoordinator::new();
+        let mut debounce = RefreshDebounce::new(Duration::from_millis(1));
+        leaky.suppress_workspace_watch(
+            &workspace_id,
+            &[RefreshChangeKind::OpencodeJson],
+            Duration::from_millis(30),
+        );
+        tokio::time::sleep(Duration::from_millis(45)).await;
+        std::fs::write(&opencode, content).unwrap();
+        record_classified_changes(
+            &leaky,
+            &mut debounce,
+            &workspaces,
+            None,
+            &opencode,
+            Instant::now(),
+        )
+        .await;
+        let leaked = leaky.workspace_state(&workspace_id).await.unwrap();
+        assert!(leaked.change_kinds.contains(&RefreshChangeKind::OpencodeJson));
+
+        // --- fixed order: await → suppress → write ---
+        let covered = RuntimeRefreshCoordinator::new();
+        let mut debounce = RefreshDebounce::new(Duration::from_millis(1));
+        tokio::time::sleep(Duration::from_millis(45)).await;
+        covered.suppress_workspace_watch(
+            &workspace_id,
+            &[RefreshChangeKind::OpencodeJson],
+            Duration::from_secs(5),
+        );
+        std::fs::write(&opencode, content).unwrap();
+        record_classified_changes(
+            &covered,
+            &mut debounce,
+            &workspaces,
+            None,
+            &opencode,
+            Instant::now(),
+        )
+        .await;
+        assert!(covered.workspace_state(&workspace_id).await.is_none());
+    }
+
     #[tokio::test]
     async fn watch_registry_supports_add_and_remove() {
         let registry = RefreshWatchRegistry::new(Vec::new());

@@ -519,7 +519,8 @@ impl DaemonServer {
             sync_team_shared_dir_for_workspace(Path::new(&resolved_worktree), &config);
         }
 
-        self.suppress_internal_opencode_writes(&resolved_worktree);
+        // Refresh-watch suppress for opencode.json is owned by
+        // `assemble_spawn_runtime_env_for_worktree` (after managed-LLM await).
         let runtime_env = self
             .assemble_spawn_runtime_env_for_worktree(&resolved_worktree, &ws_id)
             .await

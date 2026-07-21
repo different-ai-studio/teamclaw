@@ -327,6 +327,22 @@ describe("resolveCommandRuntimeId", () => {
       }),
     ).toBeUndefined();
   });
+
+  it("prefers a newer live spawn over a stale db hint when no session scope", () => {
+    const now = Date.now();
+    const byRuntimeId = {
+      "rt-stale": { ...entry("agent-a", "rt-stale"), lastUpdated: now - 1000 },
+      "rt-live": { ...entry("agent-a", "rt-live"), lastUpdated: now },
+      "agent-a": { ...entry("agent-a", "rt-stale"), lastUpdated: now - 1000 },
+    };
+    expect(
+      resolveCommandRuntimeId({
+        agentId: "agent-a",
+        dbRuntimeId: "rt-stale",
+        byRuntimeId,
+      }),
+    ).toBe("rt-live");
+  });
 });
 
 describe("normalizeAgentModelId", () => {

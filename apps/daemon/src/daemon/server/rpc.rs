@@ -475,7 +475,7 @@ impl DaemonServer {
                         let session_id = stored.session_id.clone();
                         info!(agent_id, "lazy-resuming historical session");
                         let remote_workspace_id = (!ws_id.is_empty()).then_some(ws_id.clone());
-                        self.suppress_internal_opencode_writes(&worktree);
+                        // opencode.json suppress is inside assemble (after managed-LLM await).
                         let runtime_env = match self
                             .assemble_spawn_runtime_env_for_worktree(&worktree, &ws_id)
                             .await
