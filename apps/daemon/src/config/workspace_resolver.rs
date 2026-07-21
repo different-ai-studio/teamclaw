@@ -124,6 +124,21 @@ impl WorkspaceResolver {
             .await
             .map_err(|e| ResolveError::Backend(e.to_string()))?;
 
+        // Surface ambiguous identity before caching: when several workspace
+        // ids claim the same on-disk path, id→path resolution is non-unique and
+        // a caller (e.g. a WeCom bot whose configured workspace_id fails to
+        // resolve) can silently land on the wrong workspace (issue #551). Warn
+        // loudly so the conflict is diagnosable rather than picked arbitrarily.
+        for (path, ids) in conflicting_workspace_paths(&rows) {
+            tracing::warn!(
+                finding = "workspace_path_conflict",
+                path = %path,
+                workspace_ids = %ids.join(","),
+                "multiple workspace records resolve to the same path; id→path resolution \
+                 is ambiguous — sessions may route to the wrong workspace"
+            );
+        }
+
         let mut cache = self.cache.write().await;
         for row in rows {
             if let Some(path) = row.path.filter(|p| !p.is_empty()) {
@@ -138,6 +153,35 @@ impl WorkspaceResolver {
 
         Ok(())
     }
+}
+
+/// Group workspace rows by their (trimmed, non-empty) on-disk path and return
+/// the paths that more than one *distinct* workspace id claims, each with its
+/// sorted id list. Such collisions make id→path resolution ambiguous and are a
+/// silent-fallback hazard (issue #551). Returns paths sorted for stable logs.
+pub fn conflicting_workspace_paths(
+    rows: &[crate::backend::WorkspaceRow],
+) -> Vec<(String, Vec<String>)> {
+    let mut by_path: HashMap<String, Vec<String>> = HashMap::new();
+    for row in rows {
+        let Some(path) = row.path.as_deref().map(str::trim).filter(|p| !p.is_empty()) else {
+            continue;
+        };
+        let ids = by_path.entry(path.to_string()).or_default();
+        if !ids.contains(&row.id) {
+            ids.push(row.id.clone());
+        }
+    }
+    let mut conflicts: Vec<(String, Vec<String>)> = by_path
+        .into_iter()
+        .filter(|(_, ids)| ids.len() > 1)
+        .map(|(path, mut ids)| {
+            ids.sort();
+            (path, ids)
+        })
+        .collect();
+    conflicts.sort();
+    conflicts
 }
 
 /// Resolve an agent's default working directory: prefer the agent's cloud
@@ -330,6 +374,60 @@ mod tests {
             resolve_default_workspace_path(&backend, &resolver, Some("team-x"), "actor-1").await;
 
         assert_eq!(resolved, Some(linkable_path));
+    }
+
+    #[test]
+    fn conflicting_workspace_paths_flags_duplicate_paths_only() {
+        let rows = vec![
+            WorkspaceRow {
+                id: "ws-a".into(),
+                team_id: "t".into(),
+                path: Some("/tmp/shared".into()),
+            },
+            WorkspaceRow {
+                id: "ws-b".into(),
+                team_id: "t".into(),
+                path: Some(" /tmp/shared ".into()),
+            },
+            WorkspaceRow {
+                id: "ws-c".into(),
+                team_id: "t".into(),
+                path: Some("/tmp/unique".into()),
+            },
+            WorkspaceRow {
+                id: "ws-d".into(),
+                team_id: "t".into(),
+                path: None,
+            },
+        ];
+        let conflicts = conflicting_workspace_paths(&rows);
+        // Only the shared path collides; trimming makes " /tmp/shared " match.
+        assert_eq!(
+            conflicts,
+            vec![(
+                "/tmp/shared".to_string(),
+                vec!["ws-a".to_string(), "ws-b".to_string()]
+            )]
+        );
+    }
+
+    #[test]
+    fn conflicting_workspace_paths_ignores_repeated_same_id() {
+        // The same id appearing twice (e.g. duplicated in the fetch) is not a
+        // conflict — only distinct ids sharing a path are.
+        let rows = vec![
+            WorkspaceRow {
+                id: "ws-a".into(),
+                team_id: "t".into(),
+                path: Some("/tmp/x".into()),
+            },
+            WorkspaceRow {
+                id: "ws-a".into(),
+                team_id: "t".into(),
+                path: Some("/tmp/x".into()),
+            },
+        ];
+        assert!(conflicting_workspace_paths(&rows).is_empty());
     }
 
     #[tokio::test]
