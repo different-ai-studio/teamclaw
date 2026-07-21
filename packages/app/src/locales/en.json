@@ -1118,7 +1118,6 @@
       "teamSharedModelTooltip": "Configure the team-shared AI model proxy and model list",
       "teamSharedBadge": "Team Shared",
       "teamSharedNoModelsDetected": "No models detected",
-      "teamSharedModelsCount": "{{count}} shared models",
       "teamSharedReadOnly": "Only the team owner can edit",
       "refreshTooltip": "Refresh providers from OpenCode",
       "refreshing": "Refreshing...",
