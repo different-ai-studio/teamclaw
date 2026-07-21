@@ -208,6 +208,7 @@ import { parseInviteDeeplink, claimInviteToken } from "@/lib/invite-deeplink";
 import { parseSessionDeeplink } from "@/lib/session-deeplink";
 import { CloudApiError } from "@/lib/backend/cloud-api/http";
 import { useCurrentTeamStore } from "@/stores/current-team";
+import { useTeamShareStore, isShareModeLocked } from "@/stores/team-share";
 import { resolveCurrentMemberActorId } from "@/lib/current-actor";
 import { installV2E2EControl, isV2E2EControlActive } from "@/lib/e2e/v2-control";
 import {
@@ -687,6 +688,11 @@ function AppContent() {
   const closeSettings = useUIStore((s) => s.closeSettings);
   const authSession = useAuthStore((s) => s.session);
   const loadCurrentTeam = useCurrentTeamStore((s) => s.load);
+  // Team-share state drives the top-right "team shared files" tab visibility.
+  // Refresh it centrally (below) so the tab reflects the true share mode even
+  // before the user ever opens the panel or Settings → Team.
+  const teamSharedTabMode = useTeamShareStore((s) => s.status.mode);
+  const refreshTeamShare = useTeamShareStore((s) => s.refresh);
   const mainContentLayout = useUIStore((s) => s.mainContentLayout);
   const { open: sidebarOpen, setOpen: setSidebarOpen } = useSidebar();
   const hasActiveFileTab = !!useTabsStore(selectActiveTab);
@@ -806,6 +812,14 @@ function AppContent() {
   const currentTeamId = useCurrentTeamStore((s) => s.team?.id ?? null);
   useMemberPresenceHeartbeat(currentTeamId, myActorId);
   useExtensionSessionCleanup();
+
+  // Keep team-share status fresh so the top-right "team shared files" tab shows
+  // only when share is actually enabled (shareMode != null). Without this the
+  // status would stay null until the user visited the panel or Settings → Team.
+  useEffect(() => {
+    if (!currentTeamId || !workspacePath) return;
+    void refreshTeamShare(currentTeamId, workspacePath);
+  }, [currentTeamId, workspacePath, refreshTeamShare]);
 
   // Clear in-memory chat when the signed-in user or active team changes.
   // signOut resets before unmount; this effect owns team-switch / adoptSession.
@@ -2378,7 +2392,7 @@ function AppContent() {
                   onClick={() => isPanelOpen && activeTab === "files" ? closePanel() : openPanel("files")}
                 />
               )}
-              {capabilities.workspace && (
+              {capabilities.workspace && isShareModeLocked(teamSharedTabMode) && (
                 <HeaderPanelTab
                   icon={Share2}
                   label={t("navigation.teamSharedFiles", "team shared files")}

@@ -200,6 +200,8 @@
     "teamSharedFiles": "团队共享文件",
     "teamSharedFilesLoading": "正在加载团队共享文件...",
     "teamSharedFilesUnavailable": "团队共享目录尚未配置。请在设置 → 团队中启用团队共享。",
+    "teamSharedFilesDirMissing": "团队共享目录尚不存在。点击同步从团队拉取。",
+    "teamSharedFilesEmpty": "当前团队共享目录为空。",
     "actors": "成员",
     "ideas": "想法",
     "hideTabs": "隐藏文件",

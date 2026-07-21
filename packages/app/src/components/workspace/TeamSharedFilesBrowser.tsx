@@ -1,7 +1,7 @@
 import React from 'react'
 import { useTranslation } from 'react-i18next'
-import { RefreshCw } from 'lucide-react'
-import { exists } from '@tauri-apps/plugin-fs'
+import { RefreshCw, AlertCircle, Info } from 'lucide-react'
+import { exists, readDir } from '@tauri-apps/plugin-fs'
 import { toast } from 'sonner'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
 import { FileBrowser } from '@/components/workspace/FileBrowser'
@@ -10,10 +10,13 @@ import { useTeamModeStore } from '@/stores/team-mode'
 import { useCurrentTeamStore } from '@/stores/current-team'
 import { useTeamShareStore, isShareModeLocked } from '@/stores/team-share'
 import { useOssSyncStore } from '@/stores/oss-sync'
-import { TEAM_REPO_DIR, TEAM_SYNCED_EVENT } from '@/lib/build-config'
-import { resolveTeamDir } from '@/lib/team-skill-paths'
+import { TEAM_SYNCED_EVENT } from '@/lib/build-config'
+import { globalTeamShareDir } from '@/lib/team-skill-paths'
 import { linkDaemonTeamWorkspace } from '@/lib/daemon-local-client'
 import { cn, isTauri } from '@/lib/utils'
+
+/** Resolution state of the global team share dir on disk. */
+type DirState = 'loading' | 'missing' | 'empty' | 'populated'
 
 interface TeamSharedFilesBrowserProps {
   hidePanelToolbar?: boolean
@@ -39,12 +42,13 @@ export function TeamSharedFilesBrowser({
   const refreshFileTree = useWorkspaceStore(s => s.refreshFileTree)
   const teamId = useCurrentTeamStore(s => s.team?.id ?? null)
   const shareMode = useTeamShareStore(s => s.status.mode)
+  const globalPath = useTeamShareStore(s => s.status.globalPath ?? null)
   const refreshShare = useTeamShareStore(s => s.refresh)
   const ossSyncing = useOssSyncStore(s => s.syncing)
   const refreshOssSync = useOssSyncStore(s => s.refresh)
   const ossSyncNow = useOssSyncStore(s => s.syncNow)
   const [teamRootPath, setTeamRootPath] = React.useState<string | null>(null)
-  const [resolving, setResolving] = React.useState(false)
+  const [dirState, setDirState] = React.useState<DirState>('loading')
   const [syncing, setSyncing] = React.useState(false)
 
   React.useEffect(() => {
@@ -57,37 +61,43 @@ export function TeamSharedFilesBrowser({
     void refreshShare(teamId, workspacePath)
   }, [teamId, workspacePath, refreshShare])
 
-  React.useEffect(() => {
-    if (!workspacePath) {
+  // Resolve the single global team share dir and classify its on-disk state.
+  // We deliberately read `~/.amuxd/teams/<team_id>/teamclaw-team` directly (the
+  // daemon-owned canonical copy) and never fall back to the per-workspace link.
+  const resolveDirState = React.useCallback(async () => {
+    if (!isTauri()) {
       setTeamRootPath(null)
+      setDirState('missing')
       return
     }
+    // Prefer the daemon-reported global path; fall back to deriving it locally.
+    const dir = globalPath ?? (await globalTeamShareDir())
+    setTeamRootPath(dir)
+    if (!dir || !(await exists(dir))) {
+      setDirState('missing')
+      return
+    }
+    const entries = await readDir(dir)
+    setDirState(entries.length === 0 ? 'empty' : 'populated')
+  }, [globalPath])
 
+  React.useEffect(() => {
     let cancelled = false
-    setResolving(true)
-
+    setDirState('loading')
     void (async () => {
-      const linkPath = `${workspacePath.replace(/\/+$/, '')}/${TEAM_REPO_DIR}`
-      let resolved: string | null = linkPath
-
-      if (isTauri()) {
-        if (await exists(linkPath)) {
-          resolved = linkPath
-        } else {
-          resolved = await resolveTeamDir(workspacePath)
+      try {
+        await resolveDirState()
+      } catch {
+        if (!cancelled) {
+          setTeamRootPath(null)
+          setDirState('missing')
         }
       }
-
-      if (!cancelled) {
-        setTeamRootPath(resolved)
-        setResolving(false)
-      }
     })()
-
     return () => {
       cancelled = true
     }
-  }, [workspacePath])
+  }, [resolveDirState])
 
   const isGitShare =
     shareMode === 'managed_git' || shareMode === 'custom_git'
@@ -125,6 +135,7 @@ export function TeamSharedFilesBrowser({
         useTeamModeStore.setState({ teamGitLastSyncAt: new Date().toISOString() })
         window.dispatchEvent(new CustomEvent(TEAM_SYNCED_EVENT))
         await refreshFileTree()
+        await resolveDirState()
         await useTeamModeStore.getState().loadTeamGitFileSyncStatus(workspacePath)
       } else {
         toast.error(result.message)
@@ -135,34 +146,16 @@ export function TeamSharedFilesBrowser({
       setSyncing(false)
       useTeamModeStore.setState({ teamGitSyncing: false })
     }
-  }, [syncing, refreshFileTree, workspacePath, teamId, refreshShare, t])
+  }, [syncing, refreshFileTree, resolveDirState, workspacePath, teamId, refreshShare, t])
 
   const handleOssSync = React.useCallback(async () => {
     if (!workspacePath || ossSyncing) return
     await ossSyncNow(workspacePath)
     await refreshFileTree()
-  }, [workspacePath, ossSyncing, ossSyncNow, refreshFileTree])
+    await resolveDirState()
+  }, [workspacePath, ossSyncing, ossSyncNow, refreshFileTree, resolveDirState])
 
   if (!workspacePath) return null
-
-  if (resolving) {
-    return (
-      <div className="text-xs text-muted-foreground text-center py-4">
-        {t('navigation.teamSharedFilesLoading', 'Loading team shared files...')}
-      </div>
-    )
-  }
-
-  if (!teamRootPath) {
-    return (
-      <div className="text-xs text-muted-foreground text-center py-4 px-3">
-        {t(
-          'navigation.teamSharedFilesUnavailable',
-          'Team shared directory is not set up yet. Enable team share in Settings → Team.',
-        )}
-      </div>
-    )
-  }
 
   const iconButtonClass =
     'flex items-center justify-center h-7 w-7 rounded-md transition-colors shrink-0 text-muted-foreground hover:bg-muted hover:text-foreground'
@@ -192,11 +185,53 @@ export function TeamSharedFilesBrowser({
 
   const actionIcons = syncIcon ? <>{syncIcon}</> : undefined
 
+  if (dirState === 'loading') {
+    return (
+      <div className="text-xs text-muted-foreground text-center py-4">
+        {t('navigation.teamSharedFilesLoading', 'Loading team shared files...')}
+      </div>
+    )
+  }
+
+  // The global team share dir does not exist on disk yet — the daemon has not
+  // materialized it (e.g. first sync hasn't run). Surface an error + a hint to
+  // sync rather than silently showing an empty tree.
+  if (dirState === 'missing') {
+    return (
+      <div className="flex flex-col items-center gap-2 text-center py-6 px-3">
+        <AlertCircle className="h-5 w-5 text-destructive" />
+        <div className="text-xs text-muted-foreground">
+          {t(
+            'navigation.teamSharedFilesDirMissing',
+            'Team shared directory does not exist yet. Sync to fetch it from the team.',
+          )}
+        </div>
+        {teamRootPath && (
+          <div className="text-[10.5px] font-mono text-faint break-all">{teamRootPath}</div>
+        )}
+        {syncIcon && <div className="mt-1">{syncIcon}</div>}
+      </div>
+    )
+  }
+
+  // Directory exists but is empty — nothing has been shared yet.
+  if (dirState === 'empty') {
+    return (
+      <div className="flex flex-col items-center gap-2 text-center py-6 px-3">
+        <Info className="h-5 w-5 text-muted-foreground" />
+        <div className="text-xs text-muted-foreground">
+          {t('navigation.teamSharedFilesEmpty', 'This team shared directory is empty.')}
+        </div>
+        {syncIcon && <div className="mt-1">{syncIcon}</div>}
+      </div>
+    )
+  }
+
   return (
     <div className="flex flex-col min-h-0 flex-1">
       <FileBrowser
         variant="panel"
-        rootPath={teamRootPath}
+        rootPath={teamRootPath!}
         hideGitStatus={false}
         hideToolbar={hidePanelToolbar}
         filterText={filterText}
