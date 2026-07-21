@@ -5,6 +5,7 @@ import {
   probeAgentReachability,
   type AgentReachability,
 } from '@/lib/agent-reachability-probe'
+import { mergeAgentDevicePresence } from '@/lib/agent-device-reachability'
 import { resolveRuntimeStateEntryForAgent } from '@/lib/runtime-state-resolve'
 import {
   SESSION_AGENT_CONNECTING_TIMEOUT_MS,
@@ -69,7 +70,6 @@ function computeProvisionalState(
   const entry = resolveRuntimeStateEntryForAgent(agent.id, byRuntimeId, dbRuntimeId)
   const runtimeInfo = entry?.info
   const availableModelCount = resolveAgentAvailableModels(runtimeInfo).length
-  const presenceOnline = presenceByActor[agent.id]?.online
   const since = connectingSinceByAgent[agent.id]
   const connectingTimedOut =
     since !== undefined && now - since >= SESSION_AGENT_CONNECTING_TIMEOUT_MS
@@ -77,6 +77,19 @@ function computeProvisionalState(
   const reachabilityFailed = reachability === 'unreachable'
   const localId = getKnownLocalDaemonActorId()
   const isLocalAgent = !!localId && agent.id === localId
+  const mqttOnline = presenceByActor[agent.id]?.online
+  const devicePresence = mergeAgentDevicePresence({
+    mqttOnline,
+    isLocalDaemon: isLocalAgent,
+    localHttpOk:
+      isLocalAgent && reachability === 'reachable'
+        ? true
+        : isLocalAgent && reachability === 'unreachable'
+          ? false
+          : null,
+  })
+  const presenceOnline =
+    devicePresence === 'online' ? true : devicePresence === 'offline' ? false : undefined
 
   return resolveSessionAgentUiState({
     presenceOnline,

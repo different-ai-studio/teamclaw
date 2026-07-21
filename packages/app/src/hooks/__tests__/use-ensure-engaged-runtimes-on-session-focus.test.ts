@@ -43,25 +43,20 @@ describe('agentIdsNeedingRuntimeWake', () => {
     ).toBe(true)
   })
 
-  it('hasRecoverableNonReadyAgent excludes LWT-offline agents', () => {
-    expect(
-      hasRecoverableNonReadyAgent(
-        [entry('a1', 'offline')],
-        { a1: { online: false } },
-      ),
-    ).toBe(false)
-    expect(
-      hasRecoverableNonReadyAgent(
-        [entry('a1', 'offline')],
-        { a1: { online: true } },
-      ),
-    ).toBe(true)
-    expect(
-      hasRecoverableNonReadyAgent(
-        [entry('a1', 'offline')],
-        {},
-      ),
-    ).toBe(true)
+  it('hasRecoverableNonReadyAgent excludes LWT-offline agents', async () => {
+    const { useActorPresenceStore } = await import('@/stores/actor-presence-store')
+    useActorPresenceStore.setState({
+      byActorId: { a1: { online: false, displayName: 'a', lastUpdated: 0 } },
+    })
+    expect(hasRecoverableNonReadyAgent([entry('a1', 'offline')])).toBe(false)
+
+    useActorPresenceStore.setState({
+      byActorId: { a1: { online: true, displayName: 'a', lastUpdated: 0 } },
+    })
+    expect(hasRecoverableNonReadyAgent([entry('a1', 'offline')])).toBe(true)
+
+    useActorPresenceStore.setState({ byActorId: {} })
+    expect(hasRecoverableNonReadyAgent([entry('a1', 'offline')])).toBe(true)
   })
 })
 

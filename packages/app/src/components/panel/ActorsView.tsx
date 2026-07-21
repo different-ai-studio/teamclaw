@@ -64,12 +64,10 @@ function ActorRowView({
   // For an agent with no presence entry at all (daemon never connected
   // since the app launched), fall back to last_active_at so freshly-loaded
   // sessions don't show every agent as gray during the first second.
-  const agentPresence = useActorPresenceStore((s) => isAgent ? s.byActorId[actor.id] : undefined)
+  // Subscribe so agent rows re-render when MQTT presence / local cache changes.
+  useActorPresenceStore((s) => (isAgent ? s.byActorId[actor.id]?.online : undefined))
   const currentMemberActorId = useCurrentTeamStore((s) => s.currentMember?.id ?? null)
-  const online = resolveActorOnlineStatus(actor, {
-    currentMemberActorId,
-    agentPresence,
-  })
+  const online = resolveActorOnlineStatus(actor, { currentMemberActorId })
   const status = actor.actor_type === 'member' ? actor.member_status : actor.agent_status
   const initial = actor.display_name?.trim().slice(0, 1).toUpperCase() || ''
   const enterActorDraft = useUIStore((s) => s.enterActorDraft)

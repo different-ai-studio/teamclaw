@@ -1759,22 +1759,32 @@ export function ChatPanel({ compact = false }: ChatPanelProps) {
       const autoMentionAgents: AttachedAgent[] = soleAgent ? [soleAgent] : [];
       await sendIntoSession(sessionId, firstMessage, autoMentionAgents);
 
-      // Fire-and-forget runtime spawn — UI has already moved into the
-      // session; status dots update via RuntimeInfo subscriptions.
-      if (picks.agents.length > 0) {
+      // Fire-and-forget runtime spawn for agents that outbox won't cover.
+      // Sole-agent create auto-mentions → outbox_send already ensures; skip
+      // duplicate session_create ensure for those ids.
+      const autoMentioned = new Set(autoMentionAgents.map((a) => a.id));
+      const agentsNeedingCreateEnsure = agentIds.filter((id) => !autoMentioned.has(id));
+      if (agentsNeedingCreateEnsure.length > 0) {
         sessionFlowLog("session_create.runtime_start.begin", {
           teamId: teamIdForSend,
           sessionId,
-          agentActorIds: agentIds,
+          agentActorIds: agentsNeedingCreateEnsure,
+          skippedAutoMentioned: agentIds.filter((id) => autoMentioned.has(id)),
         });
         void import("@/lib/teamclaw/ensure-agent-runtime").then(({ ensureAgentRuntimesForSession }) => {
           void ensureAgentRuntimesForSession({
             sessionId,
             teamId: teamIdForSend,
-            agentActorIds: agentIds,
+            agentActorIds: agentsNeedingCreateEnsure,
             modelId: selectedModelKey ?? undefined,
             reason: "session_create",
           });
+        });
+      } else if (agentIds.length > 0) {
+        sessionFlowLog("session_create.runtime_start.delegated_to_outbox", {
+          teamId: teamIdForSend,
+          sessionId,
+          agentActorIds: agentIds,
         });
       }
     } catch (e) {
