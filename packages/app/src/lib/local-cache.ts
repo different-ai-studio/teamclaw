@@ -1,4 +1,5 @@
 import { invoke } from "@tauri-apps/api/core";
+import { isChromeExtension } from "@/lib/platform";
 import { isTauri } from "@/lib/utils";
 
 // ── team gate ──────────────────────────────────────────────────────────────
@@ -278,8 +279,17 @@ export async function softDeleteSessionParticipant(
 // ── message ────────────────────────────────────────────────────────────────
 
 export async function upsertMessagesBatch(rows: MessageRow[]): Promise<void> {
-  if (!isTauri() || rows.length === 0) return;
-  await invoke("local_cache_message_upsert_batch", { rows });
+  if (rows.length === 0) return;
+  if (isTauri()) {
+    await invoke("local_cache_message_upsert_batch", { rows });
+    return;
+  }
+  if (isChromeExtension()) {
+    const { upsertExtensionMessagesBatch } = await import(
+      "@/lib/extension-message-cache"
+    );
+    await upsertExtensionMessagesBatch(rows);
+  }
 }
 
 export async function loadMessagesForSession(
@@ -287,20 +297,36 @@ export async function loadMessagesForSession(
   includeDeleted = false,
   workspacePath?: string | null,
 ): Promise<MessageRow[]> {
-  if (!isTauri()) return [];
-  return invoke("local_cache_message_load_session", {
-    sessionId,
-    includeDeleted,
-    workspacePath: workspacePath ?? null,
-  });
+  if (isTauri()) {
+    return invoke("local_cache_message_load_session", {
+      sessionId,
+      includeDeleted,
+      workspacePath: workspacePath ?? null,
+    });
+  }
+  if (isChromeExtension()) {
+    const { loadExtensionMessagesForSession } = await import(
+      "@/lib/extension-message-cache"
+    );
+    return loadExtensionMessagesForSession(sessionId, includeDeleted);
+  }
+  return [];
 }
 
 export async function softDeleteMessage(
   id: string,
   deletedAt: string,
 ): Promise<void> {
-  if (!isTauri()) return;
-  await invoke("local_cache_message_soft_delete", { id, deletedAt });
+  if (isTauri()) {
+    await invoke("local_cache_message_soft_delete", { id, deletedAt });
+    return;
+  }
+  if (isChromeExtension()) {
+    const { softDeleteExtensionMessage } = await import(
+      "@/lib/extension-message-cache"
+    );
+    await softDeleteExtensionMessage(id, deletedAt);
+  }
 }
 
 /** Merge parts_json into an existing message row without bumping updated_at.
@@ -311,12 +337,20 @@ export async function setMessageParts(
   partsJson: string,
   workspacePath?: string | null,
 ): Promise<string> {
-  if (!isTauri()) return partsJson;
-  return invoke<string>("local_cache_message_set_parts", {
-    messageId,
-    partsJson,
-    workspacePath: workspacePath ?? null,
-  });
+  if (isTauri()) {
+    return invoke<string>("local_cache_message_set_parts", {
+      messageId,
+      partsJson,
+      workspacePath: workspacePath ?? null,
+    });
+  }
+  if (isChromeExtension()) {
+    const { setExtensionMessageParts } = await import(
+      "@/lib/extension-message-cache"
+    );
+    return setExtensionMessageParts(messageId, partsJson);
+  }
+  return partsJson;
 }
 
 export async function enrichMessageParts(
