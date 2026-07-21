@@ -365,6 +365,19 @@ bound chat, so a simple `send(message=\"…\")` or `send(file_path=\"/tmp/report
 /// side, so updates are coalesced into at most one per interval.
 const STREAM_UPDATE_INTERVAL: std::time::Duration = std::time::Duration::from_millis(700);
 
+/// Decide what a timed-out gateway turn should return (issue #555). If the
+/// agent already produced reply text, hand it back as the turn result rather
+/// than failing — OpenCode may have finished while the ACP adapter never sent
+/// the Active→Idle completion. Empty accumulation stays a `Timeout` error.
+fn salvage_timeout_reply(segments: &[String], live: &str) -> Result<String, AcpError> {
+    let acc = compose_reply(segments, live);
+    if acc.trim().is_empty() {
+        Err(AcpError::Timeout)
+    } else {
+        Ok(acc)
+    }
+}
+
 /// Join the reply segments a turn has produced so far into the text a
 /// channel should display. `live` is the not-yet-flushed tail (output that
 /// has arrived but hasn't hit a tool-call or turn-end boundary).
@@ -498,20 +511,48 @@ impl AmuxdAcpHandle {
         let mut sent_update = String::new();
 
         let deadline = std::time::Instant::now() + std::time::Duration::from_secs(5 * 60);
+        // On a turn-level timeout, salvage any reply text the agent already
+        // produced instead of failing the whole turn (issue #555): OpenCode can
+        // finish and persist its final assistant text while the ACP adapter
+        // never emits the Active→Idle completion, which otherwise leaves the
+        // WeCom card stuck "thinking" even though the answer exists.
+        let salvage_on_timeout = |segments: &[String], live: &str| -> Result<String, AcpError> {
+            let out = salvage_timeout_reply(segments, live);
+            if out.is_ok() {
+                tracing::warn!(
+                    session = %session,
+                    "gateway turn timed out with no Active→Idle; returning accumulated reply text"
+                );
+            }
+            out
+        };
         let result: Result<String, AcpError> = loop {
             let remaining = deadline.saturating_duration_since(std::time::Instant::now());
             if remaining.is_zero() {
-                break Err(AcpError::Timeout);
+                break salvage_on_timeout(&segments, &live);
             }
             let next = tokio::time::timeout(remaining, event_rx.recv()).await;
             let event = match next {
                 Ok(Some(ev)) => ev,
                 Ok(None) => {
-                    break Err(AcpError::Send(
-                        "ACP event channel closed before reply".into(),
-                    ))
+                    // The agent detached mid-turn (event channel closed) before
+                    // any Active→Idle. If it had already produced reply text,
+                    // return it rather than stranding the user (issue #552);
+                    // otherwise surface the detach as an error.
+                    break match salvage_timeout_reply(&segments, &live) {
+                        Ok(reply) => {
+                            tracing::warn!(
+                                session = %session,
+                                "gateway turn detached before Active→Idle; returning accumulated reply text"
+                            );
+                            Ok(reply)
+                        }
+                        Err(_) => Err(AcpError::Send(
+                            "ACP event channel closed before reply".into(),
+                        )),
+                    };
                 }
-                Err(_) => break Err(AcpError::Timeout),
+                Err(_) => break salvage_on_timeout(&segments, &live),
             };
             if let Some(crate::proto::amux::acp_event::Event::Error(err)) = &event.event.event {
                 let details = if err.details.is_empty() {
@@ -1101,6 +1142,25 @@ mod tests {
         let segments = segments_from(&[tool_use("Bash"), turn_end()]);
         assert!(segments.is_empty());
         assert_eq!(compose_reply(&segments, ""), "");
+    }
+
+    #[test]
+    fn salvage_timeout_returns_text_when_present_else_timeout() {
+        // #555: text already produced → return it instead of failing.
+        assert_eq!(
+            salvage_timeout_reply(&["最终答案".to_string()], "").unwrap(),
+            "最终答案"
+        );
+        assert_eq!(salvage_timeout_reply(&[], "partial").unwrap(), "partial");
+        // Nothing produced → stays a Timeout error.
+        assert!(matches!(
+            salvage_timeout_reply(&[], "   "),
+            Err(AcpError::Timeout)
+        ));
+        assert!(matches!(
+            salvage_timeout_reply(&[], ""),
+            Err(AcpError::Timeout)
+        ));
     }
 
     #[test]
