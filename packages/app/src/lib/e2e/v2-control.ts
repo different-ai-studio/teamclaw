@@ -19,6 +19,7 @@ import { useSessionStore } from "@/stores/session";
 import { useUIStore } from "@/stores/ui";
 import { useV2StreamingStore } from "@/stores/v2-streaming-store";
 import { useWorkspaceStore } from "@/stores/workspace";
+import { sortSessionListRows } from "@/lib/session-list-sort";
 
 type SeedActor = {
   id?: string;
@@ -307,12 +308,7 @@ function participantActorIds(session: SeedSession, actors: NormalizedActor[]): s
 }
 
 function sortRows(rows: SessionListEntry[]): SessionListEntry[] {
-  return [...rows].sort((a, b) => {
-    if (!a.last_message_at && !b.last_message_at) return 0;
-    if (!a.last_message_at) return -1;
-    if (!b.last_message_at) return 1;
-    return b.last_message_at.localeCompare(a.last_message_at);
-  });
+  return sortSessionListRows(rows);
 }
 
 function sameSessionRows(a: SessionListEntry[], b: SessionListEntry[]): boolean {
