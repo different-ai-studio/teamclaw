@@ -371,10 +371,11 @@ export const useCronStore = create<CronState>((set, get) => ({
 
       if (sessionId) {
         // Refresh the authoritative cron session ids first, then add this run's
-        // session on top — the run record won't stamp session_id until the turn
-        // finishes, so without the optimistic add, turning the filter on would
-        // hide this brand-new session. (Order matters: loadCronSessionIds
-        // overwrites the set, so it must run before the add.)
+        // session on top. The backend eagerly creates the session and stamps
+        // session_id before the turn runs, but cron_get_all_session_ids can lag
+        // that write by a beat, so without the optimistic add, turning the filter
+        // on could momentarily hide this brand-new session. (Order matters:
+        // loadCronSessionIds overwrites the set, so it must run before the add.)
         await get().loadCronSessionIds()
         set((state) => ({ cronSessionIds: new Set([...state.cronSessionIds, sessionId]) }))
         get().setShowCronSessions(true)
