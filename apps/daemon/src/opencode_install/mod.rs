@@ -14,8 +14,6 @@ use std::path::PathBuf;
 #[derive(Debug, Deserialize)]
 pub struct OpencodeLock {
     pub version: String,
-    #[serde(default)]
-    pub marker: Option<String>,
 }
 
 impl OpencodeLock {
@@ -32,24 +30,6 @@ pub fn required_version() -> String {
     OpencodeLock::parse(LOCK_JSON)
         .map(|l| l.version.trim().trim_start_matches('v').to_string())
         .unwrap_or_default()
-}
-
-/// The fork identity marker this build requires in `opencode --version`
-/// (e.g. "teamclaw"). None means any opencode is acceptable (back-compat).
-pub fn required_marker() -> Option<String> {
-    OpencodeLock::parse(LOCK_JSON)
-        .ok()
-        .and_then(|l| l.marker)
-        .map(|m| m.trim().to_string())
-        .filter(|m| !m.is_empty())
-}
-
-/// True if `version` carries the required fork marker. No required marker -> true.
-pub fn version_has_marker(version: &str, marker: Option<&str>) -> bool {
-    match marker {
-        Some(m) => version.contains(m),
-        None => true,
-    }
 }
 
 /// opencode's official installer always installs to `~/.opencode/bin` (hardcoded upstream).
@@ -122,13 +102,6 @@ fn opencode_version_of(bin: &str) -> Option<String> {
     }
     let s = String::from_utf8_lossy(&out.stdout);
     let line = s.lines().next().unwrap_or("").trim();
-    if required_marker()
-        .as_deref()
-        .map(|marker| line.contains(marker))
-        .unwrap_or(false)
-    {
-        return Some(line.to_string());
-    }
     line.split_whitespace()
         .find(|tok| parse_semver(tok).is_some())
         .map(|t| t.to_string())
@@ -149,10 +122,9 @@ fn progress(event: &str, message: &str) {
     );
 }
 
-/// Default upstream for opencode release assets — the TeamClaw fork (NOT public
-/// sst/opencode). Overseas fallback when no OSS mirror base is configured.
-const DEFAULT_DOWNLOAD_BASE: &str =
-    "https://github.com/different-ai-studio/opencode/releases/latest/download";
+/// Default upstream for opencode release assets — official sst/opencode
+/// releases. Overseas fallback when no OSS mirror base is configured.
+const DEFAULT_DOWNLOAD_BASE: &str = "https://github.com/sst/opencode/releases/latest/download";
 
 /// Official opencode CLI release asset for an (os, arch) pair, using
 /// `std::env::consts` names. Returns None for unsupported targets.
@@ -264,64 +236,10 @@ fn unpack_opencode(asset: &str, bytes: &[u8], dest: &std::path::Path) -> anyhow:
     Ok(())
 }
 
-#[derive(Debug, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-struct ForkInstallStamp {
-    marker: String,
-    binary_sha256: String,
-}
-
-fn fork_stamp_path_for_bin(bin: &std::path::Path) -> Option<PathBuf> {
-    bin.parent().map(|p| p.join(".teamclaw-fork.json"))
-}
-
-fn sha256_file(path: &std::path::Path) -> anyhow::Result<String> {
-    use sha2::{Digest, Sha256};
-    let bytes = std::fs::read(path)?;
-    Ok(hex::encode(Sha256::digest(bytes)))
-}
-
-fn write_fork_install_stamp(bin: &std::path::Path, marker: Option<&str>) -> anyhow::Result<()> {
-    let Some(marker) = marker else {
-        return Ok(());
-    };
-    let Some(stamp_path) = fork_stamp_path_for_bin(bin) else {
-        return Ok(());
-    };
-    let stamp = ForkInstallStamp {
-        marker: marker.to_string(),
-        binary_sha256: sha256_file(bin)?,
-    };
-    std::fs::write(stamp_path, serde_json::to_vec_pretty(&stamp)?)?;
-    Ok(())
-}
-
-fn stamped_fork_matches(bin: &str, marker: Option<&str>) -> bool {
-    let Some(marker) = marker else {
-        return true;
-    };
-    let bin = std::path::Path::new(bin);
-    let Some(stamp_path) = fork_stamp_path_for_bin(bin) else {
-        return false;
-    };
-    let Ok(bytes) = std::fs::read(stamp_path) else {
-        return false;
-    };
-    let Ok(stamp) = serde_json::from_slice::<ForkInstallStamp>(&bytes) else {
-        return false;
-    };
-    if stamp.marker != marker {
-        return false;
-    }
-    sha256_file(bin)
-        .map(|hash| hash == stamp.binary_sha256)
-        .unwrap_or(false)
-}
-
 /// Direct-download install: fetch the current platform's release asset from
 /// `base_override` (or the official upstream) and unpack it into
-/// `~/.opencode/bin`. Used on Windows always, and whenever this build requires
-/// the TeamClaw fork marker so we do not fall back to the public installer.
+/// `~/.opencode/bin`. Used on Windows always, and whenever a mirror base is
+/// configured via `OPENCODE_DOWNLOAD_BASE`.
 fn direct_install(base_override: Option<&str>) -> anyhow::Result<()> {
     let asset = current_asset().ok_or_else(|| {
         anyhow::anyhow!(
@@ -336,7 +254,6 @@ fn direct_install(base_override: Option<&str>) -> anyhow::Result<()> {
     progress("unpack", &format!("unpacking {asset}"));
     let dest = opencode_default_bin().ok_or_else(|| anyhow::anyhow!("no home dir"))?;
     unpack_opencode(asset, &bytes, &dest)?;
-    write_fork_install_stamp(&dest, required_marker().as_deref())?;
     Ok(())
 }
 
@@ -367,32 +284,24 @@ fn install_command_path() -> String {
 ///
 /// Source selection:
 ///   * Windows: always direct-download the release zip (no official curl|bash).
-///   * Marker-required builds: direct-download the TeamClaw fork release asset.
-///   * Back-compat builds without a marker: macOS/Linux may still use the
-///     official installer unless `OPENCODE_DOWNLOAD_BASE` is set.
+///   * `OPENCODE_DOWNLOAD_BASE` set: direct-download from the mirror.
+///   * Otherwise (macOS/Linux): the official opencode.ai installer.
 pub fn run_install(force: bool) -> anyhow::Result<()> {
     let want = required_version();
 
-    let marker = required_marker();
     if !force {
         if let Some((path, have)) = detect_opencode() {
-            let is_fork = version_has_marker(&have, marker.as_deref())
-                || stamped_fork_matches(&path, marker.as_deref());
-            if version_ge(&have, &want) && is_fork {
+            if version_ge(&have, &want) {
                 progress(
                     "ok",
                     &format!("opencode {have} already satisfies >= {want} ({path})"),
                 );
                 return Ok(());
             }
-            if !is_fork {
-                progress("replace", &format!("opencode {have} is not the TeamClaw fork (missing marker); installing fork"));
-            } else {
-                progress(
-                    "upgrade",
-                    &format!("opencode {have} is older than required {want}; upgrading"),
-                );
-            }
+            progress(
+                "upgrade",
+                &format!("opencode {have} is older than required {want}; upgrading"),
+            );
         } else {
             progress(
                 "install",
@@ -406,9 +315,7 @@ pub fn run_install(force: bool) -> anyhow::Result<()> {
         .filter(|s| !s.trim().is_empty());
 
     // Windows has no official curl|bash installer, so always direct-download.
-    // When a fork marker is required, direct-download from the fork release
-    // assets too; the public opencode.ai installer cannot satisfy that contract.
-    if cfg!(windows) || mirror.is_some() || marker.is_some() {
+    if cfg!(windows) || mirror.is_some() {
         direct_install(mirror.as_deref())?;
         progress(
             "ok",
@@ -457,7 +364,6 @@ pub struct OpencodeStatus {
     pub version: Option<String>,
     pub path: Option<String>,
     pub required_version: String,
-    pub is_fork: bool,
     pub satisfied: bool,
 }
 
@@ -518,31 +424,20 @@ fn probe_version(cmd: &str, args: &[&str]) -> Option<String> {
 
 pub fn doctor() -> DoctorReport {
     let want = required_version();
-    let marker = required_marker();
     let detected = detect_opencode();
     let (present, version, path) = match &detected {
         Some((p, v)) => (true, Some(v.clone()), Some(p.clone())),
         None => (false, None, None),
     };
-    let is_fork = version
-        .as_deref()
-        .map(|v| version_has_marker(v, marker.as_deref()))
-        .unwrap_or(false)
-        || path
-            .as_deref()
-            .map(|p| stamped_fork_matches(p, marker.as_deref()))
-            .unwrap_or(false);
     let satisfied = version
         .as_deref()
         .map(|v| version_ge(v, &want))
-        .unwrap_or(false)
-        && is_fork;
+        .unwrap_or(false);
     let opencode = OpencodeStatus {
         present,
         version,
         path,
         required_version: want,
-        is_fork,
         satisfied,
     };
 
@@ -695,7 +590,7 @@ mod tests {
     fn download_url_honors_base_override() {
         assert_eq!(
             download_url(None, "opencode-windows-x64.zip"),
-            "https://github.com/different-ai-studio/opencode/releases/latest/download/opencode-windows-x64.zip"
+            "https://github.com/sst/opencode/releases/latest/download/opencode-windows-x64.zip"
         );
         assert_eq!(
             download_url(
@@ -714,7 +609,6 @@ mod tests {
                 version: Some("1.15.13".into()),
                 path: Some("/x".into()),
                 required_version: "1.15.13".into(),
-                is_fork: true,
                 satisfied: true,
             },
             git: ComponentStatus {
@@ -739,63 +633,11 @@ mod tests {
         assert_eq!(v["git"]["present"], serde_json::json!(false));
         assert_eq!(v["amuxd"]["installedVersion"], serde_json::json!("0.1.0"));
         assert_eq!(v["amuxd"]["satisfied"], serde_json::json!(true));
-        assert_eq!(v["opencode"]["isFork"], serde_json::json!(true));
     }
 
     #[test]
-    fn lock_parses_marker_optional() {
-        let with = OpencodeLock::parse(r#"{"version":"v1.17.7","marker":"teamclaw"}"#).unwrap();
-        assert_eq!(with.marker.as_deref(), Some("teamclaw"));
-        let without = OpencodeLock::parse(r#"{"version":"v1.15.13"}"#).unwrap();
-        assert_eq!(without.marker, None);
-    }
-
-    #[test]
-    fn required_marker_reads_embedded_lock() {
-        assert_eq!(required_marker().as_deref(), Some("teamclaw"));
-    }
-
-    #[test]
-    fn fork_required_for_satisfied_install() {
-        let m = Some("teamclaw");
-        // new-enough public build is NOT acceptable (no marker)
-        assert!(version_ge("1.17.7", "1.17.7"));
-        assert!(!version_has_marker("1.17.7", m));
-        // Some fork builds report the marker as a separate word, not as part of
-        // the semver token. Version comparison still needs to work.
-        assert!(version_ge("opencode 1.17.7 teamclaw", "1.17.7"));
-        assert!(version_has_marker("opencode 1.17.7 teamclaw", m));
-        // fork build of same version IS acceptable
-        assert!(version_ge("1.17.7-teamclaw", "1.17.7"));
-        assert!(version_has_marker("1.17.7-teamclaw", m));
-    }
-
-    #[test]
-    fn doctor_is_fork_requires_marker() {
-        // fork version (carries marker) is a fork; public version is not.
-        assert!(version_has_marker("1.17.7-teamclaw", Some("teamclaw")));
-        assert!(!version_has_marker("1.17.7", Some("teamclaw")));
-        // no required marker -> always treated as fork (back-compat)
-        assert!(version_has_marker("1.17.7", None));
-    }
-
-    #[test]
-    fn fork_stamp_matches_only_the_installed_binary_hash() {
-        let dir = tempfile::tempdir().unwrap();
-        let bin = dir.path().join("opencode");
-        std::fs::write(&bin, b"fork-binary").unwrap();
-
-        write_fork_install_stamp(&bin, Some("teamclaw")).unwrap();
-        assert!(stamped_fork_matches(
-            bin.to_str().unwrap(),
-            Some("teamclaw")
-        ));
-        assert!(!stamped_fork_matches(bin.to_str().unwrap(), Some("other")));
-
-        std::fs::write(&bin, b"public-binary").unwrap();
-        assert!(!stamped_fork_matches(
-            bin.to_str().unwrap(),
-            Some("teamclaw")
-        ));
+    fn required_version_is_at_least_1_17_7() {
+        // The lock pins the minimum opencode version for the HTTP backend.
+        assert!(version_ge(&required_version(), "1.17.7"));
     }
 }
