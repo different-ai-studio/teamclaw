@@ -738,7 +738,14 @@ export function SessionListColumn({
                 showCronSessions ? 'text-foreground bg-muted' : 'text-muted-foreground hover:text-foreground',
               )}
               disabled={!sessionHeaderActionsEnabled}
-              onClick={toggleShowCronSessions}
+              onClick={() => {
+                // When switching *into* the scheduled-sessions view, refresh the
+                // session list once so newly-created cron runs show up.
+                if (!showCronSessions) {
+                  void useSessionListStore.getState().loadFirstPage()
+                }
+                toggleShowCronSessions()
+              }}
               title={showCronSessions ? t('sidebar.showAllSessions', 'Show all sessions') : t('sidebar.showCronSessions', 'Show scheduled sessions')}
             >
               <AnimatedClock className="h-4 w-4" animate={showCronSessions} />
