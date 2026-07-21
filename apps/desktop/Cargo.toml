@@ -41,6 +41,7 @@ prost-types = "0.13"
 teamclaw-proto = { path = "../../crates/teamclaw-proto" }
 teamclaw-types = { path = "../../crates/teamclaw-types" }
 teamclaw-runtime-env = { path = "../../crates/teamclaw-runtime-env" }
+teamclaw-transport = { path = "../../crates/teamclaw-transport" }
 indexmap = { version = "2", features = ["serde"] }
 tokio = { version = "1", features = ["rt-multi-thread", "macros", "time", "sync", "net", "process", "io-util"] }
 reqwest = { version = "0.12", default-features = false, features = ["json", "blocking", "stream", "rustls-tls-native-roots"] }

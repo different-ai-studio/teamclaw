@@ -10343,6 +10343,7 @@ dependencies = [
  "teamclaw-rag",
  "teamclaw-runtime-env",
  "teamclaw-stt",
+ "teamclaw-transport",
  "teamclaw-types",
  "tempfile",
  "thiserror 2.0.18",
