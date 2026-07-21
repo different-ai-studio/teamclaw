@@ -1,5 +1,6 @@
 import { listDaemonRuntimes } from "@/lib/daemon-runtimes";
 import {
+  invalidateViewerWorkspaceContext,
   isViewerAgent,
   loadViewerWorkspaceContext,
   resolveLocalPathForCloudWorkspace,
@@ -13,6 +14,9 @@ import { upsertSessionWorkspacesBatch, type SessionWorkspaceRow } from "@/lib/lo
  * working offline after the first sync.
  */
 export async function syncSessionWorkspaces(teamId: string): Promise<void> {
+  // This is the explicit refresh path — rebuild the viewer context from source
+  // (newly connected agents / registered workspaces) instead of a cached copy.
+  invalidateViewerWorkspaceContext(teamId);
   const viewer = await loadViewerWorkspaceContext(teamId);
   const memberId = viewer.memberId?.trim();
   if (!memberId) return;

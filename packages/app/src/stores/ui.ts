@@ -297,6 +297,15 @@ export const useUIStore = create<UIState>((set, get) => ({
     
     const teamId = useCurrentTeamStore.getState().team?.id
 
+    // Resolving the session's workspace does daemon IPC + a Cloud API round-trip.
+    // It must NOT gate the view/selection flip, or every click feels laggy. Fire
+    // it in the background — the chat view renders instantly and the workspace
+    // catches up a beat later (only matters for daemon runtimes started from this
+    // session, which the user can't trigger within that window anyway).
+    const resolveWorkspaceInBackground = () => {
+      if (teamId) void switchToSessionWorkspaceIfNeeded(teamId, sessionId)
+    }
+
     // If already on this session just navigate back to chat view (e.g. user
     // opened the apps panel and clicked the same app again). Still switch the
     // workspace so daemon runtimes started from this session use the right
@@ -305,15 +314,12 @@ export const useUIStore = create<UIState>((set, get) => ({
     if (sessionId === currentActiveId) {
       set({ currentView: 'chat', settingsInitialSection: null, daemonGeneralPrompt: null, sidebarFilter: { kind: 'all' } })
       releaseStuckModalLayersAfterViewSwitch()
-      if (teamId) await switchToSessionWorkspaceIfNeeded(teamId, sessionId)
+      resolveWorkspaceInBackground()
       return
     }
 
-    if (teamId) {
-      await switchToSessionWorkspaceIfNeeded(teamId, sessionId)
-    }
-    
-    // Close any open UI elements and return to chat view
+    // Close any open UI elements and return to chat view — synchronously, so the
+    // click responds immediately.
     set({
       currentView: 'chat',
       settingsInitialSection: null,
@@ -326,12 +332,16 @@ export const useUIStore = create<UIState>((set, get) => ({
     releaseStuckModalLayersAfterViewSwitch()
     useWorkspaceStore.getState().clearSelection()
     useTabsStore.getState().hideAll()
-    
-    // Switch to the session (selection store also updates the read marker).
-    await useSessionSelectionStore.getState().setActiveSession(sessionId)
+
+    // Switch to the session. setActiveSession flips the selection state
+    // synchronously; its read-marker network write runs in the background, so we
+    // don't await it here (awaiting added a Cloud API round-trip to every click).
+    void useSessionSelectionStore.getState().setActiveSession(sessionId)
     // If the user was in actor-draft mode, drop that since they jumped into
     // an existing session.
     set({ draftPreselectedActor: null, sidebarFilter: { kind: 'all' }, draftIdeaId: null })
+
+    resolveWorkspaceInBackground()
   },
 
   enterActorDraft: (actor) => {
