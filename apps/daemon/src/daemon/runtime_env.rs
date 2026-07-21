@@ -100,8 +100,10 @@ impl DaemonServer {
         worktree: &str,
         workspace_id: &str,
     ) -> Result<SpawnRuntimeEnv, String> {
-        crate::runtime::supervisor::ensure_inherent_mcp(Path::new(worktree))
-            .map_err(|e| format!("ensure_inherent_mcp failed: {e}"))?;
+        // Async lookups first — these must not race the refresh-watch suppress
+        // window. Managed-LLM cloud fetch can exceed INTERNAL_WRITE_SUPPRESS
+        // (3s); if we suppress *before* that await and only write afterward,
+        // opencode.json rewrites leak as Pending "OpenCode config" banners.
         let team_id = self.resolve_workspace_team_id(workspace_id).await;
         let managed_llm = match team_id.as_deref() {
             Some(tid) => self.resolve_managed_llm(tid).await,
@@ -116,6 +118,13 @@ impl DaemonServer {
             .cloud_auth_health()
             .map(|_| crate::config::DaemonConfig::cloud_token_path())
             .map(|p| p.to_string_lossy().into_owned());
+
+        // Suppress immediately before sync disk writes (inherent MCP, provider.team,
+        // secret-ref resolve). Callers must not rely on a suppress issued before
+        // the awaits above.
+        self.suppress_internal_opencode_writes(worktree);
+        crate::runtime::supervisor::ensure_inherent_mcp(Path::new(worktree))
+            .map_err(|e| format!("ensure_inherent_mcp failed: {e}"))?;
         crate::runtime::env_assembly::assemble_spawn_runtime_env(
             Path::new(worktree),
             team_id.as_deref(),

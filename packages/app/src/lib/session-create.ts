@@ -326,6 +326,18 @@ export interface StartAgentRuntimesArgs {
   rpcTimeoutMs?: number
   /** Suppress workspace-layer toasts; caller surfaces failures. */
   suppressWorkspaceToast?: boolean
+  /**
+   * When true, skip the post-start setModel fanout. Callers that need an
+   * authoritative spawn id (e.g. model-picker) apply the model themselves
+   * with the returned `runtimeIdsByAgent` value.
+   */
+  skipModelApply?: boolean
+}
+
+export type StartAgentRuntimesResult = {
+  failures: RuntimeStartFailure[]
+  /** agentActorId → spawn id accepted by the daemon for this batch. */
+  runtimeIdsByAgent: Record<string, string>
 }
 
 export type RuntimeStartFailureCode =
@@ -378,9 +390,12 @@ function pickAgentBackend(
  * Daemon-published RuntimeInfo retains will update the runtime-state-store
  * asynchronously as the runtimes come up.
  */
-export async function startAgentRuntimesAsync(args: StartAgentRuntimesArgs): Promise<RuntimeStartFailure[]> {
-  if (args.agentActorIds.length === 0) return []
+export async function startAgentRuntimesAsync(
+  args: StartAgentRuntimesArgs,
+): Promise<StartAgentRuntimesResult> {
+  if (args.agentActorIds.length === 0) return { failures: [], runtimeIdsByAgent: {} }
   const failures: RuntimeStartFailure[] = []
+  const runtimeIdsByAgent: Record<string, string> = {}
   const localWorkspacePath = useWorkspaceStore.getState().workspacePath?.trim() || ''
   const rpcTimeoutMs = args.rpcTimeoutMs ?? RUNTIME_START_RPC_TIMEOUT_MS
   let createdByMemberId: string | null = null
@@ -593,11 +608,14 @@ export async function startAgentRuntimesAsync(args: StartAgentRuntimesArgs): Pro
           runtimeId: result.runtimeId,
           agentType,
         })
+        if (result.runtimeId.trim()) {
+          runtimeIdsByAgent[agentActorId] = result.runtimeId.trim()
+        }
         const normalizedModelId = resolvedModelId
           ? normalizeAgentModelId(agentActorId, resolvedModelId, byRuntimeId) ??
             resolvedModelId
           : undefined
-        if (normalizedModelId) {
+        if (normalizedModelId && !args.skipModelApply) {
           sessionFlowLog('runtime_start.set_model.begin', {
             sessionId: args.sessionId,
             teamId: args.teamId,
@@ -668,5 +686,5 @@ export async function startAgentRuntimesAsync(args: StartAgentRuntimesArgs): Pro
     agentType: args.agentType,
     failureCount: failures.length,
   })
-  return failures
+  return { failures, runtimeIdsByAgent }
 }

@@ -22,8 +22,19 @@ export function seedRuntimeStateAfterStart(args: {
   if (!daemonActorId || !runtimeId) return;
 
   const store = useRuntimeStateStore.getState();
-  const existing = store.byRuntimeId[runtimeId] ?? store.byRuntimeId[daemonActorId];
-  if (existing) return;
+  const existingMirror = store.byRuntimeId[daemonActorId];
+  const existingSpawn = store.byRuntimeId[runtimeId];
+  // Idempotent when this spawn is already indexed. Do NOT skip just because a
+  // mirror entry exists — after runtimeStart returns a NEW spawn id the old
+  // agent-UUID retain can still point at a dead spawn (e.g. MQTT was down when
+  // the previous session stopped). Skipping then leaves setModel targeting the
+  // stale id while the daemon holds the fresh one.
+  if (
+    existingSpawn?.info.runtimeId === runtimeId &&
+    existingMirror?.info.runtimeId === runtimeId
+  ) {
+    return;
+  }
 
   const info: RuntimeInfo = create(RuntimeInfoSchema, {
     runtimeId,

@@ -1,6 +1,7 @@
 import * as React from 'react'
 import { mergeAgentDevicePresence, noteLocalDaemonSignals } from '@/lib/agent-device-reachability'
 import { probeDaemonHttp } from '@/lib/daemon-local-client'
+import { onDaemonProbeRequested } from '@/lib/daemon-probe-signal'
 import { getDaemonMqttConnected } from '@/lib/daemon-agent-admin'
 import { QUICK_CHAT_DAEMON_PROBE_INTERVAL_MS } from '@/lib/session-agent-probe'
 import { useDaemonOnboardingStore } from '@/stores/daemon-onboarding'
@@ -29,9 +30,13 @@ export function useLocalDaemonHttpStatus(enabled = true): LocalDaemonHttpStatus 
     setStatus('checking')
     void runProbe()
     const interval = setInterval(() => void runProbe(), QUICK_CHAT_DAEMON_PROBE_INTERVAL_MS)
+    // Let Retry / network-online force an immediate re-probe instead of waiting
+    // out the poll interval.
+    const unsubscribe = onDaemonProbeRequested(() => void runProbe())
     return () => {
       cancelled = true
       clearInterval(interval)
+      unsubscribe()
     }
   }, [daemonReady, enabled])
 
@@ -105,9 +110,11 @@ export function useLocalDaemonRuntimeStatus(
 
     void poll()
     const interval = setInterval(() => void poll(), QUICK_CHAT_DAEMON_PROBE_INTERVAL_MS)
+    const unsubscribe = onDaemonProbeRequested(() => void poll())
     return () => {
       cancelled = true
       clearInterval(interval)
+      unsubscribe()
     }
   }, [actorId, daemonOnboardingReady, enabled, httpStatus])
 

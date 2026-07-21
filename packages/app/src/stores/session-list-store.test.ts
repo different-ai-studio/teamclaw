@@ -64,6 +64,37 @@ describe("session-list-store", () => {
     } as never);
   });
 
+  it("sorts rows by last_message_at desc with nulls last after load", async () => {
+    mocks.listCurrentActorSessions.mockResolvedValueOnce({
+      rows: [
+        sessionRow({
+          id: "empty-old",
+          last_message_at: null,
+          created_at: "2026-07-21T02:00:00.000Z",
+        }),
+        sessionRow({
+          id: "recent",
+          last_message_at: "2026-07-21T10:00:00.000Z",
+          created_at: "2026-07-21T09:00:00.000Z",
+        }),
+        sessionRow({
+          id: "older",
+          last_message_at: "2026-07-21T09:00:00.000Z",
+          created_at: "2026-07-21T08:30:00.000Z",
+        }),
+      ],
+    });
+
+    const { useSessionListStore } = await import("./session-list-store");
+    await useSessionListStore.getState().loadFirstPage();
+
+    expect(useSessionListStore.getState().rows.map((row) => row.id)).toEqual([
+      "recent",
+      "older",
+      "empty-old",
+    ]);
+  });
+
   it("loads the first page from the current actor session RPC", async () => {
     mocks.listCurrentActorSessions.mockResolvedValueOnce({
       rows: [sessionRow({ has_unread: true })],
