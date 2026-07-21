@@ -493,6 +493,7 @@ pub fn run() {
             commands::deps::install_dependency,
             commands::env_vars::env_var_get,
             commands::env_vars::env_catalog_list,
+            commands::env_vars::team_env_diagnostics,
             commands::env_vars::env_catalog_set,
             commands::env_vars::env_catalog_delete,
             commands::env_vars::env_var_resolve,

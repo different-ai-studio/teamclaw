@@ -25,6 +25,18 @@ export interface TeamEnvListing {
   createdBy: string
   updatedBy: string
   updatedAt: string
+  /**
+   * `false` when the secret file exists (so the key is known) but the local
+   * team secret is missing or wrong and it could not be decrypted. The UI shows
+   * these keys with a "not decrypted" warning instead of hiding them.
+   */
+  decrypted?: boolean
+  /**
+   * Only meaningful when `decrypted === false`. `true`: a local team secret was
+   * present but this file failed to decrypt (wrong / rotated key). `false`: no
+   * local secret at all (missing).
+   */
+  keyMismatch?: boolean
 }
 
 /** Unified catalog returned by `env_catalog_list`. */
@@ -69,6 +81,7 @@ function requireWorkspacePath(): string {
 
 async function fetchEnvCatalog(): Promise<EnvCatalog> {
   return invoke<EnvCatalog>('env_catalog_list', {
+    teamId: useCurrentTeamStore.getState().team?.id,
     workspacePath: requireWorkspacePath(),
   })
 }
