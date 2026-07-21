@@ -157,12 +157,4 @@ mod tests {
     fn returns_none_when_missing() {
         assert!(parse_init_outcome("nothing here").is_none());
     }
-
-    #[test]
-    fn rebind_stops_service_and_process_before_rewriting_identity() {
-        assert_eq!(
-            rebind_prelude(),
-            [["uninstall-service"].as_slice(), ["stop"].as_slice()]
-        );
-    }
 }

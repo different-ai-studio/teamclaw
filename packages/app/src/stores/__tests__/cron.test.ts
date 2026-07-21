@@ -13,6 +13,14 @@ vi.mock('@/stores/workspace', () => ({
   },
 }))
 
+const mockSwitchToSession = vi.fn()
+
+vi.mock('@/stores/ui', () => ({
+  useUIStore: {
+    getState: () => ({ switchToSession: mockSwitchToSession }),
+  },
+}))
+
 vi.mock('@/lib/store-utils', () => ({
   withAsync: async (set: any, fn: any, opts?: any) => {
     set({ isLoading: true, error: null })
@@ -50,6 +58,8 @@ describe('cron store', () => {
       runs: [],
       runsLoading: false,
       runningJobIds: new Set<string>(),
+      cronSessionIds: new Set<string>(),
+      showCronSessions: false,
     })
   })
 
@@ -439,14 +449,33 @@ describe('cron store actions', () => {
     })
   })
 
-  it('runJob passes scope args and clears running state when idle', async () => {
+  it('runJob navigates to the new run session once its id is stamped', async () => {
     vi.useFakeTimers()
-    useCronStore.setState({ isInitialized: true })
-    mockInvoke.mockResolvedValueOnce(undefined) // cron_run_job
-    mockInvoke.mockResolvedValueOnce([]) // cron_get_runs poll 1
-    mockInvoke.mockResolvedValueOnce([]) // cron_get_runs poll 2
-    mockInvoke.mockResolvedValueOnce([]) // cron_get_runs poll 3
-    mockInvoke.mockResolvedValueOnce([]) // cron_list_jobs refresh
+    useCronStore.setState({
+      isInitialized: true,
+      jobs: [{ id: 'job-1', name: 'Test' } as never],
+    })
+    // Before the run only r0 exists; after cron_run_job the new run r1 shows up
+    // with an eagerly-stamped sessionId.
+    let ranJob = false
+    mockInvoke.mockImplementation((cmd: string) => {
+      switch (cmd) {
+        case 'cron_get_runs':
+          return Promise.resolve(
+            ranJob
+              ? [
+                  { runId: 'r1', jobId: 'job-1', startedAt: 't', status: 'running', sessionId: 'sess-new' },
+                  { runId: 'r0', jobId: 'job-1', startedAt: 't', status: 'success' },
+                ]
+              : [{ runId: 'r0', jobId: 'job-1', startedAt: 't', status: 'success' }],
+          )
+        case 'cron_run_job':
+          ranJob = true
+          return Promise.resolve(undefined)
+        default:
+          return Promise.resolve([]) // cron_get_all_session_ids, cron_list_jobs
+      }
+    })
 
     const promise = useCronStore.getState().runJob('job-1')
     expect(useCronStore.getState().runningJobIds.has('job-1')).toBe(true)
@@ -459,6 +488,35 @@ describe('cron store actions', () => {
       scope: 'global',
       workspacePath: null,
     })
+    expect(mockSwitchToSession).toHaveBeenCalledWith('sess-new')
+    expect(useCronStore.getState().showCronSessions).toBe(true)
+    expect(useCronStore.getState().cronSessionIds.has('sess-new')).toBe(true)
+    expect(useCronStore.getState().runningJobIds.has('job-1')).toBe(false)
+    vi.useRealTimers()
+  })
+
+  it('runJob ignores a run that already existed before the run', async () => {
+    vi.useFakeTimers()
+    useCronStore.setState({
+      isInitialized: true,
+      jobs: [{ id: 'job-1', name: 'Test' } as never],
+    })
+    // Only a prior run (with a session id) exists; it must not be mistaken for
+    // this run's session, and no new run ever gets a session id.
+    mockInvoke.mockImplementation((cmd: string) => {
+      if (cmd === 'cron_get_runs') {
+        return Promise.resolve([
+          { runId: 'r0', jobId: 'job-1', startedAt: 't', status: 'success', sessionId: 'sess-old' },
+        ])
+      }
+      return Promise.resolve(undefined)
+    })
+
+    const promise = useCronStore.getState().runJob('job-1')
+    await vi.runAllTimersAsync()
+    await promise
+
+    expect(mockSwitchToSession).not.toHaveBeenCalled()
     expect(useCronStore.getState().runningJobIds.has('job-1')).toBe(false)
     vi.useRealTimers()
   })
@@ -466,18 +524,18 @@ describe('cron store actions', () => {
   it('runJob ignores duplicate triggers while already running', async () => {
     vi.useFakeTimers()
     useCronStore.setState({ isInitialized: true })
-    mockInvoke.mockResolvedValueOnce(undefined)
-    mockInvoke.mockResolvedValueOnce([{ runId: 'r1', jobId: 'job-1', startedAt: '2026-01-01', status: 'running' }])
-    mockInvoke.mockResolvedValueOnce([{ runId: 'r1', jobId: 'job-1', startedAt: '2026-01-01', status: 'success', finishedAt: '2026-01-01' }])
-    mockInvoke.mockResolvedValueOnce([])
+    mockInvoke.mockResolvedValue([])
 
     const first = useCronStore.getState().runJob('job-1')
+    // Second call while the first is still running must be a no-op.
     await useCronStore.getState().runJob('job-1')
 
     await vi.runAllTimersAsync()
     await first
 
-    expect(mockInvoke).toHaveBeenCalledTimes(4)
+    // cron_run_job fired exactly once despite two runJob calls.
+    const runCalls = mockInvoke.mock.calls.filter((c) => c[0] === 'cron_run_job')
+    expect(runCalls).toHaveLength(1)
     vi.useRealTimers()
   })
 
