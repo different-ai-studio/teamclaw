@@ -229,6 +229,16 @@ pub struct DaemonServer {
     session_remote_targets: Arc<AsyncMutex<crate::remote_tools::SessionRemoteTargetStore>>,
     remote_tool_turn_contexts: Arc<AsyncMutex<crate::remote_tools::RemoteToolTurnContextStore>>,
     rpc_client: Arc<AsyncMutex<crate::teamclaw::rpc::RpcClient>>,
+    /// Sender for completed cron turns. `handle_prompt_await` runs the (long)
+    /// ACP turn on a background task; when it finishes the task sends the result
+    /// here so the active run loop can persist the AgentReply and reply to the
+    /// sock client. This keeps the main select loop from being blocked for the
+    /// whole turn — otherwise a running cron turn stalls every other sock command
+    /// (notably the next run's `cron-prepare-session`, delaying its session_id
+    /// stamp and the desktop "Run Now" jump).
+    cron_turn_done_tx: mpsc::Sender<cron::CronTurnDone>,
+    /// Receiver half, `take()`n by whichever run loop (MQTT or NATS) is active.
+    cron_turn_done_rx: Option<mpsc::Receiver<cron::CronTurnDone>>,
 }
 
 /// Single control command parsed off `amuxd.sock`. Variants correspond to the
@@ -642,6 +652,10 @@ impl DaemonServer {
             None
         };
 
+        // Bounded queue of completed cron turns handed back to the run loop for
+        // persistence + sock reply (see `cron_turn_done_tx`).
+        let (cron_turn_done_tx, cron_turn_done_rx) = mpsc::channel(64);
+
         Ok(Self {
             config,
             config_path: config_path.to_path_buf(),
@@ -681,6 +695,8 @@ impl DaemonServer {
                 crate::remote_tools::RemoteToolTurnContextStore::default(),
             )),
             rpc_client,
+            cron_turn_done_tx,
+            cron_turn_done_rx: Some(cron_turn_done_rx),
         })
     }
 
@@ -1174,6 +1190,14 @@ impl DaemonServer {
         tokio::pin!(shutdown);
         let mut first_connect = true;
 
+        // Owned for the whole run: the `finalize_cron_turn` select arm drains
+        // completed background cron turns off it. Taken once here (before the
+        // reconnect loop) so a reconnect never re-takes an already-moved value.
+        let mut cron_done_rx = self
+            .cron_turn_done_rx
+            .take()
+            .expect("cron_turn_done_rx already taken (MQTT run loop entered twice)");
+
         'outer: loop {
             // ── 0. Self-heal team_id from daemon.toml ──
             // A daemon that started before onboarding wrote the team keeps
@@ -1469,11 +1493,10 @@ impl DaemonServer {
                                     .await;
                             }
                             Some(SockCommand::PromptAwait { payload, reply_tx }) => {
-                                let resp = match self.handle_prompt_await(&payload).await {
-                                    Ok(v) => serde_json::json!({ "ok": true, "result": v }),
-                                    Err(e) => serde_json::json!({ "ok": false, "error": e.to_string() }),
-                                };
-                                let _ = reply_tx.send(resp.to_string());
+                                // Fast setup inline; the turn runs on a task and
+                                // its result comes back via `cron_turn_done_rx`
+                                // (see the `finalize_cron_turn` select arm below).
+                                self.handle_prompt_await(&payload, reply_tx).await;
                             }
                             Some(SockCommand::CronPrepareSession { payload, reply_tx }) => {
                                 let resp = match self.handle_cron_prepare_session(&payload).await {
@@ -1525,6 +1548,14 @@ impl DaemonServer {
                                 // path until next restart.
                                 warn!("amuxd.sock: listener channel closed; control commands unavailable until restart");
                             }
+                        }
+                    }
+                    done = cron_done_rx.recv() => {
+                        // A background cron turn finished: persist its AgentReply
+                        // and answer the waiting sock client. `None` only if all
+                        // senders dropped (never — `self` holds the sender).
+                        if let Some(done) = done {
+                            self.finalize_cron_turn(done).await;
                         }
                     }
                     poll_result = self.mqtt.eventloop.poll() => {
@@ -1678,6 +1709,13 @@ impl DaemonServer {
             })?;
 
         let mut first_connect = true;
+
+        // See the MQTT path: taken once before the reconnect loop so the
+        // `finalize_cron_turn` select arm can drain completed cron turns.
+        let mut cron_done_rx = self
+            .cron_turn_done_rx
+            .take()
+            .expect("cron_turn_done_rx already taken (NATS run loop entered twice)");
 
         'outer: loop {
             // 1. Fresh backend access_token; same retry cadence as MQTT path.
@@ -1852,11 +1890,10 @@ impl DaemonServer {
                                     .await;
                             }
                             Some(SockCommand::PromptAwait { payload, reply_tx }) => {
-                                let resp = match self.handle_prompt_await(&payload).await {
-                                    Ok(v) => serde_json::json!({ "ok": true, "result": v }),
-                                    Err(e) => serde_json::json!({ "ok": false, "error": e.to_string() }),
-                                };
-                                let _ = reply_tx.send(resp.to_string());
+                                // Fast setup inline; the turn runs on a task and
+                                // its result comes back via `cron_turn_done_rx`
+                                // (see the `finalize_cron_turn` select arm below).
+                                self.handle_prompt_await(&payload, reply_tx).await;
                             }
                             Some(SockCommand::CronPrepareSession { payload, reply_tx }) => {
                                 let resp = match self.handle_cron_prepare_session(&payload).await {
@@ -1901,6 +1938,13 @@ impl DaemonServer {
                             }
                             Some(SockCommand::Unknown(line)) => warn!("amuxd.sock: unknown control command: {line:?}"),
                             None => warn!("amuxd.sock: listener channel closed; control commands unavailable until restart"),
+                        }
+                    }
+                    done = cron_done_rx.recv() => {
+                        // Background cron turn finished — persist + reply. See the
+                        // matching arm in the MQTT loop.
+                        if let Some(done) = done {
+                            self.finalize_cron_turn(done).await;
                         }
                     }
                     frame = inbound.recv() => {
@@ -2938,6 +2982,7 @@ pub(crate) mod tests {
         let deferred_backend = Arc::new(
             crate::backend::deferred::DeferredBackend::claimed(backend.clone()),
         );
+        let (cron_turn_done_tx, cron_turn_done_rx) = mpsc::channel(64);
         TestServer {
             server: DaemonServer {
                 config,
@@ -2982,6 +3027,8 @@ pub(crate) mod tests {
                     "team-1".to_string(),
                     "agent-actor".to_string(),
                 ))),
+                cron_turn_done_tx,
+                cron_turn_done_rx: Some(cron_turn_done_rx),
             },
             _tmp: tmp,
         }
