@@ -11,7 +11,7 @@ import { useCurrentTeamStore } from '@/stores/current-team'
 import { useTeamShareStore, isShareModeLocked } from '@/stores/team-share'
 import { useOssSyncStore } from '@/stores/oss-sync'
 import { TEAM_SYNCED_EVENT } from '@/lib/build-config'
-import { globalTeamShareDir } from '@/lib/team-skill-paths'
+import { globalTeamShareDir, TEAM_SHARE_LINK_DIR } from '@/lib/team-skill-paths'
 import { linkDaemonTeamWorkspace } from '@/lib/daemon-local-client'
 import { cn, isTauri } from '@/lib/utils'
 
@@ -78,8 +78,27 @@ export function TeamSharedFilesBrowser({
       return
     }
     const entries = await readDir(dir)
-    setDirState(entries.length === 0 ? 'empty' : 'populated')
-  }, [globalPath])
+    if (entries.length === 0) {
+      setDirState('empty')
+      return
+    }
+    {
+      // The daemon-owned global dir is outside the workspace boundary, so the
+      // workspace-scoped file commands (read_workspace_directory, open, etc.)
+      // cannot read it directly. We render through the in-workspace
+      // `teamclaw-team` symlink instead; make sure it exists on disk before
+      // FileBrowser tries to resolve it. linkDaemonTeamWorkspace is idempotent.
+      if (workspacePath) {
+        try {
+          await linkDaemonTeamWorkspace(workspacePath)
+        } catch {
+          // Non-fatal: FileBrowser will fall back to an empty tree if the link
+          // is missing; the dir-state hint still tells the user to sync.
+        }
+      }
+      setDirState('populated')
+    }
+  }, [globalPath, workspacePath])
 
   React.useEffect(() => {
     let cancelled = false
@@ -227,11 +246,19 @@ export function TeamSharedFilesBrowser({
     )
   }
 
+  // FileBrowser renders via the workspace-scoped file commands, which reject
+  // paths outside the workspace. `teamRootPath` is the daemon-owned global dir
+  // (outside the workspace), so we render through the in-workspace
+  // `teamclaw-team` symlink that points at it. The global path stays in use for
+  // the dir-state existence checks above (those go through the unscoped fs
+  // plugin, not the workspace commands).
+  const teamRenderPath = `${workspacePath}/${TEAM_SHARE_LINK_DIR}`
+
   return (
     <div className="flex flex-col min-h-0 flex-1">
       <FileBrowser
         variant="panel"
-        rootPath={teamRootPath!}
+        rootPath={teamRenderPath}
         hideGitStatus={false}
         hideToolbar={hidePanelToolbar}
         filterText={filterText}
