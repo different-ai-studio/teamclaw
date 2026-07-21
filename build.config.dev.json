@@ -1,5 +1,5 @@
 {
-  "cloudApiUrl": "https://api.teamclaw-dev.ucar.cc",
+  "cloudApiUrl": "https://teamclaw-api.ucar.cc",
   "team": {
     "lockLlmConfig": false
   },
@@ -18,7 +18,7 @@
       "wecom": true,
       "wechat": true
     },
-    "auth": { "google": false, "wechat": false, "phone": false },
+    "auth": { "google": false, "wechat": false, "phone": false, "webSSO": true },
     "teamShareBrowser": true
   },
   "opencode": {

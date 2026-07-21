@@ -10,7 +10,7 @@ import {
   type RuntimeStartFailure,
   type RuntimeStartFailureCode,
 } from "@/lib/session-create";
-import { waitForTeamclawRpcReady } from "@/lib/teamclaw-rpc";
+import { setModel, waitForTeamclawRpcReady } from "@/lib/teamclaw-rpc";
 import { useRuntimeStateStore } from "@/stores/runtime-state-store";
 import { resolveRuntimeStateEntryForAgent } from "@/lib/runtime-state-resolve";
 import { resolveSessionWorkspaceHintForRuntimeStart } from "@/lib/teamclaw/resolve-runtime-start-workspace";
@@ -129,6 +129,120 @@ export type EnsureAgentRuntimeArgs = {
   workspaceIdHint?: string;
   reason?: string;
 };
+
+export type EnsureRuntimeThenSetModelArgs = {
+  sessionId: string;
+  teamId: string;
+  agentActorId: string;
+  modelId: string;
+};
+
+/**
+ * Model-picker path: ask the daemon for the live spawn via runtimeStart
+ * (dedup reuse when still alive), then setModel with that authoritative
+ * runtimeId. Never resolves spawn id from MQTT/DB hints — those go stale
+ * across daemon restarts while the UI still looks "ready".
+ */
+export async function ensureRuntimeThenSetModel(
+  args: EnsureRuntimeThenSetModelArgs,
+): Promise<{ runtimeId: string }> {
+  const agentActorId = args.agentActorId.trim();
+  const modelId = args.modelId.trim();
+  if (!args.sessionId || !args.teamId || !agentActorId || !modelId) {
+    throw new Error("sessionId, teamId, agentActorId, and modelId are required");
+  }
+
+  const mqttConnected = useMqttReconnectStore.getState().connected;
+  if (mqttConnected === false) {
+    throw new Error("mqtt disconnected");
+  }
+
+  const rpcReady = await waitForTeamclawRpcReady(20_000);
+  if (!rpcReady) {
+    throw new Error("teamclaw RPC not ready");
+  }
+
+  const { eligible, failures: gateFailures } = await gateAgentsForRuntimeStart([agentActorId]);
+  if (gateFailures.length > 0) {
+    throw new Error(gateFailures[0]!.reason || "device offline");
+  }
+  if (eligible.length === 0) {
+    throw new Error("agent not eligible for runtimeStart");
+  }
+
+  try {
+    await ensureAgentIsSessionParticipant(args.sessionId, agentActorId);
+  } catch (error) {
+    sessionFlowError("ensure_runtime_then_set_model.add_participant_failed", error, {
+      sessionId: args.sessionId,
+      agentActorId,
+    });
+  }
+
+  const localWorkspacePath = useWorkspaceStore.getState().workspacePath?.trim() || null;
+  let localDaemonActorId: string | null = null;
+  const { isTauri } = await import("@/lib/utils");
+  if (isTauri()) {
+    try {
+      const { getLocalDaemonActorId } = await import("@/lib/daemon-agent-admin");
+      localDaemonActorId = await getLocalDaemonActorId();
+    } catch {
+      localDaemonActorId = null;
+    }
+  }
+  const workspaceIdHint =
+    (await resolveSessionWorkspaceHintForRuntimeStart({
+      teamId: args.teamId,
+      localWorkspacePath,
+      sessionId: args.sessionId,
+      agentActorIds: [agentActorId],
+      localDaemonActorId,
+    })) || undefined;
+
+  sessionFlowLog("ensure_runtime_then_set_model.begin", {
+    sessionId: args.sessionId,
+    teamId: args.teamId,
+    agentActorId,
+    modelId,
+    workspaceIdHint: workspaceIdHint ?? null,
+  });
+
+  const { failures, runtimeIdsByAgent } = await startAgentRuntimesAsync({
+    sessionId: args.sessionId,
+    teamId: args.teamId,
+    agentActorIds: [agentActorId],
+    modelId,
+    workspaceIdHint,
+    rpcTimeoutMs: RUNTIME_START_RPC_TIMEOUT_MS,
+    suppressWorkspaceToast: true,
+    // Apply below so callers observe setModel failures (start path swallows them).
+    skipModelApply: true,
+  });
+  if (failures.length > 0) {
+    throw new Error(failures[0]!.reason || "runtimeStart failed");
+  }
+
+  const runtimeId = runtimeIdsByAgent[agentActorId]?.trim();
+  if (!runtimeId) {
+    throw new Error("runtimeStart did not return a runtime id");
+  }
+
+  await setModel({
+    targetActorId: agentActorId,
+    runtimeId,
+    modelId,
+    timeoutMs: RUNTIME_START_RPC_TIMEOUT_MS,
+  });
+
+  sessionFlowLog("ensure_runtime_then_set_model.ok", {
+    sessionId: args.sessionId,
+    teamId: args.teamId,
+    agentActorId,
+    runtimeId,
+    modelId,
+  });
+  return { runtimeId };
+}
 
 /**
  * Idempotent: ensure session live subscription, session membership, and
@@ -263,7 +377,7 @@ export async function ensureAgentRuntimesForSession(args: EnsureAgentRuntimeArgs
       localWorkspacePath,
     });
 
-    const runtimeFailures = await startAgentRuntimesAsync({
+    const { failures: runtimeFailures } = await startAgentRuntimesAsync({
       sessionId: args.sessionId,
       teamId: args.teamId,
       agentActorIds: eligible,

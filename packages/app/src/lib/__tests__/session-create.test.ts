@@ -601,7 +601,7 @@ describe('startAgentRuntimesAsync', () => {
     })
 
     const { startAgentRuntimesAsync } = await import('../session-create')
-    const failures = await startAgentRuntimesAsync({
+    const { failures } = await startAgentRuntimesAsync({
       sessionId: 'sess-1',
       teamId: 'team-1',
       agentActorIds: ['remote-agent'],
@@ -620,7 +620,7 @@ describe('startAgentRuntimesAsync', () => {
     mockRuntimeStart.mockRejectedValueOnce(new Error('RPC timeout'))
 
     const { startAgentRuntimesAsync } = await import('../session-create')
-    const failures = await startAgentRuntimesAsync({
+    const { failures } = await startAgentRuntimesAsync({
       sessionId: 'sess-1',
       teamId: 'team-1',
       agentActorIds: ['remote-agent'],
@@ -629,5 +629,31 @@ describe('startAgentRuntimesAsync', () => {
     expect(failures).toEqual([
       { agentActorId: 'remote-agent', code: 'runtime_rpc_failed', reason: 'RPC timeout' },
     ])
+  })
+
+  it('returns accepted runtime ids and can skip post-start setModel', async () => {
+    mockTables({
+      runtimes: [],
+      actors: [{ id: 'remote-agent', agent_types: ['opencode'], default_agent_type: 'opencode' }],
+    })
+    mockRuntimeStart.mockResolvedValueOnce({
+      accepted: true,
+      runtimeId: 'spawn-abc',
+      sessionId: 'sess-1',
+      rejectedReason: '',
+    })
+
+    const { startAgentRuntimesAsync } = await import('../session-create')
+    const { failures, runtimeIdsByAgent } = await startAgentRuntimesAsync({
+      sessionId: 'sess-1',
+      teamId: 'team-1',
+      agentActorIds: ['remote-agent'],
+      modelId: 'opencode/big-pickle',
+      skipModelApply: true,
+    })
+
+    expect(failures).toEqual([])
+    expect(runtimeIdsByAgent).toEqual({ 'remote-agent': 'spawn-abc' })
+    expect(mockSetModel).not.toHaveBeenCalled()
   })
 })

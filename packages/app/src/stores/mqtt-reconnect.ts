@@ -144,6 +144,18 @@ export const useMqttReconnectStore = create<MqttReconnectState>((set, get) => ({
     void (async () => {
       const utils = await import('@/lib/utils').catch(() => null)
       if (!utils) return
+      // Network came back: force a fast credential-refresh + reconnect and an
+      // immediate daemon status re-probe, rather than waiting out the Rust
+      // event loop's ≤60s backoff and the 20s status poll. `recoverMqttCredentials`
+      // (auto mode) is cooldown-throttled so a flapping link can't spam it.
+      if (typeof window !== 'undefined') {
+        window.addEventListener('online', () => {
+          void recoverMqttCredentials(get)
+          void import('@/lib/daemon-probe-signal')
+            .then((m) => m.requestDaemonProbe())
+            .catch(() => {})
+        })
+      }
       if (!utils.isTauri()) {
         // Browser path: subscribe to browser MQTT state/error from the browser bridge
         const browserBridge = await import('@/lib/mqtt-browser-bridge').catch(() => null)

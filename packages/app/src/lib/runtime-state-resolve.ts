@@ -155,6 +155,17 @@ export function resolveCommandRuntimeId(args: {
     return mqttRuntimeId;
   }
 
+  // DB hint and the chosen mqtt entry can agree on a stale spawn id (both still
+  // marked ACTIVE in the local cache). Prefer any other live retain for this
+  // agent, but only on the session-agnostic path (setModel from the agent pill).
+  // Permission/cancel targets pass sessionRuntimeIds and must not hop sessions.
+  if (!sessionIds || sessionIds.size === 0) {
+    const liveSpawnId = findLiveRuntimeIdForAgent(trimmedAgent, args.byRuntimeId);
+    if (liveSpawnId && liveSpawnId !== dbId) {
+      return liveSpawnId;
+    }
+  }
+
   if (dbId) return dbId;
 
   if (mqttLive && mqttRuntimeId && sessionSafe) return mqttRuntimeId;
