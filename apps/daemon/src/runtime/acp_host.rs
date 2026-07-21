@@ -60,6 +60,24 @@ struct HostEntry {
     cmd_tx: mpsc::Sender<AcpCommand>,
 }
 
+/// Ask a host task to exit (which kills its child process via `kill_on_drop`).
+/// Fire-and-forget: `try_send` never blocks callers holding the pool (behind
+/// the RuntimeManager mutex); only a full command queue falls back to a
+/// detached task.
+fn shutdown_host_async(cmd_tx: mpsc::Sender<AcpCommand>, reason: &'static str) {
+    match cmd_tx.try_send(AcpCommand::Shutdown) {
+        Ok(()) => debug!(reason, "ACP host shutdown requested"),
+        Err(mpsc::error::TrySendError::Closed(_)) => {
+            // Host task already gone — nothing to clean up.
+        }
+        Err(mpsc::error::TrySendError::Full(_)) => {
+            tokio::spawn(async move {
+                let _ = cmd_tx.send(AcpCommand::Shutdown).await;
+            });
+        }
+    }
+}
+
 /// Pool of long-lived ACP hosts — one `initialize` per host, many `session/new`.
 pub struct AcpHostPool {
     hosts: HashMap<HostKey, HostEntry>,
@@ -83,9 +101,55 @@ impl AcpHostPool {
     /// hosts only read auth state at process start.
     pub fn evict_agent_types(&mut self, agent_types: &[amux::AgentType]) -> usize {
         let before = self.hosts.len();
-        self.hosts
-            .retain(|key, _| !agent_types.contains(&key.agent_type));
+        self.hosts.retain(|key, entry| {
+            if agent_types.contains(&key.agent_type) {
+                // Removing the entry alone leaks the host: the host loop keeps
+                // running on its other select arms after the command channel
+                // closes, so the child process survives as a zombie. Tell it to
+                // exit (child is `kill_on_drop`).
+                shutdown_host_async(entry.cmd_tx.clone(), "evict_agent_types");
+                false
+            } else {
+                true
+            }
+        });
         before.saturating_sub(self.hosts.len())
+    }
+
+    /// Remove pool entries that can never serve another session and shut their
+    /// host processes down:
+    /// - dead hosts (command channel closed — the host task exited), and
+    /// - stale-env hosts: same `(agent_type, worktree)` as `fresh` but a
+    ///   different `env_fingerprint`. Once a new env is materialized the old
+    ///   host's fingerprint never matches an attach again; without reaping it
+    ///   idles forever holding ~100MB (opencode) plus its MCP children.
+    fn reap_stale_hosts(&mut self, fresh: &HostKey) {
+        let mut reaped = 0usize;
+        self.hosts.retain(|key, entry| {
+            if key == fresh {
+                return true;
+            }
+            if entry.cmd_tx.is_closed() {
+                reaped += 1;
+                return false;
+            }
+            let superseded = key.agent_type == fresh.agent_type
+                && key.worktree_fingerprint == fresh.worktree_fingerprint
+                && key.env_fingerprint != fresh.env_fingerprint;
+            if superseded {
+                shutdown_host_async(entry.cmd_tx.clone(), "stale env superseded");
+                reaped += 1;
+                return false;
+            }
+            true
+        });
+        if reaped > 0 {
+            info!(
+                reaped,
+                agent_type = ?fresh.agent_type,
+                "reaped stale/dead ACP hosts from pool"
+            );
+        }
     }
 
     /// Pre-warm one host per configured agent type (empty team env).
@@ -153,14 +217,25 @@ impl AcpHostPool {
             worktree_fingerprint: worktree_fingerprint(agent_type, worktree),
         };
         if let Some(entry) = self.hosts.get(&key) {
-            debug!(
-                ?agent_type,
-                worktree = worktree.unwrap_or(""),
-                env_fingerprint = key.env_fingerprint,
-                worktree_fingerprint = key.worktree_fingerprint,
-                "ACP host pool hit; reusing initialized host"
-            );
-            return Ok(entry.cmd_tx.clone());
+            if entry.cmd_tx.is_closed() {
+                // Host task died (process exit / fatal error) but the entry was
+                // never removed. Treat as a miss and respawn below.
+                warn!(
+                    ?agent_type,
+                    worktree = worktree.unwrap_or(""),
+                    "ACP host pool hit but host is dead; respawning"
+                );
+                self.hosts.remove(&key);
+            } else {
+                debug!(
+                    ?agent_type,
+                    worktree = worktree.unwrap_or(""),
+                    env_fingerprint = key.env_fingerprint,
+                    worktree_fingerprint = key.worktree_fingerprint,
+                    "ACP host pool hit; reusing initialized host"
+                );
+                return Ok(entry.cmd_tx.clone());
+            }
         }
 
         info!(
@@ -207,6 +282,10 @@ impl AcpHostPool {
                 cmd_tx: cmd_tx.clone(),
             },
         );
+        // A new host for this (agent_type, worktree) supersedes any host with a
+        // previous env fingerprint; reap those (and any dead entries) so the
+        // pool doesn't accumulate zombie processes across env changes.
+        self.reap_stale_hosts(&key);
         info!(
             ?agent_type,
             worktree = worktree.unwrap_or(""),
@@ -325,6 +404,70 @@ mod tests {
             pool.hosts.keys().next().unwrap().agent_type,
             amux::AgentType::ClaudeCode
         );
+    }
+
+    #[test]
+    fn reap_removes_superseded_env_and_dead_hosts_only() {
+        let mut pool = AcpHostPool::new();
+        let fresh = HostKey {
+            agent_type: amux::AgentType::Opencode,
+            env_fingerprint: 2,
+            worktree_fingerprint: 11,
+        };
+        let (fresh_tx, _fresh_rx) = mpsc::channel(1);
+        pool.hosts.insert(fresh, HostEntry { cmd_tx: fresh_tx });
+        // Same agent+worktree, older env → superseded.
+        let (old_tx, mut old_rx) = mpsc::channel(1);
+        pool.hosts.insert(
+            HostKey {
+                env_fingerprint: 1,
+                ..fresh
+            },
+            HostEntry { cmd_tx: old_tx },
+        );
+        // Same agent, different worktree → kept.
+        let (other_tx, _other_rx) = mpsc::channel(1);
+        pool.hosts.insert(
+            HostKey {
+                worktree_fingerprint: 99,
+                ..fresh
+            },
+            HostEntry { cmd_tx: other_tx },
+        );
+        // Dead host (receiver dropped) on another agent type → reaped.
+        let (dead_tx, dead_rx) = mpsc::channel(1);
+        drop(dead_rx);
+        pool.hosts.insert(
+            HostKey {
+                agent_type: amux::AgentType::ClaudeCode,
+                env_fingerprint: 7,
+                worktree_fingerprint: 0,
+            },
+            HostEntry { cmd_tx: dead_tx },
+        );
+
+        pool.reap_stale_hosts(&fresh);
+
+        assert_eq!(pool.hosts.len(), 2, "fresh + different-worktree survive");
+        assert!(pool.hosts.contains_key(&fresh));
+        // The superseded host was asked to shut down.
+        assert!(matches!(old_rx.try_recv(), Ok(AcpCommand::Shutdown)));
+    }
+
+    #[test]
+    fn evict_sends_shutdown_to_evicted_hosts() {
+        let mut pool = AcpHostPool::new();
+        let (tx, mut rx) = mpsc::channel(1);
+        pool.hosts.insert(
+            HostKey {
+                agent_type: amux::AgentType::Opencode,
+                env_fingerprint: 1,
+                worktree_fingerprint: 11,
+            },
+            HostEntry { cmd_tx: tx },
+        );
+        assert_eq!(pool.evict_agent_types(&[amux::AgentType::Opencode]), 1);
+        assert!(matches!(rx.try_recv(), Ok(AcpCommand::Shutdown)));
     }
 
     #[test]
