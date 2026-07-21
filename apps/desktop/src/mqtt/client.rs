@@ -38,11 +38,7 @@ impl MqttClient {
 
     pub fn connect(cfg: ClientConfig) -> Result<Self> {
         let broker = Self::resolve_broker(&cfg);
-        let mut opts = MqttOptions::new(
-            &cfg.client_id,
-            broker.connection_address(),
-            broker.port,
-        );
+        let mut opts = MqttOptions::new(&cfg.client_id, broker.connection_address(), broker.port);
         opts.set_credentials(&cfg.username, &cfg.password);
         opts.set_clean_session(false);
         opts.set_keep_alive(Duration::from_secs(30));
