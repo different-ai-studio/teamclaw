@@ -4,7 +4,6 @@
 //! here before agent spawn, and `/v1/workspaces/:id/runtime/*` handlers
 //! delegate reload/status to the shared `RuntimeManager`.
 
-use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::time::Duration;
@@ -25,7 +24,6 @@ const INSTRUCTION_PLUGIN_TEMPLATE: &str = include_str!(
 use crate::config::workspace_control::{ApplyOutcome, RuntimeStatus, WorkspaceControlError};
 use crate::proto::amux;
 use crate::runtime::{
-    acp_catalog_probe,
     refresh::{
         RefreshChangeKind, RuntimeRefreshCoordinator, WorkspaceRefreshState,
         APPLY_REFRESH_SUPPRESS, INTERNAL_PREPARE_KINDS, INTERNAL_WRITE_SUPPRESS,
@@ -692,21 +690,15 @@ impl RuntimeSupervisor {
         &self,
         workspace_path: &Path,
     ) -> Result<Vec<amux::ModelInfo>, String> {
-        let launch = {
-            let manager = self.agents.lock().await;
-            manager.launch_config_for(amux::AgentType::Opencode)
-        };
+        let mut manager = self.agents.lock().await;
+        let launch = manager.launch_config_for(amux::AgentType::Opencode);
         if !binary_available(&launch) {
             return Err("opencode binary not available".into());
         }
-        acp_catalog_probe::probe_opencode_models_at_cwd(
-            &launch.binary,
-            &launch.args,
-            workspace_path.to_path_buf(),
-            HashMap::new(),
-        )
-        .await
-        .map_err(|e| e.to_string())
+        manager
+            .probe_opencode_models(workspace_path)
+            .await
+            .map_err(|e| e.to_string())
     }
 
     pub async fn runtime_status(

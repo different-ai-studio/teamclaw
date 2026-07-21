@@ -1,7 +1,8 @@
-pub mod acp_catalog_probe;
 pub mod acp_event_frame;
-pub mod acp_host;
-pub mod adapter;
+pub mod opencode_http;
+// Compatibility alias: external modules still reach the runtime backend as
+// `crate::runtime::adapter` (AcpCommand, AcpStartupMetadata, envelopes, …).
+pub use self::opencode_http as adapter;
 mod agent_runtime_state;
 mod agent_trace;
 pub mod env_assembly;
@@ -9,17 +10,17 @@ mod handle;
 mod instruction_delivery;
 pub mod managed_llm;
 mod manager;
-mod workspace_runtime;
 pub mod models;
 pub mod refresh;
 pub mod supervisor;
 pub mod turn_aggregator;
+mod workspace_runtime;
 
-pub use acp_host::AcpHostPool;
 pub use handle::{InjectedContextItem, PendingMessage, RuntimeHandle};
 pub use instruction_delivery::{
     resolve_instruction_delivery, skips_buffered_inject, InstructionDelivery,
 };
-pub use workspace_runtime::{apply_workspace_system_instructions, instruction_plugin_installed};
 pub use manager::{AgentLaunchConfig, CheckedOutTurn, RuntimeManager, SpawnRuntimeEnv};
+pub use opencode_http::AcpHostPool;
 pub use supervisor::RuntimeSupervisor;
+pub use workspace_runtime::{apply_workspace_system_instructions, instruction_plugin_installed};
