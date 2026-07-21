@@ -30,8 +30,43 @@ function indexLocalWorkspaces(
   return out;
 }
 
+// Resolving a session's workspace on every sidebar click rebuilds this context
+// from scratch — daemon IPC (agent id, workspaces) plus a Cloud API round-trip
+// (connected agents). Cache it per team for a short window so a burst of clicks
+// shares one build. The data changes rarely (agents connect / workspaces
+// register), so a few seconds of staleness is invisible; call
+// `invalidateViewerWorkspaceContext()` when it must be refreshed immediately.
+const VIEWER_CONTEXT_TTL_MS = 5_000;
+const viewerContextCache = new Map<
+  string,
+  { expiresAt: number; promise: Promise<ViewerWorkspaceContext> }
+>();
+
+/** Drop cached viewer context (all teams, or one) so the next load rebuilds it. */
+export function invalidateViewerWorkspaceContext(teamId?: string): void {
+  if (teamId) viewerContextCache.delete(teamId);
+  else viewerContextCache.clear();
+}
+
 /** Load the current member, owned agents, and locally registered workspace paths. */
 export async function loadViewerWorkspaceContext(
+  teamId: string,
+): Promise<ViewerWorkspaceContext> {
+  const now = Date.now();
+  const cached = viewerContextCache.get(teamId);
+  if (cached && cached.expiresAt > now) return cached.promise;
+
+  const promise = buildViewerWorkspaceContext(teamId);
+  viewerContextCache.set(teamId, {
+    expiresAt: now + VIEWER_CONTEXT_TTL_MS,
+    promise,
+  });
+  // If the build rejects, don't cache the failure — let the next call retry.
+  promise.catch(() => viewerContextCache.delete(teamId));
+  return promise;
+}
+
+async function buildViewerWorkspaceContext(
   teamId: string,
 ): Promise<ViewerWorkspaceContext> {
   const { useCurrentTeamStore } = await import("@/stores/current-team");
