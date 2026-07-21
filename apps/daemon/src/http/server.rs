@@ -80,6 +80,7 @@ pub async fn spawn(
     config_path: Option<std::path::PathBuf>,
     channel_reload_tx: Option<tokio::sync::mpsc::Sender<()>>,
     onboarding: Option<Arc<dyn crate::http::setup::OnboardingService>>,
+    local_rpc_tx: Option<crate::http::state::LocalRpcTx>,
 ) -> anyhow::Result<HttpHandle> {
     // Resolve token + port files (defaults live in DaemonConfig::config_dir).
     let token_path = http
@@ -138,7 +139,8 @@ pub async fn spawn(
     .with_backend(backend)
     .with_config_admin(config_path, channel_reload_tx, onboarding)
     .with_live_tee(live_tee)
-    .with_managed_llm(managed_llm);
+    .with_managed_llm(managed_llm)
+    .with_local_rpc(local_rpc_tx);
 
     spawn_reapers(state.clone());
     let mut app: Router = routes::build(state);
@@ -245,6 +247,7 @@ mod tests {
             None,
             None,
             None,
+            None,
         )
         .await
         .unwrap();
@@ -274,6 +277,7 @@ mod tests {
             None,
             None,
             test_dispatcher(),
+            None,
             None,
             None,
             None,
@@ -326,6 +330,7 @@ mod tests {
             None,
             None,
             test_dispatcher(),
+            None,
             None,
             None,
             None,
@@ -523,6 +528,7 @@ mod tests {
             None,
             None,
             None,
+            None,
         )
         .await
         .unwrap();
@@ -597,6 +603,7 @@ mod tests {
             None,
             None,
             test_dispatcher(),
+            None,
             None,
             None,
             None,
@@ -682,6 +689,7 @@ mod tests {
             None,
             None,
             test_dispatcher(),
+            None,
             None,
             None,
             None,
@@ -785,6 +793,7 @@ mod tests {
             None,
             None,
             None,
+            None,
         )
         .await
         .unwrap();
@@ -818,6 +827,131 @@ mod tests {
             .unwrap();
         // `HttpError::validation` → 422 Unprocessable Entity.
         assert_eq!(resp.status().as_u16(), 422);
+        handle.shutdown().await;
+    }
+
+    #[tokio::test]
+    async fn rpc_route_returns_503_without_bridge() {
+        let (handle, client, base, token) = boot().await;
+        let resp = client
+            .post(format!("{base}/v1/rpc"))
+            .bearer_auth(&token)
+            .body(vec![1u8, 2, 3])
+            .send()
+            .await
+            .unwrap();
+        assert_eq!(resp.status().as_u16(), 503);
+        handle.shutdown().await;
+    }
+
+    #[tokio::test]
+    async fn rpc_route_requires_auth_and_round_trips_protobuf() {
+        use prost::Message as _;
+
+        let dir = tempfile::tempdir().unwrap();
+        let token_path = dir.path().join("token");
+        let cfg = HttpConfig {
+            bind: "127.0.0.1:0".into(),
+            token_file: Some(token_path.clone()),
+            port_file: Some(dir.path().join("port")),
+            heartbeat_interval: std::time::Duration::from_secs(5),
+            ..HttpConfig::default()
+        };
+        let runtime = crate::http::runtime_adapter::StubRuntimeAdapter::new(256);
+
+        // Stub actor loop: echoes a successful RpcResponse carrying the same
+        // request_id, exactly like `dispatch_local_rpc` would.
+        let (rpc_tx, mut rpc_rx) =
+            tokio::sync::mpsc::channel::<crate::http::state::LocalRpcRequest>(4);
+        tokio::spawn(async move {
+            while let Some(req) = rpc_rx.recv().await {
+                let request =
+                    crate::proto::teamclaw::RpcRequest::decode(req.payload.as_slice()).unwrap();
+                let response = crate::proto::teamclaw::RpcResponse {
+                    request_id: request.request_id,
+                    success: true,
+                    error: String::new(),
+                    requester_client_id: request.requester_client_id,
+                    requester_actor_id: request.requester_actor_id,
+                    result: None,
+                };
+                let _ = req.reply_tx.send(Ok(response.encode_to_vec()));
+            }
+        });
+
+        let handle = spawn(
+            cfg,
+            metadata("actor".into(), "test"),
+            runtime,
+            None,
+            None,
+            None,
+            test_dispatcher(),
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            Some(rpc_tx),
+        )
+        .await
+        .unwrap();
+        let base = format!("http://{}", handle.local_addr);
+        let root = std::fs::read_to_string(&token_path)
+            .unwrap()
+            .trim()
+            .to_owned();
+        let client = reqwest::Client::new();
+
+        let request = crate::proto::teamclaw::RpcRequest {
+            request_id: "req-42".into(),
+            requester_client_id: "client-1".into(),
+            requester_actor_id: "actor-1".into(),
+            ..Default::default()
+        };
+        let body = request.encode_to_vec();
+
+        // No bearer token → 401 before the bridge is ever consulted.
+        let resp = client
+            .post(format!("{base}/v1/rpc"))
+            .body(body.clone())
+            .send()
+            .await
+            .unwrap();
+        assert_eq!(resp.status().as_u16(), 401);
+
+        // Authenticated (default scopes include sessions:write) → the reply
+        // body is the RpcResponse protobuf the actor loop produced.
+        let exchanged: serde_json::Value = client
+            .post(format!("{base}/v1/auth/exchange"))
+            .bearer_auth(&root)
+            .json(&serde_json::json!({"ttl_seconds": 3600}))
+            .send()
+            .await
+            .unwrap()
+            .json()
+            .await
+            .unwrap();
+        let token = exchanged["token"].as_str().unwrap().to_string();
+        let resp = client
+            .post(format!("{base}/v1/rpc"))
+            .bearer_auth(&token)
+            .body(body)
+            .send()
+            .await
+            .unwrap();
+        assert_eq!(resp.status().as_u16(), 200);
+        assert_eq!(
+            resp.headers()
+                .get("content-type")
+                .and_then(|v| v.to_str().ok()),
+            Some("application/x-protobuf")
+        );
+        let bytes = resp.bytes().await.unwrap();
+        let decoded = crate::proto::teamclaw::RpcResponse::decode(bytes.as_ref()).unwrap();
+        assert!(decoded.success);
+        assert_eq!(decoded.request_id, "req-42");
         handle.shutdown().await;
     }
 }

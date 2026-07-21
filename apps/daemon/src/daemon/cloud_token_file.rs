@@ -130,7 +130,8 @@ mod tests {
 
     #[test]
     fn write_is_atomic_and_owner_only() {
-        let dir = std::env::temp_dir().join(format!("amuxd-cloud-token-test-{}", std::process::id()));
+        let dir =
+            std::env::temp_dir().join(format!("amuxd-cloud-token-test-{}", std::process::id()));
         let path = dir.join("amuxd.cloud-token");
         write_token_file(&path, "jwt-abc").unwrap();
         assert_eq!(std::fs::read_to_string(&path).unwrap(), "jwt-abc");

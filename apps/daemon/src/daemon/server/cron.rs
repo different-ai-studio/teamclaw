@@ -77,7 +77,11 @@ impl CronSessionCache {
     }
 
     /// Records a pre-created cloud session id for `key` (see `prepared`).
-    pub(crate) fn insert_prepared(&mut self, key: impl Into<String>, cloud_session_id: impl Into<String>) {
+    pub(crate) fn insert_prepared(
+        &mut self,
+        key: impl Into<String>,
+        cloud_session_id: impl Into<String>,
+    ) {
         self.prepared.insert(key.into(), cloud_session_id.into());
     }
 
@@ -155,9 +159,10 @@ impl DaemonServer {
                 // scheduler); otherwise create it now (e.g. scheduled runs).
                 let sb_sid = match self.cron_sessions.take_prepared(parsed.session_key) {
                     Some(prepared) => prepared,
-                    None => self
-                        .create_cron_cloud_session(&team_id, parsed.job_name)
-                        .await?,
+                    None => {
+                        self.create_cron_cloud_session(&team_id, parsed.job_name)
+                            .await?
+                    }
                 };
 
                 // Resolve the job's pinned backend (if any) against the
@@ -749,10 +754,8 @@ mod tests {
         let mock = MockBackend::with_identity("team-test", "agent-actor");
         {
             let mut st = mock.state();
-            st.admin_member_actor_ids.insert(
-                "agent-actor".to_string(),
-                vec!["human-admin".to_string()],
-            );
+            st.admin_member_actor_ids
+                .insert("agent-actor".to_string(), vec!["human-admin".to_string()]);
         }
         let backend: Arc<dyn Backend> = Arc::new(mock.clone());
         let test_server = test_server_with_cloud_api(backend);

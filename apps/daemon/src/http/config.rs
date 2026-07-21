@@ -72,12 +72,12 @@ pub struct MutateConfigResponse {
 }
 
 fn config_path(state: &HttpState) -> Result<&std::path::Path, HttpError> {
-    state
-        .config_path
-        .as_deref()
-        .ok_or_else(|| HttpError::new(super::errors::ErrorCode::RuntimeUnavailable,
+    state.config_path.as_deref().ok_or_else(|| {
+        HttpError::new(
+            super::errors::ErrorCode::RuntimeUnavailable,
             "this daemon was started without a config file bound to the HTTP layer",
-        ))
+        )
+    })
 }
 
 /// Map an `edit` error onto a status. A missing key is a 404; anything else is
@@ -113,7 +113,11 @@ pub async fn list_config(
                 } else {
                     edit::format_inline_value(&value)
                 },
-                value: if secret { None } else { Some(toml_to_json(&value)) },
+                value: if secret {
+                    None
+                } else {
+                    Some(toml_to_json(&value))
+                },
                 secret,
                 key,
             }
@@ -143,7 +147,11 @@ pub async fn get_config(
         } else {
             edit::format_inline_value(&value)
         },
-        value: if secret { None } else { Some(toml_to_json(&value)) },
+        value: if secret {
+            None
+        } else {
+            Some(toml_to_json(&value))
+        },
         secret,
         key,
     }))

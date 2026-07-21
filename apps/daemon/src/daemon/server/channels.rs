@@ -62,7 +62,12 @@ impl DaemonServer {
                     .and_then(agent_type_from_name);
                 let workspace_dir = match defaults.default_workspace_id.as_deref() {
                     Some(id) => {
-                        let path = self.workspace_resolver.resolve(id).await.ok().map(|w| w.path);
+                        let path = self
+                            .workspace_resolver
+                            .resolve(id)
+                            .await
+                            .ok()
+                            .map(|w| w.path);
                         if path.is_none() {
                             warn!(
                                 workspace_id = %id,
@@ -101,7 +106,12 @@ impl DaemonServer {
                 for bot in wecom.resolved_bots() {
                     let workspace_dir = match bot.workspace_id.as_deref() {
                         Some(id) => {
-                            let path = self.workspace_resolver.resolve(id).await.ok().map(|w| w.path);
+                            let path = self
+                                .workspace_resolver
+                                .resolve(id)
+                                .await
+                                .ok()
+                                .map(|w| w.path);
                             if path.is_none() {
                                 warn!(
                                     bot_id = %bot.bot_id,

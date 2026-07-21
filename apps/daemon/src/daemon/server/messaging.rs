@@ -371,9 +371,21 @@ impl DaemonServer {
                 }
                 Some(agg) => {
                     let turn_id = agg.current_turn_id().unwrap_or("").to_string();
-                    (Vec::new(), turn_id, seq, reply_to_message_id, clear_reply_to)
+                    (
+                        Vec::new(),
+                        turn_id,
+                        seq,
+                        reply_to_message_id,
+                        clear_reply_to,
+                    )
                 }
-                None => (Vec::new(), String::new(), seq, reply_to_message_id, clear_reply_to),
+                None => (
+                    Vec::new(),
+                    String::new(),
+                    seq,
+                    reply_to_message_id,
+                    clear_reply_to,
+                ),
             }
         };
         if !collab_sessions.is_empty() && !emitted.is_empty() {
@@ -703,10 +715,9 @@ impl DaemonServer {
                     &message.sender_actor_id,
                 )
                 .await;
-                let requester = (!message.sender_actor_id.is_empty())
-                    .then(|| message.sender_actor_id.clone());
-                let reply_to = (!message.message_id.is_empty())
-                    .then(|| message.message_id.clone());
+                let requester =
+                    (!message.sender_actor_id.is_empty()).then(|| message.sender_actor_id.clone());
+                let reply_to = (!message.message_id.is_empty()).then(|| message.message_id.clone());
                 let send_res = self
                     .agents
                     .lock()

@@ -289,6 +289,7 @@ async fn test_app_with_backend(backend: Option<Arc<dyn Backend>>) -> (TestApp, t
         None,
         None,
         None,
+        None,
     )
     .await
     .expect("spawn http server");
