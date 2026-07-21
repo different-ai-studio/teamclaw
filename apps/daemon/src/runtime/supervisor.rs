@@ -643,6 +643,11 @@ fn backend_label(agent_type: amux::AgentType) -> &'static str {
 pub struct RuntimeSupervisor {
     agents: Arc<AsyncMutex<RuntimeManager>>,
     refresh: Arc<RuntimeRefreshCoordinator>,
+    /// When set, `reload_workspace` reports each provider-host evict as
+    /// `(workspace_id, workspace_path)` so the daemon can re-prewarm the
+    /// evicted hosts off the critical path. Without this, the first session
+    /// after a provider/env change always paid the full cold start.
+    prewarm_notify: parking_lot::Mutex<Option<tokio::sync::mpsc::Sender<(String, String)>>>,
 }
 
 impl RuntimeSupervisor {
@@ -650,7 +655,14 @@ impl RuntimeSupervisor {
         Arc::new(Self {
             agents,
             refresh: RuntimeRefreshCoordinator::new(),
+            prewarm_notify: parking_lot::Mutex::new(None),
         })
+    }
+
+    /// Install the channel that receives `(workspace_id, path)` whenever a
+    /// reload evicted the pooled provider hosts (see `prewarm_notify`).
+    pub fn set_prewarm_notifier(&self, tx: tokio::sync::mpsc::Sender<(String, String)>) {
+        *self.prewarm_notify.lock() = Some(tx);
     }
 
     pub fn refresh_coordinator(&self) -> Arc<RuntimeRefreshCoordinator> {
@@ -760,6 +772,18 @@ impl RuntimeSupervisor {
             }
             stopped
         };
+
+        // Re-prewarm the just-evicted hosts in the background so the next
+        // session doesn't pay the full cold start. Best-effort: dropped when no
+        // notifier is installed (tests) or the queue is full.
+        if evict_provider_hosts {
+            if let Some(tx) = self.prewarm_notify.lock().clone() {
+                let _ = tx.try_send((
+                    workspace_id.to_string(),
+                    workspace_path.to_string_lossy().into_owned(),
+                ));
+            }
+        }
 
         if stopped > 0 {
             info!(
