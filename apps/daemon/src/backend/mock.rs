@@ -390,15 +390,15 @@ impl Backend for MockBackend {
             row.agent_id.to_string(),
             row.name.to_string(),
         );
-        let result = st
-            .workspace_results
-            .get(&key)
-            .cloned()
-            .ok_or_else(|| BackendError::Provider {
-                provider: "mock",
-                code: None,
-                message: format!("MockBackend: no workspace_result seeded for {key:?}"),
-            })?;
+        let result =
+            st.workspace_results
+                .get(&key)
+                .cloned()
+                .ok_or_else(|| BackendError::Provider {
+                    provider: "mock",
+                    code: None,
+                    message: format!("MockBackend: no workspace_result seeded for {key:?}"),
+                })?;
         st.workspaces_by_id
             .insert(result.id.clone(), result.clone());
         Ok(result)
@@ -758,7 +758,11 @@ mod tests {
     async fn get_workspaces_by_ids_returns_seeded_rows() {
         let (be, state) = dyn_backend();
         state.lock().unwrap().workspace_results.insert(
-            ("team-x".to_string(), "actor-x".to_string(), "ws-a".to_string()),
+            (
+                "team-x".to_string(),
+                "actor-x".to_string(),
+                "ws-a".to_string(),
+            ),
             WorkspaceRow {
                 id: "ws-remote-1".to_string(),
                 team_id: "team-x".to_string(),
@@ -844,7 +848,8 @@ mod tests {
     async fn insert_message_records_each_call_with_metadata() {
         let (be, state) = dyn_backend();
         be.insert_message(
-            "msg-1", "team-x", "sess-1", "actor-y", "text", "hi", "{}", "model-z", "turn-1", "user-1", 42,
+            "msg-1", "team-x", "sess-1", "actor-y", "text", "hi", "{}", "model-z", "turn-1",
+            "user-1", 42,
         )
         .await
         .unwrap();

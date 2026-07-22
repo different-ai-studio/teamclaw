@@ -3,6 +3,17 @@ import { useTranslation } from 'react-i18next'
 import { Inbox, Lightbulb, Keyboard, Pin, AppWindow } from 'lucide-react'
 import { useUIStore } from '@/stores/ui'
 import { useSessionListStore } from '@/stores/session-list-store'
+
+// Clicking 会话/已置顶 doubles as a "something looks stale" fallback: refetch
+// the first page of sessions (cloud + local hydrate). Throttled so rapid
+// tab-switching doesn't hammer the Cloud API.
+let lastSessionListRefreshAt = 0
+function refreshSessionListThrottled(): void {
+  const now = Date.now()
+  if (now - lastSessionListRefreshAt < 5_000) return
+  lastSessionListRefreshAt = now
+  void useSessionListStore.getState().load().catch(() => {})
+}
 import { useCronStore } from '@/stores/cron'
 import { createQuickSession, describeQuickSessionFailure } from '@/lib/create-quick-session'
 import { useQuickChatReadiness } from '@/hooks/use-quick-chat-readiness'
@@ -134,6 +145,7 @@ export function NavRail() {
           onClick={() => {
             setShowCronSessions(false)
             setFilter({ kind: 'all' })
+            refreshSessionListThrottled()
           }}
         />
         <TopEntry
@@ -141,7 +153,10 @@ export function NavRail() {
           icon={Pin}
           active={filter.kind === 'pinned'}
           badge={pinnedCount}
-          onClick={() => setFilter({ kind: 'pinned' })}
+          onClick={() => {
+            setFilter({ kind: 'pinned' })
+            refreshSessionListThrottled()
+          }}
         />
         {!embedMode ? (
           <TopEntry

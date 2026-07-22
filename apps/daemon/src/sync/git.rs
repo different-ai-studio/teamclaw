@@ -332,9 +332,7 @@ impl Drop for GitSyncGuard {
 
 fn acquire_git_sync(team_dir: &Path) -> anyhow::Result<GitSyncGuard> {
     let key = team_dir.to_path_buf();
-    let mut set = active_git_syncs()
-        .lock()
-        .unwrap_or_else(|e| e.into_inner());
+    let mut set = active_git_syncs().lock().unwrap_or_else(|e| e.into_inner());
     if !set.insert(key.clone()) {
         anyhow::bail!(
             "team git sync already in progress for {}",
@@ -408,7 +406,12 @@ pub fn sync_git_dir(
     team_dir: &Path,
     config: &TeamSharedGitConfig,
 ) -> anyhow::Result<TeamSharedGitStatus> {
-    sync_git_dir_with_cred(team_dir, config, GitCredential::None, GitSyncOptions::default())
+    sync_git_dir_with_cred(
+        team_dir,
+        config,
+        GitCredential::None,
+        GitSyncOptions::default(),
+    )
 }
 
 /// Sync a git-backed team dir at an explicit path, injecting `cred` for remote
@@ -659,8 +662,13 @@ mod tests {
             env_secret: None,
             enabled: true,
         };
-        let err = sync_git_dir_with_cred(&team_dir, &config, GitCredential::None, GitSyncOptions::default())
-            .unwrap_err();
+        let err = sync_git_dir_with_cred(
+            &team_dir,
+            &config,
+            GitCredential::None,
+            GitSyncOptions::default(),
+        )
+        .unwrap_err();
         assert!(is_not_git_repo_error(&err.to_string()));
     }
 
@@ -687,7 +695,9 @@ mod tests {
         for prefix in crate::config::global_team_store::SHARED_PREFIXES {
             std::fs::create_dir_all(team_dir.join(prefix)).unwrap();
         }
-        assert!(crate::config::global_team_store::is_scaffold_only(&team_dir));
+        assert!(crate::config::global_team_store::is_scaffold_only(
+            &team_dir
+        ));
         assert!(!team_dir.join(".git").exists());
 
         let config = TeamSharedGitConfig {

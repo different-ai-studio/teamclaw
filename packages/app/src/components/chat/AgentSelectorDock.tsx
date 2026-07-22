@@ -12,7 +12,7 @@ import {
   CommandSeparator,
 } from '@/components/ui/command'
 import { useRuntimeStateStore } from '@/stores/runtime-state-store'
-import { resolveAgentAvailableModels } from '@/lib/agent-available-models'
+import { groupAgentModelOptions, resolveAgentAvailableModels } from '@/lib/agent-available-models'
 import { sessionFlowError, sessionFlowLog } from '@/lib/session-flow-log'
 import { RuntimeLifecycle, AgentStatus, type RuntimeInfo } from '@/lib/proto/amux_pb'
 import {
@@ -26,6 +26,7 @@ import {
 import { ensureRuntimeThenSetModel } from '@/lib/teamclaw/ensure-agent-runtime'
 import { useAgentModelPickStore } from '@/stores/agent-model-pick-store'
 import { useSessionSelectionStore } from '@/stores/session-selection-store'
+import { useSessionMessageStore } from '@/stores/session-message-store'
 import { useCurrentTeamStore } from '@/stores/current-team'
 import { useSessionListStore } from '@/stores/session-list-store'
 import { useLocalDaemonActorId } from '@/lib/daemon-agent-admin'
@@ -191,6 +192,23 @@ function AgentPill({
   const pickEntry = useAgentModelPickStore((s) =>
     sessionId ? s.bySessionAgent[`${sessionId}::${agent.id}`] : undefined,
   )
+  // The model this session already ran with, from its transcript. Prefer the
+  // latest reply authored by THIS agent; fall back to the latest modeled
+  // message. Empty for brand-new sessions, so they keep the last-pick default.
+  const sessionEstablishedModel = useSessionMessageStore((s) => {
+    if (!sessionId) return null
+    const msgs = s.messages[sessionId]
+    if (!msgs?.length) return null
+    let fallback: string | null = null
+    for (let i = msgs.length - 1; i >= 0; i--) {
+      const model = msgs[i].model?.trim()
+      if (!model) continue
+      if (msgs[i].senderActorId === agent.id) return model
+      if (!fallback) fallback = model
+    }
+    return fallback
+  })
+
   const selected = React.useMemo(
     () =>
       selectAgentModel({
@@ -198,12 +216,14 @@ function AgentPill({
         agentId: agent.id,
         available: availableModels,
         byRuntimeId,
+        sessionEstablishedModel,
       }),
     [
       sessionId,
       agent.id,
       availableModels,
       byRuntimeId,
+      sessionEstablishedModel,
       // Force recompute when the pick changes — pickEntry is referenced for
       // the dependency hint; selectAgentModel reads from store.getState().
       pickEntry?.modelId,
@@ -226,9 +246,17 @@ function AgentPill({
     if (!q) return availableModels
     return availableModels.filter((m) => {
       const label = (m.displayName || m.id).toLowerCase()
-      return label.includes(q) || m.id.toLowerCase().includes(q)
+      return (
+        label.includes(q) ||
+        m.id.toLowerCase().includes(q) ||
+        (m.providerName ?? '').toLowerCase().includes(q)
+      )
     })
   }, [availableModels, modelSearch])
+  const modelGroups = React.useMemo(
+    () => groupAgentModelOptions(filteredModels),
+    [filteredModels],
+  )
 
   React.useEffect(() => {
     if (!open) setModelSearch('')
@@ -448,37 +476,37 @@ function AgentPill({
               </div>
             ) : (
               <>
-                <CommandGroup
-                  heading={t('chat.agentSelector.modelHeading', 'Model')}
-                >
-                  {filteredModels.map((m) => {
-                    const label = m.displayName || m.id
-                    const selected = isAgentModelRowSelected(
-                      m.id,
-                      effectiveModelId,
-                    )
-                    return (
-                      <CommandItem
-                        key={m.id}
-                        value={`${label} ${m.id}`}
-                        data-model-selected={selected ? 'true' : undefined}
-                        onSelect={() => {
-                          setOpen(false)
-                          void handlePickModel(m.id)
-                        }}
-                        className="text-xs py-1.5"
-                      >
-                        <Check
-                          className={cn(
-                            'h-3.5 w-3.5 mr-1.5 shrink-0',
-                            selected ? 'opacity-100' : 'opacity-0',
-                          )}
-                        />
-                        <span className="truncate">{label}</span>
-                      </CommandItem>
-                    )
-                  })}
-                </CommandGroup>
+                {modelGroups.map((group) => (
+                  <CommandGroup key={group.providerName} heading={group.providerName}>
+                    {group.models.map((m) => {
+                      const label = m.displayName || m.id
+                      const selected = isAgentModelRowSelected(
+                        m.id,
+                        effectiveModelId,
+                      )
+                      return (
+                        <CommandItem
+                          key={m.id}
+                          value={`${label} ${m.id}`}
+                          data-model-selected={selected ? 'true' : undefined}
+                          onSelect={() => {
+                            setOpen(false)
+                            void handlePickModel(m.id)
+                          }}
+                          className="text-xs py-1.5"
+                        >
+                          <Check
+                            className={cn(
+                              'h-3.5 w-3.5 mr-1.5 shrink-0',
+                              selected ? 'opacity-100' : 'opacity-0',
+                            )}
+                          />
+                          <span className="truncate">{label}</span>
+                        </CommandItem>
+                      )
+                    })}
+                  </CommandGroup>
+                ))}
               </>
             )}
           </CommandList>

@@ -202,7 +202,7 @@ describe('startAgentRuntimesAsync', () => {
     )
   })
 
-  it('falls back to claude runtimeStart requests without runtime history', async () => {
+  it('falls back to opencode runtimeStart requests without runtime history', async () => {
     mockTables({
       runtimes: [],
       actors: [{ id: 'agent-2', agent_types: [], default_agent_type: null }],
@@ -220,7 +220,7 @@ describe('startAgentRuntimesAsync', () => {
         targetActorId: 'agent-2',
         workspaceId: '',
         worktree: '',
-        agentType: AgentType.CLAUDE_CODE,
+        agentType: AgentType.OPENCODE,
       }),
     )
   })
@@ -375,7 +375,7 @@ describe('startAgentRuntimesAsync', () => {
       expect.objectContaining({
         targetActorId: 'agent-7',
         workspaceId: 'ws-created',
-        agentType: AgentType.CLAUDE_CODE,
+        agentType: AgentType.OPENCODE,
       }),
     )
   })

@@ -264,7 +264,11 @@ export function agentModelDisplayLabel(
   const match = available.find((m) =>
     agentModelIdsMatch(m.id, trimmed, available),
   );
-  return match?.displayName || match?.id || trimmed;
+  if (match) return match.displayName || match.id;
+  // Catalog not loaded (or unknown id): show the model part, not the raw
+  // `provider/model` id ("anthropic/claude-haiku-4-5-20251001" → the pill
+  // should still read like a model name).
+  return shortAgentModelId(trimmed);
 }
 
 /** Runtime id for RPC/commands — prefer live retain, fall back to DB hint. */
@@ -381,6 +385,14 @@ export function selectAgentModel(args: {
   available: AgentModelOption[];
   byRuntimeId: Record<string, RuntimeStateEntry>;
   providerFallback?: string;
+  /**
+   * The model this session has ALREADY run with, taken from its transcript
+   * (e.g. a cron job that pinned a model, or any continued conversation). When
+   * set, it wins over the cross-session `lastPick` heuristic so an existing
+   * session's pill reflects the model it actually used — but brand-new sessions
+   * (no transcript, no established model) still default to `lastPick`.
+   */
+  sessionEstablishedModel?: string | null;
 }): SelectedAgentModel {
   const sessionId = args.sessionId?.trim() ?? "";
   const agentId = args.agentId.trim();
@@ -401,6 +413,21 @@ export function selectAgentModel(args: {
     };
   }
 
+  // A session that has already run carries its real model in the transcript;
+  // that truth beats the cross-session `lastPick` default below.
+  const established = args.sessionEstablishedModel?.trim();
+  if (established) {
+    return {
+      modelId: canonicalizeAgainstAvailable(
+        args.agentId,
+        established,
+        args.available,
+        args.byRuntimeId,
+      ),
+      source: "retain",
+    };
+  }
+
   const entry = resolveRuntimeStateEntryForAgent(agentId, args.byRuntimeId);
   const retain = entry?.info.currentModel?.trim() ?? "";
   if (retain) {
@@ -412,6 +439,24 @@ export function selectAgentModel(args: {
         args.byRuntimeId,
       ),
       source: "retain",
+    };
+  }
+
+  // No pick, no transcript, no live retain — a brand-new session. Default to
+  // the user's most recent pick for this agent ("上次选的模型") instead of
+  // the daemon's default model. Kept strictly last among user-ish signals:
+  // letting it beat retain made session-switching flash another session's
+  // model while this session's transcript was still loading.
+  const lastPick = useAgentModelPickStore.getState().getLastPick(agentId);
+  if (lastPick) {
+    return {
+      modelId: canonicalizeAgainstAvailable(
+        args.agentId,
+        lastPick,
+        args.available,
+        args.byRuntimeId,
+      ),
+      source: "pick",
     };
   }
 

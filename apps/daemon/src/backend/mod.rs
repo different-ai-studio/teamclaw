@@ -411,6 +411,12 @@ pub trait Backend: Send + Sync {
         agent_actor_id: &str,
     ) -> BackendResult<Vec<String>>;
 
+    /// Update a session's title. Default is a no-op so test doubles and
+    /// backends without session storage don't have to care.
+    async fn update_session_title(&self, _session_id: &str, _title: &str) -> BackendResult<()> {
+        Ok(())
+    }
+
     /// Add (or ignore-if-present) a participant on `session_participants`.
     async fn upsert_session_participant(
         &self,

@@ -4,9 +4,6 @@ version = "0.2.28-beta.1"
 edition = "2021"
 
 [dependencies]
-# ACP
-agent-client-protocol = { version = "0.10.4", features = ["unstable_session_model", "unstable_session_resume", "unstable_session_usage"] }
-
 # MQTT
 rumqttc = { version = "0.24", features = ["websocket"] }
 
@@ -75,7 +72,7 @@ rustls = "0.22"
 tokio-rustls = "0.25"
 
 # HTTP / JWT / crypto (Cloud API client + team_shared_env)
-reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls"] }
+reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls", "stream"] }
 base64 = "0.22"
 # Attachment image downscale before base64-inlining into ACP prompts (issue #710)
 image = { version = "0.25", default-features = false, features = ["jpeg", "png", "gif", "webp", "bmp"] }

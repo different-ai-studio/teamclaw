@@ -3,8 +3,8 @@ use std::path::{Path, PathBuf};
 use std::process::Stdio;
 use std::time::Duration;
 
-use tokio::process::{Child, Command};
 use std::sync::Mutex;
+use tokio::process::{Child, Command};
 use tokio::sync::Mutex as AsyncMutex;
 use tokio::time::Instant;
 
@@ -55,7 +55,10 @@ impl OpenCodeSettingsService {
         let mut instances = self.instances.lock().await;
         if let Some(entry) = instances.get_mut(&key) {
             entry.last_used = Instant::now();
-            return Ok(OpenCodeSettingsClient::new(entry.base_url.clone(), workspace));
+            return Ok(OpenCodeSettingsClient::new(
+                entry.base_url.clone(),
+                workspace,
+            ));
         }
 
         let (base_url, child) = spawn_settings_server(workspace, &self.opencode_binary).await?;
@@ -85,7 +88,9 @@ async fn spawn_settings_server(
     binary: &str,
 ) -> Result<(String, Child), OpenCodeSettingsError> {
     if !binary_available(binary) {
-        return Err(OpenCodeSettingsError::OpencodeBinaryMissing(binary.to_string()));
+        return Err(OpenCodeSettingsError::OpencodeBinaryMissing(
+            binary.to_string(),
+        ));
     }
 
     let port = find_available_port().await?;

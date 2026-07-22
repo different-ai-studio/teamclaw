@@ -271,7 +271,10 @@ mod tests {
         let json: serde_json::Value = serde_json::from_slice(&body).unwrap();
         assert_eq!(json["status"], 422);
         assert_eq!(json["code"], "team_shared_dir_not_git");
-        assert_eq!(json["title"], "Team shared directory is not a git repository");
+        assert_eq!(
+            json["title"],
+            "Team shared directory is not a git repository"
+        );
     }
 
     #[tokio::test]

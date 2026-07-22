@@ -1,5 +1,6 @@
 import * as React from "react";
 import { useTranslation } from "react-i18next";
+import { CornerDownRight } from "lucide-react";
 import { cn } from "@/lib/utils";
 
 /** Soft-strip quote (style B): faint pad + author + inline AGENT pills + body. */
@@ -27,29 +28,30 @@ export function AgentReplyQuote({
       data-testid="agent-reply-quote"
       onClick={onJump}
       className={cn(
-        "mb-1.5 block w-full max-w-[440px] rounded-md bg-[rgba(26,26,20,0.035)] px-[9px] py-[5px] text-left transition-colors hover:bg-[rgba(26,26,20,0.055)] dark:bg-white/[0.04] dark:hover:bg-white/[0.07]",
+        "mb-1.5 flex w-full max-w-[440px] items-center gap-1.5 rounded-md border-l-2 border-coral/40 bg-[rgba(26,26,20,0.035)] py-[4px] pl-[7px] pr-[9px] text-left transition-colors hover:bg-[rgba(26,26,20,0.06)] dark:bg-white/[0.04] dark:hover:bg-white/[0.07]",
         className,
       )}
     >
-      <span className="mb-0.5 block text-[10.5px] text-faint">
+      <CornerDownRight className="size-3 shrink-0 text-faint" aria-hidden />
+      <span className="shrink-0 whitespace-nowrap text-[10.5px] text-faint">
         {t("chat.replyToPrefix", "回复")}{" "}
         <em className="not-italic font-semibold text-muted-foreground">{authorName}</em>
       </span>
-      <span className="block truncate text-[12.5px] leading-[1.45] text-ink-2 dark:text-[#c8d0d8]">
-        {agentNames.map((name) => (
-          <span
-            key={name}
-            className="mr-1.5 inline-flex items-center gap-1 align-[-2px] whitespace-nowrap"
-            data-testid="agent-reply-quote-pill"
-          >
-            <span className="font-mono text-[8.5px] font-semibold tracking-[0.04em] text-coral leading-none">
-              AGENT
-            </span>
-            <span className="text-[12px] font-semibold text-foreground leading-none">
-              {formatAgentAtLabel(name)}
-            </span>
+      {agentNames.map((name) => (
+        <span
+          key={name}
+          className="inline-flex shrink-0 items-center gap-1 rounded-full bg-coral/10 px-1.5 py-[1px] align-middle whitespace-nowrap"
+          data-testid="agent-reply-quote-pill"
+        >
+          <span className="font-mono text-[8px] font-semibold tracking-[0.04em] text-coral/75 leading-none">
+            AGENT
           </span>
-        ))}
+          <span className="text-[11px] font-semibold text-coral leading-none">
+            {formatAgentAtLabel(name)}
+          </span>
+        </span>
+      ))}
+      <span className="min-w-0 flex-1 truncate text-[12.5px] leading-[1.45] text-ink-2 dark:text-[#c8d0d8]">
         {body || (agentNames.length === 0 ? "…" : null)}
       </span>
     </button>

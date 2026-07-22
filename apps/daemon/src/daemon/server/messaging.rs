@@ -113,6 +113,42 @@ impl DaemonServer {
         }
     }
 
+    /// Adopt an agent-generated session title, but only over a default one.
+    /// A user-set title ("人工自己设定") must never be overwritten.
+    async fn maybe_adopt_generated_session_title(&mut self, session_id: &str, title: &str) {
+        let title = title.trim();
+        if session_id.is_empty() || title.is_empty() {
+            return;
+        }
+        let current = self
+            .teamclaw
+            .as_ref()
+            .and_then(|tc| tc.sessions.find_by_id(session_id))
+            .map(|s| s.title.trim().to_string())
+            .unwrap_or_default();
+        if current == title || !is_default_session_title(&current) {
+            return;
+        }
+        tracing::info!(
+            session_id,
+            old_title = %current,
+            new_title = %title,
+            "adopting opencode-generated session title"
+        );
+        if let Err(e) = self.backend.update_session_title(session_id, title).await {
+            tracing::warn!(session_id, error = %e, "session title update failed");
+            return;
+        }
+        let actor_id = self.backend.actor_id().to_string();
+        if let Some(tc) = self.teamclaw.as_mut() {
+            if let Some(session) = tc.sessions.find_by_id_mut(session_id) {
+                session.title = title.to_string();
+            }
+            tc.publish_session_title(session_id, &actor_id, title).await;
+            tracing::info!(session_id, "session title adopted: patched + published");
+        }
+    }
+
     pub(crate) async fn forward_agent_event(&mut self, agent_id: &str, frame: AcpEventFrame) {
         let acp_session_id = frame.acp_session_id.clone();
         // Sync turn-scoped reply_to from the prompt worker (bound at dequeue).
@@ -186,17 +222,19 @@ impl DaemonServer {
         if let Some(amux::acp_event::Event::Raw(ref raw)) = acp_event.event {
             if raw.method == "session_title" {
                 let title = String::from_utf8_lossy(&raw.json_payload).to_string();
-                let updated = {
+                let session_id = {
                     let mut agents = self.agents.lock().await;
                     if let Some(handle) = agents.get_handle_mut(agent_id) {
-                        handle.session_title = title;
-                        true
+                        handle.session_title = title.clone();
+                        Some(handle.session_id.clone())
                     } else {
-                        false
+                        None
                     }
                 };
-                if updated {
+                if let Some(session_id) = session_id {
                     self.publish_runtime_state_by_id(agent_id).await;
+                    self.maybe_adopt_generated_session_title(&session_id, &title)
+                        .await;
                 }
                 return;
             }
@@ -371,9 +409,21 @@ impl DaemonServer {
                 }
                 Some(agg) => {
                     let turn_id = agg.current_turn_id().unwrap_or("").to_string();
-                    (Vec::new(), turn_id, seq, reply_to_message_id, clear_reply_to)
+                    (
+                        Vec::new(),
+                        turn_id,
+                        seq,
+                        reply_to_message_id,
+                        clear_reply_to,
+                    )
                 }
-                None => (Vec::new(), String::new(), seq, reply_to_message_id, clear_reply_to),
+                None => (
+                    Vec::new(),
+                    String::new(),
+                    seq,
+                    reply_to_message_id,
+                    clear_reply_to,
+                ),
             }
         };
         if !collab_sessions.is_empty() && !emitted.is_empty() {
@@ -672,14 +722,12 @@ impl DaemonServer {
                     "route_session_message: delivering mentioned prompt to runtime"
                 );
                 if let Some(desired_model) = session_message_model_override(message) {
-                    let current_model = self
-                        .agents
-                        .lock()
-                        .await
-                        .current_model(&runtime_id)
-                        .cloned()
-                        .unwrap_or_default();
-                    if desired_model != current_model {
+                    // Apply unconditionally: the manager's current_model cache
+                    // can go stale across daemon restarts/re-attaches (route
+                    // seeded from the opencode config default), silently
+                    // running a different model than the message declares.
+                    // set_model is a cheap local command; idempotence is fine.
+                    {
                         let mut agents = self.agents.lock().await;
                         match agents.send_set_model(&runtime_id, &desired_model).await {
                             Ok(()) => {
@@ -703,10 +751,9 @@ impl DaemonServer {
                     &message.sender_actor_id,
                 )
                 .await;
-                let requester = (!message.sender_actor_id.is_empty())
-                    .then(|| message.sender_actor_id.clone());
-                let reply_to = (!message.message_id.is_empty())
-                    .then(|| message.message_id.clone());
+                let requester =
+                    (!message.sender_actor_id.is_empty()).then(|| message.sender_actor_id.clone());
+                let reply_to = (!message.message_id.is_empty()).then(|| message.message_id.clone());
                 let send_res = self
                     .agents
                     .lock()
@@ -1003,5 +1050,60 @@ impl DaemonServer {
             return agents.running_agent_id_for_collab_session(session_id);
         }
         None
+    }
+}
+
+/// Whether `title` looks like a client-minted default rather than something a
+/// person typed. Defaults are `<agent name> (HH:MM)` (desktop new-chat),
+/// `Session <id>` and `New session…` placeholders. An unknown/empty title is
+/// NOT treated as default — when in doubt, never overwrite.
+pub(crate) fn is_default_session_title(title: &str) -> bool {
+    let title = title.trim();
+    if title.is_empty() {
+        return false;
+    }
+    if title.starts_with("New session") || title.starts_with("Session ") {
+        return true;
+    }
+    // `<something> (H:MM)` / `<something> (HH:MM)`
+    let Some(rest) = title.strip_suffix(')') else {
+        return false;
+    };
+    let Some((head, time)) = rest.rsplit_once('(') else {
+        return false;
+    };
+    if !head.ends_with(' ') {
+        return false;
+    }
+    match time.split_once(':') {
+        Some((h, m)) => {
+            (1..=2).contains(&h.len())
+                && m.len() == 2
+                && h.bytes().all(|b| b.is_ascii_digit())
+                && m.bytes().all(|b| b.is_ascii_digit())
+        }
+        None => false,
+    }
+}
+
+#[cfg(test)]
+mod default_title_tests {
+    use super::is_default_session_title;
+
+    #[test]
+    fn detects_desktop_default_titles() {
+        assert!(is_default_session_title("Mac-mini-8 (10:50)"));
+        assert!(is_default_session_title("Mac-mini-8 (9:05)"));
+        assert!(is_default_session_title("Session 2a0c5336"));
+        assert!(is_default_session_title("New session - 2026-07-22T01:57:19.776Z"));
+    }
+
+    #[test]
+    fn keeps_user_titles() {
+        assert!(!is_default_session_title(""));
+        assert!(!is_default_session_title("Launch Plan"));
+        assert!(!is_default_session_title("Cron: Test"));
+        assert!(!is_default_session_title("发布计划 (v2)"));
+        assert!(!is_default_session_title("standup (today)"));
     }
 }

@@ -1,6 +1,6 @@
 import * as React from 'react'
 import { useTranslation } from 'react-i18next'
-import { AlertCircle, AlertTriangle, Bot, Check, Loader2, RefreshCw, RotateCcw, Save, Trash2, UserPlus } from 'lucide-react'
+import { AlertCircle, AlertTriangle, Bot, Loader2, RefreshCw, RotateCcw, Save, Trash2, UserPlus } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
@@ -14,7 +14,6 @@ import {
   listAgentAccess,
   listTeamMembersForAccess,
   removeAgentAccess,
-  setAgentDefaultType,
   updateCurrentDaemonAgent,
   upsertAgentAccess,
   type AgentAccessRow,
@@ -51,7 +50,6 @@ export function DaemonGeneralSection() {
   const [members, setMembers] = React.useState<TeamMemberOption[]>([])
   const [displayName, setDisplayName] = React.useState('')
   const [visibility, setVisibility] = React.useState<AgentVisibility>('team')
-  const [defaultAgentType, setDefaultAgentType] = React.useState('')
   const [memberId, setMemberId] = React.useState('')
   const [permissionLevel, setPermissionLevel] = React.useState<AgentPermissionLevel>('prompt')
   const [loading, setLoading] = React.useState(false)
@@ -107,7 +105,6 @@ export function DaemonGeneralSection() {
       if (nextAgent) clearDaemonGeneralPrompt()
       setDisplayName(nextAgent?.displayName ?? '')
       setVisibility(nextAgent?.visibility ?? 'team')
-      setDefaultAgentType(nextAgent?.defaultAgentType ?? '')
       const [nextMembers, nextAccessRows] = await Promise.all([
         listTeamMembersForAccess(team.id),
         nextAgent ? listAgentAccess(nextAgent.id) : Promise.resolve([]),
@@ -155,9 +152,6 @@ export function DaemonGeneralSection() {
         displayName: displayName.trim(),
         visibility,
       })
-      if (defaultAgentType && defaultAgentType !== (agent.defaultAgentType ?? '')) {
-        await setAgentDefaultType(agent.id, defaultAgentType)
-      }
       await load()
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err))
@@ -450,51 +444,11 @@ export function DaemonGeneralSection() {
                 </div>
               </div>
 
-              <div className="space-y-2.5">
-                <div className="flex flex-wrap items-baseline justify-between gap-x-3 gap-y-1">
-                  <span className="text-xs font-medium text-muted-foreground">{t('settings.daemonGeneral.backendTypes', 'Backend types')}</span>
-                  {agent.isOwner && agent.agentTypes.length > 1 && (
-                    <span className="text-[11px] text-faint">{t('settings.daemonGeneral.backendHint', 'Click a type to make it the default')}</span>
-                  )}
-                </div>
-                {agent.agentTypes.length === 0 ? (
-                  <p className="text-[13px] text-muted-foreground">
-                    {t('settings.daemonGeneral.noBackends', 'This daemon has not advertised any backend types yet.')}
-                  </p>
-                ) : (
-                  <div className="flex flex-wrap gap-2">
-                    {agent.agentTypes.map((type) => {
-                      const isDefault = type === defaultAgentType
-                      const interactive = agent.isOwner && !saving
-                      return (
-                        <button
-                          key={type}
-                          type="button"
-                          onClick={() => interactive && setDefaultAgentType(type)}
-                          disabled={!interactive}
-                          aria-pressed={isDefault}
-                          title={isDefault
-                            ? t('settings.daemonGeneral.isDefaultBackend', 'Default backend')
-                            : t('settings.daemonGeneral.setAsDefault', 'Set as default backend')}
-                          className={cn(
-                            'inline-flex items-center gap-1.5 rounded-[7px] px-2.5 py-1 font-mono text-[12px] transition-colors',
-                            isDefault
-                              ? 'bg-foreground text-background'
-                              : 'border border-border bg-paper text-ink-2',
-                            interactive && !isDefault && 'hover:border-foreground/25 hover:bg-selected/50',
-                            !interactive && 'cursor-default',
-                          )}
-                        >
-                          {isDefault && <Check className="h-3 w-3" />}
-                          {type}
-                        </button>
-                      )
-                    })}
-                  </div>
-                )}
-              </div>
-
               <dl className="grid grid-cols-[auto_minmax(0,1fr)] items-center gap-x-6 gap-y-2.5 border-t border-border-soft pt-4 text-[12px]">
+                {/* Single-runtime world: the daemon always runs opencode; show it
+                    as a plain fact instead of the old multi-backend picker. */}
+                <dt className="text-muted-foreground">{t('settings.daemonGeneral.runtime', 'Runtime')}</dt>
+                <dd className="font-mono text-ink-2">opencode</dd>
                 <dt className="text-muted-foreground">{t('settings.daemonGeneral.agentId', 'Agent ID')}</dt>
                 <dd className="truncate font-mono text-foreground">{agent.id}</dd>
                 <dt className="text-muted-foreground">{t('settings.daemonGeneral.lastActive', 'Last active')}</dt>

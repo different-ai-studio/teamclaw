@@ -1,5 +1,6 @@
 import { create } from "zustand";
 import type { Message } from "@/lib/proto/teamclaw_pb";
+import type { SessionErrorEvent } from "./session-types";
 import { useSessionMessageStore } from "./session-message-store";
 import { useSessionListStore } from "./session-list-store";
 import { createLoaderActions } from "./session-loader";
@@ -140,6 +141,8 @@ export const useSessionStore = create<SessionState>((set, get) => ({
   setDraftInput: (text: string) => set({ draftInput: text }),
   setError: (msg: string | null, sid?: string | null) =>
     set({ sessionError: msg, errorSessionId: sid ?? null }),
+  setSessionErrorEvent: (event: SessionErrorEvent) =>
+    set({ sessionError: event, errorSessionId: event?.sessionId ?? null }),
   clearSessionError: () => set({ sessionError: null, errorSessionId: null }),
   toggleSessionPinned: (sid: string) => {
     const teamId = useCurrentTeamStore.getState().team?.id ?? null;
@@ -163,8 +166,61 @@ export const useSessionStore = create<SessionState>((set, get) => ({
     const { replyPermissionById } = await import("@/lib/teamclaw/reply-acp-permission");
     await replyPermissionById(permissionId, decision);
   },
-  answerQuestion: stubAsync("answerQuestion"),
-  skipQuestion: stubAsync("skipQuestion"),
+  // ── opencode `question` tool ─────────────────────────────────────
+  // question.asked arrives as a `question_asked` raw acp event (App.tsx),
+  // parsed into PendingQuestionState here; QuestionCard renders on the tool
+  // call and answers route back over the runtime command topic.
+  addPendingQuestion: (question: Compat) =>
+    set((s: Compat) => ({
+      pendingQuestions: [
+        ...s.pendingQuestions.filter((q: Compat) => q.questionId !== question.questionId),
+        question,
+      ],
+    })),
+  resolveQuestion: (questionId: string) =>
+    set((s: Compat) => ({
+      pendingQuestions: s.pendingQuestions.filter(
+        (q: Compat) => q.questionId !== questionId,
+      ),
+    })),
+  answerQuestion: async (answers: Record<string, string>, questionId?: string) => {
+    const pending = get().pendingQuestions.find(
+      (q: Compat) => !questionId || q.questionId === questionId,
+    );
+    if (!pending) {
+      console.warn("[answerQuestion] no pending question", questionId);
+      return;
+    }
+    // Record<questionId|index, label> → [[label], ...] in question order.
+    const list: Compat[] = Array.isArray(pending.questions) ? pending.questions : [];
+    const ordered: string[][] = list.map((q: Compat, idx: number) => {
+      const key = q.id || String(idx);
+      const answer = answers[key];
+      return answer ? [answer] : [];
+    });
+    const { answerAcpQuestion } = await import("@/lib/teamclaw/answer-question");
+    await answerAcpQuestion({
+      sessionId: pending.sessionId ?? "",
+      agentActorId: pending.agentActorId ?? "",
+      requestId: pending.questionId,
+      answers: ordered,
+    });
+  },
+  skipQuestion: async (questionId?: string) => {
+    const pending = get().pendingQuestions.find(
+      (q: Compat) => !questionId || q.questionId === questionId,
+    );
+    if (!pending) return;
+    const { answerAcpQuestion } = await import("@/lib/teamclaw/answer-question");
+    await answerAcpQuestion({
+      sessionId: pending.sessionId ?? "",
+      agentActorId: pending.agentActorId ?? "",
+      requestId: pending.questionId,
+      answers: [],
+      reject: true,
+    });
+    get().resolveQuestion(pending.questionId);
+  },
   getSessionMessages: () => [],
   loadAllSessionMessages: stubAsync("loadAllSessionMessages"),
   handleMessageCreated: stub("handleMessageCreated"),

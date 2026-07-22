@@ -12,9 +12,7 @@ pub use pool::OpenCodeSettingsService;
 
 use std::path::Path;
 
-use crate::config::provider_auth::{
-    merge_live_provider_auth_methods, ProviderAuthMethodsResponse,
-};
+use crate::config::provider_auth::{merge_live_provider_auth_methods, ProviderAuthMethodsResponse};
 
 #[derive(Debug)]
 pub enum OpenCodeSettingsError {

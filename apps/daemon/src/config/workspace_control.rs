@@ -448,7 +448,8 @@ impl OpenCodeCompatStore {
         let path = Self::opencode_json_path(workspace_path);
         let content = serde_json::to_string_pretty(cfg)
             .map_err(|e| WorkspaceControlError::Parse(e.to_string()))?;
-        std::fs::write(&path, content).map_err(|e| WorkspaceControlError::Io(e.to_string()))
+        teamclaw_runtime_env::atomic_write::atomic_write(&path, &content)
+            .map_err(|e| WorkspaceControlError::Io(e.to_string()))
     }
 
     fn read_allowlist(
@@ -540,6 +541,9 @@ impl WorkspaceControlStore for OpenCodeCompatStore {
     ) -> Result<ApplyOutcome, WorkspaceControlError> {
         let wpath = self.workspace_path(workspace_id)?;
         let _lock = self.write_lock.lock().unwrap();
+        let ws_lock =
+            teamclaw_runtime_env::atomic_write::opencode_write_lock(&Self::opencode_json_path(&wpath));
+        let _ws_guard = ws_lock.lock().unwrap_or_else(|e| e.into_inner());
         let mut cfg = Self::read_opencode_json(&wpath)?;
         let merged = Self::merged_provider_entries(&wpath)?;
 
@@ -598,6 +602,9 @@ impl WorkspaceControlStore for OpenCodeCompatStore {
     ) -> Result<ApplyOutcome, WorkspaceControlError> {
         let wpath = self.workspace_path(workspace_id)?;
         let _lock = self.write_lock.lock().unwrap();
+        let ws_lock =
+            teamclaw_runtime_env::atomic_write::opencode_write_lock(&Self::opencode_json_path(&wpath));
+        let _ws_guard = ws_lock.lock().unwrap_or_else(|e| e.into_inner());
         let mut cfg = Self::read_opencode_json(&wpath)?;
 
         cfg.provider.remove(provider_id);
@@ -639,6 +646,9 @@ impl WorkspaceControlStore for OpenCodeCompatStore {
     ) -> Result<ApplyOutcome, WorkspaceControlError> {
         let wpath = self.workspace_path(workspace_id)?;
         let _lock = self.write_lock.lock().unwrap();
+        let ws_lock =
+            teamclaw_runtime_env::atomic_write::opencode_write_lock(&Self::opencode_json_path(&wpath));
+        let _ws_guard = ws_lock.lock().unwrap_or_else(|e| e.into_inner());
         let mut cfg = Self::read_opencode_json(&wpath)?;
 
         if !config.skills.is_empty() {
@@ -719,6 +729,9 @@ impl WorkspaceControlStore for OpenCodeCompatStore {
     ) -> Result<ApplyOutcome, WorkspaceControlError> {
         let wpath = self.workspace_path(workspace_id)?;
         let _lock = self.write_lock.lock().unwrap();
+        let ws_lock =
+            teamclaw_runtime_env::atomic_write::opencode_write_lock(&Self::opencode_json_path(&wpath));
+        let _ws_guard = ws_lock.lock().unwrap_or_else(|e| e.into_inner());
         let workspace_only = super::team_mcp::filter_put_body(&wpath, servers);
         let mut cfg = Self::read_opencode_json(&wpath)?;
         cfg.mcp = workspace_only;

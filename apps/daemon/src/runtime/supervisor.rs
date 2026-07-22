@@ -4,7 +4,6 @@
 //! here before agent spawn, and `/v1/workspaces/:id/runtime/*` handlers
 //! delegate reload/status to the shared `RuntimeManager`.
 
-use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::time::Duration;
@@ -25,7 +24,6 @@ const INSTRUCTION_PLUGIN_TEMPLATE: &str = include_str!(
 use crate::config::workspace_control::{ApplyOutcome, RuntimeStatus, WorkspaceControlError};
 use crate::proto::amux;
 use crate::runtime::{
-    acp_catalog_probe,
     refresh::{
         RefreshChangeKind, RuntimeRefreshCoordinator, WorkspaceRefreshState,
         APPLY_REFRESH_SUPPRESS, INTERNAL_PREPARE_KINDS, INTERNAL_WRITE_SUPPRESS,
@@ -76,7 +74,69 @@ fn read_json_object(path: &Path) -> Result<serde_json::Value, WorkspaceControlEr
     }
     let content =
         std::fs::read_to_string(path).map_err(|e| WorkspaceControlError::Io(e.to_string()))?;
-    serde_json::from_str(&content).map_err(|e| WorkspaceControlError::Parse(e.to_string()))
+    match serde_json::from_str::<serde_json::Value>(&content) {
+        Ok(value) => Ok(value),
+        // A concurrent/partial write (e.g. a non-truncating overwrite by the
+        // opencode CLI) can leave trailing bytes after a valid top-level object,
+        // producing "trailing characters at line N". Rather than bricking the
+        // runtime, recover the first valid object, back up the bad file, and
+        // rewrite it clean so the workspace can start.
+        Err(err) => recover_leading_json_object(path, &content, err),
+    }
+}
+
+/// Salvage the first complete top-level JSON value from `content`. On success,
+/// preserve the corrupt bytes at `<path>.corrupt.bak` and rewrite `path` with the
+/// recovered object. Returns the original parse error if nothing is recoverable.
+fn recover_leading_json_object(
+    path: &Path,
+    content: &str,
+    original_err: serde_json::Error,
+) -> Result<serde_json::Value, WorkspaceControlError> {
+    let mut stream =
+        serde_json::Deserializer::from_str(content).into_iter::<serde_json::Value>();
+    let recovered = match stream.next() {
+        Some(Ok(value)) if value.is_object() => value,
+        _ => return Err(WorkspaceControlError::Parse(original_err.to_string())),
+    };
+
+    let backup = path.with_extension("json.corrupt.bak");
+    if let Err(e) = std::fs::write(&backup, content) {
+        warn!(
+            path = %path.display(),
+            error = %e,
+            "read_json_object: failed to back up corrupt config; leaving file untouched"
+        );
+        // Don't rewrite without a backup — just use the recovered value in-memory.
+        return Ok(recovered);
+    }
+
+    match serde_json::to_string_pretty(&recovered) {
+        Ok(clean) => {
+            if let Err(e) =
+                teamclaw_runtime_env::atomic_write::atomic_write(path, &format!("{clean}\n"))
+            {
+                warn!(
+                    path = %path.display(),
+                    error = %e,
+                    "read_json_object: failed to rewrite recovered config"
+                );
+            } else {
+                warn!(
+                    path = %path.display(),
+                    backup = %backup.display(),
+                    "read_json_object: recovered corrupt config (trailing bytes dropped); backup saved"
+                );
+            }
+        }
+        Err(e) => warn!(
+            path = %path.display(),
+            error = %e,
+            "read_json_object: could not re-serialize recovered config"
+        ),
+    }
+
+    Ok(recovered)
 }
 
 fn write_json_pretty(path: &Path, value: &serde_json::Value) -> Result<(), WorkspaceControlError> {
@@ -85,12 +145,15 @@ fn write_json_pretty(path: &Path, value: &serde_json::Value) -> Result<(), Works
     }
     let content = serde_json::to_string_pretty(value)
         .map_err(|e| WorkspaceControlError::Parse(e.to_string()))?;
-    std::fs::write(path, content).map_err(|e| WorkspaceControlError::Io(e.to_string()))
+    teamclaw_runtime_env::atomic_write::atomic_write(path, &content)
+        .map_err(|e| WorkspaceControlError::Io(e.to_string()))
 }
 
 /// Ensure tool-level permission defaults exist in `opencode.json`.
 fn ensure_default_permissions(workspace_path: &Path) -> Result<(), WorkspaceControlError> {
     let config_path = opencode_json_path(workspace_path);
+    let write_lock = teamclaw_runtime_env::atomic_write::opencode_write_lock(&config_path);
+    let _guard = write_lock.lock().unwrap_or_else(|e| e.into_inner());
     let mut config = read_json_object(&config_path)?;
     let obj = config.as_object_mut().ok_or_else(|| {
         WorkspaceControlError::Parse("opencode.json root is not an object".into())
@@ -117,6 +180,8 @@ fn ensure_default_permissions(workspace_path: &Path) -> Result<(), WorkspaceCont
 /// Seed inherent MCP entries that TeamClaw expects (non-destructive).
 pub fn ensure_inherent_mcp(workspace_path: &Path) -> Result<(), WorkspaceControlError> {
     let config_path = opencode_json_path(workspace_path);
+    let write_lock = teamclaw_runtime_env::atomic_write::opencode_write_lock(&config_path);
+    let _guard = write_lock.lock().unwrap_or_else(|e| e.into_inner());
     let mut config = if config_path.exists() {
         read_json_object(&config_path)?
     } else {
@@ -534,6 +599,8 @@ pub fn ensure_instruction_plugin(workspace_path: &Path) -> Result<(), WorkspaceC
     }
 
     let config_path = opencode_json_path(workspace_path);
+    let write_lock = teamclaw_runtime_env::atomic_write::opencode_write_lock(&config_path);
+    let _guard = write_lock.lock().unwrap_or_else(|e| e.into_inner());
     let mut config = if config_path.exists() {
         read_json_object(&config_path)?
     } else {
@@ -692,21 +759,15 @@ impl RuntimeSupervisor {
         &self,
         workspace_path: &Path,
     ) -> Result<Vec<amux::ModelInfo>, String> {
-        let launch = {
-            let manager = self.agents.lock().await;
-            manager.launch_config_for(amux::AgentType::Opencode)
-        };
+        let mut manager = self.agents.lock().await;
+        let launch = manager.launch_config_for(amux::AgentType::Opencode);
         if !binary_available(&launch) {
             return Err("opencode binary not available".into());
         }
-        acp_catalog_probe::probe_opencode_models_at_cwd(
-            &launch.binary,
-            &launch.args,
-            workspace_path.to_path_buf(),
-            HashMap::new(),
-        )
-        .await
-        .map_err(|e| e.to_string())
+        manager
+            .probe_opencode_models(workspace_path)
+            .await
+            .map_err(|e| e.to_string())
     }
 
     pub async fn runtime_status(

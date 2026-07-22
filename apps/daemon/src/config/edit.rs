@@ -46,8 +46,8 @@ pub fn is_secret_key(key: &str) -> bool {
 }
 
 pub fn read_config(path: &Path) -> anyhow::Result<Value> {
-    let text =
-        std::fs::read_to_string(path).map_err(|e| anyhow::anyhow!("read {}: {e}", path.display()))?;
+    let text = std::fs::read_to_string(path)
+        .map_err(|e| anyhow::anyhow!("read {}: {e}", path.display()))?;
     text.parse::<Value>()
         .map_err(|e| anyhow::anyhow!("parse {}: {e}", path.display()))
 }

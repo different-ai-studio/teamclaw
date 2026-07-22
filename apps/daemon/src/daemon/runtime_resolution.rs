@@ -1,51 +1,29 @@
 use crate::config::DaemonConfig;
 use crate::proto::amux;
 
+/// Single-agent mode: opencode is the only supported backend. Any legacy
+/// request (claude-code / codex) is rerouted to opencode with a log line.
+/// Legacy `[agents.claude_code]` / `[agents.codex]` config sections are still
+/// parsed for back-compat but no longer make those backends runnable.
 pub(crate) fn resolve_requested_agent_type(
     config: &DaemonConfig,
     requested: amux::AgentType,
 ) -> amux::AgentType {
-    let has_claude = config.agents.claude_code.is_some();
-    let has_opencode = config.agents.opencode.is_some();
-    let has_codex = config.agents.codex.is_some();
-
-    // When the explicitly-requested backend isn't configured, fall back to
-    // whatever IS configured (preferring opencode, then claude_code, then codex).
-    // If nothing is configured, stay Unknown — never assume claude.
-    let fallback = || {
-        if has_opencode {
-            amux::AgentType::Opencode
-        } else if has_claude {
-            amux::AgentType::ClaudeCode
-        } else if has_codex {
-            amux::AgentType::Codex
-        } else {
-            amux::AgentType::Unknown
-        }
-    };
-
+    if config.agents.opencode.is_none() {
+        tracing::warn!(
+            ?requested,
+            "no [agents.opencode] configured; cannot resolve a runtime backend"
+        );
+        return amux::AgentType::Unknown;
+    }
     match requested {
-        amux::AgentType::Unknown => fallback(),
-        amux::AgentType::ClaudeCode => {
-            if has_claude {
-                amux::AgentType::ClaudeCode
-            } else {
-                fallback()
-            }
-        }
-        amux::AgentType::Opencode => {
-            if has_opencode {
-                amux::AgentType::Opencode
-            } else {
-                fallback()
-            }
-        }
-        amux::AgentType::Codex => {
-            if has_codex {
-                amux::AgentType::Codex
-            } else {
-                fallback()
-            }
+        amux::AgentType::Opencode | amux::AgentType::Unknown => amux::AgentType::Opencode,
+        legacy => {
+            tracing::warn!(
+                requested = ?legacy,
+                "requested legacy agent backend; rerouting to opencode (single-agent mode)"
+            );
+            amux::AgentType::Opencode
         }
     }
 }
@@ -77,36 +55,25 @@ pub(crate) fn agent_type_from_name(name: &str) -> Option<amux::AgentType> {
     }
 }
 
-/// Cloud-facing default backend. Prefer opencode when present, else claude, else
-/// codex, else the first entry. Returns `None` when there are no supported types
-/// (caller should skip cloud advertise).
+/// Cloud-facing default backend. Single-agent mode: opencode or nothing.
+/// Returns `None` when there are no supported types (caller should skip cloud
+/// advertise).
 pub(crate) fn default_advertised_agent_type(supported_types: &[String]) -> Option<String> {
-    if supported_types.is_empty() {
-        return None;
-    }
-    if supported_types.iter().any(|s| s == "opencode") {
-        Some("opencode".to_string())
-    } else if supported_types.iter().any(|s| s == "claude") {
-        Some("claude".to_string())
-    } else if supported_types.iter().any(|s| s == "codex") {
-        Some("codex".to_string())
-    } else {
-        Some(supported_types[0].clone())
-    }
+    supported_types
+        .iter()
+        .any(|s| s == "opencode")
+        .then(|| "opencode".to_string())
 }
 
+/// Single-agent mode: only opencode is ever advertised. Legacy
+/// `[agents.claude_code]` / `[agents.codex]` sections are accepted in config
+/// files but intentionally ignored here.
 pub(crate) fn supported_agent_type_names(config: &DaemonConfig) -> Vec<String> {
-    let mut names = Vec::new();
-    if config.agents.claude_code.is_some() {
-        names.push("claude".to_string());
-    }
     if config.agents.opencode.is_some() {
-        names.push("opencode".to_string());
+        vec!["opencode".to_string()]
+    } else {
+        Vec::new()
     }
-    if config.agents.codex.is_some() {
-        names.push("codex".to_string());
-    }
-    names
 }
 
 #[cfg(test)]
@@ -176,10 +143,15 @@ mod tests {
     }
 
     #[test]
-    fn resolves_unknown_to_opencode_when_both_configured() {
+    fn legacy_requests_reroute_to_opencode_even_when_legacy_sections_present() {
         let mut cfg = base_config();
+        // Back-compat: legacy sections still parse but are ignored.
         cfg.agents.claude_code = Some(crate::config::AgentBackendConfig {
             binary: "claude".to_string(),
+            default_flags: Vec::new(),
+        });
+        cfg.agents.codex = Some(crate::config::AgentBackendConfig {
+            binary: "codex".to_string(),
             default_flags: Vec::new(),
         });
         cfg.agents.opencode = Some(crate::config::AgentBackendConfig {
@@ -187,71 +159,35 @@ mod tests {
             default_flags: vec!["acp".to_string()],
         });
 
-        // opencode is the preferred default; Unknown resolves to it even when
-        // claude_code is also configured.
-        assert_eq!(
-            resolve_requested_agent_type(&cfg, amux::AgentType::Unknown),
-            amux::AgentType::Opencode
-        );
+        for requested in [
+            amux::AgentType::Unknown,
+            amux::AgentType::ClaudeCode,
+            amux::AgentType::Codex,
+            amux::AgentType::Opencode,
+        ] {
+            assert_eq!(
+                resolve_requested_agent_type(&cfg, requested),
+                amux::AgentType::Opencode
+            );
+        }
     }
 
     #[test]
-    fn explicit_claude_code_request_honoured_when_both_configured() {
+    fn legacy_sections_alone_resolve_nothing() {
+        // claude/codex config sections no longer make a backend runnable.
         let mut cfg = base_config();
         cfg.agents.claude_code = Some(crate::config::AgentBackendConfig {
             binary: "claude".to_string(),
             default_flags: Vec::new(),
         });
-        cfg.agents.opencode = Some(crate::config::AgentBackendConfig {
-            binary: "opencode".to_string(),
-            default_flags: vec!["acp".to_string()],
-        });
-
-        assert_eq!(
-            resolve_requested_agent_type(&cfg, amux::AgentType::ClaudeCode),
-            amux::AgentType::ClaudeCode
-        );
-    }
-
-    #[test]
-    fn explicit_codex_request_honoured_when_codex_configured() {
-        let mut cfg = base_config();
         cfg.agents.codex = Some(crate::config::AgentBackendConfig {
             binary: "codex".to_string(),
             default_flags: Vec::new(),
         });
 
         assert_eq!(
-            resolve_requested_agent_type(&cfg, amux::AgentType::Codex),
-            amux::AgentType::Codex
-        );
-    }
-
-    #[test]
-    fn codex_request_reroutes_to_opencode_when_codex_absent() {
-        let mut cfg = base_config();
-        cfg.agents.opencode = Some(crate::config::AgentBackendConfig {
-            binary: "opencode".to_string(),
-            default_flags: vec!["acp".to_string()],
-        });
-
-        assert_eq!(
-            resolve_requested_agent_type(&cfg, amux::AgentType::Codex),
-            amux::AgentType::Opencode
-        );
-    }
-
-    #[test]
-    fn opencode_request_reroutes_to_claude_when_opencode_absent() {
-        let mut cfg = base_config();
-        cfg.agents.claude_code = Some(crate::config::AgentBackendConfig {
-            binary: "claude".to_string(),
-            default_flags: Vec::new(),
-        });
-
-        assert_eq!(
             resolve_requested_agent_type(&cfg, amux::AgentType::Opencode),
-            amux::AgentType::ClaudeCode
+            amux::AgentType::Unknown
         );
     }
 
@@ -330,21 +266,39 @@ mod tests {
     }
 
     #[test]
-    fn default_advertised_agent_type_prefers_opencode() {
+    fn default_advertised_agent_type_is_opencode_or_none() {
         assert_eq!(
             default_advertised_agent_type(&["claude".into(), "opencode".into()]),
             Some("opencode".into())
         );
+        // Without opencode there is nothing to advertise in single-agent mode.
         assert_eq!(
             default_advertised_agent_type(&["claude".into(), "codex".into()]),
-            Some("claude".into())
+            None
         );
         assert_eq!(default_advertised_agent_type(&[]), None);
     }
 
     #[test]
-    fn supported_agent_type_names_empty_when_no_backends_configured() {
+    fn supported_agent_type_names_is_opencode_only() {
         assert!(supported_agent_type_names(&base_config()).is_empty());
+
+        let mut cfg = base_config();
+        cfg.agents.claude_code = Some(crate::config::AgentBackendConfig {
+            binary: "claude".to_string(),
+            default_flags: Vec::new(),
+        });
+        // Legacy claude section alone advertises nothing.
+        assert!(supported_agent_type_names(&cfg).is_empty());
+
+        cfg.agents.opencode = Some(crate::config::AgentBackendConfig {
+            binary: "opencode".to_string(),
+            default_flags: vec!["acp".to_string()],
+        });
+        assert_eq!(
+            supported_agent_type_names(&cfg),
+            vec!["opencode".to_string()]
+        );
     }
 
     #[test]
@@ -352,20 +306,6 @@ mod tests {
         assert_eq!(
             resolve_requested_agent_type(&base_config(), amux::AgentType::Unknown),
             amux::AgentType::Unknown
-        );
-    }
-
-    #[test]
-    fn unknown_request_resolves_to_codex_when_only_codex_configured() {
-        let mut cfg = base_config();
-        cfg.agents.codex = Some(crate::config::AgentBackendConfig {
-            binary: "codex".to_string(),
-            default_flags: Vec::new(),
-        });
-
-        assert_eq!(
-            resolve_requested_agent_type(&cfg, amux::AgentType::Unknown),
-            amux::AgentType::Codex
         );
     }
 }

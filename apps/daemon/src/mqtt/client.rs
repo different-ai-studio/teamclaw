@@ -74,10 +74,7 @@ impl MqttClient {
     }
 
     pub fn new(config: &DaemonConfig, actor_id: &str, token: &str) -> crate::error::Result<Self> {
-        let client_id = format!(
-            "amuxd-{}",
-            &config.actor.id[..8.min(config.actor.id.len())]
-        );
+        let client_id = format!("amuxd-{}", &config.actor.id[..8.min(config.actor.id.len())]);
 
         let broker = MqttBroker::parse(&config.mqtt.broker_url);
         let mut opts = MqttOptions::new(&client_id, broker.connection_address(), broker.port);
@@ -176,7 +173,7 @@ impl MqttClient {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::config::{AgentsConfig, DaemonConfig, ActorConfig, MqttConfig};
+    use crate::config::{ActorConfig, AgentsConfig, DaemonConfig, MqttConfig};
 
     fn test_config() -> DaemonConfig {
         DaemonConfig {

@@ -20,8 +20,8 @@ describe('resolveAmuxAgentType', () => {
     expect(resolveAmuxAgentType(undefined, 'codex')).toBe(AgentType.CODEX)
   })
 
-  it('defaults unknown combinations to claude code', () => {
-    expect(resolveAmuxAgentType(undefined, undefined)).toBe(AgentType.CLAUDE_CODE)
-    expect(resolveAmuxAgentType('something-else', 'member')).toBe(AgentType.CLAUDE_CODE)
+  it('defaults unknown combinations to opencode (single-agent mode)', () => {
+    expect(resolveAmuxAgentType(undefined, undefined)).toBe(AgentType.OPENCODE)
+    expect(resolveAmuxAgentType('something-else', 'member')).toBe(AgentType.OPENCODE)
   })
 })

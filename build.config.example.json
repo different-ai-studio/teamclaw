@@ -30,6 +30,7 @@
     "auth": { "google": false, "wechat": false, "phone": false, "webSSO": false, "webSSOHosts": [] },
     "teamShareBrowser": false
   },
+  "localAgent": "opencode",
   "opencode": {
     "downloadBase": "https://teamclaw.ucar.cc/opencode/stable"
   },

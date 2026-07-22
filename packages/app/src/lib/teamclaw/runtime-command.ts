@@ -1,5 +1,6 @@
 import { create, toBinary } from "@bufbuild/protobuf";
 import {
+  AcpAnswerQuestionSchema,
   AcpCancelSchema,
   AcpCommandSchema,
   AcpDenyPermissionSchema,
@@ -34,8 +35,18 @@ export type RuntimeCancelInput = {
   runtimeId: string;
 };
 
+export type RuntimeAnswerQuestionInput = {
+  targetActorId: string;
+  runtimeId: string;
+  requestId: string;
+  /** `[[selected labels], ...]` — one array per question, in order. */
+  answers: string[][];
+  reject?: boolean;
+};
+
 export type RuntimeCommandSender = {
   sendPermissionResponse: (input: RuntimePermissionResponseInput) => Promise<void>;
+  sendAnswerQuestion: (input: RuntimeAnswerQuestionInput) => Promise<void>;
   sendCancel: (input: RuntimeCancelInput) => Promise<void>;
 };
 
@@ -87,6 +98,40 @@ export function createRuntimeCommandSender(
               value: create(AcpDenyPermissionSchema, { requestId }),
             },
           });
+      const senderActorId = deps.senderActorId?.trim() ?? "";
+      const envelope = create(RuntimeCommandEnvelopeSchema, {
+        runtimeId,
+        actorId: targetActorId,
+        peerId,
+        commandId: deps.commandId?.() ?? crypto.randomUUID(),
+        timestamp: BigInt(Math.floor(deps.nowSeconds?.() ?? Date.now() / 1000)),
+        senderActorId,
+        acpCommand,
+      });
+
+      await deps.mqtt.publish(
+        runtimeCommandsTopic(teamId, targetActorId, runtimeId),
+        toBinary(RuntimeCommandEnvelopeSchema, envelope),
+        false,
+      );
+    },
+
+    async sendAnswerQuestion(input) {
+      const teamId = required(deps.teamId, "team id");
+      const targetActorId = required(input.targetActorId, "target actor id");
+      const runtimeId = required(input.runtimeId, "runtime id");
+      const requestId = required(input.requestId, "request id");
+      const peerId = required(deps.peerId, "peer id");
+      const acpCommand = create(AcpCommandSchema, {
+        command: {
+          case: "answerQuestion",
+          value: create(AcpAnswerQuestionSchema, {
+            requestId,
+            answersJson: JSON.stringify(input.answers ?? []),
+            reject: !!input.reject,
+          }),
+        },
+      });
       const senderActorId = deps.senderActorId?.trim() ?? "";
       const envelope = create(RuntimeCommandEnvelopeSchema, {
         runtimeId,

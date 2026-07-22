@@ -37,7 +37,10 @@ pub fn merge_live_provider_auth_methods(
 ) -> ProviderAuthMethodsResponse {
     for (provider_id, fallback) in builtin_provider_auth_methods() {
         let existing = live.entry(provider_id).or_default();
-        if existing.iter().any(|m| m.method_type == ProviderAuthMethodType::Oauth) {
+        if existing
+            .iter()
+            .any(|m| m.method_type == ProviderAuthMethodType::Oauth)
+        {
             continue;
         }
         existing.splice(0..0, fallback);

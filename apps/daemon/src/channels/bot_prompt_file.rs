@@ -115,6 +115,9 @@ mod tests {
         write_bot_instruction_file(p, "a").unwrap();
         write_bot_instruction_file(p, "b").unwrap();
         let gi = std::fs::read_to_string(p.join(".gitignore")).unwrap();
-        assert_eq!(gi.lines().filter(|l| l.trim() == "CLAUDE.local.md").count(), 1);
+        assert_eq!(
+            gi.lines().filter(|l| l.trim() == "CLAUDE.local.md").count(),
+            1
+        );
     }
 }

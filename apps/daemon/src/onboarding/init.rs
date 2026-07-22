@@ -4,7 +4,6 @@ use crate::provider_config::{CloudApiConfig, ProviderConfig};
 use anyhow::{anyhow, Context, Result};
 use std::path::{Path, PathBuf};
 
-
 pub struct InitOutcome {
     pub actor_id: String,
     pub team_id: String,
@@ -28,12 +27,9 @@ pub async fn run(raw_url: &str, config_path: Option<&Path>) -> Result<InitOutcom
         .await
         .map_err(actionable_invite_claim_error)?;
 
-    let refresh_token = claim
-        .refresh_token
-        .clone()
-        .ok_or_else(|| anyhow!(
-            "claim_team_invite did not return a refresh token (kind=member?)"
-        ))?;
+    let refresh_token = claim.refresh_token.clone().ok_or_else(|| {
+        anyhow!("claim_team_invite did not return a refresh token (kind=member?)")
+    })?;
 
     let cfg = CloudApiConfig {
         url: cloud_url,
@@ -267,11 +263,15 @@ mod tests {
         );
         let http = cfg.http.expect("init should write [http]");
         assert!(
-            http.allowed_origins.iter().any(|o| o == "https://tauri.localhost"),
+            http.allowed_origins
+                .iter()
+                .any(|o| o == "https://tauri.localhost"),
             "expected packaged desktop origin"
         );
         assert!(
-            http.allowed_origins.iter().any(|o| o == "http://tauri.localhost"),
+            http.allowed_origins
+                .iter()
+                .any(|o| o == "http://tauri.localhost"),
             "expected WebView2 http tauri origin"
         );
     }

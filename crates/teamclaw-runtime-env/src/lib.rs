@@ -1,3 +1,4 @@
+pub mod atomic_write;
 pub mod env_catalog;
 pub mod mcp_resolve;
 pub mod merge;

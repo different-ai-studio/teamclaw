@@ -25,8 +25,7 @@ fn run_at(force: bool, lock_path: &std::path::Path, paths: Vec<PathBuf>) -> anyh
     // on its next refresh-token rotation. Only take the lock once there is
     // something to remove — otherwise a no-op clear would fail with "already
     // running" whenever amuxd is up.
-    let _daemon_lock =
-        crate::cli::process::acquire_daemon_lock_at(lock_path, Duration::ZERO)?;
+    let _daemon_lock = crate::cli::process::acquire_daemon_lock_at(lock_path, Duration::ZERO)?;
 
     // Paths are printed in full: they can span the config dir AND the legacy dir.
     println!("Will remove {} file(s):", existing.len());
@@ -160,7 +159,10 @@ mod tests {
         let error = run_at(true, &lock_path, vec![config_path.clone()]).unwrap_err();
 
         assert!(error.to_string().contains("already running"));
-        assert_eq!(std::fs::read_to_string(config_path).unwrap(), "new identity");
+        assert_eq!(
+            std::fs::read_to_string(config_path).unwrap(),
+            "new identity"
+        );
     }
 
     #[test]

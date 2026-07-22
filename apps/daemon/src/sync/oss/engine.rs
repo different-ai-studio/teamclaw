@@ -72,8 +72,9 @@ pub async fn tick(
         // Retry transient failures (429 rate-limit / 503) in-call: a single
         // throttled manifest page must not fail the whole tick and surface as
         // an error to the desktop.
-        let page = with_batch_retry(|| fc.manifest(team_id, since_seq, cursor.clone(), snapshot_seq))
-            .await?;
+        let page =
+            with_batch_retry(|| fc.manifest(team_id, since_seq, cursor.clone(), snapshot_seq))
+                .await?;
         snapshot_seq.get_or_insert(page.snapshot_seq);
         all_items.extend(page.items);
         match page.next_cursor {
@@ -1305,7 +1306,10 @@ mod tests {
 
         assert!(!root.join("skills/a/b").exists(), "empty b/ pruned");
         assert!(!root.join("skills/a").exists(), "empty a/ pruned");
-        assert!(root.join("skills").exists(), "prefix root skills/ preserved");
+        assert!(
+            root.join("skills").exists(),
+            "prefix root skills/ preserved"
+        );
     }
 
     #[tokio::test]

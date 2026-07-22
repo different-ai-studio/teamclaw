@@ -10,7 +10,7 @@ import type { Message } from "@bufbuild/protobuf";
  * Describes the file amux.proto.
  */
 export const file_amux: GenFile = /*@__PURE__*/
-  fileDesc("CgphbXV4LnByb3RvEgRhbXV4IvMBCghFbnZlbG9wZRISCgpydW50aW1lX2lkGAEgASgJEhAKCGFjdG9yX2lkGAIgASgJEhYKDnNvdXJjZV9wZWVyX2lkGAMgASgJEhEKCXRpbWVzdGFtcBgEIAEoAxIQCghzZXF1ZW5jZRgFIAEoBBIPCgd0dXJuX2lkGAYgASgJEhYKDmFjcF9zZXNzaW9uX2lkGAcgASgJEiMKCWFjcF9ldmVudBgKIAEoCzIOLmFtdXguQWNwRXZlbnRIABIrCg1zZXNzaW9uX2V2ZW50GAsgASgLMhIuYW11eC5TZXNzaW9uRXZlbnRIAEIJCgdwYXlsb2FkItEBChZSdW50aW1lQ29tbWFuZEVudmVsb3BlEhIKCnJ1bnRpbWVfaWQYASABKAkSEAoIYWN0b3JfaWQYAiABKAkSDwoHcGVlcl9pZBgDIAEoCRISCgpjb21tYW5kX2lkGAQgASgJEhEKCXRpbWVzdGFtcBgFIAEoAxIXCg9zZW5kZXJfYWN0b3JfaWQYBiABKAkSGQoRcmVwbHlfdG9fYWN0b3JfaWQYByABKAkSJQoLYWNwX2NvbW1hbmQYCiABKAsyEC5hbXV4LkFjcENvbW1hbmQi0AMKCEFjcEV2ZW50EiUKCHRoaW5raW5nGAEgASgLMhEuYW11eC5BY3BUaGlua2luZ0gAEiEKBm91dHB1dBgCIAEoCzIPLmFtdXguQWNwT3V0cHV0SAASJAoIdG9vbF91c2UYAyABKAsyEC5hbXV4LkFjcFRvb2xVc2VIABIqCgt0b29sX3Jlc3VsdBgEIAEoCzITLmFtdXguQWNwVG9vbFJlc3VsdEgAEh8KBWVycm9yGAUgASgLMg4uYW11eC5BY3BFcnJvckgAEjgKEnBlcm1pc3Npb25fcmVxdWVzdBgGIAEoCzIaLmFtdXguQWNwUGVybWlzc2lvblJlcXVlc3RIABIuCg1zdGF0dXNfY2hhbmdlGAcgASgLMhUuYW11eC5BY3BTdGF0dXNDaGFuZ2VIABI4ChJhdmFpbGFibGVfY29tbWFuZHMYCSABKAsyGi5hbXV4LkFjcEF2YWlsYWJsZUNvbW1hbmRzSAASKgoLcGxhbl91cGRhdGUYCiABKAsyEy5hbXV4LkFjcFBsYW5VcGRhdGVIABIfCgNyYXcYDyABKAsyEC5hbXV4LkFjcFJhd0pzb25IABINCgVtb2RlbBgQIAEoCUIHCgVldmVudCIbCgtBY3BUaGlua2luZxIMCgR0ZXh0GAEgASgJIi4KCUFjcE91dHB1dBIMCgR0ZXh0GAEgASgJEhMKC2lzX2NvbXBsZXRlGAIgASgIIj8KE0FjcFRvb2xDYWxsTG9jYXRpb24SDAoEcGF0aBgBIAEoCRIRCgRsaW5lGAIgASgNSACIAQFCBwoFX2xpbmUiJgoWQWNwVG9vbENhbGxUZXh0Q29udGVudBIMCgR0ZXh0GAEgASgJIlUKD0FjcFRvb2xDYWxsRGlmZhIMCgRwYXRoGAEgASgJEhUKCG9sZF90ZXh0GAIgASgJSACIAQESEAoIbmV3X3RleHQYAyABKAlCCwoJX29sZF90ZXh0IioKE0FjcFRvb2xDYWxsVGVybWluYWwSEwoLdGVybWluYWxfaWQYASABKAkiowEKEkFjcFRvb2xDYWxsQ29udGVudBIsCgR0ZXh0GAEgASgLMhwuYW11eC5BY3BUb29sQ2FsbFRleHRDb250ZW50SAASJQoEZGlmZhgCIAEoCzIVLmFtdXguQWNwVG9vbENhbGxEaWZmSAASLQoIdGVybWluYWwYAyABKAsyGS5hbXV4LkFjcFRvb2xDYWxsVGVybWluYWxIAEIJCgdwYXlsb2FkIs8CCgpBY3BUb29sVXNlEg8KB3Rvb2xfaWQYASABKAkSEQoJdG9vbF9uYW1lGAIgASgJEhMKC2Rlc2NyaXB0aW9uGAMgASgJEiwKBnBhcmFtcxgEIAMoCzIcLmFtdXguQWNwVG9vbFVzZS5QYXJhbXNFbnRyeRIRCgl0b29sX2tpbmQYBSABKAkSFgoOcmF3X2lucHV0X2pzb24YBiABKAkSKQoHY29udGVudBgHIAMoCzIYLmFtdXguQWNwVG9vbENhbGxDb250ZW50EiwKCWxvY2F0aW9ucxgIIAMoCzIZLmFtdXguQWNwVG9vbENhbGxMb2NhdGlvbhIOCgZzdGF0dXMYCSABKAkSFwoPcmF3X291dHB1dF9qc29uGAogASgJGi0KC1BhcmFtc0VudHJ5EgsKA2tleRgBIAEoCRINCgV2YWx1ZRgCIAEoCToCOAEihgEKDUFjcFRvb2xSZXN1bHQSDwoHdG9vbF9pZBgBIAEoCRIPCgdzdWNjZXNzGAIgASgIEg8KB3N1bW1hcnkYAyABKAkSFwoPcmF3X291dHB1dF9qc29uGAQgASgJEikKB2NvbnRlbnQYBSADKAsyGC5hbXV4LkFjcFRvb2xDYWxsQ29udGVudCIsCghBY3BFcnJvchIPCgdtZXNzYWdlGAEgASgJEg8KB2RldGFpbHMYAiABKAkiRAoTQWNwUGVybWlzc2lvbk9wdGlvbhIRCglvcHRpb25faWQYASABKAkSDAoEa2luZBgCIAEoCRIMCgRuYW1lGAMgASgJIuUBChRBY3BQZXJtaXNzaW9uUmVxdWVzdBISCgpyZXF1ZXN0X2lkGAEgASgJEhEKCXRvb2xfbmFtZRgCIAEoCRITCgtkZXNjcmlwdGlvbhgDIAEoCRI2CgZwYXJhbXMYBCADKAsyJi5hbXV4LkFjcFBlcm1pc3Npb25SZXF1ZXN0LlBhcmFtc0VudHJ5EioKB29wdGlvbnMYBSADKAsyGS5hbXV4LkFjcFBlcm1pc3Npb25PcHRpb24aLQoLUGFyYW1zRW50cnkSCwoDa2V5GAEgASgJEg0KBXZhbHVlGAIgASgJOgI4ASJfCg9BY3BTdGF0dXNDaGFuZ2USJQoKb2xkX3N0YXR1cxgBIAEoDjIRLmFtdXguQWdlbnRTdGF0dXMSJQoKbmV3X3N0YXR1cxgCIAEoDjIRLmFtdXguQWdlbnRTdGF0dXMiTAoTQWNwQXZhaWxhYmxlQ29tbWFuZBIMCgRuYW1lGAEgASgJEhMKC2Rlc2NyaXB0aW9uGAIgASgJEhIKCmlucHV0X2hpbnQYAyABKAkiQwoUQWNwQXZhaWxhYmxlQ29tbWFuZHMSKwoIY29tbWFuZHMYASADKAsyGS5hbXV4LkFjcEF2YWlsYWJsZUNvbW1hbmQiMgoKQWNwUmF3SnNvbhIOCgZtZXRob2QYASABKAkSFAoManNvbl9wYXlsb2FkGAIgASgMIjQKDUFjcFBsYW5VcGRhdGUSIwoHZW50cmllcxgBIAMoCzISLmFtdXguQWNwUGxhbkVudHJ5IkEKDEFjcFBsYW5FbnRyeRIPCgdjb250ZW50GAEgASgJEhAKCHByaW9yaXR5GAIgASgJEg4KBnN0YXR1cxgDIAEoCSKXAwoKQWNwQ29tbWFuZBIqCgtzZW5kX3Byb21wdBgBIAEoCzITLmFtdXguQWNwU2VuZFByb21wdEgAEiEKBmNhbmNlbBgCIAEoCzIPLmFtdXguQWNwQ2FuY2VsSAASNAoQZ3JhbnRfcGVybWlzc2lvbhgDIAEoCzIYLmFtdXguQWNwR3JhbnRQZXJtaXNzaW9uSAASMgoPZGVueV9wZXJtaXNzaW9uGAQgASgLMhcuYW11eC5BY3BEZW55UGVybWlzc2lvbkgAEioKC3N0YXJ0X2FnZW50GAUgASgLMhMuYW11eC5BY3BTdGFydEFnZW50SAASKAoKc3RvcF9hZ2VudBgGIAEoCzISLmFtdXguQWNwU3RvcEFnZW50SAASMgoPcmVxdWVzdF9oaXN0b3J5GAcgASgLMhcuYW11eC5BY3BSZXF1ZXN0SGlzdG9yeUgAEjsKFHJlcXVlc3RfdHVybl9oaXN0b3J5GAggASgLMhsuYW11eC5BY3BSZXF1ZXN0VHVybkhpc3RvcnlIAEIJCgdjb21tYW5kIlIKEUFjcFJlcXVlc3RIaXN0b3J5EhYKDmFmdGVyX3NlcXVlbmNlGAEgASgEEhEKCXBhZ2Vfc2l6ZRgCIAEoDRISCgpyZXF1ZXN0X2lkGAMgASgJIjwKFUFjcFJlcXVlc3RUdXJuSGlzdG9yeRIPCgd0dXJuX2lkGAEgASgJEhIKCnJlcXVlc3RfaWQYAiABKAkiSAoNQWNwU2VuZFByb21wdBIMCgR0ZXh0GAEgASgJEhAKCG1vZGVsX2lkGAIgASgJEhcKD2F0dGFjaG1lbnRfdXJscxgDIAMoCSILCglBY3BDYW5jZWwiOwoSQWNwR3JhbnRQZXJtaXNzaW9uEhIKCnJlcXVlc3RfaWQYASABKAkSEQoJb3B0aW9uX2lkGAIgASgJIicKEUFjcERlbnlQZXJtaXNzaW9uEhIKCnJlcXVlc3RfaWQYASABKAkiiAEKDUFjcFN0YXJ0QWdlbnQSIwoKYWdlbnRfdHlwZRgBIAEoDjIPLmFtdXguQWdlbnRUeXBlEhAKCHdvcmt0cmVlGAIgASgJEhYKDmluaXRpYWxfcHJvbXB0GAMgASgJEhQKDHdvcmtzcGFjZV9pZBgEIAEoCRISCgpzZXNzaW9uX2lkGAUgASgJIg4KDEFjcFN0b3BBZ2VudCLfAQoMU2Vzc2lvbkV2ZW50Ei8KD3Byb21wdF9hY2NlcHRlZBgBIAEoCzIULmFtdXguUHJvbXB0QWNjZXB0ZWRIABIvCg9wcm9tcHRfcmVqZWN0ZWQYAiABKAsyFC5hbXV4LlByb21wdFJlamVjdGVkSAASNwoTcGVybWlzc2lvbl9yZXNvbHZlZBgDIAEoCzIYLmFtdXguUGVybWlzc2lvblJlc29sdmVkSAASKwoNaGlzdG9yeV9iYXRjaBgEIAEoCzISLmFtdXguSGlzdG9yeUJhdGNoSABCBwoFZXZlbnQicQoMSGlzdG9yeUJhdGNoEhIKCnJlcXVlc3RfaWQYASABKAkSHgoGZXZlbnRzGAIgAygLMg4uYW11eC5FbnZlbG9wZRIQCghoYXNfbW9yZRgDIAEoCBIbChNuZXh0X2FmdGVyX3NlcXVlbmNlGAQgASgEIiQKDlByb21wdEFjY2VwdGVkEhIKCmNvbW1hbmRfaWQYASABKAkiNAoOUHJvbXB0UmVqZWN0ZWQSEgoKY29tbWFuZF9pZBgBIAEoCRIOCgZyZWFzb24YAiABKAkiVgoSUGVybWlzc2lvblJlc29sdmVkEhIKCnJlcXVlc3RfaWQYASABKAkSGwoTcmVzb2x2ZWRfYnlfcGVlcl9pZBgCIAEoCRIPCgdncmFudGVkGAMgASgIIhwKDEFkZFdvcmtzcGFjZRIMCgRwYXRoGAEgASgJIicKD1JlbW92ZVdvcmtzcGFjZRIUCgx3b3Jrc3BhY2VfaWQYASABKAkiQAoMUGVlckFubm91bmNlEhwKBHBlZXIYASABKAsyDi5hbXV4LlBlZXJJbmZvEhIKCmF1dGhfdG9rZW4YAiABKAkiIQoMUmVtb3ZlTWVtYmVyEhEKCW1lbWJlcl9pZBgBIAEoCSJICg1BY3RvclByZXNlbmNlEg4KBm9ubGluZRgBIAEoCBIUCgxkaXNwbGF5X25hbWUYAiABKAkSEQoJdGltZXN0YW1wGAMgASgDIkkKDVdvcmtzcGFjZUluZm8SFAoMd29ya3NwYWNlX2lkGAEgASgJEgwKBHBhdGgYAiABKAkSFAoMZGlzcGxheV9uYW1lGAMgASgJIjgKDVdvcmtzcGFjZUxpc3QSJwoKd29ya3NwYWNlcxgBIAMoCzITLmFtdXguV29ya3NwYWNlSW5mbyKJBAoLUnVudGltZUluZm8SEgoKcnVudGltZV9pZBgBIAEoCRIjCgphZ2VudF90eXBlGAIgASgOMg8uYW11eC5BZ2VudFR5cGUSEAoId29ya3RyZWUYAyABKAkSDgoGYnJhbmNoGAQgASgJEiEKBnN0YXR1cxgFIAEoDjIRLmFtdXguQWdlbnRTdGF0dXMSEgoKc3RhcnRlZF9hdBgGIAEoAxIWCg5jdXJyZW50X3Byb21wdBgHIAEoCRIUCgx3b3Jrc3BhY2VfaWQYCCABKAkSFQoNc2Vzc2lvbl90aXRsZRgJIAEoCRIbChNsYXN0X291dHB1dF9zdW1tYXJ5GAogASgJEhYKDnRvb2xfdXNlX2NvdW50GAsgASgFEikKEGF2YWlsYWJsZV9tb2RlbHMYDCADKAsyDy5hbXV4Lk1vZGVsSW5mbxIVCg1jdXJyZW50X21vZGVsGA0gASgJEiUKBXN0YXRlGA4gASgOMhYuYW11eC5SdW50aW1lTGlmZWN5Y2xlEg0KBXN0YWdlGA8gASgJEhIKCmVycm9yX2NvZGUYECABKAkSFQoNZXJyb3JfbWVzc2FnZRgRIAEoCRIUCgxmYWlsZWRfc3RhZ2UYEiABKAkSNQoSYXZhaWxhYmxlX2NvbW1hbmRzGBMgAygLMhkuYW11eC5BY3BBdmFpbGFibGVDb21tYW5kIi0KCU1vZGVsSW5mbxIKCgJpZBgBIAEoCRIUCgxkaXNwbGF5X25hbWUYAiABKAkiMAoJQWdlbnRMaXN0EiMKCHJ1bnRpbWVzGAEgAygLMhEuYW11eC5SdW50aW1lSW5mbyJ8CgpNZW1iZXJJbmZvEhEKCW1lbWJlcl9pZBgBIAEoCRIUCgxkaXNwbGF5X25hbWUYAiABKAkSHgoEcm9sZRgDIAEoDjIQLmFtdXguTWVtYmVyUm9sZRIRCglqb2luZWRfYXQYBCABKAMSEgoKZGVwYXJ0bWVudBgFIAEoCSIvCgpNZW1iZXJMaXN0EiEKB21lbWJlcnMYASADKAsyEC5hbXV4Lk1lbWJlckluZm8ijwEKCFBlZXJJbmZvEg8KB3BlZXJfaWQYASABKAkSEQoJbWVtYmVyX2lkGAIgASgJEhQKDGRpc3BsYXlfbmFtZRgDIAEoCRITCgtkZXZpY2VfdHlwZRgEIAEoCRIeCgRyb2xlGAUgASgOMhAuYW11eC5NZW1iZXJSb2xlEhQKDGNvbm5lY3RlZF9hdBgGIAEoAyIpCghQZWVyTGlzdBIdCgVwZWVycxgBIAMoCzIOLmFtdXguUGVlckluZm8qbgoJQWdlbnRUeXBlEhYKEkFHRU5UX1RZUEVfVU5LTk9XThAAEhoKFkFHRU5UX1RZUEVfQ0xBVURFX0NPREUQARIXChNBR0VOVF9UWVBFX09QRU5DT0RFEAISFAoQQUdFTlRfVFlQRV9DT0RFWBADKqQBCgtBZ2VudFN0YXR1cxIYChRBR0VOVF9TVEFUVVNfVU5LTk9XThAAEhkKFUFHRU5UX1NUQVRVU19TVEFSVElORxABEhcKE0FHRU5UX1NUQVRVU19BQ1RJVkUQAhIVChFBR0VOVF9TVEFUVVNfSURMRRADEhYKEkFHRU5UX1NUQVRVU19FUlJPUhAEEhgKFEFHRU5UX1NUQVRVU19TVE9QUEVEEAUqrAEKEFJ1bnRpbWVMaWZlY3ljbGUSHQoZUlVOVElNRV9MSUZFQ1lDTEVfVU5LTk9XThAAEh4KGlJVTlRJTUVfTElGRUNZQ0xFX1NUQVJUSU5HEAESHAoYUlVOVElNRV9MSUZFQ1lDTEVfQUNUSVZFEAISHAoYUlVOVElNRV9MSUZFQ1lDTEVfRkFJTEVEEAMSHQoZUlVOVElNRV9MSUZFQ1lDTEVfU1RPUFBFRBAEKjsKCk1lbWJlclJvbGUSFQoRTUVNQkVSX1JPTEVfT1dORVIQABIWChJNRU1CRVJfUk9MRV9NRU1CRVIQAWIGcHJvdG8z");
+  fileDesc("CgphbXV4LnByb3RvEgRhbXV4IvMBCghFbnZlbG9wZRISCgpydW50aW1lX2lkGAEgASgJEhAKCGFjdG9yX2lkGAIgASgJEhYKDnNvdXJjZV9wZWVyX2lkGAMgASgJEhEKCXRpbWVzdGFtcBgEIAEoAxIQCghzZXF1ZW5jZRgFIAEoBBIPCgd0dXJuX2lkGAYgASgJEhYKDmFjcF9zZXNzaW9uX2lkGAcgASgJEiMKCWFjcF9ldmVudBgKIAEoCzIOLmFtdXguQWNwRXZlbnRIABIrCg1zZXNzaW9uX2V2ZW50GAsgASgLMhIuYW11eC5TZXNzaW9uRXZlbnRIAEIJCgdwYXlsb2FkItEBChZSdW50aW1lQ29tbWFuZEVudmVsb3BlEhIKCnJ1bnRpbWVfaWQYASABKAkSEAoIYWN0b3JfaWQYAiABKAkSDwoHcGVlcl9pZBgDIAEoCRISCgpjb21tYW5kX2lkGAQgASgJEhEKCXRpbWVzdGFtcBgFIAEoAxIXCg9zZW5kZXJfYWN0b3JfaWQYBiABKAkSGQoRcmVwbHlfdG9fYWN0b3JfaWQYByABKAkSJQoLYWNwX2NvbW1hbmQYCiABKAsyEC5hbXV4LkFjcENvbW1hbmQi0AMKCEFjcEV2ZW50EiUKCHRoaW5raW5nGAEgASgLMhEuYW11eC5BY3BUaGlua2luZ0gAEiEKBm91dHB1dBgCIAEoCzIPLmFtdXguQWNwT3V0cHV0SAASJAoIdG9vbF91c2UYAyABKAsyEC5hbXV4LkFjcFRvb2xVc2VIABIqCgt0b29sX3Jlc3VsdBgEIAEoCzITLmFtdXguQWNwVG9vbFJlc3VsdEgAEh8KBWVycm9yGAUgASgLMg4uYW11eC5BY3BFcnJvckgAEjgKEnBlcm1pc3Npb25fcmVxdWVzdBgGIAEoCzIaLmFtdXguQWNwUGVybWlzc2lvblJlcXVlc3RIABIuCg1zdGF0dXNfY2hhbmdlGAcgASgLMhUuYW11eC5BY3BTdGF0dXNDaGFuZ2VIABI4ChJhdmFpbGFibGVfY29tbWFuZHMYCSABKAsyGi5hbXV4LkFjcEF2YWlsYWJsZUNvbW1hbmRzSAASKgoLcGxhbl91cGRhdGUYCiABKAsyEy5hbXV4LkFjcFBsYW5VcGRhdGVIABIfCgNyYXcYDyABKAsyEC5hbXV4LkFjcFJhd0pzb25IABINCgVtb2RlbBgQIAEoCUIHCgVldmVudCIbCgtBY3BUaGlua2luZxIMCgR0ZXh0GAEgASgJIi4KCUFjcE91dHB1dBIMCgR0ZXh0GAEgASgJEhMKC2lzX2NvbXBsZXRlGAIgASgIIj8KE0FjcFRvb2xDYWxsTG9jYXRpb24SDAoEcGF0aBgBIAEoCRIRCgRsaW5lGAIgASgNSACIAQFCBwoFX2xpbmUiJgoWQWNwVG9vbENhbGxUZXh0Q29udGVudBIMCgR0ZXh0GAEgASgJIlUKD0FjcFRvb2xDYWxsRGlmZhIMCgRwYXRoGAEgASgJEhUKCG9sZF90ZXh0GAIgASgJSACIAQESEAoIbmV3X3RleHQYAyABKAlCCwoJX29sZF90ZXh0IioKE0FjcFRvb2xDYWxsVGVybWluYWwSEwoLdGVybWluYWxfaWQYASABKAkiowEKEkFjcFRvb2xDYWxsQ29udGVudBIsCgR0ZXh0GAEgASgLMhwuYW11eC5BY3BUb29sQ2FsbFRleHRDb250ZW50SAASJQoEZGlmZhgCIAEoCzIVLmFtdXguQWNwVG9vbENhbGxEaWZmSAASLQoIdGVybWluYWwYAyABKAsyGS5hbXV4LkFjcFRvb2xDYWxsVGVybWluYWxIAEIJCgdwYXlsb2FkIs8CCgpBY3BUb29sVXNlEg8KB3Rvb2xfaWQYASABKAkSEQoJdG9vbF9uYW1lGAIgASgJEhMKC2Rlc2NyaXB0aW9uGAMgASgJEiwKBnBhcmFtcxgEIAMoCzIcLmFtdXguQWNwVG9vbFVzZS5QYXJhbXNFbnRyeRIRCgl0b29sX2tpbmQYBSABKAkSFgoOcmF3X2lucHV0X2pzb24YBiABKAkSKQoHY29udGVudBgHIAMoCzIYLmFtdXguQWNwVG9vbENhbGxDb250ZW50EiwKCWxvY2F0aW9ucxgIIAMoCzIZLmFtdXguQWNwVG9vbENhbGxMb2NhdGlvbhIOCgZzdGF0dXMYCSABKAkSFwoPcmF3X291dHB1dF9qc29uGAogASgJGi0KC1BhcmFtc0VudHJ5EgsKA2tleRgBIAEoCRINCgV2YWx1ZRgCIAEoCToCOAEihgEKDUFjcFRvb2xSZXN1bHQSDwoHdG9vbF9pZBgBIAEoCRIPCgdzdWNjZXNzGAIgASgIEg8KB3N1bW1hcnkYAyABKAkSFwoPcmF3X291dHB1dF9qc29uGAQgASgJEikKB2NvbnRlbnQYBSADKAsyGC5hbXV4LkFjcFRvb2xDYWxsQ29udGVudCIsCghBY3BFcnJvchIPCgdtZXNzYWdlGAEgASgJEg8KB2RldGFpbHMYAiABKAkiRAoTQWNwUGVybWlzc2lvbk9wdGlvbhIRCglvcHRpb25faWQYASABKAkSDAoEa2luZBgCIAEoCRIMCgRuYW1lGAMgASgJIuUBChRBY3BQZXJtaXNzaW9uUmVxdWVzdBISCgpyZXF1ZXN0X2lkGAEgASgJEhEKCXRvb2xfbmFtZRgCIAEoCRITCgtkZXNjcmlwdGlvbhgDIAEoCRI2CgZwYXJhbXMYBCADKAsyJi5hbXV4LkFjcFBlcm1pc3Npb25SZXF1ZXN0LlBhcmFtc0VudHJ5EioKB29wdGlvbnMYBSADKAsyGS5hbXV4LkFjcFBlcm1pc3Npb25PcHRpb24aLQoLUGFyYW1zRW50cnkSCwoDa2V5GAEgASgJEg0KBXZhbHVlGAIgASgJOgI4ASJfCg9BY3BTdGF0dXNDaGFuZ2USJQoKb2xkX3N0YXR1cxgBIAEoDjIRLmFtdXguQWdlbnRTdGF0dXMSJQoKbmV3X3N0YXR1cxgCIAEoDjIRLmFtdXguQWdlbnRTdGF0dXMiTAoTQWNwQXZhaWxhYmxlQ29tbWFuZBIMCgRuYW1lGAEgASgJEhMKC2Rlc2NyaXB0aW9uGAIgASgJEhIKCmlucHV0X2hpbnQYAyABKAkiQwoUQWNwQXZhaWxhYmxlQ29tbWFuZHMSKwoIY29tbWFuZHMYASADKAsyGS5hbXV4LkFjcEF2YWlsYWJsZUNvbW1hbmQiMgoKQWNwUmF3SnNvbhIOCgZtZXRob2QYASABKAkSFAoManNvbl9wYXlsb2FkGAIgASgMIjQKDUFjcFBsYW5VcGRhdGUSIwoHZW50cmllcxgBIAMoCzISLmFtdXguQWNwUGxhbkVudHJ5IkEKDEFjcFBsYW5FbnRyeRIPCgdjb250ZW50GAEgASgJEhAKCHByaW9yaXR5GAIgASgJEg4KBnN0YXR1cxgDIAEoCSLLAwoKQWNwQ29tbWFuZBIqCgtzZW5kX3Byb21wdBgBIAEoCzITLmFtdXguQWNwU2VuZFByb21wdEgAEiEKBmNhbmNlbBgCIAEoCzIPLmFtdXguQWNwQ2FuY2VsSAASNAoQZ3JhbnRfcGVybWlzc2lvbhgDIAEoCzIYLmFtdXguQWNwR3JhbnRQZXJtaXNzaW9uSAASMgoPZGVueV9wZXJtaXNzaW9uGAQgASgLMhcuYW11eC5BY3BEZW55UGVybWlzc2lvbkgAEioKC3N0YXJ0X2FnZW50GAUgASgLMhMuYW11eC5BY3BTdGFydEFnZW50SAASKAoKc3RvcF9hZ2VudBgGIAEoCzISLmFtdXguQWNwU3RvcEFnZW50SAASMgoPcmVxdWVzdF9oaXN0b3J5GAcgASgLMhcuYW11eC5BY3BSZXF1ZXN0SGlzdG9yeUgAEjsKFHJlcXVlc3RfdHVybl9oaXN0b3J5GAggASgLMhsuYW11eC5BY3BSZXF1ZXN0VHVybkhpc3RvcnlIABIyCg9hbnN3ZXJfcXVlc3Rpb24YCSABKAsyFy5hbXV4LkFjcEFuc3dlclF1ZXN0aW9uSABCCQoHY29tbWFuZCJSChFBY3BSZXF1ZXN0SGlzdG9yeRIWCg5hZnRlcl9zZXF1ZW5jZRgBIAEoBBIRCglwYWdlX3NpemUYAiABKA0SEgoKcmVxdWVzdF9pZBgDIAEoCSI8ChVBY3BSZXF1ZXN0VHVybkhpc3RvcnkSDwoHdHVybl9pZBgBIAEoCRISCgpyZXF1ZXN0X2lkGAIgASgJIkgKDUFjcFNlbmRQcm9tcHQSDAoEdGV4dBgBIAEoCRIQCghtb2RlbF9pZBgCIAEoCRIXCg9hdHRhY2htZW50X3VybHMYAyADKAkiCwoJQWNwQ2FuY2VsIjsKEkFjcEdyYW50UGVybWlzc2lvbhISCgpyZXF1ZXN0X2lkGAEgASgJEhEKCW9wdGlvbl9pZBgCIAEoCSInChFBY3BEZW55UGVybWlzc2lvbhISCgpyZXF1ZXN0X2lkGAEgASgJIk0KEUFjcEFuc3dlclF1ZXN0aW9uEhIKCnJlcXVlc3RfaWQYASABKAkSFAoMYW5zd2Vyc19qc29uGAIgASgJEg4KBnJlamVjdBgDIAEoCCKIAQoNQWNwU3RhcnRBZ2VudBIjCgphZ2VudF90eXBlGAEgASgOMg8uYW11eC5BZ2VudFR5cGUSEAoId29ya3RyZWUYAiABKAkSFgoOaW5pdGlhbF9wcm9tcHQYAyABKAkSFAoMd29ya3NwYWNlX2lkGAQgASgJEhIKCnNlc3Npb25faWQYBSABKAkiDgoMQWNwU3RvcEFnZW50It8BCgxTZXNzaW9uRXZlbnQSLwoPcHJvbXB0X2FjY2VwdGVkGAEgASgLMhQuYW11eC5Qcm9tcHRBY2NlcHRlZEgAEi8KD3Byb21wdF9yZWplY3RlZBgCIAEoCzIULmFtdXguUHJvbXB0UmVqZWN0ZWRIABI3ChNwZXJtaXNzaW9uX3Jlc29sdmVkGAMgASgLMhguYW11eC5QZXJtaXNzaW9uUmVzb2x2ZWRIABIrCg1oaXN0b3J5X2JhdGNoGAQgASgLMhIuYW11eC5IaXN0b3J5QmF0Y2hIAEIHCgVldmVudCJxCgxIaXN0b3J5QmF0Y2gSEgoKcmVxdWVzdF9pZBgBIAEoCRIeCgZldmVudHMYAiADKAsyDi5hbXV4LkVudmVsb3BlEhAKCGhhc19tb3JlGAMgASgIEhsKE25leHRfYWZ0ZXJfc2VxdWVuY2UYBCABKAQiJAoOUHJvbXB0QWNjZXB0ZWQSEgoKY29tbWFuZF9pZBgBIAEoCSI0Cg5Qcm9tcHRSZWplY3RlZBISCgpjb21tYW5kX2lkGAEgASgJEg4KBnJlYXNvbhgCIAEoCSJWChJQZXJtaXNzaW9uUmVzb2x2ZWQSEgoKcmVxdWVzdF9pZBgBIAEoCRIbChNyZXNvbHZlZF9ieV9wZWVyX2lkGAIgASgJEg8KB2dyYW50ZWQYAyABKAgiHAoMQWRkV29ya3NwYWNlEgwKBHBhdGgYASABKAkiJwoPUmVtb3ZlV29ya3NwYWNlEhQKDHdvcmtzcGFjZV9pZBgBIAEoCSJACgxQZWVyQW5ub3VuY2USHAoEcGVlchgBIAEoCzIOLmFtdXguUGVlckluZm8SEgoKYXV0aF90b2tlbhgCIAEoCSIhCgxSZW1vdmVNZW1iZXISEQoJbWVtYmVyX2lkGAEgASgJIkgKDUFjdG9yUHJlc2VuY2USDgoGb25saW5lGAEgASgIEhQKDGRpc3BsYXlfbmFtZRgCIAEoCRIRCgl0aW1lc3RhbXAYAyABKAMiSQoNV29ya3NwYWNlSW5mbxIUCgx3b3Jrc3BhY2VfaWQYASABKAkSDAoEcGF0aBgCIAEoCRIUCgxkaXNwbGF5X25hbWUYAyABKAkiOAoNV29ya3NwYWNlTGlzdBInCgp3b3Jrc3BhY2VzGAEgAygLMhMuYW11eC5Xb3Jrc3BhY2VJbmZvIokECgtSdW50aW1lSW5mbxISCgpydW50aW1lX2lkGAEgASgJEiMKCmFnZW50X3R5cGUYAiABKA4yDy5hbXV4LkFnZW50VHlwZRIQCgh3b3JrdHJlZRgDIAEoCRIOCgZicmFuY2gYBCABKAkSIQoGc3RhdHVzGAUgASgOMhEuYW11eC5BZ2VudFN0YXR1cxISCgpzdGFydGVkX2F0GAYgASgDEhYKDmN1cnJlbnRfcHJvbXB0GAcgASgJEhQKDHdvcmtzcGFjZV9pZBgIIAEoCRIVCg1zZXNzaW9uX3RpdGxlGAkgASgJEhsKE2xhc3Rfb3V0cHV0X3N1bW1hcnkYCiABKAkSFgoOdG9vbF91c2VfY291bnQYCyABKAUSKQoQYXZhaWxhYmxlX21vZGVscxgMIAMoCzIPLmFtdXguTW9kZWxJbmZvEhUKDWN1cnJlbnRfbW9kZWwYDSABKAkSJQoFc3RhdGUYDiABKA4yFi5hbXV4LlJ1bnRpbWVMaWZlY3ljbGUSDQoFc3RhZ2UYDyABKAkSEgoKZXJyb3JfY29kZRgQIAEoCRIVCg1lcnJvcl9tZXNzYWdlGBEgASgJEhQKDGZhaWxlZF9zdGFnZRgSIAEoCRI1ChJhdmFpbGFibGVfY29tbWFuZHMYEyADKAsyGS5hbXV4LkFjcEF2YWlsYWJsZUNvbW1hbmQiRAoJTW9kZWxJbmZvEgoKAmlkGAEgASgJEhQKDGRpc3BsYXlfbmFtZRgCIAEoCRIVCg1wcm92aWRlcl9uYW1lGAMgASgJIjAKCUFnZW50TGlzdBIjCghydW50aW1lcxgBIAMoCzIRLmFtdXguUnVudGltZUluZm8ifAoKTWVtYmVySW5mbxIRCgltZW1iZXJfaWQYASABKAkSFAoMZGlzcGxheV9uYW1lGAIgASgJEh4KBHJvbGUYAyABKA4yEC5hbXV4Lk1lbWJlclJvbGUSEQoJam9pbmVkX2F0GAQgASgDEhIKCmRlcGFydG1lbnQYBSABKAkiLwoKTWVtYmVyTGlzdBIhCgdtZW1iZXJzGAEgAygLMhAuYW11eC5NZW1iZXJJbmZvIo8BCghQZWVySW5mbxIPCgdwZWVyX2lkGAEgASgJEhEKCW1lbWJlcl9pZBgCIAEoCRIUCgxkaXNwbGF5X25hbWUYAyABKAkSEwoLZGV2aWNlX3R5cGUYBCABKAkSHgoEcm9sZRgFIAEoDjIQLmFtdXguTWVtYmVyUm9sZRIUCgxjb25uZWN0ZWRfYXQYBiABKAMiKQoIUGVlckxpc3QSHQoFcGVlcnMYASADKAsyDi5hbXV4LlBlZXJJbmZvKm4KCUFnZW50VHlwZRIWChJBR0VOVF9UWVBFX1VOS05PV04QABIaChZBR0VOVF9UWVBFX0NMQVVERV9DT0RFEAESFwoTQUdFTlRfVFlQRV9PUEVOQ09ERRACEhQKEEFHRU5UX1RZUEVfQ09ERVgQAyqkAQoLQWdlbnRTdGF0dXMSGAoUQUdFTlRfU1RBVFVTX1VOS05PV04QABIZChVBR0VOVF9TVEFUVVNfU1RBUlRJTkcQARIXChNBR0VOVF9TVEFUVVNfQUNUSVZFEAISFQoRQUdFTlRfU1RBVFVTX0lETEUQAxIWChJBR0VOVF9TVEFUVVNfRVJST1IQBBIYChRBR0VOVF9TVEFUVVNfU1RPUFBFRBAFKqwBChBSdW50aW1lTGlmZWN5Y2xlEh0KGVJVTlRJTUVfTElGRUNZQ0xFX1VOS05PV04QABIeChpSVU5USU1FX0xJRkVDWUNMRV9TVEFSVElORxABEhwKGFJVTlRJTUVfTElGRUNZQ0xFX0FDVElWRRACEhwKGFJVTlRJTUVfTElGRUNZQ0xFX0ZBSUxFRBADEh0KGVJVTlRJTUVfTElGRUNZQ0xFX1NUT1BQRUQQBCo7CgpNZW1iZXJSb2xlEhUKEU1FTUJFUl9ST0xFX09XTkVSEAASFgoSTUVNQkVSX1JPTEVfTUVNQkVSEAFiBnByb3RvMw");
 
 /**
  * Downstream: daemon → clients
@@ -821,6 +821,12 @@ export type AcpCommand = Message<"amux.AcpCommand"> & {
      */
     value: AcpRequestTurnHistory;
     case: "requestTurnHistory";
+  } | {
+    /**
+     * @generated from field: amux.AcpAnswerQuestion answer_question = 9;
+     */
+    value: AcpAnswerQuestion;
+    case: "answerQuestion";
   } | { case: undefined; value?: undefined };
 };
 
@@ -979,6 +985,40 @@ export const AcpDenyPermissionSchema: GenMessage<AcpDenyPermission> = /*@__PURE_
   messageDesc(file_amux, 27);
 
 /**
+ * Answer (or reject) an opencode `question` tool request.
+ *
+ * @generated from message amux.AcpAnswerQuestion
+ */
+export type AcpAnswerQuestion = Message<"amux.AcpAnswerQuestion"> & {
+  /**
+   * The question.asked request id.
+   *
+   * @generated from field: string request_id = 1;
+   */
+  requestId: string;
+
+  /**
+   * JSON `[[selected labels], ...]` — one array per question, in order.
+   * Ignored when reject is true.
+   *
+   * @generated from field: string answers_json = 2;
+   */
+  answersJson: string;
+
+  /**
+   * @generated from field: bool reject = 3;
+   */
+  reject: boolean;
+};
+
+/**
+ * Describes the message amux.AcpAnswerQuestion.
+ * Use `create(AcpAnswerQuestionSchema)` to create a new message.
+ */
+export const AcpAnswerQuestionSchema: GenMessage<AcpAnswerQuestion> = /*@__PURE__*/
+  messageDesc(file_amux, 28);
+
+/**
  * @generated from message amux.AcpStartAgent
  */
 export type AcpStartAgent = Message<"amux.AcpStartAgent"> & {
@@ -1018,7 +1058,7 @@ export type AcpStartAgent = Message<"amux.AcpStartAgent"> & {
  * Use `create(AcpStartAgentSchema)` to create a new message.
  */
 export const AcpStartAgentSchema: GenMessage<AcpStartAgent> = /*@__PURE__*/
-  messageDesc(file_amux, 28);
+  messageDesc(file_amux, 29);
 
 /**
  * @generated from message amux.AcpStopAgent
@@ -1031,7 +1071,7 @@ export type AcpStopAgent = Message<"amux.AcpStopAgent"> & {
  * Use `create(AcpStopAgentSchema)` to create a new message.
  */
 export const AcpStopAgentSchema: GenMessage<AcpStopAgent> = /*@__PURE__*/
-  messageDesc(file_amux, 29);
+  messageDesc(file_amux, 30);
 
 /**
  * Agent-level session events (flow through agent's events topic in Envelope).
@@ -1077,7 +1117,7 @@ export type SessionEvent = Message<"amux.SessionEvent"> & {
  * Use `create(SessionEventSchema)` to create a new message.
  */
 export const SessionEventSchema: GenMessage<SessionEvent> = /*@__PURE__*/
-  messageDesc(file_amux, 30);
+  messageDesc(file_amux, 31);
 
 /**
  * Response to AcpRequestHistory — a page of historical events
@@ -1117,7 +1157,7 @@ export type HistoryBatch = Message<"amux.HistoryBatch"> & {
  * Use `create(HistoryBatchSchema)` to create a new message.
  */
 export const HistoryBatchSchema: GenMessage<HistoryBatch> = /*@__PURE__*/
-  messageDesc(file_amux, 31);
+  messageDesc(file_amux, 32);
 
 /**
  * @generated from message amux.PromptAccepted
@@ -1134,7 +1174,7 @@ export type PromptAccepted = Message<"amux.PromptAccepted"> & {
  * Use `create(PromptAcceptedSchema)` to create a new message.
  */
 export const PromptAcceptedSchema: GenMessage<PromptAccepted> = /*@__PURE__*/
-  messageDesc(file_amux, 32);
+  messageDesc(file_amux, 33);
 
 /**
  * @generated from message amux.PromptRejected
@@ -1156,7 +1196,7 @@ export type PromptRejected = Message<"amux.PromptRejected"> & {
  * Use `create(PromptRejectedSchema)` to create a new message.
  */
 export const PromptRejectedSchema: GenMessage<PromptRejected> = /*@__PURE__*/
-  messageDesc(file_amux, 33);
+  messageDesc(file_amux, 34);
 
 /**
  * @generated from message amux.PermissionResolved
@@ -1183,7 +1223,7 @@ export type PermissionResolved = Message<"amux.PermissionResolved"> & {
  * Use `create(PermissionResolvedSchema)` to create a new message.
  */
 export const PermissionResolvedSchema: GenMessage<PermissionResolved> = /*@__PURE__*/
-  messageDesc(file_amux, 34);
+  messageDesc(file_amux, 35);
 
 /**
  * deprecated: workspaces are created via Cloud API POST /v1/workspaces (createDaemonWorkspace); daemon resolves workspace UUID->path from cloud
@@ -1202,7 +1242,7 @@ export type AddWorkspace = Message<"amux.AddWorkspace"> & {
  * Use `create(AddWorkspaceSchema)` to create a new message.
  */
 export const AddWorkspaceSchema: GenMessage<AddWorkspace> = /*@__PURE__*/
-  messageDesc(file_amux, 35);
+  messageDesc(file_amux, 36);
 
 /**
  * @generated from message amux.RemoveWorkspace
@@ -1219,7 +1259,7 @@ export type RemoveWorkspace = Message<"amux.RemoveWorkspace"> & {
  * Use `create(RemoveWorkspaceSchema)` to create a new message.
  */
 export const RemoveWorkspaceSchema: GenMessage<RemoveWorkspace> = /*@__PURE__*/
-  messageDesc(file_amux, 36);
+  messageDesc(file_amux, 37);
 
 /**
  * @generated from message amux.PeerAnnounce
@@ -1241,7 +1281,7 @@ export type PeerAnnounce = Message<"amux.PeerAnnounce"> & {
  * Use `create(PeerAnnounceSchema)` to create a new message.
  */
 export const PeerAnnounceSchema: GenMessage<PeerAnnounce> = /*@__PURE__*/
-  messageDesc(file_amux, 37);
+  messageDesc(file_amux, 38);
 
 /**
  * @generated from message amux.RemoveMember
@@ -1258,7 +1298,7 @@ export type RemoveMember = Message<"amux.RemoveMember"> & {
  * Use `create(RemoveMemberSchema)` to create a new message.
  */
 export const RemoveMemberSchema: GenMessage<RemoveMember> = /*@__PURE__*/
-  messageDesc(file_amux, 38);
+  messageDesc(file_amux, 39);
 
 /**
  * Payload of {team}/{actor}/state (retained, LWT-backed from Phase 3 onward).
@@ -1288,7 +1328,7 @@ export type ActorPresence = Message<"amux.ActorPresence"> & {
  * Use `create(ActorPresenceSchema)` to create a new message.
  */
 export const ActorPresenceSchema: GenMessage<ActorPresence> = /*@__PURE__*/
-  messageDesc(file_amux, 39);
+  messageDesc(file_amux, 40);
 
 /**
  * @generated from message amux.WorkspaceInfo
@@ -1315,7 +1355,7 @@ export type WorkspaceInfo = Message<"amux.WorkspaceInfo"> & {
  * Use `create(WorkspaceInfoSchema)` to create a new message.
  */
 export const WorkspaceInfoSchema: GenMessage<WorkspaceInfo> = /*@__PURE__*/
-  messageDesc(file_amux, 40);
+  messageDesc(file_amux, 41);
 
 /**
  * @generated from message amux.WorkspaceList
@@ -1332,7 +1372,7 @@ export type WorkspaceList = Message<"amux.WorkspaceList"> & {
  * Use `create(WorkspaceListSchema)` to create a new message.
  */
 export const WorkspaceListSchema: GenMessage<WorkspaceList> = /*@__PURE__*/
-  messageDesc(file_amux, 41);
+  messageDesc(file_amux, 42);
 
 /**
  * Payload of {team}/{actor}/runtime/{rid}/state (retained).
@@ -1461,7 +1501,7 @@ export type RuntimeInfo = Message<"amux.RuntimeInfo"> & {
  * Use `create(RuntimeInfoSchema)` to create a new message.
  */
 export const RuntimeInfoSchema: GenMessage<RuntimeInfo> = /*@__PURE__*/
-  messageDesc(file_amux, 42);
+  messageDesc(file_amux, 43);
 
 /**
  * @generated from message amux.ModelInfo
@@ -1476,6 +1516,14 @@ export type ModelInfo = Message<"amux.ModelInfo"> & {
    * @generated from field: string display_name = 2;
    */
   displayName: string;
+
+  /**
+   * Human-readable provider name (e.g. "OpenCode Zen"); the provider id is the
+   * prefix of `id` before the first '/'. Empty on entries from older daemons.
+   *
+   * @generated from field: string provider_name = 3;
+   */
+  providerName: string;
 };
 
 /**
@@ -1483,7 +1531,7 @@ export type ModelInfo = Message<"amux.ModelInfo"> & {
  * Use `create(ModelInfoSchema)` to create a new message.
  */
 export const ModelInfoSchema: GenMessage<ModelInfo> = /*@__PURE__*/
-  messageDesc(file_amux, 43);
+  messageDesc(file_amux, 44);
 
 /**
  * @generated from message amux.AgentList
@@ -1500,7 +1548,7 @@ export type AgentList = Message<"amux.AgentList"> & {
  * Use `create(AgentListSchema)` to create a new message.
  */
 export const AgentListSchema: GenMessage<AgentList> = /*@__PURE__*/
-  messageDesc(file_amux, 44);
+  messageDesc(file_amux, 45);
 
 /**
  * @generated from message amux.MemberInfo
@@ -1537,7 +1585,7 @@ export type MemberInfo = Message<"amux.MemberInfo"> & {
  * Use `create(MemberInfoSchema)` to create a new message.
  */
 export const MemberInfoSchema: GenMessage<MemberInfo> = /*@__PURE__*/
-  messageDesc(file_amux, 45);
+  messageDesc(file_amux, 46);
 
 /**
  * @generated from message amux.MemberList
@@ -1554,7 +1602,7 @@ export type MemberList = Message<"amux.MemberList"> & {
  * Use `create(MemberListSchema)` to create a new message.
  */
 export const MemberListSchema: GenMessage<MemberList> = /*@__PURE__*/
-  messageDesc(file_amux, 46);
+  messageDesc(file_amux, 47);
 
 /**
  * @generated from message amux.PeerInfo
@@ -1596,7 +1644,7 @@ export type PeerInfo = Message<"amux.PeerInfo"> & {
  * Use `create(PeerInfoSchema)` to create a new message.
  */
 export const PeerInfoSchema: GenMessage<PeerInfo> = /*@__PURE__*/
-  messageDesc(file_amux, 47);
+  messageDesc(file_amux, 48);
 
 /**
  * @generated from message amux.PeerList
@@ -1613,7 +1661,7 @@ export type PeerList = Message<"amux.PeerList"> & {
  * Use `create(PeerListSchema)` to create a new message.
  */
 export const PeerListSchema: GenMessage<PeerList> = /*@__PURE__*/
-  messageDesc(file_amux, 48);
+  messageDesc(file_amux, 49);
 
 /**
  * @generated from enum amux.AgentType
