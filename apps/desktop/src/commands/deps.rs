@@ -337,7 +337,11 @@ async fn install_opencode_via_amuxd<R: Runtime>(
         download_base,
         move |status, line, error| {
             // amuxd emits "running"; the deps UI expects "installing".
-            let status = if status == "running" { "installing" } else { status };
+            let status = if status == "running" {
+                "installing"
+            } else {
+                status
+            };
             let _ = emit_app.emit(
                 "dep-install-progress",
                 DepInstallProgress {
