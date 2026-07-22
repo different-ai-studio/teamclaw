@@ -67,7 +67,11 @@ pub(crate) fn read_config(workspace_path: &str) -> Result<OpenCodeJsonConfig, St
     serde_json::from_str(&content).map_err(|e| format!("Failed to parse opencode.json: {}", e))
 }
 
-/// Write the opencode.json config file
+/// Write the opencode.json config file.
+///
+/// Deprecated: only amuxd should mutate `opencode.json` (via the workspace-control
+/// HTTP API). This helper remains for legacy Tauri MCP commands that are no longer
+/// registered in the desktop invoke handler.
 pub(crate) fn write_config(
     workspace_path: &str,
     config: &OpenCodeJsonConfig,

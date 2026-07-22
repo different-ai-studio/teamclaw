@@ -225,6 +225,53 @@ fn encode_workspace_id(workspace_path: &str) -> String {
 }
 
 #[derive(Debug, Deserialize)]
+pub struct MaterializeTeamMcpResponse {
+    pub changed: bool,
+    pub added_count: usize,
+}
+
+/// Ask the local daemon to materialize team MCP definitions into `opencode.json`.
+///
+/// Best-effort from team-git join: returns `Err` when the daemon HTTP listener
+/// is unavailable; callers should log and continue (materialization also happens
+/// lazily on `GET /v1/workspaces/:id/mcp`).
+pub async fn materialize_team_mcp_via_daemon(
+    workspace_path: &str,
+) -> Result<MaterializeTeamMcpResponse, String> {
+    let (base, root_token) = daemon_http_base()
+        .ok_or_else(|| "daemon http port/token files not present".to_string())?;
+    let client = reqwest::Client::new();
+    let exchange: DaemonAuthExchangeResponse = client
+        .post(format!("{base}/v1/auth/exchange"))
+        .header("Authorization", format!("Bearer {root_token}"))
+        .json(&serde_json::json!({
+            "scopes": ["workspace:write"],
+            "ttl_seconds": 300,
+        }))
+        .send()
+        .await
+        .map_err(|e| format!("auth exchange: {e}"))?
+        .error_for_status()
+        .map_err(|e| format!("auth exchange: {e}"))?
+        .json()
+        .await
+        .map_err(|e| format!("auth exchange decode: {e}"))?;
+
+    let ws_id = encode_workspace_id(workspace_path);
+    client
+        .post(format!("{base}/v1/workspaces/{ws_id}/mcp/materialize-team"))
+        .header("Authorization", format!("Bearer {}", exchange.token))
+        .send()
+        .await
+        .map_err(|e| format!("materialize-team request: {e}"))?
+        .error_for_status()
+        .map_err(|e| format!("materialize-team: {e}"))?
+        .json()
+        .await
+        .map_err(|e| format!("materialize-team decode: {e}"))
+}
+
+#[derive(Debug, Deserialize)]
 struct DaemonAuthExchangeResponse {
     token: String,
 }
