@@ -158,20 +158,57 @@ impl AmuxdAcpHandle {
             .map(|w| w.path)
     }
 
+    /// Return the cached `logical → real ACP` mapping for `session`, but only
+    /// if the mapped runtime is still live in the `RuntimeManager`.
+    ///
+    /// A cached `real_acp_sid` can outlive its runtime: once a gateway turn
+    /// finishes and the agent stops / detaches (`agent stopped`,
+    /// `ACP session detached from host`), `stop_agent` removes the handle from
+    /// `RuntimeManager.agents`, but this in-memory map still points at the
+    /// dead UUID. Reusing it makes the next turn fail with
+    /// `no agent for acp_session_id` (issue #548). So we probe liveness via
+    /// `agent_id_by_acp_session` — `None` means the runtime is gone — and evict
+    /// the stale entry so the caller lazy-spawns a fresh runtime under the same
+    /// logical id. Eviction is guarded by a real_acp_sid re-check so a
+    /// concurrent spawn that already replaced the entry is left untouched.
+    async fn cached_session_if_live(&self, session: &AmuxSessionId) -> Option<ResolvedSession> {
+        let existing = {
+            let map = self.logical_to_acp.lock().await;
+            map.get(session).cloned()?
+        };
+        let alive = {
+            let mgr = self.manager.lock().await;
+            mgr.agent_id_by_acp_session(&existing.real_acp_sid)
+                .is_some()
+        };
+        if alive {
+            return Some(existing);
+        }
+        let mut map = self.logical_to_acp.lock().await;
+        if let Some(cur) = map.get(session) {
+            if cur.real_acp_sid == existing.real_acp_sid {
+                map.remove(session);
+                tracing::info!(
+                    logical_session = %session,
+                    stale_acp_sid = %existing.real_acp_sid,
+                    "evicted stale gateway ACP session mapping; will re-spawn on this turn"
+                );
+            }
+        }
+        None
+    }
+
     /// Resolve the caller-supplied `session` (a logical id persisted on the
     /// `sessions` row) to a real ACP UUID, spawning a runtime on first use.
     /// On a fresh spawn, the matching `sessions.binding` is looked up from
     /// the backend so it can be baked into the per-session MCP config.
     async fn resolve_or_spawn(&self, session: &AmuxSessionId) -> Result<ResolveOutcome, AcpError> {
-        {
-            let map = self.logical_to_acp.lock().await;
-            if let Some(existing) = map.get(session) {
-                return Ok(ResolveOutcome {
-                    real_acp_sid: existing.real_acp_sid.clone(),
-                    binding: existing.binding.clone(),
-                    spawned: false,
-                });
-            }
+        if let Some(existing) = self.cached_session_if_live(session).await {
+            return Ok(ResolveOutcome {
+                real_acp_sid: existing.real_acp_sid,
+                binding: existing.binding,
+                spawned: false,
+            });
         }
 
         // Recover the remote session UUID + binding URI for this logical
@@ -328,6 +365,19 @@ bound chat, so a simple `send(message=\"…\")` or `send(file_path=\"/tmp/report
 /// side, so updates are coalesced into at most one per interval.
 const STREAM_UPDATE_INTERVAL: std::time::Duration = std::time::Duration::from_millis(700);
 
+/// Decide what a timed-out gateway turn should return (issue #555). If the
+/// agent already produced reply text, hand it back as the turn result rather
+/// than failing — OpenCode may have finished while the ACP adapter never sent
+/// the Active→Idle completion. Empty accumulation stays a `Timeout` error.
+fn salvage_timeout_reply(segments: &[String], live: &str) -> Result<String, AcpError> {
+    let acc = compose_reply(segments, live);
+    if acc.trim().is_empty() {
+        Err(AcpError::Timeout)
+    } else {
+        Ok(acc)
+    }
+}
+
 /// Join the reply segments a turn has produced so far into the text a
 /// channel should display. `live` is the not-yet-flushed tail (output that
 /// has arrived but hasn't hit a tool-call or turn-end boundary).
@@ -461,20 +511,48 @@ impl AmuxdAcpHandle {
         let mut sent_update = String::new();
 
         let deadline = std::time::Instant::now() + std::time::Duration::from_secs(5 * 60);
+        // On a turn-level timeout, salvage any reply text the agent already
+        // produced instead of failing the whole turn (issue #555): OpenCode can
+        // finish and persist its final assistant text while the ACP adapter
+        // never emits the Active→Idle completion, which otherwise leaves the
+        // WeCom card stuck "thinking" even though the answer exists.
+        let salvage_on_timeout = |segments: &[String], live: &str| -> Result<String, AcpError> {
+            let out = salvage_timeout_reply(segments, live);
+            if out.is_ok() {
+                tracing::warn!(
+                    session = %session,
+                    "gateway turn timed out with no Active→Idle; returning accumulated reply text"
+                );
+            }
+            out
+        };
         let result: Result<String, AcpError> = loop {
             let remaining = deadline.saturating_duration_since(std::time::Instant::now());
             if remaining.is_zero() {
-                break Err(AcpError::Timeout);
+                break salvage_on_timeout(&segments, &live);
             }
             let next = tokio::time::timeout(remaining, event_rx.recv()).await;
             let event = match next {
                 Ok(Some(ev)) => ev,
                 Ok(None) => {
-                    break Err(AcpError::Send(
-                        "ACP event channel closed before reply".into(),
-                    ))
+                    // The agent detached mid-turn (event channel closed) before
+                    // any Active→Idle. If it had already produced reply text,
+                    // return it rather than stranding the user (issue #552);
+                    // otherwise surface the detach as an error.
+                    break match salvage_timeout_reply(&segments, &live) {
+                        Ok(reply) => {
+                            tracing::warn!(
+                                session = %session,
+                                "gateway turn detached before Active→Idle; returning accumulated reply text"
+                            );
+                            Ok(reply)
+                        }
+                        Err(_) => Err(AcpError::Send(
+                            "ACP event channel closed before reply".into(),
+                        )),
+                    };
                 }
-                Err(_) => break Err(AcpError::Timeout),
+                Err(_) => break salvage_on_timeout(&segments, &live),
             };
             if let Some(crate::proto::amux::acp_event::Event::Error(err)) = &event.event.event {
                 let details = if err.details.is_empty() {
@@ -1082,6 +1160,25 @@ mod tests {
     }
 
     #[test]
+    fn salvage_timeout_returns_text_when_present_else_timeout() {
+        // #555: text already produced → return it instead of failing.
+        assert_eq!(
+            salvage_timeout_reply(&["最终答案".to_string()], "").unwrap(),
+            "最终答案"
+        );
+        assert_eq!(salvage_timeout_reply(&[], "partial").unwrap(), "partial");
+        // Nothing produced → stays a Timeout error.
+        assert!(matches!(
+            salvage_timeout_reply(&[], "   "),
+            Err(AcpError::Timeout)
+        ));
+        assert!(matches!(
+            salvage_timeout_reply(&[], ""),
+            Err(AcpError::Timeout)
+        ));
+    }
+
+    #[test]
     fn compose_reply_appends_unflushed_tail() {
         let segments = vec!["done".to_string()];
         assert_eq!(compose_reply(&segments, "typing"), "done\n\ntyping");
@@ -1216,6 +1313,40 @@ mod tests {
             ws2.as_deref(),
             Some("/ws/bot-a"),
             "unseeded workspace_id must fail to resolve and fall back to bot-level default"
+        );
+    }
+
+    /// Regression for #548: a cached `logical → real ACP` mapping whose
+    /// runtime has stopped (nothing in `RuntimeManager.agents` matches the
+    /// UUID) must be treated as absent and evicted, so the next turn
+    /// re-spawns instead of failing with `no agent for acp_session_id`.
+    #[tokio::test]
+    async fn stale_mapping_is_evicted_when_runtime_gone() {
+        let handle = make_handle();
+        handle.logical_to_acp.lock().await.insert(
+            "sess-stale".to_string(),
+            ResolvedSession {
+                real_acp_sid: "dead-acp-uuid".to_string(),
+                binding: "wecom://botA/botA/single/u".to_string(),
+                was_primed: true,
+            },
+        );
+
+        // Manager is empty, so the mapped UUID has no live runtime.
+        let live = handle
+            .cached_session_if_live(&AmuxSessionId::from("sess-stale"))
+            .await;
+        assert!(
+            live.is_none(),
+            "dead runtime must not resolve as a live cache hit"
+        );
+        assert!(
+            !handle
+                .logical_to_acp
+                .lock()
+                .await
+                .contains_key("sess-stale"),
+            "the stale mapping must be evicted so the next turn re-spawns"
         );
     }
 

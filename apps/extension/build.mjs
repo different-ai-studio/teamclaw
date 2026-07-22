@@ -16,6 +16,12 @@ const esbuildAlias = {
   '@teamclaw/extension-link-session': resolve(linkSessionShared, 'index.ts'),
 }
 
+/** INTERNAL=1 or `--internal` → hide permission control + model on mention pills. */
+const isInternal =
+  process.env.INTERNAL === '1' ||
+  process.env.INTERNAL === 'true' ||
+  process.argv.includes('--internal')
+
 rmSync(dist, { recursive: true, force: true })
 mkdirSync(dist, { recursive: true })
 
@@ -23,11 +29,16 @@ mkdirSync(dist, { recursive: true })
 // EXT_ENV=test targets the wss-capable self-host test deployment
 // (.env.web.test); otherwise the default .env.web is used.
 const webBuildScript = process.env.EXT_ENV === 'test' ? 'build:web:test' : 'build:web'
-console.log('[extension] web build ->', webBuildScript)
+console.log('[extension] web build ->', webBuildScript, isInternal ? '(internal)' : '')
 execSync(`pnpm ${webBuildScript}`, {
   cwd: appDir,
   stdio: 'inherit',
-  env: { ...process.env, VITE_APP_PLATFORM: 'web', VITE_FORCE_EMBED: 'chat' },
+  env: {
+    ...process.env,
+    VITE_APP_PLATFORM: 'web',
+    VITE_FORCE_EMBED: 'chat',
+    ...(isInternal ? { VITE_INTERNAL: 'true' } : {}),
+  },
 })
 cpSync(resolve(appDir, 'dist'), resolve(dist, 'sidepanel'), { recursive: true })
 

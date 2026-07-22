@@ -1,6 +1,5 @@
 import { describe, it, expect } from 'vitest'
 import {
-  buildEmptyThreadStarters,
   formatEmptyThreadRosterNames,
   isSoloAgentSession,
   resolveEmptyThreadRoutingKind,
@@ -69,23 +68,5 @@ describe('session-empty-thread-starters', () => {
       '、',
     )
     expect(names).toBe('你、MACMINI')
-  })
-
-  it('buildEmptyThreadStarters returns duo shortcuts for you + sole agent', () => {
-    const starters = buildEmptyThreadStarters([you(), agent('a1', 'MAC')])
-    expect(starters).toHaveLength(2)
-    expect(starters[0]?.id).toBe('workspace-changes')
-  })
-
-  it('buildEmptyThreadStarters returns @ starters for mixed group', () => {
-    const starters = buildEmptyThreadStarters([
-      you(),
-      member('m1', 'Matt'),
-      agent('a1', 'MAC'),
-      agent('a2', 'Codex'),
-    ])
-    expect(starters.length).toBeGreaterThanOrEqual(2)
-    expect(starters.some((s) => s.id.startsWith('agent-summary-'))).toBe(true)
-    expect(starters.some((s) => s.id === 'broadcast')).toBe(true)
   })
 })

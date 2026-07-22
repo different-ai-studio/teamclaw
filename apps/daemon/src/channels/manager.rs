@@ -513,10 +513,18 @@ fn select_wecom_target(target: &str) -> (Option<&str>, &str) {
 }
 
 /// Parse a `user:<id>` / `chat:<id>` target string into `(kind, id)`.
+///
+/// Rejects an empty id as defense-in-depth: `handle_mcp_send` already gates
+/// placeholder routes (issue #549), but this is the last hop before the WeCom
+/// API and must never forward a `chat:`/`user:` with no id.
 fn parse_send_target(target: &str) -> anyhow::Result<(&str, &str)> {
-    target
-        .split_once(':')
-        .ok_or_else(|| anyhow::anyhow!("target must be 'user:<id>' or 'chat:<id>', got: {target}"))
+    let (kind, id) = target.split_once(':').ok_or_else(|| {
+        anyhow::anyhow!("target must be 'user:<id>' or 'chat:<id>', got: {target}")
+    })?;
+    if id.trim().is_empty() {
+        anyhow::bail!("target '{target}' has an empty id");
+    }
+    Ok((kind, id))
 }
 
 #[cfg(test)]

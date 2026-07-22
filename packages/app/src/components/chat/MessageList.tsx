@@ -423,8 +423,14 @@ export const MessageList = React.forwardRef<MessageListHandle, MessageListProps>
       scrollToBottom();
     };
 
+    // Session-list fetch sets isLoading globally. On the welcome screen
+    // (no active session) that must not replace emptyState with a spinner —
+    // otherwise extension welcome flashes: ready → spinner → ready.
+    const showSessionLoadingSpinner =
+      Boolean(activeSessionId) && isLoading && messages.length === 0;
+
     const showCenteredEmpty =
-      messages.length === 0 && !isLoading && emptyState !== null;
+      messages.length === 0 && !showSessionLoadingSpinner && emptyState !== null;
 
     // ── Render ───────────────────────────────────────────────────────────
 
@@ -447,12 +453,13 @@ export const MessageList = React.forwardRef<MessageListHandle, MessageListProps>
             )}
             style={{ paddingBottom: `${inputAreaHeight + SAFE_BOTTOM_SPACING}px` }}
           >
-            {isLoading && messages.length === 0 ? (
+            {showSessionLoadingSpinner ? (
               <div
                 className={cn(
                   "flex items-center justify-center",
                   compact ? "py-8" : "py-20",
                 )}
+                data-testid="message-list-session-loading"
               >
                 <Loader2
                   className={cn(

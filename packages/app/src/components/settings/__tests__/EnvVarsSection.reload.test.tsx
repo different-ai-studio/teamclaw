@@ -6,6 +6,7 @@ import React from 'react'
 const mockReloadDaemonRuntime = vi.fn()
 const mockSetCatalogEntry = vi.fn()
 const mockEncodeWorkspaceId = vi.fn((path: string) => path)
+const mockInvoke = vi.fn()
 
 vi.mock('react-i18next', () => ({
   useTranslation: () => ({
@@ -15,7 +16,7 @@ vi.mock('react-i18next', () => ({
 }))
 
 vi.mock('@tauri-apps/api/core', () => ({
-  invoke: vi.fn(),
+  invoke: (...args: unknown[]) => mockInvoke(...args),
 }))
 
 vi.mock('@tauri-apps/api/event', () => ({
@@ -111,8 +112,20 @@ describe('EnvVarsSection reload', () => {
   beforeEach(() => {
     mockReloadDaemonRuntime.mockReset()
     mockSetCatalogEntry.mockReset()
+    mockInvoke.mockReset()
     mockReloadDaemonRuntime.mockResolvedValue('applied_live')
     mockSetCatalogEntry.mockResolvedValue(undefined)
+    mockInvoke.mockImplementation(async (cmd: string) => {
+      if (cmd === 'team_env_diagnostics') {
+        return {
+          linkExists: false,
+          targetAccessible: false,
+          linkPath: null,
+          targetPath: null,
+        }
+      }
+      return true
+    })
   })
 
   it('reloads daemon runtime after saving a personal env var', async () => {

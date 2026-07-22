@@ -1,7 +1,7 @@
 import * as React from 'react'
 import { useTranslation } from 'react-i18next'
 import { useVirtualizer } from '@tanstack/react-virtual'
-import { Search, Loader2, MessageSquare, Pin, Archive, Pencil, Ellipsis, Info, SquarePen, Users, X } from 'lucide-react'
+import { Search, Loader2, MessageSquare, Pin, Archive, Pencil, Ellipsis, Info, SquarePen, Users, X, ListChecks, Check } from 'lucide-react'
 import { useSessionStore } from '@/stores/session'
 import { useStreamingStore } from '@/stores/streaming'
 import { useUIStore } from '@/stores/ui'
@@ -29,6 +29,16 @@ import {
 import { SessionSearchDialog } from '@/components/sidebar/session-search-dialog'
 import { SessionDetailDialog, type SessionDetailListHints } from '@/components/sidebar/SessionDetailDialog'
 import { SidebarMenu, SidebarMenuButton, SidebarMenuItem } from '@/components/ui/sidebar'
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from '@/components/ui/alert-dialog'
 import { cn } from '@/lib/utils'
 import { formatRelativeTime } from '@/lib/date-format'
 import { useTypeAhead } from '@/hooks/use-type-ahead'
@@ -205,6 +215,11 @@ export function SessionListColumn({
   const [detailHints, setDetailHints] = React.useState<SessionDetailListHints | null>(null)
   const [actorSessionIds, setActorSessionIds] = React.useState<Set<string> | null>(null)
   const [actorLoading, setActorLoading] = React.useState(false)
+  // Batch archive — additive select mode; idle list UI stays unchanged.
+  const [batchSelecting, setBatchSelecting] = React.useState(false)
+  const [batchSelectedIds, setBatchSelectedIds] = React.useState<Set<string>>(() => new Set())
+  const [batchConfirmOpen, setBatchConfirmOpen] = React.useState(false)
+  const [batchArchiving, setBatchArchiving] = React.useState(false)
   const participantsBySession = useSessionParticipantStore((s) => s.participantsBySession)
   const ensureParticipants = useSessionParticipantStore((s) => s.ensureParticipants)
 
@@ -413,10 +428,83 @@ export function SessionListColumn({
     [filteredRows],
   )
   useTypeAhead({
-    enabled: filteredRows.length > 0,
+    enabled: filteredRows.length > 0 && !batchSelecting,
     items: typeAheadItems,
     onMatch: handleSelectSession,
   })
+
+  React.useEffect(() => {
+    // Leaving a filter resets multi-select so selection can't leak across views.
+    setBatchSelecting(false)
+    setBatchSelectedIds(new Set())
+    setBatchConfirmOpen(false)
+  }, [
+    filter.kind,
+    filter.kind === 'idea' ? filter.ideaId : '',
+    filter.kind === 'actor' ? filter.actorId : '',
+    filter.kind === 'workspace' ? filter.workspaceId : '',
+  ])
+
+  const exitBatchSelect = React.useCallback(() => {
+    setBatchSelecting(false)
+    setBatchSelectedIds(new Set())
+    setBatchConfirmOpen(false)
+  }, [])
+
+  const enterBatchSelect = React.useCallback(() => {
+    setBatchSelecting(true)
+    setBatchSelectedIds(new Set())
+    setBatchConfirmOpen(false)
+  }, [])
+
+  const toggleBatchSelected = React.useCallback((id: string) => {
+    setBatchSelectedIds((prev) => {
+      const next = new Set(prev)
+      if (next.has(id)) next.delete(id)
+      else next.add(id)
+      return next
+    })
+  }, [])
+
+  const selectAllVisible = React.useCallback(() => {
+    setBatchSelectedIds(new Set(filteredRows.map((r) => r.id)))
+  }, [filteredRows])
+
+  const handleBatchArchiveConfirm = React.useCallback(async () => {
+    const ids = [...batchSelectedIds]
+    if (ids.length === 0 || batchArchiving) return
+    setBatchArchiving(true)
+    try {
+      // Sequential: archiveSession clears active-session state when needed.
+      // It swallows backend errors (no throw), so detect failure by whether the
+      // row is still present after each call.
+      const remaining = new Set(ids)
+      let failed = 0
+      for (const id of ids) {
+        await archiveSession(id)
+        const stillPresent = useSessionListStore.getState().rows.some((r) => r.id === id)
+        if (stillPresent) {
+          failed += 1
+        } else {
+          remaining.delete(id)
+        }
+      }
+      if (failed === 0) {
+        exitBatchSelect()
+      } else {
+        setBatchSelectedIds(remaining)
+        toast.error(
+          t('sidebar.batchArchivePartialFail', 'Archived {{ok}}, {{failed}} failed', {
+            ok: ids.length - failed,
+            failed,
+          }),
+        )
+      }
+    } finally {
+      setBatchArchiving(false)
+      setBatchConfirmOpen(false)
+    }
+  }, [archiveSession, batchArchiving, batchSelectedIds, exitBatchSelect, t])
 
   const handleStartRename = (e: React.SyntheticEvent, id: string) => { e.stopPropagation(); setRenamingSessionId(id) }
   const handleRenameConfirm = async (id: string, newTitle: string) => {
@@ -448,6 +536,7 @@ export function SessionListColumn({
     const isHighlighted = highlightedSessionIds.includes(row.id)
     const isRenaming = renamingSessionId === row.id
     const isActive = row.id === activeSessionId
+    const isBatchChecked = batchSelectedIds.has(row.id)
     const activity = sessionActivityMap.get(row.id)
     const parts = participantsBySession[row.id] ?? []
     // Hide the participants row for solo sessions — only me and/or my own local
@@ -463,22 +552,52 @@ export function SessionListColumn({
     return (
       <SidebarMenuItem key={row.id}>
         <SidebarMenuButton
-          isActive={isActive}
+          isActive={isActive && !batchSelecting}
           data-testid="v2-session-row"
           data-session-id={row.id}
           data-active={isActive ? "true" : "false"}
+          data-batch-checked={isBatchChecked ? "true" : "false"}
           className={cn(
             // Direction B: paper-on-paper active state, 2px coral left bar.
             // See AGENTS.md §2 "Session list".
             'h-auto rounded-none py-3 pl-4 pr-4 transition-colors',
-            isActive &&
+            compactHeader && 'pl-2.5 pr-2.5',
+            isActive && !batchSelecting &&
               "relative z-0 data-[active=true]:!bg-paper data-[active=true]:font-medium before:pointer-events-none before:absolute before:left-0 before:top-0 before:bottom-0 before:z-10 before:w-[2px] before:bg-coral before:content-['']",
-            isHighlighted && !isActive && 'bg-emerald-500/15 ring-1 ring-emerald-500/30',
+            isHighlighted && !isActive && !batchSelecting && 'bg-emerald-500/15 ring-1 ring-emerald-500/30',
+            batchSelecting && isBatchChecked && 'bg-selected',
           )}
-          onClick={() => { if (!isRenaming) handleSelectSession(row.id) }}
-          onDoubleClick={(e) => { e.stopPropagation(); handleStartRename(e, row.id) }}
+          onClick={() => {
+            if (isRenaming) return
+            if (batchSelecting) {
+              toggleBatchSelected(row.id)
+              return
+            }
+            handleSelectSession(row.id)
+          }}
+          onDoubleClick={(e) => {
+            if (batchSelecting) return
+            e.stopPropagation()
+            handleStartRename(e, row.id)
+          }}
         >
-          <div className="flex flex-col items-start gap-1.5 flex-1 min-w-0">
+          <div className="flex w-full min-w-0 items-start">
+            {batchSelecting ? (
+              <span
+                role="checkbox"
+                aria-checked={isBatchChecked}
+                data-testid="v2-session-row-checkbox"
+                className={cn(
+                  'mt-0.5 mr-2.5 inline-flex h-[18px] w-[18px] shrink-0 items-center justify-center rounded-[4px] border-[1.5px]',
+                  isBatchChecked
+                    ? 'border-foreground bg-foreground text-[#fefdfa]'
+                    : 'border-foreground/20 bg-paper',
+                )}
+              >
+                {isBatchChecked ? <Check className="h-2.5 w-2.5" strokeWidth={3} /> : null}
+              </span>
+            ) : null}
+            <div className="flex min-w-0 flex-1 flex-col items-start gap-1.5">
             {/* Title row: [pin] title [time] [NEW] */}
             <div className="flex items-center gap-1.5 w-full">
               {row.isPinned && <Pin className="h-3 w-3 shrink-0 text-amber-500 fill-amber-500/20" />}
@@ -573,12 +692,13 @@ export function SessionListColumn({
                 <SessionActivityBadge activity={activity} />
               </div>
             )}
+            </div>
           </div>
         </SidebarMenuButton>
         {/* Direction B: ellipsis menu sits on row 3 (avatars row), right-aligned.
             Avoids overlapping title & preview text. AGENTS.md §2.
-            Hidden while renaming so the trigger does not overlap the input. */}
-        {!isRenaming && (
+            Hidden while renaming / batch-selecting so the trigger does not overlap. */}
+        {!isRenaming && !batchSelecting && (
           <DropdownMenu>
             <DropdownMenuTrigger asChild>
               <Button
@@ -698,7 +818,7 @@ export function SessionListColumn({
           </div>
         </div>
         <div className="flex shrink-0 items-center gap-0.5">
-          {showNewChatButton ? (
+          {!batchSelecting && showNewChatButton ? (
             <>
               <Button
                 variant="ghost"
@@ -727,17 +847,19 @@ export function SessionListColumn({
               ) : null}
             </>
           ) : null}
-          <Button
-            variant="ghost"
-            size="icon"
-            className="h-7 w-7 text-muted-foreground hover:text-foreground disabled:opacity-40"
-            disabled={!sessionHeaderActionsEnabled}
-            onClick={() => setSearchOpen(true)}
-            title={t('sidebar.searchWithShortcut', 'Search (⌘K)')}
-          >
-            <Search className="h-4 w-4" />
-          </Button>
-          {filter.kind === 'all' && (
+          {!batchSelecting ? (
+            <Button
+              variant="ghost"
+              size="icon"
+              className="h-7 w-7 text-muted-foreground hover:text-foreground disabled:opacity-40"
+              disabled={!sessionHeaderActionsEnabled}
+              onClick={() => setSearchOpen(true)}
+              title={t('sidebar.searchWithShortcut', 'Search (⌘K)')}
+            >
+              <Search className="h-4 w-4" />
+            </Button>
+          ) : null}
+          {!batchSelecting && filter.kind === 'all' && (
             <Button
               variant="ghost"
               size="icon"
@@ -759,7 +881,28 @@ export function SessionListColumn({
               <AnimatedClock className="h-4 w-4" animate={showCronSessions} />
             </Button>
           )}
-          {onDismiss ? (
+          <Button
+            variant="ghost"
+            size="icon"
+            className={cn(
+              'h-7 w-7 transition-colors disabled:opacity-40',
+              batchSelecting
+                ? 'bg-selected text-foreground'
+                : 'text-muted-foreground hover:text-foreground',
+            )}
+            disabled={!sessionHeaderActionsEnabled || filteredRows.length === 0}
+            onClick={() => {
+              if (batchSelecting) exitBatchSelect()
+              else enterBatchSelect()
+            }}
+            title={t('sidebar.batchManage', 'Batch manage')}
+            aria-label={t('sidebar.batchManage', 'Batch manage')}
+            aria-pressed={batchSelecting}
+            data-testid="v2-session-batch-toggle"
+          >
+            <ListChecks className="h-4 w-4" />
+          </Button>
+          {!batchSelecting && onDismiss ? (
             <Button
               variant="ghost"
               size="icon"
@@ -773,6 +916,41 @@ export function SessionListColumn({
           ) : null}
         </div>
       </div>
+
+      {batchSelecting ? (
+        <div
+          className={cn(
+            'flex min-w-0 items-center gap-2 border-b border-border-soft bg-panel py-2',
+            compactHeader ? 'px-2' : 'px-3',
+          )}
+          data-testid="v2-session-batch-bar"
+        >
+          <div className="min-w-0 flex-1 truncate text-[12.5px] font-semibold text-ink-2">
+            {t('sidebar.batchSelected', 'Selected')}{' '}
+            <span className="font-mono text-[11.5px] font-semibold text-foreground">
+              {batchSelectedIds.size}
+            </span>
+          </div>
+          <Button
+            type="button"
+            variant="ghost"
+            size="sm"
+            className="h-7 shrink-0 px-2 text-[12px] font-semibold text-ink-2"
+            onClick={selectAllVisible}
+          >
+            {t('sidebar.batchSelectAll', 'Select all')}
+          </Button>
+          <Button
+            type="button"
+            variant="ghost"
+            size="sm"
+            className="h-7 shrink-0 px-2 text-[12px] font-medium text-muted-foreground"
+            onClick={exitBatchSelect}
+          >
+            {t('common.cancel', 'Cancel')}
+          </Button>
+        </div>
+      ) : null}
 
       <div ref={scrollRef} className="min-h-0 flex-1 overflow-y-auto overflow-x-hidden">
         {filter.kind === 'actor' && actorLoading ? (
@@ -846,6 +1024,84 @@ export function SessionListColumn({
           </div>
         )}
       </div>
+
+      {batchSelecting ? (
+        <div
+          className={cn(
+            'flex shrink-0 flex-wrap items-center gap-2 border-t border-border bg-paper py-2.5 shadow-[0_-8px_24px_-16px_rgba(20,20,15,0.2)]',
+            compactHeader ? 'px-2' : 'px-3',
+          )}
+          data-testid="v2-session-batch-footer"
+        >
+          <div className="min-w-0 flex-1 basis-[8rem] truncate text-[12px] text-muted-foreground">
+            {t('sidebar.batchArchiveHint', 'Archive {{count}} sessions', {
+              count: batchSelectedIds.size,
+            })}
+          </div>
+          <div className="flex min-w-0 flex-1 items-center justify-end gap-1.5 sm:flex-none">
+            <Button
+              type="button"
+              variant="ghost"
+              size="sm"
+              className="h-8 shrink-0 px-2 text-[12px] font-medium text-muted-foreground"
+              onClick={exitBatchSelect}
+              disabled={batchArchiving}
+            >
+              {t('common.cancel', 'Cancel')}
+            </Button>
+            <Button
+              type="button"
+              size="sm"
+              className="h-8 min-w-[4.5rem] flex-1 bg-foreground text-[12px] font-semibold text-[#fefdfa] hover:bg-foreground/90 sm:flex-none"
+              disabled={batchSelectedIds.size === 0 || batchArchiving}
+              onClick={() => setBatchConfirmOpen(true)}
+              data-testid="v2-session-batch-archive"
+            >
+              {batchArchiving ? (
+                <Loader2 className="h-3.5 w-3.5 animate-spin" />
+              ) : batchSelectedIds.size > 0
+                ? t('sidebar.batchArchiveCount', 'Archive {{count}}', { count: batchSelectedIds.size })
+                : t('sidebar.archive', 'Archive')}
+            </Button>
+          </div>
+        </div>
+      ) : null}
+
+      <AlertDialog open={batchConfirmOpen} onOpenChange={setBatchConfirmOpen}>
+        <AlertDialogContent size="sm" className="max-w-[360px]">
+          <AlertDialogHeader>
+            <AlertDialogTitle>
+              {t('sidebar.batchArchiveConfirmTitle', 'Archive selected sessions?')}
+            </AlertDialogTitle>
+            <AlertDialogDescription>
+              {t(
+                'sidebar.batchArchiveConfirmBody',
+                'Archive {{count}} sessions. You can restore them from Archived later; messages are not deleted.',
+                { count: batchSelectedIds.size },
+              )}
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={batchArchiving}>
+              {t('sidebar.batchArchiveThinkAgain', 'Not now')}
+            </AlertDialogCancel>
+            <AlertDialogAction
+              disabled={batchArchiving || batchSelectedIds.size === 0}
+              onClick={(e) => {
+                e.preventDefault()
+                void handleBatchArchiveConfirm()
+              }}
+              data-testid="v2-session-batch-archive-confirm"
+            >
+              {batchArchiving ? (
+                <Loader2 className="h-3.5 w-3.5 animate-spin" />
+              ) : (
+                t('sidebar.batchArchiveConfirmAction', 'Archive')
+              )}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   )
 }

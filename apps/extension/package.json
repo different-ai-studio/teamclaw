@@ -5,6 +5,7 @@
   "type": "module",
   "scripts": {
     "build": "node build.mjs",
+    "build:internal": "INTERNAL=1 node build.mjs",
     "build:test": "EXT_ENV=test node build.mjs",
     "typecheck": "tsc --noEmit",
     "test": "vitest run"
