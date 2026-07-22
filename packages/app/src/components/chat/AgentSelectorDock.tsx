@@ -38,7 +38,7 @@ import {
   dotClassesForUiState,
   pillSuffixForUiState,
 } from '@/components/chat/EngagedAgentOfflineBanner'
-import { isInternalBuild } from '@/lib/internal-build'
+import { isSoloBuild } from '@/lib/solo-build'
 
 // ────────────────────────────────────────────────────────────────────────────
 // Types
@@ -180,7 +180,7 @@ function AgentPill({
     [liveRuntimeInfo],
   )
   const statusSuffix = pillSuffixForUiState(effectiveUiState, t)
-  const hideModelOnPill = isInternalBuild()
+  const hideModelOnPill = isSoloBuild()
   const showModelPicker = effectiveUiState === 'ready' || effectiveUiState === 'connecting'
   const runtimeInfoLoading =
     showModelPicker &&

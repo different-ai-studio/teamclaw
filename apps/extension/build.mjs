@@ -16,11 +16,11 @@ const esbuildAlias = {
   '@teamclaw/extension-link-session': resolve(linkSessionShared, 'index.ts'),
 }
 
-/** INTERNAL=1 or `--internal` → hide permission control + model on mention pills. */
-const isInternal =
-  process.env.INTERNAL === '1' ||
-  process.env.INTERNAL === 'true' ||
-  process.argv.includes('--internal')
+/** SOLO=1 or `--solo` → solo-agent build (hide permission control + model on mention pills). */
+const isSolo =
+  process.env.SOLO === '1' ||
+  process.env.SOLO === 'true' ||
+  process.argv.includes('--solo')
 
 rmSync(dist, { recursive: true, force: true })
 mkdirSync(dist, { recursive: true })
@@ -29,7 +29,7 @@ mkdirSync(dist, { recursive: true })
 // EXT_ENV=test targets the wss-capable self-host test deployment
 // (.env.web.test); otherwise the default .env.web is used.
 const webBuildScript = process.env.EXT_ENV === 'test' ? 'build:web:test' : 'build:web'
-console.log('[extension] web build ->', webBuildScript, isInternal ? '(internal)' : '')
+console.log('[extension] web build ->', webBuildScript, isSolo ? '(solo)' : '')
 execSync(`pnpm ${webBuildScript}`, {
   cwd: appDir,
   stdio: 'inherit',
@@ -37,7 +37,7 @@ execSync(`pnpm ${webBuildScript}`, {
     ...process.env,
     VITE_APP_PLATFORM: 'web',
     VITE_FORCE_EMBED: 'chat',
-    ...(isInternal ? { VITE_INTERNAL: 'true' } : {}),
+    ...(isSolo ? { VITE_SOLO: 'true' } : {}),
   },
 })
 cpSync(resolve(appDir, 'dist'), resolve(dist, 'sidepanel'), { recursive: true })

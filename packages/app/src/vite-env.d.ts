@@ -17,7 +17,7 @@ interface ImportMetaEnv {
   /** Extension embed build: force chat-only shell (apps/extension/build.mjs). */
   readonly VITE_FORCE_EMBED?: string;
   /** Extension internal build: hide permission control + model on mention pills. */
-  readonly VITE_INTERNAL?: string;
+  readonly VITE_SOLO?: string;
 }
 
 interface ImportMeta {
