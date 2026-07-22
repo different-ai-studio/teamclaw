@@ -424,22 +424,6 @@ export function selectAgentModel(args: {
     };
   }
 
-  // No pick in THIS session — fall back to the user's most recent pick for
-  // this agent in ANY session, so new sessions default to "上次选的模型"
-  // instead of the daemon's default model.
-  const lastPick = useAgentModelPickStore.getState().getLastPick(agentId);
-  if (lastPick) {
-    return {
-      modelId: canonicalizeAgainstAvailable(
-        args.agentId,
-        lastPick,
-        args.available,
-        args.byRuntimeId,
-      ),
-      source: "pick",
-    };
-  }
-
   const entry = resolveRuntimeStateEntryForAgent(agentId, args.byRuntimeId);
   const retain = entry?.info.currentModel?.trim() ?? "";
   if (retain) {
@@ -451,6 +435,24 @@ export function selectAgentModel(args: {
         args.byRuntimeId,
       ),
       source: "retain",
+    };
+  }
+
+  // No pick, no transcript, no live retain — a brand-new session. Default to
+  // the user's most recent pick for this agent ("上次选的模型") instead of
+  // the daemon's default model. Kept strictly last among user-ish signals:
+  // letting it beat retain made session-switching flash another session's
+  // model while this session's transcript was still loading.
+  const lastPick = useAgentModelPickStore.getState().getLastPick(agentId);
+  if (lastPick) {
+    return {
+      modelId: canonicalizeAgainstAvailable(
+        args.agentId,
+        lastPick,
+        args.available,
+        args.byRuntimeId,
+      ),
+      source: "pick",
     };
   }
 
