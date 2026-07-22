@@ -615,7 +615,10 @@ export function ChatInputArea({
 
           <PromptInputFooter>
             <PromptInputTools>
-              <FileInputButton onFilesSelected={onFilesChange} />
+              <FileInputButton
+                onFilesSelected={onFilesChange}
+                onBrowserFilesSelected={handlePastedFiles}
+              />
               <PermissionApprovalModeSelect sessionId={activeSessionId} />
 
               {/* Engaged agent pills — model is chosen per agent on each pill. */}
