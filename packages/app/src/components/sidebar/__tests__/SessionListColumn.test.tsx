@@ -1,6 +1,6 @@
 import * as React from 'react'
 import { describe, it, expect, beforeEach, vi } from 'vitest'
-import { render, screen } from '@testing-library/react'
+import { render, screen, fireEvent } from '@testing-library/react'
 import { SessionListColumn } from '../SessionListColumn'
 import { useUIStore } from '@/stores/ui'
 import { useSessionListStore } from '@/stores/session-list-store'
@@ -296,6 +296,68 @@ describe('SessionListColumn', () => {
     expect(
       screen.getByRole('button', { name: /Show scheduled sessions|Show all sessions|定时/ }),
     ).not.toBeDisabled()
+  })
+
+  it('enters batch select mode and archives selected sessions', async () => {
+    const archiveSession = vi.fn().mockResolvedValue(undefined)
+    useUIStore.setState({ embedMode: true })
+    useWorkspaceStore.setState({ workspacePath: '/tmp/ws' })
+    useSessionListStore.setState({
+      rows: [
+        mkSessionRow({ id: 's1', title: 'Alpha', idea_id: null }),
+        mkSessionRow({ id: 's2', title: 'Beta', idea_id: 'idea-1' }),
+        mkSessionRow({ id: 's3', title: 'Gamma', idea_id: 'idea-1' }),
+      ],
+      loading: false,
+    })
+    useSessionStore.setState({
+      ...useSessionStore.getState(),
+      archiveSession,
+    } as any)
+
+    render(<SessionListColumn onDismiss={() => {}} />)
+
+    expect(screen.getByText('Alpha')).toBeInTheDocument()
+    const toggle = screen.getByTestId('v2-session-batch-toggle')
+    expect(toggle).not.toBeDisabled()
+    fireEvent.click(toggle)
+
+    await vi.waitFor(() => {
+      expect(toggle).toHaveAttribute('aria-pressed', 'true')
+      expect(screen.getByTestId('v2-session-batch-bar')).toBeInTheDocument()
+    })
+    expect(screen.getByTestId('v2-session-batch-footer')).toBeInTheDocument()
+    expect(screen.getAllByTestId('v2-session-row-checkbox')).toHaveLength(3)
+
+    // Idle actions hide while selecting; batch toggle stays.
+    expect(screen.queryByRole('button', { name: /Search|搜索/ })).not.toBeInTheDocument()
+
+    fireEvent.click(screen.getByText('Alpha'))
+    fireEvent.click(screen.getByText('Gamma'))
+    expect(screen.getByTestId('v2-session-batch-archive')).toHaveTextContent(/归档 2|Archive 2/)
+
+    fireEvent.click(screen.getByTestId('v2-session-batch-archive'))
+    expect(screen.getByTestId('v2-session-batch-archive-confirm')).toBeInTheDocument()
+    fireEvent.click(screen.getByTestId('v2-session-batch-archive-confirm'))
+
+    await vi.waitFor(() => {
+      expect(archiveSession).toHaveBeenCalledTimes(2)
+      expect(archiveSession).toHaveBeenCalledWith('s1')
+      expect(archiveSession).toHaveBeenCalledWith('s3')
+    })
+    await vi.waitFor(() => {
+      expect(screen.queryByTestId('v2-session-batch-bar')).not.toBeInTheDocument()
+    })
+  })
+
+  it('keeps the normal header actions when not batch-selecting', () => {
+    useUIStore.setState({ embedMode: true })
+    render(<SessionListColumn onDismiss={() => {}} />)
+
+    expect(screen.getByTestId('v2-session-batch-toggle')).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: /Search|搜索/ })).toBeInTheDocument()
+    expect(screen.queryByTestId('v2-session-batch-bar')).not.toBeInTheDocument()
+    expect(screen.queryByTestId('v2-session-row-checkbox')).not.toBeInTheDocument()
   })
 
   it('renders without SidebarProvider (uses safe sidebar defaults)', async () => {

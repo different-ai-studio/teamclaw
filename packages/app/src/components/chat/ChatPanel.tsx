@@ -1670,7 +1670,7 @@ export function ChatPanel({ compact = false }: ChatPanelProps) {
 
     // Initial title: "ActorName (HH:mm)" when we have exactly one
     // preselected actor (so multiple sessions to the same actor stay
-    // distinguishable in the list until agent auto-rename kicks in).
+    // distinguishable until the first user message auto-titles the session).
     // Otherwise fall back to the message text or a generic placeholder.
     const soloActor =
       picks.members.length + picks.agents.length === 1

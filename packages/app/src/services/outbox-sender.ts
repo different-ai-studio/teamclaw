@@ -35,6 +35,7 @@ import {
   summarizeText,
 } from "@/lib/session-flow-log";
 import { bumpSessionListLastMessage } from "@/lib/session-list-preview";
+import { maybeAutoTitleSessionFromFirstMessage } from "@/lib/session-auto-title";
 
 const TICK_MS = 1000;
 const DELIVERED_GC_MS = 5000;
@@ -140,6 +141,12 @@ async function attempt(entry: OutboxEntry): Promise<void> {
     });
     bumpSessionListLastMessage(entry.sessionId, entry.content, {
       at: entry.createdAt,
+    });
+    // Quick-empty / solo-agent shells start as "Name (HH:mm)". Once the first
+    // user message is persisted, rename from its summary so the session list
+    // is distinguishable. No-op once the title is no longer a placeholder.
+    void maybeAutoTitleSessionFromFirstMessage(entry.sessionId, entry.content).catch((err) => {
+      console.warn("[outbox] auto-title failed (non-fatal):", err);
     });
     store.markCloudPersisted(entry.messageId);
 
