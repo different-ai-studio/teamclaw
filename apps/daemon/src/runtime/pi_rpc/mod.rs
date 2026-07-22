@@ -49,12 +49,21 @@ pub(crate) struct Route {
     pub(crate) translate: TranslateState,
 }
 
+/// Bookkeeping for a pending `extension_ui_request(confirm)`: enough to route
+/// the reply and to persist an "always allow" grant.
+pub(crate) struct PendingPermission {
+    pub(crate) session_id: String,
+    /// `teamclaw.always-pattern=` trailer from the confirm message; written to
+    /// the worktree's rules file when the host resolves with option "always".
+    pub(crate) always_pattern: Option<String>,
+}
+
 pub(crate) struct Shared {
     pub(crate) pool: PiProcessPool,
     /// acp session id → route.
     pub(crate) routes: parking_lot::Mutex<HashMap<String, Route>>,
-    /// extension_ui_request id → acp session id.
-    pub(crate) permissions: parking_lot::Mutex<HashMap<String, String>>,
+    /// extension_ui_request id → pending permission bookkeeping.
+    pub(crate) permissions: parking_lot::Mutex<HashMap<String, PendingPermission>>,
 }
 
 impl Shared {
@@ -118,6 +127,28 @@ fn split_model_id(model_id: &str) -> Option<(String, String)> {
     Some((provider.to_string(), model.to_string()))
 }
 
+/// Extract the `amuxd-remote-tools` server launch command from an amuxd MCP
+/// config value (`{"mcpServers": {"amuxd-remote-tools": {"command", "args"}}}`,
+/// the shape `remote_tools::mcp_config` writes). Returned as a JSON array
+/// string, the `TEAMCLAW_REMOTE_TOOLS_CMD` contract of the pi extension.
+fn remote_tools_cmd_from_value(root: &serde_json::Value) -> Option<String> {
+    // Literal name (= remote_tools::REMOTE_TOOLS_MCP_SERVER_NAME); kept local
+    // so the integration-test harness need not pull in the remote_tools tree.
+    let server = root.get("mcpServers")?.get("amuxd-remote-tools")?;
+    let command = server.get("command").and_then(|v| v.as_str())?;
+    let mut cmd = vec![serde_json::json!(command)];
+    if let Some(args) = server.get("args").and_then(|v| v.as_array()) {
+        cmd.extend(args.iter().filter(|a| a.is_string()).cloned());
+    }
+    Some(serde_json::Value::Array(cmd).to_string())
+}
+
+fn remote_tools_cmd_from_mcp_config(path: &Path) -> Option<String> {
+    let body = std::fs::read_to_string(path).ok()?;
+    let root: serde_json::Value = serde_json::from_str(&body).ok()?;
+    remote_tools_cmd_from_value(&root)
+}
+
 /// Current model id (`provider/model`) from a `get_state` response.
 fn model_from_state(state: &serde_json::Value) -> Option<String> {
     let model = state.pointer("/data/model")?;
@@ -136,6 +167,7 @@ fn model_from_state(state: &serde_json::Value) -> Option<String> {
 struct AttachArgs {
     worktree: String,
     resume_acp_session_id: Option<String>,
+    mcp_config_path: Option<PathBuf>,
     initial_model_override: Option<String>,
     event_tx: mpsc::Sender<AcpEventFrame>,
     is_gateway: bool,
@@ -144,6 +176,15 @@ struct AttachArgs {
 
 async fn attach(shared: &Arc<Shared>, args: AttachArgs) -> Result<AcpStartupMetadata, String> {
     let worktree = canonical_dir(&args.worktree);
+    // Export the remote-tools MCP bridge command to the TeamClaw extension
+    // before (possibly) spawning; env is applied at spawn time.
+    if let Some(cmd_json) = args
+        .mcp_config_path
+        .as_deref()
+        .and_then(remote_tools_cmd_from_mcp_config)
+    {
+        shared.pool.set_remote_tools_cmd(cmd_json);
+    }
     let proc = shared
         .pool
         .ensure(shared, &worktree)
@@ -393,24 +434,36 @@ async fn resolve_permission(
     shared: &Arc<Shared>,
     request_id: &str,
     granted: bool,
-    _option_id: Option<String>,
+    option_id: Option<String>,
 ) {
-    let Some(session_id) = shared.permissions.lock().remove(request_id) else {
+    let Some(pending) = shared.permissions.lock().remove(request_id) else {
         warn!(request_id, "no pending pi permission request found");
         return;
     };
+    let session_id = pending.session_id;
     let worktree = shared
         .routes
         .lock()
         .get(&session_id)
         .map(|r| r.worktree.clone())
         .unwrap_or_default();
+    // The dialog channel only carries a confirmed boolean, so an "always"
+    // grant is encoded by writing the pattern into the rules file the
+    // extension re-reads per tool call.
+    if granted && option_id.as_deref() == Some("always") {
+        if let Some(pattern) = pending.always_pattern.as_deref() {
+            let rules_file = process::permissions_file_for(&worktree);
+            match process::append_always_pattern(&rules_file, pattern) {
+                Ok(()) => info!(request_id, pattern, "pi always-allow pattern persisted"),
+                Err(e) => warn!(request_id, pattern, error = %e,
+                                "pi always-allow pattern write failed"),
+            }
+        }
+    }
     let Some(proc) = shared.pool.get(&worktree) else {
         warn!(request_id, worktree, "permission respond: pi process gone");
         return;
     };
-    // "always" semantics are remembered by the TeamClaw pi extension itself;
-    // the dialog channel only carries confirmed yes/no.
     if let Err(e) = proc
         .client
         .notify(serde_json::json!({
@@ -428,7 +481,7 @@ async fn command_loop(shared: Arc<Shared>, mut cmd_rx: mpsc::Receiver<AcpCommand
             AcpCommand::AttachSession {
                 worktree,
                 resume_acp_session_id,
-                mcp_config_path: _,
+                mcp_config_path,
                 initial_model_override,
                 initial_prompt,
                 event_tx,
@@ -441,6 +494,7 @@ async fn command_loop(shared: Arc<Shared>, mut cmd_rx: mpsc::Receiver<AcpCommand
                     AttachArgs {
                         worktree,
                         resume_acp_session_id,
+                        mcp_config_path,
                         initial_model_override,
                         event_tx,
                         is_gateway,
@@ -556,7 +610,7 @@ async fn command_loop(shared: Arc<Shared>, mut cmd_rx: mpsc::Receiver<AcpCommand
                 shared
                     .permissions
                     .lock()
-                    .retain(|_, sid| sid != &acp_session_id);
+                    .retain(|_, p| p.session_id != acp_session_id);
                 info!(acp_session_id, "pi session detached");
             }
             AcpCommand::Shutdown => {
@@ -619,7 +673,7 @@ impl AgentBackend for PiRpcBackend {
         force_env_override: bool,
         worktree: String,
         resume_acp_session_id: Option<String>,
-        _mcp_config_path: Option<PathBuf>,
+        mcp_config_path: Option<PathBuf>,
         initial_model_override: Option<String>,
         initial_prompt: String,
         event_tx: mpsc::Sender<AcpEventFrame>,
@@ -636,6 +690,7 @@ impl AgentBackend for PiRpcBackend {
             AttachArgs {
                 worktree,
                 resume_acp_session_id,
+                mcp_config_path,
                 initial_model_override,
                 event_tx,
                 is_gateway,
@@ -765,6 +820,48 @@ mod tests {
             Some("anthropic/claude-sonnet-4-5".to_string())
         );
         assert_eq!(model_from_state(&serde_json::json!({"data": {}})), None);
+    }
+
+    #[test]
+    fn remote_tools_cmd_extracted_from_mcp_config_shape() {
+        let root = serde_json::json!({
+            "mcpServers": {
+                "amuxd-remote-tools": {
+                    "command": "/usr/local/bin/amuxd",
+                    "args": ["remote-tools-mcp", "--sock=/tmp/amuxd.sock"]
+                }
+            }
+        });
+        assert_eq!(
+            remote_tools_cmd_from_value(&root).as_deref(),
+            Some(r#"["/usr/local/bin/amuxd","remote-tools-mcp","--sock=/tmp/amuxd.sock"]"#)
+        );
+        // Other servers present but no amuxd-remote-tools → None.
+        let other = serde_json::json!({"mcpServers": {"something-else": {"command": "x"}}});
+        assert_eq!(remote_tools_cmd_from_value(&other), None);
+        assert_eq!(remote_tools_cmd_from_value(&serde_json::json!({})), None);
+        // Missing command → None.
+        let no_cmd = serde_json::json!({"mcpServers": {"amuxd-remote-tools": {"args": ["a"]}}});
+        assert_eq!(remote_tools_cmd_from_value(&no_cmd), None);
+    }
+
+    #[test]
+    fn remote_tools_cmd_from_file() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("remote-tools-host.json");
+        std::fs::write(
+            &path,
+            r#"{"mcpServers":{"amuxd-remote-tools":{"command":"amuxd","args":["remote-tools-mcp"]}}}"#,
+        )
+        .unwrap();
+        assert_eq!(
+            remote_tools_cmd_from_mcp_config(&path).as_deref(),
+            Some(r#"["amuxd","remote-tools-mcp"]"#)
+        );
+        assert_eq!(
+            remote_tools_cmd_from_mcp_config(&dir.path().join("missing.json")),
+            None
+        );
     }
 
     #[tokio::test]

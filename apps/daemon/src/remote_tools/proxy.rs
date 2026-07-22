@@ -40,7 +40,10 @@ pub async fn invoke_remote_tool(
         return Err(InvokeError::new("invalid_arguments", "tool_name required"));
     }
     if !is_known_tool(tool_name) {
-        return Err(InvokeError::new("unknown_tool", format!("unknown tool: {tool_name}")));
+        return Err(InvokeError::new(
+            "unknown_tool",
+            format!("unknown tool: {tool_name}"),
+        ));
     }
     if is_daemon_local_tool(tool_name) {
         return Ok(Value::Null);
@@ -53,7 +56,10 @@ pub async fn invoke_remote_tool(
     }
 
     let arguments_json = serde_json::to_string(arguments).map_err(|e| {
-        InvokeError::new("invalid_arguments", format!("arguments serialize failed: {e}"))
+        InvokeError::new(
+            "invalid_arguments",
+            format!("arguments serialize failed: {e}"),
+        )
     })?;
 
     let invoke = RemoteToolInvokeRequest {
@@ -81,14 +87,22 @@ pub async fn invoke_remote_tool(
     let response = match timeout(wait, rx).await {
         Ok(Ok(resp)) => resp,
         Ok(Err(_)) => {
-            rpc_client.lock().await.remote_tool_pending.remove(&request_id);
+            rpc_client
+                .lock()
+                .await
+                .remote_tool_pending
+                .remove(&request_id);
             return Err(InvokeError::new(
                 "no_handler",
                 "no client handled the remote tool call",
             ));
         }
         Err(_) => {
-            rpc_client.lock().await.remote_tool_pending.remove(&request_id);
+            rpc_client
+                .lock()
+                .await
+                .remote_tool_pending
+                .remove(&request_id);
             return Err(InvokeError::new(
                 "rpc_timeout",
                 "remote tool call timed out with no capable client",
@@ -121,9 +135,8 @@ fn parse_invoke_result(result: RemoteToolInvokeResult) -> Result<Value, InvokeEr
         if result.result_json.is_empty() {
             return Ok(Value::Null);
         }
-        serde_json::from_str(&result.result_json).map_err(|e| {
-            InvokeError::new("executor_error", format!("invalid result_json: {e}"))
-        })
+        serde_json::from_str(&result.result_json)
+            .map_err(|e| InvokeError::new("executor_error", format!("invalid result_json: {e}")))
     } else {
         let code = if result.error_code.is_empty() {
             "executor_error".to_string()

@@ -62,9 +62,7 @@ pub fn team_secrets_dir_candidates(
             crate::config::global_team_store::resolve_team_dir(workspace_root, team_id)
                 .join("_secrets"),
         );
-        push(
-            crate::config::global_team_store::global_team_dir(team_id).join("_secrets"),
-        );
+        push(crate::config::global_team_store::global_team_dir(team_id).join("_secrets"));
     }
 
     for path in teamclaw_runtime_env::env_catalog::team_secrets_dir_candidates_workspace(
@@ -437,10 +435,7 @@ mod tests {
         .unwrap();
 
         let env = load_team_env_for_workspace(tmp.path(), None);
-        assert_eq!(
-            env.get("git_team_key"),
-            Some(&"from-git-dir".to_string())
-        );
+        assert_eq!(env.get("git_team_key"), Some(&"from-git-dir".to_string()));
     }
 
     #[test]
@@ -520,15 +515,11 @@ mod tests {
         // Persist as the desktop-to-daemon secret delivery endpoint does, then
         // recreate the store to model an amuxd restart.
         store_with_secret(daemon_state.path(), team_id, &team_secret);
-        let restarted_store = crate::sync::secret_store::SecretStore::with_base(
-            daemon_state.path().to_path_buf(),
-        );
-        let restored_secret = resolve_env_secret_with(
-            &restarted_store,
-            workspace.path(),
-            Some(team_id),
-        )
-        .expect("daemon secret must persist across restart");
+        let restarted_store =
+            crate::sync::secret_store::SecretStore::with_base(daemon_state.path().to_path_buf());
+        let restored_secret =
+            resolve_env_secret_with(&restarted_store, workspace.path(), Some(team_id))
+                .expect("daemon secret must persist across restart");
 
         let secrets_dir = workspace.path().join("teamclaw-team").join("_secrets");
         std::fs::create_dir_all(&secrets_dir).unwrap();

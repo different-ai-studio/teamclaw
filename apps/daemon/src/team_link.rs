@@ -37,7 +37,10 @@ pub async fn team_share_gate(backend: &dyn Backend, team_id: &str) -> TeamShareG
             }
         }
         Err(e) => {
-            warn!(team_id, "team_share_config failed, leaving links unchanged: {e}");
+            warn!(
+                team_id,
+                "team_share_config failed, leaving links unchanged: {e}"
+            );
             TeamShareGate::Unknown
         }
     }
@@ -155,7 +158,11 @@ mod tests {
 
         let team_id = "team-teardown-test";
         let ws = tempfile::tempdir().unwrap();
-        materialize_or_teardown(TeamShareGate::Disabled, team_id, ws.path().to_str().unwrap());
+        materialize_or_teardown(
+            TeamShareGate::Disabled,
+            team_id,
+            ws.path().to_str().unwrap(),
+        );
 
         assert!(!global_team_store::global_team_dir(team_id).exists());
     }

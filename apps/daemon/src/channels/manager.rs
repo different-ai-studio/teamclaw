@@ -394,7 +394,10 @@ impl ChannelManager {
                     println!("[ChannelManager] wecom bot {} started", bot.bot_id);
                     started.push(gw);
                 }
-                Err(e) => eprintln!("[ChannelManager] wecom bot {} start failed: {e}", bot.bot_id),
+                Err(e) => eprintln!(
+                    "[ChannelManager] wecom bot {} start failed: {e}",
+                    bot.bot_id
+                ),
             }
         }
         started

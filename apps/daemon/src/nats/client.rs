@@ -40,10 +40,7 @@ impl NatsBackend {
         url: &str,
         token: &str,
     ) -> crate::error::Result<Self> {
-        let name = format!(
-            "amuxd-{}",
-            &config.actor.id[..8.min(config.actor.id.len())]
-        );
+        let name = format!("amuxd-{}", &config.actor.id[..8.min(config.actor.id.len())]);
 
         let raw: Client = ConnectOptions::new()
             .name(name)

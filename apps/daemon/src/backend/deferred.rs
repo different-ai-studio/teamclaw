@@ -225,7 +225,9 @@ impl Backend for DeferredBackend {
         agent_id: &str,
         actor_id: &str,
     ) -> BackendResult<Option<String>> {
-        self.inner()?.check_agent_permission(agent_id, actor_id).await
+        self.inner()?
+            .check_agent_permission(agent_id, actor_id)
+            .await
     }
 
     async fn heartbeat(&self) -> BackendResult<()> {
@@ -249,7 +251,9 @@ impl Backend for DeferredBackend {
     }
 
     async fn set_agent_default_workspace(&self, workspace_id: &str) -> BackendResult<()> {
-        self.inner()?.set_agent_default_workspace(workspace_id).await
+        self.inner()?
+            .set_agent_default_workspace(workspace_id)
+            .await
     }
 
     async fn get_agent_defaults(&self, agent_id: &str) -> BackendResult<AgentDefaults> {
@@ -260,7 +264,9 @@ impl Backend for DeferredBackend {
         &self,
         session_id: &str,
     ) -> BackendResult<BackendSessionAndParticipants> {
-        self.inner()?.fetch_session_with_participants(session_id).await
+        self.inner()?
+            .fetch_session_with_participants(session_id)
+            .await
     }
 
     async fn messages_after_cursor(
@@ -268,7 +274,9 @@ impl Backend for DeferredBackend {
         session_id: &str,
         after_id: Option<&str>,
     ) -> BackendResult<Vec<StoredMessage>> {
-        self.inner()?.messages_after_cursor(session_id, after_id).await
+        self.inner()?
+            .messages_after_cursor(session_id, after_id)
+            .await
     }
 
     async fn update_runtime_cursor(
@@ -375,7 +383,9 @@ impl Backend for DeferredBackend {
         bytes: Vec<u8>,
         mime: &str,
     ) -> BackendResult<String> {
-        self.inner()?.upload_attachment_bytes(path, bytes, mime).await
+        self.inner()?
+            .upload_attachment_bytes(path, bytes, mime)
+            .await
     }
 
     async fn list_agent_admin_member_actor_ids(
