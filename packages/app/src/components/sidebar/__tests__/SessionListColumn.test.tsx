@@ -273,6 +273,19 @@ describe('SessionListColumn', () => {
     expect(onDismiss).toHaveBeenCalledTimes(1)
   })
 
+  it('dismisses the sheet when a session row is selected', () => {
+    const onDismiss = vi.fn()
+    const switchToSession = vi.spyOn(useUIStore.getState(), 'switchToSession').mockResolvedValue()
+    render(<SessionListColumn onDismiss={onDismiss} />)
+
+    const row = screen.getAllByTestId('v2-session-row').find((el) => el.getAttribute('data-session-id') === 's1')
+    expect(row).toBeTruthy()
+    fireEvent.click(row!)
+    expect(switchToSession).toHaveBeenCalledWith('s1')
+    expect(onDismiss).toHaveBeenCalledTimes(1)
+    switchToSession.mockRestore()
+  })
+
   it('creates a session directly from the new chat button in embed mode', async () => {
     useUIStore.setState({ embedMode: true })
     const onDismiss = vi.fn()
