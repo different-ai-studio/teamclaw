@@ -18,6 +18,7 @@ pub fn available_models_for(_agent_type: amux::AgentType) -> Vec<amux::ModelInfo
     vec![amux::ModelInfo {
         id: OPENCODE_FALLBACK_MODEL_ID.to_string(),
         display_name: "DeepSeek V4 Flash Free".to_string(),
+        provider_name: "OpenCode Zen".to_string(),
     }]
 }
 

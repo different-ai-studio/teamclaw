@@ -12,7 +12,7 @@ import {
   CommandSeparator,
 } from '@/components/ui/command'
 import { useRuntimeStateStore } from '@/stores/runtime-state-store'
-import { resolveAgentAvailableModels } from '@/lib/agent-available-models'
+import { groupAgentModelOptions, resolveAgentAvailableModels } from '@/lib/agent-available-models'
 import { sessionFlowError, sessionFlowLog } from '@/lib/session-flow-log'
 import { RuntimeLifecycle, AgentStatus, type RuntimeInfo } from '@/lib/proto/amux_pb'
 import {
@@ -224,9 +224,17 @@ function AgentPill({
     if (!q) return availableModels
     return availableModels.filter((m) => {
       const label = (m.displayName || m.id).toLowerCase()
-      return label.includes(q) || m.id.toLowerCase().includes(q)
+      return (
+        label.includes(q) ||
+        m.id.toLowerCase().includes(q) ||
+        (m.providerName ?? '').toLowerCase().includes(q)
+      )
     })
   }, [availableModels, modelSearch])
+  const modelGroups = React.useMemo(
+    () => groupAgentModelOptions(filteredModels),
+    [filteredModels],
+  )
 
   React.useEffect(() => {
     if (!open) setModelSearch('')
@@ -446,37 +454,37 @@ function AgentPill({
               </div>
             ) : (
               <>
-                <CommandGroup
-                  heading={t('chat.agentSelector.modelHeading', 'Model')}
-                >
-                  {filteredModels.map((m) => {
-                    const label = m.displayName || m.id
-                    const selected = isAgentModelRowSelected(
-                      m.id,
-                      effectiveModelId,
-                    )
-                    return (
-                      <CommandItem
-                        key={m.id}
-                        value={`${label} ${m.id}`}
-                        data-model-selected={selected ? 'true' : undefined}
-                        onSelect={() => {
-                          setOpen(false)
-                          void handlePickModel(m.id)
-                        }}
-                        className="text-xs py-1.5"
-                      >
-                        <Check
-                          className={cn(
-                            'h-3.5 w-3.5 mr-1.5 shrink-0',
-                            selected ? 'opacity-100' : 'opacity-0',
-                          )}
-                        />
-                        <span className="truncate">{label}</span>
-                      </CommandItem>
-                    )
-                  })}
-                </CommandGroup>
+                {modelGroups.map((group) => (
+                  <CommandGroup key={group.providerName} heading={group.providerName}>
+                    {group.models.map((m) => {
+                      const label = m.displayName || m.id
+                      const selected = isAgentModelRowSelected(
+                        m.id,
+                        effectiveModelId,
+                      )
+                      return (
+                        <CommandItem
+                          key={m.id}
+                          value={`${label} ${m.id}`}
+                          data-model-selected={selected ? 'true' : undefined}
+                          onSelect={() => {
+                            setOpen(false)
+                            void handlePickModel(m.id)
+                          }}
+                          className="text-xs py-1.5"
+                        >
+                          <Check
+                            className={cn(
+                              'h-3.5 w-3.5 mr-1.5 shrink-0',
+                              selected ? 'opacity-100' : 'opacity-0',
+                            )}
+                          />
+                          <span className="truncate">{label}</span>
+                        </CommandItem>
+                      )
+                    })}
+                  </CommandGroup>
+                ))}
               </>
             )}
           </CommandList>

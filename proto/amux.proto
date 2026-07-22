@@ -401,6 +401,9 @@ message RuntimeInfo {
 message ModelInfo {
   string id = 1;
   string display_name = 2;
+  // Human-readable provider name (e.g. "OpenCode Zen"); the provider id is the
+  // prefix of `id` before the first '/'. Empty on entries from older daemons.
+  string provider_name = 3;
 }
 
 message AgentList {
