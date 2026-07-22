@@ -434,22 +434,27 @@ async fn install_amuxd<R: Runtime>(app: &AppHandle<R>) -> Result<(), String> {
 /// `download_base`, when set (from `buildConfig.opencode.downloadBase`), is passed
 /// to the daemon as `OPENCODE_DOWNLOAD_BASE` so it pulls the opencode release
 /// archive from a mirror (e.g. a domestic OSS bucket) instead of the official source.
-async fn install_opencode<R: Runtime>(
+/// Run `amuxd install-opencode`, streaming progress through `emit`.
+///
+/// `emit(status, line, error)` — status is "started" | "running" | "failed" |
+/// "done". This is the ONE opencode install/update path (official opencode,
+/// pinned to the daemon's `opencode.lock.json` minimum version; direct-download
+/// on Windows / mirror). Shared by the first-run SetupWizard and the settings
+/// Dependencies page so both surfaces install/update opencode identically.
+/// `install-opencode` is idempotent, so the same call both installs and upgrades.
+pub(crate) async fn run_amuxd_install_opencode<R, F>(
     app: &AppHandle<R>,
     download_base: Option<String>,
-) -> Result<(), String> {
+    emit: F,
+) -> Result<(), String>
+where
+    R: Runtime,
+    F: Fn(&str, Option<String>, Option<String>) + Send,
+{
     use tauri_plugin_shell::process::CommandEvent;
     use tauri_plugin_shell::ShellExt;
 
-    emit_progress(
-        app,
-        SetupProgress {
-            id: "opencode".into(),
-            status: "started".into(),
-            line: None,
-            error: None,
-        },
-    );
+    emit("started", None, None);
     let mut command = app
         .shell()
         .sidecar("amuxd")
@@ -477,30 +482,14 @@ async fn install_opencode<R: Runtime>(
             CommandEvent::Stdout(bytes) => {
                 let line = String::from_utf8_lossy(&bytes).trim().to_string();
                 if !line.is_empty() {
-                    emit_progress(
-                        app,
-                        SetupProgress {
-                            id: "opencode".into(),
-                            status: "running".into(),
-                            line: Some(line),
-                            error: None,
-                        },
-                    );
+                    emit("running", Some(line), None);
                 }
             }
             CommandEvent::Stderr(bytes) => {
                 let line = String::from_utf8_lossy(&bytes).trim().to_string();
                 if !line.is_empty() {
                     last_stderr = Some(line.clone());
-                    emit_progress(
-                        app,
-                        SetupProgress {
-                            id: "opencode".into(),
-                            status: "running".into(),
-                            line: Some(line),
-                            error: None,
-                        },
-                    );
+                    emit("running", Some(line), None);
                 }
             }
             CommandEvent::Terminated(payload) if payload.code.unwrap_or(-1) != 0 => {
@@ -513,27 +502,29 @@ async fn install_opencode<R: Runtime>(
         }
     }
     if let Some(e) = last_err {
+        emit("failed", None, Some(e.clone()));
+        return Err(e);
+    }
+    emit("done", None, None);
+    Ok(())
+}
+
+async fn install_opencode<R: Runtime>(
+    app: &AppHandle<R>,
+    download_base: Option<String>,
+) -> Result<(), String> {
+    run_amuxd_install_opencode(app, download_base, |status, line, error| {
         emit_progress(
             app,
             SetupProgress {
                 id: "opencode".into(),
-                status: "failed".into(),
-                line: None,
-                error: Some(e.clone()),
+                status: status.into(),
+                line,
+                error,
             },
         );
-        return Err(e);
-    }
-    emit_progress(
-        app,
-        SetupProgress {
-            id: "opencode".into(),
-            status: "done".into(),
-            line: None,
-            error: None,
-        },
-    );
-    Ok(())
+    })
+    .await
 }
 
 /// Best-effort git install guidance. macOS triggers the Xcode CLT installer; other

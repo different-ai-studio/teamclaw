@@ -494,6 +494,16 @@ async fn attach(shared: &Arc<Shared>, args: AttachArgs) -> Result<AcpStartupMeta
         "opencode session attached"
     );
 
+    // A pending question survives in opencode across daemon restarts, but the
+    // one-shot SSE announcement doesn't — re-sync so the client gets its card.
+    {
+        let shared = Arc::clone(shared);
+        let sid = session_id.clone();
+        tokio::spawn(async move {
+            events::resync_pending_questions(&shared, &sid).await;
+        });
+    }
+
     Ok(AcpStartupMetadata {
         available_models,
         initial_model,

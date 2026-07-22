@@ -176,6 +176,22 @@ impl ServeClient {
             .map_err(|e| crate::error::AmuxError::Agent(format!("session status body: {e}")))
     }
 
+    /// GET /question → all pending question requests (across sessions).
+    pub async fn question_list(
+        &self,
+        directory: &str,
+    ) -> crate::error::Result<Vec<serde_json::Value>> {
+        let resp = self
+            .req(reqwest::Method::GET, "/question", directory)
+            .send()
+            .await
+            .map_err(|e| crate::error::AmuxError::Agent(format!("question list: {e}")))?;
+        let resp = Self::check(resp, "question list").await?;
+        resp.json()
+            .await
+            .map_err(|e| crate::error::AmuxError::Agent(format!("question list body: {e}")))
+    }
+
     /// POST /question/{requestID}/reply with `{"answers": [[labels], ...]}`.
     pub async fn question_reply(
         &self,

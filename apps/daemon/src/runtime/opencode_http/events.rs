@@ -259,6 +259,41 @@ async fn handle_question_resolved(
     forward_question_raw(shared, session_id, method, props).await;
 }
 
+/// Re-sync pending questions for a session from `GET /question` — SSE
+/// `question.asked` fires once and is lost across daemon restarts or
+/// subscription gaps, leaving the client with a spinner and no card. Called
+/// on session attach.
+pub(super) async fn resync_pending_questions(shared: &Arc<Shared>, session_id: &str) {
+    let directory = {
+        let routes = shared.routes.lock();
+        let Some(route) = routes.get(session_id) else {
+            return;
+        };
+        route.directory.clone()
+    };
+    let client = match shared.serve.ensure().await {
+        Ok(c) => c,
+        Err(_) => return,
+    };
+    let Ok(list) = client.question_list(&directory).await else {
+        return;
+    };
+    for request in list {
+        if request.get("sessionID").and_then(|v| v.as_str()) != Some(session_id) {
+            continue;
+        }
+        let Some(request_id) = request.get("id").and_then(|v| v.as_str()) else {
+            continue;
+        };
+        info!(session_id, request_id, "re-syncing pending opencode question");
+        shared
+            .questions
+            .lock()
+            .insert(request_id.to_string(), session_id.to_string());
+        forward_question_raw(shared, session_id, "question_asked", &request).await;
+    }
+}
+
 async fn forward_question_raw(
     shared: &Arc<Shared>,
     session_id: &str,
