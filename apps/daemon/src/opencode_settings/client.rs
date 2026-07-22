@@ -40,8 +40,7 @@ impl OpenCodeSettingsClient {
     ) -> Result<
         HashMap<String, Vec<crate::config::provider_auth::ProviderAuthMethod>>,
         OpenCodeSettingsError,
-    >
-    {
+    > {
         let value: Value = self.get_json("/provider/auth").await?;
         serde_json::from_value(value).map_err(|e| OpenCodeSettingsError::Http(e.to_string()))
     }
@@ -221,4 +220,3 @@ impl OpenCodeSettingsClient {
         )
     }
 }
-

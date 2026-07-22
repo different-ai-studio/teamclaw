@@ -30,10 +30,7 @@ impl RuntimeManager {
         self.poll_events_inner(|agent_id| allow.contains(agent_id))
     }
 
-    fn poll_events_inner(
-        &mut self,
-        allow: impl Fn(&str) -> bool,
-    ) -> Vec<(String, AcpEventFrame)> {
+    fn poll_events_inner(&mut self, allow: impl Fn(&str) -> bool) -> Vec<(String, AcpEventFrame)> {
         let mut events = vec![];
         for (agent_id, handle) in &mut self.agents {
             if !allow(agent_id) {

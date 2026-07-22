@@ -1,7 +1,6 @@
 use serde::{Deserialize, Serialize};
 use std::path::{Path, PathBuf};
 
-
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ProviderKind {
     CloudApi,
@@ -274,8 +273,8 @@ actor_id = "agent-1"
         let dir = tempfile::tempdir().unwrap();
         let backend_path = dir.path().join("backend.toml");
         std::fs::write(&backend_path, r#"kind = "mythical""#).unwrap();
-        let err = ProviderConfig::load_from_path(&backend_path)
-            .expect_err("unknown kind should fail");
+        let err =
+            ProviderConfig::load_from_path(&backend_path).expect_err("unknown kind should fail");
         assert!(err.to_string().contains("unsupported backend kind"));
     }
 }

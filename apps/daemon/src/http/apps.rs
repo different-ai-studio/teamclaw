@@ -255,12 +255,11 @@ pub async fn build_app(
         )));
     }
 
-    let bytes = tokio::task::spawn_blocking(move || {
-        crate::sync::app_build::build_artifact(&workdir_path)
-    })
-    .await
-    .map_err(|e| HttpError::internal(format!("build task panicked: {e}")))?
-    .map_err(|e| HttpError::internal(format!("app build failed: {e}")))?;
+    let bytes =
+        tokio::task::spawn_blocking(move || crate::sync::app_build::build_artifact(&workdir_path))
+            .await
+            .map_err(|e| HttpError::internal(format!("build task panicked: {e}")))?
+            .map_err(|e| HttpError::internal(format!("app build failed: {e}")))?;
 
     let resp = reqwest::Client::new()
         .put(&presigned_put)

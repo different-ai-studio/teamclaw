@@ -200,6 +200,7 @@ message AcpCommand {
     AcpStopAgent stop_agent = 6;
     AcpRequestHistory request_history = 7;
     AcpRequestTurnHistory request_turn_history = 8;
+    AcpAnswerQuestion answer_question = 9;
   }
 }
 
@@ -238,6 +239,16 @@ message AcpGrantPermission {
 
 message AcpDenyPermission {
   string request_id = 1;
+}
+
+// Answer (or reject) an opencode `question` tool request.
+message AcpAnswerQuestion {
+  // The question.asked request id.
+  string request_id = 1;
+  // JSON `[[selected labels], ...]` — one array per question, in order.
+  // Ignored when reject is true.
+  string answers_json = 2;
+  bool reject = 3;
 }
 
 message AcpStartAgent {
@@ -401,6 +412,9 @@ message RuntimeInfo {
 message ModelInfo {
   string id = 1;
   string display_name = 2;
+  // Human-readable provider name (e.g. "OpenCode Zen"); the provider id is the
+  // prefix of `id` before the first '/'. Empty on entries from older daemons.
+  string provider_name = 3;
 }
 
 message AgentList {

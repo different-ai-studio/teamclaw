@@ -4,8 +4,8 @@ use tokio::sync::mpsc;
 use tracing::{info, warn};
 use uuid::Uuid;
 
-use super::acp_host::AcpHostPool;
 use super::agent_runtime_state::PerAgentRuntimeState;
+use super::backend::{create_backend, AgentBackend};
 use super::handle::RuntimeHandle;
 use super::refresh::RuntimeRefreshCoordinator;
 use std::sync::Arc;
@@ -69,8 +69,8 @@ fn sanitize_for_filename(s: &str) -> String {
         .collect()
 }
 
-/// Path of the per-session MCP config file emitted before claude-code
-/// is spawned. Filename is keyed by `logical_session_id` (the amuxd-side
+/// Path of the per-session MCP config file emitted before the session is
+/// attached. Filename is keyed by `logical_session_id` (the amuxd-side
 /// session key — for gateway sessions this is the SQL-minted
 /// `acp_session_id` hex) so the same file is reused if the runtime is
 /// re-spawned under the same logical id (e.g. after `/reset`).
@@ -81,9 +81,11 @@ pub fn gateway_mcp_config_path(logical_session_id: &str) -> PathBuf {
     ))
 }
 
-/// Write the per-session MCP config that points claude-code at
-/// amuxd's own `mcp-server` subcommand. The resulting file path is
-/// passed to claude via `--mcp-config <path>`.
+/// Write the per-session MCP config that points the agent at amuxd's own
+/// `mcp-server` subcommand. The resulting file path is passed to the
+/// opencode HTTP backend, which merges its `mcpServers` entries into the
+/// worktree's `opencode.json` `mcp` map before attaching the session (the
+/// global `opencode serve` has no per-session MCP parameter).
 ///
 /// `logical_session_id` is what AmuxdAcpHandle uses as its map key
 /// (gateway → SQL-minted acp_session_id); the MCP server forwards it
@@ -131,11 +133,10 @@ fn write_gateway_mcp_config(
     Ok(path)
 }
 
-/// Translate a gateway-facing short model name ("sonnet", "opus", "haiku")
-/// to the full ACP model id used by `claude-agent-acp`. Returns `None` for
-/// unknown short names so callers can fall through to passing the input
-/// verbatim (supports full ids like "claude-sonnet-4-6" without a separate
-/// validation branch).
+/// Translate a legacy gateway-facing short model name ("sonnet", "opus",
+/// "haiku") to a full model id. Returns `None` for unknown short names so
+/// callers can fall through to passing the input verbatim (supports full ids
+/// like "claude-sonnet-4-6" without a separate validation branch).
 pub fn model_id_for_short_name(short: &str) -> Option<String> {
     match short {
         "sonnet" => Some("claude-sonnet-4-6".to_string()),
@@ -179,7 +180,9 @@ pub struct RuntimeManager {
     agents: HashMap<String, RuntimeHandle>,
     pub aggregators: std::collections::HashMap<String, TurnAggregator>,
     launch_configs: HashMap<amux::AgentType, AgentLaunchConfig>,
-    acp_host_pool: AcpHostPool,
+    /// Local agent backend (opencode HTTP today; pi RPC later), selected by
+    /// daemon config `agents.local_agent`.
+    acp_host_pool: Box<dyn AgentBackend>,
     /// Per-worktree MCP resolve snapshots; restored when the last agent on the worktree stops.
     opencode_snapshots: HashMap<String, opencode_snapshot::WorktreeOpencodeSnapshot>,
     /// Daemon-side mirror of per-agent ACP state (current model + last-announced
@@ -222,6 +225,7 @@ mod model_apply;
 
 impl RuntimeManager {
     pub fn attach_refresh_coordinator(&mut self, coordinator: Arc<RuntimeRefreshCoordinator>) {
+        crate::runtime::refresh::set_global_coordinator(Arc::clone(&coordinator));
         self.refresh_coordinator = Some(coordinator);
     }
 
@@ -229,11 +233,21 @@ impl RuntimeManager {
         launch_configs: HashMap<amux::AgentType, AgentLaunchConfig>,
         backend: Option<Arc<dyn Backend>>,
     ) -> Self {
+        Self::with_local_agent("opencode", launch_configs, backend)
+    }
+
+    /// Like [`Self::new`] but selects the local agent backend from the daemon
+    /// config's `agents.local_agent` ("opencode" default | "pi").
+    pub fn with_local_agent(
+        local_agent: &str,
+        launch_configs: HashMap<amux::AgentType, AgentLaunchConfig>,
+        backend: Option<Arc<dyn Backend>>,
+    ) -> Self {
         Self {
             agents: HashMap::new(),
             aggregators: std::collections::HashMap::new(),
             launch_configs,
-            acp_host_pool: AcpHostPool::new(),
+            acp_host_pool: create_backend(local_agent),
             opencode_snapshots: HashMap::new(),
             agent_state: PerAgentRuntimeState::new(),
             backend,
@@ -676,6 +690,15 @@ impl RuntimeManager {
         }
     }
 
+    /// Model catalog for a workspace directory via the global opencode serve
+    /// instance (cron catalog UI).
+    pub async fn probe_opencode_models(
+        &mut self,
+        workspace_path: &std::path::Path,
+    ) -> crate::error::Result<Vec<amux::ModelInfo>> {
+        self.acp_host_pool.model_catalog(workspace_path).await
+    }
+
     /// Invalidate long-lived OpenCode/Codex ACP hosts after provider credentials change.
     pub fn evict_acp_hosts_after_provider_auth_change(&mut self) {
         let removed = self
@@ -793,10 +816,7 @@ impl RuntimeManager {
     ) -> crate::error::Result<()> {
         #[cfg(test)]
         {
-            let _ = (
-                &attachment_urls,
-                &requester_actor_id,
-            );
+            let _ = (&attachment_urls, &requester_actor_id);
             if let Some(message) = self.send_failures.remove(agent_id) {
                 return Err(crate::error::AmuxError::Agent(message));
             }
@@ -850,7 +870,12 @@ impl RuntimeManager {
             })?;
             handle.bump_activity();
             handle
-                .send_prompt(text, attachment_urls, requester_actor_id, reply_to_message_id)
+                .send_prompt(
+                    text,
+                    attachment_urls,
+                    requester_actor_id,
+                    reply_to_message_id,
+                )
                 .await
         }
     }
@@ -1134,8 +1159,8 @@ impl RuntimeManager {
             .as_ref()
             .map(|(provider, model)| resolve_initial_model(agent_type, provider, model));
 
-        // Write the MCP config BEFORE spawning claude-code so the
-        // `--mcp-config` path it gets points at a real file. The config
+        // Write the MCP config BEFORE attaching the session so the opencode
+        // backend can merge it into the worktree's opencode.json. The config
         // mounts amuxd's own `mcp-server` subcommand which exposes the
         // `send` tool for proactive replies/file uploads back to the
         // gateway chat. Failures here are non-fatal — we still spawn
@@ -1865,11 +1890,10 @@ mod tests {
             )
             .await;
 
-        let err = result.expect_err("missing ACP binary should fail startup");
+        let err = result.expect_err("missing agent binary should fail startup");
         assert!(
-            err.to_string().contains("ACP host init")
-                || err.to_string().contains("ACP attach failed")
-                || err.to_string().contains("spawn ACP host"),
+            err.to_string().contains("spawn opencode serve")
+                || err.to_string().contains("opencode serve unavailable"),
             "got: {err}"
         );
         assert_eq!(mgr.agent_count(), 0);

@@ -35,6 +35,7 @@ pub mod events;
 pub mod limit;
 pub mod live_events;
 pub mod observ;
+pub mod rpc;
 pub mod runtime_adapter;
 pub mod sessions;
 pub mod setup;

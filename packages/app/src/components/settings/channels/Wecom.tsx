@@ -814,9 +814,7 @@ export function WeComChannel() {
                     className="h-9 w-full rounded-[7px] border border-border bg-paper px-3 text-[13px] transition-colors focus:border-foreground/30 focus:outline-none"
                   >
                     <option value="">{t('settings.channels.wecom.botDefaultOption', 'Default')}</option>
-                    <option value="claude-code">claude-code</option>
                     <option value="opencode">opencode</option>
-                    <option value="codex">codex</option>
                   </select>
                 </div>
 

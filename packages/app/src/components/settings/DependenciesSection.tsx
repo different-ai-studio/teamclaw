@@ -138,6 +138,37 @@ function InstallButton({ dep }: { dep: DependencyInfo }) {
   )
 }
 
+/** Deps that support an in-app update (re-runs the amuxd installer, idempotent). */
+const UPDATABLE_DEPS = new Set(['opencode'])
+
+function UpdateButton({ dep }: { dep: DependencyInfo }) {
+  const { t } = useTranslation()
+  const { updateDependency, installing, currentInstalling, installResults, checkDependencies, resetInstallState } = useDepsStore()
+  const isUpdatingThis = currentInstalling === dep.name
+  const result = installResults[dep.name]
+  const isFailed = result?.error !== undefined && !result?.success
+
+  const handleUpdate = async () => {
+    resetInstallState()
+    await updateDependency(dep.name)
+    await checkDependencies()
+  }
+
+  return (
+    <Button
+      variant="ghost"
+      size="sm"
+      onClick={handleUpdate}
+      disabled={installing}
+      className={cn('gap-1.5 h-7 px-2 text-xs', isFailed && 'text-red-500 hover:text-red-600')}
+      title={t('settings.deps.update', 'Update')}
+    >
+      {isUpdatingThis ? <Loader2 className="h-3 w-3 animate-spin" /> : <RefreshCw className="h-3 w-3" />}
+      {isUpdatingThis ? t('settings.deps.updating', 'Updating...') : t('settings.deps.update', 'Update')}
+    </Button>
+  )
+}
+
 export function DependenciesSection() {
   const { t } = useTranslation()
   const { dependencies: deps, loading: isLoading, checkDependencies } = useDepsStore()
@@ -273,6 +304,12 @@ export function DependenciesSection() {
                         {!dep.installed && (
                           <div className="ml-auto">
                             <InstallButton dep={dep} />
+                          </div>
+                        )}
+                        {/* Update button for installed deps that manage their own updater */}
+                        {dep.installed && UPDATABLE_DEPS.has(dep.name) && (
+                          <div className="ml-auto">
+                            <UpdateButton dep={dep} />
                           </div>
                         )}
                       </div>

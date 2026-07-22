@@ -64,7 +64,10 @@ pub(crate) fn compute_effective_cursor_from_messages(
 }
 
 /// Last index in `messages` with an inbound @mention that still needs a turn.
-pub(crate) fn last_unanswered_mention_idx(messages: &[StoredMessage], my_actor: &str) -> Option<usize> {
+pub(crate) fn last_unanswered_mention_idx(
+    messages: &[StoredMessage],
+    my_actor: &str,
+) -> Option<usize> {
     messages.iter().enumerate().rev().find_map(|(idx, m)| {
         if m.sender_actor_id == my_actor {
             return None;
@@ -90,7 +93,10 @@ pub(crate) fn messages_strictly_after_cursor(
     let Some(idx) = message_index(messages, cursor_id) else {
         return messages.to_vec();
     };
-    messages.get(idx + 1..).map(|s| s.to_vec()).unwrap_or_default()
+    messages
+        .get(idx + 1..)
+        .map(|s| s.to_vec())
+        .unwrap_or_default()
 }
 
 /// Whether any inbound row in the slice still needs routing (unanswered @ or silent).
@@ -113,12 +119,7 @@ pub(crate) fn slice_has_actionable_inbound(messages: &[StoredMessage], my_actor:
 mod tests {
     use super::*;
 
-    fn row(
-        id: &str,
-        sender: &str,
-        mentions: &[&str],
-        created_at: i64,
-    ) -> StoredMessage {
+    fn row(id: &str, sender: &str, mentions: &[&str], created_at: i64) -> StoredMessage {
         let mention_json: Vec<String> = mentions.iter().map(|s| (*s).to_string()).collect();
         StoredMessage {
             id: id.to_string(),

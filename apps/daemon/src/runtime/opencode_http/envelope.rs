@@ -1,4 +1,4 @@
-//! Runtime envelope classification, extracted from `adapter.rs`.
+//! Runtime envelope classification, carried over from the old ACP adapter.
 //!
 //! `RuntimeEnvelope` is the daemon-side classification of an ACP event into
 //! the higher-level shapes the runtime cares about (token deltas, tool calls,

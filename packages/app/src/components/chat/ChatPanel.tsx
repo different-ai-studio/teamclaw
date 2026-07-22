@@ -1414,6 +1414,23 @@ export function ChatPanel({ compact = false }: ChatPanelProps) {
 
           const messageId = crypto.randomUUID();
           const createdAt = BigInt(Math.floor(Date.now() / 1000));
+          // Must resolve identically to the AgentSelectorDock pill — what the
+          // user SEES is what the prompt runs on. That means passing the
+          // session's transcript-established model here too; without it the
+          // send path fell through to the agent-level runtime retain, which
+          // can belong to another session (显示 A 实跑 B).
+          const establishedForSend = (() => {
+            const msgs = useSessionMessageStore.getState().messages[sid];
+            if (!msgs?.length) return null;
+            let fb: string | null = null;
+            for (let i = msgs.length - 1; i >= 0; i--) {
+              const model = msgs[i].model?.trim();
+              if (!model) continue;
+              if (msgs[i].senderActorId === agentRuntimeIdsForSend[0]) return model;
+              if (!fb) fb = model;
+            }
+            return fb;
+          })();
           const outgoingModel =
             agentRuntimeIdsForSend.length > 0
               ? selectAgentModel({
@@ -1422,6 +1439,7 @@ export function ChatPanel({ compact = false }: ChatPanelProps) {
                   available: [],
                   byRuntimeId: useRuntimeStateStore.getState().byRuntimeId,
                   providerFallback: selectedModelKey ?? undefined,
+                  sessionEstablishedModel: establishedForSend,
                 }).modelId || ""
               : selectedModelKey ?? "";
           const mentionDeliverySnapshot: Record<string, "offline" | "stale"> = {};
@@ -1471,6 +1489,10 @@ export function ChatPanel({ compact = false }: ChatPanelProps) {
           //    echo (same messageId) is a no-op.
           useSessionMessageStore.getState().appendMessage(sid, msg);
           useV2StreamingStore.getState().clearStaleStreamErrors(sid);
+          // A new prompt supersedes any lingering turn-failure alert.
+          if (useSessionStore.getState().errorSessionId === sid) {
+            clearSessionError();
+          }
           if (displaySessionId !== sid) {
             setDisplaySessionId(sid);
             setSessionFadeOpacity(1);

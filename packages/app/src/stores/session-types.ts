@@ -95,6 +95,8 @@ export interface PendingQuestionState {
   messageId: string;
   questions: Question[];
   sessionId?: string; // source session ID (child or parent)
+  /** Agent actor to route the answer to (runtime command topic). */
+  agentActorId?: string;
   source?: "agent";
 }
 
@@ -374,6 +376,8 @@ export interface SessionState {
   // Actions - Connection
   setConnected: (connected: boolean) => void;
   setError: (error: string | null, sessionId?: string | null) => void;
+  /** Show a structured error alert (SessionErrorAlert) in a session's thread. */
+  setSessionErrorEvent: (event: SessionErrorEvent) => void;
   setInactivityWarning: (active: boolean) => void;
 
   // Getters

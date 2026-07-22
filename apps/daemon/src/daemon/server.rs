@@ -34,10 +34,10 @@ use crate::daemon::session_events::{
 };
 use crate::daemon::session_resume::resolve_backend_session_id;
 
-#[path = "collab_runtime_ensure.rs"]
-mod collab_runtime_ensure;
 #[path = "cloud_token_file.rs"]
 mod cloud_token_file;
+#[path = "collab_runtime_ensure.rs"]
+mod collab_runtime_ensure;
 #[path = "runtime_env.rs"]
 mod runtime_env;
 // Cron-style prompt-await handling (`handle_prompt_await` + the cron session
@@ -281,6 +281,14 @@ pub(crate) enum SockCommand {
         payload: serde_json::Value,
         reply_tx: oneshot::Sender<String>,
     },
+    /// Local fast-path RPC from `POST /v1/rpc`. `payload` is the raw
+    /// `teamclaw.RpcRequest` protobuf bytes (identical to what a client
+    /// would publish on `amux/{team}/{actor}/rpc/req`); `reply_tx` receives
+    /// the encoded `teamclaw.RpcResponse` bytes or a dispatch error.
+    LocalRpc {
+        payload: Vec<u8>,
+        reply_tx: oneshot::Sender<Result<Vec<u8>, String>>,
+    },
     /// Remote tool invoke from `amuxd remote-tools-mcp` stdio bridge.
     RemoteToolCall {
         payload: serde_json::Value,
@@ -363,7 +371,9 @@ fn load_provider_config_from_default_paths() -> crate::error::Result<Option<Prov
         .map_err(|e| crate::error::AmuxError::Config(format!("backend config init failed: {e}")))
 }
 
-pub fn backend_from_provider_config(config: ProviderConfig) -> crate::error::Result<Arc<dyn Backend>> {
+pub fn backend_from_provider_config(
+    config: ProviderConfig,
+) -> crate::error::Result<Arc<dyn Backend>> {
     match config {
         ProviderConfig::CloudApi(config) => {
             // Rotated refresh tokens are written back to the same backend.toml
@@ -449,10 +459,7 @@ impl crate::http::setup::OnboardingService for DaemonOnboarding {
         })
     }
 
-    async fn claim(
-        &self,
-        invite_url: &str,
-    ) -> Result<crate::http::setup::ClaimOutcome, String> {
+    async fn claim(&self, invite_url: &str) -> Result<crate::http::setup::ClaimOutcome, String> {
         // Same path `amuxd init` takes (writes backend.toml + daemon.toml), so
         // the CLI and the setup UI cannot drift on what onboarding means.
         let outcome = crate::onboarding::init::run(invite_url, None)
@@ -465,8 +472,8 @@ impl crate::http::setup::OnboardingService for DaemonOnboarding {
         let path = ProviderConfig::default_path().map_err(|e| format!("backend path: {e}"))?;
         let provider_config = ProviderConfig::load_from_path(&path)
             .map_err(|e| format!("read new backend.toml: {e}"))?;
-        let backend =
-            backend_from_provider_config(provider_config).map_err(|e| format!("build backend: {e}"))?;
+        let backend = backend_from_provider_config(provider_config)
+            .map_err(|e| format!("build backend: {e}"))?;
 
         self.deferred.install(backend);
 
@@ -623,7 +630,8 @@ impl DaemonServer {
             .join("history");
         let history = EventHistory::new(&history_dir);
 
-        let agents = Arc::new(AsyncMutex::new(RuntimeManager::new(
+        let agents = Arc::new(AsyncMutex::new(RuntimeManager::with_local_agent(
+            &config.agents.local_agent,
             launch_configs,
             Some(backend.clone()),
         )));
@@ -780,8 +788,7 @@ impl DaemonServer {
             }
         }
         if self.config.team_id.is_some() {
-            let publisher =
-                Publisher::new_from_handle(self.publisher_handle.clone(), &self.topics);
+            let publisher = Publisher::new_from_handle(self.publisher_handle.clone(), &self.topics);
             if let Err(e) = publisher
                 .publish_actor_presence(&crate::proto::amux::ActorPresence {
                     online: true,
@@ -853,6 +860,10 @@ impl DaemonServer {
 
         let (register_workspace_tx, mut register_workspace_rx) =
             mpsc::channel::<crate::http::state::RegisterWorkspaceRequest>(16);
+        // Bridge: `POST /v1/rpc` (HTTP, local fast-path) → the actor command
+        // loop, which owns the same dispatch the MQTT `rpc/req` topic feeds.
+        let (local_rpc_tx, mut local_rpc_rx) =
+            mpsc::channel::<crate::http::state::LocalRpcRequest>(32);
         // Shared status for the background agent_types advertise (below). Held
         // here so `/v1/info` (via `meta`) and the advertise task both reference
         // the same cell — a failed advertise surfaces instead of being swallowed.
@@ -931,6 +942,7 @@ impl DaemonServer {
                 Some(Arc::new(DaemonOnboarding {
                     deferred: self.deferred_backend.clone(),
                 })),
+                Some(local_rpc_tx),
             )
             .await
             {
@@ -1087,6 +1099,26 @@ impl DaemonServer {
                     if bridge_tx
                         .send(SockCommand::AddWorkspace {
                             path: req.path,
+                            reply_tx: req.reply_tx,
+                        })
+                        .await
+                        .is_err()
+                    {
+                        break;
+                    }
+                }
+            });
+        }
+
+        // Forward HTTP `/v1/rpc` dispatches into the command loop, where they
+        // land on the same `dispatch_rpc_request` the MQTT rpc/req path uses.
+        {
+            let bridge_tx = sock_tx.clone();
+            tokio::spawn(async move {
+                while let Some(req) = local_rpc_rx.recv().await {
+                    if bridge_tx
+                        .send(SockCommand::LocalRpc {
+                            payload: req.payload,
                             reply_tx: req.reply_tx,
                         })
                         .await
@@ -1437,7 +1469,11 @@ impl DaemonServer {
             }
 
             // ── 5. Subscribe and announce ──
-            if self.mqtt_resubscribe_after_connack("initial").await.is_err() {
+            if self
+                .mqtt_resubscribe_after_connack("initial")
+                .await
+                .is_err()
+            {
                 continue 'outer;
             }
             info!(actor_id = %self.config.actor.id, "MQTT connected, listening for commands");
@@ -1528,6 +1564,10 @@ impl DaemonServer {
                             Some(SockCommand::RemoteToolCall { payload, reply_tx }) => {
                                 self.spawn_remote_tool_sock_handler(payload, reply_tx)
                                     .await;
+                            }
+                            Some(SockCommand::LocalRpc { payload, reply_tx }) => {
+                                let reply = self.dispatch_local_rpc(&payload).await;
+                                let _ = reply_tx.send(reply);
                             }
                             Some(SockCommand::PromptAwait { payload, reply_tx }) => {
                                 // Fast setup inline; the turn runs on a task and
@@ -1930,6 +1970,10 @@ impl DaemonServer {
                             Some(SockCommand::RemoteToolCall { payload, reply_tx }) => {
                                 self.spawn_remote_tool_sock_handler(payload, reply_tx)
                                     .await;
+                            }
+                            Some(SockCommand::LocalRpc { payload, reply_tx }) => {
+                                let reply = self.dispatch_local_rpc(&payload).await;
+                                let _ = reply_tx.send(reply);
                             }
                             Some(SockCommand::PromptAwait { payload, reply_tx }) => {
                                 // Fast setup inline; the turn runs on a task and
@@ -2959,8 +3003,14 @@ pub(crate) mod tests {
         let error = validate_config_identity(&config, backend.as_ref()).unwrap_err();
 
         let message = error.to_string();
-        assert!(message.contains("daemon.toml team_id=team-config-test"), "{message}");
-        assert!(message.contains("backend.toml team_id=team-test"), "{message}");
+        assert!(
+            message.contains("daemon.toml team_id=team-config-test"),
+            "{message}"
+        );
+        assert!(
+            message.contains("backend.toml team_id=team-test"),
+            "{message}"
+        );
         assert!(message.contains("actor_id=actor-config-test"), "{message}");
         assert!(message.contains("actor_id=agent-actor"), "{message}");
     }
@@ -2989,7 +3039,10 @@ pub(crate) mod tests {
             Some(Instant::now()),
             Duration::from_secs(90)
         ));
-        assert!(!super::mqtt_disconnect_rebuild_due(None, Duration::from_secs(90)));
+        assert!(!super::mqtt_disconnect_rebuild_due(
+            None,
+            Duration::from_secs(90)
+        ));
     }
 
     pub(crate) fn test_mqtt(actor_id: &str) -> MqttClient {
@@ -3026,9 +3079,9 @@ pub(crate) mod tests {
         let publisher_handle: Arc<dyn MessagePublisher> = Arc::new(mqtt.client.clone());
         let topics = mqtt.topics.clone();
         let workspace_resolver = Arc::new(crate::config::WorkspaceResolver::new(backend.clone()));
-        let deferred_backend = Arc::new(
-            crate::backend::deferred::DeferredBackend::claimed(backend.clone()),
-        );
+        let deferred_backend = Arc::new(crate::backend::deferred::DeferredBackend::claimed(
+            backend.clone(),
+        ));
         let (cron_turn_done_tx, cron_turn_done_rx) = mpsc::channel(64);
         TestServer {
             server: DaemonServer {

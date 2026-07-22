@@ -21,7 +21,9 @@ import { Textarea } from '@/components/ui/textarea'
 import {
   Select,
   SelectContent,
+  SelectGroup,
   SelectItem,
+  SelectLabel,
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select'
@@ -51,6 +53,7 @@ import { useChannelsStore } from '@/stores/channels'
 import { useWorkspaceStore } from '@/stores/workspace'
 import { useCurrentTeamStore } from '@/stores/current-team'
 import { loadCronDialogModels, type CronModelGroup } from '@/lib/cron-workspace-models'
+import { groupAgentModelOptions } from '@/lib/agent-available-models'
 import { useRuntimeStateStore } from '@/stores/runtime-state-store'
 import { ToggleSwitch } from '../shared'
 import {
@@ -112,6 +115,20 @@ export function CronJobDialog({
   const modelOptions = React.useMemo(
     () => modelGroups.flatMap((group) => group.models),
     [modelGroups],
+  )
+
+  // Group by provider for display, matching the chat prompt-input model picker
+  // (opencode CLI's two-level provider → models presentation).
+  const providerGroups = React.useMemo(
+    () =>
+      groupAgentModelOptions(
+        modelOptions.map((m) => ({
+          id: m.ref,
+          displayName: m.name,
+          providerName: m.providerName,
+        })),
+      ),
+    [modelOptions],
   )
 
   React.useEffect(() => {
@@ -389,10 +406,15 @@ export function CronJobDialog({
                             {t('settings.cron.noModels', 'No models advertised. Start an agent session in chat first, or configure providers in LLM settings.')}
                           </div>
                         )}
-                        {modelOptions.map((model) => (
-                          <SelectItem key={model.ref} value={model.ref}>
-                            {model.name}
-                          </SelectItem>
+                        {providerGroups.map((group) => (
+                          <SelectGroup key={group.providerName}>
+                            <SelectLabel>{group.providerName}</SelectLabel>
+                            {group.models.map((model) => (
+                              <SelectItem key={model.id} value={model.id}>
+                                {model.displayName || model.id}
+                              </SelectItem>
+                            ))}
+                          </SelectGroup>
                         ))}
                       </SelectContent>
                     </Select>

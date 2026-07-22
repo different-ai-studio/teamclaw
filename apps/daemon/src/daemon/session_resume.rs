@@ -137,7 +137,14 @@ mod tests {
     #[test]
     fn stored_sessions_filter_match_vs_session_only() {
         let mut store = SessionStore::default();
-        store.upsert(stored("rt-a", "cloud-1", 1, "acp-a", amux::AgentType::Opencode, "ws-a"));
+        store.upsert(stored(
+            "rt-a",
+            "cloud-1",
+            1,
+            "acp-a",
+            amux::AgentType::Opencode,
+            "ws-a",
+        ));
         store.upsert(stored(
             "rt-b",
             "cloud-1",
@@ -158,11 +165,8 @@ mod tests {
         assert_eq!(matched.len(), 1);
         assert_eq!(matched[0].runtime_id, "rt-a");
 
-        let all = stored_sessions_for_collab_resume(
-            &store,
-            "cloud-1",
-            CollabResumeFilter::SessionOnly,
-        );
+        let all =
+            stored_sessions_for_collab_resume(&store, "cloud-1", CollabResumeFilter::SessionOnly);
         assert_eq!(all.len(), 2);
     }
 
@@ -192,22 +196,8 @@ mod tests {
     #[test]
     fn dedup_keeps_newest_runtime_id() {
         let stored = vec![
-            stored(
-                "old",
-                "s1",
-                1,
-                "acp-old",
-                amux::AgentType::Opencode,
-                "ws-1",
-            ),
-            stored(
-                "new",
-                "s1",
-                2,
-                "acp-new",
-                amux::AgentType::Opencode,
-                "ws-1",
-            ),
+            stored("old", "s1", 1, "acp-old", amux::AgentType::Opencode, "ws-1"),
+            stored("new", "s1", 2, "acp-new", amux::AgentType::Opencode, "ws-1"),
         ];
         let (keep, superseded) = dedup_resumable_runtimes(stored);
         assert_eq!(keep.len(), 1);

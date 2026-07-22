@@ -135,8 +135,12 @@ pub fn classify_change_path(
             Some(RefreshChangeKind::TeamclawConfig)
         } else if path.starts_with(workspace.workspace_path.join(TEAM_LINK_NAME).join(".mcp")) {
             Some(RefreshChangeKind::Mcp)
-        } else if path.starts_with(workspace.workspace_path.join(TEAM_LINK_NAME).join("_secrets"))
-            || path.starts_with(workspace.workspace_path.join("teamclaw").join("_secrets"))
+        } else if path.starts_with(
+            workspace
+                .workspace_path
+                .join(TEAM_LINK_NAME)
+                .join("_secrets"),
+        ) || path.starts_with(workspace.workspace_path.join("teamclaw").join("_secrets"))
         {
             Some(RefreshChangeKind::EnvVars)
         } else if path.starts_with(workspace.workspace_path.join(".teamclaw/skills"))
@@ -388,11 +392,12 @@ pub fn start_refresh_watchers(
         let mut reconcile = tokio::time::interval(WATCH_RECONCILE_INTERVAL);
         reconcile.set_missed_tick_behavior(MissedTickBehavior::Skip);
 
-        let reconcile_now =
-            |watcher: &mut RecommendedWatcher, watched: &mut HashSet<PathBuf>, workspaces: &[WatchedWorkspace]| {
-                let desired = desired_watch_targets(workspaces, home.as_deref());
-                reconcile_watches(watcher, &desired, watched);
-            };
+        let reconcile_now = |watcher: &mut RecommendedWatcher,
+                             watched: &mut HashSet<PathBuf>,
+                             workspaces: &[WatchedWorkspace]| {
+            let desired = desired_watch_targets(workspaces, home.as_deref());
+            reconcile_watches(watcher, &desired, watched);
+        };
 
         {
             let workspaces = watch_registry.snapshot().await;
@@ -665,7 +670,9 @@ mod tests {
         )
         .await;
         let leaked = leaky.workspace_state(&workspace_id).await.unwrap();
-        assert!(leaked.change_kinds.contains(&RefreshChangeKind::OpencodeJson));
+        assert!(leaked
+            .change_kinds
+            .contains(&RefreshChangeKind::OpencodeJson));
 
         // --- fixed order: await → suppress → write ---
         let covered = RuntimeRefreshCoordinator::new();

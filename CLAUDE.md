@@ -78,7 +78,7 @@ pnpm ios:test               # iOS UI tests
 **Monorepo layout:**
 - `packages/app/` — React 19 frontend (TypeScript, Tailwind 4, Zustand, Vite)
 - `apps/desktop/` — Rust/Tauri backend (commands, RAG via Tantivy, STT via Whisper)
-- `apps/daemon/` — amuxd daemon (ACP runtime, MQTT/Supabase bridge)
+- `apps/daemon/` — amuxd daemon (opencode HTTP runtime, MQTT/Supabase bridge)
 - `apps/ios/` — iOS app, Xcode project, and Swift packages
 - `services/supabase/` — Supabase migrations, seed, and database tests
 - `services/fc/` — Cloud API service (Node.js 20). Deploys two ways: as the
@@ -99,6 +99,12 @@ pnpm ios:test               # iOS UI tests
 - `apps/desktop/binaries/` — sidecar binaries (teamclaw-introspect, etc.)
 
 **Editor system:** Markdown (Tiptap) / HTML (Tiptap + sandbox preview) / Code (CodeMirror 6 + Shiki)
+
+**Agent runtime:** the amuxd daemon drives official opencode (sst/opencode)
+over `opencode serve` HTTP — a single global opencode instance per device, one
+opencode session per TeamClaw session. The former multi-agent ACP layer
+(claude-code / codex adapters, per-runtime processes) has been removed. See
+`docs/architecture/single-agent-opencode-http.md`.
 
 ## Backend Access Boundary — Cloud API is the only client backend
 

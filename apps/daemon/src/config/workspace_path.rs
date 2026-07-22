@@ -29,7 +29,9 @@ mod tests {
         let tmp = tempfile::tempdir().unwrap();
         std::env::set_var("HOME", tmp.path());
         let amuxd = super::super::DaemonConfig::config_dir();
-        assert!(!is_linkable_workspace_path(&amuxd.join("teams/t1").to_string_lossy()));
+        assert!(!is_linkable_workspace_path(
+            &amuxd.join("teams/t1").to_string_lossy()
+        ));
         assert!(is_linkable_workspace_path("/tmp/my-project"));
     }
 }

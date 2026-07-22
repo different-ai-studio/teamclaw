@@ -15,6 +15,7 @@ mod nats;
 mod onboarding;
 mod opencode_install;
 mod opencode_settings;
+mod pi_install;
 mod proto;
 mod provider_config;
 mod remote_tools;
@@ -113,9 +114,9 @@ fn main() -> anyhow::Result<()> {
             let rt = tokio::runtime::Runtime::new()?;
             rt.block_on(async {
                 let (tx, mut rx) = tokio::sync::mpsc::channel(256);
-                let binary = "claude".to_string();
+                let binary = "opencode".to_string();
                 println!(
-                    "Spawning ACP agent: {} with prompt \"{}\" in {}",
+                    "Spawning opencode agent: {} with prompt \"{}\" in {}",
                     binary, prompt, worktree
                 );
 
@@ -127,7 +128,7 @@ fn main() -> anyhow::Result<()> {
                     Vec::new(),
                     worktree.clone(),
                     prompt.clone(),
-                    proto::amux::AgentType::ClaudeCode,
+                    proto::amux::AgentType::Opencode,
                     tx,
                     None,
                     startup_tx,
@@ -189,6 +190,9 @@ fn main() -> anyhow::Result<()> {
         }
         Commands::InstallOpencode { force } => {
             cli::install_opencode::run(force)?;
+        }
+        Commands::InstallPi { force } => {
+            pi_install::run_install(force)?;
         }
         Commands::Channel(args) => {
             let path = config::DaemonConfig::default_path();

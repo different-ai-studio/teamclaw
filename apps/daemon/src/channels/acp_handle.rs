@@ -866,39 +866,30 @@ impl AcpHandle for AmuxdAcpHandle {
             .collect())
     }
 
-    async fn list_agents(&self, session: &AmuxSessionId) -> Result<Vec<AgentInfo>, AcpError> {
-        let current = {
-            let overrides = self.agent_type_override.lock().await;
-            overrides
-                .get(session.as_str())
-                .copied()
-                .or(self.default_agent_type)
-                .unwrap_or(amux::AgentType::ClaudeCode)
-        };
-        Ok(vec![
-            AgentInfo {
-                agent_type: "claude-code".to_string(),
-                is_current: current == amux::AgentType::ClaudeCode,
-            },
-            AgentInfo {
-                agent_type: "opencode".to_string(),
-                is_current: current == amux::AgentType::Opencode,
-            },
-            AgentInfo {
-                agent_type: "codex".to_string(),
-                is_current: current == amux::AgentType::Codex,
-            },
-        ])
+    /// Single-agent mode: opencode is the only backend, so it is always the
+    /// (only) advertised and current agent.
+    async fn list_agents(&self, _session: &AmuxSessionId) -> Result<Vec<AgentInfo>, AcpError> {
+        Ok(vec![AgentInfo {
+            agent_type: "opencode".to_string(),
+            is_current: true,
+        }])
     }
 
+    /// Accepts the legacy `claude-code` / `codex` names for back-compat, but
+    /// every request resolves to opencode (single-agent mode).
     async fn set_agent(&self, session: &AmuxSessionId, agent_type: &str) -> Result<(), AcpError> {
         let t = match agent_type {
-            "claude-code" => amux::AgentType::ClaudeCode,
             "opencode" => amux::AgentType::Opencode,
-            "codex" => amux::AgentType::Codex,
+            "claude-code" | "claude" | "claude_code" | "codex" => {
+                tracing::warn!(
+                    requested = agent_type,
+                    "legacy agent type requested; rerouting to opencode (single-agent mode)"
+                );
+                amux::AgentType::Opencode
+            }
             other => {
                 return Err(AcpError::NotFound(format!(
-                    "unknown agent type '{other}'; valid: claude-code, opencode, codex"
+                    "unknown agent type '{other}'; valid: opencode"
                 )))
             }
         };
@@ -1041,6 +1032,30 @@ mod tests {
             workspace_override: Arc::new(Mutex::new(HashMap::new())),
             bot_configs: Arc::new(HashMap::new()),
         }
+    }
+
+    #[tokio::test]
+    async fn list_agents_returns_only_opencode() {
+        let handle = make_handle();
+        let agents = handle
+            .list_agents(&AmuxSessionId::from("sess-1".to_string()))
+            .await
+            .unwrap();
+        assert_eq!(agents.len(), 1);
+        assert_eq!(agents[0].agent_type, "opencode");
+        assert!(agents[0].is_current);
+    }
+
+    #[tokio::test]
+    async fn set_agent_reroutes_legacy_names_to_opencode() {
+        let handle = make_handle();
+        let sid = AmuxSessionId::from("sess-1".to_string());
+        for name in ["claude-code", "claude", "claude_code", "codex", "opencode"] {
+            handle.set_agent(&sid, name).await.unwrap();
+            let ov = handle.agent_type_override.lock().await;
+            assert_eq!(ov.get("sess-1"), Some(&amux::AgentType::Opencode), "{name}");
+        }
+        assert!(handle.set_agent(&sid, "gpt").await.is_err());
     }
 
     /// Drive a `TurnAggregator` and `absorb_emitted` — the same pair

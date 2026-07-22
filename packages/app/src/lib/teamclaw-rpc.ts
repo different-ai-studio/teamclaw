@@ -15,6 +15,9 @@ import {
 } from '@/lib/proto/teamclaw_pb'
 import { mqttPublish, mqttSubscribe, listenForEnvelopes, type IncomingEnvelope } from '@/lib/mqtt-bridge'
 import { recordMqttDiag } from '@/lib/mqtt-diagnostics'
+import { getKnownLocalDaemonActorId } from '@/lib/local-daemon-identity'
+import { resolveAgentDevicePresenceSync } from '@/lib/agent-device-reachability'
+import { isTauri } from '@/lib/utils'
 
 // ---------------------------------------------------------------------------
 // Module-scoped state
@@ -143,6 +146,70 @@ function handleEnvelope(env: IncomingEnvelope): void {
 }
 
 // ---------------------------------------------------------------------------
+// Local HTTP fast path (Tauri only)
+// ---------------------------------------------------------------------------
+//
+// When the target actor is this machine's amuxd daemon, commands go over
+// loopback HTTP (`POST /v1/rpc` via the `daemon_rpc` Tauri command) instead
+// of round-tripping through the cloud EMQX broker. Any local failure falls
+// back to the MQTT path transparently and pauses the fast path for a cooldown
+// window so a down daemon doesn't add per-request latency (no flapping).
+// Browser builds and remote agents always use MQTT — behavior unchanged.
+
+const LOCAL_RPC_TIMEOUT_MS = 10_000
+const LOCAL_RPC_FAILURE_COOLDOWN_MS = 30_000
+let localRpcFailedUntil = 0
+
+/** @internal test hook */
+export function __resetLocalRpcFailureForTest(): void {
+  localRpcFailedUntil = 0
+}
+
+function shouldTryLocalRpc(targetActorId: string): boolean {
+  if (!isTauri()) return false
+  if (Date.now() < localRpcFailedUntil) return false
+  const localActorId = getKnownLocalDaemonActorId()
+  if (!localActorId || localActorId !== targetActorId) return false
+  // Cached device-presence signal (local HTTP probe + daemon MQTT link, 5s
+  // TTL). "offline" means the local daemon is known-unreachable right now;
+  // skip straight to MQTT without burning the HTTP timeout.
+  return resolveAgentDevicePresenceSync(targetActorId) !== 'offline'
+}
+
+function noteLocalRpcFailure(): void {
+  localRpcFailedUntil = Date.now() + LOCAL_RPC_FAILURE_COOLDOWN_MS
+}
+
+function bytesToBase64(bytes: Uint8Array): string {
+  let binary = ''
+  bytes.forEach((b) => (binary += String.fromCharCode(b)))
+  return btoa(binary)
+}
+
+function base64ToBytes(b64: string): Uint8Array {
+  const binary = atob(b64)
+  const bytes = new Uint8Array(binary.length)
+  for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i)
+  return bytes
+}
+
+async function sendViaLocalHttp(req: RpcRequest): Promise<RpcResponse> {
+  const { invoke } = await import('@tauri-apps/api/core')
+  const payloadB64 = bytesToBase64(toBinary(RpcRequestSchema, req))
+  const replyB64 = await Promise.race([
+    invoke<string>('daemon_rpc', { payloadB64 }),
+    new Promise<never>((_, reject) =>
+      setTimeout(() => reject(new Error(`local rpc timeout after ${LOCAL_RPC_TIMEOUT_MS}ms`)), LOCAL_RPC_TIMEOUT_MS),
+    ),
+  ])
+  const response = fromBinary(RpcResponseSchema, base64ToBytes(replyB64))
+  if (response.requestId !== req.requestId) {
+    throw new Error(`local rpc response id mismatch: ${response.requestId} !== ${req.requestId}`)
+  }
+  return response
+}
+
+// ---------------------------------------------------------------------------
 // Core send helper
 // ---------------------------------------------------------------------------
 
@@ -179,6 +246,30 @@ async function sendRequest(
     timeoutMs,
     teamId,
   })
+
+  // Local daemon fast path: loopback HTTP first, MQTT on any failure.
+  if (shouldTryLocalRpc(targetActorId)) {
+    try {
+      const response = await sendViaLocalHttp(req)
+      recordMqttDiag('teamclaw-rpc', 'request:local-http-ok', {
+        requestId,
+        targetActorId,
+        method: req.method.case,
+        success: response.success,
+      })
+      return response
+    } catch (err) {
+      noteLocalRpcFailure()
+      recordMqttDiag('teamclaw-rpc', 'request:local-http-fallback', {
+        requestId,
+        targetActorId,
+        method: req.method.case,
+        cooldownMs: LOCAL_RPC_FAILURE_COOLDOWN_MS,
+        error: err instanceof Error ? { name: err.name, message: err.message } : String(err),
+      })
+      // Fall through to the MQTT path below.
+    }
+  }
 
   return new Promise<RpcResponse>((resolve, reject) => {
     const timer = setTimeout(() => {

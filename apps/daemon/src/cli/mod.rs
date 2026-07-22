@@ -1,13 +1,13 @@
 pub mod channel;
 pub mod clear;
 pub mod config_cmd;
-pub mod setup;
 pub mod doctor;
 pub mod install_opencode;
 pub mod mcp_server;
 pub mod process;
 pub mod remote_tools_mcp;
 pub mod service;
+pub mod setup;
 pub mod team_secrets;
 pub mod test_client;
 
@@ -85,6 +85,12 @@ pub enum Commands {
     Doctor,
     /// Download and install the opencode binary into ~/.amuxd/bin/opencode.
     InstallOpencode {
+        /// Reinstall even if the locked version is already present.
+        #[arg(long)]
+        force: bool,
+    },
+    /// Install or upgrade the pi coding agent (npm/bun global install).
+    InstallPi {
         /// Reinstall even if the locked version is already present.
         #[arg(long)]
         force: bool,

@@ -462,7 +462,6 @@
       "placeholderModelHint": "No live runtime — dropdown will default to this model",
       "searchModelPlaceholder": "Search models…",
       "noMatchingModels": "No matching models",
-      "modelHeading": "Model",
       "removeMention": "Remove mention",
       "modelChangeFailed": "Failed to change model",
       "modelChangeWillRetry": "Pick saved; will reapply on next send. Detail: {{message}}",
@@ -1363,11 +1362,7 @@
       "visibility": "Visibility",
       "shareWithTeam": "Share with the team",
       "agentId": "Agent ID",
-      "backendTypes": "Backend types",
-      "backendHint": "Click a type to make it the default",
-      "setAsDefault": "Set as default backend",
-      "isDefaultBackend": "Default backend",
-      "noBackends": "This daemon has not advertised any backend types yet.",
+      "runtime": "Runtime",
       "cloudExpiredTitle": "Local daemon cloud session expired",
       "cloudExpiredDesc": "The daemon's sign-in credentials are no longer valid, so it can't report its backend types or sync. Trying to reconnect automatically.",
       "cloudExpiredReconnecting": "Reconnecting the daemon (reissuing credentials and restarting)…",
@@ -2489,7 +2484,9 @@
       "install": "Install",
       "installed": "Installed",
       "installing": "Installing...",
-      "retry": "Retry"
+      "retry": "Retry",
+      "update": "Update",
+      "updating": "Updating..."
     },
     "gitStatus": {
       "modified": "Modified",

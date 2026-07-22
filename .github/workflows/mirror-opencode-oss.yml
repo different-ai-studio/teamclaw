@@ -1,16 +1,15 @@
-name: Mirror opencode fork to OSS
+name: Mirror opencode to OSS
 
 on:
-  # Keep the OSS mirror in lock-step with the version amuxd requires. Any change
-  # to the embedded lock file re-mirrors so beta/prod never fall back to GitHub.
-  push:
-    branches: [main]
-    paths:
-      - "apps/daemon/opencode.lock.json"
+  # Track the LATEST official opencode release and mirror it to OSS daily, so
+  # beta/prod installs always get the newest version without falling back to
+  # GitHub. 18:00 UTC == 02:00 Asia/Shanghai (凌晨).
+  schedule:
+    - cron: "0 18 * * *"
   workflow_dispatch:
     inputs:
       tag:
-        description: "fork release tag to mirror (blank = read from apps/daemon/opencode.lock.json)"
+        description: "release tag to mirror (blank = latest official sst/opencode release)"
         required: false
         default: ""
 
@@ -18,7 +17,7 @@ jobs:
   mirror:
     runs-on: ubuntu-latest
     env:
-      FORK_REPO: different-ai-studio/opencode
+      OPENCODE_REPO: sst/opencode
       OSS_PREFIX: opencode/stable
     steps:
       - name: Checkout
@@ -28,18 +27,19 @@ jobs:
         id: tag
         env:
           INPUT_TAG: ${{ github.event.inputs.tag }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           set -euo pipefail
           TAG="${INPUT_TAG:-}"
           if [ -z "$TAG" ]; then
-            TAG=$(python3 -c "import json;print(json.load(open('apps/daemon/opencode.lock.json'))['version'])")
+            # Default: the latest official (non-prerelease) opencode release.
+            TAG=$(gh release view --repo "$OPENCODE_REPO" --json tagName --jq .tagName)
           fi
           echo "tag=$TAG" >> "$GITHUB_OUTPUT"
-          echo "Mirroring fork release: $TAG"
-      # Assumes different-ai-studio/opencode releases are PUBLIC: the default
-      # GITHUB_TOKEN is scoped to this repo. If the fork becomes private, replace
-      # GH_TOKEN with a PAT secret that has read access to it.
-      - name: Download fork release assets
+          echo "Mirroring official opencode release: $TAG"
+      # sst/opencode releases are PUBLIC, so the default repo-scoped GITHUB_TOKEN
+      # can read them via the GitHub API.
+      - name: Download release assets
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           TAG: ${{ steps.tag.outputs.tag }}
@@ -53,10 +53,10 @@ jobs:
             opencode-linux-x64.tar.gz \
             opencode-linux-arm64.tar.gz \
             opencode-windows-arm64.zip; do
-            if gh release download "$TAG" --repo "$FORK_REPO" --pattern "$a" --dir assets --clobber; then
+            if gh release download "$TAG" --repo "$OPENCODE_REPO" --pattern "$a" --dir assets --clobber; then
               echo "✓ got $a"
             else
-              echo "::warning::asset $a not found in $FORK_REPO@$TAG — skipping"
+              echo "::warning::asset $a not found in $OPENCODE_REPO@$TAG — skipping"
             fi
           done
           echo "--- downloaded ---"

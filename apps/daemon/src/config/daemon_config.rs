@@ -222,6 +222,13 @@ pub struct AgentsConfig {
     /// and writes missing `[agents.*]` sections to `daemon.toml`.
     #[serde(default = "default_true")]
     pub auto_discover: bool,
+    /// Local agent runtime backing this daemon: "opencode" (default) or "pi".
+    /// Seeded from the desktop build config's `localAgent` during onboarding.
+    /// Only "opencode" is implemented today; "pi" is reserved for the pi RPC
+    /// backend (docs/architecture/pi-agent-backend.md) and currently falls
+    /// back to opencode with a warning.
+    #[serde(default = "default_local_agent")]
+    pub local_agent: String,
     #[serde(default)]
     pub claude_code: Option<AgentBackendConfig>,
     #[serde(default)]
@@ -230,10 +237,15 @@ pub struct AgentsConfig {
     pub codex: Option<AgentBackendConfig>,
 }
 
+fn default_local_agent() -> String {
+    "opencode".to_string()
+}
+
 impl Default for AgentsConfig {
     fn default() -> Self {
         Self {
             auto_discover: true,
+            local_agent: default_local_agent(),
             claude_code: None,
             opencode: None,
             codex: None,
@@ -654,10 +666,19 @@ mod tests {
 
     #[test]
     fn control_pipe_suffix_sanitizes_to_safe_charset() {
-        assert_eq!(DaemonConfig::control_pipe_suffix_from("matt.chow"), "matt-chow");
+        assert_eq!(
+            DaemonConfig::control_pipe_suffix_from("matt.chow"),
+            "matt-chow"
+        );
         // 2 CJK chars + 1 space -> 3 dashes.
-        assert_eq!(DaemonConfig::control_pipe_suffix_from("\u{7b80}\u{4f53} user"), "---user");
-        assert_eq!(DaemonConfig::control_pipe_suffix_from("Win_User-1"), "Win_User-1");
+        assert_eq!(
+            DaemonConfig::control_pipe_suffix_from("\u{7b80}\u{4f53} user"),
+            "---user"
+        );
+        assert_eq!(
+            DaemonConfig::control_pipe_suffix_from("Win_User-1"),
+            "Win_User-1"
+        );
     }
 
     #[test]
@@ -677,7 +698,10 @@ mod tests {
         let path = dir.path().join("daemon.toml");
 
         let first = DaemonConfig::load_or_bootstrap(&path).unwrap();
-        assert!(path.exists(), "bootstrap must persist, or the id would drift");
+        assert!(
+            path.exists(),
+            "bootstrap must persist, or the id would drift"
+        );
 
         // The whole point of persisting: a second start reuses the same actor
         // id rather than silently re-keying MQTT topic ACLs.

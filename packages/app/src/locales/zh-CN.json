@@ -462,7 +462,6 @@
       "placeholderModelHint": "暂无在线运行时，列表将默认使用此模型",
       "searchModelPlaceholder": "搜索模型…",
       "noMatchingModels": "没有匹配的模型",
-      "modelHeading": "模型",
       "removeMention": "移除提及",
       "modelChangeFailed": "切换模型失败",
       "modelChangeWillRetry": "选择已保存，将在下次发送消息时重新应用。详情：{{message}}",
@@ -1363,11 +1362,7 @@
       "visibility": "可见性",
       "shareWithTeam": "共享给团队",
       "agentId": "Agent ID",
-      "backendTypes": "Backend 类型",
-      "backendHint": "点击某个类型设为默认",
-      "setAsDefault": "设为默认 Backend",
-      "isDefaultBackend": "默认 Backend",
-      "noBackends": "该 Daemon 暂未上报任何 Backend 类型。",
+      "runtime": "运行时",
       "cloudExpiredTitle": "本机 Daemon 云端会话已过期",
       "cloudExpiredDesc": "Daemon 的登录凭证已失效，无法上报后端类型或同步。正在尝试自动重新连接。",
       "cloudExpiredReconnecting": "正在自动重新连接 Daemon（重新签发凭证并重启）…",
@@ -2489,7 +2484,9 @@
       "install": "安装",
       "installed": "已安装",
       "installing": "安装中...",
-      "retry": "重试"
+      "retry": "重试",
+      "update": "更新",
+      "updating": "更新中..."
     },
     "gitStatus": {
       "modified": "已修改",
