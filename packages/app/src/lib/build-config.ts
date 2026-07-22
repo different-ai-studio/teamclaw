@@ -83,6 +83,11 @@ export interface BuildConfig {
   opencode?: {
     downloadBase?: string
   }
+  /** Which local agent runtime this build targets. "opencode" (default) drives
+   *  the official opencode over `opencode serve` HTTP; "pi" selects the pi
+   *  coding-agent RPC backend (see docs/architecture/pi-agent-backend.md).
+   *  Flows into the daemon config (`agents.local_agent`) during onboarding. */
+  localAgent?: 'opencode' | 'pi'
   defaults: {
     theme: string
   }
@@ -156,6 +161,8 @@ export const appShortName: string = buildConfig.app.shortName ?? deriveShortName
  *  any UI string — `app.name` is the bundle identity and may differ. */
 export const appDisplayName: string = buildConfig.app.displayName ?? buildConfig.app.name
 export const appScheme: string = buildConfig.app.scheme ?? 'teamclaw'
+/** Local agent runtime for this build. Defaults to opencode. */
+export const localAgent: 'opencode' | 'pi' = buildConfig.localAgent === 'pi' ? 'pi' : 'opencode'
 export const DEFAULT_WORKSPACE_PATH = `~/${buildConfig.app.name}`
 export const TEAMCLAW_DIR = `.${appShortName}`
 /** Team share link + global sync dir name. Fixed across brands so daemon, git, and all clients agree. */
