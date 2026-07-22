@@ -5,8 +5,8 @@ use tracing::{info, warn};
 use uuid::Uuid;
 
 use super::agent_runtime_state::PerAgentRuntimeState;
+use super::backend::{create_backend, AgentBackend};
 use super::handle::RuntimeHandle;
-use super::opencode_http::AcpHostPool;
 use super::refresh::RuntimeRefreshCoordinator;
 use std::sync::Arc;
 
@@ -180,7 +180,9 @@ pub struct RuntimeManager {
     agents: HashMap<String, RuntimeHandle>,
     pub aggregators: std::collections::HashMap<String, TurnAggregator>,
     launch_configs: HashMap<amux::AgentType, AgentLaunchConfig>,
-    acp_host_pool: AcpHostPool,
+    /// Local agent backend (opencode HTTP today; pi RPC later), selected by
+    /// daemon config `agents.local_agent`.
+    acp_host_pool: Box<dyn AgentBackend>,
     /// Per-worktree MCP resolve snapshots; restored when the last agent on the worktree stops.
     opencode_snapshots: HashMap<String, opencode_snapshot::WorktreeOpencodeSnapshot>,
     /// Daemon-side mirror of per-agent ACP state (current model + last-announced
@@ -230,11 +232,21 @@ impl RuntimeManager {
         launch_configs: HashMap<amux::AgentType, AgentLaunchConfig>,
         backend: Option<Arc<dyn Backend>>,
     ) -> Self {
+        Self::with_local_agent("opencode", launch_configs, backend)
+    }
+
+    /// Like [`Self::new`] but selects the local agent backend from the daemon
+    /// config's `agents.local_agent` ("opencode" default | "pi").
+    pub fn with_local_agent(
+        local_agent: &str,
+        launch_configs: HashMap<amux::AgentType, AgentLaunchConfig>,
+        backend: Option<Arc<dyn Backend>>,
+    ) -> Self {
         Self {
             agents: HashMap::new(),
             aggregators: std::collections::HashMap::new(),
             launch_configs,
-            acp_host_pool: AcpHostPool::new(),
+            acp_host_pool: create_backend(local_agent),
             opencode_snapshots: HashMap::new(),
             agent_state: PerAgentRuntimeState::new(),
             backend,
