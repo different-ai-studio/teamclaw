@@ -2497,7 +2497,9 @@
       "install": "Install",
       "installed": "Installed",
       "installing": "Installing...",
-      "retry": "Retry"
+      "retry": "Retry",
+      "update": "Update",
+      "updating": "Updating..."
     },
     "gitStatus": {
       "modified": "Modified",

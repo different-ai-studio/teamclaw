@@ -99,6 +99,13 @@ jobs:
       - name: Rust cache
         uses: swatinem/rust-cache@v2
 
+      # The single-agent runtime tests spawn a real `opencode serve`
+      # (apply_start_runtime success paths), so the binary must be on PATH.
+      - name: Install opencode (runtime under test)
+        run: |
+          curl -fsSL https://opencode.ai/install | bash
+          echo "$HOME/.opencode/bin" >> "$GITHUB_PATH"
+
       - name: Run amuxd unit tests
         run: cargo test -p amuxd --locked
 
