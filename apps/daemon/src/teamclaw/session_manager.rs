@@ -1154,6 +1154,15 @@ impl SessionManager {
             .await;
     }
 
+    /// Announce an adopted session title on the session's live topic so
+    /// clients update their lists in place.
+    pub async fn publish_session_title(&self, session_id: &str, actor_id: &str, title: &str) {
+        let _ = self
+            .live_publisher
+            .publish_session_title(session_id, actor_id, title)
+            .await;
+    }
+
     /// Publish an agent's output as a session message.
     ///
     /// `model` is the model id the agent was running on when it produced this

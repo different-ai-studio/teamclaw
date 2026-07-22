@@ -94,6 +94,24 @@ impl LivePublisher {
         .await
     }
 
+    /// Announce an adopted session title so clients can update their session
+    /// lists in place (no refetch). Body is the UTF-8 title.
+    pub async fn publish_session_title(
+        &self,
+        session_id: &str,
+        actor_id: &str,
+        title: &str,
+    ) -> crate::error::Result<()> {
+        self.publish_with(
+            "session.title_updated",
+            session_id,
+            actor_id,
+            title.as_bytes().to_vec(),
+            DeliveryGuarantee::AtLeastOnce,
+        )
+        .await
+    }
+
     pub async fn publish_presence_event(
         &self,
         event_type: &str,

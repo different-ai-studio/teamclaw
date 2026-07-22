@@ -74,7 +74,67 @@ fn read_json_object(path: &Path) -> Result<serde_json::Value, WorkspaceControlEr
     }
     let content =
         std::fs::read_to_string(path).map_err(|e| WorkspaceControlError::Io(e.to_string()))?;
-    serde_json::from_str(&content).map_err(|e| WorkspaceControlError::Parse(e.to_string()))
+    match serde_json::from_str::<serde_json::Value>(&content) {
+        Ok(value) => Ok(value),
+        // A concurrent/partial write (e.g. a non-truncating overwrite by the
+        // opencode CLI) can leave trailing bytes after a valid top-level object,
+        // producing "trailing characters at line N". Rather than bricking the
+        // runtime, recover the first valid object, back up the bad file, and
+        // rewrite it clean so the workspace can start.
+        Err(err) => recover_leading_json_object(path, &content, err),
+    }
+}
+
+/// Salvage the first complete top-level JSON value from `content`. On success,
+/// preserve the corrupt bytes at `<path>.corrupt.bak` and rewrite `path` with the
+/// recovered object. Returns the original parse error if nothing is recoverable.
+fn recover_leading_json_object(
+    path: &Path,
+    content: &str,
+    original_err: serde_json::Error,
+) -> Result<serde_json::Value, WorkspaceControlError> {
+    let mut stream =
+        serde_json::Deserializer::from_str(content).into_iter::<serde_json::Value>();
+    let recovered = match stream.next() {
+        Some(Ok(value)) if value.is_object() => value,
+        _ => return Err(WorkspaceControlError::Parse(original_err.to_string())),
+    };
+
+    let backup = path.with_extension("json.corrupt.bak");
+    if let Err(e) = std::fs::write(&backup, content) {
+        warn!(
+            path = %path.display(),
+            error = %e,
+            "read_json_object: failed to back up corrupt config; leaving file untouched"
+        );
+        // Don't rewrite without a backup — just use the recovered value in-memory.
+        return Ok(recovered);
+    }
+
+    match serde_json::to_string_pretty(&recovered) {
+        Ok(clean) => {
+            if let Err(e) = std::fs::write(path, format!("{clean}\n")) {
+                warn!(
+                    path = %path.display(),
+                    error = %e,
+                    "read_json_object: failed to rewrite recovered config"
+                );
+            } else {
+                warn!(
+                    path = %path.display(),
+                    backup = %backup.display(),
+                    "read_json_object: recovered corrupt config (trailing bytes dropped); backup saved"
+                );
+            }
+        }
+        Err(e) => warn!(
+            path = %path.display(),
+            error = %e,
+            "read_json_object: could not re-serialize recovered config"
+        ),
+    }
+
+    Ok(recovered)
 }
 
 fn write_json_pretty(path: &Path, value: &serde_json::Value) -> Result<(), WorkspaceControlError> {
