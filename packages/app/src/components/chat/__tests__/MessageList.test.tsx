@@ -142,6 +142,41 @@ describe('MessageList', () => {
     expect(getByTestId('custom-empty')).toBeTruthy();
   });
 
+  it('keeps welcome emptyState visible while session list isLoading with no active session', () => {
+    useSessionStore.setState({ isLoading: true, activeSessionId: null });
+    const emptyStateNode = <div data-testid="welcome-empty">Ready when you are</div>;
+
+    const { getByTestId, queryByTestId } = render(
+      <MessageList
+        messages={[]}
+        activeSessionId={null}
+        isStreaming={false}
+        streamingMessageId={null}
+        emptyState={emptyStateNode}
+      />,
+    );
+
+    expect(getByTestId('welcome-empty')).toBeTruthy();
+    expect(queryByTestId('message-list-session-loading')).toBeNull();
+  });
+
+  it('shows session loading spinner when isLoading with an active session and no messages', () => {
+    useSessionStore.setState({ isLoading: true, activeSessionId: 'sess-1' });
+
+    const { getByTestId, queryByTestId } = render(
+      <MessageList
+        messages={[]}
+        activeSessionId="sess-1"
+        isStreaming={false}
+        streamingMessageId={null}
+        emptyState={<div data-testid="welcome-empty">Ready</div>}
+      />,
+    );
+
+    expect(getByTestId('message-list-session-loading')).toBeTruthy();
+    expect(queryByTestId('welcome-empty')).toBeNull();
+  });
+
   it('renders only the latest 80 messages initially and loads older messages on demand', () => {
     const messages = Array.from({ length: 140 }, (_, index) =>
       makeMessage({

@@ -101,7 +101,17 @@ vi.mock('lucide-react', async (importOriginal) => {
 
 beforeEach(() => {
   vi.clearAllMocks()
-  mockInvoke.mockResolvedValue(true)
+  mockInvoke.mockImplementation(async (cmd: string) => {
+    if (cmd === 'team_env_diagnostics') {
+      return {
+        linkExists: false,
+        targetAccessible: false,
+        linkPath: null,
+        targetPath: null,
+      }
+    }
+    return true
+  })
 })
 
 describe('EnvVarsSection', () => {

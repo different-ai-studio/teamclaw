@@ -11,6 +11,7 @@ const mocks = vi.hoisted(() => ({
     return () => {};
   }),
   listener: null as (() => void) | null,
+  isInternalBuild: vi.fn(() => false),
 }));
 
 vi.mock("react-i18next", () => ({
@@ -28,16 +29,27 @@ vi.mock("@/lib/teamclaw/flush-session-pending-permissions", () => ({
   flushSessionPendingPermissions: mocks.flushSessionPendingPermissions,
 }));
 
+vi.mock("@/lib/internal-build", () => ({
+  isInternalBuild: () => mocks.isInternalBuild(),
+}));
+
 import { PermissionApprovalModeSelect } from "../PermissionApprovalModeSelect";
 
 describe("PermissionApprovalModeSelect", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     mocks.getMode.mockReturnValue("default");
+    mocks.isInternalBuild.mockReturnValue(false);
   });
 
   it("hidden when sessionId is null", () => {
     const { container } = render(<PermissionApprovalModeSelect sessionId={null} />);
+    expect(container.firstChild).toBeNull();
+  });
+
+  it("hidden in internal builds", () => {
+    mocks.isInternalBuild.mockReturnValue(true);
+    const { container } = render(<PermissionApprovalModeSelect sessionId="sess-a" />);
     expect(container.firstChild).toBeNull();
   });
 

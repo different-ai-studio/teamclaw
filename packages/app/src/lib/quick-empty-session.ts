@@ -1,6 +1,7 @@
 import { resolveCurrentMemberActorId } from '@/lib/current-actor'
 import { createSessionShell } from '@/lib/session-create'
 import { ensureSessionLiveSubscribed } from '@/lib/session-live-subscriptions'
+import { markSessionNeedsAutoTitle } from '@/lib/session-auto-title'
 import { useAuthStore } from '@/stores/auth-store'
 import { useCurrentTeamStore } from '@/stores/current-team'
 import { useEngagedAgentStore } from '@/stores/engaged-agent-store'
@@ -52,6 +53,7 @@ export async function createQuickEmptySession(
     additionalActorIds: input.additionalActorIds,
     ideaId: draftIdeaId,
   })
+  markSessionNeedsAutoTitle(sessionId)
 
   if (draftIdeaId) {
     useUIStore.getState().clearDraftIdeaId()
