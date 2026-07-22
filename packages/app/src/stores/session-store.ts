@@ -1,5 +1,6 @@
 import { create } from "zustand";
 import type { Message } from "@/lib/proto/teamclaw_pb";
+import type { SessionErrorEvent } from "./session-types";
 import { useSessionMessageStore } from "./session-message-store";
 import { useSessionListStore } from "./session-list-store";
 import { createLoaderActions } from "./session-loader";
@@ -140,6 +141,8 @@ export const useSessionStore = create<SessionState>((set, get) => ({
   setDraftInput: (text: string) => set({ draftInput: text }),
   setError: (msg: string | null, sid?: string | null) =>
     set({ sessionError: msg, errorSessionId: sid ?? null }),
+  setSessionErrorEvent: (event: SessionErrorEvent) =>
+    set({ sessionError: event, errorSessionId: event?.sessionId ?? null }),
   clearSessionError: () => set({ sessionError: null, errorSessionId: null }),
   toggleSessionPinned: (sid: string) => {
     const teamId = useCurrentTeamStore.getState().team?.id ?? null;
