@@ -764,6 +764,7 @@
     "batchArchiveConfirmBody": "Archive {{count}} sessions. You can restore them from Archived later; messages are not deleted.",
     "batchArchiveThinkAgain": "Not now",
     "batchArchiveConfirmAction": "Archive",
+    "batchArchivePartialFail": "Archived {{ok}}, {{failed}} failed",
     "rename": "Rename",
     "viewDetail": "View detail",
     "showAllSessions": "Show all sessions",

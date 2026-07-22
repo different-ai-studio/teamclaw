@@ -764,6 +764,7 @@
     "batchArchiveConfirmBody": "将归档 {{count}} 个会话。归档后可从「已归档」中恢复，不会删除消息。",
     "batchArchiveThinkAgain": "再想想",
     "batchArchiveConfirmAction": "确认归档",
+    "batchArchivePartialFail": "已归档 {{ok}} 个，{{failed}} 个失败",
     "rename": "重命名",
     "viewDetail": "查看详情",
     "showAllSessions": "显示全部会话",

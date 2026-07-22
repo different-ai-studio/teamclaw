@@ -299,7 +299,10 @@ describe('SessionListColumn', () => {
   })
 
   it('enters batch select mode and archives selected sessions', async () => {
-    const archiveSession = vi.fn().mockResolvedValue(undefined)
+    const archiveSession = vi.fn(async (id: string) => {
+      const rows = useSessionListStore.getState().rows.filter((r) => r.id !== id)
+      useSessionListStore.setState({ rows })
+    })
     useUIStore.setState({ embedMode: true })
     useWorkspaceStore.setState({ workspacePath: '/tmp/ws' })
     useSessionListStore.setState({
@@ -347,6 +350,43 @@ describe('SessionListColumn', () => {
     })
     await vi.waitFor(() => {
       expect(screen.queryByTestId('v2-session-batch-bar')).not.toBeInTheDocument()
+    })
+  })
+
+  it('keeps failed sessions selected when batch archive partially fails', async () => {
+    const archiveSession = vi.fn(async (id: string) => {
+      if (id === 's3') return // simulate failure — row stays
+      const rows = useSessionListStore.getState().rows.filter((r) => r.id !== id)
+      useSessionListStore.setState({ rows })
+    })
+    useUIStore.setState({ embedMode: true })
+    useWorkspaceStore.setState({ workspacePath: '/tmp/ws' })
+    useSessionListStore.setState({
+      rows: [
+        mkSessionRow({ id: 's1', title: 'Alpha', idea_id: null }),
+        mkSessionRow({ id: 's2', title: 'Beta', idea_id: 'idea-1' }),
+        mkSessionRow({ id: 's3', title: 'Gamma', idea_id: 'idea-1' }),
+      ],
+      loading: false,
+    })
+    useSessionStore.setState({
+      ...useSessionStore.getState(),
+      archiveSession,
+    } as any)
+
+    render(<SessionListColumn onDismiss={() => {}} />)
+    fireEvent.click(screen.getByTestId('v2-session-batch-toggle'))
+    await vi.waitFor(() => {
+      expect(screen.getByTestId('v2-session-batch-bar')).toBeInTheDocument()
+    })
+    fireEvent.click(screen.getByText('Alpha'))
+    fireEvent.click(screen.getByText('Gamma'))
+    fireEvent.click(screen.getByTestId('v2-session-batch-archive'))
+    fireEvent.click(screen.getByTestId('v2-session-batch-archive-confirm'))
+
+    await vi.waitFor(() => {
+      expect(screen.getByTestId('v2-session-batch-bar')).toBeInTheDocument()
+      expect(screen.getByTestId('v2-session-batch-archive')).toHaveTextContent(/归档 1|Archive 1/)
     })
   })
 

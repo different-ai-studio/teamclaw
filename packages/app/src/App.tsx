@@ -906,6 +906,8 @@ function AppContent() {
   >({});
   /** Real AGENT_REPLY won the race — in-flight eager flush must not commit. */
   const interruptedFlushSupersededRef = useRef<Record<string, boolean>>({});
+  /** streamId that was superseded; blocks re-flush of the same interrupted turn. */
+  const interruptedFlushSupersededStreamIdRef = useRef<Record<string, string>>({});
 
   // Drop the synthetic interrupt-<streamId> anchor from BOTH the in-memory
   // message store AND the libsql cache, so it never survives a reload as a
@@ -964,6 +966,12 @@ function AppContent() {
     const streamKey = agentStreamKey(sessionId, actorId);
     interruptedFlushSupersededRef.current[streamKey] = true;
     const tracked = interruptedStreamFlushRef.current[streamKey];
+    const liveStreamId =
+      useV2StreamingStore.getState().byKey[streamKey]?.streamId?.trim() || "";
+    const supersededStreamId = (tracked?.streamId || liveStreamId).trim();
+    if (supersededStreamId) {
+      interruptedFlushSupersededStreamIdRef.current[streamKey] = supersededStreamId;
+    }
     const { messageIds } = resolveInterruptedPlaceholdersToDrop({
       tracked,
       messages: useSessionMessageStore.getState().messages[sessionId] ?? [],
@@ -984,6 +992,7 @@ function AppContent() {
       placeholderStreamId: tracked?.streamId ?? null,
       droppedIds: messageIds,
       superseded: true,
+      supersededStreamId: supersededStreamId || null,
     });
     for (const messageId of messageIds) {
       dropInterruptedPlaceholderRow(sessionId, messageId);
@@ -1038,6 +1047,26 @@ function AppContent() {
       return true;
     }
 
+    // Real AGENT_REPLY already superseded this interrupted turn — do not clear
+    // that flag and re-insert interrupt-*. Only allow a later flush when the
+    // snapshot is a different streamId (new agent turn).
+    const supersededStreamId =
+      interruptedFlushSupersededStreamIdRef.current[streamKey];
+    if (interruptedFlushSupersededRef.current[streamKey]) {
+      if (!supersededStreamId || supersededStreamId === snapshot.streamId) {
+        logInterruptMsgDiag("flush.interrupted.skip.superseded", {
+          sessionId,
+          actorId,
+          trigger,
+          streamId: snapshot.streamId,
+          supersededStreamId: supersededStreamId || null,
+        });
+        return false;
+      }
+      delete interruptedFlushSupersededRef.current[streamKey];
+      delete interruptedFlushSupersededStreamIdRef.current[streamKey];
+    }
+
     const syntheticReply = buildInterruptedStreamAnchor(
       sessionId,
       actorId,
@@ -1069,7 +1098,8 @@ function AppContent() {
 
     // Register BEFORE async persist so a racing real AGENT_REPLY can find and
     // supersede this placeholder (previously only set in afterEnriched).
-    interruptedFlushSupersededRef.current[streamKey] = false;
+    // Do NOT clear interruptedFlushSupersededRef here — a racing real reply may
+    // have already set it true between the check above and this register.
     interruptedStreamFlushRef.current[streamKey] = {
       streamId: snapshot.streamId,
       messageId: syntheticReply.messageId,
@@ -2079,6 +2109,7 @@ function AppContent() {
       terminalFlushPendingRef.current = {};
       interruptedStreamFlushRef.current = {};
       interruptedFlushSupersededRef.current = {};
+      interruptedFlushSupersededStreamIdRef.current = {};
       disposeTeamclawRpc();
       disposeRemoteToolsRpcServer();
       disposeRuntimeStateStore();

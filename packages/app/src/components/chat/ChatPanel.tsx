@@ -1704,6 +1704,10 @@ export function ChatPanel({ compact = false }: ChatPanelProps) {
         additionalActorIds: allAdditional,
         ideaId: draftIdeaId,
       });
+      if (soloActor) {
+        const { markSessionNeedsAutoTitle } = await import("@/lib/session-auto-title");
+        markSessionNeedsAutoTitle(sessionId);
+      }
       sessionFlowLog("session_create.shell.ok", {
         teamId: teamIdForSend,
         sessionId,

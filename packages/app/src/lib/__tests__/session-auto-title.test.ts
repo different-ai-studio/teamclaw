@@ -16,7 +16,9 @@ vi.mock("@/stores/session-list-store", () => ({
 
 import {
   isPlaceholderSessionTitle,
+  markSessionNeedsAutoTitle,
   maybeAutoTitleSessionFromFirstMessage,
+  resetSessionAutoTitlePendingForTests,
   summarizeSessionTitleFromMessage,
 } from "../session-auto-title";
 
@@ -24,6 +26,7 @@ describe("session-auto-title", () => {
   beforeEach(() => {
     mocks.updateSessionTitle.mockClear();
     mocks.rows = [];
+    resetSessionAutoTitlePendingForTests();
   });
 
   it("summarizes the first line and caps at 80 chars", () => {
@@ -53,8 +56,9 @@ describe("session-auto-title", () => {
     expect(isPlaceholderSessionTitle("SPRBOT notes")).toBe(false);
   });
 
-  it("renames when the list title is still a placeholder", async () => {
+  it("renames only when the session was marked for auto-title", async () => {
     mocks.rows = [{ id: "sess-1", title: "SPRBOT (19:17)" }];
+    markSessionNeedsAutoTitle("sess-1");
 
     const renamed = await maybeAutoTitleSessionFromFirstMessage(
       "sess-1",
@@ -65,8 +69,18 @@ describe("session-auto-title", () => {
     expect(mocks.updateSessionTitle).toHaveBeenCalledWith("sess-1", "帮我查一下结算单");
   });
 
-  it("skips when the title was already customized", async () => {
+  it("skips unmarked sessions even when the title looks like HH:mm", async () => {
+    mocks.rows = [{ id: "sess-1", title: "Standup (09:30)" }];
+
+    const renamed = await maybeAutoTitleSessionFromFirstMessage("sess-1", "今日议程");
+
+    expect(renamed).toBe(false);
+    expect(mocks.updateSessionTitle).not.toHaveBeenCalled();
+  });
+
+  it("skips when the title was already customized after mark", async () => {
     mocks.rows = [{ id: "sess-1", title: "结算单核对" }];
+    markSessionNeedsAutoTitle("sess-1");
 
     const renamed = await maybeAutoTitleSessionFromFirstMessage("sess-1", "帮我查一下");
 
@@ -76,6 +90,7 @@ describe("session-auto-title", () => {
 
   it("skips empty message content", async () => {
     mocks.rows = [{ id: "sess-1", title: "SPRBOT (19:17)" }];
+    markSessionNeedsAutoTitle("sess-1");
 
     const renamed = await maybeAutoTitleSessionFromFirstMessage("sess-1", "   \n  ");
 

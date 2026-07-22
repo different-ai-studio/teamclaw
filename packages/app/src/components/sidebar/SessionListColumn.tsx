@@ -474,15 +474,35 @@ export function SessionListColumn({
     setBatchArchiving(true)
     try {
       // Sequential: archiveSession clears active-session state when needed.
+      // It swallows backend errors (no throw), so detect failure by whether the
+      // row is still present after each call.
+      const remaining = new Set(ids)
+      let failed = 0
       for (const id of ids) {
         await archiveSession(id)
+        const stillPresent = useSessionListStore.getState().rows.some((r) => r.id === id)
+        if (stillPresent) {
+          failed += 1
+        } else {
+          remaining.delete(id)
+        }
       }
-      exitBatchSelect()
+      if (failed === 0) {
+        exitBatchSelect()
+      } else {
+        setBatchSelectedIds(remaining)
+        toast.error(
+          t('sidebar.batchArchivePartialFail', 'Archived {{ok}}, {{failed}} failed', {
+            ok: ids.length - failed,
+            failed,
+          }),
+        )
+      }
     } finally {
       setBatchArchiving(false)
       setBatchConfirmOpen(false)
     }
-  }, [archiveSession, batchArchiving, batchSelectedIds, exitBatchSelect])
+  }, [archiveSession, batchArchiving, batchSelectedIds, exitBatchSelect, t])
 
   const handleStartRename = (e: React.SyntheticEvent, id: string) => { e.stopPropagation(); setRenamingSessionId(id) }
   const handleRenameConfirm = async (id: string, newTitle: string) => {

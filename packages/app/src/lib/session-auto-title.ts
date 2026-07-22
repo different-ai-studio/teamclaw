@@ -7,8 +7,8 @@ const PLACEHOLDER_EXACT = new Set(["New chat", "New Chat"]);
 
 /**
  * Quick-empty / solo-agent sessions are created as `DisplayName (HH:mm)`.
- * Extension link sessions use the same time suffix. Both stay unreadable in
- * the list until the first user message renames them.
+ * Only sessions explicitly marked at creation are eligible for auto-title, so a
+ * user-renamed title like `Standup (09:30)` is never overwritten.
  */
 const SOLO_TIME_TITLE_RE = /^.+ \(\d{2}:\d{2}\)$/;
 
@@ -20,6 +20,19 @@ const HUMAN_MENTION_ONLY_LINE_RE =
 /** Inline human chips embedded in body text. */
 const INLINE_HUMAN_MENTION_RE =
   /\[Mentioned:[^\]]*\|instruction:[^\]]*\]/gi;
+
+/** Sessions created with a placeholder title that should rename on first send. */
+const pendingAutoTitleSessionIds = new Set<string>();
+
+export function markSessionNeedsAutoTitle(sessionId: string): void {
+  const id = sessionId.trim();
+  if (id) pendingAutoTitleSessionIds.add(id);
+}
+
+/** Test helper — clears the pending set between cases. */
+export function resetSessionAutoTitlePendingForTests(): void {
+  pendingAutoTitleSessionIds.clear();
+}
 
 /**
  * Drop agent/human mention markup so the title comes from user-authored text
@@ -52,14 +65,18 @@ export function isPlaceholderSessionTitle(title: string): boolean {
 }
 
 /**
- * If the session still has a placeholder title, rename it from the first user
- * message summary. Idempotent: skips once the title is no longer a placeholder
- * (manual rename, prior auto-title, or create-with-first-message paths).
+ * If this session was marked at creation and still has a placeholder title,
+ * rename it from the first user message summary.
  */
 export async function maybeAutoTitleSessionFromFirstMessage(
   sessionId: string,
   messageContent: string,
 ): Promise<boolean> {
+  if (!pendingAutoTitleSessionIds.has(sessionId)) return false;
+  // Consume the mark even when we skip (manual rename / empty body) so we
+  // never retry and overwrite a later custom title.
+  pendingAutoTitleSessionIds.delete(sessionId);
+
   const summary = summarizeSessionTitleFromMessage(messageContent);
   if (!summary) return false;
 
