@@ -630,7 +630,8 @@ impl DaemonServer {
             .join("history");
         let history = EventHistory::new(&history_dir);
 
-        let agents = Arc::new(AsyncMutex::new(RuntimeManager::new(
+        let agents = Arc::new(AsyncMutex::new(RuntimeManager::with_local_agent(
+            &config.agents.local_agent,
             launch_configs,
             Some(backend.clone()),
         )));

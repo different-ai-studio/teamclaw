@@ -32,59 +32,10 @@ use translate::TranslateState;
 // Manager-facing command surface (names preserved from the ACP adapter)
 // ---------------------------------------------------------------------------
 
-/// Commands the runtime manager sends to the opencode HTTP backend.
-pub enum AcpCommand {
-    /// Create or resume an opencode session for a worktree.
-    AttachSession {
-        worktree: String,
-        resume_acp_session_id: Option<String>,
-        mcp_config_path: Option<PathBuf>,
-        initial_model_override: Option<String>,
-        initial_prompt: String,
-        event_tx: mpsc::Sender<AcpEventFrame>,
-        startup_tx: oneshot::Sender<Result<AcpStartupMetadata, String>>,
-        /// Gateway sessions auto-allow tool permissions.
-        is_gateway: bool,
-        /// When resuming, fail instead of falling back to a new session.
-        forbid_new_session_fallback: bool,
-    },
-    /// Drop routing state for a session; the serve process keeps running.
-    DetachSession { acp_session_id: String },
-    /// Send a prompt to a bound session (async; turn ends on `session.idle`).
-    Prompt {
-        acp_session_id: String,
-        text: String,
-        attachment_urls: Vec<String>,
-        /// Human actor that started this turn; stamped onto PermissionRequest params.
-        requester_actor_id: Option<String>,
-        /// User message id that triggered this turn; stamped onto AgentReply emits.
-        reply_to_message_id: Option<String>,
-    },
-    /// Cancel the current turn for a bound session.
-    Cancel { acp_session_id: String },
-    /// Resolve a pending permission request (any session).
-    ResolvePermission {
-        request_id: String,
-        granted: bool,
-        /// "always" upgrades the grant; anything else (or None) means "once".
-        option_id: Option<String>,
-    },
-    /// Switch the model used by a bound session (applied on the next prompt).
-    SetModel {
-        acp_session_id: String,
-        model_id: String,
-    },
-    /// Shut down the serve process (it respawns lazily on next use).
-    #[allow(dead_code)]
-    Shutdown,
-}
-
-#[derive(Debug, Clone)]
-pub struct AcpStartupMetadata {
-    pub available_models: Vec<amux::ModelInfo>,
-    pub initial_model: Option<String>,
-    pub acp_session_id: String,
-}
+// `AcpCommand` / `AcpStartupMetadata` are backend-neutral channel types shared
+// with future backends; they live in `runtime/backend.rs` and are re-exported
+// here so existing `runtime::adapter::*` import paths keep working.
+pub use crate::runtime::backend::{AcpCommand, AcpStartupMetadata};
 
 // ---------------------------------------------------------------------------
 // Shared state
