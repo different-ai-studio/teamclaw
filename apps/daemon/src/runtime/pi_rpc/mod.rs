@@ -613,6 +613,10 @@ async fn command_loop(shared: Arc<Shared>, mut cmd_rx: mpsc::Receiver<AcpCommand
                     .retain(|_, p| p.session_id != acp_session_id);
                 info!(acp_session_id, "pi session detached");
             }
+            AcpCommand::AnswerQuestion { request_id, .. } => {
+                // pi has no question tool; nothing to route.
+                tracing::warn!(request_id, "pi backend: AnswerQuestion unsupported");
+            }
             AcpCommand::Shutdown => {
                 shared.pool.kill_all();
             }

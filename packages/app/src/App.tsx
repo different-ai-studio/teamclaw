@@ -1907,6 +1907,49 @@ function AppContent() {
                   },
                 });
               }
+            } else if (event?.case === "raw") {
+              const raw = event.value as { method?: string; jsonPayload?: Uint8Array };
+              const method = raw.method ?? "";
+              if (
+                method === "question_asked" ||
+                method === "question_replied" ||
+                method === "question_rejected"
+              ) {
+                try {
+                  const payload = JSON.parse(
+                    new TextDecoder().decode(raw.jsonPayload ?? new Uint8Array()),
+                  ) as Record<string, unknown>;
+                  const store = useSessionStore.getState() as unknown as {
+                    addPendingQuestion: (q: unknown) => void;
+                    resolveQuestion: (id: string) => void;
+                  };
+                  if (method === "question_asked") {
+                    const tool = (payload.tool ?? {}) as { messageID?: string; callID?: string };
+                    const questions = Array.isArray(payload.questions)
+                      ? (payload.questions as Array<Record<string, unknown>>).map((q, i) => ({
+                          id: String(i),
+                          header: q.header ?? "",
+                          question: q.question ?? "",
+                          options: q.options ?? [],
+                          multiple: !!q.multiple,
+                        }))
+                      : [];
+                    store.addPendingQuestion({
+                      questionId: String(payload.id ?? ""),
+                      toolCallId: tool.callID ?? "",
+                      messageId: tool.messageID ?? "",
+                      questions,
+                      sessionId: sid,
+                      agentActorId: actorId,
+                      source: "agent",
+                    });
+                  } else {
+                    store.resolveQuestion(String(payload.requestID ?? payload.id ?? ""));
+                  }
+                } catch (e) {
+                  console.warn("[question] raw event parse failed", e);
+                }
+              }
             } else if (event?.case === "permissionRequest") {
               const pr = event.value as {
                 requestId?: string;

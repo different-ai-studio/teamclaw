@@ -253,6 +253,8 @@ pub fn materialize_team_mcp_for_runtime(workspace: &Path) -> Result<bool, Worksp
     }
 
     let path = workspace.join("opencode.json");
+    let write_lock = teamclaw_runtime_env::atomic_write::opencode_write_lock(&path);
+    let _guard = write_lock.lock().unwrap_or_else(|e| e.into_inner());
     let mut json: serde_json::Value = if path.exists() {
         let content = std::fs::read_to_string(&path).map_err(io_err)?;
         serde_json::from_str(&content).map_err(parse_err)?
@@ -280,7 +282,7 @@ pub fn materialize_team_mcp_for_runtime(workspace: &Path) -> Result<bool, Worksp
     if changed {
         let mut content = serde_json::to_string_pretty(&json).map_err(parse_err)?;
         content.push('\n');
-        std::fs::write(&path, content).map_err(io_err)?;
+        teamclaw_runtime_env::atomic_write::atomic_write(&path, &content).map_err(io_err)?;
     }
     Ok(changed)
 }

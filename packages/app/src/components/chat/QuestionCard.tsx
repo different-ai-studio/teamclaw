@@ -15,9 +15,14 @@ interface QuestionCardProps {
 
 export const QuestionCard = React.memo(function QuestionCard({ toolCallId, questions, isCompleted }: QuestionCardProps) {
   const { t } = useTranslation()
-  const questionList = Array.isArray(questions) ? (questions as Question[]) : []
   const pendingQuestions = useSessionStore(s => s.pendingQuestions)
   const pendingQuestion = pendingQuestions.find(q => q.toolCallId === toolCallId)
+  const propQuestions = Array.isArray(questions) ? (questions as Question[]) : []
+  // Tool-call arguments may lag or omit questions; the question.asked event
+  // (pendingQuestion) is authoritative.
+  const questionList: Question[] = propQuestions.length
+    ? propQuestions
+    : ((pendingQuestion?.questions ?? []) as Question[])
   const answerQuestion = useSessionStore(s => s.answerQuestion)
   const [answers, setAnswers] = React.useState<Record<string, string>>({})
   const [customInputs, setCustomInputs] = React.useState<Record<string, string>>({})

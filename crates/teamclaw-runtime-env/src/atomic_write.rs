@@ -12,10 +12,36 @@
 //! a later writer. The temp name embeds pid + a per-process counter so
 //! concurrent writers never clobber each other's temp file either.
 
+use std::collections::HashMap;
 use std::path::Path;
 use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::{Arc, Mutex, OnceLock};
 
 static WRITE_SEQ: AtomicU64 = AtomicU64::new(0);
+
+/// Registry of per-`opencode.json` write locks, keyed by the config file path.
+#[allow(clippy::type_complexity)]
+static OPENCODE_LOCKS: OnceLock<Mutex<HashMap<String, Arc<Mutex<()>>>>> = OnceLock::new();
+
+/// Get the shared write lock for one `opencode.json` path.
+///
+/// All in-process writers of a given workspace's `opencode.json` do their whole
+/// read-modify-write under this lock, so concurrent amuxd tasks (a runtime
+/// spawn and an HTTP `GET /providers` reconcile, say) serialize instead of
+/// clobbering each other's edits. Atomic writes stop *corruption*; this lock
+/// stops *lost updates*. Callers hold the returned guard across read AND write:
+///
+/// ```ignore
+/// let lock = opencode_write_lock(&config_path);
+/// let _guard = lock.lock().unwrap_or_else(|e| e.into_inner());
+/// // ... read_json_object(&config_path) ... mutate ... atomic_write(&config_path, ...)
+/// ```
+pub fn opencode_write_lock(config_path: &Path) -> Arc<Mutex<()>> {
+    let key = config_path.to_string_lossy().into_owned();
+    let registry = OPENCODE_LOCKS.get_or_init(|| Mutex::new(HashMap::new()));
+    let mut map = registry.lock().unwrap_or_else(|e| e.into_inner());
+    map.entry(key).or_insert_with(|| Arc::new(Mutex::new(()))).clone()
+}
 
 /// Atomically write `content` to `path` via a unique temp file + rename.
 ///

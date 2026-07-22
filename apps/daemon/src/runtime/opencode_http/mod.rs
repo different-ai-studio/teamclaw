@@ -74,6 +74,9 @@ pub(crate) struct Shared {
     pub(crate) routes: parking_lot::Mutex<HashMap<String, Route>>,
     /// permission id → opencode session id (for the reply endpoint path).
     pub(crate) permissions: parking_lot::Mutex<HashMap<String, String>>,
+    /// question request id → opencode session id (for the reply endpoint's
+    /// `?directory=` scope, resolved via the session's route).
+    pub(crate) questions: parking_lot::Mutex<HashMap<String, String>>,
     /// canonical directory → SSE subscription task.
     pub(crate) sse_tasks: parking_lot::Mutex<HashMap<String, tokio::task::JoinHandle<()>>>,
 }
@@ -84,6 +87,7 @@ impl Shared {
             serve: ServeSupervisor::new(),
             routes: parking_lot::Mutex::new(HashMap::new()),
             permissions: parking_lot::Mutex::new(HashMap::new()),
+            questions: parking_lot::Mutex::new(HashMap::new()),
             sse_tasks: parking_lot::Mutex::new(HashMap::new()),
         })
     }
@@ -807,6 +811,42 @@ async fn resolve_permission(
     }
 }
 
+/// Forward a user's answer (or rejection) to opencode's question endpoint.
+async fn answer_question(shared: &Arc<Shared>, request_id: &str, answers_json: &str, reject: bool) {
+    let Some(session_id) = shared.questions.lock().remove(request_id) else {
+        warn!(request_id, "no pending opencode question request found");
+        return;
+    };
+    let directory = shared
+        .routes
+        .lock()
+        .get(&session_id)
+        .map(|r| r.directory.clone())
+        .unwrap_or_default();
+    let client = match shared.serve.ensure().await {
+        Ok(client) => client,
+        Err(e) => {
+            warn!(error = %e, "question reply: serve unavailable");
+            return;
+        }
+    };
+    let result = if reject {
+        client.question_reject(&directory, request_id).await
+    } else {
+        let answers: serde_json::Value =
+            serde_json::from_str(answers_json).unwrap_or_else(|_| serde_json::json!([]));
+        client.question_reply(&directory, request_id, &answers).await
+    };
+    if let Err(e) = result {
+        warn!(request_id, session_id = %session_id, error = %e, "question reply failed");
+        // Leave a chance to retry: re-register the request.
+        shared
+            .questions
+            .lock()
+            .insert(request_id.to_string(), session_id);
+    }
+}
+
 async fn command_loop(shared: Arc<Shared>, mut cmd_rx: mpsc::Receiver<AcpCommand>) {
     while let Some(cmd) = cmd_rx.recv().await {
         match cmd {
@@ -888,6 +928,13 @@ async fn command_loop(shared: Arc<Shared>, mut cmd_rx: mpsc::Receiver<AcpCommand
                 option_id,
             } => {
                 resolve_permission(&shared, &request_id, granted, option_id).await;
+            }
+            AcpCommand::AnswerQuestion {
+                request_id,
+                answers_json,
+                reject,
+            } => {
+                answer_question(&shared, &request_id, &answers_json, reject).await;
             }
             AcpCommand::SetModel {
                 acp_session_id,

@@ -176,6 +176,45 @@ impl ServeClient {
             .map_err(|e| crate::error::AmuxError::Agent(format!("session status body: {e}")))
     }
 
+    /// POST /question/{requestID}/reply with `{"answers": [[labels], ...]}`.
+    pub async fn question_reply(
+        &self,
+        directory: &str,
+        request_id: &str,
+        answers: &serde_json::Value,
+    ) -> crate::error::Result<()> {
+        let resp = self
+            .req(
+                reqwest::Method::POST,
+                &format!("/question/{request_id}/reply"),
+                directory,
+            )
+            .json(&serde_json::json!({ "answers": answers }))
+            .send()
+            .await
+            .map_err(|e| crate::error::AmuxError::Agent(format!("question reply: {e}")))?;
+        Self::check(resp, "question reply").await.map(|_| ())
+    }
+
+    /// POST /question/{requestID}/reject.
+    pub async fn question_reject(
+        &self,
+        directory: &str,
+        request_id: &str,
+    ) -> crate::error::Result<()> {
+        let resp = self
+            .req(
+                reqwest::Method::POST,
+                &format!("/question/{request_id}/reject"),
+                directory,
+            )
+            .json(&serde_json::json!({}))
+            .send()
+            .await
+            .map_err(|e| crate::error::AmuxError::Agent(format!("question reject: {e}")))?;
+        Self::check(resp, "question reject").await.map(|_| ())
+    }
+
     /// POST /session/{id}/abort.
     pub async fn abort(&self, directory: &str, session_id: &str) -> crate::error::Result<()> {
         let resp = self

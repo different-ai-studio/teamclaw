@@ -132,6 +132,10 @@ async fn handle_event(shared: &Arc<Shared>, event: &serde_json::Value) {
         "session.idle" => handle_session_idle(shared, &session_id).await,
         "session.updated" => handle_session_updated(shared, &session_id, &props).await,
         "session.status" => handle_session_status(shared, &session_id, &props).await,
+        "question.asked" => handle_question_asked(shared, &session_id, &props).await,
+        "question.replied" | "question.rejected" => {
+            handle_question_resolved(shared, &session_id, event_type, &props).await
+        }
         _ => {
             // Pure translation path (text/reasoning/tool deltas, errors).
             let (events, event_tx, reply_to) = {
@@ -212,6 +216,70 @@ async fn handle_permission_asked(
         .lock()
         .get(session_id)
         .and_then(|r| r.turn_reply_to.clone());
+    let _ = event_tx
+        .send(AcpEventFrame::new(session_id, ev).with_reply_to(reply_to))
+        .await;
+}
+
+/// opencode's `question` tool asks the user to pick/type answers. Register
+/// the request (id → session, for the reply endpoint) and forward the full
+/// request JSON to clients as a `question_asked` raw control event; the
+/// desktop renders it as an interactive QuestionCard on the tool call.
+async fn handle_question_asked(
+    shared: &Arc<Shared>,
+    session_id: &str,
+    props: &serde_json::Value,
+) {
+    let Some(request_id) = props.get("id").and_then(|v| v.as_str()) else {
+        return;
+    };
+    shared
+        .questions
+        .lock()
+        .insert(request_id.to_string(), session_id.to_string());
+    forward_question_raw(shared, session_id, "question_asked", props).await;
+}
+
+/// question.replied / question.rejected — drop the pending registration and
+/// tell clients to clear the interactive card.
+async fn handle_question_resolved(
+    shared: &Arc<Shared>,
+    session_id: &str,
+    event_type: &str,
+    props: &serde_json::Value,
+) {
+    if let Some(request_id) = props.get("requestID").and_then(|v| v.as_str()) {
+        shared.questions.lock().remove(request_id);
+    }
+    let method = if event_type == "question.replied" {
+        "question_replied"
+    } else {
+        "question_rejected"
+    };
+    forward_question_raw(shared, session_id, method, props).await;
+}
+
+async fn forward_question_raw(
+    shared: &Arc<Shared>,
+    session_id: &str,
+    method: &str,
+    props: &serde_json::Value,
+) {
+    let (event_tx, reply_to) = {
+        let routes = shared.routes.lock();
+        let Some(route) = routes.get(session_id) else {
+            warn!(session_id, method, "question event for unrouted session");
+            return;
+        };
+        (route.event_tx.clone(), route.turn_reply_to.clone())
+    };
+    let ev = amux::AcpEvent {
+        event: Some(amux::acp_event::Event::Raw(amux::AcpRawJson {
+            method: method.into(),
+            json_payload: serde_json::to_vec(props).unwrap_or_default(),
+        })),
+        model: String::new(),
+    };
     let _ = event_tx
         .send(AcpEventFrame::new(session_id, ev).with_reply_to(reply_to))
         .await;
