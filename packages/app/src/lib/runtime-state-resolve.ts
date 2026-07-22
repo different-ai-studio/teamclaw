@@ -264,7 +264,11 @@ export function agentModelDisplayLabel(
   const match = available.find((m) =>
     agentModelIdsMatch(m.id, trimmed, available),
   );
-  return match?.displayName || match?.id || trimmed;
+  if (match) return match.displayName || match.id;
+  // Catalog not loaded (or unknown id): show the model part, not the raw
+  // `provider/model` id ("anthropic/claude-haiku-4-5-20251001" → the pill
+  // should still read like a model name).
+  return shortAgentModelId(trimmed);
 }
 
 /** Runtime id for RPC/commands — prefer live retain, fall back to DB hint. */
