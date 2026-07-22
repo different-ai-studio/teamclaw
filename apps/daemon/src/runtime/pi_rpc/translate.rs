@@ -253,6 +253,33 @@ pub fn permission_options(offers_always: bool) -> Vec<amux::AcpPermissionOption>
     options
 }
 
+/// Machine-readable trailer the TeamClaw pi extension appends to confirm
+/// messages: `teamclaw.always-pattern=<pattern>`. The daemon persists the
+/// pattern to the session's rules file when the host approves with "always".
+pub const ALWAYS_PATTERN_MARKER: &str = "teamclaw.always-pattern=";
+
+/// Extract the "always allow" pattern from a confirm message, if present.
+pub fn extract_always_pattern(message: &str) -> Option<String> {
+    message
+        .lines()
+        .rev()
+        .find_map(|l| l.trim().strip_prefix(ALWAYS_PATTERN_MARKER))
+        .map(str::trim)
+        .filter(|p| !p.is_empty())
+        .map(str::to_string)
+}
+
+/// The confirm message with the marker trailer removed (for display).
+fn strip_always_pattern(message: &str) -> String {
+    message
+        .lines()
+        .filter(|l| !l.trim().starts_with(ALWAYS_PATTERN_MARKER))
+        .collect::<Vec<_>>()
+        .join("\n")
+        .trim_end()
+        .to_string()
+}
+
 /// Build the `AcpPermissionRequest` proto for an `extension_ui_request`
 /// (`method: "confirm"`). `event` is the full stdout JSON object.
 pub fn permission_request_event(
@@ -266,8 +293,9 @@ pub fn permission_request_event(
         .to_lowercase()
         .contains("always");
     let mut params = HashMap::new();
-    if !message.is_empty() {
-        params.insert("message".to_string(), message.to_string());
+    let display_message = strip_always_pattern(message);
+    if !display_message.is_empty() {
+        params.insert("message".to_string(), display_message);
     }
     if let Some(requester) = requester_actor_id.filter(|s| !s.is_empty()) {
         params.insert("requester_actor_id".to_string(), requester.to_string());
@@ -475,6 +503,35 @@ mod tests {
                 );
                 let kinds: Vec<&str> = p.options.iter().map(|o| o.kind.as_str()).collect();
                 assert_eq!(kinds, vec!["allow_once", "reject_once"]);
+            }
+            other => panic!("unexpected: {other:?}"),
+        }
+    }
+
+    #[test]
+    fn always_pattern_extracted_and_stripped_from_display() {
+        assert_eq!(
+            extract_always_pattern("{\"command\":\"ls -la\"}\n\nteamclaw.always-pattern=ls *"),
+            Some("ls *".to_string())
+        );
+        assert_eq!(extract_always_pattern("no marker here"), None);
+        assert_eq!(extract_always_pattern("teamclaw.always-pattern="), None);
+
+        let event: serde_json::Value = serde_json::from_str(
+            r#"{"type":"extension_ui_request","id":"ui_3","method":"confirm","title":"bash: ls -la","message":"{\"command\":\"ls -la\"}\n\nteamclaw.always-pattern=ls *"}"#,
+        )
+        .unwrap();
+        let e = permission_request_event(&event, None);
+        match e.event.as_ref().unwrap() {
+            amux::acp_event::Event::PermissionRequest(p) => {
+                // marker line stripped from the displayed message …
+                assert_eq!(
+                    p.params.get("message"),
+                    Some(&"{\"command\":\"ls -la\"}".to_string())
+                );
+                // … but its "always" substring still unlocks the allow_always option.
+                let kinds: Vec<&str> = p.options.iter().map(|o| o.kind.as_str()).collect();
+                assert_eq!(kinds, vec!["allow_once", "allow_always", "reject_once"]);
             }
             other => panic!("unexpected: {other:?}"),
         }

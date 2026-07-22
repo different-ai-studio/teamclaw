@@ -666,10 +666,19 @@ mod tests {
 
     #[test]
     fn control_pipe_suffix_sanitizes_to_safe_charset() {
-        assert_eq!(DaemonConfig::control_pipe_suffix_from("matt.chow"), "matt-chow");
+        assert_eq!(
+            DaemonConfig::control_pipe_suffix_from("matt.chow"),
+            "matt-chow"
+        );
         // 2 CJK chars + 1 space -> 3 dashes.
-        assert_eq!(DaemonConfig::control_pipe_suffix_from("\u{7b80}\u{4f53} user"), "---user");
-        assert_eq!(DaemonConfig::control_pipe_suffix_from("Win_User-1"), "Win_User-1");
+        assert_eq!(
+            DaemonConfig::control_pipe_suffix_from("\u{7b80}\u{4f53} user"),
+            "---user"
+        );
+        assert_eq!(
+            DaemonConfig::control_pipe_suffix_from("Win_User-1"),
+            "Win_User-1"
+        );
     }
 
     #[test]
@@ -689,7 +698,10 @@ mod tests {
         let path = dir.path().join("daemon.toml");
 
         let first = DaemonConfig::load_or_bootstrap(&path).unwrap();
-        assert!(path.exists(), "bootstrap must persist, or the id would drift");
+        assert!(
+            path.exists(),
+            "bootstrap must persist, or the id would drift"
+        );
 
         // The whole point of persisting: a second start reuses the same actor
         // id rather than silently re-keying MQTT topic ACLs.

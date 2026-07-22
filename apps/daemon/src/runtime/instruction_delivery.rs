@@ -60,7 +60,9 @@ mod tests {
     #[test]
     fn skips_buffered_inject_only_for_native_paths() {
         assert!(!skips_buffered_inject(InstructionDelivery::BufferedInject));
-        assert!(skips_buffered_inject(InstructionDelivery::NativeOpenCodePlugin));
+        assert!(skips_buffered_inject(
+            InstructionDelivery::NativeOpenCodePlugin
+        ));
         assert!(skips_buffered_inject(InstructionDelivery::NativeClaudeMd));
     }
 }

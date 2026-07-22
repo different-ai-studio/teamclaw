@@ -243,8 +243,7 @@ fn load_skills_from_dir(dir: &Path, source: &str) -> Result<Vec<RawSkill>, Works
             let Some(nested_name) = nested_path.file_name().and_then(|s| s.to_str()) else {
                 continue;
             };
-            if let Some(skill) =
-                try_load_skill_from_root(&nested_path, nested_name, &path, source)?
+            if let Some(skill) = try_load_skill_from_root(&nested_path, nested_name, &path, source)?
             {
                 skills.push(skill);
             }
@@ -299,9 +298,7 @@ fn remap_team_skill_path(workspace_path: &Path, path: PathBuf, team_id: &str) ->
         return path;
     }
     if path.starts_with(&link_root) {
-        let rel = path
-            .strip_prefix(&link_root)
-            .unwrap_or(path.as_path());
+        let rel = path.strip_prefix(&link_root).unwrap_or(path.as_path());
         return super::global_team_store::resolve_team_dir(workspace_path, team_id).join(rel);
     }
     path
@@ -341,7 +338,10 @@ fn collect_team_skill_paths(workspace_path: &Path) -> Vec<PathBuf> {
     paths
 }
 
-fn load_all_skills(workspace_path: &Path, home: &Path) -> Result<Vec<RawSkill>, WorkspaceControlError> {
+fn load_all_skills(
+    workspace_path: &Path,
+    home: &Path,
+) -> Result<Vec<RawSkill>, WorkspaceControlError> {
     let clawhub_slugs = read_clawhub_slugs(workspace_path);
     let home_str = home.to_string_lossy();
     let home_trimmed = home_str.trim_end_matches('/');
@@ -399,7 +399,8 @@ fn load_all_skills(workspace_path: &Path, home: &Path) -> Result<Vec<RawSkill>, 
             };
             let skill = RawSkill { source, ..skill };
             match merged.get(&skill.filename) {
-                Some(existing) if source_priority(&existing.source) <= source_priority(&skill.source) => {}
+                Some(existing)
+                    if source_priority(&existing.source) <= source_priority(&skill.source) => {}
                 _ => {
                     merged.insert(skill.filename.clone(), skill);
                 }
@@ -574,10 +575,11 @@ fn load_role_managed_skills(workspace_path: &Path) -> Result<Vec<RawSkill>, Work
 }
 
 /// Scan a workspace directory and build the aggregated roles/skills state.
-pub fn scan_roles_skills_state(workspace_path: &Path) -> Result<RolesSkillsStateDto, WorkspaceControlError> {
-    let home = dirs::home_dir().ok_or_else(|| {
-        WorkspaceControlError::Io("home directory not found".to_owned())
-    })?;
+pub fn scan_roles_skills_state(
+    workspace_path: &Path,
+) -> Result<RolesSkillsStateDto, WorkspaceControlError> {
+    let home = dirs::home_dir()
+        .ok_or_else(|| WorkspaceControlError::Io("home directory not found".to_owned()))?;
 
     let roles = load_all_roles(workspace_path)?;
     let normal_skills = load_all_skills(workspace_path, &home)?;
@@ -716,9 +718,7 @@ fn ensure_frontmatter(content: &str, slug: &str, display_name: &str) -> String {
         .chars()
         .take(200)
         .collect::<String>();
-    format!(
-        "---\nname: {slug}\ndescription: {description}\n---\n\n# {display_name}\n\n{trimmed}\n"
-    )
+    format!("---\nname: {slug}\ndescription: {description}\n---\n\n# {display_name}\n\n{trimmed}\n")
 }
 
 /// Lexically resolve `.` / `..` components without touching the filesystem,
@@ -799,9 +799,8 @@ pub fn upsert_skill(
     slug: &str,
     req: &UpsertSkillRequest,
 ) -> Result<ManagedSkillDto, WorkspaceControlError> {
-    let home = dirs::home_dir().ok_or_else(|| {
-        WorkspaceControlError::Io("home directory not found".to_owned())
-    })?;
+    let home = dirs::home_dir()
+        .ok_or_else(|| WorkspaceControlError::Io("home directory not found".to_owned()))?;
     let skills_dir = skills_dir_for_request(workspace_path, &home, req)?;
     std::fs::create_dir_all(&skills_dir).map_err(io_err)?;
 
@@ -846,9 +845,8 @@ pub fn delete_skill(
     slug: &str,
     dir_path: Option<&str>,
 ) -> Result<(), WorkspaceControlError> {
-    let home = dirs::home_dir().ok_or_else(|| {
-        WorkspaceControlError::Io("home directory not found".to_owned())
-    })?;
+    let home = dirs::home_dir()
+        .ok_or_else(|| WorkspaceControlError::Io("home directory not found".to_owned()))?;
     // `slug` is the leaf skill directory; it must not contain separators/`..`.
     ensure_safe_segment(slug)?;
     let candidates: Vec<PathBuf> = if let Some(dir) = dir_path.filter(|d| !d.is_empty()) {
@@ -868,7 +866,9 @@ pub fn delete_skill(
             return Ok(());
         }
     }
-    Err(WorkspaceControlError::NotFound(format!("skill {slug} not found")))
+    Err(WorkspaceControlError::NotFound(format!(
+        "skill {slug} not found"
+    )))
 }
 
 pub fn upsert_role(
@@ -945,7 +945,9 @@ pub fn delete_role(
             return Ok(());
         }
     }
-    Err(WorkspaceControlError::NotFound(format!("role {slug} not found")))
+    Err(WorkspaceControlError::NotFound(format!(
+        "role {slug} not found"
+    )))
 }
 
 #[cfg(test)]
@@ -966,7 +968,9 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let ws = dir.path();
 
-        let bundle_dir = ws.join(TEAM_LINK_NAME).join("skills/superpowers/brainstorming");
+        let bundle_dir = ws
+            .join(TEAM_LINK_NAME)
+            .join("skills/superpowers/brainstorming");
         std::fs::create_dir_all(&bundle_dir).unwrap();
         std::fs::write(
             bundle_dir.join("SKILL.md"),
@@ -980,7 +984,10 @@ mod tests {
             .iter()
             .find(|skill| skill.filename == "brainstorming")
             .expect("nested team bundle skill");
-        assert_eq!(team_skill.invocation_name.as_deref(), Some("superpowers/brainstorming"));
+        assert_eq!(
+            team_skill.invocation_name.as_deref(),
+            Some("superpowers/brainstorming")
+        );
         assert_eq!(team_skill.source.as_deref(), Some("team"));
     }
 

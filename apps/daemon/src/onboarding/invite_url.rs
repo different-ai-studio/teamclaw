@@ -4,7 +4,15 @@ use url::Url;
 const LEGACY_INVITE_SCHEMES: &[&str] = &["teamclaw", "amux"];
 
 const BLOCKED_INVITE_SCHEMES: &[&str] = &[
-    "http", "https", "ftp", "file", "mailto", "ws", "wss", "javascript", "data",
+    "http",
+    "https",
+    "ftp",
+    "file",
+    "mailto",
+    "ws",
+    "wss",
+    "javascript",
+    "data",
 ];
 
 /// Parsed representation of a `teamclaw://invite?token=<opaque>` deeplink.
@@ -26,9 +34,7 @@ fn is_custom_app_scheme(scheme: &str) -> bool {
         Some(c) if c.is_ascii_lowercase() => {}
         _ => return false,
     }
-    chars.all(|c| {
-        c.is_ascii_lowercase() || c.is_ascii_digit() || matches!(c, '+' | '.' | '-')
-    })
+    chars.all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || matches!(c, '+' | '.' | '-'))
 }
 
 fn is_accepted_invite_scheme(scheme: &str) -> bool {

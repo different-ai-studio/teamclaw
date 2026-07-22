@@ -18,7 +18,10 @@ pub(super) fn request_id() -> String {
     uuid::Uuid::new_v4().simple().to_string()
 }
 
-pub(super) fn decode_error(status: StatusCode, envelope: Option<CloudErrorEnvelope>) -> BackendError {
+pub(super) fn decode_error(
+    status: StatusCode,
+    envelope: Option<CloudErrorEnvelope>,
+) -> BackendError {
     if status == StatusCode::UNAUTHORIZED {
         return BackendError::Auth(
             envelope
@@ -183,7 +186,11 @@ mod tests {
             Some(envelope_with_code("ERR_DB", "database error")),
         );
         match err {
-            BackendError::Provider { provider, code, message } => {
+            BackendError::Provider {
+                provider,
+                code,
+                message,
+            } => {
                 assert_eq!(provider, "cloud_api");
                 assert_eq!(code.as_deref(), Some("ERR_DB"));
                 assert_eq!(message, "database error");

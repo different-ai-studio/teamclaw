@@ -6,7 +6,7 @@
 //! the next `ensure()` (attach / prompt).
 
 use std::collections::HashMap;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
 use tokio::io::{AsyncBufReadExt, BufReader};
@@ -42,6 +42,9 @@ pub(crate) struct PiProcessPool {
     /// Extra env captured from prewarm/attach; applied on (re)spawn.
     extra_env: parking_lot::Mutex<HashMap<String, String>>,
     force_env_override: parking_lot::Mutex<bool>,
+    /// `TEAMCLAW_REMOTE_TOOLS_CMD` (JSON array string) extracted from the
+    /// session's mcp config; applied on (re)spawn.
+    remote_tools_cmd: parking_lot::Mutex<Option<String>>,
 }
 
 impl PiProcessPool {
@@ -51,7 +54,14 @@ impl PiProcessPool {
             binary_override: parking_lot::Mutex::new(None),
             extra_env: parking_lot::Mutex::new(HashMap::new()),
             force_env_override: parking_lot::Mutex::new(false),
+            remote_tools_cmd: parking_lot::Mutex::new(None),
         }
+    }
+
+    /// Record the remote-tools MCP launch command (JSON array string) exported
+    /// to the TeamClaw pi extension as `TEAMCLAW_REMOTE_TOOLS_CMD` at spawn.
+    pub(crate) fn set_remote_tools_cmd(&self, cmd_json: String) {
+        *self.remote_tools_cmd.lock() = Some(cmd_json);
     }
 
     /// Record the configured pi binary (from `AgentLaunchConfig`). The serde
@@ -145,6 +155,21 @@ impl PiProcessPool {
             .arg("--session-dir")
             .arg(&session_dir)
             .current_dir(worktree);
+        // TeamClaw extension: permission gate + remote-tools MCP bridge.
+        match materialize_extension() {
+            Ok(ext) => {
+                cmd.arg("-e").arg(&ext);
+            }
+            Err(e) => warn!(error = %e, "pi extension materialize failed; permission gate off"),
+        }
+        let perms_file = permissions_file_for(worktree);
+        if let Err(e) = write_default_permissions_if_absent(&perms_file) {
+            warn!(path = %perms_file.display(), error = %e, "pi permissions file init failed");
+        }
+        cmd.env("TEAMCLAW_PI_PERMISSIONS_FILE", &perms_file);
+        if let Some(remote_cmd) = self.remote_tools_cmd.lock().clone() {
+            cmd.env("TEAMCLAW_REMOTE_TOOLS_CMD", remote_cmd);
+        }
         cmd.env(
             "PATH",
             crate::runtime::opencode_http::enriched_spawn_path(
@@ -247,6 +272,87 @@ pub(crate) fn session_dir_for(worktree: &str) -> PathBuf {
         .join(worktree_hash(worktree))
 }
 
+// ---------------------------------------------------------------------------
+// TeamClaw extension + permission rules file
+// ---------------------------------------------------------------------------
+
+/// The TeamClaw pi extension, embedded at compile time and materialized to
+/// disk at spawn (loaded via `pi -e <path>`).
+const TEAMCLAW_EXTENSION_TS: &str = include_str!("../../../assets/pi-extension/teamclaw.ts");
+
+fn amuxd_pi_dir() -> PathBuf {
+    dirs::home_dir()
+        .unwrap_or_else(|| PathBuf::from("."))
+        .join(".amuxd")
+        .join("pi")
+}
+
+pub(crate) fn extension_path() -> PathBuf {
+    amuxd_pi_dir().join("extensions").join("teamclaw.ts")
+}
+
+/// Write the embedded extension to its on-disk path (only when its content
+/// changed, so mtimes stay stable across spawns).
+fn materialize_extension() -> std::io::Result<PathBuf> {
+    let path = extension_path();
+    let current = std::fs::read_to_string(&path).unwrap_or_default();
+    if current != TEAMCLAW_EXTENSION_TS {
+        if let Some(parent) = path.parent() {
+            std::fs::create_dir_all(parent)?;
+        }
+        std::fs::write(&path, TEAMCLAW_EXTENSION_TS)?;
+    }
+    Ok(path)
+}
+
+/// Per-worktree permission rules file read by the TeamClaw pi extension
+/// (`TEAMCLAW_PI_PERMISSIONS_FILE`). The daemon appends patterns to it when
+/// the host resolves a permission with option_id "always".
+pub(crate) fn permissions_file_for(worktree: &str) -> PathBuf {
+    amuxd_pi_dir()
+        .join("permissions")
+        .join(format!("{}.json", worktree_hash(worktree)))
+}
+
+fn default_permissions() -> serde_json::Value {
+    serde_json::json!({ "defaultAction": "ask", "alwaysAllowed": [] })
+}
+
+pub(crate) fn write_default_permissions_if_absent(path: &Path) -> std::io::Result<()> {
+    if path.exists() {
+        return Ok(());
+    }
+    if let Some(parent) = path.parent() {
+        std::fs::create_dir_all(parent)?;
+    }
+    std::fs::write(path, serde_json::to_string_pretty(&default_permissions())?)
+}
+
+/// Append an "always allow" pattern to the rules file (dedup; a missing or
+/// corrupt file is replaced with defaults + the pattern).
+pub(crate) fn append_always_pattern(path: &Path, pattern: &str) -> std::io::Result<()> {
+    let mut rules = std::fs::read_to_string(path)
+        .ok()
+        .and_then(|s| serde_json::from_str::<serde_json::Value>(&s).ok())
+        .filter(|v| v.is_object())
+        .unwrap_or_else(default_permissions);
+    let obj = rules.as_object_mut().expect("rules is an object");
+    let list = obj
+        .entry("alwaysAllowed")
+        .or_insert_with(|| serde_json::json!([]));
+    if !list.is_array() {
+        *list = serde_json::json!([]);
+    }
+    let arr = list.as_array_mut().expect("alwaysAllowed is an array");
+    if !arr.iter().any(|v| v.as_str() == Some(pattern)) {
+        arr.push(serde_json::json!(pattern));
+    }
+    if let Some(parent) = path.parent() {
+        std::fs::create_dir_all(parent)?;
+    }
+    std::fs::write(path, serde_json::to_string_pretty(&rules)?)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -266,6 +372,49 @@ mod tests {
             resolve_binary_with(None, Some(bin.clone())),
             bin.to_string_lossy()
         );
+    }
+
+    #[test]
+    fn default_permissions_written_once() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("perms.json");
+        write_default_permissions_if_absent(&path).unwrap();
+        let v: serde_json::Value =
+            serde_json::from_str(&std::fs::read_to_string(&path).unwrap()).unwrap();
+        assert_eq!(v["defaultAction"], "ask");
+        assert_eq!(v["alwaysAllowed"], serde_json::json!([]));
+        // Second call must not clobber user-modified content.
+        std::fs::write(&path, r#"{"defaultAction":"allow","alwaysAllowed":["x"]}"#).unwrap();
+        write_default_permissions_if_absent(&path).unwrap();
+        let v: serde_json::Value =
+            serde_json::from_str(&std::fs::read_to_string(&path).unwrap()).unwrap();
+        assert_eq!(v["defaultAction"], "allow");
+    }
+
+    #[test]
+    fn append_always_pattern_dedups_and_heals_corrupt_file() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("perms.json");
+        // Missing file: created from defaults + pattern.
+        append_always_pattern(&path, "ls *").unwrap();
+        append_always_pattern(&path, "ls *").unwrap();
+        append_always_pattern(&path, "edit").unwrap();
+        let v: serde_json::Value =
+            serde_json::from_str(&std::fs::read_to_string(&path).unwrap()).unwrap();
+        assert_eq!(v["defaultAction"], "ask");
+        assert_eq!(v["alwaysAllowed"], serde_json::json!(["ls *", "edit"]));
+        // Corrupt file: replaced with defaults + pattern.
+        std::fs::write(&path, "not json").unwrap();
+        append_always_pattern(&path, "git *").unwrap();
+        let v: serde_json::Value =
+            serde_json::from_str(&std::fs::read_to_string(&path).unwrap()).unwrap();
+        assert_eq!(v["alwaysAllowed"], serde_json::json!(["git *"]));
+    }
+
+    #[test]
+    fn permissions_file_is_per_worktree() {
+        assert_ne!(permissions_file_for("/a/b"), permissions_file_for("/a/c"));
+        assert_eq!(permissions_file_for("/a/b"), permissions_file_for("/a/b"));
     }
 
     #[test]

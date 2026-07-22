@@ -15,6 +15,7 @@ mod nats;
 mod onboarding;
 mod opencode_install;
 mod opencode_settings;
+mod pi_install;
 mod proto;
 mod provider_config;
 mod remote_tools;
@@ -189,6 +190,9 @@ fn main() -> anyhow::Result<()> {
         }
         Commands::InstallOpencode { force } => {
             cli::install_opencode::run(force)?;
+        }
+        Commands::InstallPi { force } => {
+            pi_install::run_install(force)?;
         }
         Commands::Channel(args) => {
             let path = config::DaemonConfig::default_path();

@@ -82,7 +82,10 @@ mod tests {
             .map(|i| archive.by_index(i).unwrap().name().to_string())
             .collect();
         names.sort();
-        assert!(names.iter().any(|n| n == "server/index.mjs"), "names: {names:?}");
+        assert!(
+            names.iter().any(|n| n == "server/index.mjs"),
+            "names: {names:?}"
+        );
         assert!(names.iter().any(|n| n == "public.txt"), "names: {names:?}");
 
         let mut f = archive.by_name("server/index.mjs").unwrap();

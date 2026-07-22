@@ -11,8 +11,12 @@ use serde::Deserialize;
 use super::global_team_store::{resolve_team_dir, TEAM_LINK_NAME};
 use super::workspace_control::{McpServerConfig, WorkspaceControlError};
 
-pub const INHERENT_MCP_NAMES: &[&str] =
-    &["playwright", "chrome-control", "autoui", "teamclaw-introspect"];
+pub const INHERENT_MCP_NAMES: &[&str] = &[
+    "playwright",
+    "chrome-control",
+    "autoui",
+    "teamclaw-introspect",
+];
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum McpSource {
@@ -146,7 +150,9 @@ pub fn scan_team_mcp(workspace: &Path) -> HashMap<String, McpServerConfig> {
     team_servers
 }
 
-pub fn read_persisted_mcp(workspace: &Path) -> Result<HashMap<String, McpServerConfig>, WorkspaceControlError> {
+pub fn read_persisted_mcp(
+    workspace: &Path,
+) -> Result<HashMap<String, McpServerConfig>, WorkspaceControlError> {
     let path = workspace.join("opencode.json");
     if !path.exists() {
         return Ok(HashMap::new());
@@ -212,7 +218,9 @@ pub fn merge_mcp_layers(
     merged
 }
 
-pub fn load_merged_mcp(workspace: &Path) -> Result<HashMap<String, McpServerConfig>, WorkspaceControlError> {
+pub fn load_merged_mcp(
+    workspace: &Path,
+) -> Result<HashMap<String, McpServerConfig>, WorkspaceControlError> {
     let team = scan_team_mcp(workspace);
     let persisted = read_persisted_mcp(workspace)?;
     Ok(merge_mcp_layers(&team, &persisted))
@@ -225,12 +233,10 @@ pub fn filter_put_body(
 ) -> HashMap<String, McpServerConfig> {
     let team_names: HashSet<String> = scan_team_mcp(workspace).into_keys().collect();
     body.into_iter()
-        .filter(|(name, cfg)| {
-            match cfg.source.as_deref() {
-                Some("team") => false,
-                Some("workspace") | Some("inherent") => true,
-                _ => is_inherent(name) || !team_names.contains(name),
-            }
+        .filter(|(name, cfg)| match cfg.source.as_deref() {
+            Some("team") => false,
+            Some("workspace") | Some("inherent") => true,
+            _ => is_inherent(name) || !team_names.contains(name),
         })
         .map(|(name, mut cfg)| {
             cfg.source = None;
@@ -254,9 +260,9 @@ pub fn materialize_team_mcp_for_runtime(workspace: &Path) -> Result<bool, Worksp
         serde_json::json!({ "$schema": "https://opencode.ai/config.json" })
     };
 
-    let obj = json
-        .as_object_mut()
-        .ok_or_else(|| WorkspaceControlError::Parse("opencode.json root is not an object".into()))?;
+    let obj = json.as_object_mut().ok_or_else(|| {
+        WorkspaceControlError::Parse("opencode.json root is not an object".into())
+    })?;
     let mcp = obj.entry("mcp").or_insert_with(|| serde_json::json!({}));
     let mcp_obj = mcp
         .as_object_mut()
@@ -328,10 +334,7 @@ mod tests {
         team.insert("supabase".to_owned(), local_cfg(&["npx", "team-supabase"]));
 
         let mut persisted = HashMap::new();
-        persisted.insert(
-            "supabase".to_owned(),
-            local_cfg(&["npx", "local-supabase"]),
-        );
+        persisted.insert("supabase".to_owned(), local_cfg(&["npx", "local-supabase"]));
 
         let merged = merge_mcp_layers(&team, &persisted);
         let cfg = merged.get("supabase").unwrap();
@@ -345,7 +348,10 @@ mod tests {
         team.insert("team-only".to_owned(), local_cfg(&["npx", "team-only"]));
 
         let merged = merge_mcp_layers(&team, &HashMap::new());
-        assert_eq!(merged.get("team-only").unwrap().source.as_deref(), Some("team"));
+        assert_eq!(
+            merged.get("team-only").unwrap().source.as_deref(),
+            Some("team")
+        );
     }
 
     #[test]
@@ -397,9 +403,6 @@ mod tests {
             persisted.get("shared").unwrap().command,
             vec!["npx", "local"]
         );
-        assert_eq!(
-            persisted.get("team-a").unwrap().command,
-            vec!["npx", "a"]
-        );
+        assert_eq!(persisted.get("team-a").unwrap().command, vec!["npx", "a"]);
     }
 }

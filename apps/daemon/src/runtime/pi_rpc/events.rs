@@ -201,7 +201,17 @@ async fn handle_ui_request(
                 }
                 return;
             }
-            shared.permissions.lock().insert(id, session_id.clone());
+            let always_pattern = event
+                .get("message")
+                .and_then(|v| v.as_str())
+                .and_then(translate::extract_always_pattern);
+            shared.permissions.lock().insert(
+                id,
+                super::PendingPermission {
+                    session_id: session_id.clone(),
+                    always_pattern,
+                },
+            );
             let ev = translate::permission_request_event(event, requester.as_deref());
             crate::runtime::agent_trace::log_acp_event(&session_id, &ev);
             let _ = event_tx

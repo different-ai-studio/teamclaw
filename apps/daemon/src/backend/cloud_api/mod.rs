@@ -543,7 +543,10 @@ impl Backend for CloudApiBackend {
             .into_iter()
             .filter_map(|m| {
                 let id = m.id.filter(|s| !s.trim().is_empty())?;
-                let name = m.name.filter(|s| !s.trim().is_empty()).unwrap_or_else(|| id.clone());
+                let name = m
+                    .name
+                    .filter(|s| !s.trim().is_empty())
+                    .unwrap_or_else(|| id.clone());
                 Some(ManagedLlmModelInfo { id, name })
             })
             .collect();
@@ -1544,8 +1547,7 @@ mod tests {
         let backend_path = dir.path().join("backend.toml");
         let initial_config = config(&server);
         ProviderConfig::save_cloud_api(&backend_path, &initial_config).unwrap();
-        let backend =
-            CloudApiBackend::with_persist_path(initial_config, backend_path.clone());
+        let backend = CloudApiBackend::with_persist_path(initial_config, backend_path.clone());
 
         assert_eq!(backend.access_token().await.unwrap(), "at-1");
 
@@ -1587,7 +1589,10 @@ mod tests {
         assert_eq!(backend.access_token().await.unwrap(), "access-token");
 
         let actual = std::fs::read_to_string(&backend_path).unwrap();
-        assert_eq!(actual, expected, "stale daemon must not restore its old identity");
+        assert_eq!(
+            actual, expected,
+            "stale daemon must not restore its old identity"
+        );
     }
 
     #[tokio::test]
@@ -1703,7 +1708,10 @@ mod tests {
             .into_iter()
             .filter(|r| r.url.path() == "/v1/auth/refresh")
             .count();
-        assert_eq!(refreshes, 2, "only one retry should trigger one extra refresh");
+        assert_eq!(
+            refreshes, 2,
+            "only one retry should trigger one extra refresh"
+        );
     }
 
     #[tokio::test]
@@ -1712,11 +1720,9 @@ mod tests {
         mount_refresh(&server).await;
         Mock::given(method("GET"))
             .and(path("/v1/sessions/missing"))
-            .respond_with(
-                ResponseTemplate::new(404).set_body_json(serde_json::json!({
-                    "error": { "code": "not_found", "message": "session not found" }
-                })),
-            )
+            .respond_with(ResponseTemplate::new(404).set_body_json(serde_json::json!({
+                "error": { "code": "not_found", "message": "session not found" }
+            })))
             .expect(1)
             .mount(&server)
             .await;
@@ -2515,7 +2521,9 @@ mod tests {
         assert!(is_terminal_refresh_status(StatusCode::UNAUTHORIZED));
         assert!(is_terminal_refresh_status(StatusCode::BAD_REQUEST));
         // Transient / server-side failures must not latch the terminal flag.
-        assert!(!is_terminal_refresh_status(StatusCode::INTERNAL_SERVER_ERROR));
+        assert!(!is_terminal_refresh_status(
+            StatusCode::INTERNAL_SERVER_ERROR
+        ));
         assert!(!is_terminal_refresh_status(StatusCode::SERVICE_UNAVAILABLE));
         assert!(!is_terminal_refresh_status(StatusCode::TOO_MANY_REQUESTS));
         assert!(!is_terminal_refresh_status(StatusCode::FORBIDDEN));
@@ -2536,13 +2544,17 @@ mod tests {
         // Healthy until the first refusal.
         assert_eq!(
             backend.cloud_auth_health(),
-            Some(CloudAuthSnapshot { terminal_failure: false })
+            Some(CloudAuthSnapshot {
+                terminal_failure: false
+            })
         );
 
         assert!(backend.access_token().await.is_err());
         assert_eq!(
             backend.cloud_auth_health(),
-            Some(CloudAuthSnapshot { terminal_failure: true })
+            Some(CloudAuthSnapshot {
+                terminal_failure: true
+            })
         );
     }
 
@@ -2560,7 +2572,9 @@ mod tests {
         // A transient server error must leave the session presumed-recoverable.
         assert_eq!(
             backend.cloud_auth_health(),
-            Some(CloudAuthSnapshot { terminal_failure: false })
+            Some(CloudAuthSnapshot {
+                terminal_failure: false
+            })
         );
     }
 
@@ -2589,14 +2603,18 @@ mod tests {
         assert!(backend.access_token().await.is_err());
         assert_eq!(
             backend.cloud_auth_health(),
-            Some(CloudAuthSnapshot { terminal_failure: true })
+            Some(CloudAuthSnapshot {
+                terminal_failure: true
+            })
         );
 
         // Next refresh succeeds and clears the latch.
         assert_eq!(backend.access_token().await.unwrap(), "access-token");
         assert_eq!(
             backend.cloud_auth_health(),
-            Some(CloudAuthSnapshot { terminal_failure: false })
+            Some(CloudAuthSnapshot {
+                terminal_failure: false
+            })
         );
     }
 
@@ -2605,19 +2623,14 @@ mod tests {
         let server = MockServer::start().await;
         mount_refresh(&server).await;
         Mock::given(method("GET"))
-            .and(path(
-                "/v1/teams/team-1/members/me/effective-default-agent",
-            ))
+            .and(path("/v1/teams/team-1/members/me/effective-default-agent"))
             .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
                 "defaultAgentId": "agent-123"
             })))
             .mount(&server)
             .await;
         let backend = CloudApiBackend::new(config(&server));
-        let result = backend
-            .get_effective_default_agent("team-1")
-            .await
-            .unwrap();
+        let result = backend.get_effective_default_agent("team-1").await.unwrap();
         assert_eq!(result, Some("agent-123".to_string()));
     }
 
@@ -2626,19 +2639,14 @@ mod tests {
         let server = MockServer::start().await;
         mount_refresh(&server).await;
         Mock::given(method("GET"))
-            .and(path(
-                "/v1/teams/team-1/members/me/effective-default-agent",
-            ))
+            .and(path("/v1/teams/team-1/members/me/effective-default-agent"))
             .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
                 "defaultAgentId": null
             })))
             .mount(&server)
             .await;
         let backend = CloudApiBackend::new(config(&server));
-        let result = backend
-            .get_effective_default_agent("team-1")
-            .await
-            .unwrap();
+        let result = backend.get_effective_default_agent("team-1").await.unwrap();
         assert_eq!(result, None);
     }
 }

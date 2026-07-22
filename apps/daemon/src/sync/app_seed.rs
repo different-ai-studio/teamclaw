@@ -15,11 +15,7 @@ fn clone_template(workdir: &Path, template_url: &str, parent: &Path) -> anyhow::
         std::fs::remove_dir_all(workdir)?;
     }
     let wd = workdir.to_string_lossy();
-    let shallow_ok = run_git(
-        &["clone", "--depth=1", template_url, wd.as_ref()],
-        parent,
-    )
-    .is_ok()
+    let shallow_ok = run_git(&["clone", "--depth=1", template_url, wd.as_ref()], parent).is_ok()
         && worktree_has_content(workdir);
     if !shallow_ok {
         if workdir.exists() {
@@ -58,8 +54,14 @@ pub fn seed_app_repo(
     run_git(&["init", "--initial-branch=main"], workdir)?;
 
     let wd = workdir.to_string_lossy().to_string();
-    run_git(&["-C", &wd, "config", "user.email", "daemon@teamclaw"], workdir)?;
-    run_git(&["-C", &wd, "config", "user.name", "teamclaw-daemon"], workdir)?;
+    run_git(
+        &["-C", &wd, "config", "user.email", "daemon@teamclaw"],
+        workdir,
+    )?;
+    run_git(
+        &["-C", &wd, "config", "user.name", "teamclaw-daemon"],
+        workdir,
+    )?;
     run_git(&["-C", &wd, "add", "-A"], workdir)?;
     run_git(
         &[
@@ -212,16 +214,14 @@ mod tests {
         .unwrap();
 
         let target_bare = tmp.path().join("target.git");
-        run_git(&["init", "--bare", &target_bare.to_string_lossy()], tmp.path()).unwrap();
-
-        let work = tmp.path().join("work");
-        seed_app_repo(
-            &work,
-            &file_url(&target_bare),
-            &file_url(&tmpl_dir),
-            None,
+        run_git(
+            &["init", "--bare", &target_bare.to_string_lossy()],
+            tmp.path(),
         )
         .unwrap();
+
+        let work = tmp.path().join("work");
+        seed_app_repo(&work, &file_url(&target_bare), &file_url(&tmpl_dir), None).unwrap();
 
         assert!(bare_has_file(&target_bare, "README.md"));
         assert!(bare_has_file(&target_bare, "src/main.tsx"));

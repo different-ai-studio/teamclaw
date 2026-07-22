@@ -19,6 +19,8 @@ mod mcp_probe;
 mod opencode_install;
 #[path = "../src/opencode_settings/mod.rs"]
 mod opencode_settings;
+#[path = "../src/pi_install/mod.rs"]
+mod pi_install;
 #[path = "../src/proto.rs"]
 mod proto;
 #[path = "../src/provider_config.rs"]

@@ -165,7 +165,10 @@ pub async fn probe_local_stdio(
     }
 
     let mut child = cmd.spawn().map_err(|e| format!("spawn failed: {e}"))?;
-    let stdin = child.stdin.take().ok_or_else(|| "stdin unavailable".to_string())?;
+    let stdin = child
+        .stdin
+        .take()
+        .ok_or_else(|| "stdin unavailable".to_string())?;
     let stdout = child
         .stdout
         .take()
@@ -215,7 +218,8 @@ async fn read_jsonrpc_response(
         };
         if let Some(id) = json.get("id") {
             let expected_id_string = expected_id.to_string();
-            let matches = id.as_u64() == Some(expected_id) || id.as_str() == Some(&expected_id_string);
+            let matches =
+                id.as_u64() == Some(expected_id) || id.as_str() == Some(&expected_id_string);
             if matches {
                 return Ok(json);
             }
@@ -407,7 +411,10 @@ pub async fn probe_all_servers(
     response
 }
 
-async fn probe_one_server(workspace_path: &PathBuf, config: &McpServerConfig) -> McpServerProbeResult {
+async fn probe_one_server(
+    workspace_path: &PathBuf,
+    config: &McpServerConfig,
+) -> McpServerProbeResult {
     let probed_at = chrono::Utc::now().to_rfc3339();
     let transport = if config.server_type.is_empty() {
         "local"

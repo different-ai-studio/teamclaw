@@ -82,7 +82,8 @@ mod tests {
 
     #[test]
     fn from_serde_error() {
-        let err: serde_json::Error = serde_json::from_str::<serde_json::Value>("{bad}").unwrap_err();
+        let err: serde_json::Error =
+            serde_json::from_str::<serde_json::Value>("{bad}").unwrap_err();
         let e = BackendError::from(err);
         assert!(matches!(e, BackendError::Serde(_)));
     }
