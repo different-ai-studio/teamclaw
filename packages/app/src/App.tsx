@@ -1402,6 +1402,16 @@ function AppContent() {
 
           if (!sid) return;
 
+          if (decoded.envelope.eventType === "session.title_updated") {
+            // Daemon adopted an opencode-generated title over a default one —
+            // update the session list in place (body is the UTF-8 title).
+            const title = new TextDecoder().decode(decoded.envelope.body).trim();
+            if (title) {
+              useSessionListStore.getState().patchRow(sid, { title });
+            }
+            return;
+          }
+
           if (
             decoded.envelope.eventType === "session_participant.created" ||
             decoded.envelope.eventType === "session_participant.updated" ||

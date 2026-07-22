@@ -139,12 +139,13 @@ impl DaemonServer {
             tracing::warn!(session_id, error = %e, "session title update failed");
             return;
         }
-        if let Some(session) = self
-            .teamclaw
-            .as_mut()
-            .and_then(|tc| tc.sessions.find_by_id_mut(session_id))
-        {
-            session.title = title.to_string();
+        let actor_id = self.backend.actor_id().to_string();
+        if let Some(tc) = self.teamclaw.as_mut() {
+            if let Some(session) = tc.sessions.find_by_id_mut(session_id) {
+                session.title = title.to_string();
+            }
+            tc.publish_session_title(session_id, &actor_id, title).await;
+            tracing::info!(session_id, "session title adopted: patched + published");
         }
     }
 

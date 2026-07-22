@@ -1256,8 +1256,18 @@ impl Backend for CloudApiBackend {
         struct Body<'a> {
             title: &'a str,
         }
-        self.patch_no_content(&format!("/v1/sessions/{session_id}"), &Body { title })
-            .await
+        let url = self.cloud_url(&format!("/v1/sessions/{session_id}"));
+        let result = self
+            .patch_no_content(&format!("/v1/sessions/{session_id}"), &Body { title })
+            .await;
+        tracing::info!(
+            session_id,
+            title,
+            url = %url,
+            ok = result.is_ok(),
+            "update_session_title PATCH result"
+        );
+        result
     }
 
     async fn upsert_session_participant(

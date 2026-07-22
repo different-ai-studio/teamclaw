@@ -9,6 +9,7 @@ import { useWorkspaceStore } from '@/stores/workspace'
 import { useCronStore } from '@/stores/cron'
 import { useSessionListStore, type SessionListEntry } from '@/stores/session-list-store'
 import { useCurrentTeamStore } from '@/stores/current-team'
+import { getKnownLocalDaemonActorId } from '@/lib/local-daemon-identity'
 import { useSessionParticipantStore } from '@/stores/session-participant-store'
 import { useSessionSelectionStore } from '@/stores/session-selection-store'
 import { createQuickSession, describeQuickSessionFailure } from '@/lib/create-quick-session'
@@ -210,6 +211,7 @@ export function SessionListColumn({
   // Load actor-session set when filter switches to actor mode.
   // teamId is only used for cache namespacing; the supabase query is by actor_id.
   const teamIdFromList = useCurrentTeamStore((s) => s.team?.id ?? '')
+  const currentMemberId = useCurrentTeamStore((s) => s.currentMember?.id ?? '')
   const sessionWorkspaceLabels = useSessionWorkspaceLabels(teamIdFromList || null)
   React.useEffect(() => {
     initPinnedSessionIds(teamIdFromList || null)
@@ -448,6 +450,14 @@ export function SessionListColumn({
     const isActive = row.id === activeSessionId
     const activity = sessionActivityMap.get(row.id)
     const parts = participantsBySession[row.id] ?? []
+    // Hide the participants row for solo sessions — only me and/or my own local
+    // agent. Once anyone else joins (a teammate or a remote agent) it shows again.
+    const localAgentId = getKnownLocalDaemonActorId()
+    const isSoloWithLocalAgent =
+      parts.length > 0 &&
+      parts.every(
+        (p) => p.actorId === currentMemberId || p.actorId === localAgentId,
+      )
     const workspaceLabel = sessionWorkspaceLabels.get(row.id)
     const showWorkspaceSubline = filter.kind !== 'workspace' && !!workspaceLabel
     return (
@@ -525,9 +535,9 @@ export function SessionListColumn({
               </div>
             )}
             {/* Participants cluster + activity badge */}
-            {!isRenaming && (parts.length > 0 || activity) && (
+            {!isRenaming && ((parts.length > 0 && !isSoloWithLocalAgent) || activity) && (
               <div className="flex w-full items-center gap-1.5" data-testid="v2-session-row-participants">
-                {parts.length > 0 && (
+                {parts.length > 0 && !isSoloWithLocalAgent && (
                   <>
                     <div className="flex -space-x-1.5">
                       {parts.slice(0, 3).map((p) => {
