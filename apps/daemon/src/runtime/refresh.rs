@@ -29,6 +29,30 @@ pub const INTERNAL_WRITE_SUPPRESS: Duration = Duration::from_secs(3);
 pub const APPLY_REFRESH_SUPPRESS: Duration = Duration::from_secs(5);
 
 pub const INTERNAL_OPENCODE_KINDS: [RefreshChangeKind; 1] = [RefreshChangeKind::OpencodeJson];
+
+/// Global coordinator handle for writers that live outside the manager
+/// (e.g. the opencode HTTP backend's MCP-injection writes to a worktree's
+/// `opencode.json`). Set once at daemon startup via
+/// `RuntimeManager::attach_refresh_coordinator`; absent in unit tests.
+static GLOBAL_COORDINATOR: std::sync::OnceLock<std::sync::Arc<RuntimeRefreshCoordinator>> =
+    std::sync::OnceLock::new();
+
+pub fn set_global_coordinator(coordinator: std::sync::Arc<RuntimeRefreshCoordinator>) {
+    let _ = GLOBAL_COORDINATOR.set(coordinator);
+}
+
+/// Suppress filesystem-watch refreshes for an internal `opencode.json` write
+/// in `worktree`. No-op when the coordinator isn't up yet (tests, startup).
+pub fn suppress_internal_opencode_write(worktree: &std::path::Path) {
+    if let Some(coordinator) = GLOBAL_COORDINATOR.get() {
+        refresh_watch::suppress_for_workspace_path(
+            coordinator,
+            worktree,
+            &INTERNAL_OPENCODE_KINDS,
+            INTERNAL_WRITE_SUPPRESS,
+        );
+    }
+}
 pub const INTERNAL_TEAMCLAW_KINDS: [RefreshChangeKind; 1] = [RefreshChangeKind::TeamclawConfig];
 pub const INTERNAL_PREPARE_KINDS: [RefreshChangeKind; 3] = [
     RefreshChangeKind::OpencodeJson,

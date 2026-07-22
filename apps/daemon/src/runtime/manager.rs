@@ -225,6 +225,7 @@ mod model_apply;
 
 impl RuntimeManager {
     pub fn attach_refresh_coordinator(&mut self, coordinator: Arc<RuntimeRefreshCoordinator>) {
+        crate::runtime::refresh::set_global_coordinator(Arc::clone(&coordinator));
         self.refresh_coordinator = Some(coordinator);
     }
 
