@@ -324,6 +324,10 @@ fn merge_mcp_config_into_worktree(worktree: &str, mcp_config_path: &Path) -> Vec
             }
         }
         if changed {
+            // Our own write must not be mistaken for a user config change —
+            // that triggers a serve restart, which detaches live sessions
+            // and re-runs this injection on the next attach (restart loop).
+            crate::runtime::refresh::suppress_internal_opencode_write(Path::new(worktree));
             std::fs::write(&config_path, serde_json::to_string_pretty(&config)?)?;
         }
         Ok(servers.keys().cloned().collect())
@@ -359,6 +363,7 @@ fn prune_mcp_servers_from_worktree(worktree: &str, names: &[String]) {
             changed |= mcp_obj.remove(name).is_some();
         }
         if changed {
+            crate::runtime::refresh::suppress_internal_opencode_write(Path::new(worktree));
             std::fs::write(&config_path, serde_json::to_string_pretty(&config)?)?;
         }
         Ok(())
