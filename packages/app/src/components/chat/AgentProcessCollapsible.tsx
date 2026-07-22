@@ -1,6 +1,6 @@
 import * as React from "react";
 import { useTranslation } from "react-i18next";
-import { ChevronDown } from "lucide-react";
+import { ChevronRight } from "lucide-react";
 import {
   Collapsible,
   CollapsibleContent,
@@ -33,14 +33,8 @@ export function AgentProcessCollapsible({
         <CollapsibleTrigger asChild>
           <button
             type="button"
-            className="inline-flex max-w-full items-center gap-1.5 rounded py-0.5 text-left text-[12px] text-muted-foreground transition-colors hover:text-foreground"
+            className="group/process inline-flex max-w-full cursor-pointer items-center gap-1.5 rounded py-0.5 text-left text-[12px] text-muted-foreground transition-colors hover:text-foreground"
           >
-            <ChevronDown
-              className={cn(
-                "h-3 w-3 shrink-0 text-faint transition-transform duration-200",
-                open && "rotate-180",
-              )}
-            />
             <span className="font-medium">
               {t("chat.process", "处理过程")}
             </span>
@@ -54,6 +48,13 @@ export function AgentProcessCollapsible({
                 </span>
               </>
             ) : null}
+            <ChevronRight
+              className={cn(
+                "h-3 w-3 shrink-0 text-faint opacity-0 transition-[opacity,transform] duration-200 group-hover/process:opacity-100",
+                open && "rotate-90",
+              )}
+              aria-hidden
+            />
           </button>
         </CollapsibleTrigger>
         <CollapsibleContent>
