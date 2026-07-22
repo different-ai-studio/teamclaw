@@ -234,10 +234,7 @@ impl AgentBackend for OpencodeHttpBackend {
 /// (`agents.local_agent`; default "opencode").
 pub fn create_backend(local_agent: &str) -> Box<dyn AgentBackend> {
     match local_agent {
-        "pi" => {
-            warn!("pi backend not yet implemented; falling back to opencode");
-            Box::new(OpencodeHttpBackend::new())
-        }
+        "pi" => Box::new(super::pi_rpc::PiRpcBackend::new()),
         "opencode" => Box::new(OpencodeHttpBackend::new()),
         other => {
             warn!(

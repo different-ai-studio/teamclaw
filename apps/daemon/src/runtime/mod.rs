@@ -1,6 +1,7 @@
 pub mod acp_event_frame;
 pub mod backend;
 pub mod opencode_http;
+pub mod pi_rpc;
 // Compatibility alias: external modules still reach the runtime backend as
 // `crate::runtime::adapter` (AcpCommand, AcpStartupMetadata, envelopes, …).
 pub use self::opencode_http as adapter;

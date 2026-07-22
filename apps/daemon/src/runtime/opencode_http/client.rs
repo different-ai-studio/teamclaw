@@ -249,6 +249,11 @@ pub fn models_from_providers(body: &serde_json::Value) -> Vec<amux::ModelInfo> {
         if pid.is_empty() {
             continue;
         }
+        let provider_name = provider
+            .get("name")
+            .and_then(|v| v.as_str())
+            .filter(|s| !s.trim().is_empty())
+            .unwrap_or(pid);
         let Some(models) = provider.get("models").and_then(|v| v.as_object()) else {
             continue;
         };
@@ -261,6 +266,7 @@ pub fn models_from_providers(body: &serde_json::Value) -> Vec<amux::ModelInfo> {
             out.push(amux::ModelInfo {
                 id: format!("{pid}/{mid}"),
                 display_name: name.to_string(),
+                provider_name: provider_name.to_string(),
             });
         }
     }
@@ -309,6 +315,7 @@ mod tests {
         assert_eq!(models.len(), 2);
         assert_eq!(models[0].id, "team/glm-4.6");
         assert_eq!(models[0].display_name, "GLM 4.6");
+        assert_eq!(models[0].provider_name, "Team");
         assert_eq!(models[1].id, "team/kimi-k2");
         assert_eq!(models[1].display_name, "kimi-k2");
     }

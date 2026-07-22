@@ -1128,6 +1128,7 @@ mod tests {
         let acp = vec![amux::ModelInfo {
             id: "opencode/big-pickle".into(),
             display_name: "Big Pickle".into(),
+            provider_name: "opencode".into(),
         }];
         let providers = vec![provider("scnet", &["MiniMax-M2.5"])];
         let catalog = build_model_catalog(&["opencode".to_string()], Some(&acp), &providers);
