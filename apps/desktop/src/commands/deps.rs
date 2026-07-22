@@ -167,6 +167,14 @@ fn get_install_commands_map(name: &str) -> Option<PlatformInstallCommands> {
             windows: "winget install Python.Python.3".to_string(),
             linux: "sudo apt install -y python3".to_string(),
         }),
+        // opencode is installed/updated via the bundled `amuxd install-opencode`
+        // (same path as the first-run SetupWizard) — this string is display-only;
+        // the real install is handled specially in `install_dependency`.
+        "opencode" => Some(PlatformInstallCommands {
+            macos: "amuxd install-opencode".to_string(),
+            windows: "amuxd install-opencode".to_string(),
+            linux: "amuxd install-opencode".to_string(),
+        }),
         _ => None,
     }
 }
@@ -249,6 +257,18 @@ pub fn check_dependencies() -> Vec<DependencyInfo> {
         1,
     ));
 
+    // opencode — required, priority 1 (the local agent runtime).
+    // Install/update is handled specially via `amuxd install-opencode`.
+    deps.push(check_single_dependency(
+        "opencode",
+        &["--version"],
+        true,
+        "Agent runtime - required to run the local AI agent",
+        get_install_commands_map("opencode").unwrap(),
+        vec!["Local Agent".to_string()],
+        1,
+    ));
+
     // Sort by priority (lower first)
     deps.sort_by_key(|d| d.priority);
     deps
@@ -257,11 +277,20 @@ pub fn check_dependencies() -> Vec<DependencyInfo> {
 /// Install a single dependency using the platform's package manager.
 /// Streams output via `dep-install-progress` events.
 /// Returns true on success, false on failure.
+/// `download_base` (opencode only) is the install mirror base from
+/// `buildConfig.opencode.downloadBase`; ignored for other dependencies.
 #[tauri::command]
 pub async fn install_dependency<R: Runtime>(
     app: AppHandle<R>,
     name: String,
+    download_base: Option<String>,
 ) -> Result<bool, String> {
+    // opencode is installed via the same `amuxd install-opencode` path as the
+    // first-run SetupWizard (official opencode, pinned to opencode.lock.json).
+    if name == "opencode" {
+        return Ok(install_opencode_via_amuxd(&app, download_base).await);
+    }
+
     // On macOS, if the dependency requires brew and brew is not installed, install brew first
     if requires_brew(&name) {
         let brew_check = Command::new("brew").no_window().arg("--version").output();
@@ -279,6 +308,49 @@ pub async fn install_dependency<R: Runtime>(
 
     let success = run_install(&app, &name).await;
     Ok(success)
+}
+
+/// Update an already-installed dependency to the required version.
+/// Only opencode supports this (re-runs `amuxd install-opencode`, idempotent).
+#[tauri::command]
+pub async fn update_dependency<R: Runtime>(
+    app: AppHandle<R>,
+    name: String,
+    download_base: Option<String>,
+) -> Result<bool, String> {
+    if name == "opencode" {
+        return Ok(install_opencode_via_amuxd(&app, download_base).await);
+    }
+    Err(format!("No update path available for '{}'", name))
+}
+
+/// Install-or-update opencode via the bundled `amuxd install-opencode`, bridging
+/// its progress onto `dep-install-progress` events (the settings Dependencies UI
+/// contract). Shares the exact install path used by the first-run SetupWizard.
+async fn install_opencode_via_amuxd<R: Runtime>(
+    app: &AppHandle<R>,
+    download_base: Option<String>,
+) -> bool {
+    let emit_app = app.clone();
+    let result = crate::commands::setup::run_amuxd_install_opencode(
+        app,
+        download_base,
+        move |status, line, error| {
+            // amuxd emits "running"; the deps UI expects "installing".
+            let status = if status == "running" { "installing" } else { status };
+            let _ = emit_app.emit(
+                "dep-install-progress",
+                DepInstallProgress {
+                    name: "opencode".to_string(),
+                    status: status.to_string(),
+                    output_line: line,
+                    error,
+                },
+            );
+        },
+    )
+    .await;
+    result.is_ok()
 }
 
 /// Execute the actual install command and stream output via events.
