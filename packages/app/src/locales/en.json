@@ -199,7 +199,6 @@
     "files": "files",
     "teamSharedFiles": "team shared files",
     "teamSharedFilesLoading": "Loading team shared files...",
-    "teamSharedFilesUnavailable": "Team shared directory is not set up yet. Enable team share in Settings → Team.",
     "teamSharedFilesDirMissing": "Team shared directory does not exist yet. Sync to fetch it from the team.",
     "teamSharedFilesEmpty": "This team shared directory is empty.",
     "actors": "Actors",
@@ -486,7 +485,6 @@
       "placeholderModelHint": "No live runtime — dropdown will default to this model",
       "searchModelPlaceholder": "Search models…",
       "noMatchingModels": "No matching models",
-      "modelHeading": "Model",
       "removeMention": "Remove mention",
       "modelChangeFailed": "Failed to change model",
       "modelChangeWillRetry": "Pick saved; will reapply on next send. Detail: {{message}}",
@@ -2084,8 +2082,6 @@
       "hide": "Hide value",
       "emptyTitle": "No environment variables yet",
       "emptyDescription": "Store your API keys and passwords securely. Values are encrypted using your system keychain (macOS Keychain / Windows Credential Manager).",
-      "hintTitle": "How it works",
-      "hintBody": "Values are stored in your operating system's native keychain, not in config files. Use ${KEY_NAME} syntax in MCP server environment variables or other configs to reference these secrets.",
       "error": {
         "keyRequired": "Key is required",
         "valueRequired": "Value is required",
@@ -2093,7 +2089,6 @@
         "invalidKeyShared": "Shared key must be lowercase letters, digits, underscores (max 64 chars)"
       },
       "hideValue": "Hide value",
-      "hintTeam": "Team variables are encrypted and synced to all team members. They cannot be viewed after saving.",
       "teamUnavailableTitle": "Team variables are not available to this agent",
       "teamUnavailableBody": "The local daemon does not have the team secret required to decrypt shared variables. Set the correct Team Secret in Team Shared settings, then start a new agent session.",
       "needRestart": "Need restart",

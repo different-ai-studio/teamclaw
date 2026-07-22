@@ -44,10 +44,28 @@ export interface LocalDaemonWorkspace {
 
 export async function listLocalDaemonWorkspaces(): Promise<LocalDaemonWorkspace[]> {
   try {
-    return await invoke<LocalDaemonWorkspace[]>('list_local_daemon_workspaces')
+    const rows = await invoke<LocalDaemonWorkspace[]>('list_local_daemon_workspaces')
+    return dedupeWorkspacesByPath(rows)
   } catch {
     return []
   }
+}
+
+/** The daemon can register several workspace ids for the same on-disk path;
+ *  collapse them to one entry per path (preferring the default row) so the cron
+ *  workspace picker doesn't list the same path a dozen times. */
+function dedupeWorkspacesByPath(rows: LocalDaemonWorkspace[]): LocalDaemonWorkspace[] {
+  const byPath = new Map<string, LocalDaemonWorkspace>()
+  for (const row of rows) {
+    const key = row.path?.trim()
+    if (!key) continue
+    const existing = byPath.get(key)
+    // Keep the first occurrence, but let a default row win over a non-default one.
+    if (!existing || (row.isDefault && !existing.isDefault)) {
+      byPath.set(key, row)
+    }
+  }
+  return [...byPath.values()]
 }
 
 export function defaultLocalDaemonWorkspacePath(rows: LocalDaemonWorkspace[]): string | null {
@@ -73,6 +91,8 @@ export interface CronModelOption {
   /** ACP model id (often `provider/model`) — stored verbatim as `payload.model`. */
   ref: string
   name: string
+  /** Daemon-advertised provider label, used to group the picker like chat does. */
+  providerName?: string
 }
 
 /** Models for one agent backend. Cron UI renders a flat list like chat. */
@@ -121,7 +141,7 @@ export function findRuntimeForWorkspace(workspacePath: string): RuntimeStateEntr
 }
 
 function groupFromAcpModels(
-  models: Array<{ id: string; displayName: string }>,
+  models: Array<{ id: string; displayName: string; providerName?: string }>,
   backend: string,
 ): CronModelGroup[] {
   if (models.length === 0) return []
@@ -132,6 +152,7 @@ function groupFromAcpModels(
       models: models.map((m) => ({
         ref: m.id,
         name: m.displayName?.trim() || m.id,
+        providerName: m.providerName?.trim() || undefined,
       })),
     },
   ]
