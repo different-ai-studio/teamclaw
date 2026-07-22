@@ -27,21 +27,34 @@ import { listen } from '@tauri-apps/api/event'
 
 type UnifiedEntry =
   | { scope: 'personal'; key: string; description?: string; category?: 'system' | 'system-shared' | null; dirty?: boolean }
-  | { scope: 'team'; key: string; description: string; category: string; createdBy: string; updatedBy: string; updatedAt: string; dirty?: boolean }
+  | { scope: 'team'; key: string; description: string; category: string; createdBy: string; updatedBy: string; updatedAt: string; dirty?: boolean; notDecrypted?: boolean; keyMismatch?: boolean }
   // Placeholder shown when a `system-shared` system def exists but the team secret
   // has not yet been set. Edit-saves default to "Share with team".
   | { scope: 'team-placeholder'; key: string; description?: string; category: 'system-shared'; dirty?: boolean }
 
 // ─── Add / Edit Dialog ──────────────────────────────────────────────────
 
+/** True when a save failed because the local team secret is missing/wrong, so
+ *  a shared write cannot be encrypted or synced. Matched on the stable backend
+ *  error text from `try_lazy_init_from_workspace`. */
+function isTeamSecretMissingError(message: string): boolean {
+  return (
+    message.includes('not initialized') ||
+    message.includes('No team configured') ||
+    message.includes('derived_key not set')
+  )
+}
+
 interface EnvVarDialogProps {
   open: boolean
   onOpenChange: (open: boolean) => void
   editingEntry?: UnifiedEntry | null
+  /** Local team secret is missing/wrong — shared writes won't sync. */
+  teamSecretMissing?: boolean
   onSave: (key: string, value: string, description: string, shared: boolean) => Promise<void>
 }
 
-function EnvVarDialog({ open, onOpenChange, editingEntry, onSave }: EnvVarDialogProps) {
+function EnvVarDialog({ open, onOpenChange, editingEntry, teamSecretMissing, onSave }: EnvVarDialogProps) {
   const { t } = useTranslation()
   const { role } = useTeamPermissions()
   const teamAvailable = role !== null
@@ -232,7 +245,19 @@ function EnvVarDialog({ open, onOpenChange, editingEntry, onSave }: EnvVarDialog
             </>
           )}
 
-          {error && (
+          {/* Local team secret missing/wrong → shared writes can't be encrypted
+              or synced. Show a yellow warning (before and after a failed save)
+              rather than an opaque red error. */}
+          {shared && (teamSecretMissing || (error && isTeamSecretMissingError(error))) && (
+            <div className="flex items-start gap-2 rounded-[10px] border border-amber-300/70 bg-amber-50 px-3 py-2 text-xs text-amber-900 dark:border-amber-800 dark:bg-amber-950/30 dark:text-amber-100">
+              <TriangleAlert className="mt-0.5 h-4 w-4 shrink-0 text-amber-600 dark:text-amber-400" />
+              <span>
+                {t('settings.envVars.localSecretMissingWrite', '本地密钥缺失，未同步：本机缺少团队密钥，此变量无法加密并同步给团队。请先在 Team Shared 设置中填写正确的团队密钥。')}
+              </span>
+            </div>
+          )}
+
+          {error && !isTeamSecretMissingError(error) && (
             <p className="text-[13px] text-destructive">{error}</p>
           )}
         </div>
@@ -384,6 +409,19 @@ function EnvVarRow({ entry, canDelete, onEdit, onDelete }: EnvVarRowProps) {
               {t('settings.envVars.notConfigured', 'Not configured')}
             </span>
           )}
+          {entry.scope === 'team' && entry.notDecrypted && (
+            <span
+              className="inline-flex items-center gap-1 text-xs text-amber-700 dark:text-amber-300 bg-amber-50 dark:bg-amber-950/40 px-1.5 py-0.5 rounded"
+              title={entry.keyMismatch
+                ? t('settings.envVars.keyMismatchHint', '此变量是用另一个（已轮换/更早的）团队密钥加密的，本机当前密钥解不开。需由持有明文的成员重新保存该变量。')
+                : t('settings.envVars.notDecryptedHint', '本机缺少团队密钥，无法解密此变量。请在 Team Shared 设置中填写正确的团队密钥。')}
+            >
+              <TriangleAlert className="h-3 w-3" />
+              {entry.keyMismatch
+                ? t('settings.envVars.keyMismatch', '密钥不匹配')
+                : t('settings.envVars.localKeyMissing', '本地密钥缺失')}
+            </span>
+          )}
           {entry.dirty && (
             <span className="inline-flex items-center gap-1 text-xs text-amber-600 dark:text-amber-400 bg-amber-50 dark:bg-amber-950/40 px-1.5 py-0.5 rounded">
               <AlertCircle className="h-3 w-3" />
@@ -458,6 +496,153 @@ function EnvVarRow({ entry, canDelete, onEdit, onDelete }: EnvVarRowProps) {
   )
 }
 
+// ─── Team sync diagnostics ──────────────────────────────────────────────
+
+interface TeamEnvDiagnostics {
+  teamIdPresent: boolean
+  teamLinkPath: string
+  linkExists: boolean
+  linkIsSymlink: boolean
+  linkTarget: string | null
+  targetAccessible: boolean
+  secretsDirExists: boolean
+  secretFileCount: number
+  secretConfigured: boolean
+}
+
+/** One diagnostic row: green check when ok, amber warning when not. */
+function DiagRow({ ok, label, value, hint }: { ok: boolean; label: string; value?: string; hint?: string }) {
+  return (
+    <div className="flex items-start gap-2 py-1">
+      {ok ? (
+        <Check className="mt-0.5 h-4 w-4 shrink-0 text-emerald-500" />
+      ) : (
+        <TriangleAlert className="mt-0.5 h-4 w-4 shrink-0 text-amber-500" />
+      )}
+      <div className="min-w-0 flex-1">
+        <div className="flex flex-wrap items-baseline gap-x-2">
+          <span className="text-[13px] font-medium text-foreground">{label}</span>
+          {value && (
+            <span className="text-xs font-mono text-muted-foreground break-all">{value}</span>
+          )}
+        </div>
+        {hint && <p className="text-xs text-amber-700 dark:text-amber-300 mt-0.5">{hint}</p>}
+      </div>
+    </div>
+  )
+}
+
+function TeamEnvDiagnosticsCard({
+  teamId,
+  teamName,
+  workspacePath,
+  refreshKey,
+}: {
+  teamId: string | null
+  teamName: string | null
+  workspacePath: string | null
+  refreshKey: number
+}) {
+  const { t } = useTranslation()
+  const [diag, setDiag] = React.useState<TeamEnvDiagnostics | null>(null)
+  const [error, setError] = React.useState<string | null>(null)
+
+  React.useEffect(() => {
+    if (!workspacePath) return
+    let cancelled = false
+    void invoke<TeamEnvDiagnostics>('team_env_diagnostics', { teamId, workspacePath })
+      .then((d) => { if (!cancelled) { setDiag(d); setError(null) } })
+      .catch((e) => { if (!cancelled) setError(e instanceof Error ? e.message : String(e)) })
+    return () => { cancelled = true }
+  }, [teamId, workspacePath, refreshKey])
+
+  const linkOk = !!diag && diag.linkExists && diag.targetAccessible
+  const linkHint = diag
+    ? !diag.linkExists
+      ? t('settings.envVars.diag.linkMissing', '工作区未链接团队目录（软链不存在）。请在 Team Shared 设置中开通/加入团队共享。')
+      : !diag.targetAccessible
+        ? t('settings.envVars.diag.linkDangling', '软链存在但指向的目标无法访问（悬空链接）。团队目录可能已被删除或移动。')
+        : undefined
+    : undefined
+
+  return (
+    <SettingCard>
+      <div className="flex items-start gap-3">
+        <AlertCircle className="h-5 w-5 text-blue-500 mt-0.5 shrink-0" />
+        <div className="min-w-0 flex-1 text-[13px]">
+          <p className="font-medium text-foreground mb-2">
+            {t('settings.envVars.diag.title', '团队同步诊断')}
+          </p>
+
+          {error ? (
+            <p className="text-destructive">{error}</p>
+          ) : !diag ? (
+            <p className="text-muted-foreground">{t('common.loading', 'Loading...')}</p>
+          ) : (
+            <div className="divide-y divide-border/60">
+              {/* 1. Team */}
+              <DiagRow
+                ok={diag.teamIdPresent}
+                label={t('settings.envVars.diag.team', '当前团队')}
+                value={teamName ?? (teamId ?? undefined)}
+                hint={
+                  !diag.teamIdPresent
+                    ? t('settings.envVars.diag.teamMissing', '当前未加入团队或 team id 缺失，团队变量无法同步。')
+                    : undefined
+                }
+              />
+              {/* 2. Workspace team symlink */}
+              <DiagRow
+                ok={linkOk}
+                label={t('settings.envVars.diag.link', '团队目录软链')}
+                value={diag.linkTarget ? `${diag.teamLinkPath} → ${diag.linkTarget}` : diag.teamLinkPath}
+                hint={linkHint}
+              />
+              {/* 3. Team secret */}
+              <DiagRow
+                ok={diag.secretConfigured}
+                label={t('settings.envVars.diag.secret', '团队密钥')}
+                value={diag.secretConfigured
+                  ? t('settings.envVars.diag.secretOk', '已配置')
+                  : t('settings.envVars.diag.secretMissingShort', '未配置')}
+                hint={
+                  !diag.secretConfigured
+                    ? t('settings.envVars.diag.secretMissing', '本机没有团队密钥，无法加密/解密团队变量。请在 Team Shared 设置中填写正确的团队密钥。')
+                    : undefined
+                }
+              />
+              {/* Encrypted files present */}
+              <DiagRow
+                ok={diag.secretFileCount > 0}
+                label={t('settings.envVars.diag.files', '加密文件')}
+                value={t('settings.envVars.diag.filesCount', '{{count}} 个 (_secrets/*.enc.json)', { count: diag.secretFileCount })}
+                hint={
+                  diag.secretFileCount === 0
+                    ? t('settings.envVars.diag.filesMissing', '团队目录下没有加密的团队变量文件，可能尚未从远端同步下来（daemon 未拉取），或团队还没有人设置过团队变量。')
+                    : undefined
+                }
+              />
+
+              {/* Other possible causes */}
+              <div className="pt-2 mt-1">
+                <p className="text-xs font-medium text-foreground mb-1">
+                  {t('settings.envVars.diag.otherTitle', '其他可能的异常原因')}
+                </p>
+                <ul className="list-disc pl-4 text-xs text-muted-foreground space-y-0.5">
+                  <li>{t('settings.envVars.diag.other1', 'daemon 未运行或未完成一次同步，加密文件还没拉取到本机。')}</li>
+                  <li>{t('settings.envVars.diag.other2', '本机团队密钥与加密时用的密钥不一致（成员看到「未解密」标记）。')}</li>
+                  <li>{t('settings.envVars.diag.other3', '团队变量只在新建 Agent 会话时注入，改动后需要重启会话才生效。')}</li>
+                  <li>{t('settings.envVars.diag.other4', '变量名不合法（团队变量仅支持小写字母、数字、下划线，最长 64 字符）。')}</li>
+                </ul>
+              </div>
+            </div>
+          )}
+        </div>
+      </div>
+    </SettingCard>
+  )
+}
+
 // ─── Main Section ───────────────────────────────────────────────────────
 
 export const EnvVarsSection = React.memo(function EnvVarsSection() {
@@ -465,6 +650,7 @@ export const EnvVarsSection = React.memo(function EnvVarsSection() {
   const { envVars, teamSecrets, isLoading: envLoading, loadEnvCatalog, setCatalogEntry, deleteCatalogEntry } = useEnvVarsStore()
   const workspacePath = useWorkspaceStore((s) => s.workspacePath)
   const teamId = useCurrentTeamStore((s) => s.team?.id ?? null)
+  const teamName = useCurrentTeamStore((s) => s.team?.name ?? null)
   const currentNodeId = useTeamMembersStore((s) => s.currentNodeId)
   // currentNodeId is hydrated here (and via useAppInit) since the Team panel no longer owns it.
   const loadCurrentNodeId = useTeamMembersStore((s) => s.loadCurrentNodeId)
@@ -566,6 +752,8 @@ export const EnvVarsSection = React.memo(function EnvVarsSection() {
         updatedBy: s.updatedBy,
         updatedAt: s.updatedAt,
         dirty: dirtyKeys.has(s.keyId) || hasSyncDirty,
+        notDecrypted: s.decrypted === false,
+        keyMismatch: s.keyMismatch === true,
       }
     })
 
@@ -738,28 +926,19 @@ export const EnvVarsSection = React.memo(function EnvVarsSection() {
         </SettingCard>
       )}
 
-      {/* Hint */}
-      <SettingCard>
-        <div className="flex items-start gap-3">
-          <ShieldCheck className="h-5 w-5 text-emerald-500 mt-0.5 shrink-0" />
-          <div className="text-[13px] text-muted-foreground">
-            <p className="font-medium text-foreground mb-1">
-              {t('settings.envVars.hintTitle', 'How it works')}
-            </p>
-            <p>
-              {t('settings.envVars.hintBody', 'Values are stored in your operating system\'s native keychain, not in config files. Use ${KEY_NAME} syntax in MCP server environment variables or other configs to reference these secrets.')}
-            </p>
-            <p className="mt-1">
-              {t('settings.envVars.hintTeam', 'Team variables are encrypted and synced to all team members. They cannot be viewed after saving.')}
-            </p>
-          </div>
-        </div>
-      </SettingCard>
+      {/* Team sync diagnostics */}
+      <TeamEnvDiagnosticsCard
+        teamId={teamId}
+        teamName={teamName}
+        workspacePath={workspacePath ?? null}
+        refreshKey={dirtyKeys.size}
+      />
 
       {/* Dialogs */}
       <EnvVarDialog
         open={addDialogOpen}
         onOpenChange={setAddDialogOpen}
+        teamSecretMissing={teamEnvAvailable === false}
         onSave={handleSave}
       />
 
@@ -767,6 +946,7 @@ export const EnvVarsSection = React.memo(function EnvVarsSection() {
         open={!!editingEntry}
         onOpenChange={(open) => { if (!open) setEditingEntry(null) }}
         editingEntry={editingEntry}
+        teamSecretMissing={teamEnvAvailable === false}
         onSave={handleSave}
       />
 

@@ -9,14 +9,31 @@
 //! block below can reach the server's private fields directly.
 
 use std::collections::HashMap;
+use std::sync::Arc;
 use std::time::Duration;
 
+use tokio::sync::oneshot;
+use tokio::sync::Mutex as AsyncMutex;
 use tracing::{info, warn};
 
 use crate::daemon::prompt_await::parse_prompt_await_payload;
 use crate::daemon::runtime_resolution::{agent_type_from_name, resolve_requested_agent_type};
+use crate::runtime::RuntimeManager;
 
 use super::DaemonServer;
+
+/// Result of a background cron turn, sent from the spawned turn task back to the
+/// active run loop for AgentReply persistence + sock reply. `reply_tx` rides
+/// along because the reply is written by the loop (which owns `&self.teamclaw`,
+/// a non-`Send` field the persist step needs), not by the task.
+pub(crate) struct CronTurnDone {
+    pub(crate) turn_result: anyhow::Result<crate::runtime::turn_aggregator::EmittedMessage>,
+    /// acp_session_id of the agent that ran the turn (for reply metadata lookup).
+    pub(crate) acp_sid: String,
+    /// Cloud `sessions.id` the reply is persisted against and returned to the client.
+    pub(crate) remote_session_id: String,
+    pub(crate) reply_tx: oneshot::Sender<String>,
+}
 
 /// Caches the `(cloud_session_id, acp_session_id)` pair for each cron logical
 /// `session_key`.
@@ -29,6 +46,13 @@ use super::DaemonServer;
 #[derive(Debug, Default)]
 pub(crate) struct CronSessionCache {
     inner: HashMap<String, (String, String)>,
+    /// Cloud `sessions.id` created eagerly by `cron-prepare-session`, before the
+    /// (slow) ACP runtime spawn. Keyed by `session_key`. `handle_prompt_await`
+    /// consumes this so it reuses the already-created cloud session instead of
+    /// creating a second one. Lets the desktop stamp `session_id` into the run
+    /// record — and navigate — seconds after "Run Now", without waiting for the
+    /// runtime to cold-start.
+    prepared: HashMap<String, String>,
 }
 
 impl CronSessionCache {
@@ -51,6 +75,21 @@ impl CronSessionCache {
         self.inner
             .insert(key.into(), (cloud_session_id.into(), acp_session_id.into()));
     }
+
+    /// Records a pre-created cloud session id for `key` (see `prepared`).
+    pub(crate) fn insert_prepared(&mut self, key: impl Into<String>, cloud_session_id: impl Into<String>) {
+        self.prepared.insert(key.into(), cloud_session_id.into());
+    }
+
+    /// Returns the pre-created cloud session id for `key` without consuming it.
+    pub(crate) fn get_prepared(&self, key: &str) -> Option<String> {
+        self.prepared.get(key).cloned()
+    }
+
+    /// Removes and returns the pre-created cloud session id for `key`.
+    pub(crate) fn take_prepared(&mut self, key: &str) -> Option<String> {
+        self.prepared.remove(key)
+    }
 }
 
 impl DaemonServer {
@@ -67,10 +106,15 @@ impl DaemonServer {
     /// Returns `{text, session_id}` where `session_id` is the cloud session UUID —
     /// the client (cron scheduler) stores it in `CronRunRecord.session_id` so
     /// the desktop UI's "view session" button resolves to a real chat session.
-    pub(super) async fn handle_prompt_await(
+    /// Set up a cron turn: resolve workspace/team, create-or-reuse the cloud
+    /// session + spawn the ACP runtime, and persist the user prompt. Returns
+    /// `(acp_session_id, cloud_session_id, prompt, timeout)` for the caller to
+    /// drive. Split out of `handle_prompt_await` so the (fast, `&mut self`) setup
+    /// runs on the main loop while the (slow) turn runs on a background task.
+    async fn prepare_cron_turn(
         &mut self,
         payload: &serde_json::Value,
-    ) -> anyhow::Result<serde_json::Value> {
+    ) -> anyhow::Result<(String, String, String, Duration)> {
         let parsed = parse_prompt_await_payload(payload)?;
 
         let working_directory = match parsed.working_directory.filter(|s| !s.is_empty()) {
@@ -106,19 +150,15 @@ impl DaemonServer {
                     anyhow::bail!("no local agent runtime");
                 }
 
-                let primary_agent_actor_id = self.actor_id.clone();
-                let title = match parsed.job_name {
-                    Some(n) if !n.is_empty() => {
-                        format!("Cron: {}", n.chars().take(60).collect::<String>())
-                    }
-                    _ => "Cron job".to_string(),
+                // Reuse the cloud session `cron-prepare-session` already created
+                // for this run (the common path when Run Now goes through the
+                // scheduler); otherwise create it now (e.g. scheduled runs).
+                let sb_sid = match self.cron_sessions.take_prepared(parsed.session_key) {
+                    Some(prepared) => prepared,
+                    None => self
+                        .create_cron_cloud_session(&team_id, parsed.job_name)
+                        .await?,
                 };
-
-                let sb_sid = self
-                    .backend
-                    .create_cron_session(&team_id, &primary_agent_actor_id, &title)
-                    .await
-                    .map_err(|e| anyhow::anyhow!("create_cron_session: {e}"))?;
 
                 // Resolve the job's pinned backend (if any) against the
                 // daemon's configured agents. `None` (no agent_type on the
@@ -165,26 +205,71 @@ impl DaemonServer {
         self.persist_cron_user_prompt(&team_id, &remote_session_id, parsed.message)
             .await;
 
-        // Drive the turn through the ACP runtime. Unlike the legacy
-        // `send_prompt_and_await_reply` (which holds the global manager mutex
-        // for the entire turn), `drive_cron_turn` uses the checkout pattern so
-        // the manager lock is free while we await the model — other sessions
-        // can poll events / spawn / run their own turns concurrently.
-        let turn_result = self
-            .drive_cron_turn(
-                &acp_sid,
-                parsed.message,
-                Duration::from_secs(parsed.timeout_secs),
-            )
-            .await;
+        Ok((
+            acp_sid,
+            remote_session_id,
+            parsed.message.to_string(),
+            Duration::from_secs(parsed.timeout_secs),
+        ))
+    }
 
-        // Always return the cloud session_id so the desktop can stamp it into
-        // the run record even when the turn itself fails (ACP timeout, etc.).
-        // On success: { "text": "...", "session_id": "..." }
-        // On failure: { "session_id": "...", "agent_error": "..." }
-        // The caller wraps this in  { "ok": true/false, "result": ... }
-        // — the desktop amuxd_client reads "session_id" and optional "agent_error".
-        match turn_result {
+    /// Handle a `prompt-await` sock command. Runs the (fast) setup inline, then
+    /// spawns the (slow) ACP turn onto a background task so the main run loop is
+    /// free to service other sock commands meanwhile. The task hands its result
+    /// back via `cron_turn_done_tx`; `finalize_cron_turn` (on the loop) persists
+    /// the reply and answers `reply_tx`. Owns `reply_tx` so setup failures still
+    /// get an `{ ok: false, error }` reply instead of a dropped connection.
+    pub(super) async fn handle_prompt_await(
+        &mut self,
+        payload: &serde_json::Value,
+        reply_tx: oneshot::Sender<String>,
+    ) {
+        let (acp_sid, remote_session_id, message, timeout) =
+            match self.prepare_cron_turn(payload).await {
+                Ok(v) => v,
+                Err(e) => {
+                    let _ = reply_tx.send(
+                        serde_json::json!({ "ok": false, "error": e.to_string() }).to_string(),
+                    );
+                    return;
+                }
+            };
+
+        // Drive the turn off the run loop. `drive_cron_turn` uses the checkout
+        // pattern (manager mutex free while awaiting the model), so concurrent
+        // cron turns still progress; spawning it additionally frees the run loop
+        // itself for the whole turn duration.
+        let agents = self.agents.clone();
+        let done_tx = self.cron_turn_done_tx.clone();
+        tokio::spawn(async move {
+            let turn_result = Self::drive_cron_turn(&agents, &acp_sid, &message, timeout).await;
+            let _ = done_tx
+                .send(CronTurnDone {
+                    turn_result,
+                    acp_sid,
+                    remote_session_id,
+                    reply_tx,
+                })
+                .await;
+        });
+    }
+
+    /// Persist a finished cron turn's AgentReply and answer the sock client.
+    /// Runs on the active run loop (not the turn task) because persistence needs
+    /// `&self.teamclaw`, which is not `Send`. Always returns the cloud
+    /// `session_id` so the desktop stamps it into the run record even when the
+    /// turn failed (ACP timeout, etc.); the reply is wrapped `{ ok: true, result }`
+    /// to match the pre-refactor sock contract (`agent_error` still rides inside
+    /// `result`, so setup-only failures remain the sole `ok: false` case).
+    pub(super) async fn finalize_cron_turn(&self, done: CronTurnDone) {
+        let CronTurnDone {
+            turn_result,
+            acp_sid,
+            remote_session_id,
+            reply_tx,
+        } = done;
+
+        let result = match turn_result {
             Ok(reply) => {
                 // `send_prompt_and_await_reply` drains the ACP channel directly,
                 // bypassing `forward_agent_event`, so we must persist the finalized
@@ -234,16 +319,93 @@ impl DaemonServer {
                         );
                     }
                 }
-                Ok(serde_json::json!({
-                    "text": reply.content,
-                    "session_id": remote_session_id,
-                }))
+                serde_json::json!({
+                    "ok": true,
+                    "result": { "text": reply.content, "session_id": remote_session_id },
+                })
             }
-            Err(e) => Ok(serde_json::json!({
-                "session_id": remote_session_id,
-                "agent_error": e.to_string(),
-            })),
+            Err(e) => serde_json::json!({
+                "ok": true,
+                "result": { "session_id": remote_session_id, "agent_error": e.to_string() },
+            }),
+        };
+
+        let _ = reply_tx.send(result.to_string());
+    }
+
+    /// Cron cloud session title, matching what the desktop expects: `Cron: <job
+    /// name, first 60 chars>`, falling back to `Cron job`.
+    fn cron_session_title(job_name: Option<&str>) -> String {
+        match job_name {
+            Some(n) if !n.is_empty() => {
+                format!("Cron: {}", n.chars().take(60).collect::<String>())
+            }
+            _ => "Cron job".to_string(),
         }
+    }
+
+    /// Create the cloud `sessions` row for a cron run (seeding the primary agent
+    /// + human admins as participants so the desktop can see/open it). Returns
+    /// the cloud session id. Shared by `cron-prepare-session` and the
+    /// prompt-await create path.
+    async fn create_cron_cloud_session(
+        &self,
+        team_id: &str,
+        job_name: Option<&str>,
+    ) -> anyhow::Result<String> {
+        let primary_agent_actor_id = self.actor_id.clone();
+        let title = Self::cron_session_title(job_name);
+        self.backend
+            .create_cron_session(team_id, &primary_agent_actor_id, &title)
+            .await
+            .map_err(|e| anyhow::anyhow!("create_cron_session: {e}"))
+    }
+
+    /// Eagerly create the cloud session for a cron run and cache it, returning
+    /// `{ "session_id": "<uuid>" }`. Fast (no ACP runtime spawn), so the desktop
+    /// scheduler can stamp `session_id` into the run record — and the UI can
+    /// navigate to the session — within a second or two of "Run Now", long
+    /// before the (cold-starting) runtime finishes the turn. The subsequent
+    /// `prompt-await` reuses this cached session instead of creating a new one.
+    pub(super) async fn handle_cron_prepare_session(
+        &mut self,
+        payload: &serde_json::Value,
+    ) -> anyhow::Result<serde_json::Value> {
+        let session_key = payload
+            .get("session_key")
+            .and_then(|v| v.as_str())
+            .ok_or_else(|| anyhow::anyhow!("cron-prepare-session: missing 'session_key'"))?;
+        if !session_key.starts_with("cron/") {
+            anyhow::bail!("cron-prepare-session: session_key must start with 'cron/'");
+        }
+        let job_name = payload
+            .get("job_name")
+            .and_then(|v| v.as_str())
+            .filter(|s| !s.is_empty());
+
+        // Idempotent: if this run's session already exists (prepared or fully
+        // paired), return it rather than creating a duplicate.
+        if let Some((sb, _)) = self.cron_sessions.get_pair(session_key) {
+            return Ok(serde_json::json!({ "session_id": sb }));
+        }
+        if let Some(sb) = self.cron_sessions.get_prepared(session_key) {
+            return Ok(serde_json::json!({ "session_id": sb }));
+        }
+
+        let team_id = self
+            .config
+            .team_id
+            .clone()
+            .ok_or_else(|| anyhow::anyhow!("daemon has no team_id; run `amuxd init` first"))?;
+
+        let sb_sid = self.create_cron_cloud_session(&team_id, job_name).await?;
+        self.cron_sessions.insert_prepared(session_key, &sb_sid);
+        info!(
+            session_key = %session_key,
+            session_id = %sb_sid,
+            "cron: prepared cloud session (eager)"
+        );
+        Ok(serde_json::json!({ "session_id": sb_sid }))
     }
 
     /// Persist the cron job prompt as a `text` message on the cloud session.
@@ -374,8 +536,11 @@ impl DaemonServer {
     /// Reply detection is identical to `send_prompt_and_await_reply`: the turn
     /// ends on the first finalized `AgentReply`, an ACP `Error` event, a closed
     /// channel, or the timeout.
+    ///
+    /// Takes `agents` explicitly (rather than `&self`) so it can run on a
+    /// spawned task after the run loop has moved on — see `handle_prompt_await`.
     async fn drive_cron_turn(
-        &self,
+        agents: &Arc<AsyncMutex<RuntimeManager>>,
         acp_sid: &str,
         prompt: &str,
         timeout: Duration,
@@ -383,7 +548,7 @@ impl DaemonServer {
         // 1. Per-agent turn lock (held for the whole turn) under a brief
         //    manager lock.
         let turn_lock = {
-            let mgr = self.agents.lock().await;
+            let mgr = agents.lock().await;
             let agent_id = mgr
                 .agent_id_by_acp_session(acp_sid)
                 .ok_or_else(|| anyhow::anyhow!("no agent for acp_session_id {acp_sid}"))?;
@@ -396,7 +561,7 @@ impl DaemonServer {
 
         // 2. Check out the receiver and send the prompt under a brief lock.
         let (agent_id, mut event_rx) = {
-            let mut mgr = self.agents.lock().await;
+            let mut mgr = agents.lock().await;
             let (turn, _again) = mgr
                 .checkout_turn_for_acp(acp_sid)
                 .map_err(|e| anyhow::anyhow!("checkout_turn_for_acp: {e}"))?;
@@ -430,7 +595,7 @@ impl DaemonServer {
             }
 
             let emitted = {
-                let mut mgr = self.agents.lock().await;
+                let mut mgr = agents.lock().await;
                 mgr.aggregator_mut(&agent_id)
                     .map(|agg| agg.ingest(&event.event))
                     .unwrap_or_default()
@@ -445,7 +610,7 @@ impl DaemonServer {
 
         // 4. Always check the receiver back in.
         {
-            let mut mgr = self.agents.lock().await;
+            let mut mgr = agents.lock().await;
             mgr.checkin_turn(crate::runtime::CheckedOutTurn { agent_id, event_rx });
         }
 

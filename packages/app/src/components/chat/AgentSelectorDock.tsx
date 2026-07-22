@@ -12,7 +12,6 @@ import {
   CommandSeparator,
 } from '@/components/ui/command'
 import { useRuntimeStateStore } from '@/stores/runtime-state-store'
-import { setModel } from '@/lib/teamclaw-rpc'
 import { resolveAgentAvailableModels } from '@/lib/agent-available-models'
 import { sessionFlowError, sessionFlowLog } from '@/lib/session-flow-log'
 import { RuntimeLifecycle, AgentStatus, type RuntimeInfo } from '@/lib/proto/amux_pb'
@@ -20,13 +19,15 @@ import {
   backendTypeFromRuntimeEntry,
   agentModelDisplayLabel,
   isAgentModelRowSelected,
-  resolveRuntimeIdForAgent,
   resolveRuntimeStateEntryForAgent,
   resolveSetModelId,
   selectAgentModel,
 } from '@/lib/runtime-state-resolve'
+import { ensureRuntimeThenSetModel } from '@/lib/teamclaw/ensure-agent-runtime'
 import { useAgentModelPickStore } from '@/stores/agent-model-pick-store'
 import { useSessionSelectionStore } from '@/stores/session-selection-store'
+import { useCurrentTeamStore } from '@/stores/current-team'
+import { useSessionListStore } from '@/stores/session-list-store'
 import { useLocalDaemonActorId } from '@/lib/daemon-agent-admin'
 import { cn } from '@/lib/utils'
 import type { AttachedAgent } from '@/packages/ai/prompt-input-insert-hooks'
@@ -282,32 +283,33 @@ function AgentPill({
   const handlePickModel = React.useCallback(async (modelId: string) => {
     const freshByRuntimeId = useRuntimeStateStore.getState().byRuntimeId
     const rpcModelId = resolveSetModelId(agent.id, modelId, freshByRuntimeId)
-    const liveRuntimeId = resolveRuntimeIdForAgent(agent.id, freshByRuntimeId, dbRuntimeId)
+    const teamId =
+      useSessionListStore.getState().rows.find((r) => r.id === sessionId)?.team_id ??
+      useCurrentTeamStore.getState().team?.id ??
+      null
 
     sessionFlowLog('agent_selector.model_pick.begin', {
       agentId: agent.id,
       agentName: agent.displayName,
-      runtimeId: liveRuntimeId,
       dbRuntimeId,
+      teamId,
       effectiveModelId,
       modelId,
       rpcModelId,
       availableModelIds: availableModels.map((m) => m.id),
     })
 
-    // ── Step 1: store the pick FIRST. The pick is the source of truth from
-    // this point on. Persisted to localStorage; survives reload. Subsequent
-    // MQTT retains for this agent cannot override it (selectAgentModel
-    // prefers pick over retain).
+    // Store the pick FIRST. Survives reload; MQTT retains cannot override it.
     if (sessionId) {
       useAgentModelPickStore.getState().setPick(sessionId, agent.id, rpcModelId)
     }
 
-    if (!liveRuntimeId) {
-      sessionFlowLog('agent_selector.model_pick.deferred_until_runtime', {
+    if (!sessionId || !teamId) {
+      sessionFlowLog('agent_selector.model_pick.deferred_until_session', {
         agentId: agent.id,
         modelId,
         sessionId,
+        teamId,
       })
       const { toast } = await import('sonner')
       toast.success(t('chat.agentSelector.modelPickSaved', '模型已选择'), {
@@ -319,56 +321,28 @@ function AgentPill({
       return
     }
 
-    // ── Step 2: best-effort apply on the daemon. If this fails, the pick
-    // stays — the next runtimeStart / send flow re-applies it via
-    // startAgentRuntimesAsync → setModel.
+    // Ask daemon for the live spawn (runtimeStart, with dedup), then setModel
+    // with that authoritative id — never guess from MQTT/DB hints.
     try {
-      const result = await setModel({
-        targetActorId: agent.id, // route by the agent's actor_id
-        runtimeId: liveRuntimeId,
+      const { runtimeId } = await ensureRuntimeThenSetModel({
+        sessionId,
+        teamId,
+        agentActorId: agent.id,
         modelId: rpcModelId,
       })
       sessionFlowLog('agent_selector.model_pick.ok', {
         agentId: agent.id,
-        runtimeId: liveRuntimeId,
+        runtimeId,
         modelId: rpcModelId,
         sessionId,
-        result,
       })
     } catch (e) {
       const message = e instanceof Error ? e.message : String(e)
-      // "agent not found" usually means the daemon spawn id rotated. One
-      // 400ms re-resolve usually catches the new spawn id from a fresh
-      // retain.
-      const retried =
-        /agent\s+.+\s+not found/i.test(message) &&
-        (await (async () => {
-          await new Promise((r) => setTimeout(r, 400))
-          const fresh = useRuntimeStateStore.getState().byRuntimeId
-          const retryRuntimeId = resolveRuntimeIdForAgent(agent.id, fresh, dbRuntimeId)
-          if (!retryRuntimeId || retryRuntimeId === liveRuntimeId) return false
-          try {
-            await setModel({
-              targetActorId: agent.id,
-              runtimeId: retryRuntimeId,
-              modelId: rpcModelId,
-            })
-            sessionFlowLog('agent_selector.model_pick.ok_after_retry', {
-              agentId: agent.id,
-              runtimeId: retryRuntimeId,
-              modelId: rpcModelId,
-            })
-            return true
-          } catch {
-            return false
-          }
-        })())
-      if (retried) return
-
       sessionFlowError('agent_selector.model_pick.failed', e, {
         agentId: agent.id,
-        runtimeId: liveRuntimeId,
         modelId: rpcModelId,
+        sessionId,
+        teamId,
       })
       const { toast } = await import('sonner')
       toast.error(t('chat.agentSelector.modelChangeFailed', 'Failed to change model'), {
@@ -378,7 +352,7 @@ function AgentPill({
           { message },
         ),
       })
-      console.error('[AgentSelectorDock] setModel failed (pick preserved)', e)
+      console.error('[AgentSelectorDock] ensureRuntimeThenSetModel failed (pick preserved)', e)
     }
   }, [agent.id, agent.displayName, dbRuntimeId, sessionId, t, effectiveModelId, availableModels])
 

@@ -229,6 +229,16 @@ pub struct DaemonServer {
     session_remote_targets: Arc<AsyncMutex<crate::remote_tools::SessionRemoteTargetStore>>,
     remote_tool_turn_contexts: Arc<AsyncMutex<crate::remote_tools::RemoteToolTurnContextStore>>,
     rpc_client: Arc<AsyncMutex<crate::teamclaw::rpc::RpcClient>>,
+    /// Sender for completed cron turns. `handle_prompt_await` runs the (long)
+    /// ACP turn on a background task; when it finishes the task sends the result
+    /// here so the active run loop can persist the AgentReply and reply to the
+    /// sock client. This keeps the main select loop from being blocked for the
+    /// whole turn — otherwise a running cron turn stalls every other sock command
+    /// (notably the next run's `cron-prepare-session`, delaying its session_id
+    /// stamp and the desktop "Run Now" jump).
+    cron_turn_done_tx: mpsc::Sender<cron::CronTurnDone>,
+    /// Receiver half, `take()`n by whichever run loop (MQTT or NATS) is active.
+    cron_turn_done_rx: Option<mpsc::Receiver<cron::CronTurnDone>>,
 }
 
 /// Single control command parsed off `amuxd.sock`. Variants correspond to the
@@ -284,6 +294,20 @@ pub(crate) enum SockCommand {
     PromptAwait {
         payload: serde_json::Value,
         reply_tx: oneshot::Sender<String>,
+    },
+    /// Eagerly create the cloud session for a cron run (no ACP turn), so the
+    /// desktop can stamp `session_id` into the run record and navigate to the
+    /// session within seconds of "Run Now". Reply is
+    /// `{ "ok": true, "result": { "session_id": ... } }` or `{ "ok": false, "error": ... }`.
+    CronPrepareSession {
+        payload: serde_json::Value,
+        reply_tx: oneshot::Sender<String>,
+    },
+    /// Re-prewarm ACP hosts for a workspace after a provider/env reload evicted
+    /// them (bridged from `RuntimeSupervisor`'s prewarm notifier). One-way.
+    PrewarmWorkspace {
+        workspace_id: String,
+        path: String,
     },
     /// Fetch a fresh WeChat (iLink) bot QR code. One-shot HTTP call to the
     /// ilink backend via `teamclaw_gateway::wechat::fetch_qr_code`. Reply is
@@ -634,6 +658,10 @@ impl DaemonServer {
             None
         };
 
+        // Bounded queue of completed cron turns handed back to the run loop for
+        // persistence + sock reply (see `cron_turn_done_tx`).
+        let (cron_turn_done_tx, cron_turn_done_rx) = mpsc::channel(64);
+
         Ok(Self {
             config,
             config_path: config_path.to_path_buf(),
@@ -673,6 +701,8 @@ impl DaemonServer {
                 crate::remote_tools::RemoteToolTurnContextStore::default(),
             )),
             rpc_client,
+            cron_turn_done_tx,
+            cron_turn_done_rx: Some(cron_turn_done_rx),
         })
     }
 
@@ -831,6 +861,9 @@ impl DaemonServer {
         ));
         let mqtt_connected_flag = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
         self.mqtt_connected_flag = Some(mqtt_connected_flag.clone());
+        // Escapes the HTTP-setup block so the prewarm notifier can be installed
+        // once the sock command channel exists (below).
+        let mut supervisor_for_prewarm: Option<Arc<crate::runtime::RuntimeSupervisor>> = None;
         let _http_handle = {
             let mut meta = crate::http::server::metadata(self.actor_id.clone(), "amuxd");
             // Expose configured backends so the model-catalog endpoint can
@@ -842,6 +875,7 @@ impl DaemonServer {
             // The HTTP workspace runtime endpoints share this supervisor's
             // refresh coordinator for status + apply-intent semantics.
             let runtime_supervisor = crate::runtime::RuntimeSupervisor::new(self.agents.clone());
+            supervisor_for_prewarm = Some(runtime_supervisor.clone());
             runtime_supervisor.clone().start_refresh_auto_applier();
             let refresh_coordinator = runtime_supervisor.refresh_coordinator();
             self.refresh_coordinator = Some(refresh_coordinator.clone());
@@ -918,27 +952,34 @@ impl DaemonServer {
         // Spawned here (after the HTTP setup released its `self.agents` lock) so
         // the long-held prewarm lock can't stall the listener bind.
         {
-            // Resolve the primary workspace's *real* spawn env up front (writes
-            // provider.team, warms the managed-LLM cache, and yields the exact
-            // extra_env the first session will use) so the prewarmed host's
-            // env_fingerprint matches and is actually reused. The empty-env
-            // prewarm never matched a team session, so the first opencode
-            // session still paid the full 20s+ cold spawn. Falls back to
-            // empty-env when no workspace exists yet (fresh install).
-            let prewarm_env = self.resolve_primary_prewarm_env().await;
+            // Resolve *real* spawn envs for every linkable workspace up front
+            // (writes provider.team, warms the managed-LLM cache, and yields the
+            // exact extra_env the first session will use) so each prewarmed
+            // host's env_fingerprint matches and is actually reused. Covering
+            // all workspaces (not just the first) matters because cron's default
+            // workspace is the agent's `default_workspace_id`, which need not be
+            // the team list's head. Falls back to empty-env when no workspace
+            // exists yet (fresh install).
+            let prewarm_envs = self.resolve_all_prewarm_envs().await;
             let agents = self.agents.clone();
             tokio::spawn(async move {
-                let mut mgr = agents.lock().await;
-                match prewarm_env {
-                    Some((worktree, extra_env, force_env_override)) => {
-                        mgr.prewarm_acp_hosts_with_env(
-                            extra_env,
-                            force_env_override,
-                            Some(worktree.as_str()),
-                        )
-                        .await;
-                    }
-                    None => mgr.prewarm_acp_hosts().await,
+                if prewarm_envs.is_empty() {
+                    let mut mgr = agents.lock().await;
+                    mgr.prewarm_acp_hosts().await;
+                    return;
+                }
+                // Sequential, one manager-lock scope per workspace: cold host
+                // spawns take 20s+ each, and re-acquiring the lock between
+                // workspaces lets real session/cron traffic interleave instead
+                // of queueing behind the whole prewarm sweep.
+                for (worktree, extra_env, force_env_override) in prewarm_envs {
+                    let mut mgr = agents.lock().await;
+                    mgr.prewarm_acp_hosts_with_env(
+                        extra_env,
+                        force_env_override,
+                        Some(worktree.as_str()),
+                    )
+                    .await;
                 }
             });
         }
@@ -1016,6 +1057,26 @@ impl DaemonServer {
         let (sock_tx, mut sock_rx) = mpsc::channel::<SockCommand>(16);
         let sock_path = DaemonConfig::sock_path();
         spawn_sock_listener(sock_path.clone(), sock_tx.clone());
+
+        // Bridge the supervisor's "provider hosts evicted" notifications into
+        // the command loop, where `kick_prewarm_for_workspace` re-warms the
+        // evicted hosts in the background. Same shape as register-workspace.
+        if let Some(supervisor) = &supervisor_for_prewarm {
+            let (prewarm_tx, mut prewarm_rx) = mpsc::channel::<(String, String)>(8);
+            supervisor.set_prewarm_notifier(prewarm_tx);
+            let bridge_tx = sock_tx.clone();
+            tokio::spawn(async move {
+                while let Some((workspace_id, path)) = prewarm_rx.recv().await {
+                    if bridge_tx
+                        .send(SockCommand::PrewarmWorkspace { workspace_id, path })
+                        .await
+                        .is_err()
+                    {
+                        break;
+                    }
+                }
+            });
+        }
 
         // Forward HTTP register-workspace requests into the command loop. Runs
         // for the lifetime of the daemon; exits if either channel closes.
@@ -1165,6 +1226,14 @@ impl DaemonServer {
 
         tokio::pin!(shutdown);
         let mut first_connect = true;
+
+        // Owned for the whole run: the `finalize_cron_turn` select arm drains
+        // completed background cron turns off it. Taken once here (before the
+        // reconnect loop) so a reconnect never re-takes an already-moved value.
+        let mut cron_done_rx = self
+            .cron_turn_done_rx
+            .take()
+            .expect("cron_turn_done_rx already taken (MQTT run loop entered twice)");
 
         'outer: loop {
             // ── 0. Self-heal team_id from daemon.toml ──
@@ -1461,11 +1530,22 @@ impl DaemonServer {
                                     .await;
                             }
                             Some(SockCommand::PromptAwait { payload, reply_tx }) => {
-                                let resp = match self.handle_prompt_await(&payload).await {
+                                // Fast setup inline; the turn runs on a task and
+                                // its result comes back via `cron_turn_done_rx`
+                                // (see the `finalize_cron_turn` select arm below).
+                                self.handle_prompt_await(&payload, reply_tx).await;
+                            }
+                            Some(SockCommand::CronPrepareSession { payload, reply_tx }) => {
+                                let resp = match self.handle_cron_prepare_session(&payload).await {
                                     Ok(v) => serde_json::json!({ "ok": true, "result": v }),
                                     Err(e) => serde_json::json!({ "ok": false, "error": e.to_string() }),
                                 };
                                 let _ = reply_tx.send(resp.to_string());
+                            }
+                            Some(SockCommand::PrewarmWorkspace { workspace_id, path }) => {
+                                // Env assembly runs inline (fast); the host
+                                // spawn itself is detached inside.
+                                self.kick_prewarm_for_workspace(&path, &workspace_id).await;
                             }
                             Some(SockCommand::WechatQrStart { reply_tx }) => {
                                 let base_url = teamclaw_gateway::wechat_config::default_ilink_base_url();
@@ -1510,6 +1590,14 @@ impl DaemonServer {
                                 // path until next restart.
                                 warn!("amuxd.sock: listener channel closed; control commands unavailable until restart");
                             }
+                        }
+                    }
+                    done = cron_done_rx.recv() => {
+                        // A background cron turn finished: persist its AgentReply
+                        // and answer the waiting sock client. `None` only if all
+                        // senders dropped (never — `self` holds the sender).
+                        if let Some(done) = done {
+                            self.finalize_cron_turn(done).await;
                         }
                     }
                     poll_result = self.mqtt.eventloop.poll() => {
@@ -1663,6 +1751,13 @@ impl DaemonServer {
             })?;
 
         let mut first_connect = true;
+
+        // See the MQTT path: taken once before the reconnect loop so the
+        // `finalize_cron_turn` select arm can drain completed cron turns.
+        let mut cron_done_rx = self
+            .cron_turn_done_rx
+            .take()
+            .expect("cron_turn_done_rx already taken (NATS run loop entered twice)");
 
         'outer: loop {
             // 1. Fresh backend access_token; same retry cadence as MQTT path.
@@ -1837,11 +1932,22 @@ impl DaemonServer {
                                     .await;
                             }
                             Some(SockCommand::PromptAwait { payload, reply_tx }) => {
-                                let resp = match self.handle_prompt_await(&payload).await {
+                                // Fast setup inline; the turn runs on a task and
+                                // its result comes back via `cron_turn_done_rx`
+                                // (see the `finalize_cron_turn` select arm below).
+                                self.handle_prompt_await(&payload, reply_tx).await;
+                            }
+                            Some(SockCommand::CronPrepareSession { payload, reply_tx }) => {
+                                let resp = match self.handle_cron_prepare_session(&payload).await {
                                     Ok(v) => serde_json::json!({ "ok": true, "result": v }),
                                     Err(e) => serde_json::json!({ "ok": false, "error": e.to_string() }),
                                 };
                                 let _ = reply_tx.send(resp.to_string());
+                            }
+                            Some(SockCommand::PrewarmWorkspace { workspace_id, path }) => {
+                                // Env assembly runs inline (fast); the host
+                                // spawn itself is detached inside.
+                                self.kick_prewarm_for_workspace(&path, &workspace_id).await;
                             }
                             Some(SockCommand::WechatQrStart { reply_tx }) => {
                                 let base_url = teamclaw_gateway::wechat_config::default_ilink_base_url();
@@ -1879,6 +1985,13 @@ impl DaemonServer {
                             }
                             Some(SockCommand::Unknown(line)) => warn!("amuxd.sock: unknown control command: {line:?}"),
                             None => warn!("amuxd.sock: listener channel closed; control commands unavailable until restart"),
+                        }
+                    }
+                    done = cron_done_rx.recv() => {
+                        // Background cron turn finished — persist + reply. See the
+                        // matching arm in the MQTT loop.
+                        if let Some(done) = done {
+                            self.finalize_cron_turn(done).await;
                         }
                     }
                     frame = inbound.recv() => {
@@ -2261,6 +2374,32 @@ where
                                 }
                                 Err(_) => {
                                     warn!("amuxd.sock: prompt-await reply dropped");
+                                }
+                            }
+                        } else if cmd == "cron-prepare-session" {
+                            let (reply_tx, reply_rx) = oneshot::channel();
+                            if tx
+                                .send(SockCommand::CronPrepareSession {
+                                    payload: v,
+                                    reply_tx,
+                                })
+                                .await
+                                .is_err()
+                            {
+                                return;
+                            }
+                            match reply_rx.await {
+                                Ok(body) => {
+                                    let mut stream = reader.into_inner();
+                                    if let Err(e) = stream.write_all(body.as_bytes()).await {
+                                        warn!("amuxd.sock: cron-prepare-session write failed: {e}");
+                                        return;
+                                    }
+                                    let _ = stream.write_all(b"\n").await;
+                                    let _ = stream.shutdown().await;
+                                }
+                                Err(_) => {
+                                    warn!("amuxd.sock: cron-prepare-session reply dropped");
                                 }
                             }
                         } else {
@@ -2890,6 +3029,7 @@ pub(crate) mod tests {
         let deferred_backend = Arc::new(
             crate::backend::deferred::DeferredBackend::claimed(backend.clone()),
         );
+        let (cron_turn_done_tx, cron_turn_done_rx) = mpsc::channel(64);
         TestServer {
             server: DaemonServer {
                 config,
@@ -2934,6 +3074,8 @@ pub(crate) mod tests {
                     "team-1".to_string(),
                     "agent-actor".to_string(),
                 ))),
+                cron_turn_done_tx,
+                cron_turn_done_rx: Some(cron_turn_done_rx),
             },
             _tmp: tmp,
         }

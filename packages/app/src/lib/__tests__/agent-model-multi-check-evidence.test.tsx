@@ -245,6 +245,10 @@ vi.mock("@/lib/teamclaw-rpc", () => ({
   setModel: vi.fn(),
 }));
 
+vi.mock("@/lib/teamclaw/ensure-agent-runtime", () => ({
+  ensureRuntimeThenSetModel: vi.fn(),
+}));
+
 vi.mock("react-i18next", () => ({
   useTranslation: () => ({
     t: (_k: string, fb?: string) => fb ?? _k,

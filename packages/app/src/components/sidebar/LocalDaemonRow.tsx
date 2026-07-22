@@ -33,6 +33,7 @@ import { useCurrentTeamStore } from '@/stores/current-team'
 import { useDaemonOnboardingStore } from '@/stores/daemon-onboarding'
 import { useMemberPreferencesStore } from '@/stores/member-preferences-store'
 import { recoverMqttConnection } from '@/stores/mqtt-reconnect'
+import { requestDaemonProbe } from '@/lib/daemon-probe-signal'
 import { type LocalDaemonRuntimeStatus } from '@/hooks/use-local-daemon-http-status'
 import { workspacePathsMatch } from '@/stores/session-utils'
 import { cn } from '@/lib/utils'
@@ -491,10 +492,18 @@ export function LocalDaemonRow({
   const handleRetryConnection = async () => {
     if (retrying || daemonBusy) return
     setRetrying(true)
+    // Kick the actual MQTT reconnect and a fresh status probe *first*, without
+    // waiting on the cloud calls below. Right after an outage those calls can
+    // sit in long timeouts; blocking the reconnect behind them is what made the
+    // click feel dead. Fire-and-forget so recovery starts immediately.
+    void recoverMqttConnection()
+    requestDaemonProbe()
     try {
       await checkCloudSession({ allowRetryAfterHealError: true })
       await refreshDaemon()
-      await recoverMqttConnection()
+      // Reflect the refreshed daemon/cloud state now instead of on the next
+      // 20s poll tick.
+      requestDaemonProbe()
       const { cloudAuthExpired, healError } = useDaemonOnboardingStore.getState()
       if (cloudAuthExpired && healError) {
         toast.error(healError)
@@ -517,6 +526,7 @@ export function LocalDaemonRow({
 
   const handleMqttReconnect = () => {
     void recoverMqttConnection()
+    requestDaemonProbe()
     openSettings('general')
   }
 

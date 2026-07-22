@@ -1,0 +1,92 @@
+name: Nightly OSS Release (multi-brand)
+
+# Nightly beta release for the OSS brands. Every night this:
+#   1. Bumps the desktop beta version by one (0.2.28-beta.1 -> 0.2.28-beta.2;
+#      or, from a stable X.Y.Z, starts X.Y.(Z+1)-beta.1) and commits that bump
+#      to `main`. The commit — NOT a git tag — is what advances the beta number,
+#      so `release.yml` (which triggers on `push: tags: v*`) is never fired.
+#   2. Dispatches release-oss.yml once per brand (copilot361 + betly) with the
+#      new `v<version>` tag input. That workflow re-syncs the four version
+#      sources on its runner, verifies the bump, and publishes each brand to its
+#      own OSS prefix — clients force-upgrade because the bundled amuxd version
+#      strictly increased.
+#
+# release-oss.yml stays one-brand-per-run by design (per-brand concurrency
+# groups guard each brand's latest.json), so we dispatch it twice rather than
+# adding a brand matrix there.
+#
+# NOTE ON TOKENS: pushing the bump to `main` and dispatching another workflow
+# both need write scopes. The default GITHUB_TOKEN works UNLESS `main` is a
+# protected branch (its pushes can't bypass protection). If so, set a repo
+# secret NIGHTLY_DISPATCH_PAT (a PAT / GitHub App token with `contents:write` +
+# `actions:write` and bypass on main); it takes precedence below.
+
+on:
+  schedule:
+    - cron: "0 16 * * *" # 16:00 UTC = 00:00 (24:00) Asia/Shanghai
+  workflow_dispatch: {}
+
+# Never let two nightly runs bump the version concurrently — the later push
+# would race the earlier one on main.
+concurrency:
+  group: nightly-release-oss
+  cancel-in-progress: false
+
+permissions:
+  contents: write # commit + push the version bump to main
+  actions: write # dispatch release-oss.yml
+
+jobs:
+  nightly:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: main
+          # Use the PAT (needed if main is protected) when present, else the
+          # default token. `token` controls the credentials persisted for push.
+          token: ${{ secrets.NIGHTLY_DISPATCH_PAT || secrets.GITHUB_TOKEN }}
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: lts/*
+
+      - name: Compute next beta version
+        id: ver
+        run: |
+          set -euo pipefail
+          # shellcheck disable=SC2016  # $ inside the node -e '...' are JS template literals, not shell.
+          NEXT="$(node -e '
+            const v = require("./package.json").version;
+            const m = v.match(/^(\d+)\.(\d+)\.(\d+)(?:-beta\.(\d+))?$/);
+            if (!m) { console.error("unsupported version for nightly beta: " + v); process.exit(1); }
+            const [, MA, MI, PA, BETA] = m;
+            const next = BETA !== undefined
+              ? `${MA}.${MI}.${PA}-beta.${Number(BETA) + 1}`
+              : `${MA}.${MI}.${Number(PA) + 1}-beta.1`;
+            console.log(next);
+          ')"
+          echo "next=$NEXT" >> "$GITHUB_OUTPUT"
+          echo "Next beta version: $NEXT"
+
+      - name: Bump the four version sources
+        run: node scripts/bump-desktop-version.mjs "${{ steps.ver.outputs.next }}"
+
+      - name: Commit + push bump to main
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git commit -am "chore(release): nightly beta v${{ steps.ver.outputs.next }}"
+          git push origin HEAD:main
+
+      - name: Dispatch release-oss.yml for each brand
+        env:
+          GH_TOKEN: ${{ secrets.NIGHTLY_DISPATCH_PAT || secrets.GITHUB_TOKEN }}
+          TAG: v${{ steps.ver.outputs.next }}
+        run: |
+          set -euo pipefail
+          for brand in copilot361 betly; do
+            echo "Dispatching release-oss for $brand @ $TAG"
+            gh workflow run release-oss.yml --ref main -f brand="$brand" -f tag="$TAG"
+          done

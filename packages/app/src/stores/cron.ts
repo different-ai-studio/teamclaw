@@ -14,40 +14,49 @@ function cronInvokeArgs(scope: CronScope, selectedWorkspacePath: string | null) 
   }
 }
 
-const RUN_JOB_POLL_INTERVAL_MS = 2000
-const RUN_JOB_MAX_POLL_MS = 30 * 60 * 1000
-const RUN_JOB_IDLE_POLLS_BEFORE_DONE = 3
+// "Run Now" watches for the cloud session id the daemon stamps onto this run's
+// record, so the UI can jump straight to the session instead of blocking until
+// the whole turn finishes. The scheduler creates the cloud session eagerly
+// (via `cron-prepare-session`) and stamps `session_id` into the run record
+// within a second or two of clicking — well before the ACP turn completes —
+// so it surfaces in `cron_get_runs` almost immediately.
+const RUN_JOB_SESSION_POLL_INTERVAL_MS = 1000
+// Even with eager creation, a run whose prepare is queued behind another
+// in-flight cron turn (the daemon serializes turns) can take longer. Keep the
+// window well above the worst case so it still navigates instead of silently
+// giving up.
+const RUN_JOB_SESSION_MAX_POLL_MS = 5 * 60 * 1000
 
-async function waitForJobRunToFinish(
+/**
+ * Poll this job's run records until the run started by our `cron_run_job` call
+ * (a run id not present in `knownRunIds`) has a `sessionId` stamped, and return
+ * it. Returns null on timeout. The scheduler stamps `sessionId` early (eager
+ * session prepare), so this usually resolves within a couple of polls.
+ */
+async function detectNewRunSession(
   jobId: string,
   scope: CronScope,
   selectedWorkspacePath: string | null,
-): Promise<void> {
+  knownRunIds: Set<string>,
+): Promise<string | null> {
   const startedAt = Date.now()
-  let sawRunning = false
-  let idlePolls = 0
 
-  while (Date.now() - startedAt < RUN_JOB_MAX_POLL_MS) {
-    await new Promise((resolve) => setTimeout(resolve, RUN_JOB_POLL_INTERVAL_MS))
+  while (Date.now() - startedAt < RUN_JOB_SESSION_MAX_POLL_MS) {
+    await new Promise((resolve) => setTimeout(resolve, RUN_JOB_SESSION_POLL_INTERVAL_MS))
+    let runs: CronRunRecord[]
     try {
-      const runs = await invoke<CronRunRecord[]>('cron_get_runs', {
+      runs = await invoke<CronRunRecord[]>('cron_get_runs', {
         jobId,
-        limit: 5,
+        limit: 10,
         ...cronInvokeArgs(scope, selectedWorkspacePath),
       })
-      const hasRunning = runs.some((run) => run.status === 'running')
-      if (hasRunning) {
-        sawRunning = true
-        idlePolls = 0
-        continue
-      }
-      if (sawRunning) return
-      idlePolls += 1
-      if (idlePolls >= RUN_JOB_IDLE_POLLS_BEFORE_DONE) return
     } catch {
-      return
+      continue // Transient failure — keep polling.
     }
+    const fresh = runs.find((run) => !knownRunIds.has(run.runId) && !!run.sessionId)
+    if (fresh?.sessionId) return fresh.sessionId
   }
+  return null
 }
 
 export interface CronSchedule {
@@ -331,13 +340,52 @@ export const useCronStore = create<CronState>((set, get) => ({
 
     markRunning()
     const { activeScope, selectedWorkspacePath } = get()
+
+    // Snapshot the run ids that exist *before* this run so we can recognize the
+    // one our cron_run_job creates (and read its stamped session id).
+    let knownRunIds = new Set<string>()
+    try {
+      const priorRuns = await invoke<CronRunRecord[]>('cron_get_runs', {
+        jobId,
+        limit: 20,
+        ...cronInvokeArgs(activeScope, selectedWorkspacePath),
+      })
+      knownRunIds = new Set(priorRuns.map((run) => run.runId))
+    } catch {
+      // No prior runs / transient failure — every run reads as new, which is fine.
+    }
+
     try {
       await invoke('cron_run_job', {
         jobId,
         ...cronInvokeArgs(activeScope, selectedWorkspacePath),
       })
-      await waitForJobRunToFinish(jobId, activeScope, selectedWorkspacePath)
+
+      const sessionId = await detectNewRunSession(
+        jobId,
+        activeScope,
+        selectedWorkspacePath,
+        knownRunIds,
+      )
       void get().loadJobs()
+
+      if (sessionId) {
+        // Refresh the authoritative cron session ids first, then add this run's
+        // session on top. The backend eagerly creates the session and stamps
+        // session_id before the turn runs, but cron_get_all_session_ids can lag
+        // that write by a beat, so without the optimistic add, turning the filter
+        // on could momentarily hide this brand-new session. (Order matters:
+        // loadCronSessionIds overwrites the set, so it must run before the add.)
+        await get().loadCronSessionIds()
+        set((state) => ({ cronSessionIds: new Set([...state.cronSessionIds, sessionId]) }))
+        get().setShowCronSessions(true)
+        // Close the settings pane, jump to the main chat view, and open the
+        // session so the user watches it run live.
+        const { useUIStore } = await import('@/stores/ui')
+        await useUIStore.getState().switchToSession(sessionId)
+      } else {
+        void get().loadCronSessionIds()
+      }
     } catch (error) {
       set({ error: error instanceof Error ? error.message : String(error) })
     } finally {

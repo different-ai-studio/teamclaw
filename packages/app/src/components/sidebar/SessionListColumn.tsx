@@ -46,6 +46,7 @@ import { loadSessionIdsForActor } from '@/lib/session-by-actor'
 import { loadSessionIdsForWorkspace } from '@/lib/session-by-workspace'
 import { actorAvatarColor } from '@/lib/actor-color'
 import { useSessionWorkspaceLabels } from '@/hooks/use-session-workspace-labels'
+import { compareSessionListByRecency } from '@/lib/session-list-sort'
 
 /**
  * Merged row shape consumed by the rendering pipeline. Combines list-canonical
@@ -57,6 +58,7 @@ type ListRow = {
   title: string
   teamId: string
   lastMessageAt: Date | null
+  createdAt: Date | null
   lastMessagePreview: string | null
   ideaId: string | null
   isPinned: boolean
@@ -69,6 +71,7 @@ function entryToRow(entry: SessionListEntry, isPinned: boolean): ListRow {
     title: entry.title,
     teamId: entry.team_id,
     lastMessageAt: entry.last_message_at ? new Date(entry.last_message_at) : null,
+    createdAt: entry.created_at ? new Date(entry.created_at) : null,
     lastMessagePreview: entry.last_message_preview,
     ideaId: entry.idea_id,
     isPinned,
@@ -293,12 +296,7 @@ export function SessionListColumn({
       base = base.filter((r) => workspaceSessionIds.has(r.id))
     }
 
-    return base.sort((a, b) => {
-      if (!a.lastMessageAt && !b.lastMessageAt) return 0
-      if (!a.lastMessageAt) return -1
-      if (!b.lastMessageAt) return 1
-      return b.lastMessageAt.getTime() - a.lastMessageAt.getTime()
-    })
+    return base.sort(compareSessionListByRecency)
   }, [listRows, pinnedSessionIds, cronSessionIds, showCronSessions, filter, actorSessionIds, workspaceSessionIds])
 
   const { pinnedRows, regularRows } = React.useMemo(() => {
@@ -840,7 +838,14 @@ export function SessionListColumn({
                 showCronSessions ? 'text-foreground bg-muted' : 'text-muted-foreground hover:text-foreground',
               )}
               disabled={!sessionHeaderActionsEnabled}
-              onClick={toggleShowCronSessions}
+              onClick={() => {
+                // When switching *into* the scheduled-sessions view, refresh the
+                // session list once so newly-created cron runs show up.
+                if (!showCronSessions) {
+                  void useSessionListStore.getState().loadFirstPage()
+                }
+                toggleShowCronSessions()
+              }}
               title={showCronSessions ? t('sidebar.showAllSessions', 'Show all sessions') : t('sidebar.showCronSessions', 'Show scheduled sessions')}
             >
               <AnimatedClock className="h-4 w-4" animate={showCronSessions} />

@@ -1,10 +1,22 @@
 import { create } from 'zustand'
 import { useWorkspaceStore } from '@/stores/workspace'
 import { resolveEmbedMode } from '@/lib/embed-mode'
+import { scheduleReleaseStuckModalLayers } from '@/lib/modal-layer-cleanup'
 import type { PageContext } from '@/lib/embed-page-context'
 import type { TeamShareSection } from '@/stores/team-share-browser'
 
 type View = 'chat' | 'settings'
+
+/**
+ * Release Radix scroll-lock/overlay residue after a *programmatic* view switch
+ * (e.g. `switchToSession` flipping `currentView` out of `settings`). Controlled
+ * `open=false` unmounts the Dialog without invoking its `onOpenChange` cleanup,
+ * so without this the chat view stays covered by a dead overlay until a manual
+ * close. Idempotent and a no-op while another modal is still open.
+ */
+function releaseStuckModalLayersAfterViewSwitch(): void {
+  scheduleReleaseStuckModalLayers()
+}
 
 export type LayoutMode = 'task'
 export type MainContentLayout = 'stacked' | 'split'
@@ -285,6 +297,15 @@ export const useUIStore = create<UIState>((set, get) => ({
     
     const teamId = useCurrentTeamStore.getState().team?.id
 
+    // Resolving the session's workspace does daemon IPC + a Cloud API round-trip.
+    // It must NOT gate the view/selection flip, or every click feels laggy. Fire
+    // it in the background — the chat view renders instantly and the workspace
+    // catches up a beat later (only matters for daemon runtimes started from this
+    // session, which the user can't trigger within that window anyway).
+    const resolveWorkspaceInBackground = () => {
+      if (teamId) void switchToSessionWorkspaceIfNeeded(teamId, sessionId)
+    }
+
     // If already on this session just navigate back to chat view (e.g. user
     // opened the apps panel and clicked the same app again). Still switch the
     // workspace so daemon runtimes started from this session use the right
@@ -292,28 +313,35 @@ export const useUIStore = create<UIState>((set, get) => ({
     const currentActiveId = useSessionSelectionStore.getState().activeSessionId
     if (sessionId === currentActiveId) {
       set({ currentView: 'chat', settingsInitialSection: null, daemonGeneralPrompt: null, sidebarFilter: { kind: 'all' } })
-      if (teamId) await switchToSessionWorkspaceIfNeeded(teamId, sessionId)
+      releaseStuckModalLayersAfterViewSwitch()
+      resolveWorkspaceInBackground()
       return
     }
 
-    if (teamId) {
-      await switchToSessionWorkspaceIfNeeded(teamId, sessionId)
-    }
-    
-    // Close any open UI elements and return to chat view
+    // Close any open UI elements and return to chat view — synchronously, so the
+    // click responds immediately.
     set({
       currentView: 'chat',
       settingsInitialSection: null,
       daemonGeneralPrompt: null,
     })
+    // Flipping currentView unmounts the Settings/History Dialog without going
+    // through its onOpenChange handler, so Radix's scroll-lock/overlay residue
+    // is never released — the chat view ends up covered by a dead overlay until
+    // a manual close. Run the same cleanup the Dialog's close path would.
+    releaseStuckModalLayersAfterViewSwitch()
     useWorkspaceStore.getState().clearSelection()
     useTabsStore.getState().hideAll()
-    
-    // Switch to the session (selection store also updates the read marker).
-    await useSessionSelectionStore.getState().setActiveSession(sessionId)
+
+    // Switch to the session. setActiveSession flips the selection state
+    // synchronously; its read-marker network write runs in the background, so we
+    // don't await it here (awaiting added a Cloud API round-trip to every click).
+    void useSessionSelectionStore.getState().setActiveSession(sessionId)
     // If the user was in actor-draft mode, drop that since they jumped into
     // an existing session.
     set({ draftPreselectedActor: null, sidebarFilter: { kind: 'all' }, draftIdeaId: null })
+
+    resolveWorkspaceInBackground()
   },
 
   enterActorDraft: (actor) => {

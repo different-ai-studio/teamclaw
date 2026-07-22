@@ -1,20 +1,26 @@
 use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
-use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
+use std::time::{Duration, Instant};
 
 use base64::{engine::general_purpose::URL_SAFE_NO_PAD, Engine};
-use tokio::sync::RwLock;
+use notify::{Config, Event, EventKind, RecommendedWatcher, RecursiveMode, Watcher};
+use tokio::sync::{Notify, RwLock};
 use tokio::time::MissedTickBehavior;
 use tracing::warn;
-use walkdir::WalkDir;
 
 use crate::config::global_team_store::TEAM_LINK_NAME;
 use crate::runtime::RuntimeSupervisor;
 
 use super::{RefreshChangeKind, RefreshSource, RuntimeRefreshCoordinator};
 
-const WATCH_POLL_INTERVAL: Duration = Duration::from_millis(350);
+/// How often the watch loop reconciles OS watches against the registry absent an
+/// explicit change signal. This performs only cheap `is_dir()` checks on the
+/// handful of `watch_roots` — never a recursive tree walk — so it stays
+/// negligible regardless of workspace size. Actual edits arrive via the OS event
+/// stream, not this tick; the tick only picks up roots that appear/disappear
+/// (e.g. a `.claude/skills` dir created after arm time).
+const WATCH_RECONCILE_INTERVAL: Duration = Duration::from_secs(2);
 const WATCH_DEBOUNCE_WINDOW: Duration = Duration::from_millis(250);
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -33,6 +39,9 @@ pub struct ClassifiedChange {
 #[derive(Debug)]
 pub struct RefreshWatchRegistry {
     workspaces: RwLock<HashMap<PathBuf, WatchedWorkspace>>,
+    /// Wakes the watch loop so a workspace add/remove re-arms the OS watchers
+    /// immediately instead of waiting for the next periodic reconcile tick.
+    changed: Notify,
 }
 
 impl RefreshWatchRegistry {
@@ -44,6 +53,7 @@ impl RefreshWatchRegistry {
                     .map(|workspace| (workspace.workspace_path.clone(), workspace))
                     .collect(),
             ),
+            changed: Notify::new(),
         })
     }
 
@@ -52,10 +62,12 @@ impl RefreshWatchRegistry {
             .write()
             .await
             .insert(workspace.workspace_path.clone(), workspace);
+        self.changed.notify_one();
     }
 
     pub async fn remove_workspace_path(&self, workspace_path: &Path) {
         self.workspaces.write().await.remove(workspace_path);
+        self.changed.notify_one();
     }
 
     async fn snapshot(&self) -> Vec<WatchedWorkspace> {
@@ -155,70 +167,10 @@ pub fn classify_change_path(
     changes
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-struct PathStamp {
-    is_dir: bool,
-    len: u64,
-    modified_secs: u64,
-    modified_nanos: u32,
-}
-
 #[derive(Debug, Clone)]
 struct WatchRoot {
     path: PathBuf,
     recursive: bool,
-}
-
-fn path_stamp(path: &Path) -> Option<PathStamp> {
-    let metadata = std::fs::metadata(path).ok()?;
-    let modified = metadata.modified().unwrap_or(SystemTime::UNIX_EPOCH);
-    let duration = modified
-        .duration_since(UNIX_EPOCH)
-        .unwrap_or_else(|_| Duration::from_secs(0));
-    Some(PathStamp {
-        is_dir: metadata.is_dir(),
-        len: metadata.len(),
-        modified_secs: duration.as_secs(),
-        modified_nanos: duration.subsec_nanos(),
-    })
-}
-
-fn snapshot_root(root: &WatchRoot) -> HashMap<PathBuf, PathStamp> {
-    let mut snapshot = HashMap::new();
-    if root.recursive {
-        if !root.path.exists() {
-            return snapshot;
-        }
-        for entry in WalkDir::new(&root.path).into_iter().filter_map(Result::ok) {
-            let path = entry.path().to_path_buf();
-            if let Some(stamp) = path_stamp(&path) {
-                snapshot.insert(path, stamp);
-            }
-        }
-        return snapshot;
-    }
-
-    if let Some(stamp) = path_stamp(&root.path) {
-        snapshot.insert(root.path.clone(), stamp);
-    }
-    snapshot
-}
-
-fn diff_paths(
-    previous: &HashMap<PathBuf, PathStamp>,
-    current: &HashMap<PathBuf, PathStamp>,
-) -> Vec<PathBuf> {
-    let mut changed = Vec::new();
-    let mut keys: HashSet<&PathBuf> = previous.keys().collect();
-    keys.extend(current.keys());
-
-    for key in keys {
-        if previous.get(key) != current.get(key) {
-            changed.push(key.clone());
-        }
-    }
-
-    changed
 }
 
 fn watch_roots(workspaces: &[WatchedWorkspace], home: Option<&Path>) -> Vec<WatchRoot> {
@@ -321,6 +273,85 @@ async fn record_classified_changes(
     }
 }
 
+/// Map the declarative `watch_roots` to the concrete directories handed to the
+/// OS watcher, deduped by path.
+///
+/// OS watchers (FSEvents / inotify / ReadDirectoryChangesW) watch *directories*,
+/// so a non-recursive file root (`opencode.json`, `teamclaw.json`) is covered by
+/// watching its parent directory shallowly — this also survives atomic saves
+/// (write-temp + rename) that would break a watch pinned to the file's inode.
+/// Only directories that currently exist are returned; missing roots are armed
+/// later by the reconcile tick once they appear. A path wanted recursively wins
+/// over the same path wanted shallowly.
+fn desired_watch_targets(
+    workspaces: &[WatchedWorkspace],
+    home: Option<&Path>,
+) -> HashMap<PathBuf, RecursiveMode> {
+    let mut targets: HashMap<PathBuf, RecursiveMode> = HashMap::new();
+    for root in watch_roots(workspaces, home) {
+        let (path, mode) = if root.recursive {
+            (root.path, RecursiveMode::Recursive)
+        } else {
+            match root.path.parent() {
+                Some(parent) => (parent.to_path_buf(), RecursiveMode::NonRecursive),
+                None => continue,
+            }
+        };
+        if !path.is_dir() {
+            continue;
+        }
+        targets
+            .entry(path)
+            .and_modify(|existing| {
+                if mode == RecursiveMode::Recursive {
+                    *existing = RecursiveMode::Recursive;
+                }
+            })
+            .or_insert(mode);
+    }
+    targets
+}
+
+/// Arm/disarm OS watches so the live set matches `desired`. Failures are logged
+/// and retried on the next reconcile (the desired path may have just vanished).
+fn reconcile_watches(
+    watcher: &mut RecommendedWatcher,
+    desired: &HashMap<PathBuf, RecursiveMode>,
+    watched: &mut HashSet<PathBuf>,
+) {
+    let stale: Vec<PathBuf> = watched
+        .iter()
+        .filter(|path| !desired.contains_key(*path))
+        .cloned()
+        .collect();
+    for path in stale {
+        let _ = watcher.unwatch(&path);
+        watched.remove(&path);
+    }
+    for (path, mode) in desired {
+        if watched.contains(path) {
+            continue;
+        }
+        match watcher.watch(path, *mode) {
+            Ok(()) => {
+                watched.insert(path.clone());
+            }
+            Err(error) => {
+                tracing::debug!(
+                    path = %path.display(),
+                    %error,
+                    "failed to arm filesystem refresh watch; will retry"
+                );
+            }
+        }
+    }
+}
+
+/// Access events (opens/reads) are pure noise for config/skill refresh.
+fn is_relevant_event(kind: &EventKind) -> bool {
+    !matches!(kind, EventKind::Access(_))
+}
+
 pub fn start_refresh_watchers(
     refresh: Arc<RuntimeRefreshCoordinator>,
     workspaces: Vec<WatchedWorkspace>,
@@ -329,43 +360,67 @@ pub fn start_refresh_watchers(
     let registry = RefreshWatchRegistry::new(workspaces);
     let watch_registry = Arc::clone(&registry);
     tokio::spawn(async move {
-        let mut interval = tokio::time::interval(WATCH_POLL_INTERVAL);
-        interval.set_missed_tick_behavior(MissedTickBehavior::Skip);
+        // The notify callback runs on notify's own thread; bridge its events to
+        // this async loop through an unbounded channel. Event volume is bounded
+        // downstream by classification + debounce, so no backpressure is needed.
+        let (event_tx, mut event_rx) = tokio::sync::mpsc::unbounded_channel::<PathBuf>();
+        let mut watcher = match RecommendedWatcher::new(
+            move |result: notify::Result<Event>| {
+                let Ok(event) = result else { return };
+                if !is_relevant_event(&event.kind) {
+                    return;
+                }
+                for path in event.paths {
+                    let _ = event_tx.send(path);
+                }
+            },
+            Config::default(),
+        ) {
+            Ok(watcher) => watcher,
+            Err(error) => {
+                warn!(%error, "failed to create filesystem watcher; runtime refresh disabled");
+                return;
+            }
+        };
 
-        let mut snapshots: HashMap<PathBuf, HashMap<PathBuf, PathStamp>> = HashMap::new();
+        let mut watched: HashSet<PathBuf> = HashSet::new();
         let mut debounce = RefreshDebounce::new(WATCH_DEBOUNCE_WINDOW);
+        let mut reconcile = tokio::time::interval(WATCH_RECONCILE_INTERVAL);
+        reconcile.set_missed_tick_behavior(MissedTickBehavior::Skip);
+
+        let reconcile_now =
+            |watcher: &mut RecommendedWatcher, watched: &mut HashSet<PathBuf>, workspaces: &[WatchedWorkspace]| {
+                let desired = desired_watch_targets(workspaces, home.as_deref());
+                reconcile_watches(watcher, &desired, watched);
+            };
+
+        {
+            let workspaces = watch_registry.snapshot().await;
+            reconcile_now(&mut watcher, &mut watched, &workspaces);
+        }
 
         loop {
-            interval.tick().await;
-
-            let workspaces = watch_registry.snapshot().await;
-            let roots = watch_roots(&workspaces, home.as_deref());
-            let active_roots: HashSet<_> = roots.iter().map(|root| root.path.clone()).collect();
-            snapshots.retain(|path, _| active_roots.contains(path));
-
-            let mut changed_paths = Vec::new();
-            for root in &roots {
-                let next = snapshot_root(root);
-                let previous = snapshots
-                    .entry(root.path.clone())
-                    .or_insert_with(|| next.clone());
-                changed_paths.extend(diff_paths(previous, &next));
-                *previous = next;
-            }
-
-            changed_paths.sort();
-            changed_paths.dedup();
-
-            for path in changed_paths {
-                record_classified_changes(
-                    &refresh,
-                    &mut debounce,
-                    &workspaces,
-                    home.as_deref(),
-                    &path,
-                    Instant::now(),
-                )
-                .await;
+            tokio::select! {
+                _ = reconcile.tick() => {
+                    let workspaces = watch_registry.snapshot().await;
+                    reconcile_now(&mut watcher, &mut watched, &workspaces);
+                }
+                _ = watch_registry.changed.notified() => {
+                    let workspaces = watch_registry.snapshot().await;
+                    reconcile_now(&mut watcher, &mut watched, &workspaces);
+                }
+                Some(path) = event_rx.recv() => {
+                    let workspaces = watch_registry.snapshot().await;
+                    record_classified_changes(
+                        &refresh,
+                        &mut debounce,
+                        &workspaces,
+                        home.as_deref(),
+                        &path,
+                        Instant::now(),
+                    )
+                    .await;
+                }
             }
         }
     });
@@ -574,6 +629,66 @@ mod tests {
         assert!(coordinator.workspace_state(&workspace_id).await.is_none());
     }
 
+    /// Spawn env assembly awaits managed-LLM longer than a short suppress window.
+    /// Suppressing *before* that await lets the window expire; the subsequent
+    /// opencode.json write is recorded as Pending. Suppressing *after* the await
+    /// (immediately before disk writes) covers the write — the production order
+    /// in `assemble_spawn_runtime_env_for_worktree`.
+    #[tokio::test]
+    async fn suppress_after_await_covers_opencode_write_unlike_suppress_before_await() {
+        let dir = tempfile::tempdir().unwrap();
+        let workspace_id = workspace_runtime_id(dir.path());
+        let workspaces = vec![WatchedWorkspace {
+            workspace_id: workspace_id.clone(),
+            workspace_path: dir.path().to_path_buf(),
+        }];
+        let opencode = dir.path().join("opencode.json");
+        let content = r#"{"$schema":"https://opencode.ai/config.json"}"#;
+
+        // --- buggy order: suppress → await past window → write ---
+        let leaky = RuntimeRefreshCoordinator::new();
+        let mut debounce = RefreshDebounce::new(Duration::from_millis(1));
+        leaky.suppress_workspace_watch(
+            &workspace_id,
+            &[RefreshChangeKind::OpencodeJson],
+            Duration::from_millis(30),
+        );
+        tokio::time::sleep(Duration::from_millis(45)).await;
+        std::fs::write(&opencode, content).unwrap();
+        record_classified_changes(
+            &leaky,
+            &mut debounce,
+            &workspaces,
+            None,
+            &opencode,
+            Instant::now(),
+        )
+        .await;
+        let leaked = leaky.workspace_state(&workspace_id).await.unwrap();
+        assert!(leaked.change_kinds.contains(&RefreshChangeKind::OpencodeJson));
+
+        // --- fixed order: await → suppress → write ---
+        let covered = RuntimeRefreshCoordinator::new();
+        let mut debounce = RefreshDebounce::new(Duration::from_millis(1));
+        tokio::time::sleep(Duration::from_millis(45)).await;
+        covered.suppress_workspace_watch(
+            &workspace_id,
+            &[RefreshChangeKind::OpencodeJson],
+            Duration::from_secs(5),
+        );
+        std::fs::write(&opencode, content).unwrap();
+        record_classified_changes(
+            &covered,
+            &mut debounce,
+            &workspaces,
+            None,
+            &opencode,
+            Instant::now(),
+        )
+        .await;
+        assert!(covered.workspace_state(&workspace_id).await.is_none());
+    }
+
     #[tokio::test]
     async fn watch_registry_supports_add_and_remove() {
         let registry = RefreshWatchRegistry::new(Vec::new());
@@ -592,6 +707,45 @@ mod tests {
         assert_eq!(
             registry.workspace_paths().await,
             vec![PathBuf::from("/tmp/ws-2")]
+        );
+    }
+
+    #[test]
+    fn desired_targets_map_existing_dirs_and_skip_missing() {
+        let dir = tempfile::tempdir().unwrap();
+        let ws = dir.path();
+        // Only this recursive skill root exists; the other skill/_secrets roots do not.
+        std::fs::create_dir_all(ws.join(".claude/skills")).unwrap();
+
+        let workspaces = vec![WatchedWorkspace {
+            workspace_id: "ws-1".to_string(),
+            workspace_path: ws.to_path_buf(),
+        }];
+
+        let targets = desired_watch_targets(&workspaces, None);
+
+        // The recursive skill dir is watched recursively.
+        assert_eq!(
+            targets.get(&ws.join(".claude/skills")),
+            Some(&RecursiveMode::Recursive),
+            "existing skills dir should be watched recursively"
+        );
+        // `opencode.json` (a file root) is covered by its parent (the workspace
+        // root) watched shallowly, since the workspace root exists.
+        assert_eq!(
+            targets.get(ws),
+            Some(&RecursiveMode::NonRecursive),
+            "workspace root should be watched non-recursively for config files"
+        );
+        // A skill root that does not exist is not armed.
+        assert!(
+            !targets.contains_key(&ws.join(".agents/skills")),
+            "missing skills dir must be excluded until it is created"
+        );
+        // `.teamclaw/teamclaw.json`'s parent does not exist here, so it is skipped.
+        assert!(
+            !targets.contains_key(&ws.join(".teamclaw")),
+            "missing config parent dir must be excluded"
         );
     }
 }

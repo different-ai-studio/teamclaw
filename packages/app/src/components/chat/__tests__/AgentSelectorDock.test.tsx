@@ -32,6 +32,22 @@ vi.mock('@/lib/internal-build', () => ({
   isInternalBuild: () => mocks.isInternalBuild(),
 }))
 
+vi.mock('@/lib/teamclaw/ensure-agent-runtime', () => ({
+  ensureRuntimeThenSetModel: vi.fn(),
+}))
+
+vi.mock('@/stores/current-team', () => ({
+  useCurrentTeamStore: {
+    getState: () => ({ team: { id: 'team-1' } }),
+  },
+}))
+
+vi.mock('@/stores/session-list-store', () => ({
+  useSessionListStore: {
+    getState: () => ({ rows: [{ id: 'session-1', team_id: 'team-1' }] }),
+  },
+}))
+
 function dockProps(
   partial: Partial<React.ComponentProps<typeof AgentSelectorDock>> &
     Pick<React.ComponentProps<typeof AgentSelectorDock>, 'engagedAgents'>,
