@@ -26,6 +26,7 @@ import {
 import { ensureRuntimeThenSetModel } from '@/lib/teamclaw/ensure-agent-runtime'
 import { useAgentModelPickStore } from '@/stores/agent-model-pick-store'
 import { useSessionSelectionStore } from '@/stores/session-selection-store'
+import { useSessionMessageStore } from '@/stores/session-message-store'
 import { useCurrentTeamStore } from '@/stores/current-team'
 import { useSessionListStore } from '@/stores/session-list-store'
 import { useLocalDaemonActorId } from '@/lib/daemon-agent-admin'
@@ -189,6 +190,23 @@ function AgentPill({
   const pickEntry = useAgentModelPickStore((s) =>
     sessionId ? s.bySessionAgent[`${sessionId}::${agent.id}`] : undefined,
   )
+  // The model this session already ran with, from its transcript. Prefer the
+  // latest reply authored by THIS agent; fall back to the latest modeled
+  // message. Empty for brand-new sessions, so they keep the last-pick default.
+  const sessionEstablishedModel = useSessionMessageStore((s) => {
+    if (!sessionId) return null
+    const msgs = s.messages[sessionId]
+    if (!msgs?.length) return null
+    let fallback: string | null = null
+    for (let i = msgs.length - 1; i >= 0; i--) {
+      const model = msgs[i].model?.trim()
+      if (!model) continue
+      if (msgs[i].senderActorId === agent.id) return model
+      if (!fallback) fallback = model
+    }
+    return fallback
+  })
+
   const selected = React.useMemo(
     () =>
       selectAgentModel({
@@ -196,12 +214,14 @@ function AgentPill({
         agentId: agent.id,
         available: availableModels,
         byRuntimeId,
+        sessionEstablishedModel,
       }),
     [
       sessionId,
       agent.id,
       availableModels,
       byRuntimeId,
+      sessionEstablishedModel,
       // Force recompute when the pick changes — pickEntry is referenced for
       // the dependency hint; selectAgentModel reads from store.getState().
       pickEntry?.modelId,

@@ -1876,6 +1876,27 @@ function AppContent() {
                 localizedMessage,
                 er.details ?? "",
               );
+              // The live dock unmounts as soon as a turn errors
+              // (isStreamInterruptible excludes errored entries), so the dock's
+              // ErrorCard is never seen. Surface every turn error as a durable
+              // SessionErrorAlert bubble in the thread instead. The
+              // "RetryError" name routes quota/usage-limit styling and opts out
+              // of the 15s auto-dismiss (cleared on next send / dismiss).
+              {
+                const detail = (er.details ?? "").trim();
+                useSessionStore.getState().setSessionErrorEvent({
+                  sessionId: sid,
+                  error: {
+                    name: "RetryError",
+                    data: {
+                      message:
+                        detail && detail !== localizedMessage
+                          ? `${localizedMessage}: ${detail}`
+                          : localizedMessage,
+                    },
+                  },
+                });
+              }
             } else if (event?.case === "permissionRequest") {
               const pr = event.value as {
                 requestId?: string;

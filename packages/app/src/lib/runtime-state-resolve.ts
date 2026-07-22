@@ -381,6 +381,14 @@ export function selectAgentModel(args: {
   available: AgentModelOption[];
   byRuntimeId: Record<string, RuntimeStateEntry>;
   providerFallback?: string;
+  /**
+   * The model this session has ALREADY run with, taken from its transcript
+   * (e.g. a cron job that pinned a model, or any continued conversation). When
+   * set, it wins over the cross-session `lastPick` heuristic so an existing
+   * session's pill reflects the model it actually used — but brand-new sessions
+   * (no transcript, no established model) still default to `lastPick`.
+   */
+  sessionEstablishedModel?: string | null;
 }): SelectedAgentModel {
   const sessionId = args.sessionId?.trim() ?? "";
   const agentId = args.agentId.trim();
@@ -398,6 +406,21 @@ export function selectAgentModel(args: {
         args.byRuntimeId,
       ),
       source: "pick",
+    };
+  }
+
+  // A session that has already run carries its real model in the transcript;
+  // that truth beats the cross-session `lastPick` default below.
+  const established = args.sessionEstablishedModel?.trim();
+  if (established) {
+    return {
+      modelId: canonicalizeAgainstAvailable(
+        args.agentId,
+        established,
+        args.available,
+        args.byRuntimeId,
+      ),
+      source: "retain",
     };
   }
 

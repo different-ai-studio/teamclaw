@@ -374,6 +374,8 @@ export interface SessionState {
   // Actions - Connection
   setConnected: (connected: boolean) => void;
   setError: (error: string | null, sessionId?: string | null) => void;
+  /** Show a structured error alert (SessionErrorAlert) in a session's thread. */
+  setSessionErrorEvent: (event: SessionErrorEvent) => void;
   setInactivityWarning: (active: boolean) => void;
 
   // Getters
