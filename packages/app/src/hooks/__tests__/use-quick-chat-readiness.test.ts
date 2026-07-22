@@ -269,6 +269,57 @@ describe('useQuickChatReadiness', () => {
     expect(resolveQuickChatTarget).toHaveBeenCalledTimes(callsAfterReady)
     expect(result.current).toEqual({ kind: 'ready', target: readyTarget })
   })
+
+  it('keeps ready UI while silently re-resolving after prefs change', async () => {
+    const { resolveQuickChatTarget } = await import('@/lib/resolve-quick-chat-target')
+    mocks.resolvedTarget = readyTarget
+
+    let resolveNext!: (value: typeof readyTarget) => void
+    const deferred = new Promise<typeof readyTarget>((resolve) => {
+      resolveNext = resolve
+    })
+    vi.mocked(resolveQuickChatTarget).mockImplementation(async () => {
+      if (vi.mocked(resolveQuickChatTarget).mock.calls.length <= 1) {
+        return mocks.resolvedTarget
+      }
+      return deferred
+    })
+
+    const kinds: string[] = []
+    const { result, rerender } = renderHook(() => {
+      const state = useQuickChatReadiness()
+      kinds.push(state.kind)
+      return state
+    })
+
+    await waitFor(() => {
+      expect(result.current).toEqual({ kind: 'ready', target: readyTarget })
+    })
+
+    const nextTarget = {
+      agentId: 'agent-2',
+      displayName: 'SPRBOT',
+      source: 'team_default' as const,
+    }
+    mocks.effectiveDefaultAgentId = 'agent-2'
+
+    await act(async () => {
+      rerender()
+    })
+
+    expect(result.current).toEqual({ kind: 'ready', target: readyTarget })
+    expect(kinds.filter((k) => k === 'loading').length).toBeLessThanOrEqual(1)
+
+    await act(async () => {
+      resolveNext(nextTarget)
+    })
+
+    await waitFor(() => {
+      expect(result.current).toEqual({ kind: 'ready', target: nextTarget })
+    })
+    // After the first settle, prefs-driven re-resolve must not flash loading again.
+    expect(kinds.filter((k) => k === 'loading').length).toBe(1)
+  })
 })
 
 describe('quickChatWelcomeAgent', () => {

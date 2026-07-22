@@ -1,8 +1,10 @@
 import { render, screen, waitFor } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-const { setLocalCacheTeamGateMock } = vi.hoisted(() => ({
+const { setLocalCacheTeamGateMock, removeStartupSkeletonMock, isTauriMock } = vi.hoisted(() => ({
   setLocalCacheTeamGateMock: vi.fn().mockResolvedValue(undefined),
+  removeStartupSkeletonMock: vi.fn(),
+  isTauriMock: vi.fn(() => true),
 }));
 
 const { authState, currentTeamMock, backendMock } = vi.hoisted(() => ({
@@ -61,8 +63,8 @@ vi.mock("@/lib/backend", () => ({
 
 vi.mock("@/lib/utils", () => ({
   cn: (...classes: Array<string | false | null | undefined>) => classes.filter(Boolean).join(" "),
-  isTauri: () => true,
-  removeStartupSkeleton: () => {},
+  isTauri: () => isTauriMock(),
+  removeStartupSkeleton: () => removeStartupSkeletonMock(),
 }));
 
 vi.mock("@/lib/random-team-name", () => ({
@@ -117,6 +119,8 @@ beforeEach(() => {
   currentTeamMock.teamUserId = null;
   backendMock.teams.listAllMyTeams.mockResolvedValue([]);
   setLocalCacheTeamGateMock.mockClear();
+  removeStartupSkeletonMock.mockClear();
+  isTauriMock.mockReturnValue(true);
 });
 
 describe("AuthGate", () => {
@@ -292,5 +296,35 @@ describe("AuthGate", () => {
     );
     expect(backendMock.teams.createTeam).not.toHaveBeenCalled();
     await waitFor(() => expect(screen.getByText("App shell")).toBeInTheDocument());
+  });
+
+  it("extension/web: keeps the shell blocked until myTeams resolves, then removes the skeleton", async () => {
+    isTauriMock.mockReturnValue(false);
+    currentTeamMock.team = { id: "team-cached" };
+    currentTeamMock.teamUserId = "user-1";
+    let resolveTeams: (teams: unknown[]) => void = () => {};
+    backendMock.teams.listAllMyTeams.mockReturnValue(
+      new Promise((resolve) => {
+        resolveTeams = resolve;
+      }),
+    );
+
+    const { container } = render(
+      <AuthGate>
+        <div>App shell</div>
+      </AuthGate>,
+    );
+
+    // Bootstrap is ready from cache, but myTeams is still loading — must keep
+    // returning null so the static #skeleton covers the empty #root.
+    await waitFor(() => expect(backendMock.teams.listAllMyTeams).toHaveBeenCalled());
+    expect(screen.queryByText("App shell")).not.toBeInTheDocument();
+    expect(container).toBeEmptyDOMElement();
+    expect(removeStartupSkeletonMock).not.toHaveBeenCalled();
+
+    resolveTeams([]);
+
+    await waitFor(() => expect(screen.getByText("App shell")).toBeInTheDocument());
+    expect(removeStartupSkeletonMock).toHaveBeenCalled();
   });
 });

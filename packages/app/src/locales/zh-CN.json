@@ -199,7 +199,6 @@
     "files": "文件",
     "teamSharedFiles": "团队共享文件",
     "teamSharedFilesLoading": "正在加载团队共享文件...",
-    "teamSharedFilesUnavailable": "团队共享目录尚未配置。请在设置 → 团队中启用团队共享。",
     "teamSharedFilesDirMissing": "团队共享目录尚不存在。点击同步从团队拉取。",
     "teamSharedFilesEmpty": "当前团队共享目录为空。",
     "actors": "成员",
@@ -253,29 +252,6 @@
       "routingSoloAgent": "仅一位 Agent 在场——直接发送即可，无需 @。",
       "routingSingleAgent": "向全员发送，或 @{{name}} 指定该 Agent 回复。",
       "routingMultiAgent": "多位 Agent 在场——请 @名字 指定回复对象。",
-      "quickStart": "快速开始",
-      "starters": {
-        "workspaceChanges": {
-          "label": "查看 workspace 改动",
-          "message": "帮我看看当前 workspace 有什么未提交的改动"
-        },
-        "projectStructure": {
-          "label": "总结项目结构",
-          "message": "用几句话总结这个 repo 的结构"
-        },
-        "askAgentSummary": {
-          "label": "@{{name}} 总结现状",
-          "message": "@{{name}} 用几句话总结当前项目状态"
-        },
-        "askMember": {
-          "label": "@{{name}} 你怎么看？",
-          "message": "@{{name}} 对这个方向有什么想法？"
-        },
-        "broadcast": {
-          "label": "向所有人同步",
-          "message": "各位，对齐一下今天的目标："
-        }
-      },
       "participantCount": "{{count}} 位参与者 · 等待第一条消息"
     },
     "draftStartConversation": "开始对话",
@@ -779,6 +755,16 @@
     "sessionRunning": "运行中",
     "loadMore": "加载更多",
     "archive": "归档",
+    "batchManage": "批量管理",
+    "batchSelected": "已选",
+    "batchSelectAll": "全选",
+    "batchArchiveHint": "将归档 {{count}} 个会话",
+    "batchArchiveCount": "归档 {{count}}",
+    "batchArchiveConfirmTitle": "归档所选会话？",
+    "batchArchiveConfirmBody": "将归档 {{count}} 个会话。归档后可从「已归档」中恢复，不会删除消息。",
+    "batchArchiveThinkAgain": "再想想",
+    "batchArchiveConfirmAction": "确认归档",
+    "batchArchivePartialFail": "已归档 {{ok}} 个，{{failed}} 个失败",
     "rename": "重命名",
     "viewDetail": "查看详情",
     "showAllSessions": "显示全部会话",
@@ -2088,8 +2074,6 @@
       "hide": "隐藏值",
       "emptyTitle": "暂无环境变量",
       "emptyDescription": "安全存储你的 API 密钥和密码。值通过系统钥匙串加密存储（macOS Keychain / Windows 凭据管理器）。",
-      "hintTitle": "工作原理",
-      "hintBody": "值存储在操作系统原生钥匙串中，而非配置文件。在 MCP 服务器环境变量或其他配置中使用 ${KEY_NAME} 语法引用这些密钥。",
       "error": {
         "keyRequired": "键名不能为空",
         "valueRequired": "值不能为空",
@@ -2097,7 +2081,6 @@
         "invalidKeyShared": "共享变量名只能包含小写字母、数字和下划线（最多 64 个字符）"
       },
       "hideValue": "隐藏值",
-      "hintTeam": "团队变量会加密并同步给所有团队成员。保存后无法查看其值。",
       "teamUnavailableTitle": "团队环境变量当前不可用",
       "teamUnavailableBody": "本机 daemon 没有解密团队变量所需的团队密钥。请在 Team Shared 设置中填写正确的团队密钥，然后新建一个 Agent 会话。",
       "needRestart": "需要重启",
