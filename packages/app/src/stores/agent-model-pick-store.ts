@@ -30,8 +30,12 @@ export type AgentModelPickEntry = {
 
 interface State {
   bySessionAgent: Record<string, AgentModelPickEntry>;
+  /** Most recent pick per agent, across sessions — the default for NEW
+   * sessions ("上次选的模型"), consulted only when the session has no pick. */
+  lastByAgent: Record<string, AgentModelPickEntry>;
   setPick: (sessionId: string, agentId: string, modelId: string) => void;
   getPick: (sessionId: string, agentId: string) => string | undefined;
+  getLastPick: (agentId: string) => string | undefined;
   clearPick: (sessionId: string, agentId: string) => void;
   clearSession: (sessionId: string) => void;
 }
@@ -40,6 +44,7 @@ export const useAgentModelPickStore = create<State>()(
   persist(
     (set, get) => ({
       bySessionAgent: {},
+      lastByAgent: {},
       setPick: (sessionId, agentId, modelId) => {
         const trimmed = modelId.trim();
         if (!sessionId || !agentId || !trimmed) return;
@@ -48,7 +53,15 @@ export const useAgentModelPickStore = create<State>()(
             ...s.bySessionAgent,
             [key(sessionId, agentId)]: { modelId: trimmed },
           },
+          lastByAgent: {
+            ...s.lastByAgent,
+            [agentId]: { modelId: trimmed },
+          },
         }));
+      },
+      getLastPick: (agentId) => {
+        if (!agentId) return undefined;
+        return get().lastByAgent[agentId]?.modelId;
       },
       getPick: (sessionId, agentId) => {
         if (!sessionId || !agentId) return undefined;
@@ -77,7 +90,7 @@ export const useAgentModelPickStore = create<State>()(
     {
       name: "teamclaw.agent-model-pick.v1",
       storage: createJSONStorage(() => localStorage),
-      partialize: (s) => ({ bySessionAgent: s.bySessionAgent }),
+      partialize: (s) => ({ bySessionAgent: s.bySessionAgent, lastByAgent: s.lastByAgent }),
     },
   ),
 );

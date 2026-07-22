@@ -9,6 +9,7 @@
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
+use std::time::Duration;
 
 use tokio::sync::{mpsc, oneshot};
 use tracing::{info, warn};
@@ -51,6 +52,15 @@ pub(crate) struct Route {
     pub(crate) turn_active: bool,
     pub(crate) turn_reply_to: Option<String>,
     pub(crate) turn_requester: Option<String>,
+    /// Monotonic per-route prompt counter; the stuck-turn watchdog only acts
+    /// if the turn it armed for is still the current one.
+    pub(crate) turn_seq: u64,
+    /// True once the current turn produced at least one translated event
+    /// (text/reasoning/tool). A provider that fails before the first token
+    /// (out of credit, usage limit) produces none — opencode keeps the
+    /// assistant message `error: null` and retries internally, so this plus
+    /// `/session/status` polling is how we detect it.
+    pub(crate) turn_saw_output: bool,
     pub(crate) translate: TranslateState,
     /// MCP server names amuxd injected into the worktree's `opencode.json`
     /// for this session (gateway `send` tool / remote tools). Pruned back out
@@ -459,6 +469,8 @@ async fn attach(shared: &Arc<Shared>, args: AttachArgs) -> Result<AcpStartupMeta
                 turn_active: false,
                 turn_reply_to: None,
                 turn_requester: None,
+                turn_seq: 0,
+                turn_saw_output: false,
                 translate: TranslateState::default(),
                 injected_mcp,
             },
@@ -521,7 +533,7 @@ async fn do_prompt(
     reply_to_message_id: Option<String>,
 ) {
     let reply_to = reply_to_message_id.filter(|id| !id.is_empty());
-    let (event_tx, directory, model) = {
+    let (event_tx, directory, model, turn_seq) = {
         let mut routes = shared.routes.lock();
         let Some(route) = routes.get_mut(session_id) else {
             warn!(session_id, "prompt for unknown opencode session");
@@ -530,10 +542,13 @@ async fn do_prompt(
         route.turn_active = true;
         route.turn_reply_to = reply_to.clone();
         route.turn_requester = requester_actor_id.filter(|id| !id.is_empty());
+        route.turn_seq += 1;
+        route.turn_saw_output = false;
         (
             route.event_tx.clone(),
             route.directory.clone(),
             route.model.clone(),
+            route.turn_seq,
         )
     };
 
@@ -567,6 +582,9 @@ async fn do_prompt(
         Ok(client) => client.prompt_async(&directory, session_id, &body).await,
         Err(e) => Err(e),
     };
+    if result.is_ok() {
+        spawn_stuck_turn_watchdog(shared, session_id, turn_seq);
+    }
     if let Err(e) = result {
         let details = e.to_string();
         crate::runtime::agent_trace::log_prompt_end(session_id, false, &details, 0);
@@ -600,6 +618,163 @@ async fn do_prompt(
         )
         .await;
     }
+}
+
+/// How often the stuck-turn watchdog polls `/session/status` after a prompt.
+const STATUS_POLL_INTERVAL: Duration = Duration::from_secs(5);
+/// Give up on a turn that produced no output and no retry status after this.
+pub(crate) const FIRST_OUTPUT_TIMEOUT: Duration = Duration::from_secs(120);
+
+/// A failed upstream provider request (out of credit, usage limit, rate
+/// limit) is invisible on the happy path: opencode keeps the assistant
+/// message `error: null`, retries internally, and never sends
+/// `session.idle`. The retry state IS exposed — via the `session.status` SSE
+/// event (fires once, easy to miss across reconnects) and the
+/// `GET /session/status` snapshot (what the official desktop app uses). This
+/// watchdog polls the snapshot every few seconds so the user sees the
+/// provider's own error within seconds, and falls back to a hard timeout for
+/// providers that hang without reporting anything.
+fn spawn_stuck_turn_watchdog(shared: &Arc<Shared>, session_id: &str, turn_seq: u64) {
+    let shared = Arc::clone(shared);
+    let session_id = session_id.to_string();
+    tokio::spawn(async move {
+        let deadline = tokio::time::Instant::now() + FIRST_OUTPUT_TIMEOUT;
+        loop {
+            tokio::time::sleep(STATUS_POLL_INTERVAL).await;
+            let directory = {
+                let routes = shared.routes.lock();
+                match routes.get(&session_id) {
+                    Some(route)
+                        if route.turn_active
+                            && route.turn_seq == turn_seq
+                            && !route.turn_saw_output =>
+                    {
+                        route.directory.clone()
+                    }
+                    // Output arrived, the turn ended, or a newer prompt took
+                    // over — nothing to watch anymore.
+                    _ => return,
+                }
+            };
+            if let Some((message, next_ms)) = retry_status_for(&shared, &directory, &session_id).await {
+                let now_ms = std::time::SystemTime::now()
+                    .duration_since(std::time::UNIX_EPOCH)
+                    .map(|d| d.as_millis() as i64)
+                    .unwrap_or(0);
+                let wait = next_ms.saturating_sub(now_ms);
+                // A retry due soon may still succeed — keep waiting for it
+                // (bounded by the overall deadline below).
+                if wait > FIRST_OUTPUT_TIMEOUT.as_millis() as i64 {
+                    warn!(
+                        session_id,
+                        message = %message,
+                        next_in_s = wait / 1000,
+                        "provider retry scheduled beyond wait window; aborting turn"
+                    );
+                    abort_turn_with_error(
+                        &shared,
+                        &session_id,
+                        "model provider error".to_string(),
+                        message,
+                    )
+                    .await;
+                    return;
+                }
+            }
+            if tokio::time::Instant::now() >= deadline {
+                warn!(
+                    session_id,
+                    timeout_s = FIRST_OUTPUT_TIMEOUT.as_secs(),
+                    "no output since prompt; aborting stuck opencode turn"
+                );
+                abort_turn_with_error(
+                    &shared,
+                    &session_id,
+                    "model produced no output".to_string(),
+                    format!(
+                        "No response from the model within {}s — the provider may be \
+                         unreachable or the account out of credit. The turn was aborted; \
+                         try another model.",
+                        FIRST_OUTPUT_TIMEOUT.as_secs()
+                    ),
+                )
+                .await;
+                return;
+            }
+        }
+    });
+}
+
+/// `Some((provider message, next-retry epoch ms))` when opencode reports the
+/// session in a provider-retry loop.
+async fn retry_status_for(
+    shared: &Arc<Shared>,
+    directory: &str,
+    session_id: &str,
+) -> Option<(String, i64)> {
+    let client = shared.serve.ensure().await.ok()?;
+    let statuses = client.session_status(directory).await.ok()?;
+    let status = statuses.get(session_id)?;
+    if status.get("type").and_then(|v| v.as_str()) != Some("retry") {
+        return None;
+    }
+    let message = status
+        .get("message")
+        .and_then(|v| v.as_str())
+        .unwrap_or("provider error")
+        .to_string();
+    let next_ms = status.get("next").and_then(|v| v.as_i64()).unwrap_or(0);
+    Some((message, next_ms))
+}
+
+/// Close an active turn: abort it in opencode, surface `details` to the
+/// client as an error bubble, and return the agent to Idle so "replying…"
+/// clears. Used by the stuck-turn watchdog and the `session.status` SSE
+/// handler.
+pub(crate) async fn abort_turn_with_error(
+    shared: &Arc<Shared>,
+    session_id: &str,
+    message: String,
+    details: String,
+) {
+    let (event_tx, directory, reply_to) = {
+        let mut routes = shared.routes.lock();
+        let Some(route) = routes.get_mut(session_id) else {
+            return;
+        };
+        if !route.turn_active {
+            return;
+        }
+        route.turn_active = false;
+        route.turn_requester = None;
+        (
+            route.event_tx.clone(),
+            route.directory.clone(),
+            route.turn_reply_to.take(),
+        )
+    };
+    if let Ok(client) = shared.serve.ensure().await {
+        if let Err(e) = client.abort(&directory, session_id).await {
+            warn!(session_id, error = %e, "turn abort failed");
+        }
+    }
+    emit_frame(
+        &event_tx,
+        session_id,
+        amux::AcpEvent {
+            event: Some(amux::acp_event::Event::Error(amux::AcpError { message, details })),
+            model: String::new(),
+        },
+        reply_to.clone(),
+    )
+    .await;
+    emit_frame(
+        &event_tx,
+        session_id,
+        translate::status_change(amux::AgentStatus::Active, amux::AgentStatus::Idle),
+        reply_to,
+    )
+    .await;
 }
 
 async fn resolve_permission(
@@ -986,6 +1161,8 @@ mod pool_tests {
                 turn_active: false,
                 turn_reply_to: None,
                 turn_requester: None,
+                turn_seq: 0,
+                turn_saw_output: false,
                 translate: TranslateState::default(),
                 injected_mcp: vec!["amuxd-send".to_string()],
             },

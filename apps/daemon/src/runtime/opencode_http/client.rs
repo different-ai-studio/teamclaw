@@ -156,6 +156,26 @@ impl ServeClient {
         Self::check(resp, "prompt_async").await.map(|_| ())
     }
 
+    /// GET /session/status → map of session id to current status
+    /// (`{"ses_x": {"type": "retry", "message": …, "next": …}}`). The only
+    /// reliable way to observe provider-retry state: the SSE `session.status`
+    /// event fires once at retry entry and is lost if the subscription is
+    /// (re)connecting at that moment. Official desktop polls this snapshot.
+    pub async fn session_status(
+        &self,
+        directory: &str,
+    ) -> crate::error::Result<serde_json::Value> {
+        let resp = self
+            .req(reqwest::Method::GET, "/session/status", directory)
+            .send()
+            .await
+            .map_err(|e| crate::error::AmuxError::Agent(format!("session status: {e}")))?;
+        let resp = Self::check(resp, "session status").await?;
+        resp.json()
+            .await
+            .map_err(|e| crate::error::AmuxError::Agent(format!("session status body: {e}")))
+    }
+
     /// POST /session/{id}/abort.
     pub async fn abort(&self, directory: &str, session_id: &str) -> crate::error::Result<()> {
         let resp = self

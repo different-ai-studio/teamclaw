@@ -199,7 +199,6 @@
     "files": "文件",
     "teamSharedFiles": "团队共享文件",
     "teamSharedFilesLoading": "正在加载团队共享文件...",
-    "teamSharedFilesUnavailable": "团队共享目录尚未配置。请在设置 → 团队中启用团队共享。",
     "teamSharedFilesDirMissing": "团队共享目录尚不存在。点击同步从团队拉取。",
     "teamSharedFilesEmpty": "当前团队共享目录为空。",
     "actors": "成员",
@@ -486,7 +485,6 @@
       "placeholderModelHint": "暂无在线运行时，列表将默认使用此模型",
       "searchModelPlaceholder": "搜索模型…",
       "noMatchingModels": "没有匹配的模型",
-      "modelHeading": "模型",
       "removeMention": "移除提及",
       "modelChangeFailed": "切换模型失败",
       "modelChangeWillRetry": "选择已保存，将在下次发送消息时重新应用。详情：{{message}}",
@@ -2084,8 +2082,6 @@
       "hide": "隐藏值",
       "emptyTitle": "暂无环境变量",
       "emptyDescription": "安全存储你的 API 密钥和密码。值通过系统钥匙串加密存储（macOS Keychain / Windows 凭据管理器）。",
-      "hintTitle": "工作原理",
-      "hintBody": "值存储在操作系统原生钥匙串中，而非配置文件。在 MCP 服务器环境变量或其他配置中使用 ${KEY_NAME} 语法引用这些密钥。",
       "error": {
         "keyRequired": "键名不能为空",
         "valueRequired": "值不能为空",
@@ -2093,7 +2089,6 @@
         "invalidKeyShared": "共享变量名只能包含小写字母、数字和下划线（最多 64 个字符）"
       },
       "hideValue": "隐藏值",
-      "hintTeam": "团队变量会加密并同步给所有团队成员。保存后无法查看其值。",
       "teamUnavailableTitle": "团队环境变量当前不可用",
       "teamUnavailableBody": "本机 daemon 没有解密团队变量所需的团队密钥。请在 Team Shared 设置中填写正确的团队密钥，然后新建一个 Agent 会话。",
       "needRestart": "需要重启",

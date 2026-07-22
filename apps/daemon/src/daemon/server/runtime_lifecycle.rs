@@ -325,7 +325,12 @@ impl DaemonServer {
                     .current_model(&existing)
                     .cloned()
                     .unwrap_or_default();
-                if desired_model != current {
+                // Only seed a model when the runtime has none. Ensure calls
+                // fire repeatedly (session focus, MQTT reconnect) with
+                // whatever model the caller last knew, so treating the
+                // override as "desired" here silently reverts a pick the
+                // user made via SetModel in between.
+                if current.is_empty() && desired_model != current {
                     let mut agents = self.agents.lock().await;
                     match agents.send_set_model(&existing, desired_model).await {
                         Ok(()) => {

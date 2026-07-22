@@ -130,6 +130,8 @@ async fn handle_event(shared: &Arc<Shared>, event: &serde_json::Value) {
     match event_type {
         "permission.asked" => handle_permission_asked(shared, &session_id, &props).await,
         "session.idle" => handle_session_idle(shared, &session_id).await,
+        "session.updated" => handle_session_updated(shared, &session_id, &props).await,
+        "session.status" => handle_session_status(shared, &session_id, &props).await,
         _ => {
             // Pure translation path (text/reasoning/tool deltas, errors).
             let (events, event_tx, reply_to) = {
@@ -141,11 +143,13 @@ async fn handle_event(shared: &Arc<Shared>, event: &serde_json::Value) {
                     );
                     return;
                 };
-                (
-                    translate::translate_event(&mut route.translate, event_type, &props),
-                    route.event_tx.clone(),
-                    route.turn_reply_to.clone(),
-                )
+                let events = translate::translate_event(&mut route.translate, event_type, &props);
+                if !events.is_empty() {
+                    // First token/tool/error arrived — the stuck-turn
+                    // watchdog (mod.rs) stands down for this turn.
+                    route.turn_saw_output = true;
+                }
+                (events, route.event_tx.clone(), route.turn_reply_to.clone())
             };
             for ev in events {
                 crate::runtime::agent_trace::log_acp_event(&session_id, &ev);
@@ -208,6 +212,86 @@ async fn handle_permission_asked(
         .lock()
         .get(session_id)
         .and_then(|r| r.turn_reply_to.clone());
+    let _ = event_tx
+        .send(AcpEventFrame::new(session_id, ev).with_reply_to(reply_to))
+        .await;
+}
+
+/// `session.status` carries opencode's provider-retry state — the only place
+/// a failed upstream request (out of credit, usage limit, rate limit) is
+/// surfaced as an event: the assistant message keeps `error: null` while
+/// opencode retries internally. When the next attempt is scheduled beyond
+/// the stuck-turn window there is no point waiting — abort the turn and show
+/// the provider's own message (e.g. "monthly usage limit reached…"). The
+/// watchdog's `/session/status` polling covers the case where this event is
+/// missed across an SSE reconnect.
+async fn handle_session_status(
+    shared: &Arc<Shared>,
+    session_id: &str,
+    props: &serde_json::Value,
+) {
+    let status = props.get("status").unwrap_or(&serde_json::Value::Null);
+    if status.get("type").and_then(|v| v.as_str()) != Some("retry") {
+        return;
+    }
+    let message = status
+        .get("message")
+        .and_then(|v| v.as_str())
+        .unwrap_or("provider error")
+        .to_string();
+    let next_ms = status.get("next").and_then(|v| v.as_i64()).unwrap_or(0);
+    let now_ms = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_millis() as i64)
+        .unwrap_or(0);
+    let wait = next_ms.saturating_sub(now_ms);
+    warn!(
+        session_id,
+        message = %message,
+        next_in_s = wait / 1000,
+        "opencode provider retry status"
+    );
+    // Retries due within the stuck-turn window may still succeed — let them
+    // run; the watchdog remains the backstop.
+    if wait <= super::FIRST_OUTPUT_TIMEOUT.as_millis() as i64 {
+        return;
+    }
+    super::abort_turn_with_error(shared, session_id, "model provider error".to_string(), message)
+        .await;
+}
+
+/// opencode auto-generates a session title from the first exchange and
+/// announces it via `session.updated`. Forward it as the existing
+/// `session_title` raw control event; the daemon server decides whether the
+/// TeamClaw session still carries a default title worth replacing.
+async fn handle_session_updated(
+    shared: &Arc<Shared>,
+    session_id: &str,
+    props: &serde_json::Value,
+) {
+    let title = props
+        .pointer("/info/title")
+        .and_then(|v| v.as_str())
+        .map(str::trim)
+        .unwrap_or_default();
+    // "New session - <timestamp>" is opencode's own placeholder.
+    if title.is_empty() || title.starts_with("New session") {
+        return;
+    }
+    let (event_tx, reply_to) = {
+        let routes = shared.routes.lock();
+        let Some(route) = routes.get(session_id) else {
+            return;
+        };
+        (route.event_tx.clone(), route.turn_reply_to.clone())
+    };
+    let ev = amux::AcpEvent {
+        event: Some(amux::acp_event::Event::Raw(amux::AcpRawJson {
+            method: "session_title".into(),
+            json_payload: title.as_bytes().to_vec(),
+        })),
+        model: String::new(),
+    };
     let _ = event_tx
         .send(AcpEventFrame::new(session_id, ev).with_reply_to(reply_to))
         .await;

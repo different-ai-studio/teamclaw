@@ -401,6 +401,22 @@ export function selectAgentModel(args: {
     };
   }
 
+  // No pick in THIS session — fall back to the user's most recent pick for
+  // this agent in ANY session, so new sessions default to "上次选的模型"
+  // instead of the daemon's default model.
+  const lastPick = useAgentModelPickStore.getState().getLastPick(agentId);
+  if (lastPick) {
+    return {
+      modelId: canonicalizeAgainstAvailable(
+        args.agentId,
+        lastPick,
+        args.available,
+        args.byRuntimeId,
+      ),
+      source: "pick",
+    };
+  }
+
   const entry = resolveRuntimeStateEntryForAgent(agentId, args.byRuntimeId);
   const retain = entry?.info.currentModel?.trim() ?? "";
   if (retain) {
