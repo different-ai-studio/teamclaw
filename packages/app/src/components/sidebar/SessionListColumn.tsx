@@ -383,7 +383,11 @@ export function SessionListColumn({
     return ''
   })()
 
-  const handleSelectSession = (id: string) => useUIStore.getState().switchToSession(id)
+  const handleSelectSession = (id: string) => {
+    void useUIStore.getState().switchToSession(id)
+    // Narrow sheet / embed: selecting a session should close the list overlay.
+    onDismiss?.()
+  }
 
   const showNewChatButton = embedMode || (showNewSessionActions && !compactHeader)
 
