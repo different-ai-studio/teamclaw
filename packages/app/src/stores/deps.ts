@@ -1,7 +1,13 @@
 import { create } from 'zustand'
 import { isTauri } from '@/lib/utils'
 import { loadFromStorage, saveToStorage } from '@/lib/storage'
-import { appShortName } from '@/lib/build-config'
+import { appShortName, buildConfig } from '@/lib/build-config'
+
+/** opencode is installed/updated via `amuxd install-opencode`; the mirror base
+ *  comes from build config, matching the first-run SetupWizard. */
+function opencodeDownloadBase(): string {
+  return buildConfig.opencode?.downloadBase ?? ''
+}
 
 export interface DependencyInfo {
   name: string
@@ -128,6 +134,9 @@ interface DepsState {
   /** Install dependencies serially in priority order */
   installDependencies: (names: string[]) => Promise<void>
 
+  /** Update an already-installed dependency (opencode → `amuxd install-opencode`) */
+  updateDependency: (name: string) => Promise<void>
+
   /** Reset install state for retry */
   resetInstallState: () => void
 }
@@ -154,6 +163,7 @@ function getMockDependencies(): DependencyInfo[] {
     { name: 'gh', installed: false, version: null, required: false, description: 'GitHub CLI - needed for spec-plan, spec-pr, and issue management', install_commands: { macos: 'brew install gh', windows: 'winget install GitHub.cli', linux: 'sudo apt install -y gh' }, affected_features: ['spec-plan', 'spec-pr', 'GitHub Issues'], priority: 1 },
     { name: 'node', installed: true, version: '22.1.0', required: false, description: 'Node.js runtime - needed to run some MCP servers (via npx)', install_commands: { macos: 'brew install node', windows: 'winget install OpenJS.NodeJS', linux: 'sudo apt install -y nodejs' }, affected_features: ['MCP Servers (npx-based)'], priority: 1 },
     { name: 'python3', installed: false, version: null, required: false, description: 'Python runtime - needed for uvx-based MCP servers and data analysis', install_commands: { macos: 'brew install python3', windows: 'winget install Python.Python.3', linux: 'sudo apt install -y python3' }, affected_features: ['MCP Servers (uvx-based)', 'Data Analysis'], priority: 1 },
+    { name: 'opencode', installed: true, version: '1.17.7', required: true, description: 'Agent runtime - required to run the local AI agent', install_commands: { macos: 'amuxd install-opencode', windows: 'amuxd install-opencode', linux: 'amuxd install-opencode' }, affected_features: ['Local Agent'], priority: 1 },
   ]
 }
 
@@ -282,7 +292,10 @@ export const useDepsStore = create<DepsState>((set, get) => ({
     try {
       for (const name of sorted) {
         try {
-          await invoke<boolean>('install_dependency', { name })
+          await invoke<boolean>('install_dependency', {
+            name,
+            downloadBase: name === 'opencode' ? opencodeDownloadBase() : null,
+          })
         } catch (err) {
           console.error(`[DepsStore] Failed to install ${name}:`, err)
           const state = get()
@@ -294,6 +307,50 @@ export const useDepsStore = create<DepsState>((set, get) => ({
           })
         }
       }
+    } finally {
+      unlisten()
+      set({ installing: false, currentInstalling: null })
+    }
+  },
+
+  updateDependency: async (name: string) => {
+    if (!isTauri()) return
+
+    const { invoke } = await import('@tauri-apps/api/core')
+    const { listen } = await import('@tauri-apps/api/event')
+
+    set({
+      installing: true,
+      installQueue: [name],
+      installResults: { [name]: { success: false } },
+      installOutput: { [name]: [] },
+      currentInstalling: name,
+    })
+
+    const unlisten = await listen<DepInstallProgressEvent>('dep-install-progress', (event) => {
+      const { name: evName, status, outputLine, error } = event.payload
+      const state = get()
+      if (status === 'started') {
+        set({ currentInstalling: evName })
+      } else if (status === 'installing' && outputLine) {
+        const currentOutput = state.installOutput[evName] || []
+        set({ installOutput: { ...state.installOutput, [evName]: [...currentOutput, outputLine] } })
+      } else if (status === 'done') {
+        set({ installResults: { ...state.installResults, [evName]: { success: true } } })
+      } else if (status === 'failed') {
+        set({ installResults: { ...state.installResults, [evName]: { success: false, error: error ?? 'Update failed' } } })
+      }
+    })
+
+    try {
+      await invoke<boolean>('update_dependency', {
+        name,
+        downloadBase: name === 'opencode' ? opencodeDownloadBase() : null,
+      })
+    } catch (err) {
+      console.error(`[DepsStore] Failed to update ${name}:`, err)
+      const state = get()
+      set({ installResults: { ...state.installResults, [name]: { success: false, error: String(err) } } })
     } finally {
       unlisten()
       set({ installing: false, currentInstalling: null })

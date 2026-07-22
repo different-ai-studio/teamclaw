@@ -2497,7 +2497,9 @@
       "install": "安装",
       "installed": "已安装",
       "installing": "安装中...",
-      "retry": "重试"
+      "retry": "重试",
+      "update": "更新",
+      "updating": "更新中..."
     },
     "gitStatus": {
       "modified": "已修改",

@@ -492,6 +492,7 @@ pub fn run() {
             commands::team_sync_proxy::team_restore_file_version,
             commands::deps::check_dependencies,
             commands::deps::install_dependency,
+            commands::deps::update_dependency,
             commands::env_vars::env_var_get,
             commands::env_vars::env_catalog_list,
             commands::env_vars::team_env_diagnostics,
