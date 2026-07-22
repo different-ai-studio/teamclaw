@@ -11,10 +11,15 @@ const mocks = vi.hoisted(() => ({
   upsertOutbox: vi.fn(),
   deleteOutbox: vi.fn(),
   listAllOutbox: vi.fn(),
+  maybeAutoTitleSessionFromFirstMessage: vi.fn().mockResolvedValue(true),
 }))
 
 vi.mock('@/lib/mqtt-bridge', () => ({
   mqttPublish: mocks.mqttPublish,
+}))
+
+vi.mock('@/lib/session-auto-title', () => ({
+  maybeAutoTitleSessionFromFirstMessage: mocks.maybeAutoTitleSessionFromFirstMessage,
 }))
 
 vi.mock('@/lib/backend', () => {
@@ -129,6 +134,10 @@ describe('outbox sender', () => {
           display_mention_actor_ids: ['agent-1'],
         }),
       }),
+    )
+    expect(mocks.maybeAutoTitleSessionFromFirstMessage).toHaveBeenCalledWith(
+      'sess-1',
+      'hello daemon',
     )
 
     const publishBytes = mocks.mqttPublish.mock.calls[0][1] as Uint8Array

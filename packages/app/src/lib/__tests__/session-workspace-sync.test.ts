@@ -15,6 +15,7 @@ vi.mock("@/lib/daemon-runtimes", () => ({ listDaemonRuntimes }));
 vi.mock("@/lib/local-cache", () => ({ upsertSessionWorkspacesBatch }));
 vi.mock("@/lib/session-viewer-workspace", () => ({
   loadViewerWorkspaceContext,
+  invalidateViewerWorkspaceContext: vi.fn(),
   isViewerAgent,
   resolveLocalPathForCloudWorkspace,
 }));

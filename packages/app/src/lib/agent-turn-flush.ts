@@ -143,6 +143,8 @@ export async function executeAgentTurnFlush(args: {
   streamEntrySnapshot?: AgentStreamEntry;
   beforePersist?: () => void;
   afterEnriched?: (enriched: TeamclawMessage) => void;
+  /** When false, release the stream but do not insert the reply (eager flush superseded). */
+  shouldCommit?: () => boolean;
   persistedStage: string;
 }): Promise<void> {
   // Drain any buffered text deltas so persisted parts include all arrived text.
@@ -162,6 +164,28 @@ export async function executeAgentTurnFlush(args: {
     { streamEntrySnapshot: streamEntryForPersist },
   );
   args.afterEnriched?.(enrichedReply);
+  if (args.shouldCommit && !args.shouldCommit()) {
+    logInterruptMsgDiag("flush.skipCommit.superseded", {
+      sessionId: args.sessionId,
+      actorId: args.actorId,
+      trigger: args.trigger,
+      messageId: enrichedReply.messageId,
+      turnId: enrichedReply.turnId,
+    });
+    // Stream was already detached for interrupt flushes; still release so the
+    // dock/archive handoff completes without inserting the synthetic reply.
+    releaseStreamAfterAgentReplyPersist(
+      args.sessionId,
+      args.actorId,
+      enrichedReply,
+      {
+        trigger: args.trigger,
+        persistedPartsJson: (enrichedReply as { partsJson?: string }).partsJson,
+        streamEntrySnapshot: streamEntryForPersist,
+      },
+    );
+    return;
+  }
   commitFlushedAgentReply(args.sessionId, args.actorId, enrichedReply, {
     trigger: args.trigger,
     teamId: args.teamId,

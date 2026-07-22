@@ -1692,7 +1692,7 @@ export function ChatPanel({ compact = false }: ChatPanelProps) {
 
     // Initial title: "ActorName (HH:mm)" when we have exactly one
     // preselected actor (so multiple sessions to the same actor stay
-    // distinguishable in the list until agent auto-rename kicks in).
+    // distinguishable until the first user message auto-titles the session).
     // Otherwise fall back to the message text or a generic placeholder.
     const soloActor =
       picks.members.length + picks.agents.length === 1
@@ -1726,6 +1726,10 @@ export function ChatPanel({ compact = false }: ChatPanelProps) {
         additionalActorIds: allAdditional,
         ideaId: draftIdeaId,
       });
+      if (soloActor) {
+        const { markSessionNeedsAutoTitle } = await import("@/lib/session-auto-title");
+        markSessionNeedsAutoTitle(sessionId);
+      }
       sessionFlowLog("session_create.shell.ok", {
         teamId: teamIdForSend,
         sessionId,
@@ -1914,11 +1918,6 @@ export function ChatPanel({ compact = false }: ChatPanelProps) {
     }
   }, [restoreSession, viewingArchivedSessionId]);
 
-  const handlePrefillComposer = React.useCallback((text: string) => {
-    setInputValue(text);
-    useUIStore.getState().requestComposerFocus();
-  }, [setInputValue]);
-
   const emptyState = React.useMemo(() => {
     if (activeSessionId) {
       if (compact) {
@@ -1927,7 +1926,6 @@ export function ChatPanel({ compact = false }: ChatPanelProps) {
       return (
         <SessionEmptyThreadState
           sessionId={activeSessionId}
-          onPrefillComposer={handlePrefillComposer}
         />
       );
     }
@@ -2015,7 +2013,6 @@ export function ChatPanel({ compact = false }: ChatPanelProps) {
     handleLocalAgentQuickAction,
     handleOpenAgentSettings,
     activeSessionId,
-    handlePrefillComposer,
   ]);
 
   const visibleSessionError =

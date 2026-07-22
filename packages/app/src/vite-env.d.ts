@@ -14,6 +14,10 @@ interface ImportMetaEnv {
   readonly VITE_TEAMCLAW_SKIP_SETUP?: string;
   /** Set by scripts/tauri-cli.js for `pnpm tauri:dev -- --skip-daemon-onboarding`. */
   readonly VITE_TEAMCLAW_SKIP_DAEMON_ONBOARDING?: string;
+  /** Extension embed build: force chat-only shell (apps/extension/build.mjs). */
+  readonly VITE_FORCE_EMBED?: string;
+  /** Extension internal build: hide permission control + model on mention pills. */
+  readonly VITE_INTERNAL?: string;
 }
 
 interface ImportMeta {

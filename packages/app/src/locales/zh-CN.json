@@ -252,29 +252,6 @@
       "routingSoloAgent": "仅一位 Agent 在场——直接发送即可，无需 @。",
       "routingSingleAgent": "向全员发送，或 @{{name}} 指定该 Agent 回复。",
       "routingMultiAgent": "多位 Agent 在场——请 @名字 指定回复对象。",
-      "quickStart": "快速开始",
-      "starters": {
-        "workspaceChanges": {
-          "label": "查看 workspace 改动",
-          "message": "帮我看看当前 workspace 有什么未提交的改动"
-        },
-        "projectStructure": {
-          "label": "总结项目结构",
-          "message": "用几句话总结这个 repo 的结构"
-        },
-        "askAgentSummary": {
-          "label": "@{{name}} 总结现状",
-          "message": "@{{name}} 用几句话总结当前项目状态"
-        },
-        "askMember": {
-          "label": "@{{name}} 你怎么看？",
-          "message": "@{{name}} 对这个方向有什么想法？"
-        },
-        "broadcast": {
-          "label": "向所有人同步",
-          "message": "各位，对齐一下今天的目标："
-        }
-      },
       "participantCount": "{{count}} 位参与者 · 等待第一条消息"
     },
     "draftStartConversation": "开始对话",
@@ -777,6 +754,16 @@
     "sessionRunning": "运行中",
     "loadMore": "加载更多",
     "archive": "归档",
+    "batchManage": "批量管理",
+    "batchSelected": "已选",
+    "batchSelectAll": "全选",
+    "batchArchiveHint": "将归档 {{count}} 个会话",
+    "batchArchiveCount": "归档 {{count}}",
+    "batchArchiveConfirmTitle": "归档所选会话？",
+    "batchArchiveConfirmBody": "将归档 {{count}} 个会话。归档后可从「已归档」中恢复，不会删除消息。",
+    "batchArchiveThinkAgain": "再想想",
+    "batchArchiveConfirmAction": "确认归档",
+    "batchArchivePartialFail": "已归档 {{ok}} 个，{{failed}} 个失败",
     "rename": "重命名",
     "viewDetail": "查看详情",
     "showAllSessions": "显示全部会话",

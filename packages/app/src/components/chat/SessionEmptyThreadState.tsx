@@ -4,7 +4,6 @@ import { Loader2 } from 'lucide-react'
 import { actorAvatarColor } from '@/lib/actor-color'
 import { resolveCurrentMemberActorId } from '@/lib/current-actor'
 import {
-  buildEmptyThreadStarters,
   formatEmptyThreadRosterNames,
   resolveEmptyThreadRoutingKind,
   type EmptyThreadParticipant,
@@ -20,7 +19,6 @@ import { useWorkspaceStore } from '@/stores/workspace'
 
 export type SessionEmptyThreadStateProps = {
   sessionId: string
-  onPrefillComposer: (text: string) => void
 }
 
 function toParticipants(
@@ -65,31 +63,8 @@ function ParticipantAvatar({ participant }: { participant: EmptyThreadParticipan
   )
 }
 
-function StarterChip({
-  label,
-  onClick,
-}: {
-  label: React.ReactNode
-  onClick: () => void
-}) {
-  return (
-    <button
-      type="button"
-      onClick={onClick}
-      className={cn(
-        'rounded-lg border border-border bg-paper px-3 py-[7px]',
-        'text-left text-[12px] leading-snug text-ink-2 transition-colors',
-        'hover:bg-selected',
-      )}
-    >
-      {label}
-    </button>
-  )
-}
-
 export function SessionEmptyThreadState({
   sessionId,
-  onPrefillComposer,
 }: SessionEmptyThreadStateProps) {
   const { t } = useTranslation()
   const teamId = useCurrentTeamStore((s) => s.team?.id ?? null)
@@ -135,7 +110,6 @@ export function SessionEmptyThreadState({
   const nameSeparator = t('chat.sessionEmptyThread.nameSeparator', ', ')
   const rosterNames = formatEmptyThreadRosterNames(roster, selfLabel, nameSeparator)
   const routingKind = resolveEmptyThreadRoutingKind(roster)
-  const starters = buildEmptyThreadStarters(roster)
 
   const routingText = React.useMemo(() => {
     const soleAgent = roster.find((p) => p.isAgent && !p.isSelf)
@@ -213,39 +187,6 @@ export function SessionEmptyThreadState({
       <p className="mt-2.5 text-[11.5px] leading-snug text-muted-foreground">
         {routingText}
       </p>
-
-      {starters.length > 0 ? (
-        <>
-          <div className="mt-3.5 text-[10.5px] font-semibold uppercase tracking-[0.06em] text-faint">
-            {t('chat.sessionEmptyThread.quickStart', 'Quick start')}
-          </div>
-          <div className="mt-2 flex flex-wrap gap-2">
-            {starters.map((starter) => {
-              const label = t(starter.labelKey, starter.labelDefault, starter.labelParams)
-              const message = t(starter.messageKey, starter.messageDefault, starter.messageParams)
-              const atMatch = /^@(\S+)/.exec(label)
-              return (
-                <StarterChip
-                  key={starter.id}
-                  label={
-                    atMatch ? (
-                      <>
-                        <span className="font-mono text-[10.5px] font-semibold text-coral">
-                          @{atMatch[1]}
-                        </span>{' '}
-                        {label.slice(atMatch[0].length).trimStart()}
-                      </>
-                    ) : (
-                      label
-                    )
-                  }
-                  onClick={() => onPrefillComposer(message)}
-                />
-              )
-            })}
-          </div>
-        </>
-      ) : null}
     </div>
   )
 }
