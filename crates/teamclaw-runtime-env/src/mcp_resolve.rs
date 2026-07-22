@@ -1,16 +1,18 @@
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 
+use crate::opencode_config::{OpencodeConfigStore, OpencodeConfigError};
+
 fn opencode_config_path(workspace: &Path) -> PathBuf {
-    workspace.join("opencode.json")
+    crate::opencode_config::opencode_config_path(workspace)
 }
 
-/// Replace `${KEY}` and `$KEY` references in opencode.json with actual values.
+/// Replace `${KEY}` and `$KEY` references in the canonical config, write the
+/// resolved copy to `.teamclaw/opencode.runtime.json`, and install it at
+/// `opencode.json` for the active runtime.
 ///
-/// Writes the resolved config to disk when substitutions occur.
-///
-/// Returns the original file content if any substitutions were made (caller
-/// must restore it later), or `None` if nothing changed.
+/// Returns the canonical (placeholder) file content when an overlay was
+/// installed — caller must restore it when the runtime stops.
 pub fn resolve_config_secret_refs(
     workspace: &Path,
     secrets: &HashMap<String, String>,
@@ -19,57 +21,36 @@ pub fn resolve_config_secret_refs(
         return Ok(None);
     }
 
-    let config_path = opencode_config_path(workspace);
-    let write_lock = crate::atomic_write::opencode_write_lock(&config_path);
-    let _guard = write_lock.lock().unwrap_or_else(|e| e.into_inner());
-    let original = match std::fs::read_to_string(&config_path) {
-        Ok(content) => content,
-        Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(None),
-        Err(e) => return Err(e.into()),
+    let canonical = match OpencodeConfigStore::load_raw(workspace)? {
+        Some(content) => content,
+        None => return Ok(None),
     };
 
-    // Simple string replacement on the raw JSON — avoids re-serialization
-    // artefacts (key ordering, whitespace). Safe because secret values never
-    // contain `${`.
-    let mut resolved = original.clone();
-    let mut changed = false;
-    for (key, value) in secrets {
-        let placeholder = format!("${{{}}}", key);
-        if resolved.contains(&placeholder) {
-            resolved = resolved.replace(&placeholder, value);
-            changed = true;
-        }
-        let placeholder_bare = format!("${key}");
-        if resolved.contains(&placeholder_bare) {
-            resolved = resolved.replace(&placeholder_bare, value);
-            changed = true;
-        }
+    let resolved = substitute_secret_placeholders(&canonical, secrets);
+    if resolved == canonical {
+        return Ok(None);
     }
 
-    // Fail-closed diagnosability (issue #554): if a `provider.*.options.apiKey`
-    // still carries an unresolved `${KEY}` after substitution, the model
-    // gateway key (typically `tc_api_key`, derived from `actor_id`) was never
-    // injected for this spawn. The child ACP host would then send the literal
-    // `${tc_api_key}` as its key and fail with an opaque `MISSING_AI_KEY`.
-    // Surface a loud, greppable finding naming the provider + missing key so
-    // the inconsistency is diagnosable rather than silent.
     for (provider, placeholder) in unresolved_provider_api_key_placeholders(&resolved) {
         tracing::warn!(
             finding = "team_model_gateway_key_unavailable",
             provider = %provider,
             placeholder = %placeholder,
-            config = %config_path.display(),
+            config = %opencode_config_path(workspace).display(),
             "opencode.json provider apiKey still holds an unresolved placeholder; the model \
              gateway key was not injected — this provider's capabilities will fail closed"
         );
     }
 
-    if changed {
-        crate::atomic_write::atomic_write(&config_path, &resolved)?;
-        Ok(Some(original))
-    } else {
-        Ok(None)
-    }
+    let overlay_path = crate::opencode_config::runtime_overlay_path(workspace);
+    OpencodeConfigStore::write_raw(&overlay_path, &resolved)?;
+
+    let config_path = opencode_config_path(workspace);
+    let write_lock = crate::atomic_write::opencode_write_lock(&config_path);
+    let _guard = write_lock.lock().unwrap_or_else(|e| e.into_inner());
+    OpencodeConfigStore::write_raw(&config_path, &resolved)?;
+
+    Ok(Some(canonical))
 }
 
 /// Find `provider.<name>.options.apiKey` values that still contain an
@@ -103,9 +84,8 @@ pub fn unresolved_provider_api_key_placeholders(content: &str) -> Vec<(String, S
     out
 }
 
-/// Restore the original opencode.json content (with `${KEY}` placeholders),
-/// but keep provider apiKey values resolved since opencode re-reads the
-/// config at request time.
+/// Restore the canonical placeholder config after runtime stop. Provider
+/// apiKey values stay resolved since opencode re-reads the config at request time.
 pub fn restore_config(
     workspace: &Path,
     original: &Option<String>,
@@ -116,9 +96,26 @@ pub fn restore_config(
         let config_path = opencode_config_path(workspace);
         let write_lock = crate::atomic_write::opencode_write_lock(&config_path);
         let _guard = write_lock.lock().unwrap_or_else(|e| e.into_inner());
-        crate::atomic_write::atomic_write(&config_path, &restored)?;
+        OpencodeConfigStore::write_raw(&config_path, &restored)?;
+        let overlay = crate::opencode_config::runtime_overlay_path(workspace);
+        let _ = std::fs::remove_file(overlay);
     }
     Ok(())
+}
+
+fn substitute_secret_placeholders(content: &str, secrets: &HashMap<String, String>) -> String {
+    let mut resolved = content.to_string();
+    for (key, value) in secrets {
+        let placeholder = format!("${{{}}}", key);
+        if resolved.contains(&placeholder) {
+            resolved = resolved.replace(&placeholder, value);
+        }
+        let placeholder_bare = format!("${key}");
+        if resolved.contains(&placeholder_bare) {
+            resolved = resolved.replace(&placeholder_bare, value);
+        }
+    }
+    resolved
 }
 
 /// Resolve only `provider.*.options.apiKey` values in the JSON content.
@@ -200,6 +197,7 @@ mod tests {
         let on_disk = read_opencode_json(dir.path());
         assert!(on_disk.contains("ghp_secret123"));
         assert!(!on_disk.contains("${API_KEY}"));
+        assert!(dir.path().join(".teamclaw/opencode.runtime.json").exists());
     }
 
     #[test]

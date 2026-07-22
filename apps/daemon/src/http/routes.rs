@@ -147,6 +147,10 @@ pub fn build(state: HttpState) -> Router {
             get(workspaces::get_mcp_tools),
         )
         .route(
+            "/v1/workspaces/:id/mcp/materialize-team",
+            post(workspaces::materialize_team_mcp),
+        )
+        .route(
             "/v1/workspaces/:id/roles-skills",
             get(workspaces::get_roles_skills),
         )

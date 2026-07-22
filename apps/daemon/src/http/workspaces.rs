@@ -743,6 +743,33 @@ pub async fn get_mcp_tools(
     Ok(Json(response))
 }
 
+#[derive(Serialize)]
+pub struct MaterializeTeamMcpResponse {
+    pub changed: bool,
+    pub added_count: usize,
+}
+
+/// `POST /v1/workspaces/:id/mcp/materialize-team`
+///
+/// Materialize team-shared MCP definitions from `teamclaw-team/.mcp/*.json`
+/// into this workspace's `opencode.json`. Only amuxd writes the file (atomic +
+/// process-local lock). Desktop/git join flows call this instead of touching
+/// `opencode.json` directly.
+pub async fn materialize_team_mcp(
+    principal: Principal,
+    Path(workspace_id): Path<String>,
+) -> Result<Json<MaterializeTeamMcpResponse>, HttpError> {
+    require_scope(&principal, "workspace:write")?;
+    let wpath = workspace_path_or_404(&workspace_id).await?;
+    crate::runtime::supervisor::ensure_inherent_mcp(&wpath).map_err(map_control_err)?;
+    let outcome =
+        crate::config::team_mcp::materialize_team_mcp_for_runtime(&wpath).map_err(map_control_err)?;
+    Ok(Json(MaterializeTeamMcpResponse {
+        changed: outcome.changed,
+        added_count: outcome.added_count,
+    }))
+}
+
 // ── Roles & skills handlers ───────────────────────────────────────────────────
 pub async fn get_roles_skills(
     principal: Principal,

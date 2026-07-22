@@ -2,6 +2,7 @@ pub mod atomic_write;
 pub mod env_catalog;
 pub mod mcp_resolve;
 pub mod merge;
+pub mod opencode_config;
 pub mod opencode_db;
 pub mod personal_secrets;
 pub mod team_crypto;
@@ -41,10 +42,9 @@ pub fn assemble_runtime_env(
     workspace: &Path,
     team_env: HashMap<String, String>,
     system: SystemEnvContext,
-    managed_llm: &ManagedLlmState,
+    _managed_llm: &ManagedLlmState,
 ) -> anyhow::Result<RuntimeEnvBundle> {
     opencode_db::maybe_migrate_legacy_opencode_db(workspace)?;
-    team_provider::ensure_team_provider(workspace, managed_llm)?;
 
     let personal = personal_secrets::load_personal_env()?;
     let merged = merge::merge_env_maps(personal, team_env, &system);

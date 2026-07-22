@@ -130,8 +130,11 @@ impl DaemonServer {
         // secret-ref resolve). Callers must not rely on a suppress issued before
         // the awaits above.
         self.suppress_internal_opencode_writes(worktree);
-        crate::runtime::supervisor::ensure_inherent_mcp(Path::new(worktree))
-            .map_err(|e| format!("ensure_inherent_mcp failed: {e}"))?;
+        crate::runtime::supervisor::materialize_opencode_for_spawn(
+            Path::new(worktree),
+            &managed_llm,
+        )
+        .map_err(|e| format!("materialize_opencode_for_spawn failed: {e}"))?;
         crate::runtime::env_assembly::assemble_spawn_runtime_env(
             Path::new(worktree),
             team_id.as_deref(),

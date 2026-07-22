@@ -10,6 +10,7 @@ use serde::Deserialize;
 
 use super::global_team_store::{resolve_team_dir, TEAM_LINK_NAME};
 use super::workspace_control::{McpServerConfig, WorkspaceControlError};
+use teamclaw_runtime_env::opencode_config::OpencodeConfigError;
 
 pub const INHERENT_MCP_NAMES: &[&str] = &[
     "playwright",
@@ -245,46 +246,63 @@ pub fn filter_put_body(
         .collect()
 }
 
+/// Result of materializing team MCP entries into `opencode.json`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct MaterializeTeamMcpOutcome {
+    /// Whether `opencode.json` was rewritten.
+    pub changed: bool,
+    /// Team MCP servers newly inserted (existing workspace/inherent entries are untouched).
+    pub added_count: usize,
+}
+
 /// Add team-only MCP entries into `opencode.json` for agent runtimes (workspace wins).
-pub fn materialize_team_mcp_for_runtime(workspace: &Path) -> Result<bool, WorkspaceControlError> {
+pub fn materialize_team_mcp_for_runtime(
+    workspace: &Path,
+) -> Result<MaterializeTeamMcpOutcome, WorkspaceControlError> {
     let team = scan_team_mcp(workspace);
     if team.is_empty() {
-        return Ok(false);
+        return Ok(MaterializeTeamMcpOutcome {
+            changed: false,
+            added_count: 0,
+        });
     }
 
-    let path = workspace.join("opencode.json");
-    let write_lock = teamclaw_runtime_env::atomic_write::opencode_write_lock(&path);
-    let _guard = write_lock.lock().unwrap_or_else(|e| e.into_inner());
-    let mut json: serde_json::Value = if path.exists() {
-        let content = std::fs::read_to_string(&path).map_err(io_err)?;
-        serde_json::from_str(&content).map_err(parse_err)?
-    } else {
-        serde_json::json!({ "$schema": "https://opencode.ai/config.json" })
-    };
+    let mut added_count = 0usize;
+    let changed = teamclaw_runtime_env::opencode_config::OpencodeConfigStore::apply(
+        workspace,
+        |json| {
+            let obj = json.as_object_mut().ok_or_else(|| {
+                OpencodeConfigError::Parse("opencode.json root is not an object".into())
+            })?;
+            if obj.get("$schema").is_none() && obj.is_empty() {
+                obj.insert(
+                    "$schema".to_string(),
+                    serde_json::json!("https://opencode.ai/config.json"),
+                );
+            }
+            let mcp = obj.entry("mcp").or_insert_with(|| serde_json::json!({}));
+            let mcp_obj = mcp.as_object_mut().ok_or_else(|| {
+                OpencodeConfigError::Parse("mcp is not an object".into())
+            })?;
 
-    let obj = json.as_object_mut().ok_or_else(|| {
-        WorkspaceControlError::Parse("opencode.json root is not an object".into())
-    })?;
-    let mcp = obj.entry("mcp").or_insert_with(|| serde_json::json!({}));
-    let mcp_obj = mcp
-        .as_object_mut()
-        .ok_or_else(|| WorkspaceControlError::Parse("mcp is not an object".into()))?;
+            for (name, cfg) in &team {
+                if !mcp_obj.contains_key(name) {
+                    let value = serde_json::to_value(cfg).map_err(|e| {
+                        OpencodeConfigError::Parse(e.to_string())
+                    })?;
+                    mcp_obj.insert(name.clone(), value);
+                    added_count += 1;
+                }
+            }
+            Ok(added_count > 0)
+        },
+    )
+    .map_err(|e| WorkspaceControlError::Io(e.to_string()))?;
 
-    let mut changed = false;
-    for (name, cfg) in team {
-        if !mcp_obj.contains_key(&name) {
-            let value = serde_json::to_value(cfg).map_err(parse_err)?;
-            mcp_obj.insert(name, value);
-            changed = true;
-        }
-    }
-
-    if changed {
-        let mut content = serde_json::to_string_pretty(&json).map_err(parse_err)?;
-        content.push('\n');
-        teamclaw_runtime_env::atomic_write::atomic_write(&path, &content).map_err(io_err)?;
-    }
-    Ok(changed)
+    Ok(MaterializeTeamMcpOutcome {
+        changed,
+        added_count,
+    })
 }
 
 #[cfg(test)]
@@ -398,7 +416,9 @@ mod tests {
         )
         .unwrap();
 
-        assert!(materialize_team_mcp_for_runtime(ws.path()).unwrap());
+        let outcome = materialize_team_mcp_for_runtime(ws.path()).unwrap();
+        assert!(outcome.changed);
+        assert_eq!(outcome.added_count, 1);
 
         let persisted = read_persisted_mcp(ws.path()).unwrap();
         assert_eq!(
