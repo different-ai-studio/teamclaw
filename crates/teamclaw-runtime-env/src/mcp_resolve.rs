@@ -44,12 +44,61 @@ pub fn resolve_config_secret_refs(
         }
     }
 
+    // Fail-closed diagnosability (issue #554): if a `provider.*.options.apiKey`
+    // still carries an unresolved `${KEY}` after substitution, the model
+    // gateway key (typically `tc_api_key`, derived from `actor_id`) was never
+    // injected for this spawn. The child ACP host would then send the literal
+    // `${tc_api_key}` as its key and fail with an opaque `MISSING_AI_KEY`.
+    // Surface a loud, greppable finding naming the provider + missing key so
+    // the inconsistency is diagnosable rather than silent.
+    for (provider, placeholder) in unresolved_provider_api_key_placeholders(&resolved) {
+        tracing::warn!(
+            finding = "team_model_gateway_key_unavailable",
+            provider = %provider,
+            placeholder = %placeholder,
+            config = %config_path.display(),
+            "opencode.json provider apiKey still holds an unresolved placeholder; the model \
+             gateway key was not injected — this provider's capabilities will fail closed"
+        );
+    }
+
     if changed {
         std::fs::write(&config_path, &resolved)?;
         Ok(Some(original))
     } else {
         Ok(None)
     }
+}
+
+/// Find `provider.<name>.options.apiKey` values that still contain an
+/// unresolved `${...}` placeholder. Returns `(provider_name, placeholder)`
+/// pairs. The placeholder is a variable *name* (e.g. `${tc_api_key}`), never a
+/// secret value, so it is safe to log. Returns empty on non-JSON content or
+/// when there is no `provider` map.
+pub fn unresolved_provider_api_key_placeholders(content: &str) -> Vec<(String, String)> {
+    let Ok(json) = serde_json::from_str::<serde_json::Value>(content) else {
+        return Vec::new();
+    };
+    let Some(providers) = json.get("provider").and_then(|p| p.as_object()) else {
+        return Vec::new();
+    };
+    let mut out = Vec::new();
+    for (name, provider) in providers {
+        let Some(api_key) = provider
+            .get("options")
+            .and_then(|o| o.get("apiKey"))
+            .and_then(|v| v.as_str())
+        else {
+            continue;
+        };
+        if let Some(start) = api_key.find("${") {
+            if let Some(end_rel) = api_key[start..].find('}') {
+                let placeholder = api_key[start..start + end_rel + 1].to_string();
+                out.push((name.clone(), placeholder));
+            }
+        }
+    }
+    out
 }
 
 /// Restore the original opencode.json content (with `${KEY}` placeholders),
@@ -181,7 +230,10 @@ mod tests {
         restore_config(dir.path(), &original, &secrets).unwrap();
 
         let restored = read_opencode_json(dir.path());
-        assert!(restored.contains("${API_KEY}"), "MCP env should use placeholder");
+        assert!(
+            restored.contains("${API_KEY}"),
+            "MCP env should use placeholder"
+        );
         assert!(
             restored.contains("sk-ant-resolved"),
             "provider apiKey should stay resolved"
@@ -215,6 +267,36 @@ mod tests {
         let secrets = HashMap::new();
         let original = resolve_config_secret_refs(dir.path(), &secrets).unwrap();
         assert!(original.is_none());
+    }
+
+    #[test]
+    fn detects_unresolved_provider_api_key_placeholder() {
+        // The #554 failure: tc_api_key was never injected, so the provider
+        // apiKey keeps its literal `${tc_api_key}` placeholder.
+        let content = r#"{
+  "provider": {
+    "team": { "options": { "apiKey": "${tc_api_key}" } },
+    "anthropic": { "options": { "apiKey": "sk-ant-resolved" } }
+  }
+}"#;
+        let found = unresolved_provider_api_key_placeholders(content);
+        assert_eq!(
+            found,
+            vec![("team".to_string(), "${tc_api_key}".to_string())]
+        );
+    }
+
+    #[test]
+    fn no_unresolved_placeholder_when_all_keys_resolved() {
+        let content = r#"{
+  "provider": {
+    "team": { "options": { "apiKey": "sk-tc-actor-123" } }
+  }
+}"#;
+        assert!(unresolved_provider_api_key_placeholders(content).is_empty());
+        // Non-JSON and no-provider content must not panic and yield nothing.
+        assert!(unresolved_provider_api_key_placeholders("not json").is_empty());
+        assert!(unresolved_provider_api_key_placeholders(r#"{"mcp":{}}"#).is_empty());
     }
 
     #[test]

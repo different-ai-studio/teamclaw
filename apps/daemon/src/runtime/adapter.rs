@@ -183,6 +183,15 @@ struct SessionRoute {
     /// User message id for the in-flight turn (AgentReply `reply_to_message_id`).
     turn_reply_to_message_id: Option<String>,
     tool_progress_deduper: RefCell<ToolProgressDeduper>,
+    /// Tool-call ids the agent has started but not yet reported
+    /// completed/failed. A long-running *local* tool (a batch script, a build)
+    /// can go many minutes without emitting any `session/update`, which looks
+    /// identical to a wedged model provider to the stall watchdog. Tracking
+    /// in-flight tool calls lets the stall path say "a local tool may still be
+    /// running" instead of unconditionally blaming the provider (issue #553).
+    /// Reset at the start of every turn so a detached/cancelled turn's
+    /// stragglers cannot leak into the next one.
+    tools_in_flight: RefCell<std::collections::HashSet<String>>,
     /// Count of `session_notification` handlers currently between "entered"
     /// and "finished pushing their events onto `event_tx`". The ACP crate
     /// dispatches every incoming `session/update` on its own spawned task,
@@ -218,6 +227,40 @@ impl ToolProgressDeduper {
         }
         self.last_by_tool_id.insert(tool_id, signature);
         false
+    }
+}
+
+/// Whether a `session/update` marks a tool call starting or finishing, used to
+/// maintain `SessionRoute::tools_in_flight`. `None` for updates that don't
+/// change a tool call's lifecycle (output chunks, plan updates, etc.).
+enum ToolPhase {
+    Started,
+    Ended,
+}
+
+fn tool_call_phase(update: &acp::SessionUpdate) -> Option<(String, ToolPhase)> {
+    match update {
+        // The initial `ToolCall` notification: a tool has been invoked. Only a
+        // terminal status here would already be done (rare, but honour it).
+        acp::SessionUpdate::ToolCall(tc) => {
+            let phase = match tc.status {
+                acp::ToolCallStatus::Completed | acp::ToolCallStatus::Failed => ToolPhase::Ended,
+                _ => ToolPhase::Started,
+            };
+            Some((tc.tool_call_id.to_string(), phase))
+        }
+        acp::SessionUpdate::ToolCallUpdate(tcu) => match tcu.fields.status {
+            Some(acp::ToolCallStatus::Completed) | Some(acp::ToolCallStatus::Failed) => {
+                Some((tcu.tool_call_id.to_string(), ToolPhase::Ended))
+            }
+            Some(acp::ToolCallStatus::Pending) | Some(acp::ToolCallStatus::InProgress) => {
+                Some((tcu.tool_call_id.to_string(), ToolPhase::Started))
+            }
+            // No status change (pure progress/content) or an unknown future
+            // status: leave the in-flight set untouched.
+            None | Some(_) => None,
+        },
+        _ => None,
     }
 }
 
@@ -350,6 +393,56 @@ async fn await_notifications_drained(
     }
 }
 
+/// Build the user-facing error text for a stalled turn. When a local tool call
+/// was still in flight at the moment of the stall, the model provider is likely
+/// fine and a silent local tool (a batch job, a build) is the real cause, so we
+/// say so and warn that any files it already produced may be on disk — instead
+/// of unconditionally blaming the provider (issue #553).
+fn stall_error_message(stall_secs: u64, tool_in_flight: bool) -> String {
+    if tool_in_flight {
+        format!(
+            "No activity for {stall_secs}s while a local tool was still running. \
+             The tool may still be working silently (long-running commands emit no \
+             streaming output) rather than the model provider being down — any files \
+             it already produced may be on disk, so check before retrying."
+        )
+    } else {
+        format!(
+            "The model provider stopped responding (no activity for {stall_secs}s). \
+             It may be unavailable or rate-limited — retry or switch models."
+        )
+    }
+}
+
+/// Map a raw ACP prompt-failure string to a `(title, user_message)` pair.
+///
+/// The OpenCode session service failing (`OpenCode service failure:
+/// {"service":"session"}`) currently reaches the user as an opaque
+/// "ACP prompt failed", which reads like a model or connectivity problem even
+/// though it is a transient session/instance-cache fault that a resend usually
+/// clears (issue #550). Give it a distinct, actionable classification. Other
+/// errors keep the generic title and their original text.
+fn classify_prompt_error(raw: &str) -> (&'static str, String) {
+    if is_opencode_session_service_failure(raw) {
+        (
+            "Session service error",
+            "The session service hit a transient fault (opencode_session_service_failed). \
+             This is not a model or network problem — please resend your message."
+                .to_string(),
+        )
+    } else {
+        ("ACP prompt failed", raw.to_string())
+    }
+}
+
+/// True when the error text is the OpenCode session-service failure signature.
+fn is_opencode_session_service_failure(raw: &str) -> bool {
+    let lower = raw.to_ascii_lowercase();
+    lower.contains("opencode service failure")
+        && lower.contains("\"service\"")
+        && lower.contains("session")
+}
+
 struct AmuxClient {
     registry: Rc<RefCell<SessionRegistry>>,
 }
@@ -425,8 +518,7 @@ impl acp::Client for AmuxClient {
                 route.event_tx.clone()
             };
 
-            let mut permission_params =
-                tool_call_params(args.tool_call.fields.raw_input.as_ref());
+            let mut permission_params = tool_call_params(args.tool_call.fields.raw_input.as_ref());
             {
                 let guard = self.registry.borrow();
                 if let Some(route) = guard.resolve_event_route(&session_id) {
@@ -540,6 +632,23 @@ impl acp::Client for AmuxClient {
         if drop_redundant_progress {
             debug!(session_id, "dropped redundant ACP tool progress update");
             return Ok(());
+        }
+        // Track tool-call lifecycle so the stall watchdog can tell a silently
+        // running local tool apart from a wedged provider (issue #553). Done
+        // under a short borrow before `args.update` is moved into translation.
+        if let Some((tool_id, phase)) = tool_call_phase(&args.update) {
+            let guard = self.registry.borrow();
+            if let Some(route) = guard.resolve_event_route(&session_id) {
+                let mut in_flight = route.tools_in_flight.borrow_mut();
+                match phase {
+                    ToolPhase::Started => {
+                        in_flight.insert(tool_id);
+                    }
+                    ToolPhase::Ended => {
+                        in_flight.remove(&tool_id);
+                    }
+                }
+            }
         }
         let events = translate_session_update(args.update);
         let route = {
@@ -888,7 +997,7 @@ mod command_selection_tests {
 
 #[cfg(test)]
 mod spawn_path_tests {
-    use super::{PATH_SEP, enriched_spawn_path};
+    use super::{enriched_spawn_path, PATH_SEP};
     use std::path::Path;
 
     // Unix-specific: asserts the homebrew / ~/.local candidate dirs and the
@@ -1202,6 +1311,7 @@ async fn attach_acp_session_on_conn(
             turn_requester_actor_id: None,
             turn_reply_to_message_id: None,
             tool_progress_deduper: RefCell::new(ToolProgressDeduper::default()),
+            tools_in_flight: RefCell::new(std::collections::HashSet::new()),
             notif_inflight: Rc::new(Cell::new(0)),
             notif_finished: Rc::new(Cell::new(0)),
         },
@@ -1290,16 +1400,24 @@ fn spawn_prompt_worker(
             // Prompt enqueue time, or a queued second prompt would overwrite
             // the in-flight turn's stamp.
             let turn_reply_to = reply_to_message_id.filter(|id| !id.is_empty());
-            if let Some(route) = registry.borrow_mut().resolve_event_route_mut(&acp_session_key)
+            if let Some(route) = registry
+                .borrow_mut()
+                .resolve_event_route_mut(&acp_session_key)
             {
-                route.turn_requester_actor_id =
-                    requester_actor_id.filter(|id| !id.is_empty());
+                route.turn_requester_actor_id = requester_actor_id.filter(|id| !id.is_empty());
                 route.turn_reply_to_message_id = turn_reply_to.clone();
             }
 
             let attachment_count = attachment_urls.len();
             super::agent_trace::log_prompt_begin(&acp_session_key, &text, attachment_count);
             let turn_started = Instant::now();
+
+            // Start each turn with a clean in-flight-tool set so a prior turn's
+            // detached/cancelled stragglers can't skew this turn's stall
+            // classification (issue #553).
+            if let Some(route) = registry.borrow().sessions.get(&acp_session_key) {
+                route.tools_in_flight.borrow_mut().clear();
+            }
 
             let status_active = amux::AcpEvent {
                 event: Some(amux::acp_event::Event::StatusChange(
@@ -1333,6 +1451,10 @@ fn spawn_prompt_worker(
             // the normal result handling below so we surface a single, clear
             // provider-stall error instead.
             let mut stalled = false;
+            // Set when a stall fires while a local tool call was still in
+            // flight — flips the error message from "provider stopped" to
+            // "a local tool may still be running" (issue #553).
+            let mut stalled_with_tool_in_flight = false;
             let result: Option<_> = if stall_timeout.is_zero() {
                 Some(prompt_fut.await)
             } else {
@@ -1350,14 +1472,15 @@ fn spawn_prompt_worker(
                     tokio::select! {
                         r = &mut prompt_fut => break Some(r),
                         _ = tokio::time::sleep(STALL_TICK) => {
-                            let (finished, pending_permission) = {
+                            let (finished, pending_permission, tool_in_flight) = {
                                 let reg = registry.borrow();
                                 match reg.sessions.get(&acp_session_key) {
                                     Some(r) => (
                                         Some(r.notif_finished.get()),
                                         !r.pending_permissions.is_empty(),
+                                        !r.tools_in_flight.borrow().is_empty(),
                                     ),
-                                    None => (None, false),
+                                    None => (None, false, false),
                                 }
                             };
                             // Fresh notification activity, or a pending
@@ -1368,6 +1491,7 @@ fn spawn_prompt_worker(
                                 last_activity = Instant::now();
                             } else if last_activity.elapsed() >= stall_timeout {
                                 stalled = true;
+                                stalled_with_tool_in_flight = tool_in_flight;
                                 break None;
                             }
                         }
@@ -1397,26 +1521,25 @@ fn spawn_prompt_worker(
                 .await;
 
             // Clear collab turn stamps so they cannot leak into the next turn.
-            if let Some(route) = registry.borrow_mut().resolve_event_route_mut(&acp_session_key) {
+            if let Some(route) = registry
+                .borrow_mut()
+                .resolve_event_route_mut(&acp_session_key)
+            {
                 route.turn_requester_actor_id = None;
                 route.turn_reply_to_message_id = None;
             }
 
             let elapsed_ms = turn_started.elapsed().as_millis() as u64;
             if stalled {
-                let details = format!(
-                    "The model provider stopped responding (no activity for {}s). \
-                     It may be unavailable or rate-limited — retry or switch models.",
-                    stall_timeout.as_secs()
-                );
+                let details =
+                    stall_error_message(stall_timeout.as_secs(), stalled_with_tool_in_flight);
                 super::agent_trace::log_prompt_end(&acp_session_key, false, &details, elapsed_ms);
-                emit_acp_error(
-                    &event_tx,
-                    &acp_session_key,
-                    "Model provider not responding",
-                    details,
-                )
-                .await;
+                let title = if stalled_with_tool_in_flight {
+                    "Turn stalled (tool may still be running)"
+                } else {
+                    "Model provider not responding"
+                };
+                emit_acp_error(&event_tx, &acp_session_key, title, details).await;
                 // Best-effort: tell the host to abandon the wedged turn so it
                 // stops burning the upstream. Ignored if the host does not
                 // support cancel.
@@ -1432,15 +1555,15 @@ fn spawn_prompt_worker(
                         super::agent_trace::log_prompt_end(&acp_session_key, true, "", elapsed_ms);
                     }
                     Err(e) => {
-                        let details = format!("ACP prompt failed: {e}");
+                        let raw = format!("ACP prompt failed: {e}");
+                        let (title, details) = classify_prompt_error(&raw);
                         super::agent_trace::log_prompt_end(
                             &acp_session_key,
                             false,
                             &details,
                             elapsed_ms,
                         );
-                        emit_acp_error(&event_tx, &acp_session_key, "ACP prompt failed", details)
-                            .await;
+                        emit_acp_error(&event_tx, &acp_session_key, title, details).await;
                     }
                 }
             }
@@ -1855,6 +1978,70 @@ mod tests {
     }
 
     #[test]
+    fn tool_call_phase_tracks_start_and_end() {
+        // ToolCallUpdate InProgress → started; Completed/Failed → ended.
+        let started = acp::SessionUpdate::ToolCallUpdate(acp::ToolCallUpdate::new(
+            "tool-9",
+            acp::ToolCallUpdateFields::new().status(acp::ToolCallStatus::InProgress),
+        ));
+        let ended = acp::SessionUpdate::ToolCallUpdate(acp::ToolCallUpdate::new(
+            "tool-9",
+            acp::ToolCallUpdateFields::new().status(acp::ToolCallStatus::Completed),
+        ));
+        let failed = acp::SessionUpdate::ToolCallUpdate(acp::ToolCallUpdate::new(
+            "tool-9",
+            acp::ToolCallUpdateFields::new().status(acp::ToolCallStatus::Failed),
+        ));
+        // A status-less update (pure progress/content) doesn't change lifecycle.
+        let no_status = acp::SessionUpdate::ToolCallUpdate(acp::ToolCallUpdate::new(
+            "tool-9",
+            acp::ToolCallUpdateFields::new().content(vec!["1%".into()]),
+        ));
+
+        assert!(matches!(
+            tool_call_phase(&started),
+            Some((_, ToolPhase::Started))
+        ));
+        assert!(matches!(
+            tool_call_phase(&ended),
+            Some((_, ToolPhase::Ended))
+        ));
+        assert!(matches!(
+            tool_call_phase(&failed),
+            Some((_, ToolPhase::Ended))
+        ));
+        assert!(tool_call_phase(&no_status).is_none());
+    }
+
+    #[test]
+    fn classify_prompt_error_flags_opencode_session_service_failure() {
+        let raw = "ACP prompt failed: Internal error: OpenCode service failure: {\"service\":\"session\"}";
+        let (title, msg) = classify_prompt_error(raw);
+        assert_eq!(title, "Session service error");
+        assert!(msg.contains("opencode_session_service_failed"));
+        assert!(msg.contains("resend"));
+
+        // Unrelated failures keep the generic classification + original text.
+        let other = "ACP prompt failed: model overloaded";
+        let (title2, msg2) = classify_prompt_error(other);
+        assert_eq!(title2, "ACP prompt failed");
+        assert_eq!(msg2, other);
+    }
+
+    #[test]
+    fn stall_message_distinguishes_local_tool_from_provider() {
+        let provider = stall_error_message(300, false);
+        assert!(provider.contains("model provider stopped responding"));
+        assert!(!provider.contains("local tool"));
+
+        let local = stall_error_message(300, true);
+        assert!(local.contains("local tool"));
+        assert!(local.contains("may be on disk"));
+        // Must not assert the provider is down when a tool was still running.
+        assert!(!local.contains("stopped responding"));
+    }
+
+    #[test]
     fn translates_available_commands_update_without_input() {
         let upd = acp::AvailableCommandsUpdate::new(vec![acp::AvailableCommand::new(
             "clear",
@@ -1921,11 +2108,9 @@ mod tests {
 
         ensure_remote_tools_baseline_mcp(amux::AgentType::Codex, &mut servers);
 
-        assert!(
-            servers
-                .iter()
-                .any(|server| { mcp_server_name(server) == REMOTE_TOOLS_MCP_SERVER_NAME })
-        );
+        assert!(servers
+            .iter()
+            .any(|server| { mcp_server_name(server) == REMOTE_TOOLS_MCP_SERVER_NAME }));
     }
 
     #[test]
@@ -1937,11 +2122,9 @@ mod tests {
 
         strip_remote_tools_mcp_for_opencode(amux::AgentType::Opencode, &mut servers);
 
-        assert!(
-            servers
-                .iter()
-                .all(|server| { mcp_server_name(server) != REMOTE_TOOLS_MCP_SERVER_NAME })
-        );
+        assert!(servers
+            .iter()
+            .all(|server| { mcp_server_name(server) != REMOTE_TOOLS_MCP_SERVER_NAME }));
     }
 
     #[test]
@@ -2052,9 +2235,9 @@ mod tests {
             acp::ToolCallUpdateFields::new()
                 .kind(acp::ToolKind::Edit)
                 .status(acp::ToolCallStatus::InProgress)
-                .content(vec![
-                    acp::Diff::new("src/a.ts", "new\n").old_text("old\n").into(),
-                ]),
+                .content(vec![acp::Diff::new("src/a.ts", "new\n")
+                    .old_text("old\n")
+                    .into()]),
         );
         let events = translate_session_update(acp::SessionUpdate::ToolCallUpdate(update));
 
@@ -2083,9 +2266,9 @@ mod tests {
             acp::ToolCallUpdateFields::new()
                 .status(acp::ToolCallStatus::Completed)
                 .title("Edit src/a.ts")
-                .content(vec![
-                    acp::Diff::new("src/a.ts", "new\n").old_text("old\n").into(),
-                ]),
+                .content(vec![acp::Diff::new("src/a.ts", "new\n")
+                    .old_text("old\n")
+                    .into()]),
         );
         let events = translate_session_update(acp::SessionUpdate::ToolCallUpdate(update));
 
@@ -2107,9 +2290,9 @@ mod tests {
             acp::ToolCallUpdateFields::new()
                 .kind(acp::ToolKind::Edit)
                 .status(acp::ToolCallStatus::InProgress)
-                .content(vec![
-                    acp::Diff::new("src/a.ts", "new\n").old_text("old\n").into(),
-                ]),
+                .content(vec![acp::Diff::new("src/a.ts", "new\n")
+                    .old_text("old\n")
+                    .into()]),
         );
         let events = translate_session_update(acp::SessionUpdate::ToolCallUpdate(update));
 
@@ -2400,6 +2583,7 @@ mod tests {
                 turn_requester_actor_id: None,
                 turn_reply_to_message_id: None,
                 tool_progress_deduper: RefCell::new(ToolProgressDeduper::default()),
+                tools_in_flight: RefCell::new(std::collections::HashSet::new()),
                 notif_inflight: Rc::new(Cell::new(0)),
                 notif_finished: Rc::new(Cell::new(0)),
             },

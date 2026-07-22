@@ -62,7 +62,12 @@ impl DaemonServer {
                     .and_then(agent_type_from_name);
                 let workspace_dir = match defaults.default_workspace_id.as_deref() {
                     Some(id) => {
-                        let path = self.workspace_resolver.resolve(id).await.ok().map(|w| w.path);
+                        let path = self
+                            .workspace_resolver
+                            .resolve(id)
+                            .await
+                            .ok()
+                            .map(|w| w.path);
                         if path.is_none() {
                             warn!(
                                 workspace_id = %id,
@@ -101,7 +106,12 @@ impl DaemonServer {
                 for bot in wecom.resolved_bots() {
                     let workspace_dir = match bot.workspace_id.as_deref() {
                         Some(id) => {
-                            let path = self.workspace_resolver.resolve(id).await.ok().map(|w| w.path);
+                            let path = self
+                                .workspace_resolver
+                                .resolve(id)
+                                .await
+                                .ok()
+                                .map(|w| w.path);
                             if path.is_none() {
                                 warn!(
                                     bot_id = %bot.bot_id,
@@ -304,6 +314,19 @@ impl DaemonServer {
             },
         };
 
+        // Fail closed on placeholder / half-resolved routes (issue #549). A
+        // target like `current`, `chat:current`, or `chat:` (empty id) means
+        // the originating chat was never resolved; dispatching it would send
+        // the attachment nowhere useful while still reporting success, so the
+        // agent's watchdog cleans up a "delivered" send that never arrived.
+        // Reject before dispatch so the tool surfaces a real error instead.
+        if let Some(reason) = placeholder_target_reason(target) {
+            anyhow::bail!(
+                "mcp-send: refusing to send to placeholder target '{target}' ({reason}) \
+                 for binding '{binding}' — the originating chat was not resolved"
+            );
+        }
+
         let mgr = self
             .channel_mgr
             .as_ref()
@@ -311,9 +334,14 @@ impl DaemonServer {
         mgr.dispatch_send(channel, target, message, file_path)
             .await?;
 
+        // `dispatch_send` returned Ok, so the channel adapter confirmed the
+        // send. Echo the resolved binding/target so the caller's ACK can be
+        // matched against the originating chat rather than trusting a bare
+        // success flag (issue #549).
         Ok(serde_json::json!({
             "channel": channel,
             "target": target,
+            "binding": binding,
             "message_sent": message.map(|s| !s.is_empty()).unwrap_or(false),
             "file_sent": file_path.is_some(),
         }))
@@ -386,5 +414,75 @@ impl DaemonServer {
             info!("shutting down channels...");
             mgr.shutdown().await;
         }
+    }
+}
+
+/// Detect placeholder / half-resolved send targets that must never reach a
+/// channel adapter (issue #549). Returns `Some(reason)` when the target is
+/// unusable, `None` when it looks like a real `user:<id>` / `chat:<id>`
+/// (optionally `bot:<bot_id>/` prefixed) route.
+///
+/// Guards against the observed failure where an unresolved originating chat
+/// produced a target such as `current` or `chat:current`, which WeCom would
+/// silently misroute while the send was still reported as delivered.
+fn placeholder_target_reason(target: &str) -> Option<&'static str> {
+    let target = target.trim();
+    if target.is_empty() {
+        return Some("empty target");
+    }
+    // Peel an optional `bot:<bot_id>/` bot selector so we validate the real
+    // `user:`/`chat:` route underneath it.
+    let route = match target.strip_prefix("bot:") {
+        Some(rest) => match rest.split_once('/') {
+            Some((bot, r)) if !bot.is_empty() && !r.is_empty() => r,
+            _ => return Some("malformed bot selector"),
+        },
+        None => target,
+    };
+    let (kind, id) = match route.split_once(':') {
+        Some(pair) => pair,
+        // No `kind:id` shape — a bare `current` / free string is a placeholder.
+        None => return Some("missing 'user:'/'chat:' prefix"),
+    };
+    if !matches!(kind, "user" | "chat") {
+        return Some("unknown target kind");
+    }
+    let id = id.trim();
+    if id.is_empty() {
+        return Some("empty id");
+    }
+    if id.eq_ignore_ascii_case("current") {
+        return Some("unresolved 'current' placeholder");
+    }
+    None
+}
+
+#[cfg(test)]
+mod mcp_send_target_tests {
+    use super::placeholder_target_reason;
+
+    #[test]
+    fn accepts_real_routes() {
+        assert!(placeholder_target_reason("user:u-123").is_none());
+        assert!(placeholder_target_reason("chat:c-456").is_none());
+        assert!(placeholder_target_reason("bot:botA/chat:c-456").is_none());
+    }
+
+    #[test]
+    fn rejects_current_and_empty_placeholders() {
+        // Bare / prefixed `current` — the core issue #549 misroute.
+        assert!(placeholder_target_reason("current").is_some());
+        assert!(placeholder_target_reason("chat:current").is_some());
+        assert!(placeholder_target_reason("user:current").is_some());
+        assert!(placeholder_target_reason("chat:CURRENT").is_some());
+        assert!(placeholder_target_reason("bot:botA/chat:current").is_some());
+        // Empty / half-resolved routes.
+        assert!(placeholder_target_reason("").is_some());
+        assert!(placeholder_target_reason("   ").is_some());
+        assert!(placeholder_target_reason("chat:").is_some());
+        assert!(placeholder_target_reason("chat: ").is_some());
+        // Wrong / missing kind.
+        assert!(placeholder_target_reason("room:x").is_some());
+        assert!(placeholder_target_reason("bot:botA/").is_some());
     }
 }
