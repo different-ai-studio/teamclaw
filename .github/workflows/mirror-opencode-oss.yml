@@ -1,20 +1,15 @@
 name: Mirror opencode to OSS
 
 on:
-  # Keep the OSS mirror in lock-step with the version amuxd requires. Any change
-  # to the embedded lock file re-mirrors so beta/prod never fall back to GitHub.
-  push:
-    branches: [main]
-    paths:
-      - "apps/daemon/opencode.lock.json"
-  # Daily refresh so the mirror stays populated for the pinned version even if
-  # nobody touches the lock file. 18:00 UTC == 02:00 Asia/Shanghai (凌晨).
+  # Track the LATEST official opencode release and mirror it to OSS daily, so
+  # beta/prod installs always get the newest version without falling back to
+  # GitHub. 18:00 UTC == 02:00 Asia/Shanghai (凌晨).
   schedule:
     - cron: "0 18 * * *"
   workflow_dispatch:
     inputs:
       tag:
-        description: "release tag to mirror (blank = read from apps/daemon/opencode.lock.json)"
+        description: "release tag to mirror (blank = latest official sst/opencode release)"
         required: false
         default: ""
 
@@ -32,11 +27,13 @@ jobs:
         id: tag
         env:
           INPUT_TAG: ${{ github.event.inputs.tag }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           set -euo pipefail
           TAG="${INPUT_TAG:-}"
           if [ -z "$TAG" ]; then
-            TAG=$(python3 -c "import json;print(json.load(open('apps/daemon/opencode.lock.json'))['version'])")
+            # Default: the latest official (non-prerelease) opencode release.
+            TAG=$(gh release view --repo "$OPENCODE_REPO" --json tagName --jq .tagName)
           fi
           echo "tag=$TAG" >> "$GITHUB_OUTPUT"
           echo "Mirroring official opencode release: $TAG"
