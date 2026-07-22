@@ -722,14 +722,12 @@ impl DaemonServer {
                     "route_session_message: delivering mentioned prompt to runtime"
                 );
                 if let Some(desired_model) = session_message_model_override(message) {
-                    let current_model = self
-                        .agents
-                        .lock()
-                        .await
-                        .current_model(&runtime_id)
-                        .cloned()
-                        .unwrap_or_default();
-                    if desired_model != current_model {
+                    // Apply unconditionally: the manager's current_model cache
+                    // can go stale across daemon restarts/re-attaches (route
+                    // seeded from the opencode config default), silently
+                    // running a different model than the message declares.
+                    // set_model is a cheap local command; idempotence is fine.
+                    {
                         let mut agents = self.agents.lock().await;
                         match agents.send_set_model(&runtime_id, &desired_model).await {
                             Ok(()) => {

@@ -61,6 +61,12 @@ pub(crate) struct Route {
     /// assistant message `error: null` and retries internally, so this plus
     /// `/session/status` polling is how we detect it.
     pub(crate) turn_saw_output: bool,
+    /// Last time this turn produced any translated event. The stuck-turn
+    /// watchdog aborts a turn whose event stream has been silent for
+    /// [`FIRST_OUTPUT_TIMEOUT`] — covering providers that stall mid-turn,
+    /// not just before the first token. Refreshed when a pending
+    /// permission/question is resolved (waiting on the user is not a stall).
+    pub(crate) turn_last_event_at: std::time::Instant,
     pub(crate) translate: TranslateState,
     /// MCP server names amuxd injected into the worktree's `opencode.json`
     /// for this session (gateway `send` tool / remote tools). Pruned back out
@@ -480,6 +486,7 @@ async fn attach(shared: &Arc<Shared>, args: AttachArgs) -> Result<AcpStartupMeta
                 turn_requester: None,
                 turn_seq: 0,
                 turn_saw_output: false,
+                turn_last_event_at: std::time::Instant::now(),
                 translate: TranslateState::default(),
                 injected_mcp,
             },
@@ -563,6 +570,7 @@ async fn do_prompt(
         route.turn_requester = requester_actor_id.filter(|id| !id.is_empty());
         route.turn_seq += 1;
         route.turn_saw_output = false;
+        route.turn_last_event_at = std::time::Instant::now();
         (
             route.event_tx.clone(),
             route.directory.clone(),
@@ -657,24 +665,30 @@ fn spawn_stuck_turn_watchdog(shared: &Arc<Shared>, session_id: &str, turn_seq: u
     let shared = Arc::clone(shared);
     let session_id = session_id.to_string();
     tokio::spawn(async move {
-        let deadline = tokio::time::Instant::now() + FIRST_OUTPUT_TIMEOUT;
         loop {
             tokio::time::sleep(STATUS_POLL_INTERVAL).await;
-            let directory = {
+            let (directory, silent_for) = {
                 let routes = shared.routes.lock();
                 match routes.get(&session_id) {
-                    Some(route)
-                        if route.turn_active
-                            && route.turn_seq == turn_seq
-                            && !route.turn_saw_output =>
-                    {
-                        route.directory.clone()
+                    Some(route) if route.turn_active && route.turn_seq == turn_seq => {
+                        (route.directory.clone(), route.turn_last_event_at.elapsed())
                     }
-                    // Output arrived, the turn ended, or a newer prompt took
-                    // over — nothing to watch anymore.
+                    // The turn ended or a newer prompt took over.
                     _ => return,
                 }
             };
+            // Waiting on the USER (pending permission or question) is not a
+            // stall — stand by until it resolves (resolution refreshes
+            // turn_last_event_at).
+            let waiting_on_user = {
+                let p = shared.permissions.lock();
+                let has_perm = p.values().any(|sid| sid == &session_id);
+                drop(p);
+                has_perm || shared.questions.lock().values().any(|sid| sid == &session_id)
+            };
+            if waiting_on_user {
+                continue;
+            }
             if let Some((message, next_ms)) = retry_status_for(&shared, &directory, &session_id).await {
                 let now_ms = std::time::SystemTime::now()
                     .duration_since(std::time::UNIX_EPOCH)
@@ -682,7 +696,7 @@ fn spawn_stuck_turn_watchdog(shared: &Arc<Shared>, session_id: &str, turn_seq: u
                     .unwrap_or(0);
                 let wait = next_ms.saturating_sub(now_ms);
                 // A retry due soon may still succeed — keep waiting for it
-                // (bounded by the overall deadline below).
+                // (bounded by the silence timeout below).
                 if wait > FIRST_OUTPUT_TIMEOUT.as_millis() as i64 {
                     warn!(
                         session_id,
@@ -700,20 +714,20 @@ fn spawn_stuck_turn_watchdog(shared: &Arc<Shared>, session_id: &str, turn_seq: u
                     return;
                 }
             }
-            if tokio::time::Instant::now() >= deadline {
+            if silent_for >= FIRST_OUTPUT_TIMEOUT {
                 warn!(
                     session_id,
                     timeout_s = FIRST_OUTPUT_TIMEOUT.as_secs(),
-                    "no output since prompt; aborting stuck opencode turn"
+                    "event stream silent too long; aborting stuck opencode turn"
                 );
                 abort_turn_with_error(
                     &shared,
                     &session_id,
-                    "model produced no output".to_string(),
+                    "model stalled".to_string(),
                     format!(
-                        "No response from the model within {}s — the provider may be \
-                         unreachable or the account out of credit. The turn was aborted; \
-                         try another model.",
+                        "No output from the model for {}s — the provider may be \
+                         unreachable or overloaded. The turn was aborted; try again \
+                         or switch models.",
                         FIRST_OUTPUT_TIMEOUT.as_secs()
                     ),
                 )
@@ -806,6 +820,9 @@ async fn resolve_permission(
         warn!(request_id, "no pending opencode permission request found");
         return;
     };
+    if let Some(route) = shared.routes.lock().get_mut(&session_id) {
+        route.turn_last_event_at = std::time::Instant::now();
+    }
     let directory = shared
         .routes
         .lock()
@@ -832,6 +849,9 @@ async fn answer_question(shared: &Arc<Shared>, request_id: &str, answers_json: &
         warn!(request_id, "no pending opencode question request found");
         return;
     };
+    if let Some(route) = shared.routes.lock().get_mut(&session_id) {
+        route.turn_last_event_at = std::time::Instant::now();
+    }
     let directory = shared
         .routes
         .lock()
@@ -1225,6 +1245,7 @@ mod pool_tests {
                 turn_requester: None,
                 turn_seq: 0,
                 turn_saw_output: false,
+                turn_last_event_at: std::time::Instant::now(),
                 translate: TranslateState::default(),
                 injected_mcp: vec!["amuxd-send".to_string()],
             },

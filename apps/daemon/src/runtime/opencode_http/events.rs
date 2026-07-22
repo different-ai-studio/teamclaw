@@ -149,9 +149,9 @@ async fn handle_event(shared: &Arc<Shared>, event: &serde_json::Value) {
                 };
                 let events = translate::translate_event(&mut route.translate, event_type, &props);
                 if !events.is_empty() {
-                    // First token/tool/error arrived — the stuck-turn
-                    // watchdog (mod.rs) stands down for this turn.
+                    // Activity signal for the stuck-turn watchdog (mod.rs).
                     route.turn_saw_output = true;
+                    route.turn_last_event_at = std::time::Instant::now();
                 }
                 (events, route.event_tx.clone(), route.turn_reply_to.clone())
             };
