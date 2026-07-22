@@ -113,7 +113,9 @@ fn recover_leading_json_object(
 
     match serde_json::to_string_pretty(&recovered) {
         Ok(clean) => {
-            if let Err(e) = std::fs::write(path, format!("{clean}\n")) {
+            if let Err(e) =
+                teamclaw_runtime_env::atomic_write::atomic_write(path, &format!("{clean}\n"))
+            {
                 warn!(
                     path = %path.display(),
                     error = %e,
@@ -143,12 +145,15 @@ fn write_json_pretty(path: &Path, value: &serde_json::Value) -> Result<(), Works
     }
     let content = serde_json::to_string_pretty(value)
         .map_err(|e| WorkspaceControlError::Parse(e.to_string()))?;
-    std::fs::write(path, content).map_err(|e| WorkspaceControlError::Io(e.to_string()))
+    teamclaw_runtime_env::atomic_write::atomic_write(path, &content)
+        .map_err(|e| WorkspaceControlError::Io(e.to_string()))
 }
 
 /// Ensure tool-level permission defaults exist in `opencode.json`.
 fn ensure_default_permissions(workspace_path: &Path) -> Result<(), WorkspaceControlError> {
     let config_path = opencode_json_path(workspace_path);
+    let write_lock = teamclaw_runtime_env::atomic_write::opencode_write_lock(&config_path);
+    let _guard = write_lock.lock().unwrap_or_else(|e| e.into_inner());
     let mut config = read_json_object(&config_path)?;
     let obj = config.as_object_mut().ok_or_else(|| {
         WorkspaceControlError::Parse("opencode.json root is not an object".into())
@@ -175,6 +180,8 @@ fn ensure_default_permissions(workspace_path: &Path) -> Result<(), WorkspaceCont
 /// Seed inherent MCP entries that TeamClaw expects (non-destructive).
 pub fn ensure_inherent_mcp(workspace_path: &Path) -> Result<(), WorkspaceControlError> {
     let config_path = opencode_json_path(workspace_path);
+    let write_lock = teamclaw_runtime_env::atomic_write::opencode_write_lock(&config_path);
+    let _guard = write_lock.lock().unwrap_or_else(|e| e.into_inner());
     let mut config = if config_path.exists() {
         read_json_object(&config_path)?
     } else {
@@ -592,6 +599,8 @@ pub fn ensure_instruction_plugin(workspace_path: &Path) -> Result<(), WorkspaceC
     }
 
     let config_path = opencode_json_path(workspace_path);
+    let write_lock = teamclaw_runtime_env::atomic_write::opencode_write_lock(&config_path);
+    let _guard = write_lock.lock().unwrap_or_else(|e| e.into_inner());
     let mut config = if config_path.exists() {
         read_json_object(&config_path)?
     } else {

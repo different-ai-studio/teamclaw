@@ -20,6 +20,8 @@ pub fn resolve_config_secret_refs(
     }
 
     let config_path = opencode_config_path(workspace);
+    let write_lock = crate::atomic_write::opencode_write_lock(&config_path);
+    let _guard = write_lock.lock().unwrap_or_else(|e| e.into_inner());
     let original = match std::fs::read_to_string(&config_path) {
         Ok(content) => content,
         Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(None),
@@ -45,7 +47,7 @@ pub fn resolve_config_secret_refs(
     }
 
     if changed {
-        std::fs::write(&config_path, &resolved)?;
+        crate::atomic_write::atomic_write(&config_path, &resolved)?;
         Ok(Some(original))
     } else {
         Ok(None)
@@ -63,7 +65,9 @@ pub fn restore_config(
     if let Some(content) = original {
         let restored = resolve_provider_api_keys(content, secrets);
         let config_path = opencode_config_path(workspace);
-        std::fs::write(&config_path, &restored)?;
+        let write_lock = crate::atomic_write::opencode_write_lock(&config_path);
+        let _guard = write_lock.lock().unwrap_or_else(|e| e.into_inner());
+        crate::atomic_write::atomic_write(&config_path, &restored)?;
     }
     Ok(())
 }

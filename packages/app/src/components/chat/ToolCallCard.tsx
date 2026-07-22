@@ -22,6 +22,7 @@ import { EditToolCard } from "./tool-calls/EditToolCard";
 import { ReadToolCard } from "./tool-calls/ReadToolCard";
 import { RoleLoadToolCard } from "./tool-calls/RoleLoadToolCard";
 import { PageNavLinksToolCard } from "./tool-calls/PageNavLinksToolCard";
+import { QuestionCard } from "./QuestionCard";
 import { RoleSkillToolCard, SkillToolCard, TaskToolCard } from "./tool-calls/TaskToolCard";
 import {
   getStatusConfig,
@@ -112,6 +113,19 @@ export const ToolCallCard = React.memo(function ToolCallCard({ toolCall, onOpenD
 
   const summary = getSummary();
   const routeName = displayToolName(toolCall);
+
+  // opencode `question` tool → interactive QuestionCard (options + custom
+  // answer), fed by the `question_asked` raw acp event (pendingQuestions).
+  if (routeName === "question") {
+    const args = toolCall.arguments as { questions?: unknown } | undefined;
+    return (
+      <QuestionCard
+        toolCallId={toolCall.id}
+        questions={args?.questions}
+        isCompleted={toolCall.status === "completed"}
+      />
+    );
+  }
   const compactToolName = routeName.toLowerCase();
   const isTodo = matchesTodoTool(toolCall);
   const isCompactSearchTool =

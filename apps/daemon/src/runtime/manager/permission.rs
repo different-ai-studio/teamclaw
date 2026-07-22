@@ -56,6 +56,34 @@ impl RuntimeManager {
             .await
     }
 
+    /// Answer (or reject) a pending opencode `question` tool request,
+    /// retargeting stale topic runtime ids like permission responses.
+    pub async fn answer_question_for_topic(
+        &mut self,
+        topic_runtime_id: &str,
+        request_id: &str,
+        answers_json: &str,
+        reject: bool,
+    ) -> crate::error::Result<()> {
+        let agent_key = self
+            .resolve_permission_runtime_key(topic_runtime_id)
+            .ok_or_else(|| {
+                crate::error::AmuxError::Agent(format!("agent {} not found", topic_runtime_id))
+            })?;
+        #[cfg(test)]
+        {
+            let _ = (request_id, answers_json, reject, agent_key);
+            return Ok(());
+        }
+        #[cfg(not(test))]
+        {
+            let handle = self.agents.get(&agent_key).ok_or_else(|| {
+                crate::error::AmuxError::Agent(format!("agent {} not found", agent_key))
+            })?;
+            handle.answer_question(request_id, answers_json, reject).await
+        }
+    }
+
     /// Map a command-topic runtime id to a live agent key. Desktop clients can
     /// target a stale spawn id from an old MQTT retain; when exactly one
     /// active runtime exists, route the grant/deny there instead.

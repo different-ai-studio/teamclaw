@@ -829,6 +829,34 @@ impl DaemonServer {
                 }
             }
 
+            amux::acp_command::Command::AnswerQuestion(ans) => {
+                match self
+                    .agents
+                    .lock()
+                    .await
+                    .answer_question_for_topic(
+                        agent_id,
+                        &ans.request_id,
+                        &ans.answers_json,
+                        ans.reject,
+                    )
+                    .await
+                {
+                    Ok(()) => {
+                        info!(request_id = %ans.request_id, peer_id, agent_id, reject = ans.reject, "question answered");
+                    }
+                    Err(e) => {
+                        warn!(
+                            request_id = %ans.request_id,
+                            peer_id,
+                            agent_id,
+                            error = %e,
+                            "answer_question failed"
+                        );
+                    }
+                }
+            }
+
             amux::acp_command::Command::DenyPermission(deny) => {
                 if self.permissions.try_resolve_permission(&deny.request_id) {
                     // Resolve via ACP permission response

@@ -62,6 +62,13 @@ pub enum AcpCommand {
         /// "always" upgrades the grant; anything else (or None) means "once".
         option_id: Option<String>,
     },
+    /// Answer (or reject) an opencode `question` tool request (any session).
+    AnswerQuestion {
+        request_id: String,
+        /// JSON `[[selected labels], ...]` — one array per question, in order.
+        answers_json: String,
+        reject: bool,
+    },
     /// Switch the model used by a bound session (applied on the next prompt).
     SetModel {
         acp_session_id: String,

@@ -91,6 +91,11 @@ pub fn ensure_team_provider(workspace: &Path, state: &ManagedLlmState) -> anyhow
 
     let config_path = opencode_config_path(workspace);
 
+    // Serialize the whole read-modify-write against other opencode.json writers
+    // in this process (runtime spawn, MCP resolve, HTTP reconcile, …).
+    let write_lock = crate::atomic_write::opencode_write_lock(&config_path);
+    let _guard = write_lock.lock().unwrap_or_else(|e| e.into_inner());
+
     let mut config: serde_json::Value = if config_path.exists() {
         let content = std::fs::read_to_string(&config_path)?;
         serde_json::from_str(&content)?
@@ -175,7 +180,7 @@ pub fn ensure_team_provider(workspace: &Path, state: &ManagedLlmState) -> anyhow
         if !new_content.ends_with('\n') {
             new_content.push('\n');
         }
-        std::fs::write(&config_path, &new_content)?;
+        crate::atomic_write::atomic_write(&config_path, &new_content)?;
     }
 
     Ok(())

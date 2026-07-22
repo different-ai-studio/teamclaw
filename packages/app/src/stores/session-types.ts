@@ -95,6 +95,8 @@ export interface PendingQuestionState {
   messageId: string;
   questions: Question[];
   sessionId?: string; // source session ID (child or parent)
+  /** Agent actor to route the answer to (runtime command topic). */
+  agentActorId?: string;
   source?: "agent";
 }
 
