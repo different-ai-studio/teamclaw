@@ -840,6 +840,7 @@
     "deps": {
       "amuxd": "Agent 守护进程 (amuxd)",
       "opencode": "OpenCode 运行时",
+      "pi": "Pi 运行时",
       "git": "Git"
     }
   },
@@ -860,6 +861,7 @@
     "providerError": "模型服务异常",
     "rateLimited": "请求频率受限",
     "serverError": "服务器错误",
+    "serviceNotice": "服务提示",
     "loginRequired": "请先登录后再操作。"
   },
   "updater": {
@@ -1024,6 +1026,7 @@
       "daemonWorkspaces": "工作区",
       "localAgent": "本地 Agent",
       "llm": "LLM 模型",
+      "teamLlm": "团队 LLM",
       "prompt": "提示词",
       "mcp": "MCP",
       "automation": "自动化",
@@ -1180,11 +1183,30 @@
       "showLess": "收起",
       "showMore": "显示更多"
     },
+    "piLlm": {
+      "title": "Pi 模型",
+      "description": "pi 运行时自带的模型与 provider，由主机上的 pi 凭证管理。",
+      "loginHint": "pi 的 provider 由 pi 自己管理，不通过 opencode.json。要新增或登录 provider，请在主机终端运行：",
+      "loginHintAfter": "登录后回到这里刷新，新的 provider 模型会自动出现。",
+      "empty": "暂无可用模型。请确认本机 pi 运行时在线，并已通过 pi /login 配置至少一个 provider。",
+      "modelCount": "{{count}} 个模型"
+    },
+    "teamLlmSection": {
+      "title": "团队共享模型",
+      "description": "团队共享的 AI 模型代理，供所有 local agent 复用。",
+      "refreshTooltip": "刷新团队共享模型",
+      "currentRuntime": "当前 Agent 运行时",
+      "empty": "团队共享模型未配置。",
+      "configure": "配置团队共享模型"
+    },
     "mcp": {
       "restart": "重启",
       "restarting": "重启中...",
       "title": "MCP 服务器",
       "description": "管理 Model Context Protocol 服务器连接",
+      "runtime": "运行时",
+      "opencodeNote": "opencode 原生从 opencode.json 加载这些 server",
+      "piBridgeNote": "pi 无原生 MCP，已启用的本地 server 由 TeamClaw 扩展桥接为 pi 工具",
       "noServers": "未配置 MCP 服务器",
       "addServerHint": "添加 MCP 服务器以扩展 OpenCode 的功能",
       "nodeNotInstalled": "未安装 Node.js",
@@ -1381,7 +1403,8 @@
       "mqttStatus": "状态",
       "mqttConnected": "已连接",
       "mqttDisconnected": "未连接",
-      "mqttUnknown": "未知"
+      "mqttUnknown": "未知",
+      "switchTimeout": "已切换运行时，但 daemon 未能及时确认，可能仍在重启中。"
     },
     "daemonOnboarding": {
       "startingTitle": "正在启动服务…",
@@ -2011,6 +2034,10 @@
       "general": {
         "title": "通用",
         "description": "浏览器侧边栏的插件设置。"
+      },
+      "hostGate": {
+        "title": "当前页面不可用",
+        "description": "此构建仅允许在白名单站点使用 TeamClaw。请切回允许的标签页继续。"
       },
       "linkHover": {
         "title": "页面快捷按钮",

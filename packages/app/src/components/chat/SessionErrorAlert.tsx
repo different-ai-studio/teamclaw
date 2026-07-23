@@ -2,10 +2,7 @@ import { useState } from 'react'
 import { AlertCircle, ChevronDown, ChevronUp, RefreshCw, AlertTriangle, ShieldAlert, Timer, Copy, Check } from 'lucide-react'
 import { useTranslation } from 'react-i18next'
 import { copyToClipboard } from '@/lib/utils'
-import {
-  isPersistentSessionTurnError,
-  isQuotaLikeAgentMessage,
-} from '@/lib/agent-turn-error'
+import { isQuotaLikeAgentMessage } from '@/lib/agent-turn-error'
 import type { SessionErrorEvent } from '@/stores/session-types'
 
 interface SessionErrorAlertProps {
@@ -19,6 +16,18 @@ interface ErrorStyle {
   title: string
   accentColor: string
   iconBg: string
+  bodyBg: string
+  bodyBorder: string
+}
+
+const DEFAULT_BODY_STYLE = {
+  bodyBg: 'bg-red-50/80 dark:bg-red-950/20',
+  bodyBorder: 'border-red-200/50 dark:border-red-800/30',
+}
+
+const NEUTRAL_BODY_STYLE = {
+  bodyBg: 'bg-muted/60',
+  bodyBorder: 'border-border-soft',
 }
 
 export function SessionErrorAlert({ error, onDismiss, onRetry }: SessionErrorAlertProps) {
@@ -44,12 +53,26 @@ export function SessionErrorAlert({ error, onDismiss, onRetry }: SessionErrorAle
   const isLongMessage = errorMessage.length > 150
 
   const getErrorStyle = (): ErrorStyle => {
+    const lowerMsg = errorMessage.toLowerCase()
+    // A user-initiated interrupt (turn cancel) surfaces through the same
+    // error pipeline but isn't a fault — style it as a neutral note, not a
+    // red alarm.
+    if (errorName.toLowerCase().includes('abort') || lowerMsg.includes('aborted')) {
+      return {
+        icon: AlertCircle,
+        title: t('errors.serviceNotice', 'Service Notice'),
+        accentColor: 'text-muted-foreground',
+        iconBg: 'bg-muted',
+        ...NEUTRAL_BODY_STYLE,
+      }
+    }
     if (errorName === 'AgentTimeoutError') {
       return {
         icon: Timer,
         title: t('errors.modelTimeout', 'Model Not Responding'),
         accentColor: 'text-orange-600 dark:text-orange-400',
         iconBg: 'bg-orange-100 dark:bg-orange-900/40',
+        ...DEFAULT_BODY_STYLE,
       }
     }
     if (errorName === 'ProviderError') {
@@ -58,25 +81,30 @@ export function SessionErrorAlert({ error, onDismiss, onRetry }: SessionErrorAle
         title: t('errors.providerError', 'Provider Error'),
         accentColor: 'text-amber-600 dark:text-amber-400',
         iconBg: 'bg-amber-100 dark:bg-amber-900/40',
+        ...DEFAULT_BODY_STYLE,
       }
     }
     if (
-      errorName === 'RetryError' ||
-      isQuotaLikeAgentMessage(errorMessage)
+      isQuotaLikeAgentMessage(errorMessage) ||
+      lowerMsg.includes('exceeded') ||
+      lowerMsg.includes('quota') ||
+      lowerMsg.includes('free usage')
     ) {
       return {
         icon: AlertTriangle,
         title: t('errors.quotaExceeded', 'Quota Exceeded'),
         accentColor: 'text-amber-600 dark:text-amber-400',
         iconBg: 'bg-amber-100 dark:bg-amber-900/40',
+        ...DEFAULT_BODY_STYLE,
       }
     }
-    if (errorName.includes('auth') || statusCode === 401) {
+    if (errorName.includes('auth') || statusCode === 401 || lowerMsg.includes('authentication')) {
       return {
         icon: ShieldAlert,
         title: t('errors.authenticationError', 'Authentication Error'),
         accentColor: 'text-yellow-600 dark:text-yellow-400',
         iconBg: 'bg-yellow-100 dark:bg-yellow-900/40',
+        ...DEFAULT_BODY_STYLE,
       }
     }
     if (statusCode === 429) {
@@ -85,6 +113,7 @@ export function SessionErrorAlert({ error, onDismiss, onRetry }: SessionErrorAle
         title: t('errors.rateLimited', 'Rate Limited'),
         accentColor: 'text-orange-600 dark:text-orange-400',
         iconBg: 'bg-orange-100 dark:bg-orange-900/40',
+        ...DEFAULT_BODY_STYLE,
       }
     }
     if (statusCode && statusCode >= 500) {
@@ -93,13 +122,28 @@ export function SessionErrorAlert({ error, onDismiss, onRetry }: SessionErrorAle
         title: t('errors.serverError', 'Server Error'),
         accentColor: 'text-red-600 dark:text-red-400',
         iconBg: 'bg-red-100 dark:bg-red-900/40',
+        ...DEFAULT_BODY_STYLE,
+      }
+    }
+    // RetryError just means opencode retried and gave up — the underlying
+    // cause (auth, quota, network, ...) is already checked above by message
+    // content. Anything left unclassified is still worth flagging, but
+    // without implying a specific cause we haven't actually confirmed.
+    if (errorName === 'RetryError') {
+      return {
+        icon: AlertCircle,
+        title: t('errors.serviceNotice', 'Service Notice'),
+        accentColor: 'text-red-600 dark:text-red-400',
+        iconBg: 'bg-red-100 dark:bg-red-900/40',
+        ...DEFAULT_BODY_STYLE,
       }
     }
     return {
       icon: AlertCircle,
-      title: t('errors.error', 'Error'),
+      title: t('errors.serviceNotice', 'Service Notice'),
       accentColor: 'text-red-600 dark:text-red-400',
       iconBg: 'bg-red-100 dark:bg-red-900/40',
+      ...DEFAULT_BODY_STYLE,
     }
   }
 
@@ -138,7 +182,7 @@ export function SessionErrorAlert({ error, onDismiss, onRetry }: SessionErrorAle
         </div>
 
         {/* Error message body */}
-        <div className="rounded-2xl bg-red-50/80 dark:bg-red-950/20 border border-red-200/50 dark:border-red-800/30 px-4 py-3">
+        <div className={`rounded-2xl border px-4 py-3 ${style.bodyBg} ${style.bodyBorder}`}>
           <p className="text-[13px] leading-relaxed text-foreground/90 break-words [overflow-wrap:anywhere]">
             {displayMessage}
           </p>

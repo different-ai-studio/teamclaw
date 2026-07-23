@@ -333,6 +333,20 @@ export const MCPSection = React.memo(function MCPSection() {
   const [dialogOpen, setDialogOpen] = React.useState(false)
   const [editingServer, setEditingServer] = React.useState<{ name: string; config: MCPServerConfig } | null>(null)
   const [deleteConfirm, setDeleteConfirm] = React.useState<string | null>(null)
+  // The local runtime determines how these servers are consumed: opencode reads
+  // opencode.json natively; pi has no native MCP, so the TeamClaw extension
+  // spawns each enabled local server and proxies its tools.
+  const [localAgent, setLocalAgent] = React.useState<'opencode' | 'pi'>('opencode')
+  React.useEffect(() => {
+    void (async () => {
+      try {
+        const { getDaemonLocalAgent } = await import('@/lib/daemon-local-client')
+        setLocalAgent(await getDaemonLocalAgent())
+      } catch {
+        /* leave default */
+      }
+    })()
+  }, [])
 
   // Load config on mount; drop any stale daemon port cache first (amuxd restarts
   // pick a new loopback port and the webview may still hold the old one).
@@ -380,6 +394,18 @@ export const MCPSection = React.memo(function MCPSection() {
         description={t('settings.mcp.description', 'Manage Model Context Protocol server connections')}
         iconColor="text-orange-500"
       />
+
+      {/* Current runtime + how it consumes these servers. */}
+      <div className="flex items-center gap-2 rounded-lg border border-border-soft bg-panel px-3 py-2 text-[12px]">
+        <span className="text-muted-foreground">{t('settings.mcp.runtime', '运行时')}</span>
+        <span className="font-mono font-medium text-foreground">{localAgent}</span>
+        <span className="text-faint">·</span>
+        <span className="text-muted-foreground">
+          {localAgent === 'pi'
+            ? t('settings.mcp.piBridgeNote', 'pi 无原生 MCP，已启用的本地 server 由 TeamClaw 扩展桥接为 pi 工具')
+            : t('settings.mcp.opencodeNote', 'opencode 原生从 opencode.json 加载这些 server')}
+        </span>
+      </div>
 
       {/* Error Message */}
       {error && (

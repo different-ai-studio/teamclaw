@@ -594,7 +594,7 @@ export function SessionListColumn({
                 className={cn(
                   'mt-0.5 mr-2.5 inline-flex h-[18px] w-[18px] shrink-0 items-center justify-center rounded-[4px] border-[1.5px]',
                   isBatchChecked
-                    ? 'border-foreground bg-foreground text-[#fefdfa]'
+                    ? 'border-foreground bg-foreground text-background'
                     : 'border-foreground/20 bg-paper',
                 )}
               >
@@ -863,7 +863,7 @@ export function SessionListColumn({
               <Search className="h-4 w-4" />
             </Button>
           ) : null}
-          {!batchSelecting && filter.kind === 'all' && (
+          {!batchSelecting && !embedMode && filter.kind === 'all' && (
             <Button
               variant="ghost"
               size="icon"
@@ -1056,7 +1056,7 @@ export function SessionListColumn({
             <Button
               type="button"
               size="sm"
-              className="h-8 min-w-[4.5rem] flex-1 bg-foreground text-[12px] font-semibold text-[#fefdfa] hover:bg-foreground/90 sm:flex-none"
+              className="h-8 min-w-[4.5rem] flex-1 bg-foreground text-[12px] font-semibold text-background hover:bg-foreground/90 sm:flex-none"
               disabled={batchSelectedIds.size === 0 || batchArchiving}
               onClick={() => setBatchConfirmOpen(true)}
               data-testid="v2-session-batch-archive"

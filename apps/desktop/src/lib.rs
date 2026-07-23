@@ -434,6 +434,7 @@ pub fn run() {
             commands::daemon_onboarding::daemon_clear,
             commands::setup::setup_list_requirements,
             commands::setup::setup_install,
+            commands::setup::restart_local_daemon,
             commands::clawhub::clawhub_search,
             commands::clawhub::clawhub_explore,
             commands::clawhub::clawhub_get_skill,

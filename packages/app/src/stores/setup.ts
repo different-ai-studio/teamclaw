@@ -1,7 +1,7 @@
 import { create } from 'zustand'
 import { isTauri } from '@/lib/utils'
 import { markStartup } from '@/lib/startup-perf'
-import { appShortName, buildConfig } from '@/lib/build-config'
+import { appShortName, buildConfig, localAgent } from '@/lib/build-config'
 
 // Cache the last-known "all required deps satisfied" verdict so a returning user
 // (deps already installed) is never gated behind the cold `setup_list_requirements`
@@ -73,7 +73,7 @@ export const useSetupStore = create<SetupState>((set, get) => ({
     }
     markStartup('setup-list:start')
     const { invoke } = await import('@tauri-apps/api/core')
-    const requirements = await invoke<RequirementStatus[]>('setup_list_requirements')
+    const requirements = await invoke<RequirementStatus[]>('setup_list_requirements', { localAgent })
     markStartup('setup-list:end')
     set({ requirements, loaded: true })
     // Refresh the optimistic-skip cache for the next launch.
@@ -115,7 +115,7 @@ export const useSetupStore = create<SetupState>((set, get) => ({
             id,
             opencodeDownloadBase: buildConfig.opencode?.downloadBase ?? '',
           })
-          const requirements = await invoke<RequirementStatus[]>('setup_list_requirements')
+          const requirements = await invoke<RequirementStatus[]>('setup_list_requirements', { localAgent })
           set({ requirements })
         })(),
         minDurationMs > 0 ? delay(minDurationMs) : Promise.resolve(),

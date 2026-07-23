@@ -222,11 +222,13 @@ pub struct AgentsConfig {
     /// and writes missing `[agents.*]` sections to `daemon.toml`.
     #[serde(default = "default_true")]
     pub auto_discover: bool,
-    /// Local agent runtime backing this daemon: "opencode" (default) or "pi".
-    /// Seeded from the desktop build config's `localAgent` during onboarding.
-    /// Only "opencode" is implemented today; "pi" is reserved for the pi RPC
-    /// backend (docs/architecture/pi-agent-backend.md) and currently falls
-    /// back to opencode with a warning.
+    /// Local agent runtime backing this daemon: "opencode" (default), "pi",
+    /// "claude-code", or "codex". Seeded from the desktop build config's
+    /// `localAgent` during onboarding. See `daemon::runtime_resolution::
+    /// configured_local_agent` for how this name is resolved to a runnable
+    /// backend — claude-code/codex additionally require their `[agents.*]`
+    /// config section to be present; an unrunnable selection resolves to
+    /// `AgentType::Unknown` rather than silently falling back to opencode.
     #[serde(default = "default_local_agent")]
     pub local_agent: String,
     #[serde(default)]

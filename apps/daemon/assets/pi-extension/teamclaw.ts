@@ -65,6 +65,7 @@ type ExtensionAPI = {
       signal?: AbortSignal,
     ): Promise<{ content: Array<{ type: "text"; text: string }>; isError?: boolean }>;
   }): void;
+  registerProvider(id: string, config: Record<string, unknown>): void;
 };
 
 // ---------------------------------------------------------------------------
@@ -139,8 +140,11 @@ class McpBridge {
   private pending = new Map<number, { resolve: (v: any) => void; reject: (e: Error) => void }>();
   private buffer = "";
 
-  constructor(cmd: string[]) {
-    this.child = spawn(cmd[0], cmd.slice(1), { stdio: ["pipe", "pipe", "inherit"] });
+  constructor(cmd: string[], env?: Record<string, string>) {
+    this.child = spawn(cmd[0], cmd.slice(1), {
+      stdio: ["pipe", "pipe", "inherit"],
+      env: env ? { ...process.env, ...env } : process.env,
+    });
     this.child.stdout!.setEncoding("utf8");
     this.child.stdout!.on("data", (chunk: string) => this.onData(chunk));
     this.child.on("exit", () => {
@@ -199,10 +203,140 @@ class McpBridge {
 }
 
 // ---------------------------------------------------------------------------
+// Team shared LLM provider
+// ---------------------------------------------------------------------------
+
+/**
+ * Register the team's shared LLM gateway as a pi provider, mirroring how
+ * opencode gets `provider.team`. amuxd sets `TEAMCLAW_TEAM_PROVIDER` (from the
+ * cloud-resolved managed LLM) to a JSON payload:
+ *   { name, baseUrl, apiKeyEnv, models: [{ id, name }] }
+ * The secret is never embedded — `apiKeyEnv` names an env var (`tc_api_key`,
+ * derived from actor_id, already injected by amuxd) that pi interpolates via
+ * `${...}`, the same key opencode uses. Absent/invalid env ⇒ no-op.
+ */
+function registerTeamProvider(pi: ExtensionAPI): void {
+  const raw = process.env.TEAMCLAW_TEAM_PROVIDER;
+  if (!raw) return;
+  let cfg: {
+    name?: string;
+    baseUrl?: string;
+    apiKeyEnv?: string;
+    models?: Array<{ id?: string; name?: string }>;
+  };
+  try {
+    cfg = JSON.parse(raw);
+  } catch (e) {
+    console.error(`[teamclaw] invalid TEAMCLAW_TEAM_PROVIDER: ${e}`);
+    return;
+  }
+  if (!cfg.baseUrl || !Array.isArray(cfg.models) || cfg.models.length === 0) return;
+  const apiKeyEnv = cfg.apiKeyEnv || "tc_api_key";
+  const models = cfg.models
+    .filter((m) => m && m.id)
+    .map((m) => ({
+      id: m.id as string,
+      name: m.name || (m.id as string),
+      reasoning: false,
+      input: ["text"] as string[],
+      cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
+      contextWindow: 256000,
+      maxTokens: 16000,
+    }));
+  if (models.length === 0) return;
+  try {
+    pi.registerProvider("team", {
+      name: cfg.name || "Team",
+      baseUrl: cfg.baseUrl,
+      apiKey: `\${${apiKeyEnv}}`,
+      api: "openai-completions",
+      models,
+    });
+  } catch (e) {
+    console.error(`[teamclaw] registerProvider(team) failed: ${e}`);
+  }
+}
+
+// ---------------------------------------------------------------------------
+// MCP server bridge (pi has no native MCP)
+// ---------------------------------------------------------------------------
+
+/** Resolve `${VAR}` / `$VAR` references in a server's environment map against
+ *  the pi process env (which amuxd populated with team/personal secrets). */
+function resolveEnv(env: Record<string, unknown> | undefined): Record<string, string> {
+  const out: Record<string, string> = {};
+  if (!env) return out;
+  for (const [k, v] of Object.entries(env)) {
+    if (typeof v !== "string") continue;
+    out[k] = v.replace(/\$\{([A-Za-z_][A-Za-z0-9_]*)\}|\$([A-Za-z_][A-Za-z0-9_]*)/g, (_m, a, b) => {
+      const name = a || b;
+      return process.env[name] ?? "";
+    });
+  }
+  return out;
+}
+
+/** Spawn one stdio MCP server and register each of its tools as a pi tool that
+ *  proxies `tools/call`. Best-effort: a failed server never breaks the others. */
+async function bridgeMcpServer(
+  pi: ExtensionAPI,
+  ownTools: Set<string>,
+  label: string,
+  cmd: string[],
+  env?: Record<string, string>,
+): Promise<void> {
+  try {
+    const bridge = new McpBridge(cmd, env);
+    await bridge.request("initialize", {
+      protocolVersion: "2024-11-05",
+      capabilities: {},
+      clientInfo: { name: "teamclaw-pi-extension", version: "1.0.0" },
+    });
+    bridge.notify("notifications/initialized");
+
+    const listed = await bridge.request("tools/list");
+    const tools: Array<{ name: string; description?: string; inputSchema?: unknown }> =
+      listed?.tools ?? [];
+    for (const tool of tools) {
+      ownTools.add(tool.name);
+      pi.registerTool({
+        name: tool.name,
+        label: tool.name,
+        description: tool.description ?? `TeamClaw MCP tool ${tool.name} (${label})`,
+        // MCP inputSchema is plain JSON Schema; pi's TypeBox parameters are
+        // JSON Schema objects at runtime, so pass it through directly.
+        parameters: tool.inputSchema ?? { type: "object", properties: {} },
+        async execute(_toolCallId, params) {
+          const result = await bridge.request("tools/call", {
+            name: tool.name,
+            arguments: params ?? {},
+          });
+          const content = Array.isArray(result?.content)
+            ? result.content
+                .filter((c: any) => c?.type === "text" && typeof c.text === "string")
+                .map((c: any) => ({ type: "text" as const, text: c.text }))
+            : [];
+          return {
+            content: content.length ? content : [{ type: "text" as const, text: JSON.stringify(result ?? null) }],
+            isError: result?.isError === true,
+          };
+        },
+      });
+    }
+  } catch (e) {
+    // Bridge is best-effort: pi still works without this server's tools.
+    console.error(`[teamclaw] MCP bridge unavailable (${label}): ${e}`);
+  }
+}
+
+// ---------------------------------------------------------------------------
 // Extension entry point
 // ---------------------------------------------------------------------------
 
 export default async function (pi: ExtensionAPI) {
+  // Team shared LLM — register before startup finishes so its models appear.
+  registerTeamProvider(pi);
+
   // Tools this extension registered itself (remote-tools proxies). They are
   // daemon-provided, already trusted — skip the permission gate for them.
   const ownTools = new Set<string>();
@@ -231,57 +365,36 @@ export default async function (pi: ExtensionAPI) {
     return undefined;
   });
 
-  // -- remote-tools MCP bridge ----------------------------------------------
+  // -- MCP bridges (pi has no native MCP) -----------------------------------
+  // 1) amuxd remote-tools (single stdio command, its own env contract).
   const cmdRaw = process.env.TEAMCLAW_REMOTE_TOOLS_CMD;
-  if (!cmdRaw) return;
-  let cmd: string[];
-  try {
-    cmd = JSON.parse(cmdRaw);
-    if (!Array.isArray(cmd) || cmd.length === 0 || cmd.some((c) => typeof c !== "string")) return;
-  } catch {
-    return;
+  if (cmdRaw) {
+    try {
+      const cmd = JSON.parse(cmdRaw);
+      if (Array.isArray(cmd) && cmd.length > 0 && cmd.every((c) => typeof c === "string")) {
+        await bridgeMcpServer(pi, ownTools, "remote-tools", cmd);
+      }
+    } catch (e) {
+      console.error(`[teamclaw] invalid TEAMCLAW_REMOTE_TOOLS_CMD: ${e}`);
+    }
   }
 
-  try {
-    const bridge = new McpBridge(cmd);
-    await bridge.request("initialize", {
-      protocolVersion: "2024-11-05",
-      capabilities: {},
-      clientInfo: { name: "teamclaw-pi-extension", version: "1.0.0" },
-    });
-    bridge.notify("notifications/initialized");
-
-    const listed = await bridge.request("tools/list");
-    const tools: Array<{ name: string; description?: string; inputSchema?: unknown }> =
-      listed?.tools ?? [];
-    for (const tool of tools) {
-      ownTools.add(tool.name);
-      pi.registerTool({
-        name: tool.name,
-        label: tool.name,
-        description: tool.description ?? `TeamClaw remote tool ${tool.name}`,
-        // MCP inputSchema is plain JSON Schema; pi's TypeBox parameters are
-        // JSON Schema objects at runtime, so pass it through directly.
-        parameters: tool.inputSchema ?? { type: "object", properties: {} },
-        async execute(_toolCallId, params) {
-          const result = await bridge.request("tools/call", {
-            name: tool.name,
-            arguments: params ?? {},
-          });
-          const content = Array.isArray(result?.content)
-            ? result.content
-                .filter((c: any) => c?.type === "text" && typeof c.text === "string")
-                .map((c: any) => ({ type: "text" as const, text: c.text }))
-            : [];
-          return {
-            content: content.length ? content : [{ type: "text" as const, text: JSON.stringify(result ?? null) }],
-            isError: result?.isError === true,
-          };
-        },
-      });
+  // 2) The workspace's other MCP servers (from opencode.json `mcp`), bridged so
+  //    pi gets the same tools opencode loads natively. Payload:
+  //    { "<name>": { "command": [...], "environment": {...} }, ... }
+  const serversRaw = process.env.TEAMCLAW_MCP_SERVERS;
+  if (serversRaw) {
+    let servers: Record<string, { command?: unknown; environment?: Record<string, unknown> }>;
+    try {
+      servers = JSON.parse(serversRaw);
+    } catch (e) {
+      console.error(`[teamclaw] invalid TEAMCLAW_MCP_SERVERS: ${e}`);
+      servers = {};
     }
-  } catch (e) {
-    // Bridge is best-effort: pi still works without remote tools.
-    console.error(`[teamclaw] remote-tools bridge unavailable: ${e}`);
+    for (const [name, spec] of Object.entries(servers)) {
+      const cmd = spec?.command;
+      if (!Array.isArray(cmd) || cmd.length === 0 || cmd.some((c) => typeof c !== "string")) continue;
+      await bridgeMcpServer(pi, ownTools, name, cmd as string[], resolveEnv(spec.environment));
+    }
   }
 }

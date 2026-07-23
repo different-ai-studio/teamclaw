@@ -109,7 +109,7 @@ export function PermissionApprovalPanel({
             type="button"
             onClick={() => void handleReply("allow")}
             disabled={submitting}
-            className="w-full rounded-lg bg-foreground px-3 py-1.5 text-center text-[12px] font-semibold text-[#fefdfa] transition-opacity hover:opacity-90 disabled:opacity-50"
+            className="w-full rounded-lg bg-foreground px-3 py-1.5 text-center text-[12px] font-semibold text-background transition-opacity hover:opacity-90 disabled:opacity-50"
           >
             {t("chat.permissionCard.approve", "Allow")}
           </button>

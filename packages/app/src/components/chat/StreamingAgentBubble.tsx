@@ -14,6 +14,7 @@ import { ActorLabel } from "./ActorLabel";
 import { ThinkingBlock } from "./ThinkingBlock";
 import { StreamMarkdown } from "./StreamMarkdown";
 import type { MessagePart } from "@/stores/session-types";
+import { cn } from "@/lib/utils";
 
 function StreamRevealedResponse({
   text,
@@ -232,7 +233,7 @@ export const StreamingAgentBubble = React.memo(function StreamingAgentBubble({
 
   return (
     <div
-      className={isDock ? "mb-0" : "mb-1.5"}
+      className={cn("group/msg", isDock ? "mb-0" : "mb-1.5")}
       data-testid="v2-streaming-agent"
       data-session-id={entry.sessionId}
       data-actor-id={entry.actorId}

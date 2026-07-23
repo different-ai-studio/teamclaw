@@ -1,0 +1,70 @@
+/**
+ * Build-time side-panel host allowlist for the Chrome extension.
+ * Empty list = no gate (panel usable on any site).
+ *
+ * Patterns (comma-separated in VITE_SIDE_PANEL_DOMAINS / DOMAINS):
+ * - `example.com` — exact hostname
+ * - `*.example.com` — example.com and any subdomain
+ */
+
+export const SIDE_PANEL_HOST_GATE_STORAGE_KEY = 'teamclaw.sidePanelHostGate'
+
+export type SidePanelHostGateSnapshot = {
+  allowed: boolean
+  url: string | null
+}
+
+export function parseSidePanelDomainPatterns(
+  raw: string | undefined | null,
+): string[] {
+  if (!raw?.trim()) return []
+  return raw
+    .split(/[,;\s]+/)
+    .map((p) => p.trim().toLowerCase())
+    .filter(Boolean)
+}
+
+export function isSidePanelHostGateEnabled(
+  patterns: readonly string[],
+): boolean {
+  return patterns.length > 0
+}
+
+/**
+ * Match hostname against allowlist patterns.
+ * `*.example.com` also allows the apex `example.com`.
+ */
+export function isHostnameAllowedByPatterns(
+  hostname: string,
+  patterns: readonly string[],
+): boolean {
+  if (patterns.length === 0) return true
+  const host = hostname.trim().toLowerCase().replace(/\.$/, '')
+  if (!host) return false
+
+  for (const pattern of patterns) {
+    if (pattern.startsWith('*.')) {
+      const base = pattern.slice(2)
+      if (!base) continue
+      if (host === base || host.endsWith(`.${base}`)) return true
+      continue
+    }
+    if (host === pattern) return true
+  }
+  return false
+}
+
+export function isUrlAllowedBySidePanelPatterns(
+  url: string | undefined | null,
+  patterns: readonly string[],
+): boolean {
+  if (patterns.length === 0) return true
+  if (!url) return false
+  try {
+    const parsed = new URL(url)
+    if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') return false
+    return isHostnameAllowedByPatterns(parsed.hostname, patterns)
+  } catch {
+    return false
+  }
+}

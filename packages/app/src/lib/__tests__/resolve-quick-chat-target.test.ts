@@ -62,13 +62,15 @@ describe('resolveQuickChatTarget', () => {
     })
   })
 
-  it('skips local when workspace path is empty and uses member default', async () => {
+  it('prefers the local agent over the team default even when no workspace path is set', async () => {
+    // A new chat must always target THIS machine's local agent when one exists,
+    // never the team/member default — regardless of the active workspace.
     deps.localAgent = { id: 'agent-local', displayName: 'My Daemon' }
     deps.memberDefault = 'agent-member'
     deps.effectiveDefault = 'agent-member'
     const result = await resolveQuickChatTarget('team-1', { workspacePath: null })
-    expect(result?.source).toBe('member_default')
-    expect(result?.agentId).toBe('agent-member')
+    expect(result?.source).toBe('local')
+    expect(result?.agentId).toBe('agent-local')
   })
 
   it('returns member_default when no local agent', async () => {

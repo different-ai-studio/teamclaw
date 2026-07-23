@@ -54,6 +54,23 @@ if (applyNameToExtensionManifest(manifest, buildConfig)) {
   updated = true;
 }
 
+// Brand-scoped host access: a brand may narrow the extension to a fixed set of
+// match patterns (e.g. copilot361 -> Shopee/SeaMoney internal domains) instead
+// of the base manifest's all-hosts default. When `extension.hosts` is a
+// non-empty array, it overrides BOTH host_permissions and every content-script
+// matches list. Absent -> base manifest (all http/https) is kept.
+const brandHosts = buildConfig.extension && buildConfig.extension.hosts;
+if (Array.isArray(brandHosts) && brandHosts.length > 0) {
+  manifest.host_permissions = [...brandHosts];
+  if (Array.isArray(manifest.content_scripts)) {
+    for (const cs of manifest.content_scripts) {
+      cs.matches = [...brandHosts];
+    }
+  }
+  console.log(`✓ Scoped extension hosts to ${brandHosts.length} pattern(s)`);
+  updated = true;
+}
+
 // Chrome Web Store requires x.y.z(.w) version numbers — mirror app version if set.
 if (buildConfig.app && buildConfig.app.version && manifest.version !== buildConfig.app.version) {
   manifest.version = buildConfig.app.version;
