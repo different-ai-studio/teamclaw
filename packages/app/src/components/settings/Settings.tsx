@@ -68,6 +68,7 @@ const daemonSections: Section[] = [
 // Local Agent (opencode) config sections.
 const localAgentSections: Section[] = [
   { id: 'llm', label: 'LLM Model', labelKey: 'settings.nav.llm', icon: Brain },
+  { id: 'teamLlm', label: 'Team LLM', labelKey: 'settings.nav.teamLlm', icon: Users },
   { id: 'envVars', label: 'Env Variables', labelKey: 'settings.nav.envVars', icon: KeyRound },
   { id: 'prompt', label: 'Prompt', labelKey: 'settings.nav.prompt', icon: MessageSquareText },
   { id: 'mcp', label: 'MCP', labelKey: 'settings.nav.mcp', icon: Plug },

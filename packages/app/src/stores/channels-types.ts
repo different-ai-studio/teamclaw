@@ -151,7 +151,7 @@ export interface WeComBot {
   secret: string
   encodingAesKey?: string
   workspaceId?: string
-  agentType?: 'claude-code' | 'opencode' | 'codex'
+  agentType?: 'claude-code' | 'opencode' | 'codex' | 'pi'
   systemPrompt?: string
 }
 

@@ -388,10 +388,12 @@ Also future work, listed here so the team has it:
 <!-- seahelm:suggest:start -->
 ## Quick options for the user (seahelm)
 
-When you finish a turn and can anticipate the user's likely next steps, run:
+When you finish a turn and can anticipate the user's likely next steps, end your
+reply with one final plain-text line formatted exactly as:
 
-    seahelm-suggest 'first option' 'second option'
+    ::seahelm-suggest:: first option | second option
 
-Each option is a short imperative phrase (max ~5 options). Do NOT print options
-as text in your reply — the user sees them as clickable buttons in seahelm.
+Give 2-5 short imperative phrases separated by ` | `. seahelm turns that line into
+clickable buttons for the user. Make it the LAST line of your message; do NOT run
+a tool or shell command to produce it.
 <!-- seahelm:suggest:end -->

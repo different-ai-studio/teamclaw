@@ -840,6 +840,7 @@
     "deps": {
       "amuxd": "Agent daemon (amuxd)",
       "opencode": "OpenCode runtime",
+      "pi": "Pi runtime",
       "git": "Git"
     }
   },
@@ -853,11 +854,7 @@
     "reloadApp": "Reload App",
     "errorDetails": "Error Details",
     "recoveryHint": "An unexpected error occurred. You can try to recover or reload the application.",
-    "authenticationError": "Authentication Error",
-    "error": "Error",
-    "quotaExceeded": "Quota Exceeded",
-    "rateLimited": "Rate Limited",
-    "serverError": "Server Error",
+    "serviceNotice": "Service Notice",
     "loginRequired": "Please sign in before continuing."
   },
   "updater": {
@@ -1022,6 +1019,7 @@
       "daemonWorkspaces": "Workspace",
       "localAgent": "Local Agent",
       "llm": "LLM Model",
+      "teamLlm": "Team LLM",
       "prompt": "Prompt",
       "mcp": "MCP",
       "automation": "Automation",
@@ -1178,11 +1176,30 @@
       "showLess": "Show Less",
       "showMore": "Show More"
     },
+    "piLlm": {
+      "title": "Pi Models",
+      "description": "Models and providers bundled with the pi runtime, managed by pi's own credentials on this machine.",
+      "loginHint": "pi manages its own providers directly, not through opencode.json. To add or sign in to a provider, run this on the host terminal:",
+      "loginHintAfter": "After signing in, come back and refresh — new provider models will appear automatically.",
+      "empty": "No models available yet. Make sure the local pi runtime is online and at least one provider is configured via pi /login.",
+      "modelCount": "{{count}} model(s)"
+    },
+    "teamLlmSection": {
+      "title": "Team Shared Model",
+      "description": "The team-shared AI model proxy, reused by whichever local agent is active.",
+      "refreshTooltip": "Refresh team-shared model",
+      "currentRuntime": "Current agent runtime",
+      "empty": "Team-shared model is not configured.",
+      "configure": "Configure team-shared model"
+    },
     "mcp": {
       "restart": "Restart",
       "restarting": "Restarting...",
       "title": "MCP Servers",
       "description": "Manage Model Context Protocol server connections",
+      "runtime": "Runtime",
+      "opencodeNote": "opencode loads these servers natively from opencode.json",
+      "piBridgeNote": "pi has no native MCP support — enabled local servers are bridged to pi tools by the TeamClaw extension",
       "noServers": "No MCP servers configured",
       "addServerHint": "Add an MCP server to extend OpenCode's capabilities",
       "nodeNotInstalled": "Node.js not installed",
@@ -1379,7 +1396,8 @@
       "mqttStatus": "Status",
       "mqttConnected": "Connected",
       "mqttDisconnected": "Disconnected",
-      "mqttUnknown": "Unknown"
+      "mqttUnknown": "Unknown",
+      "switchTimeout": "Switched runtime, but the daemon did not confirm in time. It may still be restarting."
     },
     "daemonOnboarding": {
       "startingTitle": "Starting service…",

@@ -126,6 +126,7 @@ describe('Settings navigation', () => {
       within(localAgentSubnav).getAllByRole('button').map((button) => button.textContent)
     ).toEqual([
       'LLM Model',
+      'Team LLM',
       'Env Variables',
       'Prompt',
       'MCP',

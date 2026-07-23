@@ -73,7 +73,7 @@ vi.mock('../shared', () => ({
   SectionHeader: ({ title }: { title: string }) => <h2>{title}</h2>,
 }))
 
-import { LLMSection } from '../LLMSection'
+import { OpenCodeLLMSection as LLMSection } from '../LLMSection'
 
 describe('LLMSection', () => {
   beforeEach(() => {

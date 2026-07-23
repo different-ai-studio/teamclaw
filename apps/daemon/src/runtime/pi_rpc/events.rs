@@ -53,6 +53,12 @@ pub(super) fn spawn_reader(
             }
             handle_event(&shared, &worktree, &client, &json).await;
         }
+        // The pi process exited (stdout EOF or read error). A dead process will
+        // never emit `turn_end`/`agent_settled`, so if a turn was in flight we
+        // must settle it here — otherwise the UI hangs in "replying" forever.
+        if let Some(session_id) = active_session(&shared, &worktree) {
+            close_turn(&shared, &session_id).await;
+        }
         client.fail_all_pending();
         info!(worktree, "pi rpc stdout closed");
     });
@@ -123,7 +129,7 @@ async fn handle_event(
     }
 }
 
-async fn close_turn(shared: &Arc<Shared>, session_id: &str) {
+pub(super) async fn close_turn(shared: &Arc<Shared>, session_id: &str) {
     let closed = {
         let mut routes = shared.routes.lock();
         let Some(route) = routes.get_mut(session_id) else {
