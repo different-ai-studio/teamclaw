@@ -62,10 +62,33 @@ export function registerTeams(router) {
     return { body: team };
   });
 
+  // PATCH /v1/teams/:id — partial update. Supports `name` (rename) and/or
+  // `visibility` ('public' | 'private'). At least one must be present.
   router.patch("/v1/teams/:teamId", async (ctx) => {
     const body = ctx.json;
-    requireString(body.name, "name");
-    const team = await ctx.repository.renameTeam(ctx.params.teamId, { name: body.name });
+    const hasName = body.name != null;
+    const hasVisibility = body.visibility != null;
+    if (!hasName && !hasVisibility) {
+      requireString(body.name, "name"); // preserves the prior 400 for empty PATCH
+    }
+    let team;
+    if (hasVisibility) {
+      requireString(body.visibility, "visibility");
+      team = await ctx.repository.setTeamVisibility(ctx.params.teamId, {
+        visibility: body.visibility,
+      });
+    }
+    if (hasName) {
+      requireString(body.name, "name");
+      team = await ctx.repository.renameTeam(ctx.params.teamId, { name: body.name });
+    }
+    return { body: team };
+  });
+
+  // POST /v1/teams/:id/join — self-service join of a PUBLIC team in the shared
+  // DEFAULT_ORG (the post-login picker offers these alongside my own teams).
+  router.post("/v1/teams/:teamId/join", async (ctx) => {
+    const team = await ctx.repository.joinPublicTeam(ctx.params.teamId);
     return { body: team };
   });
 

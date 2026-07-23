@@ -30,7 +30,7 @@ export function requiredInteger(value, operation, field) {
 // ── Column constants + row mappers (moved from supabase-repo.ts) ──
 
 export const DEFAULT_ATTACHMENT_BUCKET = "attachments";
-export const TEAM_COLUMNS = "id, name, slug, created_at";
+export const TEAM_COLUMNS = "id, name, slug, created_at, visibility";
 export const MESSAGE_COLUMNS =
   "id, team_id, session_id, turn_id, sender_actor_id, reply_to_message_id, kind, content, metadata, model, created_at, updated_at";
 export const WORKSPACE_COLUMNS =
@@ -183,6 +183,7 @@ export function mapTeam(row) {
     shareEnabledAt: row?.share_enabled_at ?? null,
     gitRemoteUrl: row?.git_remote_url ?? null,
     gitAuthKind: row?.git_auth_kind ?? null,
+    visibility: row?.visibility ?? "private",
   };
 }
 

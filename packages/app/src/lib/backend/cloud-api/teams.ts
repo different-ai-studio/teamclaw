@@ -6,6 +6,7 @@ type CloudTeam = {
   name: string;
   slug: string | null;
   createdAt: string | null;
+  visibility?: "public" | "private";
 };
 
 type CloudMembershipTeam = {
@@ -14,6 +15,8 @@ type CloudMembershipTeam = {
   slug: string | null;
   orgId: string | null;
   orgName: string | null;
+  visibility?: "public" | "private";
+  isMember?: boolean;
 };
 
 type CloudInvite = {
@@ -30,6 +33,7 @@ function mapTeam(row: CloudTeam): TeamSummary {
     name: row.name,
     slug: row.slug,
     created_at: row.createdAt,
+    visibility: row.visibility,
   };
 }
 
@@ -60,6 +64,12 @@ export function createTeamsModule(client: CloudApiClient): TeamsBackend {
     },
     async renameTeam(teamId: string, name: string) {
       return mapTeam(await client.patch<CloudTeam>(`/v1/teams/${encodeURIComponent(teamId)}`, { name }));
+    },
+    async setTeamVisibility(teamId: string, visibility: "public" | "private") {
+      return mapTeam(await client.patch<CloudTeam>(`/v1/teams/${encodeURIComponent(teamId)}`, { visibility }));
+    },
+    async joinTeam(teamId: string) {
+      return mapTeam(await client.post<CloudTeam>(`/v1/teams/${encodeURIComponent(teamId)}/join`, {}));
     },
     async upgradeAccount(input) {
       return client.post<{ orgId: string; teamId: string; teamName: string }>("/v1/account/upgrade", {
@@ -98,6 +108,8 @@ export function createTeamsModule(client: CloudApiClient): TeamsBackend {
         slug: r.slug,
         orgId: r.orgId,
         orgName: r.orgName,
+        visibility: r.visibility,
+        isMember: r.isMember !== false,
       }));
     },
     async activateTeam(teamId: string) {
