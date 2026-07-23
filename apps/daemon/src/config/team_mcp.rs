@@ -268,9 +268,8 @@ pub fn materialize_team_mcp_for_runtime(
     }
 
     let mut added_count = 0usize;
-    let changed = teamclaw_runtime_env::opencode_config::OpencodeConfigStore::apply(
-        workspace,
-        |json| {
+    let changed =
+        teamclaw_runtime_env::opencode_config::OpencodeConfigStore::apply(workspace, |json| {
             let obj = json.as_object_mut().ok_or_else(|| {
                 OpencodeConfigError::Parse("opencode.json root is not an object".into())
             })?;
@@ -281,23 +280,21 @@ pub fn materialize_team_mcp_for_runtime(
                 );
             }
             let mcp = obj.entry("mcp").or_insert_with(|| serde_json::json!({}));
-            let mcp_obj = mcp.as_object_mut().ok_or_else(|| {
-                OpencodeConfigError::Parse("mcp is not an object".into())
-            })?;
+            let mcp_obj = mcp
+                .as_object_mut()
+                .ok_or_else(|| OpencodeConfigError::Parse("mcp is not an object".into()))?;
 
             for (name, cfg) in &team {
                 if !mcp_obj.contains_key(name) {
-                    let value = serde_json::to_value(cfg).map_err(|e| {
-                        OpencodeConfigError::Parse(e.to_string())
-                    })?;
+                    let value = serde_json::to_value(cfg)
+                        .map_err(|e| OpencodeConfigError::Parse(e.to_string()))?;
                     mcp_obj.insert(name.clone(), value);
                     added_count += 1;
                 }
             }
             Ok(added_count > 0)
-        },
-    )
-    .map_err(|e| WorkspaceControlError::Io(e.to_string()))?;
+        })
+        .map_err(|e| WorkspaceControlError::Io(e.to_string()))?;
 
     Ok(MaterializeTeamMcpOutcome {
         changed,

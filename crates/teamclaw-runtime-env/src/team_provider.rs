@@ -116,10 +116,22 @@ pub fn mutate_team_provider(
             } else {
                 &provider.name
             };
+            // Keep a resolved `sk-tc-*` key across reconciles. `ensure_team_provider`
+            // runs on every provider read (including after wake); always writing the
+            // `${tc_api_key}` placeholder would clobber spawn-time resolution and
+            // break LiteLLM auth for a live opencode serve instance.
+            let api_key = obj
+                .get("provider")
+                .and_then(|p| p.get("team"))
+                .and_then(|t| t.get("options"))
+                .and_then(|o| o.get("apiKey"))
+                .and_then(|v| v.as_str())
+                .filter(|k| !k.contains("${"))
+                .unwrap_or("${tc_api_key}");
             let team_entry = serde_json::json!({
                 "npm": "@ai-sdk/openai-compatible",
                 "name": name,
-                "options": { "baseURL": provider.base_url, "apiKey": "${tc_api_key}" },
+                "options": { "baseURL": provider.base_url, "apiKey": api_key },
                 "models": models_out,
             });
 
@@ -156,15 +168,18 @@ pub fn mutate_team_provider(
 }
 
 /// Reconcile `provider.team` in opencode.json against the cloud-sourced managed LLM.
-pub fn ensure_team_provider(workspace: &Path, state: &ManagedLlmState) -> anyhow::Result<()> {
+///
+/// Returns whether the on-disk config was rewritten. External callers should prefer
+/// [`crate::team_provider_sync::sync_team_provider_on_disk`] so materialization and secret resolution
+/// stay aligned across spawn and reconcile paths.
+pub fn ensure_team_provider(workspace: &Path, state: &ManagedLlmState) -> anyhow::Result<bool> {
     if matches!(state, ManagedLlmState::Unknown) {
-        return Ok(());
+        return Ok(false);
     }
     OpencodeConfigStore::apply(workspace, |config| {
         mutate_team_provider(config, state).map_err(map_mutate_err)
     })
-    .map_err(map_store_err)?;
-    Ok(())
+    .map_err(map_store_err)
 }
 
 #[cfg(test)]
@@ -206,6 +221,37 @@ mod tests {
             serde_json::from_str(&fs::read_to_string(dir.path().join("opencode.json")).unwrap())
                 .unwrap();
         assert!(parsed["provider"]["team"].is_object());
+    }
+
+    #[test]
+    fn ensure_team_provider_preserves_resolved_api_key() {
+        let dir = TempDir::new().unwrap();
+        let resolved_key = "sk-tc-actor-123";
+        fs::write(
+            dir.path().join("opencode.json"),
+            serde_json::json!({
+                "provider": {
+                    "team": {
+                        "options": {
+                            "baseURL": "https://gateway.example/v1",
+                            "apiKey": resolved_key
+                        },
+                        "models": { "old-model": { "name": "Old" } }
+                    }
+                }
+            })
+            .to_string(),
+        )
+        .unwrap();
+        ensure_team_provider(dir.path(), &ManagedLlmState::Enabled(sample_provider())).unwrap();
+        let parsed: serde_json::Value =
+            serde_json::from_str(&fs::read_to_string(dir.path().join("opencode.json")).unwrap())
+                .unwrap();
+        assert_eq!(
+            parsed["provider"]["team"]["options"]["apiKey"].as_str(),
+            Some(resolved_key),
+            "reconcile must not clobber a resolved LiteLLM key with the tc_api_key placeholder"
+        );
     }
 
     #[test]

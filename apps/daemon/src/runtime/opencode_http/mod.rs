@@ -61,11 +61,12 @@ pub(crate) struct Route {
     /// assistant message `error: null` and retries internally, so this plus
     /// `/session/status` polling is how we detect it.
     pub(crate) turn_saw_output: bool,
-    /// Last time this turn produced any translated event. The stuck-turn
-    /// watchdog aborts a turn whose event stream has been silent for
-    /// [`FIRST_OUTPUT_TIMEOUT`] — covering providers that stall mid-turn,
-    /// not just before the first token. Refreshed when a pending
-    /// permission/question is resolved (waiting on the user is not a stall).
+    /// Last transport activity for the current turn (session-scoped SSE
+    /// progress events, permission/question resolution, SSE reconnect grace).
+    /// The stuck-turn watchdog aborts when this is silent for
+    /// [`FIRST_OUTPUT_TIMEOUT`]. Decoupled from translate dedupe so a long
+    /// running tool that re-sends identical `message.part.updated` frames
+    /// still counts as alive.
     pub(crate) turn_last_event_at: std::time::Instant,
     pub(crate) translate: TranslateState,
     /// MCP server names amuxd injected into the worktree's `opencode.json`
@@ -85,6 +86,27 @@ pub(crate) struct Shared {
     pub(crate) questions: parking_lot::Mutex<HashMap<String, String>>,
     /// canonical directory → SSE subscription task.
     pub(crate) sse_tasks: parking_lot::Mutex<HashMap<String, tokio::task::JoinHandle<()>>>,
+    /// Per-worktree opencode `/event` transport health (for stuck-turn grace).
+    pub(crate) sse_transport: parking_lot::Mutex<HashMap<String, SseTransportState>>,
+}
+
+/// Loopback SSE subscription state for one canonical worktree directory.
+#[derive(Debug, Clone, Copy)]
+pub(crate) struct SseTransportState {
+    pub connected: bool,
+    pub last_read_at: Option<std::time::Instant>,
+    /// Set when the stream drops until the next successful subscribe.
+    pub reconnecting_since: Option<std::time::Instant>,
+}
+
+impl Default for SseTransportState {
+    fn default() -> Self {
+        Self {
+            connected: false,
+            last_read_at: None,
+            reconnecting_since: None,
+        }
+    }
 }
 
 impl Shared {
@@ -95,8 +117,80 @@ impl Shared {
             permissions: parking_lot::Mutex::new(HashMap::new()),
             questions: parking_lot::Mutex::new(HashMap::new()),
             sse_tasks: parking_lot::Mutex::new(HashMap::new()),
+            sse_transport: parking_lot::Mutex::new(HashMap::new()),
         })
     }
+
+    fn sse_transport_entry(&self, directory: &str) -> SseTransportState {
+        self.sse_transport
+            .lock()
+            .get(directory)
+            .copied()
+            .unwrap_or_default()
+    }
+
+    pub(super) fn mark_sse_disconnected(&self, directory: &str) {
+        let mut transport = self.sse_transport.lock();
+        let entry = transport.entry(directory.to_string()).or_default();
+        entry.connected = false;
+        entry.reconnecting_since = Some(std::time::Instant::now());
+    }
+
+    pub(super) fn mark_sse_connected(&self, directory: &str) {
+        let now = std::time::Instant::now();
+        {
+            let mut transport = self.sse_transport.lock();
+            let entry = transport.entry(directory.to_string()).or_default();
+            entry.connected = true;
+            entry.last_read_at = Some(now);
+            entry.reconnecting_since = None;
+        }
+        self.refresh_active_turn_clocks_for_directory(directory);
+    }
+
+    pub(super) fn touch_sse_read(&self, directory: &str) {
+        let mut transport = self.sse_transport.lock();
+        let entry = transport.entry(directory.to_string()).or_default();
+        entry.last_read_at = Some(std::time::Instant::now());
+    }
+
+    /// While SSE is down or reconnecting, the stuck-turn watchdog must not
+    /// count silence toward [`FIRST_OUTPUT_TIMEOUT`].
+    pub(super) fn sse_watchdog_paused(&self, directory: &str) -> bool {
+        let entry = self.sse_transport_entry(directory);
+        !entry.connected || entry.reconnecting_since.is_some()
+    }
+
+    pub(super) fn touch_turn_transport_activity(&self, session_id: &str) {
+        let mut routes = self.routes.lock();
+        if let Some(route) = routes.get_mut(session_id) {
+            if route.turn_active {
+                route.turn_last_event_at = std::time::Instant::now();
+            }
+        }
+    }
+
+    pub(super) fn refresh_active_turn_clocks_for_directory(&self, directory: &str) {
+        let now = std::time::Instant::now();
+        let mut routes = self.routes.lock();
+        for route in routes.values_mut() {
+            if route.directory == directory && route.turn_active {
+                route.turn_last_event_at = now;
+            }
+        }
+    }
+}
+
+/// SSE events that indicate opencode is still working on an active turn.
+pub(super) fn is_turn_progress_event(event_type: &str) -> bool {
+    matches!(
+        event_type,
+        "message.part.delta"
+            | "message.part.updated"
+            | "message.updated"
+            | "session.status"
+            | "session.error"
+    )
 }
 
 fn canonical_dir(worktree: &str) -> String {
@@ -684,12 +778,22 @@ fn spawn_stuck_turn_watchdog(shared: &Arc<Shared>, session_id: &str, turn_seq: u
                 let p = shared.permissions.lock();
                 let has_perm = p.values().any(|sid| sid == &session_id);
                 drop(p);
-                has_perm || shared.questions.lock().values().any(|sid| sid == &session_id)
+                has_perm
+                    || shared
+                        .questions
+                        .lock()
+                        .values()
+                        .any(|sid| sid == &session_id)
             };
             if waiting_on_user {
                 continue;
             }
-            if let Some((message, next_ms)) = retry_status_for(&shared, &directory, &session_id).await {
+            if shared.sse_watchdog_paused(&directory) {
+                continue;
+            }
+            if let Some((message, next_ms)) =
+                retry_status_for(&shared, &directory, &session_id).await
+            {
                 let now_ms = std::time::SystemTime::now()
                     .duration_since(std::time::UNIX_EPOCH)
                     .map(|d| d.as_millis() as i64)
@@ -795,7 +899,10 @@ pub(crate) async fn abort_turn_with_error(
         &event_tx,
         session_id,
         amux::AcpEvent {
-            event: Some(amux::acp_event::Event::Error(amux::AcpError { message, details })),
+            event: Some(amux::acp_event::Event::Error(amux::AcpError {
+                message,
+                details,
+            })),
             model: String::new(),
         },
         reply_to.clone(),
@@ -870,7 +977,9 @@ async fn answer_question(shared: &Arc<Shared>, request_id: &str, answers_json: &
     } else {
         let answers: serde_json::Value =
             serde_json::from_str(answers_json).unwrap_or_else(|_| serde_json::json!([]));
-        client.question_reply(&directory, request_id, &answers).await
+        client
+            .question_reply(&directory, request_id, &answers)
+            .await
     };
     if let Err(e) = result {
         warn!(request_id, session_id = %session_id, error = %e, "question reply failed");
@@ -1253,5 +1362,127 @@ mod pool_tests {
         let candidates = vec!["amuxd-send".to_string(), "remote-tools".to_string()];
         let prunable = prunable_mcp_names(&routes, "me", "/ws", &candidates);
         assert_eq!(prunable, vec!["remote-tools".to_string()]);
+    }
+}
+
+#[cfg(test)]
+mod turn_activity_tests {
+    use super::*;
+    use tokio::sync::mpsc;
+
+    fn test_route(directory: &str) -> Route {
+        let (tx, _rx) = mpsc::channel(1);
+        Route {
+            event_tx: tx,
+            is_gateway: false,
+            directory: directory.to_string(),
+            model: None,
+            turn_active: true,
+            turn_reply_to: None,
+            turn_requester: None,
+            turn_seq: 1,
+            turn_saw_output: false,
+            turn_last_event_at: std::time::Instant::now()
+                .checked_sub(std::time::Duration::from_secs(90))
+                .unwrap_or_else(std::time::Instant::now),
+            translate: TranslateState::default(),
+            injected_mcp: Vec::new(),
+        }
+    }
+
+    #[test]
+    fn turn_progress_event_classification() {
+        assert!(is_turn_progress_event("message.part.updated"));
+        assert!(is_turn_progress_event("message.part.delta"));
+        assert!(is_turn_progress_event("session.status"));
+        assert!(is_turn_progress_event("session.error"));
+        assert!(!is_turn_progress_event("session.updated"));
+        assert!(!is_turn_progress_event("session.idle"));
+    }
+
+    #[test]
+    fn deduped_tool_running_still_refreshes_transport_clock() {
+        let shared = Shared::new();
+        let running = serde_json::json!({"sessionID":"ses_1","part":{
+            "id":"prt_t","messageID":"msg_a1","sessionID":"ses_1","type":"tool",
+            "callID":"call_1","tool":"bash",
+            "state":{"status":"running","input":{"command":"sleep 300"},"title":"Sleep","time":{"start":1}}
+        },"time":1.0});
+        {
+            let mut routes = shared.routes.lock();
+            routes.insert("ses_1".to_string(), test_route("/ws"));
+        }
+        let mut state = TranslateState::default();
+        let props = running.clone();
+        let first = translate::translate_event(&mut state, "message.part.updated", &props);
+        assert_eq!(first.len(), 1, "first running update should emit ToolUse");
+        let second = translate::translate_event(&mut state, "message.part.updated", &props);
+        assert!(second.is_empty(), "identical running update is deduped");
+
+        shared.touch_turn_transport_activity("ses_1");
+        let elapsed = shared
+            .routes
+            .lock()
+            .get("ses_1")
+            .unwrap()
+            .turn_last_event_at
+            .elapsed();
+        assert!(
+            elapsed < std::time::Duration::from_secs(2),
+            "transport touch should refresh watchdog clock even when translate dedupes"
+        );
+    }
+
+    #[test]
+    fn sse_reconnect_pauses_watchdog_until_subscribed() {
+        let shared = Shared::new();
+        let dir = "/ws";
+        assert!(shared.sse_watchdog_paused(dir));
+
+        shared.mark_sse_connected(dir);
+        assert!(!shared.sse_watchdog_paused(dir));
+
+        shared.mark_sse_disconnected(dir);
+        assert!(shared.sse_watchdog_paused(dir));
+    }
+
+    #[test]
+    fn sse_reconnect_refreshes_active_turn_clocks_for_directory() {
+        let shared = Shared::new();
+        {
+            let mut routes = shared.routes.lock();
+            routes.insert("ses_1".to_string(), test_route("/ws"));
+            routes.insert(
+                "ses_2".to_string(),
+                Route {
+                    turn_active: false,
+                    ..test_route("/ws")
+                },
+            );
+            routes.insert(
+                "ses_3".to_string(),
+                Route {
+                    directory: "/other".to_string(),
+                    ..test_route("/other")
+                },
+            );
+        }
+        shared.mark_sse_connected("/ws");
+        let elapsed = shared
+            .routes
+            .lock()
+            .get("ses_1")
+            .unwrap()
+            .turn_last_event_at
+            .elapsed();
+        assert!(elapsed < std::time::Duration::from_secs(2));
+        let idle_elapsed = shared
+            .routes
+            .lock()
+            .get("ses_2")
+            .unwrap()
+            .turn_last_event_at
+            .elapsed();
+        assert!(idle_elapsed >= std::time::Duration::from_secs(80));
     }
 }

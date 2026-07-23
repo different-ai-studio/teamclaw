@@ -37,11 +37,12 @@ impl DaemonServer {
     /// workspace: `(worktree_path, extra_env, force_env_override)`.
     ///
     /// Reusing `assemble_spawn_runtime_env_for_worktree` here is deliberate: it
-    /// (a) writes `provider.team` into each workspace's `opencode.json` so the
-    /// prewarmed host advertises the team model list, (b) warms the
-    /// `managed_llm_cache` so the first real session skips the cloud round-trip,
-    /// and (c) yields the exact `extra_env` the first `attach_session` will use,
-    /// so the prewarmed host's `env_fingerprint` matches and gets reused.
+    /// (a) syncs `provider.team` into each workspace's `opencode.json` (via
+    /// `sync_team_provider_on_disk`) so the prewarmed host advertises the team
+    /// model list, (b) warms the `managed_llm_cache` so the first real session
+    /// skips the cloud round-trip, and (c) yields the exact `extra_env` the first
+    /// `attach_session` will use, so the prewarmed host's `env_fingerprint`
+    /// matches and gets reused.
     ///
     /// Covering every workspace (not just the first) matters because sessions
     /// and cron runs are not confined to the list head: cron's default
@@ -126,15 +127,12 @@ impl DaemonServer {
             .map(|_| crate::config::DaemonConfig::cloud_token_path())
             .map(|p| p.to_string_lossy().into_owned());
 
-        // Suppress immediately before sync disk writes (inherent MCP, provider.team,
-        // secret-ref resolve). Callers must not rely on a suppress issued before
-        // the awaits above.
+        // Suppress immediately before sync disk writes (inherent MCP, then
+        // provider.team + secret resolve via sync_team_provider_on_disk). Callers
+        // must not rely on a suppress issued before the awaits above.
         self.suppress_internal_opencode_writes(worktree);
-        crate::runtime::supervisor::materialize_opencode_for_spawn(
-            Path::new(worktree),
-            &managed_llm,
-        )
-        .map_err(|e| format!("materialize_opencode_for_spawn failed: {e}"))?;
+        crate::runtime::supervisor::materialize_inherent_mcp_for_spawn(Path::new(worktree))
+            .map_err(|e| format!("materialize_inherent_mcp_for_spawn failed: {e}"))?;
         crate::runtime::env_assembly::assemble_spawn_runtime_env(
             Path::new(worktree),
             team_id.as_deref(),

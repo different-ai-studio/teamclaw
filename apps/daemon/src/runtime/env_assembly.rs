@@ -6,13 +6,13 @@ use crate::team_shared_env;
 
 use super::SpawnRuntimeEnv;
 
-/// Assemble personal + team + system env and resolve `${KEY}` placeholders in
-/// `opencode.json` before attaching an ACP host.
+/// Assemble personal + team + system env, materialize `provider.team`, and resolve
+/// `${KEY}` placeholders in `opencode.json` before attaching an ACP host.
 ///
 /// `managed_llm` is the team's shared LLM as resolved from the cloud API (base
-/// URL + model list). It is threaded straight into `opencode.json`'s
-/// `provider.team`; the secret (`tc_api_key`) is never sourced from it — it is
-/// derived locally from `actor_id` inside `assemble_runtime_env`.
+/// URL + model list). It is written to `opencode.json`'s `provider.team` inside
+/// [`teamclaw_runtime_env::assemble_runtime_env`]; the secret (`tc_api_key`) is
+/// derived locally from `actor_id`, never sourced from the cloud config.
 pub fn assemble_spawn_runtime_env(
     workspace_root: &Path,
     team_id: Option<&str>,
