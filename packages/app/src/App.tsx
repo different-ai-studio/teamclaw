@@ -11,6 +11,7 @@ import i18n from "@/lib/i18n";
 import { Toaster, toast } from "sonner";
 import { cn, isTauri, removeStartupSkeleton } from "@/lib/utils";
 import { capabilities, isChromeExtension } from "@/lib/platform";
+import { isSoloBuild } from "@/lib/solo-build";
 import { scheduleReleaseStuckModalLayers } from "@/lib/modal-layer-cleanup";
 import { appDisplayName, buildConfig } from "@/lib/build-config";
 import { buildSessionDeeplink } from "@/lib/session-deeplink";
@@ -2620,7 +2621,7 @@ function AppContent() {
             >
               {activeSession?.title || t("chat.newChat", "New Chat")}
             </button>
-            {activeSession && (
+            {activeSession && !isSoloBuild() && (
               <button
                 onClick={async () => {
                   setIsRefreshingMessages(true);
@@ -2681,7 +2682,7 @@ function AppContent() {
               {capabilities.workspace && workspacePath && (
                 <TerminalToggleButton workspacePath={workspacePath} />
               )}
-              {hasCurrentSession && (
+              {hasCurrentSession && !isSoloBuild() && (
                 <HeaderPanelTab
                   icon={Users}
                   label={t("chat.actorSheet.title", "Actors")}
