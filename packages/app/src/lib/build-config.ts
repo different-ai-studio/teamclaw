@@ -1,6 +1,20 @@
 // Build-time configuration injected by Vite's `define` from build.config.json.
 // See build.config.example.json for all available fields.
 
+import {
+  DEFAULT_EXTENSION_PACK_CONFIG,
+  parseExtensionPackConfig,
+  type ExtensionPackConfig,
+  type ExtensionSettingsBake,
+} from './extension-settings-bake'
+
+export type {
+  ExtensionSettingsBake,
+  ExtensionLinkHoverBake,
+  ExtensionPackConfig,
+} from './extension-settings-bake'
+
+
 export interface ChannelsFeatureConfig {
   discord: boolean
   feishu: boolean
@@ -91,6 +105,15 @@ export interface BuildConfig {
   defaults: {
     theme: string
   }
+  /**
+   * Chrome extension pack options (`solo`, side-panel `domains`, `settings`).
+   * Sole source for extension packaging — no SOLO/DOMAINS CLI overrides.
+   */
+  extensions?: Partial<ExtensionPackConfig> & {
+    settings?: Partial<ExtensionSettingsBake> & {
+      linkHover?: Partial<ExtensionSettingsBake['linkHover']>
+    }
+  }
 }
 
 const allChannelsEnabled: ChannelsFeatureConfig = {
@@ -169,3 +192,20 @@ export const TEAMCLAW_DIR = `.${appShortName}`
 export const TEAM_REPO_DIR = 'teamclaw-team'
 export const CONFIG_FILE_NAME = `${appShortName}.json`
 export const TEAM_SYNCED_EVENT = `${appShortName}-team-synced`
+
+/** Baked Chrome-extension pack config (`extensions` in build.config*.json). */
+export const extensionPack: ExtensionPackConfig = parseExtensionPackConfig(
+  buildConfig.extensions ?? DEFAULT_EXTENSION_PACK_CONFIG,
+)
+
+/** Baked Chrome-extension settings (`extensions.settings`). */
+export const extensionSettings: ExtensionSettingsBake = extensionPack.settings
+
+/** When true, the extension side-panel hides the settings gear button. */
+export const hideExtensionSettingsButton: boolean = extensionSettings.hideButton === true
+
+/** Solo-agent extension build (`extensions.solo`). */
+export const extensionSoloBuild: boolean = extensionPack.solo === true
+
+/** Side-panel host gate patterns (`extensions.domains`). Empty = ungated. */
+export const extensionSidePanelDomains: readonly string[] = extensionPack.domains

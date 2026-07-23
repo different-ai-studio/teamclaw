@@ -6,6 +6,17 @@ const BTN_WIDTH = 106
 const BTN_HEIGHT = 28
 const GAP = 8
 
+/** Prefer the packed extension name so brand builds rename the affordance. */
+export function getLinkHoverBrandLabel(): string {
+  try {
+    const name = chrome.runtime?.getManifest?.()?.name?.trim()
+    if (name) return name
+  } catch {
+    // Non-extension test env — fall through.
+  }
+  return 'TeamClaw'
+}
+
 /** http(s) navigational anchors only — skip mailto, javascript:, hash-only, etc. */
 export function isActionableLink(el: Element | null): el is HTMLAnchorElement {
   if (!el || el.localName?.toLowerCase() !== 'a') return false
@@ -22,10 +33,21 @@ export function isActionableLink(el: Element | null): el is HTMLAnchorElement {
   }
 }
 
-export function findActionableLinkFromTarget(target: EventTarget | null): HTMLAnchorElement | null {
+export function isHoverableLink(
+  el: Element | null,
+  matchesLinkUrl: (url: string) => boolean,
+): el is HTMLAnchorElement {
+  if (!isActionableLink(el)) return false
+  return matchesLinkUrl(el.href)
+}
+
+export function findActionableLinkFromTarget(
+  target: EventTarget | null,
+  matchesLinkUrl: (url: string) => boolean = () => true,
+): HTMLAnchorElement | null {
   if (!target || typeof (target as Element).closest !== 'function') return null
   const link = (target as Element).closest('a')
-  return isActionableLink(link) ? link : null
+  return isHoverableLink(link, matchesLinkUrl) ? link : null
 }
 
 export type LinkHoverMount = {
@@ -38,8 +60,12 @@ export function mountLinkHover(deps: {
   doc: Document
   win: Window
   onOpen: (link: HTMLAnchorElement) => void
+  /** When false, hover affordance is skipped for that href. Default: allow all. */
+  matchesLinkUrl?: (url: string) => boolean
 }): LinkHoverMount {
   const { doc, win, onOpen } = deps
+  const matchesLinkUrl = deps.matchesLinkUrl ?? (() => true)
+  const brandLabel = getLinkHoverBrandLabel()
 
   const host = doc.createElement('div')
   host.id = 'teamclaw-link-hover-host'
@@ -112,12 +138,12 @@ export function mountLinkHover(deps: {
   const btn = doc.createElement('button')
   btn.type = 'button'
   btn.className = 'btn'
-  btn.title = '用 TeamClaw 问 Agent'
+  btn.title = `用 ${brandLabel} 问 Agent`
   const aiPill = doc.createElement('span')
   aiPill.className = 'ai-pill'
   aiPill.textContent = 'AI'
   btn.appendChild(aiPill)
-  btn.appendChild(doc.createTextNode('TeamClaw'))
+  btn.appendChild(doc.createTextNode(brandLabel))
 
   wrap.appendChild(btn)
   shadow.append(style, wrap)
@@ -237,7 +263,7 @@ export function mountLinkHover(deps: {
       if (!(el instanceof Element)) continue
       if (host === el || host.contains(el) || shadow.contains(el)) continue
       const link = el.closest('a')
-      if (isActionableLink(link)) return link
+      if (isHoverableLink(link, matchesLinkUrl)) return link
     }
     return null
   }
@@ -253,7 +279,7 @@ export function mountLinkHover(deps: {
         return
       }
       const link =
-        findActionableLinkFromTarget(e.target) ??
+        findActionableLinkFromTarget(e.target, matchesLinkUrl) ??
         linkAtPoint(e.clientX, e.clientY)
       if (link) {
         showFor(link)

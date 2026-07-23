@@ -16,10 +16,6 @@ interface ImportMetaEnv {
   readonly VITE_TEAMCLAW_SKIP_DAEMON_ONBOARDING?: string;
   /** Extension embed build: force chat-only shell (apps/extension/build.mjs). */
   readonly VITE_FORCE_EMBED?: string;
-  /** Extension solo build: hide permission control + model on mention pills. */
-  readonly VITE_SOLO?: string;
-  /** Extension domain gate: comma-separated host patterns (e.g. `*.shopee.io,admin.example.com`). */
-  readonly VITE_SIDE_PANEL_DOMAINS?: string;
 }
 
 interface ImportMeta {
@@ -27,6 +23,8 @@ interface ImportMeta {
 }
 
 declare const __BUILD_CONFIG__: import('./lib/build-config').BuildConfig | undefined
+/** Baked `extensions.settings` from build.config*.json (Vite + extension content-script). */
+declare const __TEAMCLAW_EXTENSION_SETTINGS__: unknown | undefined
 
 declare module '*.css' {
   const content: string

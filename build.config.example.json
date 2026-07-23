@@ -27,7 +27,13 @@
       "wecom": true,
       "wechat": true
     },
-    "auth": { "google": false, "wechat": false, "phone": false, "webSSO": false, "webSSOHosts": [] },
+    "auth": {
+      "google": false,
+      "wechat": false,
+      "phone": false,
+      "webSSO": false,
+      "webSSOHosts": []
+    },
     "teamShareBrowser": false
   },
   "localAgent": "opencode",
@@ -36,5 +42,22 @@
   },
   "defaults": {
     "theme": "system"
+  },
+  "extensions": {
+    "solo": true,
+    "domains": [
+      "*.example.com"
+    ],
+    "settings": {
+      "hideButton": false,
+      "linkHover": {
+        "domains": [
+          "example.com"
+        ],
+        "urlPatterns": [
+          "*/example/*"
+        ]
+      }
+    }
   }
 }

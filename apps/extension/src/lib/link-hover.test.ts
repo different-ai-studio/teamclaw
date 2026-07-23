@@ -1,5 +1,10 @@
-import { describe, expect, it } from 'vitest'
-import { findActionableLinkFromTarget, isActionableLink } from './link-hover'
+import { describe, expect, it, vi, afterEach } from 'vitest'
+import {
+  findActionableLinkFromTarget,
+  getLinkHoverBrandLabel,
+  isActionableLink,
+  isHoverableLink,
+} from './link-hover'
 
 function fakeAnchor(href: string, localName = 'a'): HTMLAnchorElement {
   return {
@@ -12,6 +17,26 @@ function fakeAnchor(href: string, localName = 'a'): HTMLAnchorElement {
     },
   } as unknown as HTMLAnchorElement
 }
+
+describe('getLinkHoverBrandLabel', () => {
+  afterEach(() => {
+    vi.unstubAllGlobals()
+  })
+
+  it('reads chrome.runtime.getManifest().name', () => {
+    vi.stubGlobal('chrome', {
+      runtime: { getManifest: () => ({ name: 'Copilot361' }) },
+    })
+    expect(getLinkHoverBrandLabel()).toBe('Copilot361')
+  })
+
+  it('falls back when manifest name is missing', () => {
+    vi.stubGlobal('chrome', {
+      runtime: { getManifest: () => ({}) },
+    })
+    expect(getLinkHoverBrandLabel()).toBe('TeamClaw')
+  })
+})
 
 describe('isActionableLink', () => {
   it('accepts http(s) links', () => {
@@ -27,6 +52,16 @@ describe('isActionableLink', () => {
   })
 })
 
+describe('isHoverableLink', () => {
+  it('applies the url matcher on top of actionable links', () => {
+    const link = fakeAnchor('https://example.com/tickets/1')
+    expect(isHoverableLink(link, () => true)).toBe(true)
+    expect(isHoverableLink(link, (url) => url.includes('/tickets/'))).toBe(true)
+    expect(isHoverableLink(link, () => false)).toBe(false)
+    expect(isHoverableLink(fakeAnchor('#x'), () => true)).toBe(false)
+  })
+})
+
 describe('findActionableLinkFromTarget', () => {
   it('walks up to the nearest anchor', () => {
     const a = fakeAnchor('https://example.com')
@@ -34,5 +69,13 @@ describe('findActionableLinkFromTarget', () => {
       closest: (sel: string) => (sel === 'a' ? a : null),
     } as unknown as Element
     expect(findActionableLinkFromTarget(span)).toBe(a)
+  })
+
+  it('respects the url matcher', () => {
+    const a = fakeAnchor('https://example.com/home')
+    const span = {
+      closest: (sel: string) => (sel === 'a' ? a : null),
+    } as unknown as Element
+    expect(findActionableLinkFromTarget(span, () => false)).toBeNull()
   })
 })

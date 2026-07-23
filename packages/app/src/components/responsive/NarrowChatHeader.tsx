@@ -11,6 +11,7 @@ import {
 } from '@/components/ui/dropdown-menu'
 import { SessionListColumn } from '@/components/sidebar/SessionListColumn'
 import { TrafficLights } from '@/components/ui/traffic-lights'
+import { hideExtensionSettingsButton } from '@/lib/build-config'
 import { capabilities } from '@/lib/platform'
 import { createQuickSession, describeQuickSessionFailure } from '@/lib/create-quick-session'
 import { useUIStore } from '@/stores/ui'
@@ -27,6 +28,7 @@ export function NarrowChatHeader() {
   const [creatingSession, setCreatingSession] = React.useState(false)
 
   const showHeaderNewChat = currentView === 'chat' && !!activeSessionId
+  const showSettingsButton = !hideExtensionSettingsButton
 
   const handleQuickNewChat = React.useCallback(() => {
     if (creatingSession) return
@@ -108,31 +110,33 @@ export function NarrowChatHeader() {
           <List className="h-4 w-4" />
         </Button>
 
-        {capabilities.pageCapture ? (
-          <Button
-            variant="ghost"
-            size="icon"
-            className="h-8 w-8"
-            onClick={() => useUIStore.getState().openSettings()}
-            title={t('navigation.settings', 'Settings')}
-          >
-            <Settings className="h-4 w-4" />
-          </Button>
-        ) : (
-          <DropdownMenu open={moreOpen} onOpenChange={setMoreOpen} modal={false}>
-            <DropdownMenuTrigger asChild>
-              <Button variant="ghost" size="icon" className="h-8 w-8">
-                <MoreHorizontal className="h-4 w-4" />
-              </Button>
-            </DropdownMenuTrigger>
-            <DropdownMenuContent align="end">
-              <DropdownMenuItem onSelect={openSettings}>
-                <Settings className="mr-2 h-4 w-4" />
-                {t('navigation.settings', 'Settings')}
-              </DropdownMenuItem>
-            </DropdownMenuContent>
-          </DropdownMenu>
-        )}
+        {showSettingsButton ? (
+          capabilities.pageCapture ? (
+            <Button
+              variant="ghost"
+              size="icon"
+              className="h-8 w-8"
+              onClick={() => useUIStore.getState().openSettings()}
+              title={t('navigation.settings', 'Settings')}
+            >
+              <Settings className="h-4 w-4" />
+            </Button>
+          ) : (
+            <DropdownMenu open={moreOpen} onOpenChange={setMoreOpen} modal={false}>
+              <DropdownMenuTrigger asChild>
+                <Button variant="ghost" size="icon" className="h-8 w-8">
+                  <MoreHorizontal className="h-4 w-4" />
+                </Button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="end">
+                <DropdownMenuItem onSelect={openSettings}>
+                  <Settings className="mr-2 h-4 w-4" />
+                  {t('navigation.settings', 'Settings')}
+                </DropdownMenuItem>
+              </DropdownMenuContent>
+            </DropdownMenu>
+          )
+        ) : null}
       </div>
 
       <Sheet open={sheetOpen} onOpenChange={setSheetOpen}>

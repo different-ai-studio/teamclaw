@@ -238,8 +238,8 @@ pub struct MaterializeTeamMcpResponse {
 pub async fn materialize_team_mcp_via_daemon(
     workspace_path: &str,
 ) -> Result<MaterializeTeamMcpResponse, String> {
-    let (base, root_token) = daemon_http_base()
-        .ok_or_else(|| "daemon http port/token files not present".to_string())?;
+    let (base, root_token) =
+        daemon_http_base().ok_or_else(|| "daemon http port/token files not present".to_string())?;
     let client = reqwest::Client::new();
     let exchange: DaemonAuthExchangeResponse = client
         .post(format!("{base}/v1/auth/exchange"))

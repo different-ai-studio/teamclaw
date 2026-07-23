@@ -22,6 +22,14 @@ vi.mock('@/lib/platform', () => ({
   capabilities: { pageCapture: true },
 }))
 
+vi.mock('@/lib/build-config', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@/lib/build-config')>()
+  return {
+    ...actual,
+    hideExtensionSettingsButton: false,
+  }
+})
+
 const createQuickSession = vi.fn()
 vi.mock('@/lib/create-quick-session', () => ({
   createQuickSession: (...args: unknown[]) => createQuickSession(...args),

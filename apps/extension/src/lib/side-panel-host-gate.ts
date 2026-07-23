@@ -1,6 +1,6 @@
 /**
  * Publish active-tab host-gate state for the domain-gated side panel.
- * No-op when __SIDE_PANEL_DOMAINS__ is empty (ungated builds).
+ * No-op when extensions.domains is empty (ungated builds).
  *
  * Keeps the panel window-scoped (never binds tabId). Non-allowed tabs get an
  * in-panel overlay via storage / runtime message — we do not disable/close the

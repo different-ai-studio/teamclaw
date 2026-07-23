@@ -1,9 +1,11 @@
+import { extensionSoloBuild } from '@/lib/build-config'
+
 /**
- * Compile-time flag set when packaging the Chrome extension with
- * `SOLO=1` / `--solo` (see apps/extension/build.mjs).
- * Solo-agent build: hide permission control + model on mention pills.
+ * Solo-agent extension build (`extensions.solo` in build.config*.json).
+ * Only applies to extension embed packs (`VITE_FORCE_EMBED=chat`).
+ * Hides permission control + model on mention pills; forces narrow layout.
  */
 export function isSoloBuild(): boolean {
-  const v = import.meta.env.VITE_SOLO
-  return v === 'true' || v === '1'
+  if (import.meta.env.VITE_FORCE_EMBED !== 'chat') return false
+  return extensionSoloBuild
 }

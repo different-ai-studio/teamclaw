@@ -2,7 +2,7 @@ import { useTranslation } from 'react-i18next'
 import { useSidePanelHostGate } from '@/hooks/use-side-panel-host-gate'
 
 /**
- * Full-panel overlay when the active tab is outside the build-time DOMAINS allowlist.
+ * Full-panel overlay when the active tab is outside the build-time domains allowlist.
  * Does not close the side panel (reopen would need a user gesture).
  */
 export function SidePanelHostGateOverlay() {
@@ -20,12 +20,6 @@ export function SidePanelHostGateOverlay() {
     >
       <p className="text-[15px] font-semibold text-foreground">
         {t('settings.extension.hostGate.title', 'Unavailable on this page')}
-      </p>
-      <p className="max-w-[280px] text-[12.5px] leading-relaxed text-muted-foreground">
-        {t(
-          'settings.extension.hostGate.description',
-          'TeamClaw is limited to allowlisted sites in this build. Switch back to an allowed tab to continue.',
-        )}
       </p>
     </div>
   )

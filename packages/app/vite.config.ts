@@ -132,6 +132,9 @@ export default defineConfig({
   },
   define: {
     __BUILD_CONFIG__: JSON.stringify(buildConfig),
+    __TEAMCLAW_EXTENSION_SETTINGS__: JSON.stringify(
+      (buildConfig as { extensions?: { settings?: unknown } }).extensions?.settings ?? {},
+    ),
     // Inject build config defaults into import.meta.env so they work without .env files
     'import.meta.env.VITE_LOCALE': JSON.stringify((buildConfig as any).defaults?.locale ?? ''),
     'import.meta.env.PACKAGE_VERSION': JSON.stringify(
