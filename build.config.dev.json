@@ -21,6 +21,7 @@
     "auth": { "google": false, "wechat": false, "phone": false, "webSSO": true },
     "teamShareBrowser": true
   },
+  "localAgent": "pi",
   "opencode": {
     "downloadBase": "https://teamclaw.ucar.cc/opencode/stable"
   },

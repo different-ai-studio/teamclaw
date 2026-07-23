@@ -98,7 +98,10 @@ async function _fetchConnection(info?: DaemonHttpInfo | null): Promise<DaemonCon
         Authorization: `Bearer ${resolved.root_token}`,
       },
       body: JSON.stringify({
-        scopes: ['workspace:read', 'workspace:write', 'sessions:read', 'sessions:write', 'events:read'],
+        // 'admin' authorizes daemon-level config reads/writes (`/v1/config/*`,
+        // e.g. switching `agents.local_agent` between opencode and pi). The
+        // local desktop app owns its daemon, so it is the legitimate admin.
+        scopes: ['workspace:read', 'workspace:write', 'sessions:read', 'sessions:write', 'events:read', 'admin'],
         ttl_seconds: 3600,
       }),
     })
@@ -267,6 +270,46 @@ async function daemonFetchData<T>(path: string, init?: RequestInit): Promise<T> 
   const result = await daemonFetch<T>(path, init)
   if (!result.ok) throw new Error(result.error)
   return result.data
+}
+
+// ─── Local agent runtime (`agents.local_agent` in daemon.toml) ────────────────
+
+/** The local agent runtimes the daemon can drive. */
+export type DaemonLocalAgent = 'opencode' | 'pi'
+
+interface DaemonConfigEntry {
+  key: string
+  value: unknown
+  display: string
+  secret: boolean
+}
+
+/**
+ * Read the daemon's configured local agent runtime. An unset key (older
+ * daemon.toml with no `agents.local_agent`) means the "opencode" default.
+ */
+export async function getDaemonLocalAgent(): Promise<DaemonLocalAgent> {
+  const result = await daemonFetch<DaemonConfigEntry>('/v1/config/agents.local_agent')
+  if (!result.ok) {
+    // 404 = key absent → daemon default. Anything else: fall back conservatively.
+    return 'opencode'
+  }
+  return result.data.value === 'pi' ? 'pi' : 'opencode'
+}
+
+/**
+ * Switch the daemon's local agent runtime. Writes `agents.local_agent`; the
+ * caller must restart the daemon (this key is restart-required) for the new
+ * backend to take effect. Returns whether a restart is required (always true
+ * for this key, surfaced for symmetry with the daemon response).
+ */
+export async function setDaemonLocalAgent(agent: DaemonLocalAgent): Promise<{ requiresRestart: boolean }> {
+  const result = await daemonFetch<{ requiresRestart: boolean }>('/v1/config/agents.local_agent', {
+    method: 'PUT',
+    body: JSON.stringify({ value: agent }),
+  })
+  if (!result.ok) throw new Error(result.error || 'failed to set local agent')
+  return { requiresRestart: result.data.requiresRestart ?? true }
 }
 
 // ─── Workspace-control types (mirrors Rust workspace_control.rs) ──────────────

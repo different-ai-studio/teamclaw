@@ -840,6 +840,7 @@
     "deps": {
       "amuxd": "Agent 守护进程 (amuxd)",
       "opencode": "OpenCode 运行时",
+      "pi": "Pi 运行时",
       "git": "Git"
     }
   },
@@ -858,6 +859,7 @@
     "quotaExceeded": "额度已用尽",
     "rateLimited": "请求频率受限",
     "serverError": "服务器错误",
+    "serviceNotice": "服务提示",
     "loginRequired": "请先登录后再操作。"
   },
   "updater": {
