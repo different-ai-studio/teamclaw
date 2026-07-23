@@ -554,7 +554,11 @@ mod tests {
         // opencode's official installer targets ~/.opencode/bin; when that binary
         // exists the probe must use its absolute path, not the bare PATH name a
         // Finder-launched GUI can't resolve.
-        let bin = if cfg!(windows) { "opencode.exe" } else { "opencode" };
+        let bin = if cfg!(windows) {
+            "opencode.exe"
+        } else {
+            "opencode"
+        };
         let expected = dirs::home_dir().map(|h| h.join(".opencode").join("bin").join(bin));
         let got = probe_program("opencode");
         match expected {
