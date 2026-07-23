@@ -32,8 +32,40 @@ pub fn assemble_spawn_runtime_env(
         },
         managed_llm,
     )?;
+    let mut extra_env = bundle.extra_env;
+    // Backend-neutral team-provider handoff. opencode consumes the team gateway
+    // via `provider.team` in opencode.json (written by `ensure_team_provider`);
+    // other local runtimes (pi, …) that can't read opencode.json instead read
+    // this `TEAMCLAW_TEAM_PROVIDER` env and register the provider themselves.
+    // The secret is NOT embedded — the payload references `${tc_api_key}`, the
+    // same env-interpolated key opencode uses, which is already in `extra_env`.
+    if let ManagedLlmState::Enabled(provider) = managed_llm {
+        let models: Vec<serde_json::Value> = provider
+            .models
+            .iter()
+            .filter(|m| !m.id.is_empty())
+            .map(|m| {
+                serde_json::json!({
+                    "id": m.id,
+                    "name": if m.name.is_empty() { &m.id } else { &m.name },
+                })
+            })
+            .collect();
+        let name = if provider.name.is_empty() {
+            "Team"
+        } else {
+            &provider.name
+        };
+        let payload = serde_json::json!({
+            "name": name,
+            "baseUrl": provider.base_url,
+            "apiKeyEnv": "tc_api_key",
+            "models": models,
+        });
+        extra_env.insert("TEAMCLAW_TEAM_PROVIDER".to_string(), payload.to_string());
+    }
     Ok(SpawnRuntimeEnv {
-        extra_env: bundle.extra_env,
+        extra_env,
         force_env_override: true,
         opencode_json_original: bundle.opencode_json_original,
         is_gateway: false,
