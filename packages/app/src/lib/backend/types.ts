@@ -88,6 +88,10 @@ export interface SessionListEntry {
   mode: "solo" | "collab" | "control";
   idea_id: string | null;
   has_unread: boolean;
+  /** How the session was created: 'user' | 'cron' | 'gateway'. */
+  source?: string | null;
+  /** For source='cron', the cron job id that created it. */
+  cron_job_id?: string | null;
   created_at: string | null;
   updated_at: string | null;
 }
@@ -103,6 +107,8 @@ export interface SessionSyncRow {
   last_message_preview?: string | null;
   last_message_at?: string | null;
   created_by_actor_id?: string | null;
+  source?: string | null;
+  cron_job_id?: string | null;
   created_at: string;
   updated_at: string;
   archived_at?: string | null;
@@ -155,6 +161,8 @@ export interface SessionDetailRow {
   last_message_preview: string | null;
   acp_session_id: string | null;
   binding: string | null;
+  source?: string | null;
+  cron_job_id?: string | null;
   created_at: string | null;
   updated_at: string | null;
 }

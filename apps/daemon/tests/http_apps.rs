@@ -228,6 +228,7 @@ impl Backend for CredentialMockBackend {
         _team_id: &str,
         _primary_agent_actor_id: &str,
         _title: &str,
+        _cron_job_id: Option<&str>,
     ) -> BackendResult<String> {
         unimplemented!("not used by seed test")
     }

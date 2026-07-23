@@ -18,6 +18,11 @@ export const sessions = pgTable("sessions", {
   acpSessionId: text("acp_session_id"),
   /** Gateway binding key (unique per team); used by ensureGatewaySession */
   binding: text("binding"),
+  /** How the session was created: 'user' (default) | 'cron' | 'gateway'. */
+  source: text("source").notNull().default("user"),
+  /** For source='cron': the desktop-local cron job id that created it
+   *  (a daemon-local string id, not a cloud FK). */
+  cronJobId: text("cron_job_id"),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
 }, (t) => ({

@@ -57,6 +57,7 @@ test("listSessions returns canonical contract keys for actor-visible sessions", 
   const contractKeys = [
     "id", "teamId", "title", "mode", "ideaId",
     "lastMessageAt", "lastMessagePreview", "hasUnread",
+    "source", "cronJobId",
     "createdAt", "updatedAt",
   ].sort();
   assert.deepEqual(Object.keys(rows[0]).sort(), contractKeys);

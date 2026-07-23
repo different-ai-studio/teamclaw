@@ -64,6 +64,7 @@ type ListRow = {
   ideaId: string | null
   isPinned: boolean
   hasUnread: boolean
+  source: string | null
 }
 
 function entryToRow(entry: SessionListEntry, isPinned: boolean): ListRow {
@@ -77,6 +78,7 @@ function entryToRow(entry: SessionListEntry, isPinned: boolean): ListRow {
     ideaId: entry.idea_id,
     isPinned,
     hasUnread: entry.has_unread,
+    source: entry.source ?? null,
   }
 }
 
@@ -282,9 +284,11 @@ export function SessionListColumn({
     let base = listRows.map((r) => entryToRow(r, pinnedSet.has(r.id)))
     const isClockView = filter.kind === 'all' && showCronSessions
 
-    base = base.filter((r) =>
-      isClockView ? cronSessionIds.has(r.id) : !cronSessionIds.has(r.id),
-    )
+    // A session is scheduled-origin when its persisted `source` says so. The
+    // local `cronSessionIds` overlay is kept only as an optimistic fallback for
+    // a just-created cron session whose list row hasn't synced `source` yet.
+    const isCron = (r: ListRow) => r.source === 'cron' || cronSessionIds.has(r.id)
+    base = base.filter((r) => (isClockView ? isCron(r) : !isCron(r)))
 
     if (filter.kind === 'pinned') {
       base = base.filter((r) => r.isPinned)

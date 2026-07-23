@@ -113,6 +113,7 @@ pub struct RecordedCronSession {
     pub team_id: String,
     pub primary_agent_actor_id: String,
     pub title: String,
+    pub cron_job_id: Option<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -629,6 +630,7 @@ impl Backend for MockBackend {
         team_id: &str,
         primary_agent_actor_id: &str,
         title: &str,
+        cron_job_id: Option<&str>,
     ) -> BackendResult<String> {
         let mut st = self.state.lock().unwrap();
         let sid = format!("mock-cron-sess-{}", st.cron_sessions.len() + 1);
@@ -636,6 +638,7 @@ impl Backend for MockBackend {
             team_id: team_id.to_string(),
             primary_agent_actor_id: primary_agent_actor_id.to_string(),
             title: title.to_string(),
+            cron_job_id: cron_job_id.map(|s| s.to_string()),
         });
         st.session_participants_upserted
             .push((sid.clone(), primary_agent_actor_id.to_string()));
@@ -914,7 +917,7 @@ mod tests {
             .insert("agent-1".into(), vec!["admin-1".into(), "admin-2".into()]);
 
         let sid = be
-            .create_cron_session("team-x", "agent-1", "Cron job")
+            .create_cron_session("team-x", "agent-1", "Cron job", Some("job-x"))
             .await
             .unwrap();
         assert!(sid.starts_with("mock-cron-sess-"));

@@ -415,26 +415,6 @@ pub async fn cron_get_runs(
     Ok(instance.storage.get_runs(&job_id, Some(limit)).await)
 }
 
-/// Get all session IDs created by cron jobs for the calling window's workspace.
-#[tauri::command]
-pub async fn cron_get_all_session_ids(
-    window: tauri::WebviewWindow,
-    registry: State<'_, crate::commands::window::WindowRegistry>,
-    cron_state: State<'_, CronState>,
-    scope: Option<CronScope>,
-    workspace_path: Option<String>,
-) -> Result<Vec<String>, String> {
-    let instance = require_instance(
-        scope.unwrap_or_default(),
-        workspace_path,
-        &window,
-        &registry,
-        &cron_state,
-    )
-    .await?;
-    Ok(instance.storage.get_all_session_ids().await)
-}
-
 /// Refresh delivery configs (no-op now — `DeliveryManager` reads config on demand).
 #[tauri::command]
 pub async fn cron_refresh_delivery() -> Result<(), String> {

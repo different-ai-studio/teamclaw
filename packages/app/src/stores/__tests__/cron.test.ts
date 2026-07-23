@@ -73,7 +73,6 @@ describe('cron store', () => {
   it('init calls cron_init and loads jobs', async () => {
     mockInvoke.mockResolvedValueOnce(undefined) // cron_init
     mockInvoke.mockResolvedValueOnce([]) // cron_list_jobs via loadJobs
-    mockInvoke.mockResolvedValueOnce([]) // cron_get_all_session_ids via loadCronSessionIds
     await useCronStore.getState().init()
     expect(mockInvoke).toHaveBeenCalledWith('cron_init', {
       scope: 'global',
@@ -88,7 +87,6 @@ describe('cron store', () => {
       selectedWorkspacePath: null,
     })
     mockInvoke.mockResolvedValueOnce(undefined)
-    mockInvoke.mockResolvedValueOnce([])
     mockInvoke.mockResolvedValueOnce([])
 
     await useCronStore.getState().init()
@@ -106,7 +104,6 @@ describe('cron store', () => {
     })
     mockInvoke.mockResolvedValueOnce(undefined) // cron_init
     mockInvoke.mockResolvedValueOnce([]) // cron_list_jobs
-    mockInvoke.mockResolvedValueOnce([]) // cron_get_all_session_ids
 
     await useCronStore.getState().init()
 
@@ -440,7 +437,6 @@ describe('cron store actions', () => {
     useCronStore.setState({ isInitialized: true })
     mockInvoke.mockResolvedValueOnce(undefined) // cron_init
     mockInvoke.mockResolvedValueOnce([]) // cron_list_jobs
-    mockInvoke.mockResolvedValueOnce([]) // cron_get_all_session_ids
     await useCronStore.getState().reinit()
     expect(useCronStore.getState().isInitialized).toBe(true)
     expect(mockInvoke).toHaveBeenNthCalledWith(1, 'cron_init', {
@@ -473,7 +469,7 @@ describe('cron store actions', () => {
           ranJob = true
           return Promise.resolve(undefined)
         default:
-          return Promise.resolve([]) // cron_get_all_session_ids, cron_list_jobs
+          return Promise.resolve([]) // cron_list_jobs, etc.
       }
     })
 
@@ -537,16 +533,6 @@ describe('cron store actions', () => {
     const runCalls = mockInvoke.mock.calls.filter((c) => c[0] === 'cron_run_job')
     expect(runCalls).toHaveLength(1)
     vi.useRealTimers()
-  })
-
-  it('loadCronSessionIds passes scope args', async () => {
-    mockInvoke.mockResolvedValueOnce(['sess-1'])
-    await useCronStore.getState().loadCronSessionIds()
-    expect(mockInvoke).toHaveBeenCalledWith('cron_get_all_session_ids', {
-      scope: 'global',
-      workspacePath: null,
-    })
-    expect(useCronStore.getState().cronSessionIds).toEqual(new Set(['sess-1']))
   })
 
   it('refreshDelivery invokes cron_refresh_delivery', async () => {

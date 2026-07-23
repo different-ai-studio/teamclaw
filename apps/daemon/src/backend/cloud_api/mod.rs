@@ -1299,6 +1299,7 @@ impl Backend for CloudApiBackend {
         team_id: &str,
         primary_agent_actor_id: &str,
         title: &str,
+        cron_job_id: Option<&str>,
     ) -> BackendResult<String> {
         #[derive(serde::Serialize)]
         struct Body<'a> {
@@ -1307,6 +1308,8 @@ impl Backend for CloudApiBackend {
             #[serde(rename = "primaryAgentActorId")]
             primary_agent_actor_id: &'a str,
             title: &'a str,
+            #[serde(rename = "cronJobId", skip_serializing_if = "Option::is_none")]
+            cron_job_id: Option<&'a str>,
         }
         #[derive(serde::Deserialize)]
         struct Resp {
@@ -1320,6 +1323,7 @@ impl Backend for CloudApiBackend {
                     team_id,
                     primary_agent_actor_id,
                     title,
+                    cron_job_id,
                 },
                 None,
             )
@@ -2185,7 +2189,7 @@ mod tests {
             .await;
         let backend = CloudApiBackend::new(config(&server));
         let session_id = backend
-            .create_cron_session("team-1", "agent-1", "Daily summary")
+            .create_cron_session("team-1", "agent-1", "Daily summary", Some("job-1"))
             .await
             .unwrap();
         assert_eq!(session_id, "session-cron-1");

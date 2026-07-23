@@ -424,7 +424,6 @@ pub fn run() {
             commands::cron::cron_toggle_enabled,
             commands::cron::cron_run_job,
             commands::cron::cron_get_runs,
-            commands::cron::cron_get_all_session_ids,
             commands::cron::cron_refresh_delivery,
             commands::daemon_installer::install_local_daemon,
             commands::daemon_installer::daemon_status,

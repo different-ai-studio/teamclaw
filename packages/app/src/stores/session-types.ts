@@ -197,6 +197,11 @@ export interface Session {
   isArchived?: boolean;
   archivedAt?: Date;
   ideaId?: string | null;
+  /** How the session was created. 'cron' marks sessions auto-created by a
+   *  scheduled task; undefined/'user' for normal sessions. */
+  source?: "user" | "cron" | "gateway";
+  /** For source='cron', the cron job id that created this session. */
+  cronJobId?: string | null;
 }
 
 // Child session (subagent) streaming state

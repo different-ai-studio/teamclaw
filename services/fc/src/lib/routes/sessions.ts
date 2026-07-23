@@ -136,6 +136,7 @@ export function registerSessions(router) {
     for (const k of ["teamId", "primaryAgentActorId", "title"]) {
       requireString(body[k], k);
     }
+    // cronJobId is optional (daemon-local id); passed through when present.
     const out = await ctx.repository.createCronSession(body);
     return { body: out };
   });

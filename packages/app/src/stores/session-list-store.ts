@@ -82,6 +82,10 @@ export interface SessionListEntry {
   mode: "solo" | "collab" | "control";
   idea_id: string | null;
   has_unread: boolean;
+  /** How the session was created: 'user' | 'cron' | 'gateway'. */
+  source?: string | null;
+  /** For source='cron', the cron job id that created it. */
+  cron_job_id?: string | null;
   created_at: string | null;
   updated_at: string | null;
 }
@@ -96,6 +100,8 @@ function mapCacheToEntry(r: SessionRow): SessionListEntry {
     mode: (r.mode as SessionListEntry["mode"]) ?? "solo",
     idea_id: r.ideaId ?? null,
     has_unread: false,
+    source: r.source ?? null,
+    cron_job_id: r.cronJobId ?? null,
     created_at: r.createdAt ?? null,
     updated_at: r.updatedAt ?? null,
   };
@@ -253,6 +259,8 @@ export const useSessionListStore = create<State>((set, get) => ({
         lastMessageAt: r.last_message_at ?? null,
         createdBy: null,
         metadataJson: null,
+        source: r.source ?? null,
+        cronJobId: r.cron_job_id ?? null,
         createdAt: r.created_at ?? new Date().toISOString(),
         updatedAt: r.updated_at ?? new Date().toISOString(),
         deletedAt: null,
