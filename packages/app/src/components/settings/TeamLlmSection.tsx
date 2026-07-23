@@ -98,9 +98,9 @@ export function TeamLlmSection() {
       <div className="flex items-start justify-between">
         <SectionHeader
           icon={Users}
-          title={t('settings.teamLlm.title', '团队共享模型')}
+          title={t('settings.teamLlmSection.title', '团队共享模型')}
           description={t(
-            'settings.teamLlm.description',
+            'settings.teamLlmSection.description',
             '团队共享的 AI 模型代理，供所有 local agent 复用。',
           )}
         />
@@ -110,7 +110,7 @@ export function TeamLlmSection() {
           onClick={() => void handleRefresh()}
           disabled={refreshing}
           className="h-8 shrink-0 gap-1.5 text-xs text-muted-foreground"
-          title={t('settings.teamLlm.refreshTooltip', 'Refresh team-shared model')}
+          title={t('settings.teamLlmSection.refreshTooltip', 'Refresh team-shared model')}
         >
           <RefreshCw className={cn('h-3.5 w-3.5', refreshing && 'animate-spin')} />
           {refreshing
@@ -123,7 +123,7 @@ export function TeamLlmSection() {
       <SettingCard className="!p-3">
         <div className="flex items-center justify-between">
           <span className="text-xs text-muted-foreground">
-            {t('settings.teamLlm.currentRuntime', '当前 Agent 运行时')}
+            {t('settings.teamLlmSection.currentRuntime', '当前 Agent 运行时')}
           </span>
           <span className="inline-flex items-center gap-1.5 rounded-full bg-panel px-2.5 py-1 font-mono text-[12px] text-foreground">
             <AgentIcon className="h-3.5 w-3.5" />
@@ -228,12 +228,12 @@ export function TeamLlmSection() {
         <SettingCard>
           <div className="flex flex-col items-center gap-3 p-6 text-center">
             <p className="text-[12.5px] text-muted-foreground">
-              {t('settings.teamLlm.empty', '团队共享模型未配置。')}
+              {t('settings.teamLlmSection.empty', '团队共享模型未配置。')}
             </p>
             {isTeamOwner ? (
               <Button size="sm" className="gap-1.5" onClick={() => setTeamSharedLlmOpen(true)}>
                 <Settings className="h-3.5 w-3.5" />
-                {t('settings.teamLlm.configure', '配置团队共享模型')}
+                {t('settings.teamLlmSection.configure', '配置团队共享模型')}
               </Button>
             ) : (
               <p className="text-[11px] text-muted-foreground">
