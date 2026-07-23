@@ -2,6 +2,24 @@ use std::collections::HashMap;
 
 use crate::SystemEnvContext;
 
+/// Locally derived LiteLLM virtual key for the given actor (empty → none).
+pub fn tc_api_key_for_actor(actor_id: &str) -> Option<String> {
+    if actor_id.is_empty() {
+        return None;
+    }
+    let suffix: String = actor_id.chars().take(40).collect();
+    Some(format!("sk-tc-{suffix}"))
+}
+
+/// Secrets map for reconcile / lightweight provider.team sync (tc_api_key only).
+pub fn secrets_for_team_provider(actor_id: &str) -> HashMap<String, String> {
+    let mut secrets = HashMap::new();
+    if let Some(key) = tc_api_key_for_actor(actor_id) {
+        secrets.insert("tc_api_key".to_string(), key);
+    }
+    secrets
+}
+
 pub fn merge_env_maps(
     personal: HashMap<String, String>,
     team: HashMap<String, String>,
@@ -12,8 +30,9 @@ pub fn merge_env_maps(
 
     if !system.actor_id.is_empty() {
         merged.insert("actor_id".to_string(), system.actor_id.clone());
-        let suffix: String = system.actor_id.chars().take(40).collect();
-        merged.insert("tc_api_key".to_string(), format!("sk-tc-{suffix}"));
+        if let Some(key) = tc_api_key_for_actor(&system.actor_id) {
+            merged.insert("tc_api_key".to_string(), key);
+        }
     }
     if !system.display_name.is_empty() {
         merged.insert("display_name".to_string(), system.display_name.clone());
@@ -91,6 +110,13 @@ mod tests {
         let out = merge_env_maps(personal, team, &ctx("", ""));
 
         assert_eq!(out.get("FOO").map(String::as_str), Some("team"));
+    }
+
+    #[test]
+    fn secrets_for_team_provider_derives_tc_api_key() {
+        let secrets = secrets_for_team_provider("actor-123");
+        assert_eq!(secrets.get("tc_api_key").map(String::as_str), Some("sk-tc-actor-123"));
+        assert!(secrets_for_team_provider("").is_empty());
     }
 
     #[test]
