@@ -10,7 +10,7 @@ import type { EngagedAgentUiEntry } from '@/hooks/use-engaged-agent-ui-states'
 
 const mocks = vi.hoisted(() => ({
   runtimeStates: {} as Record<string, unknown>,
-  isInternalBuild: vi.fn(() => false),
+  isSoloBuild: vi.fn(() => false),
 }))
 
 vi.mock('react-i18next', () => ({
@@ -28,8 +28,8 @@ vi.mock('@/lib/teamclaw-rpc', () => ({
   setModel: vi.fn(),
 }))
 
-vi.mock('@/lib/internal-build', () => ({
-  isInternalBuild: () => mocks.isInternalBuild(),
+vi.mock('@/lib/solo-build', () => ({
+  isSoloBuild: () => mocks.isSoloBuild(),
 }))
 
 vi.mock('@/lib/teamclaw/ensure-agent-runtime', () => ({
@@ -71,7 +71,7 @@ describe('AgentSelectorDock', () => {
   beforeEach(() => {
     vi.clearAllMocks()
     mocks.runtimeStates = {}
-    mocks.isInternalBuild.mockReturnValue(false)
+    mocks.isSoloBuild.mockReturnValue(false)
     useAgentModelPickStore.setState({ bySessionAgent: {} })
     useActorPresenceStore.setState({ byActorId: {} })
   })
@@ -168,8 +168,8 @@ describe('AgentSelectorDock', () => {
     expect(screen.queryByText('old-model')).not.toBeInTheDocument()
   })
 
-  it('hides model label on the pill in internal builds', async () => {
-    mocks.isInternalBuild.mockReturnValue(true)
+  it('hides model label on the pill in solo builds', async () => {
+    mocks.isSoloBuild.mockReturnValue(true)
     mocks.runtimeStates = {
       'runtime-1': {
         daemonActorId: 'a-1',

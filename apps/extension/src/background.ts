@@ -3,6 +3,7 @@ import { isOpenSidePanel, isRequestPage } from './lib/messages'
 import { isBrowserToolMessage } from './lib/browser-tools/messages'
 import { handleBrowserToolMessage } from './lib/browser-tools/handle-browser-tool'
 import { openSidePanelFromUserGesture } from './lib/open-side-panel'
+import { startSidePanelHostGate } from './lib/side-panel-host-gate'
 
 const SIDE_PANEL_PATH = 'sidepanel/index.html'
 
@@ -60,6 +61,9 @@ chrome.runtime.onInstalled.addListener(() => {
 chrome.runtime.onStartup.addListener(() => {
   void bootstrapSidePanel()
 })
+
+// Domain-gated builds: publish active-tab allow state (overlay in panel, no close).
+startSidePanelHostGate()
 
 chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
   if (isOpenSidePanel(msg)) {

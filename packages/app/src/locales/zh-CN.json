@@ -2028,6 +2028,10 @@
         "title": "通用",
         "description": "浏览器侧边栏的插件设置。"
       },
+      "hostGate": {
+        "title": "当前页面不可用",
+        "description": "此构建仅允许在白名单站点使用 TeamClaw。请切回允许的标签页继续。"
+      },
       "linkHover": {
         "title": "页面快捷按钮",
         "description": "在白名单站点上，悬停任意可点击链接时会显示 TeamClaw 按钮，可将该链接带入侧边栏。",
