@@ -22,6 +22,26 @@ const isSolo =
   process.env.SOLO === 'true' ||
   process.argv.includes('--solo')
 
+/**
+ * DOMAINS / `--domains=` → comma-separated host allowlist for the side panel.
+ * Empty = ungated (global singleton panel on any site).
+ * Example: DOMAINS="*.shopee.io,admin.example.com" pnpm --filter @teamclaw/extension build
+ */
+function readDomains() {
+  const fromEnv = process.env.DOMAINS?.trim()
+  if (fromEnv) return fromEnv
+  const arg = process.argv.find((a) => a.startsWith('--domains='))
+  if (arg) return arg.slice('--domains='.length).trim()
+  return ''
+}
+
+const domainsRaw = readDomains()
+
+const esbuildAliasWithAllowlist = {
+  ...esbuildAlias,
+  '@teamclaw/side-panel-host-allowlist': resolve(appDir, 'src/lib/side-panel-host-allowlist.ts'),
+}
+
 rmSync(dist, { recursive: true, force: true })
 mkdirSync(dist, { recursive: true })
 
@@ -29,7 +49,12 @@ mkdirSync(dist, { recursive: true })
 // EXT_ENV=test targets the wss-capable self-host test deployment
 // (.env.web.test); otherwise the default .env.web is used.
 const webBuildScript = process.env.EXT_ENV === 'test' ? 'build:web:test' : 'build:web'
-console.log('[extension] web build ->', webBuildScript, isSolo ? '(solo)' : '')
+console.log(
+  '[extension] web build ->',
+  webBuildScript,
+  isSolo ? '(solo)' : '',
+  domainsRaw ? `(domains: ${domainsRaw})` : '',
+)
 execSync(`pnpm ${webBuildScript}`, {
   cwd: appDir,
   stdio: 'inherit',
@@ -38,6 +63,7 @@ execSync(`pnpm ${webBuildScript}`, {
     VITE_APP_PLATFORM: 'web',
     VITE_FORCE_EMBED: 'chat',
     ...(isSolo ? { VITE_SOLO: 'true' } : {}),
+    ...(domainsRaw ? { VITE_SIDE_PANEL_DOMAINS: domainsRaw } : {}),
   },
 })
 cpSync(resolve(appDir, 'dist'), resolve(dist, 'sidepanel'), { recursive: true })
@@ -46,12 +72,15 @@ cpSync(resolve(appDir, 'dist'), resolve(dist, 'sidepanel'), { recursive: true })
 await build({
   entryPoints: { background: resolve(here, 'src/background.ts') },
   outdir: dist, bundle: true, format: 'esm', target: 'chrome110', platform: 'browser',
-  alias: esbuildAlias,
+  alias: esbuildAliasWithAllowlist,
+  define: {
+    __SIDE_PANEL_DOMAINS__: JSON.stringify(domainsRaw),
+  },
 })
 await build({
   entryPoints: { 'content-script': resolve(here, 'src/content-script.ts') },
   outdir: dist, bundle: true, format: 'iife', target: 'chrome110', platform: 'browser',
-  alias: esbuildAlias,
+  alias: esbuildAliasWithAllowlist,
 })
 
 // 3) Copy manifest + icons.

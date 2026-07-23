@@ -2010,6 +2010,10 @@
         "title": "General",
         "description": "Extension settings for the browser side panel."
       },
+      "hostGate": {
+        "title": "Unavailable on this page",
+        "description": "TeamClaw is limited to allowlisted sites in this build. Switch back to an allowed tab to continue."
+      },
       "linkHover": {
         "title": "Page quick-open button",
         "description": "On allowlisted sites, hovering any clickable link shows a TeamClaw button to open the side panel with that link.",
