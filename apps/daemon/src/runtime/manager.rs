@@ -286,14 +286,21 @@ impl RuntimeManager {
     }
 
     pub fn launch_config_for(&self, agent_type: amux::AgentType) -> AgentLaunchConfig {
+        if let Some(cfg) = self.launch_configs.get(&agent_type).cloned() {
+            return cfg;
+        }
+        // Every AgentType we can be asked to resolve must have its own entry in
+        // `launch_configs` (populated in daemon/server.rs). Silently falling back
+        // to ClaudeCode's binary here previously caused pi to spawn the `claude`
+        // binary when its own entry was momentarily missing — so a missing entry
+        // is now a loud bug signal, not a quiet substitution.
+        tracing::error!(
+            ?agent_type,
+            "no launch_configs entry for this agent type; falling back to claude-code config — this is a bug, add the missing entry in daemon/server.rs"
+        );
         self.launch_configs
-            .get(&agent_type)
+            .get(&amux::AgentType::ClaudeCode)
             .cloned()
-            .or_else(|| {
-                self.launch_configs
-                    .get(&amux::AgentType::ClaudeCode)
-                    .cloned()
-            })
             .unwrap_or_else(|| AgentLaunchConfig::new("claude", Vec::new(), "claude"))
     }
 

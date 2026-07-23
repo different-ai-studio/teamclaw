@@ -22,6 +22,11 @@ import {
   type CurrentDaemonAgent,
   type TeamMemberOption,
 } from '@/lib/daemon-agent-admin'
+import {
+  getDaemonLocalAgent,
+  setDaemonLocalAgent,
+  type DaemonLocalAgent,
+} from '@/lib/daemon-local-client'
 import { useUIStore } from '@/stores/ui'
 import { cn, isTauri } from '@/lib/utils'
 import { SectionHeader, SettingCard } from './shared'
@@ -58,6 +63,10 @@ export function DaemonGeneralSection() {
   const [daemonTeamId, setDaemonTeamId] = React.useState<string | null>(null)
   const [daemonMqttConnected, setDaemonMqttConnected] = React.useState<boolean | null>(null)
   const [daemonVersion, setDaemonVersion] = React.useState<string | null>(null)
+  // Local agent runtime (`agents.local_agent`): opencode | pi. Switching writes
+  // the daemon config and restarts amuxd so the new backend takes effect.
+  const [localAgent, setLocalAgentState] = React.useState<DaemonLocalAgent | null>(null)
+  const [switchingAgent, setSwitchingAgent] = React.useState(false)
   // When set, render the existing daemon onboarding wizard as an overlay to
   // re-bind the local daemon to the current team.
   const [rebinding, setRebinding] = React.useState(false)
@@ -92,6 +101,66 @@ export function DaemonGeneralSection() {
   React.useEffect(() => {
     void loadDaemonTeamId()
   }, [loadDaemonTeamId])
+
+  const loadLocalAgent = React.useCallback(async () => {
+    if (!isTauri()) return
+    try {
+      setLocalAgentState(await getDaemonLocalAgent())
+    } catch {
+      // Daemon unreachable / not onboarded — leave unknown, the row hides.
+    }
+  }, [])
+
+  React.useEffect(() => {
+    void loadLocalAgent()
+  }, [loadLocalAgent])
+
+  // Switch the local runtime: persist `agents.local_agent`, restart amuxd, then
+  // re-poll until the daemon comes back reporting the new runtime. The daemon
+  // mints a fresh HTTP token on restart; daemonFetch re-exchanges it on 401.
+  const handleSwitchLocalAgent = React.useCallback(
+    async (next: DaemonLocalAgent) => {
+      if (next === localAgent || switchingAgent) return
+      setSwitchingAgent(true)
+      setError(null)
+      const previous = localAgent
+      setLocalAgentState(next) // optimistic
+      try {
+        await setDaemonLocalAgent(next)
+        const { invoke } = await import('@tauri-apps/api/core')
+        await invoke('restart_local_daemon')
+        // Poll for the daemon to come back with the new runtime (bounded).
+        let confirmed = false
+        for (let i = 0; i < 20; i++) {
+          await new Promise((r) => setTimeout(r, 500))
+          try {
+            const current = await getDaemonLocalAgent()
+            if (current === next) {
+              confirmed = true
+              break
+            }
+          } catch {
+            // still restarting
+          }
+        }
+        if (!confirmed) {
+          setError(
+            t(
+              'settings.daemonGeneral.switchTimeout',
+              'Switched runtime, but the daemon did not confirm in time. It may still be restarting.',
+            ),
+          )
+        }
+        setLocalAgentState(next)
+      } catch (e) {
+        setLocalAgentState(previous) // revert on failure
+        setError(e instanceof Error ? e.message : String(e))
+      } finally {
+        setSwitchingAgent(false)
+      }
+    },
+    [localAgent, switchingAgent, t],
+  )
 
   const teamMismatch = !!daemonTeamId && !!team?.id && daemonTeamId !== team.id
 
@@ -445,10 +514,25 @@ export function DaemonGeneralSection() {
               </div>
 
               <dl className="grid grid-cols-[auto_minmax(0,1fr)] items-center gap-x-6 gap-y-2.5 border-t border-border-soft pt-4 text-[12px]">
-                {/* Single-runtime world: the daemon always runs opencode; show it
-                    as a plain fact instead of the old multi-backend picker. */}
+                {/* Local agent runtime picker (`agents.local_agent`). Switching
+                    persists the config and restarts amuxd onto the new backend. */}
                 <dt className="text-muted-foreground">{t('settings.daemonGeneral.runtime', 'Runtime')}</dt>
-                <dd className="font-mono text-ink-2">opencode</dd>
+                <dd className="flex items-center gap-2">
+                  <Select
+                    value={localAgent ?? undefined}
+                    onValueChange={(v) => void handleSwitchLocalAgent(v as DaemonLocalAgent)}
+                    disabled={switchingAgent || !agent.isOwner || localAgent === null}
+                  >
+                    <SelectTrigger className="h-7 w-[140px] font-mono text-[12px]" data-testid="local-agent-select">
+                      <SelectValue placeholder="…" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="opencode" className="font-mono text-[12px]">opencode</SelectItem>
+                      <SelectItem value="pi" className="font-mono text-[12px]">pi</SelectItem>
+                    </SelectContent>
+                  </Select>
+                  {switchingAgent && <Loader2 className="h-3.5 w-3.5 animate-spin text-muted-foreground" />}
+                </dd>
                 <dt className="text-muted-foreground">{t('settings.daemonGeneral.agentId', 'Agent ID')}</dt>
                 <dd className="truncate font-mono text-foreground">{agent.id}</dd>
                 <dt className="text-muted-foreground">{t('settings.daemonGeneral.lastActive', 'Last active')}</dt>

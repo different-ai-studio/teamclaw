@@ -6,7 +6,7 @@
 // will replace this with live `RuntimeInfo.available_models` per running
 // runtime, exposed via MQTT topic / Tauri RPC.
 
-export type AmuxAgentType = "claude-code" | "opencode" | "codex";
+export type AmuxAgentType = "claude-code" | "opencode" | "codex" | "pi";
 
 export interface AmuxModelInfo {
   id: string;
@@ -23,12 +23,13 @@ export function availableModelsFor(agentType: AmuxAgentType): AmuxModelInfo[] {
       ];
     case "opencode":
     case "codex":
+    case "pi":
     default:
       return [];
   }
 }
 
-export const AMUXD_AGENT_TYPES: AmuxAgentType[] = ["claude-code", "opencode", "codex"];
+export const AMUXD_AGENT_TYPES: AmuxAgentType[] = ["claude-code", "opencode", "codex", "pi"];
 
 /** Flat list across all agent types — for the chat input model picker. */
 export function allAmuxdModels(): Array<{ provider: AmuxAgentType; id: string; displayName: string }> {
