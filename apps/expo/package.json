@@ -31,7 +31,7 @@
     "expo-web-browser": "~56.0.5",
     "mqtt": "5.15.2",
     "react": "19.0.0",
-    "react-native": "0.79.6",
+    "react-native": "0.86.0",
     "react-native-gesture-handler": "~3.0.0",
     "react-native-markdown-display": "^7.0.2",
     "react-native-safe-area-context": "5.8.0",
