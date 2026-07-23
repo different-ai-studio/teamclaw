@@ -85,4 +85,43 @@ describe('readLinkHoverConfig bake seed', () => {
       urlPatterns: ['*/other/*'],
     })
   })
+
+  it('fills baked urlPatterns when legacy storage only has domains', async () => {
+    bakeState.linkHover = {
+      domains: ['baked.example.com'],
+      urlPatterns: ['*/example/*'],
+    }
+    storageState.bag['teamclaw.extension.linkHover'] = {
+      domains: ['example.com'],
+    }
+    const mod = await import('./chrome-storage')
+
+    const config = await mod.readLinkHoverConfig()
+    expect(config).toEqual({
+      domains: ['example.com'],
+      urlPatterns: ['*/example/*'],
+    })
+    expect(storageState.bag['teamclaw.extension.linkHover']).toEqual({
+      domains: ['example.com'],
+      urlPatterns: ['*/example/*'],
+    })
+  })
+
+  it('does not overwrite an explicit empty urlPatterns list', async () => {
+    bakeState.linkHover = {
+      domains: ['baked.example.com'],
+      urlPatterns: ['*/example/*'],
+    }
+    storageState.bag['teamclaw.extension.linkHover'] = {
+      domains: ['example.com'],
+      urlPatterns: [],
+    }
+    const mod = await import('./chrome-storage')
+
+    const config = await mod.readLinkHoverConfig()
+    expect(config).toEqual({
+      domains: ['example.com'],
+      urlPatterns: [],
+    })
+  })
 })
