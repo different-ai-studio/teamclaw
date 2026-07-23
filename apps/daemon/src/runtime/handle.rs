@@ -79,9 +79,8 @@ pub struct RuntimeHandle {
     /// Models the underlying ACP agent reported in its
     /// `session/new` / `session/load` response (via
     /// `SessionModelState.available_models`). Populated by the adapter on
-    /// spawn / resume. Falls back to the hardcoded
-    /// `crate::runtime::models::available_models_for(agent_type)` table
-    /// when the agent does not implement `unstable_session_model`.
+    /// spawn / resume. Empty until the live serve catalog is advertised —
+    /// there is no static fallback table.
     pub available_models: Vec<amux::ModelInfo>,
     /// The `messages.id` of the last message this runtime processed (sent or
     /// queued as silent). Used by Task 9 catch-up logic to replay missed
