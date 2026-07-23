@@ -81,7 +81,7 @@ async fn download_and_decrypt_wecom_media(
         .get(url)
         .send()
         .await
-        .map_err(|e| format!("media GET: {e}"))?;
+        .map_err(|e| format!("media GET: {e} ({e:?})"))?;
     if !resp.status().is_success() {
         return Err(format!("media GET failed: HTTP {}", resp.status()));
     }
@@ -320,6 +320,22 @@ fn extract_filename_from_content_disposition(header: &str) -> Option<String> {
 /// (xlsx vs docx vs pptx) that share identical ZIP magic bytes. Falls back
 /// to magic-byte detection, then to `application/octet-stream` — never to
 /// `image/png`, which previously caused Excel files to be saved as `.png`.
+/// Format a byte count as a short human-readable size (e.g. "332 KB").
+fn human_readable_size(bytes: usize) -> String {
+    const UNITS: &[&str] = &["B", "KB", "MB", "GB"];
+    let mut size = bytes as f64;
+    let mut unit = 0;
+    while size >= 1024.0 && unit < UNITS.len() - 1 {
+        size /= 1024.0;
+        unit += 1;
+    }
+    if unit == 0 {
+        format!("{} {}", bytes, UNITS[unit])
+    } else {
+        format!("{:.1} {}", size, UNITS[unit])
+    }
+}
+
 fn resolve_mime(bytes: &[u8], filename_hint: Option<&str>) -> String {
     filename_hint
         .and_then(detect_mime_from_filename)
@@ -1324,8 +1340,11 @@ impl WeComGateway {
         // of the message itself signals delivery to the bot, which only happens on @mention.
         // We additionally guard non-text/non-bot-mention noise by requiring non-empty trimmed text.
         if chat_type_str == "group" {
-            // The "@蕉你一手" prefix was stripped earlier. If text is now empty, ignore.
-            if text_content.trim().is_empty() {
+            // The "@蕉你一手" prefix was stripped earlier. If text is now empty
+            // and there are no attachments (e.g. an image sent with no caption),
+            // ignore — otherwise let it through so the agent sees the files.
+            if text_content.trim().is_empty() && inbound_files.is_empty() {
+                println!("[WeCom] Group message dropped: no text and no attachments");
                 return;
             }
         }
@@ -1449,8 +1468,12 @@ impl WeComGateway {
             }
         }
 
-        // (bucket_path, filename, mime, size, local_path)
-        let mut attachment_descriptors: Vec<(String, String, String, usize, Option<String>)> =
+        // (bucket_path, filename, mime, size, local_path, inline_data_url)
+        // `inline_data_url` is set for small images so the Tauri/iOS clients can
+        // render an actual thumbnail (same convention the desktop client's own
+        // upload path uses) instead of a bare filename placeholder.
+        const INLINE_IMAGE_MAX_BYTES: usize = 5 * 1024 * 1024;
+        let mut attachment_descriptors: Vec<(String, String, String, usize, Option<String>, Option<String>)> =
             Vec::new();
         let mut upload_handles: Vec<tokio::task::JoinHandle<Result<String, String>>> = Vec::new();
         let mut local_paths_for_prompt: Vec<String> = Vec::new();
@@ -1472,12 +1495,23 @@ impl WeComGateway {
                 f.filename,
             );
 
+            let inline_data_url = if f.mime.starts_with("image/") && f.bytes.len() <= INLINE_IMAGE_MAX_BYTES {
+                Some(format!(
+                    "data:{};base64,{}",
+                    f.mime,
+                    base64::engine::general_purpose::STANDARD.encode(&f.bytes)
+                ))
+            } else {
+                None
+            };
+
             attachment_descriptors.push((
                 bucket_path.clone(),
                 f.filename.clone(),
                 f.mime.clone(),
                 f.bytes.len(),
                 Some(local_path_str),
+                inline_data_url,
             ));
 
             // Parallel upload — does not block ACP.
@@ -1571,44 +1605,51 @@ impl WeComGateway {
         // record pointing at the local cache so the agent's reply still has
         // context, even though Tauri clients won't be able to download.
         let mut attachments: Vec<AttachmentRecord> = Vec::new();
-        for ((bucket_path, filename, mime, size, local_path), handle) in
+        // Rendering fragments for the stored user-message content, using the
+        // same placeholder conventions the desktop client's own upload path
+        // produces (`packages/app/src/packages/ai/message.tsx::parseMessageContent`):
+        // images small enough to inline get `[Image: name]\n<data-url>` so
+        // Tauri/iOS clients render a real thumbnail; everything else falls
+        // back to a `[Attachment: name] (size)` chip.
+        let mut content_fragments: Vec<String> = Vec::new();
+        for ((bucket_path, filename, mime, size, local_path, inline_data_url), handle) in
             attachment_descriptors.into_iter().zip(upload_handles)
         {
             let upload_result = handle
                 .await
                 .unwrap_or_else(|_| Err("upload task panic".into()));
-            match upload_result {
-                Ok(_) => attachments.push(AttachmentRecord {
-                    filename,
-                    mime,
-                    size,
-                    bucket_path,
-                    local_path,
-                }),
-                Err(e) => {
-                    tracing::warn!("attachment upload failed (kept local copy): {e}");
-                    attachments.push(AttachmentRecord {
-                        filename,
-                        mime,
-                        size,
-                        bucket_path: String::new(),
-                        local_path,
-                    });
-                }
+            if let Err(e) = &upload_result {
+                tracing::warn!("attachment upload failed (kept local copy): {e}");
             }
+            let bucket_path = if upload_result.is_ok() {
+                bucket_path
+            } else {
+                String::new()
+            };
+
+            content_fragments.push(match &inline_data_url {
+                Some(data_url) => format!("[Image: {}]\n{}", filename, data_url),
+                None => format!("[Attachment: {}] ({})", filename, human_readable_size(size)),
+            });
+
+            attachments.push(AttachmentRecord {
+                filename,
+                mime,
+                size,
+                bucket_path,
+                local_path,
+            });
         }
 
-        // Build the stored user-message content so Tauri/iOS clients see a
-        // textual indicator of attached files when text_content is empty.
-        let user_content = if attachments.is_empty() {
+        // Build the stored user-message content so Tauri/iOS clients see the
+        // attached files rendered (image thumbnail or file chip) rather than a
+        // raw text placeholder.
+        let user_content = if content_fragments.is_empty() {
             text_content.clone()
+        } else if text_content.trim().is_empty() {
+            content_fragments.join("\n")
         } else {
-            let names: Vec<&str> = attachments.iter().map(|a| a.filename.as_str()).collect();
-            if text_content.trim().is_empty() {
-                format!("[attachments: {}]", names.join(", "))
-            } else {
-                format!("{}\n[attachments: {}]", text_content, names.join(", "))
-            }
+            format!("{}\n{}", text_content, content_fragments.join("\n"))
         };
 
         if let Err(e) = self

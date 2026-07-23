@@ -82,7 +82,6 @@ function toDaemonConfig(platform: ChannelPlatform, config: ChannelConfig): Chann
           secret: String(b.secret ?? ""),
           encoding_aes_key: b.encodingAesKey || undefined,
           workspace_id: b.workspaceId || undefined,
-          agent_type: b.agentType || undefined,
           system_prompt: b.systemPrompt || undefined,
         })),
       };
@@ -141,7 +140,6 @@ function fromDaemonConfig(platform: ChannelPlatform, config: ChannelConfig): Cha
             secret: String(b.secret ?? ""),
             encodingAesKey: b.encoding_aes_key ?? undefined,
             workspaceId: b.workspace_id ?? undefined,
-            agentType: b.agent_type ?? undefined,
             systemPrompt: b.system_prompt ?? undefined,
           })),
         };
