@@ -51,6 +51,8 @@ export type SessionRow = {
   lastMessageAt?: string | null;
   createdBy?: string | null;
   metadataJson?: string | null;
+  source?: string | null;
+  cronJobId?: string | null;
   createdAt: string;
   updatedAt: string;
   deletedAt?: string | null;

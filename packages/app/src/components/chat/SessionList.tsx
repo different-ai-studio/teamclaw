@@ -137,11 +137,16 @@ export function SessionList({ compact, onSessionSelected }: SessionListProps) {
   const showCronSessions = useCronStore(s => s.showCronSessions)
 
   const parentSessions = useMemo(() => {
+    // Persisted `source` is the authority for scheduled-origin sessions; the
+    // `cronSessionIds` overlay is only an optimistic fallback for a just-created
+    // cron session whose row hasn't synced `source` yet.
+    const isCron = (s: typeof allSessions[number]) =>
+      s.source === 'cron' || cronSessionIds.has(s.id)
     return allSessions.filter(s => {
       if (s.parentID) return false
       return showCronSessions
-        ? cronSessionIds.has(s.id)
-        : !cronSessionIds.has(s.id) || s.id === activeSessionId
+        ? isCron(s)
+        : !isCron(s) || s.id === activeSessionId
     })
   }, [allSessions, cronSessionIds, showCronSessions, activeSessionId])
 

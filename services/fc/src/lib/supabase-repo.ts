@@ -2174,6 +2174,8 @@ export function createSupabaseBusinessRepository(options) {
         title: input.title,
         mode: "collab",
         primary_agent_id: input.primaryAgentActorId,
+        source: "cron",
+        cron_job_id: input.cronJobId ?? null,
       };
       if (input.createdByActorId) insertRow.created_by_actor_id = input.createdByActorId;
       else insertRow.created_by_actor_id = input.primaryAgentActorId;

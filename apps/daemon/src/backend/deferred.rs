@@ -416,9 +416,10 @@ impl Backend for DeferredBackend {
         team_id: &str,
         primary_agent_actor_id: &str,
         title: &str,
+        cron_job_id: Option<&str>,
     ) -> BackendResult<String> {
         self.inner()?
-            .create_cron_session(team_id, primary_agent_actor_id, title)
+            .create_cron_session(team_id, primary_agent_actor_id, title, cron_job_id)
             .await
     }
 

@@ -270,6 +270,10 @@ pub struct SessionRow {
     pub last_message_at: Option<String>,
     pub created_by: Option<String>,
     pub metadata_json: Option<String>,
+    /// How the session was created: 'user' | 'cron' | 'gateway'.
+    pub source: Option<String>,
+    /// For source='cron', the cron job id that created it.
+    pub cron_job_id: Option<String>,
     pub created_at: String,
     pub updated_at: String,
     pub deleted_at: Option<String>,
@@ -511,6 +515,8 @@ impl LocalCacheStore {
                 last_message_at      TEXT,
                 created_by           TEXT,
                 metadata_json        TEXT,
+                source               TEXT,
+                cron_job_id          TEXT,
                 created_at           TEXT NOT NULL,
                 updated_at           TEXT NOT NULL,
                 deleted_at           TEXT,
@@ -520,6 +526,14 @@ impl LocalCacheStore {
         )
         .await
         .map_err(|e| format!("Failed to create session table: {}", e))?;
+
+        // Additive migrations for existing DBs (idempotent; ignore errors).
+        conn.execute("ALTER TABLE session ADD COLUMN source TEXT", ())
+            .await
+            .ok();
+        conn.execute("ALTER TABLE session ADD COLUMN cron_job_id TEXT", ())
+            .await
+            .ok();
 
         conn.execute(
             "CREATE INDEX IF NOT EXISTS idx_session_team ON session(team_id, last_message_at)",
@@ -967,8 +981,9 @@ impl LocalCacheStore {
                 "INSERT INTO session
                     (id, team_id, title, mode, primary_agent_id, idea_id, summary,
                      last_message_preview, last_message_at, created_by, metadata_json,
+                     source, cron_job_id,
                      created_at, updated_at, deleted_at, synced_at)
-                 VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12,?13,?14,?15)
+                 VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12,?13,?14,?15,?16,?17)
                  ON CONFLICT(id) DO UPDATE SET
                     team_id              = excluded.team_id,
                     title                = excluded.title,
@@ -980,6 +995,8 @@ impl LocalCacheStore {
                     last_message_at      = excluded.last_message_at,
                     created_by           = excluded.created_by,
                     metadata_json        = excluded.metadata_json,
+                    source               = excluded.source,
+                    cron_job_id          = excluded.cron_job_id,
                     created_at           = excluded.created_at,
                     updated_at           = excluded.updated_at,
                     deleted_at           = excluded.deleted_at,
@@ -997,6 +1014,8 @@ impl LocalCacheStore {
                     opt_val(&r.last_message_at),
                     opt_val(&r.created_by),
                     opt_val(&r.metadata_json),
+                    opt_val(&r.source),
+                    opt_val(&r.cron_job_id),
                     r.created_at.clone(),
                     r.updated_at.clone(),
                     opt_val(&r.deleted_at),
@@ -1018,11 +1037,13 @@ impl LocalCacheStore {
         let sql = if include_deleted {
             "SELECT id, team_id, title, mode, primary_agent_id, idea_id, summary,
                     last_message_preview, last_message_at, created_by, metadata_json,
+                    source, cron_job_id,
                     created_at, updated_at, deleted_at, synced_at
              FROM session WHERE team_id = ?1 ORDER BY last_message_at DESC"
         } else {
             "SELECT id, team_id, title, mode, primary_agent_id, idea_id, summary,
                     last_message_preview, last_message_at, created_by, metadata_json,
+                    source, cron_job_id,
                     created_at, updated_at, deleted_at, synced_at
              FROM session WHERE team_id = ?1 AND deleted_at IS NULL ORDER BY last_message_at DESC"
         };
@@ -1048,10 +1069,12 @@ impl LocalCacheStore {
                 last_message_at: row.get::<String>(8).ok().filter(|s| !s.is_empty()),
                 created_by: row.get::<String>(9).ok().filter(|s| !s.is_empty()),
                 metadata_json: row.get::<String>(10).ok().filter(|s| !s.is_empty()),
-                created_at: row.get::<String>(11).unwrap_or_default(),
-                updated_at: row.get::<String>(12).unwrap_or_default(),
-                deleted_at: row.get::<String>(13).ok().filter(|s| !s.is_empty()),
-                synced_at: row.get::<String>(14).unwrap_or_default(),
+                source: row.get::<String>(11).ok().filter(|s| !s.is_empty()),
+                cron_job_id: row.get::<String>(12).ok().filter(|s| !s.is_empty()),
+                created_at: row.get::<String>(13).unwrap_or_default(),
+                updated_at: row.get::<String>(14).unwrap_or_default(),
+                deleted_at: row.get::<String>(15).ok().filter(|s| !s.is_empty()),
+                synced_at: row.get::<String>(16).unwrap_or_default(),
             });
         }
         Ok(result)
@@ -2287,6 +2310,8 @@ mod tests {
             last_message_at: None,
             created_by: None,
             metadata_json: None,
+            source: None,
+            cron_job_id: None,
             created_at: "2024-01-01T00:00:00Z".to_string(),
             updated_at: "2024-01-01T00:00:00Z".to_string(),
             deleted_at: None,
@@ -2375,6 +2400,28 @@ mod tests {
             .await
             .unwrap()
             .is_none());
+    }
+
+    #[tokio::test]
+    async fn session_source_and_cron_job_id_round_trip() {
+        let (store, _dir) = new_store().await;
+        let mut cron = session("s-cron", "teamA");
+        cron.source = Some("cron".to_string());
+        cron.cron_job_id = Some("job-42".to_string());
+        store
+            .session_upsert_batch(&[cron, session("s-user", "teamA")])
+            .await
+            .unwrap();
+
+        let rows = store.session_load_team("teamA", false).await.unwrap();
+        let loaded_cron = rows.iter().find(|r| r.id == "s-cron").unwrap();
+        assert_eq!(loaded_cron.source.as_deref(), Some("cron"));
+        assert_eq!(loaded_cron.cron_job_id.as_deref(), Some("job-42"));
+
+        // A plain session has no source/cron marker after the round-trip.
+        let loaded_user = rows.iter().find(|r| r.id == "s-user").unwrap();
+        assert_eq!(loaded_user.source, None);
+        assert_eq!(loaded_user.cron_job_id, None);
     }
 
     #[tokio::test]

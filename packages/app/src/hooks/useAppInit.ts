@@ -649,9 +649,14 @@ export function useCronInit() {
     (async () => {
       const { listen } = await import("@tauri-apps/api/event");
       if (cancelled) return;
+      // Scheduled sessions are now identified by their persisted `source ===
+      // 'cron'`, so a cron-session change just needs the session list re-pulled
+      // (the fresh rows carry `source`); no separate id scan.
       unlisten = await listen("cron:cron-sessions-updated", () => {
-        useCronStore.getState().loadCronSessionIds().catch((err: unknown) => {
-          console.warn("[App] Cron session IDs refresh failed (non-critical):", err);
+        void import("@/stores/session-list-store").then(({ useSessionListStore }) =>
+          useSessionListStore.getState().load(),
+        ).catch((err: unknown) => {
+          console.warn("[App] Session list refresh failed (non-critical):", err);
         });
       });
 
