@@ -12,6 +12,9 @@ export default defineConfig({
       '@teamclaw/extension-link-session': resolve(appLib, 'extension-link-session/index.ts'),
     },
   },
+  define: {
+    __TEAMCLAW_EXTENSION_SETTINGS__: JSON.stringify({}),
+  },
   test: {
     environment: 'node',
   },

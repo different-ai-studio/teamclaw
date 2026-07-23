@@ -5,6 +5,7 @@ import { extractPage } from './lib/page-extract'
 import { normalizeLinkKey } from '@teamclaw/extension-link-session'
 import {
   isLinkHoverEnabledForHost,
+  isLinkUrlAllowed,
   readLinkHoverConfig,
   watchLinkHoverConfig,
   type LinkHoverConfig,
@@ -56,13 +57,16 @@ function boot() {
   })
 
   let hoverMount: LinkHoverMount | null = null
+  let urlPatterns: string[] = []
 
   const syncHoverMount = (config: LinkHoverConfig) => {
+    urlPatterns = config.urlPatterns
     const enabled = isLinkHoverEnabledForHost(window.location.hostname, config)
     if (enabled && !hoverMount) {
       hoverMount = mountLinkHover({
         doc: document,
         win: window,
+        matchesLinkUrl: (url) => isLinkUrlAllowed(url, urlPatterns),
         onOpen(link) {
           const payload = buildPendingLinkOpen(link, document, window)
           // Stash in the click turn before the service worker opens the panel so a

@@ -1,9 +1,9 @@
 import { useEffect, useMemo, useState } from 'react'
 import { isChromeExtension } from '@/lib/platform'
+import { getConfiguredSidePanelDomainPatterns } from '@/lib/side-panel-host-gate-config'
 import {
   isSidePanelHostGateEnabled,
   isUrlAllowedBySidePanelPatterns,
-  parseSidePanelDomainPatterns,
   SIDE_PANEL_HOST_GATE_STORAGE_KEY,
   type SidePanelHostGateSnapshot,
 } from '@/lib/side-panel-host-allowlist'
@@ -81,19 +81,15 @@ function isGateMessage(m: unknown): m is SidePanelHostGateSnapshot & { type: str
 }
 
 /**
- * When the extension was built with DOMAINS, report whether the active tab is allowed.
- * Ungated builds / non-extension → never blocked.
+ * When the extension was built with `extensions.domains`, report whether the
+ * active tab is allowed. Ungated builds / non-extension → never blocked.
  */
 export function useSidePanelHostGate(): {
   gateEnabled: boolean
   blocked: boolean
   url: string | null
 } {
-  const domainsRaw = import.meta.env.VITE_SIDE_PANEL_DOMAINS ?? ''
-  const patterns = useMemo(
-    () => parseSidePanelDomainPatterns(domainsRaw),
-    [domainsRaw],
-  )
+  const patterns = useMemo(() => getConfiguredSidePanelDomainPatterns(), [])
   const gateEnabled = isSidePanelHostGateEnabled(patterns) && isChromeExtension()
   const [snapshot, setSnapshot] = useState<SidePanelHostGateSnapshot>({
     allowed: true,

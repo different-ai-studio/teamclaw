@@ -3,6 +3,10 @@
 const fs = require('fs');
 const path = require('path');
 const { applyNameToExtensionManifest, resolveExtensionIconPlan } = require('./lib/branding');
+const {
+  parseExtensionsConfig,
+  domainsToChromeMatchPatterns,
+} = require('./lib/extension-config');
 
 const rootDir = path.resolve(__dirname, '..');
 const manifestPath = path.join(rootDir, 'apps/extension', 'manifest.json');
@@ -54,13 +58,11 @@ if (applyNameToExtensionManifest(manifest, buildConfig)) {
   updated = true;
 }
 
-// Brand-scoped host access: a brand may narrow the extension to a fixed set of
-// match patterns (e.g. copilot361 -> Shopee/SeaMoney internal domains) instead
-// of the base manifest's all-hosts default. When `extension.hosts` is a
-// non-empty array, it overrides BOTH host_permissions and every content-script
-// matches list. Absent -> base manifest (all http/https) is kept.
-const brandHosts = buildConfig.extension && buildConfig.extension.hosts;
-if (Array.isArray(brandHosts) && brandHosts.length > 0) {
+// Brand-scoped host access from `extensions.domains` (e.g. *.shopee.io).
+// Non-empty → override host_permissions + content_scripts.matches.
+const extensionPack = parseExtensionsConfig(buildConfig.extensions);
+const brandHosts = domainsToChromeMatchPatterns(extensionPack.domains);
+if (brandHosts.length > 0) {
   manifest.host_permissions = [...brandHosts];
   if (Array.isArray(manifest.content_scripts)) {
     for (const cs of manifest.content_scripts) {
