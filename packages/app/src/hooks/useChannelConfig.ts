@@ -7,6 +7,8 @@
  * - Save with hasChanges tracking
  */
 import * as React from 'react'
+import { toast } from 'sonner'
+import i18n from '@/lib/i18n'
 
 export interface GatewayStatusLike {
   status: 'disconnected' | 'connecting' | 'connected' | 'error'
@@ -99,8 +101,11 @@ export function useChannelConfig<TConfig extends object>(
       if (isRunning) {
         setHasChanges(true)
       }
-    } catch {
-      // Error is handled by the store
+      toast.success(i18n.t('settings.channels.saveSuccess', 'Changes saved'))
+    } catch (err) {
+      toast.error(i18n.t('settings.channels.saveError', 'Failed to save changes'), {
+        description: err instanceof Error ? err.message : undefined,
+      })
     }
   }, [localConfig, isRunning, saveConfig, setHasChanges])
 
