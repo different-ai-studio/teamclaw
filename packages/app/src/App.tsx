@@ -11,10 +11,16 @@ import i18n from "@/lib/i18n";
 import { Toaster, toast } from "sonner";
 import { cn, isTauri, removeStartupSkeleton } from "@/lib/utils";
 import { capabilities, isChromeExtension } from "@/lib/platform";
+import { isSoloBuild } from "@/lib/solo-build";
 import { scheduleReleaseStuckModalLayers } from "@/lib/modal-layer-cleanup";
 import { appDisplayName, buildConfig } from "@/lib/build-config";
 import { buildSessionDeeplink } from "@/lib/session-deeplink";
 import { markStartup } from "@/lib/startup-perf";
+import {
+  classifyAgentTurnErrorName,
+  formatAgentTurnErrorDisplayMessage,
+  localizeAgentTurnErrorMessage,
+} from "@/lib/agent-turn-error";
 import {
   BookOpen,
   Share2,
@@ -1942,16 +1948,8 @@ function AppContent() {
               flushTurnAgentReply(sid, actorId, "mqtt.error");
               // Localize known daemon-emitted errors (the daemon is
               // locale-agnostic and emits English for iOS/logs). Keep the raw
-              // message for anything we don't recognize. Sentinel matches
-              // `emit_acp_error(.., "Model provider not responding", ..)` in
-              // apps/daemon/src/runtime/adapter.rs (prompt stall watchdog).
-              const localizedMessage =
-                er.message === "Model provider not responding"
-                  ? t(
-                      "daemon.agentRuntime.providerStalled",
-                      "The model provider stopped responding. It may be unavailable or rate-limited — please retry or switch models.",
-                    )
-                  : (er.message ?? "Agent error");
+              // message for anything we don't recognize.
+              const localizedMessage = localizeAgentTurnErrorMessage(er.message, t);
               useV2StreamingStore.getState().setError(
                 sid,
                 actorId,
@@ -1961,20 +1959,16 @@ function AppContent() {
               // The live dock unmounts as soon as a turn errors
               // (isStreamInterruptible excludes errored entries), so the dock's
               // ErrorCard is never seen. Surface every turn error as a durable
-              // SessionErrorAlert bubble in the thread instead. The
-              // "RetryError" name routes quota/usage-limit styling and opts out
-              // of the 15s auto-dismiss (cleared on next send / dismiss).
+              // SessionErrorAlert bubble in the thread instead.
               {
                 const detail = (er.details ?? "").trim();
+                const errorName = classifyAgentTurnErrorName(er.message);
                 useSessionStore.getState().setSessionErrorEvent({
                   sessionId: sid,
                   error: {
-                    name: "RetryError",
+                    name: errorName,
                     data: {
-                      message:
-                        detail && detail !== localizedMessage
-                          ? `${localizedMessage}: ${detail}`
-                          : localizedMessage,
+                      message: formatAgentTurnErrorDisplayMessage(localizedMessage, detail),
                     },
                   },
                 });
@@ -2620,7 +2614,7 @@ function AppContent() {
             >
               {activeSession?.title || t("chat.newChat", "New Chat")}
             </button>
-            {activeSession && (
+            {activeSession && !isSoloBuild() && (
               <button
                 onClick={async () => {
                   setIsRefreshingMessages(true);
@@ -2681,7 +2675,7 @@ function AppContent() {
               {capabilities.workspace && workspacePath && (
                 <TerminalToggleButton workspacePath={workspacePath} />
               )}
-              {hasCurrentSession && (
+              {hasCurrentSession && !isSoloBuild() && (
                 <HeaderPanelTab
                   icon={Users}
                   label={t("chat.actorSheet.title", "Actors")}

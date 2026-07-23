@@ -6,6 +6,10 @@ on:
       - "ext-v*"
   workflow_dispatch:
     inputs:
+      brand:
+        description: "Brand id — a directory under brands/ in the enterprise-branding repo (e.g. copilot361, betly)"
+        type: string
+        default: copilot361
       publish:
         description: "Publish to Chrome Web Store (requires CHROME_* secrets); if unset, only builds + uploads the zip artifact"
         type: boolean
@@ -35,33 +39,22 @@ jobs:
             echo "⚠️ No BUILD_CONFIG_PRODUCTION secret set, using defaults"
           fi
 
-      # Same private-repo branding fetch as .github/workflows/release.yml (desktop),
-      # so the copilot361 brand config/assets stay in one place.
-      - name: Fetch branding assets (private repo)
-        env:
-          BRANDING_REPO: ${{ vars.BRANDING_REPO }}
-          BRANDING_REPO_PAT: ${{ secrets.BRANDING_REPO_PAT }}
-          BRANDING_CONFIG_FILE: ${{ vars.BRANDING_CONFIG_FILE }}
-        shell: bash
-        run: |
-          if [ -z "$BRANDING_REPO" ] || [ -z "$BRANDING_REPO_PAT" ]; then
-            echo "ℹ️ No branding repo configured (BRANDING_REPO / BRANDING_REPO_PAT) — non-branded build"
-            exit 0
-          fi
-          git clone --depth 1 "https://x-access-token:${BRANDING_REPO_PAT}@github.com/${BRANDING_REPO}.git" .branding-src
-          if [ -d .branding-src/branding ]; then
-            mkdir -p ./branding
-            cp -R .branding-src/branding/. ./branding/
-            echo "✅ Branding assets placed under ./branding"
-          fi
-          cfg="${BRANDING_CONFIG_FILE:-build.config.copilot361.json}"
-          if [ -f ".branding-src/${cfg}" ]; then
-            cp ".branding-src/${cfg}" build.config.json
-            echo "✅ Branding build config applied: ${cfg} (overrides BUILD_CONFIG_PRODUCTION)"
-          else
-            echo "⚠️ Branding config ${cfg} not found in branding repo; keeping existing build.config.json"
-          fi
-          rm -rf .branding-src
+      # Materialise the brand from brands/<brand>/ in the enterprise-branding
+      # repo (same action the desktop OSS pipeline uses), placing build.config.json
+      # + branding/ assets on disk. This overrides BUILD_CONFIG_PRODUCTION above.
+      # On a tag push (no dispatch input) the brand defaults to copilot361.
+      - name: Brand setup
+        uses: ./.github/actions/brand-setup
+        with:
+          brand: ${{ inputs.brand || 'copilot361' }}
+          branding-repo: ${{ vars.BRANDING_REPO }}
+          branding-repo-pat: ${{ secrets.ENTERPRISE_BRANDING_REPO_PAT }}
+          # OSS fallbacks so a brand whose brand.json omits OSS fields (e.g. betly)
+          # still passes brand-setup validation. The extension build itself never
+          # publishes to OSS, but brand-setup validates these fields.
+          oss-bucket-default: ${{ secrets.OSS_BUCKET }}
+          oss-endpoint-default: ${{ secrets.OSS_ENDPOINT }}
+          cdn-base-default: ${{ vars.OSS_CDN_BASE || 'https://teamclaw.ucar.cc' }}
 
       - name: Setup Node.js
         uses: actions/setup-node@v7
@@ -87,9 +80,27 @@ jobs:
       - name: Apply branding to extension manifest + icons
         run: node scripts/update-extension-manifest.js
 
+      # Single source of truth for the brand's domains: extension.hosts (match
+      # patterns) drive BOTH the manifest permission narrowing (above) and the
+      # side-panel host gate (below). Convert https://*.shopee.io/* -> *.shopee.io
+      # and feed it to the build as DOMAINS so the panel overlays a "not available
+      # here" gate off-brand instead of opening a usable chat on any site.
+      - name: Derive side-panel DOMAINS from brand hosts
+        run: |
+          DOMAINS=$(node -e "
+            const fs=require('fs');
+            const c=JSON.parse(fs.readFileSync('build.config.json','utf8'));
+            const hosts=(c.extension&&c.extension.hosts)||[];
+            const doms=hosts.map(h=>h.replace(/^[a-z]+:\/\//,'').replace(/\/.*$/,'')).filter(Boolean);
+            process.stdout.write([...new Set(doms)].join(','));
+          ")
+          echo "SIDE_PANEL_DOMAINS=$DOMAINS" >> "$GITHUB_ENV"
+          echo "Side-panel gate domains: ${DOMAINS:-<none, ungated>}"
+
       - name: Build extension
         env:
           BUILD_ENV: production
+          DOMAINS: ${{ env.SIDE_PANEL_DOMAINS }}
         run: pnpm --filter @teamclaw/extension build
 
       - name: Zip extension

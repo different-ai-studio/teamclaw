@@ -13,7 +13,7 @@ import {
   useSessionPermissionMode,
   type SessionPermissionMode,
 } from "@/lib/session-permission-mode";
-import { isInternalBuild } from "@/lib/internal-build";
+import { isSoloBuild } from "@/lib/solo-build";
 import { PromptInputButton } from "@/packages/ai/prompt-input-ui";
 
 type PermissionApprovalModeSelectProps = {
@@ -27,7 +27,7 @@ export function PermissionApprovalModeSelect({
   const mode = useSessionPermissionMode(sessionId);
 
   // Internal extension builds hide permission controls entirely.
-  if (isInternalBuild()) return null;
+  if (isSoloBuild()) return null;
   if (!sessionId) return null;
 
   const handleSelect = (next: SessionPermissionMode) => {

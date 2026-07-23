@@ -66,6 +66,7 @@ import { toMentionDeliverySnapshot } from "@/lib/session-agent-ui-state";
 import { getFileName } from "./utils/fileUtils";
 import { MessageList, type MessageListHandle } from "./MessageList";
 import { SessionErrorAlert } from "./SessionErrorAlert";
+import { isPersistentSessionTurnError } from "@/lib/agent-turn-error";
 import { hasVisiblePendingPermissions } from "./PermissionCard";
 import { collectAcpStreamingPermissions } from "@/lib/teamclaw/acp-permission-entries";
 import { useSessionPermissionMode } from "@/lib/session-permission-mode";
@@ -1020,10 +1021,8 @@ export function ChatPanel({ compact = false }: ChatPanelProps) {
 
   React.useEffect(() => {
     if (!sessionError) return;
-    // Retry errors are cleared by handleSessionStatus when session transitions
-    // to busy or idle — don't auto-dismiss them.
-    const isRetryError = sessionError.error?.name === 'RetryError';
-    if (isRetryError) return;
+    // Persistent turn errors stay until dismiss or next send.
+    if (isPersistentSessionTurnError(sessionError.error?.name)) return;
     const timer = setTimeout(() => clearSessionError(), 15000);
     return () => clearTimeout(timer);
   }, [sessionError, clearSessionError]);

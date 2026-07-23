@@ -3,6 +3,7 @@ import { useTranslation } from "react-i18next";
 import { AlertCircle, ChevronRight, Loader2 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import type { MembershipTeam } from "@/lib/backend";
+import { getBackend } from "@/lib/backend";
 import { useCurrentTeamStore } from "@/stores/current-team";
 
 interface TeamPickerProps {
@@ -37,11 +38,17 @@ export function TeamPicker({ teams, lastUsedTeamId, onDone }: TeamPickerProps) {
     else groups.set(key, [team]);
   }
 
-  async function choose(teamId: string) {
+  async function choose(team: MembershipTeam) {
     setError(null);
-    setBusyId(teamId);
+    setBusyId(team.id);
     try {
-      await switchToTeam(teamId);
+      // Public DEFAULT_ORG teams the caller hasn't joined yet: enroll as a
+      // plain member first so switchToTeam (and every team-scoped RPC after it)
+      // has membership. Idempotent server-side.
+      if (team.isMember === false) {
+        await getBackend().teams.joinTeam(team.id);
+      }
+      await switchToTeam(team.id);
       onDone();
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
@@ -83,12 +90,13 @@ export function TeamPicker({ teams, lastUsedTeamId, onDone }: TeamPickerProps) {
                   const active = team.id === highlightId;
                   const isLastUsed = team.id === lastUsedTeamId;
                   const switching = busyId === team.id;
+                  const joinable = team.isMember === false;
                   return (
                     <button
                       key={team.id}
                       type="button"
                       disabled={busyId !== null}
-                      onClick={() => void choose(team.id)}
+                      onClick={() => void choose(team)}
                       className={cn(
                         "group flex items-center justify-between rounded-[12px] border bg-paper px-4 py-3 text-left transition-colors hover:bg-selected disabled:opacity-50",
                         active ? "border-coral" : "border-border",
@@ -103,11 +111,18 @@ export function TeamPicker({ teams, lastUsedTeamId, onDone }: TeamPickerProps) {
                             {t("teamPicker.lastUsed", "Last used")}
                           </span>
                         )}
+                        {joinable && (
+                          <span className="shrink-0 rounded-full border border-border px-1.5 py-0.5 text-[10px] font-medium text-faint">
+                            {t("teamPicker.public", "Public")}
+                          </span>
+                        )}
                       </span>
                       {switching ? (
                         <span className="flex shrink-0 items-center gap-1.5 text-[11.5px] text-muted-foreground">
                           <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                          {t("teamPicker.switching", "Switching…")}
+                          {joinable
+                            ? t("teamPicker.joining", "Joining…")
+                            : t("teamPicker.switching", "Switching…")}
                         </span>
                       ) : (
                         <ChevronRight className="h-4 w-4 shrink-0 text-faint transition-colors group-hover:text-muted-foreground" />

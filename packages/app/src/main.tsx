@@ -5,6 +5,7 @@ import { invoke } from '@tauri-apps/api/core'
 import App from './App'
 import { ErrorBoundary } from './components/ErrorBoundary'
 import { AuthGate } from './components/auth/AuthGate'
+import { SidePanelHostGateOverlay } from './components/extension/SidePanelHostGateOverlay'
 import './styles/globals.css'
 import './stores/dev-expose'
 import './lib/i18n'; // Initialize i18n
@@ -101,6 +102,7 @@ markStartup('react-mount')
 createRoot(document.getElementById('root')!).render(
   <StrictMode>
     <ErrorBoundary scope="TeamClaw">
+      <SidePanelHostGateOverlay />
       <AuthGate>
         <App />
       </AuthGate>

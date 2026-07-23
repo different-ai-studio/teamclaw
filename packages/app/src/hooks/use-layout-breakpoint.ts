@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react'
+import { isSoloBuild } from '@/lib/solo-build'
 
 export type LayoutBreakpoint = 'wide' | 'medium' | 'narrow'
 
@@ -11,14 +12,24 @@ export function getLayoutBreakpointForWidth(width: number): LayoutBreakpoint {
   return 'narrow'
 }
 
+/** Solo-agent builds stay locked to narrow (session list as bottom sheet). */
+export function resolveLayoutBreakpoint(width: number): LayoutBreakpoint {
+  if (isSoloBuild()) return 'narrow'
+  return getLayoutBreakpointForWidth(width)
+}
+
 function get(): LayoutBreakpoint {
   const w = typeof window !== 'undefined' ? window.innerWidth : 1280
-  return getLayoutBreakpointForWidth(w)
+  return resolveLayoutBreakpoint(w)
 }
 
 export function useLayoutBreakpoint(): LayoutBreakpoint {
   const [bp, setBp] = useState<LayoutBreakpoint>(get)
   useEffect(() => {
+    if (isSoloBuild()) {
+      setBp('narrow')
+      return
+    }
     const handler = () => setBp(get())
     window.addEventListener('resize', handler)
     return () => window.removeEventListener('resize', handler)

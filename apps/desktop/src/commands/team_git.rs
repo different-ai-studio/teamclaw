@@ -547,16 +547,19 @@ async fn team_git_join_impl(
     }
     println!("[Team Join] Initialized shared secrets");
 
-    match crate::commands::team::sync_team_mcp_configs_from_dir(&team_dir, &workspace_path) {
-        Ok(count) if count > 0 => {
+    match crate::commands::daemon_http::materialize_team_mcp_via_daemon(&workspace_path).await {
+        Ok(resp) if resp.added_count > 0 => {
             println!(
-                "[Team Join] Synced {} MCP server(s) from .mcp/ to opencode.json",
-                count
+                "[Team Join] Materialized {} team MCP server(s) into opencode.json via daemon",
+                resp.added_count
             );
         }
         Ok(_) => {}
         Err(e) => {
-            println!("[Team Join] Warning: Failed to sync MCP configs: {}", e);
+            println!(
+                "[Team Join] Warning: Failed to materialize team MCP via daemon: {}",
+                e
+            );
         }
     }
 

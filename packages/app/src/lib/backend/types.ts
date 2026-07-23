@@ -326,6 +326,7 @@ export interface TeamSummary {
   name: string;
   slug?: string | null;
   created_at?: string | null;
+  visibility?: "public" | "private";
 }
 
 export interface MembershipTeam {
@@ -334,6 +335,13 @@ export interface MembershipTeam {
   slug?: string | null;
   orgId?: string | null;
   orgName?: string | null;
+  visibility?: "public" | "private";
+  /**
+   * `false` marks a PUBLIC team in the shared DEFAULT_ORG that the caller can
+   * join self-service (via `joinTeam`) but is not yet a member of. Absent or
+   * `true` means the caller is already an actor in the team.
+   */
+  isMember?: boolean;
 }
 
 export interface TeamInviteResult {
@@ -447,6 +455,13 @@ export interface TeamsBackend {
   createTeamInvite(input: TeamInviteInput): Promise<TeamInviteResult>;
   removeTeamActor(teamId: string, actorId: string): Promise<void>;
   listAllMyTeams(): Promise<MembershipTeam[]>;
+  /**
+   * Self-service join of a PUBLIC team in the shared DEFAULT_ORG (offered in the
+   * post-login picker alongside the caller's own teams). Idempotent.
+   */
+  joinTeam(teamId: string): Promise<TeamSummary>;
+  /** Toggle a team's visibility (public | private) via PATCH /v1/teams/:id. */
+  setTeamVisibility(teamId: string, visibility: "public" | "private"): Promise<TeamSummary>;
   activateTeam(teamId: string): Promise<{ actorId: string | null; teamId: string; refreshToken: string }>;
   getLiteLlmUsage(teamId: string, opts?: { range?: LiteLlmUsageRange; date?: string }): Promise<LiteLlmUsage>;
 }

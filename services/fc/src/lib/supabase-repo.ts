@@ -302,7 +302,15 @@ export function createSupabaseBusinessRepository(options) {
     // SECURITY DEFINER (it bypasses teams_org_guard). The default client schema
     // here is `amux`, so it resolves via a plain `.rpc(...)` like create_team etc.
     async listAllMyTeams() {
-      const { data, error } = await supabase.rpc("list_all_my_teams");
+      // Cross-org team picker source. `list_teams_for_picker` returns the union
+      // of (a) teams the caller is already an actor in and (b) PUBLIC teams in
+      // the shared DEFAULT_ORG the caller can join self-service. DEFAULT_ORG_ID
+      // is passed server-side (never client-steerable), mirroring the other
+      // onboarding RPCs.
+      const defaultOrgId = process.env.DEFAULT_ORG_ID || null;
+      const { data, error } = await supabase.rpc("list_teams_for_picker", {
+        p_default_org_id: defaultOrgId,
+      });
       if (error) throw error;
       return (data ?? []).map((r: any) => ({
         id: r.team_id,
@@ -310,7 +318,52 @@ export function createSupabaseBusinessRepository(options) {
         slug: r.team_slug ?? null,
         orgId: r.org_id ?? null,
         orgName: r.org_name ?? null,
+        visibility: r.visibility ?? "private",
+        isMember: r.is_member !== false,
       }));
+    },
+
+    // Self-service join of a PUBLIC team in the shared DEFAULT_ORG. Invoked when
+    // the user picks a public team they are not yet a member of. The RPC adds a
+    // plain 'member' actor (idempotent if already joined) and rejects anything
+    // that is not a public default-org team.
+    async joinPublicTeam(teamId) {
+      const defaultOrgId = process.env.DEFAULT_ORG_ID || null;
+      const { data, error } = await supabase.rpc("join_public_team", {
+        p_team_id: teamId,
+        p_default_org_id: defaultOrgId,
+      });
+      if (error) {
+        const code = error?.code || "";
+        if (code === "42501") throw new ApiError(403, "forbidden", error.message ?? "team is not joinable");
+        if (code === "P0002") throw new ApiError(404, "not_found", error.message ?? "team not found");
+        throw error;
+      }
+      const row = requiredRow(data, "teams.joinPublicTeam");
+      return mapTeam({
+        id: row.team_id ?? row.id,
+        name: row.team_name ?? row.name,
+        slug: row.team_slug ?? row.slug,
+      });
+    },
+
+    // Owner/member-scoped visibility toggle (public | private) for a default-org
+    // team, driven by PATCH /v1/teams/:id. RLS on amux.teams gates the write to
+    // team members.
+    async setTeamVisibility(teamId, { visibility }) {
+      if (visibility !== "public" && visibility !== "private") {
+        throw new ApiError(400, "validation_failed", "visibility must be 'public' or 'private'");
+      }
+      const { data, error } = await supabase
+        .schema("amux")
+        .from("teams")
+        .update({ visibility })
+        .eq("id", teamId)
+        .select(TEAM_COLUMNS)
+        .maybeSingle();
+      if (error) throw error;
+      if (!data) throw new ApiError(404, "not_found", "team not found");
+      return mapTeam(data);
     },
 
     async createTeam(input) {

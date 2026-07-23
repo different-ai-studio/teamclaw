@@ -863,7 +863,7 @@ export function SessionListColumn({
               <Search className="h-4 w-4" />
             </Button>
           ) : null}
-          {!batchSelecting && filter.kind === 'all' && (
+          {!batchSelecting && !embedMode && filter.kind === 'all' && (
             <Button
               variant="ghost"
               size="icon"

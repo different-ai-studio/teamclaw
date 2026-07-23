@@ -272,3 +272,47 @@ async fn post_provider_oauth_authorize_503_without_settings_service() {
     let body: Value = resp.json().await.expect("problem+json");
     assert_eq!(body["code"], "runtime_unavailable");
 }
+
+#[tokio::test]
+async fn post_materialize_team_mcp_writes_team_servers_into_opencode_json() {
+    let (app, dir) = test_app_with_workspace_store(None).await;
+    let wid = ws_id(dir.path());
+
+    let mcp_dir = dir.path().join("teamclaw-team").join(".mcp");
+    std::fs::create_dir_all(&mcp_dir).expect("mcp dir");
+    std::fs::write(
+        mcp_dir.join("shared.json"),
+        r#"{
+  "mcpServers": {
+    "team-db": {
+      "command": "npx",
+      "args": ["-y", "team-db-mcp"]
+    }
+  }
+}"#,
+    )
+    .expect("write team mcp");
+
+    let body: Value = app
+        .client
+        .post(format!(
+            "{}/v1/workspaces/{wid}/mcp/materialize-team",
+            app.base
+        ))
+        .bearer_auth(&app.session_token)
+        .send()
+        .await
+        .expect("response")
+        .error_for_status()
+        .expect("status")
+        .json()
+        .await
+        .expect("json");
+
+    assert_eq!(body["changed"], true);
+    assert_eq!(body["added_count"], 1);
+
+    let opencode = std::fs::read_to_string(dir.path().join("opencode.json")).expect("opencode");
+    let parsed: Value = serde_json::from_str(&opencode).expect("parse opencode");
+    assert!(parsed["mcp"]["team-db"].is_object());
+}

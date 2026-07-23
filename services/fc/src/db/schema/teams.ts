@@ -14,6 +14,10 @@ export const teams = pgTable("teams", {
   gitRemoteUrl: text("git_remote_url"),
   gitAuthKind: text("git_auth_kind"),
   gitCredentialRef: text("git_credential_ref"),
+  // Team visibility within its org: 'private' (default, invite/bootstrap-only)
+  // or 'public' (discoverable + self-service joinable by other users in the
+  // shared DEFAULT_ORG via the post-login team picker).
+  visibility: text("visibility").notNull().default("private"),
   // Team-wide default agent preference. FK to agents(id) with ON DELETE SET NULL
   // is declared in the migration SQL only (avoids a teams<->agents Drizzle import cycle).
   defaultAgentId: uuid("default_agent_id"),

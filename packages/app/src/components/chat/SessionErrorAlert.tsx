@@ -2,6 +2,7 @@ import { useState } from 'react'
 import { AlertCircle, ChevronDown, ChevronUp, RefreshCw, AlertTriangle, ShieldAlert, Timer, Copy, Check } from 'lucide-react'
 import { useTranslation } from 'react-i18next'
 import { copyToClipboard } from '@/lib/utils'
+import { isQuotaLikeAgentMessage } from '@/lib/agent-turn-error'
 import type { SessionErrorEvent } from '@/stores/session-types'
 
 interface SessionErrorAlertProps {
@@ -65,14 +66,33 @@ export function SessionErrorAlert({ error, onDismiss, onRetry }: SessionErrorAle
         ...NEUTRAL_BODY_STYLE,
       }
     }
+    if (errorName === 'AgentTimeoutError') {
+      return {
+        icon: Timer,
+        title: t('errors.modelTimeout', 'Model Not Responding'),
+        accentColor: 'text-orange-600 dark:text-orange-400',
+        iconBg: 'bg-orange-100 dark:bg-orange-900/40',
+        ...DEFAULT_BODY_STYLE,
+      }
+    }
+    if (errorName === 'ProviderError') {
+      return {
+        icon: AlertTriangle,
+        title: t('errors.providerError', 'Provider Error'),
+        accentColor: 'text-amber-600 dark:text-amber-400',
+        iconBg: 'bg-amber-100 dark:bg-amber-900/40',
+        ...DEFAULT_BODY_STYLE,
+      }
+    }
     if (
+      isQuotaLikeAgentMessage(errorMessage) ||
       lowerMsg.includes('exceeded') ||
       lowerMsg.includes('quota') ||
       lowerMsg.includes('free usage')
     ) {
       return {
         icon: AlertTriangle,
-        title: t('errors.serviceNotice', 'Service Notice'),
+        title: t('errors.quotaExceeded', 'Quota Exceeded'),
         accentColor: 'text-amber-600 dark:text-amber-400',
         iconBg: 'bg-amber-100 dark:bg-amber-900/40',
         ...DEFAULT_BODY_STYLE,
@@ -81,7 +101,7 @@ export function SessionErrorAlert({ error, onDismiss, onRetry }: SessionErrorAle
     if (errorName.includes('auth') || statusCode === 401 || lowerMsg.includes('authentication')) {
       return {
         icon: ShieldAlert,
-        title: t('errors.serviceNotice', 'Service Notice'),
+        title: t('errors.authenticationError', 'Authentication Error'),
         accentColor: 'text-yellow-600 dark:text-yellow-400',
         iconBg: 'bg-yellow-100 dark:bg-yellow-900/40',
         ...DEFAULT_BODY_STYLE,
@@ -90,7 +110,7 @@ export function SessionErrorAlert({ error, onDismiss, onRetry }: SessionErrorAle
     if (statusCode === 429) {
       return {
         icon: Timer,
-        title: t('errors.serviceNotice', 'Service Notice'),
+        title: t('errors.rateLimited', 'Rate Limited'),
         accentColor: 'text-orange-600 dark:text-orange-400',
         iconBg: 'bg-orange-100 dark:bg-orange-900/40',
         ...DEFAULT_BODY_STYLE,
@@ -99,7 +119,7 @@ export function SessionErrorAlert({ error, onDismiss, onRetry }: SessionErrorAle
     if (statusCode && statusCode >= 500) {
       return {
         icon: AlertCircle,
-        title: t('errors.serviceNotice', 'Service Notice'),
+        title: t('errors.serverError', 'Server Error'),
         accentColor: 'text-red-600 dark:text-red-400',
         iconBg: 'bg-red-100 dark:bg-red-900/40',
         ...DEFAULT_BODY_STYLE,
