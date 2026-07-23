@@ -2826,7 +2826,9 @@
     "subtitle": "你属于多个团队，请选择要进入的一个。",
     "switching": "切换中…",
     "ungrouped": "其它",
-    "lastUsed": "最后使用"
+    "lastUsed": "最后使用",
+    "public": "公开",
+    "joining": "加入中…"
   },
   "team": {
     "viewerReadOnly": "只读模式 - 你没有编辑权限",

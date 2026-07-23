@@ -2826,7 +2826,9 @@
     "subtitle": "You belong to multiple teams. Pick one to continue.",
     "switching": "Switching…",
     "ungrouped": "Other",
-    "lastUsed": "Last used"
+    "lastUsed": "Last used",
+    "public": "Public",
+    "joining": "Joining…"
   },
   "team": {
     "viewerReadOnly": "Read-only mode — you don't have edit permissions",
