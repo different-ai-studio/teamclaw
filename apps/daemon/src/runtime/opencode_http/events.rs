@@ -39,6 +39,7 @@ pub(super) fn ensure_sse_task(shared: &Arc<Shared>, directory: &str) {
 async fn sse_loop(shared: Arc<Shared>, directory: String) {
     let mut backoff = BACKOFF_MIN;
     loop {
+        shared.mark_sse_disconnected(&directory);
         let client = match shared.serve.ensure().await {
             Ok(c) => c,
             Err(e) => {
@@ -52,9 +53,11 @@ async fn sse_loop(shared: Arc<Shared>, directory: String) {
             Ok(resp) => {
                 info!(directory = %directory, "opencode SSE subscribed");
                 backoff = BACKOFF_MIN;
+                shared.mark_sse_connected(&directory);
                 let mut stream = resp.bytes_stream();
                 let mut buf = Vec::new();
                 while let Some(chunk) = stream.next().await {
+                    shared.touch_sse_read(&directory);
                     let chunk = match chunk {
                         Ok(c) => c,
                         Err(e) => {
@@ -77,9 +80,11 @@ async fn sse_loop(shared: Arc<Shared>, directory: String) {
                         }
                     }
                 }
+                shared.mark_sse_disconnected(&directory);
                 warn!(directory = %directory, "opencode SSE stream ended; reconnecting");
             }
             Err(e) => {
+                shared.mark_sse_disconnected(&directory);
                 warn!(directory = %directory, error = %e, "SSE subscribe failed");
                 tokio::time::sleep(backoff).await;
                 backoff = (backoff * 2).min(BACKOFF_MAX);
@@ -147,11 +152,12 @@ async fn handle_event(shared: &Arc<Shared>, event: &serde_json::Value) {
                     );
                     return;
                 };
+                if route.turn_active && super::is_turn_progress_event(event_type) {
+                    route.turn_last_event_at = std::time::Instant::now();
+                }
                 let events = translate::translate_event(&mut route.translate, event_type, &props);
                 if !events.is_empty() {
-                    // Activity signal for the stuck-turn watchdog (mod.rs).
                     route.turn_saw_output = true;
-                    route.turn_last_event_at = std::time::Instant::now();
                 }
                 (events, route.event_tx.clone(), route.turn_reply_to.clone())
             };
@@ -225,11 +231,7 @@ async fn handle_permission_asked(
 /// the request (id → session, for the reply endpoint) and forward the full
 /// request JSON to clients as a `question_asked` raw control event; the
 /// desktop renders it as an interactive QuestionCard on the tool call.
-async fn handle_question_asked(
-    shared: &Arc<Shared>,
-    session_id: &str,
-    props: &serde_json::Value,
-) {
+async fn handle_question_asked(shared: &Arc<Shared>, session_id: &str, props: &serde_json::Value) {
     let Some(request_id) = props.get("id").and_then(|v| v.as_str()) else {
         return;
     };
@@ -285,7 +287,10 @@ pub(super) async fn resync_pending_questions(shared: &Arc<Shared>, session_id: &
         let Some(request_id) = request.get("id").and_then(|v| v.as_str()) else {
             continue;
         };
-        info!(session_id, request_id, "re-syncing pending opencode question");
+        info!(
+            session_id,
+            request_id, "re-syncing pending opencode question"
+        );
         shared
             .questions
             .lock()
@@ -328,11 +333,8 @@ async fn forward_question_raw(
 /// the provider's own message (e.g. "monthly usage limit reached…"). The
 /// watchdog's `/session/status` polling covers the case where this event is
 /// missed across an SSE reconnect.
-async fn handle_session_status(
-    shared: &Arc<Shared>,
-    session_id: &str,
-    props: &serde_json::Value,
-) {
+async fn handle_session_status(shared: &Arc<Shared>, session_id: &str, props: &serde_json::Value) {
+    shared.touch_turn_transport_activity(session_id);
     let status = props.get("status").unwrap_or(&serde_json::Value::Null);
     if status.get("type").and_then(|v| v.as_str()) != Some("retry") {
         return;
@@ -359,19 +361,20 @@ async fn handle_session_status(
     if wait <= super::FIRST_OUTPUT_TIMEOUT.as_millis() as i64 {
         return;
     }
-    super::abort_turn_with_error(shared, session_id, "model provider error".to_string(), message)
-        .await;
+    super::abort_turn_with_error(
+        shared,
+        session_id,
+        "model provider error".to_string(),
+        message,
+    )
+    .await;
 }
 
 /// opencode auto-generates a session title from the first exchange and
 /// announces it via `session.updated`. Forward it as the existing
 /// `session_title` raw control event; the daemon server decides whether the
 /// TeamClaw session still carries a default title worth replacing.
-async fn handle_session_updated(
-    shared: &Arc<Shared>,
-    session_id: &str,
-    props: &serde_json::Value,
-) {
+async fn handle_session_updated(shared: &Arc<Shared>, session_id: &str, props: &serde_json::Value) {
     let title = props
         .pointer("/info/title")
         .and_then(|v| v.as_str())

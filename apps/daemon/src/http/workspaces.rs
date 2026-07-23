@@ -212,11 +212,10 @@ pub async fn get_providers(
 ) -> Result<Json<Vec<ProviderInfo>>, HttpError> {
     require_scope(&principal, "workspace:read")?;
     let store = resolve_store(&state)?;
-    // `provider.team` is materialized from the team's cloud LLM config, and the
-    // read below comes straight off disk. Without reconciling first, an admin's
-    // model-list change would only reach this member at their next runtime spawn
-    // — app restarts included, since the daemon outlives them. The cloud fetch is
-    // TTL-throttled and the write is skipped when nothing differs.
+    // `provider.team` is synced from the team's cloud LLM config via
+    // `sync_team_provider_on_disk` before this handler reads straight off disk.
+    // Without that step, an admin's model-list change would only reach this member
+    // at their next runtime spawn — app restarts included.
     reconcile_team_provider(&state, &workspace_id).await;
     let mut providers = store
         .get_providers(&workspace_id)
@@ -237,8 +236,7 @@ pub async fn get_providers(
     Ok(Json(providers))
 }
 
-/// Re-materialize `provider.team` in this workspace's `opencode.json` from the
-/// team's current cloud LLM config, best-effort.
+/// Re-materialize `provider.team` via [`teamclaw_runtime_env::sync_team_provider_on_disk`], best-effort.
 ///
 /// Silently no-ops when the daemon has no managed-LLM resolver (focused tests),
 /// no cloud backend, no team, or an unresolvable workspace path — in each case
@@ -741,6 +739,33 @@ pub async fn get_mcp_tools(
     let response =
         crate::mcp_probe::probe_all_servers(&wpath, servers, query.refresh, &workspace_id).await;
     Ok(Json(response))
+}
+
+#[derive(Serialize)]
+pub struct MaterializeTeamMcpResponse {
+    pub changed: bool,
+    pub added_count: usize,
+}
+
+/// `POST /v1/workspaces/:id/mcp/materialize-team`
+///
+/// Materialize team-shared MCP definitions from `teamclaw-team/.mcp/*.json`
+/// into this workspace's `opencode.json`. Only amuxd writes the file (atomic +
+/// process-local lock). Desktop/git join flows call this instead of touching
+/// `opencode.json` directly.
+pub async fn materialize_team_mcp(
+    principal: Principal,
+    Path(workspace_id): Path<String>,
+) -> Result<Json<MaterializeTeamMcpResponse>, HttpError> {
+    require_scope(&principal, "workspace:write")?;
+    let wpath = workspace_path_or_404(&workspace_id).await?;
+    crate::runtime::supervisor::ensure_inherent_mcp(&wpath).map_err(map_control_err)?;
+    let outcome = crate::config::team_mcp::materialize_team_mcp_for_runtime(&wpath)
+        .map_err(map_control_err)?;
+    Ok(Json(MaterializeTeamMcpResponse {
+        changed: outcome.changed,
+        added_count: outcome.added_count,
+    }))
 }
 
 // ── Roles & skills handlers ───────────────────────────────────────────────────

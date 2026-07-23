@@ -161,10 +161,7 @@ impl ServeClient {
     /// reliable way to observe provider-retry state: the SSE `session.status`
     /// event fires once at retry entry and is lost if the subscription is
     /// (re)connecting at that moment. Official desktop polls this snapshot.
-    pub async fn session_status(
-        &self,
-        directory: &str,
-    ) -> crate::error::Result<serde_json::Value> {
+    pub async fn session_status(&self, directory: &str) -> crate::error::Result<serde_json::Value> {
         let resp = self
             .req(reqwest::Method::GET, "/session/status", directory)
             .send()

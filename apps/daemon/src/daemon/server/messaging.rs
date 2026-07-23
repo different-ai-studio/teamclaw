@@ -1095,7 +1095,9 @@ mod default_title_tests {
         assert!(is_default_session_title("Mac-mini-8 (10:50)"));
         assert!(is_default_session_title("Mac-mini-8 (9:05)"));
         assert!(is_default_session_title("Session 2a0c5336"));
-        assert!(is_default_session_title("New session - 2026-07-22T01:57:19.776Z"));
+        assert!(is_default_session_title(
+            "New session - 2026-07-22T01:57:19.776Z"
+        ));
     }
 
     #[test]

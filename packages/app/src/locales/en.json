@@ -854,6 +854,13 @@
     "reloadApp": "Reload App",
     "errorDetails": "Error Details",
     "recoveryHint": "An unexpected error occurred. You can try to recover or reload the application.",
+    "authenticationError": "Authentication Error",
+    "error": "Error",
+    "quotaExceeded": "Quota Exceeded",
+    "modelTimeout": "Model Not Responding",
+    "providerError": "Provider Error",
+    "rateLimited": "Rate Limited",
+    "serverError": "Server Error",
     "serviceNotice": "Service Notice",
     "loginRequired": "Please sign in before continuing."
   },
@@ -3060,7 +3067,8 @@
       "workspaceEnsureFailedDesc": "Agent {{shortId}}: failed to sync the workspace with the daemon before starting.",
       "startFailedTitle": "Failed to start Agent runtime",
       "emptyReply": "Agent returned no output. The selected model may be unavailable or misconfigured.",
-      "providerStalled": "The model provider stopped responding. It may be unavailable or rate-limited — please retry or switch models."
+      "providerStalled": "The model provider stopped responding. It may be unavailable or rate-limited — please retry or switch models.",
+      "providerError": "The model provider reported an error. Please retry or switch models."
     },
     "connection": {
       "portFileMissing": "amuxd daemon not connected: the HTTP control plane is not ready (~/.amuxd/amuxd.http.port does not exist). Restart amuxd, or confirm you are running the build from this branch.",
