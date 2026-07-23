@@ -39,6 +39,33 @@ pub struct DepInstallProgress {
     pub error: Option<String>,
 }
 
+/// Resolve the program to probe for a dependency's `--version` check.
+///
+/// For most tools this is just the dependency name looked up on PATH. opencode
+/// is the exception: its official installer hardcodes `~/.opencode/bin`, which is
+/// NOT on the PATH a GUI app inherits when launched from Finder — so a bare
+/// `Command::new("opencode")` probe fails even though the binary is installed and
+/// amuxd (which resolves it by absolute path) runs it fine. Mirror amuxd's
+/// resolution order here: `~/.opencode/bin/opencode` (absolute) -> PATH fallback.
+/// See apps/daemon/src/opencode_install/mod.rs `resolve_binary`.
+fn probe_program(name: &str) -> String {
+    if name != "opencode" {
+        return name.to_string();
+    }
+    let bin = if cfg!(windows) {
+        "opencode.exe"
+    } else {
+        "opencode"
+    };
+    if let Some(home) = dirs::home_dir() {
+        let p = home.join(".opencode").join("bin").join(bin);
+        if p.exists() {
+            return p.to_string_lossy().to_string();
+        }
+    }
+    "opencode".to_string()
+}
+
 /// Check a single dependency by running `cmd --version` (or a variant).
 /// Returns a DependencyInfo with installed status and parsed version.
 fn check_single_dependency(
@@ -50,7 +77,10 @@ fn check_single_dependency(
     affected_features: Vec<String>,
     priority: u8,
 ) -> DependencyInfo {
-    let output = Command::new(name).no_window().args(version_args).output();
+    let output = Command::new(probe_program(name))
+        .no_window()
+        .args(version_args)
+        .output();
 
     match output {
         Ok(o) if o.status.success() => {
@@ -507,4 +537,30 @@ async fn run_install<R: Runtime>(app: &AppHandle<R>, name: &str) -> bool {
     }
 
     success
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn probe_program_passes_through_non_opencode() {
+        assert_eq!(probe_program("git"), "git");
+        assert_eq!(probe_program("node"), "node");
+    }
+
+    #[test]
+    fn probe_program_resolves_opencode_absolute_when_present() {
+        // opencode's official installer targets ~/.opencode/bin; when that binary
+        // exists the probe must use its absolute path, not the bare PATH name a
+        // Finder-launched GUI can't resolve.
+        let bin = if cfg!(windows) { "opencode.exe" } else { "opencode" };
+        let expected = dirs::home_dir().map(|h| h.join(".opencode").join("bin").join(bin));
+        let got = probe_program("opencode");
+        match expected {
+            Some(p) if p.exists() => assert_eq!(got, p.to_string_lossy()),
+            // No installed binary in this environment: falls back to PATH lookup.
+            _ => assert_eq!(got, "opencode"),
+        }
+    }
 }
