@@ -21,9 +21,7 @@ import { Textarea } from '@/components/ui/textarea'
 import {
   Select,
   SelectContent,
-  SelectGroup,
   SelectItem,
-  SelectLabel,
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select'
@@ -53,7 +51,13 @@ import { useChannelsStore } from '@/stores/channels'
 import { useWorkspaceStore } from '@/stores/workspace'
 import { useCurrentTeamStore } from '@/stores/current-team'
 import { loadCronDialogModels, type CronModelGroup } from '@/lib/cron-workspace-models'
-import { groupAgentModelOptions } from '@/lib/agent-available-models'
+import {
+  Popover,
+  PopoverContent,
+  PopoverTrigger,
+} from '@/components/ui/popover'
+import { CommandItem } from '@/components/ui/command'
+import { ModelPickerCommand } from '@/components/model/ModelPickerCommand'
 import { useRuntimeStateStore } from '@/stores/runtime-state-store'
 import { ToggleSwitch } from '../shared'
 import {
@@ -101,6 +105,8 @@ export function CronJobDialog({
   const [advancedOptionsOpen, setAdvancedOptionsOpen] = React.useState(false)
   const [modelGroups, setModelGroups] = React.useState<CronModelGroup[]>([])
   const [modelHint, setModelHint] = React.useState<string | null>(null)
+  const [modelMenuOpen, setModelMenuOpen] = React.useState(false)
+  const dialogContentRef = React.useRef<HTMLDivElement>(null)
   const advancedScrollAnchorRef = React.useRef<HTMLDivElement>(null)
 
   // ref → backend lookup so selecting a model pins the backend it runs on.
@@ -117,17 +123,15 @@ export function CronJobDialog({
     [modelGroups],
   )
 
-  // Group by provider for display, matching the chat prompt-input model picker
-  // (opencode CLI's two-level provider → models presentation).
-  const providerGroups = React.useMemo(
+  // Flat options for the shared model picker (it groups by provider internally,
+  // matching the chat prompt-input picker's two-level presentation).
+  const pickerModels = React.useMemo(
     () =>
-      groupAgentModelOptions(
-        modelOptions.map((m) => ({
-          id: m.ref,
-          displayName: m.name,
-          providerName: m.providerName,
-        })),
-      ),
+      modelOptions.map((m) => ({
+        id: m.ref,
+        displayName: m.name,
+        providerName: m.providerName,
+      })),
     [modelOptions],
   )
 
@@ -322,7 +326,7 @@ export function CronJobDialog({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="sm:max-w-[720px] max-h-[85vh]">
+      <DialogContent ref={dialogContentRef} className="sm:max-w-[720px] max-h-[85vh]">
         <DialogHeader>
           <DialogTitle>{editJob ? t('settings.cron.editJob', 'Edit Job') : t('settings.cron.createJob', 'Create New Job')}</DialogTitle>
           <DialogDescription>
@@ -370,54 +374,77 @@ export function CronJobDialog({
                   />
                   <div className="flex flex-wrap items-center gap-1.5 border-t border-border/70 px-2 py-1 bg-muted/30 dark:bg-muted/15">
                     <Box className="h-3 w-3 shrink-0 text-muted-foreground" aria-hidden />
-                    <Select
-                      value={form.model || '__default__'}
-                      onValueChange={(v) =>
-                        v === '__default__'
-                          ? update({ model: '', backend: '' })
-                          : update({ model: v, backend: backendByRef.get(v) ?? '' })
-                      }
-                    >
-                      <SelectTrigger
-                        className="h-7 min-h-7 w-fit max-w-[min(100%,18rem)] shrink justify-start gap-1 border-0 bg-transparent shadow-none font-mono text-xs py-0 pl-1 pr-0.5 hover:bg-muted/60 focus:ring-0 focus:ring-offset-0 data-[state=open]:bg-muted/60 [&_svg]:h-3 [&_svg]:w-3 [&_svg]:shrink-0"
-                        title={
-                          form.model
-                            ? t('settings.cron.modelSelected', `Using: ${form.model}`)
-                            : t('settings.cron.modelOverrideHint', 'Select a model or use workspace default.')
-                        }
-                      >
-                        <SelectValue
-                          placeholder={t('settings.cron.useDefaultModel', 'Use default model')}
-                        />
-                      </SelectTrigger>
-                      <SelectContent className="max-h-[300px]">
-                        <SelectItem value="__default__">
-                          <span className="text-muted-foreground italic">
-                            {t('settings.cron.useDefaultModel', 'Use default model')}
+                    <Popover open={modelMenuOpen} onOpenChange={setModelMenuOpen}>
+                      <PopoverTrigger asChild>
+                        <button
+                          type="button"
+                          title={
+                            form.model
+                              ? t('settings.cron.modelSelected', `Using: ${form.model}`)
+                              : t('settings.cron.modelOverrideHint', 'Select a model or use workspace default.')
+                          }
+                          className={cn(
+                            'flex h-7 min-h-7 w-fit max-w-[min(100%,18rem)] shrink items-center justify-start gap-1 rounded-md px-1.5 py-0 font-mono text-xs',
+                            'hover:bg-muted/60 focus:outline-none data-[state=open]:bg-muted/60',
+                            !form.model && 'italic text-muted-foreground',
+                          )}
+                        >
+                          <span className="truncate">
+                            {form.model || t('settings.cron.useDefaultModel', 'Use default model')}
                           </span>
-                        </SelectItem>
-                        {modelHint && (
-                          <div className="px-2 py-4 text-center text-[12.5px] text-muted-foreground">
-                            {modelHint}
-                          </div>
-                        )}
-                        {!modelHint && modelOptions.length === 0 && (
-                          <div className="px-2 py-6 text-center text-[13px] text-muted-foreground">
-                            {t('settings.cron.noModels', 'No models advertised. Start an agent session in chat first, or configure providers in LLM settings.')}
-                          </div>
-                        )}
-                        {providerGroups.map((group) => (
-                          <SelectGroup key={group.providerName}>
-                            <SelectLabel>{group.providerName}</SelectLabel>
-                            {group.models.map((model) => (
-                              <SelectItem key={model.id} value={model.id}>
-                                {model.displayName || model.id}
-                              </SelectItem>
-                            ))}
-                          </SelectGroup>
-                        ))}
-                      </SelectContent>
-                    </Select>
+                          <ChevronDown className="h-3 w-3 shrink-0 text-muted-foreground" />
+                        </button>
+                      </PopoverTrigger>
+                      <PopoverContent
+                        align="start"
+                        sideOffset={6}
+                        container={dialogContentRef.current ?? undefined}
+                        className="w-[18rem] p-0"
+                        // This popover is nested inside a Radix Dialog. The
+                        // command input's default autofocus moves focus into
+                        // content portaled to `document.body`, outside the
+                        // Dialog's DOM subtree; the Dialog's FocusScope then
+                        // yanks focus back, which the popover reads as an
+                        // outside interaction and immediately closes itself.
+                        // Skipping the auto-focus breaks that fight.
+                        onOpenAutoFocus={(e) => e.preventDefault()}
+                      >
+                        <ModelPickerCommand
+                          models={pickerModels}
+                          selectedId={form.model}
+                          onSelect={(id) => {
+                            update({ model: id, backend: backendByRef.get(id) ?? '' })
+                            setModelMenuOpen(false)
+                          }}
+                          leadingItems={
+                            <CommandItem
+                              value="__default__ use default model"
+                              data-model-selected={!form.model ? 'true' : undefined}
+                              onSelect={() => {
+                                update({ model: '', backend: '' })
+                                setModelMenuOpen(false)
+                              }}
+                              className="text-xs py-1.5"
+                            >
+                              <span className="text-muted-foreground italic">
+                                {t('settings.cron.useDefaultModel', 'Use default model')}
+                              </span>
+                            </CommandItem>
+                          }
+                          emptyState={
+                            modelHint ? (
+                              <div className="px-2 py-4 text-center text-[12.5px] text-muted-foreground">
+                                {modelHint}
+                              </div>
+                            ) : (
+                              <div className="px-2 py-6 text-center text-[13px] text-muted-foreground">
+                                {t('settings.cron.noModels', 'No models advertised. Start an agent session in chat first, or configure providers in LLM settings.')}
+                              </div>
+                            )
+                          }
+                        />
+                      </PopoverContent>
+                    </Popover>
                   </div>
                 </div>
               </div>

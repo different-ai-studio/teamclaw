@@ -21,10 +21,20 @@ function PopoverContent({
   className,
   align = "center",
   sideOffset = 4,
+  container,
   ...props
-}: React.ComponentProps<typeof PopoverPrimitive.Content>) {
+}: React.ComponentProps<typeof PopoverPrimitive.Content> & {
+  /**
+   * Where to portal the content. Defaults to `document.body`, which breaks
+   * scrolling/selection when this popover is nested inside a Radix Dialog:
+   * the dialog's scroll lock only allows scroll within its own subtree, and
+   * a body-level portal falls outside it. Pass a ref to a node inside the
+   * dialog's content to keep the popover a scroll-lock descendant.
+   */
+  container?: React.ComponentProps<typeof PopoverPrimitive.Portal>["container"]
+}) {
   return (
-    <PopoverPrimitive.Portal>
+    <PopoverPrimitive.Portal container={container}>
       <PopoverPrimitive.Content
         data-slot="popover-content"
         align={align}

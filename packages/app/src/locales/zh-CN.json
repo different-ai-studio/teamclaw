@@ -2485,7 +2485,8 @@
       "noModels": "未配置模型。请先在 LLM 设置中配置提供商。",
       "lastHeartbeat": "最后心跳",
       "useDefaultModel": "使用默认模型",
-      "sessionNotFound": "对话不存在或无访问权限 (sessionId: {{id}}...)"
+      "sessionNotFound": "对话不存在或无访问权限 (sessionId: {{id}}...)",
+      "runFailedFallback": "本次运行失败：{{error}}"
     },
     "deps": {
       "copied": "已复制！",
