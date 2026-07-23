@@ -742,17 +742,23 @@ impl RuntimeSupervisor {
     }
 
     /// Models OpenCode advertises via ACP for this workspace cwd (cron catalog).
-    pub async fn probe_opencode_catalog_models(
+    /// Probe the configured local backend (opencode or pi) for its live model
+    /// catalog. Dispatches through the backend trait, so opencode reaches
+    /// `serve.ensure()` + `/config/providers` and pi reaches
+    /// `get_available_models` (spawning a child if none is live). There is no
+    /// static fallback — an unavailable binary is an error, not a phantom list.
+    pub async fn probe_catalog_models(
         &self,
         workspace_path: &Path,
     ) -> Result<Vec<amux::ModelInfo>, String> {
         let mut manager = self.agents.lock().await;
-        let launch = manager.launch_config_for(amux::AgentType::Opencode);
+        let agent_type = manager.default_agent_type();
+        let launch = manager.launch_config_for(agent_type);
         if !binary_available(&launch) {
-            return Err("opencode binary not available".into());
+            return Err(format!("{} binary not available", backend_label(agent_type)));
         }
         manager
-            .probe_opencode_models(workspace_path)
+            .probe_catalog_models(workspace_path)
             .await
             .map_err(|e| e.to_string())
     }

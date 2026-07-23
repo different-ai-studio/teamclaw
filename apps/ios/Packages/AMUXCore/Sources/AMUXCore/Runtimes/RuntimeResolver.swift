@@ -68,7 +68,11 @@ public enum RuntimeResolver {
         )
         placeholder.sessionTitle = session.title
         placeholder.currentPrompt = session.summary
-        placeholder.availableModelsJSON = encodedDefaultModels(for: cached?.backendType)
+        // No static fallback: the placeholder advertises no models. The picker
+        // stays hidden until the live MQTT-published Runtime row arrives with
+        // the backend's real catalog (mirrors the daemon, which no longer
+        // synthesizes a default model list).
+        placeholder.availableModelsJSON = ""
         if let m = cached?.currentModel, !m.isEmpty { placeholder.currentModel = m }
         return placeholder
     }
@@ -80,7 +84,6 @@ public enum RuntimeResolver {
 
     /// Maps `CachedAgentRuntime.backendType` strings to the
     /// `Amux_AgentType` raw values stored on the placeholder Runtime.
-    /// Kept aligned with `daemon/src/runtime/models.rs` ordering.
     static func agentTypeRaw(for backendType: String?) -> Int {
         switch backendType {
         case "claude": return 1
@@ -88,29 +91,5 @@ public enum RuntimeResolver {
         case "codex": return 3
         default: return 1
         }
-    }
-
-    /// Mirrors the daemon's hardcoded `available_models_for(agent_type)`
-    /// so the placeholder Runtime has a populated picker before the live
-    /// MQTT-published Runtime row arrives. Keep these lists in sync with
-    /// `daemon/src/runtime/models.rs`.
-    static func encodedDefaultModels(for backendType: String?) -> String {
-        let models: [AvailableModel]
-        switch backendType {
-        case "claude":
-            models = [
-                AvailableModel(id: "claude-haiku-4-5", displayName: "Claude Haiku 4.5"),
-                AvailableModel(id: "claude-sonnet-4-6", displayName: "Claude Sonnet 4.6"),
-                AvailableModel(id: "claude-opus-4-7", displayName: "Claude Opus 4.7"),
-            ]
-        default:
-            models = []
-        }
-        guard !models.isEmpty,
-              let data = try? JSONEncoder().encode(models),
-              let json = String(data: data, encoding: .utf8) else {
-            return ""
-        }
-        return json
     }
 }

@@ -231,15 +231,12 @@ impl SessionStore {
             session_title: String::new(),
             last_output_summary: s.last_output_summary.clone(),
             tool_use_count: s.tool_use_count,
-            // Available models is a per-agent-type constant, not live state,
-            // so populate it for historical sessions too — otherwise iOS
-            // hides the model picker on resumed/non-running sessions.
-            // Live agents still get merged in by `DaemonServer::merged_agent_list`
-            // from `RuntimeManager::to_proto_agent_list`, which overrides
-            // current_model from the running adapter.
-            available_models: crate::runtime::models::available_models_for(
-                amux::AgentType::try_from(s.agent_type).unwrap_or(amux::AgentType::ClaudeCode),
-            ),
+            // No static fallback: historical/non-running sessions advertise no
+            // models. Live agents get their real serve catalog merged in by
+            // `DaemonServer::merged_agent_list` from
+            // `RuntimeManager::to_proto_agent_list` once re-spawned. Clients
+            // (incl. iOS) hide the model picker until the runtime advertises.
+            available_models: Vec::new(),
             current_model: String::new(),
             // Stored sessions represent runtimes the daemon will re-spawn.
             // ACTIVE is a steady-state assumption; Phase 1b will wire proper

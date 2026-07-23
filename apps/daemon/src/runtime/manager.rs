@@ -433,7 +433,9 @@ impl RuntimeManager {
         );
         handle.current_prompt = prompt.into();
         handle.session_id = remote_session_id.unwrap_or_default().to_string();
-        handle.available_models = crate::runtime::models::available_models_for(agent_type);
+        // No static fallback: models come only from the live serve catalog
+        // captured at attach time. Empty until the runtime advertises them.
+        handle.available_models = Vec::new();
         handle.is_gateway = is_gateway;
 
         let launch = self.launch_config_for(agent_type);
@@ -628,7 +630,9 @@ impl RuntimeManager {
 
         handle.cmd_tx = Some(cmd_tx);
         handle.current_prompt = prompt.to_string();
-        handle.available_models = crate::runtime::models::available_models_for(agent_type);
+        // No static fallback: models come only from the live serve catalog
+        // captured at attach time. Empty until the runtime advertises them.
+        handle.available_models = Vec::new();
 
         info!(agent_id, worktree, "agent resumed via shared ACP host");
         self.agents.insert(agent_id.to_string(), handle);
@@ -699,7 +703,10 @@ impl RuntimeManager {
 
     /// Model catalog for a workspace directory via the global opencode serve
     /// instance (cron catalog UI).
-    pub async fn probe_opencode_models(
+    /// Probe the configured local backend for its live model catalog. The
+    /// backend trait dispatches to opencode (serve `/config/providers`) or pi
+    /// (`get_available_models`, spawning a child if none is live).
+    pub async fn probe_catalog_models(
         &mut self,
         workspace_path: &std::path::Path,
     ) -> crate::error::Result<Vec<amux::ModelInfo>> {

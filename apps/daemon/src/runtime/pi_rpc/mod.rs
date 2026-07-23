@@ -832,15 +832,19 @@ impl AgentBackend for PiRpcBackend {
         workspace_path: &Path,
     ) -> crate::error::Result<Vec<amux::ModelInfo>> {
         let worktree = canonical_dir(&workspace_path.to_string_lossy());
-        // Prefer the workspace's own process, else any live one; never spawn
-        // just for the catalog (no fallback const list).
-        let proc = self
+        // Prefer the workspace's own process, else any live one. If none is
+        // live, spawn one for this worktree — pi models come from a running
+        // `pi --mode rpc` child, and there is no static fallback table, so a
+        // catalog request must be allowed to bring a process up (mirrors the
+        // opencode backend's `serve.ensure()`).
+        let proc = match self
             .shared
             .pool
             .get(&worktree)
-            .or_else(|| self.shared.pool.any_live());
-        let Some(proc) = proc else {
-            return Ok(Vec::new());
+            .or_else(|| self.shared.pool.any_live())
+        {
+            Some(proc) => proc,
+            None => self.shared.pool.ensure(&self.shared, &worktree)?,
         };
         let resp = proc
             .client
@@ -957,9 +961,21 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn model_catalog_empty_without_processes() {
+    async fn model_catalog_spawns_when_no_process_live() {
+        // No static fallback: with no live process the catalog request must try
+        // to bring a pi child up. Point the pool at a binary that cannot exist
+        // so the spawn fails deterministically (instead of returning a phantom
+        // empty list) — proving the code path attempts to spawn rather than
+        // short-circuiting to `Ok(vec![])`.
         let mut backend = PiRpcBackend::new();
-        let models = backend.model_catalog(Path::new("/tmp")).await.unwrap();
-        assert!(models.is_empty());
+        backend
+            .shared
+            .pool
+            .set_binary_hint("/nonexistent/teamclaw-pi-does-not-exist");
+        let result = backend.model_catalog(Path::new("/tmp")).await;
+        assert!(
+            result.is_err(),
+            "expected spawn attempt to fail, got {result:?}"
+        );
     }
 }

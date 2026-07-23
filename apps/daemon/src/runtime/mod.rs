@@ -12,7 +12,6 @@ mod handle;
 mod instruction_delivery;
 pub mod managed_llm;
 mod manager;
-pub mod models;
 pub mod refresh;
 pub mod supervisor;
 pub mod turn_aggregator;
