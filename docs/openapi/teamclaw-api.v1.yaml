@@ -67,6 +67,19 @@ paths:
       operationId: listTeams
       summary: List teams
       tags: [Teams]
+      parameters:
+        - name: scope
+          in: query
+          required: false
+          description: |
+            `all` returns the cross-org team picker source: the caller's teams
+            across every org, unioned with PUBLIC teams in the shared
+            DEFAULT_ORG the caller may join (each carrying `isMember`). Omitted
+            returns only teams in the caller's current org that they are an
+            actor in.
+          schema:
+            type: string
+            enum: [all]
       responses:
         "200":
           description: Current user's teams.
@@ -173,25 +186,29 @@ paths:
         "404":
           $ref: "#/components/responses/Error"
     patch:
-      operationId: renameTeam
-      summary: Rename team
+      operationId: updateTeam
+      summary: Update team (rename and/or visibility)
       tags: [Teams]
       parameters:
         - $ref: "#/components/parameters/TeamId"
       requestBody:
         required: true
+        description: At least one of `name` or `visibility` must be provided.
         content:
           application/json:
             schema:
               type: object
-              required: [name]
+              minProperties: 1
               properties:
                 name:
                   type: string
                   minLength: 1
+                visibility:
+                  type: string
+                  enum: [public, private]
       responses:
         "200":
-          description: Renamed team.
+          description: Updated team.
           headers:
             X-Request-Id:
               $ref: "#/components/headers/RequestId"
@@ -202,6 +219,31 @@ paths:
         "400":
           $ref: "#/components/responses/Error"
         "401":
+          $ref: "#/components/responses/Error"
+  /v1/teams/{teamId}/join:
+    post:
+      operationId: joinPublicTeam
+      summary: Join a public team
+      description: |
+        Self-service join of a PUBLIC team in the shared DEFAULT_ORG. Adds the
+        caller as a plain `member` (idempotent if already joined). Rejects
+        teams that are not public DEFAULT_ORG teams with 403.
+      tags: [Teams]
+      parameters:
+        - $ref: "#/components/parameters/TeamId"
+      responses:
+        "200":
+          description: The joined team.
+          headers:
+            X-Request-Id:
+              $ref: "#/components/headers/RequestId"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Team"
+        "403":
+          $ref: "#/components/responses/Error"
+        "404":
           $ref: "#/components/responses/Error"
   /v1/teams/{teamId}/invites:
     post:
@@ -3714,6 +3756,28 @@ components:
           type:
             - string
             - "null"
+        visibility:
+          description: |
+            Team visibility within its org. `private` (default) teams are
+            invite/bootstrap-only; `public` teams are discoverable and
+            self-service joinable by other users in the shared DEFAULT_ORG.
+          type: string
+          enum: [public, private]
+        orgId:
+          type:
+            - string
+            - "null"
+        orgName:
+          type:
+            - string
+            - "null"
+        isMember:
+          description: |
+            Present in the `GET /v1/teams?scope=all` picker listing. `false`
+            marks a public DEFAULT_ORG team the caller may join via
+            `POST /v1/teams/{teamId}/join`; `true` (or absent) means the caller
+            is already an actor in the team.
+          type: boolean
     Session:
       type: object
       required: [id, teamId, title, mode, hasUnread]
