@@ -3805,6 +3805,20 @@ components:
             - "null"
         hasUnread:
           type: boolean
+        source:
+          description: >-
+            How the session was created. 'user' for normal sessions, 'cron' for
+            sessions auto-created by a scheduled task, 'gateway' for gateway
+            (WeCom etc.) bindings.
+          type: string
+          enum: [user, cron, gateway]
+        cronJobId:
+          description: >-
+            For source='cron', the desktop-local cron job id that created this
+            session (a daemon-local string id, not a cloud reference).
+          type:
+            - string
+            - "null"
         createdAt:
           type:
             - string

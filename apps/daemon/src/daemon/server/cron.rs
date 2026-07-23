@@ -160,8 +160,12 @@ impl DaemonServer {
                 let sb_sid = match self.cron_sessions.take_prepared(parsed.session_key) {
                     Some(prepared) => prepared,
                     None => {
-                        self.create_cron_cloud_session(&team_id, parsed.job_name)
-                            .await?
+                        self.create_cron_cloud_session(
+                            &team_id,
+                            parsed.session_key,
+                            parsed.job_name,
+                        )
+                        .await?
                     }
                 };
 
@@ -356,14 +360,27 @@ impl DaemonServer {
     async fn create_cron_cloud_session(
         &self,
         team_id: &str,
+        session_key: &str,
         job_name: Option<&str>,
     ) -> anyhow::Result<String> {
         let primary_agent_actor_id = self.actor_id.clone();
         let title = Self::cron_session_title(job_name);
+        // session_key is `cron/<jobId>/<runId>`; the job id is the middle
+        // segment. Marks the cloud session as scheduled-origin so clients no
+        // longer have to scan the daemon's local run history to know.
+        let cron_job_id = Self::cron_job_id_from_session_key(session_key);
         self.backend
-            .create_cron_session(team_id, &primary_agent_actor_id, &title)
+            .create_cron_session(team_id, &primary_agent_actor_id, &title, cron_job_id)
             .await
             .map_err(|e| anyhow::anyhow!("create_cron_session: {e}"))
+    }
+
+    /// Extract `<jobId>` from a `cron/<jobId>/<runId>` session key.
+    fn cron_job_id_from_session_key(session_key: &str) -> Option<&str> {
+        session_key
+            .strip_prefix("cron/")
+            .and_then(|rest| rest.split('/').next())
+            .filter(|s| !s.is_empty())
     }
 
     /// Eagerly create the cloud session for a cron run and cache it, returning
@@ -403,7 +420,9 @@ impl DaemonServer {
             .clone()
             .ok_or_else(|| anyhow::anyhow!("daemon has no team_id; run `amuxd init` first"))?;
 
-        let sb_sid = self.create_cron_cloud_session(&team_id, job_name).await?;
+        let sb_sid = self
+            .create_cron_cloud_session(&team_id, session_key, job_name)
+            .await?;
         self.cron_sessions.insert_prepared(session_key, &sb_sid);
         info!(
             session_key = %session_key,
@@ -626,10 +645,30 @@ impl DaemonServer {
 #[cfg(test)]
 mod tests {
     use super::CronSessionCache;
+    use crate::daemon::server::DaemonServer;
     use crate::backend::mock::MockBackend;
     use crate::backend::{AgentDefaults, Backend, WorkspaceRow};
     use crate::daemon::server::tests::test_server_with_cloud_api;
     use std::sync::Arc;
+
+    #[test]
+    fn cron_job_id_parsed_from_session_key() {
+        assert_eq!(
+            DaemonServer::cron_job_id_from_session_key("cron/job-abc/run-123"),
+            Some("job-abc")
+        );
+        // Missing run segment still yields the job id.
+        assert_eq!(
+            DaemonServer::cron_job_id_from_session_key("cron/job-abc"),
+            Some("job-abc")
+        );
+        // Non-cron keys and empty job segments yield None.
+        assert_eq!(
+            DaemonServer::cron_job_id_from_session_key("gateway/wecom/x"),
+            None
+        );
+        assert_eq!(DaemonServer::cron_job_id_from_session_key("cron//run"), None);
+    }
 
     #[tokio::test]
     async fn resolve_cron_default_workspace_uses_resolvable_agent_default() {

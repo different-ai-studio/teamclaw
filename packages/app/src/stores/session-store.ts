@@ -256,6 +256,8 @@ function adaptSessionRow(r: Compat): Compat {
     messages: [],
     parentID: null,
     ideaId: r.idea_id ?? null,
+    source: r.source ?? undefined,
+    cronJobId: r.cron_job_id ?? null,
   };
 }
 

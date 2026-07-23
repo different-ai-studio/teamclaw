@@ -19,6 +19,8 @@ type CloudSession = {
   lastMessageAt: string | null;
   lastMessagePreview: string | null;
   hasUnread: boolean;
+  source?: string | null;
+  cronJobId?: string | null;
   createdAt: string | null;
   updatedAt: string | null;
 };
@@ -45,6 +47,8 @@ function mapSessionDetail(row: CloudSessionDetail): SessionDetailRow {
     last_message_preview: row.lastMessagePreview,
     acp_session_id: row.acpSessionId ?? null,
     binding: row.binding ?? null,
+    source: row.source ?? null,
+    cron_job_id: row.cronJobId ?? null,
     created_at: row.createdAt,
     updated_at: row.updatedAt,
   };
@@ -62,6 +66,8 @@ function mapSession(row: CloudSession) {
     mode: row.mode,
     idea_id: row.ideaId,
     has_unread: row.hasUnread,
+    source: row.source ?? null,
+    cron_job_id: row.cronJobId ?? null,
     created_at: row.createdAt,
     updated_at: row.updatedAt,
   };

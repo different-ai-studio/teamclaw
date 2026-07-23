@@ -78,6 +78,8 @@ function mapSessionFull(r: any, participants: any[] = []) {
     hasUnread: false,
     acpSessionId: r.acpSessionId ?? null,
     binding: r.binding ?? null,
+    source: r.source ?? "user",
+    cronJobId: r.cronJobId ?? null,
     createdAt: iso(r.createdAt)!,
     updatedAt: iso(r.updatedAt)!,
     participants,
@@ -108,6 +110,8 @@ function mapSessionSyncRow(r: any) {
     last_message_preview: r.lastMessagePreview ?? null,
     last_message_at: iso(r.lastMessageAt),
     created_by_actor_id: r.createdByActorId ?? null,
+    source: r.source ?? "user",
+    cron_job_id: r.cronJobId ?? null,
     created_at: iso(r.createdAt),
     updated_at: iso(r.updatedAt),
   };
@@ -213,6 +217,8 @@ export function makeSessionsRepo(db: DbLike, ctx: SessionsCtx = {}, deps: Sessio
           sessions.title,
           sessions.last_message_preview AS "lastMessagePreview",
           sessions.last_message_at AS "lastMessageAt",
+          sessions.source,
+          sessions.cron_job_id AS "cronJobId",
           sessions.created_at AS "createdAt",
           sessions.updated_at AS "updatedAt",
           CASE
@@ -242,6 +248,8 @@ export function makeSessionsRepo(db: DbLike, ctx: SessionsCtx = {}, deps: Sessio
         lastMessageAt: iso(r.lastMessageAt),
         lastMessagePreview: r.lastMessagePreview ?? null,
         hasUnread: r.hasUnread === true,
+        source: r.source ?? "user",
+        cronJobId: r.cronJobId ?? null,
         createdAt: iso(r.createdAt)!,
         updatedAt: iso(r.updatedAt)!,
       }));
@@ -520,6 +528,7 @@ export function makeSessionsRepo(db: DbLike, ctx: SessionsCtx = {}, deps: Sessio
           primaryAgentId: input.primaryAgentActorId,
           createdByActorId: input.primaryAgentActorId,
           binding: input.binding,
+          source: "gateway",
         })
         .returning();
 
@@ -553,6 +562,7 @@ export function makeSessionsRepo(db: DbLike, ctx: SessionsCtx = {}, deps: Sessio
       primaryAgentActorId: string;
       title: string;
       createdByActorId?: string;
+      cronJobId?: string | null;
     }) {
       const id = input.id ?? crypto.randomUUID();
       const [r] = await (db.insert(sessions) as any)
@@ -563,6 +573,8 @@ export function makeSessionsRepo(db: DbLike, ctx: SessionsCtx = {}, deps: Sessio
           mode: "collab",
           primaryAgentId: input.primaryAgentActorId,
           createdByActorId: input.createdByActorId ?? input.primaryAgentActorId,
+          source: "cron",
+          cronJobId: input.cronJobId ?? null,
         })
         .returning();
 
@@ -628,6 +640,8 @@ export function makeSessionsRepo(db: DbLike, ctx: SessionsCtx = {}, deps: Sessio
         summary: r.summary ?? null,
         lastMessageAt: iso(r.lastMessageAt),
         lastMessagePreview: r.lastMessagePreview ?? null,
+        source: r.source ?? "user",
+        cronJobId: r.cronJobId ?? null,
         participantCount: counts[r.id] ?? 0,
         hasUnread: false,
         createdAt: iso(r.createdAt)!,

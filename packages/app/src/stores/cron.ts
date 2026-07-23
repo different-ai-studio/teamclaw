@@ -198,7 +198,10 @@ interface CronState {
   activeScope: CronScope
   selectedWorkspacePath: string | null
 
-  // All session IDs created by cron (for filtering in session list)
+  // Optimistic overlay of just-created cron session ids, for the session-list
+  // filter. Scheduled sessions are identified by their persisted `source ===
+  // 'cron'`; this set only covers a freshly-created session whose list row
+  // hasn't synced `source` yet (see runJob).
   cronSessionIds: Set<string>
   // Toggle to show only cron sessions in the session list
   showCronSessions: boolean
@@ -216,7 +219,6 @@ interface CronState {
   setScope: (scope: CronScope) => Promise<void>
   setSelectedWorkspacePath: (workspacePath: string | null) => Promise<void>
   loadJobs: () => Promise<void>
-  loadCronSessionIds: () => Promise<void>
   addJob: (request: CreateCronJobRequest) => Promise<CronJob>
   updateJob: (request: UpdateCronJobRequest) => Promise<CronJob>
   removeJob: (jobId: string) => Promise<void>
@@ -255,7 +257,7 @@ export const useCronStore = create<CronState>((set, get) => ({
     try {
       await invoke('cron_init', cronInvokeArgs(get().activeScope, get().selectedWorkspacePath))
       set({ isInitialized: true })
-      await Promise.all([get().loadJobs(), get().loadCronSessionIds()])
+      await get().loadJobs()
     } catch (error) {
       console.error('[Cron] Init failed:', error)
       set({ error: error instanceof Error ? error.message : String(error) })
@@ -267,7 +269,7 @@ export const useCronStore = create<CronState>((set, get) => ({
       set({ isInitialized: false })
       await invoke('cron_init', cronInvokeArgs(get().activeScope, get().selectedWorkspacePath))
       set({ isInitialized: true })
-      await Promise.all([get().loadJobs(), get().loadCronSessionIds()])
+      await get().loadJobs()
     } catch (error) {
       console.error('[Cron] Re-init failed:', error)
       set({ error: error instanceof Error ? error.message : String(error) })
@@ -416,13 +418,11 @@ export const useCronStore = create<CronState>((set, get) => ({
       void get().loadJobs()
 
       if (sessionId) {
-        // Refresh the authoritative cron session ids first, then add this run's
-        // session on top. The backend eagerly creates the session and stamps
-        // session_id before the turn runs, but cron_get_all_session_ids can lag
-        // that write by a beat, so without the optimistic add, turning the filter
-        // on could momentarily hide this brand-new session. (Order matters:
-        // loadCronSessionIds overwrites the set, so it must run before the add.)
-        await get().loadCronSessionIds()
+        // Optimistically mark this brand-new session as cron-origin. Scheduled
+        // sessions are identified by their persisted `source === 'cron'`, but
+        // the list row for a session created moments ago may not have synced
+        // that field yet, so seed the overlay to avoid a flicker when the filter
+        // is on. The synced `source` takes over on the next list refresh.
         set((state) => ({ cronSessionIds: new Set([...state.cronSessionIds, sessionId]) }))
         get().setShowCronSessions(true)
         // The session-list-store's paginated `rows` won't have this brand-new
@@ -442,25 +442,11 @@ export const useCronStore = create<CronState>((set, get) => ({
         // session so the user watches it run live.
         const { useUIStore } = await import('@/stores/ui')
         await useUIStore.getState().switchToSession(sessionId)
-      } else {
-        void get().loadCronSessionIds()
       }
     } catch (error) {
       set({ error: error instanceof Error ? error.message : String(error) })
     } finally {
       markIdle()
-    }
-  },
-
-  loadCronSessionIds: async () => {
-    try {
-      const ids = await invoke<string[]>(
-        'cron_get_all_session_ids',
-        cronInvokeArgs(get().activeScope, get().selectedWorkspacePath),
-      )
-      set({ cronSessionIds: new Set(ids) })
-    } catch (error) {
-      console.error('[Cron] Failed to load cron session IDs:', error)
     }
   },
 

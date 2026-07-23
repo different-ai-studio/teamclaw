@@ -426,11 +426,16 @@ pub trait Backend: Send + Sync {
 
     /// Create a `sessions` row for a cron-triggered turn and seed
     /// participants (primary agent + that agent's admin members).
+    ///
+    /// `cron_job_id` is the desktop-local cron job id (`cron/<jobId>/<runId>`
+    /// middle segment), persisted as `sessions.cron_job_id` to mark
+    /// scheduled-origin sessions.
     async fn create_cron_session(
         &self,
         team_id: &str,
         primary_agent_actor_id: &str,
         title: &str,
+        cron_job_id: Option<&str>,
     ) -> BackendResult<String>;
 
     /// Insert one row into `public.messages` from the daemon's runtime.
