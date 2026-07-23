@@ -1,12 +1,17 @@
 //! Cloud-sourced managed (shared) LLM resolution, shared by the spawn path and
 //! the HTTP provider snapshot.
 //!
-//! `provider.team` in a workspace's `opencode.json` is materialized from the
-//! team's cloud LLM config. It used to be written *only* while assembling a
-//! spawn env, which meant an admin changing the team's model list never reached
-//! a member until that member happened to spawn a fresh runtime — the daemon's
-//! `GET /v1/workspaces/:id/providers` reads the same file straight off disk, so
-//! the stale list survived app restarts.
+//! Team `provider.team` rows are materialized through
+//! [`teamclaw_runtime_env::sync_team_provider_on_disk`]:
+//! - **Spawn** — [`teamclaw_runtime_env::assemble_runtime_env`] with
+//!   [`teamclaw_runtime_env::SecretResolveScope::FullConfig`]
+//! - **Provider reads** — [`ManagedLlmResolver::reconcile_workspace`] with
+//!   [`teamclaw_runtime_env::SecretResolveScope::ProviderApiKeysOnly`]
+//!
+//! Before reconcile existed, `provider.team` was written only at spawn time, so an
+//! admin's model-list change never reached a member until the next runtime spawn
+//! — `GET /v1/workspaces/:id/providers` reads straight off disk, so stale lists
+//! survived app restarts.
 //!
 //! Holding the TTL cache here (rather than on `DaemonServer`) lets both callers
 //! share one throttled cloud fetch, so reconciling on a provider read costs at
@@ -115,22 +120,27 @@ impl ManagedLlmResolver {
         }
     }
 
-    /// Re-materialize `provider.team` in `workspace`'s `opencode.json` from the
-    /// team's current cloud LLM config.
+    /// Re-materialize `provider.team` via [`teamclaw_runtime_env::sync_team_provider_on_disk`].
     ///
     /// Safe to call on every provider read: the cloud fetch is TTL-throttled and
-    /// `ensure_team_provider` only writes when the entry actually differs, so a
-    /// steady state performs no writes and does not churn the refresh watcher.
+    /// [`sync_team_provider_on_disk`] only writes when the entry actually differs,
+    /// so a steady state performs no writes and does not churn the refresh watcher.
     /// A `Unknown` resolution (no fresh cloud answer) leaves the file untouched.
     pub async fn reconcile_workspace(&self, workspace: &Path, team_id: &str) {
         let state = self.resolve(team_id).await;
-        if let Err(e) = teamclaw_runtime_env::team_provider::ensure_team_provider(workspace, &state)
-        {
+        let secrets =
+            teamclaw_runtime_env::secrets_for_team_provider(self.backend.actor_id());
+        if let Err(e) = teamclaw_runtime_env::sync_team_provider_on_disk(
+            workspace,
+            &state,
+            &secrets,
+            teamclaw_runtime_env::SecretResolveScope::ProviderApiKeysOnly,
+        ) {
             tracing::warn!(
                 team_id,
                 workspace = %workspace.display(),
                 error = %e,
-                "failed to reconcile provider.team from cloud managed LLM"
+                "team provider sync failed during managed LLM reconcile"
             );
         }
     }
@@ -251,6 +261,83 @@ mod tests {
         }
     }
 
+    fn team_api_key(workspace: &Path) -> String {
+        let raw = std::fs::read_to_string(workspace.join("opencode.json")).unwrap();
+        let json: serde_json::Value = serde_json::from_str(&raw).unwrap();
+        json["provider"]["team"]["options"]["apiKey"]
+            .as_str()
+            .unwrap()
+            .to_string()
+    }
+
+    /// Provider reads after spawn must not revert a resolved LiteLLM key to the
+    /// `${tc_api_key}` placeholder (wake / refresh regression).
+    #[tokio::test]
+    async fn reconcile_preserves_resolved_team_api_key() {
+        let workspace = tempfile::TempDir::new().unwrap();
+        let resolved_key = "sk-tc-actor-x";
+        std::fs::write(
+            workspace.path().join("opencode.json"),
+            serde_json::to_string_pretty(&serde_json::json!({
+                "provider": {
+                    "team": {
+                        "npm": "@ai-sdk/openai-compatible",
+                        "name": "Team",
+                        "options": {
+                            "baseURL": "https://gateway.example/v1",
+                            "apiKey": resolved_key
+                        },
+                        "models": { "model-a": { "name": "model-a" } }
+                    }
+                }
+            }))
+            .unwrap(),
+        )
+        .unwrap();
+
+        let mock = MockBackend::with_identity("team-x", "actor-x");
+        mock.state()
+            .managed_llm_configs
+            .insert("team-x".to_string(), config_with_models(&["model-a"]));
+        let backend: Arc<dyn Backend> = Arc::new(mock);
+        let resolver = ManagedLlmResolver::new(backend);
+
+        resolver
+            .reconcile_workspace(workspace.path(), "team-x")
+            .await;
+        assert_eq!(team_api_key(workspace.path()), resolved_key);
+    }
+
+    #[tokio::test]
+    async fn reconcile_resolves_tc_api_key_placeholder() {
+        let workspace = tempfile::TempDir::new().unwrap();
+        std::fs::write(
+            workspace.path().join("opencode.json"),
+            serde_json::to_string_pretty(&serde_json::json!({
+                "provider": {
+                    "team": {
+                        "options": { "apiKey": "${tc_api_key}" },
+                        "models": { "model-a": { "name": "model-a" } }
+                    }
+                }
+            }))
+            .unwrap(),
+        )
+        .unwrap();
+
+        let mock = MockBackend::with_identity("team-x", "actor-x");
+        mock.state()
+            .managed_llm_configs
+            .insert("team-x".to_string(), config_with_models(&["model-a"]));
+        let backend: Arc<dyn Backend> = Arc::new(mock);
+        let resolver = ManagedLlmResolver::new(backend);
+
+        resolver
+            .reconcile_workspace(workspace.path(), "team-x")
+            .await;
+        assert_eq!(team_api_key(workspace.path()), "sk-tc-actor-x");
+    }
+
     /// A cloud blip must not strip a working `provider.team`.
     #[tokio::test]
     async fn unknown_state_leaves_disk_untouched() {
@@ -265,10 +352,12 @@ mod tests {
         .unwrap();
 
         // MockBackend with no seeded config resolves to Disabled, not Unknown,
-        // so drive the untouched path through `ensure_team_provider` directly.
-        teamclaw_runtime_env::team_provider::ensure_team_provider(
+        // so drive the untouched path through `sync_team_provider_on_disk` directly.
+        teamclaw_runtime_env::sync_team_provider_on_disk(
             workspace.path(),
             &ManagedLlmState::Unknown,
+            &HashMap::new(),
+            teamclaw_runtime_env::SecretResolveScope::ProviderApiKeysOnly,
         )
         .unwrap();
 

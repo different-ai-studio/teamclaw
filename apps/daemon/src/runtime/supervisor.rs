@@ -69,100 +69,52 @@ fn opencode_json_path(workspace_path: &Path) -> PathBuf {
 }
 
 fn read_json_object(path: &Path) -> Result<serde_json::Value, WorkspaceControlError> {
-    if !path.exists() {
-        return Ok(serde_json::json!({}));
-    }
-    let content =
-        std::fs::read_to_string(path).map_err(|e| WorkspaceControlError::Io(e.to_string()))?;
-    match serde_json::from_str::<serde_json::Value>(&content) {
-        Ok(value) => Ok(value),
-        // A concurrent/partial write (e.g. a non-truncating overwrite by the
-        // opencode CLI) can leave trailing bytes after a valid top-level object,
-        // producing "trailing characters at line N". Rather than bricking the
-        // runtime, recover the first valid object, back up the bad file, and
-        // rewrite it clean so the workspace can start.
-        Err(err) => recover_leading_json_object(path, &content, err),
-    }
-}
-
-/// Salvage the first complete top-level JSON value from `content`. On success,
-/// preserve the corrupt bytes at `<path>.corrupt.bak` and rewrite `path` with the
-/// recovered object. Returns the original parse error if nothing is recoverable.
-fn recover_leading_json_object(
-    path: &Path,
-    content: &str,
-    original_err: serde_json::Error,
-) -> Result<serde_json::Value, WorkspaceControlError> {
-    let mut stream =
-        serde_json::Deserializer::from_str(content).into_iter::<serde_json::Value>();
-    let recovered = match stream.next() {
-        Some(Ok(value)) if value.is_object() => value,
-        _ => return Err(WorkspaceControlError::Parse(original_err.to_string())),
-    };
-
-    let backup = path.with_extension("json.corrupt.bak");
-    if let Err(e) = std::fs::write(&backup, content) {
-        warn!(
-            path = %path.display(),
-            error = %e,
-            "read_json_object: failed to back up corrupt config; leaving file untouched"
-        );
-        // Don't rewrite without a backup — just use the recovered value in-memory.
-        return Ok(recovered);
-    }
-
-    match serde_json::to_string_pretty(&recovered) {
-        Ok(clean) => {
-            if let Err(e) =
-                teamclaw_runtime_env::atomic_write::atomic_write(path, &format!("{clean}\n"))
-            {
-                warn!(
-                    path = %path.display(),
-                    error = %e,
-                    "read_json_object: failed to rewrite recovered config"
-                );
-            } else {
-                warn!(
-                    path = %path.display(),
-                    backup = %backup.display(),
-                    "read_json_object: recovered corrupt config (trailing bytes dropped); backup saved"
-                );
-            }
-        }
-        Err(e) => warn!(
-            path = %path.display(),
-            error = %e,
-            "read_json_object: could not re-serialize recovered config"
-        ),
-    }
-
-    Ok(recovered)
+    let workspace = path
+        .parent()
+        .ok_or_else(|| WorkspaceControlError::Io("opencode.json has no parent".into()))?;
+    teamclaw_runtime_env::opencode_config::OpencodeConfigStore::load(workspace)
+        .map_err(|e| WorkspaceControlError::Parse(e.to_string()))
 }
 
 fn write_json_pretty(path: &Path, value: &serde_json::Value) -> Result<(), WorkspaceControlError> {
-    if let Some(parent) = path.parent() {
-        std::fs::create_dir_all(parent).map_err(|e| WorkspaceControlError::Io(e.to_string()))?;
-    }
-    let content = serde_json::to_string_pretty(value)
-        .map_err(|e| WorkspaceControlError::Parse(e.to_string()))?;
-    teamclaw_runtime_env::atomic_write::atomic_write(path, &content)
+    let workspace = path
+        .parent()
+        .ok_or_else(|| WorkspaceControlError::Io("opencode.json has no parent".into()))?;
+    teamclaw_runtime_env::opencode_config::OpencodeConfigStore::write_value(workspace, value)
         .map_err(|e| WorkspaceControlError::Io(e.to_string()))
 }
 
-/// Ensure tool-level permission defaults exist in `opencode.json`.
-fn ensure_default_permissions(workspace_path: &Path) -> Result<(), WorkspaceControlError> {
-    let config_path = opencode_json_path(workspace_path);
-    let write_lock = teamclaw_runtime_env::atomic_write::opencode_write_lock(&config_path);
-    let _guard = write_lock.lock().unwrap_or_else(|e| e.into_inner());
-    let mut config = read_json_object(&config_path)?;
+fn map_store_err(
+    e: teamclaw_runtime_env::opencode_config::OpencodeConfigError,
+) -> WorkspaceControlError {
+    WorkspaceControlError::Io(e.to_string())
+}
+
+fn ws_to_store_err(
+    e: WorkspaceControlError,
+) -> teamclaw_runtime_env::opencode_config::OpencodeConfigError {
+    match e {
+        WorkspaceControlError::Io(s) => {
+            teamclaw_runtime_env::opencode_config::OpencodeConfigError::Io(s)
+        }
+        WorkspaceControlError::Parse(s) => {
+            teamclaw_runtime_env::opencode_config::OpencodeConfigError::Parse(s)
+        }
+        other => {
+            teamclaw_runtime_env::opencode_config::OpencodeConfigError::Parse(other.to_string())
+        }
+    }
+}
+
+fn mutate_default_permissions(
+    config: &mut serde_json::Value,
+) -> Result<bool, WorkspaceControlError> {
     let obj = config.as_object_mut().ok_or_else(|| {
         WorkspaceControlError::Parse("opencode.json root is not an object".into())
     })?;
-
     if obj.contains_key("permission") {
-        return Ok(());
+        return Ok(false);
     }
-
     obj.insert(
         "permission".to_string(),
         serde_json::json!({
@@ -173,20 +125,21 @@ fn ensure_default_permissions(workspace_path: &Path) -> Result<(), WorkspaceCont
             "doom_loop": "ask"
         }),
     );
-
-    write_json_pretty(&config_path, &config)
+    Ok(true)
 }
 
-/// Seed inherent MCP entries that TeamClaw expects (non-destructive).
-pub fn ensure_inherent_mcp(workspace_path: &Path) -> Result<(), WorkspaceControlError> {
-    let config_path = opencode_json_path(workspace_path);
-    let write_lock = teamclaw_runtime_env::atomic_write::opencode_write_lock(&config_path);
-    let _guard = write_lock.lock().unwrap_or_else(|e| e.into_inner());
-    let mut config = if config_path.exists() {
-        read_json_object(&config_path)?
-    } else {
-        serde_json::json!({ "$schema": "https://opencode.ai/config.json" })
-    };
+fn mutate_inherent_mcp(
+    workspace_path: &Path,
+    config: &mut serde_json::Value,
+) -> Result<bool, WorkspaceControlError> {
+    if config.as_object().map(|o| o.is_empty()).unwrap_or(true) && config.get("$schema").is_none() {
+        if let Some(obj) = config.as_object_mut() {
+            obj.insert(
+                "$schema".to_string(),
+                serde_json::json!("https://opencode.ai/config.json"),
+            );
+        }
+    }
 
     let obj = config.as_object_mut().ok_or_else(|| {
         WorkspaceControlError::Parse("opencode.json root is not an object".into())
@@ -204,13 +157,6 @@ pub fn ensure_inherent_mcp(workspace_path: &Path) -> Result<(), WorkspaceControl
         .get(REMOTE_TOOLS_MCP_SERVER_NAME)
         .map(|existing| existing != &remote_tools)
         .unwrap_or(true);
-    info!(
-        workspace = %workspace_path.display(),
-        config_path = %config_path.display(),
-        needs_remote_tools,
-        remote_tools_present = mcp_obj.contains_key(REMOTE_TOOLS_MCP_SERVER_NAME),
-        "ensure_inherent_mcp: remote-tools config checked"
-    );
     if needs_remote_tools {
         mcp_obj.insert(REMOTE_TOOLS_MCP_SERVER_NAME.to_string(), remote_tools);
         changed = true;
@@ -240,10 +186,92 @@ pub fn ensure_inherent_mcp(workspace_path: &Path) -> Result<(), WorkspaceControl
         changed = true;
     }
 
-    ensure_extended_inherent_config(workspace_path, &mut config, &mut changed)?;
+    ensure_extended_inherent_config(workspace_path, config, &mut changed)?;
+    Ok(changed)
+}
 
+fn mutate_instruction_plugin(
+    config: &mut serde_json::Value,
+) -> Result<bool, WorkspaceControlError> {
+    use crate::runtime::workspace_runtime::INSTRUCTION_PLUGIN_CONFIG_ENTRY;
+
+    let obj = config.as_object_mut().ok_or_else(|| {
+        WorkspaceControlError::Parse("opencode.json root is not an object".into())
+    })?;
+
+    if obj.get("$schema").is_none() {
+        obj.insert(
+            "$schema".to_string(),
+            serde_json::json!("https://opencode.ai/config.json"),
+        );
+    }
+
+    let plugins = obj.entry("plugin").or_insert_with(|| serde_json::json!([]));
+    let plugin_list = plugins.as_array_mut().ok_or_else(|| {
+        WorkspaceControlError::Parse("opencode.json plugin field is not an array".into())
+    })?;
+
+    let already_registered = plugin_list.iter().any(|entry| {
+        entry
+            .as_str()
+            .map(|value| value.contains("teamclaw-instruction"))
+            .unwrap_or(false)
+    });
+    if already_registered {
+        return Ok(false);
+    }
+    plugin_list.push(serde_json::json!(INSTRUCTION_PLUGIN_CONFIG_ENTRY));
+    Ok(true)
+}
+
+/// One read-modify-write for prepare/reload paths.
+pub fn materialize_opencode_for_prepare(
+    workspace_path: &Path,
+) -> Result<(), WorkspaceControlError> {
+    teamclaw_runtime_env::opencode_config::OpencodeConfigStore::apply(workspace_path, |config| {
+        let mut changed = false;
+        changed |= mutate_default_permissions(config).map_err(ws_to_store_err)?;
+        changed |= mutate_inherent_mcp(workspace_path, config).map_err(ws_to_store_err)?;
+        changed |= mutate_instruction_plugin(config).map_err(ws_to_store_err)?;
+        Ok(changed)
+    })
+    .map_err(map_store_err)?;
+    Ok(())
+}
+
+/// One read-modify-write for spawn: inherent MCP only.
+///
+/// Cloud `provider.team` materialization and secret resolution run in
+/// [`teamclaw_runtime_env::assemble_runtime_env`] via
+/// [`teamclaw_runtime_env::sync_team_provider_on_disk`].
+pub fn materialize_inherent_mcp_for_spawn(
+    workspace_path: &Path,
+) -> Result<(), WorkspaceControlError> {
+    teamclaw_runtime_env::opencode_config::OpencodeConfigStore::apply(workspace_path, |config| {
+        mutate_inherent_mcp(workspace_path, config).map_err(ws_to_store_err)
+    })
+    .map_err(map_store_err)?;
+    Ok(())
+}
+
+/// Ensure tool-level permission defaults exist in `opencode.json`.
+fn ensure_default_permissions(workspace_path: &Path) -> Result<(), WorkspaceControlError> {
+    teamclaw_runtime_env::opencode_config::OpencodeConfigStore::apply(workspace_path, |config| {
+        mutate_default_permissions(config).map_err(ws_to_store_err)
+    })
+    .map_err(map_store_err)?;
+    Ok(())
+}
+
+/// Seed inherent MCP entries that TeamClaw expects (non-destructive).
+pub fn ensure_inherent_mcp(workspace_path: &Path) -> Result<(), WorkspaceControlError> {
+    let config_path = opencode_json_path(workspace_path);
+    let changed = teamclaw_runtime_env::opencode_config::OpencodeConfigStore::apply(
+        workspace_path,
+        |config| mutate_inherent_mcp(workspace_path, config).map_err(ws_to_store_err),
+    )
+    .map_err(map_store_err)?;
     if changed {
-        write_json_pretty(&config_path, &config)?;
         info!(
             workspace = %workspace_path.display(),
             config_path = %config_path.display(),
@@ -578,11 +606,8 @@ fn ensure_inherent_skills_in_dir(skills_dir: &Path) -> Result<(), WorkspaceContr
     Ok(())
 }
 
-/// Install the TeamClaw instruction OpenCode plugin and register it in `opencode.json`.
-pub fn ensure_instruction_plugin(workspace_path: &Path) -> Result<(), WorkspaceControlError> {
-    use crate::runtime::workspace_runtime::{
-        INSTRUCTION_PLUGIN_CONFIG_ENTRY, INSTRUCTION_PLUGIN_REL,
-    };
+fn install_instruction_plugin_file(workspace_path: &Path) -> Result<(), WorkspaceControlError> {
+    use crate::runtime::workspace_runtime::INSTRUCTION_PLUGIN_REL;
 
     let plugin_path = workspace_path.join(INSTRUCTION_PLUGIN_REL);
     if let Some(parent) = plugin_path.parent() {
@@ -597,43 +622,17 @@ pub fn ensure_instruction_plugin(workspace_path: &Path) -> Result<(), WorkspaceC
         std::fs::write(&plugin_path, INSTRUCTION_PLUGIN_TEMPLATE)
             .map_err(|e| WorkspaceControlError::Io(e.to_string()))?;
     }
+    Ok(())
+}
 
-    let config_path = opencode_json_path(workspace_path);
-    let write_lock = teamclaw_runtime_env::atomic_write::opencode_write_lock(&config_path);
-    let _guard = write_lock.lock().unwrap_or_else(|e| e.into_inner());
-    let mut config = if config_path.exists() {
-        read_json_object(&config_path)?
-    } else {
-        serde_json::json!({ "$schema": "https://opencode.ai/config.json" })
-    };
+/// Install the TeamClaw instruction OpenCode plugin and register it in `opencode.json`.
+pub fn ensure_instruction_plugin(workspace_path: &Path) -> Result<(), WorkspaceControlError> {
+    install_instruction_plugin_file(workspace_path)?;
 
-    let obj = config.as_object_mut().ok_or_else(|| {
-        WorkspaceControlError::Parse("opencode.json root is not an object".into())
-    })?;
-
-    if obj.get("$schema").is_none() {
-        obj.insert(
-            "$schema".to_string(),
-            serde_json::json!("https://opencode.ai/config.json"),
-        );
-    }
-
-    let plugins = obj.entry("plugin").or_insert_with(|| serde_json::json!([]));
-    let plugin_list = plugins.as_array_mut().ok_or_else(|| {
-        WorkspaceControlError::Parse("opencode.json plugin field is not an array".into())
-    })?;
-
-    let already_registered = plugin_list.iter().any(|entry| {
-        entry
-            .as_str()
-            .map(|value| value.contains("teamclaw-instruction"))
-            .unwrap_or(false)
-    });
-    if !already_registered {
-        plugin_list.push(serde_json::json!(INSTRUCTION_PLUGIN_CONFIG_ENTRY));
-        write_json_pretty(&config_path, &config)?;
-    }
-
+    teamclaw_runtime_env::opencode_config::OpencodeConfigStore::apply(workspace_path, |config| {
+        mutate_instruction_plugin(config).map_err(ws_to_store_err)
+    })
+    .map_err(map_store_err)?;
     Ok(())
 }
 
@@ -645,23 +644,11 @@ pub fn prepare_workspace(workspace_path: &Path) -> Result<(), WorkspaceControlEr
         ));
     }
 
-    ensure_default_permissions(workspace_path)?;
-    ensure_inherent_mcp(workspace_path)?;
-    ensure_instruction_plugin(workspace_path)?;
+    install_instruction_plugin_file(workspace_path)?;
+    materialize_opencode_for_prepare(workspace_path)?;
     ensure_inherent_skills_in_dir(&workspace_path.join(".teamclaw/skills"))?;
     ensure_inherent_skills_in_dir(&workspace_path.join(".opencode/skills"))?;
 
-    // The managed (shared) LLM is now resolved from the cloud API at spawn time
-    // (see `DaemonServer::resolve_managed_llm`), which is where the team_id and a
-    // cloud client are in scope. `prepare_workspace` has neither, so it passes
-    // `Unknown` (a no-op) rather than reading a disk mirror — the authoritative
-    // `provider.team` reconciliation happens in `assemble_runtime_env`.
-    if let Err(e) = teamclaw_runtime_env::team_provider::ensure_team_provider(
-        workspace_path,
-        &teamclaw_runtime_env::ManagedLlmState::Unknown,
-    ) {
-        tracing::warn!(workspace = %workspace_path.display(), error = %e, "failed to ensure team provider");
-    }
     if let Ok(Some(result)) =
         teamclaw_runtime_env::opencode_db::maybe_migrate_legacy_opencode_db(workspace_path)
     {

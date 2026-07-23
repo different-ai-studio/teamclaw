@@ -2,10 +2,12 @@ pub mod atomic_write;
 pub mod env_catalog;
 pub mod mcp_resolve;
 pub mod merge;
+pub mod opencode_config;
 pub mod opencode_db;
 pub mod personal_secrets;
 pub mod team_crypto;
 pub mod team_provider;
+pub mod team_provider_sync;
 
 #[cfg(test)]
 pub mod test_util;
@@ -13,7 +15,11 @@ pub mod test_util;
 use std::collections::HashMap;
 use std::path::Path;
 
+pub use merge::{secrets_for_team_provider, tc_api_key_for_actor};
 pub use team_provider::{ManagedLlmModel, ManagedLlmProvider, ManagedLlmState};
+pub use team_provider_sync::{
+    sync_team_provider_on_disk, SecretResolveScope, TeamProviderSyncResult,
+};
 
 pub const APP_SECRETS_DIR: &str = "teamclaw";
 pub const DEFAULT_TEAM_REPO_DIR: &str = "teamclaw-team";
@@ -44,14 +50,60 @@ pub fn assemble_runtime_env(
     managed_llm: &ManagedLlmState,
 ) -> anyhow::Result<RuntimeEnvBundle> {
     opencode_db::maybe_migrate_legacy_opencode_db(workspace)?;
-    team_provider::ensure_team_provider(workspace, managed_llm)?;
 
     let personal = personal_secrets::load_personal_env()?;
     let merged = merge::merge_env_maps(personal, team_env, &system);
-    let opencode_json_original =
-        mcp_resolve::resolve_config_secret_refs(workspace, &merged)?;
+    let sync = sync_team_provider_on_disk(
+        workspace,
+        managed_llm,
+        &merged,
+        SecretResolveScope::FullConfig,
+    )?;
     Ok(RuntimeEnvBundle {
         extra_env: merged,
-        opencode_json_original,
+        opencode_json_original: sync.opencode_json_original,
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::team_provider::{ManagedLlmModel, ManagedLlmProvider};
+
+    #[test]
+    fn assemble_runtime_env_materializes_team_provider_on_spawn() {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::write(dir.path().join("opencode.json"), "{}").unwrap();
+
+        let managed = ManagedLlmState::Enabled(ManagedLlmProvider {
+            name: "Team".to_string(),
+            base_url: "https://gateway.example/v1".to_string(),
+            models: vec![ManagedLlmModel {
+                id: "model-a".to_string(),
+                name: "Model A".to_string(),
+            }],
+        });
+
+        let bundle = assemble_runtime_env(
+            dir.path(),
+            HashMap::new(),
+            SystemEnvContext {
+                actor_id: "spawn-actor".to_string(),
+                display_name: String::new(),
+                cloud_token_file: None,
+            },
+            &managed,
+        )
+        .unwrap();
+
+        assert_eq!(
+            bundle.extra_env.get("tc_api_key").map(String::as_str),
+            Some("sk-tc-spawn-actor")
+        );
+
+        let raw = std::fs::read_to_string(dir.path().join("opencode.json")).unwrap();
+        assert!(raw.contains("sk-tc-spawn-actor"));
+        assert!(raw.contains("model-a"));
+        assert!(bundle.opencode_json_original.is_some());
+    }
 }
