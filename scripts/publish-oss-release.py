@@ -515,6 +515,39 @@ Write-Host 'Done. amuxd is running as a background service. Check: amuxd status'
     bucket.put_object(f"{prefix}/install-amuxd.ps1", install_amuxd_ps1.encode(),
                       headers={**short_cache, "Content-Type": "text/plain; charset=utf-8"})
 
+    # Privacy policy — brand-generic template with {{APP_NAME}} substituted.
+    # Published at {cdn}/{prefix}/privacy.html so the Chrome Web Store listing can
+    # point its "Privacy policy URL" here (e.g. download.copilot361.com/releases/privacy.html).
+    privacy_tpl_path = os.path.join(
+        os.path.dirname(os.path.abspath(__file__)), "templates", "privacy.html"
+    )
+    if os.path.isfile(privacy_tpl_path):
+        with open(privacy_tpl_path, encoding="utf-8") as f:
+            privacy_html = f.read()
+        # Contact precedence: PRIVACY_CONTACT env → brand config
+        # (app.privacyContact / page.privacyContact) → domain-derived fallback.
+        # Contact precedence: PRIVACY_CONTACT env → brand.json's page block
+        # (page_cfg.privacyContact) → build config app block → domain fallback.
+        contact = (
+            os.environ.get("PRIVACY_CONTACT")
+            or page_cfg.get("privacyContact")
+            or (build_config.get("app") or {}).get("privacyContact")
+            or f"support@{app_slug}.com"
+        )
+        privacy_html = (
+            privacy_html.replace("{{APP_NAME}}", html.escape(app_name))
+            .replace("{{UPDATED}}", datetime.now(timezone.utc).strftime("%Y-%m-%d"))
+            .replace("{{CONTACT}}", html.escape(contact))
+        )
+        bucket.put_object(
+            f"{prefix}/privacy.html",
+            privacy_html.encode(),
+            headers={**short_cache, "Content-Type": "text/html; charset=utf-8"},
+        )
+        print(f"✅ {cdn}/{prefix}/privacy.html  (privacy policy)")
+    else:
+        print("::warning::privacy.html template missing — skipped privacy policy upload")
+
     logo = resolve_logo(build_config)
     if logo:
         bucket.put_object_from_file(f"{prefix}/logo.png", logo,

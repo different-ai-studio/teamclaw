@@ -6,6 +6,16 @@ import { openSidePanelFromUserGesture } from './lib/open-side-panel'
 
 const SIDE_PANEL_PATH = 'sidepanel/index.html'
 
+/**
+ * Hosts the extension is scoped to, read from the (brand-injected) manifest so
+ * this stays in sync with host_permissions without hardcoding any brand's
+ * domains. Falls back to all http/https for a non-branded build.
+ */
+const SCOPED_TAB_URLS =
+  chrome.runtime.getManifest().host_permissions?.length
+    ? chrome.runtime.getManifest().host_permissions!
+    : ['http://*/*', 'https://*/*']
+
 chrome.sidePanel
   .setPanelBehavior({ openPanelOnActionClick: true })
   .catch((e) => console.warn('[bg] setPanelBehavior failed', e))
@@ -39,7 +49,7 @@ async function injectContentScript(tabId: number): Promise<void> {
 
 /** Content scripts in manifest only attach on navigation — backfill open tabs. */
 async function injectOpenHttpTabs(): Promise<void> {
-  const tabs = await chrome.tabs.query({ url: ['http://*/*', 'https://*/*'] })
+  const tabs = await chrome.tabs.query({ url: SCOPED_TAB_URLS })
   await Promise.all(
     tabs.map(async (tab) => {
       if (!tab.id) return

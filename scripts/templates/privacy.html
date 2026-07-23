@@ -1,0 +1,76 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>{{APP_NAME}} — Privacy Policy</title>
+<style>
+  :root { color-scheme: light dark; }
+  body { max-width: 720px; margin: 0 auto; padding: 48px 20px 96px;
+    font: 16px/1.6 -apple-system, "Segoe UI", Roboto, "PingFang SC", sans-serif;
+    color: #1a1a1a; }
+  @media (prefers-color-scheme: dark) { body { color: #e8e8e8; background: #141414; } }
+  h1 { font-size: 28px; margin: 0 0 4px; }
+  h2 { font-size: 18px; margin: 32px 0 8px; }
+  .muted { opacity: .6; font-size: 14px; }
+  code { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: .92em; }
+  ul { padding-left: 20px; }
+</style>
+</head>
+<body>
+  <h1>{{APP_NAME}} Privacy Policy</h1>
+  <p class="muted">Last updated: {{UPDATED}}</p>
+
+  <p>
+    {{APP_NAME}} is a browser extension that shows an AI chat side panel and lets
+    you send the content of a web page you are viewing to a {{APP_NAME}} agent.
+    This policy explains what data the extension handles and how.
+  </p>
+
+  <h2>What we handle</h2>
+  <ul>
+    <li>
+      <strong>Web page content</strong> — the text, DOM, and any selected text of
+      a page, captured <em>only</em> when you explicitly invoke {{APP_NAME}} (for
+      example by opening the side panel for the page or sharing a link). The
+      extension does not passively read or collect your browsing across sites.
+    </li>
+    <li>
+      <strong>Extension settings</strong> — your preferences (such as per-site
+      link-hover settings) are stored locally in your browser via the extension
+      <code>storage</code> API.
+    </li>
+  </ul>
+
+  <h2>How it is used</h2>
+  <p>
+    Page content you choose to share is sent to the {{APP_NAME}} agent backend so
+    the agent can respond to your request. It is used solely to provide the chat
+    functionality you asked for. We do <strong>not</strong> sell or transfer your
+    data to third parties, do not use it for any purpose unrelated to the
+    extension's single purpose, and do not use it to determine creditworthiness or
+    for lending.
+  </p>
+
+  <h2>Permissions</h2>
+  <ul>
+    <li><code>sidePanel</code> — renders the {{APP_NAME}} chat interface.</li>
+    <li><code>activeTab</code> / host access — reads the current page's content when you invoke the extension.</li>
+    <li><code>scripting</code> — injects the content script that extracts page content.</li>
+    <li><code>tabs</code> — identifies the active tab and opens/navigates URLs you share with the agent.</li>
+    <li><code>storage</code> — stores your settings locally in the browser.</li>
+  </ul>
+
+  <h2>Data retention</h2>
+  <p>
+    Settings remain in local browser storage until you remove the extension or
+    clear them. Shared page content is processed to fulfil your request and is not
+    retained beyond what is needed to operate the service.
+  </p>
+
+  <h2>Contact</h2>
+  <p>
+    Questions about this policy: <a href="mailto:{{CONTACT}}">{{CONTACT}}</a>.
+  </p>
+</body>
+</html>
