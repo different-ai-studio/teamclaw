@@ -486,6 +486,7 @@ pub struct ModelCatalog {
 fn backend_label(backend: &str) -> &'static str {
     match backend {
         "opencode" => "OpenCode",
+        "pi" => "Pi",
         "claude" => "Claude Code",
         "codex" => "Codex",
         _ => "Agent",
@@ -516,32 +517,39 @@ fn catalog_models_from_opencode_json(opencode_providers: &[ProviderInfo]) -> Vec
         .collect()
 }
 
-/// Build the catalog from the configured backend list. OpenCode prefers the
-/// live ACP probe list when provided; otherwise falls back to `opencode.json`.
+/// Build the catalog from the configured backend list. The single configured
+/// local backend (`opencode` or `pi`, per `supported_agent_type_names`) is
+/// served using `probed_models` — the live catalog the daemon probed from that
+/// backend. OpenCode additionally falls back to `opencode.json` providers when
+/// the probe is empty; pi has only the probe. There is no static fallback list.
 pub fn build_model_catalog(
     configured_agent_types: &[String],
-    opencode_acp_models: Option<&[amux::ModelInfo]>,
+    probed_models: Option<&[amux::ModelInfo]>,
     opencode_providers: &[ProviderInfo],
 ) -> ModelCatalog {
     let mut backends = Vec::new();
 
-    // Single-agent mode: only the opencode backend group is ever served.
-    // (`configured_agent_types` comes from `supported_agent_type_names`, which
-    // now only emits "opencode"; anything else is skipped defensively.)
+    // Single-agent mode: `configured_agent_types` carries exactly the one
+    // configured local backend ("opencode" or "pi"); legacy names are skipped
+    // defensively.
     for backend in configured_agent_types {
-        if backend != "opencode" {
+        if backend != "opencode" && backend != "pi" {
             continue;
         }
-        let mut models: Vec<CatalogModel> = opencode_acp_models
+        // No static fallback: the live probe first. OpenCode additionally reads
+        // the workspace's configured `opencode.json` providers when the probe
+        // is empty; pi has no provider-file fallback. If nothing resolves, the
+        // group is served with no models — clients show the "no models" hint
+        // rather than a phantom default.
+        let probed: Vec<CatalogModel> = probed_models
             .filter(|m| !m.is_empty())
             .map(catalog_models_from_acp)
-            .unwrap_or_else(|| catalog_models_from_opencode_json(opencode_providers));
-        if models.is_empty() {
-            // Static opencode fallback table (serve unreachable, no providers).
-            models = catalog_models_from_acp(&crate::runtime::models::available_models_for(
-                amux::AgentType::Opencode,
-            ));
-        }
+            .unwrap_or_default();
+        let models = if !probed.is_empty() || backend == "pi" {
+            probed
+        } else {
+            catalog_models_from_opencode_json(opencode_providers)
+        };
         backends.push(BackendCatalog {
             backend: backend.clone(),
             label: backend_label(backend).to_string(),
@@ -549,10 +557,9 @@ pub fn build_model_catalog(
         });
     }
 
-    let automation_default_backend = backends
-        .iter()
-        .any(|b| b.backend == "opencode")
-        .then(|| "opencode".to_string());
+    // The configured local backend is the automation default (the one cron runs
+    // on when a job specifies none).
+    let automation_default_backend = backends.first().map(|b| b.backend.clone());
 
     ModelCatalog {
         automation_default_backend,
@@ -572,21 +579,25 @@ pub async fn get_model_catalog(
         .get_providers(&workspace_id)
         .map_err(map_control_err)?;
 
-    let opencode_acp_models = if state
+    // Probe the configured local backend (opencode or pi) for its live model
+    // catalog. Both backends bring a process up on demand — opencode via
+    // `serve.ensure()`, pi by spawning a child — so this works with zero
+    // sessions created. There is no static fallback list.
+    let probed_models = if state
         .meta
         .configured_agent_types
         .iter()
-        .any(|b| b == "opencode")
+        .any(|b| b == "opencode" || b == "pi")
     {
         match workspace_path_or_404(&workspace_id).await {
             Ok(wpath) => {
                 if let Some(supervisor) = state.runtime_supervisor.as_ref() {
-                    match supervisor.probe_opencode_catalog_models(&wpath).await {
+                    match supervisor.probe_catalog_models(&wpath).await {
                         Ok(models) if !models.is_empty() => Some(models),
                         Ok(_) => {
                             tracing::debug!(
                                 workspace_id,
-                                "opencode ACP catalog probe returned no models; using opencode.json fallback"
+                                "catalog probe returned no models; using opencode.json providers if any"
                             );
                             None
                         }
@@ -594,7 +605,7 @@ pub async fn get_model_catalog(
                             tracing::warn!(
                                 workspace_id,
                                 error = %e,
-                                "opencode ACP catalog probe failed; using opencode.json fallback"
+                                "catalog probe failed; using opencode.json providers if any"
                             );
                             None
                         }
@@ -611,7 +622,7 @@ pub async fn get_model_catalog(
 
     let catalog = build_model_catalog(
         &state.meta.configured_agent_types,
-        opencode_acp_models.as_deref(),
+        probed_models.as_deref(),
         &providers,
     );
     Ok(Json(catalog))
@@ -1186,14 +1197,45 @@ mod tests {
     }
 
     #[test]
-    fn opencode_without_live_or_provider_models_uses_static_fallback() {
+    fn opencode_without_live_or_provider_models_yields_empty_backend() {
+        // No static fallback: serve unreachable + no providers → the opencode
+        // backend group is served with zero models (clients show the empty
+        // hint), never a phantom default model.
         let catalog = build_model_catalog(&["opencode".to_string()], None, &[]);
-        let oc = &catalog.backends[0];
-        assert_eq!(oc.models.len(), 1);
         assert_eq!(
-            oc.models[0].model_ref,
-            crate::runtime::models::OPENCODE_FALLBACK_MODEL_ID
+            catalog.automation_default_backend.as_deref(),
+            Some("opencode")
         );
+        let oc = &catalog.backends[0];
+        assert!(oc.models.is_empty());
+    }
+
+    #[test]
+    fn pi_backend_uses_probed_models_and_is_default() {
+        let probed = vec![amux::ModelInfo {
+            id: "anthropic/claude-opus".into(),
+            display_name: "Claude Opus".into(),
+            provider_name: "anthropic".into(),
+        }];
+        // opencode.json providers must be ignored for pi (no provider-file fallback).
+        let providers = vec![provider("scnet", &["MiniMax-M2.5"])];
+        let catalog = build_model_catalog(&["pi".to_string()], Some(&probed), &providers);
+
+        assert_eq!(catalog.automation_default_backend.as_deref(), Some("pi"));
+        let pi = &catalog.backends[0];
+        assert_eq!(pi.backend, "pi");
+        assert_eq!(pi.models.len(), 1);
+        assert_eq!(pi.models[0].model_ref, "anthropic/claude-opus");
+    }
+
+    #[test]
+    fn pi_without_probed_models_yields_empty_backend() {
+        // No probe result and no provider-file fallback for pi → empty group,
+        // never a phantom default.
+        let providers = vec![provider("scnet", &["MiniMax-M2.5"])];
+        let catalog = build_model_catalog(&["pi".to_string()], None, &providers);
+        assert_eq!(catalog.automation_default_backend.as_deref(), Some("pi"));
+        assert!(catalog.backends[0].models.is_empty());
     }
 
     #[test]
