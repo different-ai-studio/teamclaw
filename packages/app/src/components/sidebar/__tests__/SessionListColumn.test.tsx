@@ -300,15 +300,15 @@ describe('SessionListColumn', () => {
     })
   })
 
-  it('enables search and cron buttons in embed mode without a local workspace', () => {
+  it('enables search and hides cron filter in embed mode without a local workspace', () => {
     useUIStore.setState({ embedMode: true })
     useWorkspaceStore.setState({ workspacePath: null })
     render(<SessionListColumn onDismiss={() => {}} />)
 
     expect(screen.getByRole('button', { name: /Search|搜索/ })).not.toBeDisabled()
     expect(
-      screen.getByRole('button', { name: /Show scheduled sessions|Show all sessions|定时/ }),
-    ).not.toBeDisabled()
+      screen.queryByRole('button', { name: /Show scheduled sessions|Show all sessions|定时/ }),
+    ).not.toBeInTheDocument()
   })
 
   it('enters batch select mode and archives selected sessions', async () => {
