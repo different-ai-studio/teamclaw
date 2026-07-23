@@ -62,6 +62,8 @@ export function createPgBusinessRepository({ db, accessToken, userId, callerActo
     ...makeAttachmentsRepo(),
     listTeams: (args: { limit?: number } = {}) => teamsRepo.listTeams(args, teamsCtx),
     listAllMyTeams: () => teamsRepo.listAllMyTeams(teamsCtx),
+    joinPublicTeam: (teamId: string) => teamsRepo.joinPublicTeam(teamId, teamsCtx),
+    setTeamVisibility: (teamId: string, input: { visibility: string }) => teamsRepo.setTeamVisibility(teamId, input, teamsCtx),
     createTeam: (input: any) => teamsRepo.createTeam(input, teamsCtx),
     createTeamInvite: (teamId: string, input: any) => teamsRepo.createTeamInvite(teamId, input, teamsCtx),
     ensureMemberKey: (teamId: string) => teamsRepo.ensureMemberKey(teamId, teamsCtx),

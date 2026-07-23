@@ -72,6 +72,7 @@ function mapTeam(r: any) {
     id: r.id, name: r.name, slug: r.slug, createdAt: iso(r.createdAt),
     shareMode: r.shareMode ?? null, shareEnabledAt: iso(r.shareEnabledAt),
     gitRemoteUrl: r.gitRemoteUrl ?? null, gitAuthKind: r.gitAuthKind ?? null,
+    visibility: r.visibility ?? "private",
   };
 }
 
@@ -258,21 +259,82 @@ export function makeTeamsRepo(db: PgDatabase<any, any>, deps: TeamsRepoDeps = {}
     async listAllMyTeams(ctx?: { userId?: string }) {
       const userId = ctx?.userId;
       if (!userId) throw new ApiError(401, "missing_auth", "authenticated user required");
-      const rows = await db
-        .select({ id: teams.id, name: teams.name, slug: teams.slug })
+      const defaultOrgId = process.env.DEFAULT_ORG_ID || null;
+
+      // (a) Teams the caller is already an actor in.
+      const mineRows = await db
+        .select({ id: teams.id, name: teams.name, slug: teams.slug, oid: teams.oid, visibility: teams.visibility })
         .from(teams)
         .innerJoin(actors, eq(actors.teamId, teams.id))
         .where(eq(actors.userId, userId))
         .orderBy(asc(teams.createdAt));
+
       // Dedup by team id (a user could theoretically have >1 actor per team).
       const seen = new Set<string>();
-      const out: Array<{ id: string; name: string; slug: string | null; orgId: null; orgName: null }> = [];
-      for (const r of rows) {
+      const out: Array<{ id: string; name: string; slug: string | null; orgId: string | null; orgName: null; visibility: string; isMember: boolean }> = [];
+      for (const r of mineRows) {
         if (seen.has(r.id)) continue;
         seen.add(r.id);
-        out.push({ id: r.id, name: r.name, slug: r.slug ?? null, orgId: null, orgName: null });
+        out.push({ id: r.id, name: r.name, slug: r.slug ?? null, orgId: r.oid ?? null, orgName: null, visibility: r.visibility ?? "private", isMember: true });
+      }
+
+      // (b) PUBLIC teams in the shared DEFAULT_ORG the caller can join.
+      if (defaultOrgId) {
+        const publicRows = await db
+          .select({ id: teams.id, name: teams.name, slug: teams.slug, oid: teams.oid })
+          .from(teams)
+          .where(and(eq(teams.oid, defaultOrgId), eq(teams.visibility, "public")))
+          .orderBy(asc(teams.createdAt));
+        for (const r of publicRows) {
+          if (seen.has(r.id)) continue;
+          seen.add(r.id);
+          out.push({ id: r.id, name: r.name, slug: r.slug ?? null, orgId: r.oid ?? null, orgName: null, visibility: "public", isMember: false });
+        }
       }
       return out;
+    },
+
+    // Self-service join of a PUBLIC default-org team as a plain member.
+    // Idempotent when the caller is already an actor in the team.
+    async joinPublicTeam(teamId: string, ctx?: { userId?: string }) {
+      const userId = ctx?.userId;
+      if (!userId) throw new ApiError(401, "missing_auth", "authenticated user required");
+      const defaultOrgId = process.env.DEFAULT_ORG_ID || null;
+
+      const [team] = await db.select().from(teams).where(eq(teams.id, teamId)).limit(1);
+      if (!team) throw new ApiError(404, "not_found", "team not found");
+      if (team.visibility !== "public" || !defaultOrgId || team.oid !== defaultOrgId) {
+        throw new ApiError(403, "forbidden", "team is not a joinable public team");
+      }
+
+      const [existing] = await db
+        .select({ id: actors.id })
+        .from(actors)
+        .where(and(eq(actors.teamId, teamId), eq(actors.userId, userId)))
+        .limit(1);
+      if (!existing) {
+        await (db as any).transaction(async (tx: any) => {
+          const actorId = randomUUID();
+          const displayName = generateDisplayName(actorId);
+          await tx.insert(actors).values({ id: actorId, teamId, actorType: "member", displayName, userId });
+          await tx.insert(members).values({ id: actorId, status: "active" });
+          await tx.insert(teamMembers).values({ teamId, memberId: actorId, role: "member" });
+        });
+      }
+      return mapTeam(team);
+    },
+
+    // Visibility toggle (public | private) — PATCH /v1/teams/:id.
+    async setTeamVisibility(teamId: string, { visibility }: { visibility: string }, ctx?: { userId?: string }) {
+      const userId = ctx?.userId;
+      if (!userId) throw new ApiError(401, "missing_auth", "authenticated user required");
+      if (visibility !== "public" && visibility !== "private") {
+        throw new ApiError(400, "validation_failed", "visibility must be 'public' or 'private'");
+      }
+      await requireActorForTeam(db, userId, teamId);
+      const [r] = await (db.update(teams) as any).set({ visibility, updatedAt: new Date() }).where(eq(teams.id, teamId)).returning();
+      if (!r) throw new ApiError(404, "not_found", "team not found");
+      return mapTeam(r);
     },
 
     /**
