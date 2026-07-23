@@ -2503,7 +2503,8 @@
       "noModels": "No models configured. Please configure providers in LLM Settings first.",
       "lastHeartbeat": "Last heartbeat",
       "useDefaultModel": "Use default model",
-      "sessionNotFound": "Session not found or access denied (sessionId: {{id}}...)"
+      "sessionNotFound": "Session not found or access denied (sessionId: {{id}}...)",
+      "runFailedFallback": "This run failed: {{error}}"
     },
     "deps": {
       "copied": "Copied!",
@@ -2834,7 +2835,9 @@
     "joining": "Joining…",
     "public": "Public",
     "ungrouped": "Other",
-    "lastUsed": "Last used"
+    "lastUsed": "Last used",
+    "public": "Public",
+    "joining": "Joining…"
   },
   "team": {
     "viewerReadOnly": "Read-only mode — you don't have edit permissions",

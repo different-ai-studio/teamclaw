@@ -2,6 +2,8 @@ import { create } from 'zustand'
 import { invoke } from '@tauri-apps/api/core'
 import { withAsync } from '@/lib/store-utils'
 import { getPreferredLanguage } from '@/lib/locale'
+import i18n from '@/lib/i18n'
+import { ensureCronSessionVisible, hydrateCronSessionMessages } from '@/lib/cron-session-messages'
 // ==================== Types ====================
 
 export type ScheduleKind = 'at' | 'every' | 'cron'
@@ -57,6 +59,50 @@ async function detectNewRunSession(
     if (fresh?.sessionId) return fresh.sessionId
   }
   return null
+}
+
+/**
+ * Fire-and-forget: keep polling this run after we've already navigated to its
+ * session, and if it ends in failure/timeout, seed a fallback message into the
+ * session so opening it later (e.g. from the plain session list, not the run
+ * history dialog) explains why the agent never replied instead of showing a
+ * blank thread.
+ */
+async function watchRunOutcomeAndSeedFailureMessage(
+  jobId: string,
+  sessionId: string,
+  scope: CronScope,
+  selectedWorkspacePath: string | null,
+): Promise<void> {
+  const startedAt = Date.now()
+  while (Date.now() - startedAt < RUN_JOB_SESSION_MAX_POLL_MS) {
+    await new Promise((resolve) => setTimeout(resolve, RUN_JOB_SESSION_POLL_INTERVAL_MS))
+    let runs: CronRunRecord[]
+    try {
+      runs = await invoke<CronRunRecord[]>('cron_get_runs', {
+        jobId,
+        limit: 10,
+        ...cronInvokeArgs(scope, selectedWorkspacePath),
+      })
+    } catch {
+      continue // Transient failure — keep polling.
+    }
+    const run = runs.find((r) => r.sessionId === sessionId)
+    if (!run || run.status === 'running') continue
+
+    if (run.status === 'failed' || run.status === 'timeout' || run.error) {
+      const summary = run.error
+        ? i18n.t('settings.cron.runFailedFallback', { error: run.error })
+        : run.responseSummary
+      try {
+        // No-ops if the cloud already has real messages for this session.
+        await hydrateCronSessionMessages(sessionId, { fallbackSummary: summary, runId: run.runId })
+      } catch {
+        // Non-fatal: the run record still carries the error for the history dialog.
+      }
+    }
+    return
+  }
 }
 
 export interface CronSchedule {
@@ -379,6 +425,19 @@ export const useCronStore = create<CronState>((set, get) => ({
         await get().loadCronSessionIds()
         set((state) => ({ cronSessionIds: new Set([...state.cronSessionIds, sessionId]) }))
         get().setShowCronSessions(true)
+        // The session-list-store's paginated `rows` won't have this brand-new
+        // session yet either — it only refreshes on its own poll/reload. Upsert
+        // it in directly so the sidebar shows it right away instead of needing
+        // an unrelated reload (e.g. toggling the cron filter) to surface it.
+        try {
+          await ensureCronSessionVisible(sessionId)
+        } catch {
+          // Non-fatal: the session still exists and will show up once the
+          // list store's next reload picks it up.
+        }
+        // Keep watching after we navigate away — if the run ends in failure,
+        // seed an explanatory message into the session (see fn doc above).
+        void watchRunOutcomeAndSeedFailureMessage(jobId, sessionId, activeScope, selectedWorkspacePath)
         // Close the settings pane, jump to the main chat view, and open the
         // session so the user watches it run live.
         const { useUIStore } = await import('@/stores/ui')

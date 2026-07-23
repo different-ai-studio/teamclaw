@@ -4,12 +4,57 @@
  * libsql sync / refresh-trigger quirks.
  */
 import { create as createMessage } from "@bufbuild/protobuf";
+import i18n from "@/lib/i18n";
 import { getBackend } from "@/lib/backend";
 import type { MessageHistoryRow } from "@/lib/backend/types";
 import { MessageKind, MessageSchema, type Message } from "@/lib/proto/teamclaw_pb";
 import { isTauri } from "@/lib/utils";
 import { syncMessagesForSession } from "@/lib/sync/message-sync";
 import { useSessionMessageStore } from "@/stores/session-message-store";
+import { useSessionListStore } from "@/stores/session-list-store";
+import { useCurrentTeamStore } from "@/stores/current-team";
+
+/**
+ * Make a cron-run session show up in the sidebar session list immediately,
+ * without waiting for the next paginated `session-list-store` reload. Used
+ * both when jumping to a session from run history and right after "Run Now"
+ * creates one — the list otherwise only picks the row up on its own poll.
+ */
+export async function ensureCronSessionVisible(sessionId: string): Promise<void> {
+  // Fetch session's team from cloud (always do this to verify access)
+  const teamId = await getBackend().sessions.getSessionTeamId(sessionId);
+  if (!teamId) {
+    throw new Error(
+      i18n.t("settings.cron.sessionNotFound", { id: sessionId.slice(0, 8) }),
+    );
+  }
+
+  // Switch teams if needed
+  const activeTeamId = useCurrentTeamStore.getState().team?.id ?? null;
+  if (activeTeamId !== teamId) {
+    await useCurrentTeamStore.getState().reloadAndSwitchTo(teamId);
+  }
+
+  // Skip upsert if already in list (may have been added by a previous call)
+  if (useSessionListStore.getState().rows.some((row) => row.id === sessionId)) return;
+
+  // Fetch display row for title, then upsert into list store
+  const [displayRow] = await getBackend().sessions.listSessionDisplayRows(teamId, [sessionId]);
+  useSessionListStore.getState().upsertRows([
+    {
+      id: sessionId,
+      title: displayRow?.title || "Cron job",
+      team_id: teamId,
+      last_message_at: null,
+      last_message_preview: null,
+      mode: "collab",
+      idea_id: null,
+      has_unread: false,
+      created_at: null,
+      updated_at: null,
+    },
+  ]);
+}
 
 const KIND_MAP: Record<string, MessageKind> = {
   text: MessageKind.TEXT,

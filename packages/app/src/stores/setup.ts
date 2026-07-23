@@ -63,8 +63,14 @@ export const useSetupStore = create<SetupState>((set, get) => ({
   errors: {},
   loaded: false,
 
+  // A required dep blocks continuing only when truly absent (no `version`
+  // detected at all). If it's installed but outdated/upgrade-failed
+  // (`present: false` with a `version`), the wizard still offers the upgrade
+  // but no longer blocks entry — the user already has a working runtime.
   requiredSatisfied: () =>
-    get().requirements.filter((r) => !r.optional).every((r) => r.present),
+    get()
+      .requirements.filter((r) => !r.optional)
+      .every((r) => r.present || r.version != null),
 
   listRequirements: async () => {
     if (!isTauri()) {

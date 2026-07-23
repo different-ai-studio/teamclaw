@@ -2503,7 +2503,8 @@
       "noModels": "未配置模型。请先在 LLM 设置中配置提供商。",
       "lastHeartbeat": "最后心跳",
       "useDefaultModel": "使用默认模型",
-      "sessionNotFound": "对话不存在或无访问权限 (sessionId: {{id}}...)"
+      "sessionNotFound": "对话不存在或无访问权限 (sessionId: {{id}}...)",
+      "runFailedFallback": "本次运行失败：{{error}}"
     },
     "deps": {
       "copied": "已复制！",
@@ -2834,7 +2835,9 @@
     "joining": "加入中…",
     "public": "公开",
     "ungrouped": "其它",
-    "lastUsed": "最后使用"
+    "lastUsed": "最后使用",
+    "public": "公开",
+    "joining": "加入中…"
   },
   "team": {
     "viewerReadOnly": "只读模式 - 你没有编辑权限",
