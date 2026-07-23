@@ -102,13 +102,13 @@ describe('ExtensionGeneralSection', () => {
 
     render(<ExtensionGeneralSection />)
 
-    fireEvent.change(await screen.findByPlaceholderText('*/adminv2/*/record/*'), {
-      target: { value: '*/tickets/*' },
+    fireEvent.change(await screen.findByPlaceholderText('*/example/*'), {
+      target: { value: '*/example/path/*' },
     })
     fireEvent.click(screen.getAllByRole('button', { name: 'Add' })[1]!)
 
-    await waitFor(() => expect(screen.getByText('*/tickets/*')).toBeInTheDocument())
-    expect(storage.value.urlPatterns).toEqual(['*/tickets/*'])
+    await waitFor(() => expect(screen.getByText('*/example/path/*')).toBeInTheDocument())
+    expect(storage.value.urlPatterns).toEqual(['*/example/path/*'])
   })
 
   it('clears link-session mappings for the current team after confirm', async () => {

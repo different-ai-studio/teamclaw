@@ -100,7 +100,7 @@ export const ExtensionGeneralSection = React.memo(function ExtensionGeneralSecti
         toast.error(
           t(
             'settings.extension.linkHover.patternInvalid',
-            'Enter a URL pattern, e.g. */tickets/*',
+            'Enter a URL pattern, e.g. */example/*',
           ),
         )
       }
@@ -255,7 +255,7 @@ export const ExtensionGeneralSection = React.memo(function ExtensionGeneralSecti
               }}
               placeholder={t(
                 'settings.extension.linkHover.patternPlaceholder',
-                '*/adminv2/*/record/*',
+                '*/example/*',
               )}
               className="h-9 font-mono text-[13px]"
               disabled={loading || saving}

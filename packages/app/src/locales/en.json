@@ -2029,8 +2029,7 @@
         "description": "Extension settings for the browser side panel."
       },
       "hostGate": {
-        "title": "Unavailable on this page",
-        "description": "TeamClaw is limited to allowlisted sites in this build. Switch back to an allowed tab to continue."
+        "title": "Unavailable on this page"
       },
       "linkHover": {
         "title": "Page quick-open button",
@@ -2042,7 +2041,15 @@
         "remove": "Remove {{domain}}",
         "invalid": "Enter a valid domain, e.g. example.com",
         "duplicate": "Domain already in the list",
-        "saveError": "Could not save domain settings"
+        "saveError": "Could not save domain settings",
+        "patternsTitle": "Link URL patterns",
+        "patternsDescription": "Optional. Use * as a wildcard anywhere in the URL. Empty list = show the button on every http(s) link on allowlisted sites.",
+        "patternPlaceholder": "*/example/*",
+        "addPattern": "Add",
+        "patternsEmpty": "No patterns — every clickable http(s) link on allowlisted sites shows the button.",
+        "removePattern": "Remove {{pattern}}",
+        "patternDuplicate": "Pattern already in the list",
+        "patternInvalid": "Enter a URL pattern, e.g. */example/*"
       },
       "linkSessionMap": {
         "title": "Link-to-session mappings",

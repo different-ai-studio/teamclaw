@@ -2029,8 +2029,7 @@
         "description": "浏览器侧边栏的插件设置。"
       },
       "hostGate": {
-        "title": "当前页面不可用",
-        "description": "此构建仅允许在白名单站点使用 TeamClaw。请切回允许的标签页继续。"
+        "title": "当前页面不可用"
       },
       "linkHover": {
         "title": "页面快捷按钮",
@@ -2042,7 +2041,15 @@
         "remove": "移除 {{domain}}",
         "invalid": "请输入有效域名，例如 example.com",
         "duplicate": "该域名已在列表中",
-        "saveError": "无法保存域名设置"
+        "saveError": "无法保存域名设置",
+        "patternsTitle": "链接 URL 模式",
+        "patternsDescription": "可选。在 URL 任意位置使用 * 作为通配符。空列表 = 白名单站点上所有 http(s) 链接都显示按钮。",
+        "patternPlaceholder": "*/example/*",
+        "addPattern": "添加",
+        "patternsEmpty": "未配置模式 — 白名单站点上所有可点击 http(s) 链接都会显示按钮。",
+        "removePattern": "移除 {{pattern}}",
+        "patternDuplicate": "该模式已在列表中",
+        "patternInvalid": "请输入 URL 模式，例如 */example/*"
       },
       "linkSessionMap": {
         "title": "链接与会话映射",
