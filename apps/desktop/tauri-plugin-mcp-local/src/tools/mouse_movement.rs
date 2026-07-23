@@ -3,11 +3,11 @@ use tauri::{AppHandle, Manager, Runtime};
 
 use crate::error::Error;
 use crate::models::MouseMovementRequest;
-use crate::shared::{MouseMovementParams, MouseMovementResult};
+use crate::native_input::{self, MouseButton, MouseParams};
+use crate::native_input::state::VirtualCursorState;
 use crate::socket_server::SocketResponse;
-use enigo::{Button, Coordinate, Direction, Enigo, Mouse, Settings};
-use log::info;
 use std::time::Instant;
+use log::info;
 
 pub async fn simulate_mouse_movement_async<R: Runtime>(
     app: &AppHandle<R>,
@@ -18,188 +18,88 @@ pub async fn simulate_mouse_movement_async<R: Runtime>(
         params
     );
 
-    // Get the window reference
-    let window = app
-        .get_webview_window("main")
-        .ok_or_else(|| Error::window_not_found("main"))?;
+    let window_label = params.window_label.as_deref().unwrap_or("main");
 
-    // Get window position (outer includes window borders/decorations)
-    let window_position = window
-        .outer_position()
-        .map_err(|e| Error::window_operation_failed("get window position", format!("{}", e)))?;
-    info!(
-        "[MOUSE_MOVEMENT] Window outer position: {:?}",
-        window_position
-    );
+    // Resolve webview for native event injection
+    let webview = crate::desktop::get_webview_for_eval(app, window_label)
+        .ok_or_else(|| Error::Anyhow(format!("Webview not found: {}", window_label)))?;
 
-    // Also get inner position for comparison
-    let window_inner_position = window.inner_position().map_err(|e| {
-        Error::window_operation_failed("get window inner position", format!("{}", e))
-    })?;
-    info!(
-        "[MOUSE_MOVEMENT] Window inner position: {:?}",
-        window_inner_position
-    );
-
-    // Get window size for reference
-    let window_size = window
-        .inner_size()
-        .map_err(|e| Error::window_operation_failed("get window size", format!("{}", e)))?;
-    info!("[MOUSE_MOVEMENT] Window inner size: {:?}", window_size);
-
-    // Get window scale factor for high DPI screens
-    let scale_factor = window
-        .scale_factor()
-        .map_err(|e| Error::window_operation_failed("get window scale factor", format!("{}", e)))?;
-    info!("[MOUSE_MOVEMENT] Window scale factor: {}", scale_factor);
+    // Get virtual cursor state
+    let cursor_state = app.state::<VirtualCursorState>();
 
     let x = params.x;
     let y = params.y;
     let relative = params.relative.unwrap_or(false);
     let click = params.click.unwrap_or(false);
-    let button_type = params.button.as_deref().unwrap_or("left");
+    let button = MouseButton::from_str_opt(params.button.as_deref());
+
+    // Calculate target coordinates
+    let (target_x, target_y) = if relative {
+        let (cur_x, cur_y) = cursor_state.get();
+        (cur_x + x, cur_y + y)
+    } else {
+        (x, y)
+    };
 
     info!(
-        "[MOUSE_MOVEMENT] Input coordinates: x={}, y={}, relative={}",
-        x, y, relative
-    );
-
-    // Create Enigo instance
-    let mut enigo = Enigo::new(&Settings::default())
-        .map_err(|e| Error::communication_error(format!("Failed to initialize Enigo: {}", e)))?;
-
-    // Get current mouse position for reference
-    let current_position = Mouse::location(&enigo).map_err(|e| {
-        Error::communication_error(format!("Failed to get current mouse position: {}", e))
-    })?;
-    info!(
-        "[MOUSE_MOVEMENT] Current mouse position before move: ({}, {})",
-        current_position.0, current_position.1
+        "[MOUSE_MOVEMENT] Target coordinates: ({}, {}), click={}, button={:?}",
+        target_x, target_y, click, button
     );
 
     let start_time = Instant::now();
 
-    // Calculate actual screen coordinates only if not relative
-    let (screen_x, screen_y) = if relative {
-        info!("[MOUSE_MOVEMENT] Using relative movement, no coordinate transformation");
-        (x, y) // Keep as is for relative movements
-    } else {
-        // Adjust for window position and scale factor
-        let scaled_x = (x as f64 * scale_factor) as i32;
-        let scaled_y = (y as f64 * scale_factor) as i32;
-
-        info!("[MOUSE_MOVEMENT] Coordinate transformation:");
-        info!("[MOUSE_MOVEMENT] 1. Original coordinates: ({}, {})", x, y);
-        info!(
-            "[MOUSE_MOVEMENT] 2. After scale factor ({}): ({}, {})",
-            scale_factor, scaled_x, scaled_y
-        );
-
-        let final_x = scaled_x + window_position.x;
-        let final_y = scaled_y + window_position.y;
-        info!(
-            "[MOUSE_MOVEMENT] 3. After adding window position ({}, {}): ({}, {})",
-            window_position.x, window_position.y, final_x, final_y
-        );
-
-        // Calculate what it would be with inner position for comparison
-        let inner_x = scaled_x + window_inner_position.x;
-        let inner_y = scaled_y + window_inner_position.y;
-        info!(
-            "[MOUSE_MOVEMENT] (Alternative with inner position: ({}, {}))",
-            inner_x, inner_y
-        );
-
-        (final_x, final_y)
+    let mouse_params = MouseParams {
+        x: target_x,
+        y: target_y,
+        click,
+        button,
+        mouse_down: params.mouse_down.unwrap_or(false),
+        mouse_up: params.mouse_up.unwrap_or(false),
     };
 
-    info!(
-        "[MOUSE_MOVEMENT] Final screen coordinates for mouse: ({}, {})",
-        screen_x, screen_y
-    );
+    let result = native_input::backend::inject_mouse(&webview, &mouse_params)
+        .map_err(|e| Error::Anyhow(format!("Native mouse injection failed: {}", e)))?;
 
-    // Use calculated screen coordinates
-    let coordinate_type = if relative {
-        Coordinate::Rel
-    } else {
-        Coordinate::Abs
-    };
+    // Update virtual cursor state
+    cursor_state.set(result.position.0, result.position.1);
 
-    Mouse::move_mouse(&mut enigo, screen_x, screen_y, coordinate_type)
-        .map_err(|e| Error::communication_error(format!("Failed to move mouse: {}", e)))?;
-
-    // Perform click if requested
+    // After a click, inject JS to focus the nearest typeable element at click coords.
+    // This ensures the guest-js _lastFocusedElement tracker picks up the focus change,
+    // so subsequent type_text calls in focused mode (no selector) find the right element.
     if click {
-        // Convert string button type to Button enum
-        let button = match button_type {
-            "right" => Button::Right,
-            "middle" => Button::Middle,
-            _ => Button::Left, // Default to left button
-        };
-
-        info!("[MOUSE_MOVEMENT] Clicking with {} button", button_type);
-
-        // Perform click (press and release)
-        Mouse::button(&mut enigo, button, Direction::Press).map_err(|e| {
-            Error::communication_error(format!("Failed to press mouse button: {}", e))
-        })?;
-
-        Mouse::button(&mut enigo, button, Direction::Release).map_err(|e| {
-            Error::communication_error(format!("Failed to release mouse button: {}", e))
-        })?;
+        let focus_js = format!(
+            r#"(function(){{
+                var el = document.elementFromPoint({x},{y});
+                if(!el) return;
+                window.__mcpLastClickCoords={{x:{x},y:{y}}};
+                var t=el;
+                while(t&&t!==document.body){{
+                    var tag=t.tagName;
+                    if(tag==='INPUT'||tag==='TEXTAREA'||tag==='SELECT') break;
+                    if(t.isContentEditable) break;
+                    if(t.hasAttribute&&(t.hasAttribute('data-lexical-editor')||t.hasAttribute('data-slate-editor'))) break;
+                    if(t.closest&&(t.closest('[data-lexical-editor]')||t.closest('[data-slate-editor]'))) break;
+                    t=t.parentElement;
+                }}
+                if(t&&t!==document.body&&t.focus){{t.focus({{preventScroll:true}});}}
+            }})()"#,
+            x = target_x, y = target_y
+        );
+        let _ = webview.eval(&focus_js);
     }
 
     let duration_ms = start_time.elapsed().as_millis() as u64;
 
-    // Get current position after movement
-    let position = Mouse::location(&enigo)
-        .map_err(|e| Error::communication_error(format!("Failed to get mouse position: {}", e)))?;
     info!(
-        "[MOUSE_MOVEMENT] Final mouse position after move: ({}, {})",
-        position.0, position.1
+        "[MOUSE_MOVEMENT] Completed in {}ms, position=({}, {})",
+        duration_ms, result.position.0, result.position.1
     );
 
     Ok(crate::models::MouseMovementResponse {
         success: true,
         duration_ms,
-        position: Some(position),
+        position: Some(result.position),
     })
-}
-
-pub fn simulate_mouse_movement_shared<R: Runtime>(
-    app: &AppHandle<R>,
-    params: MouseMovementParams,
-) -> std::result::Result<MouseMovementResult, String> {
-    // Use the current tokio runtime handle instead of creating a new one
-    let handle = tokio::runtime::Handle::current();
-
-    // Convert shared params to internal type
-    let request = MouseMovementRequest {
-        x: params.x,
-        y: params.y,
-        relative: params.relative,
-        click: params.click,
-        button: params.button,
-    };
-
-    // Run async method
-    let result = handle.block_on(simulate_mouse_movement_async(app, request));
-
-    // Convert result to shared type
-    match result {
-        Ok(response) => Ok(MouseMovementResult {
-            success: true,
-            duration_ms: response.duration_ms,
-            position: response.position,
-            error: None,
-        }),
-        Err(e) => Ok(MouseMovementResult {
-            success: false,
-            duration_ms: 0,
-            position: None,
-            error: Some(e.to_string()),
-        }),
-    }
 }
 
 pub async fn handle_simulate_mouse_movement<R: Runtime>(
@@ -207,28 +107,18 @@ pub async fn handle_simulate_mouse_movement<R: Runtime>(
     payload: Value,
 ) -> Result<SocketResponse, Error> {
     // Parse the payload
-    let params: MouseMovementRequest = serde_json::from_value(payload).map_err(|e| {
-        Error::serialization_error(format!("Invalid payload for simulateMouseMovement: {}", e))
-    })?;
+    let params: MouseMovementRequest = serde_json::from_value(payload)
+        .map_err(|e| Error::Anyhow(format!("Invalid payload for simulateMouseMovement: {}", e)))?;
 
     // Call the async method
     let result = simulate_mouse_movement_async(app, params).await;
 
     match result {
         Ok(response) => {
-            let data = serde_json::to_value(response).map_err(|e| {
-                Error::serialization_error(format!("Failed to serialize response: {}", e))
-            })?;
-            Ok(SocketResponse {
-                success: true,
-                data: Some(data),
-                error: None,
-            })
+            let data = serde_json::to_value(response)
+                .map_err(|e| Error::Anyhow(format!("Failed to serialize response: {}", e)))?;
+            Ok(SocketResponse::ok(None, Some(data)))
         }
-        Err(e) => Ok(SocketResponse {
-            success: false,
-            data: None,
-            error: Some(e.to_string()),
-        }),
+        Err(e) => Ok(SocketResponse::err(None, e.to_string())),
     }
 }

@@ -1,6 +1,6 @@
 [package]
 name = "tauri-plugin-mcp"
-version = "0.1.0"
+version = "0.3.1"
 authors = [ "Pegleg" ]
 description = "A Tauri plugin that enables AI agents to interact with GUIs through screenshots, DOM access, and input simulation utilizing MCP"
 edition = "2024"
@@ -9,26 +9,38 @@ links = "tauri-plugin-mcp"
 
 [dependencies]
 anyhow = "1.0"
-base64 = "0.13.0"
-enigo = "0.3.0"
-futures = "0.3"
-image = "0.24.7"
+base64 = "0.22"
+image = { version = "0.25", features = ["jpeg", "png"] }
 interprocess = { version = "2.2.3", features = ["tokio"] }
-log = "0.4"
+log = { version = "0.4", features = ["std"] }
+parking_lot = "0.12"
 serde = "1.0"
 serde_json = "1.0"
-tauri = { version = "2.5.0", features = [] }
+tauri = { version = "2.11", features = ["unstable"] }
 thiserror = "2"
-tokio = { version = "1.0", features = ["rt", "rt-multi-thread", "macros"] }
+subtle = "2"
+tokio = { version = "1.0", features = ["rt", "rt-multi-thread", "macros", "sync", "time", "net", "io-util"] }
+uuid = { version = "1", features = ["v4"] }
 
 [target.'cfg(target_os = "macos")'.dependencies]
-cocoa = "0.24.1"
+core-foundation = "0.9"
 core-graphics = "0.22.3"
-objc = "0.2.7"
-xcap = "0.0.4"
+foreign-types-shared = "0.1"
+xcap = "0.9"
+
+[target.'cfg(target_os = "linux")'.dependencies]
+xcap = "0.9"
 
 [target.'cfg(target_os = "windows")'.dependencies]
 win-screenshot = "4.0.5"
 
+[features]
+default = []
+devtools = ["tauri/devtools"]
+
 [build-dependencies]
-tauri-plugin = { version = "2.2.0", features = ["build"] }
+tauri-plugin = { version = "2.5", features = ["build"] }
+
+
+[profile.dev.package."*"]
+opt-level = 0  # Force dependencies to compile with minimal optimization

@@ -1,0 +1,13 @@
+# Automatically generated - DO NOT EDIT!
+
+"$schema" = "../../schemas/schema.json"
+
+[[permission]]
+identifier = "allow-push-log"
+description = "Enables the push_log command without any pre-configured scope."
+commands.allow = ["push_log"]
+
+[[permission]]
+identifier = "deny-push-log"
+description = "Denies the push_log command without any pre-configured scope."
+commands.deny = ["push_log"]

@@ -11,28 +11,18 @@ pub async fn handle_simulate_text_input<R: Runtime>(
     payload: Value,
 ) -> Result<SocketResponse, Error> {
     // Parse the payload
-    let params: TextInputRequest = serde_json::from_value(payload).map_err(|e| {
-        Error::serialization_error(format!("Invalid payload for simulateTextInput: {}", e))
-    })?;
+    let params: TextInputRequest = serde_json::from_value(payload)
+        .map_err(|e| Error::Anyhow(format!("Invalid payload for simulateTextInput: {}", e)))?;
 
     // Call the async method
     let result = app.tauri_mcp().simulate_text_input_async(params).await;
 
     match result {
         Ok(response) => {
-            let data = serde_json::to_value(response).map_err(|e| {
-                Error::serialization_error(format!("Failed to serialize response: {}", e))
-            })?;
-            Ok(SocketResponse {
-                success: true,
-                data: Some(data),
-                error: None,
-            })
+            let data = serde_json::to_value(response)
+                .map_err(|e| Error::Anyhow(format!("Failed to serialize response: {}", e)))?;
+            Ok(SocketResponse::ok(None, Some(data)))
         }
-        Err(e) => Ok(SocketResponse {
-            success: false,
-            data: None,
-            error: Some(e.to_string()),
-        }),
+        Err(e) => Ok(SocketResponse::err(None, e.to_string())),
     }
 }

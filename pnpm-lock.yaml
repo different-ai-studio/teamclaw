@@ -375,8 +375,8 @@ importers:
         specifier: ^3.6.0
         version: 3.6.0
       tauri-plugin-mcp:
-        specifier: ^0.1.0
-        version: 0.1.0
+        specifier: ^0.3.1
+        version: 0.3.1
       zod:
         specifier: ^4.4.3
         version: 4.4.3
@@ -7753,8 +7753,8 @@ packages:
     resolution: {integrity: sha512-1MOpMXuhGzGL5TTCZFItxCc0AARf1EZFQkGqMm7ERKj8+Hgr5oLvJOVFcC+lRmR8hCe2S3jC4T5D7Vg/d7/fhA==}
     engines: {node: '>=6'}
 
-  tauri-plugin-mcp@0.1.0:
-    resolution: {integrity: sha512-deml377Ax032+AabqGc5wkhJygn6XtOggqTWPVNIQ8DUksFRdy2cvX1xZWF7xLG3dO0QUBt/P7CRyJ3IRNV+0w==}
+  tauri-plugin-mcp@0.3.1:
+    resolution: {integrity: sha512-mfzKiDQHR7ZK8coQevazmIOKHP2/jfPk/utZKJFubFSq6W/q7GL7H4cRU0va140OIKEhWEsWrniHfOtVJd0Xtw==}
 
   temp-dir@2.0.0:
     resolution: {integrity: sha512-aoBAniQmmwtcKp/7BzsH8Cxzv8OL736p7v1ihGb5e9DJ9kTwGWHrQrVB5+lfVDzfGrdRzXch+ig7LHaY1JTOrg==}
@@ -16952,7 +16952,7 @@ snapshots:
 
   tapable@2.3.2: {}
 
-  tauri-plugin-mcp@0.1.0:
+  tauri-plugin-mcp@0.3.1:
     dependencies:
       '@tauri-apps/api': 2.11.0
 

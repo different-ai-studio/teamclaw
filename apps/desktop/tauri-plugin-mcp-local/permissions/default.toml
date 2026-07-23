@@ -1,5 +1,5 @@
 "$schema" = "schemas/schema.json"
 
 [default]
-description = ""
-permissions = []
+description = "Allows the webview to forward console.* logs and observed IPC activity to the plugin's ring buffers."
+permissions = ["allow-push-log", "allow-push-ipc"]
