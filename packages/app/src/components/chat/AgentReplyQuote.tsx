@@ -28,7 +28,7 @@ export function AgentReplyQuote({
       data-testid="agent-reply-quote"
       onClick={onJump}
       className={cn(
-        "mb-1.5 flex w-full max-w-[440px] items-center gap-1.5 rounded-md border-l-2 border-coral/40 bg-[rgba(26,26,20,0.035)] py-[4px] pl-[7px] pr-[9px] text-left transition-colors hover:bg-[rgba(26,26,20,0.06)] dark:bg-white/[0.04] dark:hover:bg-white/[0.07]",
+        "mb-1.5 flex w-full max-w-[440px] cursor-pointer items-center gap-1.5 rounded-md border-l-2 border-coral/40 bg-[rgba(26,26,20,0.035)] py-[4px] pl-[7px] pr-[9px] text-left transition-colors hover:bg-[rgba(26,26,20,0.06)] dark:bg-white/[0.04] dark:hover:bg-white/[0.07]",
         className,
       )}
     >

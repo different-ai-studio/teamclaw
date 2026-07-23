@@ -3,8 +3,19 @@ import { isOpenSidePanel, isRequestPage } from './lib/messages'
 import { isBrowserToolMessage } from './lib/browser-tools/messages'
 import { handleBrowserToolMessage } from './lib/browser-tools/handle-browser-tool'
 import { openSidePanelFromUserGesture } from './lib/open-side-panel'
+import { startSidePanelHostGate } from './lib/side-panel-host-gate'
 
 const SIDE_PANEL_PATH = 'sidepanel/index.html'
+
+/**
+ * Hosts the extension is scoped to, read from the (brand-injected) manifest so
+ * this stays in sync with host_permissions without hardcoding any brand's
+ * domains. Falls back to all http/https for a non-branded build.
+ */
+const SCOPED_TAB_URLS =
+  chrome.runtime.getManifest().host_permissions?.length
+    ? chrome.runtime.getManifest().host_permissions!
+    : ['http://*/*', 'https://*/*']
 
 chrome.sidePanel
   .setPanelBehavior({ openPanelOnActionClick: true })
@@ -39,7 +50,7 @@ async function injectContentScript(tabId: number): Promise<void> {
 
 /** Content scripts in manifest only attach on navigation — backfill open tabs. */
 async function injectOpenHttpTabs(): Promise<void> {
-  const tabs = await chrome.tabs.query({ url: ['http://*/*', 'https://*/*'] })
+  const tabs = await chrome.tabs.query({ url: SCOPED_TAB_URLS })
   await Promise.all(
     tabs.map(async (tab) => {
       if (!tab.id) return
@@ -60,6 +71,9 @@ chrome.runtime.onInstalled.addListener(() => {
 chrome.runtime.onStartup.addListener(() => {
   void bootstrapSidePanel()
 })
+
+// Domain-gated builds: publish active-tab allow state (overlay in panel, no close).
+startSidePanelHostGate()
 
 chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
   if (isOpenSidePanel(msg)) {

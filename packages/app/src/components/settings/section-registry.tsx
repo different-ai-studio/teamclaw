@@ -1,7 +1,8 @@
 import * as React from 'react'
 import { ScrollArea } from '@/components/ui/scroll-area'
 import type { SettingsSection } from '@/stores/ui'
-import { LLMSection } from './LLMSection'
+import { LLMSection } from './LLMSectionRouter'
+import { TeamLlmSection } from './TeamLlmSection'
 import { GeneralSection } from './GeneralSection'
 import { PromptSection } from './PromptSection'
 import { MCPSection } from './MCPSection'
@@ -27,6 +28,7 @@ import { CacheSection } from './CacheSection'
 
 export const SETTINGS_SECTION_COMPONENTS: Record<SettingsSection, React.ComponentType> = {
   llm: LLMSection,
+  teamLlm: TeamLlmSection,
   general: GeneralSection,
   voice: VoiceSection,
   prompt: PromptSection,

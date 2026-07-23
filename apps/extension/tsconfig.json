@@ -12,7 +12,8 @@
       "@teamclaw/extension-link-hover": ["../../packages/app/src/lib/extension-link-hover/index.ts"],
       "@teamclaw/extension-link-hover/*": ["../../packages/app/src/lib/extension-link-hover/*"],
       "@teamclaw/extension-link-session": ["../../packages/app/src/lib/extension-link-session/index.ts"],
-      "@teamclaw/extension-link-session/*": ["../../packages/app/src/lib/extension-link-session/*"]
+      "@teamclaw/extension-link-session/*": ["../../packages/app/src/lib/extension-link-session/*"],
+      "@teamclaw/side-panel-host-allowlist": ["../../packages/app/src/lib/side-panel-host-allowlist.ts"]
     }
   },
   "include": ["src", "build.mjs"]

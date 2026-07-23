@@ -149,6 +149,61 @@ fn remote_tools_cmd_from_mcp_config(path: &Path) -> Option<String> {
     remote_tools_cmd_from_value(&root)
 }
 
+/// Build the `TEAMCLAW_MCP_SERVERS` payload for the pi extension from a
+/// workspace `opencode.json` (the MCP SSOT: team + inherent + user servers all
+/// merge into its `mcp` map). pi has no native MCP, so the extension spawns each
+/// enabled local server and proxies its tools. Returns `{ "<name>": { "command":
+/// [...], "environment": {...} }, ... }` as a JSON string, or None when there is
+/// nothing to bridge.
+///
+/// Excluded: disabled servers, non-`local` (remote/url) servers the stdio bridge
+/// can't spawn, and `amuxd-remote-tools` (already bridged via
+/// `TEAMCLAW_REMOTE_TOOLS_CMD`).
+fn mcp_servers_from_value(root: &serde_json::Value) -> Option<String> {
+    let mcp = root.get("mcp")?.as_object()?;
+    let mut out = serde_json::Map::new();
+    for (name, server) in mcp {
+        if name == "amuxd-remote-tools" {
+            continue;
+        }
+        let obj = match server.as_object() {
+            Some(o) => o,
+            None => continue,
+        };
+        // Only stdio "local" servers with a command array can be bridged.
+        if obj.get("type").and_then(|v| v.as_str()) == Some("remote") {
+            continue;
+        }
+        if obj.get("enabled").and_then(|v| v.as_bool()) == Some(false) {
+            continue;
+        }
+        let command = match obj.get("command").and_then(|v| v.as_array()) {
+            Some(c) if !c.is_empty() && c.iter().all(|a| a.is_string()) => c.clone(),
+            _ => continue,
+        };
+        let mut entry = serde_json::Map::new();
+        entry.insert("command".to_string(), serde_json::Value::Array(command));
+        if let Some(env) = obj.get("environment").and_then(|v| v.as_object()) {
+            entry.insert(
+                "environment".to_string(),
+                serde_json::Value::Object(env.clone()),
+            );
+        }
+        out.insert(name.clone(), serde_json::Value::Object(entry));
+    }
+    if out.is_empty() {
+        return None;
+    }
+    Some(serde_json::Value::Object(out).to_string())
+}
+
+fn mcp_servers_from_opencode_json(worktree: &str) -> Option<String> {
+    let path = Path::new(worktree).join("opencode.json");
+    let body = std::fs::read_to_string(&path).ok()?;
+    let root: serde_json::Value = serde_json::from_str(&body).ok()?;
+    mcp_servers_from_value(&root)
+}
+
 /// Current model id (`provider/model`) from a `get_state` response.
 fn model_from_state(state: &serde_json::Value) -> Option<String> {
     let model = state.pointer("/data/model")?;
@@ -184,6 +239,12 @@ async fn attach(shared: &Arc<Shared>, args: AttachArgs) -> Result<AcpStartupMeta
         .and_then(remote_tools_cmd_from_mcp_config)
     {
         shared.pool.set_remote_tools_cmd(cmd_json);
+    }
+    // Bridge the workspace's other MCP servers (opencode.json `mcp`) to the pi
+    // extension. pi has no native MCP, so the extension spawns each and proxies
+    // its tools — the same mechanism opencode gets natively from opencode.json.
+    if let Some(servers_json) = mcp_servers_from_opencode_json(&worktree) {
+        shared.pool.set_mcp_servers(servers_json);
     }
     let proc = shared
         .pool
@@ -559,6 +620,12 @@ async fn command_loop(shared: Arc<Shared>, mut cmd_rx: mpsc::Receiver<AcpCommand
                     }
                     None => warn!(acp_session_id, "cancel: pi process not running"),
                 }
+                // Settle the turn ourselves rather than waiting for pi to emit a
+                // post-abort `turn_end`/`agent_settled` — pi does not reliably
+                // send one, which left the UI hanging in "replying" after an
+                // interrupt. close_turn is idempotent (guards on turn_active) so
+                // a later lifecycle event is a harmless no-op.
+                events::close_turn(&shared, &acp_session_id).await;
             }
             AcpCommand::ResolvePermission {
                 request_id,
@@ -653,10 +720,13 @@ impl PiRpcBackend {
     }
 
     fn apply_binary_hint(&self, launch_configs: &HashMap<amux::AgentType, AgentLaunchConfig>) {
-        // Any configured non-default binary counts as the pi override (there
-        // is no dedicated AgentType for pi; the local-agent switch is global).
-        for launch in launch_configs.values() {
-            self.shared.pool.set_binary_hint(&launch.binary);
+        // Only the pi launch config may override the pi binary. Reading every
+        // launch config (as before) picked up the claude/codex/opencode full
+        // paths and made pi_rpc spawn the wrong binary. A plain "pi" here is
+        // treated as unconfigured by `set_binary_hint`, so the override only
+        // sticks for a genuine `[agents.pi].binary` path.
+        if let Some(pi) = launch_configs.get(&amux::AgentType::Pi) {
+            self.shared.pool.set_binary_hint(&pi.binary);
         }
     }
 }
@@ -684,7 +754,13 @@ impl AgentBackend for PiRpcBackend {
         is_gateway: bool,
         forbid_new_session_fallback: bool,
     ) -> crate::error::Result<(mpsc::Sender<AcpCommand>, AcpStartupMetadata)> {
-        self.shared.pool.set_binary_hint(&launch.binary);
+        // NOTE: `launch` is `launch_config_for(agent_type)` for whatever agent
+        // type the session carries (possibly a stored claude/codex/opencode
+        // session), NOT necessarily pi. Its binary is an unrelated full path, so
+        // it must NOT drive the pi binary — doing so made pi_rpc spawn
+        // claude/codex and fail with "process exited before responding". The pi
+        // binary is resolved independently via `resolve_binary` (PATH / ~/.pi).
+        let _ = &launch;
         self.shared
             .pool
             .merge_extra_env(&extra_env, force_env_override);

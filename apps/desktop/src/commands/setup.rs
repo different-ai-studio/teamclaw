@@ -121,14 +121,19 @@ fn copy_sidecar_into_amuxd_bin(src: &Path, dest_name: &str) -> Result<(), String
 /// Run the bundled `amuxd doctor` and return its parsed JSON (opencode/git/amuxd
 /// status). amuxd resolves opencode/amuxd by absolute path, so this is accurate
 /// even when the app/daemon PATH excludes those dirs.
-async fn read_doctor<R: Runtime>(app: &AppHandle<R>) -> Option<serde_json::Value> {
+async fn read_doctor<R: Runtime>(
+    app: &AppHandle<R>,
+    local_agent: Option<&str>,
+) -> Option<serde_json::Value> {
     use tauri_plugin_shell::process::CommandEvent;
     use tauri_plugin_shell::ShellExt;
-    let (mut rx, _child) = app
-        .shell()
-        .sidecar("amuxd")
-        .and_then(|c| c.args(["doctor"]).spawn())
-        .ok()?;
+    let mut command = app.shell().sidecar("amuxd").ok()?.args(["doctor"]);
+    // Reflect the build's target runtime (buildConfig.localAgent) so the wizard
+    // shows pi vs opencode status regardless of the current daemon.toml config.
+    if let Some(agent) = local_agent.map(str::trim).filter(|a| !a.is_empty()) {
+        command = command.env("AMUXD_DOCTOR_LOCAL_AGENT", agent);
+    }
+    let (mut rx, _child) = command.spawn().ok()?;
     let mut buf = String::new();
     while let Some(event) = rx.recv().await {
         if let CommandEvent::Stdout(bytes) = event {
@@ -141,9 +146,12 @@ async fn read_doctor<R: Runtime>(app: &AppHandle<R>) -> Option<serde_json::Value
 #[tauri::command]
 pub async fn setup_list_requirements<R: Runtime>(
     app: AppHandle<R>,
+    local_agent: Option<String>,
 ) -> Result<Vec<RequirementStatus>, String> {
+    // Which local runtime this build targets ("opencode" default | "pi").
+    let use_pi = local_agent.as_deref().map(str::trim) == Some("pi");
     let git_version = detect_git();
-    let doctor = read_doctor(&app).await;
+    let doctor = read_doctor(&app, local_agent.as_deref()).await;
 
     // `present` = no action needed (installed AND new enough). `version` = the
     // installed version, so the UI can show 安装 (none) vs 升级 (older) and which.
@@ -155,13 +163,22 @@ pub async fn setup_list_requirements<R: Runtime>(
         .and_then(|a| a["installedVersion"].as_str())
         .map(|s| s.to_string());
 
-    let opencode = doctor.as_ref().map(|d| &d["opencode"]);
-    let opencode_satisfied = opencode
-        .and_then(|o| o["satisfied"].as_bool())
+    // The agent-runtime row reflects the build's target: pi or opencode. Its
+    // status comes from the matching key in `amuxd doctor` output (pi is only
+    // present when this build/daemon targets pi, which we force via env above).
+    let runtime_key = if use_pi { "pi" } else { "opencode" };
+    let runtime = doctor.as_ref().map(|d| &d[runtime_key]);
+    let runtime_satisfied = runtime
+        .and_then(|r| r["satisfied"].as_bool())
         .unwrap_or(false);
-    let opencode_version = opencode
-        .and_then(|o| o["version"].as_str())
+    let runtime_version = runtime
+        .and_then(|r| r["version"].as_str())
         .map(|s| s.to_string());
+    let (runtime_id, runtime_title) = if use_pi {
+        ("pi", "Pi runtime")
+    } else {
+        ("opencode", "OpenCode runtime")
+    };
 
     Ok(vec![
         RequirementStatus {
@@ -172,11 +189,11 @@ pub async fn setup_list_requirements<R: Runtime>(
             version: amuxd_version,
         },
         RequirementStatus {
-            id: "opencode".into(),
-            title: "OpenCode runtime".into(),
+            id: runtime_id.into(),
+            title: runtime_title.into(),
             optional: false,
-            present: opencode_satisfied,
-            version: opencode_version,
+            present: runtime_satisfied,
+            version: runtime_version,
         },
         RequirementStatus {
             id: "git".into(),
@@ -527,6 +544,87 @@ async fn install_opencode<R: Runtime>(
     .await
 }
 
+/// Run the bundled `amuxd install-pi` sidecar, streaming its JSON progress lines
+/// under the "pi" requirement id. Idempotent (installs or upgrades to the pinned
+/// `pi.lock.json` minimum), mirroring the opencode install path.
+async fn install_pi<R: Runtime>(app: &AppHandle<R>) -> Result<(), String> {
+    use tauri_plugin_shell::process::CommandEvent;
+    use tauri_plugin_shell::ShellExt;
+
+    emit_progress(
+        app,
+        SetupProgress {
+            id: "pi".into(),
+            status: "started".into(),
+            line: None,
+            error: None,
+        },
+    );
+    let (mut rx, _child_guard) = app
+        .shell()
+        .sidecar("amuxd")
+        .map_err(|e| format!("sidecar amuxd: {e}"))?
+        .args(["install-pi"])
+        .spawn()
+        .map_err(|e| format!("spawn amuxd: {e}"))?;
+
+    let mut last_err: Option<String> = None;
+    let mut last_stderr: Option<String> = None;
+    while let Some(event) = rx.recv().await {
+        match event {
+            CommandEvent::Stdout(bytes) => {
+                let line = String::from_utf8_lossy(&bytes).trim().to_string();
+                if !line.is_empty() {
+                    emit_progress(
+                        app,
+                        SetupProgress {
+                            id: "pi".into(),
+                            status: "running".into(),
+                            line: Some(line),
+                            error: None,
+                        },
+                    );
+                }
+            }
+            CommandEvent::Stderr(bytes) => {
+                let line = String::from_utf8_lossy(&bytes).trim().to_string();
+                if !line.is_empty() {
+                    last_stderr = Some(line);
+                }
+            }
+            CommandEvent::Terminated(payload) if payload.code.unwrap_or(-1) != 0 => {
+                last_err = Some(match &last_stderr {
+                    Some(s) => format!("amuxd install-pi failed: {s}"),
+                    None => format!("amuxd install-pi exited with code {:?}", payload.code),
+                });
+            }
+            _ => {}
+        }
+    }
+    if let Some(e) = last_err {
+        emit_progress(
+            app,
+            SetupProgress {
+                id: "pi".into(),
+                status: "failed".into(),
+                line: None,
+                error: Some(e.clone()),
+            },
+        );
+        return Err(e);
+    }
+    emit_progress(
+        app,
+        SetupProgress {
+            id: "pi".into(),
+            status: "done".into(),
+            line: None,
+            error: None,
+        },
+    );
+    Ok(())
+}
+
 /// Best-effort git install guidance. macOS triggers the Xcode CLT installer; other
 /// platforms return an error so the UI shows manual instructions (git is optional).
 ///
@@ -570,6 +668,42 @@ fn install_git<R: Runtime>(app: &AppHandle<R>) -> Result<(), String> {
     }
 }
 
+/// Restart the locally-installed amuxd so it re-reads `daemon.toml`. Used after
+/// changing a restart-required config key (e.g. `agents.local_agent`, switching
+/// the local runtime between opencode and pi). Restarts the ALREADY-INSTALLED
+/// binary at `~/.amuxd/bin/amuxd` (never the bundled dev sidecar), so a running
+/// custom build is preserved across the switch.
+///
+/// When a supervising service is registered, `install-service` does a
+/// bootout+bootstrap (clean restart under launchd/systemd). Otherwise the
+/// running instance is stopped and relaunched detached. The daemon mints a new
+/// HTTP token on restart; callers re-exchange it on the next request (401 retry).
+#[tauri::command]
+pub async fn restart_local_daemon() -> Result<(), String> {
+    let exe = installed_amuxd_path().ok_or_else(|| "no home dir".to_string())?;
+    if !exe.exists() {
+        return Err(format!("amuxd binary not found at {}", exe.display()));
+    }
+    if amuxd_service_registered() {
+        // install-service = bootout + bootstrap when already registered.
+        let out = std::process::Command::new(&exe)
+            .arg("install-service")
+            .output()
+            .map_err(|e| format!("spawn amuxd install-service: {e}"))?;
+        if !out.status.success() {
+            return Err(format!(
+                "amuxd install-service exited with {:?}: {}",
+                out.status.code(),
+                String::from_utf8_lossy(&out.stderr).trim()
+            ));
+        }
+        return Ok(());
+    }
+    // No supervisor: stop the running instance (best-effort) and relaunch detached.
+    let _ = std::process::Command::new(&exe).arg("stop").output();
+    start_installed_amuxd_detached()
+}
+
 #[tauri::command]
 pub async fn setup_install<R: Runtime>(
     app: AppHandle<R>,
@@ -579,6 +713,7 @@ pub async fn setup_install<R: Runtime>(
     match id.as_str() {
         "amuxd" => install_amuxd(&app).await,
         "opencode" => install_opencode(&app, opencode_download_base).await,
+        "pi" => install_pi(&app).await,
         "git" => install_git(&app),
         other => Err(format!("unknown requirement: {other}")),
     }

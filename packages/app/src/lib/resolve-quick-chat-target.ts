@@ -17,9 +17,18 @@ export async function resolveQuickChatTarget(
   const trimmedTeam = teamId.trim()
   if (!trimmedTeam) return null
 
-  const workspacePath = opts?.workspacePath?.trim() || ''
+  // `opts.workspacePath` is accepted for API compatibility but intentionally no
+  // longer gates local-agent selection (see below).
+  void opts
 
-  if (isTauri() && workspacePath) {
+  // On desktop, a new chat ALWAYS defaults to THIS machine's local daemon
+  // agent when one exists — never the team default. The local agent is the
+  // user's own runtime here; a new chat should talk to it, not to whatever
+  // agent the team happens to have set as its default. `workspacePath` is no
+  // longer a precondition (it gated this off when no workspace was active,
+  // which wrongly fell through to the team default). Only when there is no
+  // local daemon agent at all do we fall back to the team/member default.
+  if (isTauri()) {
     try {
       const local = await getLocalDaemonAgent(trimmedTeam)
       if (local?.id) {

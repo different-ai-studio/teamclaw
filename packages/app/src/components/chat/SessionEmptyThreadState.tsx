@@ -8,6 +8,7 @@ import {
   resolveEmptyThreadRoutingKind,
   type EmptyThreadParticipant,
 } from '@/lib/session-empty-thread-starters'
+import { isSoloBuild } from '@/lib/solo-build'
 import { cn } from '@/lib/utils'
 import { useAuthStore } from '@/stores/auth-store'
 import { useCurrentTeamStore } from '@/stores/current-team'
@@ -136,6 +137,19 @@ export function SessionEmptyThreadState({
     useWorkspaceStore.getState().openPanel('actors')
   }
 
+  const dayDivider = (
+    <div className="mb-3 flex items-center gap-2.5 text-[10.5px] font-semibold uppercase tracking-[0.08em] text-faint">
+      <span className="h-px flex-1 bg-border-soft" aria-hidden />
+      <span>{t('chat.sessionEmptyThread.dayDivider', 'New session · Start with a message')}</span>
+      <span className="h-px flex-1 bg-border-soft" aria-hidden />
+    </div>
+  )
+
+  // Solo-agent build: keep only the session divider; hide roster / Invite / routing.
+  if (isSoloBuild()) {
+    return <div className="w-full pb-2">{dayDivider}</div>
+  }
+
   if (loading && roster.length === 0) {
     return (
       <div className="flex justify-center py-10">
@@ -150,11 +164,7 @@ export function SessionEmptyThreadState({
 
   return (
     <div className="w-full pb-2">
-      <div className="mb-3 flex items-center gap-2.5 text-[10.5px] font-semibold uppercase tracking-[0.08em] text-faint">
-        <span className="h-px flex-1 bg-border-soft" aria-hidden />
-        <span>{t('chat.sessionEmptyThread.dayDivider', 'New session · Start with a message')}</span>
-        <span className="h-px flex-1 bg-border-soft" aria-hidden />
-      </div>
+      {dayDivider}
 
       <div className="flex items-center gap-2.5 rounded-[14px] border border-border bg-paper px-3 py-[11px]">
         <div className="flex items-center pl-0.5">

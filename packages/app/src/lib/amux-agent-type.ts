@@ -9,6 +9,8 @@ export function amuxAgentTypeFromBackend(
       return "opencode"
     case "codex":
       return "codex"
+    case "pi":
+      return "pi"
     case "claude-code":
     case "claude":
     case "claude_code":
@@ -27,6 +29,8 @@ export function resolveAmuxAgentType(
       return AgentType.OPENCODE
     case "codex":
       return AgentType.CODEX
+    case "pi":
+      return AgentType.PI
     case "claude-code":
     case "claude":
     case "claude_code":

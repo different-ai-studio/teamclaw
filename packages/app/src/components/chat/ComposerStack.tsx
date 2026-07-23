@@ -30,10 +30,10 @@ export type ActiveStreamingAgent = {
 };
 
 const LIVE_INLINE_SCROLL_CLASS =
-  "max-h-[220px] overflow-y-auto border-t border-border/50 bg-gradient-to-b from-[#fbf9f4] to-white px-3 py-2.5";
+  "max-h-[220px] overflow-y-auto border-t border-border/50 bg-gradient-to-b from-[#fbf9f4] to-white px-3 py-2.5 dark:from-background dark:to-paper";
 
 const LIVE_FLOAT_SCROLL_CLASS =
-  "min-h-0 flex-1 overflow-y-auto bg-gradient-to-b from-[#fbf9f4] to-white px-3 py-2.5";
+  "min-h-0 flex-1 overflow-y-auto bg-gradient-to-b from-[#fbf9f4] to-white px-3 py-2.5 dark:from-background dark:to-paper";
 
 function useLiveScrollFollow(active: boolean, entry: AgentStreamEntry | undefined) {
   const liveScrollRef = React.useRef<HTMLDivElement>(null);

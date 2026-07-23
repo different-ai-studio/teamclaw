@@ -45,9 +45,12 @@ export function resolveRuntimeStateEntryForAgent(
   const trimmedAgent = agentId.trim();
   if (!trimmedAgent) return undefined;
 
-  let best: RuntimeStateEntry | undefined;
-  best = considerRuntimeEntry(best, byRuntimeId[trimmedAgent]);
-
+  // When the caller knows the session's own runtime id, that runtime is
+  // authoritative — return it directly. An agent (e.g. the local daemon) runs a
+  // separate runtime per session, and those runtimes can differ in backend and
+  // model catalog (a stale opencode session vs. a fresh pi one). Picking "most
+  // recently updated across all the agent's runtimes" would surface a DIFFERENT
+  // session's models here, so a concrete session hint must win outright.
   const dbId = dbRuntimeId?.trim() ?? "";
   if (dbId) {
     const hinted = byRuntimeId[dbId];
@@ -57,10 +60,14 @@ export function resolveRuntimeStateEntryForAgent(
         hinted.info.runtimeId === trimmedAgent ||
         hinted.info.runtimeId === dbId)
     ) {
-      best = considerRuntimeEntry(best, hinted);
+      return hinted;
     }
   }
 
+  // No session hint (or it hasn't been observed yet): fall back to the most
+  // recently updated runtime for this agent.
+  let best: RuntimeStateEntry | undefined;
+  best = considerRuntimeEntry(best, byRuntimeId[trimmedAgent]);
   for (const entry of Object.values(byRuntimeId)) {
     if (entry.daemonActorId !== trimmedAgent && entry.info.runtimeId !== trimmedAgent) continue;
     best = considerRuntimeEntry(best, entry);
@@ -507,6 +514,8 @@ export function backendTypeFromRuntimeEntry(
       return "opencode";
     case AgentType.CODEX:
       return "codex";
+    case AgentType.PI:
+      return "pi";
     default:
       return undefined;
   }
