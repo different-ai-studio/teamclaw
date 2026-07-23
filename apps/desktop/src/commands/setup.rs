@@ -278,6 +278,23 @@ fn amuxd_pid_is_running() -> bool {
     pid_alive(pid)
 }
 
+/// Poll the amuxd pidfile until the recorded process has exited (or `timeout`
+/// elapses). `amuxd stop` only sends SIGTERM and returns; the old process may
+/// hold the lock (~/.amuxd/amuxd.lock) for a moment longer while it shuts down.
+/// Starting the new amuxd before that lock is released is the root of the
+/// "amuxd is already running (lock held)" failure after an app update, so we
+/// wait for the old instance to actually go before relaunching.
+async fn wait_for_amuxd_stopped(timeout: std::time::Duration) {
+    let start = std::time::Instant::now();
+    while amuxd_pid_is_running() {
+        if start.elapsed() >= timeout {
+            eprintln!("[setup] warning: amuxd still running after stop timeout; proceeding anyway");
+            return;
+        }
+        tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+    }
+}
+
 #[cfg(unix)]
 fn pid_alive(pid: i32) -> bool {
     if pid <= 0 {
@@ -401,7 +418,33 @@ async fn install_amuxd<R: Runtime>(app: &AppHandle<R>) -> Result<(), String> {
     } else {
         eprintln!("[setup] warning: bundled teamclaw-introspect binary not found");
     }
-    if amuxd_service_registered() {
+    let service_registered = amuxd_service_registered();
+    let was_running = amuxd_pid_is_running();
+    // Always stop any amuxd currently running BEFORE launching the new binary,
+    // whether it's service-managed or a stray detached instance left over from a
+    // previous version. Replacing the on-disk binary alone leaves the old process
+    // serving stale code AND holding ~/.amuxd/amuxd.lock; the freshly-started
+    // amuxd then exits with "amuxd is already running (lock held)" and the app
+    // reports "后台服务启动失败". Stopping unconditionally (and waiting for the
+    // lock to release) closes that failure across app updates.
+    if service_registered || was_running {
+        emit_progress(
+            app,
+            SetupProgress {
+                id: "amuxd".into(),
+                status: "running".into(),
+                line: Some("stopping old amuxd".into()),
+                error: None,
+            },
+        );
+        // `amuxd stop` SIGTERMs the running instance via its pidfile.
+        if let Err(e) = run_amuxd_sidecar(app, &["stop"]).await {
+            eprintln!("[setup] warning: failed to stop running amuxd before restart: {e}");
+        }
+        // Wait for the old process to release the lock so the new one can bind it.
+        wait_for_amuxd_stopped(std::time::Duration::from_secs(5)).await;
+    }
+    if service_registered {
         emit_progress(
             app,
             SetupProgress {
@@ -413,24 +456,21 @@ async fn install_amuxd<R: Runtime>(app: &AppHandle<R>) -> Result<(), String> {
         );
         // install-service does bootout+bootstrap (i.e. restart) when already registered.
         run_amuxd_sidecar(app, &["install-service"]).await?;
-    } else if amuxd_pid_is_running() {
-        // No supervising service is registered, but an old amuxd is still running
-        // (e.g. started detached, or a service that was later booted out). Replacing
-        // the on-disk binary alone leaves that stale process serving old code until a
-        // reboot/relogin, so stop it and re-launch the freshly-copied binary detached.
+    } else if was_running {
+        // No supervising service, but an old amuxd was running (started detached).
+        // Relaunch the freshly-copied binary detached so it outlives the app. A
+        // fresh install (nothing running, no service) intentionally falls through
+        // here without starting amuxd — service registration happens after team
+        // onboarding, matching the prior behaviour.
         emit_progress(
             app,
             SetupProgress {
                 id: "amuxd".into(),
                 status: "running".into(),
-                line: Some("restarting running amuxd".into()),
+                line: Some("restarting amuxd".into()),
                 error: None,
             },
         );
-        // `amuxd stop` SIGTERMs the running instance via its pidfile.
-        if let Err(e) = run_amuxd_sidecar(app, &["stop"]).await {
-            eprintln!("[setup] warning: failed to stop running amuxd before restart: {e}");
-        }
         if let Err(e) = start_installed_amuxd_detached() {
             eprintln!("[setup] warning: failed to restart amuxd after upgrade: {e}");
         }
