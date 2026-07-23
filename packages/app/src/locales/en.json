@@ -2831,6 +2831,8 @@
     "title": "Choose a team",
     "subtitle": "You belong to multiple teams. Pick one to continue.",
     "switching": "Switching…",
+    "joining": "Joining…",
+    "public": "Public",
     "ungrouped": "Other",
     "lastUsed": "Last used"
   },

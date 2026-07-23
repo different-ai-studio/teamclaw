@@ -4,6 +4,13 @@ const storageState = vi.hoisted(() => ({
   bag: {} as Record<string, unknown>,
 }))
 
+const bakeState = vi.hoisted(() => ({
+  linkHover: {
+    domains: [] as string[],
+    urlPatterns: [] as string[],
+  },
+}))
+
 vi.stubGlobal('chrome', {
   storage: {
     local: {
@@ -22,40 +29,55 @@ vi.stubGlobal('chrome', {
   },
 })
 
+vi.mock('../extension-settings-bake', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('../extension-settings-bake')>()
+  return {
+    ...actual,
+    parseExtensionSettingsBake: () => ({
+      hideButton: false,
+      linkHover: {
+        domains: [...bakeState.linkHover.domains],
+        urlPatterns: [...bakeState.linkHover.urlPatterns],
+      },
+    }),
+  }
+})
+
 describe('readLinkHoverConfig bake seed', () => {
   beforeEach(() => {
     storageState.bag = {}
+    bakeState.linkHover = { domains: [], urlPatterns: [] }
     vi.resetModules()
   })
 
   it('seeds chrome.storage from baked defaults when unset', async () => {
+    bakeState.linkHover = {
+      domains: ['example.com'],
+      urlPatterns: ['*/example/*'],
+    }
     const mod = await import('./chrome-storage')
-    vi.spyOn(mod, 'getBakedLinkHoverConfig').mockReturnValue({
-      domains: ['accounting.i.shopee.io'],
-      urlPatterns: ['*/discrepancy-details-info-v2/*'],
-    })
 
     const config = await mod.readLinkHoverConfig()
     expect(config).toEqual({
-      domains: ['accounting.i.shopee.io'],
-      urlPatterns: ['*/discrepancy-details-info-v2/*'],
+      domains: ['example.com'],
+      urlPatterns: ['*/example/*'],
     })
     expect(storageState.bag['teamclaw.extension.linkHover']).toEqual({
-      domains: ['accounting.i.shopee.io'],
-      urlPatterns: ['*/discrepancy-details-info-v2/*'],
+      domains: ['example.com'],
+      urlPatterns: ['*/example/*'],
     })
   })
 
   it('returns existing chrome.storage value without reseeding', async () => {
+    bakeState.linkHover = {
+      domains: ['baked.example.com'],
+      urlPatterns: ['*/baked/*'],
+    }
     storageState.bag['teamclaw.extension.linkHover'] = {
       domains: ['example.com'],
       urlPatterns: ['*/other/*'],
     }
     const mod = await import('./chrome-storage')
-    vi.spyOn(mod, 'getBakedLinkHoverConfig').mockReturnValue({
-      domains: ['accounting.i.shopee.io'],
-      urlPatterns: ['*/discrepancy-details-info-v2/*'],
-    })
 
     const config = await mod.readLinkHoverConfig()
     expect(config).toEqual({

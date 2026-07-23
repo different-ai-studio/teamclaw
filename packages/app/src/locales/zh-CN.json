@@ -2831,6 +2831,8 @@
     "title": "选择团队",
     "subtitle": "你属于多个团队，请选择要进入的一个。",
     "switching": "切换中…",
+    "joining": "加入中…",
+    "public": "公开",
     "ungrouped": "其它",
     "lastUsed": "最后使用"
   },
