@@ -77,30 +77,13 @@ jobs:
       # Applies build.config.json (brand name + branding/extension/icons, if the
       # branding repo shipped them) onto apps/extension/manifest.json BEFORE the
       # bundle build, mirroring scripts/update-tauri-config.js for desktop.
+      # Host scoping reads `extensions.domains` (same source as the side-panel gate).
       - name: Apply branding to extension manifest + icons
         run: node scripts/update-extension-manifest.js
-
-      # Single source of truth for the brand's domains: extension.hosts (match
-      # patterns) drive BOTH the manifest permission narrowing (above) and the
-      # side-panel host gate (below). Convert https://*.shopee.io/* -> *.shopee.io
-      # and feed it to the build as DOMAINS so the panel overlays a "not available
-      # here" gate off-brand instead of opening a usable chat on any site.
-      - name: Derive side-panel DOMAINS from brand hosts
-        run: |
-          DOMAINS=$(node -e "
-            const fs=require('fs');
-            const c=JSON.parse(fs.readFileSync('build.config.json','utf8'));
-            const hosts=(c.extension&&c.extension.hosts)||[];
-            const doms=hosts.map(h=>h.replace(/^[a-z]+:\/\//,'').replace(/\/.*$/,'')).filter(Boolean);
-            process.stdout.write([...new Set(doms)].join(','));
-          ")
-          echo "SIDE_PANEL_DOMAINS=$DOMAINS" >> "$GITHUB_ENV"
-          echo "Side-panel gate domains: ${DOMAINS:-<none, ungated>}"
 
       - name: Build extension
         env:
           BUILD_ENV: production
-          DOMAINS: ${{ env.SIDE_PANEL_DOMAINS }}
         run: pnpm --filter @teamclaw/extension build
 
       - name: Zip extension

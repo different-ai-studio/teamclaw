@@ -16,8 +16,10 @@ import {
 } from '@/components/ui/alert-dialog'
 import {
   addDomainToConfig,
+  addUrlPatternToConfig,
   readLinkHoverConfig,
   removeDomainFromConfig,
+  removeUrlPatternFromConfig,
   writeLinkHoverConfig,
   type LinkHoverConfig,
 } from '@/lib/extension-link-hover'
@@ -27,8 +29,9 @@ import { SettingCard, SectionHeader } from './shared'
 
 export const ExtensionGeneralSection = React.memo(function ExtensionGeneralSection() {
   const { t } = useTranslation()
-  const [config, setConfig] = React.useState<LinkHoverConfig>({ domains: [] })
+  const [config, setConfig] = React.useState<LinkHoverConfig>({ domains: [], urlPatterns: [] })
   const [draft, setDraft] = React.useState('')
+  const [patternDraft, setPatternDraft] = React.useState('')
   const [loading, setLoading] = React.useState(true)
   const [saving, setSaving] = React.useState(false)
   const [clearingMap, setClearingMap] = React.useState(false)
@@ -86,6 +89,34 @@ export const ExtensionGeneralSection = React.memo(function ExtensionGeneralSecti
     [config, persist],
   )
 
+  const handleAddUrlPattern = React.useCallback(() => {
+    const result = addUrlPatternToConfig(config, patternDraft)
+    if (!result.ok) {
+      if (result.error === 'duplicate') {
+        toast.error(
+          t('settings.extension.linkHover.patternDuplicate', 'Pattern already in the list'),
+        )
+      } else {
+        toast.error(
+          t(
+            'settings.extension.linkHover.patternInvalid',
+            'Enter a URL pattern, e.g. */tickets/*',
+          ),
+        )
+      }
+      return
+    }
+    setPatternDraft('')
+    void persist(result.config)
+  }, [config, patternDraft, persist, t])
+
+  const handleRemoveUrlPattern = React.useCallback(
+    (pattern: string) => {
+      void persist(removeUrlPatternFromConfig(config, pattern))
+    },
+    [config, persist],
+  )
+
   const handleClearLinkSessionMap = React.useCallback(async () => {
     if (!teamId) {
       toast.error(t('settings.extension.linkSessionMap.noTeam', 'Select a team first'))
@@ -128,7 +159,7 @@ export const ExtensionGeneralSection = React.memo(function ExtensionGeneralSecti
             <p className="mt-1 text-[12.5px] leading-relaxed text-muted-foreground">
               {t(
                 'settings.extension.linkHover.description',
-                'On allowlisted sites, hovering any clickable link shows a TeamClaw button to open the side panel with that link.',
+                'On allowlisted sites, hovering a matching link shows a TeamClaw button to open the side panel with that link.',
               )}
             </p>
             <p className="mt-2 text-[12px] text-faint">
@@ -200,6 +231,79 @@ export const ExtensionGeneralSection = React.memo(function ExtensionGeneralSecti
               ))}
             </ul>
           )}
+        </div>
+
+        <div className="mt-6 border-t border-border-soft pt-4">
+          <h5 className="text-[12.5px] font-semibold text-foreground">
+            {t('settings.extension.linkHover.patternsTitle', 'Link URL patterns')}
+          </h5>
+          <p className="mt-1 text-[12px] leading-relaxed text-muted-foreground">
+            {t(
+              'settings.extension.linkHover.patternsDescription',
+              'Optional. Use * as a wildcard anywhere in the URL. Empty list = show the button on every http(s) link on allowlisted sites.',
+            )}
+          </p>
+          <div className="mt-3 flex gap-2">
+            <Input
+              value={patternDraft}
+              onChange={(e) => setPatternDraft(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter') {
+                  e.preventDefault()
+                  handleAddUrlPattern()
+                }
+              }}
+              placeholder={t(
+                'settings.extension.linkHover.patternPlaceholder',
+                '*/adminv2/*/record/*',
+              )}
+              className="h-9 font-mono text-[13px]"
+              disabled={loading || saving}
+            />
+            <Button
+              type="button"
+              size="sm"
+              className="h-9 shrink-0 gap-1.5 px-3"
+              onClick={handleAddUrlPattern}
+              disabled={loading || saving || !patternDraft.trim()}
+            >
+              <Plus className="h-3.5 w-3.5" />
+              {t('settings.extension.linkHover.addPattern', 'Add')}
+            </Button>
+          </div>
+          <div className="mt-3">
+            {loading ? null : config.urlPatterns.length === 0 ? (
+              <p className="rounded-lg border border-dashed border-border bg-background px-3 py-3 text-[12px] text-muted-foreground">
+                {t(
+                  'settings.extension.linkHover.patternsEmpty',
+                  'No patterns — every clickable http(s) link on allowlisted sites shows the button.',
+                )}
+              </p>
+            ) : (
+              <ul className="flex flex-col gap-2">
+                {config.urlPatterns.map((pattern) => (
+                  <li key={pattern}>
+                    <span className="inline-flex max-w-full items-center gap-1 rounded-md border border-border bg-panel py-1 pl-2.5 pr-1 font-mono text-[12px] text-ink-2">
+                      <span className="min-w-0 truncate">{pattern}</span>
+                      <button
+                        type="button"
+                        className="shrink-0 rounded p-1 text-muted-foreground transition-colors hover:bg-selected hover:text-foreground"
+                        onClick={() => handleRemoveUrlPattern(pattern)}
+                        disabled={saving}
+                        aria-label={t(
+                          'settings.extension.linkHover.removePattern',
+                          'Remove {{pattern}}',
+                          { pattern },
+                        )}
+                      >
+                        <X className="h-3 w-3" />
+                      </button>
+                    </span>
+                  </li>
+                ))}
+              </ul>
+            )}
+          </div>
         </div>
       </SettingCard>
 

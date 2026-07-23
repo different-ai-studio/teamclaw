@@ -2,9 +2,8 @@
  * Build-time side-panel host allowlist for the Chrome extension.
  * Empty list = no gate (panel usable on any site).
  *
- * Patterns (comma-separated in VITE_SIDE_PANEL_DOMAINS / DOMAINS):
- * - `example.com` — exact hostname
- * - `*.example.com` — example.com and any subdomain
+ * Patterns come from `extensions.domains` in build.config*.json
+ * (e.g. `example.com`, `*.example.com`).
  */
 
 export const SIDE_PANEL_HOST_GATE_STORAGE_KEY = 'teamclaw.sidePanelHostGate'

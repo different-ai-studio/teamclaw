@@ -4,23 +4,33 @@ describe('isSoloBuild', () => {
   afterEach(() => {
     vi.unstubAllEnvs()
     vi.resetModules()
+    vi.doUnmock('@/lib/build-config')
   })
 
-  it('is false when VITE_SOLO is unset', async () => {
-    vi.stubEnv('VITE_SOLO', undefined)
+  it('is false outside extension embed builds even when solo is on', async () => {
+    vi.stubEnv('VITE_FORCE_EMBED', undefined)
+    vi.doMock('@/lib/build-config', () => ({
+      extensionSoloBuild: true,
+    }))
     const { isSoloBuild } = await import('../solo-build')
     expect(isSoloBuild()).toBe(false)
   })
 
-  it('is true when VITE_SOLO is "true"', async () => {
-    vi.stubEnv('VITE_SOLO', 'true')
+  it('follows extensions.solo in extension embed builds', async () => {
+    vi.stubEnv('VITE_FORCE_EMBED', 'chat')
+    vi.doMock('@/lib/build-config', () => ({
+      extensionSoloBuild: true,
+    }))
     const { isSoloBuild } = await import('../solo-build')
     expect(isSoloBuild()).toBe(true)
   })
 
-  it('is true when VITE_SOLO is "1"', async () => {
-    vi.stubEnv('VITE_SOLO', '1')
+  it('is false when extensions.solo is off', async () => {
+    vi.stubEnv('VITE_FORCE_EMBED', 'chat')
+    vi.doMock('@/lib/build-config', () => ({
+      extensionSoloBuild: false,
+    }))
     const { isSoloBuild } = await import('../solo-build')
-    expect(isSoloBuild()).toBe(true)
+    expect(isSoloBuild()).toBe(false)
   })
 })
