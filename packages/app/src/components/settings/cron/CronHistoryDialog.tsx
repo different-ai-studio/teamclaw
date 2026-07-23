@@ -4,7 +4,6 @@
  */
 import * as React from 'react'
 import { useTranslation } from 'react-i18next'
-import i18n from '@/lib/i18n'
 import {
   Clock,
   AlertCircle,
@@ -19,11 +18,11 @@ import { cn } from '@/lib/utils'
 import { toast } from 'sonner'
 import { Button } from '@/components/ui/button'
 import { useUIStore } from '@/stores/ui'
-import { getBackend } from '@/lib/backend'
-import { useSessionListStore } from '@/stores/session-list-store'
-import { hydrateCronSessionMessages } from '@/lib/cron-session-messages'
+import {
+  hydrateCronSessionMessages,
+  ensureCronSessionVisible,
+} from '@/lib/cron-session-messages'
 import { useSessionMessageStore } from '@/stores/session-message-store'
-import { useCurrentTeamStore } from '@/stores/current-team'
 import {
   Dialog,
   DialogContent,
@@ -41,43 +40,7 @@ import {
   type CronRunRecord,
 } from '@/stores/cron'
 
-export async function ensureCronSessionVisible(sessionId: string): Promise<void> {
-  // Fetch session's team from cloud (always do this to verify access)
-  const teamId = await getBackend().sessions.getSessionTeamId(sessionId)
-  if (!teamId) {
-    throw new Error(
-      i18n.t('settings.cron.sessionNotFound', { id: sessionId.slice(0, 8) }),
-    )
-  }
-
-  // Switch teams if needed
-  const activeTeamId = useCurrentTeamStore.getState().team?.id ?? null
-  if (activeTeamId !== teamId) {
-    await useCurrentTeamStore.getState().reloadAndSwitchTo(teamId)
-  }
-
-  useCronStore.getState().setShowCronSessions(true)
-
-  // Skip upsert if already in list (may have been added by previous call)
-  if (useSessionListStore.getState().rows.some((row) => row.id === sessionId)) return
-
-  // Fetch display row for title, then upsert into list store
-  const [displayRow] = await getBackend().sessions.listSessionDisplayRows(teamId, [sessionId])
-  useSessionListStore.getState().upsertRows([
-    {
-      id: sessionId,
-      title: displayRow?.title || 'Cron job',
-      team_id: teamId,
-      last_message_at: null,
-      last_message_preview: null,
-      mode: 'collab',
-      idea_id: null,
-      has_unread: false,
-      created_at: null,
-      updated_at: null,
-    },
-  ])
-}
+export { ensureCronSessionVisible } from '@/lib/cron-session-messages'
 
 export function RunRecordCard({
   run,
@@ -220,6 +183,7 @@ export function CronHistoryDialog({
     setViewError(null)
     try {
       await ensureCronSessionVisible(sessionId)
+      useCronStore.getState().setShowCronSessions(true)
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error)
       setViewError(message)

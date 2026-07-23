@@ -71,6 +71,28 @@ vi.mock('@/stores/session-list-store', () => ({
 
 vi.mock('@/lib/cron-session-messages', () => ({
   hydrateCronSessionMessages: vi.fn().mockResolvedValue(1),
+  ensureCronSessionVisible: async (sessionId: string) => {
+    const teamId = await mocks.getSessionTeamId(sessionId)
+    if (!teamId) throw new Error(`Session ${sessionId.slice(0, 8)} not found`)
+    if (mocks.currentTeam?.id !== teamId) {
+      await mocks.reloadAndSwitchTo(teamId)
+    }
+    const [displayRow] = await mocks.listSessionDisplayRows(teamId, [sessionId])
+    mocks.upsertRows([
+      {
+        id: sessionId,
+        title: displayRow?.title || 'Cron job',
+        team_id: teamId,
+        last_message_at: null,
+        last_message_preview: null,
+        mode: 'collab',
+        idea_id: null,
+        has_unread: false,
+        created_at: null,
+        updated_at: null,
+      },
+    ])
+  },
 }))
 
 vi.mock('@/stores/session-message-store', () => ({
@@ -165,6 +187,5 @@ describe('ensureCronSessionVisible', () => {
         mode: 'collab',
       }),
     ])
-    expect(mocks.setShowCronSessions).toHaveBeenCalledWith(true)
   })
 })

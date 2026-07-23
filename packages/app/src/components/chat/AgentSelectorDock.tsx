@@ -1,18 +1,11 @@
 import * as React from 'react'
 import { useTranslation } from 'react-i18next'
-import { Check, ChevronDown, Loader2, X } from 'lucide-react'
+import { ChevronDown, Loader2, X } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover'
-import {
-  Command,
-  CommandGroup,
-  CommandInput,
-  CommandItem,
-  CommandList,
-  CommandSeparator,
-} from '@/components/ui/command'
+import { ModelPickerCommand } from '@/components/model/ModelPickerCommand'
 import { useRuntimeStateStore } from '@/stores/runtime-state-store'
-import { groupAgentModelOptions, resolveAgentAvailableModels } from '@/lib/agent-available-models'
+import { resolveAgentAvailableModels } from '@/lib/agent-available-models'
 import { sessionFlowError, sessionFlowLog } from '@/lib/session-flow-log'
 import { RuntimeLifecycle, AgentStatus, type RuntimeInfo } from '@/lib/proto/amux_pb'
 import {
@@ -240,51 +233,6 @@ function AgentPill({
   const isPlaceholderModel = selected.source === 'none' && !!displayedModel
 
   const displayRuntimeId = liveRuntimeInfo?.runtimeId?.trim() || dbRuntimeId
-  const [modelSearch, setModelSearch] = React.useState('')
-  const filteredModels = React.useMemo(() => {
-    const q = modelSearch.trim().toLowerCase()
-    if (!q) return availableModels
-    return availableModels.filter((m) => {
-      const label = (m.displayName || m.id).toLowerCase()
-      return (
-        label.includes(q) ||
-        m.id.toLowerCase().includes(q) ||
-        (m.providerName ?? '').toLowerCase().includes(q)
-      )
-    })
-  }, [availableModels, modelSearch])
-  const modelGroups = React.useMemo(
-    () => groupAgentModelOptions(filteredModels),
-    [filteredModels],
-  )
-
-  React.useEffect(() => {
-    if (!open) setModelSearch('')
-  }, [open])
-
-  // On open, scroll the currently-selected model row into view (the list can
-  // be long — landing at the top loses the user's place). Runs once per open,
-  // re-armed if models arrive async after the popover mounts; skipped while
-  // the user is filtering.
-  const modelListRef = React.useRef<HTMLDivElement>(null)
-  const scrolledToSelectionRef = React.useRef(false)
-  React.useEffect(() => {
-    if (!open) {
-      scrolledToSelectionRef.current = false
-      return
-    }
-    if (scrolledToSelectionRef.current || modelSearch) return
-    const raf = requestAnimationFrame(() => {
-      const el = modelListRef.current?.querySelector(
-        '[data-model-selected="true"]',
-      )
-      if (el) {
-        el.scrollIntoView({ block: 'center' })
-        scrolledToSelectionRef.current = true
-      }
-    })
-    return () => cancelAnimationFrame(raf)
-  }, [open, modelSearch, filteredModels])
 
   React.useEffect(() => {
     sessionFlowLog('agent_selector.model_options.resolved', {
@@ -446,17 +394,15 @@ function AgentPill({
         sideOffset={6}
         className="w-[18rem] p-0"
       >
-        <Command shouldFilter={false}>
-          {availableModels.length > 0 ? (
-            <CommandInput
-              value={modelSearch}
-              onValueChange={setModelSearch}
-              placeholder={t('chat.agentSelector.searchModelPlaceholder', 'Search models…')}
-              className="text-xs"
-            />
-          ) : null}
-          <CommandList ref={modelListRef} className="max-h-[18rem]">
-            {effectiveUiState === 'offline' || effectiveUiState === 'stale' ? (
+        <ModelPickerCommand
+          models={availableModels}
+          isSelected={(id) => isAgentModelRowSelected(id, effectiveModelId)}
+          onSelect={(id) => {
+            setOpen(false)
+            void handlePickModel(id)
+          }}
+          overrideContent={
+            effectiveUiState === 'offline' || effectiveUiState === 'stale' ? (
               <div className="px-2 py-3 text-xs text-muted-foreground">
                 {effectiveUiState === 'stale'
                   ? t('chat.sessionAgent.dropdownStale')
@@ -466,65 +412,29 @@ function AgentPill({
               <div className="px-2 py-3 text-xs text-muted-foreground">
                 {t('chat.agentSelector.loading', 'Loading…')}
               </div>
-            ) : availableModels.length === 0 ? (
-              <div className="px-2 py-3 text-xs text-muted-foreground">
-                {t('chat.agentSelector.noModels', 'No models advertised')}
-              </div>
-            ) : filteredModels.length === 0 ? (
-              <div className="px-2 py-3 text-xs text-muted-foreground">
-                {t('chat.agentSelector.noMatchingModels', 'No matching models')}
-              </div>
-            ) : (
-              <>
-                {modelGroups.map((group) => (
-                  <CommandGroup key={group.providerName} heading={group.providerName}>
-                    {group.models.map((m) => {
-                      const label = m.displayName || m.id
-                      const selected = isAgentModelRowSelected(
-                        m.id,
-                        effectiveModelId,
-                      )
-                      return (
-                        <CommandItem
-                          key={m.id}
-                          value={`${label} ${m.id}`}
-                          data-model-selected={selected ? 'true' : undefined}
-                          onSelect={() => {
-                            setOpen(false)
-                            void handlePickModel(m.id)
-                          }}
-                          className="text-xs py-1.5"
-                        >
-                          <Check
-                            className={cn(
-                              'h-3.5 w-3.5 mr-1.5 shrink-0',
-                              selected ? 'opacity-100' : 'opacity-0',
-                            )}
-                          />
-                          <span className="truncate">{label}</span>
-                        </CommandItem>
-                      )
-                    })}
-                  </CommandGroup>
-                ))}
-              </>
-            )}
-          </CommandList>
-          <CommandSeparator />
-          <div className="p-1">
-            <button
-              type="button"
-              onClick={() => {
-                setOpen(false)
-                onRemove()
-              }}
-              className="flex w-full items-center rounded-sm px-2 py-1.5 text-xs text-destructive hover:bg-destructive/10 focus:bg-destructive/10 focus:outline-none"
-            >
-              <X className="h-3.5 w-3.5 mr-1.5" />
-              {t('chat.agentSelector.removeMention', 'Remove mention')}
-            </button>
-          </div>
-        </Command>
+            ) : null
+          }
+          emptyState={
+            <div className="px-2 py-3 text-xs text-muted-foreground">
+              {t('chat.agentSelector.noModels', 'No models advertised')}
+            </div>
+          }
+          footer={
+            <div className="p-1">
+              <button
+                type="button"
+                onClick={() => {
+                  setOpen(false)
+                  onRemove()
+                }}
+                className="flex w-full items-center rounded-sm px-2 py-1.5 text-xs text-destructive hover:bg-destructive/10 focus:bg-destructive/10 focus:outline-none"
+              >
+                <X className="h-3.5 w-3.5 mr-1.5" />
+                {t('chat.agentSelector.removeMention', 'Remove mention')}
+              </button>
+            </div>
+          }
+        />
       </PopoverContent>
     </Popover>
   )
