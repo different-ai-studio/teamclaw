@@ -22,6 +22,12 @@ pub(crate) struct PiProcess {
     /// one-active-session; prompts for another session switch first).
     pub(crate) active_acp_session: parking_lot::Mutex<Option<String>>,
     child: parking_lot::Mutex<tokio::process::Child>,
+    /// Fingerprint of the env this child was spawned with (binary + team
+    /// provider + MCP servers + extra env). A prewarmed child is spawned before
+    /// the session env is known, so `ensure` respawns when the fingerprint
+    /// changes — otherwise a stale child keeps running without the session's
+    /// `TEAMCLAW_MCP_SERVERS` / secrets.
+    env_fingerprint: String,
 }
 
 impl PiProcess {
@@ -45,6 +51,9 @@ pub(crate) struct PiProcessPool {
     /// `TEAMCLAW_REMOTE_TOOLS_CMD` (JSON array string) extracted from the
     /// session's mcp config; applied on (re)spawn.
     remote_tools_cmd: parking_lot::Mutex<Option<String>>,
+    /// `TEAMCLAW_MCP_SERVERS` (JSON object string) — the workspace's other
+    /// enabled local MCP servers, bridged into pi by the extension.
+    mcp_servers: parking_lot::Mutex<Option<String>>,
 }
 
 impl PiProcessPool {
@@ -55,6 +64,7 @@ impl PiProcessPool {
             extra_env: parking_lot::Mutex::new(HashMap::new()),
             force_env_override: parking_lot::Mutex::new(false),
             remote_tools_cmd: parking_lot::Mutex::new(None),
+            mcp_servers: parking_lot::Mutex::new(None),
         }
     }
 
@@ -62,6 +72,33 @@ impl PiProcessPool {
     /// to the TeamClaw pi extension as `TEAMCLAW_REMOTE_TOOLS_CMD` at spawn.
     pub(crate) fn set_remote_tools_cmd(&self, cmd_json: String) {
         *self.remote_tools_cmd.lock() = Some(cmd_json);
+    }
+
+    /// Record the workspace's other MCP servers (JSON object string) exported to
+    /// the TeamClaw pi extension as `TEAMCLAW_MCP_SERVERS` at spawn.
+    pub(crate) fn set_mcp_servers(&self, servers_json: String) {
+        *self.mcp_servers.lock() = Some(servers_json);
+    }
+
+    /// Fingerprint of the spawn-affecting env currently held by the pool. A live
+    /// child whose fingerprint differs from this is respawned by `ensure`.
+    fn env_fingerprint(&self) -> String {
+        let binary = resolve_binary(self.binary_override.lock().as_deref());
+        let remote = self.remote_tools_cmd.lock().clone().unwrap_or_default();
+        let servers = self.mcp_servers.lock().clone().unwrap_or_default();
+        let force = *self.force_env_override.lock();
+        // Sort extra env for a stable fingerprint regardless of map order.
+        let mut extra: Vec<String> = self
+            .extra_env
+            .lock()
+            .iter()
+            .map(|(k, v)| format!("{k}={v}"))
+            .collect();
+        extra.sort();
+        format!(
+            "bin={binary}\x1fforce={force}\x1fremote={remote}\x1fservers={servers}\x1fextra={}",
+            extra.join("\x1e")
+        )
     }
 
     /// Record the configured pi binary (from `AgentLaunchConfig`). The serde
@@ -131,8 +168,16 @@ impl PiProcessPool {
         shared: &Arc<Shared>,
         worktree: &str,
     ) -> crate::error::Result<Arc<PiProcess>> {
+        let want = self.env_fingerprint();
         if let Some(p) = self.get(worktree) {
-            return Ok(p);
+            if p.env_fingerprint == want {
+                return Ok(p);
+            }
+            // Env changed since this child spawned (e.g. a prewarmed child that
+            // predates the session's MCP servers/secrets) — replace it.
+            info!(worktree, "pi env changed; respawning");
+            p.kill();
+            self.procs.lock().remove(worktree);
         }
         let proc = self.spawn(shared, worktree)?;
         self.procs
@@ -169,6 +214,9 @@ impl PiProcessPool {
         cmd.env("TEAMCLAW_PI_PERMISSIONS_FILE", &perms_file);
         if let Some(remote_cmd) = self.remote_tools_cmd.lock().clone() {
             cmd.env("TEAMCLAW_REMOTE_TOOLS_CMD", remote_cmd);
+        }
+        if let Some(servers) = self.mcp_servers.lock().clone() {
+            cmd.env("TEAMCLAW_MCP_SERVERS", servers);
         }
         cmd.env(
             "PATH",
@@ -221,6 +269,7 @@ impl PiProcessPool {
             client: client.clone(),
             active_acp_session: parking_lot::Mutex::new(None),
             child: parking_lot::Mutex::new(child),
+            env_fingerprint: self.env_fingerprint(),
         });
         events::spawn_reader(Arc::clone(shared), worktree.to_string(), stdout, client);
         Ok(proc)

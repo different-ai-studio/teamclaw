@@ -607,6 +607,16 @@ impl DaemonServer {
                 AgentLaunchConfig::new(codex.binary.clone(), codex.default_flags.clone(), "codex"),
             );
         }
+        // pi runs its own per-worktree `pi --mode rpc` process (the pi_rpc
+        // backend builds that command itself), so this entry only carries the
+        // binary name. Without it, launch_config_for(Pi) falls back to the
+        // ClaudeCode config and the pi backend would spawn `claude` instead of
+        // `pi`. The literal "pi" lets pi_rpc's resolve_binary find it on PATH /
+        // ~/.pi/bin rather than treating it as an explicit path override.
+        launch_configs.insert(
+            amux::AgentType::Pi,
+            AgentLaunchConfig::new("pi", Vec::new(), "pi"),
+        );
 
         let members_path = config_path
             .parent()

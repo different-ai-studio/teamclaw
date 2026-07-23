@@ -10,11 +10,11 @@ import {
   Settings,
   Sparkles,
   Star,
-  Terminal,
   Trash2,
   User,
   UserMinus,
 } from 'lucide-react'
+import { OpencodeMark, PiAgentMark } from '@/components/icons/agent-brand-icons'
 import { open } from '@tauri-apps/plugin-dialog'
 import { toast } from 'sonner'
 import type { ActorRow as ActorRowData } from '@/components/panel/ActorsView'
@@ -109,9 +109,11 @@ function AgentTypeIcon({ agentType }: { agentType?: string | null }) {
     case 'claude-code':
       return <Sparkles className={className} strokeWidth={2} />
     case 'opencode':
-      return <Terminal className={className} strokeWidth={2} />
+      return <OpencodeMark className={className} />
     case 'codex':
       return <Braces className={className} strokeWidth={2} />
+    case 'pi':
+      return <PiAgentMark className={className} />
     default:
       return <Bot className={className} strokeWidth={2} />
   }

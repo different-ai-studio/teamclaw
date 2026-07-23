@@ -27,6 +27,8 @@ function providerIdForBackendType(backendType: string | null | undefined): strin
       return 'opencode'
     case 'codex':
       return 'codex'
+    case 'pi':
+      return 'pi'
     default:
       return null
   }
