@@ -84,21 +84,31 @@ fn write_json_pretty(path: &Path, value: &serde_json::Value) -> Result<(), Works
         .map_err(|e| WorkspaceControlError::Io(e.to_string()))
 }
 
-fn map_store_err(e: teamclaw_runtime_env::opencode_config::OpencodeConfigError) -> WorkspaceControlError {
+fn map_store_err(
+    e: teamclaw_runtime_env::opencode_config::OpencodeConfigError,
+) -> WorkspaceControlError {
     WorkspaceControlError::Io(e.to_string())
 }
 
-fn ws_to_store_err(e: WorkspaceControlError) -> teamclaw_runtime_env::opencode_config::OpencodeConfigError {
+fn ws_to_store_err(
+    e: WorkspaceControlError,
+) -> teamclaw_runtime_env::opencode_config::OpencodeConfigError {
     match e {
-        WorkspaceControlError::Io(s) => teamclaw_runtime_env::opencode_config::OpencodeConfigError::Io(s),
+        WorkspaceControlError::Io(s) => {
+            teamclaw_runtime_env::opencode_config::OpencodeConfigError::Io(s)
+        }
         WorkspaceControlError::Parse(s) => {
             teamclaw_runtime_env::opencode_config::OpencodeConfigError::Parse(s)
         }
-        other => teamclaw_runtime_env::opencode_config::OpencodeConfigError::Parse(other.to_string()),
+        other => {
+            teamclaw_runtime_env::opencode_config::OpencodeConfigError::Parse(other.to_string())
+        }
     }
 }
 
-fn mutate_default_permissions(config: &mut serde_json::Value) -> Result<bool, WorkspaceControlError> {
+fn mutate_default_permissions(
+    config: &mut serde_json::Value,
+) -> Result<bool, WorkspaceControlError> {
     let obj = config.as_object_mut().ok_or_else(|| {
         WorkspaceControlError::Parse("opencode.json root is not an object".into())
     })?;
@@ -180,7 +190,9 @@ fn mutate_inherent_mcp(
     Ok(changed)
 }
 
-fn mutate_instruction_plugin(config: &mut serde_json::Value) -> Result<bool, WorkspaceControlError> {
+fn mutate_instruction_plugin(
+    config: &mut serde_json::Value,
+) -> Result<bool, WorkspaceControlError> {
     use crate::runtime::workspace_runtime::INSTRUCTION_PLUGIN_CONFIG_ENTRY;
 
     let obj = config.as_object_mut().ok_or_else(|| {
@@ -213,7 +225,9 @@ fn mutate_instruction_plugin(config: &mut serde_json::Value) -> Result<bool, Wor
 }
 
 /// One read-modify-write for prepare/reload paths.
-pub fn materialize_opencode_for_prepare(workspace_path: &Path) -> Result<(), WorkspaceControlError> {
+pub fn materialize_opencode_for_prepare(
+    workspace_path: &Path,
+) -> Result<(), WorkspaceControlError> {
     teamclaw_runtime_env::opencode_config::OpencodeConfigStore::apply(workspace_path, |config| {
         let mut changed = false;
         changed |= mutate_default_permissions(config).map_err(ws_to_store_err)?;
@@ -225,17 +239,16 @@ pub fn materialize_opencode_for_prepare(workspace_path: &Path) -> Result<(), Wor
     Ok(())
 }
 
-/// One read-modify-write for spawn: inherent MCP + cloud `provider.team`.
-pub fn materialize_opencode_for_spawn(
+/// One read-modify-write for spawn: inherent MCP only.
+///
+/// Cloud `provider.team` materialization and secret resolution run in
+/// [`teamclaw_runtime_env::assemble_runtime_env`] via
+/// [`teamclaw_runtime_env::sync_team_provider_on_disk`].
+pub fn materialize_inherent_mcp_for_spawn(
     workspace_path: &Path,
-    managed_llm: &teamclaw_runtime_env::ManagedLlmState,
 ) -> Result<(), WorkspaceControlError> {
     teamclaw_runtime_env::opencode_config::OpencodeConfigStore::apply(workspace_path, |config| {
-        let mut changed = false;
-        changed |= mutate_inherent_mcp(workspace_path, config).map_err(ws_to_store_err)?;
-        changed |= teamclaw_runtime_env::team_provider::mutate_team_provider(config, managed_llm)
-            .map_err(|e| teamclaw_runtime_env::opencode_config::OpencodeConfigError::Parse(e.to_string()))?;
-        Ok(changed)
+        mutate_inherent_mcp(workspace_path, config).map_err(ws_to_store_err)
     })
     .map_err(map_store_err)?;
     Ok(())
@@ -243,10 +256,9 @@ pub fn materialize_opencode_for_spawn(
 
 /// Ensure tool-level permission defaults exist in `opencode.json`.
 fn ensure_default_permissions(workspace_path: &Path) -> Result<(), WorkspaceControlError> {
-    teamclaw_runtime_env::opencode_config::OpencodeConfigStore::apply(
-        workspace_path,
-        |config| mutate_default_permissions(config).map_err(ws_to_store_err),
-    )
+    teamclaw_runtime_env::opencode_config::OpencodeConfigStore::apply(workspace_path, |config| {
+        mutate_default_permissions(config).map_err(ws_to_store_err)
+    })
     .map_err(map_store_err)?;
     Ok(())
 }
@@ -617,10 +629,9 @@ fn install_instruction_plugin_file(workspace_path: &Path) -> Result<(), Workspac
 pub fn ensure_instruction_plugin(workspace_path: &Path) -> Result<(), WorkspaceControlError> {
     install_instruction_plugin_file(workspace_path)?;
 
-    teamclaw_runtime_env::opencode_config::OpencodeConfigStore::apply(
-        workspace_path,
-        |config| mutate_instruction_plugin(config).map_err(ws_to_store_err),
-    )
+    teamclaw_runtime_env::opencode_config::OpencodeConfigStore::apply(workspace_path, |config| {
+        mutate_instruction_plugin(config).map_err(ws_to_store_err)
+    })
     .map_err(map_store_err)?;
     Ok(())
 }

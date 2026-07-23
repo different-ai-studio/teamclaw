@@ -411,8 +411,9 @@ impl OpenCodeCompatStore {
     fn read_opencode_json(
         workspace_path: &std::path::Path,
     ) -> Result<OpencodeJson, WorkspaceControlError> {
-        let value = teamclaw_runtime_env::opencode_config::OpencodeConfigStore::load(workspace_path)
-            .map_err(|e| WorkspaceControlError::Parse(e.to_string()))?;
+        let value =
+            teamclaw_runtime_env::opencode_config::OpencodeConfigStore::load(workspace_path)
+                .map_err(|e| WorkspaceControlError::Parse(e.to_string()))?;
         serde_json::from_value(value).map_err(|e| WorkspaceControlError::Parse(e.to_string()))
     }
 
@@ -441,10 +442,13 @@ impl OpenCodeCompatStore {
         workspace_path: &std::path::Path,
         cfg: &OpencodeJson,
     ) -> Result<(), WorkspaceControlError> {
-        let value = serde_json::to_value(cfg)
-            .map_err(|e| WorkspaceControlError::Parse(e.to_string()))?;
-        teamclaw_runtime_env::opencode_config::OpencodeConfigStore::write_value(workspace_path, &value)
-            .map_err(|e| WorkspaceControlError::Io(e.to_string()))
+        let value =
+            serde_json::to_value(cfg).map_err(|e| WorkspaceControlError::Parse(e.to_string()))?;
+        teamclaw_runtime_env::opencode_config::OpencodeConfigStore::write_value(
+            workspace_path,
+            &value,
+        )
+        .map_err(|e| WorkspaceControlError::Io(e.to_string()))
     }
 
     fn read_allowlist(

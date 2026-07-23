@@ -80,7 +80,9 @@ impl RuntimeManager {
             let handle = self.agents.get(&agent_key).ok_or_else(|| {
                 crate::error::AmuxError::Agent(format!("agent {} not found", agent_key))
             })?;
-            handle.answer_question(request_id, answers_json, reject).await
+            handle
+                .answer_question(request_id, answers_json, reject)
+                .await
         }
     }
 

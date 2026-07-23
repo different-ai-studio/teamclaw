@@ -1,7 +1,7 @@
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 
-use crate::opencode_config::{OpencodeConfigStore, OpencodeConfigError};
+use crate::opencode_config::OpencodeConfigStore;
 
 fn opencode_config_path(workspace: &Path) -> PathBuf {
     crate::opencode_config::opencode_config_path(workspace)
@@ -82,6 +82,46 @@ pub fn unresolved_provider_api_key_placeholders(content: &str) -> Vec<(String, S
         }
     }
     out
+}
+
+/// Resolve only `provider.*.options.apiKey` placeholders on disk.
+///
+/// MCP and other `${KEY}` references are left untouched — safe for reconcile paths
+/// that run on every provider read.
+pub fn resolve_provider_api_keys_on_disk(
+    workspace: &Path,
+    secrets: &HashMap<String, String>,
+) -> anyhow::Result<bool> {
+    if secrets.is_empty() {
+        return Ok(false);
+    }
+
+    let canonical = match OpencodeConfigStore::load_raw(workspace)? {
+        Some(content) => content,
+        None => return Ok(false),
+    };
+
+    let resolved = resolve_provider_api_keys(&canonical, secrets);
+    if resolved == canonical {
+        return Ok(false);
+    }
+
+    for (provider, placeholder) in unresolved_provider_api_key_placeholders(&resolved) {
+        tracing::warn!(
+            finding = "team_model_gateway_key_unavailable",
+            provider = %provider,
+            placeholder = %placeholder,
+            config = %opencode_config_path(workspace).display(),
+            "opencode.json provider apiKey still holds an unresolved placeholder; the model \
+             gateway key was not injected — this provider's capabilities will fail closed"
+        );
+    }
+
+    let config_path = opencode_config_path(workspace);
+    let write_lock = crate::atomic_write::opencode_write_lock(&config_path);
+    let _guard = write_lock.lock().unwrap_or_else(|e| e.into_inner());
+    OpencodeConfigStore::write_raw(&config_path, &resolved)?;
+    Ok(true)
 }
 
 /// Restore the canonical placeholder config after runtime stop. Provider
@@ -309,6 +349,33 @@ mod tests {
 
         let original = resolve_config_secret_refs(dir.path(), &secrets).unwrap();
         assert!(original.is_none());
+    }
+
+    #[test]
+    fn resolve_provider_api_keys_on_disk_leaves_mcp_placeholders() {
+        let dir = TempDir::new().unwrap();
+        write_opencode_json(
+            dir.path(),
+            r#"{
+  "provider": {
+    "team": { "options": { "apiKey": "${tc_api_key}" } }
+  },
+  "mcp": {
+    "github": { "environment": { "TOKEN": "${GITHUB_TOKEN}" } }
+  }
+}"#,
+        );
+
+        let mut secrets = HashMap::new();
+        secrets.insert("tc_api_key".to_string(), "sk-tc-actor-1".to_string());
+
+        let changed = resolve_provider_api_keys_on_disk(dir.path(), &secrets).unwrap();
+        assert!(changed);
+
+        let on_disk = read_opencode_json(dir.path());
+        assert!(on_disk.contains("sk-tc-actor-1"));
+        assert!(on_disk.contains("${GITHUB_TOKEN}"));
+        assert!(!dir.path().join(".teamclaw/opencode.runtime.json").exists());
     }
 
     #[test]

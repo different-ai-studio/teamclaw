@@ -2,6 +2,10 @@ import { useState } from 'react'
 import { AlertCircle, ChevronDown, ChevronUp, RefreshCw, AlertTriangle, ShieldAlert, Timer, Copy, Check } from 'lucide-react'
 import { useTranslation } from 'react-i18next'
 import { copyToClipboard } from '@/lib/utils'
+import {
+  isPersistentSessionTurnError,
+  isQuotaLikeAgentMessage,
+} from '@/lib/agent-turn-error'
 import type { SessionErrorEvent } from '@/stores/session-types'
 
 interface SessionErrorAlertProps {
@@ -40,12 +44,25 @@ export function SessionErrorAlert({ error, onDismiss, onRetry }: SessionErrorAle
   const isLongMessage = errorMessage.length > 150
 
   const getErrorStyle = (): ErrorStyle => {
-    const lowerMsg = errorMessage.toLowerCase()
+    if (errorName === 'AgentTimeoutError') {
+      return {
+        icon: Timer,
+        title: t('errors.modelTimeout', 'Model Not Responding'),
+        accentColor: 'text-orange-600 dark:text-orange-400',
+        iconBg: 'bg-orange-100 dark:bg-orange-900/40',
+      }
+    }
+    if (errorName === 'ProviderError') {
+      return {
+        icon: AlertTriangle,
+        title: t('errors.providerError', 'Provider Error'),
+        accentColor: 'text-amber-600 dark:text-amber-400',
+        iconBg: 'bg-amber-100 dark:bg-amber-900/40',
+      }
+    }
     if (
       errorName === 'RetryError' ||
-      lowerMsg.includes('exceeded') ||
-      lowerMsg.includes('quota') ||
-      lowerMsg.includes('free usage')
+      isQuotaLikeAgentMessage(errorMessage)
     ) {
       return {
         icon: AlertTriangle,
