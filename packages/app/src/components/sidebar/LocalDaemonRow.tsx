@@ -13,6 +13,7 @@ import {
   Trash2,
   User,
   UserMinus,
+  LifeBuoy,
 } from 'lucide-react'
 import { OpencodeMark, PiAgentMark } from '@/components/icons/agent-brand-icons'
 import { open } from '@tauri-apps/plugin-dialog'
@@ -641,6 +642,15 @@ export function LocalDaemonRow({
                     }}
                   >
                     {t('sidebar.localDaemonDaemonSettings', 'Daemon settings')}
+                  </SheetMenuItem>
+                  <SheetMenuItem
+                    icon={<LifeBuoy className="h-3.5 w-3.5" />}
+                    onClick={() => {
+                      setSheetOpen(false)
+                      openSettings('diagnostics')
+                    }}
+                  >
+                    {t('settings.diagnostics.openFromSidebar', 'Run diagnostics')}
                   </SheetMenuItem>
                 </SheetGroup>
               ) : (

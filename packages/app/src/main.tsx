@@ -12,6 +12,7 @@ import './lib/i18n'; // Initialize i18n
 import { appShortName, buildConfig } from './lib/build-config'
 import { ensureBundledAmuxdCurrent } from './lib/daemon-version-upgrade'
 import { initJwtBridge } from './lib/jwt-bridge'
+import { installConsoleCapture } from './lib/console-capture'
 import { markStartup } from './lib/startup-perf'
 import { removeStartupSkeleton } from './lib/utils'
 
@@ -30,6 +31,9 @@ Sentry.init({
   environment: import.meta.env.DEV ? 'development' : 'production',
   sendDefaultPii: true,
 })
+
+// Capture console output for Settings → Diagnostics live viewer (ring buffer in memory).
+installConsoleCapture()
 
 // Apply persisted theme immediately to prevent flash of wrong theme
 ;(() => {

@@ -17,3 +17,6 @@ clap = { version = "4", features = ["derive"] }
 chrono = { version = "0.4", features = ["serde"] }
 teamclaw-runtime-env = { path = "../../../../crates/teamclaw-runtime-env" }
 uuid = { version = "1", features = ["v4"] }
+
+[dev-dependencies]
+tempfile = "3"

@@ -10355,6 +10355,7 @@ dependencies = [
  "serde",
  "serde_json",
  "teamclaw-runtime-env",
+ "tempfile",
  "tokio",
  "uuid",
 ]

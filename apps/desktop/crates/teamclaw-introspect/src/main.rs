@@ -294,20 +294,19 @@ fn tool_definitions() -> Value {
         },
         {
             "name": "get_session_deeplink",
-            "description": "Export a shareable deep link that opens a TeamClaw session in the desktop or mobile app. Returns a URL like teamclaw://session/<uuid>.",
+            "description": "Export a shareable deep link that opens a TeamClaw session in the desktop or mobile app. Returns a URL like teamclaw://session/<uuid>. When session_id is omitted, uses the current TeamClaw session (TEAMCLAW_SESSION_ID env or workspace .teamclaw/active-session-id).",
             "inputSchema": {
                 "type": "object",
                 "properties": {
                     "session_id": {
                         "type": "string",
-                        "description": "Cloud session UUID to link to."
+                        "description": "Cloud session UUID to link to. Optional — omit to use the current TeamClaw session."
                     },
                     "scheme": {
                         "type": "string",
                         "description": "Optional URL scheme override (defaults to teamclaw, or TEAMCLAW_APP_SCHEME env var for white-label builds)."
                     }
-                },
-                "required": ["session_id"]
+                }
             }
         }
     ])
@@ -465,7 +464,7 @@ async fn handle_request(req: &Value, workspace: &str, api_port: u16) -> Option<V
                         Err(e) => tool_err(&e),
                     }
                 }
-                "get_session_deeplink" => match session::handle(&arguments) {
+                "get_session_deeplink" => match session::handle(workspace, &arguments) {
                     Ok(v) => {
                         let text = serde_json::to_string_pretty(&v).unwrap_or_default();
                         tool_ok(&text)
