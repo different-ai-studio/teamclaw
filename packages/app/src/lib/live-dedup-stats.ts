@@ -22,6 +22,10 @@ export function setDaemonLiveConnected(connected: boolean): void {
   stats.daemonLiveConnected = connected;
 }
 
+export function getDaemonLiveConnected(): boolean {
+  return stats.daemonLiveConnected;
+}
+
 declare global {
   interface Window {
     __liveDedupStats?: typeof stats;

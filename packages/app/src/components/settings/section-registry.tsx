@@ -25,6 +25,7 @@ import { LeaderboardSection } from './LeaderboardSection'
 import { PermissionManagementSection } from './PermissionManagementSection'
 import { ShortcutsSection } from '@/components/shortcuts/ShortcutsSection'
 import { CacheSection } from './CacheSection'
+import { DiagnosticsSection } from './DiagnosticsSection'
 
 export const SETTINGS_SECTION_COMPONENTS: Record<SettingsSection, React.ComponentType> = {
   llm: LLMSection,
@@ -51,6 +52,7 @@ export const SETTINGS_SECTION_COMPONENTS: Record<SettingsSection, React.Componen
   leaderboard: LeaderboardSection,
   shortcuts: ShortcutsSection,
   cache: CacheSection,
+  diagnostics: DiagnosticsSection,
 }
 
 export function SettingsSectionBody({ section }: { section: SettingsSection }) {
