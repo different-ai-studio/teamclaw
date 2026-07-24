@@ -121,7 +121,7 @@ fn copy_sidecar_into_amuxd_bin(src: &Path, dest_name: &str) -> Result<(), String
 /// Run the bundled `amuxd doctor` and return its parsed JSON (opencode/git/amuxd
 /// status). amuxd resolves opencode/amuxd by absolute path, so this is accurate
 /// even when the app/daemon PATH excludes those dirs.
-async fn read_doctor<R: Runtime>(
+pub(crate) async fn read_doctor<R: Runtime>(
     app: &AppHandle<R>,
     local_agent: Option<&str>,
 ) -> Option<serde_json::Value> {
@@ -333,6 +333,18 @@ fn pid_alive(_pid: i32) -> bool {
 /// Launch the freshly-installed amuxd binary detached from the desktop process
 /// (new session on unix, DETACHED_PROCESS on Windows) so it outlives the app and
 /// serves the upgraded code. Used when no supervising service is registered.
+fn open_amuxd_log_append(name: &str) -> Result<std::fs::File, String> {
+    let home = dirs::home_dir().ok_or_else(|| "no home dir".to_string())?;
+    let dir = home.join(AMUXD_DIR);
+    std::fs::create_dir_all(&dir).map_err(|e| format!("create {}: {e}", dir.display()))?;
+    let path = dir.join(name);
+    std::fs::OpenOptions::new()
+        .create(true)
+        .append(true)
+        .open(&path)
+        .map_err(|e| format!("open {}: {e}", path.display()))
+}
+
 fn start_installed_amuxd_detached() -> Result<(), String> {
     let exe = installed_amuxd_path().ok_or_else(|| "no home dir".to_string())?;
     if !exe.exists() {
@@ -359,9 +371,23 @@ fn start_installed_amuxd_detached() -> Result<(), String> {
         const DETACHED_PROCESS: u32 = 0x0000_0008;
         cmd.creation_flags(CREATE_NO_WINDOW | DETACHED_PROCESS);
     }
-    cmd.stdin(std::process::Stdio::null())
-        .stdout(std::process::Stdio::null())
-        .stderr(std::process::Stdio::null());
+    cmd.stdin(std::process::Stdio::null());
+    match open_amuxd_log_append("amuxd.out.log") {
+        Ok(file) => {
+            cmd.stdout(file);
+        }
+        Err(_) => {
+            cmd.stdout(std::process::Stdio::null());
+        }
+    }
+    match open_amuxd_log_append("amuxd.err.log") {
+        Ok(file) => {
+            cmd.stderr(file);
+        }
+        Err(_) => {
+            cmd.stderr(std::process::Stdio::null());
+        }
+    }
     cmd.spawn().map_err(|e| format!("spawn amuxd start: {e}"))?;
     Ok(())
 }

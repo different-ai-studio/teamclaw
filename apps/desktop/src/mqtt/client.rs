@@ -1,7 +1,11 @@
 use anyhow::Result;
-use rumqttc::{AsyncClient, EventLoop, LastWill, MqttOptions, QoS, TlsConfiguration, Transport};
+use rumqttc::{
+    AsyncClient, ConnectReturnCode, Event, EventLoop, LastWill, MqttOptions, Packet, QoS,
+    TlsConfiguration, Transport,
+};
+use serde::Serialize;
 use std::sync::Arc;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 use teamclaw_transport::MqttBroker;
 use tokio::sync::Mutex;
 
@@ -37,25 +41,43 @@ impl MqttClient {
     }
 
     pub fn connect(cfg: ClientConfig) -> Result<Self> {
-        let broker = Self::resolve_broker(&cfg);
-        let mut opts = MqttOptions::new(&cfg.client_id, broker.connection_address(), broker.port);
-        opts.set_credentials(&cfg.username, &cfg.password);
-        opts.set_clean_session(false);
-        opts.set_keep_alive(Duration::from_secs(30));
-        // Attachments + ACP events can be a few hundred KB. Keep room.
-        opts.set_max_packet_size(4 * 1024 * 1024, 4 * 1024 * 1024);
+        let opts = build_mqtt_options(&cfg, false);
+        let (client, event_loop) = AsyncClient::new(opts, 64);
+        Ok(Self {
+            client,
+            event_loop: Arc::new(Mutex::new(event_loop)),
+            client_id: cfg.client_id,
+        })
+    }
+}
 
-        if broker.is_websocket() && broker.use_tls {
-            opts.set_transport(Transport::wss_with_default_config());
-        } else if broker.is_websocket() {
-            opts.set_transport(Transport::Ws);
-        } else if broker.use_tls {
-            // `TlsConfiguration::default()` (use-rustls) loads the OS native
-            // trust roots and builds a `ClientConfig` with no client auth.
-            // Good enough for connecting to a public broker over TLS.
-            opts.set_transport(Transport::tls_with_config(TlsConfiguration::default()));
-        }
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct MqttProbeResult {
+    pub ok: bool,
+    pub latency_ms: Option<u64>,
+    pub error: Option<String>,
+    pub connack_code: Option<String>,
+    pub broker_url: String,
+}
 
+fn build_mqtt_options(cfg: &ClientConfig, clean_session: bool) -> MqttOptions {
+    let broker = MqttClient::resolve_broker(cfg);
+    let mut opts = MqttOptions::new(&cfg.client_id, broker.connection_address(), broker.port);
+    opts.set_credentials(&cfg.username, &cfg.password);
+    opts.set_clean_session(clean_session);
+    opts.set_keep_alive(Duration::from_secs(30));
+    opts.set_max_packet_size(4 * 1024 * 1024, 4 * 1024 * 1024);
+
+    if broker.is_websocket() && broker.use_tls {
+        opts.set_transport(Transport::wss_with_default_config());
+    } else if broker.is_websocket() {
+        opts.set_transport(Transport::Ws);
+    } else if broker.use_tls {
+        opts.set_transport(Transport::tls_with_config(TlsConfiguration::default()));
+    }
+
+    if !clean_session {
         let lwt_topic = super::topics::actor_state(&cfg.team_id, &cfg.client_id);
         let lwt_payload = serde_json::json!({"status":"offline"})
             .to_string()
@@ -66,13 +88,84 @@ impl MqttClient {
             QoS::AtLeastOnce,
             true,
         ));
+    }
 
-        let (client, event_loop) = AsyncClient::new(opts, 64);
-        Ok(Self {
-            client,
-            event_loop: Arc::new(Mutex::new(event_loop)),
-            client_id: cfg.client_id,
-        })
+    opts
+}
+
+/// One-shot broker reachability probe. Does not touch the shared [`MqttBus`].
+pub async fn probe_broker(cfg: ClientConfig, timeout: Duration) -> MqttProbeResult {
+    let broker_url = cfg
+        .broker_url
+        .clone()
+        .filter(|url| !url.trim().is_empty())
+        .unwrap_or_else(|| {
+            let scheme = if cfg.use_tls { "mqtts" } else { "mqtt" };
+            format!("{}://{}:{}", scheme, cfg.broker_host, cfg.broker_port)
+        });
+    let started = Instant::now();
+    let deadline = started + timeout;
+
+    let opts = build_mqtt_options(&cfg, true);
+    let (client, mut event_loop) = AsyncClient::new(opts, 8);
+
+    loop {
+        let remaining = deadline.saturating_duration_since(Instant::now());
+        if remaining.is_zero() {
+            let _ = client.disconnect().await;
+            return MqttProbeResult {
+                ok: false,
+                latency_ms: None,
+                error: Some(format!("probe timed out after {}ms", timeout.as_millis())),
+                connack_code: None,
+                broker_url,
+            };
+        }
+
+        match tokio::time::timeout(remaining, event_loop.poll()).await {
+            Ok(Ok(Event::Incoming(Packet::ConnAck(ack)))) => {
+                let latency_ms = started.elapsed().as_millis() as u64;
+                let connack_code = format!("{:?}", ack.code);
+                let _ = client.disconnect().await;
+                if ack.code == ConnectReturnCode::Success {
+                    return MqttProbeResult {
+                        ok: true,
+                        latency_ms: Some(latency_ms),
+                        error: None,
+                        connack_code: Some(connack_code),
+                        broker_url,
+                    };
+                }
+                return MqttProbeResult {
+                    ok: false,
+                    latency_ms: Some(latency_ms),
+                    error: Some(format!("broker refused connection: {connack_code}")),
+                    connack_code: Some(connack_code),
+                    broker_url,
+                };
+            }
+            Ok(Ok(_)) => continue,
+            Ok(Err(e)) => {
+                let _ = client.disconnect().await;
+                return MqttProbeResult {
+                    ok: false,
+                    latency_ms: None,
+                    error: Some(e.to_string()),
+                    connack_code: None,
+                    broker_url,
+                };
+            }
+            Err(_) => {
+                let _ = client.disconnect().await;
+                return MqttProbeResult {
+                    ok: false,
+                    latency_ms: None,
+                    error: Some(format!("probe timed out after {}ms", timeout.as_millis())),
+                    connack_code: None,
+                    broker_url,
+                };
+            }
+        }
     }
 }
 

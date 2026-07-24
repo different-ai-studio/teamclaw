@@ -1,3 +1,4 @@
+pub mod active_session;
 pub mod atomic_write;
 pub mod env_catalog;
 pub mod mcp_resolve;
@@ -15,6 +16,10 @@ pub mod test_util;
 use std::collections::HashMap;
 use std::path::Path;
 
+pub use active_session::{
+    read_active_session_id, write_active_session_id, ACTIVE_SESSION_ID_FILE,
+    TEAMCLAW_SESSION_ID_ENV,
+};
 pub use merge::{secrets_for_team_provider, tc_api_key_for_actor};
 pub use team_provider::{ManagedLlmModel, ManagedLlmProvider, ManagedLlmState};
 pub use team_provider_sync::{
