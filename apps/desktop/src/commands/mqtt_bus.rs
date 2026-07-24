@@ -1,6 +1,8 @@
 use crate::mqtt::{ClientConfig, MqttBus, MqttClient};
+use crate::mqtt::client::{probe_broker, MqttProbeResult};
 use rumqttc::QoS;
 use serde::{Deserialize, Serialize};
+use std::time::Duration;
 use tauri::{AppHandle, State};
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -112,4 +114,36 @@ pub async fn mqtt_status(bus: State<'_, MqttBus>) -> Result<MqttStatus, String> 
         connected,
         subscribed_topics,
     })
+}
+
+const DEFAULT_PROBE_TIMEOUT_MS: u64 = 8_000;
+
+/// One-shot MQTT broker reachability probe (does not replace the live client).
+#[tauri::command]
+pub async fn mqtt_probe(
+    broker_url: Option<String>,
+    broker_host: String,
+    broker_port: u16,
+    username: String,
+    password: String,
+    team_id: String,
+    use_tls: bool,
+    timeout_ms: Option<u64>,
+) -> Result<MqttProbeResult, String> {
+    let client_id = format!(
+        "teamclaw-probe-{}",
+        uuid::Uuid::new_v4().simple().to_string()
+    );
+    let cfg = ClientConfig {
+        broker_url,
+        broker_host,
+        broker_port,
+        client_id,
+        username,
+        password,
+        team_id,
+        use_tls,
+    };
+    let timeout = Duration::from_millis(timeout_ms.unwrap_or(DEFAULT_PROBE_TIMEOUT_MS));
+    Ok(probe_broker(cfg, timeout).await)
 }

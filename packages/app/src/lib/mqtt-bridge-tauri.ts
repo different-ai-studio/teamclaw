@@ -57,7 +57,15 @@ export async function mqttPublish(topic: string, bytes: Uint8Array, retain = fal
 }
 
 export async function mqttStatus(): Promise<{ connected: boolean; subscribedTopics: string[] }> {
-  return invoke("mqtt_status");
+  const raw = await invoke<{
+    connected: boolean
+    subscribed_topics?: string[]
+    subscribedTopics?: string[]
+  }>("mqtt_status");
+  return {
+    connected: raw.connected,
+    subscribedTopics: raw.subscribedTopics ?? raw.subscribed_topics ?? [],
+  };
 }
 
 /** Local daemon SSE fast-path status (`daemon-live:connected` from Rust). */

@@ -73,6 +73,10 @@ vi.mock('../section-registry', () => ({
   SettingsSectionBody: ({ section }: { section: string }) => <main data-testid="settings-section">{section}</main>,
 }))
 
+const settingsNavState = vi.hoisted(() => ({
+  settingsInitialSection: 'diagnostics' as string | null,
+}))
+
 describe('Settings navigation', () => {
   it('default (client) entry shows only the Client group — no Daemon/Local Agent', async () => {
     const { Settings } = await import('../Settings')
@@ -136,6 +140,26 @@ describe('Settings navigation', () => {
       'Knowledge Base',
       'Dependencies',
     ])
+    vi.doUnmock('@/stores/ui')
+  })
+
+  it('follows settingsInitialSection updates while already open', async () => {
+    settingsNavState.settingsInitialSection = 'diagnostics'
+
+    vi.resetModules()
+    vi.doMock('@/stores/ui', () => ({
+      useUIStore: (selector: (state: unknown) => unknown) =>
+        selector({ settingsInitialSection: settingsNavState.settingsInitialSection }),
+    }))
+    const { Settings } = await import('../Settings')
+
+    const { rerender } = render(<Settings />)
+    expect(screen.getByTestId('settings-section')).toHaveTextContent('diagnostics')
+
+    settingsNavState.settingsInitialSection = 'general'
+    rerender(<Settings />)
+    expect(screen.getByTestId('settings-section')).toHaveTextContent('general')
+
     vi.doUnmock('@/stores/ui')
   })
 })

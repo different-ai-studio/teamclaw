@@ -1,4 +1,5 @@
 import { create } from 'zustand'
+import { useDiagnosticsStore } from '@/stores/diagnostics-store'
 import { useWorkspaceStore } from '@/stores/workspace'
 import { resolveEmbedMode } from '@/lib/embed-mode'
 import { scheduleReleaseStuckModalLayers } from '@/lib/modal-layer-cleanup'
@@ -46,7 +47,7 @@ export type SidebarFilter =
   | { kind: 'workspace'; workspaceId: string | null; path: string; name: string }
   | { kind: 'teamShare'; section: TeamShareSection }
 
-export type SettingsSection = 'llm' | 'teamLlm' | 'general' | 'voice' | 'prompt' | 'mcp' | 'channels' | 'automation' | 'daemonGeneral' | 'daemonWorkspaces' | 'daemonRuntimes' | 'team' | 'envVars' | 'skills' | 'roles' | 'rolesSkills' | 'knowledge' | 'deps' | 'tokenUsage' | 'privacy' | 'permissions' | 'leaderboard' | 'shortcuts' | 'cache'
+export type SettingsSection = 'llm' | 'teamLlm' | 'general' | 'voice' | 'prompt' | 'mcp' | 'channels' | 'automation' | 'daemonGeneral' | 'daemonWorkspaces' | 'daemonRuntimes' | 'team' | 'envVars' | 'skills' | 'roles' | 'rolesSkills' | 'knowledge' | 'deps' | 'tokenUsage' | 'privacy' | 'permissions' | 'leaderboard' | 'shortcuts' | 'cache' | 'diagnostics'
 
 /** Context passed when opening Agent settings from a blocked quick-new-chat action. */
 export type DaemonGeneralPrompt = 'quick_chat'
@@ -225,11 +226,14 @@ export const useUIStore = create<UIState>((set, get) => ({
 
   clearDaemonGeneralPrompt: () => set({ daemonGeneralPrompt: null }),
 
-  closeSettings: () => set({
-    currentView: 'chat',
-    settingsInitialSection: null,
-    daemonGeneralPrompt: null,
-  }),
+  closeSettings: () => {
+    useDiagnosticsStore.getState().clearReport()
+    set({
+      currentView: 'chat',
+      settingsInitialSection: null,
+      daemonGeneralPrompt: null,
+    })
+  },
 
   startNewChat: () => {
     // Switch to chat view synchronously so settings hides immediately —

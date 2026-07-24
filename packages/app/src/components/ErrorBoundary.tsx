@@ -78,6 +78,12 @@ export class ErrorBoundary extends Component<ErrorBoundaryProps, ErrorBoundarySt
     window.location.reload()
   }
 
+  handleOpenDiagnostics = () => {
+    void import('@/stores/ui').then(({ useUIStore }) => {
+      useUIStore.getState().openSettings('diagnostics')
+    })
+  }
+
   render() {
     if (!this.state.hasError) {
       return this.props.children
@@ -155,6 +161,12 @@ export class ErrorBoundary extends Component<ErrorBoundaryProps, ErrorBoundarySt
               className="flex items-center gap-2 px-4 py-2 text-sm font-medium rounded-md border bg-background hover:bg-muted transition-colors"
             >
               {i18n.t('errors.reloadApp', 'Reload App')}
+            </button>
+            <button
+              onClick={this.handleOpenDiagnostics}
+              className="flex items-center gap-2 px-4 py-2 text-sm font-medium rounded-md border bg-background hover:bg-muted transition-colors"
+            >
+              {i18n.t('settings.diagnostics.openFromError', 'Open Diagnostics')}
             </button>
           </div>
 

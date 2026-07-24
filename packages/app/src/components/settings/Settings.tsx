@@ -25,6 +25,7 @@ import {
   FolderOpen,
   Bot,
   Laptop,
+  LifeBuoy,
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { ScrollArea } from '@/components/ui/scroll-area'
@@ -55,6 +56,7 @@ const primarySections: Section[] = [
   { id: 'voice', label: 'Voice', labelKey: 'settings.nav.voice', icon: Mic },
   { id: 'privacy', label: 'Privacy & Telemetry', labelKey: 'settings.nav.privacy', icon: Shield },
   { id: 'cache', label: 'Local Cache', labelKey: 'settings.nav.cache', icon: Database },
+  { id: 'diagnostics', label: 'Diagnostics', labelKey: 'settings.nav.diagnostics', icon: LifeBuoy },
 ]
 
 // Daemon-owned sections (the amuxd process for this machine).
@@ -155,6 +157,14 @@ export function Settings(_props?: SettingsProps) {
   const [activeView, setActiveView] = React.useState<SettingsSection>(
     settingsInitialSection ?? 'general',
   )
+
+  // Deep links (e.g. diagnostics "Go to related settings") update
+  // settingsInitialSection while the dialog is already open — sync local nav.
+  React.useEffect(() => {
+    if (settingsInitialSection) {
+      setActiveView(settingsInitialSection)
+    }
+  }, [settingsInitialSection])
 
   // Settings is split into two independent dialogs by entry point: the regular
   // entry shows the Client group; the local-daemon row's "Settings" shows the
