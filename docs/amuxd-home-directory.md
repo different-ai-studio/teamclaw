@@ -14,7 +14,7 @@
 
 ```text
 ~/.amuxd/
-├── bin/                          # 安装的可执行文件
+├── bin/                          # 【遗留】旧版拷贝的可执行文件；桌面托管模式不再使用
 │   ├── amuxd
 │   └── teamclaw-introspect
 ├── daemon.toml                   # 本机 daemon 配置（含 team_id）
@@ -26,7 +26,8 @@
 ├── amuxd.sock                    # 本机控制通道（Unix）
 ├── amuxd.http.port / .http.token # 本机 HTTP API 发现与鉴权
 ├── amuxd.cloud-token             # 给子进程用的短期 cloud JWT 文件
-├── amuxd.out.log / amuxd.err.log # 后台服务日志
+├── amuxd.managed.log             # 【现行】桌面托管 amuxd 的 stdout/stderr
+├── amuxd.out.log / amuxd.err.log # 【遗留】旧 LaunchAgent/systemd 重定向日志
 ├── secret.key                    # 团队密钥加密用的本机主密钥
 ├── team-secrets/<team_id>.enc    # 各团队加密后的密钥包
 ├── history/<agent_id>.bin        # 本机事件历史（按 agent）
@@ -51,8 +52,9 @@
 
 | 路径 | 作用 | 通俗一句话 |
 |------|------|------------|
-| `bin/amuxd` | 桌面从 App sidecar 拷进来的 daemon 本体；LaunchAgent / systemd / 计划任务启动的就是它 | **真正在后台跑的小助手程序** |
-| `bin/teamclaw-introspect` | 随桌面一起装的 MCP sidecar，供 agent 探查本地工程等 | **小助手用的本地探查小工具** |
+| （包内 sidecar） | 桌面直接 spawn App bundle / `apps/desktop/binaries` 里的 `amuxd`，**不**再拷到 `bin/` | **真正在跑的小助手程序（跟桌面同生共死）** |
+| `bin/amuxd` | 【遗留】旧版拷贝；托管模式下可忽略 | **旧版残留程序** |
+| `bin/teamclaw-introspect` | 【遗留】旧版拷贝；现行 introspect 也是包内 sidecar | **旧版残留探查工具** |
 
 ---
 
@@ -80,7 +82,8 @@
 | `amuxd.http.port` | 本机 HTTP 控制面实际端口（常为 ephemeral） | **告诉桌面：小助手开在几号窗口** |
 | `amuxd.http.token` | 本机 HTTP root bearer（权限通常 `0600`） | **桌面敲本机 API 的通行证** |
 | `amuxd.cloud-token` | 周期性刷新的 cloud access JWT 文件；注入给长跑 agent（`TC_ACCESS_TOKEN_FILE`） | **给 AI 子进程随时刷新的云端临时工牌** |
-| `amuxd.out.log` / `amuxd.err.log` | LaunchAgent / systemd 重定向的标准输出/错误 | **小助手的工作日记（排障用）** |
+| `amuxd.managed.log` | 桌面托管 spawn 时重定向的 stdout/stderr（排障首选） | **小助手的现行工作日记** |
+| `amuxd.out.log` / `amuxd.err.log` | 【遗留】旧 LaunchAgent / systemd 重定向 | **旧版后台服务日记** |
 
 ---
 
@@ -127,7 +130,7 @@
 | 路径 | 说明 | 通俗一句话 |
 |------|------|------------|
 | `~/.opencode/bin/opencode` | 官方 OpenCode 二进制（由 `amuxd install-opencode` 安装） | **真正跑大模型对话的引擎，住在隔壁** |
-| macOS `~/Library/LaunchAgents/cc.ucar.amuxd.plist` | 用户级开机自启服务 | **让小助手开机自动上班的闹钟** |
+| macOS `~/Library/LaunchAgents/cc.ucar.amuxd.plist` | 【遗留】旧开机自启；托管模式启动时会卸载，若仍在则拒绝托管启动 | **旧版「开机自动上班」闹钟** |
 | Linux `~/.config/systemd/user/amuxd.service` | 同上 | 同上 |
 | Windows 计划任务 `amuxd` | 同上 | 同上 |
 | Legacy：`~/Library/Application Support/amux/`（或其它平台 `config_dir/amux/`） | 旧版配置目录；`DaemonConfig` 会把缺的文件迁回 `~/.amuxd`；`clear` 也会清这里的同名文件 | **旧房子里的户口本，不清干净会搬回来** |
@@ -141,7 +144,7 @@
 | 聊天列表、消息正文 | **一般在云端**，切回原团队还能从 Cloud API 拉回来 |
 | `sessions.toml` | 丢的是**本机 runtime ↔ opencode session 的通讯录**；接续上下文会变难，尤其若重新 onboard 成了**新 agent** |
 | `teams/<旧团队>/…` | **`clear` 默认不删**；团队共享文件还在磁盘上 |
-| `bin/amuxd` | **不删**；程序还在，只是身份文件被清 |
+| `bin/amuxd` | **不删**（若仍在也只是残留）；程序本体在 App sidecar |
 
 `amuxd clear` 明确删除的仅是：
 
@@ -161,4 +164,5 @@
 | 团队全局目录布局 | `apps/daemon/src/config/global_team_store.rs` |
 | 团队密钥布局 | `apps/daemon/src/sync/secret_store.rs` |
 | Runtime 会话索引 | `apps/daemon/src/config/session_store.rs` |
-| 桌面拷贝 sidecar → `bin/` | `apps/desktop/src/commands/setup.rs` |
+| 桌面托管 amuxd 生命周期 | `apps/desktop/src/commands/amuxd_supervisor.rs` |
+| 首次向导启动 managed amuxd | `apps/desktop/src/commands/setup.rs` |

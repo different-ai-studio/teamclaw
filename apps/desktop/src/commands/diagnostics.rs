@@ -25,7 +25,11 @@ pub struct LogTails {
 #[serde(rename_all = "camelCase")]
 pub struct LogTailsExpanded {
     pub app: Option<String>,
+    /// Desktop-managed amuxd stdout/stderr combined (`amuxd.managed.log`).
+    pub amuxd_managed: Option<String>,
+    /// Legacy LaunchAgent-era stdout (may be absent under managed mode).
     pub amuxd_out: Option<String>,
+    /// Legacy LaunchAgent-era stderr (may be absent under managed mode).
     pub amuxd_err: Option<String>,
     pub acp_stream: Option<String>,
 }
@@ -49,6 +53,10 @@ fn amuxd_out_log_path() -> Option<PathBuf> {
 
 fn amuxd_err_log_path() -> Option<PathBuf> {
     amuxd_dir().map(|d| d.join("amuxd.err.log"))
+}
+
+fn amuxd_managed_log_path() -> Option<PathBuf> {
+    amuxd_dir().map(|d| d.join("amuxd.managed.log"))
 }
 
 fn tail_file(path: &Path, max_lines: usize) -> Option<String> {
@@ -102,7 +110,15 @@ fn tail_app_logs<R: Runtime>(app: &AppHandle<R>, max_lines: usize) -> Option<Str
     }
 }
 
-fn merge_amuxd_logs(out: Option<String>, err: Option<String>) -> Option<String> {
+fn merge_amuxd_logs(
+    managed: Option<String>,
+    out: Option<String>,
+    err: Option<String>,
+) -> Option<String> {
+    // Prefer the desktop-managed diary; fall back to legacy LaunchAgent streams.
+    if managed.is_some() {
+        return managed;
+    }
     match (out, err) {
         (None, None) => None,
         (Some(o), None) => Some(o),
@@ -112,6 +128,11 @@ fn merge_amuxd_logs(out: Option<String>, err: Option<String>) -> Option<String> 
 }
 
 fn collect_log_tails_expanded<R: Runtime>(app: &AppHandle<R>, max_lines: usize) -> LogTailsExpanded {
+    let amuxd_managed = amuxd_managed_log_path()
+        .filter(|p| p.exists())
+        .and_then(|p| tail_file(&p, max_lines))
+        .map(|s| redact_log_text(&s));
+
     let amuxd_out = amuxd_out_log_path()
         .filter(|p| p.exists())
         .and_then(|p| tail_file(&p, max_lines))
@@ -133,6 +154,7 @@ fn collect_log_tails_expanded<R: Runtime>(app: &AppHandle<R>, max_lines: usize) 
 
     LogTailsExpanded {
         app: tail_app_logs(app, max_lines),
+        amuxd_managed,
         amuxd_out,
         amuxd_err,
         acp_stream,
@@ -142,7 +164,11 @@ fn collect_log_tails_expanded<R: Runtime>(app: &AppHandle<R>, max_lines: usize) 
 fn collect_log_tails<R: Runtime>(app: &AppHandle<R>) -> LogTails {
     let expanded = collect_log_tails_expanded(app, LOG_TAIL_LINES);
     LogTails {
-        amuxd: merge_amuxd_logs(expanded.amuxd_out.clone(), expanded.amuxd_err.clone()),
+        amuxd: merge_amuxd_logs(
+            expanded.amuxd_managed.clone(),
+            expanded.amuxd_out.clone(),
+            expanded.amuxd_err.clone(),
+        ),
         acp_stream: expanded.acp_stream,
     }
 }
@@ -312,6 +338,9 @@ pub fn build_diagnostic_zip<R: Runtime>(app: AppHandle<R>, report_json: String) 
     if let Some(amuxd) = log_tails.amuxd {
         write_zip_entry(&mut writer, "logs/amuxd.log", &amuxd)?;
     }
+    if let Some(managed) = expanded.amuxd_managed {
+        write_zip_entry(&mut writer, "logs/amuxd.managed.log", &managed)?;
+    }
     if let Some(out) = expanded.amuxd_out {
         write_zip_entry(&mut writer, "logs/amuxd.out.log", &out)?;
     }
@@ -351,8 +380,20 @@ mod tests {
     }
 
     #[test]
-    fn merge_amuxd_logs_combines_streams() {
+    fn merge_amuxd_logs_prefers_managed() {
         let merged = merge_amuxd_logs(
+            Some("managed diary".into()),
+            Some("stdout line".into()),
+            Some("stderr line".into()),
+        )
+        .unwrap();
+        assert_eq!(merged, "managed diary");
+    }
+
+    #[test]
+    fn merge_amuxd_logs_combines_legacy_streams() {
+        let merged = merge_amuxd_logs(
+            None,
             Some("stdout line".into()),
             Some("stderr line".into()),
         )
@@ -365,7 +406,9 @@ mod tests {
     fn amuxd_log_paths_use_amuxd_dir() {
         let out = amuxd_out_log_path().unwrap();
         let err = amuxd_err_log_path().unwrap();
+        let managed = amuxd_managed_log_path().unwrap();
         assert!(out.ends_with(".amuxd/amuxd.out.log"));
         assert!(err.ends_with(".amuxd/amuxd.err.log"));
+        assert!(managed.ends_with(".amuxd/amuxd.managed.log"));
     }
 }

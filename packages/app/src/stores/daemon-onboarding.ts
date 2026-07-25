@@ -230,7 +230,7 @@ export const useDaemonOnboardingStore = create<DaemonOnboardingState>((set, get)
         ? null
         : i18n.t(
             'settings.daemonOnboarding.startFailed',
-            'Failed to start the background service. Make sure it can run on this machine, then retry.',
+            'Failed to start the local daemon. Make sure it can run on this machine, then retry.',
           ),
     })
     if (ok) {
@@ -303,7 +303,7 @@ export const useDaemonOnboardingStore = create<DaemonOnboardingState>((set, get)
         set({
           error: i18n.t(
             'settings.daemonOnboarding.resetIncomplete',
-            'Reset did not take effect: this machine is still bound to team {{teamId}}. Check ~/.amuxd/amuxd.err.log.',
+            'Reset did not take effect: this machine is still bound to team {{teamId}}. Check ~/.amuxd/amuxd.managed.log.',
             { teamId: stillBound },
           ),
         })

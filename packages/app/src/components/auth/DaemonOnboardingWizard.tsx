@@ -98,7 +98,7 @@ export function DaemonOnboardingWizard({ onDone }: { onDone: () => void }) {
         title={t('settings.daemonOnboarding.startingTitle', 'Starting daemon…')}
         subtitle={t(
           'settings.daemonOnboarding.startingSubtitle',
-          "This machine's agent is bound; making sure the background service is running.",
+          "This machine's agent is bound; making sure the local daemon is running.",
         )}
       >
         <div className="flex items-center gap-2 py-2 text-[12.5px] text-muted-foreground">
@@ -115,7 +115,7 @@ export function DaemonOnboardingWizard({ onDone }: { onDone: () => void }) {
         title={t('settings.daemonOnboarding.errorTitle', "Can't start the local daemon")}
         subtitle={t(
           'settings.daemonOnboarding.errorSubtitle',
-          "This machine's agent is bound, but the background service failed to start.",
+          "This machine's agent is bound, but the local daemon failed to start.",
         )}
       >
         {error && <ErrorLine error={error} />}
