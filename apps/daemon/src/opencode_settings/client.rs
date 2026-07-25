@@ -24,14 +24,29 @@ pub struct OpenCodeSettingsClient {
     http: reqwest::Client,
     base_url: String,
     directory: String,
+    /// When set, send HTTP Basic (`opencode` / password) — required for the
+    /// global chat serve. Wiremock fixtures leave this `None`.
+    password: Option<String>,
 }
 
 impl OpenCodeSettingsClient {
+    /// Unauthenticated client (integration-test fixtures).
     pub fn new(base_url: String, workspace_path: &Path) -> Self {
         Self {
             http: reqwest::Client::new(),
             base_url: base_url.trim_end_matches('/').to_string(),
             directory: workspace_path.to_string_lossy().to_string(),
+            password: None,
+        }
+    }
+
+    /// Authenticated client against the global `opencode serve`.
+    pub fn with_auth(base_url: String, password: String, workspace_path: &Path) -> Self {
+        Self {
+            http: reqwest::Client::new(),
+            base_url: base_url.trim_end_matches('/').to_string(),
+            directory: workspace_path.to_string_lossy().to_string(),
+            password: Some(password),
         }
     }
 
@@ -97,9 +112,11 @@ impl OpenCodeSettingsClient {
     pub async fn remove_auth(&self, provider_id: &str) -> Result<(), OpenCodeSettingsError> {
         let path = format!("/auth/{}", provider_id);
         let url = self.url(&path);
-        let resp = self
-            .http
-            .delete(&url)
+        let mut req = self.http.delete(&url);
+        if let Some(password) = &self.password {
+            req = req.basic_auth("opencode", Some(password));
+        }
+        let resp = req
             .send()
             .await
             .map_err(|e| OpenCodeSettingsError::Http(e.to_string()))?;
@@ -175,9 +192,11 @@ impl OpenCodeSettingsClient {
 
     async fn get_json(&self, path: &str) -> Result<Value, OpenCodeSettingsError> {
         let url = self.url(path);
-        let resp = self
-            .http
-            .get(&url)
+        let mut req = self.http.get(&url);
+        if let Some(password) = &self.password {
+            req = req.basic_auth("opencode", Some(password));
+        }
+        let resp = req
             .send()
             .await
             .map_err(|e| OpenCodeSettingsError::Http(e.to_string()))?;
@@ -186,10 +205,11 @@ impl OpenCodeSettingsClient {
 
     async fn post_json(&self, path: &str, body: Value) -> Result<Value, OpenCodeSettingsError> {
         let url = self.url(path);
-        let resp = self
-            .http
-            .post(&url)
-            .json(&body)
+        let mut req = self.http.post(&url).json(&body);
+        if let Some(password) = &self.password {
+            req = req.basic_auth("opencode", Some(password));
+        }
+        let resp = req
             .send()
             .await
             .map_err(|e| OpenCodeSettingsError::Http(e.to_string()))?;

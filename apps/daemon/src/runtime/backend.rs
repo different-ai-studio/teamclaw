@@ -140,6 +140,15 @@ pub trait AgentBackend: Send {
         &mut self,
         workspace_path: &Path,
     ) -> crate::error::Result<Vec<amux::ModelInfo>>;
+
+    /// Shared handle to the global `opencode serve` supervisor, when this
+    /// backend is the HTTP opencode runtime. Used by settings/OAuth to avoid
+    /// spawning a second serve process. Default: none (e.g. pi).
+    fn opencode_serve_supervisor(
+        &self,
+    ) -> Option<std::sync::Arc<super::opencode_http::supervisor::ServeSupervisor>> {
+        None
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -230,6 +239,12 @@ impl AgentBackend for OpencodeHttpBackend {
         workspace_path: &Path,
     ) -> crate::error::Result<Vec<amux::ModelInfo>> {
         self.pool.model_catalog(workspace_path).await
+    }
+
+    fn opencode_serve_supervisor(
+        &self,
+    ) -> Option<std::sync::Arc<super::opencode_http::supervisor::ServeSupervisor>> {
+        Some(self.pool.serve_supervisor())
     }
 }
 

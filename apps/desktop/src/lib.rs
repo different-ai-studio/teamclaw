@@ -339,6 +339,7 @@ pub fn run() {
         .manage(commands::cron::CronState::default())
         .manage(rag_state)
         .manage(local_cache::commands::LocalCacheState::default())
+        .manage(commands::amuxd_supervisor::AmuxdSupervisor::new())
 
         .manage(teamclaw_stt::SttState::default())
         .manage({
@@ -431,6 +432,10 @@ pub fn run() {
             commands::daemon_onboarding::daemon_init,
             commands::daemon_onboarding::daemon_install_service,
             commands::daemon_onboarding::daemon_clear,
+            commands::amuxd_supervisor::daemon_ensure_running,
+            commands::amuxd_supervisor::daemon_restart_managed,
+            commands::amuxd_supervisor::daemon_stop_managed,
+            commands::amuxd_supervisor::daemon_supervisor_status,
             commands::setup::setup_list_requirements,
             commands::setup::setup_install,
             commands::setup::restart_local_daemon,
@@ -620,6 +625,20 @@ pub fn run() {
             // available) regardless of broker RTT; duplicates are dropped by the
             // webview's eventId dedup.
             commands::daemon_live::spawn(app.handle().clone());
+
+            // Desktop-managed amuxd: spawn bundled sidecar (no ~/.amuxd/bin copy,
+            // no LaunchAgent). Continues while the app stays in Dock; Exit stops it.
+            {
+                let app_handle = app.handle().clone();
+                tauri::async_runtime::spawn(async move {
+                    if let Err(e) =
+                        commands::amuxd_supervisor::AmuxdSupervisor::ensure_started(&app_handle)
+                            .await
+                    {
+                        eprintln!("[amuxd-supervisor] ensure_started failed: {e}");
+                    }
+                });
+            }
 
             // Team sync will be triggered from the frontend after workspace is set,
             // since workspace_path is not available at setup time.
@@ -858,6 +877,12 @@ pub fn run() {
                     });
                 }
                 tauri::RunEvent::Exit => {
+                    // Primary quit path on macOS (Cmd+Q often skips ExitRequested).
+                    if let Some(sup) =
+                        app.try_state::<commands::amuxd_supervisor::AmuxdSupervisor>()
+                    {
+                        sup.shutdown_blocking();
+                    }
                     // Fire-and-forget: enqueue the event but don't block on flush.
                     // The aptabase plugin's own Exit handler will attempt to flush,
                     // but we don't want to block exit for up to 10s on a network
@@ -867,6 +892,12 @@ pub fn run() {
                 tauri::RunEvent::ExitRequested { .. } => {
                     if let Some(registry) = app.try_state::<std::sync::Arc<crate::terminal::Registry>>() {
                         registry.kill_all();
+                    }
+                    // Same once-flag as Exit — second call is a no-op.
+                    if let Some(sup) =
+                        app.try_state::<commands::amuxd_supervisor::AmuxdSupervisor>()
+                    {
+                        sup.shutdown_blocking();
                     }
                 }
                 _ => {}

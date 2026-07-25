@@ -107,16 +107,15 @@ async function onboard(teamId: string, displayName: string, targetActorId: strin
   }
   const result = await invoke<{ actorId: string; teamId: string }>('daemon_init', { inviteUrl })
   // `daemon_init` already claimed the invite and wrote fresh credentials — the
-  // actor is onboarded to the team at this point. `install-service` only
-  // registers the launchd background service, which fails when the amuxd binary
-  // isn't deployed to ~/.amuxd/bin (e.g. a dev daemon run via `cargo run`/pnpm).
-  // Don't fail the whole onboard over it: that would trap the user in the wizard
-  // even though the team binding succeeded. The caller's refresh()/ensureHealthy
-  // verifies the running daemon and surfaces a real problem if it isn't healthy.
+  // actor is onboarded to the team at this point. Restart the desktop-managed
+  // amuxd so it reloads backend.toml. Failure here means credentials are on
+  // disk but the running daemon may still hold the old identity — treat as
+  // onboard failure.
   try {
-    await invoke('daemon_install_service')
+    await invoke('daemon_restart_managed')
   } catch (e) {
-    console.warn('[daemon-onboarding] install-service failed (non-fatal):', e)
+    console.warn('[daemon-onboarding] daemon_restart_managed failed; trying ensure_running:', e)
+    await invoke('daemon_ensure_running')
   }
   return result.actorId
 }
@@ -140,15 +139,17 @@ async function waitForDaemonCloudAuthOk(timeoutMs = 30_000): Promise<boolean> {
 async function ensureHealthy(): Promise<boolean> {
   let probe = await probeDaemonHttp()
   if (probe.ok) return true
-  // not_running / port_file_missing / token_invalid all recover the same way:
-  // (re)register + (re)start the service (install-service kickstarts an already-loaded
-  // job, so a stale token gets rewritten). Then poll — the daemon needs a moment to
-  // bind its port and write fresh ~/.amuxd/amuxd.http.{port,token}.
+  // Desktop-managed amuxd: restart the sidecar held by the desktop process
+  // (compat command `daemon_install_service` now maps to the same restart).
   const { invoke } = await import('@tauri-apps/api/core')
   try {
-    await invoke('daemon_install_service')
+    await invoke('daemon_ensure_running')
   } catch {
-    /* fall through to polling; surfacing the probe failure is more useful */
+    try {
+      await invoke('daemon_restart_managed')
+    } catch {
+      /* fall through to polling */
+    }
   }
   for (let i = 0; i < 12; i++) {
     await sleep(500)
@@ -362,8 +363,8 @@ export const useDaemonOnboardingStore = create<DaemonOnboardingState>((set, get)
         return
       }
       // Mint a re-invite for the SAME actor (rebind, no orphan), run `amuxd
-      // init` to write fresh credentials, then install-service kickstarts the
-      // running daemon (`launchctl kickstart -k`) so it reloads backend.toml.
+      // init` to write fresh credentials, then restart the desktop-managed
+      // amuxd so it reloads backend.toml.
       await onboard(teamId, owned.displayName, actorId)
       invalidateDaemonConnection()
       const authOk = await waitForDaemonCloudAuthOk()

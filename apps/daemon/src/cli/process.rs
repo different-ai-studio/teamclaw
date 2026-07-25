@@ -133,10 +133,46 @@ fn read_pidfile() -> anyhow::Result<Option<(i32, PathBuf)>> {
     Ok(Some((pid, path)))
 }
 
-/// libc::kill(pid, 0) — returns 0 if the process exists and we can signal it.
+/// True when the pid exists *and* is not a zombie.
+///
+/// `kill(pid, 0)` succeeds for zombies on macOS/Linux, which made `amuxd stop`
+/// spin until timeout after the daemon had already exited (parent still holding
+/// the Child handle). Treat zombies as not alive so stop returns immediately.
 #[cfg(unix)]
 fn is_alive(pid: i32) -> bool {
-    unsafe { libc::kill(pid, 0) == 0 }
+    if pid <= 0 {
+        return false;
+    }
+    if unsafe { libc::kill(pid, 0) } != 0 {
+        return false;
+    }
+    !is_zombie(pid)
+}
+
+#[cfg(unix)]
+fn is_zombie(pid: i32) -> bool {
+    // Linux: /proc/<pid>/stat state field.
+    if let Ok(stat) = fs::read_to_string(format!("/proc/{pid}/stat")) {
+        // Format: "pid (comm) STATE ..." — comm may contain spaces/parens.
+        if let Some(close) = stat.rfind(')') {
+            let rest = stat[close + 1..].trim_start();
+            return rest.starts_with('Z');
+        }
+    }
+    // macOS (and fallback): `ps -o state=` → "Z" / "Z+" etc.
+    let Ok(out) = std::process::Command::new("ps")
+        .args(["-p", &pid.to_string(), "-o", "state="])
+        .output()
+    else {
+        return false;
+    };
+    if !out.status.success() {
+        return false;
+    }
+    String::from_utf8_lossy(&out.stdout)
+        .chars()
+        .next()
+        .is_some_and(|c| c == 'Z')
 }
 
 /// OpenProcess + GetExitCodeProcess == STILL_ACTIVE. PROCESS_QUERY_LIMITED_INFORMATION
@@ -196,36 +232,289 @@ pub fn run_status() -> anyhow::Result<()> {
 }
 
 pub fn run_stop() -> anyhow::Result<()> {
-    let (pid, path) = match read_pidfile()? {
-        Some(x) => x,
+    match read_pidfile()? {
         None => {
             println!("amuxd: not running (no pidfile).");
+            finalize_stop();
             return Ok(());
         }
-    };
-
-    if !is_alive(pid) {
-        println!("amuxd: recorded pid {pid} is not alive; clearing stale pidfile.");
-        let _ = fs::remove_file(&path);
-        return Ok(());
-    }
-
-    request_graceful_stop(pid)?;
-
-    let deadline = Instant::now() + Duration::from_secs(5);
-    while Instant::now() < deadline {
-        if !is_alive(pid) {
+        Some((pid, path)) if !is_alive(pid) => {
+            println!("amuxd: recorded pid {pid} is not alive; clearing stale state.");
             let _ = fs::remove_file(&path);
-            println!("amuxd: stopped.");
+            finalize_stop();
             return Ok(());
+        }
+        Some((pid, _path)) => {
+            request_graceful_stop(pid)?;
+
+            // Keep this short: desktop Cmd+Q runs `amuxd stop` on the UI thread.
+            let deadline = Instant::now() + Duration::from_secs(3);
+            while Instant::now() < deadline {
+                if !is_alive(pid) {
+                    finalize_stop();
+                    println!("amuxd: stopped.");
+                    return Ok(());
+                }
+                std::thread::sleep(Duration::from_millis(50));
+            }
+
+            // Last resort: managed child trees first (their process groups),
+            // then the daemon itself (its own process group when it is leader).
+            println!(
+                "amuxd: still running after 3s; force-stopping managed trees then daemon…"
+            );
+            reap_managed_agent_trees();
+            force_stop_daemon(pid);
+            let force_deadline = Instant::now() + Duration::from_secs(1);
+            while Instant::now() < force_deadline && is_alive(pid) {
+                std::thread::sleep(Duration::from_millis(50));
+            }
+            finalize_stop();
+            if is_alive(pid) {
+                anyhow::bail!(
+                    "amuxd pid {pid} still alive after force stop; check process manually"
+                );
+            }
+            println!("amuxd: force-stopped.");
+            Ok(())
+        }
+    }
+}
+
+/// Remove pid / sock / http.port so the next `amuxd start` is not confused by
+/// stale discovery files. Does **not** remove `amuxd.lock` (flock target).
+pub fn cleanup_runtime_artifacts() {
+    let _ = fs::remove_file(DaemonConfig::pid_path());
+    #[cfg(unix)]
+    {
+        let _ = fs::remove_file(DaemonConfig::sock_path());
+    }
+    let _ = fs::remove_file(DaemonConfig::http_port_path());
+}
+
+/// Kill leftover `opencode serve` process group (and best-effort MCP) so a
+/// prior crashed/hard-killed daemon cannot block the next start.
+pub fn reap_managed_agent_trees() {
+    #[cfg(unix)]
+    {
+        reap_opencode_pgid_file();
+        reap_remote_tools_mcp_best_effort();
+    }
+    #[cfg(windows)]
+    {
+        reap_opencode_pid_file_windows();
+    }
+}
+
+fn finalize_stop() {
+    reap_managed_agent_trees();
+    cleanup_runtime_artifacts();
+}
+
+#[cfg(unix)]
+fn cmdline_of(pid: i32) -> Option<String> {
+    fs::read_to_string(format!("/proc/{pid}/cmdline"))
+        .ok()
+        .map(|s| s.replace('\0', " "))
+        .or_else(|| read_macos_cmdline(pid))
+}
+
+#[cfg(unix)]
+fn looks_like_opencode_serve(cmdline: &str) -> bool {
+    let lower = cmdline.to_ascii_lowercase();
+    lower.contains("opencode") && lower.contains("serve")
+}
+
+#[cfg(unix)]
+fn reap_opencode_pgid_file() {
+    let path = DaemonConfig::opencode_serve_pgid_path();
+    let Ok(body) = fs::read_to_string(&path) else {
+        return;
+    };
+    let Ok(pgid) = body.trim().parse::<i32>() else {
+        let _ = fs::remove_file(&path);
+        return;
+    };
+    if pgid <= 1 {
+        let _ = fs::remove_file(&path);
+        return;
+    }
+    // Identity check before signaling the whole group (PID/PGID reuse safety).
+    match cmdline_of(pgid) {
+        Some(cmd) if looks_like_opencode_serve(&cmd) => {}
+        Some(cmd) => {
+            println!(
+                "amuxd: refusing to reap pgid {pgid}: cmdline is not opencode serve ({cmd})"
+            );
+            let _ = fs::remove_file(&path);
+            return;
+        }
+        None if !is_alive(pgid) => {
+            let _ = fs::remove_file(&path);
+            return;
+        }
+        None => {
+            println!(
+                "amuxd: refusing to reap pgid {pgid}: cannot verify process identity"
+            );
+            let _ = fs::remove_file(&path);
+            return;
+        }
+    }
+    println!("amuxd: reaping opencode serve process group {pgid}…");
+    kill_process_group(pgid, libc::SIGTERM);
+    let deadline = Instant::now() + Duration::from_secs(2);
+    while Instant::now() < deadline && process_group_alive(pgid) {
+        std::thread::sleep(Duration::from_millis(50));
+    }
+    if process_group_alive(pgid) {
+        // Re-check identity before SIGKILL.
+        if cmdline_of(pgid)
+            .as_deref()
+            .is_some_and(looks_like_opencode_serve)
+            || !is_alive(pgid)
+        {
+            kill_process_group(pgid, libc::SIGKILL);
+        }
+    }
+    let _ = fs::remove_file(&path);
+}
+
+/// MCP children that escaped the serve PG still hold our sock path in argv.
+#[cfg(unix)]
+fn reap_remote_tools_mcp_best_effort() {
+    let sock = DaemonConfig::sock_path();
+    let sock_s = sock.to_string_lossy();
+    let Ok(output) = std::process::Command::new("pgrep")
+        .args(["-f", "remote-tools-mcp"])
+        .output()
+    else {
+        return;
+    };
+    if !output.status.success() {
+        return;
+    }
+    for line in String::from_utf8_lossy(&output.stdout).lines() {
+        let Ok(pid) = line.trim().parse::<i32>() else {
+            continue;
+        };
+        if pid <= 1 || !is_alive(pid) {
+            continue;
+        }
+        let Some(cmdline) = cmdline_of(pid) else {
+            continue;
+        };
+        let lower = cmdline.to_ascii_lowercase();
+        // Require both the MCP subcommand and our sock — avoid killing unrelated MCP.
+        if !lower.contains("remote-tools-mcp") || !cmdline.contains(sock_s.as_ref()) {
+            continue;
+        }
+        if !(lower.contains("amuxd") || lower.contains("teamclaw")) {
+            continue;
+        }
+        println!("amuxd: reaping leftover remote-tools-mcp pid {pid}…");
+        unsafe {
+            let _ = libc::kill(pid, libc::SIGTERM);
         }
         std::thread::sleep(Duration::from_millis(100));
+        if is_alive(pid) {
+            unsafe {
+                let _ = libc::kill(pid, libc::SIGKILL);
+            }
+        }
     }
+}
 
-    println!("amuxd: still running after 5s; killing.");
-    force_kill(pid);
+#[cfg(unix)]
+fn read_macos_cmdline(pid: i32) -> Option<String> {
+    let output = std::process::Command::new("ps")
+        .args(["-p", &pid.to_string(), "-o", "command="])
+        .output()
+        .ok()?;
+    if !output.status.success() {
+        return None;
+    }
+    Some(String::from_utf8_lossy(&output.stdout).into_owned())
+}
+
+#[cfg(windows)]
+fn reap_opencode_pid_file_windows() {
+    let path = DaemonConfig::opencode_serve_pgid_path();
+    let Ok(body) = fs::read_to_string(&path) else {
+        return;
+    };
+    let Ok(pid) = body.trim().parse::<i32>() else {
+        let _ = fs::remove_file(&path);
+        return;
+    };
+    if pid <= 0 || !is_alive(pid) {
+        let _ = fs::remove_file(&path);
+        return;
+    }
+    // Verify image name looks like opencode before taskkill /T.
+    let verified = std::process::Command::new("tasklist")
+        .args(["/FI", &format!("PID eq {pid}"), "/FO", "CSV", "/NH"])
+        .output()
+        .ok()
+        .and_then(|o| {
+            let s = String::from_utf8_lossy(&o.stdout).to_ascii_lowercase();
+            if s.contains("opencode") {
+                Some(())
+            } else {
+                None
+            }
+        });
+    if verified.is_none() {
+        println!("amuxd: refusing to taskkill pid {pid}: not an opencode process");
+        let _ = fs::remove_file(&path);
+        return;
+    }
+    println!("amuxd: taskkill /T opencode tree pid {pid}…");
+    let _ = std::process::Command::new("taskkill")
+        .args(["/PID", &pid.to_string(), "/T", "/F"])
+        .status();
     let _ = fs::remove_file(&path);
-    Ok(())
+}
+
+#[cfg(unix)]
+fn kill_process_group(pgid: i32, sig: i32) {
+    if pgid <= 1 {
+        return;
+    }
+    unsafe {
+        let _ = libc::kill(-pgid, sig);
+    }
+}
+
+#[cfg(unix)]
+fn process_group_alive(pgid: i32) -> bool {
+    // kill(-pgid, 0) succeeds if any member of the group is alive.
+    if pgid <= 1 {
+        return false;
+    }
+    unsafe { libc::kill(-pgid, 0) == 0 }
+}
+
+#[cfg(unix)]
+fn force_stop_daemon(pid: i32) {
+    unsafe {
+        let pgid = libc::getpgid(pid);
+        // Only group-kill when the daemon is its own process-group leader
+        // (desktop-managed spawn sets this). Otherwise kill the pid alone —
+        // never signal a shared shell/session group.
+        if pgid == pid {
+            println!("amuxd: SIGKILL process group {pgid}…");
+            let _ = libc::kill(-pid, libc::SIGKILL);
+        }
+        let _ = libc::kill(pid, libc::SIGKILL);
+    }
+}
+
+#[cfg(windows)]
+fn force_stop_daemon(pid: i32) {
+    let _ = std::process::Command::new("taskkill")
+        .args(["/PID", &pid.to_string(), "/T", "/F"])
+        .status();
 }
 
 #[cfg(unix)]
@@ -239,29 +528,15 @@ fn request_graceful_stop(pid: i32) -> anyhow::Result<()> {
 }
 
 /// Windows has no SIGTERM. Ask the daemon to exit via its own control
-/// command (handled as SockCommand::Shutdown in the main loop); if the pipe
-/// is gone the force-kill fallback below still applies after the wait loop.
+/// command (handled as SockCommand::Shutdown in the main loop).
 #[cfg(windows)]
 fn request_graceful_stop(pid: i32) -> anyhow::Result<()> {
-    println!("amuxd: sending shutdown command to pid {pid}…");
+    let _ = pid;
+    println!("amuxd: sending shutdown command…");
     if let Err(e) = send_control(&DaemonConfig::sock_path(), "shutdown") {
-        println!("amuxd: control pipe unavailable ({e}); will force-kill.");
+        anyhow::bail!("control pipe unavailable ({e})");
     }
     Ok(())
-}
-
-#[cfg(unix)]
-fn force_kill(pid: i32) {
-    unsafe {
-        libc::kill(pid, libc::SIGKILL);
-    }
-}
-
-#[cfg(windows)]
-fn force_kill(pid: i32) {
-    let _ = std::process::Command::new("taskkill")
-        .args(["/PID", &pid.to_string(), "/F"])
-        .status();
 }
 
 #[cfg(test)]

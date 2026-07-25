@@ -543,6 +543,13 @@ impl DaemonConfig {
     pub fn http_port_path() -> PathBuf {
         Self::config_dir().join("amuxd.http.port")
     }
+
+    /// Process-group id of the managed `opencode serve` tree (Unix). Written
+    /// while serve is live so `amuxd stop` can reap the group even if the
+    /// daemon was hard-killed mid-shutdown.
+    pub fn opencode_serve_pgid_path() -> PathBuf {
+        Self::config_dir().join("opencode.serve.pgid")
+    }
 }
 
 #[cfg(test)]

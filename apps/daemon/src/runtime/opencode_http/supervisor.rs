@@ -16,8 +16,13 @@ use tracing::{info, warn};
 
 use super::client::ServeClient;
 
+#[cfg(unix)]
+use std::os::unix::process::CommandExt;
+
 const HEALTH_TIMEOUT: Duration = Duration::from_secs(20);
 const HEALTH_TICK: Duration = Duration::from_millis(200);
+/// Wait for `opencode serve` (+ MCP children in its process group) after SIGTERM.
+const STOP_GRACE: Duration = Duration::from_millis(500);
 
 struct ServeInstance {
     child: tokio::process::Child,
@@ -91,6 +96,7 @@ impl ServeSupervisor {
                 Ok(None) => true,
                 _ => {
                     *guard = None;
+                    clear_opencode_pgid();
                     false
                 }
             },
@@ -98,14 +104,15 @@ impl ServeSupervisor {
         }
     }
 
-    /// Kill the current serve process (next `ensure()` respawns). Used after
-    /// provider auth/config changes. Returns true when a process was running.
+    /// Kill the current serve process group (serve + MCP children). Next
+    /// `ensure()` respawns. Used on daemon stop and after provider auth/config
+    /// changes. Returns true when a process was running.
     pub fn shutdown(&self) -> bool {
         let taken = self.state.lock().take();
         match taken {
             Some(mut inst) => {
-                let _ = inst.child.start_kill();
-                info!("opencode serve process shut down");
+                kill_serve_tree(&mut inst.child);
+                info!("opencode serve process group shut down");
                 true
             }
             None => false,
@@ -132,6 +139,7 @@ impl ServeSupervisor {
             other => {
                 warn!(exit = ?other, "opencode serve process is gone; will respawn");
                 *guard = None;
+                clear_opencode_pgid();
                 None
             }
         }
@@ -169,11 +177,20 @@ impl ServeSupervisor {
             .stdout(std::process::Stdio::piped())
             .stderr(std::process::Stdio::piped())
             .kill_on_drop(true);
+        // Own process group so shutdown can SIGTERM/SIGKILL the whole tree
+        // (serve + MCP children like remote-tools-mcp), not just the leader.
+        #[cfg(unix)]
+        {
+            cmd.process_group(0);
+        }
 
         info!(binary = %binary, port, "spawning global opencode serve");
         let mut child = cmd.spawn().map_err(|e| {
             crate::error::AmuxError::Agent(format!("spawn opencode serve ({binary}): {e}"))
         })?;
+        if let Some(pid) = child.id() {
+            write_opencode_pgid(pid);
+        }
 
         if let Some(stdout) = child.stdout.take() {
             tokio::spawn(async move {
@@ -199,12 +216,13 @@ impl ServeSupervisor {
                 break;
             }
             if let Ok(Some(status)) = child.try_wait() {
+                clear_opencode_pgid();
                 return Err(crate::error::AmuxError::Agent(format!(
                     "opencode serve exited during startup: {status}"
                 )));
             }
             if started.elapsed() > HEALTH_TIMEOUT {
-                let _ = child.start_kill();
+                kill_serve_tree(&mut child);
                 return Err(crate::error::AmuxError::Agent(
                     "opencode serve health check timed out".into(),
                 ));
@@ -219,6 +237,60 @@ impl ServeSupervisor {
         });
         Ok(client)
     }
+}
+
+/// SIGTERM the serve process group, wait briefly, then SIGKILL the group.
+/// Children (MCP servers) inherit the group from `setpgid(0,0)` at spawn.
+fn kill_serve_tree(child: &mut tokio::process::Child) {
+    #[cfg(unix)]
+    {
+        if let Some(pid) = child.id() {
+            let pgid = pid as i32;
+            unsafe {
+                let _ = libc::kill(-pgid, libc::SIGTERM);
+            }
+            let deadline = Instant::now() + STOP_GRACE;
+            loop {
+                match child.try_wait() {
+                    Ok(Some(_)) => {
+                        clear_opencode_pgid();
+                        return;
+                    }
+                    Ok(None) if Instant::now() < deadline => {
+                        std::thread::sleep(Duration::from_millis(50));
+                    }
+                    _ => break,
+                }
+            }
+            unsafe {
+                let _ = libc::kill(-pgid, libc::SIGKILL);
+            }
+        }
+        let _ = child.start_kill();
+        let _ = child.try_wait();
+        clear_opencode_pgid();
+    }
+    #[cfg(not(unix))]
+    {
+        let _ = child.start_kill();
+        let _ = child.try_wait();
+        clear_opencode_pgid();
+    }
+}
+
+fn write_opencode_pgid(pid: u32) {
+    let path = crate::config::DaemonConfig::opencode_serve_pgid_path();
+    if let Some(parent) = path.parent() {
+        let _ = std::fs::create_dir_all(parent);
+    }
+    if let Err(e) = std::fs::write(&path, pid.to_string()) {
+        warn!(error = %e, path = %path.display(), "failed to write opencode serve pgid");
+    }
+}
+
+fn clear_opencode_pgid() {
+    let path = crate::config::DaemonConfig::opencode_serve_pgid_path();
+    let _ = std::fs::remove_file(path);
 }
 
 impl Default for ServeSupervisor {

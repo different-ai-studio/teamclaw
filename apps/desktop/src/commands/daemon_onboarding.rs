@@ -102,42 +102,20 @@ async fn run_amuxd<R: Runtime>(app: &AppHandle<R>, args: &[&str]) -> Result<(), 
 }
 
 /// Register amuxd as a user-level background service and start it.
+///
+/// **Deprecated path:** desktop-managed mode no longer registers LaunchAgent /
+/// systemd. This command now restarts the desktop-managed sidecar so onboard /
+/// heal keep working without a service.
 #[tauri::command]
 pub async fn daemon_install_service<R: Runtime>(app: AppHandle<R>) -> Result<(), String> {
-    if run_amuxd(&app, &["install-service"]).await.is_ok() {
-        return Ok(());
-    }
-    #[cfg(windows)]
-    {
-        return start_installed_amuxd_detached(&app).await;
-    }
-    #[cfg(not(windows))]
-    run_amuxd(&app, &["install-service"]).await
-}
-
-#[cfg(windows)]
-async fn start_installed_amuxd_detached<R: Runtime>(app: &AppHandle<R>) -> Result<(), String> {
-    use std::os::windows::process::CommandExt;
-    use tauri::Manager;
-
-    let home = app.path().home_dir().map_err(|e| e.to_string())?;
-    let exe = home.join(".amuxd").join("bin").join("amuxd.exe");
-    if !exe.exists() {
-        return Err(format!("amuxd binary not found at {}", exe.display()));
-    }
-    const CREATE_NO_WINDOW: u32 = 0x0800_0000;
-    const DETACHED_PROCESS: u32 = 0x0000_0008;
-    std::process::Command::new(&exe)
-        .arg("start")
-        .creation_flags(CREATE_NO_WINDOW | DETACHED_PROCESS)
-        .spawn()
-        .map_err(|e| format!("spawn amuxd start: {e}"))?;
-    Ok(())
+    crate::commands::amuxd_supervisor::AmuxdSupervisor::restart(&app).await
 }
 
 /// Wipe local daemon state (daemon.toml/backend.toml/etc) for a clean re-onboard.
+/// Stops the managed amuxd first so `clear` can take the lock.
 #[tauri::command]
 pub async fn daemon_clear<R: Runtime>(app: AppHandle<R>) -> Result<(), String> {
+    crate::commands::amuxd_supervisor::AmuxdSupervisor::shutdown(&app).await;
     run_amuxd(&app, &["clear", "--force"]).await
 }
 

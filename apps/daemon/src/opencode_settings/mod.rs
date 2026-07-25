@@ -1,8 +1,9 @@
-//! In-daemon OpenCode **settings** HTTP surface (`opencode serve`).
+//! In-daemon OpenCode **settings** HTTP surface.
 //!
-//! Chat/session traffic uses the ACP runtime; provider OAuth and auth-method
-//! discovery use a short-lived loopback `opencode serve` per workspace. OpenCode
-//! data (OAuth, DB, cache) is shared globally under the user's default paths.
+//! Provider OAuth and auth-method discovery call the **same** global
+//! `opencode serve` used for chat sessions (`?directory=<workspace>`), not a
+//! second per-workspace process. OpenCode data (OAuth, DB, cache) lives under
+//! the user's default paths.
 
 mod client;
 mod pool;
@@ -121,9 +122,7 @@ impl OpenCodeSettingsService {
         let client = self.client_for_workspace(workspace).await?;
         client
             .oauth_callback(provider_id, method_index, code)
-            .await?;
-        self.drop_workspace_instance(workspace).await;
-        Ok(())
+            .await
     }
 
     pub async fn provider_catalog(
