@@ -260,9 +260,7 @@ pub fn run_stop() -> anyhow::Result<()> {
 
             // Last resort: managed child trees first (their process groups),
             // then the daemon itself (its own process group when it is leader).
-            println!(
-                "amuxd: still running after 3s; force-stopping managed trees then daemon…"
-            );
+            println!("amuxd: still running after 3s; force-stopping managed trees then daemon…");
             reap_managed_agent_trees();
             force_stop_daemon(pid);
             let force_deadline = Instant::now() + Duration::from_secs(1);
@@ -368,9 +366,7 @@ fn reap_opencode_pgid_file() {
     match cmdline_of(pgid) {
         Some(cmd) if looks_like_opencode_serve(&cmd) => {}
         Some(cmd) => {
-            println!(
-                "amuxd: refusing to reap pgid {pgid}: cmdline is not opencode serve ({cmd})"
-            );
+            println!("amuxd: refusing to reap pgid {pgid}: cmdline is not opencode serve ({cmd})");
             let _ = fs::remove_file(&path);
             return;
         }
@@ -385,9 +381,7 @@ fn reap_opencode_pgid_file() {
             println!("amuxd: opencode serve leader {pgid} is gone but group members remain");
         }
         None => {
-            println!(
-                "amuxd: refusing to reap pgid {pgid}: cannot verify process identity"
-            );
+            println!("amuxd: refusing to reap pgid {pgid}: cannot verify process identity");
             let _ = fs::remove_file(&path);
             return;
         }

@@ -458,32 +458,31 @@ pub fn doctor() -> DoctorReport {
     let amuxd_path = crate::config::DaemonConfig::config_dir()
         .join("bin")
         .join(if cfg!(windows) { "amuxd.exe" } else { "amuxd" });
-    let (amuxd_present, installed_version, path, amuxd_satisfied) =
-        if let Some(ref p) = self_exe {
-            (
-                true,
-                Some(bundled_version.clone()),
-                Some(p.to_string_lossy().to_string()),
-                true,
-            )
+    let (amuxd_present, installed_version, path, amuxd_satisfied) = if let Some(ref p) = self_exe {
+        (
+            true,
+            Some(bundled_version.clone()),
+            Some(p.to_string_lossy().to_string()),
+            true,
+        )
+    } else {
+        let present = amuxd_path.exists();
+        let installed = if present {
+            amuxd_installed_version(&amuxd_path)
         } else {
-            let present = amuxd_path.exists();
-            let installed = if present {
-                amuxd_installed_version(&amuxd_path)
-            } else {
-                None
-            };
-            let satisfied = installed
-                .as_deref()
-                .map(|v| version_ge(v, &bundled_version))
-                .unwrap_or(false);
-            (
-                present,
-                installed,
-                present.then(|| amuxd_path.to_string_lossy().to_string()),
-                satisfied,
-            )
+            None
         };
+        let satisfied = installed
+            .as_deref()
+            .map(|v| version_ge(v, &bundled_version))
+            .unwrap_or(false);
+        (
+            present,
+            installed,
+            present.then(|| amuxd_path.to_string_lossy().to_string()),
+            satisfied,
+        )
+    };
     let amuxd = AmuxdStatus {
         present: amuxd_present,
         installed_version,

@@ -1,5 +1,5 @@
-use crate::mqtt::{ClientConfig, MqttBus, MqttClient};
 use crate::mqtt::client::{probe_broker, MqttProbeResult};
+use crate::mqtt::{ClientConfig, MqttBus, MqttClient};
 use rumqttc::QoS;
 use serde::{Deserialize, Serialize};
 use std::time::Duration;

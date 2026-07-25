@@ -628,9 +628,7 @@ impl AmuxdSupervisor {
                 return;
             }
             if std::time::Instant::now() >= deadline {
-                eprintln!(
-                    "[amuxd-supervisor] lifecycle lock busy on exit; stopping without lock"
-                );
+                eprintln!("[amuxd-supervisor] lifecycle lock busy on exit; stopping without lock");
                 stop_without_lock();
                 return;
             }
@@ -656,10 +654,10 @@ async fn run_signal_shutdown_loop<R: Runtime>(app: AppHandle<R>) -> Result<(), S
     #[cfg(unix)]
     {
         use tokio::signal::unix::{signal, SignalKind};
-        let mut sigint = signal(SignalKind::interrupt())
-            .map_err(|e| format!("listen SIGINT: {e}"))?;
-        let mut sigterm = signal(SignalKind::terminate())
-            .map_err(|e| format!("listen SIGTERM: {e}"))?;
+        let mut sigint =
+            signal(SignalKind::interrupt()).map_err(|e| format!("listen SIGINT: {e}"))?;
+        let mut sigterm =
+            signal(SignalKind::terminate()).map_err(|e| format!("listen SIGTERM: {e}"))?;
         let mut saw_first = false;
         loop {
             tokio::select! {
@@ -671,9 +669,7 @@ async fn run_signal_shutdown_loop<R: Runtime>(app: AppHandle<R>) -> Result<(), S
                 std::process::exit(1);
             }
             saw_first = true;
-            eprintln!(
-                "[amuxd-supervisor] terminate signal received; stopping amuxd via app.exit"
-            );
+            eprintln!("[amuxd-supervisor] terminate signal received; stopping amuxd via app.exit");
             // Normal Tauri exit → RunEvent::Exit → shutdown_blocking.
             app.exit(0);
         }
@@ -690,9 +686,7 @@ async fn run_signal_shutdown_loop<R: Runtime>(app: AppHandle<R>) -> Result<(), S
                 std::process::exit(1);
             }
             saw_first = true;
-            eprintln!(
-                "[amuxd-supervisor] Ctrl+C received; stopping amuxd via app.exit"
-            );
+            eprintln!("[amuxd-supervisor] Ctrl+C received; stopping amuxd via app.exit");
             app.exit(0);
         }
     }

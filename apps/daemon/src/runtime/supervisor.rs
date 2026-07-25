@@ -770,7 +770,10 @@ impl RuntimeSupervisor {
         let agent_type = manager.default_agent_type();
         let launch = manager.launch_config_for(agent_type);
         if !binary_available(&launch) {
-            return Err(format!("{} binary not available", backend_label(agent_type)));
+            return Err(format!(
+                "{} binary not available",
+                backend_label(agent_type)
+            ));
         }
         manager
             .probe_catalog_models(workspace_path)

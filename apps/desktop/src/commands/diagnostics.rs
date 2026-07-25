@@ -10,7 +10,7 @@ use zip::write::SimpleFileOptions;
 use zip::ZipWriter;
 
 use super::env_vars::TeamEnvDiagnostics;
-use super::setup::{read_doctor, RequirementStatus, setup_list_requirements};
+use super::setup::{read_doctor, setup_list_requirements, RequirementStatus};
 
 const LOG_TAIL_LINES: usize = 500;
 
@@ -72,9 +72,8 @@ fn redact_log_text(input: &str) -> String {
     static RE_SK: std::sync::OnceLock<Regex> = std::sync::OnceLock::new();
 
     let bearer = RE_BEARER.get_or_init(|| Regex::new(r"(?i)(Bearer\s+)\S+").unwrap());
-    let jwt = RE_JWT.get_or_init(|| {
-        Regex::new(r"\b[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\b").unwrap()
-    });
+    let jwt = RE_JWT
+        .get_or_init(|| Regex::new(r"\b[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\b").unwrap());
     let sk = RE_SK.get_or_init(|| Regex::new(r"\bsk-[A-Za-z0-9_-]{8,}\b").unwrap());
 
     let mut out = bearer.replace_all(input, "${1}[redacted]").into_owned();
@@ -127,7 +126,10 @@ fn merge_amuxd_logs(
     }
 }
 
-fn collect_log_tails_expanded<R: Runtime>(app: &AppHandle<R>, max_lines: usize) -> LogTailsExpanded {
+fn collect_log_tails_expanded<R: Runtime>(
+    app: &AppHandle<R>,
+    max_lines: usize,
+) -> LogTailsExpanded {
     let amuxd_managed = amuxd_managed_log_path()
         .filter(|p| p.exists())
         .and_then(|p| tail_file(&p, max_lines))
@@ -173,10 +175,7 @@ fn collect_log_tails<R: Runtime>(app: &AppHandle<R>) -> LogTails {
     }
 }
 
-fn gather_team_env_diagnostics(
-    workspace_path: &str,
-    team_id: Option<&str>,
-) -> TeamEnvDiagnostics {
+fn gather_team_env_diagnostics(workspace_path: &str, team_id: Option<&str>) -> TeamEnvDiagnostics {
     let team_id_trimmed = team_id
         .map(str::trim)
         .filter(|s| !s.is_empty())
@@ -300,7 +299,10 @@ fn write_zip_entry(
 }
 
 #[tauri::command]
-pub fn build_diagnostic_zip<R: Runtime>(app: AppHandle<R>, report_json: String) -> Result<Vec<u8>, String> {
+pub fn build_diagnostic_zip<R: Runtime>(
+    app: AppHandle<R>,
+    report_json: String,
+) -> Result<Vec<u8>, String> {
     let log_tails = collect_log_tails(&app);
     let expanded = collect_log_tails_expanded(&app, LOG_TAIL_LINES);
     let version = app.package_info().version.to_string();
@@ -321,13 +323,12 @@ pub fn build_diagnostic_zip<R: Runtime>(app: AppHandle<R>, report_json: String) 
 
     if let Ok(report) = serde_json::from_str::<serde_json::Value>(&report_json) {
         if let Some(console) = report.pointer("/details/consoleTail") {
-            let text = serde_json::to_string_pretty(console)
-                .unwrap_or_else(|_| console.to_string());
+            let text =
+                serde_json::to_string_pretty(console).unwrap_or_else(|_| console.to_string());
             write_zip_entry(&mut writer, "logs/console.json", &text)?;
         }
         if let Some(state) = report.pointer("/details/runtimeState") {
-            let text = serde_json::to_string_pretty(state)
-                .unwrap_or_else(|_| state.to_string());
+            let text = serde_json::to_string_pretty(state).unwrap_or_else(|_| state.to_string());
             write_zip_entry(&mut writer, "state/runtime-snapshot.json", &text)?;
         }
     }
@@ -351,9 +352,7 @@ pub fn build_diagnostic_zip<R: Runtime>(app: AppHandle<R>, report_json: String) 
         write_zip_entry(&mut writer, "logs/acp-stream.log", &acp)?;
     }
 
-    let finished = writer
-        .finish()
-        .map_err(|e| format!("zip finish: {e}"))?;
+    let finished = writer.finish().map_err(|e| format!("zip finish: {e}"))?;
     Ok(finished.into_inner())
 }
 
@@ -392,12 +391,8 @@ mod tests {
 
     #[test]
     fn merge_amuxd_logs_combines_legacy_streams() {
-        let merged = merge_amuxd_logs(
-            None,
-            Some("stdout line".into()),
-            Some("stderr line".into()),
-        )
-        .unwrap();
+        let merged =
+            merge_amuxd_logs(None, Some("stdout line".into()), Some("stderr line".into())).unwrap();
         assert!(merged.contains("stdout line"));
         assert!(merged.contains("stderr line"));
     }

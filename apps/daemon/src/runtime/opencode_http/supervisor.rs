@@ -183,7 +183,9 @@ impl ServeSupervisor {
 
         // If a prior kill_serve_tree left survivors (and kept the pgid file),
         // reap that group before we overwrite the file with the new leader.
-        crate::cli::process::reap_managed_agent_trees();
+        // Local helper — must not call `crate::cli` (integration tests compile
+        // runtime without the cli module).
+        reap_kept_opencode_pgid_before_spawn();
 
         info!(binary = %binary, port, "spawning global opencode serve");
         let mut child = cmd.spawn().map_err(|e| {
@@ -245,7 +247,7 @@ impl ServeSupervisor {
 ///
 /// The pgid file is only removed once the *whole group* is confirmed dead —
 /// a reaped leader with surviving MCP children must keep the file so
-/// `amuxd stop` or the next `spawn()` (`reap_managed_agent_trees`) can
+/// `amuxd stop` or the next `spawn()` (`reap_kept_opencode_pgid_before_spawn`) can
 /// still find them.
 fn kill_serve_tree(child: &mut tokio::process::Child) {
     #[cfg(unix)]
@@ -286,7 +288,10 @@ fn kill_serve_tree(child: &mut tokio::process::Child) {
             }
             if process_group_alive(pgid) {
                 // Keep the pgid file: `amuxd stop` / next start can still reap.
-                warn!(pgid, "opencode serve group survived SIGKILL; keeping pgid file");
+                warn!(
+                    pgid,
+                    "opencode serve group survived SIGKILL; keeping pgid file"
+                );
             } else {
                 clear_opencode_pgid();
             }
@@ -314,6 +319,64 @@ fn kill_serve_tree(child: &mut tokio::process::Child) {
     {
         let _ = child.start_kill();
         let _ = child.try_wait();
+        clear_opencode_pgid();
+    }
+}
+
+/// Reap a process group recorded in the pgid file before writing a new one.
+/// Kept intentionally inside this module so integration tests (which compile
+/// `runtime` without `cli`) still build.
+fn reap_kept_opencode_pgid_before_spawn() {
+    #[cfg(unix)]
+    {
+        let path = crate::config::DaemonConfig::opencode_serve_pgid_path();
+        let Ok(body) = std::fs::read_to_string(&path) else {
+            return;
+        };
+        let Ok(pgid) = body.trim().parse::<i32>() else {
+            let _ = std::fs::remove_file(&path);
+            return;
+        };
+        if pgid <= 1 {
+            let _ = std::fs::remove_file(&path);
+            return;
+        }
+        if process_group_alive(pgid) {
+            warn!(pgid, "reaping leftover opencode serve group before respawn");
+            unsafe {
+                let _ = libc::kill(-pgid, libc::SIGTERM);
+            }
+            let deadline = Instant::now() + Duration::from_millis(500);
+            while Instant::now() < deadline && process_group_alive(pgid) {
+                std::thread::sleep(Duration::from_millis(50));
+            }
+            if process_group_alive(pgid) {
+                unsafe {
+                    let _ = libc::kill(-pgid, libc::SIGKILL);
+                }
+                let kill_deadline = Instant::now() + Duration::from_millis(300);
+                while Instant::now() < kill_deadline && process_group_alive(pgid) {
+                    std::thread::sleep(Duration::from_millis(50));
+                }
+            }
+        }
+        clear_opencode_pgid();
+    }
+    #[cfg(windows)]
+    {
+        let path = crate::config::DaemonConfig::opencode_serve_pgid_path();
+        let Ok(body) = std::fs::read_to_string(&path) else {
+            return;
+        };
+        let Ok(pid) = body.trim().parse::<u32>() else {
+            let _ = std::fs::remove_file(&path);
+            return;
+        };
+        if pid > 0 {
+            let _ = std::process::Command::new("taskkill")
+                .args(["/PID", &pid.to_string(), "/T", "/F"])
+                .output();
+        }
         clear_opencode_pgid();
     }
 }
