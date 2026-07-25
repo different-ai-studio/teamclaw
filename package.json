@@ -13,6 +13,7 @@
     "preview": "pnpm --filter @teamclaw/app preview",
     "tauri": "node scripts/tauri-cli.js",
     "tauri:dev": "node scripts/update-tauri-config.js && node scripts/tauri-cli.js dev",
+    "tauri:dev:daemon": "node scripts/update-tauri-config.js && node scripts/tauri-cli.js dev --force-amuxd",
     "tauri:build": "node scripts/update-tauri-config.js && node scripts/tauri-cli.js build",
     "tauri:build:debug": "node scripts/update-tauri-config.js && node scripts/tauri-cli.js build --debug",
     "tauri:deeplink:clean": "node scripts/deeplink-dev.mjs clean",

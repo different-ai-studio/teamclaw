@@ -325,6 +325,31 @@ fn looks_like_opencode_serve(cmdline: &str) -> bool {
     lower.contains("opencode") && lower.contains("serve")
 }
 
+/// True when any live member of `pgid` has a cmdline that looks like part of
+/// the managed opencode serve tree (the serve leader or an MCP child it
+/// spawned). Guards group-kill against PGID reuse when the leader is gone.
+#[cfg(unix)]
+fn group_has_managed_member(pgid: i32) -> bool {
+    let Ok(out) = std::process::Command::new("pgrep")
+        .args(["-g", &pgid.to_string()])
+        .output()
+    else {
+        return false;
+    };
+    if !out.status.success() {
+        return false;
+    }
+    String::from_utf8_lossy(&out.stdout)
+        .lines()
+        .filter_map(|l| l.trim().parse::<i32>().ok())
+        .any(|pid| {
+            cmdline_of(pid).is_some_and(|cmd| {
+                let lower = cmd.to_ascii_lowercase();
+                looks_like_opencode_serve(&cmd) || lower.contains("remote-tools-mcp")
+            })
+        })
+}
+
 #[cfg(unix)]
 fn reap_opencode_pgid_file() {
     let path = DaemonConfig::opencode_serve_pgid_path();
@@ -350,8 +375,14 @@ fn reap_opencode_pgid_file() {
             return;
         }
         None if !is_alive(pgid) => {
-            let _ = fs::remove_file(&path);
-            return;
+            // Leader is dead, but MCP children in the same group may survive
+            // (e.g. the daemon reaped the leader before the group finished
+            // dying). Only reap when a surviving member is verifiably ours.
+            if !(process_group_alive(pgid) && group_has_managed_member(pgid)) {
+                let _ = fs::remove_file(&path);
+                return;
+            }
+            println!("amuxd: opencode serve leader {pgid} is gone but group members remain");
         }
         None => {
             println!(

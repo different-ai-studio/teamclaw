@@ -630,6 +630,7 @@ pub fn run() {
             // no LaunchAgent). Continues while the app stays in Dock; Exit stops it.
             {
                 let app_handle = app.handle().clone();
+                commands::amuxd_supervisor::AmuxdSupervisor::install_signal_handlers(&app_handle);
                 tauri::async_runtime::spawn(async move {
                     if let Err(e) =
                         commands::amuxd_supervisor::AmuxdSupervisor::ensure_started(&app_handle)

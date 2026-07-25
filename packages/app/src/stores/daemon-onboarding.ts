@@ -110,13 +110,9 @@ async function onboard(teamId: string, displayName: string, targetActorId: strin
   // actor is onboarded to the team at this point. Restart the desktop-managed
   // amuxd so it reloads backend.toml. Failure here means credentials are on
   // disk but the running daemon may still hold the old identity — treat as
-  // onboard failure.
-  try {
-    await invoke('daemon_restart_managed')
-  } catch (e) {
-    console.warn('[daemon-onboarding] daemon_restart_managed failed; trying ensure_running:', e)
-    await invoke('daemon_ensure_running')
-  }
+  // onboard failure. No `daemon_ensure_running` fallback: ensure is a no-op
+  // when a (stale) daemon is already healthy, which would fake success.
+  await invoke('daemon_restart_managed')
   return result.actorId
 }
 

@@ -64,9 +64,6 @@ vi.mock('@tauri-apps/api/core', () => ({
     if (cmd === 'daemon_restart_managed' && h.restartManagedShouldThrow) {
       throw new Error('managed amuxd restart failed')
     }
-    if (cmd === 'daemon_ensure_running' && h.restartManagedShouldThrow) {
-      throw new Error('managed amuxd ensure failed')
-    }
     if (cmd === 'daemon_install_service' && h.installServiceShouldThrow) {
       throw new Error('amuxd binary not found at ~/.amuxd/bin/amuxd')
     }
@@ -133,9 +130,10 @@ describe('daemon-onboarding checkCloudSession + autoHealCloudSession', () => {
     expect(s.healError).toBeNull()
   })
 
-  it('onboard fails when managed restart and ensure both fail', async () => {
+  it('onboard fails when managed restart fails (no ensure_running fallback)', async () => {
     // Credentials may be on disk, but the running daemon may still hold the
-    // old identity — treat restart/ensure failure as heal failure.
+    // old identity. ensure_running would no-op on a healthy stale daemon and
+    // fake success, so restart failure must surface as heal failure directly.
     h.cloudAuthStatus = 'expired'
     h.localActorId = 'actor-1'
     h.connectedAgents = [{ agent_id: 'actor-1', display_name: 'Build Bot', is_owner: true }]
@@ -144,7 +142,7 @@ describe('daemon-onboarding checkCloudSession + autoHealCloudSession', () => {
     const s = useDaemonOnboardingStore.getState()
     expect(h.invokeCalls).toContain('daemon_init')
     expect(h.invokeCalls).toContain('daemon_restart_managed')
-    expect(h.invokeCalls).toContain('daemon_ensure_running')
+    expect(h.invokeCalls).not.toContain('daemon_ensure_running')
     expect(s.healError).toBeTruthy()
   })
 

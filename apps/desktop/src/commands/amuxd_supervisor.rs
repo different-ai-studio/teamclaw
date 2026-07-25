@@ -34,7 +34,12 @@ struct SupervisorInner {
 }
 
 pub struct AmuxdSupervisor {
-    /// Serializes ensure / shutdown / restart end-to-end.
+    /// Serializes ensure / restart end-to-end (including the health wait), so
+    /// two concurrent ensures cannot heal-stop each other's fresh child.
+    /// `inner` alone is not enough: it is released during the health wait.
+    ensure_lock: tokio::sync::Mutex<()>,
+    /// Guards the child handle. Held only for short sections so
+    /// `shutdown_blocking` (Cmd+Q) can grab it quickly.
     inner: tokio::sync::Mutex<SupervisorInner>,
     /// Set on app Exit / ExitRequested; never cleared. Blocks further spawns.
     app_exiting: AtomicBool,
@@ -53,6 +58,7 @@ impl Default for AmuxdSupervisor {
 impl AmuxdSupervisor {
     pub fn new() -> Self {
         Self {
+            ensure_lock: tokio::sync::Mutex::new(()),
             inner: tokio::sync::Mutex::new(SupervisorInner { child: None }),
             app_exiting: AtomicBool::new(false),
             shutdown_done: AtomicBool::new(false),
@@ -244,11 +250,31 @@ async fn wait_until_healthy(timeout: Duration, app_exiting: &AtomicBool) -> Resu
     }
 }
 
+/// Blocking variant — only for the sync exit path (`shutdown_blocking`).
 fn run_bundled_once(args: &[&str]) -> Result<(), String> {
     let bin = bundled_amuxd()?;
     let out = std::process::Command::new(&bin)
         .args(args)
         .output()
+        .map_err(|e| format!("spawn amuxd {}: {e}", args.join(" ")))?;
+    if !out.status.success() {
+        return Err(format!(
+            "amuxd {} exited {:?}: {}",
+            args.join(" "),
+            out.status.code(),
+            String::from_utf8_lossy(&out.stderr).trim()
+        ));
+    }
+    Ok(())
+}
+
+/// Async variant for tokio contexts — does not block a runtime worker.
+async fn run_bundled_once_async(args: &[&str]) -> Result<(), String> {
+    let bin = bundled_amuxd()?;
+    let out = tokio::process::Command::new(&bin)
+        .args(args)
+        .output()
+        .await
         .map_err(|e| format!("spawn amuxd {}: {e}", args.join(" ")))?;
     if !out.status.success() {
         return Err(format!(
@@ -328,7 +354,7 @@ async fn migrate_legacy_service_if_needed(supervisor: &AmuxdSupervisor) -> Resul
     }
 
     eprintln!("[amuxd-supervisor] uninstalling legacy background service");
-    if let Err(e) = run_bundled_once(&["uninstall-service"]) {
+    if let Err(e) = run_bundled_once_async(&["uninstall-service"]).await {
         eprintln!("[amuxd-supervisor] uninstall-service: {e}");
     }
     // bootout is async on macOS — give launchd a moment, then re-check.
@@ -345,7 +371,7 @@ async fn migrate_legacy_service_if_needed(supervisor: &AmuxdSupervisor) -> Resul
 
     if amuxd_pid_is_running() {
         eprintln!("[amuxd-supervisor] stopping leftover amuxd before managed start");
-        let _ = run_bundled_once(&["stop"]);
+        let _ = run_bundled_once_async(&["stop"]).await;
         wait_for_amuxd_stopped(STOP_TIMEOUT).await;
     }
 
@@ -421,8 +447,32 @@ fn wait_reap_child(child: &mut tokio::process::Child, grace: Duration) -> bool {
     }
 }
 
+/// Async wait+reap counterpart of [`wait_reap_child`] for tokio contexts.
+async fn wait_reap_child_async(child: &mut tokio::process::Child, grace: Duration) -> bool {
+    // wait() reaps; an Err means the child was already collected elsewhere.
+    if tokio::time::timeout(grace, child.wait()).await.is_ok() {
+        return true;
+    }
+    #[cfg(unix)]
+    if let Some(pid) = child.id() {
+        let pid = pid as i32;
+        unsafe {
+            let pgid = libc::getpgid(pid);
+            if pgid == pid {
+                let _ = libc::kill(-pid, libc::SIGKILL);
+            }
+            let _ = libc::kill(pid, libc::SIGKILL);
+        }
+    }
+    let _ = child.start_kill();
+    tokio::time::timeout(Duration::from_millis(500), child.wait())
+        .await
+        .is_ok()
+}
+
 /// Stop amuxd by waiting on our Child first (correct death signal), then
 /// best-effort `amuxd stop` for artifacts / external leftovers.
+/// Blocking variant — only for the sync exit path (`shutdown_blocking`).
 fn stop_with_child_fallback(inner: &mut SupervisorInner, grace: Duration) {
     if let Some(mut child) = inner.child.take() {
         signal_child_stop(&child);
@@ -434,6 +484,21 @@ fn stop_with_child_fallback(inner: &mut SupervisorInner, grace: Duration) {
     // Artifact cleanup + any unmanaged leftover. With zombie-aware is_alive,
     // this returns quickly when the Child was already reaped.
     match run_bundled_once(&["stop"]) {
+        Ok(()) => {}
+        Err(e) => eprintln!("[amuxd-supervisor] amuxd stop (cleanup): {e}"),
+    }
+}
+
+/// Async counterpart of [`stop_with_child_fallback`] — used by ensure /
+/// shutdown / restart so tokio workers are not blocked by sleeps.
+async fn stop_with_child_fallback_async(inner: &mut SupervisorInner, grace: Duration) {
+    if let Some(mut child) = inner.child.take() {
+        signal_child_stop(&child);
+        if !wait_reap_child_async(&mut child, grace).await {
+            eprintln!("[amuxd-supervisor] warning: amuxd child did not reap after kill");
+        }
+    }
+    match run_bundled_once_async(&["stop"]).await {
         Ok(()) => {}
         Err(e) => eprintln!("[amuxd-supervisor] amuxd stop (cleanup): {e}"),
     }
@@ -465,6 +530,13 @@ fn stop_without_lock() {
 impl AmuxdSupervisor {
     pub async fn ensure_started<R: Runtime>(app: &AppHandle<R>) -> Result<(), String> {
         let state = app.state::<AmuxdSupervisor>();
+        let _ensure = state.ensure_lock.lock().await;
+        Self::ensure_started_locked(&state).await
+    }
+
+    /// Body of ensure; caller must hold `ensure_lock` for the whole call so
+    /// concurrent ensures / restarts cannot heal-kill each other's child.
+    async fn ensure_started_locked(state: &AmuxdSupervisor) -> Result<(), String> {
         if state.app_exiting.load(Ordering::SeqCst) {
             return Err("amuxd supervisor is shutting down".into());
         }
@@ -474,14 +546,14 @@ impl AmuxdSupervisor {
             return Err("amuxd supervisor is shutting down".into());
         }
 
-        migrate_legacy_service_if_needed(&state).await?;
+        migrate_legacy_service_if_needed(state).await?;
 
         if child_is_alive(&mut inner.child) && daemon_healthz_ok().await {
             return Ok(());
         }
 
         // Heal: stop any live/stale instance before (re)spawn.
-        stop_with_child_fallback(&mut inner, STOP_TIMEOUT);
+        stop_with_child_fallback_async(&mut inner, STOP_TIMEOUT).await;
 
         if state.app_exiting.load(Ordering::SeqCst) {
             return Err("amuxd supervisor is shutting down".into());
@@ -529,12 +601,12 @@ impl AmuxdSupervisor {
 
         if let Err(e) = wait_until_healthy(HEALTH_TIMEOUT, &state.app_exiting).await {
             let mut inner = state.inner.lock().await;
-            stop_with_child_fallback(&mut inner, EXIT_CHILD_GRACE);
+            stop_with_child_fallback_async(&mut inner, EXIT_CHILD_GRACE).await;
             return Err(e);
         }
         if state.app_exiting.load(Ordering::SeqCst) {
             let mut inner = state.inner.lock().await;
-            stop_with_child_fallback(&mut inner, EXIT_CHILD_GRACE);
+            stop_with_child_fallback_async(&mut inner, EXIT_CHILD_GRACE).await;
             return Err("amuxd supervisor is shutting down".into());
         }
         Ok(())
@@ -566,23 +638,94 @@ impl AmuxdSupervisor {
         }
     }
 
+    /// Catch Ctrl+C / SIGTERM so terminal `pnpm tauri:dev` does not orphan amuxd.
+    /// Cmd+Q still goes through `RunEvent::Exit`; both share `shutdown_done`.
+    /// A second signal while cleanup runs forces process exit.
+    pub fn install_signal_handlers<R: Runtime>(app: &AppHandle<R>) {
+        let app = app.clone();
+        tauri::async_runtime::spawn(async move {
+            if let Err(e) = run_signal_shutdown_loop(app).await {
+                eprintln!("[amuxd-supervisor] signal listener ended: {e}");
+            }
+        });
+    }
+}
+
+/// Listen for terminate signals; first → `app.exit(0)`, second → force exit.
+async fn run_signal_shutdown_loop<R: Runtime>(app: AppHandle<R>) -> Result<(), String> {
+    #[cfg(unix)]
+    {
+        use tokio::signal::unix::{signal, SignalKind};
+        let mut sigint = signal(SignalKind::interrupt())
+            .map_err(|e| format!("listen SIGINT: {e}"))?;
+        let mut sigterm = signal(SignalKind::terminate())
+            .map_err(|e| format!("listen SIGTERM: {e}"))?;
+        let mut saw_first = false;
+        loop {
+            tokio::select! {
+                _ = sigint.recv() => {}
+                _ = sigterm.recv() => {}
+            }
+            if saw_first {
+                eprintln!("[amuxd-supervisor] second terminate signal; forcing exit");
+                std::process::exit(1);
+            }
+            saw_first = true;
+            eprintln!(
+                "[amuxd-supervisor] terminate signal received; stopping amuxd via app.exit"
+            );
+            // Normal Tauri exit → RunEvent::Exit → shutdown_blocking.
+            app.exit(0);
+        }
+    }
+    #[cfg(windows)]
+    {
+        let mut saw_first = false;
+        loop {
+            tokio::signal::ctrl_c()
+                .await
+                .map_err(|e| format!("listen Ctrl+C: {e}"))?;
+            if saw_first {
+                eprintln!("[amuxd-supervisor] second Ctrl+C; forcing exit");
+                std::process::exit(1);
+            }
+            saw_first = true;
+            eprintln!(
+                "[amuxd-supervisor] Ctrl+C received; stopping amuxd via app.exit"
+            );
+            app.exit(0);
+        }
+    }
+    #[cfg(not(any(unix, windows)))]
+    {
+        let _ = app;
+        std::future::pending::<()>().await;
+        Ok(())
+    }
+}
+
+impl AmuxdSupervisor {
     pub async fn shutdown<R: Runtime>(app: &AppHandle<R>) {
         let state = app.state::<AmuxdSupervisor>();
-        // Temporary stop (restart path): do not set app_exiting / shutdown_done.
+        // Temporary stop (explicit stop command): do not set app_exiting /
+        // shutdown_done.
         let mut inner = state.inner.lock().await;
-        stop_with_child_fallback(&mut inner, STOP_TIMEOUT);
+        stop_with_child_fallback_async(&mut inner, STOP_TIMEOUT).await;
     }
 
     pub async fn restart<R: Runtime>(app: &AppHandle<R>) -> Result<(), String> {
-        if app
-            .state::<AmuxdSupervisor>()
-            .app_exiting
-            .load(Ordering::SeqCst)
-        {
+        let state = app.state::<AmuxdSupervisor>();
+        if state.app_exiting.load(Ordering::SeqCst) {
             return Err("amuxd supervisor is shutting down".into());
         }
-        Self::shutdown(app).await;
-        Self::ensure_started(app).await
+        // Hold ensure_lock across stop + start so a concurrent ensure cannot
+        // slip in between and race the respawn.
+        let _ensure = state.ensure_lock.lock().await;
+        {
+            let mut inner = state.inner.lock().await;
+            stop_with_child_fallback_async(&mut inner, STOP_TIMEOUT).await;
+        }
+        Self::ensure_started_locked(&state).await
     }
 
     pub async fn status<R: Runtime>(app: &AppHandle<R>) -> DaemonSupervisorStatus {
