@@ -1055,6 +1055,7 @@
         "revealFailed": "打开目录失败：{{message}}",
         "diskRefreshFailed": "读取磁盘日志失败：{{message}}",
         "appLog": "桌面应用",
+        "daemonManagedLog": "Daemon（托管）",
         "daemonOutLog": "Daemon stdout",
         "daemonErrLog": "Daemon stderr",
         "acpLog": "ACP stream",

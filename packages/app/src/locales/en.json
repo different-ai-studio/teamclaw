@@ -1055,6 +1055,7 @@
         "revealFailed": "Failed to open folder: {{message}}",
         "diskRefreshFailed": "Failed to read disk logs: {{message}}",
         "appLog": "Desktop app",
+        "daemonManagedLog": "Daemon (managed)",
         "daemonOutLog": "Daemon stdout",
         "daemonErrLog": "Daemon stderr",
         "acpLog": "ACP stream",
