@@ -75,6 +75,7 @@ import { UpdateDialogContainer } from "@/components/updater/UpdateDialog";
 import { RightPanel } from "@/components/panel";
 import { ExtensionSettings, Settings } from "@/components/settings";
 import { FeedbackDialog } from "@/components/settings/FeedbackDialog";
+import { CloseToTrayHost } from "@/components/CloseToTrayDialog";
 import {
   Dialog,
   DialogContent,
@@ -2931,6 +2932,7 @@ function App() {
             }}
           />
           <UpdateDialogContainer />
+          <CloseToTrayHost />
           <NewSessionDialog />
           <TelemetryConsentDialog
             open={showConsentDialog}

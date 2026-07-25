@@ -1,0 +1,730 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>TeamClaw · 关闭 → 托盘 · 交互稿</title>
+<style>
+  :root {
+    --background: #fbfaf7;
+    --paper: #ffffff;
+    --panel: #efece4;
+    --selected: #e7e2d6;
+    --foreground: #1a1a14;
+    --ink-2: #3d3c34;
+    --muted: #75736a;
+    --faint: #a8a6a0;
+    --border: rgba(26,26,20,0.08);
+    --border-soft: rgba(26,26,20,0.05);
+    --coral: #e85a4a;
+    --coral-soft: #f5d6cf;
+    --ok: #2eb872;
+    --warn: #e8b54a;
+    --shadow: 0 4px 16px -10px rgba(20,20,15,0.12);
+    --shadow-lg: 0 18px 48px -20px rgba(20,20,15,0.28);
+    --font: "PingFang SC", "Noto Sans SC", "Source Han Sans SC", -apple-system, BlinkMacSystemFont, "Microsoft YaHei", system-ui, sans-serif;
+    --mono: "JetBrains Mono", "SF Mono", ui-monospace, Menlo, Consolas, monospace;
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; height: 100%; font-family: var(--font); color: var(--foreground); background:
+    radial-gradient(1200px 600px at 10% -10%, #f3ebe3 0%, transparent 55%),
+    radial-gradient(900px 500px at 100% 0%, #efe8dc 0%, transparent 50%),
+    #e8e4da; }
+  body { display: flex; flex-direction: column; min-height: 100%; }
+
+  .stage {
+    flex: 1;
+    display: grid;
+    grid-template-columns: 1fr 300px;
+    gap: 20px;
+    padding: 28px 28px 20px;
+    max-width: 1280px;
+    margin: 0 auto;
+    width: 100%;
+  }
+  @media (max-width: 980px) {
+    .stage { grid-template-columns: 1fr; }
+  }
+
+  .desktop-wrap { display: flex; flex-direction: column; gap: 12px; min-width: 0; }
+  .hint-bar {
+    display: flex; align-items: center; justify-content: space-between; gap: 12px;
+    font-size: 12px; color: var(--muted);
+  }
+  .hint-bar strong { color: var(--ink-2); font-weight: 600; }
+  .badge {
+    font-family: var(--mono); font-size: 10.5px; letter-spacing: 0.04em;
+    padding: 3px 8px; border-radius: 4px; background: var(--panel); color: var(--ink-2);
+    border: 1px solid var(--border);
+  }
+  .badge.on { background: #e8f6ee; color: #1f7a45; border-color: rgba(46,184,114,0.25); }
+  .badge.off { background: #f5f0ea; color: var(--muted); }
+
+  /* Fake macOS window */
+  .window {
+    position: relative;
+    background: var(--background);
+    border-radius: 12px;
+    border: 1px solid var(--border);
+    box-shadow: var(--shadow-lg);
+    overflow: hidden;
+    height: 620px;
+    display: flex;
+    flex-direction: column;
+    transition: opacity .35s ease, transform .35s ease, filter .35s ease;
+  }
+  .window.hidden-to-tray {
+    opacity: 0.18;
+    transform: scale(0.97) translateY(8px);
+    filter: saturate(0.7);
+    pointer-events: none;
+  }
+  .titlebar {
+    height: 40px; background: var(--panel); border-bottom: 1px solid var(--border-soft);
+    display: flex; align-items: center; padding: 0 14px; gap: 8px;
+    -webkit-app-region: drag;
+  }
+  .traffic { display: flex; gap: 7px; }
+  .dot { width: 11px; height: 11px; border-radius: 50%; border: 0; cursor: pointer; padding: 0; }
+  .dot.r { background: #ff5f57; }
+  .dot.y { background: #febc2e; }
+  .dot.g { background: #28c840; }
+  .dot:hover { filter: brightness(0.92); }
+  .brand { margin-left: auto; font-size: 11.5px; color: var(--faint); }
+  .brand em { font-style: normal; color: var(--ink-2); }
+
+  .cols {
+    flex: 1; display: grid; grid-template-columns: 200px 220px 1fr; min-height: 0;
+  }
+  .side {
+    background: var(--panel); border-right: 1px solid var(--border-soft);
+    display: flex; flex-direction: column; padding: 10px 8px 10px;
+  }
+  .side h3 {
+    margin: 6px 6px 10px; font-size: 10.5px; font-weight: 600; letter-spacing: 0.8px;
+    text-transform: uppercase; color: var(--faint);
+  }
+  .nav-item {
+    display: flex; justify-content: space-between; align-items: center;
+    padding: 7px 9px; border-radius: 8px; font-size: 13px; color: var(--ink-2);
+    cursor: default;
+  }
+  .nav-item.active { background: var(--selected); }
+  .nav-item .n { font-family: var(--mono); font-size: 11px; color: var(--faint); }
+  .side-grow { flex: 1; }
+  .local-card {
+    border: 1px solid var(--border-soft); background: var(--paper); border-radius: 8px;
+    padding: 4px; box-shadow: 0 1px 0 var(--border-soft);
+  }
+  .local-head {
+    display: flex; align-items: center; gap: 8px; padding: 7px 8px; border-radius: 6px;
+    cursor: pointer; user-select: none;
+  }
+  .local-head:hover { background: var(--selected); }
+  .avatar {
+    width: 22px; height: 22px; border-radius: 5px; background: #3d3c34; color: #fff;
+    display: grid; place-items: center; font-size: 10px; font-weight: 700;
+    box-shadow: 0 0 0 1.5px var(--coral); position: relative;
+  }
+  .avatar::after {
+    content: ""; position: absolute; right: -2px; bottom: -2px;
+    width: 7px; height: 7px; border-radius: 50%; background: var(--ok);
+    border: 1.5px solid var(--paper);
+  }
+  .avatar.warn::after { background: var(--warn); }
+  .avatar.off::after { background: var(--faint); }
+  .local-meta { min-width: 0; flex: 1; }
+  .local-name { font-size: 12.5px; font-weight: 600; line-height: 1.2; }
+  .local-sub { font-size: 10.5px; color: var(--muted); font-family: var(--mono); margin-top: 1px; }
+  .chev { color: var(--faint); font-size: 10px; transition: transform .2s; }
+  .local-card.open .chev { transform: rotate(180deg); }
+
+  .sheet {
+    display: none; padding: 2px 4px 6px; border-top: 1px dashed var(--border-soft); margin-top: 2px;
+  }
+  .local-card.open .sheet { display: block; }
+  .sheet-g {
+    margin-top: 8px; font-size: 10px; font-weight: 600; letter-spacing: 0.7px;
+    text-transform: uppercase; color: var(--faint); padding: 0 6px 4px;
+  }
+  .sheet-item {
+    display: flex; align-items: center; gap: 8px; width: 100%;
+    padding: 7px 8px; border-radius: 6px; border: 0; background: transparent;
+    font: inherit; font-size: 12px; color: var(--ink-2); cursor: pointer; text-align: left;
+  }
+  .sheet-item:hover { background: var(--selected); }
+  .sheet-item .ico { width: 14px; color: var(--muted); font-size: 12px; }
+
+  .list {
+    background: var(--background); border-right: 1px solid var(--border-soft); padding: 14px 12px;
+  }
+  .list h2 { margin: 0 0 12px; font-size: 15px; font-weight: 700; }
+  .card {
+    padding: 10px 12px; border-radius: 10px; margin-bottom: 6px; cursor: default;
+  }
+  .card.active { background: var(--paper); box-shadow: inset 2px 0 0 var(--coral); }
+  .card .t { font-size: 13px; font-weight: 600; display: flex; justify-content: space-between; }
+  .card .t span { font-family: var(--mono); font-size: 11px; color: var(--faint); font-weight: 500; }
+  .card .p { margin-top: 4px; font-size: 12px; color: var(--muted); line-height: 1.45; }
+
+  .chat { background: var(--background); display: flex; flex-direction: column; min-width: 0; }
+  .chat-h { padding: 14px 22px 10px; border-bottom: 1px solid var(--border-soft); }
+  .chat-h .title { font-size: 15px; font-weight: 700; }
+  .chat-h .meta { margin-top: 3px; font-size: 12px; color: var(--muted); }
+  .thread { flex: 1; padding: 16px 26px; display: flex; flex-direction: column; justify-content: flex-end; gap: 10px; }
+  .note {
+    margin-left: 8px; padding: 0 0 4px;
+  }
+  .note .who { display: flex; align-items: center; gap: 8px; margin-bottom: 6px; }
+  .note .who .nm { font-size: 12.5px; font-weight: 600; }
+  .ai-pill {
+    font-size: 9.5px; font-weight: 600; font-family: var(--mono);
+    border: 1px solid var(--coral); color: var(--coral); border-radius: 3px; padding: 1px 5px;
+  }
+  .note p { margin: 0; font-size: 13.5px; line-height: 1.65; color: var(--ink-2); max-width: 52ch; }
+  .composer {
+    margin: 10px 18px 16px; background: var(--paper); border: 1px solid var(--border);
+    border-radius: 14px; box-shadow: var(--shadow); padding: 12px 14px 10px;
+  }
+  .composer .ph { color: var(--faint); font-size: 13.5px; min-height: 36px; }
+  .composer .row { display: flex; align-items: center; gap: 8px; border-top: 1px solid var(--border-soft); padding-top: 8px; margin-top: 6px; }
+  .agent-pill {
+    display: inline-flex; align-items: center; gap: 6px; background: var(--panel);
+    padding: 4px 9px; border-radius: 7px; font-size: 12px;
+  }
+  .send {
+    margin-left: auto; background: var(--coral); color: #fff; border: 0;
+    padding: 6px 14px; border-radius: 8px; font-weight: 600; font-size: 12.5px;
+  }
+
+  /* Close dialog */
+  .overlay {
+    position: absolute; inset: 0; background: rgba(26,26,20,0.28);
+    display: none; align-items: center; justify-content: center; z-index: 20;
+    backdrop-filter: blur(2px);
+  }
+  .overlay.show { display: flex; animation: fade .18s ease; }
+  @keyframes fade { from { opacity: 0; } to { opacity: 1; } }
+  .dialog {
+    width: min(400px, 92%); background: var(--paper); border-radius: 14px;
+    border: 1px solid var(--border); box-shadow: var(--shadow-lg); padding: 20px 20px 16px;
+    animation: pop .2s ease;
+  }
+  @keyframes pop { from { transform: translateY(6px) scale(.98); opacity: 0; } to { transform: none; opacity: 1; } }
+  .dialog h1 { margin: 0; font-size: 15px; font-weight: 700; }
+  .dialog .lead { margin: 8px 0 14px; font-size: 12.5px; line-height: 1.55; color: var(--muted); }
+  .choice {
+    display: flex; flex-direction: column; gap: 8px; margin-bottom: 12px;
+  }
+  .choice label {
+    display: grid; grid-template-columns: 18px 1fr; gap: 10px; align-items: start;
+    padding: 10px 12px; border-radius: 10px; border: 1px solid var(--border);
+    cursor: pointer; background: var(--background);
+  }
+  .choice label:hover { border-color: rgba(26,26,20,0.16); }
+  .choice label.picked { border-color: rgba(232,90,74,0.45); background: #fff8f6; }
+  .choice input { margin-top: 3px; accent-color: var(--coral); }
+  .choice .ct { font-size: 13px; font-weight: 600; }
+  .choice .cd { margin-top: 2px; font-size: 11.5px; color: var(--muted); line-height: 1.4; }
+  .remember {
+    display: flex; align-items: center; gap: 8px; font-size: 12px; color: var(--ink-2);
+    margin: 4px 2px 14px;
+  }
+  .remember input { accent-color: var(--coral); }
+  .actions { display: flex; justify-content: flex-end; gap: 8px; }
+  .btn {
+    border: 1px solid var(--border); background: var(--paper); color: var(--ink-2);
+    border-radius: 8px; padding: 7px 12px; font-size: 12.5px; font-weight: 600; cursor: pointer;
+  }
+  .btn:hover { background: var(--selected); }
+  .btn.primary { background: var(--coral); color: #fff; border-color: transparent; }
+  .btn.primary:hover { filter: brightness(0.96); background: var(--coral); }
+  .btn.ghost { border-color: transparent; color: var(--muted); }
+
+  /* Tray / menubar strip */
+  .menubar {
+    height: 28px; margin: 0 2px; border-radius: 8px; background: rgba(40,38,32,0.88);
+    color: #f4f1ea; display: flex; align-items: center; padding: 0 12px; gap: 14px;
+    font-size: 12px; position: relative; box-shadow: var(--shadow);
+  }
+  .menubar .apple { opacity: .85; }
+  .menubar .clock { margin-left: auto; font-family: var(--mono); font-size: 11px; opacity: .9; }
+  .tray-btn {
+    appearance: none; border: 0; background: transparent; color: inherit; cursor: pointer;
+    display: inline-flex; align-items: center; gap: 6px; padding: 2px 6px; border-radius: 5px;
+    font: inherit;
+  }
+  .tray-btn:hover, .tray-btn.open { background: rgba(255,255,255,0.12); }
+  .tray-dot {
+    width: 7px; height: 7px; border-radius: 50%; background: var(--ok);
+    box-shadow: 0 0 0 2px rgba(46,184,114,0.25);
+  }
+  .tray-dot.off { background: var(--faint); box-shadow: none; }
+  .tray-menu {
+    display: none; position: absolute; right: 88px; top: 34px; width: 220px;
+    background: rgba(48,46,40,0.96); color: #f7f4ee; border-radius: 10px;
+    padding: 6px; z-index: 30; box-shadow: var(--shadow-lg); border: 1px solid rgba(255,255,255,0.08);
+  }
+  .tray-menu.show { display: block; animation: pop .15s ease; }
+  .tray-menu button {
+    width: 100%; text-align: left; border: 0; background: transparent; color: inherit;
+    font: inherit; font-size: 12.5px; padding: 8px 10px; border-radius: 6px; cursor: pointer;
+  }
+  .tray-menu button:hover { background: rgba(255,255,255,0.1); }
+  .tray-menu .sep { height: 1px; background: rgba(255,255,255,0.1); margin: 4px 6px; }
+  .tray-menu .dim { color: rgba(247,244,238,0.55); font-size: 11px; padding: 4px 10px 6px; font-family: var(--mono); }
+
+  /* Floating agent panel (from tray) */
+  .float-panel {
+    display: none; position: absolute; right: 40px; bottom: 48px; width: 280px;
+    background: var(--paper); border: 1px solid var(--border); border-radius: 12px;
+    box-shadow: var(--shadow-lg); z-index: 40; padding: 8px; overflow: hidden;
+  }
+  .float-panel.show { display: block; animation: pop .18s ease; }
+  .float-panel .fp-h {
+    display: flex; align-items: center; justify-content: space-between;
+    padding: 6px 8px 10px; border-bottom: 1px solid var(--border-soft); margin-bottom: 4px;
+  }
+  .float-panel .fp-h strong { font-size: 13px; }
+  .float-panel .fp-h span { font-size: 11px; color: var(--muted); font-family: var(--mono); }
+  .float-panel .x {
+    border: 0; background: transparent; color: var(--faint); cursor: pointer; font-size: 16px; line-height: 1;
+  }
+
+  /* Right rail: storyboard */
+  .rail {
+    background: rgba(255,255,255,0.55); border: 1px solid var(--border); border-radius: 14px;
+    padding: 16px 14px; backdrop-filter: blur(8px); align-self: start;
+  }
+  .rail h2 { margin: 0 0 4px; font-size: 14px; font-weight: 700; }
+  .rail p { margin: 0 0 14px; font-size: 12px; color: var(--muted); line-height: 1.5; }
+  .step {
+    border: 1px solid var(--border); background: var(--paper); border-radius: 10px;
+    padding: 10px 11px; margin-bottom: 8px; cursor: pointer; text-align: left; width: 100%;
+    font: inherit;
+  }
+  .step:hover { border-color: rgba(26,26,20,0.16); }
+  .step.active { border-color: rgba(232,90,74,0.4); box-shadow: inset 2px 0 0 var(--coral); }
+  .step .n { font-family: var(--mono); font-size: 10.5px; color: var(--faint); }
+  .step .t { display: block; margin-top: 2px; font-size: 12.5px; font-weight: 600; }
+  .step .d { display: block; margin-top: 3px; font-size: 11.5px; color: var(--muted); line-height: 1.4; }
+  .assumptions {
+    margin-top: 14px; padding-top: 12px; border-top: 1px dashed var(--border);
+    font-size: 11.5px; color: var(--muted); line-height: 1.55;
+  }
+  .assumptions strong { color: var(--ink-2); }
+
+  .toast {
+    position: fixed; left: 50%; bottom: 24px; transform: translateX(-50%) translateY(12px);
+    background: var(--foreground); color: #fefdfa; font-size: 12.5px; padding: 10px 14px;
+    border-radius: 8px; opacity: 0; pointer-events: none; transition: .25s ease; z-index: 50;
+  }
+  .toast.show { opacity: 1; transform: translateX(-50%) translateY(0); }
+
+  .res-chip {
+    display: inline-flex; align-items: center; gap: 6px; margin-top: 8px;
+    font-size: 11px; color: var(--ink-2); background: #f3f0e8; border-radius: 6px;
+    padding: 5px 8px; border: 1px solid var(--border-soft);
+  }
+</style>
+</head>
+<body>
+  <div class="stage">
+    <div class="desktop-wrap">
+      <div class="hint-bar">
+        <div><strong>交互稿</strong> · 关闭询问 / 托盘常驻 / Agent 设置</div>
+        <div style="display:flex;gap:8px;align-items:center;">
+          <span class="badge" id="winBadge">窗口 · 前台</span>
+          <span class="badge on" id="daemonBadge">amuxd · 运行中</span>
+        </div>
+      </div>
+
+      <div class="menubar" id="menubar">
+        <span class="apple"></span>
+        <span>TeamClaw</span>
+        <span style="opacity:.55">文件</span>
+        <span style="opacity:.55">编辑</span>
+        <button type="button" class="tray-btn" id="trayBtn" title="TeamClaw 托盘" aria-haspopup="menu">
+          <span class="tray-dot" id="trayDot"></span>
+          <span>TC</span>
+        </button>
+        <span class="clock">23:33</span>
+        <div class="tray-menu" id="trayMenu" role="menu">
+          <div class="dim" id="trayStatus">amuxd · 运行中 · 托盘模式</div>
+          <button type="button" data-tray="show">打开 TeamClaw</button>
+          <button type="button" data-tray="agent">本地 Agent 设置…</button>
+          <div class="sep"></div>
+          <button type="button" data-tray="quit">退出并停止 Agent</button>
+        </div>
+      </div>
+
+      <div class="window" id="window">
+        <div class="titlebar">
+          <div class="traffic">
+            <button class="dot r" id="btnClose" title="关闭" aria-label="关闭窗口"></button>
+            <button class="dot y" id="btnMin" title="最小化" aria-label="最小化"></button>
+            <button class="dot g" title="最大化" aria-label="最大化"></button>
+          </div>
+          <div class="brand">TeamClaw · <em>workspace</em></div>
+        </div>
+
+        <div class="cols">
+          <aside class="side">
+            <h3>导航</h3>
+            <div class="nav-item active">会话 <span class="n">12</span></div>
+            <div class="nav-item">@Mentions <span class="n">2</span></div>
+            <div class="nav-item">等待我 <span class="n">1</span></div>
+            <div class="side-grow"></div>
+            <div class="local-card" id="localCard">
+              <div class="local-head" id="localHead">
+                <div class="avatar" id="localAvatar">A</div>
+                <div class="local-meta">
+                  <div class="local-name">本地 Agent</div>
+                  <div class="local-sub" id="localSub">opencode · ready</div>
+                </div>
+                <span class="chev">▾</span>
+              </div>
+              <div class="sheet" id="localSheet">
+                <div class="sheet-g">Workspace</div>
+                <button class="sheet-item" type="button"><span class="ico">📁</span> teamclaw-next</button>
+                <button class="sheet-item" type="button"><span class="ico">＋</span> 新建工作区</button>
+                <div class="sheet-g">Device</div>
+                <button class="sheet-item" type="button" id="openDaemonSettings"><span class="ico">⚙</span> Daemon settings</button>
+                <button class="sheet-item" type="button"><span class="ico">↺</span> 刷新连接</button>
+              </div>
+            </div>
+          </aside>
+
+          <section class="list">
+            <h2>会话</h2>
+            <div class="card active">
+              <div class="t">托盘常驻设计稿 <span>23:31</span></div>
+              <div class="p">关窗时询问是否最小化到托盘，保持 daemon…</div>
+            </div>
+            <div class="card">
+              <div class="t">周会纪要 <span>昨天</span></div>
+              <div class="p">把三点同步到团队知识库。</div>
+            </div>
+          </section>
+
+          <section class="chat">
+            <div class="chat-h">
+              <div class="title">托盘常驻设计稿</div>
+              <div class="meta">2 位参与者 · 本地 Agent 在线</div>
+            </div>
+            <div class="thread">
+              <div class="note">
+                <div class="who">
+                  <div class="avatar" style="width:18px;height:18px;font-size:9px;">A</div>
+                  <span class="nm">本地 Agent</span>
+                  <span class="ai-pill">AI</span>
+                  <span style="margin-left:auto;font-family:var(--mono);font-size:11px;color:var(--faint)">opencode · 23:31</span>
+                </div>
+                <p>如果你把窗口收到托盘，我会继续在后台跑任务；桌面 UI 可以休眠以省内存。点托盘里的「本地 Agent 设置」会打开和左下角一样的面板。</p>
+              </div>
+            </div>
+            <div class="composer">
+              <div class="ph">输入消息…</div>
+              <div class="row">
+                <span class="agent-pill"><span class="avatar" style="width:16px;height:16px;font-size:8px;box-shadow:none;">A</span> 本地 Agent ▾</span>
+                <button class="send" type="button">发送 →</button>
+              </div>
+            </div>
+          </section>
+        </div>
+
+        <div class="overlay" id="closeOverlay" role="dialog" aria-modal="true" aria-labelledby="dlgTitle">
+          <div class="dialog">
+            <h1 id="dlgTitle">关闭 TeamClaw？</h1>
+            <p class="lead">本地 Agent（amuxd）目前由桌面托管。你可以把它留在托盘继续跑任务，或一并退出。</p>
+            <div class="choice">
+              <label class="picked" data-choice="tray">
+                <input type="radio" name="closeMode" value="tray" checked />
+                <span>
+                  <div class="ct">最小化到托盘</div>
+                  <div class="cd">隐藏窗口，释放大部分 UI 资源；本地 Agent 继续运行，可接跨设备消息与定时任务。</div>
+                </span>
+              </label>
+              <label data-choice="quit">
+                <input type="radio" name="closeMode" value="quit" />
+                <span>
+                  <div class="ct">退出并停止 Agent</div>
+                  <div class="cd">关闭窗口并停止 amuxd / opencode。适合彻底下班。</div>
+                </span>
+              </label>
+            </div>
+            <label class="remember"><input type="checkbox" id="remember" /> 记住我的选择（可在设置里改）</label>
+            <div class="actions">
+              <button type="button" class="btn ghost" id="dlgCancel">取消</button>
+              <button type="button" class="btn primary" id="dlgConfirm">确定</button>
+            </div>
+          </div>
+        </div>
+
+        <div class="float-panel" id="floatPanel">
+          <div class="fp-h">
+            <div>
+              <strong>本地 Agent</strong>
+              <div><span id="fpStatus">opencode · ready</span></div>
+            </div>
+            <button type="button" class="x" id="fpClose" aria-label="关闭面板">×</button>
+          </div>
+          <div class="local-card open" style="border:0;box-shadow:none;padding:0;">
+            <div class="sheet" style="display:block;border:0;margin:0;padding:4px;">
+              <div class="sheet-g">Workspace</div>
+              <button class="sheet-item" type="button"><span class="ico">📁</span> teamclaw-next</button>
+              <button class="sheet-item" type="button"><span class="ico">＋</span> 新建工作区</button>
+              <div class="sheet-g">Device</div>
+              <button class="sheet-item" type="button" id="fpDaemonSettings"><span class="ico">⚙</span> Daemon settings</button>
+              <button class="sheet-item" type="button"><span class="ico">↺</span> 刷新连接</button>
+              <div class="res-chip">与侧栏左下角 <b>LocalDaemon</b> 面板同构</div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <aside class="rail">
+      <h2>场景脚本</h2>
+      <p>点右侧步骤，或直接点窗口红灯 / 托盘图标体验。</p>
+      <button class="step active" data-step="1" type="button">
+        <span class="n">01</span>
+        <span class="t">日常使用</span>
+        <span class="d">窗口前台，左下角本地 Agent 可展开。</span>
+      </button>
+      <button class="step" data-step="2" type="button">
+        <span class="n">02</span>
+        <span class="t">点关闭（红灯）</span>
+        <span class="d">弹出选择：托盘常驻 / 彻底退出。</span>
+      </button>
+      <button class="step" data-step="3" type="button">
+        <span class="n">03</span>
+        <span class="t">进入托盘</span>
+        <span class="d">窗口休眠示意；菜单栏图标保持绿灯。</span>
+      </button>
+      <button class="step" data-step="4" type="button">
+        <span class="n">04</span>
+        <span class="t">托盘 → Agent 设置</span>
+        <span class="d">浮出与左下角一致的本地 Agent 面板。</span>
+      </button>
+      <button class="step" data-step="5" type="button">
+        <span class="n">05</span>
+        <span class="t">托盘 → 退出</span>
+        <span class="d">停止 amuxd，图标熄灭。</span>
+      </button>
+
+      <div class="assumptions">
+        <strong>稿内假设（待你确认）</strong><br/>
+        1. 关窗默认推荐「托盘」；首次询问，可记住。<br/>
+        2. 托盘态：窗口销毁/休眠 WebView，<b>只留轻量托盘进程 + amuxd</b>。<br/>
+        3. 托盘「本地 Agent 设置」= 侧栏 <code>LocalDaemon</code> 同款 sheet（非整页 Settings）。<br/>
+        4. 「退出并停止 Agent」才走现有 shutdown 路径。
+      </div>
+    </aside>
+  </div>
+
+  <div class="toast" id="toast"></div>
+
+<script>
+  const $ = (id) => document.getElementById(id);
+  const windowEl = $('window');
+  const overlay = $('closeOverlay');
+  const trayMenu = $('trayMenu');
+  const trayBtn = $('trayBtn');
+  const floatPanel = $('floatPanel');
+  const winBadge = $('winBadge');
+  const daemonBadge = $('daemonBadge');
+  const trayDot = $('trayDot');
+  const trayStatus = $('trayStatus');
+  const localSub = $('localSub');
+  const fpStatus = $('fpStatus');
+  const localAvatar = $('localAvatar');
+
+  let mode = 'foreground'; // foreground | dialog | tray | quit
+  let closeChoice = 'tray';
+
+  function toast(msg) {
+    const el = $('toast');
+    el.textContent = msg;
+    el.classList.add('show');
+    clearTimeout(toast._t);
+    toast._t = setTimeout(() => el.classList.remove('show'), 1800);
+  }
+
+  function setStep(n) {
+    document.querySelectorAll('.step').forEach((s) => {
+      s.classList.toggle('active', s.dataset.step === String(n));
+    });
+  }
+
+  function setDaemon(running) {
+    daemonBadge.textContent = running ? 'amuxd · 运行中' : 'amuxd · 已停止';
+    daemonBadge.className = 'badge ' + (running ? 'on' : 'off');
+    trayDot.classList.toggle('off', !running);
+    localSub.textContent = running ? 'opencode · ready' : 'offline';
+    fpStatus.textContent = running ? 'opencode · ready' : 'offline';
+    localAvatar.classList.toggle('off', !running);
+    trayStatus.textContent = running
+      ? (mode === 'tray' ? 'amuxd · 运行中 · 托盘模式' : 'amuxd · 运行中')
+      : 'amuxd · 已停止';
+  }
+
+  function goForeground() {
+    mode = 'foreground';
+    windowEl.classList.remove('hidden-to-tray');
+    overlay.classList.remove('show');
+    trayMenu.classList.remove('show');
+    trayBtn.classList.remove('open');
+    floatPanel.classList.remove('show');
+    winBadge.textContent = '窗口 · 前台';
+    winBadge.className = 'badge';
+    setDaemon(true);
+    setStep(1);
+  }
+
+  function openCloseDialog() {
+    if (mode === 'quit') return;
+    mode = 'dialog';
+    overlay.classList.add('show');
+    floatPanel.classList.remove('show');
+    trayMenu.classList.remove('show');
+    setStep(2);
+  }
+
+  function goTray() {
+    mode = 'tray';
+    overlay.classList.remove('show');
+    windowEl.classList.add('hidden-to-tray');
+    floatPanel.classList.remove('show');
+    winBadge.textContent = '窗口 · 已休眠';
+    winBadge.className = 'badge off';
+    setDaemon(true);
+    setStep(3);
+    toast('已最小化到托盘 · UI 休眠，Agent 继续跑');
+  }
+
+  function goQuit() {
+    mode = 'quit';
+    overlay.classList.remove('show');
+    windowEl.classList.add('hidden-to-tray');
+    floatPanel.classList.remove('show');
+    trayMenu.classList.remove('show');
+    winBadge.textContent = '窗口 · 已退出';
+    winBadge.className = 'badge off';
+    setDaemon(false);
+    setStep(5);
+    toast('已退出 · amuxd / opencode 已停止');
+  }
+
+  function openAgentPanel() {
+    if (mode === 'quit') {
+      toast('已退出，无 Agent 可配置');
+      return;
+    }
+    // In tray mode, show floating panel without fully restoring heavy UI
+    if (mode !== 'foreground') {
+      windowEl.classList.remove('hidden-to-tray');
+      // Keep a "light" feel: still mark as tray-light
+      winBadge.textContent = '窗口 · 轻量面板';
+      winBadge.className = 'badge';
+    }
+    $('localCard').classList.add('open');
+    floatPanel.classList.add('show');
+    trayMenu.classList.remove('show');
+    trayBtn.classList.remove('open');
+    setStep(4);
+    setDaemon(true);
+  }
+
+  // Traffic lights
+  $('btnClose').addEventListener('click', openCloseDialog);
+  $('btnMin').addEventListener('click', () => toast('系统最小化（不进托盘，daemon 仍由窗口生命周期托管）'));
+
+  // Dialog choices
+  document.querySelectorAll('.choice label').forEach((label) => {
+    label.addEventListener('click', () => {
+      document.querySelectorAll('.choice label').forEach((l) => l.classList.remove('picked'));
+      label.classList.add('picked');
+      closeChoice = label.dataset.choice;
+      label.querySelector('input').checked = true;
+    });
+  });
+  $('dlgCancel').addEventListener('click', () => {
+    overlay.classList.remove('show');
+    mode = 'foreground';
+    setStep(1);
+  });
+  $('dlgConfirm').addEventListener('click', () => {
+    const remember = $('remember').checked;
+    if (closeChoice === 'tray') {
+      goTray();
+      if (remember) toast('已记住：关闭 → 托盘');
+    } else {
+      goQuit();
+      if (remember) toast('已记住：关闭 → 退出');
+    }
+  });
+
+  // Local daemon card
+  $('localHead').addEventListener('click', () => {
+    $('localCard').classList.toggle('open');
+  });
+  $('openDaemonSettings').addEventListener('click', () => {
+    toast('打开 Settings → Daemon（与现网 openSettings(daemonGeneral) 一致）');
+  });
+  $('fpDaemonSettings').addEventListener('click', () => {
+    toast('打开 Settings → Daemon（托盘入口同源）');
+  });
+  $('fpClose').addEventListener('click', () => {
+    floatPanel.classList.remove('show');
+    if (mode === 'tray') {
+      windowEl.classList.add('hidden-to-tray');
+      winBadge.textContent = '窗口 · 已休眠';
+      winBadge.className = 'badge off';
+      setStep(3);
+    }
+  });
+
+  // Tray
+  trayBtn.addEventListener('click', (e) => {
+    e.stopPropagation();
+    const open = trayMenu.classList.toggle('show');
+    trayBtn.classList.toggle('open', open);
+  });
+  trayMenu.addEventListener('click', (e) => {
+    const btn = e.target.closest('button[data-tray]');
+    if (!btn) return;
+    const act = btn.dataset.tray;
+    if (act === 'show') {
+      goForeground();
+      toast('已恢复主窗口');
+    } else if (act === 'agent') {
+      openAgentPanel();
+    } else if (act === 'quit') {
+      goQuit();
+    }
+  });
+
+  document.addEventListener('click', (e) => {
+    if (!trayMenu.contains(e.target) && e.target !== trayBtn && !trayBtn.contains(e.target)) {
+      trayMenu.classList.remove('show');
+      trayBtn.classList.remove('open');
+    }
+  });
+
+  // Storyboard
+  document.querySelectorAll('.step').forEach((s) => {
+    s.addEventListener('click', () => {
+      const n = Number(s.dataset.step);
+      if (n === 1) goForeground();
+      if (n === 2) { goForeground(); openCloseDialog(); }
+      if (n === 3) goTray();
+      if (n === 4) { goTray(); openAgentPanel(); }
+      if (n === 5) goQuit();
+    });
+  });
+
+  goForeground();
+</script>
+</body>
+</html>

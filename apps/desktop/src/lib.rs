@@ -388,6 +388,7 @@ pub fn run() {
             commands::knowledge::rag_start_watcher,
             commands::knowledge::rag_stop_watcher,
             commands::window::create_workspace_window,
+            commands::window::open_local_agent_panel_window,
             commands::window::register_window_workspace,
             commands::window::set_window_title,
             commands::mqtt_bus::mqtt_connect,
@@ -578,6 +579,10 @@ pub fn run() {
             commands::workspace_files::read_workspace_text_file,
             commands::workspace_files::read_workspace_binary_file,
             commands::window_chrome::show_main_window,
+            commands::window_chrome::hide_main_to_tray,
+            commands::window_chrome::quit_app,
+            commands::window_chrome::get_window_close_preference,
+            commands::window_chrome::set_window_close_preference,
             commands::team_share::team_share_create,
             commands::team_share::enable::team_share_enable_oss,
             commands::team_share::enable::team_share_enable_managed_git,
@@ -657,14 +662,24 @@ pub fn run() {
 
             eprintln!("[Startup] Setup hook: {:.1}ms", setup_t0.elapsed().as_secs_f64() * 1000.0);
 
+            // Load remembered close preference (ask / tray / quit).
+            {
+                let state = app.state::<commands::window_chrome::MainWindowState>();
+                commands::window_chrome::load_close_preference(app.handle(), &state);
+            }
+
             // --- System Tray ---
             use tauri::menu::{MenuBuilder, MenuItemBuilder};
             use tauri::tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent};
 
-            let show_main = MenuItemBuilder::with_id("show_main", "Show Main Window").build(app)?;
-            let quit = MenuItemBuilder::with_id("quit", "Quit").build(app)?;
+            let show_main = MenuItemBuilder::with_id("show_main", "打开主窗口").build(app)?;
+            let agent_settings =
+                MenuItemBuilder::with_id("agent_settings", "本地 Agent 设置…").build(app)?;
+            let quit = MenuItemBuilder::with_id("quit", "退出并停止 Agent").build(app)?;
             let menu = MenuBuilder::new(app)
                 .item(&show_main)
+                .item(&agent_settings)
+                .separator()
                 .item(&quit)
                 .build()?;
 
@@ -691,6 +706,13 @@ pub fn run() {
                             let state = app.state::<commands::window_chrome::MainWindowState>();
                             commands::window_chrome::show_main_window(app.clone(), state);
                         }
+                        "agent_settings" => {
+                            if let Err(e) =
+                                commands::window::open_local_agent_panel_window(app.clone())
+                            {
+                                eprintln!("[tray] open_local_agent_panel_window: {e}");
+                            }
+                        }
                         "quit" => {
                             app.exit(0);
                         }
@@ -713,40 +735,10 @@ pub fn run() {
                     match event {
                         tauri::WindowEvent::CloseRequested { api, .. } => {
                             api.prevent_close();
-                            let state = close_app_handle.state::<commands::window_chrome::MainWindowState>();
-                            commands::window_chrome::save_main_window_state(&main_win_clone, &state);
-                            let is_fullscreen = main_win_clone.is_fullscreen().unwrap_or(false);
-                            if is_fullscreen {
-                                // macOS doesn't allow hide() on fullscreen windows.
-                                // Strategy: make window invisible via alpha, exit fullscreen
-                                // (animation runs but is invisible), then hide + restore alpha.
-                                #[cfg(target_os = "macos")]
-                                if let Ok(ns_win) = main_win_clone.ns_window() {
-                                    use cocoa::base::id;
-                                    use objc::{msg_send, sel, sel_impl};
-                                    unsafe {
-                                        let _: () = msg_send![ns_win as id, setAlphaValue: 0.0f64];
-                                    }
-                                }
-                                let _ = main_win_clone.set_fullscreen(false);
-                                let win_for_hide = main_win_clone.clone();
-                                std::thread::spawn(move || {
-                                    // Wait for macOS fullscreen exit animation to complete
-                                    std::thread::sleep(std::time::Duration::from_millis(1000));
-                                    let _ = win_for_hide.hide();
-                                    // Restore alpha so window is visible next time it's shown
-                                    #[cfg(target_os = "macos")]
-                                    if let Ok(ns_win) = win_for_hide.ns_window() {
-                                        use cocoa::base::id;
-                                        use objc::{msg_send, sel, sel_impl};
-                                        unsafe {
-                                            let _: () = msg_send![ns_win as id, setAlphaValue: 1.0f64];
-                                        }
-                                    }
-                                });
-                            } else {
-                                let _ = main_win_clone.hide();
-                            }
+                            commands::window_chrome::handle_close_requested(
+                                &close_app_handle,
+                                &main_win_clone,
+                            );
                         }
                         // Re-apply traffic light positions after window resize,
                         // because macOS resets button positions during resize/animations.

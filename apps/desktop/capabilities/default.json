@@ -2,8 +2,8 @@
   "$schema": "../gen/schemas/desktop-schema.json",
   "identifier": "default",
   "description": "Default capabilities for the main window",
-  "windows": ["main", "ws-*"],
-  "webviews": ["main", "wv-*", "ws-*"],
+  "windows": ["main", "ws-*", "local-agent-panel"],
+  "webviews": ["main", "wv-*", "ws-*", "local-agent-panel"],
   "remote": {
     "urls": ["https://*", "http://*"]
   },
