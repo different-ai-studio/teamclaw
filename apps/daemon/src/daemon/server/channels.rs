@@ -415,6 +415,25 @@ impl DaemonServer {
             mgr.shutdown().await;
         }
     }
+
+    /// Full graceful exit: channels + local runtimes (`opencode serve` tree)
+    /// + discovery files (sock / http.port). Pidfile is removed by `PidfileGuard`
+    /// when main returns; `amuxd stop` also calls `finalize_stop` as a safety net.
+    pub(crate) async fn shutdown_for_exit(&mut self) {
+        info!("daemon shutdown: draining channels and local runtimes");
+        self.shutdown_channels().await;
+        {
+            let mut agents = self.agents.lock().await;
+            agents.shutdown_for_exit().await;
+        }
+        // Clear discovery files before the process exits so a racing desktop
+        // health probe cannot treat a dying daemon as healthy.
+        #[cfg(unix)]
+        {
+            let _ = std::fs::remove_file(crate::config::DaemonConfig::sock_path());
+        }
+        let _ = std::fs::remove_file(crate::config::DaemonConfig::http_port_path());
+    }
 }
 
 /// Detect placeholder / half-resolved send targets that must never reach a

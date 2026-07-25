@@ -1283,8 +1283,17 @@ impl WeComGateway {
         let trimmed_early = text_content.trim();
         if !trimmed_early.is_empty() && trimmed_early.starts_with('/') {
             if let Some((cmd_name, _)) = commands::parse_slash(trimmed_early) {
-                let needs_session =
-                    matches!(cmd_name.as_str(), "stop" | "reset" | "model" | "sessions" | "agents" | "workspaces" | "clear" | "ctx");
+                let needs_session = matches!(
+                    cmd_name.as_str(),
+                    "stop"
+                        | "reset"
+                        | "model"
+                        | "sessions"
+                        | "agents"
+                        | "workspaces"
+                        | "clear"
+                        | "ctx"
+                );
                 if !needs_session {
                     // /help or any ACP-advertised command that doesn't need a session
                     // is handled generically; unknown commands also land here.
@@ -1314,7 +1323,10 @@ impl WeComGateway {
                         let _ = self
                             .send_reply(
                                 &req_id,
-                                &i18n::t(i18n::MsgKey::UnknownCommand(&format!("/{cmd_name}")), locale),
+                                &i18n::t(
+                                    i18n::MsgKey::UnknownCommand(&format!("/{cmd_name}")),
+                                    locale,
+                                ),
                                 &ws_sink,
                             )
                             .await;
@@ -1446,7 +1458,10 @@ impl WeComGateway {
                 let _ = self
                     .send_reply(
                         &req_id,
-                        &i18n::t(i18n::MsgKey::UnknownCommand(&format!("/{cmd_name}")), locale),
+                        &i18n::t(
+                            i18n::MsgKey::UnknownCommand(&format!("/{cmd_name}")),
+                            locale,
+                        ),
                         &ws_sink,
                     )
                     .await;
@@ -1472,9 +1487,16 @@ impl WeComGateway {
         // `inline_data_url` is set for small images so the Tauri/iOS clients can
         // render an actual thumbnail (same convention the desktop client's own
         // upload path uses) instead of a bare filename placeholder.
+        type AttachmentDescriptor = (
+            String,
+            String,
+            String,
+            usize,
+            Option<String>,
+            Option<String>,
+        );
         const INLINE_IMAGE_MAX_BYTES: usize = 5 * 1024 * 1024;
-        let mut attachment_descriptors: Vec<(String, String, String, usize, Option<String>, Option<String>)> =
-            Vec::new();
+        let mut attachment_descriptors: Vec<AttachmentDescriptor> = Vec::new();
         let mut upload_handles: Vec<tokio::task::JoinHandle<Result<String, String>>> = Vec::new();
         let mut local_paths_for_prompt: Vec<String> = Vec::new();
 
@@ -1495,15 +1517,16 @@ impl WeComGateway {
                 f.filename,
             );
 
-            let inline_data_url = if f.mime.starts_with("image/") && f.bytes.len() <= INLINE_IMAGE_MAX_BYTES {
-                Some(format!(
-                    "data:{};base64,{}",
-                    f.mime,
-                    base64::engine::general_purpose::STANDARD.encode(&f.bytes)
-                ))
-            } else {
-                None
-            };
+            let inline_data_url =
+                if f.mime.starts_with("image/") && f.bytes.len() <= INLINE_IMAGE_MAX_BYTES {
+                    Some(format!(
+                        "data:{};base64,{}",
+                        f.mime,
+                        base64::engine::general_purpose::STANDARD.encode(&f.bytes)
+                    ))
+                } else {
+                    None
+                };
 
             attachment_descriptors.push((
                 bucket_path.clone(),
@@ -1663,7 +1686,10 @@ impl WeComGateway {
             )
             .await
         {
-            eprintln!("[WeCom] record_message_with_attachments (user) failed: {}", e);
+            eprintln!(
+                "[WeCom] record_message_with_attachments (user) failed: {}",
+                e
+            );
         }
 
         if let Err(e) = self
@@ -2315,7 +2341,6 @@ impl WeComGateway {
             .await
             .map_err(|e| format!("Failed to send {}: {}", media_type, e))
     }
-
 }
 
 /// Map a filename to a WeCom `msgtype` string (`image` / `voice` / `video` /

@@ -1,4 +1,5 @@
 pub mod acp_debug_log;
+pub mod amuxd_supervisor;
 pub mod clawhub;
 pub mod cron;
 pub mod daemon_http;

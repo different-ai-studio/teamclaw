@@ -43,7 +43,7 @@ teamclaw-types = { path = "../../crates/teamclaw-types" }
 teamclaw-runtime-env = { path = "../../crates/teamclaw-runtime-env" }
 teamclaw-transport = { path = "../../crates/teamclaw-transport" }
 indexmap = { version = "2", features = ["serde"] }
-tokio = { version = "1", features = ["rt-multi-thread", "macros", "time", "sync", "net", "process", "io-util"] }
+tokio = { version = "1", features = ["rt-multi-thread", "macros", "time", "sync", "net", "process", "io-util", "signal"] }
 reqwest = { version = "0.12", default-features = false, features = ["json", "blocking", "stream", "rustls-tls-native-roots"] }
 rumqttc = { version = "0.24", features = ["websocket"] }
 notify = { version = "8", features = ["macos_fsevent"] }

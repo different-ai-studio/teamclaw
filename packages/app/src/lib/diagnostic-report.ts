@@ -198,7 +198,6 @@ function buildLivePathHint(input: {
   daemonLiveConnected: boolean
 }): string | null {
   const cloudOk = input.cloudReachable
-  const mqttOk = input.mqttProbeOk === true || input.mqttConnected === true
   const mqttBad = input.mqttProbeOk === false || input.mqttConnected === false
   if (!cloudOk || !mqttBad || !input.daemonLiveConnected) return null
   return 'Cloud API 可达，但 MQTT 不可用；本地 daemon SSE 快路径仍在线，同机流式可能正常而跨设备同步失败'

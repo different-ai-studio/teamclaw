@@ -76,7 +76,9 @@ pub(crate) struct Route {
 }
 
 pub(crate) struct Shared {
-    pub(crate) serve: ServeSupervisor,
+    /// Shared with settings/OAuth so provider APIs use the same serve process
+    /// as chat (no second per-workspace `opencode serve`).
+    pub(crate) serve: Arc<ServeSupervisor>,
     /// opencode session id → route.
     pub(crate) routes: parking_lot::Mutex<HashMap<String, Route>>,
     /// permission id → opencode session id (for the reply endpoint path).
@@ -112,7 +114,7 @@ impl Default for SseTransportState {
 impl Shared {
     fn new() -> Arc<Self> {
         Arc::new(Self {
-            serve: ServeSupervisor::new(),
+            serve: Arc::new(ServeSupervisor::new()),
             routes: parking_lot::Mutex::new(HashMap::new()),
             permissions: parking_lot::Mutex::new(HashMap::new()),
             questions: parking_lot::Mutex::new(HashMap::new()),
@@ -215,6 +217,11 @@ impl AcpHostPool {
             shared: Shared::new(),
             cmd_tx: std::sync::OnceLock::new(),
         }
+    }
+
+    /// Handle to the global serve supervisor (shared with settings/OAuth).
+    pub fn serve_supervisor(&self) -> Arc<ServeSupervisor> {
+        Arc::clone(&self.shared.serve)
     }
 
     /// Global command sender; spawns the command loop on first use (requires a

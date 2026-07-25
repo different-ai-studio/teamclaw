@@ -1,5 +1,5 @@
-use crate::mqtt::{ClientConfig, MqttBus, MqttClient};
 use crate::mqtt::client::{probe_broker, MqttProbeResult};
+use crate::mqtt::{ClientConfig, MqttBus, MqttClient};
 use rumqttc::QoS;
 use serde::{Deserialize, Serialize};
 use std::time::Duration;
@@ -130,10 +130,7 @@ pub async fn mqtt_probe(
     use_tls: bool,
     timeout_ms: Option<u64>,
 ) -> Result<MqttProbeResult, String> {
-    let client_id = format!(
-        "teamclaw-probe-{}",
-        uuid::Uuid::new_v4().simple().to_string()
-    );
+    let client_id = format!("teamclaw-probe-{}", uuid::Uuid::new_v4().simple());
     let cfg = ClientConfig {
         broker_url,
         broker_host,

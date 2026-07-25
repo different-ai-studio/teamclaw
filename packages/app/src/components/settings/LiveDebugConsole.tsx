@@ -30,6 +30,7 @@ type LiveTab = 'console' | 'state' | 'disk'
 
 export interface LogTailsExpanded {
   app: string | null
+  amuxdManaged: string | null
   amuxdOut: string | null
   amuxdErr: string | null
   acpStream: string | null
@@ -445,12 +446,17 @@ export const LiveDebugConsole = React.memo(function LiveDebugConsole() {
               emptyLabel={t('settings.diagnostics.liveConsole.noLog', '暂无日志或文件不存在')}
             />
             <DiskLogPanel
-              title={t('settings.diagnostics.liveConsole.daemonOutLog', 'Daemon stdout')}
+              title={t('settings.diagnostics.liveConsole.daemonManagedLog', 'Daemon (managed)')}
+              content={diskLogs?.amuxdManaged ?? null}
+              emptyLabel={t('settings.diagnostics.liveConsole.noLog', '暂无日志或文件不存在')}
+            />
+            <DiskLogPanel
+              title={t('settings.diagnostics.liveConsole.daemonOutLog', 'Daemon stdout (legacy)')}
               content={diskLogs?.amuxdOut ?? null}
               emptyLabel={t('settings.diagnostics.liveConsole.noLog', '暂无日志或文件不存在')}
             />
             <DiskLogPanel
-              title={t('settings.diagnostics.liveConsole.daemonErrLog', 'Daemon stderr')}
+              title={t('settings.diagnostics.liveConsole.daemonErrLog', 'Daemon stderr (legacy)')}
               content={diskLogs?.amuxdErr ?? null}
               emptyLabel={t('settings.diagnostics.liveConsole.noLog', '暂无日志或文件不存在')}
             />

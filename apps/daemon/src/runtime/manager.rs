@@ -229,6 +229,14 @@ impl RuntimeManager {
         self.refresh_coordinator = Some(coordinator);
     }
 
+    /// Shared global `opencode serve` supervisor (settings/OAuth + chat).
+    /// `None` when the local agent backend is not opencode HTTP (e.g. pi).
+    pub fn opencode_serve_supervisor(
+        &self,
+    ) -> Option<Arc<crate::runtime::opencode_http::supervisor::ServeSupervisor>> {
+        self.acp_host_pool.opencode_serve_supervisor()
+    }
+
     pub fn new(
         launch_configs: HashMap<amux::AgentType, AgentLaunchConfig>,
         backend: Option<Arc<dyn Backend>>,
@@ -726,6 +734,23 @@ impl RuntimeManager {
         }
     }
 
+    /// Full local-runtime teardown for daemon exit (`amuxd stop` / SIGTERM).
+    /// Stops every session handle, then kills backend host processes
+    /// (`opencode serve` process group including MCP children).
+    pub async fn shutdown_for_exit(&mut self) {
+        let ids = self.agent_ids();
+        for id in ids {
+            let _ = self.stop_agent(&id).await;
+        }
+        let removed = self
+            .acp_host_pool
+            .evict_agent_types(&[amux::AgentType::Opencode, amux::AgentType::Codex]);
+        info!(
+            removed_hosts = removed,
+            "local agent backends shut down for daemon exit"
+        );
+    }
+
     /// Send a prompt to an existing agent via ACP, draining buffered
     /// `inject_context` instructions and `pending_silent` messages first.
     /// Returns the drained silent message IDs (empty when none existed).
@@ -1057,7 +1082,6 @@ impl RuntimeManager {
         Some(handle.to_proto_info(current, commands))
     }
 
-    #[allow(dead_code)]
     pub fn agent_ids(&self) -> Vec<String> {
         self.agents.keys().cloned().collect()
     }
