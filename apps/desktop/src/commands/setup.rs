@@ -81,7 +81,7 @@ fn locate_bundled_sidecar(base_name: &str) -> Option<PathBuf> {
 /// Run the bundled `amuxd doctor` and return its parsed JSON (opencode/git/amuxd
 /// status). amuxd resolves opencode/amuxd by absolute path, so this is accurate
 /// even when the app/daemon PATH excludes those dirs.
-async fn read_doctor<R: Runtime>(
+pub(crate) async fn read_doctor<R: Runtime>(
     app: &AppHandle<R>,
     local_agent: Option<&str>,
 ) -> Option<serde_json::Value> {

@@ -7,6 +7,7 @@ pub mod daemon_installer;
 pub mod daemon_live;
 pub mod daemon_onboarding;
 pub mod deps;
+pub mod diagnostics;
 pub mod env_vars;
 pub mod filewatcher;
 pub mod gateway;

@@ -597,6 +597,20 @@ impl DaemonServer {
             }
         };
 
+        if !session_id.is_empty() {
+            if let Err(e) = teamclaw_runtime_env::write_active_session_id(
+                Path::new(&resolved_worktree),
+                session_id,
+            ) {
+                warn!(
+                    session_id,
+                    worktree = %resolved_worktree,
+                    error = %e,
+                    "apply_start_runtime: failed to stamp active session id for MCP introspect"
+                );
+            }
+        }
+
         if remote_mcp_ready {
             self.bind_remote_tool_member(&new_id, session_id, requester_actor_id, &team_id)
                 .await;

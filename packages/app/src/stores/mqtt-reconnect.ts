@@ -1,5 +1,13 @@
 import { create } from 'zustand'
 
+function logMqttNetworkDiag(event: string, data?: Record<string, unknown>): void {
+  void import('@/lib/mqtt-diagnostics')
+    .then(({ recordMqttDiag }) => {
+      recordMqttDiag('mqtt-reconnect', event, data)
+    })
+    .catch(() => {})
+}
+
 interface MqttReconnectState {
   nonce: number
   /**
@@ -171,6 +179,9 @@ export const useMqttReconnectStore = create<MqttReconnectState>((set, get) => ({
         let disconnectedEscalation: ReturnType<typeof setTimeout> | null = null
         subscribeBrowserMqttState((state) => {
           setConnected(state === 'connected' ? true : state === 'disconnected' ? false : null)
+          if (state === 'connected' || state === 'disconnected') {
+            logMqttNetworkDiag('state', { connected: state === 'connected', transport: 'browser' })
+          }
           if (state === 'connected' && disconnectedEscalation) {
             clearTimeout(disconnectedEscalation)
             disconnectedEscalation = null
@@ -186,6 +197,7 @@ export const useMqttReconnectStore = create<MqttReconnectState>((set, get) => ({
         })
         subscribeBrowserMqttError((message) => {
           setError(message)
+          logMqttNetworkDiag('error', { message, transport: 'browser' })
           if (isMqttAuthFailure(message)) {
             void recoverMqttCredentials(get)
           }
@@ -208,11 +220,16 @@ export const useMqttReconnectStore = create<MqttReconnectState>((set, get) => ({
       await probe()
       try {
         const { listen } = await import('@tauri-apps/api/event')
-        await listen<boolean>('mqtt:connected', (e) => setConnected(!!e.payload))
+        await listen<boolean>('mqtt:connected', (e) => {
+          const connected = !!e.payload
+          setConnected(connected)
+          logMqttNetworkDiag('state', { connected, transport: 'tauri' })
+        })
         await listen<string>('mqtt:error', (e) => {
           if (!e.payload) return
           const msg = String(e.payload)
           setError(msg)
+          logMqttNetworkDiag('error', { message: msg, transport: 'tauri' })
           if (isMqttAuthFailure(msg)) {
             void recoverMqttCredentials(get)
           }

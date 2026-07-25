@@ -4,7 +4,7 @@ const FALLBACK_VERSION = "0.2.3"
 
 let cachedVersion: string | null = null
 
-async function fetchAppVersion(): Promise<string> {
+async function fetchAppVersionInternal(): Promise<string> {
   if (cachedVersion) return cachedVersion
 
   try {
@@ -18,16 +18,20 @@ async function fetchAppVersion(): Promise<string> {
   }
 }
 
-export function useAppVersion(): string {
-  const [version, setVersion] = useState(cachedVersion || FALLBACK_VERSION)
-
-  useEffect(() => {
-    fetchAppVersion().then(setVersion)
-  }, [])
-
-  return version
+export async function fetchAppVersion(): Promise<string> {
+  return fetchAppVersionInternal()
 }
 
 export function getAppVersion(): string {
   return cachedVersion || FALLBACK_VERSION
+}
+
+export function useAppVersion(): string {
+  const [version, setVersion] = useState(cachedVersion || FALLBACK_VERSION)
+
+  useEffect(() => {
+    fetchAppVersionInternal().then(setVersion)
+  }, [])
+
+  return version
 }
