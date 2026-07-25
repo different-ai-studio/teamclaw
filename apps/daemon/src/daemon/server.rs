@@ -926,16 +926,14 @@ impl DaemonServer {
             > = Some(std::sync::Arc::new(
                 crate::config::OpenCodeCompatStore::new(),
             ));
-            let opencode_binary = crate::opencode_install::resolve_binary(
-                self.config
-                    .agents
-                    .opencode
-                    .as_ref()
-                    .map(|c| c.binary.as_str()),
-            );
-            let opencode_settings = Some(std::sync::Arc::new(
-                crate::opencode_settings::OpenCodeSettingsService::new(opencode_binary),
-            ));
+            let opencode_settings = {
+                let manager = self.agents.lock().await;
+                manager.opencode_serve_supervisor().map(|serve| {
+                    std::sync::Arc::new(
+                        crate::opencode_settings::OpenCodeSettingsService::with_global_serve(serve),
+                    )
+                })
+            };
             match crate::http::spawn(
                 http_cfg,
                 meta,
@@ -1538,7 +1536,7 @@ impl DaemonServer {
                     biased;
                     _ = &mut shutdown => {
                         info!("shutdown signal received, draining channels");
-                        self.shutdown_channels().await;
+                        self.shutdown_for_exit().await;
                         let _ = std::fs::remove_file(&sock_path);
                         return Ok(());
                     }
@@ -1546,7 +1544,7 @@ impl DaemonServer {
                         match sock_cmd {
                             Some(SockCommand::Shutdown) => {
                                 info!("shutdown control command received, draining channels");
-                                self.shutdown_channels().await;
+                                self.shutdown_for_exit().await;
                                 let _ = std::fs::remove_file(&sock_path);
                                 return Ok(());
                             }
@@ -1943,7 +1941,7 @@ impl DaemonServer {
                         if let Some(nats) = &self.nats {
                             let _ = nats.announce_offline(&self.config.actor.name).await;
                         }
-                        self.shutdown_channels().await;
+                        self.shutdown_for_exit().await;
                         let _ = std::fs::remove_file(&sock_path);
                         return Ok(());
                     }
@@ -1954,7 +1952,7 @@ impl DaemonServer {
                                 if let Some(nats) = &self.nats {
                                     let _ = nats.announce_offline(&self.config.actor.name).await;
                                 }
-                                self.shutdown_channels().await;
+                                self.shutdown_for_exit().await;
                                 let _ = std::fs::remove_file(&sock_path);
                                 return Ok(());
                             }

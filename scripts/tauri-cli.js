@@ -13,15 +13,18 @@ const isWindows = platform === "win32";
 const sub = args[0];
 
 /**
- * Strip dev-only onboarding skip flags and expose them to Vite via VITE_* env vars.
+ * Strip desktop-dev-only flags and expose them via env before sidecars / tauri run.
  *
  * Usage:
  *   pnpm tauri:dev -- --skip-setup
  *   pnpm tauri:dev -- --skip-daemon-onboarding
- *   pnpm tauri:dev -- --skip-setup --skip-daemon-onboarding
+ *   pnpm tauri:dev -- --force-amuxd
+ *   pnpm tauri:dev:daemon
  *
  * Aliases: --skip-onboarding → --skip-daemon-onboarding
- * Env fallbacks: TEAMCLAW_SKIP_SETUP=1, TEAMCLAW_SKIP_DAEMON_ONBOARDING=1
+ *          --rebuild-daemon / --rebuild-amuxd → --force-amuxd
+ * Env fallbacks: TEAMCLAW_SKIP_SETUP=1, TEAMCLAW_SKIP_DAEMON_ONBOARDING=1,
+ *                TEAMCLAW_FORCE_AMUXD_SIDECAR=1
  */
 function applyDevSkipFlags(argv, env) {
   if (argv[0] !== "dev") {
@@ -33,6 +36,9 @@ function applyDevSkipFlags(argv, env) {
   let skipDaemonOnboarding =
     env.TEAMCLAW_SKIP_DAEMON_ONBOARDING === "1" ||
     env.VITE_TEAMCLAW_SKIP_DAEMON_ONBOARDING === "true";
+  let forceAmuxd =
+    env.TEAMCLAW_FORCE_AMUXD_SIDECAR === "1" ||
+    env.TEAMCLAW_FORCE_AMUXD_SIDECAR === "true";
 
   const filtered = [];
   for (const arg of argv) {
@@ -44,6 +50,14 @@ function applyDevSkipFlags(argv, env) {
       skipDaemonOnboarding = true;
       continue;
     }
+    if (
+      arg === "--force-amuxd" ||
+      arg === "--rebuild-daemon" ||
+      arg === "--rebuild-amuxd"
+    ) {
+      forceAmuxd = true;
+      continue;
+    }
     filtered.push(arg);
   }
 
@@ -53,10 +67,13 @@ function applyDevSkipFlags(argv, env) {
   if (skipDaemonOnboarding) {
     env.VITE_TEAMCLAW_SKIP_DAEMON_ONBOARDING = "true";
   }
+  if (forceAmuxd) {
+    env.TEAMCLAW_FORCE_AMUXD_SIDECAR = "1";
+  }
 
-  if (skipSetup || skipDaemonOnboarding) {
+  if (skipSetup || skipDaemonOnboarding || forceAmuxd) {
     console.log(
-      `[tauri-cli] dev onboarding skips: setup=${skipSetup}, daemon=${skipDaemonOnboarding}`,
+      `[tauri-cli] dev flags: setup_skip=${skipSetup}, daemon_onboarding_skip=${skipDaemonOnboarding}, force_amuxd=${forceAmuxd}`,
     );
   }
 

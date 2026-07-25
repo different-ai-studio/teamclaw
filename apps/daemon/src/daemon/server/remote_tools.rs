@@ -7,16 +7,14 @@ use tokio::sync::oneshot;
 
 use super::DaemonServer;
 
-fn stamp_active_session_for_runtime(
-    worktree: &str,
-    teamclaw_session_id: &str,
-) {
+fn stamp_active_session_for_runtime(worktree: &str, teamclaw_session_id: &str) {
     if teamclaw_session_id.is_empty() || worktree.is_empty() {
         return;
     }
-    if let Err(e) =
-        teamclaw_runtime_env::write_active_session_id(std::path::Path::new(worktree), teamclaw_session_id)
-    {
+    if let Err(e) = teamclaw_runtime_env::write_active_session_id(
+        std::path::Path::new(worktree),
+        teamclaw_session_id,
+    ) {
         tracing::warn!(
             worktree,
             session_id = teamclaw_session_id,

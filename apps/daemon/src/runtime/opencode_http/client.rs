@@ -60,6 +60,14 @@ impl ServeClient {
         }
     }
 
+    pub fn base_url(&self) -> &str {
+        &self.base
+    }
+
+    pub fn password(&self) -> &str {
+        &self.password
+    }
+
     fn req(&self, method: reqwest::Method, path: &str, directory: &str) -> reqwest::RequestBuilder {
         let mut rb = self
             .http

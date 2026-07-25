@@ -144,68 +144,65 @@ impl DaemonServer {
         // ids). With the current "per-run new session" cron semantics every
         // call hits the create branch, but the lookup-first shape stays so
         // future code can adopt session reuse without changing the handler.
-        let (remote_session_id, acp_sid): (String, String) =
-            if let Some(pair) = self.cron_sessions.get_pair(parsed.session_key) {
-                pair
-            } else {
-                // Confirm we have a local primary agent runtime.
-                let runtime_count = self.agents.lock().await.agent_count();
-                if runtime_count == 0 {
-                    anyhow::bail!("no local agent runtime");
-                }
+        let (remote_session_id, acp_sid): (String, String) = if let Some(pair) =
+            self.cron_sessions.get_pair(parsed.session_key)
+        {
+            pair
+        } else {
+            // Confirm we have a local primary agent runtime.
+            let runtime_count = self.agents.lock().await.agent_count();
+            if runtime_count == 0 {
+                anyhow::bail!("no local agent runtime");
+            }
 
-                // Reuse the cloud session `cron-prepare-session` already created
-                // for this run (the common path when Run Now goes through the
-                // scheduler); otherwise create it now (e.g. scheduled runs).
-                let sb_sid = match self.cron_sessions.take_prepared(parsed.session_key) {
-                    Some(prepared) => prepared,
-                    None => {
-                        self.create_cron_cloud_session(
-                            &team_id,
-                            parsed.session_key,
-                            parsed.job_name,
-                        )
+            // Reuse the cloud session `cron-prepare-session` already created
+            // for this run (the common path when Run Now goes through the
+            // scheduler); otherwise create it now (e.g. scheduled runs).
+            let sb_sid = match self.cron_sessions.take_prepared(parsed.session_key) {
+                Some(prepared) => prepared,
+                None => {
+                    self.create_cron_cloud_session(&team_id, parsed.session_key, parsed.job_name)
                         .await?
-                    }
-                };
-
-                // Resolve the job's pinned backend (if any) against the
-                // daemon's configured agents. `None` (no agent_type on the
-                // wire) keeps the "auto" behavior: RuntimeManager falls back to
-                // default_agent_type. An explicit-but-unconfigured backend is
-                // rerouted by resolve_requested_agent_type rather than failing.
-                let agent_type_override = parsed
-                    .agent_type
-                    .and_then(agent_type_from_name)
-                    .map(|requested| resolve_requested_agent_type(&self.config, requested));
-
-                let mut mgr = self.agents.lock().await;
-                let acp_sid = mgr
-                    .create_gateway_session_with_model(
-                        &team_id,
-                        parsed.session_key,                        // logical id
-                        &format!("cron://{}", parsed.session_key), // binding
-                        "cron",                                    // title (display only)
-                        parsed.model_override.clone(),
-                        Some(&sb_sid), // bind AgentReply to the cloud session
-                        Some(working_directory.as_str()),
-                        agent_type_override,
-                    )
-                    .await
-                    .map_err(|e| anyhow::anyhow!("spawn failed: {e}"))?;
-                drop(mgr);
-
-                tracing::debug!(
-                    session_key = %parsed.session_key,
-                    remote_session_id = %sb_sid,
-                    acp_session_id = %acp_sid,
-                    "cron: created cloud session + spawned ACP runtime"
-                );
-
-                self.cron_sessions
-                    .insert_pair(parsed.session_key, &sb_sid, &acp_sid);
-                (sb_sid, acp_sid)
+                }
             };
+
+            // Resolve the job's pinned backend (if any) against the
+            // daemon's configured agents. `None` (no agent_type on the
+            // wire) keeps the "auto" behavior: RuntimeManager falls back to
+            // default_agent_type. An explicit-but-unconfigured backend is
+            // rerouted by resolve_requested_agent_type rather than failing.
+            let agent_type_override = parsed
+                .agent_type
+                .and_then(agent_type_from_name)
+                .map(|requested| resolve_requested_agent_type(&self.config, requested));
+
+            let mut mgr = self.agents.lock().await;
+            let acp_sid = mgr
+                .create_gateway_session_with_model(
+                    &team_id,
+                    parsed.session_key,                        // logical id
+                    &format!("cron://{}", parsed.session_key), // binding
+                    "cron",                                    // title (display only)
+                    parsed.model_override.clone(),
+                    Some(&sb_sid), // bind AgentReply to the cloud session
+                    Some(working_directory.as_str()),
+                    agent_type_override,
+                )
+                .await
+                .map_err(|e| anyhow::anyhow!("spawn failed: {e}"))?;
+            drop(mgr);
+
+            tracing::debug!(
+                session_key = %parsed.session_key,
+                remote_session_id = %sb_sid,
+                acp_session_id = %acp_sid,
+                "cron: created cloud session + spawned ACP runtime"
+            );
+
+            self.cron_sessions
+                .insert_pair(parsed.session_key, &sb_sid, &acp_sid);
+            (sb_sid, acp_sid)
+        };
 
         // Cron drives the ACP turn directly (bypassing session/live routing),
         // so the job prompt never lands in Cloud the way a desktop-typed
@@ -645,10 +642,10 @@ impl DaemonServer {
 #[cfg(test)]
 mod tests {
     use super::CronSessionCache;
-    use crate::daemon::server::DaemonServer;
     use crate::backend::mock::MockBackend;
     use crate::backend::{AgentDefaults, Backend, WorkspaceRow};
     use crate::daemon::server::tests::test_server_with_cloud_api;
+    use crate::daemon::server::DaemonServer;
     use std::sync::Arc;
 
     #[test]
@@ -667,7 +664,10 @@ mod tests {
             DaemonServer::cron_job_id_from_session_key("gateway/wecom/x"),
             None
         );
-        assert_eq!(DaemonServer::cron_job_id_from_session_key("cron//run"), None);
+        assert_eq!(
+            DaemonServer::cron_job_id_from_session_key("cron//run"),
+            None
+        );
     }
 
     #[tokio::test]

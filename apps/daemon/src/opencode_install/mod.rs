@@ -451,25 +451,43 @@ pub fn doctor() -> DoctorReport {
         path: None,
     };
 
+    let bundled_version = env!("CARGO_PKG_VERSION").to_string();
+    // When doctor runs as the desktop sidecar, report *this* binary as amuxd
+    // (desktop-managed mode does not copy into ~/.amuxd/bin).
+    let self_exe = std::env::current_exe().ok();
     let amuxd_path = crate::config::DaemonConfig::config_dir()
         .join("bin")
         .join(if cfg!(windows) { "amuxd.exe" } else { "amuxd" });
-    let amuxd_present = amuxd_path.exists();
-    let bundled_version = env!("CARGO_PKG_VERSION").to_string();
-    let installed_version = if amuxd_present {
-        amuxd_installed_version(&amuxd_path)
+    let (amuxd_present, installed_version, path, amuxd_satisfied) = if let Some(ref p) = self_exe {
+        (
+            true,
+            Some(bundled_version.clone()),
+            Some(p.to_string_lossy().to_string()),
+            true,
+        )
     } else {
-        None
+        let present = amuxd_path.exists();
+        let installed = if present {
+            amuxd_installed_version(&amuxd_path)
+        } else {
+            None
+        };
+        let satisfied = installed
+            .as_deref()
+            .map(|v| version_ge(v, &bundled_version))
+            .unwrap_or(false);
+        (
+            present,
+            installed,
+            present.then(|| amuxd_path.to_string_lossy().to_string()),
+            satisfied,
+        )
     };
-    let amuxd_satisfied = installed_version
-        .as_deref()
-        .map(|v| version_ge(v, &bundled_version))
-        .unwrap_or(false);
     let amuxd = AmuxdStatus {
         present: amuxd_present,
         installed_version,
         bundled_version,
-        path: amuxd_present.then(|| amuxd_path.to_string_lossy().to_string()),
+        path,
         satisfied: amuxd_satisfied,
     };
 

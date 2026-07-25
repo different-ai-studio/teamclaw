@@ -11,6 +11,7 @@ const h = vi.hoisted(() => ({
   invokeCalls: [] as string[],
   createInviteCalls: [] as Array<Record<string, unknown>>,
   installServiceShouldThrow: false,
+  restartManagedShouldThrow: false,
 }))
 
 vi.mock('@/lib/utils', () => ({ isTauri: () => h.isTauriVal }))
@@ -56,10 +57,12 @@ vi.mock('@tauri-apps/api/core', () => ({
     h.invokeCalls.push(cmd)
     if (cmd === 'get_daemon_team_id') return 't1'
     if (cmd === 'daemon_init') {
-      // Re-onboard rewrites credentials + install-service restarts the daemon,
-      // so the next /v1/info probe reports a healthy cloud session.
+      // Re-onboard rewrites credentials; managed restart reloads backend.toml.
       h.cloudAuthStatus = 'ok'
       return { actorId: 'actor-1', teamId: 't1' }
+    }
+    if (cmd === 'daemon_restart_managed' && h.restartManagedShouldThrow) {
+      throw new Error('managed amuxd restart failed')
     }
     if (cmd === 'daemon_install_service' && h.installServiceShouldThrow) {
       throw new Error('amuxd binary not found at ~/.amuxd/bin/amuxd')
@@ -91,6 +94,7 @@ beforeEach(() => {
   h.invokeCalls = []
   h.createInviteCalls = []
   h.installServiceShouldThrow = false
+  h.restartManagedShouldThrow = false
   reset()
 })
 
@@ -119,28 +123,27 @@ describe('daemon-onboarding checkCloudSession + autoHealCloudSession', () => {
     // Re-invite targets the existing actor (rebind, no orphan).
     expect(h.createInviteCalls).toHaveLength(1)
     expect(h.createInviteCalls[0]).toMatchObject({ targetActorId: 'actor-1', kind: 'agent' })
-    // amuxd init + install-service (kickstart -k restarts the daemon).
+    // amuxd init + managed restart (reload backend.toml).
     expect(h.invokeCalls).toContain('daemon_init')
-    expect(h.invokeCalls).toContain('daemon_install_service')
+    expect(h.invokeCalls).toContain('daemon_restart_managed')
     expect(s.cloudAuthExpired).toBe(false)
     expect(s.healError).toBeNull()
   })
 
-  it('onboard succeeds even when install-service fails (dev daemon: binary not deployed)', async () => {
-    // `amuxd init` already claimed the invite + wrote fresh credentials, so the
-    // onboard must complete. install-service only registers the launchd service,
-    // which fails for a dev daemon (cargo run / pnpm) — that must not trap the
-    // heal or re-flag the expired banner.
+  it('onboard fails when managed restart fails (no ensure_running fallback)', async () => {
+    // Credentials may be on disk, but the running daemon may still hold the
+    // old identity. ensure_running would no-op on a healthy stale daemon and
+    // fake success, so restart failure must surface as heal failure directly.
     h.cloudAuthStatus = 'expired'
     h.localActorId = 'actor-1'
     h.connectedAgents = [{ agent_id: 'actor-1', display_name: 'Build Bot', is_owner: true }]
-    h.installServiceShouldThrow = true
+    h.restartManagedShouldThrow = true
     await useDaemonOnboardingStore.getState().checkCloudSession()
     const s = useDaemonOnboardingStore.getState()
     expect(h.invokeCalls).toContain('daemon_init')
-    expect(h.invokeCalls).toContain('daemon_install_service')
-    expect(s.cloudAuthExpired).toBe(false)
-    expect(s.healError).toBeNull()
+    expect(h.invokeCalls).toContain('daemon_restart_managed')
+    expect(h.invokeCalls).not.toContain('daemon_ensure_running')
+    expect(s.healError).toBeTruthy()
   })
 
   it('expired + NOT owner: flags banner, no re-onboard, surfaces guidance', async () => {

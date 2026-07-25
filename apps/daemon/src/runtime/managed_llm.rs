@@ -128,8 +128,7 @@ impl ManagedLlmResolver {
     /// A `Unknown` resolution (no fresh cloud answer) leaves the file untouched.
     pub async fn reconcile_workspace(&self, workspace: &Path, team_id: &str) {
         let state = self.resolve(team_id).await;
-        let secrets =
-            teamclaw_runtime_env::secrets_for_team_provider(self.backend.actor_id());
+        let secrets = teamclaw_runtime_env::secrets_for_team_provider(self.backend.actor_id());
         if let Err(e) = teamclaw_runtime_env::sync_team_provider_on_disk(
             workspace,
             &state,

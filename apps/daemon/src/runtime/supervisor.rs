@@ -411,6 +411,21 @@ fn find_introspect_in_installed_app_bundles() -> Option<PathBuf> {
 }
 
 fn resolve_introspect_binary() -> Option<String> {
+    // Desktop-managed mode injects the bundled sidecar absolute path.
+    if let Ok(path) = std::env::var("TEAMCLAW_INTROSPECT_BIN") {
+        let trimmed = path.trim();
+        if !trimmed.is_empty() {
+            let p = std::path::Path::new(trimmed);
+            if p.is_file() {
+                return Some(trimmed.to_string());
+            }
+            tracing::warn!(
+                path = trimmed,
+                "TEAMCLAW_INTROSPECT_BIN set but file missing; falling back"
+            );
+        }
+    }
+
     if std::process::Command::new("sh")
         .arg("-lc")
         .arg("command -v teamclaw-introspect")
@@ -755,7 +770,10 @@ impl RuntimeSupervisor {
         let agent_type = manager.default_agent_type();
         let launch = manager.launch_config_for(agent_type);
         if !binary_available(&launch) {
-            return Err(format!("{} binary not available", backend_label(agent_type)));
+            return Err(format!(
+                "{} binary not available",
+                backend_label(agent_type)
+            ));
         }
         manager
             .probe_catalog_models(workspace_path)

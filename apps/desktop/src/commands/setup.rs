@@ -4,8 +4,6 @@ use tauri::{AppHandle, Emitter, Manager, Runtime};
 
 /// Tauri event name carrying `SetupProgress` to the first-run wizard UI.
 const SETUP_PROGRESS_EVENT: &str = "setup-progress";
-/// Per-user amuxd state directory (under the home dir).
-const AMUXD_DIR: &str = ".amuxd";
 
 /// One installable/checkable prerequisite shown in the first-run wizard.
 #[derive(Debug, Clone, Serialize)]
@@ -62,11 +60,6 @@ fn locate_bundled_amuxd() -> Option<PathBuf> {
     locate_bundled_sidecar("amuxd")
 }
 
-/// Locate the teamclaw-introspect MCP sidecar bundled with the app.
-fn locate_bundled_introspect() -> Option<PathBuf> {
-    locate_bundled_sidecar("teamclaw-introspect")
-}
-
 fn locate_bundled_sidecar(base_name: &str) -> Option<PathBuf> {
     let triple = target_triple();
     let dev = Path::new(env!("CARGO_MANIFEST_DIR"))
@@ -83,39 +76,6 @@ fn locate_bundled_sidecar(base_name: &str) -> Option<PathBuf> {
         }
     }
     None
-}
-
-fn copy_sidecar_into_amuxd_bin(src: &Path, dest_name: &str) -> Result<(), String> {
-    let home = dirs::home_dir().ok_or_else(|| "no home dir".to_string())?;
-    let bin_dir = home.join(AMUXD_DIR).join("bin");
-    std::fs::create_dir_all(&bin_dir).map_err(|e| e.to_string())?;
-    let dest = bin_dir.join(dest_name);
-    if let Err(copy_err) = std::fs::copy(src, &dest) {
-        #[cfg(windows)]
-        {
-            let old = dest.with_extension("exe.old");
-            let _ = std::fs::remove_file(&old);
-            std::fs::rename(&dest, &old).map_err(|e| {
-                format!("copy {dest_name} failed: {copy_err}; rename aside failed: {e}")
-            })?;
-            std::fs::copy(src, &dest)
-                .map_err(|e| format!("copy {dest_name} failed after rename: {e}"))?;
-        }
-        #[cfg(not(windows))]
-        {
-            return Err(format!("copy {dest_name} failed: {copy_err}"));
-        }
-    }
-    #[cfg(unix)]
-    {
-        use std::os::unix::fs::PermissionsExt;
-        let mut perms = std::fs::metadata(&dest)
-            .map_err(|e| e.to_string())?
-            .permissions();
-        perms.set_mode(0o755);
-        std::fs::set_permissions(&dest, perms).map_err(|e| e.to_string())?;
-    }
-    Ok(())
 }
 
 /// Run the bundled `amuxd doctor` and return its parsed JSON (opencode/git/amuxd
@@ -155,12 +115,10 @@ pub async fn setup_list_requirements<R: Runtime>(
 
     // `present` = no action needed (installed AND new enough). `version` = the
     // installed version, so the UI can show 安装 (none) vs 升级 (older) and which.
-    let amuxd = doctor.as_ref().map(|d| &d["amuxd"]);
-    let amuxd_satisfied = amuxd
-        .and_then(|a| a["satisfied"].as_bool())
-        .unwrap_or(false);
-    let amuxd_version = amuxd
-        .and_then(|a| a["installedVersion"].as_str())
+    // amuxd: desktop-managed sidecar — satisfied when the bundle includes it.
+    let amuxd_version = doctor
+        .as_ref()
+        .and_then(|d| d["amuxd"]["installedVersion"].as_str())
         .map(|s| s.to_string());
 
     // The agent-runtime row reflects the build's target: pi or opencode. Its
@@ -185,8 +143,23 @@ pub async fn setup_list_requirements<R: Runtime>(
             id: "amuxd".into(),
             title: "Agent daemon (amuxd)".into(),
             optional: false,
-            present: amuxd_satisfied,
-            version: amuxd_version,
+            // Desktop-managed: the bundled sidecar is the binary we run — no
+            // copy into ~/.amuxd/bin is required.
+            present: locate_bundled_amuxd().is_some(),
+            version: amuxd_version.or_else(|| {
+                locate_bundled_amuxd().and_then(|p| {
+                    std::process::Command::new(&p)
+                        .arg("--version")
+                        .output()
+                        .ok()
+                        .and_then(|o| {
+                            let s = String::from_utf8_lossy(&o.stdout);
+                            s.split_whitespace()
+                                .find(|t| t.chars().next().is_some_and(|c| c.is_ascii_digit()))
+                                .map(|t| t.to_string())
+                        })
+                })
+            }),
         },
         RequirementStatus {
             id: runtime_id.into(),
@@ -219,179 +192,6 @@ fn emit_progress<R: Runtime>(app: &AppHandle<R>, p: SetupProgress) {
     let _ = app.emit(SETUP_PROGRESS_EVENT, p);
 }
 
-/// True if the amuxd background service is already registered (so an amuxd copy is
-/// an in-place UPGRADE that must restart the running service, vs a fresh install).
-fn amuxd_service_registered() -> bool {
-    let Some(home) = dirs::home_dir() else {
-        return false;
-    };
-    #[cfg(target_os = "macos")]
-    {
-        home.join("Library/LaunchAgents/cc.ucar.amuxd.plist")
-            .exists()
-    }
-    #[cfg(target_os = "linux")]
-    {
-        home.join(".config/systemd/user/amuxd.service").exists()
-    }
-    #[cfg(target_os = "windows")]
-    {
-        let _ = home;
-        // Mirrors amuxd's own service registration (schtasks task "amuxd").
-        use std::os::windows::process::CommandExt;
-        const CREATE_NO_WINDOW: u32 = 0x0800_0000;
-        std::process::Command::new("schtasks")
-            .args(["/Query", "/TN", "amuxd"])
-            .creation_flags(CREATE_NO_WINDOW)
-            .output()
-            .map(|o| o.status.success())
-            .unwrap_or(false)
-    }
-    #[cfg(not(any(target_os = "macos", target_os = "linux", target_os = "windows")))]
-    {
-        let _ = home;
-        false
-    }
-}
-
-/// Path to the installed amuxd binary under ~/.amuxd/bin.
-fn installed_amuxd_path() -> Option<PathBuf> {
-    let home = dirs::home_dir()?;
-    let name = if cfg!(windows) { "amuxd.exe" } else { "amuxd" };
-    Some(home.join(AMUXD_DIR).join("bin").join(name))
-}
-
-/// True when ~/.amuxd/amuxd.pid records a still-alive process. Mirrors amuxd's
-/// own pidfile convention (written by `amuxd start`). A stale pidfile whose
-/// process is gone reads as not-running.
-fn amuxd_pid_is_running() -> bool {
-    let Some(home) = dirs::home_dir() else {
-        return false;
-    };
-    let pid_path = home.join(AMUXD_DIR).join("amuxd.pid");
-    let Ok(body) = std::fs::read_to_string(&pid_path) else {
-        return false;
-    };
-    let Ok(pid) = body.trim().parse::<i32>() else {
-        return false;
-    };
-    pid_alive(pid)
-}
-
-/// Poll the amuxd pidfile until the recorded process has exited (or `timeout`
-/// elapses). `amuxd stop` only sends SIGTERM and returns; the old process may
-/// hold the lock (~/.amuxd/amuxd.lock) for a moment longer while it shuts down.
-/// Starting the new amuxd before that lock is released is the root of the
-/// "amuxd is already running (lock held)" failure after an app update, so we
-/// wait for the old instance to actually go before relaunching.
-async fn wait_for_amuxd_stopped(timeout: std::time::Duration) {
-    let start = std::time::Instant::now();
-    while amuxd_pid_is_running() {
-        if start.elapsed() >= timeout {
-            eprintln!("[setup] warning: amuxd still running after stop timeout; proceeding anyway");
-            return;
-        }
-        tokio::time::sleep(std::time::Duration::from_millis(100)).await;
-    }
-}
-
-#[cfg(unix)]
-fn pid_alive(pid: i32) -> bool {
-    if pid <= 0 {
-        return false;
-    }
-    // kill(pid, 0): 0 if the process exists and we may signal it.
-    unsafe { libc::kill(pid, 0) == 0 }
-}
-
-#[cfg(windows)]
-fn pid_alive(pid: i32) -> bool {
-    if pid <= 0 {
-        return false;
-    }
-    use windows_sys::Win32::Foundation::{CloseHandle, STILL_ACTIVE};
-    use windows_sys::Win32::System::Threading::{
-        GetExitCodeProcess, OpenProcess, PROCESS_QUERY_LIMITED_INFORMATION,
-    };
-    unsafe {
-        let handle = OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, 0, pid as u32);
-        if handle.is_null() {
-            return false;
-        }
-        let mut code: u32 = 0;
-        let ok = GetExitCodeProcess(handle, &mut code) != 0;
-        CloseHandle(handle);
-        ok && code == STILL_ACTIVE as u32
-    }
-}
-
-#[cfg(not(any(unix, windows)))]
-fn pid_alive(_pid: i32) -> bool {
-    false
-}
-
-/// Launch the freshly-installed amuxd binary detached from the desktop process
-/// (new session on unix, DETACHED_PROCESS on Windows) so it outlives the app and
-/// serves the upgraded code. Used when no supervising service is registered.
-fn open_amuxd_log_append(name: &str) -> Result<std::fs::File, String> {
-    let home = dirs::home_dir().ok_or_else(|| "no home dir".to_string())?;
-    let dir = home.join(AMUXD_DIR);
-    std::fs::create_dir_all(&dir).map_err(|e| format!("create {}: {e}", dir.display()))?;
-    let path = dir.join(name);
-    std::fs::OpenOptions::new()
-        .create(true)
-        .append(true)
-        .open(&path)
-        .map_err(|e| format!("open {}: {e}", path.display()))
-}
-
-fn start_installed_amuxd_detached() -> Result<(), String> {
-    let exe = installed_amuxd_path().ok_or_else(|| "no home dir".to_string())?;
-    if !exe.exists() {
-        return Err(format!("amuxd binary not found at {}", exe.display()));
-    }
-    let mut cmd = std::process::Command::new(&exe);
-    cmd.arg("start");
-    #[cfg(unix)]
-    {
-        use std::os::unix::process::CommandExt;
-        // setsid so the child detaches from the desktop's session/controlling
-        // terminal and survives the app exiting.
-        unsafe {
-            cmd.pre_exec(|| {
-                libc::setsid();
-                Ok(())
-            });
-        }
-    }
-    #[cfg(windows)]
-    {
-        use std::os::windows::process::CommandExt;
-        const CREATE_NO_WINDOW: u32 = 0x0800_0000;
-        const DETACHED_PROCESS: u32 = 0x0000_0008;
-        cmd.creation_flags(CREATE_NO_WINDOW | DETACHED_PROCESS);
-    }
-    cmd.stdin(std::process::Stdio::null());
-    match open_amuxd_log_append("amuxd.out.log") {
-        Ok(file) => {
-            cmd.stdout(file);
-        }
-        Err(_) => {
-            cmd.stdout(std::process::Stdio::null());
-        }
-    }
-    match open_amuxd_log_append("amuxd.err.log") {
-        Ok(file) => {
-            cmd.stderr(file);
-        }
-        Err(_) => {
-            cmd.stderr(std::process::Stdio::null());
-        }
-    }
-    cmd.spawn().map_err(|e| format!("spawn amuxd start: {e}"))?;
-    Ok(())
-}
-
 /// Run a bundled `amuxd <args>` to completion; Err on non-zero exit.
 async fn run_amuxd_sidecar<R: Runtime>(app: &AppHandle<R>, args: &[&str]) -> Result<(), String> {
     use tauri_plugin_shell::process::CommandEvent;
@@ -415,102 +215,44 @@ async fn run_amuxd_sidecar<R: Runtime>(app: &AppHandle<R>, args: &[&str]) -> Res
     Ok(())
 }
 
-/// Copy the bundled amuxd binary into ~/.amuxd/bin/amuxd. On a fresh install this
-/// only places the binary (service registration happens after team onboarding). On
-/// an UPGRADE (service already registered) it re-registers + restarts the service so
-/// the new binary takes effect.
+/// Ensure the desktop-managed amuxd sidecar is running. No longer copies into
+/// `~/.amuxd/bin` or registers a background service.
 async fn install_amuxd<R: Runtime>(app: &AppHandle<R>) -> Result<(), String> {
     emit_progress(
         app,
         SetupProgress {
             id: "amuxd".into(),
             status: "started".into(),
-            line: None,
+            line: Some("starting managed amuxd".into()),
             error: None,
         },
     );
-    let src = locate_bundled_amuxd().ok_or_else(|| "bundled amuxd binary not found".to_string())?;
-    let amuxd_dest_name = if cfg!(windows) { "amuxd.exe" } else { "amuxd" };
-    copy_sidecar_into_amuxd_bin(&src, amuxd_dest_name)?;
-    if let Some(introspect_src) = locate_bundled_introspect() {
-        let introspect_dest_name = if cfg!(windows) {
-            "teamclaw-introspect.exe"
-        } else {
-            "teamclaw-introspect"
-        };
-        if let Err(e) = copy_sidecar_into_amuxd_bin(&introspect_src, introspect_dest_name) {
-            eprintln!("[setup] warning: failed to install teamclaw-introspect sidecar: {e}");
+    match crate::commands::amuxd_supervisor::AmuxdSupervisor::ensure_started(app).await {
+        Ok(()) => {
+            emit_progress(
+                app,
+                SetupProgress {
+                    id: "amuxd".into(),
+                    status: "done".into(),
+                    line: None,
+                    error: None,
+                },
+            );
+            Ok(())
         }
-    } else {
-        eprintln!("[setup] warning: bundled teamclaw-introspect binary not found");
-    }
-    let service_registered = amuxd_service_registered();
-    let was_running = amuxd_pid_is_running();
-    // Always stop any amuxd currently running BEFORE launching the new binary,
-    // whether it's service-managed or a stray detached instance left over from a
-    // previous version. Replacing the on-disk binary alone leaves the old process
-    // serving stale code AND holding ~/.amuxd/amuxd.lock; the freshly-started
-    // amuxd then exits with "amuxd is already running (lock held)" and the app
-    // reports "后台服务启动失败". Stopping unconditionally (and waiting for the
-    // lock to release) closes that failure across app updates.
-    if service_registered || was_running {
-        emit_progress(
-            app,
-            SetupProgress {
-                id: "amuxd".into(),
-                status: "running".into(),
-                line: Some("stopping old amuxd".into()),
-                error: None,
-            },
-        );
-        // `amuxd stop` SIGTERMs the running instance via its pidfile.
-        if let Err(e) = run_amuxd_sidecar(app, &["stop"]).await {
-            eprintln!("[setup] warning: failed to stop running amuxd before restart: {e}");
-        }
-        // Wait for the old process to release the lock so the new one can bind it.
-        wait_for_amuxd_stopped(std::time::Duration::from_secs(5)).await;
-    }
-    if service_registered {
-        emit_progress(
-            app,
-            SetupProgress {
-                id: "amuxd".into(),
-                status: "running".into(),
-                line: Some("restarting amuxd service".into()),
-                error: None,
-            },
-        );
-        // install-service does bootout+bootstrap (i.e. restart) when already registered.
-        run_amuxd_sidecar(app, &["install-service"]).await?;
-    } else if was_running {
-        // No supervising service, but an old amuxd was running (started detached).
-        // Relaunch the freshly-copied binary detached so it outlives the app. A
-        // fresh install (nothing running, no service) intentionally falls through
-        // here without starting amuxd — service registration happens after team
-        // onboarding, matching the prior behaviour.
-        emit_progress(
-            app,
-            SetupProgress {
-                id: "amuxd".into(),
-                status: "running".into(),
-                line: Some("restarting amuxd".into()),
-                error: None,
-            },
-        );
-        if let Err(e) = start_installed_amuxd_detached() {
-            eprintln!("[setup] warning: failed to restart amuxd after upgrade: {e}");
+        Err(e) => {
+            emit_progress(
+                app,
+                SetupProgress {
+                    id: "amuxd".into(),
+                    status: "failed".into(),
+                    line: None,
+                    error: Some(e.clone()),
+                },
+            );
+            Err(e)
         }
     }
-    emit_progress(
-        app,
-        SetupProgress {
-            id: "amuxd".into(),
-            status: "done".into(),
-            line: None,
-            error: None,
-        },
-    );
-    Ok(())
 }
 
 /// Run the bundled `amuxd install-opencode` sidecar, streaming its JSON progress lines.
@@ -734,40 +476,10 @@ fn install_git<R: Runtime>(app: &AppHandle<R>) -> Result<(), String> {
     }
 }
 
-/// Restart the locally-installed amuxd so it re-reads `daemon.toml`. Used after
-/// changing a restart-required config key (e.g. `agents.local_agent`, switching
-/// the local runtime between opencode and pi). Restarts the ALREADY-INSTALLED
-/// binary at `~/.amuxd/bin/amuxd` (never the bundled dev sidecar), so a running
-/// custom build is preserved across the switch.
-///
-/// When a supervising service is registered, `install-service` does a
-/// bootout+bootstrap (clean restart under launchd/systemd). Otherwise the
-/// running instance is stopped and relaunched detached. The daemon mints a new
-/// HTTP token on restart; callers re-exchange it on the next request (401 retry).
+/// Restart the desktop-managed amuxd so it re-reads `daemon.toml`.
 #[tauri::command]
-pub async fn restart_local_daemon() -> Result<(), String> {
-    let exe = installed_amuxd_path().ok_or_else(|| "no home dir".to_string())?;
-    if !exe.exists() {
-        return Err(format!("amuxd binary not found at {}", exe.display()));
-    }
-    if amuxd_service_registered() {
-        // install-service = bootout + bootstrap when already registered.
-        let out = std::process::Command::new(&exe)
-            .arg("install-service")
-            .output()
-            .map_err(|e| format!("spawn amuxd install-service: {e}"))?;
-        if !out.status.success() {
-            return Err(format!(
-                "amuxd install-service exited with {:?}: {}",
-                out.status.code(),
-                String::from_utf8_lossy(&out.stderr).trim()
-            ));
-        }
-        return Ok(());
-    }
-    // No supervisor: stop the running instance (best-effort) and relaunch detached.
-    let _ = std::process::Command::new(&exe).arg("stop").output();
-    start_installed_amuxd_detached()
+pub async fn restart_local_daemon<R: Runtime>(app: AppHandle<R>) -> Result<(), String> {
+    crate::commands::amuxd_supervisor::AmuxdSupervisor::restart(&app).await
 }
 
 #[tauri::command]

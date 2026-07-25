@@ -45,6 +45,11 @@ vi.mock('@tauri-apps/api/core', () => ({
   invoke: vi.fn(async (cmd: string, args?: unknown) => {
     h.invokeCalls.push(cmd)
     if (cmd === 'get_daemon_team_id') return h.daemonTeam
+    if (cmd === 'daemon_ensure_running' || cmd === 'daemon_restart_managed') {
+      if (h.installServiceShouldThrow) throw new Error('managed amuxd start boom')
+      return undefined
+    }
+    // Compat alias still exists in desktop; keep ignored if accidentally called.
     if (cmd === 'daemon_install_service') {
       if (h.installServiceShouldThrow) throw new Error('install-service boom')
       return undefined
@@ -127,6 +132,8 @@ describe('daemon-onboarding refresh() orchestration', () => {
     await useDaemonOnboardingStore.getState().refresh()
     expect(useDaemonOnboardingStore.getState().status).toBe('ready')
     // Healthy on first probe → no recovery attempt.
+    expect(h.invokeCalls).not.toContain('daemon_ensure_running')
+    expect(h.invokeCalls).not.toContain('daemon_restart_managed')
     expect(h.invokeCalls).not.toContain('daemon_install_service')
   })
 
@@ -165,7 +172,7 @@ describe('daemon-onboarding refresh() orchestration', () => {
   it('matched-but-down → starting → auto-recovers to ready', async () => {
     h.currentTeam = { id: 't1' }
     h.daemonTeam = 't1'
-    // refresh first probe (down), ensureHealthy probe (still down → install-service),
+    // refresh first probe (down), ensureHealthy probe (still down → ensure_running),
     // then the first poll iteration succeeds.
     h.probeQueue = [
       { ok: false, reason: 'not_running' },
@@ -179,7 +186,7 @@ describe('daemon-onboarding refresh() orchestration', () => {
     const s = useDaemonOnboardingStore.getState()
     expect(s.status).toBe('ready')
     expect(s.error).toBeNull()
-    expect(h.invokeCalls).toContain('daemon_install_service')
+    expect(h.invokeCalls).toContain('daemon_ensure_running')
   })
 
   it('matched-but-token-invalid that never heals → error with retry hint', async () => {
@@ -197,7 +204,7 @@ describe('daemon-onboarding refresh() orchestration', () => {
     // the i18n start-failure string with a retry hint.
     expect(s.error).toBe(i18n.t('settings.daemonOnboarding.startFailed'))
     expect(s.error).not.toMatch(/amuxd/)
-    expect(h.invokeCalls.filter((c) => c === 'daemon_install_service')).toHaveLength(2)
+    expect(h.invokeCalls.filter((c) => c === 'daemon_ensure_running')).toHaveLength(2)
   })
 
   it('matched-but-down → auto-retries once before surfacing error', async () => {
@@ -217,10 +224,10 @@ describe('daemon-onboarding refresh() orchestration', () => {
     const s = useDaemonOnboardingStore.getState()
     expect(s.status).toBe('ready')
     expect(s.error).toBeNull()
-    expect(h.invokeCalls.filter((c) => c === 'daemon_install_service')).toHaveLength(2)
+    expect(h.invokeCalls.filter((c) => c === 'daemon_ensure_running')).toHaveLength(2)
   })
 
-  it('recovery survives install-service throwing (falls through to polling)', async () => {
+  it('recovery survives managed ensure throwing (falls through to polling)', async () => {
     h.currentTeam = { id: 't1' }
     h.daemonTeam = 't1'
     h.installServiceShouldThrow = true
@@ -234,5 +241,7 @@ describe('daemon-onboarding refresh() orchestration', () => {
     await vi.advanceTimersByTimeAsync(600)
     await p
     expect(useDaemonOnboardingStore.getState().status).toBe('ready')
+    expect(h.invokeCalls).toContain('daemon_ensure_running')
+    expect(h.invokeCalls).toContain('daemon_restart_managed')
   })
 })

@@ -49,7 +49,8 @@ function ensureTeamclawIntrospectSidecar(env, opts) {
   const profile = "debug";
   const binName = process.platform === "win32" ? "teamclaw-introspect.exe" : "teamclaw-introspect";
   const built = path.join(targetDir, profile, binName);
-  fs.copyFileSync(built, dest);
+  const { installSidecarAtomic } = require("./lib/install-sidecar-atomic");
+  installSidecarAtomic(built, dest);
   console.log(`${logPrefix} Installed ${dest}`);
 }
 
