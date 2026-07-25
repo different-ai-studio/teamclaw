@@ -12,9 +12,10 @@ import {
   Server,
   User,
   Bug,
+  PanelBottom,
 } from 'lucide-react'
 import { toast } from 'sonner'
-import { cn } from '@/lib/utils'
+import { cn, isTauri } from '@/lib/utils'
 import {
   Select,
   SelectContent,
@@ -146,6 +147,33 @@ export const GeneralSection = React.memo(function GeneralSection() {
   }, [])
   const acpStreamDebugEnabled = useAcpDebugStore((s) => s.enabled)
   const setAcpStreamDebugEnabled = useAcpDebugStore((s) => s.setEnabled)
+  const [closePref, setClosePref] = React.useState<'ask' | 'tray' | 'quit'>('ask')
+  React.useEffect(() => {
+    if (!isTauri()) return
+    let cancelled = false
+    void invoke<string | null>('get_window_close_preference')
+      .then((v) => {
+        if (cancelled) return
+        if (v === 'tray' || v === 'quit') setClosePref(v)
+        else setClosePref('ask')
+      })
+      .catch(() => { /* ignore */ })
+    return () => {
+      cancelled = true
+    }
+  }, [])
+  const handleClosePrefChange = React.useCallback(async (value: string) => {
+    const next = value === 'tray' || value === 'quit' ? value : 'ask'
+    setClosePref(next)
+    try {
+      await invoke('set_window_close_preference', {
+        action: next === 'ask' ? null : next,
+      })
+      toast.success(t('settings.general.closeWindowSaved', 'Close preference updated'))
+    } catch {
+      toast.error(t('settings.general.closeWindowError', 'Could not update close preference'))
+    }
+  }, [t])
   // Listen to system preference changes when theme is 'system'
   React.useEffect(() => {
     if (theme !== 'system') return
@@ -301,6 +329,33 @@ export const GeneralSection = React.memo(function GeneralSection() {
                     {t(option.labelKey, option.fallback)}
                   </SelectItem>
                 ))}
+              </SelectContent>
+            </Select>
+          </div>
+        </SettingCard>
+      ) : null}
+
+      {isTauri() ? (
+        <SettingCard>
+          <div className="space-y-2">
+            <label className="text-[13px] font-medium flex items-center gap-2">
+              <PanelBottom className="h-4 w-4 text-muted-foreground" />
+              {t('settings.general.closeWindow', 'When closing the window')}
+            </label>
+            <p className="text-xs text-muted-foreground">
+              {t(
+                'settings.general.closeWindowDesc',
+                'Choose what happens when you click the window close button. Cmd+Q always quits.',
+              )}
+            </p>
+            <Select value={closePref} onValueChange={(v) => void handleClosePrefChange(v)}>
+              <SelectTrigger className="h-11" data-testid="close-window-pref-select">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="ask">{t('settings.general.closeWindowAsk', 'Ask every time')}</SelectItem>
+                <SelectItem value="tray">{t('settings.general.closeWindowTray', 'Minimize to tray (keep agent)')}</SelectItem>
+                <SelectItem value="quit">{t('settings.general.closeWindowQuit', 'Quit and stop agent')}</SelectItem>
               </SelectContent>
             </Select>
           </div>

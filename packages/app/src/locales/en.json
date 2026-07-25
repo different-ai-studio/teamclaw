@@ -96,6 +96,18 @@
     "user": "User",
     "later": "Later"
   },
+  "closeToTray": {
+    "title": "Close TeamClaw?",
+    "description": "The local agent (amuxd) is managed by the desktop app. Keep it in the tray to continue tasks, or quit and stop it.",
+    "trayTitle": "Minimize to tray",
+    "trayDesc": "Hide the window; the local agent keeps running for cross-device messages and cron jobs.",
+    "quitTitle": "Quit and stop agent",
+    "quitDesc": "Close the window and stop amuxd / opencode. Use this when you are done for the day.",
+    "remember": "Remember my choice (change anytime in Settings)",
+    "confirm": "Confirm",
+    "panelTitle": "Local Agent",
+    "panelBack": "Back"
+  },
   "auth": {
     "tagline": "AI Ally · AI Teammate",
     "teamBootstrapError": {
@@ -1108,6 +1120,13 @@
       "appearance": "Appearance",
       "language": "Language",
       "languageDesc": "Choose the app display language",
+      "closeWindow": "When closing the window",
+      "closeWindowDesc": "Choose what happens when you click the window close button. Cmd+Q always quits.",
+      "closeWindowAsk": "Ask every time",
+      "closeWindowTray": "Minimize to tray (keep agent)",
+      "closeWindowQuit": "Quit and stop agent",
+      "closeWindowSaved": "Close preference updated",
+      "closeWindowError": "Could not update close preference",
       "notifications": "Notifications",
       "notificationsDesc": "Receive desktop notifications",
       "mqttBroker": "MQTT broker",
