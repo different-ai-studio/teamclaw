@@ -130,10 +130,7 @@ pub async fn mqtt_probe(
     use_tls: bool,
     timeout_ms: Option<u64>,
 ) -> Result<MqttProbeResult, String> {
-    let client_id = format!(
-        "teamclaw-probe-{}",
-        uuid::Uuid::new_v4().simple().to_string()
-    );
+    let client_id = format!("teamclaw-probe-{}", uuid::Uuid::new_v4().simple());
     let cfg = ClientConfig {
         broker_url,
         broker_host,
