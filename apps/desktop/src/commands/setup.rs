@@ -257,9 +257,8 @@ async fn install_amuxd<R: Runtime>(app: &AppHandle<R>) -> Result<(), String> {
 }
 
 /// Run the bundled `amuxd install-opencode` sidecar, streaming its JSON progress lines.
-/// `download_base`, when set (from `buildConfig.opencode.downloadBase`), is passed
-/// to the daemon as `OPENCODE_DOWNLOAD_BASE` so it pulls the opencode release
-/// archive from a mirror (e.g. a domestic OSS bucket) instead of the official source.
+/// Always installs from the official opencode source — there is no build-config
+/// mirror any more, so "install" and "update" both mean "whatever upstream ships".
 /// Run `amuxd install-opencode`, streaming progress through `emit`.
 ///
 /// `emit(status, line, error)` — status is "started" | "running" | "failed" |
@@ -273,7 +272,6 @@ async fn install_amuxd<R: Runtime>(app: &AppHandle<R>) -> Result<(), String> {
 /// is fetched unconditionally (the "Update" button).
 pub(crate) async fn run_amuxd_install_opencode<R, F>(
     app: &AppHandle<R>,
-    download_base: Option<String>,
     force: bool,
     emit: F,
 ) -> Result<(), String>
@@ -290,17 +288,11 @@ where
     } else {
         &["install-opencode"]
     };
-    let mut command = app
+    let command = app
         .shell()
         .sidecar("amuxd")
         .map_err(|e| format!("sidecar amuxd: {e}"))?
         .args(args);
-    if let Some(base) = download_base
-        .map(|b| b.trim().to_string())
-        .filter(|b| !b.is_empty())
-    {
-        command = command.env("OPENCODE_DOWNLOAD_BASE", base);
-    }
     // `_child_guard` must stay alive until `rx` is fully drained: dropping the
     // CommandChild early can terminate the sidecar before install finishes.
     let (mut rx, _child_guard) = command.spawn().map_err(|e| format!("spawn amuxd: {e}"))?;
@@ -344,12 +336,9 @@ where
     Ok(())
 }
 
-async fn install_opencode<R: Runtime>(
-    app: &AppHandle<R>,
-    download_base: Option<String>,
-) -> Result<(), String> {
+async fn install_opencode<R: Runtime>(app: &AppHandle<R>) -> Result<(), String> {
     // Setup wizard: install only when absent — never disturb the user's opencode.
-    run_amuxd_install_opencode(app, download_base, false, |status, line, error| {
+    run_amuxd_install_opencode(app, false, |status, line, error| {
         emit_progress(
             app,
             SetupProgress {
@@ -494,14 +483,10 @@ pub async fn restart_local_daemon<R: Runtime>(app: AppHandle<R>) -> Result<(), S
 }
 
 #[tauri::command]
-pub async fn setup_install<R: Runtime>(
-    app: AppHandle<R>,
-    id: String,
-    opencode_download_base: Option<String>,
-) -> Result<(), String> {
+pub async fn setup_install<R: Runtime>(app: AppHandle<R>, id: String) -> Result<(), String> {
     match id.as_str() {
         "amuxd" => install_amuxd(&app).await,
-        "opencode" => install_opencode(&app, opencode_download_base).await,
+        "opencode" => install_opencode(&app).await,
         "pi" => install_pi(&app).await,
         "git" => install_git(&app),
         other => Err(format!("unknown requirement: {other}")),

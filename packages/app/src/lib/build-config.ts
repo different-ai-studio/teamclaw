@@ -90,13 +90,6 @@ export interface BuildConfig {
      *  Off by default — gated until per-app FC/Postgres provisioning is live. */
     apps?: boolean
   }
-  /** opencode install mirror. When `downloadBase` is set, amuxd fetches the
-   *  opencode release archive from `${downloadBase}/opencode-<os>-<arch>.<ext>`
-   *  instead of the official source — point this at a domestic OSS bucket for
-   *  fast onboarding on slow/restricted networks. Omitted → official installer. */
-  opencode?: {
-    downloadBase?: string
-  }
   /** Which local agent runtime this build targets. "opencode" (default) drives
    *  the official opencode over `opencode serve` HTTP; "pi" selects the pi
    *  coding-agent RPC backend (see docs/architecture/pi-agent-backend.md).

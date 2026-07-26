@@ -2586,7 +2586,8 @@
       "updatedTo": "Updated to {{version}}",
       "updateDone": "Updated",
       "updateFailed": "Update failed",
-      "installFailed": "Install failed"
+      "installFailed": "Install failed",
+      "upToDate": "Up to date"
     },
     "gitStatus": {
       "modified": "Modified",

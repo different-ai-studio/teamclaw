@@ -114,8 +114,9 @@ fn report_installed() {
     }
 }
 
-/// Default upstream for opencode release assets — official sst/opencode
-/// releases. Overseas fallback when no OSS mirror base is configured.
+/// Where opencode release assets come from — the official sst/opencode
+/// `latest` release. This is the only source; there is deliberately no mirror
+/// override, so "install" and "update" always mean the current upstream build.
 const DEFAULT_DOWNLOAD_BASE: &str = "https://github.com/sst/opencode/releases/latest/download";
 
 /// Official opencode CLI release asset for an (os, arch) pair, using
@@ -137,13 +138,9 @@ fn current_asset() -> Option<&'static str> {
     asset_for(std::env::consts::OS, std::env::consts::ARCH)
 }
 
-/// Download URL for an asset. `base_override` comes from the
-/// `OPENCODE_DOWNLOAD_BASE` env var (mirror escape hatch for slow/restricted
-/// networks — e.g. a domestic OSS bucket holding the opencode-*.zip / .tar.gz).
-fn download_url(base_override: Option<&str>, asset: &str) -> String {
-    let base = base_override
-        .unwrap_or(DEFAULT_DOWNLOAD_BASE)
-        .trim_end_matches('/');
+/// Download URL for a release asset on the official upstream.
+fn download_url(asset: &str) -> String {
+    let base = DEFAULT_DOWNLOAD_BASE.trim_end_matches('/');
     format!("{base}/{asset}")
 }
 
@@ -228,11 +225,10 @@ fn unpack_opencode(asset: &str, bytes: &[u8], dest: &std::path::Path) -> anyhow:
     Ok(())
 }
 
-/// Direct-download install: fetch the current platform's release asset from
-/// `base_override` (or the official upstream) and unpack it into
-/// `~/.opencode/bin`. Used on Windows always, and whenever a mirror base is
-/// configured via `OPENCODE_DOWNLOAD_BASE`.
-fn direct_install(base_override: Option<&str>) -> anyhow::Result<()> {
+/// Direct-download install: fetch the current platform's latest release asset
+/// from the official upstream and unpack it into `~/.opencode/bin`. Used on
+/// Windows, which has no official curl|bash installer.
+fn direct_install() -> anyhow::Result<()> {
     let asset = current_asset().ok_or_else(|| {
         anyhow::anyhow!(
             "unsupported platform for direct opencode install: {} {}",
@@ -240,7 +236,7 @@ fn direct_install(base_override: Option<&str>) -> anyhow::Result<()> {
             std::env::consts::ARCH
         )
     })?;
-    let url = download_url(base_override, asset);
+    let url = download_url(asset);
     progress("download", &format!("downloading {url}"));
     let bytes = download_bytes(&url)?;
     progress("unpack", &format!("unpacking {asset}"));
@@ -279,11 +275,8 @@ fn install_command_path() -> String {
 /// the settings "Update" path and always re-fetches.
 ///
 /// Source selection:
-///   * Windows: always direct-download the release zip (no official curl|bash).
-///   * `OPENCODE_DOWNLOAD_BASE` set: direct-download from the mirror. NOTE: the
-///     mirror serves whatever build was uploaded to it, so "latest" here means
-///     "latest on the mirror", not necessarily the latest upstream release.
-///   * Otherwise (macOS/Linux): the official opencode.ai installer (latest).
+///   * Windows: direct-download the latest release zip (no official curl|bash).
+///   * macOS/Linux: the official opencode.ai installer (latest).
 pub fn run_install(force: bool) -> anyhow::Result<()> {
     if !force {
         if let Some((path, have)) = detect_opencode() {
@@ -298,13 +291,9 @@ pub fn run_install(force: bool) -> anyhow::Result<()> {
         progress("upgrade", "updating opencode to the latest release");
     }
 
-    let mirror = std::env::var("OPENCODE_DOWNLOAD_BASE")
-        .ok()
-        .filter(|s| !s.trim().is_empty());
-
     // Windows has no official curl|bash installer, so always direct-download.
-    if cfg!(windows) || mirror.is_some() {
-        direct_install(mirror.as_deref())?;
+    if cfg!(windows) {
+        direct_install()?;
         report_installed();
         return Ok(());
     }
@@ -570,17 +559,10 @@ mod tests {
     }
 
     #[test]
-    fn download_url_honors_base_override() {
+    fn download_url_points_at_upstream_latest() {
         assert_eq!(
-            download_url(None, "opencode-windows-x64.zip"),
+            download_url("opencode-windows-x64.zip"),
             "https://github.com/sst/opencode/releases/latest/download/opencode-windows-x64.zip"
-        );
-        assert_eq!(
-            download_url(
-                Some("https://mirror.example/oc/"),
-                "opencode-darwin-arm64.zip"
-            ),
-            "https://mirror.example/oc/opencode-darwin-arm64.zip"
         );
     }
 

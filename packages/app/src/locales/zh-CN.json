@@ -2586,7 +2586,8 @@
       "updatedTo": "已更新至 {{version}}",
       "updateDone": "已更新",
       "updateFailed": "更新失败",
-      "installFailed": "安装失败"
+      "installFailed": "安装失败",
+      "upToDate": "已是最新"
     },
     "gitStatus": {
       "modified": "已修改",

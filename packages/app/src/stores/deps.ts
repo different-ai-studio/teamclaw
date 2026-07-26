@@ -1,13 +1,7 @@
 import { create } from 'zustand'
 import { isTauri } from '@/lib/utils'
 import { loadFromStorage, saveToStorage } from '@/lib/storage'
-import { appShortName, buildConfig } from '@/lib/build-config'
-
-/** opencode is installed/updated via `amuxd install-opencode`; the mirror base
- *  comes from build config, matching the first-run SetupWizard. */
-function opencodeDownloadBase(): string {
-  return buildConfig.opencode?.downloadBase ?? ''
-}
+import { appShortName } from '@/lib/build-config'
 
 export interface DependencyInfo {
   name: string
@@ -296,10 +290,7 @@ export const useDepsStore = create<DepsState>((set, get) => ({
     try {
       for (const name of sorted) {
         try {
-          await invoke<boolean>('install_dependency', {
-            name,
-            downloadBase: name === 'opencode' ? opencodeDownloadBase() : null,
-          })
+          await invoke<boolean>('install_dependency', { name })
         } catch (err) {
           console.error(`[DepsStore] Failed to install ${name}:`, err)
           const state = get()
@@ -348,10 +339,7 @@ export const useDepsStore = create<DepsState>((set, get) => ({
     })
 
     try {
-      await invoke<boolean>('update_dependency', {
-        name,
-        downloadBase: name === 'opencode' ? opencodeDownloadBase() : null,
-      })
+      await invoke<boolean>('update_dependency', { name })
     } catch (err) {
       console.error(`[DepsStore] Failed to update ${name}:`, err)
       const state = get()

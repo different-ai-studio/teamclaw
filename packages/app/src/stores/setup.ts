@@ -1,7 +1,7 @@
 import { create } from 'zustand'
 import { isTauri } from '@/lib/utils'
 import { markStartup } from '@/lib/startup-perf'
-import { appShortName, buildConfig, localAgent } from '@/lib/build-config'
+import { appShortName, localAgent } from '@/lib/build-config'
 
 // Cache the last-known "all required deps satisfied" verdict so a returning user
 // (deps already installed) is never gated behind the cold `setup_list_requirements`
@@ -117,10 +117,7 @@ export const useSetupStore = create<SetupState>((set, get) => ({
       // loading without padding genuinely slow installs.
       await Promise.all([
         (async () => {
-          await invoke('setup_install', {
-            id,
-            opencodeDownloadBase: buildConfig.opencode?.downloadBase ?? '',
-          })
+          await invoke('setup_install', { id })
           const requirements = await invoke<RequirementStatus[]>('setup_list_requirements', { localAgent })
           set({ requirements })
         })(),
