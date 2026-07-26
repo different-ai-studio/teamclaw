@@ -285,7 +285,7 @@ describe("resolvePermissionCommandTarget", () => {
     expect(target).toBeNull();
   });
 
-  it("prefers live MQTT when API returns stale dead runtime_id only", () => {
+  it("fails closed when session DB hint is dead and live retain is outside the session", () => {
     const byRuntimeId = {
       "rt-stale": entry("agent-a", "rt-stale", [], RuntimeLifecycle.STOPPED),
       "rt-live": entry("agent-a", "rt-live"),
@@ -293,6 +293,22 @@ describe("resolvePermissionCommandTarget", () => {
     const target = resolvePermissionCommandTarget({
       agentActorId: "agent-a",
       sessionRuntimeRows: [{ agent_id: "agent-a", runtime_id: "rt-stale" }],
+      byRuntimeId,
+    });
+    expect(target).toBeNull();
+  });
+
+  it("hops to another live retain only when it is also registered for the session", () => {
+    const byRuntimeId = {
+      "rt-stale": entry("agent-a", "rt-stale", [], RuntimeLifecycle.STOPPED),
+      "rt-live": entry("agent-a", "rt-live"),
+    };
+    const target = resolvePermissionCommandTarget({
+      agentActorId: "agent-a",
+      sessionRuntimeRows: [
+        { agent_id: "agent-a", runtime_id: "rt-stale" },
+        { agent_id: "agent-a", runtime_id: "rt-live" },
+      ],
       byRuntimeId,
     });
     expect(target).toEqual({ actorId: "agent-a", runtimeId: "rt-live" });
@@ -315,7 +331,22 @@ describe("resolvePermissionCommandTarget", () => {
 });
 
 describe("resolveCommandRuntimeId", () => {
-  it("prefers live MQTT retain when DB hint is dead on MQTT", () => {
+  it("prefers live MQTT retain when DB hint is dead and live id is in session scope", () => {
+    const byRuntimeId = {
+      "rt-stale": entry("agent-a", "rt-stale", [], RuntimeLifecycle.STOPPED),
+      "rt-live": entry("agent-a", "rt-live"),
+    };
+    expect(
+      resolveCommandRuntimeId({
+        agentId: "agent-a",
+        dbRuntimeId: "rt-stale",
+        byRuntimeId,
+        sessionRuntimeIds: new Set(["rt-stale", "rt-live"]),
+      }),
+    ).toBe("rt-live");
+  });
+
+  it("does not hop to an out-of-session live retain when DB hint is dead", () => {
     const byRuntimeId = {
       "rt-stale": entry("agent-a", "rt-stale", [], RuntimeLifecycle.STOPPED),
       "rt-live": entry("agent-a", "rt-live"),
@@ -327,7 +358,7 @@ describe("resolveCommandRuntimeId", () => {
         byRuntimeId,
         sessionRuntimeIds: new Set(["rt-stale"]),
       }),
-    ).toBe("rt-live");
+    ).toBeUndefined();
   });
 
   it("returns undefined when DB hint and all MQTT retains are dead", () => {

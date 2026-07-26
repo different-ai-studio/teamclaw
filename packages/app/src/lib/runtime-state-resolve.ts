@@ -94,11 +94,15 @@ function isRuntimeLifecycleLive(state: RuntimeLifecycle | undefined): boolean {
 function findLiveRuntimeIdForAgent(
   agentId: string,
   byRuntimeId: Record<string, RuntimeStateEntry>,
+  allowedRuntimeIds?: ReadonlySet<string>,
 ): string | undefined {
   let best: RuntimeStateEntry | undefined;
   for (const entry of Object.values(byRuntimeId)) {
     if (entry.daemonActorId !== agentId && entry.info.runtimeId !== agentId) continue;
     if (!isRuntimeLifecycleLive(entry.info.state)) continue;
+    const id = entry.info.runtimeId?.trim() ?? "";
+    if (!id) continue;
+    if (allowedRuntimeIds && !allowedRuntimeIds.has(id)) continue;
     best = considerRuntimeEntry(best, entry);
   }
   const id = best?.info.runtimeId?.trim();
@@ -158,9 +162,22 @@ export function resolveCommandRuntimeId(args: {
     !!dbId && !isDbRuntimeHintLive(dbId, args.byRuntimeId);
 
   if (dbHintDead) {
-    const liveRuntimeId = findLiveRuntimeIdForAgent(trimmedAgent, args.byRuntimeId);
+    // Session-scoped callers (cancel / permission) may only hop to another
+    // live retain that is ALSO registered for this session — never a sibling
+    // session's spawn for the same agent.
+    const liveRuntimeId = findLiveRuntimeIdForAgent(
+      trimmedAgent,
+      args.byRuntimeId,
+      sessionIds,
+    );
     if (liveRuntimeId) return liveRuntimeId;
-    if (mqttLive && mqttRuntimeId) return mqttRuntimeId;
+    if (
+      mqttLive &&
+      mqttRuntimeId &&
+      (sessionIds === undefined || sessionIds.has(mqttRuntimeId))
+    ) {
+      return mqttRuntimeId;
+    }
     return undefined;
   }
 

@@ -8,6 +8,8 @@ import { removeStartupSkeleton } from '@/lib/utils'
 import { Button } from '@/components/ui/button'
 import { MessageSquarePlus } from 'lucide-react'
 import * as React from 'react'
+import i18n from '@/lib/i18n'
+import { syncTrayMenuLabels } from '@/lib/sync-tray-menu'
 
 /**
  * Tray "本地 Agent 设置" surface — same Settings shell as the main app
@@ -23,6 +25,19 @@ export function LocalAgentPanelApp() {
     openSettings('daemonGeneral')
     removeStartupSkeleton()
   }, [openSettings])
+
+  // Language can be changed from Settings inside this window while the main
+  // App is hidden — keep the native tray menu in sync.
+  useEffect(() => {
+    void syncTrayMenuLabels()
+    const onLang = () => {
+      void syncTrayMenuLabels()
+    }
+    i18n.on('languageChanged', onLang)
+    return () => {
+      i18n.off('languageChanged', onLang)
+    }
+  }, [])
 
   return (
     <div className="flex h-screen flex-col overflow-hidden bg-paper" data-testid="local-agent-panel">

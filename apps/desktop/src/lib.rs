@@ -673,12 +673,14 @@ pub fn run() {
             use tauri::menu::{MenuBuilder, MenuItemBuilder};
             use tauri::tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent};
 
-            // Default to zh-CN labels; frontend syncs the active locale on boot
-            // and whenever the user changes language.
-            let show_main = MenuItemBuilder::with_id("show_main", "打开主窗口").build(app)?;
+            // Cold-start from OS locale; frontend re-syncs with UI i18n on boot
+            // and whenever the user changes language (including Local Agent panel).
+            let (show_main_label, agent_settings_label, quit_label) =
+                commands::tray_menu::initial_tray_labels();
+            let show_main = MenuItemBuilder::with_id("show_main", show_main_label).build(app)?;
             let agent_settings =
-                MenuItemBuilder::with_id("agent_settings", "本地 Agent 设置…").build(app)?;
-            let quit = MenuItemBuilder::with_id("quit", "退出并停止 Agent").build(app)?;
+                MenuItemBuilder::with_id("agent_settings", agent_settings_label).build(app)?;
+            let quit = MenuItemBuilder::with_id("quit", quit_label).build(app)?;
             app.manage(commands::tray_menu::TrayMenuState::new(
                 show_main.clone(),
                 agent_settings.clone(),
