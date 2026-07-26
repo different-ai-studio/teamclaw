@@ -869,6 +869,7 @@
     "failed": "Update Failed",
     "releaseNotes": "Release Notes",
     "restartNow": "Restart Now",
+    "restarting": "Restarting…",
     "restartLater": "Restart later",
     "restartRecommendation": "The update is installed. We recommend restarting soon to use the new version.",
     "restartToApply": "The update has been installed. Restart to apply changes.",

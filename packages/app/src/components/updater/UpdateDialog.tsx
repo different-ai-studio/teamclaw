@@ -84,6 +84,7 @@ export function UpdateDialogContainer() {
   const { t } = useTranslation()
   const { update, checkForUpdates, retryUpdate, restart } = useUpdaterStore()
   const [dismissed, setDismissed] = useState(false)
+  const [restarting, setRestarting] = useState(false)
 
   // Check for updates on app startup (3s delay) and every 4 hours
   useEffect(() => {
@@ -120,6 +121,18 @@ export function UpdateDialogContainer() {
   const handleDismiss = useCallback(() => {
     setDismissed(true)
   }, [])
+
+  const handleRestart = useCallback(() => {
+    setRestarting(true)
+    void restart()
+  }, [restart])
+
+  // A failed restart flips the store to `error`; let the user try again.
+  useEffect(() => {
+    if (update.state !== "ready") {
+      setRestarting(false)
+    }
+  }, [update.state])
 
   // Updates download/install in the background; only prompt the user to restart (or report failure).
   const showDialog =
@@ -192,12 +205,19 @@ export function UpdateDialogContainer() {
         <DialogFooter>
           {update.state === "ready" && (
             <>
-              <Button variant="outline" onClick={handleDismiss} className="w-full sm:w-auto">
+              <Button
+                variant="outline"
+                onClick={handleDismiss}
+                disabled={restarting}
+                className="w-full sm:w-auto"
+              >
                 {t('updater.restartLater', 'Restart later')}
               </Button>
-              <Button onClick={restart} className="w-full sm:w-auto">
-                <RefreshCw className="h-4 w-4 mr-2" />
-                {t('updater.restartNow', 'Restart Now')}
+              <Button onClick={handleRestart} disabled={restarting} className="w-full sm:w-auto">
+                <RefreshCw className={`h-4 w-4 mr-2${restarting ? " animate-spin" : ""}`} />
+                {restarting
+                  ? t('updater.restarting', 'Restarting…')
+                  : t('updater.restartNow', 'Restart Now')}
               </Button>
             </>
           )}
