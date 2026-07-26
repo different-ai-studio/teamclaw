@@ -8,12 +8,14 @@ use tokio::sync::{mpsc, oneshot, RwLock};
 
 use crate::config::{DiscordConfig, GatewayStatus, GatewayStatusResponse};
 
-use crate::{i18n, AcpHandle, ChannelStore, FilterResult, ProcessedMessageTracker, MAX_PROCESSED_MESSAGES};
+use crate::{
+    i18n, AgentHandle, ChannelStore, FilterResult, ProcessedMessageTracker, MAX_PROCESSED_MESSAGES,
+};
 
 /// Discord bot handler
 pub struct DiscordHandler {
     config: Arc<RwLock<DiscordConfig>>,
-    acp: Arc<dyn AcpHandle>,
+    agent: Arc<dyn AgentHandle>,
     store: Arc<dyn ChannelStore>,
     team_id: String,
     primary_agent_actor_id: String,
@@ -31,7 +33,7 @@ impl DiscordHandler {
     #[allow(clippy::too_many_arguments)]
     pub fn new(
         config: Arc<RwLock<DiscordConfig>>,
-        acp: Arc<dyn AcpHandle>,
+        agent: Arc<dyn AgentHandle>,
         store: Arc<dyn ChannelStore>,
         team_id: String,
         primary_agent_actor_id: String,
@@ -42,7 +44,7 @@ impl DiscordHandler {
     ) -> Self {
         Self {
             config,
-            acp,
+            agent,
             store,
             team_id,
             primary_agent_actor_id,
@@ -216,7 +218,7 @@ impl DiscordHandler {
         FilterResult::Allow
     }
 
-    /// Process a message via amuxd ACP + ChannelStore.
+    /// Process a message via the amuxd agent runtime + ChannelStore.
     async fn process_message(&self, msg: &Message, ctx: &Context) {
         println!("[Discord] process_message called");
         let _config = self.config.read().await;
@@ -273,7 +275,10 @@ impl DiscordHandler {
             None => match ctx.http.get_current_user().await {
                 Ok(user) => user.id.to_string(),
                 Err(e) => {
-                    eprintln!("[Discord] bot_user_id not initialized and get_current_user failed: {}", e);
+                    eprintln!(
+                        "[Discord] bot_user_id not initialized and get_current_user failed: {}",
+                        e
+                    );
                     let _ = msg
                         .reply(&ctx.http, format!("Error: bot not ready: {}", e))
                         .await;
@@ -296,9 +301,7 @@ impl DiscordHandler {
         {
             Ok(id) => id,
             Err(e) => {
-                let _ = msg
-                    .reply(&ctx.http, format!("Error (actor): {}", e))
-                    .await;
+                let _ = msg.reply(&ctx.http, format!("Error (actor): {}", e)).await;
                 return;
             }
         };
@@ -342,7 +345,7 @@ impl DiscordHandler {
         // Slash-command dispatch — runs against the resolved acp_session_id.
         if is_slash_cmd {
             let reply_text = crate::commands::dispatch_session_slash_cmd(
-                &self.acp,
+                &self.agent,
                 &lower,
                 &outcome.acp_session_id,
             )
@@ -368,9 +371,9 @@ impl DiscordHandler {
         let processing_msg = msg.reply(&ctx.http, "🤔 Thinking...").await.ok();
         let typing = msg.channel_id.start_typing(&ctx.http);
 
-        // Drive a single ACP turn through amuxd.
+        // Drive a single agent turn through amuxd.
         let turn = self
-            .acp
+            .agent
             .send_prompt(&outcome.acp_session_id, &msg.author.name, &content)
             .await;
 
@@ -612,9 +615,7 @@ impl EventHandler for DiscordHandler {
                     let arg = command.data.options.iter().find_map(|opt| {
                         if opt.name == "name" {
                             match &opt.value {
-                                serenity::all::CommandDataOptionValue::String(s) => {
-                                    Some(s.clone())
-                                }
+                                serenity::all::CommandDataOptionValue::String(s) => Some(s.clone()),
                                 _ => None,
                             }
                         } else {
@@ -658,8 +659,8 @@ impl EventHandler for DiscordHandler {
                 {
                     Ok(id) => id,
                     Err(e) => {
-                        let edit = EditInteractionResponse::new()
-                            .content(format!("Error (actor): {}", e));
+                        let edit =
+                            EditInteractionResponse::new().content(format!("Error (actor): {}", e));
                         let _ = command.edit_response(&ctx.http, edit).await;
                         return;
                     }
@@ -694,7 +695,7 @@ impl EventHandler for DiscordHandler {
                 };
 
                 crate::commands::dispatch_session_slash_cmd(
-                    &self.acp,
+                    &self.agent,
                     &syn.to_lowercase(),
                     &outcome.acp_session_id,
                 )
@@ -760,7 +761,7 @@ fn split_message(content: &str, max_len: usize) -> Vec<String> {
 /// Discord gateway manager
 pub struct DiscordGateway {
     config: Arc<RwLock<DiscordConfig>>,
-    pub acp: Arc<dyn AcpHandle>,
+    pub agent: Arc<dyn AgentHandle>,
     pub store: Arc<dyn ChannelStore>,
     pub team_id: String,
     pub primary_agent_actor_id: String,
@@ -776,7 +777,7 @@ pub struct DiscordGateway {
 
 impl DiscordGateway {
     pub fn new(
-        acp: Arc<dyn AcpHandle>,
+        agent: Arc<dyn AgentHandle>,
         store: Arc<dyn ChannelStore>,
         team_id: String,
         primary_agent_actor_id: String,
@@ -785,7 +786,7 @@ impl DiscordGateway {
     ) -> Self {
         Self {
             config: Arc::new(RwLock::new(DiscordConfig::default())),
-            acp,
+            agent,
             store,
             team_id,
             primary_agent_actor_id,
@@ -858,7 +859,7 @@ impl DiscordGateway {
         // Create handler
         let handler = DiscordHandler::new(
             Arc::clone(&self.config),
-            Arc::clone(&self.acp),
+            Arc::clone(&self.agent),
             Arc::clone(&self.store),
             self.team_id.clone(),
             self.primary_agent_actor_id.clone(),
@@ -994,7 +995,7 @@ impl Clone for DiscordGateway {
     fn clone(&self) -> Self {
         Self {
             config: Arc::clone(&self.config),
-            acp: Arc::clone(&self.acp),
+            agent: Arc::clone(&self.agent),
             store: Arc::clone(&self.store),
             team_id: self.team_id.clone(),
             primary_agent_actor_id: self.primary_agent_actor_id.clone(),

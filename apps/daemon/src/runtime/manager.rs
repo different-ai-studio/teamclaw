@@ -87,7 +87,7 @@ pub fn gateway_mcp_config_path(logical_session_id: &str) -> PathBuf {
 /// worktree's `opencode.json` `mcp` map before attaching the session (the
 /// global `opencode serve` has no per-session MCP parameter).
 ///
-/// `logical_session_id` is what AmuxdAcpHandle uses as its map key
+/// `logical_session_id` is what AmuxdAgentHandle uses as its map key
 /// (gateway → SQL-minted acp_session_id); the MCP server forwards it
 /// back to amuxd in the `mcp-send` envelope so the right channel can
 /// be routed. `binding` is the URI for the gateway chat the session
@@ -182,7 +182,7 @@ pub struct RuntimeManager {
     launch_configs: HashMap<amux::AgentType, AgentLaunchConfig>,
     /// Local agent backend (opencode HTTP today; pi RPC later), selected by
     /// daemon config `agents.local_agent`.
-    acp_host_pool: Box<dyn AgentBackend>,
+    agent_backend: Box<dyn AgentBackend>,
     /// Per-worktree MCP resolve snapshots; restored when the last agent on the worktree stops.
     opencode_snapshots: HashMap<String, opencode_snapshot::WorktreeOpencodeSnapshot>,
     /// Daemon-side mirror of per-agent ACP state (current model + last-announced
@@ -191,7 +191,7 @@ pub struct RuntimeManager {
     backend: Option<Arc<dyn Backend>>,
     /// agent_ids that were stopped by the idle sweeper and still need their
     /// terminal `runtime/{id}/state` publish + retain clear. Drained by the
-    /// main event loop via `drain_evicted`. Manual `stop_agent` calls go
+    /// main event loop via `drain_evicted`. Manual `stop_runtime` calls go
     /// through the RPC handler which publishes directly, so they do NOT
     /// enter this buffer.
     evicted_pending_publish: Vec<String>,
@@ -234,7 +234,7 @@ impl RuntimeManager {
     pub fn opencode_serve_supervisor(
         &self,
     ) -> Option<Arc<crate::runtime::opencode_http::supervisor::ServeSupervisor>> {
-        self.acp_host_pool.opencode_serve_supervisor()
+        self.agent_backend.opencode_serve_supervisor()
     }
 
     pub fn new(
@@ -255,7 +255,7 @@ impl RuntimeManager {
             agents: HashMap::new(),
             aggregators: std::collections::HashMap::new(),
             launch_configs,
-            acp_host_pool: create_backend(local_agent),
+            agent_backend: create_backend(local_agent),
             opencode_snapshots: HashMap::new(),
             agent_state: PerAgentRuntimeState::new(),
             backend,
@@ -314,22 +314,22 @@ impl RuntimeManager {
 
     /// Pre-warm shared ACP hosts so the first `runtimeStart` only pays for
     /// `session/new`, not process spawn + `initialize`.
-    pub async fn prewarm_acp_hosts(&mut self) {
-        self.acp_host_pool.prewarm(&self.launch_configs).await;
+    pub async fn prewarm_agent_backend(&mut self) {
+        self.agent_backend.prewarm(&self.launch_configs).await;
     }
 
     /// Pre-warm shared ACP hosts using a real session env so the fingerprint
     /// matches the first `attach_session` for that env — collapsing the first
     /// `runtimeStart` from "process spawn + initialize + session/new" (20s+
-    /// cold) down to just `session/new`. Empty-env `prewarm_acp_hosts` never
+    /// cold) down to just `session/new`. Empty-env `prewarm_agent_backend` never
     /// matched a team session's env, so it left the first real session cold.
-    pub async fn prewarm_acp_hosts_with_env(
+    pub async fn prewarm_agent_backend_with_env(
         &mut self,
         extra_env: HashMap<String, String>,
         force_env_override: bool,
         worktree: Option<&str>,
     ) {
-        self.acp_host_pool
+        self.agent_backend
             .prewarm_with_env(
                 &self.launch_configs,
                 extra_env,
@@ -368,7 +368,7 @@ impl RuntimeManager {
     }
 
     /// Returns a mutable reference to the per-agent `TurnAggregator`, if any.
-    /// Inserted on `spawn_agent` / `resume_agent` and removed on `stop_agent`.
+    /// Inserted on `start_runtime` / `resume_agent` and removed on `stop_runtime`.
     pub fn aggregator_mut(&mut self, agent_id: &str) -> Option<&mut TurnAggregator> {
         self.aggregators.get_mut(agent_id)
     }
@@ -380,7 +380,7 @@ impl RuntimeManager {
     }
 
     #[allow(dead_code)]
-    pub async fn spawn_agent(
+    pub async fn start_runtime(
         &mut self,
         agent_type: amux::AgentType,
         worktree: &str,
@@ -389,7 +389,7 @@ impl RuntimeManager {
         remote_workspace_id: Option<&str>,
         remote_session_id: Option<&str>,
     ) -> crate::error::Result<String> {
-        self.spawn_agent_with_model(
+        self.start_runtime_with_model(
             agent_type,
             worktree,
             prompt,
@@ -404,7 +404,7 @@ impl RuntimeManager {
         .await
     }
 
-    /// Variant of `spawn_agent` that pins the initial ACP model. Used by
+    /// Variant of `start_runtime` that pins the initial ACP model. Used by
     /// `create_gateway_session_with_model` to honour a per-session
     /// `set_model` override the gateway recorded before the first prompt.
     /// `initial_model_override` is a full model id (e.g. "claude-sonnet-4-6"),
@@ -412,7 +412,7 @@ impl RuntimeManager {
     /// `mcp_config_path`, when `Some`, is forwarded as `--mcp-config <path>`
     /// to the spawned claude-code so it can call amuxd's `send` tool.
     #[allow(clippy::too_many_arguments)]
-    pub async fn spawn_agent_with_model(
+    pub async fn start_runtime_with_model(
         &mut self,
         agent_type: amux::AgentType,
         worktree: &str,
@@ -449,7 +449,7 @@ impl RuntimeManager {
         let launch = self.launch_config_for(agent_type);
         let resume_requested = resume_acp_session_id.is_some();
         let (cmd_tx, startup) = self
-            .acp_host_pool
+            .agent_backend
             .attach_session(
                 agent_type,
                 &launch,
@@ -619,7 +619,7 @@ impl RuntimeManager {
 
         let launch = self.launch_config_for(agent_type);
         let (cmd_tx, startup) = self
-            .acp_host_pool
+            .agent_backend
             .attach_session(
                 agent_type,
                 &launch,
@@ -695,7 +695,7 @@ impl RuntimeManager {
         Ok(new_acp_sid)
     }
 
-    pub async fn stop_agent(&mut self, agent_id: &str) -> Option<RuntimeHandle> {
+    pub async fn stop_runtime(&mut self, agent_id: &str) -> Option<RuntimeHandle> {
         if let Some(mut handle) = self.agents.remove(agent_id) {
             self.aggregators.remove(agent_id);
             self.agent_state.remove(agent_id);
@@ -718,13 +718,13 @@ impl RuntimeManager {
         &mut self,
         workspace_path: &std::path::Path,
     ) -> crate::error::Result<Vec<amux::ModelInfo>> {
-        self.acp_host_pool.model_catalog(workspace_path).await
+        self.agent_backend.model_catalog(workspace_path).await
     }
 
     /// Invalidate long-lived OpenCode/Codex ACP hosts after provider credentials change.
     pub fn evict_acp_hosts_after_provider_auth_change(&mut self) {
         let removed = self
-            .acp_host_pool
+            .agent_backend
             .evict_agent_types(&[amux::AgentType::Opencode, amux::AgentType::Codex]);
         if removed > 0 {
             info!(
@@ -740,10 +740,10 @@ impl RuntimeManager {
     pub async fn shutdown_for_exit(&mut self) {
         let ids = self.agent_ids();
         for id in ids {
-            let _ = self.stop_agent(&id).await;
+            let _ = self.stop_runtime(&id).await;
         }
         let removed = self
-            .acp_host_pool
+            .agent_backend
             .evict_agent_types(&[amux::AgentType::Opencode, amux::AgentType::Codex]);
         info!(
             removed_hosts = removed,
@@ -930,7 +930,7 @@ impl RuntimeManager {
     /// execution without requiring the Tauri app to have created a session
     /// first (which would break cron on fresh daemon starts).
     pub fn agent_count(&self) -> usize {
-        self.agents.len() + self.acp_host_pool.host_count()
+        self.agents.len() + self.agent_backend.host_count()
     }
 
     pub fn first_running_agent_id(&self) -> Option<String> {
@@ -970,7 +970,7 @@ impl RuntimeManager {
     /// `RuntimeStart` RPCs from misbehaving clients into a single spawn.
     ///
     /// Bare-agent spawns (empty `session_id`) are never deduped — every such
-    /// call gets its own runtime. `stop_agent` removes handles from the map,
+    /// call gets its own runtime. `stop_runtime` removes handles from the map,
     /// so anything present here is by definition still tracked; the caller
     /// reads `AgentStatus` off the retained state topic if it cares about
     /// liveness.
@@ -1104,12 +1104,12 @@ impl RuntimeManager {
 
     // ── Gateway adapter hooks ────────────────────────────────────────────────
     //
-    // The methods below are called from the `channels::AmuxdAcpHandle`
-    // (impl of `teamclaw_gateway::AcpHandle`) so a gateway can drive an
+    // The methods below are called from the `channels::AmuxdAgentHandle`
+    // (impl of `teamclaw_gateway::AgentHandle`) so a gateway can drive an
     // in-process ACP agent without speaking to opencode's HTTP server.
 
     /// Spawn an ACP-backed agent for a freshly-bound gateway conversation.
-    /// Used by `AmuxdAcpHandle::create_session`. The returned String is the
+    /// Used by `AmuxdAgentHandle::create_session`. The returned String is the
     /// agent's `acp_session_id`, which the gateway persists on its `Binding`.
     ///
     /// `logical_session_id` is the amuxd-side key the caller maps to the
@@ -1138,7 +1138,7 @@ impl RuntimeManager {
     }
 
     /// Variant of `create_gateway_session` that honours a per-session model
-    /// override. The gateway's `AmuxdAcpHandle` resolves the override from
+    /// override. The gateway's `AmuxdAgentHandle` resolves the override from
     /// its `model_override` map and passes it as `(provider, model)`. We
     /// translate the short name ("sonnet"/"opus"/"haiku") into the full ACP
     /// model id ("claude-sonnet-4-6", …) via `model_id_for_short_name`
@@ -1170,7 +1170,7 @@ impl RuntimeManager {
         // spawn the agent in a directory they already prepared — amuxd does NOT
         // mkdir caller-supplied paths; the caller's lifecycle code owns that.
         // `None` keeps the legacy throwaway behavior so other gateway callers
-        // (channels/acp_handle.rs etc.) are unaffected.
+        // (channels/agent_handle.rs etc.) are unaffected.
         let worktree = match working_directory {
             Some(wd) => wd.to_string(),
             None => {
@@ -1219,7 +1219,7 @@ impl RuntimeManager {
 
         let workspace_id = format!("gateway:{binding}");
         let agent_id = self
-            .spawn_agent_with_model(
+            .start_runtime_with_model(
                 agent_type,
                 &worktree,
                 "",
@@ -1900,7 +1900,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn spawn_agent_errors_when_acp_process_cannot_spawn() {
+    async fn start_runtime_errors_when_opencode_serve_cannot_spawn() {
         let mut configs = HashMap::new();
         configs.insert(
             amux::AgentType::ClaudeCode,
@@ -1914,7 +1914,7 @@ mod tests {
         let tmp = tempfile::TempDir::new().unwrap();
 
         let result = mgr
-            .spawn_agent_with_model(
+            .start_runtime_with_model(
                 amux::AgentType::ClaudeCode,
                 tmp.path().to_str().unwrap(),
                 "",

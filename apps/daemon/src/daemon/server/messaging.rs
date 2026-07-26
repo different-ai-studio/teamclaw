@@ -557,7 +557,7 @@ impl DaemonServer {
             "coalesce_session_runtimes: stopping duplicate live runtimes before fanout"
         );
         for rid in &superseded {
-            self.agents.lock().await.stop_agent(rid).await;
+            self.agents.lock().await.stop_runtime(rid).await;
             self.remote_tool_turn_contexts
                 .lock()
                 .await

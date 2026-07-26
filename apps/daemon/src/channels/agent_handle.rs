@@ -1,6 +1,6 @@
-//! `AcpHandle` impl: bridges `teamclaw_gateway` channels to amuxd's
+//! `AgentHandle` impl: bridges `teamclaw_gateway` channels to amuxd's
 //! in-process `RuntimeManager` so a chat message arriving over Discord /
-//! WeCom / Feishu / etc. drives an ACP turn without going through the
+//! WeCom / Feishu / etc. drives an agent turn without going through the
 //! deprecated opencode HTTP server.
 //!
 //! ## Logical vs real ACP session ids
@@ -23,7 +23,7 @@ use std::sync::Arc;
 use tokio::sync::Mutex;
 
 use teamclaw_gateway::{
-    AcpAvailableCommand, AcpError, AcpHandle, AcpTurnOutcome, AgentInfo, AmuxSessionId, ModelInfo,
+    AgentCommand, AgentError, AgentHandle, AgentInfo, AmuxSessionId, ModelInfo, TurnOutcome,
     WorkspaceInfo,
 };
 
@@ -56,7 +56,7 @@ pub struct BotRuntimeConfig {
     pub system_prompt: Option<String>,
 }
 
-pub struct AmuxdAcpHandle {
+pub struct AmuxdAgentHandle {
     pub manager: Arc<Mutex<RuntimeManager>>,
     /// Logical (SQL-minted) acp_session_id → resolved runtime metadata.
     /// Created on first `send_prompt` after a daemon start; in-memory only.
@@ -109,7 +109,7 @@ struct ResolveOutcome {
     spawned: bool,
 }
 
-impl AmuxdAcpHandle {
+impl AmuxdAgentHandle {
     /// Resolve the workspace dir + agent type for a spawn, applying priority
     /// **per-session override > per-bot config > daemon global default**.
     /// `workspace_override` stores a workspace_id, resolved to a path here;
@@ -163,7 +163,7 @@ impl AmuxdAcpHandle {
     ///
     /// A cached `real_acp_sid` can outlive its runtime: once a gateway turn
     /// finishes and the agent stops / detaches (`agent stopped`,
-    /// `ACP session detached from host`), `stop_agent` removes the handle from
+    /// `ACP session detached from host`), `stop_runtime` removes the handle from
     /// `RuntimeManager.agents`, but this in-memory map still points at the
     /// dead UUID. Reusing it makes the next turn fail with
     /// `no agent for acp_session_id` (issue #548). So we probe liveness via
@@ -202,7 +202,10 @@ impl AmuxdAcpHandle {
     /// `sessions` row) to a real ACP UUID, spawning a runtime on first use.
     /// On a fresh spawn, the matching `sessions.binding` is looked up from
     /// the backend so it can be baked into the per-session MCP config.
-    async fn resolve_or_spawn(&self, session: &AmuxSessionId) -> Result<ResolveOutcome, AcpError> {
+    async fn resolve_or_spawn(
+        &self,
+        session: &AmuxSessionId,
+    ) -> Result<ResolveOutcome, AgentError> {
         if let Some(existing) = self.cached_session_if_live(session).await {
             return Ok(ResolveOutcome {
                 real_acp_sid: existing.real_acp_sid,
@@ -224,7 +227,7 @@ impl AmuxdAcpHandle {
             .backend
             .get_gateway_session_by_acp_id(session)
             .await
-            .map_err(|e| AcpError::Create(format!("session lookup: {e}")))?
+            .map_err(|e| AgentError::Create(format!("session lookup: {e}")))?
         {
             Some((id, bind)) => (Some(id), bind.unwrap_or_default()),
             None => (None, String::new()),
@@ -254,7 +257,7 @@ impl AmuxdAcpHandle {
                 agent_type,
             )
             .await
-            .map_err(|e| AcpError::Create(e.to_string()))?
+            .map_err(|e| AgentError::Create(e.to_string()))?
         };
 
         // Durable persona for ClaudeCode: write CLAUDE.local.md into the
@@ -369,10 +372,10 @@ const STREAM_UPDATE_INTERVAL: std::time::Duration = std::time::Duration::from_mi
 /// agent already produced reply text, hand it back as the turn result rather
 /// than failing — OpenCode may have finished while the ACP adapter never sent
 /// the Active→Idle completion. Empty accumulation stays a `Timeout` error.
-fn salvage_timeout_reply(segments: &[String], live: &str) -> Result<String, AcpError> {
+fn salvage_timeout_reply(segments: &[String], live: &str) -> Result<String, AgentError> {
     let acc = compose_reply(segments, live);
     if acc.trim().is_empty() {
-        Err(AcpError::Timeout)
+        Err(AgentError::Timeout)
     } else {
         Ok(acc)
     }
@@ -417,7 +420,7 @@ fn absorb_emitted(
     flushed
 }
 
-impl AmuxdAcpHandle {
+impl AmuxdAgentHandle {
     /// Drive one ACP turn to completion and return the agent's full reply.
     ///
     /// Shared by `send_prompt` and `send_prompt_streamed`; `on_update` is
@@ -429,7 +432,7 @@ impl AmuxdAcpHandle {
         sender_display: &str,
         text: &str,
         on_update: Option<tokio::sync::mpsc::Sender<String>>,
-    ) -> Result<AcpTurnOutcome, AcpError> {
+    ) -> Result<TurnOutcome, AgentError> {
         let outcome = self.resolve_or_spawn(session).await?;
 
         // First prompt after a fresh spawn gets a one-shot system preamble
@@ -476,13 +479,13 @@ impl AmuxdAcpHandle {
             let agent_id = mgr
                 .agent_id_by_acp_session(&outcome.real_acp_sid)
                 .ok_or_else(|| {
-                    AcpError::Send(format!(
+                    AgentError::Send(format!(
                         "no agent for acp_session_id {}",
                         outcome.real_acp_sid
                     ))
                 })?;
             let handle = mgr.get_handle(&agent_id).ok_or_else(|| {
-                AcpError::Send(format!("agent {agent_id} disappeared before turn"))
+                AgentError::Send(format!("agent {agent_id} disappeared before turn"))
             })?;
             handle.turn_lock.clone()
         };
@@ -492,10 +495,10 @@ impl AmuxdAcpHandle {
             let mut mgr = self.manager.lock().await;
             let (turn, _again) = mgr
                 .checkout_turn_for_acp(&outcome.real_acp_sid)
-                .map_err(|e| AcpError::Send(e.to_string()))?;
+                .map_err(|e| AgentError::Send(e.to_string()))?;
             mgr.send_prompt_raw(&turn.agent_id, &prompt, vec![], None, None)
                 .await
-                .map_err(|e| AcpError::Send(e.to_string()))?;
+                .map_err(|e| AgentError::Send(e.to_string()))?;
             (turn.agent_id, turn.event_rx)
         };
 
@@ -516,7 +519,7 @@ impl AmuxdAcpHandle {
         // finish and persist its final assistant text while the ACP adapter
         // never emits the Active→Idle completion, which otherwise leaves the
         // WeCom card stuck "thinking" even though the answer exists.
-        let salvage_on_timeout = |segments: &[String], live: &str| -> Result<String, AcpError> {
+        let salvage_on_timeout = |segments: &[String], live: &str| -> Result<String, AgentError> {
             let out = salvage_timeout_reply(segments, live);
             if out.is_ok() {
                 tracing::warn!(
@@ -526,7 +529,7 @@ impl AmuxdAcpHandle {
             }
             out
         };
-        let result: Result<String, AcpError> = loop {
+        let result: Result<String, AgentError> = loop {
             let remaining = deadline.saturating_duration_since(std::time::Instant::now());
             if remaining.is_zero() {
                 break salvage_on_timeout(&segments, &live);
@@ -547,8 +550,8 @@ impl AmuxdAcpHandle {
                             );
                             Ok(reply)
                         }
-                        Err(_) => Err(AcpError::Send(
-                            "ACP event channel closed before reply".into(),
+                        Err(_) => Err(AgentError::Send(
+                            "agent event channel closed before reply".into(),
                         )),
                     };
                 }
@@ -560,7 +563,7 @@ impl AmuxdAcpHandle {
                 } else {
                     err.details.clone()
                 };
-                break Err(AcpError::Send(format!("ACP turn failed: {details}")));
+                break Err(AgentError::Send(format!("agent turn failed: {details}")));
             }
 
             // Mirror the aggregator's unflushed reply buffer so streamed
@@ -611,7 +614,7 @@ impl AmuxdAcpHandle {
         }
 
         let reply_text = result?;
-        Ok(AcpTurnOutcome {
+        Ok(TurnOutcome {
             reply_text,
             completed: true,
         })
@@ -619,13 +622,13 @@ impl AmuxdAcpHandle {
 }
 
 #[async_trait]
-impl AcpHandle for AmuxdAcpHandle {
+impl AgentHandle for AmuxdAgentHandle {
     async fn create_session(
         &self,
         _team_id: &str,
         binding: &str,
         _title: &str,
-    ) -> Result<AmuxSessionId, AcpError> {
+    ) -> Result<AmuxSessionId, AgentError> {
         // Channels never call this in the gateway-port architecture — the
         // SQL store mints the logical acp_session_id via
         // `ensure_gateway_session`. We keep a consistent implementation in
@@ -639,7 +642,7 @@ impl AcpHandle for AmuxdAcpHandle {
         session: &AmuxSessionId,
         sender_display: &str,
         text: &str,
-    ) -> Result<AcpTurnOutcome, AcpError> {
+    ) -> Result<TurnOutcome, AgentError> {
         self.run_turn(session, sender_display, text, None).await
     }
 
@@ -649,7 +652,7 @@ impl AcpHandle for AmuxdAcpHandle {
         sender_display: &str,
         text: &str,
         on_update: tokio::sync::mpsc::Sender<String>,
-    ) -> Result<AcpTurnOutcome, AcpError> {
+    ) -> Result<TurnOutcome, AgentError> {
         self.run_turn(session, sender_display, text, Some(on_update))
             .await
     }
@@ -659,15 +662,15 @@ impl AcpHandle for AmuxdAcpHandle {
         session: &AmuxSessionId,
         sender_display: &str,
         text: &str,
-    ) -> Result<(), AcpError> {
+    ) -> Result<(), AgentError> {
         let outcome = self.resolve_or_spawn(session).await?;
         let mut mgr = self.manager.lock().await;
         mgr.inject_context(&outcome.real_acp_sid, sender_display, text)
             .await
-            .map_err(|e| AcpError::Send(e.to_string()))
+            .map_err(|e| AgentError::Send(e.to_string()))
     }
 
-    async fn cancel(&self, session: &AmuxSessionId) -> Result<(), AcpError> {
+    async fn cancel(&self, session: &AmuxSessionId) -> Result<(), AgentError> {
         let map = self.logical_to_acp.lock().await;
         let real = match map.get(session) {
             Some(s) => s.real_acp_sid.clone(),
@@ -677,10 +680,10 @@ impl AcpHandle for AmuxdAcpHandle {
         let mut mgr = self.manager.lock().await;
         mgr.cancel_by_acp_session(&real)
             .await
-            .map_err(|e| AcpError::Send(format!("cancel failed: {e}")))
+            .map_err(|e| AgentError::Send(format!("cancel failed: {e}")))
     }
 
-    async fn reset_session(&self, session: &AmuxSessionId) -> Result<(), AcpError> {
+    async fn reset_session(&self, session: &AmuxSessionId) -> Result<(), AgentError> {
         // Cancel + drop from map. Next send_prompt re-spawns under the
         // same logical id with a fresh runtime — preserves the gateway-side
         // identity so persisted `sessions.binding` keeps working.
@@ -690,7 +693,7 @@ impl AcpHandle for AmuxdAcpHandle {
         Ok(())
     }
 
-    async fn list_models(&self) -> Result<Vec<ModelInfo>, AcpError> {
+    async fn list_models(&self) -> Result<Vec<ModelInfo>, AgentError> {
         // Hardcoded for the claude-code adapter in v1 of the gateway port.
         // Future work: read from daemon.toml once we have multi-binary
         // routing (codex-cli, etc.).
@@ -718,14 +721,14 @@ impl AcpHandle for AmuxdAcpHandle {
         session: &AmuxSessionId,
         provider: &str,
         model: &str,
-    ) -> Result<(), AcpError> {
+    ) -> Result<(), AgentError> {
         // Validate against list_models so /model only accepts known names.
         let valid = self.list_models().await?;
         if !valid
             .iter()
             .any(|m| m.provider == provider && m.model == model)
         {
-            return Err(AcpError::Send(format!(
+            return Err(AgentError::Send(format!(
                 "unknown model {provider}/{model}; use list_models to enumerate"
             )));
         }
@@ -753,11 +756,11 @@ impl AcpHandle for AmuxdAcpHandle {
     async fn available_commands(
         &self,
         session: &AmuxSessionId,
-    ) -> Result<Vec<AcpAvailableCommand>, AcpError> {
+    ) -> Result<Vec<AgentCommand>, AgentError> {
         // ── 1. Agent-reported commands (only if session is already spawned) ────
         // Built-ins (step 2) and workspace skills (step 3) are always returned
         // regardless of whether a runtime has been spawned for this session.
-        let mut result: Vec<AcpAvailableCommand> = {
+        let mut result: Vec<AgentCommand> = {
             let map = self.logical_to_acp.lock().await;
             let real = map.get(session).map(|s| s.real_acp_sid.clone());
             drop(map);
@@ -766,7 +769,7 @@ impl AcpHandle for AmuxdAcpHandle {
                 if let Some(agent_id) = mgr.agent_id_by_acp_session(&real) {
                     mgr.get_available_commands(&agent_id)
                         .into_iter()
-                        .map(|c| AcpAvailableCommand {
+                        .map(|c| AgentCommand {
                             name: c.name,
                             description: c.description,
                             input_hint: if c.input_hint.is_empty() {
@@ -803,7 +806,7 @@ impl AcpHandle for AmuxdAcpHandle {
         };
         for (name, description, hint) in known {
             if !result.iter().any(|c| c.name == *name) {
-                result.push(AcpAvailableCommand {
+                result.push(AgentCommand {
                     name: name.to_string(),
                     description: description.to_string(),
                     input_hint: if hint.is_empty() {
@@ -821,13 +824,13 @@ impl AcpHandle for AmuxdAcpHandle {
     async fn list_skills(
         &self,
         _session: &AmuxSessionId,
-    ) -> Result<Vec<(String, String)>, AcpError> {
+    ) -> Result<Vec<(String, String)>, AgentError> {
         use crate::config::scan_roles_skills_state;
         let Some(ws_dir) = &self.default_workspace_dir else {
             return Ok(vec![]);
         };
         let state = scan_roles_skills_state(std::path::Path::new(ws_dir))
-            .map_err(|e| AcpError::Internal(format!("skill scan: {e}")))?;
+            .map_err(|e| AgentError::Internal(format!("skill scan: {e}")))?;
         let mut skills: Vec<(String, String)> = state
             .skills
             .into_iter()
@@ -847,7 +850,7 @@ impl AcpHandle for AmuxdAcpHandle {
         session: &AmuxSessionId,
         name: &str,
         input: Option<&str>,
-    ) -> Result<AcpTurnOutcome, AcpError> {
+    ) -> Result<TurnOutcome, AgentError> {
         let text = match input {
             Some(inp) if !inp.is_empty() => format!("/{name} {inp}"),
             _ => format!("/{name}"),
@@ -858,7 +861,7 @@ impl AcpHandle for AmuxdAcpHandle {
     async fn list_sessions(
         &self,
         active_session: &AmuxSessionId,
-    ) -> Result<Vec<(AmuxSessionId, bool)>, AcpError> {
+    ) -> Result<Vec<(AmuxSessionId, bool)>, AgentError> {
         let map = self.logical_to_acp.lock().await;
         Ok(map
             .keys()
@@ -868,7 +871,7 @@ impl AcpHandle for AmuxdAcpHandle {
 
     /// Single-agent mode: opencode is the only backend, so it is always the
     /// (only) advertised and current agent.
-    async fn list_agents(&self, _session: &AmuxSessionId) -> Result<Vec<AgentInfo>, AcpError> {
+    async fn list_agents(&self, _session: &AmuxSessionId) -> Result<Vec<AgentInfo>, AgentError> {
         Ok(vec![AgentInfo {
             agent_type: "opencode".to_string(),
             is_current: true,
@@ -877,7 +880,7 @@ impl AcpHandle for AmuxdAcpHandle {
 
     /// Accepts the legacy `claude-code` / `codex` names for back-compat, but
     /// every request resolves to opencode (single-agent mode).
-    async fn set_agent(&self, session: &AmuxSessionId, agent_type: &str) -> Result<(), AcpError> {
+    async fn set_agent(&self, session: &AmuxSessionId, agent_type: &str) -> Result<(), AgentError> {
         let t = match agent_type {
             "opencode" => amux::AgentType::Opencode,
             "claude-code" | "claude" | "claude_code" | "codex" => {
@@ -888,7 +891,7 @@ impl AcpHandle for AmuxdAcpHandle {
                 amux::AgentType::Opencode
             }
             other => {
-                return Err(AcpError::NotFound(format!(
+                return Err(AgentError::NotFound(format!(
                     "unknown agent type '{other}'; valid: opencode"
                 )))
             }
@@ -922,12 +925,12 @@ impl AcpHandle for AmuxdAcpHandle {
     async fn list_workspaces(
         &self,
         session: &AmuxSessionId,
-    ) -> Result<Vec<WorkspaceInfo>, AcpError> {
+    ) -> Result<Vec<WorkspaceInfo>, AgentError> {
         let rows = self
             .backend
             .get_workspaces_by_team(&self.team_id)
             .await
-            .map_err(|e| AcpError::Internal(format!("get_workspaces_by_team: {e}")))?;
+            .map_err(|e| AgentError::Internal(format!("get_workspaces_by_team: {e}")))?;
         let current_id = {
             let overrides = self.workspace_override.lock().await;
             overrides.get(session.as_str()).cloned()
@@ -970,14 +973,14 @@ impl AcpHandle for AmuxdAcpHandle {
         &self,
         session: &AmuxSessionId,
         workspace_id: &str,
-    ) -> Result<(), AcpError> {
+    ) -> Result<(), AgentError> {
         let rows = self
             .backend
             .get_workspaces_by_team(&self.team_id)
             .await
-            .map_err(|e| AcpError::Internal(format!("get_workspaces_by_team: {e}")))?;
+            .map_err(|e| AgentError::Internal(format!("get_workspaces_by_team: {e}")))?;
         if !rows.iter().any(|w| w.id == workspace_id) {
-            return Err(AcpError::NotFound(format!(
+            return Err(AgentError::NotFound(format!(
                 "workspace '{workspace_id}' not found"
             )));
         }
@@ -1006,7 +1009,7 @@ mod tests {
     use crate::backend::mock::MockBackend;
     use crate::runtime::RuntimeManager;
 
-    fn make_handle() -> AmuxdAcpHandle {
+    fn make_handle() -> AmuxdAgentHandle {
         make_handle_with_backend(Arc::new(MockBackend::default()))
     }
 
@@ -1015,8 +1018,8 @@ mod tests {
     /// `amux.workspaces` rows (via `backend.state().workspaces_by_id`) and
     /// have `resolve_spawn_target` -> `workspace_dir_for_id` -> the resolver
     /// actually see them, rather than a disconnected default backend.
-    fn make_handle_with_backend(backend: Arc<MockBackend>) -> AmuxdAcpHandle {
-        AmuxdAcpHandle {
+    fn make_handle_with_backend(backend: Arc<MockBackend>) -> AmuxdAgentHandle {
+        AmuxdAgentHandle {
             manager: Arc::new(Mutex::new(RuntimeManager::new(
                 RuntimeManager::default_launch_configs(),
                 None,
@@ -1170,11 +1173,11 @@ mod tests {
         // Nothing produced → stays a Timeout error.
         assert!(matches!(
             salvage_timeout_reply(&[], "   "),
-            Err(AcpError::Timeout)
+            Err(AgentError::Timeout)
         ));
         assert!(matches!(
             salvage_timeout_reply(&[], ""),
-            Err(AcpError::Timeout)
+            Err(AgentError::Timeout)
         ));
     }
 

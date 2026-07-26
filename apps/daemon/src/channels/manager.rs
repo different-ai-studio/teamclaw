@@ -1,6 +1,6 @@
 //! Channel manager: boot and shut down `teamclaw_gateway` channels based on
 //! `[channels.*]` entries in `daemon.toml`. Each gateway is constructed with
-//! shared `AcpHandle` + `ChannelStore` adapters, populated with its per-channel
+//! shared `AgentHandle` + `ChannelStore` adapters, populated with its per-channel
 //! config (translated from `DaemonConfig`'s primitive fields into the gateway
 //! crate's own config structs), and then started.
 //!
@@ -11,7 +11,7 @@ use std::sync::Arc;
 use tokio::sync::Mutex;
 
 use teamclaw_gateway::{
-    AcpHandle, ChannelStore, DiscordConfig, DiscordGateway, EmailConfig, EmailGateway,
+    AgentHandle, ChannelStore, DiscordConfig, DiscordGateway, EmailConfig, EmailGateway,
     EmailGatewayStatus, EmailProvider, FeishuConfig, FeishuGateway, FeishuGatewayStatus,
     GatewayStatus, KookConfig, KookDmConfig, KookGateway, KookGatewayStatus, WeChatConfig,
     WeChatGateway, WeChatGatewayStatus, WeComConfig, WeComGateway, WeComGatewayStatus,
@@ -34,7 +34,7 @@ struct RunningChannels {
 
 pub struct ChannelManager {
     cfg: DaemonConfig,
-    acp: Arc<dyn AcpHandle>,
+    acp: Arc<dyn AgentHandle>,
     store: Arc<dyn ChannelStore>,
     team_id: String,
     primary_agent_actor_id: String,
@@ -49,7 +49,7 @@ pub struct ChannelManager {
 impl ChannelManager {
     pub fn new(
         cfg: DaemonConfig,
-        acp: Arc<dyn AcpHandle>,
+        acp: Arc<dyn AgentHandle>,
         store: Arc<dyn ChannelStore>,
         team_id: String,
         primary_agent_actor_id: String,
@@ -367,7 +367,7 @@ impl ChannelManager {
     }
 
     /// Boot one `WeComGateway` (one WSS connection) per enabled bot. Per-bot
-    /// workspace/agent/prompt are applied inside the shared `AcpHandle` via
+    /// workspace/agent/prompt are applied inside the shared `AgentHandle` via
     /// the bot_configs registry; the gateway itself only needs
     /// bot_id/secret/encoding_aes_key to connect.
     async fn start_wecom_bots(&self, c: &WeComChannel) -> Vec<WeComGateway> {

@@ -3,7 +3,7 @@
 //! Replaces the Zed-ACP integration (`adapter.rs` + `acp_host.rs`): amuxd now
 //! drives a single global `opencode serve` HTTP instance (see
 //! `docs/architecture/single-agent-opencode-http.md`). The manager-facing
-//! surface (`AcpCommand`, `AcpStartupMetadata`, `AcpHostPool`) keeps the old
+//! surface (`AcpCommand`, `AcpStartupMetadata`, `OpencodeHost`) keeps the old
 //! names and signatures so `RuntimeManager` / gateway plumbing is unchanged.
 
 use std::collections::HashMap;
@@ -202,16 +202,21 @@ fn canonical_dir(worktree: &str) -> String {
 }
 
 // ---------------------------------------------------------------------------
-// AcpHostPool — same surface as the old ACP host pool
+// OpencodeHost
 // ---------------------------------------------------------------------------
 
-/// Pool facade over the single global `opencode serve` instance.
-pub struct AcpHostPool {
+/// Facade over the single global `opencode serve` instance.
+///
+/// Not a pool and not a process launcher: [`ServeSupervisor`] owns the one
+/// `opencode serve` child for the whole device, and everything here is HTTP
+/// against it plus in-memory bookkeeping. "Starting a runtime" is
+/// `POST /session` and a [`Route`] entry — no fork, no exec.
+pub struct OpencodeHost {
     shared: Arc<Shared>,
     cmd_tx: std::sync::OnceLock<mpsc::Sender<AcpCommand>>,
 }
 
-impl AcpHostPool {
+impl OpencodeHost {
     pub fn new() -> Self {
         Self {
             shared: Shared::new(),
@@ -358,7 +363,7 @@ impl AcpHostPool {
     }
 }
 
-impl Default for AcpHostPool {
+impl Default for OpencodeHost {
     fn default() -> Self {
         Self::new()
     }
@@ -515,16 +520,23 @@ async fn attach(shared: &Arc<Shared>, args: AttachArgs) -> Result<AcpStartupMeta
         .map_err(|e| format!("opencode serve unavailable: {e}"))?;
     events::ensure_sse_task(shared, &directory);
 
+    // Set when we resumed an existing session: the model opencode persisted
+    // for it, i.e. what that conversation last actually ran on.
+    let mut resumed_model: Option<String> = None;
+
     let session_id = match args.resume_acp_session_id.as_deref() {
         Some(resume_id) if !resume_id.is_empty() => {
-            match client.session_exists(&directory, resume_id).await {
-                Ok(true) => resume_id.to_string(),
-                Ok(false) | Err(_) if args.forbid_new_session_fallback => {
+            match client.get_session(&directory, resume_id).await {
+                Ok(Some(session)) => {
+                    resumed_model = client::session_model_id(&session);
+                    resume_id.to_string()
+                }
+                Ok(None) | Err(_) if args.forbid_new_session_fallback => {
                     return Err(format!(
                         "opencode session {resume_id} not resumable (new-session fallback forbidden)"
                     ));
                 }
-                Ok(false) => {
+                Ok(None) => {
                     warn!(resume_id, "opencode session not found; creating a new one");
                     client
                         .create_session(&directory)
@@ -550,11 +562,29 @@ async fn attach(shared: &Arc<Shared>, args: AttachArgs) -> Result<AcpStartupMeta
         warn!(error = %e, "opencode model catalog fetch failed");
         Vec::new()
     });
+    // Model resolution, most specific first:
+    //
+    //   1. an explicit override — someone ran `/model` or picked one in the UI
+    //   2. `session.model` — what this conversation last actually ran on, read
+    //      back from opencode, which persists it across daemon restarts
+    //   3. the config default (`GET /config` → `model`)
+    //   4. nothing: leave it `None` and let opencode decide
+    //
+    // (4) is a real answer, not a gap. `PromptBody.model` is
+    // `skip_serializing_if = "none"`, so an unset model means the prompt omits
+    // the field and opencode resolves it with its own ordering — better than
+    // anything we can guess. A previous `.or_else(|| available_models.first())`
+    // did guess, taking the head of `model_catalog`, which
+    // `models_from_providers` sorts by `provider/model` id — i.e.
+    // alphabetically. Every gateway session pinned whichever provider sorted
+    // first regardless of whether its credentials still worked, and gateway
+    // `/model` overrides live in memory only, so a daemon restart put it right
+    // back. That is how WeCom turns ended up hard-pinned to an expired key.
     let initial_model = args
         .initial_model_override
         .filter(|m| !m.is_empty())
-        .or(client.config_default_model(&directory).await)
-        .or_else(|| available_models.first().map(|m| m.id.clone()));
+        .or(resumed_model)
+        .or(client.config_default_model(&directory).await);
     let model = initial_model.as_deref().and_then(client::split_model_id);
 
     {
@@ -1137,9 +1167,9 @@ async fn command_loop(shared: Arc<Shared>, mut cmd_rx: mpsc::Receiver<AcpCommand
 // ---------------------------------------------------------------------------
 
 /// Legacy single-session helper used by the `amuxd test-spawn` debug CLI.
-/// Production runtimes attach via [`AcpHostPool`] instead.
+/// Production runtimes attach via [`OpencodeHost`] instead.
 #[allow(clippy::too_many_arguments)]
-pub fn spawn_acp_agent(
+pub fn start_standalone_runtime(
     binary: String,
     _args: Vec<String>,
     worktree: String,
@@ -1285,14 +1315,14 @@ mod pool_tests {
 
     #[tokio::test]
     async fn host_count_zero_without_serve() {
-        let pool = AcpHostPool::new();
-        assert_eq!(pool.host_count(), 0);
+        let host = OpencodeHost::new();
+        assert_eq!(host.host_count(), 0);
     }
 
     #[tokio::test]
     async fn evict_without_serve_is_zero() {
-        let mut pool = AcpHostPool::new();
-        assert_eq!(pool.evict_agent_types(&[amux::AgentType::Opencode]), 0);
+        let mut host = OpencodeHost::new();
+        assert_eq!(host.evict_agent_types(&[amux::AgentType::Opencode]), 0);
     }
 
     #[test]

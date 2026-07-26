@@ -19,7 +19,7 @@ use crate::proto::amux;
 use crate::runtime::acp_event_frame::AcpEventFrame;
 
 use super::manager::AgentLaunchConfig;
-use super::opencode_http::AcpHostPool;
+use super::opencode_http::OpencodeHost;
 
 // ---------------------------------------------------------------------------
 // Shared channel types (backend-neutral)
@@ -92,7 +92,7 @@ pub struct AcpStartupMetadata {
 
 /// Local agent runtime backend surface consumed by `RuntimeManager`.
 ///
-/// Mirrors the historical `AcpHostPool` API one-to-one so the opencode HTTP
+/// Mirrors the historical `OpencodeHost` API one-to-one so the opencode HTTP
 /// backend is a zero-behavior-change adaptation; a future pi RPC backend
 /// implements the same surface.
 #[async_trait]
@@ -152,19 +152,19 @@ pub trait AgentBackend: Send {
 }
 
 // ---------------------------------------------------------------------------
-// OpencodeHttpBackend — thin adapter over the existing AcpHostPool
+// OpencodeHttpBackend — thin adapter over the existing OpencodeHost
 // ---------------------------------------------------------------------------
 
 /// The opencode serve HTTP backend (`runtime/opencode_http/`) behind the
 /// backend-neutral trait.
 pub struct OpencodeHttpBackend {
-    pool: AcpHostPool,
+    host: OpencodeHost,
 }
 
 impl OpencodeHttpBackend {
     pub fn new() -> Self {
         Self {
-            pool: AcpHostPool::new(),
+            host: OpencodeHost::new(),
         }
     }
 }
@@ -192,7 +192,7 @@ impl AgentBackend for OpencodeHttpBackend {
         is_gateway: bool,
         forbid_new_session_fallback: bool,
     ) -> crate::error::Result<(mpsc::Sender<AcpCommand>, AcpStartupMetadata)> {
-        self.pool
+        self.host
             .attach_session(
                 agent_type,
                 launch,
@@ -211,7 +211,7 @@ impl AgentBackend for OpencodeHttpBackend {
     }
 
     async fn prewarm(&mut self, launch_configs: &HashMap<amux::AgentType, AgentLaunchConfig>) {
-        self.pool.prewarm(launch_configs).await;
+        self.host.prewarm(launch_configs).await;
     }
 
     async fn prewarm_with_env(
@@ -221,30 +221,30 @@ impl AgentBackend for OpencodeHttpBackend {
         force_env_override: bool,
         worktree: Option<&str>,
     ) {
-        self.pool
+        self.host
             .prewarm_with_env(launch_configs, extra_env, force_env_override, worktree)
             .await;
     }
 
     fn evict_agent_types(&mut self, agent_types: &[amux::AgentType]) -> usize {
-        self.pool.evict_agent_types(agent_types)
+        self.host.evict_agent_types(agent_types)
     }
 
     fn host_count(&self) -> usize {
-        self.pool.host_count()
+        self.host.host_count()
     }
 
     async fn model_catalog(
         &mut self,
         workspace_path: &Path,
     ) -> crate::error::Result<Vec<amux::ModelInfo>> {
-        self.pool.model_catalog(workspace_path).await
+        self.host.model_catalog(workspace_path).await
     }
 
     fn opencode_serve_supervisor(
         &self,
     ) -> Option<std::sync::Arc<super::opencode_http::supervisor::ServeSupervisor>> {
-        Some(self.pool.serve_supervisor())
+        Some(self.host.serve_supervisor())
     }
 }
 

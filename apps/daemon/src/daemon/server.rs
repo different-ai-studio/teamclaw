@@ -16,7 +16,7 @@ use crate::backend::{
     credential_in_proactive_refresh_window, proactive_reconnect_delay, AgentRuntimeUpsert, Backend,
     WorkspaceUpsert,
 };
-use crate::channels::{AmuxdAcpHandle, AmuxdChannelStore, ChannelManager};
+use crate::channels::{AmuxdAgentHandle, AmuxdChannelStore, ChannelManager};
 use crate::collab::{AuthManager, AuthResult, PeerState, PeerTracker, PermissionManager};
 use crate::config::{DaemonConfig, SessionStore, StoredSession};
 use crate::daemon::binding_target::parse_binding_to_target;
@@ -57,7 +57,7 @@ use crate::provider_config::ProviderConfig;
 use crate::runtime::acp_event_frame::AcpEventFrame;
 use crate::runtime::{apply_workspace_system_instructions, AgentLaunchConfig, RuntimeManager};
 use crate::team_shared_git::TeamSharedGitConfig;
-use teamclaw_gateway::{AcpHandle, ChannelStore};
+use teamclaw_gateway::{AgentHandle, ChannelStore};
 
 /// Outcome of apply_start_runtime. Success path returns the allocated
 /// runtime_id + the session_id (echoed from request or freshly created).
@@ -985,7 +985,7 @@ impl DaemonServer {
             tokio::spawn(async move {
                 if prewarm_envs.is_empty() {
                     let mut mgr = agents.lock().await;
-                    mgr.prewarm_acp_hosts().await;
+                    mgr.prewarm_agent_backend().await;
                     return;
                 }
                 // Sequential, one manager-lock scope per workspace: cold host
@@ -994,7 +994,7 @@ impl DaemonServer {
                 // of queueing behind the whole prewarm sweep.
                 for (worktree, extra_env, force_env_override) in prewarm_envs {
                     let mut mgr = agents.lock().await;
-                    mgr.prewarm_acp_hosts_with_env(
+                    mgr.prewarm_agent_backend_with_env(
                         extra_env,
                         force_env_override,
                         Some(worktree.as_str()),

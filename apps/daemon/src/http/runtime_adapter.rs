@@ -674,7 +674,7 @@ impl RuntimeManagerAdapter {
             })?;
             let mut manager = self.manager.lock().await;
             manager
-                .spawn_agent_with_model(
+                .start_runtime_with_model(
                     agent_type,
                     &worktree,
                     initial_prompt.as_deref().unwrap_or(""),
@@ -1070,7 +1070,7 @@ impl RuntimeAdapter for RuntimeManagerAdapter {
         };
         {
             let mut manager = self.manager.lock().await;
-            let _ = manager.stop_agent(&runtime_id).await;
+            let _ = manager.stop_runtime(&runtime_id).await;
         }
         self.set_state(session_id, SessionState::Closed, Some("explicit_close"));
         self.emit(session_id, {
