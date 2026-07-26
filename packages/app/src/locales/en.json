@@ -1136,6 +1136,7 @@
       "checking": "Checking...",
       "checkUpdates": "Check Updates",
       "upToDate": "Up to date",
+      "updateToVersion": "Update to {{version}}",
       "newVersion": "New version available:",
       "downloadInstall": "Download & Install",
       "updateInstalled": "Update installed successfully",

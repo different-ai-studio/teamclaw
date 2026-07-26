@@ -143,24 +143,27 @@ const UPDATABLE_DEPS = new Set(['opencode'])
 
 function UpdateButton({ dep }: { dep: DependencyInfo }) {
   const { t } = useTranslation()
-  const { updateDependency, installing, currentInstalling, installResults, checkDependencies, resetInstallState, lastOperation } = useDepsStore()
+  const {
+    updateDependency, installing, currentInstalling, installResults,
+    checkDependencies, resetInstallState, opencodeVersions, checkOpencodeVersions,
+  } = useDepsStore()
   const isUpdatingThis = currentInstalling === dep.name
   const result = installResults[dep.name]
   const isFailed = result?.error !== undefined && !result?.success
-  const justUpdated = lastOperation === 'update' && result?.success === true
+  const latest = opencodeVersions?.latest ?? null
+  // Only `true` counts as up to date: null means we could not reach the mirror,
+  // and "unknown" must not be presented to the user as "you're current".
+  const upToDate = opencodeVersions?.upToDate === true
 
   const handleUpdate = async () => {
     resetInstallState()
     await updateDependency(dep.name)
     // Re-reads the version off disk, so the badge shows what actually landed.
     await checkDependencies()
+    await checkOpencodeVersions()
   }
 
-  // The update just pulled the latest release, so right now this IS the latest —
-  // say so instead of offering an update that would re-download the same build.
-  // amuxd pins no version and we don't poll upstream, so this only holds for the
-  // current view: "Re-check" or reopening Settings brings the button back.
-  if (justUpdated) {
+  if (upToDate && !isUpdatingThis) {
     return (
       <span className="flex items-center gap-1 text-xs text-green-600 dark:text-green-500">
         <CheckCircle2 className="h-3.5 w-3.5" />
@@ -176,10 +179,18 @@ function UpdateButton({ dep }: { dep: DependencyInfo }) {
       onClick={handleUpdate}
       disabled={installing}
       className={cn('gap-1.5 h-7 px-2 text-xs', isFailed && 'text-red-500 hover:text-red-600')}
-      title={t('settings.deps.updateTitle', 'Update to the latest version')}
+      title={
+        latest
+          ? t('settings.deps.updateToVersion', { defaultValue: 'Update to {{version}}', version: latest })
+          : t('settings.deps.updateTitle', 'Update to the latest version')
+      }
     >
       {isUpdatingThis ? <Loader2 className="h-3 w-3 animate-spin" /> : <RefreshCw className="h-3 w-3" />}
-      {isUpdatingThis ? t('settings.deps.updating', 'Updating...') : t('settings.deps.update', 'Update')}
+      {isUpdatingThis
+        ? t('settings.deps.updating', 'Updating...')
+        : latest
+          ? t('settings.deps.updateToVersion', { defaultValue: 'Update to {{version}}', version: latest })
+          : t('settings.deps.update', 'Update')}
     </Button>
   )
 }
@@ -240,7 +251,7 @@ function DepProgress({ dep }: { dep: DependencyInfo }) {
 
 export function DependenciesSection() {
   const { t } = useTranslation()
-  const { dependencies: deps, loading: isLoading, checkDependencies } = useDepsStore()
+  const { dependencies: deps, loading: isLoading, checkDependencies, checkOpencodeVersions } = useDepsStore()
   const [isChecking, setIsChecking] = React.useState(false)
 
   // Trigger initial check if not yet done
@@ -250,9 +261,15 @@ export function DependenciesSection() {
     }
   }, [deps.length, isLoading, checkDependencies])
 
+  // Separate from checkDependencies: this one hits the network, so it must not
+  // gate the (offline, fast) dependency list rendering.
+  React.useEffect(() => {
+    void checkOpencodeVersions()
+  }, [checkOpencodeVersions])
+
   const handleRecheck = async () => {
     setIsChecking(true)
-    await checkDependencies()
+    await Promise.all([checkDependencies(), checkOpencodeVersions()])
     setIsChecking(false)
   }
 

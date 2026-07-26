@@ -1,0 +1,154 @@
+name: Mirror opencode to OSS
+
+on:
+  # Track the LATEST official opencode release and mirror it to OSS daily, so
+  # installs and updates on slow/blocked networks don't have to reach GitHub.
+  # 18:00 UTC == 02:00 Asia/Shanghai (凌晨).
+  schedule:
+    - cron: "0 18 * * *"
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "release tag to mirror (blank = latest official sst/opencode release)"
+        required: false
+        default: ""
+
+# Layout (deliberately versioned — see below):
+#   opencode/<version>/<asset>   immutable, cached hard by the CDN
+#   opencode/latest.json         {"version": "..."} — must NOT be cached
+#
+# The previous layout overwrote a single fixed path (`opencode/stable/<asset>`)
+# and sat behind a caching CDN, so clients kept receiving a months-old build
+# (fresh requests came back with `Date: 29 Jun 2026`) and "update" silently
+# DOWNGRADED opencode. Version-in-the-path makes that failure impossible: a URL
+# always names exactly one build, and only the tiny manifest needs to be fresh.
+jobs:
+  mirror:
+    runs-on: ubuntu-latest
+    env:
+      OPENCODE_REPO: sst/opencode
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Resolve tag
+        id: tag
+        env:
+          INPUT_TAG: ${{ github.event.inputs.tag }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          TAG="${INPUT_TAG:-}"
+          if [ -z "$TAG" ]; then
+            # Default: the latest official (non-prerelease) opencode release.
+            TAG=$(gh release view --repo "$OPENCODE_REPO" --json tagName --jq .tagName)
+          fi
+          VERSION="${TAG#v}"
+          echo "tag=$TAG" >> "$GITHUB_OUTPUT"
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+          echo "Mirroring official opencode release: $TAG (version $VERSION)"
+
+      # sst/opencode releases are PUBLIC, so the default repo-scoped GITHUB_TOKEN
+      # can read them via the GitHub API.
+      - name: Download release assets
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAG: ${{ steps.tag.outputs.tag }}
+        run: |
+          set -euo pipefail
+          mkdir -p assets
+          for a in \
+            opencode-darwin-arm64.zip \
+            opencode-darwin-x64.zip \
+            opencode-windows-x64.zip \
+            opencode-linux-x64.tar.gz \
+            opencode-linux-arm64.tar.gz \
+            opencode-windows-arm64.zip; do
+            if gh release download "$TAG" --repo "$OPENCODE_REPO" --pattern "$a" --dir assets --clobber; then
+              echo "✓ got $a"
+            else
+              echo "::warning::asset $a not found in $OPENCODE_REPO@$TAG — skipping"
+            fi
+          done
+          echo "--- downloaded ---"
+          ls -la assets || true
+          if [ -z "$(ls -A assets 2>/dev/null)" ]; then
+            echo "::error::no assets downloaded — aborting"
+            exit 1
+          fi
+
+      # Assets go up FIRST and the manifest LAST: a client that reads the
+      # manifest must never be pointed at a version whose assets aren't there.
+      - name: Upload to OSS (versioned assets, then latest.json)
+        env:
+          OSS_ACCESS_KEY_ID: ${{ secrets.OSS_ACCESS_KEY_ID }}
+          OSS_ACCESS_KEY_SECRET: ${{ secrets.OSS_ACCESS_KEY_SECRET }}
+          OSS_ENDPOINT: ${{ secrets.OSS_ENDPOINT }}
+          OSS_BUCKET: ${{ secrets.OSS_BUCKET }}
+          VERSION: ${{ steps.tag.outputs.version }}
+        run: |
+          set -euo pipefail
+          if [ -z "${OSS_ACCESS_KEY_ID:-}" ]; then
+            echo "::error::OSS secrets not configured"
+            exit 1
+          fi
+          python3 -m pip install oss2 --quiet --break-system-packages 2>/dev/null || pip3 install oss2 --quiet --break-system-packages
+          python3 - <<'EOF'
+          import glob
+          import json
+          import os
+
+          import oss2
+
+          auth = oss2.Auth(os.environ['OSS_ACCESS_KEY_ID'], os.environ['OSS_ACCESS_KEY_SECRET'])
+          endpoint = os.environ['OSS_ENDPOINT']
+          if not endpoint.startswith('http'):
+              endpoint = 'https://' + endpoint
+          bucket = oss2.Bucket(auth, endpoint, os.environ['OSS_BUCKET'])
+          version = os.environ['VERSION']
+
+          files = sorted(glob.glob('assets/*'))
+          if not files:
+              raise SystemExit('no assets to upload')
+
+          # Versioned keys are immutable, so let the CDN keep them forever.
+          immutable = {'Cache-Control': 'public, max-age=31536000, immutable'}
+          uploaded = []
+          for local in files:
+              name = os.path.basename(local)
+              key = f'opencode/{version}/{name}'
+              print(f'Uploading {name} -> oss://{os.environ["OSS_BUCKET"]}/{key}')
+              bucket.put_object_from_file(key, local, headers=immutable)
+              uploaded.append(name)
+              print(f'✅ {key}')
+
+          # The manifest is the ONLY mutable object, and it must never be cached
+          # — a stale manifest is the exact bug this layout exists to prevent.
+          manifest = json.dumps({'version': version, 'assets': uploaded}, indent=2)
+          bucket.put_object(
+              'opencode/latest.json',
+              manifest.encode(),
+              headers={
+                  'Cache-Control': 'no-cache, no-store, max-age=0',
+                  'Content-Type': 'application/json',
+              },
+          )
+          print(f'✅ opencode/latest.json -> {version}')
+          EOF
+
+      - name: Verify the manifest is served fresh
+        env:
+          VERSION: ${{ steps.tag.outputs.version }}
+        run: |
+          set -euo pipefail
+          BASE="https://teamclaw.ucar.cc/opencode"
+          # Fails the run if the CDN serves a manifest that disagrees with what
+          # we just published — i.e. if the no-cache header is not being honored.
+          SERVED=$(curl -fsSL "$BASE/latest.json" | python3 -c 'import json,sys; print(json.load(sys.stdin)["version"])')
+          echo "manifest says: $SERVED, expected: $VERSION"
+          [ "$SERVED" = "$VERSION" ] || {
+            echo "::error::CDN served a stale manifest ($SERVED != $VERSION) — check the Cache-Control rule on opencode/latest.json"
+            exit 1
+          }
+          curl -fsI "$BASE/$VERSION/opencode-darwin-arm64.zip" >/dev/null
+          echo "✓ versioned asset reachable"

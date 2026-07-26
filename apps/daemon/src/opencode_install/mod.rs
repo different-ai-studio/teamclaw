@@ -114,10 +114,29 @@ fn report_installed() {
     }
 }
 
-/// Where opencode release assets come from — the official sst/opencode
-/// `latest` release. This is the only source; there is deliberately no mirror
-/// override, so "install" and "update" always mean the current upstream build.
+/// Upstream source of truth for opencode release assets — the official
+/// sst/opencode `latest` release. Used directly when the mirror can't answer.
 const DEFAULT_DOWNLOAD_BASE: &str = "https://github.com/sst/opencode/releases/latest/download";
+
+/// OSS mirror root, for networks where GitHub is slow or unreachable. Fixed —
+/// there is deliberately no per-brand override, since a build-config knob is
+/// what let a stale mirror silently downgrade opencode before.
+///
+/// Layout (see .github/workflows/mirror-opencode-oss.yml):
+///   `<base>/latest.json`         `{"version": "1.18.5"}` — never cached
+///   `<base>/<version>/<asset>`   immutable, cached hard
+///
+/// The version lives in the PATH on purpose. The mirror used to overwrite one
+/// fixed path behind a caching CDN, so clients could be handed a months-old
+/// build with no way to tell — "update to latest" downgraded 1.18.5 -> 1.17.7.
+/// A versioned URL names exactly one build, so only the tiny manifest has to be
+/// fresh, and a stale manifest can at worst cost us one release of latency.
+const MIRROR_BASE: &str = "https://teamclaw.ucar.cc/opencode";
+
+/// How long to wait on the mirror manifest before giving up and using upstream.
+/// Deliberately short: this runs before any progress output, so a hung mirror
+/// would look like a frozen install.
+const MANIFEST_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(5);
 
 /// Official opencode CLI release asset for an (os, arch) pair, using
 /// `std::env::consts` names. Returns None for unsupported targets.
@@ -142,6 +161,46 @@ fn current_asset() -> Option<&'static str> {
 fn download_url(asset: &str) -> String {
     let base = DEFAULT_DOWNLOAD_BASE.trim_end_matches('/');
     format!("{base}/{asset}")
+}
+
+/// Download URL for `asset` at `version` on the mirror.
+fn mirror_asset_url(version: &str, asset: &str) -> String {
+    let base = MIRROR_BASE.trim_end_matches('/');
+    format!("{base}/{version}/{asset}")
+}
+
+/// The mirror manifest: which version its versioned directories currently hold.
+#[derive(Debug, serde::Deserialize)]
+struct MirrorManifest {
+    version: String,
+}
+
+/// Ask the mirror what the newest version it carries is. `None` on any failure
+/// (offline, DNS, timeout, malformed JSON) — the mirror is an optimization, so
+/// every error path just means "use upstream instead".
+pub fn mirror_latest_version() -> Option<String> {
+    let url = format!("{}/latest.json", MIRROR_BASE.trim_end_matches('/'));
+    let manifest: MirrorManifest = tokio::runtime::Builder::new_current_thread()
+        .enable_all()
+        .build()
+        .ok()?
+        .block_on(async {
+            let client = reqwest::Client::builder()
+                .timeout(MANIFEST_TIMEOUT)
+                .build()
+                .ok()?;
+            let resp = client
+                .get(&url)
+                .send()
+                .await
+                .ok()?
+                .error_for_status()
+                .ok()?;
+            resp.json::<MirrorManifest>().await.ok()
+        })?;
+    let version = manifest.version.trim().trim_start_matches('v').to_string();
+    // A manifest we can't parse as a version is a broken mirror, not a hint.
+    parse_semver(&version).map(|_| version)
 }
 
 /// Blocking download of `url` into memory. Builds its own current-thread tokio
@@ -225,10 +284,14 @@ fn unpack_opencode(asset: &str, bytes: &[u8], dest: &std::path::Path) -> anyhow:
     Ok(())
 }
 
-/// Direct-download install: fetch the current platform's latest release asset
-/// from the official upstream and unpack it into `~/.opencode/bin`. Used on
-/// Windows, which has no official curl|bash installer.
-fn direct_install() -> anyhow::Result<()> {
+/// Direct-download install: fetch the current platform's release asset and
+/// unpack it into `~/.opencode/bin`.
+///
+/// Prefers the mirror (fast where GitHub is not), falling back to upstream if
+/// the mirror can't say what it carries or the download fails. `mirror_version`
+/// is the already-resolved manifest answer, so callers that needed it for an
+/// up-to-date check don't fetch it twice.
+fn direct_install(mirror_version: Option<&str>) -> anyhow::Result<()> {
     let asset = current_asset().ok_or_else(|| {
         anyhow::anyhow!(
             "unsupported platform for direct opencode install: {} {}",
@@ -236,13 +299,31 @@ fn direct_install() -> anyhow::Result<()> {
             std::env::consts::ARCH
         )
     })?;
+    let dest = opencode_default_bin().ok_or_else(|| anyhow::anyhow!("no home dir"))?;
+
+    if let Some(version) = mirror_version {
+        let url = mirror_asset_url(version, asset);
+        progress("download", &format!("downloading {url}"));
+        match download_bytes(&url) {
+            Ok(bytes) => {
+                progress("unpack", &format!("unpacking {asset}"));
+                return unpack_opencode(asset, &bytes, &dest);
+            }
+            Err(e) => {
+                // The mirror is an accelerator, never a hard dependency.
+                progress(
+                    "download",
+                    &format!("mirror download failed ({e}); falling back to the official source"),
+                );
+            }
+        }
+    }
+
     let url = download_url(asset);
     progress("download", &format!("downloading {url}"));
     let bytes = download_bytes(&url)?;
     progress("unpack", &format!("unpacking {asset}"));
-    let dest = opencode_default_bin().ok_or_else(|| anyhow::anyhow!("no home dir"))?;
-    unpack_opencode(asset, &bytes, &dest)?;
-    Ok(())
+    unpack_opencode(asset, &bytes, &dest)
 }
 
 /// Minimal system PATH for subprocesses spawned from a GUI/sidecar context.
@@ -274,9 +355,11 @@ fn install_command_path() -> String {
 /// whatever its version — amuxd does not pin or require a version. `force` is
 /// the settings "Update" path and always re-fetches.
 ///
-/// Source selection:
-///   * Windows: direct-download the latest release zip (no official curl|bash).
-///   * macOS/Linux: the official opencode.ai installer (latest).
+/// Source selection, in order:
+///   * The OSS mirror, when its manifest answers — the fast path on networks
+///     where GitHub is slow or blocked.
+///   * Windows without the mirror: direct-download (no official curl|bash).
+///   * macOS/Linux without the mirror: the official opencode.ai installer.
 pub fn run_install(force: bool) -> anyhow::Result<()> {
     if !force {
         if let Some((path, have)) = detect_opencode() {
@@ -291,9 +374,16 @@ pub fn run_install(force: bool) -> anyhow::Result<()> {
         progress("upgrade", "updating opencode to the latest release");
     }
 
-    // Windows has no official curl|bash installer, so always direct-download.
-    if cfg!(windows) {
-        direct_install()?;
+    // Resolved once and threaded through: the manifest is a network round-trip.
+    let mirror_version = mirror_latest_version();
+    if let Some(v) = &mirror_version {
+        progress("mirror", &format!("mirror carries opencode {v}"));
+    }
+
+    // The mirror serves every platform, so it takes precedence over both the
+    // Windows direct-download and the official installer.
+    if mirror_version.is_some() || cfg!(windows) {
+        direct_install(mirror_version.as_deref())?;
         report_installed();
         return Ok(());
     }
@@ -564,6 +654,27 @@ mod tests {
             download_url("opencode-windows-x64.zip"),
             "https://github.com/sst/opencode/releases/latest/download/opencode-windows-x64.zip"
         );
+    }
+
+    #[test]
+    fn mirror_asset_url_puts_the_version_in_the_path() {
+        // The version MUST be in the path, not in an overwritten "stable" dir:
+        // that is what makes a CDN unable to serve a different build than asked.
+        assert_eq!(
+            mirror_asset_url("1.18.5", "opencode-darwin-arm64.zip"),
+            "https://teamclaw.ucar.cc/opencode/1.18.5/opencode-darwin-arm64.zip"
+        );
+        assert!(!mirror_asset_url("1.18.5", "x.zip").contains("stable"));
+    }
+
+    #[test]
+    fn mirror_manifest_parses_and_strips_v() {
+        let m: MirrorManifest = serde_json::from_str(r#"{"version":"v1.18.5"}"#).unwrap();
+        assert_eq!(m.version.trim_start_matches('v'), "1.18.5");
+        // Extra fields (e.g. the workflow's `assets` list) must not break parsing.
+        let m: MirrorManifest =
+            serde_json::from_str(r#"{"version":"1.18.5","assets":["a.zip"]}"#).unwrap();
+        assert_eq!(m.version, "1.18.5");
     }
 
     #[test]

@@ -19,6 +19,14 @@ export interface DependencyInfo {
   priority: number
 }
 
+/** Installed vs newest-available opencode (from `amuxd opencode-versions`). */
+export interface OpencodeVersions {
+  installed: string | null
+  latest: string | null
+  /** null = latest unknown (mirror unreachable); keep offering the update. */
+  upToDate: boolean | null
+}
+
 export interface InstallResult {
   success: boolean
   error?: string
@@ -117,6 +125,8 @@ interface DepsState {
   installOutput: Record<string, string[]>
   /** Which operation produced the current results — drives the UI wording. */
   lastOperation: 'install' | 'update' | null
+  /** Newest opencode available, or null until/unless the check succeeds. */
+  opencodeVersions: OpencodeVersions | null
 
   /** Check all dependencies via Tauri command */
   checkDependencies: () => Promise<DependencyInfo[]>
@@ -135,6 +145,9 @@ interface DepsState {
 
   /** Reset install state for retry */
   resetInstallState: () => void
+
+  /** Ask amuxd what the newest opencode is (network; safe to fail). */
+  checkOpencodeVersions: () => Promise<void>
 }
 
 
@@ -175,6 +188,7 @@ export const useDepsStore = create<DepsState>((set, get) => ({
   installResults: {},
   installOutput: {},
   lastOperation: null,
+  opencodeVersions: null,
 
   checkDependencies: async () => {
     if (!isTauri()) {
@@ -347,6 +361,18 @@ export const useDepsStore = create<DepsState>((set, get) => ({
     } finally {
       unlisten()
       set({ installing: false, currentInstalling: null })
+    }
+  },
+
+  checkOpencodeVersions: async () => {
+    if (!isTauri()) return
+    try {
+      const { invoke } = await import('@tauri-apps/api/core')
+      set({ opencodeVersions: await invoke<OpencodeVersions>('opencode_versions') })
+    } catch (err) {
+      // Unknown is a valid state — the UI keeps offering the update.
+      console.warn('[DepsStore] opencode version check failed:', err)
+      set({ opencodeVersions: null })
     }
   },
 

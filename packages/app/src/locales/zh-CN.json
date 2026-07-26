@@ -1136,6 +1136,7 @@
       "checking": "检查中...",
       "checkUpdates": "检查更新",
       "upToDate": "已是最新",
+      "updateToVersion": "更新到 {{version}}",
       "newVersion": "有新版本可用：",
       "downloadInstall": "下载并安装",
       "updateInstalled": "更新已成功安装",

@@ -217,6 +217,41 @@ fn requires_brew(name: &str) -> bool {
     matches!(name, "gh" | "node" | "python3")
 }
 
+/// Installed vs newest-available opencode, for the Dependencies UI.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct OpencodeVersions {
+    pub installed: Option<String>,
+    pub latest: Option<String>,
+    /// `None` when `latest` is unknown (mirror unreachable) — the UI must then
+    /// keep offering the update rather than claiming either state.
+    pub up_to_date: Option<bool>,
+}
+
+/// Ask the bundled amuxd what the newest opencode available is. Hits the
+/// network (the mirror manifest), so this is a separate command from
+/// `check_dependencies`, which must stay fast and offline.
+#[tauri::command]
+pub async fn opencode_versions<R: Runtime>(app: AppHandle<R>) -> Result<OpencodeVersions, String> {
+    use tauri_plugin_shell::process::CommandEvent;
+    use tauri_plugin_shell::ShellExt;
+
+    let (mut rx, _child) = app
+        .shell()
+        .sidecar("amuxd")
+        .map_err(|e| format!("sidecar amuxd: {e}"))?
+        .args(["opencode-versions"])
+        .spawn()
+        .map_err(|e| format!("spawn amuxd: {e}"))?;
+    let mut buf = String::new();
+    while let Some(event) = rx.recv().await {
+        if let CommandEvent::Stdout(bytes) = event {
+            buf.push_str(&String::from_utf8_lossy(&bytes));
+        }
+    }
+    serde_json::from_str(buf.trim()).map_err(|e| format!("parse amuxd opencode-versions: {e}"))
+}
+
 /// Check all external dependencies and return their status.
 /// Results are sorted by priority (lower first) for install ordering.
 #[tauri::command]
