@@ -869,6 +869,7 @@
     "failed": "更新失败",
     "releaseNotes": "更新说明",
     "restartNow": "立即重启",
+    "restarting": "正在重启…",
     "restartLater": "稍后重启",
     "restartRecommendation": "更新已安装，建议尽快重启以使用新版本。",
     "restartToApply": "更新已安装。请重启以应用更改。",
