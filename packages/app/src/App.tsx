@@ -2481,7 +2481,7 @@ function AppContent() {
       >
         <DialogHeader className="flex h-12 shrink-0 flex-row items-center gap-2 border-b border-border bg-paper px-5 py-0 text-left">
           <div className="min-w-0 flex-1">
-            <DialogTitle className="truncate text-[15px] font-bold leading-none text-foreground">
+            <DialogTitle className="text-[15px] font-bold leading-normal text-foreground">
               {t("common.settings", "Settings")}
             </DialogTitle>
             <DialogDescription className="sr-only">
