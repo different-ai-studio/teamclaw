@@ -186,14 +186,29 @@ export const useUpdaterStore = create<UpdaterStore>((set, get) => ({
 
   restart: async () => {
     try {
-      const { relaunch } = await import("@tauri-apps/plugin-process")
-      await relaunch()
+      const { invoke } = await import("@tauri-apps/api/core")
+      await invoke("restart_app")
+      // `restart_app` exits the process; if we are still alive a moment later
+      // the relaunch never took, so tell the user instead of leaving the
+      // dialog looking like the click did nothing.
+      setTimeout(() => {
+        const cur = get().update
+        if (cur.state === "ready") {
+          set({
+            update: {
+              ...cur,
+              state: "error",
+              errorMessage: "Failed to restart. Please quit and reopen the app manually.",
+            },
+          })
+        }
+      }, 5000)
     } catch (err) {
       console.error("[Updater] Relaunch failed:", err)
       set({
         update: {
           state: "error",
-          errorMessage: "Failed to restart. Please restart manually.",
+          errorMessage: `Failed to restart: ${String(err)}. Please restart manually.`,
         },
       })
     }

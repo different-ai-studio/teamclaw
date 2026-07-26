@@ -11,6 +11,8 @@ use std::collections::HashMap;
 use std::io::Cursor;
 #[cfg(target_os = "macos")]
 use std::path::{Path, PathBuf};
+#[cfg(target_os = "macos")]
+use std::sync::OnceLock;
 use tauri::{AppHandle, Emitter, Runtime};
 
 const DEFAULT_REPO_OWNER: &str = "different-ai-studio";
@@ -405,6 +407,25 @@ fn get_app_bundle_path() -> Result<PathBuf, String> {
         .ok_or_else(|| "Cannot determine .app bundle path from executable".to_string())
 }
 
+/// The `.app` bundle path captured before any update replaces it on disk.
+#[cfg(target_os = "macos")]
+static STARTING_BUNDLE_PATH: OnceLock<PathBuf> = OnceLock::new();
+
+/// Record the running `.app` bundle path at startup.
+///
+/// `install_update` renames the live bundle away and moves a fresh one into its
+/// place, so anything resolved *after* an install can point at a bundle that no
+/// longer exists. Restart must relaunch the path captured here.
+pub fn remember_app_bundle_path() {
+    #[cfg(target_os = "macos")]
+    match get_app_bundle_path() {
+        Ok(path) => {
+            let _ = STARTING_BUNDLE_PATH.set(path);
+        }
+        Err(e) => log::warn!("[updater] cannot resolve .app bundle path at startup: {e}"),
+    }
+}
+
 /// Returns true when `path` looks like a macOS application bundle directory.
 #[cfg(target_os = "macos")]
 fn is_app_bundle(path: &Path) -> bool {
@@ -790,4 +811,84 @@ pub async fn download_and_install_update<R: Runtime>(
     install_update(&bytes)?;
 
     Ok(())
+}
+
+/// Quit and relaunch the app so an installed update takes effect.
+///
+/// This deliberately does not use `tauri_plugin_process::relaunch`. That path
+/// re-execs the binary from inside the dying process and skips LaunchServices,
+/// which after an in-place bundle replacement can leave no visible app at all
+/// — the window disappears (or never goes away) and nothing comes back.
+/// Instead we hand the relaunch to `open(1)` in a detached shell that outlives
+/// this process, then exit through the normal Tauri path so `RunEvent::Exit`
+/// still stops amuxd and the terminal registry.
+#[tauri::command]
+pub async fn restart_app<R: Runtime>(app: AppHandle<R>) -> Result<(), String> {
+    relaunch_and_exit(app)
+}
+
+#[cfg(target_os = "macos")]
+fn relaunch_and_exit<R: Runtime>(app: AppHandle<R>) -> Result<(), String> {
+    let bundle = STARTING_BUNDLE_PATH
+        .get()
+        .cloned()
+        .or_else(|| get_app_bundle_path().ok())
+        .ok_or_else(|| "Cannot determine .app bundle path to relaunch".to_string())?;
+
+    if !bundle.exists() {
+        return Err(format!(
+            "App bundle {} no longer exists; cannot relaunch",
+            bundle.display()
+        ));
+    }
+
+    // `sleep 1` gives this process time to tear down amuxd before the new
+    // instance starts supervising its own daemon. `-n` forces a new instance
+    // instead of reactivating the one that is on its way out.
+    let script = format!(
+        "sleep 1; exec /usr/bin/open -n {}",
+        shell_quote(&bundle.to_string_lossy())
+    );
+    std::process::Command::new("/bin/sh")
+        .arg("-c")
+        .arg(&script)
+        .spawn()
+        .map_err(|e| format!("Failed to schedule relaunch: {e}"))?;
+
+    log::info!("[updater] relaunch scheduled for {}", bundle.display());
+    app.exit(0);
+    Ok(())
+}
+
+#[cfg(not(target_os = "macos"))]
+fn relaunch_and_exit<R: Runtime>(app: AppHandle<R>) -> Result<(), String> {
+    app.request_restart();
+    Ok(())
+}
+
+/// Single-quote a path for `/bin/sh -c`.
+#[cfg(target_os = "macos")]
+fn shell_quote(s: &str) -> String {
+    format!("'{}'", s.replace('\'', r"'\''"))
+}
+
+#[cfg(all(test, target_os = "macos"))]
+mod shell_quote_tests {
+    use super::shell_quote;
+
+    #[test]
+    fn quotes_plain_path() {
+        assert_eq!(
+            shell_quote("/Applications/TeamClaw.app"),
+            "'/Applications/TeamClaw.app'"
+        );
+    }
+
+    #[test]
+    fn quotes_path_with_spaces_and_quote() {
+        assert_eq!(
+            shell_quote("/My Apps/Team's.app"),
+            r"'/My Apps/Team'\''s.app'"
+        );
+    }
 }

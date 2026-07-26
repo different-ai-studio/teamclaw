@@ -461,6 +461,7 @@ pub fn run() {
             commands::skillssh::npx_skills_list,
             commands::updater::check_update,
             commands::updater::download_and_install_update,
+            commands::updater::restart_app,
             commands::git::git_check_available,
             commands::git::git_clone,
             commands::git::git_pull,
@@ -598,6 +599,9 @@ pub fn run() {
         ])
         .setup(|app| {
             let setup_t0 = std::time::Instant::now();
+
+            // Capture the .app bundle path before an update can replace it on disk.
+            commands::updater::remember_app_bundle_path();
 
             // Register aptabase here (inside setup) so the Tokio runtime is available
             // for its internal `tokio::spawn` polling loop.
