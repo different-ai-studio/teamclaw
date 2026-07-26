@@ -1,8 +1,12 @@
 import { useState } from 'react'
-import { AlertCircle, ChevronDown, ChevronUp, RefreshCw, AlertTriangle, ShieldAlert, Timer, Copy, Check } from 'lucide-react'
+import { AlertCircle, ChevronDown, ChevronUp, RefreshCw, AlertTriangle, ShieldAlert, Timer, Copy, Check, Square } from 'lucide-react'
 import { useTranslation } from 'react-i18next'
 import { copyToClipboard } from '@/lib/utils'
-import { isQuotaLikeAgentMessage } from '@/lib/agent-turn-error'
+import {
+  isAgentTurnAbortError,
+  isQuotaLikeAgentMessage,
+  TURN_INTERRUPTED_ERROR_NAME,
+} from '@/lib/agent-turn-error'
 import type { SessionErrorEvent } from '@/stores/session-types'
 
 interface SessionErrorAlertProps {
@@ -25,11 +29,6 @@ const DEFAULT_BODY_STYLE = {
   bodyBorder: 'border-red-200/50 dark:border-red-800/30',
 }
 
-const NEUTRAL_BODY_STYLE = {
-  bodyBg: 'bg-muted/60',
-  bodyBorder: 'border-border-soft',
-}
-
 export function SessionErrorAlert({ error, onDismiss, onRetry }: SessionErrorAlertProps) {
   const { t } = useTranslation()
   const [expanded, setExpanded] = useState(false)
@@ -48,24 +47,58 @@ export function SessionErrorAlert({ error, onDismiss, onRetry }: SessionErrorAle
   const providerID = isStringError ? undefined : error.error?.data?.providerID
   const isRetryable = isStringError ? false : error.error?.data?.isRetryable
 
+  const isInterrupted =
+    errorName === TURN_INTERRUPTED_ERROR_NAME ||
+    isAgentTurnAbortError(errorName, errorMessage) ||
+    isAgentTurnAbortError(errorMessage)
+
+  if (isInterrupted) {
+    return (
+      <div
+        className="flex justify-start mb-1.5 animate-in fade-in slide-in-from-bottom-1 duration-300"
+        data-testid="session-interrupt-notice"
+      >
+        <div className="max-w-[85%] min-w-0">
+          <div className="flex items-center gap-2 mb-1.5 pl-1">
+            <div className="flex h-6 w-6 items-center justify-center rounded-full bg-panel text-muted-foreground">
+              <Square className="h-3 w-3 fill-current" />
+            </div>
+            <span className="text-xs font-semibold text-ink-2">
+              {t('chat.interrupt.stoppedTitle', '已停止')}
+            </span>
+          </div>
+
+          <div className="rounded-2xl border border-border bg-paper px-4 py-3">
+            <p className="text-[13px] leading-relaxed text-ink-2 break-words [overflow-wrap:anywhere]">
+              {t('chat.interrupt.stoppedBody', '你已打断本次回复。')}
+            </p>
+            <p className="mt-1 text-[12px] leading-relaxed text-muted-foreground">
+              {t('chat.interrupt.stoppedHint', '已生成的内容会保留；可以继续提问。')}
+            </p>
+          </div>
+
+          {onDismiss ? (
+            <div className="flex items-center gap-1 mt-1.5 pl-1">
+              <button
+                type="button"
+                onClick={onDismiss}
+                className="inline-flex items-center gap-1 rounded-md px-2 py-1 text-[11px] text-muted-foreground hover:text-foreground hover:bg-muted transition-colors"
+              >
+                {t('chat.interrupt.dismiss', '知道了')}
+              </button>
+            </div>
+          ) : null}
+        </div>
+      </div>
+    )
+  }
+
   if (!errorMessage && !errorName) return null
 
   const isLongMessage = errorMessage.length > 150
 
   const getErrorStyle = (): ErrorStyle => {
     const lowerMsg = errorMessage.toLowerCase()
-    // A user-initiated interrupt (turn cancel) surfaces through the same
-    // error pipeline but isn't a fault — style it as a neutral note, not a
-    // red alarm.
-    if (errorName.toLowerCase().includes('abort') || lowerMsg.includes('aborted')) {
-      return {
-        icon: AlertCircle,
-        title: t('errors.serviceNotice', 'Service Notice'),
-        accentColor: 'text-muted-foreground',
-        iconBg: 'bg-muted',
-        ...NEUTRAL_BODY_STYLE,
-      }
-    }
     if (errorName === 'AgentTimeoutError') {
       return {
         icon: Timer,

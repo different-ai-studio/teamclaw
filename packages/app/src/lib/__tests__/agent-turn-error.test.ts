@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest'
 import {
   classifyAgentTurnErrorName,
   formatAgentTurnErrorDisplayMessage,
+  isAgentTurnAbortError,
   isPersistentSessionTurnError,
   isQuotaLikeAgentMessage,
   localizeAgentTurnErrorMessage,
@@ -9,7 +10,25 @@ import {
 
 const t = ((key: string, fallback?: string) => fallback ?? key) as never
 
+describe('isAgentTurnAbortError', () => {
+  it('detects MessageAbortedError', () => {
+    expect(isAgentTurnAbortError('MessageAbortedError', 'Aborted')).toBe(true)
+  })
+
+  it('detects formatted display string', () => {
+    expect(isAgentTurnAbortError('MessageAbortedError: Aborted')).toBe(true)
+  })
+
+  it('does not match unrelated failures', () => {
+    expect(isAgentTurnAbortError('model stalled', 'No output')).toBe(false)
+  })
+})
+
 describe('classifyAgentTurnErrorName', () => {
+  it('maps abort to TurnInterrupted', () => {
+    expect(classifyAgentTurnErrorName('MessageAbortedError')).toBe('TurnInterrupted')
+  })
+
   it('maps model stalled to AgentTimeoutError', () => {
     expect(classifyAgentTurnErrorName('model stalled')).toBe('AgentTimeoutError')
   })

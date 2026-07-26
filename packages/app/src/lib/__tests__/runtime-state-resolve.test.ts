@@ -297,6 +297,21 @@ describe("resolvePermissionCommandTarget", () => {
     });
     expect(target).toEqual({ actorId: "agent-a", runtimeId: "rt-live" });
   });
+
+  it("fails closed instead of hopping to another session's live retain when this session has no rows", () => {
+    // The former fast path passed sessionRuntimeRows: [] and let the resolver
+    // pick "the agent's latest live retain", which could cancel a DIFFERENT
+    // session's turn. With no session-scoped row, resolution must return null.
+    const byRuntimeId = {
+      "other-session-spawn": entry("agent-a", "other-session-spawn"),
+    };
+    const target = resolvePermissionCommandTarget({
+      agentActorId: "agent-a",
+      sessionRuntimeRows: [],
+      byRuntimeId,
+    });
+    expect(target).toBeNull();
+  });
 });
 
 describe("resolveCommandRuntimeId", () => {

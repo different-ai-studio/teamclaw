@@ -105,8 +105,12 @@
     "quitDesc": "关闭窗口并停止 amuxd / opencode。适合彻底下班。",
     "remember": "记住我的选择（可在设置里改）",
     "confirm": "确定",
-    "panelTitle": "本地 Agent",
-    "panelBack": "返回"
+    "panelTitle": "本地 Agent"
+  },
+  "tray": {
+    "showMain": "打开主窗口",
+    "agentSettings": "本地 Agent 设置…",
+    "quitAndStopAgent": "退出并停止 Agent"
   },
   "auth": {
     "tagline": "AI Ally · AI 搭档",
@@ -573,6 +577,14 @@
     },
     "interruptFailed": "无法打断 agent 回复",
     "interruptAgent": "打断 {{name}}",
+    "interrupt": {
+      "stopping": "正在停止回复…",
+      "stoppingShort": "停止中",
+      "stoppedTitle": "已停止",
+      "stoppedBody": "你已打断本次回复。",
+      "stoppedHint": "已生成的内容会保留；可以继续提问。",
+      "dismiss": "知道了"
+    },
     "acpDebug": {
       "title": "ACP 流调试",
       "lineCount": "{{count}} 条",

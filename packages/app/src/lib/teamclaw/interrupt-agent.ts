@@ -51,54 +51,14 @@ export async function interruptAgentActor(args: {
 
   const senderActorId = useCurrentTeamStore.getState().currentMember?.id?.trim() ?? "";
 
-  // Fast path: an interrupt is latency-critical (the user is watching a
-  // runaway turn), but the slow path below spends two serial Cloud API round
-  // trips just to resolve the command target. When the live MQTT retains
-  // already identify this agent's runtime, fire the cancel immediately.
-  const fastTarget = resolvePermissionCommandTarget({
-    agentActorId,
-    sessionRuntimeRows: [],
-    byRuntimeId: useRuntimeStateStore.getState().byRuntimeId,
-  });
-  if (fastTarget) {
-    const peerId = `teamclaw-desktop-${(senderActorId || "anon").slice(0, 8)}`;
-    const sender = createRuntimeCommandSender({
-      mqtt: { publish: mqttPublish },
-      teamId,
-      peerId,
-      senderActorId,
-    });
-    sessionFlowLog("interrupt.begin", {
-      sessionId,
-      agentActorId,
-      targetActorId: fastTarget.actorId,
-      runtimeId: fastTarget.runtimeId,
-      fastPath: true,
-    });
-    try {
-      await sender.sendCancel({
-        targetActorId: fastTarget.actorId,
-        runtimeId: fastTarget.runtimeId,
-      });
-    } catch (error) {
-      cleanupLocalAgentStream(sessionId, agentActorId);
-      sessionFlowError("interrupt.failed", error, {
-        sessionId,
-        agentActorId,
-        runtimeId: fastTarget.runtimeId,
-      });
-      throw error;
-    }
-    useV2StreamingStore.getState().markInterruptedFlushPending(sessionId, agentActorId);
-    sessionFlowLog("interrupt.ok", {
-      sessionId,
-      agentActorId,
-      runtimeId: fastTarget.runtimeId,
-      fastPath: true,
-    });
-    return;
-  }
+  // Show stopping UI immediately — session-scoped resolve may take a Cloud API
+  // round trip before cancel is published.
+  useV2StreamingStore.getState().markInterruptedFlushPending(sessionId, agentActorId);
 
+  // Interrupt targeting is deliberately session-scoped only. A single local
+  // agent can run a distinct runtime per session, so we must resolve the
+  // runtime that belongs to THIS session before cancelling — never a "latest
+  // live retain for the agent" guess, which can cancel another session's turn.
   let agentParticipantIds: string[] = [agentActorId];
   try {
     const participants = await getBackend().sessionMembers.listParticipants(sessionId);
@@ -131,6 +91,7 @@ export async function interruptAgentActor(args: {
   });
 
   if (!target) {
+    useV2StreamingStore.getState().clearInterruptedFlushPending(sessionId, agentActorId);
     cleanupLocalAgentStream(sessionId, agentActorId);
     throw new Error("Could not resolve agent runtime for interrupt");
   }
@@ -159,6 +120,7 @@ export async function interruptAgentActor(args: {
       runtimeId: target.runtimeId,
     });
   } catch (error) {
+    useV2StreamingStore.getState().clearInterruptedFlushPending(sessionId, agentActorId);
     cleanupLocalAgentStream(sessionId, agentActorId);
     sessionFlowError("interrupt.failed", error, {
       sessionId,
@@ -170,8 +132,7 @@ export async function interruptAgentActor(args: {
 
   // Wait for daemon Active→Idle + message.created; App.tsx finalizes the
   // partial turn via flushPendingStreamReply on statusChange.
-
-  useV2StreamingStore.getState().markInterruptedFlushPending(sessionId, agentActorId);
+  // interruptedFlushPending was marked at the start of this function.
 
   sessionFlowLog("interrupt.ok", {
     sessionId,
