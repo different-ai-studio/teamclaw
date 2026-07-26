@@ -105,8 +105,12 @@
     "quitDesc": "Close the window and stop amuxd / opencode. Use this when you are done for the day.",
     "remember": "Remember my choice (change anytime in Settings)",
     "confirm": "Confirm",
-    "panelTitle": "Local Agent",
-    "panelBack": "Back"
+    "panelTitle": "Local Agent"
+  },
+  "tray": {
+    "showMain": "Open main window",
+    "agentSettings": "Local Agent settings…",
+    "quitAndStopAgent": "Quit and stop Agent"
   },
   "auth": {
     "tagline": "AI Ally · AI Teammate",
@@ -573,6 +577,14 @@
     },
     "interruptFailed": "Unable to interrupt agent response",
     "interruptAgent": "Interrupt {{name}}",
+    "interrupt": {
+      "stopping": "Stopping reply…",
+      "stoppingShort": "Stopping",
+      "stoppedTitle": "Stopped",
+      "stoppedBody": "You interrupted this reply.",
+      "stoppedHint": "Generated content is kept; you can continue chatting.",
+      "dismiss": "Got it"
+    },
     "acpDebug": {
       "title": "ACP stream debug",
       "lineCount": "{{count}} line",

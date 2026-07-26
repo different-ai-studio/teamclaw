@@ -8,6 +8,7 @@ import {
 import * as React from "react";
 import { useTranslation } from "react-i18next";
 import i18n from "@/lib/i18n";
+import { syncTrayMenuLabels } from "@/lib/sync-tray-menu";
 import { Toaster, toast } from "sonner";
 import { cn, isTauri, removeStartupSkeleton } from "@/lib/utils";
 import { capabilities, isChromeExtension } from "@/lib/platform";
@@ -19,7 +20,9 @@ import { markStartup } from "@/lib/startup-perf";
 import {
   classifyAgentTurnErrorName,
   formatAgentTurnErrorDisplayMessage,
+  isAgentTurnAbortError,
   localizeAgentTurnErrorMessage,
+  TURN_INTERRUPTED_ERROR_NAME,
 } from "@/lib/agent-turn-error";
 import {
   BookOpen,
@@ -257,6 +260,20 @@ const useWebviewUIStore = create<{
   setZoomLevel: (label, level) =>
     set({ zoomLevels: { ...get().zoomLevels, [label]: level } }),
 }))
+
+/** Sync native tray menu labels with the active UI locale. */
+function useTrayMenuLocaleSync() {
+  useEffect(() => {
+    void syncTrayMenuLabels();
+    const onLang = () => {
+      void syncTrayMenuLabels();
+    };
+    i18n.on("languageChanged", onLang);
+    return () => {
+      i18n.off("languageChanged", onLang);
+    };
+  }, []);
+}
 
 /**
  * Global keyboard shortcuts (Cmd+F, Cmd+/-/0) and context menu listener
@@ -1945,34 +1962,47 @@ function AppContent() {
               }
             } else if (event?.case === "error") {
               const er = event.value as { message?: string; details?: string };
-              terminalFlushPendingRef.current[agentStreamKey(sid, actorId)] = true;
-              flushTurnAgentReply(sid, actorId, "mqtt.error");
-              // Localize known daemon-emitted errors (the daemon is
-              // locale-agnostic and emits English for iOS/logs). Keep the raw
-              // message for anything we don't recognize.
-              const localizedMessage = localizeAgentTurnErrorMessage(er.message, t);
-              useV2StreamingStore.getState().setError(
-                sid,
-                actorId,
-                localizedMessage,
-                er.details ?? "",
-              );
-              // The live dock unmounts as soon as a turn errors
-              // (isStreamInterruptible excludes errored entries), so the dock's
-              // ErrorCard is never seen. Surface every turn error as a durable
-              // SessionErrorAlert bubble in the thread instead.
-              {
-                const detail = (er.details ?? "").trim();
-                const errorName = classifyAgentTurnErrorName(er.message);
+              // User interrupt (opencode MessageAbortedError) is not a fault —
+              // show a soft "stopped" notice, don't paint the stream as errored.
+              if (isAgentTurnAbortError(er.message, er.details)) {
                 useSessionStore.getState().setSessionErrorEvent({
                   sessionId: sid,
                   error: {
-                    name: errorName,
-                    data: {
-                      message: formatAgentTurnErrorDisplayMessage(localizedMessage, detail),
-                    },
+                    name: TURN_INTERRUPTED_ERROR_NAME,
+                    data: { message: "" },
                   },
                 });
+                // Idle / statusChange still owns flush of the partial turn.
+              } else {
+                terminalFlushPendingRef.current[agentStreamKey(sid, actorId)] = true;
+                flushTurnAgentReply(sid, actorId, "mqtt.error");
+                // Localize known daemon-emitted errors (the daemon is
+                // locale-agnostic and emits English for iOS/logs). Keep the raw
+                // message for anything we don't recognize.
+                const localizedMessage = localizeAgentTurnErrorMessage(er.message, t);
+                useV2StreamingStore.getState().setError(
+                  sid,
+                  actorId,
+                  localizedMessage,
+                  er.details ?? "",
+                );
+                // The live dock unmounts as soon as a turn errors
+                // (isStreamInterruptible excludes errored entries), so the dock's
+                // ErrorCard is never seen. Surface every turn error as a durable
+                // SessionErrorAlert bubble in the thread instead.
+                {
+                  const detail = (er.details ?? "").trim();
+                  const errorName = classifyAgentTurnErrorName(er.message);
+                  useSessionStore.getState().setSessionErrorEvent({
+                    sessionId: sid,
+                    error: {
+                      name: errorName,
+                      data: {
+                        message: formatAgentTurnErrorDisplayMessage(localizedMessage, detail),
+                      },
+                    },
+                  });
+                }
               }
             } else if (event?.case === "raw") {
               const raw = event.value as { method?: string; jsonPayload?: Uint8Array };
@@ -2764,6 +2794,7 @@ function App() {
   useWebviewShortcuts()
   useTerminalShortcuts()
   useDaemonLiveStatus()
+  useTrayMenuLocaleSync()
 
   // ── Initialize tauri-plugin-mcp event listeners (dev only) ──
   useEffect(() => {

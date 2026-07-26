@@ -33,7 +33,7 @@ export function LocalAgentPanelApp() {
         <TrafficLights />
         <div className="min-w-0 flex-1">
           <h1 className="truncate text-[15px] font-bold leading-normal text-foreground">
-            {t('common.settings', 'Settings')}
+            {t('closeToTray.panelTitle', '本地 Agent')}
           </h1>
         </div>
         <Button
