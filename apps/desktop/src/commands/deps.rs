@@ -316,9 +316,9 @@ pub async fn install_dependency<R: Runtime>(
     download_base: Option<String>,
 ) -> Result<bool, String> {
     // opencode is installed via the same `amuxd install-opencode` path as the
-    // first-run SetupWizard (official opencode, pinned to opencode.lock.json).
+    // first-run SetupWizard. Not forced: this is the "it's missing" case.
     if name == "opencode" {
-        return Ok(install_opencode_via_amuxd(&app, download_base).await);
+        return Ok(install_opencode_via_amuxd(&app, download_base, false).await);
     }
 
     // On macOS, if the dependency requires brew and brew is not installed, install brew first
@@ -340,8 +340,13 @@ pub async fn install_dependency<R: Runtime>(
     Ok(success)
 }
 
-/// Update an already-installed dependency to the required version.
-/// Only opencode supports this (re-runs `amuxd install-opencode`, idempotent).
+/// Update an already-installed dependency to the latest release.
+/// Only opencode supports this: `amuxd install-opencode --force` re-fetches the
+/// latest opencode (amuxd pins no version — the version is the user's choice).
+///
+/// On success the desktop-managed amuxd is restarted, because the running
+/// `opencode serve` still holds the old binary and would otherwise keep serving
+/// the pre-update version for the rest of the app's lifetime.
 #[tauri::command]
 pub async fn update_dependency<R: Runtime>(
     app: AppHandle<R>,
@@ -349,7 +354,28 @@ pub async fn update_dependency<R: Runtime>(
     download_base: Option<String>,
 ) -> Result<bool, String> {
     if name == "opencode" {
-        return Ok(install_opencode_via_amuxd(&app, download_base).await);
+        let ok = install_opencode_via_amuxd(&app, download_base, true).await;
+        if ok {
+            if let Err(e) = crate::commands::amuxd_supervisor::AmuxdSupervisor::restart(&app).await
+            {
+                // The download succeeded but the old opencode is still serving,
+                // so the update is not actually in effect — say so rather than
+                // reporting a clean success. Emitted after "done", so this is
+                // the state the UI settles on.
+                let _ = app.emit(
+                    "dep-install-progress",
+                    DepInstallProgress {
+                        name: "opencode".to_string(),
+                        status: "failed".to_string(),
+                        output_line: None,
+                        error: Some(format!(
+                            "opencode was updated, but restarting amuxd failed: {e}. Restart the app to use the new version."
+                        )),
+                    },
+                );
+            }
+        }
+        return Ok(ok);
     }
     Err(format!("No update path available for '{}'", name))
 }
@@ -357,14 +383,17 @@ pub async fn update_dependency<R: Runtime>(
 /// Install-or-update opencode via the bundled `amuxd install-opencode`, bridging
 /// its progress onto `dep-install-progress` events (the settings Dependencies UI
 /// contract). Shares the exact install path used by the first-run SetupWizard.
+/// `force` re-fetches the latest release even when opencode is already present.
 async fn install_opencode_via_amuxd<R: Runtime>(
     app: &AppHandle<R>,
     download_base: Option<String>,
+    force: bool,
 ) -> bool {
     let emit_app = app.clone();
     let result = crate::commands::setup::run_amuxd_install_opencode(
         app,
         download_base,
+        force,
         move |status, line, error| {
             // amuxd emits "running"; the deps UI expects "installing".
             let status = if status == "running" {

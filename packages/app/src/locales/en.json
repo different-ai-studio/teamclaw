@@ -2581,7 +2581,12 @@
       "installing": "Installing...",
       "retry": "Retry",
       "update": "Update",
-      "updating": "Updating..."
+      "updating": "Updating...",
+      "updateTitle": "Update to the latest version",
+      "updatedTo": "Updated to {{version}}",
+      "updateDone": "Updated",
+      "updateFailed": "Update failed",
+      "installFailed": "Install failed"
     },
     "gitStatus": {
       "modified": "Modified",

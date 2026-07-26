@@ -138,7 +138,7 @@ function InstallButton({ dep }: { dep: DependencyInfo }) {
   )
 }
 
-/** Deps that support an in-app update (re-runs the amuxd installer, idempotent). */
+/** Deps that support an in-app update (re-fetches the latest release). */
 const UPDATABLE_DEPS = new Set(['opencode'])
 
 function UpdateButton({ dep }: { dep: DependencyInfo }) {
@@ -151,6 +151,7 @@ function UpdateButton({ dep }: { dep: DependencyInfo }) {
   const handleUpdate = async () => {
     resetInstallState()
     await updateDependency(dep.name)
+    // Re-reads the version off disk, so the badge shows what actually landed.
     await checkDependencies()
   }
 
@@ -161,12 +162,66 @@ function UpdateButton({ dep }: { dep: DependencyInfo }) {
       onClick={handleUpdate}
       disabled={installing}
       className={cn('gap-1.5 h-7 px-2 text-xs', isFailed && 'text-red-500 hover:text-red-600')}
-      title={t('settings.deps.update', 'Update')}
+      title={t('settings.deps.updateTitle', 'Update to the latest version')}
     >
       {isUpdatingThis ? <Loader2 className="h-3 w-3 animate-spin" /> : <RefreshCw className="h-3 w-3" />}
       {isUpdatingThis ? t('settings.deps.updating', 'Updating...') : t('settings.deps.update', 'Update')}
     </Button>
   )
+}
+
+/**
+ * Live feedback for an install/update: the installer's latest output line while
+ * it runs, then the outcome. Without this the whole operation is silent and a
+ * fast install looks like the button did nothing.
+ */
+function DepProgress({ dep }: { dep: DependencyInfo }) {
+  const { t } = useTranslation()
+  const { currentInstalling, installResults, installOutput, lastOperation } = useDepsStore()
+  const isActive = currentInstalling === dep.name
+  const result = installResults[dep.name]
+  const lines = installOutput[dep.name] ?? []
+  const lastLine = lines[lines.length - 1]
+  const isUpdate = lastOperation === 'update'
+
+  if (isActive) {
+    const label = isUpdate
+      ? t('settings.deps.updating', 'Updating...')
+      : t('settings.deps.installing', 'Installing...')
+    return (
+      <p className="text-xs text-muted-foreground mt-1 flex items-center gap-1.5">
+        <Loader2 className="h-3 w-3 animate-spin shrink-0" />
+        <span className="truncate font-mono">{lastLine ?? label}</span>
+      </p>
+    )
+  }
+
+  if (result?.success) {
+    const done = isUpdate
+      ? t('settings.deps.updateDone', 'Updated')
+      : t('settings.deps.installed', 'Installed')
+    return (
+      <p className="text-xs text-green-600 dark:text-green-500 mt-1 flex items-center gap-1.5">
+        <CheckCircle2 className="h-3 w-3 shrink-0" />
+        <span className="truncate">
+          {isUpdate && dep.version
+            ? t('settings.deps.updatedTo', { defaultValue: 'Updated to {{version}}', version: dep.version })
+            : done}
+        </span>
+      </p>
+    )
+  }
+
+  if (result?.error) {
+    return (
+      <p className="text-xs text-red-500 mt-1 flex items-start gap-1.5">
+        <XCircle className="h-3 w-3 shrink-0 mt-0.5" />
+        <span className="break-all">{result.error}</span>
+      </p>
+    )
+  }
+
+  return null
 }
 
 export function DependenciesSection() {
@@ -315,6 +370,9 @@ export function DependenciesSection() {
                       </div>
 
                       <p className="text-xs text-muted-foreground">{dep.description}</p>
+
+                      {/* Install/update progress and outcome */}
+                      <DepProgress dep={dep} />
 
                       {/* Install command */}
                       {!dep.installed && (

@@ -121,6 +121,8 @@ interface DepsState {
   installQueue: string[]
   installResults: Record<string, InstallResult>
   installOutput: Record<string, string[]>
+  /** Which operation produced the current results — drives the UI wording. */
+  lastOperation: 'install' | 'update' | null
 
   /** Check all dependencies via Tauri command */
   checkDependencies: () => Promise<DependencyInfo[]>
@@ -178,6 +180,7 @@ export const useDepsStore = create<DepsState>((set, get) => ({
   installQueue: [],
   installResults: {},
   installOutput: {},
+  lastOperation: null,
 
   checkDependencies: async () => {
     if (!isTauri()) {
@@ -254,6 +257,7 @@ export const useDepsStore = create<DepsState>((set, get) => ({
       installResults: initialResults,
       installOutput: initialOutput,
       currentInstalling: null,
+      lastOperation: 'install',
     })
 
     // Listen for progress events
@@ -325,6 +329,7 @@ export const useDepsStore = create<DepsState>((set, get) => ({
       installResults: { [name]: { success: false } },
       installOutput: { [name]: [] },
       currentInstalling: name,
+      lastOperation: 'update',
     })
 
     const unlisten = await listen<DepInstallProgressEvent>('dep-install-progress', (event) => {
@@ -364,6 +369,7 @@ export const useDepsStore = create<DepsState>((set, get) => ({
       installQueue: [],
       installResults: {},
       installOutput: {},
+      lastOperation: null,
     })
   },
 }))

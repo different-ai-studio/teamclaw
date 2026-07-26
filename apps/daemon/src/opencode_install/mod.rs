@@ -1,36 +1,19 @@
 //! opencode discovery + install for amuxd.
 //!
-//! Policy (decided 2026-06-02): prefer the machine's opencode. opencode is
-//! installed via its OFFICIAL installer into its own default dir `~/.opencode/bin`
-//! (NOT into ~/.amuxd). `opencode.lock.json` records the MINIMUM version amuxd
-//! requires; if the machine's opencode is older we upgrade, otherwise we leave it.
+//! Policy (revised 2026-07-26): the opencode VERSION belongs to the user, not to
+//! amuxd. amuxd no longer pins a version — there is no lock file and no minimum.
+//! It only answers "is opencode there, and where": if none is installed we fetch
+//! the latest release, and `--force` re-fetches the latest on demand (what the
+//! settings "Update" button does). An already-installed opencode is never
+//! touched otherwise, whatever its version.
 //!
-//! amuxd resolves opencode by absolute path (`~/.opencode/bin/opencode`) so a
-//! background launchd/systemd service finds it without a login PATH.
+//! opencode is installed via its OFFICIAL installer into its own default dir
+//! `~/.opencode/bin` (NOT into ~/.amuxd). amuxd resolves it by absolute path
+//! (`~/.opencode/bin/opencode`) so a background launchd/systemd service finds it
+//! without a login PATH.
 
-use serde::{Deserialize, Serialize};
+use serde::Serialize;
 use std::path::PathBuf;
-
-#[derive(Debug, Deserialize)]
-pub struct OpencodeLock {
-    pub version: String,
-}
-
-impl OpencodeLock {
-    pub fn parse(s: &str) -> anyhow::Result<Self> {
-        Ok(serde_json::from_str(s)?)
-    }
-}
-
-/// Embedded at compile time from apps/daemon/opencode.lock.json
-pub const LOCK_JSON: &str = include_str!("../../opencode.lock.json");
-
-/// The minimum opencode version this build requires (lock version, without a leading `v`).
-pub fn required_version() -> String {
-    OpencodeLock::parse(LOCK_JSON)
-        .map(|l| l.version.trim().trim_start_matches('v').to_string())
-        .unwrap_or_default()
-}
 
 /// opencode's official installer always installs to `~/.opencode/bin` (hardcoded upstream).
 pub fn opencode_default_bin() -> Option<PathBuf> {
@@ -120,6 +103,15 @@ fn progress(event: &str, message: &str) {
         "{}",
         serde_json::json!({ "event": event, "message": message })
     );
+}
+
+/// Final "ok" line after an install/update, naming the version that actually
+/// landed — the UI surfaces this, and it is the only version amuxd reports.
+fn report_installed() {
+    match detect_opencode() {
+        Some((path, version)) => progress("ok", &format!("opencode {version} installed ({path})")),
+        None => progress("ok", "opencode installed"),
+    }
 }
 
 /// Default upstream for opencode release assets — official sst/opencode
@@ -280,34 +272,30 @@ fn install_command_path() -> String {
     }
 }
 
-/// Install or upgrade opencode to satisfy the required version.
+/// Install opencode, or (with `force`) update it to the latest release.
+///
+/// Without `force` this is presence-only: any installed opencode is left alone,
+/// whatever its version — amuxd does not pin or require a version. `force` is
+/// the settings "Update" path and always re-fetches.
 ///
 /// Source selection:
 ///   * Windows: always direct-download the release zip (no official curl|bash).
-///   * `OPENCODE_DOWNLOAD_BASE` set: direct-download from the mirror.
-///   * Otherwise (macOS/Linux): the official opencode.ai installer.
+///   * `OPENCODE_DOWNLOAD_BASE` set: direct-download from the mirror. NOTE: the
+///     mirror serves whatever build was uploaded to it, so "latest" here means
+///     "latest on the mirror", not necessarily the latest upstream release.
+///   * Otherwise (macOS/Linux): the official opencode.ai installer (latest).
 pub fn run_install(force: bool) -> anyhow::Result<()> {
-    let want = required_version();
-
     if !force {
         if let Some((path, have)) = detect_opencode() {
-            if version_ge(&have, &want) {
-                progress(
-                    "ok",
-                    &format!("opencode {have} already satisfies >= {want} ({path})"),
-                );
-                return Ok(());
-            }
             progress(
-                "upgrade",
-                &format!("opencode {have} is older than required {want}; upgrading"),
+                "ok",
+                &format!("opencode {have} already installed ({path}); pass --force to update"),
             );
-        } else {
-            progress(
-                "install",
-                &format!("installing opencode (require >= {want})"),
-            );
+            return Ok(());
         }
+        progress("install", "installing the latest opencode");
+    } else {
+        progress("upgrade", "updating opencode to the latest release");
     }
 
     let mirror = std::env::var("OPENCODE_DOWNLOAD_BASE")
@@ -317,10 +305,7 @@ pub fn run_install(force: bool) -> anyhow::Result<()> {
     // Windows has no official curl|bash installer, so always direct-download.
     if cfg!(windows) || mirror.is_some() {
         direct_install(mirror.as_deref())?;
-        progress(
-            "ok",
-            &format!("opencode installed/upgraded (require >= {want})"),
-        );
+        report_installed();
         return Ok(());
     }
 
@@ -344,10 +329,7 @@ pub fn run_install(force: bool) -> anyhow::Result<()> {
             };
             anyhow::bail!("{detail}");
         }
-        progress(
-            "ok",
-            &format!("opencode installed/upgraded (require >= {want})"),
-        );
+        report_installed();
         Ok(())
     }
     #[cfg(windows)]
@@ -363,7 +345,8 @@ pub struct OpencodeStatus {
     pub present: bool,
     pub version: Option<String>,
     pub path: Option<String>,
-    pub required_version: String,
+    /// amuxd pins no version, so "satisfied" means nothing more than "present".
+    /// Kept so setup/diagnostics can treat opencode and pi uniformly.
     pub satisfied: bool,
 }
 
@@ -426,22 +409,17 @@ fn probe_version(cmd: &str, args: &[&str]) -> Option<String> {
 }
 
 pub fn doctor() -> DoctorReport {
-    let want = required_version();
     let detected = detect_opencode();
     let (present, version, path) = match &detected {
         Some((p, v)) => (true, Some(v.clone()), Some(p.clone())),
         None => (false, None, None),
     };
-    let satisfied = version
-        .as_deref()
-        .map(|v| version_ge(v, &want))
-        .unwrap_or(false);
     let opencode = OpencodeStatus {
         present,
         version,
         path,
-        required_version: want,
-        satisfied,
+        // No pinned version: any installed opencode counts as satisfied.
+        satisfied: present,
     };
 
     let git_version = probe_version("git", &["--version"]);
@@ -502,23 +480,6 @@ pub fn doctor() -> DoctorReport {
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    #[test]
-    fn lock_parses_version() {
-        let lock = OpencodeLock::parse(r#"{"version":"v1.15.13"}"#).unwrap();
-        assert_eq!(lock.version, "v1.15.13");
-    }
-
-    #[test]
-    fn required_version_strips_leading_v() {
-        // Uses the real embedded lock; just assert it has no leading 'v' and parses.
-        let v = required_version();
-        assert!(!v.starts_with('v'), "got {v}");
-        assert!(
-            parse_semver(&v).is_some(),
-            "required version not semver: {v}"
-        );
-    }
 
     #[test]
     fn parse_semver_cases() {
@@ -630,7 +591,6 @@ mod tests {
                 present: true,
                 version: Some("1.15.13".into()),
                 path: Some("/x".into()),
-                required_version: "1.15.13".into(),
                 satisfied: true,
             },
             git: ComponentStatus {
@@ -650,18 +610,12 @@ mod tests {
         let v: serde_json::Value = serde_json::to_value(&report).unwrap();
         assert!(v.get("pi").is_none(), "pi omitted when None");
         assert_eq!(v["opencode"]["satisfied"], serde_json::json!(true));
-        assert_eq!(
-            v["opencode"]["requiredVersion"],
-            serde_json::json!("1.15.13")
+        assert!(
+            v["opencode"].get("requiredVersion").is_none(),
+            "amuxd no longer pins an opencode version"
         );
         assert_eq!(v["git"]["present"], serde_json::json!(false));
         assert_eq!(v["amuxd"]["installedVersion"], serde_json::json!("0.1.0"));
         assert_eq!(v["amuxd"]["satisfied"], serde_json::json!(true));
-    }
-
-    #[test]
-    fn required_version_is_at_least_1_17_7() {
-        // The lock pins the minimum opencode version for the HTTP backend.
-        assert!(version_ge(&required_version(), "1.17.7"));
     }
 }

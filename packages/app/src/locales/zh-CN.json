@@ -2581,7 +2581,12 @@
       "installing": "安装中...",
       "retry": "重试",
       "update": "更新",
-      "updating": "更新中..."
+      "updating": "更新中...",
+      "updateTitle": "更新到最新版本",
+      "updatedTo": "已更新至 {{version}}",
+      "updateDone": "已更新",
+      "updateFailed": "更新失败",
+      "installFailed": "安装失败"
     },
     "gitStatus": {
       "modified": "已修改",
