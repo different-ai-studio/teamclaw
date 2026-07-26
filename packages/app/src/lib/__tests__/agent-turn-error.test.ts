@@ -19,6 +19,11 @@ describe('isAgentTurnAbortError', () => {
     expect(isAgentTurnAbortError('MessageAbortedError: Aborted')).toBe(true)
   })
 
+  it('does not treat bare Aborted detail as interrupt', () => {
+    expect(isAgentTurnAbortError('AgentError', 'Aborted')).toBe(false)
+    expect(isAgentTurnAbortError(undefined, 'Aborted')).toBe(false)
+  })
+
   it('does not match unrelated failures', () => {
     expect(isAgentTurnAbortError('model stalled', 'No output')).toBe(false)
   })

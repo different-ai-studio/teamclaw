@@ -1964,6 +1964,8 @@ function AppContent() {
               const er = event.value as { message?: string; details?: string };
               // User interrupt (opencode MessageAbortedError) is not a fault —
               // show a soft "stopped" notice, don't paint the stream as errored.
+              // Still flush partial content here so we are not solely dependent
+              // on a later statusChange.terminal (which can lag or drop).
               if (isAgentTurnAbortError(er.message, er.details)) {
                 useSessionStore.getState().setSessionErrorEvent({
                   sessionId: sid,
@@ -1972,7 +1974,29 @@ function AppContent() {
                     data: { message: "" },
                   },
                 });
-                // Idle / statusChange still owns flush of the partial turn.
+                const streamKey = agentStreamKey(sid, actorId);
+                terminalFlushPendingRef.current[streamKey] = true;
+                const flushed = flushTurnAgentReply(sid, actorId, "mqtt.error.abort");
+                if (flushed) {
+                  clearTerminalFlushPending(streamKey);
+                } else {
+                  const eagerFlushed = flushInterruptedStreamArtifacts(
+                    sid,
+                    actorId,
+                    "mqtt.error.abort.eager",
+                  );
+                  if (eagerFlushed) {
+                    clearTerminalFlushPending(streamKey);
+                  } else {
+                    useV2StreamingStore.getState().finishSessionActor(sid, actorId, {
+                      reason: "mqtt.error.abort",
+                    });
+                    useV2StreamingStore
+                      .getState()
+                      .clearInterruptedFlushPending(sid, actorId);
+                    clearTerminalFlushPending(streamKey);
+                  }
+                }
               } else {
                 terminalFlushPendingRef.current[agentStreamKey(sid, actorId)] = true;
                 flushTurnAgentReply(sid, actorId, "mqtt.error");

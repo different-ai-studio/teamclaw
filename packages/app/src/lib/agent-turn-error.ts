@@ -10,10 +10,12 @@ export function isAgentTurnAbortError(
 ): boolean {
   const name = (message ?? '').trim().toLowerCase()
   const det = (detail ?? '').trim().toLowerCase()
-  if (name.includes('messageaborted') || name.includes('aborterror')) return true
-  if (det === 'aborted' || name === 'aborted') return true
-  // Display form: "MessageAbortedError: Aborted"
-  if (name.includes('aborted') && name.includes('abort')) return true
+  if (!name && !det) return false
+  if (name === TURN_INTERRUPTED_ERROR_NAME.toLowerCase()) return true
+  // opencode / daemon: error.name = MessageAbortedError, data.message = Aborted
+  if (name.includes('messageaborted')) return true
+  // Display form already joined as "MessageAbortedError: Aborted"
+  if (name.includes('messageabortederror')) return true
   return false
 }
 
