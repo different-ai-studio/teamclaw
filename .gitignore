@@ -154,6 +154,11 @@ apps/desktop/icons/ios/
 # Brand owners supply branding/<brand>/{logo.png,theme.json} + build.config.<brand>.json
 # locally; the white-label build reads them from disk at build time.
 /branding/
+# Chrome Web Store listing kit, assembled from branding/extension/ at release
+# time and attached to the Release — a build output, not a source.
+/listing-kit/
+/listing-kit.zip
+/extension.zip
 # Ignore all root build.config.<brand>.json except the in-repo flavors.
 /build.config.*.json
 !/build.config.example.json
