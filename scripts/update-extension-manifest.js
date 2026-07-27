@@ -2,7 +2,11 @@
 
 const fs = require('fs');
 const path = require('path');
-const { applyNameToExtensionManifest, resolveExtensionIconPlan } = require('./lib/branding');
+const {
+  applyNameToExtensionManifest,
+  resolveExtensionIconPlan,
+  resolveLogoPlan,
+} = require('./lib/branding');
 const {
   resolveExtensionPack,
   domainsToChromeMatchPatterns,
@@ -93,4 +97,27 @@ if (iconPlan) {
   }
 } else {
   console.log('ℹ️ No branding/extension/icons found — keeping default icons');
+}
+
+// The side panel renders /logo.png and /logo-64.png (welcome, login, about,
+// file tree). Those live in packages/app/public/ and were only ever rebranded
+// by scripts/update-tauri-config.js — the desktop path. Nothing applied them
+// for the extension, so a package correctly named "Copilot 361" opened onto a
+// side panel still showing the TeamClaw mark.
+//
+// Unlike the desktop flow this copies app.logo straight through instead of
+// resizing it via `tauri icon`: the extension pipeline deliberately does no
+// image conversion in CI, and both slots are rendered at CSS sizes anyway.
+const logoPlan = resolveLogoPlan(buildConfig, rootDir);
+if (logoPlan) {
+  if (!fs.existsSync(logoPlan.source)) {
+    console.error(`✗ app.logo source not found: ${logoPlan.source}`);
+    process.exit(1);
+  }
+  for (const target of logoPlan.publicLogoTargets) {
+    fs.copyFileSync(logoPlan.source, target);
+    console.log(`✓ Wrote in-app logo: ${path.relative(rootDir, target)}`);
+  }
+} else {
+  console.log('ℹ️ No app.logo configured — keeping default in-app logo');
 }

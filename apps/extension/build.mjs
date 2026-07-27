@@ -13,7 +13,7 @@ const appDir = resolve(here, '../../packages/app')
 const linkHoverShared = resolve(appDir, 'src/lib/extension-link-hover')
 const linkSessionShared = resolve(appDir, 'src/lib/extension-link-session')
 const nodeRequire = createRequire(import.meta.url)
-const { resolveExtensionPack, domainsToSidePanelCsv } = nodeRequire(
+const { resolveExtensionPack, domainsToSidePanelCsv, SIDE_PANEL_PRUNE_DIRS } = nodeRequire(
   resolve(repoRoot, 'scripts/lib/extension-config.js'),
 )
 
@@ -96,6 +96,17 @@ execSync(`pnpm ${webBuildScript}`, {
   },
 })
 cpSync(resolve(appDir, 'dist'), resolve(dist, 'sidepanel'), { recursive: true })
+
+// vite copies packages/app/public/ verbatim, so anything parked there ships in
+// a package that is publicly downloadable from the Chrome Web Store. Drop the
+// directories nothing in the side panel requests — see SIDE_PANEL_PRUNE_DIRS
+// for what and why, and the guardrail tests that keep the list honest.
+for (const dir of SIDE_PANEL_PRUNE_DIRS) {
+  const target = resolve(dist, 'sidepanel', dir)
+  if (!existsSync(target)) continue
+  rmSync(target, { recursive: true, force: true })
+  console.log('[extension] pruned sidepanel/%s (not requested at runtime)', dir)
+}
 
 // 2) Bundle background (module worker) + content script (IIFE).
 await build({
