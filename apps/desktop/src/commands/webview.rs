@@ -244,6 +244,66 @@ fn host_allows_session_injection(url: &tauri::Url) -> bool {
         .unwrap_or(false)
 }
 
+/// Reject http(s) URLs whose host cannot be resolved before handing them to
+/// WKWebView / WebView2. Loading an unresolvable `WebviewUrl::External` has
+/// been observed to freeze the AppKit main thread on macOS (window undraggable,
+/// no clicks anywhere) — see GitHub issue #617.
+fn ensure_http_host_resolvable(url: &tauri::Url) -> Result<(), String> {
+    use std::net::ToSocketAddrs;
+
+    if !matches!(url.scheme(), "http" | "https") {
+        return Ok(());
+    }
+
+    let Some(host) = url.host_str() else {
+        return Err(format!("URL missing host: {url}"));
+    };
+
+    // IP literals need no DNS lookup.
+    if matches!(url.host(), Some(url::Host::Ipv4(_)) | Some(url::Host::Ipv6(_))) {
+        return Ok(());
+    }
+
+    let port = url
+        .port_or_known_default()
+        .unwrap_or(if url.scheme() == "https" { 443 } else { 80 });
+    let addr = format!("{host}:{port}");
+    match addr.to_socket_addrs() {
+        Ok(mut iter) => {
+            if iter.next().is_some() {
+                Ok(())
+            } else {
+                Err(format!("Host '{host}' did not resolve"))
+            }
+        }
+        Err(err) => Err(format!("Host '{host}' could not be resolved: {err}")),
+    }
+}
+
+async fn ensure_http_host_resolvable_async(url: &tauri::Url) -> Result<(), String> {
+    if !matches!(url.scheme(), "http" | "https") {
+        return Ok(());
+    }
+    // IP literals: cheap sync path, no DNS.
+    if matches!(url.host(), Some(url::Host::Ipv4(_)) | Some(url::Host::Ipv6(_))) {
+        return Ok(());
+    }
+
+    let url = url.clone();
+    let host = url.host_str().unwrap_or("?").to_string();
+    let joined = tokio::time::timeout(
+        std::time::Duration::from_secs(3),
+        tokio::task::spawn_blocking(move || ensure_http_host_resolvable(&url)),
+    )
+    .await;
+
+    match joined {
+        Ok(Ok(inner)) => inner,
+        Ok(Err(join_err)) => Err(format!("Host '{host}' check failed: {join_err}")),
+        Err(_) => Err(format!("Host '{host}' resolution timed out")),
+    }
+}
+
 /// Build a documentStart script that seeds a supabase-js session into the
 /// page's localStorage so it is already authenticated when its bundle runs.
 /// `session_json` is the already-serialized supabase session object; it is
@@ -524,6 +584,10 @@ pub async fn webview_create(
     let parsed_url = url
         .parse::<tauri::Url>()
         .map_err(|e| format!("Invalid URL '{}': {}", url, e))?;
+
+    // Fail closed before add_child: unresolvable External URLs can freeze the
+    // AppKit main thread (issue #617).
+    ensure_http_host_resolvable_async(&parsed_url).await?;
 
     eprintln!(
         "[Webview] Creating '{}' in parent '{}' url={} pos=({},{}) size={}x{}",
@@ -834,6 +898,8 @@ pub async fn webview_navigate(
         let parsed = url
             .parse::<tauri::Url>()
             .map_err(|e| format!("Invalid URL '{}': {}", url, e))?;
+        // Same guard as webview_create — navigate to a bad host can freeze too.
+        ensure_http_host_resolvable_async(&parsed).await?;
         eprintln!("[Webview] Navigating '{}' to {}", label, url);
         webview
             .navigate(parsed)
@@ -1168,5 +1234,33 @@ mod tests {
         assert!(js.contains("__teamclaw_websso_cleared"));
         assert!(js.contains("sessionStorage.getItem"));
         assert!(js.contains("localStorage.removeItem(\"sb-test-supa-auth-token\")"));
+    }
+
+    #[test]
+    fn ensure_http_host_resolvable_accepts_ip_literals() {
+        let url: tauri::Url = "http://127.0.0.1:8080/path"
+            .parse()
+            .expect("url");
+        assert!(ensure_http_host_resolvable(&url).is_ok());
+    }
+
+    #[test]
+    fn ensure_http_host_resolvable_skips_non_http_schemes() {
+        let url: tauri::Url = "data:text/plain,hi".parse().expect("url");
+        assert!(ensure_http_host_resolvable(&url).is_ok());
+    }
+
+    #[test]
+    fn ensure_http_host_resolvable_rejects_unresolvable_host() {
+        // `.invalid` is reserved by RFC 2606 and must not resolve on the public DNS.
+        let url: tauri::Url =
+            "https://no-such-host-teamclaw-617.invalid/path"
+                .parse()
+                .expect("url");
+        let err = ensure_http_host_resolvable(&url).expect_err("unresolvable host");
+        assert!(
+            err.contains("no-such-host-teamclaw-617.invalid"),
+            "error should name the host: {err}"
+        );
     }
 }
