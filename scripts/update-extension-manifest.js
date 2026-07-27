@@ -4,7 +4,7 @@ const fs = require('fs');
 const path = require('path');
 const { applyNameToExtensionManifest, resolveExtensionIconPlan } = require('./lib/branding');
 const {
-  parseExtensionsConfig,
+  resolveExtensionPack,
   domainsToChromeMatchPatterns,
 } = require('./lib/extension-config');
 
@@ -54,13 +54,13 @@ const manifest = JSON.parse(fs.readFileSync(manifestPath, 'utf8'));
 let updated = false;
 
 if (applyNameToExtensionManifest(manifest, buildConfig)) {
-  console.log(`✓ Updated extension name: ${manifest.name}`);
+  console.log(`✓ Updated extension identity: ${manifest.name} — ${manifest.description}`);
   updated = true;
 }
 
-// Brand-scoped host access from `extensions.domains` (e.g. *.shopee.io).
-// Non-empty → override host_permissions + content_scripts.matches.
-const extensionPack = parseExtensionsConfig(buildConfig.extensions);
+// Brand-scoped host access from `extensions.domains` / `extension.hosts`
+// (e.g. *.shopee.io). Non-empty → override host_permissions + content_scripts.matches.
+const extensionPack = resolveExtensionPack(buildConfig);
 const brandHosts = domainsToChromeMatchPatterns(extensionPack.domains);
 if (brandHosts.length > 0) {
   manifest.host_permissions = [...brandHosts];

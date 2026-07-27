@@ -50,6 +50,12 @@ const baseConfig = readJSON(path.join(rootDir, 'build.config.json'))
 const envConfig = buildEnv ? readJSON(path.join(rootDir, `build.config.${buildEnv}.json`)) : null
 const buildConfig = deepMerge(baseConfig || {}, envConfig)
 
+// Same resolver the extension build uses, so `extension.hosts` (branding repo)
+// and `extensions.settings` (repo configs) reach the app identically.
+const { resolveExtensionPack } = nodeRequire(
+  path.join(rootDir, 'scripts/lib/extension-config.js'),
+) as { resolveExtensionPack: (buildConfig: unknown) => { settings: unknown } }
+
 const { resolveBrandTheme, generateBrandThemeCss, extractRootTokenNames } =
   nodeRequire(path.join(rootDir, 'scripts/lib/brand-theme.js')) as {
     resolveBrandTheme: (buildConfig: unknown, repoRoot: string) => { palette: string; tokens: Record<string, string> } | null
@@ -132,9 +138,7 @@ export default defineConfig({
   },
   define: {
     __BUILD_CONFIG__: JSON.stringify(buildConfig),
-    __TEAMCLAW_EXTENSION_SETTINGS__: JSON.stringify(
-      (buildConfig as { extensions?: { settings?: unknown } }).extensions?.settings ?? {},
-    ),
+    __TEAMCLAW_EXTENSION_SETTINGS__: JSON.stringify(resolveExtensionPack(buildConfig).settings),
     // Inject build config defaults into import.meta.env so they work without .env files
     'import.meta.env.VITE_LOCALE': JSON.stringify((buildConfig as any).defaults?.locale ?? ''),
     'import.meta.env.PACKAGE_VERSION': JSON.stringify(
