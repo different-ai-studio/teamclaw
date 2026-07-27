@@ -36,10 +36,7 @@ targets:
     settings:
       base:
         INFOPLIST_FILE: AMUXApp/Info.plist
-        # CODE_SIGN_ENTITLEMENTS temporarily removed — see
-        # AMUXApp/AMUX.entitlements.disabled. Restore after enabling
-        # "Sign In with Apple" on the App ID and running
-        # `fastlane match appstore --force` to refresh the profile.
+        CODE_SIGN_ENTITLEMENTS: AMUXApp/AMUX.entitlements
         PRODUCT_BUNDLE_IDENTIFIER: tech.teamclaw.mobile
         DEVELOPMENT_TEAM: 43G5A6G9QV
         MARKETING_VERSION: "1.1.5"
