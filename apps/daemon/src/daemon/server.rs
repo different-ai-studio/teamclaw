@@ -2802,16 +2802,22 @@ pub(crate) mod tests {
                 id: "ws-exists".into(),
                 team_id: "team-1".into(),
                 path: Some(existing.path().to_string_lossy().to_string()),
+                archived: false,
+                agent_id: None,
             },
             crate::backend::WorkspaceRow {
                 id: "ws-missing".into(),
                 team_id: "team-1".into(),
                 path: Some("/definitely/not/on/this/machine/team-link-test".into()),
+                archived: false,
+                agent_id: None,
             },
             crate::backend::WorkspaceRow {
                 id: "ws-no-path".into(),
                 team_id: "team-1".into(),
                 path: None,
+                archived: false,
+                agent_id: None,
             },
         ];
         let linkable = cloud_rows_to_local_linkable_paths(&rows);
@@ -2853,6 +2859,8 @@ pub(crate) mod tests {
                     id: "ws-exists".to_string(),
                     team_id: team_id.to_string(),
                     path: Some(existing_path.clone()),
+                    archived: false,
+                    agent_id: None,
                 },
             );
             st.workspaces_by_id.insert(
@@ -2861,6 +2869,8 @@ pub(crate) mod tests {
                     id: "ws-missing".to_string(),
                     team_id: team_id.to_string(),
                     path: Some("/definitely/not/on/this/machine/team-link-test".to_string()),
+                    archived: false,
+                    agent_id: None,
                 },
             );
         }
@@ -4194,6 +4204,8 @@ pub(crate) mod tests {
                 id: remote_id.to_string(),
                 team_id: "team-test".to_string(),
                 path: None,
+                archived: false,
+                agent_id: None,
             },
         );
     }
