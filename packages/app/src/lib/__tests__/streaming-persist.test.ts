@@ -269,4 +269,94 @@ describe("persistStreamingPartsForReply", () => {
     expect(parts[0].toolCall.status).toBe("failed");
     expect(useV2StreamingStore.getState().byKey["s1::actor-a"].parts).toHaveLength(0);
   });
+
+  it("finalizes calling tools on persist even when the snapshot is still in-flight", async () => {
+    const stream = useV2StreamingStore.getState();
+    stream.pushToolUse("s1", "actor-a", {
+      toolId: "sleep-tool",
+      toolName: "bash",
+      description: "Sleep for 10 seconds",
+      params: { command: "sleep 10" },
+      toolKind: "execute",
+    });
+    const live = useV2StreamingStore.getState().byKey["s1::actor-a"];
+    expect(live.toolCalls[0].status).toBe("calling");
+    const streamEntrySnapshot = cloneStreamEntrySnapshot(live);
+    expect(streamEntrySnapshot.toolCalls[0].status).toBe("calling");
+
+    const reply = create(MessageSchema, {
+      messageId: "reply-idle",
+      sessionId: "s1",
+      senderActorId: "actor-a",
+      kind: MessageKind.AGENT_REPLY,
+      content: "",
+      turnId: "turn-idle",
+      createdAt: BigInt(100),
+    });
+
+    await persistStreamingPartsForReply("s1", "actor-a", reply, [], {
+      streamEntrySnapshot,
+    });
+
+    const parts = JSON.parse((reply as unknown as { partsJson: string }).partsJson);
+    expect(parts[0].toolCall.status).toBe("failed");
+    expect(parts[0].toolCall.result).toContain("Stream ended");
+  });
+
+  it("patches a flushed message when a late toolResult arrives", async () => {
+    const { registerFlushedTurn, resetFlushedTurnRegistryForTests } = await import(
+      "@/lib/flushed-turn-registry"
+    );
+    const { patchPersistedToolResult } = await import("@/lib/streaming-persist");
+    resetFlushedTurnRegistryForTests();
+
+    const stream = useV2StreamingStore.getState();
+    stream.pushToolUse("s1", "actor-a", {
+      toolId: "sleep-tool",
+      toolName: "bash",
+      description: "Sleep for 10 seconds",
+      params: { command: "sleep 10" },
+      toolKind: "execute",
+    });
+    const reply = create(MessageSchema, {
+      messageId: "reply-1",
+      sessionId: "s1",
+      senderActorId: "actor-a",
+      kind: MessageKind.AGENT_REPLY,
+      content: "",
+      turnId: "turn-1",
+      createdAt: BigInt(100),
+    });
+    await persistStreamingPartsForReply("s1", "actor-a", reply, [], {
+      streamEntrySnapshot: cloneStreamEntrySnapshot(
+        useV2StreamingStore.getState().byKey["s1::actor-a"],
+      ),
+    });
+    useSessionMessageStore.getState().replaceTurnAgentRepliesInStore("s1", reply);
+    registerFlushedTurn("s1", "actor-a", {
+      messageId: "reply-1",
+      streamId: "stream-1",
+      turnId: "turn-1",
+    });
+    useV2StreamingStore.getState().releaseActorAfterPersist("s1", "actor-a", {
+      persistedPartsJson: (reply as { partsJson?: string }).partsJson,
+    });
+
+    const patched = await patchPersistedToolResult({
+      sessionId: "s1",
+      actorId: "actor-a",
+      toolId: "sleep-tool",
+      success: true,
+      summary: "(no output)\n\nUser aborted the command",
+    });
+    expect(patched).toBe(true);
+
+    const stored = useSessionMessageStore.getState().messages.s1?.[0] as {
+      partsJson?: string;
+    };
+    const parts = JSON.parse(stored.partsJson ?? "[]");
+    expect(parts[0].toolCall.status).toBe("completed");
+    expect(parts[0].toolCall.result).toContain("User aborted");
+    expect(useV2StreamingStore.getState().byKey["s1::actor-a"]).toBeUndefined();
+  });
 });

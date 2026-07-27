@@ -31,6 +31,17 @@ export async function resolveSessionWorkspacePath(
   return resolveSessionWorkspaceForViewer(teamId, sessionId);
 }
 
+/** True when this session is bound to `workspacePath` for the current viewer. */
+export async function sessionBelongsToWorkspace(
+  teamId: string,
+  sessionId: string,
+  workspacePath: string,
+): Promise<boolean> {
+  const targetPath = await resolveSessionWorkspacePath(teamId, sessionId);
+  if (!targetPath) return false;
+  return workspacePathsMatch(targetPath, workspacePath);
+}
+
 /** Switch the desktop workspace when opening a session bound to another folder. */
 export async function switchToSessionWorkspaceIfNeeded(
   teamId: string,

@@ -1,0 +1,434 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Interrupt UI — Editorial Calm mockup</title>
+<style>
+  :root {
+    --background: #fbfaf7;
+    --paper: #ffffff;
+    --panel: #efece4;
+    --selected: #e7e2d6;
+    --foreground: #1a1a14;
+    --ink-2: #3d3c34;
+    --muted: #75736a;
+    --faint: #a8a6a0;
+    --border: rgba(26, 26, 20, 0.08);
+    --border-soft: rgba(26, 26, 20, 0.05);
+    --coral: #e85a4a;
+    --coral-soft: #f5d6cf;
+    --ok: #2eb872;
+    --font-sans: "PingFang SC", "Noto Sans SC", "Source Han Sans SC",
+      -apple-system, BlinkMacSystemFont, "Microsoft YaHei", system-ui, sans-serif;
+    --font-mono: "JetBrains Mono", "SF Mono", ui-monospace, Menlo, Consolas, monospace;
+  }
+
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    font-family: var(--font-sans);
+    background:
+      radial-gradient(1200px 600px at 10% -10%, #f3eee4 0%, transparent 55%),
+      var(--background);
+    color: var(--foreground);
+    padding: 40px 28px 64px;
+  }
+
+  h1 {
+    font-size: 15px;
+    font-weight: 700;
+    margin: 0 0 6px;
+  }
+  .sub {
+    font-size: 12.5px;
+    color: var(--muted);
+    margin: 0 0 28px;
+    max-width: 640px;
+    line-height: 1.6;
+  }
+
+  .grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(340px, 1fr));
+    gap: 20px;
+    max-width: 1100px;
+  }
+
+  .frame {
+    background: var(--paper);
+    border: 1px solid var(--border);
+    border-radius: 14px;
+    overflow: hidden;
+    box-shadow: 0 4px 16px -10px rgba(20, 20, 15, 0.12);
+  }
+  .frame-head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 12px 14px;
+    background: var(--panel);
+    border-bottom: 1px solid var(--border-soft);
+  }
+  .frame-head .step {
+    font-size: 10.5px;
+    font-weight: 600;
+    letter-spacing: 0.8px;
+    text-transform: uppercase;
+    color: var(--faint);
+  }
+  .frame-head .label {
+    font-size: 12px;
+    font-weight: 600;
+    color: var(--ink-2);
+  }
+  .thread {
+    padding: 16px 22px 18px;
+    min-height: 280px;
+    display: flex;
+    flex-direction: column;
+    justify-content: flex-end;
+    gap: 10px;
+    background: var(--background);
+  }
+
+  /* user bubble */
+  .user-wrap { align-self: flex-end; max-width: 65%; }
+  .user-meta {
+    display: flex; align-items: center; justify-content: flex-end; gap: 6px;
+    margin-bottom: 4px; font-size: 11px; color: var(--faint);
+  }
+  .avatar-sm {
+    width: 16px; height: 16px; border-radius: 999px;
+    background: var(--foreground); color: #fefdfa;
+    font-size: 9px; font-weight: 600;
+    display: grid; place-items: center;
+  }
+  .user-bubble {
+    background: var(--foreground); color: #fefdfa;
+    padding: 10px 14px; border-radius: 16px; border-bottom-right-radius: 6px;
+    font-size: 13.5px; line-height: 1.6;
+  }
+
+  /* agent note */
+  .agent-note { padding-left: 2px; }
+  .agent-head {
+    display: flex; align-items: center; gap: 8px; margin-bottom: 6px;
+  }
+  .avatar-ai {
+    width: 22px; height: 22px; border-radius: 6px;
+    background: #6b7c59; color: white;
+    font-size: 11px; font-weight: 600;
+    display: grid; place-items: center;
+    box-shadow: 0 0 0 1.5px var(--coral);
+    position: relative;
+  }
+  .avatar-ai::after {
+    content: "";
+    position: absolute; right: -2px; bottom: -2px;
+    width: 6px; height: 6px; border-radius: 999px;
+    background: var(--coral); border: 1.5px solid var(--background);
+  }
+  .agent-name { font-size: 13px; font-weight: 600; }
+  .ai-pill {
+    font-size: 9.5px; font-family: var(--font-mono); font-weight: 600;
+    color: var(--coral); border: 1px solid var(--coral);
+    padding: 1px 5px; border-radius: 3px;
+  }
+  .agent-time {
+    margin-left: auto; font-family: var(--font-mono);
+    font-size: 11px; color: var(--faint);
+  }
+  .agent-body {
+    margin-left: 30px; font-size: 13.5px; line-height: 1.7; color: var(--ink-2);
+  }
+  .tool-card {
+    margin: 8px 0 0 30px;
+    border: 1px solid var(--border); border-radius: 8px; overflow: hidden;
+    font-family: var(--font-mono); font-size: 11.5px;
+  }
+  .tool-top {
+    background: #fbf9f4; padding: 6px 10px; color: var(--muted);
+    display: flex; gap: 8px; align-items: center;
+  }
+  .dot-pending { width: 6px; height: 6px; border-radius: 999px; background: #e8b54a; }
+  .dot-ok { width: 6px; height: 6px; border-radius: 999px; background: var(--ok); }
+  .tool-bot {
+    background: var(--paper); padding: 6px 10px; color: var(--faint);
+    border-top: 1px solid var(--border-soft);
+    white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  }
+
+  /* live dock strip */
+  .dock {
+    margin-top: 4px;
+    border-top: 1px solid var(--border-soft);
+    background: var(--paper);
+    padding: 10px 14px 12px;
+  }
+  .dock-row {
+    display: flex; align-items: center; gap: 8px;
+    padding: 7px 9px; border-radius: 10px;
+    background: var(--panel);
+  }
+  .dock-name { font-size: 12.5px; font-weight: 600; flex: 1; min-width: 0; }
+  .dock-meta {
+    font-family: var(--font-mono); font-size: 11px; color: var(--faint);
+  }
+
+  .btn-stop {
+    width: 28px; height: 28px; border: 0; border-radius: 8px;
+    background: color-mix(in srgb, var(--coral) 15%, transparent);
+    color: var(--coral); cursor: pointer;
+    display: grid; place-items: center;
+  }
+  .btn-stop svg { width: 10px; height: 10px; fill: currentColor; }
+
+  /* —— State A: interrupting / loading —— */
+  .dock-row.stopping {
+    background: var(--selected);
+  }
+  .btn-stopping {
+    width: auto; min-width: 28px; height: 28px;
+    padding: 0 10px; border: 0; border-radius: 8px;
+    background: var(--panel);
+    color: var(--ink-2);
+    display: inline-flex; align-items: center; gap: 6px;
+    font-size: 11.5px; font-weight: 600;
+    cursor: default;
+  }
+  .spin {
+    width: 12px; height: 12px; border-radius: 999px;
+    border: 1.5px solid var(--border);
+    border-top-color: var(--ink-2);
+    animation: spin 0.7s linear infinite;
+  }
+  @keyframes spin { to { transform: rotate(360deg); } }
+
+  .stopping-banner {
+    margin: 0 0 2px 30px;
+    display: inline-flex; align-items: center; gap: 8px;
+    padding: 6px 10px;
+    border-radius: 8px;
+    background: var(--panel);
+    border: 1px dashed var(--border);
+    font-size: 12px; color: var(--muted);
+  }
+  .stopping-banner .spin { width: 11px; height: 11px; }
+
+  /* —— State B: interrupted notice (NOT error) —— */
+  .stop-notice {
+    margin-left: 0;
+    max-width: 85%;
+  }
+  .stop-notice-head {
+    display: flex; align-items: center; gap: 8px;
+    margin-bottom: 8px; padding-left: 2px;
+  }
+  .stop-icon {
+    width: 24px; height: 24px; border-radius: 999px;
+    background: var(--panel);
+    color: var(--muted);
+    display: grid; place-items: center;
+  }
+  .stop-icon svg { width: 13px; height: 13px; }
+  .stop-title {
+    font-size: 12px; font-weight: 600; color: var(--ink-2);
+  }
+  .stop-card {
+    background: var(--paper);
+    border: 1px solid var(--border);
+    border-radius: 14px;
+    padding: 12px 14px;
+  }
+  .stop-card p {
+    margin: 0;
+    font-size: 13px; line-height: 1.6; color: var(--ink-2);
+  }
+  .stop-card .hint {
+    margin-top: 4px;
+    font-size: 12px; color: var(--muted);
+  }
+  .stop-actions {
+    display: flex; gap: 4px; margin-top: 8px; padding-left: 2px;
+  }
+  .ghost {
+    border: 0; background: transparent; cursor: pointer;
+    font-size: 11px; color: var(--muted);
+    padding: 4px 8px; border-radius: 6px;
+  }
+  .ghost:hover { background: var(--panel); color: var(--foreground); }
+
+  /* anti-pattern callout */
+  .bad {
+    opacity: 0.55;
+    filter: grayscale(0.35);
+  }
+  .badge-bad {
+    font-size: 10px; font-weight: 600; color: #a33;
+    background: #f8e4e1; padding: 2px 7px; border-radius: 4px;
+  }
+  .badge-good {
+    font-size: 10px; font-weight: 600; color: #2a6b45;
+    background: #dff3e7; padding: 2px 7px; border-radius: 4px;
+  }
+
+  .notes {
+    max-width: 1100px; margin-top: 28px;
+    padding: 14px 16px; border-radius: 12px;
+    background: var(--panel); border: 1px solid var(--border-soft);
+    font-size: 12.5px; line-height: 1.7; color: var(--ink-2);
+  }
+  .notes strong { font-weight: 600; }
+  .notes code {
+    font-family: var(--font-mono); font-size: 11px;
+    background: var(--paper); padding: 1px 5px; border-radius: 3px;
+    border: 1px solid var(--border);
+  }
+</style>
+</head>
+<body>
+  <h1>打断 UI 效果图</h1>
+  <p class="sub">
+    Editorial Calm · 打断有延迟是正常的，需要 loading 反馈；打断完成后可以提示，
+    但<strong>不要</strong>叫 Error / Service Notice，也不要用红色故障语义。
+  </p>
+
+  <div class="grid">
+    <!-- ========== STATE 1: STOPPING ========== -->
+    <section class="frame">
+      <div class="frame-head">
+        <span class="step">State 1 · Stopping</span>
+        <span class="label">点停止后 · 等待 daemon Idle</span>
+        <span class="badge-good">推荐</span>
+      </div>
+      <div class="thread">
+        <div class="user-wrap">
+          <div class="user-meta"><span>你</span><div class="avatar-sm">你</div></div>
+          <div class="user-bubble">sleep20</div>
+        </div>
+
+        <div class="agent-note">
+          <div class="agent-head">
+            <div class="avatar-ai">M</div>
+            <span class="agent-name">MYBOT</span>
+            <span class="ai-pill">AI</span>
+            <span class="agent-time">23:31</span>
+          </div>
+          <div class="agent-body">好的，我先执行 sleep20…</div>
+          <div class="tool-card">
+            <div class="tool-top">
+              <span class="dot-pending"></span>
+              <span>tool · sleep(seconds: 20)</span>
+              <span style="margin-left:auto">running</span>
+            </div>
+            <div class="tool-bot">→ waiting…</div>
+          </div>
+          <div class="stopping-banner">
+            <span class="spin" aria-hidden="true"></span>
+            正在停止回复…
+          </div>
+        </div>
+      </div>
+
+      <div class="dock">
+        <div class="dock-row stopping">
+          <div class="avatar-ai" style="width:20px;height:20px;font-size:10px;">M</div>
+          <div class="dock-name">MYBOT</div>
+          <span class="dock-meta">stopping</span>
+          <button class="btn-stopping" type="button" disabled aria-busy="true">
+            <span class="spin" aria-hidden="true"></span>
+            停止中
+          </button>
+        </div>
+      </div>
+    </section>
+
+    <!-- ========== STATE 2: STOPPED NOTICE ========== -->
+    <section class="frame">
+      <div class="frame-head">
+        <span class="step">State 2 · Stopped</span>
+        <span class="label">Idle 到达 · 半成品已落盘</span>
+        <span class="badge-good">推荐</span>
+      </div>
+      <div class="thread">
+        <div class="user-wrap">
+          <div class="user-meta"><span>你</span><div class="avatar-sm">你</div></div>
+          <div class="user-bubble">sleep20</div>
+        </div>
+
+        <div class="agent-note">
+          <div class="agent-head">
+            <div class="avatar-ai">M</div>
+            <span class="agent-name">MYBOT</span>
+            <span class="ai-pill">AI</span>
+            <span class="agent-time">23:31</span>
+          </div>
+          <div class="agent-body">好的，我先执行 sleep20…</div>
+          <div class="tool-card">
+            <div class="tool-top">
+              <span class="dot-ok"></span>
+              <span>tool · sleep(seconds: 20)</span>
+              <span style="margin-left:auto">stopped</span>
+            </div>
+            <div class="tool-bot">→ interrupted</div>
+          </div>
+        </div>
+
+        <div class="stop-notice">
+          <div class="stop-notice-head">
+            <div class="stop-icon" aria-hidden="true">
+              <!-- square stop glyph -->
+              <svg viewBox="0 0 16 16" fill="currentColor"><rect x="3.5" y="3.5" width="9" height="9" rx="1.2"/></svg>
+            </div>
+            <span class="stop-title">已停止</span>
+          </div>
+          <div class="stop-card">
+            <p>你已打断本次回复。</p>
+            <p class="hint">已生成的内容会保留；可以继续提问。</p>
+          </div>
+          <div class="stop-actions">
+            <button class="ghost" type="button">知道了</button>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ========== ANTI-PATTERN ========== -->
+    <section class="frame bad">
+      <div class="frame-head">
+        <span class="step">Anti-pattern</span>
+        <span class="label">现状 · 不要再这样</span>
+        <span class="badge-bad">避免</span>
+      </div>
+      <div class="thread">
+        <div class="stop-notice">
+          <div class="stop-notice-head">
+            <div class="stop-icon" style="background:#fee2e2;color:#dc2626;">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <circle cx="12" cy="12" r="9"/><path d="M12 8v5M12 16h.01"/>
+              </svg>
+            </div>
+            <span class="stop-title" style="color:#dc2626;">Service Notice</span>
+          </div>
+          <div class="stop-card" style="background:#fef2f2;border-color:#fecaca;">
+            <p style="font-family:var(--font-mono);font-size:12.5px;">MessageAbortedError: Aborted</p>
+          </div>
+          <div class="stop-actions">
+            <button class="ghost" type="button">Copy</button>
+            <button class="ghost" type="button">Dismiss</button>
+          </div>
+        </div>
+      </div>
+    </section>
+  </div>
+
+  <div class="notes">
+    <strong>交互要点</strong><br/>
+    1. 点停止后立刻进入 <code>Stopping</code>：停按钮变「停止中 + spinner」，不可再点；线程内虚线条提示「正在停止回复…」——覆盖 cancel→Idle 的不可避免延迟。<br/>
+    2. Idle / flush 完成后：去掉 loading，落一条中性 <code>已停止</code> 提示（纸面卡片 + muted 标题），<strong>禁止</strong> Error / Service Notice / 红底 / <code>MessageAbortedError</code> 字样。<br/>
+    3. Coral 只用在「可点的停止」按钮上；loading / 完成态全部走 ink / panel / muted。<br/>
+    4. 文案可微调：「你已打断本次回复」或「回复已停止」；动作只保留「知道了」（等同 dismiss）。
+  </div>
+</body>
+</html>

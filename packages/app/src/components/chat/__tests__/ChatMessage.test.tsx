@@ -235,6 +235,64 @@ describe('ChatMessage', () => {
     expect(container.textContent).toContain('Compacting context automatically...');
   });
 
+  it('renders interrupted agent reply from turnStatus (scheme B)', () => {
+    const message = makeMessage({
+      id: 'msg-interrupted-1',
+      role: 'assistant',
+      content: '',
+      parts: [
+        {
+          id: 'tool-part-1',
+          type: 'tool-call',
+          toolCallId: 't1',
+          toolCall: {
+            id: 't1',
+            name: 'bash',
+            status: 'completed',
+            arguments: {},
+            startTime: new Date(),
+          },
+        },
+      ],
+      toolCalls: [
+        {
+          id: 't1',
+          name: 'bash',
+          status: 'completed',
+          arguments: {},
+          startTime: new Date(),
+        },
+      ],
+      isStreaming: false,
+      senderActorId: 'actor-1',
+      turnStatus: 'interrupted',
+    });
+
+    const { container } = render(<ChatMessage message={message} />);
+    const text = container.textContent || '';
+    const strip = container.querySelector('[data-testid="interrupted-agent-reply"]');
+    const process = container.querySelector('[data-testid="agent-process-collapsible"]');
+
+    expect(strip).toBeTruthy();
+    expect(process).toBeTruthy();
+    expect(text).toContain('Stopped');
+    expect(text).toContain('interrupted');
+    expect(text).toContain(
+      'You interrupted this reply. Generated content is kept.',
+    );
+    expect(text).not.toContain('Turn interrupted by user');
+    // Process (tools) must appear before the interrupted strip in DOM order.
+    expect(
+      Boolean(
+        process &&
+          strip &&
+          Boolean(
+            process.compareDocumentPosition(strip) & Node.DOCUMENT_POSITION_FOLLOWING,
+          ),
+      ),
+    ).toBe(true);
+  });
+
   it('does not render hidden synthetic messages', () => {
     const message = makeMessage({
       id: 'msg-hidden',

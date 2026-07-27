@@ -130,4 +130,31 @@ describe('useEngagedAgentRuntimeMap', () => {
       expect(result.current.agentToRuntimeId.size).toBe(0)
     })
   })
+
+  it('clears previous session bindings immediately on session switch', async () => {
+    mocks.agentRuntimeRows = [
+      {
+        agent_id: 'a-1',
+        runtime_id: 'runtime-1',
+        backend_type: 'opencode',
+        session_id: 'session-1',
+      },
+    ]
+    mocks.runtimeTargetRows = [{ agent_id: 'a-1', runtime_id: 'runtime-1' }]
+
+    const { result, rerender } = renderHook(
+      ({ sessionId }: { sessionId: string }) => useEngagedAgentRuntimeMap(sessionId, ['a-1']),
+      { initialProps: { sessionId: 'session-1' } },
+    )
+
+    await waitFor(() => {
+      expect(result.current.agentToRuntimeId.get('a-1')).toBe('runtime-1')
+    })
+
+    mocks.agentRuntimeRows = []
+    mocks.runtimeTargetRows = []
+    rerender({ sessionId: 'displayed-session' })
+
+    expect(result.current.agentToRuntimeId.size).toBe(0)
+  })
 })

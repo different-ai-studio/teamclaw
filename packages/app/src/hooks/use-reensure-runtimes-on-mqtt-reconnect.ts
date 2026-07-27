@@ -17,12 +17,15 @@ export function useReensureRuntimesOnMqttReconnect(args: {
   sessionId: string | null
   teamId: string | null
   engagedUiEntries: ReadonlyArray<EngagedAgentUiEntry>
+  agentToRuntimeId?: ReadonlyMap<string, string>
 }): void {
   const mqttConnected = useMqttReconnectStore((s) => s.connected)
   const presenceByActor = useActorPresenceStore((s) => s.byActorId)
   const prevConnectedRef = React.useRef<boolean | null>(null)
   const engagedUiEntriesRef = React.useRef(args.engagedUiEntries)
   engagedUiEntriesRef.current = args.engagedUiEntries
+  const agentToRuntimeIdRef = React.useRef(args.agentToRuntimeId)
+  agentToRuntimeIdRef.current = args.agentToRuntimeId
 
   const engagedSignature = React.useMemo(
     () =>
@@ -43,12 +46,22 @@ export function useReensureRuntimesOnMqttReconnect(args: {
     const teamId = args.teamId?.trim() || null
     if (!sessionId || !teamId) return
 
+    const sessionRuntimeByAgent = agentToRuntimeIdRef.current ?? null
     const agentActorIds = agentIdsNeedingRecoverableRuntimeWake(
       engagedUiEntriesRef.current,
       presenceByActor,
+      sessionRuntimeByAgent,
     )
     if (agentActorIds.length === 0) return
-    if (shouldSkipAlreadyReadyRuntimeEnsure(agentActorIds, 'mqtt_reconnect_ensure')) return
+    if (
+      shouldSkipAlreadyReadyRuntimeEnsure(
+        agentActorIds,
+        'mqtt_reconnect_ensure',
+        sessionRuntimeByAgent,
+      )
+    ) {
+      return
+    }
 
     resetRuntimeEnsureThrottle()
     if (shouldSkipThrottledRuntimeEnsure(sessionId, agentActorIds)) return
@@ -58,6 +71,7 @@ export function useReensureRuntimesOnMqttReconnect(args: {
       teamId,
       agentActorIds,
       reason: 'mqtt_reconnect_ensure',
+      sessionRuntimeByAgent: sessionRuntimeByAgent ?? undefined,
     })
   }, [mqttConnected, args.sessionId, args.teamId, engagedSignature, presenceByActor])
 }

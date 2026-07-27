@@ -6,6 +6,7 @@ import App from './App'
 import { ErrorBoundary } from './components/ErrorBoundary'
 import { AuthGate } from './components/auth/AuthGate'
 import { SidePanelHostGateOverlay } from './components/extension/SidePanelHostGateOverlay'
+import { LocalAgentPanelApp } from './components/LocalAgentPanelApp'
 import './styles/globals.css'
 import './stores/dev-expose'
 import './lib/i18n'; // Initialize i18n
@@ -103,13 +104,26 @@ invoke<string | null>('get_system_accent_color')
 
 markStartup('react-mount')
 
+const panelMode =
+  typeof window !== 'undefined'
+    ? new URLSearchParams(window.location.search).get('panel')
+    : null
+
 createRoot(document.getElementById('root')!).render(
   <StrictMode>
     <ErrorBoundary scope="TeamClaw">
-      <SidePanelHostGateOverlay />
-      <AuthGate>
-        <App />
-      </AuthGate>
+      {panelMode === 'local-agent' ? (
+        <AuthGate>
+          <LocalAgentPanelApp />
+        </AuthGate>
+      ) : (
+        <>
+          <SidePanelHostGateOverlay />
+          <AuthGate>
+            <App />
+          </AuthGate>
+        </>
+      )}
     </ErrorBoundary>
   </StrictMode>,
 )

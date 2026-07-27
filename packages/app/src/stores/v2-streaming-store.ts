@@ -639,7 +639,8 @@ function mergeToolCallFromEnrichedParts(
   return enriched;
 }
 
-function finishUnresolvedTools(toolCalls: ToolCall[]): ToolCall[] {
+/** Mark in-flight tools failed so idle flush / reload never leave a spinner. */
+export function finishUnresolvedTools(toolCalls: ToolCall[]): ToolCall[] {
   return toolCalls.map((tc) => {
     if (tc.status !== "calling" && tc.status !== "waiting") return tc;
     return {
@@ -649,6 +650,14 @@ function finishUnresolvedTools(toolCalls: ToolCall[]): ToolCall[] {
       duration: Date.now() - tc.startTime.getTime(),
     };
   });
+}
+
+/** Sync tool-call parts to match toolCalls (exported for persist finalize). */
+export function syncToolPartsForPersist(
+  parts: MessagePart[],
+  toolCalls: ToolCall[],
+): MessagePart[] {
+  return syncToolParts(parts, toolCalls);
 }
 
 function toolUseArguments(
@@ -1212,19 +1221,10 @@ export const useV2StreamingStore = create<State>((set, get) => ({
     }
 
     if (!existing) {
-      set({
-        byKey: {
-          ...state.byKey,
-          [key]: {
-            ...emptyEntry(sessionId, actorId),
-            toolCalls: [fallbackToolCall],
-            parts: [toolCallPart(fallbackToolCall)],
-            lastUpdate: Date.now(),
-            active: true,
-          },
-        },
-        revisionBySession: bumpRevision(state.revisionBySession, sessionId),
-      });
+      // Do not spawn an active live stream for orphan tool results (e.g. after
+      // idle flush deleted byKey). Late results patch the persisted message
+      // via patchPersistedToolResult — creating active:true here causes the
+      // Unknown / stuck "Replying" dock.
       logStreamToolDiag("completeToolUse", {
         sessionId,
         actorId,
@@ -1233,8 +1233,9 @@ export const useV2StreamingStore = create<State>((set, get) => ({
         hadEntry: false,
         matchedExistingTool: false,
         matchedArchived: false,
+        droppedOrphan: true,
         before,
-        after: summarizeToolCallsForDiag([fallbackToolCall]),
+        after: [],
       });
       return;
     }

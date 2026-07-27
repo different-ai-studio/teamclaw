@@ -33,6 +33,7 @@ import {
   loadSessionIdsForWorkspace,
   loadSessionWorkspaceLabelsForTeam,
   resolveSessionWorkspacePath,
+  sessionBelongsToWorkspace,
   switchToSessionWorkspaceIfNeeded,
 } from "@/lib/session-by-workspace";
 
@@ -145,6 +146,31 @@ describe("resolveSessionWorkspacePath", () => {
     resolveSessionWorkspaceForViewer.mockResolvedValue("/Users/me/new");
     await expect(resolveSessionWorkspacePath("teamA", "s1")).resolves.toBe("/Users/me/new");
     expect(resolveSessionWorkspaceForViewer).toHaveBeenCalledWith("teamA", "s1");
+  });
+});
+
+describe("sessionBelongsToWorkspace", () => {
+  beforeEach(() => resolveSessionWorkspaceForViewer.mockReset());
+
+  it("returns true when the session path matches the workspace", async () => {
+    resolveSessionWorkspaceForViewer.mockResolvedValue("/Users/me/ws-b");
+    await expect(
+      sessionBelongsToWorkspace("teamA", "s-b", "/Users/me/ws-b"),
+    ).resolves.toBe(true);
+  });
+
+  it("returns false when the session belongs to another workspace", async () => {
+    resolveSessionWorkspaceForViewer.mockResolvedValue("/Users/me/ws-a");
+    await expect(
+      sessionBelongsToWorkspace("teamA", "s-a", "/Users/me/ws-b"),
+    ).resolves.toBe(false);
+  });
+
+  it("returns false when the session has no viewer workspace binding", async () => {
+    resolveSessionWorkspaceForViewer.mockResolvedValue(null);
+    await expect(
+      sessionBelongsToWorkspace("teamA", "s-obs", "/Users/me/ws-b"),
+    ).resolves.toBe(false);
   });
 });
 

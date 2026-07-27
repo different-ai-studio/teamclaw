@@ -8,8 +8,10 @@ import {
   joinTextPartsFromParts,
 } from "@/lib/agent-reply-transcript";
 import type { Message as TeamclawMessage } from "@/lib/proto/teamclaw_pb";
-import type { MessagePart } from "@/stores/session-types";
+import type { MessagePart, ToolCall } from "@/stores/session-types";
 import {
+  finishUnresolvedTools,
+  syncToolPartsForPersist,
   type AgentStreamEntry,
   useV2StreamingStore,
 } from "@/stores/v2-streaming-store";
@@ -17,6 +19,8 @@ import { enrichMessageParts, setMessageParts } from "@/lib/local-cache";
 import { useWorkspaceStore } from "@/stores/workspace";
 import { snapshotSubagentEntry } from "@/lib/subagent-snapshot";
 import { extractTaskChildBinding, isTaskToolCall } from "@/lib/teamclaw/subagent-acp-binding";
+import { useSessionMessageStore } from "@/stores/session-message-store";
+import { getFlushedTurn } from "@/lib/flushed-turn-registry";
 
 /** Snapshot live transcript parts — the only canonical source for parts_json. */
 export function snapshotTranscriptParts(
@@ -29,6 +33,24 @@ export function snapshotTranscriptParts(
       (part.type === "text" && Boolean(part.text || part.content)) ||
       (part.type === "tool-call" && Boolean(part.toolCall)),
   );
+}
+
+/**
+ * Finish in-flight tools on a stream snapshot before writing parts_json.
+ * Prevents reload from restoring a permanent "running" spinner when idle
+ * arrives before the late toolResult (opencode abort order).
+ */
+export function finalizeStreamEntryForPersist(
+  entry: AgentStreamEntry,
+): AgentStreamEntry {
+  const cloned = cloneStreamEntrySnapshot(entry);
+  const toolCalls = finishUnresolvedTools(cloned.toolCalls);
+  return {
+    ...cloned,
+    toolCalls,
+    parts: syncToolPartsForPersist(cloned.parts, toolCalls),
+    active: false,
+  };
 }
 
 /** Attach nested subagent snapshots onto task tool-call parts before persist. */
@@ -152,9 +174,12 @@ export async function persistStreamingPartsForReply(
 ): Promise<TeamclawMessage> {
   const turnId = reply.turnId;
   if (!turnId) return reply;
-  const snapshot =
+  const rawSnapshot =
     opts?.streamEntrySnapshot ??
     resolveStreamEntryForPersist(sessionId, actorId);
+  const snapshot = rawSnapshot
+    ? finalizeStreamEntryForPersist(rawSnapshot)
+    : undefined;
   const parts = mergeSubagentSnapshotsIntoParts(
     snapshotTranscriptParts(snapshot),
     sessionId,
@@ -188,6 +213,100 @@ export async function persistStreamingPartsForReply(
     console.warn("[streaming-persist] parts_json write failed:", e);
   }
   return reply;
+}
+
+function messagePartsJson(message: TeamclawMessage): string {
+  return (message as unknown as { partsJson?: string | null }).partsJson ?? "";
+}
+
+function withPatchedToolResult(
+  parts: MessagePart[],
+  args: {
+    toolId: string;
+    success: boolean;
+    summary: string;
+    content?: unknown;
+    rawOutput?: unknown;
+  },
+): MessagePart[] | null {
+  const toolId = args.toolId.trim();
+  if (!toolId) return null;
+  let matched = false;
+  const next = parts.map((part) => {
+    if (part.type !== "tool-call" || !part.toolCall || part.toolCall.id !== toolId) {
+      return part;
+    }
+    matched = true;
+    const start = part.toolCall.startTime;
+    const startMs =
+      start instanceof Date
+        ? start.getTime()
+        : typeof start === "string" || typeof start === "number"
+          ? new Date(start).getTime()
+          : Date.now();
+    const toolCall: ToolCall = {
+      ...part.toolCall,
+      status: args.success ? "completed" : "failed",
+      result: args.summary,
+      duration: Math.max(0, Date.now() - startMs),
+      ...(args.content !== undefined
+        ? { content: args.content as ToolCall["content"] }
+        : {}),
+      ...(args.rawOutput !== undefined ? { rawOutput: args.rawOutput } : {}),
+    };
+    return { ...part, toolCall };
+  });
+  return matched ? next : null;
+}
+
+/**
+ * Apply a late toolResult onto the already-flushed AGENT_REPLY in the message
+ * store + local cache. Returns true when a tool row was updated.
+ */
+export async function patchPersistedToolResult(args: {
+  sessionId: string;
+  actorId: string;
+  toolId: string;
+  success: boolean;
+  summary: string;
+  content?: unknown;
+  rawOutput?: unknown;
+}): Promise<boolean> {
+  const flushed = getFlushedTurn(args.sessionId, args.actorId);
+  if (!flushed) return false;
+
+  const messages = useSessionMessageStore.getState().messages[args.sessionId] ?? [];
+  const message = messages.find((m) => m.messageId === flushed.messageId);
+  if (!message) return false;
+
+  const parts = parsePartsJson(messagePartsJson(message));
+  if (parts.length === 0) return false;
+
+  const patched = withPatchedToolResult(parts, args);
+  if (!patched) return false;
+
+  const partsJson = JSON.stringify(patched);
+  let enrichedPartsJson = partsJson;
+  try {
+    enrichedPartsJson = await setMessageParts(
+      flushed.messageId,
+      partsJson,
+      useWorkspaceStore.getState().workspacePath,
+    );
+  } catch (e) {
+    console.warn("[streaming-persist] late toolResult parts_json write failed:", e);
+  }
+
+  const updated = Object.assign(
+    Object.create(Object.getPrototypeOf(message)),
+    message,
+    { partsJson: enrichedPartsJson },
+  ) as TeamclawMessage;
+
+  useSessionMessageStore
+    .getState()
+    .replaceTurnAgentRepliesInStore(args.sessionId, updated);
+  return true;
 }
 
 /** @internal test helper */

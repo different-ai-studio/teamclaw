@@ -1,13 +1,16 @@
 import * as React from "react";
 import { useTranslation } from "react-i18next";
-import { ChevronDown, Maximize2, Minimize2, Square } from "lucide-react";
+import { ChevronDown, Loader2, Maximize2, Minimize2, Square } from "lucide-react";
 import { actorAvatarColor } from "@/lib/actor-color";
 import { resolveApprovalAnchorActorId } from "@/lib/permission-actor";
 import { useActorDisplayName } from "@/hooks/useActorDisplayName";
 import { cn } from "@/lib/utils";
 import type { Todo } from "@/stores/session-types";
 import type { QueuedMessage } from "@/stores/session";
-import type { AgentStreamEntry } from "@/stores/v2-streaming-store";
+import {
+  useV2StreamingStore,
+  type AgentStreamEntry,
+} from "@/stores/v2-streaming-store";
 import { PermissionApprovalPanel } from "./PermissionApprovalPanel";
 import { PermissionWaitingBanner } from "./PermissionWaitingBanner";
 import { ComposerPlanSlot } from "./ComposerPlanSlot";
@@ -112,10 +115,32 @@ function ComposerAgentStrip({
   const canExpand = Boolean(entry);
   const showInlinePanel = expanded && canExpand && !enlarged;
   const { liveScrollRef, handleLiveScroll } = useLiveScrollFollow(showInlinePanel, entry);
+  const interrupting = useV2StreamingStore((s) =>
+    entry?.sessionId
+      ? s.isInterruptedFlushPending(entry.sessionId, actorId)
+      : false,
+  );
 
   const expandClasses = cn(
     "grid transition-[grid-template-rows] duration-[360ms] ease-[cubic-bezier(0.22,1,0.36,1)] motion-reduce:transition-none",
     showInlinePanel ? "grid-rows-[1fr]" : "grid-rows-[0fr]",
+  );
+
+  const statusLabel = waitingForApproval ? (
+    t("chat.streamingBar.waitingApproval", "Waiting for your approval…")
+  ) : interrupting ? (
+    <span className="inline-flex items-center gap-1.5 text-muted-foreground">
+      <Loader2 className="h-3 w-3 animate-spin" aria-hidden />
+      {t("chat.interrupt.stopping", "正在停止回复…")}
+    </span>
+  ) : (
+    <>
+      {t("chat.streamingBar.streamingActive", "正在回复")}
+      <span
+        className="ml-1.5 inline-block h-[5px] w-[5px] animate-pulse rounded-full bg-coral align-middle"
+        aria-hidden
+      />
+    </>
   );
 
   return (
@@ -174,17 +199,7 @@ function ComposerAgentStrip({
                   !waitingForApproval && "text-muted-foreground",
                 )}
               >
-                {waitingForApproval ? (
-                  t("chat.streamingBar.waitingApproval", "Waiting for your approval…")
-                ) : (
-                  <>
-                    {t("chat.streamingBar.streamingActive", "正在回复")}
-                    <span
-                      className="ml-1.5 inline-block h-[5px] w-[5px] animate-pulse rounded-full bg-coral align-middle"
-                      aria-hidden
-                    />
-                  </>
-                )}
+                {statusLabel}
               </span>
             </div>
           </button>
@@ -210,17 +225,7 @@ function ComposerAgentStrip({
                   !waitingForApproval && "text-muted-foreground",
                 )}
               >
-                {waitingForApproval ? (
-                  t("chat.streamingBar.waitingApproval", "Waiting for your approval…")
-                ) : (
-                  <>
-                    {t("chat.streamingBar.streamingActive", "正在回复")}
-                    <span
-                      className="ml-1.5 inline-block h-[5px] w-[5px] animate-pulse rounded-full bg-coral align-middle"
-                      aria-hidden
-                    />
-                  </>
-                )}
+                {statusLabel}
               </span>
             </div>
           </div>
@@ -248,7 +253,19 @@ function ComposerAgentStrip({
             )}
           </button>
         ) : null}
-        {showInterrupt ? (
+        {showInterrupt && interrupting ? (
+          <button
+            type="button"
+            data-testid="streaming-agent-stopping"
+            className="inline-flex h-7 shrink-0 items-center gap-1.5 rounded-lg bg-panel px-2.5 text-[11.5px] font-semibold text-ink-2"
+            aria-busy="true"
+            aria-label={t("chat.interrupt.stoppingShort", "停止中")}
+            disabled
+          >
+            <Loader2 className="h-3 w-3 animate-spin" aria-hidden />
+            {t("chat.interrupt.stoppingShort", "停止中")}
+          </button>
+        ) : showInterrupt ? (
           <button
             type="button"
             data-testid="streaming-agent-stop"
@@ -305,6 +322,9 @@ function LiveEnlargeFloat({
   const initial = displayName.trim().charAt(0).toUpperCase() || "A";
   const { liveScrollRef, handleLiveScroll } = useLiveScrollFollow(true, entry);
   const restoreRef = React.useRef<HTMLButtonElement>(null);
+  const interrupting = useV2StreamingStore((s) =>
+    s.isInterruptedFlushPending(entry.sessionId, agent.actorId),
+  );
 
   React.useEffect(() => {
     restoreRef.current?.focus();
@@ -345,11 +365,20 @@ function LiveEnlargeFloat({
             {displayName}
           </span>
           <span className="text-[11px] text-muted-foreground">
-            {t("chat.streamingBar.streamingActive", "正在回复")}
-            <span
-              className="ml-1.5 inline-block h-[5px] w-[5px] animate-pulse rounded-full bg-coral align-middle"
-              aria-hidden
-            />
+            {interrupting ? (
+              <span className="inline-flex items-center gap-1.5">
+                <Loader2 className="h-3 w-3 animate-spin" aria-hidden />
+                {t("chat.interrupt.stopping", "正在停止回复…")}
+              </span>
+            ) : (
+              <>
+                {t("chat.streamingBar.streamingActive", "正在回复")}
+                <span
+                  className="ml-1.5 inline-block h-[5px] w-[5px] animate-pulse rounded-full bg-coral align-middle"
+                  aria-hidden
+                />
+              </>
+            )}
           </span>
         </div>
         <button
@@ -362,7 +391,19 @@ function LiveEnlargeFloat({
         >
           <Minimize2 className="h-3.5 w-3.5" />
         </button>
-        {showInterrupt && onInterrupt ? (
+        {showInterrupt && onInterrupt && interrupting ? (
+          <button
+            type="button"
+            data-testid="streaming-agent-float-stopping"
+            className="inline-flex h-7 shrink-0 items-center gap-1.5 rounded-lg bg-panel px-2.5 text-[11.5px] font-semibold text-ink-2"
+            aria-busy="true"
+            aria-label={t("chat.interrupt.stoppingShort", "停止中")}
+            disabled
+          >
+            <Loader2 className="h-3 w-3 animate-spin" aria-hidden />
+            {t("chat.interrupt.stoppingShort", "停止中")}
+          </button>
+        ) : showInterrupt && onInterrupt ? (
           <button
             type="button"
             data-testid="streaming-agent-float-stop"

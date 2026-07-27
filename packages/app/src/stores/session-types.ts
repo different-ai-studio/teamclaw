@@ -177,6 +177,8 @@ export interface Message {
   replyToMessageId?: string | null;
   /** ACP turn correlation id when available (debug / grouping). */
   turnId?: string | null;
+  /** Daemon AGENT_REPLY metadata.turn_status — e.g. user abort. */
+  turnStatus?: "interrupted" | null;
 }
 
 export interface PlanEntry {

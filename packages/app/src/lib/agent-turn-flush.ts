@@ -7,6 +7,9 @@ import { upsertMessagesBatch, type MessageRow } from "@/lib/local-cache";
 import { useSessionMessageStore } from "@/stores/session-message-store";
 import { useV2StreamingStore, type AgentStreamEntry } from "@/stores/v2-streaming-store";
 import { flushStreamDeltasFor } from "@/lib/stream-delta-buffer";
+import {
+  registerFlushedTurn,
+} from "@/lib/flushed-turn-registry";
 
 export function buildAgentReplyMessageRow(
   teamId: string,
@@ -85,8 +88,23 @@ export function bumpPreviewFromAgentReply(
   sessionId: string,
   reply: TeamclawMessage,
 ): void {
+  let preview = reply.content;
+  try {
+    const md = reply.metadataJson
+      ? (JSON.parse(reply.metadataJson) as Record<string, unknown>)
+      : null;
+    if (
+      md?.turn_status === "interrupted" &&
+      preview.trimStart().startsWith("[Turn interrupted by user]")
+    ) {
+      // Hide English agent-facing notice from session list; keep real prose.
+      preview = "";
+    }
+  } catch {
+    // keep raw content
+  }
   const createdAtSec = Number(reply.createdAt);
-  bumpSessionListLastMessage(sessionId, reply.content, {
+  bumpSessionListLastMessage(sessionId, preview, {
     at:
       Number.isFinite(createdAtSec) && createdAtSec > 0
         ? new Date(createdAtSec * 1000).toISOString()
@@ -115,6 +133,11 @@ export function commitFlushedAgentReply(
     .replaceTurnAgentRepliesInStore(sessionId, enrichedReply);
   upsertAgentReplyToCache(opts.teamId, enrichedReply);
   const persistedPartsJson = (enrichedReply as { partsJson?: string }).partsJson;
+  registerFlushedTurn(sessionId, actorId, {
+    messageId: enrichedReply.messageId,
+    streamId: opts.streamEntrySnapshot?.streamId ?? "",
+    turnId: enrichedReply.turnId ?? "",
+  });
   logInterruptMsgDiag(opts.persistedStage, {
     sessionId,
     actorId,
