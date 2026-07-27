@@ -581,11 +581,8 @@
       "stopping": "Stopping reply…",
       "stoppingShort": "Stopping",
       "stoppedTitle": "Stopped",
-      "stoppedBody": "You interrupted this reply.",
-      "stoppedHint": "Generated content is kept; you can continue chatting.",
       "interruptedStatusLabel": "interrupted",
-      "agentReplyBodyKept": "You interrupted this reply. Generated content is kept.",
-      "dismiss": "Got it"
+      "agentReplyBodyKept": "You interrupted this reply. Generated content is kept."
     },
     "acpDebug": {
       "title": "ACP stream debug",
