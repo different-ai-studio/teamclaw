@@ -1260,40 +1260,33 @@ impl SessionManager {
             warn!(?e, session_id, "persist_message failed");
         }
 
-        // 3. Backend (final replies only — see TurnAggregator::cloud_persistent)
+        // 3. Backend (final replies only — see TurnAggregator::cloud_persistent).
+        // Await the insert: catchup after restart reads cloud messages, so a
+        // fire-and-forget write can race with daemon shutdown and leave an
+        // @mention unanswered (re-prompt after interrupt).
         if persist_backend {
             if let Some(sb) = backend {
                 let team_id = self.team_id.clone();
                 // message_kind_to_string is the pub(crate) fn defined later in this file.
                 let kind_str = message_kind_to_string(kind as i32);
-                let session = session_id.to_string();
-                let sender = sender_actor_id.to_string();
-                let content_owned = content.to_string();
-                let meta_owned = metadata_json.to_string();
-                let model_owned = model.to_string();
-                let turn_owned = turn_id.to_string();
-                let reply_to_owned = reply_to_message_id.to_string();
-                let sb_clone = sb.clone();
-                tokio::spawn(async move {
-                    if let Err(e) = sb_clone
-                        .insert_message(
-                            &message_id,
-                            &team_id,
-                            &session,
-                            &sender,
-                            &kind_str,
-                            &content_owned,
-                            &meta_owned,
-                            &model_owned,
-                            &turn_owned,
-                            &reply_to_owned,
-                            sequence,
-                        )
-                        .await
-                    {
-                        warn!(?e, "backend insert_message failed");
-                    }
-                });
+                if let Err(e) = sb
+                    .insert_message(
+                        &message_id,
+                        &team_id,
+                        session_id,
+                        sender_actor_id,
+                        &kind_str,
+                        content,
+                        metadata_json,
+                        model,
+                        turn_id,
+                        reply_to_message_id,
+                        sequence,
+                    )
+                    .await
+                {
+                    warn!(?e, "backend insert_message failed");
+                }
             }
         }
     }

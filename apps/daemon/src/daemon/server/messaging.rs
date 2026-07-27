@@ -452,6 +452,7 @@ impl DaemonServer {
                     let content = msg.content;
                     let metadata_json = msg.metadata_json;
                     let turn_id = msg.turn_id;
+                    let interrupted = metadata_json.contains("\"turn_status\":\"interrupted\"");
                     for sid in &collab_sessions {
                         tc.emit_agent_message(
                             sid,
@@ -467,6 +468,12 @@ impl DaemonServer {
                             Some(&self.backend),
                         )
                         .await;
+                    }
+                    // Harden cursor when a turn ends as interrupted: send_prompt
+                    // may have returned Err and skipped persist_runtime_cursor.
+                    if interrupted && !reply_to_message_id.is_empty() {
+                        self.persist_runtime_cursor(agent_id, &reply_to_message_id)
+                            .await;
                     }
                 }
             }
@@ -812,7 +819,8 @@ impl DaemonServer {
         }
     }
 
-    /// Advance in-memory cursor immediately; persist to Cloud in the background.
+    /// Advance in-memory cursor immediately; persist to Cloud before returning
+    /// when a backend row id is known (catchup after restart must see it).
     pub(crate) async fn persist_runtime_cursor(&self, runtime_id: &str, message_id: &str) {
         if message_id.is_empty() {
             return;
@@ -823,14 +831,13 @@ impl DaemonServer {
         }
         let row_id = self.agents.lock().await.backend_runtime_row_id(runtime_id);
         if let Some(row_id) = row_id {
-            let backend = self.backend.clone();
-            let message_id = message_id.to_string();
-            let runtime_id = runtime_id.to_string();
-            tokio::spawn(async move {
-                if let Err(e) = backend.update_runtime_cursor(&row_id, &message_id).await {
-                    warn!(?e, runtime_id, "update_runtime_cursor failed");
-                }
-            });
+            if let Err(e) = self
+                .backend
+                .update_runtime_cursor(&row_id, message_id)
+                .await
+            {
+                warn!(?e, runtime_id, "update_runtime_cursor failed");
+            }
         }
     }
 
