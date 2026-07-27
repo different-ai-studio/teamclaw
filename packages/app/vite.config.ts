@@ -101,8 +101,14 @@ export default defineConfig({
       name: 'inject-app-short-name',
       transformIndexHtml(html) {
         const palette = ((buildConfig as any).app?.palette as string) || 'default'
+        // The <title> was hardcoded to "TeamClaw", so every branded build —
+        // desktop window title and extension side panel alike — announced the
+        // wrong product before React had rendered anything.
+        const app = (buildConfig as any).app || {}
+        const displayName = (app.displayName as string) || (app.name as string) || 'TeamClaw'
         return html
           .replace(/__APP_SHORT_NAME__/g, sn as string)
+          .replace(/__APP_NAME__/g, displayName)
           .replace(/__PALETTE__/g, palette)
           .replace(/<!--__BRAND_THEME__-->/g, brandThemeStyle)
       },

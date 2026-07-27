@@ -82,9 +82,15 @@ jobs:
       - name: Apply branding to extension manifest + icons
         run: node scripts/update-extension-manifest.js
 
+      # Do NOT set BUILD_ENV. It selects build.config.<env>.json, and
+      # BUILD_ENV=production deep-merges build.config.production.json OVER the
+      # brand's build.config.json — whose app block is {"name": "TeamClaw",
+      # "shortName": "teamclaw"}, so every branded package shipped a side panel
+      # announcing itself as TeamClaw next to the brand's own logo. The brand's
+      # build.config.json is the sole source; vite builds in production mode
+      # regardless. release-oss.yml already documents this trap for the desktop
+      # pipeline; this job was still walking into it.
       - name: Build extension
-        env:
-          BUILD_ENV: production
         run: pnpm --filter @teamclaw/extension build
 
       # The Web Store API cannot write listing metadata (media.upload + publish
