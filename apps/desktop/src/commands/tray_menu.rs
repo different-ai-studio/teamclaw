@@ -42,11 +42,7 @@ pub fn initial_tray_labels() -> TrayLabels {
 }
 
 pub fn tray_labels_zh() -> TrayLabels {
-    (
-        "打开主窗口",
-        "本地 Agent 设置…",
-        "退出并停止 Agent",
-    )
+    ("打开主窗口", "本地 Agent 设置…", "退出并停止 Agent")
 }
 
 pub fn tray_labels_en() -> TrayLabels {

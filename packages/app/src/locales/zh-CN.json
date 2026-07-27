@@ -581,11 +581,8 @@
       "stopping": "正在停止回复…",
       "stoppingShort": "停止中",
       "stoppedTitle": "已停止",
-      "stoppedBody": "你已打断本次回复。",
-      "stoppedHint": "已生成的内容会保留；可以继续提问。",
       "interruptedStatusLabel": "中断",
-      "agentReplyBodyKept": "你已打断本次回复。已生成的内容会保留。",
-      "dismiss": "知道了"
+      "agentReplyBodyKept": "你已打断本次回复。已生成的内容会保留。"
     },
     "acpDebug": {
       "title": "ACP 流调试",
