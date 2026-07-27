@@ -53,30 +53,30 @@ export function adaptTeamclawMessageToSdk(m: TeamclawMessage): SdkMessage {
   const replyTo = m.replyToMessageId?.trim() || undefined;
   const turnId = m.turnId?.trim() || undefined;
   const interrupted = isInterruptedReply(m);
+  const displayContent = displayContentForReply(m);
   return {
     id: m.messageId,
     sessionId: m.sessionId,
     senderActorId: m.senderActorId,
     role: kindToRole(m.kind),
-    // Hide agent-facing interrupt instruction from the bubble; ChatMessage
-    // renders a localized strip when turnStatus is interrupted.
-    content: interrupted ? "" : m.content,
+    // Keep generated prose; only hide the English agent-facing interrupt notice.
+    content: displayContent,
     mentionActorIds,
     mentionDeliverySnapshot,
     modelID: m.model || undefined,
     replyToMessageId: replyTo,
     turnId,
     turnStatus: interrupted ? "interrupted" : undefined,
-    parts: interrupted
-      ? []
-      : [
+    parts: displayContent
+      ? [
           {
             id: `${m.messageId}-p0`,
             type: "text",
-            text: m.content,
-            content: m.content,
+            text: displayContent,
+            content: displayContent,
           },
-        ],
+        ]
+      : [],
     toolCalls: [],
     timestamp: new Date(Number(m.createdAt) * 1000),
   };
@@ -92,6 +92,18 @@ function parseMetadata(m: TeamclawMessage): Record<string, unknown> {
 
 function isInterruptedReply(m: TeamclawMessage): boolean {
   return parseMetadata(m).turn_status === "interrupted";
+}
+
+/** Daemon English instruction when there was no prose to keep. */
+function isAgentFacingInterruptNotice(content: string): boolean {
+  return content.trimStart().startsWith("[Turn interrupted by user]");
+}
+
+/** User-visible body for an AGENT_REPLY (hide interrupt instruction only). */
+function displayContentForReply(m: TeamclawMessage): string {
+  const raw = m.content ?? "";
+  if (isInterruptedReply(m) && isAgentFacingInterruptNotice(raw)) return "";
+  return raw;
 }
 
 function turnStatusFromReplies(
@@ -389,12 +401,15 @@ function buildTurnSdkMessage(group: TeamclawMessage[]): SdkMessage {
     uniqueReplyIds.add(reply.messageId);
   }
   const turnStatus = turnStatusFromReplies(uniqueReplies);
-  const visibleReplies = uniqueReplies.filter((r) => !isInterruptedReply(r));
-  const replyText = visibleReplies.map((r) => r.content).join("\n\n");
+  // Keep generated prose on interrupted replies; only drop the English notice.
+  const replyText = uniqueReplies
+    .map((r) => displayContentForReply(r))
+    .filter((text) => text.trim().length > 0)
+    .join("\n\n");
   const thinkingText = thinking.map((t) => t.content).join("\n");
 
   const groupId =
-    visibleReplies[0]?.messageId ??
+    uniqueReplies.find((r) => displayContentForReply(r).trim())?.messageId ??
     uniqueReplies[0]?.messageId ??
     group[0].messageId;
   const repliesWithParts = uniqueReplies.filter((reply) => partsJson(reply).trim());
@@ -406,9 +421,7 @@ function buildTurnSdkMessage(group: TeamclawMessage[]): SdkMessage {
         : [];
 
   if (mergedPersistedParts.length > 0) {
-    const canonicalReply =
-      visibleReplies[visibleReplies.length - 1] ??
-      uniqueReplies[uniqueReplies.length - 1]!;
+    const canonicalReply = uniqueReplies[uniqueReplies.length - 1]!;
     const canonicalToolCalls = mergedPersistedParts
       .filter((part) => part.type === "tool-call" && part.toolCall)
       .map((part) => part.toolCall!);
@@ -417,12 +430,17 @@ function buildTurnSdkMessage(group: TeamclawMessage[]): SdkMessage {
       uniqueReplies[uniqueReplies.length - 1]?.model ||
       group.find((m) => m.model)?.model ||
       undefined;
+    const partsText = mergedPersistedParts
+      .filter((part) => part.type === "text")
+      .map((part) => part.text || part.content || "")
+      .filter(Boolean)
+      .join("\n\n");
     return {
       id: canonicalReply.messageId,
       sessionId: canonicalReply.sessionId,
       senderActorId: canonicalReply.senderActorId,
       role: "assistant",
-      content: replyText,
+      content: replyText || partsText,
       modelID: canonicalModelID,
       parts: mergedPersistedParts,
       toolCalls: canonicalToolCalls,
@@ -433,7 +451,7 @@ function buildTurnSdkMessage(group: TeamclawMessage[]): SdkMessage {
     };
   }
 
-  const canonicalReply = [...visibleReplies]
+  const canonicalReply = [...uniqueReplies]
     .reverse()
     .find((reply) => partsJson(reply));
   if (canonicalReply) {
@@ -457,7 +475,7 @@ function buildTurnSdkMessage(group: TeamclawMessage[]): SdkMessage {
         sessionId: canonicalReply.sessionId,
         senderActorId: canonicalReply.senderActorId,
         role: "assistant",
-        content: canonicalText || replyText,
+        content: replyText || canonicalText,
         modelID: canonicalModelID,
         parts: canonicalParts,
         toolCalls: canonicalToolCalls,
@@ -482,12 +500,13 @@ function buildTurnSdkMessage(group: TeamclawMessage[]): SdkMessage {
     let textPartIndex = 0;
     for (const item of group) {
       if (item.kind === MessageKind.AGENT_REPLY && uniqueReplyIds.has(item.messageId)) {
-        if (!item.content || isInterruptedReply(item)) continue;
+        const text = displayContentForReply(item);
+        if (!text) continue;
         parts.push({
           id: `${item.messageId}-p${textPartIndex++}`,
           type: "text",
-          text: item.content,
-          content: item.content,
+          text,
+          content: text,
         });
       } else if (item.kind === MessageKind.AGENT_TOOL_CALL) {
         const toolCall = toolCallByMessageId.get(item.messageId);
