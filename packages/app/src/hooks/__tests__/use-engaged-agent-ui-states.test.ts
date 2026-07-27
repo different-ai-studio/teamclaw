@@ -162,4 +162,45 @@ describe('useEngagedAgentUiStates', () => {
       expect(result.current[0]?.uiState).toBe('offline')
     }, { timeout: 3000 })
   })
+
+  it('stays connecting without a session binding even when another spawn is live', () => {
+    mocks.presenceByActor['local-agent'] = { online: true }
+    mocks.byRuntimeId['rt-other'] = {
+      daemonActorId: 'local-agent',
+      lastUpdated: Date.now(),
+      info: {
+        state: RuntimeLifecycle.ACTIVE,
+        runtimeId: 'rt-other',
+        availableModels: [{ id: 'm1', displayName: 'Model' }],
+      },
+    }
+
+    const { result } = renderHook(() =>
+      useEngagedAgentUiStates([{ id: 'local-agent', displayName: 'MACPRO' }], new Map()),
+    )
+
+    expect(result.current[0]?.uiState).toBe('connecting')
+  })
+
+  it('does not hop to another spawn when session binding retain is missing', () => {
+    mocks.presenceByActor['local-agent'] = { online: true }
+    mocks.byRuntimeId['rt-other'] = {
+      daemonActorId: 'local-agent',
+      lastUpdated: Date.now(),
+      info: {
+        state: RuntimeLifecycle.ACTIVE,
+        runtimeId: 'rt-other',
+        availableModels: [{ id: 'm1', displayName: 'Model' }],
+      },
+    }
+
+    const { result } = renderHook(() =>
+      useEngagedAgentUiStates(
+        [{ id: 'local-agent', displayName: 'MACPRO' }],
+        new Map([['local-agent', 'rt-new']]),
+      ),
+    )
+
+    expect(result.current[0]?.uiState).toBe('connecting')
+  })
 })

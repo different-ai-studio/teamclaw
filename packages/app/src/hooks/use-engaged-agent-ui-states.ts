@@ -33,6 +33,39 @@ export type EngagedAgentUiEntry = {
 
 const EMPTY_ACTIVE_STREAMING_AGENT_IDS = new Set<string>()
 
+/**
+ * Pill UI must not hop to another session's live retain. Without a session
+ * binding (or before that spawn's retain exists), show connecting — otherwise
+ * quick-create flashes ready → connecting → ready while runtimeStart seeds.
+ */
+function resolveUiSessionRuntimeEntry(
+  agentId: string,
+  byRuntimeId: Record<string, RuntimeStateEntry>,
+  dbRuntimeId: string | null | undefined,
+): RuntimeStateEntry | undefined {
+  const trimmedAgent = agentId.trim()
+  const dbId = dbRuntimeId?.trim() ?? ''
+  if (!trimmedAgent || !dbId) return undefined
+
+  const hinted = byRuntimeId[dbId]
+  if (
+    hinted &&
+    (hinted.daemonActorId === trimmedAgent ||
+      hinted.info.runtimeId === trimmedAgent ||
+      hinted.info.runtimeId === dbId)
+  ) {
+    return hinted
+  }
+
+  // Agent-UUID mirror that already points at THIS session's spawn (same id).
+  // Do not fall through to a different spawn for the same agent.
+  const mirror = byRuntimeId[trimmedAgent]
+  if (mirror?.info.runtimeId?.trim() === dbId) {
+    return mirror
+  }
+  return undefined
+}
+
 function resolveStaleBinding(
   agent: AttachedAgent,
   agentToRuntimeId: Map<string, string>,
@@ -41,6 +74,7 @@ function resolveStaleBinding(
 ): boolean {
   const localId = getKnownLocalDaemonActorId()
   const dbRuntimeId = agentToRuntimeId.get(agent.id)
+  // Stale detection may use global hop — superseded local ghost vs new local.
   const agentEntry = resolveRuntimeStateEntryForAgent(agent.id, byRuntimeId, dbRuntimeId)
   const localEntry = localId
     ? resolveRuntimeStateEntryForAgent(localId, byRuntimeId)
@@ -67,7 +101,7 @@ function computeProvisionalState(
   now: number,
 ): SessionAgentUiState {
   const dbRuntimeId = agentToRuntimeId.get(agent.id)
-  const entry = resolveRuntimeStateEntryForAgent(agent.id, byRuntimeId, dbRuntimeId)
+  const entry = resolveUiSessionRuntimeEntry(agent.id, byRuntimeId, dbRuntimeId)
   const runtimeInfo = entry?.info
   const availableModelCount = resolveAgentAvailableModels(runtimeInfo).length
   const since = connectingSinceByAgent[agent.id]

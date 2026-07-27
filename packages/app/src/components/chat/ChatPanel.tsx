@@ -607,11 +607,13 @@ export function ChatPanel({ compact = false }: ChatPanelProps) {
     sessionId: activeSessionId,
     teamId: sheetTeamId,
     engagedUiEntries,
+    agentToRuntimeId,
   });
   useReensureRuntimesOnMqttReconnect({
     sessionId: activeSessionId,
     teamId: sheetTeamId,
     engagedUiEntries,
+    agentToRuntimeId,
   });
 
   const handleRetryOfflineAgents = React.useCallback(() => {

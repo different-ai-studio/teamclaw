@@ -53,6 +53,7 @@ describe('useReensureRuntimesOnMqttReconnect', () => {
       teamId: 'team-1',
       agentActorIds: ['agent-1'],
       reason: 'mqtt_reconnect_ensure',
+      sessionRuntimeByAgent: undefined,
     })
   })
 

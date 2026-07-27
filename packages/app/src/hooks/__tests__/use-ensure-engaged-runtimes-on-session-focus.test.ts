@@ -87,6 +87,7 @@ describe('useEnsureEngagedRuntimesOnSessionFocus', () => {
       teamId: 'team-1',
       agentActorIds: ['agent-1'],
       reason: 'session_focus',
+      sessionRuntimeByAgent: undefined,
     })
 
     ensureMock.mockClear()
@@ -103,6 +104,7 @@ describe('useEnsureEngagedRuntimesOnSessionFocus', () => {
       teamId: 'team-1',
       agentActorIds: ['agent-1'],
       reason: 'session_focus',
+      sessionRuntimeByAgent: undefined,
     })
   })
 
@@ -135,7 +137,47 @@ describe('useEnsureEngagedRuntimesOnSessionFocus', () => {
       teamId: 'team-1',
       agentActorIds: ['agent-1'],
       reason: 'session_runtime_wake',
+      sessionRuntimeByAgent: undefined,
     })
+  })
+
+  it('still wakes connecting when another session has a live spawn but this binding is stale', async () => {
+    const { create } = await import('@bufbuild/protobuf')
+    const { AgentStatus, RuntimeInfoSchema, RuntimeLifecycle } = await import('@/lib/proto/amux_pb')
+    const { useRuntimeStateStore } = await import('@/stores/runtime-state-store')
+    useRuntimeStateStore.getState().upsert(
+      'rt-other',
+      'agent-1',
+      create(RuntimeInfoSchema, {
+        runtimeId: 'rt-other',
+        state: RuntimeLifecycle.ACTIVE,
+        status: AgentStatus.IDLE,
+        availableModels: [{ id: 'm1', displayName: 'M' }],
+      }),
+    )
+
+    renderHook(() =>
+      useEnsureEngagedRuntimesOnSessionFocus({
+        sessionId: 'session-a',
+        teamId: 'team-1',
+        engagedUiEntries: [entry('agent-1', 'connecting')],
+        agentToRuntimeId: new Map([['agent-1', 'rt-stale']]),
+      }),
+    )
+
+    expect(ensureMock).toHaveBeenCalledWith({
+      sessionId: 'session-a',
+      teamId: 'team-1',
+      agentActorIds: ['agent-1'],
+      reason: 'session_focus',
+      sessionRuntimeByAgent: expect.any(Map),
+    })
+    const call = ensureMock.mock.calls[0]?.[0] as {
+      sessionRuntimeByAgent?: Map<string, string>
+    }
+    expect(call.sessionRuntimeByAgent?.get('agent-1')).toBe('rt-stale')
+
+    useRuntimeStateStore.setState({ byRuntimeId: {} })
   })
 
   it('does not ensure when focus unchanged and all agents ready', () => {
@@ -186,6 +228,7 @@ describe('useEnsureEngagedRuntimesOnSessionFocus', () => {
       teamId: 'team-1',
       agentActorIds: ['agent-1'],
       reason: 'session_runtime_retry',
+      sessionRuntimeByAgent: undefined,
     })
 
     vi.useRealTimers()
@@ -211,6 +254,7 @@ describe('useEnsureEngagedRuntimesOnSessionFocus', () => {
       teamId: 'team-1',
       agentActorIds: ['agent-1'],
       reason: 'session_runtime_retry',
+      sessionRuntimeByAgent: undefined,
     })
 
     vi.useRealTimers()
