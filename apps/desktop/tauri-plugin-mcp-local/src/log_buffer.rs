@@ -202,9 +202,9 @@ impl LogBuffer {
         // A run is capped (MAX_COALESCE_REPEATS repeats or MAX_COALESCE_RUN_MS
         // from its first occurrence) so `since_id`-cursor consumers still
         // observe new ids while a message keeps repeating.
-        if !matches!(source, LogSource::Marker) {
-            if let Some(last) = guard.back_mut() {
-                if last.level == level
+        if !matches!(source, LogSource::Marker)
+            && let Some(last) = guard.back_mut()
+                && last.level == level
                     && last.source == source
                     && last.message == message
                     && last.target.as_deref() == target.as_deref()
@@ -216,8 +216,6 @@ impl LogBuffer {
                     last.ts = ts;
                     return last.id;
                 }
-            }
-        }
 
         let id = self.next_id.fetch_add(1, Ordering::Relaxed);
         let plugin = !matches!(source, LogSource::Marker)
@@ -311,31 +309,26 @@ impl LogBuffer {
                 if !include_plugin && e.plugin {
                     return false;
                 }
-                if let Some(b) = between_lower {
-                    if e.id <= b {
+                if let Some(b) = between_lower
+                    && e.id <= b {
                         return false;
                     }
-                }
-                if let Some(u) = between_upper {
-                    if e.id >= u {
+                if let Some(u) = between_upper
+                    && e.id >= u {
                         return false;
                     }
-                }
-                if let Some(since_id) = q.since_id {
-                    if e.id <= since_id {
+                if let Some(since_id) = q.since_id
+                    && e.id <= since_id {
                         return false;
                     }
-                }
-                if let Some(since_ms) = q.since_ms {
-                    if e.ts < since_ms {
+                if let Some(since_ms) = q.since_ms
+                    && e.ts < since_ms {
                         return false;
                     }
-                }
-                if let Some(source) = &q.source {
-                    if &e.source != source {
+                if let Some(source) = &q.source
+                    && &e.source != source {
                         return false;
                     }
-                }
                 if let Some(min) = level_filter {
                     let e_level = parse_level(&e.level).unwrap_or(Level::Info);
                     // log::Level: Error=1 (most severe) .. Trace=5
@@ -343,11 +336,10 @@ impl LogBuffer {
                         return false;
                     }
                 }
-                if let Some(needle) = &lc_contains {
-                    if !e.message.to_lowercase().contains(needle) {
+                if let Some(needle) = &lc_contains
+                    && !e.message.to_lowercase().contains(needle) {
                         return false;
                     }
-                }
                 true
             })
             .collect();
@@ -360,7 +352,7 @@ impl LogBuffer {
             filtered.iter().take(limit).map(|e| (*e).clone()).collect()
         } else {
             let start = filtered.len().saturating_sub(limit);
-            filtered.drain(start..).map(|e| e.clone()).collect()
+            filtered.drain(start..).cloned().collect()
         };
 
         let next_cursor = entries.last().map(|e| e.id);

@@ -173,7 +173,7 @@ impl<R: Runtime> SocketServer<R> {
             .map_err(|e| {
                 info!("[TAURI_MCP] Error creating IPC socket listener: {}", e);
                 if e.kind() == std::io::ErrorKind::AddrInUse {
-                    Error::Io(format!("Socket address already in use. Another instance may be running."))
+                    Error::Io("Socket address already in use. Another instance may be running.".to_string())
                 } else {
                     Error::Io(format!("Failed to create local socket: {}", e))
                 }
@@ -584,9 +584,7 @@ where
                     }
                 };
 
-                if let Err(e) = write_response(&mut writer, error_json.as_bytes()).await {
-                    return Err(e);
-                }
+                write_response(&mut writer, error_json.as_bytes()).await?;
                 continue;
             }
         };
@@ -608,9 +606,7 @@ where
                     let error_json = serde_json::to_string(&error_response)
                         .map_err(|e| Error::Anyhow(format!("Failed to serialize auth error: {}", e)))?
                         + "\n";
-                    if let Err(e) = write_response(&mut writer, error_json.as_bytes()).await {
-                        return Err(e);
-                    }
+                    write_response(&mut writer, error_json.as_bytes()).await?;
                     continue;
                 }
             }
@@ -646,9 +642,7 @@ where
             trace!("[TAURI_MCP] Writing: {}", response_json.trim());
         }
 
-        if let Err(e) = write_response(&mut writer, response_json.as_bytes()).await {
-            return Err(e);
-        }
+        write_response(&mut writer, response_json.as_bytes()).await?;
 
         debug!("[TAURI_MCP] Response sent successfully");
     }
@@ -658,11 +652,10 @@ where
 fn redact_auth_token(line: &str) -> String {
     match serde_json::from_str::<serde_json::Value>(line) {
         Ok(mut v) => {
-            if let Some(obj) = v.as_object_mut() {
-                if obj.contains_key("authToken") {
+            if let Some(obj) = v.as_object_mut()
+                && obj.contains_key("authToken") {
                     obj.insert("authToken".into(), serde_json::Value::String("<redacted>".into()));
                 }
-            }
             v.to_string()
         }
         // Unparseable line — don't risk echoing a token fragment.
