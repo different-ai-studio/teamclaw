@@ -689,6 +689,8 @@ mod tests {
                     id: "ws-default".to_string(),
                     team_id: "team-test".to_string(),
                     path: Some(dir.path().to_string_lossy().to_string()),
+                    archived: false,
+                    agent_id: None,
                 },
             );
         }
@@ -716,6 +718,8 @@ mod tests {
                     id: "ws-missing".to_string(),
                     team_id: "team-test".to_string(),
                     path: Some("/definitely/not/on/this/machine/cron-fallback-test".to_string()),
+                    archived: false,
+                    agent_id: None,
                 },
             );
             st.workspaces_by_id.insert(
@@ -724,6 +728,8 @@ mod tests {
                     id: "ws-on-disk".to_string(),
                     team_id: "team-test".to_string(),
                     path: Some(dir.path().to_string_lossy().to_string()),
+                    archived: false,
+                    agent_id: None,
                 },
             );
             // Different team; must never be picked.
@@ -733,6 +739,8 @@ mod tests {
                     id: "ws-other-team".to_string(),
                     team_id: "team-other".to_string(),
                     path: Some(dir.path().to_string_lossy().to_string()),
+                    archived: false,
+                    agent_id: None,
                 },
             );
         }

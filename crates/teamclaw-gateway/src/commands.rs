@@ -1,4 +1,4 @@
-use crate::agent::{AgentError, AgentHandle, AmuxSessionId};
+use crate::agent::{AgentError, AgentHandle, AmuxSessionId, ModelInfo};
 use crate::channel_store::ChannelStore;
 use std::sync::Arc;
 
@@ -28,17 +28,33 @@ pub async fn dispatch_session_slash_cmd(
         };
     }
     if lower_content == "/model" {
-        return match agent.list_models().await {
+        return match agent.list_models(&session).await {
             Ok(models) => {
                 if models.is_empty() {
                     "No models available.".to_string()
                 } else {
+                    let current = agent.current_model(&session).await.ok().flatten();
+                    let shown = models.len().min(MODEL_LIST_LIMIT);
                     let body = models
                         .iter()
-                        .map(|m| format!("• `{}/{}` — {}", m.provider, m.model, m.display_name))
+                        .take(shown)
+                        .map(|m| {
+                            let id = format!("{}/{}", m.provider, m.model);
+                            let mark = if current.as_deref() == Some(id.as_str()) {
+                                " ← current"
+                            } else {
+                                ""
+                            };
+                            format!("• `{id}` — {}{mark}", m.display_name)
+                        })
                         .collect::<Vec<_>>()
                         .join("\n");
-                    format!("Available models:\n{body}\n\nUsage: `/model <provider>/<model>`")
+                    let more = if models.len() > shown {
+                        format!("\n• … and {} more", models.len() - shown)
+                    } else {
+                        String::new()
+                    };
+                    format!("Available models:\n{body}{more}\n\nUsage: `/model <provider>/<model>`")
                 }
             }
             Err(e) => format!("⚠️ Could not list models: {e}"),
@@ -47,9 +63,16 @@ pub async fn dispatch_session_slash_cmd(
     if let Some(arg) = lower_content.strip_prefix("/model ") {
         let arg = arg.trim();
         let (provider, model) = match arg.split_once('/') {
-            Some((p, m)) => (p, m),
-            None => ("anthropic", arg),
+            Some((p, m)) => (p.to_string(), m.to_string()),
+            // Bare name — resolve against the live catalog instead of
+            // assuming anthropic, which is wrong for any other backend.
+            None => match resolve_bare_model(agent.as_ref(), &session, arg).await {
+                Ok(Ok(pair)) => pair,
+                Ok(Err(msg)) => return msg,
+                Err(e) => return format!("⚠️ Could not switch model: {e}"),
+            },
         };
+        let (provider, model) = (provider.as_str(), model.as_str());
         return match agent.set_model(&session, provider, model).await {
             Ok(_) => format!(
                 "✅ Switched to `{provider}/{model}`. **Note: conversation context was cleared.**"
@@ -93,8 +116,7 @@ enum MetaCommand {
     Help,
     Model(Option<String>),
     Sessions(Option<String>),
-    Agents(Option<String>),
-    Workspaces(Option<String>),
+    Workspace(Option<String>),
     Skills,
     Clear,
     Stop,
@@ -106,8 +128,10 @@ fn parse_meta(name: &str, arg: Option<&str>) -> Option<MetaCommand> {
         "help" => Some(MetaCommand::Help),
         "model" => Some(MetaCommand::Model(arg.map(str::to_string))),
         "sessions" => Some(MetaCommand::Sessions(arg.map(str::to_string))),
-        "agents" => Some(MetaCommand::Agents(arg.map(str::to_string))),
-        "workspaces" => Some(MetaCommand::Workspaces(arg.map(str::to_string))),
+        // `/workspaces` stays accepted: it is what the command was called
+        // before, and rejecting it would just look broken to anyone who
+        // learned the old name.
+        "workspace" | "workspaces" => Some(MetaCommand::Workspace(arg.map(str::to_string))),
         "skills" => Some(MetaCommand::Skills),
         "clear" => Some(MetaCommand::Clear),
         "stop" => Some(MetaCommand::Stop),
@@ -124,12 +148,46 @@ Gateway commands:
 /help - Show this help
 /model [name] - List or switch models
 /sessions [id] - List sessions
-/agents [type] - List or switch agent type
-/workspaces [id] - List or switch workspace
+/workspace [n] - List workspaces, or make #n this bot's default
 /skills - List workspace skills
 /clear - Start new session
 /stop - Stop current processing
 /ctx <text> - Inject context without reply";
+
+/// How many catalog entries a `/model` listing shows. A real backend catalog
+/// runs to hundreds of models across every configured provider; a chat bubble
+/// that long is unreadable, so we show the most relevant prefix (the daemon
+/// orders current-then-recent-first) and say how many were elided.
+pub(crate) const MODEL_LIST_LIMIT: usize = 25;
+
+/// Resolve a bare `/model <name>` (no provider segment) against the live
+/// catalog. `Ok(Err(msg))` is a user-facing explanation, not a failure.
+#[allow(clippy::type_complexity)]
+pub(crate) async fn resolve_bare_model<A>(
+    agent: &A,
+    session: &AmuxSessionId,
+    name: &str,
+) -> Result<Result<(String, String), String>, AgentError>
+where
+    A: AgentHandle + Send + Sync + ?Sized,
+{
+    let models = agent.list_models(session).await?;
+    let matches: Vec<&ModelInfo> = models.iter().filter(|m| m.model == name).collect();
+    Ok(match matches.as_slice() {
+        [one] => Ok((one.provider.clone(), one.model.clone())),
+        [] => Err(format!(
+            "Unknown model: {name}. Use /model to list what this workspace offers, \
+             or give the full id: /model <provider>/<model>."
+        )),
+        many => Err(format!(
+            "Ambiguous model: {name} is offered by {}. Use the full id: /model <provider>/{name}.",
+            many.iter()
+                .map(|m| m.provider.as_str())
+                .collect::<Vec<_>>()
+                .join(", ")
+        )),
+    })
+}
 
 // ── dispatch ─────────────────────────────────────────────────────────────────
 
@@ -186,21 +244,57 @@ where
         }
 
         MetaCommand::Model(None) => {
-            let models = agent.list_models().await?;
+            let models = agent.list_models(session).await?;
+            let current = agent.current_model(session).await?;
             if models.is_empty() {
-                "No models available.".to_string()
+                match current {
+                    Some(cur) => format!("Current model: {cur}\n(Model catalog unavailable.)"),
+                    None => "No models available.".to_string(),
+                }
             } else {
+                let shown = models.len().min(MODEL_LIST_LIMIT);
+                let mut listed_current = false;
                 let lines: Vec<String> = models
                     .iter()
-                    .map(|m| format!("  {}/{}", m.provider, m.model))
+                    .take(shown)
+                    .map(|m| {
+                        let id = format!("{}/{}", m.provider, m.model);
+                        if current.as_deref() == Some(id.as_str()) {
+                            listed_current = true;
+                            format!("* {id} (current)")
+                        } else {
+                            format!("  {id}")
+                        }
+                    })
                     .collect();
-                format!("Models:\n{}", lines.join("\n"))
+                let mut text = String::new();
+                // The current model can sit outside the shown prefix, or be
+                // absent from the catalog entirely (provider logged out, model
+                // retired) — either way it still has to be reported.
+                if let (Some(cur), false) = (current.as_deref(), listed_current) {
+                    text.push_str(&format!("Current model: {cur}\n\n"));
+                }
+                text.push_str(&format!("Models:\n{}", lines.join("\n")));
+                if models.len() > shown {
+                    text.push_str(&format!("\n  … and {} more", models.len() - shown));
+                }
+                text.push_str("\n\nUsage: /model <provider>/<model>");
+                text
             }
         }
         MetaCommand::Model(Some(name_arg)) => {
             let (provider, model) = match name_arg.split_once('/') {
                 Some((p, m)) => (p.to_string(), m.to_string()),
-                None => ("anthropic".to_string(), name_arg.clone()),
+                // A bare name is resolved against the live catalog. It used to
+                // be assumed to be anthropic's, which is wrong on any device
+                // whose backend runs some other provider.
+                None => match resolve_bare_model(agent, session, &name_arg).await? {
+                    Ok(pair) => pair,
+                    Err(msg) => {
+                        reply(msg);
+                        return Ok(true);
+                    }
+                },
             };
             agent.set_model(session, &provider, &model).await?;
             format!("Model set: {}/{}", provider, model)
@@ -228,46 +322,49 @@ where
             "Session switching is not yet supported. Use /sessions to list sessions.".to_string()
         }
 
-        MetaCommand::Agents(None) => {
-            let agents = agent.list_agents(session).await?;
-            let lines: Vec<String> = agents
-                .iter()
-                .map(|a| {
-                    if a.is_current {
-                        format!("* {} (current)", a.agent_type)
-                    } else {
-                        format!("  {}", a.agent_type)
-                    }
-                })
-                .collect();
-            format!("Agents:\n{}", lines.join("\n"))
-        }
-        MetaCommand::Agents(Some(agent_type)) => {
-            agent.set_agent(session, &agent_type).await?;
-            format!("Agent set: {}", agent_type)
-        }
-
-        MetaCommand::Workspaces(None) => {
+        MetaCommand::Workspace(None) => {
             let workspaces = agent.list_workspaces(session).await?;
             if workspaces.is_empty() {
                 "No workspaces.".to_string()
             } else {
+                // Numbered so the reply doubles as the input for the next
+                // command: a chat user should not have to retype a UUID.
                 let lines: Vec<String> = workspaces
                     .iter()
-                    .map(|w| {
-                        if w.is_current {
-                            format!("* {} — {} (current)", w.workspace_id, w.display_name)
-                        } else {
-                            format!("  {} — {}", w.workspace_id, w.display_name)
-                        }
+                    .enumerate()
+                    .map(|(i, w)| {
+                        let marker = if w.is_current { " (current)" } else { "" };
+                        format!("{}. {}{}", i + 1, w.display_name, marker)
                     })
                     .collect();
-                format!("Workspaces:\n{}", lines.join("\n"))
+                format!(
+                    "Workspaces:\n{}\n\nUsage: /workspace <number> — set this bot's default",
+                    lines.join("\n")
+                )
             }
         }
-        MetaCommand::Workspaces(Some(ws_id)) => {
+        MetaCommand::Workspace(Some(arg)) => {
+            let arg = arg.trim();
+            // A bare number picks from the list just printed; anything else is
+            // taken as a workspace id so the old form keeps working.
+            let ws_id = match arg.parse::<usize>() {
+                Ok(n) => {
+                    let workspaces = agent.list_workspaces(session).await?;
+                    match n.checked_sub(1).and_then(|i| workspaces.get(i)) {
+                        Some(w) => w.workspace_id.clone(),
+                        None => {
+                            reply(format!(
+                                "No workspace #{n}. Use /workspace to list them ({} available).",
+                                workspaces.len()
+                            ));
+                            return Ok(true);
+                        }
+                    }
+                }
+                Err(_) => arg.to_string(),
+            };
             agent.set_workspace(session, &ws_id).await?;
-            format!("Workspace: {}", ws_id)
+            format!("Default workspace set: {ws_id}")
         }
 
         MetaCommand::Skills => {
@@ -284,8 +381,8 @@ where
         }
 
         MetaCommand::Clear => {
-            agent.reset_session(session).await?;
-            "Session cleared.".to_string()
+            agent.start_new_session(session).await?;
+            "Started a new session. The next message begins a fresh conversation.".to_string()
         }
 
         MetaCommand::Stop => match agent.cancel(session).await {
@@ -311,8 +408,7 @@ where
 mod tests {
     use super::*;
     use crate::agent::{
-        AgentCommand, AgentError, AgentHandle, AgentInfo, AmuxSessionId, ModelInfo, TurnOutcome,
-        WorkspaceInfo,
+        AgentCommand, AgentError, AgentHandle, AmuxSessionId, ModelInfo, TurnOutcome, WorkspaceInfo,
     };
     use crate::channel_store::{AttachmentRecord, ChannelStore, EnsureSessionOutcome, StoreError};
     use async_trait::async_trait;
@@ -405,6 +501,9 @@ mod tests {
         agent_commands: Vec<AgentCommand>,
         injected: Mutex<Vec<String>>,
         reset_called: Mutex<bool>,
+        current_model: Option<String>,
+        workspace_set_to: Mutex<Option<String>>,
+        new_session_called: Mutex<bool>,
     }
 
     impl MockAgent {
@@ -413,6 +512,9 @@ mod tests {
                 agent_commands: vec![],
                 injected: Mutex::new(vec![]),
                 reset_called: Mutex::new(false),
+                current_model: None,
+                workspace_set_to: Mutex::new(None),
+                new_session_called: Mutex::new(false),
             }
         }
 
@@ -421,6 +523,16 @@ mod tests {
                 agent_commands: cmds,
                 injected: Mutex::new(vec![]),
                 reset_called: Mutex::new(false),
+                current_model: None,
+                workspace_set_to: Mutex::new(None),
+                new_session_called: Mutex::new(false),
+            }
+        }
+
+        fn with_current_model(model: &str) -> Self {
+            Self {
+                current_model: Some(model.to_string()),
+                ..Self::new()
             }
         }
     }
@@ -467,7 +579,15 @@ mod tests {
             Ok(())
         }
 
-        async fn list_models(&self) -> Result<Vec<ModelInfo>, AgentError> {
+        async fn start_new_session(&self, _session: &AmuxSessionId) -> Result<(), AgentError> {
+            *self.new_session_called.lock().unwrap() = true;
+            Ok(())
+        }
+
+        async fn list_models(
+            &self,
+            _session: &AmuxSessionId,
+        ) -> Result<Vec<ModelInfo>, AgentError> {
             Ok(vec![
                 ModelInfo {
                     provider: "anthropic".to_string(),
@@ -480,6 +600,13 @@ mod tests {
                     display_name: "GPT-4o".to_string(),
                 },
             ])
+        }
+
+        async fn current_model(
+            &self,
+            _session: &AmuxSessionId,
+        ) -> Result<Option<String>, AgentError> {
+            Ok(self.current_model.clone())
         }
 
         async fn set_model(
@@ -520,30 +647,6 @@ mod tests {
             ])
         }
 
-        async fn list_agents(
-            &self,
-            _session: &AmuxSessionId,
-        ) -> Result<Vec<AgentInfo>, AgentError> {
-            Ok(vec![
-                AgentInfo {
-                    agent_type: "opencode".to_string(),
-                    is_current: true,
-                },
-                AgentInfo {
-                    agent_type: "claude".to_string(),
-                    is_current: false,
-                },
-            ])
-        }
-
-        async fn set_agent(
-            &self,
-            _session: &AmuxSessionId,
-            _agent_type: &str,
-        ) -> Result<(), AgentError> {
-            Ok(())
-        }
-
         async fn list_workspaces(
             &self,
             _session: &AmuxSessionId,
@@ -565,8 +668,9 @@ mod tests {
         async fn set_workspace(
             &self,
             _session: &AmuxSessionId,
-            _workspace_id: &str,
+            workspace_id: &str,
         ) -> Result<(), AgentError> {
+            *self.workspace_set_to.lock().unwrap() = Some(workspace_id.to_string());
             Ok(())
         }
         async fn list_skills(
@@ -659,6 +763,16 @@ mod tests {
         assert!(text.contains("/model"));
         assert!(text.contains("/clear"));
         assert!(text.contains("/ctx"));
+        // /agents was dropped: opencode is the only backend, so it always
+        // listed exactly one entry.
+        assert!(!text.contains("/agents"), "got {text}");
+    }
+
+    #[tokio::test]
+    async fn agents_is_no_longer_a_command() {
+        let agent = MockAgent::new();
+        let (result, _) = run_dispatch(&agent, "agents", None).await;
+        assert!(!result.unwrap(), "/agents must fall through as unknown");
     }
 
     #[tokio::test]
@@ -671,6 +785,29 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn model_list_marks_the_current_model() {
+        let agent = MockAgent::with_current_model("openai/gpt-4o");
+        let (_, reply) = run_dispatch(&agent, "model", None).await;
+        let text = reply.unwrap();
+        assert!(text.contains("* openai/gpt-4o (current)"), "got {text}");
+        // Already marked inline — no separate "Current model:" header.
+        assert!(!text.contains("Current model:"), "got {text}");
+    }
+
+    #[tokio::test]
+    async fn model_list_reports_a_current_model_missing_from_the_catalog() {
+        // Provider logged out / model retired: the catalog no longer offers it,
+        // but the session is still running on it.
+        let agent = MockAgent::with_current_model("opencode/big-pickle");
+        let (_, reply) = run_dispatch(&agent, "model", None).await;
+        let text = reply.unwrap();
+        assert!(
+            text.starts_with("Current model: opencode/big-pickle"),
+            "got {text}"
+        );
+    }
+
+    #[tokio::test]
     async fn model_set_with_arg() {
         let agent = MockAgent::new();
         let (result, reply) = run_dispatch(&agent, "model", Some("anthropic/opus")).await;
@@ -679,12 +816,71 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn clear_resets_session() {
+    async fn workspace_list_is_numbered_for_reuse_as_input() {
+        let agent = MockAgent::new();
+        let (result, reply) = run_dispatch(&agent, "workspace", None).await;
+        assert!(result.unwrap());
+        let text = reply.unwrap();
+        assert!(text.contains("1. Main (current)"), "got {text}");
+        assert!(text.contains("2. Other"), "got {text}");
+        // The UUID is what /workspace <n> spares the user from typing.
+        assert!(!text.contains("ws-1"), "got {text}");
+        assert!(text.contains("/workspace <number>"), "got {text}");
+    }
+
+    #[tokio::test]
+    async fn workspace_number_selects_that_row() {
+        let agent = MockAgent::new();
+        let (result, reply) = run_dispatch(&agent, "workspace", Some("2")).await;
+        assert!(result.unwrap());
+        assert_eq!(
+            agent.workspace_set_to.lock().unwrap().as_deref(),
+            Some("ws-2")
+        );
+        assert!(reply.unwrap().contains("ws-2"));
+    }
+
+    #[tokio::test]
+    async fn workspace_number_out_of_range_explains_instead_of_switching() {
+        let agent = MockAgent::new();
+        let (result, reply) = run_dispatch(&agent, "workspace", Some("9")).await;
+        assert!(result.unwrap());
+        assert!(agent.workspace_set_to.lock().unwrap().is_none());
+        assert!(reply.unwrap().contains("No workspace #9"));
+    }
+
+    #[tokio::test]
+    async fn workspace_still_accepts_a_raw_id() {
+        let agent = MockAgent::new();
+        let (_, _) = run_dispatch(&agent, "workspace", Some("ws-2")).await;
+        assert_eq!(
+            agent.workspace_set_to.lock().unwrap().as_deref(),
+            Some("ws-2")
+        );
+    }
+
+    #[tokio::test]
+    async fn workspaces_remains_an_alias_for_the_renamed_command() {
+        let agent = MockAgent::new();
+        let (result, reply) = run_dispatch(&agent, "workspaces", None).await;
+        assert!(result.unwrap());
+        assert!(reply.unwrap().starts_with("Workspaces:"));
+    }
+
+    #[tokio::test]
+    async fn clear_starts_a_new_session_rather_than_only_resetting_the_runtime() {
+        // /clear used to call reset_session, which swaps the runtime but keeps
+        // the same session row — the reply claimed something the user could
+        // not observe anywhere.
         let agent = MockAgent::new();
         let (result, reply) = run_dispatch(&agent, "clear", None).await;
         assert!(result.unwrap());
-        assert_eq!(reply.unwrap(), "Session cleared.");
-        assert!(*agent.reset_called.lock().unwrap());
+        assert!(*agent.new_session_called.lock().unwrap());
+        assert!(
+            !*agent.reset_called.lock().unwrap(),
+            "/clear must not stop at a runtime reset"
+        );
+        assert!(reply.unwrap().contains("new session"));
     }
 
     #[tokio::test]
@@ -773,11 +969,20 @@ mod tests {
             dispatch_session_slash_cmd(&agent, "/model openai/gpt-4o", "s1").await,
             "✅ Switched to `openai/gpt-4o`. **Note: conversation context was cleared.**"
         );
-        // No slash → defaults the provider to anthropic.
+        // No slash → resolved against the live catalog, not assumed anthropic.
         assert_eq!(
-            dispatch_session_slash_cmd(&agent, "/model haiku", "s1").await,
-            "✅ Switched to `anthropic/haiku`. **Note: conversation context was cleared.**"
+            dispatch_session_slash_cmd(&agent, "/model gpt-4o", "s1").await,
+            "✅ Switched to `openai/gpt-4o`. **Note: conversation context was cleared.**"
         );
+    }
+
+    #[tokio::test]
+    async fn session_slash_bare_model_not_in_catalog_is_rejected() {
+        let agent = shared_agent();
+        // "haiku" used to be silently rewritten to anthropic/haiku and handed
+        // to a backend that never offered it.
+        let reply = dispatch_session_slash_cmd(&agent, "/model haiku", "s1").await;
+        assert!(reply.starts_with("Unknown model: haiku"), "got {reply}");
     }
 
     #[tokio::test]

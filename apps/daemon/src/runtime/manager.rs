@@ -451,6 +451,17 @@ impl RuntimeManager {
         self.launch_config_for(agent_type).backend_type
     }
 
+    /// Device MRU for the backend `agent_type` would run on (`None` = the
+    /// daemon default). Lets surfaces that only render a prefix of the catalog
+    /// — the gateway's `/model`, say — put the models this device actually
+    /// uses at the front instead of whatever sorts first alphabetically.
+    pub fn recent_models(&self, agent_type: Option<amux::AgentType>) -> Vec<String> {
+        let agent_type = agent_type.unwrap_or_else(|| self.default_agent_type());
+        self.model_mru
+            .recent_for(self.launch_config_for(agent_type).backend_type)
+            .to_vec()
+    }
+
     /// Returns the model id last recorded for `agent_id`, if any.
     pub fn current_model(&self, agent_id: &str) -> Option<&String> {
         self.agent_state.model(agent_id)

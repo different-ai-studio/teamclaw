@@ -1007,10 +1007,12 @@ pub async fn list_workspaces(
         return Ok(Json(ListWorkspacesResponse { workspaces: vec![] }));
     }
 
+    // Per-agent, not team-wide: the same path is registered once per device,
+    // so the team list carries a dozen duplicates of this machine's dirs.
     let rows = backend
-        .get_workspaces_by_team(&team_id)
+        .get_workspaces_by_agent(&team_id, backend.actor_id())
         .await
-        .map_err(|e| HttpError::internal(format!("get_workspaces_by_team: {e}")))?;
+        .map_err(|e| HttpError::internal(format!("get_workspaces_by_agent: {e}")))?;
 
     let default_id = backend
         .get_agent_defaults(backend.actor_id())
@@ -1021,21 +1023,12 @@ pub async fn list_workspaces(
     let workspaces = rows
         .into_iter()
         .filter_map(|row| {
-            let path = row.path.as_deref()?.trim();
-            if path.is_empty() || !crate::config::workspace_path::is_linkable_workspace_path(path) {
-                return None;
-            }
-            if !StdPath::new(path).is_dir() {
-                return None;
-            }
-            let display_name = StdPath::new(path)
-                .file_name()
-                .map(|n| n.to_string_lossy().to_string())
-                .unwrap_or_else(|| path.to_string());
+            let (path, display_name) =
+                crate::config::workspace_path::listable_local_workspace(&row)?;
             Some(ListedWorkspace {
                 is_default: default_id.as_deref() == Some(row.id.as_str()),
                 workspace_id: row.id,
-                path: path.to_string(),
+                path,
                 display_name,
             })
         })

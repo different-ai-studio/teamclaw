@@ -105,6 +105,16 @@ export function registerSessions(router) {
     return { statusCode: 204, body: null };
   });
 
+  // Release a gateway chat's binding so the next inbound message opens a new
+  // session. The old row keeps its history; it just stops being the current
+  // session for that chat.
+  router.post("/v1/sessions/gateway/detach", async (ctx) => {
+    const body = ctx.json ?? {};
+    requireString(body.acpSessionId, "acpSessionId");
+    const out = await ctx.repository.detachGatewaySession(body.acpSessionId);
+    return { body: out };
+  });
+
   router.get("/v1/sessions/by-acp/:acpSessionId", async (ctx) => {
     const acpSessionId = decodeURIComponent(ctx.params.acpSessionId);
     const out = await ctx.repository.getSessionByAcp(acpSessionId);

@@ -30,13 +30,6 @@ pub struct TurnOutcome {
     pub completed: bool,
 }
 
-/// Agent type entry returned by `list_agents`.
-#[derive(Debug, Clone)]
-pub struct AgentInfo {
-    pub agent_type: String,
-    pub is_current: bool,
-}
-
 /// Workspace entry returned by `list_workspaces`.
 #[derive(Debug, Clone)]
 pub struct WorkspaceInfo {
@@ -107,8 +100,32 @@ pub trait AgentHandle: Send + Sync + 'static {
     /// a fresh agent under the same logical id. Used by /reset.
     async fn reset_session(&self, session: &AmuxSessionId) -> Result<(), AgentError>;
 
-    /// List available models the daemon can drive. Used by /model (no arg).
-    async fn list_models(&self) -> Result<Vec<ModelInfo>, AgentError>;
+    /// Start a genuinely new conversation: the next message must land in a NEW
+    /// session, not just a fresh runtime under the old one. Used by /clear.
+    ///
+    /// Distinct from [`reset_session`] because a gateway session is pinned to
+    /// its chat by `sessions.binding`; resetting only the runtime leaves the
+    /// same session row, history, and session-list entry in place, which is
+    /// not what "start a new session" means to the person typing it.
+    ///
+    /// The default impl falls back to [`reset_session`], so a channel whose
+    /// backend cannot mint a new session still gets a cleared context.
+    async fn start_new_session(&self, session: &AmuxSessionId) -> Result<(), AgentError> {
+        self.reset_session(session).await
+    }
+
+    /// List the models the daemon can actually drive for this session, most
+    /// recently used first. Session-scoped because the catalog comes from the live
+    /// backend running in *this* session's workspace — model ids are
+    /// backend-local, so there is no device-wide answer. Used by /model (no arg).
+    async fn list_models(&self, session: &AmuxSessionId) -> Result<Vec<ModelInfo>, AgentError>;
+
+    /// The `provider/model` this session is currently running on, if known.
+    /// `None` when nothing is pinned and no runtime has reported a model yet.
+    async fn current_model(&self, session: &AmuxSessionId) -> Result<Option<String>, AgentError> {
+        let _ = session;
+        Ok(None)
+    }
 
     /// Pin a model for this session. Restarts the underlying agent —
     /// conversation context is lost. Used by /model X.
@@ -143,13 +160,6 @@ pub trait AgentHandle: Send + Sync + 'static {
         &self,
         active_session: &AmuxSessionId,
     ) -> Result<Vec<(AmuxSessionId, bool)>, AgentError>;
-
-    /// List available agent types.
-    async fn list_agents(&self, session: &AmuxSessionId) -> Result<Vec<AgentInfo>, AgentError>;
-
-    /// Set agent type for this session. Restarts the underlying agent —
-    /// conversation context is lost (same semantics as `set_model`).
-    async fn set_agent(&self, session: &AmuxSessionId, agent_type: &str) -> Result<(), AgentError>;
 
     /// List workspaces known to the daemon.
     async fn list_workspaces(

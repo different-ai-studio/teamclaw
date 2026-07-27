@@ -64,6 +64,37 @@ pub fn write_config(path: &Path, root: &Value) -> anyhow::Result<()> {
     Ok(())
 }
 
+/// Point one WeCom bot at `workspace_id`, persisting to `daemon.toml`.
+///
+/// Not expressible through [`set_config_toml_value`]: bots live in a
+/// `[[channels.wecom.bots]]` array and the dotted-key walker only descends
+/// tables, so the row has to be located by its `bot_id`.
+pub fn set_wecom_bot_workspace(
+    path: &Path,
+    bot_id: &str,
+    workspace_id: &str,
+) -> anyhow::Result<()> {
+    let mut root = read_config(path)?;
+    let bots = root
+        .get_mut("channels")
+        .and_then(|c| c.get_mut("wecom"))
+        .and_then(|w| w.get_mut("bots"))
+        .and_then(|b| b.as_array_mut())
+        .ok_or_else(|| anyhow::anyhow!("no [[channels.wecom.bots]] in {}", path.display()))?;
+    let bot = bots
+        .iter_mut()
+        .find(|bot| bot.get("bot_id").and_then(Value::as_str) == Some(bot_id))
+        .ok_or_else(|| anyhow::anyhow!("no wecom bot with bot_id {bot_id}"))?;
+    let table = bot
+        .as_table_mut()
+        .ok_or_else(|| anyhow::anyhow!("wecom bot {bot_id} is not a table"))?;
+    table.insert(
+        "workspace_id".to_string(),
+        Value::String(workspace_id.to_string()),
+    );
+    write_config(path, &root)
+}
+
 pub fn get_config_value(path: &Path, key: &str) -> anyhow::Result<String> {
     let root = read_config(path)?;
     let value = value_at_key(&root, key).ok_or_else(|| anyhow::anyhow!("missing key: {key}"))?;
@@ -240,6 +271,58 @@ pub fn format_inline_value(value: &Value) -> String {
 #[cfg(test)]
 mod tests {
     use tempfile::tempdir;
+
+    #[test]
+    fn set_wecom_bot_workspace_targets_the_matching_bot_only() {
+        let dir = tempdir().unwrap();
+        let path = dir.path().join("daemon.toml");
+        std::fs::write(
+            &path,
+            r#"
+team_id = "team-1"
+
+[device]
+id = "actor-1"
+name = "Mac"
+
+[mqtt]
+broker_url = "mqtts://example"
+
+[channels.wecom]
+enabled = true
+bot_id = ""
+secret = ""
+
+[[channels.wecom.bots]]
+enabled = true
+bot_id = "bot-a"
+secret = "sa"
+workspace_id = "ws-old"
+
+[[channels.wecom.bots]]
+enabled = true
+bot_id = "bot-b"
+secret = "sb"
+"#,
+        )
+        .unwrap();
+
+        super::set_wecom_bot_workspace(&path, "bot-b", "ws-new").unwrap();
+        let cfg = super::read_config(&path).unwrap();
+        let bots = cfg["channels"]["wecom"]["bots"].as_array().unwrap();
+        // The sibling bot — and the top-level legacy bot_id — stay untouched.
+        assert_eq!(bots[0]["workspace_id"].as_str(), Some("ws-old"));
+        assert_eq!(bots[1]["workspace_id"].as_str(), Some("ws-new"));
+
+        // An unknown bot is an error, not a silently appended row.
+        let err = super::set_wecom_bot_workspace(&path, "bot-missing", "ws-x").unwrap_err();
+        assert!(err.to_string().contains("bot-missing"), "{err}");
+        let cfg = super::read_config(&path).unwrap();
+        assert_eq!(
+            cfg["channels"]["wecom"]["bots"].as_array().unwrap().len(),
+            2
+        );
+    }
 
     #[test]
     fn set_get_and_unset_nested_config_values() {

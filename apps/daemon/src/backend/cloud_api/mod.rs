@@ -160,6 +160,64 @@ impl CloudApiBackend {
         Self::with_optional_persist(cfg, None)
     }
 
+    /// Walk every page of `GET /v1/workspaces`, optionally restricted to one
+    /// agent. Backs both `get_workspaces_by_team` (team-wide, for the
+    /// cross-device link sweep) and `get_workspaces_by_agent` (this device).
+    async fn list_workspaces_page(
+        &self,
+        team_id: &str,
+        agent_id: Option<&str>,
+    ) -> BackendResult<Vec<WorkspaceRow>> {
+        #[derive(serde::Deserialize)]
+        struct Item {
+            id: String,
+            #[serde(rename = "teamId")]
+            team_id: String,
+            #[serde(default)]
+            path: Option<String>,
+            #[serde(default)]
+            slug: Option<String>,
+            #[serde(default)]
+            archived: bool,
+            #[serde(rename = "agentId", default)]
+            agent_id: Option<String>,
+        }
+        #[derive(serde::Deserialize)]
+        struct Page {
+            items: Vec<Item>,
+            #[serde(rename = "nextCursor", default)]
+            next_cursor: Option<String>,
+        }
+        let mut rows = Vec::new();
+        let mut cursor: Option<String> = None;
+        loop {
+            let mut path = format!(
+                "/v1/workspaces?teamId={}&limit=200",
+                urlencoding::encode(team_id)
+            );
+            if let Some(agent) = agent_id {
+                path.push_str(&format!("&agentId={}", urlencoding::encode(agent)));
+            }
+            if let Some(c) = &cursor {
+                path.push_str(&format!("&cursor={}", urlencoding::encode(c)));
+            }
+            let page: Page = self.get(&path).await?;
+            let done = page.next_cursor.is_none();
+            rows.extend(page.items.into_iter().map(|item| WorkspaceRow {
+                id: item.id,
+                team_id: item.team_id,
+                path: item.path.or(item.slug),
+                archived: item.archived,
+                agent_id: item.agent_id,
+            }));
+            if done {
+                break;
+            }
+            cursor = page.next_cursor;
+        }
+        Ok(rows)
+    }
+
     /// Construct a backend that persists rotated refresh tokens back to
     /// `persist_path` (the `backend.toml` it was loaded from).
     pub fn with_persist_path(cfg: CloudApiConfig, persist_path: PathBuf) -> Self {
@@ -848,49 +906,23 @@ impl Backend for CloudApiBackend {
             id: r.id,
             team_id: row.team_id.to_string(),
             path: r.path.or(r.slug),
+            archived: row.archived,
+            agent_id: Some(row.agent_id.to_string()),
         })
     }
 
     async fn get_workspaces_by_team(&self, team_id: &str) -> BackendResult<Vec<WorkspaceRow>> {
-        #[derive(serde::Deserialize)]
-        struct Item {
-            id: String,
-            #[serde(rename = "teamId")]
-            team_id: String,
-            #[serde(default)]
-            path: Option<String>,
-            #[serde(default)]
-            slug: Option<String>,
-        }
-        #[derive(serde::Deserialize)]
-        struct Page {
-            items: Vec<Item>,
-            #[serde(rename = "nextCursor", default)]
-            next_cursor: Option<String>,
-        }
-        let mut rows = Vec::new();
-        let mut cursor: Option<String> = None;
-        loop {
-            let mut path = format!(
-                "/v1/workspaces?teamId={}&limit=200",
-                urlencoding::encode(team_id)
-            );
-            if let Some(c) = &cursor {
-                path.push_str(&format!("&cursor={}", urlencoding::encode(c)));
-            }
-            let page: Page = self.get(&path).await?;
-            let done = page.next_cursor.is_none();
-            rows.extend(page.items.into_iter().map(|item| WorkspaceRow {
-                id: item.id,
-                team_id: item.team_id,
-                path: item.path.or(item.slug),
-            }));
-            if done {
-                break;
-            }
-            cursor = page.next_cursor;
-        }
-        Ok(rows)
+        self.list_workspaces_page(team_id, None).await
+    }
+
+    /// Pushes the filter server-side via `GET /v1/workspaces?agentId=` — the
+    /// same query the desktop's workspace panel issues.
+    async fn get_workspaces_by_agent(
+        &self,
+        team_id: &str,
+        agent_id: &str,
+    ) -> BackendResult<Vec<WorkspaceRow>> {
+        self.list_workspaces_page(team_id, Some(agent_id)).await
     }
 
     async fn get_workspaces_by_ids(&self, ids: &[String]) -> BackendResult<Vec<WorkspaceRow>> {
@@ -910,6 +942,10 @@ impl Backend for CloudApiBackend {
             path: Option<String>,
             #[serde(default)]
             slug: Option<String>,
+            #[serde(default)]
+            archived: bool,
+            #[serde(rename = "agentId", default)]
+            agent_id: Option<String>,
         }
         #[derive(serde::Deserialize)]
         struct Resp {
@@ -926,6 +962,8 @@ impl Backend for CloudApiBackend {
                 id: item.id,
                 team_id: self.cfg.team_id.clone(),
                 path: item.path.or(item.slug),
+                archived: item.archived,
+                agent_id: item.agent_id,
             })
             .collect())
     }
@@ -1073,6 +1111,27 @@ impl Backend for CloudApiBackend {
             Err(BackendError::NotFound(_)) => Ok(None),
             Err(e) => Err(e),
         }
+    }
+
+    async fn rpc_detach_gateway_session(&self, acp_session_id: &str) -> BackendResult<bool> {
+        #[derive(serde::Serialize)]
+        struct Body<'a> {
+            #[serde(rename = "acpSessionId")]
+            acp_session_id: &'a str,
+        }
+        #[derive(serde::Deserialize)]
+        struct Resp {
+            #[serde(default)]
+            detached: bool,
+        }
+        let r: Resp = self
+            .post(
+                "/v1/sessions/gateway/detach",
+                &Body { acp_session_id },
+                None,
+            )
+            .await?;
+        Ok(r.detached)
     }
 
     async fn rpc_ensure_gateway_session(

@@ -247,6 +247,8 @@ mod tests {
                 id: id.to_string(),
                 team_id: team_id.to_string(),
                 path: path.map(str::to_string),
+                archived: false,
+                agent_id: None,
             },
         );
     }
@@ -383,21 +385,29 @@ mod tests {
                 id: "ws-a".into(),
                 team_id: "t".into(),
                 path: Some("/tmp/shared".into()),
+                archived: false,
+                agent_id: None,
             },
             WorkspaceRow {
                 id: "ws-b".into(),
                 team_id: "t".into(),
                 path: Some(" /tmp/shared ".into()),
+                archived: false,
+                agent_id: None,
             },
             WorkspaceRow {
                 id: "ws-c".into(),
                 team_id: "t".into(),
                 path: Some("/tmp/unique".into()),
+                archived: false,
+                agent_id: None,
             },
             WorkspaceRow {
                 id: "ws-d".into(),
                 team_id: "t".into(),
                 path: None,
+                archived: false,
+                agent_id: None,
             },
         ];
         let conflicts = conflicting_workspace_paths(&rows);
@@ -420,11 +430,15 @@ mod tests {
                 id: "ws-a".into(),
                 team_id: "t".into(),
                 path: Some("/tmp/x".into()),
+                archived: false,
+                agent_id: None,
             },
             WorkspaceRow {
                 id: "ws-a".into(),
                 team_id: "t".into(),
                 path: Some("/tmp/x".into()),
+                archived: false,
+                agent_id: None,
             },
         ];
         assert!(conflicting_workspace_paths(&rows).is_empty());
