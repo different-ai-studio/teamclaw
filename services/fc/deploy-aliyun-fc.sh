@@ -7,6 +7,7 @@
 #       - refuses to deploy to `teamclaw-sync` unless explicitly forced
 #       - requires an explicit env file (no implicit/stale .env)
 #       - prints the target + a confirmation prompt before `s deploy`
+#       - does NOT touch the database unless RUN_MIGRATIONS=1
 #
 # Usage:
 #   ./deploy-aliyun-fc.sh <function-name> [env-file]
@@ -14,6 +15,7 @@
 # Examples:
 #   ./deploy-aliyun-fc.sh teamclaw-api-test                 # uses .env.test.local
 #   ./deploy-aliyun-fc.sh teamclaw-api-test .env.staging.local
+#   RUN_MIGRATIONS=1 ./deploy-aliyun-fc.sh teamclaw-api-test   # also migrate
 #
 # The env file must define (at minimum):
 #   ACCESS_KEY_ID, ACCESS_KEY_SECRET   (Aliyun credentials)
@@ -92,17 +94,43 @@ case "$ans" in
   *) echo "Aborted."; exit 0 ;;
 esac
 
-# ── Database migrations ──────────────────────────────────────────────────────
-# Run pending SQL migrations from services/supabase/migrations/ before deploy.
-# Requires DATABASE_URL (public endpoint) to be set in the env file.
-# Skipped when DATABASE_URL is empty (e.g. supabase-only deploys with no RDS).
+# ── Database migrations (OPT-IN) ─────────────────────────────────────────────
+# Deploying code and migrating a database are separate decisions with very
+# different blast radii, so this script does NOT migrate by default. Merely
+# having DATABASE_URL in an env file is not consent to run DDL against it —
+# that used to be enough, which meant a routine code deploy silently applied
+# every pending migration to whatever database the env file happened to name.
+#
+# Run migrations yourself, or opt in explicitly with RUN_MIGRATIONS=1.
 MIGRATIONS_DIR="$(dirname "$0")/../supabase/migrations"
-if [ -n "${DATABASE_URL:-}" ]; then
-  echo "==> Running database migrations"
+if [ "${RUN_MIGRATIONS:-}" != "1" ]; then
+  echo "==> Skipping database migrations (default)"
+  echo "    Migrations are applied by a human, not by this script."
+  if [ -n "${DATABASE_URL:-}" ]; then
+    echo "    To apply them here instead, re-run with RUN_MIGRATIONS=1."
+    echo "    To apply them by hand:"
+    echo "      for f in \$(ls $MIGRATIONS_DIR/*.sql | grep -v baseline | sort); do"
+    echo "        psql \"\$DATABASE_URL\" -f \"\$f\""
+    echo "      done"
+  fi
+elif [ -z "${DATABASE_URL:-}" ]; then
+  echo "ERROR: RUN_MIGRATIONS=1 but DATABASE_URL is unset in $ENV_FILE." >&2
+  exit 1
+else
+  echo "==> Running database migrations (RUN_MIGRATIONS=1)"
   if ! command -v psql >/dev/null 2>&1; then
     echo "ERROR: psql not found. Install postgresql-client to run migrations." >&2
     exit 1
   fi
+  # Migrating is the irreversible half of this script, so make the target
+  # explicit and confirm it separately from the deploy prompt above. Redact the
+  # credentials — DATABASE_URL carries the password inline.
+  echo "    target: $(printf '%s' "$DATABASE_URL" | sed -E 's#://[^@/]*@#://***@#')"
+  read -r -p "    Apply pending migrations to this database? [y/N] " mig_ans
+  case "$mig_ans" in
+    y|Y|yes|YES) ;;
+    *) echo "Aborted."; exit 0 ;;
+  esac
   # Only apply incremental migrations (skip the baseline squash file).
   for migration in $(ls "$MIGRATIONS_DIR"/*.sql 2>/dev/null | grep -v baseline | sort); do
     filename="$(basename "$migration")"
@@ -110,8 +138,6 @@ if [ -n "${DATABASE_URL:-}" ]; then
     psql "$DATABASE_URL" -f "$migration" 2>&1 | grep -v "^$" || true
   done
   echo "    migrations done."
-else
-  echo "NOTE: DATABASE_URL not set — skipping database migrations."
 fi
 
 command -v s >/dev/null 2>&1 || npm install -g @serverless-devs/s
