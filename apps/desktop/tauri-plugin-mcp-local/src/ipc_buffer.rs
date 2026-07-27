@@ -87,6 +87,10 @@ impl IpcBuffer {
     }
 
     /// Record an entry the plugin itself mediated (origin "tool").
+    // Same eight fields as push_with_origin, which it forwards to — that
+    // function already carries this allow, so collapsing the list into a struct
+    // would have to happen at both or neither.
+    #[allow(clippy::too_many_arguments)]
     pub fn push(
         &self,
         kind: &str,
@@ -221,9 +225,10 @@ impl IpcBuffer {
         stats
             .into_values()
             .map(|(mut stat, dur_sum, dur_count)| {
-                if dur_count > 0 {
-                    stat.avg_duration_ms = Some(dur_sum / dur_count);
-                }
+                // checked_div yields None for a zero divisor, which is what the
+                // guarded assignment left the field at — it starts None from
+                // Default and is written nowhere else.
+                stat.avg_duration_ms = dur_sum.checked_div(dur_count);
                 stat
             })
             .collect()

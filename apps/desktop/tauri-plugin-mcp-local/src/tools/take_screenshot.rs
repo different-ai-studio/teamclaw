@@ -273,11 +273,10 @@ pub async fn handle_take_screenshot<R: Runtime>(
         .map_err(|e| Error::Anyhow(format!("Invalid payload for takeScreenshot: {}", e)))?;
 
     // Reject unsafe output directories up front with a clear error
-    if let Some(output_dir) = &payload.output_dir {
-        if let Err(e) = validate_output_dir(output_dir) {
+    if let Some(output_dir) = &payload.output_dir
+        && let Err(e) = validate_output_dir(output_dir) {
             return Ok(SocketResponse::err(None, e.to_string()));
         }
-    }
 
     // A hidden window still captures — but as a blank frame. Detect it up
     // front so the response can warn instead of silently returning a blank
@@ -294,8 +293,8 @@ pub async fn handle_take_screenshot<R: Runtime>(
         Ok(response) => {
             let mut data = serde_json::to_value(response)
                 .map_err(|e| Error::Anyhow(format!("Failed to serialize response: {}", e)))?;
-            if window_visible == Some(false) {
-                if let Some(obj) = data.as_object_mut() {
+            if window_visible == Some(false)
+                && let Some(obj) = data.as_object_mut() {
                     obj.insert("windowVisible".into(), serde_json::json!(false));
                     obj.insert(
                         "warning".into(),
@@ -306,7 +305,6 @@ pub async fn handle_take_screenshot<R: Runtime>(
                         )),
                     );
                 }
-            }
             Ok(SocketResponse::ok(None, Some(data)))
         }
         Err(e) => Ok(SocketResponse::err(None, e.to_string())),

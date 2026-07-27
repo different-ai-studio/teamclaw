@@ -142,13 +142,11 @@ pub fn get_webview_for_eval<R: Runtime>(
         return Some(ww.as_ref().clone());
     }
     // Multi-webview architecture: use the configured fallback webview label
-    if let Some(config) = app.try_state::<WebviewFallbackConfig>() {
-        if let Some(fallback) = &config.label {
-            if let Some(wv) = app.get_webview(fallback) {
+    if let Some(config) = app.try_state::<WebviewFallbackConfig>()
+        && let Some(fallback) = &config.label
+            && let Some(wv) = app.get_webview(fallback) {
                 return Some(wv);
             }
-        }
-    }
     // Try direct webview lookup
     app.get_webview(label)
 }
@@ -157,15 +155,12 @@ pub fn get_webview_for_eval<R: Runtime>(
 /// If the window label doesn't match a WebviewWindow, falls back to the
 /// configured `default_webview_label` from `PluginConfig`.
 pub fn get_emit_target<R: Runtime>(app: &AppHandle<R>, window_label: &str) -> String {
-    if app.get_webview_window(window_label).is_none() {
-        if let Some(config) = app.try_state::<WebviewFallbackConfig>() {
-            if let Some(fallback) = &config.label {
-                if app.get_webview(fallback).is_some() {
+    if app.get_webview_window(window_label).is_none()
+        && let Some(config) = app.try_state::<WebviewFallbackConfig>()
+            && let Some(fallback) = &config.label
+                && app.get_webview(fallback).is_some() {
                     return fallback.to_string();
                 }
-            }
-        }
-    }
     window_label.to_string()
 }
 
@@ -472,10 +467,9 @@ impl<R: Runtime> TauriMcp<R> {
 
 impl<R: Runtime> Drop for TauriMcp<R> {
     fn drop(&mut self) {
-        if let Some(server) = &self.socket_server {
-            if let Ok(mut server) = server.lock() {
+        if let Some(server) = &self.socket_server
+            && let Ok(mut server) = server.lock() {
                 let _ = server.stop();
             }
-        }
     }
 }
