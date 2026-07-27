@@ -308,6 +308,35 @@ describe('provider store initAll', () => {
     expect(useProviderStore.getState().currentModelKey).toBe('scnet/minimax-m2.5')
   })
 
+  it('clears the selection instead of jumping to models[0] when a validated model leaves the catalog', async () => {
+    // A runtime advertising two models, the user on the second one.
+    mocks.getDaemonProviders.mockResolvedValue([
+      { id: 'scnet', display_name: 'Scnet', authenticated: true, models: ['minimax-m2.5', 'kimi-k3'] },
+    ])
+
+    const { useProviderStore } = await import('../provider')
+    await useProviderStore.getState().initAll()
+    await useProviderStore.getState().selectModel('scnet', 'kimi-k3', 'Kimi K3')
+    expect(useProviderStore.getState().currentModelKey).toBe('scnet/kimi-k3')
+
+    // That model's runtime drops off; only the other model remains on offer.
+    mocks.getDaemonProviders.mockResolvedValue([
+      { id: 'scnet', display_name: 'Scnet', authenticated: true, models: ['minimax-m2.5'] },
+    ])
+    await useProviderStore.getState().initAll()
+
+    expect(useProviderStore.getState().currentModelKey).toBeNull()
+    // The choice is kept on disk so it returns with the runtime.
+    expect(localStorage.getItem('teamclaw-selected-model:/workspace/demo')).toBe('scnet/kimi-k3')
+
+    mocks.getDaemonProviders.mockResolvedValue([
+      { id: 'scnet', display_name: 'Scnet', authenticated: true, models: ['minimax-m2.5', 'kimi-k3'] },
+    ])
+    await useProviderStore.getState().initAll()
+
+    expect(useProviderStore.getState().currentModelKey).toBe('scnet/kimi-k3')
+  })
+
   it('does not recover to daemon runtime info from a custom-provider selection', async () => {
     mocks.getDaemonProviders.mockResolvedValue([
       {

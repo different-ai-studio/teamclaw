@@ -26,6 +26,7 @@ import { useAuthStore } from "@/stores/auth-store";
 import { bumpSessionListLastMessage } from "@/lib/session-list-preview";
 import { useSessionListStore } from "@/stores/session-list-store";
 import { useEngagedAgentStore } from "@/stores/engaged-agent-store";
+import { useAgentModelPickStore } from "@/stores/agent-model-pick-store";
 import { useSessionParticipantStore } from "@/stores/session-participant-store";
 import { useUIStore } from "@/stores/ui";
 import { getBackend } from "@/lib/backend";
@@ -84,6 +85,7 @@ import {
 } from "@/stores/v2-streaming-store";
 import { uploadAttachment } from "@/lib/attachment-upload";
 import { loadSessionActiveModel } from "@/lib/session-active-model";
+import { resolveSessionEstablishedModel } from "@/lib/session-established-model";
 import { ensureSessionLiveSubscribed } from "@/lib/session-live-subscriptions";
 import { resolveActorIdsFromAtText } from "@/lib/resolve-text-mentions";
 import { stripPickerPersonMentionsFromText } from "@/lib/strip-person-mentions";
@@ -531,10 +533,31 @@ export function ChatPanel({ compact = false }: ChatPanelProps) {
           entry.uiState === "stale" ||
           entry.uiState === "connecting"
         ) {
+          // Same cleanup the pill's own X does (AgentSelectorDock onRemove):
+          // a dropped agent's model pick must not outlive it, or the local
+          // agent inherits the dead remote's model.
+          useAgentModelPickStore.getState().clearPick(activeSessionId, entry.agent.id);
           removeAgentForSession(entry.agent.id);
         }
       }
       addAgentForSession(local);
+      // Engaging via the mention pill starts a runtime; switching must too.
+      // The local agent's real model only reaches the UI on its RuntimeInfo
+      // retain, so without this the pill has nothing to show and falls through
+      // to a positional default.
+      const teamId =
+        useSessionListStore.getState().rows.find((r) => r.id === activeSessionId)?.team_id ??
+        useCurrentTeamStore.getState().team?.id ??
+        null;
+      if (!teamId) return;
+      void import("@/lib/teamclaw/ensure-agent-runtime").then(({ ensureAgentRuntimesForSession }) => {
+        void ensureAgentRuntimesForSession({
+          sessionId: activeSessionId,
+          teamId,
+          agentActorIds: [local.id],
+          reason: "switch_to_local_agent",
+        });
+      });
     },
     [activeSessionId, engagedUiEntries, removeAgentForSession, addAgentForSession],
   );
@@ -870,6 +893,7 @@ export function ChatPanel({ compact = false }: ChatPanelProps) {
         sessionId: activeSessionId,
         runtimeStates,
         models: providerModels,
+        engagedAgentIds,
       });
       if (cancelled || !resolved) return;
       const nextKey = `${resolved.provider}/${resolved.modelId}`;
@@ -885,7 +909,10 @@ export function ChatPanel({ compact = false }: ChatPanelProps) {
     return () => {
       cancelled = true;
     };
-  }, [activeSessionId, providerModels, runtimeStates, storeSelectModel]);
+    // engagedAgentIds is in the deps on purpose: swapping the mounted
+    // agent (e.g. remote → local) must re-resolve the picker, not leave it on
+    // whatever the departed agent's runtime row said.
+  }, [activeSessionId, providerModels, runtimeStates, storeSelectModel, engagedAgentIds]);
 
   // ── Team config hot reload via file watcher ─────────────────────────
   React.useEffect(() => {
@@ -1448,18 +1475,10 @@ export function ChatPanel({ compact = false }: ChatPanelProps) {
           // session's transcript-established model here too; without it the
           // send path fell through to the agent-level runtime retain, which
           // can belong to another session (显示 A 实跑 B).
-          const establishedForSend = (() => {
-            const msgs = useSessionMessageStore.getState().messages[sid];
-            if (!msgs?.length) return null;
-            let fb: string | null = null;
-            for (let i = msgs.length - 1; i >= 0; i--) {
-              const model = msgs[i].model?.trim();
-              if (!model) continue;
-              if (msgs[i].senderActorId === agentRuntimeIdsForSend[0]) return model;
-              if (!fb) fb = model;
-            }
-            return fb;
-          })();
+          const establishedForSend = resolveSessionEstablishedModel(
+            useSessionMessageStore.getState().messages[sid],
+            agentRuntimeIdsForSend[0] ?? "",
+          );
           const outgoingModel =
             agentRuntimeIdsForSend.length > 0
               ? selectAgentModel({
