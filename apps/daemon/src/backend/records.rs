@@ -92,6 +92,22 @@ pub struct StoredMessage {
     pub created_at: i64,
 }
 
+/// One row of `GET /v1/sessions/gateway` — a session belonging to a single
+/// gateway chat. `is_current` marks the one the chat is bound to right now;
+/// the rest are earlier generations of the same conversation, kept listable so
+/// `/sessions <n>` can switch back into them.
+#[derive(Debug, Clone, serde::Deserialize)]
+pub struct GatewaySessionRow {
+    #[serde(rename = "sessionId")]
+    pub session_id: String,
+    #[serde(rename = "acpSessionId", default)]
+    pub acp_session_id: Option<String>,
+    #[serde(default)]
+    pub title: String,
+    #[serde(rename = "isCurrent", default)]
+    pub is_current: bool,
+}
+
 #[derive(Debug, Clone, serde::Deserialize)]
 pub struct BackendSessionRow {
     pub id: String,

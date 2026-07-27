@@ -2230,6 +2230,40 @@ export function createSupabaseBusinessRepository(options) {
       };
     },
 
+    async listGatewaySessions(input) {
+      const { data, error } = await supabase.rpc("list_gateway_sessions", {
+        p_team_id: input.teamId,
+        p_gateway_key: input.gatewayKey,
+        p_limit: input.limit ?? 20,
+      });
+      if (error) throw error;
+      const rows: any[] = Array.isArray(data) ? data : data ? [data] : [];
+      return {
+        items: rows.map((r) => ({
+          sessionId: r.session_id ?? r.sessionId ?? null,
+          acpSessionId: r.acp_session_id ?? r.acpSessionId ?? null,
+          title: r.title ?? "",
+          isCurrent: (r.is_current ?? r.isCurrent) === true,
+          lastMessageAt: r.last_message_at ?? r.lastMessageAt ?? null,
+          createdAt: r.created_at ?? r.createdAt ?? null,
+        })),
+      };
+    },
+
+    async attachGatewaySession(input) {
+      const { data, error } = await supabase.rpc("attach_gateway_session", {
+        p_binding: input.binding,
+        p_session_id: input.sessionId,
+      });
+      if (error) throw error;
+      const row = Array.isArray(data) ? data[0] : data;
+      return {
+        sessionId: row?.session_id ?? row?.sessionId ?? null,
+        acpSessionId: row?.acp_session_id ?? row?.acpSessionId ?? null,
+        attached: (row?.attached ?? row?.Attached) === true,
+      };
+    },
+
     async createCronSession(input) {
       // Cron sessions are plain `mode='collab'` sessions with no idea_id and
       // a marker in `summary` or metadata. The supabase create_session RPC

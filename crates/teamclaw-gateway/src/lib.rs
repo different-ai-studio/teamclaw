@@ -3,7 +3,7 @@
 pub mod agent;
 pub mod commands;
 pub use agent::{
-    AgentCommand, AgentError, AgentHandle, AmuxSessionId, ModelInfo, TurnOutcome,
+    AgentCommand, AgentError, AgentHandle, AmuxSessionId, ModelInfo, SessionInfo, TurnOutcome,
     WorkspaceInfo,
 };
 

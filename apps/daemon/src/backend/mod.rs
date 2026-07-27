@@ -55,7 +55,8 @@ pub mod deferred;
 pub mod records;
 pub use records::{
     AgentRuntimeRow, AgentRuntimeUpsert, BackendParticipantRow, BackendSessionAndParticipants,
-    BackendSessionRow, ClaimResult, StoredMessage, WorkspaceRow, WorkspaceUpsert,
+    BackendSessionRow, ClaimResult, GatewaySessionRow, StoredMessage, WorkspaceRow,
+    WorkspaceUpsert,
 };
 
 /// MQTT settings delivered by `/v1/config/bootstrap`. The full broker URL
@@ -382,6 +383,34 @@ pub trait Backend: Send + Sync {
     /// surface degrade to a plain runtime reset instead of failing `/clear`.
     async fn rpc_detach_gateway_session(&self, _acp_session_id: &str) -> BackendResult<bool> {
         Ok(false)
+    }
+
+    /// One gateway chat's own sessions, newest first: the currently-bound one
+    /// plus every session `/new` detached from it. `gateway_key` is the chat's
+    /// binding, which — unlike `binding` itself — survives a detach.
+    ///
+    /// Default impl reports an empty list so backends without a gateway surface
+    /// answer `/sessions` with "no sessions" rather than an error.
+    async fn rpc_list_gateway_sessions(
+        &self,
+        _team_id: &str,
+        _gateway_key: &str,
+        _limit: u32,
+    ) -> BackendResult<Vec<GatewaySessionRow>> {
+        Ok(Vec::new())
+    }
+
+    /// Point a chat's binding at one of that chat's existing sessions — the
+    /// inverse of `rpc_detach_gateway_session`. Returns the target's
+    /// `acp_session_id` on success, or `None` when the session is unknown or
+    /// belongs to a different chat (which the caller must report as such rather
+    /// than as a completed switch).
+    async fn rpc_attach_gateway_session(
+        &self,
+        _binding: &str,
+        _session_id: &str,
+    ) -> BackendResult<Option<String>> {
+        Ok(None)
     }
 
     /// Resolve (or create) the `sessions` row for a gateway binding.

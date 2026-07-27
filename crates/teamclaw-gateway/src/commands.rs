@@ -1,4 +1,4 @@
-use crate::agent::{AgentError, AgentHandle, AmuxSessionId, ModelInfo};
+use crate::agent::{AgentError, AgentHandle, AmuxSessionId, ModelInfo, SessionInfo};
 use crate::channel_store::ChannelStore;
 use std::sync::Arc;
 
@@ -118,7 +118,7 @@ enum MetaCommand {
     Sessions(Option<String>),
     Workspace(Option<String>),
     Skills,
-    Clear,
+    New,
     Stop,
     Ctx(String),
 }
@@ -133,7 +133,11 @@ fn parse_meta(name: &str, arg: Option<&str>) -> Option<MetaCommand> {
         // learned the old name.
         "workspace" | "workspaces" => Some(MetaCommand::Workspace(arg.map(str::to_string))),
         "skills" => Some(MetaCommand::Skills),
-        "clear" => Some(MetaCommand::Clear),
+        // `/clear` is gone rather than aliased: it named the wrong operation.
+        // Nothing is cleared — the old session keeps every message, it just
+        // stops being this chat's current one, and `/sessions <n>` can go back
+        // to it. `/new` says that; `/clear` said the opposite.
+        "new" => Some(MetaCommand::New),
         "stop" => Some(MetaCommand::Stop),
         "ctx" => match arg {
             Some(t) if !t.is_empty() => Some(MetaCommand::Ctx(t.to_string())),
@@ -147,12 +151,24 @@ const GATEWAY_HELP: &str = "\
 Gateway commands:
 /help - Show this help
 /model [name] - List or switch models
-/sessions [id] - List sessions
+/sessions [n] - List this chat's sessions, or continue #n
 /workspace [n] - List workspaces, or make #n this bot's default
 /skills - List workspace skills
-/clear - Start new session
+/new - Start a new session (the current one stays in /sessions)
 /stop - Stop current processing
 /ctx <text> - Inject context without reply";
+
+/// What a session shows up as in a `/sessions` listing. Titles are generated
+/// from the chat itself ("WeCom DM: LiangLiang", plus a detach timestamp on
+/// older generations), so an empty one means the row was written by something
+/// that skipped the title — fall back to the id rather than an empty bullet.
+fn session_label(s: &SessionInfo) -> String {
+    if s.title.trim().is_empty() {
+        s.session_id.clone()
+    } else {
+        s.title.clone()
+    }
+}
 
 /// How many catalog entries a `/model` listing shows. A real backend catalog
 /// runs to hundreds of models across every configured provider; a chat bubble
@@ -305,21 +321,59 @@ where
             if sessions.is_empty() {
                 "No sessions.".to_string()
             } else {
+                // Numbered and titled, so the reply is usable as the input for
+                // the next command. It used to print raw ACP hex ids, which
+                // name nothing a chat user can recognise and cannot be typed
+                // back in.
                 let lines: Vec<String> = sessions
                     .iter()
-                    .map(|(id, cur)| {
-                        if *cur {
-                            format!("* {} (current)", id)
-                        } else {
-                            format!("  {}", id)
-                        }
+                    .enumerate()
+                    .map(|(i, s)| {
+                        let marker = if s.is_current { " (current)" } else { "" };
+                        format!("{}. {}{}", i + 1, session_label(s), marker)
                     })
                     .collect();
-                format!("Sessions:\n{}", lines.join("\n"))
+                format!(
+                    "Sessions:\n{}\n\nUsage: /sessions <number> — continue that conversation",
+                    lines.join("\n")
+                )
             }
         }
-        MetaCommand::Sessions(Some(_id)) => {
-            "Session switching is not yet supported. Use /sessions to list sessions.".to_string()
+        MetaCommand::Sessions(Some(arg)) => {
+            let arg = arg.trim();
+            let sessions = agent.list_sessions(session).await?;
+            // A bare number picks from the list just printed; anything else is
+            // taken as a session id, which is what the reply's own ids are.
+            let target = match arg.parse::<usize>() {
+                Ok(n) => match n.checked_sub(1).and_then(|i| sessions.get(i)) {
+                    Some(s) => s.session_id.clone(),
+                    None => {
+                        reply(format!(
+                            "No session #{n}. Use /sessions to list them ({} available).",
+                            sessions.len()
+                        ));
+                        return Ok(true);
+                    }
+                },
+                Err(_) => arg.to_string(),
+            };
+            let already_current = sessions
+                .iter()
+                .any(|s| s.session_id == target && s.is_current);
+            if already_current {
+                "Already in this session.".to_string()
+            } else if agent.switch_session(session, &target).await? {
+                let title = sessions
+                    .iter()
+                    .find(|s| s.session_id == target)
+                    .map(session_label)
+                    .unwrap_or_else(|| target.clone());
+                format!("Switched to: {title}\nThe next message continues that conversation.")
+            } else {
+                "Cannot switch to that session — it is not one of this chat's. \
+                 Use /sessions to list them."
+                    .to_string()
+            }
         }
 
         MetaCommand::Workspace(None) => {
@@ -380,9 +434,11 @@ where
             }
         }
 
-        MetaCommand::Clear => {
+        MetaCommand::New => {
             agent.start_new_session(session).await?;
-            "Started a new session. The next message begins a fresh conversation.".to_string()
+            "Started a new session. The next message begins a fresh conversation \
+             (/sessions to go back to this one)."
+                .to_string()
         }
 
         MetaCommand::Stop => match agent.cancel(session).await {
@@ -504,6 +560,7 @@ mod tests {
         current_model: Option<String>,
         workspace_set_to: Mutex<Option<String>>,
         new_session_called: Mutex<bool>,
+        switched_to: Mutex<Option<String>>,
     }
 
     impl MockAgent {
@@ -515,6 +572,7 @@ mod tests {
                 current_model: None,
                 workspace_set_to: Mutex::new(None),
                 new_session_called: Mutex::new(false),
+                switched_to: Mutex::new(None),
             }
         }
 
@@ -526,6 +584,7 @@ mod tests {
                 current_model: None,
                 workspace_set_to: Mutex::new(None),
                 new_session_called: Mutex::new(false),
+                switched_to: Mutex::new(None),
             }
         }
 
@@ -639,12 +698,35 @@ mod tests {
 
         async fn list_sessions(
             &self,
-            active_session: &AmuxSessionId,
-        ) -> Result<Vec<(AmuxSessionId, bool)>, AgentError> {
+            _active_session: &AmuxSessionId,
+        ) -> Result<Vec<SessionInfo>, AgentError> {
             Ok(vec![
-                (active_session.clone(), true),
-                ("sess-old".to_string(), false),
+                SessionInfo {
+                    session_id: "sess-now".to_string(),
+                    title: "WeCom DM: LiangLiang".to_string(),
+                    is_current: true,
+                },
+                SessionInfo {
+                    session_id: "sess-old".to_string(),
+                    title: "WeCom DM: LiangLiang (2026-07-26 09:12)".to_string(),
+                    is_current: false,
+                },
             ])
+        }
+
+        async fn switch_session(
+            &self,
+            _active_session: &AmuxSessionId,
+            target_session_id: &str,
+        ) -> Result<bool, AgentError> {
+            // Mirrors the real handle: a target outside this chat's own list is
+            // declined rather than silently accepted.
+            if target_session_id == "sess-old" || target_session_id == "sess-now" {
+                *self.switched_to.lock().unwrap() = Some(target_session_id.to_string());
+                Ok(true)
+            } else {
+                Ok(false)
+            }
         }
 
         async fn list_workspaces(
@@ -761,7 +843,7 @@ mod tests {
         let text = reply.unwrap();
         assert!(text.contains("/help"));
         assert!(text.contains("/model"));
-        assert!(text.contains("/clear"));
+        assert!(text.contains("/new"));
         assert!(text.contains("/ctx"));
         // /agents was dropped: opencode is the only backend, so it always
         // listed exactly one entry.
@@ -868,19 +950,99 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn clear_starts_a_new_session_rather_than_only_resetting_the_runtime() {
-        // /clear used to call reset_session, which swaps the runtime but keeps
-        // the same session row — the reply claimed something the user could
-        // not observe anywhere.
+    async fn new_starts_a_new_session_rather_than_only_resetting_the_runtime() {
+        // This used to be `/clear`, which called reset_session: that swaps the
+        // runtime but keeps the same session row — the reply claimed something
+        // the user could not observe anywhere.
         let agent = MockAgent::new();
-        let (result, reply) = run_dispatch(&agent, "clear", None).await;
+        let (result, reply) = run_dispatch(&agent, "new", None).await;
         assert!(result.unwrap());
         assert!(*agent.new_session_called.lock().unwrap());
         assert!(
             !*agent.reset_called.lock().unwrap(),
-            "/clear must not stop at a runtime reset"
+            "/new must not stop at a runtime reset"
         );
         assert!(reply.unwrap().contains("new session"));
+    }
+
+    #[tokio::test]
+    async fn clear_is_no_longer_a_command() {
+        // Removed rather than aliased: nothing is cleared, and `/sessions` can
+        // still reach the session `/new` pushed aside.
+        let agent = MockAgent::new();
+        let (result, _) = run_dispatch(&agent, "clear", None).await;
+        assert!(!result.unwrap(), "/clear must fall through as unknown");
+        assert!(!*agent.new_session_called.lock().unwrap());
+    }
+
+    #[tokio::test]
+    async fn sessions_lists_numbered_titles_not_raw_ids() {
+        // The old listing printed bare ACP hex ids, which name nothing to a
+        // chat user and cannot be typed back in as an argument.
+        let agent = MockAgent::new();
+        let (result, reply) = run_dispatch(&agent, "sessions", None).await;
+        assert!(result.unwrap());
+        let text = reply.unwrap();
+        assert!(
+            text.contains("1. WeCom DM: LiangLiang (current)"),
+            "got {text}"
+        );
+        assert!(
+            text.contains("2. WeCom DM: LiangLiang (2026-07-26 09:12)"),
+            "got {text}"
+        );
+        assert!(!text.contains("sess-now"), "ids must not leak: {text}");
+        assert!(text.contains("/sessions <number>"), "got {text}");
+    }
+
+    #[tokio::test]
+    async fn sessions_number_switches_to_that_session() {
+        let agent = MockAgent::new();
+        let (result, reply) = run_dispatch(&agent, "sessions", Some("2")).await;
+        assert!(result.unwrap());
+        assert_eq!(
+            agent.switched_to.lock().unwrap().as_deref(),
+            Some("sess-old")
+        );
+        let text = reply.unwrap();
+        assert!(
+            text.starts_with("Switched to: WeCom DM: LiangLiang (2026-07-26"),
+            "got {text}"
+        );
+    }
+
+    #[tokio::test]
+    async fn sessions_number_for_the_current_session_is_a_no_op() {
+        let agent = MockAgent::new();
+        let (result, reply) = run_dispatch(&agent, "sessions", Some("1")).await;
+        assert!(result.unwrap());
+        assert_eq!(reply.unwrap(), "Already in this session.");
+        assert!(
+            agent.switched_to.lock().unwrap().is_none(),
+            "switching to the current session must not touch the binding"
+        );
+    }
+
+    #[tokio::test]
+    async fn sessions_out_of_range_number_says_how_many_there_are() {
+        let agent = MockAgent::new();
+        let (result, reply) = run_dispatch(&agent, "sessions", Some("9")).await;
+        assert!(result.unwrap());
+        let text = reply.unwrap();
+        assert!(text.contains("No session #9"), "got {text}");
+        assert!(text.contains("2 available"), "got {text}");
+        assert!(agent.switched_to.lock().unwrap().is_none());
+    }
+
+    #[tokio::test]
+    async fn sessions_declined_switch_is_reported_as_such() {
+        // A session id from another chat: the handle declines it, and the reply
+        // must not claim a switch happened.
+        let agent = MockAgent::new();
+        let (result, reply) = run_dispatch(&agent, "sessions", Some("sess-elsewhere")).await;
+        assert!(result.unwrap());
+        assert!(reply.unwrap().contains("not one of this chat's"));
+        assert!(agent.switched_to.lock().unwrap().is_none());
     }
 
     #[tokio::test]
@@ -921,16 +1083,16 @@ mod tests {
     #[tokio::test]
     async fn agent_command_takes_priority_over_meta() {
         let agent = MockAgent::with_agent_commands(vec![AgentCommand {
-            name: "clear".to_string(),
-            description: "agent clear".to_string(),
+            name: "new".to_string(),
+            description: "agent new".to_string(),
             input_hint: None,
         }]);
-        let (result, reply) = run_dispatch(&agent, "clear", None).await;
+        let (result, reply) = run_dispatch(&agent, "new", None).await;
         assert!(result.unwrap());
         let text = reply.unwrap();
-        // Should be the agent response, NOT "Session cleared."
-        assert_eq!(text, "agent handled: clear");
-        assert!(!*agent.reset_called.lock().unwrap());
+        // Should be the agent response, NOT the gateway's own /new reply.
+        assert_eq!(text, "agent handled: new");
+        assert!(!*agent.new_session_called.lock().unwrap());
     }
 
     // ── dispatch_session_slash_cmd (shared by Discord/Feishu/Kook) ────────────

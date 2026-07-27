@@ -5,8 +5,8 @@ mod messages;
 use super::{
     AgentDefaults, AgentRuntimeRow, AgentRuntimeUpsert, Backend, BackendError, BackendResult,
     BackendSessionAndParticipants, BootstrapMqttOverride, ClaimResult, CloudAuthSnapshot,
-    ManagedGitCredential, ManagedLlmConfig, ManagedLlmModelInfo, ShareModeConfig, StoredMessage,
-    WorkspaceRow, WorkspaceUpsert,
+    GatewaySessionRow, ManagedGitCredential, ManagedLlmConfig, ManagedLlmModelInfo,
+    ShareModeConfig, StoredMessage, WorkspaceRow, WorkspaceUpsert,
 };
 use crate::provider_config::CloudApiConfig;
 use async_trait::async_trait;
@@ -1132,6 +1132,64 @@ impl Backend for CloudApiBackend {
             )
             .await?;
         Ok(r.detached)
+    }
+
+    async fn rpc_list_gateway_sessions(
+        &self,
+        team_id: &str,
+        gateway_key: &str,
+        limit: u32,
+    ) -> BackendResult<Vec<GatewaySessionRow>> {
+        #[derive(serde::Deserialize)]
+        struct Resp {
+            #[serde(default)]
+            items: Vec<GatewaySessionRow>,
+        }
+        let path = format!(
+            "/v1/sessions/gateway?teamId={}&gatewayKey={}&limit={}",
+            urlencoding::encode(team_id),
+            urlencoding::encode(gateway_key),
+            limit
+        );
+        let r: Resp = self.get(&path).await?;
+        Ok(r.items)
+    }
+
+    async fn rpc_attach_gateway_session(
+        &self,
+        binding: &str,
+        session_id: &str,
+    ) -> BackendResult<Option<String>> {
+        #[derive(serde::Serialize)]
+        struct Body<'a> {
+            binding: &'a str,
+            #[serde(rename = "sessionId")]
+            session_id: &'a str,
+        }
+        #[derive(serde::Deserialize)]
+        struct Resp {
+            #[serde(rename = "acpSessionId", default)]
+            acp_session_id: Option<String>,
+            #[serde(default)]
+            attached: bool,
+        }
+        let r: Resp = self
+            .post(
+                "/v1/sessions/gateway/attach",
+                &Body {
+                    binding,
+                    session_id,
+                },
+                None,
+            )
+            .await?;
+        // A row can be attached while carrying no acp id (a session minted by a
+        // backend that leaves it null); report the switch, not a failure.
+        Ok(if r.attached {
+            Some(r.acp_session_id.unwrap_or_default())
+        } else {
+            None
+        })
     }
 
     async fn rpc_ensure_gateway_session(
