@@ -75,6 +75,19 @@ runs:
           cp -R .branding-src/branding/. ./branding/
         fi
 
+        # Chrome extension assets are per-brand, so they come from brands/<brand>/
+        # rather than the shared branding/ tree — two brands publishing different
+        # Web Store items must not read each other's icons and screenshots.
+        # Landing them at branding/extension/ keeps the path that
+        # scripts/lib/branding.js resolveExtensionIconPlan already reads.
+        if [ -d "$src/extension" ]; then
+          mkdir -p ./branding/extension
+          cp -R "$src/extension/." ./branding/extension/
+          echo "Extension assets: $(find ./branding/extension -type f | wc -l | tr -d ' ') file(s) from ${src}/extension"
+        else
+          echo "Extension assets: none (${src}/extension not present) — default icons and no listing kit"
+        fi
+
         BRAND="$BRAND" python3 - <<'PY'
         import json, os
 
@@ -124,8 +137,16 @@ runs:
             print(f'::error::app.shortName must be 1-20 chars of [a-z0-9]; got {app_slug!r}')
             raise SystemExit(1)
 
+        # Each brand publishes to its own Web Store item, so the item ID belongs
+        # to the brand rather than to a single repo-level secret that whichever
+        # brand ran last would overwrite. The OAuth credentials stay repo-level:
+        # they authenticate the publisher account, not the item. Empty here means
+        # "fall back to the CHROME_EXTENSION_ID secret".
+        chrome = meta.get('chromeWebStore') or {}
+
         out = {
             'BRAND': brand,
+            'CHROME_EXTENSION_ID': chrome.get('extensionId') or '',
             'APP_NAME': app_name,
             'APP_PRODUCT_NAME': product_name,
             'APP_SLUG': app_slug,
