@@ -30,6 +30,20 @@ pub struct TurnOutcome {
     pub completed: bool,
 }
 
+/// One of a chat's sessions, returned by `list_sessions`.
+///
+/// `session_id` is the cloud `sessions.id` — the id `switch_session` takes, and
+/// deliberately not the logical ACP id: the ACP id is what identifies the *live*
+/// runtime, and a detached session usually has no runtime at all.
+#[derive(Debug, Clone)]
+pub struct SessionInfo {
+    pub session_id: String,
+    /// Human-readable title from the session row ("WeCom DM: LiangLiang"), with
+    /// the detach timestamp older generations carry.
+    pub title: String,
+    pub is_current: bool,
+}
+
 /// Workspace entry returned by `list_workspaces`.
 #[derive(Debug, Clone)]
 pub struct WorkspaceInfo {
@@ -154,12 +168,28 @@ pub trait AgentHandle: Send + Sync + 'static {
         input: Option<&str>,
     ) -> Result<TurnOutcome, AgentError>;
 
-    /// List all logical sessions this handle knows about (spawned since last
-    /// daemon restart). Returns `(session_id, is_current)` pairs.
+    /// This chat's own sessions, newest first: the one it is talking to now,
+    /// plus the earlier generations `/new` pushed aside. Persisted — not the
+    /// in-memory runtime map, which forgets everything on daemon restart and
+    /// holds at most the live session.
     async fn list_sessions(
         &self,
         active_session: &AmuxSessionId,
-    ) -> Result<Vec<(AmuxSessionId, bool)>, AgentError>;
+    ) -> Result<Vec<SessionInfo>, AgentError>;
+
+    /// Make one of this chat's earlier sessions current again, so the next
+    /// message continues there instead of in `active_session`.
+    ///
+    /// `Ok(false)` means the target is not a session of this chat — a stale
+    /// number from an old listing, say — and nothing was switched. The default
+    /// impl declines everything, for handles with no persistent session store.
+    async fn switch_session(
+        &self,
+        _active_session: &AmuxSessionId,
+        _target_session_id: &str,
+    ) -> Result<bool, AgentError> {
+        Ok(false)
+    }
 
     /// List workspaces known to the daemon.
     async fn list_workspaces(

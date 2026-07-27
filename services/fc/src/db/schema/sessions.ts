@@ -16,8 +16,13 @@ export const sessions = pgTable("sessions", {
   lastMessageAt: timestamp("last_message_at", { withTimezone: true }),
   /** ACP / gateway integration: used by getSessionByAcp */
   acpSessionId: text("acp_session_id"),
-  /** Gateway binding key (unique per team); used by ensureGatewaySession */
+  /** Gateway binding key (unique per team); used by ensureGatewaySession.
+   *  This is the "currently attached" pointer: detaching nulls it. */
   binding: text("binding"),
+  /** The gateway chat a session belongs to, for the session's whole lifetime.
+   *  Written at create time from the binding and never cleared, so a chat can
+   *  still enumerate the sessions it detached from (`/sessions` → `/sessions n`). */
+  gatewayKey: text("gateway_key"),
   /** How the session was created: 'user' (default) | 'cron' | 'gateway'. */
   source: text("source").notNull().default("user"),
   /** For source='cron': the desktop-local cron job id that created it

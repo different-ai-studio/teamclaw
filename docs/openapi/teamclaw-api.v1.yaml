@@ -781,6 +781,140 @@ paths:
           $ref: "#/components/responses/Error"
         "401":
           $ref: "#/components/responses/Error"
+  /v1/sessions/gateway:
+    get:
+      operationId: listGatewaySessions
+      summary: List one gateway chat's sessions
+      description: >-
+        The sessions belonging to a single gateway chat, newest first: the one
+        the chat is bound to right now plus every earlier generation that `/new`
+        detached from it. Scoped to `gatewayKey` — the chat's binding, which
+        unlike `binding` itself survives a detach — so a chat only ever
+        enumerates its own lineage.
+      tags: [Sessions]
+      parameters:
+        - name: teamId
+          in: query
+          required: true
+          schema:
+            type: string
+            format: uuid
+        - name: gatewayKey
+          in: query
+          required: true
+          description: The chat's binding, e.g. `wecom://<bot>/user/<id>`.
+          schema:
+            type: string
+        - name: limit
+          in: query
+          required: false
+          schema:
+            type: integer
+            default: 20
+            minimum: 1
+            maximum: 100
+      responses:
+        "200":
+          description: The chat's sessions, newest first.
+          headers:
+            X-Request-Id:
+              $ref: "#/components/headers/RequestId"
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [items]
+                properties:
+                  items:
+                    type: array
+                    items:
+                      type: object
+                      required: [sessionId, title, isCurrent]
+                      properties:
+                        sessionId:
+                          type: string
+                          format: uuid
+                        acpSessionId:
+                          type:
+                            - string
+                            - "null"
+                        title:
+                          type:
+                            - string
+                            - "null"
+                        isCurrent:
+                          type: boolean
+                          description: True for the session the chat is bound to now.
+                        lastMessageAt:
+                          type:
+                            - string
+                            - "null"
+                          format: date-time
+                        createdAt:
+                          type:
+                            - string
+                            - "null"
+                          format: date-time
+        "400":
+          $ref: "#/components/responses/Error"
+        "401":
+          $ref: "#/components/responses/Error"
+  /v1/sessions/gateway/attach:
+    post:
+      operationId: attachGatewaySession
+      summary: Attach a gateway chat to one of its existing sessions
+      description: >-
+        The inverse of gateway detach: point a chat's binding at one of that
+        chat's own sessions, so the next inbound message continues there.
+        Because sessions are keyed by (teamId, binding), the binding is *moved* —
+        released from its current holder, then set on the target.
+
+
+        Fails soft with `attached: false` when the target does not exist or
+        belongs to a different chat, so one conversation cannot hijack another's
+        session and the caller can report "no such session" rather than a
+        switch that did not happen.
+      tags: [Sessions]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [binding, sessionId]
+              properties:
+                binding:
+                  type: string
+                sessionId:
+                  type: string
+                  format: uuid
+      responses:
+        "200":
+          description: Attach result.
+          headers:
+            X-Request-Id:
+              $ref: "#/components/headers/RequestId"
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [attached]
+                properties:
+                  sessionId:
+                    type:
+                      - string
+                      - "null"
+                    format: uuid
+                  acpSessionId:
+                    type:
+                      - string
+                      - "null"
+                  attached:
+                    type: boolean
+        "400":
+          $ref: "#/components/responses/Error"
+        "401":
+          $ref: "#/components/responses/Error"
   /v1/sessions/cron:
     post:
       operationId: createCronSession
