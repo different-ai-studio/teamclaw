@@ -1291,7 +1291,7 @@ impl WeComGateway {
                         | "sessions"
                         | "workspace"
                         | "workspaces"
-                        | "clear"
+                        | "new"
                         | "ctx"
                 );
                 if !needs_session {
@@ -1431,7 +1431,7 @@ impl WeComGateway {
 
         // Slash-command dispatch: two-layer (agent-advertised commands first, then
         // gateway meta-commands: /help, /model, /sessions,
-        // /workspace, /clear, /stop, /ctx).
+        // /workspace, /new, /stop, /ctx).
         if let Some((cmd_name, cmd_arg)) = commands::parse_slash(text_content.trim()) {
             use std::sync::{Arc as SArc, Mutex};
             let reply_cell: SArc<Mutex<Option<String>>> = SArc::new(Mutex::new(None));

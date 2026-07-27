@@ -24,8 +24,8 @@ use async_trait::async_trait;
 
 use crate::backend::{
     AgentDefaults, AgentRuntimeRow, AgentRuntimeUpsert, Backend, BackendError, BackendResult,
-    BackendSessionAndParticipants, ClaimResult, ManagedGitCredential, ManagedLlmConfig,
-    ShareModeConfig, StoredMessage, WorkspaceRow, WorkspaceUpsert,
+    BackendSessionAndParticipants, ClaimResult, GatewaySessionRow, ManagedGitCredential,
+    ManagedLlmConfig, ShareModeConfig, StoredMessage, WorkspaceRow, WorkspaceUpsert,
 };
 
 /// Owned snapshot of an `AgentRuntimeUpsert` so tests can assert without
@@ -141,6 +141,8 @@ pub struct MockState {
     pub runtime_cursors_updated: Vec<(String, String)>,
     pub attachments_uploaded: Vec<RecordedAttachment>,
     pub gateway_sessions_ensured: Vec<RecordedGatewayEnsure>,
+    /// `(binding, session_id)` pairs passed to `rpc_attach_gateway_session`.
+    pub gateway_sessions_attached: Vec<(String, String)>,
     pub cron_sessions: Vec<RecordedCronSession>,
 
     // ── Pre-seeded responses for reads ─────────────────────────────────
@@ -152,6 +154,10 @@ pub struct MockState {
     pub agent_permissions: HashMap<(String, String), Option<String>>,
     pub external_actor_results: HashMap<(String, String, String), String>,
     pub ensure_gateway_session_result: Option<(String, String, bool)>,
+    /// One chat's session lineage, keyed by gateway_key (the chat's binding).
+    /// `rpc_attach_gateway_session` accepts only ids present in the list for
+    /// that key, mirroring the SQL function's `gateway_key` guard.
+    pub gateway_sessions_by_key: HashMap<String, Vec<GatewaySessionRow>>,
     pub workspace_results: HashMap<(String, String, String), WorkspaceRow>,
     /// Rows recorded by `upsert_workspace`, keyed by the returned canonical id
     /// — lets `get_workspaces_by_ids` resolve ids seeded via `upsert_workspace`
@@ -514,6 +520,39 @@ impl Backend for MockBackend {
             .gateway_session_index
             .get(acp_session_id)
             .cloned())
+    }
+
+    async fn rpc_list_gateway_sessions(
+        &self,
+        _team_id: &str,
+        gateway_key: &str,
+        limit: u32,
+    ) -> BackendResult<Vec<GatewaySessionRow>> {
+        let st = self.state.lock().unwrap();
+        Ok(st
+            .gateway_sessions_by_key
+            .get(gateway_key)
+            .cloned()
+            .unwrap_or_default()
+            .into_iter()
+            .take(limit as usize)
+            .collect())
+    }
+
+    async fn rpc_attach_gateway_session(
+        &self,
+        binding: &str,
+        session_id: &str,
+    ) -> BackendResult<Option<String>> {
+        let mut st = self.state.lock().unwrap();
+        st.gateway_sessions_attached
+            .push((binding.to_string(), session_id.to_string()));
+        let rows = st.gateway_sessions_by_key.get(binding);
+        Ok(rows.and_then(|rows| {
+            rows.iter()
+                .find(|r| r.session_id == session_id)
+                .map(|r| r.acp_session_id.clone().unwrap_or_default())
+        }))
     }
 
     async fn rpc_ensure_gateway_session(

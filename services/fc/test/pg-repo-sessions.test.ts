@@ -473,6 +473,125 @@ test("ensureGatewaySession different bindings in same team create different sess
   assert.equal(r2.created, true);
 });
 
+// ── listGatewaySessions / attachGatewaySession ────────────────────────────────
+
+test("a chat's whole lineage stays listable across detach, and attach switches back", async () => {
+  // `/new` detaches the binding, which is what makes the next message open a
+  // fresh session. Before `gateway_key` that was a one-way door: the detached
+  // row had no trace of which chat it came from, so nothing could name it.
+  const { db } = await makeTestDb();
+  const team = await seedTeam(db);
+  const actor = await seedActor(db, team.id, { kind: "agent" });
+  const repo = createPgBusinessRepository({ db });
+  const binding = `wecom:room#${Math.random()}`;
+
+  const first = await repo.ensureGatewaySession({
+    teamId: team.id,
+    binding,
+    title: "WeCom DM: LiangLiang",
+    primaryAgentActorId: actor.id,
+    ownerMemberActorIds: [],
+    participantActorIds: [],
+  });
+  const firstAcp = `acp-${Math.random()}`;
+  await db.update(sessions).set({ acpSessionId: firstAcp }).where(eq(sessions.id, first.sessionId));
+
+  // /new
+  const detached = await repo.detachGatewaySession(firstAcp);
+  assert.equal(detached.detached, true);
+
+  // Next message opens a second session under the same binding.
+  const second = await repo.ensureGatewaySession({
+    teamId: team.id,
+    binding,
+    title: "WeCom DM: LiangLiang",
+    primaryAgentActorId: actor.id,
+    ownerMemberActorIds: [],
+    participantActorIds: [],
+  });
+  assert.equal(second.created, true, "detaching must free the binding");
+  assert.notEqual(second.sessionId, first.sessionId);
+
+  const listed = await repo.listGatewaySessions({ teamId: team.id, gatewayKey: binding });
+  assert.equal(listed.items.length, 2, "both generations must be listed");
+  const current = listed.items.filter((i: any) => i.isCurrent);
+  assert.equal(current.length, 1, "exactly one session is current");
+  assert.equal(current[0].sessionId, second.sessionId);
+  assert.ok(
+    listed.items.some((i: any) => i.sessionId === first.sessionId && !i.isCurrent),
+    "the detached session must be listed, not current",
+  );
+
+  // /sessions <n> back to the first one.
+  const attached = await repo.attachGatewaySession({ binding, sessionId: first.sessionId });
+  assert.equal(attached.attached, true);
+  assert.equal(attached.acpSessionId, firstAcp, "the target's ACP id is what resumes");
+
+  const afterSwitch = await repo.listGatewaySessions({ teamId: team.id, gatewayKey: binding });
+  const nowCurrent = afterSwitch.items.filter((i: any) => i.isCurrent);
+  assert.equal(nowCurrent.length, 1, "the binding is unique: only one holder");
+  assert.equal(nowCurrent[0].sessionId, first.sessionId);
+
+  // The session that gave up the binding keeps its history and stays listed.
+  const [displaced] = await db.select().from(sessions).where(eq(sessions.id, second.sessionId));
+  assert.equal(displaced.binding, null);
+  assert.equal(displaced.gatewayKey, binding);
+});
+
+test("attachGatewaySession refuses a session belonging to another chat", async () => {
+  // The guard is what stops one chat from hijacking another's conversation:
+  // the daemon calls this as its agent actor for whatever number a user typed.
+  const { db } = await makeTestDb();
+  const team = await seedTeam(db);
+  const actor = await seedActor(db, team.id, { kind: "agent" });
+  const repo = createPgBusinessRepository({ db });
+
+  const mine = `wecom:room#mine-${Math.random()}`;
+  const theirs = `wecom:room#theirs-${Math.random()}`;
+  const args = {
+    teamId: team.id,
+    title: "chat",
+    primaryAgentActorId: actor.id,
+    ownerMemberActorIds: [],
+    participantActorIds: [],
+  };
+  await repo.ensureGatewaySession({ ...args, binding: mine });
+  const other = await repo.ensureGatewaySession({ ...args, binding: theirs });
+
+  const out = await repo.attachGatewaySession({ binding: mine, sessionId: other.sessionId });
+  assert.equal(out.attached, false);
+  assert.equal(out.sessionId, null);
+
+  // And the other chat kept its own binding.
+  const [row] = await db.select().from(sessions).where(eq(sessions.id, other.sessionId));
+  assert.equal(row.binding, theirs);
+});
+
+test("listGatewaySessions only returns the requested chat's sessions", async () => {
+  const { db } = await makeTestDb();
+  const team = await seedTeam(db);
+  const actor = await seedActor(db, team.id, { kind: "agent" });
+  const repo = createPgBusinessRepository({ db });
+
+  const a = `wecom:room#a-${Math.random()}`;
+  const b = `wecom:room#b-${Math.random()}`;
+  const args = {
+    teamId: team.id,
+    title: "chat",
+    primaryAgentActorId: actor.id,
+    ownerMemberActorIds: [],
+    participantActorIds: [],
+  };
+  const inA = await repo.ensureGatewaySession({ ...args, binding: a });
+  await repo.ensureGatewaySession({ ...args, binding: b });
+
+  const listed = await repo.listGatewaySessions({ teamId: team.id, gatewayKey: a });
+  assert.deepEqual(
+    listed.items.map((i: any) => i.sessionId),
+    [inA.sessionId],
+  );
+});
+
 // ── createCronSession ─────────────────────────────────────────────────────────
 
 test("createCronSession returns sessionId", async () => {

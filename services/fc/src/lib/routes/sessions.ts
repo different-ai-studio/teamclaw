@@ -23,6 +23,23 @@ export function registerSessions(router) {
     return { body: out };
   });
 
+  // One gateway chat's own sessions: the current one plus everything `/new`
+  // detached from it. Keyed on `gatewayKey` (the chat's binding, which survives
+  // detach) so a chat can only enumerate its own lineage. Registered above
+  // `/:sessionId` — otherwise "gateway" is read as a session id.
+  router.get("/v1/sessions/gateway", async (ctx) => {
+    const teamId = ctx.query.get("teamId");
+    const gatewayKey = ctx.query.get("gatewayKey");
+    requireString(teamId, "teamId");
+    requireString(gatewayKey, "gatewayKey");
+    const out = await ctx.repository.listGatewaySessions({
+      teamId,
+      gatewayKey,
+      limit: parseLimit(ctx.query.get("limit")),
+    });
+    return { body: out };
+  });
+
   router.get("/v1/sessions/:sessionId", async (ctx) => {
     const sessionId = decodeURIComponent(ctx.params.sessionId);
     const out = await ctx.repository.getSession(sessionId);
@@ -112,6 +129,20 @@ export function registerSessions(router) {
     const body = ctx.json ?? {};
     requireString(body.acpSessionId, "acpSessionId");
     const out = await ctx.repository.detachGatewaySession(body.acpSessionId);
+    return { body: out };
+  });
+
+  // Point a chat's binding at one of that chat's existing sessions — the
+  // inverse of /gateway/detach. `attached: false` means the target is unknown
+  // or belongs to a different chat; the caller must not report a switch.
+  router.post("/v1/sessions/gateway/attach", async (ctx) => {
+    const body = ctx.json ?? {};
+    requireString(body.binding, "binding");
+    requireString(body.sessionId, "sessionId");
+    const out = await ctx.repository.attachGatewaySession({
+      binding: body.binding,
+      sessionId: body.sessionId,
+    });
     return { body: out };
   });
 

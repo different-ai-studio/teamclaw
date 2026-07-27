@@ -23,8 +23,15 @@ use std::sync::Arc;
 use tokio::sync::Mutex;
 
 use teamclaw_gateway::{
-    AgentCommand, AgentError, AgentHandle, AmuxSessionId, ModelInfo, TurnOutcome, WorkspaceInfo,
+    AgentCommand, AgentError, AgentHandle, AmuxSessionId, ModelInfo, SessionInfo, TurnOutcome,
+    WorkspaceInfo,
 };
+
+/// How many of a chat's past sessions `/sessions` offers. A long-lived WeCom
+/// conversation accumulates one row per `/new`, and a chat bubble listing
+/// hundreds of them is unreadable — the newest are the ones anyone switches
+/// back to.
+const GATEWAY_SESSION_LIST_LIMIT: u32 = 20;
 
 use crate::backend::Backend;
 use crate::proto::amux;
@@ -190,27 +197,35 @@ impl AmuxdAgentHandle {
             .collect())
     }
 
-    /// The WeCom bot this session belongs to, if any.
+    /// The chat binding this session is bound to, if any.
     ///
     /// Reads the cached binding first and falls back to the `sessions` row,
-    /// because a `/workspace` switch usually arrives before the session has
-    /// ever spawned a runtime — at which point nothing is cached yet.
-    async fn bot_id_for_session(&self, session: &AmuxSessionId) -> Option<String> {
+    /// because a command usually arrives before the session has ever spawned a
+    /// runtime — at which point nothing is cached yet. An empty result means the
+    /// session is not gateway-bound, which callers treat as "no chat history to
+    /// speak of" rather than an error.
+    async fn binding_for_session(&self, session: &AmuxSessionId) -> Option<String> {
         let cached = {
             let map = self.logical_to_acp.lock().await;
             map.get(session).map(|s| s.binding.clone())
         };
-        let binding = match cached {
-            Some(b) if !b.is_empty() => b,
-            _ => self
-                .backend
-                .get_gateway_session_by_acp_id(session)
-                .await
-                .ok()
-                .flatten()
-                .and_then(|(_, binding)| binding)
-                .unwrap_or_default(),
-        };
+        if let Some(b) = cached {
+            if !b.is_empty() {
+                return Some(b);
+            }
+        }
+        self.backend
+            .get_gateway_session_by_acp_id(session)
+            .await
+            .ok()
+            .flatten()
+            .and_then(|(_, binding)| binding)
+            .filter(|b| !b.is_empty())
+    }
+
+    /// The WeCom bot this session belongs to, if any.
+    async fn bot_id_for_session(&self, session: &AmuxSessionId) -> Option<String> {
+        let binding = self.binding_for_session(session).await?;
         bot_id_from_binding(&binding).map(str::to_string)
     }
 
@@ -1029,15 +1044,76 @@ impl AgentHandle for AmuxdAgentHandle {
         self.send_prompt(session, "user", &text).await
     }
 
+    /// This chat's own session history, from the cloud store.
+    ///
+    /// It used to enumerate `logical_to_acp`, which is an in-memory runtime
+    /// cache: it holds at most the currently-live session, forgets everything on
+    /// restart, and is keyed by ACP hex ids that name nothing to a chat user. So
+    /// `/sessions` printed one bare id, and right after `/new` printed "No
+    /// sessions." while the history sat in the database.
+    ///
+    /// The persistent list is keyed on the chat's binding (`gateway_key`), which
+    /// this handle resolves from the active session's row.
     async fn list_sessions(
         &self,
         active_session: &AmuxSessionId,
-    ) -> Result<Vec<(AmuxSessionId, bool)>, AgentError> {
-        let map = self.logical_to_acp.lock().await;
-        Ok(map
-            .keys()
-            .map(|k| (k.clone(), k == active_session))
+    ) -> Result<Vec<SessionInfo>, AgentError> {
+        let Some(binding) = self.binding_for_session(active_session).await else {
+            return Ok(Vec::new());
+        };
+        let rows = self
+            .backend
+            .rpc_list_gateway_sessions(&self.team_id, &binding, GATEWAY_SESSION_LIST_LIMIT)
+            .await
+            .map_err(|e| AgentError::Internal(format!("list_gateway_sessions: {e}")))?;
+        Ok(rows
+            .into_iter()
+            .map(|r| SessionInfo {
+                session_id: r.session_id,
+                title: r.title,
+                is_current: r.is_current,
+            })
             .collect())
+    }
+
+    /// Move this chat's binding onto one of its earlier sessions.
+    ///
+    /// The switch itself is a single server-side operation: sessions are keyed
+    /// by (team, binding), so once the binding points at the target row, the
+    /// next inbound message resolves to it through the same
+    /// `ensure_gateway_session` path as any other message — nothing local needs
+    /// to be rewritten. The runtime map is left alone deliberately: an entry for
+    /// the target that is still live (switching back inside one daemon uptime)
+    /// keeps its conversation context, and one that is gone lazy-spawns on the
+    /// next message exactly as a restart would.
+    async fn switch_session(
+        &self,
+        active_session: &AmuxSessionId,
+        target_session_id: &str,
+    ) -> Result<bool, AgentError> {
+        let Some(binding) = self.binding_for_session(active_session).await else {
+            return Ok(false);
+        };
+        // Stop whatever the outgoing session is doing: its turn would otherwise
+        // keep running and reply into a chat that has moved on.
+        let _ = self.cancel(active_session).await;
+        let attached = self
+            .backend
+            .rpc_attach_gateway_session(&binding, target_session_id)
+            .await
+            .map_err(|e| AgentError::Internal(format!("attach_gateway_session: {e}")))?;
+        match attached {
+            Some(acp) => {
+                tracing::info!(
+                    from_session = %active_session,
+                    to_session = %target_session_id,
+                    to_acp_session = %acp,
+                    "gateway chat switched session"
+                );
+                Ok(true)
+            }
+            None => Ok(false),
+        }
     }
 
     /// Enumerates workspaces from the cloud `amux.workspaces` table
@@ -1612,5 +1688,125 @@ mod tests {
         let overrides = handle.model_override.lock().await;
         let stored = overrides.get("sess-2").cloned().unwrap();
         assert_eq!(stored.1, "opus", "second set_model must overwrite");
+    }
+
+    /// Seed a chat (`binding`) whose lineage is `rows`, bound to `acp` right now.
+    fn seed_chat(
+        backend: &Arc<MockBackend>,
+        acp: &str,
+        binding: &str,
+        rows: Vec<crate::backend::GatewaySessionRow>,
+    ) {
+        let mut st = backend.state();
+        st.gateway_session_index.insert(
+            acp.to_string(),
+            ("session-row".to_string(), Some(binding.to_string())),
+        );
+        st.gateway_sessions_by_key.insert(binding.to_string(), rows);
+    }
+
+    fn gw_row(
+        session_id: &str,
+        acp: &str,
+        title: &str,
+        is_current: bool,
+    ) -> crate::backend::GatewaySessionRow {
+        crate::backend::GatewaySessionRow {
+            session_id: session_id.to_string(),
+            acp_session_id: Some(acp.to_string()),
+            title: title.to_string(),
+            is_current,
+        }
+    }
+
+    #[tokio::test]
+    async fn list_sessions_returns_the_chats_persisted_lineage_not_the_runtime_map() {
+        // The old impl enumerated `logical_to_acp`, so right after `/new` — when
+        // nothing is spawned — `/sessions` answered "No sessions." while the
+        // history sat in the cloud store.
+        let backend = Arc::new(MockBackend::default());
+        seed_chat(
+            &backend,
+            "acp-live",
+            "wecom://bot-1/user/liang",
+            vec![
+                gw_row("s-2", "acp-live", "WeCom DM: LiangLiang", true),
+                gw_row(
+                    "s-1",
+                    "acp-old",
+                    "WeCom DM: LiangLiang (2026-07-26 09:12)",
+                    false,
+                ),
+            ],
+        );
+        let handle = make_handle_with_backend(backend);
+
+        let out = handle
+            .list_sessions(&AmuxSessionId::from("acp-live"))
+            .await
+            .unwrap();
+        assert_eq!(out.len(), 2);
+        assert_eq!(out[0].session_id, "s-2");
+        assert!(out[0].is_current);
+        assert_eq!(out[0].title, "WeCom DM: LiangLiang");
+        assert!(!out[1].is_current);
+        assert!(handle.logical_to_acp.lock().await.is_empty());
+    }
+
+    #[tokio::test]
+    async fn list_sessions_is_empty_for_a_session_with_no_chat_binding() {
+        // A session that is not gateway-bound has no chat history to list; the
+        // command must say "No sessions." rather than fail.
+        let handle = make_handle();
+        let out = handle
+            .list_sessions(&AmuxSessionId::from("acp-unbound"))
+            .await
+            .unwrap();
+        assert!(out.is_empty());
+    }
+
+    #[tokio::test]
+    async fn switch_session_moves_the_chats_binding_to_the_target() {
+        let backend = Arc::new(MockBackend::default());
+        seed_chat(
+            &backend,
+            "acp-live",
+            "wecom://bot-1/user/liang",
+            vec![
+                gw_row("s-2", "acp-live", "now", true),
+                gw_row("s-1", "acp-old", "earlier", false),
+            ],
+        );
+        let handle = make_handle_with_backend(backend.clone());
+
+        let switched = handle
+            .switch_session(&AmuxSessionId::from("acp-live"), "s-1")
+            .await
+            .unwrap();
+        assert!(switched);
+        assert_eq!(
+            backend.state().gateway_sessions_attached.as_slice(),
+            &[("wecom://bot-1/user/liang".to_string(), "s-1".to_string())]
+        );
+    }
+
+    #[tokio::test]
+    async fn switch_session_declines_a_session_from_another_chat() {
+        // The guard lives in the backend (`gateway_key` must match), so the
+        // handle has to report the refusal rather than assume success.
+        let backend = Arc::new(MockBackend::default());
+        seed_chat(
+            &backend,
+            "acp-live",
+            "wecom://bot-1/user/liang",
+            vec![gw_row("s-2", "acp-live", "now", true)],
+        );
+        let handle = make_handle_with_backend(backend);
+
+        let switched = handle
+            .switch_session(&AmuxSessionId::from("acp-live"), "s-elsewhere")
+            .await
+            .unwrap();
+        assert!(!switched);
     }
 }

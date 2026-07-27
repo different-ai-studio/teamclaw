@@ -16,6 +16,8 @@
  *  - list_current_actor_sessions   → listSessions (Drizzle join on participants)
  *  - mark_current_actor_session_viewed → markSessionViewed (upsert read marker)
  *  - ensure_gateway_session        → ensureGatewaySession (get-or-create on binding)
+ *  - list_gateway_sessions         → listGatewaySessions (one chat's own lineage)
+ *  - attach_gateway_session        → attachGatewaySession (move a chat's binding)
  */
 
 import { and, desc, eq, gt, inArray, isNull, or, sql } from "drizzle-orm";
@@ -422,6 +424,74 @@ export function makeSessionsRepo(db: DbLike, ctx: SessionsCtx = {}, deps: Sessio
       return { sessionId: existing.id, detached: true };
     },
 
+    // ── listGatewaySessions ───────────────────────────────────────────────────
+    /**
+     * One gateway chat's own sessions, newest first — the current one plus every
+     * session `/new` detached from it. Scoped to `gatewayKey` (never nulled), so
+     * a chat sees only its own lineage: not another chat's, not the desktop's.
+     */
+    async listGatewaySessions(input: { teamId: string; gatewayKey: string; limit?: number }) {
+      const limit = Math.max(1, Math.min(input.limit ?? 20, 100));
+      const rows = await db
+        .select()
+        .from(sessions)
+        .where(and(eq(sessions.teamId, input.teamId), eq(sessions.gatewayKey, input.gatewayKey)))
+        .orderBy(desc(sql`coalesce(${sessions.lastMessageAt}, ${sessions.createdAt})`), desc(sessions.id))
+        .limit(limit);
+      return {
+        items: rows.map((r) => ({
+          sessionId: r.id,
+          acpSessionId: r.acpSessionId ?? null,
+          title: r.title,
+          isCurrent: r.binding != null && r.binding === input.gatewayKey,
+          lastMessageAt: iso(r.lastMessageAt),
+          createdAt: iso(r.createdAt),
+        })),
+      };
+    },
+
+    // ── attachGatewaySession ──────────────────────────────────────────────────
+    /**
+     * The inverse of `detachGatewaySession`: point a chat's binding at one of
+     * that chat's existing sessions, so the next inbound message continues
+     * there. Because (teamId, binding) is unique, the binding is *moved* —
+     * released from its current holder (same title timestamp suffix detach
+     * applies) and then set on the target, in that order.
+     *
+     * Fails soft with attached=false when the target is unknown or belongs to a
+     * different chat, so a caller cannot hijack another conversation's session
+     * and the gateway can report "no such session" rather than a phantom switch.
+     */
+    async attachGatewaySession(input: { binding: string; sessionId: string }) {
+      const [target] = await db
+        .select()
+        .from(sessions)
+        .where(and(eq(sessions.id, input.sessionId), eq(sessions.gatewayKey, input.binding)))
+        .limit(1);
+      if (!target) return { sessionId: null, acpSessionId: null, attached: false };
+
+      // Already current: idempotent no-op.
+      if (target.binding === input.binding) {
+        return { sessionId: target.id, acpSessionId: target.acpSessionId ?? null, attached: true };
+      }
+
+      const [holder] = await db
+        .select()
+        .from(sessions)
+        .where(and(eq(sessions.teamId, target.teamId), eq(sessions.binding, input.binding)))
+        .limit(1);
+      if (holder) {
+        const stamp = new Date().toISOString().slice(0, 16).replace("T", " ");
+        await db
+          .update(sessions)
+          .set({ binding: null, title: holder.title ? `${holder.title} (${stamp})` : holder.title })
+          .where(eq(sessions.id, holder.id));
+      }
+
+      await db.update(sessions).set({ binding: input.binding }).where(eq(sessions.id, target.id));
+      return { sessionId: target.id, acpSessionId: target.acpSessionId ?? null, attached: true };
+    },
+
     // ── markSessionViewed ─────────────────────────────────────────────────────
     /**
      * AUTHZ (#10): the read marker's actor is ALWAYS resolved server-side from
@@ -564,6 +634,14 @@ export function makeSessionsRepo(db: DbLike, ctx: SessionsCtx = {}, deps: Sessio
 
       if (existing) {
         await syncParticipants(existing.id);
+        // Backfill the chat marker on rows that predate it, so a long-running
+        // conversation becomes listable by `/sessions` without a data migration.
+        if (!existing.gatewayKey) {
+          await db
+            .update(sessions)
+            .set({ gatewayKey: input.binding })
+            .where(eq(sessions.id, existing.id));
+        }
         // NOTE: un-archiving on a new message lives in the
         // `amux.ensure_gateway_session` SQL function (the supabase path, which
         // is what production runs). It is deliberately not mirrored here: this
@@ -589,6 +667,7 @@ export function makeSessionsRepo(db: DbLike, ctx: SessionsCtx = {}, deps: Sessio
           primaryAgentId: input.primaryAgentActorId,
           createdByActorId: input.primaryAgentActorId,
           binding: input.binding,
+          gatewayKey: input.binding,
           source: "gateway",
         })
         .returning();
