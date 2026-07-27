@@ -1,10 +1,11 @@
 import type { Message } from "@/stores/session";
 
+/** No id tiebreak — equal timestamps keep insertion order (see the upper-bound
+ * search below). Comparing ids would order a gateway message pair arbitrarily. */
 function compare(a: Message, b: Message): number {
   const ta = a.timestamp?.getTime?.() ?? 0;
   const tb = b.timestamp?.getTime?.() ?? 0;
-  if (ta !== tb) return ta - tb;
-  return (a.id || "").localeCompare(b.id || "");
+  return ta - tb;
 }
 
 export function insertMessageSorted(
@@ -28,7 +29,7 @@ export function insertMessageSorted(
   let hi = messages.length;
   while (lo < hi) {
     const mid = (lo + hi) >>> 1;
-    if (compare(messages[mid], newMessage) < 0) lo = mid + 1;
+    if (compare(messages[mid], newMessage) <= 0) lo = mid + 1;
     else hi = mid;
   }
   return [...messages.slice(0, lo), newMessage, ...messages.slice(lo)];

@@ -187,6 +187,16 @@ impl DaemonServer {
                     Some(&sb_sid), // bind AgentReply to the cloud session
                     Some(working_directory.as_str()),
                     agent_type_override,
+                    // Unchanged from before this parameter existed. Cron has
+                    // the same cold-start exposure as the gateway did (a
+                    // cron-first launch starts `opencode serve` with no team
+                    // providers), but resolving a cron job's workspace_id —
+                    // which is what the team-LLM lookup keys on — is a
+                    // separate piece of work.
+                    crate::runtime::SpawnRuntimeEnv {
+                        is_gateway: true,
+                        ..Default::default()
+                    },
                 )
                 .await
                 .map_err(|e| anyhow::anyhow!("spawn failed: {e}"))?;
