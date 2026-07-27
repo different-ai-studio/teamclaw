@@ -40,6 +40,23 @@ const iso = (d: Date | string | null | undefined): string | null =>
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 type DbLike = PgDatabase<any, any>;
 
+/**
+ * `db.update(sessions)` with the update-set type escaped.
+ *
+ * Drizzle 0.36 collapses `sessions`'s set-source down to its
+ * not-null-without-default columns (`mode`, `teamId`, `title`), so setting any
+ * nullable column — `binding`, `gatewayKey` — fails to typecheck even though
+ * the column plainly exists. Every other pg-repo module hits this and works
+ * around it with the same cast at each call site; centralising it here keeps
+ * the escape hatch documented in one place instead of scattered.
+ *
+ * This matters beyond the editor: the FC container builds with
+ * `tsc -p tsconfig.json`, so an un-cast `.set()` breaks the image build and the
+ * self-host deploy with it.
+ */
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+const updateSessions = (db: DbLike): any => db.update(sessions);
+
 export interface SessionsRepoDeps {
   /** Called after a successful markSessionViewed DB write. Best-effort: errors are
    *  logged and swallowed so the mark-viewed outcome is never affected. */
@@ -417,8 +434,7 @@ export function makeSessionsRepo(db: DbLike, ctx: SessionsCtx = {}, deps: Sessio
       }
       const stamp = new Date().toISOString().slice(0, 16).replace("T", " ");
       const title = existing.title ? `${existing.title} (${stamp})` : existing.title;
-      await db
-        .update(sessions)
+      await updateSessions(db)
         .set({ binding: null, title })
         .where(eq(sessions.id, existing.id));
       return { sessionId: existing.id, detached: true };
@@ -482,13 +498,12 @@ export function makeSessionsRepo(db: DbLike, ctx: SessionsCtx = {}, deps: Sessio
         .limit(1);
       if (holder) {
         const stamp = new Date().toISOString().slice(0, 16).replace("T", " ");
-        await db
-          .update(sessions)
+        await updateSessions(db)
           .set({ binding: null, title: holder.title ? `${holder.title} (${stamp})` : holder.title })
           .where(eq(sessions.id, holder.id));
       }
 
-      await db.update(sessions).set({ binding: input.binding }).where(eq(sessions.id, target.id));
+      await updateSessions(db).set({ binding: input.binding }).where(eq(sessions.id, target.id));
       return { sessionId: target.id, acpSessionId: target.acpSessionId ?? null, attached: true };
     },
 
@@ -637,8 +652,7 @@ export function makeSessionsRepo(db: DbLike, ctx: SessionsCtx = {}, deps: Sessio
         // Backfill the chat marker on rows that predate it, so a long-running
         // conversation becomes listable by `/sessions` without a data migration.
         if (!existing.gatewayKey) {
-          await db
-            .update(sessions)
+          await updateSessions(db)
             .set({ gatewayKey: input.binding })
             .where(eq(sessions.id, existing.id));
         }
