@@ -1,5 +1,16 @@
 # Chrome Web Store — Privacy practices 填写内容（copilot361）
 
+> **已被 branding 仓库取代。** 这份文案是随品牌变的，现在的来源是
+> enterprise-branding 仓库的 `brands/<brand>/extension/privacy.json`，由
+> `scripts/build-extension-listing-kit.js` 组装进 `listing-kit.zip`。
+>
+> 特别注意下面 host 权限那段的说辞——"必须全站而不是白名单"——是给**未收窄的
+> TeamClaw** 写的。copilot361 的品牌配置声明了 10 个 Shopee 域名，收窄修好之后
+> 这段话就与事实不符了，别再照抄。每个品牌的说辞跟它自己 manifest 里的权限保持
+> 一致，由 listing kit 脚本交叉校验。
+>
+> 本文件保留作为编写这类文案的参考范例。
+
 去 [开发者后台](https://chrome.google.com/webstore/devconsole) → 该插件条目 → **Privacy practices** tab，
 按下面内容填。都是根据 `apps/extension/` 现有代码（manifest.json + background.ts + content-script.ts）
 如实描述的，如果之后加了新权限/新数据用途要记得回来同步改。
