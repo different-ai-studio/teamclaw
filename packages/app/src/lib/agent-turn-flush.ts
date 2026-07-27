@@ -93,9 +93,11 @@ export function bumpPreviewFromAgentReply(
     const md = reply.metadataJson
       ? (JSON.parse(reply.metadataJson) as Record<string, unknown>)
       : null;
-    if (md?.turn_status === "interrupted") {
-      // Do not leak the English agent-facing interrupt instruction into the
-      // session list preview — bubble UI hides it via turnStatus.
+    if (
+      md?.turn_status === "interrupted" &&
+      preview.trimStart().startsWith("[Turn interrupted by user]")
+    ) {
+      // Hide English agent-facing notice from session list; keep real prose.
       preview = "";
     }
   } catch {

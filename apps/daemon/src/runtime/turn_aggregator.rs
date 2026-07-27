@@ -206,14 +206,19 @@ impl TurnAggregator {
                 if sc.old_status == active && sc.new_status == idle {
                     self.flush_thinking_into(&mut out);
                     if self.turn_was_interrupted && self.turn_had_activity {
-                        // Single durable AGENT_REPLY: drop any unflushed prose
-                        // buffer (client stream/parts keep the visible text) so
-                        // we never emit partial+interrupted twins that race the
-                        // frontend flush/inFlight path.
-                        self.reply_buf.clear();
+                        // Single durable AGENT_REPLY: keep any unflushed prose in
+                        // content (user must see what was generated). Only fall
+                        // back to the English interrupt notice when there is no
+                        // visible text — still stamp turn_status for UI routing.
+                        let prose = std::mem::take(&mut self.reply_buf);
+                        let content = if prose.trim().is_empty() {
+                            INTERRUPTED_AGENT_REPLY_CONTENT.to_string()
+                        } else {
+                            prose
+                        };
                         out.push(EmittedMessage {
                             kind: MessageKind::AgentReply,
-                            content: INTERRUPTED_AGENT_REPLY_CONTENT.to_string(),
+                            content,
                             metadata_json: INTERRUPTED_REPLY_METADATA_JSON.to_string(),
                             turn_id: self.current_turn_id.clone().unwrap_or_default(),
                         });
@@ -521,7 +526,7 @@ mod tests {
     }
 
     #[test]
-    fn interrupted_turn_with_partial_reply_emits_single_interrupted_marker() {
+    fn interrupted_turn_with_partial_reply_keeps_prose_content() {
         let mut agg = TurnAggregator::new();
         agg.ingest(&status_change(
             amux::AgentStatus::Idle,
@@ -536,7 +541,7 @@ mod tests {
         ));
         assert_eq!(emitted.len(), 1);
         assert_eq!(emitted[0].kind, MessageKind::AgentReply);
-        assert_eq!(emitted[0].content, INTERRUPTED_AGENT_REPLY_CONTENT);
+        assert_eq!(emitted[0].content, "partial answer");
         assert!(emitted[0]
             .metadata_json
             .contains("\"turn_status\":\"interrupted\""));
