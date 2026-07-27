@@ -36,6 +36,7 @@ const GATEWAY_SESSION_LIST_LIMIT: u32 = 20;
 use crate::backend::Backend;
 use crate::proto::amux;
 use crate::runtime::RuntimeManager;
+use crate::runtime::SpawnRuntimeEnv;
 
 /// Cached per-session state that lets `send_prompt` decide whether the
 /// incoming prompt is the FIRST one for a freshly-spawned runtime (and
@@ -62,8 +63,37 @@ pub struct BotRuntimeConfig {
     pub system_prompt: Option<String>,
 }
 
+/// The pieces of daemon state a gateway spawn needs to build the SAME runtime
+/// environment a desktop session gets — team secrets, `tc_api_key`, and the
+/// team LLM provider written into `opencode.json`.
+///
+/// Without this the gateway spawned with an empty env, so a device whose first
+/// post-launch activity was a WeCom message launched the shared `opencode
+/// serve` with no provider credentials at all. `serve` is one global process
+/// and its env is first-writer-wins applied at spawn, so that unauthenticated
+/// launch then poisoned every later turn: the model catalog held only
+/// unauthenticated entries, the MRU pick resolved against it, and the first
+/// prompt died on "No provider available". Opening a desktop session
+/// re-assembled the env and respawned `serve`, which is why doing that
+/// "fixed" it.
+#[derive(Clone)]
+pub struct GatewaySpawnEnv {
+    /// Shared TTL-cached resolver, so a gateway spawn and a provider read
+    /// share one throttled cloud fetch.
+    pub managed_llm: Arc<crate::runtime::managed_llm::ManagedLlmResolver>,
+    pub actor_id: String,
+    pub actor_name: String,
+    /// Suppresses the refresh watcher for the `opencode.json` writes this
+    /// assembly performs, so materializing `provider.team` does not surface as
+    /// a spurious "OpenCode config changed" banner in the desktop UI.
+    pub refresh_coordinator: Option<Arc<crate::runtime::refresh::RuntimeRefreshCoordinator>>,
+}
+
 pub struct AmuxdAgentHandle {
     pub manager: Arc<Mutex<RuntimeManager>>,
+    /// See [`GatewaySpawnEnv`]. Gateway runtimes get the same LLM credentials
+    /// as desktop ones; without it a gateway-first cold start has no providers.
+    pub spawn_env: GatewaySpawnEnv,
     /// Logical (SQL-minted) acp_session_id → resolved runtime metadata.
     /// Created on first `send_prompt` after a daemon start; in-memory only.
     pub logical_to_acp: Arc<Mutex<HashMap<String, ResolvedSession>>>,
@@ -151,6 +181,71 @@ impl AmuxdAgentHandle {
             .or(self.default_workspace_dir.clone());
 
         (workspace_dir, agent_type)
+    }
+
+    /// Build the runtime environment for a gateway spawn: team secrets,
+    /// `tc_api_key`, and the team LLM provider materialized into the
+    /// workspace's `opencode.json` — the same assembly a desktop session runs
+    /// (`Daemon::assemble_spawn_runtime_env_for_worktree`).
+    ///
+    /// Degrades to the bare gateway env rather than failing the spawn: a
+    /// prompt that reaches an unauthenticated runtime and reports so is worth
+    /// more than a WeCom message that silently never gets answered.
+    async fn assemble_spawn_env(&self, workspace_dir: Option<&str>) -> SpawnRuntimeEnv {
+        let bare = SpawnRuntimeEnv {
+            is_gateway: true,
+            ..SpawnRuntimeEnv::default()
+        };
+        // No resolvable workspace means the spawn lands in a throwaway scratch
+        // dir, which has no team config to assemble from.
+        let Some(worktree) = workspace_dir else {
+            return bare;
+        };
+
+        let managed_llm = if self.team_id.trim().is_empty() {
+            teamclaw_runtime_env::ManagedLlmState::Unknown
+        } else {
+            self.spawn_env.managed_llm.resolve(&self.team_id).await
+        };
+        let cloud_token_file = self
+            .backend
+            .cloud_auth_health()
+            .map(|_| crate::config::DaemonConfig::cloud_token_path())
+            .map(|p| p.to_string_lossy().into_owned());
+
+        // Suppress immediately before the sync disk writes, never before the
+        // awaits above: the managed-LLM fetch can outlast the suppress window
+        // and the `opencode.json` rewrite would leak as a Pending banner.
+        if let Some(ref refresh) = self.spawn_env.refresh_coordinator {
+            crate::runtime::refresh::refresh_watch::suppress_for_workspace_path(
+                refresh,
+                std::path::Path::new(worktree),
+                &crate::runtime::refresh::INTERNAL_OPENCODE_KINDS,
+                crate::runtime::refresh::INTERNAL_WRITE_SUPPRESS,
+            );
+        }
+
+        match crate::runtime::env_assembly::assemble_spawn_runtime_env(
+            std::path::Path::new(worktree),
+            (!self.team_id.trim().is_empty()).then_some(self.team_id.as_str()),
+            &self.spawn_env.actor_id,
+            &self.spawn_env.actor_name,
+            cloud_token_file.as_deref(),
+            &managed_llm,
+        ) {
+            Ok(env) => SpawnRuntimeEnv {
+                is_gateway: true,
+                ..env
+            },
+            Err(e) => {
+                tracing::warn!(
+                    error = %e,
+                    workspace = %worktree,
+                    "gateway spawn env assembly failed; runtime starts without team providers"
+                );
+                bare
+            }
+        }
     }
 
     /// Live model catalog for the workspace this session runs in, as gateway
@@ -371,6 +466,7 @@ impl AmuxdAgentHandle {
             overrides.get(session).cloned()
         };
         let (workspace_dir, agent_type) = self.resolve_spawn_target(session, &binding).await;
+        let spawn_env = self.assemble_spawn_env(workspace_dir.as_deref()).await;
         let real = {
             let mut mgr = self.manager.lock().await;
             mgr.create_gateway_session_with_model(
@@ -382,6 +478,7 @@ impl AmuxdAgentHandle {
                 remote_session_id.as_deref(),
                 workspace_dir.as_deref(),
                 agent_type,
+                spawn_env,
             )
             .await
             .map_err(|e| AgentError::Create(e.to_string()))?
@@ -823,32 +920,42 @@ impl AgentHandle for AmuxdAgentHandle {
         Ok(())
     }
 
-    async fn start_new_session(&self, session: &AmuxSessionId) -> Result<(), AgentError> {
+    async fn start_new_session(&self, session: &AmuxSessionId) -> Result<bool, AgentError> {
         // Detach the chat's binding so the next inbound message makes
         // `ensure_gateway_session` miss and mint a new row. Without this step
-        // `/clear` only swapped the runtime: same session, same history, same
-        // entry in the session list — "Session cleared" was describing
-        // something the user could not observe.
+        // `/new` only swaps the runtime: same session, same history, same
+        // entry in the session list — "Started a new session" would be
+        // describing something the user cannot observe.
         //
-        // A backend that reports nothing detached (unknown id, or a channel
-        // whose sessions are not gateway-bound) leaves us with the runtime
-        // reset below, which is the best that can be done there.
-        match self.backend.rpc_detach_gateway_session(session).await {
+        // A backend that reports nothing detached (unknown id, a channel whose
+        // sessions are not gateway-bound, or one deployed before the detach
+        // endpoint existed) leaves us with the runtime reset below, which is
+        // the best that can be done there. Either way the outcome is returned
+        // rather than swallowed, so the reply matches what actually happened.
+        let detached = match self.backend.rpc_detach_gateway_session(session).await {
             Ok(detached) => {
                 if detached {
                     tracing::info!(
                         logical_session = %session,
                         "gateway session detached; next message opens a new one"
                     );
+                } else {
+                    tracing::warn!(
+                        logical_session = %session,
+                        "backend detached nothing; the chat stays on the same session"
+                    );
                 }
+                detached
             }
             Err(e) => {
-                // Do not fail /clear over this: the context reset below still
-                // gives the user a fresh conversation, just under the old row.
+                // Do not fail /new over this: the context reset below still
+                // gives the user a fresh runtime, just under the old row.
                 tracing::warn!(error = %e, "detach gateway session failed; clearing runtime only");
+                false
             }
-        }
-        self.reset_session(session).await
+        };
+        self.reset_session(session).await?;
+        Ok(detached)
     }
 
     async fn list_models(&self, session: &AmuxSessionId) -> Result<Vec<ModelInfo>, AgentError> {
@@ -1249,6 +1356,14 @@ mod tests {
                 RuntimeManager::default_launch_configs(),
                 None,
             ))),
+            spawn_env: GatewaySpawnEnv {
+                managed_llm: Arc::new(crate::runtime::managed_llm::ManagedLlmResolver::new(
+                    backend.clone(),
+                )),
+                actor_id: "actor-test".to_string(),
+                actor_name: "Test Agent".to_string(),
+                refresh_coordinator: None,
+            },
             logical_to_acp: Arc::new(Mutex::new(HashMap::new())),
             team_id: "team-test".to_string(),
             model_override: Arc::new(Mutex::new(HashMap::new())),

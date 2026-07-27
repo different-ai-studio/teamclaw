@@ -435,10 +435,20 @@ where
         }
 
         MetaCommand::New => {
-            agent.start_new_session(session).await?;
-            "Started a new session. The next message begins a fresh conversation \
-             (/sessions to go back to this one)."
-                .to_string()
+            // Only claim a new session when the chat was really detached. A
+            // backend that cannot detach (endpoint missing, unknown id) leaves
+            // the next message landing in the SAME session — announcing a fresh
+            // conversation there is a lie the user only discovers when the agent
+            // keeps its memory.
+            if agent.start_new_session(session).await? {
+                "Started a new session. The next message begins a fresh conversation \
+                 (/sessions to go back to this one)."
+                    .to_string()
+            } else {
+                "Could not start a new session — this chat is still on the same one. \
+                 The agent's context was cleared, but its history is unchanged."
+                    .to_string()
+            }
         }
 
         MetaCommand::Stop => match agent.cancel(session).await {
@@ -560,6 +570,10 @@ mod tests {
         current_model: Option<String>,
         workspace_set_to: Mutex<Option<String>>,
         new_session_called: Mutex<bool>,
+        /// What `start_new_session` reports back: whether the chat was really
+        /// detached. Default `true` (the working backend); a test flips it to
+        /// model a backend that cannot detach.
+        new_session_detaches: bool,
         switched_to: Mutex<Option<String>>,
     }
 
@@ -572,6 +586,7 @@ mod tests {
                 current_model: None,
                 workspace_set_to: Mutex::new(None),
                 new_session_called: Mutex::new(false),
+                new_session_detaches: true,
                 switched_to: Mutex::new(None),
             }
         }
@@ -584,6 +599,7 @@ mod tests {
                 current_model: None,
                 workspace_set_to: Mutex::new(None),
                 new_session_called: Mutex::new(false),
+                new_session_detaches: true,
                 switched_to: Mutex::new(None),
             }
         }
@@ -638,9 +654,9 @@ mod tests {
             Ok(())
         }
 
-        async fn start_new_session(&self, _session: &AmuxSessionId) -> Result<(), AgentError> {
+        async fn start_new_session(&self, _session: &AmuxSessionId) -> Result<bool, AgentError> {
             *self.new_session_called.lock().unwrap() = true;
-            Ok(())
+            Ok(self.new_session_detaches)
         }
 
         async fn list_models(
@@ -962,7 +978,26 @@ mod tests {
             !*agent.reset_called.lock().unwrap(),
             "/new must not stop at a runtime reset"
         );
-        assert!(reply.unwrap().contains("new session"));
+        assert!(reply.unwrap().starts_with("Started a new session."));
+    }
+
+    #[tokio::test]
+    async fn new_says_so_when_the_backend_could_not_detach_the_chat() {
+        // The failure that shipped: a backend without the detach endpoint left
+        // the chat on the same session while `/new` still replied "Started a
+        // new session", so the only symptom was the agent remembering things
+        // it had just been told to forget.
+        let agent = MockAgent {
+            new_session_detaches: false,
+            ..MockAgent::new()
+        };
+        let (result, reply) = run_dispatch(&agent, "new", None).await;
+        assert!(result.unwrap());
+        let text = reply.unwrap();
+        assert!(
+            text.starts_with("Could not start a new session"),
+            "a failed detach must not be reported as a fresh session: {text}"
+        );
     }
 
     #[tokio::test]

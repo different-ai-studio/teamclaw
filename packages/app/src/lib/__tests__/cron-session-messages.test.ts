@@ -5,20 +5,36 @@ import { useSessionMessageStore } from "@/stores/session-message-store";
 const mocks = vi.hoisted(() => ({
   listMessages: vi.fn(),
   getSessionTeamId: vi.fn(),
+  listSessionDisplayRows: vi.fn(),
+  reloadAndSwitchTo: vi.fn(),
 }));
 
 vi.mock("@/lib/backend", () => ({
   getBackend: () => ({
     messages: { listMessages: mocks.listMessages },
-    sessions: { getSessionTeamId: mocks.getSessionTeamId },
+    sessions: {
+      getSessionTeamId: mocks.getSessionTeamId,
+      listSessionDisplayRows: mocks.listSessionDisplayRows,
+    },
   }),
+}));
+
+vi.mock("@/stores/current-team", () => ({
+  useCurrentTeamStore: {
+    getState: () => ({
+      team: { id: "team-1" },
+      reloadAndSwitchTo: mocks.reloadAndSwitchTo,
+    }),
+  },
 }));
 
 vi.mock("@/lib/utils", () => ({
   isTauri: () => false,
 }));
 
-import { hydrateCronSessionMessages } from "../cron-session-messages";
+import { ensureCronSessionVisible, hydrateCronSessionMessages } from "../cron-session-messages";
+import { isScheduledSession } from "../session-origin";
+import { useSessionListStore } from "@/stores/session-list-store";
 
 beforeEach(() => {
   vi.clearAllMocks();
@@ -68,5 +84,24 @@ describe("hydrateCronSessionMessages", () => {
     const stored = useSessionMessageStore.getState().messages.s1;
     expect(stored?.[0]?.content).toBe("北极熊笑话");
     expect(stored?.[0]?.messageId).toBe("cron-summary-run-1");
+  });
+});
+
+describe("ensureCronSessionVisible", () => {
+  beforeEach(() => {
+    useSessionListStore.setState({ rows: [] });
+    mocks.getSessionTeamId.mockResolvedValue("team-1");
+    mocks.listSessionDisplayRows.mockResolvedValue([{ id: "s-cron", title: "Cron: Test" }]);
+  });
+
+  it("marks the synthesised row as cron-origin so it lands in the 定时任务 view", async () => {
+    await ensureCronSessionVisible("s-cron");
+
+    const [row] = useSessionListStore.getState().rows;
+    expect(row?.id).toBe("s-cron");
+    expect(row?.source).toBe("cron");
+    // Both sidebar surfaces route through this predicate; without `source` the
+    // row would show up in the ordinary 会话 list instead.
+    expect(isScheduledSession(row!, new Set())).toBe(true);
   });
 });

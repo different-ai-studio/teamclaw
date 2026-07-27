@@ -5,11 +5,16 @@ import { useSessionSelectionStore } from "./session-selection-store";
 
 const EMPTY_MESSAGES: Message[] = [];
 
+/** `createdAt` is whole seconds, so a gateway user message and the agent reply
+ * written right after it routinely land in the same second. Do NOT tiebreak on
+ * `messageId`: a WeCom `msgid` vs. a random reply UUID compares arbitrarily and
+ * flips the pair. Ties fall back to the caller's order instead — `Array#sort`
+ * is stable and the insert below lands after equals, so server list order and
+ * MQTT arrival order (both correct) survive. */
 function compareProtoMessages(a: Message, b: Message): number {
   const ta = Number(a.createdAt) || 0;
   const tb = Number(b.createdAt) || 0;
-  if (ta !== tb) return ta - tb;
-  return (a.messageId || "").localeCompare(b.messageId || "");
+  return ta - tb;
 }
 
 function insertProtoMessageSorted(messages: Message[], message: Message): Message[] {
@@ -21,7 +26,8 @@ function insertProtoMessageSorted(messages: Message[], message: Message): Messag
   let hi = messages.length;
   while (lo < hi) {
     const mid = (lo + hi) >>> 1;
-    if (compareProtoMessages(messages[mid], message) < 0) lo = mid + 1;
+    // upper bound: a same-second message is appended after its peers, not before
+    if (compareProtoMessages(messages[mid], message) <= 0) lo = mid + 1;
     else hi = mid;
   }
   return [...messages.slice(0, lo), message, ...messages.slice(lo)];

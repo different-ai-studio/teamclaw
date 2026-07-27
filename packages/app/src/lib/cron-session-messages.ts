@@ -50,6 +50,13 @@ export async function ensureCronSessionVisible(sessionId: string): Promise<void>
       mode: "collab",
       idea_id: null,
       has_unread: false,
+      // Origin marker. Every caller of this function is a cron surface ("Run
+      // Now", run history's 查看对话), and the row we synthesise here is what
+      // the sidebar filters on until the next paginated reload replaces it.
+      // Without it the row reads as source=undefined, i.e. an ordinary chat:
+      // it lands in the 会话 list and is filtered OUT of the clock (定时任务)
+      // view — the opposite of both call sites' intent.
+      source: "cron",
       created_at: null,
       updated_at: null,
     },
