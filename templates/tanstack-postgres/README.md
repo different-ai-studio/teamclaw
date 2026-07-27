@@ -24,6 +24,7 @@ DATABASE_URL=postgres://... pnpm dev
 
 ## Build & run (production / FC)
 ```bash
+pnpm install --frozen-lockfile   # exact versions; the daemon builds this way
 pnpm build                       # emits .output/ (Nitro node-server preset)
 PORT=9000 DATABASE_URL=postgres://... node .output/server/index.mjs
 ```
@@ -60,5 +61,16 @@ Build notes:
   the daemon zips the whole `.output` tree, so the artifact is self-contained.
 - The generated `src/routeTree.gen.ts` is gitignored (created by the Start vite
   plugin on `dev`/`build`).
+
+Versions are **pinned exact** and `pnpm-lock.yaml` is committed. They used to be
+caret ranges, which drifted `@tanstack/react-start` onto a release that no longer
+exported the entrypoint the template imported — every app build broke without a
+single line of app code changing. Bump deliberately, re-verify the build, commit
+the new lockfile.
+
+> Inside the TeamClaw monorepo checkout, install with `pnpm install
+> --ignore-workspace` — otherwise pnpm walks up to the repo's
+> `pnpm-workspace.yaml` and installs against the wrong project. A seeded app
+> lives outside the repo, so the daemon does not need the flag.
 
 The authoritative deploy is verified live on FC by the deploy gate (M4-T12).

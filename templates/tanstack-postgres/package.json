@@ -7,18 +7,19 @@
     "build": "vite build",
     "start": "node .output/server/index.mjs"
   },
+  "//": "Versions are pinned exact and pnpm-lock.yaml is committed on purpose: the daemon builds this tree with `pnpm install --frozen-lockfile` before deploying to FC. A floating range once drifted @tanstack/react-start onto a release that dropped the entrypoint the template used, which broke every app build.",
   "dependencies": {
-    "@tanstack/react-router": "^1.168.0",
-    "@tanstack/react-start": "^1.168.0",
-    "postgres": "^3.4.5",
-    "react": "^19.0.0",
-    "react-dom": "^19.0.0"
+    "@tanstack/react-router": "1.170.18",
+    "@tanstack/react-start": "1.168.32",
+    "postgres": "3.4.9",
+    "react": "19.2.8",
+    "react-dom": "19.2.8"
   },
   "devDependencies": {
-    "@tanstack/nitro-v2-vite-plugin": "^1.155.0",
-    "@vitejs/plugin-react": "^4.3.4",
-    "typescript": "^5.7.2",
-    "vite": "^6.0.0",
-    "vite-tsconfig-paths": "^5.1.4"
+    "@tanstack/nitro-v2-vite-plugin": "1.155.0",
+    "@vitejs/plugin-react": "4.7.0",
+    "typescript": "5.9.3",
+    "vite": "6.4.3",
+    "vite-tsconfig-paths": "5.1.4"
   }
 }

@@ -50,8 +50,12 @@ fn run(cmd: &str, args: &[&str], cwd: &Path) -> anyhow::Result<()> {
 }
 
 /// Run `pnpm install` then `pnpm build` in `workdir`, then zip the `.output` dir.
+///
+/// The install is `--frozen-lockfile`: the app template ships a committed
+/// `pnpm-lock.yaml` with exact versions, and resolving fresh here would let a
+/// new upstream release break the build of an app whose own code never changed.
 pub fn build_artifact(workdir: &Path) -> anyhow::Result<Vec<u8>> {
-    run("pnpm", &["install"], workdir)?;
+    run("pnpm", &["install", "--frozen-lockfile"], workdir)?;
     run("pnpm", &["build"], workdir)?;
     zip_dir(&workdir.join(".output"))
 }
