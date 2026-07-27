@@ -6,6 +6,7 @@ import {
   RuntimeLifecycle,
 } from '@/lib/proto/amux_pb'
 import {
+  agentHasLiveRuntimeForSessionBinding,
   agentsHaveLiveRuntimeModels,
   isRuntimeEnsureWakeReason,
   recordRuntimeEnsureAttempt,
@@ -54,9 +55,45 @@ describe('runtime-ensure-scheduler', () => {
     expect(isRuntimeEnsureWakeReason('session_create')).toBe(false)
     expect(isRuntimeEnsureWakeReason('outbox_send')).toBe(false)
     expect(isRuntimeEnsureWakeReason('offline_banner_retry')).toBe(false)
+    expect(isRuntimeEnsureWakeReason('mention_pill')).toBe(false)
   })
 
-  it('skips wake ensures when ACTIVE retain already has models', () => {
+  it('skips wake ensures only when THIS session binding is ACTIVE with models', () => {
+    useRuntimeStateStore.getState().upsert(
+      'rt-session',
+      'agent-1',
+      create(RuntimeInfoSchema, {
+        runtimeId: 'rt-session',
+        state: RuntimeLifecycle.ACTIVE,
+        status: AgentStatus.IDLE,
+        availableModels: [{ id: 'm1', displayName: 'Model 1' }],
+      }),
+    )
+    const map = new Map([['agent-1', 'rt-session']])
+    expect(agentsHaveLiveRuntimeModels(['agent-1'], map)).toBe(true)
+    expect(shouldSkipAlreadyReadyRuntimeEnsure(['agent-1'], 'session_focus', map)).toBe(true)
+    expect(shouldSkipAlreadyReadyRuntimeEnsure(['agent-1'], 'session_create', map)).toBe(false)
+  })
+
+  it('does not skip when session binding is missing even if another spawn is live', () => {
+    useRuntimeStateStore.getState().upsert(
+      'rt-other-session',
+      'agent-1',
+      create(RuntimeInfoSchema, {
+        runtimeId: 'rt-other-session',
+        state: RuntimeLifecycle.ACTIVE,
+        status: AgentStatus.IDLE,
+        availableModels: [{ id: 'm1', displayName: 'Model 1' }],
+      }),
+    )
+    // Stale binding for this session — not present / not live in retain.
+    const map = new Map([['agent-1', 'rt-stale']])
+    expect(agentHasLiveRuntimeForSessionBinding('agent-1', 'rt-stale')).toBe(false)
+    expect(agentsHaveLiveRuntimeModels(['agent-1'], map)).toBe(false)
+    expect(shouldSkipAlreadyReadyRuntimeEnsure(['agent-1'], 'session_focus', map)).toBe(false)
+  })
+
+  it('does not skip wake ensures without a session binding map', () => {
     useRuntimeStateStore.getState().upsert(
       'rt-1',
       'agent-1',
@@ -67,12 +104,11 @@ describe('runtime-ensure-scheduler', () => {
         availableModels: [{ id: 'm1', displayName: 'Model 1' }],
       }),
     )
-    expect(agentsHaveLiveRuntimeModels(['agent-1'])).toBe(true)
-    expect(shouldSkipAlreadyReadyRuntimeEnsure(['agent-1'], 'session_focus')).toBe(true)
-    expect(shouldSkipAlreadyReadyRuntimeEnsure(['agent-1'], 'session_create')).toBe(false)
+    expect(agentsHaveLiveRuntimeModels(['agent-1'])).toBe(false)
+    expect(shouldSkipAlreadyReadyRuntimeEnsure(['agent-1'], 'session_focus')).toBe(false)
   })
 
-  it('does not skip wake ensures when models are missing', () => {
+  it('does not skip wake ensures when session binding has no models', () => {
     useRuntimeStateStore.getState().upsert(
       'rt-1',
       'agent-1',
@@ -83,6 +119,7 @@ describe('runtime-ensure-scheduler', () => {
         availableModels: [],
       }),
     )
-    expect(shouldSkipAlreadyReadyRuntimeEnsure(['agent-1'], 'session_focus')).toBe(false)
+    const map = new Map([['agent-1', 'rt-1']])
+    expect(shouldSkipAlreadyReadyRuntimeEnsure(['agent-1'], 'session_focus', map)).toBe(false)
   })
 })

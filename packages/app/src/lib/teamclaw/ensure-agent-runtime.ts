@@ -16,6 +16,7 @@ import { resolveRuntimeStateEntryForAgent } from "@/lib/runtime-state-resolve";
 import { resolveSessionWorkspaceHintForRuntimeStart } from "@/lib/teamclaw/resolve-runtime-start-workspace";
 import {
   recordRuntimeEnsureAttempt,
+  isRuntimeEnsureWakeReason,
   shouldSkipAlreadyReadyRuntimeEnsure,
 } from "@/lib/teamclaw/runtime-ensure-scheduler";
 import {
@@ -128,6 +129,11 @@ export type EnsureAgentRuntimeArgs = {
   /** Cloud workspace UUID captured at send time — passed through to runtimeStart. */
   workspaceIdHint?: string;
   reason?: string;
+  /**
+   * Session-scoped agent → runtime_id bindings. Wake/skip uses these so a
+   * live spawn on another session cannot suppress ensure for this session.
+   */
+  sessionRuntimeByAgent?: ReadonlyMap<string, string>;
 };
 
 export type EnsureRuntimeThenSetModelArgs = {
@@ -248,9 +254,10 @@ export async function ensureRuntimeThenSetModel(
  * Idempotent: ensure session live subscription, session membership, and
  * daemon runtimeStart for each agent. Safe to call on @-mention and on send.
  *
- * Wake/focus/reconnect reasons skip when MQTT retains already show ACTIVE
- * runtimes with models (`shouldSkipAlreadyReadyRuntimeEnsure`). Create/send
- * paths always proceed so a new session can bind.
+ * Wake/focus/reconnect reasons skip only when THIS session's bound spawn is
+ * already ACTIVE with models. Create/send paths always proceed so a new
+ * session can bind. When the caller omits sessionRuntimeByAgent on a wake
+ * path, we load runtime-targets before deciding to skip.
  */
 export async function ensureAgentRuntimesForSession(args: EnsureAgentRuntimeArgs): Promise<void> {
   const agentActorIds = [...new Set(args.agentActorIds.map((id) => id.trim()).filter(Boolean))];
@@ -258,7 +265,34 @@ export async function ensureAgentRuntimesForSession(args: EnsureAgentRuntimeArgs
 
   const key = `${args.sessionId}::${agentActorIds.slice().sort().join(",")}`;
   const reason = args.reason ?? "unknown";
-  if (shouldSkipAlreadyReadyRuntimeEnsure(agentActorIds, reason)) {
+
+  let sessionRuntimeByAgent = args.sessionRuntimeByAgent;
+  if (!sessionRuntimeByAgent && isRuntimeEnsureWakeReason(reason)) {
+    try {
+      const rows = await getBackend().runtime.listRuntimeTargetsForSession(
+        args.sessionId,
+        agentActorIds,
+      );
+      const map = new Map<string, string>();
+      for (const row of rows) {
+        const agentId = row.agent_id?.trim();
+        const runtimeId = row.runtime_id?.trim();
+        if (agentId && runtimeId && !map.has(agentId)) {
+          map.set(agentId, runtimeId);
+        }
+      }
+      sessionRuntimeByAgent = map;
+    } catch (error) {
+      sessionFlowError("ensure_agent_runtime.runtime_targets_failed", error, {
+        sessionId: args.sessionId,
+        reason,
+      });
+      // Fail open: without bindings we must not skip on a global-live guess.
+      sessionRuntimeByAgent = new Map();
+    }
+  }
+
+  if (shouldSkipAlreadyReadyRuntimeEnsure(agentActorIds, reason, sessionRuntimeByAgent)) {
     sessionFlowLog("ensure_agent_runtime.skip_already_ready", {
       sessionId: args.sessionId,
       teamId: args.teamId,

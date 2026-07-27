@@ -1,11 +1,10 @@
 import { RuntimeLifecycle } from '@/lib/proto/amux_pb'
-import { resolveRuntimeStateEntryForAgent } from '@/lib/runtime-state-resolve'
 import { useRuntimeStateStore } from '@/stores/runtime-state-store'
 
 export const RUNTIME_ENSURE_MIN_INTERVAL_MS = 3_000
 
 /**
- * Wake/recover paths — skip when MQTT retain already shows a live runtime.
+ * Wake/recover paths — skip when THIS SESSION's bound spawn is already live.
  * Bind paths (session_create / outbox_send / mention_pill) always proceed.
  * offline_banner_retry is excluded: user asked to retry despite retain ghosts.
  */
@@ -27,30 +26,71 @@ export function isRuntimeEnsureWakeReason(reason: string): boolean {
   return RUNTIME_ENSURE_WAKE_REASONS.has(reason)
 }
 
-/** True when every agent already has an ACTIVE runtime retain with models. */
-export function agentsHaveLiveRuntimeModels(agentActorIds: string[]): boolean {
-  if (agentActorIds.length === 0) return false
+/**
+ * True when the session-registered spawn for this agent is ACTIVE with models.
+ * Looks up retain by the session binding id only — never falls through to
+ * "any live retain for the agent" (that caused Connecting stuck on stale
+ * session rows while another session still had a live spawn).
+ */
+export function agentHasLiveRuntimeForSessionBinding(
+  agentActorId: string,
+  sessionRuntimeId: string | null | undefined,
+): boolean {
+  const agentId = agentActorId.trim()
+  const spawnId = sessionRuntimeId?.trim() ?? ''
+  if (!agentId || !spawnId) return false
+
   const byRuntimeId = useRuntimeStateStore.getState().byRuntimeId
-  return agentActorIds.every((agentActorId) => {
-    const entry = resolveRuntimeStateEntryForAgent(agentActorId, byRuntimeId)
-    return (
-      !!entry &&
-      entry.info.state === RuntimeLifecycle.ACTIVE &&
-      entry.info.availableModels.length > 0
-    )
-  })
+  const entry = byRuntimeId[spawnId]
+  if (!entry) return false
+  if (entry.daemonActorId !== agentId && entry.info.runtimeId !== agentId) {
+    return false
+  }
+  return (
+    entry.info.state === RuntimeLifecycle.ACTIVE &&
+    entry.info.availableModels.length > 0
+  )
+}
+
+function runtimeIdFromSessionMap(
+  agentActorId: string,
+  sessionRuntimeByAgent?: ReadonlyMap<string, string> | null,
+): string | undefined {
+  if (!sessionRuntimeByAgent) return undefined
+  return sessionRuntimeByAgent.get(agentActorId)?.trim() || undefined
 }
 
 /**
- * Skip redundant runtimeStart on focus/reconnect/retry when retains already
- * show live runtimes. Never skip create/send paths — those bind a new session.
+ * True when every agent already has an ACTIVE retain+models for THIS session's
+ * binding. When `sessionRuntimeByAgent` is omitted, returns false so wake
+ * paths never skip on a global-live guess (callers should pass the map).
+ */
+export function agentsHaveLiveRuntimeModels(
+  agentActorIds: string[],
+  sessionRuntimeByAgent?: ReadonlyMap<string, string> | null,
+): boolean {
+  if (agentActorIds.length === 0) return false
+  if (!sessionRuntimeByAgent) return false
+  return agentActorIds.every((agentActorId) =>
+    agentHasLiveRuntimeForSessionBinding(
+      agentActorId,
+      runtimeIdFromSessionMap(agentActorId, sessionRuntimeByAgent),
+    ),
+  )
+}
+
+/**
+ * Skip redundant runtimeStart on focus/reconnect/retry when THIS session's
+ * bound spawn is already live. Never skip create/send paths. Never skip
+ * without a session binding map — global live retain is not enough.
  */
 export function shouldSkipAlreadyReadyRuntimeEnsure(
   agentActorIds: string[],
   reason: string,
+  sessionRuntimeByAgent?: ReadonlyMap<string, string> | null,
 ): boolean {
   if (!isRuntimeEnsureWakeReason(reason)) return false
-  return agentsHaveLiveRuntimeModels(agentActorIds)
+  return agentsHaveLiveRuntimeModels(agentActorIds, sessionRuntimeByAgent)
 }
 
 /** Returns true when a recent runtime-start attempt for the same session+agents should be skipped. */
