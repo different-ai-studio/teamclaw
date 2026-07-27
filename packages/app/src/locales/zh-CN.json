@@ -583,6 +583,8 @@
       "stoppedTitle": "已停止",
       "stoppedBody": "你已打断本次回复。",
       "stoppedHint": "已生成的内容会保留；可以继续提问。",
+      "interruptedStatusLabel": "中断",
+      "agentReplyBodyKept": "你已打断本次回复。已生成的内容会保留。",
       "dismiss": "知道了"
     },
     "acpDebug": {

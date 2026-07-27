@@ -52,25 +52,31 @@ export function adaptTeamclawMessageToSdk(m: TeamclawMessage): SdkMessage {
   const mentionDeliverySnapshot = parseMentionDeliverySnapshot(m);
   const replyTo = m.replyToMessageId?.trim() || undefined;
   const turnId = m.turnId?.trim() || undefined;
+  const interrupted = isInterruptedReply(m);
   return {
     id: m.messageId,
     sessionId: m.sessionId,
     senderActorId: m.senderActorId,
     role: kindToRole(m.kind),
-    content: m.content,
+    // Hide agent-facing interrupt instruction from the bubble; ChatMessage
+    // renders a localized strip when turnStatus is interrupted.
+    content: interrupted ? "" : m.content,
     mentionActorIds,
     mentionDeliverySnapshot,
     modelID: m.model || undefined,
     replyToMessageId: replyTo,
     turnId,
-    parts: [
-      {
-        id: `${m.messageId}-p0`,
-        type: "text",
-        text: m.content,
-        content: m.content,
-      },
-    ],
+    turnStatus: interrupted ? "interrupted" : undefined,
+    parts: interrupted
+      ? []
+      : [
+          {
+            id: `${m.messageId}-p0`,
+            type: "text",
+            text: m.content,
+            content: m.content,
+          },
+        ],
     toolCalls: [],
     timestamp: new Date(Number(m.createdAt) * 1000),
   };
@@ -82,6 +88,16 @@ function parseMetadata(m: TeamclawMessage): Record<string, unknown> {
   } catch {
     return {};
   }
+}
+
+function isInterruptedReply(m: TeamclawMessage): boolean {
+  return parseMetadata(m).turn_status === "interrupted";
+}
+
+function turnStatusFromReplies(
+  replies: TeamclawMessage[],
+): "interrupted" | undefined {
+  return replies.some(isInterruptedReply) ? "interrupted" : undefined;
 }
 
 function parseDisplayMentionActorIds(m: TeamclawMessage): string[] {
@@ -372,10 +388,15 @@ function buildTurnSdkMessage(group: TeamclawMessage[]): SdkMessage {
     uniqueReplies.push(reply);
     uniqueReplyIds.add(reply.messageId);
   }
-  const replyText = uniqueReplies.map((r) => r.content).join("\n\n");
+  const turnStatus = turnStatusFromReplies(uniqueReplies);
+  const visibleReplies = uniqueReplies.filter((r) => !isInterruptedReply(r));
+  const replyText = visibleReplies.map((r) => r.content).join("\n\n");
   const thinkingText = thinking.map((t) => t.content).join("\n");
 
-  const groupId = uniqueReplies[0]?.messageId ?? group[0].messageId;
+  const groupId =
+    visibleReplies[0]?.messageId ??
+    uniqueReplies[0]?.messageId ??
+    group[0].messageId;
   const repliesWithParts = uniqueReplies.filter((reply) => partsJson(reply).trim());
   const mergedPersistedParts =
     repliesWithParts.length > 1
@@ -385,7 +406,9 @@ function buildTurnSdkMessage(group: TeamclawMessage[]): SdkMessage {
         : [];
 
   if (mergedPersistedParts.length > 0) {
-    const canonicalReply = uniqueReplies[uniqueReplies.length - 1]!;
+    const canonicalReply =
+      visibleReplies[visibleReplies.length - 1] ??
+      uniqueReplies[uniqueReplies.length - 1]!;
     const canonicalToolCalls = mergedPersistedParts
       .filter((part) => part.type === "tool-call" && part.toolCall)
       .map((part) => part.toolCall!);
@@ -405,11 +428,14 @@ function buildTurnSdkMessage(group: TeamclawMessage[]): SdkMessage {
       toolCalls: canonicalToolCalls,
       replyToMessageId: firstNonEmptyReplyToMessageId(group),
       turnId: group[0]?.turnId?.trim() || undefined,
+      turnStatus,
       timestamp: new Date(Number(group[0].createdAt) * 1000),
     };
   }
 
-  const canonicalReply = [...uniqueReplies].reverse().find((reply) => partsJson(reply));
+  const canonicalReply = [...visibleReplies]
+    .reverse()
+    .find((reply) => partsJson(reply));
   if (canonicalReply) {
     const canonicalParts = parsePartsJson(partsJson(canonicalReply));
     if (canonicalParts.length > 0) {
@@ -431,12 +457,13 @@ function buildTurnSdkMessage(group: TeamclawMessage[]): SdkMessage {
         sessionId: canonicalReply.sessionId,
         senderActorId: canonicalReply.senderActorId,
         role: "assistant",
-        content: canonicalText || canonicalReply.content || replyText,
+        content: canonicalText || replyText,
         modelID: canonicalModelID,
         parts: canonicalParts,
         toolCalls: canonicalToolCalls,
         replyToMessageId: firstNonEmptyReplyToMessageId(group),
         turnId: group[0]?.turnId?.trim() || undefined,
+        turnStatus,
         timestamp: new Date(Number(group[0].createdAt) * 1000),
       };
     }
@@ -455,7 +482,7 @@ function buildTurnSdkMessage(group: TeamclawMessage[]): SdkMessage {
     let textPartIndex = 0;
     for (const item of group) {
       if (item.kind === MessageKind.AGENT_REPLY && uniqueReplyIds.has(item.messageId)) {
-        if (!item.content) continue;
+        if (!item.content || isInterruptedReply(item)) continue;
         parts.push({
           id: `${item.messageId}-p${textPartIndex++}`,
           type: "text",
@@ -473,7 +500,7 @@ function buildTurnSdkMessage(group: TeamclawMessage[]): SdkMessage {
         });
       }
     }
-  } else {
+  } else if (replyText) {
     parts.push({
       id: `${groupId}-p0`,
       type: "text",
@@ -500,6 +527,7 @@ function buildTurnSdkMessage(group: TeamclawMessage[]): SdkMessage {
     toolCalls,
     replyToMessageId: firstNonEmptyReplyToMessageId(group),
     turnId: group[0]?.turnId?.trim() || undefined,
+    turnStatus,
     timestamp: new Date(Number(group[0].createdAt) * 1000),
   };
 }

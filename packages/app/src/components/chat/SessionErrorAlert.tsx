@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { AlertCircle, ChevronDown, ChevronUp, RefreshCw, AlertTriangle, ShieldAlert, Timer, Copy, Check, Square } from 'lucide-react'
+import { AlertCircle, ChevronDown, ChevronUp, RefreshCw, AlertTriangle, ShieldAlert, Timer, Copy, Check } from 'lucide-react'
 import { useTranslation } from 'react-i18next'
 import { copyToClipboard } from '@/lib/utils'
 import {
@@ -53,44 +53,9 @@ export function SessionErrorAlert({ error, onDismiss, onRetry }: SessionErrorAle
     isAgentTurnAbortError(errorMessage)
 
   if (isInterrupted) {
-    return (
-      <div
-        className="flex justify-start mb-1.5 animate-in fade-in slide-in-from-bottom-1 duration-300"
-        data-testid="session-interrupt-notice"
-      >
-        <div className="max-w-[85%] min-w-0">
-          <div className="flex items-center gap-2 mb-1.5 pl-1">
-            <div className="flex h-6 w-6 items-center justify-center rounded-full bg-panel text-muted-foreground">
-              <Square className="h-3 w-3 fill-current" />
-            </div>
-            <span className="text-xs font-semibold text-ink-2">
-              {t('chat.interrupt.stoppedTitle', '已停止')}
-            </span>
-          </div>
-
-          <div className="rounded-2xl border border-border bg-paper px-4 py-3">
-            <p className="text-[13px] leading-relaxed text-ink-2 break-words [overflow-wrap:anywhere]">
-              {t('chat.interrupt.stoppedBody', '你已打断本次回复。')}
-            </p>
-            <p className="mt-1 text-[12px] leading-relaxed text-muted-foreground">
-              {t('chat.interrupt.stoppedHint', '已生成的内容会保留；可以继续提问。')}
-            </p>
-          </div>
-
-          {onDismiss ? (
-            <div className="flex items-center gap-1 mt-1.5 pl-1">
-              <button
-                type="button"
-                onClick={onDismiss}
-                className="inline-flex items-center gap-1 rounded-md px-2 py-1 text-[11px] text-muted-foreground hover:text-foreground hover:bg-muted transition-colors"
-              >
-                {t('chat.interrupt.dismiss', '知道了')}
-              </button>
-            </div>
-          ) : null}
-        </div>
-      </div>
-    )
+    // Interrupted turns render via ChatMessage (metadata.turn_status).
+    // Do not show a second thread-level stop banner.
+    return null
   }
 
   if (!errorMessage && !errorName) return null
