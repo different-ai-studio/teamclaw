@@ -144,3 +144,36 @@ test("applyNameToExtensionManifest falls back to app.name when displayName is un
   assert.strictEqual(changed, true);
   assert.strictEqual(manifest.name, "TeamClaw");
 });
+
+// Regression: the name was branded but the description was not, so the
+// "Copilot 361" package reached review still describing itself as TeamClaw.
+test("applyNameToExtensionManifest brands the description from extension.description", () => {
+  const manifest = { name: "TeamClaw", description: "TeamClaw sidebar", action: { default_title: "TeamClaw" } };
+  const changed = applyNameToExtensionManifest(manifest, {
+    app: { name: "Acme" },
+    extension: { description: "Acme sidebar" },
+  });
+  assert.strictEqual(changed, true);
+  assert.strictEqual(manifest.name, "Acme");
+  assert.strictEqual(manifest.description, "Acme sidebar");
+});
+
+test("applyNameToExtensionManifest accepts the canonical extensions.description too", () => {
+  const manifest = { name: "TeamClaw", description: "old" };
+  applyNameToExtensionManifest(manifest, { app: { name: "Acme" }, extensions: { description: "new" } });
+  assert.strictEqual(manifest.description, "new");
+});
+
+test("applyNameToExtensionManifest leaves the description alone when the brand sets none", () => {
+  const manifest = { name: "TeamClaw", description: "kept" };
+  applyNameToExtensionManifest(manifest, { app: { name: "Acme" } });
+  assert.strictEqual(manifest.description, "kept");
+});
+
+test("applyNameToExtensionManifest rejects a description Chrome would refuse", () => {
+  const manifest = { name: "TeamClaw", description: "short" };
+  assert.throws(
+    () => applyNameToExtensionManifest(manifest, { extension: { description: "x".repeat(133) } }),
+    /at most 132/
+  );
+});

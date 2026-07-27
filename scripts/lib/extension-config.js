@@ -3,6 +3,13 @@
 /**
  * Chrome extension pack options from `build.config*.json` → `extensions`.
  * No CLI / env overrides — config file is the only source.
+ *
+ * Two spellings reach this module and both must work. The repo's own configs
+ * (build.config.example.json) use `extensions.domains`; every brand in the
+ * enterprise-branding repo uses `extension.hosts`. Until this was reconciled,
+ * `extension.hosts` parsed to nothing, so brands that meant to scope the
+ * extension to a handful of domains silently shipped `<all_urls>` instead.
+ * `resolveExtensionPack` is the single entry point that accepts either.
  */
 
 function asStringList(raw) {
@@ -48,7 +55,7 @@ function toChromeMatchPattern(raw) {
 
 function parseExtensionsConfig(raw) {
   const row = raw && typeof raw === 'object' ? raw : {}
-  const domainsRaw = asStringList(row.domains)
+  const domainsRaw = [...asStringList(row.domains), ...asStringList(row.hosts)]
   const domains = []
   const seen = new Set()
   for (const item of domainsRaw) {
@@ -77,6 +84,35 @@ function parseExtensionsConfig(raw) {
   }
 }
 
+/**
+ * Resolve the extension pack from a whole merged build config, accepting both
+ * the `extensions` (repo) and `extension` (branding repo) blocks. When both are
+ * present the canonical `extensions` block wins on scalars and settings, while
+ * host lists from either spelling are unioned — a brand that adds `extension.hosts`
+ * on top of a repo default should widen the allowlist, not silently replace it.
+ */
+function resolveExtensionPack(buildConfig) {
+  const cfg = buildConfig && typeof buildConfig === 'object' ? buildConfig : {}
+  const canonical = cfg.extensions && typeof cfg.extensions === 'object' ? cfg.extensions : {}
+  const alias = cfg.extension && typeof cfg.extension === 'object' ? cfg.extension : {}
+
+  return parseExtensionsConfig({
+    ...alias,
+    ...canonical,
+    domains: [
+      ...asStringList(canonical.domains),
+      ...asStringList(canonical.hosts),
+      ...asStringList(alias.domains),
+      ...asStringList(alias.hosts),
+    ],
+    solo: canonical.solo === true || alias.solo === true,
+    settings: {
+      ...(alias.settings && typeof alias.settings === 'object' ? alias.settings : {}),
+      ...(canonical.settings && typeof canonical.settings === 'object' ? canonical.settings : {}),
+    },
+  })
+}
+
 function domainsToChromeMatchPatterns(domains) {
   const out = []
   const seen = new Set()
@@ -95,6 +131,7 @@ function domainsToSidePanelCsv(domains) {
 
 module.exports = {
   parseExtensionsConfig,
+  resolveExtensionPack,
   toSidePanelDomain,
   toChromeMatchPattern,
   domainsToChromeMatchPatterns,
