@@ -11,7 +11,7 @@ use super::refresh::RuntimeRefreshCoordinator;
 use std::sync::Arc;
 
 use crate::backend::{AgentRuntimeUpsert, Backend};
-use crate::config::DaemonConfig;
+use crate::config::{DaemonConfig, ModelMru};
 use crate::proto::amux;
 use crate::runtime::acp_event_frame::AcpEventFrame;
 use crate::runtime::turn_aggregator::TurnAggregator;
@@ -188,6 +188,14 @@ pub struct RuntimeManager {
     /// Daemon-side mirror of per-agent ACP state (current model + last-announced
     /// slash commands) used to populate `RuntimeInfo`. See `agent_runtime_state`.
     agent_state: PerAgentRuntimeState,
+    /// Recently-used models for this device, newest first. Consulted when a
+    /// runtime starts without a more specific pick, so gateway and cron
+    /// sessions inherit the same default the desktop has been using instead of
+    /// each surface guessing on its own. See `config::model_mru`.
+    model_mru: ModelMru,
+    /// Where [`Self::model_mru`] is persisted. Split out so tests can point at
+    /// a tempdir instead of the real config directory.
+    model_mru_path: PathBuf,
     backend: Option<Arc<dyn Backend>>,
     /// agent_ids that were stopped by the idle sweeper and still need their
     /// terminal `runtime/{id}/state` publish + retain clear. Drained by the
@@ -251,6 +259,15 @@ impl RuntimeManager {
         launch_configs: HashMap<amux::AgentType, AgentLaunchConfig>,
         backend: Option<Arc<dyn Backend>>,
     ) -> Self {
+        // Tests must never write into the developer's real `~/.amuxd`, but
+        // should still exercise the record-and-save path, so give each manager
+        // its own throwaway file instead of stubbing the store out.
+        #[cfg(test)]
+        let model_mru_path = std::env::temp_dir()
+            .join("amuxd-test-model-mru")
+            .join(format!("{}.toml", Uuid::new_v4()));
+        #[cfg(not(test))]
+        let model_mru_path = ModelMru::default_path();
         Self {
             agents: HashMap::new(),
             aggregators: std::collections::HashMap::new(),
@@ -258,6 +275,8 @@ impl RuntimeManager {
             agent_backend: create_backend(local_agent),
             opencode_snapshots: HashMap::new(),
             agent_state: PerAgentRuntimeState::new(),
+            model_mru: ModelMru::load(&model_mru_path),
+            model_mru_path,
             backend,
             refresh_coordinator: None,
             evicted_pending_publish: Vec::new(),
@@ -356,10 +375,80 @@ impl RuntimeManager {
     }
 
     /// Records that an agent's session is now running on `model_id`.
-    /// Caller is responsible for actually invoking ACP set_model on the
-    /// adapter; this only updates the tracking map.
+    /// Caller is responsible for actually invoking set_model on the backend;
+    /// this only updates the tracking map.
+    ///
+    /// Doubles as the single write point for the device MRU: every surface
+    /// that settles on a model — desktop picker, gateway `/model`, cron, and
+    /// the resolution done at attach — funnels through here, so recording at
+    /// this one spot keeps the shared list honest without scattering writes.
+    ///
+    /// Recorded under the runtime's backend, since model ids only mean
+    /// anything within one (see `config::model_mru`). A runtime that has
+    /// already been dropped from `agents` falls back to the daemon default,
+    /// which is the backend it would have been running on.
     pub fn set_current_model(&mut self, agent_id: &str, model_id: &str) {
         self.agent_state.set_model(agent_id, model_id);
+        let backend = self.backend_id_for_runtime(agent_id);
+        if self.model_mru.record(backend, model_id) {
+            if let Err(e) = self.model_mru.save(&self.model_mru_path) {
+                // A lost preference is not worth failing a runtime start over.
+                warn!(error = %e, "model MRU save failed");
+            }
+        }
+    }
+
+    /// Ask the backend what model it actually ran this runtime's session on,
+    /// and fold the answer into the device MRU.
+    ///
+    /// Closes the loop opened by starting runtimes unpinned: when nothing was
+    /// chosen we hand the decision to the backend, so without asking afterwards
+    /// the MRU on a fresh install would stay empty forever and every surface
+    /// would keep falling through to the backend's default. Call once a turn
+    /// has completed — before that the backend has not settled on anything.
+    ///
+    /// No-op when the backend cannot report a model, or when it reports one we
+    /// already have at the front.
+    pub async fn learn_session_model(&mut self, agent_id: &str) {
+        let Some((worktree, backend_session_id)) = self
+            .agents
+            .get(agent_id)
+            .map(|h| (h.worktree.clone(), h.acp_session_id.clone()))
+        else {
+            return;
+        };
+        if backend_session_id.is_empty() {
+            return;
+        }
+        let backend = self.backend_id_for_runtime(agent_id);
+        if self
+            .model_mru
+            .recent_for(backend)
+            .first()
+            .is_some_and(|current| self.agent_state.model(agent_id) == Some(current))
+        {
+            // Already the front entry for this backend and this runtime's
+            // tracked model — nothing to learn, skip the round trip.
+            return;
+        }
+        let Some(model_id) = self
+            .agent_backend
+            .session_model(&worktree, &backend_session_id)
+            .await
+        else {
+            return;
+        };
+        self.set_current_model(agent_id, &model_id);
+    }
+
+    /// Canonical backend id (`"opencode"` / `"pi"`) a runtime runs on.
+    fn backend_id_for_runtime(&self, agent_id: &str) -> &'static str {
+        let agent_type = self
+            .agents
+            .get(agent_id)
+            .map(|h| h.agent_type)
+            .unwrap_or_else(|| self.default_agent_type());
+        self.launch_config_for(agent_type).backend_type
     }
 
     /// Returns the model id last recorded for `agent_id`, if any.
@@ -459,6 +548,7 @@ impl RuntimeManager {
                 resume_acp_session_id,
                 mcp_config_path,
                 initial_model_override.clone(),
+                self.model_mru.recent_for(launch.backend_type).to_vec(),
                 prompt.to_string(),
                 handle.event_tx.clone(),
                 is_gateway,
@@ -629,6 +719,7 @@ impl RuntimeManager {
                 Some(acp_session_id.to_string()),
                 mcp_config_path,
                 None,
+                self.model_mru.recent_for(launch.backend_type).to_vec(),
                 prompt.to_string(),
                 handle.event_tx.clone(),
                 is_gateway,
@@ -1371,6 +1462,160 @@ mod tests {
             mgr.current_model("agent-1").map(|s| s.as_str()),
             Some("claude-sonnet-4-6")
         );
+    }
+
+    /// A backend that reports a fixed `session_model` and nothing else, for
+    /// exercising the "learn what the backend chose" path without a process.
+    struct StubBackend {
+        session_model: Option<String>,
+    }
+
+    #[async_trait::async_trait]
+    impl AgentBackend for StubBackend {
+        async fn attach_session(
+            &mut self,
+            _agent_type: amux::AgentType,
+            _launch: &AgentLaunchConfig,
+            _extra_env: HashMap<String, String>,
+            _force_env_override: bool,
+            _worktree: String,
+            _resume_acp_session_id: Option<String>,
+            _mcp_config_path: Option<PathBuf>,
+            _initial_model_override: Option<String>,
+            _model_mru: Vec<String>,
+            _initial_prompt: String,
+            _event_tx: mpsc::Sender<AcpEventFrame>,
+            _is_gateway: bool,
+            _forbid_new_session_fallback: bool,
+        ) -> crate::error::Result<(
+            mpsc::Sender<super::super::backend::AcpCommand>,
+            super::super::backend::AcpStartupMetadata,
+        )> {
+            Err(crate::error::AmuxError::Agent("stub".into()))
+        }
+        async fn prewarm(&mut self, _c: &HashMap<amux::AgentType, AgentLaunchConfig>) {}
+        async fn prewarm_with_env(
+            &mut self,
+            _c: &HashMap<amux::AgentType, AgentLaunchConfig>,
+            _e: HashMap<String, String>,
+            _f: bool,
+            _w: Option<&str>,
+        ) {
+        }
+        fn evict_agent_types(&mut self, _t: &[amux::AgentType]) -> usize {
+            0
+        }
+        fn host_count(&self) -> usize {
+            0
+        }
+        async fn model_catalog(
+            &mut self,
+            _workspace_path: &std::path::Path,
+        ) -> crate::error::Result<Vec<amux::ModelInfo>> {
+            Ok(Vec::new())
+        }
+        async fn session_model(&mut self, _w: &str, _s: &str) -> Option<String> {
+            self.session_model.clone()
+        }
+    }
+
+    fn mgr_with_stub_runtime(session_model: Option<&str>) -> RuntimeManager {
+        let mut mgr = RuntimeManager::test_dummy_with_runtime("rt-1");
+        mgr.agent_backend = Box::new(StubBackend {
+            session_model: session_model.map(str::to_string),
+        });
+        if let Some(h) = mgr.agents.get_mut("rt-1") {
+            h.acp_session_id = "ses_stub".to_string();
+            h.worktree = "/tmp/ws".to_string();
+        }
+        mgr
+    }
+
+    #[tokio::test]
+    async fn learn_session_model_seeds_an_empty_mru() {
+        // The cold-start case: nothing was pinned, so the backend picked on its
+        // own. Until we ask, the device has no idea what it has been running.
+        let mut mgr = mgr_with_stub_runtime(Some("opencode/big-pickle"));
+        let backend = test_backend_id(&mgr);
+        assert!(mgr.model_mru.recent_for(backend).is_empty());
+
+        mgr.learn_session_model("rt-1").await;
+
+        assert_eq!(
+            mgr.model_mru.recent_for(backend),
+            ["opencode/big-pickle".to_string()]
+        );
+        let _ = std::fs::remove_file(&mgr.model_mru_path);
+    }
+
+    #[tokio::test]
+    async fn learn_session_model_is_a_noop_when_the_backend_reports_nothing() {
+        let mut mgr = mgr_with_stub_runtime(None);
+        mgr.learn_session_model("rt-1").await;
+        assert!(mgr.model_mru.by_backend.is_empty());
+    }
+
+    #[tokio::test]
+    async fn learn_session_model_ignores_unknown_runtimes() {
+        let mut mgr = mgr_with_stub_runtime(Some("opencode/big-pickle"));
+        mgr.learn_session_model("rt-does-not-exist").await;
+        assert!(mgr.model_mru.by_backend.is_empty());
+    }
+
+    /// The backend unknown runtime ids record under: `default_agent_type`'s.
+    fn test_backend_id(mgr: &RuntimeManager) -> &'static str {
+        mgr.launch_config_for(mgr.default_agent_type()).backend_type
+    }
+
+    #[test]
+    fn set_current_model_feeds_the_device_mru() {
+        let mut mgr = RuntimeManager::new(RuntimeManager::test_launch_configs(), None);
+        let backend = test_backend_id(&mgr);
+        mgr.set_current_model("agent-1", "anthropic/claude-sonnet-4-6");
+        mgr.set_current_model("agent-2", "opencode/big-pickle");
+        // Newest first, and one runtime's pick is visible to every other
+        // surface — that sharing is the whole point of holding this in the
+        // daemon rather than in one client.
+        assert_eq!(
+            mgr.model_mru.recent_for(backend),
+            [
+                "opencode/big-pickle".to_string(),
+                "anthropic/claude-sonnet-4-6".to_string()
+            ]
+        );
+
+        // Re-picking an older entry promotes it rather than duplicating.
+        mgr.set_current_model("agent-3", "anthropic/claude-sonnet-4-6");
+        assert_eq!(
+            mgr.model_mru.recent_for(backend),
+            [
+                "anthropic/claude-sonnet-4-6".to_string(),
+                "opencode/big-pickle".to_string()
+            ]
+        );
+    }
+
+    #[test]
+    fn device_mru_survives_a_restart() {
+        let mut mgr = RuntimeManager::new(RuntimeManager::test_launch_configs(), None);
+        let backend = test_backend_id(&mgr);
+        let path = mgr.model_mru_path.clone();
+        mgr.set_current_model("agent-1", "opencode/big-pickle");
+
+        // A new daemon process reads the same file back — this is what lets a
+        // gateway or cron runtime inherit a pick made in the desktop.
+        assert_eq!(
+            ModelMru::load(&path).recent_for(backend),
+            ["opencode/big-pickle".to_string()]
+        );
+        let _ = std::fs::remove_file(&path);
+    }
+
+    #[test]
+    fn empty_model_is_not_recorded_in_the_mru() {
+        let mut mgr = RuntimeManager::new(RuntimeManager::test_launch_configs(), None);
+        mgr.set_current_model("agent-1", "");
+        assert!(mgr.model_mru.by_backend.is_empty());
     }
 
     #[test]

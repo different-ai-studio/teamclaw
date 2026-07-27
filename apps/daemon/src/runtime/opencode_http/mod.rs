@@ -241,6 +241,20 @@ impl OpencodeHost {
             .clone()
     }
 
+    /// The model opencode has settled on for `session_id`, from its persisted
+    /// `session.model`. See `AgentBackend::session_model`.
+    pub async fn session_model(&self, worktree: &str, session_id: &str) -> Option<String> {
+        if session_id.is_empty() {
+            return None;
+        }
+        let client = self.shared.serve.ensure().await.ok()?;
+        let session = client
+            .get_session(&canonical_dir(worktree), session_id)
+            .await
+            .ok()??;
+        client::session_model_id(&session)
+    }
+
     /// Number of live backend processes (0 or 1: the global serve instance).
     pub fn host_count(&self) -> usize {
         usize::from(self.shared.serve.is_running())
@@ -320,6 +334,7 @@ impl OpencodeHost {
         resume_acp_session_id: Option<String>,
         mcp_config_path: Option<PathBuf>,
         initial_model_override: Option<String>,
+        model_mru: Vec<String>,
         initial_prompt: String,
         event_tx: mpsc::Sender<AcpEventFrame>,
         is_gateway: bool,
@@ -341,6 +356,7 @@ impl OpencodeHost {
                 resume_acp_session_id,
                 mcp_config_path,
                 initial_model_override,
+                model_mru,
                 event_tx,
                 is_gateway,
                 forbid_new_session_fallback,
@@ -378,6 +394,8 @@ struct AttachArgs {
     resume_acp_session_id: Option<String>,
     mcp_config_path: Option<PathBuf>,
     initial_model_override: Option<String>,
+    /// Daemon MRU, newest first. See `config::model_mru`.
+    model_mru: Vec<String>,
     event_tx: mpsc::Sender<AcpEventFrame>,
     is_gateway: bool,
     forbid_new_session_fallback: bool,
@@ -568,23 +586,32 @@ async fn attach(shared: &Arc<Shared>, args: AttachArgs) -> Result<AcpStartupMeta
     //   2. `session.model` — what this conversation last actually ran on, read
     //      back from opencode, which persists it across daemon restarts
     //   3. the config default (`GET /config` → `model`)
-    //   4. nothing: leave it `None` and let opencode decide
+    //   4. the daemon MRU — this device's recent models, shared by desktop,
+    //      gateway and cron (`config::model_mru`)
+    //   5. nothing: leave it `None` and let opencode decide
     //
-    // (4) is a real answer, not a gap. `PromptBody.model` is
+    // Every level is checked against the live catalog by `first_available`, so
+    // a pick that has stopped working (provider logged out, key revoked, model
+    // retired) falls through to the next candidate instead of being handed to
+    // the runtime and failing on the first turn. This mirrors what opencode
+    // does for its own picker.
+    //
+    // (5) is a real answer, not a gap. `PromptBody.model` is
     // `skip_serializing_if = "none"`, so an unset model means the prompt omits
     // the field and opencode resolves it with its own ordering — better than
-    // anything we can guess. A previous `.or_else(|| available_models.first())`
+    // anything we can guess. An earlier `.or_else(|| available_models.first())`
     // did guess, taking the head of `model_catalog`, which
     // `models_from_providers` sorts by `provider/model` id — i.e.
-    // alphabetically. Every gateway session pinned whichever provider sorted
-    // first regardless of whether its credentials still worked, and gateway
-    // `/model` overrides live in memory only, so a daemon restart put it right
-    // back. That is how WeCom turns ended up hard-pinned to an expired key.
-    let initial_model = args
+    // alphabetically — with no availability check at all.
+    let catalog: Vec<String> = available_models.iter().map(|m| m.id.clone()).collect();
+    let candidates = args
         .initial_model_override
         .filter(|m| !m.is_empty())
-        .or(resumed_model)
-        .or(client.config_default_model(&directory).await);
+        .into_iter()
+        .chain(resumed_model)
+        .chain(client.config_default_model(&directory).await)
+        .chain(args.model_mru);
+    let initial_model = crate::config::first_available(candidates, &catalog);
     let model = initial_model.as_deref().and_then(client::split_model_id);
 
     {
@@ -1036,6 +1063,7 @@ async fn command_loop(shared: Arc<Shared>, mut cmd_rx: mpsc::Receiver<AcpCommand
                 resume_acp_session_id,
                 mcp_config_path,
                 initial_model_override,
+                model_mru,
                 initial_prompt,
                 event_tx,
                 startup_tx,
@@ -1049,6 +1077,7 @@ async fn command_loop(shared: Arc<Shared>, mut cmd_rx: mpsc::Receiver<AcpCommand
                         resume_acp_session_id,
                         mcp_config_path,
                         initial_model_override,
+                        model_mru,
                         event_tx,
                         is_gateway,
                         forbid_new_session_fallback,
@@ -1195,6 +1224,7 @@ pub fn start_standalone_runtime(
                 resume_acp_session_id,
                 mcp_config_path,
                 initial_model_override,
+                model_mru: Vec::new(),
                 initial_prompt,
                 event_tx,
                 startup_tx,

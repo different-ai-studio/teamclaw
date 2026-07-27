@@ -395,9 +395,8 @@ export function selectAgentModel(args: {
   /**
    * The model this session has ALREADY run with, taken from its transcript
    * (e.g. a cron job that pinned a model, or any continued conversation). When
-   * set, it wins over the cross-session `lastPick` heuristic so an existing
-   * session's pill reflects the model it actually used — but brand-new sessions
-   * (no transcript, no established model) still default to `lastPick`.
+   * set, it wins over the daemon's live retain ordering below so an existing
+   * session's pill reflects the model it actually used.
    */
   sessionEstablishedModel?: string | null;
 }): SelectedAgentModel {
@@ -449,23 +448,16 @@ export function selectAgentModel(args: {
     };
   }
 
-  // No pick, no transcript, no live retain — a brand-new session. Default to
-  // the user's most recent pick for this agent ("上次选的模型") instead of
-  // the daemon's default model. Kept strictly last among user-ish signals:
-  // letting it beat retain made session-switching flash another session's
-  // model while this session's transcript was still loading.
-  const lastPick = useAgentModelPickStore.getState().getLastPick(agentId);
-  if (lastPick) {
-    return {
-      modelId: canonicalizeAgainstAvailable(
-        args.agentId,
-        lastPick,
-        args.available,
-        args.byRuntimeId,
-      ),
-      source: "pick",
-    };
-  }
+  // No pick, no transcript, no live retain. There used to be a
+  // "上次选的模型" level here, backed by a `lastByAgent` map in localStorage.
+  // It is gone: the daemon owns that list now (`config::model_mru`) and
+  // resolves it when a runtime starts, so `RuntimeInfo.currentModel` — the
+  // retain checked just above — already carries the answer, and carries it
+  // for gateway and cron runtimes too, which could never see localStorage.
+  //
+  // Guessing here would also be unchecked: `available` comes from the retain,
+  // so when there is no retain there is no catalog to validate a guess
+  // against, and the pill would advertise a model that may not run.
 
   const fallback = args.providerFallback?.trim() ?? "";
   if (fallback) {

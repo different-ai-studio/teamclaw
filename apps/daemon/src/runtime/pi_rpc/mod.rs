@@ -224,6 +224,8 @@ struct AttachArgs {
     resume_acp_session_id: Option<String>,
     mcp_config_path: Option<PathBuf>,
     initial_model_override: Option<String>,
+    /// Daemon MRU, newest first. See `config::model_mru`.
+    model_mru: Vec<String>,
     event_tx: mpsc::Sender<AcpEventFrame>,
     is_gateway: bool,
     forbid_new_session_fallback: bool,
@@ -315,13 +317,24 @@ async fn attach(shared: &Arc<Shared>, args: AttachArgs) -> Result<AcpStartupMeta
         }
     }
     if initial_model.is_none() {
-        initial_model = proc
+        // Same ordering as the opencode backend: pi's own current model (its
+        // equivalent of a session's last-used), then the device MRU, then
+        // nothing — pi keeps its default if we say nothing. Availability is
+        // checked against pi's live catalog so a model it no longer offers
+        // falls through instead of being set and failing on the first turn.
+        //
+        // The `available_models.first()` fallback this replaces picked
+        // whatever happened to head the catalog, with no availability meaning
+        // at all.
+        let catalog: Vec<String> = available_models.iter().map(|m| m.id.clone()).collect();
+        let pi_current = proc
             .client
             .request(serde_json::json!({"type": "get_state"}))
             .await
             .ok()
-            .and_then(|state| model_from_state(&state))
-            .or_else(|| available_models.first().map(|m| m.id.clone()));
+            .and_then(|state| model_from_state(&state));
+        initial_model =
+            crate::config::first_available(pi_current.into_iter().chain(args.model_mru), &catalog);
     }
 
     let acp_session_id = format!("{SESSION_ID_PREFIX}{session_path}");
@@ -544,6 +557,7 @@ async fn command_loop(shared: Arc<Shared>, mut cmd_rx: mpsc::Receiver<AcpCommand
                 resume_acp_session_id,
                 mcp_config_path,
                 initial_model_override,
+                model_mru,
                 initial_prompt,
                 event_tx,
                 startup_tx,
@@ -557,6 +571,7 @@ async fn command_loop(shared: Arc<Shared>, mut cmd_rx: mpsc::Receiver<AcpCommand
                         resume_acp_session_id,
                         mcp_config_path,
                         initial_model_override,
+                        model_mru,
                         event_tx,
                         is_gateway,
                         forbid_new_session_fallback,
@@ -749,6 +764,7 @@ impl AgentBackend for PiRpcBackend {
         resume_acp_session_id: Option<String>,
         mcp_config_path: Option<PathBuf>,
         initial_model_override: Option<String>,
+        model_mru: Vec<String>,
         initial_prompt: String,
         event_tx: mpsc::Sender<AcpEventFrame>,
         is_gateway: bool,
@@ -772,6 +788,7 @@ impl AgentBackend for PiRpcBackend {
                 resume_acp_session_id,
                 mcp_config_path,
                 initial_model_override,
+                model_mru,
                 event_tx,
                 is_gateway,
                 forbid_new_session_fallback,
