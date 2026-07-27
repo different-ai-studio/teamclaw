@@ -217,6 +217,41 @@ fn requires_brew(name: &str) -> bool {
     matches!(name, "gh" | "node" | "python3")
 }
 
+/// Installed vs newest-available opencode, for the Dependencies UI.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct OpencodeVersions {
+    pub installed: Option<String>,
+    pub latest: Option<String>,
+    /// `None` when `latest` is unknown (mirror unreachable) — the UI must then
+    /// keep offering the update rather than claiming either state.
+    pub up_to_date: Option<bool>,
+}
+
+/// Ask the bundled amuxd what the newest opencode available is. Hits the
+/// network (the mirror manifest), so this is a separate command from
+/// `check_dependencies`, which must stay fast and offline.
+#[tauri::command]
+pub async fn opencode_versions<R: Runtime>(app: AppHandle<R>) -> Result<OpencodeVersions, String> {
+    use tauri_plugin_shell::process::CommandEvent;
+    use tauri_plugin_shell::ShellExt;
+
+    let (mut rx, _child) = app
+        .shell()
+        .sidecar("amuxd")
+        .map_err(|e| format!("sidecar amuxd: {e}"))?
+        .args(["opencode-versions"])
+        .spawn()
+        .map_err(|e| format!("spawn amuxd: {e}"))?;
+    let mut buf = String::new();
+    while let Some(event) = rx.recv().await {
+        if let CommandEvent::Stdout(bytes) = event {
+            buf.push_str(&String::from_utf8_lossy(&bytes));
+        }
+    }
+    serde_json::from_str(buf.trim()).map_err(|e| format!("parse amuxd opencode-versions: {e}"))
+}
+
 /// Check all external dependencies and return their status.
 /// Results are sorted by priority (lower first) for install ordering.
 #[tauri::command]
@@ -307,18 +342,15 @@ pub fn check_dependencies() -> Vec<DependencyInfo> {
 /// Install a single dependency using the platform's package manager.
 /// Streams output via `dep-install-progress` events.
 /// Returns true on success, false on failure.
-/// `download_base` (opencode only) is the install mirror base from
-/// `buildConfig.opencode.downloadBase`; ignored for other dependencies.
 #[tauri::command]
 pub async fn install_dependency<R: Runtime>(
     app: AppHandle<R>,
     name: String,
-    download_base: Option<String>,
 ) -> Result<bool, String> {
     // opencode is installed via the same `amuxd install-opencode` path as the
-    // first-run SetupWizard (official opencode, pinned to opencode.lock.json).
+    // first-run SetupWizard. Not forced: this is the "it's missing" case.
     if name == "opencode" {
-        return Ok(install_opencode_via_amuxd(&app, download_base).await);
+        return Ok(install_opencode_via_amuxd(&app, false).await);
     }
 
     // On macOS, if the dependency requires brew and brew is not installed, install brew first
@@ -340,16 +372,49 @@ pub async fn install_dependency<R: Runtime>(
     Ok(success)
 }
 
-/// Update an already-installed dependency to the required version.
-/// Only opencode supports this (re-runs `amuxd install-opencode`, idempotent).
+/// Update an already-installed dependency to the latest release.
+/// Only opencode supports this: `amuxd install-opencode --force` re-fetches the
+/// latest opencode (amuxd pins no version — the version is the user's choice).
+///
+/// On success the desktop-managed amuxd is restarted, because the running
+/// `opencode serve` still holds the old binary and would otherwise keep serving
+/// the pre-update version for the rest of the app's lifetime.
+///
+/// The restart runs detached: awaiting it would keep the frontend's
+/// `updateDependency` promise pending for the whole daemon bounce, so the
+/// Dependencies panel stayed stuck on "Updating…" long after the download was
+/// done. The download result is what this command reports; a restart failure is
+/// emitted separately on the same progress channel.
 #[tauri::command]
 pub async fn update_dependency<R: Runtime>(
     app: AppHandle<R>,
     name: String,
-    download_base: Option<String>,
 ) -> Result<bool, String> {
     if name == "opencode" {
-        return Ok(install_opencode_via_amuxd(&app, download_base).await);
+        let ok = install_opencode_via_amuxd(&app, true).await;
+        if ok {
+            let app = app.clone();
+            tauri::async_runtime::spawn(async move {
+                if let Err(e) =
+                    crate::commands::amuxd_supervisor::AmuxdSupervisor::restart(&app).await
+                {
+                    // The download succeeded but the old opencode is still
+                    // serving, so the update is not actually in effect yet.
+                    let _ = app.emit(
+                        "dep-install-progress",
+                        DepInstallProgress {
+                            name: "opencode".to_string(),
+                            status: "failed".to_string(),
+                            output_line: None,
+                            error: Some(format!(
+                                "opencode was updated, but restarting amuxd failed: {e}. Restart the app to use the new version."
+                            )),
+                        },
+                    );
+                }
+            });
+        }
+        return Ok(ok);
     }
     Err(format!("No update path available for '{}'", name))
 }
@@ -357,14 +422,12 @@ pub async fn update_dependency<R: Runtime>(
 /// Install-or-update opencode via the bundled `amuxd install-opencode`, bridging
 /// its progress onto `dep-install-progress` events (the settings Dependencies UI
 /// contract). Shares the exact install path used by the first-run SetupWizard.
-async fn install_opencode_via_amuxd<R: Runtime>(
-    app: &AppHandle<R>,
-    download_base: Option<String>,
-) -> bool {
+/// `force` re-fetches the latest release even when opencode is already present.
+async fn install_opencode_via_amuxd<R: Runtime>(app: &AppHandle<R>, force: bool) -> bool {
     let emit_app = app.clone();
     let result = crate::commands::setup::run_amuxd_install_opencode(
         app,
-        download_base,
+        force,
         move |status, line, error| {
             // amuxd emits "running"; the deps UI expects "installing".
             let status = if status == "running" {

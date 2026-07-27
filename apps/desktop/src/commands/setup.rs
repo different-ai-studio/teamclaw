@@ -113,8 +113,9 @@ pub async fn setup_list_requirements<R: Runtime>(
     let git_version = detect_git();
     let doctor = read_doctor(&app, local_agent.as_deref()).await;
 
-    // `present` = no action needed (installed AND new enough). `version` = the
-    // installed version, so the UI can show 安装 (none) vs 升级 (older) and which.
+    // `present` = no action needed. For opencode that is simply "installed"
+    // (amuxd pins no version); pi still has a lock, so there it means "installed
+    // AND new enough". `version` = the installed version, for the UI to show.
     // amuxd: desktop-managed sidecar — satisfied when the bundle includes it.
     let amuxd_version = doctor
         .as_ref()
@@ -256,20 +257,22 @@ async fn install_amuxd<R: Runtime>(app: &AppHandle<R>) -> Result<(), String> {
 }
 
 /// Run the bundled `amuxd install-opencode` sidecar, streaming its JSON progress lines.
-/// `download_base`, when set (from `buildConfig.opencode.downloadBase`), is passed
-/// to the daemon as `OPENCODE_DOWNLOAD_BASE` so it pulls the opencode release
-/// archive from a mirror (e.g. a domestic OSS bucket) instead of the official source.
+/// Always installs from the official opencode source — there is no build-config
+/// mirror any more, so "install" and "update" both mean "whatever upstream ships".
 /// Run `amuxd install-opencode`, streaming progress through `emit`.
 ///
 /// `emit(status, line, error)` — status is "started" | "running" | "failed" |
-/// "done". This is the ONE opencode install/update path (official opencode,
-/// pinned to the daemon's `opencode.lock.json` minimum version; direct-download
-/// on Windows / mirror). Shared by the first-run SetupWizard and the settings
-/// Dependencies page so both surfaces install/update opencode identically.
-/// `install-opencode` is idempotent, so the same call both installs and upgrades.
+/// "done". This is the ONE opencode install/update path (official opencode;
+/// direct-download on Windows / mirror), shared by the first-run SetupWizard and
+/// the settings Dependencies page.
+///
+/// `force` selects which of the two jobs this call is doing. amuxd pins no
+/// opencode version, so without it the call is presence-only and leaves any
+/// installed opencode alone (the SetupWizard case); with it the latest release
+/// is fetched unconditionally (the "Update" button).
 pub(crate) async fn run_amuxd_install_opencode<R, F>(
     app: &AppHandle<R>,
-    download_base: Option<String>,
+    force: bool,
     emit: F,
 ) -> Result<(), String>
 where
@@ -280,17 +283,16 @@ where
     use tauri_plugin_shell::ShellExt;
 
     emit("started", None, None);
-    let mut command = app
+    let args: &[&str] = if force {
+        &["install-opencode", "--force"]
+    } else {
+        &["install-opencode"]
+    };
+    let command = app
         .shell()
         .sidecar("amuxd")
         .map_err(|e| format!("sidecar amuxd: {e}"))?
-        .args(["install-opencode"]);
-    if let Some(base) = download_base
-        .map(|b| b.trim().to_string())
-        .filter(|b| !b.is_empty())
-    {
-        command = command.env("OPENCODE_DOWNLOAD_BASE", base);
-    }
+        .args(args);
     // `_child_guard` must stay alive until `rx` is fully drained: dropping the
     // CommandChild early can terminate the sidecar before install finishes.
     let (mut rx, _child_guard) = command.spawn().map_err(|e| format!("spawn amuxd: {e}"))?;
@@ -334,11 +336,9 @@ where
     Ok(())
 }
 
-async fn install_opencode<R: Runtime>(
-    app: &AppHandle<R>,
-    download_base: Option<String>,
-) -> Result<(), String> {
-    run_amuxd_install_opencode(app, download_base, |status, line, error| {
+async fn install_opencode<R: Runtime>(app: &AppHandle<R>) -> Result<(), String> {
+    // Setup wizard: install only when absent — never disturb the user's opencode.
+    run_amuxd_install_opencode(app, false, |status, line, error| {
         emit_progress(
             app,
             SetupProgress {
@@ -483,14 +483,10 @@ pub async fn restart_local_daemon<R: Runtime>(app: AppHandle<R>) -> Result<(), S
 }
 
 #[tauri::command]
-pub async fn setup_install<R: Runtime>(
-    app: AppHandle<R>,
-    id: String,
-    opencode_download_base: Option<String>,
-) -> Result<(), String> {
+pub async fn setup_install<R: Runtime>(app: AppHandle<R>, id: String) -> Result<(), String> {
     match id.as_str() {
         "amuxd" => install_amuxd(&app).await,
-        "opencode" => install_opencode(&app, opencode_download_base).await,
+        "opencode" => install_opencode(&app).await,
         "pi" => install_pi(&app).await,
         "git" => install_git(&app),
         other => Err(format!("unknown requirement: {other}")),

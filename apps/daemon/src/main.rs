@@ -191,6 +191,9 @@ fn main() -> anyhow::Result<()> {
         Commands::InstallOpencode { force } => {
             cli::install_opencode::run(force)?;
         }
+        Commands::OpencodeVersions => {
+            cli::install_opencode::print_versions();
+        }
         Commands::InstallPi { force } => {
             pi_install::run_install(force)?;
         }

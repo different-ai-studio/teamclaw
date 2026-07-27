@@ -85,10 +85,13 @@ pub enum Commands {
     Doctor,
     /// Download and install the opencode binary into ~/.amuxd/bin/opencode.
     InstallOpencode {
-        /// Reinstall even if the locked version is already present.
+        /// Re-download the latest release even if opencode is already installed.
         #[arg(long)]
         force: bool,
     },
+    /// Report installed vs newest-available opencode as JSON, for the
+    /// Dependencies UI's "up to date / update available" state.
+    OpencodeVersions,
     /// Install or upgrade the pi coding agent (npm/bun global install).
     InstallPi {
         /// Reinstall even if the locked version is already present.
