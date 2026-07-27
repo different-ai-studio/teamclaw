@@ -11,7 +11,7 @@ use super::refresh::RuntimeRefreshCoordinator;
 use std::sync::Arc;
 
 use crate::backend::{AgentRuntimeUpsert, Backend};
-use crate::config::{DaemonConfig, ModelMru};
+use crate::config::{DaemonConfig, DeviceModelCatalog, ModelMru};
 use crate::proto::amux;
 use crate::runtime::acp_event_frame::AcpEventFrame;
 use crate::runtime::turn_aggregator::TurnAggregator;
@@ -196,6 +196,14 @@ pub struct RuntimeManager {
     /// Where [`Self::model_mru`] is persisted. Split out so tests can point at
     /// a tempdir instead of the real config directory.
     model_mru_path: PathBuf,
+    /// Last-known model catalog per worktree for this device. The catalog
+    /// belongs to the one global `opencode serve`, not to any single binding —
+    /// see `config::model_catalog` for why storing it per-handle produced
+    /// sessions that could never leave 连接中.
+    model_catalog: DeviceModelCatalog,
+    /// Where [`Self::model_catalog`] is persisted (same test-isolation split as
+    /// `model_mru_path`).
+    model_catalog_path: PathBuf,
     backend: Option<Arc<dyn Backend>>,
     /// agent_ids that were stopped by the idle sweeper and still need their
     /// terminal `runtime/{id}/state` publish + retain clear. Drained by the
@@ -268,6 +276,12 @@ impl RuntimeManager {
             .join(format!("{}.toml", Uuid::new_v4()));
         #[cfg(not(test))]
         let model_mru_path = ModelMru::default_path();
+        #[cfg(test)]
+        let model_catalog_path = std::env::temp_dir()
+            .join("amuxd-test-model-catalog")
+            .join(format!("{}.toml", Uuid::new_v4()));
+        #[cfg(not(test))]
+        let model_catalog_path = DeviceModelCatalog::default_path();
         Self {
             agents: HashMap::new(),
             aggregators: std::collections::HashMap::new(),
@@ -277,6 +291,8 @@ impl RuntimeManager {
             agent_state: PerAgentRuntimeState::new(),
             model_mru: ModelMru::load(&model_mru_path),
             model_mru_path,
+            model_catalog: DeviceModelCatalog::load(&model_catalog_path),
+            model_catalog_path,
             backend,
             refresh_coordinator: None,
             evicted_pending_publish: Vec::new(),
@@ -573,6 +589,7 @@ impl RuntimeManager {
         self.aggregators
             .insert(agent_id.clone(), TurnAggregator::new());
 
+        self.record_catalog(worktree, &startup.available_models);
         if let Some(h) = self.agents.get_mut(&agent_id) {
             h.available_models = startup.available_models;
             h.acp_session_id = startup.acp_session_id.clone();
@@ -750,6 +767,7 @@ impl RuntimeManager {
             .insert(agent_id.to_string(), TurnAggregator::new());
 
         let new_acp_sid = startup.acp_session_id.clone();
+        self.record_catalog(worktree, &startup.available_models);
         if let Some(h) = self.agents.get_mut(agent_id) {
             h.available_models = startup.available_models;
             h.acp_session_id = startup.acp_session_id;
@@ -820,7 +838,44 @@ impl RuntimeManager {
         &mut self,
         workspace_path: &std::path::Path,
     ) -> crate::error::Result<Vec<amux::ModelInfo>> {
-        self.agent_backend.model_catalog(workspace_path).await
+        let models = self.agent_backend.model_catalog(workspace_path).await?;
+        self.record_catalog(&workspace_path.to_string_lossy(), &models);
+        Ok(models)
+    }
+
+    /// Remember `worktree`'s catalog for this device and persist it.
+    ///
+    /// Called from every path that learns a real catalog (both attach paths and
+    /// the explicit probe). Empty lists are ignored by
+    /// [`DeviceModelCatalog::record`], so a failed probe cannot erase a good one.
+    fn record_catalog(&mut self, worktree: &str, models: &[amux::ModelInfo]) {
+        if !self.model_catalog.record(worktree, models) {
+            return;
+        }
+        if let Err(e) = self.model_catalog.save(&self.model_catalog_path) {
+            tracing::warn!(error = %e, "failed to persist model catalog");
+        }
+    }
+
+    /// This device's last-known catalog for `worktree` (falling back to any
+    /// known worktree). Used to fill `RuntimeInfo.available_models` for
+    /// bindings that never ran an attach of their own.
+    pub fn catalog_for_worktree(&self, worktree: &str) -> Vec<amux::ModelInfo> {
+        self.model_catalog.models_for_or_any(worktree)
+    }
+
+    /// Fill `info.available_models` from the device catalog when the binding
+    /// itself has none.
+    ///
+    /// Every `RuntimeInfo` leaving this daemon goes through here. Without it,
+    /// an idle binding — or a historical `SessionStore` row replayed by
+    /// `publish_all_agent_states` — advertises an empty catalog, and clients
+    /// read that as "no models", which pins the session's pill at 连接中.
+    pub fn fill_catalog(&self, info: &mut amux::RuntimeInfo) {
+        if !info.available_models.is_empty() {
+            return;
+        }
+        info.available_models = self.catalog_for_worktree(&info.worktree);
     }
 
     /// Invalidate long-lived OpenCode/Codex ACP hosts after provider credentials change.
@@ -1169,7 +1224,9 @@ impl RuntimeManager {
                 .map(|(id, h)| {
                     let current = self.agent_state.model_or_default(id);
                     let commands = self.agent_state.commands(id);
-                    h.to_proto_info(current, commands)
+                    let mut info = h.to_proto_info(current, commands);
+                    self.fill_catalog(&mut info);
+                    info
                 })
                 .collect(),
         }
@@ -1181,7 +1238,9 @@ impl RuntimeManager {
         let handle = self.agents.get(agent_id)?;
         let current = self.agent_state.model_or_default(agent_id);
         let commands = self.agent_state.commands(agent_id);
-        Some(handle.to_proto_info(current, commands))
+        let mut info = handle.to_proto_info(current, commands);
+        self.fill_catalog(&mut info);
+        Some(info)
     }
 
     pub fn agent_ids(&self) -> Vec<String> {
@@ -1471,6 +1530,76 @@ impl RuntimeManager {
 mod tests {
     use super::super::handle::PendingMessage;
     use super::*;
+
+    fn catalog_model(id: &str) -> amux::ModelInfo {
+        amux::ModelInfo {
+            id: id.to_string(),
+            display_name: id.to_string(),
+            provider_name: "test".to_string(),
+        }
+    }
+
+    /// The catalog belongs to the device, so a binding that never attached
+    /// still advertises it. Before this, such a binding published an empty
+    /// list and its session's pill could never leave "connecting".
+    #[test]
+    fn fill_catalog_populates_a_binding_that_never_attached() {
+        let mut mgr = RuntimeManager::new(RuntimeManager::test_launch_configs(), None);
+        mgr.record_catalog("/w1", &[catalog_model("a/x"), catalog_model("a/y")]);
+
+        let mut info = amux::RuntimeInfo {
+            runtime_id: "rt-idle".into(),
+            worktree: "/w1".into(),
+            ..Default::default()
+        };
+        mgr.fill_catalog(&mut info);
+        assert_eq!(info.available_models.len(), 2);
+    }
+
+    /// A live attach's own catalog is authoritative — never overwritten by the
+    /// cached one.
+    #[test]
+    fn fill_catalog_leaves_a_populated_list_alone() {
+        let mut mgr = RuntimeManager::new(RuntimeManager::test_launch_configs(), None);
+        mgr.record_catalog("/w1", &[catalog_model("a/x"), catalog_model("a/y")]);
+
+        let mut info = amux::RuntimeInfo {
+            runtime_id: "rt-live".into(),
+            worktree: "/w1".into(),
+            available_models: vec![catalog_model("live/only")],
+            ..Default::default()
+        };
+        mgr.fill_catalog(&mut info);
+        assert_eq!(info.available_models.len(), 1);
+        assert_eq!(info.available_models[0].id, "live/only");
+    }
+
+    /// A historical row can name a worktree this device no longer uses; one
+    /// serve with one set of provider credentials backs them all, so some
+    /// catalog beats none.
+    #[test]
+    fn fill_catalog_falls_back_across_worktrees() {
+        let mut mgr = RuntimeManager::new(RuntimeManager::test_launch_configs(), None);
+        mgr.record_catalog("/w1", &[catalog_model("a/x")]);
+
+        let mut info = amux::RuntimeInfo {
+            runtime_id: "rt-old".into(),
+            worktree: "/deleted-worktree".into(),
+            ..Default::default()
+        };
+        mgr.fill_catalog(&mut info);
+        assert_eq!(info.available_models.len(), 1);
+    }
+
+    /// An empty catalog must never be recorded: a failed probe would otherwise
+    /// erase the good list and reintroduce the bug.
+    #[test]
+    fn record_catalog_ignores_an_empty_probe_result() {
+        let mut mgr = RuntimeManager::new(RuntimeManager::test_launch_configs(), None);
+        mgr.record_catalog("/w1", &[catalog_model("a/x")]);
+        mgr.record_catalog("/w1", &[]);
+        assert_eq!(mgr.catalog_for_worktree("/w1").len(), 1);
+    }
 
     #[test]
     fn set_current_model_records_value() {
