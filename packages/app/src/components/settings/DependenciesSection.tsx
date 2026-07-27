@@ -238,10 +238,21 @@ function DepProgress({ dep }: { dep: DependencyInfo }) {
   }
 
   if (result?.error) {
+    // Mirrors the success branch: a localized label for what failed, then the
+    // installer's own message. Without the label the row showed only raw output
+    // like `curl: (22) ... 404`, which does not say whether an install or an
+    // update was being attempted.
+    const failed = isUpdate
+      ? t('settings.deps.updateFailed', 'Update failed')
+      : t('settings.deps.installFailed', 'Install failed')
     return (
       <p className="text-xs text-red-500 mt-1 flex items-start gap-1.5">
         <XCircle className="h-3 w-3 shrink-0 mt-0.5" />
-        <span className="break-all">{result.error}</span>
+        <span className="break-all">
+          <span className="font-medium">{failed}</span>
+          {' — '}
+          {result.error}
+        </span>
       </p>
     )
   }
