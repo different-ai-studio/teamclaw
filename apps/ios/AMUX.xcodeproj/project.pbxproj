@@ -50,6 +50,7 @@
 		9E532B070FBC309D7EB883CE /* AMUXSessionMessageRegressionTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AMUXSessionMessageRegressionTests.swift; sourceTree = "<group>"; };
 		A57443CB6DA7A01B751BBA00 /* OnboardingViews.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OnboardingViews.swift; sourceTree = "<group>"; };
 		AA5C333674232A156EF5A6D1 /* WelcomeView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WelcomeView.swift; sourceTree = "<group>"; };
+		AC8A7DFE566257A39578823C /* AMUX.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = AMUX.entitlements; sourceTree = "<group>"; };
 		B26E4EC39A79E60BACC23B33 /* AMUXUITests.xctest */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = wrapper.cfbundle; path = AMUXUITests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 		C07BD2A492D93FDCCB10637D /* AMUXUITests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AMUXUITests.swift; sourceTree = "<group>"; };
 		E16412C0DABEF538623C6257 /* AMUXAuthUITests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AMUXAuthUITests.swift; sourceTree = "<group>"; };
@@ -108,6 +109,7 @@
 		DE118744A87DC657033FEE83 /* AMUXApp */ = {
 			isa = PBXGroup;
 			children = (
+				AC8A7DFE566257A39578823C /* AMUX.entitlements */,
 				499D508CBB7FB4FD1F584D9D /* AMUXApp.swift */,
 				537E64EAD78ACC7946325945 /* Analytics.swift */,
 				25D67C6EB2C2948CCFE684D1 /* Assets.xcassets */,
@@ -328,6 +330,7 @@
 			isa = XCBuildConfiguration;
 			buildSettings = {
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				CODE_SIGN_ENTITLEMENTS = AMUXApp/AMUX.entitlements;
 				CODE_SIGN_IDENTITY = "iPhone Developer";
 				CURRENT_PROJECT_VERSION = 23;
 				DEVELOPMENT_TEAM = 43G5A6G9QV;
@@ -348,6 +351,7 @@
 			isa = XCBuildConfiguration;
 			buildSettings = {
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				CODE_SIGN_ENTITLEMENTS = AMUXApp/AMUX.entitlements;
 				CODE_SIGN_IDENTITY = "iPhone Developer";
 				CURRENT_PROJECT_VERSION = 23;
 				DEVELOPMENT_TEAM = 43G5A6G9QV;
