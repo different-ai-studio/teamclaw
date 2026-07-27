@@ -21,6 +21,7 @@ import { ActorsSection } from '@/components/sidebar/ActorsSection'
 import { TeamShareNavSection } from '@/components/sidebar/TeamShareNavSection'
 import { NewChatSplitButton } from '@/components/sidebar/NewChatSplitButton'
 import { buildConfig } from '@/lib/build-config'
+import { isScheduledSession } from '@/lib/session-origin'
 import { cn } from '@/lib/utils'
 
 interface TopEntryProps {
@@ -73,13 +74,13 @@ export function NavRail() {
   const [creating, setCreating] = React.useState(false)
 
   const sessionsCount = React.useMemo(
-    () => listRows.filter((r) => !cronSessionIds.has(r.id)).length,
+    () => listRows.filter((r) => !isScheduledSession(r, cronSessionIds)).length,
     [listRows, cronSessionIds],
   )
 
   const pinnedCount = React.useMemo(() => {
     const visibleIds = new Set(
-      listRows.filter((r) => !cronSessionIds.has(r.id)).map((r) => r.id),
+      listRows.filter((r) => !isScheduledSession(r, cronSessionIds)).map((r) => r.id),
     )
     return pinnedSessionIds.filter((id) => visibleIds.has(id)).length
   }, [listRows, pinnedSessionIds, cronSessionIds])

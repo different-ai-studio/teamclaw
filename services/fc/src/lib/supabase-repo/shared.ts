@@ -201,6 +201,12 @@ export function mapSession(row) {
     hasUnread: row?.has_unread === true,
     createdAt: row?.created_at ?? null,
     updatedAt: row?.updated_at ?? null,
+    // Origin marker. List rows come from the list_current_actor_sessions RPC,
+    // which only started returning these in 20260727000000 — default to 'user'
+    // so a stale database still yields the pre-cron-filter behaviour instead of
+    // an undefined that the client would read as "unknown origin".
+    source: row?.source ?? "user",
+    cronJobId: row?.cron_job_id ?? null,
   };
 }
 
