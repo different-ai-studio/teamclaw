@@ -94,11 +94,15 @@ function isRuntimeLifecycleLive(state: RuntimeLifecycle | undefined): boolean {
 function findLiveRuntimeIdForAgent(
   agentId: string,
   byRuntimeId: Record<string, RuntimeStateEntry>,
+  allowedRuntimeIds?: ReadonlySet<string>,
 ): string | undefined {
   let best: RuntimeStateEntry | undefined;
   for (const entry of Object.values(byRuntimeId)) {
     if (entry.daemonActorId !== agentId && entry.info.runtimeId !== agentId) continue;
     if (!isRuntimeLifecycleLive(entry.info.state)) continue;
+    const id = entry.info.runtimeId?.trim() ?? "";
+    if (!id) continue;
+    if (allowedRuntimeIds && !allowedRuntimeIds.has(id)) continue;
     best = considerRuntimeEntry(best, entry);
   }
   const id = best?.info.runtimeId?.trim();
@@ -141,10 +145,16 @@ export function resolveCommandRuntimeId(args: {
   const mqttRuntimeId = mqttEntry?.info.runtimeId?.trim() ?? "";
   const mqttLive = !!mqttEntry && isRuntimeLifecycleLive(mqttEntry.info.state);
 
+  // `sessionRuntimeIds === undefined` means the caller is session-agnostic
+  // (e.g. setModel from the agent pill) and may hop to any live retain. A
+  // provided Set — even an empty one — means the caller is session-scoped
+  // (cancel / permission): only runtimes registered for THIS session are
+  // valid, so an empty Set fails closed rather than hopping to another
+  // session's live runtime.
   const sessionIds = args.sessionRuntimeIds;
   const sessionSafe =
     !mqttRuntimeId ||
-    (sessionIds && sessionIds.size > 0
+    (sessionIds !== undefined
       ? sessionIds.has(mqttRuntimeId)
       : !dbId || mqttRuntimeId === dbId || (mqttLive && !!mqttEntry));
 
@@ -152,9 +162,22 @@ export function resolveCommandRuntimeId(args: {
     !!dbId && !isDbRuntimeHintLive(dbId, args.byRuntimeId);
 
   if (dbHintDead) {
-    const liveRuntimeId = findLiveRuntimeIdForAgent(trimmedAgent, args.byRuntimeId);
+    // Session-scoped callers (cancel / permission) may only hop to another
+    // live retain that is ALSO registered for this session — never a sibling
+    // session's spawn for the same agent.
+    const liveRuntimeId = findLiveRuntimeIdForAgent(
+      trimmedAgent,
+      args.byRuntimeId,
+      sessionIds,
+    );
     if (liveRuntimeId) return liveRuntimeId;
-    if (mqttLive && mqttRuntimeId) return mqttRuntimeId;
+    if (
+      mqttLive &&
+      mqttRuntimeId &&
+      (sessionIds === undefined || sessionIds.has(mqttRuntimeId))
+    ) {
+      return mqttRuntimeId;
+    }
     return undefined;
   }
 
@@ -165,8 +188,9 @@ export function resolveCommandRuntimeId(args: {
   // DB hint and the chosen mqtt entry can agree on a stale spawn id (both still
   // marked ACTIVE in the local cache). Prefer any other live retain for this
   // agent, but only on the session-agnostic path (setModel from the agent pill).
-  // Permission/cancel targets pass sessionRuntimeIds and must not hop sessions.
-  if (!sessionIds || sessionIds.size === 0) {
+  // Permission/cancel targets pass a sessionRuntimeIds Set and must not hop
+  // sessions — an empty Set stays fail-closed here.
+  if (sessionIds === undefined) {
     const liveSpawnId = findLiveRuntimeIdForAgent(trimmedAgent, args.byRuntimeId);
     if (liveSpawnId && liveSpawnId !== dbId) {
       return liveSpawnId;

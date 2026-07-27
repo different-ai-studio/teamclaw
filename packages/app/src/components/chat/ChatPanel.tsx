@@ -607,11 +607,13 @@ export function ChatPanel({ compact = false }: ChatPanelProps) {
     sessionId: activeSessionId,
     teamId: sheetTeamId,
     engagedUiEntries,
+    agentToRuntimeId,
   });
   useReensureRuntimesOnMqttReconnect({
     sessionId: activeSessionId,
     teamId: sheetTeamId,
     engagedUiEntries,
+    agentToRuntimeId,
   });
 
   const handleRetryOfflineAgents = React.useCallback(() => {
@@ -1055,17 +1057,45 @@ export function ChatPanel({ compact = false }: ChatPanelProps) {
       prevWorkspaceRef.current !== workspacePath;
     prevWorkspaceRef.current = workspacePath;
 
+    let cancelled = false;
+    void (async () => {
       if (isWorkspaceChange) {
-      resetSessions();
+        // Session list is team-scoped. Crossing workspaces must not always wipe
+        // the active session: clicking a session in another workspace sets
+        // selection first, then switches workspace in the background. Clearing
+        // here would flash the welcome empty state until a second click.
+        //
+        // Preserve when the active session belongs to the *new* workspace
+        // (session-driven switch). Clear when it does not (explicit workspace
+        // switch from the local-agent card / settings).
+        const activeId = useSessionSelectionStore.getState().activeSessionId;
+        const teamId = useCurrentTeamStore.getState().team?.id;
+        let preserve = false;
+        if (activeId && teamId) {
+          const { sessionBelongsToWorkspace } = await import("@/lib/session-by-workspace");
+          preserve = await sessionBelongsToWorkspace(teamId, activeId, workspacePath);
+        }
+        if (cancelled) return;
+        if (useWorkspaceStore.getState().workspacePath !== workspacePath) return;
+        if (!preserve) {
+          resetSessions();
+        }
       }
 
-    console.log("[ChatPanel] Workspace bootstrapped, loading sessions for:", workspacePath);
-        loadSessions(workspacePath)
-      .then(() => setError(null))
-      .catch((err: unknown) =>
-        console.error("[ChatPanel] Failed to load sessions:", err),
-      );
-  }, [workspaceBootstrapped, workspacePath, loadSessions, resetSessions]);
+      try {
+        await loadSessions(workspacePath);
+        if (!cancelled) setError(null);
+      } catch (err: unknown) {
+        if (!cancelled) {
+          console.error("[ChatPanel] Failed to load sessions:", err);
+        }
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [workspaceBootstrapped, workspacePath, loadSessions, resetSessions, setError]);
 
   // NOTE: No polling fallback needed.
   // SSE /event endpoint streams ALL events (Bus.subscribeAll) including

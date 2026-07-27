@@ -134,5 +134,8 @@ describe("interruptAgentActor", () => {
     expect(mqttPublish).not.toHaveBeenCalled();
     expect(discardPendingStreamReply).toHaveBeenCalledWith("session-1", "agent-a");
     expect(useV2StreamingStore.getState().byKey["session-1::agent-a"]?.active).toBe(false);
+    expect(
+      useV2StreamingStore.getState().isInterruptedFlushPending("session-1", "agent-a"),
+    ).toBe(false);
   });
 });

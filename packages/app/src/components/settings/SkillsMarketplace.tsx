@@ -158,12 +158,14 @@ export const SkillsMarketplace = React.memo(function SkillsMarketplace({
       const data = await invoke<SkillsShLeaderboard>("fetch_skillssh_leaderboard", {
         category: categoryParam,
       })
+      if (!mountedRef.current) return
       setLeaderboard(data)
     } catch (err) {
       console.error("[SkillsMarketplace] Failed to fetch leaderboard:", err)
+      if (!mountedRef.current) return
       setError(formatTauriInvokeError(err))
     } finally {
-      setIsLoading(false)
+      if (mountedRef.current) setIsLoading(false)
     }
   }, [isTauri, t, skillsShCategory])
 
@@ -181,16 +183,35 @@ export const SkillsMarketplace = React.memo(function SkillsMarketplace({
       const data = await invoke<SkillsShLeaderboard>("search_skillssh_skills", {
         query: query.trim(),
       })
+      if (!mountedRef.current) return
       setLeaderboard(data)
     } catch (err) {
       console.error("[SkillsMarketplace] Failed to search skills:", err)
+      if (!mountedRef.current) return
       setError(formatTauriInvokeError(err))
     } finally {
-      setIsLoading(false)
+      if (mountedRef.current) setIsLoading(false)
     }
   }, [isTauri, fetchLeaderboard])
 
   const searchTimerRef = React.useRef<ReturnType<typeof setTimeout> | null>(null)
+
+  /**
+   * loadInstalled is fired un-awaited from a mount effect and awaits dynamic
+   * Tauri imports before setting state, so nothing stops it landing after the
+   * component is gone. React's dispatchSetState reaches for `window` on the way
+   * in, which throws once the surrounding environment is torn down — two
+   * unhandled "window is not defined" errors that failed `vitest run` while all
+   * 2242 tests passed. Outside tests the same race just warns, but it is the
+   * same defect: state written to an unmounted tree.
+   */
+  const mountedRef = React.useRef(true)
+  React.useEffect(
+    () => () => {
+      mountedRef.current = false
+    },
+    [],
+  )
 
   const handleSearchChange = React.useCallback((value: string) => {
     if (externalSearch) {
@@ -236,8 +257,10 @@ export const SkillsMarketplace = React.memo(function SkillsMarketplace({
         }
       }))
 
+      if (!mountedRef.current) return
       setInstalledSlugs(allSlugs)
     } catch {
+      if (!mountedRef.current) return
       setInstalledSlugs(new Set())
     }
   }, [workspacePath])
@@ -258,6 +281,17 @@ export const SkillsMarketplace = React.memo(function SkillsMarketplace({
     searchTimerRef.current = setTimeout(() => {
       void doSearchSkillSh(effectiveSearchQuery)
     }, 300)
+    // The debounce was only ever cleared by the *next* run of this effect, so
+    // unmounting between keystroke and timeout left a live timer that woke up
+    // and searched against a component that no longer existed. Cancelling on
+    // teardown is the fix the mountedRef guards cannot provide — it stops the
+    // work rather than discarding its result.
+    return () => {
+      if (searchTimerRef.current) {
+        clearTimeout(searchTimerRef.current)
+        searchTimerRef.current = null
+      }
+    }
   }, [effectiveActiveSource, doSearchSkillSh, effectiveSearchQuery, externalSearch])
 
   React.useEffect(() => {

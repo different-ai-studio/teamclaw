@@ -11,7 +11,8 @@
 //! - AgentThinking: `""` (no metadata)
 //! - AgentToolCall: `{"tool_id": str, "tool_name": str, "description": str}`
 //! - AgentToolResult: `{"tool_id": str, "success": bool}`
-//! - AgentReply: `""` (no metadata)
+//! - AgentReply: `""` normally; interrupted turns use
+//!   `{"turn_status":"interrupted"}` with non-empty agent-facing content
 //!
 //! Always emit all keys for a kind (use empty strings/false rather than
 //! omitting). New keys may be added; existing keys must not be removed
@@ -19,6 +20,27 @@
 
 use crate::proto::amux;
 use crate::proto::teamclaw::MessageKind;
+
+/// Durable AGENT_REPLY body when the user aborts a turn.
+///
+/// Kept English so model history / catchup context always sees an explicit
+/// stop instruction regardless of UI locale. Frontends hide this text when
+/// `metadata.turn_status == "interrupted"` and render a localized strip.
+pub const INTERRUPTED_AGENT_REPLY_CONTENT: &str = "\
+[Turn interrupted by user] The user stopped this turn before it finished. \
+Do not continue, resume, or retry the interrupted work unless the user \
+explicitly asks again.";
+
+const INTERRUPTED_REPLY_METADATA_JSON: &str = r#"{"turn_status":"interrupted"}"#;
+
+fn is_turn_abort_error(err: &amux::AcpError) -> bool {
+    let message = err.message.to_ascii_lowercase();
+    let details = err.details.to_ascii_lowercase();
+    message.contains("messageaborted")
+        || details.contains("messageaborted")
+        || message.contains("turninterrupted")
+        || details.contains("turninterrupted")
+}
 
 fn tool_use_metadata(tu: &amux::AcpToolUse) -> String {
     serde_json::json!({
@@ -105,6 +127,8 @@ pub struct TurnAggregator {
     turn_had_activity: bool,
     /// True once this turn emits an AgentReply (mid-turn flush or turn end).
     turn_had_reply: bool,
+    /// True when an ACP Error for user abort arrived before Active→Idle.
+    turn_was_interrupted: bool,
 }
 
 impl TurnAggregator {
@@ -152,6 +176,15 @@ impl TurnAggregator {
                     turn_id: self.current_turn_id.clone().unwrap_or_default(),
                 });
             }
+            Some(amux::acp_event::Event::Error(err)) => {
+                // Abort arrives before Active→Idle. Remember it so turn end
+                // can emit a durable interrupted AGENT_REPLY (catchup + UI).
+                if is_turn_abort_error(err) {
+                    self.ensure_turn_started();
+                    self.turn_was_interrupted = true;
+                    self.turn_had_activity = true;
+                }
+            }
             Some(amux::acp_event::Event::StatusChange(sc)) => {
                 let active = amux::AgentStatus::Active as i32;
                 let idle = amux::AgentStatus::Idle as i32;
@@ -163,6 +196,7 @@ impl TurnAggregator {
                 if sc.old_status == idle && sc.new_status == active {
                     self.turn_had_activity = false;
                     self.turn_had_reply = false;
+                    self.turn_was_interrupted = false;
                     self.ensure_turn_started();
                 }
                 // Active -> Idle is the canonical "turn ended" signal
@@ -171,20 +205,41 @@ impl TurnAggregator {
                 // turn allocates a fresh id.
                 if sc.old_status == active && sc.new_status == idle {
                     self.flush_thinking_into(&mut out);
-                    self.flush_reply_into(&mut out);
-                    // Tool-only turns never accumulate reply text. Emit an
-                    // empty AgentReply so clients get message.created and
-                    // can anchor the turn in the main timeline.
-                    if !self.turn_had_reply && self.turn_had_activity {
+                    if self.turn_was_interrupted && self.turn_had_activity {
+                        // Single durable AGENT_REPLY: keep any unflushed prose in
+                        // content (user must see what was generated). Only fall
+                        // back to the English interrupt notice when there is no
+                        // visible text — still stamp turn_status for UI routing.
+                        let prose = std::mem::take(&mut self.reply_buf);
+                        let content = if prose.trim().is_empty() {
+                            INTERRUPTED_AGENT_REPLY_CONTENT.to_string()
+                        } else {
+                            prose
+                        };
                         out.push(EmittedMessage {
                             kind: MessageKind::AgentReply,
-                            content: String::new(),
-                            metadata_json: String::new(),
+                            content,
+                            metadata_json: INTERRUPTED_REPLY_METADATA_JSON.to_string(),
                             turn_id: self.current_turn_id.clone().unwrap_or_default(),
                         });
+                        self.turn_had_reply = true;
+                    } else {
+                        self.flush_reply_into(&mut out);
+                        // Tool-only turns never accumulate reply text. Emit an
+                        // empty AgentReply so clients get message.created and
+                        // can anchor the turn in the main timeline.
+                        if !self.turn_had_reply && self.turn_had_activity {
+                            out.push(EmittedMessage {
+                                kind: MessageKind::AgentReply,
+                                content: String::new(),
+                                metadata_json: String::new(),
+                                turn_id: self.current_turn_id.clone().unwrap_or_default(),
+                            });
+                        }
                     }
                     self.turn_had_activity = false;
                     self.turn_had_reply = false;
+                    self.turn_was_interrupted = false;
                     self.current_turn_id = None;
                 }
             }
@@ -334,6 +389,16 @@ mod tests {
         }
     }
 
+    fn abort_error() -> amux::AcpEvent {
+        amux::AcpEvent {
+            event: Some(amux::acp_event::Event::Error(amux::AcpError {
+                message: "MessageAbortedError".into(),
+                details: "Aborted".into(),
+            })),
+            model: String::new(),
+        }
+    }
+
     #[test]
     fn aggregates_thinking_then_reply_at_turn_end() {
         let mut agg = TurnAggregator::new();
@@ -433,6 +498,54 @@ mod tests {
         assert_eq!(emitted[0].kind, MessageKind::AgentReply);
         assert!(emitted[0].content.is_empty());
         assert!(!TurnAggregator::cloud_persistent(&emitted[0]));
+    }
+
+    #[test]
+    fn interrupted_tool_only_turn_emits_durable_agent_reply() {
+        let mut agg = TurnAggregator::new();
+        agg.ingest(&status_change(
+            amux::AgentStatus::Idle,
+            amux::AgentStatus::Active,
+        ));
+        let tool_emitted = agg.ingest(&tool_use("t1", "bash", "sleep 10"));
+        assert_eq!(tool_emitted.len(), 1);
+        assert_eq!(tool_emitted[0].kind, MessageKind::AgentToolCall);
+        assert!(agg.ingest(&abort_error()).is_empty());
+
+        let emitted = agg.ingest(&status_change(
+            amux::AgentStatus::Active,
+            amux::AgentStatus::Idle,
+        ));
+        assert_eq!(emitted.len(), 1);
+        assert_eq!(emitted[0].kind, MessageKind::AgentReply);
+        assert_eq!(emitted[0].content, INTERRUPTED_AGENT_REPLY_CONTENT);
+        assert!(emitted[0]
+            .metadata_json
+            .contains("\"turn_status\":\"interrupted\""));
+        assert!(TurnAggregator::cloud_persistent(&emitted[0]));
+    }
+
+    #[test]
+    fn interrupted_turn_with_partial_reply_keeps_prose_content() {
+        let mut agg = TurnAggregator::new();
+        agg.ingest(&status_change(
+            amux::AgentStatus::Idle,
+            amux::AgentStatus::Active,
+        ));
+        agg.ingest(&output_chunk("partial answer"));
+        assert!(agg.ingest(&abort_error()).is_empty());
+
+        let emitted = agg.ingest(&status_change(
+            amux::AgentStatus::Active,
+            amux::AgentStatus::Idle,
+        ));
+        assert_eq!(emitted.len(), 1);
+        assert_eq!(emitted[0].kind, MessageKind::AgentReply);
+        assert_eq!(emitted[0].content, "partial answer");
+        assert!(emitted[0]
+            .metadata_json
+            .contains("\"turn_status\":\"interrupted\""));
+        assert!(TurnAggregator::cloud_persistent(&emitted[0]));
     }
 
     #[test]

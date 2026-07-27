@@ -59,6 +59,7 @@ export const ChatMessage = React.memo(function ChatMessage({
 }) {
   const { t } = useTranslation();
   const isUser = message.role === "user";
+  const isInterruptedTurn = !isUser && message.turnStatus === "interrupted";
   const [copied, setCopied] = React.useState(false);
   const replyAuthorResolved = useActorDisplayName(replyToMessage?.senderActorId);
   const myActorId = useCurrentTeamStore((s) => s.currentMember?.id);
@@ -193,6 +194,7 @@ export const ChatMessage = React.memo(function ChatMessage({
 
   const showLoadingIndicator =
     !isUser &&
+    !isInterruptedTurn &&
     !textContent &&
     !hasThinking &&
     !hasReasoning &&
@@ -289,6 +291,7 @@ export const ChatMessage = React.memo(function ChatMessage({
           onJump={() => jumpToMessageById(replyToMessage.id)}
         />
       ) : null}
+
       {/* Reasoning / tools — collapsed「处理过程」above final text when not streaming */}
       {!isUser &&
         !latestMessage.isStreaming &&
@@ -519,6 +522,31 @@ export const ChatMessage = React.memo(function ChatMessage({
           )}
         </>
       )}
+
+      {/* Daemon interrupted AGENT_REPLY — after process/tools, scheme A */}
+      {isInterruptedTurn ? (
+        <div
+          className="mt-1 flex max-w-[520px] flex-wrap items-baseline gap-x-2 gap-y-1 pl-1 text-[12.5px] leading-[1.5] text-ink-2"
+          data-testid="interrupted-agent-reply"
+        >
+          <span
+            className="inline-block h-1.5 w-1.5 shrink-0 translate-y-[-1px] rounded-[1px] bg-muted-foreground/70"
+            aria-hidden
+          />
+          <span className="font-semibold">
+            {t("chat.interrupt.stoppedTitle", "Stopped")}
+          </span>
+          <span className="font-mono text-[11px] text-faint">
+            · {t("chat.interrupt.interruptedStatusLabel", "interrupted")}
+          </span>
+          <p className="mt-0.5 w-full text-[12.5px] leading-[1.55] text-muted-foreground">
+            {t(
+              "chat.interrupt.agentReplyBodyKept",
+              "You interrupted this reply. Generated content is kept.",
+            )}
+          </p>
+        </div>
+      ) : null}
 
       {/* Copy action for assistant text responses */}
       {shouldShowAssistantCopyAction && (

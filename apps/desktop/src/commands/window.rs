@@ -149,6 +149,59 @@ pub async fn create_workspace_window(
     Ok(label)
 }
 
+const LOCAL_AGENT_PANEL_LABEL: &str = "local-agent-panel";
+
+/// Open (or focus) a compact window that hosts only the LocalDaemon settings
+/// panel — used from the system tray so the main desktop UI stays hidden.
+#[tauri::command]
+pub fn open_local_agent_panel_window(app: AppHandle) -> Result<(), String> {
+    // Match the main app Settings dialog: ~960×780.
+    const WIDTH: f64 = 960.0;
+    const HEIGHT: f64 = 780.0;
+
+    if let Some(existing) = app.get_webview_window(LOCAL_AGENT_PANEL_LABEL) {
+        let _ = existing.set_size(tauri::LogicalSize::new(WIDTH, HEIGHT));
+        let _ = existing.unminimize();
+        let _ = existing.show();
+        let _ = existing.set_focus();
+        return Ok(());
+    }
+
+    let brand = crate::branding::brand_name(app.config().product_name.as_deref());
+    let title = format!("{brand} · Settings");
+
+    #[allow(unused_mut)]
+    let mut builder = WebviewWindowBuilder::new(
+        &app,
+        LOCAL_AGENT_PANEL_LABEL,
+        WebviewUrl::App("index.html?panel=local-agent".into()),
+    )
+    .title(&title)
+    .inner_size(WIDTH, HEIGHT)
+    .min_inner_size(800.0, 600.0)
+    .resizable(true)
+    .decorations(true)
+    .always_on_top(false)
+    .skip_taskbar(false);
+
+    #[cfg(target_os = "macos")]
+    {
+        builder = builder
+            .title_bar_style(TitleBarStyle::Overlay)
+            .hidden_title(true);
+    }
+
+    let win = builder
+        .build()
+        .map_err(|e| format!("Failed to create local-agent panel: {e}"))?;
+    let _ = win.set_title(&title);
+
+    #[cfg(target_os = "macos")]
+    super::window_chrome::reposition_traffic_lights(&win);
+
+    Ok(())
+}
+
 /// Bind the calling window to a workspace path.
 ///
 /// Daemon-mode startup no longer goes through `start_opencode`, so the frontend

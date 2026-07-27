@@ -39,6 +39,7 @@ pub mod team_types;
 pub mod team_unified;
 pub mod terminal;
 pub mod trash;
+pub mod tray_menu;
 pub mod updater;
 pub mod webview;
 pub mod window;
