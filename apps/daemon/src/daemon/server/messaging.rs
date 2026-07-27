@@ -19,14 +19,20 @@ impl DaemonServer {
     /// Now only used by `publish_all_agent_states` to iterate startup/reconnect state.
     /// Per-agent updates should go through `publish_runtime_state_by_id`.
     pub(crate) async fn merged_agent_list(&self) -> amux::AgentList {
-        let mut agent_list = self.agents.lock().await.to_proto_agent_list();
+        let agents = self.agents.lock().await;
+        let mut agent_list = agents.to_proto_agent_list();
         let active_ids: std::collections::HashSet<String> = agent_list
             .runtimes
             .iter()
             .map(|a| a.runtime_id.clone())
             .collect();
-        for session_info in self.sessions.to_proto_agent_list() {
+        for mut session_info in self.sessions.to_proto_agent_list() {
             if !active_ids.contains(&session_info.runtime_id) {
+                // Historical rows carry no catalog of their own — they were
+                // written by a runtime that is no longer attached. Publishing
+                // them empty is what pinned every non-newest session's pill at
+                // "connecting" with no model name.
+                agents.fill_catalog(&mut session_info);
                 agent_list.runtimes.push(session_info);
             }
         }
@@ -36,9 +42,17 @@ impl DaemonServer {
     /// Look up a single agent's current RuntimeInfo — live adapter first, then
     /// the historical session store. Returns `None` if unknown.
     pub(crate) async fn agent_info_by_id(&self, agent_id: &str) -> Option<amux::RuntimeInfo> {
-        match self.agents.lock().await.to_proto_info(agent_id) {
+        let agents = self.agents.lock().await;
+        match agents.to_proto_info(agent_id) {
             Some(info) => Some(info),
-            None => self.sessions.to_proto_agent_info(agent_id),
+            None => {
+                // Same reason as `merged_agent_list`: a historical row must
+                // still advertise the device's catalog, or its session can
+                // never leave "connecting".
+                let mut info = self.sessions.to_proto_agent_info(agent_id)?;
+                agents.fill_catalog(&mut info);
+                Some(info)
+            }
         }
     }
 

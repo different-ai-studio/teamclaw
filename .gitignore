@@ -86,6 +86,10 @@ playwright-report/
 .worktrees/
 
 # Tauri MCP plugin (cloned dependency)
+# Dev-only guest-JS package for tauri-mcp. Usually a symlink to
+# apps/desktop/tauri-plugin-mcp-local, so match the bare name too — the
+# trailing-slash form ignores a directory but not a symlink to one.
+.tauri-plugin-mcp
 .tauri-plugin-mcp/
 
 
