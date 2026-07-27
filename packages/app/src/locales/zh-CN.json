@@ -96,6 +96,22 @@
     "user": "用户",
     "later": "稍后"
   },
+  "closeToTray": {
+    "title": "关闭 TeamClaw？",
+    "description": "本地 Agent（amuxd）目前由桌面托管。你可以把它留在托盘继续跑任务，或一并退出。",
+    "trayTitle": "最小化到托盘",
+    "trayDesc": "隐藏窗口；本地 Agent 继续运行，可接跨设备消息与定时任务。",
+    "quitTitle": "退出并停止 Agent",
+    "quitDesc": "关闭窗口并停止 amuxd / opencode。适合彻底下班。",
+    "remember": "记住我的选择（可在设置里改）",
+    "confirm": "确定",
+    "panelTitle": "本地 Agent"
+  },
+  "tray": {
+    "showMain": "打开主窗口",
+    "agentSettings": "本地 Agent 设置…",
+    "quitAndStopAgent": "退出并停止 Agent"
+  },
   "auth": {
     "tagline": "AI Ally · AI 搭档",
     "teamBootstrapError": {
@@ -561,6 +577,13 @@
     },
     "interruptFailed": "无法打断 agent 回复",
     "interruptAgent": "打断 {{name}}",
+    "interrupt": {
+      "stopping": "正在停止回复…",
+      "stoppingShort": "停止中",
+      "stoppedTitle": "已停止",
+      "interruptedStatusLabel": "中断",
+      "agentReplyBodyKept": "你已打断本次回复。已生成的内容会保留。"
+    },
     "acpDebug": {
       "title": "ACP 流调试",
       "lineCount": "{{count}} 条",
@@ -1108,6 +1131,13 @@
       "appearance": "外观",
       "language": "语言",
       "languageDesc": "选择应用界面语言",
+      "closeWindow": "关闭窗口时",
+      "closeWindowDesc": "点击窗口关闭按钮时的行为。Cmd+Q 始终退出并停止 Agent。",
+      "closeWindowAsk": "每次询问",
+      "closeWindowTray": "最小化到托盘（保持 Agent）",
+      "closeWindowQuit": "退出并停止 Agent",
+      "closeWindowSaved": "关闭偏好已更新",
+      "closeWindowError": "无法更新关闭偏好",
       "notifications": "通知",
       "notificationsDesc": "接收桌面通知",
       "mqttBroker": "MQTT Broker",

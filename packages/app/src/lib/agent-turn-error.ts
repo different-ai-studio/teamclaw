@@ -1,9 +1,31 @@
 import type { TFunction } from 'i18next'
 
+/** User-initiated turn cancel (opencode abort) — not a fault. */
+export const TURN_INTERRUPTED_ERROR_NAME = 'TurnInterrupted'
+
+/** True when an ACP turn error is an intentional interrupt / abort. */
+export function isAgentTurnAbortError(
+  message: string | undefined,
+  detail?: string | undefined,
+): boolean {
+  const name = (message ?? '').trim().toLowerCase()
+  const det = (detail ?? '').trim().toLowerCase()
+  if (!name && !det) return false
+  if (name === TURN_INTERRUPTED_ERROR_NAME.toLowerCase()) return true
+  // opencode / daemon: error.name = MessageAbortedError, data.message = Aborted
+  if (name.includes('messageaborted')) return true
+  // Display form already joined as "MessageAbortedError: Aborted"
+  if (name.includes('messageabortederror')) return true
+  return false
+}
+
 /** Classify daemon-emitted AcpError.message into a UI error name. */
 export function classifyAgentTurnErrorName(message: string | undefined): string {
   const raw = (message ?? '').trim()
   const lower = raw.toLowerCase()
+  if (isAgentTurnAbortError(raw)) {
+    return TURN_INTERRUPTED_ERROR_NAME
+  }
   if (lower === 'model stalled' || lower === 'model provider not responding') {
     return 'AgentTimeoutError'
   }

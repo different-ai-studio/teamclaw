@@ -92,6 +92,15 @@ export function useEngagedAgentRuntimeMap(
     [activeSessionId],
   )
 
+  // Clear previous session bindings before paint so pills don't flash ready
+  // from another session's spawn while the new session's targets load.
+  const prevSessionIdRef = React.useRef(activeSessionId)
+  React.useLayoutEffect(() => {
+    if (prevSessionIdRef.current === activeSessionId) return
+    prevSessionIdRef.current = activeSessionId
+    setAgentToRuntimeId((prev) => (prev.size === 0 ? prev : new Map()))
+  }, [activeSessionId])
+
   React.useEffect(() => {
     const ids = engagedAgentIdSignature.split(',').filter(Boolean)
     if (!activeSessionId || !teamId || ids.length === 0) {

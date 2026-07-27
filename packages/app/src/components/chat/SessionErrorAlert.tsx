@@ -2,7 +2,11 @@ import { useState } from 'react'
 import { AlertCircle, ChevronDown, ChevronUp, RefreshCw, AlertTriangle, ShieldAlert, Timer, Copy, Check } from 'lucide-react'
 import { useTranslation } from 'react-i18next'
 import { copyToClipboard } from '@/lib/utils'
-import { isQuotaLikeAgentMessage } from '@/lib/agent-turn-error'
+import {
+  isAgentTurnAbortError,
+  isQuotaLikeAgentMessage,
+  TURN_INTERRUPTED_ERROR_NAME,
+} from '@/lib/agent-turn-error'
 import type { SessionErrorEvent } from '@/stores/session-types'
 
 interface SessionErrorAlertProps {
@@ -25,11 +29,6 @@ const DEFAULT_BODY_STYLE = {
   bodyBorder: 'border-red-200/50 dark:border-red-800/30',
 }
 
-const NEUTRAL_BODY_STYLE = {
-  bodyBg: 'bg-muted/60',
-  bodyBorder: 'border-border-soft',
-}
-
 export function SessionErrorAlert({ error, onDismiss, onRetry }: SessionErrorAlertProps) {
   const { t } = useTranslation()
   const [expanded, setExpanded] = useState(false)
@@ -48,24 +47,23 @@ export function SessionErrorAlert({ error, onDismiss, onRetry }: SessionErrorAle
   const providerID = isStringError ? undefined : error.error?.data?.providerID
   const isRetryable = isStringError ? false : error.error?.data?.isRetryable
 
+  const isInterrupted =
+    errorName === TURN_INTERRUPTED_ERROR_NAME ||
+    isAgentTurnAbortError(errorName, errorMessage) ||
+    isAgentTurnAbortError(errorMessage)
+
+  if (isInterrupted) {
+    // Interrupted turns render via ChatMessage (metadata.turn_status).
+    // Do not show a second thread-level stop banner.
+    return null
+  }
+
   if (!errorMessage && !errorName) return null
 
   const isLongMessage = errorMessage.length > 150
 
   const getErrorStyle = (): ErrorStyle => {
     const lowerMsg = errorMessage.toLowerCase()
-    // A user-initiated interrupt (turn cancel) surfaces through the same
-    // error pipeline but isn't a fault — style it as a neutral note, not a
-    // red alarm.
-    if (errorName.toLowerCase().includes('abort') || lowerMsg.includes('aborted')) {
-      return {
-        icon: AlertCircle,
-        title: t('errors.serviceNotice', 'Service Notice'),
-        accentColor: 'text-muted-foreground',
-        iconBg: 'bg-muted',
-        ...NEUTRAL_BODY_STYLE,
-      }
-    }
     if (errorName === 'AgentTimeoutError') {
       return {
         icon: Timer,

@@ -736,4 +736,41 @@ describe("adaptTeamclawMessages", () => {
     expect(result?.[0]?.turnId).toBe("t-parts");
     expect(result?.[0]?.parts?.some((p) => p.type === "text")).toBe(true);
   });
+
+  it("maps interrupted AGENT_REPLY metadata to turnStatus and hides agent-facing body", () => {
+    const result = adaptTeamclawMessages([
+      tmsg({
+        kind: MessageKind.AGENT_REPLY,
+        content:
+          "[Turn interrupted by user] The user stopped this turn before it finished.",
+        turnId: "t-int",
+        metadataJson: JSON.stringify({ turn_status: "interrupted" }),
+        replyToMessageId: "user-sleep",
+      }),
+    ]);
+    expect(result).toHaveLength(1);
+    expect(result?.[0]?.turnStatus).toBe("interrupted");
+    expect(result?.[0]?.content).toBe("");
+    expect(result?.[0]?.replyToMessageId).toBe("user-sleep");
+    expect(result?.[0]?.parts ?? []).toEqual([]);
+  });
+
+  it("keeps generated prose on interrupted AGENT_REPLY and sets turnStatus", () => {
+    const prose = "暮色从城市的边缘慢慢漫上来……";
+    const result = adaptTeamclawMessages([
+      tmsg({
+        kind: MessageKind.AGENT_REPLY,
+        content: prose,
+        turnId: "t-prose-int",
+        metadataJson: JSON.stringify({ turn_status: "interrupted" }),
+        replyToMessageId: "user-prose",
+      }),
+    ]);
+    expect(result).toHaveLength(1);
+    expect(result?.[0]?.turnStatus).toBe("interrupted");
+    expect(result?.[0]?.content).toBe(prose);
+    expect(result?.[0]?.parts?.some((p) => p.type === "text" && p.text === prose)).toBe(
+      true,
+    );
+  });
 });

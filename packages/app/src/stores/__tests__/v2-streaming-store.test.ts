@@ -594,8 +594,22 @@ describe("v2-streaming-store", () => {
     expect(state.byKey["s1::a1"]?.active).toBe(true);
   });
 
-  it("creates a completed placeholder when tool result arrives without tool use", () => {
+  it("drops orphan tool results when no live or archived stream exists", () => {
     const store = useV2StreamingStore.getState();
+
+    store.completeToolUse("s1", "a1", {
+      toolId: "tool-1",
+      success: true,
+      summary: "done",
+    });
+
+    expect(useV2StreamingStore.getState().byKey["s1::a1"]).toBeUndefined();
+    expect(useV2StreamingStore.getState().archived).toHaveLength(0);
+  });
+
+  it("adds a completed placeholder onto an existing live stream when tool use was missed", () => {
+    const store = useV2StreamingStore.getState();
+    store.appendOutput("s1", "a1", "working");
 
     store.completeToolUse("s1", "a1", {
       toolId: "tool-1",
@@ -611,8 +625,7 @@ describe("v2-streaming-store", () => {
       status: "completed",
       result: "done",
     });
-    expect(stream.parts).toHaveLength(1);
-    expect(stream.parts[0].toolCall?.status).toBe("completed");
+    expect(stream.parts.some((p) => p.toolCall?.id === "tool-1")).toBe(true);
   });
 
   it("routes late tool results to archived streams instead of creating a phantom bubble", () => {
@@ -646,6 +659,34 @@ describe("v2-streaming-store", () => {
     expect(streams.find((entry) => entry.toolCalls[0]?.id === "sleep-tool")?.toolCalls[0]?.status).toBe(
       "completed",
     );
+  });
+
+  it("does not reopen an active live stream for orphan tool results after release", () => {
+    const store = useV2StreamingStore.getState();
+    store.pushToolUse("s1", "a1", {
+      toolId: "sleep-tool",
+      toolName: "bash",
+      description: "sleep",
+      params: {},
+      toolKind: "execute",
+    });
+    store.releaseActorAfterPersist("s1", "a1", {
+      persistedPartsJson: JSON.stringify([
+        {
+          type: "tool-call",
+          toolCallId: "sleep-tool",
+          toolCall: { id: "sleep-tool", status: "failed", name: "bash" },
+        },
+      ]),
+    });
+
+    store.completeToolUse("s1", "a1", {
+      toolId: "sleep-tool",
+      success: true,
+      summary: "User aborted the command",
+    });
+
+    expect(useV2StreamingStore.getState().byKey["s1::a1"]).toBeUndefined();
   });
 
   it("replaceParts does not downgrade completed tools to calling (enrich race)", () => {
