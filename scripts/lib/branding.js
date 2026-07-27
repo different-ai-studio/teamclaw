@@ -92,21 +92,50 @@ function applyIdentityToTauriConf(tauriConf, buildConfig) {
 /**
  * Apply the configured app name/short name to a parsed extension manifest.json
  * object (mutates it). Both fields are browser-facing labels, so they follow
- * `app.displayName` and fall back to `app.name`. Returns true if anything changed.
+ * `app.displayName` and fall back to `app.name`.
+ *
+ * The description follows the same brand, read from `extension.description`
+ * (or `extensions.description`). Leaving it unbranded is what shipped a
+ * "Copilot 361" package still describing itself as TeamClaw — the Chrome Web
+ * Store shows the package name and description side by side, and a mismatch
+ * between them reads to a reviewer as a misleading listing.
+ *
+ * Returns true if anything changed.
  */
 function applyNameToExtensionManifest(manifest, buildConfig) {
-  const app = (buildConfig && buildConfig.app) || {};
+  const cfg = buildConfig || {};
+  const app = cfg.app || {};
+  const extensionBlock =
+    (cfg.extension && typeof cfg.extension === "object" ? cfg.extension : null) ||
+    (cfg.extensions && typeof cfg.extensions === "object" ? cfg.extensions : null) ||
+    {};
   const name = app.displayName || app.name;
-  if (!name) return false;
+  const description = extensionBlock.description || app.description;
   let changed = false;
-  if (manifest.name !== name) {
-    manifest.name = name;
+
+  if (name) {
+    if (manifest.name !== name) {
+      manifest.name = name;
+      changed = true;
+    }
+    if (manifest.action && manifest.action.default_title !== name) {
+      manifest.action.default_title = name;
+      changed = true;
+    }
+  }
+
+  if (description && manifest.description !== description) {
+    // Chrome truncates past 132 chars in the toolbar tooltip and rejects >132
+    // in the manifest, so fail the build rather than ship a silently cut label.
+    if (String(description).length > 132) {
+      throw new Error(
+        `brand identity: extension description is ${String(description).length} chars — Chrome allows at most 132`
+      );
+    }
+    manifest.description = description;
     changed = true;
   }
-  if (manifest.action && manifest.action.default_title !== name) {
-    manifest.action.default_title = name;
-    changed = true;
-  }
+
   return changed;
 }
 

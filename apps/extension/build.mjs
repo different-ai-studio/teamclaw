@@ -13,7 +13,7 @@ const appDir = resolve(here, '../../packages/app')
 const linkHoverShared = resolve(appDir, 'src/lib/extension-link-hover')
 const linkSessionShared = resolve(appDir, 'src/lib/extension-link-session')
 const nodeRequire = createRequire(import.meta.url)
-const { parseExtensionsConfig, domainsToSidePanelCsv } = nodeRequire(
+const { resolveExtensionPack, domainsToSidePanelCsv } = nodeRequire(
   resolve(repoRoot, 'scripts/lib/extension-config.js'),
 )
 
@@ -63,7 +63,7 @@ function loadMergedBuildConfig() {
 }
 
 const mergedBuildConfig = loadMergedBuildConfig()
-const extensionPack = parseExtensionsConfig(mergedBuildConfig.extensions)
+const extensionPack = resolveExtensionPack(mergedBuildConfig)
 const domainsCsv = domainsToSidePanelCsv(extensionPack.domains)
 const extensionSettingsBake = extensionPack.settings
 
