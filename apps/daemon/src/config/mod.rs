@@ -2,6 +2,7 @@ mod daemon_config;
 pub mod edit;
 pub mod global_team_store;
 mod member_store;
+mod model_catalog;
 mod model_mru;
 pub mod provider_auth;
 mod roles_skills;
@@ -22,6 +23,7 @@ pub use daemon_config::{
 #[cfg(test)]
 pub use daemon_config::ChannelsConfig;
 pub use member_store::{MemberStore, PendingInvite, StoredMember};
+pub use model_catalog::DeviceModelCatalog;
 pub use model_mru::{first_available, ModelMru};
 pub use provider_auth::{
     builtin_provider_auth_methods, merge_live_provider_auth_methods, ProviderAuthMethod,
