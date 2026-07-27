@@ -96,11 +96,13 @@ export const MessageList = React.forwardRef<MessageListHandle, MessageListProps>
     // ── Sorted messages ──────────────────────────────────────────────────
     const messages = React.useMemo(() => {
       const msgs = rawMessages || [];
+      // Stable sort, no id tiebreak: same-timestamp messages keep the order the
+      // adapter produced. Comparing ids would reorder a gateway user message and
+      // its reply arbitrarily (WeCom msgid vs. random UUID).
       return [...msgs].sort((a, b) => {
         const ta = a.timestamp?.getTime?.() ?? 0;
         const tb = b.timestamp?.getTime?.() ?? 0;
-        if (ta !== tb) return ta - tb;
-        return (a.id || "").localeCompare(b.id || "");
+        return ta - tb;
       });
     }, [rawMessages]);
 

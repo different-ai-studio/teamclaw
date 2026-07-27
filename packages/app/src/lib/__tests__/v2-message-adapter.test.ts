@@ -529,28 +529,30 @@ describe("adaptTeamclawMessages", () => {
     expect(result[0].parts[2].text).toBe("The file says hello.");
   });
 
-  it("uses a stable tie-breaker when rows share the same timestamp", () => {
+  // Rows that share a timestamp keep the caller's order (the sort is stable).
+  // Ids here deliberately sort the opposite way to prove they are not consulted.
+  it("keeps caller order for rows sharing the same timestamp", () => {
     const toolId = "tool-same-time";
     const msgs = [
       tmsg({
-        id: "c-reply",
-        kind: MessageKind.AGENT_REPLY,
-        content: "Done.",
-        turnId: "ordered-tie",
-        t: 10,
-      }),
-      tmsg({
-        id: "a-call",
+        id: "z-call",
         kind: MessageKind.AGENT_TOOL_CALL,
         metadataJson: JSON.stringify({ tool_id: toolId, tool_name: "search", description: "search" }),
         turnId: "ordered-tie",
         t: 10,
       }),
       tmsg({
-        id: "b-result",
+        id: "y-result",
         kind: MessageKind.AGENT_TOOL_RESULT,
         content: "ok",
         metadataJson: JSON.stringify({ tool_id: toolId, success: true }),
+        turnId: "ordered-tie",
+        t: 10,
+      }),
+      tmsg({
+        id: "x-reply",
+        kind: MessageKind.AGENT_REPLY,
+        content: "Done.",
         turnId: "ordered-tie",
         t: 10,
       }),
@@ -735,5 +737,29 @@ describe("adaptTeamclawMessages", () => {
     expect(result?.[0]?.replyToMessageId).toBe("user-parent");
     expect(result?.[0]?.turnId).toBe("t-parts");
     expect(result?.[0]?.parts?.some((p) => p.type === "text")).toBe(true);
+  });
+
+  // The gateway writes the inbound WeCom message and the agent reply back to
+  // back, so both land in the same whole second once createdAt is truncated.
+  // The reply's id is a random UUID and the user message's is the WeCom msgid,
+  // so an id tiebreak flipped the pair for roughly half of all turns.
+  it("keeps caller order for same-second messages whose ids sort the wrong way", () => {
+    const result = adaptTeamclawMessages([
+      tmsg({
+        id: "CAcQAB1234567890",
+        kind: MessageKind.TEXT,
+        content: "得",
+        turnId: "",
+        t: 1_753_500_000,
+      }),
+      tmsg({
+        id: "a1b2c3d4-0000-4000-8000-000000000000",
+        kind: MessageKind.AGENT_REPLY,
+        content: "😄 还想来一首吗?",
+        turnId: "",
+        t: 1_753_500_000,
+      }),
+    ])!;
+    expect(result.map((m) => m.content)).toEqual(["得", "😄 还想来一首吗?"]);
   });
 });

@@ -29,13 +29,20 @@ describe("insertMessageSorted", () => {
     expect(after.map((m) => m.id)).toEqual(["a", "b", "c", "z"]);
   });
 
-  it("uses id as tiebreaker when timestamps equal", () => {
+  // Equal timestamps keep arrival order rather than sorting by id: ids are a
+  // WeCom msgid for an inbound message and a random UUID for the reply, so
+  // comparing them reorders a same-second pair arbitrarily.
+  it("appends after existing messages when timestamps are equal", () => {
     const messages = [
       mkMsg("a", 1000),
       mkMsg("c", 2000),
     ];
     const inserted = insertMessageSorted(messages, mkMsg("b", 2000));
-    expect(inserted.map((m) => m.id)).toEqual(["a", "b", "c"]);
+    expect(inserted.map((m) => m.id)).toEqual(["a", "c", "b"]);
+
+    // ...and still lands before a strictly later message.
+    const withLater = insertMessageSorted([...messages, mkMsg("d", 3000)], mkMsg("b", 2000));
+    expect(withLater.map((m) => m.id)).toEqual(["a", "c", "b", "d"]);
   });
 
   it("handles empty array", () => {

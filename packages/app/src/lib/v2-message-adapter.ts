@@ -263,10 +263,11 @@ function compareTeamclawMessages(a: TeamclawMessage, b: TeamclawMessage): number
   if (aOrder !== null && bOrder === null) return -1;
   if (aOrder === null && bOrder !== null) return 1;
 
-  const created = compareBigInt(a.createdAt, b.createdAt);
-  if (created !== 0) return created;
-
-  return a.messageId.localeCompare(b.messageId);
+  // `createdAt` is whole seconds, so a gateway user message and the reply
+  // written right after it tie. Returning 0 keeps the caller's order (sort is
+  // stable); tiebreaking on `messageId` would compare a WeCom `msgid` against a
+  // random UUID and reorder the pair arbitrarily.
+  return compareBigInt(a.createdAt, b.createdAt);
 }
 
 /** Prefer the first non-empty reply_to on a same-turn group. */
