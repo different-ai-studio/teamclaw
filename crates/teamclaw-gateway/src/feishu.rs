@@ -4,7 +4,9 @@ use tokio::sync::{oneshot, RwLock};
 use crate::feishu_config::{FeishuConfig, FeishuGatewayStatus, FeishuGatewayStatusResponse};
 use crate::i18n;
 
-use crate::{AcpHandle, ChannelStore, FilterResult, ProcessedMessageTracker, MAX_PROCESSED_MESSAGES};
+use crate::{
+    AgentHandle, ChannelStore, FilterResult, ProcessedMessageTracker, MAX_PROCESSED_MESSAGES,
+};
 
 /// Feishu API base URL
 const FEISHU_API_BASE: &str = "https://open.feishu.cn";
@@ -393,7 +395,7 @@ impl TokenManager {
 /// Feishu gateway manager
 pub struct FeishuGateway {
     config: Arc<RwLock<FeishuConfig>>,
-    pub acp: Arc<dyn AcpHandle>,
+    pub agent: Arc<dyn AgentHandle>,
     pub store: Arc<dyn ChannelStore>,
     pub team_id: String,
     pub primary_agent_actor_id: String,
@@ -406,7 +408,7 @@ pub struct FeishuGateway {
 
 impl FeishuGateway {
     pub fn new(
-        acp: Arc<dyn AcpHandle>,
+        agent: Arc<dyn AgentHandle>,
         store: Arc<dyn ChannelStore>,
         team_id: String,
         primary_agent_actor_id: String,
@@ -415,7 +417,7 @@ impl FeishuGateway {
     ) -> Self {
         Self {
             config: Arc::new(RwLock::new(FeishuConfig::default())),
-            acp,
+            agent,
             store,
             team_id,
             primary_agent_actor_id,
@@ -465,7 +467,7 @@ impl FeishuGateway {
         let config_arc = Arc::clone(&self.config);
         let status_arc = Arc::clone(&self.status);
         let is_running_arc = Arc::clone(&self.is_running);
-        let acp = Arc::clone(&self.acp);
+        let agent = Arc::clone(&self.agent);
         let store = Arc::clone(&self.store);
         let team_id = self.team_id.clone();
         let primary_agent_actor_id = self.primary_agent_actor_id.clone();
@@ -476,7 +478,7 @@ impl FeishuGateway {
             let result = run_feishu_gateway(
                 config_arc,
                 status_arc.clone(),
-                acp,
+                agent,
                 store,
                 team_id,
                 primary_agent_actor_id,
@@ -554,7 +556,7 @@ impl Clone for FeishuGateway {
     fn clone(&self) -> Self {
         Self {
             config: Arc::clone(&self.config),
-            acp: Arc::clone(&self.acp),
+            agent: Arc::clone(&self.agent),
             store: Arc::clone(&self.store),
             team_id: self.team_id.clone(),
             primary_agent_actor_id: self.primary_agent_actor_id.clone(),
@@ -620,7 +622,7 @@ async fn get_ws_endpoint(app_id: &str, app_secret: &str) -> Result<(String, i32)
 #[derive(Clone)]
 struct HandlerContext {
     config: Arc<RwLock<FeishuConfig>>,
-    acp: Arc<dyn AcpHandle>,
+    agent: Arc<dyn AgentHandle>,
     store: Arc<dyn ChannelStore>,
     team_id: String,
     primary_agent_actor_id: String,
@@ -634,7 +636,7 @@ struct HandlerContext {
 async fn run_feishu_gateway(
     config: Arc<RwLock<FeishuConfig>>,
     status: Arc<RwLock<FeishuGatewayStatusResponse>>,
-    acp: Arc<dyn AcpHandle>,
+    agent: Arc<dyn AgentHandle>,
     store: Arc<dyn ChannelStore>,
     team_id: String,
     primary_agent_actor_id: String,
@@ -650,7 +652,7 @@ async fn run_feishu_gateway(
 
     let ctx = HandlerContext {
         config: Arc::clone(&config),
-        acp,
+        agent,
         store,
         team_id,
         primary_agent_actor_id,
@@ -1020,8 +1022,8 @@ async fn handle_message_event(event: &serde_json::Value, ctx: &HandlerContext) {
         "text" => content_json["text"].as_str().unwrap_or("").to_string(),
         "post" => extract_post_text(&content_json),
         "image" => {
-            // Inbound media attachments are not supported in the v2 ACP path (text-only).
-            println!("[Feishu] Ignoring inbound image (text-only ACP)");
+            // Inbound media attachments are not supported in the v2 agent path (text-only).
+            println!("[Feishu] Ignoring inbound image (text-only agent path)");
             return;
         }
         _ => {
@@ -1094,10 +1096,8 @@ async fn handle_message_event(event: &serde_json::Value, ctx: &HandlerContext) {
     // /stop /reset /model fall through to the session-resolve path below
     // (they require a resolved acp_session_id). Dispatch happens after
     // ensure_session.
-    let is_session_slash = lower == "/stop"
-        || lower == "/reset"
-        || lower == "/model"
-        || lower.starts_with("/model ");
+    let is_session_slash =
+        lower == "/stop" || lower == "/reset" || lower == "/model" || lower.starts_with("/model ");
 
     // Build the binding URI: feishu://{app_id}/{chat_id}
     let binding = crate::binding::feishu(&ctx.app_id, &chat_id);
@@ -1122,12 +1122,8 @@ async fn handle_message_event(event: &serde_json::Value, ctx: &HandlerContext) {
         Ok(id) => id,
         Err(e) => {
             if let Ok(token) = token_manager.get_tenant_token().await {
-                let _ = reply_feishu_message(
-                    &token,
-                    &message_id,
-                    &format!("Error (actor): {}", e),
-                )
-                .await;
+                let _ = reply_feishu_message(&token, &message_id, &format!("Error (actor): {}", e))
+                    .await;
             }
             return;
         }
@@ -1155,12 +1151,9 @@ async fn handle_message_event(event: &serde_json::Value, ctx: &HandlerContext) {
         Ok(o) => o,
         Err(e) => {
             if let Ok(token) = token_manager.get_tenant_token().await {
-                let _ = reply_feishu_message(
-                    &token,
-                    &message_id,
-                    &format!("Error (session): {}", e),
-                )
-                .await;
+                let _ =
+                    reply_feishu_message(&token, &message_id, &format!("Error (session): {}", e))
+                        .await;
             }
             return;
         }
@@ -1176,9 +1169,12 @@ async fn handle_message_event(event: &serde_json::Value, ctx: &HandlerContext) {
 
     // Slash-command dispatch — /stop /reset /model — against the resolved session.
     if is_session_slash {
-        let reply_text =
-            crate::commands::dispatch_session_slash_cmd(&ctx.acp, &lower, &outcome.acp_session_id)
-                .await;
+        let reply_text = crate::commands::dispatch_session_slash_cmd(
+            &ctx.agent,
+            &lower,
+            &outcome.acp_session_id,
+        )
+        .await;
         if let Ok(token) = token_manager.get_tenant_token().await {
             let _ = reply_feishu_message(&token, &message_id, &reply_text).await;
         }
@@ -1207,9 +1203,9 @@ async fn handle_message_event(event: &serde_json::Value, ctx: &HandlerContext) {
         None
     };
 
-    // Drive a single ACP turn through amuxd.
+    // Drive a single agent turn through amuxd.
     let reply = match ctx
-        .acp
+        .agent
         .send_prompt(&outcome.acp_session_id, &sender_display, &clean_text)
         .await
     {

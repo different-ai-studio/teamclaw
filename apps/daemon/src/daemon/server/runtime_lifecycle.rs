@@ -83,10 +83,10 @@ impl DaemonServer {
     ///
     /// Lifecycle publishes:
     ///   - STARTING (stage "spawning_process") published retained right after
-    ///     spawn_agent returns the new runtime_id, before StoredSession upsert.
+    ///     start_runtime returns the new runtime_id, before StoredSession upsert.
     ///   - ACTIVE published retained via publish_runtime_state_by_id after
     ///     StoredSession upsert (that call reads the now-populated RuntimeHandle).
-    ///   - No FAILED publish here — spawn_agent error path returns before any
+    ///   - No FAILED publish here — start_runtime error path returns before any
     ///     runtime_id is allocated, so there is no retained topic to write to.
     ///     Callers may surface the error via their wire envelope.
     ///
@@ -261,7 +261,7 @@ impl DaemonServer {
 
         if !superseded.is_empty() {
             for rid in &superseded {
-                self.agents.lock().await.stop_agent(rid).await;
+                self.agents.lock().await.stop_runtime(rid).await;
                 self.remote_tool_turn_contexts
                     .lock()
                     .await
@@ -568,7 +568,7 @@ impl DaemonServer {
             .agents
             .lock()
             .await
-            .spawn_agent_with_model(
+            .start_runtime_with_model(
                 agent_type,
                 &resolved_worktree,
                 "",
@@ -584,14 +584,14 @@ impl DaemonServer {
         let new_id = match spawn_res {
             Ok(id) => id,
             Err(e) => {
-                error!("spawn_agent failed: {}", e);
-                // We never allocated a retained topic (spawn_agent failed before
+                error!("start_runtime failed: {}", e);
+                // We never allocated a retained topic (start_runtime failed before
                 // returning an id), so there's no retain to publish FAILED to.
                 // The caller formats the error into its wire envelope; no state
                 // topic is involved.
                 return Err(StartRuntimeError {
                     error_code: "SPAWN_FAILED".to_string(),
-                    error_message: format!("spawn_agent failed: {}", e),
+                    error_message: format!("start_runtime failed: {}", e),
                     failed_stage: "spawning_process".to_string(),
                 });
             }
@@ -711,7 +711,7 @@ impl DaemonServer {
         // Replay any messages the runtime missed before it was spawned.
         // Uses Option B (event loop hook is not needed here because
         // apply_start_runtime already has `&mut self` access and runs
-        // synchronously after spawn_agent returns). This is the cleanest
+        // synchronously after start_runtime returns). This is the cleanest
         // insertion point — the handle is fully populated (session_id,
         // backend_runtime_row_id) and state is ACTIVE.
         self.catchup_runtime(&new_id).await;
@@ -749,7 +749,7 @@ impl DaemonServer {
             .agents
             .lock()
             .await
-            .stop_agent(&runtime_id)
+            .stop_runtime(&runtime_id)
             .await
             .is_none()
         {

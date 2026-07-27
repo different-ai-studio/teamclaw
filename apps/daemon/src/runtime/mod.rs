@@ -26,6 +26,6 @@ pub use manager::{AgentLaunchConfig, CheckedOutTurn, RuntimeManager, SpawnRuntim
 // Kept importable for external callers/tests even though in-crate code now
 // goes through `AgentBackend`.
 #[allow(unused_imports)]
-pub use opencode_http::AcpHostPool;
+pub use opencode_http::OpencodeHost;
 pub use supervisor::RuntimeSupervisor;
 pub use workspace_runtime::{apply_workspace_system_instructions, instruction_plugin_installed};

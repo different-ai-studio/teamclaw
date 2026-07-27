@@ -1,4 +1,4 @@
-use crate::acp::{AcpError, AcpHandle, AmuxSessionId};
+use crate::agent::{AgentError, AgentHandle, AmuxSessionId};
 use crate::channel_store::ChannelStore;
 use std::sync::Arc;
 
@@ -10,25 +10,25 @@ use std::sync::Arc;
 /// have already lowercased the content and filtered to known session commands;
 /// an unrecognized input falls through to an "Unknown command" reply.
 pub async fn dispatch_session_slash_cmd(
-    acp: &Arc<dyn AcpHandle>,
+    agent: &Arc<dyn AgentHandle>,
     lower_content: &str,
     acp_session_id: &str,
 ) -> String {
     let session = acp_session_id.to_string();
     if lower_content == "/stop" {
-        return match acp.cancel(&session).await {
+        return match agent.cancel(&session).await {
             Ok(_) => "⏹ Stopped current turn.".to_string(),
             Err(e) => format!("⚠️ Could not stop: {e}"),
         };
     }
     if lower_content == "/reset" {
-        return match acp.reset_session(&session).await {
+        return match agent.reset_session(&session).await {
             Ok(_) => "🔄 Session reset. Next message starts fresh.".to_string(),
             Err(e) => format!("⚠️ Could not reset: {e}"),
         };
     }
     if lower_content == "/model" {
-        return match acp.list_models().await {
+        return match agent.list_models().await {
             Ok(models) => {
                 if models.is_empty() {
                     "No models available.".to_string()
@@ -50,7 +50,7 @@ pub async fn dispatch_session_slash_cmd(
             Some((p, m)) => (p, m),
             None => ("anthropic", arg),
         };
-        return match acp.set_model(&session, provider, model).await {
+        return match agent.set_model(&session, provider, model).await {
             Ok(_) => format!(
                 "✅ Switched to `{provider}/{model}`. **Note: conversation context was cleared.**"
             ),
@@ -134,7 +134,7 @@ Gateway commands:
 // ── dispatch ─────────────────────────────────────────────────────────────────
 
 /// Dispatch a slash command. Two-layer priority:
-/// 1. ACP agent commands (advertised via `available_commands`) take priority.
+/// 1. agent-advertised commands (advertised via `available_commands`) take priority.
 /// 2. Gateway meta-commands are the fallback.
 ///
 /// Calls `reply` once with the response string.
@@ -142,19 +142,19 @@ Gateway commands:
 pub async fn dispatch<A, S>(
     name: &str,
     arg: Option<&str>,
-    acp: &A,
+    agent: &A,
     _store: &S,
     session: &AmuxSessionId,
     reply: impl Fn(String) + Send,
-) -> Result<bool, AcpError>
+) -> Result<bool, AgentError>
 where
-    A: AcpHandle + Send + Sync + ?Sized,
+    A: AgentHandle + Send + Sync + ?Sized,
     S: ChannelStore + Send + Sync + ?Sized,
 {
-    // 1. ACP agent commands take priority.
-    let agent_cmds = acp.available_commands(session).await?;
+    // 1. agent-advertised commands take priority.
+    let agent_cmds = agent.available_commands(session).await?;
     if agent_cmds.iter().any(|c| c.name.to_lowercase() == name) {
-        let outcome = acp.send_slash_command(session, name, arg).await?;
+        let outcome = agent.send_slash_command(session, name, arg).await?;
         reply(outcome.reply_text);
         return Ok(true);
     }
@@ -176,7 +176,8 @@ where
                 text.push_str("\n\nAgent commands:");
                 for cmd in &agent_cmds {
                     match &cmd.input_hint {
-                        Some(hint) => text.push_str(&format!("\n/{} <{}> - {}", cmd.name, hint, cmd.description)),
+                        Some(hint) => text
+                            .push_str(&format!("\n/{} <{}> - {}", cmd.name, hint, cmd.description)),
                         None => text.push_str(&format!("\n/{} - {}", cmd.name, cmd.description)),
                     }
                 }
@@ -185,7 +186,7 @@ where
         }
 
         MetaCommand::Model(None) => {
-            let models = acp.list_models().await?;
+            let models = agent.list_models().await?;
             if models.is_empty() {
                 "No models available.".to_string()
             } else {
@@ -201,12 +202,12 @@ where
                 Some((p, m)) => (p.to_string(), m.to_string()),
                 None => ("anthropic".to_string(), name_arg.clone()),
             };
-            acp.set_model(session, &provider, &model).await?;
+            agent.set_model(session, &provider, &model).await?;
             format!("Model set: {}/{}", provider, model)
         }
 
         MetaCommand::Sessions(None) => {
-            let sessions = acp.list_sessions(session).await?;
+            let sessions = agent.list_sessions(session).await?;
             if sessions.is_empty() {
                 "No sessions.".to_string()
             } else {
@@ -228,7 +229,7 @@ where
         }
 
         MetaCommand::Agents(None) => {
-            let agents = acp.list_agents(session).await?;
+            let agents = agent.list_agents(session).await?;
             let lines: Vec<String> = agents
                 .iter()
                 .map(|a| {
@@ -242,12 +243,12 @@ where
             format!("Agents:\n{}", lines.join("\n"))
         }
         MetaCommand::Agents(Some(agent_type)) => {
-            acp.set_agent(session, &agent_type).await?;
+            agent.set_agent(session, &agent_type).await?;
             format!("Agent set: {}", agent_type)
         }
 
         MetaCommand::Workspaces(None) => {
-            let workspaces = acp.list_workspaces(session).await?;
+            let workspaces = agent.list_workspaces(session).await?;
             if workspaces.is_empty() {
                 "No workspaces.".to_string()
             } else {
@@ -265,12 +266,12 @@ where
             }
         }
         MetaCommand::Workspaces(Some(ws_id)) => {
-            acp.set_workspace(session, &ws_id).await?;
+            agent.set_workspace(session, &ws_id).await?;
             format!("Workspace: {}", ws_id)
         }
 
         MetaCommand::Skills => {
-            let skills = acp.list_skills(session).await?;
+            let skills = agent.list_skills(session).await?;
             if skills.is_empty() {
                 "No workspace skills found.".to_string()
             } else {
@@ -283,19 +284,19 @@ where
         }
 
         MetaCommand::Clear => {
-            acp.reset_session(session).await?;
+            agent.reset_session(session).await?;
             "Session cleared.".to_string()
         }
 
-        MetaCommand::Stop => match acp.cancel(session).await {
+        MetaCommand::Stop => match agent.cancel(session).await {
             Ok(_) => "Stopped.".to_string(),
-            Err(AcpError::NotFound(_)) => "Nothing running.".to_string(),
-            Err(AcpError::Send(ref _e)) => "Nothing running.".to_string(),
+            Err(AgentError::NotFound(_)) => "Nothing running.".to_string(),
+            Err(AgentError::Send(ref _e)) => "Nothing running.".to_string(),
             Err(e) => return Err(e),
         },
 
         MetaCommand::Ctx(text) => {
-            acp.inject_context(session, "user", &text).await?;
+            agent.inject_context(session, "user", &text).await?;
             "Context injected.".to_string()
         }
     };
@@ -309,9 +310,9 @@ where
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::acp::{
-        AcpAvailableCommand, AcpError, AcpHandle, AcpTurnOutcome, AgentInfo, AmuxSessionId,
-        ModelInfo, WorkspaceInfo,
+    use crate::agent::{
+        AgentCommand, AgentError, AgentHandle, AgentInfo, AmuxSessionId, ModelInfo, TurnOutcome,
+        WorkspaceInfo,
     };
     use crate::channel_store::{AttachmentRecord, ChannelStore, EnsureSessionOutcome, StoreError};
     use async_trait::async_trait;
@@ -344,7 +345,7 @@ mod tests {
         ) -> Result<EnsureSessionOutcome, StoreError> {
             Ok(EnsureSessionOutcome {
                 session_id: "sess-1".to_string(),
-                acp_session_id: "acp-1".to_string(),
+                acp_session_id: "agent-1".to_string(),
                 created: true,
             })
         }
@@ -398,26 +399,26 @@ mod tests {
         }
     }
 
-    // ── MockAcp ──────────────────────────────────────────────────────────────
+    // ── MockAgent ──────────────────────────────────────────────────────────────
 
-    struct MockAcp {
-        acp_commands: Vec<AcpAvailableCommand>,
+    struct MockAgent {
+        agent_commands: Vec<AgentCommand>,
         injected: Mutex<Vec<String>>,
         reset_called: Mutex<bool>,
     }
 
-    impl MockAcp {
+    impl MockAgent {
         fn new() -> Self {
             Self {
-                acp_commands: vec![],
+                agent_commands: vec![],
                 injected: Mutex::new(vec![]),
                 reset_called: Mutex::new(false),
             }
         }
 
-        fn with_acp_commands(cmds: Vec<AcpAvailableCommand>) -> Self {
+        fn with_agent_commands(cmds: Vec<AgentCommand>) -> Self {
             Self {
-                acp_commands: cmds,
+                agent_commands: cmds,
                 injected: Mutex::new(vec![]),
                 reset_called: Mutex::new(false),
             }
@@ -425,13 +426,13 @@ mod tests {
     }
 
     #[async_trait]
-    impl AcpHandle for MockAcp {
+    impl AgentHandle for MockAgent {
         async fn create_session(
             &self,
             _team_id: &str,
             _binding: &str,
             _title: &str,
-        ) -> Result<AmuxSessionId, AcpError> {
+        ) -> Result<AmuxSessionId, AgentError> {
             Ok("sess-1".to_string())
         }
 
@@ -440,8 +441,8 @@ mod tests {
             _session: &AmuxSessionId,
             _sender_display: &str,
             _text: &str,
-        ) -> Result<AcpTurnOutcome, AcpError> {
-            Ok(AcpTurnOutcome {
+        ) -> Result<TurnOutcome, AgentError> {
+            Ok(TurnOutcome {
                 reply_text: "prompt response".to_string(),
                 completed: true,
             })
@@ -452,21 +453,21 @@ mod tests {
             _session: &AmuxSessionId,
             _sender_display: &str,
             text: &str,
-        ) -> Result<(), AcpError> {
+        ) -> Result<(), AgentError> {
             self.injected.lock().unwrap().push(text.to_string());
             Ok(())
         }
 
-        async fn cancel(&self, _session: &AmuxSessionId) -> Result<(), AcpError> {
+        async fn cancel(&self, _session: &AmuxSessionId) -> Result<(), AgentError> {
             Ok(())
         }
 
-        async fn reset_session(&self, _session: &AmuxSessionId) -> Result<(), AcpError> {
+        async fn reset_session(&self, _session: &AmuxSessionId) -> Result<(), AgentError> {
             *self.reset_called.lock().unwrap() = true;
             Ok(())
         }
 
-        async fn list_models(&self) -> Result<Vec<ModelInfo>, AcpError> {
+        async fn list_models(&self) -> Result<Vec<ModelInfo>, AgentError> {
             Ok(vec![
                 ModelInfo {
                     provider: "anthropic".to_string(),
@@ -486,15 +487,15 @@ mod tests {
             _session: &AmuxSessionId,
             _provider: &str,
             _model: &str,
-        ) -> Result<(), AcpError> {
+        ) -> Result<(), AgentError> {
             Ok(())
         }
 
         async fn available_commands(
             &self,
             _session: &AmuxSessionId,
-        ) -> Result<Vec<AcpAvailableCommand>, AcpError> {
-            Ok(self.acp_commands.clone())
+        ) -> Result<Vec<AgentCommand>, AgentError> {
+            Ok(self.agent_commands.clone())
         }
 
         async fn send_slash_command(
@@ -502,9 +503,9 @@ mod tests {
             _session: &AmuxSessionId,
             name: &str,
             _input: Option<&str>,
-        ) -> Result<AcpTurnOutcome, AcpError> {
-            Ok(AcpTurnOutcome {
-                reply_text: format!("acp handled: {}", name),
+        ) -> Result<TurnOutcome, AgentError> {
+            Ok(TurnOutcome {
+                reply_text: format!("agent handled: {}", name),
                 completed: true,
             })
         }
@@ -512,7 +513,7 @@ mod tests {
         async fn list_sessions(
             &self,
             active_session: &AmuxSessionId,
-        ) -> Result<Vec<(AmuxSessionId, bool)>, AcpError> {
+        ) -> Result<Vec<(AmuxSessionId, bool)>, AgentError> {
             Ok(vec![
                 (active_session.clone(), true),
                 ("sess-old".to_string(), false),
@@ -522,7 +523,7 @@ mod tests {
         async fn list_agents(
             &self,
             _session: &AmuxSessionId,
-        ) -> Result<Vec<AgentInfo>, AcpError> {
+        ) -> Result<Vec<AgentInfo>, AgentError> {
             Ok(vec![
                 AgentInfo {
                     agent_type: "opencode".to_string(),
@@ -539,14 +540,14 @@ mod tests {
             &self,
             _session: &AmuxSessionId,
             _agent_type: &str,
-        ) -> Result<(), AcpError> {
+        ) -> Result<(), AgentError> {
             Ok(())
         }
 
         async fn list_workspaces(
             &self,
             _session: &AmuxSessionId,
-        ) -> Result<Vec<WorkspaceInfo>, AcpError> {
+        ) -> Result<Vec<WorkspaceInfo>, AgentError> {
             Ok(vec![
                 WorkspaceInfo {
                     workspace_id: "ws-1".to_string(),
@@ -565,29 +566,27 @@ mod tests {
             &self,
             _session: &AmuxSessionId,
             _workspace_id: &str,
-        ) -> Result<(), AcpError> {
+        ) -> Result<(), AgentError> {
             Ok(())
         }
         async fn list_skills(
             &self,
             _session: &AmuxSessionId,
-        ) -> Result<Vec<(String, String)>, AcpError> {
-            Ok(vec![
-                ("my-skill".to_string(), "A test skill".to_string()),
-            ])
+        ) -> Result<Vec<(String, String)>, AgentError> {
+            Ok(vec![("my-skill".to_string(), "A test skill".to_string())])
         }
     }
 
     // helper to run dispatch and capture reply
     async fn run_dispatch(
-        acp: &MockAcp,
+        agent: &MockAgent,
         name: &str,
         arg: Option<&str>,
-    ) -> (Result<bool, AcpError>, Option<String>) {
+    ) -> (Result<bool, AgentError>, Option<String>) {
         let store = MockStore;
         let session = "test-session".to_string();
         let reply_capture: Mutex<Option<String>> = Mutex::new(None);
-        let result = dispatch(name, arg, acp, &store, &session, |s| {
+        let result = dispatch(name, arg, agent, &store, &session, |s| {
             *reply_capture.lock().unwrap() = Some(s);
         })
         .await;
@@ -606,7 +605,10 @@ mod tests {
     #[test]
     fn parse_slash_with_arg() {
         let result = parse_slash("/model gpt-4");
-        assert_eq!(result, Some(("model".to_string(), Some("gpt-4".to_string()))));
+        assert_eq!(
+            result,
+            Some(("model".to_string(), Some("gpt-4".to_string())))
+        );
     }
 
     #[test]
@@ -638,7 +640,10 @@ mod tests {
         let result = parse_slash("/ctx inject this whole sentence");
         assert_eq!(
             result,
-            Some(("ctx".to_string(), Some("inject this whole sentence".to_string())))
+            Some((
+                "ctx".to_string(),
+                Some("inject this whole sentence".to_string())
+            ))
         );
     }
 
@@ -646,8 +651,8 @@ mod tests {
 
     #[tokio::test]
     async fn help_returns_all_commands() {
-        let acp = MockAcp::new();
-        let (result, reply) = run_dispatch(&acp, "help", None).await;
+        let agent = MockAgent::new();
+        let (result, reply) = run_dispatch(&agent, "help", None).await;
         assert!(result.unwrap());
         let text = reply.unwrap();
         assert!(text.contains("/help"));
@@ -658,8 +663,8 @@ mod tests {
 
     #[tokio::test]
     async fn model_list_no_arg() {
-        let acp = MockAcp::new();
-        let (result, reply) = run_dispatch(&acp, "model", None).await;
+        let agent = MockAgent::new();
+        let (result, reply) = run_dispatch(&agent, "model", None).await;
         assert!(result.unwrap());
         let text = reply.unwrap();
         assert!(text.contains("anthropic/claude-3-5-sonnet"));
@@ -667,91 +672,94 @@ mod tests {
 
     #[tokio::test]
     async fn model_set_with_arg() {
-        let acp = MockAcp::new();
-        let (result, reply) = run_dispatch(&acp, "model", Some("anthropic/opus")).await;
+        let agent = MockAgent::new();
+        let (result, reply) = run_dispatch(&agent, "model", Some("anthropic/opus")).await;
         assert!(result.unwrap());
         assert!(reply.unwrap().contains("Model set"));
     }
 
     #[tokio::test]
     async fn clear_resets_session() {
-        let acp = MockAcp::new();
-        let (result, reply) = run_dispatch(&acp, "clear", None).await;
+        let agent = MockAgent::new();
+        let (result, reply) = run_dispatch(&agent, "clear", None).await;
         assert!(result.unwrap());
         assert_eq!(reply.unwrap(), "Session cleared.");
-        assert!(*acp.reset_called.lock().unwrap());
+        assert!(*agent.reset_called.lock().unwrap());
     }
 
     #[tokio::test]
     async fn stop_when_running() {
-        let acp = MockAcp::new();
-        let (result, reply) = run_dispatch(&acp, "stop", None).await;
+        let agent = MockAgent::new();
+        let (result, reply) = run_dispatch(&agent, "stop", None).await;
         assert!(result.unwrap());
         assert_eq!(reply.unwrap(), "Stopped.");
     }
 
     #[tokio::test]
     async fn ctx_missing_arg_shows_usage() {
-        let acp = MockAcp::new();
-        let (result, reply) = run_dispatch(&acp, "ctx", None).await;
+        let agent = MockAgent::new();
+        let (result, reply) = run_dispatch(&agent, "ctx", None).await;
         assert!(result.unwrap());
         assert!(reply.unwrap().contains("Usage:"));
     }
 
     #[tokio::test]
     async fn ctx_with_arg_injects_context() {
-        let acp = MockAcp::new();
-        let (result, reply) = run_dispatch(&acp, "ctx", Some("some background")).await;
+        let agent = MockAgent::new();
+        let (result, reply) = run_dispatch(&agent, "ctx", Some("some background")).await;
         assert!(result.unwrap());
         assert_eq!(reply.unwrap(), "Context injected.");
-        assert_eq!(acp.injected.lock().unwrap().as_slice(), &["some background"]);
+        assert_eq!(
+            agent.injected.lock().unwrap().as_slice(),
+            &["some background"]
+        );
     }
 
     #[tokio::test]
     async fn unknown_command_returns_false() {
-        let acp = MockAcp::new();
-        let (result, _reply) = run_dispatch(&acp, "foobar", None).await;
+        let agent = MockAgent::new();
+        let (result, _reply) = run_dispatch(&agent, "foobar", None).await;
         assert!(!result.unwrap());
     }
 
     #[tokio::test]
-    async fn acp_command_takes_priority_over_meta() {
-        let acp = MockAcp::with_acp_commands(vec![AcpAvailableCommand {
+    async fn agent_command_takes_priority_over_meta() {
+        let agent = MockAgent::with_agent_commands(vec![AgentCommand {
             name: "clear".to_string(),
-            description: "ACP clear".to_string(),
+            description: "agent clear".to_string(),
             input_hint: None,
         }]);
-        let (result, reply) = run_dispatch(&acp, "clear", None).await;
+        let (result, reply) = run_dispatch(&agent, "clear", None).await;
         assert!(result.unwrap());
         let text = reply.unwrap();
-        // Should be ACP response, NOT "Session cleared."
-        assert_eq!(text, "acp handled: clear");
-        assert!(!*acp.reset_called.lock().unwrap());
+        // Should be the agent response, NOT "Session cleared."
+        assert_eq!(text, "agent handled: clear");
+        assert!(!*agent.reset_called.lock().unwrap());
     }
 
     // ── dispatch_session_slash_cmd (shared by Discord/Feishu/Kook) ────────────
 
-    fn shared_acp() -> Arc<dyn AcpHandle> {
-        Arc::new(MockAcp::new())
+    fn shared_agent() -> Arc<dyn AgentHandle> {
+        Arc::new(MockAgent::new())
     }
 
     #[tokio::test]
     async fn session_slash_stop_and_reset() {
-        let acp = shared_acp();
+        let agent = shared_agent();
         assert_eq!(
-            dispatch_session_slash_cmd(&acp, "/stop", "s1").await,
+            dispatch_session_slash_cmd(&agent, "/stop", "s1").await,
             "⏹ Stopped current turn."
         );
         assert_eq!(
-            dispatch_session_slash_cmd(&acp, "/reset", "s1").await,
+            dispatch_session_slash_cmd(&agent, "/reset", "s1").await,
             "🔄 Session reset. Next message starts fresh."
         );
     }
 
     #[tokio::test]
     async fn session_slash_model_lists_available() {
-        let acp = shared_acp();
-        let reply = dispatch_session_slash_cmd(&acp, "/model", "s1").await;
+        let agent = shared_agent();
+        let reply = dispatch_session_slash_cmd(&agent, "/model", "s1").await;
         assert!(reply.starts_with("Available models:"));
         assert!(reply.contains("`anthropic/claude-3-5-sonnet`"));
         assert!(reply.contains("`openai/gpt-4o`"));
@@ -760,23 +768,23 @@ mod tests {
 
     #[tokio::test]
     async fn session_slash_model_switch_parses_provider_and_model() {
-        let acp = shared_acp();
+        let agent = shared_agent();
         assert_eq!(
-            dispatch_session_slash_cmd(&acp, "/model openai/gpt-4o", "s1").await,
+            dispatch_session_slash_cmd(&agent, "/model openai/gpt-4o", "s1").await,
             "✅ Switched to `openai/gpt-4o`. **Note: conversation context was cleared.**"
         );
         // No slash → defaults the provider to anthropic.
         assert_eq!(
-            dispatch_session_slash_cmd(&acp, "/model haiku", "s1").await,
+            dispatch_session_slash_cmd(&agent, "/model haiku", "s1").await,
             "✅ Switched to `anthropic/haiku`. **Note: conversation context was cleared.**"
         );
     }
 
     #[tokio::test]
     async fn session_slash_unknown_falls_through() {
-        let acp = shared_acp();
+        let agent = shared_agent();
         assert_eq!(
-            dispatch_session_slash_cmd(&acp, "/bogus", "s1").await,
+            dispatch_session_slash_cmd(&agent, "/bogus", "s1").await,
             "Unknown command: /bogus"
         );
     }

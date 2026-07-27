@@ -138,7 +138,7 @@ impl DaemonServer {
             m
         };
 
-        let acp_handle: Arc<dyn AcpHandle> = Arc::new(AmuxdAcpHandle {
+        let agent_handle: Arc<dyn AgentHandle> = Arc::new(AmuxdAgentHandle {
             manager: self.agents.clone(),
             logical_to_acp: Arc::new(AsyncMutex::new(HashMap::new())),
             team_id: team_id.clone(),
@@ -157,7 +157,7 @@ impl DaemonServer {
 
         let mgr = ChannelManager::new(
             cfg,
-            acp_handle,
+            agent_handle,
             store,
             team_id,
             primary_agent_actor_id,

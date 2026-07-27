@@ -94,7 +94,7 @@ impl DaemonServer {
         let worktree_for_prewarm = worktree.to_string();
         tokio::spawn(async move {
             let mut mgr = agents.lock().await;
-            mgr.prewarm_acp_hosts_with_env(
+            mgr.prewarm_agent_backend_with_env(
                 env.extra_env,
                 env.force_env_override,
                 Some(worktree_for_prewarm.as_str()),

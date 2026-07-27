@@ -3,7 +3,7 @@ use crate::wechat_config::{
     WeChatConfig, WeChatGatewayStatus, WeChatGatewayStatusResponse, WeChatQrLoginResponse,
     WeChatQrStatusResponse,
 };
-use crate::{AcpHandle, ChannelStore};
+use crate::{AgentHandle, ChannelStore};
 use serde::Deserialize;
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -344,7 +344,7 @@ fn extract_text_from_message(msg: &ILinkMessage) -> String {
 #[derive(Clone)]
 pub struct WeChatGateway {
     config: Arc<RwLock<WeChatConfig>>,
-    pub acp: Arc<dyn AcpHandle>,
+    pub agent: Arc<dyn AgentHandle>,
     pub store: Arc<dyn ChannelStore>,
     pub team_id: String,
     pub primary_agent_actor_id: String,
@@ -360,7 +360,7 @@ pub struct WeChatGateway {
 
 impl WeChatGateway {
     pub fn new(
-        acp: Arc<dyn AcpHandle>,
+        agent: Arc<dyn AgentHandle>,
         store: Arc<dyn ChannelStore>,
         team_id: String,
         primary_agent_actor_id: String,
@@ -369,7 +369,7 @@ impl WeChatGateway {
     ) -> Self {
         Self {
             config: Arc::new(RwLock::new(WeChatConfig::default())),
-            acp,
+            agent,
             store,
             team_id,
             primary_agent_actor_id,
@@ -618,7 +618,7 @@ impl WeChatGateway {
                             let preview: String = text.chars().take(50).collect();
                             println!("[WeChat] Message from {}: {}...", sender_id, preview);
 
-                            // Forward to amuxd ACP session
+                            // Forward to amuxd agent session
                             let gateway = self.clone();
                             let text_clone = text.clone();
                             let sender_clone = sender_id.clone();
@@ -763,12 +763,12 @@ impl WeChatGateway {
             eprintln!("[WeChat] record_message (user) failed: {}", e);
         }
 
-        // Drive a single ACP turn through amuxd.
+        // Drive a single agent turn through amuxd.
         let reply = self
-            .acp
+            .agent
             .send_prompt(&outcome.acp_session_id, &sender_display_name, text)
             .await
-            .map_err(|e| format!("acp.send_prompt: {e}"))?;
+            .map_err(|e| format!("agent.send_prompt: {e}"))?;
 
         if let Err(e) = self
             .store
@@ -807,7 +807,7 @@ impl WeChatGateway {
         }
     }
 
-    /// Dispatch /stop, /reset, /model against a resolved acp session id.
+    /// Dispatch /stop, /reset, /model against a resolved agent session id.
     async fn dispatch_session_slash_cmd(
         &self,
         lower_content: &str,
@@ -815,33 +815,29 @@ impl WeChatGateway {
     ) -> String {
         let session = acp_session_id.to_string();
         if lower_content == "/stop" {
-            return match self.acp.cancel(&session).await {
+            return match self.agent.cancel(&session).await {
                 Ok(_) => "⏹ Stopped current turn.".to_string(),
                 Err(e) => format!("⚠️ Could not stop: {e}"),
             };
         }
         if lower_content == "/reset" {
-            return match self.acp.reset_session(&session).await {
+            return match self.agent.reset_session(&session).await {
                 Ok(_) => "🔄 Session reset. Next message starts fresh.".to_string(),
                 Err(e) => format!("⚠️ Could not reset: {e}"),
             };
         }
         if lower_content == "/model" {
-            return match self.acp.list_models().await {
+            return match self.agent.list_models().await {
                 Ok(models) => {
                     if models.is_empty() {
                         "No models available.".to_string()
                     } else {
                         let body = models
                             .iter()
-                            .map(|m| {
-                                format!("• `{}/{}` — {}", m.provider, m.model, m.display_name)
-                            })
+                            .map(|m| format!("• `{}/{}` — {}", m.provider, m.model, m.display_name))
                             .collect::<Vec<_>>()
                             .join("\n");
-                        format!(
-                            "Available models:\n{body}\n\nUsage: `/model <provider>/<model>`"
-                        )
+                        format!("Available models:\n{body}\n\nUsage: `/model <provider>/<model>`")
                     }
                 }
                 Err(e) => format!("⚠️ Could not list models: {e}"),
@@ -853,7 +849,7 @@ impl WeChatGateway {
                 Some((p, m)) => (p, m),
                 None => ("anthropic", arg),
             };
-            return match self.acp.set_model(&session, provider, model).await {
+            return match self.agent.set_model(&session, provider, model).await {
                 Ok(_) => format!(
                     "✅ Switched to `{provider}/{model}`. **Note: conversation context was cleared.**"
                 ),

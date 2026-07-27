@@ -2,7 +2,7 @@
 //!
 //! Find or stop the runtimes bound to a given workspace (matched by either the
 //! worktree path or the workspace id). Used by the supervisor after a settings
-//! reload. Pure reads of the manager's private `agents` map plus `stop_agent`.
+//! reload. Pure reads of the manager's private `agents` map plus `stop_runtime`.
 //!
 //! Child module of `runtime::manager`, so the `impl RuntimeManager` block
 //! reaches `agents` directly.
@@ -69,7 +69,7 @@ impl RuntimeManager {
             .collect();
         let mut stopped = 0usize;
         for id in ids {
-            if self.stop_agent(&id).await.is_some() {
+            if self.stop_runtime(&id).await.is_some() {
                 stopped += 1;
             }
         }

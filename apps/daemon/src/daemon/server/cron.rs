@@ -538,7 +538,7 @@ impl DaemonServer {
     /// Drive a single ACP turn for `acp_sid` to its finalized `AgentReply`,
     /// releasing the global `RuntimeManager` mutex while awaiting the model.
     ///
-    /// This mirrors the gateway path (`AmuxdAcpHandle::send_prompt`) rather than
+    /// This mirrors the gateway path (`AmuxdAgentHandle::send_prompt`) rather than
     /// the legacy `RuntimeManager::send_prompt_and_await_reply`, which pins the
     /// manager mutex for the entire turn and so serializes every other agent's
     /// activity behind one cron run. Concurrency model:
@@ -612,7 +612,7 @@ impl DaemonServer {
                 } else {
                     err.details.clone()
                 };
-                break Err(anyhow::anyhow!("ACP turn failed: {details}"));
+                break Err(anyhow::anyhow!("agent turn failed: {details}"));
             }
 
             let emitted = {

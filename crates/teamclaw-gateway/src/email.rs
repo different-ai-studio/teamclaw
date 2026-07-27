@@ -8,7 +8,7 @@ use crate::email_config::{
     EmailConfig, EmailGatewayStatus, EmailGatewayStatusResponse, EmailProvider,
 };
 use crate::email_db::EmailDb;
-use crate::{AcpHandle, ChannelStore};
+use crate::{AgentHandle, ChannelStore};
 
 /// Maximum number of processed message UIDs to keep in the dedup set.
 /// With UID watermark, this set only grows within a single gateway session,
@@ -111,9 +111,8 @@ impl yup_oauth2::authenticator_delegate::InstalledFlowDelegate for BrowserOpener
         &'a self,
         url: &'a str,
         _need_code: bool,
-    ) -> std::pin::Pin<
-        Box<dyn std::future::Future<Output = Result<String, String>> + Send + 'a>,
-    > {
+    ) -> std::pin::Pin<Box<dyn std::future::Future<Output = Result<String, String>> + Send + 'a>>
+    {
         Box::pin(async move {
             (self.on_url)(url);
             // Best-effort browser open. If it fails (no default browser, sandbox,
@@ -241,7 +240,7 @@ impl imap::Authenticator for XOAuth2 {
 #[derive(Clone)]
 pub struct EmailGateway {
     config: Arc<RwLock<EmailConfig>>,
-    pub acp: Arc<dyn AcpHandle>,
+    pub agent: Arc<dyn AgentHandle>,
     pub store: Arc<dyn ChannelStore>,
     pub team_id: String,
     pub primary_agent_actor_id: String,
@@ -263,7 +262,7 @@ pub struct EmailGateway {
 
 impl EmailGateway {
     pub fn new(
-        acp: Arc<dyn AcpHandle>,
+        agent: Arc<dyn AgentHandle>,
         store: Arc<dyn ChannelStore>,
         team_id: String,
         primary_agent_actor_id: String,
@@ -271,7 +270,7 @@ impl EmailGateway {
     ) -> Self {
         Self {
             config: Arc::new(RwLock::new(EmailConfig::default())),
-            acp,
+            agent,
             store,
             team_id,
             primary_agent_actor_id,
@@ -1579,7 +1578,7 @@ fn process_and_reply_sync(
     let resolved_binding =
         resolve_email_session_binding_sync(gateway, email, rt_handle, email_db, account_key)?;
 
-    // Build message content — send only the email body text to amuxd ACP.
+    // Build message content — send only the email body text to the amuxd agent runtime.
     let message_content = if email.body_text.is_empty() {
         "(empty body)".to_string()
     } else {
@@ -1629,10 +1628,8 @@ fn process_and_reply_sync(
     } else {
         String::new()
     };
-    let is_help_slash =
-        slash_lower == "/help" || slash_lower.starts_with("/help ");
-    let is_sessions_slash =
-        slash_lower == "/sessions" || slash_lower.starts_with("/sessions ");
+    let is_help_slash = slash_lower == "/help" || slash_lower.starts_with("/help ");
+    let is_sessions_slash = slash_lower == "/sessions" || slash_lower.starts_with("/sessions ");
     let is_session_slash = slash_lower == "/stop"
         || slash_lower == "/reset"
         || slash_lower == "/model"
@@ -1657,7 +1654,7 @@ fn process_and_reply_sync(
         return Ok(());
     }
 
-    // ============ amuxd ACP + ChannelStore path ============
+    // ============ the amuxd agent runtime + ChannelStore path ============
     //
     // If the inbound email is part of an existing thread we've seen before
     // (`In-Reply-To` / `References` matched a Message-ID we persisted, or
@@ -1691,7 +1688,7 @@ fn process_and_reply_sync(
     let primary_agent_actor_id = gateway.primary_agent_actor_id.clone();
     let agent_owner_actor_ids = gateway.agent_owner_actor_ids.clone();
     let store = gateway.store.clone();
-    let acp = gateway.acp.clone();
+    let agent = gateway.agent.clone();
     let message_content_for_async = message_content.clone();
     let slash_lower_for_async = slash_lower.clone();
 
@@ -1721,16 +1718,12 @@ fn process_and_reply_sync(
         // Slash-command dispatch — /stop /reset /model — against the resolved session.
         if is_session_slash {
             let reply_text = dispatch_session_slash_cmd_email(
-                &acp,
+                &agent,
                 &slash_lower_for_async,
                 &outcome.acp_session_id,
             )
             .await;
-            return Ok::<_, String>((
-                outcome.acp_session_id,
-                outcome.session_id,
-                reply_text,
-            ));
+            return Ok::<_, String>((outcome.acp_session_id, outcome.session_id, reply_text));
         }
 
         let msg_id_opt = if incoming_message_id.is_empty() {
@@ -1748,14 +1741,14 @@ fn process_and_reply_sync(
             .await
             .map_err(|e| format!("record_message in: {e}"))?;
 
-        let reply = acp
+        let reply = agent
             .send_prompt(
                 &outcome.acp_session_id,
                 &sender_display,
                 &message_content_for_async,
             )
             .await
-            .map_err(|e| format!("acp.send_prompt: {e}"))?;
+            .map_err(|e| format!("agent.send_prompt: {e}"))?;
 
         store
             .record_agent_reply(
@@ -1826,42 +1819,38 @@ fn process_and_reply_sync(
     Ok(())
 }
 
-/// Dispatch /stop, /reset, /model against a resolved acp session id.
+/// Dispatch /stop, /reset, /model against a resolved agent session id.
 /// Returns the user-facing reply text. Used by the email IMAP processing path.
 async fn dispatch_session_slash_cmd_email(
-    acp: &Arc<dyn AcpHandle>,
+    agent: &Arc<dyn AgentHandle>,
     lower_content: &str,
     acp_session_id: &str,
 ) -> String {
     let session = acp_session_id.to_string();
     if lower_content == "/stop" {
-        return match acp.cancel(&session).await {
+        return match agent.cancel(&session).await {
             Ok(_) => "⏹ Stopped current turn.".to_string(),
             Err(e) => format!("⚠️ Could not stop: {e}"),
         };
     }
     if lower_content == "/reset" {
-        return match acp.reset_session(&session).await {
+        return match agent.reset_session(&session).await {
             Ok(_) => "🔄 Session reset. Next message starts fresh.".to_string(),
             Err(e) => format!("⚠️ Could not reset: {e}"),
         };
     }
     if lower_content == "/model" {
-        return match acp.list_models().await {
+        return match agent.list_models().await {
             Ok(models) => {
                 if models.is_empty() {
                     "No models available.".to_string()
                 } else {
                     let body = models
                         .iter()
-                        .map(|m| {
-                            format!("- {}/{} - {}", m.provider, m.model, m.display_name)
-                        })
+                        .map(|m| format!("- {}/{} - {}", m.provider, m.model, m.display_name))
                         .collect::<Vec<_>>()
                         .join("\n");
-                    format!(
-                        "Available models:\n{body}\n\nUsage: /model <provider>/<model>"
-                    )
+                    format!("Available models:\n{body}\n\nUsage: /model <provider>/<model>")
                 }
             }
             Err(e) => format!("Could not list models: {e}"),
@@ -1873,10 +1862,10 @@ async fn dispatch_session_slash_cmd_email(
             Some((p, m)) => (p, m),
             None => ("anthropic", arg),
         };
-        return match acp.set_model(&session, provider, model).await {
-            Ok(_) => format!(
-                "Switched to {provider}/{model}. Note: conversation context was cleared."
-            ),
+        return match agent.set_model(&session, provider, model).await {
+            Ok(_) => {
+                format!("Switched to {provider}/{model}. Note: conversation context was cleared.")
+            }
             Err(e) => format!("Could not switch model: {e}"),
         };
     }

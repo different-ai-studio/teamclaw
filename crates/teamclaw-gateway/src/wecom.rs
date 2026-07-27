@@ -9,7 +9,7 @@ use std::sync::Arc;
 use std::sync::OnceLock;
 use tokio::sync::{mpsc, oneshot, RwLock};
 
-use crate::{commands, AcpHandle, AttachmentRecord, ChannelStore};
+use crate::{commands, AgentHandle, AttachmentRecord, ChannelStore};
 
 /// Global reference to the active WeComGateway for proactive message sending.
 static ACTIVE_GATEWAY: OnceLock<Arc<RwLock<Option<WeComGateway>>>> = OnceLock::new();
@@ -556,7 +556,7 @@ type PendingResponses =
 #[derive(Clone)]
 pub struct WeComGateway {
     config: Arc<RwLock<WeComConfig>>,
-    pub acp: Arc<dyn AcpHandle>,
+    pub agent: Arc<dyn AgentHandle>,
     pub store: Arc<dyn ChannelStore>,
     pub team_id: String,
     pub primary_agent_actor_id: String,
@@ -631,7 +631,7 @@ enum WsExitReason {
 
 impl WeComGateway {
     pub fn new(
-        acp: Arc<dyn AcpHandle>,
+        agent: Arc<dyn AgentHandle>,
         store: Arc<dyn ChannelStore>,
         team_id: String,
         primary_agent_actor_id: String,
@@ -640,7 +640,7 @@ impl WeComGateway {
     ) -> Self {
         Self {
             config: Arc::new(RwLock::new(WeComConfig::default())),
-            acp,
+            agent,
             store,
             team_id,
             primary_agent_actor_id,
@@ -1295,7 +1295,7 @@ impl WeComGateway {
                         | "ctx"
                 );
                 if !needs_session {
-                    // /help or any ACP-advertised command that doesn't need a session
+                    // /help or any agent-advertised command that doesn't need a session
                     // is handled generically; unknown commands also land here.
                     // We have no session yet, so pass a placeholder session id.
                     use std::sync::{Arc as SArc, Mutex};
@@ -1304,7 +1304,7 @@ impl WeComGateway {
                     let handled = commands::dispatch(
                         &cmd_name,
                         None,
-                        self.acp.as_ref(),
+                        self.agent.as_ref(),
                         self.store.as_ref(),
                         &String::new(),
                         move |r| {
@@ -1429,7 +1429,7 @@ impl WeComGateway {
             eprintln!("[WeCom] add_participant failed: {}", e);
         }
 
-        // Slash-command dispatch: two-layer (ACP agent commands first, then
+        // Slash-command dispatch: two-layer (agent-advertised commands first, then
         // gateway meta-commands: /help, /model, /sessions, /agents,
         // /workspaces, /clear, /stop, /ctx).
         if let Some((cmd_name, cmd_arg)) = commands::parse_slash(text_content.trim()) {
@@ -1439,7 +1439,7 @@ impl WeComGateway {
             let handled = commands::dispatch(
                 &cmd_name,
                 cmd_arg.as_deref(),
-                self.acp.as_ref(),
+                self.agent.as_ref(),
                 self.store.as_ref(),
                 &outcome.acp_session_id,
                 move |r| {
@@ -1470,7 +1470,7 @@ impl WeComGateway {
         }
 
         // Dual-write attachments: save to local cache for the agent to read,
-        // then upload to backend attachment storage in parallel with the ACP turn so the
+        // then upload to backend attachment storage in parallel with the agent turn so the
         // bot reply latency is unaffected by upload time.
         let local_dir = dirs::config_dir()
             .unwrap_or_else(|| std::path::PathBuf::from("/tmp"))
@@ -1537,7 +1537,7 @@ impl WeComGateway {
                 inline_data_url,
             ));
 
-            // Parallel upload — does not block ACP.
+            // Parallel upload — does not block the agent turn.
             let store = self.store.clone();
             let mime = f.mime.clone();
             let bytes = f.bytes;
@@ -1591,10 +1591,10 @@ impl WeComGateway {
             })
         };
 
-        // Drive a single ACP turn through amuxd — runs in parallel with the
+        // Drive a single agent turn through amuxd — runs in parallel with the
         // attachment uploads spawned above.
         let reply_result = self
-            .acp
+            .agent
             .send_prompt_streamed(
                 &outcome.acp_session_id,
                 &sender_display_name,

@@ -19,7 +19,7 @@ use crate::proto::amux;
 use crate::runtime::acp_event_frame::AcpEventFrame;
 
 use super::manager::AgentLaunchConfig;
-use super::opencode_http::AcpHostPool;
+use super::opencode_http::OpencodeHost;
 
 // ---------------------------------------------------------------------------
 // Shared channel types (backend-neutral)
@@ -33,6 +33,9 @@ pub enum AcpCommand {
         resume_acp_session_id: Option<String>,
         mcp_config_path: Option<PathBuf>,
         initial_model_override: Option<String>,
+        /// Daemon MRU, newest first. Consulted only when nothing more
+        /// specific resolves; every entry is availability-checked.
+        model_mru: Vec<String>,
         initial_prompt: String,
         event_tx: mpsc::Sender<AcpEventFrame>,
         startup_tx: oneshot::Sender<Result<AcpStartupMetadata, String>>,
@@ -92,7 +95,7 @@ pub struct AcpStartupMetadata {
 
 /// Local agent runtime backend surface consumed by `RuntimeManager`.
 ///
-/// Mirrors the historical `AcpHostPool` API one-to-one so the opencode HTTP
+/// Mirrors the historical `OpencodeHost` API one-to-one so the opencode HTTP
 /// backend is a zero-behavior-change adaptation; a future pi RPC backend
 /// implements the same surface.
 #[async_trait]
@@ -109,6 +112,7 @@ pub trait AgentBackend: Send {
         resume_acp_session_id: Option<String>,
         mcp_config_path: Option<PathBuf>,
         initial_model_override: Option<String>,
+        model_mru: Vec<String>,
         initial_prompt: String,
         event_tx: mpsc::Sender<AcpEventFrame>,
         is_gateway: bool,
@@ -135,6 +139,25 @@ pub trait AgentBackend: Send {
     /// Number of live backend processes.
     fn host_count(&self) -> usize;
 
+    /// The model a backend session is currently on, as the backend itself
+    /// reports it — not what we asked for.
+    ///
+    /// Needed because we deliberately start runtimes with no model pinned when
+    /// nothing has been chosen, letting the backend apply its own default. That
+    /// choice is otherwise invisible to us, so the device MRU could never learn
+    /// its first entry on a fresh install. Read after a turn completes, when
+    /// the backend has settled on (and persisted) a model.
+    ///
+    /// Default `None`: a backend that cannot report this simply teaches the MRU
+    /// nothing, which is the pre-existing behaviour.
+    async fn session_model(
+        &mut self,
+        _worktree: &str,
+        _backend_session_id: &str,
+    ) -> Option<String> {
+        None
+    }
+
     /// Model catalog for a workspace directory (cron catalog UI).
     async fn model_catalog(
         &mut self,
@@ -152,19 +175,19 @@ pub trait AgentBackend: Send {
 }
 
 // ---------------------------------------------------------------------------
-// OpencodeHttpBackend — thin adapter over the existing AcpHostPool
+// OpencodeHttpBackend — thin adapter over the existing OpencodeHost
 // ---------------------------------------------------------------------------
 
 /// The opencode serve HTTP backend (`runtime/opencode_http/`) behind the
 /// backend-neutral trait.
 pub struct OpencodeHttpBackend {
-    pool: AcpHostPool,
+    host: OpencodeHost,
 }
 
 impl OpencodeHttpBackend {
     pub fn new() -> Self {
         Self {
-            pool: AcpHostPool::new(),
+            host: OpencodeHost::new(),
         }
     }
 }
@@ -187,12 +210,13 @@ impl AgentBackend for OpencodeHttpBackend {
         resume_acp_session_id: Option<String>,
         mcp_config_path: Option<PathBuf>,
         initial_model_override: Option<String>,
+        model_mru: Vec<String>,
         initial_prompt: String,
         event_tx: mpsc::Sender<AcpEventFrame>,
         is_gateway: bool,
         forbid_new_session_fallback: bool,
     ) -> crate::error::Result<(mpsc::Sender<AcpCommand>, AcpStartupMetadata)> {
-        self.pool
+        self.host
             .attach_session(
                 agent_type,
                 launch,
@@ -202,6 +226,7 @@ impl AgentBackend for OpencodeHttpBackend {
                 resume_acp_session_id,
                 mcp_config_path,
                 initial_model_override,
+                model_mru,
                 initial_prompt,
                 event_tx,
                 is_gateway,
@@ -211,7 +236,7 @@ impl AgentBackend for OpencodeHttpBackend {
     }
 
     async fn prewarm(&mut self, launch_configs: &HashMap<amux::AgentType, AgentLaunchConfig>) {
-        self.pool.prewarm(launch_configs).await;
+        self.host.prewarm(launch_configs).await;
     }
 
     async fn prewarm_with_env(
@@ -221,30 +246,34 @@ impl AgentBackend for OpencodeHttpBackend {
         force_env_override: bool,
         worktree: Option<&str>,
     ) {
-        self.pool
+        self.host
             .prewarm_with_env(launch_configs, extra_env, force_env_override, worktree)
             .await;
     }
 
     fn evict_agent_types(&mut self, agent_types: &[amux::AgentType]) -> usize {
-        self.pool.evict_agent_types(agent_types)
+        self.host.evict_agent_types(agent_types)
     }
 
     fn host_count(&self) -> usize {
-        self.pool.host_count()
+        self.host.host_count()
+    }
+
+    async fn session_model(&mut self, worktree: &str, backend_session_id: &str) -> Option<String> {
+        self.host.session_model(worktree, backend_session_id).await
     }
 
     async fn model_catalog(
         &mut self,
         workspace_path: &Path,
     ) -> crate::error::Result<Vec<amux::ModelInfo>> {
-        self.pool.model_catalog(workspace_path).await
+        self.host.model_catalog(workspace_path).await
     }
 
     fn opencode_serve_supervisor(
         &self,
     ) -> Option<std::sync::Arc<super::opencode_http::supervisor::ServeSupervisor>> {
-        Some(self.pool.serve_supervisor())
+        Some(self.host.serve_supervisor())
     }
 }
 

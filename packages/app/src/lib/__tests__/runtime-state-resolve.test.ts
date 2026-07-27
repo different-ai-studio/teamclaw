@@ -35,7 +35,7 @@ function entry(
 }
 
 beforeEach(() => {
-  useAgentModelPickStore.setState({ bySessionAgent: {}, lastByAgent: {} });
+  useAgentModelPickStore.setState({ bySessionAgent: {} });
 });
 
 describe("resolveRuntimeStateEntryForAgent", () => {
