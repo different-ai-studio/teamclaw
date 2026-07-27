@@ -1136,6 +1136,7 @@
       "checking": "Checking...",
       "checkUpdates": "Check Updates",
       "upToDate": "Up to date",
+      "updateToVersion": "Update to {{version}}",
       "newVersion": "New version available:",
       "downloadInstall": "Download & Install",
       "updateInstalled": "Update installed successfully",
@@ -2581,7 +2582,13 @@
       "installing": "Installing...",
       "retry": "Retry",
       "update": "Update",
-      "updating": "Updating..."
+      "updating": "Updating...",
+      "updateTitle": "Update to the latest version",
+      "updatedTo": "Updated to {{version}}",
+      "updateDone": "Updated",
+      "updateFailed": "Update failed",
+      "installFailed": "Install failed",
+      "upToDate": "Up to date"
     },
     "gitStatus": {
       "modified": "Modified",

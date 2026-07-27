@@ -1,36 +1,19 @@
 //! opencode discovery + install for amuxd.
 //!
-//! Policy (decided 2026-06-02): prefer the machine's opencode. opencode is
-//! installed via its OFFICIAL installer into its own default dir `~/.opencode/bin`
-//! (NOT into ~/.amuxd). `opencode.lock.json` records the MINIMUM version amuxd
-//! requires; if the machine's opencode is older we upgrade, otherwise we leave it.
+//! Policy (revised 2026-07-26): the opencode VERSION belongs to the user, not to
+//! amuxd. amuxd no longer pins a version — there is no lock file and no minimum.
+//! It only answers "is opencode there, and where": if none is installed we fetch
+//! the latest release, and `--force` re-fetches the latest on demand (what the
+//! settings "Update" button does). An already-installed opencode is never
+//! touched otherwise, whatever its version.
 //!
-//! amuxd resolves opencode by absolute path (`~/.opencode/bin/opencode`) so a
-//! background launchd/systemd service finds it without a login PATH.
+//! opencode is installed via its OFFICIAL installer into its own default dir
+//! `~/.opencode/bin` (NOT into ~/.amuxd). amuxd resolves it by absolute path
+//! (`~/.opencode/bin/opencode`) so a background launchd/systemd service finds it
+//! without a login PATH.
 
-use serde::{Deserialize, Serialize};
+use serde::Serialize;
 use std::path::PathBuf;
-
-#[derive(Debug, Deserialize)]
-pub struct OpencodeLock {
-    pub version: String,
-}
-
-impl OpencodeLock {
-    pub fn parse(s: &str) -> anyhow::Result<Self> {
-        Ok(serde_json::from_str(s)?)
-    }
-}
-
-/// Embedded at compile time from apps/daemon/opencode.lock.json
-pub const LOCK_JSON: &str = include_str!("../../opencode.lock.json");
-
-/// The minimum opencode version this build requires (lock version, without a leading `v`).
-pub fn required_version() -> String {
-    OpencodeLock::parse(LOCK_JSON)
-        .map(|l| l.version.trim().trim_start_matches('v').to_string())
-        .unwrap_or_default()
-}
 
 /// opencode's official installer always installs to `~/.opencode/bin` (hardcoded upstream).
 pub fn opencode_default_bin() -> Option<PathBuf> {
@@ -122,9 +105,38 @@ fn progress(event: &str, message: &str) {
     );
 }
 
-/// Default upstream for opencode release assets — official sst/opencode
-/// releases. Overseas fallback when no OSS mirror base is configured.
+/// Final "ok" line after an install/update, naming the version that actually
+/// landed — the UI surfaces this, and it is the only version amuxd reports.
+fn report_installed() {
+    match detect_opencode() {
+        Some((path, version)) => progress("ok", &format!("opencode {version} installed ({path})")),
+        None => progress("ok", "opencode installed"),
+    }
+}
+
+/// Upstream source of truth for opencode release assets — the official
+/// sst/opencode `latest` release. Used directly when the mirror can't answer.
 const DEFAULT_DOWNLOAD_BASE: &str = "https://github.com/sst/opencode/releases/latest/download";
+
+/// OSS mirror root, for networks where GitHub is slow or unreachable. Fixed —
+/// there is deliberately no per-brand override, since a build-config knob is
+/// what let a stale mirror silently downgrade opencode before.
+///
+/// Layout (see .github/workflows/mirror-opencode-oss.yml):
+///   `<base>/latest.json`         `{"version": "1.18.5"}` — never cached
+///   `<base>/<version>/<asset>`   immutable, cached hard
+///
+/// The version lives in the PATH on purpose. The mirror used to overwrite one
+/// fixed path behind a caching CDN, so clients could be handed a months-old
+/// build with no way to tell — "update to latest" downgraded 1.18.5 -> 1.17.7.
+/// A versioned URL names exactly one build, so only the tiny manifest has to be
+/// fresh, and a stale manifest can at worst cost us one release of latency.
+const MIRROR_BASE: &str = "https://teamclaw.ucar.cc/opencode";
+
+/// How long to wait on the mirror manifest before giving up and using upstream.
+/// Deliberately short: this runs before any progress output, so a hung mirror
+/// would look like a frozen install.
+const MANIFEST_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(5);
 
 /// Official opencode CLI release asset for an (os, arch) pair, using
 /// `std::env::consts` names. Returns None for unsupported targets.
@@ -145,14 +157,50 @@ fn current_asset() -> Option<&'static str> {
     asset_for(std::env::consts::OS, std::env::consts::ARCH)
 }
 
-/// Download URL for an asset. `base_override` comes from the
-/// `OPENCODE_DOWNLOAD_BASE` env var (mirror escape hatch for slow/restricted
-/// networks — e.g. a domestic OSS bucket holding the opencode-*.zip / .tar.gz).
-fn download_url(base_override: Option<&str>, asset: &str) -> String {
-    let base = base_override
-        .unwrap_or(DEFAULT_DOWNLOAD_BASE)
-        .trim_end_matches('/');
+/// Download URL for a release asset on the official upstream.
+fn download_url(asset: &str) -> String {
+    let base = DEFAULT_DOWNLOAD_BASE.trim_end_matches('/');
     format!("{base}/{asset}")
+}
+
+/// Download URL for `asset` at `version` on the mirror.
+fn mirror_asset_url(version: &str, asset: &str) -> String {
+    let base = MIRROR_BASE.trim_end_matches('/');
+    format!("{base}/{version}/{asset}")
+}
+
+/// The mirror manifest: which version its versioned directories currently hold.
+#[derive(Debug, serde::Deserialize)]
+struct MirrorManifest {
+    version: String,
+}
+
+/// Ask the mirror what the newest version it carries is. `None` on any failure
+/// (offline, DNS, timeout, malformed JSON) — the mirror is an optimization, so
+/// every error path just means "use upstream instead".
+pub fn mirror_latest_version() -> Option<String> {
+    let url = format!("{}/latest.json", MIRROR_BASE.trim_end_matches('/'));
+    let manifest: MirrorManifest = tokio::runtime::Builder::new_current_thread()
+        .enable_all()
+        .build()
+        .ok()?
+        .block_on(async {
+            let client = reqwest::Client::builder()
+                .timeout(MANIFEST_TIMEOUT)
+                .build()
+                .ok()?;
+            let resp = client
+                .get(&url)
+                .send()
+                .await
+                .ok()?
+                .error_for_status()
+                .ok()?;
+            resp.json::<MirrorManifest>().await.ok()
+        })?;
+    let version = manifest.version.trim().trim_start_matches('v').to_string();
+    // A manifest we can't parse as a version is a broken mirror, not a hint.
+    parse_semver(&version).map(|_| version)
 }
 
 /// Blocking download of `url` into memory. Builds its own current-thread tokio
@@ -236,11 +284,14 @@ fn unpack_opencode(asset: &str, bytes: &[u8], dest: &std::path::Path) -> anyhow:
     Ok(())
 }
 
-/// Direct-download install: fetch the current platform's release asset from
-/// `base_override` (or the official upstream) and unpack it into
-/// `~/.opencode/bin`. Used on Windows always, and whenever a mirror base is
-/// configured via `OPENCODE_DOWNLOAD_BASE`.
-fn direct_install(base_override: Option<&str>) -> anyhow::Result<()> {
+/// Direct-download install: fetch the current platform's release asset and
+/// unpack it into `~/.opencode/bin`.
+///
+/// Prefers the mirror (fast where GitHub is not), falling back to upstream if
+/// the mirror can't say what it carries or the download fails. `mirror_version`
+/// is the already-resolved manifest answer, so callers that needed it for an
+/// up-to-date check don't fetch it twice.
+fn direct_install(mirror_version: Option<&str>) -> anyhow::Result<()> {
     let asset = current_asset().ok_or_else(|| {
         anyhow::anyhow!(
             "unsupported platform for direct opencode install: {} {}",
@@ -248,13 +299,31 @@ fn direct_install(base_override: Option<&str>) -> anyhow::Result<()> {
             std::env::consts::ARCH
         )
     })?;
-    let url = download_url(base_override, asset);
+    let dest = opencode_default_bin().ok_or_else(|| anyhow::anyhow!("no home dir"))?;
+
+    if let Some(version) = mirror_version {
+        let url = mirror_asset_url(version, asset);
+        progress("download", &format!("downloading {url}"));
+        match download_bytes(&url) {
+            Ok(bytes) => {
+                progress("unpack", &format!("unpacking {asset}"));
+                return unpack_opencode(asset, &bytes, &dest);
+            }
+            Err(e) => {
+                // The mirror is an accelerator, never a hard dependency.
+                progress(
+                    "download",
+                    &format!("mirror download failed ({e}); falling back to the official source"),
+                );
+            }
+        }
+    }
+
+    let url = download_url(asset);
     progress("download", &format!("downloading {url}"));
     let bytes = download_bytes(&url)?;
     progress("unpack", &format!("unpacking {asset}"));
-    let dest = opencode_default_bin().ok_or_else(|| anyhow::anyhow!("no home dir"))?;
-    unpack_opencode(asset, &bytes, &dest)?;
-    Ok(())
+    unpack_opencode(asset, &bytes, &dest)
 }
 
 /// Minimal system PATH for subprocesses spawned from a GUI/sidecar context.
@@ -280,47 +349,42 @@ fn install_command_path() -> String {
     }
 }
 
-/// Install or upgrade opencode to satisfy the required version.
+/// Install opencode, or (with `force`) update it to the latest release.
 ///
-/// Source selection:
-///   * Windows: always direct-download the release zip (no official curl|bash).
-///   * `OPENCODE_DOWNLOAD_BASE` set: direct-download from the mirror.
-///   * Otherwise (macOS/Linux): the official opencode.ai installer.
+/// Without `force` this is presence-only: any installed opencode is left alone,
+/// whatever its version — amuxd does not pin or require a version. `force` is
+/// the settings "Update" path and always re-fetches.
+///
+/// Source selection, in order:
+///   * The OSS mirror, when its manifest answers — the fast path on networks
+///     where GitHub is slow or blocked.
+///   * Windows without the mirror: direct-download (no official curl|bash).
+///   * macOS/Linux without the mirror: the official opencode.ai installer.
 pub fn run_install(force: bool) -> anyhow::Result<()> {
-    let want = required_version();
-
     if !force {
         if let Some((path, have)) = detect_opencode() {
-            if version_ge(&have, &want) {
-                progress(
-                    "ok",
-                    &format!("opencode {have} already satisfies >= {want} ({path})"),
-                );
-                return Ok(());
-            }
             progress(
-                "upgrade",
-                &format!("opencode {have} is older than required {want}; upgrading"),
+                "ok",
+                &format!("opencode {have} already installed ({path}); pass --force to update"),
             );
-        } else {
-            progress(
-                "install",
-                &format!("installing opencode (require >= {want})"),
-            );
+            return Ok(());
         }
+        progress("install", "installing the latest opencode");
+    } else {
+        progress("upgrade", "updating opencode to the latest release");
     }
 
-    let mirror = std::env::var("OPENCODE_DOWNLOAD_BASE")
-        .ok()
-        .filter(|s| !s.trim().is_empty());
+    // Resolved once and threaded through: the manifest is a network round-trip.
+    let mirror_version = mirror_latest_version();
+    if let Some(v) = &mirror_version {
+        progress("mirror", &format!("mirror carries opencode {v}"));
+    }
 
-    // Windows has no official curl|bash installer, so always direct-download.
-    if cfg!(windows) || mirror.is_some() {
-        direct_install(mirror.as_deref())?;
-        progress(
-            "ok",
-            &format!("opencode installed/upgraded (require >= {want})"),
-        );
+    // The mirror serves every platform, so it takes precedence over both the
+    // Windows direct-download and the official installer.
+    if mirror_version.is_some() || cfg!(windows) {
+        direct_install(mirror_version.as_deref())?;
+        report_installed();
         return Ok(());
     }
 
@@ -344,10 +408,7 @@ pub fn run_install(force: bool) -> anyhow::Result<()> {
             };
             anyhow::bail!("{detail}");
         }
-        progress(
-            "ok",
-            &format!("opencode installed/upgraded (require >= {want})"),
-        );
+        report_installed();
         Ok(())
     }
     #[cfg(windows)]
@@ -363,7 +424,8 @@ pub struct OpencodeStatus {
     pub present: bool,
     pub version: Option<String>,
     pub path: Option<String>,
-    pub required_version: String,
+    /// amuxd pins no version, so "satisfied" means nothing more than "present".
+    /// Kept so setup/diagnostics can treat opencode and pi uniformly.
     pub satisfied: bool,
 }
 
@@ -426,22 +488,17 @@ fn probe_version(cmd: &str, args: &[&str]) -> Option<String> {
 }
 
 pub fn doctor() -> DoctorReport {
-    let want = required_version();
     let detected = detect_opencode();
     let (present, version, path) = match &detected {
         Some((p, v)) => (true, Some(v.clone()), Some(p.clone())),
         None => (false, None, None),
     };
-    let satisfied = version
-        .as_deref()
-        .map(|v| version_ge(v, &want))
-        .unwrap_or(false);
     let opencode = OpencodeStatus {
         present,
         version,
         path,
-        required_version: want,
-        satisfied,
+        // No pinned version: any installed opencode counts as satisfied.
+        satisfied: present,
     };
 
     let git_version = probe_version("git", &["--version"]);
@@ -502,23 +559,6 @@ pub fn doctor() -> DoctorReport {
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    #[test]
-    fn lock_parses_version() {
-        let lock = OpencodeLock::parse(r#"{"version":"v1.15.13"}"#).unwrap();
-        assert_eq!(lock.version, "v1.15.13");
-    }
-
-    #[test]
-    fn required_version_strips_leading_v() {
-        // Uses the real embedded lock; just assert it has no leading 'v' and parses.
-        let v = required_version();
-        assert!(!v.starts_with('v'), "got {v}");
-        assert!(
-            parse_semver(&v).is_some(),
-            "required version not semver: {v}"
-        );
-    }
 
     #[test]
     fn parse_semver_cases() {
@@ -609,18 +649,32 @@ mod tests {
     }
 
     #[test]
-    fn download_url_honors_base_override() {
+    fn download_url_points_at_upstream_latest() {
         assert_eq!(
-            download_url(None, "opencode-windows-x64.zip"),
+            download_url("opencode-windows-x64.zip"),
             "https://github.com/sst/opencode/releases/latest/download/opencode-windows-x64.zip"
         );
+    }
+
+    #[test]
+    fn mirror_asset_url_puts_the_version_in_the_path() {
+        // The version MUST be in the path, not in an overwritten "stable" dir:
+        // that is what makes a CDN unable to serve a different build than asked.
         assert_eq!(
-            download_url(
-                Some("https://mirror.example/oc/"),
-                "opencode-darwin-arm64.zip"
-            ),
-            "https://mirror.example/oc/opencode-darwin-arm64.zip"
+            mirror_asset_url("1.18.5", "opencode-darwin-arm64.zip"),
+            "https://teamclaw.ucar.cc/opencode/1.18.5/opencode-darwin-arm64.zip"
         );
+        assert!(!mirror_asset_url("1.18.5", "x.zip").contains("stable"));
+    }
+
+    #[test]
+    fn mirror_manifest_parses_and_strips_v() {
+        let m: MirrorManifest = serde_json::from_str(r#"{"version":"v1.18.5"}"#).unwrap();
+        assert_eq!(m.version.trim_start_matches('v'), "1.18.5");
+        // Extra fields (e.g. the workflow's `assets` list) must not break parsing.
+        let m: MirrorManifest =
+            serde_json::from_str(r#"{"version":"1.18.5","assets":["a.zip"]}"#).unwrap();
+        assert_eq!(m.version, "1.18.5");
     }
 
     #[test]
@@ -630,7 +684,6 @@ mod tests {
                 present: true,
                 version: Some("1.15.13".into()),
                 path: Some("/x".into()),
-                required_version: "1.15.13".into(),
                 satisfied: true,
             },
             git: ComponentStatus {
@@ -650,18 +703,12 @@ mod tests {
         let v: serde_json::Value = serde_json::to_value(&report).unwrap();
         assert!(v.get("pi").is_none(), "pi omitted when None");
         assert_eq!(v["opencode"]["satisfied"], serde_json::json!(true));
-        assert_eq!(
-            v["opencode"]["requiredVersion"],
-            serde_json::json!("1.15.13")
+        assert!(
+            v["opencode"].get("requiredVersion").is_none(),
+            "amuxd no longer pins an opencode version"
         );
         assert_eq!(v["git"]["present"], serde_json::json!(false));
         assert_eq!(v["amuxd"]["installedVersion"], serde_json::json!("0.1.0"));
         assert_eq!(v["amuxd"]["satisfied"], serde_json::json!(true));
-    }
-
-    #[test]
-    fn required_version_is_at_least_1_17_7() {
-        // The lock pins the minimum opencode version for the HTTP backend.
-        assert!(version_ge(&required_version(), "1.17.7"));
     }
 }

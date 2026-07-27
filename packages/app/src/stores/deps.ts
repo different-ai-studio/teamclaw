@@ -1,13 +1,7 @@
 import { create } from 'zustand'
 import { isTauri } from '@/lib/utils'
 import { loadFromStorage, saveToStorage } from '@/lib/storage'
-import { appShortName, buildConfig } from '@/lib/build-config'
-
-/** opencode is installed/updated via `amuxd install-opencode`; the mirror base
- *  comes from build config, matching the first-run SetupWizard. */
-function opencodeDownloadBase(): string {
-  return buildConfig.opencode?.downloadBase ?? ''
-}
+import { appShortName } from '@/lib/build-config'
 
 export interface DependencyInfo {
   name: string
@@ -23,6 +17,14 @@ export interface DependencyInfo {
   affected_features: string[]
   /** Install priority — lower numbers install first (e.g., Homebrew = 0, others = 1) */
   priority: number
+}
+
+/** Installed vs newest-available opencode (from `amuxd opencode-versions`). */
+export interface OpencodeVersions {
+  installed: string | null
+  latest: string | null
+  /** null = latest unknown (mirror unreachable); keep offering the update. */
+  upToDate: boolean | null
 }
 
 export interface InstallResult {
@@ -121,6 +123,10 @@ interface DepsState {
   installQueue: string[]
   installResults: Record<string, InstallResult>
   installOutput: Record<string, string[]>
+  /** Which operation produced the current results — drives the UI wording. */
+  lastOperation: 'install' | 'update' | null
+  /** Newest opencode available, or null until/unless the check succeeds. */
+  opencodeVersions: OpencodeVersions | null
 
   /** Check all dependencies via Tauri command */
   checkDependencies: () => Promise<DependencyInfo[]>
@@ -139,6 +145,9 @@ interface DepsState {
 
   /** Reset install state for retry */
   resetInstallState: () => void
+
+  /** Ask amuxd what the newest opencode is (network; safe to fail). */
+  checkOpencodeVersions: () => Promise<void>
 }
 
 
@@ -178,6 +187,8 @@ export const useDepsStore = create<DepsState>((set, get) => ({
   installQueue: [],
   installResults: {},
   installOutput: {},
+  lastOperation: null,
+  opencodeVersions: null,
 
   checkDependencies: async () => {
     if (!isTauri()) {
@@ -254,6 +265,7 @@ export const useDepsStore = create<DepsState>((set, get) => ({
       installResults: initialResults,
       installOutput: initialOutput,
       currentInstalling: null,
+      lastOperation: 'install',
     })
 
     // Listen for progress events
@@ -292,10 +304,7 @@ export const useDepsStore = create<DepsState>((set, get) => ({
     try {
       for (const name of sorted) {
         try {
-          await invoke<boolean>('install_dependency', {
-            name,
-            downloadBase: name === 'opencode' ? opencodeDownloadBase() : null,
-          })
+          await invoke<boolean>('install_dependency', { name })
         } catch (err) {
           console.error(`[DepsStore] Failed to install ${name}:`, err)
           const state = get()
@@ -325,6 +334,7 @@ export const useDepsStore = create<DepsState>((set, get) => ({
       installResults: { [name]: { success: false } },
       installOutput: { [name]: [] },
       currentInstalling: name,
+      lastOperation: 'update',
     })
 
     const unlisten = await listen<DepInstallProgressEvent>('dep-install-progress', (event) => {
@@ -343,10 +353,7 @@ export const useDepsStore = create<DepsState>((set, get) => ({
     })
 
     try {
-      await invoke<boolean>('update_dependency', {
-        name,
-        downloadBase: name === 'opencode' ? opencodeDownloadBase() : null,
-      })
+      await invoke<boolean>('update_dependency', { name })
     } catch (err) {
       console.error(`[DepsStore] Failed to update ${name}:`, err)
       const state = get()
@@ -357,6 +364,18 @@ export const useDepsStore = create<DepsState>((set, get) => ({
     }
   },
 
+  checkOpencodeVersions: async () => {
+    if (!isTauri()) return
+    try {
+      const { invoke } = await import('@tauri-apps/api/core')
+      set({ opencodeVersions: await invoke<OpencodeVersions>('opencode_versions') })
+    } catch (err) {
+      // Unknown is a valid state — the UI keeps offering the update.
+      console.warn('[DepsStore] opencode version check failed:', err)
+      set({ opencodeVersions: null })
+    }
+  },
+
   resetInstallState: () => {
     set({
       installing: false,
@@ -364,6 +383,7 @@ export const useDepsStore = create<DepsState>((set, get) => ({
       installQueue: [],
       installResults: {},
       installOutput: {},
+      lastOperation: null,
     })
   },
 }))

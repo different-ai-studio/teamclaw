@@ -18,9 +18,6 @@
       "wechat": true
     }
   },
-  "opencode": {
-    "downloadBase": "https://teamclaw.ucar.cc/opencode/stable"
-  },
   "defaults": {
     "theme": "system"
   }

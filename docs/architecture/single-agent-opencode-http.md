@@ -139,8 +139,8 @@ MQTT，同一 `event_id`），前端在 `App.tsx` 按 `sessionId::eventId` 去�
 
 | 风险 | 对策 |
 |---|---|
-| opencode 发版快（1–2 天一版），API 变动 | 版本锁（沿用 `opencode.lock.json` 机制）+ 仓库内固化 OpenAPI spec 做 diff；升级走显式 PR |
-| 仓库治理变动（sst → anomalyco 迁移迹象） | 关注 license 与发布渠道；版本锁保证可复现安装 |
+| opencode 发版快（1–2 天一版），API 变动 | 仓库内固化 OpenAPI spec 做 diff。**注意：2026-07-26 起 amuxd 不再锁 opencode 版本**（`opencode.lock.json` 已删除），版本由用户在设置里自行更新，因此 API 变动只能靠 spec diff 与运行时容错兜底 |
+| 仓库治理变动（sst → anomalyco 迁移迹象） | 关注 license 与发布渠道 |
 | serve 单点崩溃影响所有会话 | supervisor 自动重启 + SSE 重连 + 会话恢复（serve 会话持久化在磁盘，重启后可续） |
 | Windows 原生支持未证实 | 阶段 0 实测；最坏情况 Windows 端延后 |
 | 旧 ACP 会话数据 | Turn 已持久化在 amuxd 侧，与 agent 协议无关；历史会话只读展示不受影响 |

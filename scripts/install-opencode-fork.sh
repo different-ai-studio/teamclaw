@@ -14,8 +14,10 @@
 #   OPENCODE_DOWNLOAD_BASE   Base URL (no trailing slash). Default: GitHub release dir below.
 #   OPENCODE_RELEASE_TAG     Release tag when using the default GitHub base (default: v1.17.7).
 #
-# If ~/.amuxd/bin/amuxd exists, delegates to `amuxd install-opencode --force` (same unpack path).
-# Otherwise downloads with curl and installs directly.
+# Always downloads with curl and installs directly. It can no longer delegate to
+# `amuxd install-opencode`: amuxd dropped the OPENCODE_DOWNLOAD_BASE mirror and
+# now always installs the latest OFFICIAL opencode, which is the opposite of what
+# this script is for.
 
 set -euo pipefail
 
@@ -44,15 +46,6 @@ detect_asset() {
       exit 1
       ;;
   esac
-}
-
-try_amuxd() {
-  local amuxd="${AMUXD_BIN:-${HOME}/.amuxd/bin/amuxd}"
-  [[ -x "$amuxd" ]] || return 1
-  echo "→ Using ${amuxd} install-opencode --force"
-  echo "  OPENCODE_DOWNLOAD_BASE=${DOWNLOAD_BASE}"
-  OPENCODE_DOWNLOAD_BASE="${DOWNLOAD_BASE}" "$amuxd" install-opencode --force
-  return 0
 }
 
 install_standalone() {
@@ -111,12 +104,7 @@ main() {
   echo "  base:  ${DOWNLOAD_BASE}"
   echo ""
 
-  if try_amuxd; then
-    :
-  else
-    echo "→ amuxd not found; installing standalone via curl"
-    install_standalone
-  fi
+  install_standalone
 
   echo ""
   if [[ -x "$DEST" ]]; then
