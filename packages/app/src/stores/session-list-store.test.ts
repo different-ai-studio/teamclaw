@@ -213,7 +213,18 @@ describe("session-list-store", () => {
     expect(useSessionListStore.getState().rows[0].title).toBe("Renamed");
   });
 
-  it("omits locally remembered archived ids from hydrated rows", async () => {
+  // This used to assert the opposite — that a locally remembered archived id is
+  // dropped from hydrated rows no matter where the row came from. The list RPC
+  // only returns rows with `archived_at is null`, so a row arriving from the
+  // server is positive evidence that it was un-archived elsewhere: by another
+  // device, or by the gateway when a new message lands on the chat. Keeping it
+  // hidden would strand a demonstrably live session behind a stale local flag,
+  // since the local list only ever grew.
+  //
+  // The filter still applies to libsql cache rows, which are not evidence of
+  // anything — archived sessions sit there until they are soft deleted. That
+  // path is unreachable here because these tests mock isTauri() to false.
+  it("un-hides a remembered archived id when the server returns it again", async () => {
     localStorage.setItem(
       "teamclaw.sessionList.archivedIds",
       JSON.stringify(["session-archived"]),
@@ -229,8 +240,35 @@ describe("session-list-store", () => {
     await useSessionListStore.getState().loadFirstPage();
 
     expect(useSessionListStore.getState().rows.map((row) => row.id)).toEqual([
+      "session-archived",
       "session-active",
     ]);
+    // and the stale id is forgotten, so it cannot hide the session on the next
+    // cold boot either.
+    expect(
+      JSON.parse(localStorage.getItem("teamclaw.sessionList.archivedIds") ?? "[]"),
+    ).toEqual([]);
+    localStorage.removeItem("teamclaw.sessionList.archivedIds");
+  });
+
+  it("keeps hiding a remembered archived id the server does not return", async () => {
+    localStorage.setItem(
+      "teamclaw.sessionList.archivedIds",
+      JSON.stringify(["session-archived"]),
+    );
+    mocks.listCurrentActorSessions.mockResolvedValueOnce({
+      rows: [sessionRow({ id: "session-active" })],
+    });
+
+    const { useSessionListStore } = await import("./session-list-store");
+    await useSessionListStore.getState().loadFirstPage();
+
+    expect(useSessionListStore.getState().rows.map((row) => row.id)).toEqual([
+      "session-active",
+    ]);
+    expect(
+      JSON.parse(localStorage.getItem("teamclaw.sessionList.archivedIds") ?? "[]"),
+    ).toEqual(["session-archived"]);
     localStorage.removeItem("teamclaw.sessionList.archivedIds");
   });
 
