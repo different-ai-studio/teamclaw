@@ -453,25 +453,30 @@ impl DaemonServer {
                     let metadata_json = msg.metadata_json;
                     let turn_id = msg.turn_id;
                     let interrupted = metadata_json.contains("\"turn_status\":\"interrupted\"");
+                    let mut cloud_ok = true;
                     for sid in &collab_sessions {
-                        tc.emit_agent_message(
-                            sid,
-                            &actor_id,
-                            kind,
-                            &content,
-                            &metadata_json,
-                            &model,
-                            &turn_id,
-                            &reply_to_message_id,
-                            seq,
-                            persist,
-                            Some(&self.backend),
-                        )
-                        .await;
+                        let ok = tc
+                            .emit_agent_message(
+                                sid,
+                                &actor_id,
+                                kind,
+                                &content,
+                                &metadata_json,
+                                &model,
+                                &turn_id,
+                                &reply_to_message_id,
+                                seq,
+                                persist,
+                                Some(&self.backend),
+                            )
+                            .await;
+                        cloud_ok = cloud_ok && ok;
                     }
                     // Harden cursor when a turn ends as interrupted: send_prompt
                     // may have returned Err and skipped persist_runtime_cursor.
-                    if interrupted && !reply_to_message_id.is_empty() {
+                    // Only advance when cloud insert succeeded — otherwise
+                    // catchup would skip an unanswered @mention with no row.
+                    if interrupted && cloud_ok && !reply_to_message_id.is_empty() {
                         self.persist_runtime_cursor(agent_id, &reply_to_message_id)
                             .await;
                     }
