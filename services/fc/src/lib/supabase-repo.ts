@@ -2218,6 +2218,18 @@ export function createSupabaseBusinessRepository(options) {
       };
     },
 
+    async detachGatewaySession(acpSessionId) {
+      const { data, error } = await supabase.rpc("detach_gateway_session", {
+        p_acp_session_id: acpSessionId,
+      });
+      if (error) throw error;
+      const row = Array.isArray(data) ? data[0] : data;
+      return {
+        sessionId: row?.session_id ?? row?.sessionId ?? null,
+        detached: (row?.detached ?? row?.Detached) === true,
+      };
+    },
+
     async createCronSession(input) {
       // Cron sessions are plain `mode='collab'` sessions with no idea_id and
       // a marker in `summary` or metadata. The supabase create_session RPC

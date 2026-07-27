@@ -130,6 +130,8 @@ async fn default_workspace_resolves_agent_default_via_workspace_resolver() {
                 id: "ws-default".to_string(),
                 team_id: "team-test".to_string(),
                 path: Some(on_disk.path().to_string_lossy().to_string()),
+                archived: false,
+                agent_id: None,
             },
         );
     }
@@ -158,6 +160,8 @@ async fn default_workspace_falls_back_to_team_first_on_disk_workspace() {
                 id: "ws-missing".to_string(),
                 team_id: "team-test".to_string(),
                 path: Some("/definitely/not/on/this/machine/http-fallback-test".to_string()),
+                archived: false,
+                agent_id: None,
             },
         );
         st.workspaces_by_id.insert(
@@ -166,6 +170,8 @@ async fn default_workspace_falls_back_to_team_first_on_disk_workspace() {
                 id: "ws-on-disk".to_string(),
                 team_id: "team-test".to_string(),
                 path: Some(on_disk.path().to_string_lossy().to_string()),
+                archived: false,
+                agent_id: None,
             },
         );
         // Different team; must never be picked.
@@ -175,6 +181,8 @@ async fn default_workspace_falls_back_to_team_first_on_disk_workspace() {
                 id: "ws-other-team".to_string(),
                 team_id: "team-other".to_string(),
                 path: Some(on_disk.path().to_string_lossy().to_string()),
+                archived: false,
+                agent_id: None,
             },
         );
     }

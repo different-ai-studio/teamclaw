@@ -19,6 +19,15 @@ pub struct ScreenshotParams {
 
     /// Application name to look for in window matching
     pub application_name: Option<String>,
+
+    /// Directory to save screenshot file to (for save-to-disk mode)
+    pub output_dir: Option<String>,
+
+    /// If true, save to disk instead of returning inline base64
+    pub save_to_disk: Option<bool>,
+
+    /// If true, generate a small thumbnail for inline use
+    pub thumbnail: Option<bool>,
 }
 
 /// Result of taking a screenshot
@@ -35,6 +44,9 @@ pub struct ScreenshotResult {
 
     /// MIME type of the image
     pub mime_type: Option<String>,
+
+    /// File path if screenshot was saved to disk
+    pub file_path: Option<String>,
 }
 
 // Window manager operation parameters
@@ -62,6 +74,8 @@ pub struct TextInputParams {
     pub text: String,
     pub delay_ms: Option<u64>,
     pub initial_delay_ms: Option<u64>,
+    #[serde(default)]
+    pub window_label: Option<String>,
 }
 
 // Text input result
@@ -83,6 +97,12 @@ pub struct MouseMovementParams {
     pub relative: Option<bool>,
     pub click: Option<bool>,
     pub button: Option<String>, // "left", "right", or "middle"
+    #[serde(default)]
+    pub window_label: Option<String>,
+    #[serde(default)]
+    pub mouse_down: Option<bool>,
+    #[serde(default)]
+    pub mouse_up: Option<bool>,
 }
 
 // Mouse movement result
@@ -93,35 +113,6 @@ pub struct MouseMovementResult {
     pub duration_ms: u64,
     pub position: Option<(i32, i32)>,
     pub error: Option<String>,
-}
-
-/// Main interface trait for MCP functionality
-pub trait McpInterface {
-    /// Takes a screenshot of the specified window
-    fn take_screenshot_shared(
-        &self,
-        params: ScreenshotParams,
-    ) -> std::result::Result<ScreenshotResult, String>;
-
-    /// Manages window operations (resize, position, show/hide, etc.)
-    fn manage_window_shared(
-        &self,
-        params: WindowManagerParams,
-    ) -> std::result::Result<WindowManagerResult, String>;
-
-    /// Simulates keyboard text input
-    fn simulate_text_input_shared(
-        &self,
-        params: TextInputParams,
-    ) -> std::result::Result<TextInputResult, String>;
-
-    /// Simulates mouse movement
-    fn simulate_mouse_movement_shared(
-        &self,
-        params: MouseMovementParams,
-    ) -> std::result::Result<MouseMovementResult, String>;
-
-    // Add other shared functions here
 }
 
 /// Command string constants for socket commands
@@ -136,17 +127,29 @@ pub mod commands {
     pub const SIMULATE_MOUSE_MOVEMENT: &str = "simulate_mouse_movement";
     pub const GET_ELEMENT_POSITION: &str = "get_element_position";
     pub const SEND_TEXT_TO_ELEMENT: &str = "send_text_to_element";
-    pub const HOT_RELOAD: &str = "hot_reload";
-    pub const GET_CONSOLE_LOGS: &str = "get_console_logs";
-    pub const INJECT_CONSOLE_CAPTURE: &str = "inject_console_capture";
-    pub const NETWORK_INSPECTOR: &str = "network_inspector";
-    pub const INJECT_NETWORK_CAPTURE: &str = "inject_network_capture";
-    pub const STATE_DUMP: &str = "state_dump";
-    pub const DEVTOOLS_BRIDGE: &str = "devtools_bridge";
-    pub const GET_EXCEPTIONS: &str = "get_exceptions";
-    pub const INJECT_ERROR_TRACKER: &str = "inject_error_tracker";
-    pub const CLEAR_EXCEPTIONS: &str = "clear_exceptions";
-    pub const GET_PERFORMANCE_METRICS: &str = "get_performance_metrics";
-    pub const STORAGE_INSPECTOR: &str = "storage_inspector";
-    pub const HEALTH_CHECK: &str = "health_check";
+    pub const GET_PAGE_MAP: &str = "get_page_map";
+    pub const GET_PAGE_STATE: &str = "get_page_state";
+    pub const NAVIGATE_BACK: &str = "navigate_back";
+    pub const SCROLL_PAGE: &str = "scroll_page";
+    pub const FILL_FORM: &str = "fill_form";
+    pub const WAIT_FOR: &str = "wait_for";
+    pub const GET_APP_INFO: &str = "get_app_info";
+    pub const LIST_WINDOWS: &str = "list_windows";
+    pub const NAVIGATE_WEBVIEW: &str = "navigate_webview";
+    pub const MANAGE_EVENTS: &str = "manage_events";
+    pub const MANAGE_COOKIES: &str = "manage_cookies";
+    pub const MANAGE_DEVTOOLS: &str = "manage_devtools";
+    pub const MANAGE_ZOOM: &str = "manage_zoom";
+    pub const MANAGE_WEBVIEW_STATE: &str = "manage_webview_state";
+    pub const TYPE_INTO_FOCUSED: &str = "type_into_focused";
+    pub const PRESS_KEY: &str = "press_key";
+    pub const SET_FILE_INPUT: &str = "set_file_input";
+    pub const MANAGE_IPC: &str = "manage_ipc";
+    pub const RESTART_APP: &str = "restart_app";
+    pub const QUERY_LOGS: &str = "query_logs";
+    pub const LOG_MARK: &str = "log_mark";
+    pub const READ_TEXT: &str = "read_text";
+    pub const INSPECT_ELEMENT: &str = "inspect_element";
+    pub const DISPATCH_POINTER: &str = "dispatch_pointer";
+    pub const APP_BRIDGE: &str = "app_bridge";
 }

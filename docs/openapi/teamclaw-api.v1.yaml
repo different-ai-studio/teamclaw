@@ -1115,6 +1115,15 @@ paths:
           schema:
             type: string
             format: uuid
+        - name: agentId
+          in: query
+          description: >-
+            Restrict to the rows one agent registered. The same path is
+            registered once per agent, so any caller listing "this device's
+            workspaces" must filter by agent rather than by path.
+          schema:
+            type: string
+            format: uuid
         - name: limit
           in: query
           schema:
@@ -4116,8 +4125,19 @@ components:
         teamId:
           type: string
           format: uuid
+        agentId:
+          description: The agent (device daemon) that registered this workspace.
+          type:
+            - string
+            - "null"
+          format: uuid
         name:
           type: string
+        path:
+          description: Absolute local path on the registering agent's machine.
+          type:
+            - string
+            - "null"
         slug:
           type:
             - string

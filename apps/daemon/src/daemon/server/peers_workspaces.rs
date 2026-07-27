@@ -163,32 +163,27 @@ impl DaemonServer {
         if team_id.trim().is_empty() {
             return Vec::new();
         }
-        let rows = match self.backend.get_workspaces_by_team(team_id).await {
+        let rows = match self
+            .backend
+            .get_workspaces_by_agent(team_id, self.backend.actor_id())
+            .await
+        {
             Ok(rows) => rows,
             Err(e) => {
                 warn!(
                     team_id,
-                    "cloud_workspace_list: get_workspaces_by_team failed: {e}"
+                    "cloud_workspace_list: get_workspaces_by_agent failed: {e}"
                 );
                 return Vec::new();
             }
         };
         rows.into_iter()
             .filter_map(|row| {
-                let path = row.path.as_deref()?.trim();
-                if path.is_empty() || !is_linkable_workspace_path(path) {
-                    return None;
-                }
-                if !Path::new(path).is_dir() {
-                    return None;
-                }
-                let display_name = Path::new(path)
-                    .file_name()
-                    .map(|n| n.to_string_lossy().to_string())
-                    .unwrap_or_else(|| path.to_string());
+                let (path, display_name) =
+                    crate::config::workspace_path::listable_local_workspace(&row)?;
                 Some(amux::WorkspaceInfo {
                     workspace_id: row.id,
-                    path: path.to_string(),
+                    path,
                     display_name,
                 })
             })

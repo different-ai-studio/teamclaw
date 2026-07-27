@@ -246,6 +246,16 @@ impl Backend for DeferredBackend {
         self.inner()?.get_workspaces_by_ids(ids).await
     }
 
+    async fn get_workspaces_by_agent(
+        &self,
+        team_id: &str,
+        agent_id: &str,
+    ) -> BackendResult<Vec<WorkspaceRow>> {
+        self.inner()?
+            .get_workspaces_by_agent(team_id, agent_id)
+            .await
+    }
+
     async fn get_workspaces_by_team(&self, team_id: &str) -> BackendResult<Vec<WorkspaceRow>> {
         self.inner()?.get_workspaces_by_team(team_id).await
     }
@@ -307,6 +317,12 @@ impl Backend for DeferredBackend {
     ) -> BackendResult<Option<(String, Option<String>)>> {
         self.inner()?
             .get_gateway_session_by_acp_id(acp_session_id)
+            .await
+    }
+
+    async fn rpc_detach_gateway_session(&self, acp_session_id: &str) -> BackendResult<bool> {
+        self.inner()?
+            .rpc_detach_gateway_session(acp_session_id)
             .await
     }
 

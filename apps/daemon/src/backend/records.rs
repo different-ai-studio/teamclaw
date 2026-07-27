@@ -58,13 +58,23 @@ pub struct AgentRuntimeRow {
     pub last_processed_message_id: Option<String>,
 }
 
-#[derive(Debug, Clone, serde::Deserialize)]
+#[derive(Debug, Clone, Default, serde::Deserialize)]
 pub struct WorkspaceRow {
     pub id: String,
     #[serde(default)]
     pub team_id: String,
     #[serde(default)]
     pub path: Option<String>,
+    /// `GET /v1/workspaces` returns archived rows too — the desktop hides them
+    /// client-side, so anything else enumerating workspaces has to as well or
+    /// it shows every workspace the team ever retired.
+    #[serde(default)]
+    pub archived: bool,
+    /// Which agent (device daemon) registered this row. The same path is
+    /// registered once per agent, so this is what distinguishes "my
+    /// workspaces" from every other device's copy of the same directory.
+    #[serde(default)]
+    pub agent_id: Option<String>,
 }
 
 /// A single `messages` table row returned from the backend.

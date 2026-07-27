@@ -11,7 +11,14 @@ import assert from "node:assert/strict";
 import { eq } from "drizzle-orm";
 import { makeTestDb } from "./db/pglite.js";
 import { createPgBusinessRepository } from "../src/lib/pg-repo/index.js";
-import { teams, actors, members, teamMembers, sessions } from "../src/db/schema/index.js";
+import {
+  teams,
+  actors,
+  members,
+  teamMembers,
+  sessions,
+  sessionParticipants,
+} from "../src/db/schema/index.js";
 
 // ── Seed helpers ─────────────────────────────────────────────────────────────
 
@@ -400,6 +407,53 @@ test("ensureGatewaySession is idempotent: first call created=true, second create
   });
   assert.equal(second.created, false, "second call should not create new session");
   assert.equal(second.sessionId, first.sessionId, "sessionId should be identical");
+});
+
+test("ensureGatewaySession adds participants that appeared after the session was created", async () => {
+  // A gateway session is keyed by (teamId, binding) and outlives the daemon
+  // that opened it: re-onboarding mints a new agent actor, and admin owners
+  // can be granted access later. Writing participants only on create left
+  // those chats working end to end but absent from every session list, which
+  // filters on participation alone.
+  const { db } = await makeTestDb();
+  const team = await seedTeam(db);
+  const oldAgent = await seedActor(db, team.id, { kind: "agent" });
+  const newAgent = await seedActor(db, team.id, { kind: "agent" });
+  const owner = await seedActor(db, team.id);
+  const repo = createPgBusinessRepository({ db });
+
+  const binding = `wecom:room#${Math.random()}`;
+  const first = await repo.ensureGatewaySession({
+    teamId: team.id,
+    binding,
+    title: "WeCom DM",
+    primaryAgentActorId: oldAgent.id,
+    ownerMemberActorIds: [],
+    participantActorIds: [],
+  });
+
+  // Same chat, after a re-onboard: different agent, and an owner now exists.
+  const second = await repo.ensureGatewaySession({
+    teamId: team.id,
+    binding,
+    title: "WeCom DM",
+    primaryAgentActorId: newAgent.id,
+    ownerMemberActorIds: [owner.id],
+    participantActorIds: [],
+  });
+  assert.equal(second.created, false);
+  assert.equal(second.sessionId, first.sessionId);
+
+  const rows = await db
+    .select()
+    .from(sessionParticipants)
+    .where(eq(sessionParticipants.sessionId, first.sessionId));
+  const actorIds = rows.map((r: any) => r.actorId).sort();
+  assert.deepEqual(
+    actorIds,
+    [oldAgent.id, newAgent.id, owner.id].sort(),
+    "the live agent and the new owner must be joined to the existing session",
+  );
 });
 
 test("ensureGatewaySession different bindings in same team create different sessions", async () => {

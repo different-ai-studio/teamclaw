@@ -47,6 +47,36 @@ function rememberArchivedSessionId(sessionId: string): void {
   }
 }
 
+/**
+ * Drop ids the server no longer considers archived.
+ *
+ * The list RPC returns only rows with `archived_at is null`, so anything that
+ * comes back has been un-archived — by another device, or by the gateway,
+ * which un-archives a chat when a new message arrives on it. Without this the
+ * local list would keep hiding a session that is demonstrably live again:
+ * `rememberArchivedSessionId` only ever adds, so the list outlives the state
+ * it was mirroring.
+ *
+ * Only call this with rows from the server. Rows from the libsql cache are not
+ * evidence of anything — archived sessions sit there until they are soft
+ * deleted, which is exactly why the local list exists.
+ */
+function forgetArchivedSessionIds(entries: SessionListEntry[]): void {
+  try {
+    if (typeof localStorage === "undefined") return;
+    const archived = readArchivedSessionIds();
+    if (archived.size === 0) return;
+    let changed = false;
+    for (const row of entries) {
+      if (archived.delete(row.id)) changed = true;
+    }
+    if (!changed) return;
+    localStorage.setItem(ARCHIVED_SESSION_IDS_KEY, JSON.stringify([...archived]));
+  } catch {
+    // localStorage unavailable — non-fatal.
+  }
+}
+
 function filterArchivedEntries(entries: SessionListEntry[]): SessionListEntry[] {
   const archived = readArchivedSessionIds();
   if (archived.size === 0) return entries;
@@ -274,6 +304,7 @@ export const useSessionListStore = create<State>((set, get) => ({
       void syncSessionWorkspaces(teamId).catch(() => {});
     }
 
+    forgetArchivedSessionIds(rows);
     set({
       rows: filterArchivedEntries(sortEntries(rows)),
       loading: false,
@@ -298,6 +329,7 @@ export const useSessionListStore = create<State>((set, get) => ({
     }
     const { rows } = page;
     const nextCursor = resolveNextCursor(page);
+    forgetArchivedSessionIds(rows);
     const nextRows = filterArchivedEntries(mergeRows(get().rows, rows));
     set({
       rows: nextRows,

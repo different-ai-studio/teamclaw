@@ -300,6 +300,31 @@ pub trait Backend: Send + Sync {
     /// filters to paths that exist on *this* machine before symlinking.
     async fn get_workspaces_by_team(&self, team_id: &str) -> BackendResult<Vec<WorkspaceRow>>;
 
+    /// The rows `agent_id` itself registered — i.e. *this* device's workspaces.
+    ///
+    /// The team-wide list is not a usable substitute: the same path is
+    /// registered once per agent, so `/Users/me/Project` can appear a dozen
+    /// times across devices, and filtering those by "does this path exist
+    /// locally" keeps every duplicate whose path happens to match. Anything
+    /// presenting a workspace list *for this machine* (the desktop settings
+    /// panel, `/workspaces` in a channel, the daemon's own HTTP list) must ask
+    /// by agent, which is what the desktop already does.
+    ///
+    /// The default impl filters the team list client-side; backends with a
+    /// query surface should override it.
+    async fn get_workspaces_by_agent(
+        &self,
+        team_id: &str,
+        agent_id: &str,
+    ) -> BackendResult<Vec<WorkspaceRow>> {
+        Ok(self
+            .get_workspaces_by_team(team_id)
+            .await?
+            .into_iter()
+            .filter(|row| row.agent_id.as_deref() == Some(agent_id))
+            .collect())
+    }
+
     /// Set `agents.default_workspace_id` for the current daemon actor.
     async fn set_agent_default_workspace(&self, workspace_id: &str) -> BackendResult<()>;
 
@@ -348,6 +373,16 @@ pub trait Backend: Send + Sync {
         &self,
         acp_session_id: &str,
     ) -> BackendResult<Option<(String, Option<String>)>>;
+
+    /// Release a gateway chat's binding so the next inbound message opens a
+    /// new session; the old row keeps its history. Returns whether anything
+    /// was detached (`false` for an unknown id or a non-gateway session).
+    ///
+    /// Default impl reports "nothing detached" so backends without a gateway
+    /// surface degrade to a plain runtime reset instead of failing `/clear`.
+    async fn rpc_detach_gateway_session(&self, _acp_session_id: &str) -> BackendResult<bool> {
+        Ok(false)
+    }
 
     /// Resolve (or create) the `sessions` row for a gateway binding.
     /// Returns `(session_id, acp_session_id, created)`.

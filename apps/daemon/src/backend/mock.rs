@@ -770,6 +770,8 @@ mod tests {
                 id: "ws-remote-1".to_string(),
                 team_id: "team-x".to_string(),
                 path: Some("/tmp/ws-a".to_string()),
+                archived: false,
+                agent_id: None,
             },
         );
         be.upsert_workspace(&WorkspaceUpsert {
@@ -803,6 +805,8 @@ mod tests {
                     id: "ws-1".to_string(),
                     team_id: "team-a".to_string(),
                     path: Some("/tmp/a1".to_string()),
+                    archived: false,
+                    agent_id: None,
                 },
             );
             st.workspaces_by_id.insert(
@@ -811,6 +815,8 @@ mod tests {
                     id: "ws-2".to_string(),
                     team_id: "team-a".to_string(),
                     path: Some("/tmp/a2".to_string()),
+                    archived: false,
+                    agent_id: None,
                 },
             );
             st.workspaces_by_id.insert(
@@ -819,6 +825,8 @@ mod tests {
                     id: "ws-3".to_string(),
                     team_id: "team-b".to_string(),
                     path: Some("/tmp/b1".to_string()),
+                    archived: false,
+                    agent_id: None,
                 },
             );
         }
