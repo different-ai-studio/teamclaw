@@ -48,6 +48,7 @@ import { loadSessionIdsForWorkspace } from '@/lib/session-by-workspace'
 import { actorAvatarColor } from '@/lib/actor-color'
 import { useSessionWorkspaceLabels } from '@/hooks/use-session-workspace-labels'
 import { compareSessionListByRecency } from '@/lib/session-list-sort'
+import { isScheduledSession } from '@/lib/session-origin'
 
 /**
  * Merged row shape consumed by the rendering pipeline. Combines list-canonical
@@ -284,10 +285,7 @@ export function SessionListColumn({
     let base = listRows.map((r) => entryToRow(r, pinnedSet.has(r.id)))
     const isClockView = filter.kind === 'all' && showCronSessions
 
-    // A session is scheduled-origin when its persisted `source` says so. The
-    // local `cronSessionIds` overlay is kept only as an optimistic fallback for
-    // a just-created cron session whose list row hasn't synced `source` yet.
-    const isCron = (r: ListRow) => r.source === 'cron' || cronSessionIds.has(r.id)
+    const isCron = (r: ListRow) => isScheduledSession(r, cronSessionIds)
     base = base.filter((r) => (isClockView ? isCron(r) : !isCron(r)))
 
     if (filter.kind === 'pinned') {

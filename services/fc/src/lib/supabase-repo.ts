@@ -1891,7 +1891,7 @@ export function createSupabaseBusinessRepository(options) {
 
     async listTeamSessionsFull(teamId) {
       const FULL_COLUMNS =
-        "id, team_id, title, mode, primary_agent_id, idea_id, summary, last_message_preview, last_message_at, created_by_actor_id, created_at, updated_at";
+        "id, team_id, title, mode, primary_agent_id, idea_id, summary, last_message_preview, last_message_at, created_by_actor_id, source, cron_job_id, created_at, updated_at";
       const { data: sessionRows, error: sessionErr } = await supabase
         .from("sessions")
         .select(FULL_COLUMNS)
@@ -1923,6 +1923,8 @@ export function createSupabaseBusinessRepository(options) {
         summary: row.summary ?? null,
         lastMessageAt: row.last_message_at ?? null,
         lastMessagePreview: row.last_message_preview ?? null,
+        source: row.source ?? "user",
+        cronJobId: row.cron_job_id ?? null,
         participantCount: counts[row.id] ?? 0,
         hasUnread: false,
         createdAt: row.created_at ?? null,
@@ -1958,7 +1960,7 @@ export function createSupabaseBusinessRepository(options) {
 
     async listSessionsForTeamSince(teamId, updatedAfter) {
       const SESSION_SYNC_COLUMNS =
-        "id, team_id, title, mode, primary_agent_id, idea_id, summary, last_message_preview, last_message_at, created_by_actor_id, created_at, updated_at";
+        "id, team_id, title, mode, primary_agent_id, idea_id, summary, last_message_preview, last_message_at, created_by_actor_id, source, cron_job_id, created_at, updated_at";
       let q = supabase
         .from("sessions")
         .select(SESSION_SYNC_COLUMNS)
