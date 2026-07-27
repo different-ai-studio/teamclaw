@@ -391,6 +391,37 @@ export function makeSessionsRepo(db: DbLike, ctx: SessionsCtx = {}, deps: Sessio
       return mapSessionFull(r, parts.map(mapParticipant));
     },
 
+    // ── detachGatewaySession ──────────────────────────────────────────────────
+    /**
+     * Release a gateway chat's binding so the next inbound message opens a new
+     * session. The old row keeps its history and simply stops being the current
+     * session for that chat; `ensureGatewaySession` then misses on the binding
+     * and creates a fresh one. Nothing is deleted.
+     *
+     * The detach time is appended to the title because a gateway session's
+     * title comes from the chat itself ("WeCom DM: LiangLiang") and would
+     * otherwise repeat identically for every generation of the conversation.
+     */
+    async detachGatewaySession(acpSessionId: string) {
+      const [existing] = await db
+        .select()
+        .from(sessions)
+        .where(eq(sessions.acpSessionId, acpSessionId))
+        .limit(1);
+      // Unknown id, or a session never bound to a gateway chat: nothing to
+      // detach. The caller treats this as "no new session needed".
+      if (!existing || !existing.binding) {
+        return { sessionId: existing?.id ?? null, detached: false };
+      }
+      const stamp = new Date().toISOString().slice(0, 16).replace("T", " ");
+      const title = existing.title ? `${existing.title} (${stamp})` : existing.title;
+      await db
+        .update(sessions)
+        .set({ binding: null, title })
+        .where(eq(sessions.id, existing.id));
+      return { sessionId: existing.id, detached: true };
+    },
+
     // ── markSessionViewed ─────────────────────────────────────────────────────
     /**
      * AUTHZ (#10): the read marker's actor is ALWAYS resolved server-side from
@@ -508,7 +539,37 @@ export function makeSessionsRepo(db: DbLike, ctx: SessionsCtx = {}, deps: Sessio
         .where(and(eq(sessions.teamId, input.teamId), eq(sessions.binding, input.binding)))
         .limit(1);
 
+      // Participants are refreshed for existing rows too, not just on create.
+      // The session is keyed by (teamId, binding) and lives forever, so a
+      // create-only write freezes membership at whatever the first message
+      // saw: re-onboard the daemon (new agent actor id) or grant an admin
+      // owner access later and neither ever gets added — the chat then works
+      // end to end while staying invisible in every session list, which
+      // filters on participation alone.
+      const syncParticipants = async (sessionId: string) => {
+        const participantIds = Array.from(
+          new Set(
+            [
+              input.primaryAgentActorId,
+              ...input.ownerMemberActorIds,
+              ...input.participantActorIds,
+            ].filter((x): x is string => typeof x === "string" && x.length > 0),
+          ),
+        );
+        if (participantIds.length === 0) return;
+        await (db.insert(sessionParticipants) as any)
+          .values(participantIds.map((actorId) => ({ sessionId, actorId })))
+          .onConflictDoNothing();
+      };
+
       if (existing) {
+        await syncParticipants(existing.id);
+        // NOTE: un-archiving on a new message lives in the
+        // `amux.ensure_gateway_session` SQL function (the supabase path, which
+        // is what production runs). It is deliberately not mirrored here: this
+        // schema has no `archived_at` column at all — `listSessions` above does
+        // not filter on it either — so half-implementing the semantics would
+        // only add a new inconsistency.
         return {
           sessionId: existing.id,
           gatewaySessionId: existing.binding ?? existing.id,
@@ -532,20 +593,7 @@ export function makeSessionsRepo(db: DbLike, ctx: SessionsCtx = {}, deps: Sessio
         })
         .returning();
 
-      // Bootstrap participants: primary agent + owner members + participants
-      const participantIds = Array.from(
-        new Set([
-          input.primaryAgentActorId,
-          ...input.ownerMemberActorIds,
-          ...input.participantActorIds,
-        ].filter((x): x is string => typeof x === "string" && x.length > 0)),
-      );
-
-      if (participantIds.length > 0) {
-        await (db.insert(sessionParticipants) as any)
-          .values(participantIds.map((actorId) => ({ sessionId: id, actorId })))
-          .onConflictDoNothing();
-      }
+      await syncParticipants(id);
 
       return {
         sessionId: r.id,
