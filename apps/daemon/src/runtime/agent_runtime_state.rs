@@ -9,7 +9,7 @@
 //! Previously these were two loose `HashMap` fields on `RuntimeManager`,
 //! mutated inline at ~16 call sites and — notably — never cleaned up when an
 //! agent stopped (a small unbounded leak). Wrapping them in one type gives a
-//! typed API and a single `remove()` that `stop_agent` now calls.
+//! typed API and a single `remove()` that `stop_runtime` now calls.
 
 use std::collections::HashMap;
 

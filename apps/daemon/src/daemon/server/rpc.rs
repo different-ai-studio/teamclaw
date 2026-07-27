@@ -476,7 +476,7 @@ impl DaemonServer {
                     .agents
                     .lock()
                     .await
-                    .stop_agent(agent_id)
+                    .stop_runtime(agent_id)
                     .await
                     .is_some();
                 if stopped {

@@ -30,7 +30,7 @@ impl RuntimeManager {
             .collect();
         let mut evicted = Vec::with_capacity(stale.len());
         for id in stale {
-            if self.stop_agent(&id).await.is_some() {
+            if self.stop_runtime(&id).await.is_some() {
                 info!(
                     agent_id = %id,
                     threshold_secs,

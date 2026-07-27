@@ -1,8 +1,11 @@
 #![allow(clippy::too_many_arguments)]
 
-pub mod acp;
+pub mod agent;
 pub mod commands;
-pub use acp::{AcpAvailableCommand, AgentInfo, AcpError, AcpHandle, AcpTurnOutcome, AmuxSessionId, ModelInfo, WorkspaceInfo};
+pub use agent::{
+    AgentCommand, AgentError, AgentHandle, AgentInfo, AmuxSessionId, ModelInfo, TurnOutcome,
+    WorkspaceInfo,
+};
 
 pub mod binding;
 pub mod channel_store;
@@ -28,9 +31,6 @@ pub mod wecom_config;
 pub mod workspace_instructions;
 
 pub use config::*;
-pub use workspace_instructions::{
-    claude_md_block_present, load_system_prompt, sync_teamclaw_claude_md,
-};
 pub use discord::DiscordGateway;
 pub use email::{AuthUrlCallback, EmailGateway};
 pub use email_config::*;
@@ -47,6 +47,9 @@ pub use wechat::WeChatGateway;
 pub use wechat_config::*;
 pub use wecom::WeComGateway;
 pub use wecom_config::*;
+pub use workspace_instructions::{
+    claude_md_block_present, load_system_prompt, sync_teamclaw_claude_md,
+};
 
 use serde::Deserialize;
 use std::collections::{HashMap, HashSet};
@@ -267,7 +270,7 @@ fn extract_message_content(message: &serde_json::Value) -> Result<String, String
 
 // ==================== Model Helpers ====================
 
-/// Information about a single model (legacy helper; prefer `ModelInfo` from `acp`)
+/// Information about a single model (legacy helper; prefer `ModelInfo` from `agent`)
 #[derive(Debug, Clone)]
 pub struct LegacyModelInfo {
     pub id: String,
@@ -386,8 +389,8 @@ pub fn write_config(
 ) -> Result<(), String> {
     ensure_teamclaw_dir(workspace_path)?;
     let path = get_config_path(workspace_path);
-    let value = serde_json::to_value(config)
-        .map_err(|e| format!("Failed to serialize config: {}", e))?;
+    let value =
+        serde_json::to_value(config).map_err(|e| format!("Failed to serialize config: {}", e))?;
     write_json_value_if_changed(&path, &value)
 }
 

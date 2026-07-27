@@ -11,7 +11,7 @@ use crate::kook_config::{KookConfig, KookGatewayStatus, KookGatewayStatusRespons
 
 use crate::i18n;
 use crate::{
-    AcpHandle, ChannelStore, FilterResult, ProcessedMessageTracker, MAX_PROCESSED_MESSAGES,
+    AgentHandle, ChannelStore, FilterResult, ProcessedMessageTracker, MAX_PROCESSED_MESSAGES,
 };
 
 /// Maximum number of buffered out-of-order messages
@@ -89,7 +89,7 @@ impl KookMessageData {
 /// KOOK gateway implementation
 pub struct KookGateway {
     config: Arc<RwLock<KookConfig>>,
-    pub acp: Arc<dyn AcpHandle>,
+    pub agent: Arc<dyn AgentHandle>,
     pub store: Arc<dyn ChannelStore>,
     pub team_id: String,
     pub primary_agent_actor_id: String,
@@ -111,7 +111,7 @@ pub struct KookGateway {
 
 impl KookGateway {
     pub fn new(
-        acp: Arc<dyn AcpHandle>,
+        agent: Arc<dyn AgentHandle>,
         store: Arc<dyn ChannelStore>,
         team_id: String,
         primary_agent_actor_id: String,
@@ -120,7 +120,7 @@ impl KookGateway {
     ) -> Self {
         Self {
             config: Arc::new(RwLock::new(KookConfig::default())),
-            acp,
+            agent,
             store,
             team_id,
             primary_agent_actor_id,
@@ -876,7 +876,7 @@ impl KookGateway {
         }
     }
 
-    /// Process message and send reply via amuxd ACP + ChannelStore.
+    /// Process message and send reply via the amuxd agent runtime + ChannelStore.
     async fn process_and_reply(&self, msg: &KookMessageData) -> Result<(), String> {
         // Strip bot mention from content (like Discord strips <@BOTID>)
         let bot_id = self.bot_user_id.read().await;
@@ -992,7 +992,7 @@ impl KookGateway {
         // Slash-command dispatch — /stop /reset /model — against the resolved session.
         if is_session_slash {
             let reply_text = crate::commands::dispatch_session_slash_cmd(
-                &self.acp,
+                &self.agent,
                 &lower,
                 &outcome.acp_session_id,
             )
@@ -1017,9 +1017,9 @@ impl KookGateway {
         // Send "Thinking..." card message first so the user gets immediate feedback.
         let thinking_msg_id = self.send_thinking_card(msg).await.ok();
 
-        // Drive a single ACP turn through amuxd.
+        // Drive a single agent turn through amuxd.
         let turn = self
-            .acp
+            .agent
             .send_prompt(&outcome.acp_session_id, &sender_display, &content)
             .await;
 
@@ -1039,7 +1039,9 @@ impl KookGateway {
                 }
 
                 if let Some(ref proc_id) = thinking_msg_id {
-                    let _ = self.update_card_message(proc_id, &reply.reply_text, is_dm).await;
+                    let _ = self
+                        .update_card_message(proc_id, &reply.reply_text, is_dm)
+                        .await;
                 } else {
                     let _ = self.send_reply(msg, &reply.reply_text).await;
                 }
@@ -1284,7 +1286,7 @@ impl Clone for KookGateway {
     fn clone(&self) -> Self {
         Self {
             config: Arc::clone(&self.config),
-            acp: Arc::clone(&self.acp),
+            agent: Arc::clone(&self.agent),
             store: Arc::clone(&self.store),
             team_id: self.team_id.clone(),
             primary_agent_actor_id: self.primary_agent_actor_id.clone(),

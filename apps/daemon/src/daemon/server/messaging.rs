@@ -306,6 +306,12 @@ impl DaemonServer {
                     .await
                     .clear_runtime(agent_id);
                 self.flush_pending_remote_tools_mcp_refresh(agent_id).await;
+                // The turn is over, so the backend has settled on a model and
+                // persisted it. Ask what it picked: runtimes start unpinned
+                // when nobody chose, and this is the only point at which that
+                // choice becomes observable — without it the device MRU never
+                // gets a first entry on a fresh install.
+                self.agents.lock().await.learn_session_model(agent_id).await;
             }
 
             // Upsert agent_runtimes on status transitions
@@ -557,7 +563,7 @@ impl DaemonServer {
             "coalesce_session_runtimes: stopping duplicate live runtimes before fanout"
         );
         for rid in &superseded {
-            self.agents.lock().await.stop_agent(rid).await;
+            self.agents.lock().await.stop_runtime(rid).await;
             self.remote_tool_turn_contexts
                 .lock()
                 .await

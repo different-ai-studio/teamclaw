@@ -123,7 +123,7 @@ fn main() -> anyhow::Result<()> {
                 let (startup_tx, _startup_rx) = tokio::sync::oneshot::channel::<
                     Result<runtime::adapter::AcpStartupMetadata, String>,
                 >();
-                let _cmd_tx = runtime::adapter::spawn_acp_agent(
+                let _cmd_tx = runtime::adapter::start_standalone_runtime(
                     binary,
                     Vec::new(),
                     worktree.clone(),

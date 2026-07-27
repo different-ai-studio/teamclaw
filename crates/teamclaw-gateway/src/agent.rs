@@ -13,9 +13,9 @@ pub struct ModelInfo {
     pub display_name: String,
 }
 
-/// A slash command advertised by the ACP agent via `AcpAvailableCommands`.
+/// A slash command advertised by the agent via `AgentAvailableCommands`.
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
-pub struct AcpAvailableCommand {
+pub struct AgentCommand {
     pub name: String,
     pub description: String,
     /// `None` means the command takes no input; `Some(hint)` means the command
@@ -23,9 +23,9 @@ pub struct AcpAvailableCommand {
     pub input_hint: Option<String>,
 }
 
-/// Outcome of a single ACP turn driven by a gateway message.
+/// Outcome of a single agent turn driven by a gateway message.
 #[derive(Debug, Clone)]
-pub struct AcpTurnOutcome {
+pub struct TurnOutcome {
     pub reply_text: String,
     pub completed: bool,
 }
@@ -45,18 +45,18 @@ pub struct WorkspaceInfo {
     pub is_current: bool,
 }
 
-/// Abstraction over amuxd's in-process ACP runtime. Channels call this
+/// Abstraction over amuxd's in-process agent runtime. Channels call this
 /// instead of POSTing to opencode's HTTP server.
 #[async_trait]
-pub trait AcpHandle: Send + Sync + 'static {
-    /// Create a new ACP-backed session for a freshly-bound gateway conversation.
+pub trait AgentHandle: Send + Sync + 'static {
+    /// Create a new agent-backed session for a freshly-bound gateway conversation.
     /// Returns the amuxd session id to persist on the gateway's `Binding`.
     async fn create_session(
         &self,
         team_id: &str,
         binding: &str,
         title: &str,
-    ) -> Result<AmuxSessionId, AcpError>;
+    ) -> Result<AmuxSessionId, AgentError>;
 
     /// Send a user prompt and wait for the agent's reply text. Equivalent to
     /// v1's `prompt_async` + SSE polling, but synchronous and in-process.
@@ -65,7 +65,7 @@ pub trait AcpHandle: Send + Sync + 'static {
         session: &AmuxSessionId,
         sender_display: &str,
         text: &str,
-    ) -> Result<AcpTurnOutcome, AcpError>;
+    ) -> Result<TurnOutcome, AgentError>;
 
     /// Same as `send_prompt`, but reports the reply as it grows so channels
     /// with editable message bubbles can show progress mid-turn.
@@ -75,7 +75,7 @@ pub trait AcpHandle: Send + Sync + 'static {
     /// same id, so callers want the whole text every time. Updates are
     /// best-effort and throttled: a slow or dropped receiver never fails the
     /// turn, and intermediate updates may be skipped. The returned
-    /// `AcpTurnOutcome` is always authoritative — send it as the final,
+    /// `TurnOutcome` is always authoritative — send it as the final,
     /// finished bubble regardless of what arrived on the channel.
     ///
     /// The default impl ignores `on_update` and delegates to `send_prompt`,
@@ -86,7 +86,7 @@ pub trait AcpHandle: Send + Sync + 'static {
         sender_display: &str,
         text: &str,
         on_update: mpsc::Sender<String>,
-    ) -> Result<AcpTurnOutcome, AcpError> {
+    ) -> Result<TurnOutcome, AgentError> {
         let _ = on_update;
         self.send_prompt(session, sender_display, text).await
     }
@@ -98,17 +98,17 @@ pub trait AcpHandle: Send + Sync + 'static {
         session: &AmuxSessionId,
         sender_display: &str,
         text: &str,
-    ) -> Result<(), AcpError>;
+    ) -> Result<(), AgentError>;
 
     /// Cancel any in-flight turn on this session. Used by /stop.
-    async fn cancel(&self, session: &AmuxSessionId) -> Result<(), AcpError>;
+    async fn cancel(&self, session: &AmuxSessionId) -> Result<(), AgentError>;
 
     /// Drop the runtime context for this session — next send_prompt re-spawns
     /// a fresh agent under the same logical id. Used by /reset.
-    async fn reset_session(&self, session: &AmuxSessionId) -> Result<(), AcpError>;
+    async fn reset_session(&self, session: &AmuxSessionId) -> Result<(), AgentError>;
 
     /// List available models the daemon can drive. Used by /model (no arg).
-    async fn list_models(&self) -> Result<Vec<ModelInfo>, AcpError>;
+    async fn list_models(&self) -> Result<Vec<ModelInfo>, AgentError>;
 
     /// Pin a model for this session. Restarts the underlying agent —
     /// conversation context is lost. Used by /model X.
@@ -117,17 +117,17 @@ pub trait AcpHandle: Send + Sync + 'static {
         session: &AmuxSessionId,
         provider: &str,
         model: &str,
-    ) -> Result<(), AcpError>;
+    ) -> Result<(), AgentError>;
 
-    /// Return the slash commands the running ACP agent has currently advertised.
+    /// Return the slash commands the running agent has currently advertised.
     /// Returns an empty vec if the session hasn't spawned yet or the agent
-    /// hasn't reported commands. Used by `commands::dispatch` for ACP-first priority.
+    /// hasn't reported commands. Used by `commands::dispatch` for agent-first priority.
     async fn available_commands(
         &self,
         session: &AmuxSessionId,
-    ) -> Result<Vec<AcpAvailableCommand>, AcpError>;
+    ) -> Result<Vec<AgentCommand>, AgentError>;
 
-    /// Forward a slash command to the ACP agent. Only call after confirming
+    /// Forward a slash command to the agent. Only call after confirming
     /// via `available_commands` that the agent knows this command.
     /// Behaves like `send_prompt` — returns the agent's reply text.
     async fn send_slash_command(
@@ -135,34 +135,27 @@ pub trait AcpHandle: Send + Sync + 'static {
         session: &AmuxSessionId,
         name: &str,
         input: Option<&str>,
-    ) -> Result<AcpTurnOutcome, AcpError>;
+    ) -> Result<TurnOutcome, AgentError>;
 
     /// List all logical sessions this handle knows about (spawned since last
     /// daemon restart). Returns `(session_id, is_current)` pairs.
     async fn list_sessions(
         &self,
         active_session: &AmuxSessionId,
-    ) -> Result<Vec<(AmuxSessionId, bool)>, AcpError>;
+    ) -> Result<Vec<(AmuxSessionId, bool)>, AgentError>;
 
     /// List available agent types.
-    async fn list_agents(
-        &self,
-        session: &AmuxSessionId,
-    ) -> Result<Vec<AgentInfo>, AcpError>;
+    async fn list_agents(&self, session: &AmuxSessionId) -> Result<Vec<AgentInfo>, AgentError>;
 
     /// Set agent type for this session. Restarts the underlying agent —
     /// conversation context is lost (same semantics as `set_model`).
-    async fn set_agent(
-        &self,
-        session: &AmuxSessionId,
-        agent_type: &str,
-    ) -> Result<(), AcpError>;
+    async fn set_agent(&self, session: &AmuxSessionId, agent_type: &str) -> Result<(), AgentError>;
 
     /// List workspaces known to the daemon.
     async fn list_workspaces(
         &self,
         session: &AmuxSessionId,
-    ) -> Result<Vec<WorkspaceInfo>, AcpError>;
+    ) -> Result<Vec<WorkspaceInfo>, AgentError>;
 
     /// Set workspace for this session. Restarts the underlying agent —
     /// conversation context is lost (same semantics as `set_model`).
@@ -170,23 +163,23 @@ pub trait AcpHandle: Send + Sync + 'static {
         &self,
         session: &AmuxSessionId,
         workspace_id: &str,
-    ) -> Result<(), AcpError>;
+    ) -> Result<(), AgentError>;
 
     /// List workspace skills available to the session.
     /// Returns `(slash_name, description)` pairs, alphabetically sorted.
     async fn list_skills(
         &self,
         session: &AmuxSessionId,
-    ) -> Result<Vec<(String, String)>, AcpError>;
+    ) -> Result<Vec<(String, String)>, AgentError>;
 }
 
 #[derive(Debug, thiserror::Error)]
-pub enum AcpError {
-    #[error("acp session creation failed: {0}")]
+pub enum AgentError {
+    #[error("agent session creation failed: {0}")]
     Create(String),
-    #[error("acp send failed: {0}")]
+    #[error("agent send failed: {0}")]
     Send(String),
-    #[error("acp turn timed out")]
+    #[error("agent turn timed out")]
     Timeout,
     #[error("not found: {0}")]
     NotFound(String),

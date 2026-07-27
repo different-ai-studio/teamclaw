@@ -122,12 +122,18 @@ impl ServeClient {
             })
     }
 
-    /// GET /session/{id} → true when the session exists (resume check).
-    pub async fn session_exists(
+    /// GET /session/{id} → the session object, or `None` when opencode has no
+    /// such session (404).
+    ///
+    /// Doubles as the resume check and as the source of the session's
+    /// persisted `model` — opencode stores the last model a session ran on in
+    /// its own `session.model` column, which survives daemon restarts. See
+    /// [`session_model_id`].
+    pub async fn get_session(
         &self,
         directory: &str,
         session_id: &str,
-    ) -> crate::error::Result<bool> {
+    ) -> crate::error::Result<Option<serde_json::Value>> {
         let resp = self
             .req(
                 reqwest::Method::GET,
@@ -138,9 +144,14 @@ impl ServeClient {
             .await
             .map_err(|e| crate::error::AmuxError::Agent(format!("get session: {e}")))?;
         if resp.status() == reqwest::StatusCode::NOT_FOUND {
-            return Ok(false);
+            return Ok(None);
         }
-        Ok(Self::check(resp, "get session").await.is_ok())
+        let resp = Self::check(resp, "get session").await?;
+        let body: serde_json::Value = resp
+            .json()
+            .await
+            .map_err(|e| crate::error::AmuxError::Agent(format!("get session body: {e}")))?;
+        Ok(Some(body))
     }
 
     /// POST /session/{id}/prompt_async (204; completion arrives via SSE
@@ -366,9 +377,54 @@ pub fn split_model_id(model_id: &str) -> Option<PromptModel> {
     })
 }
 
+/// Pull the `provider/model` id out of a `GET /session/{id}` body.
+///
+/// opencode stores the session's last-used model as
+/// `{"id": "big-pickle", "providerID": "opencode", "variant": "default"}`;
+/// this rejoins it into the flat id shape the manager and clients use. A
+/// freshly-created session has no model yet, hence `Option`.
+pub fn session_model_id(session: &serde_json::Value) -> Option<String> {
+    let model = session.get("model")?;
+    let provider = model.get("providerID").and_then(|v| v.as_str())?;
+    let id = model.get("id").and_then(|v| v.as_str())?;
+    if provider.is_empty() || id.is_empty() {
+        return None;
+    }
+    Some(format!("{provider}/{id}"))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn session_model_id_rejoins_provider_and_id() {
+        let session = serde_json::json!({
+            "id": "ses_abc",
+            "model": {"id": "big-pickle", "providerID": "opencode", "variant": "default"},
+        });
+        assert_eq!(
+            session_model_id(&session).as_deref(),
+            Some("opencode/big-pickle")
+        );
+    }
+
+    #[test]
+    fn session_model_id_is_none_for_a_fresh_session() {
+        assert_eq!(
+            session_model_id(&serde_json::json!({"id": "ses_abc"})),
+            None
+        );
+        assert_eq!(
+            session_model_id(&serde_json::json!({"id": "ses_abc", "model": null})),
+            None
+        );
+        // Partial model objects are unusable — don't half-build an id.
+        assert_eq!(
+            session_model_id(&serde_json::json!({"model": {"id": "big-pickle"}})),
+            None
+        );
+    }
 
     #[test]
     fn split_model_id_splits_on_first_slash() {

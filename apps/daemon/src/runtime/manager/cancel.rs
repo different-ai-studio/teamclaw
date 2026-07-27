@@ -28,7 +28,7 @@ impl RuntimeManager {
 
     /// Cancel the in-flight turn for the agent identified by `acp_sid`
     /// (the 36-char uuid stored on `RuntimeHandle.acp_session_id`).
-    /// Used by `AmuxdAcpHandle::cancel` to translate a gateway-side logical
+    /// Used by `AmuxdAgentHandle::cancel` to translate a gateway-side logical
     /// id (resolved via `logical_to_acp`) into a runtime handle without
     /// the gateway needing to know about the daemon's 8-char `agent_id`.
     pub async fn cancel_by_acp_session(&mut self, acp_sid: &str) -> crate::error::Result<()> {
@@ -42,7 +42,7 @@ impl RuntimeManager {
     }
 
     pub async fn restart_session(&mut self, agent_id: &str) -> crate::error::Result<()> {
-        if self.stop_agent(agent_id).await.is_some() {
+        if self.stop_runtime(agent_id).await.is_some() {
             Ok(())
         } else {
             Err(crate::error::AmuxError::Agent(format!(

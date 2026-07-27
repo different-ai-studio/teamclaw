@@ -17,7 +17,7 @@ impl RuntimeManager {
     /// adapter and immediately mirrors the choice into `agent_state` so
     /// retained `runtime/{id}/state` reflects the request without waiting for
     /// an out-of-band ack from the adapter.
-    /// `runtime_id` is the same key `send_prompt` / `stop_agent` use.
+    /// `runtime_id` is the same key `send_prompt` / `stop_runtime` use.
     pub async fn set_model(
         &mut self,
         runtime_id: &str,
