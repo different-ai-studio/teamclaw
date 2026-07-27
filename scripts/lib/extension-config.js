@@ -129,6 +129,52 @@ function domainsToSidePanelCsv(domains) {
   return parseExtensionsConfig({ domains }).domains.join(',')
 }
 
+/**
+ * Directories under `packages/app/public/` that vite copies verbatim into the
+ * app bundle but which nothing in the side panel ever requests, and which the
+ * extension package therefore must not carry to the Chrome Web Store.
+ *
+ * `public/` means "ship this", so anything parked there reaches a published,
+ * publicly downloadable package. That put eight internal design prototypes and
+ * a TeamClaw mascot into a Copilot 361 build — brand-leaking dead weight in an
+ * artifact a store reviewer unzips.
+ *
+ * Pruning is deliberately a small, named allowlist rather than a heuristic:
+ * deleting an asset that IS requested at runtime shows up as a broken image in
+ * production, not as a build failure. The guardrail test in
+ * extension-config.test.js greps packages/app/src for references to each entry,
+ * so adding one that is actually in use fails the suite instead of the UI.
+ */
+const SIDE_PANEL_PRUNE_DIRS = [
+  // Design prototypes: standalone HTML mockups kept for reference. Nothing
+  // imports or links them; they are read by opening the file directly.
+  'prototypes',
+  // TeamClaw mascot frames, requested only by LobsterLoader — see the exception
+  // below for why that reference does not make them live.
+  'lobster',
+]
+
+/**
+ * A pruned directory may still be named by a source file without being live, if
+ * that file is itself unreachable. Each exception below records the one file
+ * allowed to reference a pruned directory, plus the export whose absence from
+ * every import statement is what makes the reference dead.
+ *
+ * This exists so the dead-ness is asserted rather than assumed. The alternative
+ * — deleting the component — would also satisfy the guardrail, but throws away
+ * working code on the strength of a grep. Encoding the claim means the day
+ * someone imports LobsterLoader, the suite fails and says to drop `lobster`
+ * from the prune list, instead of the mascot quietly vanishing from the UI.
+ */
+const PRUNE_REFERENCE_EXCEPTIONS = [
+  {
+    dir: 'lobster',
+    file: 'packages/app/src/components/auth/LobsterLoader.tsx',
+    symbol: 'LobsterLoader',
+    reason: 'exported but never imported — dead in every build',
+  },
+]
+
 module.exports = {
   parseExtensionsConfig,
   resolveExtensionPack,
@@ -136,4 +182,6 @@ module.exports = {
   toChromeMatchPattern,
   domainsToChromeMatchPatterns,
   domainsToSidePanelCsv,
+  SIDE_PANEL_PRUNE_DIRS,
+  PRUNE_REFERENCE_EXCEPTIONS,
 }
