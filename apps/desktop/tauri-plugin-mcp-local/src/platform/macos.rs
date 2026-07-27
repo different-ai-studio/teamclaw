@@ -51,7 +51,7 @@ fn get_all_windows_cg() -> Vec<WindowInfo> {
         let array: CFArray = CFArray::wrap_under_create_rule(window_list);
 
         for i in 0..array.len() {
-            let dict_ref = match array.get(i as isize) {
+            let dict_ref = match array.get(i) {
                 Some(r) => r,
                 None => continue,
             };

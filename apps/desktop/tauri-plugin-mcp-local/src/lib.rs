@@ -281,9 +281,9 @@ pub fn init_with_config<R: Runtime>(config: PluginConfig) -> TauriPlugin<R> {
 
     // Environment overrides for multi-instance support. Env vars take
     // precedence over programmatic config.
-    if let SocketType::Ipc { .. } = &config.socket_type {
-        if let Ok(path) = std::env::var("TAURI_MCP_IPC_PATH") {
-            if !path.is_empty() {
+    if let SocketType::Ipc { .. } = &config.socket_type
+        && let Ok(path) = std::env::var("TAURI_MCP_IPC_PATH")
+            && !path.is_empty() {
                 info!(
                     "[TAURI_MCP] Overriding IPC socket path from TAURI_MCP_IPC_PATH env var: {}",
                     path
@@ -292,10 +292,8 @@ pub fn init_with_config<R: Runtime>(config: PluginConfig) -> TauriPlugin<R> {
                     path: Some(std::path::PathBuf::from(path)),
                 };
             }
-        }
-    }
-    if let SocketType::Tcp { host, port } = &config.socket_type {
-        if let Ok(port_str) = std::env::var("TAURI_MCP_TCP_PORT") {
+    if let SocketType::Tcp { host, port } = &config.socket_type
+        && let Ok(port_str) = std::env::var("TAURI_MCP_TCP_PORT") {
             match port_str.parse::<u16>() {
                 Ok(new_port) => {
                     info!(
@@ -315,7 +313,6 @@ pub fn init_with_config<R: Runtime>(config: PluginConfig) -> TauriPlugin<R> {
                 }
             }
         }
-    }
 
     // Log socket configuration
     match &config.socket_type {
@@ -340,12 +337,11 @@ pub fn init_with_config<R: Runtime>(config: PluginConfig) -> TauriPlugin<R> {
 
     // Env override for the auth token (symmetric with the TS server, which
     // reads the same variable).
-    if let Ok(token) = std::env::var("TAURI_MCP_AUTH_TOKEN") {
-        if !token.is_empty() {
+    if let Ok(token) = std::env::var("TAURI_MCP_AUTH_TOKEN")
+        && !token.is_empty() {
             info!("[TAURI_MCP] Using auth token from TAURI_MCP_AUTH_TOKEN env var");
             config.auth_token = Some(token);
         }
-    }
 
     // Auth on by default: when no token is configured, generate a random one.
     // It is written to the `<socket>.token` sidecar (0600 on Unix) which the

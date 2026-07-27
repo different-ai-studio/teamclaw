@@ -224,7 +224,7 @@ pub async fn handle_get_page_map<R: Runtime>(
             }
 
             let data: Value = serde_json::from_str(&result_string)
-                .unwrap_or_else(|_| Value::String(result_string));
+                .unwrap_or(Value::String(result_string));
 
             let data = if let Some(s) = data.as_str() {
                 serde_json::from_str(s).unwrap_or(Value::String(s.to_string()))
