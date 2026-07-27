@@ -1235,6 +1235,10 @@ impl RuntimeManager {
             None,
             None,
             None,
+            SpawnRuntimeEnv {
+                is_gateway: true,
+                ..SpawnRuntimeEnv::default()
+            },
         )
         .await
     }
@@ -1262,6 +1266,12 @@ impl RuntimeManager {
         // pass `Some(..)` so a job created for Claude does not run on OpenCode
         // just because OpenCode is the daemon default.
         agent_type_override: Option<amux::AgentType>,
+        // Runtime environment for the spawn. Gateway callers assemble the team
+        // env (secrets, `tc_api_key`, `provider.team`) so a gateway-first cold
+        // start does not launch the shared `opencode serve` without any
+        // provider credentials; `is_gateway` must stay true on whatever is
+        // passed.
+        spawn_env: SpawnRuntimeEnv,
     ) -> crate::error::Result<String> {
         // Gateway sessions don't yet have a "real" workspace concept — they
         // run against a freshly-created scratch dir so the ACP process has a
@@ -1331,10 +1341,7 @@ impl RuntimeManager {
                 initial_model,
                 mcp_cfg_path,
                 None,
-                SpawnRuntimeEnv {
-                    is_gateway: true,
-                    ..SpawnRuntimeEnv::default()
-                },
+                spawn_env,
             )
             .await?;
 

@@ -140,6 +140,12 @@ impl DaemonServer {
 
         let agent_handle: Arc<dyn AgentHandle> = Arc::new(AmuxdAgentHandle {
             manager: self.agents.clone(),
+            spawn_env: crate::channels::GatewaySpawnEnv {
+                managed_llm: self.managed_llm.clone(),
+                actor_id: self.config.actor.id.clone(),
+                actor_name: self.config.actor.name.clone(),
+                refresh_coordinator: self.refresh_coordinator.clone(),
+            },
             logical_to_acp: Arc::new(AsyncMutex::new(HashMap::new())),
             team_id: team_id.clone(),
             model_override: Arc::new(AsyncMutex::new(HashMap::new())),

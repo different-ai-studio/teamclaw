@@ -115,17 +115,26 @@ pub trait AgentHandle: Send + Sync + 'static {
     async fn reset_session(&self, session: &AmuxSessionId) -> Result<(), AgentError>;
 
     /// Start a genuinely new conversation: the next message must land in a NEW
-    /// session, not just a fresh runtime under the old one. Used by /clear.
+    /// session, not just a fresh runtime under the old one. Used by /new.
     ///
     /// Distinct from [`reset_session`] because a gateway session is pinned to
     /// its chat by `sessions.binding`; resetting only the runtime leaves the
     /// same session row, history, and session-list entry in place, which is
     /// not what "start a new session" means to the person typing it.
     ///
+    /// Returns whether the chat was actually detached — i.e. whether the next
+    /// message really does open a new session. `false` means only the runtime
+    /// was reset (backend too old to expose the detach endpoint, unknown id, a
+    /// channel whose sessions are not gateway-bound), and the caller MUST say
+    /// so instead of announcing a new session that does not exist. Reporting
+    /// success unconditionally is what made a failed `/new` indistinguishable
+    /// from a working one.
+    ///
     /// The default impl falls back to [`reset_session`], so a channel whose
     /// backend cannot mint a new session still gets a cleared context.
-    async fn start_new_session(&self, session: &AmuxSessionId) -> Result<(), AgentError> {
-        self.reset_session(session).await
+    async fn start_new_session(&self, session: &AmuxSessionId) -> Result<bool, AgentError> {
+        self.reset_session(session).await?;
+        Ok(false)
     }
 
     /// List the models the daemon can actually drive for this session, most
