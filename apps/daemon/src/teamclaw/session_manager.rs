@@ -1198,8 +1198,11 @@ impl SessionManager {
 
     /// Emit one logical agent message: append to local TOML, publish to
     /// session/live as `message.created`, and (if `persist_backend`) write
-    /// to backend `messages`. The backend write is fire-and-forget — local
-    /// TOML and session/live are the source of truth for iOS rendering.
+    /// to backend `messages`.
+    ///
+    /// Returns `true` when a requested cloud persist succeeded (or was not
+    /// requested). Returns `false` when `persist_backend` was requested but
+    /// `insert_message` failed — callers must not advance catchup cursors.
     #[allow(clippy::too_many_arguments)]
     pub async fn emit_agent_message(
         &self,
@@ -1214,7 +1217,7 @@ impl SessionManager {
         sequence: u64,
         persist_backend: bool,
         backend: Option<&std::sync::Arc<dyn Backend>>,
-    ) {
+    ) -> bool {
         let message_id = uuid::Uuid::new_v4().to_string();
         let now = chrono::Utc::now();
 
@@ -1265,30 +1268,34 @@ impl SessionManager {
         // fire-and-forget write can race with daemon shutdown and leave an
         // @mention unanswered (re-prompt after interrupt).
         if persist_backend {
-            if let Some(sb) = backend {
-                let team_id = self.team_id.clone();
-                // message_kind_to_string is the pub(crate) fn defined later in this file.
-                let kind_str = message_kind_to_string(kind as i32);
-                if let Err(e) = sb
-                    .insert_message(
-                        &message_id,
-                        &team_id,
-                        session_id,
-                        sender_actor_id,
-                        &kind_str,
-                        content,
-                        metadata_json,
-                        model,
-                        turn_id,
-                        reply_to_message_id,
-                        sequence,
-                    )
-                    .await
-                {
-                    warn!(?e, "backend insert_message failed");
-                }
+            let Some(sb) = backend else {
+                warn!(session_id, "persist_backend requested but no backend");
+                return false;
+            };
+            let team_id = self.team_id.clone();
+            // message_kind_to_string is the pub(crate) fn defined later in this file.
+            let kind_str = message_kind_to_string(kind as i32);
+            if let Err(e) = sb
+                .insert_message(
+                    &message_id,
+                    &team_id,
+                    session_id,
+                    sender_actor_id,
+                    &kind_str,
+                    content,
+                    metadata_json,
+                    model,
+                    turn_id,
+                    reply_to_message_id,
+                    sequence,
+                )
+                .await
+            {
+                warn!(?e, "backend insert_message failed");
+                return false;
             }
         }
+        true
     }
 
     #[allow(dead_code)]

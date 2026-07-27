@@ -88,8 +88,21 @@ export function bumpPreviewFromAgentReply(
   sessionId: string,
   reply: TeamclawMessage,
 ): void {
+  let preview = reply.content;
+  try {
+    const md = reply.metadataJson
+      ? (JSON.parse(reply.metadataJson) as Record<string, unknown>)
+      : null;
+    if (md?.turn_status === "interrupted") {
+      // Do not leak the English agent-facing interrupt instruction into the
+      // session list preview — bubble UI hides it via turnStatus.
+      preview = "";
+    }
+  } catch {
+    // keep raw content
+  }
   const createdAtSec = Number(reply.createdAt);
-  bumpSessionListLastMessage(sessionId, reply.content, {
+  bumpSessionListLastMessage(sessionId, preview, {
     at:
       Number.isFinite(createdAtSec) && createdAtSec > 0
         ? new Date(createdAtSec * 1000).toISOString()

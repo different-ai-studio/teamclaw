@@ -916,14 +916,64 @@ function AppContent() {
   const pendingStreamRepliesRef = useRef<Record<string, TeamclawMessage[]>>({});
   /** Set on terminal statusChange; late message.created triggers flush. */
   const terminalFlushPendingRef = useRef<Record<string, boolean>>({});
+  /** Timeout while waiting for daemon AGENT_REPLY after terminal (no interrupt-*). */
+  const terminalAwaitTimeoutRef = useRef<Record<string, ReturnType<typeof setTimeout>>>(
+    {},
+  );
   const seenLiveEventIdsRef = useRef<Set<string>>(new Set());
 
   function clearTurnAgentReplyParking(streamKey: string) {
     delete pendingStreamRepliesRef.current[streamKey];
   }
 
+  function clearTerminalAwaitTimeout(streamKey: string) {
+    const timer = terminalAwaitTimeoutRef.current[streamKey];
+    if (timer) {
+      clearTimeout(timer);
+      delete terminalAwaitTimeoutRef.current[streamKey];
+    }
+  }
+
   function clearTerminalFlushPending(streamKey: string) {
+    clearTerminalAwaitTimeout(streamKey);
     delete terminalFlushPendingRef.current[streamKey];
+  }
+
+  function scheduleTerminalDaemonReplyTimeout(
+    sessionId: string,
+    actorId: string,
+  ) {
+    const streamKey = agentStreamKey(sessionId, actorId);
+    clearTerminalAwaitTimeout(streamKey);
+    // MQTT QoS0 / stalled daemon must not leave the live dock spinning forever.
+    terminalAwaitTimeoutRef.current[streamKey] = setTimeout(() => {
+      delete terminalAwaitTimeoutRef.current[streamKey];
+      if (!terminalFlushPendingRef.current[streamKey]) return;
+      const flushed = flushTurnAgentReply(
+        sessionId,
+        actorId,
+        "mqtt.statusChange.terminal.timeout",
+      );
+      logInterruptMsgDiag("mqtt.statusChange.terminal.timeout", {
+        sessionId,
+        actorId,
+        flushed,
+        ...summarizePendingReplies(pendingStreamRepliesRef.current[streamKey]),
+      });
+      if (flushed) {
+        clearTerminalFlushPending(streamKey);
+        return;
+      }
+      // No daemon reply arrived — release the live dock; stream parts stay in
+      // archive via finishSessionActor so Process cards are not lost.
+      clearTerminalFlushPending(streamKey);
+      useV2StreamingStore.getState().finishSessionActor(sessionId, actorId, {
+        reason: "statusChange.terminal.timeout",
+      });
+      useV2StreamingStore
+        .getState()
+        .clearInterruptedFlushPending(sessionId, actorId);
+    }, 8_000);
   }
 
   const flushTurnAgentReplyInFlightRef = useRef<Record<string, boolean>>({});
@@ -1157,6 +1207,21 @@ function AppContent() {
       useV2StreamingStore
         .getState()
         .clearInterruptedFlushPending(sessionId, actorId);
+      // A late interrupted AGENT_REPLY may have parked while this flush was
+      // in-flight — drain it now so scheme-A UI is not stuck until next Active.
+      if (
+        terminalFlushPendingRef.current[streamKey] &&
+        (pendingStreamRepliesRef.current[streamKey]?.length ?? 0) > 0
+      ) {
+        const drained = flushTurnAgentReply(
+          sessionId,
+          actorId,
+          "flush.drainAfterInFlight",
+        );
+        if (drained) {
+          clearTerminalFlushPending(streamKey);
+        }
+      }
     });
 
     return true;
@@ -1441,13 +1506,16 @@ function AppContent() {
                 }),
               });
               if (shouldFlush) {
-                flushTurnAgentReply(
+                const flushed = flushTurnAgentReply(
                   sid,
                   senderActorId,
                   terminalPending
                     ? "mqtt.message.created.terminalPending"
                     : "mqtt.message.created.toolOnlyAnchor",
                 );
+                if (flushed && terminalPending) {
+                  clearTerminalFlushPending(streamKey);
+                }
               }
             } else if (streamEntry && senderActorId) {
               streamingStore.finalize(
@@ -1831,6 +1899,7 @@ function AppContent() {
                         ...summarizeStreamEntry(streamEntry, "live"),
                       },
                     );
+                    scheduleTerminalDaemonReplyTimeout(sid, actorId);
                   } else {
                     useV2StreamingStore.getState().setError(
                       sid,
@@ -2097,6 +2166,9 @@ function AppContent() {
       recordMqttDiag("app-mqtt", "wiring:cleanup", { wiringId });
       unlisten?.();
       pendingStreamRepliesRef.current = {};
+      for (const streamKey of Object.keys(terminalAwaitTimeoutRef.current)) {
+        clearTerminalAwaitTimeout(streamKey);
+      }
       terminalFlushPendingRef.current = {};
       interruptedStreamFlushRef.current = {};
       interruptedFlushSupersededRef.current = {};

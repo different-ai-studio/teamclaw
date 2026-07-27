@@ -205,10 +205,12 @@ impl TurnAggregator {
                 // turn allocates a fresh id.
                 if sc.old_status == active && sc.new_status == idle {
                     self.flush_thinking_into(&mut out);
-                    self.flush_reply_into(&mut out);
                     if self.turn_was_interrupted && self.turn_had_activity {
-                        // Non-empty content so cloud_persistent keeps the
-                        // row — empty tool-only anchors do not survive restart.
+                        // Single durable AGENT_REPLY: drop any unflushed prose
+                        // buffer (client stream/parts keep the visible text) so
+                        // we never emit partial+interrupted twins that race the
+                        // frontend flush/inFlight path.
+                        self.reply_buf.clear();
                         out.push(EmittedMessage {
                             kind: MessageKind::AgentReply,
                             content: INTERRUPTED_AGENT_REPLY_CONTENT.to_string(),
@@ -216,16 +218,19 @@ impl TurnAggregator {
                             turn_id: self.current_turn_id.clone().unwrap_or_default(),
                         });
                         self.turn_had_reply = true;
-                    } else if !self.turn_had_reply && self.turn_had_activity {
+                    } else {
+                        self.flush_reply_into(&mut out);
                         // Tool-only turns never accumulate reply text. Emit an
                         // empty AgentReply so clients get message.created and
                         // can anchor the turn in the main timeline.
-                        out.push(EmittedMessage {
-                            kind: MessageKind::AgentReply,
-                            content: String::new(),
-                            metadata_json: String::new(),
-                            turn_id: self.current_turn_id.clone().unwrap_or_default(),
-                        });
+                        if !self.turn_had_reply && self.turn_had_activity {
+                            out.push(EmittedMessage {
+                                kind: MessageKind::AgentReply,
+                                content: String::new(),
+                                metadata_json: String::new(),
+                                turn_id: self.current_turn_id.clone().unwrap_or_default(),
+                            });
+                        }
                     }
                     self.turn_had_activity = false;
                     self.turn_had_reply = false;
@@ -516,7 +521,7 @@ mod tests {
     }
 
     #[test]
-    fn interrupted_turn_with_partial_reply_appends_interrupted_marker() {
+    fn interrupted_turn_with_partial_reply_emits_single_interrupted_marker() {
         let mut agg = TurnAggregator::new();
         agg.ingest(&status_change(
             amux::AgentStatus::Idle,
@@ -529,13 +534,13 @@ mod tests {
             amux::AgentStatus::Active,
             amux::AgentStatus::Idle,
         ));
-        assert_eq!(emitted.len(), 2);
+        assert_eq!(emitted.len(), 1);
         assert_eq!(emitted[0].kind, MessageKind::AgentReply);
-        assert_eq!(emitted[0].content, "partial answer");
-        assert!(emitted[0].metadata_json.is_empty());
-        assert_eq!(emitted[1].kind, MessageKind::AgentReply);
-        assert_eq!(emitted[1].content, INTERRUPTED_AGENT_REPLY_CONTENT);
-        assert!(emitted[1].metadata_json.contains("\"turn_status\":\"interrupted\""));
+        assert_eq!(emitted[0].content, INTERRUPTED_AGENT_REPLY_CONTENT);
+        assert!(emitted[0]
+            .metadata_json
+            .contains("\"turn_status\":\"interrupted\""));
+        assert!(TurnAggregator::cloud_persistent(&emitted[0]));
     }
 
     #[test]
