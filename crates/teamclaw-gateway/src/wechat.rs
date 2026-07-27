@@ -827,17 +827,35 @@ impl WeChatGateway {
             };
         }
         if lower_content == "/model" {
-            return match self.agent.list_models().await {
+            return match self.agent.list_models(&session).await {
                 Ok(models) => {
                     if models.is_empty() {
                         "No models available.".to_string()
                     } else {
+                        let current = self.agent.current_model(&session).await.ok().flatten();
+                        let shown = models.len().min(crate::commands::MODEL_LIST_LIMIT);
                         let body = models
                             .iter()
-                            .map(|m| format!("• `{}/{}` — {}", m.provider, m.model, m.display_name))
+                            .take(shown)
+                            .map(|m| {
+                                let id = format!("{}/{}", m.provider, m.model);
+                                let mark = if current.as_deref() == Some(id.as_str()) {
+                                    " ← current"
+                                } else {
+                                    ""
+                                };
+                                format!("• `{id}` — {}{mark}", m.display_name)
+                            })
                             .collect::<Vec<_>>()
                             .join("\n");
-                        format!("Available models:\n{body}\n\nUsage: `/model <provider>/<model>`")
+                        let more = if models.len() > shown {
+                            format!("\n• … and {} more", models.len() - shown)
+                        } else {
+                            String::new()
+                        };
+                        format!(
+                            "Available models:\n{body}{more}\n\nUsage: `/model <provider>/<model>`"
+                        )
                     }
                 }
                 Err(e) => format!("⚠️ Could not list models: {e}"),
@@ -846,9 +864,20 @@ impl WeChatGateway {
         if let Some(arg) = lower_content.strip_prefix("/model ") {
             let arg = arg.trim();
             let (provider, model) = match arg.split_once('/') {
-                Some((p, m)) => (p, m),
-                None => ("anthropic", arg),
+                Some((p, m)) => (p.to_string(), m.to_string()),
+                // Bare name — resolve against the live catalog instead of
+                // assuming anthropic, which is wrong for any other backend.
+                None => {
+                    match crate::commands::resolve_bare_model(self.agent.as_ref(), &session, arg)
+                        .await
+                    {
+                        Ok(Ok(pair)) => pair,
+                        Ok(Err(msg)) => return msg,
+                        Err(e) => return format!("⚠️ Could not switch model: {e}"),
+                    }
+                }
             };
+            let (provider, model) = (provider.as_str(), model.as_str());
             return match self.agent.set_model(&session, provider, model).await {
                 Ok(_) => format!(
                     "✅ Switched to `{provider}/{model}`. **Note: conversation context was cleared.**"

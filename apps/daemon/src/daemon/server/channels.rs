@@ -146,10 +146,10 @@ impl DaemonServer {
             backend: self.backend.clone(),
             default_agent_type,
             default_workspace_dir,
-            agent_type_override: Arc::new(AsyncMutex::new(HashMap::new())),
             workspace_resolver: self.workspace_resolver.clone(),
             workspace_override: Arc::new(AsyncMutex::new(HashMap::new())),
-            bot_configs: Arc::new(bot_configs),
+            bot_configs: Arc::new(AsyncMutex::new(bot_configs)),
+            daemon_config_path: crate::config::DaemonConfig::default_path(),
         });
         let store: Arc<dyn ChannelStore> = Arc::new(AmuxdChannelStore {
             client: self.backend.clone(),

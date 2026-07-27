@@ -23,8 +23,7 @@ use std::sync::Arc;
 use tokio::sync::Mutex;
 
 use teamclaw_gateway::{
-    AgentCommand, AgentError, AgentHandle, AgentInfo, AmuxSessionId, ModelInfo, TurnOutcome,
-    WorkspaceInfo,
+    AgentCommand, AgentError, AgentHandle, AmuxSessionId, ModelInfo, TurnOutcome, WorkspaceInfo,
 };
 
 use crate::backend::Backend;
@@ -45,9 +44,9 @@ pub struct ResolvedSession {
     was_primed: bool,
 }
 
-/// Per-bot runtime defaults, keyed by WeCom `bot_id`. Populated once when
-/// the handle is built from `daemon.toml`; immutable for the handle's
-/// lifetime (a `channel-reload` rebuilds the whole handle).
+/// Per-bot runtime defaults, keyed by WeCom `bot_id`. Seeded from
+/// `daemon.toml` when the handle is built, and updated in place by
+/// `/workspace` (which also writes the new default back to that file).
 #[derive(Clone, Default)]
 pub struct BotRuntimeConfig {
     /// Already-resolved local workspace directory (workspace_id -> path).
@@ -85,9 +84,6 @@ pub struct AmuxdAgentHandle {
     /// directory instead of a throwaway `/tmp` scratch dir. `None` → fall
     /// back to a scratch dir (the workspace is unset or unresolvable).
     pub default_workspace_dir: Option<String>,
-    /// Per-session agent type override: logical_session_id → AgentType.
-    /// Set by `set_agent`; consulted at lazy-spawn time. In-memory only.
-    pub agent_type_override: Arc<Mutex<HashMap<String, amux::AgentType>>>,
     /// Resolves a cloud workspace_id → local path (`amux.workspaces` is the
     /// sole source of truth). Used by `workspace_dir_for_id` for per-session
     /// spawn-target resolution.
@@ -95,9 +91,14 @@ pub struct AmuxdAgentHandle {
     /// Per-session workspace override: logical_session_id → workspace_id.
     /// In-memory only — cleared across daemon restarts.
     pub workspace_override: Arc<Mutex<HashMap<String, String>>>,
-    /// Per-bot (WeCom) runtime config keyed by bot_id. Immutable after
-    /// construction; consulted in `resolve_or_spawn` and `send_prompt`.
-    pub bot_configs: Arc<HashMap<String, BotRuntimeConfig>>,
+    /// Per-bot (WeCom) runtime config keyed by bot_id. Consulted in
+    /// `resolve_or_spawn` and `send_prompt`, and rewritten in place by
+    /// `set_workspace` so a `/workspace` switch takes effect without waiting
+    /// for a `channel-reload`.
+    pub bot_configs: Arc<Mutex<HashMap<String, BotRuntimeConfig>>>,
+    /// `daemon.toml`, so a bot's new default workspace survives a restart
+    /// instead of living only in the map above.
+    pub daemon_config_path: std::path::PathBuf,
 }
 
 /// Returned by `resolve_or_spawn`. `spawned` is true iff this call was
@@ -119,17 +120,15 @@ impl AmuxdAgentHandle {
         session: &str,
         binding: &str,
     ) -> (Option<String>, Option<amux::AgentType>) {
-        let bot = bot_id_from_binding(binding)
-            .and_then(|b| self.bot_configs.get(b))
-            .cloned()
-            .unwrap_or_default();
+        let bot = {
+            let configs = self.bot_configs.lock().await;
+            bot_id_from_binding(binding)
+                .and_then(|b| configs.get(b))
+                .cloned()
+                .unwrap_or_default()
+        };
 
-        let agent_type = {
-            let ov = self.agent_type_override.lock().await;
-            ov.get(session).copied()
-        }
-        .or(bot.agent_type)
-        .or(self.default_agent_type);
+        let agent_type = bot.agent_type.or(self.default_agent_type);
 
         let session_ws_id = {
             let ov = self.workspace_override.lock().await;
@@ -145,6 +144,119 @@ impl AmuxdAgentHandle {
             .or(self.default_workspace_dir.clone());
 
         (workspace_dir, agent_type)
+    }
+
+    /// Live model catalog for the workspace this session runs in, as gateway
+    /// `ModelInfo`s (`provider/model` split out of the backend's flat id).
+    ///
+    /// Probes the backend rather than reading a static table: with opencode
+    /// there is one global `serve` instance whose `/config/providers` is the
+    /// only thing that knows which providers are configured and authenticated
+    /// on this device. A failed probe degrades to an empty list — callers
+    /// treat that as "catalog unknown", never as "no models exist".
+    async fn catalog_for(&self, session: &AmuxSessionId) -> Result<Vec<ModelInfo>, AgentError> {
+        let binding = {
+            let map = self.logical_to_acp.lock().await;
+            map.get(session).map(|s| s.binding.clone())
+        }
+        .unwrap_or_default();
+        let (workspace_dir, _) = self.resolve_spawn_target(session, &binding).await;
+        let Some(dir) = workspace_dir else {
+            // No resolvable workspace — a spawn would run in a throwaway
+            // scratch dir, which tells us nothing useful about the catalog.
+            return Ok(Vec::new());
+        };
+        let catalog = {
+            let mut mgr = self.manager.lock().await;
+            mgr.probe_catalog_models(std::path::Path::new(&dir)).await
+        };
+        let catalog = match catalog {
+            Ok(models) => models,
+            Err(e) => {
+                tracing::warn!(error = %e, workspace = %dir, "gateway model catalog probe failed");
+                return Ok(Vec::new());
+            }
+        };
+        Ok(catalog
+            .into_iter()
+            .filter_map(|m| {
+                let (provider, model) = m.id.split_once('/')?;
+                Some(ModelInfo {
+                    provider: provider.to_string(),
+                    model: model.to_string(),
+                    display_name: m.display_name,
+                })
+            })
+            .collect())
+    }
+
+    /// The WeCom bot this session belongs to, if any.
+    ///
+    /// Reads the cached binding first and falls back to the `sessions` row,
+    /// because a `/workspace` switch usually arrives before the session has
+    /// ever spawned a runtime — at which point nothing is cached yet.
+    async fn bot_id_for_session(&self, session: &AmuxSessionId) -> Option<String> {
+        let cached = {
+            let map = self.logical_to_acp.lock().await;
+            map.get(session).map(|s| s.binding.clone())
+        };
+        let binding = match cached {
+            Some(b) if !b.is_empty() => b,
+            _ => self
+                .backend
+                .get_gateway_session_by_acp_id(session)
+                .await
+                .ok()
+                .flatten()
+                .and_then(|(_, binding)| binding)
+                .unwrap_or_default(),
+        };
+        bot_id_from_binding(&binding).map(str::to_string)
+    }
+
+    /// Point `bot_id` at `workspace_id` in both `daemon.toml` and the live
+    /// config map. The on-disk write goes first: if it fails the caller gets
+    /// an error and the running config is left untouched, rather than drifting
+    /// out of sync with the file it will be reloaded from.
+    async fn persist_bot_workspace(
+        &self,
+        bot_id: &str,
+        workspace_id: &str,
+    ) -> Result<(), AgentError> {
+        crate::config::edit::set_wecom_bot_workspace(
+            &self.daemon_config_path,
+            bot_id,
+            workspace_id,
+        )
+        .map_err(|e| AgentError::Internal(format!("persist bot workspace: {e}")))?;
+
+        let path = self.workspace_dir_for_id(workspace_id).await;
+        let mut configs = self.bot_configs.lock().await;
+        configs.entry(bot_id.to_string()).or_default().workspace_dir = path;
+        Ok(())
+    }
+
+    /// Drop every runtime belonging to `bot_id` so the bot's other chats pick
+    /// up the new workspace on their next message instead of staying on the
+    /// old one until they happen to be reset.
+    async fn reset_sessions_for_bot(&self, bot_id: &str) {
+        let dropped: Vec<String> = {
+            let mut map = self.logical_to_acp.lock().await;
+            let victims: Vec<String> = map
+                .iter()
+                .filter(|(_, s)| bot_id_from_binding(&s.binding) == Some(bot_id))
+                .map(|(_, s)| s.real_acp_sid.clone())
+                .collect();
+            map.retain(|_, s| bot_id_from_binding(&s.binding) != Some(bot_id));
+            victims
+        };
+        if dropped.is_empty() {
+            return;
+        }
+        let mut mgr = self.manager.lock().await;
+        for real in dropped {
+            let _ = mgr.cancel_by_acp_session(&real).await;
+        }
     }
 
     /// Resolve a workspace_id to its local path via the `WorkspaceResolver`
@@ -266,11 +378,11 @@ impl AmuxdAgentHandle {
             if let (Some(ws), Some(bot_id)) =
                 (workspace_dir.as_deref(), bot_id_from_binding(&binding))
             {
-                if let Some(prompt) = self
-                    .bot_configs
-                    .get(bot_id)
-                    .and_then(|c| c.system_prompt.as_deref())
-                {
+                let bot_prompt = {
+                    let configs = self.bot_configs.lock().await;
+                    configs.get(bot_id).and_then(|c| c.system_prompt.clone())
+                };
+                if let Some(prompt) = bot_prompt.as_deref() {
                     if let Err(e) = super::bot_prompt_file::write_bot_instruction_file(
                         std::path::Path::new(ws),
                         prompt,
@@ -443,10 +555,13 @@ impl AmuxdAgentHandle {
         let needs_preamble = outcome.spawned && !self.already_primed(session).await;
         let prompt = if needs_preamble {
             let channel = channel_name_from_binding(&outcome.binding);
-            let bot_prompt = bot_id_from_binding(&outcome.binding)
-                .and_then(|b| self.bot_configs.get(b))
-                .and_then(|c| c.system_prompt.as_deref());
-            build_first_turn_prompt(channel, bot_prompt, sender_display, text)
+            let bot_prompt = {
+                let configs = self.bot_configs.lock().await;
+                bot_id_from_binding(&outcome.binding)
+                    .and_then(|b| configs.get(b))
+                    .and_then(|c| c.system_prompt.clone())
+            };
+            build_first_turn_prompt(channel, bot_prompt.as_deref(), sender_display, text)
         } else {
             format!("[{sender_display}] {text}")
         };
@@ -693,27 +808,86 @@ impl AgentHandle for AmuxdAgentHandle {
         Ok(())
     }
 
-    async fn list_models(&self) -> Result<Vec<ModelInfo>, AgentError> {
-        // Hardcoded for the claude-code adapter in v1 of the gateway port.
-        // Future work: read from daemon.toml once we have multi-binary
-        // routing (codex-cli, etc.).
-        Ok(vec![
-            ModelInfo {
-                provider: "anthropic".into(),
-                model: "sonnet".into(),
-                display_name: "Claude Sonnet (default, fast)".into(),
-            },
-            ModelInfo {
-                provider: "anthropic".into(),
-                model: "opus".into(),
-                display_name: "Claude Opus (high-capability)".into(),
-            },
-            ModelInfo {
-                provider: "anthropic".into(),
-                model: "haiku".into(),
-                display_name: "Claude Haiku (cheapest)".into(),
-            },
-        ])
+    async fn start_new_session(&self, session: &AmuxSessionId) -> Result<(), AgentError> {
+        // Detach the chat's binding so the next inbound message makes
+        // `ensure_gateway_session` miss and mint a new row. Without this step
+        // `/clear` only swapped the runtime: same session, same history, same
+        // entry in the session list — "Session cleared" was describing
+        // something the user could not observe.
+        //
+        // A backend that reports nothing detached (unknown id, or a channel
+        // whose sessions are not gateway-bound) leaves us with the runtime
+        // reset below, which is the best that can be done there.
+        match self.backend.rpc_detach_gateway_session(session).await {
+            Ok(detached) => {
+                if detached {
+                    tracing::info!(
+                        logical_session = %session,
+                        "gateway session detached; next message opens a new one"
+                    );
+                }
+            }
+            Err(e) => {
+                // Do not fail /clear over this: the context reset below still
+                // gives the user a fresh conversation, just under the old row.
+                tracing::warn!(error = %e, "detach gateway session failed; clearing runtime only");
+            }
+        }
+        self.reset_session(session).await
+    }
+
+    async fn list_models(&self, session: &AmuxSessionId) -> Result<Vec<ModelInfo>, AgentError> {
+        // The live backend catalog is the only source of truth: this used to
+        // be a hardcoded anthropic/{sonnet,opus,haiku} table from the
+        // claude-code adapter era, which named models the daemon cannot run.
+        let mut models = self.catalog_for(session).await?;
+
+        // Order the way the picker surfaces do: current model first, then the
+        // device MRU, then everything else. A chat channel shows a prefix of
+        // this list, so the useful entries have to be at the front.
+        let current = self.current_model(session).await?;
+        let recent = {
+            let (_, agent_type) = self.resolve_spawn_target(session, "").await;
+            let mgr = self.manager.lock().await;
+            mgr.recent_models(agent_type)
+        };
+        let rank = |id: &str| -> usize {
+            if current.as_deref() == Some(id) {
+                return 0;
+            }
+            match recent.iter().position(|r| r == id) {
+                Some(i) => 1 + i,
+                None => usize::MAX,
+            }
+        };
+        // Stable sort: entries the device has no history for keep the
+        // catalog's own (alphabetical) order.
+        models.sort_by(|a, b| {
+            let (ka, kb) = (
+                rank(&format!("{}/{}", a.provider, a.model)),
+                rank(&format!("{}/{}", b.provider, b.model)),
+            );
+            ka.cmp(&kb)
+        });
+        Ok(models)
+    }
+
+    async fn current_model(&self, session: &AmuxSessionId) -> Result<Option<String>, AgentError> {
+        // A pinned override wins even before the runtime respawns onto it;
+        // otherwise report what the live runtime settled on.
+        if let Some((provider, model)) = {
+            let overrides = self.model_override.lock().await;
+            overrides.get(session).cloned()
+        } {
+            return Ok(Some(format!("{provider}/{model}")));
+        }
+        let Some(existing) = self.cached_session_if_live(session).await else {
+            return Ok(None);
+        };
+        let mgr = self.manager.lock().await;
+        Ok(mgr
+            .agent_id_by_acp_session(&existing.real_acp_sid)
+            .and_then(|agent_id| mgr.current_model(&agent_id).cloned()))
     }
 
     async fn set_model(
@@ -722,14 +896,17 @@ impl AgentHandle for AmuxdAgentHandle {
         provider: &str,
         model: &str,
     ) -> Result<(), AgentError> {
-        // Validate against list_models so /model only accepts known names.
-        let valid = self.list_models().await?;
-        if !valid
-            .iter()
-            .any(|m| m.provider == provider && m.model == model)
+        // Validate against the live catalog so /model only accepts names the
+        // backend actually offers. An empty catalog means the probe failed,
+        // not that nothing is runnable — don't reject the pick over that.
+        let valid = self.catalog_for(session).await?;
+        if !valid.is_empty()
+            && !valid
+                .iter()
+                .any(|m| m.provider == provider && m.model == model)
         {
             return Err(AgentError::Send(format!(
-                "unknown model {provider}/{model}; use list_models to enumerate"
+                "unknown model {provider}/{model}; use /model to list what this workspace offers"
             )));
         }
 
@@ -787,14 +964,8 @@ impl AgentHandle for AmuxdAgentHandle {
             }
         };
 
-        // Resolve agent type: per-session override → default → ClaudeCode fallback.
-        let agent_type = {
-            let overrides = self.agent_type_override.lock().await;
-            overrides
-                .get(session.as_str())
-                .copied()
-                .or(self.default_agent_type)
-        };
+        // Resolve agent type: daemon default → ClaudeCode fallback.
+        let agent_type = self.default_agent_type;
 
         // ── 2. Agent built-in commands (ClaudeCode doesn't report via AcpAvailableCommands) ──
         let known = match agent_type {
@@ -869,55 +1040,8 @@ impl AgentHandle for AmuxdAgentHandle {
             .collect())
     }
 
-    /// Single-agent mode: opencode is the only backend, so it is always the
-    /// (only) advertised and current agent.
-    async fn list_agents(&self, _session: &AmuxSessionId) -> Result<Vec<AgentInfo>, AgentError> {
-        Ok(vec![AgentInfo {
-            agent_type: "opencode".to_string(),
-            is_current: true,
-        }])
-    }
-
-    /// Accepts the legacy `claude-code` / `codex` names for back-compat, but
-    /// every request resolves to opencode (single-agent mode).
-    async fn set_agent(&self, session: &AmuxSessionId, agent_type: &str) -> Result<(), AgentError> {
-        let t = match agent_type {
-            "opencode" => amux::AgentType::Opencode,
-            "claude-code" | "claude" | "claude_code" | "codex" => {
-                tracing::warn!(
-                    requested = agent_type,
-                    "legacy agent type requested; rerouting to opencode (single-agent mode)"
-                );
-                amux::AgentType::Opencode
-            }
-            other => {
-                return Err(AgentError::NotFound(format!(
-                    "unknown agent type '{other}'; valid: opencode"
-                )))
-            }
-        };
-        {
-            let mut overrides = self.agent_type_override.lock().await;
-            overrides.insert(session.to_string(), t);
-        }
-        // Acquire the map, extract + remove the entry atomically, then cancel
-        // via the manager. This prevents a concurrent send_prompt from
-        // re-inserting between the cancel and remove (TOCTOU).
-        let real_sid = {
-            let mut map = self.logical_to_acp.lock().await;
-            let sid = map.get(session).map(|s| s.real_acp_sid.clone());
-            map.remove(session);
-            sid
-        };
-        if let Some(real) = real_sid {
-            let mut mgr = self.manager.lock().await;
-            let _ = mgr.cancel_by_acp_session(&real).await;
-        }
-        Ok(())
-    }
-
     /// Enumerates workspaces from the cloud `amux.workspaces` table
-    /// (`Backend::get_workspaces_by_team`), filtered down to rows that
+    /// (`Backend::get_workspaces_by_agent`), filtered down to rows that
     /// resolve to a linkable, on-disk path on *this* machine — the cloud
     /// list spans every device on the team, so most rows will not resolve
     /// locally. `amux.workspaces` is the sole source of truth; there is no
@@ -928,9 +1052,9 @@ impl AgentHandle for AmuxdAgentHandle {
     ) -> Result<Vec<WorkspaceInfo>, AgentError> {
         let rows = self
             .backend
-            .get_workspaces_by_team(&self.team_id)
+            .get_workspaces_by_agent(&self.team_id, self.backend.actor_id())
             .await
-            .map_err(|e| AgentError::Internal(format!("get_workspaces_by_team: {e}")))?;
+            .map_err(|e| AgentError::Internal(format!("get_workspaces_by_agent: {e}")))?;
         let current_id = {
             let overrides = self.workspace_override.lock().await;
             overrides.get(session.as_str()).cloned()
@@ -944,29 +1068,27 @@ impl AgentHandle for AmuxdAgentHandle {
                 .ok()
                 .and_then(|d| d.default_workspace_id),
         };
-        Ok(rows
+        let mut listed = rows
             .into_iter()
             .filter_map(|row| {
-                let path = row.path.as_deref()?.trim();
-                if path.is_empty()
-                    || !crate::config::workspace_path::is_linkable_workspace_path(path)
-                {
-                    return None;
-                }
-                if !std::path::Path::new(path).is_dir() {
-                    return None;
-                }
-                let display_name = std::path::Path::new(path)
-                    .file_name()
-                    .map(|n| n.to_string_lossy().to_string())
-                    .unwrap_or_else(|| path.to_string());
+                let (_, display_name) =
+                    crate::config::workspace_path::listable_local_workspace(&row)?;
                 Some(WorkspaceInfo {
                     workspace_id: row.id.clone(),
                     display_name,
                     is_current: current_id.as_deref() == Some(row.id.as_str()),
                 })
             })
-            .collect())
+            .collect::<Vec<_>>();
+        // `/workspace <n>` resolves n against a fresh call to this method, so
+        // the order has to be reproducible — the backend's own (updated_at
+        // desc) ordering shifts under any write.
+        listed.sort_by(|a, b| {
+            a.display_name
+                .cmp(&b.display_name)
+                .then_with(|| a.workspace_id.cmp(&b.workspace_id))
+        });
+        Ok(listed)
     }
 
     async fn set_workspace(
@@ -976,18 +1098,45 @@ impl AgentHandle for AmuxdAgentHandle {
     ) -> Result<(), AgentError> {
         let rows = self
             .backend
-            .get_workspaces_by_team(&self.team_id)
+            .get_workspaces_by_agent(&self.team_id, self.backend.actor_id())
             .await
-            .map_err(|e| AgentError::Internal(format!("get_workspaces_by_team: {e}")))?;
-        if !rows.iter().any(|w| w.id == workspace_id) {
-            return Err(AgentError::NotFound(format!(
-                "workspace '{workspace_id}' not found"
-            )));
+            .map_err(|e| AgentError::Internal(format!("get_workspaces_by_agent: {e}")))?;
+        match rows.iter().find(|w| w.id == workspace_id) {
+            None => {
+                return Err(AgentError::NotFound(format!(
+                    "workspace '{workspace_id}' not found"
+                )))
+            }
+            // /workspaces never lists archived rows, so accepting one here
+            // would only ever come from a stale id.
+            Some(row) if row.archived => {
+                return Err(AgentError::NotFound(format!(
+                    "workspace '{workspace_id}' is archived"
+                )))
+            }
+            Some(_) => {}
         }
+        // On a WeCom bot this is the bot's *default*, not just this chat's:
+        // persist it to daemon.toml and update the in-memory config so every
+        // one of that bot's sessions picks it up, this one included.
+        //
+        // No per-session override is written in that case — it outranks the
+        // bot config, so leaving one behind would pin this chat to today's
+        // choice and silently ignore the next `/workspace`.
+        if let Some(bot_id) = self.bot_id_for_session(session).await {
+            self.persist_bot_workspace(&bot_id, workspace_id).await?;
+            self.workspace_override.lock().await.remove(session);
+            self.reset_sessions_for_bot(&bot_id).await;
+            return Ok(());
+        }
+
+        // Channels with no bot identity (Discord, Feishu, …) have nowhere to
+        // persist a default, so the switch stays scoped to this session.
         {
             let mut overrides = self.workspace_override.lock().await;
             overrides.insert(session.to_string(), workspace_id.to_string());
         }
+
         // Atomically remove entry then cancel to avoid TOCTOU race.
         let real_sid = {
             let mut map = self.logical_to_acp.lock().await;
@@ -1030,35 +1179,11 @@ mod tests {
             backend: backend.clone(),
             default_agent_type: None,
             default_workspace_dir: None,
-            agent_type_override: Arc::new(Mutex::new(HashMap::new())),
             workspace_resolver: Arc::new(crate::config::WorkspaceResolver::new(backend)),
             workspace_override: Arc::new(Mutex::new(HashMap::new())),
-            bot_configs: Arc::new(HashMap::new()),
+            bot_configs: Arc::new(Mutex::new(HashMap::new())),
+            daemon_config_path: std::path::PathBuf::from("/nonexistent/daemon.toml"),
         }
-    }
-
-    #[tokio::test]
-    async fn list_agents_returns_only_opencode() {
-        let handle = make_handle();
-        let agents = handle
-            .list_agents(&AmuxSessionId::from("sess-1".to_string()))
-            .await
-            .unwrap();
-        assert_eq!(agents.len(), 1);
-        assert_eq!(agents[0].agent_type, "opencode");
-        assert!(agents[0].is_current);
-    }
-
-    #[tokio::test]
-    async fn set_agent_reroutes_legacy_names_to_opencode() {
-        let handle = make_handle();
-        let sid = AmuxSessionId::from("sess-1".to_string());
-        for name in ["claude-code", "claude", "claude_code", "codex", "opencode"] {
-            handle.set_agent(&sid, name).await.unwrap();
-            let ov = handle.agent_type_override.lock().await;
-            assert_eq!(ov.get("sess-1"), Some(&amux::AgentType::Opencode), "{name}");
-        }
-        assert!(handle.set_agent(&sid, "gpt").await.is_err());
     }
 
     /// Drive a `TurnAggregator` and `absorb_emitted` — the same pair
@@ -1216,7 +1341,7 @@ mod tests {
             },
         );
         let mut handle = make_handle();
-        handle.bot_configs = Arc::new(bots);
+        handle.bot_configs = Arc::new(Mutex::new(bots));
         handle.default_workspace_dir = Some("/ws/global".into());
         handle.default_agent_type = Some(AgentType::ClaudeCode);
 
@@ -1231,16 +1356,85 @@ mod tests {
             .await;
         assert_eq!(ws2.as_deref(), Some("/ws/global"));
         assert_eq!(at2, Some(AgentType::ClaudeCode));
+    }
 
-        handle
-            .agent_type_override
-            .lock()
+    /// The team-wide list registers the SAME path once per agent, so a shared
+    /// directory name like `~/TeamClaw` appears once per device — and every
+    /// duplicate passes the "does this path exist locally" filter on a machine
+    /// that happens to have that path. `/workspaces` showed 15 entries for two
+    /// real workspaces until it started asking by agent. Archived rows are
+    /// dropped on top of that.
+    #[tokio::test]
+    async fn list_workspaces_shows_only_this_agents_live_rows() {
+        use crate::backend::WorkspaceRow;
+
+        let live = tempfile::tempdir().unwrap();
+        let retired = tempfile::tempdir().unwrap();
+        let backend = Arc::new(MockBackend::with_identity("team-test", "agent-me"));
+        {
+            let mut st = backend.state();
+            st.workspaces_by_id.insert(
+                "ws-live".to_string(),
+                WorkspaceRow {
+                    id: "ws-live".to_string(),
+                    team_id: "team-test".to_string(),
+                    path: Some(live.path().to_string_lossy().to_string()),
+                    archived: false,
+                    agent_id: Some("agent-me".to_string()),
+                },
+            );
+            st.workspaces_by_id.insert(
+                "ws-retired".to_string(),
+                WorkspaceRow {
+                    id: "ws-retired".to_string(),
+                    team_id: "team-test".to_string(),
+                    path: Some(retired.path().to_string_lossy().to_string()),
+                    archived: true,
+                    agent_id: Some("agent-me".to_string()),
+                },
+            );
+            // Another device registered the very same directory. Its path
+            // resolves here, so only the agent check can exclude it.
+            st.workspaces_by_id.insert(
+                "ws-other-device".to_string(),
+                WorkspaceRow {
+                    id: "ws-other-device".to_string(),
+                    team_id: "team-test".to_string(),
+                    path: Some(live.path().to_string_lossy().to_string()),
+                    archived: false,
+                    agent_id: Some("agent-someone-else".to_string()),
+                },
+            );
+        }
+        let handle = make_handle_with_backend(backend);
+        let listed = handle
+            .list_workspaces(&AmuxSessionId::from("sess-1".to_string()))
             .await
-            .insert("sess-A".into(), AgentType::Codex);
-        let (_ws3, at3) = handle
-            .resolve_spawn_target("sess-A", "wecom://botA/botA/single/u")
-            .await;
-        assert_eq!(at3, Some(AgentType::Codex));
+            .unwrap();
+        assert_eq!(
+            listed
+                .iter()
+                .map(|w| w.workspace_id.as_str())
+                .collect::<Vec<_>>(),
+            vec!["ws-live"]
+        );
+
+        // Archived / other-device rows are refused as switch targets rather
+        // than silently accepted.
+        let err = handle
+            .set_workspace(&AmuxSessionId::from("sess-1".to_string()), "ws-retired")
+            .await
+            .unwrap_err();
+        assert!(err.to_string().contains("archived"), "got {err}");
+
+        let err = handle
+            .set_workspace(
+                &AmuxSessionId::from("sess-1".to_string()),
+                "ws-other-device",
+            )
+            .await
+            .unwrap_err();
+        assert!(err.to_string().contains("not found"), "got {err}");
     }
 
     /// Exercises the ASYNC workspace-resolution path end to end:
@@ -1266,6 +1460,8 @@ mod tests {
                 id: session_ws_id.to_string(),
                 team_id: "team-test".to_string(),
                 path: Some("/tmp/ws-session".to_string()),
+                archived: false,
+                agent_id: None,
             },
         );
 
@@ -1282,7 +1478,7 @@ mod tests {
                 system_prompt: None,
             },
         );
-        handle.bot_configs = Arc::new(bots);
+        handle.bot_configs = Arc::new(Mutex::new(bots));
         handle.default_workspace_dir = Some("/ws/global".into());
 
         handle
