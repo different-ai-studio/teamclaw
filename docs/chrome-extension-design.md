@@ -392,16 +392,44 @@ Chrome → `chrome://extensions` → 开发者模式 → 「加载已解压的�
 - push tag `ext-v*`（打包产物随 GitHub Release 附件发布，与桌面 `v*` tag 规则并行、互不影响）
 - `workflow_dispatch`（手动跑，`publish` 输入项默认勾选自动发布，取消勾选则只产出 zip）
 
-**品牌注入**：复用桌面 `release.yml` 同一套 `BRANDING_REPO` / `BRANDING_REPO_PAT` / `BRANDING_CONFIG_FILE`
-私有仓库拉取机制（见该 workflow 的 "Fetch branding assets" step）。拉下来的 `branding/` 目录里，
-扩展专属资产放在：
+**品牌注入**：`.github/actions/brand-setup` 从私有 enterprise-branding 仓库取
+`brands/<brand>/`，落地两部分：
 
-- `branding/extension/icons/icon-{16,48,128}.png` — 预先切好三种尺寸（不在 CI 里做图片转换）
-- `build.config.copilot361.json` 里的 `app.name`（可选 `app.version`）
+- `brands/<brand>/build.config.json` → 仓库根的 `build.config.json`
+- `brands/<brand>/extension/` → `branding/extension/`（**按品牌隔离**；共享的
+  `branding/<palette>/` 是按调色板分的，两个品牌发的是两个不同的 Web Store 条目，
+  扩展资产不能共用）
+
+`branding/extension/` 的结构：
+
+```
+icons/icon-{16,48,128}.png    预先切好三种尺寸（不在 CI 里做图片转换）
+listing.json                  商店文案：description / category / language / visibility
+privacy.json                  Privacy 页答案：singlePurpose / permissionJustifications / ...
+listing/screenshots/*.png     1280x800 或 640x400，24-bit PNG 无 alpha，最多 5 张
+listing/promo-small/*.png     440x280
+listing/promo-marquee/*.png   1400x560
+```
 
 `scripts/update-extension-manifest.js` 在 build 前把这些合并进 `apps/extension/manifest.json`
-（同名/同版本才覆盖，逻辑与 `scripts/update-tauri-config.js` 对齐）。没有配置 branding 仓库或对应
-文件时该脚本是纯 no-op，保持默认 TeamClaw 品牌。
+（逻辑与 `scripts/update-tauri-config.js` 对齐）：`app.name` → `name` + `action.default_title`，
+`extension.description` → `description`（Chrome 上限 132 字符，超了直接报错而不是静默截断），
+host 白名单 → `host_permissions` + `content_scripts.matches`。没有配置 branding 仓库时是纯
+no-op，保持默认 TeamClaw 品牌。
+
+> **host 白名单的两种写法**。仓库自己的配置用 `extensions.domains`
+> （见 `build.config.example.json`），而 branding 仓库里每个品牌用的都是
+> `extension.hosts`。二者都必须能用 —— 在 `scripts/lib/extension-config.js`
+> 的 `resolveExtensionPack` 里统一处理。这里曾经只读前者，导致品牌声明的域名收窄
+> 全部失效，本该只跑在 10 个 Shopee 域名上的扩展带着 `<all_urls>` 去过审。
+
+**Listing kit**：Chrome Web Store API v2 只有 `media.upload` 和
+`publishers.items.{publish,fetchStatus,cancelSubmission,setPublishedDeployPercentage}`，
+**没有任何接口能写 listing 元数据** —— 描述、截图、宣传图、分类、Privacy 答案全部只能在
+开发者后台手填。所以 `scripts/build-extension-listing-kit.js` 把 branding 仓库里的这些内容
+组装成 `listing-kit.zip`（校验过尺寸/alpha 的图片 + 一份可直接粘贴的 README），随 Release
+一起产出，人工照着填一次。它同时会拿打包后的 manifest 反查：声明了却没写理由的权限、空的
+商店描述、缺失的截图，都会以 `::warning::` 报出来。
 
 **Chrome Web Store 自动发布**（可选，需要一次性手动准备）：
 
