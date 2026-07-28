@@ -36,7 +36,7 @@ import { supabase } from "../src/lib/supabase/client";
 import { colors } from "../src/ui/theme";
 import { appStatusBarProps } from "../src/ui/status-bar";
 import { createTeamMqttClient, type TeamMqttClient } from "../src/lib/mqtt/team-mqtt";
-import { getOptionalMqttUrl } from "../src/lib/mqtt/config";
+import { resolveMqttUrl } from "../src/lib/mqtt/config";
 import { createAgentAccessApi } from "../src/features/actors/agent-access-api";
 import { createRuntimeStateSubscriber } from "../src/features/actors/runtime-state-subscriber";
 import {
@@ -303,15 +303,19 @@ function OnboardingProvider({ children }: { children: ReactNode }) {
     if (state.route !== "ready") return;
     if (!state.currentTeam || !state.currentMemberActorId) return;
 
-    const mqttUrl = getOptionalMqttUrl();
-    if (!mqttUrl) return;
-
     let disposed = false;
 
     void (async () => {
       const { data: sessionData } = await supabase.auth.getSession();
       const accessToken = sessionData?.session?.access_token ?? null;
       if (!accessToken || disposed) return;
+
+      // Broker address comes from the Cloud API (cached across launches), so a
+      // moved broker doesn't need an app release. No address → don't connect.
+      const mqttUrl = await resolveMqttUrl({
+        getAccessToken: supabaseAccessToken(supabase),
+      });
+      if (!mqttUrl || disposed) return;
 
       const mqtt = createTeamMqttClient({
         url: mqttUrl,

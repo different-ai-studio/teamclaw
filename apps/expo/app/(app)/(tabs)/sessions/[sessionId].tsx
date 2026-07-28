@@ -30,7 +30,7 @@ import { impactLight, selectionTick, successTone } from "../../../../src/lib/hap
 import { showToast } from "../../../../src/ui/Toast";
 import { supabase } from "../../../../src/lib/supabase/client";
 import { getDb } from "../../../../src/lib/db/sqlite";
-import { getOptionalMqttUrl } from "../../../../src/lib/mqtt/config";
+import { getKnownMqttUrl } from "../../../../src/lib/mqtt/config";
 import {
   createRuntimeCommandSender,
   resolvePermissionRuntimeTarget,
@@ -180,7 +180,7 @@ export default function SessionDetailRoute() {
         },
         getTeamActors: () => teamActorsRef.current,
         mqtt: mqttSnapshot ?? noOpMqtt,
-        mqttUrl: getOptionalMqttUrl(),
+        mqttUrl: getKnownMqttUrl(),
         outbox: { dao, sender },
         sessionId,
         teamId: currentTeam.id,

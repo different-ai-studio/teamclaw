@@ -1,8 +1,12 @@
 import Foundation
 
+/// Values baked into the app bundle. Deliberately holds NO broker host: the
+/// broker address comes from the Cloud API (`GET /v1/config/bootstrap`, see
+/// `ServerBrokerConfig`) and is cached on device, so moving the broker does not
+/// need an App Store release. Only the transport fallbacks stay here, for
+/// parsing an address that omits a port or scheme.
 public struct ServicesDefaults: Codable, Sendable {
     public let cloudApiUrl: String?
-    public let mqttHost: String
     public let mqttPort: Int
     public let mqttUseTls: Bool
 }
