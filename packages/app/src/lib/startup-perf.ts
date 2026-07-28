@@ -21,7 +21,7 @@
  * packaged build to turn the timeline log on, or call `dumpStartupTimeline()`
  * from the devtools console at any time.
  */
-import { appShortName } from "./build-config";
+import { appStoragePrefix } from "./build-config";
 
 export type StartupStamp = { name: string; t: number };
 
@@ -32,7 +32,7 @@ let settleTimer: ReturnType<typeof setTimeout> | null = null;
 function dumpEnabled(): boolean {
   if (import.meta.env.DEV) return true;
   try {
-    return localStorage.getItem(`${appShortName}-perf`) === "1";
+    return localStorage.getItem(`${appStoragePrefix}-perf`) === "1";
   } catch {
     return false;
   }

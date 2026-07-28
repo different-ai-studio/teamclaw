@@ -13,10 +13,9 @@ use tracing::warn;
 
 use crate::team_crypto::{self, EncryptedEnvelope};
 use crate::team_provider;
-
-const TEAMCLAW_DIR: &str = ".teamclaw";
-const CONFIG_FILE_NAME: &str = "teamclaw.json";
-const SECRETS_SUBDIR: &str = "_secrets";
+use crate::{
+    is_official_brand, WORKSPACE_CONFIG_FILE, WORKSPACE_META_DIR,
+};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -73,17 +72,28 @@ pub struct AgentEnvListing {
     pub category: Option<String>,
 }
 
-fn teamclaw_config_path(workspace: &Path) -> PathBuf {
-    workspace.join(TEAMCLAW_DIR).join(CONFIG_FILE_NAME)
+const SECRETS_SUBDIR: &str = "_secrets";
+
+fn workspace_config_path(workspace: &Path, brand_short_name: &str) -> PathBuf {
+    if is_official_brand(brand_short_name) {
+        workspace.join(WORKSPACE_META_DIR).join(WORKSPACE_CONFIG_FILE)
+    } else {
+        workspace
+            .join(format!(".{brand_short_name}"))
+            .join(format!("{brand_short_name}.json"))
+    }
 }
 
-pub fn read_teamclaw_config(workspace: &Path) -> Option<serde_json::Value> {
-    let body = std::fs::read_to_string(teamclaw_config_path(workspace)).ok()?;
+fn read_teamclaw_config_for_brand(
+    workspace: &Path,
+    brand_short_name: &str,
+) -> Option<serde_json::Value> {
+    let body = std::fs::read_to_string(workspace_config_path(workspace, brand_short_name)).ok()?;
     serde_json::from_str(&body).ok()
 }
 
-fn read_team_json_env_secret(workspace: &Path) -> Option<String> {
-    read_teamclaw_config(workspace)?
+fn read_team_json_env_secret(workspace: &Path, brand_short_name: &str) -> Option<String> {
+    read_teamclaw_config_for_brand(workspace, brand_short_name)?
         .get("team")?
         .get("envSecret")?
         .as_str()
@@ -96,16 +106,22 @@ fn read_team_json_env_secret(workspace: &Path) -> Option<String> {
 pub fn resolve_team_env_secret(
     workspace: &Path,
     team_id: Option<&str>,
+    brand_short_name: Option<&str>,
 ) -> Option<String> {
-    if let Some(secret) = read_team_json_env_secret(workspace) {
+    let brand = brand_short_name.unwrap_or("teamclaw");
+    if let Some(secret) = read_team_json_env_secret(workspace, brand) {
         return Some(secret);
     }
     let team_id = team_id.filter(|id| !id.trim().is_empty())?;
     let blob_key = format!("_team_secret.{team_id}");
-    crate::personal_secrets::load_personal_env()
+    crate::personal_secrets::load_personal_env_for_brand(brand)
         .ok()
         .and_then(|env| env.get(&blob_key).cloned())
         .filter(|s| !s.trim().is_empty())
+}
+
+pub fn read_teamclaw_config(workspace: &Path) -> Option<serde_json::Value> {
+    read_teamclaw_config_for_brand(workspace, "teamclaw")
 }
 
 /// Team shared directory for writes: `{workspace}/{sharedDirName}`.
@@ -267,9 +283,13 @@ fn load_team_env_metas_from_dir(secrets_dir: &Path, env_secret: &str) -> Vec<Tea
 /// When the local team secret is missing or wrong, keys are still listed (from
 /// the file names) with `decrypted: false`. A decrypted listing always wins over
 /// an undecrypted one for the same key across candidate directories.
-pub fn load_team_env_listings(workspace: &Path, team_id: Option<&str>) -> Vec<TeamEnvListing> {
+pub fn load_team_env_listings(
+    workspace: &Path,
+    team_id: Option<&str>,
+    brand_short_name: Option<&str>,
+) -> Vec<TeamEnvListing> {
     let shared_dir_name = team_provider::resolve_shared_dir_name(workspace);
-    let env_secret = resolve_team_env_secret(workspace, team_id);
+    let env_secret = resolve_team_env_secret(workspace, team_id, brand_short_name);
 
     let mut out: Vec<TeamEnvListing> = Vec::new();
     let mut index: std::collections::HashMap<String, usize> = std::collections::HashMap::new();
@@ -298,8 +318,12 @@ pub fn load_team_env_listings(workspace: &Path, team_id: Option<&str>) -> Vec<Te
     out
 }
 
-pub fn load_personal_env_listings(workspace: &Path) -> Vec<PersonalEnvListing> {
-    let Some(config) = read_teamclaw_config(workspace) else {
+pub fn load_personal_env_listings(
+    workspace: &Path,
+    brand_short_name: Option<&str>,
+) -> Vec<PersonalEnvListing> {
+    let brand = brand_short_name.unwrap_or("teamclaw");
+    let Some(config) = read_teamclaw_config_for_brand(workspace, brand) else {
         return Vec::new();
     };
     config
@@ -327,17 +351,25 @@ pub fn load_personal_env_listings(workspace: &Path) -> Vec<PersonalEnvListing> {
         .unwrap_or_default()
 }
 
-pub fn load_env_catalog(workspace: &Path, team_id: Option<&str>) -> EnvCatalog {
+pub fn load_env_catalog(
+    workspace: &Path,
+    team_id: Option<&str>,
+    brand_short_name: Option<&str>,
+) -> EnvCatalog {
     EnvCatalog {
-        personal: load_personal_env_listings(workspace),
-        team: load_team_env_listings(workspace, team_id),
+        personal: load_personal_env_listings(workspace, brand_short_name),
+        team: load_team_env_listings(workspace, team_id, brand_short_name),
     }
 }
 
 /// Personal `envVars` index merged with team keys — shape used by agent tools.
-pub fn load_agent_env_listings(workspace: &Path, team_id: Option<&str>) -> Vec<AgentEnvListing> {
-    let personal = load_personal_env_listings(workspace);
-    let team = load_team_env_listings(workspace, team_id);
+pub fn load_agent_env_listings(
+    workspace: &Path,
+    team_id: Option<&str>,
+    brand_short_name: Option<&str>,
+) -> Vec<AgentEnvListing> {
+    let personal = load_personal_env_listings(workspace, brand_short_name);
+    let team = load_team_env_listings(workspace, team_id, brand_short_name);
 
     let mut out: Vec<AgentEnvListing> = personal
         .into_iter()
@@ -427,7 +459,7 @@ mod tests {
         )
         .unwrap();
 
-        let team = load_team_env_listings(tmp.path(), None);
+        let team = load_team_env_listings(tmp.path(), None, None);
         assert_eq!(team.len(), 1);
         assert_eq!(team[0].key_id, "git_key");
         assert_eq!(team[0].description, "desc");
@@ -456,7 +488,7 @@ mod tests {
         )
         .unwrap();
 
-        let team = load_team_env_listings(tmp.path(), None);
+        let team = load_team_env_listings(tmp.path(), None, None);
         assert_eq!(team.len(), 1, "key must stay visible, not vanish");
         assert_eq!(team[0].key_id, "api_key");
         assert!(!team[0].decrypted, "wrong key → marked not decrypted");
@@ -483,7 +515,7 @@ mod tests {
         )
         .unwrap();
 
-        let team = load_team_env_listings(tmp.path(), None);
+        let team = load_team_env_listings(tmp.path(), None, None);
         assert_eq!(team.len(), 1);
         assert_eq!(team[0].key_id, "api_key");
         assert!(!team[0].decrypted);
@@ -518,7 +550,7 @@ mod tests {
         )
         .unwrap();
 
-        let listings = load_agent_env_listings(tmp.path(), None);
+        let listings = load_agent_env_listings(tmp.path(), None, None);
         let keys: Vec<_> = listings.iter().map(|entry| entry.key.as_str()).collect();
         assert!(keys.contains(&"tc_api_key"));
         assert!(keys.contains(&"mine"));
@@ -579,11 +611,11 @@ mod tests {
 
         // Without team_id the inline secret is missing → None (this was the bug:
         // the write/delete path passed None and hard-errored).
-        assert_eq!(resolve_team_env_secret(workspace.path(), None), None);
+        assert_eq!(resolve_team_env_secret(workspace.path(), None, None), None);
 
         // With team_id the personal-blob fallback resolves the secret.
         assert_eq!(
-            resolve_team_env_secret(workspace.path(), Some(team_id)).as_deref(),
+            resolve_team_env_secret(workspace.path(), Some(team_id), None).as_deref(),
             Some(env_secret.as_str())
         );
     }

@@ -178,7 +178,7 @@ fn resolve_env_secret_with(
             return Some(secret);
         }
     }
-    teamclaw_runtime_env::env_catalog::resolve_team_env_secret(workspace_root, team_id)
+    teamclaw_runtime_env::env_catalog::resolve_team_env_secret(workspace_root, team_id, None)
 }
 
 /// Load decrypted team shared env for a workspace.

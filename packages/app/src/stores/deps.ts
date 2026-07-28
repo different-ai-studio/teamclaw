@@ -1,7 +1,7 @@
 import { create } from 'zustand'
 import { isTauri } from '@/lib/utils'
 import { loadFromStorage, saveToStorage } from '@/lib/storage'
-import { appShortName } from '@/lib/build-config'
+import { appStoragePrefix } from '@/lib/build-config'
 
 export interface DependencyInfo {
   name: string
@@ -42,9 +42,9 @@ interface DepInstallProgressEvent {
 
 // ─── Persistent setup status ─────────────────────────────────────────────────
 
-const DEPS_SETUP_KEY = `${appShortName}-deps-setup-status`
+const DEPS_SETUP_KEY = `${appStoragePrefix}-deps-setup-status`
 /** First-run welcome screen seen flag (shown once, before dependency setup). */
-const WELCOME_SEEN_KEY = `${appShortName}-welcome-seen`
+const WELCOME_SEEN_KEY = `${appStoragePrefix}-welcome-seen`
 /** Re-check interval: 24 hours */
 const RECHECK_TTL_MS = 24 * 60 * 60 * 1000
 
@@ -152,13 +152,13 @@ interface DepsState {
 
 
 /**
- * Debug: set localStorage.setItem(`${appShortName}-debug-force-setup`, '1') to force
+ * Debug: set localStorage.setItem(`${appStoragePrefix}-debug-force-setup`, '1') to force
  * SetupGuide to show in browser dev mode with mock dependency data.
- * Remove the key to disable: localStorage.removeItem(`${appShortName}-debug-force-setup`)
+ * Remove the key to disable: localStorage.removeItem(`${appStoragePrefix}-debug-force-setup`)
  */
 const isDebugForceSetup = () => {
   try {
-    return localStorage.getItem(`${appShortName}-debug-force-setup`) === '1'
+    return localStorage.getItem(`${appStoragePrefix}-debug-force-setup`) === '1'
   } catch {
     return false
   }

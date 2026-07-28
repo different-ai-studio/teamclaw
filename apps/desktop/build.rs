@@ -121,6 +121,20 @@ fn main() {
     println!("cargo:rustc-env=APP_SHORT_NAME={}", short_name);
     println!("cargo:warning=Using APP_SHORT_NAME={}", short_name);
 
+    let is_official = short_name == "teamclaw" || short_name == "teamclawdev";
+    let teamclaw_dir = if is_official {
+        ".teamclaw".to_string()
+    } else {
+        format!(".{}", short_name)
+    };
+    let config_file_name = if is_official {
+        "teamclaw.json".to_string()
+    } else {
+        format!("{}.json", short_name)
+    };
+    println!("cargo:rustc-env=TEAMCLAW_DIR={}", teamclaw_dir);
+    println!("cargo:rustc-env=CONFIG_FILE_NAME={}", config_file_name);
+
     // Export updater config from build.config.json (comma-separated for runtime fallback)
     let updater_endpoints = resolve_updater_endpoints(&config);
     if !updater_endpoints.is_empty() {
