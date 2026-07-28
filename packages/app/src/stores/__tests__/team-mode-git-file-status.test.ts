@@ -45,6 +45,7 @@ vi.mock('@/stores/workspace', () => ({
 
 vi.mock('@/lib/build-config', () => ({
   appShortName: 'teamclaw',
+  appStoragePrefix: 'teamclaw',
   TEAM_REPO_DIR: 'teamclaw-team',
   buildConfig: { team: { lockLlmConfig: false } },
 }))

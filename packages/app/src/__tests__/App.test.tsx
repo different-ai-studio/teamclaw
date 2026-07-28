@@ -95,6 +95,7 @@ vi.mock('@/lib/platform', () => ({
 }))
 vi.mock('@/lib/build-config', () => ({
   appShortName: 'teamclaw',
+  appStoragePrefix: 'teamclaw',
   appScheme: 'teamclaw',
   TEAM_REPO_DIR: 'teamclaw-team',
   buildConfig: {
