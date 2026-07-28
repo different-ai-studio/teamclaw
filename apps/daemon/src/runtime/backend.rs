@@ -17,6 +17,7 @@ use tracing::warn;
 
 use crate::proto::amux;
 use crate::runtime::acp_event_frame::AcpEventFrame;
+use crate::runtime::permission_policy::PermissionPolicy;
 
 use super::manager::AgentLaunchConfig;
 use super::opencode_http::OpencodeHost;
@@ -39,8 +40,8 @@ pub enum AcpCommand {
         initial_prompt: String,
         event_tx: mpsc::Sender<AcpEventFrame>,
         startup_tx: oneshot::Sender<Result<AcpStartupMetadata, String>>,
-        /// Gateway sessions auto-allow tool permissions.
-        is_gateway: bool,
+        /// How this session handles permission + question requests.
+        permission: PermissionPolicy,
         /// When resuming, fail instead of falling back to a new session.
         forbid_new_session_fallback: bool,
     },
@@ -115,7 +116,7 @@ pub trait AgentBackend: Send {
         model_mru: Vec<String>,
         initial_prompt: String,
         event_tx: mpsc::Sender<AcpEventFrame>,
-        is_gateway: bool,
+        permission: PermissionPolicy,
         forbid_new_session_fallback: bool,
     ) -> crate::error::Result<(mpsc::Sender<AcpCommand>, AcpStartupMetadata)>;
 
@@ -213,7 +214,7 @@ impl AgentBackend for OpencodeHttpBackend {
         model_mru: Vec<String>,
         initial_prompt: String,
         event_tx: mpsc::Sender<AcpEventFrame>,
-        is_gateway: bool,
+        permission: PermissionPolicy,
         forbid_new_session_fallback: bool,
     ) -> crate::error::Result<(mpsc::Sender<AcpCommand>, AcpStartupMetadata)> {
         self.host
@@ -229,7 +230,7 @@ impl AgentBackend for OpencodeHttpBackend {
                 model_mru,
                 initial_prompt,
                 event_tx,
-                is_gateway,
+                permission,
                 forbid_new_session_fallback,
             )
             .await

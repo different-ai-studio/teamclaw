@@ -12,6 +12,7 @@ mod handle;
 mod instruction_delivery;
 pub mod managed_llm;
 mod manager;
+pub mod permission_policy;
 pub mod refresh;
 pub mod supervisor;
 pub mod turn_aggregator;
@@ -23,6 +24,7 @@ pub use instruction_delivery::{
     resolve_instruction_delivery, skips_buffered_inject, InstructionDelivery,
 };
 pub use manager::{AgentLaunchConfig, CheckedOutTurn, RuntimeManager, SpawnRuntimeEnv};
+pub use permission_policy::PermissionPolicy;
 // Kept importable for external callers/tests even though in-crate code now
 // goes through `AgentBackend`.
 #[allow(unused_imports)]

@@ -540,6 +540,15 @@ impl CronScheduler {
             .map(str::trim)
             .filter(|s| !s.is_empty());
 
+        // Unattended runs default to full access — see `CronPayload::permission_mode`.
+        let permission_mode = job
+            .payload
+            .permission_mode
+            .as_deref()
+            .map(str::trim)
+            .filter(|s| !s.is_empty())
+            .unwrap_or(crate::commands::cron::types::DEFAULT_CRON_PERMISSION_MODE);
+
         let prompt_future = crate::commands::cron::amuxd_client::prompt_await(
             crate::commands::cron::amuxd_client::PromptAwaitRequest {
                 cmd: "prompt-await",
@@ -554,6 +563,7 @@ impl CronScheduler {
                     }
                 }),
                 agent_type,
+                permission_mode,
                 timeout_secs: 300,
             },
         );
@@ -892,6 +902,7 @@ mod tests {
                 timeout_seconds: None,
                 use_worktree: None,
                 worktree_branch: None,
+                permission_mode: None,
             },
             delivery: None,
             delete_after_run: false,

@@ -23,6 +23,7 @@ use crate::runtime::acp_event_frame::AcpEventFrame;
 use crate::runtime::backend::{AcpCommand, AcpStartupMetadata, AgentBackend};
 use crate::runtime::manager::AgentLaunchConfig;
 use crate::runtime::opencode_http::translate::status_change;
+use crate::runtime::permission_policy::PermissionPolicy;
 
 pub mod client;
 mod events;
@@ -38,7 +39,9 @@ const SESSION_ID_PREFIX: &str = "pi:";
 
 pub(crate) struct Route {
     pub(crate) event_tx: mpsc::Sender<AcpEventFrame>,
-    pub(crate) is_gateway: bool,
+    /// Permission handling for this session; `Full` (gateway / cron) means
+    /// confirmation requests are auto-approved instead of waiting on a human.
+    pub(crate) permission: PermissionPolicy,
     /// Canonical worktree the session's process runs in.
     pub(crate) worktree: String,
     /// pi session file path (switch_session target).
@@ -227,7 +230,7 @@ struct AttachArgs {
     /// Daemon MRU, newest first. See `config::model_mru`.
     model_mru: Vec<String>,
     event_tx: mpsc::Sender<AcpEventFrame>,
-    is_gateway: bool,
+    permission: PermissionPolicy,
     forbid_new_session_fallback: bool,
 }
 
@@ -343,7 +346,7 @@ async fn attach(shared: &Arc<Shared>, args: AttachArgs) -> Result<AcpStartupMeta
         acp_session_id.clone(),
         Route {
             event_tx: args.event_tx,
-            is_gateway: args.is_gateway,
+            permission: args.permission,
             worktree: worktree.clone(),
             session_path,
             turn_active: false,
@@ -561,7 +564,7 @@ async fn command_loop(shared: Arc<Shared>, mut cmd_rx: mpsc::Receiver<AcpCommand
                 initial_prompt,
                 event_tx,
                 startup_tx,
-                is_gateway,
+                permission,
                 forbid_new_session_fallback,
             } => {
                 let result = attach(
@@ -573,7 +576,7 @@ async fn command_loop(shared: Arc<Shared>, mut cmd_rx: mpsc::Receiver<AcpCommand
                         initial_model_override,
                         model_mru,
                         event_tx,
-                        is_gateway,
+                        permission,
                         forbid_new_session_fallback,
                     },
                 )
@@ -767,7 +770,7 @@ impl AgentBackend for PiRpcBackend {
         model_mru: Vec<String>,
         initial_prompt: String,
         event_tx: mpsc::Sender<AcpEventFrame>,
-        is_gateway: bool,
+        permission: PermissionPolicy,
         forbid_new_session_fallback: bool,
     ) -> crate::error::Result<(mpsc::Sender<AcpCommand>, AcpStartupMetadata)> {
         // NOTE: `launch` is `launch_config_for(agent_type)` for whatever agent
@@ -790,7 +793,7 @@ impl AgentBackend for PiRpcBackend {
                 initial_model_override,
                 model_mru,
                 event_tx,
-                is_gateway,
+                permission,
                 forbid_new_session_fallback,
             },
         )

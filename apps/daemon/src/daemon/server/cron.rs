@@ -195,6 +195,16 @@ impl DaemonServer {
                     // separate piece of work.
                     crate::runtime::SpawnRuntimeEnv {
                         is_gateway: true,
+                        // Cron runs unattended: nobody can answer a permission
+                        // prompt, and a pending one is not seen as a stalled
+                        // turn, so an "ask" job simply burns its timeout. Full
+                        // access is the default; a job may still opt back into
+                        // asking, which is only useful when a human is
+                        // watching the session live.
+                        permission: Some(crate::runtime::PermissionPolicy::from_wire(
+                            parsed.permission_mode,
+                            crate::runtime::PermissionPolicy::Full,
+                        )),
                         ..Default::default()
                     },
                 )

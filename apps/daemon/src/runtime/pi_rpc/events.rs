@@ -182,28 +182,28 @@ async fn handle_ui_request(
                     .await;
                 return;
             };
-            let (is_gateway, event_tx, requester, reply_to) = {
+            let (permission, event_tx, requester, reply_to) = {
                 let routes = shared.routes.lock();
                 let Some(route) = routes.get(&session_id) else {
                     return;
                 };
                 (
-                    route.is_gateway,
+                    route.permission,
                     route.event_tx.clone(),
                     route.turn_requester.clone(),
                     route.turn_reply_to.clone(),
                 )
             };
-            if is_gateway {
-                // Gateway sessions auto-allow tool permissions.
-                info!(session_id, ui_id = %id, "auto-allow gateway pi confirm");
+            if permission.is_full_access() {
+                // Full-access sessions (gateway, cron) have no human to ask.
+                info!(session_id, ui_id = %id, "auto-allow full-access pi confirm");
                 if let Err(e) = client
                     .notify(serde_json::json!({
                         "type": "extension_ui_response", "id": id, "confirmed": true
                     }))
                     .await
                 {
-                    warn!(session_id, error = %e, "gateway pi confirm auto-reply failed");
+                    warn!(session_id, error = %e, "full-access pi confirm auto-reply failed");
                 }
                 return;
             }
