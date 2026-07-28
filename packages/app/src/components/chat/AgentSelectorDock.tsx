@@ -6,6 +6,7 @@ import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover
 import { ModelPickerCommand } from '@/components/model/ModelPickerCommand'
 import { useRuntimeStateStore } from '@/stores/runtime-state-store'
 import { resolveAgentAvailableModels } from '@/lib/agent-available-models'
+import { resolveSessionEstablishedModel } from '@/lib/session-established-model'
 import { sessionFlowError, sessionFlowLog } from '@/lib/session-flow-log'
 import { RuntimeLifecycle, AgentStatus, type RuntimeInfo } from '@/lib/proto/amux_pb'
 import {
@@ -185,22 +186,11 @@ function AgentPill({
   const pickEntry = useAgentModelPickStore((s) =>
     sessionId ? s.bySessionAgent[`${sessionId}::${agent.id}`] : undefined,
   )
-  // The model this session already ran with, from its transcript. Prefer the
-  // latest reply authored by THIS agent; fall back to the latest modeled
-  // message. Empty for brand-new sessions, so they keep the last-pick default.
-  const sessionEstablishedModel = useSessionMessageStore((s) => {
-    if (!sessionId) return null
-    const msgs = s.messages[sessionId]
-    if (!msgs?.length) return null
-    let fallback: string | null = null
-    for (let i = msgs.length - 1; i >= 0; i--) {
-      const model = msgs[i].model?.trim()
-      if (!model) continue
-      if (msgs[i].senderActorId === agent.id) return model
-      if (!fallback) fallback = model
-    }
-    return fallback
-  })
+  // The model this session already ran with, from its transcript. Empty for
+  // brand-new sessions, so they keep the last-pick default.
+  const sessionEstablishedModel = useSessionMessageStore((s) =>
+    sessionId ? resolveSessionEstablishedModel(s.messages[sessionId], agent.id) : null,
+  )
 
   const selected = React.useMemo(
     () =>

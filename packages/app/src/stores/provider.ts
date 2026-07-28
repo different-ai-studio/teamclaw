@@ -385,6 +385,13 @@ export interface ProviderState {
   _disconnectedIds: Set<string>
   _workspacePath: string | null
 
+  // The last model key that was actually found in a non-empty catalog — either
+  // resolved by initAll or picked by the user. Distinguishes "the saved key was
+  // never on offer" (cold start, stale localStorage) from "the key WAS on offer
+  // and the catalog lost it" (a runtime dropped off). Only the latter must
+  // avoid falling back to `models[0]`.
+  _validatedModelKey: string | null
+
   // Actions
   refreshAuthMethods: () => Promise<void>
   connectProviderOAuth: (providerId: string, methodIndex: number) => Promise<
@@ -419,6 +426,7 @@ export const useProviderStore = create<ProviderState>((set, get) => ({
   customProviderIds: [],
   _disconnectedIds: new Set<string>(),
   _workspacePath: null,
+  _validatedModelKey: null,
 
   refreshAuthMethods: async () => {
     const workspacePath = useWorkspaceStore.getState().workspacePath
@@ -740,7 +748,8 @@ export const useProviderStore = create<ProviderState>((set, get) => ({
   // Select a model for the OpenCode-backed settings/chat UI.
   selectModel: async (providerId: string, modelId: string, _modelName: string) => {
     const modelKey = `${providerId}/${modelId}`
-    set({ currentModelKey: modelKey })
+    // A pick always comes from a rendered catalog, so it counts as validated.
+    set({ currentModelKey: modelKey, _validatedModelKey: modelKey })
 
     // Cache in workspace-scoped localStorage as fallback
     localStorage.setItem(selectedModelStorageKey(), modelKey)
@@ -753,7 +762,11 @@ export const useProviderStore = create<ProviderState>((set, get) => ({
     const workspaceChanged =
       previousWorkspacePath !== null && previousWorkspacePath !== workspacePathAtStart
     if (workspaceChanged) {
-      set({ currentModelKey: null, _workspacePath: workspacePathAtStart ?? null })
+      set({
+        currentModelKey: null,
+        _validatedModelKey: null,
+        _workspacePath: workspacePathAtStart ?? null,
+      })
     } else if (previousWorkspacePath === null) {
       set({ _workspacePath: workspacePathAtStart ?? null })
     }
@@ -786,7 +799,7 @@ export const useProviderStore = create<ProviderState>((set, get) => ({
       }
     }
 
-    const { currentModelKey } = get()
+    const { currentModelKey, _validatedModelKey: validatedModelKey } = get()
     const availableModels = get().models
 
     let resolvedKey = currentModelKey
@@ -797,7 +810,21 @@ export const useProviderStore = create<ProviderState>((set, get) => ({
       if (saved && availableModels.find((m) => `${m.provider}/${m.id}` === saved)) {
         resolvedKey = saved
         resolvedSource = 'localStorage'
+      } else if (validatedModelKey && validatedModelKey === currentModelKey) {
+        // This exact key WAS in the catalog before, and now is not: the model
+        // did not go missing, it went AWAY — typically an agent's runtime
+        // dropped off and took its catalog with it. Falling through to
+        // `availableModels[0]` here silently swaps the user onto an unrelated
+        // model (the "突然变成 sonnet" report). Resolve to nothing instead and
+        // let the session/agent resolvers refill it once a runtime is back.
+        // localStorage is deliberately left alone, so the choice comes back
+        // with the runtime.
+        resolvedKey = null
+        resolvedSource = 'unavailable'
       } else if (availableModels.length > 0) {
+        // Never validated (cold start with a stale localStorage key, or the
+        // catalog has changed underneath). First entry beats an empty picker
+        // here — nothing was taken away from the user.
         resolvedKey = `${availableModels[0].provider}/${availableModels[0].id}`
         resolvedSource = 'firstAvailable'
       } else {
@@ -814,7 +841,9 @@ export const useProviderStore = create<ProviderState>((set, get) => ({
     })
 
     if (resolvedKey) {
-      set({ currentModelKey: resolvedKey })
+      // Every path that yields a key here checked it against `availableModels`
+      // (or was carried over from a check on a previous run), so it is validated.
+      set({ currentModelKey: resolvedKey, _validatedModelKey: resolvedKey })
       // Sync workspace-scoped localStorage to be consistent
       localStorage.setItem(selectedModelStorageKey(), resolvedKey)
     } else {
