@@ -137,7 +137,11 @@ function persistPendingInviteToken(token: string | null): void {
 // After a successful claim, switch into the team and re-onboard the daemon.
 async function enterClaimedTeam(teamId: string): Promise<void> {
   const { useCurrentTeamStore } = await import("@/stores/current-team");
-  await useCurrentTeamStore.getState().reloadAndSwitchTo(teamId);
+  // claim_team_invite moves `public.users.org_id` server-side, but the caller's
+  // JWT was minted before that and the claim returns no refresh token on the
+  // existing-account path. Activate so this client actually authenticates as
+  // the new org — otherwise the team is entered locally and refused remotely.
+  await useCurrentTeamStore.getState().enterTeam(teamId);
   try {
     const { isTauri } = await import("@/lib/utils");
     if (isTauri()) {

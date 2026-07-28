@@ -13,6 +13,7 @@ import {
   type SessionRow,
 } from "@/lib/local-cache";
 import { removeLinkSessionEntriesForSession } from "@/lib/extension-link-session";
+import { reportLocalCacheFailure } from "@/lib/telemetry/local-cache-error-report";
 import type { SessionListCursor, SessionListPage } from "@/lib/backend/types";
 import { sortSessionListRows } from "@/lib/session-list-sort";
 
@@ -250,14 +251,22 @@ export const useSessionListStore = create<State>((set, get) => ({
     // Skip when we already have RPC rows — reloading would flash archived
     // sessions that still sit in libsql until soft-deleted.
     if (isTauri() && teamId && existingRows.length === 0) {
-      const localRows = await loadSessionsForTeam(teamId);
-      if (localRows.length > 0) {
-        set({
-          rows: filterArchivedEntries(
-            sortEntries(localRows.map(mapCacheToEntry)),
-          ),
-        });
-        markStartup("session-list:local-cache");
+      // The cache is an accelerator, never a gate. A rejection here (most
+      // often the current-team gate disagreeing with `teamId`) used to reject
+      // this whole function, leaving `loading: true` forever — the list span
+      // its spinner and the rejection surfaced as an unhandled rejection.
+      try {
+        const localRows = await loadSessionsForTeam(teamId);
+        if (localRows.length > 0) {
+          set({
+            rows: filterArchivedEntries(
+              sortEntries(localRows.map(mapCacheToEntry)),
+            ),
+          });
+          markStartup("session-list:local-cache");
+        }
+      } catch (error) {
+        reportLocalCacheFailure("session_load_team", error, { teamId });
       }
     }
 
@@ -296,7 +305,13 @@ export const useSessionListStore = create<State>((set, get) => ({
         deletedAt: null,
         syncedAt: new Date().toISOString(),
       }));
-      await upsertSessionsBatch(cacheRows);
+      try {
+        await upsertSessionsBatch(cacheRows);
+      } catch (error) {
+        // Same contract as the hydrate above: a cache write must never stop
+        // the freshly-fetched rows from rendering.
+        reportLocalCacheFailure("session_upsert_batch", error, { teamId });
+      }
       // Fire-and-forget: pull session → workspace links from the cloud
       // daemon-runtimes list into the local cache so the session-list
       // workspace filter keeps working offline. Non-fatal: offline / no

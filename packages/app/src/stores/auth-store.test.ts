@@ -37,7 +37,9 @@ const session = {
 };
 
 const currentTeamMock = {
-  reloadAndSwitchTo: vi.fn(),
+  // enterTeam is the only supported way in: it activates the team server-side
+  // (moving the active org) before setting the client-side team.
+  enterTeam: vi.fn(),
 };
 
 function storeSessionLike(userId: string) {
@@ -73,7 +75,7 @@ const { useAuthStore } = await import("./auth-store");
 
 beforeEach(() => {
   Object.values(authMock).forEach((fn) => fn.mockReset());
-  currentTeamMock.reloadAndSwitchTo.mockReset();
+  currentTeamMock.enterTeam.mockReset();
   backendConfig.hasConfig = true;
   useAuthStore.setState({
     session: null,
@@ -282,7 +284,7 @@ describe("auth-store", () => {
     const result = await useAuthStore.getState().claimPendingInvite();
 
     expect(authMock.claimInvite).toHaveBeenCalledWith("tok-4");
-    expect(currentTeamMock.reloadAndSwitchTo).toHaveBeenCalledWith("team-4");
+    expect(currentTeamMock.enterTeam).toHaveBeenCalledWith("team-4");
     expect(result?.teamId).toBe("team-4");
     expect(useAuthStore.getState().pendingInviteToken).toBeNull();
     expect(useAuthStore.getState().loading).toBe(false);
@@ -348,7 +350,7 @@ describe("auth-store", () => {
     const result = await useAuthStore.getState().acceptPendingInvite("invite-1");
 
     expect(authMock.acceptPendingInvite).toHaveBeenCalledWith("invite-1");
-    expect(currentTeamMock.reloadAndSwitchTo).toHaveBeenCalledWith("team-7");
+    expect(currentTeamMock.enterTeam).toHaveBeenCalledWith("team-7");
     expect(result?.teamId).toBe("team-7");
     expect(useAuthStore.getState().pendingInvites).toEqual([]);
     expect(useAuthStore.getState().loading).toBe(false);
@@ -362,7 +364,7 @@ describe("auth-store", () => {
     const result = await useAuthStore.getState().acceptPendingInvite("invite-1");
 
     expect(result).toBeNull();
-    expect(currentTeamMock.reloadAndSwitchTo).not.toHaveBeenCalled();
+    expect(currentTeamMock.enterTeam).not.toHaveBeenCalled();
     expect(useAuthStore.getState().pendingInvites).toEqual([pendingInvite]);
     expect(useAuthStore.getState().errorMessage).toBe("invite expired");
     expect(useAuthStore.getState().loading).toBe(false);
@@ -376,7 +378,7 @@ describe("auth-store", () => {
 
     expect(ok).toBe(true);
     expect(authMock.declinePendingInvite).toHaveBeenCalledWith("invite-1");
-    expect(currentTeamMock.reloadAndSwitchTo).not.toHaveBeenCalled();
+    expect(currentTeamMock.enterTeam).not.toHaveBeenCalled();
     expect(useAuthStore.getState().pendingInvites).toEqual([]);
   });
 

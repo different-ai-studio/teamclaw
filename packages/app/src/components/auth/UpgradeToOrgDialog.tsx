@@ -11,7 +11,6 @@ import {
 } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { getBackend } from "@/lib/backend";
-import { adoptRefreshToken } from "@/lib/auth";
 import { useCurrentTeamStore } from "@/stores/current-team";
 
 interface Props {
@@ -59,9 +58,7 @@ export function UpgradeToOrgDialog({ open, onOpenChange }: Props) {
       // The team was reparented to the new org and renamed, and the account's
       // org claim changed — mint a fresh session for the team so the new org_id
       // takes effect, then reload the (renamed) team into the store.
-      const act = await getBackend().teams.activateTeam(teamId);
-      if (act.refreshToken) await adoptRefreshToken(act.refreshToken);
-      await useCurrentTeamStore.getState().reloadAndSwitchTo(teamId);
+      await useCurrentTeamStore.getState().enterTeam(teamId);
       onOpenChange(false);
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));

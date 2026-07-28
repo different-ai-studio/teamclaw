@@ -32,7 +32,7 @@ export async function ensureCronSessionVisible(sessionId: string): Promise<void>
   // Switch teams if needed
   const activeTeamId = useCurrentTeamStore.getState().team?.id ?? null;
   if (activeTeamId !== teamId) {
-    await useCurrentTeamStore.getState().reloadAndSwitchTo(teamId);
+    await useCurrentTeamStore.getState().enterTeam(teamId);
   }
 
   // Skip upsert if already in list (may have been added by a previous call)

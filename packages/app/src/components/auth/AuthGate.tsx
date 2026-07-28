@@ -181,6 +181,27 @@ export function AuthGate({ children }: AuthGateProps) {
       void setLocalCacheTeamGate(snapshot.team.id);
       setBootstrap("ready");
       markStartup("team-bootstrap:end");
+      // The cached team is not proof that it is still inside the server-side
+      // active org: the user may have switched orgs elsewhere, or last entered
+      // this team through a path that never activated it. Restoring it blindly
+      // leaves the client pinned to a team every request will be refused for,
+      // and no later code path notices. Probe once in the background (RLS
+      // hides an out-of-org team, so this throws) and self-heal by activating.
+      // Off the critical path — first paint already happened.
+      void (async () => {
+        try {
+          await getBackend().teams.getTeam(snapshot.team!.id);
+        } catch (probeErr) {
+          console.warn("[AuthGate] cached team is outside the active org, re-activating", probeErr);
+          try {
+            await useCurrentTeamStore.getState().enterTeam(snapshot.team!.id);
+            const { useSessionListStore } = await import("@/stores/session-list-store");
+            await useSessionListStore.getState().load();
+          } catch (healErr) {
+            console.warn("[AuthGate] cached-team self-heal failed", healErr);
+          }
+        }
+      })();
       return;
     }
 

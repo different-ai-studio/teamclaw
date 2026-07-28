@@ -24,6 +24,12 @@ import {
   RUNTIME_START_RPC_TIMEOUT_MS,
 } from "@/lib/teamclaw/runtime-rpc-timeouts";
 import { sessionFlowError, sessionFlowLog } from "@/lib/session-flow-log";
+import {
+  reportRuntimeEnsureCrash,
+  reportRuntimeRpcNotReady,
+  reportRuntimeStartFailure,
+  type RuntimeErrorContext,
+} from "@/lib/telemetry/runtime-error-report";
 import { useWorkspaceStore } from "@/stores/workspace";
 import { useMqttReconnectStore } from "@/stores/mqtt-reconnect";
 
@@ -78,8 +84,14 @@ function failureDescription(failure: RuntimeStartFailure): string {
   }
 }
 
-function notifyRuntimeStartFailures(failures: RuntimeStartFailure[]): void {
+function notifyRuntimeStartFailures(
+  failures: RuntimeStartFailure[],
+  context: RuntimeErrorContext = {},
+): void {
   if (failures.length === 0) return;
+  for (const failure of failures) {
+    reportRuntimeStartFailure(failure, context);
+  }
   void import("sonner").then(({ toast }) => {
     for (const failure of failures) {
       toast.error(i18n.t("daemon.agentRuntime.notStartedTitle"), {
@@ -150,6 +162,22 @@ export type EnsureRuntimeThenSetModelArgs = {
  * across daemon restarts while the UI still looks "ready".
  */
 export async function ensureRuntimeThenSetModel(
+  args: EnsureRuntimeThenSetModelArgs,
+): Promise<{ runtimeId: string }> {
+  try {
+    return await runEnsureRuntimeThenSetModel(args);
+  } catch (error) {
+    reportRuntimeEnsureCrash(error, {
+      sessionId: args.sessionId,
+      teamId: args.teamId,
+      agentActorId: args.agentActorId,
+      trigger: "set_model",
+    });
+    throw error;
+  }
+}
+
+async function runEnsureRuntimeThenSetModel(
   args: EnsureRuntimeThenSetModelArgs,
 ): Promise<{ runtimeId: string }> {
   const agentActorId = args.agentActorId.trim();
@@ -305,6 +333,12 @@ export async function ensureAgentRuntimesForSession(args: EnsureAgentRuntimeArgs
   const existing = inFlight.get(key);
   if (existing) return existing.promise;
 
+  const errorContext: RuntimeErrorContext = {
+    sessionId: args.sessionId,
+    teamId: args.teamId,
+    trigger: reason,
+  };
+
   const work = (async () => {
     logDebug(
       "client:ensure_runtime_begin",
@@ -320,7 +354,7 @@ export async function ensureAgentRuntimesForSession(args: EnsureAgentRuntimeArgs
           code: "transport_offline" as RuntimeStartFailureCode,
           reason: "mqtt disconnected",
         }));
-        notifyRuntimeStartFailures(transportFailures);
+        notifyRuntimeStartFailures(transportFailures, errorContext);
         logDebug("client:transport_offline", { mqttConnected }, { sessionId: args.sessionId });
         return;
       }
@@ -335,6 +369,7 @@ export async function ensureAgentRuntimesForSession(args: EnsureAgentRuntimeArgs
     const rpcReady = await waitForTeamclawRpcReady(20_000);
     if (!rpcReady) {
       logDebug("client:rpc_not_ready", { waitedMs: 20_000 }, { sessionId: args.sessionId });
+      reportRuntimeRpcNotReady(20_000, errorContext);
       void import("sonner").then(({ toast }) => {
         toast.error(i18n.t("daemon.agentRuntime.rpcNotReadyTitle"), {
           description: i18n.t("daemon.agentRuntime.rpcNotReadyDesc"),
@@ -345,7 +380,7 @@ export async function ensureAgentRuntimesForSession(args: EnsureAgentRuntimeArgs
 
     const { eligible, failures: gateFailures } = await gateAgentsForRuntimeStart(agentActorIds);
     if (gateFailures.length > 0) {
-      notifyRuntimeStartFailures(gateFailures);
+      notifyRuntimeStartFailures(gateFailures, errorContext);
     }
     if (eligible.length === 0) {
       logDebug("client:ensure_runtime_all_gated", { gateFailures }, { sessionId: args.sessionId });
@@ -421,7 +456,7 @@ export async function ensureAgentRuntimesForSession(args: EnsureAgentRuntimeArgs
       rpcTimeoutMs: RUNTIME_START_RPC_TIMEOUT_MS,
       suppressWorkspaceToast: true,
     });
-    notifyRuntimeStartFailures(runtimeFailures);
+    notifyRuntimeStartFailures(runtimeFailures, errorContext);
 
     const retainDeadline = Date.now() + 12_000;
     while (Date.now() < retainDeadline) {
@@ -459,6 +494,7 @@ export async function ensureAgentRuntimesForSession(args: EnsureAgentRuntimeArgs
     );
   })().catch((error) => {
     sessionFlowError("ensure_agent_runtime.failed", error, args);
+    reportRuntimeEnsureCrash(error, errorContext);
     logDebug("client:ensure_runtime_failed", { error: String(error) }, { sessionId: args.sessionId });
     void import("sonner").then(({ toast }) => {
       toast.error(i18n.t("daemon.agentRuntime.startFailedTitle"), {

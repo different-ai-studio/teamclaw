@@ -2926,6 +2926,7 @@
   "teamPicker": {
     "title": "Choose a team",
     "subtitle": "You belong to multiple teams. Pick one to continue.",
+    "singleOrgNotice": "You can work in one organization at a time. Choosing a team here leaves the other organizations' teams inaccessible until you switch back.",
     "switching": "Switching…",
     "joining": "Joining…",
     "public": "Public",
