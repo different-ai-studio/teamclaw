@@ -67,12 +67,18 @@ Create `apps/expo/.env` from `.env.example` and provide:
 
 - `EXPO_PUBLIC_SUPABASE_URL`
 - `EXPO_PUBLIC_SUPABASE_PUBLISHABLE_KEY`
-- `EXPO_PUBLIC_MQTT_URL` only when overriding the default native broker
+- `EXPO_PUBLIC_MQTT_URL` only when pinning a broker for local development
 
 These values are required for the Expo app to start correctly. If either one is
 missing, the current app bootstrap fails instead of falling back to a limited
-onboarding shell. MQTT defaults to `mqtts://ai.ucar.cc:8883` and uses the
-native Android bridge when available.
+onboarding shell.
+
+The MQTT broker address is **not** bundled: `resolveMqttUrl` fetches it from
+`GET /v1/config/bootstrap` (server-side `MQTT_PUBLIC_TCP_BROKER_URL` /
+`MQTT_PUBLIC_BROKER_URL`) and caches it in AsyncStorage, so a broker that moves
+does not need an app release. `EXPO_PUBLIC_MQTT_URL` overrides the fetch; with
+neither an override nor a cached address the app simply does not connect. The
+native Android bridge is used when available.
 
 ## Install
 

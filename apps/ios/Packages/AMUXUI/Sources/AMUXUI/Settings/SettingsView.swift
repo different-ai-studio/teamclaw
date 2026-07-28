@@ -68,13 +68,15 @@ public struct SettingsView: View {
         CloudAPIConfigurationStore.storedCloudAPIURL() ?? "—"
     }
 
-    /// The MQTT broker host the app connects to (bundled default unless
-    /// overridden in Settings). Useful when diagnosing connection issues.
+    /// The MQTT broker host the app connects to — a Settings override, else the
+    /// address the Cloud API handed out at bootstrap. Useful when diagnosing
+    /// connection issues. Nothing is bundled, so "—" means bootstrap has not
+    /// answered yet on this device.
     private var mqttBrokerAddress: String {
         let host = UserDefaults.standard.string(forKey: "teamclaw_broker_host")?
             .trimmingCharacters(in: .whitespacesAndNewlines)
         if let host, !host.isEmpty { return host }
-        return SharedDefaults.services.mqttHost ?? "—"
+        return UserDefaultsBrokerConfigCache().load()?.host ?? "—"
     }
 
     private var currentActor: CachedActor? {

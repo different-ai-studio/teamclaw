@@ -11,18 +11,44 @@ public final class PairingManager {
     private var userOverride: Bool = false
 
     private let store: CredentialStore
+    private let brokerCache: BrokerConfigCache
 
-    public init(store: CredentialStore = UserDefaultsCredentialStore()) {
+    public init(
+        store: CredentialStore = UserDefaultsCredentialStore(),
+        brokerCache: BrokerConfigCache = UserDefaultsBrokerConfigCache()
+    ) {
         self.store = store
+        self.brokerCache = brokerCache
         // Honour a stored broker host ONLY when the user explicitly set it.
-        // Otherwise always (re-)apply the bundled default, so a changed default
-        // propagates across app updates instead of being shadowed by a host an
-        // older build auto-persisted.
+        // Otherwise (re-)apply the address the Cloud API last handed out, so a
+        // moved broker propagates instead of being shadowed by a host an older
+        // build auto-persisted.
         if let c = try? store.load(), c.userOverride {
             apply(c)
         } else {
             applyDefaults()
         }
+    }
+
+    /// Adopt the broker address the Cloud API just handed out. A user-chosen
+    /// server (Settings / pairing deeplink) always wins, but the address is
+    /// still cached so it takes over if the user later clears their override.
+    public func applyServerBrokerConfig(_ endpoint: MQTTEndpoint) {
+        brokerCache.save(endpoint)
+        guard !userOverride else { return }
+        guard endpoint.host != brokerHost
+            || endpoint.port != brokerPort
+            || endpoint.useTLS != useTLS
+        else { return }
+        let credentials = PairingCredentials(
+            brokerHost: endpoint.host,
+            brokerPort: endpoint.port,
+            useTLS: endpoint.useTLS,
+            authToken: authToken,
+            userOverride: false
+        )
+        try? store.save(credentials)
+        apply(credentials)
     }
 
     /// Legacy MQTT pairing deeplink flow. iOS no longer invokes this — use
@@ -54,12 +80,16 @@ public final class PairingManager {
         try store.clear()
     }
 
+    /// No user override: fall back to the cached Cloud API address. When there
+    /// is none (first launch, or a deployment with no broker configured) the
+    /// manager stays unpaired rather than dialling a bundled host — an address
+    /// baked into the binary outlives the server it points at.
     private func applyDefaults() {
-        let services = SharedDefaults.services
+        let cached = brokerCache.load()
         let defaults = PairingCredentials(
-            brokerHost: services.mqttHost,
-            brokerPort: services.mqttPort,
-            useTLS: services.mqttUseTls,
+            brokerHost: cached?.host ?? "",
+            brokerPort: cached?.port ?? SharedDefaults.services.mqttPort,
+            useTLS: cached?.useTLS ?? SharedDefaults.services.mqttUseTls,
             authToken: authToken,
             userOverride: false
         )

@@ -80,6 +80,9 @@ struct ContentView: View {
             if let team = onboarding.currentContext?.team {
                 OnboardingLocalCacheBootstrapper.ensureWorkspaceExists(team: team, modelContext: modelContext)
             }
+            // Broker address before dial: it lives in Cloud API env, not the
+            // bundle, so a moved broker doesn't need an App Store release.
+            await refreshBrokerConfig()
             await connectMQTT()
         }
     }
@@ -225,6 +228,33 @@ struct ContentView: View {
             logger.info("MQTT trace recording enabled → \(url.path)")
         } catch {
             logger.error("Failed to start MQTT trace recorder: \(error)")
+        }
+    }
+
+    /// Pull the broker address from `GET /v1/config/bootstrap` and hand it to
+    /// the PairingManager (which caches it and ignores it when the user has
+    /// chosen their own server). Best-effort: on failure the cached address
+    /// from the last successful fetch is what `connectMQTT` dials.
+    private func refreshBrokerConfig() async {
+        guard let config = CloudAPIConfigurationStore.configuration() else { return }
+        // Resolve the bearer up front so the client's token closure captures a
+        // plain String rather than the non-Sendable coordinator.
+        let token: String
+        do {
+            token = try await onboarding.accessToken()
+        } catch {
+            logger.error("Failed to get access token for broker config: \(error)")
+            return
+        }
+        let client = CloudAPIClient(configuration: config, accessToken: { token })
+        do {
+            guard let endpoint = try await ServerBrokerConfig.fetch(client: client) else {
+                logger.warning("Cloud API returned no MQTT broker config")
+                return
+            }
+            pairing.applyServerBrokerConfig(endpoint)
+        } catch {
+            logger.error("Failed to fetch broker config: \(error)")
         }
     }
 
