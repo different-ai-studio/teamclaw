@@ -118,13 +118,13 @@ async fn handle_permission(shared: &Arc<Shared>, session_id: &str, event: &serde
     if request_id.is_empty() {
         return;
     }
-    let (is_gateway, event_tx, requester, reply_to, worktree, agent_id) = {
+    let (permission, event_tx, requester, reply_to, worktree, agent_id) = {
         let routes = shared.routes.lock();
         let Some(route) = routes.get(session_id) else {
             return;
         };
         (
-            route.is_gateway,
+            route.permission,
             route.event_tx.clone(),
             route.turn_requester.clone(),
             route.turn_reply_to.clone(),
@@ -133,7 +133,7 @@ async fn handle_permission(shared: &Arc<Shared>, session_id: &str, event: &serde
         )
     };
 
-    if is_gateway {
+    if permission.is_full_access() {
         if let Some(proc) = shared.pool.get(&worktree) {
             let _ = proc
                 .client
