@@ -536,9 +536,22 @@ export async function startAgentRuntimesAsync(
     let workspaceId = ''
     const callerHint = args.workspaceIdHint?.trim()
     const sessionWorkspaceId = baseLookup.sessionWorkspaceId?.trim()
-    if (callerHint || sessionWorkspaceId) {
+    if (callerHint) {
       workspaceId = resolveAgentRuntimeWorkspaceId(workspaceLookup)
-    } else if (isLocalDaemonAgent && localWorkspacePath) {
+    }
+    // The session's own workspace binding names the folder this session is
+    // for, so it outranks `sessionWorkspaceId` — which records where a PRIOR
+    // runtime ran and goes stale the moment the agent runs elsewhere. Opening
+    // one app after another, that stale id still named the first app's
+    // workspace, and it beat the correct path all the way into the daemon:
+    // the second app's agent ran in the first app's checkout.
+    if (!workspaceId && isLocalDaemonAgent && sessionWorkspacePath) {
+      workspaceId =
+        (await resolveCloudWorkspaceIdForLocalPath(args.teamId, sessionWorkspacePath, {
+          agentActorId,
+        })) ?? ''
+    }
+    if (!workspaceId && !sessionWorkspaceId && isLocalDaemonAgent && localWorkspacePath) {
       workspaceId =
         (await resolveCloudWorkspaceIdForLocalPath(args.teamId, localWorkspacePath, {
           agentActorId,
@@ -551,8 +564,7 @@ export async function startAgentRuntimesAsync(
       workspaceId = await ensureCloudWorkspaceIdForAgentRuntime({
         teamId: args.teamId,
         agentActorId,
-        localWorkspacePath:
-          isLocalDaemonAgent ? localWorkspacePath || null : null,
+        localWorkspacePath: isLocalDaemonAgent ? localWorktree || null : null,
         sessionId: args.sessionId,
         createdByMemberId,
       })
