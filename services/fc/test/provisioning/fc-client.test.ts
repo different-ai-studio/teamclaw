@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { makeFcOps, fcEndpoint } from "../../src/lib/provisioning/fc-client.js";
+import { makeFcOps, fcEndpoint, accountIdFromRoleArn } from "../../src/lib/provisioning/fc-client.js";
 
 function fakeClient(overrides: Record<string, any> = {}) {
   const calls: any[] = [];
@@ -60,21 +60,41 @@ test("ensureFunction re-sends environmentVariables on the update path", async ()
   assert.equal(upd[2].body.environmentVariables.DATABASE_URL, "postgres://app_x:new-pw@h/teamclaw_apps");
 });
 
-test("fcEndpoint fails loudly when neither FC_ENDPOINT nor ALIYUN_ACCOUNT_ID is set", () => {
-  const prevEndpoint = process.env.FC_ENDPOINT;
-  const prevAccount = process.env.ALIYUN_ACCOUNT_ID;
+test("accountIdFromRoleArn reads the account out of a RAM role ARN", () => {
+  assert.equal(accountIdFromRoleArn("acs:ram::1234567890123456:role/teamclaw-oss"), "1234567890123456");
+  assert.equal(accountIdFromRoleArn("  acs:ram::123456789:role/x  "), "123456789");
+  assert.equal(accountIdFromRoleArn("acs:ram::notanumber:role/x"), null);
+  assert.equal(accountIdFromRoleArn("garbage"), null);
+  assert.equal(accountIdFromRoleArn(undefined), null);
+});
+
+test("fcEndpoint resolves explicit host, then account id, then ROLE_ARN", () => {
+  const prev = {
+    endpoint: process.env.FC_ENDPOINT,
+    account: process.env.ALIYUN_ACCOUNT_ID,
+    role: process.env.ROLE_ARN,
+  };
   delete process.env.FC_ENDPOINT;
   delete process.env.ALIYUN_ACCOUNT_ID;
+  delete process.env.ROLE_ARN;
   try {
     // Previously composed the literal host "undefined.<region>.fc.aliyuncs.com".
-    assert.throws(() => fcEndpoint(), /FC_ENDPOINT or ALIYUN_ACCOUNT_ID/);
-    process.env.ALIYUN_ACCOUNT_ID = "123456";
-    assert.match(fcEndpoint(), /^123456\..*\.fc\.aliyuncs\.com$/);
+    assert.throws(() => fcEndpoint(), /FC_ENDPOINT, ALIYUN_ACCOUNT_ID, or a ROLE_ARN/);
+
+    // Any deployment that can reach OSS already has ROLE_ARN, so app deploys
+    // need no new configuration.
+    process.env.ROLE_ARN = "acs:ram::1234567890123456:role/teamclaw-oss";
+    assert.match(fcEndpoint(), /^1234567890123456\..*\.fc\.aliyuncs\.com$/);
+
+    process.env.ALIYUN_ACCOUNT_ID = "999";
+    assert.match(fcEndpoint(), /^999\./, "explicit account id beats the ARN");
+
     process.env.FC_ENDPOINT = "https://explicit.example";
-    assert.equal(fcEndpoint(), "https://explicit.example");
+    assert.equal(fcEndpoint(), "https://explicit.example", "explicit host wins outright");
   } finally {
-    if (prevEndpoint === undefined) delete process.env.FC_ENDPOINT; else process.env.FC_ENDPOINT = prevEndpoint;
-    if (prevAccount === undefined) delete process.env.ALIYUN_ACCOUNT_ID; else process.env.ALIYUN_ACCOUNT_ID = prevAccount;
+    for (const [k, v] of [["FC_ENDPOINT", prev.endpoint], ["ALIYUN_ACCOUNT_ID", prev.account], ["ROLE_ARN", prev.role]] as const) {
+      if (v === undefined) delete process.env[k]; else process.env[k] = v;
+    }
   }
 });
 

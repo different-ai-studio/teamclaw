@@ -17,7 +17,7 @@ import { pushDeps, pgPushDeps } from "./lib/admin-handlers.js";
 import { verifyAccessToken } from "./auth/verify.js";
 import { ApiError } from "./lib/http-utils.js";
 import { getAppsAdminExecutor } from "./lib/provisioning/app-postgres.js";
-import { getFcClient, makeFcOps } from "./lib/provisioning/fc-client.js";
+import { getFcClient, makeFcOps, resolveFcEndpoint } from "./lib/provisioning/fc-client.js";
 import { startDeploy as startDeployImpl, finalizeDeploy as finalizeDeployImpl } from "./lib/provisioning/app-deploy.js";
 import { PutObjectCommand } from "@aws-sdk/client-s3";
 import { getSignedUrl } from "@aws-sdk/s3-request-presigner";
@@ -61,7 +61,9 @@ export function syncGetQueryToBody(event: any) {
 // raises the error, not merely having the module loaded.
 function makeDeployDeps() {
   if (!process.env.ACCESS_KEY_ID) return {};
-  if (!process.env.FC_ENDPOINT?.trim() && !process.env.ALIYUN_ACCOUNT_ID?.trim()) return {};
+  // Same resolution the client uses, so "configured" here and "usable" there
+  // cannot drift — including the ROLE_ARN fallback.
+  if (!resolveFcEndpoint()) return {};
   const bucket = OSS_BUCKET();
   const fcOps = makeFcOps(getFcClient(), { bucket, role: process.env.ROLE_ARN });
   const appsBaseUrl = process.env.APPS_DB_ADMIN_URL;

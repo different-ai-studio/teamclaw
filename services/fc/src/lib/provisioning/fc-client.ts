@@ -5,20 +5,40 @@ type FcClientInstance = InstanceType<typeof FcClient.default>;
 
 const REGION = () => process.env.REGION || "cn-hangzhou";
 
-// FC 3.0 data-plane host is ACCOUNT-scoped: <accountId>.<region>.fc.aliyuncs.com.
-// The OSS ENDPOINT env (oss.ts) is NOT reusable. Provide FC_ENDPOINT directly,
-// or compose from ALIYUN_ACCOUNT_ID.
-export function fcEndpoint(): string {
+/** Pull the account id out of a RAM role ARN: `acs:ram::<accountId>:role/<name>`. */
+export function accountIdFromRoleArn(arn: string | undefined): string | null {
+  const m = /^acs:ram::(\d+):/.exec((arn ?? "").trim());
+  return m ? m[1] : null;
+}
+
+/**
+ * FC 3.0 data-plane host, which is ACCOUNT-scoped:
+ * `<accountId>.<region>.fc.aliyuncs.com`. The OSS `ENDPOINT` env (oss.ts) is a
+ * different host and is NOT reusable.
+ *
+ * Resolution order: an explicit `FC_ENDPOINT`, then `ALIYUN_ACCOUNT_ID`, then
+ * the account id embedded in `ROLE_ARN` — which every deployment that can talk
+ * to OSS already has, so app deploys need no new configuration at all.
+ */
+export function resolveFcEndpoint(): string | null {
   const explicit = process.env.FC_ENDPOINT?.trim();
   if (explicit) return explicit;
-  const accountId = process.env.ALIYUN_ACCOUNT_ID?.trim();
-  // Without either var the composed host used to come out as the literal
+  const accountId =
+    process.env.ALIYUN_ACCOUNT_ID?.trim() || accountIdFromRoleArn(process.env.ROLE_ARN);
+  return accountId ? `${accountId}.${REGION()}.fc.aliyuncs.com` : null;
+}
+
+export function fcEndpoint(): string {
+  const endpoint = resolveFcEndpoint();
+  // Without any of them the composed host used to come out as the literal
   // "undefined.<region>.fc.aliyuncs.com" and every call failed with a DNS
-  // error that named neither variable. Fail with the config problem instead.
-  if (!accountId) {
-    throw new Error("FC endpoint is not configured: set FC_ENDPOINT or ALIYUN_ACCOUNT_ID");
+  // error that named no variable at all. Fail with the config problem instead.
+  if (!endpoint) {
+    throw new Error(
+      "FC endpoint is not configured: set FC_ENDPOINT, ALIYUN_ACCOUNT_ID, or a ROLE_ARN to derive it from",
+    );
   }
-  return `${accountId}.${REGION()}.fc.aliyuncs.com`;
+  return endpoint;
 }
 
 export function getFcClient(): FcClientInstance {
