@@ -91,7 +91,9 @@ export function FileBrowser({ className, variant = 'default', rootPath, rootPath
   React.useEffect(() => {
     if (workspacePath) void refreshOssSync(workspacePath)
   }, [workspacePath, refreshOssSync])
-  const showOssSync = !isCustomRoot && !!ossTeamId
+  // Caller-provided actionIcons (KnowledgeBrowser git sync, TeamSharedFilesBrowser
+  // git/oss sync) already own the toolbar sync button — don't duplicate OSS sync.
+  const showOssSync = !isCustomRoot && !!ossTeamId && !actionIcons
 
   // When rootPaths is provided, create virtual root folder nodes for each path.
   // When rootPath is provided, extract its subtree from the global fileTree.

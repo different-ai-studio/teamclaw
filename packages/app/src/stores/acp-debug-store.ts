@@ -1,9 +1,9 @@
 import { create } from "zustand";
 import { appendAcpDebugLineToFile } from "@/lib/acp-debug-file-log";
-import { appShortName } from "@/lib/build-config";
+import { appStoragePrefix } from "@/lib/build-config";
 import type { AcpEvent } from "@/lib/proto/amux_pb";
 
-const ACP_DEBUG_ENABLED_KEY = `${appShortName}-acp-stream-debug`;
+const ACP_DEBUG_ENABLED_KEY = `${appStoragePrefix}-acp-stream-debug`;
 
 function readAcpDebugEnabled(): boolean {
   if (import.meta.env.VITE_ACP_DEBUG_STREAM === "true") return true;

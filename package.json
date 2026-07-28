@@ -27,6 +27,7 @@
     "rust:check": "node scripts/rust-cli.js check --manifest-path apps/desktop/Cargo.toml",
     "rust:build": "node scripts/rust-cli.js build --manifest-path apps/desktop/Cargo.toml",
     "daemon:run": "node scripts/run-daemon.js",
+    "daemon:deploy": "scripts/deploy-daemon-binaries.sh",
     "daemon:ctl": "scripts/amuxdctl.sh",
     "dev:daemon": "scripts/dev-daemon.sh",
     "dev:desktop": "scripts/dev-desktop.sh",

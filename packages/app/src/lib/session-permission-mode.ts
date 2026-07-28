@@ -1,10 +1,10 @@
 import { useSyncExternalStore } from "react";
-import { appShortName } from "@/lib/build-config";
+import { appStoragePrefix } from "@/lib/build-config";
 
 export type SessionPermissionMode = "default" | "fullAccess";
 
-const STORAGE_KEY = `${appShortName}-session-permission-modes`;
-const CHANGE_EVENT = `${appShortName}-session-permission-modes-changed`;
+const STORAGE_KEY = `${appStoragePrefix}-session-permission-modes`;
+const CHANGE_EVENT = `${appStoragePrefix}-session-permission-modes-changed`;
 const MAX_ENTRIES = 200;
 
 type StoredPayload = {
