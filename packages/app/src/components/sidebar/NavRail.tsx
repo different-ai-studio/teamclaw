@@ -52,10 +52,11 @@ function TopEntry({ label, icon: Icon, active, badge, onClick }: TopEntryProps) 
       {badge != null && (
         <span
           className={cn(
-            'shrink-0 tabular-nums',
+            // Same hit box for active/inactive so counts share a right edge.
+            'inline-flex h-[18px] min-w-[18px] shrink-0 items-center justify-center rounded-full px-[5px] text-[10.5px] font-semibold tabular-nums',
             active
-              ? 'inline-flex h-[18px] min-w-[18px] items-center justify-center rounded-full bg-coral px-[5px] text-[10.5px] font-semibold text-coral-foreground shadow-[0_2px_6px_rgba(232,90,74,0.28)]'
-              : 'text-[11.5px] tabular-nums text-muted-foreground',
+              ? 'bg-coral text-coral-foreground shadow-[0_2px_6px_rgba(232,90,74,0.28)]'
+              : 'text-muted-foreground',
           )}
         >
           {badge}

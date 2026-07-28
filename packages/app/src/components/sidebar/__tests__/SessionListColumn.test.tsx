@@ -251,6 +251,37 @@ describe('SessionListColumn', () => {
     expect(screen.getAllByTestId('v2-session-row-actions').every((el) => el.getAttribute('data-open') === 'false')).toBe(true)
   })
 
+  it('keeps only one more-actions dock open at a time', () => {
+    render(<SessionListColumn />)
+    const mores = screen.getAllByTestId('v2-session-row-more')
+    fireEvent.click(mores[0])
+    fireEvent.click(mores[1])
+    const openDocks = screen.getAllByTestId('v2-session-row-actions').filter((el) => el.getAttribute('data-open') === 'true')
+    expect(openDocks).toHaveLength(1)
+  })
+
+  it('closes the more-actions dock on Escape without selecting the session', () => {
+    const switchToSession = vi.spyOn(useUIStore.getState(), 'switchToSession').mockResolvedValue()
+    render(<SessionListColumn />)
+    const more = screen.getAllByTestId('v2-session-row-more')[0]
+    fireEvent.click(more)
+    const row = more.closest('li')!
+    fireEvent.keyDown(row, { key: 'Escape' })
+    expect(screen.getAllByTestId('v2-session-row-actions').every((el) => el.getAttribute('data-open') === 'false')).toBe(true)
+    expect(switchToSession).not.toHaveBeenCalled()
+    switchToSession.mockRestore()
+  })
+
+  it('does not select the session when clicking a dock action', () => {
+    const switchToSession = vi.spyOn(useUIStore.getState(), 'switchToSession').mockResolvedValue()
+    render(<SessionListColumn />)
+    fireEvent.click(screen.getAllByTestId('v2-session-row-more')[0])
+    const open = screen.getAllByTestId('v2-session-row-actions').find((el) => el.getAttribute('data-open') === 'true')
+    fireEvent.click(within(open!).getByLabelText(/重命名|Rename/))
+    expect(switchToSession).not.toHaveBeenCalled()
+    switchToSession.mockRestore()
+  })
+
   it('filters by ideaId in "idea" mode', () => {
     useUIStore.setState({ sidebarFilter: { kind: 'idea', ideaId: 'idea-1', title: 'I' } })
     render(<SessionListColumn />)
@@ -319,9 +350,9 @@ describe('SessionListColumn', () => {
     const switchToSession = vi.spyOn(useUIStore.getState(), 'switchToSession').mockResolvedValue()
     render(<SessionListColumn onDismiss={onDismiss} />)
 
-    const row = screen.getAllByTestId('v2-session-row').find((el) => el.getAttribute('data-session-id') === 's1')
-    expect(row).toBeTruthy()
-    fireEvent.click(row!)
+    const title = screen.getAllByTestId('v2-session-row-title').find((el) => el.textContent === 'Alpha')
+    expect(title).toBeTruthy()
+    fireEvent.click(title!)
     expect(switchToSession).toHaveBeenCalledWith('s1')
     expect(onDismiss).toHaveBeenCalledTimes(1)
     switchToSession.mockRestore()
