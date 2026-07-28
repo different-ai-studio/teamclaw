@@ -18,7 +18,13 @@
       "wecom": true,
       "wechat": true
     },
-    "auth": { "google": false, "wechat": false, "phone": false, "webSSO": true },
+    "auth": {
+      "google": false,
+      "wechat": false,
+      "phone": false,
+      "webSSO": true,
+      "webSSOHosts": ["admin.mx5.cn"]
+    },
     "teamShareBrowser": true,
     "apps": true
   },
