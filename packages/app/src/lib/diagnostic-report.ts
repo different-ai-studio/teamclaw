@@ -808,8 +808,8 @@ function buildTeamEnvCheck(teamEnv: TeamEnvDiagnostics | null, teamId: string | 
 }
 
 function buildLocalAgentCheck(doctor: unknown | null): DiagnosticCheck {
-  const runtimeKey = localAgent === 'pi' ? 'pi' : 'opencode'
-  const runtimeLabel = localAgent === 'pi' ? 'Pi' : 'OpenCode'
+  const runtimeKey = localAgent === 'pi' ? 'pi' : localAgent === 'cursor' ? 'cursor' : 'opencode'
+  const runtimeLabel = localAgent === 'pi' ? 'Pi' : localAgent === 'cursor' ? 'Cursor' : 'OpenCode'
   const doc = doctor as Record<string, Record<string, unknown>> | null
   const runtime = doc?.[runtimeKey] as { satisfied?: boolean; version?: string } | undefined
 

@@ -1,0 +1,58 @@
+//! Cursor SDK bridge discovery for `amuxd doctor`.
+
+use serde::Serialize;
+
+use crate::runtime::cursor_sdk::process::{default_bridge_command, default_bridge_main};
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CursorStatus {
+    pub node_present: bool,
+    pub bridge_script_present: bool,
+    pub api_key_present: bool,
+    pub sdk_installed: bool,
+    pub bridge_command: Vec<String>,
+    pub satisfied: bool,
+}
+
+pub fn doctor() -> CursorStatus {
+    let bridge_command = default_bridge_command();
+    let bridge_script_present = default_bridge_main().is_file();
+    let node_present = which_node().is_some();
+    let api_key_present = std::env::var("CURSOR_API_KEY")
+        .ok()
+        .filter(|k| !k.trim().is_empty())
+        .is_some()
+        || daemon_config_has_cursor_api_key();
+    let sdk_installed = default_bridge_main()
+        .parent()
+        .and_then(|p| p.parent())
+        .map(|p| p.join("node_modules/@cursor/sdk/package.json").is_file())
+        .unwrap_or(false);
+    let satisfied = node_present && bridge_script_present && api_key_present && sdk_installed;
+    CursorStatus {
+        node_present,
+        bridge_script_present,
+        api_key_present,
+        sdk_installed,
+        bridge_command,
+        satisfied,
+    }
+}
+
+fn which_node() -> Option<String> {
+    let out = std::process::Command::new("node")
+        .arg("--version")
+        .output()
+        .ok()?;
+    out.status.success().then(|| "node".to_string())
+}
+
+fn daemon_config_has_cursor_api_key() -> bool {
+    crate::config::DaemonConfig::load(&crate::config::DaemonConfig::default_path())
+        .ok()
+        .and_then(|c| c.agents.cursor)
+        .and_then(|c| c.api_key)
+        .filter(|k| !k.trim().is_empty())
+        .is_some()
+}

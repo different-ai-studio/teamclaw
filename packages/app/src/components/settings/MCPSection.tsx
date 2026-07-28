@@ -336,7 +336,7 @@ export const MCPSection = React.memo(function MCPSection() {
   // The local runtime determines how these servers are consumed: opencode reads
   // opencode.json natively; pi has no native MCP, so the TeamClaw extension
   // spawns each enabled local server and proxies its tools.
-  const [localAgent, setLocalAgent] = React.useState<'opencode' | 'pi'>('opencode')
+  const [localAgent, setLocalAgent] = React.useState<'opencode' | 'pi' | 'cursor'>('opencode')
   React.useEffect(() => {
     void (async () => {
       try {
@@ -403,7 +403,9 @@ export const MCPSection = React.memo(function MCPSection() {
         <span className="text-muted-foreground">
           {localAgent === 'pi'
             ? t('settings.mcp.piBridgeNote', 'pi 无原生 MCP，已启用的本地 server 由 TeamClaw 扩展桥接为 pi 工具')
-            : t('settings.mcp.opencodeNote', 'opencode 原生从 opencode.json 加载这些 server')}
+            : localAgent === 'cursor'
+              ? t('settings.mcp.cursorBridgeNote', 'Cursor SDK 第一版尚未桥接 workspace MCP')
+              : t('settings.mcp.opencodeNote', 'opencode 原生从 opencode.json 加载这些 server')}
         </span>
       </div>
 

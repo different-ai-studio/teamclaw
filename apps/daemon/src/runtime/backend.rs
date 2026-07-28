@@ -287,6 +287,7 @@ impl AgentBackend for OpencodeHttpBackend {
 pub fn create_backend(local_agent: &str) -> Box<dyn AgentBackend> {
     match local_agent {
         "pi" => Box::new(super::pi_rpc::PiRpcBackend::new()),
+        "cursor" => Box::new(super::cursor_sdk::CursorSdkBackend::new()),
         "opencode" => Box::new(OpencodeHttpBackend::new()),
         other => {
             warn!(
