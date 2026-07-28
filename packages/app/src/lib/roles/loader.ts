@@ -14,9 +14,11 @@ import type { SkillSource } from "@/lib/git/types"
 import { isTauri } from "@/lib/utils"
 import { encodeWorkspaceId, getDaemonRolesSkillsState, putDaemonRole, deleteDaemonRole } from "@/lib/daemon-local-client"
 
-const ROLE_ROOT = ".teamclaw/roles"
-const ROLE_SKILL_DIR = ".teamclaw/roles/skills"
-const ROLE_CONFIG_PATH = ".teamclaw/roles/config.json"
+import { TEAMCLAW_DIR } from "@/lib/build-config"
+
+const ROLE_ROOT = `${TEAMCLAW_DIR}/roles`
+const ROLE_SKILL_DIR = `${TEAMCLAW_DIR}/roles/skills`
+const ROLE_CONFIG_PATH = `${TEAMCLAW_DIR}/roles/config.json`
 const ROLE_SKILL_DIR_NAME = "skills"
 
 const SECTION_NAMES = {
@@ -310,7 +312,7 @@ async function loadRolesSkillsWorkspaceStateFromFs(
       content: skill.content,
       description: extractSkillDescription(skill.content, skill.name),
       source: skill.source,
-      dirPath: skill.dirPath ?? `${workspacePath}/.teamclaw/skills`,
+      dirPath: skill.dirPath ?? `${workspacePath}/${TEAMCLAW_DIR}/skills`,
       linkedRoles: roleUsageBySkill[skill.filename] ?? [],
       isRoleSkill: false,
     })
@@ -507,7 +509,7 @@ export async function deleteRole(workspacePath: string, roleSlug: string, roleFi
 
 export async function loadAttachableSkills(workspacePath: string): Promise<AttachableSkill[]> {
   const { skills } = await loadAllSkills(workspacePath)
-  const workspaceSkillRoot = `${workspacePath}/.teamclaw/skills`
+  const workspaceSkillRoot = `${workspacePath}/${TEAMCLAW_DIR}/skills`
   return skills
     .filter((skill) => skill.source === "local" && skill.dirPath === workspaceSkillRoot)
     .map((skill) => ({
@@ -569,7 +571,7 @@ export async function attachSkillToRole(input: AttachSkillToRoleInput): Promise<
     throw new Error(`Role "${roleSlug}" does not exist`)
   }
 
-  const sourceDir = `${workspacePath}/.teamclaw/skills/${skillSlug}`
+  const sourceDir = `${workspacePath}/${TEAMCLAW_DIR}/skills/${skillSlug}`
   const sourceSkillPath = `${sourceDir}/SKILL.md`
   if (!(await exists(sourceSkillPath))) {
     throw new Error(`Skill "${skillSlug}" is not available for role attachment`)

@@ -1,6 +1,6 @@
 import { create } from 'zustand'
 import { toast } from 'sonner'
-import { appShortName } from '@/lib/build-config'
+import { appStoragePrefix } from '@/lib/build-config'
 import { invoke } from '@tauri-apps/api/core'
 import { workspaceScopedKey } from '@/lib/storage'
 import { sessionFlowLog } from '@/lib/session-flow-log'
@@ -29,7 +29,7 @@ import {
 } from '@/lib/opencode/config'
 import { TEAM_SHARED_PROVIDER_ID } from '@/lib/team-provider'
 
-const SELECTED_MODEL_BASE = `${appShortName}-selected-model`
+const SELECTED_MODEL_BASE = `${appStoragePrefix}-selected-model`
 const DEFAULT_CONNECTABLE_PROVIDERS: ProviderEntry[] = [
   { id: 'openai', name: 'OpenAI', configured: false },
 ]

@@ -1,8 +1,8 @@
 /** Tracks amuxd re-init: previous local actor ids are "stale" for engaged pills. */
 
-import { appShortName } from '@/lib/build-config'
+import { appStoragePrefix } from '@/lib/build-config'
 
-const PERSISTED_LOCAL_DAEMON_ACTOR_KEY = `${appShortName}-local-daemon-actor-id`
+const PERSISTED_LOCAL_DAEMON_ACTOR_KEY = `${appStoragePrefix}-local-daemon-actor-id`
 
 const supersededLocalActorIds = new Set<string>()
 let lastKnownLocalActorId: string | null = null

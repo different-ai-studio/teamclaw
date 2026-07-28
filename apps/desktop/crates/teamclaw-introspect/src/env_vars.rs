@@ -11,6 +11,7 @@ pub async fn handle(workspace: &str, api_port: u16, arguments: &Value) -> Result
             let listings = teamclaw_runtime_env::env_catalog::load_agent_env_listings(
                 std::path::Path::new(workspace),
                 None,
+                None,
             );
             let entries: Vec<Value> = listings
                 .into_iter()

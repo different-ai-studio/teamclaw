@@ -1,6 +1,6 @@
-import { appShortName } from '@/lib/build-config'
+import { appStoragePrefix } from '@/lib/build-config'
 
-export const LANGUAGE_STORAGE_KEY = `${appShortName}-language`
+export const LANGUAGE_STORAGE_KEY = `${appStoragePrefix}-language`
 export const SUPPORTED_LANGUAGES = ['en', 'zh-CN'] as const
 
 export type SupportedLanguage = typeof SUPPORTED_LANGUAGES[number]
