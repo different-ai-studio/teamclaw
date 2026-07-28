@@ -1,6 +1,21 @@
 import { invoke } from "@tauri-apps/api/core";
 import { isChromeExtension } from "@/lib/platform";
 import { isTauri } from "@/lib/utils";
+import { reportLocalCacheEmptyTeamId } from "@/lib/telemetry/local-cache-error-report";
+
+/**
+ * Team-scoped loaders must never be called with a blank team id.
+ *
+ * Doing so used to reach the Rust gate and come back as a *gate mismatch*
+ * ("requested=" with nothing after it), which reads like the team state
+ * diverged when in fact the caller simply had no team yet. Catch it here,
+ * return empty, and report with a stack so the caller can be found.
+ */
+function hasTeamId(command: string, teamId: string | null | undefined): teamId is string {
+  if (teamId && teamId.trim()) return true;
+  reportLocalCacheEmptyTeamId(command);
+  return false;
+}
 
 // ── team gate ──────────────────────────────────────────────────────────────
 
@@ -193,6 +208,7 @@ export async function loadActorsForTeam(
   includeDeleted = false,
 ): Promise<ActorRow[]> {
   if (!isTauri()) return [];
+  if (!hasTeamId("actor_load_team", teamId)) return [];
   return invoke("local_cache_actor_load_team", { teamId, includeDeleted });
 }
 
@@ -221,6 +237,7 @@ export async function loadSessionsForTeam(
   includeDeleted = false,
 ): Promise<SessionRow[]> {
   if (!isTauri()) return [];
+  if (!hasTeamId("session_load_team", teamId)) return [];
   return invoke("local_cache_session_load_team", { teamId, includeDeleted });
 }
 
@@ -244,6 +261,7 @@ export async function loadSessionWorkspacesForTeam(
   viewerMemberId: string,
 ): Promise<SessionWorkspaceRow[]> {
   if (!isTauri() || !viewerMemberId.trim()) return [];
+  if (!hasTeamId("session_workspace_load_team", teamId)) return [];
   return invoke("local_cache_session_workspace_load_team", {
     teamId,
     viewerMemberId,
@@ -395,6 +413,7 @@ export async function loadIdeasForTeam(
   includeDeleted = false,
 ): Promise<IdeaRow[]> {
   if (!isTauri()) return [];
+  if (!hasTeamId("idea_load_team", teamId)) return [];
   return invoke("local_cache_idea_load_team", { teamId, includeDeleted });
 }
 
