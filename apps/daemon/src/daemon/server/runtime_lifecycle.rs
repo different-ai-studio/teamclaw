@@ -158,6 +158,13 @@ impl DaemonServer {
         // no separate local/remote id split.
         let (mut resolved_worktree, mut ws_id): (String, String) = if !workspace_id.is_empty() {
             match self.workspace_resolver.resolve(workspace_id).await {
+                // A workspace row can exist with no path — an app's 1:1
+                // workspace is created by the cloud API, which never sees a
+                // local path. Falling through to the client's worktree beats
+                // handing env setup an empty directory.
+                Ok(ws) if ws.path.trim().is_empty() && !worktree.is_empty() => {
+                    (worktree.to_string(), workspace_id.to_string())
+                }
                 Ok(ws) => (ws.path, workspace_id.to_string()),
                 Err(_) if !worktree.is_empty() => {
                     // Intentional (cloud-source-of-truth design): resolve()

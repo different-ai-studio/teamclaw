@@ -117,38 +117,24 @@ test("listAppSessions returns only sessions linked to the app", async () => {
   assert.equal(rows[0].title, "Linked");
 });
 
-// ── provisionAppRepo (managed-git per-app) ────────────────────────────────────
+// ── app creation (no remote repo) ─────────────────────────────────────────────
 
-test("createApp calls provisionAppRepo and records the git remote", async () => {
+test("createApp provisions no repo and leaves the app pending", async () => {
+  // An app's source lives only in the local checkout the daemon seeds, so
+  // creation is a single insert — no managed-git repo, no git remote.
   const { db } = await makeTestDb();
   const team = await seedTeam(db);
   const actor = await seedActor(db, team.id);
-  const calls: any[] = [];
-  const repo = createPgBusinessRepository({
-    db, userId: actor.userId,
-    provisionAppRepo: async (args: any) => { calls.push(args); return { gitRemoteUrl: "https://git/x.git", gitAuthKind: "pat" }; },
-  });
+  const repo = createPgBusinessRepository({ db, userId: actor.userId });
 
-  const app = await repo.createApp({ teamId: team.id, name: "Z", type: "fullstack_tanstack_postgres" });
-  assert.equal(calls.length, 1);
-  assert.equal(calls[0].teamId, team.id);
-  assert.equal(typeof calls[0].appId, "string");
-  const fetched = await repo.getApp(app.id);
-  assert.equal(fetched.gitRemoteUrl, "https://git/x.git");
-  assert.equal(fetched.provisionStatus, "repo_created");
-});
+  const app = await repo.createApp({ teamId: team.id, name: "Z", type: "static_web" });
+  assert.equal(app.provisionStatus, "pending");
+  assert.equal(app.gitRemoteUrl, null);
+  assert.equal(app.type, "static_web");
 
-test("createApp marks provision error when provisionAppRepo throws", async () => {
-  const { db } = await makeTestDb();
-  const team = await seedTeam(db);
-  const actor = await seedActor(db, team.id);
-  const repo = createPgBusinessRepository({
-    db, userId: actor.userId,
-    provisionAppRepo: async () => { throw new Error("codeup boom"); },
-  });
-  const app = await repo.createApp({ teamId: team.id, name: "Z", type: "fullstack_tanstack_postgres" });
   const fetched = await repo.getApp(app.id);
-  assert.equal(fetched.provisionStatus, "error");
+  assert.equal(fetched.provisionStatus, "pending");
+  assert.equal(fetched.gitRemoteUrl, null);
 });
 
 // ── authz hardening ───────────────────────────────────────────────────────────
@@ -246,12 +232,9 @@ test("updateApp advances provisionStatus through legal transitions", async () =>
   const { db } = await makeTestDb();
   const team = await seedTeam(db);
   const actor = await seedActor(db, team.id);
-  const repo = createPgBusinessRepository({
-    db, userId: actor.userId,
-    provisionAppRepo: async () => ({ gitRemoteUrl: "https://g/x.git", gitAuthKind: "pat" }),
-  });
-  const app = await repo.createApp({ teamId: team.id, name: "P", type: "fullstack_tanstack_postgres" });
-  assert.equal(app.provisionStatus, "repo_created");
+  const repo = createPgBusinessRepository({ db, userId: actor.userId });
+  const app = await repo.createApp({ teamId: team.id, name: "P", type: "data_app" });
+  assert.equal(app.provisionStatus, "pending");
 
   const seeding = await repo.updateApp(app.id, { provisionStatus: "seeding" });
   assert.equal(seeding.provisionStatus, "seeding");
@@ -259,14 +242,15 @@ test("updateApp advances provisionStatus through legal transitions", async () =>
   assert.equal(ready.provisionStatus, "ready");
 });
 
-test("updateApp rejects an illegal provisionStatus jump (from pending)", async () => {
+test("updateApp rejects an illegal provisionStatus jump", async () => {
   const { db } = await makeTestDb();
   const team = await seedTeam(db);
   const actor = await seedActor(db, team.id);
-  const repo = createPgBusinessRepository({ db, userId: actor.userId }); // pending app
-  const app = await repo.createApp({ teamId: team.id, name: "P2", type: "fullstack_tanstack_postgres" });
+  const repo = createPgBusinessRepository({ db, userId: actor.userId });
+  const app = await repo.createApp({ teamId: team.id, name: "P2", type: "data_app" });
   assert.equal(app.provisionStatus, "pending");
-  await assert.rejects(() => repo.updateApp(app.id, { provisionStatus: "ready" }), (err: any) => err?.code === "invalid_status_transition" && err?.statusCode === 400);
+  // Clients may never put a row back into a provisioning state.
+  await assert.rejects(() => repo.updateApp(app.id, { provisionStatus: "repo_created" }), (err: any) => err?.code === "invalid_status_transition" && err?.statusCode === 400);
 });
 
 test("updateApp ignores illegal provisionStatus but still applies name", async () => {
@@ -274,8 +258,8 @@ test("updateApp ignores illegal provisionStatus but still applies name", async (
   const team = await seedTeam(db);
   const actor = await seedActor(db, team.id);
   const repo = createPgBusinessRepository({ db, userId: actor.userId }); // pending app
-  const app = await repo.createApp({ teamId: team.id, name: "Old", type: "fullstack_tanstack_postgres" });
-  const updated = await repo.updateApp(app.id, { name: "New", provisionStatus: "ready" });
+  const app = await repo.createApp({ teamId: team.id, name: "Old", type: "data_app" });
+  const updated = await repo.updateApp(app.id, { name: "New", provisionStatus: "repo_created" });
   assert.equal(updated.name, "New");
   assert.equal(updated.provisionStatus, "pending"); // status unchanged
 });
@@ -336,4 +320,62 @@ test("deployApp rejects an app that is not yet ready", async () => {
   const app = await repo.createApp({ teamId: team.id, name: "NotReady", type: "fullstack_tanstack_postgres" });
   // app is at provision_status 'pending'/'error' (no provisionAppRepo dep) — deploy must 409
   await assert.rejects(() => repo.deployApp(app.id), /app_not_ready|ready/i);
+});
+
+test("finalizeDeploy hands the provisioner the app's slug (it provisions the schema)", async () => {
+  const { db } = await makeTestDb();
+  const team = await seedTeam(db);
+  const actor = await seedActor(db, team.id, { userId: "u1" });
+  let seen: any = null;
+  const repo = createPgBusinessRepository({
+    db, userId: "u1", callerActorId: actor.id,
+    startDeploy: async () => ({
+      fcFunctionName: "tc-app-x", fcRegion: "cn-hangzhou",
+      ossObjectName: "apps/x/code.zip", presignedPut: "https://oss/put?sig=x",
+    }),
+    finalizeDeploy: async (a: any) => { seen = a; return { fcEndpoint: "https://x.fcapp.run" }; },
+  } as any);
+  const app = await repo.createApp({ teamId: team.id, name: "Demo App", type: "fullstack_tanstack_postgres" });
+  await db.update(apps).set({ provisionStatus: "ready" }).where(eq(apps.id, app.id));
+  await repo.deployApp(app.id);
+  await repo.finalizeDeploy(app.id);
+  assert.equal(seen.slug, "demo-app");
+  assert.equal(seen.appId, app.id);
+});
+
+test("updateApp accepts the client's deploy_error report and stores the reason", async () => {
+  // Regression: the desktop owns the daemon-build leg, so a build that never
+  // finished left fc_status stuck at awaiting_build with nothing surfaced.
+  const { db } = await makeTestDb();
+  const team = await seedTeam(db);
+  const actor = await seedActor(db, team.id, { userId: "u1" });
+  const repo = createPgBusinessRepository({
+    db, userId: "u1", callerActorId: actor.id,
+    startDeploy: async () => ({
+      fcFunctionName: "tc-app-x", fcRegion: "cn-hangzhou",
+      ossObjectName: "apps/x/code.zip", presignedPut: "https://oss/put?sig=x",
+    }),
+  } as any);
+  const app = await repo.createApp({ teamId: team.id, name: "Demo", type: "fullstack_tanstack_postgres" });
+  await db.update(apps).set({ provisionStatus: "ready" }).where(eq(apps.id, app.id));
+  await repo.deployApp(app.id); // → awaiting_build
+
+  const out = await repo.updateApp(app.id, { fcStatus: "deploy_error", deployError: "amuxd unreachable" });
+  assert.equal(out.fcStatus, "deploy_error");
+  const [row] = await db.select().from(apps).where(eq(apps.id, app.id));
+  assert.equal(row.provisionError, "amuxd unreachable");
+
+  // ...and a retry is legal from there.
+  const retried = await repo.updateApp(app.id, { fcStatus: "awaiting_build" });
+  assert.equal(retried.fcStatus, "awaiting_build");
+});
+
+test("updateApp rejects an illegal fc_status transition", async () => {
+  const { db } = await makeTestDb();
+  const team = await seedTeam(db);
+  const actor = await seedActor(db, team.id, { userId: "u1" });
+  const repo = createPgBusinessRepository({ db, userId: "u1", callerActorId: actor.id } as any);
+  const app = await repo.createApp({ teamId: team.id, name: "Demo", type: "fullstack_tanstack_postgres" });
+  // never deployed (fc_status null → not_deployed) → cannot jump straight to live
+  await assert.rejects(() => repo.updateApp(app.id, { fcStatus: "live" }), /invalid_deploy_transition|fc_status/i);
 });

@@ -14,7 +14,7 @@ import {
   Pencil,
   Trash2,
 } from 'lucide-react'
-import { cn, isTauri } from '@/lib/utils'
+import { cn } from '@/lib/utils'
 import { SidebarCollapseToggle } from '@/components/app-sidebar'
 import { TrafficLights } from '@/components/ui/traffic-lights'
 import { useSidebar } from '@/components/ui/sidebar'
@@ -37,26 +37,11 @@ import { Input } from '@/components/ui/input'
 import { useUIStore } from '@/stores/ui'
 import { useAppsStore } from '@/stores/apps-store'
 import { useCurrentTeamStore } from '@/stores/current-team'
-import { useAuthStore } from '@/stores/auth-store'
-import { getBackend } from '@/lib/backend'
-import { resolveCurrentMemberActorId } from '@/lib/current-actor'
-import { createSessionShell } from '@/lib/session-create'
-import { upsertSessionWorkspacesBatch } from '@/lib/local-cache'
 import { revealInFinder } from '@/components/workspace/file-tree-operations'
 import { CreateAppDialog } from '@/components/apps/CreateAppDialog'
-import type { AppRow, AppSessionRow } from '@/lib/backend/types'
-
-/** Resolve the local daemon's per-app workdir: `~/.amuxd/apps/<appId>`. */
-async function appWorkdirPath(appId: string): Promise<string | null> {
-  if (!isTauri()) return null
-  try {
-    const { homeDir } = await import('@tauri-apps/api/path')
-    const home = await homeDir()
-    return `${home}/.amuxd/apps/${appId}`
-  } catch {
-    return null
-  }
-}
+import { resolveAppType } from '@/lib/app-types'
+import { appWorkdirPath, ensureAppSession } from '@/lib/app-session'
+import type { AppRow } from '@/lib/backend/types'
 
 async function comingSoon(label: string): Promise<void> {
   const { toast } = await import('sonner')
@@ -64,29 +49,14 @@ async function comingSoon(label: string): Promise<void> {
 }
 
 /**
- * Pick the most-recent session for an app, ordering by `lastMessageAt ?? createdAt`
- * descending. Exported as a pure helper so the selection logic is unit-testable
- * without rendering the component.
- */
-export function pickMostRecentSession(rows: AppSessionRow[]): AppSessionRow | null {
-  if (rows.length === 0) return null
-  const ts = (r: AppSessionRow): number => {
-    const v = r.lastMessageAt ?? r.createdAt
-    const n = v ? Date.parse(v) : NaN
-    return Number.isNaN(n) ? 0 : n
-  }
-  return rows.reduce((best, r) => (ts(r) > ts(best) ? r : best))
-}
-
-/**
  * Whether a "Reseed" action should be offered for an app in the given
- * provision state. Only apps whose repo exists but seed has not completed
- * (`repo_created`) or that failed (`error`) can be reseeded — `ready`,
- * `seeding`, and `pending` are excluded. Exported as a pure predicate so the
+ * provision state. An app whose files were never written (`pending`, or the
+ * legacy `repo_created`) or whose seed failed (`error`) can be reseeded;
+ * `ready` and `seeding` are excluded. Exported as a pure predicate so the
  * gating logic is unit-testable without rendering the component.
  */
 export function canReseed(status: string): boolean {
-  return status === 'repo_created' || status === 'error'
+  return status === 'pending' || status === 'repo_created' || status === 'error'
 }
 
 interface RowProps {
@@ -101,10 +71,34 @@ function provisionMeta(status: string): { dot: 'ready' | 'failed' | 'idle'; key:
   return { dot: 'idle', key: 'apps.provisioning', fallback: 'Provisioning…' }
 }
 
+/**
+ * The single status line a row shows, resolved from both lifecycles at once:
+ * an in-flight deploy, then the persisted deploy state (`fcStatus`), then the
+ * repo/seed state (`provisionStatus`). Persisted deploy states used to be
+ * invisible unless they were `live`, so a deploy that died mid-flight — or one
+ * still running in another window — read as a plain "Ready" app.
+ *
+ * Exported as a pure helper so the precedence is unit-testable without
+ * rendering the column.
+ */
+export function appStatusMeta(
+  app: Pick<AppRow, 'provisionStatus' | 'fcStatus' | 'fcEndpoint'>,
+  deploying: boolean,
+): { dot: 'live' | 'ready' | 'failed' | 'idle'; key: string; fallback: string } {
+  if (deploying) return { dot: 'idle', key: 'apps.deploying', fallback: '部署中…' }
+  if (app.fcStatus === 'live' && app.fcEndpoint) return { dot: 'live', key: 'apps.live', fallback: '已上线' }
+  if (app.fcStatus === 'deploy_error') return { dot: 'failed', key: 'apps.deployFailed', fallback: '部署失败' }
+  if (app.fcStatus === 'awaiting_build' || app.fcStatus === 'building' || app.fcStatus === 'deploying') {
+    return { dot: 'idle', key: 'apps.deploying', fallback: '部署中…' }
+  }
+  return provisionMeta(app.provisionStatus)
+}
+
 function AppItemRow({ app, onClick, onRename }: RowProps) {
   const { t } = useTranslation()
-  const meta = provisionMeta(app.provisionStatus)
   const deploying = useAppsStore((s) => s.deployingIds.includes(app.id))
+  const meta = appStatusMeta(app, deploying)
+  const appTypeMeta = resolveAppType(app.type)
   const isLive = app.fcStatus === 'live' && !!app.fcEndpoint
 
   const handleReveal = React.useCallback(async (e: React.SyntheticEvent) => {
@@ -141,22 +135,17 @@ function AppItemRow({ app, onClick, onRename }: RowProps) {
         <span className="flex min-w-0 flex-1 flex-col">
           <span className="truncate text-[13.5px] font-semibold text-foreground">{app.name}</span>
           <span className="flex items-center gap-1.5 truncate text-[11.5px] text-muted-foreground">
+            <span className="shrink-0">{t(appTypeMeta.labelKey, appTypeMeta.label)}</span>
+            <span className="shrink-0 text-faint">·</span>
             <span
               className={cn(
                 'h-1.5 w-1.5 shrink-0 rounded-full',
-                isLive && 'bg-emerald-500',
-                !isLive && meta.dot === 'ready' && 'bg-emerald-500',
-                !isLive && meta.dot === 'failed' && 'bg-amber-500',
-                !isLive && meta.dot === 'idle' && 'bg-muted-foreground/40',
+                (meta.dot === 'live' || meta.dot === 'ready') && 'bg-emerald-500',
+                meta.dot === 'failed' && 'bg-amber-500',
+                meta.dot === 'idle' && 'bg-muted-foreground/40',
               )}
             />
-            <span className="truncate">
-              {deploying
-                ? t('apps.deploying', '部署中…')
-                : isLive
-                  ? t('apps.live', '已上线')
-                  : t(meta.key, meta.fallback)}
-            </span>
+            <span className="truncate">{t(meta.key, meta.fallback)}</span>
           </span>
         </span>
       </button>
@@ -239,11 +228,11 @@ function AppItemRow({ app, onClick, onRename }: RowProps) {
             className="text-[13px] text-destructive focus:text-destructive"
             onClick={(e) => {
               e.stopPropagation()
-              void comingSoon(t('apps.delete', '删除应用'))
+              void comingSoon(t('apps.delete', '删除'))
             }}
           >
             <Trash2 className="mr-2 h-3.5 w-3.5" />
-            {t('apps.delete', '删除应用')}
+            {t('apps.delete', '删除')}
           </DropdownMenuItem>
         </DropdownMenuContent>
       </DropdownMenu>
@@ -316,104 +305,11 @@ export function AppsListColumn() {
 
   const openApp = React.useCallback(async (app: AppRow) => {
     try {
-      const t = useCurrentTeamStore.getState()
-      const linkTeamId = t.team?.id ?? app.teamId
-      const authUserId = useAuthStore.getState().session?.user?.id ?? null
-
-      const sessions = await getBackend().apps.listAppSessions(app.id)
-      const recent = pickMostRecentSession(sessions)
-      const sessionId = recent
-        ? recent.id
-        : await (async () => {
-            // No session yet — create one linked to the app.
-            if (!authUserId) {
-              console.error('[AppsListColumn] cannot create app session: not signed in')
-              return null
-            }
-            const creatorActorId = await resolveCurrentMemberActorId(linkTeamId, authUserId, {
-              currentTeamId: linkTeamId,
-              currentMemberId: t.currentMember?.id ?? null,
-            })
-            if (!creatorActorId) {
-              console.error('[AppsListColumn] cannot create app session: no current actor')
-              return null
-            }
-            const result = await createSessionShell({
-              teamId: linkTeamId,
-              creatorActorId,
-              title: app.name,
-              additionalActorIds: [],
-              appId: app.id,
-            })
-            return result.sessionId
-          })()
+      const sessionId = await ensureAppSession(app)
       if (!sessionId) return
-
-      // The daemon seeds app repos into ~/.amuxd/apps/<appId>.
-      let appWorkdir: string | null = null
-      try {
-        const { homeDir } = await import('@tauri-apps/api/path')
-        const home = await homeDir()
-        appWorkdir = `${home}/.amuxd/apps/${app.id}`
-      } catch (e) {
-        console.warn('[AppsListColumn] could not resolve home dir (non-fatal):', e)
-      }
-
-      if (appWorkdir) {
-        const viewerMemberId = t.currentMember?.id ?? null
-        const { getLocalDaemonActorId } = await import('@/lib/daemon-agent-admin')
-        const localDaemonActorId = await getLocalDaemonActorId()
-
-        // 1. Bind session → app workdir in local libsql so the UI (file
-        //    browser, workspace switch) opens the right directory.
-        if (viewerMemberId && localDaemonActorId) {
-          try {
-            await upsertSessionWorkspacesBatch([{
-              sessionId,
-              teamId: linkTeamId,
-              viewerMemberId,
-              agentId: localDaemonActorId,
-              workspaceId: app.workspaceId ?? null,
-              workspacePath: appWorkdir,
-              updatedAt: new Date().toISOString(),
-            }])
-          } catch (e) {
-            console.warn('[AppsListColumn] could not bind session workspace (non-fatal):', e)
-          }
-        }
-
-        // 2. Register the app workdir as a cloud daemon workspace bound to the
-        //    local daemon agent. Runtime-start workspace resolution matches
-        //    cloud workspaces by path; without this row the local daemon falls
-        //    back to its default workspace instead of the app's code dir.
-        try {
-          if (localDaemonActorId) {
-            const { listDaemonWorkspaces, createDaemonWorkspace } = await import('@/lib/daemon-workspaces')
-            const { workspacePathsMatch } = await import('@/stores/session-utils')
-            const existing = (await listDaemonWorkspaces(linkTeamId, localDaemonActorId))
-              .find((w) => !w.archived && w.path && workspacePathsMatch(w.path, appWorkdir!))
-            if (!existing) {
-              const createdByMemberId = authUserId
-                ? await resolveCurrentMemberActorId(linkTeamId, authUserId, {
-                    currentTeamId: linkTeamId,
-                    currentMemberId: t.currentMember?.id ?? null,
-                  }).catch(() => null)
-                : null
-              await createDaemonWorkspace({
-                teamId: linkTeamId,
-                agentId: localDaemonActorId,
-                createdByMemberId,
-                name: app.name,
-                path: appWorkdir,
-              })
-            }
-          }
-        } catch (e) {
-          console.warn('[AppsListColumn] could not register app daemon workspace (non-fatal):', e)
-        }
-      }
-
-      await useUIStore.getState().switchToSession(sessionId)
+      // Keep column 2 on the Apps list — the app row is what the user is
+      // navigating from, and bouncing to the session list loses that context.
+      await useUIStore.getState().switchToSession(sessionId, { keepSidebarFilter: true })
     } catch (e) {
       console.error('[AppsListColumn] failed to open app', e)
     }
@@ -431,7 +327,7 @@ export function AppsListColumn() {
         <div className="flex min-w-0 flex-1 items-center gap-1.5">
           <AppWindow className="h-4 w-4 shrink-0 text-muted-foreground" />
           <div className="truncate text-[15px] font-bold tracking-tight text-foreground">
-            {t('apps.title', 'Apps')}
+            {t('apps.title', '演示及 APP')}
             <span className="font-mono text-[11px] font-normal text-faint"> · {items.length}</span>
           </div>
         </div>
@@ -439,8 +335,8 @@ export function AppsListColumn() {
           type="button"
           onClick={() => setCreateOpen(true)}
           disabled={!teamId}
-          title={t('apps.create', 'New App')}
-          aria-label={t('apps.create', 'New App')}
+          title={t('apps.create', '新建')}
+          aria-label={t('apps.create', '新建')}
           className="flex h-7 w-7 shrink-0 items-center justify-center rounded-[7px] text-muted-foreground transition-colors hover:bg-selected/40 hover:text-foreground disabled:opacity-40"
         >
           <Plus className="h-4 w-4" />
@@ -455,7 +351,7 @@ export function AppsListColumn() {
           </div>
         ) : items.length === 0 ? (
           <div className="px-6 py-10 text-center text-[13px] text-muted-foreground">
-            {t('apps.empty', 'No apps yet')}
+            {t('apps.empty', '还没有内容')}
           </div>
         ) : (
           items.map((app) => (

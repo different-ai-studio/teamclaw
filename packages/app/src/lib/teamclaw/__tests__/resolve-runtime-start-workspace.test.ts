@@ -71,11 +71,25 @@ describe('resolveAgentRuntimeWorkspaceId', () => {
 })
 
 describe('runtimeStartWorkspaceArgs', () => {
-  it('never sends caller worktree', () => {
+  it('sends no worktree by default', () => {
     expect(runtimeStartWorkspaceArgs('uuid-ws')).toEqual({
       workspaceId: 'uuid-ws',
       worktree: '',
     })
+  })
+
+  it('passes a local worktree through for the daemon on this machine', () => {
+    // An app's cloud workspace row has no path, so without this the daemon
+    // spawns in the onboarded default workspace instead of the app checkout.
+    expect(runtimeStartWorkspaceArgs('uuid-ws', '/Users/me/.amuxd/apps/app-1')).toEqual({
+      workspaceId: 'uuid-ws',
+      worktree: '/Users/me/.amuxd/apps/app-1',
+    })
+  })
+
+  it('trims and tolerates a blank worktree', () => {
+    expect(runtimeStartWorkspaceArgs('uuid-ws', '   ').worktree).toBe('')
+    expect(runtimeStartWorkspaceArgs('uuid-ws', ' /tmp/ws ').worktree).toBe('/tmp/ws')
   })
 })
 

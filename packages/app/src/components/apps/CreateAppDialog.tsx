@@ -12,9 +12,7 @@ import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { cn } from '@/lib/utils'
 import { useAppsStore } from '@/stores/apps-store'
-
-/** The single app type currently supported by the platform. */
-const APP_TYPE = 'fullstack_tanstack_postgres'
+import { APP_TYPES, DEFAULT_APP_TYPE, type AppTypeId } from '@/lib/app-types'
 
 type Visibility = 'personal' | 'team'
 
@@ -27,6 +25,7 @@ interface CreateAppDialogProps {
 export function CreateAppDialog({ open, onOpenChange, teamId }: CreateAppDialogProps) {
   const { t } = useTranslation()
   const [name, setName] = React.useState('')
+  const [appType, setAppType] = React.useState<AppTypeId>(DEFAULT_APP_TYPE)
   const [visibility, setVisibility] = React.useState<Visibility>('personal')
   const [submitting, setSubmitting] = React.useState(false)
   const [error, setError] = React.useState<string | null>(null)
@@ -34,6 +33,7 @@ export function CreateAppDialog({ open, onOpenChange, teamId }: CreateAppDialogP
   React.useEffect(() => {
     if (!open) {
       setName('')
+      setAppType(DEFAULT_APP_TYPE)
       setVisibility('personal')
       setSubmitting(false)
       setError(null)
@@ -48,17 +48,30 @@ export function CreateAppDialog({ open, onOpenChange, teamId }: CreateAppDialogP
     setSubmitting(true)
     setError(null)
     try {
-      await useAppsStore.getState().create({
+      const app = await useAppsStore.getState().create({
         teamId,
         name: trimmed,
-        type: APP_TYPE,
+        type: appType,
         visibility,
       })
       onOpenChange(false)
       setName('')
+      setAppType(DEFAULT_APP_TYPE)
       setVisibility('personal')
+
+      // Drop the user straight into a conversation that is already underway.
+      // Only once the files exist — an opening message telling the agent to
+      // read AGENTS.md is useless if the template was never written.
+      if (app.provisionStatus === 'ready') {
+        const { startAppFirstSession } = await import('@/lib/app-session')
+        const sessionId = await startAppFirstSession(app)
+        if (sessionId) {
+          const { useUIStore } = await import('@/stores/ui')
+          await useUIStore.getState().switchToSession(sessionId, { keepSidebarFilter: true })
+        }
+      }
     } catch (e) {
-      setError(e instanceof Error ? e.message : t('apps.createError', 'Failed to create app'))
+      setError(e instanceof Error ? e.message : t('apps.createError', '创建失败'))
     } finally {
       setSubmitting(false)
     }
@@ -75,11 +88,11 @@ export function CreateAppDialog({ open, onOpenChange, teamId }: CreateAppDialogP
             </span>
             <ChevronRight className="h-4 w-4 text-faint" />
             <DialogTitle className="text-[15px] font-bold text-foreground">
-              {t('apps.createTitle', 'Create App')}
+              {t('apps.createTitle', '新建')}
             </DialogTitle>
           </div>
           <DialogDescription className="sr-only">
-            {t('apps.createTitle', 'Create App')}
+            {t('apps.createTitle', '新建')}
           </DialogDescription>
         </DialogHeader>
 
@@ -93,7 +106,7 @@ export function CreateAppDialog({ open, onOpenChange, teamId }: CreateAppDialogP
               autoFocus
               value={name}
               onChange={(e) => setName(e.target.value)}
-              placeholder={t('apps.namePlaceholder', 'My app')}
+              placeholder={t('apps.namePlaceholder', '起个名字')}
               disabled={submitting}
               onKeyDown={(e) => {
                 if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) {
@@ -108,8 +121,38 @@ export function CreateAppDialog({ open, onOpenChange, teamId }: CreateAppDialogP
             <span className="text-[12.5px] font-semibold text-muted-foreground">
               {t('apps.typeLabel', 'Type')}
             </span>
-            <div className="rounded-[9px] border border-border-soft bg-paper px-3 py-2.5 text-[13px] text-ink-2">
-              {t('apps.typeFullstack', 'Full-stack (TanStack + Postgres)')}
+            <div className="flex flex-col gap-1.5">
+              {APP_TYPES.map((meta) => {
+                const selected = appType === meta.id
+                return (
+                  <button
+                    key={meta.id}
+                    type="button"
+                    role="radio"
+                    aria-checked={selected}
+                    disabled={submitting}
+                    onClick={() => setAppType(meta.id)}
+                    className={cn(
+                      'flex flex-col gap-0.5 rounded-[9px] border px-3 py-2.5 text-left transition-colors disabled:opacity-50',
+                      selected
+                        ? 'border-coral bg-coral/5'
+                        : 'border-border-soft bg-paper hover:bg-selected/30',
+                    )}
+                  >
+                    <span
+                      className={cn(
+                        'text-[13px] font-semibold',
+                        selected ? 'text-coral' : 'text-foreground',
+                      )}
+                    >
+                      {t(meta.labelKey, meta.label)}
+                    </span>
+                    <span className="text-[12px] text-muted-foreground">
+                      {t(meta.descriptionKey, meta.description)}
+                    </span>
+                  </button>
+                )
+              })}
             </div>
           </div>
 
@@ -147,7 +190,7 @@ export function CreateAppDialog({ open, onOpenChange, teamId }: CreateAppDialogP
 
           {error && (
             <div className="rounded-[9px] border border-amber-500/40 bg-amber-500/5 px-3 py-2 text-[12.5px] text-amber-700">
-              {t('apps.createError', 'Failed to create app')}: {error}
+              {t('apps.createError', '创建失败')}: {error}
             </div>
           )}
         </div>

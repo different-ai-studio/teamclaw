@@ -169,7 +169,7 @@ export function NavRail() {
         ) : null}
         {buildConfig.features.apps && (
           <TopEntry
-            label={t('sidebar.apps', 'Apps')}
+            label={t('sidebar.apps', '演示及 APP')}
             icon={AppWindow}
             active={filter.kind === 'apps'}
             onClick={() => setFilter({ kind: 'apps' })}

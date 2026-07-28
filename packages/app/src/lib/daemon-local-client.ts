@@ -733,15 +733,13 @@ export async function putDaemonAllowlist(
 // ─── Apps ─────────────────────────────────────────────────────────────────────
 
 /**
- * Kick the local daemon to seed a freshly-created app repo (clone the empty
- * managed-git repo, write the starter template, first commit + push).
+ * Kick the local daemon to seed a new app: write the starter template for its
+ * type into `<amuxd home>/apps/<appId>`, `git init`, and commit.
  *
  * Best-effort and **non-fatal**: app creation must succeed even when the daemon
- * is down or the push fails. We pass only `{ appId, gitRemoteUrl }` — no
- * `workdir` (the daemon resolves `<amuxd home>/apps/<appId>` itself) and no git
- * credential. Credentialed pushes to *private* per-app repos are out of scope
- * for phase 1 (needs a per-app secret-delivery channel); for those the seed
- * fails daemon-side and is logged here, which is expected.
+ * is down. There is no remote repo and no credential — the templates are
+ * compiled into the daemon, so this needs no network at all. We pass no
+ * `workdir`; the daemon resolves the per-app path itself.
  *
  * Returns a three-state outcome (never throws):
  * - `"seeded"`    — the daemon accepted and completed the seed.
@@ -753,13 +751,14 @@ export type SeedAppOutcome = "seeded" | "failed" | "unreachable";
 
 export async function seedDaemonApp(
   appId: string,
-  gitRemoteUrl: string,
   teamId: string,
+  appName: string,
+  appType: string,
 ): Promise<SeedAppOutcome> {
   try {
     const result = await daemonFetch<{ status: string }>('/v1/apps/seed', {
       method: 'POST',
-      body: JSON.stringify({ appId, gitRemoteUrl, teamId }),
+      body: JSON.stringify({ appId, teamId, appName, appType }),
     })
     if (result.ok) return "seeded"
     if (result.status === 0) {

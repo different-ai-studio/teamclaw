@@ -129,7 +129,6 @@ export function createSupabaseBusinessRepository(options) {
     provisionLiteLlm,
     // Injectable for tests; defaults to proxying the LiteLLM gateway /v1/models.
     fetchLiteLlmModels: fetchLiteLlmModelsOpt,
-    provisionAppRepo,
     startDeploy,
     finalizeDeploy,
     // Injectable for tests; defaults to querying the LiteLLM RDS directly.
@@ -2805,51 +2804,20 @@ export function createSupabaseBusinessRepository(options) {
         .single();
       if (appErr) throw appErr;
 
-      // Provision the per-app git repo via the injected dependency (mirrors how
-      // teams provision LiteLLM). On success record the remote + authKind and
-      // advance provision_status to "repo_created"; on failure capture the error
-      // and set provision_status to "error". The app row is created either way.
-      if (provisionAppRepo) {
-        try {
-          const res = await provisionAppRepo({ appId: row.id, teamId: input.teamId });
-          if (res?.gitRemoteUrl) {
-            const { data: updated, error: updErr } = await supabase
-              .from("apps")
-              .update({
-                git_remote_url: res.gitRemoteUrl,
-                git_auth_kind: res.gitAuthKind,
-                provision_status: "repo_created",
-                updated_at: new Date().toISOString(),
-              })
-              .eq("id", row.id)
-              .select(APP_COLUMNS)
-              .single();
-            if (updErr) throw updErr;
-            return mapApp(updated);
-          }
-        } catch (e: any) {
-          const { data: errd, error: errUpdErr } = await supabase
-            .from("apps")
-            .update({
-              provision_status: "error",
-              provision_error: String(e?.message ?? e),
-              updated_at: new Date().toISOString(),
-            })
-            .eq("id", row.id)
-            .select(APP_COLUMNS)
-            .single();
-          if (errUpdErr) throw errUpdErr;
-          return mapApp(errd);
-        }
-      }
-
+      // No repo provisioning: an app's source lives only in the local checkout
+      // the daemon seeds (docs/specs/2026-07-28-app-types-design.md §5). The
+      // row is returned `pending`; the desktop kicks the local seed and writes
+      // back `ready` or `error`.
       return mapApp(row);
     },
 
-    async updateApp(appId: string, patch: { name?: string; visibility?: string; provisionStatus?: string }) {
+    async updateApp(
+      appId: string,
+      patch: { name?: string; visibility?: string; provisionStatus?: string; fcStatus?: string; deployError?: string },
+    ) {
       // RLS apps_update_if_creator blocks non-creators: the UPDATE matches zero
       // rows and .maybeSingle() returns null → surface as null (route 404s).
-      const { data: cur } = await supabase.from("apps").select("provision_status").eq("id", appId).maybeSingle();
+      const { data: cur } = await supabase.from("apps").select("provision_status, fc_status").eq("id", appId).maybeSingle();
       const set: any = { updated_at: new Date().toISOString() };
       if (typeof patch.name === "string" && patch.name.length > 0) set.name = patch.name;
       if (patch.visibility === "team" || patch.visibility === "personal") {
@@ -2862,6 +2830,21 @@ export function createSupabaseBusinessRepository(options) {
         } else if (set.name === undefined && set.visibility === undefined) {
           throw new ApiError(400, "invalid_status_transition",
             `cannot move provision_status ${from} -> ${patch.provisionStatus}`);
+        }
+      }
+      // Deploy-lifecycle writeback — the desktop owns the daemon-build step of
+      // the deploy, so it is the only party that can report that the build never
+      // finished. Without it the row stayed at `awaiting_build` indefinitely.
+      if (typeof patch.fcStatus === "string") {
+        if (!isLegalFcTransition(cur?.fc_status, patch.fcStatus)) {
+          throw new ApiError(400, "invalid_deploy_transition",
+            `cannot move fc_status ${cur?.fc_status ?? "not_deployed"} -> ${patch.fcStatus}`);
+        }
+        set.fc_status = patch.fcStatus;
+        if (patch.fcStatus === "deploy_error") {
+          set.provision_error = typeof patch.deployError === "string" && patch.deployError
+            ? patch.deployError
+            : "deploy failed";
         }
       }
       const { data, error } = await supabase
@@ -2889,7 +2872,7 @@ export function createSupabaseBusinessRepository(options) {
       }
       if (!startDeploy) throw new ApiError(503, "deploy_unavailable", "deploy provisioning not configured");
       try {
-        const r = await startDeploy({ appId, slug: existing.slug, region: process.env.REGION || "cn-hangzhou" });
+        const r = await startDeploy({ appId, region: process.env.REGION || "cn-hangzhou" });
         // Persist only fc_function_name / fc_region / fc_status. The app's own
         // DATABASE_URL from startDeploy is intentionally NOT persisted. The
         // UPDATE is RLS-gated (apps_update_if_creator): a non-creator matches
@@ -2928,7 +2911,7 @@ export function createSupabaseBusinessRepository(options) {
       // visible to the caller → surface null so the route 404s.
       const { data: existing, error: selErr } = await supabase
         .from("apps")
-        .select("id, fc_function_name, fc_status")
+        .select("id, slug, type, fc_function_name, fc_status")
         .eq("id", appId)
         .maybeSingle();
       if (selErr) throw selErr;
@@ -2942,6 +2925,9 @@ export function createSupabaseBusinessRepository(options) {
       await supabase.from("apps").update({ fc_status: "deploying", updated_at: new Date().toISOString() }).eq("id", appId);
       try {
         const r = await finalizeDeploy({
+          appId,
+          slug: existing.slug,
+          appType: existing.type,
           fcFunctionName: existing.fc_function_name,
           ossObjectName: appOssObjectName(appId),
         });

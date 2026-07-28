@@ -19,7 +19,8 @@
       "wechat": true
     },
     "auth": { "google": false, "wechat": false, "phone": false, "webSSO": true },
-    "teamShareBrowser": true
+    "teamShareBrowser": true,
+    "apps": true
   },
   "localAgent": "pi",
   "defaults": {

@@ -25,8 +25,15 @@ export function buildProvisionStatements({ schema, role, password }: ProvisionPa
   const pw = password.replace(/'/g, "''");
   return [
     `create schema if not exists ${schema}`,
+    // The password is ALWAYS (re)set, not only on create. The caller generates a
+    // fresh secret per deploy and writes it into the function env; leaving an
+    // existing role's password alone made every redeploy hand the app a
+    // DATABASE_URL whose password had never been applied, so a second deploy
+    // could no longer connect.
     `do $$ begin
-       if not exists (select 1 from pg_roles where rolname = '${role}') then
+       if exists (select 1 from pg_roles where rolname = '${role}') then
+         alter role ${role} with login password '${pw}';
+       else
          create role ${role} login password '${pw}';
        end if;
      end $$`,

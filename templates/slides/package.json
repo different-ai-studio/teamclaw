@@ -1,0 +1,14 @@
+{
+  "name": "teamclaw-slides",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "build": "node build.mjs",
+    "start": "node .output/server/index.mjs",
+    "dev": "node build.mjs && node .output/server/index.mjs"
+  },
+  "//": "reveal.js is a real dependency copied into the artifact at build time rather than loaded from a CDN: FC's outbound network is not guaranteed, and the lockfile then pins exactly what ships. Version is exact on purpose (see AGENTS.md).",
+  "dependencies": {
+    "reveal.js": "6.0.1"
+  }
+}
