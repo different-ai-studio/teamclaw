@@ -851,6 +851,9 @@ export interface AppsBackend {
   getApp(appId: string): Promise<AppRow | null>;
   listAppSessions(appId: string): Promise<AppSessionRow[]>;
   updateAppProvisionStatus(appId: string, provisionStatus: string): Promise<AppRow | null>;
+  /** Report a deploy-lifecycle status the client owns (today: `deploy_error`
+   *  when the local daemon build never finished). Returns null on 404. */
+  updateAppDeployStatus(appId: string, fcStatus: string, deployError?: string): Promise<AppRow | null>;
   /** Rename an app (PATCH name). Returns null on 404. */
   renameApp(appId: string, name: string): Promise<AppRow | null>;
   /** Start FC deploy: provisions the function + returns the OSS upload handle. */

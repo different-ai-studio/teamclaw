@@ -187,6 +187,23 @@ services:
       BUCKET: "${BUCKET:-teamclaw-team}"
       REGION: "${REGION:-cn-shenzhen}"
       ENDPOINT: "${ENDPOINT:-}"
+      # Apps module. These were declared in services/fc/s.yaml but never in this
+      # allowlist, so the container saw none of them: creating an app failed at
+      # the managed-git repo step (CODEUP_*), and "deploy" 503'd with an opaque
+      # `deploy_unavailable` because makeDeployDeps() bails without
+      # APPS_DB_ADMIN_URL. Keep both targets in step when adding more.
+      CODEUP_ORG_ID: "${CODEUP_ORG_ID:-}"
+      CODEUP_PAT: "${CODEUP_PAT:-}"
+      CODEUP_BOT_USERNAME: "${CODEUP_BOT_USERNAME:-teamclaw}"
+      # Admin connection to the shared per-app database (teamclaw_apps) — same
+      # RDS instance as the control plane, different database. Blank disables
+      # app deploys (they return 503 rather than half-provisioning).
+      APPS_DB_ADMIN_URL: "${APPS_DB_ADMIN_URL:-}"
+      # The FC 3.0 data-plane host is account-scoped
+      # (<accountId>.<region>.fc.aliyuncs.com) and is NOT the OSS ENDPOINT.
+      # Set FC_ENDPOINT, or ALIYUN_ACCOUNT_ID to have it composed.
+      FC_ENDPOINT: "${FC_ENDPOINT:-}"
+      ALIYUN_ACCOUNT_ID: "${ALIYUN_ACCOUNT_ID:-}"
       # Optional partner-integration features, all off unless set here. This
       # `environment:` map is an explicit allowlist — a var absent from it never
       # reaches the container, no matter what the box's .env says.

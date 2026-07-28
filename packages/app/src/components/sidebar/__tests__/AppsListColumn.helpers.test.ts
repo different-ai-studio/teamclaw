@@ -1,5 +1,5 @@
 import { describe, test, expect } from 'vitest'
-import { pickMostRecentSession, canReseed } from '../AppsListColumn'
+import { pickMostRecentSession, canReseed, appStatusMeta } from '../AppsListColumn'
 import type { AppSessionRow } from '@/lib/backend/types'
 
 function row(p: Partial<AppSessionRow>): AppSessionRow {
@@ -63,5 +63,43 @@ describe('canReseed', () => {
     expect(canReseed('seeding')).toBe(false)
     expect(canReseed('pending')).toBe(false)
     expect(canReseed('whatever')).toBe(false)
+  })
+})
+
+describe('appStatusMeta', () => {
+  const app = (p: Partial<Parameters<typeof appStatusMeta>[0]>) => ({
+    provisionStatus: 'ready',
+    fcStatus: null,
+    fcEndpoint: null,
+    ...p,
+  })
+
+  test('an in-flight deploy wins over everything', () => {
+    expect(appStatusMeta(app({ fcStatus: 'live', fcEndpoint: 'https://x' }), true).key)
+      .toBe('apps.deploying')
+  })
+
+  test('live requires both fcStatus and an endpoint', () => {
+    expect(appStatusMeta(app({ fcStatus: 'live', fcEndpoint: 'https://x' }), false).dot).toBe('live')
+    // live without an endpoint is not something the user can open — fall through
+    expect(appStatusMeta(app({ fcStatus: 'live', fcEndpoint: null }), false).key).toBe('apps.ready')
+  })
+
+  test('a persisted failed deploy is surfaced, not hidden behind "Ready"', () => {
+    const meta = appStatusMeta(app({ fcStatus: 'deploy_error' }), false)
+    expect(meta.dot).toBe('failed')
+    expect(meta.key).toBe('apps.deployFailed')
+  })
+
+  test('every in-progress deploy state reads as deploying', () => {
+    for (const s of ['awaiting_build', 'building', 'deploying']) {
+      expect(appStatusMeta(app({ fcStatus: s }), false).key).toBe('apps.deploying')
+    }
+  })
+
+  test('falls back to the provision lifecycle when never deployed', () => {
+    expect(appStatusMeta(app({ provisionStatus: 'ready' }), false).key).toBe('apps.ready')
+    expect(appStatusMeta(app({ provisionStatus: 'error' }), false).key).toBe('apps.error')
+    expect(appStatusMeta(app({ provisionStatus: 'repo_created' }), false).key).toBe('apps.provisioning')
   })
 })

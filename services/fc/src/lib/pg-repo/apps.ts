@@ -59,9 +59,9 @@ export type AppsRepoDeps = {
   provisionAppRepo?: (
     args: { appId: string; teamId: string },
   ) => Promise<{ gitRemoteUrl: string; gitAuthKind: string } | null>;
-  startDeploy?: (a: { appId: string; slug: string; region: string }) =>
-    Promise<{ fcFunctionName: string; fcRegion: string; ossObjectName: string; databaseUrl: string; presignedPut: string }>;
-  finalizeDeploy?: (a: { fcFunctionName: string; ossObjectName: string }) =>
+  startDeploy?: (a: { appId: string; region: string }) =>
+    Promise<{ fcFunctionName: string; fcRegion: string; ossObjectName: string; presignedPut: string }>;
+  finalizeDeploy?: (a: { appId: string; slug: string; fcFunctionName: string; ossObjectName: string }) =>
     Promise<{ fcEndpoint: string }>;
 };
 
@@ -196,7 +196,10 @@ export function makeAppsRepo(db: DbLike, ctx: AppsCtx = {}, deps: AppsRepoDeps =
       return result.map(mapApp);
     },
 
-    async updateApp(appId: string, patch: { name?: string; visibility?: string; provisionStatus?: string }) {
+    async updateApp(
+      appId: string,
+      patch: { name?: string; visibility?: string; provisionStatus?: string; fcStatus?: string; deployError?: string },
+    ) {
       // Authz: only the creator may mutate the app. Load the row (gated by
       // visibility), then require the caller to be its creator. Returning null
       // here makes the route surface a 404 rather than silently mutating an
@@ -221,6 +224,22 @@ export function makeAppsRepo(db: DbLike, ctx: AppsCtx = {}, deps: AppsRepoDeps =
         }
         // else: illegal status alongside other fields → silently ignore status.
       }
+      // Deploy-lifecycle writeback. The desktop drives the middle of the deploy
+      // (it kicks the daemon build), so it is the only party that can report
+      // that the build never finished — without this the row sat at
+      // `awaiting_build` forever and the UI had nothing to show.
+      if (typeof patch.fcStatus === "string") {
+        if (!isLegalFcTransition(existing.fcStatus, patch.fcStatus)) {
+          throw new ApiError(400, "invalid_deploy_transition",
+            `cannot move fc_status ${existing.fcStatus ?? "not_deployed"} -> ${patch.fcStatus}`);
+        }
+        set.fcStatus = patch.fcStatus;
+        if (patch.fcStatus === "deploy_error") {
+          set.provisionError = typeof patch.deployError === "string" && patch.deployError
+            ? patch.deployError
+            : "deploy failed";
+        }
+      }
       const [row] = await db.update(apps).set(set).where(eq(apps.id, appId)).returning();
       if (!row) return null;
       return mapApp(row);
@@ -238,7 +257,7 @@ export function makeAppsRepo(db: DbLike, ctx: AppsCtx = {}, deps: AppsRepoDeps =
       }
       if (!deps.startDeploy) throw new ApiError(503, "deploy_unavailable", "deploy provisioning not configured");
       try {
-        const r = await deps.startDeploy({ appId, slug: existing.slug, region: process.env.REGION || "cn-hangzhou" });
+        const r = await deps.startDeploy({ appId, region: process.env.REGION || "cn-hangzhou" });
         const [row] = await db.update(apps).set({
           fcFunctionName: r.fcFunctionName, fcRegion: r.fcRegion,
           fcStatus: "awaiting_build", provisionError: null, updatedAt: new Date(),
@@ -267,7 +286,12 @@ export function makeAppsRepo(db: DbLike, ctx: AppsCtx = {}, deps: AppsRepoDeps =
       if (!deps.finalizeDeploy) throw new ApiError(503, "deploy_unavailable", "deploy provisioning not configured");
       await db.update(apps).set({ fcStatus: "deploying", updatedAt: new Date() }).where(eq(apps.id, appId));
       try {
-        const r = await deps.finalizeDeploy({ fcFunctionName: existing.fcFunctionName, ossObjectName: appOssObjectName(appId) });
+        const r = await deps.finalizeDeploy({
+          appId,
+          slug: existing.slug,
+          fcFunctionName: existing.fcFunctionName,
+          ossObjectName: appOssObjectName(appId),
+        });
         const [row] = await db.update(apps).set({
           fcStatus: "live", fcEndpoint: r.fcEndpoint, provisionError: null, updatedAt: new Date(),
         }).where(eq(apps.id, appId)).returning();

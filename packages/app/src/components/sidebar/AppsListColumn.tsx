@@ -101,10 +101,33 @@ function provisionMeta(status: string): { dot: 'ready' | 'failed' | 'idle'; key:
   return { dot: 'idle', key: 'apps.provisioning', fallback: 'Provisioning…' }
 }
 
+/**
+ * The single status line a row shows, resolved from both lifecycles at once:
+ * an in-flight deploy, then the persisted deploy state (`fcStatus`), then the
+ * repo/seed state (`provisionStatus`). Persisted deploy states used to be
+ * invisible unless they were `live`, so a deploy that died mid-flight — or one
+ * still running in another window — read as a plain "Ready" app.
+ *
+ * Exported as a pure helper so the precedence is unit-testable without
+ * rendering the column.
+ */
+export function appStatusMeta(
+  app: Pick<AppRow, 'provisionStatus' | 'fcStatus' | 'fcEndpoint'>,
+  deploying: boolean,
+): { dot: 'live' | 'ready' | 'failed' | 'idle'; key: string; fallback: string } {
+  if (deploying) return { dot: 'idle', key: 'apps.deploying', fallback: '部署中…' }
+  if (app.fcStatus === 'live' && app.fcEndpoint) return { dot: 'live', key: 'apps.live', fallback: '已上线' }
+  if (app.fcStatus === 'deploy_error') return { dot: 'failed', key: 'apps.deployFailed', fallback: '部署失败' }
+  if (app.fcStatus === 'awaiting_build' || app.fcStatus === 'building' || app.fcStatus === 'deploying') {
+    return { dot: 'idle', key: 'apps.deploying', fallback: '部署中…' }
+  }
+  return provisionMeta(app.provisionStatus)
+}
+
 function AppItemRow({ app, onClick, onRename }: RowProps) {
   const { t } = useTranslation()
-  const meta = provisionMeta(app.provisionStatus)
   const deploying = useAppsStore((s) => s.deployingIds.includes(app.id))
+  const meta = appStatusMeta(app, deploying)
   const isLive = app.fcStatus === 'live' && !!app.fcEndpoint
 
   const handleReveal = React.useCallback(async (e: React.SyntheticEvent) => {
@@ -144,19 +167,12 @@ function AppItemRow({ app, onClick, onRename }: RowProps) {
             <span
               className={cn(
                 'h-1.5 w-1.5 shrink-0 rounded-full',
-                isLive && 'bg-emerald-500',
-                !isLive && meta.dot === 'ready' && 'bg-emerald-500',
-                !isLive && meta.dot === 'failed' && 'bg-amber-500',
-                !isLive && meta.dot === 'idle' && 'bg-muted-foreground/40',
+                (meta.dot === 'live' || meta.dot === 'ready') && 'bg-emerald-500',
+                meta.dot === 'failed' && 'bg-amber-500',
+                meta.dot === 'idle' && 'bg-muted-foreground/40',
               )}
             />
-            <span className="truncate">
-              {deploying
-                ? t('apps.deploying', '部署中…')
-                : isLive
-                  ? t('apps.live', '已上线')
-                  : t(meta.key, meta.fallback)}
-            </span>
+            <span className="truncate">{t(meta.key, meta.fallback)}</span>
           </span>
         </span>
       </button>

@@ -7,10 +7,22 @@ const REGION = () => process.env.REGION || "cn-hangzhou";
 
 // FC 3.0 data-plane host is ACCOUNT-scoped: <accountId>.<region>.fc.aliyuncs.com.
 // The OSS ENDPOINT env (oss.ts) is NOT reusable. Provide FC_ENDPOINT directly,
-// or compose from ALIYUN_ACCOUNT_ID. [LIVE-GATE: confirm host in M4.]
+// or compose from ALIYUN_ACCOUNT_ID.
+export function fcEndpoint(): string {
+  const explicit = process.env.FC_ENDPOINT?.trim();
+  if (explicit) return explicit;
+  const accountId = process.env.ALIYUN_ACCOUNT_ID?.trim();
+  // Without either var the composed host used to come out as the literal
+  // "undefined.<region>.fc.aliyuncs.com" and every call failed with a DNS
+  // error that named neither variable. Fail with the config problem instead.
+  if (!accountId) {
+    throw new Error("FC endpoint is not configured: set FC_ENDPOINT or ALIYUN_ACCOUNT_ID");
+  }
+  return `${accountId}.${REGION()}.fc.aliyuncs.com`;
+}
+
 export function getFcClient(): FcClientInstance {
-  const endpoint = process.env.FC_ENDPOINT
-    || `${process.env.ALIYUN_ACCOUNT_ID}.${REGION()}.fc.aliyuncs.com`;
+  const endpoint = fcEndpoint();
   return new FcClient.default(new Config({
     accessKeyId: process.env.ACCESS_KEY_ID,
     accessKeySecret: process.env.ACCESS_KEY_SECRET,
@@ -49,7 +61,12 @@ export function makeFcOps(client: any, cfg: FcOpsConfig) {
             role: cfg.role,
             environmentVariables: args.env,
             customRuntimeConfig: new $fc.CustomRuntimeConfig({
-              command: ["node"], args: [".output/server/index.mjs"], port: 9000,
+              // The daemon zips the CONTENTS of the build's `.output` directory
+              // (app_build.rs `zip_dir(workdir.join(".output"))`), so the server
+              // entry sits at `server/index.mjs` inside the artifact — a
+              // `.output/` prefix here points at a path that is never unpacked
+              // and the function never boots.
+              command: ["node"], args: ["server/index.mjs"], port: 9000,
             }),
             code: codeLocation(args.ossObjectName),
           }),
@@ -64,15 +81,6 @@ export function makeFcOps(client: any, cfg: FcOpsConfig) {
           environmentVariables: args.env,
           code: codeLocation(args.ossObjectName),
         }),
-      }));
-    },
-    // Code-only update: updates ONLY the function code, leaving
-    // environmentVariables untouched. Used by finalizeDeploy so the secret
-    // DATABASE_URL (set at startDeploy and not retained) is preserved.
-    // [LIVE-GATE: M4-T12] confirm code-only updateFunction preserves existing env.
-    async updateFunctionCodeOnly(functionName: string, ossObjectName: string): Promise<void> {
-      await client.updateFunction(functionName, new $fc.UpdateFunctionRequest({
-        body: new $fc.UpdateFunctionInput({ code: codeLocation(ossObjectName) }),
       }));
     },
     async ensureHttpTrigger(functionName: string): Promise<string> {

@@ -2846,10 +2846,13 @@ export function createSupabaseBusinessRepository(options) {
       return mapApp(row);
     },
 
-    async updateApp(appId: string, patch: { name?: string; visibility?: string; provisionStatus?: string }) {
+    async updateApp(
+      appId: string,
+      patch: { name?: string; visibility?: string; provisionStatus?: string; fcStatus?: string; deployError?: string },
+    ) {
       // RLS apps_update_if_creator blocks non-creators: the UPDATE matches zero
       // rows and .maybeSingle() returns null → surface as null (route 404s).
-      const { data: cur } = await supabase.from("apps").select("provision_status").eq("id", appId).maybeSingle();
+      const { data: cur } = await supabase.from("apps").select("provision_status, fc_status").eq("id", appId).maybeSingle();
       const set: any = { updated_at: new Date().toISOString() };
       if (typeof patch.name === "string" && patch.name.length > 0) set.name = patch.name;
       if (patch.visibility === "team" || patch.visibility === "personal") {
@@ -2862,6 +2865,21 @@ export function createSupabaseBusinessRepository(options) {
         } else if (set.name === undefined && set.visibility === undefined) {
           throw new ApiError(400, "invalid_status_transition",
             `cannot move provision_status ${from} -> ${patch.provisionStatus}`);
+        }
+      }
+      // Deploy-lifecycle writeback — the desktop owns the daemon-build step of
+      // the deploy, so it is the only party that can report that the build never
+      // finished. Without it the row stayed at `awaiting_build` indefinitely.
+      if (typeof patch.fcStatus === "string") {
+        if (!isLegalFcTransition(cur?.fc_status, patch.fcStatus)) {
+          throw new ApiError(400, "invalid_deploy_transition",
+            `cannot move fc_status ${cur?.fc_status ?? "not_deployed"} -> ${patch.fcStatus}`);
+        }
+        set.fc_status = patch.fcStatus;
+        if (patch.fcStatus === "deploy_error") {
+          set.provision_error = typeof patch.deployError === "string" && patch.deployError
+            ? patch.deployError
+            : "deploy failed";
         }
       }
       const { data, error } = await supabase
@@ -2889,7 +2907,7 @@ export function createSupabaseBusinessRepository(options) {
       }
       if (!startDeploy) throw new ApiError(503, "deploy_unavailable", "deploy provisioning not configured");
       try {
-        const r = await startDeploy({ appId, slug: existing.slug, region: process.env.REGION || "cn-hangzhou" });
+        const r = await startDeploy({ appId, region: process.env.REGION || "cn-hangzhou" });
         // Persist only fc_function_name / fc_region / fc_status. The app's own
         // DATABASE_URL from startDeploy is intentionally NOT persisted. The
         // UPDATE is RLS-gated (apps_update_if_creator): a non-creator matches
@@ -2928,7 +2946,7 @@ export function createSupabaseBusinessRepository(options) {
       // visible to the caller → surface null so the route 404s.
       const { data: existing, error: selErr } = await supabase
         .from("apps")
-        .select("id, fc_function_name, fc_status")
+        .select("id, slug, fc_function_name, fc_status")
         .eq("id", appId)
         .maybeSingle();
       if (selErr) throw selErr;
@@ -2942,6 +2960,8 @@ export function createSupabaseBusinessRepository(options) {
       await supabase.from("apps").update({ fc_status: "deploying", updated_at: new Date().toISOString() }).eq("id", appId);
       try {
         const r = await finalizeDeploy({
+          appId,
+          slug: existing.slug,
           fcFunctionName: existing.fc_function_name,
           ossObjectName: appOssObjectName(appId),
         });

@@ -56,6 +56,23 @@ async function patchStatus(set: SetState, appId: string, status: string): Promis
 }
 
 /**
+ * Report a failed deploy back to the cloud API so `fc_status` lands on
+ * `deploy_error` with a reason. The desktop drives the middle of the deploy (it
+ * kicks the daemon build), so nothing else can tell the cloud the build never
+ * finished — without this the row stays at `awaiting_build` forever and the
+ * next finalize is rejected as an illegal transition. Non-fatal: the user is
+ * already being toasted about the failure.
+ */
+async function reportDeployError(set: SetState, appId: string, reason: string): Promise<void> {
+  try {
+    const updated = await getBackend().apps.updateAppDeployStatus(appId, "deploy_error", reason);
+    if (updated) mergeRow(set, updated);
+  } catch (e) {
+    console.warn("deploy error writeback failed (non-fatal)", e);
+  }
+}
+
+/**
  * Kick the local daemon seed and write back the terminal status. The desktop
  * writes ONLY `ready`/`error`; `unreachable` writes nothing so the row stays at
  * `repo_created` and a reseed remains available.
@@ -132,12 +149,12 @@ export const useAppsStore = create<AppsState>((set, get) => ({
       // 2. Local daemon: build the artifact in the app workdir + upload to OSS.
       const outcome = await buildDaemonApp(appId, app.teamId, started.presignedPut);
       if (outcome !== "built") {
-        await toastError(
-          "部署失败：构建未完成",
+        const reason =
           outcome === "unreachable"
             ? "本机 amuxd 未连接，无法构建。请确认守护进程在运行后重试。"
-            : "应用构建或上传失败，请查看日志后重试。",
-        );
+            : "应用构建或上传失败，请查看日志后重试。";
+        await reportDeployError(set, appId, reason);
+        await toastError("部署失败：构建未完成", reason);
         return;
       }
 
@@ -149,7 +166,11 @@ export const useAppsStore = create<AppsState>((set, get) => ({
         finalized.fcEndpoint ? finalized.fcEndpoint : undefined,
       );
     } catch (e) {
-      await toastError("部署失败", e instanceof Error ? e.message : String(e));
+      const reason = e instanceof Error ? e.message : String(e);
+      // The cloud already marks its own failures; this covers the ones it
+      // cannot see (the daemon leg, and anything thrown in between).
+      await reportDeployError(set, appId, reason);
+      await toastError("部署失败", reason);
     } finally {
       set((s) => ({ deployingIds: s.deployingIds.filter((id) => id !== appId) }));
     }

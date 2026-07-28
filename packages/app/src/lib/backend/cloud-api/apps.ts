@@ -33,6 +33,14 @@ export function createAppsModule(client: CloudApiClient): AppsBackend {
         throw e;
       }
     },
+    async updateAppDeployStatus(appId, fcStatus, deployError) {
+      try {
+        return await client.patch<AppRow>(`/v1/apps/${encodeURIComponent(appId)}`, { fcStatus, deployError });
+      } catch (e) {
+        if (e instanceof CloudApiError && e.status === 404) return null;
+        throw e;
+      }
+    },
     async renameApp(appId, name) {
       try {
         return await client.patch<AppRow>(`/v1/apps/${encodeURIComponent(appId)}`, { name });

@@ -28,8 +28,9 @@ test("buildProvisionStatements throws on an unsafe role name", () => {
 test("buildProvisionStatements emits idempotent, schema-scoped DDL in order", () => {
   const stmts = buildProvisionStatements({ schema: "app_demo", role: "app_demo", password: "s3cret" });
   assert.equal(stmts[0], "create schema if not exists app_demo");
-  // role created only if absent
-  assert.match(stmts[1], /if not exists \(select 1 from pg_roles where rolname = 'app_demo'\)/);
+  // role created when absent, password re-applied when present
+  assert.match(stmts[1], /if exists \(select 1 from pg_roles where rolname = 'app_demo'\)/);
+  assert.match(stmts[1], /alter role app_demo with login password 's3cret'/);
   assert.match(stmts[1], /create role app_demo login password 's3cret'/);
   // grants are scoped to the app schema only — never to amux/public
   assert.ok(stmts.some((s) => s === "grant usage, create on schema app_demo to app_demo"));
@@ -41,6 +42,29 @@ test("buildProvisionStatements emits idempotent, schema-scoped DDL in order", ()
 test("buildProvisionStatements escapes single quotes in the password", () => {
   const stmts = buildProvisionStatements({ schema: "app_x", role: "app_x", password: "a'b" });
   assert.match(stmts[1], /password 'a''b'/);
+});
+
+test("re-provisioning an existing role applies the NEW password", async () => {
+  // Regression: the role was only touched on create, so a redeploy handed the
+  // app a connection string whose password had never been set.
+  const pg = new PGlite();
+  const exec = async (sql: string) => { await pg.exec(sql); };
+  const params = {
+    appId: "3f1c9a2e-0000-4000-8000-000000000abc",
+    slug: "Demo App",
+    baseUrl: "postgres://host:5432/teamclaw_apps",
+  };
+  await ensureAppSchema(exec, { ...params, password: "first-pw" });
+  await ensureAppSchema(exec, { ...params, password: "second-pw" });
+  // md5-less check: ask PG whether the stored secret validates the new password.
+  const r = await pg.query<{ ok: boolean }>(
+    `select (rolpassword is not null) as ok from pg_authid
+      where rolname = 'app_3f1c9a2e_0000_4000_8000_000000000abc'`,
+  );
+  assert.equal(r.rows[0]?.ok, true);
+  // And the statement stream for the second call carries the second password.
+  const stmts = buildProvisionStatements({ schema: "app_x", role: "app_x", password: "second-pw" });
+  assert.match(stmts[1], /alter role app_x with login password 'second-pw'/);
 });
 
 test("ensureAppSchema creates the schema and a scoped role on a real PG (pglite)", async () => {

@@ -71,20 +71,25 @@ async function provisionAppRepo({ teamId, appId }: { teamId: string; appId: stri
 
 // Deploy provisioning deps (schema + FC function). Returns {} when unconfigured
 // so deployApp/finalizeDeploy surface 503 rather than crashing at import.
+// FC_ENDPOINT/ALIYUN_ACCOUNT_ID is part of "configured": without it every FC
+// call would fail deep inside the SDK instead of at the 503.
 function makeDeployDeps() {
   if (!process.env.APPS_DB_ADMIN_URL || !process.env.ACCESS_KEY_ID) return {};
+  if (!process.env.FC_ENDPOINT?.trim() && !process.env.ALIYUN_ACCOUNT_ID?.trim()) return {};
   const bucket = OSS_BUCKET();
   const fcOps = makeFcOps(getFcClient(), { bucket, role: process.env.ROLE_ARN });
   const adminExec = getAppsAdminExecutor();
   const appsBaseUrl = process.env.APPS_DB_ADMIN_URL;
   const s3 = getS3Client();
+  // 30 min: the daemon runs `pnpm install && pnpm build` between minting this
+  // URL and using it, and a cold install on a modest laptop outlasts 15.
   const mintUploadUrl = (ossObjectName: string) =>
-    getSignedUrl(s3 as any, new PutObjectCommand({ Bucket: bucket, Key: ossObjectName }), { expiresIn: 900 });
+    getSignedUrl(s3 as any, new PutObjectCommand({ Bucket: bucket, Key: ossObjectName }), { expiresIn: 1800 });
   return {
-    startDeploy: (a: { appId: string; slug: string; region: string }) =>
-      startDeployImpl({ adminExec, fcOps, bucket, appsBaseUrl, mintUploadUrl }, a),
-    finalizeDeploy: (a: { fcFunctionName: string; ossObjectName: string }) =>
-      finalizeDeployImpl({ fcOps }, a),
+    startDeploy: (a: { appId: string; region: string }) =>
+      startDeployImpl({ mintUploadUrl }, a),
+    finalizeDeploy: (a: { appId: string; slug: string; fcFunctionName: string; ossObjectName: string }) =>
+      finalizeDeployImpl({ adminExec, fcOps, appsBaseUrl }, a),
   };
 }
 

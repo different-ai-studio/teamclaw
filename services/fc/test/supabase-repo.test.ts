@@ -1615,14 +1615,14 @@ test("apps: deployApp on ready app returns awaiting_build + ossObjectName", asyn
   const repo = appsRepo(
     appsSupabase({ seed: { apps: [{ ...APP_ROW, provision_status: "ready" }] } }),
     {
-      startDeploy: async ({ appId, slug }: any) => {
+      // startDeploy only mints the upload handle now — the schema (and hence
+      // the slug) is provisioned at finalize, once the code object exists.
+      startDeploy: async ({ appId }: any) => {
         assert.equal(appId, "app-1");
-        assert.equal(slug, "my-app");
         return {
           fcFunctionName: "app-my-app",
           fcRegion: "cn-hangzhou",
           ossObjectName: "apps/app-1/build.zip",
-          databaseUrl: "postgres://secret",
           presignedPut: "https://oss/put?sig=x",
         };
       },

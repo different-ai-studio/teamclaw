@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { makeFcOps } from "../../src/lib/provisioning/fc-client.js";
+import { makeFcOps, fcEndpoint } from "../../src/lib/provisioning/fc-client.js";
 
 function fakeClient(overrides: Record<string, any> = {}) {
   const calls: any[] = [];
@@ -31,16 +31,51 @@ test("ensureFunction updates code when the function already exists", async () =>
   assert.ok(!calls.some((c) => c[0] === "createFunction"));
 });
 
-test("updateFunctionCodeOnly updates code without environmentVariables", async () => {
+test("ensureFunction points the custom runtime at the artifact's own layout", async () => {
+  // The daemon zips the CONTENTS of `.output`, so the entry is `server/index.mjs`.
+  // A `.output/` prefix here names a path that never exists in the package and
+  // the function silently fails to boot.
+  const notFound = Object.assign(new Error("not found"), { statusCode: 404, code: "FunctionNotFound" });
+  const { client, calls } = fakeClient({ getFunction: async () => { throw notFound; } });
+  const ops = makeFcOps(client as any, { bucket: "b", role: "acs:ram::1:role/fc" });
+  await ops.ensureFunction("tc-app-1", { ossObjectName: "apps/1/code.zip", env: { PORT: "9000" } });
+  const create = calls.find((c) => c[0] === "createFunction");
+  const runtimeCfg = create[1].body.customRuntimeConfig;
+  assert.deepEqual(runtimeCfg.command, ["node"]);
+  assert.deepEqual(runtimeCfg.args, ["server/index.mjs"]);
+  assert.equal(runtimeCfg.port, 9000);
+});
+
+test("ensureFunction re-sends environmentVariables on the update path", async () => {
+  // A redeploy rotates the app's DB password, so the env must be rewritten
+  // alongside the code rather than assumed to survive.
   const { client, calls } = fakeClient();
   const ops = makeFcOps(client as any, { bucket: "b", role: "acs:ram::1:role/fc" });
-  await ops.updateFunctionCodeOnly("fn", "apps/1/code.zip");
+  await ops.ensureFunction("tc-app-1", {
+    ossObjectName: "apps/1/code.zip",
+    env: { PORT: "9000", DATABASE_URL: "postgres://app_x:new-pw@h/teamclaw_apps" },
+  });
   const upd = calls.find((c) => c[0] === "updateFunction");
   assert.ok(upd, "updateFunction was called");
-  const body = upd[2].body;
-  assert.equal(body.code.ossObjectName, "apps/1/code.zip");
-  assert.ok(!("environmentVariables" in body) || body.environmentVariables === undefined,
-    "no environmentVariables set");
+  assert.equal(upd[2].body.environmentVariables.DATABASE_URL, "postgres://app_x:new-pw@h/teamclaw_apps");
+});
+
+test("fcEndpoint fails loudly when neither FC_ENDPOINT nor ALIYUN_ACCOUNT_ID is set", () => {
+  const prevEndpoint = process.env.FC_ENDPOINT;
+  const prevAccount = process.env.ALIYUN_ACCOUNT_ID;
+  delete process.env.FC_ENDPOINT;
+  delete process.env.ALIYUN_ACCOUNT_ID;
+  try {
+    // Previously composed the literal host "undefined.<region>.fc.aliyuncs.com".
+    assert.throws(() => fcEndpoint(), /FC_ENDPOINT or ALIYUN_ACCOUNT_ID/);
+    process.env.ALIYUN_ACCOUNT_ID = "123456";
+    assert.match(fcEndpoint(), /^123456\..*\.fc\.aliyuncs\.com$/);
+    process.env.FC_ENDPOINT = "https://explicit.example";
+    assert.equal(fcEndpoint(), "https://explicit.example");
+  } finally {
+    if (prevEndpoint === undefined) delete process.env.FC_ENDPOINT; else process.env.FC_ENDPOINT = prevEndpoint;
+    if (prevAccount === undefined) delete process.env.ALIYUN_ACCOUNT_ID; else process.env.ALIYUN_ACCOUNT_ID = prevAccount;
+  }
 });
 
 test("ensureHttpTrigger returns the public invoke URL", async () => {

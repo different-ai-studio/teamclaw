@@ -31,26 +31,12 @@ use super::auth::{require_scope, Principal};
 use super::errors::HttpError;
 use super::state::HttpState;
 
-/// Local filesystem path to the app starter template.
-///
-/// Override via `TEAMCLAW_APP_TEMPLATE_DIR` (used by unit/integration tests).
-/// Default: `<amuxd home>/templates/tanstack-postgres`.
-fn template_dir() -> PathBuf {
-    if let Ok(dir) = std::env::var("TEAMCLAW_APP_TEMPLATE_DIR") {
-        let trimmed = dir.trim();
-        if !trimmed.is_empty() {
-            return PathBuf::from(trimmed);
-        }
-    }
-    dirs::home_dir()
-        .or_else(|| std::env::var_os("HOME").map(PathBuf::from))
-        .unwrap_or_else(|| PathBuf::from("/tmp"))
-        .join(".amuxd")
-        .join("templates")
-        .join("tanstack-postgres")
-}
-
 /// Resolve the GitHub template repo URL to seed new apps from.
+///
+/// Seeding clones this repo (see `app_seed::seed_app_repo`); there is no
+/// local-directory template path. The in-repo `templates/tanstack-postgres/`
+/// tree is the source that repo mirrors — keep the two in step by hand, since
+/// nothing here reads the local copy.
 ///
 /// Override via `TEAMCLAW_APP_TEMPLATE_URL` (useful in tests or self-hosted
 /// deployments pointing at a private fork).

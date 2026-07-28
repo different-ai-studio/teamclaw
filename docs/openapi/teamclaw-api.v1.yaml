@@ -28,6 +28,8 @@ tags:
     description: Shortcut management and visibility control.
   - name: Config
     description: Runtime configuration delivered to authenticated clients (MQTT broker, feature flags).
+  - name: Apps
+    description: Per-app repo provisioning and the deploy pipeline (FC function + Postgres schema).
 paths:
   /v1/auth/refresh:
     post:
@@ -3784,6 +3786,231 @@ paths:
                     additionalProperties: { type: string }
         "401":
           $ref: "#/components/responses/Error"
+  /v1/apps:
+    get:
+      operationId: listApps
+      summary: List the apps visible to the caller in a team
+      tags: [Apps]
+      parameters:
+        - name: teamId
+          in: query
+          required: true
+          schema: { type: string }
+        - name: limit
+          in: query
+          required: false
+          schema: { type: integer, default: 100 }
+      responses:
+        "200":
+          description: Visible apps, newest first.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [items]
+                properties:
+                  items:
+                    type: array
+                    items: { $ref: "#/components/schemas/App" }
+        "400":
+          $ref: "#/components/responses/Error"
+    post:
+      operationId: createApp
+      summary: Create an app (provisions its 1:1 workspace and managed-git repo)
+      tags: [Apps]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [teamId, name, type]
+              properties:
+                teamId: { type: string }
+                name: { type: string }
+                type: { type: string, example: fullstack_tanstack_postgres }
+                visibility: { type: string, enum: [personal, team], default: personal }
+      responses:
+        "201":
+          description: |
+            The created app. `provisionStatus` is `repo_created` once the
+            managed-git repo exists, or `error` when repo provisioning failed —
+            the row is created either way.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/App" }
+        "400":
+          $ref: "#/components/responses/Error"
+  /v1/apps/{appId}:
+    get:
+      operationId: getApp
+      summary: Get one app
+      tags: [Apps]
+      parameters:
+        - $ref: "#/components/parameters/AppId"
+      responses:
+        "200":
+          description: The app.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/App" }
+        "404":
+          $ref: "#/components/responses/Error"
+    patch:
+      operationId: updateApp
+      summary: Update an app (creator only)
+      description: |
+        Renames, changes visibility, or reports a lifecycle status the client
+        owns. `provisionStatus` carries the repo/seed lifecycle the desktop
+        drives via the local daemon; `fcStatus` carries the deploy lifecycle —
+        the desktop reports `deploy_error` when the daemon build leg fails,
+        since nothing server-side can observe that. Illegal transitions are
+        rejected.
+      tags: [Apps]
+      parameters:
+        - $ref: "#/components/parameters/AppId"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                name: { type: string }
+                visibility: { type: string, enum: [personal, team] }
+                provisionStatus: { type: string, enum: [pending, repo_created, seeding, ready, error] }
+                fcStatus: { $ref: "#/components/schemas/AppFcStatus" }
+                deployError:
+                  type: string
+                  description: "Reason stored alongside `fcStatus: deploy_error`."
+      responses:
+        "200":
+          description: The updated app.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/App" }
+        "400":
+          $ref: "#/components/responses/Error"
+        "404":
+          $ref: "#/components/responses/Error"
+  /v1/apps/{appId}/deploy:
+    post:
+      operationId: deployApp
+      summary: Start a deploy — mint the artifact upload handle (creator only)
+      description: |
+        Requires `provisionStatus: ready`. Moves `fcStatus` to `awaiting_build`
+        and returns a short-lived presigned OSS PUT URL. The caller then kicks
+        its local daemon to build the app and upload the artifact there, and
+        calls `/deploy/finalize` once the upload succeeds.
+      tags: [Apps]
+      parameters:
+        - $ref: "#/components/parameters/AppId"
+      responses:
+        "202":
+          description: Deploy started.
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: "#/components/schemas/App"
+                  - type: object
+                    required: [ossObjectName, presignedPut]
+                    properties:
+                      ossObjectName: { type: string }
+                      presignedPut:
+                        type: string
+                        description: Short-lived presigned PUT URL for the build artifact. Secret — never log it.
+        "404":
+          $ref: "#/components/responses/Error"
+        "409":
+          $ref: "#/components/responses/Error"
+        "502":
+          $ref: "#/components/responses/Error"
+        "503":
+          $ref: "#/components/responses/Error"
+  /v1/apps/{appId}/deploy/finalize:
+    post:
+      operationId: finalizeAppDeploy
+      summary: Finish a deploy — provision the schema, publish the code, return the live URL
+      description: |
+        Provisions (idempotently) the app's Postgres schema and scoped role,
+        points the FC function at the uploaded artifact with a matching
+        `DATABASE_URL`, ensures the HTTP trigger, and stores `fcEndpoint` with
+        `fcStatus: live`. Failures land on `deploy_error` with the reason in
+        `provisionError`; retry by calling `/deploy` again.
+      tags: [Apps]
+      parameters:
+        - $ref: "#/components/parameters/AppId"
+      responses:
+        "200":
+          description: The app, now live.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/App" }
+        "404":
+          $ref: "#/components/responses/Error"
+        "409":
+          $ref: "#/components/responses/Error"
+        "502":
+          $ref: "#/components/responses/Error"
+        "503":
+          $ref: "#/components/responses/Error"
+  /v1/apps/{appId}/sessions:
+    get:
+      operationId: listAppSessions
+      summary: List the sessions linked to an app
+      tags: [Apps]
+      parameters:
+        - $ref: "#/components/parameters/AppId"
+      responses:
+        "200":
+          description: Sessions linked to the app (empty when it is not visible to the caller).
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [items]
+                properties:
+                  items:
+                    type: array
+                    items:
+                      type: object
+                      required: [id, teamId, title, mode, createdAt, updatedAt]
+                      properties:
+                        id: { type: string }
+                        teamId: { type: string }
+                        title: { type: string }
+                        mode: { type: string }
+                        lastMessageAt: { type: [string, "null"], format: date-time }
+                        createdAt: { type: string, format: date-time }
+                        updatedAt: { type: string, format: date-time }
+        "400":
+          $ref: "#/components/responses/Error"
+  /v1/teams/{teamId}/managed-git-credential:
+    get:
+      operationId: getManagedGitCredential
+      summary: Just-in-time managed-git credential for the caller's team
+      description: |
+        Returned to the local daemon so it can clone/push an app repo. The
+        credential is never persisted in the app row.
+      tags: [Apps]
+      parameters:
+        - $ref: "#/components/parameters/TeamId"
+      responses:
+        "200":
+          description: Credential.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [username, token]
+                properties:
+                  username: { type: string }
+                  token: { type: string }
+        "404":
+          $ref: "#/components/responses/Error"
+        "503":
+          $ref: "#/components/responses/Error"
 components:
   securitySchemes:
     bearerAuth:
@@ -3813,6 +4040,13 @@ components:
       required: true
       schema:
         type: string
+    AppId:
+      name: appId
+      in: path
+      required: true
+      schema:
+        type: string
+        format: uuid
   responses:
     NotFound:
       description: Resource not found.
@@ -3833,6 +4067,38 @@ components:
           schema:
             $ref: "#/components/schemas/ErrorEnvelope"
   schemas:
+    AppFcStatus:
+      type: string
+      description: |
+        Deploy lifecycle, orthogonal to `provisionStatus` (which tracks the repo
+        and its seeding). `null` means the app has never been deployed.
+      enum: [not_deployed, awaiting_build, building, deploying, live, deploy_error]
+    App:
+      type: object
+      required: [id, teamId, name, slug, type, visibility, provisionStatus, createdAt, updatedAt]
+      properties:
+        id: { type: string, format: uuid }
+        teamId: { type: string, format: uuid }
+        name: { type: string }
+        slug: { type: string }
+        type: { type: string }
+        visibility: { type: string, enum: [personal, team] }
+        workspaceId: { type: [string, "null"], format: uuid }
+        gitRemoteUrl: { type: [string, "null"] }
+        provisionStatus:
+          type: string
+          enum: [pending, repo_created, seeding, ready, error]
+        fcStatus:
+          oneOf:
+            - $ref: "#/components/schemas/AppFcStatus"
+            - type: "null"
+        fcEndpoint:
+          type: [string, "null"]
+          description: Public URL of the deployed app; set once `fcStatus` is `live`.
+        fcFunctionName: { type: [string, "null"] }
+        fcRegion: { type: [string, "null"] }
+        createdAt: { type: string, format: date-time }
+        updatedAt: { type: string, format: date-time }
     BootstrapConfig:
       type: object
       description: Runtime configuration delivered to authenticated clients on startup. Fields are optional; clients fall back to local defaults when omitted.
