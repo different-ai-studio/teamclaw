@@ -336,6 +336,13 @@ export function AppsListColumn() {
       const linkTeamId = t.team?.id ?? app.teamId
       const authUserId = useAuthStore.getState().session?.user?.id ?? null
 
+      // This machine's daemon agent has to be a participant of the app's
+      // session, or it cannot even read it: the cloud API serves
+      // GET /v1/sessions/:id through participant-scoped RLS, so the daemon's
+      // own fetch 404s and runtimeStart is rejected with "session not found".
+      const { getLocalDaemonActorId } = await import('@/lib/daemon-agent-admin')
+      const localDaemonActorId = await getLocalDaemonActorId()
+
       const sessions = await getBackend().apps.listAppSessions(app.id)
       const recent = pickMostRecentSession(sessions)
       const sessionId = recent
@@ -358,12 +365,22 @@ export function AppsListColumn() {
               teamId: linkTeamId,
               creatorActorId,
               title: app.name,
-              additionalActorIds: [],
+              additionalActorIds: localDaemonActorId ? [localDaemonActorId] : [],
               appId: app.id,
             })
             return result.sessionId
           })()
       if (!sessionId) return
+
+      // An app session created before this — or on another machine — has no
+      // seat for this daemon. Joining is idempotent, so just make sure.
+      if (recent && localDaemonActorId) {
+        try {
+          await getBackend().sessionMembers.addParticipant(sessionId, localDaemonActorId)
+        } catch (e) {
+          console.warn('[AppsListColumn] could not add the local daemon to the app session:', e)
+        }
+      }
 
       // The daemon seeds app repos into ~/.amuxd/apps/<appId>.
       let appWorkdir: string | null = null
@@ -377,8 +394,6 @@ export function AppsListColumn() {
 
       if (appWorkdir) {
         const viewerMemberId = t.currentMember?.id ?? null
-        const { getLocalDaemonActorId } = await import('@/lib/daemon-agent-admin')
-        const localDaemonActorId = await getLocalDaemonActorId()
 
         // 1. Bind session → app workdir in local libsql so the UI (file
         //    browser, workspace switch) opens the right directory.
