@@ -260,7 +260,10 @@ fn ensure_http_host_resolvable(url: &tauri::Url) -> Result<(), String> {
     };
 
     // IP literals need no DNS lookup.
-    if matches!(url.host(), Some(url::Host::Ipv4(_)) | Some(url::Host::Ipv6(_))) {
+    if matches!(
+        url.host(),
+        Some(url::Host::Ipv4(_)) | Some(url::Host::Ipv6(_))
+    ) {
         return Ok(());
     }
 
@@ -285,7 +288,10 @@ async fn ensure_http_host_resolvable_async(url: &tauri::Url) -> Result<(), Strin
         return Ok(());
     }
     // IP literals: cheap sync path, no DNS.
-    if matches!(url.host(), Some(url::Host::Ipv4(_)) | Some(url::Host::Ipv6(_))) {
+    if matches!(
+        url.host(),
+        Some(url::Host::Ipv4(_)) | Some(url::Host::Ipv6(_))
+    ) {
         return Ok(());
     }
 
@@ -1238,9 +1244,7 @@ mod tests {
 
     #[test]
     fn ensure_http_host_resolvable_accepts_ip_literals() {
-        let url: tauri::Url = "http://127.0.0.1:8080/path"
-            .parse()
-            .expect("url");
+        let url: tauri::Url = "http://127.0.0.1:8080/path".parse().expect("url");
         assert!(ensure_http_host_resolvable(&url).is_ok());
     }
 
@@ -1253,10 +1257,9 @@ mod tests {
     #[test]
     fn ensure_http_host_resolvable_rejects_unresolvable_host() {
         // `.invalid` is reserved by RFC 2606 and must not resolve on the public DNS.
-        let url: tauri::Url =
-            "https://no-such-host-teamclaw-617.invalid/path"
-                .parse()
-                .expect("url");
+        let url: tauri::Url = "https://no-such-host-teamclaw-617.invalid/path"
+            .parse()
+            .expect("url");
         let err = ensure_http_host_resolvable(&url).expect_err("unresolvable host");
         assert!(
             err.contains("no-such-host-teamclaw-617.invalid"),
