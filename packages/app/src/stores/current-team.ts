@@ -93,7 +93,13 @@ interface State {
   saving: boolean;
   error: string | null;
   load: () => Promise<void>;
+  /**
+   * Set the current team WITHOUT touching the server-side active org.
+   * Internal: only safe when the team is already inside the active org.
+   * Every other caller must use `enterTeam`.
+   */
   reloadAndSwitchTo: (teamId: string) => Promise<void>;
+  enterTeam: (teamId: string, opts?: { assumeActive?: boolean }) => Promise<void>;
   switchToTeam: (teamId: string) => Promise<void>;
   setActiveTeam: (team: CurrentTeam) => Promise<void>;
   rename: (newName: string) => Promise<boolean>;
@@ -118,7 +124,17 @@ export const useCurrentTeamStore = create<State>((set, get) => ({
     set({ loading: true, error: null });
     let row;
     try {
-      row = (await getBackend().teams.listCurrentUserTeams({ limit: 1 }))[0];
+      // Listing the whole active org rather than `limit: 1` is deliberate.
+      // The old code took the first row — an arbitrary pick ordered by
+      // created_at — which silently relocated multi-team users to a team they
+      // never chose on every mount, and dragged the local-cache team gate with
+      // it. That gate then disagreed with the team the rest of the UI was
+      // still working on, which is what produced the `team gate mismatch`
+      // rejections. Keep the held team whenever it is still a member of the
+      // active org; only fall back to the first row when it is not.
+      const rows = await getBackend().teams.listCurrentUserTeams({ limit: 50 });
+      const heldId = get().team?.id;
+      row = (heldId ? rows.find((t) => t.id === heldId) : undefined) ?? rows[0];
     } catch (error) {
       set({ loading: false, error: error instanceof Error ? error.message : String(error) });
       return;
@@ -186,15 +202,39 @@ export const useCurrentTeamStore = create<State>((set, get) => ({
     });
   },
 
+  /**
+   * The single supported way to enter a team.
+   *
+   * TeamClaw is strict single-org: `amux.current_org_id()` gates every
+   * team-scoped RLS policy, and a team outside the active org is invisible —
+   * reads return nothing and writes are denied. Setting the current team
+   * without moving the server-side active org therefore produces a client that
+   * believes it is in a team the server will refuse every request for:
+   * "Failed to create session", an empty session list, and a local-cache gate
+   * pointing at a different team than the UI.
+   *
+   * So: activate first (which mints a session carrying the new org), adopt it,
+   * and only then set the client-side team.
+   *
+   * `assumeActive` skips the activation round-trip. Only pass it when the team
+   * is already known to be in the active org — e.g. it came back from
+   * `listCurrentUserTeams`, which is itself an active-org listing.
+   */
+  enterTeam: async (teamId: string, opts) => {
+    if (!opts?.assumeActive) {
+      const { refreshToken } = await getBackend().teams.activateTeam(teamId);
+      // Installs the JWT carrying the new org_id (fires onAuthStateChange →
+      // auth-store.session). Without this the org switch is server-only and
+      // the very next request still authenticates as the old org.
+      if (refreshToken) await getBackend().auth.adoptSession(refreshToken);
+    }
+    await get().reloadAndSwitchTo(teamId);
+  },
+
   switchToTeam: async (teamId: string) => {
     set({ loading: true, error: null });
     try {
-      // 1) 服务端换 org + 铸新 session。
-      const { refreshToken } = await getBackend().teams.activateTeam(teamId);
-      // 2) 装上带新 org_id 的 JWT（触发 onAuthStateChange → auth-store.session 更新）。
-      await getBackend().auth.adoptSession(refreshToken);
-      // 3) 设当前 team + 后端 team gate（此时 JWT 已是新 org，getTeam 可读）。
-      await get().reloadAndSwitchTo(teamId);
+      await get().enterTeam(teamId);
     } catch (error) {
       set({ loading: false, error: error instanceof Error ? error.message : String(error) });
       throw error;

@@ -2791,7 +2791,9 @@ function App() {
         }
         try {
           const claim = await claimInviteToken(token);
-          await useCurrentTeamStore.getState().reloadAndSwitchTo(claim.teamId);
+          // enterTeam, not reloadAndSwitchTo: the claim switched the org
+          // server-side but this client still holds the pre-claim JWT.
+          await useCurrentTeamStore.getState().enterTeam(claim.teamId);
           // Re-onboard the local daemon to the freshly-claimed team. The
           // daemon-onboarding store's refresh() detects the team mismatch and
           // the DaemonOnboardingWizard handles re-onboard. Best-effort only.
@@ -2841,7 +2843,8 @@ function App() {
           const teamId = session.team_id;
           const currentTeamId = useCurrentTeamStore.getState().team?.id ?? null;
           if (teamId && teamId !== currentTeamId) {
-            await useCurrentTeamStore.getState().reloadAndSwitchTo(teamId);
+            // The linked session can live in a team outside the active org.
+            await useCurrentTeamStore.getState().enterTeam(teamId);
           }
           await useUIStore.getState().switchToSession(sessionId);
           // Refresh the session list so the freshly-joined session appears in

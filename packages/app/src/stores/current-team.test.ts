@@ -4,13 +4,18 @@ const teamsMock = {
   listCurrentUserTeams: vi.fn(),
   getTeam: vi.fn(),
   renameTeam: vi.fn(),
+  activateTeam: vi.fn(),
 };
 const directoryMock = {
   getCurrentTeamMember: vi.fn(),
 };
+const authMock = {
+  adoptSession: vi.fn(),
+};
 const backendMock = {
   teams: teamsMock,
   directory: directoryMock,
+  auth: authMock,
 };
 
 const authState: { session: { user: { id: string } } | null } = {
@@ -46,6 +51,9 @@ const ACTIVE_MEMBER = {
 
 beforeEach(() => {
   teamsMock.listCurrentUserTeams.mockReset();
+  teamsMock.getTeam.mockReset();
+  teamsMock.activateTeam.mockReset();
+  authMock.adoptSession.mockReset();
   directoryMock.getCurrentTeamMember.mockReset();
   authState.session = { user: { id: "anon-1" } };
   localStorage.clear();
@@ -160,5 +168,67 @@ describe("useCurrentTeamStore.load", () => {
     expect(state.team).toEqual(ACTIVE_TEAM);
     expect(state.currentMember).toEqual(ACTIVE_MEMBER);
     expect(directoryMock.getCurrentTeamMember).toHaveBeenCalledWith("team-1", "anon-1");
+  });
+});
+
+describe("load() team selection", () => {
+  const OTHER_TEAM = { id: "team-2", name: "Quiet Falcon", slug: "quiet-falcon" };
+
+  it("keeps the team the user is already on when it is still in the active org", async () => {
+    // Ordered so the held team is NOT first — the old `limit: 1` code took
+    // rows[0] and silently relocated multi-team users on every mount.
+    teamsMock.listCurrentUserTeams.mockResolvedValueOnce([OTHER_TEAM, ACTIVE_TEAM]);
+    directoryMock.getCurrentTeamMember.mockResolvedValueOnce(ACTIVE_MEMBER);
+    useCurrentTeamStore.setState({ team: ACTIVE_TEAM, teamUserId: "anon-1" });
+
+    await useCurrentTeamStore.getState().load();
+
+    expect(useCurrentTeamStore.getState().team).toEqual(ACTIVE_TEAM);
+  });
+
+  it("falls back to the first row when the held team left the active org", async () => {
+    teamsMock.listCurrentUserTeams.mockResolvedValueOnce([OTHER_TEAM]);
+    directoryMock.getCurrentTeamMember.mockResolvedValueOnce(ACTIVE_MEMBER);
+    useCurrentTeamStore.setState({ team: ACTIVE_TEAM, teamUserId: "anon-1" });
+
+    await useCurrentTeamStore.getState().load();
+
+    expect(useCurrentTeamStore.getState().team).toEqual(OTHER_TEAM);
+  });
+});
+
+describe("enterTeam", () => {
+  it("activates and adopts the minted session before setting the team", async () => {
+    const calls: string[] = [];
+    teamsMock.activateTeam = vi.fn(async () => {
+      calls.push("activate");
+      return { actorId: null, teamId: "team-2", refreshToken: "rt-2" };
+    });
+    authMock.adoptSession = vi.fn(async () => {
+      calls.push("adopt");
+      return null;
+    });
+    teamsMock.getTeam.mockImplementation(async () => {
+      calls.push("getTeam");
+      return { id: "team-2", name: "Quiet Falcon", slug: "quiet-falcon" };
+    });
+    directoryMock.getCurrentTeamMember.mockResolvedValueOnce(ACTIVE_MEMBER);
+
+    await useCurrentTeamStore.getState().enterTeam("team-2");
+
+    // Order matters: getTeam before adopt would read with the stale org.
+    expect(calls).toEqual(["activate", "adopt", "getTeam"]);
+    expect(useCurrentTeamStore.getState().team?.id).toBe("team-2");
+  });
+
+  it("skips activation when the caller knows the team is already in the active org", async () => {
+    teamsMock.activateTeam = vi.fn();
+    teamsMock.getTeam.mockResolvedValueOnce(ACTIVE_TEAM);
+    directoryMock.getCurrentTeamMember.mockResolvedValueOnce(ACTIVE_MEMBER);
+
+    await useCurrentTeamStore.getState().enterTeam("team-1", { assumeActive: true });
+
+    expect(teamsMock.activateTeam).not.toHaveBeenCalled();
+    expect(useCurrentTeamStore.getState().team?.id).toBe("team-1");
   });
 });
