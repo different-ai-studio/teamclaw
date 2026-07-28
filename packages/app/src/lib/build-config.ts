@@ -87,7 +87,10 @@ export interface BuildConfig {
     /** Browsable team-share sidebar (Skills / MCP / Env / Knowledge). Off by default. */
     teamShareBrowser?: boolean
     /** Apps module: build full-stack apps (per-app workspace/git + FC deploy).
-     *  Off by default — gated until per-app FC/Postgres provisioning is live. */
+     *  Off by default; on in build.config.dev.json. Enabling it in a shipped
+     *  build also needs the deploy env (CODEUP_*, APPS_DB_ADMIN_URL,
+     *  FC_ENDPOINT/ALIYUN_ACCOUNT_ID) on that build's Cloud API, or deploy
+     *  answers 503 deploy_unavailable. */
     apps?: boolean
   }
   /** Which local agent runtime this build targets. "opencode" (default) drives

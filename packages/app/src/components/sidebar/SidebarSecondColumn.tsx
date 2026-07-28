@@ -11,7 +11,9 @@ export function SidebarSecondColumn({ showNewSessionActions }: { showNewSessionA
   const filter = useUIStore((s) => s.sidebarFilter)
   if (!embedMode && filter.kind === 'shortcuts') return <ShortcutsListColumn />
   if (!embedMode && filter.kind === 'ideas') return <IdeasView />
-  if (filter.kind === 'apps') return <AppsListColumn />
+  // Gated like teamShare: a filter persisted from a build that had Apps on
+  // must not render the column in one that has it off.
+  if (filter.kind === 'apps' && buildConfig.features.apps) return <AppsListColumn />
   if (filter.kind === 'actors') return <ActorsView />
   if (filter.kind === 'teamShare' && buildConfig.features.teamShareBrowser)
     return <TeamShareListColumn section={filter.section} />
