@@ -6,6 +6,7 @@
 // Submodules are added by later tasks; uncomment as each lands:
 pub mod app_build;
 pub mod app_seed;
+pub mod app_templates;
 pub mod dispatch;
 pub mod git;
 pub mod oss;

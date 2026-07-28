@@ -1520,31 +1520,13 @@ test("apps: createApp inserts workspace + app and resolves caller actor", async 
   assert.equal(app.teamId, "team-1");
 });
 
-test("apps: createApp advances to repo_created on provisioner success", async () => {
-  const repo = appsRepo(
-    appsSupabase({}),
-    {
-      provisionAppRepo: async ({ appId, teamId }: any) => {
-        assert.equal(teamId, "team-1");
-        assert.ok(appId);
-        return { gitRemoteUrl: "https://git.example.com/app.git", gitAuthKind: "pat" };
-      },
-    },
-  );
-  const app = await repo.createApp({ teamId: "team-1", name: "My App", type: "t", visibility: "personal" });
-  assert.equal(app.provisionStatus, "repo_created");
-  assert.equal(app.gitRemoteUrl, "https://git.example.com/app.git");
-});
-
-test("apps: createApp sets error status when provisioner throws", async () => {
-  const repo = appsRepo(
-    appsSupabase({}),
-    {
-      provisionAppRepo: async () => { throw new Error("managed-git boom"); },
-    },
-  );
-  const app = await repo.createApp({ teamId: "team-1", name: "My App", type: "t" });
-  assert.equal(app.provisionStatus, "error");
+test("apps: createApp inserts a pending app with no repo", async () => {
+  // An app's source lives only in the local checkout the daemon seeds, so
+  // creation provisions nothing — the desktop drives the seed and writes back.
+  const repo = appsRepo(appsSupabase({}));
+  const app = await repo.createApp({ teamId: "team-1", name: "My App", type: "slides", visibility: "personal" });
+  assert.equal(app.provisionStatus, "pending");
+  assert.equal(app.gitRemoteUrl, null);
 });
 
 test("apps: updateApp returns null when no row updated (RLS non-creator)", async () => {
@@ -1568,12 +1550,14 @@ test("apps: updateApp advances provisionStatus through a legal transition", asyn
   assert.equal(result?.provisionStatus, "seeding");
 });
 
-test("apps: updateApp rejects an illegal provisionStatus jump (from pending)", async () => {
+test("apps: updateApp rejects an illegal provisionStatus jump", async () => {
   const repo = appsRepo(appsSupabase({
     seed: { apps: [{ ...APP_ROW, provision_status: "pending" }] },
   }));
+  // pending -> ready is the normal seed writeback; putting a row BACK into a
+  // provisioning state is what clients may never do.
   await assert.rejects(
-    () => repo.updateApp("app-1", { provisionStatus: "ready" }),
+    () => repo.updateApp("app-1", { provisionStatus: "repo_created" }),
     (err: any) => err?.code === "invalid_status_transition" && err?.statusCode === 400,
   );
 });
@@ -1615,14 +1599,14 @@ test("apps: deployApp on ready app returns awaiting_build + ossObjectName", asyn
   const repo = appsRepo(
     appsSupabase({ seed: { apps: [{ ...APP_ROW, provision_status: "ready" }] } }),
     {
-      startDeploy: async ({ appId, slug }: any) => {
+      // startDeploy only mints the upload handle now — the schema (and hence
+      // the slug) is provisioned at finalize, once the code object exists.
+      startDeploy: async ({ appId }: any) => {
         assert.equal(appId, "app-1");
-        assert.equal(slug, "my-app");
         return {
           fcFunctionName: "app-my-app",
           fcRegion: "cn-hangzhou",
           ossObjectName: "apps/app-1/build.zip",
-          databaseUrl: "postgres://secret",
           presignedPut: "https://oss/put?sig=x",
         };
       },

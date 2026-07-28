@@ -110,6 +110,40 @@ services:
           echo "litellm-init: created _litellm"
         fi
 
+  # Creates the teamclaw_apps database — the shared home for per-app Postgres
+  # schemas (one schema + one scoped login role per "数据操作" app), kept apart
+  # from the control-plane database. Same one-shot pattern and reasoning as
+  # litellm-init above: an already-deployed stack would never run a
+  # docker-entrypoint-initdb.d script, and CREATE DATABASE takes no IF NOT
+  # EXISTS and cannot run inside a transaction.
+  #
+  # Runs unconditionally: an empty unused database costs nothing, whereas the
+  # alternative is app deploys failing at connect time with a Postgres error
+  # that names no cause. Point APPS_DB_ADMIN_URL at it to enable them.
+  apps-db-init:
+    image: postgres:15-alpine
+    restart: "no"
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      PGHOST: "${POSTGRES_HOST}"
+      PGPORT: "${POSTGRES_PORT}"
+      PGUSER: postgres
+      PGPASSWORD: "${POSTGRES_PASSWORD}"
+      PGDATABASE: "${POSTGRES_DB}"
+    entrypoint:
+      - /bin/sh
+      - -c
+      - |
+        set -e
+        if [ "$$(psql -tAc "SELECT 1 FROM pg_database WHERE datname='teamclaw_apps'")" = "1" ]; then
+          echo "apps-db-init: teamclaw_apps already exists"
+        else
+          psql -c 'CREATE DATABASE "teamclaw_apps"'
+          echo "apps-db-init: created teamclaw_apps"
+        fi
+
   # AI gateway. FC provisions per-team budgets and virtual keys against the admin
   # API (/team/new, /key/generate) using LITELLM_MASTER_KEY.
   #
@@ -162,6 +196,8 @@ services:
     depends_on:
       migrate:
         condition: service_completed_successfully
+      apps-db-init:
+        condition: service_completed_successfully
       kong:
         condition: service_started
       emqx:
@@ -187,6 +223,23 @@ services:
       BUCKET: "${BUCKET:-teamclaw-team}"
       REGION: "${REGION:-cn-shenzhen}"
       ENDPOINT: "${ENDPOINT:-}"
+      # Apps module. These were declared in services/fc/s.yaml but never in this
+      # allowlist, so the container saw none of them: creating an app failed at
+      # the managed-git repo step (CODEUP_*), and "deploy" 503'd with an opaque
+      # `deploy_unavailable` because makeDeployDeps() bails without
+      # APPS_DB_ADMIN_URL. Keep both targets in step when adding more.
+      CODEUP_ORG_ID: "${CODEUP_ORG_ID:-}"
+      CODEUP_PAT: "${CODEUP_PAT:-}"
+      CODEUP_BOT_USERNAME: "${CODEUP_BOT_USERNAME:-teamclaw}"
+      # Admin connection to the shared per-app database (teamclaw_apps) — same
+      # RDS instance as the control plane, different database. Blank disables
+      # app deploys (they return 503 rather than half-provisioning).
+      APPS_DB_ADMIN_URL: "${APPS_DB_ADMIN_URL:-}"
+      # The FC 3.0 data-plane host is account-scoped
+      # (<accountId>.<region>.fc.aliyuncs.com) and is NOT the OSS ENDPOINT.
+      # Set FC_ENDPOINT, or ALIYUN_ACCOUNT_ID to have it composed.
+      FC_ENDPOINT: "${FC_ENDPOINT:-}"
+      ALIYUN_ACCOUNT_ID: "${ALIYUN_ACCOUNT_ID:-}"
       # Optional partner-integration features, all off unless set here. This
       # `environment:` map is an explicit allowlist — a var absent from it never
       # reaches the container, no matter what the box's .env says.
@@ -222,6 +275,40 @@ services:
       # resolveLiteLlmConnString() defaults to `litellm` (no underscore), so
       # without this the usage queries connect to a database that never exists.
       LITELLM_DB_NAME: "${LITELLM_DB_NAME:-_litellm}"
+
+      # ── Declared in services/fc/s.yaml but historically absent here, so the
+      # container never received them and the features were silently off on the
+      # box. This map is an allowlist; the two deploy targets must stay in step
+      # (test/deploy-env-parity.test.ts pins that).
+      #
+      # iOS push. All five needed together; any missing one disables APNs.
+      APNS_PRIVATE_KEY_P8: "${APNS_PRIVATE_KEY_P8:-}"
+      APNS_KEY_ID: "${APNS_KEY_ID:-}"
+      APNS_TEAM_ID: "${APNS_TEAM_ID:-}"
+      APNS_TOPIC: "${APNS_TOPIC:-}"
+      APNS_ENV: "${APNS_ENV:-}"
+      PUSH_WEBHOOK_SECRET: "${PUSH_WEBHOOK_SECRET:-}"
+      # Email OTP delivery. Only used when FC sends the mail itself; with
+      # BACKEND_KIND=supabase, GoTrue's own SMTP config does it instead.
+      OTP_EMAIL_SMTP_HOST: "${OTP_EMAIL_SMTP_HOST:-}"
+      OTP_EMAIL_SMTP_PORT: "${OTP_EMAIL_SMTP_PORT:-}"
+      OTP_EMAIL_SMTP_SECURE: "${OTP_EMAIL_SMTP_SECURE:-}"
+      OTP_EMAIL_SMTP_USER: "${OTP_EMAIL_SMTP_USER:-}"
+      OTP_EMAIL_SMTP_PASS: "${OTP_EMAIL_SMTP_PASS:-}"
+      OTP_EMAIL_FROM: "${OTP_EMAIL_FROM:-}"
+      # better-auth (BACKEND_KIND=postgres only; the supabase backend uses GoTrue).
+      AUTH_BASE_URL: "${AUTH_BASE_URL:-}"
+      AUTH_SECRET: "${AUTH_SECRET:-}"
+      GOOGLE_CLIENT_ID: "${GOOGLE_CLIENT_ID:-}"
+      GOOGLE_CLIENT_SECRET: "${GOOGLE_CLIENT_SECRET:-}"
+      APPLE_CLIENT_ID: "${APPLE_CLIENT_ID:-}"
+      APPLE_CLIENT_SECRET: "${APPLE_CLIENT_SECRET:-}"
+      SMS_DEBUG_MODE: "${SMS_DEBUG_MODE:-}"
+      # Postgres pool size for the apps admin connection.
+      PG_POOL_MAX: "${PG_POOL_MAX:-}"
+      # NOTE: CORS_HANDLED_BY_PROXY is deliberately NOT here. Caddy is a
+      # transparent proxy that adds no CORS headers, so Hono must own CORS
+      # (see services/fc/src/app.ts). Setting it would strip CORS entirely.
 
   caddy:
     image: caddy:2

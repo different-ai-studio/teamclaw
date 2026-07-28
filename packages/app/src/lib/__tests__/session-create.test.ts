@@ -484,7 +484,9 @@ describe('startAgentRuntimesAsync', () => {
       expect.objectContaining({
         targetActorId: 'agent-local',
         workspaceId: 'ws-copilot',
-        worktree: '',
+        // The local daemon also gets the path, so a workspace row without one
+        // (every app's workspace) cannot silently spawn in the default folder.
+        worktree: '/Users/me/copilot-ws-v2',
       }),
     )
   })

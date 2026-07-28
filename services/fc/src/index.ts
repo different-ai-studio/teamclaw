@@ -13,11 +13,11 @@ import { createPgBusinessRepository } from "./lib/pg-repo/index.js";
 import { createPgAuthRepository } from "./lib/pg-repo/auth.js";
 import { queryParams } from "./lib/routing-utils.js";
 import { dispatchPush } from "./lib/push-dispatch.js";
-import { pushDeps, pgPushDeps, handleManagedGitCreateRepo } from "./lib/admin-handlers.js";
+import { pushDeps, pgPushDeps } from "./lib/admin-handlers.js";
 import { verifyAccessToken } from "./auth/verify.js";
 import { ApiError } from "./lib/http-utils.js";
 import { getAppsAdminExecutor } from "./lib/provisioning/app-postgres.js";
-import { getFcClient, makeFcOps } from "./lib/provisioning/fc-client.js";
+import { getFcClient, makeFcOps, resolveFcEndpoint } from "./lib/provisioning/fc-client.js";
 import { startDeploy as startDeployImpl, finalizeDeploy as finalizeDeployImpl } from "./lib/provisioning/app-deploy.js";
 import { PutObjectCommand } from "@aws-sdk/client-s3";
 import { getSignedUrl } from "@aws-sdk/s3-request-presigner";
@@ -51,40 +51,38 @@ export function syncGetQueryToBody(event: any) {
   return body;
 }
 
-// Per-app git repo provisioning, shared by BOTH backends. Delegates to the
-// managed-git handler (mirrors how teams inject provisionLiteLlm).
-// handleManagedGitCreateRepo returns a json()-style { statusCode, headers, body }
-// where body is a JSON string; parse it and surface only the remote URL +
-// authKind. The PAT is intentionally NOT persisted in the DB.
-async function provisionAppRepo({ teamId, appId }: { teamId: string; appId: string }) {
-  const res = await handleManagedGitCreateRepo({ teamId, appId });
-  if (res.statusCode !== 200) {
-    const detail = (() => {
-      try { return JSON.parse(res.body)?.error; } catch { return res.body; }
-    })();
-    throw new Error(`managed-git create-repo failed (${res.statusCode}): ${detail ?? "unknown error"}`);
-  }
-  const data = JSON.parse(res.body) as { repoHttpUrl?: string };
-  if (!data?.repoHttpUrl) return null;
-  return { gitRemoteUrl: data.repoHttpUrl, gitAuthKind: "pat" };
-}
-
-// Deploy provisioning deps (schema + FC function). Returns {} when unconfigured
-// so deployApp/finalizeDeploy surface 503 rather than crashing at import.
+// Deploy provisioning deps (FC function + optionally a Postgres schema).
+// Returns {} when FC is unconfigured so deployApp/finalizeDeploy surface 503
+// rather than crashing at import. FC_ENDPOINT/ALIYUN_ACCOUNT_ID counts as
+// "configured": without it every FC call fails deep inside the SDK.
+//
+// The apps database is a SEPARATE, softer requirement — only `data_app` needs
+// it. Static apps deploy fine without APPS_DB_ADMIN_URL; asking for one is what
+// raises the error, not merely having the module loaded.
 function makeDeployDeps() {
-  if (!process.env.APPS_DB_ADMIN_URL || !process.env.ACCESS_KEY_ID) return {};
+  if (!process.env.ACCESS_KEY_ID) return {};
+  // Same resolution the client uses, so "configured" here and "usable" there
+  // cannot drift — including the ROLE_ARN fallback.
+  if (!resolveFcEndpoint()) return {};
   const bucket = OSS_BUCKET();
   const fcOps = makeFcOps(getFcClient(), { bucket, role: process.env.ROLE_ARN });
-  const adminExec = getAppsAdminExecutor();
   const appsBaseUrl = process.env.APPS_DB_ADMIN_URL;
+  const adminExec = appsBaseUrl ? getAppsAdminExecutor() : undefined;
   const s3 = getS3Client();
+  // 30 min: the daemon runs `pnpm install && pnpm build` between minting this
+  // URL and using it, and a cold install on a modest laptop outlasts 15.
   const mintUploadUrl = (ossObjectName: string) =>
-    getSignedUrl(s3 as any, new PutObjectCommand({ Bucket: bucket, Key: ossObjectName }), { expiresIn: 900 });
+    getSignedUrl(s3 as any, new PutObjectCommand({ Bucket: bucket, Key: ossObjectName }), { expiresIn: 1800 });
   return {
-    startDeploy: (a: { appId: string; slug: string; region: string }) =>
-      startDeployImpl({ adminExec, fcOps, bucket, appsBaseUrl, mintUploadUrl }, a),
-    finalizeDeploy: (a: { fcFunctionName: string; ossObjectName: string }) =>
-      finalizeDeployImpl({ fcOps }, a),
+    startDeploy: (a: { appId: string; region: string }) =>
+      startDeployImpl({ mintUploadUrl }, a),
+    finalizeDeploy: (a: {
+      appId: string;
+      slug: string;
+      appType: string;
+      fcFunctionName: string;
+      ossObjectName: string;
+    }) => finalizeDeployImpl({ adminExec, fcOps, appsBaseUrl }, a),
   };
 }
 
@@ -137,10 +135,6 @@ export function makeBusinessRepoFactory(
         // push_idempotency_claim and list_session_push_targets are now served
         // by Drizzle queries via buildPgPushDeps() — no Supabase service-role.
         dispatchPush: async (record) => { await dispatchPush(record, pgPushDeps()); },
-        // Per-app git repo provisioning: delegate to the shared helper (mirrors
-        // how teams inject provisionLiteLlm). Same impl is supplied to the
-        // supabase repo below so /v1/apps works on the production backend too.
-        provisionAppRepo,
         ...makeDeployDeps(),
         publishReadEvent: async ({ userId, sessionId }) => {
           const { mqtt } = pgPushDeps();
@@ -157,9 +151,6 @@ export function makeBusinessRepoFactory(
       supabasePublicUrl: SUPABASE_PUBLIC_URL_FN(),
       publishableKey: SUPABASE_PUBLISHABLE_KEY(),
       accessToken,
-      // Same per-app git provisioning as the postgres branch so /v1/apps
-      // createApp provisions a repo on the production (supabase) backend.
-      provisionAppRepo,
       ...makeDeployDeps(),
     });
 }

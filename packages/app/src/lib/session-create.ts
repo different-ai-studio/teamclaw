@@ -39,6 +39,7 @@ import {
   resolveCloudWorkspaceIdForLocalPath,
   runtimeStartWorkspaceArgs,
 } from '@/lib/teamclaw/resolve-runtime-start-workspace'
+import { resolveSessionWorkspacePath } from '@/lib/session-by-workspace'
 import { RUNTIME_START_RPC_TIMEOUT_MS } from '@/lib/teamclaw/runtime-rpc-timeouts'
 export interface CreateSessionShellArgs {
   teamId: string
@@ -183,6 +184,17 @@ export interface CreateSessionWithFirstMessageArgs {
   /** Backend chosen before creating the session; overrides agent defaults/history. */
   agentType?: number
   ideaId?: string | null
+  /** Links the new session to an app (the Apps module opening flow). */
+  appId?: string
+  /** Overrides the title, which otherwise comes from the message's first line. */
+  title?: string
+  /**
+   * Actors the opening message @-mentions. Normally empty — see the note on
+   * the function. An app's opening message DOES mention the local daemon,
+   * because an unmentioned message is only silent-queued and the agent would
+   * sit there until the user typed something.
+   */
+  mentionActorIds?: string[]
 }
 
 export interface CreateSessionWithFirstMessageResult {
@@ -212,7 +224,9 @@ export async function createSessionWithFirstMessage(
     ...summarizeText(trimmed),
   })
 
-  const titleSource = trimmed.split('\n')[0]?.trim().slice(0, 80) || 'New chat'
+  const titleSource =
+    args.title?.trim() || trimmed.split('\n')[0]?.trim().slice(0, 80) || 'New chat'
+  const mentionActorIds = args.mentionActorIds ?? []
 
   const { sessionId } = await createSessionShell({
     teamId: args.teamId,
@@ -220,6 +234,7 @@ export async function createSessionWithFirstMessage(
     title: titleSource,
     additionalActorIds: args.additionalActorIds,
     ideaId: args.ideaId ?? null,
+    ...(args.appId ? { appId: args.appId } : {}),
   })
 
   const messageId = crypto.randomUUID()
@@ -236,7 +251,7 @@ export async function createSessionWithFirstMessage(
   })
   const sessionEnvelope = createProtoMessage(SessionMessageEnvelopeSchema, {
     message: protoMessage,
-    mentionActorIds: [],
+    mentionActorIds,
   })
   const liveEnvelope = createProtoMessage(LiveEventEnvelopeSchema, {
     eventId: crypto.randomUUID(),
@@ -256,7 +271,7 @@ export async function createSessionWithFirstMessage(
       kind: 'text',
       content: trimmed,
       model: args.modelId ?? null,
-      metadata: { mention_actor_ids: [] },
+      metadata: { mention_actor_ids: mentionActorIds },
     })
   } catch (error) {
     sessionFlowError('session_with_first_message.insert_message.failed', error, {
@@ -397,6 +412,16 @@ export async function startAgentRuntimesAsync(
   const failures: RuntimeStartFailure[] = []
   const runtimeIdsByAgent: Record<string, string> = {}
   const localWorkspacePath = useWorkspaceStore.getState().workspacePath?.trim() || ''
+  // The workspace store lags a freshly-opened session — switchToSession
+  // resolves the workspace in the background so the view flip stays instant —
+  // so prefer the session's own binding, which is written before the session
+  // is opened. Without this the first prompt in a just-opened app ran in
+  // whatever folder the previous session happened to be using.
+  const sessionWorkspacePath = args.sessionId?.trim()
+    ? (await resolveSessionWorkspacePath(args.teamId, args.sessionId).catch(() => null))?.trim() ||
+      ''
+    : ''
+  const localWorktree = sessionWorkspacePath || localWorkspacePath
   const rpcTimeoutMs = args.rpcTimeoutMs ?? RUNTIME_START_RPC_TIMEOUT_MS
   let createdByMemberId: string | null = null
   try {
@@ -525,9 +550,22 @@ export async function startAgentRuntimesAsync(
     let workspaceId = ''
     const callerHint = args.workspaceIdHint?.trim()
     const sessionWorkspaceId = baseLookup.sessionWorkspaceId?.trim()
-    if (callerHint || sessionWorkspaceId) {
+    if (callerHint) {
       workspaceId = resolveAgentRuntimeWorkspaceId(workspaceLookup)
-    } else if (isLocalDaemonAgent && localWorkspacePath) {
+    }
+    // The session's own workspace binding names the folder this session is
+    // for, so it outranks `sessionWorkspaceId` — which records where a PRIOR
+    // runtime ran and goes stale the moment the agent runs elsewhere. Opening
+    // one app after another, that stale id still named the first app's
+    // workspace, and it beat the correct path all the way into the daemon:
+    // the second app's agent ran in the first app's checkout.
+    if (!workspaceId && isLocalDaemonAgent && sessionWorkspacePath) {
+      workspaceId =
+        (await resolveCloudWorkspaceIdForLocalPath(args.teamId, sessionWorkspacePath, {
+          agentActorId,
+        })) ?? ''
+    }
+    if (!workspaceId && !sessionWorkspaceId && isLocalDaemonAgent && localWorkspacePath) {
       workspaceId =
         (await resolveCloudWorkspaceIdForLocalPath(args.teamId, localWorkspacePath, {
           agentActorId,
@@ -540,8 +578,7 @@ export async function startAgentRuntimesAsync(
       workspaceId = await ensureCloudWorkspaceIdForAgentRuntime({
         teamId: args.teamId,
         agentActorId,
-        localWorkspacePath:
-          isLocalDaemonAgent ? localWorkspacePath || null : null,
+        localWorkspacePath: isLocalDaemonAgent ? localWorktree || null : null,
         sessionId: args.sessionId,
         createdByMemberId,
       })
@@ -567,7 +604,8 @@ export async function startAgentRuntimesAsync(
       // is the agent's actor_id.
       const result = await runtimeStart({
         targetActorId: agentActorId,
-        ...runtimeStartWorkspaceArgs(runtimeWorkspaceId),
+        // Local path only for the daemon on this machine (see the helper).
+        ...runtimeStartWorkspaceArgs(runtimeWorkspaceId, isLocalDaemonAgent ? localWorktree : ''),
         sessionId: args.sessionId,
         agentType,
         initialPrompt: '',

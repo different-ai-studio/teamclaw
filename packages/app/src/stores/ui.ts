@@ -122,7 +122,11 @@ interface UIState {
   pendingPageLinkInsert: PageContext | null
   pageLinkInsertRequestId: number
   requestPageLinkInsert: (ctx: PageContext) => void
-  switchToSession: (sessionId: string) => Promise<void>
+  /** Open a session in the chat view. By default this also resets the sidebar
+   *  to the session list, since the caller is usually leaving a
+   *  actor/idea/workspace view. Pass `keepSidebarFilter` when column 2 is the
+   *  list the session was launched from and should stay put (Apps). */
+  switchToSession: (sessionId: string, opts?: { keepSidebarFilter?: boolean }) => Promise<void>
   enterActorDraft: (actor: DraftActor) => void
   clearActorDraft: () => void
 }
@@ -291,7 +295,10 @@ export const useUIStore = create<UIState>((set, get) => ({
     })
   },
 
-  switchToSession: async (sessionId: string) => {
+  switchToSession: async (sessionId: string, opts?: { keepSidebarFilter?: boolean }) => {
+    const sidebarPatch = opts?.keepSidebarFilter
+      ? {}
+      : { sidebarFilter: { kind: 'all' } as SidebarFilter }
     // Import stores lazily to avoid circular dependencies
     const { useSessionSelectionStore } = await import('@/stores/session-selection-store')
     const { useWorkspaceStore } = await import('@/stores/workspace')
@@ -316,7 +323,7 @@ export const useUIStore = create<UIState>((set, get) => ({
     // worktree (e.g. app sessions whose workspace wasn't set yet).
     const currentActiveId = useSessionSelectionStore.getState().activeSessionId
     if (sessionId === currentActiveId) {
-      set({ currentView: 'chat', settingsInitialSection: null, daemonGeneralPrompt: null, sidebarFilter: { kind: 'all' } })
+      set({ currentView: 'chat', settingsInitialSection: null, daemonGeneralPrompt: null, ...sidebarPatch })
       releaseStuckModalLayersAfterViewSwitch()
       resolveWorkspaceInBackground()
       return
@@ -343,7 +350,7 @@ export const useUIStore = create<UIState>((set, get) => ({
     void useSessionSelectionStore.getState().setActiveSession(sessionId)
     // If the user was in actor-draft mode, drop that since they jumped into
     // an existing session.
-    set({ draftPreselectedActor: null, sidebarFilter: { kind: 'all' }, draftIdeaId: null })
+    set({ draftPreselectedActor: null, draftIdeaId: null, ...sidebarPatch })
 
     resolveWorkspaceInBackground()
   },

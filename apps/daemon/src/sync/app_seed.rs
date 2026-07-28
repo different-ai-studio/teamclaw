@@ -1,126 +1,61 @@
+//! Seed an app checkout: write the starter template, then make it a git repo.
+//!
+//! There is no remote. Seeding used to create a managed-git repo, clone a
+//! GitHub template into it and push — three network round trips and a
+//! credential, none of which the deploy path uses (`app_build` builds whatever
+//! is in this directory). What remains is a local `git init` + first commit,
+//! which is what actually matters while an agent edits these files: `git diff`
+//! and a way back. Adding a remote later is `git remote add` + push.
+
 use std::path::Path;
 use std::process::Command;
 
-fn worktree_has_content(workdir: &Path) -> bool {
-    let Ok(entries) = std::fs::read_dir(workdir) else {
-        return false;
-    };
-    entries
-        .filter_map(|e| e.ok())
-        .any(|e| e.file_name() != ".git")
-}
+use crate::sync::app_templates::{write_template, TemplateVars};
 
-fn clone_template(workdir: &Path, template_url: &str, parent: &Path) -> anyhow::Result<()> {
-    if workdir.exists() {
-        std::fs::remove_dir_all(workdir)?;
-    }
-    let wd = workdir.to_string_lossy();
-    let shallow_ok = run_git(&["clone", "--depth=1", template_url, wd.as_ref()], parent).is_ok()
-        && worktree_has_content(workdir);
-    if !shallow_ok {
-        if workdir.exists() {
-            std::fs::remove_dir_all(workdir)?;
-        }
-        run_git(&["clone", template_url, wd.as_ref()], parent)?;
-    }
-    if !worktree_has_content(workdir) {
-        anyhow::bail!("template clone produced an empty worktree");
-    }
-    Ok(())
-}
-
-/// Seed a freshly-created (empty) app repo from a GitHub template:
-/// clone template (depth=1) → strip history → reinit → push to target.
+/// Write the template into `workdir` and commit it as the initial revision.
 ///
-/// The resulting repo contains only a single "scaffold" commit with no
-/// connection to the template's git history.
-pub fn seed_app_repo(
-    workdir: &Path,
-    remote_url: &str,
-    template_url: &str,
-    token: Option<&str>,
-) -> anyhow::Result<()> {
-    let target_url = embed(remote_url, token);
-    let parent = workdir
-        .parent()
-        .ok_or_else(|| anyhow::anyhow!("workdir has no parent"))?;
-
-    // 1. Shallow-clone the template into workdir (full clone fallback when shallow
-    //    leaves an empty worktree — common for file:// bare repos on Linux CI).
-    clone_template(workdir, template_url, parent)?;
-
-    // 2. Strip the template's git history so the new repo starts fresh.
-    std::fs::remove_dir_all(workdir.join(".git"))?;
-    run_git(&["init", "--initial-branch=main"], workdir)?;
+/// `workdir` is created if missing. Re-seeding an existing checkout restores
+/// the starter files over the top and commits the difference, so a wrecked app
+/// can be reset without losing its history.
+pub fn seed_app_repo(workdir: &Path, vars: &TemplateVars<'_>) -> anyhow::Result<()> {
+    write_template(workdir, vars)?;
 
     let wd = workdir.to_string_lossy().to_string();
-    run_git(
-        &["-C", &wd, "config", "user.email", "daemon@teamclaw"],
-        workdir,
-    )?;
-    run_git(
-        &["-C", &wd, "config", "user.name", "teamclaw-daemon"],
-        workdir,
-    )?;
+    if !workdir.join(".git").exists() {
+        run_git(&["init", "--initial-branch=main"], workdir)?;
+        run_git(&["-C", &wd, "config", "user.email", "daemon@teamclaw"], workdir)?;
+        run_git(&["-C", &wd, "config", "user.name", "teamclaw-daemon"], workdir)?;
+    }
     run_git(&["-C", &wd, "add", "-A"], workdir)?;
-    run_git(
-        &[
-            "-C",
-            &wd,
-            "-c",
-            "user.email=daemon@teamclaw",
-            "-c",
-            "user.name=teamclaw-daemon",
-            "commit",
-            "-m",
-            "chore: scaffold app template",
-        ],
-        workdir,
-    )?;
-
-    // 3. Push to the managed-git target.
-    run_git(
-        &["-C", &wd, "remote", "add", "origin", &target_url],
-        workdir,
-    )?;
-    run_git(
-        &["-C", &wd, "push", "-u", "origin", "HEAD:refs/heads/main"],
-        workdir,
-    )?;
-
+    // Nothing to commit is a success: re-seeding an untouched checkout is a
+    // no-op, and `git commit` exits non-zero on an empty index.
+    if git_has_staged_changes(workdir) {
+        run_git(
+            &[
+                "-C",
+                &wd,
+                "-c",
+                "user.email=daemon@teamclaw",
+                "-c",
+                "user.name=teamclaw-daemon",
+                "commit",
+                "-m",
+                "chore: scaffold app template",
+            ],
+            workdir,
+        )?;
+    }
     Ok(())
 }
 
-fn embed(url: &str, token: Option<&str>) -> String {
-    match token.map(str::trim).filter(|t| !t.is_empty()) {
-        Some(tok) => {
-            let userinfo = if tok.contains(':') {
-                tok.to_string()
-            } else {
-                format!("oauth2:{tok}")
-            };
-            if let Some(rest) = url.strip_prefix("https://") {
-                format!("https://{userinfo}@{rest}")
-            } else if let Some(rest) = url.strip_prefix("http://") {
-                format!("http://{userinfo}@{rest}")
-            } else {
-                url.to_string()
-            }
-        }
-        None => url.to_string(),
-    }
-}
-
-/// Mask `scheme://user:secret@host` userinfo so credentials never reach logs.
-fn redact(arg: &str) -> String {
-    if let Some(scheme_end) = arg.find("://") {
-        let after = &arg[scheme_end + 3..];
-        let host_rel = after.find('/').unwrap_or(after.len());
-        if let Some(at) = after[..host_rel].find('@') {
-            return format!("{}://***@{}", &arg[..scheme_end], &after[at + 1..]);
-        }
-    }
-    arg.to_string()
+fn git_has_staged_changes(workdir: &Path) -> bool {
+    Command::new("git")
+        .args(["diff", "--cached", "--quiet"])
+        .current_dir(workdir)
+        .env("GIT_TERMINAL_PROMPT", "0")
+        .status()
+        .map(|s| !s.success())
+        .unwrap_or(true)
 }
 
 fn run_git(args: &[&str], cwd: &Path) -> anyhow::Result<()> {
@@ -131,11 +66,10 @@ fn run_git(args: &[&str], cwd: &Path) -> anyhow::Result<()> {
         .env("GIT_CONFIG_NOSYSTEM", "1")
         .output()?;
     if !out.status.success() {
-        let safe: Vec<String> = args.iter().map(|a| redact(a)).collect();
         let stderr = String::from_utf8_lossy(&out.stderr).trim().to_string();
         let stdout = String::from_utf8_lossy(&out.stdout).trim().to_string();
         let detail = if stderr.is_empty() { stdout } else { stderr };
-        anyhow::bail!("git {:?} failed: {}", safe, detail);
+        anyhow::bail!("git {:?} failed: {}", args, detail);
     }
     Ok(())
 }
@@ -143,100 +77,92 @@ fn run_git(args: &[&str], cwd: &Path) -> anyhow::Result<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::path::PathBuf;
+    use crate::sync::app_templates::AppType;
 
-    fn file_url(path: &Path) -> String {
-        let abs: PathBuf = std::fs::canonicalize(path).unwrap_or_else(|_| path.to_path_buf());
-        format!("file://{}", abs.to_string_lossy())
+    fn vars<'a>(app_type: AppType) -> TemplateVars<'a> {
+        TemplateVars {
+            app_id: "app-1",
+            app_name: "Demo",
+            app_type,
+        }
     }
 
-    fn bare_has_file(bare: &Path, rel: &str) -> bool {
-        Command::new("git")
-            .args([
-                "--git-dir",
-                &bare.to_string_lossy(),
-                "cat-file",
-                "-e",
-                &format!("main:{rel}"),
-            ])
-            .stdout(std::process::Stdio::null())
-            .stderr(std::process::Stdio::null())
-            .status()
-            .map(|s| s.success())
-            .unwrap_or(false)
+    fn head_files(workdir: &Path) -> Vec<String> {
+        let out = Command::new("git")
+            .args(["-C", &workdir.to_string_lossy(), "ls-tree", "-r", "--name-only", "HEAD"])
+            .output()
+            .unwrap();
+        String::from_utf8_lossy(&out.stdout)
+            .lines()
+            .map(|s| s.to_string())
+            .collect()
     }
 
-    /// Smoke-test using a local non-bare template repo and a bare target — no
-    /// network required. Template is non-bare (like GitHub); bare file://
-    /// shallow clones are unreliable on Linux CI.
     #[test]
-    fn seeds_template_into_empty_remote() {
+    fn seeds_a_committed_checkout_with_no_remote() {
         let tmp = tempfile::tempdir().unwrap();
+        let work = tmp.path().join("app");
+        seed_app_repo(&work, &vars(AppType::StaticWeb)).unwrap();
 
-        let tmpl_dir = tmp.path().join("template");
-        run_git(
-            &["init", "--initial-branch=main", &tmpl_dir.to_string_lossy()],
-            tmp.path(),
-        )
-        .unwrap();
-        std::fs::create_dir_all(tmpl_dir.join("src")).unwrap();
-        std::fs::write(tmpl_dir.join("README.md"), "# app").unwrap();
-        std::fs::write(tmpl_dir.join("src/main.tsx"), "export {}").unwrap();
-        let tmpl_wd = tmpl_dir.to_string_lossy().to_string();
-        run_git(
-            &[
-                "-C",
-                &tmpl_wd,
-                "-c",
-                "user.email=t@t",
-                "-c",
-                "user.name=t",
-                "add",
-                "-A",
-            ],
-            &tmpl_dir,
-        )
-        .unwrap();
-        run_git(
-            &[
-                "-C",
-                &tmpl_wd,
-                "-c",
-                "user.email=t@t",
-                "-c",
-                "user.name=t",
-                "commit",
-                "-m",
-                "init",
-            ],
-            &tmpl_dir,
-        )
-        .unwrap();
+        let files = head_files(&work);
+        assert!(files.iter().any(|f| f == "AGENTS.md"), "{files:?}");
+        assert!(files.iter().any(|f| f == "public/index.html"), "{files:?}");
 
-        let target_bare = tmp.path().join("target.git");
-        run_git(
-            &["init", "--bare", &target_bare.to_string_lossy()],
-            tmp.path(),
-        )
-        .unwrap();
+        let remotes = Command::new("git")
+            .args(["-C", &work.to_string_lossy(), "remote"])
+            .output()
+            .unwrap();
+        assert!(
+            String::from_utf8_lossy(&remotes.stdout).trim().is_empty(),
+            "no remote is configured"
+        );
+    }
 
-        let work = tmp.path().join("work");
-        seed_app_repo(&work, &file_url(&target_bare), &file_url(&tmpl_dir), None).unwrap();
-
-        assert!(bare_has_file(&target_bare, "README.md"));
-        assert!(bare_has_file(&target_bare, "src/main.tsx"));
+    fn commit_count(workdir: &Path) -> usize {
+        let out = Command::new("git")
+            .args(["-C", &workdir.to_string_lossy(), "rev-list", "--count", "HEAD"])
+            .output()
+            .unwrap();
+        String::from_utf8_lossy(&out.stdout).trim().parse().unwrap()
     }
 
     #[test]
-    fn redacts_credentials_in_urls() {
-        assert_eq!(
-            redact("https://oauth2:secrettoken@codeup.example.com/x.git"),
-            "https://***@codeup.example.com/x.git"
+    fn reseeding_restores_a_wrecked_file_and_keeps_history() {
+        let tmp = tempfile::tempdir().unwrap();
+        let work = tmp.path().join("app");
+        seed_app_repo(&work, &vars(AppType::StaticWeb)).unwrap();
+        std::fs::write(work.join("public/index.html"), "wrecked").unwrap();
+
+        seed_app_repo(&work, &vars(AppType::StaticWeb)).unwrap();
+        let restored = std::fs::read_to_string(work.join("public/index.html")).unwrap();
+        assert!(restored.contains("Demo"), "starter content is back");
+        // Restoring the file to exactly what HEAD already has leaves nothing to
+        // commit — the point is that the scaffold commit is still there and was
+        // not reset away.
+        assert_eq!(commit_count(&work), 1);
+    }
+
+    #[test]
+    fn work_the_agent_did_is_committed_by_a_reseed_not_destroyed() {
+        let tmp = tempfile::tempdir().unwrap();
+        let work = tmp.path().join("app");
+        seed_app_repo(&work, &vars(AppType::StaticWeb)).unwrap();
+        std::fs::write(work.join("public/about.html"), "<h1>agent wrote this</h1>").unwrap();
+
+        seed_app_repo(&work, &vars(AppType::StaticWeb)).unwrap();
+        assert!(
+            work.join("public/about.html").is_file(),
+            "a file the template does not know about survives"
         );
-        assert_eq!(
-            redact("https://codeup.example.com/x.git"),
-            "https://codeup.example.com/x.git"
-        );
-        assert_eq!(redact("clone"), "clone");
+        assert_eq!(commit_count(&work), 2, "and lands in a commit");
+    }
+
+    #[test]
+    fn reseeding_an_untouched_checkout_is_a_no_op() {
+        let tmp = tempfile::tempdir().unwrap();
+        let work = tmp.path().join("app");
+        seed_app_repo(&work, &vars(AppType::Slides)).unwrap();
+        // `git commit` exits non-zero with nothing staged; this must not fail.
+        seed_app_repo(&work, &vars(AppType::Slides)).unwrap();
     }
 }

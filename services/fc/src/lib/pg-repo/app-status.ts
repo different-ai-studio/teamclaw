@@ -1,11 +1,15 @@
-/** Legal client-driven provision_status transitions. createApp owns
- *  pending→repo_created/error; this governs the seed lifecycle + retry.
- *  Clients may never move a row back TO `pending` or `repo_created` (no list
- *  includes them), and may never move FROM `pending` (empty list). The desktop
- *  writes only the terminal `ready`/`error`; `seeding` is kept reachable for a
- *  future real "in progress" signal. */
+/** Legal client-driven provision_status transitions.
+ *
+ *  An app is created `pending` and the desktop writes the terminal
+ *  `ready`/`error` once the local daemon has seeded the checkout. Clients may
+ *  never move a row back TO `pending` or `repo_created` (no list includes
+ *  them); `seeding` is kept reachable for a future real "in progress" signal.
+ *
+ *  `repo_created` is no longer produced — apps have no remote repo (see
+ *  docs/specs/2026-07-28-app-types-design.md §5) — but rows created before that
+ *  are still sitting in it, so it stays a legal source state. */
 const ALLOWED: Record<string, string[]> = {
-  pending: [],
+  pending: ["seeding", "ready", "error"],
   repo_created: ["seeding", "ready", "error"],
   seeding: ["ready", "error"],
   error: ["seeding", "ready", "error"],

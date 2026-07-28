@@ -1,0 +1,47 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>{{APP_NAME}}</title>
+    <link rel="stylesheet" href="/vendor/reveal.css" />
+    <link rel="stylesheet" href="/vendor/theme/white.css" id="theme" />
+    <link rel="stylesheet" href="/styles.css" />
+  </head>
+  <body>
+    <div class="reveal">
+      <div class="slides">
+        <!-- 一个 <section> 就是一页。 -->
+        <section>
+          <h1>{{APP_NAME}}</h1>
+          <p>告诉 agent 你要讲什么，它会往这里加 section。</p>
+        </section>
+
+        <section>
+          <h2>这是第二页</h2>
+          <ul>
+            <li>左右方向键翻页</li>
+            <li>按 <code>S</code> 打开演讲者视图</li>
+            <li>按 <code>Esc</code> 看全部页面</li>
+          </ul>
+        </section>
+
+        <section>
+          <!-- 嵌套 section 会变成向下翻的一列。 -->
+          <section>
+            <h2>可以纵向分层</h2>
+            <p>外层 section 里再放 section，就是向下翻的子页。</p>
+          </section>
+          <section>
+            <h3>子页</h3>
+            <p>按向下键到这里。</p>
+          </section>
+        </section>
+      </div>
+    </div>
+    <script src="/vendor/reveal.js"></script>
+    <script>
+      Reveal.initialize({ hash: true, slideNumber: 'c/t' })
+    </script>
+  </body>
+</html>

@@ -1,5 +1,6 @@
 import { describe, test, expect } from 'vitest'
-import { pickMostRecentSession, canReseed } from '../AppsListColumn'
+import { canReseed, appStatusMeta } from '../AppsListColumn'
+import { pickMostRecentSession, firstPromptForApp } from '@/lib/app-session'
 import type { AppSessionRow } from '@/lib/backend/types'
 
 function row(p: Partial<AppSessionRow>): AppSessionRow {
@@ -53,15 +54,80 @@ describe('pickMostRecentSession', () => {
 })
 
 describe('canReseed', () => {
-  test('allows reseed for repo_created and error', () => {
-    expect(canReseed('repo_created')).toBe(true)
+  test('allows reseed while the files are missing or the seed failed', () => {
+    // `pending` is where a freshly created app now sits: the cloud only
+    // inserted the row, the local daemon still has to write the template.
+    expect(canReseed('pending')).toBe(true)
+    expect(canReseed('repo_created')).toBe(true) // legacy rows
     expect(canReseed('error')).toBe(true)
   })
 
-  test('disallows reseed for ready/seeding/pending and unknown states', () => {
+  test('disallows reseed for ready/seeding and unknown states', () => {
     expect(canReseed('ready')).toBe(false)
     expect(canReseed('seeding')).toBe(false)
-    expect(canReseed('pending')).toBe(false)
     expect(canReseed('whatever')).toBe(false)
+  })
+})
+
+describe('appStatusMeta', () => {
+  const app = (p: Partial<Parameters<typeof appStatusMeta>[0]>) => ({
+    provisionStatus: 'ready',
+    fcStatus: null,
+    fcEndpoint: null,
+    ...p,
+  })
+
+  test('an in-flight deploy wins over everything', () => {
+    expect(appStatusMeta(app({ fcStatus: 'live', fcEndpoint: 'https://x' }), true).key)
+      .toBe('apps.deploying')
+  })
+
+  test('live requires both fcStatus and an endpoint', () => {
+    expect(appStatusMeta(app({ fcStatus: 'live', fcEndpoint: 'https://x' }), false).dot).toBe('live')
+    // live without an endpoint is not something the user can open — fall through
+    expect(appStatusMeta(app({ fcStatus: 'live', fcEndpoint: null }), false).key).toBe('apps.ready')
+  })
+
+  test('a persisted failed deploy is surfaced, not hidden behind "Ready"', () => {
+    const meta = appStatusMeta(app({ fcStatus: 'deploy_error' }), false)
+    expect(meta.dot).toBe('failed')
+    expect(meta.key).toBe('apps.deployFailed')
+  })
+
+  test('every in-progress deploy state reads as deploying', () => {
+    for (const s of ['awaiting_build', 'building', 'deploying']) {
+      expect(appStatusMeta(app({ fcStatus: s }), false).key).toBe('apps.deploying')
+    }
+  })
+
+  test('falls back to the provision lifecycle when never deployed', () => {
+    expect(appStatusMeta(app({ provisionStatus: 'ready' }), false).key).toBe('apps.ready')
+    expect(appStatusMeta(app({ provisionStatus: 'error' }), false).key).toBe('apps.error')
+    expect(appStatusMeta(app({ provisionStatus: 'repo_created' }), false).key).toBe('apps.provisioning')
+  })
+})
+
+describe('firstPromptForApp', () => {
+  const app = (name: string, type: string) => ({ name, type })
+
+  test('names the app and points the agent at AGENTS.md', () => {
+    const prompt = firstPromptForApp(app('copilot 官网', 'static_web'))
+    expect(prompt).toContain('copilot 官网')
+    expect(prompt).toContain('AGENTS.md')
+  })
+
+  test('asks for a plan before edits, per type', () => {
+    expect(firstPromptForApp(app('X', 'static_web'))).toContain('public/')
+    expect(firstPromptForApp(app('X', 'slides'))).toContain('提纲')
+    expect(firstPromptForApp(app('X', 'data_app'))).toContain('数据表')
+  })
+
+  test('a legacy type gets the data-app prompt', () => {
+    expect(firstPromptForApp(app('X', 'fullstack_tanstack_postgres'))).toContain('数据表')
+    expect(firstPromptForApp(app('X', ''))).toContain('数据表')
+  })
+
+  test('trims the name the user typed', () => {
+    expect(firstPromptForApp(app('  spaced  ', 'slides'))).toContain('：spaced\n')
   })
 })
