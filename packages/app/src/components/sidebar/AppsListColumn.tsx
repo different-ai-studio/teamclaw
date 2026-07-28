@@ -429,7 +429,9 @@ export function AppsListColumn() {
         }
       }
 
-      await useUIStore.getState().switchToSession(sessionId)
+      // Keep column 2 on the Apps list — the app row is what the user is
+      // navigating from, and bouncing to the session list loses that context.
+      await useUIStore.getState().switchToSession(sessionId, { keepSidebarFilter: true })
     } catch (e) {
       console.error('[AppsListColumn] failed to open app', e)
     }
