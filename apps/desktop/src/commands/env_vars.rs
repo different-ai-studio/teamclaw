@@ -9,12 +9,7 @@ const LEGACY_MIGRATION_MARKER_KEY: &str = "_localPersonalSecretsMigrationComplet
 /// Disk-based path for the legacy plaintext env blob written by older versions.
 /// Read-only now (kept as a one-time migration source); never written.
 fn env_blob_fallback_path() -> Option<std::path::PathBuf> {
-    dirs::home_dir().map(|h| {
-        h.join(format!(
-            ".{}/env-blob.json",
-            super::home_storage_dir_name()
-        ))
-    })
+    dirs::home_dir().map(|h| h.join(format!(".{}/env-blob.json", super::home_storage_dir_name())))
 }
 
 /// Read the env blob from the disk fallback file.
@@ -530,13 +525,12 @@ pub async fn team_env_diagnostics(
         })
         .unwrap_or(0);
 
-    let secret_configured =
-        teamclaw_runtime_env::env_catalog::resolve_team_env_secret(
-            ws,
-            team_id_trimmed.as_deref(),
-            Some(super::APP_SHORT_NAME),
-        )
-        .is_some();
+    let secret_configured = teamclaw_runtime_env::env_catalog::resolve_team_env_secret(
+        ws,
+        team_id_trimmed.as_deref(),
+        Some(super::APP_SHORT_NAME),
+    )
+    .is_some();
 
     Ok(TeamEnvDiagnostics {
         team_id_present: team_id_trimmed.is_some(),
@@ -918,10 +912,9 @@ mod tests {
         let workspace_dir = tempdir().unwrap();
         let _home = HomeGuard::set(home_dir.path());
 
-        let legacy_blob_dir = home_dir.path().join(format!(
-            ".{}",
-            teamclaw_runtime_env::OFFICIAL_STORAGE_DIR
-        ));
+        let legacy_blob_dir = home_dir
+            .path()
+            .join(format!(".{}", teamclaw_runtime_env::OFFICIAL_STORAGE_DIR));
         std::fs::create_dir_all(&legacy_blob_dir).unwrap();
 
         let mut legacy_blob = serde_json::Map::new();

@@ -121,14 +121,16 @@ fn migrate_workspace_meta(workspace: &Path) -> Result<(), String> {
     let canonical_config = canonical_dir.join(WORKSPACE_CONFIG_FILE);
     if legacy_config.is_file() {
         if canonical_config.is_file() {
-            let legacy_val: serde_json::Value =
-                serde_json::from_str(&fs::read_to_string(&legacy_config).map_err(|e| e.to_string())?)
-                    .map_err(|e| e.to_string())?;
+            let legacy_val: serde_json::Value = serde_json::from_str(
+                &fs::read_to_string(&legacy_config).map_err(|e| e.to_string())?,
+            )
+            .map_err(|e| e.to_string())?;
             let mut base_val: serde_json::Value = fs::read_to_string(&canonical_config)
                 .ok()
                 .and_then(|s| serde_json::from_str(&s).ok())
                 .unwrap_or(serde_json::json!({}));
-            if let (Some(base), Some(overlay)) = (base_val.as_object_mut(), legacy_val.as_object()) {
+            if let (Some(base), Some(overlay)) = (base_val.as_object_mut(), legacy_val.as_object())
+            {
                 merge_json_objects(base, overlay.clone());
             }
             fs::write(
@@ -150,8 +152,14 @@ fn migrate_workspace_meta(workspace: &Path) -> Result<(), String> {
     ] {
         copy_file_if_newer(&legacy_dir.join(name), &canonical_dir.join(name))?;
     }
-    merge_tree(&legacy_dir.join("bm25_index"), &canonical_dir.join("bm25_index"))?;
-    merge_tree(&legacy_dir.join("cron-runs"), &canonical_dir.join("cron-runs"))?;
+    merge_tree(
+        &legacy_dir.join("bm25_index"),
+        &canonical_dir.join("bm25_index"),
+    )?;
+    merge_tree(
+        &legacy_dir.join("cron-runs"),
+        &canonical_dir.join("cron-runs"),
+    )?;
     Ok(())
 }
 
@@ -174,8 +182,12 @@ pub fn migrate_official_storage_namespace() {
     }
 
     if let Err(err) = (|| {
-        fs::create_dir_all(marker.parent().ok_or_else(|| "marker parent missing".to_string())?)
-            .map_err(|e| e.to_string())?;
+        fs::create_dir_all(
+            marker
+                .parent()
+                .ok_or_else(|| "marker parent missing".to_string())?,
+        )
+        .map_err(|e| e.to_string())?;
         fs::write(&marker, chrono::Utc::now().to_rfc3339()).map_err(|e| e.to_string())
     })() {
         eprintln!("[storage_migration] failed to write marker: {err}");

@@ -83,6 +83,10 @@ vi.mock('@/stores/workspace', () => ({
       selector(workspaceState as unknown as Record<string, unknown>),
     { getState: () => workspaceState },
   ),
+  // Mirrors the real export; the restore path reads/clears localStorage
+  // through it, and omitting it made every restore throw and silently fall
+  // back to the default workspace.
+  WORKSPACE_STORAGE_KEY: 'teamclaw-workspace-path',
 }))
 
 const teamModeState = {

@@ -29,6 +29,7 @@ vi.mock('i18next', () => ({
 
 vi.mock('@/lib/build-config', () => ({
   appShortName: 'teamclaw',
+  appStoragePrefix: 'teamclaw',
   TEAMCLAW_DIR: '.teamclaw',
   buildConfig: {
     app: { shortName: 'teamclaw' },
