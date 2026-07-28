@@ -33,8 +33,10 @@ function SectionRow({ label, icon: Icon, active, count, onClick }: RowProps) {
       type="button"
       onClick={onClick}
       className={cn(
-        'flex w-full items-center gap-2.5 rounded-md px-[9px] py-[7px] text-left text-[13px] transition-colors',
-        active ? 'bg-selected font-semibold text-foreground' : 'text-ink-2 hover:bg-selected/60',
+        'flex w-full items-center gap-2.5 rounded-lg px-[9px] py-[7px] text-left text-[13px] transition-[background-color,box-shadow,color] duration-150',
+        active
+          ? 'bg-paper font-semibold text-foreground shadow-[0_1px_2px_rgba(28,27,25,0.04)] ring-1 ring-black/[0.05]'
+          : 'text-ink-2 hover:bg-black/[0.04]',
       )}
     >
       <Icon className={cn('h-[15px] w-[15px] shrink-0', active ? 'text-foreground' : 'text-muted-foreground')} />

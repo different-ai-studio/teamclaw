@@ -1,0 +1,669 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Session More Actions — Creative Options</title>
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;560;600;650&family=JetBrains+Mono:wght@450;500&display=swap');
+
+  :root {
+    --bg: #E8E5DF;
+    --list: #F8F7F4;
+    --paper: #FFFFFF;
+    --ink: #1C1B19;
+    --ink-2: #5C5A54;
+    --mute: #8E8B83;
+    --faint: #B0ADA4;
+    --line: rgba(28,27,25,0.07);
+    --hover: rgba(28,27,25,0.045);
+    --press: rgba(28,27,25,0.08);
+    --coral: #E85A4A;
+    --coral-soft: rgba(232,90,74,0.12);
+    --amber: #A67C52;
+    --amber-soft: rgba(166,124,82,0.14);
+    --ok: #3D9B6E;
+    --shadow: 0 2px 8px rgba(28,27,25,0.05), 0 1px 2px rgba(28,27,25,0.03);
+    --ring: 0 0 0 1px rgba(28,27,25,0.05);
+    --font: Inter, -apple-system, BlinkMacSystemFont, "PingFang SC", sans-serif;
+    --mono: "JetBrains Mono", ui-monospace, Menlo, monospace;
+    --ease: cubic-bezier(0.22, 1, 0.36, 1);
+  }
+
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    font-family: var(--font);
+    background: var(--bg);
+    color: var(--ink);
+    -webkit-font-smoothing: antialiased;
+    padding: 28px 24px 56px;
+  }
+
+  .page-h { max-width: 1200px; margin: 0 auto 18px; }
+  .page-h h1 { font-size: 16px; font-weight: 650; letter-spacing: -0.02em; }
+  .page-h p { margin-top: 6px; font-size: 13px; color: var(--ink-2); line-height: 1.5; max-width: 64ch; }
+
+  .grid {
+    max-width: 1200px;
+    margin: 0 auto;
+    display: grid;
+    grid-template-columns: repeat(2, 1fr);
+    gap: 16px;
+  }
+  @media (max-width: 920px) { .grid { grid-template-columns: 1fr; } }
+
+  .variant {
+    background: var(--list);
+    border-radius: 16px;
+    box-shadow: var(--shadow), var(--ring);
+    overflow: hidden;
+    display: flex;
+    flex-direction: column;
+    min-height: 440px;
+  }
+  .variant.wide { grid-column: 1 / -1; min-height: 0; }
+  .variant-h {
+    padding: 14px 16px 10px;
+    border-bottom: 1px solid var(--line);
+    display: flex;
+    gap: 10px;
+    align-items: flex-start;
+  }
+  .tag {
+    font-family: var(--mono);
+    font-size: 10px;
+    font-weight: 600;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: var(--coral);
+    background: var(--coral-soft);
+    padding: 3px 7px;
+    border-radius: 5px;
+    flex-shrink: 0;
+  }
+  .tag.keep {
+    color: var(--ok);
+    background: rgba(61,155,110,0.12);
+  }
+  .variant-h .meta h2 { font-size: 13.5px; font-weight: 650; letter-spacing: -0.015em; }
+  .variant-h .meta p { font-size: 12px; color: var(--mute); margin-top: 3px; line-height: 1.4; }
+
+  .col {
+    flex: 1;
+    padding: 8px;
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+  }
+
+  .row {
+    background: transparent;
+    border-radius: 12px;
+    padding: 11px 12px;
+    position: relative;
+    transition: background 0.15s var(--ease), box-shadow 0.15s, transform 0.2s;
+  }
+  .row.on {
+    background: var(--paper);
+    box-shadow: var(--shadow), var(--ring);
+  }
+  .row .t { display: flex; align-items: baseline; gap: 8px; }
+  .row .title {
+    flex: 1; min-width: 0;
+    font-size: 13px; font-weight: 600; letter-spacing: -0.015em;
+    white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  }
+  .row .time {
+    font-size: 11px; color: var(--faint); flex-shrink: 0;
+    font-variant-numeric: tabular-nums;
+  }
+  .row .sub { margin-top: 2px; font-size: 11px; color: var(--mute); }
+  .row .prev {
+    margin-top: 4px; font-size: 12px; color: var(--ink-2); line-height: 1.4;
+    white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  }
+
+  .ic {
+    width: 14px; height: 14px;
+    stroke: currentColor; fill: none;
+    stroke-width: 1.6; stroke-linecap: round; stroke-linejoin: round;
+  }
+  .ic-sm { width: 13px; height: 13px; }
+  button { font-family: inherit; border: none; background: transparent; cursor: pointer; color: inherit; }
+  .hint {
+    margin-top: auto;
+    padding: 10px 12px;
+    font-size: 11.5px;
+    color: var(--mute);
+    border-top: 1px solid var(--line);
+  }
+
+  /* ========== C KEEP: 文字「更多」+ 胶囊 ========== */
+  .c-preview-row {
+    display: flex; align-items: center; gap: 6px; margin-top: 4px;
+  }
+  .c-preview-row .prev { flex: 1; min-width: 0; margin-top: 0; }
+  .c-more {
+    flex-shrink: 0; height: 24px; padding: 0 8px; border-radius: 6px;
+    font-size: 11px; font-weight: 500; color: var(--mute);
+  }
+  .c-more:hover, .c-row.open .c-more { background: var(--hover); color: var(--ink); }
+  .c-seg { display: grid; grid-template-rows: 0fr; transition: grid-template-rows 0.26s var(--ease); }
+  .c-row.open .c-seg { grid-template-rows: 1fr; }
+  .c-seg > div { overflow: hidden; min-height: 0; }
+  .c-chips { display: flex; flex-wrap: wrap; gap: 6px; padding-top: 8px; }
+  .c-chip {
+    height: 26px; padding: 0 10px; border-radius: 999px;
+    font-size: 11.5px; font-weight: 500; color: var(--ink-2);
+    background: var(--hover);
+    display: inline-flex; align-items: center; gap: 5px;
+  }
+  .c-chip:hover { background: var(--press); color: var(--ink); }
+  .c-chip.danger:hover { background: var(--coral-soft); color: var(--coral); }
+
+  /* ========== F NEW: Command palette strip (typeahead in-row) ========== */
+  .f-row { padding-bottom: 10px; }
+  .f-cmd {
+    display: none;
+    margin-top: 8px;
+    padding: 6px;
+    border-radius: 10px;
+    background: color-mix(in srgb, var(--list) 40%, #fff);
+    border: 1px solid var(--line);
+  }
+  .f-row.open .f-cmd { display: block; animation: fadeUp 0.2s var(--ease); }
+  @keyframes fadeUp {
+    from { opacity: 0; transform: translateY(4px); }
+    to { opacity: 1; transform: none; }
+  }
+  .f-input {
+    width: 100%;
+    height: 30px;
+    border: none;
+    outline: none;
+    background: var(--paper);
+    border-radius: 7px;
+    padding: 0 10px;
+    font: 500 12.5px var(--font);
+    color: var(--ink);
+    box-shadow: var(--ring);
+  }
+  .f-input::placeholder { color: var(--faint); font-weight: 400; }
+  .f-list { margin-top: 4px; display: flex; flex-direction: column; gap: 1px; }
+  .f-item {
+    display: flex; align-items: center; gap: 8px;
+    height: 30px; padding: 0 8px; border-radius: 6px;
+    font-size: 12.5px; font-weight: 500; color: var(--ink-2);
+    text-align: left; width: 100%;
+  }
+  .f-item:hover, .f-item.active { background: var(--paper); color: var(--ink); }
+  .f-item .k {
+    margin-left: auto;
+    font-family: var(--mono);
+    font-size: 10px;
+    color: var(--faint);
+  }
+  .f-trig {
+    position: absolute; top: 8px; right: 8px;
+    width: 26px; height: 26px; border-radius: 7px;
+    display: grid; place-items: center; color: var(--faint);
+  }
+  .f-trig:hover, .f-row.open .f-trig { background: var(--hover); color: var(--ink); }
+  .f-row .t .time { margin-right: 28px; }
+
+  /* ========== G NEW: Morph title into action verbs ========== */
+  .g-row { min-height: 72px; }
+  .g-face, .g-verbs {
+    transition: opacity 0.22s var(--ease), transform 0.22s var(--ease);
+  }
+  .g-verbs {
+    position: absolute; inset: 0;
+    display: flex; align-items: stretch;
+    opacity: 0; pointer-events: none;
+    transform: scale(0.97);
+    border-radius: 12px;
+    overflow: hidden;
+    background: var(--paper);
+  }
+  .g-row.morph .g-face { opacity: 0; transform: scale(0.98); pointer-events: none; }
+  .g-row.morph .g-verbs { opacity: 1; pointer-events: auto; transform: none; }
+  .g-verb {
+    flex: 1;
+    display: flex; flex-direction: column;
+    align-items: center; justify-content: center; gap: 5px;
+    font-size: 11px; font-weight: 560; color: var(--ink-2);
+    border-right: 1px solid var(--line);
+  }
+  .g-verb:last-child { border-right: none; }
+  .g-verb:hover { background: var(--hover); color: var(--ink); }
+  .g-verb.danger:hover { background: var(--coral-soft); color: var(--coral); }
+  .g-hold {
+    position: absolute; right: 10px; bottom: 10px;
+    font-size: 10px; font-weight: 500; color: var(--faint);
+    letter-spacing: 0.02em;
+  }
+  .g-row.morph .g-hold { display: none; }
+
+  /* ========== H NEW: Radial / pie corner control ========== */
+  .h-wrap { position: relative; }
+  .h-fab {
+    position: absolute;
+    right: 10px; bottom: 10px;
+    width: 28px; height: 28px;
+    border-radius: 50%;
+    background: var(--ink);
+    color: #fff;
+    display: grid; place-items: center;
+    z-index: 3;
+    box-shadow: 0 4px 12px rgba(28,27,25,0.18);
+    transition: transform 0.25s var(--ease), background 0.15s;
+  }
+  .h-row.open .h-fab {
+    background: var(--coral);
+    transform: rotate(45deg);
+  }
+  .h-orbit {
+    position: absolute;
+    right: 10px; bottom: 10px;
+    width: 28px; height: 28px;
+    pointer-events: none;
+  }
+  .h-row.open .h-orbit { pointer-events: auto; }
+  .h-sat {
+    position: absolute;
+    left: 0; top: 0;
+    width: 30px; height: 30px;
+    border-radius: 50%;
+    background: var(--paper);
+    box-shadow: var(--shadow), var(--ring);
+    display: grid; place-items: center;
+    color: var(--ink-2);
+    opacity: 0;
+    transform: translate(0,0) scale(0.4);
+    transition: all 0.28s var(--ease);
+  }
+  .h-sat:hover { color: var(--ink); background: #fff; }
+  .h-sat.danger:hover { color: var(--coral); }
+  .h-row.open .h-sat { opacity: 1; }
+  .h-row.open .h-sat:nth-child(1) { transform: translate(-42px, -4px) scale(1); transition-delay: 0.02s; }
+  .h-row.open .h-sat:nth-child(2) { transform: translate(-34px, -36px) scale(1); transition-delay: 0.05s; }
+  .h-row.open .h-sat:nth-child(3) { transform: translate(-4px, -44px) scale(1); transition-delay: 0.08s; }
+  .h-row.open .h-sat:nth-child(4) { transform: translate(28px, -28px) scale(1); transition-delay: 0.11s; }
+  .h-row .prev { padding-right: 36px; }
+  /* Note: satellites sit inside card — still in-row, not a portal dropdown */
+
+  /* ========== I NEW: Split dual-face card (flip) ========== */
+  .i-scene {
+    perspective: 900px;
+    min-height: 86px;
+  }
+  .i-card {
+    position: relative;
+    width: 100%;
+    min-height: 86px;
+    transform-style: preserve-3d;
+    transition: transform 0.45s var(--ease);
+  }
+  .i-scene.flipped .i-card { transform: rotateY(180deg); }
+  .i-front, .i-back {
+    position: absolute; inset: 0;
+    backface-visibility: hidden;
+    -webkit-backface-visibility: hidden;
+    border-radius: 12px;
+    background: var(--paper);
+    box-shadow: var(--shadow), var(--ring);
+    padding: 11px 12px;
+  }
+  .i-back {
+    transform: rotateY(180deg);
+    display: grid;
+    grid-template-columns: repeat(2, 1fr);
+    grid-template-rows: repeat(2, 1fr);
+    gap: 4px;
+    padding: 8px;
+  }
+  .i-back button {
+    border-radius: 9px;
+    background: var(--hover);
+    display: flex; flex-direction: column;
+    align-items: center; justify-content: center; gap: 4px;
+    font-size: 11.5px; font-weight: 560; color: var(--ink-2);
+  }
+  .i-back button:hover { background: var(--press); color: var(--ink); }
+  .i-back button.danger:hover { background: var(--coral-soft); color: var(--coral); }
+  .i-flip {
+    position: absolute; top: 8px; right: 8px; z-index: 2;
+    height: 22px; padding: 0 8px; border-radius: 6px;
+    font-size: 10.5px; font-weight: 560; color: var(--mute);
+    background: var(--hover);
+  }
+  .i-flip:hover { color: var(--ink); }
+  .i-scene.flipped .i-flip { display: none; }
+  .i-back .back-close {
+    position: absolute; top: 6px; right: 6px;
+    width: 22px; height: 22px; border-radius: 6px;
+    background: transparent; color: var(--mute);
+    display: grid; place-items: center;
+  }
+
+  /* ========== J NEW: Progressive disclosure — gesture swipe drawer ========== */
+  .j-track {
+    position: relative;
+    overflow: hidden;
+    border-radius: 12px;
+  }
+  .j-track.on { background: var(--paper); box-shadow: var(--shadow), var(--ring); }
+  .j-drawer {
+    position: absolute;
+    inset: 0 auto 0 0;
+    width: 168px;
+    display: flex;
+    background: var(--ink);
+    transform: translateX(-100%);
+    transition: transform 0.3s var(--ease);
+    z-index: 1;
+  }
+  .j-track.open .j-drawer { transform: translateX(0); }
+  .j-drawer button {
+    flex: 1;
+    color: rgba(255,255,255,0.85);
+    display: flex; flex-direction: column;
+    align-items: center; justify-content: center; gap: 4px;
+    font-size: 10px; font-weight: 500;
+  }
+  .j-drawer button:hover { background: rgba(255,255,255,0.08); color: #fff; }
+  .j-drawer button.danger { color: #FFB4A8; }
+  .j-content {
+    position: relative; z-index: 2;
+    background: inherit;
+    padding: 11px 12px;
+    transition: transform 0.3s var(--ease);
+  }
+  .j-track.open .j-content { transform: translateX(168px); }
+  .j-track.on .j-content { background: var(--paper); }
+  .j-swipe-hint {
+    position: absolute; left: 0; top: 0; bottom: 0; width: 4px;
+    background: linear-gradient(180deg, transparent, var(--coral), transparent);
+    opacity: 0.35; border-radius: 4px 0 0 4px;
+  }
+  .j-btn {
+    margin-top: 6px;
+    height: 22px; padding: 0 8px; border-radius: 5px;
+    font-size: 10.5px; font-weight: 500; color: var(--mute);
+  }
+  .j-btn:hover { background: var(--hover); color: var(--ink); }
+
+  .note {
+    max-width: 1200px;
+    margin: 16px auto 0;
+    padding: 14px 16px;
+    background: #fff;
+    border-radius: 12px;
+    box-shadow: var(--shadow), var(--ring);
+    font-size: 12.5px;
+    color: var(--ink-2);
+    line-height: 1.55;
+  }
+  .note strong { color: var(--ink); }
+</style>
+</head>
+<body>
+
+  <div class="page-h">
+    <h1>Session 更多操作 · 新创意（保留 C）</h1>
+    <p>C 原封保留。A/B/D/E 整组换掉，换成五套全新交互隐喻：命令条、态变、卫星钮、翻转、侧滑屉。</p>
+  </div>
+
+  <div class="grid">
+
+    <!-- C KEEP -->
+    <section class="variant">
+      <div class="variant-h">
+        <span class="tag keep">C · 保留</span>
+        <div class="meta">
+          <h2>文字「更多」+ 胶囊行</h2>
+          <p>用「更多」替代 ···，展开 pill chips。语义清晰、触控友好。</p>
+        </div>
+      </div>
+      <div class="col">
+        <div class="row on c-row" id="c1">
+          <div class="t"><div class="title">执行PS</div><div class="time">5 hours ago</div></div>
+          <div class="sub">TeamClaw Dev</div>
+          <div class="c-preview-row">
+            <div class="prev">已执行 ps。当前新增/可见的相关进程包含…</div>
+            <button class="c-more" type="button" onclick="toggleC('c1')">更多</button>
+          </div>
+          <div class="c-seg"><div>
+            <div class="c-chips">
+              <button class="c-chip" type="button"><svg class="ic-sm ic" viewBox="0 0 24 24"><path d="M12 3l2.2 6.8H21l-5.4 4 2.1 6.7L12 16.8 6.3 20.5l2.1-6.7L3 9.8h6.8z"/></svg>置顶</button>
+              <button class="c-chip" type="button"><svg class="ic-sm ic" viewBox="0 0 24 24"><path d="M15 5l-8 8M14.5 3.5a2 2 0 0 1 3 3L8 16l-4 1 1-4z"/></svg>重命名</button>
+              <button class="c-chip" type="button"><svg class="ic-sm ic" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M12 10v6M12 7h.01"/></svg>详情</button>
+              <button class="c-chip danger" type="button"><svg class="ic-sm ic" viewBox="0 0 24 24"><path d="M4 8h16M9 8V5h6v3M7 8v11a1 1 0 0 0 1 1h8a1 1 0 0 0 1-1V8"/></svg>归档</button>
+            </div>
+          </div></div>
+        </div>
+        <div class="row">
+          <div class="t"><div class="title">执行sleep20</div><div class="time">23 hours ago</div></div>
+          <div class="sub">TeamClaw Dev</div>
+          <div class="c-preview-row">
+            <div class="prev">sleep 20 done</div>
+            <button class="c-more" type="button">更多</button>
+          </div>
+        </div>
+        <div class="row">
+          <div class="t"><div class="title">检查本地 daemon</div><div class="time">2d ago</div></div>
+          <div class="sub">TeamClaw Dev</div>
+          <div class="c-preview-row">
+            <div class="prev">amuxd · healthy</div>
+            <button class="c-more" type="button">更多</button>
+          </div>
+        </div>
+      </div>
+      <div class="hint">基准方案 · 已定保留</div>
+    </section>
+
+    <!-- F NEW -->
+    <section class="variant">
+      <div class="variant-h">
+        <span class="tag">F · 新</span>
+        <div class="meta">
+          <h2>行内命令条</h2>
+          <p>点 ⌘ 打开迷你命令面板，可键盘筛选。像把 Spotlight 嵌进这一行。</p>
+        </div>
+      </div>
+      <div class="col">
+        <div class="row on f-row" id="f1">
+          <button class="f-trig" type="button" aria-label="命令" onclick="toggleF('f1')">
+            <svg class="ic" viewBox="0 0 24 24"><path d="M7 7h.01M17 7h.01M7 17h.01M12 12h.01M17 17h.01M9 7h6v2a3 3 0 0 1-3 3h0a3 3 0 0 0-3 3v2h6"/></svg>
+          </button>
+          <div class="t"><div class="title">执行PS</div><div class="time">5 hours ago</div></div>
+          <div class="sub">TeamClaw Dev</div>
+          <div class="prev">已执行 ps。当前新增/可见的相关进程包含…</div>
+          <div class="f-cmd">
+            <input class="f-input" placeholder="输入动作：置顶、重命名…" aria-label="过滤操作" oninput="filterF(this)" />
+            <div class="f-list">
+              <button class="f-item active" type="button" data-q="置顶 pin"><svg class="ic" viewBox="0 0 24 24"><path d="M12 3l2.2 6.8H21l-5.4 4 2.1 6.7L12 16.8 6.3 20.5l2.1-6.7L3 9.8h6.8z"/></svg>置顶<span class="k">P</span></button>
+              <button class="f-item" type="button" data-q="重命名 rename"><svg class="ic" viewBox="0 0 24 24"><path d="M15 5l-8 8M14.5 3.5a2 2 0 0 1 3 3L8 16l-4 1 1-4z"/></svg>重命名<span class="k">R</span></button>
+              <button class="f-item" type="button" data-q="详情 detail"><svg class="ic" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M12 10v6M12 7h.01"/></svg>详情<span class="k">I</span></button>
+              <button class="f-item" type="button" data-q="归档 archive"><svg class="ic" viewBox="0 0 24 24"><path d="M4 8h16M9 8V5h6v3M7 8v11a1 1 0 0 0 1 1h8a1 1 0 0 0 1-1V8"/></svg>归档<span class="k">A</span></button>
+            </div>
+          </div>
+        </div>
+        <div class="row">
+          <div class="t"><div class="title">执行sleep20</div><div class="time">23 hours ago</div></div>
+          <div class="sub">TeamClaw Dev</div>
+          <div class="prev">sleep 20 done</div>
+        </div>
+      </div>
+      <div class="hint">一体 · 可键盘 · 动作在行内生长，不盖下一卡</div>
+    </section>
+
+    <!-- G NEW -->
+    <section class="variant">
+      <div class="variant-h">
+        <span class="tag">G · 新</span>
+        <div class="meta">
+          <h2>态变：卡片变动作盘</h2>
+          <p>按住 / 点「动作」整张卡变形四宫格。内容暂时让位给意图。</p>
+        </div>
+      </div>
+      <div class="col">
+        <div class="row on g-row" id="g1">
+          <div class="g-face">
+            <div class="t"><div class="title">执行PS</div><div class="time">5 hours ago</div></div>
+            <div class="sub">TeamClaw Dev</div>
+            <div class="prev">已执行 ps。当前新增/可见的相关进程包含…</div>
+            <span class="g-hold">按住或点右侧 →</span>
+          </div>
+          <div class="g-verbs">
+            <button class="g-verb" type="button"><svg class="ic" viewBox="0 0 24 24"><path d="M12 3l2.2 6.8H21l-5.4 4 2.1 6.7L12 16.8 6.3 20.5l2.1-6.7L3 9.8h6.8z"/></svg>置顶</button>
+            <button class="g-verb" type="button"><svg class="ic" viewBox="0 0 24 24"><path d="M15 5l-8 8M14.5 3.5a2 2 0 0 1 3 3L8 16l-4 1 1-4z"/></svg>重命名</button>
+            <button class="g-verb" type="button"><svg class="ic" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M12 10v6M12 7h.01"/></svg>详情</button>
+            <button class="g-verb danger" type="button" onclick="document.getElementById('g1').classList.remove('morph')"><svg class="ic" viewBox="0 0 24 24"><path d="M4 8h16M9 8V5h6v3M7 8v11a1 1 0 0 0 1 1h8a1 1 0 0 0 1-1V8"/></svg>归档</button>
+          </div>
+        </div>
+        <div class="row">
+          <div class="t"><div class="title">输出500字的散文</div><div class="time">yesterday</div></div>
+          <div class="sub">TeamClaw Dev</div>
+          <div class="prev">秋日的风穿过旧巷…</div>
+        </div>
+        <button type="button" style="margin:4px;height:32px;border-radius:8px;background:var(--hover);font-size:12px;font-weight:500" onclick="document.getElementById('g1').classList.toggle('morph')">演示：切换态变</button>
+      </div>
+      <div class="hint">戏剧化 · 零浮层 · 同一矩形内完成意图切换</div>
+    </section>
+
+    <!-- H NEW -->
+    <section class="variant">
+      <div class="variant-h">
+        <span class="tag">H · 新</span>
+        <div class="meta">
+          <h2>卫星钮（角上开花）</h2>
+          <p>一颗 + 钮炸出四颗卫星动作，仍贴在卡片坐标系内，不是系统弹层。</p>
+        </div>
+      </div>
+      <div class="col">
+        <div class="row on h-row h-wrap" id="h1">
+          <div class="t"><div class="title">执行PS</div><div class="time">5 hours ago</div></div>
+          <div class="sub">TeamClaw Dev</div>
+          <div class="prev">已执行 ps。当前新增/可见的相关进程包含…</div>
+          <div class="h-orbit">
+            <button class="h-sat" type="button" title="置顶"><svg class="ic" viewBox="0 0 24 24"><path d="M12 3l2.2 6.8H21l-5.4 4 2.1 6.7L12 16.8 6.3 20.5l2.1-6.7L3 9.8h6.8z"/></svg></button>
+            <button class="h-sat" type="button" title="重命名"><svg class="ic" viewBox="0 0 24 24"><path d="M15 5l-8 8M14.5 3.5a2 2 0 0 1 3 3L8 16l-4 1 1-4z"/></svg></button>
+            <button class="h-sat" type="button" title="详情"><svg class="ic" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M12 10v6M12 7h.01"/></svg></button>
+            <button class="h-sat danger" type="button" title="归档"><svg class="ic" viewBox="0 0 24 24"><path d="M4 8h16M9 8V5h6v3M7 8v11a1 1 0 0 0 1 1h8a1 1 0 0 0 1-1V8"/></svg></button>
+          </div>
+          <button class="h-fab" type="button" aria-label="展开动作" onclick="document.getElementById('h1').classList.toggle('open')">
+            <svg class="ic" viewBox="0 0 24 24" style="stroke-width:2"><path d="M12 5v14M5 12h14"/></svg>
+          </button>
+        </div>
+        <div class="row">
+          <div class="t"><div class="title">执行sleep20</div><div class="time">23 hours ago</div></div>
+          <div class="sub">TeamClaw Dev</div>
+          <div class="prev">sleep 20 done</div>
+        </div>
+      </div>
+      <div class="hint">有趣 · 空间感 · 注意勿让卫星溢出卡片裁切区</div>
+    </section>
+
+    <!-- I NEW -->
+    <section class="variant">
+      <div class="variant-h">
+        <span class="tag">I · 新</span>
+        <div class="meta">
+          <h2>卡片翻转</h2>
+          <p>正面是会话，背面是 2×2 动作。物理隐喻清晰，完全无弹框。</p>
+        </div>
+      </div>
+      <div class="col">
+        <div class="i-scene" id="i1">
+          <button class="i-flip" type="button" onclick="document.getElementById('i1').classList.add('flipped')">动作</button>
+          <div class="i-card">
+            <div class="i-front">
+              <div class="t"><div class="title">执行PS</div><div class="time">5 hours ago</div></div>
+              <div class="sub">TeamClaw Dev</div>
+              <div class="prev">已执行 ps。当前新增/可见的相关进程包含…</div>
+            </div>
+            <div class="i-back">
+              <button type="button"><svg class="ic" viewBox="0 0 24 24"><path d="M12 3l2.2 6.8H21l-5.4 4 2.1 6.7L12 16.8 6.3 20.5l2.1-6.7L3 9.8h6.8z"/></svg>置顶</button>
+              <button type="button"><svg class="ic" viewBox="0 0 24 24"><path d="M15 5l-8 8M14.5 3.5a2 2 0 0 1 3 3L8 16l-4 1 1-4z"/></svg>重命名</button>
+              <button type="button"><svg class="ic" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M12 10v6M12 7h.01"/></svg>详情</button>
+              <button class="danger" type="button"><svg class="ic" viewBox="0 0 24 24"><path d="M4 8h16M9 8V5h6v3M7 8v11a1 1 0 0 0 1 1h8a1 1 0 0 0 1-1V8"/></svg>归档</button>
+              <button class="back-close" type="button" aria-label="翻回" onclick="event.stopPropagation();document.getElementById('i1').classList.remove('flipped')">
+                <svg class="ic" viewBox="0 0 24 24"><path d="M6 6l12 12M18 6L6 18"/></svg>
+              </button>
+            </div>
+          </div>
+        </div>
+        <div class="row" style="margin-top:6px">
+          <div class="t"><div class="title">执行sleep20</div><div class="time">23 hours ago</div></div>
+          <div class="sub">TeamClaw Dev</div>
+          <div class="prev">下一张卡完全不被遮挡</div>
+        </div>
+      </div>
+      <div class="hint">记忆点强 · 适合偶尔操作；频繁操作略重</div>
+    </section>
+
+    <!-- J NEW -->
+    <section class="variant wide">
+      <div class="variant-h">
+        <span class="tag">J · 新</span>
+        <div class="meta">
+          <h2>侧滑抽屉（邮件 App 隐喻）</h2>
+          <p>内容右移，露出深色动作屉。一体、不挡下方会话，和「更多」胶囊完全不同语言。</p>
+        </div>
+      </div>
+      <div class="col" style="max-width: 420px;">
+        <div class="j-track on" id="j1">
+          <div class="j-drawer">
+            <button type="button"><svg class="ic" viewBox="0 0 24 24"><path d="M12 3l2.2 6.8H21l-5.4 4 2.1 6.7L12 16.8 6.3 20.5l2.1-6.7L3 9.8h6.8z"/></svg>置顶</button>
+            <button type="button"><svg class="ic" viewBox="0 0 24 24"><path d="M15 5l-8 8M14.5 3.5a2 2 0 0 1 3 3L8 16l-4 1 1-4z"/></svg>改名</button>
+            <button type="button"><svg class="ic" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M12 10v6M12 7h.01"/></svg>详情</button>
+            <button class="danger" type="button"><svg class="ic" viewBox="0 0 24 24"><path d="M4 8h16M9 8V5h6v3M7 8v11a1 1 0 0 0 1 1h8a1 1 0 0 0 1-1V8"/></svg>归档</button>
+          </div>
+          <div class="j-content">
+            <span class="j-swipe-hint" aria-hidden="true"></span>
+            <div class="t"><div class="title">执行PS</div><div class="time">5 hours ago</div></div>
+            <div class="sub">TeamClaw Dev</div>
+            <div class="prev">已执行 ps。当前新增/可见的相关进程包含…</div>
+            <button class="j-btn" type="button" onclick="document.getElementById('j1').classList.toggle('open')">演示侧滑</button>
+          </div>
+        </div>
+        <div class="row" style="margin-top:4px">
+          <div class="t"><div class="title">执行sleep20</div><div class="time">23 hours ago</div></div>
+          <div class="sub">TeamClaw Dev</div>
+          <div class="prev">完全可见，不被浮层盖住</div>
+        </div>
+      </div>
+      <div class="hint">移动端直觉强 · 桌面可用按钮触发同等位移</div>
+    </section>
+  </div>
+
+  <div class="note">
+    <strong>对比 C：</strong>
+    F 偏效率/键盘；G 偏戏剧态变；H 偏玩味微交互；I 偏实体隐喻；J 偏系统手势。
+    都和 C 的「文字+胶囊」不是同一套路。挑一版和 C 一起定，或只要 C。
+  </div>
+
+<script>
+  function toggleC(id) {
+    const el = document.getElementById(id);
+    el.classList.toggle('open');
+    const btn = el.querySelector('.c-more');
+    if (btn) btn.textContent = el.classList.contains('open') ? '收起' : '更多';
+  }
+  function toggleF(id) {
+    document.getElementById(id).classList.toggle('open');
+  }
+  function filterF(input) {
+    const q = input.value.trim().toLowerCase();
+    input.closest('.f-cmd').querySelectorAll('.f-item').forEach((item) => {
+      const hay = (item.getAttribute('data-q') || '') + item.textContent;
+      item.style.display = !q || hay.toLowerCase().includes(q) ? '' : 'none';
+    });
+  }
+  document.getElementById('c1').classList.add('open');
+  document.querySelector('#c1 .c-more').textContent = '收起';
+  document.getElementById('f1').classList.add('open');
+</script>
+</body>
+</html>
