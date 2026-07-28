@@ -34,9 +34,8 @@ use super::state::HttpState;
 /// Resolve the GitHub template repo URL to seed new apps from.
 ///
 /// Seeding clones this repo (see `app_seed::seed_app_repo`); there is no
-/// local-directory template path. The in-repo `templates/tanstack-postgres/`
-/// tree is the source that repo mirrors — keep the two in step by hand, since
-/// nothing here reads the local copy.
+/// local-directory template path, and no copy of the template lives in this
+/// repo. Edit the template upstream — that repo is the only source.
 ///
 /// Override via `TEAMCLAW_APP_TEMPLATE_URL` (useful in tests or self-hosted
 /// deployments pointing at a private fork).
