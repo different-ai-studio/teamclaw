@@ -1,14 +1,14 @@
 import { create } from 'zustand'
 import { isTauri } from '@/lib/utils'
 import { markStartup } from '@/lib/startup-perf'
-import { appShortName, localAgent } from '@/lib/build-config'
+import { appStoragePrefix, localAgent } from '@/lib/build-config'
 
 // Cache the last-known "all required deps satisfied" verdict so a returning user
 // (deps already installed) is never gated behind the cold `setup_list_requirements`
 // probe, which spawns `amuxd doctor` and costs ~4s on first launch (macOS
 // Gatekeeper). The probe still runs in the background to refresh this flag; the
 // daemon-onboarding gate remains the real backstop if a dependency is missing.
-const SETUP_OK_KEY = `${appShortName}-setup-ok`
+const SETUP_OK_KEY = `${appStoragePrefix}-setup-ok`
 
 /** True if a prior probe confirmed all required deps were present. Sync, cheap. */
 export function setupPreviouslySatisfied(): boolean {

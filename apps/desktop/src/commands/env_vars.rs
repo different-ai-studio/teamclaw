@@ -9,7 +9,12 @@ const LEGACY_MIGRATION_MARKER_KEY: &str = "_localPersonalSecretsMigrationComplet
 /// Disk-based path for the legacy plaintext env blob written by older versions.
 /// Read-only now (kept as a one-time migration source); never written.
 fn env_blob_fallback_path() -> Option<std::path::PathBuf> {
-    dirs::home_dir().map(|h| h.join(concat!(".", env!("APP_SHORT_NAME"), "/env-blob.json")))
+    dirs::home_dir().map(|h| {
+        h.join(format!(
+            ".{}/env-blob.json",
+            super::home_storage_dir_name()
+        ))
+    })
 }
 
 /// Read the env blob from the disk fallback file.
@@ -444,6 +449,7 @@ pub async fn env_catalog_list(
     workspace_path: Option<String>,
 ) -> Result<teamclaw_runtime_env::env_catalog::EnvCatalog, String> {
     let workspace_path = resolve_workspace_path(workspace_path, &window, &registry)?;
+    super::storage_migration::migrate_workspace_storage_namespace(&workspace_path);
     // team_id is required for the `_team_secret.{team_id}` personal-blob secret
     // fallback: when `teamclaw.json` carries no inline `team.envSecret` (the
     // common case), passing None here leaves every team var undecryptable.
@@ -451,6 +457,7 @@ pub async fn env_catalog_list(
     Ok(teamclaw_runtime_env::env_catalog::load_env_catalog(
         Path::new(&workspace_path),
         team_id,
+        Some(super::APP_SHORT_NAME),
     ))
 }
 
@@ -524,8 +531,12 @@ pub async fn team_env_diagnostics(
         .unwrap_or(0);
 
     let secret_configured =
-        teamclaw_runtime_env::env_catalog::resolve_team_env_secret(ws, team_id_trimmed.as_deref())
-            .is_some();
+        teamclaw_runtime_env::env_catalog::resolve_team_env_secret(
+            ws,
+            team_id_trimmed.as_deref(),
+            Some(super::APP_SHORT_NAME),
+        )
+        .is_some();
 
     Ok(TeamEnvDiagnostics {
         team_id_present: team_id_trimmed.is_some(),
@@ -907,7 +918,10 @@ mod tests {
         let workspace_dir = tempdir().unwrap();
         let _home = HomeGuard::set(home_dir.path());
 
-        let legacy_blob_dir = home_dir.path().join(concat!(".", env!("APP_SHORT_NAME")));
+        let legacy_blob_dir = home_dir.path().join(format!(
+            ".{}",
+            teamclaw_runtime_env::OFFICIAL_STORAGE_DIR
+        ));
         std::fs::create_dir_all(&legacy_blob_dir).unwrap();
 
         let mut legacy_blob = serde_json::Map::new();

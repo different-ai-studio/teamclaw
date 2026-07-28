@@ -4,7 +4,7 @@ import {
 } from "@tauri-apps/plugin-notification";
 import { getPermissionPolicy } from "@/lib/permission-policy";
 import { isTauri } from "@/lib/utils";
-import { appShortName } from "@/lib/build-config";
+import { appStoragePrefix } from "@/lib/build-config";
 
 // --- Types ---
 
@@ -12,7 +12,7 @@ export type NotificationType = "action_required" | "task_completed" | "info";
 
 export type NotificationLevel = "all" | "important" | "mute";
 
-const NOTIFICATION_LEVEL_KEY = `${appShortName}-notification-level`;
+export const NOTIFICATION_LEVEL_KEY = `${appStoragePrefix}-notification-level`;
 const DEFAULT_LEVEL: NotificationLevel = "important";
 const THROTTLE_WINDOW_MS = 5000; // 5 seconds dedup window for task_completed
 

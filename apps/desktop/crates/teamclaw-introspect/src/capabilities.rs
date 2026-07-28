@@ -282,6 +282,7 @@ fn build_env_vars(workspace: &str) -> Result<Value, String> {
     let listings = teamclaw_runtime_env::env_catalog::load_agent_env_listings(
         std::path::Path::new(workspace),
         None,
+        None,
     );
     let safe: Vec<Value> = listings
         .into_iter()

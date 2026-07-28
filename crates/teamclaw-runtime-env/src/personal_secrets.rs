@@ -8,7 +8,7 @@ use std::collections::HashMap;
 use std::path::PathBuf;
 use tracing::warn;
 
-use crate::APP_SECRETS_DIR;
+use crate::{resolve_storage_dir_name, OFFICIAL_STORAGE_DIR};
 
 #[derive(Debug, Clone)]
 struct SecretStorePaths {
@@ -23,10 +23,10 @@ struct EncryptedBlobFile {
 }
 
 impl SecretStorePaths {
-    fn for_home_dir() -> Option<Self> {
+    fn for_storage_dir(storage_dir: &str) -> Option<Self> {
         let home = dirs::home_dir()?;
         Some(Self::for_base_dir(
-            home.join(format!(".{}", APP_SECRETS_DIR)).join("secrets"),
+            home.join(format!(".{storage_dir}")).join("secrets"),
         ))
     }
 
@@ -78,14 +78,28 @@ fn string_env_from_map(map: serde_json::Map<String, serde_json::Value>) -> HashM
 }
 
 pub fn load_personal_env() -> anyhow::Result<HashMap<String, String>> {
-    let Some(paths) = SecretStorePaths::for_home_dir() else {
+    load_personal_env_for_storage_dir(OFFICIAL_STORAGE_DIR)
+}
+
+/// Load decrypted personal env vars for a build `brand_short_name` (`teamclaw`,
+/// `teamclawdev`, `copilot361`, …). Official brands resolve to `~/.teamclaw/secrets`.
+pub fn load_personal_env_for_brand(brand_short_name: &str) -> anyhow::Result<HashMap<String, String>> {
+    load_personal_env_for_storage_dir(resolve_storage_dir_name(brand_short_name))
+}
+
+fn load_personal_env_for_storage_dir(storage_dir: &str) -> anyhow::Result<HashMap<String, String>> {
+    let Some(paths) = SecretStorePaths::for_storage_dir(storage_dir) else {
         return Ok(HashMap::new());
     };
 
     match read_secret_blob(&paths) {
         Ok(map) => Ok(string_env_from_map(map)),
         Err(err) => {
-            warn!(error = %err, "Failed to read personal secrets; using empty env");
+            warn!(
+                storage_dir,
+                error = %err,
+                "Failed to read personal secrets; using empty env"
+            );
             Ok(HashMap::new())
         }
     }
@@ -140,7 +154,10 @@ mod tests {
         let dir = tempdir().unwrap();
         let _home = HomeGuard::set(dir.path());
 
-        let secrets_dir = dir.path().join(format!(".{}", APP_SECRETS_DIR)).join("secrets");
+        let secrets_dir = dir
+            .path()
+            .join(format!(".{OFFICIAL_STORAGE_DIR}"))
+            .join("secrets");
         let paths = SecretStorePaths::for_base_dir(secrets_dir);
         let mut map = serde_json::Map::new();
         map.insert("my_key".into(), serde_json::Value::String("secret".into()));
@@ -156,7 +173,10 @@ mod tests {
         let dir = tempdir().unwrap();
         let _home = HomeGuard::set(dir.path());
 
-        let secrets_dir = dir.path().join(format!(".{}", APP_SECRETS_DIR)).join("secrets");
+        let secrets_dir = dir
+            .path()
+            .join(format!(".{OFFICIAL_STORAGE_DIR}"))
+            .join("secrets");
         let paths = SecretStorePaths::for_base_dir(secrets_dir);
         let mut map = serde_json::Map::new();
         map.insert("str_key".into(), serde_json::Value::String("value".into()));
@@ -184,7 +204,10 @@ mod tests {
         let dir = tempdir().unwrap();
         let _home = HomeGuard::set(dir.path());
 
-        let secrets_dir = dir.path().join(format!(".{}", APP_SECRETS_DIR)).join("secrets");
+        let secrets_dir = dir
+            .path()
+            .join(format!(".{OFFICIAL_STORAGE_DIR}"))
+            .join("secrets");
         std::fs::create_dir_all(&secrets_dir).unwrap();
         let paths = SecretStorePaths::for_base_dir(secrets_dir);
         let mut map = serde_json::Map::new();

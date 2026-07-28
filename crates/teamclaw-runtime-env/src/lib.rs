@@ -6,6 +6,7 @@ pub mod merge;
 pub mod opencode_config;
 pub mod opencode_db;
 pub mod personal_secrets;
+pub mod storage_namespace;
 pub mod team_crypto;
 pub mod team_provider;
 pub mod team_provider_sync;
@@ -26,7 +27,14 @@ pub use team_provider_sync::{
     sync_team_provider_on_disk, SecretResolveScope, TeamProviderSyncResult,
 };
 
-pub const APP_SECRETS_DIR: &str = "teamclaw";
+pub use storage_namespace::{
+    is_official_brand, resolve_storage_dir_name, LEGACY_OFFICIAL_DEV_CONFIG_FILE,
+    LEGACY_OFFICIAL_DEV_STORAGE_DIR, OFFICIAL_STORAGE_DIR, STORAGE_NAMESPACE_MIGRATION_MARKER,
+    WORKSPACE_CONFIG_FILE, WORKSPACE_META_DIR,
+};
+
+/// Same as [`OFFICIAL_STORAGE_DIR`] — kept for existing call sites.
+pub const APP_SECRETS_DIR: &str = OFFICIAL_STORAGE_DIR;
 pub const DEFAULT_TEAM_REPO_DIR: &str = "teamclaw-team";
 
 #[derive(Debug, Clone, Default)]

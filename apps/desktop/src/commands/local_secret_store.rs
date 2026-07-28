@@ -39,7 +39,8 @@ impl SecretStorePaths {
     pub(crate) fn for_home_dir() -> Result<Self, String> {
         let home = dirs::home_dir().ok_or_else(|| "Home directory not found".to_string())?;
         Ok(Self::for_base_dir(
-            home.join(concat!(".", env!("APP_SHORT_NAME")))
+            home
+                .join(format!(".{}", super::home_storage_dir_name()))
                 .join("secrets"),
         ))
     }

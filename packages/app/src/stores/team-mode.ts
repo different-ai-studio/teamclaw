@@ -8,13 +8,13 @@ import { useTeamShareStore } from './team-share'
 import { useCurrentTeamStore } from './current-team'
 import { isTauri } from '@/lib/utils'
 import { workspaceScopedKey } from '@/lib/storage'
-import { appShortName, buildConfig, TEAM_REPO_DIR, type TeamModelOption } from '@/lib/build-config'
+import { appStoragePrefix, buildConfig, TEAM_REPO_DIR, type TeamModelOption } from '@/lib/build-config'
 
 
 const TEAM_PROVIDER_ID = TEAM_SHARED_PROVIDER_ID
 
-const TEAM_MODEL_BASE = `${appShortName}-team-model`
-const PRE_TEAM_MODEL_BASE = `${appShortName}-pre-team-model`
+const TEAM_MODEL_BASE = `${appStoragePrefix}-team-model`
+const PRE_TEAM_MODEL_BASE = `${appStoragePrefix}-pre-team-model`
 
 function teamModelKey(): string {
   return workspaceScopedKey(TEAM_MODEL_BASE, useWorkspaceStore.getState().workspacePath)
