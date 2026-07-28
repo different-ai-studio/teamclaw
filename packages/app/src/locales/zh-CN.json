@@ -773,6 +773,8 @@
     "noSessionsFound": "未找到会话",
     "pinToTop": "固定到顶部",
     "unpin": "取消固定",
+    "moreActions": "更多操作",
+    "closeActions": "关闭操作",
     "awaitingConfirmation": "等待确认",
     "sessionRunning": "运行中",
     "loadMore": "加载更多",

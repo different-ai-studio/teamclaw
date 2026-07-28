@@ -146,8 +146,8 @@ export function LocalDaemonCard() {
       </AlertDialog>
       <div
         className={cn(
-          'group/local-daemon flex max-h-[45vh] flex-col overflow-y-auto rounded-lg border bg-paper p-1 shadow-sm transition-[max-height,border-color] duration-300 ease-[cubic-bezier(0.22,1,0.36,1)] motion-reduce:transition-none',
-          mqttDisconnected ? 'border-[color:var(--coral-soft)]' : 'border-border-soft',
+          'group/local-daemon flex max-h-[45vh] flex-col overflow-y-auto rounded-xl bg-paper p-2 shadow-[0_2px_8px_rgba(28,27,25,0.05),0_1px_2px_rgba(28,27,25,0.03)] ring-1 ring-black/[0.05] transition-[max-height,box-shadow] duration-300 ease-[cubic-bezier(0.22,1,0.36,1)] motion-reduce:transition-none dark:ring-white/10',
+          mqttDisconnected && 'ring-1 ring-[color:var(--coral-soft)]',
         )}
       >
         <LocalDaemonRow

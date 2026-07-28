@@ -120,6 +120,9 @@ function AgentTypeIcon({ agentType }: { agentType?: string | null }) {
   }
 }
 
+/**
+ * Status copy for the local daemon online / offline / MQTT indicators.
+ */
 function localDaemonStatusLabel(
   status: LocalDaemonRuntimeStatus,
   t: (key: string, fallback: string) => string,
@@ -248,10 +251,13 @@ function SheetHeader({
             <AgentTypeIcon agentType={agentType} />
           </span>
           <div className="min-w-0 flex-1">
-            <div className="truncate text-[13px] font-bold leading-tight">{displayName}</div>
+            <div className="flex min-w-0 items-center gap-1.5">
+              <div className="truncate text-[12.5px] font-semibold leading-tight">{displayName}</div>
+              <RuntimeStatusDot status={runtimeStatus} label={statusLabel} />
+            </div>
             <div
               className={cn(
-                'mt-0.5 truncate font-mono text-[11px] leading-snug',
+                'mt-0.5 truncate text-[11px] leading-snug',
                 workspaceUnset ? 'text-faint' : 'text-muted-foreground',
               )}
               title={workspaceUnset ? undefined : workspaceTitle}
@@ -259,7 +265,6 @@ function SheetHeader({
               {workspaceLabel}
             </div>
           </div>
-          <RuntimeStatusDot status={runtimeStatus} label={statusLabel} />
         </div>
       </div>
     </div>

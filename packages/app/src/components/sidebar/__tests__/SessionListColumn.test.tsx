@@ -1,12 +1,13 @@
 import * as React from 'react'
 import { describe, it, expect, beforeEach, vi } from 'vitest'
-import { render, screen, fireEvent } from '@testing-library/react'
+import { render, screen, fireEvent, within } from '@testing-library/react'
 import { SessionListColumn } from '../SessionListColumn'
 import { useUIStore } from '@/stores/ui'
 import { useSessionListStore } from '@/stores/session-list-store'
 import { useSessionStore } from '@/stores/session'
 import { useCronStore } from '@/stores/cron'
 import { useWorkspaceStore } from '@/stores/workspace'
+import { appShortName } from '@/lib/build-config'
 
 vi.mock('@/components/sidebar/session-search-dialog', () => ({
   SessionSearchDialog: () => null,
@@ -17,8 +18,13 @@ vi.mock('@/components/sidebar/session-search-dialog', () => ({
 // and stub useSidebar to return an expanded sidebar by default.
 vi.mock('@/components/ui/sidebar', () => ({
   SidebarMenu: ({ children }: { children: React.ReactNode }) => <ul>{children}</ul>,
-  SidebarMenuItem: ({ children, className }: { children: React.ReactNode; className?: string }) => (
-    <li className={['group/menu-item relative list-none', className].filter(Boolean).join(' ')}>{children}</li>
+  SidebarMenuItem: ({ children, className, ...rest }: React.ComponentProps<'li'>) => (
+    <li
+      className={['group/menu-item relative list-none', className].filter(Boolean).join(' ')}
+      {...rest}
+    >
+      {children}
+    </li>
   ),
   SidebarMenuButton: ({ children, isActive: _isActive, ...rest }: React.ComponentProps<'button'> & { isActive?: boolean }) => (
     <button {...rest}>{children}</button>
@@ -61,6 +67,12 @@ vi.mock('@/stores/current-team', () => ({
   ),
 }))
 
+const PINNED_STORAGE_KEY = `${appShortName}-pinned-sessions`
+
+const setPinnedStorage = (idsByTeam: Record<string, string[]>) => {
+  localStorage.setItem(PINNED_STORAGE_KEY, JSON.stringify(idsByTeam))
+}
+
 const mkSessionRow = (over: Partial<{
   id: string
   title: string
@@ -94,7 +106,7 @@ const mkRow = (over: Partial<{ id: string; title: string; ideaId: string | null;
 
 describe('SessionListColumn', () => {
   beforeEach(() => {
-    localStorage.setItem('teamclaw-pinned-sessions', JSON.stringify({ 'team-1': ['s1'] }))
+    setPinnedStorage({ 'team-1': ['s1'] })
     useUIStore.setState({ sidebarFilter: { kind: 'all' }, embedMode: false })
     createQuickSession.mockReset()
     createQuickSession.mockResolvedValue({ ok: true, sessionId: 'sess-new', agentDisplayName: 'MACPRO' })
@@ -146,7 +158,7 @@ describe('SessionListColumn', () => {
     expect(screen.getByText('Alpha')).toBeInTheDocument()
     expect(screen.queryByText('Beta')).not.toBeInTheDocument()
     expect(screen.getByText('Gamma')).toBeInTheDocument()
-    expect(screen.getByText(/Sessions|会话/)).toHaveTextContent('· 2')
+    expect(screen.getByTestId('v2-session-list-count')).toHaveTextContent('· 2')
   })
 
   it('shows only cron sessions when the clock view is active', () => {
@@ -157,10 +169,11 @@ describe('SessionListColumn', () => {
     expect(screen.queryByText('Alpha')).not.toBeInTheDocument()
     expect(screen.getByText('Beta')).toBeInTheDocument()
     expect(screen.queryByText('Gamma')).not.toBeInTheDocument()
-    expect(screen.getByText(/Scheduled sessions|定时会话/)).toHaveTextContent('· 1')
+    expect(screen.getByTestId('v2-session-list-count')).toHaveTextContent('· 1')
   })
 
   it('does not let the clock view leak into the Pinned filter', () => {
+    setPinnedStorage({ 'team-1': ['s1', 's2'] })
     useSessionListStore.setState({
       rows: [
         mkSessionRow({ id: 's1', title: 'Pinned regular' }),
@@ -184,6 +197,7 @@ describe('SessionListColumn', () => {
   })
 
   it('shows pinned sessions above regular sessions with a divider in "all" mode', () => {
+    setPinnedStorage({ 'team-1': ['s1'] })
     useSessionListStore.setState({
       rows: [
         mkSessionRow({ id: 's1', title: 'Pinned old', last_message_at: '2026-05-15T08:00:00.000Z' }),
@@ -208,6 +222,64 @@ describe('SessionListColumn', () => {
     render(<SessionListColumn />)
     expect(screen.getByText('Alpha')).toBeInTheDocument()
     expect(screen.queryByText('Beta')).not.toBeInTheDocument()
+  })
+
+  it('opens inline C2 more-actions dock from the trailing more control', () => {
+    render(<SessionListColumn />)
+    const docks = screen.getAllByTestId('v2-session-row-actions')
+    expect(docks.every((el) => el.getAttribute('data-open') === 'false')).toBe(true)
+
+    fireEvent.click(screen.getAllByTestId('v2-session-row-more')[0])
+
+    const open = screen.getAllByTestId('v2-session-row-actions').find((el) => el.getAttribute('data-open') === 'true')
+    expect(open).toBeTruthy()
+    expect(within(open!).getByLabelText(/取消固定|Unpin|固定到顶部|Pin to top/)).toBeInTheDocument()
+    expect(within(open!).getByLabelText(/重命名|Rename/)).toBeInTheDocument()
+    expect(within(open!).getByLabelText(/查看详情|View detail/)).toBeInTheDocument()
+    expect(within(open!).getByLabelText(/归档|Archive/)).toBeInTheDocument()
+  })
+
+  it('collapses the more-actions dock when the session row loses hover', () => {
+    render(<SessionListColumn />)
+    const more = screen.getAllByTestId('v2-session-row-more')[0]
+    fireEvent.click(more)
+    expect(screen.getAllByTestId('v2-session-row-actions').some((el) => el.getAttribute('data-open') === 'true')).toBe(true)
+
+    const row = more.closest('li')
+    expect(row).toBeTruthy()
+    fireEvent.mouseLeave(row!)
+    expect(screen.getAllByTestId('v2-session-row-actions').every((el) => el.getAttribute('data-open') === 'false')).toBe(true)
+  })
+
+  it('keeps only one more-actions dock open at a time', () => {
+    render(<SessionListColumn />)
+    const mores = screen.getAllByTestId('v2-session-row-more')
+    fireEvent.click(mores[0])
+    fireEvent.click(mores[1])
+    const openDocks = screen.getAllByTestId('v2-session-row-actions').filter((el) => el.getAttribute('data-open') === 'true')
+    expect(openDocks).toHaveLength(1)
+  })
+
+  it('closes the more-actions dock on Escape without selecting the session', () => {
+    const switchToSession = vi.spyOn(useUIStore.getState(), 'switchToSession').mockResolvedValue()
+    render(<SessionListColumn />)
+    const more = screen.getAllByTestId('v2-session-row-more')[0]
+    fireEvent.click(more)
+    const row = more.closest('li')!
+    fireEvent.keyDown(row, { key: 'Escape' })
+    expect(screen.getAllByTestId('v2-session-row-actions').every((el) => el.getAttribute('data-open') === 'false')).toBe(true)
+    expect(switchToSession).not.toHaveBeenCalled()
+    switchToSession.mockRestore()
+  })
+
+  it('does not select the session when clicking a dock action', () => {
+    const switchToSession = vi.spyOn(useUIStore.getState(), 'switchToSession').mockResolvedValue()
+    render(<SessionListColumn />)
+    fireEvent.click(screen.getAllByTestId('v2-session-row-more')[0])
+    const open = screen.getAllByTestId('v2-session-row-actions').find((el) => el.getAttribute('data-open') === 'true')
+    fireEvent.click(within(open!).getByLabelText(/重命名|Rename/))
+    expect(switchToSession).not.toHaveBeenCalled()
+    switchToSession.mockRestore()
   })
 
   it('filters by ideaId in "idea" mode', () => {
@@ -278,9 +350,9 @@ describe('SessionListColumn', () => {
     const switchToSession = vi.spyOn(useUIStore.getState(), 'switchToSession').mockResolvedValue()
     render(<SessionListColumn onDismiss={onDismiss} />)
 
-    const row = screen.getAllByTestId('v2-session-row').find((el) => el.getAttribute('data-session-id') === 's1')
-    expect(row).toBeTruthy()
-    fireEvent.click(row!)
+    const title = screen.getAllByTestId('v2-session-row-title').find((el) => el.textContent === 'Alpha')
+    expect(title).toBeTruthy()
+    fireEvent.click(title!)
     expect(switchToSession).toHaveBeenCalledWith('s1')
     expect(onDismiss).toHaveBeenCalledTimes(1)
     switchToSession.mockRestore()

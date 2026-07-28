@@ -259,7 +259,7 @@ function SidebarUserAccountMenu() {
         <Button
           variant="ghost"
           size="sm"
-          className="h-7 min-w-0 shrink max-w-full gap-1.5 px-2 text-xs text-muted-foreground hover:text-foreground"
+          className="h-8 min-w-0 shrink max-w-full gap-1.5 rounded-lg px-2 text-[12px] text-ink-2 hover:bg-black/[0.04] hover:text-foreground"
           data-testid="sidebar-user-menu-trigger"
         >
           {avatarUrl ? (
@@ -428,7 +428,7 @@ export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
           <NavRail />
         </SidebarContent>
 
-        <SidebarFooter className="gap-1 px-2 pb-1 pt-1">
+        <SidebarFooter className="gap-2 px-2.5 pb-2 pt-1">
           <LocalDaemonCard />
           <MqttDisconnectedNotice />
 
@@ -436,7 +436,7 @@ export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
               <Button
                 variant="ghost"
                 size="sm"
-                className="h-7 shrink-0 gap-1.5 px-2 text-xs text-muted-foreground hover:text-foreground"
+                className="h-8 shrink-0 gap-1.5 rounded-lg px-2 text-[12px] text-ink-2 hover:bg-black/[0.04] hover:text-foreground"
                 onClick={() => openSettings()}
               >
                 <Settings className="h-3.5 w-3.5 shrink-0" />

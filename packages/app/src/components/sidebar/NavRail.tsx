@@ -33,18 +33,16 @@ interface TopEntryProps {
 }
 
 function TopEntry({ label, icon: Icon, active, badge, onClick }: TopEntryProps) {
-  // Direction B quick-link row: tight 7×9 padding, selected (#e7e2d6) fill on
-  // active, no left bar. The coral left bar is reserved for session cards in
-  // the middle column. See AGENTS.md §2 "Sidebar".
+  // Soft Comfort: active = elevated paper capsule; count badge turns coral when active.
   return (
     <button
       type="button"
       onClick={onClick}
       className={cn(
-        'flex w-full items-center gap-2.5 rounded-md px-[9px] py-[7px] text-left text-[13px] transition-colors',
+        'flex w-full items-center gap-2.5 rounded-lg px-[9px] py-[7px] text-left text-[13px] transition-[background-color,box-shadow,color] duration-150 ease-[cubic-bezier(0.22,1,0.36,1)]',
         active
-          ? 'bg-selected font-semibold text-foreground'
-          : 'text-ink-2 hover:bg-selected/60',
+          ? 'bg-paper font-semibold text-foreground shadow-[0_1px_2px_rgba(28,27,25,0.04)] ring-1 ring-black/[0.05]'
+          : 'font-normal text-ink-2 hover:bg-black/[0.04]',
       )}
     >
       <Icon
@@ -52,7 +50,15 @@ function TopEntry({ label, icon: Icon, active, badge, onClick }: TopEntryProps) 
       />
       <span className="min-w-0 flex-1 truncate">{label}</span>
       {badge != null && (
-        <span className="shrink-0 font-mono text-[11px] tabular-nums text-faint">
+        <span
+          className={cn(
+            // Same hit box for active/inactive so counts share a right edge.
+            'inline-flex h-[18px] min-w-[18px] shrink-0 items-center justify-center rounded-full px-[5px] text-[10.5px] font-semibold tabular-nums',
+            active
+              ? 'bg-coral text-coral-foreground shadow-[0_2px_6px_rgba(232,90,74,0.28)]'
+              : 'text-muted-foreground',
+          )}
+        >
           {badge}
         </span>
       )}
@@ -130,14 +136,14 @@ export function NavRail() {
   }, [handleQuickNewChat])
 
   return (
-    <div className="flex h-full w-full min-w-0 flex-col gap-2 overflow-y-auto px-3 pt-0 pb-3">
+    <div className="flex h-full w-full min-w-0 flex-col gap-2.5 overflow-y-auto px-2.5 pt-0 pb-3">
       <NewChatSplitButton
         quickChatState={quickChatState}
         creating={creating}
         onPrimaryClick={handleQuickNewChat}
       />
 
-      <div className="flex flex-col">
+      <div className="flex flex-col gap-0.5">
         <TopEntry
           label={t('sidebar.sessions', 'Sessions')}
           icon={Inbox}
