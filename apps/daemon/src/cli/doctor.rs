@@ -19,6 +19,9 @@ pub fn run() -> anyhow::Result<()> {
     if local_agent == "pi" {
         report.pi = Some(crate::pi_install::doctor());
     }
+    if local_agent == "cursor" {
+        report.cursor = Some(crate::cursor_install::doctor());
+    }
     println!("{}", serde_json::to_string_pretty(&report)?);
     Ok(())
 }

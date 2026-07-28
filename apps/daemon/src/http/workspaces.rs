@@ -487,6 +487,7 @@ fn backend_label(backend: &str) -> &'static str {
     match backend {
         "opencode" => "OpenCode",
         "pi" => "Pi",
+        "cursor" => "Cursor",
         "claude" => "Claude Code",
         "codex" => "Codex",
         _ => "Agent",
@@ -533,19 +534,19 @@ pub fn build_model_catalog(
     // configured local backend ("opencode" or "pi"); legacy names are skipped
     // defensively.
     for backend in configured_agent_types {
-        if backend != "opencode" && backend != "pi" {
+        if backend != "opencode" && backend != "pi" && backend != "cursor" {
             continue;
         }
         // No static fallback: the live probe first. OpenCode additionally reads
         // the workspace's configured `opencode.json` providers when the probe
-        // is empty; pi has no provider-file fallback. If nothing resolves, the
-        // group is served with no models — clients show the "no models" hint
+        // is empty; pi/cursor have no provider-file fallback. If nothing resolves,
+        // the group is served with no models — clients show the "no models" hint
         // rather than a phantom default.
         let probed: Vec<CatalogModel> = probed_models
             .filter(|m| !m.is_empty())
             .map(catalog_models_from_acp)
             .unwrap_or_default();
-        let models = if !probed.is_empty() || backend == "pi" {
+        let models = if !probed.is_empty() || backend == "pi" || backend == "cursor" {
             probed
         } else {
             catalog_models_from_opencode_json(opencode_providers)

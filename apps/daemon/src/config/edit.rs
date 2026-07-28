@@ -25,6 +25,7 @@ use toml::Value;
 const SECRET_LEAF_KEYS: &[&str] = &[
     "password",
     "secret",
+    "api_key",
     "bot_token",
     "app_secret",
     "encoding_aes_key",
@@ -436,6 +437,7 @@ broker_url = "mqtts://broker.example"
 
         // Nested/repeated sections are covered without enumerating indices.
         assert!(super::is_secret_key("channels.wecom.bots.0.secret"));
+        assert!(super::is_secret_key("agents.cursor.api_key"));
 
         assert!(!super::is_secret_key("mqtt.username"));
         assert!(!super::is_secret_key("mqtt.broker_url"));

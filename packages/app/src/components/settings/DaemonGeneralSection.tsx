@@ -23,6 +23,7 @@ import {
   type TeamMemberOption,
 } from '@/lib/daemon-agent-admin'
 import {
+  getCursorAgentSettings,
   getDaemonLocalAgent,
   setDaemonLocalAgent,
   type DaemonLocalAgent,
@@ -67,6 +68,7 @@ export function DaemonGeneralSection() {
   // the daemon config and restarts amuxd so the new backend takes effect.
   const [localAgent, setLocalAgentState] = React.useState<DaemonLocalAgent | null>(null)
   const [switchingAgent, setSwitchingAgent] = React.useState(false)
+  const [cursorKeyConfigured, setCursorKeyConfigured] = React.useState<boolean | null>(null)
   // When set, render the existing daemon onboarding wizard as an overlay to
   // re-bind the local daemon to the current team.
   const [rebinding, setRebinding] = React.useState(false)
@@ -114,6 +116,16 @@ export function DaemonGeneralSection() {
   React.useEffect(() => {
     void loadLocalAgent()
   }, [loadLocalAgent])
+
+  React.useEffect(() => {
+    if (!isTauri() || localAgent !== 'cursor') {
+      setCursorKeyConfigured(null)
+      return
+    }
+    void getCursorAgentSettings()
+      .then((s) => setCursorKeyConfigured(s.apiKeyConfigured))
+      .catch(() => setCursorKeyConfigured(null))
+  }, [localAgent])
 
   // Switch the local runtime: persist `agents.local_agent`, restart amuxd, then
   // re-poll until the daemon comes back reporting the new runtime. The daemon
@@ -529,10 +541,22 @@ export function DaemonGeneralSection() {
                     <SelectContent>
                       <SelectItem value="opencode" className="font-mono text-[12px]">opencode</SelectItem>
                       <SelectItem value="pi" className="font-mono text-[12px]">pi</SelectItem>
+                      <SelectItem value="cursor" className="font-mono text-[12px]">cursor</SelectItem>
                     </SelectContent>
                   </Select>
                   {switchingAgent && <Loader2 className="h-3.5 w-3.5 animate-spin text-muted-foreground" />}
                 </dd>
+                {localAgent === 'cursor' && cursorKeyConfigured === false ? (
+                  <>
+                    <dt className="sr-only">Cursor</dt>
+                    <dd className="col-span-2 text-[11.5px] leading-relaxed text-coral">
+                      {t(
+                        'settings.daemonGeneral.cursorKeyHint',
+                        'Cursor 运行时需在「设置 → LLM」中配置 API Key，无需编辑 daemon.toml。',
+                      )}
+                    </dd>
+                  </>
+                ) : null}
                 <dt className="text-muted-foreground">{t('settings.daemonGeneral.agentId', 'Agent ID')}</dt>
                 <dd className="truncate font-mono text-foreground">{agent.id}</dd>
                 <dt className="text-muted-foreground">{t('settings.daemonGeneral.lastActive', 'Last active')}</dt>
