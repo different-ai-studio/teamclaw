@@ -83,4 +83,71 @@ describe("resolveMqttUrl", () => {
 
     expect(url).toBeNull();
   });
+
+  it("clearCachedMqttUrl drops the stored address and the in-process one", async () => {
+    vi.stubEnv("EXPO_PUBLIC_MQTT_URL", "");
+    vi.resetModules();
+    const { resolveMqttUrl, clearCachedMqttUrl, getKnownMqttUrl, getCachedMqttUrl } =
+      await import("../lib/mqtt/config");
+    const storage = memoryStorage();
+
+    await resolveMqttUrl({
+      ...auth,
+      baseUrl: "https://fc.example.com",
+      fetchImpl: jsonFetch({ mqtt: { tcpUrl: "mqtts://mqtt.example.com:8883" } }),
+      storage,
+    });
+    expect(getKnownMqttUrl()).toBe("mqtts://mqtt.example.com:8883");
+
+    await clearCachedMqttUrl(storage);
+
+    expect(getKnownMqttUrl()).toBeNull();
+    expect(await getCachedMqttUrl(storage)).toBeNull();
+    expect(storage.items.has("teamclaw.mqtt.broker-url")).toBe(false);
+  });
+
+  // The whole point of clearing: the next account must not inherit the previous
+  // deployment's broker through the offline fallback.
+  it("stops a cleared address being used as the offline fallback", async () => {
+    vi.stubEnv("EXPO_PUBLIC_MQTT_URL", "");
+    vi.resetModules();
+    const { resolveMqttUrl, clearCachedMqttUrl } = await import("../lib/mqtt/config");
+    const storage = memoryStorage();
+
+    await resolveMqttUrl({
+      ...auth,
+      baseUrl: "https://fc.example.com",
+      fetchImpl: jsonFetch({ mqtt: { tcpUrl: "mqtts://deployment-a.example.com:8883" } }),
+      storage,
+    });
+    await clearCachedMqttUrl(storage);
+
+    const offline = (async () => {
+      throw new Error("offline");
+    }) as unknown as typeof fetch;
+    const url = await resolveMqttUrl({
+      ...auth,
+      baseUrl: "https://fc.example.com",
+      fetchImpl: offline,
+      storage,
+    });
+
+    expect(url).toBeNull();
+  });
+
+  it("clearCachedMqttUrl survives a storage that throws", async () => {
+    vi.stubEnv("EXPO_PUBLIC_MQTT_URL", "");
+    vi.resetModules();
+    const { clearCachedMqttUrl } = await import("../lib/mqtt/config");
+
+    await expect(
+      clearCachedMqttUrl({
+        getItem: async () => null,
+        setItem: async () => {},
+        removeItem: async () => {
+          throw new Error("storage unavailable");
+        },
+      }),
+    ).resolves.toBeUndefined();
+  });
 });

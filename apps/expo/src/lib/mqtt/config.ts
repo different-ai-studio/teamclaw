@@ -41,6 +41,29 @@ export async function getCachedMqttUrl(
 }
 
 /**
+ * Forget the cached broker. Called on sign-out.
+ *
+ * The cache exists so a cold or offline launch can still connect, but it
+ * outlives the account it was fetched for. Sign out of one deployment and into
+ * another on the same device and the fallback would hand the new session the
+ * old deployment's broker — which it would then dial with the new user's token,
+ * failing in a way that looks like a broker outage rather than stale config.
+ *
+ * Best-effort: a storage error here must not block sign-out, and the in-process
+ * value is dropped either way, so the next resolve starts from the API.
+ */
+export async function clearCachedMqttUrl(
+  storage: StorageLike = AsyncStorage,
+): Promise<void> {
+  lastResolvedUrl = null;
+  try {
+    await storage.removeItem(CACHE_KEY);
+  } catch {
+    // Nothing actionable — the in-process value is already cleared.
+  }
+}
+
+/**
  * Resolve the broker address: build-time override → Cloud API → cached address
  * from the last successful fetch. Returns null when none of the three yields an
  * address, in which case the caller simply does not connect — there is no

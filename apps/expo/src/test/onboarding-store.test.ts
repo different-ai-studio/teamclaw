@@ -4,6 +4,25 @@ import type {
   BootstrapResult,
   OnboardingState,
 } from "../features/onboarding/onboarding-types";
+
+// signOut clears the device-cached MQTT broker, which reaches AsyncStorage.
+// Backing the mock with a real map rather than no-ops lets the sign-out test
+// assert the entry is actually gone instead of that a function was called.
+const storageMock = vi.hoisted(() => {
+  const items = new Map<string, string>();
+  return {
+    items,
+    api: {
+      getItem: async (key: string) => items.get(key) ?? null,
+      setItem: async (key: string, value: string) => void items.set(key, value),
+      removeItem: async (key: string) => void items.delete(key),
+    },
+  };
+});
+
+vi.mock("@react-native-async-storage/async-storage", () => ({
+  default: storageMock.api,
+}));
 type OnboardingApi = ReturnType<
   (typeof import("../lib/supabase/onboarding-api"))["createOnboardingApi"]
 >;
@@ -313,6 +332,30 @@ describe("createOnboardingController", () => {
       currentMemberActorId: null,
       isAnonymous: false,
     });
+  });
+
+  // The broker address is cached on the device so a cold or offline launch can
+  // still connect, which means it outlives the account it was fetched for.
+  // Without this, signing out of one deployment and into another on the same
+  // device hands the new session the old broker whenever the config fetch fails.
+  it("signOut drops the cached broker so the next account cannot inherit it", async () => {
+    storageMock.items.set("teamclaw.mqtt.broker-url", "mqtts://deployment-a.example.com:8883");
+
+    const { createOnboardingController } = await loadController();
+    const api = createApiMock({
+      getCurrentSession: vi.fn().mockResolvedValue({ user: { id: "user-1" } }),
+      loadBootstrap: vi.fn().mockResolvedValue({
+        isAnonymous: false,
+        team: { id: "team-1", name: "Team Claw", slug: "team-claw", role: "owner" },
+        memberActorId: "member-1",
+      } satisfies BootstrapResult),
+    });
+    const controller = createOnboardingController(api);
+    await controller.bootstrap();
+
+    await controller.signOut();
+
+    expect(storageMock.items.has("teamclaw.mqtt.broker-url")).toBe(false);
   });
 
   it("ignores a stale signOut completion after a newer requestOtp", async () => {
