@@ -36,12 +36,25 @@ export function resolveAgentRuntimeWorkspaceId(lookup: AgentWorkspaceLookup): st
   return ''
 }
 
-/** runtimeStart payload: workspace id only; path is resolved on the target daemon. */
-export function runtimeStartWorkspaceArgs(workspaceId: string): {
+/**
+ * runtimeStart payload. The daemon resolves `workspaceId` -> path itself and
+ * only falls back to `worktree` when that yields nothing — which is exactly
+ * what happens for an app session, whose cloud workspace row carries no path:
+ * the daemon then spawned in the onboarded default workspace and the agent ran
+ * against the wrong directory.
+ *
+ * `worktree` is a path on THIS machine, so pass it only when the target agent
+ * is the local daemon. Sending it to a remote daemon would name a directory
+ * that does not exist there (or, worse, a different one that does).
+ */
+export function runtimeStartWorkspaceArgs(
+  workspaceId: string,
+  localWorktree = '',
+): {
   workspaceId: string
   worktree: string
 } {
-  return { workspaceId, worktree: '' }
+  return { workspaceId, worktree: localWorktree.trim() }
 }
 
 /**

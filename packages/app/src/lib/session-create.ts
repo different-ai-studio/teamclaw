@@ -39,6 +39,7 @@ import {
   resolveCloudWorkspaceIdForLocalPath,
   runtimeStartWorkspaceArgs,
 } from '@/lib/teamclaw/resolve-runtime-start-workspace'
+import { resolveSessionWorkspacePath } from '@/lib/session-by-workspace'
 import { RUNTIME_START_RPC_TIMEOUT_MS } from '@/lib/teamclaw/runtime-rpc-timeouts'
 export interface CreateSessionShellArgs {
   teamId: string
@@ -397,6 +398,16 @@ export async function startAgentRuntimesAsync(
   const failures: RuntimeStartFailure[] = []
   const runtimeIdsByAgent: Record<string, string> = {}
   const localWorkspacePath = useWorkspaceStore.getState().workspacePath?.trim() || ''
+  // The workspace store lags a freshly-opened session — switchToSession
+  // resolves the workspace in the background so the view flip stays instant —
+  // so prefer the session's own binding, which is written before the session
+  // is opened. Without this the first prompt in a just-opened app ran in
+  // whatever folder the previous session happened to be using.
+  const sessionWorkspacePath = args.sessionId?.trim()
+    ? (await resolveSessionWorkspacePath(args.teamId, args.sessionId).catch(() => null))?.trim() ||
+      ''
+    : ''
+  const localWorktree = sessionWorkspacePath || localWorkspacePath
   const rpcTimeoutMs = args.rpcTimeoutMs ?? RUNTIME_START_RPC_TIMEOUT_MS
   let createdByMemberId: string | null = null
   try {
@@ -567,7 +578,8 @@ export async function startAgentRuntimesAsync(
       // is the agent's actor_id.
       const result = await runtimeStart({
         targetActorId: agentActorId,
-        ...runtimeStartWorkspaceArgs(runtimeWorkspaceId),
+        // Local path only for the daemon on this machine (see the helper).
+        ...runtimeStartWorkspaceArgs(runtimeWorkspaceId, isLocalDaemonAgent ? localWorktree : ''),
         sessionId: args.sessionId,
         agentType,
         initialPrompt: '',
