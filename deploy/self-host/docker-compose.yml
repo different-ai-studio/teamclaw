@@ -110,6 +110,40 @@ services:
           echo "litellm-init: created _litellm"
         fi
 
+  # Creates the teamclaw_apps database — the shared home for per-app Postgres
+  # schemas (one schema + one scoped login role per "数据操作" app), kept apart
+  # from the control-plane database. Same one-shot pattern and reasoning as
+  # litellm-init above: an already-deployed stack would never run a
+  # docker-entrypoint-initdb.d script, and CREATE DATABASE takes no IF NOT
+  # EXISTS and cannot run inside a transaction.
+  #
+  # Runs unconditionally: an empty unused database costs nothing, whereas the
+  # alternative is app deploys failing at connect time with a Postgres error
+  # that names no cause. Point APPS_DB_ADMIN_URL at it to enable them.
+  apps-db-init:
+    image: postgres:15-alpine
+    restart: "no"
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      PGHOST: "${POSTGRES_HOST}"
+      PGPORT: "${POSTGRES_PORT}"
+      PGUSER: postgres
+      PGPASSWORD: "${POSTGRES_PASSWORD}"
+      PGDATABASE: "${POSTGRES_DB}"
+    entrypoint:
+      - /bin/sh
+      - -c
+      - |
+        set -e
+        if [ "$$(psql -tAc "SELECT 1 FROM pg_database WHERE datname='teamclaw_apps'")" = "1" ]; then
+          echo "apps-db-init: teamclaw_apps already exists"
+        else
+          psql -c 'CREATE DATABASE "teamclaw_apps"'
+          echo "apps-db-init: created teamclaw_apps"
+        fi
+
   # AI gateway. FC provisions per-team budgets and virtual keys against the admin
   # API (/team/new, /key/generate) using LITELLM_MASTER_KEY.
   #
@@ -161,6 +195,8 @@ services:
     restart: unless-stopped
     depends_on:
       migrate:
+        condition: service_completed_successfully
+      apps-db-init:
         condition: service_completed_successfully
       kong:
         condition: service_started

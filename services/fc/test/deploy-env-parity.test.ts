@@ -164,3 +164,24 @@ test("no deploy target declares a variable nothing reads", () => {
   const orphans = [...declared].filter((k) => !read.has(k) && !RUNTIME_OWNED.has(k));
   assert.deepEqual(orphans.sort(), [], "declared for deployment but never read by src/");
 });
+
+/** Every `${VAR}` / `${VAR:-default}` the self-host compose file interpolates. */
+function composeVarRefs(): Set<string> {
+  const text = fs.readFileSync(path.join(REPO, "deploy/self-host/docker-compose.yml"), "utf8");
+  return new Set([...text.matchAll(/\$\{([A-Z_0-9]+)(?::-[^}]*)?\}/g)].map((m) => m[1]));
+}
+
+test("every variable compose reads is documented in .env.example", () => {
+  // Compose silently interpolates an unset variable to the empty string, so an
+  // undocumented one is a feature the operator has no way to discover: it is
+  // not in the template, not in any error, and the feature is just off.
+  const documented = new Set(
+    [
+      ...fs
+        .readFileSync(path.join(REPO, "deploy/self-host/.env.example"), "utf8")
+        .matchAll(/^#?\s*([A-Z_0-9]+)=/gm),
+    ].map((m) => m[1]),
+  );
+  const undocumented = [...composeVarRefs()].filter((k) => !documented.has(k));
+  assert.deepEqual(undocumented.sort(), [], "read by docker-compose.yml but absent from .env.example");
+});
