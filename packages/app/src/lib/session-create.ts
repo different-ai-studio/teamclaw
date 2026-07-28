@@ -184,6 +184,17 @@ export interface CreateSessionWithFirstMessageArgs {
   /** Backend chosen before creating the session; overrides agent defaults/history. */
   agentType?: number
   ideaId?: string | null
+  /** Links the new session to an app (the Apps module opening flow). */
+  appId?: string
+  /** Overrides the title, which otherwise comes from the message's first line. */
+  title?: string
+  /**
+   * Actors the opening message @-mentions. Normally empty — see the note on
+   * the function. An app's opening message DOES mention the local daemon,
+   * because an unmentioned message is only silent-queued and the agent would
+   * sit there until the user typed something.
+   */
+  mentionActorIds?: string[]
 }
 
 export interface CreateSessionWithFirstMessageResult {
@@ -213,7 +224,9 @@ export async function createSessionWithFirstMessage(
     ...summarizeText(trimmed),
   })
 
-  const titleSource = trimmed.split('\n')[0]?.trim().slice(0, 80) || 'New chat'
+  const titleSource =
+    args.title?.trim() || trimmed.split('\n')[0]?.trim().slice(0, 80) || 'New chat'
+  const mentionActorIds = args.mentionActorIds ?? []
 
   const { sessionId } = await createSessionShell({
     teamId: args.teamId,
@@ -221,6 +234,7 @@ export async function createSessionWithFirstMessage(
     title: titleSource,
     additionalActorIds: args.additionalActorIds,
     ideaId: args.ideaId ?? null,
+    ...(args.appId ? { appId: args.appId } : {}),
   })
 
   const messageId = crypto.randomUUID()
@@ -237,7 +251,7 @@ export async function createSessionWithFirstMessage(
   })
   const sessionEnvelope = createProtoMessage(SessionMessageEnvelopeSchema, {
     message: protoMessage,
-    mentionActorIds: [],
+    mentionActorIds,
   })
   const liveEnvelope = createProtoMessage(LiveEventEnvelopeSchema, {
     eventId: crypto.randomUUID(),
@@ -257,7 +271,7 @@ export async function createSessionWithFirstMessage(
       kind: 'text',
       content: trimmed,
       model: args.modelId ?? null,
-      metadata: { mention_actor_ids: [] },
+      metadata: { mention_actor_ids: mentionActorIds },
     })
   } catch (error) {
     sessionFlowError('session_with_first_message.insert_message.failed', error, {

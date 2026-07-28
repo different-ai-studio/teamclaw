@@ -1,5 +1,6 @@
 import { describe, test, expect } from 'vitest'
-import { pickMostRecentSession, canReseed, appStatusMeta } from '../AppsListColumn'
+import { canReseed, appStatusMeta } from '../AppsListColumn'
+import { pickMostRecentSession, firstPromptForApp } from '@/lib/app-session'
 import type { AppSessionRow } from '@/lib/backend/types'
 
 function row(p: Partial<AppSessionRow>): AppSessionRow {
@@ -103,5 +104,30 @@ describe('appStatusMeta', () => {
     expect(appStatusMeta(app({ provisionStatus: 'ready' }), false).key).toBe('apps.ready')
     expect(appStatusMeta(app({ provisionStatus: 'error' }), false).key).toBe('apps.error')
     expect(appStatusMeta(app({ provisionStatus: 'repo_created' }), false).key).toBe('apps.provisioning')
+  })
+})
+
+describe('firstPromptForApp', () => {
+  const app = (name: string, type: string) => ({ name, type })
+
+  test('names the app and points the agent at AGENTS.md', () => {
+    const prompt = firstPromptForApp(app('copilot 官网', 'static_web'))
+    expect(prompt).toContain('copilot 官网')
+    expect(prompt).toContain('AGENTS.md')
+  })
+
+  test('asks for a plan before edits, per type', () => {
+    expect(firstPromptForApp(app('X', 'static_web'))).toContain('public/')
+    expect(firstPromptForApp(app('X', 'slides'))).toContain('提纲')
+    expect(firstPromptForApp(app('X', 'data_app'))).toContain('数据表')
+  })
+
+  test('a legacy type gets the data-app prompt', () => {
+    expect(firstPromptForApp(app('X', 'fullstack_tanstack_postgres'))).toContain('数据表')
+    expect(firstPromptForApp(app('X', ''))).toContain('数据表')
+  })
+
+  test('trims the name the user typed', () => {
+    expect(firstPromptForApp(app('  spaced  ', 'slides'))).toContain('：spaced\n')
   })
 })

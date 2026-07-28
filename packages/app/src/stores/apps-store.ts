@@ -119,7 +119,9 @@ export const useAppsStore = create<AppsState>((set, get) => ({
     if (row.provisionStatus === "pending" || row.provisionStatus === "repo_created") {
       await runSeed(set, row);
     }
-    return row;
+    // Return the row as it stands AFTER seeding — the caller decides what to do
+    // next based on whether the app actually has its files.
+    return get().items.find((a) => a.id === row.id) ?? row;
   },
   reseed: async (appId) => {
     const app = get().items.find((a) => a.id === appId);

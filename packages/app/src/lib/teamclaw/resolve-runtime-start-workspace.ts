@@ -221,6 +221,24 @@ export async function resolveSessionWorkspaceHintForRuntimeStart(args: {
 
   const localPath = args.localWorkspacePath?.trim()
   const localDaemonActorId = args.localDaemonActorId?.trim()
+
+  // The session's own workspace binding outranks `localWorkspacePath`, which
+  // is ambient UI state (the workspace store) and lags a session switch by a
+  // background round trip. Sending in a just-opened app otherwise resolved to
+  // whichever app happened to be open before, and the agent ran there.
+  if (localDaemonActorId && args.sessionId?.trim()) {
+    const { resolveSessionWorkspacePath } = await import('@/lib/session-by-workspace')
+    const bound = (
+      await resolveSessionWorkspacePath(args.teamId, args.sessionId.trim()).catch(() => null)
+    )?.trim()
+    if (bound) {
+      const fromSession = await resolveCloudWorkspaceIdForLocalPath(args.teamId, bound, {
+        agentActorId: localDaemonActorId,
+      })
+      if (fromSession) return fromSession
+    }
+  }
+
   if (localPath && localDaemonActorId) {
     const fromPath = await resolveCloudWorkspaceIdForLocalPath(args.teamId, localPath, {
       agentActorId: localDaemonActorId,

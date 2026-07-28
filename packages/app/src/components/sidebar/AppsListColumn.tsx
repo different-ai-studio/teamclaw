@@ -14,7 +14,7 @@ import {
   Pencil,
   Trash2,
 } from 'lucide-react'
-import { cn, isTauri } from '@/lib/utils'
+import { cn } from '@/lib/utils'
 import { SidebarCollapseToggle } from '@/components/app-sidebar'
 import { TrafficLights } from '@/components/ui/traffic-lights'
 import { useSidebar } from '@/components/ui/sidebar'
@@ -37,46 +37,15 @@ import { Input } from '@/components/ui/input'
 import { useUIStore } from '@/stores/ui'
 import { useAppsStore } from '@/stores/apps-store'
 import { useCurrentTeamStore } from '@/stores/current-team'
-import { useAuthStore } from '@/stores/auth-store'
-import { getBackend } from '@/lib/backend'
-import { resolveCurrentMemberActorId } from '@/lib/current-actor'
-import { createSessionShell } from '@/lib/session-create'
-import { upsertSessionWorkspacesBatch } from '@/lib/local-cache'
 import { revealInFinder } from '@/components/workspace/file-tree-operations'
 import { CreateAppDialog } from '@/components/apps/CreateAppDialog'
 import { resolveAppType } from '@/lib/app-types'
-import type { AppRow, AppSessionRow } from '@/lib/backend/types'
-
-/** Resolve the local daemon's per-app workdir: `~/.amuxd/apps/<appId>`. */
-async function appWorkdirPath(appId: string): Promise<string | null> {
-  if (!isTauri()) return null
-  try {
-    const { homeDir } = await import('@tauri-apps/api/path')
-    const home = await homeDir()
-    return `${home}/.amuxd/apps/${appId}`
-  } catch {
-    return null
-  }
-}
+import { appWorkdirPath, ensureAppSession } from '@/lib/app-session'
+import type { AppRow } from '@/lib/backend/types'
 
 async function comingSoon(label: string): Promise<void> {
   const { toast } = await import('sonner')
   toast(`${label}：即将推出`)
-}
-
-/**
- * Pick the most-recent session for an app, ordering by `lastMessageAt ?? createdAt`
- * descending. Exported as a pure helper so the selection logic is unit-testable
- * without rendering the component.
- */
-export function pickMostRecentSession(rows: AppSessionRow[]): AppSessionRow | null {
-  if (rows.length === 0) return null
-  const ts = (r: AppSessionRow): number => {
-    const v = r.lastMessageAt ?? r.createdAt
-    const n = v ? Date.parse(v) : NaN
-    return Number.isNaN(n) ? 0 : n
-  }
-  return rows.reduce((best, r) => (ts(r) > ts(best) ? r : best))
 }
 
 /**
@@ -336,118 +305,8 @@ export function AppsListColumn() {
 
   const openApp = React.useCallback(async (app: AppRow) => {
     try {
-      const t = useCurrentTeamStore.getState()
-      const linkTeamId = t.team?.id ?? app.teamId
-      const authUserId = useAuthStore.getState().session?.user?.id ?? null
-
-      // This machine's daemon agent has to be a participant of the app's
-      // session, or it cannot even read it: the cloud API serves
-      // GET /v1/sessions/:id through participant-scoped RLS, so the daemon's
-      // own fetch 404s and runtimeStart is rejected with "session not found".
-      const { getLocalDaemonActorId } = await import('@/lib/daemon-agent-admin')
-      const localDaemonActorId = await getLocalDaemonActorId()
-
-      const sessions = await getBackend().apps.listAppSessions(app.id)
-      const recent = pickMostRecentSession(sessions)
-      const sessionId = recent
-        ? recent.id
-        : await (async () => {
-            // No session yet — create one linked to the app.
-            if (!authUserId) {
-              console.error('[AppsListColumn] cannot create app session: not signed in')
-              return null
-            }
-            const creatorActorId = await resolveCurrentMemberActorId(linkTeamId, authUserId, {
-              currentTeamId: linkTeamId,
-              currentMemberId: t.currentMember?.id ?? null,
-            })
-            if (!creatorActorId) {
-              console.error('[AppsListColumn] cannot create app session: no current actor')
-              return null
-            }
-            const result = await createSessionShell({
-              teamId: linkTeamId,
-              creatorActorId,
-              title: app.name,
-              additionalActorIds: localDaemonActorId ? [localDaemonActorId] : [],
-              appId: app.id,
-            })
-            return result.sessionId
-          })()
+      const sessionId = await ensureAppSession(app)
       if (!sessionId) return
-
-      // An app session created before this — or on another machine — has no
-      // seat for this daemon. Joining is idempotent, so just make sure.
-      if (recent && localDaemonActorId) {
-        try {
-          await getBackend().sessionMembers.addParticipant(sessionId, localDaemonActorId)
-        } catch (e) {
-          console.warn('[AppsListColumn] could not add the local daemon to the app session:', e)
-        }
-      }
-
-      // The daemon seeds app repos into ~/.amuxd/apps/<appId>.
-      let appWorkdir: string | null = null
-      try {
-        const { homeDir } = await import('@tauri-apps/api/path')
-        const home = await homeDir()
-        appWorkdir = `${home}/.amuxd/apps/${app.id}`
-      } catch (e) {
-        console.warn('[AppsListColumn] could not resolve home dir (non-fatal):', e)
-      }
-
-      if (appWorkdir) {
-        const viewerMemberId = t.currentMember?.id ?? null
-
-        // 1. Bind session → app workdir in local libsql so the UI (file
-        //    browser, workspace switch) opens the right directory.
-        if (viewerMemberId && localDaemonActorId) {
-          try {
-            await upsertSessionWorkspacesBatch([{
-              sessionId,
-              teamId: linkTeamId,
-              viewerMemberId,
-              agentId: localDaemonActorId,
-              workspaceId: app.workspaceId ?? null,
-              workspacePath: appWorkdir,
-              updatedAt: new Date().toISOString(),
-            }])
-          } catch (e) {
-            console.warn('[AppsListColumn] could not bind session workspace (non-fatal):', e)
-          }
-        }
-
-        // 2. Register the app workdir as a cloud daemon workspace bound to the
-        //    local daemon agent. Runtime-start workspace resolution matches
-        //    cloud workspaces by path; without this row the local daemon falls
-        //    back to its default workspace instead of the app's code dir.
-        try {
-          if (localDaemonActorId) {
-            const { listDaemonWorkspaces, createDaemonWorkspace } = await import('@/lib/daemon-workspaces')
-            const { workspacePathsMatch } = await import('@/stores/session-utils')
-            const existing = (await listDaemonWorkspaces(linkTeamId, localDaemonActorId))
-              .find((w) => !w.archived && w.path && workspacePathsMatch(w.path, appWorkdir!))
-            if (!existing) {
-              const createdByMemberId = authUserId
-                ? await resolveCurrentMemberActorId(linkTeamId, authUserId, {
-                    currentTeamId: linkTeamId,
-                    currentMemberId: t.currentMember?.id ?? null,
-                  }).catch(() => null)
-                : null
-              await createDaemonWorkspace({
-                teamId: linkTeamId,
-                agentId: localDaemonActorId,
-                createdByMemberId,
-                name: app.name,
-                path: appWorkdir,
-              })
-            }
-          }
-        } catch (e) {
-          console.warn('[AppsListColumn] could not register app daemon workspace (non-fatal):', e)
-        }
-      }
-
       // Keep column 2 on the Apps list — the app row is what the user is
       // navigating from, and bouncing to the session list loses that context.
       await useUIStore.getState().switchToSession(sessionId, { keepSidebarFilter: true })

@@ -48,7 +48,7 @@ export function CreateAppDialog({ open, onOpenChange, teamId }: CreateAppDialogP
     setSubmitting(true)
     setError(null)
     try {
-      await useAppsStore.getState().create({
+      const app = await useAppsStore.getState().create({
         teamId,
         name: trimmed,
         type: appType,
@@ -58,6 +58,18 @@ export function CreateAppDialog({ open, onOpenChange, teamId }: CreateAppDialogP
       setName('')
       setAppType(DEFAULT_APP_TYPE)
       setVisibility('personal')
+
+      // Drop the user straight into a conversation that is already underway.
+      // Only once the files exist — an opening message telling the agent to
+      // read AGENTS.md is useless if the template was never written.
+      if (app.provisionStatus === 'ready') {
+        const { startAppFirstSession } = await import('@/lib/app-session')
+        const sessionId = await startAppFirstSession(app)
+        if (sessionId) {
+          const { useUIStore } = await import('@/stores/ui')
+          await useUIStore.getState().switchToSession(sessionId, { keepSidebarFilter: true })
+        }
+      }
     } catch (e) {
       setError(e instanceof Error ? e.message : t('apps.createError', '创建失败'))
     } finally {
