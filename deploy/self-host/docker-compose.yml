@@ -240,6 +240,40 @@ services:
       # without this the usage queries connect to a database that never exists.
       LITELLM_DB_NAME: "${LITELLM_DB_NAME:-_litellm}"
 
+      # ── Declared in services/fc/s.yaml but historically absent here, so the
+      # container never received them and the features were silently off on the
+      # box. This map is an allowlist; the two deploy targets must stay in step
+      # (test/deploy-env-parity.test.ts pins that).
+      #
+      # iOS push. All five needed together; any missing one disables APNs.
+      APNS_PRIVATE_KEY_P8: "${APNS_PRIVATE_KEY_P8:-}"
+      APNS_KEY_ID: "${APNS_KEY_ID:-}"
+      APNS_TEAM_ID: "${APNS_TEAM_ID:-}"
+      APNS_TOPIC: "${APNS_TOPIC:-}"
+      APNS_ENV: "${APNS_ENV:-}"
+      PUSH_WEBHOOK_SECRET: "${PUSH_WEBHOOK_SECRET:-}"
+      # Email OTP delivery. Only used when FC sends the mail itself; with
+      # BACKEND_KIND=supabase, GoTrue's own SMTP config does it instead.
+      OTP_EMAIL_SMTP_HOST: "${OTP_EMAIL_SMTP_HOST:-}"
+      OTP_EMAIL_SMTP_PORT: "${OTP_EMAIL_SMTP_PORT:-}"
+      OTP_EMAIL_SMTP_SECURE: "${OTP_EMAIL_SMTP_SECURE:-}"
+      OTP_EMAIL_SMTP_USER: "${OTP_EMAIL_SMTP_USER:-}"
+      OTP_EMAIL_SMTP_PASS: "${OTP_EMAIL_SMTP_PASS:-}"
+      OTP_EMAIL_FROM: "${OTP_EMAIL_FROM:-}"
+      # better-auth (BACKEND_KIND=postgres only; the supabase backend uses GoTrue).
+      AUTH_BASE_URL: "${AUTH_BASE_URL:-}"
+      AUTH_SECRET: "${AUTH_SECRET:-}"
+      GOOGLE_CLIENT_ID: "${GOOGLE_CLIENT_ID:-}"
+      GOOGLE_CLIENT_SECRET: "${GOOGLE_CLIENT_SECRET:-}"
+      APPLE_CLIENT_ID: "${APPLE_CLIENT_ID:-}"
+      APPLE_CLIENT_SECRET: "${APPLE_CLIENT_SECRET:-}"
+      SMS_DEBUG_MODE: "${SMS_DEBUG_MODE:-}"
+      # Postgres pool size for the apps admin connection.
+      PG_POOL_MAX: "${PG_POOL_MAX:-}"
+      # NOTE: CORS_HANDLED_BY_PROXY is deliberately NOT here. Caddy is a
+      # transparent proxy that adds no CORS headers, so Hono must own CORS
+      # (see services/fc/src/app.ts). Setting it would strip CORS entirely.
+
   caddy:
     image: caddy:2
     restart: unless-stopped
