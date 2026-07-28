@@ -57,4 +57,34 @@ describe('resolveSessionModelFromRuntimeRows', () => {
       source: 'agentRuntimes',
     })
   })
+
+  it('prefers a mounted agent runtime over an earlier row from a departed agent', () => {
+    // Shape of "switch to local agent": the dead remote's row is still in the
+    // session and comes back first, but only the local agent is mounted.
+    const result = resolveSessionModelFromRuntimeRows(
+      [
+        { runtime_id: 'rt-remote', backend_type: 'claude-code', current_model: 'claude-sonnet-4-6' },
+        { runtime_id: 'rt-local', backend_type: 'opencode', current_model: 'opencode/big-pickle' },
+      ],
+      {
+        'rt-remote': { daemonActorId: 'agent-remote', info: { currentModel: 'claude-sonnet-4-6' } } as any,
+        'rt-local': { daemonActorId: 'agent-local', info: { currentModel: 'opencode/big-pickle' } } as any,
+      },
+      models,
+      ['agent-local'],
+    )
+
+    expect(result).toMatchObject({ provider: 'opencode', modelId: 'opencode/big-pickle' })
+  })
+
+  it('keeps row order when no row belongs to a mounted agent', () => {
+    const result = resolveSessionModelFromRuntimeRows(
+      [{ runtime_id: 'rt-remote', backend_type: 'claude-code', current_model: 'claude-sonnet-4-6' }],
+      {},
+      models,
+      ['agent-local'],
+    )
+
+    expect(result).toMatchObject({ modelId: 'claude-sonnet-4-6', source: 'agentRuntimes' })
+  })
 })
