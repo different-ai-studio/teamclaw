@@ -15,6 +15,7 @@ mod nats;
 mod onboarding;
 mod opencode_install;
 mod opencode_settings;
+mod cursor_install;
 mod pi_install;
 mod proto;
 mod provider_config;

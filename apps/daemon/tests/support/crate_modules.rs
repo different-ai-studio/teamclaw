@@ -13,6 +13,8 @@ mod http;
 mod mcp_probe;
 #[path = "../../src/opencode_install/mod.rs"]
 mod opencode_install;
+#[path = "../../src/cursor_install/mod.rs"]
+mod cursor_install;
 #[path = "../../src/opencode_settings/mod.rs"]
 mod opencode_settings;
 #[path = "../../src/pi_install/mod.rs"]

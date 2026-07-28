@@ -458,6 +458,9 @@ pub struct DoctorReport {
     /// pi runtime status; populated only when `agents.local_agent == "pi"`.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub pi: Option<crate::pi_install::PiStatus>,
+    /// Cursor SDK status; populated only when `agents.local_agent == "cursor"`.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub cursor: Option<crate::cursor_install::CursorStatus>,
 }
 
 /// `<amuxd> --version` -> the first version-like token (clap prints "amuxd X.Y.Z").
@@ -553,6 +556,7 @@ pub fn doctor() -> DoctorReport {
         git,
         amuxd,
         pi: None,
+        cursor: None,
     }
 }
 
@@ -699,9 +703,11 @@ mod tests {
                 satisfied: true,
             },
             pi: None,
+            cursor: None,
         };
         let v: serde_json::Value = serde_json::to_value(&report).unwrap();
         assert!(v.get("pi").is_none(), "pi omitted when None");
+        assert!(v.get("cursor").is_none(), "cursor omitted when None");
         assert_eq!(v["opencode"]["satisfied"], serde_json::json!(true));
         assert!(
             v["opencode"].get("requiredVersion").is_none(),

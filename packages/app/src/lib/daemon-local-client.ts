@@ -275,7 +275,7 @@ async function daemonFetchData<T>(path: string, init?: RequestInit): Promise<T> 
 // ─── Local agent runtime (`agents.local_agent` in daemon.toml) ────────────────
 
 /** The local agent runtimes the daemon can drive. */
-export type DaemonLocalAgent = 'opencode' | 'pi'
+export type DaemonLocalAgent = 'opencode' | 'pi' | 'cursor'
 
 interface DaemonConfigEntry {
   key: string
@@ -294,7 +294,11 @@ export async function getDaemonLocalAgent(): Promise<DaemonLocalAgent> {
     // 404 = key absent → daemon default. Anything else: fall back conservatively.
     return 'opencode'
   }
-  return result.data.value === 'pi' ? 'pi' : 'opencode'
+  return result.data.value === 'pi'
+    ? 'pi'
+    : result.data.value === 'cursor'
+      ? 'cursor'
+      : 'opencode'
 }
 
 /**
@@ -310,6 +314,83 @@ export async function setDaemonLocalAgent(agent: DaemonLocalAgent): Promise<{ re
   })
   if (!result.ok) throw new Error(result.error || 'failed to set local agent')
   return { requiresRestart: result.data.requiresRestart ?? true }
+}
+
+interface DaemonMutateConfigResponse {
+  key: string
+  requiresReload?: boolean
+  requiresRestart?: boolean
+}
+
+/** Read a single daemon.toml key via `/v1/config/:key`. Returns null when absent (404). */
+export async function getDaemonConfigEntry(key: string): Promise<DaemonConfigEntry | null> {
+  const result = await daemonFetch<DaemonConfigEntry>(`/v1/config/${encodeURIComponent(key)}`)
+  if (!result.ok) {
+    if (result.status === 404) return null
+    throw new Error(result.error || `failed to read config key ${key}`)
+  }
+  return result.data
+}
+
+/** Write a daemon.toml key. Secret values are write-only on read (see `getDaemonConfigEntry`). */
+export async function setDaemonConfigValue(
+  key: string,
+  value: string | number | boolean,
+): Promise<DaemonMutateConfigResponse> {
+  const result = await daemonFetch<DaemonMutateConfigResponse>(`/v1/config/${encodeURIComponent(key)}`, {
+    method: 'PUT',
+    body: JSON.stringify({ value }),
+  })
+  if (!result.ok) throw new Error(result.error || `failed to set config key ${key}`)
+  return result.data
+}
+
+export interface CursorAgentSettings {
+  apiKeyConfigured: boolean
+  defaultModel: string
+}
+
+const CURSOR_DEFAULT_MODEL = 'composer-2.5'
+
+/** Cursor SDK backend settings stored in daemon.toml under `[agents.cursor]`. */
+export async function getCursorAgentSettings(): Promise<CursorAgentSettings> {
+  const [apiKeyEntry, modelEntry] = await Promise.all([
+    getDaemonConfigEntry('agents.cursor.api_key'),
+    getDaemonConfigEntry('agents.cursor.default_model'),
+  ])
+  const defaultModel =
+    typeof modelEntry?.value === 'string' && modelEntry.value.trim()
+      ? modelEntry.value.trim()
+      : CURSOR_DEFAULT_MODEL
+  return {
+    apiKeyConfigured: apiKeyEntry?.secret === true || typeof apiKeyEntry?.value === 'string',
+    defaultModel,
+  }
+}
+
+export async function saveCursorAgentSettings(input: {
+  apiKey?: string
+  defaultModel?: string
+}): Promise<{ requiresRestart: boolean }> {
+  let requiresRestart = false
+  const trimmedKey = input.apiKey?.trim()
+  if (trimmedKey) {
+    const resp = await setDaemonConfigValue('agents.cursor.api_key', trimmedKey)
+    requiresRestart = requiresRestart || (resp.requiresRestart ?? false)
+  }
+  const trimmedModel = input.defaultModel?.trim()
+  if (trimmedModel) {
+    const resp = await setDaemonConfigValue('agents.cursor.default_model', trimmedModel)
+    requiresRestart = requiresRestart || (resp.requiresRestart ?? false)
+  }
+  // agents.* keys always require restart per daemon HTTP config policy.
+  return { requiresRestart: requiresRestart || Boolean(trimmedKey || trimmedModel) }
+}
+
+/** Restart the desktop-managed amuxd after config edits that require it. */
+export async function restartLocalDaemon(): Promise<void> {
+  invalidateDaemonConnection()
+  await invoke('restart_local_daemon')
 }
 
 // ─── Workspace-control types (mirrors Rust workspace_control.rs) ──────────────

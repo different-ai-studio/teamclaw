@@ -10,6 +10,7 @@ use crate::proto::amux;
 fn configured_local_agent(config: &DaemonConfig) -> Option<amux::AgentType> {
     match config.agents.local_agent.as_str() {
         "pi" => Some(amux::AgentType::Pi),
+        "cursor" => Some(amux::AgentType::Opencode),
         "opencode" => config
             .agents
             .opencode
@@ -81,6 +82,7 @@ pub(crate) fn session_message_model_override(
 pub(crate) fn agent_type_from_name(name: &str) -> Option<amux::AgentType> {
     match name.trim() {
         "opencode" => Some(amux::AgentType::Opencode),
+        "cursor" => Some(amux::AgentType::Opencode),
         "codex" => Some(amux::AgentType::Codex),
         "claude" | "claude_code" | "claude-code" => Some(amux::AgentType::ClaudeCode),
         "pi" => Some(amux::AgentType::Pi),
@@ -113,6 +115,11 @@ pub(crate) fn default_advertised_agent_type(supported_types: &[String]) -> Optio
 /// sections are accepted in config files but only advertised when
 /// `local_agent` selects them.
 pub(crate) fn supported_agent_type_names(config: &DaemonConfig) -> Vec<String> {
+    if config.agents.local_agent == "cursor" {
+        return configured_local_agent(config)
+            .map(|_| vec!["cursor".to_string()])
+            .unwrap_or_default();
+    }
     match configured_local_agent(config).and_then(agent_type_name) {
         Some(name) => vec![name.to_string()],
         None => Vec::new(),

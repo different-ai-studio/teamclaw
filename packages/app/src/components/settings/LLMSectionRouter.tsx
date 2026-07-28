@@ -3,6 +3,7 @@ import { getDaemonLocalAgent, type DaemonLocalAgent } from '@/lib/daemon-local-c
 import { isTauri } from '@/lib/utils'
 import { OpenCodeLLMSection } from './LLMSection'
 import { PiLLMSection } from './PiLLMSection'
+import { CursorLLMSection } from './CursorLLMSection'
 
 /**
  * LLM settings dispatcher. The local agent runtime determines both the logic
@@ -34,5 +35,7 @@ export function LLMSection() {
 
   // Until the runtime is known, render nothing to avoid flashing the wrong pane.
   if (agent === null) return null
-  return agent === 'pi' ? <PiLLMSection /> : <OpenCodeLLMSection />
+  if (agent === 'pi') return <PiLLMSection />
+  if (agent === 'cursor') return <CursorLLMSection />
+  return <OpenCodeLLMSection />
 }
