@@ -223,7 +223,7 @@ pub struct AgentsConfig {
     #[serde(default = "default_true")]
     pub auto_discover: bool,
     /// Local agent runtime backing this daemon: "opencode" (default), "pi",
-    /// "claude-code", or "codex". Seeded from the desktop build config's
+    /// "cursor", "claude-code", or "codex". Seeded from the desktop build config's
     /// `localAgent` during onboarding. See `daemon::runtime_resolution::
     /// configured_local_agent` for how this name is resolved to a runnable
     /// backend — claude-code/codex additionally require their `[agents.*]`
@@ -237,6 +237,26 @@ pub struct AgentsConfig {
     pub opencode: Option<AgentBackendConfig>,
     #[serde(default)]
     pub codex: Option<AgentBackendConfig>,
+    #[serde(default)]
+    pub cursor: Option<CursorAgentConfig>,
+}
+
+/// Cursor SDK backend settings (`agents.local_agent = "cursor"`).
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct CursorAgentConfig {
+    /// Cursor API key. Falls back to `CURSOR_API_KEY` when unset.
+    #[serde(default)]
+    pub api_key: Option<String>,
+    /// Sidecar launch command (default: `node …/cursor-bridge/src/main.mjs --mode rpc`).
+    #[serde(default)]
+    pub bridge_command: Option<Vec<String>>,
+    /// SDK model id (not the flat `cursor/…` id). Default: `composer-2.5`.
+    #[serde(default = "default_cursor_model")]
+    pub default_model: Option<String>,
+}
+
+fn default_cursor_model() -> Option<String> {
+    Some("composer-2.5".to_string())
 }
 
 fn default_local_agent() -> String {
@@ -251,6 +271,7 @@ impl Default for AgentsConfig {
             claude_code: None,
             opencode: None,
             codex: None,
+            cursor: None,
         }
     }
 }

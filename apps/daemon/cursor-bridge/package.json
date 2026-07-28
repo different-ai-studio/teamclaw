@@ -1,0 +1,17 @@
+{
+  "name": "@teamclaw/cursor-bridge",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "description": "JSONL RPC sidecar wrapping @cursor/sdk for amuxd",
+  "main": "src/main.mjs",
+  "scripts": {
+    "start": "node src/main.mjs --mode rpc"
+  },
+  "dependencies": {
+    "@cursor/sdk": "^1.0.24"
+  },
+  "engines": {
+    "node": ">=20"
+  }
+}

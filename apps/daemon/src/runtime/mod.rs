@@ -1,4 +1,5 @@
 pub mod acp_event_frame;
+pub mod cursor_sdk;
 pub mod backend;
 pub mod opencode_http;
 pub mod pi_rpc;
