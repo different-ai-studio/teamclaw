@@ -16,12 +16,16 @@ export function accountIdFromRoleArn(arn: string | undefined): string | null {
  * `<accountId>.<region>.fc.aliyuncs.com`. The OSS `ENDPOINT` env (oss.ts) is a
  * different host and is NOT reusable.
  *
- * Resolution order: an explicit `FC_ENDPOINT`, then `ALIYUN_ACCOUNT_ID`, then
- * the account id embedded in `ROLE_ARN` — which every deployment that can talk
- * to OSS already has, so app deploys need no new configuration at all.
+ * Resolution order: an explicit `APPS_FC_ENDPOINT`, then `ALIYUN_ACCOUNT_ID`,
+ * then the account id embedded in `ROLE_ARN` — which every deployment that can
+ * talk to OSS already has, so app deploys need no new configuration at all.
+ *
+ * The override is NOT called `FC_ENDPOINT`: that name is reserved by Alibaba
+ * Function Compute, which rejects the whole deploy with
+ * `InvalidArgument: The environment variable name 'FC_ENDPOINT' is reserved`.
  */
 export function resolveFcEndpoint(): string | null {
-  const explicit = process.env.FC_ENDPOINT?.trim();
+  const explicit = process.env.APPS_FC_ENDPOINT?.trim();
   if (explicit) return explicit;
   const accountId =
     process.env.ALIYUN_ACCOUNT_ID?.trim() || accountIdFromRoleArn(process.env.ROLE_ARN);
@@ -35,7 +39,7 @@ export function fcEndpoint(): string {
   // error that named no variable at all. Fail with the config problem instead.
   if (!endpoint) {
     throw new Error(
-      "FC endpoint is not configured: set FC_ENDPOINT, ALIYUN_ACCOUNT_ID, or a ROLE_ARN to derive it from",
+      "FC endpoint is not configured: set APPS_FC_ENDPOINT, ALIYUN_ACCOUNT_ID, or a ROLE_ARN to derive it from",
     );
   }
   return endpoint;

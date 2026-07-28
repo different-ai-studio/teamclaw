@@ -237,8 +237,8 @@ services:
       APPS_DB_ADMIN_URL: "${APPS_DB_ADMIN_URL:-}"
       # The FC 3.0 data-plane host is account-scoped
       # (<accountId>.<region>.fc.aliyuncs.com) and is NOT the OSS ENDPOINT.
-      # Set FC_ENDPOINT, or ALIYUN_ACCOUNT_ID to have it composed.
-      FC_ENDPOINT: "${FC_ENDPOINT:-}"
+      # Set APPS_FC_ENDPOINT, or ALIYUN_ACCOUNT_ID to have it composed.
+      APPS_FC_ENDPOINT: "${APPS_FC_ENDPOINT:-}"
       ALIYUN_ACCOUNT_ID: "${ALIYUN_ACCOUNT_ID:-}"
       # Optional partner-integration features, all off unless set here. This
       # `environment:` map is an explicit allowlist — a var absent from it never
