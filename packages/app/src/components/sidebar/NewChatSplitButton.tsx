@@ -1,6 +1,6 @@
 import * as React from 'react'
 import { useTranslation } from 'react-i18next'
-import { ChevronDown, Loader2, Plus, SquarePen } from 'lucide-react'
+import { ChevronDown, Loader2, Plus } from 'lucide-react'
 import type { QuickChatState } from '@/hooks/use-quick-chat-readiness'
 import { useUIStore } from '@/stores/ui'
 import { cn } from '@/lib/utils'
@@ -49,7 +49,7 @@ export function NewChatSplitButton({
 
   return (
     <div className="flex w-full flex-col gap-1.5">
-      <div className="flex w-full flex-col overflow-hidden rounded-lg shadow-sm">
+      <div className="flex w-full flex-col overflow-hidden rounded-[10px] shadow-[0_4px_14px_rgba(232,90,74,0.22)]">
         <div className="flex w-full bg-coral">
           <button
             type="button"
@@ -57,17 +57,17 @@ export function NewChatSplitButton({
             disabled={primaryDisabled}
             title={primaryTitle}
             className={cn(
-              'flex min-w-0 flex-1 items-center gap-2 rounded-none px-2.5 py-1.5 text-left text-[13px] font-semibold text-coral-foreground transition-colors',
-              'hover:bg-coral/90 disabled:cursor-not-allowed disabled:opacity-40',
+              'flex min-w-0 flex-1 items-center gap-2 rounded-none px-3 py-2.5 text-left text-[13px] font-semibold tracking-tight text-coral-foreground transition-[filter,background-color] duration-150',
+              'hover:brightness-[1.04] disabled:cursor-not-allowed disabled:opacity-40',
             )}
           >
             {creating ? (
               <Loader2 className="h-[14px] w-[14px] shrink-0 animate-spin" />
             ) : (
-              <SquarePen className="h-[14px] w-[14px] shrink-0" />
+              <Plus className="h-[14px] w-[14px] shrink-0" strokeWidth={2.5} />
             )}
             <span className="min-w-0 flex-1 truncate">{t('chat.newChat', 'New Chat')}</span>
-            <span className="shrink-0 rounded bg-black/15 px-1 py-0.5 font-mono text-[10px] font-medium tracking-tight text-white/95">
+            <span className="ml-auto shrink-0 font-mono text-[10.5px] font-medium tracking-tight text-white/70">
               ⌘N
             </span>
           </button>
@@ -78,8 +78,8 @@ export function NewChatSplitButton({
             aria-expanded={moreOpen}
             onClick={() => setMoreOpen((open) => !open)}
             className={cn(
-              'flex w-8 shrink-0 items-center justify-center rounded-none border-l border-coral-foreground/20 text-coral-foreground transition-colors',
-              'hover:bg-coral/90 disabled:cursor-not-allowed disabled:opacity-40',
+              'flex w-8 shrink-0 items-center justify-center rounded-none border-l border-white/15 text-coral-foreground transition-[filter,background-color] duration-150',
+              'hover:brightness-[1.04] disabled:cursor-not-allowed disabled:opacity-40',
             )}
           >
             <ChevronDown

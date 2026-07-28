@@ -110,7 +110,7 @@ export function ActorsSection() {
         <button
           type="button"
           onClick={toggle}
-          className="group flex flex-1 items-center gap-1.5 rounded-md px-[9px] py-1 text-left text-[10.5px] font-semibold uppercase tracking-[0.08em] text-faint hover:text-foreground"
+          className="group flex flex-1 items-center gap-1.5 rounded-lg px-[9px] py-1.5 text-left text-[10.5px] font-semibold uppercase tracking-[0.08em] text-faint hover:text-foreground"
         >
           {collapsed ? <ChevronRight className="h-[10px] w-[10px]" /> : <ChevronDown className="h-[10px] w-[10px]" />}
           <span>{t('sidebar.actorsSection', 'Recents')}</span>

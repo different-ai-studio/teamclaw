@@ -51,8 +51,8 @@ export function ActorRow({
         type="button"
         onClick={() => onSelect(actor)}
         className={cn(
-          'flex w-full items-center gap-[9px] rounded-md px-[9px] py-[5px] text-left text-[12.5px] transition-colors',
-          active ? 'bg-selected font-semibold text-foreground' : 'text-ink-2 hover:bg-selected/60',
+          'flex w-full items-center gap-[9px] rounded-lg px-[9px] py-[6px] text-left text-[13px] transition-[background-color,color] duration-150',
+          active ? 'bg-paper font-semibold text-foreground shadow-[0_1px_2px_rgba(28,27,25,0.04)] ring-1 ring-black/[0.05]' : 'text-ink-2 hover:bg-black/[0.04]',
         )}
       >
         <div
@@ -74,9 +74,6 @@ export function ActorRow({
             className="h-3 w-3 shrink-0 fill-coral text-coral"
             aria-label={t('actors.defaultAgent', 'Default agent')}
           />
-        )}
-        {isAgent && (
-          <span className="shrink-0 font-mono text-[9px] font-semibold tracking-wider text-coral">{t('actors.type.agent', 'Agent')}</span>
         )}
       </button>
     </ActorContextMenu>
