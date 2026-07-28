@@ -1,3 +1,4 @@
+import { clearCachedMqttUrl } from "../../lib/mqtt/config";
 import {
   initialOnboardingState,
   onboardingReducer,
@@ -262,6 +263,11 @@ export function createOnboardingController(api: OnboardingApi) {
   const signOut = async () => {
     const token = beginOperation();
     await api.signOut();
+    // The cached broker was fetched with the outgoing user's token and belongs
+    // to their deployment, so it must not survive into the next session. Web
+    // clears the same state from its own signOut, via
+    // clearBootstrapAppliedFields.
+    await clearCachedMqttUrl();
     dispatchIfCurrent(token, { type: "signedOut" });
   };
 
