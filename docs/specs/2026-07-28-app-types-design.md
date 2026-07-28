@@ -104,41 +104,58 @@ daemon 做额外注入。
 
 ---
 
-## 5. 模板仓库
+## 5. 去掉远程仓：本地 git + 内嵌模板
 
-今天是一个 GitHub 模板仓库，由 `TEAMCLAW_APP_TEMPLATE_URL` 覆盖。三种类型需要三个：
+**决定**：app 不再有远程仓库。播种时 `git init` + 首次提交，不建 Codeup 仓、不 push。
+
+理由：部署路径本来就不碰 git —— `build_artifact` 在 `~/.amuxd/apps/<appId>` 里直接
+`pnpm build`，不 fetch 不 checkout。git 此前只用于「建仓」和「clone 模板再 push」，
+而这两步各自拖着一条失败路径（`CODEUP_*` 缺失、网络、PAT）。保留**本地** git 则留下
+了 agent 改坏文件后的回滚能力，成本只有几行。以后要加远程，`git remote add` + push
+即可，没有需要回退的东西。
+
+代价：app 源码只在建它的那台机器上 —— 无异地备份、换机器拿不到、团队不可见。
+
+**模板改为内嵌**：既然不 clone，模板就得在本地。三份模板放回本仓库 `templates/`，
+用 `include_dir!` 编进 amuxd 二进制。这同时解决了 `a673d76d` 删除旧副本时指出的漂移
+问题（那份副本没有任何代码读它，靠手工与上游同步）—— 现在是唯一来源，可评审、CI 可
+直接 smoke build。代价是改模板要发 daemon 版本；考虑到 `0c108cd3` 的锁文件教训，
+模板与 daemon 一起走版本反而更安全。
 
 ```
-different-ai-studio/template-static-web
-different-ai-studio/template-slides
-different-ai-studio/template-tanstack-postgres   ← 已存在
+templates/static-web/
+templates/slides/
+templates/tanstack-postgres/
 ```
 
-`template_repo_url()` 改成按类型取，环境变量覆盖也按类型分：
-`TEAMCLAW_APP_TEMPLATE_URL_STATIC_WEB` 等。
+三份模板之间会有重复（静态服务器、构建脚本），这是刻意的 —— 每份保持可独立
+`pnpm install && pnpm build` 比抽公共包更重要。
 
-`POST /v1/apps/seed` 的 body 需要新增 `appType` 字段（daemon 据此选模板 + 做占位符
-替换）。桌面端在 `runSeed` 里带上。
+### 5.1 生命周期简化
 
-> 提醒：`templates/` 目录已在 `a673d76d` 删除，模板只存在于上游仓库。三个模板仓库
-> 之间会有重复（静态服务器、构建脚本），这是刻意的 —— 让每个模板保持可独立 clone
-> 即跑，比抽公共包更重要。
+`provision_status` 从 `pending → repo_created → seeding → ready` 塌成：
+
+```
+pending → ready      （播种成功）
+pending → error      （播种失败，可重试）
+```
+
+- `createApp` 不再调 `provisionAppRepo`，插入行后直接返回 `pending`。
+- `git_remote_url` / `git_auth_kind` 对新 app 恒为 null；列仍保留，旧 app 的值照读。
+- `repo_created` / `seeding` 在 `app-status.ts` 里保留为合法来源状态（旧行还停在
+  那儿），但不再是新 app 会经过的状态。
+- `POST /v1/apps/seed` 的 body：`gitRemoteUrl` 与 `gitToken` 变为可选（旧路径仍可
+  用），新增 `appType`。
+
+`/v1/teams/:id/managed-git-credential` 端点保留 —— 它服务的是 team-share，不是 apps。
 
 ---
 
-## 6. 演示材料用什么
+## 6. 演示材料：reveal.js
 
-三个选项：
-
-1. **reveal.js 内联进模板**（推荐）—— 成熟、键盘导航/演讲者视图都有，agent 对它
-   的 HTML 结构很熟。依赖 vendored 进 `public/`，不走 CDN（FC 出网不确定，且要
-   保证构建确定性）。
-2. **纯 HTML + CSS scroll-snap** —— 零依赖，但翻页/演讲者视图要自己写。
-3. **Markdown → HTML 构建** —— agent 写 Markdown 最自然，但多一层构建，且
-   排版控制力弱。
-
-推荐 1；如果更看重「agent 写起来简单」，可以用 1 的骨架 + AGENTS.md 里规定
-「一个 `<section>` 就是一页」。**这条需要你拍板。**
+reveal.js vendored 进模板的 `public/vendor/`，不走 CDN —— FC 出网不确定，且要保证
+构建确定性。`AGENTS.md` 里规定「一个 `<section>` 就是一页」，agent 只需要往
+`public/index.html` 里加 section，不需要理解 reveal 的初始化。
 
 ---
 
@@ -146,17 +163,21 @@ different-ai-studio/template-tanstack-postgres   ← 已存在
 
 | 文件 | 改动 |
 |---|---|
+| `templates/{static-web,slides,tanstack-postgres}/`（新） | 三份模板 + 各自 `AGENTS.md` |
+| `packages/app/src/lib/app-types.ts`（新） | type id ↔ 显示名/描述，legacy 别名 |
 | `packages/app/src/components/apps/CreateAppDialog.tsx` | 类型选择器（3 张卡片），替换写死的 `APP_TYPE` |
-| `packages/app/src/lib/app-types.ts`（新） | type id ↔ 显示名/图标/描述，legacy 别名 |
-| `packages/app/src/stores/apps-store.ts` | `runSeed` 带上 appType |
-| `packages/app/src/components/sidebar/AppsListColumn.tsx` | 行上显示类型 |
-| `apps/daemon/src/http/apps.rs` | seed body 加 `appType`；`template_repo_url(type)` |
-| `apps/daemon/src/sync/app_seed.rs` | 占位符替换 |
+| `packages/app/src/stores/apps-store.ts` | `runSeed` 带 appType、不再要求 gitRemoteUrl |
+| `packages/app/src/lib/daemon-local-client.ts` | `seedDaemonApp` 签名 |
+| `packages/app/src/components/sidebar/AppsListColumn.tsx` | 行上显示类型；reseed 门槛 |
+| `apps/daemon/Cargo.toml` | 新增 `include_dir` |
+| `apps/daemon/src/sync/app_templates.rs`（新） | 内嵌模板 + 按类型取 + 占位符替换 |
+| `apps/daemon/src/sync/app_seed.rs` | 写文件 + `git init` + commit，删掉 clone/push/凭证 |
+| `apps/daemon/src/http/apps.rs` | seed body 加 `appType`，`gitRemoteUrl` 转可选 |
+| `services/fc/src/lib/pg-repo/apps.ts` + `supabase-repo.ts` | createApp 不再建仓；把 `type` 传给 finalize |
+| `services/fc/src/lib/pg-repo/app-status.ts` | `pending → ready/error` |
 | `services/fc/src/lib/provisioning/app-deploy.ts` | `finalizeDeploy` 按类型决定是否 provision schema |
-| `services/fc/src/lib/pg-repo/apps.ts` + `supabase-repo.ts` | 把 `type` 传给 finalize |
-| `services/fc/src/index.ts` | `makeDeployDeps` 的配置判定拆两级 |
+| `services/fc/src/index.ts` | `makeDeployDeps` 配置判定拆两级；不再注入 `provisionAppRepo` |
 | `docs/openapi/teamclaw-api.v1.yaml` | `type` 的 enum + 说明 |
-| 三个模板仓库 | 静态服务器 + build 脚本 + `AGENTS.md` |
 
 数据库：**无迁移**。
 
@@ -185,10 +206,10 @@ different-ai-studio/template-tanstack-postgres   ← 已存在
 
 ---
 
-## 10. 待你确认
+## 10. 已确认的决定
 
-1. **演示材料的框架**（§6）—— reveal.js 还是更简的方案。
-2. **type id 命名** —— `data_app` 还是保留 `fullstack_tanstack_postgres` 作为
-   正式 id。我倾向前者 + 后者当别名，读起来跟另外两个平级。
-3. **静态类型是否也占一个 FC 函数** —— 本设计是「是」（保持流水线统一）。如果
-   app 数量会很大，可以考虑静态类型共享一个函数按路径分发，但那是另一套设计。
+1. 演示材料用 **reveal.js**（vendored，不走 CDN）。
+2. type id 用 **`data_app`**，`fullstack_tanstack_postgres` 作为旧值别名。
+3. 静态类型**也各占一个 FC 函数**，保持流水线统一。若将来 app 数量很大，可另设计
+   「静态类型共享一个函数按路径分发」。
+4. **不建远程仓**，本地 git + 内嵌模板（§5）。

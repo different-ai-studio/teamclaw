@@ -129,7 +129,6 @@ export function createSupabaseBusinessRepository(options) {
     provisionLiteLlm,
     // Injectable for tests; defaults to proxying the LiteLLM gateway /v1/models.
     fetchLiteLlmModels: fetchLiteLlmModelsOpt,
-    provisionAppRepo,
     startDeploy,
     finalizeDeploy,
     // Injectable for tests; defaults to querying the LiteLLM RDS directly.
@@ -2805,44 +2804,10 @@ export function createSupabaseBusinessRepository(options) {
         .single();
       if (appErr) throw appErr;
 
-      // Provision the per-app git repo via the injected dependency (mirrors how
-      // teams provision LiteLLM). On success record the remote + authKind and
-      // advance provision_status to "repo_created"; on failure capture the error
-      // and set provision_status to "error". The app row is created either way.
-      if (provisionAppRepo) {
-        try {
-          const res = await provisionAppRepo({ appId: row.id, teamId: input.teamId });
-          if (res?.gitRemoteUrl) {
-            const { data: updated, error: updErr } = await supabase
-              .from("apps")
-              .update({
-                git_remote_url: res.gitRemoteUrl,
-                git_auth_kind: res.gitAuthKind,
-                provision_status: "repo_created",
-                updated_at: new Date().toISOString(),
-              })
-              .eq("id", row.id)
-              .select(APP_COLUMNS)
-              .single();
-            if (updErr) throw updErr;
-            return mapApp(updated);
-          }
-        } catch (e: any) {
-          const { data: errd, error: errUpdErr } = await supabase
-            .from("apps")
-            .update({
-              provision_status: "error",
-              provision_error: String(e?.message ?? e),
-              updated_at: new Date().toISOString(),
-            })
-            .eq("id", row.id)
-            .select(APP_COLUMNS)
-            .single();
-          if (errUpdErr) throw errUpdErr;
-          return mapApp(errd);
-        }
-      }
-
+      // No repo provisioning: an app's source lives only in the local checkout
+      // the daemon seeds (docs/specs/2026-07-28-app-types-design.md §5). The
+      // row is returned `pending`; the desktop kicks the local seed and writes
+      // back `ready` or `error`.
       return mapApp(row);
     },
 
@@ -2946,7 +2911,7 @@ export function createSupabaseBusinessRepository(options) {
       // visible to the caller → surface null so the route 404s.
       const { data: existing, error: selErr } = await supabase
         .from("apps")
-        .select("id, slug, fc_function_name, fc_status")
+        .select("id, slug, type, fc_function_name, fc_status")
         .eq("id", appId)
         .maybeSingle();
       if (selErr) throw selErr;
@@ -2962,6 +2927,7 @@ export function createSupabaseBusinessRepository(options) {
         const r = await finalizeDeploy({
           appId,
           slug: existing.slug,
+          appType: existing.type,
           fcFunctionName: existing.fc_function_name,
           ossObjectName: appOssObjectName(appId),
         });

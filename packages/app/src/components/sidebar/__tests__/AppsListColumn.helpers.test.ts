@@ -53,15 +53,17 @@ describe('pickMostRecentSession', () => {
 })
 
 describe('canReseed', () => {
-  test('allows reseed for repo_created and error', () => {
-    expect(canReseed('repo_created')).toBe(true)
+  test('allows reseed while the files are missing or the seed failed', () => {
+    // `pending` is where a freshly created app now sits: the cloud only
+    // inserted the row, the local daemon still has to write the template.
+    expect(canReseed('pending')).toBe(true)
+    expect(canReseed('repo_created')).toBe(true) // legacy rows
     expect(canReseed('error')).toBe(true)
   })
 
-  test('disallows reseed for ready/seeding/pending and unknown states', () => {
+  test('disallows reseed for ready/seeding and unknown states', () => {
     expect(canReseed('ready')).toBe(false)
     expect(canReseed('seeding')).toBe(false)
-    expect(canReseed('pending')).toBe(false)
     expect(canReseed('whatever')).toBe(false)
   })
 })

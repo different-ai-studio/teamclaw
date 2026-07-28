@@ -44,6 +44,7 @@ import { createSessionShell } from '@/lib/session-create'
 import { upsertSessionWorkspacesBatch } from '@/lib/local-cache'
 import { revealInFinder } from '@/components/workspace/file-tree-operations'
 import { CreateAppDialog } from '@/components/apps/CreateAppDialog'
+import { resolveAppType } from '@/lib/app-types'
 import type { AppRow, AppSessionRow } from '@/lib/backend/types'
 
 /** Resolve the local daemon's per-app workdir: `~/.amuxd/apps/<appId>`. */
@@ -80,13 +81,13 @@ export function pickMostRecentSession(rows: AppSessionRow[]): AppSessionRow | nu
 
 /**
  * Whether a "Reseed" action should be offered for an app in the given
- * provision state. Only apps whose repo exists but seed has not completed
- * (`repo_created`) or that failed (`error`) can be reseeded — `ready`,
- * `seeding`, and `pending` are excluded. Exported as a pure predicate so the
+ * provision state. An app whose files were never written (`pending`, or the
+ * legacy `repo_created`) or whose seed failed (`error`) can be reseeded;
+ * `ready` and `seeding` are excluded. Exported as a pure predicate so the
  * gating logic is unit-testable without rendering the component.
  */
 export function canReseed(status: string): boolean {
-  return status === 'repo_created' || status === 'error'
+  return status === 'pending' || status === 'repo_created' || status === 'error'
 }
 
 interface RowProps {
@@ -128,6 +129,7 @@ function AppItemRow({ app, onClick, onRename }: RowProps) {
   const { t } = useTranslation()
   const deploying = useAppsStore((s) => s.deployingIds.includes(app.id))
   const meta = appStatusMeta(app, deploying)
+  const appTypeMeta = resolveAppType(app.type)
   const isLive = app.fcStatus === 'live' && !!app.fcEndpoint
 
   const handleReveal = React.useCallback(async (e: React.SyntheticEvent) => {
@@ -164,6 +166,8 @@ function AppItemRow({ app, onClick, onRename }: RowProps) {
         <span className="flex min-w-0 flex-1 flex-col">
           <span className="truncate text-[13.5px] font-semibold text-foreground">{app.name}</span>
           <span className="flex items-center gap-1.5 truncate text-[11.5px] text-muted-foreground">
+            <span className="shrink-0">{t(appTypeMeta.labelKey, appTypeMeta.label)}</span>
+            <span className="shrink-0 text-faint">·</span>
             <span
               className={cn(
                 'h-1.5 w-1.5 shrink-0 rounded-full',

@@ -117,38 +117,24 @@ test("listAppSessions returns only sessions linked to the app", async () => {
   assert.equal(rows[0].title, "Linked");
 });
 
-// ── provisionAppRepo (managed-git per-app) ────────────────────────────────────
+// ── app creation (no remote repo) ─────────────────────────────────────────────
 
-test("createApp calls provisionAppRepo and records the git remote", async () => {
+test("createApp provisions no repo and leaves the app pending", async () => {
+  // An app's source lives only in the local checkout the daemon seeds, so
+  // creation is a single insert — no managed-git repo, no git remote.
   const { db } = await makeTestDb();
   const team = await seedTeam(db);
   const actor = await seedActor(db, team.id);
-  const calls: any[] = [];
-  const repo = createPgBusinessRepository({
-    db, userId: actor.userId,
-    provisionAppRepo: async (args: any) => { calls.push(args); return { gitRemoteUrl: "https://git/x.git", gitAuthKind: "pat" }; },
-  });
+  const repo = createPgBusinessRepository({ db, userId: actor.userId });
 
-  const app = await repo.createApp({ teamId: team.id, name: "Z", type: "fullstack_tanstack_postgres" });
-  assert.equal(calls.length, 1);
-  assert.equal(calls[0].teamId, team.id);
-  assert.equal(typeof calls[0].appId, "string");
-  const fetched = await repo.getApp(app.id);
-  assert.equal(fetched.gitRemoteUrl, "https://git/x.git");
-  assert.equal(fetched.provisionStatus, "repo_created");
-});
+  const app = await repo.createApp({ teamId: team.id, name: "Z", type: "static_web" });
+  assert.equal(app.provisionStatus, "pending");
+  assert.equal(app.gitRemoteUrl, null);
+  assert.equal(app.type, "static_web");
 
-test("createApp marks provision error when provisionAppRepo throws", async () => {
-  const { db } = await makeTestDb();
-  const team = await seedTeam(db);
-  const actor = await seedActor(db, team.id);
-  const repo = createPgBusinessRepository({
-    db, userId: actor.userId,
-    provisionAppRepo: async () => { throw new Error("codeup boom"); },
-  });
-  const app = await repo.createApp({ teamId: team.id, name: "Z", type: "fullstack_tanstack_postgres" });
   const fetched = await repo.getApp(app.id);
-  assert.equal(fetched.provisionStatus, "error");
+  assert.equal(fetched.provisionStatus, "pending");
+  assert.equal(fetched.gitRemoteUrl, null);
 });
 
 // ── authz hardening ───────────────────────────────────────────────────────────
@@ -246,12 +232,9 @@ test("updateApp advances provisionStatus through legal transitions", async () =>
   const { db } = await makeTestDb();
   const team = await seedTeam(db);
   const actor = await seedActor(db, team.id);
-  const repo = createPgBusinessRepository({
-    db, userId: actor.userId,
-    provisionAppRepo: async () => ({ gitRemoteUrl: "https://g/x.git", gitAuthKind: "pat" }),
-  });
-  const app = await repo.createApp({ teamId: team.id, name: "P", type: "fullstack_tanstack_postgres" });
-  assert.equal(app.provisionStatus, "repo_created");
+  const repo = createPgBusinessRepository({ db, userId: actor.userId });
+  const app = await repo.createApp({ teamId: team.id, name: "P", type: "data_app" });
+  assert.equal(app.provisionStatus, "pending");
 
   const seeding = await repo.updateApp(app.id, { provisionStatus: "seeding" });
   assert.equal(seeding.provisionStatus, "seeding");
@@ -259,14 +242,15 @@ test("updateApp advances provisionStatus through legal transitions", async () =>
   assert.equal(ready.provisionStatus, "ready");
 });
 
-test("updateApp rejects an illegal provisionStatus jump (from pending)", async () => {
+test("updateApp rejects an illegal provisionStatus jump", async () => {
   const { db } = await makeTestDb();
   const team = await seedTeam(db);
   const actor = await seedActor(db, team.id);
-  const repo = createPgBusinessRepository({ db, userId: actor.userId }); // pending app
-  const app = await repo.createApp({ teamId: team.id, name: "P2", type: "fullstack_tanstack_postgres" });
+  const repo = createPgBusinessRepository({ db, userId: actor.userId });
+  const app = await repo.createApp({ teamId: team.id, name: "P2", type: "data_app" });
   assert.equal(app.provisionStatus, "pending");
-  await assert.rejects(() => repo.updateApp(app.id, { provisionStatus: "ready" }), (err: any) => err?.code === "invalid_status_transition" && err?.statusCode === 400);
+  // Clients may never put a row back into a provisioning state.
+  await assert.rejects(() => repo.updateApp(app.id, { provisionStatus: "repo_created" }), (err: any) => err?.code === "invalid_status_transition" && err?.statusCode === 400);
 });
 
 test("updateApp ignores illegal provisionStatus but still applies name", async () => {
@@ -274,8 +258,8 @@ test("updateApp ignores illegal provisionStatus but still applies name", async (
   const team = await seedTeam(db);
   const actor = await seedActor(db, team.id);
   const repo = createPgBusinessRepository({ db, userId: actor.userId }); // pending app
-  const app = await repo.createApp({ teamId: team.id, name: "Old", type: "fullstack_tanstack_postgres" });
-  const updated = await repo.updateApp(app.id, { name: "New", provisionStatus: "ready" });
+  const app = await repo.createApp({ teamId: team.id, name: "Old", type: "data_app" });
+  const updated = await repo.updateApp(app.id, { name: "New", provisionStatus: "repo_created" });
   assert.equal(updated.name, "New");
   assert.equal(updated.provisionStatus, "pending"); // status unchanged
 });

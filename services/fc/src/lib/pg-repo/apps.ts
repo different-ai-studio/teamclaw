@@ -56,13 +56,15 @@ function mapApp(r: any) {
 }
 
 export type AppsRepoDeps = {
-  provisionAppRepo?: (
-    args: { appId: string; teamId: string },
-  ) => Promise<{ gitRemoteUrl: string; gitAuthKind: string } | null>;
   startDeploy?: (a: { appId: string; region: string }) =>
     Promise<{ fcFunctionName: string; fcRegion: string; ossObjectName: string; presignedPut: string }>;
-  finalizeDeploy?: (a: { appId: string; slug: string; fcFunctionName: string; ossObjectName: string }) =>
-    Promise<{ fcEndpoint: string }>;
+  finalizeDeploy?: (a: {
+    appId: string;
+    slug: string;
+    appType: string;
+    fcFunctionName: string;
+    ossObjectName: string;
+  }) => Promise<{ fcEndpoint: string }>;
 };
 
 export function makeAppsRepo(db: DbLike, ctx: AppsCtx = {}, deps: AppsRepoDeps = {}) {
@@ -115,40 +117,10 @@ export function makeAppsRepo(db: DbLike, ctx: AppsCtx = {}, deps: AppsRepoDeps =
         })
         .returning();
 
-      // Provision the per-app git repo via the injected dependency (mirrors how
-      // teams provision LiteLLM). On success we record the remote + authKind and
-      // advance provision_status to "repo_created"; on failure we capture the
-      // error and set provision_status to "error" (the app row is still created).
-      if (deps.provisionAppRepo) {
-        try {
-          const res = await deps.provisionAppRepo({ appId: row.id, teamId: input.teamId });
-          if (res?.gitRemoteUrl) {
-            const [updated] = await db
-              .update(apps)
-              .set({
-                gitRemoteUrl: res.gitRemoteUrl,
-                gitAuthKind: res.gitAuthKind,
-                provisionStatus: "repo_created",
-                updatedAt: new Date(),
-              })
-              .where(eq(apps.id, row.id))
-              .returning();
-            return mapApp(updated);
-          }
-        } catch (e: any) {
-          const [errd] = await db
-            .update(apps)
-            .set({
-              provisionStatus: "error",
-              provisionError: String(e?.message ?? e),
-              updatedAt: new Date(),
-            })
-            .where(eq(apps.id, row.id))
-            .returning();
-          return mapApp(errd);
-        }
-      }
-
+      // No repo provisioning: an app's source lives only in the local checkout
+      // the daemon seeds (docs/specs/2026-07-28-app-types-design.md §5). The
+      // row is returned `pending`; the desktop kicks the local seed and writes
+      // back `ready` or `error`.
       return mapApp(row);
     },
 
@@ -289,6 +261,7 @@ export function makeAppsRepo(db: DbLike, ctx: AppsCtx = {}, deps: AppsRepoDeps =
         const r = await deps.finalizeDeploy({
           appId,
           slug: existing.slug,
+          appType: existing.type,
           fcFunctionName: existing.fcFunctionName,
           ossObjectName: appOssObjectName(appId),
         });

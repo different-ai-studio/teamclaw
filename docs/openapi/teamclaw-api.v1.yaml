@@ -3828,7 +3828,8 @@ paths:
               properties:
                 teamId: { type: string }
                 name: { type: string }
-                type: { type: string, example: fullstack_tanstack_postgres }
+                type:
+                  $ref: "#/components/schemas/AppType"
                 visibility: { type: string, enum: [personal, team], default: personal }
       responses:
         "201":
@@ -4067,6 +4068,15 @@ components:
           schema:
             $ref: "#/components/schemas/ErrorEnvelope"
   schemas:
+    AppType:
+      type: string
+      description: |
+        What kind of app this is. All three deploy through the same pipeline;
+        the type selects the starter template the local daemon writes and
+        decides whether the deploy provisions a Postgres schema (`data_app`
+        only). `fullstack_tanstack_postgres` is the legacy id for `data_app`
+        and is still stored on apps created before the split.
+      enum: [static_web, slides, data_app, fullstack_tanstack_postgres]
     AppFcStatus:
       type: string
       description: |
@@ -4081,7 +4091,8 @@ components:
         teamId: { type: string, format: uuid }
         name: { type: string }
         slug: { type: string }
-        type: { type: string }
+        type:
+          $ref: "#/components/schemas/AppType"
         visibility: { type: string, enum: [personal, team] }
         workspaceId: { type: [string, "null"], format: uuid }
         gitRemoteUrl: { type: [string, "null"] }

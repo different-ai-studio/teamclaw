@@ -17,7 +17,7 @@ import { makeTelemetryRepo } from "./telemetry.js";
 import { makeAttachmentsRepo } from "./attachments.js";
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
-export function createPgBusinessRepository({ db, accessToken, userId, callerActorId, provisionLiteLlm, fetchLiteLlmModels: fetchLiteLlmModelsOpt, provisionMemberKey, queryLiteLlmUsage, provisionAppRepo, startDeploy, finalizeDeploy, dispatchPush, publishReadEvent, deleteMemberKey }: { db: PgDatabase<any, any>; accessToken?: string; userId?: string; callerActorId?: string; provisionLiteLlm?: TeamsRepoDeps["provisionLiteLlm"]; fetchLiteLlmModels?: TeamsRepoDeps["fetchLiteLlmModels"]; provisionMemberKey?: TeamsRepoDeps["provisionMemberKey"]; queryLiteLlmUsage?: TeamsRepoDeps["queryLiteLlmUsage"]; deleteMemberKey?: TeamsRepoDeps["deleteMemberKey"]; provisionAppRepo?: AppsRepoDeps["provisionAppRepo"]; startDeploy?: AppsRepoDeps["startDeploy"]; finalizeDeploy?: AppsRepoDeps["finalizeDeploy"]; dispatchPush?: MessagesRepoDeps["dispatchPush"]; publishReadEvent?: SessionsRepoDeps["publishReadEvent"] }) {
+export function createPgBusinessRepository({ db, accessToken, userId, callerActorId, provisionLiteLlm, fetchLiteLlmModels: fetchLiteLlmModelsOpt, provisionMemberKey, queryLiteLlmUsage, startDeploy, finalizeDeploy, dispatchPush, publishReadEvent, deleteMemberKey }: { db: PgDatabase<any, any>; accessToken?: string; userId?: string; callerActorId?: string; provisionLiteLlm?: TeamsRepoDeps["provisionLiteLlm"]; fetchLiteLlmModels?: TeamsRepoDeps["fetchLiteLlmModels"]; provisionMemberKey?: TeamsRepoDeps["provisionMemberKey"]; queryLiteLlmUsage?: TeamsRepoDeps["queryLiteLlmUsage"]; deleteMemberKey?: TeamsRepoDeps["deleteMemberKey"]; startDeploy?: AppsRepoDeps["startDeploy"]; finalizeDeploy?: AppsRepoDeps["finalizeDeploy"]; dispatchPush?: MessagesRepoDeps["dispatchPush"]; publishReadEvent?: SessionsRepoDeps["publishReadEvent"] }) {
   // accessToken is verified upstream (makeBusinessRepoFactory) and its `sub`
   // claim is passed here as `userId`. It is kept in the signature only for the
   // few methods that need to forward the raw bearer (none currently); identity
@@ -40,7 +40,7 @@ export function createPgBusinessRepository({ db, accessToken, userId, callerActo
   const shortcutsRepo = makeShortcutsRepo(db, ctx);
   const actorsRepo = makeActorsRepo(db, ctx);
   const agentsRepo = makeAgentsRepo(db, ctx);
-  const appsRepo = makeAppsRepo(db, ctx, { provisionAppRepo, startDeploy, finalizeDeploy });
+  const appsRepo = makeAppsRepo(db, ctx, { startDeploy, finalizeDeploy });
   const runtimeRepo = makeRuntimeRepo(db, ctx);
   const notificationsRepo = makeNotificationsRepo(db, ctx);
   const telemetryRepo = makeTelemetryRepo(db, ctx);

@@ -12,9 +12,7 @@ import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { cn } from '@/lib/utils'
 import { useAppsStore } from '@/stores/apps-store'
-
-/** The single app type currently supported by the platform. */
-const APP_TYPE = 'fullstack_tanstack_postgres'
+import { APP_TYPES, DEFAULT_APP_TYPE, type AppTypeId } from '@/lib/app-types'
 
 type Visibility = 'personal' | 'team'
 
@@ -27,6 +25,7 @@ interface CreateAppDialogProps {
 export function CreateAppDialog({ open, onOpenChange, teamId }: CreateAppDialogProps) {
   const { t } = useTranslation()
   const [name, setName] = React.useState('')
+  const [appType, setAppType] = React.useState<AppTypeId>(DEFAULT_APP_TYPE)
   const [visibility, setVisibility] = React.useState<Visibility>('personal')
   const [submitting, setSubmitting] = React.useState(false)
   const [error, setError] = React.useState<string | null>(null)
@@ -34,6 +33,7 @@ export function CreateAppDialog({ open, onOpenChange, teamId }: CreateAppDialogP
   React.useEffect(() => {
     if (!open) {
       setName('')
+      setAppType(DEFAULT_APP_TYPE)
       setVisibility('personal')
       setSubmitting(false)
       setError(null)
@@ -51,11 +51,12 @@ export function CreateAppDialog({ open, onOpenChange, teamId }: CreateAppDialogP
       await useAppsStore.getState().create({
         teamId,
         name: trimmed,
-        type: APP_TYPE,
+        type: appType,
         visibility,
       })
       onOpenChange(false)
       setName('')
+      setAppType(DEFAULT_APP_TYPE)
       setVisibility('personal')
     } catch (e) {
       setError(e instanceof Error ? e.message : t('apps.createError', 'Failed to create app'))
@@ -108,8 +109,38 @@ export function CreateAppDialog({ open, onOpenChange, teamId }: CreateAppDialogP
             <span className="text-[12.5px] font-semibold text-muted-foreground">
               {t('apps.typeLabel', 'Type')}
             </span>
-            <div className="rounded-[9px] border border-border-soft bg-paper px-3 py-2.5 text-[13px] text-ink-2">
-              {t('apps.typeFullstack', 'Full-stack (TanStack + Postgres)')}
+            <div className="flex flex-col gap-1.5">
+              {APP_TYPES.map((meta) => {
+                const selected = appType === meta.id
+                return (
+                  <button
+                    key={meta.id}
+                    type="button"
+                    role="radio"
+                    aria-checked={selected}
+                    disabled={submitting}
+                    onClick={() => setAppType(meta.id)}
+                    className={cn(
+                      'flex flex-col gap-0.5 rounded-[9px] border px-3 py-2.5 text-left transition-colors disabled:opacity-50',
+                      selected
+                        ? 'border-coral bg-coral/5'
+                        : 'border-border-soft bg-paper hover:bg-selected/30',
+                    )}
+                  >
+                    <span
+                      className={cn(
+                        'text-[13px] font-semibold',
+                        selected ? 'text-coral' : 'text-foreground',
+                      )}
+                    >
+                      {t(meta.labelKey, meta.label)}
+                    </span>
+                    <span className="text-[12px] text-muted-foreground">
+                      {t(meta.descriptionKey, meta.description)}
+                    </span>
+                  </button>
+                )
+              })}
             </div>
           </div>
 

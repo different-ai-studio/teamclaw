@@ -1,0 +1,11 @@
+{
+  "name": "teamclaw-static-web",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "build": "node build.mjs",
+    "start": "node .output/server/index.mjs",
+    "dev": "node server.mjs"
+  },
+  "//": "No dependencies on purpose — the site is plain files and the server is 60 lines of node stdlib. pnpm-lock.yaml is still committed so the daemon's `pnpm install --frozen-lockfile` needs no special case."
+}

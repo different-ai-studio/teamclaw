@@ -37,27 +37,51 @@ export async function startDeploy(deps: StartDeployDeps, input: StartDeployInput
 }
 
 export interface FinalizeDeps {
-  adminExec: (sql: string) => Promise<void>;
+  /** Absent when apps Postgres is unconfigured — only `data_app` needs it. */
+  adminExec?: (sql: string) => Promise<void>;
   fcOps: {
     ensureFunction: (name: string, a: { ossObjectName: string; env: Record<string, string> }) => Promise<void>;
     ensureHttpTrigger: (name: string) => Promise<string>;
   };
-  appsBaseUrl: string;
+  appsBaseUrl?: string;
   genPassword?: () => string;
 }
-export interface FinalizeInput { appId: string; slug: string; fcFunctionName: string; ossObjectName: string; }
+export interface FinalizeInput {
+  appId: string;
+  slug: string;
+  /** `static_web` / `slides` / `data_app`. Unknown values mean `data_app` —
+   *  that is what every app created before types existed actually is. */
+  appType: string;
+  fcFunctionName: string;
+  ossObjectName: string;
+}
+
+/** Only data apps get a Postgres schema; the other types are static files. */
+export function needsDatabase(appType: string): boolean {
+  const t = appType.trim();
+  return t !== "static_web" && t !== "slides";
+}
 
 export async function finalizeDeploy(deps: FinalizeDeps, input: FinalizeInput): Promise<{ fcEndpoint: string }> {
-  // ensureAppSchema rotates the role password on every call, so the connection
-  // string it returns is only valid if we write it into the function env in the
-  // same breath — which is exactly what ensureFunction does below.
-  const password = (deps.genPassword ?? (() => randomBytes(18).toString("base64url")))();
-  const conn = await ensureAppSchema(deps.adminExec, {
-    appId: input.appId, slug: input.slug, password, baseUrl: deps.appsBaseUrl,
-  });
+  const env: Record<string, string> = { PORT: "9000", NODE_ENV: "production" };
+
+  if (needsDatabase(input.appType)) {
+    if (!deps.adminExec || !deps.appsBaseUrl) {
+      throw new Error("apps database is not configured (APPS_DB_ADMIN_URL)");
+    }
+    // ensureAppSchema rotates the role password on every call, so the
+    // connection string it returns is only valid if we write it into the
+    // function env in the same breath — which is what ensureFunction does.
+    const password = (deps.genPassword ?? (() => randomBytes(18).toString("base64url")))();
+    const conn = await ensureAppSchema(deps.adminExec, {
+      appId: input.appId, slug: input.slug, password, baseUrl: deps.appsBaseUrl,
+    });
+    env.DATABASE_URL = conn.connectionString;
+  }
+
   await deps.fcOps.ensureFunction(input.fcFunctionName, {
     ossObjectName: input.ossObjectName,
-    env: { PORT: "9000", NODE_ENV: "production", DATABASE_URL: conn.connectionString },
+    env,
   });
   const fcEndpoint = await deps.fcOps.ensureHttpTrigger(input.fcFunctionName);
   return { fcEndpoint };

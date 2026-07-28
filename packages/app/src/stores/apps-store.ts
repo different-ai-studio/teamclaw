@@ -74,23 +74,18 @@ async function reportDeployError(set: SetState, appId: string, reason: string): 
 
 /**
  * Kick the local daemon seed and write back the terminal status. The desktop
- * writes ONLY `ready`/`error`; `unreachable` writes nothing so the row stays at
- * `repo_created` and a reseed remains available.
+ * writes ONLY `ready`/`error`; `unreachable` writes nothing so the row stays
+ * `pending` and a reseed remains available.
  */
-async function runSeed(
-  set: SetState,
-  appId: string,
-  gitRemoteUrl: string,
-  teamId: string,
-): Promise<void> {
+async function runSeed(set: SetState, app: AppRow): Promise<void> {
   let outcome: "seeded" | "failed" | "unreachable" = "unreachable";
   try {
-    outcome = await seedDaemonApp(appId, gitRemoteUrl, teamId);
+    outcome = await seedDaemonApp(app.id, app.teamId, app.name, app.type);
   } catch (e) {
     console.warn("app seed kick failed (non-fatal)", e);
   }
-  if (outcome === "seeded") await patchStatus(set, appId, "ready");
-  else if (outcome === "failed") await patchStatus(set, appId, "error");
+  if (outcome === "seeded") await patchStatus(set, app.id, "ready");
+  else if (outcome === "failed") await patchStatus(set, app.id, "error");
   // unreachable → no status change; reseed remains available.
 }
 
@@ -118,19 +113,18 @@ export const useAppsStore = create<AppsState>((set, get) => ({
   create: async (input) => {
     const row = await getBackend().apps.createApp(input);
     set((s) => ({ items: [row, ...s.items] }));
-    // Once the cloud API has created the managed-git repo, kick the local daemon
-    // to seed the starter template into it, then write the terminal status back.
-    // Non-fatal — a daemon that is down (unreachable) leaves the row at
-    // `repo_created` so the user can reseed later.
-    if (row.provisionStatus === "repo_created" && row.gitRemoteUrl) {
-      await runSeed(set, row.id, row.gitRemoteUrl, row.teamId);
+    // The cloud API only inserts the row; the app's files come from the local
+    // daemon, which writes its own embedded template. Non-fatal — a daemon that
+    // is down (unreachable) leaves the row `pending` so the user can reseed.
+    if (row.provisionStatus === "pending" || row.provisionStatus === "repo_created") {
+      await runSeed(set, row);
     }
     return row;
   },
   reseed: async (appId) => {
     const app = get().items.find((a) => a.id === appId);
-    if (!app || !app.gitRemoteUrl) return;
-    await runSeed(set, app.id, app.gitRemoteUrl, app.teamId);
+    if (!app) return;
+    await runSeed(set, app);
   },
   deploy: async (appId) => {
     const app = get().items.find((a) => a.id === appId);
