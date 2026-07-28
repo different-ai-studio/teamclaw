@@ -12,7 +12,11 @@
 
 import fs from 'fs';
 import path from 'path';
+import { createRequire } from 'module';
 import { fileURLToPath } from 'url';
+
+const require = createRequire(import.meta.url);
+const { syncCargoLockVersions } = require('./lib/cargo-lock-version.js');
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const root = path.resolve(__dirname, '..');
@@ -98,9 +102,38 @@ if (unique.length > 1) {
   process.exit(1);
 }
 
+/**
+ * Write the two workspace members' versions into Cargo.lock.
+ *
+ * Cargo derives these lines from the `Cargo.toml`s we just rewrote, so leaving
+ * them stale does not break a build — it just means the next `cargo` run on any
+ * machine produces an unrequested lockfile diff. That is exactly what happened
+ * after every release: developers kept stashing `beta.N → beta.N+1` noise.
+ *
+ * Runs on the no-op path too. `release-oss.yml` calls this script with
+ * `--allow-noop` precisely to *sync* sources to a tag version, and the lockfile
+ * can be out of step even when the four canonical sources already agree.
+ */
+function syncCargoLock(version) {
+  const lockPath = path.join(root, 'Cargo.lock');
+  const raw = fs.readFileSync(lockPath, 'utf8');
+  const { text, changed, missing } = syncCargoLockVersions(raw, version);
+  if (missing.length > 0) {
+    console.error(`Cargo.lock has no entry for: ${missing.join(', ')} — refusing to guess.`);
+    process.exit(1);
+  }
+  if (changed.length === 0) {
+    console.log(`✓ Cargo.lock: already at ${version}`);
+    return;
+  }
+  fs.writeFileSync(lockPath, text);
+  console.log(`✓ Cargo.lock: ${changed.join(', ')} → ${version}`);
+}
+
 const currentVersion = unique[0];
 if (currentVersion === nextVersion) {
   if (allowNoop) {
+    syncCargoLock(nextVersion);
     console.log(`Already at ${nextVersion}; sources in sync (--allow-noop).`);
     process.exit(0);
   }
@@ -113,6 +146,8 @@ for (const item of items) {
   fs.writeFileSync(item.path, updated);
   console.log(`✓ ${item.label}: ${item.current} → ${nextVersion}`);
 }
+
+syncCargoLock(nextVersion);
 
 console.log('');
 console.log(`Desktop version bumped: ${currentVersion} → ${nextVersion}`);
