@@ -27,6 +27,7 @@ pub mod setup;
 pub mod shared_secrets;
 pub mod shared_secrets_crypto;
 pub mod skillssh;
+pub mod storage_migration;
 pub mod stt;
 pub mod system_appearance;
 pub mod team;
@@ -50,15 +51,18 @@ pub mod workspace_files;
 use crate::process_util::CommandNoWindow;
 
 /// The short application name, injected at compile time via `build.rs`.
-#[allow(dead_code)]
 pub const APP_SHORT_NAME: &str = env!("APP_SHORT_NAME");
-/// Directory name for all TeamClaw local config/data files, created under the workspace root.
-pub const TEAMCLAW_DIR: &str = concat!(".", env!("APP_SHORT_NAME"));
+/// Workspace metadata directory (`.teamclaw` for official builds).
+pub const TEAMCLAW_DIR: &str = env!("TEAMCLAW_DIR");
 /// Subfolder inside workspace where the team repo is cloned / symlinked.
 /// Fixed across brands — must match the daemon's `TEAM_LINK_NAME` (`teamclaw-team`).
 pub const TEAM_REPO_DIR: &str = "teamclaw-team";
-/// Config file name (e.g. `teamclaw.json`).
-pub const CONFIG_FILE_NAME: &str = concat!(env!("APP_SHORT_NAME"), ".json");
+/// Workspace config file name (`teamclaw.json` for official builds).
+pub const CONFIG_FILE_NAME: &str = env!("CONFIG_FILE_NAME");
+/// Home-directory storage folder name without leading dot (`teamclaw` for official).
+pub fn home_storage_dir_name() -> &'static str {
+    teamclaw_runtime_env::resolve_storage_dir_name(APP_SHORT_NAME)
+}
 
 #[tauri::command]
 pub fn greet(name: &str) -> String {

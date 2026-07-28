@@ -1,7 +1,7 @@
 import { create } from 'zustand';
-import { appShortName } from '@/lib/build-config';
+import { appStoragePrefix } from '@/lib/build-config';
 
-const VOICE_ENABLED_KEY = `${appShortName}-voice-enabled`;
+const VOICE_ENABLED_KEY = `${appStoragePrefix}-voice-enabled`;
 
 /** Store for global voice input: transcript is stored after recording, user decides where to put it */
 interface VoiceInputState {

@@ -39,7 +39,7 @@ import {
   deleteDaemonSkill,
 } from '@/lib/daemon-local-client'
 import { cn } from '@/lib/utils'
-import { appDisplayName } from '@/lib/build-config'
+import { appDisplayName, TEAMCLAW_DIR } from '@/lib/build-config'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Skeleton } from '@/components/ui/skeleton'
@@ -415,7 +415,7 @@ ${skillContent.trim()}`
         const home = await homeDir()
         skillsDir = `${home.replace(/\/$/, '')}/.config/opencode/skills`
       } else {
-        skillsDir = `${workspacePath}/.teamclaw/skills`
+        skillsDir = `${workspacePath}/${TEAMCLAW_DIR}/skills`
       }
 
       if (!(await exists(skillsDir))) {
@@ -474,7 +474,7 @@ ${skillContent.trim()}`
         )
         if (!deleted) {
           const { remove } = await import('@tauri-apps/plugin-fs')
-          const baseDir = targetSkill.dirPath ?? `${workspacePath}/.teamclaw/skills`
+          const baseDir = targetSkill.dirPath ?? `${workspacePath}/${TEAMCLAW_DIR}/skills`
           await remove(`${baseDir}/${targetSkill.filename}`, { recursive: true })
         }
       }

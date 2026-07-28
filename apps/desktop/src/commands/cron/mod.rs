@@ -84,7 +84,7 @@ impl Default for CronScope {
 fn global_cron_root() -> Result<String, String> {
     let base = dirs::config_dir()
         .unwrap_or_else(|| PathBuf::from("/tmp"))
-        .join(crate::commands::APP_SHORT_NAME)
+        .join(crate::commands::home_storage_dir_name())
         .join("cron-global");
     std::fs::create_dir_all(&base).map_err(|e| format!("Failed to create global cron dir: {e}"))?;
     Ok(base.to_string_lossy().to_string())
