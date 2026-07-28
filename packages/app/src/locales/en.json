@@ -1186,6 +1186,21 @@
       "byTeam": "by TeamClaw Team"
     },
     "llm": {
+      "cursorTitle": "Cursor models",
+      "cursorDesc": "Use the Cursor SDK (Composer and friends) as the local agent runtime. Set the API key here — no daemon.toml editing needed.",
+      "cursorApiKey": "Cursor API key",
+      "cursorKeyConfigured": "Configured",
+      "cursorKeyMissing": "Not configured",
+      "cursorKeyPlaceholder": "crsr_…",
+      "cursorKeyPlaceholderSet": "Leave blank to keep the current key",
+      "cursorKeyRequired": "Enter a Cursor API key first",
+      "cursorKeyDocs": "How to get a Cursor API key",
+      "cursorKeyStorage": "The key is stored only on this machine in ~/.amuxd/daemon.toml, written via the daemon's HTTP API. It is never uploaded to the TeamClaw cloud.",
+      "cursorDefaultModel": "Default model",
+      "cursorDefaultModelHint": "Used when a session first attaches; you can switch to another Cursor model from the chat input bar.",
+      "cursorSave": "Save",
+      "cursorSaved": "Saved — daemon restarted",
+      "cursorSetupRequired": "The Cursor runtime needs an API key above before it can reply. The daemon restarts automatically after you save.",
       "refresh": "Refresh",
       "connected": "Connected",
       "title": "LLM Model",
@@ -1293,6 +1308,7 @@
       "configure": "Configure team-shared model"
     },
     "mcp": {
+      "cursorBridgeNote": "The first Cursor SDK release does not bridge workspace MCP yet",
       "restart": "Restart",
       "restarting": "Restarting...",
       "title": "MCP Servers",
@@ -1461,6 +1477,7 @@
       "rebuilding": "Rebuilding..."
     },
     "daemonGeneral": {
+      "cursorKeyHint": "The Cursor runtime takes its API key from Settings → LLM; no daemon.toml editing needed.",
       "title": "General",
       "description": "Maintain this machine daemon agent and access",
       "teamMismatchTitle": "Local daemon doesn't match the current team",
