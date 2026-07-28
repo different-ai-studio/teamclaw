@@ -50,7 +50,7 @@ fn template_repo_url() -> String {
 /// Mirrors `DaemonConfig::config_dir()` (`~/.amuxd`) so app clones live under
 /// the same home the rest of the daemon uses. Falls back to `$HOME/.amuxd`, then
 /// `/tmp/.amuxd`, matching the daemon's own home resolution.
-fn apps_data_root() -> PathBuf {
+pub fn apps_data_root() -> PathBuf {
     dirs::home_dir()
         .or_else(|| std::env::var_os("HOME").map(PathBuf::from))
         .unwrap_or_else(|| PathBuf::from("/tmp"))
