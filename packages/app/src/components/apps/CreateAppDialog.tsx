@@ -59,7 +59,7 @@ export function CreateAppDialog({ open, onOpenChange, teamId }: CreateAppDialogP
       setAppType(DEFAULT_APP_TYPE)
       setVisibility('personal')
     } catch (e) {
-      setError(e instanceof Error ? e.message : t('apps.createError', 'Failed to create app'))
+      setError(e instanceof Error ? e.message : t('apps.createError', '创建失败'))
     } finally {
       setSubmitting(false)
     }
@@ -76,11 +76,11 @@ export function CreateAppDialog({ open, onOpenChange, teamId }: CreateAppDialogP
             </span>
             <ChevronRight className="h-4 w-4 text-faint" />
             <DialogTitle className="text-[15px] font-bold text-foreground">
-              {t('apps.createTitle', 'Create App')}
+              {t('apps.createTitle', '新建')}
             </DialogTitle>
           </div>
           <DialogDescription className="sr-only">
-            {t('apps.createTitle', 'Create App')}
+            {t('apps.createTitle', '新建')}
           </DialogDescription>
         </DialogHeader>
 
@@ -94,7 +94,7 @@ export function CreateAppDialog({ open, onOpenChange, teamId }: CreateAppDialogP
               autoFocus
               value={name}
               onChange={(e) => setName(e.target.value)}
-              placeholder={t('apps.namePlaceholder', 'My app')}
+              placeholder={t('apps.namePlaceholder', '起个名字')}
               disabled={submitting}
               onKeyDown={(e) => {
                 if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) {
@@ -178,7 +178,7 @@ export function CreateAppDialog({ open, onOpenChange, teamId }: CreateAppDialogP
 
           {error && (
             <div className="rounded-[9px] border border-amber-500/40 bg-amber-500/5 px-3 py-2 text-[12.5px] text-amber-700">
-              {t('apps.createError', 'Failed to create app')}: {error}
+              {t('apps.createError', '创建失败')}: {error}
             </div>
           )}
         </div>

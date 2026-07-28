@@ -259,11 +259,11 @@ function AppItemRow({ app, onClick, onRename }: RowProps) {
             className="text-[13px] text-destructive focus:text-destructive"
             onClick={(e) => {
               e.stopPropagation()
-              void comingSoon(t('apps.delete', '删除应用'))
+              void comingSoon(t('apps.delete', '删除'))
             }}
           >
             <Trash2 className="mr-2 h-3.5 w-3.5" />
-            {t('apps.delete', '删除应用')}
+            {t('apps.delete', '删除')}
           </DropdownMenuItem>
         </DropdownMenuContent>
       </DropdownMenu>
@@ -468,7 +468,7 @@ export function AppsListColumn() {
         <div className="flex min-w-0 flex-1 items-center gap-1.5">
           <AppWindow className="h-4 w-4 shrink-0 text-muted-foreground" />
           <div className="truncate text-[15px] font-bold tracking-tight text-foreground">
-            {t('apps.title', 'Apps')}
+            {t('apps.title', '演示及 APP')}
             <span className="font-mono text-[11px] font-normal text-faint"> · {items.length}</span>
           </div>
         </div>
@@ -476,8 +476,8 @@ export function AppsListColumn() {
           type="button"
           onClick={() => setCreateOpen(true)}
           disabled={!teamId}
-          title={t('apps.create', 'New App')}
-          aria-label={t('apps.create', 'New App')}
+          title={t('apps.create', '新建')}
+          aria-label={t('apps.create', '新建')}
           className="flex h-7 w-7 shrink-0 items-center justify-center rounded-[7px] text-muted-foreground transition-colors hover:bg-selected/40 hover:text-foreground disabled:opacity-40"
         >
           <Plus className="h-4 w-4" />
@@ -492,7 +492,7 @@ export function AppsListColumn() {
           </div>
         ) : items.length === 0 ? (
           <div className="px-6 py-10 text-center text-[13px] text-muted-foreground">
-            {t('apps.empty', 'No apps yet')}
+            {t('apps.empty', '还没有内容')}
           </div>
         ) : (
           items.map((app) => (

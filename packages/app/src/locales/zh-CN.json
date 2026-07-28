@@ -744,7 +744,7 @@
     }
   },
   "sidebar": {
-    "apps": "应用",
+    "apps": "演示及 APP",
     "newWorkspace": "新建工作区",
     "workspacesLoading": "正在加载工作区…",
     "noWorkspaces": "暂无工作区",
@@ -984,8 +984,8 @@
     "viewHistory": "查看历史"
   },
   "apps": {
-    "title": "应用",
-    "empty": "还没有应用",
+    "title": "演示及 APP",
+    "empty": "还没有内容",
     "ready": "就绪",
     "error": "创建失败",
     "provisioning": "创建中…",
@@ -993,6 +993,7 @@
     "actions": "操作",
     "deploy": "部署",
     "deploying": "部署中…",
+    "deployFailed": "部署失败",
     "live": "已上线",
     "localPreview": "本地预览",
     "openUrl": "打开部署地址",
@@ -1000,19 +1001,24 @@
     "urlCopied": "已复制部署地址",
     "revealInFinder": "在 Finder 打开目录",
     "rename": "重命名",
-    "delete": "删除应用",
-    "create": "新建应用",
-    "createTitle": "创建应用",
+    "delete": "删除",
+    "create": "新建",
+    "createTitle": "新建",
     "nameLabel": "名称",
-    "namePlaceholder": "我的应用",
+    "namePlaceholder": "起个名字",
     "typeLabel": "类型",
-    "typeFullstack": "全栈 (TanStack + Postgres)",
+    "typeStaticWeb": "静态网页",
+    "typeStaticWebDesc": "一个网站。HTML、样式、图片。",
+    "typeSlides": "演示材料",
+    "typeSlidesDesc": "一套幻灯片，可以直接放映和分享。",
+    "typeDataApp": "数据操作",
+    "typeDataAppDesc": "能存数据、能查能改的应用，自带一个数据库。",
     "visibilityLabel": "可见性",
     "visibilityPersonal": "个人",
     "visibilityTeam": "团队",
     "submit": "创建",
     "cancel": "取消",
-    "createError": "创建应用失败"
+    "createError": "创建失败"
   },
   "settings": {
     "description": "配置 TeamClaw 设置。",
