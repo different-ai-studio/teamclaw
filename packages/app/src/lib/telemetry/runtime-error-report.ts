@@ -1,17 +1,23 @@
 import type { RuntimeStartFailure, RuntimeStartFailureCode } from '@/lib/session-create'
+import {
+  captureTelemetry,
+  shouldReportThrottled,
+  truncateForExtra,
+  type TelemetryLevel,
+} from '@/lib/telemetry/capture'
+
+export {
+  __resetSentryModuleForTest,
+  __resetTelemetryThrottleForTest as __resetRuntimeErrorReportThrottleForTest,
+} from '@/lib/telemetry/capture'
 
 /**
  * Sentry reporting for the agent-runtime startup path.
  *
  * These failures only ever surfaced as toasts, so their real-world frequency
  * was invisible — Sentry held zero events for `rpc timeout` or `runtimeStart`
- * even though the toasts fire regularly.
- *
- * Grouping rule: never interpolate ids, durations, or raw reasons into the
- * captured message. Sentry fingerprints on message text, and embedded UUIDs
- * shatter one problem into dozens of issues (see the `team gate mismatch`
- * issues, which fragmented exactly that way). Ids go in tags/extra; the
- * fingerprint is (kind, code, reasonKind).
+ * even though the toasts fire regularly. See `capture.ts` for the grouping
+ * rule every reporter here follows.
  */
 
 export type RuntimeErrorKind =
@@ -46,14 +52,6 @@ export type RuntimeErrorContext = {
 }
 
 const THROTTLE_WINDOW_MS = 60_000
-const MAX_REASON_LENGTH = 300
-
-const lastReportedAt = new Map<string, number>()
-
-/** @internal test hook */
-export function __resetRuntimeErrorReportThrottleForTest(): void {
-  lastReportedAt.clear()
-}
 
 export function classifyRuntimeFailureReason(reason: string | undefined): RuntimeFailureReasonKind {
   const lower = (reason ?? '').trim().toLowerCase()
@@ -73,37 +71,8 @@ export function classifyRuntimeFailureReason(reason: string | undefined): Runtim
 }
 
 /** Offline transports are expected states, not defects — keep them off the error feed. */
-function levelForCode(code: RuntimeStartFailureCode | undefined): 'warning' | 'error' {
+function levelForCode(code: RuntimeStartFailureCode | undefined): TelemetryLevel {
   return code === 'device_offline' || code === 'transport_offline' ? 'warning' : 'error'
-}
-
-function shouldReport(key: string, now: number): boolean {
-  const previous = lastReportedAt.get(key)
-  if (previous !== undefined && now - previous < THROTTLE_WINDOW_MS) return false
-  lastReportedAt.set(key, now)
-  return true
-}
-
-function truncateReason(reason: string | undefined): string {
-  const trimmed = (reason ?? '').trim()
-  return trimmed.length > MAX_REASON_LENGTH ? `${trimmed.slice(0, MAX_REASON_LENGTH)}…` : trimmed
-}
-
-/**
- * One shared import for every capture. Kept lazy so the runtime path does not
- * pull Sentry in eagerly, and memoized so a burst of failures in the same tick
- * resolves against a single module promise.
- */
-let sentryModule: Promise<typeof import('@sentry/react')> | null = null
-
-function loadSentry(): Promise<typeof import('@sentry/react')> {
-  sentryModule ??= import('@sentry/react')
-  return sentryModule
-}
-
-/** @internal test hook */
-export function __resetSentryModuleForTest(): void {
-  sentryModule = null
 }
 
 type CaptureArgs = {
@@ -116,37 +85,24 @@ type CaptureArgs = {
 
 function capture({ kind, code, reason, error, context }: CaptureArgs): void {
   const reasonKind = classifyRuntimeFailureReason(reason)
-  const fingerprint = ['runtime', kind, code ?? 'none', reasonKind]
-  const tags: Record<string, string> = {
-    runtime_error_kind: kind,
-    runtime_failure_code: code ?? 'none',
-    runtime_failure_reason_kind: reasonKind,
-  }
-  const extra: Record<string, unknown> = {
-    reason: truncateReason(reason),
-    sessionId: context.sessionId ?? null,
-    teamId: context.teamId ?? null,
-    agentActorId: context.agentActorId ?? null,
-    trigger: context.trigger ?? null,
-  }
-  const level = levelForCode(code)
-
-  void loadSentry()
-    .then((Sentry) => {
-      if (error !== undefined) {
-        Sentry.captureException(error, { level, tags, extra, fingerprint })
-        return
-      }
-      Sentry.captureMessage(`${kind}: ${code ?? reasonKind}`, {
-        level,
-        tags,
-        extra,
-        fingerprint,
-      })
-    })
-    .catch(() => {
-      // Telemetry must never break the runtime path.
-    })
+  captureTelemetry({
+    message: `${kind}: ${code ?? reasonKind}`,
+    level: levelForCode(code),
+    fingerprint: ['runtime', kind, code ?? 'none', reasonKind],
+    tags: {
+      runtime_error_kind: kind,
+      runtime_failure_code: code ?? 'none',
+      runtime_failure_reason_kind: reasonKind,
+    },
+    extra: {
+      reason: truncateForExtra(reason),
+      sessionId: context.sessionId ?? null,
+      teamId: context.teamId ?? null,
+      agentActorId: context.agentActorId ?? null,
+      trigger: context.trigger ?? null,
+    },
+    error,
+  })
 }
 
 /**
@@ -159,7 +115,7 @@ export function reportRuntimeStartFailure(
   context: RuntimeErrorContext = {},
 ): void {
   const key = `runtime_start_failure|${failure.code}|${failure.agentActorId}`
-  if (!shouldReport(key, Date.now())) return
+  if (!shouldReportThrottled(key, THROTTLE_WINDOW_MS)) return
   capture({
     kind: 'runtime_start_failure',
     code: failure.code,
@@ -173,7 +129,7 @@ export function reportRuntimeRpcNotReady(
   context: RuntimeErrorContext = {},
 ): void {
   const key = `rpc_not_ready|${context.sessionId ?? ''}`
-  if (!shouldReport(key, Date.now())) return
+  if (!shouldReportThrottled(key, THROTTLE_WINDOW_MS)) return
   capture({
     kind: 'rpc_not_ready',
     reason: `teamclaw rpc not ready after ${waitedMs}ms`,
@@ -192,6 +148,6 @@ export function reportRuntimeEnsureCrash(
     context.trigger ?? '',
     context.sessionId ?? '',
   ].join('|')
-  if (!shouldReport(key, Date.now())) return
+  if (!shouldReportThrottled(key, THROTTLE_WINDOW_MS)) return
   capture({ kind: 'ensure_runtime_crash', reason, error, context })
 }
