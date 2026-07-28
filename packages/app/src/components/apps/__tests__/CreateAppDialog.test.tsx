@@ -19,6 +19,10 @@ vi.mock('@/components/ui/dialog', () => ({
   DialogTitle: ({ children }: { children: React.ReactNode }) => <h2>{children}</h2>,
 }))
 
+// The name field is selected by role, not by placeholder copy: `t` is mocked
+// to return the fallback string, so a placeholder reword breaks every test
+// that reaches the form. It already did — this suite went red on the copy
+// change in #626, not on a behaviour change.
 const createMock = vi.fn()
 
 vi.mock('@/stores/apps-store', () => ({
@@ -37,7 +41,7 @@ describe('CreateAppDialog', () => {
     const onOpenChange = vi.fn()
     render(<CreateAppDialog open onOpenChange={onOpenChange} teamId="team-1" />)
 
-    fireEvent.change(screen.getByPlaceholderText('My app'), {
+    fireEvent.change(screen.getByRole('textbox'), {
       target: { value: '  My app  ' },
     })
     fireEvent.click(screen.getByRole('button', { name: 'Create' }))
@@ -46,7 +50,11 @@ describe('CreateAppDialog', () => {
     expect(createMock).toHaveBeenCalledWith({
       teamId: 'team-1',
       name: 'My app',
-      type: 'fullstack_tanstack_postgres',
+      // Pinned deliberately: this is DEFAULT_APP_TYPE, and an unintended
+      // change to it silently alters what every new app gets built as.
+      // `fullstack_tanstack_postgres` is now LEGACY_DATA_APP_TYPE — the id
+      // stored on apps created before the type split, never a new default.
+      type: 'static_web',
       visibility: 'personal',
     })
     await waitFor(() => expect(onOpenChange).toHaveBeenCalledWith(false))
@@ -61,7 +69,7 @@ describe('CreateAppDialog', () => {
     const onOpenChange = vi.fn()
     render(<CreateAppDialog open onOpenChange={onOpenChange} teamId="team-1" />)
 
-    fireEvent.change(screen.getByPlaceholderText('My app'), {
+    fireEvent.change(screen.getByRole('textbox'), {
       target: { value: 'Shared app' },
     })
     fireEvent.click(screen.getByDisplayValue('team'))
@@ -78,7 +86,7 @@ describe('CreateAppDialog', () => {
     const onOpenChange = vi.fn()
     render(<CreateAppDialog open onOpenChange={onOpenChange} teamId="team-1" />)
 
-    fireEvent.change(screen.getByPlaceholderText('My app'), {
+    fireEvent.change(screen.getByRole('textbox'), {
       target: { value: 'My app' },
     })
     fireEvent.click(screen.getByRole('button', { name: 'Create' }))
