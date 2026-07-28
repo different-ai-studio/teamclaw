@@ -99,7 +99,7 @@ describe("createExpoMqttAdapter", () => {
     adapter.onMessage((message) => messages.push(message));
 
     await adapter.connect({
-      url: "mqtts://ai.ucar.cc:8883",
+      url: "mqtts://broker.example.com:8883",
       options: {
         clientId: "client-1",
         username: "actor-1",
@@ -119,7 +119,7 @@ describe("createExpoMqttAdapter", () => {
     await adapter.disconnect();
 
     expect(nativeModule.connect).toHaveBeenCalledWith({
-      host: "ai.ucar.cc",
+      host: "broker.example.com",
       port: 8883,
       useTls: true,
       username: "actor-1",

@@ -12,7 +12,7 @@ import {
   type MqttDebugStatus,
 } from "../../src/features/debug/mqtt-debug-state";
 import type { ConnectionState } from "../../src/lib/mqtt/team-mqtt";
-import { getOptionalMqttUrl } from "../../src/lib/mqtt/config";
+import { getKnownMqttUrl } from "../../src/lib/mqtt/config";
 import { StatusDot, type StatusDotKind } from "../../src/ui/atoms/StatusDot";
 import { PrimaryButton } from "../../src/ui/button";
 import { AppCard } from "../../src/ui/card";
@@ -57,7 +57,7 @@ export default function MqttDebugRoute() {
   const router = useRouter();
   const { retryBootstrap, state } = useOnboarding();
   const mqtt = useTeamMqtt();
-  const mqttUrl = getOptionalMqttUrl();
+  const mqttUrl = getKnownMqttUrl();
   const [observedState, setObservedState] = useState<ConnectionState | null>(null);
   const [lastEventAt, setLastEventAt] = useState<Date | null>(null);
   const href = routeToHref(state.route);
