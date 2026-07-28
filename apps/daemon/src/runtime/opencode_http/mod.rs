@@ -614,8 +614,12 @@ async fn attach(shared: &Arc<Shared>, args: AttachArgs) -> Result<AcpStartupMeta
     let initial_model = crate::config::first_available(candidates, &catalog);
     let model = initial_model.as_deref().and_then(client::split_model_id);
 
-    {
+    let orphaned_turn = {
         let mut routes = shared.routes.lock();
+        // This insert REPLACES any existing route for the session, so a turn
+        // still running on the old one has to be closed out rather than
+        // silently dropped (see `take_active_turn`).
+        let orphaned_turn = routes.get_mut(&session_id).and_then(take_active_turn);
         // Replace-don't-accumulate: when re-attaching the same session with a
         // new MCP config, entries we previously injected but that are absent
         // from the new config get pruned (unless another live session in the
@@ -649,7 +653,9 @@ async fn attach(shared: &Arc<Shared>, args: AttachArgs) -> Result<AcpStartupMeta
                 injected_mcp,
             },
         );
-    }
+        orphaned_turn
+    };
+    close_orphaned_turn(&session_id, orphaned_turn).await;
 
     info!(
         session_id = %session_id,
@@ -932,6 +938,44 @@ async fn retry_status_for(
 /// client as an error bubble, and return the agent to Idle so "replying…"
 /// clears. Used by the stuck-turn watchdog and the `session.status` SSE
 /// handler.
+/// Take the in-flight turn off a route that is about to be dropped or replaced.
+///
+/// A route owns all of its turn's bookkeeping, and [`events::handle_session_idle`]
+/// needs `turn_active` to emit the Active→Idle close. So a route that goes away
+/// mid-turn — a detach, or a re-attach that re-points the same session at
+/// another worktree — used to strand the client on "replying" forever: the
+/// later `session.idle` found either no route or a fresh one with
+/// `turn_active = false` and returned having emitted nothing.
+fn take_active_turn(route: &mut Route) -> Option<(mpsc::Sender<AcpEventFrame>, Option<String>)> {
+    if !route.turn_active {
+        return None;
+    }
+    route.turn_active = false;
+    route.turn_requester = None;
+    Some((route.event_tx.clone(), route.turn_reply_to.take()))
+}
+
+/// Emit the Active→Idle close for a turn taken by [`take_active_turn`]. Sends
+/// on the *old* route's channel, which is the one the client is still waiting
+/// on. Separate from taking it so the routes lock is never held across an await.
+async fn close_orphaned_turn(
+    session_id: &str,
+    taken: Option<(mpsc::Sender<AcpEventFrame>, Option<String>)>,
+) {
+    let Some((event_tx, reply_to)) = taken else {
+        return;
+    };
+    warn!(
+        session_id,
+        "closing an in-flight turn: its runtime went away mid-turn"
+    );
+    let ev = translate::status_change(amux::AgentStatus::Active, amux::AgentStatus::Idle);
+    crate::runtime::agent_trace::log_acp_event(session_id, &ev);
+    let _ = event_tx
+        .send(AcpEventFrame::new(session_id, ev).with_reply_to(reply_to))
+        .await;
+}
+
 pub(crate) async fn abort_turn_with_error(
     shared: &Arc<Shared>,
     session_id: &str,
@@ -1162,10 +1206,14 @@ async fn command_loop(shared: Arc<Shared>, mut cmd_rx: mpsc::Receiver<AcpCommand
                 None => warn!(model_id = %model_id, "set_model: expected provider/model id"),
             },
             AcpCommand::DetachSession { acp_session_id } => {
-                let pruned = {
+                let (pruned, orphaned_turn) = {
                     let mut routes = shared.routes.lock();
                     let removed = routes.remove(&acp_session_id);
-                    removed.map(|route| {
+                    let mut orphaned_turn = None;
+                    let pruned = removed.map(|mut route| {
+                        // Detaching mid-turn must not swallow the turn (see
+                        // `take_active_turn`).
+                        orphaned_turn = take_active_turn(&mut route);
                         let names = prunable_mcp_names(
                             &routes,
                             &acp_session_id,
@@ -1173,8 +1221,10 @@ async fn command_loop(shared: Arc<Shared>, mut cmd_rx: mpsc::Receiver<AcpCommand
                             &route.injected_mcp,
                         );
                         (route.directory, names)
-                    })
+                    });
+                    (pruned, orphaned_turn)
                 };
+                close_orphaned_turn(&acp_session_id, orphaned_turn).await;
                 if let Some((directory, names)) = pruned {
                     prune_mcp_servers_from_worktree(&directory, &names);
                 }
@@ -1455,6 +1505,41 @@ mod turn_activity_tests {
             translate: TranslateState::default(),
             injected_mcp: Vec::new(),
         }
+    }
+
+    /// A route whose runtime goes away mid-turn must still close the turn, or
+    /// the client sits on "replying" forever. Reproduces the app-workspace
+    /// re-point: a prompt is in flight when the session is detached and
+    /// re-attached against another worktree.
+    #[tokio::test]
+    async fn a_turn_orphaned_by_detach_is_closed_on_the_old_channel() {
+        let (tx, mut rx) = mpsc::channel(4);
+        let mut route = test_route("/ws");
+        route.event_tx = tx;
+        route.turn_active = true;
+        route.turn_reply_to = Some("reply-1".to_string());
+
+        let taken = take_active_turn(&mut route);
+        assert!(taken.is_some(), "an active turn is taken off the route");
+        assert!(!route.turn_active, "the route no longer claims a live turn");
+        close_orphaned_turn("ses_1", taken).await;
+
+        let frame = rx.try_recv().expect("close emitted a frame");
+        assert_eq!(frame.acp_session_id, "ses_1");
+        assert_eq!(frame.turn_reply_to_message_id.as_deref(), Some("reply-1"));
+    }
+
+    #[tokio::test]
+    async fn an_idle_route_emits_nothing_when_dropped() {
+        let (tx, mut rx) = mpsc::channel(4);
+        let mut route = test_route("/ws");
+        route.event_tx = tx;
+        route.turn_active = false;
+
+        let taken = take_active_turn(&mut route);
+        assert!(taken.is_none());
+        close_orphaned_turn("ses_1", taken).await;
+        assert!(rx.try_recv().is_err(), "no spurious idle for an idle route");
     }
 
     #[test]
