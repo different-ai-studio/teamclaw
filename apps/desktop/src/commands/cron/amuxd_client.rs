@@ -33,6 +33,10 @@ pub struct PromptAwaitRequest<'a> {
     /// runs on Claude even when OpenCode is the daemon default.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub agent_type: Option<&'a str>,
+    /// Permission mode for this run — `"full_access"` (cron default) or
+    /// `"default"`. amuxd falls back to full access when the field is absent,
+    /// so an older daemon paired with a newer desktop behaves the same.
+    pub permission_mode: &'a str,
     pub timeout_secs: u64,
 }
 
@@ -434,6 +438,7 @@ mod tests {
                 working_directory: None,
                 model_override: None,
                 agent_type: None,
+                permission_mode: crate::commands::cron::types::DEFAULT_CRON_PERMISSION_MODE,
                 timeout_secs: 300,
             },
         )
@@ -470,6 +475,7 @@ mod tests {
                 working_directory: None,
                 model_override: None,
                 agent_type: None,
+                permission_mode: crate::commands::cron::types::DEFAULT_CRON_PERMISSION_MODE,
                 timeout_secs: 300,
             },
         )
@@ -488,6 +494,7 @@ mod tests {
             );
             assert_eq!(req["model_override"]["model"].as_str(), Some("sonnet"));
             assert_eq!(req["agent_type"].as_str(), Some("claude"));
+            assert_eq!(req["permission_mode"].as_str(), Some("default"));
             serde_json::json!({
                 "ok": true,
                 "result": { "text": "ok", "session_id": "sid-2" }
@@ -509,6 +516,7 @@ mod tests {
                     model: "sonnet",
                 }),
                 agent_type: Some("claude"),
+                permission_mode: "default",
                 timeout_secs: 300,
             },
         )
@@ -533,6 +541,7 @@ mod tests {
                 working_directory: None,
                 model_override: None,
                 agent_type: None,
+                permission_mode: crate::commands::cron::types::DEFAULT_CRON_PERMISSION_MODE,
                 timeout_secs: 300,
             },
         )
@@ -562,6 +571,7 @@ mod tests {
                 working_directory: None,
                 model_override: None,
                 agent_type: None,
+                permission_mode: crate::commands::cron::types::DEFAULT_CRON_PERMISSION_MODE,
                 timeout_secs: 300,
             },
         )
@@ -583,6 +593,7 @@ mod tests {
                 working_directory: None,
                 model_override: None,
                 agent_type: None,
+                permission_mode: crate::commands::cron::types::DEFAULT_CRON_PERMISSION_MODE,
                 timeout_secs: 300,
             },
         )
@@ -609,6 +620,7 @@ mod tests {
                 working_directory: None,
                 model_override: None,
                 agent_type: None,
+                permission_mode: crate::commands::cron::types::DEFAULT_CRON_PERMISSION_MODE,
                 timeout_secs: 300,
             },
         )

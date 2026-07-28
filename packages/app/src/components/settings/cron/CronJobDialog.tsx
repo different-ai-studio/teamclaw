@@ -645,6 +645,31 @@ export function CronJobDialog({
                 <SlidersHorizontal className="h-3.5 w-3.5" />
                 {t('settings.cron.execution', 'Execution')}
               </h4>
+              {/* Full access — on by default: a scheduled run has nobody to
+                  approve a tool prompt, so asking just stalls it. */}
+              <div className="flex items-center justify-between">
+                <div>
+                  <label className="text-[13px] font-medium">
+                    {t('settings.cron.fullAccess', 'Full access')}
+                  </label>
+                  <p className="text-xs text-muted-foreground">
+                    {form.permissionMode === 'full_access'
+                      ? t(
+                          'settings.cron.fullAccessDesc',
+                          'Approve tool use automatically. Scheduled runs have nobody to answer a prompt.',
+                        )
+                      : t(
+                          'settings.cron.fullAccessOffDesc',
+                          'Ask for approval. The run waits until someone answers, or times out.',
+                        )}
+                  </p>
+                </div>
+                <ToggleSwitch
+                  enabled={form.permissionMode === 'full_access'}
+                  onChange={(v) => update({ permissionMode: v ? 'full_access' : 'default' })}
+                />
+              </div>
+
               {/* Worktree isolation — workspace-scoped only */}
               <div
                 className={cn(

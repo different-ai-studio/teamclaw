@@ -16,6 +16,7 @@ use tracing::{info, warn};
 
 use crate::proto::amux;
 use crate::runtime::acp_event_frame::AcpEventFrame;
+use crate::runtime::permission_policy::PermissionPolicy;
 
 pub mod client;
 mod envelope;
@@ -44,7 +45,10 @@ pub use crate::runtime::backend::{AcpCommand, AcpStartupMetadata};
 
 pub(crate) struct Route {
     pub(crate) event_tx: mpsc::Sender<AcpEventFrame>,
-    pub(crate) is_gateway: bool,
+    /// Permission handling for this session. `Full` (gateway / cron) means
+    /// permission requests are auto-approved and `question` requests
+    /// auto-rejected, so an unattended turn never waits on a human.
+    pub(crate) permission: PermissionPolicy,
     /// Canonicalized worktree the session was created in (`?directory=`).
     pub(crate) directory: String,
     /// Model applied on the next prompt (opencode model is per-message).
@@ -337,7 +341,7 @@ impl OpencodeHost {
         model_mru: Vec<String>,
         initial_prompt: String,
         event_tx: mpsc::Sender<AcpEventFrame>,
-        is_gateway: bool,
+        permission: PermissionPolicy,
         forbid_new_session_fallback: bool,
     ) -> crate::error::Result<(mpsc::Sender<AcpCommand>, AcpStartupMetadata)> {
         if agent_type != amux::AgentType::Opencode {
@@ -358,7 +362,7 @@ impl OpencodeHost {
                 initial_model_override,
                 model_mru,
                 event_tx,
-                is_gateway,
+                permission,
                 forbid_new_session_fallback,
             },
         )
@@ -397,7 +401,7 @@ struct AttachArgs {
     /// Daemon MRU, newest first. See `config::model_mru`.
     model_mru: Vec<String>,
     event_tx: mpsc::Sender<AcpEventFrame>,
-    is_gateway: bool,
+    permission: PermissionPolicy,
     forbid_new_session_fallback: bool,
 }
 
@@ -636,7 +640,7 @@ async fn attach(shared: &Arc<Shared>, args: AttachArgs) -> Result<AcpStartupMeta
             session_id.clone(),
             Route {
                 event_tx: args.event_tx,
-                is_gateway: args.is_gateway,
+                permission: args.permission,
                 directory: directory.clone(),
                 model,
                 turn_active: false,
@@ -1067,7 +1071,7 @@ async fn command_loop(shared: Arc<Shared>, mut cmd_rx: mpsc::Receiver<AcpCommand
                 initial_prompt,
                 event_tx,
                 startup_tx,
-                is_gateway,
+                permission,
                 forbid_new_session_fallback,
             } => {
                 let result = attach(
@@ -1079,7 +1083,7 @@ async fn command_loop(shared: Arc<Shared>, mut cmd_rx: mpsc::Receiver<AcpCommand
                         initial_model_override,
                         model_mru,
                         event_tx,
-                        is_gateway,
+                        permission,
                         forbid_new_session_fallback,
                     },
                 )
@@ -1228,7 +1232,7 @@ pub fn start_standalone_runtime(
                 initial_prompt,
                 event_tx,
                 startup_tx,
-                is_gateway: false,
+                permission: PermissionPolicy::Ask,
                 forbid_new_session_fallback: false,
             })
             .await;
@@ -1413,7 +1417,7 @@ mod pool_tests {
             "other".to_string(),
             Route {
                 event_tx: tx,
-                is_gateway: true,
+                permission: PermissionPolicy::Full,
                 directory: "/ws".to_string(),
                 model: None,
                 turn_active: false,
@@ -1441,7 +1445,7 @@ mod turn_activity_tests {
         let (tx, _rx) = mpsc::channel(1);
         Route {
             event_tx: tx,
-            is_gateway: false,
+            permission: PermissionPolicy::Ask,
             directory: directory.to_string(),
             model: None,
             turn_active: true,

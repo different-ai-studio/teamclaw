@@ -14,6 +14,7 @@ use crate::backend::{AgentRuntimeUpsert, Backend};
 use crate::config::{DaemonConfig, DeviceModelCatalog, ModelMru};
 use crate::proto::amux;
 use crate::runtime::acp_event_frame::AcpEventFrame;
+use crate::runtime::permission_policy::PermissionPolicy;
 use crate::runtime::turn_aggregator::TurnAggregator;
 use chrono::Utc;
 
@@ -47,6 +48,23 @@ pub struct SpawnRuntimeEnv {
     /// Remote-tools collab runtimes may also carry an MCP config but must stay
     /// `is_gateway = false` so permission + MCP repair paths behave correctly.
     pub is_gateway: bool,
+    /// Explicit permission policy for this runtime. `None` derives it from
+    /// `is_gateway` (gateway ⇒ full access), which is what every caller that
+    /// predates the field expects. Cron sets it explicitly so a job can be
+    /// switched back to "ask" without losing the gateway MCP wiring.
+    pub permission: Option<PermissionPolicy>,
+}
+
+impl SpawnRuntimeEnv {
+    /// The policy the backend should run under: explicit when set, otherwise
+    /// derived from `is_gateway`.
+    pub fn permission_policy(&self) -> PermissionPolicy {
+        self.permission.unwrap_or(if self.is_gateway {
+            PermissionPolicy::Full
+        } else {
+            PermissionPolicy::Ask
+        })
+    }
 }
 
 /// Per-agent runtime state checked out of `RuntimeManager` for the duration
@@ -542,11 +560,13 @@ impl RuntimeManager {
         runtime_env: SpawnRuntimeEnv,
     ) -> crate::error::Result<String> {
         let agent_id = Uuid::new_v4().to_string()[..8].to_string();
+        let permission = runtime_env.permission_policy();
         let SpawnRuntimeEnv {
             extra_env,
             force_env_override,
             opencode_json_original,
             is_gateway,
+            permission: _,
         } = runtime_env;
         self.register_opencode_snapshot(worktree, opencode_json_original, &extra_env);
         let mut handle = RuntimeHandle::new(
@@ -578,7 +598,7 @@ impl RuntimeManager {
                 self.model_mru.recent_for(launch.backend_type).to_vec(),
                 prompt.to_string(),
                 handle.event_tx.clone(),
-                is_gateway,
+                permission,
                 false,
             )
             .await?;
@@ -718,11 +738,13 @@ impl RuntimeManager {
         mcp_config_path: Option<std::path::PathBuf>,
         runtime_env: SpawnRuntimeEnv,
     ) -> crate::error::Result<String> {
+        let permission = runtime_env.permission_policy();
         let SpawnRuntimeEnv {
             extra_env,
             force_env_override,
             opencode_json_original,
             is_gateway,
+            permission: _,
         } = runtime_env;
         self.register_opencode_snapshot(worktree, opencode_json_original, &extra_env);
 
@@ -750,7 +772,7 @@ impl RuntimeManager {
                 self.model_mru.recent_for(launch.backend_type).to_vec(),
                 prompt.to_string(),
                 handle.event_tx.clone(),
-                is_gateway,
+                permission,
                 false,
             )
             .await?;
@@ -1632,7 +1654,7 @@ mod tests {
             _model_mru: Vec<String>,
             _initial_prompt: String,
             _event_tx: mpsc::Sender<AcpEventFrame>,
-            _is_gateway: bool,
+            _permission: PermissionPolicy,
             _forbid_new_session_fallback: bool,
         ) -> crate::error::Result<(
             mpsc::Sender<super::super::backend::AcpCommand>,

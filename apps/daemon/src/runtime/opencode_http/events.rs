@@ -183,23 +183,24 @@ async fn handle_permission_asked(
         .and_then(|v| v.as_str())
         .unwrap_or_default()
         .to_string();
-    let (is_gateway, directory, event_tx, requester) = {
+    let (permission, directory, event_tx, requester) = {
         let routes = shared.routes.lock();
         let Some(route) = routes.get(session_id) else {
             warn!(session_id, "permission.asked for unrouted session");
             return;
         };
         (
-            route.is_gateway,
+            route.permission,
             route.directory.clone(),
             route.event_tx.clone(),
             route.turn_requester.clone(),
         )
     };
 
-    if is_gateway {
-        // Gateway sessions auto-allow tool permissions (old adapter behavior).
-        info!(session_id, permission_id = %permission_id, "auto-allow gateway permission");
+    if permission.is_full_access() {
+        // Full-access sessions (gateway conversations, cron jobs) have no human
+        // to ask — auto-allow rather than wait forever.
+        info!(session_id, permission_id = %permission_id, "auto-allow full-access permission");
         if let Ok(client) = shared.serve.ensure().await {
             if let Err(e) = client
                 .permission_respond(&directory, session_id, &permission_id, "once")
@@ -231,10 +232,35 @@ async fn handle_permission_asked(
 /// the request (id → session, for the reply endpoint) and forward the full
 /// request JSON to clients as a `question_asked` raw control event; the
 /// desktop renders it as an interactive QuestionCard on the tool call.
+///
+/// Full-access sessions get no card: nobody is watching a cron run, and a
+/// pending question is explicitly *not* treated as a stalled turn by the
+/// watchdog (see `turn_activity` in `mod.rs`), so leaving it open hangs the
+/// run until the cron timeout. Reject it instead — the agent is told the
+/// question went unanswered and carries on.
 async fn handle_question_asked(shared: &Arc<Shared>, session_id: &str, props: &serde_json::Value) {
     let Some(request_id) = props.get("id").and_then(|v| v.as_str()) else {
         return;
     };
+    let full_access = {
+        let routes = shared.routes.lock();
+        match routes.get(session_id) {
+            Some(route) => route.permission.is_full_access().then(|| route.directory.clone()),
+            None => {
+                warn!(session_id, "question.asked for unrouted session");
+                None
+            }
+        }
+    };
+    if let Some(directory) = full_access {
+        info!(session_id, request_id, "auto-reject full-access question");
+        if let Ok(client) = shared.serve.ensure().await {
+            if let Err(e) = client.question_reject(&directory, request_id).await {
+                warn!(session_id, error = %e, "full-access question auto-reject failed");
+            }
+        }
+        return;
+    }
     shared
         .questions
         .lock()
