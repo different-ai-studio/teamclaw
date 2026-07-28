@@ -61,7 +61,18 @@ pub struct CronPayload {
     /// Branch to checkout in worktree (default: "main")
     #[serde(skip_serializing_if = "Option::is_none")]
     pub worktree_branch: Option<String>,
+    /// Permission mode for the run: `"full_access"` (default) or `"default"`.
+    /// Cron runs unattended, so an approval prompt has nobody to answer it and
+    /// the turn just burns its timeout — hence full access unless the job
+    /// explicitly opts out. `None` (old job JSON) means full access too.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub permission_mode: Option<String>,
 }
+
+/// Wire value for [`CronPayload::permission_mode`] when the job does not pin
+/// one. Kept as the single definition so the scheduler and the default-job
+/// constructors cannot drift apart.
+pub const DEFAULT_CRON_PERMISSION_MODE: &str = "full_access";
 
 /// Delivery mode for cron job results
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]

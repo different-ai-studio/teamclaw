@@ -10,6 +10,7 @@ import {
   type CronJob,
   type ScheduleKind,
   type DeliveryChannel,
+  type CronPermissionMode,
 } from '@/stores/cron'
 import { useChannelsStore } from '@/stores/channels'
 
@@ -290,7 +291,11 @@ export interface JobFormState {
   runImmediately: boolean
   useWorktree: boolean
   worktreeBranch: string
+  permissionMode: CronPermissionMode
 }
+
+/** Cron runs unattended, so approvals default to off — see `CronPayload.permissionMode`. */
+export const DEFAULT_CRON_PERMISSION_MODE: CronPermissionMode = 'full_access'
 
 export const defaultFormState: JobFormState = {
   name: '',
@@ -313,6 +318,7 @@ export const defaultFormState: JobFormState = {
   runImmediately: true,
   useWorktree: false,
   worktreeBranch: '',
+  permissionMode: DEFAULT_CRON_PERMISSION_MODE,
 }
 
 export function jobToFormState(job: CronJob): JobFormState {
@@ -360,6 +366,9 @@ export function jobToFormState(job: CronJob): JobFormState {
     runImmediately: false,
     useWorktree: job.payload.useWorktree ?? false,
     worktreeBranch: job.payload.worktreeBranch ?? '',
+    // Absent on jobs saved before the field existed — those ran with approvals
+    // auto-granted, so full access is the faithful reading, not a silent change.
+    permissionMode: job.payload.permissionMode ?? DEFAULT_CRON_PERMISSION_MODE,
   }
 }
 
@@ -405,6 +414,7 @@ export function formStateToPayload(form: JobFormState): CronPayload {
     backend: form.model && form.backend ? form.backend : undefined,
     useWorktree: form.useWorktree || undefined,
     worktreeBranch: form.useWorktree && form.worktreeBranch ? form.worktreeBranch : undefined,
+    permissionMode: form.permissionMode,
   }
 }
 

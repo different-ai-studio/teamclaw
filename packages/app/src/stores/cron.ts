@@ -124,7 +124,14 @@ export interface CronPayload {
   timeoutSeconds?: number
   useWorktree?: boolean
   worktreeBranch?: string
+  /** Permission mode for the run. `'full_access'` (the default, including for
+   *  jobs saved before this field existed) skips every approval prompt: a cron
+   *  run is unattended, so an approval nobody answers just burns the timeout.
+   *  `'default'` keeps asking — only useful while watching the run live. */
+  permissionMode?: CronPermissionMode
 }
+
+export type CronPermissionMode = 'full_access' | 'default'
 
 export type DeliveryMode = 'announce' | 'none'
 export type DeliveryChannel = 'discord' | 'feishu' | 'email' | 'kook' | 'wechat' | 'wecom'

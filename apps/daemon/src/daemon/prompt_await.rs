@@ -13,6 +13,11 @@ pub(crate) struct PromptAwaitPayload<'a> {
     // is the desktop's "auto" selection. The string is resolved against the
     // daemon's configured backends by the caller (handle_prompt_await).
     pub agent_type: Option<&'a str>,
+    /// Permission mode the job runs under: `"full_access"` (no approvals, the
+    /// desktop default for cron) or `"default"` (ask, which for an unattended
+    /// run means the turn waits until the timeout). Absent for jobs saved by a
+    /// desktop that predates the field — those keep full access.
+    pub permission_mode: Option<&'a str>,
     pub timeout_secs: u64,
 }
 
@@ -53,6 +58,10 @@ pub(crate) fn parse_prompt_await_payload(
         .get("agent_type")
         .and_then(|v| v.as_str())
         .filter(|s| !s.is_empty());
+    let permission_mode = payload
+        .get("permission_mode")
+        .and_then(|v| v.as_str())
+        .filter(|s| !s.is_empty());
     let timeout_secs = payload
         .get("timeout_secs")
         .and_then(|v| v.as_u64())
@@ -66,6 +75,7 @@ pub(crate) fn parse_prompt_await_payload(
         working_directory,
         model_override,
         agent_type,
+        permission_mode,
         timeout_secs,
     })
 }
@@ -109,6 +119,7 @@ mod tests {
         assert!(parsed.working_directory.is_none());
         assert!(parsed.model_override.is_none());
         assert!(parsed.agent_type.is_none());
+        assert!(parsed.permission_mode.is_none());
         assert_eq!(parsed.timeout_secs, 300);
     }
 
@@ -205,6 +216,22 @@ mod tests {
         });
         let parsed = parse_prompt_await_payload(&p).unwrap();
         assert!(parsed.agent_type.is_none());
+    }
+
+    #[test]
+    fn parse_reads_permission_mode() {
+        let p = json!({
+            "session_key": "cron/j1/r1",
+            "message": "hi",
+            "permission_mode": "default"
+        });
+        let parsed = parse_prompt_await_payload(&p).unwrap();
+        assert_eq!(parsed.permission_mode, Some("default"));
+
+        // Empty string is treated as absent, like the other optional strings.
+        let p = json!({ "session_key": "cron/j1/r1", "message": "hi", "permission_mode": "" });
+        let parsed = parse_prompt_await_payload(&p).unwrap();
+        assert!(parsed.permission_mode.is_none());
     }
 
     #[test]
