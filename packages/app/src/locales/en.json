@@ -773,6 +773,8 @@
     "noSessionsFound": "No sessions found",
     "pinToTop": "Pin to top",
     "unpin": "Unpin",
+    "moreActions": "More actions",
+    "closeActions": "Close actions",
     "awaitingConfirmation": "Awaiting confirmation",
     "sessionRunning": "Running",
     "loadMore": "Load More",

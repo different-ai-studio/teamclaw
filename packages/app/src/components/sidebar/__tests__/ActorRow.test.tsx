@@ -41,8 +41,8 @@ function setup(overrides: Partial<React.ComponentProps<typeof ActorRow>> = {}) {
     onCopyId: vi.fn(),
     onRequestRemove: vi.fn(),
   }
-  render(<ActorRow actor={baseActor} active={false} {...handlers} {...overrides} />)
-  return handlers
+  const view = render(<ActorRow actor={baseActor} active={false} {...handlers} {...overrides} />)
+  return { ...handlers, ...view }
 }
 
 function openMenu() {
@@ -59,8 +59,8 @@ describe('ActorRow', () => {
     expect(h.onSelect).toHaveBeenCalledWith(baseActor)
   })
 
-  it('labels agent actors as Agent', () => {
-    setup({
+  it('renders agent actors with a square avatar (no Agent text badge)', () => {
+    const { container } = setup({
       actor: {
         ...baseActor,
         actor_type: 'agent',
@@ -68,8 +68,11 @@ describe('ActorRow', () => {
       },
     })
 
-    expect(screen.getByText('Agent')).toBeInTheDocument()
+    expect(screen.getByText('Macmini')).toBeInTheDocument()
+    expect(screen.queryByText('Agent')).not.toBeInTheDocument()
     expect(screen.queryByText('AI')).not.toBeInTheDocument()
+    expect(container.querySelector('.rounded')).toBeTruthy()
+    expect(container.querySelector('.rounded-full')).toBeNull()
   })
 
   it('right click → View profile → onViewDetail', async () => {
