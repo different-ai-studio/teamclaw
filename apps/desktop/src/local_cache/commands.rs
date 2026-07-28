@@ -66,13 +66,28 @@ async fn current_team(state: &LocalCacheState) -> Option<String> {
     state.current_team_id.read().await.clone()
 }
 
+/// Machine-readable prefix for a gate rejection. The frontend classifies on
+/// this token, so it must not drift; the parenthesised detail is for humans.
+pub(crate) const ERR_TEAM_GATE_MISMATCH: &str = "local_cache: team_gate_mismatch";
+/// A caller handed a team-scoped command an empty team id. That is a bug in
+/// the caller, not a gate rejection, and reporting it as one sent us chasing
+/// the wrong thing — keep it a separate code.
+pub(crate) const ERR_EMPTY_TEAM_ID: &str = "local_cache: empty_team_id";
+
+fn gate_mismatch(scope: &str, current: &str, found: &str) -> String {
+    format!(
+        "{} ({}: current={}, found={})",
+        ERR_TEAM_GATE_MISMATCH, scope, current, found
+    )
+}
+
 async fn assert_team(state: &LocalCacheState, team_id: &str) -> Result<(), String> {
+    if team_id.is_empty() {
+        return Err(format!("{} (requested)", ERR_EMPTY_TEAM_ID));
+    }
     if let Some(current) = current_team(state).await {
         if current != team_id {
-            return Err(format!(
-                "local_cache: team gate mismatch (current={}, requested={})",
-                current, team_id
-            ));
+            return Err(gate_mismatch("requested", &current, team_id));
         }
     }
     Ok(())
@@ -85,10 +100,7 @@ async fn assert_team_opt(state: &LocalCacheState, looked_up: Option<&str>) -> Re
     match looked_up {
         None => Ok(()),
         Some(t) if t == current => Ok(()),
-        Some(t) => Err(format!(
-            "local_cache: team gate mismatch (current={}, row_team={})",
-            current, t
-        )),
+        Some(t) => Err(gate_mismatch("row", &current, t)),
     }
 }
 
@@ -120,10 +132,7 @@ pub async fn local_cache_actor_upsert_batch(
 ) -> Result<(), String> {
     if let Some(current) = current_team(&state).await {
         if let Some(bad) = rows.iter().find(|r| r.team_id != current) {
-            return Err(format!(
-                "local_cache: team gate mismatch in actor batch (current={}, row_team={})",
-                current, bad.team_id
-            ));
+            return Err(gate_mismatch("actor", &current, bad.team_id.as_str()));
         }
     }
     let db = get_db(&state).await?;
@@ -180,10 +189,7 @@ pub async fn local_cache_session_upsert_batch(
 ) -> Result<(), String> {
     if let Some(current) = current_team(&state).await {
         if let Some(bad) = rows.iter().find(|r| r.team_id != current) {
-            return Err(format!(
-                "local_cache: team gate mismatch in session batch (current={}, row_team={})",
-                current, bad.team_id
-            ));
+            return Err(gate_mismatch("session", &current, bad.team_id.as_str()));
         }
     }
     let db = get_db(&state).await?;
@@ -223,9 +229,10 @@ pub async fn local_cache_session_workspace_upsert_batch(
 ) -> Result<(), String> {
     if let Some(current) = current_team(&state).await {
         if let Some(bad) = rows.iter().find(|r| r.team_id != current) {
-            return Err(format!(
-                "local_cache: team gate mismatch in session_workspace batch (current={}, row_team={})",
-                current, bad.team_id
+            return Err(gate_mismatch(
+                "session_workspace",
+                &current,
+                bad.team_id.as_str(),
             ));
         }
     }
@@ -259,10 +266,7 @@ pub async fn local_cache_session_participant_upsert_batch(
             if seen.insert(r.session_id.clone()) {
                 if let Some(owner) = db.team_for_session(&r.session_id).await? {
                     if owner != current {
-                        return Err(format!(
-                            "local_cache: team gate mismatch in participant batch (current={}, session_team={})",
-                            current, owner
-                        ));
+                        return Err(gate_mismatch("participant", &current, owner.as_str()));
                     }
                 }
             }
@@ -305,10 +309,7 @@ pub async fn local_cache_message_upsert_batch(
 ) -> Result<(), String> {
     if let Some(current) = current_team(&state).await {
         if let Some(bad) = rows.iter().find(|r| r.team_id != current) {
-            return Err(format!(
-                "local_cache: team gate mismatch in message batch (current={}, row_team={})",
-                current, bad.team_id
-            ));
+            return Err(gate_mismatch("message", &current, bad.team_id.as_str()));
         }
     }
     let db = get_db(&state).await?;
@@ -410,10 +411,7 @@ pub async fn local_cache_idea_upsert_batch(
 ) -> Result<(), String> {
     if let Some(current) = current_team(&state).await {
         if let Some(bad) = rows.iter().find(|r| r.team_id != current) {
-            return Err(format!(
-                "local_cache: team gate mismatch in idea batch (current={}, row_team={})",
-                current, bad.team_id
-            ));
+            return Err(gate_mismatch("idea", &current, bad.team_id.as_str()));
         }
     }
     let db = get_db(&state).await?;
@@ -458,10 +456,7 @@ pub async fn local_cache_claim_upsert_batch(
             if seen.insert(r.idea_id.clone()) {
                 if let Some(owner) = db.team_for_idea(&r.idea_id).await? {
                     if owner != current {
-                        return Err(format!(
-                            "local_cache: team gate mismatch in claim batch (current={}, idea_team={})",
-                            current, owner
-                        ));
+                        return Err(gate_mismatch("claim", &current, owner.as_str()));
                     }
                 }
             }
@@ -509,10 +504,7 @@ pub async fn local_cache_submission_upsert_batch(
             if seen.insert(r.idea_id.clone()) {
                 if let Some(owner) = db.team_for_idea(&r.idea_id).await? {
                     if owner != current {
-                        return Err(format!(
-                            "local_cache: team gate mismatch in submission batch (current={}, idea_team={})",
-                            current, owner
-                        ));
+                        return Err(gate_mismatch("submission", &current, owner.as_str()));
                     }
                 }
             }

@@ -69,6 +69,21 @@ export function TeamPicker({ teams, lastUsedTeamId, onDone }: TeamPickerProps) {
           {t("teamPicker.subtitle", "You belong to multiple teams. Pick one to continue.")}
         </p>
 
+        {/*
+          Strict single-org: entering a team moves the account's active org, and
+          teams in the other orgs become unreadable until you switch back. The
+          picker lists them all regardless (it is a cross-org listing), so
+          without this the choice looks free and is not.
+        */}
+        {groups.size > 1 && (
+          <p className="mt-2 text-[11.5px] leading-4 text-faint">
+            {t(
+              "teamPicker.singleOrgNotice",
+              "You can work in one organization at a time. Choosing a team here leaves the other organizations' teams inaccessible until you switch back.",
+            )}
+          </p>
+        )}
+
         {error && (
           <p
             role="alert"

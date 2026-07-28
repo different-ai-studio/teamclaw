@@ -43,4 +43,22 @@ describe("TeamPicker", () => {
     render(<TeamPicker teams={teams} onDone={() => {}} />);
     expect(screen.queryByText("最后使用")).not.toBeInTheDocument();
   });
+
+  // Strict single-org: entering a team moves the account's active org, so the
+  // other orgs' teams stop being readable. The picker lists them all anyway,
+  // which makes the choice look free — say so when it isn't.
+  it("warns that only one organization is usable at a time when orgs span more than one", () => {
+    render(<TeamPicker teams={teams} onDone={() => {}} />);
+    expect(screen.getByText(/同一时间只能在一个组织内工作/)).toBeInTheDocument();
+  });
+
+  it("omits the single-org warning when every team is in one org", () => {
+    const sameOrg = [
+      { id: "t1", name: "Alpha", slug: "alpha", orgId: "o1", orgName: "Org One" },
+      { id: "t3", name: "Gamma", slug: "gamma", orgId: "o1", orgName: "Org One" },
+    ];
+    render(<TeamPicker teams={sameOrg} onDone={() => {}} />);
+    expect(screen.queryByText(/同一时间只能在一个组织内工作/)).not.toBeInTheDocument();
+  });
+
 });

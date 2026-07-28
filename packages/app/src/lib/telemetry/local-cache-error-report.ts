@@ -23,17 +23,18 @@ export type LocalCacheFailureKind =
 
 const THROTTLE_WINDOW_MS = 60_000
 
+/**
+ * Codes emitted by `apps/desktop/src/local_cache/commands.rs`. Matched as
+ * stable tokens rather than prose so the two sides can't drift apart silently.
+ */
+const ERR_TEAM_GATE_MISMATCH = 'local_cache: team_gate_mismatch'
+const ERR_EMPTY_TEAM_ID = 'local_cache: empty_team_id'
+
 export function classifyLocalCacheFailure(reason: string | undefined): LocalCacheFailureKind {
-  const lower = (reason ?? '').trim().toLowerCase()
-  if (!lower) return 'unknown'
-  if (lower.includes('team gate mismatch')) {
-    // `requested=` / `row_team=` with nothing after it means the caller handed
-    // the command an empty team id; that is a different bug from a real gate
-    // mismatch and must not share a fingerprint with it.
-    return /(requested|row_team|session_team|idea_team)=\s*\)/.test(lower)
-      ? 'empty_team_id'
-      : 'team_gate_mismatch'
-  }
+  const text = (reason ?? '').trim()
+  if (!text) return 'unknown'
+  if (text.includes(ERR_EMPTY_TEAM_ID)) return 'empty_team_id'
+  if (text.includes(ERR_TEAM_GATE_MISMATCH)) return 'team_gate_mismatch'
   return 'unknown'
 }
 
@@ -64,4 +65,42 @@ export function reportLocalCacheFailure(
       sessionId: context.sessionId ?? null,
     },
   })
+
+  if (kind === 'team_gate_mismatch') void repairTeamGate()
+}
+
+/**
+ * A team-scoped cache call was made with no team id. The command never runs,
+ * so there is no error to attach — capture the call site instead, which is the
+ * only thing that identifies the offending caller.
+ */
+export function reportLocalCacheEmptyTeamId(command: string): void {
+  if (!shouldReportThrottled(`local_cache_empty_team|${command}`, THROTTLE_WINDOW_MS)) return
+  captureTelemetry({
+    message: `local_cache_empty_team_id: ${command}`,
+    level: 'warning',
+    fingerprint: ['local_cache', command, 'empty_team_id'],
+    tags: { local_cache_command: command, local_cache_failure_kind: 'empty_team_id' },
+    extra: { callSite: truncateForExtra(new Error('local_cache empty team id').stack, 2000) },
+  })
+}
+
+/**
+ * A gate mismatch means the backend gate and the team the UI is working on
+ * have diverged — the gate was moved (team switch, `load()` resolving a
+ * different team) while this caller still held the old one.
+ *
+ * Re-pinning the gate to the current team is cheap, idempotent, and local: it
+ * does not touch the server-side active org, so it cannot fight `enterTeam`.
+ * Without it the divergence persists for the rest of the session and every
+ * subsequent cache call fails the same way.
+ */
+async function repairTeamGate(): Promise<void> {
+  try {
+    const { useCurrentTeamStore, setLocalCacheTeamGate } = await import('@/stores/current-team')
+    const teamId = useCurrentTeamStore.getState().team?.id ?? null
+    if (teamId) await setLocalCacheTeamGate(teamId)
+  } catch {
+    // Best-effort repair; the caller has already degraded gracefully.
+  }
 }
