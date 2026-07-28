@@ -207,13 +207,12 @@ fn gather_team_env_diagnostics(workspace_path: &str, team_id: Option<&str>) -> T
         })
         .unwrap_or(0);
 
-    let secret_configured =
-        teamclaw_runtime_env::env_catalog::resolve_team_env_secret(
-            ws,
-            team_id_trimmed.as_deref(),
-            None,
-        )
-            .is_some();
+    let secret_configured = teamclaw_runtime_env::env_catalog::resolve_team_env_secret(
+        ws,
+        team_id_trimmed.as_deref(),
+        None,
+    )
+    .is_some();
 
     TeamEnvDiagnostics {
         team_id_present: team_id_trimmed.is_some(),

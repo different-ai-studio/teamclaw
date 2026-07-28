@@ -65,37 +65,15 @@ const INTENTIONAL_FC_ONLY = {
   // BACKEND_KIND=supabase, where GoTrue owns login and sends OTP mail from its
   // own GOTRUE_SMTP_* config; app.ts mounts the Better-Auth surface only under
   // postgres, so FC never reads these there.
-  AUTH_SECRET: "better-auth only; unread under BACKEND_KIND=supabase",
-  AUTH_BASE_URL: "better-auth only; unread under BACKEND_KIND=supabase",
-  GOOGLE_CLIENT_ID: "better-auth OAuth; supabase path uses GoTrue /authorize",
-  GOOGLE_CLIENT_SECRET: "better-auth OAuth; supabase path uses GoTrue /authorize",
-  APPLE_CLIENT_ID: "better-auth OAuth; supabase path uses GoTrue /authorize",
-  APPLE_CLIENT_SECRET: "better-auth OAuth; supabase path uses GoTrue /authorize",
-  OTP_EMAIL_SMTP_HOST: "sendOtpEmail is wired only into better-auth; GoTrue sends OTP mail on self-host",
-  OTP_EMAIL_SMTP_PORT: "see OTP_EMAIL_SMTP_HOST",
-  OTP_EMAIL_SMTP_USER: "see OTP_EMAIL_SMTP_HOST",
-  OTP_EMAIL_SMTP_PASS: "see OTP_EMAIL_SMTP_HOST",
-  OTP_EMAIL_SMTP_FROM: "see OTP_EMAIL_SMTP_HOST",
 
   // Must NOT be set on self-host — passing these through would cause the bug.
-  SMS_DEBUG_MODE: "MUST stay unset: it returns the OTP code in the response body",
   CORS_HANDLED_BY_PROXY: "MUST stay unset: Caddy adds no CORS headers, Hono must own CORS",
 
   // Features that are correctly unreachable on self-host.
-  APNS_PRIVATE_KEY_P8: "APNs push is not a self-host feature",
-  APNS_KEY_ID: "APNs push is not a self-host feature",
-  APNS_TEAM_ID: "APNs push is not a self-host feature",
-  APNS_TOPIC: "APNs push is not a self-host feature",
-  APNS_ENV: "APNs push is not a self-host feature; defaults to production anyway",
-  APPS_DB_ADMIN_URL: "Apps module ships off (features.apps=false); absence yields a loud 503",
-  CODEUP_ORG_ID: "Codeup tenancy is Aliyun-only; managed_git fails loudly (500), oss/custom_git unaffected",
-  CODEUP_PAT: "see CODEUP_ORG_ID",
-  CODEUP_BOT_USERNAME: "see CODEUP_ORG_ID; defaults to 'teamclaw'",
 
   // Adding this would fix nothing: the DB trigger that calls /push/dispatch
   // hardcodes https://cloud.ucar.cc and short-circuits on an unseeded vault
   // secret, so the webhook never reaches a self-host box in the first place.
-  PUSH_WEBHOOK_SECRET: "push webhook is dead on self-host for unrelated reasons; see notify_push_dispatch()",
 };
 
 /**
@@ -108,15 +86,12 @@ const KNOWN_GAPS = {
   // Default is 1, a serverless tuning. Inert while self-host runs
   // BACKEND_KIND=supabase (getDb() is postgres-only), but serializes every DB
   // request through one connection the moment that flips.
-  PG_POOL_MAX: "pool of 1 would serialize DB access under BACKEND_KIND=postgres",
 };
 
 /** In the compose fc allowlist and deliberately not in s.yaml. */
 const INTENTIONAL_COMPOSE_ONLY = {
   PORT: "container listens on a port; FC invokes a handler instead",
   HOST: "container bind address; not a thing under FC",
-  CRON_TRIGGER_SECRET: "self-host runs cron over HTTP; FC uses a native timer trigger",
-  MQTT_PUBLIC_BROKER_URL: "self-host advertises its own broker URL to clients",
 };
 
 function readVars() {

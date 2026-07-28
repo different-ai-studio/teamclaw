@@ -1186,6 +1186,21 @@
       "byTeam": "TeamClaw 团队"
     },
     "llm": {
+      "cursorTitle": "Cursor 模型",
+      "cursorDesc": "使用 Cursor SDK（Composer 等）作为本地 Agent 运行时。在此配置 API Key，无需编辑 daemon.toml。",
+      "cursorApiKey": "Cursor API Key",
+      "cursorKeyConfigured": "已配置",
+      "cursorKeyMissing": "未配置",
+      "cursorKeyPlaceholder": "crsr_…",
+      "cursorKeyPlaceholderSet": "留空则保留现有 Key",
+      "cursorKeyRequired": "请先填写 Cursor API Key",
+      "cursorKeyDocs": "如何获取 Cursor API Key",
+      "cursorKeyStorage": "Key 仅保存在本机 ~/.amuxd/daemon.toml，经 daemon HTTP 写入，不会上传到 TeamClaw 云端。",
+      "cursorDefaultModel": "默认模型",
+      "cursorDefaultModelHint": "会话首次 attach 时使用；可在聊天输入栏切换其他 Cursor 模型。",
+      "cursorSave": "保存",
+      "cursorSaved": "已保存并重启 daemon",
+      "cursorSetupRequired": "Cursor 运行时需要在上方配置 API Key 后才能回复消息。保存后 daemon 会自动重启。",
       "refresh": "刷新",
       "connected": "已连接",
       "title": "LLM 模型",
@@ -1293,6 +1308,7 @@
       "configure": "配置团队共享模型"
     },
     "mcp": {
+      "cursorBridgeNote": "Cursor SDK 第一版尚未桥接 workspace MCP",
       "restart": "重启",
       "restarting": "重启中...",
       "title": "MCP 服务器",
@@ -1461,6 +1477,7 @@
       "rebuilding": "重建中..."
     },
     "daemonGeneral": {
+      "cursorKeyHint": "Cursor 运行时需在「设置 → LLM」中配置 API Key，无需编辑 daemon.toml。",
       "title": "通用",
       "description": "维护本机 Daemon 对应的 Agent 和访问权限",
       "teamMismatchTitle": "本机 Daemon 与当前团队不一致",

@@ -12,6 +12,7 @@ vi.mock('@/lib/utils', () => ({
 
 vi.mock('@/lib/build-config', () => ({
   appShortName: 'teamclaw',
+  appStoragePrefix: 'teamclaw',
 }))
 
 vi.mock('@/lib/telemetry/scoring-engine', () => ({

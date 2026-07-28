@@ -1,14 +1,19 @@
 //! HTTP integration test for `POST /v1/apps/seed`.
 //!
-//! Spins the daemon HTTP server with a session token, points
-//! `TEAMCLAW_APP_TEMPLATE_URL` at a local git template, seeds a bare remote,
-//! and verifies pushed files via `git cat-file` (bare `file://` clones are
-//! unreliable on Linux CI).
+//! Spins the daemon HTTP server with a session token and checks that seeding
+//! writes a compiled-in starter template into the checkout and commits it.
+//! Seeding is entirely local: there is no template clone and no push, so no
+//! git remote is involved.
 
 #[path = "../src/backend/mod.rs"]
 mod backend;
 #[path = "../src/config/mod.rs"]
 mod config;
+// Not used directly by this test — `opencode_install` names
+// `crate::cursor_install::CursorStatus` in its doctor report, and an
+// integration test's crate root only has the modules it declares here.
+#[path = "../src/cursor_install/mod.rs"]
+mod cursor_install;
 #[path = "../src/error.rs"]
 mod error;
 #[path = "../src/http/mod.rs"]
@@ -52,204 +57,6 @@ use reqwest::Client;
 use serde_json::Value;
 use tokio::sync::Mutex;
 
-/// Minimal `Backend` for the credential-fetch test. Only `managed_git_credential`
-/// is exercised by the seed path; every other method panics so an accidental
-/// call is loud rather than silently wrong. The `team_id`/`actor_id` getters are
-/// trivial because the seed handler never reads them.
-#[derive(Clone)]
-struct CredentialMockBackend {
-    cred: ManagedGitCredential,
-}
-
-#[async_trait]
-impl Backend for CredentialMockBackend {
-    fn team_id(&self) -> &str {
-        "team-mock"
-    }
-    fn actor_id(&self) -> &str {
-        "actor-mock"
-    }
-    async fn auth_token(&self) -> BackendResult<String> {
-        Ok("mock-token".into())
-    }
-    async fn managed_git_credential(&self, _team_id: &str) -> BackendResult<ManagedGitCredential> {
-        Ok(self.cred.clone())
-    }
-    async fn get_effective_default_agent(&self, _team_id: &str) -> BackendResult<Option<String>> {
-        Ok(None)
-    }
-    async fn team_share_config(&self, _team_id: &str) -> BackendResult<ShareModeConfig> {
-        unimplemented!("not used by seed test")
-    }
-    async fn claim_team_invite(&self, _token: &str) -> BackendResult<ClaimResult> {
-        unimplemented!("not used by seed test")
-    }
-    async fn upsert_agent_runtime(
-        &self,
-        _row: &AgentRuntimeUpsert<'_>,
-    ) -> BackendResult<Option<String>> {
-        unimplemented!("not used by seed test")
-    }
-    async fn fetch_agent_runtime_for_session(
-        &self,
-        _session_id: &str,
-        _runtime_id: &str,
-        _backend_session_id: &str,
-    ) -> BackendResult<Option<AgentRuntimeRow>> {
-        unimplemented!("not used by seed test")
-    }
-    async fn fetch_latest_runtime_for_session(
-        &self,
-        _agent_id: &str,
-        _session_id: &str,
-    ) -> BackendResult<Option<AgentRuntimeRow>> {
-        unimplemented!("not used by seed test")
-    }
-    async fn ensure_agent_types(
-        &self,
-        _supported_types: &[String],
-        _default_agent_type: &str,
-    ) -> BackendResult<()> {
-        unimplemented!("not used by seed test")
-    }
-    async fn check_agent_permission(
-        &self,
-        _agent_id: &str,
-        _actor_id: &str,
-    ) -> BackendResult<Option<String>> {
-        unimplemented!("not used by seed test")
-    }
-    async fn heartbeat(&self) -> BackendResult<()> {
-        unimplemented!("not used by seed test")
-    }
-    async fn report_client_version(&self, _device_id: &str) -> BackendResult<()> {
-        unimplemented!("not used by seed test")
-    }
-    async fn upsert_workspace(&self, _row: &WorkspaceUpsert<'_>) -> BackendResult<WorkspaceRow> {
-        unimplemented!("not used by seed test")
-    }
-    async fn get_workspaces_by_ids(&self, _ids: &[String]) -> BackendResult<Vec<WorkspaceRow>> {
-        unimplemented!("not used by seed test")
-    }
-    async fn get_workspaces_by_team(&self, _team_id: &str) -> BackendResult<Vec<WorkspaceRow>> {
-        unimplemented!("not used by seed test")
-    }
-    async fn set_agent_default_workspace(&self, _workspace_id: &str) -> BackendResult<()> {
-        unimplemented!("not used by seed test")
-    }
-    async fn fetch_session_with_participants(
-        &self,
-        _session_id: &str,
-    ) -> BackendResult<BackendSessionAndParticipants> {
-        unimplemented!("not used by seed test")
-    }
-    async fn messages_after_cursor(
-        &self,
-        _session_id: &str,
-        _after_id: Option<&str>,
-    ) -> BackendResult<Vec<StoredMessage>> {
-        unimplemented!("not used by seed test")
-    }
-    async fn update_runtime_cursor(
-        &self,
-        _runtime_row_id: &str,
-        _last_processed_message_id: &str,
-    ) -> BackendResult<()> {
-        unimplemented!("not used by seed test")
-    }
-    async fn rpc_upsert_external_actor(
-        &self,
-        _team_id: &str,
-        _source: &str,
-        _source_id: &str,
-        _display_name: &str,
-    ) -> BackendResult<String> {
-        unimplemented!("not used by seed test")
-    }
-    async fn get_gateway_session_by_acp_id(
-        &self,
-        _acp_session_id: &str,
-    ) -> BackendResult<Option<(String, Option<String>)>> {
-        unimplemented!("not used by seed test")
-    }
-    async fn rpc_ensure_gateway_session(
-        &self,
-        _team_id: &str,
-        _binding: &str,
-        _title: &str,
-        _primary_agent_actor_id: &str,
-        _owner_member_actor_ids: &[String],
-        _participant_actor_ids: &[String],
-    ) -> BackendResult<(String, String, bool)> {
-        unimplemented!("not used by seed test")
-    }
-    async fn insert_gateway_message(
-        &self,
-        _session_id: &str,
-        _sender_actor_id: &str,
-        _content: &str,
-        _external_message_id: Option<&str>,
-    ) -> BackendResult<String> {
-        unimplemented!("not used by seed test")
-    }
-    async fn insert_gateway_message_with_attachments(
-        &self,
-        _session_id: &str,
-        _sender_actor_id: &str,
-        _content: &str,
-        _external_message_id: Option<&str>,
-        _attachments: serde_json::Value,
-    ) -> BackendResult<String> {
-        unimplemented!("not used by seed test")
-    }
-    async fn upload_attachment_bytes(
-        &self,
-        _path: &str,
-        _bytes: Vec<u8>,
-        _mime: &str,
-    ) -> BackendResult<String> {
-        unimplemented!("not used by seed test")
-    }
-    async fn list_agent_admin_member_actor_ids(
-        &self,
-        _agent_actor_id: &str,
-    ) -> BackendResult<Vec<String>> {
-        unimplemented!("not used by seed test")
-    }
-    async fn upsert_session_participant(
-        &self,
-        _session_id: &str,
-        _actor_id: &str,
-    ) -> BackendResult<()> {
-        unimplemented!("not used by seed test")
-    }
-    async fn create_cron_session(
-        &self,
-        _team_id: &str,
-        _primary_agent_actor_id: &str,
-        _title: &str,
-        _cron_job_id: Option<&str>,
-    ) -> BackendResult<String> {
-        unimplemented!("not used by seed test")
-    }
-    async fn insert_message(
-        &self,
-        _id: &str,
-        _team_id: &str,
-        _session_id: &str,
-        _sender_actor_id: &str,
-        _kind: &str,
-        _content: &str,
-        _metadata_json: &str,
-        _model: &str,
-        _turn_id: &str,
-        _reply_to_message_id: &str,
-        _sequence: u64,
-    ) -> BackendResult<()> {
-        unimplemented!("not used by seed test")
-    }
-}
-
 struct TestApp {
     _handle: http::server::HttpHandle,
     client: Client,
@@ -258,10 +65,10 @@ struct TestApp {
 }
 
 async fn test_app() -> (TestApp, tempfile::TempDir) {
-    test_app_with_backend(None).await
+    test_app_inner(None).await
 }
 
-async fn test_app_with_backend(backend: Option<Arc<dyn Backend>>) -> (TestApp, tempfile::TempDir) {
+async fn test_app_inner(backend: Option<Arc<dyn Backend>>) -> (TestApp, tempfile::TempDir) {
     let dir = tempfile::tempdir().expect("tempdir");
     let token_path = dir.path().join("token");
     let cfg = HttpConfig {
@@ -344,79 +151,49 @@ fn git(args: &[&str], cwd: &std::path::Path) {
     );
 }
 
-fn template_file_url(path: &std::path::Path) -> String {
-    let abs = std::fs::canonicalize(path).unwrap_or_else(|_| path.to_path_buf());
-    format!("file://{}", abs.to_string_lossy())
+/// Files every compiled-in template ships (see `sync::app_templates`).
+fn assert_seeded_checkout(workdir: &std::path::Path) {
+    for rel in ["package.json", "pnpm-lock.yaml", "AGENTS.md"] {
+        assert!(
+            workdir.join(rel).is_file(),
+            "{rel} missing from seeded checkout"
+        );
+    }
 }
 
-/// Local non-bare git template (matches production GitHub-style remotes).
-fn init_template_git_repo(parent: &std::path::Path) -> String {
-    let template = parent.join("template");
-    std::fs::create_dir_all(template.join("src")).unwrap();
-    std::fs::write(template.join("README.md"), "# seeded app").unwrap();
-    std::fs::write(template.join("src/main.tsx"), "export const x = 1;").unwrap();
-    git(
-        &["init", "--initial-branch=main", template.to_str().unwrap()],
-        parent,
-    );
-    git(&["-C", template.to_str().unwrap(), "add", "-A"], parent);
-    git(
-        &[
-            "-C",
-            template.to_str().unwrap(),
-            "-c",
-            "user.email=t@t",
-            "-c",
-            "user.name=t",
-            "commit",
-            "-m",
-            "template",
-        ],
-        parent,
-    );
-    template_file_url(&template)
-}
+/// The seed commits what it wrote, so `git log` must show exactly one commit
+/// on a fresh checkout and the tree must be clean.
+fn assert_committed(workdir: &std::path::Path) {
+    let log = Command::new("git")
+        .args(["-C", workdir.to_str().unwrap(), "log", "--oneline"])
+        .output()
+        .expect("git log");
+    assert!(log.status.success(), "git log failed in seeded checkout");
+    let count = String::from_utf8_lossy(&log.stdout).lines().count();
+    assert_eq!(count, 1, "expected one scaffold commit, got {count}");
 
-fn bare_has_file(bare: &std::path::Path, rel: &str) -> bool {
-    Command::new("git")
-        .args([
-            "--git-dir",
-            &bare.to_string_lossy(),
-            "cat-file",
-            "-e",
-            &format!("main:{rel}"),
-        ])
-        .stdout(std::process::Stdio::null())
-        .stderr(std::process::Stdio::null())
-        .status()
-        .map(|s| s.success())
-        .unwrap_or(false)
-}
-
-fn assert_remote_has_template(bare: &std::path::Path) {
+    let status = Command::new("git")
+        .args(["-C", workdir.to_str().unwrap(), "status", "--porcelain"])
+        .output()
+        .expect("git status");
     assert!(
-        bare_has_file(bare, "README.md"),
-        "README.md missing in remote"
-    );
-    assert!(
-        bare_has_file(bare, "src/main.tsx"),
-        "src/main.tsx missing in remote"
+        String::from_utf8_lossy(&status.stdout).trim().is_empty(),
+        "seeded checkout has uncommitted files"
     );
 }
 
+/// Seeding writes a compiled-in template into the checkout and commits it.
+///
+/// It does NOT clone a template repo and does NOT push anywhere — the remote
+/// was dropped, so `TEAMCLAW_APP_TEMPLATE_URL`, the bare-remote fixture, and
+/// the managed-git credential JIT-fetch this file used to assert are all gone
+/// with it. Template *content* is covered by the unit tests in
+/// `sync::app_templates`; this asserts the HTTP contract.
 #[tokio::test]
-async fn seed_app_clones_template_and_pushes() {
+async fn seed_app_writes_template_and_commits() {
     let (app, dir) = test_app().await;
 
-    // Bare repo acts as the empty managed-git remote.
-    let bare = dir.path().join("remote.git");
-    git(&["init", "--bare", bare.to_str().unwrap()], dir.path());
-
-    let prev_template_url = std::env::var_os("TEAMCLAW_APP_TEMPLATE_URL");
-    let template_url = init_template_git_repo(dir.path());
-    std::env::set_var("TEAMCLAW_APP_TEMPLATE_URL", &template_url);
-
-    // Fresh, non-existent clone target.
+    // Fresh, non-existent target: the handler creates it.
     let workdir = dir.path().join("work");
 
     let resp = app
@@ -425,9 +202,10 @@ async fn seed_app_clones_template_and_pushes() {
         .bearer_auth(&app.session_token)
         .json(&serde_json::json!({
             "appId": "app-test",
+            "appName": "Test App",
+            "appType": "static_web",
             "workspaceId": "ws-test",
             "workdir": workdir.to_str().unwrap(),
-            "gitRemoteUrl": bare.to_str().unwrap(),
         }))
         .send()
         .await
@@ -437,65 +215,37 @@ async fn seed_app_clones_template_and_pushes() {
     let body: Value = resp.json().await.expect("json body");
     assert_eq!(body["status"], "ready");
 
-    assert_remote_has_template(&bare);
-
-    match prev_template_url {
-        Some(v) => std::env::set_var("TEAMCLAW_APP_TEMPLATE_URL", v),
-        None => std::env::remove_var("TEAMCLAW_APP_TEMPLATE_URL"),
-    }
+    assert_seeded_checkout(&workdir);
+    assert_committed(&workdir);
 }
 
+/// Re-seeding an existing checkout is a documented no-op, so a wrecked app can
+/// be repaired without losing history.
 #[tokio::test]
-async fn seed_app_pulls_team_managed_git_credential() {
-    // No gitToken in the body → the handler must JIT-fetch the team-scoped
-    // managed-git credential from the cloud backend and use it for the push.
-    let mock = CredentialMockBackend {
-        cred: ManagedGitCredential {
-            username: "teamclaw".into(),
-            token: "pt-xyz".into(),
-        },
-    };
-    let backend: Arc<dyn Backend> = Arc::new(mock);
-    let (app, dir) = test_app_with_backend(Some(backend)).await;
-
-    // Bare repo acts as the empty managed-git remote (accepts any/no creds).
-    let bare = dir.path().join("remote.git");
-    git(&["init", "--bare", bare.to_str().unwrap()], dir.path());
-
-    let prev_template_url = std::env::var_os("TEAMCLAW_APP_TEMPLATE_URL");
-    let template_url = init_template_git_repo(dir.path());
-    std::env::set_var("TEAMCLAW_APP_TEMPLATE_URL", &template_url);
-
-    // Fresh, non-existent clone target.
+async fn seed_app_is_idempotent() {
+    let (app, dir) = test_app().await;
     let workdir = dir.path().join("work");
 
-    let resp = app
-        .client
-        .post(format!("{}/v1/apps/seed", app.base))
-        .bearer_auth(&app.session_token)
-        .json(&serde_json::json!({
-            "appId": "app-test",
-            "teamId": "team-1",
-            "workspaceId": "ws-test",
-            "workdir": workdir.to_str().unwrap(),
-            "gitRemoteUrl": bare.to_str().unwrap(),
-            // NB: no gitToken — credential must come from the backend.
-        }))
-        .send()
-        .await
-        .expect("seed response");
+    let seed = || {
+        app.client
+            .post(format!("{}/v1/apps/seed", app.base))
+            .bearer_auth(&app.session_token)
+            .json(&serde_json::json!({
+                "appId": "app-test",
+                "appType": "static_web",
+                "workdir": workdir.to_str().unwrap(),
+            }))
+            .send()
+    };
 
-    assert_eq!(resp.status(), 200, "expected 200, got {}", resp.status());
-    let body: Value = resp.json().await.expect("json body");
-    assert_eq!(body["status"], "ready");
+    assert_eq!(seed().await.expect("first seed").status(), 200);
+    assert_eq!(seed().await.expect("second seed").status(), 200);
 
-    assert_remote_has_template(&bare);
-
-    match prev_template_url {
-        Some(v) => std::env::set_var("TEAMCLAW_APP_TEMPLATE_URL", v),
-        None => std::env::remove_var("TEAMCLAW_APP_TEMPLATE_URL"),
-    }
+    // Still one commit: the second seed had nothing to add.
+    assert_seeded_checkout(&workdir);
+    assert_committed(&workdir);
 }
+
 
 #[tokio::test]
 async fn seed_app_requires_scope() {
