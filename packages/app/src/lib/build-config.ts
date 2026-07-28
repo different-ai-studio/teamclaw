@@ -175,7 +175,21 @@ function deriveShortName(name: string): string {
   return name.replace(/[^a-zA-Z0-9]/g, '').toLowerCase()
 }
 
+const OFFICIAL_BRAND_SHORT_NAMES = new Set(['teamclaw', 'teamclawdev'])
+
+/** Official TeamClaw Prod/Dev builds share one on-disk + localStorage namespace. */
+export function isOfficialBrand(shortName: string): boolean {
+  return OFFICIAL_BRAND_SHORT_NAMES.has(shortName)
+}
+
+/** Home dir + localStorage prefix (`teamclaw` for official builds). */
+export function resolveStorageDirName(shortName: string): string {
+  return isOfficialBrand(shortName) ? 'teamclaw' : shortName
+}
+
 export const appShortName: string = buildConfig.app.shortName ?? deriveShortName(buildConfig.app.name)
+/** Prefix for localStorage keys — unified `teamclaw` for official builds (Decision 1 = B). */
+export const appStoragePrefix: string = resolveStorageDirName(appShortName)
 /** The product name to show users. Prefer this over `buildConfig.app.name` in
  *  any UI string — `app.name` is the bundle identity and may differ. */
 export const appDisplayName: string = buildConfig.app.displayName ?? buildConfig.app.name
@@ -183,11 +197,11 @@ export const appScheme: string = buildConfig.app.scheme ?? 'teamclaw'
 /** Local agent runtime for this build. Defaults to opencode. */
 export const localAgent: 'opencode' | 'pi' = buildConfig.localAgent === 'pi' ? 'pi' : 'opencode'
 export const DEFAULT_WORKSPACE_PATH = `~/${buildConfig.app.name}`
-export const TEAMCLAW_DIR = `.${appShortName}`
+export const TEAMCLAW_DIR = isOfficialBrand(appShortName) ? '.teamclaw' : `.${appShortName}`
 /** Team share link + global sync dir name. Fixed across brands so daemon, git, and all clients agree. */
 export const TEAM_REPO_DIR = 'teamclaw-team'
-export const CONFIG_FILE_NAME = `${appShortName}.json`
-export const TEAM_SYNCED_EVENT = `${appShortName}-team-synced`
+export const CONFIG_FILE_NAME = isOfficialBrand(appShortName) ? 'teamclaw.json' : `${appShortName}.json`
+export const TEAM_SYNCED_EVENT = `${appStoragePrefix}-team-synced`
 
 /** Baked Chrome-extension pack config (`extensions` in build.config*.json). */
 export const extensionPack: ExtensionPackConfig = parseExtensionPackConfig(

@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 
 import React from "react";
-import { act, render, waitFor } from "@testing-library/react";
+import { act, render, screen, waitFor } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 type MockFileNode = {
@@ -107,6 +107,18 @@ vi.mock("../FileTree", () => ({
   },
 }));
 
+const ossSyncState = vi.hoisted(() => ({
+  teamId: "team-1" as string | null,
+  syncing: false,
+  refresh: vi.fn().mockResolvedValue(undefined),
+  syncNow: vi.fn().mockResolvedValue(undefined),
+}));
+
+vi.mock("@/stores/oss-sync", () => ({
+  useOssSyncStore: (selector: (state: typeof ossSyncState) => unknown) =>
+    selector(ossSyncState),
+}));
+
 vi.mock("@/stores/workspace", () => ({
   useWorkspaceStore: Object.assign(
     (selector: (state: Record<string, unknown>) => unknown) =>
@@ -138,6 +150,25 @@ describe("FileBrowser", () => {
     vi.clearAllMocks();
     mockFileTree = [];
     latestNodesProp = undefined;
+    ossSyncState.teamId = "team-1";
+  });
+
+  it("hides built-in OSS sync when the caller already supplies actionIcons", () => {
+    render(
+      <FileBrowser
+        variant="panel"
+        actionIcons={<button data-testid="caller-sync">Sync</button>}
+      />,
+    );
+
+    expect(screen.getByTestId("caller-sync")).toBeTruthy();
+    expect(screen.queryByTestId("filebrowser-oss-sync")).toBeNull();
+  });
+
+  it("shows built-in OSS sync for workspace root when no actionIcons are provided", () => {
+    render(<FileBrowser variant="panel" />);
+
+    expect(screen.getByTestId("filebrowser-oss-sync")).toBeTruthy();
   });
 
   it("retries loading custom root ancestors after the global tree becomes available", async () => {

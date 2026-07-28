@@ -5,14 +5,14 @@ import { invoke } from '@tauri-apps/api/core'
 import { Button } from '@/components/ui/button'
 import { SettingCard, SectionHeader } from './shared'
 import { toast } from 'sonner'
-import { appShortName } from '@/lib/build-config'
+import { appStoragePrefix } from '@/lib/build-config'
 import { isTauri } from '@/lib/utils'
 import { useWorkspaceStore } from '@/stores/workspace'
 import { encodeWorkspaceId, reloadDaemonRuntime } from '@/lib/daemon-local-client'
 
 // Legacy global storage key — kept only for one-time migration into
 // per-workspace teamclaw.json.
-const LEGACY_STORAGE_KEY = `${appShortName}-system-prompt`
+const LEGACY_STORAGE_KEY = `${appStoragePrefix}-system-prompt`
 
 export const PromptSection = React.memo(function PromptSection() {
   const { t } = useTranslation()

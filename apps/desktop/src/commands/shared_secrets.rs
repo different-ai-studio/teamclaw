@@ -306,7 +306,10 @@ pub fn try_lazy_init_from_workspace(
     if !teamclaw_config_path(workspace).exists() {
         return Err("No team configured for this workspace".to_string());
     }
-    let env_secret = teamclaw_runtime_env::env_catalog::resolve_team_env_secret(workspace, team_id)
+    let env_secret =
+        teamclaw_runtime_env::env_catalog::resolve_team_env_secret(workspace, team_id, Some(
+            super::APP_SHORT_NAME,
+        ))
         .ok_or_else(|| {
             "Team shared environment variables are not initialized for this workspace".to_string()
         })?;

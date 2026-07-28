@@ -31,12 +31,13 @@ import { useCurrentTeamStore } from '@/stores/current-team'
 import { getBackend } from '@/lib/backend'
 import { SettingCard, SectionHeader, ToggleSwitch } from './shared'
 import { useAcpDebugStore } from '@/stores/acp-debug-store'
-import { appShortName, buildConfig } from '@/lib/build-config'
+import { appStoragePrefix, buildConfig } from '@/lib/build-config'
+import { NOTIFICATION_LEVEL_KEY } from '@/lib/notification-service'
 import { LANGUAGE_OPTIONS, getPreferredLanguage, normalizeSupportedLanguage, persistLanguage } from '@/lib/locale'
 import { getEffectiveServerConfig, type ServerConfig } from '@/lib/server-config'
 
 // Theme helpers
-const THEME_STORAGE_KEY = `${buildConfig.app.shortName ?? 'teamclaw'}-theme`
+const THEME_STORAGE_KEY = `${appStoragePrefix}-theme`
 const DEFAULT_THEME = buildConfig.defaults?.theme || 'system'
 
 function applyTheme(theme: string) {
@@ -136,14 +137,14 @@ export const GeneralSection = React.memo(function GeneralSection() {
 
   const [notificationLevel, setNotificationLevelState] = React.useState(() => {
     try {
-      const stored = localStorage.getItem(`${appShortName}-notification-level`)
+      const stored = localStorage.getItem(NOTIFICATION_LEVEL_KEY)
       if (stored === 'all' || stored === 'important' || stored === 'mute') return stored
     } catch { /* ignore */ }
     return 'important'
   })
   const setNotificationLevel = React.useCallback((level: string) => {
     setNotificationLevelState(level)
-    try { localStorage.setItem(`${appShortName}-notification-level`, level) } catch { /* ignore */ }
+    try { localStorage.setItem(NOTIFICATION_LEVEL_KEY, level) } catch { /* ignore */ }
   }, [])
   const acpStreamDebugEnabled = useAcpDebugStore((s) => s.enabled)
   const setAcpStreamDebugEnabled = useAcpDebugStore((s) => s.setEnabled)

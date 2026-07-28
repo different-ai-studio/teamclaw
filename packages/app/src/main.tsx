@@ -10,7 +10,10 @@ import { LocalAgentPanelApp } from './components/LocalAgentPanelApp'
 import './styles/globals.css'
 import './stores/dev-expose'
 import './lib/i18n'; // Initialize i18n
-import { appShortName, buildConfig } from './lib/build-config'
+import { appStoragePrefix, buildConfig } from './lib/build-config'
+import { migrateOfficialLocalStorage } from './lib/storage-migration'
+
+migrateOfficialLocalStorage()
 import { ensureBundledAmuxdCurrent } from './lib/daemon-version-upgrade'
 import { initJwtBridge } from './lib/jwt-bridge'
 import { installConsoleCapture } from './lib/console-capture'
@@ -38,7 +41,7 @@ installConsoleCapture()
 
 // Apply persisted theme immediately to prevent flash of wrong theme
 ;(() => {
-  const theme = localStorage.getItem(`${appShortName}-theme`) || buildConfig.defaults?.theme || 'system'
+  const theme = localStorage.getItem(`${appStoragePrefix}-theme`) || buildConfig.defaults?.theme || 'system'
   const root = document.documentElement
   if (theme === 'dark') {
     root.classList.add('dark')

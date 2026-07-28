@@ -1,6 +1,6 @@
-import { appShortName } from "@/lib/build-config";
+import { appStoragePrefix } from "@/lib/build-config";
 
-const STORAGE_KEY = `${appShortName}-pinned-sessions`;
+const STORAGE_KEY = `${appStoragePrefix}-pinned-sessions`;
 
 type PinnedSessionStorage = Record<string, string[]>;
 

@@ -4,7 +4,7 @@ import { homeDir } from '@tauri-apps/api/path'
 import type { SkillWithSource, SkillSource } from './types'
 import { INHERENT_SKILL_NAMES, shouldIncludeDesktopControlSkill } from './types'
 import type { ClawHubLockfile } from '@/lib/clawhub/types'
-import { appDisplayName, TEAM_REPO_DIR } from '@/lib/build-config'
+import { appDisplayName, TEAMCLAW_DIR, TEAM_REPO_DIR } from '@/lib/build-config'
 import i18n from '@/lib/i18n'
 
 // ─── Helpers ────────────────────────────────────────────────────────────────
@@ -128,7 +128,7 @@ export async function getSkillDirectories(workspacePath: string | null): Promise
   ])
 
   if (workspacePath) {
-    dirs.add(`${workspacePath}/.teamclaw/skills`)
+    dirs.add(`${workspacePath}/${TEAMCLAW_DIR}/skills`)
     dirs.add(`${workspacePath}/.claude/skills`)
     dirs.add(`${workspacePath}/.agents/skills`)
 
@@ -188,7 +188,7 @@ export async function loadAllSkills(
   //    Skills whose dirname matches INHERENT_SKILL_NAMES are marked as 'builtin'.
   //    Skills whose dirname matches a ClawHub lockfile entry are marked as 'clawhub'.
   if (workspacePath) {
-    const localDir = `${workspacePath}/.teamclaw/skills`
+    const localDir = `${workspacePath}/${TEAMCLAW_DIR}/skills`
     const localSkills = await loadSkillsFromDir(localDir, 'local')
     for (const skill of localSkills) {
       if (INHERENT_SKILL_NAMES.has(skill.filename)) {
@@ -236,7 +236,7 @@ export async function loadAllSkills(
 
   // 7. Scan plugin cache for skills installed via teamclaw.json "plugin" array
   if (workspacePath) {
-    const pluginCacheDir = `${workspacePath}/.teamclaw/cache/agent/node_modules`
+    const pluginCacheDir = `${workspacePath}/${TEAMCLAW_DIR}/cache/agent/node_modules`
     try {
       if (await exists(pluginCacheDir)) {
         const pluginEntries = await readDir(pluginCacheDir)
@@ -361,11 +361,11 @@ export function getSourceLabel(source: SkillSource): string {
 export function getSourceDirHint(source: SkillSource): string {
   switch (source) {
     case 'local':
-      return '.teamclaw/skills/'
+      return `${TEAMCLAW_DIR}/skills/`
     case 'claude':
       return '.claude/skills/'
     case 'clawhub':
-      return '.teamclaw/skills/ (ClawHub)'
+      return `${TEAMCLAW_DIR}/skills/ (ClawHub)`
     case 'shared':
       return '.agents/skills/'
     case 'team':

@@ -33,7 +33,8 @@ import { useTeamModeStore } from "@/stores/team-mode";
 import { useTeamShareStore } from "@/stores/team-share";
 import { useOssSyncStore } from "@/stores/oss-sync";
 import { getSkillDirectories, loadAllSkills } from "@/lib/git/skill-loader";
-import { appShortName, DEFAULT_WORKSPACE_PATH, TEAM_REPO_DIR } from "@/lib/build-config";
+import { appStoragePrefix, DEFAULT_WORKSPACE_PATH, TEAM_REPO_DIR } from "@/lib/build-config";
+import { WORKSPACE_STORAGE_KEY } from "@/stores/workspace";
 import { markStartup } from "@/lib/startup-perf";
 
 export const SKILLS_CHANGED_EVENT = "skills-files-changed";
@@ -110,7 +111,7 @@ export function useWorkspaceInit() {
           await setWorkspace(windowParams.workspace);
         } else {
           try {
-            const savedPath = localStorage.getItem(`${appShortName}-workspace-path`);
+            const savedPath = localStorage.getItem(WORKSPACE_STORAGE_KEY);
             let restored = false;
             if (savedPath) {
               let canRestore = true;
@@ -130,7 +131,7 @@ export function useWorkspaceInit() {
                 restored = true;
               } else {
                 console.log("[App] Saved workspace no longer exists, clearing restore path:", savedPath);
-                localStorage.removeItem(`${appShortName}-workspace-path`);
+                localStorage.removeItem(WORKSPACE_STORAGE_KEY);
               }
             }
 
@@ -735,7 +736,7 @@ export function useSetupGuide(workspaceReady: boolean) {
   useEffect(() => {
     const debugForceSetup = (() => {
       try {
-        return localStorage.getItem(`${appShortName}-debug-force-setup`) === "1";
+        return localStorage.getItem(`${appStoragePrefix}-debug-force-setup`) === "1";
       } catch {
         return false;
       }
