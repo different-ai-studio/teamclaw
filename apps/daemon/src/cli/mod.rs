@@ -1,6 +1,7 @@
 pub mod channel;
 pub mod clear;
 pub mod config_cmd;
+pub mod cursor_permission_hook;
 pub mod doctor;
 pub mod install_opencode;
 pub mod mcp_server;
@@ -111,6 +112,9 @@ pub enum Commands {
     /// Run the remote-tools MCP server on stdio. Proxies browser/client tools
     /// to the bound TeamClaw client over MQTT RPC.
     RemoteToolsMcp(RemoteToolsMcpArgs),
+    /// Cursor `preToolUse` hook. Spawned by `@cursor/sdk` per tool call;
+    /// reads the hook request on stdin and prints an allow/deny decision.
+    CursorPermissionHook(CursorPermissionHookArgs),
 }
 
 #[derive(Args, Debug)]
@@ -230,6 +234,15 @@ pub struct RemoteToolsMcpArgs {
     /// Member actor that owns the RPC topic (`amux/{team}/{id}/rpc/req`).
     #[arg(long, alias = "client-actor-id", default_value = "")]
     pub member_actor_id: String,
+    #[arg(long)]
+    pub sock: Option<std::path::PathBuf>,
+}
+
+#[derive(Args, Debug)]
+pub struct CursorPermissionHookArgs {
+    /// Worktree the calling agent runs in; used to resolve the session.
+    #[arg(long, default_value = "")]
+    pub worktree: String,
     #[arg(long)]
     pub sock: Option<std::path::PathBuf>,
 }

@@ -19,11 +19,15 @@ use crate::runtime::manager::AgentLaunchConfig;
 use crate::runtime::opencode_http::translate::status_change;
 use crate::runtime::permission_policy::PermissionPolicy;
 
-pub mod client;
 mod events;
+pub mod hooks;
+pub mod permission;
 pub mod process;
 pub mod translate;
 
+use crate::runtime::sidecar::mcp;
+
+use permission::PendingPermission;
 use process::CursorProcessPool;
 use translate::TranslateState;
 
@@ -39,12 +43,6 @@ pub(crate) struct Route {
     pub(crate) turn_requester: Option<String>,
     pub(crate) translate: TranslateState,
     pub(crate) model: String,
-}
-
-pub(crate) struct PendingPermission {
-    pub(crate) session_id: String,
-    pub(crate) agent_id: String,
-    pub(crate) request_id: String,
 }
 
 pub(crate) struct Shared {
@@ -63,7 +61,19 @@ impl Shared {
     }
 }
 
-fn canonical_dir(worktree: &str) -> String {
+/// Process-global backend state.
+///
+/// The `preToolUse` hook arrives on `amuxd.sock`, which is served by the daemon
+/// loop — it has no handle on the `AgentBackend` box owned by `RuntimeManager`.
+/// There is at most one local backend per daemon, so the route + pending tables
+/// live here instead, reachable from both sides.
+static SHARED: std::sync::OnceLock<Arc<Shared>> = std::sync::OnceLock::new();
+
+pub(crate) fn shared() -> Arc<Shared> {
+    Arc::clone(SHARED.get_or_init(Shared::new))
+}
+
+pub(crate) fn canonical_dir(worktree: &str) -> String {
     std::fs::canonicalize(worktree)
         .map(|p| p.to_string_lossy().into_owned())
         .unwrap_or_else(|_| worktree.to_string())
@@ -115,12 +125,6 @@ fn models_from_list(result: &serde_json::Value) -> Vec<amux::ModelInfo> {
         .unwrap_or_default()
 }
 
-fn sdk_model_from_flat(flat: &str) -> String {
-    flat.strip_prefix("cursor/")
-        .unwrap_or(flat)
-        .to_string()
-}
-
 fn pick_initial_model(
     available: &[amux::ModelInfo],
     override_model: Option<&str>,
@@ -150,6 +154,7 @@ fn pick_initial_model(
 struct AttachArgs {
     worktree: String,
     resume_acp_session_id: Option<String>,
+    mcp_config_path: Option<PathBuf>,
     initial_model_override: Option<String>,
     model_mru: Vec<String>,
     event_tx: mpsc::Sender<AcpEventFrame>,
@@ -157,9 +162,29 @@ struct AttachArgs {
     forbid_new_session_fallback: bool,
 }
 
+/// Install the `preToolUse` gate in the worktree. Best-effort: a worktree we
+/// cannot write to loses interactive approval (the SDK simply finds no hook),
+/// which is no worse than the state before the gate existed.
+fn install_permission_hook(worktree: &str) {
+    let amuxd_bin = match std::env::current_exe() {
+        Ok(p) => p,
+        Err(e) => {
+            warn!(error = %e, "cursor: current_exe() failed; permission hook not installed");
+            return;
+        }
+    };
+    let sock = DaemonConfig::sock_path();
+    match hooks::ensure(worktree, &amuxd_bin, &sock) {
+        Ok(path) => info!(path = %path.display(), "cursor permission hook installed"),
+        Err(e) => warn!(worktree, error = %e, "cursor permission hook install failed"),
+    }
+}
+
 async fn attach(shared: &Arc<Shared>, args: AttachArgs) -> Result<AcpStartupMetadata, String> {
     load_cursor_pool_config(&shared.pool);
     let worktree = canonical_dir(&args.worktree);
+    install_permission_hook(&worktree);
+    let mcp_servers = mcp::assemble(&worktree, args.mcp_config_path.as_deref());
     let proc = shared
         .pool
         .ensure(shared, &worktree)
@@ -183,8 +208,6 @@ async fn attach(shared: &Arc<Shared>, args: AttachArgs) -> Result<AcpStartupMeta
         &args.model_mru,
         &default_model,
     );
-    let sdk_model = sdk_model_from_flat(&initial_flat);
-
     let resume_agent_id = args
         .resume_acp_session_id
         .as_deref()
@@ -192,16 +215,29 @@ async fn attach(shared: &Arc<Shared>, args: AttachArgs) -> Result<AcpStartupMeta
         .filter(|s| !s.is_empty())
         .map(str::to_string);
 
+    // The SDK does not persist inline MCP, so resume has to re-send the whole
+    // manifest exactly like create does.
+    let mcp_servers = serde_json::Value::Object(mcp_servers);
+    let create_params = |extra: serde_json::Value| {
+        let mut params = serde_json::json!({
+            "cwd": worktree,
+            "model": initial_flat,
+            "mcpServers": mcp_servers,
+        });
+        if let (Some(obj), Some(extra)) = (params.as_object_mut(), extra.as_object()) {
+            for (k, v) in extra {
+                obj.insert(k.clone(), v.clone());
+            }
+        }
+        params
+    };
+
     let create_resp = if let Some(agent_id) = resume_agent_id {
         match proc
             .client
             .request(
                 "resume_agent",
-                serde_json::json!({
-                    "agentId": agent_id,
-                    "cwd": worktree,
-                    "model": initial_flat,
-                }),
+                create_params(serde_json::json!({ "agentId": agent_id })),
             )
             .await
         {
@@ -214,26 +250,14 @@ async fn attach(shared: &Arc<Shared>, args: AttachArgs) -> Result<AcpStartupMeta
                 }
                 warn!(agent_id, error = %e, "cursor resume failed; creating new agent");
                 proc.client
-                    .request(
-                        "create_agent",
-                        serde_json::json!({
-                            "cwd": worktree,
-                            "model": initial_flat,
-                        }),
-                    )
+                    .request("create_agent", create_params(serde_json::json!({})))
                     .await
                     .map_err(|e| e.to_string())?
             }
         }
     } else {
         proc.client
-            .request(
-                "create_agent",
-                serde_json::json!({
-                    "cwd": worktree,
-                    "model": initial_flat,
-                }),
-            )
+            .request("create_agent", create_params(serde_json::json!({})))
             .await
             .map_err(|e| e.to_string())?
     };
@@ -259,8 +283,6 @@ async fn attach(shared: &Arc<Shared>, args: AttachArgs) -> Result<AcpStartupMeta
             model: initial_flat.clone(),
         },
     );
-
-    let _ = sdk_model;
 
     Ok(AcpStartupMetadata {
         available_models,
@@ -290,7 +312,7 @@ async fn do_prompt(
     reply_to_message_id: Option<String>,
 ) {
     let reply_to = reply_to_message_id.filter(|id| !id.is_empty());
-    let (event_tx, worktree, agent_id) = {
+    let (event_tx, worktree, agent_id, model) = {
         let mut routes = shared.routes.lock();
         let Some(route) = routes.get_mut(session_id) else {
             warn!(session_id, "prompt for unknown cursor session");
@@ -303,6 +325,7 @@ async fn do_prompt(
             route.event_tx.clone(),
             route.worktree.clone(),
             route.agent_id.clone(),
+            route.model.clone(),
         )
     };
 
@@ -329,7 +352,13 @@ async fn do_prompt(
             proc.client
                 .request(
                     "send",
-                    serde_json::json!({ "agentId": agent_id, "text": message }),
+                    // The daemon's route is the source of truth for the model,
+                    // exactly as in the opencode backend's `PromptBody`.
+                    serde_json::json!({
+                        "agentId": agent_id,
+                        "text": message,
+                        "model": model,
+                    }),
                 )
                 .await
         }
@@ -370,43 +399,13 @@ async fn do_prompt(
     }
 }
 
-async fn resolve_permission(
-    shared: &Arc<Shared>,
-    request_id: &str,
-    granted: bool,
-) {
-    let Some(pending) = shared.permissions.lock().remove(request_id) else {
-        warn!(request_id, "no pending cursor permission");
-        return;
-    };
-    let worktree = shared
-        .routes
-        .lock()
-        .get(&pending.session_id)
-        .map(|r| r.worktree.clone())
-        .unwrap_or_default();
-    let Some(proc) = shared.pool.get(&worktree) else {
-        return;
-    };
-    let _ = proc
-        .client
-        .request(
-            "resolve_permission",
-            serde_json::json!({
-                "agentId": pending.agent_id,
-                "requestId": pending.request_id,
-                "granted": granted,
-            }),
-        )
-        .await;
-}
-
 async fn command_loop(shared: Arc<Shared>, mut cmd_rx: mpsc::Receiver<AcpCommand>) {
     while let Some(cmd) = cmd_rx.recv().await {
         match cmd {
             AcpCommand::AttachSession {
                 worktree,
                 resume_acp_session_id,
+                mcp_config_path,
                 initial_model_override,
                 model_mru,
                 initial_prompt,
@@ -414,13 +413,13 @@ async fn command_loop(shared: Arc<Shared>, mut cmd_rx: mpsc::Receiver<AcpCommand
                 startup_tx,
                 permission,
                 forbid_new_session_fallback,
-                ..
             } => {
                 let result = attach(
                     &shared,
                     AttachArgs {
                         worktree,
                         resume_acp_session_id,
+                        mcp_config_path,
                         initial_model_override,
                         model_mru,
                         event_tx,
@@ -467,10 +466,7 @@ async fn command_loop(shared: Arc<Shared>, mut cmd_rx: mpsc::Receiver<AcpCommand
                 if let Ok(proc) = shared.pool.ensure(&shared, &worktree) {
                     let _ = proc
                         .client
-                        .request(
-                            "cancel",
-                            serde_json::json!({ "agentId": agent_id }),
-                        )
+                        .request("cancel", serde_json::json!({ "agentId": agent_id }))
                         .await;
                 }
                 events::close_turn(&shared, &acp_session_id).await;
@@ -478,8 +474,8 @@ async fn command_loop(shared: Arc<Shared>, mut cmd_rx: mpsc::Receiver<AcpCommand
             AcpCommand::ResolvePermission {
                 request_id,
                 granted,
-                ..
-            } => resolve_permission(&shared, &request_id, granted).await,
+                option_id,
+            } => permission::resolve(&shared, &request_id, granted, option_id.as_deref()),
             AcpCommand::SetModel {
                 acp_session_id,
                 model_id,
@@ -522,7 +518,7 @@ pub struct CursorSdkBackend {
 
 impl CursorSdkBackend {
     pub fn new() -> Self {
-        let shared = Shared::new();
+        let shared = shared();
         load_cursor_pool_config(&shared.pool);
         Self {
             shared,
@@ -557,7 +553,7 @@ impl AgentBackend for CursorSdkBackend {
         force_env_override: bool,
         worktree: String,
         resume_acp_session_id: Option<String>,
-        _mcp_config_path: Option<PathBuf>,
+        mcp_config_path: Option<PathBuf>,
         initial_model_override: Option<String>,
         model_mru: Vec<String>,
         initial_prompt: String,
@@ -575,6 +571,7 @@ impl AgentBackend for CursorSdkBackend {
             AttachArgs {
                 worktree,
                 resume_acp_session_id,
+                mcp_config_path,
                 initial_model_override,
                 model_mru,
                 event_tx,
@@ -631,11 +628,12 @@ impl AgentBackend for CursorSdkBackend {
         self.shared.pool.live_count()
     }
 
-    async fn session_model(
-        &mut self,
-        worktree: &str,
-        backend_session_id: &str,
-    ) -> Option<String> {
+    /// Only `sdkModel` — the SDK's own `agent.model`, updated after each
+    /// successful send — is allowed to teach the device MRU. The bridge also
+    /// reports `requestedModel` (what we last asked for); feeding that back
+    /// would just echo our own guess into the MRU, which is what this method's
+    /// contract exists to prevent.
+    async fn session_model(&mut self, worktree: &str, backend_session_id: &str) -> Option<String> {
         let session_id = backend_session_id.strip_prefix(SESSION_ID_PREFIX)?;
         let worktree = canonical_dir(worktree);
         let proc = self.shared.pool.get(&worktree)?;
@@ -647,7 +645,10 @@ impl AgentBackend for CursorSdkBackend {
             )
             .await
             .ok()?;
-        resp.get("model").and_then(|v| v.as_str()).map(str::to_string)
+        resp.get("sdkModel")
+            .and_then(|v| v.as_str())
+            .filter(|s| !s.is_empty())
+            .map(str::to_string)
     }
 
     async fn model_catalog(
@@ -693,10 +694,5 @@ mod tests {
             ),
             "cursor/claude-sonnet-5"
         );
-    }
-
-    #[test]
-    fn sdk_model_from_flat_strips_provider() {
-        assert_eq!(sdk_model_from_flat("cursor/composer-2.5"), "composer-2.5");
     }
 }

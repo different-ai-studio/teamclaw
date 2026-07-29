@@ -86,6 +86,7 @@ pub(crate) fn agent_type_from_name(name: &str) -> Option<amux::AgentType> {
         "codex" => Some(amux::AgentType::Codex),
         "claude" | "claude_code" | "claude-code" => Some(amux::AgentType::ClaudeCode),
         "pi" => Some(amux::AgentType::Pi),
+        "cursor" => Some(amux::AgentType::Cursor),
         _ => None,
     }
 }
@@ -98,6 +99,7 @@ fn agent_type_name(agent_type: amux::AgentType) -> Option<&'static str> {
         amux::AgentType::Codex => Some("codex"),
         amux::AgentType::ClaudeCode => Some("claude-code"),
         amux::AgentType::Pi => Some("pi"),
+        amux::AgentType::Cursor => Some("cursor"),
         amux::AgentType::Unknown => None,
     }
 }

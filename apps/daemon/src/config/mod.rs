@@ -15,7 +15,7 @@ pub mod workspace_path;
 mod workspace_resolver;
 
 pub use daemon_config::{
-    ActorConfig, AgentBackendConfig, AgentsConfig, CursorAgentConfig, DaemonConfig, DiscordChannel,
+    ActorConfig, AgentBackendConfig, AgentsConfig, ClaudeAgentConfig, CursorAgentConfig, DaemonConfig, DiscordChannel,
     EmailChannel, FeishuChannel, HttpConfig, KookChannel, MqttConfig, TransportKind, WeChatChannel,
     WeComChannel, BOOTSTRAP_ACTOR_NAME,
 };
