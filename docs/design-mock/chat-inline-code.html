@@ -1,0 +1,299 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>行内代码 · 效果图 · 基于 TeamClaw 黑白底</title>
+<style>
+  :root {
+    --font: "PingFang SC", "Noto Sans SC", Inter, -apple-system, BlinkMacSystemFont, sans-serif;
+    --mono: "JetBrains Mono", "SF Mono", ui-monospace, Menlo, Consolas, monospace;
+  }
+
+  /* App tokens — packages/app/src/styles/globals.css */
+  .t-light {
+    --bg: #fbfaf7;
+    --paper: #ffffff;
+    --panel: #EFEEE9;
+    --selected: #E8E6E0;
+    --ink: #1a1a14;
+    --ink-2: #3d3c34;
+    --mute: #75736a;
+    --faint: #a8a6a0;
+    --border: rgba(26, 26, 20, 0.08);
+    --border-soft: rgba(26, 26, 20, 0.05);
+  }
+  .t-dark {
+    --bg: oklch(0.145 0 0);
+    --paper: oklch(0.205 0 0);
+    --panel: oklch(0.205 0 0);
+    --selected: oklch(0.269 0 0);
+    --ink: oklch(0.985 0 0);
+    --ink-2: oklch(0.85 0 0);
+    --mute: oklch(0.708 0 0);
+    --faint: oklch(0.556 0 0);
+    --border: oklch(1 0 0 / 10%);
+    --border-soft: oklch(1 0 0 / 6%);
+  }
+
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    font-family: var(--font);
+    background: #e6e3dc;
+    color: #1a1a14;
+    padding: 28px 20px 80px;
+    -webkit-font-smoothing: antialiased;
+  }
+  body.page-dark { background: #0a0a0a; color: rgba(255,255,255,0.72); }
+
+  .page-h { max-width: 1120px; margin: 0 auto 16px; }
+  .page-h h1 { font-size: 16px; font-weight: 650; }
+  .page-h p { margin-top: 6px; font-size: 13px; line-height: 1.55; opacity: 0.72; }
+
+  .tabs {
+    max-width: 1120px; margin: 0 auto 14px;
+    display: flex; flex-wrap: wrap; gap: 6px;
+  }
+  .tabs button {
+    font: inherit; border: none; cursor: pointer;
+    height: 30px; padding: 0 12px; border-radius: 8px;
+    background: rgba(0,0,0,0.05); color: inherit; opacity: 0.75;
+    font-size: 12.5px; font-weight: 560;
+  }
+  body.page-dark .tabs button { background: rgba(255,255,255,0.06); }
+  .tabs button.on {
+    opacity: 1; background: #fff; box-shadow: 0 1px 3px rgba(0,0,0,0.08);
+  }
+  body.page-dark .tabs button.on {
+    background: oklch(0.205 0 0); box-shadow: 0 0 0 1px rgba(255,255,255,0.1);
+  }
+
+  .stage {
+    max-width: 1120px; margin: 0 auto;
+    display: grid; gap: 14px;
+  }
+  .stage.dual { grid-template-columns: 1fr 1fr; }
+  @media (max-width: 900px) { .stage.dual { grid-template-columns: 1fr; } }
+
+  .frame {
+    background: var(--bg);
+    border-radius: 14px;
+    overflow: hidden;
+    box-shadow: 0 1px 3px rgba(0,0,0,0.06);
+  }
+  body.page-dark .frame { box-shadow: 0 0 0 1px rgba(255,255,255,0.08); }
+  .frame-label {
+    display: flex; align-items: center; justify-content: space-between;
+    padding: 10px 14px;
+    border-bottom: 1px solid var(--border-soft);
+    font-size: 11px; font-weight: 600; letter-spacing: 0.04em;
+    text-transform: uppercase; color: var(--faint);
+    background: var(--paper);
+  }
+  .msg {
+    padding: 18px 22px 22px;
+    color: var(--ink);
+    font-size: 14.5px;
+    line-height: 1.6;
+  }
+  .msg p { margin: 0.4em 0 0.75em; color: var(--ink-2); }
+  .msg p strong { color: var(--ink); font-weight: 600; }
+
+  table {
+    width: 100%; border-collapse: collapse;
+    font-size: 13px; margin: 0.6em 0 1em;
+  }
+  th, td {
+    padding: 7px 10px; text-align: left; vertical-align: top;
+    border: 1px solid var(--border);
+  }
+  th { font-weight: 600; color: var(--ink); }
+  td { color: var(--ink-2); }
+  ul { margin: 0.4em 0 0; padding-left: 1.35em; color: var(--ink-2); }
+  li { margin: 0.28em 0; }
+  .opt-tag {
+    display: inline-block; margin-bottom: 10px;
+    font-size: 11px; font-weight: 650; letter-spacing: 0.04em;
+    color: var(--mute);
+  }
+  .opt-tag b { color: var(--ink); font-weight: 700; }
+
+  /* —— variants —— */
+  code { font-family: var(--mono); font-size: 0.86em; }
+
+  /* 0 · 现状（粉红 Notion） */
+  .v0 code {
+    background: rgba(135,131,120,0.15);
+    color: #eb5757;
+    border-radius: 4px;
+    padding: 0.15em 0.4em;
+  }
+  .t-dark .v0 code {
+    background: rgba(135,131,120,0.28);
+    color: #ff7369;
+  }
+
+  /* 1 · 上一版（描边灰盒）— 你说更丑 */
+  .v1 code {
+    background: color-mix(in srgb, var(--ink) 5.5%, transparent);
+    color: var(--ink-2);
+    border: 1px solid color-mix(in srgb, var(--ink) 7%, transparent);
+    border-radius: 3px;
+    padding: 0.1em 0.32em;
+  }
+
+  /* A · Soft panel — 用 --selected / --panel 填色，无描边 */
+  .va code {
+    background: var(--selected);
+    color: var(--ink);
+    border-radius: 4px;
+    padding: 0.12em 0.36em;
+  }
+
+  /* B · Ghost mono — 无底无边，仅等宽 + 略深字色 */
+  .vb code {
+    background: transparent;
+    color: var(--ink);
+    padding: 0;
+    font-weight: 500;
+    letter-spacing: -0.01em;
+  }
+
+  /* C · Paper inset — paper 上浅 panel 底，极轻 */
+  .vc code {
+    background: var(--panel);
+    color: var(--ink-2);
+    border-radius: 3px;
+    padding: 0.08em 0.3em;
+    box-shadow: inset 0 0 0 1px var(--border-soft);
+  }
+
+  /* D · Underline tick — 底线标记，表格最不吵 */
+  .vd code {
+    background: transparent;
+    color: var(--ink);
+    padding: 0 1px;
+    border-bottom: 1px solid color-mix(in srgb, var(--ink) 22%, transparent);
+    border-radius: 0;
+  }
+
+  .cards { display: none; }
+  .cards.show { display: contents; }
+  .single-card { display: none; }
+  .single-card.show { display: block; }
+
+  .pick {
+    max-width: 1120px; margin: 18px auto 0;
+    padding: 12px 14px; border-radius: 10px;
+    background: rgba(255,255,255,0.7);
+    font-size: 12.5px; line-height: 1.5;
+  }
+  body.page-dark .pick { background: rgba(255,255,255,0.04); }
+  .pick strong { font-weight: 650; }
+</style>
+</head>
+<body>
+  <div class="page-h">
+    <h1>行内代码效果图 · TeamClaw 真实底色</h1>
+    <p>
+      Light：<code style="font-family:var(--mono);font-size:12px">bg #fbfaf7 · paper #fff · panel #EFEEE9 · selected #E8E6E0</code><br />
+      Dark：<code style="font-family:var(--mono);font-size:12px">bg oklch(0.145) · paper/panel oklch(0.205) · selected oklch(0.269)</code>
+      · 用进程表密排场景压测。点方案切换；推荐先看 <b>A / B / D</b>。
+    </p>
+  </div>
+
+  <div class="tabs" id="tabs">
+    <button type="button" data-view="compare" class="on">Light / Dark 对照</button>
+    <button type="button" data-view="v0">0 粉红（旧）</button>
+    <button type="button" data-view="v1">1 描边灰（更丑）</button>
+    <button type="button" data-view="va" class="">A Soft panel</button>
+    <button type="button" data-view="vb">B Ghost mono</button>
+    <button type="button" data-view="vc">C Paper inset</button>
+    <button type="button" data-view="vd">D Underline</button>
+  </div>
+
+  <div class="stage dual" id="stage">
+    <!-- filled by JS -->
+  </div>
+
+  <div class="pick">
+    <strong>怎么选：</strong>
+    表格里 PID/路径很多时，带色盒子会变成「粉斑/灰斑墙」。
+    <b>B</b> 最干净；<b>D</b> 有一点代码感但不抢；<b>A</b> 有 chip 但仍贴面板色。
+    选定后告诉我字母，我再改代码。
+  </div>
+
+<script>
+const SAMPLE = `
+<p>先检查本机进程表中包含 <code>amuxd</code> 的进程，再根据父子进程关系补充关联进程。</p>
+<p>找到 <strong>2</strong> 个活跃主进程，以及几个异常/残留的 <code>--version</code> 进程。</p>
+<table>
+  <thead><tr><th>PID</th><th>PPID</th><th>状态</th><th>进程</th></tr></thead>
+  <tbody>
+    <tr><td><code>39481</code></td><td><code>32232</code></td><td><code>S</code></td><td><code>amuxd-aarch64-apple-darwin start</code></td></tr>
+    <tr><td><code>46344</code></td><td><code>39500</code></td><td><code>S</code></td><td><code>remote-tools-mcp --sock=…/amuxd.sock</code></td></tr>
+    <tr><td><code>33354</code></td><td><code>33352</code></td><td><code>S+</code></td><td><code>node scripts/tauri-cli.js dev --force-amuxd</code></td></tr>
+    <tr><td><code>62329</code></td><td><code>1</code></td><td><code>UE</code></td><td><code>amuxd-aarch64-apple-darwin --version</code></td></tr>
+  </tbody>
+</table>
+<ul>
+  <li>主服务 <code>PID 39481</code>，监听 <code>127.0.0.1:56007</code>，socket <code>~/.amuxd/amuxd.sock</code></li>
+  <li>日志：<code>/Users/haigang.ye/.amuxd/amuxd.managed.log</code></li>
+  <li>孤儿：<code>62329/63504/63690</code>，PPID=<code>1</code>，状态 <code>UE</code></li>
+</ul>
+`;
+
+const VARIANTS = [
+  { id: 'v0', name: '0 · 粉红 Notion', note: '现状/旧稿 · 密排很吵' },
+  { id: 'v1', name: '1 · 描边灰盒', note: '上一版 · 你说更丑' },
+  { id: 'va', name: 'A · Soft panel', note: 'selected 填色 · 无描边' },
+  { id: 'vb', name: 'B · Ghost mono', note: '无底无边 · 仅等宽字' },
+  { id: 'vc', name: 'C · Paper inset', note: 'panel 底 + soft inset' },
+  { id: 'vd', name: 'D · Underline', note: '底线标记 · 表格最安静' },
+];
+
+function frame(theme, variant, labelExtra) {
+  const v = VARIANTS.find(x => x.id === variant);
+  return `
+  <div class="frame ${theme}">
+    <div class="frame-label"><span>${theme === 't-light' ? 'Light · #fbfaf7' : 'Dark · oklch(0.145)'}</span><span>${labelExtra || ''}</span></div>
+    <div class="msg ${variant}">
+      <div class="opt-tag"><b>${v.name}</b> — ${v.note}</div>
+      ${SAMPLE}
+    </div>
+  </div>`;
+}
+
+const stage = document.getElementById('stage');
+const tabs = document.getElementById('tabs');
+
+function render(view) {
+  document.body.classList.toggle('page-dark', view !== 'compare' && false);
+  // page chrome follows dual always light-ish; frames carry theme
+  if (view === 'compare') {
+    stage.className = 'stage dual';
+    // show A as default compare hero? show all pairs stacked — too long.
+    // Compare: show A and B as recommended pair? User wants all options.
+    // Better: dual columns = light/dark for ONE selected; for compare show A light | A dark then note tabs for others.
+    stage.innerHTML = frame('t-light', 'va') + frame('t-dark', 'va')
+      + frame('t-light', 'vb') + frame('t-dark', 'vb')
+      + frame('t-light', 'vd') + frame('t-dark', 'vd');
+    document.body.classList.remove('page-dark');
+    return;
+  }
+  stage.className = 'stage dual';
+  stage.innerHTML = frame('t-light', view) + frame('t-dark', view);
+  document.body.classList.toggle('page-dark', false);
+}
+
+tabs.addEventListener('click', (e) => {
+  const btn = e.target.closest('button[data-view]');
+  if (!btn) return;
+  tabs.querySelectorAll('button').forEach(b => b.classList.toggle('on', b === btn));
+  render(btn.dataset.view);
+});
+
+render('compare');
+</script>
+</body>
+</html>

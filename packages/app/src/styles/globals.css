@@ -673,56 +673,74 @@ input,
     pointer-events: none;
 }
 
-/* Markdown preview styles */
-.markdown-preview {
-    line-height: 1.7;
+/* Markdown preview + chat Notion-inspired styles */
+.markdown-preview,
+.chat-md {
+    line-height: 1.6;
     color: var(--foreground);
 }
 
-.markdown-preview h1 {
-    font-size: 2em;
-    font-weight: 700;
-    margin-top: 1.5em;
-    margin-bottom: 0.5em;
-    border-bottom: 1px solid var(--border);
-    padding-bottom: 0.3em;
+.chat-md {
+    font-size: 14.5px;
 }
 
-.markdown-preview h2 {
+.markdown-preview h1,
+.chat-md h1 {
     font-size: 1.5em;
-    font-weight: 600;
-    margin-top: 1.5em;
-    margin-bottom: 0.5em;
-    border-bottom: 1px solid var(--border);
-    padding-bottom: 0.3em;
+    font-weight: 700;
+    letter-spacing: -0.015em;
+    margin-top: 1.15em;
+    margin-bottom: 0.3em;
+    border-bottom: none;
+    padding-bottom: 0;
 }
 
-.markdown-preview h3 {
+.markdown-preview h2,
+.chat-md h2 {
     font-size: 1.25em;
     font-weight: 600;
-    margin-top: 1.25em;
-    margin-bottom: 0.5em;
+    letter-spacing: -0.01em;
+    margin-top: 1.1em;
+    margin-bottom: 0.25em;
+    border-bottom: none;
+    padding-bottom: 0;
+}
+
+.markdown-preview h3,
+.chat-md h3 {
+    font-size: 1.1em;
+    font-weight: 600;
+    margin-top: 1em;
+    margin-bottom: 0.2em;
 }
 
 .markdown-preview h4,
 .markdown-preview h5,
-.markdown-preview h6 {
+.markdown-preview h6,
+.chat-md h4,
+.chat-md h5,
+.chat-md h6 {
     font-size: 1em;
     font-weight: 600;
-    margin-top: 1em;
-    margin-bottom: 0.5em;
+    margin-top: 0.9em;
+    margin-bottom: 0.2em;
+}
+
+.markdown-preview > :first-child,
+.chat-md > :first-child {
+    margin-top: 0 !important;
 }
 
 .markdown-preview p {
-    margin-top: 0.75em;
+    margin-top: 0.4em;
     margin-bottom: 0.75em;
 }
 
 .markdown-preview ul,
 .markdown-preview ol {
-    margin-top: 0.75em;
+    margin-top: 0.5em;
     margin-bottom: 0.75em;
-    padding-left: 1.5em;
+    padding-left: 1.6em;
 }
 
 .markdown-preview ul {
@@ -734,44 +752,227 @@ input,
 }
 
 .markdown-preview li {
-    margin-top: 0.25em;
-    margin-bottom: 0.25em;
+    margin-top: 0.15em;
+    margin-bottom: 0.15em;
 }
 
 .markdown-preview li > ul,
 .markdown-preview li > ol {
-    margin-top: 0.25em;
-    margin-bottom: 0.25em;
+    margin-top: 0.15em;
+    margin-bottom: 0.15em;
 }
 
 .markdown-preview code {
     font-family:
         "JetBrains Mono", "Fira Code", "SF Mono", Menlo, Monaco, "Courier New",
         monospace;
-    font-size: 0.875em;
-    background-color: var(--muted);
-    padding: 0.2em 0.4em;
-    border-radius: 0.25rem;
+    font-size: 0.86em;
+    background-color: var(--panel);
+    color: var(--ink-2);
+    box-shadow: inset 0 0 0 1px var(--border-soft);
+    border: none;
+    padding: 0.08em 0.3em;
+    border-radius: 3px;
+}
+
+.dark .markdown-preview code {
+    background-color: var(--panel);
+    color: var(--ink-2);
+    box-shadow: inset 0 0 0 1px var(--border-soft);
 }
 
 .markdown-preview pre {
-    margin-top: 1em;
-    margin-bottom: 1em;
-    padding: 1em;
-    background-color: var(--muted);
-    border-radius: 0.5rem;
+    margin-top: 0.65em;
+    margin-bottom: 0.9em;
+    padding: 0;
+    background-color: #f7f6f3;
+    border-radius: 6px;
     overflow-x: auto;
+}
+
+.dark .markdown-preview pre {
+    background-color: #202020;
 }
 
 .markdown-preview pre code {
     background-color: transparent;
-    padding: 0;
-    font-size: 0.875em;
+    color: inherit;
+    border: none;
+    box-shadow: none;
+    padding: 14px 16px;
+    display: block;
+    font-size: 0.9em;
     line-height: 1.5;
 }
 
 .markdown-preview blockquote {
-    margin-top: 1em;
+    margin-top: 0.6em;
+    margin-bottom: 0.6em;
+    padding-left: 14px;
+    border-left: 3px solid currentColor;
+    color: var(--muted-foreground);
+    font-style: normal;
+}
+
+.markdown-preview a {
+    color: var(--foreground);
+    text-decoration: underline;
+    text-decoration-color: color-mix(in srgb, var(--foreground) 30%, transparent);
+    text-underline-offset: 2px;
+}
+
+.markdown-preview a:hover {
+    background: color-mix(in srgb, var(--foreground) 6%, transparent);
+    border-radius: 2px;
+}
+
+.markdown-preview hr {
+    margin-top: 1.25em;
+    margin-bottom: 1.25em;
+    border: 0;
+    border-top: 1px solid color-mix(in srgb, var(--foreground) 9%, transparent);
+}
+
+.markdown-preview table {
+    width: 100%;
+    margin-top: 0.7em;
+    margin-bottom: 1em;
+    border-collapse: collapse;
+    font-size: 0.92em;
+}
+
+.markdown-preview th,
+.markdown-preview td {
+    padding: 7px 10px;
+    border: 1px solid color-mix(in srgb, var(--foreground) 9%, transparent);
+    text-align: left;
+}
+
+.dark .markdown-preview th,
+.dark .markdown-preview td {
+    border-color: color-mix(in srgb, white 12%, transparent);
+}
+
+.markdown-preview th {
+    background-color: transparent;
+    font-weight: 600;
+}
+
+.markdown-preview tr:nth-child(even) {
+    background-color: transparent;
+}
+
+.markdown-preview tr:hover td {
+    background-color: color-mix(in srgb, var(--foreground) 3%, transparent);
+}
+
+.markdown-preview img {
+    max-width: 100%;
+    height: auto;
+    margin-top: 0.7em;
+    margin-bottom: 0.7em;
+    border-radius: 4px;
+}
+
+.markdown-preview strong {
+    font-weight: 600;
+}
+
+.markdown-preview em {
+    font-style: italic;
+}
+
+.markdown-preview del {
+    text-decoration: line-through;
+    color: var(--muted-foreground);
+}
+
+/* Chat Notion code block surface — matches chat-markdown-notion.html */
+.chat-md-code {
+    background: #f7f6f3;
+    color: #37352f;
+}
+
+.dark .chat-md-code {
+    background: #202020;
+    color: rgba(255, 255, 255, 0.86);
+}
+
+.chat-md-code-h {
+    color: var(--muted-foreground);
+}
+
+/* Strip Shiki editor chrome; keep token inline colors */
+.chat-md-code .shiki,
+.chat-md-code .shiki code {
+    background: transparent !important;
+}
+
+/* Inline code — C · Paper inset (panel fill + soft inset hairline) */
+.chat-md-inline-code {
+    background: var(--panel);
+    color: var(--ink-2);
+    box-shadow: inset 0 0 0 1px var(--border-soft);
+    border: none;
+    border-radius: 3px;
+    padding: 0.08em 0.3em;
+    font-size: 0.86em;
+}
+
+.dark .chat-md-inline-code {
+    background: var(--panel);
+    color: var(--ink-2);
+    box-shadow: inset 0 0 0 1px var(--border-soft);
+}
+
+/* GFM task list — Notion blue checkbox */
+.chat-md .contains-task-list,
+.markdown-preview .contains-task-list {
+    list-style: none;
+    padding-left: 0;
+}
+
+.chat-md .task-list-item,
+.markdown-preview .task-list-item,
+.chat-md-task {
+    list-style: none;
+}
+
+.chat-md-checkbox,
+.chat-md input[type="checkbox"],
+.markdown-preview input[type="checkbox"] {
+    appearance: none;
+    -webkit-appearance: none;
+    width: 16px;
+    height: 16px;
+    margin: 0.2em 0.5em 0 0;
+    border-radius: 3px;
+    border: 1.5px solid color-mix(in srgb, var(--foreground) 35%, transparent);
+    background: transparent;
+    vertical-align: middle;
+    position: relative;
+    flex-shrink: 0;
+}
+
+.chat-md-checkbox:checked,
+.chat-md input[type="checkbox"]:checked,
+.markdown-preview input[type="checkbox"]:checked {
+    background: #2eaadc;
+    border-color: #2eaadc;
+}
+
+.chat-md-checkbox:checked::after,
+.chat-md input[type="checkbox"]:checked::after,
+.markdown-preview input[type="checkbox"]:checked::after {
+    content: "";
+    position: absolute;
+    left: 4px;
+    top: 1px;
+    width: 5px;
+    height: 9px;
+    border: solid white;
+    border-width: 0 1.6px 1.6px 0;
+    transform: rotate(45deg);
 }
 
 /* Git gutter decorations for Monaco Editor */
@@ -844,81 +1045,6 @@ input,
 .dark .monaco-editor .glyph-margin-widgets .git-gutter-modified,
 .dark .monaco-editor .git-gutter-modified {
     background-color: #ca8a04 !important;
-}
-
-.markdown-preview blockquote {
-    margin-top: 1em;
-    margin-bottom: 1em;
-    padding-left: 1em;
-    border-left: 4px solid var(--border);
-    color: var(--muted-foreground);
-    font-style: italic;
-}
-
-.markdown-preview a {
-    color: oklch(0.546 0.245 262.881);
-    text-decoration: underline;
-}
-
-.markdown-preview a:hover {
-    color: oklch(0.488 0.243 264.376);
-}
-
-.markdown-preview hr {
-    margin-top: 2em;
-    margin-bottom: 2em;
-    border: 0;
-    border-top: 1px solid var(--border);
-}
-
-.markdown-preview table {
-    width: 100%;
-    margin-top: 1em;
-    margin-bottom: 1em;
-    border-collapse: collapse;
-    font-size: 0.875em;
-}
-
-.markdown-preview th,
-.markdown-preview td {
-    padding: 0.5em 1em;
-    border: 1px solid var(--border);
-    text-align: left;
-}
-
-.markdown-preview th {
-    background-color: var(--muted);
-    font-weight: 600;
-}
-
-.markdown-preview tr:nth-child(even) {
-    background-color: var(--muted);
-}
-
-.markdown-preview img {
-    max-width: 100%;
-    height: auto;
-    margin-top: 1em;
-    margin-bottom: 1em;
-    border-radius: 0.5rem;
-}
-
-/* Task list styles */
-.markdown-preview input[type="checkbox"] {
-    margin-right: 0.5em;
-}
-
-.markdown-preview strong {
-    font-weight: 600;
-}
-
-.markdown-preview em {
-    font-style: italic;
-}
-
-.markdown-preview del {
-    text-decoration: line-through;
-    color: var(--muted-foreground);
 }
 
 /* Lobster splash — body breathes, claws wave outward in sync (ported from iOS LobsterSplashView).
@@ -1051,5 +1177,112 @@ input,
     .terminal-caret {
         animation: none;
         opacity: 1;
+    }
+}
+
+/* Session list — Soft Comfort liquid glass selection pill */
+.session-liquid-glass {
+    position: absolute;
+    left: 0;
+    right: 0;
+    top: 0;
+    height: 56px;
+    border-radius: 11px;
+    pointer-events: none;
+    z-index: 0;
+    background: linear-gradient(
+        135deg,
+        rgba(255, 255, 255, 0.72) 0%,
+        rgba(255, 255, 255, 0.48) 42%,
+        rgba(255, 255, 255, 0.38) 100%
+    );
+    backdrop-filter: blur(18px) saturate(1.55);
+    -webkit-backdrop-filter: blur(18px) saturate(1.55);
+    box-shadow:
+        0 1px 0 rgba(255, 255, 255, 0.85) inset,
+        0 -1px 0 rgba(28, 27, 25, 0.04) inset,
+        0 2px 8px rgba(28, 27, 25, 0.06),
+        0 1px 2px rgba(28, 27, 25, 0.04),
+        0 0 0 1px rgba(26, 26, 20, 0.06);
+    transition:
+        transform 420ms cubic-bezier(0.22, 1, 0.36, 1),
+        height 420ms cubic-bezier(0.22, 1, 0.36, 1),
+        border-radius 420ms cubic-bezier(0.22, 1, 0.36, 1),
+        box-shadow 280ms ease,
+        opacity 160ms ease;
+    will-change: transform, height;
+    transform: translate3d(0, 0, 0);
+}
+
+.session-liquid-glass::before {
+    content: "";
+    position: absolute;
+    inset: 0;
+    border-radius: inherit;
+    background: linear-gradient(
+        180deg,
+        rgba(255, 255, 255, 0.55) 0%,
+        rgba(255, 255, 255, 0) 42%
+    );
+    opacity: 0.9;
+    pointer-events: none;
+}
+
+.session-liquid-glass::after {
+    content: "";
+    position: absolute;
+    top: 1px;
+    left: 10%;
+    right: 28%;
+    height: 1px;
+    border-radius: 1px;
+    background: rgba(255, 255, 255, 0.95);
+    opacity: 0.7;
+    pointer-events: none;
+}
+
+.session-liquid-glass--moving {
+    border-radius: 13px 13px 10px 10px;
+    box-shadow:
+        0 1px 0 rgba(255, 255, 255, 0.9) inset,
+        0 6px 18px rgba(28, 27, 25, 0.08),
+        0 2px 4px rgba(28, 27, 25, 0.04),
+        0 0 0 1px rgba(26, 26, 20, 0.07);
+}
+
+.dark .session-liquid-glass {
+    background: linear-gradient(
+        135deg,
+        rgba(255, 255, 255, 0.14) 0%,
+        rgba(255, 255, 255, 0.07) 50%,
+        rgba(255, 255, 255, 0.05) 100%
+    );
+    box-shadow:
+        0 8px 24px rgba(0, 0, 0, 0.35),
+        0 0 0 1px rgba(255, 255, 255, 0.1);
+}
+
+.dark .session-liquid-glass::before {
+    background: linear-gradient(
+        180deg,
+        rgba(255, 255, 255, 0.06),
+        transparent 45%
+    );
+}
+
+/* Dark: no specular top streak — reads as a thick white edge on black. */
+.dark .session-liquid-glass::after {
+    display: none;
+}
+
+.dark .session-liquid-glass--moving {
+    box-shadow:
+        0 8px 28px rgba(0, 0, 0, 0.45),
+        0 0 0 1px rgba(255, 255, 255, 0.12);
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .session-liquid-glass {
+        transition: opacity 120ms ease;
     }
 }
