@@ -71,7 +71,7 @@ export function createPgBusinessRepository({ db, accessToken, userId, callerActo
     setLiteLlmBudget: (teamId: string, input: { maxBudget?: unknown }) => teamsRepo.setLiteLlmBudget(teamId, input, teamsCtx),
     getLiteLlmUsage: (teamId: string, opts?: { range?: string; date?: string }) => teamsRepo.getLiteLlmUsage(teamId, opts ?? {}, teamsCtx),
     disableShareMode: (teamId: string) => teamsRepo.disableShareMode(teamId, teamsCtx),
-    removeTeamActor: (teamId: string, actorId: string) => teamsRepo.removeTeamActor(teamId, actorId),
+    removeTeamActor: (teamId: string, actorId: string) => teamsRepo.removeTeamActor(teamId, actorId, teamsCtx),
     // Account upgrade (default-org → own org) is org-model-specific and only
     // implemented on the supabase backend (postgres has no org model).
     upgradeAccount: async () => {

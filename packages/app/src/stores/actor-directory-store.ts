@@ -55,6 +55,8 @@ export type ActorRow = {
   team_role?: string | null
   // Agent: 'team' | 'personal'. Member: undefined.
   visibility?: string | null
+  /** Agent owner member actor id — used for personal-agent delete gating. */
+  owner_member_id?: string | null
   // Member contact — null for agents and anonymous members. Only carried on the
   // network directory row (the libsql first-paint cache does not persist it).
   email?: string | null
@@ -92,7 +94,7 @@ interface DirectoryState {
   refetch: (teamId: string) => Promise<void>
 }
 
-function mapCacheRow(r: CachedActorRow): ActorRow {
+export function mapCacheRow(r: CachedActorRow): ActorRow {
   return {
     id: r.id,
     actor_type: r.actorType === 'agent' ? 'agent' : 'member',
@@ -102,6 +104,7 @@ function mapCacheRow(r: CachedActorRow): ActorRow {
     last_active_at: r.lastActiveAt ?? null,
     team_role: r.teamRole ?? null,
     visibility: r.agentVisibility ?? null,
+    owner_member_id: r.ownerMemberId ?? null,
   }
 }
 
@@ -132,6 +135,7 @@ async function writeCache(teamId: string, rows: ActorRow[]): Promise<void> {
     lastActiveAt: r.last_active_at,
     teamRole: r.team_role,
     agentVisibility: r.visibility,
+    ownerMemberId: r.owner_member_id,
     createdAt: now,
     updatedAt: now,
     syncedAt: now,
@@ -199,6 +203,7 @@ export const useActorDirectoryStore = create<DirectoryState>((set, get) => {
         created_at: row.created_at ?? null,
         team_role: row.team_role ?? null,
         visibility: row.visibility ?? null,
+        owner_member_id: row.agent_owner_member_id ?? null,
         email: row.email ?? null,
         phone: row.phone ?? null,
       }))

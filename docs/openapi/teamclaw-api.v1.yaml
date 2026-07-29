@@ -353,6 +353,11 @@ paths:
     delete:
       operationId: removeTeamActor
       summary: Remove team actor
+      description: |
+        Hard-deletes a team actor. Members require team owner/admin.
+        Personal agents require the owning member (`agentOwnerMemberId`).
+        Team agents require team owner/admin. May return 409 when foreign-key
+        references block deletion (`agent_delete_blocked_by_*`).
       tags: [Teams]
       parameters:
         - $ref: "#/components/parameters/TeamId"
@@ -366,6 +371,10 @@ paths:
         "204":
           description: OK
         "401":
+          $ref: "#/components/responses/Error"
+        "403":
+          $ref: "#/components/responses/Error"
+        "409":
           $ref: "#/components/responses/Error"
   /v1/sessions:
     get:
@@ -3436,6 +3445,9 @@ paths:
     delete:
       operationId: removeTeamActorScoped
       summary: Remove team actor (teamId + actorId path)
+      description: |
+        Same as DELETE /v1/teams/{teamId}/members/{actorId}. Personal agents
+        require the owning member; team agents require team owner/admin.
       tags: [Teams]
       parameters:
         - $ref: "#/components/parameters/TeamId"
@@ -3447,6 +3459,10 @@ paths:
         "204":
           description: Removed
         "401":
+          $ref: "#/components/responses/Error"
+        "403":
+          $ref: "#/components/responses/Error"
+        "409":
           $ref: "#/components/responses/Error"
   /v1/teams/{teamId}/workspace-git-config:
     get:
@@ -4636,6 +4652,12 @@ components:
             - string
             - "null"
           enum: [team, personal, null]
+        agentOwnerMemberId:
+          description: Owner member actor id for agents. Null for members/external.
+          type:
+            - string
+            - "null"
+          format: uuid
         metadata:
           type:
             - object

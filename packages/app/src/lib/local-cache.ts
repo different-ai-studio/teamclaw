@@ -52,6 +52,7 @@ export type ActorRow = {
   // list's first offline paint matches the network paint — no subtitle pop-in.
   teamRole?: string | null;
   agentVisibility?: string | null;
+  ownerMemberId?: string | null;
 };
 
 export type SessionRow = {
