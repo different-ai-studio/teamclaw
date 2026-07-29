@@ -80,6 +80,7 @@ function mapDirectoryActorRow(r: any) {
     defaultAgentType: (r.defaultAgentType ?? null) as string | null,
     defaultWorkspaceId: (r.defaultWorkspaceId ?? null) as string | null,
     visibility: (r.agentVisibility ?? null) as string | null,
+    agentOwnerMemberId: (r.ownerMemberId ?? null) as string | null,
     lastActiveAt: iso(r.lastActiveAt),
     createdAt: iso(r.createdAt),
     updatedAt: iso(r.updatedAt),
@@ -199,7 +200,7 @@ export function makeActorsRepo(db: DbLike, ctx: ActorsCtx = {}) {
         .limit(limit);
 
       return {
-        items: rows.map(mapActorRow),
+        items: rows.map(mapDirectoryActorRow),
       };
     },
 

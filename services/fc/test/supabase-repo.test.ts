@@ -1151,8 +1151,42 @@ test("listTeamActors selects actor_directory columns without removed agent_kind"
   const selectCall = tableCalls.find((c) => c.table === "actor_directory" && c.op === "select");
   assert.ok(selectCall, "expected actor_directory select");
   assert.ok(!selectCall.columns.includes("agent_kind"), "must not select removed agent_kind column");
+  assert.ok(selectCall.columns.includes("owner_member_id"), "must select owner_member_id for delete gating");
   assert.equal(page.items[0].defaultAgentType, "claude");
   assert.equal(page.items[0].agentKind, null);
+});
+
+test("listTeamActors maps owner_member_id to agentOwnerMemberId", async () => {
+  const tableCalls = [];
+  const repo = createRepo(fakeSupabase({
+    tableCalls,
+    tableData: {
+      actor_directory: [{
+        id: "agent-1",
+        team_id: "team-1",
+        actor_type: "agent",
+        user_id: null,
+        invited_by_actor_id: null,
+        display_name: "Bot",
+        avatar_url: null,
+        team_role: null,
+        member_status: null,
+        agent_status: "active",
+        agent_types: ["claude"],
+        default_agent_type: "claude",
+        default_workspace_id: null,
+        agent_visibility: "personal",
+        owner_member_id: "member-1",
+        last_active_at: null,
+        created_at: "2026-05-27T01:00:00Z",
+        updated_at: "2026-05-27T01:00:00Z",
+      }],
+    },
+  }));
+
+  const page = await repo.listTeamActors("team-1", { limit: 10 });
+  assert.equal(page.items[0].agentOwnerMemberId, "member-1");
+  assert.equal(page.items[0].visibility, "personal");
 });
 
 test("ensureAgentTypes updates the caller's own agent actor, not an arbitrary team agent", async () => {

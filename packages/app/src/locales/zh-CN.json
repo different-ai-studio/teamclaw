@@ -3064,6 +3064,12 @@
       "lastOwner": "无法移除最后一位团队 Owner，请先提升其他成员。",
       "self": "不能将自己移出团队。",
       "forbidden": "仅团队 Owner 和管理员可以移除成员。",
+      "personalAgentOwner": "仅 Agent 的拥有者可以移除个人 Agent。",
+      "teamAgentAdmin": "仅团队 Owner 和管理员可以移除团队 Agent。",
+      "blockedByIdeas": "该 Agent 仍有关联的想法动态，请先处理这些引用。",
+      "blockedByApps": "该 Agent 仍有关联的应用，请先处理这些引用。",
+      "blockedByFiles": "该 Agent 仍有关联的文件，请先处理这些引用。",
+      "blockedByReferences": "该 Actor 仍被其他地方引用，请先处理这些引用。",
       "ownsAgents": "该成员仍拥有 Agent，请先移除或转移这些 Agent。",
       "notFound": "该成员已不在团队中。"
     },

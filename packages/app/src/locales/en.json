@@ -3064,6 +3064,12 @@
       "lastOwner": "Cannot remove the last team owner. Promote another member first.",
       "self": "You cannot remove yourself from the team.",
       "forbidden": "Only team owners and admins can remove members.",
+      "personalAgentOwner": "Only the owner can remove a personal agent.",
+      "teamAgentAdmin": "Only team owners and admins can remove team agents.",
+      "blockedByIdeas": "This agent still has related idea activity. Resolve those references first.",
+      "blockedByApps": "This agent still has related apps. Resolve those references first.",
+      "blockedByFiles": "This agent still has related files. Resolve those references first.",
+      "blockedByReferences": "This actor is still referenced elsewhere. Resolve those references first.",
       "ownsAgents": "This member still owns one or more agents. Remove or reassign those agents first.",
       "notFound": "This actor is no longer in the team."
     },

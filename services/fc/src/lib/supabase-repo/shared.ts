@@ -97,7 +97,7 @@ export const SESSION_FULL_COLUMNS =
   "id, team_id, title, mode, idea_id, primary_agent_id, created_by_actor_id, summary, last_message_preview, last_message_at, acp_session_id, binding, source, cron_job_id, created_at, updated_at";
 
 export const ACTOR_DIRECTORY_COLUMNS =
-  "id, team_id, actor_type, user_id, invited_by_actor_id, display_name, avatar_url, team_role, member_status, agent_status, agent_types, default_agent_type, default_workspace_id, agent_visibility, last_active_at, created_at, updated_at, user_email, user_phone";
+  "id, team_id, actor_type, user_id, invited_by_actor_id, display_name, avatar_url, team_role, member_status, agent_status, agent_types, default_agent_type, default_workspace_id, agent_visibility, owner_member_id, last_active_at, created_at, updated_at, user_email, user_phone";
 
 export function mapSessionFull(row) {
   return {
@@ -138,6 +138,7 @@ export function mapDirectoryActor(row) {
     defaultAgentType: row?.default_agent_type ?? null,
     defaultWorkspaceId: row?.default_workspace_id ?? null,
     visibility: row?.agent_visibility ?? null,
+    agentOwnerMemberId: row?.owner_member_id ?? null,
     lastActiveAt: row?.last_active_at ?? null,
     createdAt: row?.created_at ?? null,
     updatedAt: row?.updated_at ?? null,

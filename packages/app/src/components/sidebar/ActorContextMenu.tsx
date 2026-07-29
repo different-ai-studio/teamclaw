@@ -53,7 +53,7 @@ export function ActorContextMenu({
   const teamId = useCurrentTeamStore((s) => s.team?.id ?? null)
   const currentMemberId = useCurrentTeamStore((s) => s.currentMember?.id ?? null)
   const teamPermissions = useTeamPermissions()
-  const canRemove = canRemoveTeamActor(teamPermissions, actor.id, currentMemberId)
+  const canRemove = canRemoveTeamActor(teamPermissions, actor, currentMemberId)
   const setDefaultAgent = useMemberPreferencesStore((s) => s.setDefaultAgent)
   const onToggleDefault = React.useCallback(() => {
     if (!teamId) return

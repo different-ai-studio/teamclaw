@@ -1,11 +1,11 @@
-import { and, asc, eq, exists, inArray, isNull, sql } from "drizzle-orm";
+import { and, asc, eq, exists, inArray, isNull, or, sql } from "drizzle-orm";
 import { aliasedTable } from "drizzle-orm";
 import type { PgDatabase } from "drizzle-orm/pg-core";
 import { teams, teamWorkspaceConfig, actors, members, teamMembers, teamInvites } from "../../db/schema/index.js";
 import { workspaces } from "../../db/schema/workspaces.js";
 import { agentMemberAccess, agents } from "../../db/schema/agents.js";
 import { ApiError } from "../http-utils.js";
-import { requireActorForTeam, requireTeamOwner, checkAgentOwnership } from "./authz.js";
+import { requireActorForTeam, requireTeamOwner, checkAgentOwnership, assertCanRemoveTeamActor, mapActorDeleteFkError } from "./authz.js";
 import { computeRange, getLiteLlmSql, queryTeamUsage, type ComputedRange, type TeamUsage } from "../litellm-usage.js";
 import { rollUpUsageByOwner, type UsageOwner } from "../usage-attribution.js";
 import { randomBytes, randomUUID } from "node:crypto";
@@ -788,26 +788,84 @@ export function makeTeamsRepo(db: PgDatabase<any, any>, deps: TeamsRepoDeps = {}
     },
 
     /**
-     * Removes an actor and all associated rows (cascade):
-     * agentMemberAccess → team_members → agents/members → actors
+     * Removes an actor and all associated rows (cascade).
+     * Authz mirrors amux.remove_team_actor (personal agent → owner; team agent → admin).
      */
-    async removeTeamActor(_teamId: string, actorId: string) {
-      await (db as any).transaction(async (tx: any) => {
-        // Delete agent_member_access rows where this actor is the member
-        await tx.delete(agentMemberAccess).where(eq(agentMemberAccess.memberId, actorId));
+    async removeTeamActor(teamId: string, actorId: string, ctx: { userId?: string } = {}) {
+      if (!ctx.userId) {
+        throw new ApiError(401, "unauthorized", "remove_team_actor requires authentication");
+      }
 
-        // Delete team_members rows for this actor (memberId = actorId for members)
-        await tx.delete(teamMembers).where(eq(teamMembers.memberId, actorId));
+      const [targetActor] = await db
+        .select({ actorType: actors.actorType, teamId: actors.teamId })
+        .from(actors)
+        .where(eq(actors.id, actorId))
+        .limit(1);
 
-        // Delete agents row (if actor is an agent)
-        await tx.delete(agents).where(eq(agents.id, actorId));
+      if (!targetActor || targetActor.teamId !== teamId) {
+        throw new ApiError(404, "not_found", "actor not found");
+      }
 
-        // Delete members row (if actor is a member)
-        await tx.delete(members).where(eq(members.id, actorId));
+      let agentMeta: { visibility: string | null; ownerMemberId: string | null } | null = null;
+      if (targetActor.actorType === "agent") {
+        const [ag] = await db
+          .select({ visibility: agents.visibility, ownerMemberId: agents.ownerMemberId })
+          .from(agents)
+          .where(eq(agents.id, actorId))
+          .limit(1);
+        agentMeta = ag ?? null;
+      }
 
-        // Finally delete the actor itself
-        await tx.delete(actors).where(eq(actors.id, actorId));
+      await assertCanRemoveTeamActor(db, ctx.userId, teamId, {
+        id: actorId,
+        actor_type: targetActor.actorType,
+        visibility: agentMeta?.visibility ?? null,
+        ownerMemberId: agentMeta?.ownerMemberId ?? null,
       });
+
+      try {
+        await (db as any).transaction(async (tx: any) => {
+          if (targetActor.actorType === "member") {
+            const ownedAgents = await tx
+              .select({ id: agents.id })
+              .from(agents)
+              .where(eq(agents.ownerMemberId, actorId));
+
+            for (const owned of ownedAgents) {
+              await tx.delete(agentMemberAccess).where(
+                or(
+                  eq(agentMemberAccess.agentId, owned.id),
+                  eq(agentMemberAccess.memberId, owned.id),
+                ),
+              );
+              await tx.delete(teamMembers).where(eq(teamMembers.memberId, owned.id));
+              await tx.delete(actors).where(eq(actors.id, owned.id));
+            }
+          }
+
+          await tx.delete(agentMemberAccess).where(
+            or(
+              eq(agentMemberAccess.agentId, actorId),
+              eq(agentMemberAccess.memberId, actorId),
+            ),
+          );
+          await tx.delete(teamMembers).where(eq(teamMembers.memberId, actorId));
+
+          if (targetActor.actorType === "member") {
+            await tx.delete(members).where(eq(members.id, actorId));
+          } else {
+            await tx.delete(agents).where(eq(agents.id, actorId));
+          }
+
+          await tx.delete(actors).where(eq(actors.id, actorId));
+        });
+      } catch (e) {
+        const msg = (e as Error)?.message ?? String(e);
+        if (/foreign key|violates foreign key|23503/i.test(msg)) {
+          throw mapActorDeleteFkError(msg);
+        }
+        throw e;
+      }
 
       // Best-effort: delete the removed actor's LiteLLM key (replaces the
       // legacy POST /ai/remove-member endpoint). Runs AFTER the transaction
