@@ -104,6 +104,37 @@ describe("auth-store", () => {
     expect(useAuthStore.getState().loading).toBe(false);
   });
 
+  // Cold-start login flash: a throwing getSession used to skip the
+  // `set({ session, loading: false })` line entirely, leaving `loading` stuck
+  // at true with `session` null. AuthGate's `.finally()` still marked auth
+  // hydrated, so the gate fell through to the login screen for a user who was
+  // actually signed in — and tore down the startup skeleton on the way.
+  it("hydrate always settles loading, even when the backend throws", async () => {
+    authMock.getSession.mockRejectedValueOnce(new Error("network down"));
+    authMock.onAuthStateChange.mockImplementation(() => {});
+
+    await expect(useAuthStore.getState().hydrate()).resolves.toBeUndefined();
+
+    expect(useAuthStore.getState().loading).toBe(false);
+    expect(useAuthStore.getState().session).toBeNull();
+    expect(useAuthStore.getState().errorMessage).toBe("network down");
+  });
+
+  it("hydrate replaces its auth listener instead of stacking one per call", async () => {
+    // StrictMode double-invokes the effect that calls hydrate, and the
+    // subscription outlives it — without an unsubscribe every cold start left
+    // another listener behind, each re-running bootstrap on every auth event.
+    const unsubscribe = vi.fn();
+    authMock.getSession.mockResolvedValue(null);
+    authMock.onAuthStateChange.mockImplementation(() => unsubscribe);
+
+    await useAuthStore.getState().hydrate();
+    expect(unsubscribe).not.toHaveBeenCalled();
+
+    await useAuthStore.getState().hydrate();
+    expect(unsubscribe).toHaveBeenCalledTimes(1);
+  });
+
   it("hydrate auth listener stores token compatibility aliases", async () => {
     authMock.getSession.mockResolvedValueOnce(null);
     authMock.onAuthStateChange.mockImplementation((listener) => {
