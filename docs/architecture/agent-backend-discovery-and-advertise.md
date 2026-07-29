@@ -418,9 +418,25 @@ load daemon.toml
 
 Desktop `load_channel_config` **直接读磁盘**；`save_channel_config` 经 daemon 写回。
 
-### 12.5 仅内存、不 persist 的典型字段
+### 12.5 `mqtt.broker_url`：云端权威 + 本地 last-known
 
-`apply_bootstrap_overrides()` 在 `DaemonServer::new()` 时从 Cloud bootstrap 填 `mqtt.broker_url`（及可选账号），**通常不写回** `daemon.toml`。磁盘上 `broker_url = ""` 而进程内已有 broker 属正常。
+`apply_bootstrap_overrides()` 在 `DaemonServer::new()`（以及 run loop 的自愈分支）
+从 Cloud bootstrap 取 `mqtt.broker_url`。Cloud API 仍是**权威**——拿到新地址就覆盖内存值。
+
+与早期实现不同的是：**取到的新地址会写回 `daemon.toml`**（仅在地址真的变化时写，
+稳态重拉不动文件）。磁盘上的值是 *last-known*，不是配置源：
+
+| bootstrap 结果 | 行为 |
+|----------------|------|
+| 有 `mqtt.url` | 覆盖内存 + 写回 `daemon.toml`；`brokerSource = bootstrap` |
+| 200 但无 `mqtt` 段 | **保留**磁盘上的 last-known，`warn!` 记一条；不静默 |
+| 请求失败 | 同上，保留 last-known 并 warn |
+| 无 last-known 且云端也没有 | `broker_url` 为空，MQTT 降级（HTTP 控制面照常起），run loop 每 30s 重拉 |
+
+原因见 issue #634：`teamclaw-api` 的 `MQTT_*` 环境变量被清空后，bootstrap 答 200 却不带
+`mqtt` 段；当时 broker 只在内存里，daemon 一重启就彻底没有地址可用，且「成功响应」不会
+触发任何错误日志。参见 `deploy/self-host/smoke/run-e2e.sh` 的部署门禁：bootstrap 不带
+`mqtt` 直接让部署失败。
 
 ### 12.6 删除：`amuxd clear`
 

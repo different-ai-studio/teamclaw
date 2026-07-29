@@ -212,6 +212,11 @@ services:
       SUPABASE_SERVICE_ROLE_KEY: "${SERVICE_ROLE_KEY}"
       MQTT_BROKER_URL: "mqtt://emqx:1883"
       MQTT_PUBLIC_BROKER_URL: "${MQTT_PUBLIC_BROKER_URL:-}"
+      # Raw-TCP address for clients whose MQTT stack can't do WebSocket (iOS
+      # CocoaMQTT, Expo). Must be declared in BOTH this allowlist and
+      # services/fc/s.yaml — a var missing from one target silently drops
+      # `mqtt.tcpUrl` from /v1/config/bootstrap on that target only.
+      MQTT_PUBLIC_TCP_BROKER_URL: "${MQTT_PUBLIC_TCP_BROKER_URL:-}"
       MQTT_USERNAME: "fc-service"
       MQTT_PASSWORD: "${MQTT_SERVICE_TOKEN}"
       MQTT_USE_TLS: "false"

@@ -101,30 +101,88 @@ describe("fetchAndApplyBootstrap", () => {
     });
   });
 
-  it("does not touch saved config when payload lacks an mqtt url", async () => {
+  it("marks the applied broker as coming from bootstrap", async () => {
+    const fetchImpl = vi
+      .fn()
+      .mockResolvedValue(jsonResponse({ mqtt: { url: "mqtt://mqtt.example.com:1883" } }));
+    const outcome = await fetchAndApplyBootstrap({
+      accessToken: "tok",
+      fetchImpl: fetchImpl as unknown as typeof fetch,
+    });
+    expect(outcome).toBe("applied");
+    expect(saveSpy.mock.calls[0][0]).toMatchObject({ mqttSource: "bootstrap" });
+  });
+
+  it("does not touch saved config when the payload is empty and nothing is cached", async () => {
     const fetchImpl = vi.fn().mockResolvedValue(jsonResponse({}));
-    await fetchAndApplyBootstrap({ accessToken: "tok", fetchImpl: fetchImpl as unknown as typeof fetch });
+    const outcome = await fetchAndApplyBootstrap({
+      accessToken: "tok",
+      fetchImpl: fetchImpl as unknown as typeof fetch,
+    });
+    expect(outcome).toBe("cloud-empty");
     expect(saveSpy).not.toHaveBeenCalled();
   });
 
-  it("clearBootstrapAppliedFields wipes mqtt fields but keeps cloudApiUrl", async () => {
+  // The issue #634 shape: FC answers 200 with no `mqtt` block. The address we
+  // already hold is the only working one left, so it must survive — flagged as
+  // cached rather than silently passed off as fresh.
+  it("keeps a cached broker and demotes it to `cache` when the cloud returns no mqtt", async () => {
     savedConfigRef.value = {
       cloudApiUrl: "https://cloud.example.com",
+      mqttUrl: "mqtt://last-known.example.com:1883",
+      mqttHost: "last-known.example.com",
+      mqttPort: 1883,
+      mqttSource: "bootstrap",
+    };
+    const fetchImpl = vi.fn().mockResolvedValue(jsonResponse({}));
+    const outcome = await fetchAndApplyBootstrap({
+      accessToken: "tok",
+      fetchImpl: fetchImpl as unknown as typeof fetch,
+    });
+    expect(outcome).toBe("cloud-empty");
+    expect(saveSpy).toHaveBeenCalledTimes(1);
+    expect(saveSpy.mock.calls[0][0]).toMatchObject({
+      mqttUrl: "mqtt://last-known.example.com:1883",
+      mqttHost: "last-known.example.com",
+      mqttSource: "cache",
+    });
+  });
+
+  it("clearBootstrapAppliedFields drops credentials but keeps the broker address", async () => {
+    savedConfigRef.value = {
+      cloudApiUrl: "https://cloud.example.com",
+      mqttUrl: "mqtt://mqtt.old.example.com:8883",
       mqttHost: "mqtt.old.example.com",
       mqttPort: 8883,
       mqttUseTls: true,
       mqttUsername: "u",
       mqttPassword: "p",
+      mqttSource: "bootstrap",
     };
     await clearBootstrapAppliedFields();
     expect(saveSpy).toHaveBeenCalledTimes(1);
     expect(saveSpy.mock.calls[0][0]).toEqual({
       cloudApiUrl: "https://cloud.example.com",
-      mqttHost: undefined,
-      mqttPort: undefined,
-      mqttUseTls: undefined,
+      // Deployment topology, not account data — wiping it on sign-out is what
+      // made "sign out and back in" a reliable way to lose MQTT entirely.
+      mqttUrl: "mqtt://mqtt.old.example.com:8883",
+      mqttHost: "mqtt.old.example.com",
+      mqttPort: 8883,
+      mqttUseTls: true,
+      mqttSource: "cache",
       mqttUsername: undefined,
       mqttPassword: undefined,
+    });
+  });
+
+  it("clearBootstrapAppliedFields leaves mqttSource unset when there was no address", async () => {
+    savedConfigRef.value = { cloudApiUrl: "https://cloud.example.com", mqttUsername: "u" };
+    await clearBootstrapAppliedFields();
+    expect(saveSpy.mock.calls[0][0]).toEqual({
+      cloudApiUrl: "https://cloud.example.com",
+      mqttUsername: undefined,
+      mqttPassword: undefined,
+      mqttSource: undefined,
     });
   });
 
@@ -132,7 +190,7 @@ describe("fetchAndApplyBootstrap", () => {
     const fetchImpl = vi.fn().mockRejectedValue(new Error("boom"));
     await expect(
       fetchAndApplyBootstrap({ accessToken: "tok", fetchImpl: fetchImpl as unknown as typeof fetch }),
-    ).resolves.toBeUndefined();
+    ).resolves.toBe("unreachable");
     expect(saveSpy).not.toHaveBeenCalled();
   });
 });

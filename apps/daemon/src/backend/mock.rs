@@ -24,8 +24,9 @@ use async_trait::async_trait;
 
 use crate::backend::{
     AgentDefaults, AgentRuntimeRow, AgentRuntimeUpsert, Backend, BackendError, BackendResult,
-    BackendSessionAndParticipants, ClaimResult, GatewaySessionRow, ManagedGitCredential,
-    ManagedLlmConfig, ShareModeConfig, StoredMessage, WorkspaceRow, WorkspaceUpsert,
+    BackendSessionAndParticipants, BootstrapMqttOverride, ClaimResult, GatewaySessionRow,
+    ManagedGitCredential, ManagedLlmConfig, ShareModeConfig, StoredMessage, WorkspaceRow,
+    WorkspaceUpsert,
 };
 
 /// Owned snapshot of an `AgentRuntimeUpsert` so tests can assert without
@@ -181,6 +182,9 @@ pub struct MockState {
     /// Per-team `managed_git_credential` overrides. A missing entry errors,
     /// mirroring a cloud API that has no credential to hand out.
     pub managed_git_credentials: HashMap<String, ManagedGitCredential>,
+    /// Response for `fetch_bootstrap_mqtt`. `None` models the real failure mode
+    /// behind issue #634: a cloud API that answers 200 with no `mqtt` block.
+    pub bootstrap_mqtt: Option<BootstrapMqttOverride>,
 }
 
 #[derive(Clone, Debug)]
@@ -224,6 +228,10 @@ impl Backend for MockBackend {
 
     fn actor_id(&self) -> &str {
         &self.actor_id
+    }
+
+    async fn fetch_bootstrap_mqtt(&self) -> BackendResult<Option<BootstrapMqttOverride>> {
+        Ok(self.state().bootstrap_mqtt.clone())
     }
 
     async fn auth_token(&self) -> BackendResult<String> {
