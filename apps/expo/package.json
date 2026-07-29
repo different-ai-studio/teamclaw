@@ -10,7 +10,7 @@
     "test": "vitest run"
   },
   "dependencies": {
-    "@bufbuild/protobuf": "^2.12.0",
+    "@bufbuild/protobuf": "^2.13.0",
     "@expo/vector-icons": "^15.1.1",
     "@react-native-async-storage/async-storage": "3.1.1",
     "@teamclaw/app": "workspace:*",
