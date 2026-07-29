@@ -216,6 +216,29 @@ describe("Auth", { skip: !E2E }, () => {
   });
 });
 
+// ── Suite 1b: Runtime config ───────────────────────────────────────────────
+//
+// The deploy gate for issue #634. `/v1/config/bootstrap` omits the whole `mqtt`
+// block when MQTT_PUBLIC_BROKER_URL / MQTT_BROKER_URL are unset, and still
+// answers 200 — so a deploy that loses those env vars looks completely healthy
+// while every client silently ends up with no broker. Fail the deploy instead.
+
+describe("Runtime config", { skip: !E2E }, () => {
+  test("GET /v1/config/bootstrap delivers an MQTT broker", async () => {
+    const { status, body } = await fcFetch("/v1/config/bootstrap", {
+      token: state.accessToken,
+    });
+    assert.equal(status, 200, `bootstrap failed: ${JSON.stringify(body)}`);
+    assert.ok(
+      body.mqtt,
+      "bootstrap returned no `mqtt` block — check MQTT_PUBLIC_BROKER_URL / " +
+        "MQTT_BROKER_URL in the fc service's compose `environment:` map"
+    );
+    assert.equal(typeof body.mqtt.url, "string", "mqtt.url must be a string");
+    assert.ok(body.mqtt.url.length > 0, "mqtt.url must be non-empty");
+  });
+});
+
 // ── Suite 2: Team lifecycle ────────────────────────────────────────────────
 
 describe("Team lifecycle", { skip: !E2E }, () => {

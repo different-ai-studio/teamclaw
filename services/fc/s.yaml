@@ -56,6 +56,11 @@ resources:
         PUSH_WEBHOOK_SECRET: ${env('PUSH_WEBHOOK_SECRET')}
         CRON_TRIGGER_SECRET: ${env('CRON_TRIGGER_SECRET', '')}
         MQTT_PUBLIC_BROKER_URL: ${env('MQTT_PUBLIC_BROKER_URL', '')}
+        # Raw-TCP address for clients whose MQTT stack can't do WebSocket (iOS
+        # CocoaMQTT, Expo). Keep in step with the compose `environment:` map —
+        # a var declared on only one target silently drops `mqtt.tcpUrl` from
+        # /v1/config/bootstrap there.
+        MQTT_PUBLIC_TCP_BROKER_URL: ${env('MQTT_PUBLIC_TCP_BROKER_URL', '')}
         SUPABASE_URL: ${env('SUPABASE_URL')}
         SUPABASE_PUBLIC_URL: ${env('SUPABASE_PUBLIC_URL', '')}
         SUPABASE_SERVICE_ROLE_KEY: ${env('SUPABASE_SERVICE_ROLE_KEY')}
