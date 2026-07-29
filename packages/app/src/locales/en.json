@@ -319,7 +319,8 @@
       "requestedSkill": "Requested skill",
       "sourceToolInvocation": "From {{tool}} tool call",
       "waitingExternalPathApproval": "Confirmation is required before accessing a path outside the workspace",
-      "childSessionWaitingApproval": "A child session is waiting for your approval",
+      "childSessionWaitingApproval": "A subagent is waiting for your approval",
+      "subagentUnboundTaskWaitingApproval": "A subagent task is waiting for approval (specific task not yet identified)",
       "toolInvocationWaitingApproval": "A tool call is waiting for your approval",
       "waitingForApproval": "Waiting for {{name}} to approve",
       "queuePosition": "{{current}} / {{total}}",
@@ -1092,6 +1093,14 @@
         "daemonErrLog": "Daemon stderr",
         "acpLog": "ACP stream",
         "noLog": "No log file or file missing"
+      },
+      "resetRemediation": {
+        "title": "Consider resetting the local daemon",
+        "description": "The issues below are often resolved by clearing the local daemon binding and re-initializing. Team shared directories (~/.amuxd/teams/) are not affected.",
+        "action": "Reset local daemon",
+        "confirmTitle": "Reset local daemon?",
+        "confirmDescription": "This clears the local daemon identity and config files. You will need to bind an agent again. Team shared files are not deleted.",
+        "confirmAction": "Confirm reset"
       }
     },
     "nav": {
@@ -1525,7 +1534,15 @@
       "mqttConnected": "Connected",
       "mqttDisconnected": "Disconnected",
       "mqttUnknown": "Unknown",
-      "switchTimeout": "Switched runtime, but the daemon did not confirm in time. It may still be restarting."
+      "switchTimeout": "Switched runtime, but the daemon did not confirm in time. It may still be restarting.",
+      "manualReset": {
+        "title": "Troubleshooting",
+        "description": "If the local daemon is in a bad state and other recovery steps fail, you can clear the local binding and re-initialize. Team shared directories (~/.amuxd/teams/) are not deleted.",
+        "action": "Reset local daemon",
+        "confirmTitle": "Reset local daemon?",
+        "confirmDescription": "This deletes the local daemon identity and config files (daemon.toml, backend.toml, etc.). You will need to bind an agent again. Type RESET to confirm.",
+        "confirmAction": "Confirm reset"
+      }
     },
     "daemonOnboarding": {
       "startingTitle": "Starting service…",
