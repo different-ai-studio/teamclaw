@@ -226,6 +226,12 @@ import { Button } from "@/components/ui/button";
 import { onOpenUrl, getCurrent } from "@tauri-apps/plugin-deep-link";
 import { parseInviteDeeplink, claimInviteToken } from "@/lib/invite-deeplink";
 import { parseSessionDeeplink } from "@/lib/session-deeplink";
+import {
+  completePendingSessionDeeplink,
+  openSessionFromDeeplink,
+  readPendingSessionDeeplink,
+  stashPendingSessionDeeplink,
+} from "@/lib/open-session-deeplink";
 import { CloudApiError } from "@/lib/backend/cloud-api/http";
 import { useCurrentTeamStore } from "@/stores/current-team";
 import { useTeamShareStore, isShareModeLocked } from "@/stores/team-share";
@@ -882,6 +888,13 @@ function AppContent() {
     }
     prevChatIdentityRef.current = chatIdentityKey;
   }, [chatIdentityKey]);
+
+  // Resume a cross-team session deeplink after enterTeam() clears chat state.
+  useEffect(() => {
+    if (!userId || !currentTeamId) return;
+    if (!readPendingSessionDeeplink()) return;
+    void completePendingSessionDeeplink();
+  }, [userId, currentTeamId, chatIdentityKey]);
 
   // Report this desktop install's tauri client version once per team selection.
   useEffect(() => {
@@ -2834,32 +2847,8 @@ function App() {
       for (const raw of urls) {
         const sessionId = parseSessionDeeplink(raw);
         if (!sessionId) continue;
-        // Best-effort: only act for a real signed-in user. No stash / no
-        // cold-start resume — a non-logged-in launch just drops the link.
-        const authState = useAuthStore.getState();
-        if (!authState.session || authState.session.user?.is_anonymous) continue;
-        try {
-          const session = await getBackend().sessions.joinSession(sessionId);
-          const teamId = session.team_id;
-          const currentTeamId = useCurrentTeamStore.getState().team?.id ?? null;
-          if (teamId && teamId !== currentTeamId) {
-            // The linked session can live in a team outside the active org.
-            await useCurrentTeamStore.getState().enterTeam(teamId);
-          }
-          await useUIStore.getState().switchToSession(sessionId);
-          // Refresh the session list so the freshly-joined session appears in
-          // the left column without waiting for a remount.
-          await useSessionListStore.getState().load();
-        } catch (err) {
-          if (err instanceof CloudApiError && err.status === 403) {
-            toast.error(i18n.t("session.deeplink.noAccess", "无权访问该会话"));
-          } else if (err instanceof CloudApiError && err.status === 404) {
-            toast.error(i18n.t("session.deeplink.notFound", "会话不存在或已被删除"));
-          } else {
-            toast.error(i18n.t("session.deeplink.openFailed", "打开会话失败"));
-          }
-          console.error("[session-deeplink] join failed", err);
-        }
+        stashPendingSessionDeeplink(sessionId);
+        await openSessionFromDeeplink(sessionId);
       }
     }
 
@@ -2871,6 +2860,16 @@ function App() {
 
     return () => { unlisten?.(); };
   }, []);
+
+  // Cold-start resume: the OS may deliver the session link before auth hydrates.
+  const authSession = useAuthStore((s) => s.session);
+  useEffect(() => {
+    if (!isTauri()) return;
+    if (!authSession || authSession.user?.is_anonymous) return;
+    const pending = readPendingSessionDeeplink();
+    if (!pending) return;
+    void openSessionFromDeeplink(pending.sessionId);
+  }, [authSession]);
 
   // Extracted hooks — initialization, setup guide, telemetry consent
   useTauriBodyClass();
