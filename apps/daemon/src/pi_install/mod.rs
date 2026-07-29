@@ -1,9 +1,9 @@
 //! pi coding-agent discovery + install for amuxd (parity with `opencode_install`).
 //!
 //! `pi.lock.json` records the MINIMUM pi version this build requires. pi is
-//! installed via npm (`npm install -g @earendil-works/pi`, bun fallback); its
-//! own installer places a launcher at `~/.pi/bin/pi`, which amuxd resolves by
-//! absolute path so background services find it without a login PATH.
+//! installed via npm (`npm install -g @earendil-works/pi-coding-agent@<lock>`,
+//! bun fallback); the global `pi` binary is resolved via `~/.pi/bin/pi` when
+//! present, otherwise `pi` on PATH (including `~/.npm-global/bin`).
 
 use serde::{Deserialize, Serialize};
 
@@ -99,7 +99,13 @@ fn has_command(cmd: &str) -> bool {
         .unwrap_or(false)
 }
 
-/// Install or upgrade pi via `npm install -g @earendil-works/pi`
+const PI_NPM_PKG: &str = "@earendil-works/pi-coding-agent";
+
+fn npm_package_spec(min_version: &str) -> String {
+    format!("{PI_NPM_PKG}@{min_version}")
+}
+
+/// Install or upgrade pi via `npm install -g @earendil-works/pi-coding-agent@<lock>`
 /// (falls back to `bun add -g` when npm is absent).
 pub fn run_install(force: bool) -> anyhow::Result<()> {
     let want = required_version();
@@ -122,17 +128,18 @@ pub fn run_install(force: bool) -> anyhow::Result<()> {
         }
     }
 
-    let (cmd, args): (&str, Vec<&str>) = if has_command("npm") {
-        ("npm", vec!["install", "-g", "@earendil-works/pi"])
+    let pkg = npm_package_spec(&want);
+    let (cmd, args): (&str, Vec<String>) = if has_command("npm") {
+        ("npm", vec!["install".into(), "-g".into(), pkg])
     } else if has_command("bun") {
-        ("bun", vec!["add", "-g", "@earendil-works/pi"])
+        ("bun", vec!["add".into(), "-g".into(), pkg])
     } else {
         anyhow::bail!("neither npm nor bun found; install Node.js or Bun first");
     };
 
     progress("install", &format!("running {cmd} {}", args.join(" ")));
     let output = std::process::Command::new(cmd)
-        .args(&args)
+        .args(args.iter().map(String::as_str))
         .output()
         .map_err(|e| anyhow::anyhow!("failed to run {cmd}: {e}"))?;
     let stdout = String::from_utf8_lossy(&output.stdout).trim().to_string();
@@ -160,6 +167,14 @@ mod tests {
         let v = required_version();
         assert!(!v.starts_with('v'), "got {v}");
         assert!(version_ge(&v, "0.81.1"), "lock too old: {v}");
+    }
+
+    #[test]
+    fn npm_package_spec_uses_pi_coding_agent() {
+        assert_eq!(
+            npm_package_spec("0.81.1"),
+            "@earendil-works/pi-coding-agent@0.81.1"
+        );
     }
 
     #[test]
