@@ -319,7 +319,8 @@
       "requestedSkill": "请求的技能",
       "sourceToolInvocation": "来自 {{tool}} 工具调用",
       "waitingExternalPathApproval": "读取工作区外路径前需要你的确认",
-      "childSessionWaitingApproval": "子会话正在等待你的审批",
+      "childSessionWaitingApproval": "Subagent 正在等待你的审批",
+      "subagentUnboundTaskWaitingApproval": "Subagent 任务等待审批（未能定位具体任务）",
       "toolInvocationWaitingApproval": "工具调用正在等待你的审批",
       "waitingForApproval": "等待 {{name}} 批准",
       "queuePosition": "第 {{current}} / {{total}} 条",
@@ -1092,6 +1093,14 @@
         "daemonErrLog": "Daemon stderr",
         "acpLog": "ACP stream",
         "noLog": "暂无日志或文件不存在"
+      },
+      "resetRemediation": {
+        "title": "建议重置本地 daemon",
+        "description": "以下问题通常可通过清除本机 daemon 绑定并重新初始化解决。团队共享目录（~/.amuxd/teams/）不会受影响。",
+        "action": "重置本地 daemon",
+        "confirmTitle": "重置本地 daemon？",
+        "confirmDescription": "将清除本机 daemon 的身份与配置文件，之后需要重新绑定 agent。团队共享文件不会删除。",
+        "confirmAction": "确认重置"
       }
     },
     "nav": {
@@ -1525,7 +1534,15 @@
       "mqttConnected": "已连接",
       "mqttDisconnected": "未连接",
       "mqttUnknown": "未知",
-      "switchTimeout": "已切换运行时，但 daemon 未能及时确认，可能仍在重启中。"
+      "switchTimeout": "已切换运行时，但 daemon 未能及时确认，可能仍在重启中。",
+      "manualReset": {
+        "title": "疑难问题排查",
+        "description": "若本机 daemon 状态异常且其他方式无法恢复，可清除本地绑定并重新初始化。团队共享目录（~/.amuxd/teams/）不会删除。",
+        "action": "重置本地 daemon",
+        "confirmTitle": "重置本地 daemon？",
+        "confirmDescription": "将删除本机 daemon 的身份与配置文件（daemon.toml、backend.toml 等），之后需要重新绑定 agent。请输入 RESET 确认。",
+        "confirmAction": "确认重置"
+      }
     },
     "daemonOnboarding": {
       "startingTitle": "正在启动服务…",
