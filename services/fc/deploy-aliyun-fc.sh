@@ -72,6 +72,34 @@ for _v in APNS_PRIVATE_KEY_P8 APNS_KEY_ID APNS_TEAM_ID APNS_TOPIC APNS_ENV \
 done
 [ -n "$_backfilled" ] && echo "NOTE: backfilled empty test vars with placeholders:$_backfilled"
 
+# MQTT_PUBLIC_BROKER_URL is deliberately NOT in the backfill list above, and is
+# checked instead. It is the address `GET /v1/config/bootstrap` hands to
+# clients, and an empty one is the single worst failure this script can ship:
+# buildMqttConfig() falls back to MQTT_BROKER_URL (an internal address clients
+# cannot reach) or omits the `mqtt` block entirely — while still answering 200.
+# Every client then has no broker, and nothing anywhere logs an error. That is
+# how real-time sync went down for a day in issue #634.
+#
+# A placeholder would be worse than nothing here, so refuse instead. Deploys
+# that genuinely don't need MQTT (pure smoke tests) opt out explicitly.
+if [ -z "${MQTT_PUBLIC_BROKER_URL:-}" ] && [ "${ALLOW_EMPTY_MQTT:-}" != "1" ]; then
+  echo "ERROR: MQTT_PUBLIC_BROKER_URL is empty in $ENV_FILE." >&2
+  echo "       This is the broker address delivered to clients. Deploying" >&2
+  echo "       without it produces a bootstrap that answers 200 with no \`mqtt\`" >&2
+  echo "       block, silently leaving every client with no broker (#634)." >&2
+  echo "" >&2
+  echo "       Set it to the PUBLIC broker hostname, e.g." >&2
+  echo "         MQTT_PUBLIC_BROKER_URL=mqtt://mqtt.example.com:1883" >&2
+  echo "" >&2
+  echo "       For a smoke test that genuinely does not need MQTT:" >&2
+  echo "         ALLOW_EMPTY_MQTT=1 ./deploy-aliyun-fc.sh $FUNCTION_NAME $ENV_FILE" >&2
+  exit 1
+fi
+if [ -z "${MQTT_PUBLIC_BROKER_URL:-}" ]; then
+  echo "WARN: deploying with an empty MQTT_PUBLIC_BROKER_URL (ALLOW_EMPTY_MQTT=1)."
+  echo "      Clients will receive no broker from /v1/config/bootstrap."
+fi
+
 # Tell s.yaml which function to deploy.
 export FC_FUNCTION_NAME="$FUNCTION_NAME"
 export BACKEND_KIND="${BACKEND_KIND:-supabase}"
