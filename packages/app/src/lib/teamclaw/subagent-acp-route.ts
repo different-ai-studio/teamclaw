@@ -5,6 +5,7 @@ import {
   normalizeToolResultEvent,
   normalizeToolUseEvent,
 } from "@/lib/live-agent-stream";
+import { handleAcpPermissionRequest } from "@/lib/teamclaw/handle-acp-permission-request";
 import { useV2StreamingStore } from "@/stores/v2-streaming-store";
 
 /** Route a child-session ACP event into nested subagent stream state. */
@@ -51,6 +52,32 @@ export function routeSubagentAcpEvent(
       summary: tr.summary,
       content: tr.content,
       rawOutput: tr.rawOutput,
+    });
+    return;
+  }
+  if (event?.case === "permissionRequest") {
+    const pr = event.value as {
+      requestId?: string;
+      toolName?: string;
+      description?: string;
+      params?: Record<string, string>;
+      options?: Array<{ optionId?: string; kind?: string; name?: string }>;
+    };
+    void handleAcpPermissionRequest({
+      sessionId,
+      agentActorId: actorId,
+      request: {
+        requestId: pr.requestId ?? "",
+        toolName: pr.toolName ?? "",
+        description: pr.description ?? "",
+        params: pr.params ?? {},
+        requesterActorId: pr.params?.requester_actor_id?.trim() || undefined,
+        options: (pr.options ?? []).map((o) => ({
+          optionId: o.optionId ?? "",
+          kind: o.kind ?? "",
+          name: o.name ?? "",
+        })),
+      },
     });
     return;
   }

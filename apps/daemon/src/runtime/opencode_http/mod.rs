@@ -77,6 +77,11 @@ pub(crate) struct Route {
     /// for this session (gateway `send` tool / remote tools). Pruned back out
     /// on detach / re-attach so stale entries don't accumulate.
     pub(crate) injected_mcp: Vec<String>,
+    /// Set when this route is a lightweight alias for an opencode `task`
+    /// subagent session (`Session.parentID`). Frames still carry the child
+    /// `acp_session_id`; only the delivery channel / directory / permission
+    /// policy are inherited from the parent attach.
+    pub(crate) parent_session_id: Option<String>,
 }
 
 pub(crate) struct Shared {
@@ -169,11 +174,131 @@ impl Shared {
 
     pub(super) fn touch_turn_transport_activity(&self, session_id: &str) {
         let mut routes = self.routes.lock();
+        let parent_id = routes
+            .get(session_id)
+            .and_then(|r| r.parent_session_id.clone());
+        let now = std::time::Instant::now();
         if let Some(route) = routes.get_mut(session_id) {
             if route.turn_active {
-                route.turn_last_event_at = std::time::Instant::now();
+                route.turn_last_event_at = now;
             }
         }
+        // Subagent progress must keep the parent's stuck-turn watchdog alive.
+        if let Some(parent_id) = parent_id {
+            if let Some(route) = routes.get_mut(&parent_id) {
+                if route.turn_active {
+                    route.turn_last_event_at = now;
+                }
+            }
+        }
+    }
+
+    /// Parent session id plus any registered task-subagent child alias ids.
+    /// Pending permissions/questions on children must pause the parent's
+    /// stuck-turn watchdog the same way top-level asks do.
+    pub(super) fn session_ids_for_user_wait(&self, parent_session_id: &str) -> Vec<String> {
+        let routes = self.routes.lock();
+        let mut ids = vec![parent_session_id.to_string()];
+        for (id, route) in routes.iter() {
+            if route.parent_session_id.as_deref() == Some(parent_session_id) {
+                ids.push(id.clone());
+            }
+        }
+        ids
+    }
+
+    pub(super) fn turn_waiting_on_user(&self, parent_session_id: &str) -> bool {
+        let wait_ids = self.session_ids_for_user_wait(parent_session_id);
+        let has_perm = self
+            .permissions
+            .lock()
+            .values()
+            .any(|sid| wait_ids.iter().any(|id| id == sid));
+        if has_perm {
+            return true;
+        }
+        self.questions
+            .lock()
+            .values()
+            .any(|sid| wait_ids.iter().any(|id| id == sid))
+    }
+
+    /// After re-attaching a parent session (new `event_tx`), refresh any
+    /// lightweight child alias routes so they forward on the live channel.
+    pub(super) fn sync_child_routes_from_parent(&self, parent_id: &str) {
+        let mut routes = self.routes.lock();
+        let Some(parent) = routes.get(parent_id) else {
+            return;
+        };
+        let event_tx = parent.event_tx.clone();
+        let permission = parent.permission;
+        let directory = parent.directory.clone();
+        let turn_reply_to = parent.turn_reply_to.clone();
+        let turn_requester = parent.turn_requester.clone();
+        for route in routes.values_mut() {
+            if route.parent_session_id.as_deref() == Some(parent_id) {
+                route.event_tx = event_tx.clone();
+                route.permission = permission;
+                route.directory = directory.clone();
+                route.turn_reply_to = turn_reply_to.clone();
+                route.turn_requester = turn_requester.clone();
+            }
+        }
+    }
+
+    /// Register a lightweight route for an opencode task subagent session so
+    /// its SSE events (`permission.asked`, tool deltas, …) are forwarded on
+    /// the parent's `event_tx` while keeping `acp_session_id` = child.
+    pub(super) fn ensure_child_route(&self, child_id: &str, parent_id: &str) -> bool {
+        if child_id.is_empty() || parent_id.is_empty() || child_id == parent_id {
+            return false;
+        }
+        let mut routes = self.routes.lock();
+        if let Some(child) = routes.get(child_id) {
+            if child.parent_session_id.as_deref() != Some(parent_id) {
+                return false;
+            }
+            let Some(parent) = routes.get(parent_id) else {
+                return false;
+            };
+            let event_tx = parent.event_tx.clone();
+            let permission = parent.permission;
+            let directory = parent.directory.clone();
+            let turn_reply_to = parent.turn_reply_to.clone();
+            let turn_requester = parent.turn_requester.clone();
+            if let Some(child) = routes.get_mut(child_id) {
+                child.event_tx = event_tx;
+                child.permission = permission;
+                child.directory = directory;
+                child.turn_reply_to = turn_reply_to;
+                child.turn_requester = turn_requester;
+            }
+            return true;
+        }
+        let Some(parent) = routes.get(parent_id) else {
+            return false;
+        };
+        let child = Route {
+            event_tx: parent.event_tx.clone(),
+            permission: parent.permission,
+            directory: parent.directory.clone(),
+            model: None,
+            turn_active: false,
+            turn_reply_to: parent.turn_reply_to.clone(),
+            turn_requester: parent.turn_requester.clone(),
+            turn_seq: 0,
+            turn_saw_output: false,
+            turn_last_event_at: std::time::Instant::now(),
+            translate: TranslateState::default(),
+            injected_mcp: Vec::new(),
+            parent_session_id: Some(parent_id.to_string()),
+        };
+        routes.insert(child_id.to_string(), child);
+        info!(
+            child_id,
+            parent_id, "registered lightweight opencode subagent route"
+        );
+        true
     }
 
     pub(super) fn refresh_active_turn_clocks_for_directory(&self, directory: &str) {
@@ -655,11 +780,13 @@ async fn attach(shared: &Arc<Shared>, args: AttachArgs) -> Result<AcpStartupMeta
                 turn_last_event_at: std::time::Instant::now(),
                 translate: TranslateState::default(),
                 injected_mcp,
+                parent_session_id: None,
             },
         );
         orphaned_turn
     };
     close_orphaned_turn(&session_id, orphaned_turn).await;
+    shared.sync_child_routes_from_parent(&session_id);
 
     info!(
         session_id = %session_id,
@@ -848,17 +975,7 @@ fn spawn_stuck_turn_watchdog(shared: &Arc<Shared>, session_id: &str, turn_seq: u
             // Waiting on the USER (pending permission or question) is not a
             // stall — stand by until it resolves (resolution refreshes
             // turn_last_event_at).
-            let waiting_on_user = {
-                let p = shared.permissions.lock();
-                let has_perm = p.values().any(|sid| sid == &session_id);
-                drop(p);
-                has_perm
-                    || shared
-                        .questions
-                        .lock()
-                        .values()
-                        .any(|sid| sid == &session_id)
-            };
+            let waiting_on_user = shared.turn_waiting_on_user(&session_id);
             if waiting_on_user {
                 continue;
             }
@@ -1210,8 +1327,20 @@ async fn command_loop(shared: Arc<Shared>, mut cmd_rx: mpsc::Receiver<AcpCommand
                 None => warn!(model_id = %model_id, "set_model: expected provider/model id"),
             },
             AcpCommand::DetachSession { acp_session_id } => {
-                let (pruned, orphaned_turn) = {
+                let (pruned, orphaned_turn, detached_session_ids) = {
                     let mut routes = shared.routes.lock();
+                    let mut detached_session_ids = vec![acp_session_id.clone()];
+                    // Drop lightweight subagent aliases that pointed at this
+                    // parent before removing the parent itself.
+                    routes.retain(|id, route| {
+                        if route.parent_session_id.as_deref() == Some(acp_session_id.as_str())
+                        {
+                            detached_session_ids.push(id.clone());
+                            false
+                        } else {
+                            true
+                        }
+                    });
                     let removed = routes.remove(&acp_session_id);
                     let mut orphaned_turn = None;
                     let pruned = removed.map(|mut route| {
@@ -1226,16 +1355,22 @@ async fn command_loop(shared: Arc<Shared>, mut cmd_rx: mpsc::Receiver<AcpCommand
                         );
                         (route.directory, names)
                     });
-                    (pruned, orphaned_turn)
+                    (pruned, orphaned_turn, detached_session_ids)
                 };
                 close_orphaned_turn(&acp_session_id, orphaned_turn).await;
                 if let Some((directory, names)) = pruned {
                     prune_mcp_servers_from_worktree(&directory, &names);
                 }
-                shared
-                    .permissions
-                    .lock()
-                    .retain(|_, sid| sid != &acp_session_id);
+                shared.permissions.lock().retain(|_, sid| {
+                    !detached_session_ids
+                        .iter()
+                        .any(|detached| detached == sid)
+                });
+                shared.questions.lock().retain(|_, sid| {
+                    !detached_session_ids
+                        .iter()
+                        .any(|detached| detached == sid)
+                });
                 info!(acp_session_id, "opencode session detached");
             }
             AcpCommand::Shutdown => {
@@ -1478,6 +1613,7 @@ mod pool_tests {
                 turn_last_event_at: std::time::Instant::now(),
                 translate: TranslateState::default(),
                 injected_mcp: vec!["amuxd-send".to_string()],
+                parent_session_id: None,
             },
         );
         let candidates = vec!["amuxd-send".to_string(), "remote-tools".to_string()];
@@ -1508,6 +1644,7 @@ mod turn_activity_tests {
                 .unwrap_or_else(std::time::Instant::now),
             translate: TranslateState::default(),
             injected_mcp: Vec::new(),
+            parent_session_id: None,
         }
     }
 
@@ -1544,6 +1681,181 @@ mod turn_activity_tests {
         assert!(taken.is_none());
         close_orphaned_turn("ses_1", taken).await;
         assert!(rx.try_recv().is_err(), "no spurious idle for an idle route");
+    }
+
+    #[test]
+    fn ensure_child_route_aliases_parent_delivery_channel() {
+        let shared = Shared::new();
+        {
+            let mut routes = shared.routes.lock();
+            routes.insert("ses_parent".to_string(), test_route("/ws"));
+        }
+        assert!(shared.ensure_child_route("ses_child", "ses_parent"));
+        let routes = shared.routes.lock();
+        let child = routes.get("ses_child").expect("child route");
+        let parent = routes.get("ses_parent").expect("parent route");
+        assert_eq!(child.parent_session_id.as_deref(), Some("ses_parent"));
+        assert_eq!(child.directory, parent.directory);
+        assert!(!child.turn_active);
+        // Second call is idempotent.
+        drop(routes);
+        assert!(shared.ensure_child_route("ses_child", "ses_parent"));
+    }
+
+    #[test]
+    fn child_progress_refreshes_parent_watchdog_clock() {
+        let shared = Shared::new();
+        {
+            let mut routes = shared.routes.lock();
+            routes.insert("ses_parent".to_string(), test_route("/ws"));
+        }
+        assert!(shared.ensure_child_route("ses_child", "ses_parent"));
+        {
+            let mut routes = shared.routes.lock();
+            let parent = routes.get_mut("ses_parent").unwrap();
+            parent.turn_last_event_at = std::time::Instant::now()
+                .checked_sub(std::time::Duration::from_secs(90))
+                .unwrap();
+        }
+        shared.touch_turn_transport_activity("ses_child");
+        let elapsed = shared
+            .routes
+            .lock()
+            .get("ses_parent")
+            .unwrap()
+            .turn_last_event_at
+            .elapsed();
+        assert!(
+            elapsed < std::time::Duration::from_secs(2),
+            "parent turn clock should refresh from child activity"
+        );
+    }
+
+    #[test]
+    fn detach_clears_permissions_for_parent_and_child_routes() {
+        let shared = Shared::new();
+        {
+            let mut routes = shared.routes.lock();
+            routes.insert("ses_parent".to_string(), test_route("/ws"));
+            let parent_tx = routes.get("ses_parent").unwrap().event_tx.clone();
+            routes.insert(
+                "ses_child".to_string(),
+                Route {
+                    event_tx: parent_tx,
+                    permission: PermissionPolicy::Ask,
+                    directory: "/ws".to_string(),
+                    model: None,
+                    turn_active: false,
+                    turn_reply_to: None,
+                    turn_requester: None,
+                    turn_seq: 0,
+                    turn_saw_output: false,
+                    turn_last_event_at: std::time::Instant::now(),
+                    translate: TranslateState::default(),
+                    injected_mcp: Vec::new(),
+                    parent_session_id: Some("ses_parent".to_string()),
+                },
+            );
+        }
+        {
+            let mut perms = shared.permissions.lock();
+            perms.insert("perm_parent".to_string(), "ses_parent".to_string());
+            perms.insert("perm_child".to_string(), "ses_child".to_string());
+            perms.insert("perm_other".to_string(), "ses_other".to_string());
+        }
+        {
+            let mut questions = shared.questions.lock();
+            questions.insert("q_parent".to_string(), "ses_parent".to_string());
+            questions.insert("q_child".to_string(), "ses_child".to_string());
+            questions.insert("q_other".to_string(), "ses_other".to_string());
+        }
+
+        {
+            let mut routes = shared.routes.lock();
+            let mut detached_session_ids = vec!["ses_parent".to_string()];
+            routes.retain(|id, route| {
+                if route.parent_session_id.as_deref() == Some("ses_parent") {
+                    detached_session_ids.push(id.clone());
+                    false
+                } else {
+                    true
+                }
+            });
+            routes.remove("ses_parent");
+            shared.permissions.lock().retain(|_, sid| {
+                !detached_session_ids.iter().any(|detached| detached == sid)
+            });
+            shared.questions.lock().retain(|_, sid| {
+                !detached_session_ids.iter().any(|detached| detached == sid)
+            });
+        }
+
+        let remaining = shared.permissions.lock();
+        assert!(!remaining.contains_key("perm_parent"));
+        assert!(!remaining.contains_key("perm_child"));
+        assert_eq!(remaining.get("perm_other"), Some(&"ses_other".to_string()));
+        let remaining_q = shared.questions.lock();
+        assert!(!remaining_q.contains_key("q_parent"));
+        assert!(!remaining_q.contains_key("q_child"));
+        assert_eq!(remaining_q.get("q_other"), Some(&"ses_other".to_string()));
+    }
+
+    #[test]
+    fn child_pending_permission_pauses_parent_watchdog_wait() {
+        let shared = Shared::new();
+        {
+            let mut routes = shared.routes.lock();
+            routes.insert("ses_parent".to_string(), test_route("/ws"));
+        }
+        assert!(shared.ensure_child_route("ses_child", "ses_parent"));
+        assert!(
+            !shared.turn_waiting_on_user("ses_parent"),
+            "no pending interaction yet"
+        );
+        shared
+            .permissions
+            .lock()
+            .insert("perm_child".to_string(), "ses_child".to_string());
+        assert!(
+            shared.turn_waiting_on_user("ses_parent"),
+            "child permission should pause parent watchdog"
+        );
+    }
+
+    #[test]
+    fn sync_child_routes_follows_parent_reattach_channel() {
+        let shared = Shared::new();
+        let (tx_old, _rx_old) = mpsc::channel(1);
+        let (tx_new, mut rx_new) = mpsc::channel(1);
+        {
+            let mut routes = shared.routes.lock();
+            let mut parent = test_route("/ws");
+            parent.event_tx = tx_old;
+            routes.insert("ses_parent".to_string(), parent);
+        }
+        assert!(shared.ensure_child_route("ses_child", "ses_parent"));
+        {
+            let mut routes = shared.routes.lock();
+            routes.get_mut("ses_parent").unwrap().event_tx = tx_new;
+        }
+        shared.sync_child_routes_from_parent("ses_parent");
+        let child_tx = shared
+            .routes
+            .lock()
+            .get("ses_child")
+            .unwrap()
+            .event_tx
+            .clone();
+        child_tx
+            .try_send(AcpEventFrame::new(
+                "ses_child",
+                translate::status_change(amux::AgentStatus::Active, amux::AgentStatus::Idle),
+            ))
+            .expect("child route should use the refreshed parent channel");
+        assert!(
+            rx_new.try_recv().is_ok(),
+            "frame should arrive on the new parent channel"
+        );
     }
 
     #[test]

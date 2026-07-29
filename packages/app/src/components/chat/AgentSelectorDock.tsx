@@ -246,6 +246,39 @@ function AgentPill({
     runtimeInfoLoading,
   ])
 
+  // Catalog is visible but nothing was user-/runtime-selected. Persist the
+  // first advertised model as a session pick so reload/send keep a real id
+  // (and the dropdown shows a checkmark). `selectAgentModel` already falls
+  // back to available[0] for display; this makes that choice durable.
+  React.useEffect(() => {
+    if (!sessionId) return
+    if (effectiveUiState === 'offline' || effectiveUiState === 'stale') return
+    if (runtimeInfoLoading) return
+    if (availableModels.length === 0) return
+    if (useAgentModelPickStore.getState().getPick(sessionId, agent.id)) return
+    if (sessionEstablishedModel?.trim()) return
+    if (liveRuntimeInfo?.currentModel?.trim()) return
+    const firstId = availableModels[0]?.id?.trim()
+    if (!firstId) return
+    const rpcModelId = resolveSetModelId(agent.id, firstId, byRuntimeId)
+    sessionFlowLog('agent_selector.model_auto_select', {
+      agentId: agent.id,
+      sessionId,
+      modelId: rpcModelId,
+      availableModelIds: availableModels.map((m) => m.id),
+    })
+    useAgentModelPickStore.getState().setPick(sessionId, agent.id, rpcModelId)
+  }, [
+    sessionId,
+    agent.id,
+    effectiveUiState,
+    runtimeInfoLoading,
+    availableModels,
+    sessionEstablishedModel,
+    liveRuntimeInfo?.currentModel,
+    byRuntimeId,
+  ])
+
   const handlePickModel = React.useCallback(async (modelId: string) => {
     const freshByRuntimeId = useRuntimeStateStore.getState().byRuntimeId
     const rpcModelId = resolveSetModelId(agent.id, modelId, freshByRuntimeId)

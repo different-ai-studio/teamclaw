@@ -323,7 +323,7 @@ describe('PendingPermissionInline', () => {
     render(<PendingPermissionInline />);
 
     expect(screen.getByText('child-owned-command')).toBeTruthy();
-    expect(screen.getByText('A child session is waiting for your approval')).toBeTruthy();
+    expect(screen.getByText('A subagent is waiting for your approval')).toBeTruthy();
   });
 
   it('uses the same stacked approval UI for tool-attached and child-session permissions together', async () => {
