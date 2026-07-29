@@ -28,7 +28,7 @@
     "teamShareBrowser": true,
     "apps": true
   },
-  "localAgent": "pi",
+  "localAgent": "opencode",
   "defaults": {
     "theme": "system"
   }

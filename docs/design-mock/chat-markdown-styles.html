@@ -1,0 +1,580 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Chat Markdown · 三版样式对照</title>
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;450;500;560;600;650;700&family=JetBrains+Mono:wght@400;500;600&display=swap');
+
+  :root {
+    --font: Inter, "PingFang SC", "Noto Sans SC", -apple-system, BlinkMacSystemFont, sans-serif;
+    --mono: "JetBrains Mono", "SF Mono", ui-monospace, Menlo, monospace;
+    --ease: cubic-bezier(0.22, 1, 0.36, 1);
+    --bg: #E8E5DF;
+    --paper: #FBFBFA;
+    --elev: #FFFFFF;
+    --ink: #1C1B19;
+    --ink-2: #5C5A54;
+    --mute: #8E8B83;
+    --faint: #B0ADA4;
+    --line: rgba(28,27,25,0.08);
+    --line-soft: rgba(28,27,25,0.05);
+    --coral: #E85A4A;
+    --coral-soft: rgba(232,90,74,0.12);
+    --ok: #2EB872;
+    --ok-soft: rgba(46,184,114,0.12);
+    --code-bg: #F3F1EC;
+    --shadow: 0 2px 10px rgba(28,27,25,0.05), 0 1px 2px rgba(28,27,25,0.03);
+  }
+
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    font-family: var(--font);
+    background: var(--bg);
+    color: var(--ink);
+    -webkit-font-smoothing: antialiased;
+    padding: 28px 24px 64px;
+  }
+
+  .page-h { max-width: 1280px; margin: 0 auto 18px; }
+  .page-h h1 { font-size: 17px; font-weight: 650; letter-spacing: -0.02em; }
+  .page-h p { margin-top: 6px; font-size: 13px; color: var(--ink-2); line-height: 1.55; max-width: 62ch; }
+
+  .tabs {
+    max-width: 1280px; margin: 0 auto 14px;
+    display: flex; flex-wrap: wrap; gap: 6px; align-items: center;
+  }
+  .tabs button {
+    font: inherit; border: none; cursor: pointer;
+    height: 30px; padding: 0 12px; border-radius: 8px;
+    background: transparent; color: var(--mute); font-size: 12.5px; font-weight: 560;
+    transition: background .15s var(--ease), color .15s;
+  }
+  .tabs button:hover { background: rgba(28,27,25,0.05); color: var(--ink-2); }
+  .tabs button.on { background: var(--elev); color: var(--ink); box-shadow: var(--shadow); }
+  .tabs .hint { margin-left: auto; font-size: 11.5px; color: var(--faint); }
+
+  .stage {
+    max-width: 1280px; margin: 0 auto;
+    display: grid; gap: 14px;
+  }
+  .stage.single { grid-template-columns: minmax(0, 720px); justify-content: center; }
+  .stage.dual { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .stage.triple { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+  @media (max-width: 1100px) {
+    .stage.triple { grid-template-columns: 1fr; }
+    .stage.dual { grid-template-columns: 1fr; }
+  }
+
+  .card {
+    background: var(--paper);
+    border-radius: 16px;
+    box-shadow: var(--shadow), 0 0 0 1px var(--line-soft);
+    overflow: hidden;
+    display: none;
+    flex-direction: column;
+    min-height: 0;
+  }
+  .stage.show-all .card,
+  .card.visible { display: flex; }
+
+  .card-h {
+    padding: 12px 16px;
+    border-bottom: 1px solid var(--line-soft);
+    display: flex; align-items: baseline; gap: 10px;
+    background: rgba(255,255,255,0.65);
+  }
+  .card-h .name { font-size: 12.5px; font-weight: 650; }
+  .card-h .tag {
+    font-size: 10px; font-weight: 600; letter-spacing: 0.04em;
+    text-transform: uppercase; color: var(--mute);
+    background: rgba(28,27,25,0.045); padding: 2px 7px; border-radius: 999px;
+  }
+  .card-h .desc { font-size: 11.5px; color: var(--mute); margin-left: auto; }
+
+  .msg {
+    padding: 18px 22px 28px;
+    overflow: auto;
+  }
+
+  .meta {
+    display: flex; align-items: center; gap: 8px; margin-bottom: 14px;
+  }
+  .av {
+    width: 22px; height: 22px; border-radius: 6px;
+    background: linear-gradient(145deg, #E85A4A, #C4473A);
+    color: #fff; font-size: 9px; font-weight: 700;
+    display: grid; place-items: center;
+  }
+  .meta .nm { font-size: 12.5px; font-weight: 600; }
+  .meta .ai {
+    font-size: 9.5px; font-weight: 600; letter-spacing: 0.04em;
+    border: 1px solid rgba(232,90,74,0.35); color: var(--coral);
+    padding: 1px 5px; border-radius: 4px;
+  }
+  .meta .tm { font-size: 11px; color: var(--faint); font-family: var(--mono); margin-left: auto; }
+
+  /* shared md base */
+  .md { font-size: 13.5px; line-height: 1.7; color: var(--ink); }
+  .md > *:first-child { margin-top: 0 !important; }
+  .md h1, .md h2, .md h3 { color: var(--ink); letter-spacing: -0.02em; }
+  .md p { margin: 0.7em 0; color: var(--ink); }
+  .md a { color: var(--coral); text-decoration: none; border-bottom: 1px solid rgba(232,90,74,0.25); }
+  .md a:hover { border-bottom-color: var(--coral); }
+  .md strong { font-weight: 650; }
+  .md em { font-style: italic; color: var(--ink-2); }
+  .md del { color: var(--mute); text-decoration: line-through; }
+  .md img {
+    max-width: 100%; border-radius: 10px; margin: 0.8em 0;
+    background: var(--code-bg); min-height: 48px;
+  }
+  .md .img-ph {
+    display: flex; align-items: center; gap: 8px;
+    padding: 14px 16px; border-radius: 10px;
+    border: 1px dashed var(--line); color: var(--mute); font-size: 12.5px;
+    margin: 0.8em 0; background: rgba(28,27,25,0.02);
+  }
+  .md .img-ph svg { width: 18px; height: 18px; opacity: 0.55; }
+  .md details {
+    margin: 0.85em 0; border-radius: 10px; border: 1px solid var(--line-soft);
+    background: rgba(28,27,25,0.02); padding: 2px 12px 8px;
+  }
+  .md details summary {
+    cursor: pointer; font-weight: 560; padding: 8px 0; color: var(--ink-2);
+    list-style: none; display: flex; align-items: center; gap: 6px;
+  }
+  .md details summary::-webkit-details-marker { display: none; }
+  .md details summary::before {
+    content: ''; width: 0; height: 0;
+    border-left: 5px solid var(--mute);
+    border-top: 4px solid transparent;
+    border-bottom: 4px solid transparent;
+    transition: transform .15s var(--ease);
+  }
+  .md details[open] summary::before { transform: rotate(90deg); }
+  .md details p { margin: 0.2em 0 0.5em; color: var(--ink-2); font-size: 13px; }
+
+  /* ========== A · Soft Note ========== */
+  .a .md h1 {
+    font-size: 22px; font-weight: 650; margin: 1.15em 0 0.4em;
+    padding-bottom: 0; border: none;
+  }
+  .a .md h2 {
+    font-size: 17px; font-weight: 650; margin: 1.2em 0 0.35em;
+    padding-bottom: 0; border: none;
+  }
+  .a .md h3 {
+    font-size: 14.5px; font-weight: 620; margin: 1.05em 0 0.3em; color: var(--ink);
+  }
+  .a .md code:not(pre code) {
+    font-family: var(--mono); font-size: 0.9em;
+    background: var(--code-bg); color: #3D3A34;
+    padding: 0.12em 0.4em; border-radius: 5px;
+    border: 1px solid var(--line-soft);
+  }
+  .a .md pre {
+    margin: 0.85em 0; border-radius: 12px; overflow: hidden;
+    background: var(--elev); border: 1px solid var(--line-soft);
+    box-shadow: 0 1px 2px rgba(28,27,25,0.03);
+  }
+  .a .md .code-h {
+    display: flex; align-items: center; justify-content: space-between;
+    padding: 7px 12px; background: #F7F6F2;
+    border-bottom: 1px solid var(--line-soft);
+    font-family: var(--mono); font-size: 10.5px; color: var(--mute); font-weight: 500;
+  }
+  .a .md .code-h button {
+    font: inherit; border: none; background: transparent; color: var(--faint);
+    cursor: pointer; padding: 2px 6px; border-radius: 5px;
+  }
+  .a .md .code-h button:hover { background: rgba(28,27,25,0.05); color: var(--ink-2); }
+  .a .md pre code {
+    display: block; padding: 12px 14px; font-family: var(--mono);
+    font-size: 12px; line-height: 1.65; background: transparent; border: none;
+    overflow-x: auto; color: #2A2926;
+  }
+  .a .md .kw { color: #C4473A; } .a .md .str { color: #5B6FA8; }
+  .a .md .key { color: #3D6B8A; } .a .md .bool { color: #2E7A5A; }
+  .a .md blockquote {
+    margin: 0.85em 0; padding: 2px 0 2px 14px;
+    border-left: 2.5px solid rgba(46,184,114,0.55);
+    color: var(--ink-2);
+  }
+  .a .md blockquote p { margin: 0.25em 0; }
+  .a .md ul, .a .md ol { margin: 0.55em 0; padding-left: 1.35em; }
+  .a .md li { margin: 0.28em 0; }
+  .a .md ul { list-style: none; padding-left: 0; }
+  .a .md ul li { padding-left: 1.15em; position: relative; }
+  .a .md ul li::before {
+    content: ''; position: absolute; left: 2px; top: 0.62em;
+    width: 5px; height: 5px; border-radius: 50%; background: var(--ink-2);
+  }
+  .a .md .tasks { list-style: none; padding: 0; }
+  .a .md .tasks li { padding-left: 0; display: flex; gap: 8px; align-items: flex-start; }
+  .a .md .tasks li::before { display: none; }
+  .a .md .cb {
+    width: 15px; height: 15px; margin-top: 3px; border-radius: 4px;
+    border: 1.5px solid rgba(28,27,25,0.2); flex-shrink: 0;
+    display: grid; place-items: center;
+  }
+  .a .md .cb.on { background: var(--ok); border-color: var(--ok); }
+  .a .md .cb.on::after {
+    content: ''; width: 7px; height: 4px; border-left: 1.5px solid #fff;
+    border-bottom: 1.5px solid #fff; transform: rotate(-45deg) translate(0, -1px);
+  }
+  .a .md table {
+    width: 100%; border-collapse: separate; border-spacing: 0;
+    margin: 0.9em 0; font-size: 12.5px;
+    border: 1px solid var(--line-soft); border-radius: 10px; overflow: hidden;
+  }
+  .a .md th, .a .md td {
+    padding: 8px 12px; text-align: left; border-bottom: 1px solid var(--line-soft);
+  }
+  .a .md th { background: #F7F6F2; font-weight: 600; color: var(--ink-2); font-size: 11.5px; }
+  .a .md tr:last-child td { border-bottom: none; }
+  .a .md hr {
+    border: none; height: 1px; background: var(--line-soft); margin: 1.4em 0;
+  }
+  .a .md .callout {
+    margin: 0.9em 0; padding: 10px 12px 10px 14px; border-radius: 10px;
+    background: var(--ok-soft); border-left: 3px solid var(--ok);
+  }
+  .a .md .callout .lab { font-weight: 650; font-size: 12.5px; margin-bottom: 2px; }
+  .a .md .callout p { margin: 0; font-size: 13px; color: var(--ink-2); font-style: italic; }
+
+  /* ========== B · Quiet Structure ========== */
+  .b .msg { background: linear-gradient(180deg, #FCFBF9 0%, #F8F7F4 100%); }
+  .b .md { font-size: 13.5px; line-height: 1.72; }
+  .b .md h1 {
+    font-size: 20px; font-weight: 700; margin: 1.2em 0 0.45em;
+    padding-bottom: 0.35em; border-bottom: 1px solid var(--line);
+  }
+  .b .md h2 {
+    font-size: 16px; font-weight: 650; margin: 1.25em 0 0.4em;
+    display: flex; align-items: center; gap: 8px;
+  }
+  .b .md h2::before {
+    content: ''; width: 3px; height: 0.9em; border-radius: 2px; background: var(--coral);
+    opacity: 0.85;
+  }
+  .b .md h3 {
+    font-size: 13.5px; font-weight: 650; margin: 1.1em 0 0.35em;
+    color: var(--ink-2); text-transform: none; letter-spacing: 0;
+  }
+  .b .md code:not(pre code) {
+    font-family: var(--mono); font-size: 0.88em;
+    background: rgba(28,27,25,0.06); padding: 0.1em 0.38em; border-radius: 4px;
+  }
+  .b .md pre {
+    margin: 0.9em 0; border-radius: 8px; overflow: hidden;
+    background: #1C1B19; color: #EDEAE4;
+  }
+  .b .md .code-h {
+    display: flex; align-items: center; justify-content: space-between;
+    padding: 6px 12px; background: rgba(255,255,255,0.06);
+    font-family: var(--mono); font-size: 10.5px; color: rgba(237,234,228,0.55); font-weight: 500;
+  }
+  .b .md .code-h button {
+    font: inherit; border: none; background: transparent; color: rgba(237,234,228,0.45);
+    cursor: pointer; padding: 2px 6px; border-radius: 4px;
+  }
+  .b .md .code-h button:hover { color: #EDEAE4; background: rgba(255,255,255,0.08); }
+  .b .md pre code {
+    display: block; padding: 12px 14px; font-family: var(--mono);
+    font-size: 12px; line-height: 1.65; background: transparent; border: none; overflow-x: auto;
+  }
+  .b .md .kw { color: #F0A8A0; } .b .md .str { color: #B8C7F0; }
+  .b .md .key { color: #9EC9E8; } .b .md .bool { color: #8FD4B0; }
+  .b .md blockquote {
+    margin: 0.9em 0; padding: 10px 14px;
+    background: rgba(28,27,25,0.03); border-radius: 8px;
+    border-left: 3px solid var(--mute); color: var(--ink-2);
+  }
+  .b .md ul, .b .md ol { margin: 0.6em 0; padding-left: 1.4em; }
+  .b .md li { margin: 0.32em 0; }
+  .b .md .tasks { list-style: none; padding: 0; }
+  .b .md .tasks li { display: flex; gap: 9px; align-items: flex-start; }
+  .b .md .cb {
+    width: 16px; height: 16px; margin-top: 2px; border-radius: 4px;
+    border: 1.5px solid rgba(28,27,25,0.22); flex-shrink: 0;
+  }
+  .b .md .cb.on {
+    background: var(--coral); border-color: var(--coral);
+    box-shadow: inset 0 0 0 2px #fff;
+  }
+  .b .md table {
+    width: 100%; border-collapse: collapse; margin: 0.95em 0; font-size: 12.5px;
+  }
+  .b .md th, .b .md td {
+    padding: 9px 11px; text-align: left;
+    border-bottom: 1px solid var(--line);
+  }
+  .b .md th {
+    font-weight: 600; font-size: 11px; text-transform: uppercase;
+    letter-spacing: 0.06em; color: var(--mute); border-bottom-color: var(--ink);
+    border-bottom-width: 1.5px;
+  }
+  .b .md hr {
+    border: none; margin: 1.5em 0; height: 0;
+    border-top: 1px dashed var(--line);
+  }
+  .b .md .callout {
+    margin: 0.95em 0; padding: 12px 14px; border-radius: 8px;
+    background: var(--coral-soft); border: 1px solid rgba(232,90,74,0.18);
+  }
+  .b .md .callout .lab { font-weight: 650; font-size: 12px; color: var(--coral); margin-bottom: 3px; }
+  .b .md .callout p { margin: 0; font-size: 13px; color: var(--ink-2); font-style: normal; }
+  .b .md .img-ph { border-style: solid; border-radius: 8px; }
+
+  /* ========== C · Studio Dense ========== */
+  .c .md { font-size: 13.25px; line-height: 1.65; }
+  .c .md h1 {
+    font-size: 18px; font-weight: 700; margin: 1em 0 0.35em;
+    letter-spacing: -0.025em;
+  }
+  .c .md h2 {
+    font-size: 15px; font-weight: 650; margin: 1.05em 0 0.3em;
+    color: var(--ink);
+  }
+  .c .md h3 {
+    font-size: 13px; font-weight: 650; margin: 0.95em 0 0.25em;
+    color: var(--mute); letter-spacing: 0.02em;
+  }
+  .c .md p { margin: 0.55em 0; }
+  .c .md code:not(pre code) {
+    font-family: var(--mono); font-size: 0.86em; font-weight: 500;
+    background: #EEEBE4; padding: 0.08em 0.35em; border-radius: 3px;
+    color: #2F2D28;
+  }
+  .c .md pre {
+    margin: 0.7em 0; border-radius: 10px; overflow: hidden;
+    background: #EFEEE9; border: 1px solid var(--line);
+  }
+  .c .md .code-h {
+    display: flex; align-items: center; justify-content: space-between;
+    padding: 5px 10px; background: rgba(28,27,25,0.035);
+    border-bottom: 1px solid var(--line-soft);
+    font-family: var(--mono); font-size: 10px; color: var(--mute); font-weight: 600;
+    text-transform: uppercase; letter-spacing: 0.06em;
+  }
+  .c .md .code-h button {
+    font: inherit; border: none; background: rgba(28,27,25,0.04);
+    color: var(--ink-2); cursor: pointer; padding: 2px 8px; border-radius: 5px;
+    font-size: 10px; letter-spacing: 0; text-transform: none; font-weight: 560;
+  }
+  .c .md .code-h button:hover { background: rgba(28,27,25,0.08); }
+  .c .md pre code {
+    display: block; padding: 10px 12px; font-family: var(--mono);
+    font-size: 11.5px; line-height: 1.6; background: transparent; border: none; overflow-x: auto;
+  }
+  .c .md .kw { color: #B83A2E; font-weight: 500; } .c .md .str { color: #4A6FA5; }
+  .c .md .key { color: #3A6B7A; } .c .md .bool { color: #2A7A58; }
+  .c .md blockquote {
+    margin: 0.7em 0; padding: 0 0 0 12px;
+    border-left: 2px solid var(--ok); color: var(--ink-2); font-size: 13px;
+  }
+  .c .md ul, .c .md ol { margin: 0.45em 0; padding-left: 1.25em; }
+  .c .md li { margin: 0.18em 0; }
+  .c .md ul { list-style: disc; }
+  .c .md .tasks { list-style: none; padding: 0; display: grid; gap: 4px; }
+  .c .md .tasks li {
+    display: flex; gap: 8px; align-items: center;
+    padding: 6px 8px; border-radius: 7px; background: rgba(28,27,25,0.025);
+  }
+  .c .md .cb {
+    width: 14px; height: 14px; border-radius: 3px;
+    border: 1.5px solid rgba(28,27,25,0.25); flex-shrink: 0;
+  }
+  .c .md .cb.on { background: #1C1B19; border-color: #1C1B19; position: relative; }
+  .c .md .cb.on::after {
+    content: ''; position: absolute; left: 3px; top: 1px;
+    width: 6px; height: 3.5px; border-left: 1.5px solid #fff;
+    border-bottom: 1.5px solid #fff; transform: rotate(-45deg);
+  }
+  .c .md table {
+    width: 100%; border-collapse: collapse; margin: 0.75em 0; font-size: 12px;
+    font-variant-numeric: tabular-nums;
+  }
+  .c .md th, .c .md td {
+    padding: 6px 10px; text-align: left; border: 1px solid var(--line);
+  }
+  .c .md th { background: #EFEEE9; font-weight: 650; font-size: 11.5px; }
+  .c .md tr:nth-child(even) td { background: rgba(28,27,25,0.015); }
+  .c .md hr {
+    border: none; height: 1px; margin: 1.15em 0;
+    background: linear-gradient(90deg, transparent, var(--line), transparent);
+  }
+  .c .md .callout {
+    margin: 0.75em 0; padding: 8px 10px; border-radius: 8px;
+    display: grid; grid-template-columns: auto 1fr; gap: 8px; align-items: start;
+    background: #EFEEE9; border: 1px solid var(--line-soft);
+  }
+  .c .md .callout .ico {
+    width: 18px; height: 18px; border-radius: 5px; background: var(--ok-soft);
+    color: #1F7A4D; font-size: 11px; font-weight: 700;
+    display: grid; place-items: center; margin-top: 1px;
+  }
+  .c .md .callout .lab { font-weight: 650; font-size: 12px; }
+  .c .md .callout p { margin: 2px 0 0; font-size: 12.5px; color: var(--ink-2); font-style: normal; }
+  .c .md details { border-radius: 8px; padding: 0 10px 6px; }
+</style>
+</head>
+<body>
+
+  <div class="page-h">
+    <h1>Chat Markdown · 三版样式</h1>
+    <p>
+      基于 Soft Comfort / Editorial Calm 的消息区 Markdown 重设计。三版共用同一份样例内容，
+      方便对照标题、代码块、表格、引用、任务列表与提示块的气质差异。Coral 只作链接/极少量结构点缀。
+    </p>
+  </div>
+
+  <div class="tabs">
+    <button type="button" class="on" data-mode="a" onclick="show('a')">A · Soft Note</button>
+    <button type="button" data-mode="b" onclick="show('b')">B · Quiet Structure</button>
+    <button type="button" data-mode="c" onclick="show('c')">C · Studio Dense</button>
+    <button type="button" data-mode="all" onclick="show('all')">三栏对照</button>
+    <span class="hint">推荐默认采用 A；编码密集会话可切 C</span>
+  </div>
+
+  <div class="stage single" id="stage">
+
+    <!-- A -->
+    <section class="card a visible" data-v="a">
+      <div class="card-h">
+        <span class="name">A · Soft Note</span>
+        <span class="tag">推荐</span>
+        <span class="desc">备忘录气质 · 轻代码卡 · 少分割线</span>
+      </div>
+      <div class="msg">
+        <div class="meta">
+          <span class="av">MB</span>
+          <span class="nm">MYBOT</span>
+          <span class="ai">AI</span>
+          <span class="tm">11:12</span>
+        </div>
+        <div class="md" data-sample></div>
+      </div>
+    </section>
+
+    <!-- B -->
+    <section class="card b" data-v="b">
+      <div class="card-h">
+        <span class="name">B · Quiet Structure</span>
+        <span class="tag">结构感</span>
+        <span class="desc">标题轨线 · 深色代码 · 表格字阶</span>
+      </div>
+      <div class="msg">
+        <div class="meta">
+          <span class="av">MB</span>
+          <span class="nm">MYBOT</span>
+          <span class="ai">AI</span>
+          <span class="tm">11:12</span>
+        </div>
+        <div class="md" data-sample></div>
+      </div>
+    </section>
+
+    <!-- C -->
+    <section class="card c" data-v="c">
+      <div class="card-h">
+        <span class="name">C · Studio Dense</span>
+        <span class="tag">紧凑</span>
+        <span class="desc">更密行距 · 浅底代码 · 任务条</span>
+      </div>
+      <div class="msg">
+        <div class="meta">
+          <span class="av">MB</span>
+          <span class="nm">MYBOT</span>
+          <span class="ai">AI</span>
+          <span class="tm">11:12</span>
+        </div>
+        <div class="md" data-sample></div>
+      </div>
+    </section>
+
+  </div>
+
+<script>
+const SAMPLE = `
+<h1>一级标题</h1>
+<h2>二级标题</h2>
+<h3>三级标题</h3>
+<p>这是一段普通段落文字，用来展示正文的行高和字重。</p>
+<p><strong>加粗文字</strong> · <em>斜体文字</em> · <strong><em>粗斜体</em></strong> · <del>删除线</del> · 行内代码 <code>const x = 1</code></p>
+<blockquote><p>这是一段引用文字，用于展示引用块的样式。</p></blockquote>
+<ul>
+  <li>无序列表项一</li>
+  <li>无序列表项二</li>
+  <li>无序列表项三</li>
+</ul>
+<ol>
+  <li>有序列表项一</li>
+  <li>有序列表项二</li>
+  <li>有序列表项三</li>
+</ol>
+<ul class="tasks">
+  <li><span class="cb on" aria-hidden="true"></span><span>已完成的任务</span></li>
+  <li><span class="cb" aria-hidden="true"></span><span>未完成的任务</span></li>
+</ul>
+<pre><div class="code-h"><span>js</span><button type="button">复制</button></div><code><span class="kw">function</span> hello() {\n  <span class="kw">return</span> <span class="str">'world'</span>;\n}</code></pre>
+<pre><div class="code-h"><span>json</span><button type="button">复制</button></div><code>{\n  <span class="key">"name"</span>: <span class="str">"teamclaw"</span>,\n  <span class="key">"version"</span>: <span class="str">"1.0"</span>,\n  <span class="key">"ok"</span>: <span class="bool">true</span>\n}</code></pre>
+<table>
+  <thead><tr><th>列一</th><th>列二</th><th>列三</th></tr></thead>
+  <tbody>
+    <tr><td>单元格 A1</td><td>单元格 A2</td><td>单元格 A3</td></tr>
+    <tr><td>单元格 B1</td><td>单元格 B2</td><td>单元格 B3</td></tr>
+  </tbody>
+</table>
+<p><a href="#">这是一个链接</a></p>
+<div class="img-ph" role="img" aria-label="图片占位">
+  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><rect x="3" y="5" width="18" height="14" rx="2"/><circle cx="9" cy="10" r="1.5"/><path d="M4 16l5-5 4 4 3-3 4 4"/></svg>
+  图片加载失败 / 占位
+</div>
+<hr />
+<div class="callout">
+  <div class="ico" style="display:none">!</div>
+  <div>
+    <div class="lab">提示</div>
+    <p>这是一个 tip 提示块，用于展示 admonition / callout 样式。</p>
+  </div>
+</div>
+<details open>
+  <summary>点击展开</summary>
+  <p>这里是折叠内容</p>
+</details>
+`;
+
+function paint() {
+  document.querySelectorAll('[data-sample]').forEach((el) => {
+    el.innerHTML = SAMPLE;
+    // C callout uses icon chip
+    if (el.closest('.c')) {
+      const ico = el.querySelector('.callout .ico');
+      if (ico) ico.style.display = 'grid';
+    }
+  });
+}
+
+function show(mode) {
+  document.querySelectorAll('.tabs button').forEach((b) => {
+    b.classList.toggle('on', b.dataset.mode === mode);
+  });
+  const stage = document.getElementById('stage');
+  const cards = [...document.querySelectorAll('.card')];
+  stage.classList.remove('single', 'dual', 'triple', 'show-all');
+  if (mode === 'all') {
+    stage.classList.add('triple', 'show-all');
+    cards.forEach((c) => c.classList.add('visible'));
+  } else {
+    stage.classList.add('single');
+    cards.forEach((c) => c.classList.toggle('visible', c.dataset.v === mode));
+  }
+}
+
+paint();
+show('a');
+</script>
+</body>
+</html>
