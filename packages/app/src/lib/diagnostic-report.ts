@@ -31,6 +31,14 @@ import type { SettingsSection } from '@/stores/ui'
 
 export type DiagnosticStatus = 'ok' | 'warn' | 'fail'
 
+/** Qualifying reasons to offer `amuxd clear` from diagnostics. */
+export type DaemonResetTrigger =
+  | 'daemon_http_token_invalid'
+  | 'daemon_http_port_missing'
+  | 'daemon_info_unreadable'
+  | 'daemon_cloud_auth_expired'
+  | 'daemon_team_mismatch'
+
 export interface DiagnosticCheck {
   id: string
   title: string
@@ -38,6 +46,55 @@ export interface DiagnosticCheck {
   message: string
   hint?: string
   hintSection?: SettingsSection
+  resetTrigger?: DaemonResetTrigger
+}
+
+export interface DaemonResetRemediationContext {
+  /** When true, cloud-auth expiry qualifies for reset (auto-heal already failed). */
+  cloudAuthHealFailed?: boolean
+  teamMismatch?: boolean
+}
+
+export interface DaemonResetRemediation {
+  suggest: boolean
+  triggers: DiagnosticCheck[]
+}
+
+const ALWAYS_RESET_TRIGGERS = new Set<DaemonResetTrigger>([
+  'daemon_http_token_invalid',
+  'daemon_http_port_missing',
+  'daemon_info_unreadable',
+  'daemon_team_mismatch',
+])
+
+export function collectDaemonResetRemediation(
+  checks: DiagnosticCheck[],
+  context: DaemonResetRemediationContext = {},
+): DaemonResetRemediation {
+  const triggers: DiagnosticCheck[] = []
+
+  for (const check of checks) {
+    if (!check.resetTrigger) continue
+    if (ALWAYS_RESET_TRIGGERS.has(check.resetTrigger)) {
+      triggers.push(check)
+      continue
+    }
+    if (check.resetTrigger === 'daemon_cloud_auth_expired' && context.cloudAuthHealFailed) {
+      triggers.push(check)
+    }
+  }
+
+  if (context.teamMismatch) {
+    triggers.push({
+      id: 'daemon_team_mismatch',
+      title: 'Daemon 团队绑定',
+      status: 'fail',
+      message: '本机 daemon 绑定的团队与当前登录团队不一致',
+      resetTrigger: 'daemon_team_mismatch',
+    })
+  }
+
+  return { suggest: triggers.length > 0, triggers }
 }
 
 export interface TeamEnvDiagnostics {
@@ -662,6 +719,12 @@ function buildDaemonHttpCheck(probe: DaemonHttpProbe): DiagnosticCheck {
     ipc_error: '无法读取 daemon 连接信息',
   }
   const reason = probe.ok ? 'not_running' : probe.reason
+  const resetTrigger: DaemonResetTrigger | undefined =
+    reason === 'token_invalid'
+      ? 'daemon_http_token_invalid'
+      : reason === 'port_file_missing'
+        ? 'daemon_http_port_missing'
+        : undefined
   return {
     id: 'daemon_http',
     title: '本地 Daemon',
@@ -669,6 +732,7 @@ function buildDaemonHttpCheck(probe: DaemonHttpProbe): DiagnosticCheck {
     message: messages[reason as keyof typeof messages] ?? 'daemon 不可用',
     hint: '设置 → Daemon → 通用，检查 onboarding 状态',
     hintSection: 'daemonGeneral',
+    resetTrigger,
   }
 }
 
@@ -689,6 +753,7 @@ function buildDaemonInfoCheck(info: DaemonInfoBody | null, probeOk: boolean): Di
       status: 'warn',
       message: '无法读取 daemon 详情',
       hintSection: 'daemonGeneral',
+      resetTrigger: 'daemon_info_unreadable',
     }
   }
   if (info.cloud_auth?.status === 'expired') {
@@ -699,6 +764,7 @@ function buildDaemonInfoCheck(info: DaemonInfoBody | null, probeOk: boolean): Di
       message: 'daemon 云认证已过期，需重新 onboarding',
       hint: '设置 → Daemon → 通用 → 重新绑定',
       hintSection: 'daemonGeneral',
+      resetTrigger: 'daemon_cloud_auth_expired',
     }
   }
   const advertise = info.agent_types_advertise

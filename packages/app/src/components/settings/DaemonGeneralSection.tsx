@@ -31,6 +31,7 @@ import {
 import { useUIStore } from '@/stores/ui'
 import { cn, isTauri } from '@/lib/utils'
 import { SectionHeader, SettingCard } from './shared'
+import { DaemonManualResetCard } from './DaemonManualResetCard'
 
 const permissionLevels: AgentPermissionLevel[] = ['view', 'prompt', 'admin']
 
@@ -661,6 +662,10 @@ export function DaemonGeneralSection() {
             </div>
           </SettingCard>
         </>
+      )}
+
+      {isTauri() && (
+        <DaemonManualResetCard onResetComplete={() => setRebinding(true)} />
       )}
     </div>
 
