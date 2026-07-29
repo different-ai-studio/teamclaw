@@ -254,6 +254,9 @@ pub struct ActorRow {
     pub team_role: Option<String>,
     #[serde(default)]
     pub agent_visibility: Option<String>,
+    /// Agent owner member actor id — for personal-agent delete gating on cache first paint.
+    #[serde(default)]
+    pub owner_member_id: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -477,7 +480,8 @@ impl LocalCacheStore {
                 deleted_at    TEXT,
                 synced_at     TEXT NOT NULL,
                 team_role     TEXT,
-                agent_visibility TEXT
+                agent_visibility TEXT,
+                owner_member_id TEXT
             )",
             (),
         )
@@ -491,6 +495,9 @@ impl LocalCacheStore {
             .await
             .ok();
         conn.execute("ALTER TABLE actor ADD COLUMN agent_visibility TEXT", ())
+            .await
+            .ok();
+        conn.execute("ALTER TABLE actor ADD COLUMN owner_member_id TEXT", ())
             .await
             .ok();
 
@@ -817,8 +824,8 @@ impl LocalCacheStore {
                 "INSERT INTO actor
                     (id, team_id, actor_type, display_name, avatar_url, member_status,
                      agent_status, last_active_at, metadata_json, created_at, updated_at, deleted_at, synced_at,
-                     team_role, agent_visibility)
-                 VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12,?13,?14,?15)
+                     team_role, agent_visibility, owner_member_id)
+                 VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12,?13,?14,?15,?16)
                  ON CONFLICT(id) DO UPDATE SET
                     team_id       = excluded.team_id,
                     actor_type    = excluded.actor_type,
@@ -833,7 +840,8 @@ impl LocalCacheStore {
                     deleted_at    = excluded.deleted_at,
                     synced_at     = excluded.synced_at,
                     team_role     = excluded.team_role,
-                    agent_visibility = excluded.agent_visibility
+                    agent_visibility = excluded.agent_visibility,
+                    owner_member_id = excluded.owner_member_id
                  WHERE excluded.updated_at >= actor.updated_at",
                 params![
                     r.id.clone(),
@@ -850,7 +858,8 @@ impl LocalCacheStore {
                     opt_val(&r.deleted_at),
                     r.synced_at.clone(),
                     opt_val(&r.team_role),
-                    opt_val(&r.agent_visibility)
+                    opt_val(&r.agent_visibility),
+                    opt_val(&r.owner_member_id)
                 ],
             )
             .await
@@ -868,12 +877,12 @@ impl LocalCacheStore {
         let sql = if include_deleted {
             "SELECT id, team_id, actor_type, display_name, avatar_url, member_status,
                     agent_status, last_active_at, metadata_json, created_at, updated_at, deleted_at, synced_at,
-                    team_role, agent_visibility
+                    team_role, agent_visibility, owner_member_id
              FROM actor WHERE team_id = ?1"
         } else {
             "SELECT id, team_id, actor_type, display_name, avatar_url, member_status,
                     agent_status, last_active_at, metadata_json, created_at, updated_at, deleted_at, synced_at,
-                    team_role, agent_visibility
+                    team_role, agent_visibility, owner_member_id
              FROM actor WHERE team_id = ?1 AND deleted_at IS NULL"
         };
         let mut rows = conn
@@ -902,6 +911,7 @@ impl LocalCacheStore {
                 synced_at: row.get::<String>(12).unwrap_or_default(),
                 team_role: row.get::<String>(13).ok().filter(|s| !s.is_empty()),
                 agent_visibility: row.get::<String>(14).ok().filter(|s| !s.is_empty()),
+                owner_member_id: row.get::<String>(15).ok().filter(|s| !s.is_empty()),
             });
         }
         Ok(result)
@@ -924,7 +934,7 @@ impl LocalCacheStore {
         let sql = format!(
             "SELECT id, team_id, actor_type, display_name, avatar_url, member_status,
                     agent_status, last_active_at, metadata_json, created_at, updated_at, deleted_at, synced_at,
-                    team_role, agent_visibility
+                    team_role, agent_visibility, owner_member_id
              FROM actor WHERE id IN ({}) AND deleted_at IS NULL",
             placeholders
         );
@@ -955,6 +965,7 @@ impl LocalCacheStore {
                 synced_at: row.get::<String>(12).unwrap_or_default(),
                 team_role: row.get::<String>(13).ok().filter(|s| !s.is_empty()),
                 agent_visibility: row.get::<String>(14).ok().filter(|s| !s.is_empty()),
+                owner_member_id: row.get::<String>(15).ok().filter(|s| !s.is_empty()),
             });
         }
         Ok(result)
@@ -2213,6 +2224,7 @@ mod tests {
             synced_at: "2024-01-01T00:00:00Z".to_string(),
             team_role: None,
             agent_visibility: None,
+            owner_member_id: None,
         }
     }
 
@@ -2232,14 +2244,17 @@ mod tests {
         let mut a = actor("a1", "team1", "2024-01-01T00:00:00Z");
         a.team_role = Some("owner".to_string());
         a.agent_visibility = Some("personal".to_string());
+        a.owner_member_id = Some("member-1".to_string());
         store.actor_upsert_batch(&[a]).await.unwrap();
         let loaded = store.actor_load_team("team1", false).await.unwrap();
         assert_eq!(loaded.len(), 1);
         assert_eq!(loaded[0].team_role.as_deref(), Some("owner"));
         assert_eq!(loaded[0].agent_visibility.as_deref(), Some("personal"));
+        assert_eq!(loaded[0].owner_member_id.as_deref(), Some("member-1"));
         // Same fields must survive the by-ids load path too.
         let by_ids = store.actor_load_by_ids(&["a1".to_string()]).await.unwrap();
         assert_eq!(by_ids[0].agent_visibility.as_deref(), Some("personal"));
+        assert_eq!(by_ids[0].owner_member_id.as_deref(), Some("member-1"));
     }
 
     #[tokio::test]

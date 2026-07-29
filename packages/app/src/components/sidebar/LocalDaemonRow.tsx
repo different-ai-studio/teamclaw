@@ -399,7 +399,7 @@ export function LocalDaemonRow({
   const currentMemberId = currentMember?.id ?? null
   const teamPermissions = useTeamPermissions()
   const canRemove = actor
-    ? canRemoveTeamActor(teamPermissions, actor.id, currentMemberId)
+    ? canRemoveTeamActor(teamPermissions, actor, currentMemberId)
     : false
 
   const sheetOpen = useUIStore((s) => s.localDaemonSheetOpen)

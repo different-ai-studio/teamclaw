@@ -13,15 +13,34 @@ export interface TeamPermissions {
   canEditFiles: boolean
 }
 
-/** Whether the signed-in member may remove another actor from the team (server: owner/admin, not self). */
+export interface RemovableActorTarget {
+  id: string
+  actor_type?: 'member' | 'agent' | string
+  visibility?: string | null
+  owner_member_id?: string | null
+}
+
+/** Whether the signed-in member may remove another actor from the team. */
 export function canRemoveTeamActor(
   permissions: Pick<TeamPermissions, 'canManageTeam'>,
-  targetActorId: string,
+  target: RemovableActorTarget,
   currentMemberId: string | null | undefined,
 ): boolean {
-  if (!permissions.canManageTeam) return false
   if (!currentMemberId) return false
-  return targetActorId !== currentMemberId
+  if (target.id === currentMemberId) return false
+
+  if (target.actor_type === 'agent') {
+    if (target.visibility === 'personal') {
+      return currentMemberId === target.owner_member_id
+    }
+    if (target.visibility === 'team') {
+      return permissions.canManageTeam
+    }
+    // Unknown visibility (e.g. cold cache before network reconcile): hide delete.
+    return false
+  }
+
+  return permissions.canManageTeam
 }
 
 export function permissionsForRole(role: string | null | undefined): TeamPermissions {

@@ -113,18 +113,35 @@ test("upsertExternalActor is idempotent (returns same actorId on second call)", 
 
 // ── listTeamActors ────────────────────────────────────────────────────────────
 
-test("listTeamActors returns items with canonical contract keys", async () => {
+test("listTeamActors returns agentOwnerMemberId for agents", async () => {
   const { db } = await makeTestDb();
   const team = await seedTeam(db);
-  await seedMemberActor(db, team.id);
-  const repo = createPgBusinessRepository({ db });
+  const member = await seedMemberActor(db, team.id);
+  await seedAgentActor(db, team.id, member.id, "personal");
+  const repo = createPgBusinessRepository({ db, callerActorId: member.id });
+
+  const page = await repo.listTeamActors(team.id, { kind: "agent", limit: 200 });
+  assert.equal(page.items.length, 1);
+  assert.equal(page.items[0].agentOwnerMemberId, member.id);
+  assert.equal(page.items[0].visibility, "personal");
+});
+
+test("listTeamActors returns directory fields needed for actor management UI", async () => {
+  const { db } = await makeTestDb();
+  const team = await seedTeam(db);
+  const member = await seedMemberActor(db, team.id);
+  await seedAgentActor(db, team.id, member.id, "team");
+  const repo = createPgBusinessRepository({ db, callerActorId: member.id });
 
   const page = await repo.listTeamActors(team.id, { kind: null, limit: 200 });
   assert.ok(Array.isArray(page.items), "items must be an array");
-  assert.ok(page.items.length >= 1, "must have at least one actor");
+  assert.ok(page.items.length >= 2, "must have member + agent");
 
-  const expected = ["id", "teamId", "kind", "displayName", "avatarUrl", "metadata"].sort();
-  assert.deepEqual(Object.keys(page.items[0]).sort(), expected);
+  const memberRow = page.items.find((a: any) => a.kind === "member");
+  const agentRow = page.items.find((a: any) => a.kind === "agent");
+  assert.ok(memberRow?.teamRole, "member row should expose teamRole");
+  assert.equal(agentRow?.visibility, "team");
+  assert.equal(agentRow?.agentOwnerMemberId, member.id);
 });
 
 test("listTeamActors kind filter returns only matching actors", async () => {

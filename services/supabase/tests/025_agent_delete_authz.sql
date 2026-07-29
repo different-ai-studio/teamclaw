@@ -1,0 +1,167 @@
+-- services/supabase/tests/025_agent_delete_authz.sql
+-- Personal agents: owner_member only. Team agents: owner/admin.
+-- FK blockers surface stable error tokens.
+begin;
+
+create or replace function pg_temp.as_member(p_user uuid)
+returns void language plpgsql as $$
+begin
+  perform set_config('request.jwt.claims',
+                     json_build_object('sub', p_user::text, 'role', 'authenticated')::text,
+                     true);
+  perform set_config('role', 'authenticated', true);
+end;
+$$;
+
+do $$
+declare
+  v_team           uuid := gen_random_uuid();
+  v_owner_uid      uuid := gen_random_uuid();
+  v_member_uid     uuid := gen_random_uuid();
+  v_admin_uid      uuid := gen_random_uuid();
+  v_owner_mem      uuid := gen_random_uuid();
+  v_member_mem     uuid := gen_random_uuid();
+  v_admin_mem      uuid := gen_random_uuid();
+  v_personal_agent uuid := gen_random_uuid();
+  v_team_agent     uuid := gen_random_uuid();
+  v_idea_id        uuid := gen_random_uuid();
+  v_apps_agent     uuid := gen_random_uuid();
+begin
+  insert into auth.users (id, email, aud, role, instance_id, is_anonymous)
+  values
+    (v_owner_uid,  'del-owner@amux.test',  'authenticated', 'authenticated',
+     '00000000-0000-0000-0000-000000000000', false),
+    (v_member_uid, 'del-member@amux.test', 'authenticated', 'authenticated',
+     '00000000-0000-0000-0000-000000000000', false),
+    (v_admin_uid,  'del-admin@amux.test',  'authenticated', 'authenticated',
+     '00000000-0000-0000-0000-000000000000', false)
+  on conflict do nothing;
+
+  insert into amux.teams (id, slug, name)
+  values (v_team, 'del-auth-' || left(v_team::text, 8), 'Agent Delete Authz');
+
+  insert into amux.actors (id, team_id, actor_type, display_name, user_id)
+  values
+    (v_owner_mem,  v_team, 'member', 'Owner',  v_owner_uid),
+    (v_member_mem, v_team, 'member', 'Member', v_member_uid),
+    (v_admin_mem,  v_team, 'member', 'Admin',  v_admin_uid);
+
+  insert into amux.members (id, status)
+  values
+    (v_owner_mem,  'active'),
+    (v_member_mem, 'active'),
+    (v_admin_mem,  'active');
+
+  insert into amux.team_members (team_id, member_id, role)
+  values
+    (v_team, v_owner_mem,  'owner'),
+    (v_team, v_member_mem, 'member'),
+    (v_team, v_admin_mem,  'admin');
+
+  insert into amux.actors (id, team_id, actor_type, display_name)
+  values
+    (v_personal_agent, v_team, 'agent', 'Personal Bot'),
+    (v_team_agent,     v_team, 'agent', 'Team Bot');
+
+  insert into amux.agents (id, status, visibility, owner_member_id)
+  values
+    (v_personal_agent, 'active', 'personal', v_member_mem),
+    (v_team_agent,     'active', 'team',     v_member_mem);
+
+  -- Non-owner member cannot delete personal agent.
+  perform pg_temp.as_member(v_member_uid);
+  begin
+    perform amux.remove_team_actor(v_personal_agent);
+    raise exception 'expected personal-agent delete denial for non-owner';
+  exception
+    when insufficient_privilege then null;
+    when others then
+      if sqlerrm not ilike '%requires agent owner for personal agents%' then
+        raise;
+      end if;
+  end;
+
+  -- Owner member can delete their personal agent.
+  perform amux.remove_team_actor(v_personal_agent);
+  if exists (select 1 from amux.actors where id = v_personal_agent) then
+    raise exception 'personal agent should be deleted by owner';
+  end if;
+
+  -- Regular member cannot delete team agent.
+  perform pg_temp.as_member(v_member_uid);
+  begin
+    perform amux.remove_team_actor(v_team_agent);
+    raise exception 'expected team-agent delete denial for member';
+  exception
+    when insufficient_privilege then null;
+    when others then
+      if sqlerrm not ilike '%requires owner or admin for team agents%' then
+        raise;
+      end if;
+  end;
+
+  -- Admin can delete team agent.
+  perform pg_temp.as_member(v_admin_uid);
+  perform amux.remove_team_actor(v_team_agent);
+  if exists (select 1 from amux.actors where id = v_team_agent) then
+    raise exception 'team agent should be deleted by admin';
+  end if;
+
+  -- FK blocker: idea activity referencing agent actor.
+  insert into amux.actors (id, team_id, actor_type, display_name)
+  values (v_team_agent, v_team, 'agent', 'Blocked Bot');
+
+  insert into amux.agents (id, status, visibility, owner_member_id)
+  values (v_team_agent, 'active', 'team', v_member_mem);
+
+  insert into amux.ideas (id, team_id, title, status, created_by_actor_id)
+  values (v_idea_id, v_team, 'Blocked idea', 'open', v_owner_mem);
+
+  insert into amux.idea_activities (team_id, idea_id, actor_id, activity_type, content)
+  values (v_team, v_idea_id, v_team_agent, 'progress', 'still referenced');
+
+  perform pg_temp.as_member(v_admin_uid);
+  begin
+    perform amux.remove_team_actor(v_team_agent);
+    raise exception 'expected FK blocker for idea activity';
+  exception
+    when others then
+      if sqlerrm not ilike '%agent_delete_blocked_by_idea_activities%' then
+        raise;
+      end if;
+  end;
+
+  -- FK blocker: app created_by_actor referencing agent.
+  insert into amux.actors (id, team_id, actor_type, display_name)
+  values (v_apps_agent, v_team, 'agent', 'Apps Blocked Bot');
+
+  insert into amux.agents (id, status, visibility, owner_member_id)
+  values (v_apps_agent, 'active', 'team', v_member_mem);
+
+  insert into amux.apps (team_id, created_by_actor_id, name, slug, type)
+  values (v_team, v_apps_agent, 'Blocked App', 'blocked-app', 'static_web');
+
+  perform pg_temp.as_member(v_admin_uid);
+  begin
+    perform amux.remove_team_actor(v_apps_agent);
+    raise exception 'expected FK blocker for apps';
+  exception
+    when others then
+      if sqlerrm not ilike '%agent_delete_blocked_by_apps%' then
+        raise;
+      end if;
+  end;
+end;
+$$;
+
+select plan(3);
+
+select has_column('amux', 'actor_directory', 'owner_member_id',
+  'actor_directory exposes owner_member_id for client delete gating');
+
+select pass('remove_team_actor enforces personal/team authz and FK blockers');
+
+select pass('remove_team_actor surfaces agent_delete_blocked_by_apps');
+
+select * from finish();
+rollback;

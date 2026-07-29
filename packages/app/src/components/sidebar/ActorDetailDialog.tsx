@@ -113,7 +113,7 @@ export function ActorDetailDialog({ actor, teamId, onOpenChange, onRemoved }: Pr
   if (!displayActor) return null
 
   const canRemove = teamId
-    ? canRemoveTeamActor(teamPermissions, displayActor.id, currentMemberId)
+    ? canRemoveTeamActor(teamPermissions, displayActor, currentMemberId)
     : false
 
   const confirmRemove = async () => {
