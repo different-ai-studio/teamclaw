@@ -135,6 +135,7 @@ async fn handle_event(shared: &Arc<Shared>, event: &serde_json::Value) {
     match event_type {
         "permission.asked" => handle_permission_asked(shared, &session_id, &props).await,
         "session.idle" => handle_session_idle(shared, &session_id).await,
+        "session.created" => handle_session_created(shared, &session_id, &props).await,
         "session.updated" => handle_session_updated(shared, &session_id, &props).await,
         "session.status" => handle_session_status(shared, &session_id, &props).await,
         "question.asked" => handle_question_asked(shared, &session_id, &props).await,
@@ -155,11 +156,21 @@ async fn handle_event(shared: &Arc<Shared>, event: &serde_json::Value) {
                 if route.turn_active && super::is_turn_progress_event(event_type) {
                     route.turn_last_event_at = std::time::Instant::now();
                 }
+                let parent_id = route.parent_session_id.clone();
                 let events = translate::translate_event(&mut route.translate, event_type, &props);
                 if !events.is_empty() {
                     route.turn_saw_output = true;
                 }
-                (events, route.event_tx.clone(), route.turn_reply_to.clone())
+                let out = (events, route.event_tx.clone(), route.turn_reply_to.clone());
+                // Keep parent's stuck-turn clock alive while the subagent works.
+                if let Some(parent_id) = parent_id {
+                    if let Some(parent) = routes.get_mut(&parent_id) {
+                        if parent.turn_active && super::is_turn_progress_event(event_type) {
+                            parent.turn_last_event_at = std::time::Instant::now();
+                        }
+                    }
+                }
+                out
             };
             for ev in events {
                 crate::runtime::agent_trace::log_acp_event(&session_id, &ev);
@@ -183,7 +194,27 @@ async fn handle_permission_asked(
         .and_then(|v| v.as_str())
         .unwrap_or_default()
         .to_string();
-    let (permission, directory, event_tx, requester) = {
+
+    // Subagent sessions created by opencode `task` are not attach()'d by amuxd.
+    // Register a lightweight child route (parent event_tx + directory) so the
+    // ask reaches the desktop while reply still targets this session_id.
+    if !shared.routes.lock().contains_key(session_id) {
+        if let Some(parent_id) = resolve_parent_session_id(shared, session_id).await {
+            if !shared.ensure_child_route(session_id, &parent_id) {
+                warn!(
+                    session_id,
+                    parent_id = %parent_id,
+                    "permission.asked: parent route missing; dropping"
+                );
+                return;
+            }
+        } else {
+            warn!(session_id, "permission.asked for unrouted session");
+            return;
+        }
+    }
+
+    let (permission, directory, event_tx, requester, is_child) = {
         let routes = shared.routes.lock();
         let Some(route) = routes.get(session_id) else {
             warn!(session_id, "permission.asked for unrouted session");
@@ -194,6 +225,7 @@ async fn handle_permission_asked(
             route.directory.clone(),
             route.event_tx.clone(),
             route.turn_requester.clone(),
+            route.parent_session_id.is_some(),
         )
     };
 
@@ -212,20 +244,95 @@ async fn handle_permission_asked(
         return;
     }
 
+    // Reply path looks up this map by request id → opencode session id. Keep
+    // the *child* id here even when frames ride the parent's event_tx.
     shared
         .permissions
         .lock()
         .insert(permission_id.clone(), session_id.to_string());
-    let ev = translate::permission_request_event(props, requester.as_deref());
+    let child_sid = is_child.then_some(session_id);
+    let ev = translate::permission_request_event(props, requester.as_deref(), child_sid);
     crate::runtime::agent_trace::log_acp_event(session_id, &ev);
     let reply_to = shared
         .routes
         .lock()
         .get(session_id)
         .and_then(|r| r.turn_reply_to.clone());
+    shared.touch_turn_transport_activity(session_id);
     let _ = event_tx
         .send(AcpEventFrame::new(session_id, ev).with_reply_to(reply_to))
         .await;
+}
+
+/// opencode `session.created` / updated Session objects carry `parentID` for
+/// task subagents. Register a child→parent route alias early so later
+/// permission / tool events are not dropped as "unrouted".
+async fn handle_session_created(shared: &Arc<Shared>, session_id: &str, props: &serde_json::Value) {
+    maybe_register_subagent_route(shared, session_id, props);
+}
+
+fn session_info_parent_id(props: &serde_json::Value) -> Option<String> {
+    props
+        .pointer("/info/parentID")
+        .or_else(|| props.get("parentID"))
+        .and_then(|v| v.as_str())
+        .map(str::trim)
+        .filter(|s| !s.is_empty())
+        .map(str::to_string)
+}
+
+fn maybe_register_subagent_route(shared: &Arc<Shared>, session_id: &str, props: &serde_json::Value) {
+    let Some(parent_id) = session_info_parent_id(props) else {
+        return;
+    };
+    let _ = shared.ensure_child_route(session_id, &parent_id);
+}
+
+/// Look up `Session.parentID` for an unrouted child via `GET /session/{id}`
+/// across known worktree directories.
+async fn resolve_parent_session_id(shared: &Arc<Shared>, child_id: &str) -> Option<String> {
+    {
+        let routes = shared.routes.lock();
+        if let Some(parent) = routes
+            .get(child_id)
+            .and_then(|r| r.parent_session_id.clone())
+        {
+            return Some(parent);
+        }
+    }
+    let directories: Vec<String> = {
+        let routes = shared.routes.lock();
+        let mut dirs: Vec<String> = routes.values().map(|r| r.directory.clone()).collect();
+        dirs.sort();
+        dirs.dedup();
+        dirs
+    };
+    if directories.is_empty() {
+        return None;
+    }
+    let client = shared.serve.ensure().await.ok()?;
+    for directory in directories {
+        match client.get_session(&directory, child_id).await {
+            Ok(Some(session)) => {
+                return session
+                    .get("parentID")
+                    .and_then(|v| v.as_str())
+                    .map(str::trim)
+                    .filter(|s| !s.is_empty())
+                    .map(str::to_string);
+            }
+            Ok(None) => continue,
+            Err(e) => {
+                debug!(
+                    child_id,
+                    directory = %directory,
+                    error = %e,
+                    "get_session while resolving subagent parent failed"
+                );
+            }
+        }
+    }
+    None
 }
 
 /// opencode's `question` tool asks the user to pick/type answers. Register
@@ -242,6 +349,21 @@ async fn handle_question_asked(shared: &Arc<Shared>, session_id: &str, props: &s
     let Some(request_id) = props.get("id").and_then(|v| v.as_str()) else {
         return;
     };
+    if !shared.routes.lock().contains_key(session_id) {
+        if let Some(parent_id) = resolve_parent_session_id(shared, session_id).await {
+            if !shared.ensure_child_route(session_id, &parent_id) {
+                warn!(
+                    session_id,
+                    parent_id = %parent_id,
+                    "question.asked: parent route missing; dropping"
+                );
+                return;
+            }
+        } else {
+            warn!(session_id, "question.asked for unrouted session");
+            return;
+        }
+    }
     let full_access = {
         let routes = shared.routes.lock();
         match routes.get(session_id) {
@@ -401,6 +523,9 @@ async fn handle_session_status(shared: &Arc<Shared>, session_id: &str, props: &s
 /// `session_title` raw control event; the daemon server decides whether the
 /// TeamClaw session still carries a default title worth replacing.
 async fn handle_session_updated(shared: &Arc<Shared>, session_id: &str, props: &serde_json::Value) {
+    // Task subagents may only surface parentID on updated (or we missed created).
+    maybe_register_subagent_route(shared, session_id, props);
+
     let title = props
         .pointer("/info/title")
         .and_then(|v| v.as_str())
@@ -415,6 +540,10 @@ async fn handle_session_updated(shared: &Arc<Shared>, session_id: &str, props: &
         let Some(route) = routes.get(session_id) else {
             return;
         };
+        // Subagent title updates are noise for the TeamClaw session title.
+        if route.parent_session_id.is_some() {
+            return;
+        }
         (route.event_tx.clone(), route.turn_reply_to.clone())
     };
     let ev = amux::AcpEvent {

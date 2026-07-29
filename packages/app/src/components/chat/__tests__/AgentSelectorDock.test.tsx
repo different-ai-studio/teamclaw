@@ -196,6 +196,44 @@ describe('AgentSelectorDock', () => {
     expect(screen.queryByText('Big Pickle')).not.toBeInTheDocument()
   })
 
+  it('auto-selects the first advertised model when none is selected', async () => {
+    mocks.runtimeStates = {
+      'runtime-1': {
+        daemonActorId: 'a-1',
+        lastUpdated: Date.now(),
+        info: {
+          availableModels: [
+            { id: 'shopee/gpt-5.5', displayName: 'GPT-5.5' },
+            { id: 'opencode/other', displayName: 'Other' },
+          ],
+          currentModel: '',
+          state: RuntimeLifecycle.ACTIVE,
+        },
+      },
+    }
+
+    render(
+      <AgentSelectorDock
+        {...dockProps({
+          activeSessionId: 'session-1',
+          engagedAgents: [{ id: 'a-1', displayName: 'SPRBOT' }],
+          agentToRuntimeId: new Map([['a-1', 'runtime-1']]),
+        })}
+      />,
+    )
+
+    await waitFor(() => {
+      expect(useAgentModelPickStore.getState().getPick('session-1', 'a-1')).toBe(
+        'shopee/gpt-5.5',
+      )
+    })
+
+    await userEvent.click(await screen.findByRole('button', { name: /SPRBOT/i }))
+    const selected = document.querySelector('[data-model-selected="true"]')
+    expect(selected).toBeTruthy()
+    expect(selected?.textContent).toContain('GPT-5.5')
+  })
+
   it('shows no-models hint when ACP retain has no available_models and runtime is active', async () => {
     mocks.runtimeStates = {
       'runtime-1': {

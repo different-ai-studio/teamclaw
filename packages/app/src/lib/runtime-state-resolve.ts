@@ -478,10 +478,6 @@ export function selectAgentModel(args: {
   // resolves it when a runtime starts, so `RuntimeInfo.currentModel` — the
   // retain checked just above — already carries the answer, and carries it
   // for gateway and cron runtimes too, which could never see localStorage.
-  //
-  // Guessing here would also be unchecked: `available` comes from the retain,
-  // so when there is no retain there is no catalog to validate a guess
-  // against, and the pill would advertise a model that may not run.
 
   const fallback = args.providerFallback?.trim() ?? "";
   if (fallback) {
@@ -494,6 +490,14 @@ export function selectAgentModel(args: {
       ),
       source: "fallback",
     };
+  }
+
+  // Live catalog is present but nothing else selected — use the first
+  // advertised model. Callers that pass `available: []` skip this on purpose;
+  // prefer passing the retain catalog so UI and send stay aligned.
+  const firstAvailable = args.available[0]?.id?.trim() ?? "";
+  if (firstAvailable) {
+    return { modelId: firstAvailable, source: "fallback" };
   }
 
   return { modelId: "", source: "none" };
