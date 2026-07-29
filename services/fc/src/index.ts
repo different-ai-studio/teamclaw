@@ -53,7 +53,7 @@ export function syncGetQueryToBody(event: any) {
 
 // Deploy provisioning deps (FC function + optionally a Postgres schema).
 // Returns {} when FC is unconfigured so deployApp/finalizeDeploy surface 503
-// rather than crashing at import. FC_ENDPOINT/ALIYUN_ACCOUNT_ID counts as
+// rather than crashing at import. APPS_FC_ENDPOINT/ALIYUN_ACCOUNT_ID counts as
 // "configured": without it every FC call fails deep inside the SDK.
 //
 // The apps database is a SEPARATE, softer requirement — only `data_app` needs

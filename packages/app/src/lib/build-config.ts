@@ -89,7 +89,7 @@ export interface BuildConfig {
     /** Apps module: build full-stack apps (per-app workspace/git + FC deploy).
      *  Off by default; on in build.config.dev.json. Enabling it in a shipped
      *  build also needs the deploy env (CODEUP_*, APPS_DB_ADMIN_URL,
-     *  FC_ENDPOINT/ALIYUN_ACCOUNT_ID) on that build's Cloud API, or deploy
+     *  APPS_FC_ENDPOINT/ALIYUN_ACCOUNT_ID) on that build's Cloud API, or deploy
      *  answers 503 deploy_unavailable. */
     apps?: boolean
   }

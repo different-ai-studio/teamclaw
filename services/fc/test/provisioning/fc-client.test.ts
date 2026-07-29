@@ -70,16 +70,16 @@ test("accountIdFromRoleArn reads the account out of a RAM role ARN", () => {
 
 test("fcEndpoint resolves explicit host, then account id, then ROLE_ARN", () => {
   const prev = {
-    endpoint: process.env.FC_ENDPOINT,
+    endpoint: process.env.APPS_FC_ENDPOINT,
     account: process.env.ALIYUN_ACCOUNT_ID,
     role: process.env.ROLE_ARN,
   };
-  delete process.env.FC_ENDPOINT;
+  delete process.env.APPS_FC_ENDPOINT;
   delete process.env.ALIYUN_ACCOUNT_ID;
   delete process.env.ROLE_ARN;
   try {
     // Previously composed the literal host "undefined.<region>.fc.aliyuncs.com".
-    assert.throws(() => fcEndpoint(), /FC_ENDPOINT, ALIYUN_ACCOUNT_ID, or a ROLE_ARN/);
+    assert.throws(() => fcEndpoint(), /APPS_FC_ENDPOINT, ALIYUN_ACCOUNT_ID, or a ROLE_ARN/);
 
     // Any deployment that can reach OSS already has ROLE_ARN, so app deploys
     // need no new configuration.
@@ -89,10 +89,10 @@ test("fcEndpoint resolves explicit host, then account id, then ROLE_ARN", () => 
     process.env.ALIYUN_ACCOUNT_ID = "999";
     assert.match(fcEndpoint(), /^999\./, "explicit account id beats the ARN");
 
-    process.env.FC_ENDPOINT = "https://explicit.example";
+    process.env.APPS_FC_ENDPOINT = "https://explicit.example";
     assert.equal(fcEndpoint(), "https://explicit.example", "explicit host wins outright");
   } finally {
-    for (const [k, v] of [["FC_ENDPOINT", prev.endpoint], ["ALIYUN_ACCOUNT_ID", prev.account], ["ROLE_ARN", prev.role]] as const) {
+    for (const [k, v] of [["APPS_FC_ENDPOINT", prev.endpoint], ["ALIYUN_ACCOUNT_ID", prev.account], ["ROLE_ARN", prev.role]] as const) {
       if (v === undefined) delete process.env[k]; else process.env[k] = v;
     }
   }
