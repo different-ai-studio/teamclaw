@@ -22,6 +22,7 @@ import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar'
 import { AnimatedClock } from '@/components/ui/animated-clock'
 import { SessionSearchDialog } from '@/components/sidebar/session-search-dialog'
 import { SessionDetailDialog, type SessionDetailListHints } from '@/components/sidebar/SessionDetailDialog'
+import { SessionLiquidGlass } from '@/components/sidebar/SessionLiquidGlass'
 import { SidebarMenu, SidebarMenuItem } from '@/components/ui/sidebar'
 import {
   AlertDialog,
@@ -326,6 +327,7 @@ export function SessionListColumn({
 
   const shouldVirtualize = virtualRows.length > VIRTUAL_SESSION_THRESHOLD
   const scrollRef = React.useRef<HTMLDivElement>(null)
+  const listRootRef = React.useRef<HTMLDivElement>(null)
   const sessionVirtualizer = useVirtualizer({
     count: shouldVirtualize ? virtualRows.length : 0,
     getScrollElement: () => scrollRef.current,
@@ -334,6 +336,7 @@ export function SessionListColumn({
     gap: 2,
     getItemKey: (index) => virtualRows[index].key,
   })
+  const glassLayoutKey = `${activeSessionId ?? ''}:${actionsOpenSessionId ?? ''}:${filteredRows.length}:${pinnedRows.length}:${shouldVirtualize ? 1 : 0}`
 
   React.useEffect(() => {
     if (!shouldVirtualize) return
@@ -614,11 +617,10 @@ export function SessionListColumn({
           data-active={isActive ? 'true' : 'false'}
           data-batch-checked={isBatchChecked ? 'true' : 'false'}
           className={cn(
-            'my-px w-full rounded-[11px] px-2.5 py-2 transition-[background-color,box-shadow] duration-150 ease-[cubic-bezier(0.22,1,0.36,1)]',
+            'relative z-[1] my-px w-full rounded-[11px] px-2.5 py-2 transition-[background-color] duration-150 ease-[cubic-bezier(0.22,1,0.36,1)]',
             !isRenaming && 'cursor-pointer',
             compactHeader && 'px-2',
-            isActive && !batchSelecting &&
-              'relative z-0 bg-paper shadow-[0_2px_8px_rgba(28,27,25,0.05),0_1px_2px_rgba(28,27,25,0.03)] ring-1 ring-black/[0.05]',
+            // Selection chrome is the shared liquid-glass pill — keep the row transparent when active.
             !isActive && !batchSelecting && 'hover:bg-black/[0.035]',
             isHighlighted && !isActive && !batchSelecting && 'bg-emerald-500/15 ring-1 ring-emerald-500/30',
             batchSelecting && isBatchChecked && 'bg-selected',
@@ -1108,42 +1110,53 @@ export function SessionListColumn({
                 : t('sidebar.noConversations', 'No conversations')}
             </p>
           </div>
-        ) : shouldVirtualize ? (
-          <div
-            style={{ height: `${sessionVirtualizer.getTotalSize()}px`, width: '100%', position: 'relative' }}
-            data-testid="v2-session-list-virtual"
-          >
-            {sessionVirtualizer.getVirtualItems().map((virtualItem) => {
-              const v = virtualRows[virtualItem.index]
-              return (
-                <div
-                  key={v.key}
-                  ref={(el) => { if (el) sessionVirtualizer.measureElement(el) }}
-                  data-index={virtualItem.index}
-                  style={{
-                    position: 'absolute',
-                    top: 0,
-                    left: 0,
-                    width: '100%',
-                    transform: `translateY(${virtualItem.start}px)`,
-                  }}
-                >
-                  {renderVirtualRow(v)}
-                </div>
-              )
-            })}
-          </div>
         ) : (
-          <SidebarMenu>
-            {filter.kind === 'all' && pinnedRows.length > 0 && (
-              <>
-                {renderPinnedHeader()}
-                {pinnedRows.map(renderSessionItem)}
-                {regularRows.length > 0 && renderPinnedDivider()}
-              </>
+          <div ref={listRootRef} className="relative">
+            <SessionLiquidGlass
+              rootRef={listRootRef}
+              scrollRef={scrollRef}
+              activeSessionId={activeSessionId}
+              disabled={batchSelecting}
+              layoutKey={glassLayoutKey}
+            />
+            {shouldVirtualize ? (
+              <div
+                style={{ height: `${sessionVirtualizer.getTotalSize()}px`, width: '100%', position: 'relative' }}
+                data-testid="v2-session-list-virtual"
+              >
+                {sessionVirtualizer.getVirtualItems().map((virtualItem) => {
+                  const v = virtualRows[virtualItem.index]
+                  return (
+                    <div
+                      key={v.key}
+                      ref={(el) => { if (el) sessionVirtualizer.measureElement(el) }}
+                      data-index={virtualItem.index}
+                      style={{
+                        position: 'absolute',
+                        top: 0,
+                        left: 0,
+                        width: '100%',
+                        transform: `translateY(${virtualItem.start}px)`,
+                      }}
+                    >
+                      {renderVirtualRow(v)}
+                    </div>
+                  )
+                })}
+              </div>
+            ) : (
+              <SidebarMenu className="gap-0">
+                {filter.kind === 'all' && pinnedRows.length > 0 && (
+                  <>
+                    {renderPinnedHeader()}
+                    {pinnedRows.map(renderSessionItem)}
+                    {regularRows.length > 0 && renderPinnedDivider()}
+                  </>
+                )}
+                {(filter.kind === 'all' ? regularRows : filteredRows).map(renderSessionItem)}
+              </SidebarMenu>
             )}
-            {(filter.kind === 'all' ? regularRows : filteredRows).map(renderSessionItem)}
-          </SidebarMenu>
+          </div>
         )}
         {listHasMore && (
           <div className="px-4 py-3">
