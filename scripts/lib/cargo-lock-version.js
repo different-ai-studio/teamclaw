@@ -47,8 +47,11 @@ function syncCargoLockVersions(lockText, version, packages = WORKSPACE_MEMBERS) 
   let text = lockText;
 
   for (const name of packages) {
+    // `\r?` before each newline: the Windows release runner checks out with
+    // core.autocrlf=true, so Cargo.lock arrives CRLF and an \n-only pattern
+    // matches nothing — every package lands in `missing` and the caller aborts.
     const block = new RegExp(
-      `(\\[\\[package\\]\\]\\nname = "${escapeRegExp(name)}"\\nversion = ")([^"]+)(")`,
+      `(\\[\\[package\\]\\]\\r?\\nname = "${escapeRegExp(name)}"\\r?\\nversion = ")([^"]+)(")`,
     );
     const match = text.match(block);
     if (!match) {

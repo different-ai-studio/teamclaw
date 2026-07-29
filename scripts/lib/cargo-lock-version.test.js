@@ -74,6 +74,19 @@ test("a dependency merely naming a member is not rewritten", () => {
   assert.equal(out.text, text);
 });
 
+test("a CRLF lockfile is rewritten and keeps its line endings", () => {
+  // The Windows release runner checks out with core.autocrlf=true. An \n-only
+  // pattern found nothing there, so the bump script aborted with "Cargo.lock has
+  // no entry for: teamclaw, amuxd" and took the whole nightly build down.
+  const before = lock("0.3.1-beta.8", "0.3.1-beta.8").replace(/\n/g, "\r\n");
+  const out = syncCargoLockVersions(before, "0.3.1-beta.9");
+  assert.deepEqual(out.missing, []);
+  assert.deepEqual(out.changed.sort(), ["amuxd", "teamclaw"]);
+  assert.match(out.text, /name = "teamclaw"\r\nversion = "0\.3\.1-beta\.9"/);
+  assert.match(out.text, /name = "amuxd"\r\nversion = "0\.3\.1-beta\.9"/);
+  assert.ok(!/[^\r]\n/.test(out.text), "must not introduce bare LF into a CRLF file");
+});
+
 test("the member list is the two crates the bump script rewrites", () => {
   assert.deepEqual([...WORKSPACE_MEMBERS].sort(), ["amuxd", "teamclaw"]);
 });
