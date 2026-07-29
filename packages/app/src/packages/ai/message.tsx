@@ -593,9 +593,27 @@ export function ClickableImage({ src, alt, className }: { src: string; alt?: str
 // StableBlock (flag = false) and gets highlighted exactly once.
 export const StreamingTailContext = React.createContext(false)
 
+function useDocumentDarkMode() {
+  const [isDark, setIsDark] = React.useState(() =>
+    typeof document !== 'undefined' && document.documentElement.classList.contains('dark'),
+  )
+
+  React.useEffect(() => {
+    const root = document.documentElement
+    const sync = () => setIsDark(root.classList.contains('dark'))
+    sync()
+    const observer = new MutationObserver(sync)
+    observer.observe(root, { attributes: true, attributeFilter: ['class'] })
+    return () => observer.disconnect()
+  }, [])
+
+  return isDark
+}
+
 // --- Code block with syntax highlighting, language header, and copy button ---
 function CodeBlock({ language, children }: { language: string; children: string }) {
   const isStreamingTail = React.useContext(StreamingTailContext)
+  const isDark = useDocumentDarkMode()
   const [highlightedHtml, setHighlightedHtml] = React.useState<string | null>(null)
   const [copied, setCopied] = React.useState(false)
   const code = String(children).replace(/\n$/, '')
@@ -609,21 +627,27 @@ function CodeBlock({ language, children }: { language: string; children: string 
       setHighlightedHtml(null)
       return () => { cancelled = true }
     }
-    import('@/components/diff/shiki-renderer').then(async ({ getHighlighter, mapLanguage }) => {
-      if (cancelled) return
-      try {
-        const highlighter = await getHighlighter()
-        const isDark = document.documentElement.classList.contains('dark')
-        const theme = isDark ? 'github-dark' : 'github-light'
-        const lang = mapLanguage(language)
-        const html = highlighter.codeToHtml(code, { lang, theme })
-        if (!cancelled) setHighlightedHtml(html)
-      } catch {
-        // Fallback: no highlighting
-      }
-    })
+    import('@/components/diff/shiki-renderer').then(
+      async ({
+        getHighlighter,
+        mapLanguage,
+        NOTION_DARK_THEME_NAME,
+        NOTION_LIGHT_THEME_NAME,
+      }) => {
+        if (cancelled) return
+        try {
+          const highlighter = await getHighlighter()
+          const theme = isDark ? NOTION_DARK_THEME_NAME : NOTION_LIGHT_THEME_NAME
+          const lang = mapLanguage(language)
+          const html = highlighter.codeToHtml(code, { lang, theme })
+          if (!cancelled) setHighlightedHtml(html)
+        } catch {
+          // Fallback: no highlighting
+        }
+      },
+    )
     return () => { cancelled = true }
-  }, [code, language, isStreamingTail])
+  }, [code, language, isStreamingTail, isDark])
 
   const handleCopy = async () => {
     await navigator.clipboard.writeText(code)
@@ -632,24 +656,24 @@ function CodeBlock({ language, children }: { language: string; children: string 
   }
 
   return (
-    <div className="not-prose my-2 w-full overflow-hidden rounded-lg bg-foreground/[0.02] [overflow-wrap:normal]">
-      <div className="flex items-center justify-between px-3 py-1.5">
-        <span className="text-xs text-muted-foreground font-mono">{language}</span>
+    <div className="chat-md-code not-prose my-2.5 w-full overflow-hidden rounded-md [overflow-wrap:normal]">
+      <div className="chat-md-code-h flex items-center justify-between px-3 pt-1.5">
+        <span className="font-mono text-xs text-muted-foreground">{language}</span>
         <button
           onClick={handleCopy}
-          className="flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground transition-colors"
+          className="flex items-center gap-1 rounded px-1.5 py-0.5 text-xs text-muted-foreground transition-colors hover:bg-foreground/[0.06] hover:text-foreground"
         >
           {copied ? <Check className="h-3.5 w-3.5" /> : <Copy className="h-3.5 w-3.5" />}
         </button>
       </div>
       {highlightedHtml ? (
         <div
-          className="overflow-x-auto px-3 pb-3 text-[12.5px] [overflow-wrap:normal] [&_code]:!bg-transparent [&_code]:!p-0 [&_code]:[overflow-wrap:normal] [&_code]:whitespace-pre [&_pre]:!m-0 [&_pre]:!bg-transparent [&_pre]:!p-0 [&_pre]:[overflow-wrap:normal] [&_pre]:whitespace-pre"
+          className="overflow-x-auto px-4 pb-3.5 pt-1 text-[13px] leading-[1.5] [overflow-wrap:normal] [&_code]:!bg-transparent [&_code]:!p-0 [&_code]:[overflow-wrap:normal] [&_code]:whitespace-pre [&_pre]:!m-0 [&_pre]:!bg-transparent [&_pre]:!p-0 [&_pre]:[overflow-wrap:normal] [&_pre]:whitespace-pre"
           dangerouslySetInnerHTML={{ __html: highlightedHtml }}
         />
       ) : (
-        <pre className="overflow-x-auto whitespace-pre px-3 pb-3 [overflow-wrap:normal]">
-          <code className="font-mono text-[12.5px] text-foreground [overflow-wrap:normal]">{code}</code>
+        <pre className="overflow-x-auto whitespace-pre px-4 pb-3.5 pt-1 [overflow-wrap:normal]">
+          <code className="font-mono text-[13px] leading-[1.5] text-foreground [overflow-wrap:normal]">{code}</code>
         </pre>
       )}
     </div>
@@ -762,36 +786,38 @@ function MermaidBlock({ children }: { children: string }) {
 // Hoisted to module level so the object reference never changes between renders.
 // The `img` component needs basePath, so it's added per-render via useMemo.
 const markdownComponentsBase = {
-  // Heading scale steps down one tick from Tailwind defaults so the chat
-  // panel reads quieter at Direction B's 13px body size.
+  // Notion-inspired scale (chat-tuned: slightly smaller than full Notion page 16px).
   h1: ({ children }: { children?: React.ReactNode }) => (
-    <h1 className="text-lg font-semibold text-foreground mt-4 mb-2">{children}</h1>
+    <h1 className="mt-[1.15em] mb-[0.3em] text-[1.5em] font-bold leading-[1.25] tracking-[-0.015em] text-foreground first:mt-0">{children}</h1>
   ),
   h2: ({ children }: { children?: React.ReactNode }) => (
-    <h2 className="text-base font-semibold text-foreground mt-3 mb-2">{children}</h2>
+    <h2 className="mt-[1.1em] mb-[0.25em] text-[1.25em] font-semibold leading-[1.3] tracking-[-0.01em] text-foreground first:mt-0">{children}</h2>
   ),
   h3: ({ children }: { children?: React.ReactNode }) => (
-    <h3 className="text-sm font-semibold text-foreground mt-3 mb-1.5">{children}</h3>
+    <h3 className="mt-[1em] mb-[0.2em] text-[1.1em] font-semibold leading-[1.35] text-foreground first:mt-0">{children}</h3>
   ),
   p: ({ children }: { children?: React.ReactNode }) => (
-    <p className="my-2 min-w-0 leading-relaxed text-foreground">{children}</p>
+    <p className="my-[0.4em] min-w-0 leading-[1.6] text-foreground">{children}</p>
   ),
   table: ({ children }: { children?: React.ReactNode }) => (
-    <div className="overflow-x-auto rounded-lg border border-border my-3">
-      <table className="min-w-full border-collapse text-sm">{children}</table>
+    <div className="my-3 overflow-x-auto">
+      <table className="w-full border-collapse text-[0.92em]">{children}</table>
     </div>
   ),
-  thead: ({ children }: { children?: React.ReactNode }) => <thead className="bg-muted">{children}</thead>,
+  thead: ({ children }: { children?: React.ReactNode }) => <thead>{children}</thead>,
   th: ({ children }: { children?: React.ReactNode }) => (
-    <th className="border-b border-border px-4 py-2.5 text-left font-medium">{children}</th>
+    <th className="border border-foreground/[0.09] px-2.5 py-1.5 text-left font-semibold text-foreground dark:border-white/[0.12]">{children}</th>
   ),
   tr: ({ children }: { children?: React.ReactNode }) => (
-    <tr className="border-b border-border last:border-b-0">{children}</tr>
+    <tr className="hover:bg-foreground/[0.03] dark:hover:bg-white/[0.04]">{children}</tr>
   ),
-  td: ({ children }: { children?: React.ReactNode }) => <td className="px-4 py-2.5">{children}</td>,
+  td: ({ children }: { children?: React.ReactNode }) => (
+    <td className="border border-foreground/[0.09] px-2.5 py-1.5 align-top text-foreground dark:border-white/[0.12]">{children}</td>
+  ),
   blockquote: ({ children }: { children?: React.ReactNode }) => (
-    <blockquote className="border-l-4 border-[#5a7a64] pl-4 my-3 italic text-muted-foreground">{children}</blockquote>
+    <blockquote className="my-2.5 border-l-[3px] border-current py-0 pl-3.5 text-muted-foreground not-italic">{children}</blockquote>
   ),
+  hr: () => <hr className="my-5 border-0 border-t border-foreground/[0.09] dark:border-white/[0.12]" />,
   pre: ({ children }: { children?: React.ReactNode }) => <>{children}</>,
   code: ({ className, children, ...codeProps }: { className?: string; children?: React.ReactNode }) => {
     const codeText = String(children)
@@ -799,7 +825,7 @@ const markdownComponentsBase = {
     if (isInline) {
       return (
         <code
-          className="rounded bg-foreground/[0.06] px-1.5 py-0.5 font-mono text-[0.9em] leading-snug text-foreground break-words [overflow-wrap:anywhere]"
+          className="chat-md-inline-code rounded-[3px] px-[0.3em] py-[0.08em] font-mono text-[0.86em] leading-normal break-words [overflow-wrap:anywhere]"
           {...codeProps}
         >
           {children}
@@ -813,12 +839,58 @@ const markdownComponentsBase = {
     return <CodeBlock language={language}>{codeText}</CodeBlock>
   },
   a: ({ children, href }: { children?: React.ReactNode; href?: string }) => (
-    <a href={href} target="_blank" rel="noopener noreferrer" className="text-[#5a7a64] hover:underline">{children}</a>
+    <a
+      href={href}
+      target="_blank"
+      rel="noopener noreferrer"
+      className="rounded-[2px] text-foreground underline decoration-foreground/30 underline-offset-2 hover:bg-foreground/[0.06] dark:decoration-white/30 dark:hover:bg-white/[0.08]"
+    >
+      {children}
+    </a>
   ),
-  ul: ({ children }: { children?: React.ReactNode }) => <ul className="list-disc pl-5 my-2 space-y-1">{children}</ul>,
-  ol: ({ children }: { children?: React.ReactNode }) => <ol className="list-decimal pl-5 my-2 space-y-1">{children}</ol>,
-  li: ({ children }: { children?: React.ReactNode }) => (
-    <li className="min-w-0 leading-relaxed">{children}</li>
+  ul: ({ children, className }: { children?: React.ReactNode; className?: string }) => (
+    <ul className={cn('my-2 space-y-0.5 pl-6', className?.includes('contains-task-list') ? 'list-none pl-0' : 'list-disc', className)}>
+      {children}
+    </ul>
+  ),
+  ol: ({ children }: { children?: React.ReactNode }) => (
+    <ol className="my-2 list-decimal space-y-0.5 pl-6">{children}</ol>
+  ),
+  li: ({ children, className, ...liProps }: { children?: React.ReactNode; className?: string }) => {
+    const isTask = className?.includes('task-list-item')
+    return (
+      <li
+        className={cn(
+          'min-w-0 leading-[1.6]',
+          isTask && 'chat-md-task flex items-start gap-2',
+          className,
+        )}
+        {...liProps}
+      >
+        {children}
+      </li>
+    )
+  },
+  input: (props: React.ComponentProps<'input'>) => {
+    if (props.type === 'checkbox') {
+      return (
+        <input
+          {...props}
+          className={cn('chat-md-checkbox mt-1 shrink-0', props.className)}
+          disabled
+        />
+      )
+    }
+    return <input {...props} />
+  },
+  strong: ({ children }: { children?: React.ReactNode }) => (
+    <strong className="font-semibold text-foreground">{children}</strong>
+  ),
+  em: ({ children }: { children?: React.ReactNode }) => (
+    <em className="italic">{children}</em>
+  ),
+  del: ({ children }: { children?: React.ReactNode }) => (
+    <del className="text-muted-foreground line-through">{children}</del>
   ),
 } as const;
 
@@ -942,7 +1014,7 @@ export function MessageResponse({
             />
           </div>
         ) : (
-          <div key={index} className="prose prose-sm max-w-none min-w-0 text-[13px] text-foreground space-y-3 break-words [overflow-wrap:anywhere]">
+          <div key={index} className="chat-md max-w-none min-w-0 break-words text-[14.5px] text-foreground [overflow-wrap:anywhere]">
             <MarkdownRenderBoundary content={part.content}>
               <ReactMarkdown
                 remarkPlugins={remarkPluginsStable}

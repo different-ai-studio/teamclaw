@@ -1,0 +1,495 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Chat Markdown · Notion 风 · Light / Dark</title>
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;560;600;700&family=JetBrains+Mono:wght@400;500&display=swap');
+
+  :root {
+    --font: Inter, "PingFang SC", "Noto Sans SC", -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+    --mono: "JetBrains Mono", "SF Mono", ui-monospace, Menlo, Consolas, monospace;
+    --ease: cubic-bezier(0.22, 1, 0.36, 1);
+  }
+
+  /* —— Notion Light —— */
+  .t-light {
+    --bg: #F7F6F3;
+    --page: #FFFFFF;
+    --ink: #37352F;
+    --ink-2: #6B6B66;
+    --mute: #9B9A97;
+    --hover: rgba(55,53,47,0.08);
+    --line: rgba(55,53,47,0.09);
+    --line-soft: rgba(55,53,47,0.06);
+    --blue: #337EA9;
+    --blue-bg: rgba(51,126,169,0.12);
+    --code-bg: #EFEEE9;
+    --block-bg: #F7F6F3;
+    --callout-bg: rgba(241,178,63,0.14);
+    --green-bg: rgba(15,123,108,0.12);
+    --check: #2EAADC;
+    --av-bg: #37352F;
+    --av-fg: #fff;
+    --kw: #0070f3;
+    --str: #0F7B6C;
+    --key: #6940A5;
+    --bool: #CB912F;
+    --inline-code: #3d3c34;
+    --inline-code-border: rgba(26,26,20,0.05);
+    --shadow: 0 1px 3px rgba(0,0,0,0.04);
+    --chrome-dot-opacity: 0.7;
+  }
+
+  /* —— Notion Dark —— */
+  .t-dark {
+    --bg: #0F0F0F;
+    --page: #191919;
+    --ink: rgba(255,255,255,0.86);
+    --ink-2: rgba(255,255,255,0.55);
+    --mute: rgba(255,255,255,0.36);
+    --hover: rgba(255,255,255,0.08);
+    --line: rgba(255,255,255,0.12);
+    --line-soft: rgba(255,255,255,0.08);
+    --blue: #5B9BC8;
+    --blue-bg: rgba(51,126,169,0.22);
+    --code-bg: oklch(0.205 0 0);
+    --block-bg: #202020;
+    --callout-bg: rgba(233,168,0,0.16);
+    --green-bg: rgba(46,170,145,0.16);
+    --check: #2EAADC;
+    --av-bg: #37352F;
+    --av-fg: rgba(255,255,255,0.9);
+    --kw: #6DB3F8;
+    --str: #4DAB9A;
+    --key: #B088F5;
+    --bool: #E0B45A;
+    --inline-code: oklch(0.85 0 0);
+    --inline-code-border: oklch(1 0 0 / 6%);
+    --shadow: 0 1px 3px rgba(0,0,0,0.35);
+    --chrome-dot-opacity: 0.85;
+  }
+
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    font-family: var(--font);
+    background: #E8E5DF;
+    color: #1C1B19;
+    -webkit-font-smoothing: antialiased;
+    padding: 28px 20px 72px;
+    transition: background 0.2s var(--ease);
+  }
+  body.page-dark { background: #0A0A0A; color: rgba(255,255,255,0.75); }
+
+  .page-h { max-width: 1180px; margin: 0 auto 14px; }
+  .page-h h1 { font-size: 15px; font-weight: 600; }
+  .page-h p { margin-top: 6px; font-size: 13px; opacity: 0.7; line-height: 1.5; }
+
+  .tabs {
+    max-width: 1180px; margin: 0 auto 14px;
+    display: flex; flex-wrap: wrap; gap: 6px; align-items: center;
+  }
+  .tabs button {
+    font: inherit; border: none; cursor: pointer;
+    height: 30px; padding: 0 12px; border-radius: 8px;
+    background: rgba(0,0,0,0.04); color: inherit; opacity: 0.7;
+    font-size: 12.5px; font-weight: 560;
+  }
+  body.page-dark .tabs button { background: rgba(255,255,255,0.06); }
+  .tabs button:hover { opacity: 1; }
+  .tabs button.on {
+    opacity: 1; background: #fff; box-shadow: 0 1px 3px rgba(0,0,0,0.08);
+  }
+  body.page-dark .tabs button.on {
+    background: #191919; box-shadow: 0 0 0 1px rgba(255,255,255,0.1);
+  }
+
+  .stage {
+    max-width: 1180px; margin: 0 auto;
+    display: grid; gap: 14px;
+  }
+  .stage.single { grid-template-columns: minmax(0, 780px); justify-content: center; }
+  .stage.dual { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  @media (max-width: 900px) {
+    .stage.dual { grid-template-columns: 1fr; }
+  }
+
+  .panel { display: none; }
+  .panel.show { display: block; }
+
+  .theme-frame {
+    background: var(--bg);
+    border-radius: 14px;
+    padding: 12px;
+    transition: background 0.2s var(--ease);
+  }
+  .theme-frame .label {
+    font-size: 11px; font-weight: 600; letter-spacing: 0.06em;
+    text-transform: uppercase; color: var(--mute);
+    padding: 2px 4px 10px;
+  }
+
+  .shell {
+    background: var(--page);
+    border-radius: 10px;
+    box-shadow: var(--shadow), 0 0 0 1px var(--line-soft);
+    overflow: hidden;
+    color: var(--ink);
+  }
+
+  .chrome {
+    padding: 10px 16px;
+    border-bottom: 1px solid var(--line-soft);
+    display: flex; align-items: center; gap: 8px;
+    font-size: 12px; color: var(--mute);
+  }
+  .dot { width: 8px; height: 8px; border-radius: 50%; background: #E03E3E; opacity: var(--chrome-dot-opacity); }
+  .dot:nth-child(2) { background: #F5C14A; }
+  .dot:nth-child(3) { background: #5CC98B; }
+
+  .thread { padding: 28px 40px 44px; }
+  @media (max-width: 640px) { .thread { padding: 20px 16px 32px; } }
+
+  .meta {
+    display: flex; align-items: center; gap: 8px;
+    margin-bottom: 18px;
+  }
+  .av {
+    width: 24px; height: 24px; border-radius: 4px;
+    background: var(--av-bg); color: var(--av-fg);
+    font-size: 10px; font-weight: 600;
+    display: grid; place-items: center;
+  }
+  .meta .nm { font-size: 14px; font-weight: 600; color: var(--ink); }
+  .meta .tm { font-size: 12px; color: var(--mute); margin-left: 4px; }
+
+  .md {
+    font-size: 16px;
+    line-height: 1.6;
+    color: var(--ink);
+  }
+  .md > *:first-child { margin-top: 0 !important; }
+
+  .md h1 {
+    font-size: 1.875em; font-weight: 700; line-height: 1.2;
+    margin: 1.4em 0 0.35em; letter-spacing: -0.015em; color: var(--ink);
+  }
+  .md h2 {
+    font-size: 1.5em; font-weight: 600; line-height: 1.25;
+    margin: 1.25em 0 0.3em; letter-spacing: -0.01em; color: var(--ink);
+  }
+  .md h3 {
+    font-size: 1.25em; font-weight: 600; line-height: 1.3;
+    margin: 1.1em 0 0.25em; color: var(--ink);
+  }
+
+  .md p { margin: 0.35em 0 0.75em; }
+  .md strong { font-weight: 600; }
+  .md em { font-style: italic; }
+  .md del { text-decoration: line-through; color: var(--mute); }
+
+  .md a {
+    color: var(--ink);
+    text-decoration: underline;
+    text-decoration-color: color-mix(in srgb, var(--ink) 30%, transparent);
+    text-underline-offset: 2px;
+  }
+  .md a:hover { background: var(--hover); border-radius: 2px; }
+
+  .md code:not(pre code) {
+    font-family: var(--mono);
+    font-size: 86%;
+    background: var(--code-bg);
+    color: var(--inline-code);
+    border: none;
+    box-shadow: inset 0 0 0 1px var(--inline-code-border);
+    border-radius: 3px;
+    padding: 0.08em 0.3em;
+  }
+
+  .md blockquote {
+    margin: 0.6em 0;
+    padding: 0 0 0 14px;
+    border-left: 3px solid currentColor;
+    color: var(--ink-2);
+  }
+  .md blockquote p { margin: 0.2em 0; }
+
+  .md ul, .md ol {
+    margin: 0.4em 0 0.75em;
+    padding-left: 1.6em;
+  }
+  .md li { margin: 0.15em 0; }
+  .md ul { list-style: disc; }
+  .md ol { list-style: decimal; }
+  .md li::marker { color: var(--ink); }
+
+  .md .tasks { list-style: none; padding-left: 0; margin: 0.4em 0 0.75em; }
+  .md .tasks li {
+    display: flex; align-items: flex-start; gap: 8px;
+    padding: 2px 0; margin: 0;
+  }
+  .md .cb {
+    width: 16px; height: 16px; margin-top: 4px; border-radius: 3px;
+    border: 1.5px solid color-mix(in srgb, var(--ink) 35%, transparent);
+    flex-shrink: 0; background: transparent;
+    display: grid; place-items: center;
+  }
+  .t-light .md .cb { background: #fff; }
+  .md .cb.on { background: var(--check); border-color: var(--check); }
+  .md .cb.on::after {
+    content: '';
+    width: 8px; height: 4.5px;
+    border-left: 1.6px solid #fff;
+    border-bottom: 1.6px solid #fff;
+    transform: rotate(-45deg) translateY(-1px);
+  }
+  .md .tasks li.done span:last-child {
+    text-decoration: line-through; color: var(--mute);
+  }
+
+  .md pre {
+    margin: 0.65em 0 0.9em;
+    background: var(--block-bg);
+    border-radius: 6px;
+    overflow: hidden;
+  }
+  .md .code-h {
+    display: none;
+  }
+  .md pre.show-h .code-h {
+    display: flex; align-items: center; justify-content: space-between;
+    padding: 6px 12px 0;
+    font-size: 12px; color: var(--mute); font-family: var(--mono);
+  }
+  .md pre.show-h .code-h button {
+    font: inherit; border: none; background: transparent;
+    color: var(--mute); cursor: pointer; padding: 2px 6px; border-radius: 4px; font-size: 12px;
+  }
+  .md pre.show-h .code-h button:hover { background: var(--hover); color: var(--ink); }
+  .md pre code {
+    display: block; padding: 14px 16px;
+    font-family: var(--mono); font-size: 13.5px; line-height: 1.5;
+    overflow-x: auto; color: var(--ink); background: transparent; border: none;
+  }
+  .md .kw { color: var(--kw); font-weight: 500; }
+  .md .str { color: var(--str); }
+  .md .key { color: var(--key); }
+  .md .bool { color: var(--bool); }
+
+  .md .table-wrap { margin: 0.7em 0 1em; overflow-x: auto; }
+  .md table { width: 100%; border-collapse: collapse; font-size: 14.5px; }
+  .md th, .md td {
+    padding: 7px 10px; text-align: left;
+    border: 1px solid var(--line); vertical-align: top;
+  }
+  .md th { font-weight: 600; }
+  .md tr:hover td { background: var(--hover); }
+
+  .md hr {
+    border: none; margin: 1.25em 0; height: 1px; background: var(--line);
+  }
+
+  .md .callout {
+    display: flex; gap: 10px; align-items: flex-start;
+    margin: 0.7em 0; padding: 14px 14px 14px 12px;
+    border-radius: 4px; background: var(--callout-bg);
+  }
+  .md .callout.blue { background: var(--blue-bg); }
+  .md .callout.green { background: var(--green-bg); }
+  .md .callout .emoji {
+    font-size: 18px; line-height: 1.4; flex-shrink: 0;
+    width: 24px; text-align: center;
+  }
+  .md .callout .lab { font-weight: 600; font-size: 15px; margin-bottom: 2px; color: var(--ink); }
+  .md .callout p { margin: 0; font-size: 15px; color: var(--ink); font-style: normal; }
+
+  .md .img-ph {
+    margin: 0.7em 0; border-radius: 4px; background: var(--block-bg);
+    min-height: 120px; display: flex; flex-direction: column;
+    align-items: center; justify-content: center; gap: 8px;
+    color: var(--mute); font-size: 14px;
+  }
+  .md .img-ph svg { width: 28px; height: 28px; opacity: 0.45; }
+
+  .md details { margin: 0.35em 0; border-radius: 4px; }
+  .md details summary {
+    list-style: none; cursor: pointer; display: flex; align-items: center;
+    gap: 4px; padding: 4px 2px; border-radius: 4px; font-weight: 500; user-select: none;
+    color: var(--ink);
+  }
+  .md details summary::-webkit-details-marker { display: none; }
+  .md details summary:hover { background: var(--hover); }
+  .md details summary .tri {
+    width: 20px; height: 20px; display: grid; place-items: center;
+    color: var(--mute); transition: transform 0.12s ease; flex-shrink: 0;
+  }
+  .md details[open] summary .tri { transform: rotate(90deg); }
+  .md details .panel { padding: 2px 2px 8px 24px; color: var(--ink); }
+  .md details .panel p { margin: 0.25em 0; }
+
+  .note {
+    max-width: 1180px; margin: 16px auto 0;
+    padding: 12px 14px; border-radius: 8px;
+    background: rgba(0,0,0,0.04); font-size: 12.5px; line-height: 1.55; opacity: 0.85;
+  }
+  body.page-dark .note { background: rgba(255,255,255,0.05); }
+</style>
+</head>
+<body>
+
+  <div class="page-h">
+    <h1>Chat Markdown · Notion 风格 · Light / Dark</h1>
+    <p>同一套排版，对照 Notion 浅色与暗色。暗色参考 Notion Dark：页面 #191919、正文高亮白、代码块 #202020。</p>
+  </div>
+
+  <div class="tabs">
+    <button type="button" class="on" data-mode="light" onclick="mode('light')">Light</button>
+    <button type="button" data-mode="dark" onclick="mode('dark')">Dark</button>
+    <button type="button" data-mode="both" onclick="mode('both')">左右对照</button>
+  </div>
+
+  <div class="stage single" id="stage">
+    <div class="panel show" id="p-light">
+      <div class="theme-frame t-light">
+        <div class="label">Light</div>
+        <div class="shell" data-host></div>
+      </div>
+    </div>
+    <div class="panel" id="p-dark">
+      <div class="theme-frame t-dark">
+        <div class="label">Dark</div>
+        <div class="shell" data-host></div>
+      </div>
+    </div>
+  </div>
+
+  <div class="note">
+    Dark 下待办勾仍用 Notion 蓝；行内代码偏珊瑚红；语法色略提亮以保证对比度。落地到 TeamClaw 时可映射到现有 dark tokens（paper / muted / border）。
+  </div>
+
+<template id="msg-tpl">
+  <div class="chrome">
+    <span class="dot"></span><span class="dot"></span><span class="dot"></span>
+    <span style="margin-left:8px">消息预览</span>
+  </div>
+  <div class="thread">
+    <div class="meta">
+      <span class="av">MB</span>
+      <span class="nm">MYBOT</span>
+      <span class="tm">11:12</span>
+    </div>
+    <article class="md">
+      <h1>一级标题</h1>
+      <h2>二级标题</h2>
+      <h3>三级标题</h3>
+      <p>这是一段普通段落文字，用来展示正文的行高和字重。</p>
+      <p>
+        <strong>加粗文字</strong> ·
+        <em>斜体文字</em> ·
+        <strong><em>粗斜体</em></strong> ·
+        <del>删除线</del> ·
+        行内代码 <code>const x = 1</code>
+      </p>
+      <blockquote><p>这是一段引用文字，用于展示引用块的样式。</p></blockquote>
+      <ul>
+        <li>无序列表项一</li>
+        <li>无序列表项二</li>
+        <li>无序列表项三</li>
+      </ul>
+      <ol>
+        <li>有序列表项一</li>
+        <li>有序列表项二</li>
+        <li>有序列表项三</li>
+      </ol>
+      <ul class="tasks">
+        <li class="done"><span class="cb on" aria-hidden="true"></span><span>已完成的任务</span></li>
+        <li><span class="cb" aria-hidden="true"></span><span>未完成的任务</span></li>
+      </ul>
+      <pre class="show-h"><div class="code-h"><span>JavaScript</span><button type="button">Copy</button></div><code><span class="kw">function</span> hello() {
+  <span class="kw">return</span> <span class="str">'world'</span>;
+}</code></pre>
+      <pre><code>{
+  <span class="key">"name"</span>: <span class="str">"teamclaw"</span>,
+  <span class="key">"version"</span>: <span class="str">"1.0"</span>,
+  <span class="key">"ok"</span>: <span class="bool">true</span>
+}</code></pre>
+      <div class="table-wrap">
+        <table>
+          <thead><tr><th>列一</th><th>列二</th><th>列三</th></tr></thead>
+          <tbody>
+            <tr><td>单元格 A1</td><td>单元格 A2</td><td>单元格 A3</td></tr>
+            <tr><td>单元格 B1</td><td>单元格 B2</td><td>单元格 B3</td></tr>
+          </tbody>
+        </table>
+      </div>
+      <p><a href="#">这是一个链接</a></p>
+      <div class="img-ph" role="img" aria-label="图片占位">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
+          <rect x="3" y="5" width="18" height="14" rx="1.5"/>
+          <circle cx="9" cy="10" r="1.4"/>
+          <path d="M4 16l4.5-4.5 3.5 3.5 2.5-2.5L20 16"/>
+        </svg>
+        Add an image
+      </div>
+      <hr />
+      <div class="callout">
+        <div class="emoji" aria-hidden="true">💡</div>
+        <div class="body">
+          <div class="lab">提示</div>
+          <p>这是一个 tip 提示块，用于展示 admonition / callout 样式。</p>
+        </div>
+      </div>
+      <div class="callout blue" style="margin-top:8px">
+        <div class="emoji" aria-hidden="true">ℹ️</div>
+        <div class="body"><p>蓝色信息 callout —— Notion 里很常见的第二形态。</p></div>
+      </div>
+      <details open>
+        <summary>
+          <span class="tri" aria-hidden="true">
+            <svg width="12" height="12" viewBox="0 0 16 16" fill="currentColor"><path d="M6 3l6 5-6 5V3z"/></svg>
+          </span>
+          点击展开
+        </summary>
+        <div class="panel"><p>这里是折叠内容</p></div>
+      </details>
+    </article>
+  </div>
+</template>
+
+<script>
+  const tpl = document.getElementById('msg-tpl');
+  document.querySelectorAll('[data-host]').forEach((host) => {
+    host.appendChild(tpl.content.cloneNode(true));
+  });
+
+  function mode(m) {
+    document.querySelectorAll('.tabs button').forEach((b) => {
+      b.classList.toggle('on', b.dataset.mode === m);
+    });
+    const stage = document.getElementById('stage');
+    const light = document.getElementById('p-light');
+    const dark = document.getElementById('p-dark');
+    stage.classList.remove('single', 'dual');
+    document.body.classList.toggle('page-dark', m === 'dark');
+
+    if (m === 'both') {
+      stage.classList.add('dual');
+      light.classList.add('show');
+      dark.classList.add('show');
+    } else if (m === 'dark') {
+      stage.classList.add('single');
+      light.classList.remove('show');
+      dark.classList.add('show');
+    } else {
+      stage.classList.add('single');
+      light.classList.add('show');
+      dark.classList.remove('show');
+    }
+  }
+
+  mode('light');
+</script>
+</body>
+</html>

@@ -1,12 +1,23 @@
 /**
  * ShikiRenderer - Syntax highlighting using Shiki.
- * 
- * Provides lazy-loaded, cached Shiki highlighter for diff rendering.
+ *
+ * Provides lazy-loaded, cached Shiki highlighter for diff rendering
+ * and chat Markdown code blocks (Notion themes).
  */
 
-import type { BundledLanguage, BundledTheme, HighlighterGeneric } from 'shiki';
+import type { BundledLanguage, HighlighterGeneric, ThemeRegistration } from 'shiki';
+import {
+  NOTION_DARK_THEME_NAME,
+  NOTION_LIGHT_THEME_NAME,
+  notionDarkTheme,
+  notionLightTheme,
+} from './notion-shiki-themes';
 
-let highlighterPromise: Promise<HighlighterGeneric<BundledLanguage, BundledTheme>> | null = null;
+export { NOTION_DARK_THEME_NAME, NOTION_LIGHT_THEME_NAME };
+
+type AppTheme = 'github-dark' | 'github-light' | typeof NOTION_LIGHT_THEME_NAME | typeof NOTION_DARK_THEME_NAME;
+
+let highlighterPromise: Promise<HighlighterGeneric<BundledLanguage, AppTheme>> | null = null;
 
 /**
  * Get or create a shared Shiki highlighter instance.
@@ -16,14 +27,19 @@ export async function getHighlighter() {
   if (!highlighterPromise) {
     highlighterPromise = import('shiki').then(({ createHighlighter }) =>
       createHighlighter({
-        themes: ['github-dark', 'github-light'],
+        themes: [
+          'github-dark',
+          'github-light',
+          notionLightTheme as ThemeRegistration,
+          notionDarkTheme as ThemeRegistration,
+        ],
         langs: [
           'typescript', 'javascript', 'python', 'json', 'yaml', 'css',
           'html', 'xml', 'sql', 'shell', 'markdown', 'rust', 'go',
           'java', 'c', 'cpp',
         ],
       }),
-    );
+    ) as Promise<HighlighterGeneric<BundledLanguage, AppTheme>>;
   }
   return highlighterPromise;
 }
