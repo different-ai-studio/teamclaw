@@ -26,6 +26,7 @@ import {
   type DiagnosticStatus,
 } from '@/lib/diagnostic-report'
 import { LiveDebugConsole } from './LiveDebugConsole'
+import { DaemonResetRemediationCard } from './DaemonResetRemediationCard'
 
 function statusDot(status: DiagnosticStatus) {
   switch (status) {
@@ -234,6 +235,8 @@ export const DiagnosticsSection = React.memo(function DiagnosticsSection() {
               ))}
             </div>
           </SettingCard>
+
+          <DaemonResetRemediationCard report={report} />
 
           <SettingCard>
             <h4 className="text-[13px] font-semibold mb-3">

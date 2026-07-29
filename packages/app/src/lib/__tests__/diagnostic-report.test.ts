@@ -236,4 +236,18 @@ describe('collectDiagnosticReport', () => {
     expect(mqttConfig?.status).toBe('ok')
     expect(mqttConfig?.message).toContain('JWT')
   })
+
+  it('tags token_invalid daemon probe with a reset trigger', async () => {
+    const { probeDaemonHttp } = await import('@/lib/daemon-local-client')
+    vi.mocked(probeDaemonHttp).mockResolvedValueOnce({
+      ok: false,
+      reason: 'token_invalid',
+    })
+
+    const { collectDiagnosticReport } = await import('@/lib/diagnostic-report')
+    const report = await collectDiagnosticReport()
+    const daemonHttp = report.checks.find((c) => c.id === 'daemon_http')
+
+    expect(daemonHttp?.resetTrigger).toBe('daemon_http_token_invalid')
+  })
 })
