@@ -37,26 +37,36 @@ export function getDispatcher(): Dispatcher | null {
  * @param currentActorId  The actor-table `id` for the signed-in user in the
  *   current team.  Resolved in App.tsx via
  *   `SELECT id FROM actors WHERE user_id = $userId AND team_id = $teamId`.
- *   Pass `null` until the query resolves; the effect re-runs when it arrives.
+ *   Pass `null` until the query resolves; init is deferred until it arrives.
  *
- * Idempotency: ranRef prevents double-init when deps haven't changed.
- * Sign-out: userId → null clears the dispatcher and resets the init flag.
+ * Idempotency: initKeyRef prevents double-init for the same (userId, actorId).
+ * Sign-out: userId → null clears the dispatcher and resets the init key.
  */
 export function useDesktopNotifications(currentActorId: string | null = null) {
   const userId = useAuthStore((s) => s.session?.user?.id ?? null);
-  const ranRef = useRef(false);
+  const initKeyRef = useRef<string | null>(null);
 
   // Clear dispatcher on sign-out so stale user context is never used.
   useEffect(() => {
     if (!userId) {
       activeDispatcher = null;
-      ranRef.current = false;
+      initKeyRef.current = null;
     }
   }, [userId]);
 
   useEffect(() => {
-    if (!isTauri() || !userId || ranRef.current) return;
-    ranRef.current = true;
+    if (!isTauri() || !userId) return;
+    // App.tsx resolves the actor id asynchronously (MQTT wiring effect), so on
+    // first render it is still null. A dispatcher built with a null actor id
+    // can never notify — it cannot tell our own messages apart from other
+    // people's — so wait for the real id instead of latching on the null one.
+    if (!currentActorId) return;
+
+    // Re-init whenever the (user, actor) pair changes — e.g. team switch — and
+    // retry after a failed init (permission denied, prefs load error).
+    const initKey = `${userId}|${currentActorId}`;
+    if (initKeyRef.current === initKey) return;
+    initKeyRef.current = initKey;
 
     // Capture both at creation time to avoid stale closures.
     const capturedUserId = userId;
@@ -64,14 +74,20 @@ export function useDesktopNotifications(currentActorId: string | null = null) {
 
     void (async () => {
       const granted = await ensurePermission();
-      if (!granted) return;
+      if (!granted) {
+        console.warn('[notifications] OS permission not granted — desktop notifications disabled');
+        if (initKeyRef.current === initKey) initKeyRef.current = null;
+        return;
+      }
 
       const prefs = await loadPrefs(capturedUserId);
       if (!prefs.enabled) return;
 
+      // A newer (userId, actorId) pair started initialising while we awaited —
+      // let it win rather than installing a stale dispatcher.
+      if (initKeyRef.current !== initKey) return;
+
       activeDispatcher = createDispatcher({
-        // currentActorId may be null if the actors query hasn't returned yet.
-        // The dispatcher skips notification when currentActorId is null (safe).
         currentActorId: capturedActorId,
 
         isParticipant: async (sid) => {
@@ -105,6 +121,6 @@ export function useDesktopNotifications(currentActorId: string | null = null) {
       });
     })();
   // Re-run when userId or currentActorId changes (e.g. team switch).
-  // ranRef ensures we don't init twice for the same (userId, actorId) pair.
+  // initKeyRef ensures we don't init twice for the same (userId, actorId) pair.
   }, [userId, currentActorId]);
 }
