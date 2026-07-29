@@ -17,6 +17,11 @@ export type { AuthClaimResult } from "@/lib/backend";
 
 export type AuthFlow = "idle" | "invite";
 
+// Held outside the store because the subscription is process-wide, not part of
+// the rendered state: `hydrate` may run more than once (StrictMode) and each
+// run must replace the previous listener rather than stack another one.
+let unsubscribeAuthState: (() => void) | null = null;
+
 type StoreAuthSession = AuthSession & {
   access_token?: string | null;
   refresh_token?: string | null;
@@ -171,22 +176,38 @@ export const useAuthStore = create<AuthState>((set, get) => ({
   hydrate: async () => {
     set({ loading: true, authFlow: "idle", errorMessage: null });
     markStartup("auth-hydrate:start");
-    let session = await getBackend().auth.getSession();
-    // Drop sessions minted for a different backend (e.g. cloud.ucar.cc) so a
-    // local self-host `.env.local` switch doesn't keep sending stale JWTs.
-    if (session?.accessToken) {
-      const { cloudApiUrl } = await getEffectiveServerConfig();
-      if (!accessTokenMatchesBackend(session.accessToken, cloudApiUrl)) {
-        await getBackend().auth.signOut();
-        session = null;
+    let session: AuthSession | null;
+    try {
+      session = await getBackend().auth.getSession();
+      // Drop sessions minted for a different backend (e.g. cloud.ucar.cc) so a
+      // local self-host `.env.local` switch doesn't keep sending stale JWTs.
+      if (session?.accessToken) {
+        const { cloudApiUrl } = await getEffectiveServerConfig();
+        if (!accessTokenMatchesBackend(session.accessToken, cloudApiUrl)) {
+          await getBackend().auth.signOut();
+          session = null;
+        }
       }
+    } catch (error) {
+      // Every await above must land in a defined state. An unhandled throw here
+      // used to leave `loading` stuck at true with `session` null while
+      // AuthGate's `.finally()` still flipped `authHydrated` — the exact
+      // combination that renders the login screen for an already-signed-in user
+      // on cold start, and tears the startup skeleton down with it.
+      session = null;
+      set({ errorMessage: errorMessageFor(error) });
     }
     markStartup("auth-session:end");
     set({ session: storeSession(session), loading: false });
     if (session) {
       void fetchAndApplyBootstrap({ accessToken: session.accessToken });
     }
-    getBackend().auth.onAuthStateChange((session) => {
+    // StrictMode double-invokes the effect that calls hydrate, and this
+    // subscription outlives it. Drop the previous one first so a cold start
+    // doesn't accumulate listeners that each re-run bootstrap on every auth
+    // event.
+    unsubscribeAuthState?.();
+    unsubscribeAuthState = getBackend().auth.onAuthStateChange((session) => {
       set({ session: storeSession(session) });
       if (session) {
         void fetchAndApplyBootstrap({ accessToken: session.accessToken });

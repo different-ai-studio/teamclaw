@@ -331,7 +331,23 @@ export function AuthGate({ children }: AuthGateProps) {
     return <DesktopOnboarding />;
   }
 
-  if (!authHydrated && loading) {
+  // Decide nothing until the initial session restore has settled. This is
+  // deliberately `authHydrated` alone, NOT `authHydrated && loading` and not
+  // `loading` on its own:
+  //
+  //  - as a conjunction it stopped guarding as soon as EITHER signal cleared,
+  //    so a hydrate that resolved without applying a session fell straight
+  //    through to the login branch below (cold-start login flash);
+  //  - `loading` cannot be used here because every auth action shares it
+  //    (sendOtp, verifyOtp, OAuth, WebSSO, invite…). Gating on it would blank
+  //    the login screen the moment a signed-out user submits their code.
+  //
+  // `hydrate` now catches its own failures and always resolves to a defined
+  // state, so this flag means exactly "startup auth is settled" — whether it
+  // settled on a session or on none. It is still set from `.finally()` on
+  // purpose: an unblocked gate showing the login screen beats a gate that never
+  // unblocks and leaves the startup skeleton up forever.
+  if (!authHydrated) {
     return null;
   }
 
