@@ -142,10 +142,15 @@ export function getPermissionCardPresentation(
           "Confirmation is required before accessing a path outside the workspace",
         )
     : entry.childSessionId
-      ? t(
-          "chat.permissionCard.childSessionWaitingApproval",
-          "A child session is waiting for your approval",
-        )
+      ? metadata?._subagent_unbound_task
+        ? t(
+            "chat.permissionCard.subagentUnboundTaskWaitingApproval",
+            "A subagent task is waiting for approval (specific task not yet identified)",
+          )
+        : t(
+            "chat.permissionCard.childSessionWaitingApproval",
+            "A subagent is waiting for your approval",
+          )
       : sourceToolLabel
         ? t("chat.permissionCard.sourceToolInvocation", "From {{tool}} tool call", {
             tool: sourceToolLabel,

@@ -1697,8 +1697,52 @@ function AppContent() {
             if (acpSid) {
               const streamStore = useV2StreamingStore.getState();
               const eventCase = decoded.acpEvent.event?.case;
-              if (eventCase !== "permissionRequest") {
-                const parentToolId = streamStore.childAcpSessionToToolId[acpSid];
+              const parentToolId = streamStore.childAcpSessionToToolId[acpSid];
+              if (eventCase === "permissionRequest") {
+                // Subagent permission must surface on the parent actor immediately.
+                // Do NOT buffer waiting for task→child bind: opencode often asks
+                // before task rawOutput carries sessionId, and a buffered ask
+                // never renders a card (agent hangs forever).
+                // Do NOT bind via params.toolCallId — that is the child tool
+                // (e.g. bash), not the parent task tool id.
+                const pr2 = decoded.acpEvent.event?.value as {
+                  requestId?: string;
+                  toolName?: string;
+                  description?: string;
+                  params?: Record<string, string>;
+                  options?: Array<{ optionId?: string; kind?: string; name?: string }>;
+                };
+                const childSid =
+                  pr2.params?.childSessionId?.trim() || acpSid;
+                const bindTo =
+                  parentToolId ??
+                  resolveOrphanSubagentParentToolId(sid, actorId, streamStore);
+                if (bindTo && childSid) {
+                  tryBindChildFromPermission(sid, actorId, childSid, bindTo);
+                }
+                void handleAcpPermissionRequest({
+                  sessionId: sid,
+                  agentActorId: actorId,
+                  request: {
+                    requestId: pr2.requestId ?? "",
+                    toolName: pr2.toolName ?? "",
+                    description: pr2.description ?? "",
+                    params: {
+                      ...(pr2.params ?? {}),
+                      childSessionId: childSid,
+                      ...(bindTo ? {} : { _subagent_unbound_task: "1" }),
+                    },
+                    requesterActorId:
+                      pr2.params?.requester_actor_id?.trim() || undefined,
+                    options: (pr2.options ?? []).map((o) => ({
+                      optionId: o.optionId ?? "",
+                      kind: o.kind ?? "",
+                      name: o.name ?? "",
+                    })),
+                  },
+                });
+                return;
+              } else {
                 if (parentToolId) {
                   routeSubagentAcpEvent(sid, actorId, parentToolId, decoded.acpEvent);
                   return;
@@ -1715,17 +1759,55 @@ function AppContent() {
                 actorId,
                 streamStoreForOrphan,
               );
-              if (
-                orphanTaskToolId &&
-                shouldRouteOrphanSubagentEvent(decoded.acpEvent, orphanTaskToolId)
-              ) {
-                routeSubagentAcpEvent(
-                  sid,
-                  actorId,
-                  orphanTaskToolId,
-                  decoded.acpEvent,
-                );
-                return;
+              if (orphanTaskToolId) {
+                const orphanEventCase = decoded.acpEvent.event?.case;
+                if (orphanEventCase === "permissionRequest") {
+                  // Orphan subagent permission (no acpSid on envelope): route
+                  // to the single unbound calling task tool.
+                  const prO = decoded.acpEvent.event?.value as {
+                    requestId?: string;
+                    toolName?: string;
+                    description?: string;
+                    params?: Record<string, string>;
+                    options?: Array<{ optionId?: string; kind?: string; name?: string }>;
+                  };
+                  const childSid = prO.params?.childSessionId?.trim() ?? "";
+                  if (childSid) {
+                    tryBindChildFromPermission(
+                      sid,
+                      actorId,
+                      childSid,
+                      orphanTaskToolId,
+                    );
+                  }
+                  void handleAcpPermissionRequest({
+                    sessionId: sid,
+                    agentActorId: actorId,
+                    request: {
+                      requestId: prO.requestId ?? "",
+                      toolName: prO.toolName ?? "",
+                      description: prO.description ?? "",
+                      params: prO.params ?? {},
+                      requesterActorId:
+                        prO.params?.requester_actor_id?.trim() || undefined,
+                      options: (prO.options ?? []).map((o) => ({
+                        optionId: o.optionId ?? "",
+                        kind: o.kind ?? "",
+                        name: o.name ?? "",
+                      })),
+                    },
+                  });
+                  return;
+                }
+                if (shouldRouteOrphanSubagentEvent(decoded.acpEvent, orphanTaskToolId)) {
+                  routeSubagentAcpEvent(
+                    sid,
+                    actorId,
+                    orphanTaskToolId,
+                    decoded.acpEvent,
+                  );
+                  return;
+                }
               }
             }
 
@@ -2037,12 +2119,19 @@ function AppContent() {
                 description: pr.description,
                 isDoomLoop: pr.toolName === "doom_loop",
               });
-              tryBindChildFromPermission(
-                sid,
-                actorId,
-                pr.params?.childSessionId ?? "",
-                pr.params?.toolCallId,
-              );
+              // params.toolCallId is the tool that asked (bash/…), not the parent
+              // task tool — only bind when we can resolve the parent task id.
+              const childSid = pr.params?.childSessionId?.trim() ?? "";
+              if (childSid) {
+                const orphanTask = resolveOrphanSubagentParentToolId(
+                  sid,
+                  actorId,
+                  useV2StreamingStore.getState(),
+                );
+                if (orphanTask) {
+                  tryBindChildFromPermission(sid, actorId, childSid, orphanTask);
+                }
+              }
               void handleAcpPermissionRequest({
                 sessionId: sid,
                 agentActorId: actorId,
@@ -2051,7 +2140,8 @@ function AppContent() {
                   toolName: pr.toolName ?? "",
                   description: pr.description ?? "",
                   params: pr.params ?? {},
-                  requesterActorId: pr.params?.requester_actor_id?.trim() || undefined,
+                  requesterActorId:
+                    pr.params?.requester_actor_id?.trim() || undefined,
                   options: (pr.options ?? []).map((o) => ({
                     optionId: o.optionId ?? "",
                     kind: o.kind ?? "",
