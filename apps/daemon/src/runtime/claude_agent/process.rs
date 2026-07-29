@@ -1,22 +1,29 @@
-//! Per-worktree cursor-bridge process pool.
+//! Per-worktree claude-bridge process pool.
+//!
+//! Structurally the same as `cursor_sdk/process.rs`: one Node child per
+//! canonical worktree, respawned when the env fingerprint changes. The
+//! differences are the bridge path and that the API key is *optional* — the
+//! Agent SDK falls back to whatever `claude` login already exists on the host,
+//! so refusing to spawn without a key would break subscription users.
 
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
 use tokio::io::{AsyncBufReadExt, BufReader};
-use tracing::{info, warn};
+use tracing::info;
 
 use crate::runtime::sidecar::client::SidecarClient;
+
 use super::{events, Shared};
 
-pub(crate) struct CursorProcess {
+pub(crate) struct ClaudeProcess {
     pub(crate) client: SidecarClient,
     child: parking_lot::Mutex<tokio::process::Child>,
     env_fingerprint: String,
 }
 
-impl CursorProcess {
+impl ClaudeProcess {
     pub(crate) fn is_alive(&self) -> bool {
         matches!(self.child.lock().try_wait(), Ok(None))
     }
@@ -26,8 +33,8 @@ impl CursorProcess {
     }
 }
 
-pub(crate) struct CursorProcessPool {
-    procs: parking_lot::Mutex<HashMap<String, Arc<CursorProcess>>>,
+pub(crate) struct ClaudeProcessPool {
+    procs: parking_lot::Mutex<HashMap<String, Arc<ClaudeProcess>>>,
     bridge_command: parking_lot::Mutex<Option<Vec<String>>>,
     api_key: parking_lot::Mutex<Option<String>>,
     default_model: parking_lot::Mutex<String>,
@@ -36,13 +43,13 @@ pub(crate) struct CursorProcessPool {
     force_env_override: parking_lot::Mutex<bool>,
 }
 
-impl CursorProcessPool {
+impl ClaudeProcessPool {
     pub(crate) fn new() -> Self {
         Self {
             procs: parking_lot::Mutex::new(HashMap::new()),
             bridge_command: parking_lot::Mutex::new(None),
             api_key: parking_lot::Mutex::new(None),
-            default_model: parking_lot::Mutex::new("composer-2.5".to_string()),
+            default_model: parking_lot::Mutex::new(String::new()),
             extra_env: parking_lot::Mutex::new(HashMap::new()),
             force_env_override: parking_lot::Mutex::new(false),
         }
@@ -101,7 +108,7 @@ impl CursorProcessPool {
         )
     }
 
-    pub(crate) fn get(&self, worktree: &str) -> Option<Arc<CursorProcess>> {
+    pub(crate) fn get(&self, worktree: &str) -> Option<Arc<ClaudeProcess>> {
         let mut procs = self.procs.lock();
         match procs.get(worktree) {
             Some(p) if p.is_alive() => Some(Arc::clone(p)),
@@ -113,7 +120,7 @@ impl CursorProcessPool {
         }
     }
 
-    pub(crate) fn any_live(&self) -> Option<Arc<CursorProcess>> {
+    pub(crate) fn any_live(&self) -> Option<Arc<ClaudeProcess>> {
         self.procs
             .lock()
             .values()
@@ -126,7 +133,7 @@ impl CursorProcessPool {
     }
 
     pub(crate) fn kill_all(&self) -> usize {
-        let procs: Vec<Arc<CursorProcess>> = self.procs.lock().drain().map(|(_, p)| p).collect();
+        let procs: Vec<Arc<ClaudeProcess>> = self.procs.lock().drain().map(|(_, p)| p).collect();
         let mut killed = 0;
         for p in procs {
             if p.is_alive() {
@@ -141,13 +148,13 @@ impl CursorProcessPool {
         &self,
         shared: &Arc<Shared>,
         worktree: &str,
-    ) -> crate::error::Result<Arc<CursorProcess>> {
+    ) -> crate::error::Result<Arc<ClaudeProcess>> {
         let want = self.env_fingerprint();
         if let Some(p) = self.get(worktree) {
             if p.env_fingerprint == want {
                 return Ok(p);
             }
-            info!(worktree, "cursor bridge env changed; respawning");
+            info!(worktree, "claude bridge env changed; respawning");
             p.kill();
             self.procs.lock().remove(worktree);
         }
@@ -162,7 +169,7 @@ impl CursorProcessPool {
         &self,
         shared: &Arc<Shared>,
         worktree: &str,
-    ) -> crate::error::Result<Arc<CursorProcess>> {
+    ) -> crate::error::Result<Arc<ClaudeProcess>> {
         let bridge = self
             .bridge_command
             .lock()
@@ -170,22 +177,13 @@ impl CursorProcessPool {
             .unwrap_or_else(default_bridge_command);
         if bridge.is_empty() {
             return Err(crate::error::AmuxError::Agent(
-                "cursor bridge command is empty".into(),
+                "claude bridge command is empty".into(),
             ));
         }
 
-        let api_key = self
-            .api_key
-            .lock()
-            .clone()
-            .or_else(|| std::env::var("CURSOR_API_KEY").ok())
-            .filter(|k| !k.trim().is_empty())
-            .ok_or_else(|| {
-                crate::error::AmuxError::Agent(
-                    "CURSOR_API_KEY is not set; configure [agents.cursor].api_key or the env var"
-                        .into(),
-                )
-            })?;
+        // Optional on purpose: with no key the Agent SDK uses the host's own
+        // `claude` login (subscription auth), which is the common desktop case.
+        let api_key = self.api_key.lock().clone().filter(|k| !k.trim().is_empty());
 
         let mut cmd = tokio::process::Command::new(&bridge[0]);
         for arg in bridge.iter().skip(1) {
@@ -209,16 +207,19 @@ impl CursorProcessPool {
                 cmd.env(k, v);
             }
         }
-        // Always win over any injected duplicate.
-        cmd.env("CURSOR_API_KEY", api_key);
+        // Only override when we actually have one; otherwise leave whatever
+        // the host env provides so the SDK's own auth resolution still works.
+        if let Some(api_key) = api_key {
+            cmd.env("ANTHROPIC_API_KEY", api_key);
+        }
 
-        info!(worktree, bridge = ?bridge, "spawning cursor-bridge");
+        info!(worktree, bridge = ?bridge, "spawning claude-bridge");
         let mut child = cmd.spawn().map_err(|e| {
             let hint = if e.kind() == std::io::ErrorKind::NotFound {
-                "node or cursor-bridge not found; run npm install in apps/daemon/cursor-bridge"
+                "node or claude-bridge not found; run npm install in apps/daemon/claude-bridge"
                     .to_string()
             } else {
-                format!("spawn cursor-bridge: {e}")
+                format!("spawn claude-bridge: {e}")
             };
             crate::error::AmuxError::Agent(hint)
         })?;
@@ -226,11 +227,11 @@ impl CursorProcessPool {
         let stdin = child
             .stdin
             .take()
-            .ok_or_else(|| crate::error::AmuxError::Agent("cursor stdin unavailable".into()))?;
+            .ok_or_else(|| crate::error::AmuxError::Agent("claude stdin unavailable".into()))?;
         let stdout = child
             .stdout
             .take()
-            .ok_or_else(|| crate::error::AmuxError::Agent("cursor stdout unavailable".into()))?;
+            .ok_or_else(|| crate::error::AmuxError::Agent("claude stdout unavailable".into()))?;
         if let Some(stderr) = child.stderr.take() {
             tokio::spawn(async move {
                 let mut reader = BufReader::new(stderr);
@@ -242,7 +243,7 @@ impl CursorProcessPool {
                         Ok(_) => {
                             let trimmed = line.trim();
                             if !trimmed.is_empty() {
-                                tracing::debug!(target: "cursor_bridge", "{trimmed}");
+                                tracing::debug!(target: "claude_bridge", "{trimmed}");
                             }
                         }
                     }
@@ -258,7 +259,7 @@ impl CursorProcessPool {
             client.clone(),
         );
 
-        Ok(Arc::new(CursorProcess {
+        Ok(Arc::new(ClaudeProcess {
             client,
             child: parking_lot::Mutex::new(child),
             env_fingerprint: self.env_fingerprint(),
@@ -267,7 +268,7 @@ impl CursorProcessPool {
 }
 
 pub fn default_bridge_main() -> PathBuf {
-    PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("cursor-bridge/src/main.mjs")
+    PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("claude-bridge/src/main.mjs")
 }
 
 pub fn default_bridge_command() -> Vec<String> {
@@ -294,6 +295,6 @@ mod tests {
     fn default_bridge_command_includes_main_script() {
         let cmd = default_bridge_command();
         assert_eq!(cmd[0], "node");
-        assert!(cmd[1].ends_with("cursor-bridge/src/main.mjs"));
+        assert!(cmd[1].ends_with("claude-bridge/src/main.mjs"));
     }
 }

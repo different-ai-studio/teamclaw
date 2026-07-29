@@ -1,4 +1,10 @@
-//! cursor-bridge stdout event routing.
+//! claude-bridge stdout event routing.
+//!
+//! Unlike `cursor_sdk`, permission requests arrive **on this stream** rather
+//! than out-of-band: the Agent SDK's `canUseTool` callback lives inside the
+//! bridge process, so the bridge simply blocks and emits a `permission_request`
+//! event. That removes the whole hooks-file / socket-callback apparatus the
+//! cursor backend needs.
 
 use std::sync::Arc;
 
@@ -7,9 +13,9 @@ use tracing::{debug, info, warn};
 
 use crate::proto::amux;
 use crate::runtime::acp_event_frame::AcpEventFrame;
-
 use crate::runtime::sidecar::client::SidecarClient;
-use super::{translate, Shared};
+
+use super::{permission, translate, Shared};
 
 pub(super) fn spawn_reader(
     shared: Arc<Shared>,
@@ -26,7 +32,7 @@ pub(super) fn spawn_reader(
                 Ok(0) => break,
                 Ok(_) => {}
                 Err(e) => {
-                    warn!(worktree, error = %e, "cursor stdout read error");
+                    warn!(worktree, error = %e, "claude stdout read error");
                     break;
                 }
             }
@@ -37,7 +43,7 @@ pub(super) fn spawn_reader(
             let json: serde_json::Value = match serde_json::from_str(trimmed) {
                 Ok(v) => v,
                 Err(e) => {
-                    debug!(worktree, error = %e, "cursor stdout non-JSON dropped");
+                    debug!(worktree, error = %e, "claude stdout non-JSON dropped");
                     continue;
                 }
             };
@@ -51,7 +57,7 @@ pub(super) fn spawn_reader(
         }
         close_all_turns_for_worktree(&shared, &worktree).await;
         client.fail_all_pending();
-        info!(worktree, "cursor bridge stdout closed");
+        info!(worktree, "claude bridge stdout closed");
     });
 }
 
@@ -68,13 +74,32 @@ async fn close_all_turns_for_worktree(shared: &Arc<Shared>, worktree: &str) {
     }
 }
 
+/// The bridge keys events by its own session handle; map it to our acp id.
+fn acp_session_for(shared: &Arc<Shared>, session_key: &str) -> Option<String> {
+    shared.session_keys.lock().get(session_key).cloned()
+}
+
 async fn handle_event(shared: &Arc<Shared>, event: &serde_json::Value) {
     let event_name = event.get("event").and_then(|v| v.as_str()).unwrap_or("");
-    let agent_id = event.get("agentId").and_then(|v| v.as_str()).unwrap_or("");
-    if agent_id.is_empty() {
+    let session_key = event
+        .get("sessionId")
+        .and_then(|v| v.as_str())
+        .unwrap_or_default();
+    if session_key.is_empty() {
         return;
     }
-    let session_id = format!("{}{}", super::SESSION_ID_PREFIX, agent_id);
+    let Some(session_id) = acp_session_for(shared, session_key) else {
+        debug!(
+            session_key,
+            event_name, "claude event before session was routed; dropped"
+        );
+        return;
+    };
+
+    if event_name == "permission_request" {
+        permission::handle_request(shared, &session_id, session_key, event).await;
+        return;
+    }
 
     if event_name == "turn_end" {
         close_turn(shared, &session_id).await;
@@ -85,30 +110,30 @@ async fn handle_event(shared: &Arc<Shared>, event: &serde_json::Value) {
         let Some(route) = routes.get_mut(&session_id) else {
             debug!(
                 session_id,
-                event_name, "cursor event for unrouted session dropped"
+                event_name, "claude event for unrouted session dropped"
             );
             return;
         };
         if event_name == "turn_start" {
             route.turn_active = true;
         }
-        // `turn_end` carries the model the run actually used (`result.model`) —
-        // the only authoritative reading we get. A `set_model` the SDK silently
-        // declined would otherwise leave the route lying about its model.
+        // `turn_end` carries the model that actually ran the turn (the SDK's
+        // `result.modelUsage` key), which is the only authoritative reading.
         if event_name == "turn_end" {
             if let Some(model) = event
                 .get("model")
                 .and_then(|v| v.as_str())
                 .filter(|m| !m.is_empty())
             {
-                if route.model != model {
-                    debug!(session_id, from = %route.model, to = model, "cursor run model changed");
-                    route.model = model.to_string();
+                let flat = super::flat_model_id(model);
+                if route.model != flat {
+                    debug!(session_id, from = %route.model, to = %flat, "claude run model changed");
+                    route.model = flat;
                 }
             }
         }
         (
-            translate::translate_event(&mut route.translate, event),
+            translate::translate_event(event),
             route.event_tx.clone(),
             route.turn_reply_to.clone(),
         )

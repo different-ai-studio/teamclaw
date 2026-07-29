@@ -52,7 +52,10 @@ fn tool_kind(name: &str) -> &'static str {
     }
 }
 
-pub fn translate_event(state: &mut TranslateState, event: &serde_json::Value) -> Vec<amux::AcpEvent> {
+pub fn translate_event(
+    state: &mut TranslateState,
+    event: &serde_json::Value,
+) -> Vec<amux::AcpEvent> {
     let name = event.get("event").and_then(|v| v.as_str()).unwrap_or("");
     let run_id = event.get("runId").and_then(|v| v.as_str()).unwrap_or("");
 
@@ -94,10 +97,7 @@ pub fn translate_event(state: &mut TranslateState, event: &serde_json::Value) ->
                     description: String::new(),
                     params,
                     tool_kind: tool_kind(&tool_name).to_string(),
-                    raw_input_json: event
-                        .get("args")
-                        .map(|v| v.to_string())
-                        .unwrap_or_default(),
+                    raw_input_json: event.get("args").map(|v| v.to_string()).unwrap_or_default(),
                     raw_output_json: String::new(),
                     content: vec![],
                     locations: vec![],
@@ -117,7 +117,10 @@ pub fn translate_event(state: &mut TranslateState, event: &serde_json::Value) ->
                 .and_then(|v| v.as_str())
                 .unwrap_or("")
                 .to_string();
-            let is_error = event.get("isError").and_then(|v| v.as_bool()).unwrap_or(false);
+            let is_error = event
+                .get("isError")
+                .and_then(|v| v.as_bool())
+                .unwrap_or(false);
             vec![amux::AcpEvent {
                 event: Some(amux::acp_event::Event::ToolResult(amux::AcpToolResult {
                     tool_id: tool_call_id,

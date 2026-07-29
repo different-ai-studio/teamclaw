@@ -294,6 +294,12 @@ pub(crate) enum SockCommand {
         payload: serde_json::Value,
         reply_tx: oneshot::Sender<String>,
     },
+    /// Cursor `preToolUse` approval from `amuxd cursor-permission-hook`. The
+    /// handler blocks on a human, so it must never run inline on this loop.
+    CursorPermission {
+        payload: serde_json::Value,
+        reply_tx: oneshot::Sender<String>,
+    },
     /// Drive one ACP turn to completion for a cron-style logical session.
     /// `payload` is the raw JSON envelope; `handle_prompt_await` parses it
     /// and runs the turn against the local primary agent. `reply_tx`
@@ -1573,6 +1579,17 @@ impl DaemonServer {
                                 self.spawn_remote_tool_sock_handler(payload, reply_tx)
                                     .await;
                             }
+                            Some(SockCommand::CursorPermission { payload, reply_tx }) => {
+                                tokio::spawn(async move {
+                                    let result =
+                                        crate::runtime::cursor_sdk::permission::handle(&payload)
+                                            .await;
+                                    let _ = reply_tx.send(
+                                        serde_json::json!({ "ok": true, "result": result })
+                                            .to_string(),
+                                    );
+                                });
+                            }
                             Some(SockCommand::LocalRpc { payload, reply_tx }) => {
                                 let reply = self.dispatch_local_rpc(&payload).await;
                                 let _ = reply_tx.send(reply);
@@ -1978,6 +1995,17 @@ impl DaemonServer {
                             Some(SockCommand::RemoteToolCall { payload, reply_tx }) => {
                                 self.spawn_remote_tool_sock_handler(payload, reply_tx)
                                     .await;
+                            }
+                            Some(SockCommand::CursorPermission { payload, reply_tx }) => {
+                                tokio::spawn(async move {
+                                    let result =
+                                        crate::runtime::cursor_sdk::permission::handle(&payload)
+                                            .await;
+                                    let _ = reply_tx.send(
+                                        serde_json::json!({ "ok": true, "result": result })
+                                            .to_string(),
+                                    );
+                                });
                             }
                             Some(SockCommand::LocalRpc { payload, reply_tx }) => {
                                 let reply = self.dispatch_local_rpc(&payload).await;
@@ -2400,6 +2428,32 @@ where
                                 }
                                 Err(_) => {
                                     warn!("amuxd.sock: remote-tool-call reply dropped");
+                                }
+                            }
+                        } else if cmd == "cursor-permission" {
+                            let (reply_tx, reply_rx) = oneshot::channel();
+                            if tx
+                                .send(SockCommand::CursorPermission {
+                                    payload: v,
+                                    reply_tx,
+                                })
+                                .await
+                                .is_err()
+                            {
+                                return;
+                            }
+                            match reply_rx.await {
+                                Ok(body) => {
+                                    let mut stream = reader.into_inner();
+                                    if let Err(e) = stream.write_all(body.as_bytes()).await {
+                                        warn!("amuxd.sock: cursor-permission write failed: {e}");
+                                        return;
+                                    }
+                                    let _ = stream.write_all(b"\n").await;
+                                    let _ = stream.shutdown().await;
+                                }
+                                Err(_) => {
+                                    warn!("amuxd.sock: cursor-permission reply dropped");
                                 }
                             }
                         } else if cmd == "prompt-await" {

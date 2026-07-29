@@ -1,4 +1,9 @@
-//! JSONL command client for one cursor-bridge child process.
+//! JSONL command client for one sidecar child process.
+//!
+//! Shared by every sidecar-style backend (`cursor_sdk`, `claude_agent`): the
+//! wire shape is `{id, method, params}` out, `{id, result|error}` back, with
+//! events (no `id`) interleaved on the same stdout stream and routed by the
+//! owning backend rather than here.
 
 use std::collections::HashMap;
 use std::sync::atomic::{AtomicU64, Ordering};
@@ -18,9 +23,9 @@ struct Inner {
 }
 
 #[derive(Clone)]
-pub struct CursorClient(Arc<Inner>);
+pub struct SidecarClient(Arc<Inner>);
 
-impl CursorClient {
+impl SidecarClient {
     pub fn new(stdin: tokio::process::ChildStdin) -> Self {
         Self(Arc::new(Inner {
             stdin: tokio::sync::Mutex::new(stdin),
@@ -31,17 +36,17 @@ impl CursorClient {
 
     async fn write_line(&self, value: &serde_json::Value) -> crate::error::Result<()> {
         let mut line = serde_json::to_string(value)
-            .map_err(|e| crate::error::AmuxError::Agent(format!("cursor command encode: {e}")))?;
+            .map_err(|e| crate::error::AmuxError::Agent(format!("sidecar command encode: {e}")))?;
         line.push('\n');
         let mut stdin = self.0.stdin.lock().await;
         stdin
             .write_all(line.as_bytes())
             .await
-            .map_err(|e| crate::error::AmuxError::Agent(format!("cursor stdin write: {e}")))?;
+            .map_err(|e| crate::error::AmuxError::Agent(format!("sidecar stdin write: {e}")))?;
         stdin
             .flush()
             .await
-            .map_err(|e| crate::error::AmuxError::Agent(format!("cursor stdin flush: {e}")))
+            .map_err(|e| crate::error::AmuxError::Agent(format!("sidecar stdin flush: {e}")))
     }
 
     pub async fn request(
@@ -63,23 +68,26 @@ impl CursorClient {
             Ok(Ok(v)) => v,
             Ok(Err(_)) => {
                 return Err(crate::error::AmuxError::Agent(format!(
-                    "cursor {method}: bridge exited before responding"
+                    "{method}: bridge exited before responding"
                 )))
             }
             Err(_) => {
                 self.0.pending.lock().remove(&id);
                 return Err(crate::error::AmuxError::Agent(format!(
-                    "cursor {method}: response timed out"
+                    "{method}: response timed out"
                 )));
             }
         };
 
         if let Some(err) = response.get("error").and_then(|v| v.as_str()) {
             return Err(crate::error::AmuxError::Agent(format!(
-                "cursor {method} failed: {err}"
+                "{method} failed: {err}"
             )));
         }
-        Ok(response.get("result").cloned().unwrap_or(serde_json::Value::Null))
+        Ok(response
+            .get("result")
+            .cloned()
+            .unwrap_or(serde_json::Value::Null))
     }
 
     pub fn resolve_response(&self, response: &serde_json::Value) -> bool {
@@ -92,7 +100,7 @@ impl CursorClient {
                 true
             }
             None => {
-                warn!(id, "cursor response with no pending request");
+                warn!(id, "sidecar response with no pending request");
                 false
             }
         }

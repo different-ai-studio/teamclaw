@@ -35,6 +35,15 @@ function sdkModelFromFlat(flat) {
   return model || 'composer-2.5'
 }
 
+/**
+ * AgentOptions.mcpServers is a Record<string, McpServerConfig> — not an array.
+ * Drop the field entirely when there is nothing to bridge.
+ */
+function mcpServersOption(mcpServers) {
+  if (!mcpServers || typeof mcpServers !== 'object' || Array.isArray(mcpServers)) return {}
+  return Object.keys(mcpServers).length > 0 ? { mcpServers } : {}
+}
+
 function apiKeyFromEnv() {
   const key = process.env.CURSOR_API_KEY?.trim()
   if (!key) throw new Error('CURSOR_API_KEY is not set')
@@ -131,14 +140,6 @@ function handleStreamEvent(agentId, runId, message) {
         })
       }
       break
-    case 'request':
-      emit({
-        event: 'permission_request',
-        agentId,
-        runId,
-        requestId: message.request_id,
-      })
-      break
     default:
       break
   }
@@ -202,8 +203,11 @@ async function handleRequest(req) {
         const agent = await Agent.create({
           apiKey: apiKeyFromEnv(),
           model: { id: model },
-          local: { cwd, settingSources: [] },
-          ...(params.mcpServers?.length ? { mcpServers: params.mcpServers } : {}),
+          // "project" is what makes the SDK read <cwd>/.cursor/hooks.json —
+          // amuxd's preToolUse permission gate lives there. It also enables the
+          // workspace's own rules/AGENTS.md, matching opencode and pi.
+          local: { cwd, settingSources: ['project'] },
+          ...mcpServersOption(params.mcpServers),
         })
         agents.set(agent.agentId, { agent, cwd, model })
         emit({
@@ -220,7 +224,8 @@ async function handleRequest(req) {
         if (!agentId) throw new Error('agentId is required')
         const agent = await Agent.resume(agentId, {
           apiKey: apiKeyFromEnv(),
-          ...(params.mcpServers?.length ? { mcpServers: params.mcpServers } : {}),
+          // Inline MCP is not persisted by the SDK: resume must re-send it.
+          ...mcpServersOption(params.mcpServers),
         })
         const model = sdkModelFromFlat(params.model) || 'composer-2.5'
         agents.set(agent.agentId, { agent, cwd: params.cwd ?? process.cwd(), model })
@@ -239,8 +244,14 @@ async function handleRequest(req) {
         if (!agentId || !text) throw new Error('agentId and text are required')
         const entry = agents.get(agentId)
         if (!entry) throw new Error(`unknown agent ${agentId}`)
-        const run = await entry.agent.send(text)
-        emit({ id, result: { runId: run.id } })
+        // SendOptions.model is what actually switches the model — mutating our
+        // own bookkeeping never reached the agent. Passed on every send, so the
+        // selection survives a set_model between turns.
+        // The daemon carries the selection on every send; fall back to what we
+        // last recorded when it says nothing.
+        if (params.model) entry.model = sdkModelFromFlat(params.model)
+        const run = await entry.agent.send(text, { model: { id: entry.model } })
+        emit({ id, result: { runId: run.id, model: flatModelId(entry.model) } })
         void streamRun(agentId, run)
         break
       }
@@ -256,6 +267,8 @@ async function handleRequest(req) {
         break
       }
       case 'set_model': {
+        // Takes effect on the next send (the SDK has no standalone model
+        // setter); same "applies next turn" semantics as the opencode backend.
         const agentId = params.agentId
         const model = sdkModelFromFlat(params.model)
         const entry = agents.get(agentId)
@@ -268,14 +281,20 @@ async function handleRequest(req) {
         const agentId = params.agentId
         const entry = agents.get(agentId)
         if (!entry) throw new Error(`unknown agent ${agentId}`)
+        // `agent.model` is the SDK's own current selection, updated after each
+        // successful send. `requestedModel` is merely what we last asked for —
+        // the two are reported separately so the daemon's MRU only ever learns
+        // from the former.
+        const sdkModel = entry.agent.model?.id
         emit({
           id,
-          result: { agentId, model: flatModelId(entry.model), cwd: entry.cwd },
+          result: {
+            agentId,
+            cwd: entry.cwd,
+            requestedModel: flatModelId(entry.model),
+            ...(sdkModel ? { sdkModel: flatModelId(sdkModel) } : {}),
+          },
         })
-        break
-      }
-      case 'resolve_permission': {
-        emit({ id, result: { ok: true } })
         break
       }
       case 'dispose_agent': {

@@ -239,10 +239,27 @@ pub struct AgentsConfig {
     pub codex: Option<AgentBackendConfig>,
     #[serde(default)]
     pub cursor: Option<CursorAgentConfig>,
+    #[serde(default)]
+    pub claude: Option<ClaudeAgentConfig>,
 }
 
 /// Cursor SDK backend settings (`agents.local_agent = "cursor"`).
 #[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ClaudeAgentConfig {
+    /// Anthropic API key. Optional: with none set the Agent SDK falls back to
+    /// the host's own `claude` login (subscription auth).
+    #[serde(default)]
+    pub api_key: Option<String>,
+    /// Sidecar launch command (default: `node …/claude-bridge/src/main.mjs --mode rpc`).
+    #[serde(default)]
+    pub bridge_command: Option<Vec<String>>,
+    /// Preferred model (SDK id, e.g. `claude-opus-5`). Empty = SDK default.
+    #[serde(default)]
+    pub default_model: Option<String>,
+}
+
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
 pub struct CursorAgentConfig {
     /// Cursor API key. Falls back to `CURSOR_API_KEY` when unset.
     #[serde(default)]
@@ -272,6 +289,7 @@ impl Default for AgentsConfig {
             opencode: None,
             codex: None,
             cursor: None,
+            claude: None,
         }
     }
 }

@@ -27,7 +27,7 @@
 | 模型目录 | `/config/providers` | `get_available_models` | `Cursor.models.list()` |
 | 鉴权 | opencode provider key / LiteLLM | LiteLLM via pi provider | `CURSOR_API_KEY`（用户或 team service account） |
 | MCP | `opencode.json` mcp 表 | pi extension 桥接 | SDK inline MCP on `Agent.create` / `send` |
-| 权限审批 | opencode `permission.asked` | pi extension `confirm` dialog | SDK hooks（见 §5）或 gateway 自动放行 |
+| 权限审批 | opencode `permission.asked` | pi extension `confirm` dialog | worktree `.cursor/hooks.json` 的 `preToolUse` hook（见 §5）|
 | 取消 | `POST abort` | `abort` | `run.cancel()`（需 `run.supports("cancel")`） |
 
 ## 3. 目标架构
@@ -50,9 +50,10 @@
 **下行**：sidecar 把 `run.stream()` 事件逐条写 stdout → Rust `translate.rs`
 → `AcpEventFrame` → 既有 `turn_aggregator` / MQTT / SSE。
 
-**权限**：sidecar 收到 SDK 需人工确认的事件 → 写 `permission_request` 行 →
-Rust 发 `AcpPermissionRequest` → 客户端审批 → `ResolvePermission` → sidecar
-写回 SDK。
+**权限**：SDK 执行 worktree `.cursor/hooks.json` 的 `preToolUse` hook →
+`amuxd cursor-permission-hook` 走 `amuxd.sock` 问 daemon → daemon 发
+`AcpPermissionRequest` → 客户端审批 → `ResolvePermission` → hook 进程打印
+`{"permission":"allow"|"deny"}` 给 SDK。见 §6.5。
 
 协议边界不变：客户端只认 `amux.proto`；`acp_session_id` 前缀 `cursor:`
 区分后端，resume 时剥前缀调 `Agent.resume`。
@@ -65,6 +66,9 @@ Rust 发 `AcpPermissionRequest` → 客户端审批 → `ResolvePermission` → 
 |---|---|
 | `process.rs` | 每 canonical worktree 拉起 Node sidecar；env 注入 `CURSOR_API_KEY`、MCP JSON；kill_on_drop；指纹变更时 respawn |
 | `client.rs` | JSONL 命令写 stdin（带 `id` 关联 response）：`create_agent`、`resume_agent`、`send`、`cancel`、`set_model`、`list_models`、`dispose` |
+| `mcp.rs` | `opencode.json` `mcp` + remote-tools host config → SDK `mcpServers` record |
+| `hooks.rs` | 在 worktree 写/合并 `.cursor/hooks.json` 的 `preToolUse` 网关 |
+| `permission.rs` | hook 请求 → `AcpPermissionRequest` → 等人 → allow/deny |
 | `events.rs` | stdout 逐行解析（`\n` 切分），按 `cursor:<agentId>` 路由 `AcpEventFrame` |
 | `translate.rs` | SDK 事件 → `amux::AcpEvent`（对齐 `opencode_http/translate.rs` 词汇表） |
 | `mod.rs` | `CursorSdkBackend` + route 表 + pending permission 表 |
@@ -106,7 +110,8 @@ node /path/to/cursor-bridge/main.mjs --mode rpc
 Sidecar 职责：
 
 - 持有 `Agent` 实例；进程退出时 `Symbol.asyncDispose`
-- `create_agent` / `resume_agent` 时**显式**传 `local: { cwd, settingSources: [] }`
+- `create_agent` / `resume_agent` 时**显式**传 `local: { cwd, settingSources: ["project"] }`
+  （`[]` 会把 hooks 一起关掉，权限网关就失效了）
 - 每次 `send` 后 `await run.wait()`，区分 `CursorAgentError`（startup）与
   `result.status === "error"`（run failed）
 - 日志 `agentId` + `runId` 到 stderr（Rust 可采集）
@@ -153,7 +158,7 @@ const SESSION_ID_PREFIX: &str = "cursor:";
 | tool result | `ToolResult { tool_call_id, summary, is_error }` |
 | run finished | `StatusChange { status: Idle }` + 可选 `AgentReply` meta |
 | run error | `AcpError` + `StatusChange { status: Error }` |
-| permission / confirm（hooks） | `PermissionRequest` |
+| `preToolUse` hook 调用（不是 stream 事件） | `PermissionRequest` |
 
 `tool_kind` 映射（与 pi/opencode 对齐）：`read`→read, `edit`/`write`→edit,
 `bash`/`terminal`→execute, 其余→other。
@@ -163,15 +168,40 @@ const SESSION_ID_PREFIX: &str = "cursor:";
 TeamClaw 已在 worktree 物化 MCP 配置（`opencode.json` / daemon workspace API）。
 Cursor 后端**不读 opencode.json 的 provider 段**，只复用 MCP 清单：
 
-1. attach 时 daemon 把 workspace 已启用 MCP 转为 SDK `mcpServers` 数组
-   （stdio: command/args/env；HTTP: url/headers）
+1. attach 时 daemon 把 workspace 已启用 MCP 转为 SDK `mcpServers` **record**
+   （stdio: `{type,command:string,args,env}`；HTTP: `{type:"http",url,headers}`）
 2. `amuxd-remote-tools` 保留为 stdio server（与 pi extension 桥同等优先级）
 3. **inline MCP 在每次 `resume_agent` / `send` 时重传**（SDK 限制）
 4. `.cursor/skills` / TeamClaw skills：第一版不自动映射；后续评估 SDK
    `settingSources` 或 system prompt 注入
 
-`is_gateway` 会话：permission hooks 在 sidecar 内直接 auto-grant（对齐
-opencode gateway 行为）。
+`is_gateway` 会话：daemon 在 hook 回调里直接 allow（对齐 opencode gateway
+行为），不弹审批。
+
+## 6.5 实测修正（对 `@cursor/sdk@1.0.24` 的核对）
+
+设计稿写作时的三处假设与 SDK 实际行为不符，实现按后者：
+
+1. **SDK 没有带外审批 API。** `SDKRequestMessage`（`messages.d.ts:70`）只带一个
+   `request_id`，没有工具信息也没有 respond 方法，且是 cloud reviewer 信号，
+   本地 run 不触发。本地唯一的审批机制是 Cursor hooks：SDK spawn hook 命令、
+   喂 stdin、读 stdout 的 `{"permission":"allow"|"deny"}`，`deny` 会把该调用变成
+   `permission_denied` 拒绝。用 `preToolUse` 这一个通用步骤覆盖所有工具
+   （payload 带 `tool_name` / `tool_input` / `cwd`），每条 hook 的 `timeout`
+   （秒）可配，所以 hook 进程可以阻塞着等人。
+2. **`settingSources: []` 会连 hooks 一起关掉**，因此改为 `["project"]`；
+   顺带 worktree 自己的 rules / AGENTS.md 也开始生效（与 opencode/pi 一致）。
+3. **`mcpServers` 是 `Record<string, McpServerConfig>` 而非数组**
+   （`options.d.ts:235`）；stdio 项的 `command` 是**字符串**+`args` 数组，
+   与 `opencode.json` 的 `command: string[]` 形状不同，需转换。
+
+hooks 文件只能放在 worktree 内：`local.cwd` 传数组时 SDK 只取第一个根
+（`Array.isArray(cwd) ? cwd[0] : cwd`）来解析 setting sources，旁路目录不会被扫描。
+写入时与用户已有 `.cursor/hooks.json` 合并（只替换带 `cursor-permission-hook`
+标记的条目），并登记进 `.git/info/exclude`。
+
+审批链路 fail-open：路由不到会话、事件通道关闭、超时都返回 allow —— 一个
+fail-closed 的 `preToolUse` 网关会在任何上游抖动时废掉会话里的每一次工具调用。
 
 ## 7. 配置落点
 

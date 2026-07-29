@@ -345,6 +345,7 @@ enum AgentType {
   AGENT_TYPE_OPENCODE = 2;
   AGENT_TYPE_CODEX = 3;
   AGENT_TYPE_PI = 4;
+  AGENT_TYPE_CURSOR = 5;
 }
 
 message WorkspaceInfo {
