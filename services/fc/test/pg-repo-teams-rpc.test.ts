@@ -203,14 +203,143 @@ test("removeTeamActor: deletes actor + members + team_members rows", async () =>
   assert.equal(tmAfter.length, 0, "team_members rows must be deleted");
 });
 
-test("removeTeamActor: no-throw when actor does not exist (idempotent)", async () => {
+test("removeTeamActor: throws not_found when actor does not exist", async () => {
   const { db } = await makeTestDb();
   const userId = `user-${Math.random()}`;
   const repo = createPgBusinessRepository({ db, userId });
   const team = await repo.createTeam({ name: "Ghost Team" });
 
-  // Should not throw
-  await repo.removeTeamActor(team.id, "00000000-0000-0000-0000-000000000099");
+  await assert.rejects(
+    () => repo.removeTeamActor(team.id, "00000000-0000-0000-0000-000000000099"),
+    (e: any) => e?.message?.includes("actor not found"),
+  );
+});
+
+test("removeTeamActor: personal agent owner can delete; other member cannot", async () => {
+  const { db } = await makeTestDb();
+  const ownerUserId = `user-${Math.random()}`;
+  const memberUserId = `user-${Math.random()}`;
+  const ownerRepo = createPgBusinessRepository({ db, userId: ownerUserId });
+  const memberRepo = createPgBusinessRepository({ db, userId: memberUserId });
+  const team = await ownerRepo.createTeam({ name: "Personal Agent Delete Team" });
+
+  const [memberActor] = await db.insert(actors).values({
+    teamId: team.id,
+    actorType: "member",
+    displayName: "Agent Owner Member",
+    userId: memberUserId,
+  }).returning();
+  await db.insert(members).values({ id: memberActor.id, status: "active" });
+  await db.insert(teamMembers).values({ teamId: team.id, memberId: memberActor.id, role: "member" });
+
+  const [personalAgent] = await db.insert(actors).values({
+    teamId: team.id,
+    actorType: "agent",
+    displayName: "Personal Agent",
+  }).returning();
+  await db.insert(agents).values({
+    id: personalAgent.id,
+    agentKind: "daemon",
+    status: "active",
+    visibility: "personal",
+    ownerMemberId: memberActor.id,
+  });
+
+  await assert.rejects(
+    () => ownerRepo.removeTeamActor(team.id, personalAgent.id),
+    (e: any) => /requires agent owner for personal agents/i.test(String(e?.message ?? e)),
+  );
+
+  await memberRepo.removeTeamActor(team.id, personalAgent.id);
+
+  const after = await db.select().from(actors).where(eq(actors.id, personalAgent.id));
+  assert.equal(after.length, 0, "personal agent must be deleted by owner member");
+});
+
+test("removeTeamActor: team agent requires admin; member cannot delete", async () => {
+  const { db } = await makeTestDb();
+  const ownerUserId = `user-${Math.random()}`;
+  const memberUserId = `user-${Math.random()}`;
+  const ownerRepo = createPgBusinessRepository({ db, userId: ownerUserId });
+  const memberRepo = createPgBusinessRepository({ db, userId: memberUserId });
+  const team = await ownerRepo.createTeam({ name: "Team Agent Delete Team" });
+
+  const [memberActor] = await db.insert(actors).values({
+    teamId: team.id,
+    actorType: "member",
+    displayName: "Regular Member",
+    userId: memberUserId,
+  }).returning();
+  await db.insert(members).values({ id: memberActor.id, status: "active" });
+  await db.insert(teamMembers).values({ teamId: team.id, memberId: memberActor.id, role: "member" });
+
+  const [teamAgent] = await db.insert(actors).values({
+    teamId: team.id,
+    actorType: "agent",
+    displayName: "Shared Team Agent",
+  }).returning();
+  await db.insert(agents).values({
+    id: teamAgent.id,
+    agentKind: "daemon",
+    status: "active",
+    visibility: "team",
+    ownerMemberId: memberActor.id,
+  });
+
+  await assert.rejects(
+    () => memberRepo.removeTeamActor(team.id, teamAgent.id),
+    (e: any) => /requires owner or admin for team agents/i.test(String(e?.message ?? e)),
+  );
+
+  await ownerRepo.removeTeamActor(team.id, teamAgent.id);
+
+  const after = await db.select().from(actors).where(eq(actors.id, teamAgent.id));
+  assert.equal(after.length, 0, "team agent must be deleted by team owner");
+});
+
+test("removeTeamActor: team admin (not owner) can delete team agent", async () => {
+  const { db } = await makeTestDb();
+  const ownerUserId = `user-${Math.random()}`;
+  const adminUserId = `user-${Math.random()}`;
+  const ownerRepo = createPgBusinessRepository({ db, userId: ownerUserId });
+  const adminRepo = createPgBusinessRepository({ db, userId: adminUserId });
+  const team = await ownerRepo.createTeam({ name: "Team Agent Admin Delete Team" });
+
+  const [adminActor] = await db.insert(actors).values({
+    teamId: team.id,
+    actorType: "member",
+    displayName: "Team Admin",
+    userId: adminUserId,
+  }).returning();
+  await db.insert(members).values({ id: adminActor.id, status: "active" });
+  await db.insert(teamMembers).values({ teamId: team.id, memberId: adminActor.id, role: "admin" });
+
+  const [memberActor] = await db.insert(actors).values({
+    teamId: team.id,
+    actorType: "member",
+    displayName: "Agent Owner Member",
+    userId: `user-${Math.random()}`,
+  }).returning();
+  await db.insert(members).values({ id: memberActor.id, status: "active" });
+  await db.insert(teamMembers).values({ teamId: team.id, memberId: memberActor.id, role: "member" });
+
+  const [teamAgent] = await db.insert(actors).values({
+    teamId: team.id,
+    actorType: "agent",
+    displayName: "Team Scoped Agent",
+  }).returning();
+  await db.insert(agents).values({
+    id: teamAgent.id,
+    agentKind: "daemon",
+    status: "active",
+    visibility: "team",
+    ownerMemberId: memberActor.id,
+  });
+
+  await adminRepo.removeTeamActor(team.id, teamAgent.id);
+
+  const after = await db.select().from(actors).where(eq(actors.id, teamAgent.id));
+  assert.equal(after.length, 0, "team admin must be able to delete team agent");
 });
 
 test("removeTeamActor: deleting a member also removes agents they own", async () => {

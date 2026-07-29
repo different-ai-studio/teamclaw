@@ -12,7 +12,7 @@
  * querying actors/members directly.
  */
 
-import { and, eq } from "drizzle-orm";
+import { and, eq, sql } from "drizzle-orm";
 import { actors, agents, agentMemberAccess, teamMembers } from "../../db/schema/index.js";
 import { ApiError } from "../http-utils.js";
 
@@ -124,6 +124,130 @@ export async function checkAgentOwnership(
     .limit(1);
   return !!ag && ag.ownerMemberId === actorId;
 }
+
+/**
+ * Returns the caller's team role (owner/admin/member), or null if not a member.
+ */
+export async function resolveTeamRole(
+  db: DbLike,
+  userId: string,
+  teamId: string,
+): Promise<string | null> {
+  const actorId = await resolveActorForTeam(db, userId, teamId);
+  if (!actorId) return null;
+  const [row] = await db
+    .select({ role: teamMembers.role })
+    .from(teamMembers)
+    .where(and(eq(teamMembers.teamId, teamId), eq(teamMembers.memberId, actorId)))
+    .limit(1);
+  return row?.role ?? null;
+}
+
+export interface RemovableActorTarget {
+  id: string;
+  actor_type?: string | null;
+  visibility?: string | null;
+  ownerMemberId?: string | null;
+}
+
+/**
+ * Application-layer mirror of amux.remove_team_actor authz.
+ * Throws ApiError on denial; returns caller actor id on success.
+ */
+export async function assertCanRemoveTeamActor(
+  db: DbLike,
+  userId: string,
+  teamId: string,
+  target: RemovableActorTarget,
+): Promise<string> {
+  const callerActorId = await requireActorForTeam(db, userId, teamId);
+
+  if (callerActorId === target.id) {
+    throw new ApiError(403, "forbidden", "cannot remove your own actor");
+  }
+
+  const [actorRow] = await db
+    .select({ actorType: actors.actorType, teamId: actors.teamId })
+    .from(actors)
+    .where(eq(actors.id, target.id))
+    .limit(1);
+
+  if (!actorRow || actorRow.teamId !== teamId) {
+    throw new ApiError(404, "not_found", "actor not found");
+  }
+
+  if (actorRow.actorType === "agent") {
+    const [ag] = await db
+      .select({ visibility: agents.visibility, ownerMemberId: agents.ownerMemberId })
+      .from(agents)
+      .where(eq(agents.id, target.id))
+      .limit(1);
+
+    if (ag?.visibility === "personal") {
+      if (callerActorId !== ag.ownerMemberId) {
+        throw new ApiError(
+          403,
+          "forbidden",
+          "remove_team_actor requires agent owner for personal agents",
+        );
+      }
+      return callerActorId;
+    }
+
+    const role = await resolveTeamRole(db, userId, teamId);
+    if (role !== "owner" && role !== "admin") {
+      throw new ApiError(
+        403,
+        "forbidden",
+        ag?.visibility === "team"
+          ? "remove_team_actor requires owner or admin for team agents"
+          : "remove_team_actor requires owner or admin",
+      );
+    }
+    return callerActorId;
+  }
+
+  const role = await resolveTeamRole(db, userId, teamId);
+  if (role !== "owner" && role !== "admin") {
+    throw new ApiError(403, "forbidden", "remove_team_actor requires owner or admin");
+  }
+
+  if (actorRow.actorType === "member") {
+    const [targetMembership] = await db
+      .select({ role: teamMembers.role })
+      .from(teamMembers)
+      .where(and(eq(teamMembers.teamId, teamId), eq(teamMembers.memberId, target.id)))
+      .limit(1);
+
+    if (targetMembership?.role === "owner") {
+      const [countRow] = await db
+        .select({ count: sql<number>`count(*)::int` })
+        .from(teamMembers)
+        .where(and(eq(teamMembers.teamId, teamId), eq(teamMembers.role, "owner")));
+      if ((countRow?.count ?? 0) <= 1) {
+        throw new ApiError(403, "forbidden", "cannot remove the last owner");
+      }
+    }
+  }
+
+  return callerActorId;
+}
+
+function mapActorDeleteFkError(raw: string): ApiError {
+  const msg = raw.toLowerCase();
+  if (msg.includes("idea_activities")) {
+    return new ApiError(409, "conflict", "agent_delete_blocked_by_idea_activities");
+  }
+  if (msg.includes("apps") && msg.includes("actor")) {
+    return new ApiError(409, "conflict", "agent_delete_blocked_by_apps");
+  }
+  if (msg.includes("amuxc_file")) {
+    return new ApiError(409, "conflict", "agent_delete_blocked_by_files");
+  }
+  return new ApiError(409, "conflict", "actor_delete_blocked_by_references");
+}
+
+export { mapActorDeleteFkError };
 
 /**
  * Returns the permission_level for (actorId, agentId) from agentMemberAccess,

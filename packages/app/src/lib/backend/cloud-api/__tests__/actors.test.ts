@@ -41,6 +41,18 @@ function mockClient(responses: Record<string, unknown>): MockClient {
 const cloudActor = { id: "actor-1", teamId: "team-1", kind: "member", displayName: "Alice", avatarUrl: null };
 
 describe("actors module", () => {
+  it("listActorDirectory maps agentOwnerMemberId", async () => {
+    const client = mockClient({
+      "GET /v1/teams/team-1/actors?limit=500": {
+        items: [{ ...cloudActor, kind: "agent", visibility: "personal", agentOwnerMemberId: "owner-1" }],
+        nextCursor: null,
+      },
+    });
+    const mod = createActorsModule(client);
+    const out = await mod.listActorDirectory("team-1");
+    expect(out[0].agent_owner_member_id).toBe("owner-1");
+  });
+
   it("listActorDirectory calls /v1/teams/:teamId/actors and maps fields", async () => {
     const client = mockClient({ "GET /v1/teams/team-1/actors?limit=500": { items: [cloudActor], nextCursor: null } });
     const mod = createActorsModule(client);

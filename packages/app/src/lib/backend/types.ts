@@ -575,6 +575,8 @@ export interface ActorDirectoryEntry {
   default_agent_type?: string | null;
   default_workspace_id?: string | null;
   visibility?: string | null;
+  /** Agent owner member actor id — null for members/external. */
+  agent_owner_member_id?: string | null;
   // Member contact — null for agents/external and anonymous members.
   email?: string | null;
   phone?: string | null;
