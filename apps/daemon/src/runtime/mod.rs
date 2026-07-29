@@ -1,4 +1,5 @@
 pub mod acp_event_frame;
+pub mod claude_agent;
 pub mod cursor_sdk;
 pub mod backend;
 pub mod opencode_http;
@@ -14,6 +15,7 @@ mod instruction_delivery;
 pub mod managed_llm;
 mod manager;
 pub mod permission_policy;
+pub mod sidecar;
 pub mod refresh;
 pub mod supervisor;
 pub mod turn_aggregator;

@@ -221,6 +221,13 @@ fn main() -> anyhow::Result<()> {
             let _ = (&args.session_id, &args.team_id, &args.member_actor_id);
             cli::remote_tools_mcp::run(&sock)?;
         }
+        Commands::CursorPermissionHook(args) => {
+            let sock = args
+                .sock
+                .clone()
+                .unwrap_or_else(config::DaemonConfig::sock_path);
+            cli::cursor_permission_hook::run(&sock, &args.worktree)?;
+        }
         Commands::TestClient { config, action } => {
             tracing_subscriber::fmt()
                 .with_env_filter(

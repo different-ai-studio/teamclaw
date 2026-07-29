@@ -1,0 +1,247 @@
+//! Workspace MCP manifest → `@cursor/sdk` `AgentOptions.mcpServers`.
+//!
+//! Two sources, merged (remote-tools wins on a name clash):
+//!
+//! 1. `mcp_config_path` — the host-level `remote-tools-host.json` written by
+//!    `remote_tools::mcp_config`, shape `{"mcpServers": {name: {command, args}}}`.
+//! 2. `<worktree>/opencode.json` `mcp` map — the MCP SSOT (team + inherent +
+//!    user servers all merge into it), same source pi bridges through its
+//!    extension.
+//!
+//! The SDK wants `Record<string, McpServerConfig>` (`options.d.ts:235`) where a
+//! stdio entry is `{type:"stdio", command: string, args: string[], env}` — note
+//! `command` is a *string*, unlike opencode.json's `command: string[]`.
+//! Non-stdio servers map to `{type:"http", url, headers}`.
+
+use std::collections::BTreeMap;
+use std::path::Path;
+
+use serde_json::{json, Map, Value};
+
+/// Servers keyed by name, ready to hand to `create_agent` / `resume_agent`.
+pub type McpServers = Map<String, Value>;
+
+/// Split an opencode `command: ["cmd", "arg", ...]` array into the SDK's
+/// `(command, args)` pair. Returns None for an empty / non-string array.
+fn split_command(command: &[Value]) -> Option<(String, Vec<Value>)> {
+    let head = command.first()?.as_str()?.to_string();
+    if head.is_empty() {
+        return None;
+    }
+    if !command.iter().all(|a| a.is_string()) {
+        return None;
+    }
+    Some((head, command[1..].to_vec()))
+}
+
+/// One `opencode.json` `mcp` entry → an SDK server config.
+fn server_from_opencode_entry(entry: &Map<String, Value>) -> Option<Value> {
+    if entry.get("enabled").and_then(|v| v.as_bool()) == Some(false) {
+        return None;
+    }
+    if entry.get("type").and_then(|v| v.as_str()) == Some("remote") {
+        let url = entry.get("url").and_then(|v| v.as_str())?;
+        if url.is_empty() {
+            return None;
+        }
+        let mut out = json!({ "type": "http", "url": url });
+        if let Some(headers) = entry.get("headers").and_then(|v| v.as_object()) {
+            out["headers"] = Value::Object(headers.clone());
+        }
+        return Some(out);
+    }
+    let command = entry.get("command").and_then(|v| v.as_array())?;
+    let (command, args) = split_command(command)?;
+    let mut out = json!({ "type": "stdio", "command": command });
+    if !args.is_empty() {
+        out["args"] = Value::Array(args);
+    }
+    // opencode calls it `environment`; the SDK calls it `env`.
+    if let Some(env) = entry.get("environment").and_then(|v| v.as_object()) {
+        if !env.is_empty() {
+            out["env"] = Value::Object(env.clone());
+        }
+    }
+    Some(out)
+}
+
+/// `{"mcpServers": {name: {command: "x", args: [...]}}}` → SDK servers. This is
+/// the amuxd-written host config shape, where `command` is already a string.
+pub fn servers_from_mcp_config_value(root: &Value) -> McpServers {
+    let mut out = Map::new();
+    let Some(servers) = root.get("mcpServers").and_then(|v| v.as_object()) else {
+        return out;
+    };
+    for (name, server) in servers {
+        let Some(command) = server.get("command").and_then(|v| v.as_str()) else {
+            continue;
+        };
+        if command.is_empty() {
+            continue;
+        }
+        let mut entry = json!({ "type": "stdio", "command": command });
+        if let Some(args) = server.get("args").and_then(|v| v.as_array()) {
+            if !args.is_empty() {
+                entry["args"] = Value::Array(args.clone());
+            }
+        }
+        if let Some(env) = server.get("env").and_then(|v| v.as_object()) {
+            if !env.is_empty() {
+                entry["env"] = Value::Object(env.clone());
+            }
+        }
+        out.insert(name.clone(), entry);
+    }
+    out
+}
+
+/// `opencode.json` value → SDK servers.
+pub fn servers_from_opencode_value(root: &Value) -> McpServers {
+    let mut out = Map::new();
+    let Some(mcp) = root.get("mcp").and_then(|v| v.as_object()) else {
+        return out;
+    };
+    // BTreeMap first so the output order is stable across runs (the map feeds
+    // the process fingerprint / logs).
+    let ordered: BTreeMap<&String, &Value> = mcp.iter().collect();
+    for (name, server) in ordered {
+        let Some(entry) = server.as_object() else {
+            continue;
+        };
+        if let Some(cfg) = server_from_opencode_entry(entry) {
+            out.insert(name.clone(), cfg);
+        }
+    }
+    out
+}
+
+fn read_json(path: &Path) -> Option<Value> {
+    let body = std::fs::read_to_string(path).ok()?;
+    serde_json::from_str(&body).ok()
+}
+
+/// Assemble every MCP server a cursor session should see. Missing or malformed
+/// files contribute nothing rather than failing the attach.
+pub fn assemble(worktree: &str, mcp_config_path: Option<&Path>) -> McpServers {
+    let mut out = read_json(&Path::new(worktree).join("opencode.json"))
+        .map(|v| servers_from_opencode_value(&v))
+        .unwrap_or_default();
+    // remote-tools is daemon-owned; it wins over a same-named workspace entry.
+    if let Some(extra) = mcp_config_path
+        .and_then(read_json)
+        .map(|v| servers_from_mcp_config_value(&v))
+    {
+        for (name, cfg) in extra {
+            out.insert(name, cfg);
+        }
+    }
+    out
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn opencode_local_server_maps_to_stdio_command_and_args() {
+        let root = json!({
+            "mcp": {
+                "ctx7": {
+                    "type": "local",
+                    "command": ["npx", "-y", "ctx7-mcp"],
+                    "environment": { "TOKEN": "t" }
+                }
+            }
+        });
+        let servers = servers_from_opencode_value(&root);
+        assert_eq!(
+            servers.get("ctx7"),
+            Some(&json!({
+                "type": "stdio",
+                "command": "npx",
+                "args": ["-y", "ctx7-mcp"],
+                "env": { "TOKEN": "t" }
+            }))
+        );
+    }
+
+    #[test]
+    fn opencode_remote_server_maps_to_http() {
+        let root = json!({
+            "mcp": { "r": { "type": "remote", "url": "https://x/mcp",
+                            "headers": { "Authorization": "Bearer t" } } }
+        });
+        assert_eq!(
+            servers_from_opencode_value(&root).get("r"),
+            Some(&json!({
+                "type": "http",
+                "url": "https://x/mcp",
+                "headers": { "Authorization": "Bearer t" }
+            }))
+        );
+    }
+
+    #[test]
+    fn disabled_and_malformed_servers_are_dropped() {
+        let root = json!({
+            "mcp": {
+                "off": { "command": ["x"], "enabled": false },
+                "no-command": { "type": "local" },
+                "empty-command": { "command": [] },
+                "non-string-args": { "command": ["x", 3] },
+                "remote-no-url": { "type": "remote" }
+            }
+        });
+        assert!(servers_from_opencode_value(&root).is_empty());
+    }
+
+    #[test]
+    fn remote_tools_host_config_maps_to_stdio() {
+        let root = json!({
+            "mcpServers": {
+                "amuxd-remote-tools": {
+                    "command": "/usr/local/bin/amuxd",
+                    "args": ["remote-tools-mcp", "--sock=/tmp/amuxd.sock"]
+                }
+            }
+        });
+        assert_eq!(
+            servers_from_mcp_config_value(&root).get("amuxd-remote-tools"),
+            Some(&json!({
+                "type": "stdio",
+                "command": "/usr/local/bin/amuxd",
+                "args": ["remote-tools-mcp", "--sock=/tmp/amuxd.sock"]
+            }))
+        );
+        assert!(servers_from_mcp_config_value(&json!({})).is_empty());
+    }
+
+    #[test]
+    fn assemble_merges_both_sources_with_remote_tools_winning() {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::write(
+            dir.path().join("opencode.json"),
+            r#"{"mcp":{"ws":{"command":["ws-bin"]},
+                      "amuxd-remote-tools":{"command":["stale"]}}}"#,
+        )
+        .unwrap();
+        let host = dir.path().join("remote-tools-host.json");
+        std::fs::write(
+            &host,
+            r#"{"mcpServers":{"amuxd-remote-tools":{"command":"amuxd","args":["remote-tools-mcp"]}}}"#,
+        )
+        .unwrap();
+
+        let servers = assemble(&dir.path().to_string_lossy(), Some(&host));
+        assert_eq!(servers.len(), 2);
+        assert_eq!(servers["ws"]["command"], json!("ws-bin"));
+        assert_eq!(servers["amuxd-remote-tools"]["command"], json!("amuxd"));
+    }
+
+    #[test]
+    fn assemble_tolerates_missing_files() {
+        let dir = tempfile::tempdir().unwrap();
+        assert!(assemble(&dir.path().to_string_lossy(), None).is_empty());
+        assert!(assemble("/nonexistent/worktree", Some(Path::new("/nope.json"))).is_empty());
+    }
+}
