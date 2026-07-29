@@ -232,7 +232,6 @@ import {
   readPendingSessionDeeplink,
   stashPendingSessionDeeplink,
 } from "@/lib/open-session-deeplink";
-import { CloudApiError } from "@/lib/backend/cloud-api/http";
 import { useCurrentTeamStore } from "@/stores/current-team";
 import { useTeamShareStore, isShareModeLocked } from "@/stores/team-share";
 import { resolveCurrentMemberActorId } from "@/lib/current-actor";
