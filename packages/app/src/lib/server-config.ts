@@ -11,6 +11,16 @@ export interface ServerConfig {
   mqttUseTls?: boolean;
   mqttUsername?: string;
   mqttPassword?: string;
+  /**
+   * Where the broker address above came from, so the UI can distinguish "the
+   * cloud just told us this" from "we are running on a remembered address the
+   * cloud has stopped handing out". `undefined` on configs written before this
+   * field existed, and on build-config/env defaults.
+   *
+   * - `bootstrap` — the last `/v1/config/bootstrap` returned an `mqtt` block
+   * - `cache` — bootstrap answered without one; this is a last-known address
+   */
+  mqttSource?: "bootstrap" | "cache";
   // Web SSO 快捷登录 target, delivered by /v1/config/bootstrap (like MQTT) so
   // the admin console sign-in URL + supabase-js storage key are not hardcoded.
   webSsoLoginUrl?: string;

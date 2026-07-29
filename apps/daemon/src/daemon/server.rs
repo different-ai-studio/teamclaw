@@ -394,10 +394,38 @@ pub fn backend_from_provider_config(
     }
 }
 
+/// Persist a bootstrap-resolved broker to `daemon.toml` so it survives a
+/// restart. Without this the address lives only in memory, and a Cloud API that
+/// answers 200 *without* an `mqtt` block after the restart leaves the daemon
+/// with no broker at all — the 2026-07-28 outage (issue #634).
+///
+/// Best-effort: a read-only or malformed `daemon.toml` must not take MQTT down,
+/// since the in-memory value already works for this process.
+fn persist_broker_url(config_path: &std::path::Path, broker_url: &str) {
+    match crate::config::edit::set_config_toml_value(
+        config_path,
+        "mqtt.broker_url",
+        toml::Value::String(broker_url.to_string()),
+    ) {
+        Ok(()) => info!(
+            broker = %broker_url,
+            path = %config_path.display(),
+            "persisted bootstrap broker to daemon.toml as last-known"
+        ),
+        Err(e) => warn!(
+            error = %e,
+            path = %config_path.display(),
+            "could not persist bootstrap broker; it stays in-memory only and \
+             will be lost on restart"
+        ),
+    }
+}
+
 /// Resolve the MQTT broker from `/v1/config/bootstrap`. The Cloud API is the
 /// authoritative source: a fetched value wins (so operators can rotate the
-/// broker without redeploying daemons), and falls back only to an explicit
-/// invite `?broker=` override already present in `config`.
+/// broker without redeploying daemons), and falls back to whatever
+/// `daemon.toml` already holds — an invite `?broker=` override, or the
+/// last-known address persisted by an earlier successful bootstrap.
 ///
 /// Never fails: if neither yields a broker URL the daemon warns and continues
 /// with an empty `broker_url`, which puts MQTT on a placeholder client while
@@ -406,11 +434,11 @@ pub fn backend_from_provider_config(
 async fn apply_bootstrap_overrides(
     backend: &Arc<dyn Backend>,
     config: &mut DaemonConfig,
+    config_path: &std::path::Path,
 ) -> crate::error::Result<()> {
     match backend.fetch_bootstrap_mqtt().await {
-        Ok(Some(mqtt)) => {
-            let previous = config.mqtt.broker_url.clone();
-            config.mqtt.broker_url = mqtt.url;
+        Ok(Some(mqtt)) if !mqtt.url.trim().is_empty() => {
+            let previous = std::mem::replace(&mut config.mqtt.broker_url, mqtt.url);
             if mqtt.username.is_some() {
                 config.mqtt.username = mqtt.username;
             }
@@ -422,13 +450,32 @@ async fn apply_bootstrap_overrides(
                 broker = %config.mqtt.broker_url,
                 "applied bootstrap mqtt override from cloud api"
             );
+            // Only rewrite when the address actually moved — a steady-state
+            // daemon re-fetching bootstrap should not touch the file.
+            if previous != config.mqtt.broker_url {
+                persist_broker_url(config_path, &config.mqtt.broker_url);
+            }
         }
-        Ok(None) => {
-            // Keep the invite `?broker=` override if one was supplied at init.
+        // A 200 with no `mqtt` block (or an empty url) is the failure mode that
+        // reads as success. Keep whatever daemon.toml holds and say so loudly —
+        // silently continuing here is what made the outage invisible.
+        Ok(_) => {
+            if config.mqtt.broker_url.trim().is_empty() {
+                warn!(
+                    "cloud api bootstrap returned no MQTT broker and no last-known \
+                     address is on disk; MQTT stays down until the cloud config is fixed"
+                );
+            } else {
+                warn!(
+                    broker = %config.mqtt.broker_url,
+                    "cloud api bootstrap returned no MQTT broker; continuing with the \
+                     last-known address from daemon.toml (cloud config may be misconfigured)"
+                );
+            }
         }
         Err(e) => {
-            // Keep the invite override (if any); the empty-check below decides.
-            tracing::warn!(error = %e, "bootstrap mqtt fetch failed; relying on invite broker override if present");
+            // Keep the on-disk address (if any); the empty-check below decides.
+            tracing::warn!(error = %e, "bootstrap mqtt fetch failed; relying on last-known broker in daemon.toml if present");
         }
     }
 
@@ -575,9 +622,11 @@ impl DaemonServer {
         let token = initial_access_token(&backend).await;
 
         // Authoritative: resolve the MQTT broker from /v1/config/bootstrap.
-        // When bootstrap is unreachable, keep any invite `?broker=` override in
-        // daemon.toml and continue in degraded mode (HTTP/local APIs stay up).
-        apply_bootstrap_overrides(&backend, &mut config).await?;
+        // When bootstrap is unreachable or answers without an `mqtt` block, keep
+        // the last-known address already in daemon.toml (invite `?broker=` or a
+        // previously persisted bootstrap value) and continue in degraded mode
+        // (HTTP/local APIs stay up).
+        apply_bootstrap_overrides(&backend, &mut config, config_path).await?;
 
         let mqtt = if config.mqtt.broker_url.trim().is_empty() {
             warn!("deferring MQTT client until broker URL is configured");
@@ -1344,7 +1393,10 @@ impl DaemonServer {
             // Re-fetch the bootstrap broker here — but only when it is actually
             // missing, so we don't hammer FC every cycle once a broker is known.
             if self.config.mqtt.broker_url.trim().is_empty() {
-                if let Err(e) = apply_bootstrap_overrides(&self.backend, &mut self.config).await {
+                let config_path = self.config_path.clone();
+                if let Err(e) =
+                    apply_bootstrap_overrides(&self.backend, &mut self.config, &config_path).await
+                {
                     warn!(error = %e, "bootstrap mqtt re-fetch failed; will retry next cycle");
                 }
                 if self.config.mqtt.broker_url.trim().is_empty() {
@@ -3047,6 +3099,94 @@ pub(crate) mod tests {
                 actor_id: "agent-actor".to_string(),
             },
         ))
+    }
+
+    /// Write `config` to a temp `daemon.toml` and hand back both. The bootstrap
+    /// tests below assert on the *file*, not just the in-memory struct — the
+    /// whole point of the last-known behaviour is surviving a restart.
+    fn config_on_disk(broker_url: &str) -> (TempDir, DaemonConfig, std::path::PathBuf) {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("daemon.toml");
+        let mut config = test_config();
+        config.mqtt.broker_url = broker_url.to_string();
+        config.save(&path).unwrap();
+        (dir, config, path)
+    }
+
+    fn mock_backend_with_bootstrap(url: Option<&str>) -> Arc<dyn Backend> {
+        let mock = crate::backend::mock::MockBackend::new();
+        mock.state().bootstrap_mqtt = url.map(|url| crate::backend::BootstrapMqttOverride {
+            url: url.to_string(),
+            username: None,
+            password: None,
+        });
+        Arc::new(mock)
+    }
+
+    #[tokio::test]
+    async fn bootstrap_broker_is_persisted_to_daemon_toml() {
+        let (_dir, mut config, path) = config_on_disk("mqtt://stale.example:1883");
+        let backend = mock_backend_with_bootstrap(Some("mqtt://fresh.example:1883"));
+
+        apply_bootstrap_overrides(&backend, &mut config, &path)
+            .await
+            .unwrap();
+
+        assert_eq!(config.mqtt.broker_url, "mqtt://fresh.example:1883");
+        let reloaded = DaemonConfig::load(&path).unwrap();
+        assert_eq!(
+            reloaded.mqtt.broker_url, "mqtt://fresh.example:1883",
+            "a restart must come back up on the address bootstrap just handed us"
+        );
+    }
+
+    #[tokio::test]
+    async fn bootstrap_without_mqtt_keeps_last_known_broker() {
+        // The 2026-07-28 shape: cloud answers 200 with no `mqtt` block.
+        let (_dir, mut config, path) = config_on_disk("mqtt://last-known.example:1883");
+        let backend = mock_backend_with_bootstrap(None);
+
+        apply_bootstrap_overrides(&backend, &mut config, &path)
+            .await
+            .unwrap();
+
+        assert_eq!(
+            config.mqtt.broker_url, "mqtt://last-known.example:1883",
+            "an empty cloud config must not wipe a working broker"
+        );
+        let reloaded = DaemonConfig::load(&path).unwrap();
+        assert_eq!(reloaded.mqtt.broker_url, "mqtt://last-known.example:1883");
+    }
+
+    #[tokio::test]
+    async fn bootstrap_without_mqtt_and_no_last_known_leaves_broker_empty() {
+        let (_dir, mut config, path) = config_on_disk("");
+        let backend = mock_backend_with_bootstrap(None);
+
+        apply_bootstrap_overrides(&backend, &mut config, &path)
+            .await
+            .unwrap();
+
+        // Degraded but alive: HTTP/local control plane still starts, and the run
+        // loop keeps re-fetching until the cloud config is fixed.
+        assert!(config.mqtt.broker_url.is_empty());
+    }
+
+    #[tokio::test]
+    async fn bootstrap_with_unchanged_broker_leaves_the_file_alone() {
+        let (_dir, mut config, path) = config_on_disk("mqtt://same.example:1883");
+        let before = std::fs::read_to_string(&path).unwrap();
+        let backend = mock_backend_with_bootstrap(Some("mqtt://same.example:1883"));
+
+        apply_bootstrap_overrides(&backend, &mut config, &path)
+            .await
+            .unwrap();
+
+        assert_eq!(
+            std::fs::read_to_string(&path).unwrap(),
+            before,
+            "steady-state re-fetches must not rewrite daemon.toml"
+        );
     }
 
     #[test]

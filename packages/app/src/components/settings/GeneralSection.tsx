@@ -35,6 +35,8 @@ import { appStoragePrefix, buildConfig } from '@/lib/build-config'
 import { NOTIFICATION_LEVEL_KEY } from '@/lib/notification-service'
 import { LANGUAGE_OPTIONS, getPreferredLanguage, normalizeSupportedLanguage, persistLanguage } from '@/lib/locale'
 import { getEffectiveServerConfig, type ServerConfig } from '@/lib/server-config'
+import { fetchAndApplyBootstrap } from '@/lib/bootstrap'
+import { useAuthStore } from '@/stores/auth-store'
 
 // Theme helpers
 const THEME_STORAGE_KEY = `${appStoragePrefix}-theme`
@@ -424,6 +426,8 @@ function ServerAddressCard() {
 
   const mqttConnected = useMqttConnected()
   const mqttLastError = useMqttReconnectStore((s) => s.lastError)
+  const accessToken = useAuthStore((s) => s.session?.access_token ?? null)
+  const [refetching, setRefetching] = React.useState(false)
 
   const mqttBroker = React.useMemo(() => {
     if (effective.mqttUrl) return effective.mqttUrl
@@ -432,6 +436,29 @@ function ServerAddressCard() {
     const port = effective.mqttPort ?? (effective.mqttUseTls ? 8883 : 1883)
     return `${scheme}://${effective.mqttHost}:${port}`
   }, [effective.mqttUrl, effective.mqttHost, effective.mqttPort, effective.mqttUseTls])
+
+  // Ask the Cloud API for the broker again. Exposed because the two states this
+  // section can land in — running on a cached address, or having none at all —
+  // are both fixed on the server side, and the user needs a way to pick up the
+  // fix without signing out and back in.
+  const refetchBootstrap = React.useCallback(async () => {
+    setRefetching(true)
+    try {
+      const outcome = await fetchAndApplyBootstrap({ accessToken })
+      await reload()
+      if (outcome === 'applied') {
+        toast.success(t('settings.general.mqttRefetchApplied', 'Broker updated from server'))
+      } else if (outcome === 'cloud-empty') {
+        toast.error(
+          t('settings.general.mqttRefetchEmpty', 'Server still returns no MQTT configuration'),
+        )
+      } else {
+        toast.error(t('settings.general.mqttRefetchFailed', 'Could not reach the server'))
+      }
+    } finally {
+      setRefetching(false)
+    }
+  }, [accessToken, reload, t])
 
   return (
     <SettingCard>
@@ -460,7 +487,20 @@ function ServerAddressCard() {
         {mqttBroker ? (
           <dl className="grid grid-cols-[120px_1fr] gap-y-1.5 text-[12px]">
             <dt className="text-muted-foreground">{t('settings.general.mqttBroker', 'MQTT broker')}</dt>
-            <dd className="font-mono text-foreground break-all">{mqttBroker}</dd>
+            <dd className="font-mono text-foreground break-all">
+              {mqttBroker}
+              {effective.mqttSource === 'cache' ? (
+                <span
+                  className="ml-2 rounded px-1.5 py-0.5 font-sans text-[10.5px] text-amber-700 bg-amber-500/15 dark:text-amber-400"
+                  title={t(
+                    'settings.general.mqttCachedHint',
+                    'The server is not delivering an MQTT address; this is the last one that worked.',
+                  )}
+                >
+                  {t('settings.general.mqttCached', 'Cached · not synced')}
+                </span>
+              ) : null}
+            </dd>
             <dt className="text-muted-foreground">{t('settings.general.mqttStatus', 'Status')}</dt>
             <dd className="flex items-center gap-2">
               <span
@@ -505,7 +545,53 @@ function ServerAddressCard() {
                 </dd>
               </>
             ) : null}
+            {effective.mqttSource === 'cache' ? (
+              <>
+                <dt className="text-muted-foreground">
+                  {t('settings.general.mqttSource', 'Source')}
+                </dt>
+                <dd className="flex items-center gap-2 text-amber-700 dark:text-amber-400">
+                  <span>
+                    {t(
+                      'settings.general.mqttSourceCache',
+                      'Last-known address — the server is not delivering one.',
+                    )}
+                  </span>
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    disabled={refetching}
+                    className="ml-auto h-6 px-2 text-[11px]"
+                    onClick={() => void refetchBootstrap()}
+                  >
+                    {t('settings.general.mqttRefetch', 'Retry')}
+                  </Button>
+                </dd>
+              </>
+            ) : null}
           </dl>
+        ) : accessToken ? (
+          // Signed in but no broker anywhere: the Cloud API is answering without
+          // an `mqtt` block and nothing is cached. This is a hard error, not the
+          // passive "not synced yet" it used to render as — MQTT is down and no
+          // amount of waiting fixes it.
+          <div className="space-y-2">
+            <p className="text-[12px] text-red-600 dark:text-red-400">
+              {t(
+                'settings.general.mqttMissingFromServer',
+                'The server did not deliver an MQTT address. Real-time sync is offline until it is configured.',
+              )}
+            </p>
+            <Button
+              size="sm"
+              variant="outline"
+              disabled={refetching}
+              className="h-6 px-2 text-[11px]"
+              onClick={() => void refetchBootstrap()}
+            >
+              {t('settings.general.mqttRefetch', 'Retry')}
+            </Button>
+          </div>
         ) : (
           <p className="text-[12px] text-muted-foreground italic">
             {t(
