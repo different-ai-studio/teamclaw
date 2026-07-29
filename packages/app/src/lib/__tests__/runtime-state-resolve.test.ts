@@ -184,6 +184,23 @@ describe("selectAgentModel — canonical model resolver", () => {
     expect(res.modelId).toBe("");
   });
 
+  it("falls back to the first advertised model when catalog is present", () => {
+    const emptyRetain = {
+      [agentUuid]: {
+        ...entry(agentUuid, "rt-1", available),
+        info: { ...entry(agentUuid, "rt-1", available).info, currentModel: "" },
+      },
+    };
+    const res = selectAgentModel({
+      sessionId,
+      agentId: agentUuid,
+      available,
+      byRuntimeId: emptyRetain,
+    });
+    expect(res.source).toBe("fallback");
+    expect(res.modelId).toBe("big-pickle");
+  });
+
   it("canonicalizes short pick to advertised prefixed id", () => {
     useAgentModelPickStore.getState().setPick(sessionId, agentUuid, "mimo-v2.5-free");
     const prefixed = [{ id: "opencode/mimo-v2.5-free", displayName: "Mimo" }];

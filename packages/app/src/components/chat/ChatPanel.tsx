@@ -95,7 +95,12 @@ import {
   textHasMemberMentionTokens,
 } from "@/lib/member-mention-token";
 import { buildStructuredMentionLines } from "@/lib/outgoing-mention-content";
-import { selectAgentModel, providerModelKeyFromOption } from "@/lib/runtime-state-resolve";
+import { resolveAgentAvailableModels } from "@/lib/agent-available-models";
+import {
+  selectAgentModel,
+  providerModelKeyFromOption,
+  resolveRuntimeStateEntryForAgent,
+} from "@/lib/runtime-state-resolve";
 import {
   sessionFlowError,
   sessionFlowLog,
@@ -1479,13 +1484,18 @@ export function ChatPanel({ compact = false }: ChatPanelProps) {
             useSessionMessageStore.getState().messages[sid],
             agentRuntimeIdsForSend[0] ?? "",
           );
+          const sendAgentId = agentRuntimeIdsForSend[0] ?? "";
+          const sendByRuntimeId = useRuntimeStateStore.getState().byRuntimeId;
+          const availableForSend = resolveAgentAvailableModels(
+            resolveRuntimeStateEntryForAgent(sendAgentId, sendByRuntimeId)?.info,
+          );
           const outgoingModel =
-            agentRuntimeIdsForSend.length > 0
+            sendAgentId
               ? selectAgentModel({
                   sessionId: sid,
-                  agentId: agentRuntimeIdsForSend[0],
-                  available: [],
-                  byRuntimeId: useRuntimeStateStore.getState().byRuntimeId,
+                  agentId: sendAgentId,
+                  available: availableForSend,
+                  byRuntimeId: sendByRuntimeId,
                   providerFallback: selectedModelKey ?? undefined,
                   sessionEstablishedModel: establishedForSend,
                 }).modelId || ""

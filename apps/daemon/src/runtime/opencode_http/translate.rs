@@ -360,9 +360,14 @@ pub fn permission_response_for(granted: bool, option_id: Option<&str>) -> &'stat
 
 /// Build the `AcpPermissionRequest` proto for a `permission.asked` event.
 /// `props` is the event's `properties` object (a `PermissionRequest`).
+///
+/// When `child_session_id` is set (opencode task subagent), stamp it into
+/// params so the desktop can bind the ask to the parent task tool while the
+/// reply still targets that child session id.
 pub fn permission_request_event(
     props: &serde_json::Value,
     requester_actor_id: Option<&str>,
+    child_session_id: Option<&str>,
 ) -> amux::AcpEvent {
     let id = props.get("id").and_then(|v| v.as_str()).unwrap_or("");
     let permission = props
@@ -387,6 +392,19 @@ pub fn permission_request_event(
         if !joined.is_empty() {
             params.entry("patterns".to_string()).or_insert(joined);
         }
+    }
+    if let Some(call_id) = props
+        .pointer("/tool/callID")
+        .and_then(|v| v.as_str())
+        .map(str::trim)
+        .filter(|s| !s.is_empty())
+    {
+        params
+            .entry("toolCallId".to_string())
+            .or_insert_with(|| call_id.to_string());
+    }
+    if let Some(child) = child_session_id.map(str::trim).filter(|s| !s.is_empty()) {
+        params.insert("childSessionId".to_string(), child.to_string());
     }
     if let Some(requester) = requester_actor_id.filter(|s| !s.is_empty()) {
         params.insert("requester_actor_id".to_string(), requester.to_string());
@@ -616,13 +634,18 @@ mod tests {
             "patterns":["ls *"],"metadata":{"command":"ls"},"always":["bash"],
             "tool":{"messageID":"msg_1","callID":"call_1"}
         });
-        let e = permission_request_event(&props, Some("actor-a"));
+        let e = permission_request_event(&props, Some("actor-a"), Some("ses_child"));
         match e.event.as_ref().unwrap() {
             amux::acp_event::Event::PermissionRequest(p) => {
                 assert_eq!(p.request_id, "per_1");
                 assert_eq!(p.tool_name, "bash");
                 assert_eq!(p.params.get("command"), Some(&"ls".to_string()));
                 assert_eq!(p.params.get("patterns"), Some(&"ls *".to_string()));
+                assert_eq!(p.params.get("toolCallId"), Some(&"call_1".to_string()));
+                assert_eq!(
+                    p.params.get("childSessionId"),
+                    Some(&"ses_child".to_string())
+                );
                 assert_eq!(
                     p.params.get("requester_actor_id"),
                     Some(&"actor-a".to_string())

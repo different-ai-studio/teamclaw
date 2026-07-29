@@ -5,8 +5,10 @@ import { resolveAmuxAgentType } from '@/lib/amux-agent-type'
 import { seedRuntimeStateAfterStart } from '@/lib/seed-runtime-state'
 import {
   normalizeAgentModelId,
+  resolveRuntimeStateEntryForAgent,
   selectAgentModel,
 } from '@/lib/runtime-state-resolve'
+import { resolveAgentAvailableModels } from '@/lib/agent-available-models'
 import { useAgentModelPickStore } from '@/stores/agent-model-pick-store'
 import { useRuntimeStateStore } from '@/stores/runtime-state-store'
 import { useWorkspaceStore } from '@/stores/workspace'
@@ -531,10 +533,13 @@ export async function startAgentRuntimesAsync(
     const agentType = args.agentType ?? resolveAmuxAgentType(backendType)
     const byRuntimeId = useRuntimeStateStore.getState().byRuntimeId
     const userPick = useAgentModelPickStore.getState().getPick(args.sessionId, agentActorId)
+    const available = resolveAgentAvailableModels(
+      resolveRuntimeStateEntryForAgent(agentActorId, byRuntimeId)?.info,
+    )
     const resolvedModelId = selectAgentModel({
       sessionId: args.sessionId,
       agentId: agentActorId,
-      available: [],
+      available,
       byRuntimeId,
       providerFallback: args.modelIdByAgent?.[agentActorId] ?? args.modelId,
     }).modelId || undefined
