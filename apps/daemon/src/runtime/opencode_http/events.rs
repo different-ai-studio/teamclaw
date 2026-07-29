@@ -387,6 +387,7 @@ async fn handle_question_asked(shared: &Arc<Shared>, session_id: &str, props: &s
         .questions
         .lock()
         .insert(request_id.to_string(), session_id.to_string());
+    shared.touch_turn_transport_activity(session_id);
     forward_question_raw(shared, session_id, "question_asked", props).await;
 }
 
