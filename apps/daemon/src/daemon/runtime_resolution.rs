@@ -10,7 +10,7 @@ use crate::proto::amux;
 fn configured_local_agent(config: &DaemonConfig) -> Option<amux::AgentType> {
     match config.agents.local_agent.as_str() {
         "pi" => Some(amux::AgentType::Pi),
-        "cursor" => Some(amux::AgentType::Opencode),
+        "cursor" => Some(amux::AgentType::Cursor),
         "opencode" => config
             .agents
             .opencode
@@ -82,11 +82,10 @@ pub(crate) fn session_message_model_override(
 pub(crate) fn agent_type_from_name(name: &str) -> Option<amux::AgentType> {
     match name.trim() {
         "opencode" => Some(amux::AgentType::Opencode),
-        "cursor" => Some(amux::AgentType::Opencode),
+        "cursor" => Some(amux::AgentType::Cursor),
         "codex" => Some(amux::AgentType::Codex),
         "claude" | "claude_code" | "claude-code" => Some(amux::AgentType::ClaudeCode),
         "pi" => Some(amux::AgentType::Pi),
-        "cursor" => Some(amux::AgentType::Cursor),
         _ => None,
     }
 }

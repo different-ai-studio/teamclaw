@@ -672,6 +672,12 @@ impl DaemonServer {
             amux::AgentType::Pi,
             AgentLaunchConfig::new("pi", Vec::new(), "pi"),
         );
+        if config.agents.local_agent == "cursor" {
+            launch_configs.insert(
+                amux::AgentType::Cursor,
+                AgentLaunchConfig::new("cursor-bridge", Vec::new(), "cursor"),
+            );
+        }
 
         let members_path = config_path
             .parent()
