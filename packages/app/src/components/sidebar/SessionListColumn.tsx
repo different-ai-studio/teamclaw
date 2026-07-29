@@ -607,7 +607,7 @@ export function SessionListColumn({
           setActionsOpenSessionId(null)
         }}
       >
-        {/* Soft Comfort capsule — chrome lives here so select / more / dock stay sibling controls. */}
+        {/* Soft Comfort capsule — whole card selects; ⋯ / dock stopPropagation. */}
         <div
           data-testid="v2-session-row"
           data-session-id={row.id}
@@ -615,6 +615,7 @@ export function SessionListColumn({
           data-batch-checked={isBatchChecked ? 'true' : 'false'}
           className={cn(
             'my-px w-full rounded-[11px] px-2.5 py-2 transition-[background-color,box-shadow] duration-150 ease-[cubic-bezier(0.22,1,0.36,1)]',
+            !isRenaming && 'cursor-pointer',
             compactHeader && 'px-2',
             isActive && !batchSelecting &&
               'relative z-0 bg-paper shadow-[0_2px_8px_rgba(28,27,25,0.05),0_1px_2px_rgba(28,27,25,0.03)] ring-1 ring-black/[0.05]',
@@ -622,6 +623,12 @@ export function SessionListColumn({
             isHighlighted && !isActive && !batchSelecting && 'bg-emerald-500/15 ring-1 ring-emerald-500/30',
             batchSelecting && isBatchChecked && 'bg-selected',
           )}
+          onClick={selectSession}
+          onDoubleClick={(e) => {
+            if (batchSelecting || isRenaming) return
+            e.stopPropagation()
+            handleStartRename(e, row.id)
+          }}
         >
           <div className="flex w-full min-w-0 items-start">
             {batchSelecting ? (
@@ -644,30 +651,29 @@ export function SessionListColumn({
               </span>
             ) : null}
             <div className="flex min-w-0 flex-1 flex-col items-start gap-1">
-              {/* Title row: select button | meta | sibling more (no nested buttons). */}
+              {/* Title row: title + meta + sibling more (more stops propagation). */}
               <div className="flex w-full min-w-0 items-center gap-1.5">
                 {row.isPinned && <Pin className="h-3 w-3 shrink-0 fill-amber-500/20 text-amber-500" />}
                 {isRenaming ? (
-                  <SessionRenameInput
-                    defaultValue={row.title}
-                    onConfirm={(v) => handleRenameConfirm(row.id, v)}
-                    onCancel={() => setRenamingSessionId(null)}
-                  />
+                  <div
+                    className="min-w-0 flex-1"
+                    onClick={(e) => e.stopPropagation()}
+                    onDoubleClick={(e) => e.stopPropagation()}
+                  >
+                    <SessionRenameInput
+                      defaultValue={row.title}
+                      onConfirm={(v) => handleRenameConfirm(row.id, v)}
+                      onCancel={() => setRenamingSessionId(null)}
+                    />
+                  </div>
                 ) : (
                   <>
-                    <button
-                      type="button"
+                    <span
                       className="min-w-0 flex-1 truncate text-left text-[13px] font-semibold text-foreground"
                       data-testid="v2-session-row-title"
-                      onClick={selectSession}
-                      onDoubleClick={(e) => {
-                        if (batchSelecting) return
-                        e.stopPropagation()
-                        handleStartRename(e, row.id)
-                      }}
                     >
                       {row.title || t('chat.newChat', 'New Chat')}
-                    </button>
+                    </span>
                     <div className="flex shrink-0 items-center">
                       {!isActive && row.hasUnread && (
                         <span
@@ -697,16 +703,16 @@ export function SessionListColumn({
                           title={t('sidebar.moreActions', 'More actions')}
                           className={cn(
                             'inline-grid h-[22px] place-items-center overflow-hidden rounded-md text-muted-foreground',
-                            'w-0 opacity-0',
+                            'pointer-events-none w-0 opacity-0',
                             'transition-[width,opacity,margin,background-color,color] duration-150 ease-[cubic-bezier(0.22,1,0.36,1)]',
-                            // Hover reveal. Avoid group-focus-within (selecting the row would pin ⋯).
-                            'group-hover/menu-item:ml-0.5 group-hover/menu-item:w-[22px] group-hover/menu-item:opacity-100',
-                            'focus-visible:ml-0.5 focus-visible:w-[22px] focus-visible:opacity-100',
+                            // Hover reveal. Avoid group-focus-within (row focus would pin ⋯).
+                            'group-hover/menu-item:pointer-events-auto group-hover/menu-item:ml-0.5 group-hover/menu-item:w-[22px] group-hover/menu-item:opacity-100',
+                            'focus-visible:pointer-events-auto focus-visible:ml-0.5 focus-visible:w-[22px] focus-visible:opacity-100',
                             // Touch / no-hover: keep a hittable ⋯ without relying on hover.
-                            '[@media(hover:none)]:ml-0.5 [@media(hover:none)]:w-[22px] [@media(hover:none)]:opacity-100',
+                            '[@media(hover:none)]:pointer-events-auto [@media(hover:none)]:ml-0.5 [@media(hover:none)]:w-[22px] [@media(hover:none)]:opacity-100',
                             'hover:bg-black/[0.08] hover:text-foreground dark:hover:bg-white/10',
                             // While dock is open, keep ⋯ visible even after focus moves into the dock.
-                            actionsOpen && 'ml-0.5 w-[22px] bg-black/[0.08] text-foreground opacity-100 dark:bg-white/10',
+                            actionsOpen && 'pointer-events-auto ml-0.5 w-[22px] bg-black/[0.08] text-foreground opacity-100 dark:bg-white/10',
                           )}
                           onClick={(e) => {
                             e.stopPropagation()
@@ -729,81 +735,73 @@ export function SessionListColumn({
                 )}
               </div>
 
-              {!isRenaming && (showWorkspaceSubline || row.lastMessagePreview || ((parts.length > 0 && !isSoloWithLocalAgent) || activity)) && (
-                <button
-                  type="button"
-                  className="flex w-full min-w-0 flex-col items-start gap-1 text-left"
-                  onClick={selectSession}
+              {!isRenaming && showWorkspaceSubline && (
+                <span
+                  className="w-full truncate font-mono text-[10.5px] leading-tight text-faint"
+                  data-testid="v2-session-row-workspace"
                 >
-                  {showWorkspaceSubline && (
-                    <span
-                      className="w-full truncate font-mono text-[10.5px] leading-tight text-faint"
-                      data-testid="v2-session-row-workspace"
-                    >
-                      {workspaceLabel}
-                    </span>
+                  {workspaceLabel}
+                </span>
+              )}
+              {!isRenaming && row.lastMessagePreview && (
+                <span
+                  className={cn(
+                    'w-full truncate text-[12px] leading-snug text-muted-foreground transition-opacity duration-150',
+                    actionsOpen && 'opacity-50',
                   )}
-                  {row.lastMessagePreview && (
-                    <span
-                      className={cn(
-                        'w-full truncate text-[12px] leading-snug text-muted-foreground transition-opacity duration-150',
-                        actionsOpen && 'opacity-50',
-                      )}
-                      data-testid="v2-session-row-preview"
-                    >
-                      {row.lastMessagePreview.split(/(@[\w.\-\u4e00-\u9fff]+)/g).map((part, i) =>
-                        part.startsWith('@') ? (
-                          <em key={i} className="font-medium not-italic text-coral">
-                            {part}
-                          </em>
-                        ) : (
-                          <React.Fragment key={i}>{part}</React.Fragment>
-                        ),
-                      )}
-                    </span>
+                  data-testid="v2-session-row-preview"
+                >
+                  {row.lastMessagePreview.split(/(@[\w.\-\u4e00-\u9fff]+)/g).map((part, i) =>
+                    part.startsWith('@') ? (
+                      <em key={i} className="font-medium not-italic text-coral">
+                        {part}
+                      </em>
+                    ) : (
+                      <React.Fragment key={i}>{part}</React.Fragment>
+                    ),
                   )}
-                  {((parts.length > 0 && !isSoloWithLocalAgent) || activity) && (
-                    <span className="flex w-full items-center gap-1.5" data-testid="v2-session-row-participants">
-                      {parts.length > 0 && !isSoloWithLocalAgent && (
-                        <>
-                          <span className="flex -space-x-1.5">
-                            {parts.slice(0, 3).map((p) => {
-                              const c = actorAvatarColor(p.actorId)
-                              return (
-                                <Avatar
-                                  key={p.actorId}
-                                  className={cn(
-                                    'h-4 w-4 ring-1 ring-paper',
-                                    p.isAgent ? 'rounded-[3px]' : 'rounded-full',
-                                  )}
-                                >
-                                  {p.avatarUrl && <AvatarImage src={p.avatarUrl} alt={p.displayName} />}
-                                  <AvatarFallback
-                                    className={cn(
-                                      'text-[8px] font-semibold',
-                                      p.isAgent ? 'rounded-[3px]' : 'rounded-full',
-                                    )}
-                                    style={{ background: c.bg, color: c.fg }}
-                                  >
-                                    {p.displayName.slice(0, 1).toUpperCase()}
-                                  </AvatarFallback>
-                                </Avatar>
-                              )
-                            })}
-                          </span>
-                          <span className="text-[10.5px] text-faint">
-                            {t('sidebar.participantCount', { count: parts.length, defaultValue: '{{count}} 位' })}
-                          </span>
-                        </>
-                      )}
-                      <span className="flex-1" />
-                      <SessionActivityBadge activity={activity} />
-                    </span>
+                </span>
+              )}
+              {!isRenaming && ((parts.length > 0 && !isSoloWithLocalAgent) || activity) && (
+                <div className="flex w-full items-center gap-1.5" data-testid="v2-session-row-participants">
+                  {parts.length > 0 && !isSoloWithLocalAgent && (
+                    <>
+                      <div className="flex -space-x-1.5">
+                        {parts.slice(0, 3).map((p) => {
+                          const c = actorAvatarColor(p.actorId)
+                          return (
+                            <Avatar
+                              key={p.actorId}
+                              className={cn(
+                                'h-4 w-4 ring-1 ring-paper',
+                                p.isAgent ? 'rounded-[3px]' : 'rounded-full',
+                              )}
+                            >
+                              {p.avatarUrl && <AvatarImage src={p.avatarUrl} alt={p.displayName} />}
+                              <AvatarFallback
+                                className={cn(
+                                  'text-[8px] font-semibold',
+                                  p.isAgent ? 'rounded-[3px]' : 'rounded-full',
+                                )}
+                                style={{ background: c.bg, color: c.fg }}
+                              >
+                                {p.displayName.slice(0, 1).toUpperCase()}
+                              </AvatarFallback>
+                            </Avatar>
+                          )
+                        })}
+                      </div>
+                      <span className="text-[10.5px] text-faint">
+                        {t('sidebar.participantCount', { count: parts.length, defaultValue: '{{count}} 位' })}
+                      </span>
+                    </>
                   )}
-                </button>
+                  <span className="flex-1" />
+                  <SessionActivityBadge activity={activity} />
+                </div>
               )}
 
-              {/* C2 dock — sibling of select/more buttons, expands row height. */}
+              {/* C2 dock — stopPropagation so icon clicks don't also select the session. */}
               {!isRenaming && !batchSelecting && (
                 <div
                   id={actionsId}
@@ -816,6 +814,8 @@ export function SessionListColumn({
                   data-testid="v2-session-row-actions"
                   data-open={actionsOpen ? 'true' : 'false'}
                   aria-hidden={!actionsOpen}
+                  onClick={(e) => e.stopPropagation()}
+                  onDoubleClick={(e) => e.stopPropagation()}
                 >
                   <div className="min-h-0 overflow-hidden">
                     <div

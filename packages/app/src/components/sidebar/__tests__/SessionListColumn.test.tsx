@@ -358,6 +358,18 @@ describe('SessionListColumn', () => {
     switchToSession.mockRestore()
   })
 
+  it('selects a session when clicking dead-zone areas of the card (time / padding)', () => {
+    const switchToSession = vi.spyOn(useUIStore.getState(), 'switchToSession').mockResolvedValue()
+    render(<SessionListColumn />)
+
+    const row = screen.getAllByTestId('v2-session-row').find((el) => el.getAttribute('data-session-id') === 's2')
+    expect(row).toBeTruthy()
+    // Click the capsule itself (padding / non-title regions) — previously a dead zone.
+    fireEvent.click(row!)
+    expect(switchToSession).toHaveBeenCalledWith('s2')
+    switchToSession.mockRestore()
+  })
+
   it('creates a session directly from the new chat button in embed mode', async () => {
     useUIStore.setState({ embedMode: true })
     const onDismiss = vi.fn()
