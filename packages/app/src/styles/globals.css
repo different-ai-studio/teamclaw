@@ -1179,3 +1179,110 @@ input,
         opacity: 1;
     }
 }
+
+/* Session list — Soft Comfort liquid glass selection pill */
+.session-liquid-glass {
+    position: absolute;
+    left: 0;
+    right: 0;
+    top: 0;
+    height: 56px;
+    border-radius: 11px;
+    pointer-events: none;
+    z-index: 0;
+    background: linear-gradient(
+        135deg,
+        rgba(255, 255, 255, 0.72) 0%,
+        rgba(255, 255, 255, 0.48) 42%,
+        rgba(255, 255, 255, 0.38) 100%
+    );
+    backdrop-filter: blur(18px) saturate(1.55);
+    -webkit-backdrop-filter: blur(18px) saturate(1.55);
+    box-shadow:
+        0 1px 0 rgba(255, 255, 255, 0.85) inset,
+        0 -1px 0 rgba(28, 27, 25, 0.04) inset,
+        0 2px 8px rgba(28, 27, 25, 0.06),
+        0 1px 2px rgba(28, 27, 25, 0.04),
+        0 0 0 1px rgba(26, 26, 20, 0.06);
+    transition:
+        transform 420ms cubic-bezier(0.22, 1, 0.36, 1),
+        height 420ms cubic-bezier(0.22, 1, 0.36, 1),
+        border-radius 420ms cubic-bezier(0.22, 1, 0.36, 1),
+        box-shadow 280ms ease,
+        opacity 160ms ease;
+    will-change: transform, height;
+    transform: translate3d(0, 0, 0);
+}
+
+.session-liquid-glass::before {
+    content: "";
+    position: absolute;
+    inset: 0;
+    border-radius: inherit;
+    background: linear-gradient(
+        180deg,
+        rgba(255, 255, 255, 0.55) 0%,
+        rgba(255, 255, 255, 0) 42%
+    );
+    opacity: 0.9;
+    pointer-events: none;
+}
+
+.session-liquid-glass::after {
+    content: "";
+    position: absolute;
+    top: 1px;
+    left: 10%;
+    right: 28%;
+    height: 1px;
+    border-radius: 1px;
+    background: rgba(255, 255, 255, 0.95);
+    opacity: 0.7;
+    pointer-events: none;
+}
+
+.session-liquid-glass--moving {
+    border-radius: 13px 13px 10px 10px;
+    box-shadow:
+        0 1px 0 rgba(255, 255, 255, 0.9) inset,
+        0 6px 18px rgba(28, 27, 25, 0.08),
+        0 2px 4px rgba(28, 27, 25, 0.04),
+        0 0 0 1px rgba(26, 26, 20, 0.07);
+}
+
+.dark .session-liquid-glass {
+    background: linear-gradient(
+        135deg,
+        rgba(255, 255, 255, 0.14) 0%,
+        rgba(255, 255, 255, 0.07) 50%,
+        rgba(255, 255, 255, 0.05) 100%
+    );
+    box-shadow:
+        0 8px 24px rgba(0, 0, 0, 0.35),
+        0 0 0 1px rgba(255, 255, 255, 0.1);
+}
+
+.dark .session-liquid-glass::before {
+    background: linear-gradient(
+        180deg,
+        rgba(255, 255, 255, 0.06),
+        transparent 45%
+    );
+}
+
+/* Dark: no specular top streak — reads as a thick white edge on black. */
+.dark .session-liquid-glass::after {
+    display: none;
+}
+
+.dark .session-liquid-glass--moving {
+    box-shadow:
+        0 8px 28px rgba(0, 0, 0, 0.45),
+        0 0 0 1px rgba(255, 255, 255, 0.12);
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .session-liquid-glass {
+        transition: opacity 120ms ease;
+    }
+}
