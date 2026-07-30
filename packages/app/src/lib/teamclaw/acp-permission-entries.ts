@@ -71,6 +71,38 @@ function forEachPendingInSession(
   }
 }
 
+/**
+ * Compact fingerprint of pending ACP permissions across all sessions.
+ * Used as a Zustand selector so the session list does not re-render on
+ * unrelated streaming deltas.
+ */
+export function selectStreamingPermissionSnapshot(
+  byKey: Record<string, StreamKeyEntry>,
+): string {
+  const parts: string[] = [];
+  for (const entry of Object.values(byKey)) {
+    const ids = Object.keys(entry.pendingPermissionsByRequestId).sort();
+    if (ids.length === 0) continue;
+    parts.push(`${entry.sessionId}:${ids.join(",")}`);
+  }
+  return parts.sort().join("|");
+}
+
+/** All pending ACP permissions for sidebar activity badges (every session). */
+export function collectAcpStreamingPermissionsForList(
+  byKey: Record<string, StreamKeyEntry>,
+): PendingPermissionEntry[] {
+  const out: PendingPermissionEntry[] = [];
+  for (const entry of Object.values(byKey)) {
+    if (shouldAutoAllowSessionPermissions(entry.sessionId)) continue;
+    for (const pending of Object.values(entry.pendingPermissionsByRequestId)) {
+      if (!pending.requestId?.trim()) continue;
+      out.push(buildPendingEntryFromAcpPermission(entry.sessionId, entry.actorId, pending));
+    }
+  }
+  return out;
+}
+
 /** Interactive Allow/Deny queue — excludes bystander-stamped requests. */
 export function collectAcpStreamingPermissions(
   activeSessionId: string | null,

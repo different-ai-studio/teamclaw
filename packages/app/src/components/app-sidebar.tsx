@@ -5,7 +5,6 @@ import { useTeamShareStore, isShareModeLocked } from "@/stores/team-share"
 import { UpgradeAccountDialog } from "@/components/auth/UpgradeAccountDialog"
 
 import { useSessionStore } from "@/stores/session"
-import { useStreamingStore } from "@/stores/streaming"
 import { useUIStore } from "@/stores/ui"
 import { useWorkspaceStore } from "@/stores/workspace"
 import { useCronStore } from "@/stores/cron"
@@ -30,7 +29,7 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu"
 import { TrafficLights } from "@/components/ui/traffic-lights"
-import { buildSessionListActivityMap } from "@/lib/session-list-activity"
+import { useSessionListActivityMap } from "@/hooks/use-session-list-activity-map"
 import { SessionSearchDialog } from "@/components/sidebar/session-search-dialog"
 import { SessionDetailDialog, type SessionDetailListHints } from "@/components/sidebar/SessionDetailDialog"
 import { NavRail } from "@/components/sidebar/NavRail"
@@ -351,45 +350,13 @@ function SidebarUserAccountMenu() {
 
 export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
   const { t } = useTranslation()
-  const allSessions = useSessionStore(s => s.sessions)
   const activeSessionId = useSessionStore(s => s.activeSessionId)
-  const sessionStatuses = useSessionStore(s => s.sessionStatuses) || {}
-  const pendingQuestionIdsBySession = useSessionStore(s => s.pendingQuestionIdsBySession) || {}
-  const pendingQuestions = useSessionStore(s => s.pendingQuestions) || []
-  const pendingPermissions = useSessionStore(s => s.pendingPermissions) || []
-  const streamingMessageId = useStreamingStore(s => s.streamingMessageId)
-  const childSessionStreaming = useStreamingStore(s => s.childSessionStreaming)
+  const sessionActivityMap = useSessionListActivityMap(activeSessionId)
   const teamId = useCurrentTeamStore((s) => s.team?.id ?? null)
 
   const [detailSessionId, setDetailSessionId] = React.useState<string | null>(null)
   const [detailHints, setDetailHints] = React.useState<SessionDetailListHints | null>(null)
 
-  const sessionActivityMap = React.useMemo(
-    () =>
-      buildSessionListActivityMap({
-        sessions: allSessions,
-        activeSessionId,
-        sessionStatuses,
-        pendingQuestionIdsBySession,
-        pendingQuestions,
-        pendingPermissions,
-        streamingMessageId,
-        streamingChildSessionIds: Object.values(childSessionStreaming)
-          .filter((state) => state?.isStreaming)
-          .map((state) => state.sessionId),
-      }),
-    [
-      activeSessionId,
-      allSessions,
-      childSessionStreaming,
-      pendingPermissions,
-      pendingQuestionIdsBySession,
-      pendingQuestions,
-      sessionStatuses,
-      streamingMessageId,
-    ],
-  )
-  
   const openSettings = useUIStore(s => s.openSettings)
 
   const handleSelectSession = (id: string) => {

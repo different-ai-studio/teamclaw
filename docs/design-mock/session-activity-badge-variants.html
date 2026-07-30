@@ -1,0 +1,609 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Session 卡片 · Activity Badge 方案对比</title>
+<style>
+  :root {
+    --font: "PingFang SC", "Noto Sans SC", -apple-system, BlinkMacSystemFont, "Microsoft YaHei", system-ui, sans-serif;
+    --mono: "JetBrains Mono", "SF Mono", ui-monospace, Menlo, Consolas, monospace;
+    --background: #fbfaf7;
+    --paper: #ffffff;
+    --panel: #efece4;
+    --foreground: #1a1a14;
+    --ink-2: #3d3c34;
+    --muted: #75736a;
+    --faint: #a8a6a0;
+    --border-soft: rgba(26,26,20,0.05);
+    --coral: #e85a4a;
+    --wait-bg: rgba(16,185,129,0.10);
+    --wait-fg: #059669;
+    --wait-border: rgba(16,185,129,0.22);
+    --run-fg: #2563eb;
+    --ease: cubic-bezier(0.22, 1, 0.36, 1);
+  }
+
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    font-family: var(--font);
+    background: #e8e5df;
+    color: var(--foreground);
+    -webkit-font-smoothing: antialiased;
+    padding: 28px 24px 80px;
+    line-height: 1.5;
+  }
+
+  h1 {
+    font-size: 20px;
+    font-weight: 700;
+    letter-spacing: -0.02em;
+    margin-bottom: 6px;
+  }
+  .lead {
+    font-size: 13px;
+    color: var(--muted);
+    max-width: 720px;
+    margin-bottom: 28px;
+  }
+  .lead code {
+    font-family: var(--mono);
+    font-size: 11px;
+    background: rgba(0,0,0,0.05);
+    padding: 1px 5px;
+    border-radius: 4px;
+  }
+
+  .grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(320px, 1fr));
+    gap: 20px;
+    align-items: start;
+  }
+
+  .variant {
+    background: var(--paper);
+    border-radius: 14px;
+    border: 1px solid rgba(26,26,20,0.08);
+    overflow: hidden;
+    box-shadow: 0 2px 12px rgba(20,20,15,0.06);
+  }
+  .variant-head {
+    padding: 14px 16px 10px;
+    border-bottom: 1px solid var(--border-soft);
+    background: linear-gradient(180deg, #faf9f6 0%, #fff 100%);
+  }
+  .variant-head .tag {
+    display: inline-block;
+    font-family: var(--mono);
+    font-size: 10px;
+    font-weight: 600;
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+    color: var(--faint);
+    margin-bottom: 4px;
+  }
+  .variant-head h2 {
+    font-size: 15px;
+    font-weight: 700;
+    margin-bottom: 4px;
+  }
+  .variant-head p {
+    font-size: 12px;
+    color: var(--muted);
+    line-height: 1.55;
+  }
+  .pros {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+    margin-top: 8px;
+  }
+  .pros span {
+    font-size: 10.5px;
+    padding: 2px 8px;
+    border-radius: 999px;
+    background: rgba(16,185,129,0.08);
+    color: #047857;
+    font-weight: 600;
+  }
+  .cons span {
+    background: rgba(232,90,74,0.08);
+    color: #c2410c;
+  }
+
+  .preview-pane {
+    padding: 14px;
+    background: #F8F7F4;
+  }
+  .preview-label {
+    font-size: 10.5px;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    color: var(--faint);
+    margin-bottom: 8px;
+  }
+  .preview-label + .preview-label { margin-top: 14px; }
+
+  /* —— shared session card chrome —— */
+  .list-bg {
+    border-radius: 11px;
+    padding: 4px;
+  }
+  .card {
+    border-radius: 11px;
+    padding: 8px 10px;
+    cursor: default;
+    transition: background 0.15s var(--ease);
+  }
+  .card + .card { margin-top: 2px; }
+  .card:hover { background: rgba(0,0,0,0.035); }
+  .card.active {
+    background: var(--paper);
+    box-shadow: 0 0 0 1px rgba(26,26,20,0.06), 0 1px 4px rgba(20,20,15,0.04);
+  }
+  .card.dim { opacity: 0.55; }
+
+  .row-title {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    min-width: 0;
+  }
+  .title {
+    flex: 1;
+    min-width: 0;
+    font-size: 13px;
+    font-weight: 600;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+  .time {
+    flex-shrink: 0;
+    font-family: var(--mono);
+    font-size: 11px;
+    color: var(--faint);
+    line-height: 22px;
+  }
+  .workspace {
+    display: block;
+    font-family: var(--mono);
+    font-size: 10.5px;
+    color: var(--faint);
+    margin-top: 2px;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+  .preview {
+    display: block;
+    font-size: 12px;
+    color: var(--muted);
+    margin-top: 4px;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+  .preview em {
+    font-style: normal;
+    font-weight: 500;
+    color: var(--coral);
+  }
+
+  .badge {
+    flex-shrink: 0;
+    font-size: 10px;
+    font-weight: 600;
+    line-height: 16px;
+    padding: 0 7px;
+    border-radius: 999px;
+    background: var(--wait-bg);
+    color: var(--wait-fg);
+    border: 1px solid var(--wait-border);
+    white-space: nowrap;
+  }
+  .badge.short { padding: 0 5px; }
+  .badge.icon {
+    width: 18px;
+    height: 18px;
+    padding: 0;
+    display: inline-grid;
+    place-items: center;
+    font-size: 11px;
+    line-height: 1;
+  }
+  .badge.question {
+    background: rgba(99,102,241,0.10);
+    color: #4f46e5;
+    border-color: rgba(99,102,241,0.20);
+  }
+
+  .dot {
+    width: 7px;
+    height: 7px;
+    border-radius: 50%;
+    background: #10b981;
+    box-shadow: 0 0 0 2px rgba(16,185,129,0.25);
+    flex-shrink: 0;
+  }
+  .dot.run {
+    background: var(--run-fg);
+    box-shadow: 0 0 0 2px rgba(37,99,235,0.2);
+  }
+
+  .spin {
+    width: 14px;
+    height: 14px;
+    border: 2px solid rgba(37,99,235,0.2);
+    border-top-color: var(--run-fg);
+    border-radius: 50%;
+    animation: spin 0.8s linear infinite;
+    flex-shrink: 0;
+  }
+  @keyframes spin { to { transform: rotate(360deg); } }
+
+  .participants {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    margin-top: 4px;
+    min-width: 0;
+  }
+  .avatars {
+    display: flex;
+  }
+  .av {
+    width: 16px;
+    height: 16px;
+    border-radius: 50%;
+    border: 1px solid var(--paper);
+    margin-left: -6px;
+    font-size: 8px;
+    font-weight: 700;
+    color: #fff;
+    display: grid;
+    place-items: center;
+  }
+  .av:first-child { margin-left: 0; }
+  .av.a { background: #7c6aad; }
+  .av.b { background: #4a9b8e; border-radius: 3px; }
+  .pcount { font-size: 10.5px; color: var(--faint); }
+
+  .preview-row {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    margin-top: 4px;
+    min-width: 0;
+  }
+  .preview-row .preview {
+    flex: 1;
+    min-width: 0;
+    margin-top: 0;
+  }
+
+  .accent-wait {
+    border-left: 2px solid #10b981;
+    padding-left: 8px;
+    margin-left: -2px;
+  }
+  .accent-run {
+    border-left: 2px solid var(--run-fg);
+  }
+
+  .height-tag {
+    display: inline-block;
+    margin-left: 6px;
+    font-family: var(--mono);
+    font-size: 9.5px;
+    font-weight: 600;
+    color: var(--faint);
+    vertical-align: middle;
+  }
+  .height-tag.good { color: #059669; }
+  .height-tag.bad { color: #dc2626; }
+
+  .rec {
+    outline: 2px solid rgba(232,90,74,0.35);
+    outline-offset: 2px;
+  }
+  .rec-badge {
+    position: absolute;
+    top: 10px;
+    right: 10px;
+    background: var(--coral);
+    color: #fff;
+    font-size: 10px;
+    font-weight: 700;
+    padding: 3px 8px;
+    border-radius: 6px;
+    letter-spacing: 0.02em;
+  }
+  .variant { position: relative; }
+
+  footer {
+    margin-top: 32px;
+    font-size: 12px;
+    color: var(--muted);
+    max-width: 800px;
+  }
+  footer strong { color: var(--ink-2); }
+</style>
+</head>
+<body>
+
+<h1>Session 卡片 · Activity 状态展示方案</h1>
+<p class="lead">
+  问题：当前 <code>SessionActivityBadge</code> 独占第四行（participants 行），卡片高度 +~20px，影响列表浮层对齐。<br />
+  目标：<strong>不增行高</strong> 或 <strong>仅在有参与者时复用现有行</strong>，同时区分 permission / question / running。
+</p>
+
+<div class="grid">
+
+  <!-- 0 baseline -->
+  <section class="variant">
+    <div class="variant-head">
+      <div class="tag">Baseline · 现状</div>
+      <h2>独立第四行 badge</h2>
+      <p>无参与者时也强制渲染 participants 行，仅放 badge。信息最全，但最撑高。</p>
+      <div class="pros cons"><span>信息完整</span><span>撑高卡片</span><span>浮层易错位</span></div>
+    </div>
+    <div class="preview-pane">
+      <div class="preview-label">有 activity · 无参与者 <span class="height-tag bad">~72px</span></div>
+      <div class="list-bg">
+        <div class="card active accent-wait">
+          <div class="row-title">
+            <span class="title">执行PS</span>
+            <span class="time">Just now</span>
+          </div>
+          <span class="workspace">TeamClaw Dev</span>
+          <span class="preview"><em>@MYBOT</em> 执行ps</span>
+          <div class="participants">
+            <span class="flex-1"></span>
+            <span class="badge">Awaiting confirmation</span>
+          </div>
+        </div>
+      </div>
+      <div class="preview-label">对照 · 普通卡片 <span class="height-tag good">~52px</span></div>
+      <div class="list-bg">
+        <div class="card dim">
+          <div class="row-title">
+            <span class="title">hello你好</span>
+            <span class="time">20m ago</span>
+          </div>
+          <span class="preview">普通预览一行</span>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- A -->
+  <section class="variant rec">
+    <div class="rec-badge">推荐 A</div>
+    <div class="variant-head">
+      <div class="tag">方案 A</div>
+      <h2>标题行 Meta 内联</h2>
+      <p>badge 放在时间戳左侧，与 unread / NEW 同级。零增行，扫视路径自然。</p>
+      <div class="pros"><span>零增行</span><span>实现简单</span><span>与现有 meta 一致</span></div>
+    </div>
+    <div class="preview-pane">
+      <div class="preview-label">permission · 等待确认</div>
+      <div class="list-bg">
+        <div class="card active">
+          <div class="row-title">
+            <span class="title">执行PS</span>
+            <span class="badge short">待确认</span>
+            <span class="time">Just now</span>
+          </div>
+          <span class="workspace">TeamClaw Dev</span>
+          <span class="preview"><em>@MYBOT</em> 执行ps</span>
+        </div>
+      </div>
+      <div class="preview-label">question · 等待回答</div>
+      <div class="list-bg">
+        <div class="card">
+          <div class="row-title">
+            <span class="title">Skill: codebase-downloader</span>
+            <span class="badge short question">待回答</span>
+            <span class="time">5m ago</span>
+          </div>
+          <span class="preview">Continue with download?</span>
+        </div>
+      </div>
+      <div class="preview-label">running</div>
+      <div class="list-bg">
+        <div class="card">
+          <div class="row-title">
+            <span class="title">重构 auth 模块</span>
+            <span class="spin" title="Running"></span>
+            <span class="time">Just now</span>
+          </div>
+          <span class="preview">正在分析依赖…</span>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- B -->
+  <section class="variant">
+    <div class="variant-head">
+      <div class="tag">方案 B</div>
+      <h2>状态点 + 短标签</h2>
+      <p>标题前加 7px 状态点（绿=等待、蓝=运行），meta 区仅 2 字缩写「确认」「回答」。</p>
+      <div class="pros"><span>零增行</span><span>视觉更 quiet</span><span>密度高</span></div>
+    </div>
+    <div class="preview-pane">
+      <div class="list-bg">
+        <div class="card active">
+          <div class="row-title">
+            <span class="dot"></span>
+            <span class="title">执行PS</span>
+            <span class="badge short" style="background:transparent;border-color:transparent;color:var(--wait-fg);padding:0 4px;">确认</span>
+            <span class="time">Just now</span>
+          </div>
+          <span class="workspace">TeamClaw Dev</span>
+          <span class="preview"><em>@MYBOT</em> 执行ps</span>
+        </div>
+      </div>
+      <div class="preview-label" style="margin-top:12px">running</div>
+      <div class="list-bg">
+        <div class="card">
+          <div class="row-title">
+            <span class="dot run"></span>
+            <span class="title">A股有哪些长期优质的公…</span>
+            <span class="time">7m ago</span>
+          </div>
+          <span class="preview">分析报告中…</span>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- C -->
+  <section class="variant">
+    <div class="variant-head">
+      <div class="tag">方案 C</div>
+      <h2>预览行末尾 inline</h2>
+      <p>badge 与 preview 同一行 flex，预览 truncate，badge 固定右侧。无 workspace 时尤其紧凑。</p>
+      <div class="pros"><span>零增行</span><span>badge 贴内容上下文</span></div>
+    </div>
+    <div class="preview-pane">
+      <div class="list-bg">
+        <div class="card active">
+          <div class="row-title">
+            <span class="title">执行PS</span>
+            <span class="time">Just now</span>
+          </div>
+          <span class="workspace">TeamClaw Dev</span>
+          <div class="preview-row">
+            <span class="preview"><em>@MYBOT</em> 执行ps</span>
+            <span class="badge">待确认</span>
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- D -->
+  <section class="variant rec">
+    <div class="rec-badge">推荐 D</div>
+    <div class="variant-head">
+      <div class="tag">方案 D</div>
+      <h2>仅图标 pill（hover 全文）</h2>
+      <p>标题行放 18px 图标 pill（✓ permission / ? question / spinner），完整文案走 <code>title</code> tooltip。</p>
+      <div class="pros"><span>零增行</span><span>最省宽度</span><span>i18n 友好</span></div>
+    </div>
+    <div class="preview-pane">
+      <div class="list-bg">
+        <div class="card active" title="Awaiting confirmation">
+          <div class="row-title">
+            <span class="title">执行PS</span>
+            <span class="badge icon" title="Awaiting confirmation">✓</span>
+            <span class="time">Just now</span>
+          </div>
+          <span class="workspace">TeamClaw Dev</span>
+          <span class="preview"><em>@MYBOT</em> 执行ps</span>
+        </div>
+      </div>
+      <div class="preview-label" style="margin-top:12px">question / running</div>
+      <div class="list-bg">
+        <div class="card" title="Awaiting answer">
+          <div class="row-title">
+            <span class="title">Skill: downloader</span>
+            <span class="badge icon question" title="Awaiting answer">?</span>
+            <span class="time">5m ago</span>
+          </div>
+        </div>
+        <div class="card" style="margin-top:2px">
+          <div class="row-title">
+            <span class="title">重构模块</span>
+            <span class="spin"></span>
+            <span class="time">Just now</span>
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- E -->
+  <section class="variant">
+    <div class="variant-head">
+      <div class="tag">方案 E</div>
+      <h2>左缘状态条（替代 badge 文本）</h2>
+      <p>选中态已有 coral 左条；等待态改 emerald 细条 + 无文字。状态靠颜色区分，零增行。</p>
+      <div class="pros"><span>零增行</span><span>Editorial Calm</span><span>需 legend 说明</span></div>
+    </div>
+    <div class="preview-pane">
+      <div class="list-bg">
+        <div class="card active accent-wait">
+          <div class="row-title">
+            <span class="title">执行PS</span>
+            <span class="time">Just now</span>
+          </div>
+          <span class="workspace">TeamClaw Dev</span>
+          <span class="preview"><em>@MYBOT</em> 执行ps</span>
+        </div>
+      </div>
+      <p style="font-size:11px;color:var(--muted);margin-top:10px;">
+        ◆ 左条 emerald = 等待用户 · coral = 选中 · 无条 = 普通
+      </p>
+    </div>
+  </section>
+
+  <!-- F -->
+  <section class="variant">
+    <div class="variant-head">
+      <div class="tag">方案 F · 混合</div>
+      <h2>有参与者才占行；solo 走 Meta</h2>
+      <p>仅当 participants 行本就要显示时，badge 放该行右侧；solo session 的 activity 回退到方案 A。</p>
+      <div class="pros"><span>兼顾两种场景</span><span>逻辑稍复杂</span></div>
+    </div>
+    <div class="preview-pane">
+      <div class="preview-label">solo + activity → Meta（不增行）</div>
+      <div class="list-bg">
+        <div class="card active">
+          <div class="row-title">
+            <span class="title">执行PS</span>
+            <span class="badge short">待确认</span>
+            <span class="time">Just now</span>
+          </div>
+          <span class="preview"><em>@MYBOT</em> 执行ps</span>
+        </div>
+      </div>
+      <div class="preview-label" style="margin-top:12px">多人 + activity → 复用 participants 行</div>
+      <div class="list-bg">
+        <div class="card">
+          <div class="row-title">
+            <span class="title">团队评审</span>
+            <span class="time">1h ago</span>
+          </div>
+          <span class="preview">@alice 看下这个 PR</span>
+          <div class="participants">
+            <div class="avatars">
+              <div class="av a">A</div>
+              <div class="av b">M</div>
+            </div>
+            <span class="pcount">3 位</span>
+            <span class="flex-1"></span>
+            <span class="badge">待确认</span>
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+</div>
+
+<footer>
+  <strong>选型建议：</strong>
+  日常 solo 会话最多 → 优先 <strong>A（中文短标签「待确认/待回答」）</strong> 或 <strong>D（图标 + tooltip）</strong>；
+  若希望更 quiet → <strong>E 左条</strong> 可与选中 coral 左条互斥设计。
+  确定方案后我再改 <code>SessionListColumn.tsx</code> 的 <code>SessionActivityBadge</code> 位置与条件渲染。
+  <br /><br />
+  本地预览：<code>open docs/design-mock/session-activity-badge-variants.html</code>
+</footer>
+
+</body>
+</html>
