@@ -240,6 +240,21 @@ describe("Runtime config", { skip: !E2E }, () => {
     );
     assert.equal(typeof body.mqtt.url, "string", "mqtt.url must be a string");
     assert.ok(body.mqtt.url.length > 0, "mqtt.url must be non-empty");
+    // Non-empty is not enough. Compose derives the default as
+    // `mqtt://${MQTT_DOMAIN}:1883`, so a .env missing MQTT_DOMAIN yields the
+    // hostless `mqtt://:1883` — a string that passes every check above and
+    // resolves nowhere. Parse it and require a real host.
+    let parsed: URL | undefined;
+    try {
+      parsed = new URL(body.mqtt.url);
+    } catch {
+      assert.fail(`mqtt.url is not a URL: ${body.mqtt.url}`);
+    }
+    assert.ok(
+      parsed.hostname.length > 0,
+      `mqtt.url has no host (${body.mqtt.url}) — MQTT_DOMAIN is probably unset ` +
+        "in the box's .env, so compose derived mqtt://:1883"
+    );
   });
 });
 
