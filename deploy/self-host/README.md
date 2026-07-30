@@ -139,7 +139,7 @@ EMQX_DASHBOARD_DOMAIN=emqx.example.com
 | Cloud API（客户端 / Desktop） | `http://127.0.0.1:9000` | FC 已映射 `9000`，**首选** |
 | Cloud API（测 Caddy 反代） | `http://127.0.0.1:8080` + `Host: api.example.com` | 见下方 curl 示例 |
 | Supabase（测 Caddy） | `http://127.0.0.1:8080` + `Host: supabase.example.com` | 浏览器打开需真实 DNS，本地一般用 Studio 容器或 CLI |
-| EMQX MQTT TCP（Desktop） | `mqtt://127.0.0.1:1883` | 配合 `MQTT_PUBLIC_BROKER_URL` |
+| EMQX MQTT TCP（Desktop） | `mqtt://127.0.0.1:1883` | 配合 `MQTT_BROKER_URL` |
 | EMQX WebSocket（Web 浏览器） | `ws://127.0.0.1:8083/mqtt` | 需在 compose 暴露 `8083:8083`（默认只暴露 `1883`）；见 §4.C |
 
 ### 3. 验收
@@ -175,7 +175,7 @@ cd ../../services/fc && sh ../../deploy/self-host/smoke/run-e2e.sh
 
 #### A. 后端 `.env`
 
-若已 `cp .env.local.example .env`，则已包含 `MQTT_PUBLIC_BROKER_URL=mqtt://127.0.0.1:1883` 与 `ENABLE_EMAIL_AUTOCONFIRM=true`。若用 `.env.example`，请手动补上这两项。
+若已 `cp .env.local.example .env`，则已包含 `MQTT_BROKER_URL=mqtt://127.0.0.1:1883` 与 `ENABLE_EMAIL_AUTOCONFIRM=true`。若用 `.env.example`，请手动补上这两项。
 
 修改后重启 FC 容器使 bootstrap 生效：
 
@@ -281,7 +281,7 @@ curl -s -X POST http://127.0.0.1:9000/v1/auth/signin-password \
 curl -s http://127.0.0.1:9000/healthz
 
 # 2. bootstrap 里的 MQTT（需先注册/登录拿到 token；或看 FC 容器 env）
-docker compose exec fc printenv MQTT_PUBLIC_BROKER_URL
+docker compose exec fc printenv MQTT_BROKER_URL
 # 期望：mqtt://127.0.0.1:1883
 
 # 3. 桌面/Web 登录 → 创建团队 → 发消息；MQTT 连不上时查 1883 端口与上一步 env

@@ -75,7 +75,7 @@ onboarding shell.
 
 The MQTT broker address is **not** bundled: `resolveMqttUrl` fetches it from
 `GET /v1/config/bootstrap` (server-side `MQTT_PUBLIC_TCP_BROKER_URL` /
-`MQTT_PUBLIC_BROKER_URL`) and caches it in AsyncStorage, so a broker that moves
+`MQTT_BROKER_URL`) and caches it in AsyncStorage, so a broker that moves
 does not need an app release. `EXPO_PUBLIC_MQTT_URL` overrides the fetch; with
 neither an override nor a cached address the app simply does not connect. The
 native Android bridge is used when available.

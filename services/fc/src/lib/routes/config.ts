@@ -12,28 +12,30 @@ function parseBool(raw) {
 
 // Read an env var, treating blank as absent.
 //
-// Every deployment declares the optional MQTT vars with an empty default —
-// `${env('MQTT_PUBLIC_BROKER_URL', '')}` in s.yaml, `"${MQTT_PUBLIC_BROKER_URL:-}"`
-// in docker-compose — so "not configured" reaches the process as `""`, never as
-// undefined. `??` treats `""` as a real value, which silently defeated the
-// documented "leave empty to fall back" contract and shipped a bootstrap with
-// no `mqtt` block at all: the client then reports that the server delivered no
-// MQTT address, while the daemon (which never reads this endpoint) stays
-// connected and hides the breakage.
+// Deployments declare optional vars with an empty default — `${env('X', '')}` in
+// s.yaml, `"${X:-}"` in docker-compose — so "not configured" reaches the process
+// as `""`, never as undefined. Any `??` chain over these therefore treats a
+// blank as a real value; this helper is what makes "leave it empty" mean absent.
 function envValue(name: string): string | undefined {
   const value = process.env[name]?.trim();
   return value ? value : undefined;
 }
 
 function buildMqttConfig() {
-  // One address is enough when FC and clients reach the broker at the same
-  // place (Alibaba FC / belayo): set MQTT_BROKER_URL and nothing else.
+  // MQTT_BROKER_URL is the ONE broker address, and it is what clients receive.
   //
-  // MQTT_PUBLIC_BROKER_URL exists only for deployments where those two differ
-  // and is a pure override. Self-host is exactly that case — compose points FC
-  // at `mqtt://emqx:1883` and the all-in-one image at `mqtt://127.0.0.1:1883`,
-  // neither of which resolves outside the container — so it stays supported.
-  const url = envValue("MQTT_PUBLIC_BROKER_URL") ?? envValue("MQTT_BROKER_URL");
+  // There is deliberately no public/internal split any more. The override that
+  // used to sit in front of this (MQTT_PUBLIC_BROKER_URL) is gone: it defaulted
+  // to `""` on both deploy targets, `""` is not nullish, so the documented
+  // fallback never fired and bootstrap answered 200 with no `mqtt` block at all
+  // — clients reported "the server did not deliver an MQTT address" while the
+  // daemon, which never reads this endpoint, stayed connected and hid it.
+  //
+  // The cost of collapsing to one var: every deployment must set
+  // MQTT_BROKER_URL to an address that is reachable BY CLIENTS, not just by FC.
+  // A container-internal value (`mqtt://emqx:1883`, `mqtt://127.0.0.1:1883`)
+  // is now a misconfiguration, because it is handed straight out.
+  const url = envValue("MQTT_BROKER_URL");
   if (!url) return null;
   const mqtt: any = { url };
   // Optional raw-TCP address for clients whose MQTT stack can't do WebSocket

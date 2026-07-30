@@ -360,7 +360,7 @@ cd services/supabase && npm test   # pgTAP（若已配置）
 | 现象 | 排查方向 |
 |------|----------|
 | 客户端报 schema 过旧 / `disable_team_share` | Cloud API 与 Supabase migration 未同步部署 |
-| MQTT 连不上 | 检查 `MQTT_PUBLIC_BROKER_URL`、Caddy WS 路由、JWT secret 一致性 |
+| MQTT 连不上 | 检查 `MQTT_BROKER_URL`、Caddy WS 路由、JWT secret 一致性 |
 | PostgREST 404 on `amux.*` | `PGRST_DB_SCHEMAS` 缺 `amux` 或未 reload |
 | LiteLLM 503 `litellm_unavailable` | `LITELLM_MASTER_KEY` 未配置 |
 | Cloud API 启动即报 `LITELLM_URL is not set` | 绕过了 compose 的默认值；显式设 `http://litellm:4000` |
