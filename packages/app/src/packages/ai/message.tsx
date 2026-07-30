@@ -157,8 +157,8 @@ export function MessageContent({
   return (
     <div
       className={cn(
-        // Direction B base size — see AGENTS.md §1 type scale.
-        "text-[13px] break-words [overflow-wrap:anywhere] min-w-0",
+        // Chat message base — user bubble + assistant note share 13.5px / 1.5.
+        "text-[13.5px] leading-[1.5] break-words [overflow-wrap:anywhere] min-w-0",
         from === "user"
           ? "max-w-[85%] overflow-x-hidden rounded-2xl rounded-br-[6px] px-4 py-3 bg-[#e8edf2] text-[#1f2933] dark:border dark:border-white/8 dark:bg-white/10 dark:backdrop-blur-sm dark:text-[#eef3f7]"
           : "overflow-hidden w-full",
@@ -668,12 +668,12 @@ function CodeBlock({ language, children }: { language: string; children: string 
       </div>
       {highlightedHtml ? (
         <div
-          className="overflow-x-auto px-4 pb-3.5 pt-1 text-[13px] leading-[1.5] [overflow-wrap:normal] [&_code]:!bg-transparent [&_code]:!p-0 [&_code]:[overflow-wrap:normal] [&_code]:whitespace-pre [&_pre]:!m-0 [&_pre]:!bg-transparent [&_pre]:!p-0 [&_pre]:[overflow-wrap:normal] [&_pre]:whitespace-pre"
+          className="overflow-x-auto px-4 pb-3.5 pt-1 text-[13.5px] leading-[1.5] [overflow-wrap:normal] [&_code]:!bg-transparent [&_code]:!p-0 [&_code]:[overflow-wrap:normal] [&_code]:whitespace-pre [&_pre]:!m-0 [&_pre]:!bg-transparent [&_pre]:!p-0 [&_pre]:[overflow-wrap:normal] [&_pre]:whitespace-pre"
           dangerouslySetInnerHTML={{ __html: highlightedHtml }}
         />
       ) : (
         <pre className="overflow-x-auto whitespace-pre px-4 pb-3.5 pt-1 [overflow-wrap:normal]">
-          <code className="font-mono text-[13px] leading-[1.5] text-foreground [overflow-wrap:normal]">{code}</code>
+          <code className="font-mono text-[13.5px] leading-[1.5] text-foreground [overflow-wrap:normal]">{code}</code>
         </pre>
       )}
     </div>
@@ -797,7 +797,7 @@ const markdownComponentsBase = {
     <h3 className="mt-[1em] mb-[0.2em] text-[1.1em] font-semibold leading-[1.35] text-foreground first:mt-0">{children}</h3>
   ),
   p: ({ children }: { children?: React.ReactNode }) => (
-    <p className="my-[0.4em] min-w-0 leading-[1.6] text-foreground">{children}</p>
+    <p className="my-[0.4em] min-w-0 leading-[1.5] text-foreground">{children}</p>
   ),
   table: ({ children }: { children?: React.ReactNode }) => (
     <div className="my-3 overflow-x-auto">
@@ -861,7 +861,7 @@ const markdownComponentsBase = {
     return (
       <li
         className={cn(
-          'min-w-0 leading-[1.6]',
+          'min-w-0 leading-[1.5]',
           isTask && 'chat-md-task flex items-start gap-2',
           className,
         )}
@@ -1014,7 +1014,7 @@ export function MessageResponse({
             />
           </div>
         ) : (
-          <div key={index} className="chat-md max-w-none min-w-0 break-words text-[14.5px] text-foreground [overflow-wrap:anywhere]">
+          <div key={index} className="chat-md max-w-none min-w-0 break-words text-foreground [overflow-wrap:anywhere]">
             <MarkdownRenderBoundary content={part.content}>
               <ReactMarkdown
                 remarkPlugins={remarkPluginsStable}
