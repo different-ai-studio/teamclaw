@@ -98,7 +98,7 @@ export interface BuildConfig {
    *  coding-agent RPC backend; "cursor" selects the Cursor SDK bridge
    *  (see docs/architecture/cursor-sdk-backend.md).
    *  Flows into the daemon config (`agents.local_agent`) during onboarding. */
-  localAgent?: 'opencode' | 'pi' | 'cursor'
+  localAgent?: 'opencode' | 'pi' | 'cursor' | 'claude-code' | 'claude_code' | 'claude'
   defaults: {
     theme: string
   }
@@ -195,13 +195,23 @@ export const appStoragePrefix: string = resolveStorageDirName(appShortName)
  *  any UI string — `app.name` is the bundle identity and may differ. */
 export const appDisplayName: string = buildConfig.app.displayName ?? buildConfig.app.name
 export const appScheme: string = buildConfig.app.scheme ?? 'teamclaw'
-/** Local agent runtime for this build. Defaults to opencode. */
-export const localAgent: 'opencode' | 'pi' | 'cursor' =
+/**
+ * Local agent runtime for this build. Defaults to opencode.
+ *
+ * This value is what onboarding seeds into `agents.local_agent`, so a missing
+ * arm here does not just mislabel — it ships the wrong runtime. claude-code was
+ * missing, and its build.config value silently became opencode.
+ */
+export const localAgent: 'opencode' | 'pi' | 'cursor' | 'claude-code' =
   buildConfig.localAgent === 'pi'
     ? 'pi'
     : buildConfig.localAgent === 'cursor'
       ? 'cursor'
-      : 'opencode'
+      : buildConfig.localAgent === 'claude-code' ||
+          buildConfig.localAgent === 'claude_code' ||
+          buildConfig.localAgent === 'claude'
+        ? 'claude-code'
+        : 'opencode'
 export const DEFAULT_WORKSPACE_PATH = `~/${buildConfig.app.name}`
 export const TEAMCLAW_DIR = isOfficialBrand(appShortName) ? '.teamclaw' : `.${appShortName}`
 /** Team share link + global sync dir name. Fixed across brands so daemon, git, and all clients agree. */

@@ -155,7 +155,8 @@ function runtimeModelsToConfigured(disconnectedIds: Set<string>): ConfiguredProv
     if (
       agentType !== AgentType.OPENCODE &&
       agentType !== AgentType.PI &&
-      agentType !== AgentType.CURSOR
+      agentType !== AgentType.CURSOR &&
+      agentType !== AgentType.CLAUDE_CODE
     )
       continue
 

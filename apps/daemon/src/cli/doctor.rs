@@ -22,6 +22,14 @@ pub fn run() -> anyhow::Result<()> {
     if local_agent == "cursor" {
         report.cursor = Some(crate::cursor_install::doctor());
     }
+    // Every spelling `config::runtime_resolution` accepts, so a claude daemon
+    // stops reporting opencode's install status as its own.
+    if matches!(
+        local_agent.as_str(),
+        "claude" | "claude-code" | "claude_code"
+    ) {
+        report.claude = Some(crate::claude_install::doctor());
+    }
     println!("{}", serde_json::to_string_pretty(&report)?);
     Ok(())
 }
