@@ -23,8 +23,14 @@ pub fn seed_app_repo(workdir: &Path, vars: &TemplateVars<'_>) -> anyhow::Result<
     let wd = workdir.to_string_lossy().to_string();
     if !workdir.join(".git").exists() {
         run_git(&["init", "--initial-branch=main"], workdir)?;
-        run_git(&["-C", &wd, "config", "user.email", "daemon@teamclaw"], workdir)?;
-        run_git(&["-C", &wd, "config", "user.name", "teamclaw-daemon"], workdir)?;
+        run_git(
+            &["-C", &wd, "config", "user.email", "daemon@teamclaw"],
+            workdir,
+        )?;
+        run_git(
+            &["-C", &wd, "config", "user.name", "teamclaw-daemon"],
+            workdir,
+        )?;
     }
     run_git(&["-C", &wd, "add", "-A"], workdir)?;
     // Nothing to commit is a success: re-seeding an untouched checkout is a
@@ -89,7 +95,14 @@ mod tests {
 
     fn head_files(workdir: &Path) -> Vec<String> {
         let out = Command::new("git")
-            .args(["-C", &workdir.to_string_lossy(), "ls-tree", "-r", "--name-only", "HEAD"])
+            .args([
+                "-C",
+                &workdir.to_string_lossy(),
+                "ls-tree",
+                "-r",
+                "--name-only",
+                "HEAD",
+            ])
             .output()
             .unwrap();
         String::from_utf8_lossy(&out.stdout)
@@ -120,7 +133,13 @@ mod tests {
 
     fn commit_count(workdir: &Path) -> usize {
         let out = Command::new("git")
-            .args(["-C", &workdir.to_string_lossy(), "rev-list", "--count", "HEAD"])
+            .args([
+                "-C",
+                &workdir.to_string_lossy(),
+                "rev-list",
+                "--count",
+                "HEAD",
+            ])
             .output()
             .unwrap();
         String::from_utf8_lossy(&out.stdout).trim().parse().unwrap()

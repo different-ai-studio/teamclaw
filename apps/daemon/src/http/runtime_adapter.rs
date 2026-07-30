@@ -941,11 +941,26 @@ fn resolve_spawn_worktree(workspace_id: Option<&str>) -> Result<String, HttpErro
         .map_err(|e| HttpError::internal(format!("resolve runtime worktree: {e}")))
 }
 
+/// Parse the wire `agent_type` for the local HTTP API.
+///
+/// Must stay in step with `daemon::runtime_resolution::agent_type_from_name`,
+/// which is the same mapping for the MQTT path. It cannot simply delegate: the
+/// integration-test harness (`tests/support/crate_modules.rs`) stitches together
+/// a subset of the crate that deliberately excludes `daemon`, so `http` may not
+/// reach into it. The duplication is why this table had drifted to
+/// `opencode | codex | claude*` — accepting codex, which has no backend at all,
+/// while rejecting cursor and pi with a 400. Two of the four runtimes the daemon
+/// can actually run were unreachable over local HTTP.
 fn parse_agent_type(agent_type: &str) -> Result<amux::AgentType, HttpError> {
-    match agent_type {
+    match agent_type.trim() {
         "opencode" => Ok(amux::AgentType::Opencode),
-        "codex" => Ok(amux::AgentType::Codex),
+        "pi" => Ok(amux::AgentType::Pi),
+        "cursor" => Ok(amux::AgentType::Cursor),
         "claude" | "claude_code" | "claude-code" => Ok(amux::AgentType::ClaudeCode),
+        // Kept for back-compat with callers that still send it. There is no codex
+        // backend, so `resolve_requested_agent_type` reroutes it to whatever this
+        // daemon actually runs.
+        "codex" => Ok(amux::AgentType::Codex),
         other => Err(HttpError::new(
             super::errors::ErrorCode::BadRequest,
             format!("unsupported agent_type: {other}"),
@@ -1608,5 +1623,32 @@ mod tests {
                 .count(),
             0
         );
+    }
+
+    #[test]
+    fn parse_agent_type_accepts_every_runnable_backend() {
+        // cursor and pi used to 400 here while codex — which has no backend at
+        // all — was accepted, because this function kept its own stale table
+        // instead of asking the resolver.
+        for (name, expected) in [
+            ("opencode", amux::AgentType::Opencode),
+            ("pi", amux::AgentType::Pi),
+            ("cursor", amux::AgentType::Cursor),
+            ("claude", amux::AgentType::ClaudeCode),
+            ("claude-code", amux::AgentType::ClaudeCode),
+            ("claude_code", amux::AgentType::ClaudeCode),
+        ] {
+            assert_eq!(
+                parse_agent_type(name).expect(name),
+                expected,
+                "{name} should parse"
+            );
+        }
+    }
+
+    #[test]
+    fn parse_agent_type_rejects_unknown_names() {
+        assert!(parse_agent_type("nope").is_err());
+        assert!(parse_agent_type("").is_err());
     }
 }

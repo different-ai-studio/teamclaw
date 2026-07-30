@@ -920,11 +920,26 @@ impl RuntimeManager {
         info.available_models = self.catalog_for_worktree(&info.worktree);
     }
 
-    /// Invalidate long-lived OpenCode/Codex ACP hosts after provider credentials change.
+    /// Every agent type a backend may hold a long-lived host process for.
+    ///
+    /// This used to be spelled inline as `[Opencode, Codex]` at both call sites,
+    /// which meant cursor and pi bridge processes were never evicted: cursor kept
+    /// serving with a stale API key after the user changed it in Settings, and
+    /// both survived daemon exit. Codex was listed despite having no backend at
+    /// all. Listing every implemented type is safe — `evict_agent_types` only
+    /// removes hosts that exist.
+    const EVICTABLE_AGENT_TYPES: &'static [amux::AgentType] = &[
+        amux::AgentType::Opencode,
+        amux::AgentType::Pi,
+        amux::AgentType::Cursor,
+        amux::AgentType::ClaudeCode,
+    ];
+
+    /// Invalidate long-lived ACP host processes after provider credentials change.
     pub fn evict_acp_hosts_after_provider_auth_change(&mut self) {
         let removed = self
             .agent_backend
-            .evict_agent_types(&[amux::AgentType::Opencode, amux::AgentType::Codex]);
+            .evict_agent_types(Self::EVICTABLE_AGENT_TYPES);
         if removed > 0 {
             info!(
                 removed,
@@ -943,7 +958,7 @@ impl RuntimeManager {
         }
         let removed = self
             .agent_backend
-            .evict_agent_types(&[amux::AgentType::Opencode, amux::AgentType::Codex]);
+            .evict_agent_types(Self::EVICTABLE_AGENT_TYPES);
         info!(
             removed_hosts = removed,
             "local agent backends shut down for daemon exit"

@@ -281,7 +281,11 @@ fn session_info_parent_id(props: &serde_json::Value) -> Option<String> {
         .map(str::to_string)
 }
 
-fn maybe_register_subagent_route(shared: &Arc<Shared>, session_id: &str, props: &serde_json::Value) {
+fn maybe_register_subagent_route(
+    shared: &Arc<Shared>,
+    session_id: &str,
+    props: &serde_json::Value,
+) {
     let Some(parent_id) = session_info_parent_id(props) else {
         return;
     };
@@ -367,7 +371,10 @@ async fn handle_question_asked(shared: &Arc<Shared>, session_id: &str, props: &s
     let full_access = {
         let routes = shared.routes.lock();
         match routes.get(session_id) {
-            Some(route) => route.permission.is_full_access().then(|| route.directory.clone()),
+            Some(route) => route
+                .permission
+                .is_full_access()
+                .then(|| route.directory.clone()),
             None => {
                 warn!(session_id, "question.asked for unrouted session");
                 None

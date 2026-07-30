@@ -7,8 +7,8 @@ use std::sync::Arc;
 use tokio::io::{AsyncBufReadExt, BufReader};
 use tracing::{info, warn};
 
-use crate::runtime::sidecar::client::SidecarClient;
 use super::{events, Shared};
+use crate::runtime::sidecar::client::SidecarClient;
 
 pub(crate) struct CursorProcess {
     pub(crate) client: SidecarClient,

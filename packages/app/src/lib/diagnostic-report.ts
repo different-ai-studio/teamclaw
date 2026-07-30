@@ -874,8 +874,25 @@ function buildTeamEnvCheck(teamEnv: TeamEnvDiagnostics | null, teamId: string | 
 }
 
 function buildLocalAgentCheck(doctor: unknown | null): DiagnosticCheck {
-  const runtimeKey = localAgent === 'pi' ? 'pi' : localAgent === 'cursor' ? 'cursor' : 'opencode'
-  const runtimeLabel = localAgent === 'pi' ? 'Pi' : localAgent === 'cursor' ? 'Cursor' : 'OpenCode'
+  // Key and label must move together: claude-code had no arm, so a claude daemon
+  // read opencode's `satisfied`/`version` out of the doctor report and presented
+  // it under the label "OpenCode" — a pass/fail about a different program.
+  const runtimeKey =
+    localAgent === 'pi'
+      ? 'pi'
+      : localAgent === 'cursor'
+        ? 'cursor'
+        : localAgent === 'claude-code'
+          ? 'claude'
+          : 'opencode'
+  const runtimeLabel =
+    localAgent === 'pi'
+      ? 'Pi'
+      : localAgent === 'cursor'
+        ? 'Cursor'
+        : localAgent === 'claude-code'
+          ? 'Claude Code'
+          : 'OpenCode'
   const doc = doctor as Record<string, Record<string, unknown>> | null
   const runtime = doc?.[runtimeKey] as { satisfied?: boolean; version?: string } | undefined
 
