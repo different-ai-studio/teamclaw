@@ -55,7 +55,6 @@ resources:
         ALIYUN_ACCOUNT_ID: ${env('ALIYUN_ACCOUNT_ID', '')}
         PUSH_WEBHOOK_SECRET: ${env('PUSH_WEBHOOK_SECRET')}
         CRON_TRIGGER_SECRET: ${env('CRON_TRIGGER_SECRET', '')}
-        MQTT_PUBLIC_BROKER_URL: ${env('MQTT_PUBLIC_BROKER_URL', '')}
         # Raw-TCP address for clients whose MQTT stack can't do WebSocket (iOS
         # CocoaMQTT, Expo). Keep in step with the compose `environment:` map —
         # a var declared on only one target silently drops `mqtt.tcpUrl` from
@@ -70,6 +69,10 @@ resources:
         APNS_TEAM_ID: ${env('APNS_TEAM_ID')}
         APNS_TOPIC: ${env('APNS_TOPIC')}
         APNS_ENV: ${env('APNS_ENV')}
+        # The ONE broker address: used by FC's own inbox publisher AND handed to
+        # clients by /v1/config/bootstrap. Must be reachable by clients, not just
+        # from inside the container. Required — no default, so a blank aborts the
+        # deploy rather than shipping a bootstrap with no `mqtt` block.
         MQTT_BROKER_URL: ${env('MQTT_BROKER_URL')}
         MQTT_USERNAME: ${env('MQTT_USERNAME')}
         MQTT_PASSWORD: ${env('MQTT_PASSWORD')}

@@ -219,9 +219,13 @@ describe("Auth", { skip: !E2E }, () => {
 // ── Suite 1b: Runtime config ───────────────────────────────────────────────
 //
 // The deploy gate for issue #634. `/v1/config/bootstrap` omits the whole `mqtt`
-// block when MQTT_PUBLIC_BROKER_URL / MQTT_BROKER_URL are unset, and still
-// answers 200 — so a deploy that loses those env vars looks completely healthy
-// while every client silently ends up with no broker. Fail the deploy instead.
+// block when MQTT_BROKER_URL is unset or blank, and still answers 200 — so a
+// deploy that loses that env var looks completely healthy while every client
+// silently ends up with no broker. Fail the deploy instead.
+//
+// This is now the only automated check between a mis-set MQTT_BROKER_URL and
+// clients with no real-time sync: compose derives the value from MQTT_DOMAIN
+// rather than refusing to start, so nothing earlier in the pipeline objects.
 
 describe("Runtime config", { skip: !E2E }, () => {
   test("GET /v1/config/bootstrap delivers an MQTT broker", async () => {
@@ -231,8 +235,8 @@ describe("Runtime config", { skip: !E2E }, () => {
     assert.equal(status, 200, `bootstrap failed: ${JSON.stringify(body)}`);
     assert.ok(
       body.mqtt,
-      "bootstrap returned no `mqtt` block — check MQTT_PUBLIC_BROKER_URL / " +
-        "MQTT_BROKER_URL in the fc service's compose `environment:` map"
+      "bootstrap returned no `mqtt` block — check MQTT_BROKER_URL in the fc " +
+        "service's compose `environment:` map"
     );
     assert.equal(typeof body.mqtt.url, "string", "mqtt.url must be a string");
     assert.ok(body.mqtt.url.length > 0, "mqtt.url must be non-empty");

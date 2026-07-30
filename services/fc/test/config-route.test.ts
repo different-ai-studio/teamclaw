@@ -50,8 +50,7 @@ test("buildBootstrapConfig returns mqtt block when env is set", () => {
 test("buildBootstrapConfig includes tcpUrl when MQTT_PUBLIC_TCP_BROKER_URL is set", () => {
   withEnv(
     {
-      MQTT_BROKER_URL: undefined,
-      MQTT_PUBLIC_BROKER_URL: "wss://claw.example.com/mqtt",
+      MQTT_BROKER_URL: "wss://claw.example.com/mqtt",
       MQTT_PUBLIC_TCP_BROKER_URL: "mqtt://claw.example.com:8080",
       MQTT_USE_TLS: undefined,
       WEBSSO_LOGIN_URL: undefined,
@@ -67,18 +66,22 @@ test("buildBootstrapConfig includes tcpUrl when MQTT_PUBLIC_TCP_BROKER_URL is se
   );
 });
 
-test("an empty MQTT_PUBLIC_BROKER_URL falls back to MQTT_BROKER_URL", () => {
-  // How every deployment actually declares it: s.yaml uses
-  // `${env('MQTT_PUBLIC_BROKER_URL', '')}` and docker-compose
-  // `"${MQTT_PUBLIC_BROKER_URL:-}"`, so "not configured" arrives as "" rather
-  // than undefined. `??` treated that as a real value and dropped the whole
-  // mqtt block — clients then reported "the server did not deliver an MQTT
-  // address" while the daemon, which never reads this endpoint, stayed happily
-  // connected. Only `undefined` was ever tested, which is why it survived.
+test("MQTT_BROKER_URL is the only broker source — the public override is gone", () => {
+  // There used to be an MQTT_PUBLIC_BROKER_URL override in front of this. It is
+  // deleted, deliberately: every deployment declared it with an empty default,
+  // `""` is not nullish, so the documented fallback to MQTT_BROKER_URL never
+  // fired and bootstrap answered 200 with no `mqtt` block at all — clients
+  // reported "the server did not deliver an MQTT address" while the daemon,
+  // which never reads this endpoint, stayed connected and masked it (#634, then
+  // belayo). Only `undefined` had ever been tested, which is how it survived.
+  //
+  // A leftover value for the old name must now be inert, not authoritative:
+  // stale env entries on already-deployed functions would otherwise keep
+  // deciding what clients connect to.
   withEnv(
     {
       MQTT_BROKER_URL: "mqtt://mqtt.example.com:1883",
-      MQTT_PUBLIC_BROKER_URL: "",
+      MQTT_PUBLIC_BROKER_URL: "mqtt://stale-override.example.com:1883",
       MQTT_PUBLIC_TCP_BROKER_URL: "",
       MQTT_USE_TLS: undefined,
       WEBSSO_LOGIN_URL: undefined,
@@ -91,22 +94,17 @@ test("an empty MQTT_PUBLIC_BROKER_URL falls back to MQTT_BROKER_URL", () => {
   );
 });
 
-test("MQTT_PUBLIC_BROKER_URL still overrides when the two addresses differ", () => {
-  // Self-host: FC reaches the broker inside the compose network while clients
-  // must use the public hostname. Collapsing to a single variable would hand
-  // clients `mqtt://emqx:1883`, which resolves nowhere outside Docker.
+test("an empty MQTT_BROKER_URL omits mqtt — it never resurrects the old name", () => {
   withEnv(
     {
-      MQTT_BROKER_URL: "mqtt://emqx:1883",
-      MQTT_PUBLIC_BROKER_URL: "mqtt://mqtt.example.com:1883",
+      MQTT_BROKER_URL: "",
+      MQTT_PUBLIC_BROKER_URL: "mqtt://stale-override.example.com:1883",
       MQTT_PUBLIC_TCP_BROKER_URL: undefined,
       MQTT_USE_TLS: undefined,
       WEBSSO_LOGIN_URL: undefined,
     },
     () => {
-      assert.deepEqual(buildBootstrapConfig(), {
-        mqtt: { url: "mqtt://mqtt.example.com:1883" },
-      });
+      assert.deepEqual(buildBootstrapConfig(), {});
     },
   );
 });
@@ -140,11 +138,10 @@ test("buildBootstrapConfig omits mqtt when broker url is missing", () => {
   );
 });
 
-test("both broker urls blank omits mqtt rather than emitting an empty url", () => {
+test("a whitespace-only broker url omits mqtt rather than emitting an empty url", () => {
   withEnv(
     {
-      MQTT_BROKER_URL: "",
-      MQTT_PUBLIC_BROKER_URL: "   ",
+      MQTT_BROKER_URL: "   ",
       MQTT_USE_TLS: "true",
       WEBSSO_LOGIN_URL: undefined,
     },

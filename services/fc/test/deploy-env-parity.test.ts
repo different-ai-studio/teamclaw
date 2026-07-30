@@ -130,9 +130,10 @@ test("the exception lists stay honest", () => {
 /**
  * Every environment variable the service reads.
  *
- * Two access shapes are in use: `process.env.FOO` directly, and `env.FOO` on an
+ * Three access shapes are in use: `process.env.FOO` directly, `env.FOO` on an
  * injected `env` object (resolveBackendKind, publishableKeyFromEnv,
- * litellm-usage). Matching only the first would report live variables as dead.
+ * litellm-usage), and `envValue("FOO")` — the blank-is-absent reader in
+ * routes/config.ts. Matching only some would report live variables as dead.
  */
 function envVarsReadBySource(): Set<string> {
   const found = new Set<string>();
@@ -147,6 +148,7 @@ function envVarsReadBySource(): Set<string> {
         for (const m of src.matchAll(/process\.env\[["']([A-Z_0-9]+)["']\]/g)) found.add(m[1]);
         for (const m of src.matchAll(/\benv\.([A-Z_0-9]+)/g)) found.add(m[1]);
         for (const m of src.matchAll(/\benv\[["']([A-Z_0-9]+)["']\]/g)) found.add(m[1]);
+        for (const m of src.matchAll(/\benvValue\(["']([A-Z_0-9]+)["']\)/g)) found.add(m[1]);
       }
     }
   };
