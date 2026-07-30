@@ -9,7 +9,6 @@ import { useDaemonOnboardingStore } from '@/stores/daemon-onboarding'
 import { useCurrentTeamStore } from '@/stores/current-team'
 import {
   getLocalDaemonAgent,
-  getDaemonMqttConnected,
   getDaemonVersion,
   listAgentAccess,
   listTeamMembersForAccess,
@@ -29,6 +28,7 @@ import {
   type DaemonLocalAgent,
 } from '@/lib/daemon-local-client'
 import { useUIStore } from '@/stores/ui'
+import { useDaemonMqttConnected } from '@/stores/daemon-mqtt-status'
 import { cn, isTauri } from '@/lib/utils'
 import { SectionHeader, SettingCard } from './shared'
 import { DaemonManualResetCard } from './DaemonManualResetCard'
@@ -63,7 +63,8 @@ export function DaemonGeneralSection() {
   const [saving, setSaving] = React.useState(false)
   const [error, setError] = React.useState<string | null>(null)
   const [daemonTeamId, setDaemonTeamId] = React.useState<string | null>(null)
-  const [daemonMqttConnected, setDaemonMqttConnected] = React.useState<boolean | null>(null)
+  // Shared with the sidebar status dot — one poll, one value (#522).
+  const daemonMqttConnected = useDaemonMqttConnected()
   const [daemonVersion, setDaemonVersion] = React.useState<string | null>(null)
   // Local agent runtime (`agents.local_agent`): opencode | pi. Switching writes
   // the daemon config and restarts amuxd so the new backend takes effect.
@@ -204,12 +205,6 @@ export function DaemonGeneralSection() {
   React.useEffect(() => {
     void load()
   }, [load])
-
-  React.useEffect(() => {
-    void getDaemonMqttConnected().then(setDaemonMqttConnected)
-    const id = setInterval(() => void getDaemonMqttConnected().then(setDaemonMqttConnected), 10_000)
-    return () => clearInterval(id)
-  }, [])
 
   // The running daemon's own version (from GET /v1/info). Fetched once — it only
   // changes across a daemon restart/upgrade, which reopens this section anyway.
@@ -487,7 +482,7 @@ export function DaemonGeneralSection() {
               <dl className="grid grid-cols-[120px_1fr] gap-y-1.5 text-[12px]">
                 <dt className="text-muted-foreground">{t('settings.daemonGeneral.mqttStatus', 'Status')}</dt>
                 <dd className="flex items-center gap-2">
-                  <span className={cn('inline-block h-2 w-2 rounded-full', daemonMqttConnected === true ? 'bg-green-500' : daemonMqttConnected === false ? 'bg-red-500' : 'bg-muted-foreground/40')} />
+                  <span className={cn('inline-block h-2 w-2 rounded-full', daemonMqttConnected === true ? 'bg-emerald-500' : daemonMqttConnected === false ? 'bg-amber-400' : 'bg-muted-foreground/40')} />
                   <span className="text-foreground">
                     {daemonMqttConnected === true
                       ? t('settings.daemonGeneral.mqttConnected', 'Connected')

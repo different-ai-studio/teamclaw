@@ -35,7 +35,8 @@ import { SessionSearchDialog } from "@/components/sidebar/session-search-dialog"
 import { SessionDetailDialog, type SessionDetailListHints } from "@/components/sidebar/SessionDetailDialog"
 import { NavRail } from "@/components/sidebar/NavRail"
 import { LocalDaemonCard } from "@/components/sidebar/LocalDaemonCard"
-import { MqttDisconnectedNotice } from "@/components/sidebar/MqttDisconnectedNotice"
+import { useMqttConnected } from "@/hooks/useMqttConnected"
+import { recoverMqttConnection } from "@/stores/mqtt-reconnect"
 
 /** Sidebar collapse control only (workspace variant sidebar header). */
 export function SidebarCollapseToggle({ className }: { className?: string }) {
@@ -226,6 +227,11 @@ function SidebarUserAccountMenu() {
   const currentMember = useCurrentTeamStore((s) => s.currentMember)
   const teamShareActive = useTeamShareStore((s) => isShareModeLocked(s.status.mode))
   const openSettings = useUIStore((s) => s.openSettings)
+  // The desktop app's *own* MQTT link. Distinct from the daemon's MQTT link,
+  // which the LocalDaemonCard dot reports — see #522. Only surfaced when it is
+  // known to be down; `null` (still probing) shows nothing.
+  const appMqttConnected = useMqttConnected()
+  const appMqttDown = appMqttConnected === false
 
   const [upgradeOpen, setUpgradeOpen] = React.useState(false)
 
@@ -262,13 +268,23 @@ function SidebarUserAccountMenu() {
           className="h-8 min-w-0 shrink max-w-full gap-1.5 rounded-lg px-2 text-[12px] text-ink-2 hover:bg-black/[0.04] hover:text-foreground"
           data-testid="sidebar-user-menu-trigger"
         >
-          {avatarUrl ? (
-            <img src={avatarUrl} alt="" className="h-4 w-4 shrink-0 rounded-full object-cover" />
-          ) : (
-            <div className="flex h-4 w-4 shrink-0 items-center justify-center rounded-full bg-muted text-[9px] font-medium text-foreground">
-              {(userName?.[0] || "?").toUpperCase()}
-            </div>
-          )}
+          <span className="relative flex h-4 w-4 shrink-0">
+            {avatarUrl ? (
+              <img src={avatarUrl} alt="" className="h-4 w-4 rounded-full object-cover" />
+            ) : (
+              <div className="flex h-4 w-4 items-center justify-center rounded-full bg-muted text-[9px] font-medium text-foreground">
+                {(userName?.[0] || "?").toUpperCase()}
+              </div>
+            )}
+            {appMqttDown ? (
+              <span
+                role="status"
+                aria-label={t('sidebar.appMqttDisconnected', 'Cannot reach the messaging server')}
+                data-testid="sidebar-app-mqtt-dot"
+                className="absolute -right-0.5 -top-0.5 h-[6px] w-[6px] rounded-full bg-coral ring-1 ring-paper"
+              />
+            ) : null}
+          </span>
           <span className="min-w-0 truncate">{userName}</span>
           <ChevronUp className="h-3.5 w-3.5 shrink-0" />
         </Button>
@@ -282,6 +298,33 @@ function SidebarUserAccountMenu() {
             </div>
           )}
         </DropdownMenuLabel>
+        {appMqttDown ? (
+          <>
+            <DropdownMenuSeparator />
+            <button
+              type="button"
+              onClick={() => {
+                void recoverMqttConnection()
+                openSettings('general')
+              }}
+              data-testid="sidebar-app-mqtt-notice"
+              className="flex w-full items-start gap-2 rounded-[8px] px-2 py-1.5 text-left transition-colors hover:bg-[color:var(--coral-soft)]/40"
+            >
+              <span
+                aria-hidden
+                className="mt-[5px] inline-block h-2 w-2 shrink-0 rounded-full bg-coral"
+              />
+              <span className="min-w-0 flex-1 leading-tight">
+                <span className="block text-[12px] font-semibold text-foreground">
+                  {t('sidebar.appMqttDisconnected', 'Cannot reach the messaging server')}
+                </span>
+                <span className="block text-[11px] text-muted-foreground">
+                  {t('sidebar.appMqttDisconnectedHint', 'Tap to retry or configure the server')}
+                </span>
+              </span>
+            </button>
+          </>
+        ) : null}
         <DropdownMenuSeparator />
         <div className="space-y-1 px-2 py-1.5 text-[12px]">
           {isAnonymous ? (
@@ -430,7 +473,6 @@ export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
 
         <SidebarFooter className="gap-2 px-2.5 pb-2 pt-1">
           <LocalDaemonCard />
-          <MqttDisconnectedNotice />
 
             <div className="flex min-w-0 items-center justify-between gap-1 overflow-hidden">
               <Button

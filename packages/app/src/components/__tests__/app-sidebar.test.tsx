@@ -7,8 +7,6 @@ const uiStoreMocks = vi.hoisted(() => ({
   switchToSession: vi.fn(() => Promise.resolve()),
   openSettings: vi.fn(),
   closeSettings: vi.fn(),
-  localDaemonMqttNoticeSuppressed: false,
-  setLocalDaemonMqttNoticeSuppressed: vi.fn(),
 }))
 
 const workspaceStoreMocks = vi.hoisted(() => ({
@@ -188,10 +186,6 @@ vi.mock('@/components/sidebar/LocalDaemonCard', () => ({
   LocalDaemonCard: () => null,
 }))
 
-vi.mock('@/components/sidebar/MqttDisconnectedNotice', () => ({
-  MqttDisconnectedNotice: () => null,
-}))
-
 vi.mock('@/components/sidebar/SessionListColumn', () => ({
   SessionListColumn: () => <div data-testid="session-list-column" />,
 }))
@@ -219,8 +213,6 @@ describe('AppSidebar', () => {
     uiStoreMocks.switchToSession = vi.fn(() => Promise.resolve())
     uiStoreMocks.openSettings = vi.fn()
     uiStoreMocks.closeSettings = vi.fn()
-    uiStoreMocks.localDaemonMqttNoticeSuppressed = false
-    uiStoreMocks.setLocalDaemonMqttNoticeSuppressed = vi.fn()
     workspaceStoreMocks.isPanelOpen = false
     workspaceStoreMocks.activeTab = 'shortcuts'
     workspaceStoreMocks.openPanel = vi.fn()
