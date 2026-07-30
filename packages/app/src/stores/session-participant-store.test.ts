@@ -139,12 +139,14 @@ describe("session-participant-store", () => {
     ]);
   });
 
-  it("invalidates cached sessions", async () => {
+  it("marks invalidated sessions loading while keeping cached roster", async () => {
     await useSessionParticipantStore.getState().ensureParticipants(["s1"]);
 
     useSessionParticipantStore.getState().invalidateSessions(["s1"]);
 
-    expect(useSessionParticipantStore.getState().participantsBySession.s1).toBeUndefined();
+    const state = useSessionParticipantStore.getState();
+    expect(state.participantsBySession.s1).toHaveLength(2);
+    expect(state.loadingBySession.s1).toBe(true);
   });
 
   it("syncs before refreshing when team id is available", async () => {

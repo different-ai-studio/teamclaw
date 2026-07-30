@@ -2,6 +2,18 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const mocks = vi.hoisted(() => ({
   listParticipants: vi.fn(),
+  participantStoreState: {
+    participantsBySession: {} as Record<
+      string,
+      Array<{ actorId: string; displayName: string; avatarUrl: null; isAgent: boolean }>
+    >,
+  },
+}));
+
+vi.mock("@/stores/session-participant-store", () => ({
+  useSessionParticipantStore: {
+    getState: () => mocks.participantStoreState,
+  },
 }));
 
 vi.mock("@/lib/backend", () => ({
@@ -25,6 +37,7 @@ describe("resolveSessionMentionActorIds", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     useEngagedAgentStore.setState({ bySession: {} });
+    mocks.participantStoreState.participantsBySession = {};
     mocks.listParticipants.mockResolvedValue([]);
   });
 
@@ -55,6 +68,29 @@ describe("resolveSessionMentionActorIds", () => {
 
     const ids = await resolveSessionMentionActorIds("session-1", [], []);
     expect(ids).toEqual([]);
+  });
+
+  it("fallbacks to the sole agent in solo sessions when nothing is explicit", async () => {
+    mocks.participantStoreState.participantsBySession = {
+      "session-1": [
+        { actorId: "member-1", displayName: "Alice", avatarUrl: null, isAgent: false },
+        { actorId: "agent-1", displayName: "Bot", avatarUrl: null, isAgent: true },
+      ],
+    };
+
+    const ids = await resolveSessionMentionActorIds("session-1", [], []);
+    expect(ids).toEqual(["agent-1"]);
+    expect(mocks.listParticipants).not.toHaveBeenCalled();
+  });
+
+  it("fallbacks to the sole agent in solo sessions via backend when roster is uncached", async () => {
+    mocks.listParticipants.mockResolvedValue([
+      { id: "member-1", actor_type: "member", display_name: "Alice" },
+      { id: "agent-1", actor_type: "agent", display_name: "Bot" },
+    ]);
+
+    const ids = await resolveSessionMentionActorIds("session-1", [], []);
+    expect(ids).toEqual(["agent-1"]);
   });
 
   it("merges typed @agent from message text", async () => {

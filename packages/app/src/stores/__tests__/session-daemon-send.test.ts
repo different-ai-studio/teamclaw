@@ -182,12 +182,42 @@ describe('session store daemon send path', () => {
     expect(mocks.mqttPublish).toHaveBeenCalledTimes(1)
   })
 
-  it('does not auto-mention the sole agent when no engaged agent is selected', async () => {
+  it('auto-mentions the sole agent in solo sessions when no engaged pill is selected', async () => {
     const { useSessionStore } = await import('../session-store')
 
     mocks.listParticipants.mockResolvedValue([
       { id: 'agent-1', actor_type: 'agent' },
       { id: 'member-1', actor_type: 'member' },
+    ])
+
+    useSessionStore.setState({
+      activeSessionId: 'a1ca8f06-94ee-4fb5-bdfb-194a5606062f',
+      currentSessionId: 'a1ca8f06-94ee-4fb5-bdfb-194a5606062f',
+      sessions: [{
+        id: 'a1ca8f06-94ee-4fb5-bdfb-194a5606062f',
+        title: 'Collab Session',
+        messages: [],
+        createdAt: new Date(),
+        updatedAt: new Date(),
+      }],
+    })
+
+    await useSessionStore.getState().sendMessage('hello daemon')
+
+    expect(mocks.backendInsertOutgoingMessage).toHaveBeenCalledWith(
+      expect.objectContaining({
+        metadata: { mention_actor_ids: ['agent-1'] },
+      }),
+    )
+  })
+
+  it('does not auto-mention an agent in multi-person sessions without an engaged pill', async () => {
+    const { useSessionStore } = await import('../session-store')
+
+    mocks.listParticipants.mockResolvedValue([
+      { id: 'agent-1', actor_type: 'agent' },
+      { id: 'member-1', actor_type: 'member' },
+      { id: 'member-2', actor_type: 'member' },
     ])
 
     useSessionStore.setState({
@@ -275,7 +305,7 @@ describe('session store daemon send path', () => {
     expect(sessionMessage.message?.model).toBe('opencode/qwen3.6-plus-free')
   })
 
-  it('does not auto-mention personal_agent without an engaged pill', async () => {
+  it('auto-mentions personal_agent in solo sessions without an engaged pill', async () => {
     const { useSessionStore } = await import('../session-store')
 
     mocks.listParticipants.mockResolvedValue([
@@ -299,7 +329,7 @@ describe('session store daemon send path', () => {
 
     expect(mocks.backendInsertOutgoingMessage).toHaveBeenCalledWith(
       expect.objectContaining({
-        metadata: { mention_actor_ids: [] },
+        metadata: { mention_actor_ids: ['agent-1'] },
       }),
     )
   })

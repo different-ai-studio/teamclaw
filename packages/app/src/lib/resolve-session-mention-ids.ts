@@ -1,6 +1,38 @@
 import { getBackend } from "@/lib/backend";
+import { isAgentActorType } from "@/lib/actor-type";
 import { resolveActorIdsFromAtText } from "@/lib/resolve-text-mentions";
+import { isSoloAgentSession } from "@/lib/session-empty-thread-starters";
 import { useEngagedAgentStore } from "@/stores/engaged-agent-store";
+import {
+  useSessionParticipantStore,
+} from "@/stores/session-participant-store";
+
+function soleAgentIdFromRoster(
+  roster: Array<{ isAgent: boolean; actorId: string }>,
+): string | null {
+  if (!isSoloAgentSession(roster.map((p) => ({ isAgent: p.isAgent })))) return null;
+  return roster.find((p) => p.isAgent)?.actorId ?? null;
+}
+
+async function resolveSoleAgentIdIfSoloSession(sessionId: string): Promise<string | null> {
+  const cached = useSessionParticipantStore.getState().participantsBySession[sessionId];
+  if (cached !== undefined) {
+    return soleAgentIdFromRoster(cached);
+  }
+
+  try {
+    const rows = await getBackend().sessionMembers.listParticipants(sessionId);
+    const roster = rows
+      .filter((row) => row.actor_type === "member" || isAgentActorType(row.actor_type))
+      .map((row) => ({
+        actorId: row.id,
+        isAgent: isAgentActorType(row.actor_type),
+      }));
+    return soleAgentIdFromRoster(roster);
+  } catch {
+    return null;
+  }
+}
 
 /**
  * Resolve `mention_actor_ids` for an outgoing message — WYSIWYG only.
@@ -10,7 +42,9 @@ import { useEngagedAgentStore } from "@/stores/engaged-agent-store";
  * - `@displayName` typed in the message body
  * - human member @ tokens / picker mentions (memberIds)
  *
- * There is no send-time fallback that silently @-mentions a session agent.
+ * There is no send-time fallback that silently @-mentions a session agent,
+ * except in solo sessions (exactly one human + one agent) where routing must
+ * stay reliable while the roster or pill is still loading.
  */
 export async function resolveSessionMentionActorIds(
   sessionId: string,
@@ -39,10 +73,16 @@ export async function resolveSessionMentionActorIds(
     }
   }
 
+  let effectiveAgentIds = agentIds.slice(0, 1);
+  if (effectiveAgentIds.length === 0 && fromText.agentIds.length === 0) {
+    const soleAgentId = await resolveSoleAgentIdIfSoloSession(sessionId);
+    if (soleAgentId) effectiveAgentIds = [soleAgentId];
+  }
+
   return Array.from(
     new Set([
       ...memberIds,
-      ...agentIds.slice(0, 1),
+      ...effectiveAgentIds,
       ...fromText.memberIds,
       ...(fromText.agentIds[0] ? [fromText.agentIds[0]] : []),
     ]),

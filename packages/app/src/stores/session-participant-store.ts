@@ -23,7 +23,10 @@ type State = {
   participantsBySession: Record<string, SessionParticipantInfo[]>;
   loadingBySession: Record<string, boolean>;
   errorBySession: Record<string, string | null>;
-  ensureParticipants: (sessionIds: string[]) => Promise<void>;
+  ensureParticipants: (
+    sessionIds: string[],
+    options?: { force?: boolean },
+  ) => Promise<void>;
   refreshSession: (sessionId: string, teamId?: string | null) => Promise<void>;
   invalidateSessions: (sessionIds: string[]) => void;
 };
@@ -75,11 +78,13 @@ export const useSessionParticipantStore = create<State>((set, get) => ({
   participantsBySession: {},
   loadingBySession: {},
   errorBySession: {},
-  ensureParticipants: async (sessionIds) => {
+  ensureParticipants: async (sessionIds, options) => {
+    const force = options?.force ?? false;
     const unique = Array.from(new Set(sessionIds)).filter(Boolean);
     const missing = unique.filter((sessionId) => {
-      if (get().loadingBySession[sessionId]) return false
+      if (!force && get().loadingBySession[sessionId]) return false
       const cached = get().participantsBySession[sessionId]
+      if (force) return true
       if (cached === undefined) return true
       // Extension/web: retry empty cache (legacy loadSessionParticipants stub).
       if (!isTauri() && cached.length === 0) return true
@@ -132,19 +137,20 @@ export const useSessionParticipantStore = create<State>((set, get) => ({
       await syncParticipantsForSession(sessionId, teamId, { full: true });
     }
     get().invalidateSessions([sessionId]);
-    await get().ensureParticipants([sessionId]);
+    await get().ensureParticipants([sessionId], { force: true });
   },
   invalidateSessions: (sessionIds) => {
-    const ids = new Set(sessionIds);
-    if (ids.size === 0) return;
-    set((state) => {
-      const participantsBySession = { ...state.participantsBySession };
-      const errorBySession = { ...state.errorBySession };
-      for (const sessionId of ids) {
-        delete participantsBySession[sessionId];
-        delete errorBySession[sessionId];
-      }
-      return { participantsBySession, errorBySession };
-    });
+    const ids = Array.from(new Set(sessionIds)).filter(Boolean);
+    if (ids.length === 0) return;
+    set((state) => ({
+      loadingBySession: {
+        ...state.loadingBySession,
+        ...Object.fromEntries(ids.map((sessionId) => [sessionId, true])),
+      },
+      errorBySession: {
+        ...state.errorBySession,
+        ...Object.fromEntries(ids.map((sessionId) => [sessionId, null])),
+      },
+    }));
   },
 }));
