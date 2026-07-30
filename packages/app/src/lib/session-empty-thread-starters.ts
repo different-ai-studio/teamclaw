@@ -19,7 +19,8 @@ function isAgentParticipant(p: SoloSessionParticipant): boolean {
   return false
 }
 
-/** Exactly one agent and one other participant (solo human + agent pair). */
+/** Exactly one agent and one other participant (solo human + agent pair).
+ *  Adding another agent or member makes this false → agent pill becomes removable. */
 export function isSoloAgentSession(participants: SoloSessionParticipant[]): boolean {
   const agents = participants.filter(isAgentParticipant)
   return agents.length === 1 && participants.length === 2

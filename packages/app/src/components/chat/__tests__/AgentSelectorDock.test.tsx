@@ -294,6 +294,21 @@ describe('AgentSelectorDock', () => {
     expect(screen.queryByText('mimo-v2.5-free')).not.toBeInTheDocument()
   })
 
+  it('hides Remove mention when agentMentionLocked (solo session)', async () => {
+    render(
+      <AgentSelectorDock
+        {...dockProps({
+          activeSessionId: 'session-1',
+          engagedAgents: [{ id: 'a-1', displayName: 'Solo Bot' }],
+          agentMentionLocked: true,
+        })}
+      />,
+    )
+
+    await userEvent.click(await screen.findByRole('button', { name: /Solo Bot/i }))
+    expect(screen.queryByText(/Remove mention/i)).not.toBeInTheDocument()
+  })
+
   it('shows offline pill suffix from engagedUiEntries', async () => {
     render(
       <AgentSelectorDock

@@ -27,45 +27,14 @@ import {
 } from "@/stores/streaming";
 import { trackEvent } from "@/lib/analytics";
 import { insertMessageSorted } from "@/lib/insert-message-sorted";
-import { isAgentActorType } from "@/lib/actor-type";
 import {
   resolvePendingPermissionActivityOwner,
   resolvePendingQuestionActivityOwner,
 } from "@/lib/session-list-activity";
+import { resolveSessionMentionActorIds } from "@/lib/resolve-session-mention-ids";
 
 type SessionSet = (fn: ((state: SessionState) => Partial<SessionState>) | Partial<SessionState>) => void;
 type SessionGet = () => SessionState;
-
-async function resolveMentionActorIdsForSession(
-  sessionId: string,
-  engagedAgentId: string | null,
-): Promise<string[]> {
-  if (engagedAgentId) return [engagedAgentId];
-
-  // Honor an explicit "Remove mention" — see matching guard in ChatPanel's
-  // copy of this resolver. Without it the sole-agent fallback below would
-  // silently re-engage the agent the user just unpinned.
-  if (useEngagedAgentStore.getState().wasExplicitlyCleared[sessionId]) {
-    return [];
-  }
-
-  let participants: Array<{ id: string; actor_type?: string | null }>;
-  try {
-    participants = await getBackend().sessionMembers.listParticipants(sessionId);
-  } catch (participantError) {
-    console.warn("[SendMessage] failed to load session participants:", participantError);
-    return [];
-  }
-
-  const agents = participants.filter((row) => isAgentActorType(row.actor_type));
-
-  // Sole-agent send fallback — see ChatPanel.resolveMentionActorIdsForSession.
-  // Multi-person sessions still route to the sole agent here; only open-time
-  // pill auto-engage is restricted to solo pairs (isSoloAgentSession).
-  return agents.length === 1
-    ? [agents[0].id]
-    : [];
-}
 
 export function createMessageActions(set: SessionSet, get: SessionGet) {
   async function ensureDaemonSessionForSend(content: string): Promise<string | null> {
@@ -153,9 +122,10 @@ export function createMessageActions(set: SessionSet, get: SessionGet) {
     }
 
     const engagedAgent = useEngagedAgentStore.getState().get(sessionId);
-    const mentionActorIds = await resolveMentionActorIdsForSession(
+    const mentionActorIds = await resolveSessionMentionActorIds(
       sessionId,
-      engagedAgent?.id ?? null,
+      [],
+      engagedAgent ? [engagedAgent.id] : [],
     );
     const messageId = crypto.randomUUID();
     const createdAt = BigInt(Math.floor(Date.now() / 1000));

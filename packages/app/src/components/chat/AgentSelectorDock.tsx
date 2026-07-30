@@ -49,6 +49,8 @@ interface AgentSelectorDockProps {
   agentToBackendType: Map<string, string>
   /** Remove a single agent (clicked the X on the chip / "Remove" in dropdown). */
   onRemoveAgent: (agentId: string) => void
+  /** Solo session: agent pill is mandatory and cannot be removed. */
+  agentMentionLocked?: boolean
 }
 
 export { resolveAgentAvailableModels } from '@/lib/agent-available-models'
@@ -84,6 +86,7 @@ export function AgentSelectorDock({
   agentToRuntimeId,
   agentToBackendType,
   onRemoveAgent,
+  agentMentionLocked = false,
 }: AgentSelectorDockProps) {
   const runtimeStates = useRuntimeStateStore((s) => s.byRuntimeId)
   const uiStateByAgentId = React.useMemo(
@@ -115,6 +118,7 @@ export function AgentSelectorDock({
             backendType={backendType}
             runtimeInfo={runtimeEntry?.info}
             uiState={uiStateByAgentId.get(agent.id) ?? 'connecting'}
+            mentionLocked={agentMentionLocked}
             onRemove={() => {
               if (activeSessionId) {
                 useAgentModelPickStore.getState().clearPick(activeSessionId, agent.id)
@@ -139,6 +143,7 @@ function AgentPill({
   backendType,
   runtimeInfo,
   uiState,
+  mentionLocked = false,
   onRemove,
 }: {
   sessionIdProp: string | null
@@ -147,6 +152,7 @@ function AgentPill({
   backendType: string | undefined
   runtimeInfo: RuntimeInfo | undefined
   uiState: SessionAgentUiState
+  mentionLocked?: boolean
   onRemove: () => void
 }) {
   const { t } = useTranslation()
@@ -443,6 +449,7 @@ function AgentPill({
             </div>
           }
           footer={
+            mentionLocked ? undefined : (
             <div className="p-1">
               <button
                 type="button"
@@ -456,6 +463,7 @@ function AgentPill({
                 {t('chat.agentSelector.removeMention', 'Remove mention')}
               </button>
             </div>
+            )
           }
         />
       </PopoverContent>

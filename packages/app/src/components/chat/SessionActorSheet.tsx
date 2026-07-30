@@ -645,7 +645,7 @@ export function SessionActorPanel({ sessionId, teamId }: SessionActorPanelProps)
     setPendingRemove(null)
     try {
       await getBackend().sessionMembers.removeParticipant(sessionId, actor.id)
-      useSessionParticipantStore.getState().invalidateSessions([sessionId])
+      await useSessionParticipantStore.getState().refreshSession(sessionId, teamId)
     } catch (deleteErr) {
       console.error('[SessionActorSheet] remove failed:', deleteErr)
       // Rollback
@@ -684,7 +684,7 @@ export function SessionActorPanel({ sessionId, teamId }: SessionActorPanelProps)
       await getBackend().sessionMembers.addParticipant(sessionId, candidate.id)
 
       if (candidate.actor_type !== 'agent') {
-        useSessionParticipantStore.getState().invalidateSessions([sessionId])
+        await useSessionParticipantStore.getState().refreshSession(sessionId, teamId)
         return
       }
 
@@ -724,7 +724,7 @@ export function SessionActorPanel({ sessionId, teamId }: SessionActorPanelProps)
         console.warn('[SessionActorSheet] runtimeStart threw (non-fatal):', rpcErr)
       }
       // RuntimeInfo retain will arrive via store subscription and update the dot/model automatically
-      useSessionParticipantStore.getState().invalidateSessions([sessionId])
+      await useSessionParticipantStore.getState().refreshSession(sessionId, teamId)
     } catch (e) {
       console.error('[SessionActorSheet] add actor failed:', e)
       // Rollback

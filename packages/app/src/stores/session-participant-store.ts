@@ -1,5 +1,6 @@
 import { create } from "zustand";
 import { getBackend } from "@/lib/backend";
+import { isAgentActorType } from "@/lib/actor-type";
 import {
   loadActorsByIds,
   loadSessionParticipants,
@@ -13,6 +14,10 @@ export type SessionParticipantInfo = {
   avatarUrl: string | null;
   isAgent: boolean;
 };
+
+function isMentionableParticipant(actorType: string | null | undefined): boolean {
+  return actorType === "member" || isAgentActorType(actorType);
+}
 
 type State = {
   participantsBySession: Record<string, SessionParticipantInfo[]>;
@@ -28,12 +33,12 @@ async function loadParticipantInfoFromCloud(
 ): Promise<SessionParticipantInfo[]> {
   const actors = await getBackend().sessionMembers.listParticipants(sessionId);
   return actors
-    .filter((a) => a.actor_type === "member" || a.actor_type === "agent")
+    .filter((a) => isMentionableParticipant(a.actor_type))
     .map((actor) => ({
       actorId: actor.id,
       displayName: actor.display_name?.trim() || actor.id,
       avatarUrl: actor.avatar_url ?? null,
-      isAgent: actor.actor_type === "agent",
+      isAgent: isAgentActorType(actor.actor_type),
     }));
 }
 
@@ -53,7 +58,7 @@ async function loadParticipantInfoFromLocalCache(
         actorId: actor.id,
         displayName: actor.displayName,
         avatarUrl: actor.avatarUrl ?? null,
-        isAgent: actor.actorType === "agent",
+        isAgent: isAgentActorType(actor.actorType),
       };
     })
     .filter((p): p is SessionParticipantInfo => p !== null);

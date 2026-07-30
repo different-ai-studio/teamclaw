@@ -32,6 +32,12 @@ describe('session-empty-thread-starters', () => {
     expect(isSoloAgentSession([you(), agent('a1', 'MAC')])).toBe(true)
   })
 
+  it('isSoloAgentSession is false when a second agent joins', () => {
+    expect(
+      isSoloAgentSession([you(), agent('a1', 'MAC'), agent('a2', 'BOT')]),
+    ).toBe(false)
+  })
+
   it('isSoloAgentSession is false when a second human joins', () => {
     expect(isSoloAgentSession([you(), member('m1', 'Matt'), agent('a1', 'MAC')])).toBe(false)
   })

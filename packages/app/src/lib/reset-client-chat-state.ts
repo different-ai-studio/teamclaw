@@ -54,7 +54,6 @@ export function resetClientChatState(): void {
   useStreamingStore.getState().clearAllChildStreaming();
   useEngagedAgentStore.setState({
     bySession: {},
-    wasExplicitlyCleared: {},
   });
   useSessionNoticeStore.setState({ bySession: {} });
   useAgentModelPickStore.setState({ bySessionAgent: {} });

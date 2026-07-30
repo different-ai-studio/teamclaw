@@ -87,7 +87,7 @@ import { uploadAttachment } from "@/lib/attachment-upload";
 import { loadSessionActiveModel } from "@/lib/session-active-model";
 import { resolveSessionEstablishedModel } from "@/lib/session-established-model";
 import { ensureSessionLiveSubscribed } from "@/lib/session-live-subscriptions";
-import { resolveActorIdsFromAtText } from "@/lib/resolve-text-mentions";
+import { resolveSessionMentionActorIds } from "@/lib/resolve-session-mention-ids";
 import { stripPickerPersonMentionsFromText } from "@/lib/strip-person-mentions";
 import {
   expandMemberMentionTokensInText,
@@ -132,68 +132,6 @@ function buildEnhancedChip(
   return `[${label}: ${name}|instruction:You must call ${toolCall} before any other action.]`;
 }
 
-async function resolveMentionActorIdsForSession(
-  sessionId: string,
-  memberIds: string[],
-  agentIds: string[],
-  messageText = "",
-): Promise<string[]> {
-  const fromText = await resolveActorIdsFromAtText(sessionId, messageText);
-  if (fromText.agentIds.length > 0) {
-    const engaged = useEngagedAgentStore.getState();
-    let participants: Array<{ id: string; display_name?: string | null }>;
-    try {
-      participants = await getBackend().sessionMembers.listParticipants(sessionId);
-    } catch {
-      participants = [];
-    }
-    for (const agentId of fromText.agentIds) {
-      const row = participants.find((p) => p.id === agentId);
-      engaged.addAgent(sessionId, {
-        id: agentId,
-        displayName: row?.display_name || "AI",
-      });
-      break;
-    }
-  }
-
-  const explicit = Array.from(
-    new Set([
-      ...memberIds,
-      ...agentIds.slice(0, 1),
-      ...fromText.memberIds,
-      ...(fromText.agentIds[0] ? [fromText.agentIds[0]] : []),
-    ]),
-  );
-  if (explicit.length > 0) return explicit;
-
-  // No explicit mentions. If the user explicitly cleared the engaged agents
-  // ("Remove mention" → engagedAgents went from non-empty to empty), honor
-  // that intent — sending without @ should NOT silently re-engage anyone.
-  // Without this guard the fallback below would auto-mention the sole
-  // session agent and effectively undo the user's Remove Mention click.
-  if (useEngagedAgentStore.getState().wasExplicitlyCleared[sessionId]) {
-    return [];
-  }
-
-  let participants: Array<{ id: string; actor_type?: string | null; display_name?: string | null }>;
-  try {
-    participants = await getBackend().sessionMembers.listParticipants(sessionId);
-  } catch (participantError) {
-    console.warn("[ChatPanel] failed to load session participants:", participantError);
-    return [];
-  }
-
-  const agents = participants.filter((row) => isAgentActorType(row.actor_type));
-
-  // Sole-agent send fallback: any session with exactly one agent participant
-  // routes to that agent when the user sends without @. This is independent
-  // of isSoloAgentSession, which only gates open-time pill auto-engage.
-  return agents.length === 1
-    ? [agents[0].id]
-    : [];
-}
-
 // ─── Main component ────────────────────────────────────────────────────────
 
 interface ChatPanelProps {
@@ -216,6 +154,7 @@ export function ChatPanel({ compact = false }: ChatPanelProps) {
     if (!activeSessionId) return;
     void ensureParticipants([activeSessionId]);
   }, [activeSessionId, ensureParticipants]);
+
   const error = useSessionStore(s => s.error);
   const errorSessionId = useSessionStore(s => s.errorSessionId);
   const isConnected = useSessionStore(s => s.isConnected);
@@ -505,6 +444,27 @@ export function ChatPanel({ compact = false }: ChatPanelProps) {
     activeStreamingAgentIds,
   );
 
+  const sessionParticipants = useSessionParticipantStore((s) =>
+    activeSessionId ? s.participantsBySession[activeSessionId] : undefined,
+  );
+  const participantsLoading = useSessionParticipantStore((s) =>
+    activeSessionId ? s.loadingBySession[activeSessionId] ?? false : false,
+  );
+  const isSoloAgentSessionActive = React.useMemo(
+    () =>
+      sessionParticipants
+        ? isSoloAgentSession(sessionParticipants.map((p) => ({ isAgent: p.isAgent })))
+        : false,
+    [sessionParticipants],
+  );
+
+  // Re-fetch after roster invalidation (e.g. second agent invited → solo unlocks).
+  React.useEffect(() => {
+    if (!activeSessionId) return;
+    if (sessionParticipants !== undefined || participantsLoading) return;
+    void ensureParticipants([activeSessionId]);
+  }, [activeSessionId, sessionParticipants, participantsLoading, ensureParticipants]);
+
   const prevActiveSessionRef = React.useRef<string | null>(null);
   React.useEffect(() => {
     const prev = prevActiveSessionRef.current;
@@ -523,11 +483,12 @@ export function ChatPanel({ compact = false }: ChatPanelProps) {
   );
   const removeAgentForSession = React.useCallback(
     (agentId: string) => {
+      if (isSoloAgentSessionActive) return;
       const sid = useSessionSelectionStore.getState().activeSessionId;
       if (!sid) return;
       useEngagedAgentStore.getState().removeAgent(sid, agentId);
     },
-    [],
+    [isSoloAgentSessionActive],
   );
   const handleSwitchToLocalAgent = React.useCallback(
     (local: AttachedAgent) => {
@@ -567,24 +528,47 @@ export function ChatPanel({ compact = false }: ChatPanelProps) {
     [activeSessionId, engagedUiEntries, removeAgentForSession, addAgentForSession],
   );
 
-  // Existing sessions can be reopened after a reload with no in-memory
-  // engaged agents selected. Solo sessions (2 participants: 1 human + 1 agent)
-  // auto-engage the agent pill so sends still trigger a reply.
-  // Note: send-time mention fallback (resolveMentionActorIdsForSession) still
-  // auto-mentions the sole session agent in multi-person sessions — only this
-  // open-time pill auto-engage is restricted to solo pairs.
-  // Runs at most once per sessionId per app lifetime so that explicitly
-  // removing a mention ("Remove mention" in the agent pill dropdown) isn't
-  // immediately undone by this effect re-firing on engagedAgents.length 1→0.
-  const autoEngagedSessionsRef = React.useRef<Set<string>>(new Set());
+  // Solo sessions (1 human + 1 agent): always show the agent pill so sends
+  // route WYSIWYG. Re-engage whenever the pill is missing. When a second
+  // agent (or member) joins, roster updates → no longer solo → pill unlocks.
   React.useEffect(() => {
     if (!activeSessionId) return;
-    if (autoEngagedSessionsRef.current.has(activeSessionId)) return;
-    if (engagedAgents.length > 0) {
-      autoEngagedSessionsRef.current.add(activeSessionId);
+    if (engagedAgents.length > 0) return;
+
+    const ensureRuntime = (agentActorId: string) => {
+      const teamId =
+        useSessionListStore.getState().rows.find((r) => r.id === activeSessionId)?.team_id ??
+        useCurrentTeamStore.getState().team?.id ??
+        null;
+      if (!teamId) return;
+      void import("@/lib/teamclaw/ensure-agent-runtime").then(({ ensureAgentRuntimesForSession }) => {
+        void ensureAgentRuntimesForSession({
+          sessionId: activeSessionId,
+          teamId,
+          agentActorIds: [agentActorId],
+          reason: "session_auto_engage",
+        });
+      });
+    };
+
+    const engageFromRoster = (
+      roster: Array<{ isAgent: boolean; actorId: string; displayName: string }>,
+    ) => {
+      if (!isSoloAgentSession(roster)) return false;
+      const sole = roster.find((p) => p.isAgent);
+      if (!sole) return false;
+      useEngagedAgentStore.getState().setAgents(activeSessionId, [{
+        id: sole.actorId,
+        displayName: sole.displayName || "AI",
+      }]);
+      ensureRuntime(sole.actorId);
+      return true;
+    };
+
+    if (sessionParticipants !== undefined) {
+      engageFromRoster(sessionParticipants);
       return;
     }
-    autoEngagedSessionsRef.current.add(activeSessionId);
 
     let cancelled = false;
     void (async () => {
@@ -595,34 +579,19 @@ export function ChatPanel({ compact = false }: ChatPanelProps) {
         return;
       }
       if (cancelled) return;
-
-      if (isSoloAgentSession(actors)) {
-        const soleAgent = actors.find((row) => isAgentActorType(row.actor_type))!;
-        useEngagedAgentStore.getState().setAgents(activeSessionId, [{
-          id: soleAgent.id,
-          displayName: soleAgent.display_name || "AI",
-        }]);
-        const teamId =
-          useSessionListStore.getState().rows.find((r) => r.id === activeSessionId)?.team_id ??
-          useCurrentTeamStore.getState().team?.id ??
-          null;
-        if (teamId) {
-          void import("@/lib/teamclaw/ensure-agent-runtime").then(({ ensureAgentRuntimesForSession }) => {
-            void ensureAgentRuntimesForSession({
-              sessionId: activeSessionId,
-              teamId,
-              agentActorIds: [soleAgent.id],
-              reason: "session_auto_engage",
-            });
-          });
-        }
-      }
+      engageFromRoster(
+        actors.map((row) => ({
+          isAgent: isAgentActorType(row.actor_type),
+          actorId: row.id,
+          displayName: row.display_name?.trim() || "AI",
+        })),
+      );
     })();
 
     return () => {
       cancelled = true;
     };
-  }, [activeSessionId, engagedAgents.length]);
+  }, [activeSessionId, engagedAgents.length, sessionParticipants]);
 
   const sessionRow = useSessionListStore(s => s.rows.find(r => r.id === activeSessionId));
   // Team is workspace-scoped: every session in `rows` shares the same team_id.
@@ -1265,12 +1234,14 @@ export function ChatPanel({ compact = false }: ChatPanelProps) {
     setAttachedFiles([]);
     setImageFiles([]);
 
-    // Single engaged agent: @ a new agent replaces the dock pill.
-    const agentForSend = extraMentionAgents[0] ?? engagedAgents[0] ?? null;
+    // WYSIWYG: pill in footer, typed @, or explicit extra on first send.
+    const engagedFromStore = useEngagedAgentStore.getState().get(sid);
+    const agentForSend =
+      extraMentionAgents[0] ?? engagedAgents[0] ?? engagedFromStore ?? null;
     const memberIds = mentions.map((m) => m.id);
     const agentIds = agentForSend ? [agentForSend.id] : [];
     const displayMentionActorIds = Array.from(new Set(agentIds.filter(Boolean)));
-    const mentionActorIds = await resolveMentionActorIdsForSession(
+    const mentionActorIds = await resolveSessionMentionActorIds(
       sid,
       memberIds,
       agentIds,
@@ -1832,9 +1803,7 @@ export function ChatPanel({ compact = false }: ChatPanelProps) {
         sessionId,
       });
 
-      // Auto-engage + auto-mention ONLY when there's exactly one agent
-      // (no members). Anything more ambiguous leaves the dock empty and
-      // routes to the user.
+      // Solo create: mount the pill before send so mention is WYSIWYG.
       const soleAgent =
         picks.members.length === 0 && picks.agents.length === 1
           ? picks.agents[0]
@@ -1842,13 +1811,9 @@ export function ChatPanel({ compact = false }: ChatPanelProps) {
       if (soleAgent) {
         useEngagedAgentStore.getState().setAgents(sessionId, [soleAgent]);
       }
-      const autoMentionAgents: AttachedAgent[] = soleAgent ? [soleAgent] : [];
-      await sendIntoSession(sessionId, firstMessage, autoMentionAgents);
+      await sendIntoSession(sessionId, firstMessage);
 
-      // Fire-and-forget runtime spawn for agents that outbox won't cover.
-      // Sole-agent create auto-mentions → outbox_send already ensures; skip
-      // duplicate session_create ensure for those ids.
-      const autoMentioned = new Set(autoMentionAgents.map((a) => a.id));
+      const autoMentioned = soleAgent ? new Set([soleAgent.id]) : new Set<string>();
       const agentsNeedingCreateEnsure = agentIds.filter((id) => !autoMentioned.has(id));
       if (agentsNeedingCreateEnsure.length > 0) {
         sessionFlowLog("session_create.runtime_start.begin", {
@@ -2397,6 +2362,7 @@ export function ChatPanel({ compact = false }: ChatPanelProps) {
               });
             }}
             onRemoveAgent={removeAgentForSession}
+            agentMentionLocked={isSoloAgentSessionActive}
             activeStreamingAgents={activeStreamingAgents}
             onInterruptAgent={handleInterruptAgent}
             imageFiles={imageFiles}

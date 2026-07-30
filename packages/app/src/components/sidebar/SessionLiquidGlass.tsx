@@ -1,6 +1,9 @@
 import * as React from 'react'
 import { cn } from '@/lib/utils'
 
+/** Matches SessionListColumn C2 dock grid transition + virtualizer remeasure delay. */
+const ROW_LAYOUT_SETTLE_MS = 280
+
 type SessionLiquidGlassProps = {
   /** Positioning root that wraps the session rows (must be `position: relative`). */
   rootRef: React.RefObject<HTMLElement | null>
@@ -29,6 +32,7 @@ export function SessionLiquidGlass({
   const [moving, setMoving] = React.useState(false)
   const prevIdRef = React.useRef<string | null | undefined>(null)
   const moveTimerRef = React.useRef<ReturnType<typeof setTimeout> | null>(null)
+  const layoutSettleTimerRef = React.useRef<ReturnType<typeof setTimeout> | null>(null)
 
   const syncFrameRef = React.useRef<number | null>(null)
 
@@ -94,19 +98,37 @@ export function SessionLiquidGlass({
   }, [scrollRef, sync])
 
   React.useEffect(() => {
+    if (disabled || !activeSessionId) return
+    sync()
+    if (layoutSettleTimerRef.current) clearTimeout(layoutSettleTimerRef.current)
+    layoutSettleTimerRef.current = setTimeout(() => {
+      layoutSettleTimerRef.current = null
+      sync()
+    }, ROW_LAYOUT_SETTLE_MS)
+    return () => {
+      if (layoutSettleTimerRef.current) {
+        clearTimeout(layoutSettleTimerRef.current)
+        layoutSettleTimerRef.current = null
+      }
+    }
+  }, [activeSessionId, disabled, layoutKey, sync])
+
+  React.useEffect(() => {
     const root = rootRef.current
     if (!root || !activeSessionId || disabled) return
-    const row = Array.from(
-      root.querySelectorAll<HTMLElement>('[data-testid="v2-session-row"]'),
-    ).find((el) => el.getAttribute('data-session-id') === activeSessionId)
-    if (!row || typeof ResizeObserver === 'undefined') return
+    if (typeof ResizeObserver === 'undefined') return
+
+    const rows = root.querySelectorAll<HTMLElement>('[data-testid="v2-session-row"]')
+    if (rows.length === 0) return
+
     const ro = new ResizeObserver(() => sync())
-    ro.observe(row)
+    rows.forEach((row) => ro.observe(row))
     return () => ro.disconnect()
   }, [rootRef, activeSessionId, disabled, layoutKey, sync])
 
   React.useEffect(() => () => {
     if (moveTimerRef.current) clearTimeout(moveTimerRef.current)
+    if (layoutSettleTimerRef.current) clearTimeout(layoutSettleTimerRef.current)
     if (syncFrameRef.current != null) cancelAnimationFrame(syncFrameRef.current)
   }, [])
 
