@@ -275,7 +275,14 @@ async function daemonFetchData<T>(path: string, init?: RequestInit): Promise<T> 
 // ─── Local agent runtime (`agents.local_agent` in daemon.toml) ────────────────
 
 /** The local agent runtimes the daemon can drive. */
-export type DaemonLocalAgent = 'opencode' | 'pi' | 'cursor'
+/**
+ * Local agent runtimes the daemon can actually run — one arm each in
+ * `runtime::backend::create_backend`.
+ *
+ * `codex` is absent on purpose: it has no backend module, so a daemon
+ * configured for it runs opencode.
+ */
+export type DaemonLocalAgent = 'opencode' | 'pi' | 'cursor' | 'claude-code'
 
 interface DaemonConfigEntry {
   key: string
@@ -294,11 +301,22 @@ export async function getDaemonLocalAgent(): Promise<DaemonLocalAgent> {
     // 404 = key absent → daemon default. Anything else: fall back conservatively.
     return 'opencode'
   }
-  return result.data.value === 'pi'
-    ? 'pi'
-    : result.data.value === 'cursor'
-      ? 'cursor'
-      : 'opencode'
+  switch (result.data.value) {
+    case 'pi':
+      return 'pi'
+    case 'cursor':
+      return 'cursor'
+    // The daemon accepts all three spellings (`config::runtime_resolution`), and
+    // since `backend::agent_type_for_local_agent` maps every one of them to the
+    // claude backend, reporting them as opencode — as this used to — mislabels
+    // the runtime and routes the LLM pane to the wrong settings UI.
+    case 'claude':
+    case 'claude-code':
+    case 'claude_code':
+      return 'claude-code'
+    default:
+      return 'opencode'
+  }
 }
 
 /**

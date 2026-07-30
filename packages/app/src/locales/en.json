@@ -1311,6 +1311,14 @@
       "showLess": "Show Less",
       "showMore": "Show More"
     },
+    "claudeLlm": {
+      "title": "Claude Code Models",
+      "description": "Models bundled with the claude runtime, managed by the claude credentials on this machine.",
+      "loginHint": "Claude Code manages its own credentials through the claude CLI, not through opencode.json. To sign in, run this on the host terminal:",
+      "loginHintAfter": "After signing in, come back and refresh. If the claude command is not installed on this machine, the runtime cannot start.",
+      "empty": "No models available yet. Make sure the claude command is installed and signed in, and the claude runtime is online.",
+      "modelCount": "{{count}} models"
+    },
     "piLlm": {
       "title": "Pi Models",
       "description": "Models and providers bundled with the pi runtime, managed by pi's own credentials on this machine.",
@@ -1329,6 +1337,7 @@
     },
     "mcp": {
       "cursorBridgeNote": "The first Cursor SDK release does not bridge workspace MCP yet",
+      "claudeBridgeNote": "Claude Code loads MCP from its own config, not opencode.json",
       "restart": "Restart",
       "restarting": "Restarting...",
       "title": "MCP Servers",
@@ -3233,6 +3242,7 @@
       "transportOfflineDesc": "Desktop MQTT is disconnected. Runtime start will retry when the broker connection is restored.",
       "workspaceRpcTimeoutDesc": "Agent {{shortId}} did not respond to workspace sync over MQTT within the timeout window.",
       "workspaceEnsureFailedDesc": "Agent {{shortId}}: failed to sync the workspace with the daemon before starting.",
+      "sessionParticipantFailedDesc": "Could not add agent {{shortId}} to this session, so its runtime was not started. The agent must be a session participant before it can read the session. ({{reason}})",
       "startFailedTitle": "Failed to start Agent runtime",
       "emptyReply": "Agent returned no output. The selected model may be unavailable or misconfigured.",
       "providerStalled": "The model provider stopped responding. It may be unavailable or rate-limited — please retry or switch models.",

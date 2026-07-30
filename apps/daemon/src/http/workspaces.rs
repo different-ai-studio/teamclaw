@@ -488,7 +488,8 @@ fn backend_label(backend: &str) -> &'static str {
         "opencode" => "OpenCode",
         "pi" => "Pi",
         "cursor" => "Cursor",
-        "claude" => "Claude Code",
+        // Wire name and launch-config `backend_type` spell this differently.
+        "claude-code" | "claude" => "Claude Code",
         "codex" => "Codex",
         _ => "Agent",
     }
@@ -522,7 +523,12 @@ fn catalog_models_from_opencode_json(opencode_providers: &[ProviderInfo]) -> Vec
 /// no codex backend module and `create_backend` has no arm for it, so a
 /// codex-configured daemon runs opencode. Serving a "Codex" group would name a
 /// runtime that never starts.
-const SUPPORTED_CATALOG_BACKENDS: [&str; 4] = ["opencode", "pi", "cursor", "claude"];
+/// Note these are the *wire* names produced by
+/// `runtime_resolution::agent_type_name` (what `configured_agent_types` holds),
+/// which is not the same vocabulary as `AgentLaunchConfig.backend_type`: claude
+/// is `"claude-code"` here and `"claude"` there. Both spellings are accepted so
+/// a caller using either one still gets its group.
+const SUPPORTED_CATALOG_BACKENDS: [&str; 5] = ["opencode", "pi", "cursor", "claude-code", "claude"];
 
 /// Build the catalog from the configured backend list. The single configured
 /// local backend (per `supported_agent_type_names`) is served using
