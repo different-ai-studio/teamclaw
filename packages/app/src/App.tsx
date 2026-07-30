@@ -1452,7 +1452,6 @@ function AppContent() {
               .refreshSession(sid, teamId)
               .catch((e) => {
                 console.warn("[participants] refresh failed:", e);
-                useSessionParticipantStore.getState().invalidateSessions([sid]);
               });
             return;
           }

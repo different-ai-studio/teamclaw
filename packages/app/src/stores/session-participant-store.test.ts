@@ -139,14 +139,30 @@ describe("session-participant-store", () => {
     ]);
   });
 
-  it("marks invalidated sessions loading while keeping cached roster", async () => {
+  it("clears loading on invalidate while keeping cached roster", async () => {
     await useSessionParticipantStore.getState().ensureParticipants(["s1"]);
+    useSessionParticipantStore.setState({
+      loadingBySession: { s1: true },
+    });
 
     useSessionParticipantStore.getState().invalidateSessions(["s1"]);
 
     const state = useSessionParticipantStore.getState();
     expect(state.participantsBySession.s1).toHaveLength(2);
-    expect(state.loadingBySession.s1).toBe(true);
+    expect(state.loadingBySession.s1).toBe(false);
+  });
+
+  it("clears loading when refreshSession fails", async () => {
+    await useSessionParticipantStore.getState().ensureParticipants(["s1"]);
+    const sync = await import("@/lib/sync/session-participant-sync");
+    vi.mocked(sync.syncParticipantsForSession).mockRejectedValueOnce(new Error("sync failed"));
+
+    await useSessionParticipantStore.getState().refreshSession("s1", "team-1");
+
+    const state = useSessionParticipantStore.getState();
+    expect(state.loadingBySession.s1).toBe(false);
+    expect(state.errorBySession.s1).toBe("sync failed");
+    expect(state.participantsBySession.s1).toHaveLength(2);
   });
 
   it("syncs before refreshing when team id is available", async () => {

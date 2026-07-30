@@ -133,11 +133,34 @@ export const useSessionParticipantStore = create<State>((set, get) => ({
     );
   },
   refreshSession: async (sessionId, teamId = null) => {
-    if (teamId) {
-      await syncParticipantsForSession(sessionId, teamId, { full: true });
+    set((state) => ({
+      loadingBySession: {
+        ...state.loadingBySession,
+        [sessionId]: true,
+      },
+      errorBySession: {
+        ...state.errorBySession,
+        [sessionId]: null,
+      },
+    }));
+
+    try {
+      if (teamId) {
+        await syncParticipantsForSession(sessionId, teamId, { full: true });
+      }
+      await get().ensureParticipants([sessionId], { force: true });
+    } catch (error) {
+      set((state) => ({
+        loadingBySession: {
+          ...state.loadingBySession,
+          [sessionId]: false,
+        },
+        errorBySession: {
+          ...state.errorBySession,
+          [sessionId]: error instanceof Error ? error.message : String(error),
+        },
+      }));
     }
-    get().invalidateSessions([sessionId]);
-    await get().ensureParticipants([sessionId], { force: true });
   },
   invalidateSessions: (sessionIds) => {
     const ids = Array.from(new Set(sessionIds)).filter(Boolean);
@@ -145,7 +168,7 @@ export const useSessionParticipantStore = create<State>((set, get) => ({
     set((state) => ({
       loadingBySession: {
         ...state.loadingBySession,
-        ...Object.fromEntries(ids.map((sessionId) => [sessionId, true])),
+        ...Object.fromEntries(ids.map((sessionId) => [sessionId, false])),
       },
       errorBySession: {
         ...state.errorBySession,

@@ -452,10 +452,10 @@ export function ChatPanel({ compact = false }: ChatPanelProps) {
   );
   const isSoloAgentSessionActive = React.useMemo(
     () =>
-      sessionParticipants
+      sessionParticipants && !participantsLoading
         ? isSoloAgentSession(sessionParticipants.map((p) => ({ isAgent: p.isAgent })))
         : false,
-    [sessionParticipants],
+    [sessionParticipants, participantsLoading],
   );
 
   // Re-fetch after roster invalidation (e.g. second agent invited → solo unlocks).

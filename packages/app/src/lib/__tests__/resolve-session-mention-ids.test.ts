@@ -7,6 +7,7 @@ const mocks = vi.hoisted(() => ({
       string,
       Array<{ actorId: string; displayName: string; avatarUrl: null; isAgent: boolean }>
     >,
+    loadingBySession: {} as Record<string, boolean>,
   },
 }));
 
@@ -38,6 +39,7 @@ describe("resolveSessionMentionActorIds", () => {
     vi.clearAllMocks();
     useEngagedAgentStore.setState({ bySession: {} });
     mocks.participantStoreState.participantsBySession = {};
+    mocks.participantStoreState.loadingBySession = {};
     mocks.listParticipants.mockResolvedValue([]);
   });
 
@@ -91,6 +93,25 @@ describe("resolveSessionMentionActorIds", () => {
 
     const ids = await resolveSessionMentionActorIds("session-1", [], []);
     expect(ids).toEqual(["agent-1"]);
+  });
+
+  it("ignores stale solo cache while roster refresh is in flight", async () => {
+    mocks.participantStoreState.participantsBySession = {
+      "session-1": [
+        { actorId: "member-1", displayName: "Alice", avatarUrl: null, isAgent: false },
+        { actorId: "agent-1", displayName: "Bot", avatarUrl: null, isAgent: true },
+      ],
+    };
+    mocks.participantStoreState.loadingBySession = { "session-1": true };
+    mocks.listParticipants.mockResolvedValue([
+      { id: "member-1", actor_type: "member", display_name: "Alice" },
+      { id: "member-2", actor_type: "member", display_name: "Bob" },
+      { id: "agent-1", actor_type: "agent", display_name: "Bot" },
+    ]);
+
+    const ids = await resolveSessionMentionActorIds("session-1", [], []);
+    expect(ids).toEqual([]);
+    expect(mocks.listParticipants).toHaveBeenCalledWith("session-1");
   });
 
   it("merges typed @agent from message text", async () => {

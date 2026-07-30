@@ -15,8 +15,10 @@ function soleAgentIdFromRoster(
 }
 
 async function resolveSoleAgentIdIfSoloSession(sessionId: string): Promise<string | null> {
-  const cached = useSessionParticipantStore.getState().participantsBySession[sessionId];
-  if (cached !== undefined) {
+  const store = useSessionParticipantStore.getState();
+  const cached = store.participantsBySession[sessionId];
+  const loading = store.loadingBySession[sessionId] ?? false;
+  if (cached !== undefined && !loading) {
     return soleAgentIdFromRoster(cached);
   }
 
