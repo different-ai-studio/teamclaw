@@ -1,5 +1,6 @@
 import { create } from "zustand";
 import { getBackend } from "@/lib/backend";
+import { isAgentActorType } from "@/lib/actor-type";
 import {
   loadActorsByIds,
   loadSessionParticipants,
@@ -14,11 +15,18 @@ export type SessionParticipantInfo = {
   isAgent: boolean;
 };
 
+function isMentionableParticipant(actorType: string | null | undefined): boolean {
+  return actorType === "member" || isAgentActorType(actorType);
+}
+
 type State = {
   participantsBySession: Record<string, SessionParticipantInfo[]>;
   loadingBySession: Record<string, boolean>;
   errorBySession: Record<string, string | null>;
-  ensureParticipants: (sessionIds: string[]) => Promise<void>;
+  ensureParticipants: (
+    sessionIds: string[],
+    options?: { force?: boolean },
+  ) => Promise<void>;
   refreshSession: (sessionId: string, teamId?: string | null) => Promise<void>;
   invalidateSessions: (sessionIds: string[]) => void;
 };
@@ -28,12 +36,12 @@ async function loadParticipantInfoFromCloud(
 ): Promise<SessionParticipantInfo[]> {
   const actors = await getBackend().sessionMembers.listParticipants(sessionId);
   return actors
-    .filter((a) => a.actor_type === "member" || a.actor_type === "agent")
+    .filter((a) => isMentionableParticipant(a.actor_type))
     .map((actor) => ({
       actorId: actor.id,
       displayName: actor.display_name?.trim() || actor.id,
       avatarUrl: actor.avatar_url ?? null,
-      isAgent: actor.actor_type === "agent",
+      isAgent: isAgentActorType(actor.actor_type),
     }));
 }
 
@@ -53,7 +61,7 @@ async function loadParticipantInfoFromLocalCache(
         actorId: actor.id,
         displayName: actor.displayName,
         avatarUrl: actor.avatarUrl ?? null,
-        isAgent: actor.actorType === "agent",
+        isAgent: isAgentActorType(actor.actorType),
       };
     })
     .filter((p): p is SessionParticipantInfo => p !== null);
@@ -70,11 +78,13 @@ export const useSessionParticipantStore = create<State>((set, get) => ({
   participantsBySession: {},
   loadingBySession: {},
   errorBySession: {},
-  ensureParticipants: async (sessionIds) => {
+  ensureParticipants: async (sessionIds, options) => {
+    const force = options?.force ?? false;
     const unique = Array.from(new Set(sessionIds)).filter(Boolean);
     const missing = unique.filter((sessionId) => {
-      if (get().loadingBySession[sessionId]) return false
+      if (!force && get().loadingBySession[sessionId]) return false
       const cached = get().participantsBySession[sessionId]
+      if (force) return true
       if (cached === undefined) return true
       // Extension/web: retry empty cache (legacy loadSessionParticipants stub).
       if (!isTauri() && cached.length === 0) return true
@@ -123,23 +133,47 @@ export const useSessionParticipantStore = create<State>((set, get) => ({
     );
   },
   refreshSession: async (sessionId, teamId = null) => {
-    if (teamId) {
-      await syncParticipantsForSession(sessionId, teamId, { full: true });
+    set((state) => ({
+      loadingBySession: {
+        ...state.loadingBySession,
+        [sessionId]: true,
+      },
+      errorBySession: {
+        ...state.errorBySession,
+        [sessionId]: null,
+      },
+    }));
+
+    try {
+      if (teamId) {
+        await syncParticipantsForSession(sessionId, teamId, { full: true });
+      }
+      await get().ensureParticipants([sessionId], { force: true });
+    } catch (error) {
+      set((state) => ({
+        loadingBySession: {
+          ...state.loadingBySession,
+          [sessionId]: false,
+        },
+        errorBySession: {
+          ...state.errorBySession,
+          [sessionId]: error instanceof Error ? error.message : String(error),
+        },
+      }));
     }
-    get().invalidateSessions([sessionId]);
-    await get().ensureParticipants([sessionId]);
   },
   invalidateSessions: (sessionIds) => {
-    const ids = new Set(sessionIds);
-    if (ids.size === 0) return;
-    set((state) => {
-      const participantsBySession = { ...state.participantsBySession };
-      const errorBySession = { ...state.errorBySession };
-      for (const sessionId of ids) {
-        delete participantsBySession[sessionId];
-        delete errorBySession[sessionId];
-      }
-      return { participantsBySession, errorBySession };
-    });
+    const ids = Array.from(new Set(sessionIds)).filter(Boolean);
+    if (ids.length === 0) return;
+    set((state) => ({
+      loadingBySession: {
+        ...state.loadingBySession,
+        ...Object.fromEntries(ids.map((sessionId) => [sessionId, false])),
+      },
+      errorBySession: {
+        ...state.errorBySession,
+        ...Object.fromEntries(ids.map((sessionId) => [sessionId, null])),
+      },
+    }));
   },
 }));
