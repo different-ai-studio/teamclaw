@@ -37,12 +37,14 @@ function catalogBackendId(backendType: string | null | undefined): string | null
       return 'pi'
     case 'cursor':
       return 'cursor'
-    // The daemon labels this group "claude" (`AgentLaunchConfig.backend_type`),
-    // not "claude-code".
+    // The group id is the daemon's *wire* name for the type
+    // (`runtime_resolution::agent_type_name`), which is "claude-code" — not the
+    // `AgentLaunchConfig.backend_type` spelling ("claude"). Both are accepted
+    // server-side, so match on the wire name here.
     case 'claude-code':
     case 'claude':
     case 'claude_code':
-      return 'claude'
+      return 'claude-code'
     default:
       return null
   }

@@ -21,11 +21,13 @@ fn configured_local_agent(config: &DaemonConfig) -> Option<amux::AgentType> {
             .codex
             .is_some()
             .then_some(amux::AgentType::Codex),
-        "claude-code" | "claude_code" | "claude" => config
-            .agents
-            .claude_code
-            .is_some()
-            .then_some(amux::AgentType::ClaudeCode),
+        // No config-section dependency, same as pi: `default_launch_configs()`
+        // always carries a ClaudeCode entry (binary "claude"), so the backend is
+        // runnable as soon as it is selected. Requiring `[agents.claude_code]`
+        // made claude-code unselectable on any machine where auto-discovery had
+        // not written that section — which is every fresh install, since
+        // `agent_discover` only detects opencode.
+        "claude-code" | "claude_code" | "claude" => Some(amux::AgentType::ClaudeCode),
         _ => None,
     }
 }
@@ -386,6 +388,30 @@ mod tests {
             supported_agent_type_names(&cfg),
             vec!["claude-code".to_string()]
         );
+    }
+
+    #[test]
+    fn claude_code_is_selectable_without_a_config_section() {
+        // `default_launch_configs()` always carries a ClaudeCode entry, so the
+        // backend runs as soon as it is selected — same deal as pi. Requiring
+        // `[agents.claude_code]` made it unselectable on a fresh install, where
+        // `agent_discover` only ever writes the opencode section.
+        for spelling in ["claude-code", "claude_code", "claude"] {
+            let mut cfg = base_config();
+            cfg.agents.local_agent = spelling.to_string();
+            assert!(cfg.agents.claude_code.is_none());
+
+            assert_eq!(
+                resolve_requested_agent_type(&cfg, amux::AgentType::Opencode),
+                amux::AgentType::ClaudeCode,
+                "{spelling} should reroute to claude"
+            );
+            assert_eq!(
+                supported_agent_type_names(&cfg),
+                vec!["claude-code".to_string()],
+                "{spelling} should advertise the canonical wire name"
+            );
+        }
     }
 
     #[test]

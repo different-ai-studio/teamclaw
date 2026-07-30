@@ -39,7 +39,7 @@ describe('fetchLocalDaemonModels', () => {
       ['opencode', 'opencode'],
       ['pi', 'pi'],
       ['cursor', 'cursor'],
-      ['claude-code', 'claude'],
+      ['claude-code', 'claude-code'],
     ] as const) {
       getDaemonModelCatalog.mockResolvedValueOnce(catalog(groupId, ['prov/a', 'prov/b']))
       const models = await fetchLocalDaemonModels('/w1', backendType)
@@ -49,9 +49,11 @@ describe('fetchLocalDaemonModels', () => {
     }
   })
 
-  it('maps every claude spelling onto the daemon "claude" group id', async () => {
+  it('maps every claude spelling onto the daemon "claude-code" wire name', async () => {
+    // The group id is `agent_type_name(ClaudeCode)` = "claude-code", not the
+    // launch-config `backend_type` spelling "claude".
     for (const spelling of ['claude', 'claude_code', 'claude-code']) {
-      getDaemonModelCatalog.mockResolvedValueOnce(catalog('claude', ['anthropic/opus']))
+      getDaemonModelCatalog.mockResolvedValueOnce(catalog('claude-code', ['anthropic/opus']))
       const models = await fetchLocalDaemonModels('/w1', spelling)
       expect(models, `${spelling} should resolve`).toHaveLength(1)
     }

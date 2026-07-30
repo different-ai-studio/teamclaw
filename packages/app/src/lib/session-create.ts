@@ -363,6 +363,19 @@ export type RuntimeStartFailureCode =
   | 'transport_offline'
   | 'workspace_rpc_timeout'
   | 'workspace_ensure_failed'
+  /**
+   * Adding the agent to `session_participants` failed, so runtimeStart was not
+   * attempted.
+   *
+   * `sessions` carries participant-only RLS (see `joinSession` in the Cloud
+   * API's `supabase-repo`, which needs a SECURITY DEFINER RPC precisely to get
+   * around it). A daemon that is not a participant therefore cannot read the
+   * session it was just asked to start, and its lookup comes back as
+   * `fetch_session_with_participants failed: not found: session not found` —
+   * a message that points at the wrong thing entirely. This code exists so the
+   * real cause is reported instead of that downstream symptom.
+   */
+  | 'session_participant_failed'
   | 'runtime_rejected'
   | 'runtime_rpc_failed'
   | 'unknown'
