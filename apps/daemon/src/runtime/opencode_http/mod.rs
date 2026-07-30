@@ -72,6 +72,13 @@ pub(crate) struct Route {
     /// running tool that re-sends identical `message.part.updated` frames
     /// still counts as alive.
     pub(crate) turn_last_event_at: std::time::Instant,
+    /// Provider retry message from the most recent `session.status` event,
+    /// with a repeat count. A permanent failure (quota exhausted, out of
+    /// credit) reports the *same* message on every retry regardless of how
+    /// short opencode's backoff is — two occurrences is enough to tell it
+    /// apart from a transient blip, so we don't wait out the [`FIRST_OUTPUT_TIMEOUT`]
+    /// window when the backoff itself never grows past it.
+    pub(crate) retry_streak: Option<(String, u32)>,
     pub(crate) translate: TranslateState,
     /// MCP server names amuxd injected into the worktree's `opencode.json`
     /// for this session (gateway `send` tool / remote tools). Pruned back out
@@ -292,6 +299,7 @@ impl Shared {
             translate: TranslateState::default(),
             injected_mcp: Vec::new(),
             parent_session_id: Some(parent_id.to_string()),
+            retry_streak: None,
         };
         routes.insert(child_id.to_string(), child);
         info!(
@@ -781,6 +789,7 @@ async fn attach(shared: &Arc<Shared>, args: AttachArgs) -> Result<AcpStartupMeta
                 translate: TranslateState::default(),
                 injected_mcp,
                 parent_session_id: None,
+                retry_streak: None,
             },
         );
         orphaned_turn
@@ -866,6 +875,7 @@ async fn do_prompt(
         route.turn_seq += 1;
         route.turn_saw_output = false;
         route.turn_last_event_at = std::time::Instant::now();
+        route.retry_streak = None;
         (
             route.event_tx.clone(),
             route.directory.clone(),
@@ -990,9 +1000,28 @@ fn spawn_stuck_turn_watchdog(shared: &Arc<Shared>, session_id: &str, turn_seq: u
                     .map(|d| d.as_millis() as i64)
                     .unwrap_or(0);
                 let wait = next_ms.saturating_sub(now_ms);
+                // Same message on consecutive polls means the failure is
+                // permanent (quota exhausted, out of credit) — the backoff
+                // itself never has to grow past the wait window for us to
+                // know retrying won't help.
+                let repeats = {
+                    let mut routes = shared.routes.lock();
+                    routes.get_mut(&session_id).map(|route| {
+                        match &mut route.retry_streak {
+                            Some((last, count)) if last == &message => {
+                                *count += 1;
+                                *count
+                            }
+                            _ => {
+                                route.retry_streak = Some((message.clone(), 1));
+                                1
+                            }
+                        }
+                    })
+                };
                 // A retry due soon may still succeed — keep waiting for it
                 // (bounded by the silence timeout below).
-                if wait > FIRST_OUTPUT_TIMEOUT.as_millis() as i64 {
+                if repeats.unwrap_or(0) >= 2 || wait > FIRST_OUTPUT_TIMEOUT.as_millis() as i64 {
                     warn!(
                         session_id,
                         message = %message,
@@ -1611,6 +1640,7 @@ mod pool_tests {
                 translate: TranslateState::default(),
                 injected_mcp: vec!["amuxd-send".to_string()],
                 parent_session_id: None,
+                retry_streak: None,
             },
         );
         let candidates = vec!["amuxd-send".to_string(), "remote-tools".to_string()];
@@ -1642,6 +1672,7 @@ mod turn_activity_tests {
             translate: TranslateState::default(),
             injected_mcp: Vec::new(),
             parent_session_id: None,
+            retry_streak: None,
         }
     }
 
@@ -1751,6 +1782,7 @@ mod turn_activity_tests {
                     translate: TranslateState::default(),
                     injected_mcp: Vec::new(),
                     parent_session_id: Some("ses_parent".to_string()),
+                    retry_streak: None,
                 },
             );
         }

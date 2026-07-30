@@ -2,8 +2,12 @@ import * as React from 'react'
 import { User, Sparkles, Loader2 } from 'lucide-react'
 import { useTranslation } from 'react-i18next'
 import { cn } from '@/lib/utils'
-import { getBackend } from '@/lib/backend'
 import { useSessionSelectionStore } from '@/stores/session-selection-store'
+import { useCurrentTeamStore } from '@/stores/current-team'
+import {
+  useSessionParticipantStore,
+  type SessionParticipantInfo,
+} from '@/stores/session-participant-store'
 import {
   presenceOnlineFlag,
   resolveAgentDevicePresenceSync,
@@ -39,24 +43,22 @@ type MentionItem = ParticipantRow & { itemType: 'member' | 'agent' }
 
 type PopoverStep = 'browse' | 'confirm'
 
-const cache = new Map<string, { fetchedAt: number; rows: ParticipantRow[] }>()
-const CACHE_TTL_MS = 30_000
-
-/** @internal — test helper only */
-export function __clearCacheForTest() { cache.clear() }
-
-async function fetchParticipants(sessionId: string): Promise<ParticipantRow[]> {
-  const hit = cache.get(sessionId)
-  if (hit && Date.now() - hit.fetchedAt < CACHE_TTL_MS) return hit.rows
-  const rows: ParticipantRow[] = (await getBackend().sessionMembers.listParticipants(sessionId))
-    .filter((a) => a.actor_type === 'member' || a.actor_type === 'agent')
-    .map((a) => ({
-      id: a.id,
-      actor_type: a.actor_type as 'member' | 'agent',
-      display_name: a.display_name || '',
+export function participantsToMentionRows(
+  participants: SessionParticipantInfo[],
+  excludeMemberActorId?: string | null,
+): ParticipantRow[] {
+  return participants
+    .filter(
+      (p) =>
+        p.isAgent ||
+        !excludeMemberActorId ||
+        p.actorId !== excludeMemberActorId,
+    )
+    .map((p) => ({
+      id: p.actorId,
+      actor_type: p.isAgent ? 'agent' : 'member',
+      display_name: p.displayName,
     }))
-  cache.set(sessionId, { fetchedAt: Date.now(), rows })
-  return rows
 }
 
 function filter(rows: ParticipantRow[], query: string): ParticipantRow[] {
@@ -114,11 +116,19 @@ export function MentionPopover({
 }: MentionPopoverProps) {
   const { t } = useTranslation()
   const sessionId = useSessionSelectionStore(s => s.currentSessionId)
+  const currentMemberActorId = useCurrentTeamStore(s => s.currentMember?.id ?? null)
+  const ensureParticipants = useSessionParticipantStore(s => s.ensureParticipants)
+  const sessionParticipants = useSessionParticipantStore(s =>
+    sessionId ? s.participantsBySession[sessionId] : undefined,
+  )
+  const loading = useSessionParticipantStore(s =>
+    sessionId ? s.loadingBySession[sessionId] ?? false : false,
+  )
+  const loadError = useSessionParticipantStore(s =>
+    sessionId ? s.errorBySession[sessionId] ?? null : null,
+  )
   // Keep a subscription so agent status labels refresh with presence changes.
   useActorPresenceStore((s) => s.byActorId)
-  const [rows, setRows] = React.useState<ParticipantRow[]>([])
-  const [loading, setLoading] = React.useState(false)
-  const [error, setError] = React.useState(false)
   const [step, setStep] = React.useState<PopoverStep>('browse')
   const [pendingMember, setPendingMember] = React.useState<MentionedPerson | null>(null)
   const [highlightedIndex, setHighlightedIndex] = React.useState(0)
@@ -135,15 +145,13 @@ export function MentionPopover({
 
   React.useEffect(() => {
     if (!open || !sessionId) return
-    let cancelled = false
-    setLoading(true)
-    setError(false)
-    fetchParticipants(sessionId)
-      .then(r => { if (!cancelled) setRows(r) })
-      .catch(() => { if (!cancelled) setError(true) })
-      .finally(() => { if (!cancelled) setLoading(false) })
-    return () => { cancelled = true }
-  }, [open, sessionId])
+    void ensureParticipants([sessionId])
+  }, [open, sessionId, ensureParticipants])
+
+  const rows = React.useMemo(
+    () => participantsToMentionRows(sessionParticipants ?? [], currentMemberActorId),
+    [sessionParticipants, currentMemberActorId],
+  )
 
   const filtered = React.useMemo(() => filter(rows, searchQuery), [rows, searchQuery])
   const members = React.useMemo(
@@ -317,7 +325,9 @@ export function MentionPopover({
 
   if (!open) return null
 
-  const isEmpty = !loading && !error && filtered.length === 0
+  const showLoading = loading && sessionParticipants === undefined
+  const showError = Boolean(loadError)
+  const isEmpty = !showLoading && !showError && filtered.length === 0
   let currentIndex = 0
   const agentName = engagedAgent?.displayName ?? ''
   const memberName = pendingMember?.name ?? ''
@@ -379,13 +389,13 @@ export function MentionPopover({
         </div>
       ) : (
         <div ref={listRef} className="max-h-60 overflow-y-auto p-1">
-          {loading && (
+          {showLoading && (
             <div className="flex items-center justify-center gap-2 py-8 text-xs text-muted-foreground">
               <Loader2 className="h-4 w-4 animate-spin" />
               {t('common.loading')}
             </div>
           )}
-          {error && (
+          {showError && (
             <div className="py-6 text-center text-xs text-muted-foreground">
               {t('chat.mentionPopoverError')}
             </div>

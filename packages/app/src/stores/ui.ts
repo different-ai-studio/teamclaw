@@ -79,6 +79,8 @@ interface UIState {
   localDaemonExpanded: boolean
   /** Action sheet open (⋯ menu). */
   localDaemonSheetOpen: boolean
+  /** Standalone automation panel (CronSection) without opening full Settings. */
+  automationPanelOpen: boolean
   draftIdeaId: string | null
   /** Modal "新会话" dialog (NavRail ▾ menu + intercepted send-with-no-session). */
   newSessionDialogOpen: boolean
@@ -95,6 +97,9 @@ interface UIState {
   toggleLocalDaemon: () => void
   toggleLocalDaemonSheet: () => void
   setLocalDaemonSheetOpen: (open: boolean) => void
+  openAutomationPanel: () => void
+  closeAutomationPanel: () => void
+  setAutomationPanelOpen: (open: boolean) => void
   setDraftIdeaId: (ideaId: string) => void
   clearDraftIdeaId: () => void
   setView: (view: View) => void
@@ -149,6 +154,7 @@ export const useUIStore = create<UIState>((set, get) => ({
   teamShareCollapsed: true,
   localDaemonExpanded: false,
   localDaemonSheetOpen: false,
+  automationPanelOpen: false,
   draftIdeaId: null,
   newSessionDialogOpen: false,
   newSessionDialogInitialMessage: null,
@@ -393,6 +399,10 @@ export const useUIStore = create<UIState>((set, get) => ({
   toggleLocalDaemon: () => set((s) => ({ localDaemonExpanded: !s.localDaemonExpanded })),
   toggleLocalDaemonSheet: () => set((s) => ({ localDaemonSheetOpen: !s.localDaemonSheetOpen })),
   setLocalDaemonSheetOpen: (open) => set({ localDaemonSheetOpen: open }),
+
+  openAutomationPanel: () => set({ automationPanelOpen: true }),
+  closeAutomationPanel: () => set({ automationPanelOpen: false }),
+  setAutomationPanelOpen: (open) => set({ automationPanelOpen: open }),
   setDraftIdeaId: (ideaId) => set({ draftIdeaId: ideaId }),
   clearDraftIdeaId: () => set({ draftIdeaId: null }),
 

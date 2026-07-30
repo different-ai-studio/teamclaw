@@ -1,6 +1,11 @@
 import { create } from '@bufbuild/protobuf'
 import { ModelInfoSchema, RuntimeInfoSchema, type ModelInfo } from '@/lib/proto/amux_pb'
-import { encodeWorkspaceId, getDaemonModelCatalog } from '@/lib/daemon-local-client'
+import {
+  encodeWorkspaceId,
+  getDaemonModelCatalog,
+  type DaemonBackendCatalog,
+  type DaemonModelCatalog,
+} from '@/lib/daemon-local-client'
 import { useRuntimeStateStore } from '@/stores/runtime-state-store'
 import { sessionFlowLog } from '@/lib/session-flow-log'
 
@@ -51,6 +56,92 @@ function catalogBackendId(backendType: string | null | undefined): string | null
 }
 
 /**
+ * What the loopback catalog says about this device, as three *distinct*
+ * answers.
+ *
+ * Collapsing "the daemon never answered" and "the daemon answered, and it has
+ * nothing" into one `null` is what made a fresh install indistinguishable from
+ * a slow one: both looked like "not yet", so the pill sat at 连接中 until the
+ * timeout and then claimed offline — for a daemon that was up the whole time
+ * and simply had no provider configured. `empty` is a *terminal* answer and
+ * callers are expected to surface it as "needs configuring", not "wait".
+ */
+export type LocalDaemonCatalogOutcome =
+  | { status: 'models'; backend: string; models: ModelInfo[]; recentModels: string[] }
+  /** The daemon answered and serves no models for this backend. First install. */
+  | { status: 'empty'; backend: string }
+  /** No answer, or an ambiguous multi-group reply — claim nothing. */
+  | { status: 'unknown' }
+
+/**
+ * Resolve the backend group this device's catalog is about.
+ *
+ * Single-agent mode: the daemon serves exactly one group. Prefer the one
+ * matching `backendType` when the caller has an opinion, then the daemon's own
+ * automation default, then the sole group — mismatching on a stale client-side
+ * backend name would mean discarding the only catalog on offer.
+ *
+ * Returns `null` when several groups are offered and none matches: that is
+ * ambiguity, not emptiness, and must not be reported as "nothing configured".
+ */
+function resolveCatalogGroup(
+  catalog: DaemonModelCatalog,
+  backendType: string | null | undefined,
+): DaemonBackendCatalog | null {
+  const soleGroup = catalog.backends.length === 1 ? catalog.backends[0] : null
+
+  const wanted = catalogBackendId(backendType)
+  if (wanted) {
+    // The caller named a backend and expects models for *that* one. Accept the
+    // sole group when the name misses — a stale client-side backend name must
+    // not throw away the only catalog on offer — but never pick among several.
+    return catalog.backends.find((b) => b.backend === wanted) ?? soleGroup
+  }
+
+  // No opinion from the caller ("just tell me what this device runs"): the
+  // daemon's own automation default is that answer.
+  const automationDefault = catalog.automation_default_backend?.trim()
+  const byDefault = automationDefault
+    ? catalog.backends.find((b) => b.backend === automationDefault)
+    : undefined
+  return byDefault ?? soleGroup
+}
+
+/**
+ * Fetch the local daemon's catalog for `workspacePath`, keeping "unreachable"
+ * and "genuinely empty" apart. `backendType` is optional — omit it to take the
+ * daemon's own default group, which is what a caller that just wants "this
+ * device's models" should do.
+ */
+export async function fetchLocalDaemonCatalog(
+  workspacePath: string,
+  backendType?: string | null,
+): Promise<LocalDaemonCatalogOutcome> {
+  const path = workspacePath.trim()
+  if (!path) return { status: 'unknown' }
+
+  const catalog = await getDaemonModelCatalog(encodeWorkspaceId(path))
+  if (!catalog) return { status: 'unknown' }
+
+  const group = resolveCatalogGroup(catalog, backendType)
+  if (!group) return { status: 'unknown' }
+  if (group.models.length === 0) return { status: 'empty', backend: group.backend }
+
+  return {
+    status: 'models',
+    backend: group.backend,
+    models: group.models.map((m) =>
+      create(ModelInfoSchema, {
+        id: m.ref,
+        displayName: m.display_name || m.ref,
+        providerName: group.backend,
+      }),
+    ),
+    recentModels: (group.recent_models ?? []).filter((id) => !!id?.trim()),
+  }
+}
+
+/**
  * Fetch the local daemon's catalog for `workspacePath` and return the models for
  * `backendType`. `null` when the daemon is unreachable or serves no group for
  * that backend — callers should then simply wait for the MQTT retain.
@@ -59,29 +150,21 @@ export async function fetchLocalDaemonModels(
   workspacePath: string,
   backendType: string | null | undefined,
 ): Promise<ModelInfo[] | null> {
-  const path = workspacePath.trim()
-  if (!path) return null
+  const outcome = await fetchLocalDaemonCatalog(workspacePath, backendType)
+  return outcome.status === 'models' ? outcome.models : null
+}
 
-  const catalog = await getDaemonModelCatalog(encodeWorkspaceId(path))
-  if (!catalog) return null
-
-  // Single-agent mode: the daemon serves exactly one group. Prefer the one
-  // matching this agent's backend, but accept the sole group when the client's
-  // idea of the backend type is stale — mismatching here would mean discarding
-  // the only catalog on offer.
-  const wanted = catalogBackendId(backendType)
-  const group =
-    (wanted ? catalog.backends.find((b) => b.backend === wanted) : undefined) ??
-    (catalog.backends.length === 1 ? catalog.backends[0] : undefined)
-  if (!group || group.models.length === 0) return null
-
-  return group.models.map((m) =>
-    create(ModelInfoSchema, {
-      id: m.ref,
-      displayName: m.display_name || m.ref,
-      providerName: group.backend,
-    }),
-  )
+/**
+ * First MRU entry the live catalog still offers, mirroring the daemon's
+ * `model_mru::first_available`. Empty string when nothing matches.
+ */
+export function firstAvailableRecentModel(
+  recentModels: string[] | undefined,
+  available: readonly { id?: string }[],
+): string {
+  if (!recentModels?.length || available.length === 0) return ''
+  const offered = new Set(available.map((m) => m.id?.trim()).filter(Boolean))
+  return recentModels.map((id) => id?.trim()).find((id) => !!id && offered.has(id)) ?? ''
 }
 
 /**
@@ -95,6 +178,12 @@ export function mergeLocalDaemonModels(args: {
   daemonActorId: string
   runtimeId: string
   models: ModelInfo[]
+  /**
+   * Device MRU, newest first. Seeds `currentModel` when the entry has none, so
+   * the pill shows the model this device last used instead of falling through
+   * to `availableModels[0]`. Ignored when the retain already named a model.
+   */
+  recentModels?: string[]
 }): boolean {
   const daemonActorId = args.daemonActorId.trim()
   const runtimeId = args.runtimeId.trim()
@@ -108,6 +197,13 @@ export function mergeLocalDaemonModels(args: {
   const info = create(RuntimeInfoSchema, {
     ...entry.info,
     availableModels: args.models,
+    // Same rule the daemon applies to its own MRU (`model_mru::first_available`):
+    // a remembered model the catalog no longer offers falls through rather than
+    // being shown as current.
+    currentModel:
+      entry.info.currentModel?.trim() ||
+      firstAvailableRecentModel(args.recentModels, args.models) ||
+      '',
   })
   store.upsert(runtimeId, entry.daemonActorId, info)
   if (runtimeId !== daemonActorId) {
@@ -132,12 +228,14 @@ export function seedLocalDaemonModelsInBackground(args: {
 }): void {
   void (async () => {
     try {
-      const models = await fetchLocalDaemonModels(args.workspacePath, args.backendType)
-      if (!models) return
+      const outcome = await fetchLocalDaemonCatalog(args.workspacePath, args.backendType)
+      if (outcome.status !== 'models') return
+      const { models, recentModels } = outcome
       const merged = mergeLocalDaemonModels({
         daemonActorId: args.daemonActorId,
         runtimeId: args.runtimeId,
         models,
+        recentModels,
       })
       sessionFlowLog('runtime_start.http_catalog.seeded', {
         sessionId: args.sessionId,
@@ -145,6 +243,7 @@ export function seedLocalDaemonModelsInBackground(args: {
         runtimeId: args.runtimeId,
         backendType: args.backendType ?? null,
         modelCount: models.length,
+        recentModelCount: recentModels.length,
         // false = an MQTT retain with models beat us to it, which is fine.
         merged,
       })

@@ -569,6 +569,12 @@ export interface DaemonBackendCatalog {
   backend: string
   label: string
   models: DaemonCatalogModel[]
+  /**
+   * This device's most-recently-used model ids, newest first (daemon
+   * `config::model_mru`). Omitted by the daemon when empty, and absent
+   * entirely on daemons predating the field — treat as `[]`.
+   */
+  recent_models?: string[]
 }
 
 /** Mirrors Rust `workspaces::ModelCatalog`. */

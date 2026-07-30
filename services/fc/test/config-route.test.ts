@@ -67,13 +67,86 @@ test("buildBootstrapConfig includes tcpUrl when MQTT_PUBLIC_TCP_BROKER_URL is se
   );
 });
 
+test("an empty MQTT_PUBLIC_BROKER_URL falls back to MQTT_BROKER_URL", () => {
+  // How every deployment actually declares it: s.yaml uses
+  // `${env('MQTT_PUBLIC_BROKER_URL', '')}` and docker-compose
+  // `"${MQTT_PUBLIC_BROKER_URL:-}"`, so "not configured" arrives as "" rather
+  // than undefined. `??` treated that as a real value and dropped the whole
+  // mqtt block — clients then reported "the server did not deliver an MQTT
+  // address" while the daemon, which never reads this endpoint, stayed happily
+  // connected. Only `undefined` was ever tested, which is why it survived.
+  withEnv(
+    {
+      MQTT_BROKER_URL: "mqtt://mqtt.example.com:1883",
+      MQTT_PUBLIC_BROKER_URL: "",
+      MQTT_PUBLIC_TCP_BROKER_URL: "",
+      MQTT_USE_TLS: undefined,
+      WEBSSO_LOGIN_URL: undefined,
+    },
+    () => {
+      assert.deepEqual(buildBootstrapConfig(), {
+        mqtt: { url: "mqtt://mqtt.example.com:1883" },
+      });
+    },
+  );
+});
+
+test("MQTT_PUBLIC_BROKER_URL still overrides when the two addresses differ", () => {
+  // Self-host: FC reaches the broker inside the compose network while clients
+  // must use the public hostname. Collapsing to a single variable would hand
+  // clients `mqtt://emqx:1883`, which resolves nowhere outside Docker.
+  withEnv(
+    {
+      MQTT_BROKER_URL: "mqtt://emqx:1883",
+      MQTT_PUBLIC_BROKER_URL: "mqtt://mqtt.example.com:1883",
+      MQTT_PUBLIC_TCP_BROKER_URL: undefined,
+      MQTT_USE_TLS: undefined,
+      WEBSSO_LOGIN_URL: undefined,
+    },
+    () => {
+      assert.deepEqual(buildBootstrapConfig(), {
+        mqtt: { url: "mqtt://mqtt.example.com:1883" },
+      });
+    },
+  );
+});
+
+test("blank web SSO env is treated as absent", () => {
+  withEnv(
+    {
+      MQTT_BROKER_URL: undefined,
+      MQTT_PUBLIC_BROKER_URL: undefined,
+      WEBSSO_LOGIN_URL: "  ",
+      WEBSSO_STORAGE_KEY: "",
+    },
+    () => {
+      assert.deepEqual(buildBootstrapConfig(), {});
+    },
+  );
+});
+
 test("buildBootstrapConfig omits mqtt when broker url is missing", () => {
   withEnv(
     {
       MQTT_BROKER_URL: undefined,
+      MQTT_PUBLIC_BROKER_URL: undefined,
       MQTT_USERNAME: "user-1",
       MQTT_PASSWORD: "secret",
       MQTT_USE_TLS: "true",
+    },
+    () => {
+      assert.deepEqual(buildBootstrapConfig(), {});
+    },
+  );
+});
+
+test("both broker urls blank omits mqtt rather than emitting an empty url", () => {
+  withEnv(
+    {
+      MQTT_BROKER_URL: "",
+      MQTT_PUBLIC_BROKER_URL: "   ",
+      MQTT_USE_TLS: "true",
+      WEBSSO_LOGIN_URL: undefined,
     },
     () => {
       assert.deepEqual(buildBootstrapConfig(), {});

@@ -185,6 +185,8 @@ interface ChatInputAreaProps {
   onRetryOfflineAgents?: () => void;
   onEngageAgent: (agent: AttachedAgent) => void;
   onRemoveAgent: (agentId: string) => void;
+  /** Solo (1 human + 1 agent): pill is always on and cannot be removed. */
+  agentMentionLocked?: boolean;
   activeStreamingAgents?: ReadonlyArray<ActiveStreamingAgent>;
   onInterruptAgent?: (agentId: string) => void;
 }
@@ -262,6 +264,7 @@ export function ChatInputArea({
   onRetryOfflineAgents,
   onEngageAgent = () => {},
   onRemoveAgent = () => {},
+  agentMentionLocked = false,
   activeStreamingAgents = [],
   onInterruptAgent,
 }: ChatInputAreaProps) {
@@ -573,6 +576,7 @@ export function ChatInputArea({
               onRemoveAgent={onRemoveAgent}
               onSwitchToLocalAgent={onSwitchToLocalAgent}
               onRetryOffline={onRetryOfflineAgents}
+              agentMentionLocked={agentMentionLocked}
             />
           ) : null}
 
@@ -629,6 +633,7 @@ export function ChatInputArea({
                 agentToRuntimeId={agentToRuntimeId}
                 agentToBackendType={agentToBackendType}
                 onRemoveAgent={onRemoveAgent}
+                agentMentionLocked={agentMentionLocked}
               />
             </PromptInputTools>
 

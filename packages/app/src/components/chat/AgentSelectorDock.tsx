@@ -5,10 +5,17 @@ import { Button } from '@/components/ui/button'
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover'
 import { ModelPickerCommand } from '@/components/model/ModelPickerCommand'
 import { useRuntimeStateStore } from '@/stores/runtime-state-store'
-import { resolveAgentAvailableModels } from '@/lib/agent-available-models'
+import { useLocalDaemonCatalogStore } from '@/stores/local-daemon-catalog-store'
+import { resolveAutoPersistModelId } from '@/lib/agent-model-auto-persist'
+import { useWorkspaceStore } from '@/stores/workspace'
+import {
+  dedupeAgentModelOptions,
+  resolveAgentAvailableModels,
+} from '@/lib/agent-available-models'
+import { firstAvailableRecentModel } from '@/lib/local-daemon-model-catalog'
 import { resolveSessionEstablishedModel } from '@/lib/session-established-model'
 import { sessionFlowError, sessionFlowLog } from '@/lib/session-flow-log'
-import { RuntimeLifecycle, AgentStatus, type RuntimeInfo } from '@/lib/proto/amux_pb'
+import { RuntimeLifecycle, type RuntimeInfo } from '@/lib/proto/amux_pb'
 import {
   backendTypeFromRuntimeEntry,
   agentModelDisplayLabel,
@@ -24,14 +31,15 @@ import { useSessionMessageStore } from '@/stores/session-message-store'
 import { useCurrentTeamStore } from '@/stores/current-team'
 import { useSessionListStore } from '@/stores/session-list-store'
 import { useLocalDaemonActorId } from '@/lib/daemon-agent-admin'
+import { getKnownLocalDaemonActorId } from '@/lib/local-daemon-identity'
 import { cn } from '@/lib/utils'
 import type { AttachedAgent } from '@/packages/ai/prompt-input-insert-hooks'
 import type { EngagedAgentUiEntry } from '@/hooks/use-engaged-agent-ui-states'
-import type { SessionAgentUiState } from '@/lib/session-agent-ui-state'
 import {
-  dotClassesForUiState,
-  pillSuffixForUiState,
-} from '@/components/chat/EngagedAgentOfflineBanner'
+  resolveAgentPillDot,
+  type SessionAgentUiState,
+} from '@/lib/session-agent-ui-state'
+import { pillSuffixForUiState } from '@/components/chat/EngagedAgentOfflineBanner'
 import { isSoloBuild } from '@/lib/solo-build'
 
 // ────────────────────────────────────────────────────────────────────────────
@@ -49,29 +57,11 @@ interface AgentSelectorDockProps {
   agentToBackendType: Map<string, string>
   /** Remove a single agent (clicked the X on the chip / "Remove" in dropdown). */
   onRemoveAgent: (agentId: string) => void
+  /** Solo session: agent pill is mandatory and cannot be removed. */
+  agentMentionLocked?: boolean
 }
 
 export { resolveAgentAvailableModels } from '@/lib/agent-available-models'
-
-/** Connected = green. Starting = yellow. Error = red. Stopped/unknown = gray. */
-function dotClasses(info: RuntimeInfo | undefined): { color: string; pulse: boolean } {
-  if (!info) return { color: 'bg-muted-foreground/40', pulse: false }
-  switch (info.state) {
-    case RuntimeLifecycle.FAILED:
-      return { color: 'bg-red-500', pulse: false }
-    case RuntimeLifecycle.STARTING:
-      return { color: 'bg-amber-400', pulse: false }
-    case RuntimeLifecycle.ACTIVE:
-      if (info.status === AgentStatus.ERROR) {
-        return { color: 'bg-red-500', pulse: false }
-      }
-      return { color: 'bg-emerald-500', pulse: false }
-    case RuntimeLifecycle.STOPPED:
-    case RuntimeLifecycle.UNKNOWN:
-    default:
-      return { color: 'bg-muted-foreground/40', pulse: false }
-  }
-}
 
 // ────────────────────────────────────────────────────────────────────────────
 // Component
@@ -84,6 +74,7 @@ export function AgentSelectorDock({
   agentToRuntimeId,
   agentToBackendType,
   onRemoveAgent,
+  agentMentionLocked = false,
 }: AgentSelectorDockProps) {
   const runtimeStates = useRuntimeStateStore((s) => s.byRuntimeId)
   const uiStateByAgentId = React.useMemo(
@@ -115,6 +106,7 @@ export function AgentSelectorDock({
             backendType={backendType}
             runtimeInfo={runtimeEntry?.info}
             uiState={uiStateByAgentId.get(agent.id) ?? 'connecting'}
+            mentionLocked={agentMentionLocked}
             onRemove={() => {
               if (activeSessionId) {
                 useAgentModelPickStore.getState().clearPick(activeSessionId, agent.id)
@@ -139,6 +131,7 @@ function AgentPill({
   backendType,
   runtimeInfo,
   uiState,
+  mentionLocked = false,
   onRemove,
 }: {
   sessionIdProp: string | null
@@ -147,6 +140,7 @@ function AgentPill({
   backendType: string | undefined
   runtimeInfo: RuntimeInfo | undefined
   uiState: SessionAgentUiState
+  mentionLocked?: boolean
   onRemove: () => void
 }) {
   const { t } = useTranslation()
@@ -165,20 +159,33 @@ function AgentPill({
   )
   const liveRuntimeInfo = liveRuntimeEntry?.info ?? runtimeInfo
   const effectiveUiState: SessionAgentUiState = uiState
-  const runtimeDot = dotClasses(liveRuntimeInfo)
-  const { color: dotColor, pulse } =
-    effectiveUiState === 'ready' ? runtimeDot : dotClassesForUiState(effectiveUiState)
+  const { color: dotColor, pulse } = resolveAgentPillDot(effectiveUiState, liveRuntimeInfo)
 
-  const availableModels = React.useMemo(
-    () => resolveAgentAvailableModels(liveRuntimeInfo),
-    [liveRuntimeInfo],
+  // Loopback catalog for THIS device. Only ever consulted for the local agent —
+  // a remote agent's models can only come from its own retain.
+  const workspacePath = useWorkspaceStore((s) => s.workspacePath)?.trim() || ''
+  const localCatalog = useLocalDaemonCatalogStore((s) =>
+    isSelf && workspacePath ? s.byWorkspacePath[workspacePath] : undefined,
   )
+
+  const availableModels = React.useMemo(() => {
+    const fromRetain = resolveAgentAvailableModels(liveRuntimeInfo)
+    if (fromRetain.length > 0) return fromRetain
+    // The retain is authoritative but may not have landed (or may not exist at
+    // all, for a daemon with no runtime up). For the local agent the loopback
+    // catalog answers the same question in one hop.
+    return isSelf ? dedupeAgentModelOptions(localCatalog?.models) : []
+  }, [liveRuntimeInfo, isSelf, localCatalog])
+
   const statusSuffix = pillSuffixForUiState(effectiveUiState, t)
   const hideModelOnPill = isSoloBuild()
   const showModelPicker = effectiveUiState === 'ready' || effectiveUiState === 'connecting'
+  // `unconfigured` is a settled answer ("nothing to run"), so it must not read
+  // as loading — that is the spinner-forever bug this state exists to end.
   const runtimeInfoLoading =
     showModelPicker &&
     availableModels.length === 0 &&
+    localCatalog?.status !== 'empty' &&
     (!liveRuntimeInfo || liveRuntimeInfo.state === RuntimeLifecycle.STARTING)
   // Subscribe to the pick entry so explicit user picks immediately drive the
   // pill — selectAgentModel reads the same store but via getState() and would
@@ -192,6 +199,16 @@ function AgentPill({
     sessionId ? resolveSessionEstablishedModel(s.messages[sessionId], agent.id) : null,
   )
 
+  // This device's last-used model, from the loopback catalog's MRU. Sits in the
+  // `providerFallback` slot: below an explicit pick, the session transcript and
+  // the live retain, above "just take availableModels[0]". Local agent only —
+  // this device's history says nothing about a remote agent's.
+  const localRecentModel = React.useMemo(
+    () =>
+      isSelf ? firstAvailableRecentModel(localCatalog?.recentModels, availableModels) : '',
+    [isSelf, localCatalog, availableModels],
+  )
+
   const selected = React.useMemo(
     () =>
       selectAgentModel({
@@ -200,6 +217,7 @@ function AgentPill({
         available: availableModels,
         byRuntimeId,
         sessionEstablishedModel,
+        providerFallback: localRecentModel || undefined,
       }),
     [
       sessionId,
@@ -207,6 +225,7 @@ function AgentPill({
       availableModels,
       byRuntimeId,
       sessionEstablishedModel,
+      localRecentModel,
       // Force recompute when the pick changes — pickEntry is referenced for
       // the dependency hint; selectAgentModel reads from store.getState().
       pickEntry?.modelId,
@@ -246,25 +265,43 @@ function AgentPill({
     runtimeInfoLoading,
   ])
 
-  // Catalog is visible but nothing was user-/runtime-selected. Persist the
-  // first advertised model as a session pick so reload/send keep a real id
-  // (and the dropdown shows a checkmark). `selectAgentModel` already falls
-  // back to available[0] for display; this makes that choice durable.
+  // Catalog is visible but nothing was user-/runtime-selected. Persist a
+  // session pick so reload/send keep a real id (and the dropdown shows a
+  // checkmark).
+  //
+  // What gets persisted matters more than it looks: a pick outranks every
+  // other level in `selectAgentModel`, so whatever lands here wins for good.
+  // Writing `availableModels[0]` unconditionally is what made a restart snap
+  // back to the first model — on a cold start the retain has not arrived, so
+  // `currentModel` is empty, and this effect would durably pin model[0] over
+  // the model the device actually last used. Prefer this device's MRU and fall
+  // back to first-advertised only when there is no history to honour.
   React.useEffect(() => {
-    if (!sessionId) return
-    if (effectiveUiState === 'offline' || effectiveUiState === 'stale') return
-    if (runtimeInfoLoading) return
-    if (availableModels.length === 0) return
-    if (useAgentModelPickStore.getState().getPick(sessionId, agent.id)) return
-    if (sessionEstablishedModel?.trim()) return
-    if (liveRuntimeInfo?.currentModel?.trim()) return
-    const firstId = availableModels[0]?.id?.trim()
-    if (!firstId) return
-    const rpcModelId = resolveSetModelId(agent.id, firstId, byRuntimeId)
+    const chosenId = resolveAutoPersistModelId({
+      sessionId,
+      uiState: effectiveUiState,
+      runtimeInfoLoading,
+      availableModelIds: availableModels.map((m) => m.id),
+      existingPick: sessionId
+        ? useAgentModelPickStore.getState().getPick(sessionId, agent.id)
+        : undefined,
+      sessionEstablishedModel,
+      retainCurrentModel: liveRuntimeInfo?.currentModel,
+      // The hook is async and reads null on the first renders; the persisted
+      // id answers synchronously so a local agent is recognised as local from
+      // render 1 and the MRU guard actually applies.
+      localDaemonActorId: localActorId ?? getKnownLocalDaemonActorId(),
+      agentId: agent.id,
+      localCatalogStatus: localCatalog?.status,
+      localRecentModel,
+    })
+    if (!chosenId) return
+    const rpcModelId = resolveSetModelId(agent.id, chosenId, byRuntimeId)
     sessionFlowLog('agent_selector.model_auto_select', {
       agentId: agent.id,
       sessionId,
       modelId: rpcModelId,
+      source: localRecentModel ? 'device_mru' : 'first_advertised',
       availableModelIds: availableModels.map((m) => m.id),
     })
     useAgentModelPickStore.getState().setPick(sessionId, agent.id, rpcModelId)
@@ -277,6 +314,10 @@ function AgentPill({
     sessionEstablishedModel,
     liveRuntimeInfo?.currentModel,
     byRuntimeId,
+    isSelf,
+    localActorId,
+    localCatalog,
+    localRecentModel,
   ])
 
   const handlePickModel = React.useCallback(async (modelId: string) => {
@@ -431,6 +472,15 @@ function AgentPill({
                   ? t('chat.sessionAgent.dropdownStale')
                   : t('chat.sessionAgent.dropdownOffline')}
               </div>
+            ) : effectiveUiState === 'unconfigured' ? (
+              // Point at the fix rather than the generic "no models advertised",
+              // which reads like a fault when it is just an unfinished setup.
+              <div className="px-2 py-3 text-xs text-muted-foreground">
+                {t(
+                  'chat.sessionAgent.dropdownUnconfigured',
+                  'No model provider configured yet — add one in Settings to start chatting',
+                )}
+              </div>
             ) : runtimeInfoLoading ? (
               <div className="px-2 py-3 text-xs text-muted-foreground">
                 {t('chat.agentSelector.loading', 'Loading…')}
@@ -443,6 +493,7 @@ function AgentPill({
             </div>
           }
           footer={
+            mentionLocked ? undefined : (
             <div className="p-1">
               <button
                 type="button"
@@ -456,6 +507,7 @@ function AgentPill({
                 {t('chat.agentSelector.removeMention', 'Remove mention')}
               </button>
             </div>
+            )
           }
         />
       </PopoverContent>

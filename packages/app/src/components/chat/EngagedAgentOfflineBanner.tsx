@@ -11,6 +11,7 @@ type Props = {
   onRemoveAgent: (agentId: string) => void
   onSwitchToLocalAgent?: (agent: AttachedAgent) => void
   onRetryOffline?: () => void
+  agentMentionLocked?: boolean
 }
 
 function filterActionable(entries: EngagedAgentUiEntry[]): EngagedAgentUiEntry[] {
@@ -48,6 +49,7 @@ export function EngagedAgentOfflineBanner({
   onRemoveAgent,
   onSwitchToLocalAgent,
   onRetryOffline,
+  agentMentionLocked = false,
 }: Props) {
   const { t } = useTranslation()
   const actionable = filterActionable(entries)
@@ -88,7 +90,7 @@ export function EngagedAgentOfflineBanner({
             {t('chat.sessionAgent.switchToLocal')}
           </button>
         ) : null}
-        {actionable.length === 1 ? (
+        {agentMentionLocked ? null : actionable.length === 1 ? (
           <button
             type="button"
             className="text-ink-2 hover:text-foreground underline-offset-2 hover:underline"
@@ -123,24 +125,15 @@ export function pillSuffixForUiState(
       return t('chat.sessionAgent.pillStale', 'Rebind required')
     case 'connecting':
       return t('chat.sessionAgent.pillConnecting', 'Connecting…')
+    case 'unconfigured':
+      // Reachable, just has nothing to run — say so instead of implying a wait
+      // ("Connecting…") or a network problem ("Offline").
+      return t('chat.sessionAgent.pillUnconfigured', 'No model configured')
     default:
       return null
   }
 }
 
-export function dotClassesForUiState(uiState: SessionAgentUiState): {
-  color: string
-  pulse: boolean
-} {
-  switch (uiState) {
-    case 'ready':
-      return { color: 'bg-emerald-500', pulse: false }
-    case 'connecting':
-      return { color: 'bg-amber-400', pulse: false }
-    case 'stale':
-      return { color: 'bg-red-500', pulse: false }
-    case 'offline':
-    default:
-      return { color: 'bg-muted-foreground/40', pulse: false }
-  }
-}
+// `dotClassesForUiState` now lives in `@/lib/session-agent-ui-state`, next to
+// the retain-based variant and the `resolveAgentPillDot` combinator that picks
+// between them.

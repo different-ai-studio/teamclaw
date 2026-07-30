@@ -9,13 +9,6 @@ function normalizeEngagedAgents(agents: AttachedAgent[]): AttachedAgent[] {
  * renders a single agent pill; @-mentioning another agent replaces it. */
 interface State {
   bySession: Record<string, AttachedAgent[]>;
-  /** True when the user actively removed the last agent from a session
-   * ("Remove mention" in the pill dropdown). Send-time mention resolvers
-   * read this to suppress the "auto-mention the sole session agent"
-   * fallback — if the user explicitly cleared mentions, sending without
-   * @ should NOT re-engage the agent. Reset by `addAgent`/`setAgents`
-   * (non-empty) since re-engaging counts as new intent. */
-  wasExplicitlyCleared: Record<string, boolean>;
   /** Replace the engaged-agents list for a session. */
   setAgents: (sessionId: string, agents: AttachedAgent[]) => void;
   /** Replace the engaged agent for a session. Used by @-mention. */
@@ -35,28 +28,16 @@ interface State {
 
 export const useEngagedAgentStore = create<State>((set, getState) => ({
   bySession: {},
-  wasExplicitlyCleared: {},
   setAgents: (sessionId, agents) =>
-    set((s) => {
-      const normalized = normalizeEngagedAgents(agents);
-      return {
-      bySession: { ...s.bySession, [sessionId]: normalized },
-      wasExplicitlyCleared: {
-        ...s.wasExplicitlyCleared,
-        // Re-engaging (non-empty) clears the "explicitly empty" flag;
-        // setAgents([]) is a programmatic reset (not user intent), keep flag.
-        [sessionId]:
-          normalized.length > 0 ? false : s.wasExplicitlyCleared[sessionId] ?? false,
-      },
-    };
-    }),
+    set((s) => ({
+      bySession: { ...s.bySession, [sessionId]: normalizeEngagedAgents(agents) },
+    })),
   addAgent: (sessionId, agent) =>
     set((s) => {
       const prev = s.bySession[sessionId] ?? [];
       if (prev.length === 1 && prev[0]?.id === agent.id) return s;
       return {
         bySession: { ...s.bySession, [sessionId]: [agent] },
-        wasExplicitlyCleared: { ...s.wasExplicitlyCleared, [sessionId]: false },
       };
     }),
   removeAgent: (sessionId, agentId) =>
@@ -67,19 +48,13 @@ export const useEngagedAgentStore = create<State>((set, getState) => ({
       if (next.length === prev.length) return s;
       return {
         bySession: { ...s.bySession, [sessionId]: next },
-        wasExplicitlyCleared: {
-          ...s.wasExplicitlyCleared,
-          [sessionId]: next.length === 0,
-        },
       };
     }),
   clearSession: (sessionId) =>
     set((s) => {
       const nextBy = { ...s.bySession };
       delete nextBy[sessionId];
-      const nextFlag = { ...s.wasExplicitlyCleared };
-      delete nextFlag[sessionId];
-      return { bySession: nextBy, wasExplicitlyCleared: nextFlag };
+      return { bySession: nextBy };
     }),
   getAgents: (sessionId) =>
     sessionId
@@ -95,10 +70,6 @@ export const useEngagedAgentStore = create<State>((set, getState) => ({
       bySession: {
         ...s.bySession,
         [sessionId]: agent ? [agent] : [],
-      },
-      wasExplicitlyCleared: {
-        ...s.wasExplicitlyCleared,
-        [sessionId]: agent ? false : s.wasExplicitlyCleared[sessionId] ?? false,
       },
     })),
 }));
