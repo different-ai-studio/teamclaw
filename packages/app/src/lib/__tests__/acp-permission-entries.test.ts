@@ -3,6 +3,8 @@ import {
   buildPendingEntryFromAcpPermission,
   collectAcpBystanderWaitingPermissions,
   collectAcpStreamingPermissions,
+  collectAcpStreamingPermissionsForList,
+  selectStreamingPermissionSnapshot,
 } from "@/lib/teamclaw/acp-permission-entries";
 import { useCurrentTeamStore } from "@/stores/current-team";
 import { useV2StreamingStore } from "@/stores/v2-streaming-store";
@@ -25,6 +27,39 @@ describe("acp permission entries", () => {
     expect(entry.permission.permission).toBe("bash");
     expect(entry.permission.patterns).toEqual(["ls -la"]);
     expect(entry.permission.metadata?._acp_agent_actor_id).toBe("agent-1");
+  });
+
+  it("collects pending permissions across all sessions for list badges", () => {
+    const byKey = {
+      "sess-a::agent-1": {
+        sessionId: "sess-a",
+        actorId: "agent-1",
+        pendingPermissionsByRequestId: {
+          p1: {
+            requestId: "p1",
+            toolName: "bash",
+            description: "echo hi",
+            params: {},
+          },
+        },
+      },
+      "sess-b::agent-2": {
+        sessionId: "sess-b",
+        actorId: "agent-2",
+        pendingPermissionsByRequestId: {
+          p2: {
+            requestId: "p2",
+            toolName: "bash",
+            description: "pwd",
+            params: {},
+          },
+        },
+      },
+    };
+    expect(collectAcpStreamingPermissionsForList(byKey)).toHaveLength(2);
+    expect(selectStreamingPermissionSnapshot(byKey)).toBe(
+      "sess-a:p1|sess-b:p2",
+    );
   });
 
   it("collects pending permissions for the active session only", () => {

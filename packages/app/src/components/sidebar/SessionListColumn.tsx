@@ -1,9 +1,8 @@
 import * as React from 'react'
 import { useTranslation } from 'react-i18next'
 import { useVirtualizer } from '@tanstack/react-virtual'
-import { Search, Loader2, MessageSquare, Pin, Archive, Pencil, Ellipsis, Info, SquarePen, Users, X, ListChecks, Check } from 'lucide-react'
+import { Search, Loader2, MessageSquare, Pin, Archive, Pencil, Ellipsis, Info, SquarePen, Users, X, ListChecks, Check, HelpCircle, Stamp, Clock } from 'lucide-react'
 import { useSessionStore } from '@/stores/session'
-import { useStreamingStore } from '@/stores/streaming'
 import { useUIStore } from '@/stores/ui'
 import { useWorkspaceStore } from '@/stores/workspace'
 import { useCronStore } from '@/stores/cron'
@@ -37,12 +36,14 @@ import {
 import { cn } from '@/lib/utils'
 import { formatRelativeTime } from '@/lib/date-format'
 import { useTypeAhead } from '@/hooks/use-type-ahead'
-import { buildSessionListActivityMap, type SessionListActivity } from '@/lib/session-list-activity'
+import type { SessionListActivity } from '@/lib/session-list-activity'
+import { useSessionListActivityMap } from '@/hooks/use-session-list-activity-map'
 import { loadSessionIdsForActor } from '@/lib/session-by-actor'
 import { loadSessionIdsForWorkspace } from '@/lib/session-by-workspace'
 import { actorAvatarColor } from '@/lib/actor-color'
 import { useSessionWorkspaceLabels } from '@/hooks/use-session-workspace-labels'
 import { compareSessionListByRecency } from '@/lib/session-list-sort'
+import { buildSessionListGlassLayoutKey } from '@/lib/session-list-glass-layout-key'
 import { isScheduledSession } from '@/lib/session-origin'
 
 /**
@@ -120,15 +121,61 @@ type VirtualRow =
   | { key: string; kind: 'divider' }
   | { key: string; kind: 'session'; row: ListRow }
 
+function sessionActivityLabel(
+  activity: SessionListActivity,
+  t: (key: string, fallback: string) => string,
+): string {
+  if (activity.state === 'running') return t('sidebar.sessionRunning', 'Running')
+  if (activity.kind === 'question') return t('sessions.detail.awaitingQuestion', 'Awaiting answer')
+  if (activity.kind === 'permission') return t('sidebar.awaitingConfirmation', 'Awaiting confirmation')
+  return t('sessions.detail.waiting', 'Waiting')
+}
+
+/** D方案：18px 图标 pill，完整文案走 title / aria-label；不增行高。 */
 function SessionActivityBadge({ activity }: { activity?: SessionListActivity }) {
   const { t } = useTranslation()
   if (!activity) return null
+
+  const label = sessionActivityLabel(activity, t)
+
   if (activity.state === 'running') {
-    return <Loader2 className="h-3.5 w-3.5 shrink-0 animate-spin text-primary" aria-label={t('sidebar.sessionRunning', 'Running')} />
+    return (
+      <span
+        className="mr-1 inline-flex h-[18px] w-[18px] shrink-0 items-center justify-center"
+        title={label}
+        aria-label={label}
+        data-testid="v2-session-activity-badge"
+        data-kind="streaming"
+      >
+        <Loader2 className="h-3.5 w-3.5 animate-spin text-primary" />
+      </span>
+    )
   }
+
+  const isQuestion = activity.kind === 'question'
+  const isPermission = activity.kind === 'permission'
   return (
-    <span className="min-w-0 shrink rounded-full bg-emerald-500/10 px-2 py-0.5 text-[10px] font-semibold leading-4 text-emerald-600">
-      <span className="block truncate">{t('sidebar.awaitingConfirmation', 'Awaiting confirmation')}</span>
+    <span
+      className={cn(
+        'mr-1 inline-grid h-[18px] w-[18px] shrink-0 place-items-center rounded-full border',
+        isQuestion
+          ? 'border-indigo-500/20 bg-indigo-500/10 text-indigo-600'
+          : isPermission
+            ? 'border-emerald-500/20 bg-emerald-500/10 text-emerald-600'
+            : 'border-amber-500/20 bg-amber-500/10 text-amber-700',
+      )}
+      title={label}
+      aria-label={label}
+      data-testid="v2-session-activity-badge"
+      data-kind={activity.kind}
+    >
+      {isQuestion ? (
+        <HelpCircle className="h-3 w-3" strokeWidth={2.5} aria-hidden />
+      ) : isPermission ? (
+        <Stamp className="h-3 w-3" strokeWidth={2.5} aria-hidden />
+      ) : (
+        <Clock className="h-3 w-3" strokeWidth={2.5} aria-hidden />
+      )}
     </span>
   )
 }
@@ -179,18 +226,10 @@ export function SessionListColumn({
   const listHasMore = useSessionListStore((s) => s.hasMore)
   const loadMoreSessions = useSessionListStore((s) => s.loadMore)
 
-  // Activity badges still read legacy compat state until the activity store is
-  // extracted. List actions and row state are v2-owned.
-  const allSessions = useSessionStore((s) => s.sessions)
+  // Activity badges: useSessionListActivityMap (legacy + v2 ACP permissions).
   const activeSessionId = useSessionSelectionStore((s) => s.activeSessionId)
   const pinnedSessionIds = useSessionListStore((s) => s.pinnedSessionIds)
   const highlightedSessionIds = useSessionListStore((s) => s.highlightedSessionIds)
-  const sessionStatuses = useSessionStore((s) => s.sessionStatuses) || {}
-  const pendingQuestionIdsBySession = useSessionStore((s) => s.pendingQuestionIdsBySession) || {}
-  const pendingQuestions = useSessionStore((s) => s.pendingQuestions) || []
-  const pendingPermissions = useSessionStore((s) => s.pendingPermissions) || []
-  const streamingMessageId = useStreamingStore((s) => s.streamingMessageId)
-  const childSessionStreaming = useStreamingStore((s) => s.childSessionStreaming)
   const archiveSession = useSessionStore((s) => s.archiveSession)
   const updateSessionTitle = useSessionListStore((s) => s.updateSessionTitle)
   const toggleSessionPinned = useSessionListStore((s) => s.toggleSessionPinned)
@@ -336,7 +375,6 @@ export function SessionListColumn({
     gap: 2,
     getItemKey: (index) => virtualRows[index].key,
   })
-  const glassLayoutKey = `${activeSessionId ?? ''}:${actionsOpenSessionId ?? ''}:${filteredRows.length}:${pinnedRows.length}:${shouldVirtualize ? 1 : 0}`
 
   React.useEffect(() => {
     if (!shouldVirtualize) return
@@ -359,31 +397,32 @@ export function SessionListColumn({
     void ensureParticipants(filteredRows.map((r) => r.id))
   }, [ensureParticipants, filteredRows, visibleIds])
 
-  const sessionActivityMap = React.useMemo(
-    () =>
-      buildSessionListActivityMap({
-        sessions: allSessions,
-        activeSessionId,
-        sessionStatuses,
-        pendingQuestionIdsBySession,
-        pendingQuestions,
-        pendingPermissions,
-        streamingMessageId,
-        streamingChildSessionIds: Object.values(childSessionStreaming)
-          .filter((state) => state?.isStreaming)
-          .map((state) => state.sessionId),
-      }),
-    [
+  const sessionActivityMap = useSessionListActivityMap(activeSessionId)
+
+  const glassLayoutKey = React.useMemo(() => {
+    const rowOrder = virtualRows.map((v) => (v.kind === 'session' ? v.row.id : v.key))
+    const rowLayoutHints: Array<{ sessionId: string; participantCount: number }> = []
+    for (const v of virtualRows) {
+      if (v.kind !== 'session') continue
+      const participantCount = participantsBySession[v.row.id]?.length ?? 0
+      if (participantCount > 0) {
+        rowLayoutHints.push({ sessionId: v.row.id, participantCount })
+      }
+    }
+    return buildSessionListGlassLayoutKey({
       activeSessionId,
-      allSessions,
-      childSessionStreaming,
-      pendingPermissions,
-      pendingQuestionIdsBySession,
-      pendingQuestions,
-      sessionStatuses,
-      streamingMessageId,
-    ],
-  )
+      actionsOpenSessionId,
+      rowOrder,
+      rowLayoutHints,
+      shouldVirtualize,
+    })
+  }, [
+    activeSessionId,
+    actionsOpenSessionId,
+    participantsBySession,
+    shouldVirtualize,
+    virtualRows,
+  ])
 
   const title = (() => {
     if (filter.kind === 'all') {
@@ -654,7 +693,7 @@ export function SessionListColumn({
             ) : null}
             <div className="flex min-w-0 flex-1 flex-col items-start gap-1">
               {/* Title row: title + meta + sibling more (more stops propagation). */}
-              <div className="flex w-full min-w-0 items-center gap-1.5">
+              <div className="flex w-full min-w-0 items-center gap-1.5 overflow-hidden">
                 {row.isPinned && <Pin className="h-3 w-3 shrink-0 fill-amber-500/20 text-amber-500" />}
                 {isRenaming ? (
                   <div
@@ -676,7 +715,7 @@ export function SessionListColumn({
                     >
                       {row.title || t('chat.newChat', 'New Chat')}
                     </span>
-                    <div className="flex shrink-0 items-center">
+                    <div className="flex min-w-0 shrink-0 items-center">
                       {!isActive && row.hasUnread && (
                         <span
                           className="mr-1.5 h-1.5 w-1.5 shrink-0 rounded-full bg-coral"
@@ -688,6 +727,7 @@ export function SessionListColumn({
                           {t('chat.newSessionBadge', 'NEW')}
                         </span>
                       )}
+                      {activity ? <SessionActivityBadge activity={activity} /> : null}
                       {row.lastMessageAt && (
                         <span className="shrink-0 px-0.5 text-[11px] leading-[22px] tabular-nums text-faint">
                           {formatRelativeTime(row.lastMessageAt)}
@@ -764,42 +804,36 @@ export function SessionListColumn({
                   )}
                 </span>
               )}
-              {!isRenaming && ((parts.length > 0 && !isSoloWithLocalAgent) || activity) && (
+              {!isRenaming && parts.length > 0 && !isSoloWithLocalAgent && (
                 <div className="flex w-full items-center gap-1.5" data-testid="v2-session-row-participants">
-                  {parts.length > 0 && !isSoloWithLocalAgent && (
-                    <>
-                      <div className="flex -space-x-1.5">
-                        {parts.slice(0, 3).map((p) => {
-                          const c = actorAvatarColor(p.actorId)
-                          return (
-                            <Avatar
-                              key={p.actorId}
-                              className={cn(
-                                'h-4 w-4 ring-1 ring-paper',
-                                p.isAgent ? 'rounded-[3px]' : 'rounded-full',
-                              )}
-                            >
-                              {p.avatarUrl && <AvatarImage src={p.avatarUrl} alt={p.displayName} />}
-                              <AvatarFallback
-                                className={cn(
-                                  'text-[8px] font-semibold',
-                                  p.isAgent ? 'rounded-[3px]' : 'rounded-full',
-                                )}
-                                style={{ background: c.bg, color: c.fg }}
-                              >
-                                {p.displayName.slice(0, 1).toUpperCase()}
-                              </AvatarFallback>
-                            </Avatar>
-                          )
-                        })}
-                      </div>
-                      <span className="text-[10.5px] text-faint">
-                        {t('sidebar.participantCount', { count: parts.length, defaultValue: '{{count}} 位' })}
-                      </span>
-                    </>
-                  )}
-                  <span className="flex-1" />
-                  <SessionActivityBadge activity={activity} />
+                  <div className="flex -space-x-1.5">
+                    {parts.slice(0, 3).map((p) => {
+                      const c = actorAvatarColor(p.actorId)
+                      return (
+                        <Avatar
+                          key={p.actorId}
+                          className={cn(
+                            'h-4 w-4 ring-1 ring-paper',
+                            p.isAgent ? 'rounded-[3px]' : 'rounded-full',
+                          )}
+                        >
+                          {p.avatarUrl && <AvatarImage src={p.avatarUrl} alt={p.displayName} />}
+                          <AvatarFallback
+                            className={cn(
+                              'text-[8px] font-semibold',
+                              p.isAgent ? 'rounded-[3px]' : 'rounded-full',
+                            )}
+                            style={{ background: c.bg, color: c.fg }}
+                          >
+                            {p.displayName.slice(0, 1).toUpperCase()}
+                          </AvatarFallback>
+                        </Avatar>
+                      )
+                    })}
+                  </div>
+                  <span className="text-[10.5px] text-faint">
+                    {t('sidebar.participantCount', { count: parts.length, defaultValue: '{{count}} 位' })}
+                  </span>
                 </div>
               )}
 

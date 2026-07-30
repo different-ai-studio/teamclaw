@@ -30,7 +30,9 @@ export function SessionLiquidGlass({
   const prevIdRef = React.useRef<string | null | undefined>(null)
   const moveTimerRef = React.useRef<ReturnType<typeof setTimeout> | null>(null)
 
-  const sync = React.useCallback(() => {
+  const syncFrameRef = React.useRef<number | null>(null)
+
+  const measureAndApply = React.useCallback(() => {
     const root = rootRef.current
     const glass = glassRef.current
     if (!root || !glass || disabled || !activeSessionId) {
@@ -56,6 +58,17 @@ export function SessionLiquidGlass({
     setVisible(true)
   }, [rootRef, activeSessionId, disabled])
 
+  /** Coalesce scroll/resize/observer bursts into one measure per frame. */
+  const sync = React.useCallback(() => {
+    if (syncFrameRef.current != null) {
+      cancelAnimationFrame(syncFrameRef.current)
+    }
+    syncFrameRef.current = requestAnimationFrame(() => {
+      syncFrameRef.current = null
+      measureAndApply()
+    })
+  }, [measureAndApply])
+
   React.useLayoutEffect(() => {
     const idChanged = prevIdRef.current !== activeSessionId
     if (idChanged && activeSessionId && prevIdRef.current != null && prevIdRef.current !== undefined) {
@@ -64,8 +77,9 @@ export function SessionLiquidGlass({
       moveTimerRef.current = setTimeout(() => setMoving(false), 420)
     }
     prevIdRef.current = activeSessionId ?? null
-    sync()
-  }, [sync, activeSessionId, layoutKey, disabled])
+    // Synchronous — avoid one frame of stale geometry after list re-order.
+    measureAndApply()
+  }, [measureAndApply, activeSessionId, layoutKey, disabled])
 
   React.useEffect(() => {
     const scroll = scrollRef.current
@@ -93,6 +107,7 @@ export function SessionLiquidGlass({
 
   React.useEffect(() => () => {
     if (moveTimerRef.current) clearTimeout(moveTimerRef.current)
+    if (syncFrameRef.current != null) cancelAnimationFrame(syncFrameRef.current)
   }, [])
 
   return (
