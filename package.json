@@ -4,6 +4,7 @@
   "private": true,
   "description": "TeamClaw - AI Agent Desktop Platform",
   "scripts": {
+    "prepare": "git config core.hooksPath .githooks || true",
     "dev": "pnpm --filter @teamclaw/app dev",
     "expo:dev": "pnpm --filter @teamclaw/expo dev",
     "expo:ios": "pnpm --filter @teamclaw/expo ios",

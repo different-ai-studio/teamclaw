@@ -472,6 +472,16 @@ pub struct BackendCatalog {
     /// Human-readable label for the backend group header.
     pub label: String,
     pub models: Vec<CatalogModel>,
+    /// This device's most-recently-used model ids for this backend, newest
+    /// first (`config::model_mru`).
+    ///
+    /// The same answer rides `RuntimeInfo.current_model` on the MQTT retain,
+    /// but only once a runtime is actually up. Serving it here lets a client
+    /// resolve "the model this device last used" from the loopback catalog
+    /// alone — which is the whole point of the local fast path: no retain, no
+    /// running runtime, still the right model on the pill.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub recent_models: Vec<String>,
 }
 
 /// Full per-backend model catalog for a workspace.
@@ -570,6 +580,9 @@ pub fn build_model_catalog(
             backend: backend.clone(),
             label: backend_label(backend).to_string(),
             models,
+            // Filled in by `attach_recent_models` — the MRU lives behind the
+            // supervisor lock, which this pure builder deliberately avoids.
+            recent_models: Vec::new(),
         });
     }
 
@@ -580,6 +593,38 @@ pub fn build_model_catalog(
     ModelCatalog {
         automation_default_backend,
         backends,
+    }
+}
+
+/// Attach this device's MRU to the group it belongs to.
+///
+/// Model ids are backend-local (`config::model_mru` keys by backend for exactly
+/// that reason), so the list is only valid for the backend it was recorded
+/// under — matching on `default_backend` keeps a second configured group from
+/// inheriting ids it could never run. `"claude-code"` and `"claude"` are the
+/// wire and launch-config spellings of one backend, so they match each other.
+fn attach_recent_models(
+    catalog: &mut ModelCatalog,
+    default_backend: Option<&str>,
+    recent_models: Vec<String>,
+) {
+    if recent_models.is_empty() {
+        return;
+    }
+    let Some(default_backend) = default_backend.map(str::trim).filter(|b| !b.is_empty()) else {
+        return;
+    };
+    fn canon(s: &str) -> &str {
+        match s {
+            "claude" | "claude-code" => "claude-code",
+            other => other,
+        }
+    }
+    for group in &mut catalog.backends {
+        if canon(group.backend.trim()) == canon(default_backend) {
+            group.recent_models = recent_models;
+            return;
+        }
     }
 }
 
@@ -639,12 +684,24 @@ pub async fn get_model_catalog(
         Err(_) => (None, Vec::new()),
     };
 
-    let catalog = build_model_catalog(
+    let mut catalog = build_model_catalog(
         &state.meta.configured_agent_types,
         probed_models.as_deref(),
         &cached_models,
         &providers,
     );
+
+    // The device MRU rides along so a client can resolve the last-used model
+    // without waiting for a runtime to come up and publish its retain.
+    if let Some(supervisor) = state.runtime_supervisor.as_ref() {
+        let default_backend = supervisor.local_backend_type().await;
+        attach_recent_models(
+            &mut catalog,
+            Some(default_backend),
+            supervisor.recent_catalog_models().await,
+        );
+    }
+
     Ok(Json(catalog))
 }
 
@@ -1264,6 +1321,53 @@ mod tests {
         let providers = vec![provider("scnet", &["MiniMax-M2.5"])];
         let catalog = build_model_catalog(&["opencode".to_string()], None, &cached, &providers);
         assert_eq!(catalog.backends[0].models[0].model_ref, "prov/from-cache");
+    }
+
+    #[test]
+    fn recent_models_attach_to_the_default_backend_group() {
+        let probed = vec![acp("prov/live")];
+        let mut catalog = build_model_catalog(&["opencode".to_string()], Some(&probed), &[], &[]);
+        attach_recent_models(
+            &mut catalog,
+            Some("opencode"),
+            vec!["prov/last-used".to_string()],
+        );
+        assert_eq!(catalog.backends[0].recent_models, vec!["prov/last-used"]);
+    }
+
+    #[test]
+    fn recent_models_match_across_the_two_claude_spellings() {
+        // "claude" is the launch-config spelling, "claude-code" the wire name;
+        // a mismatch here would silently drop the MRU for claude daemons.
+        for (group, default_backend) in [("claude", "claude-code"), ("claude-code", "claude")] {
+            let probed = vec![acp("anthropic/opus")];
+            let mut catalog =
+                build_model_catalog(&[group.to_string()], Some(&probed), &[], &[]);
+            attach_recent_models(
+                &mut catalog,
+                Some(default_backend),
+                vec!["anthropic/opus".to_string()],
+            );
+            assert_eq!(
+                catalog.backends[0].recent_models,
+                vec!["anthropic/opus"],
+                "{group} vs {default_backend} should be the same backend"
+            );
+        }
+    }
+
+    #[test]
+    fn recent_models_never_leak_into_another_backends_group() {
+        // Model ids are backend-local: an opencode MRU handed to a pi group
+        // would advertise ids pi can never run.
+        let probed = vec![acp("pi/x")];
+        let mut catalog = build_model_catalog(&["pi".to_string()], Some(&probed), &[], &[]);
+        attach_recent_models(
+            &mut catalog,
+            Some("opencode"),
+            vec!["opencode/big-pickle".to_string()],
+        );
+        assert!(catalog.backends[0].recent_models.is_empty());
     }
 
     #[test]

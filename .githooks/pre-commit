@@ -1,0 +1,82 @@
+#!/usr/bin/env bash
+# Blocks two classes of accidental commit:
+#
+#   1. Files that are never source — office documents, archives, key material.
+#   2. Secret-shaped strings in newly staged content.
+#
+# Why this exists: on 2026-07-30 an unscoped `git add -A` swept a private
+# individual's CV out of `.playwright-mcp/` (a Playwright MCP scratch directory)
+# into a commit on this *public* repository. Removing it needed a history
+# rewrite, a force-push, and a request to GitHub Support to purge the blobs from
+# their fork network — none of which fully closes the exposure, because merged
+# pull requests keep the objects reachable.
+#
+# `.gitignore` alone cannot prevent a repeat. It only covers directories someone
+# thought of in advance, and the whole problem was a directory nobody thought
+# about. This hook checks what is actually being committed instead.
+#
+# Escape hatch: `git commit --no-verify`. Deliberately not automatic — if you are
+# committing something that trips this, that should be a decision, not a default.
+
+set -uo pipefail
+
+RED=$'\033[0;31m'; YELLOW=$'\033[0;33m'; DIM=$'\033[2m'; RESET=$'\033[0m'
+fail=0
+
+staged=$(git diff --cached --name-only --diff-filter=ACM)
+[ -z "$staged" ] && exit 0
+
+# ── 1. Extensions that are never source in this repo ─────────────────────────
+# Verified empty across all tracked files when this hook was added, so a hit is
+# always something new rather than an existing file being re-staged.
+never_source='\.(docx?|xlsx?|xls|pptx?|pages|numbers|zip|rar|7z|dmg|p12|pfx|jks|keystore)$'
+# PDFs are separate only so the message can name the likely cause.
+docs=$(echo "$staged" | grep -iE "$never_source|\.pdf$" || true)
+if [ -n "$docs" ]; then
+  echo "${RED}✗ Documents / archives / key stores are not source:${RESET}"
+  echo "$docs" | sed 's/^/    /'
+  echo "  ${DIM}These are the file types that leak personal data. If one is genuinely${RESET}"
+  echo "  ${DIM}part of the project, add an exception to .githooks/pre-commit.${RESET}"
+  fail=1
+fi
+
+# ── 2. Known scratch directories, even if force-added past .gitignore ────────
+scratch=$(echo "$staged" | grep -E '^(\.playwright-mcp|test-results|playwright-report|screenshots|tmp|\.claude)/' || true)
+if [ -n "$scratch" ]; then
+  echo "${RED}✗ Tool scratch output is not source:${RESET}"
+  echo "$scratch" | sed 's/^/    /'
+  fail=1
+fi
+
+# ── 3. Secret-shaped strings in newly staged content ────────────────────────
+# Only the staged diff is scanned, so pre-existing fixtures are not re-flagged
+# unless they change. Test and example paths are skipped: this repo legitimately
+# carries a throwaway APNs P8 in services/fc/test/apns-jwt.test.ts.
+secret_re='(-----BEGIN (RSA|DSA|EC|OPENSSH|PGP)? ?PRIVATE KEY-----|sk-[A-Za-z0-9]{20,}|ghp_[A-Za-z0-9]{30,}|github_pat_[A-Za-z0-9_]{30,}|AKIA[0-9A-Z]{16}|xox[baprs]-[A-Za-z0-9-]{10,}|AIza[0-9A-Za-z_-]{30,}|crsr_[A-Za-z0-9]{20,})'
+while IFS= read -r file; do
+  [ -z "$file" ] && continue
+  case "$file" in
+    *test*|*spec*|*fixture*|*mock*|*example*|*sample*|*template*|*.md) continue ;;
+  esac
+  # Added lines only (+ prefix), so deleting a secret does not block the commit
+  # that removes it.
+  if git diff --cached -U0 -- "$file" | grep -qE "^\+.*$secret_re"; then
+    echo "${RED}✗ Possible secret in ${file}${RESET}"
+    git diff --cached -U0 -- "$file" | grep -nE "^\+.*$secret_re" | head -3 | sed 's/^/    /'
+    fail=1
+  fi
+done <<< "$staged"
+
+if [ "$fail" -ne 0 ]; then
+  echo
+  echo "${YELLOW}Commit blocked.${RESET} Usually the fix is to unstage, not to bypass:"
+  echo "    git restore --staged <path>"
+  echo
+  echo "Prefer ${DIM}git add <specific paths>${RESET} over ${DIM}git add -A${RESET} — that is what caused"
+  echo "the incident this hook exists to prevent."
+  echo
+  echo "If you are certain: ${DIM}git commit --no-verify${RESET}"
+  exit 1
+fi
+
+exit 0

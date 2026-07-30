@@ -12,17 +12,20 @@ vi.mock('@/lib/session-flow-log', () => ({ sessionFlowLog: vi.fn() }))
 import { ModelInfoSchema, RuntimeInfoSchema, RuntimeLifecycle } from '@/lib/proto/amux_pb'
 import { useRuntimeStateStore } from '@/stores/runtime-state-store'
 import {
+  fetchLocalDaemonCatalog,
   fetchLocalDaemonModels,
+  firstAvailableRecentModel,
   mergeLocalDaemonModels,
 } from '../local-daemon-model-catalog'
 
-const catalog = (backend: string, refs: string[]) => ({
+const catalog = (backend: string, refs: string[], recentModels?: string[]) => ({
   automation_default_backend: backend,
   backends: [
     {
       backend,
       label: backend,
       models: refs.map((ref) => ({ ref, model_id: ref, display_name: ref })),
+      ...(recentModels ? { recent_models: recentModels } : {}),
     },
   ],
 })
@@ -93,6 +96,85 @@ describe('fetchLocalDaemonModels', () => {
   })
 })
 
+describe('fetchLocalDaemonCatalog', () => {
+  beforeEach(() => {
+    getDaemonModelCatalog.mockReset()
+  })
+
+  it('separates "no answer" from "answered with nothing"', async () => {
+    // The distinction the whole first-install fix rests on: collapsing these
+    // two into one null is what made a fresh install look like a slow one.
+    getDaemonModelCatalog.mockResolvedValueOnce(null)
+    expect(await fetchLocalDaemonCatalog('/w1', 'opencode')).toEqual({ status: 'unknown' })
+
+    getDaemonModelCatalog.mockResolvedValueOnce(catalog('opencode', []))
+    expect(await fetchLocalDaemonCatalog('/w1', 'opencode')).toEqual({
+      status: 'empty',
+      backend: 'opencode',
+    })
+  })
+
+  it('treats an ambiguous multi-group reply as unknown, never as empty', async () => {
+    // Several groups and none matches is "we cannot tell", not "nothing is
+    // configured" — reporting empty here would wrongly blame the user's setup.
+    getDaemonModelCatalog.mockResolvedValueOnce({
+      automation_default_backend: 'pi',
+      backends: [
+        { backend: 'pi', label: 'Pi', models: [] },
+        { backend: 'cursor', label: 'Cursor', models: [] },
+      ],
+    })
+    expect(await fetchLocalDaemonCatalog('/w1', 'opencode')).toEqual({ status: 'unknown' })
+  })
+
+  it('takes the daemon automation default when the caller names no backend', async () => {
+    getDaemonModelCatalog.mockResolvedValueOnce({
+      automation_default_backend: 'cursor',
+      backends: [
+        { backend: 'pi', label: 'Pi', models: [{ ref: 'pi/x', model_id: 'x', display_name: 'x' }] },
+        {
+          backend: 'cursor',
+          label: 'Cursor',
+          models: [{ ref: 'cursor/y', model_id: 'y', display_name: 'y' }],
+        },
+      ],
+    })
+    const outcome = await fetchLocalDaemonCatalog('/w1')
+    expect(outcome.status).toBe('models')
+    expect(outcome.status === 'models' && outcome.backend).toBe('cursor')
+  })
+
+  it('carries the device MRU through, dropping blanks', async () => {
+    getDaemonModelCatalog.mockResolvedValueOnce(
+      catalog('opencode', ['prov/a', 'prov/b'], ['prov/b', '  ', 'prov/a']),
+    )
+    const outcome = await fetchLocalDaemonCatalog('/w1', 'opencode')
+    expect(outcome.status === 'models' && outcome.recentModels).toEqual(['prov/b', 'prov/a'])
+  })
+
+  it('defaults the MRU to empty on daemons predating the field', async () => {
+    getDaemonModelCatalog.mockResolvedValueOnce(catalog('opencode', ['prov/a']))
+    const outcome = await fetchLocalDaemonCatalog('/w1', 'opencode')
+    expect(outcome.status === 'models' && outcome.recentModels).toEqual([])
+  })
+})
+
+describe('firstAvailableRecentModel', () => {
+  const available = [{ id: 'live/y' }, { id: 'live/z' }]
+
+  it('skips MRU entries the catalog no longer offers', () => {
+    // Same rule as the daemon's `model_mru::first_available`: a retired model
+    // must not be shown as current just because it was used last.
+    expect(firstAvailableRecentModel(['gone/x', 'live/z'], available)).toBe('live/z')
+  })
+
+  it('is empty when nothing matches or there is nothing to match against', () => {
+    expect(firstAvailableRecentModel(['gone/x'], available)).toBe('')
+    expect(firstAvailableRecentModel(['live/y'], [])).toBe('')
+    expect(firstAvailableRecentModel(undefined, available)).toBe('')
+  })
+})
+
 describe('mergeLocalDaemonModels', () => {
   const models = [create(ModelInfoSchema, { id: 'prov/http', displayName: 'From HTTP' })]
 
@@ -132,6 +214,52 @@ describe('mergeLocalDaemonModels', () => {
     expect(
       useRuntimeStateStore.getState().byRuntimeId['rt-1'].info.availableModels[0].id,
     ).toBe('prov/from-retain')
+  })
+
+  it('seeds currentModel from the device MRU so the pill shows the last-used model', () => {
+    seedEntry('rt-1', 'actor-1')
+    mergeLocalDaemonModels({
+      daemonActorId: 'actor-1',
+      runtimeId: 'rt-1',
+      models,
+      recentModels: ['prov/http'],
+    })
+    expect(useRuntimeStateStore.getState().byRuntimeId['rt-1'].info.currentModel).toBe(
+      'prov/http',
+    )
+  })
+
+  it('ignores an MRU entry the catalog no longer offers', () => {
+    seedEntry('rt-1', 'actor-1')
+    mergeLocalDaemonModels({
+      daemonActorId: 'actor-1',
+      runtimeId: 'rt-1',
+      models,
+      recentModels: ['prov/retired'],
+    })
+    expect(useRuntimeStateStore.getState().byRuntimeId['rt-1'].info.currentModel).toBe('')
+  })
+
+  it('never overwrites a currentModel the retain already named', () => {
+    useRuntimeStateStore.getState().upsert(
+      'rt-1',
+      'actor-1',
+      create(RuntimeInfoSchema, {
+        runtimeId: 'rt-1',
+        state: RuntimeLifecycle.ACTIVE,
+        currentModel: 'prov/from-retain',
+        availableModels: [],
+      }),
+    )
+    mergeLocalDaemonModels({
+      daemonActorId: 'actor-1',
+      runtimeId: 'rt-1',
+      models,
+      recentModels: ['prov/http'],
+    })
+    expect(useRuntimeStateStore.getState().byRuntimeId['rt-1'].info.currentModel).toBe(
+      'prov/from-retain',
+    )
   })
 
   it('does nothing without an existing entry or without models', () => {

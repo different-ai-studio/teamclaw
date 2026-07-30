@@ -10,19 +10,37 @@ function parseBool(raw) {
   return undefined;
 }
 
+// Read an env var, treating blank as absent.
+//
+// Every deployment declares the optional MQTT vars with an empty default —
+// `${env('MQTT_PUBLIC_BROKER_URL', '')}` in s.yaml, `"${MQTT_PUBLIC_BROKER_URL:-}"`
+// in docker-compose — so "not configured" reaches the process as `""`, never as
+// undefined. `??` treats `""` as a real value, which silently defeated the
+// documented "leave empty to fall back" contract and shipped a bootstrap with
+// no `mqtt` block at all: the client then reports that the server delivered no
+// MQTT address, while the daemon (which never reads this endpoint) stays
+// connected and hides the breakage.
+function envValue(name: string): string | undefined {
+  const value = process.env[name]?.trim();
+  return value ? value : undefined;
+}
+
 function buildMqttConfig() {
-  // MQTT_PUBLIC_BROKER_URL is the address delivered to clients (public-facing).
-  // Falls back to MQTT_BROKER_URL for single-host setups, but self-host
-  // deployments should set MQTT_PUBLIC_BROKER_URL to the public hostname so
-  // clients outside Docker can reach the broker.
-  const url = (process.env.MQTT_PUBLIC_BROKER_URL ?? process.env.MQTT_BROKER_URL)?.trim();
+  // One address is enough when FC and clients reach the broker at the same
+  // place (Alibaba FC / belayo): set MQTT_BROKER_URL and nothing else.
+  //
+  // MQTT_PUBLIC_BROKER_URL exists only for deployments where those two differ
+  // and is a pure override. Self-host is exactly that case — compose points FC
+  // at `mqtt://emqx:1883` and the all-in-one image at `mqtt://127.0.0.1:1883`,
+  // neither of which resolves outside the container — so it stays supported.
+  const url = envValue("MQTT_PUBLIC_BROKER_URL") ?? envValue("MQTT_BROKER_URL");
   if (!url) return null;
   const mqtt: any = { url };
   // Optional raw-TCP address for clients whose MQTT stack can't do WebSocket
   // (rumqttc on desktop/daemon, CocoaMQTT on iOS). The all-in-one self-host
   // image multiplexes raw MQTT onto its single public port via Caddy layer4
   // and sets MQTT_PUBLIC_TCP_BROKER_URL accordingly.
-  const tcpUrl = process.env.MQTT_PUBLIC_TCP_BROKER_URL?.trim();
+  const tcpUrl = envValue("MQTT_PUBLIC_TCP_BROKER_URL");
   if (tcpUrl) mqtt.tcpUrl = tcpUrl;
   const useTls = parseBool(process.env.MQTT_USE_TLS);
   if (useTls !== undefined) mqtt.useTls = useTls;
@@ -39,10 +57,10 @@ function buildMqttConfig() {
 // MQTT block. storageKey is `sb-<supabase-ref>-auth-token` and can't be derived
 // from the admin host, so it is its own variable.
 function buildWebSsoConfig() {
-  const loginUrl = process.env.WEBSSO_LOGIN_URL?.trim();
+  const loginUrl = envValue("WEBSSO_LOGIN_URL");
   if (!loginUrl) return null;
   const webSso: any = { loginUrl };
-  const storageKey = process.env.WEBSSO_STORAGE_KEY?.trim();
+  const storageKey = envValue("WEBSSO_STORAGE_KEY");
   if (storageKey) webSso.storageKey = storageKey;
   return webSso;
 }
