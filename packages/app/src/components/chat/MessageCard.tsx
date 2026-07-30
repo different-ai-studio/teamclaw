@@ -26,9 +26,9 @@ export function MessageCard({ message }: MessageCardProps) {
         )}
       >
         {isUser ? (
-          <p className="text-sm whitespace-pre-wrap break-words">{message.content}</p>
+          <p className="text-[13.5px] leading-[1.5] whitespace-pre-wrap break-words">{message.content}</p>
         ) : (
-          <div className="chat-md max-w-none break-words text-[14.5px] text-foreground [overflow-wrap:anywhere]">
+          <div className="chat-md max-w-none break-words text-foreground [overflow-wrap:anywhere]">
             <ReactMarkdown
               remarkPlugins={[remarkGfm]}
               components={{
@@ -44,7 +44,7 @@ export function MessageCard({ message }: MessageCardProps) {
                 ),
                 // Paragraphs
                 p: ({ children }) => (
-                  <p className="my-[0.4em] leading-[1.6] text-foreground">{children}</p>
+                  <p className="my-[0.4em] leading-[1.5] text-foreground">{children}</p>
                 ),
                 // Strong/Bold
                 strong: ({ children }) => (
@@ -95,7 +95,7 @@ export function MessageCard({ message }: MessageCardProps) {
                   }
                   return (
                     <pre className="chat-md-code my-2.5 overflow-x-auto rounded-md p-3.5">
-                      <code className="font-mono text-[13px]">{children}</code>
+                      <code className="font-mono text-[13.5px] leading-[1.5]">{children}</code>
                     </pre>
                   )
                 },
