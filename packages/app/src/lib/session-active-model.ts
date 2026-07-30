@@ -25,10 +25,10 @@ function providerIdForBackendType(backendType: string | null | undefined): strin
       return 'claude-code'
     case 'opencode':
       return 'opencode'
-    case 'codex':
-      return 'codex'
     case 'pi':
       return 'pi'
+    case 'cursor':
+      return 'cursor'
     default:
       return null
   }

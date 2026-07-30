@@ -97,7 +97,7 @@ export interface CronModelOption {
 
 /** Models for one agent backend. Cron UI renders a flat list like chat. */
 export interface CronModelGroup {
-  /** "opencode" | "claude" | "codex" — stored as `payload.backend`. */
+  /** "opencode" | "claude" | "pi" | "cursor" — stored as `payload.backend`. */
   backend: string
   label: string
   models: CronModelOption[]
@@ -107,8 +107,10 @@ export function cronBackendFromAgentType(agentType: AgentType): string {
   switch (agentType) {
     case AgentType.CLAUDE_CODE:
       return 'claude'
-    case AgentType.CODEX:
-      return 'codex'
+    case AgentType.PI:
+      return 'pi'
+    case AgentType.CURSOR:
+      return 'cursor'
     case AgentType.OPENCODE:
     default:
       return 'opencode'

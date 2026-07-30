@@ -705,7 +705,42 @@ fn backend_label(agent_type: amux::AgentType) -> &'static str {
         amux::AgentType::Opencode => "opencode",
         amux::AgentType::ClaudeCode => "claude-code",
         amux::AgentType::Codex => "codex",
+        amux::AgentType::Pi => "pi",
+        amux::AgentType::Cursor => "cursor",
         _ => "unknown",
+    }
+}
+
+/// Whether the configured backend can actually be launched.
+///
+/// [`binary_available`] alone only answers this for backends whose
+/// `AgentLaunchConfig.binary` really is an executable on PATH. It is wrong for
+/// the other two:
+///
+/// - **pi** declares the literal `"pi"`, but `pi_rpc::resolve_binary` also
+///   accepts `~/.pi/bin/pi`, which `command -v pi` does not see.
+/// - **cursor** declares `"cursor-bridge"`, which is not an executable at all —
+///   the backend runs `node <daemon>/cursor-bridge/src/main.mjs`.
+///
+/// So both reported "not available" on machines where they run perfectly well,
+/// which failed the model-catalog probe before it could reach the backend.
+fn backend_launchable(agent_type: amux::AgentType, cfg: &AgentLaunchConfig) -> bool {
+    match agent_type {
+        amux::AgentType::Pi => {
+            let resolved = crate::runtime::pi_rpc::process::resolve_binary(None);
+            binary_available(&AgentLaunchConfig::new(resolved, Vec::new(), "pi"))
+        }
+        amux::AgentType::Cursor => {
+            let cmd = crate::runtime::cursor_sdk::process::default_bridge_command();
+            let node_ok = cmd
+                .first()
+                .map(|bin| {
+                    binary_available(&AgentLaunchConfig::new(bin.clone(), Vec::new(), "cursor"))
+                })
+                .unwrap_or(false);
+            node_ok && crate::runtime::cursor_sdk::process::default_bridge_main().exists()
+        }
+        _ => binary_available(cfg),
     }
 }
 
@@ -756,12 +791,13 @@ impl RuntimeSupervisor {
         })
     }
 
-    /// Models OpenCode advertises via ACP for this workspace cwd (cron catalog).
-    /// Probe the configured local backend (opencode or pi) for its live model
-    /// catalog. Dispatches through the backend trait, so opencode reaches
-    /// `serve.ensure()` + `/config/providers` and pi reaches
-    /// `get_available_models` (spawning a child if none is live). There is no
-    /// static fallback — an unavailable binary is an error, not a phantom list.
+    /// Probe the configured local backend for its live model catalog.
+    ///
+    /// Dispatches through the backend trait, so opencode reaches `serve.ensure()`
+    /// and `/config/providers`, pi reaches `get_available_models`, cursor reaches
+    /// `list_models`, and claude-code returns its static table — each spawning a
+    /// child if none is live. There is no static fallback — an unavailable
+    /// binary is an error, not a phantom list.
     pub async fn probe_catalog_models(
         &self,
         workspace_path: &Path,
@@ -769,7 +805,7 @@ impl RuntimeSupervisor {
         let mut manager = self.agents.lock().await;
         let agent_type = manager.default_agent_type();
         let launch = manager.launch_config_for(agent_type);
-        if !binary_available(&launch) {
+        if !backend_launchable(agent_type, &launch) {
             return Err(format!(
                 "{} binary not available",
                 backend_label(agent_type)
@@ -779,6 +815,27 @@ impl RuntimeSupervisor {
             .probe_catalog_models(workspace_path)
             .await
             .map_err(|e| e.to_string())
+    }
+
+    /// This device's last-known catalog for `workspace_path` under the
+    /// configured backend, as persisted by `config::model_catalog`.
+    ///
+    /// The MQTT path already falls back to this via `RuntimeManager::fill_catalog`;
+    /// the HTTP catalog endpoint needs the same fallback so a slow or failed
+    /// live probe serves the last-known list instead of nothing. pi and cursor
+    /// have no provider-file fallback of their own, so for them this is the only
+    /// thing standing between a cold probe and a permanently empty picker.
+    pub async fn cached_catalog_models(&self, workspace_path: &Path) -> Vec<amux::ModelInfo> {
+        self.agents
+            .lock()
+            .await
+            .catalog_for_worktree(&workspace_path.to_string_lossy())
+    }
+
+    /// Backend id for the configured local agent (`"opencode"` / `"pi"` /
+    /// `"cursor"` / `"claude"`).
+    pub async fn local_backend_type(&self) -> &'static str {
+        self.agents.lock().await.local_backend_type()
     }
 
     pub async fn runtime_status(
@@ -795,7 +852,7 @@ impl RuntimeSupervisor {
         let agent_type = manager.default_agent_type();
         let backend = backend_label(agent_type).to_owned();
         let launch = manager.launch_config_for(agent_type);
-        let backend_ready = binary_available(&launch);
+        let backend_ready = backend_launchable(agent_type, &launch);
 
         let workspace_path_str = workspace_path.to_string_lossy();
         let active: Vec<_> = manager
