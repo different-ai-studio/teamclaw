@@ -31,13 +31,20 @@
         --sk-bone: oklch(0.3 0 0);
       }
       /* Anodized teal build flavor — mirrors :root[data-palette="teal"] in
-         globals.css so the skeleton's first paint already matches. Outranks
-         .dark so the flavor stays light. */
+         globals.css so the skeleton's first paint already matches. */
       :root[data-palette="teal"] {
         --sk-bg: #f2f0ea;
         --sk-panel: #e5e6e1;
         --sk-border: rgba(32, 36, 42, 0.08);
         --sk-bone: #d5d8d0;
+      }
+      /* Brand/teal + dark: restore dark skeleton surfaces (matches
+         :root.dark[data-palette] in globals.css). */
+      :root.dark[data-palette] {
+        --sk-bg: oklch(0.145 0 0);
+        --sk-panel: oklch(0.205 0 0);
+        --sk-border: oklch(1 0 0 / 10%);
+        --sk-bone: oklch(0.3 0 0);
       }
 
       #skeleton {

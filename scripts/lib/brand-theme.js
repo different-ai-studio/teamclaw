@@ -21,8 +21,11 @@ function extractRootTokenNames(css) {
 
 /**
  * Validate brand tokens against the allow-list and produce a single CSS rule
- * `:root[data-palette="<palette>"]{…}`. Throws (to fail the build) on an
- * unknown token name or a value containing CSS-breaking characters.
+ * `:root[data-palette="<palette>"]{…}` (light tokens only). Dark surfaces for
+ * any palette are handled once in globals.css via `:root.dark[data-palette]`
+ * so brand accent tokens from this rule still apply in dark mode. Throws (to
+ * fail the build) on an unknown token name or a value containing CSS-breaking
+ * characters.
  */
 function generateBrandThemeCss(palette, tokens, allowedTokens) {
   if (typeof palette !== "string" || !/^[a-zA-Z0-9_-]+$/.test(palette)) {

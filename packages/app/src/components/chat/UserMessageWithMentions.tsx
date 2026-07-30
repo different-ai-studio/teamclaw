@@ -217,7 +217,7 @@ function AgentMentionHeader({ names }: { names: string[] }) {
         <span className="font-mono text-[9px] font-semibold tracking-[0.04em] text-coral shrink-0">
           AGENT
         </span>
-        <span className="text-[12.5px] font-semibold text-[#1a1a14] dark:text-[#eef3f7] truncate">
+        <span className="text-[12.5px] font-semibold text-foreground truncate">
           {labels.join(", ")}
         </span>
       </div>

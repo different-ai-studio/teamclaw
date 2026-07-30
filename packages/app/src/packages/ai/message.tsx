@@ -160,7 +160,7 @@ export function MessageContent({
         // Chat message base — user bubble + assistant note share 13.5px / 1.5.
         "text-[13.5px] leading-[1.5] break-words [overflow-wrap:anywhere] min-w-0",
         from === "user"
-          ? "max-w-[85%] overflow-x-hidden rounded-2xl rounded-br-[6px] px-4 py-3 bg-[#e8edf2] text-[#1f2933] dark:border dark:border-white/8 dark:bg-white/10 dark:backdrop-blur-sm dark:text-[#eef3f7]"
+          ? "max-w-[85%] overflow-x-hidden rounded-2xl rounded-br-[6px] px-4 py-3 bg-[#e8edf2] text-foreground dark:border dark:border-white/8 dark:bg-white/10 dark:backdrop-blur-sm"
           : "overflow-hidden w-full",
         className
       )}
