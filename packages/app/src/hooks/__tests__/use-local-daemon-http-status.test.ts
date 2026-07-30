@@ -2,115 +2,72 @@ import { describe, it, expect } from 'vitest'
 import { resolveLocalDaemonRuntimeStatus } from '../use-local-daemon-http-status'
 
 describe('resolveLocalDaemonRuntimeStatus', () => {
+  it('returns offline when onboarding is not ready', () => {
+    expect(
+      resolveLocalDaemonRuntimeStatus({
+        daemonOnboardingReady: false,
+        httpStatus: 'online',
+        daemonMqttConnected: true,
+      }),
+    ).toBe('offline')
+  })
+
   it('returns offline when http probe fails', () => {
     expect(
       resolveLocalDaemonRuntimeStatus({
         daemonOnboardingReady: true,
         httpStatus: 'offline',
-        presenceOnline: true,
-        mqttConnected: true,
+        daemonMqttConnected: true,
       }),
     ).toBe('offline')
   })
 
-  it('returns online when http, mqtt, and presence are healthy', () => {
+  it('returns online when the daemon is reachable and its mqtt link is up', () => {
     expect(
       resolveLocalDaemonRuntimeStatus({
         daemonOnboardingReady: true,
         httpStatus: 'online',
-        presenceOnline: true,
-        mqttConnected: true,
-      }),
-    ).toBe('online')
-  })
-
-  it('returns mqttDisconnected when http is up but desktop mqtt is down', () => {
-    expect(
-      resolveLocalDaemonRuntimeStatus({
-        daemonOnboardingReady: true,
-        httpStatus: 'online',
-        presenceOnline: true,
-        mqttConnected: false,
-      }),
-    ).toBe('mqttDisconnected')
-  })
-
-  it('prefers mqttDisconnected over stale presence online', () => {
-    expect(
-      resolveLocalDaemonRuntimeStatus({
-        daemonOnboardingReady: true,
-        httpStatus: 'online',
-        presenceOnline: true,
-        mqttConnected: false,
-      }),
-    ).toBe('mqttDisconnected')
-  })
-
-  it('stays checking when presence is offline but HTTP is up and daemon mqtt is still unknown', () => {
-    expect(
-      resolveLocalDaemonRuntimeStatus({
-        daemonOnboardingReady: true,
-        httpStatus: 'online',
-        presenceOnline: false,
-        mqttConnected: true,
-      }),
-    ).toBe('checking')
-  })
-
-  it('returns offline when presence and daemon mqtt both report offline', () => {
-    expect(
-      resolveLocalDaemonRuntimeStatus({
-        daemonOnboardingReady: true,
-        httpStatus: 'online',
-        presenceOnline: false,
-        mqttConnected: true,
-        daemonMqttConnected: false,
-      }),
-    ).toBe('offline')
-  })
-
-  it('returns online when daemon mqtt is connected despite stale offline presence', () => {
-    expect(
-      resolveLocalDaemonRuntimeStatus({
-        daemonOnboardingReady: true,
-        httpStatus: 'online',
-        presenceOnline: false,
-        mqttConnected: true,
         daemonMqttConnected: true,
       }),
     ).toBe('online')
   })
 
-  it('returns offline when daemon mqtt is down even if desktop mqtt is up', () => {
+  it('returns daemonMqttDisconnected when the daemon is up but its mqtt link is down', () => {
     expect(
       resolveLocalDaemonRuntimeStatus({
         daemonOnboardingReady: true,
         httpStatus: 'online',
-        presenceOnline: true,
-        mqttConnected: true,
         daemonMqttConnected: false,
       }),
-    ).toBe('offline')
+    ).toBe('daemonMqttDisconnected')
   })
 
-  it('ignores unknown mqtt state while http is still checking', () => {
+  it('stays checking while the http probe is in flight', () => {
     expect(
       resolveLocalDaemonRuntimeStatus({
         daemonOnboardingReady: true,
         httpStatus: 'checking',
-        presenceOnline: undefined,
-        mqttConnected: false,
+        daemonMqttConnected: false,
       }),
     ).toBe('checking')
   })
 
-  it('stays checking when http is online but mqtt probe is pending', () => {
+  it('stays checking when http is online but the daemon mqtt probe is pending', () => {
     expect(
       resolveLocalDaemonRuntimeStatus({
         daemonOnboardingReady: true,
         httpStatus: 'online',
-        presenceOnline: true,
-        mqttConnected: null,
+        daemonMqttConnected: null,
+      }),
+    ).toBe('checking')
+  })
+
+  it('stays checking before the first probe runs', () => {
+    expect(
+      resolveLocalDaemonRuntimeStatus({
+        daemonOnboardingReady: true,
+        httpStatus: 'idle',
+        daemonMqttConnected: null,
       }),
     ).toBe('checking')
   })

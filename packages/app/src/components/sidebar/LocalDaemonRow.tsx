@@ -76,10 +76,13 @@ function RuntimeStatusDot({
         aria-label={label}
         className={cn(
           'h-[7px] w-[7px] rounded-full',
+          // Green: daemon up + its MQTT up. Amber: daemon up, its MQTT down.
+          // Red: daemon itself down. Grey pulse: not determined yet.
           status === 'online' && 'bg-emerald-500 shadow-[0_0_0_2px_rgba(46,184,114,0.18)]',
-          status === 'mqttDisconnected' && 'bg-coral shadow-[0_0_0_2px_rgba(232,90,74,0.18)]',
-          status === 'offline' && 'bg-foreground/20',
-          status === 'checking' && 'animate-pulse bg-amber-400',
+          status === 'daemonMqttDisconnected' &&
+            'bg-amber-400 shadow-[0_0_0_2px_rgba(251,191,36,0.22)]',
+          status === 'offline' && 'bg-coral shadow-[0_0_0_2px_rgba(232,90,74,0.18)]',
+          status === 'checking' && 'animate-pulse bg-foreground/25',
         )}
       />
     </span>
@@ -132,8 +135,8 @@ function localDaemonStatusLabel(
       return t('sidebar.localDaemonOnline', 'Online')
     case 'offline':
       return t('sidebar.localDaemonOffline', 'Offline')
-    case 'mqttDisconnected':
-      return t('sidebar.localDaemonMqttDisconnected', 'Real-time channel disconnected')
+    case 'daemonMqttDisconnected':
+      return t('sidebar.localDaemonMqttDisconnected', 'Agent real-time channel disconnected')
     default:
       return t('sidebar.localDaemonChecking', 'Checking…')
   }
@@ -242,7 +245,7 @@ function SheetHeader({
               'flex h-7 w-7 shrink-0 items-center justify-center self-center rounded-md',
               runtimeStatus === 'offline'
                 ? 'bg-foreground/10 text-muted-foreground'
-                : runtimeStatus === 'mqttDisconnected'
+                : runtimeStatus === 'daemonMqttDisconnected'
                   ? 'bg-amber-400/15 text-amber-800'
                   : 'bg-coral text-white',
             )}
@@ -418,7 +421,7 @@ export function LocalDaemonRow({
   const daemonBusy = useDaemonOnboardingStore((s) => s.busy)
 
   const daemonOffline = runtimeStatus === 'offline'
-  const mqttDisconnected = runtimeStatus === 'mqttDisconnected'
+  const daemonMqttDisconnected = runtimeStatus === 'daemonMqttDisconnected'
   const statusLabel = localDaemonStatusLabel(runtimeStatus, t)
 
   const agentId = actor?.id ?? null
@@ -532,8 +535,11 @@ export function LocalDaemonRow({
     })
   }
 
-  const handleMqttReconnect = () => {
-    void recoverMqttConnection()
+  // The daemon's MQTT link is down — not the app's own client, so
+  // `recoverMqttConnection()` (which only restarts the app-side client) would do
+  // nothing here. Re-probe, then send the user to Settings where the daemon can
+  // be restarted.
+  const handleDaemonMqttReconnect = () => {
     requestDaemonProbe()
     openSettings('general')
   }
@@ -591,20 +597,23 @@ export function LocalDaemonRow({
           expanded={sheetOpen}
         />
 
-        {mqttDisconnected ? (
+        {daemonMqttDisconnected ? (
           <button
             type="button"
-            onClick={handleMqttReconnect}
-            className="mb-2 flex w-full items-start rounded-lg border border-[color:var(--coral-soft)] bg-[color:var(--coral-soft)]/25 px-2 py-1.5 text-left transition-colors hover:bg-[color:var(--coral-soft)]/50"
+            onClick={handleDaemonMqttReconnect}
+            className="mb-2 flex w-full items-start rounded-lg border border-amber-400/45 bg-amber-400/10 px-2 py-1.5 text-left transition-colors hover:bg-amber-400/20"
           >
             <span className="min-w-0 flex-1 leading-tight">
               <span className="block truncate text-[11.5px] font-semibold text-foreground">
-                {t('sidebar.localDaemonMqttDisconnectedTitle', 'Real-time channel disconnected')}
+                {t(
+                  'sidebar.localDaemonMqttDisconnectedTitle',
+                  'Agent real-time channel disconnected',
+                )}
               </span>
               <span className="block truncate text-[10.5px] text-muted-foreground">
                 {t(
                   'sidebar.localDaemonMqttDisconnectedHint',
-                  'Local agent is up, but MQTT is disconnected · Tap to configure server',
+                  'Local agent is up, but its MQTT link is down · Tap to open Settings',
                 )}
               </span>
             </span>
