@@ -10,8 +10,11 @@ mod backend;
 #[path = "../src/config/mod.rs"]
 mod config;
 // Not used directly by this test — `opencode_install` names
-// `crate::cursor_install::CursorStatus` in its doctor report, and an
-// integration test's crate root only has the modules it declares here.
+// `crate::cursor_install::CursorStatus` and `crate::claude_install::ClaudeStatus`
+// in its doctor report, and an integration test's crate root only has the
+// modules it declares here.
+#[path = "../src/claude_install/mod.rs"]
+mod claude_install;
 #[path = "../src/cursor_install/mod.rs"]
 mod cursor_install;
 #[path = "../src/error.rs"]
@@ -245,7 +248,6 @@ async fn seed_app_is_idempotent() {
     assert_seeded_checkout(&workdir);
     assert_committed(&workdir);
 }
-
 
 #[tokio::test]
 async fn seed_app_requires_scope() {

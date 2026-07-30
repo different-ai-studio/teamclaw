@@ -1333,8 +1333,7 @@ async fn command_loop(shared: Arc<Shared>, mut cmd_rx: mpsc::Receiver<AcpCommand
                     // Drop lightweight subagent aliases that pointed at this
                     // parent before removing the parent itself.
                     routes.retain(|id, route| {
-                        if route.parent_session_id.as_deref() == Some(acp_session_id.as_str())
-                        {
+                        if route.parent_session_id.as_deref() == Some(acp_session_id.as_str()) {
                             detached_session_ids.push(id.clone());
                             false
                         } else {
@@ -1361,16 +1360,14 @@ async fn command_loop(shared: Arc<Shared>, mut cmd_rx: mpsc::Receiver<AcpCommand
                 if let Some((directory, names)) = pruned {
                     prune_mcp_servers_from_worktree(&directory, &names);
                 }
-                shared.permissions.lock().retain(|_, sid| {
-                    !detached_session_ids
-                        .iter()
-                        .any(|detached| detached == sid)
-                });
-                shared.questions.lock().retain(|_, sid| {
-                    !detached_session_ids
-                        .iter()
-                        .any(|detached| detached == sid)
-                });
+                shared
+                    .permissions
+                    .lock()
+                    .retain(|_, sid| !detached_session_ids.iter().any(|detached| detached == sid));
+                shared
+                    .questions
+                    .lock()
+                    .retain(|_, sid| !detached_session_ids.iter().any(|detached| detached == sid));
                 info!(acp_session_id, "opencode session detached");
             }
             AcpCommand::Shutdown => {
@@ -1782,12 +1779,14 @@ mod turn_activity_tests {
                 }
             });
             routes.remove("ses_parent");
-            shared.permissions.lock().retain(|_, sid| {
-                !detached_session_ids.iter().any(|detached| detached == sid)
-            });
-            shared.questions.lock().retain(|_, sid| {
-                !detached_session_ids.iter().any(|detached| detached == sid)
-            });
+            shared
+                .permissions
+                .lock()
+                .retain(|_, sid| !detached_session_ids.iter().any(|detached| detached == sid));
+            shared
+                .questions
+                .lock()
+                .retain(|_, sid| !detached_session_ids.iter().any(|detached| detached == sid));
         }
 
         let remaining = shared.permissions.lock();

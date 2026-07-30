@@ -8,8 +8,8 @@ use tracing::{debug, info, warn};
 use crate::proto::amux;
 use crate::runtime::acp_event_frame::AcpEventFrame;
 
-use crate::runtime::sidecar::client::SidecarClient;
 use super::{translate, Shared};
+use crate::runtime::sidecar::client::SidecarClient;
 
 pub(super) fn spawn_reader(
     shared: Arc<Shared>,
