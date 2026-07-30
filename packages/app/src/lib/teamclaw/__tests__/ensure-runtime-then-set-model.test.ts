@@ -55,7 +55,21 @@ vi.mock('@/lib/utils', () => ({
 }))
 
 vi.mock('@/lib/i18n', () => ({
-  default: { t: (_k: string, fallback?: string) => fallback ?? _k },
+  default: {
+    // Mirror i18next's two shapes: `t(key, fallback)` and `t(key, vars)`. The
+    // naive fallback-only stub returned the options object itself, so any
+    // message built from interpolated vars stringified to "[object Object]".
+    t: (key: string, second?: string | Record<string, unknown>) => {
+      if (typeof second === 'string' || second === undefined) return second ?? key
+      const vars = second
+      return Object.entries(vars).reduce<string>(
+        (acc, [name, value]) => acc.replaceAll(`{{${name}}}`, String(value)),
+        `${key} ${Object.keys(vars)
+          .map((n) => `{{${n}}}`)
+          .join(' ')}`,
+      )
+    },
+  },
 }))
 
 describe('ensureRuntimeThenSetModel', () => {
@@ -116,6 +130,44 @@ describe('ensureRuntimeThenSetModel', () => {
       }),
     ).rejects.toThrow('daemon busy')
     expect(mocks.setModel).not.toHaveBeenCalled()
+  })
+
+  it('aborts instead of starting a runtime the daemon could not read', async () => {
+    // `sessions` is participant-only RLS. Starting anyway made the daemon report
+    // "fetch_session_with_participants failed: not found: session not found",
+    // which blames the session rather than this failed permission step.
+    mocks.listParticipants.mockResolvedValue([])
+    mocks.addParticipant.mockRejectedValue(new Error('row-level security violation'))
+
+    const { ensureRuntimeThenSetModel } = await import('../ensure-agent-runtime')
+    await expect(
+      ensureRuntimeThenSetModel({
+        sessionId: 'sess-1',
+        teamId: 'team-1',
+        agentActorId: 'agent-1',
+        modelId: 'opencode/big-pickle',
+      }),
+    ).rejects.toThrow(/row-level security violation/)
+
+    expect(mocks.startAgentRuntimesAsync).not.toHaveBeenCalled()
+    expect(mocks.setModel).not.toHaveBeenCalled()
+  })
+
+  it('still starts the runtime when the agent is already a participant', async () => {
+    // addParticipant is skipped entirely in this case, so a previously-joined
+    // agent must not be affected by the abort above.
+    mocks.listParticipants.mockResolvedValue([{ id: 'agent-1' }])
+
+    const { ensureRuntimeThenSetModel } = await import('../ensure-agent-runtime')
+    await expect(
+      ensureRuntimeThenSetModel({
+        sessionId: 'sess-1',
+        teamId: 'team-1',
+        agentActorId: 'agent-1',
+        modelId: 'opencode/big-pickle',
+      }),
+    ).resolves.toEqual({ runtimeId: 'spawn-live' })
+    expect(mocks.addParticipant).not.toHaveBeenCalled()
   })
 
   it('throws when mqtt is disconnected', async () => {

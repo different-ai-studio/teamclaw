@@ -75,6 +75,11 @@ function failureDescription(failure: RuntimeStartFailure): string {
       return trimmed || i18n.t("daemon.agentRuntime.workspaceRpcTimeoutDesc", { shortId });
     case "workspace_ensure_failed":
       return trimmed || i18n.t("daemon.agentRuntime.workspaceEnsureFailedDesc", { shortId });
+    case "session_participant_failed":
+      return i18n.t("daemon.agentRuntime.sessionParticipantFailedDesc", {
+        shortId,
+        reason: trimmed || i18n.t("errors.unknownError", "Unknown error"),
+      });
     case "runtime_rejected":
       return trimmed || i18n.t("daemon.agentRuntime.notStartedDesc", { shortId });
     case "runtime_rpc_failed":
@@ -207,10 +212,21 @@ async function runEnsureRuntimeThenSetModel(
   try {
     await ensureAgentIsSessionParticipant(args.sessionId, agentActorId);
   } catch (error) {
+    // Do NOT continue to runtimeStart. `sessions` is participant-only RLS, so a
+    // daemon that is not a participant cannot read the session and the start
+    // fails with "session not found" — which reads as data loss rather than a
+    // permission step that did not happen.
     sessionFlowError("ensure_runtime_then_set_model.add_participant_failed", error, {
       sessionId: args.sessionId,
       agentActorId,
     });
+    const failure: RuntimeStartFailure = {
+      agentActorId,
+      code: "session_participant_failed",
+      reason: error instanceof Error ? error.message : String(error),
+    };
+    reportRuntimeStartFailure(failure, { sessionId: args.sessionId, teamId: args.teamId });
+    throw new Error(failureDescription(failure), { cause: error });
   }
 
   const localWorkspacePath = useWorkspaceStore.getState().workspacePath?.trim() || null;
@@ -378,31 +394,58 @@ export async function ensureAgentRuntimesForSession(args: EnsureAgentRuntimeArgs
       return;
     }
 
-    const { eligible, failures: gateFailures } = await gateAgentsForRuntimeStart(agentActorIds);
+    const { eligible: gatedAgents, failures: gateFailures } =
+      await gateAgentsForRuntimeStart(agentActorIds);
     if (gateFailures.length > 0) {
       notifyRuntimeStartFailures(gateFailures, errorContext);
     }
-    if (eligible.length === 0) {
+    if (gatedAgents.length === 0) {
       logDebug("client:ensure_runtime_all_gated", { gateFailures }, { sessionId: args.sessionId });
       return;
     }
 
-    await Promise.all(
-      eligible.map(async (agentActorId) => {
-        try {
-          await ensureAgentIsSessionParticipant(args.sessionId, agentActorId);
-        } catch (error) {
-          sessionFlowError("ensure_agent_runtime.add_participant_failed", error, {
-            sessionId: args.sessionId,
-            agentActorId,
-          });
-          logDebug("client:add_participant_failed", { agentActorId, error: String(error) }, {
-            sessionId: args.sessionId,
-            actorId: agentActorId,
-          });
-        }
-      }),
-    );
+    // Agents whose participant row could not be created are dropped from the
+    // batch rather than started anyway. `sessions` is participant-only RLS, so
+    // starting them would fail in the daemon as "session not found", blaming the
+    // session instead of the permission step that actually failed.
+    const participantFailures: RuntimeStartFailure[] = [];
+    const eligible = (
+      await Promise.all(
+        gatedAgents.map(async (agentActorId) => {
+          try {
+            await ensureAgentIsSessionParticipant(args.sessionId, agentActorId);
+            return agentActorId;
+          } catch (error) {
+            sessionFlowError("ensure_agent_runtime.add_participant_failed", error, {
+              sessionId: args.sessionId,
+              agentActorId,
+            });
+            logDebug("client:add_participant_failed", { agentActorId, error: String(error) }, {
+              sessionId: args.sessionId,
+              actorId: agentActorId,
+            });
+            participantFailures.push({
+              agentActorId,
+              code: "session_participant_failed",
+              reason: error instanceof Error ? error.message : String(error),
+            });
+            return null;
+          }
+        }),
+      )
+    ).filter((agentActorId): agentActorId is string => agentActorId !== null);
+
+    if (participantFailures.length > 0) {
+      notifyRuntimeStartFailures(participantFailures, errorContext);
+    }
+    if (eligible.length === 0) {
+      logDebug(
+        "client:ensure_runtime_all_participant_failed",
+        { participantFailures },
+        { sessionId: args.sessionId },
+      );
+      return;
+    }
 
     const localWorkspacePath = useWorkspaceStore.getState().workspacePath?.trim() || null
     let localDaemonActorId: string | null = null
