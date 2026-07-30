@@ -77,6 +77,7 @@ import { UpdateDialogContainer } from "@/components/updater/UpdateDialog";
 import { RightPanel } from "@/components/panel";
 import { ExtensionSettings, Settings } from "@/components/settings";
 import { FeedbackDialog } from "@/components/settings/FeedbackDialog";
+import { AutomationPanelDialog } from "@/components/settings/AutomationPanelDialog";
 import { CloseToTrayHost } from "@/components/CloseToTrayDialog";
 import {
   Dialog,
@@ -2627,6 +2628,7 @@ function AppContent() {
           </div>
         </SidebarInset>
         {settingsModal}
+        <AutomationPanelDialog />
       </>
     );
   }
@@ -2846,6 +2848,7 @@ function AppContent() {
         </div>
       </SidebarInset>
       {settingsModal}
+      <AutomationPanelDialog />
     </>
   );
 }

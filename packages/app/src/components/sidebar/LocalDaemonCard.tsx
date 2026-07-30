@@ -1,8 +1,6 @@
 import * as React from 'react'
 import { useTranslation } from 'react-i18next'
 import { toast } from 'sonner'
-import { getBackend } from '@/lib/backend'
-import { formatActorRemoveError } from '@/lib/actor-remove-error'
 import { useActorsForTeam, type ActorRow as ActorRowData } from '@/components/panel/ActorsView'
 import { LocalDaemonRow } from '@/components/sidebar/LocalDaemonRow'
 import { getLocalDaemonAgent } from '@/lib/daemon-agent-admin'
@@ -10,16 +8,6 @@ import { getKnownLocalDaemonActorId, noteLocalDaemonActorId } from '@/lib/local-
 import { useLocalDaemonRuntimeStatus } from '@/hooks/use-local-daemon-http-status'
 import { cn } from '@/lib/utils'
 import { ActorDetailDialog } from '@/components/sidebar/ActorDetailDialog'
-import {
-  AlertDialog,
-  AlertDialogAction,
-  AlertDialogCancel,
-  AlertDialogContent,
-  AlertDialogDescription,
-  AlertDialogFooter,
-  AlertDialogHeader,
-  AlertDialogTitle,
-} from '@/components/ui/alert-dialog'
 import { useMemberPreferencesStore } from '@/stores/member-preferences-store'
 
 /**
@@ -29,7 +17,7 @@ import { useMemberPreferencesStore } from '@/stores/member-preferences-store'
  * coral-emphasized styling from looking out of place among the recent contacts.
  *
  * Self-contained: it resolves the local daemon actor itself and owns the
- * detail / remove dialogs and copy handlers (ActorsSection no longer renders
+ * detail dialog and copy handlers (ActorsSection no longer renders
  * the daemon row, it only filters the daemon out of the Recents list).
  */
 export function LocalDaemonCard() {
@@ -38,8 +26,6 @@ export function LocalDaemonCard() {
   const defaultAgentId = useMemberPreferencesStore((s) => s.defaultAgentId)
 
   const [detailFor, setDetailFor] = React.useState<ActorRowData | null>(null)
-  const [removeFor, setRemoveFor] = React.useState<ActorRowData | null>(null)
-  const [removing, setRemoving] = React.useState(false)
 
   const [localDaemonAgentId, setLocalDaemonAgentId] = React.useState<string | null>(null)
   React.useEffect(() => {
@@ -90,22 +76,6 @@ export function LocalDaemonCard() {
     }
   }
 
-  const confirmRemove = async () => {
-    if (!removeFor || !teamId) return
-    setRemoving(true)
-    try {
-      await getBackend().teams.removeTeamActor(teamId, removeFor.id)
-      toast.success(t('actors.removed', 'Removed from team'))
-      setRemoveFor(null)
-      refetch()
-    } catch (error) {
-      const msg = error instanceof Error ? error.message : String(error)
-      toast.error(formatActorRemoveError(msg, t))
-    } finally {
-      setRemoving(false)
-    }
-  }
-
   if (!localDaemonActor) return null
 
   return (
@@ -116,27 +86,9 @@ export function LocalDaemonCard() {
         onOpenChange={(open) => { if (!open) setDetailFor(null) }}
         onRemoved={refetch}
       />
-      <AlertDialog open={!!removeFor} onOpenChange={(open) => { if (!open) setRemoveFor(null) }}>
-        <AlertDialogContent>
-          <AlertDialogHeader>
-            <AlertDialogTitle>
-              {t('actors.removeConfirm.titleAgent', 'Remove agent?')}
-            </AlertDialogTitle>
-            <AlertDialogDescription>
-              {t('actors.removeConfirm.body', 'Remove {{name}} from the team. This cannot be undone.', { name: removeFor?.display_name })}
-            </AlertDialogDescription>
-          </AlertDialogHeader>
-          <AlertDialogFooter>
-            <AlertDialogCancel disabled={removing}>{t('common.cancel', 'Cancel')}</AlertDialogCancel>
-            <AlertDialogAction onClick={confirmRemove} disabled={removing}>
-              {t('actors.removeConfirm.cta', 'Remove')}
-            </AlertDialogAction>
-          </AlertDialogFooter>
-        </AlertDialogContent>
-      </AlertDialog>
       <div
         className={cn(
-          'group/local-daemon flex max-h-[45vh] flex-col overflow-y-auto rounded-xl bg-paper p-2 shadow-[0_2px_8px_rgba(28,27,25,0.05),0_1px_2px_rgba(28,27,25,0.03)] ring-1 ring-black/[0.05] transition-[max-height,box-shadow] duration-300 ease-[cubic-bezier(0.22,1,0.36,1)] motion-reduce:transition-none dark:ring-white/10',
+          'group/local-daemon flex max-h-[45vh] flex-col overflow-y-auto rounded-xl bg-paper p-2 shadow-[0_2px_8px_rgba(28,27,25,0.05),0_1px_2px_rgba(28,27,25,0.03)] ring-1 ring-black/[0.05] transition-[max-height,box-shadow] duration-300 ease-[cubic-bezier(0.22,1,0.36,1)] motion-reduce:transition-none dark:ring-white/10 [&_button:not(:disabled)]:cursor-pointer',
           daemonMqttDisconnected && 'ring-1 ring-amber-400/45',
         )}
       >
@@ -147,7 +99,6 @@ export function LocalDaemonCard() {
           onViewDetail={setDetailFor}
           onCopyName={handleCopyName}
           onCopyId={handleCopyId}
-          onRequestRemove={setRemoveFor}
         />
       </div>
     </>

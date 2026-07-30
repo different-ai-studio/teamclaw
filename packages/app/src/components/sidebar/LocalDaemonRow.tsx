@@ -3,14 +3,14 @@ import { useTranslation } from 'react-i18next'
 import {
   ArrowLeftRight,
   Bot,
+  ChevronRight,
+  Clock,
   Loader2,
   Plus,
   RefreshCw,
   Settings,
   Star,
   Trash2,
-  User,
-  UserMinus,
   LifeBuoy,
 } from 'lucide-react'
 import {
@@ -30,7 +30,6 @@ import {
 } from '@/lib/daemon-workspaces'
 import { syncSessionWorkspaces } from '@/lib/session-workspace-sync'
 import { amuxAgentTypeFromBackend } from '@/lib/amux-agent-type'
-import { canRemoveTeamActor, useTeamPermissions } from '@/lib/team-permissions'
 import { useUIStore } from '@/stores/ui'
 import { useWorkspaceStore } from '@/stores/workspace'
 import { useCurrentTeamStore } from '@/stores/current-team'
@@ -49,7 +48,6 @@ interface Props {
   onViewDetail: (actor: ActorRowData) => void
   onCopyName: (actor: ActorRowData) => void
   onCopyId: (actor: ActorRowData) => void
-  onRequestRemove: (actor: ActorRowData) => void
 }
 
 function workspaceNameFromPath(path: string): string {
@@ -175,7 +173,7 @@ function SheetMenuItem({
       disabled={disabled}
       onClick={onClick}
       className={cn(
-        'flex w-full items-center gap-2 rounded-lg px-2.5 py-[7px] text-left text-[12.5px] transition-colors',
+        'flex w-full cursor-pointer items-center gap-2 rounded-lg px-2.5 py-[7px] text-left text-[12.5px] transition-colors',
         destructive
           ? 'text-destructive hover:bg-destructive/8'
           : 'text-ink-2 hover:bg-selected hover:text-foreground',
@@ -199,6 +197,7 @@ function SheetHeader({
   statusLabel,
   expanded,
   onHandleClick,
+  onAvatarClick,
 }: {
   displayName: string
   actorId: string
@@ -210,6 +209,7 @@ function SheetHeader({
   statusLabel: string
   expanded: boolean
   onHandleClick: () => void
+  onAvatarClick: () => void
 }) {
   const { t } = useTranslation()
   const headTitle = `${displayName} · ${shortenActorId(actorId)}`
@@ -243,19 +243,21 @@ function SheetHeader({
         )}
       >
         <div className="flex items-center gap-2.5" title={headTitle}>
-          <span
+          <button
+            type="button"
+            onClick={onAvatarClick}
             className={cn(
-              'flex h-7 w-7 shrink-0 items-center justify-center self-center rounded-md',
+              'flex h-7 w-7 shrink-0 cursor-pointer items-center justify-center self-center rounded-md transition-colors hover:brightness-[1.04]',
               runtimeStatus === 'offline'
-                ? 'bg-foreground/10 text-muted-foreground'
+                ? 'bg-foreground/10 text-muted-foreground hover:bg-foreground/15'
                 : runtimeStatus === 'daemonMqttDisconnected'
-                  ? 'bg-amber-400/15 text-amber-800'
-                  : 'bg-coral text-white',
+                  ? 'bg-amber-400/15 text-amber-800 hover:bg-amber-400/25'
+                  : 'bg-coral text-white hover:brightness-[1.06]',
             )}
-            aria-hidden
+            aria-label={t('actors.contextMenu.viewProfile', 'View profile')}
           >
             <AgentTypeIcon agentType={agentType} />
-          </span>
+          </button>
           <div className="min-w-0 flex-1">
             <div className="flex min-w-0 items-center gap-1.5">
               <div className="truncate text-[12.5px] font-semibold leading-tight">{displayName}</div>
@@ -344,7 +346,7 @@ function WorkspaceRow({
         type="button"
         onClick={onSelect}
         className={cn(
-          'flex min-w-0 flex-1 items-center gap-2 rounded-lg py-[6px] pl-1.5 pr-2.5 text-left text-[12.5px] transition-colors',
+          'flex min-w-0 flex-1 cursor-pointer items-center gap-2 rounded-lg py-[6px] pl-1.5 pr-2.5 text-left text-[12.5px] transition-colors',
           active ? 'font-semibold text-foreground' : 'text-ink-2',
         )}
         title={ws.path ?? ws.name}
@@ -365,7 +367,7 @@ function WorkspaceRow({
             onSwitch()
           }}
           disabled={!ws.path || isCurrent}
-          className="rounded-md p-1 text-faint hover:bg-selected hover:text-foreground disabled:cursor-not-allowed disabled:opacity-30"
+          className="cursor-pointer rounded-md p-1 text-faint hover:bg-selected hover:text-foreground disabled:cursor-not-allowed disabled:opacity-30"
           title={switchLabel}
           aria-label={switchLabel}
         >
@@ -377,7 +379,7 @@ function WorkspaceRow({
             e.stopPropagation()
             onDelete()
           }}
-          className="rounded-md p-1 text-faint hover:bg-destructive/10 hover:text-destructive"
+          className="cursor-pointer rounded-md p-1 text-faint hover:bg-destructive/10 hover:text-destructive"
           title={deleteLabel}
           aria-label={deleteLabel}
         >
@@ -397,16 +399,10 @@ export function LocalDaemonRow({
   runtimeStatus,
   isDefault = false,
   onViewDetail,
-  onRequestRemove,
 }: Props) {
   const { t } = useTranslation()
   const teamId = useCurrentTeamStore((s) => s.team?.id ?? null)
   const currentMember = useCurrentTeamStore((s) => s.currentMember)
-  const currentMemberId = currentMember?.id ?? null
-  const teamPermissions = useTeamPermissions()
-  const canRemove = actor
-    ? canRemoveTeamActor(teamPermissions, actor, currentMemberId)
-    : false
 
   const sheetOpen = useUIStore((s) => s.localDaemonSheetOpen)
   const toggleSheet = useUIStore((s) => s.toggleLocalDaemonSheet)
@@ -415,6 +411,7 @@ export function LocalDaemonRow({
   const filter = useUIStore((s) => s.sidebarFilter)
   const setFilter = useUIStore((s) => s.setSidebarFilter)
   const openSettings = useUIStore((s) => s.openSettings)
+  const openAutomationPanel = useUIStore((s) => s.openAutomationPanel)
   const setDefaultAgent = useMemberPreferencesStore((s) => s.setDefaultAgent)
 
   const currentWorkspacePath = useWorkspaceStore((s) => s.workspacePath)
@@ -547,6 +544,11 @@ export function LocalDaemonRow({
     openSettings('general')
   }
 
+  const handleOpenAutomation = () => {
+    setSheetOpen(false)
+    openAutomationPanel()
+  }
+
   if (!actor) return null
 
   const workspaceLabel = currentWorkspaceName || t('workspace.selectWorkspace', 'Select Workspace')
@@ -586,7 +588,7 @@ export function LocalDaemonRow({
 
   return (
     <div className="overflow-hidden">
-      <div className={cn('px-2.5 pb-2.5', sheetOpen ? 'pt-2' : 'pt-1')}>
+      <div className={cn(sheetOpen ? 'px-0 pb-2 pt-1' : 'p-0')}>
         <SheetHeader
           displayName={actor.display_name}
           actorId={actor.id}
@@ -597,6 +599,7 @@ export function LocalDaemonRow({
           runtimeStatus={runtimeStatus}
           statusLabel={statusLabel}
           onHandleClick={toggleSheet}
+          onAvatarClick={() => onViewDetail(actor)}
           expanded={sheetOpen}
         />
 
@@ -604,7 +607,7 @@ export function LocalDaemonRow({
           <button
             type="button"
             onClick={handleDaemonMqttReconnect}
-            className="mb-2 flex w-full items-start rounded-lg border border-amber-400/45 bg-amber-400/10 px-2 py-1.5 text-left transition-colors hover:bg-amber-400/20"
+            className="mb-2 flex w-full cursor-pointer items-start rounded-lg border border-amber-400/45 bg-amber-400/10 px-2 py-1.5 text-left transition-colors hover:bg-amber-400/20"
           >
             <span className="min-w-0 flex-1 leading-tight">
               <span className="block truncate text-[11.5px] font-semibold text-foreground">
@@ -622,6 +625,22 @@ export function LocalDaemonRow({
             </span>
           </button>
         ) : null}
+
+        <button
+          type="button"
+          onClick={handleOpenAutomation}
+          className={cn(
+            'mt-2 flex w-full cursor-pointer items-center gap-2 rounded-lg bg-background px-2.5 py-1.5 text-left transition-colors hover:bg-selected',
+            sheetOpen && 'mb-2',
+          )}
+          aria-label={t('sidebar.localDaemonAutomationAria', 'Open automation settings')}
+        >
+          <Clock className="h-3.5 w-3.5 shrink-0 text-muted-foreground" aria-hidden />
+          <span className="min-w-0 flex-1 truncate text-[12px] font-medium text-ink-2">
+            {t('sidebar.localDaemonAutomation', 'Automation')}
+          </span>
+          <ChevronRight className="h-3.5 w-3.5 shrink-0 text-faint" aria-hidden />
+        </button>
 
         <div
           className={cn(
@@ -679,7 +698,7 @@ export function LocalDaemonRow({
                         type="button"
                         onClick={() => void handleNewWorkspace()}
                         disabled={creating}
-                        className="rounded-md p-0.5 text-faint hover:bg-selected hover:text-foreground disabled:opacity-40"
+                        className="cursor-pointer rounded-md p-0.5 text-faint hover:bg-selected hover:text-foreground disabled:cursor-not-allowed disabled:opacity-40"
                         title={t('sidebar.newWorkspace', 'New workspace')}
                         aria-label={t('sidebar.newWorkspace', 'New workspace')}
                       >
@@ -701,15 +720,6 @@ export function LocalDaemonRow({
                     >
                       {t('sidebar.localDaemonDaemonSettings', 'Daemon settings')}
                     </SheetMenuItem>
-                    <SheetMenuItem
-                      icon={<User className="h-3.5 w-3.5" />}
-                      onClick={() => {
-                        setSheetOpen(false)
-                        onViewDetail(actor)
-                      }}
-                    >
-                      {t('actors.contextMenu.viewProfile', 'View profile')}
-                    </SheetMenuItem>
                   </SheetGroup>
                 </>
               )}
@@ -724,18 +734,6 @@ export function LocalDaemonRow({
                     ? t('actors.contextMenu.removeDefault', 'Remove as default agent')
                     : t('actors.contextMenu.setDefault', 'Set as default agent')}
                 </SheetMenuItem>
-                {canRemove ? (
-                  <SheetMenuItem
-                    icon={<UserMinus className="h-3.5 w-3.5" />}
-                    destructive
-                    onClick={() => {
-                      setSheetOpen(false)
-                      onRequestRemove(actor)
-                    }}
-                  >
-                    {t('actors.contextMenu.remove', 'Remove from team')}
-                  </SheetMenuItem>
-                ) : null}
               </SheetGroup>
             </div>
           </div>
