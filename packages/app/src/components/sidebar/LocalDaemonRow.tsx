@@ -3,7 +3,7 @@ import { useTranslation } from 'react-i18next'
 import {
   ArrowLeftRight,
   Bot,
-  Braces,
+  MousePointer2,
   Loader2,
   Plus,
   RefreshCw,
@@ -114,8 +114,8 @@ function AgentTypeIcon({ agentType }: { agentType?: string | null }) {
       return <Sparkles className={className} strokeWidth={2} />
     case 'opencode':
       return <OpencodeMark className={className} />
-    case 'codex':
-      return <Braces className={className} strokeWidth={2} />
+    case 'cursor':
+      return <MousePointer2 className={className} strokeWidth={2} />
     case 'pi':
       return <PiAgentMark className={className} />
     default:
