@@ -10,7 +10,16 @@ import {
   type RuntimeStartFailure,
   type RuntimeStartFailureCode,
 } from "@/lib/session-create";
-import { setModel, waitForTeamclawRpcReady } from "@/lib/teamclaw-rpc";
+import {
+  setModel,
+  waitForTeamclawRpcIdentity,
+  waitForTeamclawRpcReady,
+} from "@/lib/teamclaw-rpc";
+import {
+  isFullyLocal,
+  planAgentTransports,
+  resolveAgentTransport,
+} from "@/lib/teamclaw/agent-transport";
 import { useRuntimeStateStore } from "@/stores/runtime-state-store";
 import { resolveRuntimeStateEntryForAgent } from "@/lib/runtime-state-resolve";
 import { resolveSessionWorkspaceHintForRuntimeStart } from "@/lib/teamclaw/resolve-runtime-start-workspace";
@@ -191,12 +200,24 @@ async function runEnsureRuntimeThenSetModel(
     throw new Error("sessionId, teamId, agentActorId, and modelId are required");
   }
 
-  const mqttConnected = useMqttReconnectStore.getState().connected;
-  if (mqttConnected === false) {
-    throw new Error("mqtt disconnected");
+  // Decide the transport ONCE, before any gate. A local agent is driven over
+  // loopback `/v1/rpc`, so none of the broker preconditions below apply to it.
+  const transport = await resolveAgentTransport(agentActorId);
+
+  if (transport !== "local") {
+    const mqttConnected = useMqttReconnectStore.getState().connected;
+    if (mqttConnected === false) {
+      throw new Error("mqtt disconnected");
+    }
   }
 
-  const rpcReady = await waitForTeamclawRpcReady(20_000);
+  // The loopback path needs an identity to build the request, but not the MQTT
+  // response subscription — which is wired behind the broker connection and so
+  // never becomes ready when the broker is unreachable.
+  const rpcReady =
+    transport === "local"
+      ? await waitForTeamclawRpcIdentity(20_000)
+      : await waitForTeamclawRpcReady(20_000);
   if (!rpcReady) {
     throw new Error("teamclaw RPC not ready");
   }
@@ -304,7 +325,8 @@ async function runEnsureRuntimeThenSetModel(
  * path, we load runtime-targets before deciding to skip.
  */
 export async function ensureAgentRuntimesForSession(args: EnsureAgentRuntimeArgs): Promise<void> {
-  const agentActorIds = [...new Set(args.agentActorIds.map((id) => id.trim()).filter(Boolean))];
+  // Narrowed below to the locally-reachable subset when the broker is down.
+  let agentActorIds = [...new Set(args.agentActorIds.map((id) => id.trim()).filter(Boolean))];
   if (!args.sessionId || !args.teamId || agentActorIds.length === 0) return;
 
   const key = `${args.sessionId}::${agentActorIds.slice().sort().join(",")}`;
@@ -362,27 +384,47 @@ export async function ensureAgentRuntimesForSession(args: EnsureAgentRuntimeArgs
       { sessionId: args.sessionId, topic: `ensure/${args.sessionId}` },
     );
 
+    // Resolve the transport for the whole batch up front, so a run cannot be
+    // half-local. Agents on loopback are unaffected by the broker being down.
+    const transportPlan = await planAgentTransports(agentActorIds);
+    const allLocal = isFullyLocal(transportPlan);
+
     try {
       const mqttConnected = useMqttReconnectStore.getState().connected;
-      if (mqttConnected === false) {
-        const transportFailures: RuntimeStartFailure[] = agentActorIds.map((agentActorId) => ({
+      if (mqttConnected === false && transportPlan.mqtt.length > 0) {
+        // Fail only the agents that actually need the broker. When some are
+        // local, they continue below — reporting them as transport_offline
+        // would be false, and stopping the batch would strand a daemon that is
+        // running on this very machine.
+        const transportFailures: RuntimeStartFailure[] = transportPlan.mqtt.map((agentActorId) => ({
           agentActorId,
           code: "transport_offline" as RuntimeStartFailureCode,
           reason: "mqtt disconnected",
         }));
         notifyRuntimeStartFailures(transportFailures, errorContext);
-        logDebug("client:transport_offline", { mqttConnected }, { sessionId: args.sessionId });
-        return;
+        logDebug(
+          "client:transport_offline",
+          { mqttConnected, blocked: transportPlan.mqtt, proceedingLocal: transportPlan.local },
+          { sessionId: args.sessionId },
+        );
+        if (transportPlan.local.length === 0) return;
+        agentActorIds = transportPlan.local;
       }
 
-      await ensureTeamSessionLiveSubscribed(args.teamId);
-      await ensureSessionLiveSubscribed(args.teamId, args.sessionId);
+      // Live subscriptions ride MQTT; a local-only run has no broker to
+      // subscribe on and must not be blocked waiting for one.
+      if (!allLocal) {
+        await ensureTeamSessionLiveSubscribed(args.teamId);
+        await ensureSessionLiveSubscribed(args.teamId, args.sessionId);
+      }
     } catch (error) {
       sessionFlowError("ensure_agent_runtime.live_subscribe_failed", error, args);
       logDebug("client:live_subscribe_failed", { error: String(error) }, { sessionId: args.sessionId });
     }
 
-    const rpcReady = await waitForTeamclawRpcReady(20_000);
+    const rpcReady = allLocal
+      ? await waitForTeamclawRpcIdentity(20_000)
+      : await waitForTeamclawRpcReady(20_000);
     if (!rpcReady) {
       logDebug("client:rpc_not_ready", { waitedMs: 20_000 }, { sessionId: args.sessionId });
       reportRuntimeRpcNotReady(20_000, errorContext);

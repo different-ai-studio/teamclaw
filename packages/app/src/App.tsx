@@ -107,7 +107,11 @@ import { mqttConnectionKey } from "@/lib/mqtt-connection-key";
 import { describeJwt, recordMqttDiag } from "@/lib/mqtt-diagnostics";
 import { useMqttReconnectStore } from "@/stores/mqtt-reconnect";
 import { getEffectiveServerConfig } from "@/lib/server-config";
-import { initTeamclawRpc, disposeTeamclawRpc } from "@/lib/teamclaw-rpc";
+import {
+  initTeamclawRpc,
+  disposeTeamclawRpc,
+  setTeamclawRpcIdentity,
+} from "@/lib/teamclaw-rpc";
 import {
   disposeRemoteToolsRpcServer,
   initRemoteToolsRpcServer,
@@ -1292,6 +1296,13 @@ function AppContent() {
           return;
         }
         setMyActorId(actorId);
+        // Publish the RPC identity BEFORE anything transport-related. Every
+        // return below this point is a broker problem (no host configured,
+        // connect failed), and none of them should cost us the loopback path
+        // to this machine's own daemon — which needs only who we are, not a
+        // broker. `initTeamclawRpc` further down still adds the MQTT response
+        // subscription for remote agents.
+        setTeamclawRpcIdentity(mqttTeamId, actorId);
         const serverConfig = await getEffectiveServerConfig();
         const brokerHost = serverConfig.mqttHost;
         const brokerPort = serverConfig.mqttPort ?? 1883;
@@ -1308,10 +1319,18 @@ function AppContent() {
           hasConfiguredMqttPassword: Boolean(serverConfig.mqttPassword?.trim()),
           cloudApiUrl: serverConfig.cloudApiUrl,
         });
+        // A missing/unreachable broker must NOT abort this wiring. Everything
+        // below the envelope listener is broker-specific, but the listener
+        // itself is transport-agnostic: the desktop also forwards the local
+        // daemon's `/v1/live/events` SSE into the very same `mqtt:envelopes`
+        // channel. Returning here meant those local frames arrived at the
+        // webview with nobody listening — a local agent's reply was persisted
+        // but never streamed, appearing only after switching sessions.
+        let brokerUsable = true;
         if (!brokerHost) {
           console.warn("[MQTT] missing broker host — configure it in Settings > Server");
           recordMqttDiag("app-mqtt", "server-config:missing-broker-host", { wiringId });
-          return;
+          brokerUsable = false;
         }
         console.info("[MQTT] connecting", {
           brokerHost,
@@ -1334,36 +1353,50 @@ function AppContent() {
           password: useConfiguredMqttCredentials ? "[configured-password]" : describeJwt(mqttAccessToken),
         });
 
-        await connectMqttWithFreshAuth({
-          brokerUrl,
-          brokerHost,
-          brokerPort,
-          username: useConfiguredMqttCredentials ? configuredMqttUsername! : actorId,
-          clientId,
-          teamId: mqttTeamId,
-          useTls,
-          configuredPassword: useConfiguredMqttCredentials ? configuredMqttPassword! : undefined,
-        });
-        recordMqttDiag("app-mqtt", "connect:after", { wiringId, clientId });
-        markStartup("mqtt:connected");
-        resetSessionLiveSubscriptionState();
+        if (brokerUsable && brokerHost) {
+          try {
+            await connectMqttWithFreshAuth({
+              brokerUrl,
+              brokerHost,
+              brokerPort,
+              username: useConfiguredMqttCredentials ? configuredMqttUsername! : actorId,
+              clientId,
+              teamId: mqttTeamId,
+              useTls,
+              configuredPassword: useConfiguredMqttCredentials ? configuredMqttPassword! : undefined,
+            });
+            recordMqttDiag("app-mqtt", "connect:after", { wiringId, clientId });
+            markStartup("mqtt:connected");
+            resetSessionLiveSubscriptionState();
+          } catch (e) {
+            // Keep going: the local SSE path below does not need the broker.
+            brokerUsable = false;
+            console.warn("[MQTT] connect failed — continuing with local live events only", e);
+            recordMqttDiag("app-mqtt", "connect:failed-continuing-local", {
+              wiringId,
+              error: e instanceof Error ? { name: e.name, message: e.message } : String(e),
+            });
+          }
+        }
         if (cancelled) {
           recordMqttDiag("app-mqtt", "wiring:cancelled-after-connect", { wiringId });
           return;
         }
 
         // FC fans out to inbox/<auth.user_id> (see push-dispatch.ts), not actor_id.
-        try {
-          recordMqttDiag("app-mqtt", "inbox:subscribe-before", { wiringId, topic: `inbox/${userId}` });
-          await mqttSubscribe(`inbox/${userId}`);
-          recordMqttDiag("app-mqtt", "inbox:subscribe-ok", { wiringId, topic: `inbox/${userId}` });
-        } catch (e) {
-          console.warn("[inbox] subscribe failed", e);
-          recordMqttDiag("app-mqtt", "inbox:subscribe-error", {
-            wiringId,
-            topic: `inbox/${userId}`,
-            error: e instanceof Error ? { name: e.name, message: e.message, stack: e.stack } : String(e),
-          });
+        if (brokerUsable) {
+          try {
+            recordMqttDiag("app-mqtt", "inbox:subscribe-before", { wiringId, topic: `inbox/${userId}` });
+            await mqttSubscribe(`inbox/${userId}`);
+            recordMqttDiag("app-mqtt", "inbox:subscribe-ok", { wiringId, topic: `inbox/${userId}` });
+          } catch (e) {
+            console.warn("[inbox] subscribe failed", e);
+            recordMqttDiag("app-mqtt", "inbox:subscribe-error", {
+              wiringId,
+              topic: `inbox/${userId}`,
+              error: e instanceof Error ? { name: e.name, message: e.message, stack: e.stack } : String(e),
+            });
+          }
         }
         if (cancelled) {
           recordMqttDiag("app-mqtt", "wiring:cancelled-after-inbox", { wiringId });
@@ -2172,6 +2205,15 @@ function AppContent() {
         // desktop receives replies for sessions that another logged-in client
         // created or moved. Fall back to the old recent-session slice if a
         // broker still has older ACL claims.
+        // Broker-only from here: subscriptions and the RPC response topic.
+        // With no broker the envelope listener above still runs, fed by the
+        // local daemon's SSE tee.
+        if (!brokerUsable) {
+          recordMqttDiag("app-mqtt", "wiring:local-only", { wiringId });
+          console.info("[MQTT] no broker — local live events only");
+          return;
+        }
+
         const recentAtBoot = useSessionListStore.getState().rows.slice(0, RECENT_SESSION_SUBSCRIBE_CAP);
         try {
           recordMqttDiag("app-mqtt", "session-live-wildcard:subscribe-before", {
