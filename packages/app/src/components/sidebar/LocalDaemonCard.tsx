@@ -88,7 +88,7 @@ export function LocalDaemonCard() {
       />
       <div
         className={cn(
-          'group/local-daemon flex max-h-[45vh] flex-col overflow-y-auto rounded-xl bg-paper p-2 shadow-[0_2px_8px_rgba(28,27,25,0.05),0_1px_2px_rgba(28,27,25,0.03)] ring-1 ring-black/[0.05] transition-[max-height,box-shadow] duration-300 ease-[cubic-bezier(0.22,1,0.36,1)] motion-reduce:transition-none dark:ring-white/10 [&_button:not(:disabled)]:cursor-pointer',
+          'group/local-daemon flex max-h-[45vh] flex-col overflow-y-auto rounded-xl bg-paper p-2 shadow-[0_2px_8px_rgba(28,27,25,0.05),0_1px_2px_rgba(28,27,25,0.03)] ring-1 ring-black/[0.05] transition-[max-height,box-shadow] duration-300 ease-[cubic-bezier(0.22,1,0.36,1)] motion-reduce:transition-none dark:ring-white/10',
           daemonMqttDisconnected && 'ring-1 ring-amber-400/45',
         )}
       >

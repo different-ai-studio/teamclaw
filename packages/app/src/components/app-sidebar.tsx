@@ -34,6 +34,7 @@ import { SessionSearchDialog } from "@/components/sidebar/session-search-dialog"
 import { SessionDetailDialog, type SessionDetailListHints } from "@/components/sidebar/SessionDetailDialog"
 import { NavRail } from "@/components/sidebar/NavRail"
 import { LocalDaemonCard } from "@/components/sidebar/LocalDaemonCard"
+import { SIDEBAR_INTERACTIVE_CURSOR } from "@/components/sidebar/sidebar-interactive-cursor"
 import { useMqttConnected } from "@/hooks/useMqttConnected"
 import { recoverMqttConnection } from "@/stores/mqtt-reconnect"
 
@@ -391,7 +392,7 @@ function SidebarUserAccountMenu() {
   )
 }
 
-export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
+export function AppSidebar({ className, ...props }: React.ComponentProps<typeof Sidebar>) {
   const { t } = useTranslation()
   const activeSessionId = useSessionStore(s => s.activeSessionId)
   const sessionActivityMap = useSessionListActivityMap(activeSessionId)
@@ -407,7 +408,7 @@ export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
   }
 
   return (
-    <Sidebar variant="sidebar" {...props}>
+    <Sidebar variant="sidebar" className={cn(SIDEBAR_INTERACTIVE_CURSOR, className)} {...props}>
       <SessionDetailDialog
         sessionId={detailSessionId}
         teamId={teamId}

@@ -67,6 +67,7 @@ import { useMCPFileWatcher } from "@/hooks/useMCPFileWatcher";
 
 import { AppSidebar } from "@/components/app-sidebar";
 import { SidebarSecondColumn } from "@/components/sidebar/SidebarSecondColumn";
+import { SIDEBAR_INTERACTIVE_CURSOR } from "@/components/sidebar/sidebar-interactive-cursor";
 import { NarrowChatHeader } from "@/components/responsive/NarrowChatHeader";
 import { useLayoutBreakpoint } from "@/hooks/use-layout-breakpoint";
 import { TeamShareDetailPane } from "@/components/teamshare/TeamShareDetailPane";
@@ -2637,7 +2638,7 @@ function AppContent() {
     <>
       {breakpoint === 'wide' && <AppSidebar />}
       {breakpoint !== 'narrow' && (
-        <div className="w-(--session-list-width) shrink-0 h-svh overflow-hidden">
+        <div className={cn('w-(--session-list-width) shrink-0 h-svh overflow-hidden', SIDEBAR_INTERACTIVE_CURSOR)}>
           <SidebarSecondColumn showNewSessionActions={breakpoint === 'medium'} />
         </div>
       )}

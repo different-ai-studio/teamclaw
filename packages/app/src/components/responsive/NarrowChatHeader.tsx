@@ -10,6 +10,8 @@ import {
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu'
 import { SessionListColumn } from '@/components/sidebar/SessionListColumn'
+import { SIDEBAR_INTERACTIVE_CURSOR } from '@/components/sidebar/sidebar-interactive-cursor'
+import { cn } from '@/lib/utils'
 import { TrafficLights } from '@/components/ui/traffic-lights'
 import { hideExtensionSettingsButton } from '@/lib/build-config'
 import { capabilities } from '@/lib/platform'
@@ -144,7 +146,7 @@ export function NarrowChatHeader() {
           <SheetHeader className="sr-only">
             <SheetTitle>{t('sidebar.sessions', 'Sessions')}</SheetTitle>
           </SheetHeader>
-          <div className="flex-1 min-h-0">
+          <div className={cn('flex-1 min-h-0', SIDEBAR_INTERACTIVE_CURSOR)}>
             <SessionListColumn onDismiss={() => setSheetOpen(false)} />
           </div>
         </SheetContent>
