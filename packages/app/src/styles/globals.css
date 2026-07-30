@@ -118,10 +118,13 @@
    Four anchors from the spec: teal #0F6E62 (主色), bright #16998A (亮·交互),
    chalk #F2F0EA (底), basalt #20242A (正文). teal-forward — primary/CTA is
    teal, bright drives interaction/focus/links; the coral accent slot becomes
-   bright teal. Light-only by design: the selector outranks `.dark`
-   (`:root[data-palette]` = (0,1,1) beats `.dark` = (0,1,0)), so toggling dark
-   mode stays on the teal-light surface instead of breaking into a half-grey
-   state. No teal dark variant exists yet — that's intentional.
+   bright teal.
+
+   Light tokens live on `:root[data-palette]` and beat bare `.dark`
+   (attribute+pseudo > class). Dark mode is restored by the shared
+   `:root.dark[data-palette]` surface override below — brand accents
+   (--primary / --coral / --system-accent / --sidebar-primary / --ring)
+   stay on the light palette rule so white-label色不受影响.
    --------------------------------------------------------------------------- */
 :root[data-palette="teal"] {
     --background: #f2f0ea;          /* chalk · 底 */
@@ -165,6 +168,41 @@
     --sidebar-accent-foreground: #20242a;
     --sidebar-border: rgba(32, 36, 42, 0.08);
     --sidebar-ring: rgba(22, 153, 138, 0.4);
+}
+
+/* Dark surfaces for ANY brand / teal palette. Specificity beats
+   `:root[data-palette=…]` so backgrounds switch; omitted accent tokens
+   (--primary, --coral, --system-accent, --sidebar-primary, --ring,
+   --*-foreground for those accents, --coral-soft/foreground) keep the
+   light-palette brand values. Also covers build-time brand-theme.css. */
+:root.dark[data-palette] {
+    --background: oklch(0.145 0 0);
+    --foreground: oklch(0.985 0 0);
+    --paper: oklch(0.205 0 0);
+    --panel: oklch(0.205 0 0);
+    --selected: oklch(0.269 0 0);
+    --ink-2: oklch(0.85 0 0);
+    --faint: oklch(0.556 0 0);
+    --card: oklch(0.205 0 0);
+    --card-foreground: oklch(0.985 0 0);
+    --popover: oklch(0.205 0 0);
+    --popover-foreground: oklch(0.985 0 0);
+    --secondary: oklch(0.269 0 0);
+    --secondary-foreground: oklch(0.985 0 0);
+    --muted: oklch(0.269 0 0);
+    --muted-foreground: oklch(0.708 0 0);
+    --accent: oklch(0.269 0 0);
+    --accent-foreground: oklch(0.985 0 0);
+    --destructive: oklch(0.704 0.191 22.216);
+    --border: oklch(1 0 0 / 10%);
+    --border-soft: oklch(1 0 0 / 6%);
+    --input: oklch(1 0 0 / 15%);
+    --sidebar: oklch(0.205 0 0);
+    --sidebar-foreground: oklch(0.985 0 0);
+    --sidebar-accent: oklch(0.269 0 0);
+    --sidebar-accent-foreground: oklch(0.985 0 0);
+    --sidebar-border: oklch(1 0 0 / 10%);
+    --sidebar-ring: oklch(0.556 0 0);
 }
 
 @theme inline {
