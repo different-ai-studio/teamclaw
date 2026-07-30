@@ -512,6 +512,37 @@ async fn handle_session_status(shared: &Arc<Shared>, session_id: &str, props: &s
         next_in_s = wait / 1000,
         "opencode provider retry status"
     );
+    // A permanent failure (quota exhausted, out of credit) reports the exact
+    // same message on every retry no matter how short opencode's backoff is —
+    // seeing it twice is proof the wait won't help, so don't sit through the
+    // stuck-turn window just because each individual step is short.
+    let repeats = {
+        let mut routes = shared.routes.lock();
+        let Some(route) = routes.get_mut(session_id) else {
+            return;
+        };
+        let count = match &mut route.retry_streak {
+            Some((last, count)) if last == &message => {
+                *count += 1;
+                *count
+            }
+            _ => {
+                route.retry_streak = Some((message.clone(), 1));
+                1
+            }
+        };
+        count
+    };
+    if repeats >= 2 {
+        super::abort_turn_with_error(
+            shared,
+            session_id,
+            "model provider error".to_string(),
+            message,
+        )
+        .await;
+        return;
+    }
     // Retries due within the stuck-turn window may still succeed — let them
     // run; the watchdog remains the backstop.
     if wait <= super::FIRST_OUTPUT_TIMEOUT.as_millis() as i64 {

@@ -20,10 +20,17 @@ import {
 import { resolveEngagedAgentStaleBinding } from '@/lib/session-agent-stale-binding'
 import { useActorPresenceStore } from '@/stores/actor-presence-store'
 import { useRuntimeStateStore, type RuntimeStateEntry } from '@/stores/runtime-state-store'
+import {
+  ensureLocalDaemonCatalog,
+  useLocalDaemonCatalogStore,
+  type LocalDaemonCatalogEntry,
+} from '@/stores/local-daemon-catalog-store'
+import { useWorkspaceStore } from '@/stores/workspace'
 import { getLocalDaemonActorId } from '@/lib/daemon-agent-admin'
 import {
   AGENT_REACHABILITY_PROBE_RETRY_MS,
   LOCAL_AGENT_READY_PROBE_INTERVAL_MS,
+  LOCAL_CATALOG_POLL_INTERVAL_MS,
 } from '@/lib/session-agent-probe'
 
 export type EngagedAgentUiEntry = {
@@ -98,12 +105,13 @@ function computeProvisionalState(
   connectingSinceByAgent: Record<string, number>,
   reachabilityByAgent: Record<string, AgentReachability>,
   activeStreamingAgentIds: ReadonlySet<string>,
+  localCatalog: LocalDaemonCatalogEntry | undefined,
   now: number,
 ): SessionAgentUiState {
   const dbRuntimeId = agentToRuntimeId.get(agent.id)
   const entry = resolveUiSessionRuntimeEntry(agent.id, byRuntimeId, dbRuntimeId)
   const runtimeInfo = entry?.info
-  const availableModelCount = resolveAgentAvailableModels(runtimeInfo).length
+  const retainModelCount = resolveAgentAvailableModels(runtimeInfo).length
   const since = connectingSinceByAgent[agent.id]
   const connectingTimedOut =
     since !== undefined && now - since >= SESSION_AGENT_CONNECTING_TIMEOUT_MS
@@ -125,6 +133,18 @@ function computeProvisionalState(
   const presenceOnline =
     devicePresence === 'online' ? true : devicePresence === 'offline' ? false : undefined
 
+  // Loopback knowledge is about THIS machine — attaching it to a remote agent
+  // would let one device's catalog decide another device's readiness.
+  const localCatalogSnapshot = isLocalAgent ? localCatalog?.status : undefined
+  // The loopback catalog is a second source of "this agent has models", and for
+  // the local agent it usually lands well before the retain does.
+  const availableModelCount =
+    retainModelCount > 0
+      ? retainModelCount
+      : isLocalAgent
+        ? (localCatalog?.models.length ?? 0)
+        : 0
+
   return resolveSessionAgentUiState({
     presenceOnline,
     runtimeInfo,
@@ -134,6 +154,7 @@ function computeProvisionalState(
     reachabilityFailed,
     localReachabilityConfirmed: isLocalAgent && reachability === 'reachable',
     activeStreamConfirmed: activeStreamingAgentIds.has(agent.id),
+    localCatalog: localCatalogSnapshot,
   })
 }
 
@@ -147,6 +168,7 @@ function shouldProbeAgent(
   lastProbeAtByAgent: Record<string, number>,
   localDaemonActorId: string | null,
   activeStreamingAgentIds: ReadonlySet<string>,
+  localCatalog: LocalDaemonCatalogEntry | undefined,
   now: number,
 ): boolean {
   if (isSupersededLocalAgent(agent.id)) return false
@@ -159,6 +181,7 @@ function shouldProbeAgent(
     connectingSinceByAgent,
     reachabilityByAgent,
     activeStreamingAgentIds,
+    localCatalog,
     now,
   )
   if (state === 'stale') return false
@@ -196,6 +219,10 @@ export function useEngagedAgentUiStates(
 ): EngagedAgentUiEntry[] {
   const byRuntimeId = useRuntimeStateStore((s) => s.byRuntimeId)
   const presenceByActor = useActorPresenceStore((s) => s.byActorId)
+  const workspacePath = useWorkspaceStore((s) => s.workspacePath)?.trim() || ''
+  const localCatalog = useLocalDaemonCatalogStore((s) =>
+    workspacePath ? s.byWorkspacePath[workspacePath] : undefined,
+  )
   const [connectingSinceByAgent, setConnectingSinceByAgent] = React.useState<
     Record<string, number>
   >({})
@@ -227,6 +254,28 @@ export function useEngagedAgentUiStates(
     const interval = setInterval(() => tick(), 1_000)
     return () => clearInterval(interval)
   }, [])
+
+  // Keep this device's loopback catalog warm.
+  //
+  // Deliberately NOT gated on the local agent being engaged yet: on a cold
+  // start the pill renders before anything is mentioned, and waiting for
+  // engagement would put the catalog fetch behind the very render it is meant
+  // to unblock — the 连接中 flash this fast path exists to remove. It is one
+  // loopback request for the whole device, and the store rate-limits a settled
+  // answer to one refresh per 5 minutes, so the standing cost is negligible.
+  // Still local-only: this reaches this machine's daemon and no other.
+  React.useEffect(() => {
+    if (!workspacePath) return
+    const run = () => {
+      // No local daemon identity has ever been observed on this device — there
+      // is nothing on loopback to ask.
+      if (!getKnownLocalDaemonActorId()) return
+      ensureLocalDaemonCatalog(workspacePath)
+    }
+    run()
+    const interval = setInterval(run, LOCAL_CATALOG_POLL_INTERVAL_MS)
+    return () => clearInterval(interval)
+  }, [workspacePath])
 
   React.useEffect(() => {
     const interval = setInterval(
@@ -282,6 +331,7 @@ export function useEngagedAgentUiStates(
           prev,
           reachabilityByAgent,
           activeStreamingAgentIds,
+          localCatalog,
           now,
         )
         if (provisional === 'connecting') {
@@ -341,6 +391,7 @@ export function useEngagedAgentUiStates(
     reachabilityByAgent,
     connectingSinceByAgent,
     activeStreamingAgentIds,
+    localCatalog,
   ])
 
   React.useEffect(() => {
@@ -359,6 +410,7 @@ export function useEngagedAgentUiStates(
           lastProbeAtByAgentRef.current,
           localDaemonActorId,
           activeStreamingAgentIds,
+          localCatalog,
           now,
         )
       ) {
@@ -395,6 +447,7 @@ export function useEngagedAgentUiStates(
     probeScheduleTick,
     activeStreamingSignature,
     activeStreamingAgentIds,
+    localCatalog,
   ])
 
   return React.useMemo(() => {
@@ -409,6 +462,7 @@ export function useEngagedAgentUiStates(
         connectingSinceByAgent,
         reachabilityByAgent,
         activeStreamingAgentIds,
+        localCatalog,
         now,
       ),
     }))
@@ -423,6 +477,7 @@ export function useEngagedAgentUiStates(
     byRuntimeId,
     agentToRuntimeId,
     activeStreamingAgentIds,
+    localCatalog,
     tick,
   ])
 }
