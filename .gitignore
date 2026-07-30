@@ -15,7 +15,14 @@ target/
 *.swp
 *.swo
 .DS_Store
-.claude/
+# `.claude/*` not `.claude/` — git will not descend into an ignored *directory*,
+# so the re-includes below would never apply and new shared skills would be
+# silently dropped from commits.
+.claude/*
+!.claude/settings.json
+!.claude/skills/
+!.claude/agents/
+!.claude/workflows/
 .ai
 .agent/
 .cursor/
@@ -170,6 +177,13 @@ apps/desktop/icons/ios/
 !/build.config.teal.json
 
 server.info
-# Playwright MCP scratch output — browser downloads land here and must never
-# be committed (a bare `git add -A` swept a set of them into main once).
+# Tool scratch output. Nothing here is source, and nobody reviews it before
+# committing — which is exactly how a bare `git add -A` swept a private
+# individual's CV out of .playwright-mcp/ into main once. Same failure mode
+# applies to every directory a tool writes into unattended.
 .playwright-mcp/
+test-results/
+playwright-report/
+screenshots/
+tmp/
+
