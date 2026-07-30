@@ -818,6 +818,8 @@
     "localDaemonGroupDevice": "Device",
     "localDaemonGroupTeam": "Team",
     "localDaemonDaemonSettings": "Daemon settings",
+    "localDaemonAutomation": "Automation",
+    "localDaemonAutomationAria": "Open automation tasks",
     "localDaemonRetrying": "Retrying…",
     "ideas": "Ideas"
   },

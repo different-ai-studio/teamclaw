@@ -818,6 +818,8 @@
     "localDaemonGroupDevice": "设备",
     "localDaemonGroupTeam": "团队",
     "localDaemonDaemonSettings": "Daemon 设置",
+    "localDaemonAutomation": "自动化",
+    "localDaemonAutomationAria": "打开自动化任务",
     "localDaemonRetrying": "正在重试…",
     "ideas": "想法"
   },
