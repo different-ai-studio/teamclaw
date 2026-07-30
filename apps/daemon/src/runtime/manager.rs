@@ -5,7 +5,7 @@ use tracing::{info, warn};
 use uuid::Uuid;
 
 use super::agent_runtime_state::PerAgentRuntimeState;
-use super::backend::{create_backend, AgentBackend};
+use super::backend::{agent_type_for_local_agent, create_backend, AgentBackend};
 use super::handle::RuntimeHandle;
 use super::refresh::RuntimeRefreshCoordinator;
 use std::sync::Arc;
@@ -201,6 +201,14 @@ pub struct RuntimeManager {
     /// Local agent backend (opencode HTTP today; pi RPC later), selected by
     /// daemon config `agents.local_agent`.
     agent_backend: Box<dyn AgentBackend>,
+    /// The agent type `agents.local_agent` resolved to — the same value
+    /// [`create_backend`] dispatched on when building `agent_backend`.
+    ///
+    /// Recorded rather than re-derived because `launch_configs` cannot answer
+    /// the question: ClaudeCode and Pi entries are inserted unconditionally, so
+    /// "is this key present" says nothing about what was configured. See
+    /// [`Self::default_agent_type`].
+    default_agent_type: amux::AgentType,
     /// Per-worktree MCP resolve snapshots; restored when the last agent on the worktree stops.
     opencode_snapshots: HashMap<String, opencode_snapshot::WorktreeOpencodeSnapshot>,
     /// Daemon-side mirror of per-agent ACP state (current model + last-announced
@@ -214,10 +222,10 @@ pub struct RuntimeManager {
     /// Where [`Self::model_mru`] is persisted. Split out so tests can point at
     /// a tempdir instead of the real config directory.
     model_mru_path: PathBuf,
-    /// Last-known model catalog per worktree for this device. The catalog
-    /// belongs to the one global `opencode serve`, not to any single binding —
-    /// see `config::model_catalog` for why storing it per-handle produced
-    /// sessions that could never leave 连接中.
+    /// Last-known model catalog per (backend, worktree) for this device. The
+    /// catalog belongs to the one global `opencode serve` / pi / cursor child,
+    /// not to any single binding — see `config::model_catalog` for why storing
+    /// it per-handle produced sessions that could never leave 连接中.
     model_catalog: DeviceModelCatalog,
     /// Where [`Self::model_catalog`] is persisted (same test-isolation split as
     /// `model_mru_path`).
@@ -305,6 +313,7 @@ impl RuntimeManager {
             aggregators: std::collections::HashMap::new(),
             launch_configs,
             agent_backend: create_backend(local_agent),
+            default_agent_type: agent_type_for_local_agent(local_agent),
             opencode_snapshots: HashMap::new(),
             agent_state: PerAgentRuntimeState::new(),
             model_mru: ModelMru::load(&model_mru_path),
@@ -330,20 +339,28 @@ impl RuntimeManager {
         )])
     }
 
-    /// Agent type used for sessions where the caller doesn't specify one
-    /// (currently the gateway path — WeCom/Discord/Feishu/etc.). Prefers
-    /// an explicitly-configured backend (`[agents.opencode]` or
-    /// `[agents.codex]` in `daemon.toml`) over the always-present
-    /// ClaudeCode fallback, so a daemon set up for opencode actually
-    /// routes inbound channel messages to opencode.
+    /// Agent type used for sessions where the caller doesn't specify one — the
+    /// gateway path (WeCom/Discord/Feishu/…), cron, the MRU lookup, and the
+    /// model-catalog probe.
+    ///
+    /// This is simply what `agents.local_agent` selected, which is what
+    /// single-agent mode means. It used to be inferred by probing
+    /// `launch_configs` for Opencode, then Codex, then falling back to
+    /// ClaudeCode — which had no branch for Pi or Cursor, so a pi or cursor
+    /// daemon reported ClaudeCode here. That fed `launch_config_for` and made
+    /// the catalog probe check for the `claude` binary, failing before it ever
+    /// reached the real backend, and made `recent_models` read the MRU under the
+    /// wrong backend key.
     pub fn default_agent_type(&self) -> amux::AgentType {
-        if self.launch_configs.contains_key(&amux::AgentType::Opencode) {
-            amux::AgentType::Opencode
-        } else if self.launch_configs.contains_key(&amux::AgentType::Codex) {
-            amux::AgentType::Codex
-        } else {
-            amux::AgentType::ClaudeCode
-        }
+        self.default_agent_type
+    }
+
+    /// Backend id for the configured local agent (`"opencode"` / `"pi"` /
+    /// `"cursor"` / `"claude"`) — the key both `ModelMru` and
+    /// `DeviceModelCatalog` are partitioned by.
+    pub fn local_backend_type(&self) -> &'static str {
+        self.launch_config_for(self.default_agent_type())
+            .backend_type
     }
 
     pub fn launch_config_for(&self, agent_type: amux::AgentType) -> AgentLaunchConfig {
@@ -871,7 +888,8 @@ impl RuntimeManager {
     /// the explicit probe). Empty lists are ignored by
     /// [`DeviceModelCatalog::record`], so a failed probe cannot erase a good one.
     fn record_catalog(&mut self, worktree: &str, models: &[amux::ModelInfo]) {
-        if !self.model_catalog.record(worktree, models) {
+        let backend = self.local_backend_type();
+        if !self.model_catalog.record(backend, worktree, models) {
             return;
         }
         if let Err(e) = self.model_catalog.save(&self.model_catalog_path) {
@@ -879,11 +897,13 @@ impl RuntimeManager {
         }
     }
 
-    /// This device's last-known catalog for `worktree` (falling back to any
-    /// known worktree). Used to fill `RuntimeInfo.available_models` for
-    /// bindings that never ran an attach of their own.
+    /// This device's last-known catalog for `worktree` under the configured
+    /// backend (falling back to any worktree that same backend has served).
+    /// Used to fill `RuntimeInfo.available_models` for bindings that never ran
+    /// an attach of their own.
     pub fn catalog_for_worktree(&self, worktree: &str) -> Vec<amux::ModelInfo> {
-        self.model_catalog.models_for_or_any(worktree)
+        self.model_catalog
+            .models_for_or_any(self.local_backend_type(), worktree)
     }
 
     /// Fill `info.available_models` from the device catalog when the binding

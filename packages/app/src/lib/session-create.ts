@@ -3,6 +3,7 @@ import { getBackend } from '@/lib/backend'
 import { runtimeStart, setModel } from '@/lib/teamclaw-rpc'
 import { resolveAmuxAgentType } from '@/lib/amux-agent-type'
 import { seedRuntimeStateAfterStart } from '@/lib/seed-runtime-state'
+import { seedLocalDaemonModelsInBackground } from '@/lib/local-daemon-model-catalog'
 import {
   normalizeAgentModelId,
   resolveRuntimeStateEntryForAgent,
@@ -651,6 +652,19 @@ export async function startAgentRuntimesAsync(
           runtimeId: result.runtimeId,
           agentType,
         })
+        // The seed above cannot include models (they only ride the MQTT retain),
+        // and an empty `available_models` pins the session pill at 连接中. For the
+        // local daemon we can ask over loopback HTTP instead of waiting on the
+        // broker. Fire-and-forget: the retain still wins whenever it lands.
+        if (isLocalDaemonAgent && result.runtimeId.trim() && localWorktree) {
+          seedLocalDaemonModelsInBackground({
+            daemonActorId: agentActorId,
+            runtimeId: result.runtimeId.trim(),
+            workspacePath: localWorktree,
+            backendType,
+            sessionId: args.sessionId,
+          })
+        }
         if (result.runtimeId.trim()) {
           runtimeIdsByAgent[agentActorId] = result.runtimeId.trim()
         }
