@@ -3,19 +3,22 @@ import { useTranslation } from 'react-i18next'
 import {
   ArrowLeftRight,
   Bot,
-  MousePointer2,
   Loader2,
   Plus,
   RefreshCw,
   Settings,
-  Sparkles,
   Star,
   Trash2,
   User,
   UserMinus,
   LifeBuoy,
 } from 'lucide-react'
-import { OpencodeMark, PiAgentMark } from '@/components/icons/agent-brand-icons'
+import {
+  ClaudeMark,
+  CursorMark,
+  OpencodeMark,
+  PiAgentMark,
+} from '@/components/icons/agent-brand-icons'
 import { open } from '@tauri-apps/plugin-dialog'
 import { toast } from 'sonner'
 import type { ActorRow as ActorRowData } from '@/components/panel/ActorsView'
@@ -111,11 +114,11 @@ function AgentTypeIcon({ agentType }: { agentType?: string | null }) {
   const className = 'h-4 w-4'
   switch (agentType) {
     case 'claude-code':
-      return <Sparkles className={className} strokeWidth={2} />
+      return <ClaudeMark className={className} />
     case 'opencode':
       return <OpencodeMark className={className} />
     case 'cursor':
-      return <MousePointer2 className={className} strokeWidth={2} />
+      return <CursorMark className={className} />
     case 'pi':
       return <PiAgentMark className={className} />
     default:

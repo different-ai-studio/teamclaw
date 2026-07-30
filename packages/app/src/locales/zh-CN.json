@@ -1311,6 +1311,14 @@
       "showLess": "收起",
       "showMore": "显示更多"
     },
+    "claudeLlm": {
+      "title": "Claude Code 模型",
+      "description": "claude 运行时自带的模型，由主机上的 claude 凭证管理。",
+      "loginHint": "Claude Code 的凭证由 claude CLI 自己管理，不通过 opencode.json。要登录，请在主机终端运行：",
+      "loginHintAfter": "登录后回到这里刷新。若本机未安装 claude 命令，运行时无法启动。",
+      "empty": "暂无可用模型。请确认本机已安装 claude 命令并完成登录，且 claude 运行时在线。",
+      "modelCount": "{{count}} 个模型"
+    },
     "piLlm": {
       "title": "Pi 模型",
       "description": "pi 运行时自带的模型与 provider，由主机上的 pi 凭证管理。",
@@ -1329,6 +1337,7 @@
     },
     "mcp": {
       "cursorBridgeNote": "Cursor SDK 第一版尚未桥接 workspace MCP",
+      "claudeBridgeNote": "Claude Code 从它自己的配置加载 MCP，不读 opencode.json",
       "restart": "重启",
       "restarting": "重启中...",
       "title": "MCP 服务器",

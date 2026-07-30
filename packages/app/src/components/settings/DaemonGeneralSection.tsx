@@ -538,6 +538,7 @@ export function DaemonGeneralSection() {
                       <SelectItem value="opencode" className="font-mono text-[12px]">opencode</SelectItem>
                       <SelectItem value="pi" className="font-mono text-[12px]">pi</SelectItem>
                       <SelectItem value="cursor" className="font-mono text-[12px]">cursor</SelectItem>
+                      <SelectItem value="claude-code" className="font-mono text-[12px]">claude-code</SelectItem>
                     </SelectContent>
                   </Select>
                   {switchingAgent && <Loader2 className="h-3.5 w-3.5 animate-spin text-muted-foreground" />}
