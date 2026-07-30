@@ -51,6 +51,20 @@ pub struct LocalRpcRequest {
 /// Producer side of the local RPC bridge handed to `HttpState`.
 pub type LocalRpcTx = mpsc::Sender<LocalRpcRequest>;
 
+/// One local session/live ingest (`POST /v1/session-live/ingest`) forwarded to
+/// the daemon actor loop. `payload` is the exact `teamclaw.LiveEventEnvelope`
+/// protobuf bytes a client would otherwise publish to
+/// `amux/{team}/session/{id}/live`; the actor runs the same
+/// `route_session_message` sink the MQTT path uses (message_id dedup included).
+pub struct LocalLiveIngestRequest {
+    pub session_id: String,
+    pub payload: Vec<u8>,
+    pub reply_tx: oneshot::Sender<Result<(), String>>,
+}
+
+/// Producer side of the local live-ingest bridge handed to `HttpState`.
+pub type LocalLiveIngestTx = mpsc::Sender<LocalLiveIngestRequest>;
+
 /// Process metadata surfaced via `/v1/info`. Filled in at startup and
 /// treated as immutable thereafter.
 #[derive(Debug, Clone)]
@@ -142,6 +156,10 @@ pub struct HttpState {
     /// and when the HTTP server runs without a daemon actor behind it; the
     /// route then returns 503.
     pub local_rpc_tx: Option<LocalRpcTx>,
+    /// Bridge to the daemon actor loop for `POST /v1/session-live/ingest` —
+    /// local twin of publishing to `session/{id}/live`. `None` in focused
+    /// tests / when no actor loop is attached; the route then returns 503.
+    pub local_live_ingest_tx: Option<LocalLiveIngestTx>,
 }
 
 impl HttpState {
@@ -183,6 +201,7 @@ impl HttpState {
             channel_reload_tx: None,
             onboarding: None,
             local_rpc_tx: None,
+            local_live_ingest_tx: None,
         }
     }
 
@@ -220,6 +239,12 @@ impl HttpState {
     /// Attach the local RPC bridge (enables `POST /v1/rpc`).
     pub fn with_local_rpc(mut self, tx: Option<LocalRpcTx>) -> Self {
         self.local_rpc_tx = tx;
+        self
+    }
+
+    /// Attach the local live-ingest bridge (enables `POST /v1/session-live/ingest`).
+    pub fn with_local_live_ingest(mut self, tx: Option<LocalLiveIngestTx>) -> Self {
+        self.local_live_ingest_tx = tx;
         self
     }
 

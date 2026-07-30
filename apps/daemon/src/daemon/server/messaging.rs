@@ -604,6 +604,38 @@ impl DaemonServer {
         vec![keep]
     }
 
+    /// Decode a `LiveEventEnvelope` (same bytes MQTT `session/{id}/live`
+    /// carries) and route `message.created` through [`Self::route_session_message`].
+    /// Shared by the MQTT subscriber and `POST /v1/session-live/ingest` so
+    /// local loopback delivery and the broker copy share one `message_id` dedup
+    /// gate. Non-`message.created` events are ignored here (HTTP ingest only
+    /// sends user messages); the MQTT path still handles ideas itself.
+    pub(crate) async fn ingest_session_live(
+        &mut self,
+        session_id: &str,
+        payload: &[u8],
+    ) -> Result<(), String> {
+        use prost::Message as _;
+
+        let envelope = crate::proto::teamclaw::LiveEventEnvelope::decode(payload)
+            .map_err(|e| format!("LiveEventEnvelope decode failed: {e}"))?;
+        if envelope.event_type != "message.created" {
+            return Ok(());
+        }
+        let env = crate::proto::teamclaw::SessionMessageEnvelope::decode(envelope.body.as_slice())
+            .map_err(|e| format!("SessionMessageEnvelope decode failed: {e}"))?;
+        let Some(msg) = env.message.as_ref() else {
+            return Err("SessionMessageEnvelope without inner message".into());
+        };
+        self.route_session_message(
+            session_id,
+            msg,
+            &resolve_mention_actor_ids(&env.mention_actor_ids, &msg.metadata_json),
+        )
+        .await;
+        Ok(())
+    }
+
     /// Route an inbound `message.created` from `session/{sid}/live` to the
     /// appropriate runtimes: mentioned runtimes receive a real prompt (which
     /// flushes any queued silent context first); un-mentioned runtimes have

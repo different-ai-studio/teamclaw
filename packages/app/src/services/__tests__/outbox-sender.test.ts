@@ -12,6 +12,11 @@ const mocks = vi.hoisted(() => ({
   deleteOutbox: vi.fn(),
   listAllOutbox: vi.fn(),
   maybeAutoTitleSessionFromFirstMessage: vi.fn().mockResolvedValue(true),
+  isTauri: vi.fn(() => false),
+  getLocalDaemonActorId: vi.fn(async () => null as string | null),
+  ingestSessionLiveLocally: vi.fn(async () => undefined),
+  runtimeStart: vi.fn(async () => ({})),
+  getDaemonLocalAgent: vi.fn(async () => 'opencode' as const),
 }))
 
 vi.mock('@/lib/mqtt-bridge', () => ({
@@ -20,6 +25,23 @@ vi.mock('@/lib/mqtt-bridge', () => ({
 
 vi.mock('@/lib/session-auto-title', () => ({
   maybeAutoTitleSessionFromFirstMessage: mocks.maybeAutoTitleSessionFromFirstMessage,
+}))
+
+vi.mock('@/lib/utils', () => ({
+  isTauri: () => mocks.isTauri(),
+}))
+
+vi.mock('@/lib/daemon-agent-admin', () => ({
+  getLocalDaemonActorId: () => mocks.getLocalDaemonActorId(),
+}))
+
+vi.mock('@/lib/daemon-local-client', () => ({
+  ingestSessionLiveLocally: (...args: unknown[]) => mocks.ingestSessionLiveLocally(...args),
+  getDaemonLocalAgent: () => mocks.getDaemonLocalAgent(),
+}))
+
+vi.mock('@/lib/teamclaw-rpc', () => ({
+  runtimeStart: (...args: unknown[]) => mocks.runtimeStart(...args),
 }))
 
 vi.mock('@/lib/backend', () => {
@@ -44,6 +66,7 @@ vi.mock('@/lib/backend', () => {
       sessionMembers: {
         listParticipants: vi.fn().mockResolvedValue([
           { id: 'agent-1', actor_type: 'agent' },
+          { id: 'agent-local', actor_type: 'agent' },
         ]),
       },
     }),
@@ -79,6 +102,11 @@ describe('outbox sender', () => {
     mocks.upsertOutbox.mockResolvedValue(undefined)
     mocks.deleteOutbox.mockResolvedValue(undefined)
     mocks.listAllOutbox.mockResolvedValue([])
+    mocks.isTauri.mockReturnValue(false)
+    mocks.getLocalDaemonActorId.mockResolvedValue(null)
+    mocks.ingestSessionLiveLocally.mockResolvedValue(undefined)
+    mocks.runtimeStart.mockResolvedValue({})
+    mocks.getDaemonLocalAgent.mockResolvedValue('opencode')
   })
 
   afterEach(async () => {
@@ -293,5 +321,213 @@ describe('outbox sender', () => {
       expect(entry.lastError).toBeNull()
     })
     expect(mocks.mqttPublish).toHaveBeenCalled()
+  })
+
+  it('kickOutboxSender flushes a pending row without waiting for the interval', async () => {
+    vi.useFakeTimers()
+    const { useOutboxStore } = await import('@/stores/outbox-store')
+    const { startOutboxSender, kickOutboxSender } = await import('../outbox-sender')
+
+    startOutboxSender()
+    // Consume the immediate start tick so the next flush must come from kick.
+    await vi.advanceTimersByTimeAsync(0)
+
+    await useOutboxStore.getState().enqueue({
+      messageId: 'msg-kick',
+      teamId: 'team-1',
+      sessionId: 'session-1',
+      senderActorId: 'member-1',
+      content: 'kick me',
+      model: null,
+      mentionActorIds: [],
+      attachmentUrls: [],
+    })
+
+    expect(mocks.insertOutgoingMessage).not.toHaveBeenCalled()
+
+    kickOutboxSender()
+    await vi.advanceTimersByTimeAsync(0)
+
+    await vi.waitFor(() => {
+      expect(mocks.insertOutgoingMessage).toHaveBeenCalledWith(
+        expect.objectContaining({ id: 'msg-kick' }),
+      )
+    })
+
+    // Interval has not fired yet (TICK_MS = 1000).
+    expect(vi.getTimerCount()).toBeGreaterThan(0)
+    vi.useRealTimers()
+  })
+
+  it('resolves workspaceIdHint during ensure when enqueue left it empty', async () => {
+    const { resolveSessionWorkspaceHintForRuntimeStart } = await import(
+      '@/lib/teamclaw/resolve-runtime-start-workspace'
+    )
+    vi.mocked(resolveSessionWorkspaceHintForRuntimeStart).mockResolvedValueOnce('ws-from-outbox')
+
+    const { ensureAgentRuntimesForSession } = await import('@/lib/teamclaw/ensure-agent-runtime')
+    const { useOutboxStore } = await import('@/stores/outbox-store')
+    const { startOutboxSender } = await import('../outbox-sender')
+
+    await useOutboxStore.getState().enqueue({
+      messageId: 'msg-no-hint',
+      teamId: 'team-1',
+      sessionId: 'session-1',
+      senderActorId: 'member-1',
+      content: '@Agent hi',
+      model: null,
+      mentionActorIds: ['agent-1'],
+      attachmentUrls: [],
+      workspaceIdHint: null,
+    })
+
+    startOutboxSender()
+
+    await vi.waitFor(() => {
+      expect(ensureAgentRuntimesForSession).toHaveBeenCalledWith(
+        expect.objectContaining({
+          workspaceIdHint: 'ws-from-outbox',
+          reason: 'outbox_send',
+        }),
+      )
+    })
+    expect(resolveSessionWorkspaceHintForRuntimeStart).toHaveBeenCalled()
+  })
+
+  it('local-only mentions: runtimeStart → ingest → MQTT → Cloud; Cloud failure still delivers', async () => {
+    const order: string[] = []
+    mocks.isTauri.mockReturnValue(true)
+    mocks.getLocalDaemonActorId.mockResolvedValue('agent-local')
+    mocks.runtimeStart.mockImplementation(async () => {
+      order.push('runtimeStart')
+      return {}
+    })
+    mocks.ingestSessionLiveLocally.mockImplementation(async () => {
+      order.push('ingest')
+    })
+    mocks.mqttPublish.mockImplementation(async () => {
+      order.push('mqtt')
+    })
+    mocks.insertOutgoingMessage.mockImplementation(async () => {
+      order.push('cloud')
+      throw new Error('cloud down')
+    })
+
+    const { ensureAgentRuntimesForSession } = await import('@/lib/teamclaw/ensure-agent-runtime')
+    const { useOutboxStore } = await import('@/stores/outbox-store')
+    const { startOutboxSender } = await import('../outbox-sender')
+
+    await useOutboxStore.getState().enqueue({
+      messageId: 'msg-local-fast',
+      teamId: 'team-1',
+      sessionId: 'session-1',
+      senderActorId: 'member-1',
+      content: '@Local hi',
+      model: 'opencode/qwen',
+      mentionActorIds: ['agent-local'],
+      attachmentUrls: [],
+    })
+
+    startOutboxSender()
+
+    await vi.waitFor(() => {
+      const entry = useOutboxStore.getState().byId['msg-local-fast']
+      expect(entry?.state).toBe('delivered')
+    })
+
+    expect(order).toEqual(['runtimeStart', 'ingest', 'mqtt', 'cloud'])
+    expect(mocks.runtimeStart).toHaveBeenCalledWith(
+      expect.objectContaining({
+        targetActorId: 'agent-local',
+        sessionId: 'session-1',
+        worktree: '/tmp/workspace',
+        workspaceId: '',
+        modelId: 'opencode/qwen',
+      }),
+    )
+    expect(mocks.ingestSessionLiveLocally).toHaveBeenCalledWith(
+      'session-1',
+      expect.any(Uint8Array),
+    )
+    expect(ensureAgentRuntimesForSession).not.toHaveBeenCalled()
+  })
+
+  it('local-only mentions still deliver when the broker is down', async () => {
+    // The whole point of the local fast path: the agent this message is
+    // addressed to already has it (loopback ingest), so a dead broker must not
+    // report a delivery that happened as one that did not — which left the
+    // user staring at a failed bubble while the agent replied to it.
+    // Contrast with the remote path, which legitimately retries on publish
+    // failure ("retries agent-mentioned messages when MQTT publish fails").
+    mocks.isTauri.mockReturnValue(true)
+    mocks.getLocalDaemonActorId.mockResolvedValue('agent-local')
+    mocks.runtimeStart.mockResolvedValue({})
+    mocks.ingestSessionLiveLocally.mockResolvedValue(undefined)
+    mocks.mqttPublish.mockRejectedValue(new Error('mqtt not connected'))
+    mocks.insertOutgoingMessage.mockResolvedValue(undefined)
+
+    const { useOutboxStore } = await import('@/stores/outbox-store')
+    const { startOutboxSender } = await import('../outbox-sender')
+
+    await useOutboxStore.getState().enqueue({
+      messageId: 'msg-local-no-broker',
+      teamId: 'team-1',
+      sessionId: 'session-1',
+      senderActorId: 'member-1',
+      content: '@Local hi',
+      model: 'opencode/qwen',
+      mentionActorIds: ['agent-local'],
+      attachmentUrls: [],
+    })
+
+    startOutboxSender()
+
+    await vi.waitFor(() => {
+      const entry = useOutboxStore.getState().byId['msg-local-no-broker']
+      expect(entry?.state).toBe('delivered')
+    })
+
+    // Delivery still reached the agent, and Cloud history still got written.
+    expect(mocks.ingestSessionLiveLocally).toHaveBeenCalled()
+    expect(mocks.insertOutgoingMessage).toHaveBeenCalled()
+  })
+
+  it('local delivery survives both the broker and Cloud being down', async () => {
+    mocks.isTauri.mockReturnValue(true)
+    mocks.getLocalDaemonActorId.mockResolvedValue('agent-local')
+    mocks.runtimeStart.mockResolvedValue({})
+    mocks.ingestSessionLiveLocally.mockResolvedValue(undefined)
+    mocks.mqttPublish.mockRejectedValue(new Error('mqtt not connected'))
+    mocks.insertOutgoingMessage.mockRejectedValue(new Error('cloud down'))
+
+    const { useOutboxStore } = await import('@/stores/outbox-store')
+    const { startOutboxSender } = await import('../outbox-sender')
+
+    await useOutboxStore.getState().enqueue({
+      messageId: 'msg-local-offline',
+      teamId: 'team-1',
+      sessionId: 'session-1',
+      senderActorId: 'member-1',
+      content: '@Local hi',
+      model: 'opencode/qwen',
+      mentionActorIds: ['agent-local'],
+      attachmentUrls: [],
+    })
+
+    startOutboxSender()
+
+    await vi.waitFor(() => {
+      const entry = useOutboxStore.getState().byId['msg-local-offline']
+      expect(entry?.state).toBe('delivered')
+    })
+    expect(mocks.ingestSessionLiveLocally).toHaveBeenCalled()
+  })
+
+  it('isLocalOnlyAgentMention requires every mention to be the local daemon', async () => {
+    const { isLocalOnlyAgentMention } = await import('../outbox-sender')
+    expect(isLocalOnlyAgentMention(['agent-local'], 'agent-local')).toBe(true)
+    expect(isLocalOnlyAgentMention(['agent-local', 'agent-remote'], 'agent-local')).toBe(false)
+    expect(isLocalOnlyAgentMention([], 'agent-local')).toBe(false)
+    expect(isLocalOnlyAgentMention(['agent-local'], null)).toBe(false)
   })
 })

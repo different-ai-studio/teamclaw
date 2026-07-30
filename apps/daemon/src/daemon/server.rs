@@ -289,6 +289,13 @@ pub(crate) enum SockCommand {
         payload: Vec<u8>,
         reply_tx: oneshot::Sender<Result<Vec<u8>, String>>,
     },
+    /// Local fast-path session/live ingest from `POST /v1/session-live/ingest`.
+    /// `payload` is the raw `teamclaw.LiveEventEnvelope` protobuf bytes.
+    LocalLiveIngest {
+        session_id: String,
+        payload: Vec<u8>,
+        reply_tx: oneshot::Sender<Result<(), String>>,
+    },
     /// Remote tool invoke from `amuxd remote-tools-mcp` stdio bridge.
     RemoteToolCall {
         payload: serde_json::Value,
@@ -935,6 +942,8 @@ impl DaemonServer {
         // loop, which owns the same dispatch the MQTT `rpc/req` topic feeds.
         let (local_rpc_tx, mut local_rpc_rx) =
             mpsc::channel::<crate::http::state::LocalRpcRequest>(32);
+        let (local_live_ingest_tx, mut local_live_ingest_rx) =
+            mpsc::channel::<crate::http::state::LocalLiveIngestRequest>(32);
         // Shared status for the background agent_types advertise (below). Held
         // here so `/v1/info` (via `meta`) and the advertise task both reference
         // the same cell — a failed advertise surfaces instead of being swallowed.
@@ -1012,6 +1021,7 @@ impl DaemonServer {
                     deferred: self.deferred_backend.clone(),
                 })),
                 Some(local_rpc_tx),
+                Some(local_live_ingest_tx),
             )
             .await
             {
@@ -1187,6 +1197,28 @@ impl DaemonServer {
                 while let Some(req) = local_rpc_rx.recv().await {
                     if bridge_tx
                         .send(SockCommand::LocalRpc {
+                            payload: req.payload,
+                            reply_tx: req.reply_tx,
+                        })
+                        .await
+                        .is_err()
+                    {
+                        break;
+                    }
+                }
+            });
+        }
+
+        // Forward HTTP `/v1/session-live/ingest` into the command loop, where
+        // they land on the same `ingest_session_live` the MQTT session/live
+        // path uses (message_id dedup included).
+        {
+            let bridge_tx = sock_tx.clone();
+            tokio::spawn(async move {
+                while let Some(req) = local_live_ingest_rx.recv().await {
+                    if bridge_tx
+                        .send(SockCommand::LocalLiveIngest {
+                            session_id: req.session_id,
                             payload: req.payload,
                             reply_tx: req.reply_tx,
                         })
@@ -1652,6 +1684,14 @@ impl DaemonServer {
                                 let reply = self.dispatch_local_rpc(&payload).await;
                                 let _ = reply_tx.send(reply);
                             }
+                            Some(SockCommand::LocalLiveIngest {
+                                session_id,
+                                payload,
+                                reply_tx,
+                            }) => {
+                                let reply = self.ingest_session_live(&session_id, &payload).await;
+                                let _ = reply_tx.send(reply);
+                            }
                             Some(SockCommand::PromptAwait { payload, reply_tx }) => {
                                 // Fast setup inline; the turn runs on a task and
                                 // its result comes back via `cron_turn_done_rx`
@@ -2067,6 +2107,14 @@ impl DaemonServer {
                             }
                             Some(SockCommand::LocalRpc { payload, reply_tx }) => {
                                 let reply = self.dispatch_local_rpc(&payload).await;
+                                let _ = reply_tx.send(reply);
+                            }
+                            Some(SockCommand::LocalLiveIngest {
+                                session_id,
+                                payload,
+                                reply_tx,
+                            }) => {
+                                let reply = self.ingest_session_live(&session_id, &payload).await;
                                 let _ = reply_tx.send(reply);
                             }
                             Some(SockCommand::PromptAwait { payload, reply_tx }) => {

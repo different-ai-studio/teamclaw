@@ -39,7 +39,6 @@ import {
 import { resolveSessionActivityOwner } from "@/lib/session-list-activity";
 import { resolveCurrentMemberActorId } from "@/lib/current-actor";
 import { isAgentActorType } from "@/lib/actor-type";
-import { resolveSessionWorkspaceHintForRuntimeStart } from "@/lib/teamclaw/resolve-runtime-start-workspace";
 import type { PromptInputMessage } from "@/packages/ai/prompt-input";
 import type { AttachedAgent } from "@/packages/ai/prompt-input-insert-hooks";
 import { Button } from "@/components/ui/button";
@@ -1421,11 +1420,23 @@ export function ChatPanel({ compact = false }: ChatPanelProps) {
             sessionId: sid,
             teamId: teamIdForSend,
           });
-          await ensureSessionLiveSubscribed(teamIdForSend, sid);
-          sessionFlowLog("send.subscribe_live.ok", {
-            sessionId: sid,
-            teamId: teamIdForSend,
-          });
+          // Best-effort: this subscription is how we hear about OTHER members'
+          // activity, not how the message is delivered. Awaiting it hard meant
+          // a disconnected broker killed the send before it ever reached the
+          // outbox — including sends to this machine's own daemon, which are
+          // delivered over loopback and never touch MQTT at all.
+          try {
+            await ensureSessionLiveSubscribed(teamIdForSend, sid);
+            sessionFlowLog("send.subscribe_live.ok", {
+              sessionId: sid,
+              teamId: teamIdForSend,
+            });
+          } catch (subscribeError) {
+            sessionFlowError("send.subscribe_live.best_effort_failed", subscribeError, {
+              sessionId: sid,
+              teamId: teamIdForSend,
+            });
+          }
 
           sessionFlowLog("send.resolve_sender.begin", {
             sessionId: sid,
@@ -1537,36 +1548,18 @@ export function ChatPanel({ compact = false }: ChatPanelProps) {
               useSessionMessageStore.getState().messages[sid]?.length ?? 0,
           });
 
-          // 2. Enqueue to outbox — status dot beside the bubble tracks
-          //    pending/inFlight/delivered. Network + runtime work continue
-          //    asynchronously after the bubble is visible.
+          // 2. Enqueue to outbox immediately — status dot beside the bubble
+          //    tracks pending/inFlight/delivered. Do NOT await workspace-hint
+          //    Cloud lookups here: on a slow API that was 7–8s of dead air
+          //    between bubble and spinner. The outbox sender resolves
+          //    workspaceIdHint itself before runtimeStart (after MQTT wake).
           //    notePendingAgentReplyTo only after enqueue succeeds so a failed
           //    send cannot leave stale FIFO ids for a later agent turn.
-          let workspaceIdHint: string | null = null;
-          if (agentRuntimeIdsForSend.length > 0 && teamIdForSend) {
-            let localDaemonActorId: string | null = null;
-            if (isTauri()) {
-              try {
-                const { getLocalDaemonActorId } = await import("@/lib/daemon-agent-admin");
-                localDaemonActorId = await getLocalDaemonActorId();
-              } catch {
-                localDaemonActorId = null;
-              }
-            }
-            workspaceIdHint =
-              (await resolveSessionWorkspaceHintForRuntimeStart({
-                teamId: teamIdForSend,
-                localWorkspacePath: workspacePath,
-                sessionId: sid,
-                agentActorIds: agentRuntimeIdsForSend,
-                localDaemonActorId,
-              })) || null;
-          }
           sessionFlowLog("send.outbox_enqueue.begin", {
             sessionId: sid,
             teamId: teamIdForSend,
             messageId,
-            workspaceIdHint,
+            workspaceIdHint: null,
           });
           await useOutboxStore.getState().enqueue({
             messageId,
@@ -1578,7 +1571,7 @@ export function ChatPanel({ compact = false }: ChatPanelProps) {
             mentionActorIds,
             displayMentionActorIds,
             attachmentUrls,
-            workspaceIdHint,
+            workspaceIdHint: null,
           });
           sessionFlowLog("send.outbox_enqueue.ok", {
             sessionId: sid,

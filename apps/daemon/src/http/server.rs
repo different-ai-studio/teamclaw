@@ -81,6 +81,7 @@ pub async fn spawn(
     channel_reload_tx: Option<tokio::sync::mpsc::Sender<()>>,
     onboarding: Option<Arc<dyn crate::http::setup::OnboardingService>>,
     local_rpc_tx: Option<crate::http::state::LocalRpcTx>,
+    local_live_ingest_tx: Option<crate::http::state::LocalLiveIngestTx>,
 ) -> anyhow::Result<HttpHandle> {
     // Resolve token + port files (defaults live in DaemonConfig::config_dir).
     let token_path = http
@@ -140,7 +141,8 @@ pub async fn spawn(
     .with_config_admin(config_path, channel_reload_tx, onboarding)
     .with_live_tee(live_tee)
     .with_managed_llm(managed_llm)
-    .with_local_rpc(local_rpc_tx);
+    .with_local_rpc(local_rpc_tx)
+    .with_local_live_ingest(local_live_ingest_tx);
 
     spawn_reapers(state.clone());
     let mut app: Router = routes::build(state);
@@ -248,7 +250,7 @@ mod tests {
             None,
             None,
             None,
-        )
+            None)
         .await
         .unwrap();
         let url = format!("http://{}/v1/healthz", handle.local_addr);
@@ -284,7 +286,7 @@ mod tests {
             None,
             None,
             None,
-        )
+            None)
         .await
         .unwrap();
         let base = format!("http://{}", handle.local_addr);
@@ -337,7 +339,7 @@ mod tests {
             None,
             None,
             None,
-        )
+            None)
         .await
         .unwrap();
         let base = format!("http://{}", handle.local_addr);
@@ -529,7 +531,7 @@ mod tests {
             None,
             None,
             None,
-        )
+            None)
         .await
         .unwrap();
         let base = format!("http://{}", handle.local_addr);
@@ -610,7 +612,7 @@ mod tests {
             None,
             None,
             None,
-        )
+            None)
         .await
         .unwrap();
         let base = format!("http://{}", handle.local_addr);
@@ -696,7 +698,7 @@ mod tests {
             None,
             None,
             None,
-        )
+            None)
         .await
         .unwrap();
         let url = format!("http://{}/v1/info", handle.local_addr);
@@ -794,7 +796,7 @@ mod tests {
             None,
             None,
             None,
-        )
+            None)
         .await
         .unwrap();
         let base = format!("http://{}", handle.local_addr);
@@ -894,7 +896,7 @@ mod tests {
             None,
             None,
             Some(rpc_tx),
-        )
+            None)
         .await
         .unwrap();
         let base = format!("http://{}", handle.local_addr);

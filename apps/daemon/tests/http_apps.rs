@@ -103,6 +103,7 @@ async fn test_app_inner(backend: Option<Arc<dyn Backend>>) -> (TestApp, tempfile
         None,
         None,
         None,
+        None,
     )
     .await
     .expect("spawn http server");

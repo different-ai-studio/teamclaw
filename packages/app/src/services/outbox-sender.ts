@@ -20,6 +20,7 @@ import {
   MessageKind,
   MessageSchema,
   SessionMessageEnvelopeSchema,
+  type LiveEventEnvelope,
 } from "@/lib/proto/teamclaw_pb";
 import { mqttPublish } from "@/lib/mqtt-bridge";
 import {
@@ -44,6 +45,366 @@ let started = false;
 let timer: ReturnType<typeof setInterval> | null = null;
 let inflightTick = false;
 
+function buildOutgoingMetadata(entry: OutboxEntry): Record<string, unknown> {
+  const displayMentionActorIds = entry.displayMentionActorIds ?? [];
+  return {
+    mention_actor_ids: entry.mentionActorIds,
+    ...(displayMentionActorIds.length > 0
+      ? { display_mention_actor_ids: displayMentionActorIds }
+      : {}),
+    ...(entry.attachmentUrls.length > 0
+      ? { attachment_urls: entry.attachmentUrls }
+      : {}),
+  };
+}
+
+function buildLiveEnvelope(
+  entry: OutboxEntry,
+  metadata: Record<string, unknown>,
+): LiveEventEnvelope {
+  const createdAtSec = BigInt(
+    Math.floor(new Date(entry.createdAt).getTime() / 1000),
+  );
+  const proto = createMessage(MessageSchema, {
+    messageId: entry.messageId,
+    sessionId: entry.sessionId,
+    senderActorId: entry.senderActorId,
+    kind: MessageKind.TEXT,
+    content: entry.content,
+    metadataJson: JSON.stringify(metadata),
+    createdAt: createdAtSec,
+    model: entry.model ?? "",
+  });
+  const sessionEnv = createMessage(SessionMessageEnvelopeSchema, {
+    message: proto,
+    mentionActorIds: entry.mentionActorIds,
+  });
+  return createMessage(LiveEventEnvelopeSchema, {
+    eventId: crypto.randomUUID(),
+    eventType: "message.created",
+    sessionId: entry.sessionId,
+    actorId: entry.senderActorId,
+    sentAt: createdAtSec,
+    body: toBinary(SessionMessageEnvelopeSchema, sessionEnv),
+  });
+}
+
+async function resolveLocalDaemonActorIdIfTauri(): Promise<string | null> {
+  const { isTauri } = await import("@/lib/utils");
+  if (!isTauri()) return null;
+  try {
+    const { getLocalDaemonActorId } = await import("@/lib/daemon-agent-admin");
+    return await getLocalDaemonActorId();
+  } catch {
+    return null;
+  }
+}
+
+/** True when every @mention is this machine's local daemon (solo local agent). */
+export function isLocalOnlyAgentMention(
+  mentionActorIds: string[],
+  localDaemonActorId: string | null | undefined,
+): boolean {
+  const localId = localDaemonActorId?.trim() || "";
+  if (!localId || mentionActorIds.length === 0) return false;
+  return mentionActorIds.every((id) => id === localId);
+}
+
+async function ensureLocalRuntimeForFastPath(
+  entry: OutboxEntry,
+  localDaemonActorId: string,
+): Promise<void> {
+  const { runtimeStart } = await import("@/lib/teamclaw-rpc");
+  const { AgentType } = await import("@/lib/proto/amux_pb");
+  let agentType = AgentType.OPENCODE;
+  try {
+    const { getDaemonLocalAgent } = await import("@/lib/daemon-local-client");
+    const { resolveAmuxAgentType } = await import("@/lib/amux-agent-type");
+    agentType = resolveAmuxAgentType(await getDaemonLocalAgent());
+  } catch {
+    // Keep OPENCODE — matches daemon default when config is unavailable.
+  }
+  const worktree = useWorkspaceStore.getState().workspacePath?.trim() ?? "";
+  sessionFlowLog("outbox_sender.local_runtime_start.begin", {
+    messageId: entry.messageId,
+    sessionId: entry.sessionId,
+    teamId: entry.teamId,
+    localDaemonActorId,
+    worktree: worktree || null,
+  });
+  await runtimeStart({
+    targetActorId: localDaemonActorId,
+    workspaceId: "",
+    worktree,
+    sessionId: entry.sessionId,
+    agentType,
+    modelId: entry.model ?? "",
+  });
+  sessionFlowLog("outbox_sender.local_runtime_start.ok", {
+    messageId: entry.messageId,
+    sessionId: entry.sessionId,
+    teamId: entry.teamId,
+  });
+}
+
+async function insertOutgoingCloud(
+  entry: OutboxEntry,
+  metadata: Record<string, unknown>,
+): Promise<{ duplicateAlreadyInserted: boolean }> {
+  sessionFlowLog("outbox_sender.message_insert.begin", {
+    messageId: entry.messageId,
+    sessionId: entry.sessionId,
+    teamId: entry.teamId,
+  });
+  let duplicateAlreadyInserted = false;
+  try {
+    await getBackend().messages.insertOutgoingMessage({
+      id: entry.messageId,
+      teamId: entry.teamId,
+      sessionId: entry.sessionId,
+      senderActorId: entry.senderActorId,
+      kind: "text",
+      content: entry.content,
+      model: entry.model ?? null,
+      metadata,
+      createdAt: entry.createdAt,
+    });
+  } catch (error) {
+    // Conflict on `id` means this same message already landed on a prior
+    // attempt (the network round-trip dropped before we got the ACK).
+    if (error instanceof BackendError && error.category === "Conflict") {
+      duplicateAlreadyInserted = true;
+    } else {
+      throw error;
+    }
+  }
+  sessionFlowLog("outbox_sender.message_insert.ok", {
+    messageId: entry.messageId,
+    sessionId: entry.sessionId,
+    teamId: entry.teamId,
+    duplicateAlreadyInserted,
+  });
+  return { duplicateAlreadyInserted };
+}
+
+function afterCloudPersist(entry: OutboxEntry): void {
+  bumpSessionListLastMessage(entry.sessionId, entry.content, {
+    at: entry.createdAt,
+  });
+  // Quick-empty / solo-agent shells start as "Name (HH:mm)". Once the first
+  // user message is persisted, rename from its summary so the session list
+  // is distinguishable. No-op once the title is no longer a placeholder.
+  void maybeAutoTitleSessionFromFirstMessage(entry.sessionId, entry.content).catch(
+    (err) => {
+      console.warn("[outbox] auto-title failed (non-fatal):", err);
+    },
+  );
+  useOutboxStore.getState().markCloudPersisted(entry.messageId);
+}
+
+async function publishSessionLive(
+  entry: OutboxEntry,
+  liveBytes: Uint8Array,
+): Promise<void> {
+  const topic = `amux/${entry.teamId}/session/${entry.sessionId}/live`;
+  sessionFlowLog("outbox_sender.mqtt_publish.begin", {
+    messageId: entry.messageId,
+    sessionId: entry.sessionId,
+    teamId: entry.teamId,
+    topic,
+    mentionActorIds: entry.mentionActorIds,
+    ...summarizeText(entry.content),
+  });
+  try {
+    await mqttPublish(topic, liveBytes, false);
+    sessionFlowLog("outbox_sender.mqtt_publish.done", {
+      messageId: entry.messageId,
+      sessionId: entry.sessionId,
+      teamId: entry.teamId,
+    });
+  } catch (err) {
+    sessionFlowError("outbox_sender.mqtt_publish.failed", err, {
+      messageId: entry.messageId,
+      sessionId: entry.sessionId,
+      teamId: entry.teamId,
+    });
+    if (entry.mentionActorIds.length > 0) {
+      console.warn("[outbox] agent-mentioned MQTT publish failed; will retry", {
+        messageId: entry.messageId,
+        sessionId: entry.sessionId,
+        topic,
+        error: err,
+      });
+      throw err;
+    }
+    // Unmentioned messages are passive session history; Supabase is enough
+    // for other clients to hydrate them later.
+    console.warn("[outbox] MQTT publish failed (best-effort):", err);
+  }
+}
+
+function kickRemoteRuntimeEnsure(
+  entry: OutboxEntry,
+  localDaemonActorId: string | null,
+): void {
+  if (entry.mentionActorIds.length === 0) return;
+  void (async () => {
+    const participants = await getBackend().sessionMembers.listParticipants(
+      entry.sessionId,
+    );
+    const agentActorIds = entry.mentionActorIds.filter((id) => {
+      const row = participants.find((p) => p.id === id);
+      return row ? isAgentActorType(row.actor_type) : false;
+    });
+    if (agentActorIds.length === 0) return;
+    const workspaceIdHint =
+      entry.workspaceIdHint?.trim() ||
+      (await resolveSessionWorkspaceHintForRuntimeStart({
+        teamId: entry.teamId,
+        localWorkspacePath: useWorkspaceStore.getState().workspacePath,
+        sessionId: entry.sessionId,
+        agentActorIds,
+        localDaemonActorId,
+      }));
+    sessionFlowLog("outbox_sender.runtime_ensure.begin", {
+      messageId: entry.messageId,
+      sessionId: entry.sessionId,
+      teamId: entry.teamId,
+      agentActorIds,
+      workspaceIdHint: workspaceIdHint || null,
+    });
+    await ensureAgentRuntimesForSession({
+      sessionId: entry.sessionId,
+      teamId: entry.teamId,
+      agentActorIds,
+      modelId: entry.model ?? undefined,
+      workspaceIdHint: workspaceIdHint || undefined,
+      reason: "outbox_send",
+    });
+  })().catch((err) => {
+    sessionFlowError("outbox_sender.runtime_ensure.failed", err, {
+      messageId: entry.messageId,
+      sessionId: entry.sessionId,
+      teamId: entry.teamId,
+    });
+  });
+}
+
+/**
+ * Local-only agent path: loopback runtimeStart → local live ingest → MQTT →
+ * Cloud insert (best-effort). Cloud failure does not fail delivery.
+ */
+async function attemptLocalFastPath(
+  entry: OutboxEntry,
+  metadata: Record<string, unknown>,
+  liveBytes: Uint8Array,
+  localDaemonActorId: string,
+): Promise<void> {
+  const store = useOutboxStore.getState();
+  sessionFlowLog("outbox_sender.local_fast_path.begin", {
+    messageId: entry.messageId,
+    sessionId: entry.sessionId,
+    teamId: entry.teamId,
+    localDaemonActorId,
+  });
+
+  await ensureLocalRuntimeForFastPath(entry, localDaemonActorId);
+
+  const { ingestSessionLiveLocally } = await import("@/lib/daemon-local-client");
+  sessionFlowLog("outbox_sender.local_ingest.begin", {
+    messageId: entry.messageId,
+    sessionId: entry.sessionId,
+  });
+  await ingestSessionLiveLocally(entry.sessionId, liveBytes);
+  sessionFlowLog("outbox_sender.local_ingest.ok", {
+    messageId: entry.messageId,
+    sessionId: entry.sessionId,
+  });
+
+  // Fan-out to OTHER members and history sync are both best-effort from here:
+  // the agent this message was addressed to already has it (local ingest
+  // above), so failing the send on a broker or Cloud problem would report a
+  // delivery that did happen as one that did not — and leave the user staring
+  // at a failed bubble while the agent replies to it.
+  //
+  // Re-delivery when the broker returns is safe: the live event carries the
+  // same `message_id`, which every consumer dedups on.
+  try {
+    await publishSessionLive(entry, liveBytes);
+  } catch (err) {
+    sessionFlowError("outbox_sender.mqtt_publish.best_effort_failed", err, {
+      messageId: entry.messageId,
+      sessionId: entry.sessionId,
+      teamId: entry.teamId,
+    });
+    console.warn("[outbox] MQTT fan-out failed after local deliver (best-effort):", err);
+  }
+
+  try {
+    await insertOutgoingCloud(entry, metadata);
+    afterCloudPersist(entry);
+  } catch (err) {
+    // Local agent already has the message; Cloud is history sync only.
+    sessionFlowError("outbox_sender.message_insert.best_effort_failed", err, {
+      messageId: entry.messageId,
+      sessionId: entry.sessionId,
+      teamId: entry.teamId,
+    });
+    console.warn("[outbox] Cloud insert failed after local deliver (best-effort):", err);
+    bumpSessionListLastMessage(entry.sessionId, entry.content, {
+      at: entry.createdAt,
+    });
+  }
+
+  await store.updateState(entry.messageId, {
+    state: "delivered",
+    lastError: null,
+  });
+  sessionFlowLog("outbox_sender.attempt.delivered", {
+    messageId: entry.messageId,
+    sessionId: entry.sessionId,
+    teamId: entry.teamId,
+    path: "local_fast",
+  });
+}
+
+/** Remote / multi-agent path: Cloud → MQTT → best-effort runtime ensure. */
+async function attemptRemotePath(
+  entry: OutboxEntry,
+  metadata: Record<string, unknown>,
+  liveBytes: Uint8Array,
+  localDaemonActorId: string | null,
+): Promise<void> {
+  const store = useOutboxStore.getState();
+
+  // Persist first so daemon catchup (triggered by runtimeStart below) can
+  // see @-mentioned rows. Previously runtimeStart ran before insert, so
+  // dedup catchup always replayed an empty slice for the outbound message.
+  await insertOutgoingCloud(entry, metadata);
+  afterCloudPersist(entry);
+
+  // Fan out to OTHER members FIRST. Publishing the live event both delivers
+  // the message to everyone in real time AND is what wakes an online daemon
+  // (the daemon subscribes to this topic). This MUST happen before — and
+  // independently of — ensuring the mentioned agent's runtime below.
+  await publishSessionLive(entry, liveBytes);
+
+  // Belt-and-suspenders cold-start: ensure the mentioned agent's runtime is up.
+  // Best-effort and NON-BLOCKING on purpose.
+  kickRemoteRuntimeEnsure(entry, localDaemonActorId);
+
+  await store.updateState(entry.messageId, {
+    state: "delivered",
+    lastError: null,
+  });
+  sessionFlowLog("outbox_sender.attempt.delivered", {
+    messageId: entry.messageId,
+    sessionId: entry.sessionId,
+    teamId: entry.teamId,
+    path: "remote",
+  });
+}
+
 async function attempt(entry: OutboxEntry): Promise<void> {
   const store = useOutboxStore.getState();
   const now = new Date().toISOString();
@@ -65,210 +426,22 @@ async function attempt(entry: OutboxEntry): Promise<void> {
   });
 
   try {
-    const createdAtSec = BigInt(
-      Math.floor(new Date(entry.createdAt).getTime() / 1000),
-    );
-    const displayMentionActorIds = entry.displayMentionActorIds ?? [];
-    const metadata = {
-      mention_actor_ids: entry.mentionActorIds,
-      ...(displayMentionActorIds.length > 0
-        ? { display_mention_actor_ids: displayMentionActorIds }
-        : {}),
-      ...(entry.attachmentUrls.length > 0
-        ? { attachment_urls: entry.attachmentUrls }
-        : {}),
-    };
+    const metadata = buildOutgoingMetadata(entry);
+    const live = buildLiveEnvelope(entry, metadata);
+    const liveBytes = toBinary(LiveEventEnvelopeSchema, live);
+    const localDaemonActorId = await resolveLocalDaemonActorIdIfTauri();
 
-    const proto = createMessage(MessageSchema, {
-      messageId: entry.messageId,
-      sessionId: entry.sessionId,
-      senderActorId: entry.senderActorId,
-      kind: MessageKind.TEXT,
-      content: entry.content,
-      metadataJson: JSON.stringify(metadata),
-      createdAt: createdAtSec,
-      model: entry.model ?? "",
-    });
-    const sessionEnv = createMessage(SessionMessageEnvelopeSchema, {
-      message: proto,
-      mentionActorIds: entry.mentionActorIds,
-    });
-    const live = createMessage(LiveEventEnvelopeSchema, {
-      eventId: crypto.randomUUID(),
-      eventType: "message.created",
-      sessionId: entry.sessionId,
-      actorId: entry.senderActorId,
-      sentAt: createdAtSec,
-      body: toBinary(SessionMessageEnvelopeSchema, sessionEnv),
-    });
-
-    // Persist first so daemon catchup (triggered by runtimeStart below) can
-    // see @-mentioned rows. Previously runtimeStart ran before insert, so
-    // dedup catchup always replayed an empty slice for the outbound message.
-    sessionFlowLog("outbox_sender.message_insert.begin", {
-      messageId: entry.messageId,
-      sessionId: entry.sessionId,
-      teamId: entry.teamId,
-    });
-    let duplicateAlreadyInserted = false;
-    try {
-      await getBackend().messages.insertOutgoingMessage({
-        id: entry.messageId,
-        teamId: entry.teamId,
-        sessionId: entry.sessionId,
-        senderActorId: entry.senderActorId,
-        kind: "text",
-        content: entry.content,
-        model: entry.model ?? null,
+    if (isLocalOnlyAgentMention(entry.mentionActorIds, localDaemonActorId)) {
+      await attemptLocalFastPath(
+        entry,
         metadata,
-        createdAt: entry.createdAt,
-      });
-    } catch (error) {
-      // Conflict on `id` means this same message
-      // already landed on a prior attempt (the network round-trip dropped
-      // before we got the ACK). Treat as success — the row is persisted.
-      if (error instanceof BackendError && error.category === "Conflict") {
-        duplicateAlreadyInserted = true;
-      } else {
-        throw error;
-      }
-    }
-    sessionFlowLog("outbox_sender.message_insert.ok", {
-      messageId: entry.messageId,
-      sessionId: entry.sessionId,
-      teamId: entry.teamId,
-      duplicateAlreadyInserted,
-    });
-    bumpSessionListLastMessage(entry.sessionId, entry.content, {
-      at: entry.createdAt,
-    });
-    // Quick-empty / solo-agent shells start as "Name (HH:mm)". Once the first
-    // user message is persisted, rename from its summary so the session list
-    // is distinguishable. No-op once the title is no longer a placeholder.
-    void maybeAutoTitleSessionFromFirstMessage(entry.sessionId, entry.content).catch((err) => {
-      console.warn("[outbox] auto-title failed (non-fatal):", err);
-    });
-    store.markCloudPersisted(entry.messageId);
-
-    // Fan out to OTHER members FIRST. Publishing the live event both delivers
-    // the message to everyone in real time AND is what wakes an online daemon
-    // (the daemon subscribes to this topic). This MUST happen before — and
-    // independently of — ensuring the mentioned agent's runtime below. When the
-    // mentioned daemon is offline/errored, ensuring its runtime throws or blocks
-    // for 10-20s; doing that first (as the code previously did) skipped or
-    // delayed this publish, so other members could not see the message in real
-    // time until the next message happened to arrive on the topic.
-    const topic = `amux/${entry.teamId}/session/${entry.sessionId}/live`;
-    sessionFlowLog("outbox_sender.mqtt_publish.begin", {
-      messageId: entry.messageId,
-      sessionId: entry.sessionId,
-      teamId: entry.teamId,
-      topic,
-      mentionActorIds: entry.mentionActorIds,
-      ...summarizeText(entry.content),
-    });
-    try {
-      await mqttPublish(
-        topic,
-        toBinary(LiveEventEnvelopeSchema, live),
-        false,
+        liveBytes,
+        localDaemonActorId!,
       );
-      sessionFlowLog("outbox_sender.mqtt_publish.done", {
-        messageId: entry.messageId,
-        sessionId: entry.sessionId,
-        teamId: entry.teamId,
-      });
-    } catch (err) {
-      sessionFlowError("outbox_sender.mqtt_publish.failed", err, {
-        messageId: entry.messageId,
-        sessionId: entry.sessionId,
-        teamId: entry.teamId,
-      });
-      if (entry.mentionActorIds.length > 0) {
-        console.warn("[outbox] agent-mentioned MQTT publish failed; will retry", {
-          messageId: entry.messageId,
-          sessionId: entry.sessionId,
-          topic,
-          error: err,
-        });
-        throw err;
-      }
-      // Unmentioned messages are passive session history; Supabase is enough
-      // for other clients to hydrate them later. Agent-mentioned messages must
-      // reach the live topic because that is what wakes the daemon runtime.
-      console.warn("[outbox] MQTT publish failed (best-effort):", err);
+      return;
     }
 
-    // Belt-and-suspenders cold-start: ensure the mentioned agent's runtime is up
-    // (adds it as a participant + explicit runtimeStart RPC for a daemon that is
-    // online but has no runtime for this session yet). Best-effort and
-    // NON-BLOCKING on purpose: the live publish above already fanned the message
-    // out to members and woke any online daemon, so an unreachable or slow
-    // daemon here must never fail this message, delay marking it delivered, or
-    // stall the outbox worker. Failures surface through ensureAgentRuntimes' own
-    // toasts; we only log here.
-    if (entry.mentionActorIds.length > 0) {
-      void (async () => {
-        const participants = await getBackend().sessionMembers.listParticipants(
-          entry.sessionId,
-        );
-        const agentActorIds = entry.mentionActorIds.filter((id) => {
-          const row = participants.find((p) => p.id === id);
-          return row ? isAgentActorType(row.actor_type) : false;
-        });
-        if (agentActorIds.length === 0) return;
-        let localDaemonActorId: string | null = null;
-        const { isTauri } = await import("@/lib/utils");
-        if (isTauri()) {
-          try {
-            const { getLocalDaemonActorId } = await import("@/lib/daemon-agent-admin");
-            localDaemonActorId = await getLocalDaemonActorId();
-          } catch {
-            localDaemonActorId = null;
-          }
-        }
-        const workspaceIdHint =
-          entry.workspaceIdHint?.trim() ||
-          (await resolveSessionWorkspaceHintForRuntimeStart({
-            teamId: entry.teamId,
-            localWorkspacePath: useWorkspaceStore.getState().workspacePath,
-            sessionId: entry.sessionId,
-            agentActorIds,
-            localDaemonActorId,
-          }));
-        sessionFlowLog("outbox_sender.runtime_ensure.begin", {
-          messageId: entry.messageId,
-          sessionId: entry.sessionId,
-          teamId: entry.teamId,
-          agentActorIds,
-          workspaceIdHint: workspaceIdHint || null,
-        });
-        await ensureAgentRuntimesForSession({
-          sessionId: entry.sessionId,
-          teamId: entry.teamId,
-          agentActorIds,
-          modelId: entry.model ?? undefined,
-          workspaceIdHint: workspaceIdHint || undefined,
-          reason: "outbox_send",
-        });
-      })().catch((err) => {
-        sessionFlowError("outbox_sender.runtime_ensure.failed", err, {
-          messageId: entry.messageId,
-          sessionId: entry.sessionId,
-          teamId: entry.teamId,
-        });
-      });
-    }
-
-    await store.updateState(entry.messageId, {
-      state: "delivered",
-      lastError: null,
-    });
-    sessionFlowLog("outbox_sender.attempt.delivered", {
-      messageId: entry.messageId,
-      sessionId: entry.sessionId,
-      teamId: entry.teamId,
-    });
+    await attemptRemotePath(entry, metadata, liveBytes, localDaemonActorId);
   } catch (e) {
     const msg = e instanceof Error ? e.message : String(e);
     const nextAttempt = entry.attemptCount + 1;
@@ -346,6 +519,16 @@ export function startOutboxSender(): void {
   // waiting up to TICK_MS — feels responsive.
   void tick();
   timer = setInterval(() => void tick(), TICK_MS);
+}
+
+/**
+ * Flush due rows now. Call after `enqueue` so a new message does not sit until
+ * the next `TICK_MS` interval (up to 1s of dead air after the bubble appears).
+ * No-op until `startOutboxSender` has run; the start path already ticks once.
+ */
+export function kickOutboxSender(): void {
+  if (!started) return;
+  void tick();
 }
 
 /** Stop the loop. Useful in tests; not normally called in production. */
