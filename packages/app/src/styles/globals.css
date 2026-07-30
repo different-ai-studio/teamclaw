@@ -676,12 +676,12 @@ input,
 /* Markdown preview + chat Notion-inspired styles */
 .markdown-preview,
 .chat-md {
-    line-height: 1.6;
+    line-height: 1.5;
     color: var(--foreground);
 }
 
 .chat-md {
-    font-size: 14.5px;
+    font-size: 13.5px;
 }
 
 .markdown-preview h1,
