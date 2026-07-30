@@ -79,9 +79,6 @@ interface UIState {
   localDaemonExpanded: boolean
   /** Action sheet open (⋯ menu). */
   localDaemonSheetOpen: boolean
-  /** True when LocalDaemonCard already shows the inline MQTT disconnect strip. */
-  localDaemonMqttNoticeSuppressed: boolean
-  setLocalDaemonMqttNoticeSuppressed: (suppressed: boolean) => void
   draftIdeaId: string | null
   /** Modal "新会话" dialog (NavRail ▾ menu + intercepted send-with-no-session). */
   newSessionDialogOpen: boolean
@@ -152,7 +149,6 @@ export const useUIStore = create<UIState>((set, get) => ({
   teamShareCollapsed: true,
   localDaemonExpanded: false,
   localDaemonSheetOpen: false,
-  localDaemonMqttNoticeSuppressed: false,
   draftIdeaId: null,
   newSessionDialogOpen: false,
   newSessionDialogInitialMessage: null,
@@ -397,8 +393,6 @@ export const useUIStore = create<UIState>((set, get) => ({
   toggleLocalDaemon: () => set((s) => ({ localDaemonExpanded: !s.localDaemonExpanded })),
   toggleLocalDaemonSheet: () => set((s) => ({ localDaemonSheetOpen: !s.localDaemonSheetOpen })),
   setLocalDaemonSheetOpen: (open) => set({ localDaemonSheetOpen: open }),
-  setLocalDaemonMqttNoticeSuppressed: (suppressed) =>
-    set({ localDaemonMqttNoticeSuppressed: suppressed }),
   setDraftIdeaId: (ideaId) => set({ draftIdeaId: ideaId }),
   clearDraftIdeaId: () => set({ draftIdeaId: null }),
 
