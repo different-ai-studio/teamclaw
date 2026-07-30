@@ -15,6 +15,7 @@ mod instruction_delivery;
 pub mod managed_llm;
 mod manager;
 pub mod permission_policy;
+pub mod prompt_attachments;
 pub mod refresh;
 pub mod sidecar;
 pub mod supervisor;

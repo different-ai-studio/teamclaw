@@ -428,6 +428,8 @@ async fn do_prompt(
     reply_to_message_id: Option<String>,
 ) {
     let reply_to = reply_to_message_id.filter(|id| !id.is_empty());
+    let resolved =
+        crate::runtime::prompt_attachments::resolve_all(&attachment_urls).await;
     let (event_tx, worktree, session_path) = {
         let mut routes = shared.routes.lock();
         let Some(route) = routes.get_mut(session_id) else {
@@ -453,16 +455,8 @@ async fn do_prompt(
     )
     .await;
 
-    // pi's prompt takes inline base64 images only; attachment URLs are
-    // appended to the message text for now.
     let mut message = text;
-    if !attachment_urls.is_empty() {
-        message.push_str("\n\nAttachments:\n");
-        for url in &attachment_urls {
-            message.push_str(url);
-            message.push('\n');
-        }
-    }
+    crate::runtime::prompt_attachments::append_to_message(&mut message, &resolved);
 
     let result = match ensure_active(shared, session_id, &worktree, &session_path).await {
         Ok(proc) => {
