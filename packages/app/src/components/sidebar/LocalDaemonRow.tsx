@@ -430,22 +430,29 @@ export function LocalDaemonRow({
   const [loading, setLoading] = React.useState(false)
   const [creating, setCreating] = React.useState(false)
   const [retrying, setRetrying] = React.useState(false)
+  const workspacesRef = React.useRef(workspaces)
+  workspacesRef.current = workspaces
 
+  // Prefetch as soon as the card mounts — don't wait for sheet expand. Opening
+  // the sheet mid-fetch used to mutate content height during the 300ms
+  // grid-rows animation and felt like dropped frames.
   const loadWorkspaces = React.useCallback(async () => {
     if (!teamId || !agentId) return
-    setLoading(true)
+    const isInitial = workspacesRef.current.length === 0
+    if (isInitial) setLoading(true)
     try {
       const ws = await listDaemonWorkspaces(teamId, agentId)
       setWorkspaces(ws.filter((w) => !w.archived))
       void syncSessionWorkspaces(teamId).catch(() => {})
     } finally {
-      setLoading(false)
+      if (isInitial) setLoading(false)
     }
   }, [teamId, agentId])
 
   React.useEffect(() => {
-    if (sheetOpen && !daemonOffline) void loadWorkspaces()
-  }, [sheetOpen, daemonOffline, loadWorkspaces])
+    if (daemonOffline) return
+    void loadWorkspaces()
+  }, [daemonOffline, loadWorkspaces])
 
   const handleNewWorkspace = async () => {
     if (!teamId || !agentId || creating || daemonOffline) return
