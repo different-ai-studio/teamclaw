@@ -170,3 +170,6 @@ apps/desktop/icons/ios/
 !/build.config.teal.json
 
 server.info
+# Playwright MCP scratch output — browser downloads land here and must never
+# be committed (a bare `git add -A` swept a set of them into main once).
+.playwright-mcp/
