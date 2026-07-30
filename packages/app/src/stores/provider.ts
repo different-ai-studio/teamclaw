@@ -113,10 +113,10 @@ function providerDisplayName(providerId: string): string {
       return 'OpenCode'
     case 'claude-code':
       return 'Claude Code'
-    case 'codex':
-      return 'Codex'
     case 'pi':
       return 'Pi'
+    case 'cursor':
+      return 'Cursor'
     default:
       return providerId
         .split(/[-_\s]+/)
@@ -135,10 +135,10 @@ function splitRuntimeModelId(agentType: AgentType, runtimeModelId: string): [str
   switch (agentType) {
     case AgentType.OPENCODE:
       return ['opencode', trimmed]
-    case AgentType.CODEX:
-      return ['codex', trimmed]
     case AgentType.PI:
       return ['pi', trimmed]
+    case AgentType.CURSOR:
+      return ['cursor', trimmed]
     case AgentType.CLAUDE_CODE:
       return ['claude-code', trimmed]
     default:
@@ -154,8 +154,8 @@ function runtimeModelsToConfigured(disconnectedIds: Set<string>): ConfiguredProv
     const agentType = entry.info.agentType
     if (
       agentType !== AgentType.OPENCODE &&
-      agentType !== AgentType.CODEX &&
-      agentType !== AgentType.PI
+      agentType !== AgentType.PI &&
+      agentType !== AgentType.CURSOR
     )
       continue
 

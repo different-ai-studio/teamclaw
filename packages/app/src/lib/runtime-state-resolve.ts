@@ -339,7 +339,15 @@ export function normalizeAgentModelId(
   );
   if (suffixMatch) return suffixMatch.id;
 
-  for (const prefix of ["opencode/", "alibaba-cn/", "claude-code/"]) {
+  for (const prefix of [
+    "opencode/",
+    "alibaba-cn/",
+    "claude-code/",
+    // pi and cursor ids are `provider/model` too — cursor advertises
+    // `cursor/<model>` — so a short pick must be able to re-qualify onto them.
+    "pi/",
+    "cursor/",
+  ]) {
     const candidate = `${prefix}${raw}`;
     if (available.some((m) => m.id === candidate)) return candidate;
   }
@@ -532,10 +540,10 @@ export function backendTypeFromRuntimeEntry(
       return "claude-code";
     case AgentType.OPENCODE:
       return "opencode";
-    case AgentType.CODEX:
-      return "codex";
     case AgentType.PI:
       return "pi";
+    case AgentType.CURSOR:
+      return "cursor";
     default:
       return undefined;
   }

@@ -250,10 +250,10 @@ describe('startAgentRuntimesAsync', () => {
 
   it('prefers actor.default_agent_type over prior runtime backend_type', async () => {
     // Prior runtime was opencode, but the operator has since set the agent's
-    // default_agent_type to codex — the next spawn should respect that.
+    // default_agent_type to cursor — the next spawn should respect that.
     mockTables({
       runtimes: [{ agent_id: 'agent-3', workspace_id: 'ws-old', backend_type: 'opencode' }],
-      actors: [{ id: 'agent-3', agent_types: ['claude', 'codex'], default_agent_type: 'codex' }],
+      actors: [{ id: 'agent-3', agent_types: ['claude', 'cursor'], default_agent_type: 'cursor' }],
     })
 
     const { startAgentRuntimesAsync } = await import('../session-create')
@@ -266,7 +266,7 @@ describe('startAgentRuntimesAsync', () => {
     expect(mockRuntimeStart).toHaveBeenCalledWith(
       expect.objectContaining({
         targetActorId: 'agent-3',
-        agentType: AgentType.CODEX,
+        agentType: AgentType.CURSOR,
       }),
     )
   })
