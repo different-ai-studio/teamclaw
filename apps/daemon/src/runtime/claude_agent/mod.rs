@@ -330,6 +330,8 @@ async fn do_prompt(
     reply_to_message_id: Option<String>,
 ) {
     let reply_to = reply_to_message_id.filter(|id| !id.is_empty());
+    let resolved =
+        crate::runtime::prompt_attachments::resolve_all(&attachment_urls).await;
     let (event_tx, worktree, session_key, model) = {
         let mut routes = shared.routes.lock();
         let Some(route) = routes.get_mut(session_id) else {
@@ -357,13 +359,7 @@ async fn do_prompt(
     .await;
 
     let mut message = text;
-    if !attachment_urls.is_empty() {
-        message.push_str("\n\nAttachments:\n");
-        for url in &attachment_urls {
-            message.push_str(url);
-            message.push('\n');
-        }
-    }
+    crate::runtime::prompt_attachments::append_to_message(&mut message, &resolved);
 
     let result = match shared.pool.ensure(shared, &worktree) {
         Ok(proc) => {

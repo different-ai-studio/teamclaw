@@ -863,6 +863,10 @@ async fn do_prompt(
     reply_to_message_id: Option<String>,
 ) {
     let reply_to = reply_to_message_id.filter(|id| !id.is_empty());
+    // Resolve before marking the turn active so download latency does not
+    // consume the stuck-turn watchdog budget.
+    let resolved =
+        crate::runtime::prompt_attachments::resolve_all(&attachment_urls).await;
     let (event_tx, directory, model, turn_seq) = {
         let mut routes = shared.routes.lock();
         let Some(route) = routes.get_mut(session_id) else {
@@ -894,19 +898,31 @@ async fn do_prompt(
     .await;
 
     let mut parts = vec![PromptPart::Text { text }];
-    for url in &attachment_urls {
-        let filename = url
-            .split('?')
-            .next()
-            .unwrap_or(url)
-            .rsplit('/')
-            .next()
-            .map(str::to_string);
-        parts.push(PromptPart::File {
-            mime: guess_mime(url).to_string(),
-            url: url.clone(),
-            filename,
-        });
+    for att in &resolved {
+        match att {
+            crate::runtime::prompt_attachments::ResolvedAttachment::Image { .. } => {
+                let (mime, url, filename) = att.opencode_file_fields();
+                parts.push(PromptPart::File {
+                    mime,
+                    url,
+                    filename,
+                });
+            }
+            crate::runtime::prompt_attachments::ResolvedAttachment::Link { url, .. } => {
+                // Failed image downloads fall back to Link; opencode rejects HTTPS
+                // image URLs, so omit those rather than surfacing ImageInvalidDataUrlError.
+                if crate::runtime::prompt_attachments::is_image_attachment_url(url) {
+                    warn!(url = %url, "skipping unresolved image attachment for opencode prompt");
+                    continue;
+                }
+                let (mime, url, filename) = att.opencode_file_fields();
+                parts.push(PromptPart::File {
+                    mime,
+                    url,
+                    filename,
+                });
+            }
+        }
     }
     let body = PromptBody { model, parts };
 
