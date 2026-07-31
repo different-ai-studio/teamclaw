@@ -41,6 +41,7 @@ import { type QueuedMessage, useSessionStore } from "@/stores/session";
 import { useVoiceInputStore } from "@/stores/voice-input";
 import { useWorkspaceStore } from "@/stores/workspace";
 import { useUIStore } from "@/stores/ui";
+import { extractImageAttachmentTokens } from "@/lib/extract-image-attachment-tokens";
 import { getFileName, getFileDisplayPath } from "./utils/fileUtils";
 import { LocalImage } from "@/packages/ai/message";
 
@@ -155,8 +156,7 @@ const REDESIGN_ON = import.meta.env.VITE_MENTION_REDESIGN !== 'false';
 interface ChatInputAreaProps {
   activeSessionId: string | null;
   compact: boolean;
-  inputValue: string;
-  onInputChange: (v: string) => void;
+  /** Draft text is owned by the session store so typing does not re-render ChatPanel. */
   attachedFiles: string[];
   onFilesChange: (paths: string[]) => void;
   onRemoveFile: (index: number) => void;
@@ -187,6 +187,8 @@ interface ChatInputAreaProps {
   onRemoveAgent: (agentId: string) => void;
   /** Solo (1 human + 1 agent): pill is always on and cannot be removed. */
   agentMentionLocked?: boolean;
+  /** Resolved session model — sizes the context-usage bar. */
+  sessionModelId?: string;
   activeStreamingAgents?: ReadonlyArray<ActiveStreamingAgent>;
   onInterruptAgent?: (agentId: string) => void;
 }
@@ -237,8 +239,6 @@ function PageLinkInsertBridge() {
 export function ChatInputArea({
   activeSessionId,
   compact,
-  inputValue,
-  onInputChange,
   attachedFiles,
   onFilesChange,
   onRemoveFile,
@@ -265,10 +265,93 @@ export function ChatInputArea({
   onEngageAgent = () => {},
   onRemoveAgent = () => {},
   agentMentionLocked = false,
+  sessionModelId,
   activeStreamingAgents = [],
   onInterruptAgent,
 }: ChatInputAreaProps) {
   const { t } = useTranslation();
+
+  // Subscribe here — not in ChatPanel — so keystrokes do not re-render MessageList.
+  const inputValue = useSessionStore((s) => s.draftInput);
+  const setDraftInput = useSessionStore.getState().setDraftInput;
+  const draftPreselectedActor = useUIStore((s) => s.draftPreselectedActor);
+
+  const handleInputChange = React.useCallback(
+    (nextValue: string) => {
+      const { cleaned, imagePaths } = extractImageAttachmentTokens(nextValue);
+      if (imagePaths.length > 0) {
+        onFilesChange(imagePaths);
+      }
+      setDraftInput(cleaned);
+    },
+    [onFilesChange, setDraftInput],
+  );
+
+  // Fallback sanitizer for drafts injected outside the textarea (voice, file drop).
+  React.useEffect(() => {
+    if (!inputValue) return;
+    const { cleaned, imagePaths } = extractImageAttachmentTokens(inputValue);
+    if (imagePaths.length > 0) {
+      onFilesChange(imagePaths);
+    }
+    if (cleaned !== inputValue) {
+      setDraftInput(cleaned);
+    }
+  }, [inputValue, onFilesChange, setDraftInput]);
+
+  // Per-actor draft persistence (Actors tab → navigate away → restore).
+  const draftStorageKey = draftPreselectedActor
+    ? `teamclaw-actor-draft:${draftPreselectedActor.id}`
+    : null;
+  const justRestoredDraftRef = React.useRef(false);
+
+  React.useEffect(() => {
+    if (!draftStorageKey) return;
+    let saved: string | null = null;
+    try {
+      saved = localStorage.getItem(draftStorageKey);
+    } catch {
+      /* localStorage disabled */
+    }
+    if (saved != null && saved !== useSessionStore.getState().draftInput) {
+      justRestoredDraftRef.current = true;
+      setDraftInput(saved);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [draftStorageKey]);
+
+  React.useEffect(() => {
+    if (!draftStorageKey) return;
+    if (justRestoredDraftRef.current) {
+      justRestoredDraftRef.current = false;
+      return;
+    }
+    const handle = setTimeout(() => {
+      try {
+        if (inputValue) {
+          localStorage.setItem(draftStorageKey, inputValue);
+        } else {
+          localStorage.removeItem(draftStorageKey);
+        }
+      } catch {
+        /* localStorage disabled */
+      }
+    }, 300);
+    return () => clearTimeout(handle);
+  }, [draftStorageKey, inputValue]);
+
+  // Voice input / "Add to Agent": append transcript or file mention to input
+  React.useEffect(() => {
+    const unregister = useVoiceInputStore.getState().registerInsertToChatHandler(
+      (transcript) => {
+        const prev = useSessionStore.getState().draftInput;
+        const mentionMatch = transcript.match(/@\{([^}]+)\}/);
+        if (mentionMatch && prev.includes(mentionMatch[0])) return;
+        setDraftInput(prev + (prev ? " " : "") + transcript);
+      },
+    );
+    return unregister;
+  }, [setDraftInput]);
 
   // # file reference states
   const [filePopoverOpen, setFilePopoverOpen] = React.useState(false);
@@ -442,7 +525,7 @@ export function ChatInputArea({
         >
           <PromptInput
             value={inputValue}
-            onValueChange={onInputChange}
+            onValueChange={handleInputChange}
             onSubmit={handleSubmit}
             onFilesChange={handlePastedFiles}
             onFilePathsDrop={handleFilePathsDrop}
@@ -638,7 +721,7 @@ export function ChatInputArea({
             </PromptInputTools>
 
             <div className="flex shrink-0 items-center gap-2">
-              <ContextUsageBadge />
+              <ContextUsageBadge modelId={sessionModelId} />
               <ComposerSubmitButton
                 inputValue={inputValue}
                 attachedFiles={attachedFiles}

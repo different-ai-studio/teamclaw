@@ -179,7 +179,15 @@ import { useOutboxStore } from "@/stores/outbox-store";
 import { startOutboxSender } from "@/services/outbox-sender";
 import { useAcpDebugStore } from "@/stores/acp-debug-store";
 import { isStreamInterruptible, useV2StreamingStore } from "@/stores/v2-streaming-store";
-import { initRuntimeStateStore, disposeRuntimeStateStore } from "@/stores/runtime-state-store";
+import {
+  initRuntimeStateStore,
+  disposeRuntimeStateStore,
+  useRuntimeStateStore,
+} from "@/stores/runtime-state-store";
+import {
+  findStaleLiveStreams,
+  STALE_STREAM_SWEEP_MS,
+} from "@/lib/stale-stream-recovery";
 import { initActorPresenceStore, disposeActorPresenceStore } from "@/stores/actor-presence-store";
 import { getBackend } from "@/lib/backend";
 import { getVersion } from "@tauri-apps/api/app";
@@ -1245,6 +1253,38 @@ function AppContent() {
     return true;
   }
 
+  /** Close live docks whose terminal statusChange never arrived. */
+  function recoverStaleLiveStreams(trigger: string) {
+    const stale = findStaleLiveStreams({
+      byKey: useV2StreamingStore.getState().byKey,
+      byRuntimeId: useRuntimeStateStore.getState().byRuntimeId,
+      now: Date.now(),
+    });
+    for (const { sessionId, actorId, reason } of stale) {
+      const streamKey = agentStreamKey(sessionId, actorId);
+      const flushed = flushTurnAgentReply(sessionId, actorId, trigger);
+      logInterruptMsgDiag(trigger, {
+        sessionId,
+        actorId,
+        reason,
+        flushed,
+        ...summarizePendingReplies(pendingStreamRepliesRef.current[streamKey]),
+        ...summarizeStreamEntry(
+          useV2StreamingStore.getState().byKey[streamKey],
+          "live",
+        ),
+      });
+      clearTerminalFlushPending(streamKey);
+      if (flushed) continue;
+      useV2StreamingStore.getState().finishSessionActor(sessionId, actorId, {
+        reason: trigger,
+      });
+      useV2StreamingStore
+        .getState()
+        .clearInterruptedFlushPending(sessionId, actorId);
+    }
+  }
+
   useEffect(() => {
     registerDiscardPendingStreamReply((sessionId, actorId) => {
       const streamKey = agentStreamKey(sessionId, actorId);
@@ -1259,6 +1299,22 @@ function AppContent() {
     return () => {
       registerDiscardPendingStreamReply(null);
     };
+  }, []);
+
+  useEffect(() => {
+    const timer = setInterval(() => {
+      recoverStaleLiveStreams("stream.staleRecovery.sweep");
+    }, STALE_STREAM_SWEEP_MS);
+    // Retains re-flush right after a reconnect; react to them instead of
+    // waiting out the sweep interval.
+    const unsubscribe = useRuntimeStateStore.subscribe(() => {
+      recoverStaleLiveStreams("stream.staleRecovery.runtimeState");
+    });
+    return () => {
+      clearInterval(timer);
+      unsubscribe();
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   useEffect(() => {

@@ -602,16 +602,14 @@ fn gather_personal_env_diagnostics(workspace_path: &str) -> Result<PersonalEnvDi
 
     let blob_key_set: std::collections::HashSet<String> =
         blob_keys.iter().map(|k| k.to_ascii_lowercase()).collect();
-    let index_key_set: std::collections::HashSet<String> = index_keys
-        .iter()
-        .map(|k| k.to_ascii_lowercase())
-        .collect();
+    let index_key_set: std::collections::HashSet<String> =
+        index_keys.iter().map(|k| k.to_ascii_lowercase()).collect();
 
     let index_keys_missing_from_blob: Vec<String> = index_keys
         .iter()
         .filter(|key| !blob_key_set.contains(&key.to_ascii_lowercase()))
-        .cloned()
         .take(8)
+        .cloned()
         .collect();
     let blob_keys_missing_from_index: Vec<String> = blob_keys
         .iter()
@@ -619,8 +617,8 @@ fn gather_personal_env_diagnostics(workspace_path: &str) -> Result<PersonalEnvDi
             !index_key_set.contains(&key.to_ascii_lowercase())
                 && !teamclaw_runtime_env::is_internal_personal_blob_key(key)
         })
-        .cloned()
         .take(8)
+        .cloned()
         .collect();
 
     let env_map: std::collections::HashMap<String, String> = blob
@@ -1284,7 +1282,10 @@ mod tests {
         let workspace_path = workspace_dir.path().to_string_lossy().to_string();
         tokio::runtime::Runtime::new()
             .unwrap()
-            .block_on(env_var_delete_for_workspace(&workspace_path, "JIRA_TOKEN".into()))
+            .block_on(env_var_delete_for_workspace(
+                &workspace_path,
+                "JIRA_TOKEN".into(),
+            ))
             .unwrap();
 
         let remaining_blob = read_env_blob(&workspace_path).unwrap();

@@ -43,6 +43,12 @@ const StableBlock = React.memo(function StableBlock({
   return <MessageResponse>{content}</MessageResponse>;
 });
 
+/**
+ * Growing tail above this size skips ReactMarkdown while streaming (plain text)
+ * to avoid O(n) re-parse of open code fences. Finalized messages bypass this.
+ */
+export const STREAM_TAIL_PLAIN_TEXT_THRESHOLD = 4000;
+
 export function StreamMarkdown({ text }: { text: string }) {
   // Defer streaming updates so composer typing outranks re-renders (React 19).
   const deferredText = React.useDeferredValue(text);
@@ -50,6 +56,7 @@ export function StreamMarkdown({ text }: { text: string }) {
     () => splitStableBlocks(deferredText),
     [deferredText],
   );
+  const usePlainTail = tail.length > STREAM_TAIL_PLAIN_TEXT_THRESHOLD;
   return (
     <>
       {stable.map((block, i) => (
@@ -61,7 +68,13 @@ export function StreamMarkdown({ text }: { text: string }) {
         // per-frame work under this flag and highlight once the block closes
         // into a StableBlock above.
         <StreamingTailContext.Provider value={true}>
-          <MessageResponse>{tail}</MessageResponse>
+          {usePlainTail ? (
+            <pre className="m-0 whitespace-pre-wrap break-words font-sans text-[13.5px] leading-[1.7] text-foreground">
+              {tail}
+            </pre>
+          ) : (
+            <MessageResponse>{tail}</MessageResponse>
+          )}
         </StreamingTailContext.Provider>
       ) : null}
     </>
