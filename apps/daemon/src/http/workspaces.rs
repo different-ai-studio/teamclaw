@@ -19,10 +19,10 @@ use std::sync::Arc;
 
 use crate::config::provider_auth::{builtin_provider_auth_methods, ProviderAuthMethodsResponse};
 use crate::config::workspace_control::{
-    decode_workspace_path, AllowlistRule, ApplyOutcome, ManagedSkillDto, McpServerConfig,
-    PermissionConfig, ProviderAuthRequest, ProviderInfo, RoleRecordDto, RolesSkillsStateDto,
-    RuntimeStatus, UpsertRoleRequest, UpsertSkillRequest, WorkspaceControlError,
-    WorkspaceControlStore,
+    decode_workspace_path, AllowlistRule, ApplyOutcome, EnvActivationDiagnostics, ManagedSkillDto,
+    McpServerConfig, PermissionConfig, ProviderAuthRequest, ProviderInfo, RoleRecordDto,
+    RolesSkillsStateDto, RuntimeStatus, UpsertRoleRequest, UpsertSkillRequest,
+    WorkspaceControlError, WorkspaceControlStore,
 };
 use crate::opencode_settings::LiveProviderCatalog;
 use crate::opencode_settings::OpenCodeSettingsError;
@@ -1003,6 +1003,36 @@ pub async fn get_runtime(
         status.refresh = refresh.runtime_refresh_dto(&workspace_id).await;
     }
     Ok(Json(status))
+}
+
+/// `GET /v1/workspaces/:id/runtime/env-diagnostics`
+pub async fn get_runtime_env_diagnostics(
+    principal: Principal,
+    State(state): State<HttpState>,
+    Path(workspace_id): Path<String>,
+    Query(query): Query<RuntimeEnvDiagnosticsQuery>,
+) -> Result<Json<EnvActivationDiagnostics>, HttpError> {
+    require_scope(&principal, "workspace:read")?;
+    let workspace_path = decode_workspace_path(&workspace_id).map_err(map_control_err)?;
+
+    if let Some(supervisor) = state.runtime_supervisor.as_ref() {
+        let team_id = query
+            .team_id
+            .as_deref()
+            .map(str::trim)
+            .filter(|s| !s.is_empty());
+        let diag = supervisor
+            .env_activation_diagnostics(&workspace_id, &workspace_path, team_id)
+            .await;
+        return Ok(Json(diag));
+    }
+
+    Err(HttpError::not_found("runtime supervisor unavailable"))
+}
+
+#[derive(Debug, Deserialize)]
+pub struct RuntimeEnvDiagnosticsQuery {
+    pub team_id: Option<String>,
 }
 
 /// `POST /v1/workspaces/:id/runtime/reload`

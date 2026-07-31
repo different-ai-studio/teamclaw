@@ -428,7 +428,7 @@ impl OpencodeHost {
         worktree: Option<&str>,
     ) {
         self.apply_binary_hint(launch_configs);
-        self.shared.serve.merge_extra_env(&extra_env);
+        self.shared.serve.merge_extra_env(&extra_env, _force_env_override);
         if let Err(e) = self.shared.serve.ensure().await {
             warn!(error = %e, "opencode serve prewarm (session env) failed");
             return;
@@ -466,7 +466,7 @@ impl OpencodeHost {
         agent_type: amux::AgentType,
         launch: &super::manager::AgentLaunchConfig,
         extra_env: HashMap<String, String>,
-        _force_env_override: bool,
+        force_env_override: bool,
         worktree: String,
         resume_acp_session_id: Option<String>,
         mcp_config_path: Option<PathBuf>,
@@ -484,7 +484,7 @@ impl OpencodeHost {
             );
         }
         self.shared.serve.set_binary_hint(&launch.binary);
-        self.shared.serve.merge_extra_env(&extra_env);
+        self.shared.serve.merge_extra_env(&extra_env, force_env_override);
         let cmd_tx = self.command_sender();
         let startup = attach(
             &self.shared,
@@ -1444,7 +1444,7 @@ pub fn start_standalone_runtime(
 ) -> crate::error::Result<mpsc::Sender<AcpCommand>> {
     let shared = Shared::new();
     shared.serve.set_binary_hint(&binary);
-    shared.serve.merge_extra_env(&extra_env);
+    shared.serve.merge_extra_env(&extra_env, true);
     let (cmd_tx, cmd_rx) = mpsc::channel::<AcpCommand>(64);
     tokio::spawn(command_loop(Arc::clone(&shared), cmd_rx));
     let attach_tx = cmd_tx.clone();

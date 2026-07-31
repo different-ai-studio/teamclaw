@@ -20,6 +20,30 @@ pub fn secrets_for_team_provider(actor_id: &str) -> HashMap<String, String> {
     secrets
 }
 
+/// Keys from `env` that the host OS environment would override at opencode serve
+/// spawn (serve only injects when `std::env::var_os(key)` is unset).
+pub fn host_shadowed_env_keys(env: &HashMap<String, String>) -> Vec<String> {
+    use std::collections::HashSet;
+
+    let mut seen = HashSet::new();
+    let mut shadowed = Vec::new();
+    for key in env.keys() {
+        if std::env::var_os(key).is_some() {
+            if seen.insert(key.clone()) {
+                shadowed.push(key.clone());
+            }
+            continue;
+        }
+        let upper = key.to_ascii_uppercase();
+        if upper != *key && std::env::var_os(&upper).is_some() && seen.insert(upper.clone()) {
+            shadowed.push(format!("{key} (host has {upper})"));
+        }
+    }
+    shadowed.sort();
+    shadowed.truncate(8);
+    shadowed
+}
+
 pub fn merge_env_maps(
     personal: HashMap<String, String>,
     team: HashMap<String, String>,
@@ -98,6 +122,38 @@ mod tests {
             display_name: display_name.to_string(),
             cloud_token_file: None,
         }
+    }
+
+    #[test]
+    fn host_shadowed_env_keys_detects_exact_host_match() {
+        use rand::Rng;
+        let suffix: u64 = rand::thread_rng().gen();
+        let key = format!("TEAMCLAW_HOST_SHADOW_{suffix}");
+        // SAFETY: test-only unique key; restored immediately.
+        unsafe { std::env::set_var(&key, "from-host") };
+        let mut env = HashMap::new();
+        env.insert(key.clone(), "from-blob".to_string());
+        let shadowed = host_shadowed_env_keys(&env);
+        unsafe { std::env::remove_var(&key) };
+        assert_eq!(shadowed, vec![key]);
+    }
+
+    #[test]
+    fn host_shadowed_env_keys_detects_uppercase_host_match() {
+        use rand::Rng;
+        let suffix: u64 = rand::thread_rng().gen();
+        let key = format!("teamclaw_host_shadow_{suffix}");
+        let upper = key.to_ascii_uppercase();
+        // SAFETY: test-only unique key; restored immediately.
+        unsafe { std::env::set_var(&upper, "from-host") };
+        let mut env = HashMap::new();
+        env.insert(key.clone(), "from-blob".to_string());
+        let shadowed = host_shadowed_env_keys(&env);
+        unsafe { std::env::remove_var(&upper) };
+        assert!(
+            shadowed.iter().any(|s| s.contains(&key)),
+            "expected host shadow for {key}, got {shadowed:?}"
+        );
     }
 
     #[test]

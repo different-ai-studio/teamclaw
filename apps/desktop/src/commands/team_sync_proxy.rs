@@ -381,12 +381,31 @@ pub async fn daemon_team_restore_version(
 
 /// Whether this daemon can decrypt Team Shared environment variables for the
 /// supplied team. No secret material is returned to the renderer.
+///
+/// When the daemon reports the secret unset but the desktop has a local copy
+/// (common after daemon restart or a deferred delivery at enable time), the
+/// secret is re-pushed once before returning — same self-heal as `oss_sync_now`.
 #[tauri::command]
-pub async fn team_env_runtime_status(team_id: String) -> Result<bool, String> {
+pub async fn team_env_runtime_status(
+    team_id: String,
+    workspace_path: Option<String>,
+) -> Result<bool, String> {
     if team_id.trim().is_empty() {
         return Ok(false);
     }
-    daemon_team_env_available(&team_id).await
+    if daemon_team_env_available(&team_id).await? {
+        return Ok(true);
+    }
+    if let Some(wp) = workspace_path
+        .as_deref()
+        .map(str::trim)
+        .filter(|s| !s.is_empty())
+    {
+        if redeliver_local_team_secret(&team_id, wp).await {
+            return daemon_team_env_available(&team_id).await;
+        }
+    }
+    Ok(false)
 }
 
 /// True when a daemon error / status `lastError` means the daemon has no OSS
@@ -397,6 +416,22 @@ fn is_missing_team_secret_error(msg: &str) -> bool {
     msg.contains("no OSS team secret")
 }
 
+/// Resolve the team secret from desktop-local storage (`team_secret_store` blob
+/// key, then inline `team.envSecret` / blob fallback via `resolve_team_env_secret`).
+fn local_team_secret_for_redelivery(workspace_path: &str, team_id: &str) -> Option<String> {
+    if let Ok(secret) = crate::commands::team_secret_store::load_team_secret(workspace_path, team_id)
+    {
+        if !secret.trim().is_empty() {
+            return Some(secret);
+        }
+    }
+    teamclaw_runtime_env::env_catalog::resolve_team_env_secret(
+        std::path::Path::new(workspace_path),
+        Some(team_id),
+        Some(crate::commands::APP_SHORT_NAME),
+    )
+}
+
 /// Re-deliver the locally-stored team secret to the daemon and re-link the
 /// workspace. Best-effort self-heal for the "no OSS team secret" state: the
 /// desktop is the source of truth for the secret (persisted in
@@ -405,8 +440,7 @@ fn is_missing_team_secret_error(msg: &str) -> bool {
 /// Returns `true` if a secret existed locally and was delivered, `false`
 /// otherwise (no local secret to recover from, or delivery failed).
 async fn redeliver_local_team_secret(team_id: &str, workspace_path: &str) -> bool {
-    let Ok(secret) = crate::commands::team_secret_store::load_team_secret(workspace_path, team_id)
-    else {
+    let Some(secret) = local_team_secret_for_redelivery(workspace_path, team_id) else {
         return false;
     };
     if daemon_team_secrets(team_id, Some(&secret), None, None)

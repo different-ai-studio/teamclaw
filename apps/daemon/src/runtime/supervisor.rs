@@ -21,7 +21,7 @@ const INSTRUCTION_PLUGIN_TEMPLATE: &str = include_str!(
     "../../../../packages/app/src/lib/opencode/templates/teamclaw-instruction-plugin.mjs.txt"
 );
 
-use crate::config::workspace_control::{ApplyOutcome, RuntimeStatus, WorkspaceControlError};
+use crate::config::workspace_control::{ApplyOutcome, EnvActivationBlocker, EnvActivationDiagnostics, RuntimeStatus, WorkspaceControlError};
 use crate::proto::amux;
 use crate::runtime::{
     refresh::{
@@ -879,6 +879,137 @@ impl RuntimeSupervisor {
             current_model,
             refresh: self.refresh.runtime_refresh_dto(workspace_id).await,
         })
+    }
+
+    /// Diagnostics for env-var activation: storage readable, daemon runtime state,
+    /// and human-readable blockers. Contains no secret values.
+    pub async fn env_activation_diagnostics(
+        &self,
+        workspace_id: &str,
+        workspace_path: &Path,
+        team_id: Option<&str>,
+    ) -> EnvActivationDiagnostics {
+        let store =
+            teamclaw_runtime_env::diagnose_personal_env_store();
+        let personal_env = teamclaw_runtime_env::personal_secrets::load_personal_env();
+        let loaded_user_count = personal_env
+            .as_ref()
+            .map(teamclaw_runtime_env::count_user_personal_env_keys)
+            .unwrap_or(0);
+        let personal_blob_user_var_count = store.user_stored_var_count;
+        let personal_env_var_count = if loaded_user_count > 0 {
+            loaded_user_count
+        } else if store.blob_readable {
+            personal_blob_user_var_count
+        } else {
+            0
+        };
+        let host_env_shadowed_keys = personal_env
+            .as_ref()
+            .map(|env| teamclaw_runtime_env::host_shadowed_env_keys(env))
+            .unwrap_or_default();
+        let personal_load_error = personal_env.err().map(|e| e.to_string());
+
+        let team_env =
+            crate::team_shared_env::load_team_env_for_workspace(workspace_path, team_id);
+
+        let workspace_path_str = workspace_path.to_string_lossy();
+        let (active_runtime_count, workspace_has_active_turn, opencode_serve_running, cached_env_count) = {
+            let manager = self.agents.lock().await;
+            let active_runtime_count = manager
+                .active_handles_for_workspace(&workspace_path_str, workspace_id)
+                .count();
+            let workspace_has_active_turn =
+                manager.workspace_has_active_turn(&workspace_path_str, workspace_id);
+            let serve_stats = manager
+                .opencode_serve_supervisor()
+                .map(|serve| (serve.is_running(), serve.cached_env_key_count()))
+                .unwrap_or((false, 0));
+            (
+                active_runtime_count,
+                workspace_has_active_turn,
+                serve_stats.0,
+                serve_stats.1,
+            )
+        };
+
+        let refresh = self.refresh.runtime_refresh_dto(workspace_id).await;
+        let mut blockers: Vec<EnvActivationBlocker> = Vec::new();
+
+        if !store.blob_readable {
+            blockers.push(EnvActivationBlocker {
+                code: if store.blob_exists {
+                    "personal_blob_undecryptable".to_string()
+                } else if store.master_key_exists {
+                    "personal_blob_missing".to_string()
+                } else {
+                    "personal_store_uninitialized".to_string()
+                },
+                detail: if store.blob_exists {
+                    store.blob_error.clone()
+                } else {
+                    None
+                },
+            });
+        }
+        if refresh.status == "failed" {
+            blockers.push(EnvActivationBlocker {
+                code: "refresh_failed".to_string(),
+                detail: refresh.last_error.clone(),
+            });
+        } else if refresh.status == "pending" || refresh.status == "applying" {
+            if refresh.change_kinds.iter().any(|k| k == "env_vars") {
+                blockers.push(EnvActivationBlocker {
+                    code: "env_vars_pending".to_string(),
+                    detail: None,
+                });
+            }
+        }
+        if refresh.auto_apply_blocked_by_active_runtime {
+            blockers.push(EnvActivationBlocker {
+                code: "refresh_deferred_active_turn".to_string(),
+                detail: None,
+            });
+        }
+        if active_runtime_count > 0 {
+            blockers.push(EnvActivationBlocker {
+                code: "active_runtimes".to_string(),
+                detail: Some(active_runtime_count.to_string()),
+            });
+        }
+        if workspace_has_active_turn {
+            blockers.push(EnvActivationBlocker {
+                code: "turn_in_progress".to_string(),
+                detail: None,
+            });
+        }
+        if opencode_serve_running && cached_env_count == 0 && personal_env_var_count > 0 {
+            blockers.push(EnvActivationBlocker {
+                code: "opencode_serve_no_cached_env".to_string(),
+                detail: None,
+            });
+        }
+        if !host_env_shadowed_keys.is_empty() {
+            blockers.push(EnvActivationBlocker {
+                code: "host_env_shadowed".to_string(),
+                detail: Some(host_env_shadowed_keys.join(", ")),
+            });
+        }
+
+        EnvActivationDiagnostics {
+            personal_env_var_count,
+            personal_blob_user_var_count,
+            personal_blob_readable: store.blob_readable,
+            personal_load_error,
+            team_env_var_count: team_env.len(),
+            opencode_serve_running,
+            opencode_serve_cached_env_count: cached_env_count,
+            active_runtime_count,
+            workspace_has_active_turn,
+            refresh,
+            host_env_shadowed_keys,
+            blockers,
+        }
     }
 
     pub async fn reload_workspace(

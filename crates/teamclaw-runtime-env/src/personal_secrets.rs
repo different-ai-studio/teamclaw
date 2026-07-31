@@ -77,6 +77,27 @@ fn string_env_from_map(map: serde_json::Map<String, serde_json::Value>) -> HashM
         .collect()
 }
 
+/// Keys seeded by the desktop runtime into the personal blob but not shown in
+/// the workspace `envVars` index (system / team-secret material).
+pub fn is_internal_personal_blob_key(key: &str) -> bool {
+    key == "tc_api_key" || key.starts_with("_team_secret.")
+}
+
+pub fn count_user_personal_env_keys(env: &HashMap<String, String>) -> usize {
+    env.keys()
+        .filter(|key| !is_internal_personal_blob_key(key))
+        .count()
+}
+
+pub fn user_personal_env_from_map(
+    map: serde_json::Map<String, serde_json::Value>,
+) -> HashMap<String, String> {
+    string_env_from_map(map)
+        .into_iter()
+        .filter(|(key, _)| !is_internal_personal_blob_key(key))
+        .collect()
+}
+
 pub fn load_personal_env() -> anyhow::Result<HashMap<String, String>> {
     load_personal_env_for_storage_dir(OFFICIAL_STORAGE_DIR)
 }
@@ -85,6 +106,79 @@ pub fn load_personal_env() -> anyhow::Result<HashMap<String, String>> {
 /// `teamclawdev`, `copilot361`, …). Official brands resolve to `~/.teamclaw/secrets`.
 pub fn load_personal_env_for_brand(brand_short_name: &str) -> anyhow::Result<HashMap<String, String>> {
     load_personal_env_for_storage_dir(resolve_storage_dir_name(brand_short_name))
+}
+
+/// Non-secret diagnostics for the encrypted personal env store (paths + counts).
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PersonalEnvStoreDiagnostics {
+    pub storage_dir: String,
+    pub secrets_dir: String,
+    pub master_key_exists: bool,
+    pub blob_exists: bool,
+    pub blob_readable: bool,
+    pub blob_error: Option<String>,
+    /// All string keys in the encrypted blob (includes system-seeded keys).
+    pub stored_var_count: usize,
+    /// User-configured personal keys only (`tc_api_key` / `_team_secret.*` excluded).
+    pub user_stored_var_count: usize,
+}
+
+pub fn diagnose_personal_env_store() -> PersonalEnvStoreDiagnostics {
+    diagnose_personal_env_store_for_storage_dir(OFFICIAL_STORAGE_DIR)
+}
+
+pub fn diagnose_personal_env_store_for_brand(brand_short_name: &str) -> PersonalEnvStoreDiagnostics {
+    diagnose_personal_env_store_for_storage_dir(resolve_storage_dir_name(brand_short_name))
+}
+
+fn diagnose_personal_env_store_for_storage_dir(storage_dir: &str) -> PersonalEnvStoreDiagnostics {
+    let Some(paths) = SecretStorePaths::for_storage_dir(storage_dir) else {
+        return PersonalEnvStoreDiagnostics {
+            storage_dir: storage_dir.to_string(),
+            secrets_dir: String::new(),
+            master_key_exists: false,
+            blob_exists: false,
+            blob_readable: false,
+            blob_error: Some("home directory not found".to_string()),
+            stored_var_count: 0,
+            user_stored_var_count: 0,
+        };
+    };
+
+    let secrets_dir = paths
+        .blob_path
+        .parent()
+        .map(|p| p.display().to_string())
+        .unwrap_or_default();
+    let master_key_exists = paths.master_key_path.exists();
+    let blob_exists = paths.blob_path.exists();
+
+    match read_secret_blob(&paths) {
+        Ok(map) => {
+            let env = string_env_from_map(map);
+            PersonalEnvStoreDiagnostics {
+                storage_dir: storage_dir.to_string(),
+                secrets_dir,
+                master_key_exists,
+                blob_exists,
+                blob_readable: true,
+                blob_error: None,
+                user_stored_var_count: count_user_personal_env_keys(&env),
+                stored_var_count: env.len(),
+            }
+        }
+        Err(err) => PersonalEnvStoreDiagnostics {
+            storage_dir: storage_dir.to_string(),
+            secrets_dir,
+            master_key_exists,
+            blob_exists,
+            blob_readable: false,
+            blob_error: Some(err.to_string()),
+            stored_var_count: 0,
+            user_stored_var_count: 0,
+        },
+    }
 }
 
 fn load_personal_env_for_storage_dir(storage_dir: &str) -> anyhow::Result<HashMap<String, String>> {
@@ -146,6 +240,34 @@ mod tests {
             .unwrap()
             .write_all(&blob_bytes)
             .unwrap();
+    }
+
+    #[test]
+    fn internal_personal_blob_keys_are_excluded_from_user_count() {
+        let mut env = HashMap::new();
+        env.insert("MY_API_KEY".to_string(), "secret".to_string());
+        env.insert("tc_api_key".to_string(), "sk-tc-x".to_string());
+        env.insert(
+            "_team_secret.abc".to_string(),
+            "team-secret".to_string(),
+        );
+        assert_eq!(super::count_user_personal_env_keys(&env), 1);
+        assert!(super::is_internal_personal_blob_key("tc_api_key"));
+        assert!(super::is_internal_personal_blob_key("_team_secret.team-1"));
+        assert!(!super::is_internal_personal_blob_key("MY_API_KEY"));
+    }
+
+    #[test]
+    fn diagnose_personal_env_store_reports_missing_blob() {
+        let _lock = home_env_lock();
+        let dir = tempdir().unwrap();
+        let _home = HomeGuard::set(dir.path());
+
+        let diag = super::diagnose_personal_env_store();
+        assert_eq!(diag.storage_dir, OFFICIAL_STORAGE_DIR);
+        assert!(!diag.blob_exists);
+        assert!(diag.blob_readable);
+        assert_eq!(diag.stored_var_count, 0);
     }
 
     #[test]
