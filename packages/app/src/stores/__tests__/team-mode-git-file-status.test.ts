@@ -184,7 +184,7 @@ describe('loadTeamGitFileSyncStatus', () => {
 
     cloud.loadLlmConfig.mockResolvedValueOnce(llmConfig([{ id: 'default', name: 'Default' }]))
     await useTeamModeStore.getState().applyTeamModel('/ws')
-    expect(providerStore.selectModel).toHaveBeenCalledTimes(1)
+    expect(providerStore.refreshConfiguredProviders).toHaveBeenCalledTimes(1)
 
     // Same baseUrl, same selected model — only the list grew.
     cloud.loadLlmConfig.mockResolvedValueOnce(

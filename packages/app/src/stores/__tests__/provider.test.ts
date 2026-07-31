@@ -99,7 +99,7 @@ describe('provider store initAll', () => {
       },
     }
 
-    const { useProviderStore, getSelectedModelOption } = await import('../provider')
+    const { useProviderStore } = await import('../provider')
 
     await useProviderStore.getState().initAll()
 
@@ -116,12 +116,6 @@ describe('provider store initAll', () => {
         { provider: 'opencode', id: 'qwen3.6-plus-free', name: 'OpenCode Zen/Qwen3.6 Plus Free' },
       ]),
     )
-    expect(state.currentModelKey).toBe('openai/gpt-4o')
-    expect(getSelectedModelOption(state)).toMatchObject({
-      provider: 'openai',
-      id: 'gpt-4o',
-      name: 'GPT-4o',
-    })
   })
 
   it('loads OAuth auth methods from daemon HTTP', async () => {
@@ -207,29 +201,7 @@ describe('provider store initAll', () => {
     ])
   })
 
-  it('keeps an explicit selected model when daemon reports a different catalog', async () => {
-    mocks.getDaemonProviders.mockResolvedValue([
-      {
-        id: 'opencode',
-        display_name: 'OpenCode',
-        authenticated: true,
-        models: ['opencode/qwen3.6-plus-free', 'opencode/big-pickle'],
-      },
-    ])
-
-    const { useProviderStore } = await import('../provider')
-    useProviderStore.setState({
-      currentModelKey: 'opencode/opencode/big-pickle',
-    })
-
-    await useProviderStore.getState().initAll()
-
-    expect(useProviderStore.getState().currentModelKey).toBe('opencode/opencode/big-pickle')
-  })
-
   it('shows OpenAI as a connectable provider when daemon providers are unavailable', async () => {
-    localStorage.setItem('teamclaw-selected-model:/workspace/demo', 'openai/gpt-4o')
-
     const { useProviderStore } = await import('../provider')
 
     await useProviderStore.getState().initAll()
@@ -238,10 +210,9 @@ describe('provider store initAll', () => {
     expect(state.models).toEqual([])
     expect(state.configuredProviders).toEqual([])
     expect(state.providers).toEqual([{ id: 'openai', name: 'OpenAI', configured: false }])
-    expect(state.currentModelKey).toBeNull()
   })
 
-  it('loads workspace custom models from daemon providers and restores the saved selection', async () => {
+  it('loads workspace custom models from daemon providers', async () => {
     mocks.getDaemonProviders.mockResolvedValue([
       {
         id: 'custom-openai',
@@ -250,9 +221,8 @@ describe('provider store initAll', () => {
         models: ['my-model'],
       },
     ])
-    localStorage.setItem('teamclaw-selected-model:/workspace/demo', 'custom-openai/my-model')
 
-    const { useProviderStore, getSelectedModelOption } = await import('../provider')
+    const { useProviderStore } = await import('../provider')
 
     await useProviderStore.getState().initAll()
 
@@ -266,12 +236,6 @@ describe('provider store initAll', () => {
         }),
       ]),
     )
-    expect(state.currentModelKey).toBe('custom-openai/my-model')
-    expect(getSelectedModelOption(state)).toMatchObject({
-      provider: 'custom-openai',
-      id: 'my-model',
-      name: 'my-model',
-    })
   })
 
   it('loads daemon providers once during initAll', async () => {
@@ -291,82 +255,11 @@ describe('provider store initAll', () => {
     expect(mocks.getDaemonProviders).toHaveBeenCalledTimes(1)
   })
 
-  it('falls back to a custom provider when a saved model is not in the daemon catalog', async () => {
-    mocks.getDaemonProviders.mockResolvedValue([
-      {
-        id: 'scnet',
-        display_name: 'Scnet',
-        authenticated: true,
-        models: ['minimax-m2.5'],
-      },
-    ])
-    localStorage.setItem('teamclaw-selected-model:/workspace/demo', 'opencode/opencode/qwen3.6-plus-free')
-
-    const { useProviderStore } = await import('../provider')
-
-    await useProviderStore.getState().initAll()
-
-    expect(useProviderStore.getState().currentModelKey).toBe('scnet/minimax-m2.5')
-  })
-
-  it('clears the selection instead of jumping to models[0] when a validated model leaves the catalog', async () => {
-    // A runtime advertising two models, the user on the second one.
-    mocks.getDaemonProviders.mockResolvedValue([
-      { id: 'scnet', display_name: 'Scnet', authenticated: true, models: ['minimax-m2.5', 'kimi-k3'] },
-    ])
-
-    const { useProviderStore } = await import('../provider')
-    await useProviderStore.getState().initAll()
-    await useProviderStore.getState().selectModel('scnet', 'kimi-k3', 'Kimi K3')
-    expect(useProviderStore.getState().currentModelKey).toBe('scnet/kimi-k3')
-
-    // That model's runtime drops off; only the other model remains on offer.
-    mocks.getDaemonProviders.mockResolvedValue([
-      { id: 'scnet', display_name: 'Scnet', authenticated: true, models: ['minimax-m2.5'] },
-    ])
-    await useProviderStore.getState().initAll()
-
-    expect(useProviderStore.getState().currentModelKey).toBeNull()
-    // The choice is kept on disk so it returns with the runtime.
-    expect(localStorage.getItem('teamclaw-selected-model:/workspace/demo')).toBe('scnet/kimi-k3')
-
-    mocks.getDaemonProviders.mockResolvedValue([
-      { id: 'scnet', display_name: 'Scnet', authenticated: true, models: ['minimax-m2.5', 'kimi-k3'] },
-    ])
-    await useProviderStore.getState().initAll()
-
-    expect(useProviderStore.getState().currentModelKey).toBe('scnet/kimi-k3')
-  })
-
-  it('does not recover to daemon runtime info from a custom-provider selection', async () => {
-    mocks.getDaemonProviders.mockResolvedValue([
-      {
-        id: 'scnet',
-        display_name: 'Scnet',
-        authenticated: true,
-        models: ['minimax-m2.5'],
-      },
-    ])
-    mocks.runtimeById = {
-      'runtime-1': {
-        info: {
-          agentType: 2,
-          availableModels: [
-            { id: 'opencode/qwen3.6-plus-free', displayName: 'OpenCode Zen/Qwen3.6 Plus Free' },
-            { id: 'opencode/big-pickle', displayName: 'Big Pickle' },
-          ],
-          currentModel: 'opencode/qwen3.6-plus-free',
-        },
-      },
-    }
-
-    const { useProviderStore } = await import('../provider')
-    useProviderStore.setState({ currentModelKey: 'scnet/minimax-m2.5' })
-
-    await useProviderStore.getState().initAll()
-
-    expect(useProviderStore.getState().currentModelKey).toBe('scnet/minimax-m2.5')
-  })
+  // NOTE: the tests that used to sit here all asserted on the store's
+  // `currentModelKey` — a workspace-global "selected model" that no longer
+  // exists. Model selection is per (session, agent) and lives in
+  // `selectAgentModel`; see `runtime-state-resolve` and its tests. This store
+  // is now only responsible for providers, credentials and the model catalog.
 
   // Regression: an admin changing the team model list left members pinned to the
   // old list. Runtime state arrives on a retained MQTT topic that replays the
@@ -472,17 +365,4 @@ describe('provider store initAll', () => {
     expect(openaiModels).toEqual(['gpt-4o', 'o3-mini'])
   })
 
-  it('filters model options to the selected backend during a session', async () => {
-    const { getModelOptionsForSelectedBackend } = await import('../provider')
-
-    const models = [
-      { id: 'gpt-4o', name: 'GPT-4o', provider: 'openai' },
-      { id: 'qwen', name: 'Qwen', provider: 'opencode' },
-    ]
-    const filtered = getModelOptionsForSelectedBackend({
-      models,
-      currentModelKey: 'openai/gpt-4o',
-    })
-    expect(filtered).toEqual([{ id: 'gpt-4o', name: 'GPT-4o', provider: 'openai' }])
-  })
 })

@@ -1,6 +1,5 @@
 import * as React from "react";
 import { useSessionStore } from "@/stores/session";
-import { useProviderStore } from "@/stores/provider";
 import { cn } from "@/lib/utils";
 import {
   Tooltip,
@@ -72,10 +71,16 @@ function formatTokenCount(tokens: number): string {
   return `${tokens}`;
 }
 
-export function ContextUsageBadge() {
+/**
+ * `modelId` is the session's resolved model (`selectAgentModel`), passed down
+ * rather than read from a store: there is no workspace-global "current model"
+ * to consult, and sizing the bar off one made the percentage wrong whenever it
+ * disagreed with what the session actually ran on. Empty (no agent engaged)
+ * falls back to DEFAULT_CONTEXT_SIZE.
+ */
+export function ContextUsageBadge({ modelId }: { modelId?: string }) {
   const activeSessionId = useSessionStore((s) => s.activeSessionId);
   const sessions = useSessionStore((s) => s.sessions);
-  const currentModelKey = useProviderStore((s) => s.currentModelKey);
 
   const { percentage, totalTokens, contextSize } = React.useMemo(() => {
     if (!activeSessionId) return { percentage: 0, totalTokens: 0, contextSize: DEFAULT_CONTEXT_SIZE };
@@ -83,9 +88,7 @@ export function ContextUsageBadge() {
     const session = sessions.find((s) => s.id === activeSessionId);
     if (!session) return { percentage: 0, totalTokens: 0, contextSize: DEFAULT_CONTEXT_SIZE };
 
-    // Get context window size for current model
-    const modelId = currentModelKey?.split("/").slice(1).join("/") || "";
-    const ctxSize = getContextWindowSize(modelId);
+    const ctxSize = getContextWindowSize(modelId ?? "");
 
     // Use the last message's input tokens as the best estimate of current context usage
     // (each message's input tokens includes all prior context)
@@ -99,7 +102,7 @@ export function ContextUsageBadge() {
       totalTokens: currentUsage,
       contextSize: ctxSize,
     };
-  }, [activeSessionId, sessions, currentModelKey]);
+  }, [activeSessionId, sessions, modelId]);
 
   if (percentage === 0) return null;
 

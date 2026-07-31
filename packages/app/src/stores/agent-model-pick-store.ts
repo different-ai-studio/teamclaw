@@ -27,6 +27,18 @@ import { persist, createJSONStorage } from "zustand/middleware";
  *    which surface asked.
  */
 
+/**
+ * Scope for a pick made before the session exists.
+ *
+ * New chats are draft-first (created on first send), so the pill is mounted and
+ * pickable while `sessionId` is still empty. Without a scope to write into, the
+ * pick was silently dropped — `handlePickModel` logged
+ * `model_pick.deferred_until_session` but deferred nothing, and the dropdown
+ * appeared frozen on whatever the retain advertised. Picks land here instead and
+ * `promoteDraftPicks` moves them onto the real id at create time.
+ */
+export const DRAFT_SESSION_PICK_KEY = "__draft__";
+
 function key(sessionId: string, agentId: string): string {
   return `${sessionId}::${agentId}`;
 }
@@ -41,6 +53,8 @@ interface State {
   getPick: (sessionId: string, agentId: string) => string | undefined;
   clearPick: (sessionId: string, agentId: string) => void;
   clearSession: (sessionId: string) => void;
+  /** Move draft-scoped picks onto a freshly created session id. */
+  promoteDraftPicks: (sessionId: string) => void;
 }
 
 export const useAgentModelPickStore = create<State>()(
@@ -80,6 +94,27 @@ export const useAgentModelPickStore = create<State>()(
           }
           return { bySessionAgent: next };
         }),
+      promoteDraftPicks: (sessionId) => {
+        const target = sessionId.trim();
+        if (!target || target === DRAFT_SESSION_PICK_KEY) return;
+        set((s) => {
+          const prefix = `${DRAFT_SESSION_PICK_KEY}::`;
+          const draftKeys = Object.keys(s.bySessionAgent).filter((k) =>
+            k.startsWith(prefix),
+          );
+          if (draftKeys.length === 0) return s;
+          const next = { ...s.bySessionAgent };
+          for (const k of draftKeys) {
+            const agentId = k.slice(prefix.length);
+            // An explicit pick already made against the real session wins — the
+            // draft is the older intent.
+            const realKey = key(target, agentId);
+            if (!next[realKey]) next[realKey] = next[k];
+            delete next[k];
+          }
+          return { bySessionAgent: next };
+        });
+      },
     }),
     {
       name: "teamclaw.agent-model-pick.v1",

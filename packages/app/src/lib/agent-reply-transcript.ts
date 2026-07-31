@@ -9,7 +9,28 @@ export type TranscriptPart = {
   type?: string;
   text?: string;
   content?: string;
+  /** Shape varies by source (proto, stream entry); narrowed at the use site. */
+  toolCall?: unknown;
 };
+
+/**
+ * Todo-list tools carry no answer content and agents routinely emit one *after*
+ * the substantive reply to mark the work done. They must not anchor the
+ * process/final boundary, or that trailing call buries the real answer inside
+ * the collapsed process block.
+ */
+const BOOKKEEPING_TOOL_NAMES = new Set([
+  "todowrite",
+  "todoread",
+  "todo_write",
+  "todo_read",
+]);
+
+function isBookkeepingToolPart(part: TranscriptPart | undefined): boolean {
+  if (part?.type !== "tool-call") return false;
+  const name = (part.toolCall as { name?: unknown } | undefined)?.name;
+  return typeof name === "string" && BOOKKEEPING_TOOL_NAMES.has(name.toLowerCase());
+}
 
 /** Join ordered text parts for message.content (derived view, not a second source). */
 export function joinTextPartsFromParts(parts: TranscriptPart[]): string {
@@ -51,34 +72,33 @@ export function priorTextBodiesBeforeLastTool(parts: MessagePart[]): string[] {
  *
  * Boundary = last non-text process activity (`reasoning` | `tool-call`), not
  * merely the last tool-call — a trailing thinking block may sit after tools
- * and before the final answer text.
+ * and before the final answer text. Bookkeeping tools are excluded from the
+ * boundary but still rendered as process.
  *
  * - process: everything through that last activity (keeps interleaved mid-turn
- *   narrations in chronological order with tools/thinking)
- * - final: trailing contiguous `text` parts after that boundary
- * - no process activity: process empty, all text is final
+ *   narrations in chronological order with tools/thinking), plus any
+ *   bookkeeping tool calls trailing past the boundary
+ * - final: trailing `text` parts after that boundary
+ * - no process activity: process holds only trailing bookkeeping, all text is final
  */
 export function splitAssistantProcessAndFinalParts<T extends TranscriptPart>(
   parts: T[],
 ): { processParts: T[]; finalTextParts: T[] } {
   let lastProcessIndex = -1;
   for (let index = 0; index < parts.length; index += 1) {
-    const type = parts[index]?.type;
-    if (type === "reasoning" || type === "tool-call") {
+    const part = parts[index];
+    const type = part?.type;
+    if (type === "reasoning" || (type === "tool-call" && !isBookkeepingToolPart(part))) {
       lastProcessIndex = index;
     }
   }
-  if (lastProcessIndex < 0) {
-    return {
-      processParts: [],
-      finalTextParts: parts.filter((part) => part.type === "text"),
-    };
-  }
+  const trailing = parts.slice(lastProcessIndex + 1);
   return {
-    processParts: parts.slice(0, lastProcessIndex + 1),
-    finalTextParts: parts
-      .slice(lastProcessIndex + 1)
-      .filter((part) => part.type === "text"),
+    processParts: [
+      ...parts.slice(0, lastProcessIndex + 1),
+      ...trailing.filter(isBookkeepingToolPart),
+    ],
+    finalTextParts: trailing.filter((part) => part.type === "text"),
   };
 }
 
