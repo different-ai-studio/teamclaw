@@ -1149,8 +1149,9 @@ export function ChatPanel({ compact = false }: ChatPanelProps) {
       return;
     }
 
-    // Snapshot file state immediately so async work cannot leak stale files
-    // into a later send, but keep composer state until outbox enqueue succeeds.
+    // Snapshot composer state so async work cannot leak stale files/text into a
+    // later send. The composer clears immediately once we're committed; restore
+    // on upload/enqueue failure so the user can retry.
     const currentPendingFiles = pendingFiles;
     const sentInputValue = inputValue;
 
@@ -1290,6 +1291,34 @@ export function ChatPanel({ compact = false }: ChatPanelProps) {
 
     finalContent = parts.join("\n\n");
 
+    const clearComposer = () => {
+      if (useSessionStore.getState().draftInput === sentInputValue) {
+        setInputValue("");
+      }
+      if (currentPendingFiles.length > 0) {
+        setPendingFiles((prev) =>
+          prev.filter((file) => !currentPendingFiles.includes(file)),
+        );
+      }
+    };
+
+    const restoreComposer = () => {
+      if (sentInputValue && useSessionStore.getState().draftInput === "") {
+        setInputValue(sentInputValue);
+      }
+      if (currentPendingFiles.length > 0) {
+        setPendingFiles((prev) => {
+          const missing = currentPendingFiles.filter((file) => !prev.includes(file));
+          return missing.length > 0 ? [...prev, ...missing] : prev;
+        });
+      }
+    };
+
+    // Clear composer immediately once we're committed to send. Previously this
+    // waited for outbox enqueue (after workspace-hint IPC), so the optimistic
+    // bubble could appear while attachment previews still lingered in the input.
+    clearComposer();
+
     // Upload pending files to cloud storage before sending.
     const attachmentUrls: string[] = collectSessionAttachmentUrlsFromText(text);
     if (currentPendingFiles.length > 0 && teamIdForSend) {
@@ -1331,6 +1360,7 @@ export function ChatPanel({ compact = false }: ChatPanelProps) {
         console.error("[ChatPanel] attachment upload failed:", e);
         const { toast } = await import("sonner");
         toast.error("Failed to upload attachment — message not sent");
+        restoreComposer();
         return;
       }
     }
@@ -1514,12 +1544,6 @@ export function ChatPanel({ compact = false }: ChatPanelProps) {
             teamId: teamIdForSend,
             messageId,
           });
-          if (useSessionStore.getState().draftInput === sentInputValue) {
-            setInputValue("");
-          }
-          setPendingFiles((prev) =>
-            prev.filter((file) => !currentPendingFiles.includes(file)),
-          );
           if (agentRuntimeIdsForSend.length > 0) {
             notePendingAgentReplyTo(sid, agentRuntimeIdsForSend, messageId);
           }
@@ -1539,6 +1563,7 @@ export function ChatPanel({ compact = false }: ChatPanelProps) {
           if (messageId) {
             useSessionMessageStore.getState().removeMessageById(sid, messageId);
           }
+          restoreComposer();
           sessionFlowError("send.failed_before_outbox", e, {
             sessionId: sid,
             teamId: teamIdForSend,
@@ -1549,6 +1574,7 @@ export function ChatPanel({ compact = false }: ChatPanelProps) {
           });
         }
       } else {
+        restoreComposer();
         sessionFlowLog("send.skipped_missing_context", {
           sessionId: sid,
           hasAuthSession: !!authSession,
@@ -1556,6 +1582,8 @@ export function ChatPanel({ compact = false }: ChatPanelProps) {
           hasOutgoing: outgoing.trim().length > 0,
         }, "warn");
       }
+    } else {
+      restoreComposer();
     }
 
   };
