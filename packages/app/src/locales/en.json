@@ -270,7 +270,7 @@
       "routingMultiAgent": "Multiple agents — @ a name to choose who replies.",
       "participantCount": "{{count}} participants · Waiting for the first message"
     },
-    "draftStartConversation": "Start conversation",
+
     "backToActiveSession": "Back to active session",
     "archivedSession": "Archived session",
     "restoreSession": "Restore",

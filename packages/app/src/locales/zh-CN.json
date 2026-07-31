@@ -270,7 +270,7 @@
       "routingMultiAgent": "多位 Agent 在场——请 @名字 指定回复对象。",
       "participantCount": "{{count}} 位参与者 · 等待第一条消息"
     },
-    "draftStartConversation": "开始对话",
+
     "backToActiveSession": "返回活跃会话",
     "archivedSession": "归档会话",
     "restoreSession": "恢复",
