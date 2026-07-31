@@ -9,7 +9,6 @@
     "manageInSettings": "Manage in settings",
     "selectPrompt": "Select a {{section}} item to view it here.",
     "save": "Save",
-    "saved": "Saved",
     "saveFailed": "Save failed: {{msg}}",
     "readFailed": "Could not read file: {{msg}}",
     "edit": "Edit",
@@ -203,8 +202,8 @@
   },
   "session": {
     "deeplink": {
-      "noAccess": "You do not have access to this session",
-      "notFound": "Session not found or deleted",
+      "noAccess": "You don't have access to this session",
+      "notFound": "Session not found or has been deleted",
       "openFailed": "Failed to open session"
     }
   },
@@ -270,7 +269,6 @@
       "routingMultiAgent": "Multiple agents — @ a name to choose who replies.",
       "participantCount": "{{count}} participants · Waiting for the first message"
     },
-
     "backToActiveSession": "Back to active session",
     "archivedSession": "Archived session",
     "restoreSession": "Restore",
@@ -434,11 +432,9 @@
     },
     "mentionPopoverTitle": "Mention people or agents",
     "mentionPopoverNoMatch": "No match for \"{{query}}\"",
-    "copyShareLink": "Copy session share link",
-    "shareLinkCopied": "Session link copied",
-    "shareLinkCopyFailed": "Failed to copy link",
+    "copyShareLink": "Copy share link",
+    "shareLinkCopyFailed": "Copy failed",
     "mentionEmptyState": "No one to mention in this session yet",
-    "mentionPopoverNoMatch": "No match for \"{{query}}\"",
     "mentionGroupAgents": "Agents",
     "mentionGroupMembers": "Members",
     "mentionPopoverError": "Failed to load participants",
@@ -599,12 +595,8 @@
       "openLog": "Open log in Finder"
     },
     "toast": {
-      "emptyMessageTitle": "Enter a message",
-      "emptyMessageWithAgent": "When an agent is selected, you must enter text or an attachment to send.",
       "mentionRouteFailedTitle": "@Agent set but message can't be routed",
-      "mentionRouteFailedBody": "The message contains no resolvable agent @-mention, so the daemon won't reply. Make sure the agent has joined this session.",
-      "sendFirstToCreateSession": "Send a message first to create a session",
-      "mentionNeedsOpenSession": "@ Agent can only be used in an open session."
+      "mentionRouteFailedBody": "The message contains no resolvable agent @-mention, so the daemon won't reply. Make sure the agent has joined this session."
     },
     "imageViewer": {
       "saveImage": "Save image",
@@ -617,11 +609,7 @@
       "goodResponse": "Good response",
       "poorResponse": "Poor response"
     },
-    "openAgentSettings": "Open agent settings",
-    "copyShareLink": "Copy share link",
-    "mentionPopoverNoMatch": "No match for \"{{query}}\"",
-    "shareLinkCopied": "Session link copied",
-    "shareLinkCopyFailed": "Copy failed"
+    "openAgentSettings": "Open agent settings"
   },
   "onboarding": {
     "common": {
@@ -668,11 +656,7 @@
     "copyFile": "Copy",
     "cutFile": "Cut",
     "pasteFile": "Paste",
-    "copied": "Copied {{count}} item(s)",
-    "cut": "Cut {{count}} item(s)",
-    "pasted": "Pasted",
     "pasteFailed": "Paste failed",
-    "externalDropped": "Copied {{count}} file(s)",
     "externalDropFailed": "Failed to copy files",
     "addToAgent": "Add to Agent",
     "openWithDefault": "Open with Default App",
@@ -682,7 +666,6 @@
     "collapseAll": "Collapse All",
     "showAll": "Show all files",
     "showGitChanged": "Show git changed files only",
-    "undone": "Undone: {{desc}}",
     "undoFailed": "Cannot undo this operation",
     "confirmDeleteTitle": "Delete \"{{name}}\"?",
     "confirmBatchDeleteTitle": "Delete {{count}} items?",
@@ -692,7 +675,6 @@
     "teamLastSyncTooltip": "Last sync: {{time}}",
     "teamSyncing": "Syncing…",
     "duplicateFailed": "Duplicate failed",
-    "duplicated": "Duplicated",
     "pathCopied": "Path copied",
     "undo": "Undo: {{desc}}"
   },
@@ -740,8 +722,7 @@
       "acpLogHint": "{{dir}}/{{sessionId}}.log",
       "revealAcpLog": "Reveal ACP log",
       "openSession": "Open session",
-      "copySessionId": "Copy session ID",
-      "copied": "Copied {{label}}"
+      "copySessionId": "Copy session ID"
     }
   },
   "sidebar": {
@@ -750,12 +731,9 @@
     "workspacesLoading": "Loading workspaces…",
     "noWorkspaces": "No workspaces yet",
     "noWorkspaceSessions": "No sessions in this workspace yet",
-    "workspaceAdded": "Workspace added",
     "workspaceAddFailed": "Failed to add workspace: {{msg}}",
     "switchToWorkspace": "Switch to this workspace",
-    "workspaceSwitched": "Switched to {{name}}",
     "workspaceSwitchFailed": "Failed to switch workspace: {{msg}}",
-    "workspaceDeleted": "Workspace deleted",
     "workspaceDeleteFailed": "Failed to delete workspace: {{msg}}",
     "currentWorkspace": "Current: {{path}}",
     "defaultWorkspace": "Default workspace",
@@ -1003,7 +981,6 @@
     "localPreview": "Local preview",
     "openUrl": "Open deployed URL",
     "copyUrl": "Copy deployed URL",
-    "urlCopied": "Deployed URL copied",
     "revealInFinder": "Reveal folder in Finder",
     "rename": "Rename",
     "delete": "Delete",
@@ -1023,7 +1000,8 @@
     "visibilityTeam": "Team",
     "submit": "Create",
     "cancel": "Cancel",
-    "createError": "Failed to create app"
+    "createError": "Failed to create app",
+    "urlCopyFailed": "Failed to copy deployed URL"
   },
   "settings": {
     "description": "Configure TeamClaw settings.",
@@ -1054,7 +1032,6 @@
       "results": "Check Results",
       "exportTitle": "Export & Feedback",
       "copyReport": "Copy Diagnostic Report",
-      "copied": "Diagnostic report copied to clipboard",
       "copyFailed": "Copy failed",
       "exportZip": "Export ZIP Bundle",
       "exported": "Diagnostic bundle saved",
@@ -1077,11 +1054,9 @@
         "copy": "Copy",
         "clear": "Clear",
         "consoleEmpty": "No console output yet",
-        "consoleCopied": "Console log copied",
         "refreshState": "Refresh snapshot",
         "copyJson": "Copy JSON",
         "loadingState": "Collecting state…",
-        "stateCopied": "Runtime state copied",
         "stateRefreshFailed": "Failed to refresh state: {{message}}",
         "refreshDisk": "Refresh logs",
         "openAppLogs": "App logs folder",
@@ -1140,7 +1115,6 @@
       "displayName": "Display Name",
       "displayNameDesc": "The name teammates see for you",
       "displayNamePlaceholder": "Your name",
-      "displayNameSaved": "Display name updated",
       "displayNameError": "Could not update display name",
       "teamInfo": "Team & Organization",
       "teamName": "Team name",
@@ -1155,7 +1129,6 @@
       "closeWindowAsk": "Ask every time",
       "closeWindowTray": "Minimize to tray (keep agent)",
       "closeWindowQuit": "Quit and stop agent",
-      "closeWindowSaved": "Close preference updated",
       "closeWindowError": "Could not update close preference",
       "notifications": "Notifications",
       "notificationsDesc": "Receive desktop notifications",
@@ -1165,7 +1138,6 @@
       "mqttStatusConnected": "Connected",
       "mqttStatusDisconnected": "Disconnected",
       "mqttReconnect": "Reconnect",
-      "mqttReconnecting": "Reconnecting…",
       "mqttLastError": "Last error",
       "mqttSource": "Source",
       "mqttSourceCache": "Last-known address — the server is not delivering one.",
@@ -1173,7 +1145,6 @@
       "mqttCachedHint": "The server is not delivering an MQTT address; this is the last one that worked.",
       "mqttMissingFromServer": "The server did not deliver an MQTT address. Real-time sync is offline until it is configured.",
       "mqttRefetch": "Retry",
-      "mqttRefetchApplied": "Broker updated from server",
       "mqttRefetchEmpty": "Server still returns no MQTT configuration",
       "mqttRefetchFailed": "Could not reach the server",
       "save": "Save",
@@ -1608,12 +1579,9 @@
       "unknownAgent": "Unknown agent",
       "setDefault": "Set default",
       "defaultPersistFailed": "Failed to save default workspace to cloud. Try again.",
-      "defaultUpdated": "Default workspace updated",
       "defaultSavedDaemonPending": "Default workspace saved",
       "daemonRegisterFailed": "Daemon registration failed: {{message}}",
       "noDaemonDevice": "No local daemon device is connected.",
-      "added": "Workspace added",
-      "addedAsDefault": "Workspace added and set as default",
       "archive": "Archive",
       "archivedTitle": "Archived",
       "restore": "Restore"
@@ -1645,7 +1613,6 @@
       "startSetup": "Start Setup",
       "saveChanges": "Save Changes",
       "saving": "Saving...",
-      "saveSuccess": "Changes saved",
       "saveError": "Failed to save changes",
       "test": "Test",
       "setup": "Setup",
@@ -2212,7 +2179,6 @@
         "title": "Link-to-session mappings",
         "description": "Clear saved associations between allowlisted page links and chat sessions for the current team.",
         "clear": "Clear current team mappings",
-        "cleared": "Cleared link-to-session mappings for this team",
         "clearError": "Could not clear link mappings",
         "noTeam": "Select a team first",
         "confirmTitle": "Clear link mappings?",
@@ -2419,7 +2385,6 @@
       "proTip": "Pro Tip",
       "proTipDesc": "A good system prompt includes your preferred response style, any domain expertise needed, and specific guidelines for the AI to follow.",
       "saveChanges": "Save Changes",
-      "saveSuccess": "System prompt saved successfully",
       "saveError": "Failed to save system prompt",
       "saveReloadWarning": "System prompt saved, but Agent runtime reload failed"
     },
@@ -2880,7 +2845,6 @@
       "documentDeleted": "Document deleted",
       "deleteDocumentFailed": "Failed to delete document",
       "configSavedNeedsReindex": "Configuration saved, but reindexing is required for changes to take effect",
-      "configSaved": "Configuration saved",
       "saveConfigFailed": "Failed to save configuration",
       "watcherStopped": "File watcher stopped",
       "stopWatcherFailed": "Failed to stop file watcher"
@@ -2963,7 +2927,6 @@
     "pathCopied": "Path copied",
     "revertFailed": "Failed to revert file",
     "revertFile": "Revert File",
-    "reverted": "File reverted",
     "reviewCode": "Review Code",
     "suggestRefactor": "Suggest Refactor"
   },
@@ -2996,9 +2959,7 @@
     "joining": "Joining…",
     "public": "Public",
     "ungrouped": "Other",
-    "lastUsed": "Last used",
-    "public": "Public",
-    "joining": "Joining…"
+    "lastUsed": "Last used"
   },
   "team": {
     "viewerReadOnly": "Read-only mode — you don't have edit permissions",
@@ -3083,8 +3044,6 @@
       "body": "Remove {{name}} from the team. This cannot be undone.",
       "cta": "Remove"
     },
-    "copiedName": "Copied name",
-    "copiedId": "Copied actor ID",
     "copyFailed": "Copy failed",
     "removed": "Removed from team",
     "removeFailed": {
@@ -3131,7 +3090,6 @@
     "titlePlaceholder": "Idea title",
     "descriptionPlaceholder": "What's the constraint, what's the win?",
     "createButton": "Create",
-    "created": "Idea created",
     "createFailed": "Failed to create idea: {{msg}}",
     "contextMenu": {
       "view": "View",
@@ -3161,10 +3119,8 @@
       "priorityPlaceholder": "--- Priority",
       "tags": "Tags",
       "loadFailed": "Failed to load idea: {{msg}}",
-      "saved": "Idea saved",
       "saveFailed": "Save failed: {{msg}}",
       "save": "Save",
-      "activityPosted": "Activity posted",
       "activityFailed": "Activity failed: {{msg}}",
       "activityPlaceholder": "Post progress, decision notes, or next action...",
       "postActivity": "Post activity",
@@ -3172,13 +3128,9 @@
       "noActivity": "No activity yet.",
       "unknownActor": "Unknown"
     },
-    "archived": "Idea deleted",
-    "copiedId": "Copied idea ID",
     "copyFailed": "Copy failed",
     "deleteFailed": "Delete failed: {{msg}}",
-    "statusUpdated": "Status updated",
     "statusFailed": "Status update failed: {{msg}}",
-    "renamed": "Idea renamed",
     "renameFailed": "Rename failed: {{msg}}"
   },
   "invite": {
@@ -3197,7 +3149,6 @@
     "expiresAt": "Expires {{date}}",
     "createButton": "Create invite",
     "copy": "Copy",
-    "copied": "Invite link copied",
     "copyFailed": "Failed to copy invite link",
     "failed": "Failed to create invite: {{msg}}",
     "upgradeRequired": "This team is still in the shared org and is solo-only. Upgrade your account and create your own team to invite members.",
@@ -3277,12 +3228,5 @@
   "tabBar": {
     "closeAria": "Close tab",
     "findClose": "Close (Escape)"
-  },
-  "session": {
-    "deeplink": {
-      "noAccess": "You don't have access to this session",
-      "notFound": "Session not found or has been deleted",
-      "openFailed": "Failed to open session"
-    }
   }
 }

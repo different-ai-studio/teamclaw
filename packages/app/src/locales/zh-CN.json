@@ -9,7 +9,6 @@
     "manageInSettings": "在设置中管理",
     "selectPrompt": "选择一项{{section}}在此查看。",
     "save": "保存",
-    "saved": "已保存",
     "saveFailed": "保存失败：{{msg}}",
     "readFailed": "无法读取文件：{{msg}}",
     "edit": "编辑",
@@ -270,7 +269,6 @@
       "routingMultiAgent": "多位 Agent 在场——请 @名字 指定回复对象。",
       "participantCount": "{{count}} 位参与者 · 等待第一条消息"
     },
-
     "backToActiveSession": "返回活跃会话",
     "archivedSession": "归档会话",
     "restoreSession": "恢复",
@@ -433,12 +431,10 @@
       "fullAccess": "完全访问权限"
     },
     "mentionPopoverTitle": "提及人或 agent",
-    "mentionPopoverNoMatch": "没有匹配「{{query}}」的结果",
+    "mentionPopoverNoMatch": "No match for \"{{query}}\"",
     "copyShareLink": "复制会话分享链接",
-    "shareLinkCopied": "会话链接已复制",
     "shareLinkCopyFailed": "复制失败",
     "mentionEmptyState": "当前会话还没有可 @ 的人或 agent",
-    "mentionPopoverNoMatch": "没有匹配「{{query}}」的结果",
     "mentionGroupAgents": "智能体",
     "mentionGroupMembers": "成员",
     "mentionPopoverError": "加载参与者失败",
@@ -599,12 +595,8 @@
       "openLog": "在 Finder 中打开日志"
     },
     "toast": {
-      "emptyMessageTitle": "请输入消息内容",
-      "emptyMessageWithAgent": "已选择 Agent 时需要输入文字或附件才会发送。",
       "mentionRouteFailedTitle": "已 @Agent 但无法路由消息",
-      "mentionRouteFailedBody": "消息未包含可解析的 Agent @-mention，daemon 不会回复。请确认 Agent 已加入此会话。",
-      "sendFirstToCreateSession": "请先发送一条消息创建会话",
-      "mentionNeedsOpenSession": "@ Agent 需要在已打开的会话中使用。"
+      "mentionRouteFailedBody": "消息未包含可解析的 Agent @-mention，daemon 不会回复。请确认 Agent 已加入此会话。"
     },
     "imageViewer": {
       "saveImage": "保存图片",
@@ -617,11 +609,7 @@
       "goodResponse": "回答不错",
       "poorResponse": "回答较差"
     },
-    "openAgentSettings": "打开 Agent 设置",
-    "copyShareLink": "复制会话分享链接",
-    "mentionPopoverNoMatch": "No match for \"{{query}}\"",
-    "shareLinkCopied": "会话链接已复制",
-    "shareLinkCopyFailed": "复制失败"
+    "openAgentSettings": "打开 Agent 设置"
   },
   "onboarding": {
     "common": {
@@ -668,11 +656,7 @@
     "copyFile": "复制",
     "cutFile": "剪切",
     "pasteFile": "粘贴",
-    "copied": "已复制 {{count}} 项",
-    "cut": "已剪切 {{count}} 项",
-    "pasted": "已粘贴",
     "pasteFailed": "粘贴失败",
-    "externalDropped": "已复制 {{count}} 个文件",
     "externalDropFailed": "复制文件失败",
     "addToAgent": "添加到 Agent",
     "openWithDefault": "用默认应用打开",
@@ -682,7 +666,6 @@
     "collapseAll": "全部折叠",
     "showAll": "显示所有文件",
     "showGitChanged": "仅显示 Git 变更文件",
-    "undone": "已撤销：{{desc}}",
     "undoFailed": "无法撤销此操作",
     "confirmDeleteTitle": "删除 \"{{name}}\"？",
     "confirmBatchDeleteTitle": "删除 {{count}} 项？",
@@ -692,7 +675,6 @@
     "teamLastSyncTooltip": "最后同步：{{time}}",
     "teamSyncing": "同步中…",
     "duplicateFailed": "创建副本失败",
-    "duplicated": "已创建副本",
     "pathCopied": "路径已复制",
     "undo": "撤销：{{desc}}"
   },
@@ -740,8 +722,7 @@
       "acpLogHint": "{{dir}}/{{sessionId}}.log",
       "revealAcpLog": "在 Finder 中显示 ACP 日志",
       "openSession": "打开会话",
-      "copySessionId": "复制会话 ID",
-      "copied": "已复制 {{label}}"
+      "copySessionId": "复制会话 ID"
     }
   },
   "sidebar": {
@@ -750,12 +731,9 @@
     "workspacesLoading": "正在加载工作区…",
     "noWorkspaces": "暂无工作区",
     "noWorkspaceSessions": "该工作区下暂无会话",
-    "workspaceAdded": "工作区已添加",
     "workspaceAddFailed": "添加工作区失败：{{msg}}",
     "switchToWorkspace": "切换到此工作区",
-    "workspaceSwitched": "已切换到 {{name}}",
     "workspaceSwitchFailed": "切换工作区失败：{{msg}}",
-    "workspaceDeleted": "工作区已删除",
     "workspaceDeleteFailed": "删除工作区失败：{{msg}}",
     "currentWorkspace": "当前：{{path}}",
     "defaultWorkspace": "默认工作区",
@@ -1003,7 +981,6 @@
     "localPreview": "本地预览",
     "openUrl": "打开部署地址",
     "copyUrl": "复制部署地址",
-    "urlCopied": "已复制部署地址",
     "revealInFinder": "在 Finder 打开目录",
     "rename": "重命名",
     "delete": "删除",
@@ -1023,7 +1000,8 @@
     "visibilityTeam": "团队",
     "submit": "创建",
     "cancel": "取消",
-    "createError": "创建失败"
+    "createError": "创建失败",
+    "urlCopyFailed": "复制失败"
   },
   "settings": {
     "description": "配置 TeamClaw 设置。",
@@ -1054,7 +1032,6 @@
       "results": "检查结果",
       "exportTitle": "导出与反馈",
       "copyReport": "复制诊断报告",
-      "copied": "诊断报告已复制到剪贴板",
       "copyFailed": "复制失败",
       "exportZip": "导出 zip 包",
       "exported": "诊断包已保存",
@@ -1077,11 +1054,9 @@
         "copy": "复制",
         "clear": "清空",
         "consoleEmpty": "暂无 Console 输出",
-        "consoleCopied": "Console 日志已复制",
         "refreshState": "刷新快照",
         "copyJson": "复制 JSON",
         "loadingState": "正在收集状态…",
-        "stateCopied": "运行状态已复制",
         "stateRefreshFailed": "刷新状态失败：{{message}}",
         "refreshDisk": "刷新日志",
         "openAppLogs": "桌面应用日志",
@@ -1140,7 +1115,6 @@
       "displayName": "显示名称",
       "displayNameDesc": "队友看到的你的名字",
       "displayNamePlaceholder": "你的名字",
-      "displayNameSaved": "显示名称已更新",
       "displayNameError": "无法更新显示名称",
       "teamInfo": "团队与组织",
       "teamName": "团队名称",
@@ -1155,7 +1129,6 @@
       "closeWindowAsk": "每次询问",
       "closeWindowTray": "最小化到托盘（保持 Agent）",
       "closeWindowQuit": "退出并停止 Agent",
-      "closeWindowSaved": "关闭偏好已更新",
       "closeWindowError": "无法更新关闭偏好",
       "notifications": "通知",
       "notificationsDesc": "接收桌面通知",
@@ -1165,7 +1138,6 @@
       "mqttStatusConnected": "已连接",
       "mqttStatusDisconnected": "未连接",
       "mqttReconnect": "重连",
-      "mqttReconnecting": "正在重连…",
       "mqttLastError": "上次错误",
       "mqttSource": "来源",
       "mqttSourceCache": "上次可用的地址 —— 云端当前未下发。",
@@ -1173,7 +1145,6 @@
       "mqttCachedHint": "云端未下发 MQTT 地址，这里用的是上次能连通的地址。",
       "mqttMissingFromServer": "云端未下发 MQTT 地址。在配置好之前，实时同步处于离线状态。",
       "mqttRefetch": "重试",
-      "mqttRefetchApplied": "已从云端更新 Broker",
       "mqttRefetchEmpty": "云端仍未返回 MQTT 配置",
       "mqttRefetchFailed": "无法连接云端",
       "save": "保存",
@@ -1608,12 +1579,9 @@
       "unknownAgent": "未知 Agent",
       "setDefault": "设为默认",
       "defaultPersistFailed": "默认 workspace 未能保存到云端，请稍后重试。",
-      "defaultUpdated": "已设为默认 workspace",
       "defaultSavedDaemonPending": "默认 workspace 已保存",
       "daemonRegisterFailed": "Daemon 注册失败：{{message}}",
       "noDaemonDevice": "本机 Daemon 未连接。",
-      "added": "Workspace 已添加",
-      "addedAsDefault": "Workspace 已添加并设为默认",
       "archive": "归档",
       "archivedTitle": "已归档",
       "restore": "恢复"
@@ -1645,7 +1613,6 @@
       "startSetup": "开始设置",
       "saveChanges": "保存更改",
       "saving": "保存中...",
-      "saveSuccess": "更改已保存",
       "saveError": "保存更改失败",
       "test": "测试",
       "setup": "设置",
@@ -2212,7 +2179,6 @@
         "title": "链接与会话映射",
         "description": "清除当前团队下，白名单页面链接与聊天会话之间的已保存关联。",
         "clear": "清除当前团队映射",
-        "cleared": "已清除当前团队的链接-会话映射",
         "clearError": "无法清除链接映射",
         "noTeam": "请先选择团队",
         "confirmTitle": "清除链接映射？",
@@ -2419,7 +2385,6 @@
       "proTip": "专业提示",
       "proTipDesc": "良好的系统提示词应包含您偏好的回复风格、所需的领域专业知识以及 AI 应遵循的具体指南。",
       "saveChanges": "保存更改",
-      "saveSuccess": "系统提示词已保存",
       "saveError": "保存系统提示词失败",
       "saveReloadWarning": "系统提示词已保存，但 Agent 运行时重载失败"
     },
@@ -2880,7 +2845,6 @@
       "documentDeleted": "文档已删除",
       "deleteDocumentFailed": "删除文档失败",
       "configSavedNeedsReindex": "配置已保存，但需要重建索引才能生效",
-      "configSaved": "配置已保存",
       "saveConfigFailed": "保存配置失败",
       "watcherStopped": "文件监控已停止",
       "stopWatcherFailed": "停止文件监控失败"
@@ -2963,7 +2927,6 @@
     "pathCopied": "路径已复制",
     "revertFailed": "还原文件失败",
     "revertFile": "还原文件",
-    "reverted": "文件已还原",
     "reviewCode": "审查代码",
     "suggestRefactor": "建议重构"
   },
@@ -2996,9 +2959,7 @@
     "joining": "加入中…",
     "public": "公开",
     "ungrouped": "其它",
-    "lastUsed": "最后使用",
-    "public": "公开",
-    "joining": "加入中…"
+    "lastUsed": "最后使用"
   },
   "team": {
     "viewerReadOnly": "只读模式 - 你没有编辑权限",
@@ -3083,8 +3044,6 @@
       "body": "将 {{name}} 从团队中移除。此操作无法撤销。",
       "cta": "移除"
     },
-    "copiedName": "已复制名字",
-    "copiedId": "已复制 ID",
     "copyFailed": "复制失败",
     "removed": "已从团队移除",
     "removeFailed": {
@@ -3131,7 +3090,6 @@
     "titlePlaceholder": "想法标题",
     "descriptionPlaceholder": "约束是什么？预期收益是什么？",
     "createButton": "创建",
-    "created": "想法已创建",
     "createFailed": "创建失败：{{msg}}",
     "contextMenu": {
       "view": "查看",
@@ -3161,10 +3119,8 @@
       "priorityPlaceholder": "--- 优先级",
       "tags": "标签",
       "loadFailed": "加载想法失败: {{msg}}",
-      "saved": "想法已保存",
       "saveFailed": "保存失败: {{msg}}",
       "save": "保存",
-      "activityPosted": "动态已发布",
       "activityFailed": "发布动态失败: {{msg}}",
       "activityPlaceholder": "发布进展、决策记录或下一步...",
       "postActivity": "发布动态",
@@ -3172,13 +3128,9 @@
       "noActivity": "暂无动态。",
       "unknownActor": "未知"
     },
-    "archived": "想法已删除",
-    "copiedId": "已复制 ID",
     "copyFailed": "复制失败",
     "deleteFailed": "删除失败: {{msg}}",
-    "statusUpdated": "状态已更新",
     "statusFailed": "状态更新失败: {{msg}}",
-    "renamed": "想法已重命名",
     "renameFailed": "重命名失败: {{msg}}"
   },
   "invite": {
@@ -3197,7 +3149,6 @@
     "expiresAt": "{{date}} 过期",
     "createButton": "创建邀请",
     "copy": "复制",
-    "copied": "邀请链接已复制",
     "copyFailed": "复制失败",
     "failed": "创建邀请失败：{{msg}}",
     "upgradeRequired": "当前团队还在公共组织下，只能自己使用。升级账号、创建你自己的团队后即可邀请成员。",
@@ -3277,12 +3228,5 @@
   "tabBar": {
     "closeAria": "关闭标签页",
     "findClose": "关闭（Esc）"
-  },
-  "session": {
-    "deeplink": {
-      "noAccess": "无权访问该会话",
-      "notFound": "会话不存在或已被删除",
-      "openFailed": "打开会话失败"
-    }
   }
 }
