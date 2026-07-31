@@ -1183,7 +1183,7 @@
       "serverAddress": "服务器地址",
       "serverSynced": "Server 已同步",
       "serverSyncedEmpty": "尚未同步",
-      "serverSyncedHint": "如可用，将从 daemon 读取。",
+      "serverSyncedHint": "登录时由云端下发，只读。",
       "notifAll": "全部",
       "notifImportant": "仅重要通知",
       "notifMute": "静音",
