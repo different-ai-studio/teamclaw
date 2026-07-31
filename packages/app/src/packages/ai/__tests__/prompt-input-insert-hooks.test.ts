@@ -1,6 +1,7 @@
 import { describe, it, expect, vi } from 'vitest'
 import { encodeMemberMentionToken } from '@/lib/member-mention-token'
-import { createInsertHashFile, createInsertAgentMention, createInsertMention } from '../prompt-input-insert-hooks'
+import { createInsertHashFile, createInsertHashSessionAttachment, createInsertAgentMention, createInsertMention } from '../prompt-input-insert-hooks'
+import { encodeSessionAttachmentToken } from '@/lib/session-attachment-token'
 
 function makeContext(initialText: string, hashAt: number) {
   let text = initialText
@@ -33,6 +34,31 @@ describe('createInsertHashFile', () => {
     } as any)
     insert('src/main.ts')
     expect(spies.setText).toHaveBeenCalledWith('Hello @{src/main.ts} ')
+    expect(spies.hashStartRef.current).toBeNull()
+    expect(spies.onHashClose).toHaveBeenCalledTimes(1)
+  })
+})
+
+describe('createInsertHashSessionAttachment', () => {
+  it('replaces #query with session attachment token', () => {
+    const initial = 'Hello #log'
+    const { ctx, spies } = makeContext(initial, 6)
+    const attachment = {
+      name: 'hiclaw-install.log',
+      url: 'https://example.com/hiclaw-install.log',
+      isImage: false,
+    }
+    const insert = createInsertHashSessionAttachment({
+      get text() { return ctx.text() },
+      setText: ctx.setText,
+      onHashClose: ctx.onHashClose,
+      textareaRef: ctx.textareaRef,
+      hashStartRef: ctx.hashStartRef,
+    } as any)
+    insert(attachment)
+    expect(spies.setText).toHaveBeenCalledWith(
+      `Hello ${encodeSessionAttachmentToken(attachment)} `,
+    )
     expect(spies.hashStartRef.current).toBeNull()
     expect(spies.onHashClose).toHaveBeenCalledTimes(1)
   })

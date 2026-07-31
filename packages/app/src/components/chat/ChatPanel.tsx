@@ -83,7 +83,11 @@ import {
   type StreamingPlanEntry,
 } from "@/stores/v2-streaming-store";
 import { uploadAttachment } from "@/lib/attachment-upload";
-import type { SessionAttachmentRef } from "@/lib/session-attachments";
+import {
+  collectSessionAttachmentUrlsFromText,
+  expandSessionAttachmentTokensInText,
+  textHasSessionAttachmentTokens,
+} from "@/lib/session-attachment-token";
 import { loadSessionActiveModel } from "@/lib/session-active-model";
 import { resolveSessionEstablishedModel } from "@/lib/session-established-model";
 import { ensureSessionLiveSubscribed } from "@/lib/session-live-subscriptions";
@@ -416,9 +420,6 @@ export function ChatPanel({ compact = false }: ChatPanelProps) {
   const inputValue = draftInput;
   const setInputValue = setDraftInput;
   const [pendingFiles, setPendingFiles] = React.useState<File[]>([]);
-  const [referencedAttachments, setReferencedAttachments] = React.useState<
-    SessionAttachmentRef[]
-  >([]);
   // engagedAgents is per-session: each @-mentioned agent shows as a pill in
   // the prompt-input toolbar. Switching away from a session and back
   // restores its engaged set rather than carrying one across sessions.
@@ -1081,17 +1082,6 @@ export function ChatPanel({ compact = false }: ChatPanelProps) {
     setPendingFiles((prev) => prev.filter((_, i) => i !== index));
   };
 
-  const appendReferencedAttachment = (attachment: SessionAttachmentRef) => {
-    setReferencedAttachments((prev) => {
-      if (prev.some((a) => a.url === attachment.url)) return prev;
-      return [...prev, attachment];
-    });
-  };
-
-  const removeReferencedAttachment = (index: number) => {
-    setReferencedAttachments((prev) => prev.filter((_, i) => i !== index));
-  };
-
   const handleInputChange = React.useCallback(
     (nextValue: string) => {
       setInputValue(nextValue);
@@ -1123,14 +1113,14 @@ export function ChatPanel({ compact = false }: ChatPanelProps) {
       engagedAgentCount: engagedAgents.length,
       extraMentionAgentCount: extraMentionAgents.length,
       attachedFileCount: pendingFiles.length,
-      referencedAttachmentCount: referencedAttachments.length,
+      sessionAttachmentTokenCount: collectSessionAttachmentUrlsFromText(text).length,
       ...summarizeText(text),
     });
 
     if (
       !text &&
       pendingFiles.length === 0 &&
-      referencedAttachments.length === 0 &&
+      !textHasSessionAttachmentTokens(text) &&
       mentions.length === 0 &&
       !textHasMemberMentionTokens(text) &&
       engagedAgents.length === 0
@@ -1141,7 +1131,7 @@ export function ChatPanel({ compact = false }: ChatPanelProps) {
     if (
       !text.trim() &&
       pendingFiles.length === 0 &&
-      referencedAttachments.length === 0 &&
+      !textHasSessionAttachmentTokens(text) &&
       engagedAgents.length > 0
     ) {
       sessionFlowLog("send.rejected_empty_with_engaged_agent", {
@@ -1162,7 +1152,6 @@ export function ChatPanel({ compact = false }: ChatPanelProps) {
     // Snapshot file state immediately so async work cannot leak stale files
     // into a later send, but keep composer state until outbox enqueue succeeds.
     const currentPendingFiles = pendingFiles;
-    const currentReferencedAttachments = referencedAttachments;
     const sentInputValue = inputValue;
 
     // WYSIWYG: pill in footer, typed @, or explicit extra on first send.
@@ -1267,6 +1256,7 @@ export function ChatPanel({ compact = false }: ChatPanelProps) {
     processedText = stripPickerPersonMentionsFromText(processedText, mentions);
 
     processedText = expandPageLinkTokensInText(processedText);
+    processedText = expandSessionAttachmentTokensInText(processedText);
 
     // Replace @{filepath} with [File: filepath] inline
     processedText = processedText.replace(/@\{([^}]+)\}/g, '[File: $1]');
@@ -1290,16 +1280,7 @@ export function ChatPanel({ compact = false }: ChatPanelProps) {
       parts.push(...structuredMentions);
     }
 
-    // Referenced session attachments (from # popover) — no re-upload.
-    for (const ref of currentReferencedAttachments) {
-      if (ref.isImage) {
-        parts.push(`[Image: ${ref.name}] (url: ${ref.url})`);
-      } else {
-        parts.push(`[Attachment: ${ref.name}] (url: ${ref.url})`);
-      }
-    }
-
-    // Add the processed text (with inline [File: ...] replacements). Agent
+    // Add the processed text (with inline attachment/file replacements). Agent
     // mentions are rendered from metadata only; they must not become prompt
     // text delivered to the runtime.
     const bodyText = processedText.trim();
@@ -1310,7 +1291,7 @@ export function ChatPanel({ compact = false }: ChatPanelProps) {
     finalContent = parts.join("\n\n");
 
     // Upload pending files to cloud storage before sending.
-    const attachmentUrls: string[] = currentReferencedAttachments.map((ref) => ref.url);
+    const attachmentUrls: string[] = collectSessionAttachmentUrlsFromText(text);
     if (currentPendingFiles.length > 0 && teamIdForSend) {
       try {
         sessionFlowLog("send.attachments_upload.begin", {
@@ -1352,8 +1333,6 @@ export function ChatPanel({ compact = false }: ChatPanelProps) {
         toast.error("Failed to upload attachment — message not sent");
         return;
       }
-    } else if (currentReferencedAttachments.length > 0) {
-      finalContent = parts.join("\n\n");
     }
 
     // Optimistic v2 send: synthesize the proto Message and append to the
@@ -1535,15 +1514,11 @@ export function ChatPanel({ compact = false }: ChatPanelProps) {
             teamId: teamIdForSend,
             messageId,
           });
-          setInputValue((prev) => (prev === sentInputValue ? "" : prev));
+          if (useSessionStore.getState().draftInput === sentInputValue) {
+            setInputValue("");
+          }
           setPendingFiles((prev) =>
             prev.filter((file) => !currentPendingFiles.includes(file)),
-          );
-          setReferencedAttachments((prev) =>
-            prev.filter(
-              (attachment) =>
-                !currentReferencedAttachments.some((ref) => ref.url === attachment.url),
-            ),
           );
           if (agentRuntimeIdsForSend.length > 0) {
             notePendingAgentReplyTo(sid, agentRuntimeIdsForSend, messageId);
@@ -2297,9 +2272,6 @@ export function ChatPanel({ compact = false }: ChatPanelProps) {
             pendingFiles={pendingFiles}
             onAppendPendingFiles={appendPendingFiles}
             onRemovePendingFile={removePendingFile}
-            referencedAttachments={referencedAttachments}
-            onAppendReferencedAttachment={appendReferencedAttachment}
-            onRemoveReferencedAttachment={removeReferencedAttachment}
             engagedAgents={engagedAgents}
             engagedUiEntries={engagedUiEntries}
             agentToRuntimeId={agentToRuntimeId}

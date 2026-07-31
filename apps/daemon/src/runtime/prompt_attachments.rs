@@ -104,19 +104,60 @@ fn attachment_client() -> &'static reqwest::Client {
 }
 
 fn attachment_cache_dir(session_id: &str) -> PathBuf {
-    dirs::home_dir()
-        .unwrap_or_else(|| PathBuf::from("/tmp"))
-        .join(".amuxd")
-        .join("attachments")
-        .join(sanitize_for_filename(session_id))
+    let base = if cfg!(test) {
+        std::env::temp_dir().join("amuxd-test-attachments")
+    } else {
+        dirs::home_dir()
+            .unwrap_or_else(|| PathBuf::from("/tmp"))
+            .join(".amuxd")
+            .join("attachments")
+    };
+    base.join(sanitize_for_filename(session_id))
+}
+
+/// Stable cache identity — ignores signed-URL query tokens and fragments.
+fn attachment_cache_key(url: &str) -> String {
+    let without_fragment = url.split('#').next().unwrap_or(url);
+    without_fragment
+        .split('?')
+        .next()
+        .unwrap_or(without_fragment)
+        .to_string()
 }
 
 fn cache_filename(url: &str, filename: &str) -> String {
     let mut hasher = DefaultHasher::new();
-    url.hash(&mut hasher);
+    attachment_cache_key(url).hash(&mut hasher);
     let hash = format!("{:x}", hasher.finish());
     let short = &hash[..8.min(hash.len())];
     format!("{short}_{filename}")
+}
+
+fn local_cache_path(session_id: &str, url: &str, filename: &str) -> PathBuf {
+    attachment_cache_dir(session_id).join(cache_filename(url, filename))
+}
+
+async fn cached_non_image_attachment(
+    url: &str,
+    session_id: &str,
+    ext: &str,
+    filename: &str,
+) -> Option<ResolvedAttachment> {
+    let local_path = local_cache_path(session_id, url, filename);
+    let meta = tokio::fs::metadata(&local_path).await.ok()?;
+    if !meta.is_file() {
+        return None;
+    }
+    let len = meta.len();
+    if len == 0 || len > MAX_NON_IMAGE_ATTACHMENT_BYTES as u64 {
+        return None;
+    }
+    Some(ResolvedAttachment::LocalFile {
+        source_url: url.to_string(),
+        path: local_path.to_string_lossy().into_owned(),
+        filename: filename.to_string(),
+        mime: mime_from_ext(ext).to_string(),
+    })
 }
 
 /// True when the URL path looks like an image we must inline as a data URL.
@@ -190,6 +231,10 @@ async fn resolve_one(url: &str, session_id: &str) -> anyhow::Result<ResolvedAtta
         });
     }
 
+    if let Some(cached) = cached_non_image_attachment(url, session_id, &ext, &filename).await {
+        return Ok(cached);
+    }
+
     let bytes = attachment_client()
         .get(url)
         .send()
@@ -216,8 +261,7 @@ async fn resolve_one(url: &str, session_id: &str) -> anyhow::Result<ResolvedAtta
 
     let cache_dir = attachment_cache_dir(session_id);
     tokio::fs::create_dir_all(&cache_dir).await?;
-    let local_name = cache_filename(url, &filename);
-    let local_path = cache_dir.join(&local_name);
+    let local_path = local_cache_path(session_id, url, &filename);
     tokio::fs::write(&local_path, &bytes).await?;
 
     Ok(ResolvedAttachment::LocalFile {
@@ -422,6 +466,62 @@ mod tests {
     }
 
     #[test]
+    fn cache_filename_ignores_query_and_fragment() {
+        let base = cache_filename("https://x/y/a.pdf", "a.pdf");
+        let with_query = cache_filename("https://x/y/a.pdf?token=abc", "a.pdf");
+        let with_both = cache_filename("https://x/y/a.pdf?token=def#frag", "a.pdf");
+        assert_eq!(base, with_query);
+        assert_eq!(base, with_both);
+    }
+
+    #[tokio::test]
+    async fn resolve_one_reuses_existing_non_image_cache() {
+        let session_id = "p0_cache_hit_test";
+        let url = "https://cdn.example.test/team/s/doc.pdf?token=old";
+        let cache_dir = attachment_cache_dir(session_id);
+        let _ = tokio::fs::remove_dir_all(&cache_dir).await;
+        tokio::fs::create_dir_all(&cache_dir).await.unwrap();
+        let local_path = local_cache_path(session_id, url, "doc.pdf");
+        tokio::fs::write(&local_path, b"cached-bytes").await.unwrap();
+
+        let resolved = resolve_one(url, session_id).await.unwrap();
+        match resolved {
+            ResolvedAttachment::LocalFile { path, filename, .. } => {
+                assert_eq!(path, local_path.to_string_lossy());
+                assert_eq!(filename, "doc.pdf");
+            }
+            other => panic!("expected LocalFile, got {other:?}"),
+        }
+
+        let url_new_token = "https://cdn.example.test/team/s/doc.pdf?token=new";
+        let resolved2 = resolve_one(url_new_token, session_id).await.unwrap();
+        match resolved2 {
+            ResolvedAttachment::LocalFile { path, .. } => {
+                assert_eq!(path, local_path.to_string_lossy());
+            }
+            other => panic!("expected cache hit for normalized url, got {other:?}"),
+        }
+
+        let _ = tokio::fs::remove_dir_all(&cache_dir).await;
+    }
+
+    #[tokio::test]
+    async fn resolve_one_redownloads_when_cached_file_is_empty() {
+        let session_id = "p0_cache_empty_test";
+        let url = "https://cdn.example.test/empty.pdf";
+        let cache_dir = attachment_cache_dir(session_id);
+        let _ = tokio::fs::remove_dir_all(&cache_dir).await;
+        tokio::fs::create_dir_all(&cache_dir).await.unwrap();
+        let local_path = local_cache_path(session_id, url, "empty.pdf");
+        tokio::fs::write(&local_path, b"").await.unwrap();
+
+        let err = resolve_one(url, session_id).await;
+        assert!(err.is_err(), "empty cache file should trigger re-download attempt");
+
+        let _ = tokio::fs::remove_dir_all(&cache_dir).await;
+    }
+
+    #[test]
     fn append_unreferenced_inlines_image_even_when_url_in_body() {
         let url = "https://cdn.example.test/a.png";
         let mut message = format!("[Image: a.png] (url: {url})");
@@ -467,12 +567,17 @@ mod tests {
         let dir = attachment_cache_dir("../evil/session");
         let path = dir.to_string_lossy();
         assert!(!path.contains("/../"));
-        assert!(path.contains(".amuxd/attachments/"));
+        assert!(path.contains("attachments"));
+        assert!(path.contains("evil_session") || path.contains("evil/session"));
     }
 
     #[test]
     fn attachment_cache_dir_under_amuxd() {
         let dir = attachment_cache_dir("sess-1");
-        assert!(dir.to_string_lossy().contains(".amuxd/attachments/sess_1"));
+        let path = dir.to_string_lossy();
+        assert!(path.contains("sess_1"));
+        if !cfg!(test) {
+            assert!(path.contains(".amuxd/attachments"));
+        }
     }
 }

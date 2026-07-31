@@ -9,6 +9,9 @@ import { hasStructuredMentionLines } from "@/lib/outgoing-mention-content";
 import { parseSentPageChip } from "@/lib/expand-page-link-tokens";
 import { pageLinkChipLabel, parsePageLinkBody } from "@/lib/page-link-token";
 import type { PageContext } from "@/lib/embed-page-context";
+import { openOrDownloadRemoteAttachment } from "@/lib/download-remote-attachment";
+import { getCachedAttachmentPath, normalizeAttachmentUrlKey } from "@/lib/attachment-download-index";
+import { isTauri } from "@/lib/utils";
 
 /** Max pixel height before the message is collapsed */
 const COLLAPSED_HEIGHT = 200;
@@ -292,6 +295,61 @@ function MentionDeliveryMetaItem({
       ? t("chat.sessionAgent.metaStale", { name: name || actorId })
       : t("chat.sessionAgent.metaOffline", { name: name || actorId });
   return <div>{label}</div>;
+}
+
+function RemoteAttachmentChip({
+  filename,
+  remoteUrl,
+  parentDir,
+  size,
+}: {
+  filename: string;
+  remoteUrl: string;
+  parentDir?: string;
+  size?: string;
+}) {
+  const { t } = useTranslation();
+  const [busy, setBusy] = React.useState(false);
+  const urlKey = React.useMemo(() => normalizeAttachmentUrlKey(remoteUrl), [remoteUrl]);
+  const hasSavedCopy = isTauri() && Boolean(getCachedAttachmentPath(urlKey));
+  const actionTitle = hasSavedCopy
+    ? t("fileExplorer.revealInFinder", "Reveal in Finder")
+    : t("chat.attachment.download", "Download attachment");
+
+  const handleClick = React.useCallback(async () => {
+    if (busy) return;
+    setBusy(true);
+    try {
+      await openOrDownloadRemoteAttachment(remoteUrl, filename);
+    } catch (error) {
+      console.error("[UserMessage] attachment open/download failed:", error);
+      const { toast } = await import("sonner");
+      toast.error(t("chat.attachment.downloadFailed", "Download failed"));
+    } finally {
+      setBusy(false);
+    }
+  }, [busy, filename, remoteUrl, t]);
+
+  return (
+    <button
+      type="button"
+      onClick={() => void handleClick()}
+      disabled={busy}
+      title={actionTitle}
+      className="inline-flex items-center gap-1.5 px-2 py-1.5 mx-0.5 rounded-md text-xs bg-orange-100 text-orange-700 dark:bg-orange-900/40 dark:text-orange-300 min-w-0 max-w-[280px] cursor-pointer hover:bg-orange-200/80 dark:hover:bg-orange-900/60 disabled:opacity-60"
+    >
+      <Paperclip className="h-3 w-3 flex-shrink-0" />
+      <span className="flex flex-col min-w-0 text-left">
+        <span className="truncate font-medium leading-tight">{filename}</span>
+        {parentDir && (
+          <span className="truncate text-[10px] opacity-60 leading-tight">{parentDir}</span>
+        )}
+      </span>
+      {size && (
+        <span className="text-orange-500 dark:text-orange-400 flex-shrink-0 ml-0.5">{size}</span>
+      )}
+    </button>
+  );
 }
 
 export function UserMessageWithMentions({
@@ -580,16 +638,13 @@ export function UserMessageWithMentions({
         );
         if (part.remoteUrl) {
           return (
-            <a
+            <RemoteAttachmentChip
               key={index}
-              href={part.remoteUrl}
-              target="_blank"
-              rel="noopener noreferrer"
-              title={part.remoteUrl}
-              className="inline-flex items-center gap-1.5 px-2 py-1.5 mx-0.5 rounded-md text-xs bg-orange-100 text-orange-700 dark:bg-orange-900/40 dark:text-orange-300 min-w-0 max-w-[280px] hover:underline"
-            >
-              {chip}
-            </a>
+              filename={part.content}
+              remoteUrl={part.remoteUrl}
+              parentDir={parentDir}
+              size={part.size}
+            />
           );
         }
         return (

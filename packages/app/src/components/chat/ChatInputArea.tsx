@@ -17,6 +17,7 @@ import {
 import { textHasMemberMentionTokens } from "@/lib/member-mention-token";
 import {
   createInsertHashFile,
+  createInsertHashSessionAttachment,
   createInsertFileMention,
   createInsertMention,
   createInsertAgentMention,
@@ -42,7 +43,7 @@ import { useVoiceInputStore } from "@/stores/voice-input";
 import { useWorkspaceStore } from "@/stores/workspace";
 import { useUIStore } from "@/stores/ui";
 import { isImageFile } from "@/lib/attachment-constants";
-import type { SessionAttachmentRef } from "@/lib/session-attachments";
+import { textHasSessionAttachmentTokens } from "@/lib/session-attachment-token";
 import { exceedsNonImageLimit } from "@/lib/attachment-constants";
 
 // ─── Popover wrappers (need PromptInput context for useInsertFileMention) ───
@@ -54,7 +55,6 @@ function FileMentionPopoverWrapper({
   searchQuery,
   onSearchChange,
   useHashTrigger,
-  onSelectSessionAttachment,
 }: {
   activeSessionId: string | null;
   open: boolean;
@@ -62,12 +62,15 @@ function FileMentionPopoverWrapper({
   searchQuery: string;
   onSearchChange: (query: string) => void;
   useHashTrigger: boolean;
-  onSelectSessionAttachment: (attachment: SessionAttachmentRef) => void;
 }) {
   const context = usePromptInputContext();
   const insertFileMention = React.useMemo(
     () => useHashTrigger ? createInsertHashFile(context) : createInsertFileMention(context),
     [context, useHashTrigger],
+  );
+  const insertSessionAttachment = React.useMemo(
+    () => createInsertHashSessionAttachment(context),
+    [context],
   );
 
   return (
@@ -78,7 +81,7 @@ function FileMentionPopoverWrapper({
       searchQuery={searchQuery}
       onSearchChange={onSearchChange}
       onSelect={insertFileMention}
-      onSelectSessionAttachment={onSelectSessionAttachment}
+      onSelectSessionAttachment={insertSessionAttachment}
     />
   );
 }
@@ -167,9 +170,6 @@ interface ChatInputAreaProps {
   pendingFiles: File[];
   onAppendPendingFiles: (files: File[]) => void;
   onRemovePendingFile: (index: number) => void;
-  referencedAttachments: SessionAttachmentRef[];
-  onAppendReferencedAttachment: (attachment: SessionAttachmentRef) => void;
-  onRemoveReferencedAttachment: (index: number) => void;
   onSubmit: (message: PromptInputMessage) => void;
   /** When true, placeholder suggests queuing another message while agents run. */
   isStreaming: boolean;
@@ -201,19 +201,18 @@ interface ChatInputAreaProps {
 function ComposerSubmitButton({
   inputValue,
   pendingFiles,
-  referencedAttachments,
 }: {
   inputValue: string;
   pendingFiles: File[];
-  referencedAttachments: SessionAttachmentRef[];
 }) {
   const { mentions } = usePromptInputContext();
+  const normalizedInput = String(inputValue ?? "");
   const canSend =
-    Boolean(inputValue.trim()) ||
+    Boolean(normalizedInput.trim()) ||
     pendingFiles.length > 0 ||
-    referencedAttachments.length > 0 ||
     mentions.length > 0 ||
-    textHasMemberMentionTokens(inputValue);
+    textHasMemberMentionTokens(normalizedInput) ||
+    textHasSessionAttachmentTokens(normalizedInput);
 
   return <PromptInputSubmit disabled={!canSend} />;
 }
@@ -245,9 +244,6 @@ export function ChatInputArea({
   pendingFiles,
   onAppendPendingFiles,
   onRemovePendingFile,
-  referencedAttachments,
-  onAppendReferencedAttachment,
-  onRemoveReferencedAttachment,
   onSubmit,
   isStreaming,
   messageQueue: _messageQueue,
@@ -319,15 +315,6 @@ export function ChatInputArea({
       onAppendPendingFiles(accepted);
     }
   }, [onAppendPendingFiles]);
-
-  const handleSelectSessionAttachment = React.useCallback(
-    (attachment: SessionAttachmentRef) => {
-      onAppendReferencedAttachment(attachment);
-      setFilePopoverOpen(false);
-      setHashSearchQuery("");
-    },
-    [onAppendReferencedAttachment],
-  );
 
   const imagePreviewUrls = React.useMemo(() => {
     return pendingFiles.filter(isImageFile).map((file) => URL.createObjectURL(file));
@@ -490,7 +477,7 @@ export function ChatInputArea({
           <PageLinkInsertBridge />
           {/* Agent chips: removed — agent is shown in AgentSelectorDock (bottom-left) instead */}
 
-          {(pendingFiles.length > 0 || referencedAttachments.length > 0) && (
+          {(pendingFiles.length > 0) && (
             <div className="flex flex-wrap gap-2 px-4 pt-3 pb-2">
               {pendingFiles.map((file, index) => {
                 if (isImageFile(file)) {
@@ -538,25 +525,6 @@ export function ChatInputArea({
                   </div>
                 );
               })}
-
-              {referencedAttachments.map((attachment, index) => (
-                <div
-                  key={`ref-${attachment.url}`}
-                  title={attachment.url}
-                  className="relative group flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg border border-dashed bg-muted/30 min-w-0 max-w-[280px]"
-                >
-                  <FileText className="h-3.5 w-3.5 flex-shrink-0 text-muted-foreground" />
-                  <span className="text-xs font-medium truncate leading-tight">{attachment.name}</span>
-                  <span className="text-[10px] text-muted-foreground flex-shrink-0">#</span>
-                  <button
-                    type="button"
-                    onClick={() => onRemoveReferencedAttachment(index)}
-                    className="ml-0.5 p-0.5 flex-shrink-0 rounded-full text-muted-foreground hover:text-foreground hover:bg-muted transition-colors"
-                  >
-                    <X className="h-3 w-3" />
-                  </button>
-                </div>
-              ))}
             </div>
           )}
 
@@ -576,7 +544,7 @@ export function ChatInputArea({
               placeholder={
                 isStreaming
                   ? t('chat.inputPlaceholderContinue', 'Continue typing...')
-                  : pendingFiles.length > 0 || referencedAttachments.length > 0
+                  : pendingFiles.length > 0
                     ? t('chat.inputPlaceholderDescription', 'Add a description...')
                     : t('chat.inputPlaceholderMention', 'Mention with @, reference files with #...')
               }
@@ -591,7 +559,6 @@ export function ChatInputArea({
             searchQuery={hashSearchQuery}
             onSearchChange={setHashSearchQuery}
             useHashTrigger={REDESIGN_ON}
-            onSelectSessionAttachment={handleSelectSessionAttachment}
           />
           {REDESIGN_ON && (
             <MentionPopoverWrapper
@@ -632,7 +599,6 @@ export function ChatInputArea({
               <ComposerSubmitButton
                 inputValue={inputValue}
                 pendingFiles={pendingFiles}
-                referencedAttachments={referencedAttachments}
               />
             </div>
           </PromptInputFooter>

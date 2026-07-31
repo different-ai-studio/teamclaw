@@ -1,5 +1,6 @@
 const CHIP_CLASS_NAMES = [
   "file-chip",
+  "session-attachment-chip",
   "role-chip",
   "skill-chip",
   "command-chip",
@@ -13,4 +14,4 @@ export function isComposerChipElement(el: HTMLElement | null | undefined): boole
 }
 
 export const COMPOSER_CHIP_SELECTOR =
-  ".file-chip, .role-chip, .skill-chip, .command-chip, .member-chip, .page-link-chip";
+  ".file-chip, .session-attachment-chip, .role-chip, .skill-chip, .command-chip, .member-chip, .page-link-chip";

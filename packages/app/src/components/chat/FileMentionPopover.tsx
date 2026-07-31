@@ -1,4 +1,5 @@
 import * as React from "react"
+import { useTranslation } from "react-i18next"
 import { File, Folder, ImageIcon, Loader2, Paperclip } from "lucide-react"
 import { useWorkspaceStore } from "@/stores/workspace"
 import { useTeamModeStore } from "@/stores/team-mode"
@@ -123,6 +124,7 @@ export function FileMentionPopover({
   onSelect,
   onSelectSessionAttachment,
 }: FileMentionPopoverProps) {
+  const { t } = useTranslation()
   const workspacePath = useWorkspaceStore(s => s.workspacePath)
   const sessionMessages = useSessionMessageStore((s) =>
     activeSessionId ? s.messages[activeSessionId] : undefined,
@@ -278,7 +280,7 @@ export function FileMentionPopover({
   return (
     <div className="absolute bottom-full left-0 mb-2 w-96 rounded-lg border bg-popover shadow-lg z-50 animate-in fade-in slide-in-from-bottom-2 duration-200">
       <div className="flex items-center justify-between px-3 py-2 text-[10px] text-muted-foreground border-b bg-muted/30">
-        <span className="font-medium">Reference a file</span>
+        <span className="font-medium">{t("chat.fileMention.title", "Reference a file")}</span>
         {searchQuery && (
           <span className="text-[9px] text-primary font-mono">
             {searchQuery}
@@ -290,7 +292,7 @@ export function FileMentionPopover({
         {showSessionSection ? (
           <>
             <div className="px-2 py-1 text-[9px] font-semibold uppercase tracking-wide text-muted-foreground/70">
-              会话附件
+              {t("chat.fileMention.sessionAttachments", "Session attachments")}
             </div>
             {filteredSessionAttachments.map((attachment) => {
               const index = rowIndex++
@@ -322,16 +324,18 @@ export function FileMentionPopover({
         {showWorkspaceSection ? (
           <>
             <div className="px-2 py-1 text-[9px] font-semibold uppercase tracking-wide text-muted-foreground/70 mt-1">
-              工作区文件
+              {t("chat.fileMention.workspaceFiles", "Workspace files")}
             </div>
             {isLoading ? (
               <div className="flex items-center justify-center gap-2 py-6 text-xs text-muted-foreground">
                 <Loader2 className="h-4 w-4 animate-spin" />
-                Scanning workspace...
+                {t("chat.fileMention.scanningWorkspace", "Scanning workspace…")}
               </div>
             ) : filteredWorkspaceEntries.length === 0 ? (
               <div className="py-6 text-center text-xs text-muted-foreground">
-                {searchQuery ? `No match for "${searchQuery}"` : "No files found"}
+                {searchQuery
+                  ? t("chat.fileMention.noMatch", 'No match for "{{query}}"', { query: searchQuery })
+                  : t("chat.fileMention.noFilesFound", "No files found")}
               </div>
             ) : (
               filteredWorkspaceEntries.map((entry) => {
@@ -373,21 +377,21 @@ export function FileMentionPopover({
 
         {!showSessionSection && !showWorkspaceSection ? (
           <div className="py-8 text-center text-xs text-muted-foreground">
-            No attachments in this session
+            {t("chat.fileMention.noAttachmentsInSession", "No attachments in this session")}
           </div>
         ) : null}
 
         {showSessionSection && !showWorkspaceSection && filteredSessionAttachments.length === 0 ? (
           <div className="py-4 text-center text-xs text-muted-foreground">
-            No session attachments yet
+            {t("chat.fileMention.noSessionAttachmentsYet", "No session attachments yet")}
           </div>
         ) : null}
       </div>
 
       <div className="flex items-center gap-3 px-3 py-1.5 text-[10px] text-muted-foreground/60 border-t">
-        <span><kbd className="px-1 py-0.5 rounded bg-muted text-[9px] font-mono">↑↓</kbd> navigate</span>
-        <span><kbd className="px-1 py-0.5 rounded bg-muted text-[9px] font-mono">↵/Tab</kbd> select</span>
-        <span><kbd className="px-1 py-0.5 rounded bg-muted text-[9px] font-mono">Esc</kbd> close</span>
+        <span><kbd className="px-1 py-0.5 rounded bg-muted text-[9px] font-mono">↑↓</kbd> {t("chat.fileMention.keyboardNavigate", "navigate")}</span>
+        <span><kbd className="px-1 py-0.5 rounded bg-muted text-[9px] font-mono">↵/Tab</kbd> {t("chat.fileMention.keyboardSelect", "select")}</span>
+        <span><kbd className="px-1 py-0.5 rounded bg-muted text-[9px] font-mono">Esc</kbd> {t("chat.fileMention.keyboardClose", "close")}</span>
       </div>
     </div>
   )

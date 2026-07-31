@@ -3,6 +3,10 @@ import type { MentionedPerson, PromptInputContextValue } from "./prompt-input-ty
 import type { PageContext } from "@/lib/embed-page-context"
 import { encodeMemberMentionToken } from "@/lib/member-mention-token"
 import { encodePageLinkToken } from "@/lib/page-link-token"
+import {
+  encodeSessionAttachmentToken,
+  type SessionAttachmentPayload,
+} from "@/lib/session-attachment-token"
 
 function encodeSlashChip(type: 'role' | 'skill' | 'command', name: string) {
   return `/{${type}:${name}}`
@@ -54,6 +58,26 @@ function walkToPosition(
       // Page-link chip: count full wire token length
       if (el.classList.contains("page-link-chip")) {
         const token = el.getAttribute("data-pagelinktoken") || ""
+        const chipLength = token.length
+        if (currentPos + chipLength >= targetPos) {
+          const nextSibling = node.nextSibling
+          if (nextSibling && nextSibling.nodeType === Node.TEXT_NODE) {
+            targetNode = nextSibling
+            targetOffset = 0
+          } else {
+            targetNode = node.parentNode
+            const children = Array.from(node.parentNode?.childNodes || [])
+            targetOffset = children.indexOf(node as ChildNode) + 1
+          }
+          return true
+        }
+        currentPos += chipLength
+        return false
+      }
+
+      // Session attachment chip: count full wire token length
+      if (el.classList.contains("session-attachment-chip")) {
+        const token = el.getAttribute("data-sessionattachmenttoken") || ""
         const chipLength = token.length
         if (currentPos + chipLength >= targetPos) {
           const nextSibling = node.nextSibling
@@ -326,6 +350,44 @@ export function createInsertPageLink(context: PromptInputContextValue) {
         setCursorAtPosition(editable, newText.length)
       }
     }, 10)
+  }
+}
+
+export function createInsertHashSessionAttachment(context: PromptInputContextValue) {
+  const { text, setText, onHashClose, textareaRef, hashStartRef } = context
+
+  return (attachment: SessionAttachmentPayload) => {
+    let lastValidHashIndex = -1
+    for (let i = text.length - 1; i >= 0; i--) {
+      if (text[i] === "#") {
+        lastValidHashIndex = i
+        break
+      }
+    }
+
+    if (lastValidHashIndex !== -1) {
+      const beforeHash = text.slice(0, lastValidHashIndex)
+      const afterHash = text.slice(lastValidHashIndex)
+      const queryEndMatch = afterHash.match(/^#[^\s]*/)
+      const queryEnd = queryEndMatch ? queryEndMatch[0].length : 1
+      const afterQuery = text.slice(lastValidHashIndex + queryEnd)
+
+      const mentionText = `${encodeSessionAttachmentToken(attachment)} `
+      const newText = `${beforeHash}${mentionText}${afterQuery}`
+      setText(newText)
+
+      setTimeout(() => {
+        const editable = textareaRef.current
+        if (editable) {
+          editable.focus()
+          const targetPos = beforeHash.length + mentionText.length
+          setCursorAtPosition(editable, targetPos)
+        }
+      }, 10)
+    }
+
+    hashStartRef.current = null
+    onHashClose?.()
   }
 }
 

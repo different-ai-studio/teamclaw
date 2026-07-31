@@ -615,6 +615,24 @@
       "downloadImage": "Download image",
       "enlargeDiagram": "Enlarge diagram"
     },
+    "attachment": {
+      "download": "Download attachment",
+      "saveAttachment": "Save attachment",
+      "downloadFailed": "Download failed"
+    },
+    "fileMention": {
+      "title": "Reference a file",
+      "sessionAttachments": "Session attachments",
+      "workspaceFiles": "Workspace files",
+      "scanningWorkspace": "Scanning workspace…",
+      "noMatch": "No match for \"{{query}}\"",
+      "noFilesFound": "No files found",
+      "noAttachmentsInSession": "No attachments in this session",
+      "noSessionAttachmentsYet": "No session attachments yet",
+      "keyboardNavigate": "navigate",
+      "keyboardSelect": "select",
+      "keyboardClose": "close"
+    },
     "feedback": {
       "goodResponse": "Good response",
       "poorResponse": "Poor response"

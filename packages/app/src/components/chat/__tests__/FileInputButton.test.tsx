@@ -18,10 +18,8 @@ vi.mock('@tauri-apps/plugin-dialog', () => ({
 }))
 
 const readFile = vi.fn()
-const stat = vi.fn()
 vi.mock('@tauri-apps/plugin-fs', () => ({
   readFile: (...args: unknown[]) => readFile(...args),
-  stat: (...args: unknown[]) => stat(...args),
 }))
 
 describe('FileInputButton', () => {
@@ -29,7 +27,6 @@ describe('FileInputButton', () => {
     platformState.tauriInvoke = false
     openDialog.mockReset()
     readFile.mockReset()
-    stat.mockReset()
   })
 
   it('opens a browser file input when Tauri is unavailable', () => {
@@ -51,7 +48,6 @@ describe('FileInputButton', () => {
   it('reads desktop paths into File objects on Tauri', async () => {
     platformState.tauriInvoke = true
     openDialog.mockResolvedValue(['/tmp/a.png'])
-    stat.mockResolvedValue({ size: 3 })
     readFile.mockResolvedValue(new Uint8Array([1, 2, 3]))
     const onFilesSelected = vi.fn()
 
