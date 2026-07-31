@@ -608,8 +608,8 @@ fn gather_personal_env_diagnostics(workspace_path: &str) -> Result<PersonalEnvDi
     let index_keys_missing_from_blob: Vec<String> = index_keys
         .iter()
         .filter(|key| !blob_key_set.contains(&key.to_ascii_lowercase()))
-        .cloned()
         .take(8)
+        .cloned()
         .collect();
     let blob_keys_missing_from_index: Vec<String> = blob_keys
         .iter()
@@ -617,8 +617,8 @@ fn gather_personal_env_diagnostics(workspace_path: &str) -> Result<PersonalEnvDi
             !index_key_set.contains(&key.to_ascii_lowercase())
                 && !teamclaw_runtime_env::is_internal_personal_blob_key(key)
         })
-        .cloned()
         .take(8)
+        .cloned()
         .collect();
 
     let env_map: std::collections::HashMap<String, String> = blob
