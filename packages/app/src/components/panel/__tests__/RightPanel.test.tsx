@@ -1,6 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { render, screen } from '@testing-library/react'
 import React from 'react'
+import { RightPanel } from '@/components/panel/RightPanel';
 
 vi.mock('react-i18next', () => ({
   useTranslation: () => ({
@@ -44,19 +45,16 @@ beforeEach(() => {
 
 describe('RightPanel', () => {
   it('renders shortcuts tab from store', async () => {
-    const { RightPanel } = await import('@/components/panel/RightPanel')
     render(React.createElement(RightPanel))
     expect(screen.getByTestId('shortcuts-panel')).toBeDefined()
   })
 
   it('renders diff tab when defaultTab=diff', async () => {
-    const { RightPanel } = await import('@/components/panel/RightPanel')
     render(React.createElement(RightPanel, { defaultTab: 'diff' }))
     expect(screen.getByText('No changes yet')).toBeDefined()
   })
 
   it('renders shortcuts panel when defaultTab=shortcuts', async () => {
-    const { RightPanel } = await import('@/components/panel/RightPanel')
     render(React.createElement(RightPanel, { defaultTab: 'shortcuts' }))
     expect(screen.getByTestId('shortcuts-panel')).toBeDefined()
   })
