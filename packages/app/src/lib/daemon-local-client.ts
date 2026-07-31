@@ -10,6 +10,7 @@
  */
 
 import { invoke } from '@tauri-apps/api/core'
+import { normalizeDaemonEnvActivationDiagnostics } from '@/lib/env-diagnostics'
 import { isTauri } from '@/lib/utils'
 
 // ─── Workspace ID encoding ────────────────────────────────────────────────────
@@ -1060,6 +1061,37 @@ export async function reloadDaemonRuntime(
     { method: 'POST' },
   )
   return result.ok ? result.data.outcome : null
+}
+
+export interface DaemonEnvActivationBlocker {
+  code: string
+  detail?: string | null
+}
+
+export interface DaemonEnvActivationDiagnostics {
+  personal_env_var_count: number
+  personal_blob_user_var_count: number
+  personal_blob_readable: boolean
+  personal_load_error: string | null
+  team_env_var_count: number
+  opencode_serve_running: boolean
+  opencode_serve_cached_env_count: number
+  active_runtime_count: number
+  workspace_has_active_turn: boolean
+  refresh: DaemonRuntimeRefresh
+  host_env_shadowed_keys: string[]
+  blockers: DaemonEnvActivationBlocker[]
+}
+
+export async function getDaemonEnvActivationDiagnostics(
+  workspaceId: string,
+  teamId?: string | null,
+): Promise<DaemonEnvActivationDiagnostics | null> {
+  const query = teamId?.trim() ? `?team_id=${encodeURIComponent(teamId.trim())}` : ''
+  const result = await daemonFetch<DaemonEnvActivationDiagnostics>(
+    `/v1/workspaces/${workspaceId}/runtime/env-diagnostics${query}`,
+  )
+  return result.ok ? normalizeDaemonEnvActivationDiagnostics(result.data) : null
 }
 
 // ─── Team share ───────────────────────────────────────────────────────────────

@@ -17,7 +17,9 @@ import { SettingCard, SectionHeader } from './shared'
 import { useEnvVarsStore } from '@/stores/env-vars'
 import { useTeamMembersStore } from '@/stores/team-members'
 import { useTeamPermissions } from '@/lib/team-permissions'
-import { encodeWorkspaceId, reloadDaemonRuntime } from '@/lib/daemon-local-client'
+import { encodeWorkspaceId, getDaemonEnvActivationDiagnostics, reloadDaemonRuntime, type DaemonApplyOutcome, type DaemonEnvActivationDiagnostics } from '@/lib/daemon-local-client'
+import { describeEnvReloadOutcome } from '@/lib/env-runtime-reload'
+import { normalizePersonalEnvDiagnostics, formatEnvActivationBlocker, type PersonalEnvDiagnostics } from '@/lib/env-diagnostics'
 import { useWorkspaceStore } from '@/stores/workspace'
 import { useCurrentTeamStore } from '@/stores/current-team'
 import { toast } from 'sonner'
@@ -295,6 +297,10 @@ function DeleteDialog({ open, onOpenChange, envVarKey, onConfirm }: DeleteDialog
     try {
       await onConfirm()
       onOpenChange(false)
+    } catch (err) {
+      toast.error(t('settings.envVars.deleteFailed', 'Failed to delete environment variable'), {
+        description: err instanceof Error ? err.message : String(err),
+      })
     } finally {
       setDeleting(false)
     }
@@ -643,6 +649,249 @@ function TeamEnvDiagnosticsCard({
   )
 }
 
+interface PersonalEnvDiagnosticsCardProps {
+  workspacePath: string | null
+  teamId: string | null
+  refreshKey: number
+  dirtyKeyCount: number
+  onReloadRuntime: () => Promise<void>
+  isReloading: boolean
+}
+
+function PersonalEnvActivationDiagnosticsCard({
+  workspacePath,
+  teamId,
+  refreshKey,
+  dirtyKeyCount,
+  onReloadRuntime,
+  isReloading,
+}: PersonalEnvDiagnosticsCardProps) {
+  const { t } = useTranslation()
+  const [personal, setPersonal] = React.useState<PersonalEnvDiagnostics | null>(null)
+  const [activation, setActivation] = React.useState<DaemonEnvActivationDiagnostics | null>(null)
+  const [error, setError] = React.useState<string | null>(null)
+
+  React.useEffect(() => {
+    if (!workspacePath) return
+    let cancelled = false
+
+    void (async () => {
+      try {
+        const [personalDiag, activationDiag] = await Promise.all([
+          invoke<Partial<PersonalEnvDiagnostics>>('personal_env_diagnostics', { workspacePath }),
+          getDaemonEnvActivationDiagnostics(encodeWorkspaceId(workspacePath), teamId),
+        ])
+        if (cancelled) return
+        setPersonal(normalizePersonalEnvDiagnostics(personalDiag))
+        setActivation(activationDiag)
+        setError(null)
+      } catch (e) {
+        if (!cancelled) {
+          setError(e instanceof Error ? e.message : String(e))
+        }
+      }
+    })()
+
+    return () => { cancelled = true }
+  }, [workspacePath, teamId, refreshKey])
+
+  const storeOk = !!personal?.blobReadable
+  const indexAligned = !!personal
+    && personal.indexKeysMissingFromBlob.length === 0
+    && personal.blobKeysMissingFromIndex.length === 0
+  const userStoredCount = personal?.userStoredVarCount ?? personal?.storedVarCount ?? 0
+  const daemonUserCount = activation?.personal_env_var_count
+    ?? activation?.personal_blob_user_var_count
+    ?? 0
+  const daemonOk = activation !== null
+  const reloadPending = (activation?.refresh.status === 'pending' || activation?.refresh.status === 'applying')
+    && (activation?.refresh.change_kinds ?? []).includes('env_vars')
+  const hostEnvShadowedKeys = activation?.host_env_shadowed_keys ?? []
+  const hasBlockers = (activation?.blockers.length ?? 0) > 0 || dirtyKeyCount > 0
+
+  return (
+    <SettingCard>
+      <div className="flex items-start gap-3">
+        <ShieldCheck className="h-5 w-5 text-emerald-500 mt-0.5 shrink-0" />
+        <div className="min-w-0 flex-1 text-[13px]">
+          <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
+            <p className="font-medium text-foreground">
+              {t('settings.envVars.diag.personalTitle', '个人变量生效诊断')}
+            </p>
+            <Button
+              size="sm"
+              variant="outline"
+              disabled={!workspacePath || isReloading}
+              onClick={() => { void onReloadRuntime() }}
+            >
+              {isReloading
+                ? t('settings.envVars.diag.reloading', '重载中…')
+                : t('settings.envVars.diag.reloadRuntime', '重载 Agent 运行时')}
+            </Button>
+          </div>
+
+          {error ? (
+            <p className="text-destructive">{error}</p>
+          ) : !personal ? (
+            <p className="text-muted-foreground">{t('common.loading', 'Loading...')}</p>
+          ) : (
+            <div className="divide-y divide-border/60">
+              <DiagRow
+                ok={storeOk}
+                label={t('settings.envVars.diag.personalStore', '本地加密存储')}
+                value={personal.secretsDir}
+                hint={
+                  !storeOk
+                    ? personal.blobError
+                      ?? t('settings.envVars.diag.personalStoreMissing', '个人变量未能从 ~/.teamclaw/secrets 读取；Agent 将看不到这些值。')
+                    : undefined
+                }
+              />
+              <DiagRow
+                ok={userStoredCount > 0 || (personal?.workspaceIndexCount ?? 0) === 0}
+                label={t('settings.envVars.diag.personalCounts', '用户变量 / 索引条目')}
+                value={`${userStoredCount} / ${personal.workspaceIndexCount}`}
+              />
+              <DiagRow
+                ok={indexAligned}
+                label={t('settings.envVars.diag.personalIndex', '索引与 blob 对齐')}
+                value={
+                  indexAligned
+                    ? t('settings.envVars.diag.personalIndexOk', '一致')
+                    : [
+                        personal.indexKeysMissingFromBlob.length
+                          ? t('settings.envVars.diag.personalIndexMissingBlob', {
+                              keys: personal.indexKeysMissingFromBlob.join(', '),
+                              defaultValue: `索引缺值: ${personal.indexKeysMissingFromBlob.join(', ')}`,
+                            })
+                          : null,
+                        personal.blobKeysMissingFromIndex.length
+                          ? t('settings.envVars.diag.personalIndexMissingIndex', {
+                              keys: personal.blobKeysMissingFromIndex.join(', '),
+                              defaultValue: `blob 未索引: ${personal.blobKeysMissingFromIndex.join(', ')}`,
+                            })
+                          : null,
+                      ].filter(Boolean).join(' · ')
+                }
+                hint={
+                  !indexAligned
+                    ? t('settings.envVars.diag.personalIndexHint', '索引与加密 blob 不一致时，设置页可能显示变量但 Agent 读不到（或反之）。尝试重新保存该变量。')
+                    : undefined
+                }
+              />
+              <DiagRow
+                ok={personal.hostShadowedKeys.length === 0}
+                label={t('settings.envVars.diag.hostShadow', '宿主机环境覆盖')}
+                value={
+                  personal.hostShadowedKeys.length === 0
+                    ? t('settings.envVars.diag.hostShadowOk', '无冲突')
+                    : personal.hostShadowedKeys.join(', ')
+                }
+                hint={
+                  personal.hostShadowedKeys.length > 0
+                    ? t(
+                        'settings.envVars.diag.hostShadowHint',
+                        'amuxd 启动 opencode serve 时，若 shell 已设置同名变量，会优先使用 shell 的值。请 unset 后重启 amuxd，或在 TeamClaw 中改用不同 key。',
+                      )
+                    : undefined
+                }
+              />
+              <DiagRow
+                ok={daemonOk}
+                label={t('settings.envVars.diag.daemon', '本地 amuxd')}
+                value={daemonOk
+                  ? t('settings.envVars.diag.daemonOk', 'HTTP 可达')
+                  : t('settings.envVars.diag.daemonMissing', '不可用')}
+                hint={
+                  !daemonOk
+                    ? t('settings.envVars.diag.daemonHint', 'daemon 未运行时变量只会写入磁盘；启动 amuxd 后点击「重载 Agent 运行时」。')
+                    : undefined
+                }
+              />
+              {activation && (
+                <>
+                  <DiagRow
+                    ok={
+                      !activation.personal_blob_readable
+                      || daemonUserCount === userStoredCount
+                      || (daemonUserCount > 0 && userStoredCount > 0)
+                    }
+                    label={t('settings.envVars.diag.daemonPersonalLoad', 'daemon 读取个人变量')}
+                    value={t('settings.envVars.diag.daemonPersonalLoadKeys', {
+                      count: daemonUserCount,
+                      defaultValue: `${daemonUserCount} key(s)`,
+                    })}
+                    hint={
+                      activation.personal_blob_readable
+                      && daemonUserCount === 0
+                      && userStoredCount > 0
+                        ? t(
+                            'settings.envVars.diag.daemonPersonalLoadMismatch',
+                            '桌面端能读到用户变量，但 amuxd 报告 0 — 请确认 amuxd 与桌面 app 使用同一用户运行，并已重启 amuxd 到最新版本。',
+                          )
+                        : activation.personal_load_error ?? undefined
+                    }
+                  />
+                  <DiagRow
+                    ok={activation.active_runtime_count === 0 || !dirtyKeyCount}
+                    label={t('settings.envVars.diag.activeRuntimes', '活跃 runtime')}
+                    value={String(activation.active_runtime_count)}
+                    hint={
+                      activation.active_runtime_count > 0
+                        ? t('settings.envVars.diag.activeRuntimesHint', '环境变量在 spawn 时注入；有活跃 session 时需要重载后新开 session。')
+                        : undefined
+                    }
+                  />
+                  <DiagRow
+                    ok={activation.refresh.status === 'clean' && !reloadPending}
+                    label={t('settings.envVars.diag.refreshStatus', '运行时 refresh 状态')}
+                    value={activation.refresh.status}
+                    hint={
+                      reloadPending
+                        ? t('settings.envVars.diag.refreshPending', 'env_vars 变更待应用 — 点击「重载 Agent 运行时」。')
+                        : activation.refresh.status === 'failed'
+                          ? activation.refresh.last_error ?? undefined
+                          : undefined
+                    }
+                  />
+                  {hostEnvShadowedKeys.length > 0 && (
+                    <DiagRow
+                      ok={false}
+                      label={t('settings.envVars.diag.daemonHostShadow', 'daemon 侧宿主机覆盖')}
+                      value={hostEnvShadowedKeys.join(', ')}
+                      hint={t(
+                        'settings.envVars.diag.daemonHostShadowHint',
+                        '以上 key 在 amuxd 进程环境中已存在，opencode serve 不会注入 TeamClaw 个人变量。',
+                      )}
+                    />
+                  )}
+                </>
+              )}
+              {(hasBlockers || dirtyKeyCount > 0) && (
+                <div className="pt-2 mt-1">
+                  <p className="text-xs font-medium text-foreground mb-1">
+                    {t('settings.envVars.diag.blockersTitle', '可能阻止生效的原因')}
+                  </p>
+                  <ul className="list-disc pl-4 text-xs text-amber-800 dark:text-amber-200 space-y-0.5">
+                    {dirtyKeyCount > 0 && (
+                      <li>{t('settings.envVars.diag.blockerDirty', '有变量已保存但尚未确认注入 runtime（Need restart）。')}</li>
+                    )}
+                    {activation?.blockers.map((blocker) => (
+                      <li key={`${blocker.code}-${blocker.detail ?? ''}`}>
+                        {formatEnvActivationBlocker(t, blocker)}
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+              )}
+            </div>
+          )}
+        </div>
+      </div>
+    </SettingCard>
+  )
+}
+
 // ─── Main Section ───────────────────────────────────────────────────────
 
 export const EnvVarsSection = React.memo(function EnvVarsSection() {
@@ -661,6 +910,8 @@ export const EnvVarsSection = React.memo(function EnvVarsSection() {
   const [deleteTarget, setDeleteTarget] = React.useState<UnifiedEntry | null>(null)
   const [dirtyKeys, setDirtyKeys] = React.useState<Set<string>>(new Set())
   const [teamEnvAvailable, setTeamEnvAvailable] = React.useState<boolean | null>(null)
+  const [diagRefreshKey, setDiagRefreshKey] = React.useState(0)
+  const [isReloadingRuntime, setIsReloadingRuntime] = React.useState(false)
 
   const isLoading = envLoading
 
@@ -710,7 +961,7 @@ export const EnvVarsSection = React.memo(function EnvVarsSection() {
       return
     }
     setTeamEnvAvailable(null)
-    void invoke<boolean>('team_env_runtime_status', { teamId })
+    void invoke<boolean>('team_env_runtime_status', { teamId, workspacePath })
       .then((available) => {
         if (!cancelled) setTeamEnvAvailable(available)
       })
@@ -720,7 +971,7 @@ export const EnvVarsSection = React.memo(function EnvVarsSection() {
         if (!cancelled) setTeamEnvAvailable(null)
       })
     return () => { cancelled = true }
-  }, [teamId])
+  }, [teamId, workspacePath])
 
   // Build unified list: personal env vars + team secrets, with `system-shared`
   // system defs surfaced as either the matching team secret (uppercase key) or
@@ -757,17 +1008,19 @@ export const EnvVarsSection = React.memo(function EnvVarsSection() {
       }
     })
 
-    const personal: UnifiedEntry[] = envVars
-      // Drop `system-shared` defs from the personal bucket — they're either
-      // promoted into `team` above or rendered as a `team-placeholder` below.
-      .filter((e) => e.category !== 'system-shared')
-      .map((e) => ({
+    const personalByKey = new Map<string, UnifiedEntry>()
+    for (const entry of envVars.filter((e) => e.category !== 'system-shared')) {
+      const lower = entry.key.toLowerCase()
+      if (personalByKey.has(lower)) continue
+      personalByKey.set(lower, {
         scope: 'personal' as const,
-        key: e.key,
-        description: e.description,
-        category: e.category,
-        dirty: dirtyKeys.has(e.key),
-      }))
+        key: entry.key,
+        description: entry.description,
+        category: entry.category,
+        dirty: dirtyKeys.has(entry.key) || [...dirtyKeys].some((k) => k.toLowerCase() === lower),
+      })
+    }
+    const personal: UnifiedEntry[] = [...personalByKey.values()]
 
     const placeholders: UnifiedEntry[] = sharedSystemDefs
       .filter((d) => !satisfiedLowerKeys.has(d.key.toLowerCase()))
@@ -791,21 +1044,70 @@ export const EnvVarsSection = React.memo(function EnvVarsSection() {
     return all
   }, [envVars, teamSecrets, dirtyKeys, hasSyncDirty])
 
-  async function reloadRuntimeAfterEnvChange(key: string) {
+  async function reloadRuntimeAfterEnvChange(key: string): Promise<boolean> {
     const workspacePath = useWorkspaceStore.getState().workspacePath
-    if (!workspacePath) return
+    if (!workspacePath) {
+      toast.warning('环境变量已保存，但无法重载运行时', {
+        description: '未选择工作区。',
+      })
+      return false
+    }
+    setIsReloadingRuntime(true)
     try {
-      await reloadDaemonRuntime(encodeWorkspaceId(workspacePath))
+      const outcome = await reloadDaemonRuntime(encodeWorkspaceId(workspacePath))
+      if (!outcome) {
+        toast.warning('环境变量已保存，但 Agent 运行时重载失败', {
+          description: '本地 amuxd 不可用。请启动 daemon 后点击「重载 Agent 运行时」。',
+        })
+        return false
+      }
       setDirtyKeys((prev) => {
         const next = new Set(prev)
         next.delete(key)
         next.delete('__team_sync__')
         return next
       })
+      setDiagRefreshKey((k) => k + 1)
+      toast.success('环境变量已保存', {
+        description: describeEnvReloadOutcome(outcome),
+      })
+      return true
     } catch (err) {
       toast.warning('环境变量已保存，但 Agent 运行时重载失败', {
         description: err instanceof Error ? err.message : String(err),
       })
+      return false
+    } finally {
+      setIsReloadingRuntime(false)
+    }
+  }
+
+  async function handleManualRuntimeReload() {
+    const workspacePath = useWorkspaceStore.getState().workspacePath
+    if (!workspacePath) {
+      toast.error('未选择工作区')
+      return
+    }
+    setIsReloadingRuntime(true)
+    try {
+      const outcome = await reloadDaemonRuntime(encodeWorkspaceId(workspacePath))
+      if (!outcome) {
+        toast.error('重载失败', {
+          description: '本地 amuxd 不可用。',
+        })
+        return
+      }
+      setDirtyKeys(new Set())
+      setDiagRefreshKey((k) => k + 1)
+      toast.success('运行时已重载', {
+        description: describeEnvReloadOutcome(outcome as DaemonApplyOutcome),
+      })
+    } catch (err) {
+      toast.error('重载失败', {
+        description: err instanceof Error ? err.message : String(err),
+      })
+    } finally {
+      setIsReloadingRuntime(false)
     }
   }
 
@@ -822,20 +1124,27 @@ export const EnvVarsSection = React.memo(function EnvVarsSection() {
     await reloadRuntimeAfterEnvChange(key)
   }
 
-  const handleDelete = async () => {
+  async function handleDelete() {
     if (!deleteTarget) return
     const deletedKey = deleteTarget.key
-    if (deleteTarget.scope === 'team') {
-      await deleteCatalogEntry('team', deleteTarget.key, {
-        nodeId: currentNodeId ?? '',
-        role: isOwner ? 'owner' : 'member',
+    try {
+      if (deleteTarget.scope === 'team') {
+        await deleteCatalogEntry('team', deleteTarget.key, {
+          nodeId: currentNodeId ?? '',
+          role: isOwner ? 'owner' : 'member',
+        })
+      } else if (deleteTarget.scope === 'personal') {
+        await deleteCatalogEntry('personal', deleteTarget.key)
+      }
+      setDeleteTarget(null)
+      await reloadRuntimeAfterEnvChange(deletedKey)
+      toast.success(t('settings.envVars.deleteSuccess', 'Environment variable deleted'))
+    } catch (err) {
+      toast.error(t('settings.envVars.deleteFailed', 'Failed to delete environment variable'), {
+        description: err instanceof Error ? err.message : String(err),
       })
-    } else if (deleteTarget.scope === 'personal') {
-      await deleteCatalogEntry('personal', deleteTarget.key)
+      throw err
     }
-    // Placeholders have no backing storage to delete.
-    setDeleteTarget(null)
-    await reloadRuntimeAfterEnvChange(deletedKey)
   }
 
   // env_catalog_delete enforces the system-var guard server-side for personal scope.
@@ -927,11 +1236,20 @@ export const EnvVarsSection = React.memo(function EnvVarsSection() {
       )}
 
       {/* Team sync diagnostics */}
+      <PersonalEnvActivationDiagnosticsCard
+        workspacePath={workspacePath ?? null}
+        teamId={teamId}
+        refreshKey={diagRefreshKey + dirtyKeys.size}
+        dirtyKeyCount={dirtyKeys.size}
+        onReloadRuntime={handleManualRuntimeReload}
+        isReloading={isReloadingRuntime}
+      />
+
       <TeamEnvDiagnosticsCard
         teamId={teamId}
         teamName={teamName}
         workspacePath={workspacePath ?? null}
-        refreshKey={dirtyKeys.size}
+        refreshKey={dirtyKeys.size + diagRefreshKey}
       />
 
       {/* Dialogs */}
