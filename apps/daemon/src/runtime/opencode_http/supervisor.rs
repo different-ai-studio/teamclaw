@@ -121,10 +121,14 @@ impl ServeSupervisor {
     /// changes. Returns true when a process was running.
     pub fn shutdown(&self) -> bool {
         let taken = self.state.lock().take();
+        // Cached env is queued for the NEXT spawn, so it must go whether or not
+        // a child was alive to kill. Clearing it only in the `Some` arm left
+        // stale keys behind exactly when `evict_agent_types` runs against an
+        // already-dead serve — the case that eviction exists to recover from.
+        self.clear_extra_env();
         match taken {
             Some(mut inst) => {
                 kill_serve_tree(&mut inst.child);
-                self.clear_extra_env();
                 info!("opencode serve process group shut down");
                 true
             }
