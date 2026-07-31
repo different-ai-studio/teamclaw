@@ -125,7 +125,6 @@ export function InviteActorDialog({ open, onOpenChange, teamId }: InviteActorDia
     if (!invite) return
     try {
       await navigator.clipboard.writeText(invite.deeplink)
-      toast.success(t('invite.copied', 'Invite link copied'))
     } catch {
       toast.error(t('invite.copyFailed', 'Failed to copy invite link'))
     }

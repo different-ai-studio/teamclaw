@@ -242,7 +242,6 @@ export const LiveDebugConsole = React.memo(function LiveDebugConsole() {
     const text = entries.map(formatConsoleEntry).join('\n')
     try {
       await navigator.clipboard.writeText(text)
-      toast.success(t('settings.diagnostics.liveConsole.consoleCopied', 'Console 日志已复制'))
     } catch {
       toast.error(t('settings.diagnostics.copyFailed', '复制失败'))
     }
@@ -252,7 +251,6 @@ export const LiveDebugConsole = React.memo(function LiveDebugConsole() {
     if (!snapshot) return
     try {
       await navigator.clipboard.writeText(JSON.stringify(snapshot, null, 2))
-      toast.success(t('settings.diagnostics.liveConsole.stateCopied', '运行状态已复制'))
     } catch {
       toast.error(t('settings.diagnostics.copyFailed', '复制失败'))
     }

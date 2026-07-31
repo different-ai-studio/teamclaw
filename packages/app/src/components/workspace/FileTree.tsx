@@ -633,18 +633,15 @@ export function FileTree({
   // ── Clipboard handlers for context menu ──
   const handleCut = useCallback((paths: string[]) => {
     setClipboard(paths, 'cut');
-    toast.success(t('fileExplorer.cut', 'Cut {{count}} item(s)', { count: paths.length }));
-  }, [setClipboard, t]);
+  }, [setClipboard]);
 
   const handleCopy = useCallback((paths: string[]) => {
     setClipboard(paths, 'copy');
-    toast.success(t('fileExplorer.copied', 'Copied {{count}} item(s)', { count: paths.length }));
-  }, [setClipboard, t]);
+  }, [setClipboard]);
 
   const handlePaste = useCallback(async (targetDir: string) => {
     const success = await pasteFiles(targetDir);
     if (success) {
-      toast.success(t('fileExplorer.pasted', 'Pasted'));
       await expandDirectory(targetDir);
     } else {
       toast.error(t('fileExplorer.pasteFailed', 'Paste failed'));
@@ -655,7 +652,6 @@ export function FileTree({
   const handleDuplicate = useCallback(async (path: string) => {
     const success = await duplicateItem(path);
     if (success) {
-      toast.success(t('fileExplorer.duplicated', 'Duplicated'));
       await refreshFileTree();
     } else {
       toast.error(t('fileExplorer.duplicateFailed', 'Duplicate failed'));
@@ -830,7 +826,6 @@ export function FileTree({
           const paths = selectedFiles.length > 0 ? selectedFiles : (focusedPath ? [focusedPath] : []);
           if (paths.length > 0) {
             setClipboard(paths, 'copy');
-            toast.success(t('fileExplorer.copied', 'Copied {{count}} item(s)', { count: paths.length }));
           }
           return;
         }
@@ -839,7 +834,6 @@ export function FileTree({
           const paths = selectedFiles.length > 0 ? selectedFiles : (focusedPath ? [focusedPath] : []);
           if (paths.length > 0) {
             setClipboard(paths, 'cut');
-            toast.success(t('fileExplorer.cut', 'Cut {{count}} item(s)', { count: paths.length }));
           }
           return;
         }
@@ -858,7 +852,6 @@ export function FileTree({
             if (targetDir) {
               const success = await pasteFiles(targetDir);
               if (success) {
-                toast.success(t('fileExplorer.pasted', 'Pasted'));
                 await expandDirectory(targetDir);
               } else {
                 toast.error(t('fileExplorer.pasteFailed', 'Paste failed'));
@@ -1140,7 +1133,6 @@ export function FileTree({
           const { copyExternalFiles } = await import('./file-tree-operations');
           const success = await copyExternalFiles(paths, targetDir);
           if (success) {
-            toast.success(t('fileExplorer.externalDropped', 'Copied {{count}} file(s)', { count: paths.length }));
             await refreshFileTree();
             if (targetDir !== workspacePath) {
               await expandDirectory(targetDir);

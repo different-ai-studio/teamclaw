@@ -481,9 +481,7 @@
       "noMatchingModels": "没有匹配的模型",
       "removeMention": "移除提及",
       "modelChangeFailed": "切换模型失败",
-      "modelChangeWillRetry": "选择已保存，将在下次发送消息时重新应用。详情：{{message}}",
-      "modelPickSaved": "已选择模型",
-      "modelPickSavedHint": "将在发送消息或 runtime 就绪后应用到 Agent"
+      "modelChangeWillRetry": "选择已保存，将在下次发送消息时重新应用。详情：{{message}}"
     },
     "sessionAgent": {
       "bannerStaleOne": "{{name}} 已与当前本机 Agent 断开 — 消息可能不会由 Agent 处理",

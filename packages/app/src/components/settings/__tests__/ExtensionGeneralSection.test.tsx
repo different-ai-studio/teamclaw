@@ -124,7 +124,7 @@ describe('ExtensionGeneralSection', () => {
 
     await waitFor(() => {
       expect(clearLinkSessionMapForTeam).toHaveBeenCalledWith('team-1')
-      expect(toast.success).toHaveBeenCalled()
     })
+    expect(toast.success).not.toHaveBeenCalled()
   })
 })

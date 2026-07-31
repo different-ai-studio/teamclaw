@@ -61,7 +61,6 @@ export function LocalDaemonCard() {
   const handleCopyName = async (actor: ActorRowData) => {
     try {
       await navigator.clipboard.writeText(actor.display_name)
-      toast.success(t('actors.copiedName', 'Copied name'))
     } catch {
       toast.error(t('actors.copyFailed', 'Copy failed'))
     }
@@ -70,7 +69,6 @@ export function LocalDaemonCard() {
   const handleCopyId = async (actor: ActorRowData) => {
     try {
       await navigator.clipboard.writeText(actor.id)
-      toast.success(t('actors.copiedId', 'Copied actor ID'))
     } catch {
       toast.error(t('actors.copyFailed', 'Copy failed'))
     }

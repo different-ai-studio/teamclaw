@@ -201,7 +201,6 @@ export function ActorDetailDialog({ actor, teamId, onOpenChange, onRemoved }: Pr
   const copyId = async () => {
     try {
       await navigator.clipboard.writeText(displayActor.id)
-      toast.success(t('actors.copiedId', 'Copied actor ID'))
     } catch {
       toast.error(t('actors.copyFailed', 'Copy failed'))
     }
@@ -275,7 +274,6 @@ export function ActorDetailDialog({ actor, teamId, onOpenChange, onRemoved }: Pr
     if (!reinvite) return
     try {
       await navigator.clipboard.writeText(reinvite.deeplink)
-      toast.success(t('invite.copied', 'Invite link copied'))
     } catch {
       toast.error(t('invite.copyFailed', 'Failed to copy invite link'))
     }

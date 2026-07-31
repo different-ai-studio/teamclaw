@@ -101,7 +101,6 @@ export function useChannelConfig<TConfig extends object>(
       if (isRunning) {
         setHasChanges(true)
       }
-      toast.success(i18n.t('settings.channels.saveSuccess', 'Changes saved'))
     } catch (err) {
       toast.error(i18n.t('settings.channels.saveError', 'Failed to save changes'), {
         description: err instanceof Error ? err.message : undefined,

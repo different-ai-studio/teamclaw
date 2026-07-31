@@ -481,9 +481,7 @@
       "noMatchingModels": "No matching models",
       "removeMention": "Remove mention",
       "modelChangeFailed": "Failed to change model",
-      "modelChangeWillRetry": "Pick saved; will reapply on next send. Detail: {{message}}",
-      "modelPickSaved": "Model selected",
-      "modelPickSavedHint": "Will apply to the agent on next send or when its runtime is ready"
+      "modelChangeWillRetry": "Pick saved; will reapply on next send. Detail: {{message}}"
     },
     "sessionAgent": {
       "bannerStaleOne": "{{name}} is no longer linked to this machine's agent — messages may not be processed",

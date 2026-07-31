@@ -449,8 +449,6 @@ export const useKnowledgeStore = create<KnowledgeState>((set, get) => ({
       
       if (needsReindex) {
         toast.warning(i18n.t('knowledge.toast.configSavedNeedsReindex'))
-      } else {
-        toast.success(i18n.t('knowledge.toast.configSaved'))
       }
     } catch (error) {
       console.error('Failed to save config:', error)

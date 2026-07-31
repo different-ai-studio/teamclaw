@@ -131,7 +131,6 @@ export const GeneralSection = React.memo(function GeneralSection() {
     const ok = await renameCurrentMember(trimmed)
     if (ok) {
       setDisplayNameDirty(false)
-      toast.success(t('settings.general.displayNameSaved', 'Display name updated'))
     } else {
       toast.error(t('settings.general.displayNameError', 'Could not update display name'))
     }
@@ -172,7 +171,6 @@ export const GeneralSection = React.memo(function GeneralSection() {
       await invoke('set_window_close_preference', {
         action: next === 'ask' ? null : next,
       })
-      toast.success(t('settings.general.closeWindowSaved', 'Close preference updated'))
     } catch {
       toast.error(t('settings.general.closeWindowError', 'Could not update close preference'))
     }
@@ -446,13 +444,11 @@ function ServerAddressCard() {
     try {
       const outcome = await fetchAndApplyBootstrap({ accessToken })
       await reload()
-      if (outcome === 'applied') {
-        toast.success(t('settings.general.mqttRefetchApplied', 'Broker updated from server'))
-      } else if (outcome === 'cloud-empty') {
+      if (outcome === 'cloud-empty') {
         toast.error(
           t('settings.general.mqttRefetchEmpty', 'Server still returns no MQTT configuration'),
         )
-      } else {
+      } else if (outcome !== 'applied') {
         toast.error(t('settings.general.mqttRefetchFailed', 'Could not reach the server'))
       }
     } finally {
@@ -528,7 +524,6 @@ function ServerAddressCard() {
                   className="ml-auto h-6 px-2 text-[11px]"
                   onClick={() => {
                     void recoverMqttConnection()
-                    toast.success(t('settings.general.mqttReconnecting', 'Reconnecting…'))
                   }}
                 >
                   {t('settings.general.mqttReconnect', 'Reconnect')}

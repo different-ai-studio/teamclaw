@@ -125,9 +125,6 @@ export const ExtensionGeneralSection = React.memo(function ExtensionGeneralSecti
     setClearingMap(true)
     try {
       await clearLinkSessionMapForTeam(teamId)
-      toast.success(
-        t('settings.extension.linkSessionMap.cleared', 'Cleared link-to-session mappings for this team'),
-      )
     } catch (e) {
       console.error('[extension-settings] clear link session map failed', e)
       toast.error(t('settings.extension.linkSessionMap.clearError', 'Could not clear link mappings'))

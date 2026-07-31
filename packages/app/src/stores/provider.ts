@@ -491,7 +491,6 @@ export const useProviderStore = create<ProviderState>((set, get) => ({
       newDisconnected.delete(providerId)
       return { _disconnectedIds: newDisconnected }
     })
-    toast.success('Provider connected', { description: `Successfully connected ${providerId}` })
     await reloadRuntimeAfterProviderChange(workspacePath)
     await Promise.all([get().refreshProviders(), get().refreshConfiguredProviders()])
     return true
@@ -565,9 +564,6 @@ export const useProviderStore = create<ProviderState>((set, get) => ({
       await putDaemonProviderAuth(encodeWorkspaceId(workspacePath), providerId, {
         api_key: trimmedKey,
       })
-      if (providerId !== 'team') {
-        toast.success('Provider connected', { description: `Successfully connected ${providerId}` })
-      }
       set((state) => {
         const newDisconnected = new Set(state._disconnectedIds)
         newDisconnected.delete(providerId)
@@ -594,7 +590,6 @@ export const useProviderStore = create<ProviderState>((set, get) => ({
     try {
       await deleteDaemonProviderAuth(encodeWorkspaceId(workspacePath), providerId)
       await reloadRuntimeAfterProviderChange(workspacePath)
-      toast.success('Provider disconnected', { description: `Successfully disconnected ${providerId}` })
       set((state) => {
         const newDisconnected = new Set(state._disconnectedIds)
         newDisconnected.add(providerId)
@@ -664,9 +659,6 @@ export const useProviderStore = create<ProviderState>((set, get) => ({
       })
       await reloadRuntimeAfterProviderChange(workspacePath)
       await Promise.all([get().refreshProviders(), get().refreshConfiguredProviders()])
-      toast.success('Custom provider added', {
-        description: `${config.name} has been added. Restarting agent...`,
-      })
       return providerId
     } catch (err) {
       console.error('Failed to add custom provider:', err)
@@ -698,9 +690,6 @@ export const useProviderStore = create<ProviderState>((set, get) => ({
       })
       await reloadRuntimeAfterProviderChange(workspacePath)
       await Promise.all([get().refreshProviders(), get().refreshConfiguredProviders()])
-      toast.success('Custom provider updated', {
-        description: `${config.name} has been updated. Restarting agent...`,
-      })
       return true
     } catch (err) {
       console.error('Failed to update custom provider:', err)
@@ -733,9 +722,6 @@ export const useProviderStore = create<ProviderState>((set, get) => ({
     const wsId = encodeWorkspaceId(workspacePath)
     try {
       await deleteDaemonProviderAuth(wsId, providerId)
-      toast.success('Custom provider removed', {
-        description: `Provider has been removed. Restarting agent...`,
-      })
       return true
     } catch (err) {
       console.error('Failed to remove custom provider:', err)
