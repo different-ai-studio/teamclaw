@@ -270,7 +270,7 @@
       "routingMultiAgent": "Multiple agents — @ a name to choose who replies.",
       "participantCount": "{{count}} participants · Waiting for the first message"
     },
-    "draftStartConversation": "Start conversation",
+
     "backToActiveSession": "Back to active session",
     "archivedSession": "Archived session",
     "restoreSession": "Restore",
@@ -470,8 +470,8 @@
     "messageCountShort_plural": "{{count}} msgs",
     "draftContinueBanner": "{{count}} session in progress with {{name}}",
     "draftContinueRecent": "Recent sessions",
-    "draftWithAgentHint": "Tap below to start a new session with this agent",
-    "draftWithMemberHint": "Tap below to start a new session with this member",
+    "draftWithAgentHint": "Type below — a session is created when you send",
+    "draftWithMemberHint": "Type below — a session is created when you send",
     "untitledSession": "(Untitled)",
     "agentSelector": {
       "noModels": "No models advertised",

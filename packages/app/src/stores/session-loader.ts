@@ -128,6 +128,7 @@ export function createLoaderActions(set: SessionSet, _get: SessionGet) {
         const soleAgent = agentRows.length === 1 ? agentRows[0] : null;
 
         const { createSessionShell } = await import("@/lib/session-create");
+        const { promoteCreatedSessionToUi } = await import("@/lib/promote-created-session");
         const { sessionId } = await createSessionShell({
           teamId: currentTeam.id,
           creatorActorId,
@@ -135,7 +136,11 @@ export function createLoaderActions(set: SessionSet, _get: SessionGet) {
           additionalActorIds: soleAgent ? [soleAgent.id] : [],
         });
 
-        await useSessionListStore.getState().load();
+        await promoteCreatedSessionToUi({
+          sessionId,
+          teamId: currentTeam.id,
+          title: "New chat",
+        });
         trackEvent("session_started");
 
         const now = new Date();

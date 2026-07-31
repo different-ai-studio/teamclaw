@@ -8,14 +8,12 @@ import { Button } from '@/components/ui/button'
 import { useUIStore } from '@/stores/ui'
 import { useAuthStore } from '@/stores/auth-store'
 import { useCurrentTeamStore } from '@/stores/current-team'
-import { useSessionListStore } from '@/stores/session-list-store'
-import { useSessionStore } from '@/stores/session'
 import { resolveCurrentMemberActorId } from '@/lib/current-actor'
 import { syncActorsForTeam } from '@/lib/sync/actor-sync'
 import { useActorDirectory } from '@/stores/actor-directory-store'
 import { actorAvatarColor } from '@/lib/actor-color'
 import { createSessionWithFirstMessage } from '@/lib/session-create'
-import { ensureSessionLiveSubscribed } from '@/lib/session-live-subscriptions'
+import { promoteCreatedSessionToUi } from '@/lib/promote-created-session'
 import { useEngagedAgentStore } from '@/stores/engaged-agent-store'
 import { cn } from '@/lib/utils'
 import { useMemberPreferencesStore } from '@/stores/member-preferences-store'
@@ -144,15 +142,13 @@ export function NewSessionDialog() {
       }
       const additionalActorIds = Array.from(picked)
       const agentActorIds = pickedActors.filter((p) => p.actor_type === 'agent').map((p) => p.id)
+      const trimmed = message.trim()
       const { sessionId } = await createSessionWithFirstMessage({
         teamId,
         creatorActorId,
         additionalActorIds,
         agentActorIds,
-        messageText: message,
-      })
-      await ensureSessionLiveSubscribed(teamId, sessionId).catch((e) => {
-        console.warn('[NewSessionDialog] live subscribe failed (non-fatal):', e)
+        messageText: trimmed,
       })
       const agentPicks = pickedActors.filter((p) => p.actor_type === 'agent')
       if (agentPicks.length > 0) {
@@ -164,9 +160,12 @@ export function NewSessionDialog() {
           })),
         )
       }
-      await useSessionListStore.getState().load()
-      useSessionStore.getState().addHighlightedSession(sessionId)
-      await useUIStore.getState().switchToSession(sessionId)
+      await promoteCreatedSessionToUi({
+        sessionId,
+        teamId,
+        title: trimmed.split('\n')[0]?.trim().slice(0, 80) || 'New chat',
+        lastMessagePreview: trimmed.slice(0, 120) || null,
+      })
       closeDialog()
     } catch (e) {
       console.error('[NewSessionDialog] create failed:', e)

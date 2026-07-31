@@ -45,7 +45,7 @@ import { Button } from "@/components/ui/button";
 import { LocalAgentWelcomeEmptyState } from "./LocalAgentWelcomeEmptyState";
 import { SessionEmptyThreadState } from "./SessionEmptyThreadState";
 import { createQuickSession, describeQuickSessionFailure, type QuickSessionFailureReason } from "@/lib/create-quick-session";
-import { createQuickEmptySession } from "@/lib/quick-empty-session";
+import { promoteCreatedSessionToUi } from "@/lib/promote-created-session";
 import { isSoloAgentSession } from "@/lib/session-empty-thread-starters";
 
 import type { Message } from "@/stores/session";
@@ -418,10 +418,26 @@ export function ChatPanel({ compact = false }: ChatPanelProps) {
   // engagedAgents is per-session: each @-mentioned agent shows as a pill in
   // the prompt-input toolbar. Switching away from a session and back
   // restores its engaged set rather than carrying one across sessions.
-  // For brand-new chats (activeSessionId === null), the list is empty.
-  const engagedAgents = useEngagedAgentStore((s) =>
+  // Draft-first chats (no session yet) surface the preselected agent as a
+  // synthetic pill so the composer matches what first-send will create.
+  const sessionEngagedAgents = useEngagedAgentStore((s) =>
     activeSessionId ? s.bySession[activeSessionId] ?? EMPTY_AGENTS : EMPTY_AGENTS,
   );
+  const engagedAgents = React.useMemo(() => {
+    if (sessionEngagedAgents.length > 0) return sessionEngagedAgents;
+    if (
+      !activeSessionId &&
+      draftPreselectedActor?.kind === 'agent'
+    ) {
+      return [
+        {
+          id: draftPreselectedActor.id,
+          displayName: draftPreselectedActor.displayName,
+        },
+      ];
+    }
+    return EMPTY_AGENTS;
+  }, [activeSessionId, draftPreselectedActor, sessionEngagedAgents]);
   const engagedAgentIds = React.useMemo(
     () => engagedAgents.map((a) => a.id),
     [engagedAgents],
@@ -1638,20 +1654,36 @@ export function ChatPanel({ compact = false }: ChatPanelProps) {
                 agents: [],
                 members: [{ id: draftPreselectedActor.id, displayName: draftPreselectedActor.displayName }],
               };
+        const draftActorId = draftPreselectedActor.id;
+        // Keep draftPreselectedActor until the new session is active —
+        // clearing it first flashes LocalAgentWelcomeEmptyState ("… is
+        // waiting on this device") for the duration of createSessionShell.
+        setWelcomeSessionStarting(true);
         try {
-          localStorage.removeItem(`teamclaw-actor-draft:${draftPreselectedActor.id}`);
-        } catch {
-          /* localStorage disabled */
+          const created = await createSessionAndSendFirst(message, picks);
+          if (created) {
+            try {
+              localStorage.removeItem(`teamclaw-actor-draft:${draftActorId}`);
+            } catch {
+              /* localStorage disabled */
+            }
+            useUIStore.getState().clearActorDraft();
+          }
+        } finally {
+          setWelcomeSessionStarting(false);
         }
-        useUIStore.getState().clearActorDraft();
-        await createSessionAndSendFirst(message, picks);
         return;
       }
       if (welcomeQuickChatAgent) {
-        await createSessionAndSendFirst(message, {
-          agents: [{ id: welcomeQuickChatAgent.id, displayName: welcomeQuickChatAgent.displayName }],
-          members: [],
-        });
+        setWelcomeSessionStarting(true);
+        try {
+          await createSessionAndSendFirst(message, {
+            agents: [{ id: welcomeQuickChatAgent.id, displayName: welcomeQuickChatAgent.displayName }],
+            members: [],
+          });
+        } finally {
+          setWelcomeSessionStarting(false);
+        }
         return;
       }
       useUIStore.getState().openNewSessionDialog(message.text ?? null);
@@ -1671,7 +1703,7 @@ export function ChatPanel({ compact = false }: ChatPanelProps) {
       members: { id: string; displayName: string }[]
       agents: { id: string; displayName: string }[]
     },
-  ) => {
+  ): Promise<boolean> => {
     const teamIdForSend = sheetTeamId;
     sessionFlowLog("session_create.begin", {
       teamId: teamIdForSend,
@@ -1682,7 +1714,7 @@ export function ChatPanel({ compact = false }: ChatPanelProps) {
     if (!teamIdForSend) {
       sessionFlowLog("session_create.missing_team", {}, "warn");
       console.error('[ChatPanel] no team_id available; cannot create session');
-      return;
+      return false;
     }
 
     const authSession = useAuthStore.getState().session;
@@ -1691,7 +1723,7 @@ export function ChatPanel({ compact = false }: ChatPanelProps) {
         teamId: teamIdForSend,
       }, "warn");
       console.error('[ChatPanel] no auth session');
-      return;
+      return false;
     }
     const myActorId = await resolveCurrentMemberActorId(
       teamIdForSend,
@@ -1709,7 +1741,7 @@ export function ChatPanel({ compact = false }: ChatPanelProps) {
       console.error('[ChatPanel] no actor record for user in team', teamIdForSend);
       const { toast } = await import('sonner');
       toast.error(t('chat.newSessionPicker.createError', 'Failed to create session'));
-      return;
+      return false;
     }
 
     // Initial title: "ActorName (HH:mm)" when we have exactly one
@@ -1760,39 +1792,21 @@ export function ChatPanel({ compact = false }: ChatPanelProps) {
         useUIStore.getState().clearDraftIdeaId();
       }
 
-      // Subscribe to the new session's live topic before publishing the
-      // first message — otherwise the daemon's acp.event + message.created
-      // can arrive before the reactive per-rows subscribe catches up.
-      sessionFlowLog("session_create.subscribe_live.begin", {
+      // Optimistic list row + switch — do not await a full session-list
+      // refetch before the user can see the new chat / send completes.
+      sessionFlowLog("session_create.promote.begin", {
         teamId: teamIdForSend,
         sessionId,
       });
-      await ensureSessionLiveSubscribed(teamIdForSend, sessionId).catch((e) => {
-        console.warn('[ChatPanel] live subscribe failed (non-fatal):', e);
-      });
-      sessionFlowLog("session_create.subscribe_live.ok", {
+      await promoteCreatedSessionToUi({
+        sessionId,
         teamId: teamIdForSend,
-        sessionId,
+        title: titleSource,
+        ideaId: draftIdeaId,
+        lastMessagePreview: (firstMessage.text ?? '').trim().slice(0, 120) || null,
       });
-
-      // Refresh session-list-store so the new row appears in the sidebar
-      // and sendIntoSession can find it by id.
-      sessionFlowLog("session_create.session_list_reload.begin", {
+      sessionFlowLog("session_create.promote.ok", {
         teamId: teamIdForSend,
-        sessionId,
-      });
-      await useSessionListStore.getState().load();
-      sessionFlowLog("session_create.session_list_reload.ok", {
-        teamId: teamIdForSend,
-        sessionId,
-        rowCount: useSessionListStore.getState().rows.length,
-      });
-      useSessionStore.getState().addHighlightedSession(sessionId);
-      sessionFlowLog("session_create.switch.begin", {
-        sessionId,
-      });
-      await useUIStore.getState().switchToSession(sessionId);
-      sessionFlowLog("session_create.switch.ok", {
         sessionId,
       });
 
@@ -1831,6 +1845,7 @@ export function ChatPanel({ compact = false }: ChatPanelProps) {
           agentActorIds: agentIds,
         });
       }
+      return true;
     } catch (e) {
       sessionFlowError("session_create.failed", e, {
         teamId: teamIdForSend,
@@ -1838,6 +1853,7 @@ export function ChatPanel({ compact = false }: ChatPanelProps) {
       console.error('[ChatPanel] session creation failed:', e);
       const { toast } = await import('sonner');
       toast.error(t('chat.newSessionPicker.createError', 'Failed to create session'));
+      return false;
     }
   };
 
@@ -1879,38 +1895,6 @@ export function ChatPanel({ compact = false }: ChatPanelProps) {
       setWelcomeSessionStarting(false);
     }
   }, [welcomeQuickChatAgent, welcomeSessionStarting]);
-
-  const handleStartDraftSession = React.useCallback(async () => {
-    if (welcomeSessionStarting || !draftPreselectedActor) return;
-    setWelcomeSessionStarting(true);
-    try {
-      const actor = draftPreselectedActor;
-      const created = await createQuickEmptySession({
-        additionalActorIds: [actor.id],
-        titleName: actor.displayName,
-        engagedAgent:
-          actor.kind === 'agent'
-            ? { id: actor.id, displayName: actor.displayName }
-            : null,
-        agentActorIdsForRuntime: actor.kind === 'agent' ? [actor.id] : [],
-        runtimeReason: 'actor_draft_start',
-      });
-      if (!created) {
-        toast.error(t('chat.newSessionPicker.createError', 'Failed to create session'));
-        return;
-      }
-      try {
-        localStorage.removeItem(`teamclaw-actor-draft:${actor.id}`);
-      } catch {
-        /* localStorage disabled */
-      }
-    } catch (e) {
-      console.error('[ChatPanel] actor draft start failed', e);
-      toast.error(t('chat.newSessionPicker.createError', 'Failed to create session'));
-    } finally {
-      setWelcomeSessionStarting(false);
-    }
-  }, [draftPreselectedActor, t, welcomeSessionStarting]);
 
   const handleOpenAgentSettings = React.useCallback(() => {
     useUIStore.getState().openSettings('daemonGeneral');
@@ -1968,27 +1952,20 @@ export function ChatPanel({ compact = false }: ChatPanelProps) {
             )}
           >
             {draftPreselectedActor.kind === 'agent'
-              ? t('chat.draftWithAgentHint', '点击下方开始与该 Agent 的新会话')
-              : t('chat.draftWithMemberHint', '点击下方开始与该成员的新会话')}
+              ? t('chat.draftWithAgentHint', '在下方输入消息，发送后创建与该 Agent 的会话')
+              : t('chat.draftWithMemberHint', '在下方输入消息，发送后创建与该成员的会话')}
           </p>
-          <Button
-            type="button"
-            size="sm"
-            className="mt-4 bg-coral text-white hover:bg-coral/90"
-            disabled={welcomeSessionStarting}
-            onClick={() => void handleStartDraftSession()}
-          >
-            {welcomeSessionStarting ? (
-              <Loader2 className="mr-2 h-3.5 w-3.5 animate-spin" />
-            ) : null}
-            {t('chat.draftStartConversation', '开始对话')}
-          </Button>
           <SessionContinueBanner
             actorId={draftPreselectedActor.id}
             actorName={draftPreselectedActor.displayName}
           />
         </div>
       );
+    }
+    // Creating the first session from welcome/draft — keep the thread blank
+    // instead of flashing the "… is waiting on this device" welcome card.
+    if (welcomeSessionStarting) {
+      return null;
     }
     if (!compact) {
       return (
@@ -2024,7 +2001,6 @@ export function ChatPanel({ compact = false }: ChatPanelProps) {
     welcomeQuickChatAgent,
     welcomeQuickChatLoading,
     welcomeSessionStarting,
-    handleStartDraftSession,
     handleStartLocalAgentSession,
     handleLocalAgentQuickAction,
     handleOpenAgentSettings,
@@ -2301,7 +2277,7 @@ export function ChatPanel({ compact = false }: ChatPanelProps) {
             {t("chat.restoreArchivedHint", "Restore this session to continue chatting")}
           </div>
         </div>
-      ) : !isViewingChild && activeSessionId && (
+      ) : !isViewingChild ? (
         activeInputQuestion ? (
           <QuestionInputDock
             compact={compact}
@@ -2374,7 +2350,7 @@ export function ChatPanel({ compact = false }: ChatPanelProps) {
           />
           </>
         )
-      )}
+      ) : null}
 
       {terminalOpen && workspacePath && (
         <TerminalPanel

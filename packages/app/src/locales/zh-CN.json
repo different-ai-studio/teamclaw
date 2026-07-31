@@ -270,7 +270,7 @@
       "routingMultiAgent": "多位 Agent 在场——请 @名字 指定回复对象。",
       "participantCount": "{{count}} 位参与者 · 等待第一条消息"
     },
-    "draftStartConversation": "开始对话",
+
     "backToActiveSession": "返回活跃会话",
     "archivedSession": "归档会话",
     "restoreSession": "恢复",
@@ -470,8 +470,8 @@
     "messageCountShort_plural": "{{count}} 条消息",
     "draftContinueBanner": "与 {{name}} 还有 {{count}} 个进行中",
     "draftContinueRecent": "最近会话",
-    "draftWithAgentHint": "点击下方开始与该 Agent 的新会话",
-    "draftWithMemberHint": "点击下方开始与该成员的新会话",
+    "draftWithAgentHint": "在下方输入消息，发送后创建与该 Agent 的会话",
+    "draftWithMemberHint": "在下方输入消息，发送后创建与该成员的会话",
     "untitledSession": "(未命名)",
     "agentSelector": {
       "noModels": "暂无可用模型",

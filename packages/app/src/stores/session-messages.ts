@@ -68,14 +68,21 @@ export function createMessageActions(set: SessionSet, get: SessionGet) {
         : null;
 
     const { createSessionShell } = await import("@/lib/session-create");
+    const { promoteCreatedSessionToUi } = await import("@/lib/promote-created-session");
+    const title = content.trim().slice(0, 80) || "New chat";
     const { sessionId } = await createSessionShell({
       teamId: currentTeam.id,
       creatorActorId,
-      title: content.trim().slice(0, 80) || "New chat",
+      title,
       additionalActorIds: soleAgent ? [soleAgent.id] : [],
     });
 
-    await useSessionListStore.getState().load();
+    await promoteCreatedSessionToUi({
+      sessionId,
+      teamId: currentTeam.id,
+      title,
+      lastMessagePreview: content.trim().slice(0, 120) || null,
+    });
     set({
       activeSessionId: sessionId,
       currentSessionId: sessionId,
