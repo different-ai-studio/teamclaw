@@ -9,7 +9,7 @@
  *    columns added in migration 0003_complex_synch.sql.
  */
 
-import { and, desc, eq, inArray, lt } from "drizzle-orm";
+import { and, desc, eq, inArray, isNull, lt, or } from "drizzle-orm";
 import type { PgDatabase } from "drizzle-orm/pg-core";
 import { workspaces, teamWorkspaceConfig } from "../../db/schema/index.js";
 
@@ -18,6 +18,44 @@ const iso = (d: Date | string | null | undefined): string | null =>
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 type DbLike = PgDatabase<any, any>;
+
+function normalizeWorkspacePath(path: string | null | undefined): string | null {
+  if (path == null) return null;
+  const trimmed = path.trim();
+  if (!trimmed) return null;
+  return trimmed.replace(/\/+$/, "") || trimmed;
+}
+
+function agentIdCondition(agentId: string | null | undefined) {
+  return agentId ? eq(workspaces.agentId, agentId) : isNull(workspaces.agentId);
+}
+
+function pathLookupCondition(teamId: string, normalizedPath: string) {
+  return and(
+    eq(workspaces.teamId, teamId),
+    or(eq(workspaces.path, normalizedPath), eq(workspaces.path, `${normalizedPath}/`)),
+  );
+}
+
+async function findUniqueWorkspaceName(
+  db: DbLike,
+  teamId: string,
+  agentId: string | null | undefined,
+  baseName: string,
+): Promise<string> {
+  let candidate = baseName;
+  let suffix = 2;
+  while (true) {
+    const [existing] = await db
+      .select({ id: workspaces.id })
+      .from(workspaces)
+      .where(and(eq(workspaces.teamId, teamId), agentIdCondition(agentId), eq(workspaces.name, candidate)))
+      .limit(1);
+    if (!existing) return candidate;
+    candidate = `${baseName} (${suffix})`;
+    suffix += 1;
+  }
+}
 
 function mapWorkspace(r: any) {
   return {
@@ -80,14 +118,47 @@ export function makeWorkspacesRepo(db: DbLike) {
       archived?: boolean;
     }) {
       let targetId = input.id ?? null;
+      const normalizedPath = normalizeWorkspacePath(input.path);
+      let resolvedName = input.name;
 
-      if (!targetId && input.path) {
+      if (!targetId && normalizedPath) {
         const [existing] = await db
           .select({ id: workspaces.id })
           .from(workspaces)
-          .where(and(eq(workspaces.teamId, input.teamId), eq(workspaces.path, input.path)))
+          .where(pathLookupCondition(input.teamId, normalizedPath))
           .limit(1);
         if (existing) targetId = existing.id;
+      }
+
+      if (!targetId) {
+        const [existingByName] = await db
+          .select({ id: workspaces.id, path: workspaces.path, archived: workspaces.archived })
+          .from(workspaces)
+          .where(
+            and(
+              eq(workspaces.teamId, input.teamId),
+              agentIdCondition(input.agentId),
+              eq(workspaces.name, resolvedName),
+            ),
+          )
+          .limit(1);
+
+        if (existingByName) {
+          const existingPath = normalizeWorkspacePath(existingByName.path);
+          if (normalizedPath && existingPath === normalizedPath) {
+            targetId = existingByName.id;
+          } else if (existingByName.archived) {
+            // Re-bind an archived row instead of violating (team_id, agent_id, name).
+            targetId = existingByName.id;
+          } else {
+            resolvedName = await findUniqueWorkspaceName(
+              db,
+              input.teamId,
+              input.agentId,
+              resolvedName,
+            );
+          }
+        }
       }
 
       if (targetId) {
@@ -95,8 +166,8 @@ export function makeWorkspacesRepo(db: DbLike) {
           .values({
             id: targetId,
             teamId: input.teamId,
-            name: input.name,
-            path: input.path ?? null,
+            name: resolvedName,
+            path: normalizedPath,
             agentId: input.agentId ?? null,
             createdByMemberId: input.createdByMemberId ?? null,
             archived: input.archived ?? false,
@@ -104,8 +175,8 @@ export function makeWorkspacesRepo(db: DbLike) {
           .onConflictDoUpdate({
             target: workspaces.id,
             set: {
-              name: input.name,
-              path: input.path ?? null,
+              name: resolvedName,
+              path: normalizedPath,
               agentId: input.agentId ?? null,
               archived: input.archived ?? false,
               updatedAt: new Date(),
@@ -118,8 +189,8 @@ export function makeWorkspacesRepo(db: DbLike) {
       const [r] = await (db.insert(workspaces) as any)
         .values({
           teamId: input.teamId,
-          name: input.name,
-          path: input.path ?? null,
+          name: resolvedName,
+          path: normalizedPath,
           agentId: input.agentId ?? null,
           createdByMemberId: input.createdByMemberId ?? null,
           archived: input.archived ?? false,

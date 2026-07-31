@@ -165,6 +165,93 @@ test("pg-repo [workspaces]: upsertWorkspace cross-team same-path creates distinc
   assert.equal((count.rows[0] as { n: number }).n, 2, "both T1 and T2 workspaces should exist for same path");
 });
 
+test("pg-repo [workspaces]: upsertWorkspace disambiguates name when same agent already has that name at another path", async () => {
+  const { pg, repo } = await makeRepo();
+  await seedTeam(pg, T1, "t1-name-collision-slug");
+  const agentId = "d0000000-0000-0000-0000-000000000001";
+
+  await repo.upsertWorkspace({
+    teamId: T1,
+    agentId,
+    name: "teamclaw",
+    path: "/Users/me/code/teamclaw",
+  });
+
+  const second = await repo.upsertWorkspace({
+    teamId: T1,
+    agentId,
+    name: "teamclaw",
+    path: "/Users/me/other/teamclaw",
+  });
+
+  assert.equal(second.name, "teamclaw (2)");
+  assert.equal(second.slug, "/Users/me/other/teamclaw");
+
+  const count = await pg.query(
+    "SELECT count(*)::int AS n FROM workspaces WHERE team_id = $1 AND agent_id = $2",
+    [T1, agentId],
+  );
+  assert.equal((count.rows[0] as { n: number }).n, 2);
+});
+
+test("pg-repo [workspaces]: upsertWorkspace reuses archived row with same name instead of inserting", async () => {
+  const { pg, repo } = await makeRepo();
+  await seedTeam(pg, T1, "t1-archived-reuse-slug");
+  const agentId = "d0000000-0000-0000-0000-000000000002";
+
+  const archived = await repo.upsertWorkspace({
+    teamId: T1,
+    agentId,
+    name: "legacy",
+    path: "/Users/me/legacy",
+    archived: true,
+  });
+
+  const restored = await repo.upsertWorkspace({
+    teamId: T1,
+    agentId,
+    name: "legacy",
+    path: "/Users/me/legacy-new",
+    archived: false,
+  });
+
+  assert.equal(restored.id, archived.id);
+  assert.equal(restored.archived, false);
+  assert.equal(restored.slug, "/Users/me/legacy-new");
+
+  const count = await pg.query(
+    "SELECT count(*)::int AS n FROM workspaces WHERE team_id = $1 AND name = $2",
+    [T1, "legacy"],
+  );
+  assert.equal((count.rows[0] as { n: number }).n, 1);
+});
+
+test("pg-repo [workspaces]: upsertWorkspace dedups path with trailing slash", async () => {
+  const { pg, repo } = await makeRepo();
+  await seedTeam(pg, T1, "t1-trailing-slash-slug");
+
+  const first = await repo.upsertWorkspace({
+    teamId: T1,
+    name: "slash-test",
+    path: "/tmp/slash-test/",
+  });
+
+  const second = await repo.upsertWorkspace({
+    teamId: T1,
+    name: "slash-test",
+    path: "/tmp/slash-test",
+  });
+
+  assert.equal(second.id, first.id);
+  assert.equal(second.slug, "/tmp/slash-test");
+
+  const count = await pg.query(
+    "SELECT count(*)::int AS n FROM workspaces WHERE team_id = $1 AND path IN ($2, $3)",
+    [T1, "/tmp/slash-test", "/tmp/slash-test/"],
+  );
+  assert.equal((count.rows[0] as { n: number }).n, 1);
+});
+
 // ── getWorkspace ──────────────────────────────────────────────────────────────
 
 test("pg-repo [workspaces]: getWorkspace returns named workspace", async () => {
