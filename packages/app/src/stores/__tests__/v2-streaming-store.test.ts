@@ -1,12 +1,14 @@
-import { describe, it, expect, beforeEach } from "vitest";
+import { describe, it, expect, beforeEach, vi } from "vitest";
 import {
   isErrorOnlyStreamEntry,
   isStreamInterruptible,
   useV2StreamingStore,
   selectStreamsForSession,
+  flushPendingSessionRevisionsForTests,
 } from "../v2-streaming-store";
 
 beforeEach(() => {
+  flushPendingSessionRevisionsForTests();
   // Reset to a clean state
   useV2StreamingStore.setState({
     byKey: {},
@@ -837,9 +839,11 @@ describe("revisionBySession", () => {
   it("appendOutput bumps only its session's revision", () => {
     const store = useV2StreamingStore.getState();
     store.appendOutput("s1", "a1", "hello");
+    flushPendingSessionRevisionsForTests();
     expect(useV2StreamingStore.getState().revisionBySession["s1"]).toBe(1);
     expect(useV2StreamingStore.getState().revisionBySession["s2"]).toBeUndefined();
     store.appendOutput("s1", "a1", " world");
+    flushPendingSessionRevisionsForTests();
     expect(useV2StreamingStore.getState().revisionBySession["s1"]).toBe(2);
   });
 
@@ -850,6 +854,7 @@ describe("revisionBySession", () => {
     });
     store.setError("s1", "a1", "boom", "details");
     store.finalize("s1", "a1", "final");
+    flushPendingSessionRevisionsForTests();
     expect(useV2StreamingStore.getState().revisionBySession["s1"]).toBe(3);
   });
 
@@ -857,16 +862,68 @@ describe("revisionBySession", () => {
     const store = useV2StreamingStore.getState();
     store.setError("s1", "a1", "ACP prompt failed", "Authentication required");
     store.finishSessionActor("s1", "a1");
+    flushPendingSessionRevisionsForTests();
     expect(useV2StreamingStore.getState().revisionBySession["s1"]).toBe(2);
 
     store.clearStaleStreamErrors("s1", "a1");
+    flushPendingSessionRevisionsForTests();
     expect(useV2StreamingStore.getState().revisionBySession["s1"]).toBe(3);
   });
 
   it("appendOutputBatch bumps revision once for the whole batch", () => {
     const store = useV2StreamingStore.getState();
     store.appendOutputBatch("s1", "a1", ["a", "b", "c"]);
+    flushPendingSessionRevisionsForTests();
     expect(useV2StreamingStore.getState().revisionBySession["s1"]).toBe(1);
     expect(useV2StreamingStore.getState().byKey["s1::a1"]?.outputText).toBe("abc");
+  });
+
+  it("coalesces multiple deltas in one frame into a single store notify", () => {
+    const store = useV2StreamingStore.getState();
+    store.appendOutput("s1", "a1", "a");
+    store.appendOutput("s1", "a1", "b");
+    store.appendOutput("s1", "a1", "c");
+    // Before flush: content updated, revision not yet notified
+    expect(useV2StreamingStore.getState().byKey["s1::a1"]?.outputText).toBe("abc");
+    expect(useV2StreamingStore.getState().revisionBySession["s1"]).toBeUndefined();
+    flushPendingSessionRevisionsForTests();
+    expect(useV2StreamingStore.getState().revisionBySession["s1"]).toBe(3);
+  });
+
+  it("still flushes when rAF never paints (occluded window)", () => {
+    vi.useFakeTimers();
+    vi.stubGlobal("requestAnimationFrame", () => 1);
+    vi.stubGlobal("cancelAnimationFrame", () => {});
+    try {
+      useV2StreamingStore.getState().appendOutput("s1", "a1", "a");
+      useV2StreamingStore.getState().appendOutput("s1", "a1", "b");
+      expect(useV2StreamingStore.getState().revisionBySession["s1"]).toBeUndefined();
+
+      vi.advanceTimersByTime(200);
+      expect(useV2StreamingStore.getState().revisionBySession["s1"]).toBe(2);
+
+      useV2StreamingStore.getState().appendOutput("s1", "a1", "c");
+      vi.advanceTimersByTime(200);
+      expect(useV2StreamingStore.getState().revisionBySession["s1"]).toBe(3);
+    } finally {
+      vi.unstubAllGlobals();
+      vi.useRealTimers();
+    }
+  });
+
+  it("flushes pending bumps as soon as the window becomes visible again", () => {
+    vi.useFakeTimers();
+    vi.stubGlobal("requestAnimationFrame", () => 1);
+    vi.stubGlobal("cancelAnimationFrame", () => {});
+    try {
+      useV2StreamingStore.getState().appendOutput("s1", "a1", "a");
+      expect(useV2StreamingStore.getState().revisionBySession["s1"]).toBeUndefined();
+
+      document.dispatchEvent(new Event("visibilitychange"));
+      expect(useV2StreamingStore.getState().revisionBySession["s1"]).toBe(1);
+    } finally {
+      vi.unstubAllGlobals();
+      vi.useRealTimers();
+    }
   });
 });

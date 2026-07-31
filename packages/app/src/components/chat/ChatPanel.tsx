@@ -10,9 +10,8 @@ import { useSessionMessageStore } from "@/stores/session-message-store";
 import { useOutboxStore } from "@/stores/outbox-store";
 import { useSessionSelectionStore } from "@/stores/session-selection-store";
 import { useStreamingStore } from "@/stores/streaming";
-import { useVoiceInputStore } from "@/stores/voice-input";
 import { useWorkspaceStore } from "@/stores/workspace";
-import { useProviderStore, type ModelOption } from "@/stores/provider";
+import { useProviderStore } from "@/stores/provider";
 import { useRuntimeStateStore } from "@/stores/runtime-state-store";
 import { useTeamModeStore } from "@/stores/team-mode";
 import { useCurrentTeamStore } from "@/stores/current-team";
@@ -26,7 +25,10 @@ import { useAuthStore } from "@/stores/auth-store";
 import { bumpSessionListLastMessage } from "@/lib/session-list-preview";
 import { useSessionListStore } from "@/stores/session-list-store";
 import { useEngagedAgentStore } from "@/stores/engaged-agent-store";
-import { useAgentModelPickStore } from "@/stores/agent-model-pick-store";
+import {
+  DRAFT_SESSION_PICK_KEY,
+  useAgentModelPickStore,
+} from "@/stores/agent-model-pick-store";
 import { useSessionParticipantStore } from "@/stores/session-participant-store";
 import { useUIStore } from "@/stores/ui";
 import { getBackend } from "@/lib/backend";
@@ -37,6 +39,12 @@ import {
   MessageKind,
 } from "@/lib/proto/teamclaw_pb";
 import { resolveSessionActivityOwner } from "@/lib/session-list-activity";
+import {
+  resolveAgentRuntimeIdsForSend,
+  resolveSendTeamId,
+  trySyncMentionActorIds,
+} from "@/lib/send-path-resolve";
+import { selectSessionParentLinks } from "@/lib/session-parent-links";
 import { resolveCurrentMemberActorId } from "@/lib/current-actor";
 import { isAgentActorType } from "@/lib/actor-type";
 import type { PromptInputMessage } from "@/packages/ai/prompt-input";
@@ -83,7 +91,6 @@ import {
   type StreamingPlanEntry,
 } from "@/stores/v2-streaming-store";
 import { uploadAttachment } from "@/lib/attachment-upload";
-import { loadSessionActiveModel } from "@/lib/session-active-model";
 import { resolveSessionEstablishedModel } from "@/lib/session-established-model";
 import { ensureSessionLiveSubscribed } from "@/lib/session-live-subscriptions";
 import { resolveSessionMentionActorIds } from "@/lib/resolve-session-mention-ids";
@@ -94,10 +101,17 @@ import {
   textHasMemberMentionTokens,
 } from "@/lib/member-mention-token";
 import { buildStructuredMentionLines } from "@/lib/outgoing-mention-content";
-import { resolveAgentAvailableModels } from "@/lib/agent-available-models";
+import {
+  agentAvailableModelsWithLocalCatalog,
+  localRecentModelFallback,
+} from "@/lib/agent-model-fallback";
+import {
+  getKnownLocalDaemonActorId,
+} from "@/lib/local-daemon-identity";
+import { useLocalDaemonActorId } from "@/lib/daemon-agent-admin";
+import { useLocalDaemonCatalogStore } from "@/stores/local-daemon-catalog-store";
 import {
   selectAgentModel,
-  providerModelKeyFromOption,
   resolveRuntimeStateEntryForAgent,
 } from "@/lib/runtime-state-resolve";
 import {
@@ -161,11 +175,37 @@ export function ChatPanel({ compact = false }: ChatPanelProps) {
   const messageQueue = useSessionStore(s => s.messageQueue);
   const sessionError = useSessionStore(s => s.sessionError);
   const inactivityWarning = useSessionStore(s => s.inactivityWarning);
-  const draftInput = useSessionStore(s => s.draftInput);
   const todos = useSessionStore(s => s.todos);
   const pendingPermissions = useSessionStore(s => s.pendingPermissions);
   const pendingQuestions = useSessionStore(s => s.pendingQuestions);
-  const sessions = useSessionStore(s => s.sessions);
+  // Only id/parentID — ignore unrelated session field writes (title, preview, …).
+  const sessionParentLinksKey = useSessionStore((s) =>
+    s.sessions.map((row) => `${row.id}:${row.parentID ?? ""}`).join("|"),
+  );
+  const sessionParentLinks = React.useMemo(
+    () => selectSessionParentLinks(useSessionStore.getState().sessions),
+    // sessionParentLinksKey is the change signal; `sessions` is read through
+    // getState() so unrelated row writes don't rebuild this list.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [sessionParentLinksKey],
+  );
+  // Fingerprint embedded tool-call permissions on the active session so we
+  // recompute showInlineTodo without subscribing to the full sessions array.
+  const activeToolPermissionSig = useSessionStore((s) => {
+    if (!activeSessionId) return "";
+    const session = s.sessions.find((row) => row.id === activeSessionId);
+    if (!session) return "";
+    const ids: string[] = [];
+    for (const message of session.messages || []) {
+      for (const toolCall of message.toolCalls || []) {
+        const permission = toolCall.permission;
+        if (!permission || permission.decision !== "pending") continue;
+        if (toolCall.status !== "calling" && toolCall.status !== "waiting") continue;
+        ids.push(permission.id);
+      }
+    }
+    return ids.join(",");
+  });
 
   // ── V2 agent streaming (acp.event deltas) ───────────────────────────
   // Render ALL bubbles for the active session — current turn (active or
@@ -274,20 +314,24 @@ export function ChatPanel({ compact = false }: ChatPanelProps) {
       return false;
     return !hasVisiblePendingPermissions(
       activeSessionId,
-      sessions,
+      useSessionStore.getState().sessions,
       pendingPermissions,
       acpPendingForTodo,
       sessionPermissionMode,
     );
+    // activeToolPermissionSig / sessionParentLinks are change signals for the
+    // getState() read above.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [
     activeSessionId,
     acpPendingForTodo,
+    activeToolPermissionSig,
     isViewingArchived,
     isViewingChild,
     messageQueue.length,
     pendingPermissions,
     sessionPermissionMode,
-    sessions,
+    sessionParentLinks,
     todos,
     planTodos.length,
   ]);
@@ -350,13 +394,22 @@ export function ChatPanel({ compact = false }: ChatPanelProps) {
       pendingQuestions.find((question) => {
         if (!question.sessionId) return true;
         return (
-          resolveSessionActivityOwner(question.sessionId, sessions, question.sessionId) ===
-          activeSessionId
+          resolveSessionActivityOwner(
+            question.sessionId,
+            sessionParentLinks,
+            question.sessionId,
+          ) === activeSessionId
         );
       }) ||
       null
     );
-  }, [activeSessionId, isViewingArchived, isViewingChild, pendingQuestions, sessions]);
+  }, [
+    activeSessionId,
+    isViewingArchived,
+    isViewingChild,
+    pendingQuestions,
+    sessionParentLinks,
+  ]);
 
   // Actions — accessed via getState() to avoid creating subscriptions.
   // Zustand actions are stable references; subscribing to them wastes equality checks.
@@ -391,7 +444,6 @@ export function ChatPanel({ compact = false }: ChatPanelProps) {
   const clearSessionError = acts.clearSessionError;
   const setError = acts.setError;
   const setStoreSelectedModel = acts.setSelectedModel;
-  const setDraftInput = acts.setDraftInput;
   const closeArchivedSession = acts.closeArchivedSession;
   const restoreSession = acts.restoreSession;
   const setViewingChildSession = acts.setViewingChildSession;
@@ -412,8 +464,8 @@ export function ChatPanel({ compact = false }: ChatPanelProps) {
   const terminalBottomOffset = terminalOpen && workspacePath ? terminalPanelHeight : 0;
 
   // ── Local state ───────────────────────────────────────────────────────
-  const inputValue = draftInput;
-  const setInputValue = setDraftInput;
+  // draftInput lives in ChatInputArea (store subscription) so typing does not
+  // re-render this panel / MessageList.
   const [attachedFiles, setAttachedFiles] = React.useState<string[]>([]);
   // engagedAgents is per-session: each @-mentioned agent shows as a pill in
   // the prompt-input toolbar. Switching away from a session and back
@@ -680,54 +732,8 @@ export function ChatPanel({ compact = false }: ChatPanelProps) {
   const [isRestoringArchived, setIsRestoringArchived] = React.useState(false);
   const isRestoringArchivedRef = React.useRef(false);
 
-  const isImagePath = React.useCallback((path: string) => {
-    return /\.(png|jpe?g|gif|webp|svg|bmp|ico|heic|heif)$/i.test(path);
-  }, []);
-
-  const extractImageAttachmentTokens = React.useCallback(
-    (text: string): { cleaned: string; imagePaths: string[] } => {
-      // Support tolerant attachment token parsing from pasted text.
-      // Examples:
-      // [Attachment: a.png] (path: /x/a.png)
-      // [Attachment:a.png](path:/x/a.png)
-      const attachmentPattern = /\[Attachment:\s*([^\]]+)\]\s*\(([^)]*)\)/gi;
-      const imagePaths: string[] = [];
-
-      let cleaned = text.replace(attachmentPattern, (full, _name, info) => {
-        const pathMatch = String(info).match(/path:\s*([^,)]+)/i);
-        const fullPath = pathMatch ? pathMatch[1].trim() : "";
-        if (fullPath && isImagePath(fullPath)) {
-          imagePaths.push(fullPath);
-          return "";
-        }
-        return full;
-      });
-
-      // Extra defensive pass: line-wise removal for any remaining textual
-      // attachment tokens that point to image paths.
-      const filteredLines = cleaned.split("\n").filter((line) => {
-        if (!line.includes("[Attachment:")) return true;
-        const pathMatch = line.match(/path:\s*([^)]+)\)?/i);
-        const maybePath = pathMatch ? pathMatch[1].trim() : "";
-        if (maybePath && isImagePath(maybePath)) return false;
-        return true;
-      });
-
-      cleaned = filteredLines.join("\n")
-        .replace(/\n{3,}/g, "\n\n")
-        .replace(/[ \t]+\n/g, "\n")
-        .replace(/ {2,}/g, " ")
-        .trimStart();
-
-      return { cleaned, imagePaths };
-    },
-    [isImagePath],
-  );
-
   // ── Provider store ────────────────────────────────────────────────────
-  const currentModelKey = useProviderStore(s => s.currentModelKey);
   const initProviderStore = useProviderStore(s => s.initAll);
-  const storeSelectModel = useProviderStore(s => s.selectModel);
   const runtimeStates = useRuntimeStateStore((s) => s.byRuntimeId);
   const runtimeModelSignature = useRuntimeStateStore((s) =>
     Object.entries(s.byRuntimeId)
@@ -740,37 +746,65 @@ export function ChatPanel({ compact = false }: ChatPanelProps) {
       .sort()
       .join(";"),
   );
-  // Derive selected model from currentModelKey + models. Use useMemo with a
-  // ref to avoid returning a new object when the logical value hasn't changed.
-  // This prevents re-render cascades when initAll() rebuilds the models array
-  // with identical data (fixes TEAMCLAW-REACT-1R).
-  const providerModels = useProviderStore(s => s.models);
-  const selectedModelOptionRef = React.useRef<ModelOption | null>(null);
-  const selectedModelOption = React.useMemo(() => {
-    if (!currentModelKey) {
-      selectedModelOptionRef.current = null;
-      return null;
-    }
-    const idx = currentModelKey.indexOf('/');
-    if (idx < 0) {
-      selectedModelOptionRef.current = null;
-      return null;
-    }
-    const providerId = currentModelKey.substring(0, idx);
-    const modelId = currentModelKey.substring(idx + 1);
-    const found = providerModels.find((m) => m.provider === providerId && m.id === modelId) || null;
-    const prev = selectedModelOptionRef.current;
-    if (prev && found && prev.id === found.id && prev.provider === found.provider && prev.name === found.name) {
-      return prev; // stable reference
-    }
-    selectedModelOptionRef.current = found;
-    return found;
-  }, [currentModelKey, providerModels]);
 
-  const selectedModelKey = React.useMemo(
-    () => (currentModelKey ?? providerModelKeyFromOption(selectedModelOption)) || null,
-    [currentModelKey, selectedModelOption],
+  // ── Active session model ──────────────────────────────────────────────
+  // "Which model is this session on" has exactly one answer, produced by
+  // `selectAgentModel` — the same resolver the AgentSelectorDock pill uses.
+  // It is deliberately NOT mirrored into the provider store: a per-session
+  // answer living in a workspace-global key is what made the pill and the send
+  // path disagree on a freshly created session.
+  const localDaemonActorId = useLocalDaemonActorId();
+  const localDaemonCatalog = useLocalDaemonCatalogStore((s) => {
+    const path = workspacePath?.trim();
+    return path ? s.byWorkspacePath[path] : undefined;
+  });
+  const modelAgentId = engagedAgentIds[0] ?? "";
+  // Draft chats have no session id yet; picks live in the draft scope until
+  // `promoteDraftPicks` moves them across at create time.
+  const modelPickScopeId = activeSessionId || DRAFT_SESSION_PICK_KEY;
+  const activeEstablishedModel = useSessionMessageStore((s) =>
+    activeSessionId && modelAgentId
+      ? resolveSessionEstablishedModel(s.messages[activeSessionId], modelAgentId)
+      : null,
   );
+  // Subscribe so an explicit user pick re-renders — selectAgentModel reads the
+  // same store through getState() and would otherwise miss the update.
+  const activePickEntry = useAgentModelPickStore((s) =>
+    modelAgentId ? s.bySessionAgent[`${modelPickScopeId}::${modelAgentId}`] : undefined,
+  );
+  const activeSessionModelId = React.useMemo(() => {
+    if (!modelAgentId) return "";
+    const available = agentAvailableModelsWithLocalCatalog({
+      agentId: modelAgentId,
+      localDaemonActorId,
+      runtimeInfo: resolveRuntimeStateEntryForAgent(modelAgentId, runtimeStates)?.info,
+      catalogModels: localDaemonCatalog?.models,
+    });
+    return (
+      selectAgentModel({
+        sessionId: modelPickScopeId,
+        agentId: modelAgentId,
+        available,
+        byRuntimeId: runtimeStates,
+        providerFallback:
+          localRecentModelFallback({
+            agentId: modelAgentId,
+            localDaemonActorId,
+            recentModels: localDaemonCatalog?.recentModels,
+            available,
+          }) || undefined,
+        sessionEstablishedModel: activeEstablishedModel,
+      }).modelId || ""
+    );
+  }, [
+    modelAgentId,
+    modelPickScopeId,
+    runtimeStates,
+    localDaemonActorId,
+    localDaemonCatalog,
+    activeEstablishedModel,
+    activePickEntry,
+  ]);
 
   // ── Refs ───────────────────────────────────────────────────────────────
   const messageListRef = React.useRef<MessageListHandle>(null);
@@ -874,34 +908,14 @@ export function ChatPanel({ compact = false }: ChatPanelProps) {
     void initProviderStore();
   }, [workspaceReady, runtimeModelSignature, initProviderStore]);
 
-  React.useEffect(() => {
-    if (!activeSessionId || providerModels.length === 0) return;
-    let cancelled = false;
-    void (async () => {
-      const resolved = await loadSessionActiveModel({
-        sessionId: activeSessionId,
-        runtimeStates,
-        models: providerModels,
-        engagedAgentIds,
-      });
-      if (cancelled || !resolved) return;
-      const nextKey = `${resolved.provider}/${resolved.modelId}`;
-      if (useProviderStore.getState().currentModelKey === nextKey) return;
-      sessionFlowLog("session_model.apply_to_provider", {
-        sessionId: activeSessionId,
-        provider: resolved.provider,
-        modelId: resolved.modelId,
-        source: resolved.source,
-      });
-      await storeSelectModel(resolved.provider, resolved.modelId, resolved.name);
-    })();
-    return () => {
-      cancelled = true;
-    };
-    // engagedAgentIds is in the deps on purpose: swapping the mounted
-    // agent (e.g. remote → local) must re-resolve the picker, not leave it on
-    // whatever the departed agent's runtime row said.
-  }, [activeSessionId, providerModels, runtimeStates, storeSelectModel, engagedAgentIds]);
+  // NOTE: there used to be an effect here that resolved the session's model
+  // (`loadSessionActiveModel`) and wrote it back into the provider store's
+  // global `currentModelKey`. It is gone on purpose. Writing a per-session
+  // answer into a workspace-global key made the two disagree the moment the
+  // effect could not run — a draft session has no `activeSessionId`, so the key
+  // stayed on whatever the last workspace had persisted while the pill resolved
+  // the session's real model independently. `selectAgentModel` is the single
+  // resolver now; nothing mirrors its answer anywhere.
 
   // ── Team config hot reload via file watcher ─────────────────────────
   React.useEffect(() => {
@@ -942,93 +956,28 @@ export function ChatPanel({ compact = false }: ChatPanelProps) {
     };
   }, [workspaceReady, workspacePath]);
 
-  // Sync selected model to session store
+  // Sync the resolved session model to the session store. Its only reader is
+  // the FileEditor "ask the agent" entry point (session-messages `sendMessage`).
   React.useEffect(() => {
-    if (selectedModelOption) {
-      setStoreSelectedModel({
-        providerID: selectedModelOption.provider,
-        modelID: selectedModelOption.id,
-        name: selectedModelOption.name,
-      });
-    }
-  }, [currentModelKey, selectedModelOption]);
+    if (!activeSessionModelId) return;
+    const idx = activeSessionModelId.indexOf("/");
+    const providerID = idx > 0 ? activeSessionModelId.slice(0, idx) : "";
+    const modelID = idx > 0 ? activeSessionModelId.slice(idx + 1) : activeSessionModelId;
+    setStoreSelectedModel({ providerID, modelID, name: modelID });
+  }, [activeSessionModelId, setStoreSelectedModel]);
 
   React.useEffect(() => {
     if (!isTauri() || !activeSessionId) return;
 
-    const modelKey = selectedModelOption
-      ? `${selectedModelOption.provider}/${selectedModelOption.id}`
-      : null;
-
     invoke<boolean>("sync_gateway_session_model", {
       sessionId: activeSessionId,
-      model: modelKey,
+      model: activeSessionModelId || null,
     }).catch((error) => {
       console.warn("[ChatPanel] Failed to sync gateway session model:", error);
     });
-  }, [activeSessionId, selectedModelOption]);
+  }, [activeSessionId, activeSessionModelId]);
 
-  // ── Per-actor draft persistence ──────────────────────────────────────
-  // When the user taps an actor in the Actors tab without sending anything
-  // and then navigates away (different actor, settings, etc.), their
-  // typed-but-unsent text persists in localStorage keyed by actor id and
-  // is restored next time they preselect the same actor.
-  const draftStorageKey = draftPreselectedActor
-    ? `teamclaw-actor-draft:${draftPreselectedActor.id}`
-    : null;
-  const justRestoredDraftRef = React.useRef(false);
-
-  // Restore saved draft when actor changes.
-  React.useEffect(() => {
-    if (!draftStorageKey) return;
-    let saved: string | null = null;
-    try {
-      saved = localStorage.getItem(draftStorageKey);
-    } catch {
-      /* localStorage disabled */
-    }
-    if (saved != null && saved !== inputValue) {
-      justRestoredDraftRef.current = true;
-      setInputValue(saved);
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [draftStorageKey]);
-
-  // Debounced persist on input change. Skips the tick immediately after a
-  // restore so we don't overwrite what we just read.
-  React.useEffect(() => {
-    if (!draftStorageKey) return;
-    if (justRestoredDraftRef.current) {
-      justRestoredDraftRef.current = false;
-      return;
-    }
-    const handle = setTimeout(() => {
-      try {
-        if (inputValue) {
-          localStorage.setItem(draftStorageKey, inputValue);
-        } else {
-          localStorage.removeItem(draftStorageKey);
-        }
-      } catch {
-        /* localStorage disabled */
-      }
-    }, 300);
-    return () => clearTimeout(handle);
-  }, [draftStorageKey, inputValue]);
-
-  // Voice input / "Add to Agent": append transcript or file mention to input
-  React.useEffect(() => {
-    const unregister = useVoiceInputStore.getState().registerInsertToChatHandler(
-      (transcript) => {
-        const prev = useSessionStore.getState().draftInput;
-        // Deduplicate @{filepath} mentions — prevent double insertion
-        const mentionMatch = transcript.match(/@\{([^}]+)\}/);
-        if (mentionMatch && prev.includes(mentionMatch[0])) return;
-        setInputValue(prev + (prev ? " " : "") + transcript);
-      },
-    );
-    return unregister;
-  }, []);
+  // Per-actor draft + voice insert live in ChatInputArea.
 
   // ── Auto-dismiss error banners after 5 seconds ─────────────────────────
   React.useEffect(() => {
@@ -1130,43 +1079,13 @@ export function ChatPanel({ compact = false }: ChatPanelProps) {
 
   // ── File handling ─────────────────────────────────────────────────────
 
-  const handleFilesChange = (paths: string[]) => {
-    setAttachedFiles((prev) => [...prev, ...paths]);
-  };
-
-  const handleInputChange = React.useCallback(
-    (nextValue: string) => {
-      const { cleaned, imagePaths } = extractImageAttachmentTokens(nextValue);
-      if (imagePaths.length > 0) {
-        setAttachedFiles((prev) => {
-          const seen = new Set(prev);
-          const uniqueNew = imagePaths.filter((p) => !seen.has(p));
-          return uniqueNew.length > 0 ? [...prev, ...uniqueNew] : prev;
-        });
-      }
-      setInputValue(cleaned);
-    },
-    [extractImageAttachmentTokens, setInputValue],
-  );
-
-  // Fallback sanitizer: if input text is injected through another path,
-  // still normalize it and convert image attachment tokens into previews.
-  React.useEffect(() => {
-    if (!inputValue) return;
-    const { cleaned, imagePaths } = extractImageAttachmentTokens(inputValue);
-
-    if (imagePaths.length > 0) {
-      setAttachedFiles((prev) => {
-        const seen = new Set(prev);
-        const uniqueNew = imagePaths.filter((p) => !seen.has(p));
-        return uniqueNew.length > 0 ? [...prev, ...uniqueNew] : prev;
-      });
-    }
-
-    if (cleaned !== inputValue) {
-      setInputValue(cleaned);
-    }
-  }, [inputValue, extractImageAttachmentTokens, setInputValue]);
+  const handleFilesChange = React.useCallback((paths: string[]) => {
+    setAttachedFiles((prev) => {
+      const seen = new Set(prev);
+      const uniqueNew = paths.filter((p) => !seen.has(p));
+      return uniqueNew.length > 0 ? [...prev, ...uniqueNew] : prev;
+    });
+  }, []);
 
   const removeFile = (index: number) => {
     setAttachedFiles((prev) => prev.filter((_, i) => i !== index));
@@ -1237,9 +1156,9 @@ export function ChatPanel({ compact = false }: ChatPanelProps) {
     // if the user types and submits again while the upload is in flight.
     const currentImageFiles = imageFiles;
     const currentAttachedFiles = attachedFiles;
-    setInputValue("");
     setAttachedFiles([]);
     setImageFiles([]);
+    useSessionStore.getState().setDraftInput("");
 
     // WYSIWYG: pill in footer, typed @, or explicit extra on first send.
     const engagedFromStore = useEngagedAgentStore.getState().get(sid);
@@ -1248,39 +1167,67 @@ export function ChatPanel({ compact = false }: ChatPanelProps) {
     const memberIds = mentions.map((m) => m.id);
     const agentIds = agentForSend ? [agentForSend.id] : [];
     const displayMentionActorIds = Array.from(new Set(agentIds.filter(Boolean)));
-    const mentionActorIds = await resolveSessionMentionActorIds(
-      sid,
-      memberIds,
-      agentIds,
-      text,
-    );
-    sessionFlowLog("send.mentions_resolved", {
-      sessionId: sid,
-      memberMentionCount: memberIds.length,
-      agentMentionCount: agentIds.length,
-      mentionActorIds,
-    });
     const _isPlanMode = !!(message as PromptInputMessage & { _planMode?: boolean })._planMode;
 
-
-    // Resolve teamId early — needed for attachment upload path before building content.
+    // ── Resolve team / mentions / sender with local-agent latency in mind ──
+    // Prefer sync store reads; parallelize any remaining awaits; skip a second
+    // listParticipants when the composer pill already names the agent.
     const authSession = useAuthStore.getState().session;
     const teamIdFromSessionList =
       useSessionListStore.getState().rows.find(r => r.id === sid)?.team_id ?? null;
     let teamIdForSend: string | null = teamIdFromSessionList;
-    if (!teamIdForSend && sid) {
-      sessionFlowLog("send.resolve_team_from_backend.begin", {
-        sessionId: sid,
-      });
-      teamIdForSend = await getBackend().sessions.getSessionTeamId(sid);
+
+    const teamIdPromise = resolveSendTeamId({
+      sessionId: sid,
+      teamIdFromSessionList,
+      fetchSessionTeamId: (sessionId) => {
+        sessionFlowLog("send.resolve_team_from_backend.begin", { sessionId });
+        return getBackend().sessions.getSessionTeamId(sessionId);
+      },
+      currentTeamId: () => useCurrentTeamStore.getState().team?.id ?? null,
+    });
+
+    const syncMentions = trySyncMentionActorIds(memberIds, agentIds, text);
+    const mentionsPromise: Promise<string[]> = syncMentions
+      ? Promise.resolve(syncMentions)
+      : resolveSessionMentionActorIds(sid, memberIds, agentIds, text);
+
+    // Build outgoing text while network resolves — only needs agentForSend (sync).
+    let processedText = expandMemberMentionTokensInText(text, {
+      humanMentionInstruction: (name) =>
+        t("chat.outgoing.humanMentionInstruction", { name }),
+    });
+    processedText = stripPickerPersonMentionsFromText(processedText, mentions);
+    processedText = expandPageLinkTokensInText(processedText);
+    processedText = processedText.replace(/@\{([^}]+)\}/g, '[File: $1]');
+    processedText = processedText.replace(/\/\{([^}]+)\}/g, (_full, body) => {
+      const token = parseSlashToken(body);
+      if (token.type === "role") return buildEnhancedChip("role", token.name);
+      if (token.type === "command") return `[Command: ${token.name}]`;
+      return buildEnhancedChip("skill", token.name);
+    });
+    processedText = processedText.replace(/\/<([a-z0-9]+(?:-[a-z0-9]+)*)>/g, (_full, roleName) =>
+      buildEnhancedChip("role", roleName),
+    );
+    processedText = processedText.replace(/\/\[([^\]]+)\]/g, '[Command: $1]');
+
+    const parts: string[] = [];
+    const structuredMentions = buildStructuredMentionLines(agentForSend);
+    if (structuredMentions.length > 0) {
+      parts.push(...structuredMentions);
     }
-    // Creating a brand-new session: there is no `sid` yet and no session-list
-    // row to read team_id from, so fall back to the currently selected team.
-    // Without this, createSessionShell() posts teamId: null and the Cloud API
-    // rejects it with "teamId is required".
-    if (!teamIdForSend) {
-      teamIdForSend = useCurrentTeamStore.getState().team?.id ?? null;
+    if (currentAttachedFiles.length > 0) {
+      for (const filePath of currentAttachedFiles) {
+        parts.push(`[Attachment: ${getFileName(filePath)}] (path: ${filePath})`);
+      }
     }
+    const bodyText = processedText.trim();
+    if (bodyText) {
+      parts.push(bodyText);
+    }
+    let finalContent = parts.join("\n\n");
+
+    teamIdForSend = await teamIdPromise;
     sessionFlowLog("send.team_resolved", {
       sessionId: sid,
       teamId: teamIdForSend,
@@ -1288,19 +1235,86 @@ export function ChatPanel({ compact = false }: ChatPanelProps) {
       hasAuthSession: !!authSession,
     });
 
-    let agentRuntimeIdsForSend: string[] = [];
-    if (teamIdForSend && mentionActorIds.length > 0) {
-      let participantsForRuntime: Array<{ id: string; actor_type?: string | null }> = [];
+    const senderPromise =
+      authSession && teamIdForSend
+        ? resolveCurrentMemberActorId(teamIdForSend, authSession.user.id, {
+            currentTeamId: useCurrentTeamStore.getState().team?.id ?? null,
+            currentMemberId:
+              useCurrentTeamStore.getState().currentMember?.id ?? null,
+          })
+        : Promise.resolve<string | null>(null);
+
+    const uploadPromise = (async (): Promise<string[]> => {
+      const urls: string[] = [];
+      if (currentImageFiles.length === 0 || !teamIdForSend) return urls;
       try {
-        participantsForRuntime = await getBackend().sessionMembers.listParticipants(sid);
-      } catch (runtimeParticipantError) {
-        console.warn("[ChatPanel] failed to load participants for runtime ensure:", runtimeParticipantError);
+        sessionFlowLog("send.attachments_upload.begin", {
+          sessionId: sid,
+          teamId: teamIdForSend,
+          imageFileCount: currentImageFiles.length,
+          imageFileNames: currentImageFiles.map((file) => file.name),
+        });
+        const uploaded = await Promise.all(
+          currentImageFiles.map((file) =>
+            uploadAttachment(file, { teamId: teamIdForSend!, sessionId: sid }),
+          ),
+        );
+        for (const att of uploaded) {
+          parts.push(`[Image: ${att.fileName}] (url: ${att.signedUrl})`);
+          urls.push(att.signedUrl);
+        }
+        finalContent = parts.join("\n\n");
+        sessionFlowLog("send.attachments_upload.ok", {
+          sessionId: sid,
+          teamId: teamIdForSend,
+          uploadedCount: uploaded.length,
+        });
+      } catch (e) {
+        sessionFlowError("send.attachments_upload.failed", e, {
+          sessionId: sid,
+          teamId: teamIdForSend,
+          imageFileCount: currentImageFiles.length,
+        });
+        console.error("[ChatPanel] attachment upload failed:", e);
+        const { toast } = await import("sonner");
+        toast.error("Failed to upload attachment — message not sent");
+        throw e;
       }
-      agentRuntimeIdsForSend = mentionActorIds.filter((id) => {
-        const row = participantsForRuntime.find((p) => p.id === id);
-        return row ? isAgentActorType(row.actor_type) : false;
+      return urls;
+    })();
+
+    let mentionActorIds: string[];
+    let senderActorId: string | null;
+    let attachmentUrls: string[];
+    try {
+      sessionFlowLog("send.resolve_sender.begin", {
+        sessionId: sid,
+        teamId: teamIdForSend,
+        userId: authSession?.user.id ?? null,
       });
+      [mentionActorIds, senderActorId, attachmentUrls] = await Promise.all([
+        mentionsPromise,
+        senderPromise,
+        uploadPromise,
+      ]);
+    } catch {
+      // upload failure already toasted; abort send
+      return;
     }
+
+    sessionFlowLog("send.mentions_resolved", {
+      sessionId: sid,
+      memberMentionCount: memberIds.length,
+      agentMentionCount: agentIds.length,
+      mentionActorIds,
+      syncFastPath: syncMentions != null,
+    });
+
+    const agentRuntimeIdsForSend = resolveAgentRuntimeIdsForSend(
+      sid,
+      agentForSend?.id ?? null,
+      mentionActorIds,
+    );
 
     // Diagnostic: when the user has agents engaged in the pill but the
     // resolved mention list is empty (or contains no agent actors), no
@@ -1324,96 +1338,6 @@ export function ChatPanel({ compact = false }: ChatPanelProps) {
       });
     }
 
-    let finalContent: string;
-
-    // Human @ chips expand inline (like Skill); agent stays in prefix line.
-    let processedText = expandMemberMentionTokensInText(text, {
-      humanMentionInstruction: (name) =>
-        t("chat.outgoing.humanMentionInstruction", { name }),
-    });
-    processedText = stripPickerPersonMentionsFromText(processedText, mentions);
-
-    processedText = expandPageLinkTokensInText(processedText);
-
-    // Replace @{filepath} with [File: filepath] inline
-    processedText = processedText.replace(/@\{([^}]+)\}/g, '[File: $1]');
-
-    // Replace unified /{type:name} inline, while keeping legacy formats readable.
-    processedText = processedText.replace(/\/\{([^}]+)\}/g, (_full, body) => {
-      const token = parseSlashToken(body);
-      if (token.type === "role") return buildEnhancedChip("role", token.name);
-      if (token.type === "command") return `[Command: ${token.name}]`;
-      return buildEnhancedChip("skill", token.name);
-    });
-    processedText = processedText.replace(/\/<([a-z0-9]+(?:-[a-z0-9]+)*)>/g, (_full, roleName) =>
-      buildEnhancedChip("role", roleName),
-    );
-    processedText = processedText.replace(/\/\[([^\]]+)\]/g, '[Command: $1]');
-
-    const parts: string[] = [];
-
-    const structuredMentions = buildStructuredMentionLines(agentForSend);
-    if (structuredMentions.length > 0) {
-      parts.push(...structuredMentions);
-    }
-
-    // Add attached files at the beginning
-    if (currentAttachedFiles.length > 0) {
-      for (const filePath of currentAttachedFiles) {
-        parts.push(`[Attachment: ${getFileName(filePath)}] (path: ${filePath})`);
-      }
-    }
-
-    // Add the processed text (with inline [File: ...] replacements). Agent
-    // mentions are rendered from metadata only; they must not become prompt
-    // text delivered to the runtime.
-    const bodyText = processedText.trim();
-    if (bodyText) {
-      parts.push(bodyText);
-    }
-
-    finalContent = parts.join("\n\n");
-
-    // Upload pasted images to Supabase Storage before sending.
-    // Mirrors iOS AttachmentUploadManager: upload first, then include signed
-    // URL in message content so agents and other clients can access the file.
-    const attachmentUrls: string[] = [];
-    if (currentImageFiles.length > 0 && teamIdForSend) {
-      try {
-        sessionFlowLog("send.attachments_upload.begin", {
-          sessionId: sid,
-          teamId: teamIdForSend,
-          imageFileCount: currentImageFiles.length,
-          imageFileNames: currentImageFiles.map((file) => file.name),
-        });
-        const uploaded = await Promise.all(
-          currentImageFiles.map((file) =>
-            uploadAttachment(file, { teamId: teamIdForSend!, sessionId: sid }),
-          ),
-        );
-        for (const att of uploaded) {
-          parts.push(`[Image: ${att.fileName}] (url: ${att.signedUrl})`);
-          attachmentUrls.push(att.signedUrl);
-        }
-        finalContent = parts.join("\n\n");
-        sessionFlowLog("send.attachments_upload.ok", {
-          sessionId: sid,
-          teamId: teamIdForSend,
-          uploadedCount: uploaded.length,
-        });
-      } catch (e) {
-        sessionFlowError("send.attachments_upload.failed", e, {
-          sessionId: sid,
-          teamId: teamIdForSend,
-          imageFileCount: currentImageFiles.length,
-        });
-        console.error("[ChatPanel] attachment upload failed:", e);
-        const { toast } = await import("sonner");
-        toast.error("Failed to upload attachment — message not sent");
-        return;
-      }
-    }
-
     // Optimistic v2 send: synthesize the proto Message and append to the
     // session store immediately so the bubble renders instantly. The actual
     // Supabase insert + MQTT publish are handled asynchronously by
@@ -1424,42 +1348,6 @@ export function ChatPanel({ compact = false }: ChatPanelProps) {
     if (outgoing && outgoing.trim()) {
       if (sid && authSession && teamIdForSend) {
         try {
-          sessionFlowLog("send.subscribe_live.begin", {
-            sessionId: sid,
-            teamId: teamIdForSend,
-          });
-          // Best-effort: this subscription is how we hear about OTHER members'
-          // activity, not how the message is delivered. Awaiting it hard meant
-          // a disconnected broker killed the send before it ever reached the
-          // outbox — including sends to this machine's own daemon, which are
-          // delivered over loopback and never touch MQTT at all.
-          try {
-            await ensureSessionLiveSubscribed(teamIdForSend, sid);
-            sessionFlowLog("send.subscribe_live.ok", {
-              sessionId: sid,
-              teamId: teamIdForSend,
-            });
-          } catch (subscribeError) {
-            sessionFlowError("send.subscribe_live.best_effort_failed", subscribeError, {
-              sessionId: sid,
-              teamId: teamIdForSend,
-            });
-          }
-
-          sessionFlowLog("send.resolve_sender.begin", {
-            sessionId: sid,
-            teamId: teamIdForSend,
-            userId: authSession.user.id,
-          });
-          const senderActorId = await resolveCurrentMemberActorId(
-            teamIdForSend,
-            authSession.user.id,
-            {
-              currentTeamId: useCurrentTeamStore.getState().team?.id ?? null,
-              currentMemberId:
-                useCurrentTeamStore.getState().currentMember?.id ?? null,
-            },
-          );
           if (!senderActorId)
             throw new Error(`No actor found for user in team ${teamIdForSend}`);
 
@@ -1476,20 +1364,42 @@ export function ChatPanel({ compact = false }: ChatPanelProps) {
           );
           const sendAgentId = agentRuntimeIdsForSend[0] ?? "";
           const sendByRuntimeId = useRuntimeStateStore.getState().byRuntimeId;
-          const availableForSend = resolveAgentAvailableModels(
-            resolveRuntimeStateEntryForAgent(sendAgentId, sendByRuntimeId)?.info,
-          );
-          const outgoingModel =
-            sendAgentId
-              ? selectAgentModel({
-                  sessionId: sid,
-                  agentId: sendAgentId,
-                  available: availableForSend,
-                  byRuntimeId: sendByRuntimeId,
-                  providerFallback: selectedModelKey ?? undefined,
-                  sessionEstablishedModel: establishedForSend,
-                }).modelId || ""
-              : selectedModelKey ?? "";
+          const localDaemonActorIdForSend = getKnownLocalDaemonActorId();
+          const localCatalogWorkspace =
+            useWorkspaceStore.getState().workspacePath?.trim() || "";
+          const localCatalogForSend = localCatalogWorkspace
+            ? useLocalDaemonCatalogStore.getState().byWorkspacePath[
+                localCatalogWorkspace
+              ]
+            : undefined;
+          const availableForSend = agentAvailableModelsWithLocalCatalog({
+            agentId: sendAgentId,
+            localDaemonActorId: localDaemonActorIdForSend,
+            runtimeInfo: resolveRuntimeStateEntryForAgent(sendAgentId, sendByRuntimeId)
+              ?.info,
+            catalogModels: localCatalogForSend?.models,
+          });
+          // No agent means no model: there is nothing to run the prompt on, so
+          // stamping the message with a workspace-global default only recorded
+          // a model that was never used. `selectAgentModel` owns every other
+          // case — including the fallback, which must be the same device MRU
+          // the pill shows.
+          const outgoingModel = sendAgentId
+            ? selectAgentModel({
+                sessionId: sid,
+                agentId: sendAgentId,
+                available: availableForSend,
+                byRuntimeId: sendByRuntimeId,
+                providerFallback:
+                  localRecentModelFallback({
+                    agentId: sendAgentId,
+                    localDaemonActorId: localDaemonActorIdForSend,
+                    recentModels: localCatalogForSend?.recentModels,
+                    available: availableForSend,
+                  }) || undefined,
+                sessionEstablishedModel: establishedForSend,
+              }).modelId || ""
+            : "";
           const mentionDeliverySnapshot: Record<string, "offline" | "stale"> = {};
           for (const entry of engagedUiEntries) {
             if (!agentForSend || entry.agent.id !== agentForSend.id) continue;
@@ -1555,6 +1465,27 @@ export function ChatPanel({ compact = false }: ChatPanelProps) {
             currentMessageCount:
               useSessionMessageStore.getState().messages[sid]?.length ?? 0,
           });
+
+          // MQTT live subscribe is for hearing OTHER members — not delivery.
+          // Local agent gets the message via outbox loopback ingest. Do not
+          // block the optimistic bubble (or outbox kick) on broker RTT.
+          sessionFlowLog("send.subscribe_live.begin", {
+            sessionId: sid,
+            teamId: teamIdForSend,
+          });
+          void ensureSessionLiveSubscribed(teamIdForSend, sid)
+            .then(() => {
+              sessionFlowLog("send.subscribe_live.ok", {
+                sessionId: sid,
+                teamId: teamIdForSend,
+              });
+            })
+            .catch((subscribeError) => {
+              sessionFlowError("send.subscribe_live.best_effort_failed", subscribeError, {
+                sessionId: sid,
+                teamId: teamIdForSend,
+              });
+            });
 
           // 2. Enqueue to outbox immediately — status dot beside the bubble
           //    tracks pending/inFlight/delivered. Do NOT await workspace-hint
@@ -1802,6 +1733,11 @@ export function ChatPanel({ compact = false }: ChatPanelProps) {
         sessionId,
       });
 
+      // Carry any model chosen on the draft pill onto the real session, before
+      // the first send resolves a model. Without this the pick is stranded in
+      // the draft scope and the send falls through to retain/MRU.
+      useAgentModelPickStore.getState().promoteDraftPicks(sessionId);
+
       // Solo create: mount the pill before send so mention is WYSIWYG.
       const soleAgent =
         picks.members.length === 0 && picks.agents.length === 1
@@ -1826,7 +1762,9 @@ export function ChatPanel({ compact = false }: ChatPanelProps) {
             sessionId,
             teamId: teamIdForSend,
             agentActorIds: agentsNeedingCreateEnsure,
-            modelId: selectedModelKey ?? undefined,
+            // No modelId: `ensureAgentRuntimesForSession` feeds this to
+            // `selectAgentModel` as a providerFallback, and that resolver
+            // already reaches the retain and the device MRU on its own.
             reason: "session_create",
           });
         });
@@ -2287,8 +2225,6 @@ export function ChatPanel({ compact = false }: ChatPanelProps) {
             <ChatInputArea
             activeSessionId={activeSessionId}
             compact={compact}
-            inputValue={inputValue}
-            onInputChange={handleInputChange}
             attachedFiles={attachedFiles}
             onFilesChange={handleFilesChange}
             onRemoveFile={removeFile}
@@ -2316,6 +2252,7 @@ export function ChatPanel({ compact = false }: ChatPanelProps) {
             }}
             onRemoveAgent={removeAgentForSession}
             agentMentionLocked={isSoloAgentSessionActive}
+            sessionModelId={activeSessionModelId}
             activeStreamingAgents={activeStreamingAgents}
             onInterruptAgent={handleInterruptAgent}
             imageFiles={imageFiles}

@@ -169,7 +169,7 @@ export function buildSessionListActivityMap({
   streamingMessageId,
   streamingChildSessionIds,
 }: {
-  sessions: Session[];
+  sessions: Pick<Session, "id" | "parentID">[];
   activeSessionId: string | null;
   sessionStatuses: SessionStatusesById;
   pendingQuestionIdsBySession: PendingQuestionIdsBySession;

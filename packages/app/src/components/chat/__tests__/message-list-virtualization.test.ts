@@ -4,10 +4,10 @@ import { VIRTUAL_MSG_THRESHOLD } from "../MessageList";
 /**
  * Virtualization is re-enabled above this threshold (PR #499).
  * Row overlap on sidebar/width changes must still be verified manually:
- * open a >200-message session, toggle sidebar, resize window.
+ * open a >80-message session, toggle sidebar, resize window.
  */
 describe("MessageList virtualization gate", () => {
-  it("enables virtualization above 200 messages", () => {
-    expect(VIRTUAL_MSG_THRESHOLD).toBe(200);
+  it("enables virtualization above 80 messages", () => {
+    expect(VIRTUAL_MSG_THRESHOLD).toBe(80);
   });
 });
