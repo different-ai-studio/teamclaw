@@ -171,6 +171,10 @@ pub fn build(state: HttpState) -> Router {
         )
         .route("/v1/workspaces/:id/runtime", get(workspaces::get_runtime))
         .route(
+            "/v1/workspaces/:id/runtime/env-diagnostics",
+            get(workspaces::get_runtime_env_diagnostics),
+        )
+        .route(
             "/v1/workspaces/:id/runtime/reload",
             post(workspaces::reload_runtime),
         )

@@ -207,6 +207,36 @@ pub struct RuntimeStatus {
     pub refresh: RuntimeRefreshDto,
 }
 
+/// Non-secret diagnostics for why personal/team env vars may not reach a runtime.
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct EnvActivationBlocker {
+    pub code: String,
+    pub detail: Option<String>,
+}
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct EnvActivationDiagnostics {
+    /// User-configured personal keys the daemon can load for spawn (excludes
+    /// `tc_api_key` / `_team_secret.*` seeded into the blob by the desktop).
+    pub personal_env_var_count: usize,
+    /// Same count read directly from the encrypted blob metadata.
+    pub personal_blob_user_var_count: usize,
+    pub personal_blob_readable: bool,
+    pub personal_load_error: Option<String>,
+    pub team_env_var_count: usize,
+    pub opencode_serve_running: bool,
+    pub opencode_serve_cached_env_count: usize,
+    pub active_runtime_count: usize,
+    pub workspace_has_active_turn: bool,
+    pub refresh: RuntimeRefreshDto,
+    /// Personal keys shadowed by the host OS env at opencode serve spawn.
+    pub host_env_shadowed_keys: Vec<String>,
+    /// Structured blockers for client-side i18n.
+    pub blockers: Vec<EnvActivationBlocker>,
+}
+
 // ── WorkspaceControlStore trait ───────────────────────────────────────────────
 
 pub trait WorkspaceControlStore: Send + Sync {
