@@ -1183,7 +1183,7 @@
       "serverAddress": "Server address",
       "serverSynced": "Server synced",
       "serverSyncedEmpty": "Not synced yet",
-      "serverSyncedHint": "Loaded from daemon when available.",
+      "serverSyncedHint": "Delivered by the server on sign-in, read-only.",
       "notifAll": "All",
       "notifImportant": "Important only",
       "notifMute": "Mute",

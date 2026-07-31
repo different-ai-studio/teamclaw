@@ -72,6 +72,26 @@ for _v in APNS_PRIVATE_KEY_P8 APNS_KEY_ID APNS_TEAM_ID APNS_TOPIC APNS_ENV \
 done
 [ -n "$_backfilled" ] && echo "NOTE: backfilled empty test vars with placeholders:$_backfilled"
 
+# Account-specific infra ids. s.yaml declares these with no default, so a
+# missing one already aborts — but Serverless Devs reports it as a bare
+# "env('FC_VPC_ID') not found" after npm install and a full TypeScript build.
+# Fail here instead, before any of that work, and say what the value is for.
+_missing=""
+for _v in FC_VPC_ID FC_SECURITY_GROUP_ID FC_VSWITCH_ID BUCKET; do
+  [ -z "${!_v:-}" ] && _missing="$_missing $_v"
+done
+if [ -n "$_missing" ]; then
+  echo "ERROR: missing Alibaba infra id(s) in $ENV_FILE:$_missing" >&2
+  echo "" >&2
+  echo "       These used to be hardcoded in s.yaml. They name real resources in" >&2
+  echo "       one Alibaba account, so there is deliberately no default — an" >&2
+  echo "       unset value would deploy into the wrong network or bucket." >&2
+  echo "" >&2
+  echo "       FC_VPC_ID / FC_SECURITY_GROUP_ID / FC_VSWITCH_ID must match the" >&2
+  echo "       network SUPABASE_URL is reachable from; see .env.example." >&2
+  exit 1
+fi
+
 # MQTT_BROKER_URL is deliberately NOT in the backfill list above, and is checked
 # instead. It is the one broker address: FC's own inbox publisher dials it AND
 # `GET /v1/config/bootstrap` hands it to clients. An empty one is the single
@@ -117,7 +137,9 @@ export FC_HTTP_TRIGGER_NAME="${FC_HTTP_TRIGGER_NAME:-http-trigger}"
 echo "────────────────────────────────────────────────────────"
 echo "  LOCAL FC deploy (TEST)"
 echo "  function : $FUNCTION_NAME"
-echo "  region   : cn-shenzhen  (from s.yaml)"
+echo "  region   : ${FC_REGION:-cn-shenzhen}"
+echo "  vpc      : ${FC_VPC_ID} / ${FC_VSWITCH_ID}"
+echo "  bucket   : ${BUCKET}"
 echo "  backend  : $BACKEND_KIND"
 echo "  http trig: $FC_HTTP_TRIGGER_NAME"
 echo "  env file : $ENV_FILE"
