@@ -429,7 +429,7 @@ async fn do_prompt(
 ) {
     let reply_to = reply_to_message_id.filter(|id| !id.is_empty());
     let resolved =
-        crate::runtime::prompt_attachments::resolve_all(&attachment_urls).await;
+        crate::runtime::prompt_attachments::resolve_all(&attachment_urls, session_id).await;
     let (event_tx, worktree, session_path) = {
         let mut routes = shared.routes.lock();
         let Some(route) = routes.get_mut(session_id) else {
@@ -456,7 +456,8 @@ async fn do_prompt(
     .await;
 
     let mut message = text;
-    crate::runtime::prompt_attachments::append_to_message(&mut message, &resolved);
+    crate::runtime::prompt_attachments::substitute_in_message(&mut message, &resolved);
+    crate::runtime::prompt_attachments::append_unreferenced(&mut message, &resolved, true);
 
     let result = match ensure_active(shared, session_id, &worktree, &session_path).await {
         Ok(proc) => {

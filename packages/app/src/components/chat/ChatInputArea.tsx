@@ -41,23 +41,28 @@ import { type QueuedMessage, useSessionStore } from "@/stores/session";
 import { useVoiceInputStore } from "@/stores/voice-input";
 import { useWorkspaceStore } from "@/stores/workspace";
 import { useUIStore } from "@/stores/ui";
-import { getFileName, getFileDisplayPath } from "./utils/fileUtils";
-import { LocalImage } from "@/packages/ai/message";
+import { isImageFile } from "@/lib/attachment-constants";
+import type { SessionAttachmentRef } from "@/lib/session-attachments";
+import { exceedsNonImageLimit } from "@/lib/attachment-constants";
 
 // ─── Popover wrappers (need PromptInput context for useInsertFileMention) ───
 
 function FileMentionPopoverWrapper({
+  activeSessionId,
   open,
   onOpenChange,
   searchQuery,
   onSearchChange,
   useHashTrigger,
+  onSelectSessionAttachment,
 }: {
+  activeSessionId: string | null;
   open: boolean;
   onOpenChange: (open: boolean) => void;
   searchQuery: string;
   onSearchChange: (query: string) => void;
   useHashTrigger: boolean;
+  onSelectSessionAttachment: (attachment: SessionAttachmentRef) => void;
 }) {
   const context = usePromptInputContext();
   const insertFileMention = React.useMemo(
@@ -67,11 +72,13 @@ function FileMentionPopoverWrapper({
 
   return (
     <FileMentionPopover
+      activeSessionId={activeSessionId}
       open={open}
       onOpenChange={onOpenChange}
       searchQuery={searchQuery}
       onSearchChange={onSearchChange}
       onSelect={insertFileMention}
+      onSelectSessionAttachment={onSelectSessionAttachment}
     />
   );
 }
@@ -157,12 +164,12 @@ interface ChatInputAreaProps {
   compact: boolean;
   inputValue: string;
   onInputChange: (v: string) => void;
-  attachedFiles: string[];
-  onFilesChange: (paths: string[]) => void;
-  onRemoveFile: (index: number) => void;
-  imageFiles: File[];
-  onImageFilesChange: (files: File[]) => void;
-  onRemoveImageFile: (index: number) => void;
+  pendingFiles: File[];
+  onAppendPendingFiles: (files: File[]) => void;
+  onRemovePendingFile: (index: number) => void;
+  referencedAttachments: SessionAttachmentRef[];
+  onAppendReferencedAttachment: (attachment: SessionAttachmentRef) => void;
+  onRemoveReferencedAttachment: (index: number) => void;
   onSubmit: (message: PromptInputMessage) => void;
   /** When true, placeholder suggests queuing another message while agents run. */
   isStreaming: boolean;
@@ -191,24 +198,20 @@ interface ChatInputAreaProps {
   onInterruptAgent?: (agentId: string) => void;
 }
 
-function isImagePath(path: string): boolean {
-  return /\.(png|jpe?g|gif|webp|svg|bmp|ico|heic|heif)$/i.test(path);
-}
-
 function ComposerSubmitButton({
   inputValue,
-  attachedFiles,
-  imageFiles,
+  pendingFiles,
+  referencedAttachments,
 }: {
   inputValue: string;
-  attachedFiles: string[];
-  imageFiles: File[];
+  pendingFiles: File[];
+  referencedAttachments: SessionAttachmentRef[];
 }) {
   const { mentions } = usePromptInputContext();
   const canSend =
     Boolean(inputValue.trim()) ||
-    attachedFiles.length > 0 ||
-    imageFiles.length > 0 ||
+    pendingFiles.length > 0 ||
+    referencedAttachments.length > 0 ||
     mentions.length > 0 ||
     textHasMemberMentionTokens(inputValue);
 
@@ -239,12 +242,12 @@ export function ChatInputArea({
   compact,
   inputValue,
   onInputChange,
-  attachedFiles,
-  onFilesChange,
-  onRemoveFile,
-  imageFiles,
-  onImageFilesChange,
-  onRemoveImageFile,
+  pendingFiles,
+  onAppendPendingFiles,
+  onRemovePendingFile,
+  referencedAttachments,
+  onAppendReferencedAttachment,
+  onRemoveReferencedAttachment,
   onSubmit,
   isStreaming,
   messageQueue: _messageQueue,
@@ -300,24 +303,35 @@ export function ChatInputArea({
     }
   }, []);
 
-  // Handle pasted/dropped files from PromptInput - filter images from non-images
-  const handlePastedFiles = React.useCallback((files: File[]) => {
-    const images = files.filter((f) => f.type.startsWith("image/"));
-    const nonImages = files.filter((f) => !f.type.startsWith("image/"));
-
-    if (images.length > 0) {
-      onImageFilesChange(images);
+  const handleIncomingFiles = React.useCallback((files: File[]) => {
+    const accepted = files.filter((f) => !exceedsNonImageLimit(f));
+    const oversize = files.filter((f) => exceedsNonImageLimit(f)).map((f) => f.name);
+    if (oversize.length > 0) {
+      void import("sonner").then(({ toast }) => {
+        toast.error(
+          oversize.length === 1
+            ? `"${oversize[0]}" exceeds the 20MB limit`
+            : `${oversize.length} files exceed the 20MB limit`,
+        );
+      });
     }
-    if (nonImages.length > 0) {
-      // For non-image files, create pseudo file-path entries (name only since they're from paste)
-      onFilesChange(nonImages.map((f) => f.name));
+    if (accepted.length > 0) {
+      onAppendPendingFiles(accepted);
     }
-  }, [onImageFilesChange, onFilesChange]);
+  }, [onAppendPendingFiles]);
 
-  // Generate preview URLs for image files
+  const handleSelectSessionAttachment = React.useCallback(
+    (attachment: SessionAttachmentRef) => {
+      onAppendReferencedAttachment(attachment);
+      setFilePopoverOpen(false);
+      setHashSearchQuery("");
+    },
+    [onAppendReferencedAttachment],
+  );
+
   const imagePreviewUrls = React.useMemo(() => {
-    return imageFiles.map((file) => URL.createObjectURL(file));
-  }, [imageFiles]);
+    return pendingFiles.filter(isImageFile).map((file) => URL.createObjectURL(file));
+  }, [pendingFiles]);
 
   // Revoke preview URLs on cleanup
   React.useEffect(() => {
@@ -444,7 +458,7 @@ export function ChatInputArea({
             value={inputValue}
             onValueChange={onInputChange}
             onSubmit={handleSubmit}
-            onFilesChange={handlePastedFiles}
+            onFilesChange={handleIncomingFiles}
             onFilePathsDrop={handleFilePathsDrop}
             onHashTrigger={REDESIGN_ON ? (query) => {
               setHashSearchQuery(query);
@@ -476,66 +490,31 @@ export function ChatInputArea({
           <PageLinkInsertBridge />
           {/* Agent chips: removed — agent is shown in AgentSelectorDock (bottom-left) instead */}
 
-          {/* Image previews */}
-          {imageFiles.length > 0 && (
-            <div className="flex flex-wrap gap-1.5 px-3 pt-2 pb-1">
-              {imageFiles.map((file, index) => (
-                <div
-                  key={`img-${file.name}-${index}`}
-                  className="relative group"
-                >
-                  <div className="relative size-12 rounded border bg-muted/50 overflow-hidden">
-                    <img
-                      src={imagePreviewUrls[index]}
-                      alt={file.name}
-                      className="h-full w-full object-cover"
-                    />
-                    <button
-                      type="button"
-                      onClick={() => onRemoveImageFile(index)}
-                      className="absolute top-0 right-0 p-0.5 rounded-full bg-black/60 text-white opacity-0 group-hover:opacity-100 transition-opacity"
-                    >
-                      <X className="h-2.5 w-2.5" />
-                    </button>
-                  </div>
-                  <span className="block text-[9px] text-muted-foreground truncate max-w-12 mt-0.5 text-center">
-                    {file.name}
-                  </span>
-                </div>
-              ))}
-            </div>
-          )}
-
-          {/* Attached files preview */}
-          {attachedFiles.length > 0 && (
+          {(pendingFiles.length > 0 || referencedAttachments.length > 0) && (
             <div className="flex flex-wrap gap-2 px-4 pt-3 pb-2">
-              {attachedFiles.map((filePath, index) => {
-                const fileName = getFileName(filePath);
-                const displayPath = getFileDisplayPath(filePath);
-                const isImageAttachment = isImagePath(filePath);
-
-                if (isImageAttachment) {
+              {pendingFiles.map((file, index) => {
+                if (isImageFile(file)) {
+                  const previewIndex = pendingFiles
+                    .slice(0, index + 1)
+                    .filter(isImageFile).length - 1;
                   return (
-                    <div
-                      key={`${filePath}-${index}`}
-                      className="relative group"
-                    >
+                    <div key={`pending-img-${file.name}-${index}`} className="relative group">
                       <div className="relative size-12 rounded border bg-muted/50 overflow-hidden">
-                        <LocalImage
-                          src={filePath}
-                          alt={fileName}
+                        <img
+                          src={imagePreviewUrls[previewIndex]}
+                          alt={file.name}
                           className="h-full w-full object-cover"
                         />
                         <button
                           type="button"
-                          onClick={() => onRemoveFile(index)}
+                          onClick={() => onRemovePendingFile(index)}
                           className="absolute top-0 right-0 p-0.5 rounded-full bg-black/60 text-white opacity-0 group-hover:opacity-100 transition-opacity"
                         >
                           <X className="h-2.5 w-2.5" />
                         </button>
                       </div>
                       <span className="block text-[9px] text-muted-foreground truncate max-w-12 mt-0.5 text-center">
-                        {fileName}
+                        {file.name}
                       </span>
                     </div>
                   );
@@ -543,22 +522,15 @@ export function ChatInputArea({
 
                 return (
                   <div
-                    key={`${filePath}-${index}`}
-                    title={filePath}
+                    key={`pending-file-${file.name}-${index}`}
+                    title={file.name}
                     className="relative group flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg border bg-muted/50 min-w-0 max-w-[280px]"
                   >
                     <FileText className="h-3.5 w-3.5 flex-shrink-0 text-muted-foreground" />
-                    <div className="flex flex-col min-w-0">
-                      <span className="text-xs font-medium truncate leading-tight">{fileName}</span>
-                      {displayPath !== fileName && (
-                        <span className="text-[10px] text-muted-foreground truncate leading-tight opacity-70">
-                          {displayPath.split("/").slice(0, -1).join("/")}
-                        </span>
-                      )}
-                    </div>
+                    <span className="text-xs font-medium truncate leading-tight">{file.name}</span>
                     <button
                       type="button"
-                      onClick={() => onRemoveFile(index)}
+                      onClick={() => onRemovePendingFile(index)}
                       className="ml-0.5 p-0.5 flex-shrink-0 rounded-full text-muted-foreground hover:text-foreground hover:bg-muted transition-colors"
                     >
                       <X className="h-3 w-3" />
@@ -566,6 +538,25 @@ export function ChatInputArea({
                   </div>
                 );
               })}
+
+              {referencedAttachments.map((attachment, index) => (
+                <div
+                  key={`ref-${attachment.url}`}
+                  title={attachment.url}
+                  className="relative group flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg border border-dashed bg-muted/30 min-w-0 max-w-[280px]"
+                >
+                  <FileText className="h-3.5 w-3.5 flex-shrink-0 text-muted-foreground" />
+                  <span className="text-xs font-medium truncate leading-tight">{attachment.name}</span>
+                  <span className="text-[10px] text-muted-foreground flex-shrink-0">#</span>
+                  <button
+                    type="button"
+                    onClick={() => onRemoveReferencedAttachment(index)}
+                    className="ml-0.5 p-0.5 flex-shrink-0 rounded-full text-muted-foreground hover:text-foreground hover:bg-muted transition-colors"
+                  >
+                    <X className="h-3 w-3" />
+                  </button>
+                </div>
+              ))}
             </div>
           )}
 
@@ -585,7 +576,7 @@ export function ChatInputArea({
               placeholder={
                 isStreaming
                   ? t('chat.inputPlaceholderContinue', 'Continue typing...')
-                  : attachedFiles.length > 0
+                  : pendingFiles.length > 0 || referencedAttachments.length > 0
                     ? t('chat.inputPlaceholderDescription', 'Add a description...')
                     : t('chat.inputPlaceholderMention', 'Mention with @, reference files with #...')
               }
@@ -594,11 +585,13 @@ export function ChatInputArea({
 
           {/* Popovers (inside PromptInput for context) */}
           <FileMentionPopoverWrapper
+            activeSessionId={activeSessionId}
             open={filePopoverOpen}
             onOpenChange={setFilePopoverOpen}
             searchQuery={hashSearchQuery}
             onSearchChange={setHashSearchQuery}
             useHashTrigger={REDESIGN_ON}
+            onSelectSessionAttachment={handleSelectSessionAttachment}
           />
           {REDESIGN_ON && (
             <MentionPopoverWrapper
@@ -619,10 +612,7 @@ export function ChatInputArea({
 
           <PromptInputFooter>
             <PromptInputTools>
-              <FileInputButton
-                onFilesSelected={onFilesChange}
-                onBrowserFilesSelected={handlePastedFiles}
-              />
+              <FileInputButton onFilesSelected={handleIncomingFiles} />
               <PermissionApprovalModeSelect sessionId={activeSessionId} />
 
               {/* Engaged agent pills — model is chosen per agent on each pill. */}
@@ -641,8 +631,8 @@ export function ChatInputArea({
               <ContextUsageBadge />
               <ComposerSubmitButton
                 inputValue={inputValue}
-                attachedFiles={attachedFiles}
-                imageFiles={imageFiles}
+                pendingFiles={pendingFiles}
+                referencedAttachments={referencedAttachments}
               />
             </div>
           </PromptInputFooter>

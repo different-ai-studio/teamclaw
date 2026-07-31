@@ -1,17 +1,24 @@
 import * as React from "react"
-import { File, Folder, Loader2 } from "lucide-react"
+import { File, Folder, ImageIcon, Loader2, Paperclip } from "lucide-react"
 import { useWorkspaceStore } from "@/stores/workspace"
 import { useTeamModeStore } from "@/stores/team-mode"
+import { useSessionMessageStore } from "@/stores/session-message-store"
 import { TEAMCLAW_DIR } from "@/lib/build-config"
 import { isTauri } from "@/lib/utils"
 import { cn } from "@/lib/utils"
+import {
+  collectSessionAttachments,
+  type SessionAttachmentRef,
+} from "@/lib/session-attachments"
 
 interface FileMentionPopoverProps {
+  activeSessionId: string | null
   open: boolean
   onOpenChange: (open: boolean) => void
   searchQuery: string
   onSearchChange: (query: string) => void
   onSelect: (relativePath: string) => void
+  onSelectSessionAttachment: (attachment: SessionAttachmentRef) => void
 }
 
 const ALWAYS_IGNORED_NAMES = new Set([
@@ -35,6 +42,10 @@ interface FlatEntry {
   type: "file" | "directory"
   depth: number
 }
+
+type SelectableRow =
+  | { kind: "session"; attachment: SessionAttachmentRef }
+  | { kind: "workspace"; entry: FlatEntry }
 
 // Module-level cache so re-opening the popover is instant
 let cachedWorkspace: string | null = null
@@ -89,25 +100,62 @@ async function scanRecursive(
 
 const MAX_DISPLAY = 80
 
+function filterByQuery<T extends { searchTarget: string }>(
+  items: T[],
+  searchQuery: string,
+  limit: number,
+): T[] {
+  if (!searchQuery) return items.slice(0, limit)
+  const tokens = searchQuery.toLowerCase().split(/[\s/\\]+/).filter(Boolean)
+  return items
+    .filter((item) => {
+      const target = item.searchTarget.toLowerCase()
+      return tokens.every((t) => target.includes(t))
+    })
+    .slice(0, limit)
+}
+
 export function FileMentionPopover({
+  activeSessionId,
   open,
   onOpenChange,
   searchQuery,
   onSelect,
+  onSelectSessionAttachment,
 }: FileMentionPopoverProps) {
   const workspacePath = useWorkspaceStore(s => s.workspacePath)
+  const sessionMessages = useSessionMessageStore((s) =>
+    activeSessionId ? s.messages[activeSessionId] : undefined,
+  )
   const [allEntries, setAllEntries] = React.useState<FlatEntry[]>([])
   const [isLoading, setIsLoading] = React.useState(false)
   const [highlightedIndex, setHighlightedIndex] = React.useState(0)
   const listRef = React.useRef<HTMLDivElement>(null)
-  const filteredEntriesRef = React.useRef<FlatEntry[]>([])
+  const selectableRowsRef = React.useRef<SelectableRow[]>([])
   const highlightedIndexRef = React.useRef(0)
+
+  const sessionAttachments = React.useMemo(
+    () => collectSessionAttachments(sessionMessages),
+    [sessionMessages],
+  )
+
+  const filteredSessionAttachments = React.useMemo(
+    () =>
+      filterByQuery(
+        sessionAttachments.map((attachment) => ({
+          attachment,
+          searchTarget: attachment.name,
+        })),
+        searchQuery,
+        MAX_DISPLAY,
+      ).map((row) => row.attachment),
+    [sessionAttachments, searchQuery],
+  )
 
   // Recursively scan workspace on open
   React.useEffect(() => {
     if (!open || !workspacePath || !isTauri()) return
 
-    // Use cache if workspace hasn't changed
     if (cachedWorkspace === workspacePath && cachedEntries.length > 0) {
       setAllEntries(cachedEntries)
       return
@@ -135,22 +183,32 @@ export function FileMentionPopover({
     }
   }, [open])
 
-  // Fuzzy-ish filtering: match against name and path
-  const filteredEntries = React.useMemo(() => {
-    if (!searchQuery) return allEntries.slice(0, MAX_DISPLAY)
-    const lower = searchQuery.toLowerCase()
-    const tokens = lower.split(/[\s/\\]+/).filter(Boolean)
-    return allEntries
-      .filter(e => {
-        const target = e.relPath.toLowerCase()
-        return tokens.every(t => target.includes(t))
-      })
-      .slice(0, MAX_DISPLAY)
+  const filteredWorkspaceEntries = React.useMemo(() => {
+    if (!isTauri()) return []
+    return filterByQuery(
+      allEntries.map((entry) => ({
+        entry,
+        searchTarget: entry.relPath,
+      })),
+      searchQuery,
+      MAX_DISPLAY,
+    ).map((row) => row.entry)
   }, [allEntries, searchQuery])
 
+  const selectableRows = React.useMemo<SelectableRow[]>(() => {
+    const rows: SelectableRow[] = []
+    for (const attachment of filteredSessionAttachments) {
+      rows.push({ kind: "session", attachment })
+    }
+    for (const entry of filteredWorkspaceEntries) {
+      rows.push({ kind: "workspace", entry })
+    }
+    return rows
+  }, [filteredSessionAttachments, filteredWorkspaceEntries])
+
   React.useEffect(() => {
-    filteredEntriesRef.current = filteredEntries
-  }, [filteredEntries])
+    selectableRowsRef.current = selectableRows
+  }, [selectableRows])
 
   React.useEffect(() => {
     highlightedIndexRef.current = highlightedIndex
@@ -158,33 +216,35 @@ export function FileMentionPopover({
 
   React.useEffect(() => {
     setHighlightedIndex(0)
-  }, [filteredEntries])
+  }, [selectableRows])
 
-  const handleSelect = React.useCallback((entry: FlatEntry) => {
-    onSelect(entry.relPath)
+  const handleSelectRow = React.useCallback((row: SelectableRow) => {
+    if (row.kind === "session") {
+      onSelectSessionAttachment(row.attachment)
+    } else {
+      onSelect(row.entry.relPath)
+    }
     onOpenChange(false)
-  }, [onSelect, onOpenChange])
+  }, [onSelect, onSelectSessionAttachment, onOpenChange])
 
-  // Scroll highlighted item into view
   React.useEffect(() => {
     if (!listRef.current) return
     const item = listRef.current.querySelector(`[data-index="${highlightedIndex}"]`)
     item?.scrollIntoView({ block: "nearest" })
   }, [highlightedIndex])
 
-  // Keyboard navigation
   React.useEffect(() => {
     if (!open) return
 
     const onKeyDown = (e: KeyboardEvent) => {
-      const currentEntries = filteredEntriesRef.current
-      if (currentEntries.length === 0) return
+      const currentRows = selectableRowsRef.current
+      if (currentRows.length === 0) return
 
       if (e.key === "ArrowDown") {
         e.preventDefault()
         e.stopPropagation()
         setHighlightedIndex(i => {
-          const nextIndex = (i + 1) % currentEntries.length
+          const nextIndex = (i + 1) % currentRows.length
           highlightedIndexRef.current = nextIndex
           return nextIndex
         })
@@ -192,7 +252,7 @@ export function FileMentionPopover({
         e.preventDefault()
         e.stopPropagation()
         setHighlightedIndex(i => {
-          const nextIndex = (i - 1 + currentEntries.length) % currentEntries.length
+          const nextIndex = (i - 1 + currentRows.length) % currentRows.length
           highlightedIndexRef.current = nextIndex
           return nextIndex
         })
@@ -200,20 +260,23 @@ export function FileMentionPopover({
         if (e.key === "Enter" && (e.isComposing || e.keyCode === 229)) return
         e.preventDefault()
         e.stopPropagation()
-        const entry = currentEntries[highlightedIndexRef.current]
-        if (entry) handleSelect(entry)
+        const row = currentRows[highlightedIndexRef.current]
+        if (row) handleSelectRow(row)
       }
     }
 
     document.addEventListener("keydown", onKeyDown, true)
     return () => document.removeEventListener("keydown", onKeyDown, true)
-  }, [open, handleSelect])
+  }, [open, handleSelectRow])
 
   if (!open) return null
 
+  let rowIndex = 0
+  const showSessionSection = filteredSessionAttachments.length > 0
+  const showWorkspaceSection = isTauri()
+
   return (
     <div className="absolute bottom-full left-0 mb-2 w-96 rounded-lg border bg-popover shadow-lg z-50 animate-in fade-in slide-in-from-bottom-2 duration-200">
-      {/* Header */}
       <div className="flex items-center justify-between px-3 py-2 text-[10px] text-muted-foreground border-b bg-muted/30">
         <span className="font-medium">Reference a file</span>
         {searchQuery && (
@@ -221,61 +284,106 @@ export function FileMentionPopover({
             {searchQuery}
           </span>
         )}
-        {!searchQuery && allEntries.length > 0 && (
-          <span className="text-[9px]">
-            {allEntries.length} items
-          </span>
-        )}
       </div>
 
-      {/* File list */}
       <div ref={listRef} className="max-h-64 overflow-y-auto p-1">
-        {isLoading ? (
-          <div className="flex items-center justify-center gap-2 py-8 text-xs text-muted-foreground">
-            <Loader2 className="h-4 w-4 animate-spin" />
-            Scanning workspace...
-          </div>
-        ) : filteredEntries.length === 0 ? (
-          <div className="py-8 text-center text-xs text-muted-foreground">
-            {searchQuery
-              ? `No match for "${searchQuery}"`
-              : "No files found"}
-          </div>
-        ) : (
-          filteredEntries.map((entry, index) => (
-            <div
-              key={entry.relPath}
-              data-index={index}
-              onClick={() => handleSelect(entry)}
-              onMouseEnter={() => setHighlightedIndex(index)}
-              className={cn(
-                "flex items-center gap-2 rounded-sm px-2 py-1.5 cursor-pointer select-none transition-colors",
-                index === highlightedIndex
-                  ? "bg-accent text-accent-foreground"
-                  : "text-foreground hover:bg-accent/50"
-              )}
-            >
-              {entry.type === "directory" ? (
-                <Folder className="h-4 w-4 text-blue-500 shrink-0" />
-              ) : (
-                <File className="h-4 w-4 text-muted-foreground shrink-0" />
-              )}
-              <div className="flex-1 min-w-0 flex items-baseline gap-1.5">
-                <span className="text-xs font-medium truncate shrink-0">
-                  {entry.name}
-                </span>
-                {entry.relPath !== entry.name && (
-                  <span className="text-[10px] text-muted-foreground/60 truncate">
-                    {entry.relPath}
-                  </span>
-                )}
-              </div>
+        {showSessionSection ? (
+          <>
+            <div className="px-2 py-1 text-[9px] font-semibold uppercase tracking-wide text-muted-foreground/70">
+              会话附件
             </div>
-          ))
-        )}
+            {filteredSessionAttachments.map((attachment) => {
+              const index = rowIndex++
+              return (
+                <div
+                  key={attachment.url}
+                  data-index={index}
+                  onClick={() => handleSelectRow({ kind: "session", attachment })}
+                  onMouseEnter={() => setHighlightedIndex(index)}
+                  className={cn(
+                    "flex items-center gap-2 rounded-sm px-2 py-1.5 cursor-pointer select-none transition-colors",
+                    index === highlightedIndex
+                      ? "bg-accent text-accent-foreground"
+                      : "text-foreground hover:bg-accent/50",
+                  )}
+                >
+                  {attachment.isImage ? (
+                    <ImageIcon className="h-4 w-4 text-muted-foreground shrink-0" />
+                  ) : (
+                    <Paperclip className="h-4 w-4 text-muted-foreground shrink-0" />
+                  )}
+                  <span className="text-xs font-medium truncate">{attachment.name}</span>
+                </div>
+              )
+            })}
+          </>
+        ) : null}
+
+        {showWorkspaceSection ? (
+          <>
+            <div className="px-2 py-1 text-[9px] font-semibold uppercase tracking-wide text-muted-foreground/70 mt-1">
+              工作区文件
+            </div>
+            {isLoading ? (
+              <div className="flex items-center justify-center gap-2 py-6 text-xs text-muted-foreground">
+                <Loader2 className="h-4 w-4 animate-spin" />
+                Scanning workspace...
+              </div>
+            ) : filteredWorkspaceEntries.length === 0 ? (
+              <div className="py-6 text-center text-xs text-muted-foreground">
+                {searchQuery ? `No match for "${searchQuery}"` : "No files found"}
+              </div>
+            ) : (
+              filteredWorkspaceEntries.map((entry) => {
+                const index = rowIndex++
+                return (
+                  <div
+                    key={entry.relPath}
+                    data-index={index}
+                    onClick={() => handleSelectRow({ kind: "workspace", entry })}
+                    onMouseEnter={() => setHighlightedIndex(index)}
+                    className={cn(
+                      "flex items-center gap-2 rounded-sm px-2 py-1.5 cursor-pointer select-none transition-colors",
+                      index === highlightedIndex
+                        ? "bg-accent text-accent-foreground"
+                        : "text-foreground hover:bg-accent/50",
+                    )}
+                  >
+                    {entry.type === "directory" ? (
+                      <Folder className="h-4 w-4 text-blue-500 shrink-0" />
+                    ) : (
+                      <File className="h-4 w-4 text-muted-foreground shrink-0" />
+                    )}
+                    <div className="flex-1 min-w-0 flex items-baseline gap-1.5">
+                      <span className="text-xs font-medium truncate shrink-0">
+                        {entry.name}
+                      </span>
+                      {entry.relPath !== entry.name && (
+                        <span className="text-[10px] text-muted-foreground/60 truncate">
+                          {entry.relPath}
+                        </span>
+                      )}
+                    </div>
+                  </div>
+                )
+              })
+            )}
+          </>
+        ) : null}
+
+        {!showSessionSection && !showWorkspaceSection ? (
+          <div className="py-8 text-center text-xs text-muted-foreground">
+            No attachments in this session
+          </div>
+        ) : null}
+
+        {showSessionSection && !showWorkspaceSection && filteredSessionAttachments.length === 0 ? (
+          <div className="py-4 text-center text-xs text-muted-foreground">
+            No session attachments yet
+          </div>
+        ) : null}
       </div>
 
-      {/* Hint bar */}
       <div className="flex items-center gap-3 px-3 py-1.5 text-[10px] text-muted-foreground/60 border-t">
         <span><kbd className="px-1 py-0.5 rounded bg-muted text-[9px] font-mono">↑↓</kbd> navigate</span>
         <span><kbd className="px-1 py-0.5 rounded bg-muted text-[9px] font-mono">↵/Tab</kbd> select</span>
@@ -285,7 +393,6 @@ export function FileMentionPopover({
   )
 }
 
-// Invalidate cache when workspace changes
 export function invalidateFileMentionCache(): void {
   cachedWorkspace = null
   cachedEntries = []

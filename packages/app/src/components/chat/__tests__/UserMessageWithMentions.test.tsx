@@ -96,6 +96,16 @@ describe('UserMessageWithMentions', () => {
     expect(document.querySelector('img')).toBeNull()
   })
 
+  it('renders non-image attachment url markers as clickable chips', () => {
+    render(
+      <UserMessageWithMentions content="[Attachment: report.pdf] (url: https://cdn.example.test/report.pdf)" />,
+    )
+
+    const link = screen.getByRole('link')
+    expect(link).toHaveAttribute('href', 'https://cdn.example.test/report.pdf')
+    expect(screen.getByText('report.pdf')).toBeTruthy()
+  })
+
   it('renders agent mentions as a header instead of inline chips', () => {
     render(
       <UserMessageWithMentions

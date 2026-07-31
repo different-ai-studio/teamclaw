@@ -108,6 +108,7 @@ type UserMessagePart = {
   dataUrl?: string;
   size?: string;
   fullPath?: string;
+  remoteUrl?: string;
   pageContext?: PageContext;
   pageUrl?: string;
 };
@@ -335,6 +336,7 @@ export function UserMessageWithMentions({
       dataUrl?: string;
       size?: string;
       fullPath?: string;
+      remoteUrl?: string;
       pageContext?: PageContext;
       pageUrl?: string;
     }> = [];
@@ -438,13 +440,21 @@ export function UserMessageWithMentions({
           dataUrl: inlineDataUrl ?? remoteImageUrl,
         });
       } else if (match[15]) {
-        // Parse the parenthesised info: may contain path:..., size:...
+        // Parse the parenthesised info: may contain path:..., url:..., size:...
         const info = match[16] ?? "";
         const pathMatch = info.match(/path:\s*([^,)]+)/);
+        const urlMatch = info.match(/url:\s*([^,)]+)/);
         const sizeMatch = info.match(/size:\s*([^,)]+)/);
         const fullPath = pathMatch ? pathMatch[1].trim() : undefined;
-        const size = sizeMatch ? sizeMatch[1].trim() : (!pathMatch && info.trim() ? info.trim() : undefined);
-        result.push({ type: "attachment", content: match[15], size, fullPath });
+        const remoteUrlRaw = urlMatch ? urlMatch[1].trim() : undefined;
+        const remoteUrl =
+          remoteUrlRaw &&
+          remoteUrlRaw !== "undefined" &&
+          (remoteUrlRaw.startsWith("http://") || remoteUrlRaw.startsWith("https://"))
+            ? remoteUrlRaw
+            : undefined;
+        const size = sizeMatch ? sizeMatch[1].trim() : (!pathMatch && !urlMatch && info.trim() ? info.trim() : undefined);
+        result.push({ type: "attachment", content: match[15], size, fullPath, remoteUrl });
       }
 
       lastIndex = match.index + match[0].length;
@@ -554,12 +564,8 @@ export function UserMessageWithMentions({
         const parentDir = part.fullPath
           ? part.fullPath.replace(/\\/g, "/").split("/").slice(-2, -1)[0]
           : undefined;
-        return (
-          <span
-            key={index}
-            title={part.fullPath ?? part.content}
-            className="inline-flex items-center gap-1.5 px-2 py-1.5 mx-0.5 rounded-md text-xs bg-orange-100 text-orange-700 dark:bg-orange-900/40 dark:text-orange-300 min-w-0 max-w-[280px]"
-          >
+        const chip = (
+          <>
             <Paperclip className="h-3 w-3 flex-shrink-0" />
             <span className="flex flex-col min-w-0">
               <span className="truncate font-medium leading-tight">{part.content}</span>
@@ -570,6 +576,29 @@ export function UserMessageWithMentions({
             {part.size && (
               <span className="text-orange-500 dark:text-orange-400 flex-shrink-0 ml-0.5">{part.size}</span>
             )}
+          </>
+        );
+        if (part.remoteUrl) {
+          return (
+            <a
+              key={index}
+              href={part.remoteUrl}
+              target="_blank"
+              rel="noopener noreferrer"
+              title={part.remoteUrl}
+              className="inline-flex items-center gap-1.5 px-2 py-1.5 mx-0.5 rounded-md text-xs bg-orange-100 text-orange-700 dark:bg-orange-900/40 dark:text-orange-300 min-w-0 max-w-[280px] hover:underline"
+            >
+              {chip}
+            </a>
+          );
+        }
+        return (
+          <span
+            key={index}
+            title={part.fullPath ?? part.content}
+            className="inline-flex items-center gap-1.5 px-2 py-1.5 mx-0.5 rounded-md text-xs bg-orange-100 text-orange-700 dark:bg-orange-900/40 dark:text-orange-300 min-w-0 max-w-[280px]"
+          >
+            {chip}
           </span>
         );
       }

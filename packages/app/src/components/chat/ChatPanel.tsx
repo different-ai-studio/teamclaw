@@ -64,7 +64,6 @@ import {
 import { buildPostSendSessionNotice } from "@/lib/session-agent-notice-text";
 import { useSessionNoticeStore } from "@/stores/session-notice-store";
 import { toMentionDeliverySnapshot } from "@/lib/session-agent-ui-state";
-import { getFileName } from "./utils/fileUtils";
 import { MessageList, type MessageListHandle } from "./MessageList";
 import { SessionErrorAlert } from "./SessionErrorAlert";
 import { isPersistentSessionTurnError } from "@/lib/agent-turn-error";
@@ -84,6 +83,7 @@ import {
   type StreamingPlanEntry,
 } from "@/stores/v2-streaming-store";
 import { uploadAttachment } from "@/lib/attachment-upload";
+import type { SessionAttachmentRef } from "@/lib/session-attachments";
 import { loadSessionActiveModel } from "@/lib/session-active-model";
 import { resolveSessionEstablishedModel } from "@/lib/session-established-model";
 import { ensureSessionLiveSubscribed } from "@/lib/session-live-subscriptions";
@@ -415,7 +415,10 @@ export function ChatPanel({ compact = false }: ChatPanelProps) {
   // ── Local state ───────────────────────────────────────────────────────
   const inputValue = draftInput;
   const setInputValue = setDraftInput;
-  const [attachedFiles, setAttachedFiles] = React.useState<string[]>([]);
+  const [pendingFiles, setPendingFiles] = React.useState<File[]>([]);
+  const [referencedAttachments, setReferencedAttachments] = React.useState<
+    SessionAttachmentRef[]
+  >([]);
   // engagedAgents is per-session: each @-mentioned agent shows as a pill in
   // the prompt-input toolbar. Switching away from a session and back
   // restores its engaged set rather than carrying one across sessions.
@@ -661,53 +664,8 @@ export function ChatPanel({ compact = false }: ChatPanelProps) {
   );
   const [welcomeSessionStarting, setWelcomeSessionStarting] = React.useState(false);
 
-  const [imageFiles, setImageFiles] = React.useState<File[]>([]);
   const [isRestoringArchived, setIsRestoringArchived] = React.useState(false);
   const isRestoringArchivedRef = React.useRef(false);
-
-  const isImagePath = React.useCallback((path: string) => {
-    return /\.(png|jpe?g|gif|webp|svg|bmp|ico|heic|heif)$/i.test(path);
-  }, []);
-
-  const extractImageAttachmentTokens = React.useCallback(
-    (text: string): { cleaned: string; imagePaths: string[] } => {
-      // Support tolerant attachment token parsing from pasted text.
-      // Examples:
-      // [Attachment: a.png] (path: /x/a.png)
-      // [Attachment:a.png](path:/x/a.png)
-      const attachmentPattern = /\[Attachment:\s*([^\]]+)\]\s*\(([^)]*)\)/gi;
-      const imagePaths: string[] = [];
-
-      let cleaned = text.replace(attachmentPattern, (full, _name, info) => {
-        const pathMatch = String(info).match(/path:\s*([^,)]+)/i);
-        const fullPath = pathMatch ? pathMatch[1].trim() : "";
-        if (fullPath && isImagePath(fullPath)) {
-          imagePaths.push(fullPath);
-          return "";
-        }
-        return full;
-      });
-
-      // Extra defensive pass: line-wise removal for any remaining textual
-      // attachment tokens that point to image paths.
-      const filteredLines = cleaned.split("\n").filter((line) => {
-        if (!line.includes("[Attachment:")) return true;
-        const pathMatch = line.match(/path:\s*([^)]+)\)?/i);
-        const maybePath = pathMatch ? pathMatch[1].trim() : "";
-        if (maybePath && isImagePath(maybePath)) return false;
-        return true;
-      });
-
-      cleaned = filteredLines.join("\n")
-        .replace(/\n{3,}/g, "\n\n")
-        .replace(/[ \t]+\n/g, "\n")
-        .replace(/ {2,}/g, " ")
-        .trimStart();
-
-      return { cleaned, imagePaths };
-    },
-    [isImagePath],
-  );
 
   // ── Provider store ────────────────────────────────────────────────────
   const currentModelKey = useProviderStore(s => s.currentModelKey);
@@ -1115,55 +1073,31 @@ export function ChatPanel({ compact = false }: ChatPanelProps) {
 
   // ── File handling ─────────────────────────────────────────────────────
 
-  const handleFilesChange = (paths: string[]) => {
-    setAttachedFiles((prev) => [...prev, ...paths]);
+  const appendPendingFiles = (files: File[]) => {
+    setPendingFiles((prev) => [...prev, ...files]);
+  };
+
+  const removePendingFile = (index: number) => {
+    setPendingFiles((prev) => prev.filter((_, i) => i !== index));
+  };
+
+  const appendReferencedAttachment = (attachment: SessionAttachmentRef) => {
+    setReferencedAttachments((prev) => {
+      if (prev.some((a) => a.url === attachment.url)) return prev;
+      return [...prev, attachment];
+    });
+  };
+
+  const removeReferencedAttachment = (index: number) => {
+    setReferencedAttachments((prev) => prev.filter((_, i) => i !== index));
   };
 
   const handleInputChange = React.useCallback(
     (nextValue: string) => {
-      const { cleaned, imagePaths } = extractImageAttachmentTokens(nextValue);
-      if (imagePaths.length > 0) {
-        setAttachedFiles((prev) => {
-          const seen = new Set(prev);
-          const uniqueNew = imagePaths.filter((p) => !seen.has(p));
-          return uniqueNew.length > 0 ? [...prev, ...uniqueNew] : prev;
-        });
-      }
-      setInputValue(cleaned);
+      setInputValue(nextValue);
     },
-    [extractImageAttachmentTokens, setInputValue],
+    [setInputValue],
   );
-
-  // Fallback sanitizer: if input text is injected through another path,
-  // still normalize it and convert image attachment tokens into previews.
-  React.useEffect(() => {
-    if (!inputValue) return;
-    const { cleaned, imagePaths } = extractImageAttachmentTokens(inputValue);
-
-    if (imagePaths.length > 0) {
-      setAttachedFiles((prev) => {
-        const seen = new Set(prev);
-        const uniqueNew = imagePaths.filter((p) => !seen.has(p));
-        return uniqueNew.length > 0 ? [...prev, ...uniqueNew] : prev;
-      });
-    }
-
-    if (cleaned !== inputValue) {
-      setInputValue(cleaned);
-    }
-  }, [inputValue, extractImageAttachmentTokens, setInputValue]);
-
-  const removeFile = (index: number) => {
-    setAttachedFiles((prev) => prev.filter((_, i) => i !== index));
-  };
-
-  const handleImageFilesChange = (files: File[]) => {
-    setImageFiles((prev) => [...prev, ...files]);
-  };
-
-  const removeImageFile = (index: number) => {
-    setImageFiles((prev) => prev.filter((_, i) => i !== index));
-  };
 
   // ── Submit handler ────────────────────────────────────────────────────
 
@@ -1188,17 +1122,17 @@ export function ChatPanel({ compact = false }: ChatPanelProps) {
       mentionCount: mentions.length,
       engagedAgentCount: engagedAgents.length,
       extraMentionAgentCount: extraMentionAgents.length,
-      attachedFileCount: attachedFiles.length,
-      imageFileCount: imageFiles.length,
+      attachedFileCount: pendingFiles.length,
+      referencedAttachmentCount: referencedAttachments.length,
       ...summarizeText(text),
     });
 
     if (
       !text &&
-      attachedFiles.length === 0 &&
+      pendingFiles.length === 0 &&
+      referencedAttachments.length === 0 &&
       mentions.length === 0 &&
       !textHasMemberMentionTokens(text) &&
-      imageFiles.length === 0 &&
       engagedAgents.length === 0
     ) {
       return;
@@ -1206,8 +1140,8 @@ export function ChatPanel({ compact = false }: ChatPanelProps) {
 
     if (
       !text.trim() &&
-      attachedFiles.length === 0 &&
-      imageFiles.length === 0 &&
+      pendingFiles.length === 0 &&
+      referencedAttachments.length === 0 &&
       engagedAgents.length > 0
     ) {
       sessionFlowLog("send.rejected_empty_with_engaged_agent", {
@@ -1225,14 +1159,11 @@ export function ChatPanel({ compact = false }: ChatPanelProps) {
       return;
     }
 
-    // Snapshot file state immediately so the UI clears at once, before any
-    // async work. This prevents stale images from leaking into later sends
-    // if the user types and submits again while the upload is in flight.
-    const currentImageFiles = imageFiles;
-    const currentAttachedFiles = attachedFiles;
-    setInputValue("");
-    setAttachedFiles([]);
-    setImageFiles([]);
+    // Snapshot file state immediately so async work cannot leak stale files
+    // into a later send, but keep composer state until outbox enqueue succeeds.
+    const currentPendingFiles = pendingFiles;
+    const currentReferencedAttachments = referencedAttachments;
+    const sentInputValue = inputValue;
 
     // WYSIWYG: pill in footer, typed @, or explicit extra on first send.
     const engagedFromStore = useEngagedAgentStore.getState().get(sid);
@@ -1280,6 +1211,15 @@ export function ChatPanel({ compact = false }: ChatPanelProps) {
       source: teamIdFromSessionList ? "session-list-store" : "backend",
       hasAuthSession: !!authSession,
     });
+
+    if (currentPendingFiles.length > 0 && !teamIdForSend) {
+      void import("sonner").then(({ toast }) => {
+        toast.error("Failed to upload attachment — message not sent", {
+          description: "Could not resolve team for attachment upload.",
+        });
+      });
+      return;
+    }
 
     let agentRuntimeIdsForSend: string[] = [];
     if (teamIdForSend && mentionActorIds.length > 0) {
@@ -1350,10 +1290,12 @@ export function ChatPanel({ compact = false }: ChatPanelProps) {
       parts.push(...structuredMentions);
     }
 
-    // Add attached files at the beginning
-    if (currentAttachedFiles.length > 0) {
-      for (const filePath of currentAttachedFiles) {
-        parts.push(`[Attachment: ${getFileName(filePath)}] (path: ${filePath})`);
+    // Referenced session attachments (from # popover) — no re-upload.
+    for (const ref of currentReferencedAttachments) {
+      if (ref.isImage) {
+        parts.push(`[Image: ${ref.name}] (url: ${ref.url})`);
+      } else {
+        parts.push(`[Attachment: ${ref.name}] (url: ${ref.url})`);
       }
     }
 
@@ -1367,25 +1309,30 @@ export function ChatPanel({ compact = false }: ChatPanelProps) {
 
     finalContent = parts.join("\n\n");
 
-    // Upload pasted images to Supabase Storage before sending.
-    // Mirrors iOS AttachmentUploadManager: upload first, then include signed
-    // URL in message content so agents and other clients can access the file.
-    const attachmentUrls: string[] = [];
-    if (currentImageFiles.length > 0 && teamIdForSend) {
+    // Upload pending files to cloud storage before sending.
+    const attachmentUrls: string[] = currentReferencedAttachments.map((ref) => ref.url);
+    if (currentPendingFiles.length > 0 && teamIdForSend) {
       try {
         sessionFlowLog("send.attachments_upload.begin", {
           sessionId: sid,
           teamId: teamIdForSend,
-          imageFileCount: currentImageFiles.length,
-          imageFileNames: currentImageFiles.map((file) => file.name),
+          pendingFileCount: currentPendingFiles.length,
+          pendingFileNames: currentPendingFiles.map((file) => file.name),
         });
         const uploaded = await Promise.all(
-          currentImageFiles.map((file) =>
+          currentPendingFiles.map((file) =>
             uploadAttachment(file, { teamId: teamIdForSend!, sessionId: sid }),
           ),
         );
         for (const att of uploaded) {
-          parts.push(`[Image: ${att.fileName}] (url: ${att.signedUrl})`);
+          const tokenIsImage =
+            att.mimeType.startsWith("image/") ||
+            /\.(png|jpe?g|gif|webp|svg|bmp|ico|heic|heif)$/i.test(att.fileName);
+          if (tokenIsImage) {
+            parts.push(`[Image: ${att.fileName}] (url: ${att.signedUrl})`);
+          } else {
+            parts.push(`[Attachment: ${att.fileName}] (url: ${att.signedUrl})`);
+          }
           attachmentUrls.push(att.signedUrl);
         }
         finalContent = parts.join("\n\n");
@@ -1398,13 +1345,15 @@ export function ChatPanel({ compact = false }: ChatPanelProps) {
         sessionFlowError("send.attachments_upload.failed", e, {
           sessionId: sid,
           teamId: teamIdForSend,
-          imageFileCount: currentImageFiles.length,
+          pendingFileCount: currentPendingFiles.length,
         });
         console.error("[ChatPanel] attachment upload failed:", e);
         const { toast } = await import("sonner");
         toast.error("Failed to upload attachment — message not sent");
         return;
       }
+    } else if (currentReferencedAttachments.length > 0) {
+      finalContent = parts.join("\n\n");
     }
 
     // Optimistic v2 send: synthesize the proto Message and append to the
@@ -1416,6 +1365,7 @@ export function ChatPanel({ compact = false }: ChatPanelProps) {
     const outgoing = finalContent;
     if (outgoing && outgoing.trim()) {
       if (sid && authSession && teamIdForSend) {
+        let messageId: string | null = null;
         try {
           sessionFlowLog("send.subscribe_live.begin", {
             sessionId: sid,
@@ -1444,7 +1394,7 @@ export function ChatPanel({ compact = false }: ChatPanelProps) {
           if (!senderActorId)
             throw new Error(`No actor found for user in team ${teamIdForSend}`);
 
-          const messageId = crypto.randomUUID();
+          messageId = crypto.randomUUID();
           const createdAt = BigInt(Math.floor(Date.now() / 1000));
           // Must resolve identically to the AgentSelectorDock pill — what the
           // user SEES is what the prompt runs on. That means passing the
@@ -1585,6 +1535,16 @@ export function ChatPanel({ compact = false }: ChatPanelProps) {
             teamId: teamIdForSend,
             messageId,
           });
+          setInputValue((prev) => (prev === sentInputValue ? "" : prev));
+          setPendingFiles((prev) =>
+            prev.filter((file) => !currentPendingFiles.includes(file)),
+          );
+          setReferencedAttachments((prev) =>
+            prev.filter(
+              (attachment) =>
+                !currentReferencedAttachments.some((ref) => ref.url === attachment.url),
+            ),
+          );
           if (agentRuntimeIdsForSend.length > 0) {
             notePendingAgentReplyTo(sid, agentRuntimeIdsForSend, messageId);
           }
@@ -1601,11 +1561,17 @@ export function ChatPanel({ compact = false }: ChatPanelProps) {
           // ensure here — it races ahead of persistence and triggers catchup
           // before the @-mentioned row exists in the backend.
         } catch (e) {
+          if (messageId) {
+            useSessionMessageStore.getState().removeMessageById(sid, messageId);
+          }
           sessionFlowError("send.failed_before_outbox", e, {
             sessionId: sid,
             teamId: teamIdForSend,
           });
           console.error("[ChatPanel] send enqueue failed:", e);
+          void import("sonner").then(({ toast }) => {
+            toast.error("Failed to send message");
+          });
         }
       } else {
         sessionFlowLog("send.skipped_missing_context", {
@@ -2328,9 +2294,12 @@ export function ChatPanel({ compact = false }: ChatPanelProps) {
             compact={compact}
             inputValue={inputValue}
             onInputChange={handleInputChange}
-            attachedFiles={attachedFiles}
-            onFilesChange={handleFilesChange}
-            onRemoveFile={removeFile}
+            pendingFiles={pendingFiles}
+            onAppendPendingFiles={appendPendingFiles}
+            onRemovePendingFile={removePendingFile}
+            referencedAttachments={referencedAttachments}
+            onAppendReferencedAttachment={appendReferencedAttachment}
+            onRemoveReferencedAttachment={removeReferencedAttachment}
             engagedAgents={engagedAgents}
             engagedUiEntries={engagedUiEntries}
             agentToRuntimeId={agentToRuntimeId}
@@ -2365,9 +2334,6 @@ export function ChatPanel({ compact = false }: ChatPanelProps) {
             agentMentionLocked={isSoloAgentSessionActive}
             activeStreamingAgents={activeStreamingAgents}
             onInterruptAgent={handleInterruptAgent}
-            imageFiles={imageFiles}
-            onImageFilesChange={handleImageFilesChange}
-            onRemoveImageFile={removeImageFile}
             onSubmit={handleSubmit}
             isStreaming={isStreaming}
             messageQueue={messageQueue}
