@@ -909,13 +909,13 @@ export function ChatPanel({ compact = false }: ChatPanelProps) {
   }, [workspaceReady, runtimeModelSignature, initProviderStore]);
 
   // NOTE: there used to be an effect here that resolved the session's model
-  // (`loadSessionActiveModel`) and wrote it back into the provider store's
-  // global `currentModelKey`. It is gone on purpose. Writing a per-session
-  // answer into a workspace-global key made the two disagree the moment the
-  // effect could not run — a draft session has no `activeSessionId`, so the key
-  // stayed on whatever the last workspace had persisted while the pill resolved
-  // the session's real model independently. `selectAgentModel` is the single
-  // resolver now; nothing mirrors its answer anywhere.
+  // from its `agent_runtimes` rows and wrote the answer back into the provider
+  // store's global `currentModelKey`. It is gone on purpose. Writing a
+  // per-session answer into a workspace-global key made the two disagree the
+  // moment the effect could not run — a draft session has no `activeSessionId`,
+  // so the key stayed on whatever the last workspace had persisted while the
+  // pill resolved the session's real model independently. `selectAgentModel` is
+  // the single resolver now; nothing mirrors its answer anywhere.
 
   // ── Team config hot reload via file watcher ─────────────────────────
   React.useEffect(() => {
