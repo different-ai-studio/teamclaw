@@ -6,10 +6,12 @@ const mocks = vi.hoisted(() => ({
   closeNewSessionDialog: vi.fn(),
   switchToSession: vi.fn(),
   loadSessions: vi.fn(),
+  upsertRows: vi.fn(),
   addHighlightedSession: vi.fn(),
   createSessionWithFirstMessage: vi.fn(),
   ensureSessionLiveSubscribed: vi.fn(),
   listActorDirectory: vi.fn(),
+  requestComposerFocus: vi.fn(),
 }))
 
 vi.mock('react-i18next', () => ({
@@ -43,6 +45,7 @@ vi.mock('@/stores/ui', () => ({
       getState: () => ({
         closeNewSessionDialog: mocks.closeNewSessionDialog,
         switchToSession: mocks.switchToSession,
+        requestComposerFocus: mocks.requestComposerFocus,
       }),
     },
   ),
@@ -78,7 +81,10 @@ vi.mock('@/stores/current-team', () => ({
 
 vi.mock('@/stores/session-list-store', () => ({
   useSessionListStore: {
-    getState: () => ({ load: mocks.loadSessions }),
+    getState: () => ({
+      load: mocks.loadSessions,
+      upsertRows: mocks.upsertRows,
+    }),
   },
 }))
 

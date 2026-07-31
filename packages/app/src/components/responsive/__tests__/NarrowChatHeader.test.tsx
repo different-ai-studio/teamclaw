@@ -45,7 +45,7 @@ describe('NarrowChatHeader', () => {
     useUIStore.setState({ embedMode: true, currentView: 'chat' })
     useSessionSelectionStore.setState({ activeSessionId: null })
     createQuickSession.mockReset()
-    createQuickSession.mockResolvedValue({ ok: true, sessionId: 'sess-new', agentDisplayName: 'MACPRO' })
+    createQuickSession.mockResolvedValue({ ok: true, agentDisplayName: 'MACPRO' })
   })
 
   it('hides the new chat button on the welcome page', () => {
