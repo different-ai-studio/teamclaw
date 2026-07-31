@@ -16,7 +16,9 @@ use std::time::Duration;
 use base64::Engine as _;
 use tracing::warn;
 
-static IMAGE_EXTS: &[&str] = &["jpg", "jpeg", "png", "gif", "webp", "bmp"];
+static IMAGE_EXTS: &[&str] = &[
+    "jpg", "jpeg", "png", "gif", "webp", "bmp", "svg", "ico", "heic", "heif",
+];
 
 /// Longest edge cap for images inlined into prompts.
 const PROMPT_IMAGE_MAX_DIMENSION: u32 = 2048;
@@ -78,6 +80,10 @@ pub fn mime_from_ext(ext: &str) -> &'static str {
         "gif" => "image/gif",
         "webp" => "image/webp",
         "bmp" => "image/bmp",
+        "svg" => "image/svg+xml",
+        "ico" => "image/x-icon",
+        "heic" => "image/heic",
+        "heif" => "image/heif",
         "pdf" => "application/pdf",
         "txt" | "md" => "text/plain",
         _ => "application/octet-stream",
@@ -435,6 +441,8 @@ mod tests {
         let url = "https://x/y/photo.png?token=eyJ.foo.bar";
         assert!(is_image_attachment_url(url));
         assert!(!is_image_attachment_url("https://x/y/doc.pdf"));
+        assert!(is_image_attachment_url("https://x/y/icon.svg"));
+        assert!(is_image_attachment_url("https://x/y/photo.heic?token=abc"));
     }
 
     #[test]

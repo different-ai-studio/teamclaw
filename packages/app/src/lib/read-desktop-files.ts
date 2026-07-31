@@ -1,4 +1,4 @@
-import { exceedsNonImageLimit } from "./attachment-constants";
+import { exceedsNonImageLimitBySize } from "./attachment-constants";
 
 function mimeFromExt(ext: string): string {
   switch (ext.toLowerCase()) {
@@ -33,7 +33,7 @@ export interface ReadDesktopFilesResult {
 export async function readDesktopPathsAsFiles(
   paths: string[],
 ): Promise<ReadDesktopFilesResult> {
-  const { readFile } = await import("@tauri-apps/plugin-fs");
+  const { readFile, stat } = await import("@tauri-apps/plugin-fs");
   const files: File[] = [];
   const oversize: string[] = [];
   const failed: string[] = [];
@@ -41,13 +41,14 @@ export async function readDesktopPathsAsFiles(
   for (const path of paths) {
     const name = path.split(/[/\\]/).pop() ?? "attachment";
     try {
-      const bytes = await readFile(path);
-      const ext = name.includes(".") ? name.split(".").pop() ?? "" : "";
-      const file = new File([bytes], name, { type: mimeFromExt(ext) });
-      if (exceedsNonImageLimit(file)) {
+      const info = await stat(path);
+      if (exceedsNonImageLimitBySize(name, info.size)) {
         oversize.push(name);
         continue;
       }
+      const bytes = await readFile(path);
+      const ext = name.includes(".") ? name.split(".").pop() ?? "" : "";
+      const file = new File([bytes], name, { type: mimeFromExt(ext) });
       files.push(file);
     } catch (error) {
       console.error("[readDesktopPathsAsFiles] failed:", path, error);

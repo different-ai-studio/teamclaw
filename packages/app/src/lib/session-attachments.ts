@@ -1,4 +1,6 @@
 import type { Message } from "@/lib/proto/teamclaw_pb";
+import { isImageFileName } from "@/lib/attachment-constants";
+import { normalizeAttachmentUrl } from "@/lib/session-attachment-token";
 
 export interface SessionAttachmentRef {
   name: string;
@@ -24,7 +26,7 @@ function parseTokensFromText(
     let match: RegExpExecArray | null;
     while ((match = pattern.exec(text)) !== null) {
       const name = match[1].trim();
-      const url = match[2].trim();
+      const url = normalizeAttachmentUrl(match[2].trim());
       if (!url || url === "undefined") continue;
       const existing = byUrl.get(url);
       if (existing) {
@@ -64,13 +66,15 @@ export function collectSessionAttachments(
       }
     }
     if (metaUrls?.length) {
-      for (const url of metaUrls) {
-        if (!url || byUrl.has(url)) continue;
+      for (const rawUrl of metaUrls) {
+        if (!rawUrl) continue;
+        const url = normalizeAttachmentUrl(rawUrl);
+        if (byUrl.has(url)) continue;
         const name = url.split("/").pop()?.split("?")[0] ?? "attachment";
         byUrl.set(url, {
           name,
           url,
-          isImage: /\.(png|jpe?g|gif|webp|bmp|ico|heic|heif)(\?|$)/i.test(url),
+          isImage: isImageFileName(name) || isImageFileName(url),
           lastSeenAt: createdAt,
         });
       }

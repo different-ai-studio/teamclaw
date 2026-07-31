@@ -4,8 +4,11 @@ import {
   collectSessionAttachmentUrlsFromText,
   encodeSessionAttachmentToken,
   expandSessionAttachmentTokensInText,
+  normalizeAttachmentUrl,
   parseSessionAttachmentToken,
   parseSessionAttachmentTokensFromText,
+  parseStoragePathFromAttachmentUrl,
+  resolveSessionAttachmentUrl,
   textHasSessionAttachmentTokens,
 } from "@/lib/session-attachment-token";
 
@@ -48,5 +51,39 @@ describe("session-attachment-token", () => {
     expect(collectSessionAttachmentUrlsFromText(text)).toEqual([ref.url]);
     expect(textHasSessionAttachmentTokens(text)).toBe(true);
     expect(textHasSessionAttachmentTokens("hello")).toBe(false);
+  });
+
+  it("strips signed-url query params when expanding tokens", () => {
+    const staleUrl =
+      "https://supabase.example/storage/v1/object/public/attachments/t/s/id/doc.pdf?token=expired";
+    const token = encodeSessionAttachmentToken({
+      name: "doc.pdf",
+      url: staleUrl,
+      isImage: false,
+      path: "t/s/id/doc.pdf",
+    });
+    expect(expandSessionAttachmentTokensInText(token)).toBe(
+      "[Attachment: doc.pdf] (url: https://supabase.example/storage/v1/object/public/attachments/t/s/id/doc.pdf)",
+    );
+    expect(collectSessionAttachmentUrlsFromText(token)).toEqual([
+      "https://supabase.example/storage/v1/object/public/attachments/t/s/id/doc.pdf",
+    ]);
+  });
+
+  it("normalizes attachment urls and parses storage paths", () => {
+    const url =
+      "https://supabase.example/storage/v1/object/public/attachments/team/s/file.png?sig=abc#frag";
+    expect(normalizeAttachmentUrl(url)).toBe(
+      "https://supabase.example/storage/v1/object/public/attachments/team/s/file.png",
+    );
+    expect(parseStoragePathFromAttachmentUrl(url)).toBe("team/s/file.png");
+    expect(
+      resolveSessionAttachmentUrl({
+        url,
+        path: "team/s/file.png",
+      }),
+    ).toBe(
+      "https://supabase.example/storage/v1/object/public/attachments/team/s/file.png",
+    );
   });
 });

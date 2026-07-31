@@ -77,6 +77,13 @@
       ]
     },
     {
+      "identifier": "fs:allow-stat",
+      "allow": [
+        { "path": "$HOME/**" },
+        { "path": "/**" }
+      ]
+    },
+    {
       "identifier": "fs:allow-rename",
       "allow": [
         { "path": "$HOME/**" },

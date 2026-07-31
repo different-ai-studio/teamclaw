@@ -10,7 +10,7 @@ export function exceedsNonImageLimitBySize(name: string, size: number): boolean 
   return size > MAX_NON_IMAGE_ATTACHMENT_BYTES;
 }
 
-function isImageFileName(name: string): boolean {
+export function isImageFileName(name: string): boolean {
   if (/\.(png|jpe?g|gif|webp|svg|bmp|ico|heic|heif)$/i.test(name)) return true;
   return false;
 }
