@@ -40,7 +40,6 @@ export function SkillDetail({ slug }: { slug: string }) {
       })
       if (saved === null) throw new Error('daemon rejected the update')
       await loadSection('skills', { force: true })
-      toast.success(t('teamShare.saved', 'Saved'))
     } catch (e) {
       toast.error(t('teamShare.saveFailed', 'Save failed: {{msg}}', { msg: e instanceof Error ? e.message : String(e) }))
     } finally {

@@ -1229,14 +1229,6 @@ export function ChatPanel({ compact = false }: ChatPanelProps) {
         sessionId: sid,
         engagedAgentIds: engagedAgents.map((a) => a.id),
       }, "warn");
-      void import("sonner").then(({ toast }) => {
-        toast.warning(t("chat.toast.emptyMessageTitle", "请输入消息内容"), {
-          description: t(
-            "chat.toast.emptyMessageWithAgent",
-            "已选择 Agent 时需要输入文字或附件才会发送。",
-          ),
-        });
-      });
       return;
     }
 
@@ -2309,14 +2301,6 @@ export function ChatPanel({ compact = false }: ChatPanelProps) {
             onRetryOfflineAgents={handleRetryOfflineAgents}
             onEngageAgent={(a) => {
               if (!activeSessionId) {
-                void import("sonner").then(({ toast }) => {
-                  toast.info(t("chat.toast.sendFirstToCreateSession", "请先发送一条消息创建会话"), {
-                    description: t(
-                      "chat.toast.mentionNeedsOpenSession",
-                      "@ Agent 需要在已打开的会话中使用。",
-                    ),
-                  });
-                });
                 return;
               }
               addAgentForSession(a);

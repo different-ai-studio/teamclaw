@@ -91,7 +91,6 @@ function ActorRowView({
   const handleCopyName = async () => {
     try {
       await navigator.clipboard.writeText(actor.display_name)
-      toast.success(t('actors.copiedName', 'Copied name'))
     } catch {
       toast.error(t('actors.copyFailed', 'Copy failed'))
     }
@@ -100,7 +99,6 @@ function ActorRowView({
   const handleCopyId = async () => {
     try {
       await navigator.clipboard.writeText(actor.id)
-      toast.success(t('actors.copiedId', 'Copied actor ID'))
     } catch {
       toast.error(t('actors.copyFailed', 'Copy failed'))
     }

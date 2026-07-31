@@ -213,10 +213,9 @@ export function SessionDetailDialog({
   const acpLineCount = acpLines.filter((line) => line.sessionId === displaySessionId).length
   const showOpenSession = activeSessionId !== displaySessionId
 
-  const copyText = async (label: string, value: string) => {
+  const copyText = async (_label: string, value: string) => {
     try {
       await navigator.clipboard.writeText(value)
-      toast.success(t('sessions.detail.copied', 'Copied {{label}}', { label }))
     } catch {
       toast.error(t('actors.copyFailed', 'Copy failed'))
     }

@@ -44,7 +44,6 @@ export function IdeasSection() {
   const handleChangeStatus = async (idea: IdeaRowData, status: IdeaStatus) => {
     try {
       await updateIdeaStatus(idea.id, status)
-      toast.success(t('ideas.statusUpdated', 'Status updated'))
       refetch()
     } catch (e) {
       const msg = e instanceof Error ? e.message : String(e)
@@ -55,7 +54,6 @@ export function IdeasSection() {
   const handleCopyId = async (idea: IdeaRowData) => {
     try {
       await navigator.clipboard.writeText(idea.id)
-      toast.success(t('ideas.copiedId', 'Copied idea ID'))
     } catch {
       toast.error(t('ideas.copyFailed', 'Copy failed'))
     }
@@ -66,7 +64,6 @@ export function IdeasSection() {
     setDeleting(true)
     try {
       await getBackend().ideas.archiveIdea(deleteFor.id)
-      toast.success(t('ideas.archived', 'Idea deleted'))
       if (filter.kind === 'idea' && filter.ideaId === deleteFor.id) {
         setFilter({ kind: 'all' })
       }

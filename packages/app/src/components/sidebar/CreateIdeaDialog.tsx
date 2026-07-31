@@ -51,7 +51,6 @@ export function CreateIdeaDialog({ open, onOpenChange, teamId, onCreated }: Crea
         workspaceId: null,
         body: description.trim() || null,
       })
-      toast.success(t('ideas.created', 'Idea created'))
       onCreated?.()
       onOpenChange(false)
     } catch (e) {

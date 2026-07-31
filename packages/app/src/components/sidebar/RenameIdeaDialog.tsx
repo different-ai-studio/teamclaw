@@ -42,7 +42,6 @@ export function RenameIdeaDialog({ ideaId, initialTitle, open, onOpenChange, onR
     setSubmitting(true)
     try {
       await renameIdea(ideaId, trimmed)
-      toast.success(t('ideas.renamed', 'Idea renamed'))
       onRenamed?.()
       onOpenChange(false)
     } catch (e) {

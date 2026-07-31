@@ -351,13 +351,6 @@ function AgentPill({
         sessionId,
         teamId,
       })
-      const { toast } = await import('sonner')
-      toast.success(t('chat.agentSelector.modelPickSaved', '模型已选择'), {
-        description: t(
-          'chat.agentSelector.modelPickSavedHint',
-          '将在发送消息或 runtime 就绪后应用到 Agent',
-        ),
-      })
       return
     }
 

@@ -89,9 +89,6 @@ export function SessionDiffPanel({ diff, compact: _compact }: SessionDiffPanelPr
     try {
       const { invoke } = await import('@tauri-apps/api/core')
       await invoke('git_checkout_file', { path: workspacePath, file: relativePath })
-      toast.success(t('diff.reverted', 'File reverted'), {
-        description: relativePath,
-      })
     } catch (err) {
       console.error('[SessionDiffPanel] Failed to revert file:', err)
       toast.error(t('diff.revertFailed', 'Failed to revert file'), {

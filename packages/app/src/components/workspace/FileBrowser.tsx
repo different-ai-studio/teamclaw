@@ -170,11 +170,8 @@ export function FileBrowser({ className, variant = 'default', rootPath, rootPath
 
         e.preventDefault()
         if (undoStack.length === 0) return
-        const lastOp = undoStack[undoStack.length - 1]
         undo().then((success) => {
-          if (success) {
-            toast.success(t('fileExplorer.undone', 'Undone: {{desc}}', { desc: lastOp.description }))
-          } else {
+          if (!success) {
             toast.error(t('fileExplorer.undoFailed', 'Cannot undo this operation'))
           }
         })
@@ -186,11 +183,8 @@ export function FileBrowser({ className, variant = 'default', rootPath, rootPath
 
   const handleUndo = React.useCallback(async () => {
     if (undoStack.length === 0) return
-    const lastOp = undoStack[undoStack.length - 1]
     const success = await undo()
-    if (success) {
-      toast.success(t('fileExplorer.undone', 'Undone: {{desc}}', { desc: lastOp.description }))
-    } else {
+    if (!success) {
       toast.error(t('fileExplorer.undoFailed', 'Cannot undo this operation'))
     }
   }, [undo, undoStack, t])
