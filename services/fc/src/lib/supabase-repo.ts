@@ -1046,13 +1046,28 @@ export function createSupabaseBusinessRepository(options) {
     },
 
     async upsertWorkspace(input) {
+      // AUTHZ: created_by is ALWAYS resolved server-side from the authenticated
+      // caller scoped to the target team. Any client-supplied
+      // `input.createdByMemberId` is ignored — a multi-team user's client can
+      // send the wrong team's member actor id (stale current-team value), which
+      // the workspaces INSERT RLS WITH CHECK then rejects. Deriving it here
+      // guarantees the row satisfies the team-scoped policy regardless of what
+      // the client sends (mirrors createSession / createApp).
+      const { data: userData, error: userErr } = await supabase.auth.getUser();
+      if (userErr) throw userErr;
+      const userId = userData?.user?.id;
+      if (!userId) throw new ApiError(401, "unauthorized", "no authenticated user");
+      const resolved = await this.resolveCurrentMemberActor(input.teamId, userId);
+      if (!resolved?.id) throw new ApiError(403, "forbidden", "not a member of this team");
+      const createdByMemberId = resolved.id;
+
       const row = {
         id: input.id,
         team_id: input.teamId,
         name: input.name,
         path: input.path ?? input.slug ?? null,
         agent_id: input.agentId ?? null,
-        created_by_member_id: input.createdByMemberId ?? null,
+        created_by_member_id: createdByMemberId,
         archived: input.archived ?? false,
       };
       const { data, error } = await supabase

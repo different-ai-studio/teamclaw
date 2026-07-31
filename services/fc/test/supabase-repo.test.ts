@@ -1430,10 +1430,13 @@ function appsSupabase({ seed = {}, actorRow = { id: "actor-app-1" }, calls = [] 
           ctx.update = row;
           return builder;
         },
-        upsert(row: any) {
-          calls.push({ table, op: "upsert", row });
-          // session_participants seeding etc. — resolve immediately.
-          return Promise.resolve({ data: null, error: null });
+        upsert(row: any, options?: any) {
+          ctx.op = "upsert";
+          calls.push({ table, op: "upsert", row, options });
+          const upserted = { ...row, id: row.id ?? `${table}-id-1` };
+          state[table] = [upserted];
+          ctx.inserted = upserted;
+          return builder;
         },
         eq(column: string, value: any) {
           ctx.filters[column] = value;
@@ -1446,7 +1449,7 @@ function appsSupabase({ seed = {}, actorRow = { id: "actor-app-1" }, calls = [] 
         // table rows (used by listApps).
         limit() { return builder; },
         single() {
-          if (ctx.op === "insert") return Promise.resolve({ data: ctx.inserted, error: null });
+          if (ctx.op === "insert" || ctx.op === "upsert") return Promise.resolve({ data: ctx.inserted, error: null });
           if (ctx.op === "update") {
             const base = state[table]?.[0] ?? {};
             const merged = { ...base, ...ctx.update };
@@ -1807,6 +1810,37 @@ test("apps: createSession omits app_id when no appId given", async () => {
   });
   const insert = calls.find((c) => c.table === "sessions" && c.op === "insert");
   assert.ok(!("app_id" in (insert?.row ?? {})), "app_id must be absent for plain sessions");
+});
+
+test("upsertWorkspace resolves createdByMemberId server-side (ignores client spoof)", async () => {
+  // Same multi-team bug as createSession: client may send another team's member
+  // id; workspaces INSERT RLS requires the team-scoped actor.
+  const calls: any[] = [];
+  const repo = appsRepo(appsSupabase({ actorRow: { id: "actor-team-b" }, calls }));
+  const out = await repo.upsertWorkspace({
+    teamId: "team-b",
+    name: "Alpha",
+    path: "/tmp/alpha",
+    agentId: "agent-1",
+    createdByMemberId: "actor-SPOOFED-team-a",
+  });
+  const upsert = calls.find((c) => c.table === "workspaces" && c.op === "upsert");
+  assert.equal(
+    upsert?.row.created_by_member_id,
+    "actor-team-b",
+    "created_by must be the server-resolved team actor, not the client value",
+  );
+  assert.equal(upsert?.row.team_id, "team-b");
+  assert.equal(out.teamId, "team-b");
+  assert.equal(out.name, "Alpha");
+});
+
+test("upsertWorkspace returns 403 when the caller is not a member of the team", async () => {
+  const repo = appsRepo(appsSupabase({ actorRow: null }));
+  await assert.rejects(
+    () => repo.upsertWorkspace({ teamId: "team-b", name: "Nope", path: "/tmp/x" }),
+    (err: any) => err?.statusCode === 403,
+  );
 });
 
 test("createSession is server-authoritative for created_by (ignores client createdByActorId)", async () => {
