@@ -419,7 +419,8 @@ fn is_missing_team_secret_error(msg: &str) -> bool {
 /// Resolve the team secret from desktop-local storage (`team_secret_store` blob
 /// key, then inline `team.envSecret` / blob fallback via `resolve_team_env_secret`).
 fn local_team_secret_for_redelivery(workspace_path: &str, team_id: &str) -> Option<String> {
-    if let Ok(secret) = crate::commands::team_secret_store::load_team_secret(workspace_path, team_id)
+    if let Ok(secret) =
+        crate::commands::team_secret_store::load_team_secret(workspace_path, team_id)
     {
         if !secret.trim().is_empty() {
             return Some(secret);
