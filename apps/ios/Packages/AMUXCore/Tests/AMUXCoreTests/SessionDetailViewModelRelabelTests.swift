@@ -133,16 +133,49 @@ final class SessionDetailViewModelRelabelTests: XCTestCase {
         )
     }
 
-    func test_relabel_noopWhenMemberSheetAgentsLackRuntimeIDMapping() {
+    func test_relabel_noopWhenMultipleMemberSheetAgentsLackRuntimeIDMapping() {
         let vm = SessionDetailViewModel.testInstance()
         let rawRID = "5ffcd7fc"
 
         vm._test_appendRawEvent(senderActorID: rawRID, eventType: "output", text: "x")
-        // Member roster has the agent but no runtimeID — relabel must not
-        // touch existing stamps.
-        vm._test_setMemberSheetAgentsAndRelabel([makeAgent(actorID: "actor-x", runtimeID: nil)])
+        // Multiple unbound agents are ambiguous, so relabel must not guess.
+        vm._test_setMemberSheetAgentsAndRelabel([
+            makeAgent(actorID: "actor-x", runtimeID: nil),
+            makeAgent(actorID: "actor-y", runtimeID: nil),
+        ])
 
         XCTAssertEqual(vm.events.first?.senderActorID, rawRID)
+    }
+
+    func test_relabelMapsLegacyRawHistoryToSoleAgentWithoutRuntimeRow() {
+        let vm = SessionDetailViewModel.testInstance()
+        let rawRID = "6906d9d8"
+        let actorID = "1d4dc7dd-agent"
+
+        vm._test_appendRawEvent(senderActorID: rawRID, eventType: "output", text: "old answer")
+        vm._test_seedStreamingBuffer(bucket: rawRID, text: "live answer")
+
+        vm._test_setMemberSheetAgentsAndRelabel([
+            makeAgent(actorID: actorID, runtimeID: nil)
+        ])
+
+        XCTAssertEqual(vm.events.first?.senderActorID, actorID)
+        XCTAssertEqual(vm.streamingAgentSet, [actorID])
+        XCTAssertNil(vm.streamingTextByAgent[rawRID])
+        XCTAssertEqual(vm.streamingTextByAgent[actorID], "live answer")
+    }
+
+    func test_firstMQTTEventUsesSoleAgentsOptimisticLoadingBucket() {
+        let vm = SessionDetailViewModel.testInstance()
+        let rawRID = "6906d9d8"
+        let actorID = "1d4dc7dd-agent"
+
+        vm._test_setMemberSheetAgents([
+            makeAgent(actorID: actorID, runtimeID: nil)
+        ])
+
+        XCTAssertEqual(vm._test_bucketKey(forRuntimeID: rawRID), actorID,
+            "first MQTT event must replace the actor loading card, not open a raw-runtime card")
     }
 
     func test_overlayBindsSoleUnboundAgentBeforeRelabelingRawRuntimeBucket() {

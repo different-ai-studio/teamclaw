@@ -1910,7 +1910,19 @@ public final class SessionDetailViewModel {
     /// rather than to a session-wide "primary" agent.
     private func agentActorID(forRuntimeID runtimeID: String?) -> String? {
         guard let runtimeID, !runtimeID.isEmpty else { return nil }
-        return memberSheetAgents.first(where: { $0.runtimeID == runtimeID })?.id
+        if let mapped = memberSheetAgents.first(where: { $0.runtimeID == runtimeID })?.id {
+            return mapped
+        }
+        // A single-agent roster is an unambiguous routing boundary even for
+        // older sessions that have no primary_agent_id / agent_runtimes row.
+        // Route the very first MQTT event into the optimistic actor bucket so
+        // it replaces "Agent loading" instead of creating a raw-runtime card.
+        if memberSheetAgents.count == 1,
+           let only = memberSheetAgents.first,
+           only.runtimeID == nil {
+            return only.id
+        }
+        return nil
     }
 
     /// First-resolved bucket key per runtime_id, frozen for the lifetime
@@ -1957,6 +1969,27 @@ public final class SessionDetailViewModel {
         for agent in memberSheetAgents {
             guard let rid = agent.runtimeID, !rid.isEmpty, rid != agent.id else { continue }
             mapping[rid] = agent.id
+        }
+
+        // Legacy single-agent sessions can have no persisted runtime mapping
+        // at all. In that case every non-user sender bucket belongs to the
+        // sole roster agent. This also repairs raw IDs loaded from SwiftData
+        // before a new MQTT event has arrived to establish the live cache.
+        if mapping.isEmpty,
+           memberSheetAgents.count == 1,
+           let actorID = memberSheetAgents.first?.id {
+            let rawEventBuckets = events.compactMap { event -> String? in
+                guard event.eventType != "user_prompt",
+                      let sender = event.senderActorID,
+                      !sender.isEmpty,
+                      sender != actorID
+                else { return nil }
+                return sender
+            }
+            let rawStreamingBuckets = timelineState.streamingAgentSet.filter { $0 != actorID }
+            for rawID in Set(rawEventBuckets).union(rawStreamingBuckets) {
+                mapping[rawID] = actorID
+            }
         }
         if mapping.isEmpty { return }
 
@@ -3164,6 +3197,10 @@ extension SessionDetailViewModel {
 
     public func _test_setMemberSheetAgents(_ agents: [MemberSheetAgent]) {
         memberSheetAgents = agents
+    }
+
+    public func _test_bucketKey(forRuntimeID runtimeID: String) -> String? {
+        bucketKey(forRuntimeID: runtimeID)
     }
 
     /// Mirrors the production refresh ordering: attach the resolved runtime
