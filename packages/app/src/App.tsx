@@ -138,6 +138,7 @@ import {
   messageKindUpdatesSessionPreview,
 } from "@/lib/session-list-preview";
 import { executeAgentTurnFlush } from "@/lib/agent-turn-flush";
+import { unixTimestampSecondsToIso } from "@/lib/message-timestamp";
 import { resolveInterruptedPlaceholdersToDrop } from "@/lib/interrupted-stream-placeholder";
 import {
   removePendingAgentReplyTo,
@@ -1674,10 +1675,10 @@ function AppContent() {
               const listStore = useSessionListStore.getState();
               const sessionInList = listStore.rows.some((r) => r.id === sid);
               if (sessionInList) {
-                const createdAtSec = Number(decoded.message.createdAt);
+                const createdAtSec = decoded.message.createdAt;
                 bumpSessionListLastMessage(sid, decoded.message.content, {
-                  at: Number.isFinite(createdAtSec) && createdAtSec > 0
-                    ? new Date(createdAtSec * 1000).toISOString()
+                  at: createdAtSec > 0n
+                    ? unixTimestampSecondsToIso(createdAtSec)
                     : undefined,
                 });
               } else {
@@ -1726,7 +1727,7 @@ function AppContent() {
                 model: m.model || null,
                 mentionsJson: null,
                 origin: "mqtt-live",
-                createdAt: new Date(Number(m.createdAt) * 1000).toISOString(),
+                createdAt: unixTimestampSecondsToIso(m.createdAt),
                 updatedAt: now,
                 deletedAt: null,
                 syncedAt: now,
