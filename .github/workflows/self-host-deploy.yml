@@ -19,12 +19,21 @@ jobs:
         uses: appleboy/ssh-action@v1.2.5
         env:
           DEEPSEEK_API_KEY: ${{ secrets.DEEPSEEK_API_KEY }}
+          TRUSTED_EXTERNAL_JWT_SECRET: ${{ secrets.TRUSTED_EXTERNAL_JWT_SECRET }}
+          FC_SUPABASE_URL: ${{ secrets.FC_SUPABASE_URL }}
+          FC_SUPABASE_PUBLIC_URL: ${{ secrets.FC_SUPABASE_PUBLIC_URL }}
+          FC_SUPABASE_ANON_KEY: ${{ secrets.FC_SUPABASE_ANON_KEY }}
+          FC_SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.FC_SUPABASE_SERVICE_ROLE_KEY }}
+          BELAYO_TEST_RDS_PRIVATE_HOST: ${{ secrets.BELAYO_TEST_RDS_PRIVATE_HOST }}
+          BELAYO_TEST_RDS_PORT: ${{ secrets.BELAYO_TEST_RDS_PORT }}
+          BELAYO_TEST_RDS_USER: ${{ secrets.BELAYO_TEST_RDS_USER }}
+          BELAYO_TEST_RDS_PASSWORD: ${{ secrets.BELAYO_TEST_RDS_PASSWORD }}
         with:
           host: ${{ secrets.ECS_HOST }}
           username: ${{ secrets.ECS_USER }}
           key: ${{ secrets.ECS_SSH_PRIVATE_KEY }}
           command_timeout: 30m
-          envs: DEEPSEEK_API_KEY
+          envs: DEEPSEEK_API_KEY,TRUSTED_EXTERNAL_JWT_SECRET,FC_SUPABASE_URL,FC_SUPABASE_PUBLIC_URL,FC_SUPABASE_ANON_KEY,FC_SUPABASE_SERVICE_ROLE_KEY,BELAYO_TEST_RDS_PRIVATE_HOST,BELAYO_TEST_RDS_PORT,BELAYO_TEST_RDS_USER,BELAYO_TEST_RDS_PASSWORD
           script: |
             set -e
             cd /opt/teamclaw
@@ -50,7 +59,7 @@ jobs:
             echo "=== ensure LiteLLM env ==="
             # The server's .env predates the bundled gateway and bootstrap/gen-secrets.sh
             # is NOT run here (it would re-mint ANON_KEY/SERVICE_ROLE_KEY with fresh
-            # iat/exp on every deploy). Upsert only the LiteLLM keys, idempotently.
+            # iat/exp on every deploy). Upsert required runtime values idempotently.
             upsert_env() { # $1=key $2=value — skip empty values rather than blanking a good one
               [ -n "$2" ] || { echo "  skip $1 (empty)"; return 0; }
               if grep -q "^$1=" .env; then
@@ -60,6 +69,110 @@ jobs:
               fi
               echo "  set $1"
             }
+            # Self-host runs against its bundled Supabase data plane. Set this
+            # explicitly so a stale server .env cannot select the postgres mode.
+            upsert_env BACKEND_KIND "supabase"
+            upsert_env TRUSTED_EXTERNAL_JWT_SECRET "$TRUSTED_EXTERNAL_JWT_SECRET"
+            upsert_env FC_SUPABASE_URL "$FC_SUPABASE_URL"
+            upsert_env FC_SUPABASE_PUBLIC_URL "$FC_SUPABASE_PUBLIC_URL"
+            upsert_env FC_SUPABASE_ANON_KEY "$FC_SUPABASE_ANON_KEY"
+            upsert_env FC_SUPABASE_SERVICE_ROLE_KEY "$FC_SUPABASE_SERVICE_ROLE_KEY"
+
+            if [ -n "$FC_SUPABASE_URL" ]; then
+              echo "=== migrate external Supabase schema ==="
+              [ -n "$BELAYO_TEST_RDS_PRIVATE_HOST" ] || { echo "missing BELAYO_TEST_RDS_PRIVATE_HOST"; exit 1; }
+              [ -n "$BELAYO_TEST_RDS_USER" ] || { echo "missing BELAYO_TEST_RDS_USER"; exit 1; }
+              [ -n "$BELAYO_TEST_RDS_PASSWORD" ] || { echo "missing BELAYO_TEST_RDS_PASSWORD"; exit 1; }
+              docker run --rm --network host \
+                -e PGPASSWORD="$BELAYO_TEST_RDS_PASSWORD" \
+                -e PGHOST="$BELAYO_TEST_RDS_PRIVATE_HOST" \
+                -e PGPORT="${BELAYO_TEST_RDS_PORT:-5432}" \
+                -e PGUSER="$BELAYO_TEST_RDS_USER" \
+                -e PGDATABASE=supabase_db \
+                -v "$PWD/../../services/supabase/migrations:/migrations:ro" \
+                postgres:15-alpine sh -ceu '
+                  psql -v ON_ERROR_STOP=1 -c "
+                    create schema if not exists _selfhost;
+                    create table if not exists _selfhost.schema_migrations (
+                      filename text primary key,
+                      applied_at timestamptz not null default now()
+                    );
+                  "
+
+                  # This external database predates the deploy marker. The
+                  # onboarding RPC is only created by the already-applied
+                  # batch below, so record that batch once instead of replaying
+                  # non-idempotent historical functions on every deployment.
+                  if [ "$(psql -Atc "select count(*) from _selfhost.schema_migrations")" = "0" ] \
+                    && [ "$(psql -Atc "select to_regprocedure(\$\$amux.list_teams_for_picker(uuid)\$\$) is not null")" = "t" ]; then
+                    echo "adopt existing external onboarding migrations"
+                    for migration in \
+                      20260618010000_upgrade_account_to_org.sql \
+                      20260618020000_bind_phone_to_account.sql \
+                      20260630000000_add_team_default_agent.sql \
+                      20260706000000_org_default_team_onboarding.sql \
+                      20260715000000_invite_contact_pending.sql \
+                      20260723000000_sessions_source_cron_job_id.sql \
+                      20260723000000_team_visibility.sql \
+                      20260727000000_sessions_source_read_path.sql \
+                      20260727030000_detach_gateway_session.sql \
+                      20260728000000_gateway_session_switch.sql \
+                      20260801000000_prefer_org_named_team_on_onboarding.sql \
+                      20260801010000_team_bootstrap_and_discovery.sql
+                    do
+                      psql -v ON_ERROR_STOP=1 -c "insert into _selfhost.schema_migrations (filename) values (\$\$${migration}\$\$) on conflict do nothing"
+                    done
+                  fi
+
+                  for migration in \
+                    20260609000000_actor_directory_contact_amux.sql \
+                    20260615000000_list_my_teams_current_org.sql \
+                    20260618000000_create_team_default_org_personal_name.sql \
+                    20260618010000_upgrade_account_to_org.sql \
+                    20260618020000_bind_phone_to_account.sql \
+                    20260625000000_team_workspace_config_llm.sql \
+                    20260630000000_add_team_default_agent.sql \
+                    20260702000000_fix_teams_rls_membership_write.sql \
+                    20260706000000_add_auth_mint_session.sql \
+                    20260706000000_org_default_team_onboarding.sql \
+                    20260706120000_member_sub_own_rpc_req.sql \
+                    20260708000000_claim_invite_public_users_for_daemon.sql \
+                    20260715000000_invite_contact_pending.sql \
+                    20260715010000_mint_session_extensions_grant.sql \
+                    20260718000000_fix_remove_team_actor_amux.sql \
+                    20260722000000_agent_runtimes_backend_type_pi.sql \
+                    20260723000000_sessions_source_cron_job_id.sql \
+                    20260723000000_team_visibility.sql \
+                    20260727000000_sessions_source_read_path.sql \
+                    20260727010000_gateway_session_participants_every_call.sql \
+                    20260727020000_gateway_session_unarchive_on_message.sql \
+                    20260727030000_detach_gateway_session.sql \
+                    20260728000000_gateway_session_switch.sql \
+                    20260729100000_agent_delete_authz.sql \
+                    20260729110000_agent_backend_cursor.sql \
+                    20260730000000_update_agent_defaults_cursor.sql \
+                    20260731000000_fix_workspaces_insert_rls.sql \
+                    20260801000000_prefer_org_named_team_on_onboarding.sql \
+                    20260801010000_team_bootstrap_and_discovery.sql \
+                    20260801020000_empty_org_team_picker.sql \
+                    20260801030000_scope_empty_org_picker_to_user.sql \
+                    20260801040000_scope_empty_org_picker_by_phone.sql \
+                    20260801050000_authorize_empty_org_bootstrap_by_phone.sql \
+                    20260801060000_phone_linked_org_team_picker.sql \
+                    20260801070000_switch_phone_linked_team_identity.sql \
+                    20260801080000_bootstrap_empty_org_public_team.sql \
+                    20260801090000_switch_linked_identity_without_conflict.sql
+                  do
+                    if [ "$(psql -Atc "select exists (select 1 from _selfhost.schema_migrations where filename = \$\$${migration}\$\$)")" = "t" ]; then
+                      echo "skip external migration: $migration"
+                      continue
+                    fi
+                    echo "apply external migration: $migration"
+                    psql -v ON_ERROR_STOP=1 -f "/migrations/$migration"
+                    psql -v ON_ERROR_STOP=1 -c "insert into _selfhost.schema_migrations (filename) values (\$\$${migration}\$\$)"
+                  done
+                '
+            fi
             # Point FC at the bundled gateway explicitly. Left blank, FC's client
             # falls back to the hosted https://ai.ucar.cc.
             upsert_env LITELLM_URL "http://litellm:4000"
@@ -115,8 +228,19 @@ jobs:
             sh /opt/teamclaw/deploy/self-host/smoke/litellm-smoke.sh
 
             echo "=== e2e verification ==="
-            cd /opt/teamclaw/services/fc
-            npm ci --prefer-offline --silent
-            sh /opt/teamclaw/deploy/self-host/smoke/run-e2e.sh
+            if [ -n "$FC_SUPABASE_URL" ]; then
+              curl --fail --silent --show-error --max-time 15 \
+                -H "apikey: $FC_SUPABASE_SERVICE_ROLE_KEY" \
+                -H "Authorization: Bearer $FC_SUPABASE_SERVICE_ROLE_KEY" \
+                -H "Content-Profile: amux" \
+                -H "Content-Type: application/json" \
+                --data '{"p_default_org_id":null}' \
+                "$FC_SUPABASE_URL/rest/v1/rpc/list_teams_for_picker" >/dev/null
+              echo "external Supabase RPC smoke: OK"
+            else
+              cd /opt/teamclaw/services/fc
+              npm ci --prefer-offline --silent
+              sh /opt/teamclaw/deploy/self-host/smoke/run-e2e.sh
+            fi
 
             echo "=== deploy complete ==="

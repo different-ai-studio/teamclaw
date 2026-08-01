@@ -125,6 +125,7 @@ export function LoginScreen({ embedded = false, onBack }: LoginScreenProps) {
     verifyOtp,
     resetOtp,
     signInAnonymously,
+    signInWithPassword,
     sendPhoneOtp,
     verifyPhoneOtp,
     selectPhoneUser,
@@ -135,8 +136,10 @@ export function LoginScreen({ embedded = false, onBack }: LoginScreenProps) {
     errorMessage,
   } = useAuthStore();
   const [phone, setPhone] = useState("+86");
-  const [method, setMethod] = useState<"email" | "phone">("email");
+  const [password, setPassword] = useState("");
+  const [method, setMethod] = useState<"email" | "phone" | "password">("email");
   const phoneEnabled = isTauri() && Boolean(buildConfig.features?.auth?.phone);
+  const passwordEnabled = Boolean(buildConfig.features?.auth?.password);
   const appVersion = useAppVersion();
   const cloudApiUrl = getEffectiveServerConfigSync().cloudApiUrl;
   const onSendEmail = async (e: React.FormEvent) => {
@@ -152,6 +155,11 @@ export function LoginScreen({ embedded = false, onBack }: LoginScreenProps) {
   const onSendPhone = async (e: React.FormEvent) => {
     e.preventDefault();
     await sendPhoneOtp(phone);
+  };
+
+  const onPasswordSignIn = async (e: React.FormEvent) => {
+    e.preventDefault();
+    await signInWithPassword(email, password);
   };
 
   const onVerifyPhone = async (e: React.FormEvent) => {
@@ -301,8 +309,8 @@ export function LoginScreen({ embedded = false, onBack }: LoginScreenProps) {
         </form>
         )
       ) : (
-        <form onSubmit={method === "phone" ? onSendPhone : onSendEmail} className={cardClassName}>
-          {phoneEnabled && (
+        <form onSubmit={method === "phone" ? onSendPhone : method === "password" ? onPasswordSignIn : onSendEmail} className={cardClassName}>
+          {(phoneEnabled || passwordEnabled) && (
             <div className="flex rounded-[8px] border border-border p-0.5 text-[12px] font-medium">
               <button
                 type="button"
@@ -311,13 +319,24 @@ export function LoginScreen({ embedded = false, onBack }: LoginScreenProps) {
               >
                 {t("auth.methodEmail", "Email")}
               </button>
-              <button
-                type="button"
-                onClick={() => setMethod("phone")}
-                className={`flex-1 rounded-[6px] py-1.5 transition-colors ${method === "phone" ? "bg-selected/60 text-foreground" : "text-muted-foreground hover:text-foreground"}`}
-              >
-                {t("auth.methodPhone", "Phone")}
-              </button>
+              {passwordEnabled && (
+                <button
+                  type="button"
+                  onClick={() => setMethod("password")}
+                  className={`flex-1 rounded-[6px] py-1.5 transition-colors ${method === "password" ? "bg-selected/60 text-foreground" : "text-muted-foreground hover:text-foreground"}`}
+                >
+                  {t("auth.methodPassword", "Password")}
+                </button>
+              )}
+              {phoneEnabled && (
+                <button
+                  type="button"
+                  onClick={() => setMethod("phone")}
+                  className={`flex-1 rounded-[6px] py-1.5 transition-colors ${method === "phone" ? "bg-selected/60 text-foreground" : "text-muted-foreground hover:text-foreground"}`}
+                >
+                  {t("auth.methodPhone", "Phone")}
+                </button>
+              )}
             </div>
           )}
           <div className="space-y-1.5">
@@ -327,6 +346,8 @@ export function LoginScreen({ embedded = false, onBack }: LoginScreenProps) {
             <p className="text-[13px] text-muted-foreground">
               {method === "phone"
                 ? t("auth.willSmsCode", "We'll text you a 6-digit code.")
+                : method === "password"
+                  ? t("auth.passwordLoginHint", "Sign in with your email and password.")
                 : t("auth.willEmailCode", "We'll email you a 6-digit code.")}
             </p>
           </div>
@@ -346,6 +367,7 @@ export function LoginScreen({ embedded = false, onBack }: LoginScreenProps) {
               />
             </label>
           ) : (
+            <>
             <label className="block space-y-2">
               <span className="block text-[12px] font-medium text-ink-2">
                 {t("auth.email", "Email")}
@@ -360,6 +382,23 @@ export function LoginScreen({ embedded = false, onBack }: LoginScreenProps) {
                 className="h-10"
               />
             </label>
+            {method === "password" && (
+              <label className="mt-3 block space-y-2">
+                <span className="block text-[12px] font-medium text-ink-2">
+                  {t("auth.password", "Password")}
+                </span>
+                <Input
+                  type="password"
+                  value={password}
+                  onChange={(e) => setPassword(e.target.value)}
+                  required
+                  autoComplete="current-password"
+                  placeholder={t("auth.passwordPlaceholder", "Enter your password")}
+                  className="h-10"
+                />
+              </label>
+            )}
+            </>
           )}
           {(serverConfigRequired || errorMessage) && (
             <p className="text-[12px] text-destructive">
@@ -369,10 +408,12 @@ export function LoginScreen({ embedded = false, onBack }: LoginScreenProps) {
           {/* phone guard: block the bare "+86" prefix; FC/GoTrue validates the full E.164 number (mirrors iOS) */}
           <Button
             type="submit"
-            disabled={serverConfigRequired || loading || (method === "phone" ? phone.length <= 4 : !email)}
+            disabled={serverConfigRequired || loading || (method === "phone" ? phone.length <= 4 : method === "password" ? !email || !password : !email)}
             className="h-10 w-full bg-coral text-paper hover:bg-coral/90 disabled:bg-coral/40 disabled:text-paper"
           >
-            {loading ? t("auth.sending", "Sending…") : t("auth.sendCode", "Send code")}
+            {loading
+              ? method === "password" ? t("auth.signingIn", "Signing in…") : t("auth.sending", "Sending…")
+              : method === "password" ? t("auth.signIn", "Sign in") : t("auth.sendCode", "Send code")}
           </Button>
           <button
             type="button"

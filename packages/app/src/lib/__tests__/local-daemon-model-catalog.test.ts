@@ -48,8 +48,18 @@ describe('fetchLocalDaemonModels', () => {
       const models = await fetchLocalDaemonModels('/w1', backendType)
       expect(models, `${backendType} should resolve models`).toHaveLength(2)
       expect(models?.[0].id).toBe('prov/a')
-      expect(models?.[0].providerName).toBe(groupId)
+      expect(models?.[0].providerName).toBe('prov')
     }
+  })
+
+  it('groups Pi catalog entries by their model provider, not the Pi runner', async () => {
+    getDaemonModelCatalog.mockResolvedValueOnce(
+      catalog('pi', ['deepseek/deepseek-v4-flash', 'kimi-coding/k3']),
+    )
+
+    const models = await fetchLocalDaemonModels('/w1', 'pi')
+
+    expect(models?.map((model) => model.providerName)).toEqual(['deepseek', 'kimi-coding'])
   })
 
   it('maps every claude spelling onto the daemon "claude-code" wire name', async () => {

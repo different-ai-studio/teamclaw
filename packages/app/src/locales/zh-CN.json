@@ -135,6 +135,11 @@
     "useDifferentEmail": "换一个邮箱",
     "methodEmail": "邮箱",
     "methodPhone": "手机号",
+    "methodPassword": "密码",
+    "password": "密码",
+    "passwordPlaceholder": "输入密码",
+    "passwordLoginHint": "使用邮箱和密码登录。",
+    "signingIn": "正在登录…",
     "phone": "手机号",
     "phonePlaceholder": "+8613800138000",
     "willSmsCode": "我们会向你发送 6 位验证码短信。",
@@ -3000,7 +3005,9 @@
     "joining": "加入中…",
     "public": "公开",
     "ungrouped": "其它",
-    "lastUsed": "最后使用"
+    "lastUsed": "最后使用",
+    "initializeOrg": "初始化 {{org}}",
+    "initializing": "初始化中…"
   },
   "team": {
     "viewerReadOnly": "只读模式 - 你没有编辑权限",

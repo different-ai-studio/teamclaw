@@ -134,7 +134,11 @@ export async function fetchLocalDaemonCatalog(
       create(ModelInfoSchema, {
         id: m.ref,
         displayName: m.display_name || m.ref,
-        providerName: group.backend,
+        // `BackendCatalog.backend` describes the runner (Pi, Cursor, etc.),
+        // not the model provider. Grouping every Pi model under "pi" loses
+        // the provider hierarchy that Pi already supplies in its stable
+        // `<provider>/<model>` reference.
+        providerName: m.ref.split('/', 1)[0] || group.backend,
       }),
     ),
     recentModels: (group.recent_models ?? []).filter((id) => !!id?.trim()),

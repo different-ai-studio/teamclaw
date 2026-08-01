@@ -28,6 +28,7 @@ export type PhoneLoginResult =
 
 export type AuthClient = {
   signInAnonymously(): Promise<Session>;
+  signInWithPassword(email: string, password: string): Promise<Session>;
   sendOtp(email: string, options?: Record<string, unknown>): Promise<void>;
   verifyOtp(email: string, token: string, type?: OtpType): Promise<Session>;
   sendPhoneOtp(phone: string, options?: Record<string, unknown>): Promise<void>;
@@ -198,6 +199,11 @@ export function createAuthClient(opts: AuthClientOptions): AuthClient {
   return {
     async signInAnonymously(): Promise<Session> {
       const data = (await post("/v1/auth/signin-anonymous", {})) as Session;
+      setSession(data, "SIGNED_IN");
+      return data;
+    },
+    async signInWithPassword(email, password): Promise<Session> {
+      const data = (await post("/v1/auth/signin-password", { email, password })) as Session;
       setSession(data, "SIGNED_IN");
       return data;
     },

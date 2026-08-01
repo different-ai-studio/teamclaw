@@ -411,8 +411,15 @@ public actor CloudAPIAppOnboardingStore: AppOnboardingStore {
         return AppBootstrap(
             memberActorID: nil,
             teams: page.items.filter { $0.isMember != false }.map {
-                TeamSummary(id: $0.id, name: $0.name, slug: $0.slug ?? "", role: $0.role ?? "member")
-            }
+                TeamSummary(
+                    id: $0.id,
+                    name: $0.name,
+                    slug: $0.slug ?? "",
+                    role: $0.role ?? "member",
+                    orgID: $0.orgId
+                )
+            },
+            memberActorIDByTeam: [:]
         )
     }
 

@@ -10,12 +10,14 @@ public struct TeamSummary: Codable, Equatable, Sendable, Identifiable {
     public let name: String
     public let slug: String
     public let role: String
+    public let orgID: String?
 
-    public init(id: String, name: String, slug: String, role: String) {
+    public init(id: String, name: String, slug: String, role: String, orgID: String? = nil) {
         self.id = id
         self.name = name
         self.slug = slug
         self.role = role
+        self.orgID = orgID
     }
 }
 

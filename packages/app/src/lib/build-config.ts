@@ -74,6 +74,8 @@ export interface BuildConfig {
       google?: boolean
       wechat?: boolean
       phone?: boolean
+      /** Email + password sign-in. Off by default; enable per build. */
+      password?: boolean
       /** "快捷登录" — harvest a shared session from the partner admin console
        *  webview. Off by default. The sign-in URL + storage key are delivered
        *  at runtime by the Cloud API (`WEBSSO_LOGIN_URL` / `WEBSSO_STORAGE_KEY`),
@@ -153,7 +155,7 @@ export const FALLBACK_BUILD_CONFIG: BuildConfig = {
     lockLlmConfig: false,
   },
   app: { name: 'TeamClaw', shortName: 'teamclaw' },
-  features: { updater: true, channels: { ...allChannelsEnabled }, auth: { google: false, wechat: false, phone: false, webSSO: false }, teamShareBrowser: false, apps: false },
+  features: { updater: true, channels: { ...allChannelsEnabled }, auth: { google: false, wechat: false, phone: false, password: false, webSSO: false }, teamShareBrowser: false, apps: false },
   defaults: { theme: 'system' },
 }
 
