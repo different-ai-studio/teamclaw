@@ -50,7 +50,7 @@ jobs:
             echo "=== ensure LiteLLM env ==="
             # The server's .env predates the bundled gateway and bootstrap/gen-secrets.sh
             # is NOT run here (it would re-mint ANON_KEY/SERVICE_ROLE_KEY with fresh
-            # iat/exp on every deploy). Upsert only the LiteLLM keys, idempotently.
+            # iat/exp on every deploy). Upsert required runtime values idempotently.
             upsert_env() { # $1=key $2=value — skip empty values rather than blanking a good one
               [ -n "$2" ] || { echo "  skip $1 (empty)"; return 0; }
               if grep -q "^$1=" .env; then
@@ -60,6 +60,9 @@ jobs:
               fi
               echo "  set $1"
             }
+            # Self-host runs against its bundled Supabase data plane. Set this
+            # explicitly so a stale server .env cannot select the postgres mode.
+            upsert_env BACKEND_KIND "supabase"
             # Point FC at the bundled gateway explicitly. Left blank, FC's client
             # falls back to the hosted https://ai.ucar.cc.
             upsert_env LITELLM_URL "http://litellm:4000"
