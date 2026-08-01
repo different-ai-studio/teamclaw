@@ -164,7 +164,7 @@ export function makeBusinessRepoFactory(
       caller = {
         id: claims.sub,
         isAnonymous: claims.is_anonymous === true || claims.isAnonymous === true,
-        appMetadata: appMetadata && typeof appMetadata === "object" ? appMetadata : {},
+        appMetadata: appMetadata && typeof appMetadata === "object" ? (appMetadata as Record<string, unknown>) : {},
       };
     } catch {
       // verifyAccessToken validates Better Auth's trusted JWTs, not GoTrue's
