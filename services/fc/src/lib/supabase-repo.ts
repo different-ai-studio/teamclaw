@@ -1881,7 +1881,7 @@ export function createSupabaseBusinessRepository(options) {
       }
       const { data: memberRows, error: memberErr } = await supabase
         .from("team_members")
-        .select("role, member_id, teams!inner(id, name, slug)")
+        .select("role, member_id, teams!inner(id, name, slug, oid)")
         .in("member_id", actorIds);
       if (memberErr) throw memberErr;
       const seenTeam = new Map();
@@ -1890,7 +1890,13 @@ export function createSupabaseBusinessRepository(options) {
         const t = m.teams;
         if (!t?.id) continue;
         if (!seenTeam.has(t.id)) {
-          seenTeam.set(t.id, { id: t.id, name: t.name, slug: t.slug, role: m.role });
+          seenTeam.set(t.id, {
+            id: t.id,
+            name: t.name,
+            slug: t.slug,
+            role: m.role,
+            orgId: t.oid ?? null,
+          });
         }
         memberByTeam[t.id] = m.member_id;
       }
@@ -2995,4 +3001,3 @@ export function createSupabaseBusinessRepository(options) {
     },
   };
 }
-

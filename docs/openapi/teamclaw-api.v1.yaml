@@ -3797,6 +3797,9 @@ paths:
                         name: { type: string }
                         slug: { type: [string, "null"] }
                         role: { type: string }
+                        orgId:
+                          type: [string, "null"]
+                          description: Owning organization ID of this team, when assigned.
                   memberActorIdByTeam:
                     type: object
                     additionalProperties: { type: string }

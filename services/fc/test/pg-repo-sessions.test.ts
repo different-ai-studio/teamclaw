@@ -757,7 +757,11 @@ test("listSessionParticipantsForSync returns participant rows", async () => {
 test("getMeBootstrap aggregates the caller's member actors and teams", async () => {
   const { db } = await makeTestDb();
   const userId = `user-bootstrap-${Math.random()}`;
-  const teamA = await seedTeam(db, { name: "Team Alpha", slug: `alpha-${Math.random()}` });
+  const teamA = await seedTeam(db, {
+    name: "Team Alpha",
+    slug: `alpha-${Math.random()}`,
+    oid: "00000000-0000-4000-8000-000000000001",
+  });
   const teamB = await seedTeam(db, { name: "Team Beta", slug: `beta-${Math.random()}` });
   // Same human (userId) has a distinct member actor in each team.
   const actorA = await seedActor(db, teamA.id, { userId });
@@ -778,7 +782,13 @@ test("getMeBootstrap aggregates the caller's member actors and teams", async () 
   const byId = new Map(out.teams.map((t: any) => [t.id, t]));
   assert.deepEqual(
     byId.get(teamA.id),
-    { id: teamA.id, name: "Team Alpha", slug: teamA.slug, role: "member" },
+    {
+      id: teamA.id,
+      name: "Team Alpha",
+      slug: teamA.slug,
+      role: "member",
+      orgId: "00000000-0000-4000-8000-000000000001",
+    },
   );
   assert.equal(out.memberActorIdByTeam[teamA.id], actorA.id);
   assert.equal(out.memberActorIdByTeam[teamB.id], actorB.id);
