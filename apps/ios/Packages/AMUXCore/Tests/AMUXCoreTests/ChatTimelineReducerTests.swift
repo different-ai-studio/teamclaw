@@ -876,6 +876,30 @@ struct ReducerHistoryTurnMergeTests {
 
 @Suite("ChatTimelineReducer — ACP turn-id dedupe")
 struct ReducerAcpTurnIDDedupeTests {
+    @Test("history completion replays even when its sequence already exists")
+    func historyCompletionStillClosesReplayedStream() {
+        var completion = Amux_AcpEvent()
+        completion.event = .output(makeOutput(text: "finished", isComplete: true))
+
+        var envelope = Amux_Envelope()
+        envelope.sequence = 73
+        envelope.payload = .acpEvent(completion)
+
+        #expect(SessionDetailViewModel.shouldApplyHistoryEnvelope(
+            envelope,
+            existingSequences: [73]
+        ))
+
+        var delta = Amux_AcpEvent()
+        delta.event = .output(makeOutput(text: "partial", isComplete: false))
+        envelope.payload = .acpEvent(delta)
+
+        #expect(!SessionDetailViewModel.shouldApplyHistoryEnvelope(
+            envelope,
+            existingSequences: [73]
+        ))
+    }
+
     /// Daemon restart renumbers `sequence` while keeping `turn_id` stable.
     /// Without the turnID dedupe path, the second arrival appends a second
     /// completed bubble — the multi-arrival 7× duplication the user

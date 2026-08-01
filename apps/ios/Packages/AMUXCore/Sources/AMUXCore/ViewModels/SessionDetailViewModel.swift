@@ -2174,6 +2174,23 @@ public final class SessionDetailViewModel {
     private var syncGeneration: Int = 0
     private var startModelContext: ModelContext?
 
+    /// A completed output is also the stream-closing signal. History replay
+    /// must pass it through the reducer even when its sequence is already in
+    /// SwiftData: earlier missing deltas in the same batch may have just
+    /// reopened the in-memory stream. The reducer's turn-id merge keeps the
+    /// persisted completion idempotent while clearing that transient state.
+    nonisolated static func shouldApplyHistoryEnvelope(
+        _ envelope: Amux_Envelope,
+        existingSequences: Set<Int>
+    ) -> Bool {
+        let sequence = Int(envelope.sequence)
+        guard existingSequences.contains(sequence) else { return true }
+        guard case .acpEvent(let acp) = envelope.payload,
+              case .output(let output) = acp.event
+        else { return false }
+        return output.isComplete
+    }
+
     private func handleHistoryBatch(_ batch: Amux_HistoryBatch) {
         guard let modelContext = syncModelContext else { return }
         let existingSeqs = Set(events.compactMap { $0.sequence != 0 ? $0.sequence : nil })
@@ -2184,7 +2201,10 @@ public final class SessionDetailViewModel {
         var anyDirty = false
         for envelope in batch.events {
             let seq = Int(envelope.sequence)
-            guard !existingSeqs.contains(seq) else { continue }
+            guard Self.shouldApplyHistoryEnvelope(
+                envelope,
+                existingSequences: existingSeqs
+            ) else { continue }
 
             if case .acpEvent(let acp) = envelope.payload {
                 if handleAcpEvent(acp,
