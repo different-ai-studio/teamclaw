@@ -162,6 +162,27 @@ describe('resetMqttReconnectRecovery', () => {
   })
 })
 
+/**
+ * Poll until `check()` holds, instead of sleeping a fixed amount and hoping.
+ *
+ * `ensureWired()` reaches the bridge through a dynamic `import()`, so the
+ * subscription lands an unpredictable number of microtasks later. This suite
+ * used to wait a flat 20ms for that, which is plenty on a dev laptop and not
+ * always enough on a CI runner — `stateHandler` was still null, and calling it
+ * threw `stateHandler is not a function`. That single gamble was behind every
+ * red CI run on main over the last 25 builds.
+ *
+ * Must only be used on real timers.
+ */
+async function waitFor(check: () => boolean, label: string, timeoutMs = 2000): Promise<void> {
+  const deadline = Date.now() + timeoutMs
+  while (Date.now() < deadline) {
+    if (check()) return
+    await new Promise((r) => setTimeout(r, 5))
+  }
+  throw new Error(`waitFor(${label}): condition still false after ${timeoutMs}ms`)
+}
+
 describe('useMqttReconnectStore — ensureWired browser path', () => {
   let stateHandler: ((state: 'connecting' | 'connected' | 'disconnected') => void) | null = null
   let errorHandler: ((message: string) => void) | null = null
@@ -206,8 +227,7 @@ describe('useMqttReconnectStore — ensureWired browser path', () => {
     store.setState({ _wired: false, connected: null, lastError: null })
     store.getState().ensureWired()
 
-    // Allow async dynamic imports to settle
-    await new Promise((r) => setTimeout(r, 20))
+    await waitFor(() => stateHandler !== null && errorHandler !== null, 'bridge subscribed')
 
     expect(stateHandler).not.toBeNull()
     expect(errorHandler).not.toBeNull()
@@ -235,7 +255,7 @@ describe('useMqttReconnectStore — ensureWired browser path', () => {
     const { useMqttReconnectStore: store, BROWSER_RECONNECT_GRACE_MS } = await import('./mqtt-reconnect')
     store.setState({ _wired: false, connected: null, lastError: null, nonce: 0 })
     store.getState().ensureWired()
-    await new Promise((r) => setTimeout(r, 20))
+    await waitFor(() => stateHandler !== null, 'bridge subscribed')
 
     vi.useFakeTimers()
     try {
@@ -248,7 +268,7 @@ describe('useMqttReconnectStore — ensureWired browser path', () => {
     } finally {
       vi.useRealTimers()
     }
-    await new Promise((r) => setTimeout(r, 20))
+    await waitFor(() => vi.mocked(refreshSession).mock.calls.length > 0, 'refreshSession called')
 
     expect(refreshSession).toHaveBeenCalledOnce()
     expect(store.getState().nonce).toBe(1)
@@ -260,7 +280,7 @@ describe('useMqttReconnectStore — ensureWired browser path', () => {
     const { useMqttReconnectStore: store, BROWSER_RECONNECT_GRACE_MS } = await import('./mqtt-reconnect')
     store.setState({ _wired: false, connected: null, lastError: null, nonce: 0 })
     store.getState().ensureWired()
-    await new Promise((r) => setTimeout(r, 20))
+    await waitFor(() => stateHandler !== null, 'bridge subscribed')
 
     vi.useFakeTimers()
     try {
@@ -271,6 +291,8 @@ describe('useMqttReconnectStore — ensureWired browser path', () => {
     } finally {
       vi.useRealTimers()
     }
+    // Negative assertion: there is no condition to poll for, and waiting longer
+    // than necessary only makes a false pass less likely, never a false fail.
     await new Promise((r) => setTimeout(r, 20))
 
     expect(refreshSession).not.toHaveBeenCalled()
@@ -284,10 +306,10 @@ describe('useMqttReconnectStore — ensureWired browser path', () => {
     store.setState({ _wired: false, connected: null, lastError: null, nonce: 0 })
     store.getState().ensureWired()
 
-    await new Promise((r) => setTimeout(r, 20))
+    await waitFor(() => errorHandler !== null, 'bridge subscribed')
     errorHandler!('Connection refused: bad_username_or_password')
     expect(store.getState().lastError).toBe('Connection refused: bad_username_or_password')
-    await new Promise((r) => setTimeout(r, 20))
+    await waitFor(() => vi.mocked(refreshSession).mock.calls.length > 0, 'refreshSession called')
 
     expect(refreshSession).toHaveBeenCalledOnce()
     expect(store.getState().nonce).toBe(1)

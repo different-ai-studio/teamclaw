@@ -158,6 +158,14 @@ export default defineConfig({
   test: {
     globals: true,
     environment: 'jsdom',
+    // A few suites must import their subject inside the test (their vi.mock
+    // factories close over variables that are not initialized at module-eval
+    // time). Under a fully parallel run those transforms queue behind hundreds
+    // of other files, and the default 5s was tight enough to trip — the test
+    // then timed out while its `render()` was still in flight, so the DOM
+    // landed after cleanup and leaked into the next test. A genuinely hung
+    // test still fails, just later.
+    testTimeout: 15000,
     setupFiles: [path.resolve(__dirname, 'src/test/vitest-setup.ts')],
     include: [
       'src/**/*.test.ts',

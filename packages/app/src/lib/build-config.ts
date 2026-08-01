@@ -140,7 +140,15 @@ export function hasAnyChannel(channels: boolean | ChannelsFeatureConfig): boolea
   return Object.values(channels).some(Boolean)
 }
 
-const fallback: BuildConfig = {
+/**
+ * Values used when no `build.config.*.json` is baked in.
+ *
+ * Exported because it is a contract worth asserting on: features that must be
+ * opt-in (webSSO) have to default off here, and a test that reads the merged
+ * `buildConfig` instead cannot check that — locally the merge has already
+ * layered `build.config.dev.json` on top.
+ */
+export const FALLBACK_BUILD_CONFIG: BuildConfig = {
   team: {
     lockLlmConfig: false,
   },
@@ -169,8 +177,8 @@ function deepMerge(base: any, override: any): any {
 }
 
 export const buildConfig: BuildConfig = typeof __BUILD_CONFIG__ !== 'undefined' && __BUILD_CONFIG__
-  ? deepMerge(fallback, __BUILD_CONFIG__) as BuildConfig
-  : fallback
+  ? deepMerge(FALLBACK_BUILD_CONFIG, __BUILD_CONFIG__) as BuildConfig
+  : FALLBACK_BUILD_CONFIG
 
 function deriveShortName(name: string): string {
   return name.replace(/[^a-zA-Z0-9]/g, '').toLowerCase()
