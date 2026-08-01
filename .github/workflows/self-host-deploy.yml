@@ -88,10 +88,21 @@ jobs:
                 -e PGHOST="$BELAYO_TEST_RDS_PRIVATE_HOST" \
                 -e PGPORT="${BELAYO_TEST_RDS_PORT:-5432}" \
                 -e PGUSER="$BELAYO_TEST_RDS_USER" \
-                -e PGDATABASE=postgres \
+                -e PGDATABASE=supabase_db \
                 -v "$PWD/../../services/supabase/migrations:/migrations:ro" \
                 postgres:15-alpine sh -ceu '
-                  for migration in 20260801000000_prefer_org_named_team_on_onboarding.sql 20260801010000_team_bootstrap_and_discovery.sql; do
+                  for migration in \
+                    20260618010000_upgrade_account_to_org.sql \
+                    20260618020000_bind_phone_to_account.sql \
+                    20260630000000_add_team_default_agent.sql \
+                    20260706000000_org_default_team_onboarding.sql \
+                    20260715000000_invite_contact_pending.sql \
+                    20260723000000_team_visibility.sql \
+                    20260727030000_detach_gateway_session.sql \
+                    20260728000000_gateway_session_switch.sql \
+                    20260801000000_prefer_org_named_team_on_onboarding.sql \
+                    20260801010000_team_bootstrap_and_discovery.sql
+                  do
                     echo "apply external migration: $migration"
                     psql -v ON_ERROR_STOP=1 -f "/migrations/$migration"
                   done
