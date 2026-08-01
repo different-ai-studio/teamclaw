@@ -145,14 +145,30 @@ export function makeBusinessRepoFactory(
       });
     };
   }
-  return ({ accessToken }: { accessToken: string }) =>
-    createSupabaseBusinessRepository({
+  // Supabase data-plane requests may carry a trusted external (Betly) JWT.
+  // Verify it once at the FC boundary and pass its identity into the repository;
+  // never ask TeamClaw's local GoTrue to re-validate that foreign session.
+  return async ({ accessToken }: { accessToken: string }) => {
+    let claims;
+    try {
+      claims = await verifyAccessToken(accessToken, verifyOpts ?? {});
+    } catch (cause) {
+      throw new ApiError(401, "invalid_token", "Invalid or expired access token", { cause });
+    }
+    const appMetadata = claims.app_metadata;
+    return createSupabaseBusinessRepository({
       supabaseUrl: SUPABASE_URL_FN(),
       supabasePublicUrl: SUPABASE_PUBLIC_URL_FN(),
       publishableKey: SUPABASE_PUBLISHABLE_KEY(),
       accessToken,
+      caller: {
+        id: claims.sub,
+        isAnonymous: claims.is_anonymous === true || claims.isAnonymous === true,
+        appMetadata: appMetadata && typeof appMetadata === "object" ? appMetadata : {},
+      },
       ...makeDeployDeps(),
     });
+  };
 }
 
 // The single Hono app owns ALL routing (OPTIONS, /v1, /sync, admin, 404, 500,

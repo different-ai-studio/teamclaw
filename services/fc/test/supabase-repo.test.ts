@@ -296,7 +296,7 @@ function fakeSupabaseForShareMode(rpcData, rpcCalls = []) {
   });
 }
 
-test("createTeam routes to join_or_create_org_team with the caller's JWT org as fallback", async () => {
+test("createTeam routes to create_team with the caller's JWT org as fallback", async () => {
   const rpcCalls = [];
   const prev = process.env.DEFAULT_ORG_ID;
   process.env.DEFAULT_ORG_ID = "org-default";
@@ -309,7 +309,7 @@ test("createTeam routes to join_or_create_org_team with the caller's JWT org as 
         },
       },
       rpcData: {
-        join_or_create_org_team: [{
+        create_team: [{
           team_id: "team-9",
           team_name: "香蕉攀岩",
           team_slug: "banana",
@@ -321,18 +321,17 @@ test("createTeam routes to join_or_create_org_team with the caller's JWT org as 
 
     const team = await repo.createTeam({ displayName: "梁江" });
 
-    // Caller's real org wins as the fallback stamp; default org is passed so the
-    // RPC can tell "this is a real customer org" and join its default team.
+    // Caller's real org wins as the fallback stamp; explicit creation never
+    // silently joins an existing organization team.
     assert.deepEqual(rpcCalls, [{
-      name: "join_or_create_org_team",
+      name: "create_team",
       args: {
-        p_fallback_org: "org-real",
-        p_default_org_id: "org-default",
         p_name: null,
         p_slug: null,
         p_display_name: "梁江",
         p_litellm_team_id: null,
         p_ai_gateway_endpoint: null,
+        p_oid: "org-real",
       },
     }]);
     assert.equal(team.id, "team-9");
@@ -357,7 +356,7 @@ test("createTeam falls back to DEFAULT_ORG_ID when the caller carries no org", a
         },
       },
       rpcData: {
-        join_or_create_org_team: [{
+        create_team: [{
           team_id: "team-solo",
           team_name: "Zesty Falcon",
           team_slug: "zesty-falcon",
@@ -370,14 +369,39 @@ test("createTeam falls back to DEFAULT_ORG_ID when the caller carries no org", a
     await repo.createTeam({ name: "My Team", slug: "my-team" });
 
     assert.equal(rpcCalls.length, 1);
-    assert.equal(rpcCalls[0].name, "join_or_create_org_team");
-    assert.equal(rpcCalls[0].args.p_fallback_org, "org-default");
+    assert.equal(rpcCalls[0].name, "create_team");
+    assert.equal(rpcCalls[0].args.p_oid, "org-default");
     assert.equal(rpcCalls[0].args.p_name, "My Team");
     assert.equal(rpcCalls[0].args.p_slug, "my-team");
   } finally {
     if (prev === undefined) delete process.env.DEFAULT_ORG_ID;
     else process.env.DEFAULT_ORG_ID = prev;
   }
+});
+
+test("bootstrapTeam uses the boundary-verified caller without local GoTrue lookup", async () => {
+  const rpcCalls: any[] = [];
+  const repo = createRepo(fakeSupabase({
+    rpcCalls,
+    auth: {
+      async getUser() {
+        throw new Error("TeamClaw GoTrue must not be called for a trusted external JWT");
+      },
+    },
+    rpcData: {
+      bootstrap_current_org_team: [{ team_id: "team-bootstrap", team_name: "Betly", team_slug: "betly" }],
+    },
+  }), {
+    caller: { id: "betly-user-1", isAnonymous: false, appMetadata: { org_id: "betly-org-1" } },
+  });
+
+  const team = await repo.bootstrapTeam({ displayName: "Betly User" });
+
+  assert.deepEqual(rpcCalls, [{
+    name: "bootstrap_current_org_team",
+    args: { p_fallback_org: "betly-org-1", p_display_name: "Betly User" },
+  }]);
+  assert.equal(team.id, "team-bootstrap");
 });
 
 test("enableShareMode oss calls enable_team_share rpc with null git fields", async () => {
