@@ -11,6 +11,10 @@ const h = vi.hoisted(() => ({
   invokeCalls: [] as string[],
   registerArgs: null as { workspacePath?: string } | null,
   installServiceShouldThrow: false,
+  currentUserId: 'user-1' as string | null,
+  localActorId: 'actor-1' as string | null,
+  ownedAgents: [] as Array<{ agent_id: string; display_name: string; is_owner: boolean; visibility?: string }>,
+  createInviteCalls: [] as Array<Record<string, unknown>>,
 }))
 
 vi.mock('@/lib/utils', () => ({ isTauri: () => h.isTauriVal }))
@@ -18,9 +22,24 @@ vi.mock('@tauri-apps/api/path', () => ({
   homeDir: async () => '/home/u',
   join: async (...parts: string[]) => parts.join('/'),
 }))
-vi.mock('@/lib/backend', () => ({ getBackend: () => ({}) }))
+vi.mock('@/lib/backend', () => ({
+  getBackend: () => ({
+    teams: {
+      createTeamInvite: vi.fn(async (input: Record<string, unknown>) => {
+        h.createInviteCalls.push(input)
+        return { token: 'invite-token' }
+      }),
+    },
+    actors: {
+      listConnectedAgents: vi.fn(async () => h.ownedAgents),
+    },
+  }),
+}))
 vi.mock('@/stores/current-team', () => ({
   useCurrentTeamStore: { getState: () => ({ team: h.currentTeam }) },
+}))
+vi.mock('@/stores/auth-store', () => ({
+  useAuthStore: { getState: () => ({ session: h.currentUserId ? { user: { id: h.currentUserId } } : null }) },
 }))
 vi.mock('@/stores/workspace', () => ({
   useWorkspaceStore: {
@@ -39,12 +58,16 @@ vi.mock('@/lib/daemon-local-client', () => ({
   fetchDaemonCloudAuthStatus: vi.fn(async () => 'unknown'),
 }))
 vi.mock('@/lib/daemon-agent-admin', () => ({
-  getLocalDaemonActorId: vi.fn(async () => null),
+  getLocalDaemonActorId: vi.fn(async () => h.localActorId),
 }))
 vi.mock('@tauri-apps/api/core', () => ({
   invoke: vi.fn(async (cmd: string, args?: unknown) => {
     h.invokeCalls.push(cmd)
     if (cmd === 'get_daemon_team_id') return h.daemonTeam
+    if (cmd === 'daemon_init') {
+      h.daemonTeam = h.currentTeam?.id ?? null
+      return { actorId: 'actor-1', teamId: h.daemonTeam }
+    }
     if (cmd === 'daemon_ensure_running' || cmd === 'daemon_restart_managed') {
       if (h.installServiceShouldThrow) throw new Error('managed amuxd start boom')
       return undefined
@@ -84,6 +107,11 @@ beforeEach(() => {
   h.invokeCalls = []
   h.registerArgs = null
   h.installServiceShouldThrow = false
+  h.currentUserId = 'user-1'
+  h.localActorId = 'actor-1'
+  h.ownedAgents = [{ agent_id: 'actor-1', display_name: 'Mac daemon', is_owner: true }]
+  h.createInviteCalls = []
+  localStorage.clear()
   reset()
 })
 
@@ -125,6 +153,19 @@ describe('daemon-onboarding refresh() orchestration', () => {
     expect(h.invokeCalls).toEqual(['get_daemon_team_id'])
   })
 
+  it('reprovisions a new local actor when the user explicitly switches teams', async () => {
+    h.currentTeam = { id: 't1' }
+    h.daemonTeam = 't2'
+    h.probeQueue = [{ ok: true, baseUrl: 'http://127.0.0.1:1' }]
+
+    await useDaemonOnboardingStore.getState().refresh({ forceTeamRebind: true })
+
+    expect(h.createInviteCalls).toHaveLength(1)
+    expect(h.createInviteCalls[0]).toMatchObject({ targetActorId: null, kind: 'agent' })
+    expect(h.invokeCalls).toContain('daemon_init')
+    expect(h.invokeCalls).toContain('daemon_restart_managed')
+  })
+
   it('ready when team matches and the daemon is already healthy', async () => {
     h.currentTeam = { id: 't1' }
     h.daemonTeam = 't1'
@@ -135,6 +176,39 @@ describe('daemon-onboarding refresh() orchestration', () => {
     expect(h.invokeCalls).not.toContain('daemon_ensure_running')
     expect(h.invokeCalls).not.toContain('daemon_restart_managed')
     expect(h.invokeCalls).not.toContain('daemon_install_service')
+  })
+
+  it('rebinds when the same team is entered under a different linked user', async () => {
+    const { writeDaemonOnboardingIdentity } = await import('@/lib/daemon-onboarding-identity')
+    writeDaemonOnboardingIdentity({ teamId: 't1', userId: 'previous-user' })
+    h.currentTeam = { id: 't1' }
+    h.daemonTeam = 't1'
+    h.currentUserId = 'linked-user'
+    h.ownedAgents = [{ agent_id: 'actor-1', display_name: 'Mac daemon', is_owner: true }]
+    h.probeQueue = [{ ok: true, baseUrl: 'http://127.0.0.1:1' }]
+
+    await useDaemonOnboardingStore.getState().refresh()
+
+    expect(h.createInviteCalls).toHaveLength(1)
+    expect(h.createInviteCalls[0]).toMatchObject({ targetActorId: 'actor-1', kind: 'agent' })
+    expect(h.invokeCalls).toContain('daemon_init')
+    expect(h.invokeCalls).toContain('daemon_restart_managed')
+  })
+
+  it('migrates a legacy daemon when its local actor is not owned by the current user', async () => {
+    h.currentTeam = { id: 't1' }
+    h.daemonTeam = 't1'
+    h.currentUserId = 'linked-user'
+    // No stored identity: the old build did not persist one. The actor is not
+    // in this linked user's owned list, so a fresh local actor is provisioned.
+    h.ownedAgents = []
+    h.probeQueue = [{ ok: true, baseUrl: 'http://127.0.0.1:1' }]
+
+    await useDaemonOnboardingStore.getState().refresh()
+
+    expect(h.createInviteCalls).toHaveLength(1)
+    expect(h.createInviteCalls[0]).toMatchObject({ targetActorId: null, kind: 'agent' })
+    expect(h.invokeCalls).toContain('daemon_init')
   })
 
   it('ready registers the active workspace when it is a real project dir', async () => {
