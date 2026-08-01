@@ -1,5 +1,6 @@
 import { randomUUID } from "node:crypto";
 import { createClient as defaultCreateClient } from "@supabase/supabase-js";
+import { verifyTrustedExternalJwt } from "./trusted-external-jwt.js";
 import { ApiError } from "./http-utils.js";
 import { isLegalStatusTransition } from "./pg-repo/app-status.js";
 import { isLegalFcTransition } from "./provisioning/app-fc-status.js";
@@ -124,10 +125,6 @@ export function createSupabaseBusinessRepository(options) {
     supabasePublicUrl = supabaseUrl,
     publishableKey,
     accessToken,
-    // Identity verified at the Cloud API boundary. This is essential for
-    // trusted external JWTs: supabase.auth.getUser() only understands the
-    // local GoTrue issuer and would reject a valid Betly session.
-    caller: verifiedCaller,
     createClient = defaultCreateClient,
     createServiceRoleClient: createServiceRoleClientOpt,
     provisionLiteLlm,
@@ -139,6 +136,7 @@ export function createSupabaseBusinessRepository(options) {
     queryLiteLlmUsage = (litellmTeamId, range) => queryTeamUsage(getLiteLlmSql(), litellmTeamId, range),
     // Injectable for tests; defaults to the shared LiteLLM HTTP client.
     litellmFetch: litellmFetchOpt,
+    trustedExternalJwtSecret = process.env.TRUSTED_EXTERNAL_JWT_SECRET,
   } = options;
 
   if (!supabaseUrl) throw new Error("SUPABASE_URL is required");
@@ -155,18 +153,16 @@ export function createSupabaseBusinessRepository(options) {
     },
   });
 
-  async function caller() {
-    if (verifiedCaller?.id) return verifiedCaller;
-    // Compatibility for direct repository consumers/tests. Production business
-    // requests always supply verifiedCaller through makeBusinessRepoFactory.
-    const { data, error } = await supabase.auth.getUser();
-    if (error) throw error;
-    if (!data?.user?.id) throw new ApiError(401, "unauthorized", "no authenticated user");
-    return {
-      id: data.user.id,
-      isAnonymous: data.user.is_anonymous === true,
-      appMetadata: data.user.app_metadata ?? {},
-    };
+  // A partner-issued session has no auth.sessions row in this Supabase project.
+  // Its JWT is verified locally only when the explicit trust secret is set.
+  async function getCurrentUser() {
+    if (!trustedExternalJwtSecret) return supabase.auth.getUser();
+    try {
+      const user = await verifyTrustedExternalJwt(accessToken, trustedExternalJwtSecret);
+      return { data: { user }, error: null };
+    } catch (cause) {
+      return { data: { user: null }, error: cause };
+    }
   }
 
   async function requireCallerTeamOwner(targetTeamId) {
@@ -403,11 +399,14 @@ export function createSupabaseBusinessRepository(options) {
       // carries no org. Same order as before: JWT app_metadata.org_id →
       // DEFAULT_ORG_ID → lazily provisioned personal org. The RPC prefers the
       // authoritative token org and only uses this fallback when that is null.
-      const currentCaller = await caller();
+      const { data: caller, error: callerErr } = await getCurrentUser();
+      if (callerErr || !caller?.user?.id) {
+        throw new ApiError(401, "missing_auth", "authenticated user required");
+      }
       let fallbackOrg: string | null =
-        (currentCaller.appMetadata as any)?.org_id ?? null;
+        (caller.user.app_metadata as any)?.org_id ?? null;
       if (!fallbackOrg) fallbackOrg = defaultOrgId;
-      if (!fallbackOrg && currentCaller.id) {
+      if (!fallbackOrg) {
         const { data: provisioned, error: orgErr } =
           await supabase.rpc("ensure_personal_org");
         if (orgErr) throw orgErr;
@@ -432,13 +431,16 @@ export function createSupabaseBusinessRepository(options) {
     },
 
     async bootstrapTeam(input) {
-      const currentCaller = await caller();
-      if (currentCaller.isAnonymous) {
+      const { data: caller, error: callerErr } = await getCurrentUser();
+      if (callerErr || !caller?.user?.id) {
+        throw new ApiError(401, "missing_auth", "authenticated user required");
+      }
+      if (caller.user.is_anonymous) {
         throw new ApiError(403, "anonymous_not_allowed", "sign in to create a team");
       }
       const defaultOrgId = process.env.DEFAULT_ORG_ID || null;
-      let fallbackOrg: string | null = (currentCaller.appMetadata as any)?.org_id ?? defaultOrgId;
-      if (!fallbackOrg && currentCaller.id) {
+      let fallbackOrg: string | null = (caller.user.app_metadata as any)?.org_id ?? defaultOrgId;
+      if (!fallbackOrg) {
         const { data: provisioned, error: orgErr } = await supabase.rpc("ensure_personal_org");
         if (orgErr) throw orgErr;
         fallbackOrg = (provisioned as string | null) ?? null;

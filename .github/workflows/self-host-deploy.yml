@@ -19,12 +19,17 @@ jobs:
         uses: appleboy/ssh-action@v1.2.5
         env:
           DEEPSEEK_API_KEY: ${{ secrets.DEEPSEEK_API_KEY }}
+          TRUSTED_EXTERNAL_JWT_SECRET: ${{ secrets.TRUSTED_EXTERNAL_JWT_SECRET }}
+          FC_SUPABASE_URL: ${{ secrets.FC_SUPABASE_URL }}
+          FC_SUPABASE_PUBLIC_URL: ${{ secrets.FC_SUPABASE_PUBLIC_URL }}
+          FC_SUPABASE_ANON_KEY: ${{ secrets.FC_SUPABASE_ANON_KEY }}
+          FC_SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.FC_SUPABASE_SERVICE_ROLE_KEY }}
         with:
           host: ${{ secrets.ECS_HOST }}
           username: ${{ secrets.ECS_USER }}
           key: ${{ secrets.ECS_SSH_PRIVATE_KEY }}
           command_timeout: 30m
-          envs: DEEPSEEK_API_KEY
+          envs: DEEPSEEK_API_KEY,TRUSTED_EXTERNAL_JWT_SECRET,FC_SUPABASE_URL,FC_SUPABASE_PUBLIC_URL,FC_SUPABASE_ANON_KEY,FC_SUPABASE_SERVICE_ROLE_KEY
           script: |
             set -e
             cd /opt/teamclaw
@@ -63,6 +68,11 @@ jobs:
             # Self-host runs against its bundled Supabase data plane. Set this
             # explicitly so a stale server .env cannot select the postgres mode.
             upsert_env BACKEND_KIND "supabase"
+            upsert_env TRUSTED_EXTERNAL_JWT_SECRET "$TRUSTED_EXTERNAL_JWT_SECRET"
+            upsert_env FC_SUPABASE_URL "$FC_SUPABASE_URL"
+            upsert_env FC_SUPABASE_PUBLIC_URL "$FC_SUPABASE_PUBLIC_URL"
+            upsert_env FC_SUPABASE_ANON_KEY "$FC_SUPABASE_ANON_KEY"
+            upsert_env FC_SUPABASE_SERVICE_ROLE_KEY "$FC_SUPABASE_SERVICE_ROLE_KEY"
             # Point FC at the bundled gateway explicitly. Left blank, FC's client
             # falls back to the hosted https://ai.ucar.cc.
             upsert_env LITELLM_URL "http://litellm:4000"
