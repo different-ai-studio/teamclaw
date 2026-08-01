@@ -694,22 +694,6 @@ public final class SessionDetailViewModel {
         memberSheetAgents = snapshot.agents
         pruneGhostAgentSelection()
 
-        // memberSheet now provides runtime_id → actor_id mappings. Live
-        // events that arrived before this load may have been stamped with
-        // the raw runtime_id (bucketKey's `?? rid` fallback) and frozen
-        // there by the resolution cache — see line ~1164. Supabase-seeded
-        // history rows are stamped with the canonical actor_id directly,
-        // so the two sources end up in two buckets for the same agent
-        // and `buildFeedItems` produces duplicate bubbles / a phantom
-        // trailing card. Reconcile here by retroactively rewriting the
-        // raw stamps to the resolved actor_id.
-        relabelRawRuntimeIDStampsToActorIDs()
-
-        // Reconnect replays that couldn't be routed before this roster
-        // loaded (actor_id bucket with no runtime_id mapping) get exactly
-        // one retry now that the mapping exists.
-        await retryPendingTurnReplays()
-
         // Overlay live MQTT-derived data from the SwiftData Runtime row.
         // Supabase agent_runtimes.current_model is only written on ACP
         // StatusChange events (first prompt reply); MQTT state carries
@@ -718,6 +702,19 @@ public final class SessionDetailViewModel {
         // start() time, re-resolve here so a Runtime row created by
         // SessionListVM after MQTT arrived isn't missed.
         overlayMQTTRuntimeState()
+
+        // The live overlay may be what supplies the runtime_id for the sole
+        // session agent (older sessions can have neither primary_agent_id nor
+        // an agent_runtimes row). Relabel only after that binding exists.
+        // Otherwise live events remain under the raw runtime id while seeded
+        // history and optimistic loading use actor id, producing duplicate
+        // process cards every time turn history is replayed.
+        relabelRawRuntimeIDStampsToActorIDs()
+
+        // Reconnect replays that couldn't be routed before this roster
+        // loaded (actor_id bucket with no runtime_id mapping) get exactly
+        // one retry now that the mapping exists.
+        await retryPendingTurnReplays()
 
         // Ensure MQTT subscriptions exist for every session agent so that
         // retained runtime/state messages (carrying availableModels) are
@@ -776,9 +773,17 @@ public final class SessionDetailViewModel {
             }
         }
 
+        let agentCount = memberSheetAgents.count
         memberSheetAgents = memberSheetAgents.map { agent in
             // Primary agent: use bound runtime.
-            if agent.runtimeID == liveRuntime.runtimeId || session?.primaryAgentId == agent.id {
+            // Legacy/sparse sessions may not have primary_agent_id or a
+            // persisted agent_runtimes row yet. RuntimeResolver has already
+            // selected `liveRuntime` for this session, so when there is only
+            // one unbound agent it is unambiguous and safe to attach it here.
+            let isSoleUnboundAgent = agentCount == 1 && agent.runtimeID == nil
+            if agent.runtimeID == liveRuntime.runtimeId
+                || session?.primaryAgentId == agent.id
+                || isSoleUnboundAgent {
                 return MemberSheetAgent(
                     id: agent.id, displayName: agent.displayName,
                     workspacePath: agent.workspacePath, agentType: agent.agentType,
@@ -2064,6 +2069,18 @@ public final class SessionDetailViewModel {
             if sc.newStatus == .idle { settleAgentTurn(bucket: bucket) }
         }
 
+        // Some runtimes finish a turn with output{isComplete:true} but omit
+        // the final statusChange:.idle. Do not leave the optimistic
+        // "Agent loading" card up for the 60-second safety window. A short
+        // delayed settle gives an immediately-following tool event time to
+        // cancel this task via markAgentWorking(), while still closing a
+        // genuinely completed turn promptly.
+        if !isHistoryReplay,
+           case .output(let output) = acp.event,
+           output.isComplete {
+            armCompletedOutputSettle(bucket: bucket)
+        }
+
         // Raw OpenCode question events are control-plane state, not timeline
         // rows. Keep them in-memory and let the composer surface the prompt.
         if case .raw(let raw) = acp.event,
@@ -2721,6 +2738,25 @@ public final class SessionDetailViewModel {
         }
     }
 
+    /// Complete-output fallback for runtimes that do not publish idle.
+    /// `markAgentWorking()` cancels this same task when a follow-on event
+    /// arrives, so an output segment immediately followed by a tool call
+    /// remains visibly active.
+    private func armCompletedOutputSettle(bucket: String) {
+        agentWorkingResetTask?.cancel()
+        agentWorkingResetTask = Task { [weak self] in
+            try? await Task.sleep(for: .milliseconds(300))
+            guard let self, !Task.isCancelled else { return }
+            await MainActor.run {
+                guard self.streamingAgentSet.isEmpty else {
+                    self.armAgentWorkingSafetyReset()
+                    return
+                }
+                self.settleAgentTurn(bucket: bucket)
+            }
+        }
+    }
+
     /// Safety-timer expiry. Clearing `isAgentWorking` is only safe when no
     /// stream is in flight: with a non-empty `streamingAgentSet`, 60 s of
     /// event silence just means a long thinking / tool stretch, and the
@@ -3130,6 +3166,14 @@ extension SessionDetailViewModel {
         memberSheetAgents = agents
     }
 
+    /// Mirrors the production refresh ordering: attach the resolved runtime
+    /// to the roster first, then collapse any raw-runtime timeline buckets.
+    public func _test_setMemberSheetAgentsOverlayAndRelabel(_ agents: [MemberSheetAgent]) {
+        memberSheetAgents = agents
+        overlayMQTTRuntimeState()
+        relabelRawRuntimeIDStampsToActorIDs()
+    }
+
     public func _test_applyOptimisticModelPatch(agentID: String, model: String) {
         applyOptimisticModelPatch(agentID: agentID, model: model)
     }
@@ -3218,6 +3262,10 @@ extension SessionDetailViewModel {
     /// Run the 60s safety-timer expiry synchronously (no sleeping in tests).
     public func _test_fireAgentWorkingSafetyTimeout() {
         handleAgentWorkingSafetyTimeout()
+    }
+
+    public func _test_armCompletedOutputSettle(bucket: String) {
+        armCompletedOutputSettle(bucket: bucket)
     }
 
     public var _test_streamingTurnIDByAgent: [String: String] {

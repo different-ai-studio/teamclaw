@@ -144,4 +144,33 @@ final class SessionDetailViewModelRelabelTests: XCTestCase {
 
         XCTAssertEqual(vm.events.first?.senderActorID, rawRID)
     }
+
+    func test_overlayBindsSoleUnboundAgentBeforeRelabelingRawRuntimeBucket() {
+        let rawRID = "6906d9d8"
+        let actorID = "1d4dc7dd-6d4e-42b1-b3bd-ea2044ab350a"
+        let session = Session(sessionId: "session-1", teamId: "team-1")
+        let runtime = Runtime(runtimeId: rawRID, status: 3)
+        let mqtt = MQTTService()
+        let vm = SessionDetailViewModel(
+            runtime: runtime,
+            mqtt: mqtt,
+            hub: MQTTMessageHub(mqtt: mqtt),
+            teamID: "team-1",
+            peerId: "peer-1",
+            session: session
+        )
+
+        vm._test_appendRawEvent(senderActorID: rawRID, eventType: "output", text: "done")
+        vm._test_seedStreamingBuffer(bucket: rawRID, text: "partial")
+
+        vm._test_setMemberSheetAgentsOverlayAndRelabel([
+            makeAgent(actorID: actorID, runtimeID: nil)
+        ])
+
+        XCTAssertEqual(vm.memberSheetAgents.first?.runtimeID, rawRID)
+        XCTAssertTrue(vm.events.allSatisfy { $0.senderActorID == actorID })
+        XCTAssertFalse(vm.streamingAgentSet.contains(rawRID))
+        XCTAssertTrue(vm.streamingAgentSet.contains(actorID))
+        XCTAssertEqual(vm.streamingTextByAgent[actorID], "partial")
+    }
 }
