@@ -12,6 +12,12 @@ import {
 import { getLocalDaemonActorId } from '@/lib/daemon-agent-admin'
 import { markStartup } from '@/lib/startup-perf'
 import { appScheme } from '@/lib/build-config'
+import {
+  clearDaemonOnboardingIdentity,
+  readDaemonOnboardingIdentity,
+  writeDaemonOnboardingIdentity,
+} from '@/lib/daemon-onboarding-identity'
+import { useAuthStore } from '@/stores/auth-store'
 
 /**
  * After onboarding a local daemon, adopt it as the user's default agent — but
@@ -66,7 +72,7 @@ type DaemonOnboardingState = {
   /** Last auto-heal failure (e.g. caller doesn't own the agent). Non-null
    * suppresses further automatic attempts; the banner offers a manual retry. */
   healError: string | null
-  refresh: () => Promise<void>
+  refresh: (opts?: { forceIdentityRebind?: boolean; forceTeamRebind?: boolean }) => Promise<void>
   loadOwnedAgents: () => Promise<void>
   createNewAgent: (name: string, visibility: Visibility) => Promise<void>
   bindExistingAgent: (agentId: string, displayName: string) => Promise<void>
@@ -81,6 +87,15 @@ async function daemonTeamId(): Promise<string | null> {
   if (!isTauri()) return null
   const { invoke } = await import('@tauri-apps/api/core')
   return (await invoke<string | null>('get_daemon_team_id')) ?? null
+}
+
+function currentAuthUserId(): string | null {
+  return useAuthStore.getState().session?.user?.id ?? null
+}
+
+function rememberDaemonIdentity(teamId: string): void {
+  const userId = currentAuthUserId()
+  if (userId) writeDaemonOnboardingIdentity({ teamId, userId })
 }
 
 /** Run create-invite → amuxd init → install-service. Returns the claimed agentId. */
@@ -193,7 +208,7 @@ export const useDaemonOnboardingStore = create<DaemonOnboardingState>((set, get)
   healing: false,
   healError: null,
 
-  refresh: async () => {
+  refresh: async (opts) => {
     if (!isTauri()) {
       set({ status: 'ready', loaded: true })
       return
@@ -204,10 +219,85 @@ export const useDaemonOnboardingStore = create<DaemonOnboardingState>((set, get)
     markStartup('daemon-teamid:end')
     const base = computeOnboardingStatus(dTeam, currentTeamId)
     if (base !== 'ready') {
+      if (base === 'mismatch' && opts?.forceTeamRebind && currentTeamId) {
+        // The user explicitly chose another team. amuxd is single-team, so
+        // keep the old Team's agent intact and provision a new local agent for
+        // the target Team instead of making the user reset the whole daemon.
+        set({ status: 'starting', loaded: true, busy: true, error: null })
+        try {
+          await onboard(currentTeamId, 'Local daemon', null)
+          rememberDaemonIdentity(currentTeamId)
+          invalidateDaemonConnection()
+        } catch (e) {
+          set({ status: 'error', loaded: true, error: String(e) })
+          return
+        } finally {
+          set({ busy: false })
+        }
+        // Re-read daemon.toml and health after init/restart before releasing
+        // the auth gate to the chat UI.
+        await get().refresh()
+        return
+      }
       // unknown / needs-onboard / mismatch — team-level, handled by the wizard.
       set({ status: base, loaded: true })
       markStartup('daemon-refresh:end')
       return
+    }
+    const currentUserId = currentAuthUserId()
+    const recorded = readDaemonOnboardingIdentity()
+    let localActorId: string | null = null
+    let ownedLocalAgent: OwnedAgent | undefined
+    let legacyActorOwnedByCurrentUser = true
+    // Existing installs predate the local identity record. Migrate safely by
+    // asking the Cloud API whether this user owns the local actor. A missing
+    // owner means the daemon credential was minted by another linked account.
+    if (currentUserId && !recorded) {
+      try {
+        localActorId = await getLocalDaemonActorId()
+        if (localActorId) {
+          await get().loadOwnedAgents()
+          ownedLocalAgent = get().ownedAgents.find((agent) => agent.agentId === localActorId)
+          legacyActorOwnedByCurrentUser = !!ownedLocalAgent
+        }
+      } catch (e) {
+        // A transient directory failure must not turn a healthy daemon into a
+        // blocking onboarding error. Retry on the next refresh instead.
+        console.warn('[daemon-onboarding] unable to check legacy daemon ownership', e)
+      }
+    }
+    const identityChanged = !!currentUserId && (
+      opts?.forceIdentityRebind ||
+      (recorded?.teamId === currentTeamId && recorded.userId !== currentUserId) ||
+      (!recorded && !legacyActorOwnedByCurrentUser)
+    )
+    if (identityChanged) {
+      // Same team does not imply the same daemon authority. Rebind under the
+      // newly selected linked account before it publishes commands/workspaces.
+      set({ status: 'starting', loaded: true, busy: true, error: null })
+      try {
+        localActorId ??= await getLocalDaemonActorId()
+        if (!ownedLocalAgent) {
+          await get().loadOwnedAgents()
+          ownedLocalAgent = localActorId
+            ? get().ownedAgents.find((agent) => agent.agentId === localActorId)
+            : undefined
+        }
+        if (ownedLocalAgent) {
+          await onboard(currentTeamId!, ownedLocalAgent.displayName, ownedLocalAgent.agentId)
+        } else {
+          // The prior daemon belongs to another linked account. Preserve it
+          // and create this account's local actor instead of stealing it.
+          await onboard(currentTeamId!, 'Local daemon', null)
+        }
+        rememberDaemonIdentity(currentTeamId!)
+        invalidateDaemonConnection()
+      } catch (e) {
+        set({ status: 'error', loaded: true, error: String(e) })
+        return
+      } finally {
+        set({ busy: false })
+      }
     }
     // Onboarded to the current team: also verify running + token valid, auto-recover.
     const first = await probeDaemonHttp()
@@ -260,6 +350,7 @@ export const useDaemonOnboardingStore = create<DaemonOnboardingState>((set, get)
     set({ busy: true, error: null })
     try {
       const agentId = await onboard(teamId, name, null)
+      rememberDaemonIdentity(teamId)
       if (visibility === 'personal') {
         await getBackend().actors.makeAgentPersonal(agentId)
       }
@@ -278,6 +369,7 @@ export const useDaemonOnboardingStore = create<DaemonOnboardingState>((set, get)
     set({ busy: true, error: null })
     try {
       const claimedAgentId = await onboard(teamId, displayName, agentId)
+      rememberDaemonIdentity(teamId)
       await adoptAsDefaultAgentIfUnset(teamId, claimedAgentId)
       await get().refresh()
     } catch (e) {
@@ -293,6 +385,7 @@ export const useDaemonOnboardingStore = create<DaemonOnboardingState>((set, get)
     try {
       const { invoke } = await import('@tauri-apps/api/core')
       await invoke('daemon_clear')
+      clearDaemonOnboardingIdentity()
       // Verify rather than assume. `amuxd clear` exiting 0 does not prove the
       // binding is gone — the config dir has been resurrected from the legacy
       // dir before, and a live daemon can rewrite the file. Without this check
@@ -362,6 +455,7 @@ export const useDaemonOnboardingStore = create<DaemonOnboardingState>((set, get)
       // init` to write fresh credentials, then restart the desktop-managed
       // amuxd so it reloads backend.toml.
       await onboard(teamId, owned.displayName, actorId)
+      rememberDaemonIdentity(teamId)
       invalidateDaemonConnection()
       const authOk = await waitForDaemonCloudAuthOk()
       set({ cloudAuthExpired: !authOk })

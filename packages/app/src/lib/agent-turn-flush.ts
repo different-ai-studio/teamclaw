@@ -10,13 +10,14 @@ import { flushStreamDeltasFor } from "@/lib/stream-delta-buffer";
 import {
   registerFlushedTurn,
 } from "@/lib/flushed-turn-registry";
+import { normalizeUnixTimestampSeconds, unixTimestampSecondsToIso } from "@/lib/message-timestamp";
 
 export function buildAgentReplyMessageRow(
   teamId: string,
   reply: TeamclawMessage,
 ): MessageRow {
   const now = new Date().toISOString();
-  const createdAtSec = Number(reply.createdAt);
+  const createdAtSec = normalizeUnixTimestampSeconds(reply.createdAt);
   return {
     id: reply.messageId,
     teamId,
@@ -30,10 +31,7 @@ export function buildAgentReplyMessageRow(
     model: reply.model || null,
     mentionsJson: null,
     origin: "mqtt-live",
-    createdAt:
-      Number.isFinite(createdAtSec) && createdAtSec > 0
-        ? new Date(createdAtSec * 1000).toISOString()
-        : now,
+    createdAt: unixTimestampSecondsToIso(createdAtSec, now),
     updatedAt: now,
     deletedAt: null,
     syncedAt: now,
@@ -103,12 +101,9 @@ export function bumpPreviewFromAgentReply(
   } catch {
     // keep raw content
   }
-  const createdAtSec = Number(reply.createdAt);
+  const createdAtSec = normalizeUnixTimestampSeconds(reply.createdAt);
   bumpSessionListLastMessage(sessionId, preview, {
-    at:
-      Number.isFinite(createdAtSec) && createdAtSec > 0
-        ? new Date(createdAtSec * 1000).toISOString()
-        : undefined,
+    at: createdAtSec > 0n ? unixTimestampSecondsToIso(createdAtSec) : undefined,
   });
 }
 

@@ -98,7 +98,7 @@ interface State {
    * Internal: only safe when the team is already inside the active org.
    * Every other caller must use `enterTeam`.
    */
-  reloadAndSwitchTo: (teamId: string) => Promise<void>;
+  reloadAndSwitchTo: (teamId: string, opts?: { userId?: string }) => Promise<void>;
   enterTeam: (teamId: string, opts?: { assumeActive?: boolean }) => Promise<void>;
   switchToTeam: (teamId: string) => Promise<void>;
   setActiveTeam: (team: CurrentTeam) => Promise<void>;
@@ -170,7 +170,7 @@ export const useCurrentTeamStore = create<State>((set, get) => ({
     });
   },
 
-  reloadAndSwitchTo: async (teamId: string) => {
+  reloadAndSwitchTo: async (teamId: string, opts) => {
     const session = useAuthStore.getState().session;
     if (!session) {
       await setLocalCacheTeamGate(null);
@@ -191,13 +191,18 @@ export const useCurrentTeamStore = create<State>((set, get) => ({
       return;
     }
     const activeTeam = data ? { id: data.id, name: data.name, slug: data.slug ?? "" } : null;
+    // `activateTeam` can adopt a refresh token for a different phone-linked
+    // user. Prefer that freshly returned identity over an auth-store listener
+    // tick, otherwise the team is resolved for the prior user and ChatPanel
+    // later cannot find its member actor.
+    const userId = opts?.userId ?? session.user.id;
     const currentMember = activeTeam
-      ? await loadCurrentMember(activeTeam.id, session.user.id)
+      ? await loadCurrentMember(activeTeam.id, userId)
       : null;
     set({
       team: activeTeam,
       currentMember,
-      teamUserId: activeTeam ? session.user.id : null,
+      teamUserId: activeTeam ? userId : null,
       loading: false,
     });
   },
@@ -221,18 +226,24 @@ export const useCurrentTeamStore = create<State>((set, get) => ({
    * `listCurrentUserTeams`, which is itself an active-org listing.
    */
   enterTeam: async (teamId: string, opts) => {
+    let activatedUserId: string | undefined
     if (!opts?.assumeActive) {
       const { refreshToken } = await getBackend().teams.activateTeam(teamId);
       // Installs the JWT carrying the new org_id (fires onAuthStateChange →
       // auth-store.session). Without this the org switch is server-only and
       // the very next request still authenticates as the old org.
-      if (refreshToken) await getBackend().auth.adoptSession(refreshToken);
+      if (refreshToken) {
+        const adopted = await getBackend().auth.adoptSession(refreshToken);
+        activatedUserId = adopted?.user?.id;
+      }
     }
-    await get().reloadAndSwitchTo(teamId);
+    await get().reloadAndSwitchTo(teamId, { userId: activatedUserId });
   },
 
   switchToTeam: async (teamId: string) => {
     set({ loading: true, error: null });
+    const previousUserId = useAuthStore.getState().session?.user?.id ?? null;
+    const previousTeamId = get().team?.id ?? null;
     try {
       await get().enterTeam(teamId);
     } catch (error) {
@@ -244,7 +255,11 @@ export const useCurrentTeamStore = create<State>((set, get) => ({
       const { isTauri } = await import("@/lib/utils");
       if (isTauri()) {
         const { useDaemonOnboardingStore } = await import("./daemon-onboarding");
-        await useDaemonOnboardingStore.getState().refresh();
+        const currentUserId = useAuthStore.getState().session?.user?.id ?? null;
+        await useDaemonOnboardingStore.getState().refresh({
+          forceIdentityRebind: !!previousUserId && !!currentUserId && previousUserId !== currentUserId,
+          forceTeamRebind: !!previousTeamId && previousTeamId !== teamId,
+        });
       }
     } catch (e) {
       console.warn("[CurrentTeam] daemon refresh after switch failed", e);

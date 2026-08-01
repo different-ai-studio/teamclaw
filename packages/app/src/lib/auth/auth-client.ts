@@ -117,7 +117,11 @@ function userFromAccessToken(token: string): AuthUser | null {
   };
 }
 
-function normalizeRefreshSession(data: unknown, current: Session | null): Session {
+function normalizeRefreshSession(
+  data: unknown,
+  current: Session | null,
+  reason: "refresh" | "adopt" = "refresh",
+): Session {
   if (!data || typeof data !== "object") return data as Session;
   const row = data as Partial<Session> & {
     accessToken?: unknown;
@@ -134,7 +138,14 @@ function normalizeRefreshSession(data: unknown, current: Session | null): Sessio
   // access token's own claims. Without a user, AuthGate sees no session and
   // bounces back to the login screen.
   if (typeof row.accessToken === "string" && typeof row.refreshToken === "string") {
-    const user = current?.user ?? userFromAccessToken(row.accessToken);
+    // A normal token renewal must retain the current profile because the
+    // refresh response has no user object. An adopted token, however, is
+    // deliberately minted for a different phone-linked account by
+    // switch_active_team; its JWT subject is the authoritative identity.
+    const tokenUser = userFromAccessToken(row.accessToken);
+    const user = reason === "adopt"
+      ? tokenUser ?? current?.user
+      : current?.user ?? tokenUser;
     if (user) {
       return {
         ...(current ?? {}),
@@ -190,9 +201,9 @@ export function createAuthClient(opts: AuthClientOptions): AuthClient {
 
   // Wire the refresher into the SessionStore so timer-driven refreshes work.
   configureSessionStore({
-    refresher: async (refreshToken: string) => {
+    refresher: async (refreshToken: string, reason) => {
       const data = await post("/v1/auth/refresh", { refreshToken });
-      return normalizeRefreshSession(data, getSession());
+      return normalizeRefreshSession(data, getSession(), reason);
     },
   });
 

@@ -3,6 +3,22 @@
 
 use super::*;
 
+/// The local fast-path starts before cloud workspace resolution and therefore
+/// legitimately has no workspace id. A concurrent focus/ensure request for
+/// the same directory has the canonical id; it must reuse that runtime rather
+/// than interrupting its active turn.
+fn same_runtime_workspace(
+    existing_worktree: &str,
+    existing_workspace_id: &str,
+    requested_worktree: &str,
+    requested_workspace_id: &str,
+) -> bool {
+    existing_workspace_id == requested_workspace_id
+        || (!existing_worktree.is_empty()
+            && existing_worktree == requested_worktree
+            && (existing_workspace_id.is_empty() || requested_workspace_id.is_empty()))
+}
+
 impl DaemonServer {
     /// Bind remote-tool routing to a live runtime and persist the host-level MCP config.
     /// Route selection is message-level via `remote_context_id`; this binding is
@@ -256,7 +272,12 @@ impl DaemonServer {
                     Some(h)
                         if reuse.is_none()
                             && h.agent_type == agent_type
-                            && h.workspace_id == ws_id =>
+                            && same_runtime_workspace(
+                                &h.worktree,
+                                &h.workspace_id,
+                                &resolved_worktree,
+                                &ws_id,
+                            ) =>
                     {
                         reuse = Some(rid);
                     }
@@ -968,5 +989,36 @@ impl DaemonServer {
                 error,
             })),
         }
+    }
+}
+
+#[cfg(test)]
+mod workspace_binding_tests {
+    use super::same_runtime_workspace;
+
+    #[test]
+    fn local_fast_path_and_canonical_workspace_id_share_one_runtime() {
+        assert!(same_runtime_workspace(
+            "/Users/test/project",
+            "",
+            "/Users/test/project",
+            "workspace-1",
+        ));
+        assert!(same_runtime_workspace(
+            "/Users/test/project",
+            "workspace-1",
+            "/Users/test/project",
+            "",
+        ));
+    }
+
+    #[test]
+    fn different_known_workspace_ids_remain_distinct() {
+        assert!(!same_runtime_workspace(
+            "/Users/test/project",
+            "workspace-1",
+            "/Users/test/project",
+            "workspace-2",
+        ));
     }
 }
