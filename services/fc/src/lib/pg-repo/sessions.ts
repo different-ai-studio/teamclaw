@@ -818,17 +818,24 @@ export function makeSessionsRepo(db: DbLike, ctx: SessionsCtx = {}, deps: Sessio
           teamId: teams.id,
           teamName: teams.name,
           teamSlug: teams.slug,
+          teamOrgId: teams.oid,
         })
         .from(teamMembers)
         .innerJoin(teams, eq(teamMembers.teamId, teams.id))
         .where(inArray(teamMembers.memberId, actorIds));
 
-      const seenTeam = new Map<string, { id: string; name: string; slug: string; role: string }>();
+      const seenTeam = new Map<string, { id: string; name: string; slug: string; role: string; orgId: string | null }>();
       const memberByTeam: Record<string, string> = {};
       for (const m of memberRows) {
         if (!m.teamId) continue;
         if (!seenTeam.has(m.teamId)) {
-          seenTeam.set(m.teamId, { id: m.teamId, name: m.teamName, slug: m.teamSlug, role: m.role });
+          seenTeam.set(m.teamId, {
+            id: m.teamId,
+            name: m.teamName,
+            slug: m.teamSlug,
+            role: m.role,
+            orgId: m.teamOrgId ?? null,
+          });
         }
         memberByTeam[m.teamId] = m.memberId;
       }

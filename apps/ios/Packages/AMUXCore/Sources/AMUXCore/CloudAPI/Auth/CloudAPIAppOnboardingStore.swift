@@ -411,7 +411,13 @@ public actor CloudAPIAppOnboardingStore: AppOnboardingStore {
         return AppBootstrap(
             memberActorID: dto.memberActorId,
             teams: dto.teams.map {
-                TeamSummary(id: $0.id, name: $0.name, slug: $0.slug ?? "", role: $0.role ?? "member")
+                TeamSummary(
+                    id: $0.id,
+                    name: $0.name,
+                    slug: $0.slug ?? "",
+                    role: $0.role ?? "member",
+                    orgID: $0.orgId
+                )
             },
             memberActorIDByTeam: dto.memberActorIdByTeam ?? [:]
         )
@@ -717,6 +723,7 @@ private struct CloudBootstrapTeam: Decodable, Sendable {
     let name: String
     let slug: String?
     let role: String?
+    let orgId: String?
 }
 
 private struct CloudTeam: Decodable, Sendable {

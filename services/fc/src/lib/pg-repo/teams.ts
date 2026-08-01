@@ -294,6 +294,23 @@ export function makeTeamsRepo(db: PgDatabase<any, any>, deps: TeamsRepoDeps = {}
       return out;
     },
 
+    async listDiscoverableTeams(ctx?: { userId?: string }) {
+      const publicTeams = await db
+        .select({ id: teams.id, name: teams.name, slug: teams.slug, oid: teams.oid })
+        .from(teams)
+        .where(eq(teams.visibility, "public"))
+        .orderBy(asc(teams.createdAt));
+      const joined = new Set<string>();
+      if (ctx?.userId) {
+        const mine = await db.select({ teamId: actors.teamId }).from(actors).where(eq(actors.userId, ctx.userId));
+        mine.forEach((row) => joined.add(row.teamId));
+      }
+      return publicTeams.map((team) => ({
+        id: team.id, name: team.name, slug: team.slug ?? null, orgId: team.oid ?? null,
+        orgName: null, visibility: "public", isMember: joined.has(team.id),
+      }));
+    },
+
     // Self-service join of a PUBLIC default-org team as a plain member.
     // Idempotent when the caller is already an actor in the team.
     async joinPublicTeam(teamId: string, ctx?: { userId?: string }) {
@@ -684,6 +701,12 @@ export function makeTeamsRepo(db: PgDatabase<any, any>, deps: TeamsRepoDeps = {}
       await seedMemberKey(created.litellmTeamId, created.ownerActorId, deps.provisionMemberKey);
 
       return created.team;
+    },
+
+    async bootstrapTeam(input: { displayName?: string | null }, ctx?: { userId?: string }) {
+      // This compatibility backend has no org table, so it cannot derive an
+      // org name. Preserve the first-team atomicity with a neutral name.
+      return this.createTeam({ name: "Personal", displayName: input.displayName ?? null }, ctx);
     },
 
     /**

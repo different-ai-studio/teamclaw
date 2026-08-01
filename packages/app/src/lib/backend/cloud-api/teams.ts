@@ -62,6 +62,9 @@ export function createTeamsModule(client: CloudApiClient): TeamsBackend {
     async createTeam(input) {
       return mapTeam(await client.post<CloudTeam>("/v1/teams", input));
     },
+    async bootstrapTeam(input = {}) {
+      return mapTeam(await client.post<CloudTeam>("/v1/teams/bootstrap", input));
+    },
     async renameTeam(teamId: string, name: string) {
       return mapTeam(await client.patch<CloudTeam>(`/v1/teams/${encodeURIComponent(teamId)}`, { name }));
     },
@@ -102,6 +105,18 @@ export function createTeamsModule(client: CloudApiClient): TeamsBackend {
     },
     async listAllMyTeams() {
       const page = await client.get<Page<CloudMembershipTeam>>(`/v1/teams?scope=all`);
+      return page.items.map((r) => ({
+        id: r.id,
+        name: r.name,
+        slug: r.slug,
+        orgId: r.orgId,
+        orgName: r.orgName,
+        visibility: r.visibility,
+        isMember: r.isMember !== false,
+      }));
+    },
+    async listDiscoverableTeams() {
+      const page = await client.get<Page<CloudMembershipTeam>>(`/v1/teams?scope=discoverable`);
       return page.items.map((r) => ({
         id: r.id,
         name: r.name,

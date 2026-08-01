@@ -61,6 +61,7 @@ export interface AuthBackend {
   /** Log in as a specific user when the phone is linked to multiple accounts. */
   loginWithPhoneUser(phone: string, code: string, userId: string): Promise<AuthSession | null>;
   signInAnonymously(): Promise<AuthSession | null>;
+  signInWithPassword(email: string, password: string): Promise<AuthSession | null>;
   signInWithOAuth(provider: OAuthProvider): Promise<AuthSession | null>;
   signOut(): Promise<void>;
   claimInvite(token: string): Promise<AuthClaimResult>;
@@ -453,6 +454,11 @@ export interface TeamsBackend {
   listCurrentUserTeams(args?: { limit?: number }): Promise<TeamSummary[]>;
   getTeam(teamId: string): Promise<TeamSummary | null>;
   createTeam(input: { name?: string | null; slug?: string | null; displayName?: string | null }): Promise<TeamSummary>;
+  /**
+   * First-team onboarding only. Creates an owner team named after the caller's
+   * current organization, together with the member actor, in one transaction.
+   */
+  bootstrapTeam(input?: { displayName?: string | null }): Promise<TeamSummary>;
   renameTeam(teamId: string, name: string): Promise<TeamSummary>;
   /**
    * Graduate the caller out of the shared DEFAULT_ORG into their own org:
@@ -463,6 +469,8 @@ export interface TeamsBackend {
   createTeamInvite(input: TeamInviteInput): Promise<TeamInviteResult>;
   removeTeamActor(teamId: string, actorId: string): Promise<void>;
   listAllMyTeams(): Promise<MembershipTeam[]>;
+  /** Public teams that may be browsed before a user joins one. */
+  listDiscoverableTeams(): Promise<MembershipTeam[]>;
   /**
    * Self-service join of a PUBLIC team in the shared DEFAULT_ORG (offered in the
    * post-login picker alongside the caller's own teams). Idempotent.

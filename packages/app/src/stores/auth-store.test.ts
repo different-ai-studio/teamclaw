@@ -17,6 +17,7 @@ const authMock = {
   loginWithPhoneUser: vi.fn(),
   signOut: vi.fn(),
   signInAnonymously: vi.fn(),
+  signInWithPassword: vi.fn(),
   claimInvite: vi.fn(),
   listPendingInvites: vi.fn(),
   acceptPendingInvite: vi.fn(),
@@ -270,6 +271,16 @@ describe("auth-store", () => {
     expect(ok).toBe(false);
     expect(authMock.signInAnonymously).not.toHaveBeenCalled();
     expect(useAuthStore.getState().errorMessage).toMatch(/Supabase config missing/);
+  });
+
+  it("signInWithPassword stores the returned session", async () => {
+    authMock.signInWithPassword.mockResolvedValueOnce(storeSessionLike("password-1"));
+
+    const ok = await useAuthStore.getState().signInWithPassword("person@example.com", "password123");
+
+    expect(ok).toBe(true);
+    expect(authMock.signInWithPassword).toHaveBeenCalledWith("person@example.com", "password123");
+    expect(useAuthStore.getState().session?.user.id).toBe("password-1");
   });
 
   it("claimInvite claims the token through backend auth", async () => {

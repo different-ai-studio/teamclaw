@@ -22,6 +22,7 @@
       "google": false,
       "wechat": false,
       "phone": false,
+      "password": true,
       "webSSO": true,
       "webSSOHosts": ["admin.mx5.cn"]
     },

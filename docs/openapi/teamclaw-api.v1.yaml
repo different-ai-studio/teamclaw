@@ -75,13 +75,14 @@ paths:
           required: false
           description: |
             `all` returns the cross-org team picker source: the caller's teams
-            across every org, unioned with PUBLIC teams in the shared
-            DEFAULT_ORG the caller may join (each carrying `isMember`). Omitted
+            across every org, unioned with PUBLIC teams the caller may join
+            (each carrying `isMember`). `discoverable` returns the public-only
+            subset and is safe for an anonymous browsing session. Omitted
             returns only teams in the caller's current org that they are an
             actor in.
           schema:
             type: string
-            enum: [all]
+            enum: [all, discoverable]
       responses:
         "200":
           description: Current user's teams.
@@ -168,6 +169,35 @@ paths:
         "502":
           description: LiteLLM provisioning failed; no DB rows were written.
           $ref: "#/components/responses/Error"
+  /v1/teams/bootstrap:
+    post:
+      operationId: bootstrapTeam
+      summary: Bootstrap the first team in the current organization
+      description: >-
+        For a non-anonymous user with no visible or joinable teams, atomically
+        creates an owner team named after the current organization and creates
+        its member actor. It never joins an existing team implicitly.
+      tags: [Teams]
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                displayName:
+                  type: [string, "null"]
+      responses:
+        "200":
+          description: Bootstrapped team.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Team"
+        "403":
+          $ref: "#/components/responses/Error"
+        "409":
+          $ref: "#/components/responses/Error"
   /v1/teams/{teamId}:
     get:
       operationId: getTeam
@@ -227,9 +257,8 @@ paths:
       operationId: joinPublicTeam
       summary: Join a public team
       description: |
-        Self-service join of a PUBLIC team in the shared DEFAULT_ORG. Adds the
-        caller as a plain `member` (idempotent if already joined). Rejects
-        teams that are not public DEFAULT_ORG teams with 403.
+        Self-service join of a PUBLIC team. Adds the caller as a plain `member`
+        (idempotent if already joined). Anonymous users must sign in first.
       tags: [Teams]
       parameters:
         - $ref: "#/components/parameters/TeamId"
@@ -3797,6 +3826,9 @@ paths:
                         name: { type: string }
                         slug: { type: [string, "null"] }
                         role: { type: string }
+                        orgId:
+                          type: [string, "null"]
+                          description: Owning organization ID of this team, when assigned.
                   memberActorIdByTeam:
                     type: object
                     additionalProperties: { type: string }

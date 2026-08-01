@@ -54,7 +54,7 @@ pub(super) fn spawn_reader(
             handle_event(&shared, &worktree, &client, &json).await;
         }
         // The pi process exited (stdout EOF or read error). A dead process will
-        // never emit `turn_end`/`agent_settled`, so if a turn was in flight we
+        // never emit `agent_end`, so if a turn was in flight we
         // must settle it here — otherwise the UI hangs in "replying" forever.
         if let Some(session_id) = active_session(&shared, &worktree) {
             close_turn(&shared, &session_id).await;
@@ -97,10 +97,13 @@ async fn handle_event(
                 route.translate.reset_turn();
             }
         }
-        // Turn completion contract: same Active→Idle StatusChange the
-        // opencode backend emits on `session.idle`. `turn_active` guards
-        // against double-close when both turn_end and agent_settled arrive.
-        "turn_end" | "agent_settled" => close_turn(shared, &session_id).await,
+        // A pi agent run can contain multiple turns: each tool-use cycle ends
+        // one `turn_end` and begins another `turn_start`. Ending the TeamClaw
+        // stream there finalizes the first partial reply, so subsequent text
+        // is rendered as a second message. Only `agent_end` completes the
+        // prompt as a whole. `turn_active` keeps the stdout-EOF fallback
+        // idempotent if pi exits immediately after this event.
+        event_type if completes_agent_run(event_type) => close_turn(shared, &session_id).await,
         _ => {
             let (events, event_tx, reply_to) = {
                 let mut routes = shared.routes.lock();
@@ -126,6 +129,25 @@ async fn handle_event(
                     .await;
             }
         }
+    }
+}
+
+fn completes_agent_run(event_type: &str) -> bool {
+    event_type == "agent_end"
+}
+
+#[cfg(test)]
+mod tests {
+    use super::completes_agent_run;
+
+    #[test]
+    fn only_agent_end_completes_the_prompt() {
+        assert!(completes_agent_run("agent_end"));
+        // A tool-using prompt has one turn_end for each model/tool cycle.
+        // Closing here splits a single streamed reply into separate messages.
+        assert!(!completes_agent_run("turn_end"));
+        assert!(!completes_agent_run("turn_start"));
+        assert!(!completes_agent_run("agent_start"));
     }
 }
 
