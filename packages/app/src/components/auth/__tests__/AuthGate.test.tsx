@@ -252,6 +252,47 @@ describe("AuthGate", () => {
     await waitFor(() => expect(screen.getByText("App shell")).toBeInTheDocument());
   });
 
+  it("activates a sole membership before entering the desktop shell", async () => {
+    backendMock.teams.listCurrentUserTeams.mockResolvedValueOnce([
+      { id: "team-existing", name: "Acme", slug: "acme" },
+    ]);
+    backendMock.teams.listAllMyTeams.mockResolvedValueOnce([
+      { id: "team-existing", name: "Acme", slug: "acme", isMember: true },
+    ]);
+    currentTeamMock.setActiveTeam.mockResolvedValueOnce(undefined);
+    currentTeamMock.switchToTeam.mockResolvedValueOnce(undefined);
+
+    render(
+      <AuthGate>
+        <div>App shell</div>
+      </AuthGate>,
+    );
+
+    await waitFor(() => expect(currentTeamMock.switchToTeam).toHaveBeenCalledWith("team-existing"));
+    await waitFor(() => expect(screen.getByText("App shell")).toBeInTheDocument());
+  });
+
+  it("does not count a joinable public team as a second membership", async () => {
+    backendMock.teams.listCurrentUserTeams.mockResolvedValueOnce([
+      { id: "team-mine", name: "Mine", slug: "mine" },
+    ]);
+    backendMock.teams.listAllMyTeams.mockResolvedValueOnce([
+      { id: "team-mine", name: "Mine", slug: "mine", isMember: true },
+      { id: "team-public", name: "Public", slug: "public", isMember: false },
+    ]);
+    currentTeamMock.setActiveTeam.mockResolvedValueOnce(undefined);
+    currentTeamMock.switchToTeam.mockResolvedValueOnce(undefined);
+
+    render(
+      <AuthGate>
+        <div>App shell</div>
+      </AuthGate>,
+    );
+
+    await waitFor(() => expect(currentTeamMock.switchToTeam).toHaveBeenCalledWith("team-mine"));
+    await waitFor(() => expect(screen.getByText("App shell")).toBeInTheDocument());
+  });
+
   it("creates a first team and switches to it before rendering the shell", async () => {
     backendMock.teams.listCurrentUserTeams.mockResolvedValueOnce([]);
     backendMock.teams.listAllMyTeams.mockResolvedValueOnce([]);
