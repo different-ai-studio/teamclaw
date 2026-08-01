@@ -20,17 +20,19 @@ import SwiftProtobuf
 // incompatible with the version of SwiftProtobuf to which you are linking.
 // Please ensure that you are building against the same version of the API
 // that was used to generate this file.
-fileprivate struct _GeneratedWithProtocGenSwiftVersion: SwiftProtobuf.ProtobufAPIVersionCheck {
+fileprivate nonisolated struct _GeneratedWithProtocGenSwiftVersion: SwiftProtobuf.ProtobufAPIVersionCheck {
   struct _2: SwiftProtobuf.ProtobufAPIVersion_2 {}
   typealias Version = _2
 }
 
-public enum Amux_AgentType: SwiftProtobuf.Enum, Swift.CaseIterable {
+public nonisolated enum Amux_AgentType: SwiftProtobuf.Enum, Swift.CaseIterable {
   public typealias RawValue = Int
   case unknown // = 0
   case claudeCode // = 1
   case opencode // = 2
   case codex // = 3
+  case pi // = 4
+  case cursor // = 5
   case UNRECOGNIZED(Int)
 
   public init() {
@@ -43,6 +45,8 @@ public enum Amux_AgentType: SwiftProtobuf.Enum, Swift.CaseIterable {
     case 1: self = .claudeCode
     case 2: self = .opencode
     case 3: self = .codex
+    case 4: self = .pi
+    case 5: self = .cursor
     default: self = .UNRECOGNIZED(rawValue)
     }
   }
@@ -53,6 +57,8 @@ public enum Amux_AgentType: SwiftProtobuf.Enum, Swift.CaseIterable {
     case .claudeCode: return 1
     case .opencode: return 2
     case .codex: return 3
+    case .pi: return 4
+    case .cursor: return 5
     case .UNRECOGNIZED(let i): return i
     }
   }
@@ -63,11 +69,13 @@ public enum Amux_AgentType: SwiftProtobuf.Enum, Swift.CaseIterable {
     .claudeCode,
     .opencode,
     .codex,
+    .pi,
+    .cursor,
   ]
 
 }
 
-public enum Amux_AgentStatus: SwiftProtobuf.Enum, Swift.CaseIterable {
+public nonisolated enum Amux_AgentStatus: SwiftProtobuf.Enum, Swift.CaseIterable {
   public typealias RawValue = Int
   case unknown // = 0
   case starting // = 1
@@ -120,7 +128,7 @@ public enum Amux_AgentStatus: SwiftProtobuf.Enum, Swift.CaseIterable {
 /// Lifecycle state for a Claude Code runtime (subprocess).
 /// Published on {team}/{actor}/runtime/{rid}/state topic.
 /// See spec: docs/superpowers/specs/2026-04-24-mqtt-topic-redesign-design.md#runtime-lifecycle
-public enum Amux_RuntimeLifecycle: SwiftProtobuf.Enum, Swift.CaseIterable {
+public nonisolated enum Amux_RuntimeLifecycle: SwiftProtobuf.Enum, Swift.CaseIterable {
   public typealias RawValue = Int
   case unknown // = 0
   case starting // = 1
@@ -166,7 +174,7 @@ public enum Amux_RuntimeLifecycle: SwiftProtobuf.Enum, Swift.CaseIterable {
 
 }
 
-public enum Amux_MemberRole: SwiftProtobuf.Enum, Swift.CaseIterable {
+public nonisolated enum Amux_MemberRole: SwiftProtobuf.Enum, Swift.CaseIterable {
   public typealias RawValue = Int
   case owner // = 0
   case member // = 1
@@ -201,23 +209,38 @@ public enum Amux_MemberRole: SwiftProtobuf.Enum, Swift.CaseIterable {
 }
 
 /// Downstream: daemon → clients
-public struct Amux_Envelope: Sendable {
+public nonisolated struct Amux_Envelope: @unchecked Sendable {
   // SwiftProtobuf.Message conformance is added in an extension below. See the
   // `Message` and `Message+*Additions` files in the SwiftProtobuf library for
   // methods supported on all messages.
 
-  public var runtimeID: String = String()
+  public var runtimeID: String {
+    get {_storage._runtimeID}
+    set {_uniqueStorage()._runtimeID = newValue}
+  }
 
   /// routing identity == actor_id
-  public var actorID: String = String()
+  public var actorID: String {
+    get {_storage._actorID}
+    set {_uniqueStorage()._actorID = newValue}
+  }
 
   /// Who triggered (empty if agent-initiated)
-  public var sourcePeerID: String = String()
+  public var sourcePeerID: String {
+    get {_storage._sourcePeerID}
+    set {_uniqueStorage()._sourcePeerID = newValue}
+  }
 
-  public var timestamp: Int64 = 0
+  public var timestamp: Int64 {
+    get {_storage._timestamp}
+    set {_uniqueStorage()._timestamp = newValue}
+  }
 
   /// Monotonic per agent, for ordering
-  public var sequence: UInt64 = 0
+  public var sequence: UInt64 {
+    get {_storage._sequence}
+    set {_uniqueStorage()._sequence = newValue}
+  }
 
   /// Daemon-assigned per-turn correlation id. Stamped from the TurnAggregator
   /// on every envelope emitted within one ACP turn (Idle→Active→…→Idle).
@@ -225,31 +248,44 @@ public struct Amux_Envelope: Sendable {
   /// so a daemon replay with renumbered `sequence` doesn't produce a second
   /// bubble for the same logical turn. Empty when no active turn (rare; some
   /// session-control envelopes outside a turn).
-  public var turnID: String = String()
+  public var turnID: String {
+    get {_storage._turnID}
+    set {_uniqueStorage()._turnID = newValue}
+  }
 
-  public var payload: Amux_Envelope.OneOf_Payload? = nil
+  /// ACP session that originated this event (root or child subagent).
+  /// Empty for legacy agents without subagent support.
+  public var acpSessionID: String {
+    get {_storage._acpSessionID}
+    set {_uniqueStorage()._acpSessionID = newValue}
+  }
+
+  public var payload: OneOf_Payload? {
+    get {return _storage._payload}
+    set {_uniqueStorage()._payload = newValue}
+  }
 
   /// Agent event (ACP passthrough)
   public var acpEvent: Amux_AcpEvent {
     get {
-      if case .acpEvent(let v)? = payload {return v}
+      if case .acpEvent(let v)? = _storage._payload {return v}
       return Amux_AcpEvent()
     }
-    set {payload = .acpEvent(newValue)}
+    set {_uniqueStorage()._payload = .acpEvent(newValue)}
   }
 
   /// Session control (AMUX-only)
   public var sessionEvent: Amux_SessionEvent {
     get {
-      if case .sessionEvent(let v)? = payload {return v}
+      if case .sessionEvent(let v)? = _storage._payload {return v}
       return Amux_SessionEvent()
     }
-    set {payload = .sessionEvent(newValue)}
+    set {_uniqueStorage()._payload = .sessionEvent(newValue)}
   }
 
   public var unknownFields = SwiftProtobuf.UnknownStorage()
 
-  public enum OneOf_Payload: Equatable, Sendable {
+  public nonisolated enum OneOf_Payload: Equatable, Sendable {
     /// Agent event (ACP passthrough)
     case acpEvent(Amux_AcpEvent)
     /// Session control (AMUX-only)
@@ -258,10 +294,12 @@ public struct Amux_Envelope: Sendable {
   }
 
   public init() {}
+
+  fileprivate var _storage = _StorageClass.defaultInstance
 }
 
 /// Upstream: clients → daemon (sent to {team}/{actor}/runtime/{rid}/commands topic).
-public struct Amux_RuntimeCommandEnvelope: Sendable {
+public nonisolated struct Amux_RuntimeCommandEnvelope: Sendable {
   // SwiftProtobuf.Message conformance is added in an extension below. See the
   // `Message` and `Message+*Additions` files in the SwiftProtobuf library for
   // methods supported on all messages.
@@ -303,7 +341,7 @@ public struct Amux_RuntimeCommandEnvelope: Sendable {
 }
 
 /// ACP session/update notification types
-public struct Amux_AcpEvent: Sendable {
+public nonisolated struct Amux_AcpEvent: Sendable {
   // SwiftProtobuf.Message conformance is added in an extension below. See the
   // `Message` and `Message+*Additions` files in the SwiftProtobuf library for
   // methods supported on all messages.
@@ -400,7 +438,7 @@ public struct Amux_AcpEvent: Sendable {
 
   public var unknownFields = SwiftProtobuf.UnknownStorage()
 
-  public enum OneOf_Event: Equatable, Sendable {
+  public nonisolated enum OneOf_Event: Equatable, Sendable {
     case thinking(Amux_AcpThinking)
     case output(Amux_AcpOutput)
     case toolUse(Amux_AcpToolUse)
@@ -419,7 +457,7 @@ public struct Amux_AcpEvent: Sendable {
   public init() {}
 }
 
-public struct Amux_AcpThinking: Sendable {
+public nonisolated struct Amux_AcpThinking: Sendable {
   // SwiftProtobuf.Message conformance is added in an extension below. See the
   // `Message` and `Message+*Additions` files in the SwiftProtobuf library for
   // methods supported on all messages.
@@ -431,7 +469,7 @@ public struct Amux_AcpThinking: Sendable {
   public init() {}
 }
 
-public struct Amux_AcpOutput: Sendable {
+public nonisolated struct Amux_AcpOutput: Sendable {
   // SwiftProtobuf.Message conformance is added in an extension below. See the
   // `Message` and `Message+*Additions` files in the SwiftProtobuf library for
   // methods supported on all messages.
@@ -445,16 +483,132 @@ public struct Amux_AcpOutput: Sendable {
   public init() {}
 }
 
-public struct Amux_AcpToolUse: Sendable {
+public nonisolated struct Amux_AcpToolCallLocation: Sendable {
+  // SwiftProtobuf.Message conformance is added in an extension below. See the
+  // `Message` and `Message+*Additions` files in the SwiftProtobuf library for
+  // methods supported on all messages.
+
+  public var path: String = String()
+
+  public var line: UInt32 {
+    get {_line ?? 0}
+    set {_line = newValue}
+  }
+  /// Returns true if `line` has been explicitly set.
+  public var hasLine: Bool {self._line != nil}
+  /// Clears the value of `line`. Subsequent reads from it will return its default value.
+  public mutating func clearLine() {self._line = nil}
+
+  public var unknownFields = SwiftProtobuf.UnknownStorage()
+
+  public init() {}
+
+  fileprivate var _line: UInt32? = nil
+}
+
+public nonisolated struct Amux_AcpToolCallTextContent: Sendable {
+  // SwiftProtobuf.Message conformance is added in an extension below. See the
+  // `Message` and `Message+*Additions` files in the SwiftProtobuf library for
+  // methods supported on all messages.
+
+  public var text: String = String()
+
+  public var unknownFields = SwiftProtobuf.UnknownStorage()
+
+  public init() {}
+}
+
+public nonisolated struct Amux_AcpToolCallDiff: Sendable {
+  // SwiftProtobuf.Message conformance is added in an extension below. See the
+  // `Message` and `Message+*Additions` files in the SwiftProtobuf library for
+  // methods supported on all messages.
+
+  public var path: String = String()
+
+  public var oldText: String {
+    get {_oldText ?? String()}
+    set {_oldText = newValue}
+  }
+  /// Returns true if `oldText` has been explicitly set.
+  public var hasOldText: Bool {self._oldText != nil}
+  /// Clears the value of `oldText`. Subsequent reads from it will return its default value.
+  public mutating func clearOldText() {self._oldText = nil}
+
+  public var newText: String = String()
+
+  public var unknownFields = SwiftProtobuf.UnknownStorage()
+
+  public init() {}
+
+  fileprivate var _oldText: String? = nil
+}
+
+public nonisolated struct Amux_AcpToolCallTerminal: Sendable {
+  // SwiftProtobuf.Message conformance is added in an extension below. See the
+  // `Message` and `Message+*Additions` files in the SwiftProtobuf library for
+  // methods supported on all messages.
+
+  public var terminalID: String = String()
+
+  public var unknownFields = SwiftProtobuf.UnknownStorage()
+
+  public init() {}
+}
+
+public nonisolated struct Amux_AcpToolCallContent: Sendable {
+  // SwiftProtobuf.Message conformance is added in an extension below. See the
+  // `Message` and `Message+*Additions` files in the SwiftProtobuf library for
+  // methods supported on all messages.
+
+  public var payload: Amux_AcpToolCallContent.OneOf_Payload? = nil
+
+  public var text: Amux_AcpToolCallTextContent {
+    get {
+      if case .text(let v)? = payload {return v}
+      return Amux_AcpToolCallTextContent()
+    }
+    set {payload = .text(newValue)}
+  }
+
+  public var diff: Amux_AcpToolCallDiff {
+    get {
+      if case .diff(let v)? = payload {return v}
+      return Amux_AcpToolCallDiff()
+    }
+    set {payload = .diff(newValue)}
+  }
+
+  public var terminal: Amux_AcpToolCallTerminal {
+    get {
+      if case .terminal(let v)? = payload {return v}
+      return Amux_AcpToolCallTerminal()
+    }
+    set {payload = .terminal(newValue)}
+  }
+
+  public var unknownFields = SwiftProtobuf.UnknownStorage()
+
+  public nonisolated enum OneOf_Payload: Equatable, Sendable {
+    case text(Amux_AcpToolCallTextContent)
+    case diff(Amux_AcpToolCallDiff)
+    case terminal(Amux_AcpToolCallTerminal)
+
+  }
+
+  public init() {}
+}
+
+public nonisolated struct Amux_AcpToolUse: Sendable {
   // SwiftProtobuf.Message conformance is added in an extension below. See the
   // `Message` and `Message+*Additions` files in the SwiftProtobuf library for
   // methods supported on all messages.
 
   public var toolID: String = String()
 
-  /// "Read", "Edit", "Bash", "Write", etc.
+  /// ACP session/update title (human or tool id)
   public var toolName: String = String()
 
+  /// Deprecated: legacy misuse; clients should ignore
   public var description_p: String = String()
 
   public var params: Dictionary<String,String> = [:]
@@ -465,12 +619,25 @@ public struct Amux_AcpToolUse: Sendable {
   /// a proto bump; renderers must tolerate unknown values (treat as "other").
   public var toolKind: String = String()
 
+  /// Phase 2 — ACP fidelity fields (additive; empty on older daemons)
+  public var rawInputJson: String = String()
+
+  public var content: [Amux_AcpToolCallContent] = []
+
+  public var locations: [Amux_AcpToolCallLocation] = []
+
+  /// pending|in_progress|completed|failed
+  public var status: String = String()
+
+  /// JSON-serialized ACP rawOutput (task in_progress metadata)
+  public var rawOutputJson: String = String()
+
   public var unknownFields = SwiftProtobuf.UnknownStorage()
 
   public init() {}
 }
 
-public struct Amux_AcpToolResult: Sendable {
+public nonisolated struct Amux_AcpToolResult: Sendable {
   // SwiftProtobuf.Message conformance is added in an extension below. See the
   // `Message` and `Message+*Additions` files in the SwiftProtobuf library for
   // methods supported on all messages.
@@ -481,12 +648,17 @@ public struct Amux_AcpToolResult: Sendable {
 
   public var summary: String = String()
 
+  /// JSON-serialized ACP rawOutput
+  public var rawOutputJson: String = String()
+
+  public var content: [Amux_AcpToolCallContent] = []
+
   public var unknownFields = SwiftProtobuf.UnknownStorage()
 
   public init() {}
 }
 
-public struct Amux_AcpError: Sendable {
+public nonisolated struct Amux_AcpError: Sendable {
   // SwiftProtobuf.Message conformance is added in an extension below. See the
   // `Message` and `Message+*Additions` files in the SwiftProtobuf library for
   // methods supported on all messages.
@@ -500,9 +672,15 @@ public struct Amux_AcpError: Sendable {
   public init() {}
 }
 
-public struct Amux_AcpPermissionOption: Sendable {
+/// Mirrors ACP PermissionOption (session/request_permission).
+public nonisolated struct Amux_AcpPermissionOption: Sendable {
+  // SwiftProtobuf.Message conformance is added in an extension below. See the
+  // `Message` and `Message+*Additions` files in the SwiftProtobuf library for
+  // methods supported on all messages.
+
   public var optionID: String = String()
 
+  /// allow_once | allow_always | reject_once | reject_always
   public var kind: String = String()
 
   public var name: String = String()
@@ -512,7 +690,7 @@ public struct Amux_AcpPermissionOption: Sendable {
   public init() {}
 }
 
-public struct Amux_AcpPermissionRequest: Sendable {
+public nonisolated struct Amux_AcpPermissionRequest: Sendable {
   // SwiftProtobuf.Message conformance is added in an extension below. See the
   // `Message` and `Message+*Additions` files in the SwiftProtobuf library for
   // methods supported on all messages.
@@ -532,7 +710,7 @@ public struct Amux_AcpPermissionRequest: Sendable {
   public init() {}
 }
 
-public struct Amux_AcpStatusChange: Sendable {
+public nonisolated struct Amux_AcpStatusChange: Sendable {
   // SwiftProtobuf.Message conformance is added in an extension below. See the
   // `Message` and `Message+*Additions` files in the SwiftProtobuf library for
   // methods supported on all messages.
@@ -546,7 +724,7 @@ public struct Amux_AcpStatusChange: Sendable {
   public init() {}
 }
 
-public struct Amux_AcpAvailableCommand: Sendable {
+public nonisolated struct Amux_AcpAvailableCommand: Sendable {
   // SwiftProtobuf.Message conformance is added in an extension below. See the
   // `Message` and `Message+*Additions` files in the SwiftProtobuf library for
   // methods supported on all messages.
@@ -565,7 +743,7 @@ public struct Amux_AcpAvailableCommand: Sendable {
   public init() {}
 }
 
-public struct Amux_AcpAvailableCommands: Sendable {
+public nonisolated struct Amux_AcpAvailableCommands: Sendable {
   // SwiftProtobuf.Message conformance is added in an extension below. See the
   // `Message` and `Message+*Additions` files in the SwiftProtobuf library for
   // methods supported on all messages.
@@ -577,7 +755,7 @@ public struct Amux_AcpAvailableCommands: Sendable {
   public init() {}
 }
 
-public struct Amux_AcpRawJson: Sendable {
+public nonisolated struct Amux_AcpRawJson: Sendable {
   // SwiftProtobuf.Message conformance is added in an extension below. See the
   // `Message` and `Message+*Additions` files in the SwiftProtobuf library for
   // methods supported on all messages.
@@ -596,7 +774,7 @@ public struct Amux_AcpRawJson: Sendable {
 /// ACP Plan notification — full replacement on every update (ACP spec).
 /// priority: "high" | "medium" | "low"
 /// status:   "pending" | "in_progress" | "completed"
-public struct Amux_AcpPlanUpdate: Sendable {
+public nonisolated struct Amux_AcpPlanUpdate: Sendable {
   // SwiftProtobuf.Message conformance is added in an extension below. See the
   // `Message` and `Message+*Additions` files in the SwiftProtobuf library for
   // methods supported on all messages.
@@ -608,7 +786,7 @@ public struct Amux_AcpPlanUpdate: Sendable {
   public init() {}
 }
 
-public struct Amux_AcpPlanEntry: Sendable {
+public nonisolated struct Amux_AcpPlanEntry: Sendable {
   // SwiftProtobuf.Message conformance is added in an extension below. See the
   // `Message` and `Message+*Additions` files in the SwiftProtobuf library for
   // methods supported on all messages.
@@ -625,7 +803,7 @@ public struct Amux_AcpPlanEntry: Sendable {
 }
 
 /// ACP commands from client
-public struct Amux_AcpCommand: Sendable {
+public nonisolated struct Amux_AcpCommand: Sendable {
   // SwiftProtobuf.Message conformance is added in an extension below. See the
   // `Message` and `Message+*Additions` files in the SwiftProtobuf library for
   // methods supported on all messages.
@@ -696,9 +874,17 @@ public struct Amux_AcpCommand: Sendable {
     set {command = .requestTurnHistory(newValue)}
   }
 
+  public var answerQuestion: Amux_AcpAnswerQuestion {
+    get {
+      if case .answerQuestion(let v)? = command {return v}
+      return Amux_AcpAnswerQuestion()
+    }
+    set {command = .answerQuestion(newValue)}
+  }
+
   public var unknownFields = SwiftProtobuf.UnknownStorage()
 
-  public enum OneOf_Command: Equatable, Sendable {
+  public nonisolated enum OneOf_Command: Equatable, Sendable {
     case sendPrompt(Amux_AcpSendPrompt)
     case cancel(Amux_AcpCancel)
     case grantPermission(Amux_AcpGrantPermission)
@@ -707,6 +893,7 @@ public struct Amux_AcpCommand: Sendable {
     case stopAgent(Amux_AcpStopAgent)
     case requestHistory(Amux_AcpRequestHistory)
     case requestTurnHistory(Amux_AcpRequestTurnHistory)
+    case answerQuestion(Amux_AcpAnswerQuestion)
 
   }
 
@@ -714,7 +901,7 @@ public struct Amux_AcpCommand: Sendable {
 }
 
 /// Request historical events for an agent session (incremental sync)
-public struct Amux_AcpRequestHistory: Sendable {
+public nonisolated struct Amux_AcpRequestHistory: Sendable {
   // SwiftProtobuf.Message conformance is added in an extension below. See the
   // `Message` and `Message+*Additions` files in the SwiftProtobuf library for
   // methods supported on all messages.
@@ -738,7 +925,7 @@ public struct Amux_AcpRequestHistory: Sendable {
 /// user opens a turn detail, and to resume mid-turn streaming after a
 /// reconnect. Scoped to one runtime (turn_id is uuid v4 globally unique,
 /// but kept per-runtime so callers don't conflate runtimes).
-public struct Amux_AcpRequestTurnHistory: Sendable {
+public nonisolated struct Amux_AcpRequestTurnHistory: Sendable {
   // SwiftProtobuf.Message conformance is added in an extension below. See the
   // `Message` and `Message+*Additions` files in the SwiftProtobuf library for
   // methods supported on all messages.
@@ -752,7 +939,7 @@ public struct Amux_AcpRequestTurnHistory: Sendable {
   public init() {}
 }
 
-public struct Amux_AcpSendPrompt: Sendable {
+public nonisolated struct Amux_AcpSendPrompt: Sendable {
   // SwiftProtobuf.Message conformance is added in an extension below. See the
   // `Message` and `Message+*Additions` files in the SwiftProtobuf library for
   // methods supported on all messages.
@@ -770,7 +957,7 @@ public struct Amux_AcpSendPrompt: Sendable {
   public init() {}
 }
 
-public struct Amux_AcpCancel: Sendable {
+public nonisolated struct Amux_AcpCancel: Sendable {
   // SwiftProtobuf.Message conformance is added in an extension below. See the
   // `Message` and `Message+*Additions` files in the SwiftProtobuf library for
   // methods supported on all messages.
@@ -780,13 +967,14 @@ public struct Amux_AcpCancel: Sendable {
   public init() {}
 }
 
-public struct Amux_AcpGrantPermission: Sendable {
+public nonisolated struct Amux_AcpGrantPermission: Sendable {
   // SwiftProtobuf.Message conformance is added in an extension below. See the
   // `Message` and `Message+*Additions` files in the SwiftProtobuf library for
   // methods supported on all messages.
 
   public var requestID: String = String()
 
+  /// Selected ACP option_id (e.g. OpenCode "once" / "always"). Empty = allow_once.
   public var optionID: String = String()
 
   public var unknownFields = SwiftProtobuf.UnknownStorage()
@@ -794,7 +982,7 @@ public struct Amux_AcpGrantPermission: Sendable {
   public init() {}
 }
 
-public struct Amux_AcpDenyPermission: Sendable {
+public nonisolated struct Amux_AcpDenyPermission: Sendable {
   // SwiftProtobuf.Message conformance is added in an extension below. See the
   // `Message` and `Message+*Additions` files in the SwiftProtobuf library for
   // methods supported on all messages.
@@ -806,7 +994,27 @@ public struct Amux_AcpDenyPermission: Sendable {
   public init() {}
 }
 
-public struct Amux_AcpStartAgent: Sendable {
+/// Answer (or reject) an opencode `question` tool request.
+public nonisolated struct Amux_AcpAnswerQuestion: Sendable {
+  // SwiftProtobuf.Message conformance is added in an extension below. See the
+  // `Message` and `Message+*Additions` files in the SwiftProtobuf library for
+  // methods supported on all messages.
+
+  /// The question.asked request id.
+  public var requestID: String = String()
+
+  /// JSON `[[selected labels], ...]` — one array per question, in order.
+  /// Ignored when reject is true.
+  public var answersJson: String = String()
+
+  public var reject: Bool = false
+
+  public var unknownFields = SwiftProtobuf.UnknownStorage()
+
+  public init() {}
+}
+
+public nonisolated struct Amux_AcpStartAgent: Sendable {
   // SwiftProtobuf.Message conformance is added in an extension below. See the
   // `Message` and `Message+*Additions` files in the SwiftProtobuf library for
   // methods supported on all messages.
@@ -830,7 +1038,7 @@ public struct Amux_AcpStartAgent: Sendable {
   public init() {}
 }
 
-public struct Amux_AcpStopAgent: Sendable {
+public nonisolated struct Amux_AcpStopAgent: Sendable {
   // SwiftProtobuf.Message conformance is added in an extension below. See the
   // `Message` and `Message+*Additions` files in the SwiftProtobuf library for
   // methods supported on all messages.
@@ -844,7 +1052,7 @@ public struct Amux_AcpStopAgent: Sendable {
 /// Renamed from CollabEvent now that the "collab vs control" distinction is
 /// gone; the wire tag (Envelope field 11) and inner tags are unchanged so
 /// rolling-upgrade between old and new clients keeps decoding.
-public struct Amux_SessionEvent: Sendable {
+public nonisolated struct Amux_SessionEvent: Sendable {
   // SwiftProtobuf.Message conformance is added in an extension below. See the
   // `Message` and `Message+*Additions` files in the SwiftProtobuf library for
   // methods supported on all messages.
@@ -885,7 +1093,7 @@ public struct Amux_SessionEvent: Sendable {
 
   public var unknownFields = SwiftProtobuf.UnknownStorage()
 
-  public enum OneOf_Event: Equatable, Sendable {
+  public nonisolated enum OneOf_Event: Equatable, Sendable {
     case promptAccepted(Amux_PromptAccepted)
     case promptRejected(Amux_PromptRejected)
     case permissionResolved(Amux_PermissionResolved)
@@ -897,7 +1105,7 @@ public struct Amux_SessionEvent: Sendable {
 }
 
 /// Response to AcpRequestHistory — a page of historical events
-public struct Amux_HistoryBatch: Sendable {
+public nonisolated struct Amux_HistoryBatch: Sendable {
   // SwiftProtobuf.Message conformance is added in an extension below. See the
   // `Message` and `Message+*Additions` files in the SwiftProtobuf library for
   // methods supported on all messages.
@@ -918,7 +1126,7 @@ public struct Amux_HistoryBatch: Sendable {
   public init() {}
 }
 
-public struct Amux_PromptAccepted: Sendable {
+public nonisolated struct Amux_PromptAccepted: Sendable {
   // SwiftProtobuf.Message conformance is added in an extension below. See the
   // `Message` and `Message+*Additions` files in the SwiftProtobuf library for
   // methods supported on all messages.
@@ -930,7 +1138,7 @@ public struct Amux_PromptAccepted: Sendable {
   public init() {}
 }
 
-public struct Amux_PromptRejected: Sendable {
+public nonisolated struct Amux_PromptRejected: Sendable {
   // SwiftProtobuf.Message conformance is added in an extension below. See the
   // `Message` and `Message+*Additions` files in the SwiftProtobuf library for
   // methods supported on all messages.
@@ -944,7 +1152,7 @@ public struct Amux_PromptRejected: Sendable {
   public init() {}
 }
 
-public struct Amux_PermissionResolved: Sendable {
+public nonisolated struct Amux_PermissionResolved: Sendable {
   // SwiftProtobuf.Message conformance is added in an extension below. See the
   // `Message` and `Message+*Additions` files in the SwiftProtobuf library for
   // methods supported on all messages.
@@ -960,7 +1168,8 @@ public struct Amux_PermissionResolved: Sendable {
   public init() {}
 }
 
-public struct Amux_AddWorkspace: Sendable {
+/// deprecated: workspaces are created via Cloud API POST /v1/workspaces (createDaemonWorkspace); daemon resolves workspace UUID->path from cloud
+public nonisolated struct Amux_AddWorkspace: Sendable {
   // SwiftProtobuf.Message conformance is added in an extension below. See the
   // `Message` and `Message+*Additions` files in the SwiftProtobuf library for
   // methods supported on all messages.
@@ -972,7 +1181,7 @@ public struct Amux_AddWorkspace: Sendable {
   public init() {}
 }
 
-public struct Amux_RemoveWorkspace: Sendable {
+public nonisolated struct Amux_RemoveWorkspace: Sendable {
   // SwiftProtobuf.Message conformance is added in an extension below. See the
   // `Message` and `Message+*Additions` files in the SwiftProtobuf library for
   // methods supported on all messages.
@@ -984,7 +1193,7 @@ public struct Amux_RemoveWorkspace: Sendable {
   public init() {}
 }
 
-public struct Amux_PeerAnnounce: Sendable {
+public nonisolated struct Amux_PeerAnnounce: Sendable {
   // SwiftProtobuf.Message conformance is added in an extension below. See the
   // `Message` and `Message+*Additions` files in the SwiftProtobuf library for
   // methods supported on all messages.
@@ -1007,7 +1216,7 @@ public struct Amux_PeerAnnounce: Sendable {
   fileprivate var _peer: Amux_PeerInfo? = nil
 }
 
-public struct Amux_RemoveMember: Sendable {
+public nonisolated struct Amux_RemoveMember: Sendable {
   // SwiftProtobuf.Message conformance is added in an extension below. See the
   // `Message` and `Message+*Additions` files in the SwiftProtobuf library for
   // methods supported on all messages.
@@ -1021,7 +1230,7 @@ public struct Amux_RemoveMember: Sendable {
 
 /// Payload of {team}/{actor}/state (retained, LWT-backed from Phase 3 onward).
 /// See spec: docs/superpowers/specs/2026-04-24-mqtt-topic-redesign-design.md
-public struct Amux_ActorPresence: Sendable {
+public nonisolated struct Amux_ActorPresence: Sendable {
   // SwiftProtobuf.Message conformance is added in an extension below. See the
   // `Message` and `Message+*Additions` files in the SwiftProtobuf library for
   // methods supported on all messages.
@@ -1037,7 +1246,7 @@ public struct Amux_ActorPresence: Sendable {
   public init() {}
 }
 
-public struct Amux_WorkspaceInfo: Sendable {
+public nonisolated struct Amux_WorkspaceInfo: Sendable {
   // SwiftProtobuf.Message conformance is added in an extension below. See the
   // `Message` and `Message+*Additions` files in the SwiftProtobuf library for
   // methods supported on all messages.
@@ -1053,7 +1262,7 @@ public struct Amux_WorkspaceInfo: Sendable {
   public init() {}
 }
 
-public struct Amux_WorkspaceList: Sendable {
+public nonisolated struct Amux_WorkspaceList: Sendable {
   // SwiftProtobuf.Message conformance is added in an extension below. See the
   // `Message` and `Message+*Additions` files in the SwiftProtobuf library for
   // methods supported on all messages.
@@ -1067,7 +1276,7 @@ public struct Amux_WorkspaceList: Sendable {
 
 /// Payload of {team}/{actor}/runtime/{rid}/state (retained).
 /// See spec: docs/superpowers/specs/2026-04-24-mqtt-topic-redesign-design.md
-public struct Amux_RuntimeInfo: @unchecked Sendable {
+public nonisolated struct Amux_RuntimeInfo: @unchecked Sendable {
   // SwiftProtobuf.Message conformance is added in an extension below. See the
   // `Message` and `Message+*Additions` files in the SwiftProtobuf library for
   // methods supported on all messages.
@@ -1186,7 +1395,7 @@ public struct Amux_RuntimeInfo: @unchecked Sendable {
   fileprivate var _storage = _StorageClass.defaultInstance
 }
 
-public struct Amux_ModelInfo: Sendable {
+public nonisolated struct Amux_ModelInfo: Sendable {
   // SwiftProtobuf.Message conformance is added in an extension below. See the
   // `Message` and `Message+*Additions` files in the SwiftProtobuf library for
   // methods supported on all messages.
@@ -1195,12 +1404,16 @@ public struct Amux_ModelInfo: Sendable {
 
   public var displayName: String = String()
 
+  /// Human-readable provider name (e.g. "OpenCode Zen"); the provider id is the
+  /// prefix of `id` before the first '/'. Empty on entries from older daemons.
+  public var providerName: String = String()
+
   public var unknownFields = SwiftProtobuf.UnknownStorage()
 
   public init() {}
 }
 
-public struct Amux_AgentList: Sendable {
+public nonisolated struct Amux_AgentList: Sendable {
   // SwiftProtobuf.Message conformance is added in an extension below. See the
   // `Message` and `Message+*Additions` files in the SwiftProtobuf library for
   // methods supported on all messages.
@@ -1212,7 +1425,7 @@ public struct Amux_AgentList: Sendable {
   public init() {}
 }
 
-public struct Amux_MemberInfo: Sendable {
+public nonisolated struct Amux_MemberInfo: Sendable {
   // SwiftProtobuf.Message conformance is added in an extension below. See the
   // `Message` and `Message+*Additions` files in the SwiftProtobuf library for
   // methods supported on all messages.
@@ -1232,7 +1445,7 @@ public struct Amux_MemberInfo: Sendable {
   public init() {}
 }
 
-public struct Amux_MemberList: Sendable {
+public nonisolated struct Amux_MemberList: Sendable {
   // SwiftProtobuf.Message conformance is added in an extension below. See the
   // `Message` and `Message+*Additions` files in the SwiftProtobuf library for
   // methods supported on all messages.
@@ -1244,7 +1457,7 @@ public struct Amux_MemberList: Sendable {
   public init() {}
 }
 
-public struct Amux_PeerInfo: Sendable {
+public nonisolated struct Amux_PeerInfo: Sendable {
   // SwiftProtobuf.Message conformance is added in an extension below. See the
   // `Message` and `Message+*Additions` files in the SwiftProtobuf library for
   // methods supported on all messages.
@@ -1266,7 +1479,7 @@ public struct Amux_PeerInfo: Sendable {
   public init() {}
 }
 
-public struct Amux_PeerList: Sendable {
+public nonisolated struct Amux_PeerList: Sendable {
   // SwiftProtobuf.Message conformance is added in an extension below. See the
   // `Message` and `Message+*Additions` files in the SwiftProtobuf library for
   // methods supported on all messages.
@@ -1280,122 +1493,177 @@ public struct Amux_PeerList: Sendable {
 
 // MARK: - Code below here is support for the SwiftProtobuf runtime.
 
-fileprivate let _protobuf_package = "amux"
+fileprivate nonisolated let _protobuf_package = "amux"
 
-extension Amux_AgentType: SwiftProtobuf._ProtoNameProviding {
-  public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{2}\0AGENT_TYPE_UNKNOWN\0\u{1}AGENT_TYPE_CLAUDE_CODE\0\u{1}AGENT_TYPE_OPENCODE\0\u{1}AGENT_TYPE_CODEX\0")
+nonisolated extension Amux_AgentType: SwiftProtobuf._ProtoNameProviding {
+  public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{2}\0AGENT_TYPE_UNKNOWN\0\u{1}AGENT_TYPE_CLAUDE_CODE\0\u{1}AGENT_TYPE_OPENCODE\0\u{1}AGENT_TYPE_CODEX\0\u{1}AGENT_TYPE_PI\0\u{1}AGENT_TYPE_CURSOR\0")
 }
 
-extension Amux_AgentStatus: SwiftProtobuf._ProtoNameProviding {
+nonisolated extension Amux_AgentStatus: SwiftProtobuf._ProtoNameProviding {
   public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{2}\0AGENT_STATUS_UNKNOWN\0\u{1}AGENT_STATUS_STARTING\0\u{1}AGENT_STATUS_ACTIVE\0\u{1}AGENT_STATUS_IDLE\0\u{1}AGENT_STATUS_ERROR\0\u{1}AGENT_STATUS_STOPPED\0")
 }
 
-extension Amux_RuntimeLifecycle: SwiftProtobuf._ProtoNameProviding {
+nonisolated extension Amux_RuntimeLifecycle: SwiftProtobuf._ProtoNameProviding {
   public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{2}\0RUNTIME_LIFECYCLE_UNKNOWN\0\u{1}RUNTIME_LIFECYCLE_STARTING\0\u{1}RUNTIME_LIFECYCLE_ACTIVE\0\u{1}RUNTIME_LIFECYCLE_FAILED\0\u{1}RUNTIME_LIFECYCLE_STOPPED\0")
 }
 
-extension Amux_MemberRole: SwiftProtobuf._ProtoNameProviding {
+nonisolated extension Amux_MemberRole: SwiftProtobuf._ProtoNameProviding {
   public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{2}\0MEMBER_ROLE_OWNER\0\u{1}MEMBER_ROLE_MEMBER\0")
 }
 
-extension Amux_Envelope: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
+nonisolated extension Amux_Envelope: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
   public static let protoMessageName: String = _protobuf_package + ".Envelope"
-  public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{3}runtime_id\0\u{3}actor_id\0\u{3}source_peer_id\0\u{1}timestamp\0\u{1}sequence\0\u{3}turn_id\0\u{4}\u{4}acp_event\0\u{3}session_event\0")
+  public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{3}runtime_id\0\u{3}actor_id\0\u{3}source_peer_id\0\u{1}timestamp\0\u{1}sequence\0\u{3}turn_id\0\u{3}acp_session_id\0\u{4}\u{3}acp_event\0\u{3}session_event\0")
+
+  fileprivate class _StorageClass {
+    var _runtimeID: String = String()
+    var _actorID: String = String()
+    var _sourcePeerID: String = String()
+    var _timestamp: Int64 = 0
+    var _sequence: UInt64 = 0
+    var _turnID: String = String()
+    var _acpSessionID: String = String()
+    var _payload: Amux_Envelope.OneOf_Payload?
+
+      // This property is used as the initial default value for new instances of the type.
+      // The type itself is protecting the reference to its storage via CoW semantics.
+      // This will force a copy to be made of this reference when the first mutation occurs;
+      // hence, it is safe to mark this as `nonisolated(unsafe)`.
+      static nonisolated(unsafe) let defaultInstance = _StorageClass()
+
+    private init() {}
+
+    init(copying source: _StorageClass) {
+      _runtimeID = source._runtimeID
+      _actorID = source._actorID
+      _sourcePeerID = source._sourcePeerID
+      _timestamp = source._timestamp
+      _sequence = source._sequence
+      _turnID = source._turnID
+      _acpSessionID = source._acpSessionID
+      _payload = source._payload
+    }
+  }
+
+  fileprivate mutating func _uniqueStorage() -> _StorageClass {
+    if !isKnownUniquelyReferenced(&_storage) {
+      _storage = _StorageClass(copying: _storage)
+    }
+    return _storage
+  }
 
   public mutating func decodeMessage<D: SwiftProtobuf.Decoder>(decoder: inout D) throws {
-    while let fieldNumber = try decoder.nextFieldNumber() {
-      // The use of inline closures is to circumvent an issue where the compiler
-      // allocates stack space for every case branch when no optimizations are
-      // enabled. https://github.com/apple/swift-protobuf/issues/1034
-      switch fieldNumber {
-      case 1: try { try decoder.decodeSingularStringField(value: &self.runtimeID) }()
-      case 2: try { try decoder.decodeSingularStringField(value: &self.actorID) }()
-      case 3: try { try decoder.decodeSingularStringField(value: &self.sourcePeerID) }()
-      case 4: try { try decoder.decodeSingularInt64Field(value: &self.timestamp) }()
-      case 5: try { try decoder.decodeSingularUInt64Field(value: &self.sequence) }()
-      case 6: try { try decoder.decodeSingularStringField(value: &self.turnID) }()
-      case 10: try {
-        var v: Amux_AcpEvent?
-        var hadOneofValue = false
-        if let current = self.payload {
-          hadOneofValue = true
-          if case .acpEvent(let m) = current {v = m}
+    _ = _uniqueStorage()
+    try withExtendedLifetime(_storage) { (_storage: _StorageClass) in
+      while let fieldNumber = try decoder.nextFieldNumber() {
+        // The use of inline closures is to circumvent an issue where the compiler
+        // allocates stack space for every case branch when no optimizations are
+        // enabled. https://github.com/apple/swift-protobuf/issues/1034
+        switch fieldNumber {
+        case 1: try { try decoder.decodeSingularStringField(value: &_storage._runtimeID) }()
+        case 2: try { try decoder.decodeSingularStringField(value: &_storage._actorID) }()
+        case 3: try { try decoder.decodeSingularStringField(value: &_storage._sourcePeerID) }()
+        case 4: try { try decoder.decodeSingularInt64Field(value: &_storage._timestamp) }()
+        case 5: try { try decoder.decodeSingularUInt64Field(value: &_storage._sequence) }()
+        case 6: try { try decoder.decodeSingularStringField(value: &_storage._turnID) }()
+        case 7: try { try decoder.decodeSingularStringField(value: &_storage._acpSessionID) }()
+        case 10: try {
+          var v: Amux_AcpEvent?
+          var hadOneofValue = false
+          if let current = _storage._payload {
+            hadOneofValue = true
+            if case .acpEvent(let m) = current {v = m}
+          }
+          try decoder.decodeSingularMessageField(value: &v)
+          if let v = v {
+            if hadOneofValue {try decoder.handleConflictingOneOf()}
+            _storage._payload = .acpEvent(v)
+          }
+        }()
+        case 11: try {
+          var v: Amux_SessionEvent?
+          var hadOneofValue = false
+          if let current = _storage._payload {
+            hadOneofValue = true
+            if case .sessionEvent(let m) = current {v = m}
+          }
+          try decoder.decodeSingularMessageField(value: &v)
+          if let v = v {
+            if hadOneofValue {try decoder.handleConflictingOneOf()}
+            _storage._payload = .sessionEvent(v)
+          }
+        }()
+        default: break
         }
-        try decoder.decodeSingularMessageField(value: &v)
-        if let v = v {
-          if hadOneofValue {try decoder.handleConflictingOneOf()}
-          self.payload = .acpEvent(v)
-        }
-      }()
-      case 11: try {
-        var v: Amux_SessionEvent?
-        var hadOneofValue = false
-        if let current = self.payload {
-          hadOneofValue = true
-          if case .sessionEvent(let m) = current {v = m}
-        }
-        try decoder.decodeSingularMessageField(value: &v)
-        if let v = v {
-          if hadOneofValue {try decoder.handleConflictingOneOf()}
-          self.payload = .sessionEvent(v)
-        }
-      }()
-      default: break
       }
     }
   }
 
   public func traverse<V: SwiftProtobuf.Visitor>(visitor: inout V) throws {
-    // The use of inline closures is to circumvent an issue where the compiler
-    // allocates stack space for every if/case branch local when no optimizations
-    // are enabled. https://github.com/apple/swift-protobuf/issues/1034 and
-    // https://github.com/apple/swift-protobuf/issues/1182
-    if !self.runtimeID.isEmpty {
-      try visitor.visitSingularStringField(value: self.runtimeID, fieldNumber: 1)
-    }
-    if !self.actorID.isEmpty {
-      try visitor.visitSingularStringField(value: self.actorID, fieldNumber: 2)
-    }
-    if !self.sourcePeerID.isEmpty {
-      try visitor.visitSingularStringField(value: self.sourcePeerID, fieldNumber: 3)
-    }
-    if self.timestamp != 0 {
-      try visitor.visitSingularInt64Field(value: self.timestamp, fieldNumber: 4)
-    }
-    if self.sequence != 0 {
-      try visitor.visitSingularUInt64Field(value: self.sequence, fieldNumber: 5)
-    }
-    if !self.turnID.isEmpty {
-      try visitor.visitSingularStringField(value: self.turnID, fieldNumber: 6)
-    }
-    switch self.payload {
-    case .acpEvent?: try {
-      guard case .acpEvent(let v)? = self.payload else { preconditionFailure() }
-      try visitor.visitSingularMessageField(value: v, fieldNumber: 10)
-    }()
-    case .sessionEvent?: try {
-      guard case .sessionEvent(let v)? = self.payload else { preconditionFailure() }
-      try visitor.visitSingularMessageField(value: v, fieldNumber: 11)
-    }()
-    case nil: break
+    try withExtendedLifetime(_storage) { (_storage: _StorageClass) in
+      // The use of inline closures is to circumvent an issue where the compiler
+      // allocates stack space for every if/case branch local when no optimizations
+      // are enabled. https://github.com/apple/swift-protobuf/issues/1034 and
+      // https://github.com/apple/swift-protobuf/issues/1182
+      if !_storage._runtimeID.isEmpty {
+        try visitor.visitSingularStringField(value: _storage._runtimeID, fieldNumber: 1)
+      }
+      if !_storage._actorID.isEmpty {
+        try visitor.visitSingularStringField(value: _storage._actorID, fieldNumber: 2)
+      }
+      if !_storage._sourcePeerID.isEmpty {
+        try visitor.visitSingularStringField(value: _storage._sourcePeerID, fieldNumber: 3)
+      }
+      if _storage._timestamp != 0 {
+        try visitor.visitSingularInt64Field(value: _storage._timestamp, fieldNumber: 4)
+      }
+      if _storage._sequence != 0 {
+        try visitor.visitSingularUInt64Field(value: _storage._sequence, fieldNumber: 5)
+      }
+      if !_storage._turnID.isEmpty {
+        try visitor.visitSingularStringField(value: _storage._turnID, fieldNumber: 6)
+      }
+      if !_storage._acpSessionID.isEmpty {
+        try visitor.visitSingularStringField(value: _storage._acpSessionID, fieldNumber: 7)
+      }
+      switch _storage._payload {
+      case .acpEvent?: try {
+        guard case .acpEvent(let v)? = _storage._payload else { preconditionFailure() }
+        try visitor.visitSingularMessageField(value: v, fieldNumber: 10)
+      }()
+      case .sessionEvent?: try {
+        guard case .sessionEvent(let v)? = _storage._payload else { preconditionFailure() }
+        try visitor.visitSingularMessageField(value: v, fieldNumber: 11)
+      }()
+      case nil: break
+      }
     }
     try unknownFields.traverse(visitor: &visitor)
   }
 
   public static func ==(lhs: Amux_Envelope, rhs: Amux_Envelope) -> Bool {
-    if lhs.runtimeID != rhs.runtimeID {return false}
-    if lhs.actorID != rhs.actorID {return false}
-    if lhs.sourcePeerID != rhs.sourcePeerID {return false}
-    if lhs.timestamp != rhs.timestamp {return false}
-    if lhs.sequence != rhs.sequence {return false}
-    if lhs.turnID != rhs.turnID {return false}
-    if lhs.payload != rhs.payload {return false}
+    if lhs._storage !== rhs._storage {
+      let storagesAreEqual: Bool = withExtendedLifetime((lhs._storage, rhs._storage)) { (_args: (_StorageClass, _StorageClass)) in
+        let _storage = _args.0
+        let rhs_storage = _args.1
+        if _storage._runtimeID != rhs_storage._runtimeID {return false}
+        if _storage._actorID != rhs_storage._actorID {return false}
+        if _storage._sourcePeerID != rhs_storage._sourcePeerID {return false}
+        if _storage._timestamp != rhs_storage._timestamp {return false}
+        if _storage._sequence != rhs_storage._sequence {return false}
+        if _storage._turnID != rhs_storage._turnID {return false}
+        if _storage._acpSessionID != rhs_storage._acpSessionID {return false}
+        if _storage._payload != rhs_storage._payload {return false}
+        return true
+      }
+      if !storagesAreEqual {return false}
+    }
     if lhs.unknownFields != rhs.unknownFields {return false}
     return true
   }
 }
 
-extension Amux_RuntimeCommandEnvelope: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
+nonisolated extension Amux_RuntimeCommandEnvelope: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
   public static let protoMessageName: String = _protobuf_package + ".RuntimeCommandEnvelope"
   public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{3}runtime_id\0\u{3}actor_id\0\u{3}peer_id\0\u{3}command_id\0\u{1}timestamp\0\u{3}sender_actor_id\0\u{3}reply_to_actor_id\0\u{4}\u{3}acp_command\0")
 
@@ -1464,7 +1732,7 @@ extension Amux_RuntimeCommandEnvelope: SwiftProtobuf.Message, SwiftProtobuf._Mes
   }
 }
 
-extension Amux_AcpEvent: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
+nonisolated extension Amux_AcpEvent: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
   public static let protoMessageName: String = _protobuf_package + ".AcpEvent"
   public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{1}thinking\0\u{1}output\0\u{3}tool_use\0\u{3}tool_result\0\u{1}error\0\u{3}permission_request\0\u{3}status_change\0\u{4}\u{2}available_commands\0\u{3}plan_update\0\u{2}\u{5}raw\0\u{1}model\0")
 
@@ -1672,7 +1940,7 @@ extension Amux_AcpEvent: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementa
   }
 }
 
-extension Amux_AcpThinking: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
+nonisolated extension Amux_AcpThinking: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
   public static let protoMessageName: String = _protobuf_package + ".AcpThinking"
   public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{1}text\0")
 
@@ -1702,7 +1970,7 @@ extension Amux_AcpThinking: SwiftProtobuf.Message, SwiftProtobuf._MessageImpleme
   }
 }
 
-extension Amux_AcpOutput: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
+nonisolated extension Amux_AcpOutput: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
   public static let protoMessageName: String = _protobuf_package + ".AcpOutput"
   public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{1}text\0\u{3}is_complete\0")
 
@@ -1737,9 +2005,236 @@ extension Amux_AcpOutput: SwiftProtobuf.Message, SwiftProtobuf._MessageImplement
   }
 }
 
-extension Amux_AcpToolUse: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
+nonisolated extension Amux_AcpToolCallLocation: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
+  public static let protoMessageName: String = _protobuf_package + ".AcpToolCallLocation"
+  public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{1}path\0\u{1}line\0")
+
+  public mutating func decodeMessage<D: SwiftProtobuf.Decoder>(decoder: inout D) throws {
+    while let fieldNumber = try decoder.nextFieldNumber() {
+      // The use of inline closures is to circumvent an issue where the compiler
+      // allocates stack space for every case branch when no optimizations are
+      // enabled. https://github.com/apple/swift-protobuf/issues/1034
+      switch fieldNumber {
+      case 1: try { try decoder.decodeSingularStringField(value: &self.path) }()
+      case 2: try { try decoder.decodeSingularUInt32Field(value: &self._line) }()
+      default: break
+      }
+    }
+  }
+
+  public func traverse<V: SwiftProtobuf.Visitor>(visitor: inout V) throws {
+    // The use of inline closures is to circumvent an issue where the compiler
+    // allocates stack space for every if/case branch local when no optimizations
+    // are enabled. https://github.com/apple/swift-protobuf/issues/1034 and
+    // https://github.com/apple/swift-protobuf/issues/1182
+    if !self.path.isEmpty {
+      try visitor.visitSingularStringField(value: self.path, fieldNumber: 1)
+    }
+    try { if let v = self._line {
+      try visitor.visitSingularUInt32Field(value: v, fieldNumber: 2)
+    } }()
+    try unknownFields.traverse(visitor: &visitor)
+  }
+
+  public static func ==(lhs: Amux_AcpToolCallLocation, rhs: Amux_AcpToolCallLocation) -> Bool {
+    if lhs.path != rhs.path {return false}
+    if lhs._line != rhs._line {return false}
+    if lhs.unknownFields != rhs.unknownFields {return false}
+    return true
+  }
+}
+
+nonisolated extension Amux_AcpToolCallTextContent: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
+  public static let protoMessageName: String = _protobuf_package + ".AcpToolCallTextContent"
+  public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{1}text\0")
+
+  public mutating func decodeMessage<D: SwiftProtobuf.Decoder>(decoder: inout D) throws {
+    while let fieldNumber = try decoder.nextFieldNumber() {
+      // The use of inline closures is to circumvent an issue where the compiler
+      // allocates stack space for every case branch when no optimizations are
+      // enabled. https://github.com/apple/swift-protobuf/issues/1034
+      switch fieldNumber {
+      case 1: try { try decoder.decodeSingularStringField(value: &self.text) }()
+      default: break
+      }
+    }
+  }
+
+  public func traverse<V: SwiftProtobuf.Visitor>(visitor: inout V) throws {
+    if !self.text.isEmpty {
+      try visitor.visitSingularStringField(value: self.text, fieldNumber: 1)
+    }
+    try unknownFields.traverse(visitor: &visitor)
+  }
+
+  public static func ==(lhs: Amux_AcpToolCallTextContent, rhs: Amux_AcpToolCallTextContent) -> Bool {
+    if lhs.text != rhs.text {return false}
+    if lhs.unknownFields != rhs.unknownFields {return false}
+    return true
+  }
+}
+
+nonisolated extension Amux_AcpToolCallDiff: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
+  public static let protoMessageName: String = _protobuf_package + ".AcpToolCallDiff"
+  public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{1}path\0\u{3}old_text\0\u{3}new_text\0")
+
+  public mutating func decodeMessage<D: SwiftProtobuf.Decoder>(decoder: inout D) throws {
+    while let fieldNumber = try decoder.nextFieldNumber() {
+      // The use of inline closures is to circumvent an issue where the compiler
+      // allocates stack space for every case branch when no optimizations are
+      // enabled. https://github.com/apple/swift-protobuf/issues/1034
+      switch fieldNumber {
+      case 1: try { try decoder.decodeSingularStringField(value: &self.path) }()
+      case 2: try { try decoder.decodeSingularStringField(value: &self._oldText) }()
+      case 3: try { try decoder.decodeSingularStringField(value: &self.newText) }()
+      default: break
+      }
+    }
+  }
+
+  public func traverse<V: SwiftProtobuf.Visitor>(visitor: inout V) throws {
+    // The use of inline closures is to circumvent an issue where the compiler
+    // allocates stack space for every if/case branch local when no optimizations
+    // are enabled. https://github.com/apple/swift-protobuf/issues/1034 and
+    // https://github.com/apple/swift-protobuf/issues/1182
+    if !self.path.isEmpty {
+      try visitor.visitSingularStringField(value: self.path, fieldNumber: 1)
+    }
+    try { if let v = self._oldText {
+      try visitor.visitSingularStringField(value: v, fieldNumber: 2)
+    } }()
+    if !self.newText.isEmpty {
+      try visitor.visitSingularStringField(value: self.newText, fieldNumber: 3)
+    }
+    try unknownFields.traverse(visitor: &visitor)
+  }
+
+  public static func ==(lhs: Amux_AcpToolCallDiff, rhs: Amux_AcpToolCallDiff) -> Bool {
+    if lhs.path != rhs.path {return false}
+    if lhs._oldText != rhs._oldText {return false}
+    if lhs.newText != rhs.newText {return false}
+    if lhs.unknownFields != rhs.unknownFields {return false}
+    return true
+  }
+}
+
+nonisolated extension Amux_AcpToolCallTerminal: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
+  public static let protoMessageName: String = _protobuf_package + ".AcpToolCallTerminal"
+  public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{3}terminal_id\0")
+
+  public mutating func decodeMessage<D: SwiftProtobuf.Decoder>(decoder: inout D) throws {
+    while let fieldNumber = try decoder.nextFieldNumber() {
+      // The use of inline closures is to circumvent an issue where the compiler
+      // allocates stack space for every case branch when no optimizations are
+      // enabled. https://github.com/apple/swift-protobuf/issues/1034
+      switch fieldNumber {
+      case 1: try { try decoder.decodeSingularStringField(value: &self.terminalID) }()
+      default: break
+      }
+    }
+  }
+
+  public func traverse<V: SwiftProtobuf.Visitor>(visitor: inout V) throws {
+    if !self.terminalID.isEmpty {
+      try visitor.visitSingularStringField(value: self.terminalID, fieldNumber: 1)
+    }
+    try unknownFields.traverse(visitor: &visitor)
+  }
+
+  public static func ==(lhs: Amux_AcpToolCallTerminal, rhs: Amux_AcpToolCallTerminal) -> Bool {
+    if lhs.terminalID != rhs.terminalID {return false}
+    if lhs.unknownFields != rhs.unknownFields {return false}
+    return true
+  }
+}
+
+nonisolated extension Amux_AcpToolCallContent: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
+  public static let protoMessageName: String = _protobuf_package + ".AcpToolCallContent"
+  public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{1}text\0\u{1}diff\0\u{1}terminal\0")
+
+  public mutating func decodeMessage<D: SwiftProtobuf.Decoder>(decoder: inout D) throws {
+    while let fieldNumber = try decoder.nextFieldNumber() {
+      // The use of inline closures is to circumvent an issue where the compiler
+      // allocates stack space for every case branch when no optimizations are
+      // enabled. https://github.com/apple/swift-protobuf/issues/1034
+      switch fieldNumber {
+      case 1: try {
+        var v: Amux_AcpToolCallTextContent?
+        var hadOneofValue = false
+        if let current = self.payload {
+          hadOneofValue = true
+          if case .text(let m) = current {v = m}
+        }
+        try decoder.decodeSingularMessageField(value: &v)
+        if let v = v {
+          if hadOneofValue {try decoder.handleConflictingOneOf()}
+          self.payload = .text(v)
+        }
+      }()
+      case 2: try {
+        var v: Amux_AcpToolCallDiff?
+        var hadOneofValue = false
+        if let current = self.payload {
+          hadOneofValue = true
+          if case .diff(let m) = current {v = m}
+        }
+        try decoder.decodeSingularMessageField(value: &v)
+        if let v = v {
+          if hadOneofValue {try decoder.handleConflictingOneOf()}
+          self.payload = .diff(v)
+        }
+      }()
+      case 3: try {
+        var v: Amux_AcpToolCallTerminal?
+        var hadOneofValue = false
+        if let current = self.payload {
+          hadOneofValue = true
+          if case .terminal(let m) = current {v = m}
+        }
+        try decoder.decodeSingularMessageField(value: &v)
+        if let v = v {
+          if hadOneofValue {try decoder.handleConflictingOneOf()}
+          self.payload = .terminal(v)
+        }
+      }()
+      default: break
+      }
+    }
+  }
+
+  public func traverse<V: SwiftProtobuf.Visitor>(visitor: inout V) throws {
+    // The use of inline closures is to circumvent an issue where the compiler
+    // allocates stack space for every if/case branch local when no optimizations
+    // are enabled. https://github.com/apple/swift-protobuf/issues/1034 and
+    // https://github.com/apple/swift-protobuf/issues/1182
+    switch self.payload {
+    case .text?: try {
+      guard case .text(let v)? = self.payload else { preconditionFailure() }
+      try visitor.visitSingularMessageField(value: v, fieldNumber: 1)
+    }()
+    case .diff?: try {
+      guard case .diff(let v)? = self.payload else { preconditionFailure() }
+      try visitor.visitSingularMessageField(value: v, fieldNumber: 2)
+    }()
+    case .terminal?: try {
+      guard case .terminal(let v)? = self.payload else { preconditionFailure() }
+      try visitor.visitSingularMessageField(value: v, fieldNumber: 3)
+    }()
+    case nil: break
+    }
+    try unknownFields.traverse(visitor: &visitor)
+  }
+
+  public static func ==(lhs: Amux_AcpToolCallContent, rhs: Amux_AcpToolCallContent) -> Bool {
+    if lhs.payload != rhs.payload {return false}
+    if lhs.unknownFields != rhs.unknownFields {return false}
+    return true
+  }
+}
+
+nonisolated extension Amux_AcpToolUse: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
   public static let protoMessageName: String = _protobuf_package + ".AcpToolUse"
-  public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{3}tool_id\0\u{3}tool_name\0\u{1}description\0\u{1}params\0\u{3}tool_kind\0")
+  public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{3}tool_id\0\u{3}tool_name\0\u{1}description\0\u{1}params\0\u{3}tool_kind\0\u{3}raw_input_json\0\u{1}content\0\u{1}locations\0\u{1}status\0\u{3}raw_output_json\0")
 
   public mutating func decodeMessage<D: SwiftProtobuf.Decoder>(decoder: inout D) throws {
     while let fieldNumber = try decoder.nextFieldNumber() {
@@ -1752,6 +2247,11 @@ extension Amux_AcpToolUse: SwiftProtobuf.Message, SwiftProtobuf._MessageImplemen
       case 3: try { try decoder.decodeSingularStringField(value: &self.description_p) }()
       case 4: try { try decoder.decodeMapField(fieldType: SwiftProtobuf._ProtobufMap<SwiftProtobuf.ProtobufString,SwiftProtobuf.ProtobufString>.self, value: &self.params) }()
       case 5: try { try decoder.decodeSingularStringField(value: &self.toolKind) }()
+      case 6: try { try decoder.decodeSingularStringField(value: &self.rawInputJson) }()
+      case 7: try { try decoder.decodeRepeatedMessageField(value: &self.content) }()
+      case 8: try { try decoder.decodeRepeatedMessageField(value: &self.locations) }()
+      case 9: try { try decoder.decodeSingularStringField(value: &self.status) }()
+      case 10: try { try decoder.decodeSingularStringField(value: &self.rawOutputJson) }()
       default: break
       }
     }
@@ -1773,6 +2273,21 @@ extension Amux_AcpToolUse: SwiftProtobuf.Message, SwiftProtobuf._MessageImplemen
     if !self.toolKind.isEmpty {
       try visitor.visitSingularStringField(value: self.toolKind, fieldNumber: 5)
     }
+    if !self.rawInputJson.isEmpty {
+      try visitor.visitSingularStringField(value: self.rawInputJson, fieldNumber: 6)
+    }
+    if !self.content.isEmpty {
+      try visitor.visitRepeatedMessageField(value: self.content, fieldNumber: 7)
+    }
+    if !self.locations.isEmpty {
+      try visitor.visitRepeatedMessageField(value: self.locations, fieldNumber: 8)
+    }
+    if !self.status.isEmpty {
+      try visitor.visitSingularStringField(value: self.status, fieldNumber: 9)
+    }
+    if !self.rawOutputJson.isEmpty {
+      try visitor.visitSingularStringField(value: self.rawOutputJson, fieldNumber: 10)
+    }
     try unknownFields.traverse(visitor: &visitor)
   }
 
@@ -1782,14 +2297,19 @@ extension Amux_AcpToolUse: SwiftProtobuf.Message, SwiftProtobuf._MessageImplemen
     if lhs.description_p != rhs.description_p {return false}
     if lhs.params != rhs.params {return false}
     if lhs.toolKind != rhs.toolKind {return false}
+    if lhs.rawInputJson != rhs.rawInputJson {return false}
+    if lhs.content != rhs.content {return false}
+    if lhs.locations != rhs.locations {return false}
+    if lhs.status != rhs.status {return false}
+    if lhs.rawOutputJson != rhs.rawOutputJson {return false}
     if lhs.unknownFields != rhs.unknownFields {return false}
     return true
   }
 }
 
-extension Amux_AcpToolResult: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
+nonisolated extension Amux_AcpToolResult: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
   public static let protoMessageName: String = _protobuf_package + ".AcpToolResult"
-  public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{3}tool_id\0\u{1}success\0\u{1}summary\0")
+  public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{3}tool_id\0\u{1}success\0\u{1}summary\0\u{3}raw_output_json\0\u{1}content\0")
 
   public mutating func decodeMessage<D: SwiftProtobuf.Decoder>(decoder: inout D) throws {
     while let fieldNumber = try decoder.nextFieldNumber() {
@@ -1800,6 +2320,8 @@ extension Amux_AcpToolResult: SwiftProtobuf.Message, SwiftProtobuf._MessageImple
       case 1: try { try decoder.decodeSingularStringField(value: &self.toolID) }()
       case 2: try { try decoder.decodeSingularBoolField(value: &self.success) }()
       case 3: try { try decoder.decodeSingularStringField(value: &self.summary) }()
+      case 4: try { try decoder.decodeSingularStringField(value: &self.rawOutputJson) }()
+      case 5: try { try decoder.decodeRepeatedMessageField(value: &self.content) }()
       default: break
       }
     }
@@ -1815,6 +2337,12 @@ extension Amux_AcpToolResult: SwiftProtobuf.Message, SwiftProtobuf._MessageImple
     if !self.summary.isEmpty {
       try visitor.visitSingularStringField(value: self.summary, fieldNumber: 3)
     }
+    if !self.rawOutputJson.isEmpty {
+      try visitor.visitSingularStringField(value: self.rawOutputJson, fieldNumber: 4)
+    }
+    if !self.content.isEmpty {
+      try visitor.visitRepeatedMessageField(value: self.content, fieldNumber: 5)
+    }
     try unknownFields.traverse(visitor: &visitor)
   }
 
@@ -1822,12 +2350,14 @@ extension Amux_AcpToolResult: SwiftProtobuf.Message, SwiftProtobuf._MessageImple
     if lhs.toolID != rhs.toolID {return false}
     if lhs.success != rhs.success {return false}
     if lhs.summary != rhs.summary {return false}
+    if lhs.rawOutputJson != rhs.rawOutputJson {return false}
+    if lhs.content != rhs.content {return false}
     if lhs.unknownFields != rhs.unknownFields {return false}
     return true
   }
 }
 
-extension Amux_AcpError: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
+nonisolated extension Amux_AcpError: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
   public static let protoMessageName: String = _protobuf_package + ".AcpError"
   public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{1}message\0\u{1}details\0")
 
@@ -1862,12 +2392,15 @@ extension Amux_AcpError: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementa
   }
 }
 
-extension Amux_AcpPermissionOption: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
+nonisolated extension Amux_AcpPermissionOption: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
   public static let protoMessageName: String = _protobuf_package + ".AcpPermissionOption"
   public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{3}option_id\0\u{1}kind\0\u{1}name\0")
 
   public mutating func decodeMessage<D: SwiftProtobuf.Decoder>(decoder: inout D) throws {
     while let fieldNumber = try decoder.nextFieldNumber() {
+      // The use of inline closures is to circumvent an issue where the compiler
+      // allocates stack space for every case branch when no optimizations are
+      // enabled. https://github.com/apple/swift-protobuf/issues/1034
       switch fieldNumber {
       case 1: try { try decoder.decodeSingularStringField(value: &self.optionID) }()
       case 2: try { try decoder.decodeSingularStringField(value: &self.kind) }()
@@ -1899,7 +2432,7 @@ extension Amux_AcpPermissionOption: SwiftProtobuf.Message, SwiftProtobuf._Messag
   }
 }
 
-extension Amux_AcpPermissionRequest: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
+nonisolated extension Amux_AcpPermissionRequest: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
   public static let protoMessageName: String = _protobuf_package + ".AcpPermissionRequest"
   public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{3}request_id\0\u{3}tool_name\0\u{1}description\0\u{1}params\0\u{1}options\0")
 
@@ -1949,7 +2482,7 @@ extension Amux_AcpPermissionRequest: SwiftProtobuf.Message, SwiftProtobuf._Messa
   }
 }
 
-extension Amux_AcpStatusChange: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
+nonisolated extension Amux_AcpStatusChange: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
   public static let protoMessageName: String = _protobuf_package + ".AcpStatusChange"
   public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{3}old_status\0\u{3}new_status\0")
 
@@ -1984,7 +2517,7 @@ extension Amux_AcpStatusChange: SwiftProtobuf.Message, SwiftProtobuf._MessageImp
   }
 }
 
-extension Amux_AcpAvailableCommand: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
+nonisolated extension Amux_AcpAvailableCommand: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
   public static let protoMessageName: String = _protobuf_package + ".AcpAvailableCommand"
   public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{1}name\0\u{1}description\0\u{3}input_hint\0")
 
@@ -2024,7 +2557,7 @@ extension Amux_AcpAvailableCommand: SwiftProtobuf.Message, SwiftProtobuf._Messag
   }
 }
 
-extension Amux_AcpAvailableCommands: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
+nonisolated extension Amux_AcpAvailableCommands: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
   public static let protoMessageName: String = _protobuf_package + ".AcpAvailableCommands"
   public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{1}commands\0")
 
@@ -2054,7 +2587,7 @@ extension Amux_AcpAvailableCommands: SwiftProtobuf.Message, SwiftProtobuf._Messa
   }
 }
 
-extension Amux_AcpRawJson: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
+nonisolated extension Amux_AcpRawJson: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
   public static let protoMessageName: String = _protobuf_package + ".AcpRawJson"
   public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{1}method\0\u{3}json_payload\0")
 
@@ -2089,7 +2622,7 @@ extension Amux_AcpRawJson: SwiftProtobuf.Message, SwiftProtobuf._MessageImplemen
   }
 }
 
-extension Amux_AcpPlanUpdate: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
+nonisolated extension Amux_AcpPlanUpdate: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
   public static let protoMessageName: String = _protobuf_package + ".AcpPlanUpdate"
   public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{1}entries\0")
 
@@ -2119,7 +2652,7 @@ extension Amux_AcpPlanUpdate: SwiftProtobuf.Message, SwiftProtobuf._MessageImple
   }
 }
 
-extension Amux_AcpPlanEntry: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
+nonisolated extension Amux_AcpPlanEntry: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
   public static let protoMessageName: String = _protobuf_package + ".AcpPlanEntry"
   public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{1}content\0\u{1}priority\0\u{1}status\0")
 
@@ -2159,9 +2692,9 @@ extension Amux_AcpPlanEntry: SwiftProtobuf.Message, SwiftProtobuf._MessageImplem
   }
 }
 
-extension Amux_AcpCommand: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
+nonisolated extension Amux_AcpCommand: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
   public static let protoMessageName: String = _protobuf_package + ".AcpCommand"
-  public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{3}send_prompt\0\u{1}cancel\0\u{3}grant_permission\0\u{3}deny_permission\0\u{3}start_agent\0\u{3}stop_agent\0\u{3}request_history\0\u{3}request_turn_history\0")
+  public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{3}send_prompt\0\u{1}cancel\0\u{3}grant_permission\0\u{3}deny_permission\0\u{3}start_agent\0\u{3}stop_agent\0\u{3}request_history\0\u{3}request_turn_history\0\u{3}answer_question\0")
 
   public mutating func decodeMessage<D: SwiftProtobuf.Decoder>(decoder: inout D) throws {
     while let fieldNumber = try decoder.nextFieldNumber() {
@@ -2273,6 +2806,19 @@ extension Amux_AcpCommand: SwiftProtobuf.Message, SwiftProtobuf._MessageImplemen
           self.command = .requestTurnHistory(v)
         }
       }()
+      case 9: try {
+        var v: Amux_AcpAnswerQuestion?
+        var hadOneofValue = false
+        if let current = self.command {
+          hadOneofValue = true
+          if case .answerQuestion(let m) = current {v = m}
+        }
+        try decoder.decodeSingularMessageField(value: &v)
+        if let v = v {
+          if hadOneofValue {try decoder.handleConflictingOneOf()}
+          self.command = .answerQuestion(v)
+        }
+      }()
       default: break
       }
     }
@@ -2316,6 +2862,10 @@ extension Amux_AcpCommand: SwiftProtobuf.Message, SwiftProtobuf._MessageImplemen
       guard case .requestTurnHistory(let v)? = self.command else { preconditionFailure() }
       try visitor.visitSingularMessageField(value: v, fieldNumber: 8)
     }()
+    case .answerQuestion?: try {
+      guard case .answerQuestion(let v)? = self.command else { preconditionFailure() }
+      try visitor.visitSingularMessageField(value: v, fieldNumber: 9)
+    }()
     case nil: break
     }
     try unknownFields.traverse(visitor: &visitor)
@@ -2328,7 +2878,7 @@ extension Amux_AcpCommand: SwiftProtobuf.Message, SwiftProtobuf._MessageImplemen
   }
 }
 
-extension Amux_AcpRequestHistory: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
+nonisolated extension Amux_AcpRequestHistory: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
   public static let protoMessageName: String = _protobuf_package + ".AcpRequestHistory"
   public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{3}after_sequence\0\u{3}page_size\0\u{3}request_id\0")
 
@@ -2368,7 +2918,7 @@ extension Amux_AcpRequestHistory: SwiftProtobuf.Message, SwiftProtobuf._MessageI
   }
 }
 
-extension Amux_AcpRequestTurnHistory: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
+nonisolated extension Amux_AcpRequestTurnHistory: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
   public static let protoMessageName: String = _protobuf_package + ".AcpRequestTurnHistory"
   public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{3}turn_id\0\u{3}request_id\0")
 
@@ -2403,7 +2953,7 @@ extension Amux_AcpRequestTurnHistory: SwiftProtobuf.Message, SwiftProtobuf._Mess
   }
 }
 
-extension Amux_AcpSendPrompt: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
+nonisolated extension Amux_AcpSendPrompt: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
   public static let protoMessageName: String = _protobuf_package + ".AcpSendPrompt"
   public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{1}text\0\u{3}model_id\0\u{3}attachment_urls\0")
 
@@ -2443,7 +2993,7 @@ extension Amux_AcpSendPrompt: SwiftProtobuf.Message, SwiftProtobuf._MessageImple
   }
 }
 
-extension Amux_AcpCancel: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
+nonisolated extension Amux_AcpCancel: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
   public static let protoMessageName: String = _protobuf_package + ".AcpCancel"
   public static let _protobuf_nameMap = SwiftProtobuf._NameMap()
 
@@ -2462,7 +3012,7 @@ extension Amux_AcpCancel: SwiftProtobuf.Message, SwiftProtobuf._MessageImplement
   }
 }
 
-extension Amux_AcpGrantPermission: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
+nonisolated extension Amux_AcpGrantPermission: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
   public static let protoMessageName: String = _protobuf_package + ".AcpGrantPermission"
   public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{3}request_id\0\u{3}option_id\0")
 
@@ -2497,7 +3047,7 @@ extension Amux_AcpGrantPermission: SwiftProtobuf.Message, SwiftProtobuf._Message
   }
 }
 
-extension Amux_AcpDenyPermission: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
+nonisolated extension Amux_AcpDenyPermission: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
   public static let protoMessageName: String = _protobuf_package + ".AcpDenyPermission"
   public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{3}request_id\0")
 
@@ -2527,7 +3077,47 @@ extension Amux_AcpDenyPermission: SwiftProtobuf.Message, SwiftProtobuf._MessageI
   }
 }
 
-extension Amux_AcpStartAgent: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
+nonisolated extension Amux_AcpAnswerQuestion: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
+  public static let protoMessageName: String = _protobuf_package + ".AcpAnswerQuestion"
+  public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{3}request_id\0\u{3}answers_json\0\u{1}reject\0")
+
+  public mutating func decodeMessage<D: SwiftProtobuf.Decoder>(decoder: inout D) throws {
+    while let fieldNumber = try decoder.nextFieldNumber() {
+      // The use of inline closures is to circumvent an issue where the compiler
+      // allocates stack space for every case branch when no optimizations are
+      // enabled. https://github.com/apple/swift-protobuf/issues/1034
+      switch fieldNumber {
+      case 1: try { try decoder.decodeSingularStringField(value: &self.requestID) }()
+      case 2: try { try decoder.decodeSingularStringField(value: &self.answersJson) }()
+      case 3: try { try decoder.decodeSingularBoolField(value: &self.reject) }()
+      default: break
+      }
+    }
+  }
+
+  public func traverse<V: SwiftProtobuf.Visitor>(visitor: inout V) throws {
+    if !self.requestID.isEmpty {
+      try visitor.visitSingularStringField(value: self.requestID, fieldNumber: 1)
+    }
+    if !self.answersJson.isEmpty {
+      try visitor.visitSingularStringField(value: self.answersJson, fieldNumber: 2)
+    }
+    if self.reject != false {
+      try visitor.visitSingularBoolField(value: self.reject, fieldNumber: 3)
+    }
+    try unknownFields.traverse(visitor: &visitor)
+  }
+
+  public static func ==(lhs: Amux_AcpAnswerQuestion, rhs: Amux_AcpAnswerQuestion) -> Bool {
+    if lhs.requestID != rhs.requestID {return false}
+    if lhs.answersJson != rhs.answersJson {return false}
+    if lhs.reject != rhs.reject {return false}
+    if lhs.unknownFields != rhs.unknownFields {return false}
+    return true
+  }
+}
+
+nonisolated extension Amux_AcpStartAgent: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
   public static let protoMessageName: String = _protobuf_package + ".AcpStartAgent"
   public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{3}agent_type\0\u{1}worktree\0\u{3}initial_prompt\0\u{3}workspace_id\0\u{3}session_id\0")
 
@@ -2577,7 +3167,7 @@ extension Amux_AcpStartAgent: SwiftProtobuf.Message, SwiftProtobuf._MessageImple
   }
 }
 
-extension Amux_AcpStopAgent: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
+nonisolated extension Amux_AcpStopAgent: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
   public static let protoMessageName: String = _protobuf_package + ".AcpStopAgent"
   public static let _protobuf_nameMap = SwiftProtobuf._NameMap()
 
@@ -2596,7 +3186,7 @@ extension Amux_AcpStopAgent: SwiftProtobuf.Message, SwiftProtobuf._MessageImplem
   }
 }
 
-extension Amux_SessionEvent: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
+nonisolated extension Amux_SessionEvent: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
   public static let protoMessageName: String = _protobuf_package + ".SessionEvent"
   public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{3}prompt_accepted\0\u{3}prompt_rejected\0\u{3}permission_resolved\0\u{3}history_batch\0")
 
@@ -2697,7 +3287,7 @@ extension Amux_SessionEvent: SwiftProtobuf.Message, SwiftProtobuf._MessageImplem
   }
 }
 
-extension Amux_HistoryBatch: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
+nonisolated extension Amux_HistoryBatch: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
   public static let protoMessageName: String = _protobuf_package + ".HistoryBatch"
   public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{3}request_id\0\u{1}events\0\u{3}has_more\0\u{3}next_after_sequence\0")
 
@@ -2742,7 +3332,7 @@ extension Amux_HistoryBatch: SwiftProtobuf.Message, SwiftProtobuf._MessageImplem
   }
 }
 
-extension Amux_PromptAccepted: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
+nonisolated extension Amux_PromptAccepted: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
   public static let protoMessageName: String = _protobuf_package + ".PromptAccepted"
   public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{3}command_id\0")
 
@@ -2772,7 +3362,7 @@ extension Amux_PromptAccepted: SwiftProtobuf.Message, SwiftProtobuf._MessageImpl
   }
 }
 
-extension Amux_PromptRejected: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
+nonisolated extension Amux_PromptRejected: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
   public static let protoMessageName: String = _protobuf_package + ".PromptRejected"
   public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{3}command_id\0\u{1}reason\0")
 
@@ -2807,7 +3397,7 @@ extension Amux_PromptRejected: SwiftProtobuf.Message, SwiftProtobuf._MessageImpl
   }
 }
 
-extension Amux_PermissionResolved: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
+nonisolated extension Amux_PermissionResolved: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
   public static let protoMessageName: String = _protobuf_package + ".PermissionResolved"
   public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{3}request_id\0\u{3}resolved_by_peer_id\0\u{1}granted\0")
 
@@ -2847,7 +3437,7 @@ extension Amux_PermissionResolved: SwiftProtobuf.Message, SwiftProtobuf._Message
   }
 }
 
-extension Amux_AddWorkspace: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
+nonisolated extension Amux_AddWorkspace: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
   public static let protoMessageName: String = _protobuf_package + ".AddWorkspace"
   public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{1}path\0")
 
@@ -2877,7 +3467,7 @@ extension Amux_AddWorkspace: SwiftProtobuf.Message, SwiftProtobuf._MessageImplem
   }
 }
 
-extension Amux_RemoveWorkspace: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
+nonisolated extension Amux_RemoveWorkspace: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
   public static let protoMessageName: String = _protobuf_package + ".RemoveWorkspace"
   public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{3}workspace_id\0")
 
@@ -2907,7 +3497,7 @@ extension Amux_RemoveWorkspace: SwiftProtobuf.Message, SwiftProtobuf._MessageImp
   }
 }
 
-extension Amux_PeerAnnounce: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
+nonisolated extension Amux_PeerAnnounce: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
   public static let protoMessageName: String = _protobuf_package + ".PeerAnnounce"
   public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{1}peer\0\u{3}auth_token\0")
 
@@ -2946,7 +3536,7 @@ extension Amux_PeerAnnounce: SwiftProtobuf.Message, SwiftProtobuf._MessageImplem
   }
 }
 
-extension Amux_RemoveMember: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
+nonisolated extension Amux_RemoveMember: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
   public static let protoMessageName: String = _protobuf_package + ".RemoveMember"
   public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{3}member_id\0")
 
@@ -2976,7 +3566,7 @@ extension Amux_RemoveMember: SwiftProtobuf.Message, SwiftProtobuf._MessageImplem
   }
 }
 
-extension Amux_ActorPresence: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
+nonisolated extension Amux_ActorPresence: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
   public static let protoMessageName: String = _protobuf_package + ".ActorPresence"
   public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{1}online\0\u{3}display_name\0\u{1}timestamp\0")
 
@@ -3016,7 +3606,7 @@ extension Amux_ActorPresence: SwiftProtobuf.Message, SwiftProtobuf._MessageImple
   }
 }
 
-extension Amux_WorkspaceInfo: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
+nonisolated extension Amux_WorkspaceInfo: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
   public static let protoMessageName: String = _protobuf_package + ".WorkspaceInfo"
   public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{3}workspace_id\0\u{1}path\0\u{3}display_name\0")
 
@@ -3056,7 +3646,7 @@ extension Amux_WorkspaceInfo: SwiftProtobuf.Message, SwiftProtobuf._MessageImple
   }
 }
 
-extension Amux_WorkspaceList: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
+nonisolated extension Amux_WorkspaceList: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
   public static let protoMessageName: String = _protobuf_package + ".WorkspaceList"
   public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{1}workspaces\0")
 
@@ -3086,7 +3676,7 @@ extension Amux_WorkspaceList: SwiftProtobuf.Message, SwiftProtobuf._MessageImple
   }
 }
 
-extension Amux_RuntimeInfo: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
+nonisolated extension Amux_RuntimeInfo: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
   public static let protoMessageName: String = _protobuf_package + ".RuntimeInfo"
   public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{3}runtime_id\0\u{3}agent_type\0\u{1}worktree\0\u{1}branch\0\u{1}status\0\u{3}started_at\0\u{3}current_prompt\0\u{3}workspace_id\0\u{3}session_title\0\u{3}last_output_summary\0\u{3}tool_use_count\0\u{3}available_models\0\u{3}current_model\0\u{1}state\0\u{1}stage\0\u{3}error_code\0\u{3}error_message\0\u{3}failed_stage\0\u{3}available_commands\0")
 
@@ -3278,9 +3868,9 @@ extension Amux_RuntimeInfo: SwiftProtobuf.Message, SwiftProtobuf._MessageImpleme
   }
 }
 
-extension Amux_ModelInfo: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
+nonisolated extension Amux_ModelInfo: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
   public static let protoMessageName: String = _protobuf_package + ".ModelInfo"
-  public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{1}id\0\u{3}display_name\0")
+  public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{1}id\0\u{3}display_name\0\u{3}provider_name\0")
 
   public mutating func decodeMessage<D: SwiftProtobuf.Decoder>(decoder: inout D) throws {
     while let fieldNumber = try decoder.nextFieldNumber() {
@@ -3290,6 +3880,7 @@ extension Amux_ModelInfo: SwiftProtobuf.Message, SwiftProtobuf._MessageImplement
       switch fieldNumber {
       case 1: try { try decoder.decodeSingularStringField(value: &self.id) }()
       case 2: try { try decoder.decodeSingularStringField(value: &self.displayName) }()
+      case 3: try { try decoder.decodeSingularStringField(value: &self.providerName) }()
       default: break
       }
     }
@@ -3302,18 +3893,22 @@ extension Amux_ModelInfo: SwiftProtobuf.Message, SwiftProtobuf._MessageImplement
     if !self.displayName.isEmpty {
       try visitor.visitSingularStringField(value: self.displayName, fieldNumber: 2)
     }
+    if !self.providerName.isEmpty {
+      try visitor.visitSingularStringField(value: self.providerName, fieldNumber: 3)
+    }
     try unknownFields.traverse(visitor: &visitor)
   }
 
   public static func ==(lhs: Amux_ModelInfo, rhs: Amux_ModelInfo) -> Bool {
     if lhs.id != rhs.id {return false}
     if lhs.displayName != rhs.displayName {return false}
+    if lhs.providerName != rhs.providerName {return false}
     if lhs.unknownFields != rhs.unknownFields {return false}
     return true
   }
 }
 
-extension Amux_AgentList: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
+nonisolated extension Amux_AgentList: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
   public static let protoMessageName: String = _protobuf_package + ".AgentList"
   public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{1}runtimes\0")
 
@@ -3343,7 +3938,7 @@ extension Amux_AgentList: SwiftProtobuf.Message, SwiftProtobuf._MessageImplement
   }
 }
 
-extension Amux_MemberInfo: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
+nonisolated extension Amux_MemberInfo: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
   public static let protoMessageName: String = _protobuf_package + ".MemberInfo"
   public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{3}member_id\0\u{3}display_name\0\u{1}role\0\u{3}joined_at\0\u{1}department\0")
 
@@ -3393,7 +3988,7 @@ extension Amux_MemberInfo: SwiftProtobuf.Message, SwiftProtobuf._MessageImplemen
   }
 }
 
-extension Amux_MemberList: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
+nonisolated extension Amux_MemberList: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
   public static let protoMessageName: String = _protobuf_package + ".MemberList"
   public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{1}members\0")
 
@@ -3423,7 +4018,7 @@ extension Amux_MemberList: SwiftProtobuf.Message, SwiftProtobuf._MessageImplemen
   }
 }
 
-extension Amux_PeerInfo: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
+nonisolated extension Amux_PeerInfo: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
   public static let protoMessageName: String = _protobuf_package + ".PeerInfo"
   public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{3}peer_id\0\u{3}member_id\0\u{3}display_name\0\u{3}device_type\0\u{1}role\0\u{3}connected_at\0")
 
@@ -3478,7 +4073,7 @@ extension Amux_PeerInfo: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementa
   }
 }
 
-extension Amux_PeerList: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
+nonisolated extension Amux_PeerList: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
   public static let protoMessageName: String = _protobuf_package + ".PeerList"
   public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{1}peers\0")
 

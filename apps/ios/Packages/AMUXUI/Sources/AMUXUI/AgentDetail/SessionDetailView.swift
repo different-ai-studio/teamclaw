@@ -306,7 +306,19 @@ public struct SessionDetailView: View {
         }
         .safeAreaInset(edge: .bottom) {
             VStack(spacing: 0) {
-                SessionComposer(
+                if let question = viewModel.pendingQuestions.first {
+                    AcpQuestionCard(
+                        pending: question,
+                        onSubmit: { answers in
+                            try await viewModel.answerQuestion(question, answers: answers)
+                        },
+                        onSkip: {
+                            try await viewModel.answerQuestion(question, answers: [], reject: true)
+                        }
+                    )
+                    .id(question.id)
+                } else {
+                    SessionComposer(
                     promptText: $promptText,
                     attachments: $attachments,
                     voiceRecorder: voiceRecorder,
@@ -353,7 +365,8 @@ public struct SessionDetailView: View {
                     onAgentMention: { target in
                         viewModel.lightAgentChip(target.id)
                     }
-                )
+                    )
+                }
             }
         }
         .sheet(isPresented: $isMemberSheetPresented) {
@@ -737,6 +750,195 @@ public struct SessionDetailView: View {
             MentionTarget(id: a.id, displayName: a.displayName, subtitle: a.agentType, kind: .agent)
         }
         return agents + members
+    }
+}
+
+// MARK: - OpenCode question dock
+
+private struct AcpQuestionCard: View {
+    let pending: PendingAcpQuestion
+    let onSubmit: ([[String]]) async throws -> Void
+    let onSkip: () async throws -> Void
+
+    @State private var page = 0
+    @State private var selected: [String: Set<String>] = [:]
+    @State private var customAnswers: [String: String] = [:]
+    @State private var isSubmitting = false
+    @State private var errorMessage: String?
+
+    private var prompt: AcpQuestionPrompt { pending.questions[page] }
+
+    private var currentAnswers: [String] {
+        let custom = customAnswers[prompt.id, default: ""]
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        if !custom.isEmpty { return [custom] }
+        return Array(selected[prompt.id, default: []]).sorted()
+    }
+
+    private var canContinue: Bool {
+        !isSubmitting && !currentAnswers.isEmpty
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            HStack {
+                Text(prompt.header.isEmpty ? "Question" : prompt.header)
+                    .font(.headline)
+                    .foregroundStyle(Color.amux.onyx)
+                Spacer()
+                if pending.questions.count > 1 {
+                    Button { page = max(0, page - 1) } label: {
+                        Image(systemName: "chevron.left")
+                    }
+                    .disabled(page == 0 || isSubmitting)
+                    Text("\(page + 1) of \(pending.questions.count)")
+                        .font(.caption.monospacedDigit())
+                        .foregroundStyle(Color.amux.slate)
+                    Button { page = min(pending.questions.count - 1, page + 1) } label: {
+                        Image(systemName: "chevron.right")
+                    }
+                    .disabled(page == pending.questions.count - 1 || isSubmitting)
+                }
+            }
+
+            Text(prompt.question)
+                .font(.subheadline)
+                .foregroundStyle(Color.amux.basalt)
+
+            VStack(spacing: 4) {
+                ForEach(Array(prompt.options.enumerated()), id: \.element.id) { index, option in
+                    let isSelected = selected[prompt.id, default: []].contains(option.label)
+                    Button {
+                        toggle(option.label)
+                    } label: {
+                        HStack(spacing: 10) {
+                            Text("\(index + 1).")
+                                .font(.caption.weight(.semibold))
+                                .foregroundStyle(Color.amux.slate)
+                                .frame(width: 22, alignment: .leading)
+                            VStack(alignment: .leading, spacing: 2) {
+                                Text(option.label)
+                                    .font(.subheadline.weight(.semibold))
+                                if !option.description.isEmpty {
+                                    Text(option.description)
+                                        .font(.caption)
+                                        .foregroundStyle(Color.amux.slate)
+                                }
+                            }
+                            Spacer()
+                            if isSelected {
+                                Image(systemName: "checkmark")
+                                    .foregroundStyle(Color.amux.cinnabar)
+                            }
+                        }
+                        .foregroundStyle(Color.amux.onyx)
+                        .padding(.horizontal, 10)
+                        .padding(.vertical, 8)
+                        .background(isSelected ? Color.amux.pebble : Color.clear,
+                                    in: RoundedRectangle(cornerRadius: 10, style: .continuous))
+                    }
+                    .buttonStyle(.plain)
+                    .disabled(isSubmitting)
+                }
+            }
+
+            HStack(spacing: 10) {
+                TextField(
+                    prompt.options.isEmpty ? "Type your answer…" : "Or type a custom answer…",
+                    text: Binding(
+                        get: { customAnswers[prompt.id, default: ""] },
+                        set: { customAnswers[prompt.id] = $0 }
+                    )
+                )
+                .textFieldStyle(.plain)
+                .font(.subheadline)
+                .disabled(isSubmitting)
+
+                Button("Skip") {
+                    submitSkip()
+                }
+                .font(.caption.weight(.medium))
+                .foregroundStyle(Color.amux.slate)
+                .disabled(isSubmitting)
+
+                Button(page == pending.questions.count - 1 ? "Submit" : "Continue") {
+                    continueOrSubmit()
+                }
+                .font(.caption.weight(.semibold))
+                .foregroundStyle(Color.amux.paper)
+                .padding(.horizontal, 12)
+                .padding(.vertical, 7)
+                .background(Color.amux.onyx.opacity(canContinue ? 1 : 0.35), in: Capsule())
+                .disabled(!canContinue)
+            }
+
+            if let errorMessage {
+                Text(errorMessage)
+                    .font(.caption)
+                    .foregroundStyle(Color.amux.cinnabarDeep)
+            }
+        }
+        .padding(14)
+        .background(Color.amux.paper, in: RoundedRectangle(cornerRadius: 18, style: .continuous))
+        .overlay(
+            RoundedRectangle(cornerRadius: 18, style: .continuous)
+                .stroke(Color.amux.hairline, lineWidth: 0.5)
+        )
+        .padding(.horizontal, 12)
+        .padding(.vertical, 8)
+        .background(Color.amux.mist)
+        .accessibilityIdentifier("session.questionCard")
+    }
+
+    private func toggle(_ label: String) {
+        customAnswers[prompt.id] = ""
+        if prompt.allowsMultiple {
+            if selected[prompt.id, default: []].contains(label) {
+                selected[prompt.id]?.remove(label)
+            } else {
+                selected[prompt.id, default: []].insert(label)
+            }
+        } else {
+            selected[prompt.id] = [label]
+        }
+    }
+
+    private func continueOrSubmit() {
+        guard canContinue else { return }
+        if page < pending.questions.count - 1 {
+            page += 1
+            return
+        }
+        let answers = pending.questions.map { question -> [String] in
+            let custom = customAnswers[question.id, default: ""]
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+            return custom.isEmpty ? Array(selected[question.id, default: []]).sorted() : [custom]
+        }
+        guard answers.allSatisfy({ !$0.isEmpty }) else {
+            errorMessage = "Answer each question before submitting."
+            return
+        }
+        isSubmitting = true
+        Task {
+            do {
+                try await onSubmit(answers)
+            } catch {
+                errorMessage = error.localizedDescription
+                isSubmitting = false
+            }
+        }
+    }
+
+    private func submitSkip() {
+        isSubmitting = true
+        Task {
+            do {
+                try await onSkip()
+            } catch {
+                errorMessage = error.localizedDescription
+                isSubmitting = false
+            }
+        }
     }
 }
 

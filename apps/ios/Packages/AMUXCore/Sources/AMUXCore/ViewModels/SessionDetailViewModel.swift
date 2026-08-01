@@ -15,6 +15,26 @@ public struct SlashCommand: Identifiable, Equatable, Hashable, Sendable, Codable
     }
 }
 
+public struct AcpQuestionOption: Identifiable, Equatable, Sendable {
+    public let label: String
+    public let description: String
+    public var id: String { label }
+}
+
+public struct AcpQuestionPrompt: Identifiable, Equatable, Sendable {
+    public let id: String
+    public let header: String
+    public let question: String
+    public let options: [AcpQuestionOption]
+    public let allowsMultiple: Bool
+}
+
+public struct PendingAcpQuestion: Identifiable, Equatable, Sendable {
+    public let id: String
+    public let agentActorID: String
+    public let questions: [AcpQuestionPrompt]
+}
+
 @Observable @MainActor
 public final class SessionDetailViewModel {
     public var events: [AgentEvent] = []
@@ -133,6 +153,10 @@ public final class SessionDetailViewModel {
     /// to this for an inline banner so silent publish failures stop being
     /// invisible.
     public var sendErrorMessage: String?
+    /// OpenCode `question` tool requests awaiting a human answer. They arrive
+    /// as raw ACP control events because the question schema is OpenCode-
+    /// specific; the UI renders the first pending request above the composer.
+    public private(set) var pendingQuestions: [PendingAcpQuestion] = []
     private var errorClearTask: Task<Void, Never>?
     private let errorMessageTTL: TimeInterval = 5
     public var runtime: Runtime?
@@ -397,6 +421,42 @@ public final class SessionDetailViewModel {
             events.remove(at: index)
         }
         try? modelContext.save()
+    }
+
+    /// Repairs the narrow artifact produced by the old cross-turn buffer bug:
+    /// a synthetic sequence-0 segment starts with the full reply from the
+    /// preceding turn, followed by its own text. Sequence 0 is important —
+    /// normal daemon completions may legitimately quote earlier messages and
+    /// must never be rewritten.
+    private func repairStaleStreamingPrefixes(modelContext: ModelContext) {
+        var previousCompletedOutput: AgentEvent?
+        var changed = false
+        for event in events {
+            guard event.eventType == "output", event.isComplete else { continue }
+            if event.sequence == 0,
+               let previous = previousCompletedOutput,
+               previous.turnID != event.turnID,
+               let currentText = event.text,
+               let previousText = previous.text,
+               let repaired = Self.removingStaleStreamingPrefix(
+                   from: currentText,
+                   previousText: previousText
+               ) {
+                event.text = repaired
+                changed = true
+            }
+            previousCompletedOutput = event
+        }
+        if changed { try? modelContext.save() }
+    }
+
+    static func removingStaleStreamingPrefix(from text: String, previousText: String) -> String? {
+        guard !previousText.isEmpty,
+              text.count > previousText.count,
+              text.hasPrefix(previousText) else { return nil }
+        let remainder = text.dropFirst(previousText.count)
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        return remainder.isEmpty ? nil : remainder
     }
 
     // MARK: - Chip-bar bootstrap + selection
@@ -1508,6 +1568,7 @@ public final class SessionDetailViewModel {
         events = (try? modelContext.fetch(descriptor)) ?? []
         pruneDuplicateRuntimeEvents(modelContext: modelContext)
         sortEventsForDisplay()
+        repairStaleStreamingPrefixes(modelContext: modelContext)
         // Rehydrate the reducer's state from persisted events so
         // future applies dedup against prior session history.
         rehydrateTimelineStateFromEvents()
@@ -2003,6 +2064,22 @@ public final class SessionDetailViewModel {
             if sc.newStatus == .idle { settleAgentTurn(bucket: bucket) }
         }
 
+        // Raw OpenCode question events are control-plane state, not timeline
+        // rows. Keep them in-memory and let the composer surface the prompt.
+        if case .raw(let raw) = acp.event,
+           raw.method == "question_asked",
+           let question = Self.decodePendingQuestion(raw.jsonPayload, agentActorID: bucket) {
+            if let index = pendingQuestions.firstIndex(where: { $0.id == question.id }) {
+                pendingQuestions[index] = question
+            } else {
+                pendingQuestions.append(question)
+            }
+        } else if case .raw(let raw) = acp.event,
+                  raw.method == "question_replied" || raw.method == "question_rejected",
+                  let requestID = Self.questionRequestID(raw.jsonPayload) {
+            pendingQuestions.removeAll { $0.id == requestID }
+        }
+
         // Hand-rolled raw tool_title_update parser. The reducer
         // explicitly leaves `.raw` alone (see TimelineInput.swift
         // contract); patch the matching tool_use entry in place.
@@ -2020,6 +2097,46 @@ public final class SessionDetailViewModel {
         }
 
         return dirty
+    }
+
+    static func decodePendingQuestion(_ data: Data, agentActorID: String) -> PendingAcpQuestion? {
+        guard let payload = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+              let requestID = payload["id"] as? String,
+              !requestID.isEmpty,
+              let rawQuestions = payload["questions"] as? [[String: Any]]
+        else { return nil }
+
+        let questions = rawQuestions.enumerated().compactMap { index, raw -> AcpQuestionPrompt? in
+            let text = raw["question"] as? String ?? ""
+            guard !text.isEmpty else { return nil }
+            let options: [AcpQuestionOption] = (raw["options"] as? [Any] ?? []).compactMap { value in
+                if let label = value as? String, !label.isEmpty {
+                    return AcpQuestionOption(label: label, description: "")
+                }
+                guard let option = value as? [String: Any],
+                      let label = option["label"] as? String,
+                      !label.isEmpty else { return nil }
+                return AcpQuestionOption(
+                    label: label,
+                    description: option["description"] as? String ?? ""
+                )
+            }
+            return AcpQuestionPrompt(
+                id: String(index),
+                header: raw["header"] as? String ?? "Question",
+                question: text,
+                options: options,
+                allowsMultiple: raw["multiple"] as? Bool ?? false
+            )
+        }
+        guard !questions.isEmpty else { return nil }
+        return PendingAcpQuestion(id: requestID, agentActorID: agentActorID, questions: questions)
+    }
+
+    private static func questionRequestID(_ data: Data) -> String? {
+        guard let payload = try? JSONSerialization.jsonObject(with: data) as? [String: Any]
+        else { return nil }
+        return (payload["requestID"] as? String) ?? (payload["id"] as? String)
     }
 
     private func handleSessionEvent(_ sessionEvent: Amux_SessionEvent, sequence: Int, modelContext: ModelContext) {
@@ -2891,6 +3008,26 @@ public final class SessionDetailViewModel {
         defer { inFlightPermissionRequestIDs.remove(requestId) }
         var d = Amux_AcpDenyPermission(); d.requestID = requestId
         try await sendCommand(agentActorID: agentActorID) { $0.command = .denyPermission(d) }
+    }
+
+    public func answerQuestion(
+        _ question: PendingAcpQuestion,
+        answers: [[String]],
+        reject: Bool = false
+    ) async throws {
+        let data = try JSONSerialization.data(withJSONObject: answers)
+        guard let answersJSON = String(data: data, encoding: .utf8) else { return }
+        var command = Amux_AcpAnswerQuestion()
+        command.requestID = question.id
+        command.answersJson = answersJSON
+        command.reject = reject
+        try await sendCommand(agentActorID: question.agentActorID) {
+            $0.command = .answerQuestion(command)
+        }
+        // The daemon also emits question_replied/question_rejected. Remove
+        // optimistically after publish so slow broker echo doesn't leave the
+        // answered card blocking the composer.
+        pendingQuestions.removeAll { $0.id == question.id }
     }
 }
 

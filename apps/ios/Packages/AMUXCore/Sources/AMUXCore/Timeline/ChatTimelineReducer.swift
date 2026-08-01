@@ -109,6 +109,22 @@ public enum ChatTimelineReducer {
                 state.streamingTurnIDByAgent[bucket] = nil
                 return .entriesChanged
             } else {
+                // A new turn is a hard streaming boundary. In normal flow
+                // the prior turn's idle event clears this buffer, but MQTT
+                // can drop that trailing lifecycle envelope. Without this
+                // guard, the first delta of the next turn appends onto the
+                // old reply, producing the repeated-message prefix seen in
+                // session detail and leaving its loading card alive.
+                if let incomingTurnID = input.turnID,
+                   !incomingTurnID.isEmpty,
+                   let activeTurnID = state.streamingTurnIDByAgent[bucket],
+                   !activeTurnID.isEmpty,
+                   activeTurnID != incomingTurnID {
+                    state.streamingAgentSet.remove(bucket)
+                    state.streamingTextByAgent[bucket] = nil
+                    state.streamingModelByAgent[bucket] = nil
+                    state.streamingTurnIDByAgent[bucket] = nil
+                }
                 let firstDelta = !state.streamingAgentSet.contains(bucket)
                 var absorbedSynthetic = false
                 if firstDelta, let idx = incompleteOutputIndex(for: bucket, in: state) {
