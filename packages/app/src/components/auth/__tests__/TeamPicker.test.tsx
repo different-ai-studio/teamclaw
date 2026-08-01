@@ -2,6 +2,13 @@ import { describe, it, expect, vi } from "vitest";
 import { render, screen, fireEvent } from "@testing-library/react";
 import { TeamPicker } from "../TeamPicker";
 
+const { bootstrapTeam } = vi.hoisted(() => ({
+  bootstrapTeam: vi.fn(async () => ({ id: "created-team", name: "Empty Org", slug: "empty-org" })),
+}));
+vi.mock("@/lib/backend", () => ({
+  getBackend: () => ({ teams: { bootstrapTeam } }),
+}));
+
 // Selector-style mock of the current-team store: the component reads it via
 // useCurrentTeamStore((s) => s.switchToTeam).
 const switchToTeam = vi.fn(async () => {});
@@ -59,6 +66,13 @@ describe("TeamPicker", () => {
     ];
     render(<TeamPicker teams={sameOrg} onDone={() => {}} />);
     expect(screen.queryByText(/同一时间只能在一个组织内工作/)).not.toBeInTheDocument();
+  });
+
+  it("initializes an empty org before activating its newly created team", async () => {
+    render(<TeamPicker teams={[{ id: "o-empty", name: "Empty Org", orgId: "o-empty", orgName: "Empty Org", itemType: "org", teamId: null }]} onDone={() => {}} />);
+    fireEvent.click(screen.getByText("初始化 Empty Org"));
+    await vi.waitFor(() => expect(bootstrapTeam).toHaveBeenCalledWith({ orgId: "o-empty" }));
+    await vi.waitFor(() => expect(switchToTeam).toHaveBeenCalledWith("created-team"));
   });
 
 });

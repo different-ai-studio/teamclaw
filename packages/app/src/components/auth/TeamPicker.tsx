@@ -25,7 +25,7 @@ export function TeamPicker({ teams, lastUsedTeamId, onDone }: TeamPickerProps) {
 
   // Highlight the last-used team; on first login (no history) fall back to the
   // first team so there's always a visible pre-selection.
-  const highlightId = lastUsedTeamId ?? teams[0]?.id ?? null;
+  const highlightId = lastUsedTeamId ?? teams.find((item) => item.itemType !== "org")?.id ?? null;
 
   // Group by org, preserving first-seen order. Teams without an org name fall
   // into a single "ungrouped" bucket.
@@ -42,6 +42,12 @@ export function TeamPicker({ teams, lastUsedTeamId, onDone }: TeamPickerProps) {
     setError(null);
     setBusyId(team.id);
     try {
+      if (team.itemType === "org") {
+        const created = await getBackend().teams.bootstrapTeam({ orgId: team.orgId ?? team.id });
+        await switchToTeam(created.id);
+        onDone();
+        return;
+      }
       // Public DEFAULT_ORG teams the caller hasn't joined yet: enroll as a
       // plain member first so switchToTeam (and every team-scoped RPC after it)
       // has membership. Idempotent server-side.
@@ -102,7 +108,8 @@ export function TeamPicker({ teams, lastUsedTeamId, onDone }: TeamPickerProps) {
               </span>
               <div className="flex flex-col gap-2">
                 {orgTeams.map((team) => {
-                  const active = team.id === highlightId;
+                  const emptyOrg = team.itemType === "org";
+                  const active = !emptyOrg && team.id === highlightId;
                   const isLastUsed = team.id === lastUsedTeamId;
                   const switching = busyId === team.id;
                   const joinable = team.isMember === false;
@@ -119,14 +126,16 @@ export function TeamPicker({ teams, lastUsedTeamId, onDone }: TeamPickerProps) {
                     >
                       <span className="flex min-w-0 items-center gap-2">
                         <span className="min-w-0 truncate text-[13px] font-medium text-foreground">
-                          {team.name}
+                          {emptyOrg
+                            ? t("teamPicker.initializeOrg", "Initialize {{org}}", { org: team.name })
+                            : team.name}
                         </span>
-                        {isLastUsed && (
+                        {!emptyOrg && isLastUsed && (
                           <span className="shrink-0 rounded-full bg-selected px-1.5 py-0.5 text-[10px] font-medium text-muted-foreground">
                             {t("teamPicker.lastUsed", "Last used")}
                           </span>
                         )}
-                        {joinable && (
+                        {joinable && !emptyOrg && (
                           <span className="shrink-0 rounded-full border border-border px-1.5 py-0.5 text-[10px] font-medium text-faint">
                             {t("teamPicker.public", "Public")}
                           </span>
@@ -135,7 +144,9 @@ export function TeamPicker({ teams, lastUsedTeamId, onDone }: TeamPickerProps) {
                       {switching ? (
                         <span className="flex shrink-0 items-center gap-1.5 text-[11.5px] text-muted-foreground">
                           <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                          {joinable
+                          {emptyOrg
+                            ? t("teamPicker.initializing", "Initializing…")
+                            : joinable
                             ? t("teamPicker.joining", "Joining…")
                             : t("teamPicker.switching", "Switching…")}
                         </span>

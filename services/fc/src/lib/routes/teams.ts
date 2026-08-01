@@ -8,7 +8,8 @@ export function registerTeams(router) {
     // Omitted preserves the active-org member listing.
     const scope = ctx.query?.get?.("scope") ?? null;
     if (scope === "all") {
-      const items = await ctx.repository.listAllMyTeams();
+      const includeEmptyOrgs = ctx.query?.get?.("includeEmptyOrgs") === "true";
+      const items = await ctx.repository.listAllMyTeams({ includeEmptyOrgs });
       return { body: { items, nextCursor: null } };
     }
     if (scope === "discoverable") {
@@ -69,6 +70,7 @@ export function registerTeams(router) {
     const body = ctx.json;
     const team = await ctx.repository.bootstrapTeam({
       displayName: optionalStringOrNull(body.displayName, "displayName"),
+      orgId: optionalStringOrNull(body.orgId, "orgId"),
     });
     return { body: team };
   });

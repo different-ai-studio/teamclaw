@@ -83,6 +83,16 @@ paths:
           schema:
             type: string
             enum: [all, discoverable]
+        - name: includeEmptyOrgs
+          in: query
+          required: false
+          description: >-
+            Only with `scope=all`: include organization picker rows for orgs
+            that do not yet have a team. Such a row has `itemType: org` and
+            `teamId: null`; select it with `POST /v1/teams/bootstrap` and its
+            `orgId` to initialize the org-named team.
+          schema:
+            type: boolean
       responses:
         "200":
           description: Current user's teams.
@@ -174,9 +184,9 @@ paths:
       operationId: bootstrapTeam
       summary: Bootstrap the first team in the current organization
       description: >-
-        For a non-anonymous user with no visible or joinable teams, atomically
-        creates an owner team named after the current organization and creates
-        its member actor. It never joins an existing team implicitly.
+        Creates an owner team named after the current organization (or the
+        explicit empty picker `orgId`) and creates its member actor atomically.
+        It never joins an existing team implicitly.
       tags: [Teams]
       requestBody:
         required: false
@@ -187,6 +197,10 @@ paths:
               properties:
                 displayName:
                   type: [string, "null"]
+                orgId:
+                  description: Organization selected from an `itemType: org` picker row.
+                  type: [string, "null"]
+                  format: uuid
       responses:
         "200":
           description: Bootstrapped team.
