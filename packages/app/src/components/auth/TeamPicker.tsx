@@ -67,7 +67,7 @@ export function TeamPicker({ teams, lastUsedTeamId, onDone }: TeamPickerProps) {
       className="flex h-screen items-center justify-center bg-background px-6"
       data-tauri-drag-region
     >
-      <div className="w-full max-w-[440px] rounded-[16px] border border-border bg-paper p-6 shadow-sm">
+      <div className="max-h-[calc(100vh-48px)] w-full max-w-[440px] overflow-y-auto rounded-[16px] border border-border bg-paper p-6 shadow-sm">
         <h1 className="text-[16px] font-semibold text-foreground">
           {t("teamPicker.title", "Choose a team")}
         </h1>
