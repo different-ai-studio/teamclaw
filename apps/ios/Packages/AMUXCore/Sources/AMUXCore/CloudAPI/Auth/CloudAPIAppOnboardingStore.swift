@@ -6,7 +6,7 @@ import Foundation
 /// Token lifecycle (Keychain persistence, proactive/reactive refresh, the
 /// `tokenRefreshes()` stream MQTT depends on) is delegated to `SessionStore`.
 /// The unauthenticated GoTrue-proxy auth endpoints are hit via `AuthHTTP`; the
-/// authenticated business endpoints (`/v1/me/bootstrap`, `/v1/teams`,
+/// authenticated business endpoints (`/v1/teams`,
 /// `/v1/invites/claim`) go through `CloudAPIClient`, whose bearer is supplied
 /// by `SessionStore.accessToken()`.
 public actor CloudAPIAppOnboardingStore: AppOnboardingStore {
@@ -407,13 +407,12 @@ public actor CloudAPIAppOnboardingStore: AppOnboardingStore {
 
     public func loadBootstrap() async throws -> AppBootstrap {
         await ensureStarted()
-        let dto: CloudBootstrap = try await api.get("/v1/me/bootstrap")
+        let page: CloudListPage<CloudMembershipTeam> = try await api.get("/v1/teams?scope=all")
         return AppBootstrap(
-            memberActorID: dto.memberActorId,
-            teams: dto.teams.map {
+            memberActorID: nil,
+            teams: page.items.filter { $0.isMember != false }.map {
                 TeamSummary(id: $0.id, name: $0.name, slug: $0.slug ?? "", role: $0.role ?? "member")
-            },
-            memberActorIDByTeam: dto.memberActorIdByTeam ?? [:]
+            }
         )
     }
 
@@ -436,20 +435,16 @@ public actor CloudAPIAppOnboardingStore: AppOnboardingStore {
     public func createTeam(named name: String) async throws -> CreatedTeam {
         await ensureStarted()
         // POST /v1/teams returns only the team row (id/name/slug). The member
-        // actor id + role are resolved via a follow-up bootstrap — the FC
-        // create-team endpoint does not echo them back (unlike the Supabase
-        // `create_team` RPC). Workspace id/name are not surfaced by the Cloud
-        // API and are not consumed downstream (only `memberActorID` feeds the
-        // active AppContext), so they default to empty.
+        // create-team endpoint does not echo the member actor (unlike the
+        // Supabase `create_team` RPC). Workspace id/name are not surfaced by
+        // the Cloud API. Activation is the canonical source for the actor scoped to the
+        // newly created team, and also refreshes the session into its org.
         let team: CloudTeam = try await api.post("/v1/teams", body: CreateTeamRequest(name: name))
-        let bootstrap = try await loadBootstrap()
-        let role = bootstrap.teams.first(where: { $0.id == team.id })?.role ?? "owner"
-        let memberActorID = bootstrap.memberActorIDByTeam[team.id]
-            ?? bootstrap.memberActorID
-            ?? ""
+        let result = try await switchActiveTeam(teamID: team.id)
+        try await setSession(refreshToken: result.refreshToken)
         return CreatedTeam(
-            team: TeamSummary(id: team.id, name: team.name, slug: team.slug ?? "", role: role),
-            memberActorID: memberActorID,
+            team: TeamSummary(id: team.id, name: team.name, slug: team.slug ?? "", role: "owner"),
+            memberActorID: result.actorID ?? "",
             workspaceID: "",
             workspaceName: ""
         )
@@ -675,6 +670,8 @@ private struct CloudMembershipTeam: Decodable, Sendable {
     let slug: String?
     let orgId: String?
     let orgName: String?
+    let role: String?
+    let isMember: Bool?
 }
 
 private struct CloudSwitchTeamResult: Decodable, Sendable {
@@ -705,19 +702,6 @@ private struct ClaimInviteRequest: Encodable, Sendable {
 }
 
 // MARK: - Business response DTOs
-
-private struct CloudBootstrap: Decodable, Sendable {
-    let memberActorId: String?
-    let teams: [CloudBootstrapTeam]
-    let memberActorIdByTeam: [String: String]?
-}
-
-private struct CloudBootstrapTeam: Decodable, Sendable {
-    let id: String
-    let name: String
-    let slug: String?
-    let role: String?
-}
 
 private struct CloudTeam: Decodable, Sendable {
     let id: String

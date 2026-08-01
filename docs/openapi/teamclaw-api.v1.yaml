@@ -3767,41 +3767,6 @@ paths:
           $ref: "#/components/responses/Error"
         "401":
           $ref: "#/components/responses/Error"
-  /v1/me/bootstrap:
-    get:
-      operationId: getMeBootstrap
-      summary: Member actor + team memberships for the authenticated user
-      description: |
-        Returns the caller's member-actor id, the teams they belong to, and a
-        per-team member-actor map. Backs the iOS onboarding bootstrap that
-        previously read actors + team_members directly from Supabase.
-      tags: [Config]
-      responses:
-        "200":
-          description: Bootstrap payload.
-          content:
-            application/json:
-              schema:
-                type: object
-                required: [memberActorId, teams, memberActorIdByTeam]
-                properties:
-                  memberActorId:
-                    type: [string, "null"]
-                  teams:
-                    type: array
-                    items:
-                      type: object
-                      required: [id, name, role]
-                      properties:
-                        id: { type: string }
-                        name: { type: string }
-                        slug: { type: [string, "null"] }
-                        role: { type: string }
-                  memberActorIdByTeam:
-                    type: object
-                    additionalProperties: { type: string }
-        "401":
-          $ref: "#/components/responses/Error"
   /v1/apps:
     get:
       operationId: listApps

@@ -8,19 +8,17 @@ import {
 /**
  * Cloud-only onboarding/auth API. Backed by the Cloud API auth facade
  * (`CloudAuthClient`): auth flows hit FC `/v1/auth/*`, business reads hit
- * `/v1/me/bootstrap` + `POST /v1/teams`. Mirrors iOS `CloudAPIAppOnboardingStore`.
+ * `GET /v1/teams` and team activation. Mirrors iOS
+ * `CloudAPIAppOnboardingStore`.
  *
  * The `client` parameter is the same `supabase` facade the rest of the app
  * imports — kept as an injected dependency so tests can substitute fakes.
  */
 
-type BootstrapTeam = { id: string; name: string; slug?: string | null; role?: string | null };
-type CloudBootstrap = {
-  memberActorId?: string | null;
-  teams?: BootstrapTeam[];
-  memberActorIdByTeam?: Record<string, string> | null;
-};
+type CloudTeamPage = { items?: CloudTeam[] };
 type CloudTeam = { id: string; name: string; slug?: string | null };
+type MembershipTeam = CloudTeam & { role?: string | null; isMember?: boolean };
+type TeamActivation = { actorId?: string | null; refreshToken: string };
 
 export function createOnboardingApi(client: CloudAuthClient) {
   return {
@@ -35,14 +33,19 @@ export function createOnboardingApi(client: CloudAuthClient) {
         return { isAnonymous: false, team: null, memberActorId: null };
       }
 
-      const dto = await client.api.get<CloudBootstrap>("/v1/me/bootstrap");
+      const dto = await client.api.get<CloudTeamPage>("/v1/teams");
       const isAnonymous = Boolean(session.user.is_anonymous);
-      const firstTeam = dto.teams?.[0] ?? null;
+      const firstTeam = (dto.items as MembershipTeam[] | undefined)?.find((team) => team.isMember !== false) ?? null;
       if (!firstTeam) {
         return { isAnonymous, team: null, memberActorId: null };
       }
-      const memberActorId =
-        dto.memberActorIdByTeam?.[firstTeam.id] ?? dto.memberActorId ?? null;
+      const activation = await client.api.post<TeamActivation>(
+        `/v1/teams/${encodeURIComponent(firstTeam.id)}/activate`,
+      );
+      if (activation.refreshToken) {
+        const result = await client.auth.setRefreshSession(activation.refreshToken);
+        if (result.error) throw new Error(result.error.message);
+      }
       return {
         isAnonymous,
         team: {
@@ -51,7 +54,7 @@ export function createOnboardingApi(client: CloudAuthClient) {
           slug: firstTeam.slug ?? "",
           role: firstTeam.role ?? "member",
         },
-        memberActorId,
+        memberActorId: activation.actorId ?? null,
       };
     },
 
@@ -96,10 +99,10 @@ export function createOnboardingApi(client: CloudAuthClient) {
       if (!team?.id) {
         throw new Error("create team returned no team id");
       }
-      // POST /v1/teams returns only the team row; resolve role via bootstrap
-      // (mirrors iOS — the FC endpoint does not echo membership back).
-      const dto = await client.api.get<CloudBootstrap>("/v1/me/bootstrap");
-      const role = (dto.teams ?? []).find((t) => t.id === team.id)?.role ?? "owner";
+      // POST /v1/teams returns only the team row; membership is available from
+      // the canonical team listing rather than a synthetic /me bootstrap.
+      const dto = await client.api.get<CloudTeamPage>("/v1/teams");
+      const role = (dto.items as MembershipTeam[] | undefined)?.find((t) => t.id === team.id)?.role ?? "owner";
       return {
         id: team.id,
         name: team.name,

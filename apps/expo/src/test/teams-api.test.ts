@@ -28,28 +28,26 @@ function lastCall(fetchImpl: ReturnType<typeof vi.fn>) {
 }
 
 describe("createTeamsApi", () => {
-  it("lists memberships from /v1/me/bootstrap", async () => {
+  it("lists memberships from the canonical cross-org team listing", async () => {
     const fetchImpl = vi.fn().mockResolvedValue(
       jsonResponse({
-        memberActorId: "actor-1",
-        teams: [
-          { id: "team-1", name: "Alpha", slug: "alpha", role: "owner" },
-          { id: "team-2", name: null, slug: null, role: null },
+        items: [
+          { id: "team-1", name: "Alpha", slug: "alpha", role: "owner", isMember: true },
+          { id: "team-2", name: null, slug: null, role: null, isMember: true },
+          { id: "team-public", name: "Public", slug: "public", role: null, isMember: false },
         ],
-        memberActorIdByTeam: { "team-1": "actor-1", "team-2": "actor-2" },
       }),
     );
     const api = makeApi(fetchImpl);
 
-    const { memberships, memberActorIdByTeam } = await api.listMemberships();
+    const { memberships } = await api.listMemberships();
 
     expect(memberships).toEqual([
       { teamId: "team-1", name: "Alpha", slug: "alpha", role: "owner" },
       { teamId: "team-2", name: "Unnamed team", slug: "", role: "member" },
     ]);
-    expect(memberActorIdByTeam).toEqual({ "team-1": "actor-1", "team-2": "actor-2" });
     const { url, init } = lastCall(fetchImpl);
-    expect(url).toBe(`${BASE}/v1/me/bootstrap`);
+    expect(url).toBe(`${BASE}/v1/teams?scope=all`);
     expect(init.method).toBe("GET");
     expect(new Headers(init.headers ?? {}).get("Authorization")).toBe("Bearer token-123");
   });

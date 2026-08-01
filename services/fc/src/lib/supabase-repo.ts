@@ -1862,47 +1862,6 @@ export function createSupabaseBusinessRepository(options) {
     // --- Team workspace git config (separate column set from
     // existing default/pinned workspace config) ---
 
-    async getMeBootstrap() {
-      const { data: userData, error: userErr } = await supabase.auth.getUser();
-      if (userErr) throw userErr;
-      const userId = userData?.user?.id;
-      if (!userId) {
-        throw new ApiError(401, "unauthorized", "no authenticated user");
-      }
-      const { data: actorRows, error: actorErr } = await supabase
-        .from("actors")
-        .select("id")
-        .eq("user_id", userId)
-        .eq("actor_type", "member");
-      if (actorErr) throw actorErr;
-      const actorIds = (actorRows ?? []).map((r) => r.id);
-      if (actorIds.length === 0) {
-        return { memberActorId: null, teams: [], memberActorIdByTeam: {} };
-      }
-      const { data: memberRows, error: memberErr } = await supabase
-        .from("team_members")
-        .select("role, member_id, teams!inner(id, name, slug)")
-        .in("member_id", actorIds);
-      if (memberErr) throw memberErr;
-      const seenTeam = new Map();
-      const memberByTeam = {};
-      for (const m of memberRows ?? []) {
-        const t = m.teams;
-        if (!t?.id) continue;
-        if (!seenTeam.has(t.id)) {
-          seenTeam.set(t.id, { id: t.id, name: t.name, slug: t.slug, role: m.role });
-        }
-        memberByTeam[t.id] = m.member_id;
-      }
-      const teams = Array.from(seenTeam.values());
-      const primary = teams[0] ? memberByTeam[teams[0].id] : null;
-      return {
-        memberActorId: primary ?? null,
-        teams,
-        memberActorIdByTeam: memberByTeam,
-      };
-    },
-
     async listTeamSessionsFull(teamId) {
       const FULL_COLUMNS =
         "id, team_id, title, mode, primary_agent_id, idea_id, summary, last_message_preview, last_message_at, created_by_actor_id, source, cron_job_id, created_at, updated_at";
@@ -2995,4 +2954,3 @@ export function createSupabaseBusinessRepository(options) {
     },
   };
 }
-

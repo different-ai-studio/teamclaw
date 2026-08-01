@@ -16,17 +16,16 @@ type CreateTeamsApiOptions = {
   fetchImpl?: typeof fetch;
 };
 
-type BootstrapTeam = {
+type ListedTeam = {
   id: string;
   name: string | null;
   slug: string | null;
   role: string | null;
+  isMember?: boolean;
 };
 
-type BootstrapResponse = {
-  memberActorId: string | null;
-  teams?: BootstrapTeam[];
-  memberActorIdByTeam?: Record<string, string>;
+type ListTeamsResponse = {
+  items?: ListedTeam[];
 };
 
 export function createTeamsApi(options: CreateTeamsApiOptions) {
@@ -38,25 +37,21 @@ export function createTeamsApi(options: CreateTeamsApiOptions) {
 
   return {
     /**
-     * The current user's team memberships. Sourced from /v1/me/bootstrap,
-     * which resolves the caller's member actor across teams (mirrors the old
-     * `team_members join teams` query, server-side and RLS-scoped).
+     * The current user's team memberships, from the canonical cross-org
+     * team listing. Actor IDs are deliberately team-contextual and come from
+     * `POST /v1/teams/{teamId}/activate`, not this list.
      */
     async listMemberships(): Promise<{
       memberships: TeamMembership[];
-      memberActorIdByTeam: Record<string, string>;
     }> {
-      const data = await client.get<BootstrapResponse>("/v1/me/bootstrap");
-      const memberships = (data.teams ?? []).map((team) => ({
+      const data = await client.get<ListTeamsResponse>("/v1/teams?scope=all");
+      const memberships = (data.items ?? []).filter((team) => team.isMember !== false).map((team) => ({
         teamId: team.id,
         name: team.name ?? "Unnamed team",
         slug: team.slug ?? "",
         role: team.role ?? "member",
       }));
-      return {
-        memberships,
-        memberActorIdByTeam: data.memberActorIdByTeam ?? {},
-      };
+      return { memberships };
     },
 
     async renameTeam(teamId: string, name: string): Promise<void> {
