@@ -35,7 +35,6 @@ as $$
       from public.users u
      where u.org_id is not null
        and (u.id = auth.uid() or u.auth_user_id = auth.uid())
-       and coalesce(u.deleted_at, null) is null
     union
     select distinct t.oid
       from amux.actors a
