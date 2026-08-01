@@ -24,12 +24,16 @@ jobs:
           FC_SUPABASE_PUBLIC_URL: ${{ secrets.FC_SUPABASE_PUBLIC_URL }}
           FC_SUPABASE_ANON_KEY: ${{ secrets.FC_SUPABASE_ANON_KEY }}
           FC_SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.FC_SUPABASE_SERVICE_ROLE_KEY }}
+          BELAYO_TEST_RDS_PRIVATE_HOST: ${{ secrets.BELAYO_TEST_RDS_PRIVATE_HOST }}
+          BELAYO_TEST_RDS_PORT: ${{ secrets.BELAYO_TEST_RDS_PORT }}
+          BELAYO_TEST_RDS_USER: ${{ secrets.BELAYO_TEST_RDS_USER }}
+          BELAYO_TEST_RDS_PASSWORD: ${{ secrets.BELAYO_TEST_RDS_PASSWORD }}
         with:
           host: ${{ secrets.ECS_HOST }}
           username: ${{ secrets.ECS_USER }}
           key: ${{ secrets.ECS_SSH_PRIVATE_KEY }}
           command_timeout: 30m
-          envs: DEEPSEEK_API_KEY,TRUSTED_EXTERNAL_JWT_SECRET,FC_SUPABASE_URL,FC_SUPABASE_PUBLIC_URL,FC_SUPABASE_ANON_KEY,FC_SUPABASE_SERVICE_ROLE_KEY
+          envs: DEEPSEEK_API_KEY,TRUSTED_EXTERNAL_JWT_SECRET,FC_SUPABASE_URL,FC_SUPABASE_PUBLIC_URL,FC_SUPABASE_ANON_KEY,FC_SUPABASE_SERVICE_ROLE_KEY,BELAYO_TEST_RDS_PRIVATE_HOST,BELAYO_TEST_RDS_PORT,BELAYO_TEST_RDS_USER,BELAYO_TEST_RDS_PASSWORD
           script: |
             set -e
             cd /opt/teamclaw
@@ -73,6 +77,37 @@ jobs:
             upsert_env FC_SUPABASE_PUBLIC_URL "$FC_SUPABASE_PUBLIC_URL"
             upsert_env FC_SUPABASE_ANON_KEY "$FC_SUPABASE_ANON_KEY"
             upsert_env FC_SUPABASE_SERVICE_ROLE_KEY "$FC_SUPABASE_SERVICE_ROLE_KEY"
+
+            if [ -n "$FC_SUPABASE_URL" ]; then
+              echo "=== migrate external Supabase team onboarding ==="
+              [ -n "$BELAYO_TEST_RDS_PRIVATE_HOST" ] || { echo "missing BELAYO_TEST_RDS_PRIVATE_HOST"; exit 1; }
+              [ -n "$BELAYO_TEST_RDS_USER" ] || { echo "missing BELAYO_TEST_RDS_USER"; exit 1; }
+              [ -n "$BELAYO_TEST_RDS_PASSWORD" ] || { echo "missing BELAYO_TEST_RDS_PASSWORD"; exit 1; }
+              docker run --rm --network host \
+                -e PGPASSWORD="$BELAYO_TEST_RDS_PASSWORD" \
+                -e PGHOST="$BELAYO_TEST_RDS_PRIVATE_HOST" \
+                -e PGPORT="${BELAYO_TEST_RDS_PORT:-5432}" \
+                -e PGUSER="$BELAYO_TEST_RDS_USER" \
+                -e PGDATABASE=supabase_db \
+                -v "$PWD/../../services/supabase/migrations:/migrations:ro" \
+                postgres:15-alpine sh -ceu '
+                  for migration in \
+                    20260618010000_upgrade_account_to_org.sql \
+                    20260618020000_bind_phone_to_account.sql \
+                    20260630000000_add_team_default_agent.sql \
+                    20260706000000_org_default_team_onboarding.sql \
+                    20260715000000_invite_contact_pending.sql \
+                    20260723000000_team_visibility.sql \
+                    20260727030000_detach_gateway_session.sql \
+                    20260728000000_gateway_session_switch.sql \
+                    20260801000000_prefer_org_named_team_on_onboarding.sql \
+                    20260801010000_team_bootstrap_and_discovery.sql
+                  do
+                    echo "apply external migration: $migration"
+                    psql -v ON_ERROR_STOP=1 -f "/migrations/$migration"
+                  done
+                '
+            fi
             # Point FC at the bundled gateway explicitly. Left blank, FC's client
             # falls back to the hosted https://ai.ucar.cc.
             upsert_env LITELLM_URL "http://litellm:4000"
@@ -128,8 +163,19 @@ jobs:
             sh /opt/teamclaw/deploy/self-host/smoke/litellm-smoke.sh
 
             echo "=== e2e verification ==="
-            cd /opt/teamclaw/services/fc
-            npm ci --prefer-offline --silent
-            sh /opt/teamclaw/deploy/self-host/smoke/run-e2e.sh
+            if [ -n "$FC_SUPABASE_URL" ]; then
+              curl --fail --silent --show-error --max-time 15 \
+                -H "apikey: $FC_SUPABASE_SERVICE_ROLE_KEY" \
+                -H "Authorization: Bearer $FC_SUPABASE_SERVICE_ROLE_KEY" \
+                -H "Content-Profile: amux" \
+                -H "Content-Type: application/json" \
+                --data '{"p_default_org_id":null}' \
+                "$FC_SUPABASE_URL/rest/v1/rpc/list_teams_for_picker" >/dev/null
+              echo "external Supabase RPC smoke: OK"
+            else
+              cd /opt/teamclaw/services/fc
+              npm ci --prefer-offline --silent
+              sh /opt/teamclaw/deploy/self-host/smoke/run-e2e.sh
+            fi
 
             echo "=== deploy complete ==="
