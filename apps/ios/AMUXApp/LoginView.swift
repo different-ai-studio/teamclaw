@@ -6,11 +6,12 @@ import AMUXCore
 struct LoginView: View {
     @Bindable var coordinator: AppOnboardingCoordinator
     @State private var email = ""
+    @State private var password = ""
     @State private var phone = "+86"
     @State private var code = ""
     @State private var loginMethod: LoginMethod = .email
 
-    private enum LoginMethod: Hashable { case email, phone }
+    private enum LoginMethod: Hashable { case email, password, phone }
 
     /// True once either an email or phone code has been requested.
     private var isCodeStep: Bool {
@@ -28,6 +29,8 @@ struct LoginView: View {
                     methodPicker
                     if loginMethod == .email {
                         emailEntrySection
+                    } else if loginMethod == .password {
+                        passwordEntrySection
                     } else {
                         phoneEntrySection
                     }
@@ -162,7 +165,9 @@ struct LoginView: View {
         }
         return loginMethod == .phone
             ? "We'll text you a 6-digit code."
-            : "We'll email you a 6-digit code."
+            : loginMethod == .password
+                ? "Use your email and password to sign in."
+                : "We'll email you a 6-digit code."
     }
 
     // MARK: - Method picker
@@ -170,6 +175,7 @@ struct LoginView: View {
     private var methodPicker: some View {
         Picker("Sign-in method", selection: $loginMethod) {
             Text("Email").tag(LoginMethod.email)
+            Text("Password").tag(LoginMethod.password)
             Text("Phone").tag(LoginMethod.phone)
         }
         .pickerStyle(.segmented)
@@ -208,6 +214,31 @@ struct LoginView: View {
 
             primaryButton(title: "Send code", enabled: !email.isEmpty) {
                 Task { await coordinator.sendEmailOTP(email: email) }
+            }
+        }
+    }
+
+    // MARK: - Email/password entry
+
+    private var passwordEntrySection: some View {
+        VStack(spacing: 12) {
+            authField {
+                TextField("Email", text: $email)
+                    .textContentType(.username)
+                    .keyboardType(.emailAddress)
+                    .autocapitalization(.none)
+                    .autocorrectionDisabled()
+                    .accessibilityIdentifier("login.emailField")
+            }
+
+            authField {
+                SecureField("Password", text: $password)
+                    .textContentType(.password)
+                    .accessibilityIdentifier("login.passwordField")
+            }
+
+            primaryButton(title: "Sign in", enabled: !email.isEmpty && !password.isEmpty) {
+                Task { await coordinator.signIn(email: email, password: password) }
             }
         }
     }

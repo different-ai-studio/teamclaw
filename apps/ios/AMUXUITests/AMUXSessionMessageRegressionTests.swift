@@ -223,6 +223,9 @@ final class AMUXSessionMessageRegressionTests: XCTestCase {
         XCTAssertTrue(getStarted.waitForExistence(timeout: 6))
         getStarted.tap()
 
+        let methodPicker = app.segmentedControls["login.methodPicker"]
+        XCTAssertTrue(methodPicker.waitForExistence(timeout: 3))
+        methodPicker.buttons["Password"].tap()
         let emailField = app.textFields["login.emailField"]
         XCTAssertTrue(emailField.waitForExistence(timeout: 5))
         emailField.tap()
