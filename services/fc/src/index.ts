@@ -145,41 +145,14 @@ export function makeBusinessRepoFactory(
       });
     };
   }
-  // Supabase data-plane requests normally carry a local GoTrue token. Some
-  // deployments instead use a trusted external (Betly) JWT. When the latter
-  // verifies at the FC boundary, pass its identity to the repository so team
-  // bootstrap does not ask TeamClaw's GoTrue to re-validate that foreign token.
-  // A GoTrue token is intentionally left to the existing Supabase/RLS path.
-  return async ({ accessToken }: { accessToken: string }) => {
-    let caller:
-      | {
-          id: string;
-          isAnonymous: boolean;
-          appMetadata: Record<string, unknown>;
-        }
-      | undefined;
-    try {
-      const claims = await verifyAccessToken(accessToken, verifyOpts ?? {});
-      const appMetadata = claims.app_metadata;
-      caller = {
-        id: claims.sub,
-        isAnonymous: claims.is_anonymous === true || claims.isAnonymous === true,
-        appMetadata: appMetadata && typeof appMetadata === "object" ? (appMetadata as Record<string, unknown>) : {},
-      };
-    } catch {
-      // verifyAccessToken validates Better Auth's trusted JWTs, not GoTrue's
-      // local signing key. The repository continues to authenticate a normal
-      // self-hosted Supabase bearer through auth.getUser() and RLS.
-    }
-    return createSupabaseBusinessRepository({
+  return ({ accessToken }: { accessToken: string }) =>
+    createSupabaseBusinessRepository({
       supabaseUrl: SUPABASE_URL_FN(),
       supabasePublicUrl: SUPABASE_PUBLIC_URL_FN(),
       publishableKey: SUPABASE_PUBLISHABLE_KEY(),
       accessToken,
-      caller,
       ...makeDeployDeps(),
     });
-  };
 }
 
 // The single Hono app owns ALL routing (OPTIONS, /v1, /sync, admin, 404, 500,

@@ -206,10 +206,14 @@ services:
       PORT: "9000"
       HOST: "0.0.0.0"
       BACKEND_KIND: "${BACKEND_KIND:-supabase}"
-      SUPABASE_URL: "http://kong:8000"
-      SUPABASE_PUBLIC_URL: "https://${SUPABASE_DOMAIN}"
-      SUPABASE_ANON_KEY: "${ANON_KEY}"
-      SUPABASE_SERVICE_ROLE_KEY: "${SERVICE_ROLE_KEY}"
+      # FC may target a separately hosted Supabase project. Keep the bundled
+      # stack and its volumes untouched as the fallback / rollback path.
+      FC_SUPABASE_URL: "${FC_SUPABASE_URL:-}"
+      SUPABASE_URL: "${FC_SUPABASE_URL:-http://kong:8000}"
+      SUPABASE_PUBLIC_URL: "${FC_SUPABASE_PUBLIC_URL:-https://${SUPABASE_DOMAIN}}"
+      SUPABASE_ANON_KEY: "${FC_SUPABASE_ANON_KEY:-${ANON_KEY}}"
+      TRUSTED_EXTERNAL_JWT_SECRET: "${TRUSTED_EXTERNAL_JWT_SECRET:-}"
+      SUPABASE_SERVICE_ROLE_KEY: "${FC_SUPABASE_SERVICE_ROLE_KEY:-${SERVICE_ROLE_KEY}}"
       # The ONE broker address: FC's own inbox publisher dials it AND
       # /v1/config/bootstrap hands it to clients. The separate
       # MQTT_PUBLIC_BROKER_URL override is gone (it defaulted to "", `""` is not
