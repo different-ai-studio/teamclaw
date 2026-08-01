@@ -28,7 +28,7 @@ jobs:
               -e PGHOST="$BELAYO_TEST_RDS_PRIVATE_HOST" \
               -e PGPORT="${BELAYO_TEST_RDS_PORT:-5432}" \
               -e PGUSER="$BELAYO_TEST_RDS_USER" \
-              -e PGDATABASE=postgres \
+              -e PGDATABASE=supabase_db \
               postgres:15-alpine sh -ceu '
                 if [ -n "$(psql -Atc "select to_regclass('"'"'_selfhost.schema_migrations'"'"')")" ]; then
                   psql -Atc "select '"'"'MIGRATION:'"'"' || filename from _selfhost.schema_migrations order by filename"
