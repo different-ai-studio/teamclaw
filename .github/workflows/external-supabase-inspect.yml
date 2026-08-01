@@ -35,6 +35,8 @@ jobs:
                 else
                   echo MIGRATION_MARKER_ABSENT
                 fi
+                psql -Atc "select '"'"'DATABASE:'"'"' || datname from pg_database where datallowconn order by datname"
+                psql -Atc "select '"'"'SCHEMA:'"'"' || nspname from pg_namespace order by nspname"
                 psql -Atc "select '"'"'TABLE:'"'"' || schemaname || '"'"'.'"'"' || tablename from pg_tables where schemaname in ('"'"'amux'"'"', '"'"'auth'"'"', '"'"'public'"'"') order by 1"
                 psql -Atc "select '"'"'RPC:'"'"' || n.nspname || '"'"'.'"'"' || p.proname || '"'"'('"'"' || pg_get_function_identity_arguments(p.oid) || '"'"')'"'"' from pg_proc p join pg_namespace n on n.oid = p.pronamespace where n.nspname = '"'"'amux'"'"' order by 1"
               '
