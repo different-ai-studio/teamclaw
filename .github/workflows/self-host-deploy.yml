@@ -97,7 +97,9 @@ jobs:
                     20260630000000_add_team_default_agent.sql \
                     20260706000000_org_default_team_onboarding.sql \
                     20260715000000_invite_contact_pending.sql \
+                    20260723000000_sessions_source_cron_job_id.sql \
                     20260723000000_team_visibility.sql \
+                    20260727000000_sessions_source_read_path.sql \
                     20260727030000_detach_gateway_session.sql \
                     20260728000000_gateway_session_switch.sql \
                     20260801000000_prefer_org_named_team_on_onboarding.sql \
