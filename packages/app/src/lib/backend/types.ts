@@ -61,6 +61,7 @@ export interface AuthBackend {
   /** Log in as a specific user when the phone is linked to multiple accounts. */
   loginWithPhoneUser(phone: string, code: string, userId: string): Promise<AuthSession | null>;
   signInAnonymously(): Promise<AuthSession | null>;
+  signInWithPassword(email: string, password: string): Promise<AuthSession | null>;
   signInWithOAuth(provider: OAuthProvider): Promise<AuthSession | null>;
   signOut(): Promise<void>;
   claimInvite(token: string): Promise<AuthClaimResult>;

@@ -64,6 +64,7 @@ interface AuthState {
   verifyPhoneOtp: (code: string) => Promise<void>;
   resetOtp: () => void;
   signInAnonymously: () => Promise<boolean>;
+  signInWithPassword: (email: string, password: string) => Promise<boolean>;
   signInWithOAuth: (provider: OAuthProvider) => Promise<boolean>;
   cancelOAuth: () => void;
   claimInvite: (token: string) => Promise<AuthClaimResult | null>;
@@ -313,6 +314,21 @@ export const useAuthStore = create<AuthState>((set, get) => ({
       return false;
     }
     return true;
+  },
+  signInWithPassword: async (email, password) => {
+    if (!hasBackendConfig()) {
+      set({ loading: false, errorMessage: BACKEND_CONFIG_MISSING_MESSAGE });
+      return false;
+    }
+    set({ loading: true, authFlow: "idle", errorMessage: null });
+    try {
+      const session = await getBackend().auth.signInWithPassword(email, password);
+      set({ session: storeSession(session), loading: false, otpEmail: null, otpPhone: null });
+      return true;
+    } catch (error) {
+      set({ loading: false, errorMessage: errorMessageFor(error) });
+      return false;
+    }
   },
   signInWithOAuth: async (provider) => {
     if (!hasBackendConfig()) {

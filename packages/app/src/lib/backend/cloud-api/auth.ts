@@ -70,6 +70,10 @@ export function createAuthModule(
       const next = await authClient.signInAnonymously();
       return mapSession(next);
     },
+    async signInWithPassword(email: string, password: string): Promise<AuthSession | null> {
+      const next = await authClient.signInWithPassword(email, password);
+      return mapSession(next);
+    },
     async signInWithOAuth(provider: OAuthProvider): Promise<AuthSession | null> {
       const next = await runDesktopOAuth(authClient, provider);
       return mapSession(next);
