@@ -33,12 +33,12 @@ final class AMUXAuthUITests: XCTestCase {
         app = nil
     }
 
-    // MARK: - Sign-up navigation
+    // MARK: - Password sign-in navigation
 
-    /// Verifies the onboarding UI path: WelcomeView → "Get Started" → LoginView → toggle to sign-up mode.
-    /// Does not submit to Supabase; validates that the form is reachable and the toggle works.
+    /// Verifies the onboarding UI path: WelcomeView → "Get Started" → LoginView → password mode.
+    /// Does not submit; validates that the password form is reachable and enables correctly.
     @MainActor
-    func testSignUpFormIsReachable() throws {
+    func testPasswordSignInFormIsReachable() throws {
         // If already logged in the welcome screen won't appear — that's fine.
         let getStarted = app.buttons["welcome.getStartedButton"]
         guard getStarted.waitForExistence(timeout: 6) else {
@@ -50,10 +50,9 @@ final class AMUXAuthUITests: XCTestCase {
         let emailField = app.textFields["login.emailField"]
         XCTAssertTrue(emailField.waitForExistence(timeout: 5), "Email field should appear on LoginView")
 
-        // Toggle to sign-up mode
-        let toggleButton = app.buttons["login.toggleModeButton"]
-        XCTAssertTrue(toggleButton.waitForExistence(timeout: 3))
-        toggleButton.tap()
+        let methodPicker = app.segmentedControls["login.methodPicker"]
+        XCTAssertTrue(methodPicker.waitForExistence(timeout: 3))
+        methodPicker.buttons["Password"].tap()
 
         // Submit button should be disabled until both fields are filled
         let submitButton = app.buttons["login.submitButton"]
@@ -96,6 +95,9 @@ final class AMUXAuthUITests: XCTestCase {
         XCTAssertTrue(getStarted.waitForExistence(timeout: 6), "WelcomeView should appear when not authenticated")
         getStarted.tap()
 
+        let methodPicker = app.segmentedControls["login.methodPicker"]
+        XCTAssertTrue(methodPicker.waitForExistence(timeout: 3))
+        methodPicker.buttons["Password"].tap()
         let emailField = app.textFields["login.emailField"]
         XCTAssertTrue(emailField.waitForExistence(timeout: 5))
         emailField.tap()
@@ -135,6 +137,9 @@ final class AMUXAuthUITests: XCTestCase {
             XCTAssertTrue(getStarted.waitForExistence(timeout: 6))
             getStarted.tap()
 
+            let methodPicker = app.segmentedControls["login.methodPicker"]
+            XCTAssertTrue(methodPicker.waitForExistence(timeout: 3))
+            methodPicker.buttons["Password"].tap()
             let emailField = app.textFields["login.emailField"]
             XCTAssertTrue(emailField.waitForExistence(timeout: 5))
             emailField.tap()

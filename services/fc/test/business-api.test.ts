@@ -434,23 +434,6 @@ test("POST /v1/auth/signin-idtoken rejects missing idToken", async () => {
   assert.equal(JSON.parse(response.body).error.code, "validation_failed");
 });
 
-test("GET /v1/me/bootstrap returns member actor + teams", async () => {
-  const repo = fakeRepo();
-  const response = await handleBusinessApiRequest({
-    httpMethod: "GET",
-    path: "/v1/me/bootstrap",
-    headers: { Authorization: "Bearer token" },
-  }, { createRepository: () => repo });
-
-  assert.equal(response.statusCode, 200);
-  const parsed = JSON.parse(response.body);
-  assert.equal(parsed.memberActorId, "actor-1");
-  assert.equal(parsed.teams[0].id, "team-1");
-  assert.equal(parsed.teams[0].orgId, "org-1");
-  assert.equal(parsed.memberActorIdByTeam["team-1"], "actor-1");
-  assert.deepEqual(repo.calls[0], { method: "getMeBootstrap" });
-});
-
 test("repository Supabase errors are normalized", async () => {
   const response = await handleBusinessApiRequest({
     httpMethod: "GET",
@@ -1834,7 +1817,6 @@ function fakeRepo({ sessions = [], error = null, teamWorkspaceConfigs = {}, work
     async markSessionUnread(sessionId) { calls.push({ method: "markSessionUnread", sessionId }); if (error) throw error; },
     async listTeamSessionsFull(teamId) { calls.push({ method: "listTeamSessionsFull", teamId }); if (error) throw error; return [{ id: "session-1", teamId, title: "T", mode: "solo", ideaId: null, primaryAgentId: "agent-1", createdByActorId: "actor-1", summary: "s", lastMessageAt: null, lastMessagePreview: null, participantCount: 3, hasUnread: false, createdAt: "2026-05-27T01:00:00Z", updatedAt: "2026-05-27T01:00:00Z" }]; },
     async listAgentRuntimesForTeam(teamId) { calls.push({ method: "listAgentRuntimesForTeam", teamId }); if (error) throw error; return [{ id: "rt-1", teamId, agentId: "agent-1", sessionId: "session-1", workspaceId: null, backendType: "claude_code", status: "ready", backendSessionId: "bs-1", runtimeId: "rt12abcd", currentModel: "claude-opus-4-7", lastSeenAt: "2026-05-27T01:00:00Z", createdAt: "2026-05-27T00:00:00Z", updatedAt: "2026-05-27T01:00:00Z" }]; },
-    async getMeBootstrap() { calls.push({ method: "getMeBootstrap" }); if (error) throw error; return { memberActorId: "actor-1", teams: [{ id: "team-1", name: "Team", slug: "team", role: "owner", orgId: "org-1" }], memberActorIdByTeam: { "team-1": "actor-1" } }; },
     async listSessionParticipants(sessionId) { calls.push({ method: "listSessionParticipants", sessionId }); if (error) throw error; const store = sessions.length > 0 ? sessions : sessionStore; const s = store.find(s => s.id === sessionId); return { items: s?.participants ?? [] }; },
     async upsertSessionParticipant(sessionId, input) { calls.push({ method: "upsertSessionParticipant", sessionId, input }); if (error) throw error; const store = sessions.length > 0 ? sessions : sessionStore; const s = store.find(s => s.id === sessionId); const existing = s?.participants?.find(p => p.actorId === input.actorId); if (existing) { existing.role = input.role ?? existing.role; return existing; } const newP = { sessionId, actorId: input.actorId, role: input.role ?? "member", joinedAt: null }; if (s) s.participants.push(newP); return newP; },
     async removeSessionParticipant(sessionId, actorId) { calls.push({ method: "removeSessionParticipant", sessionId, actorId }); if (error) throw error; const store = sessions.length > 0 ? sessions : sessionStore; const s = store.find(s => s.id === sessionId); if (s?.participants) s.participants = s.participants.filter(p => p.actorId !== actorId); },

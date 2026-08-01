@@ -566,8 +566,11 @@ public final class AppOnboardingCoordinator {
             // A remembered / explicitly-requested team always wins — skip the picker.
             if let preferred,
                let team = bootstrap.teams.first(where: { $0.id == preferred }) {
-                let memberActorID = bootstrap.memberActorIDByTeam[team.id] ?? bootstrap.memberActorID
-                if let memberActorID {
+                let result = try await store.switchActiveTeam(teamID: team.id)
+                if !result.refreshToken.isEmpty {
+                    try await store.setSession(refreshToken: result.refreshToken)
+                }
+                if let memberActorID = result.actorID ?? bootstrap.memberActorIDByTeam[team.id] ?? bootstrap.memberActorID {
                     setCurrentContext(AppContext(team: team, memberActorID: memberActorID))
                     route = .ready
                     return
@@ -587,11 +590,16 @@ public final class AppOnboardingCoordinator {
             }
 
             // Exactly one team — adopt it directly.
-            if let team = bootstrap.teams.first,
-               let memberActorID = bootstrap.memberActorIDByTeam[team.id] ?? bootstrap.memberActorID {
-                setCurrentContext(AppContext(team: team, memberActorID: memberActorID))
-                route = .ready
-                return
+            if let team = bootstrap.teams.first {
+                let result = try await store.switchActiveTeam(teamID: team.id)
+                if !result.refreshToken.isEmpty {
+                    try await store.setSession(refreshToken: result.refreshToken)
+                }
+                if let memberActorID = result.actorID ?? bootstrap.memberActorIDByTeam[team.id] ?? bootstrap.memberActorID {
+                    setCurrentContext(AppContext(team: team, memberActorID: memberActorID))
+                    route = .ready
+                    return
+                }
             }
 
             // No team yet. Auto-create one after invite handling so newly

@@ -48,6 +48,32 @@ struct ReducerStreamingOutputTests {
         #expect(state.streamingTextByAgent["agent-1"] == "Hello, world")
     }
 
+    @Test("a new turn discards a stale buffer when the prior idle was missed")
+    func newTurnResetsStaleBuffer() {
+        var state = TimelineState()
+
+        var oldDelta = Amux_AcpEvent()
+        oldDelta.event = .output(makeOutput(text: "old reply", isComplete: false))
+        ChatTimelineReducer.apply(
+            .acp(AcpInput(envelopeSequence: 1, runtimeID: "rt-1",
+                          agentBucketKey: "agent-1", timestamp: .now,
+                          turnID: "turn-old", acpEvent: oldDelta)),
+            to: &state
+        )
+
+        var newDelta = Amux_AcpEvent()
+        newDelta.event = .output(makeOutput(text: "new reply", isComplete: false))
+        ChatTimelineReducer.apply(
+            .acp(AcpInput(envelopeSequence: 2, runtimeID: "rt-1",
+                          agentBucketKey: "agent-1", timestamp: .now,
+                          turnID: "turn-new", acpEvent: newDelta)),
+            to: &state
+        )
+
+        #expect(state.streamingTextByAgent["agent-1"] == "new reply")
+        #expect(state.streamingTurnIDByAgent["agent-1"] == "turn-new")
+    }
+
     @Test("complete output finalises the stream and clears the buffer")
     func completeFinalises() {
         var state = TimelineState()
@@ -150,6 +176,32 @@ struct ReducerStreamingOutputTests {
         #expect(state.streamingTextByAgent["agent-a"] == "A: hi")
         #expect(state.streamingTextByAgent["agent-b"] == "B: ",
                 "second agent's buffer must not be touched by agent-a's deltas")
+    }
+}
+
+@Suite("Session detail stale prefix repair")
+struct SessionDetailStalePrefixRepairTests {
+    @Test("removes a previous reply copied in front of a new segment")
+    @MainActor
+    func removesCopiedPrefix() {
+        let repaired = SessionDetailViewModel.removingStaleStreamingPrefix(
+            from: "old reply\n\nnew answer",
+            previousText: "old reply"
+        )
+        #expect(repaired == "new answer")
+    }
+
+    @Test("does not alter equal or unrelated replies")
+    @MainActor
+    func leavesLegitimateRepliesAlone() {
+        #expect(SessionDetailViewModel.removingStaleStreamingPrefix(
+            from: "old reply",
+            previousText: "old reply"
+        ) == nil)
+        #expect(SessionDetailViewModel.removingStaleStreamingPrefix(
+            from: "a fresh answer",
+            previousText: "old reply"
+        ) == nil)
     }
 }
 
@@ -824,6 +876,30 @@ struct ReducerHistoryTurnMergeTests {
 
 @Suite("ChatTimelineReducer — ACP turn-id dedupe")
 struct ReducerAcpTurnIDDedupeTests {
+    @Test("history completion replays even when its sequence already exists")
+    func historyCompletionStillClosesReplayedStream() {
+        var completion = Amux_AcpEvent()
+        completion.event = .output(makeOutput(text: "finished", isComplete: true))
+
+        var envelope = Amux_Envelope()
+        envelope.sequence = 73
+        envelope.payload = .acpEvent(completion)
+
+        #expect(SessionDetailViewModel.shouldApplyHistoryEnvelope(
+            envelope,
+            existingSequences: [73]
+        ))
+
+        var delta = Amux_AcpEvent()
+        delta.event = .output(makeOutput(text: "partial", isComplete: false))
+        envelope.payload = .acpEvent(delta)
+
+        #expect(!SessionDetailViewModel.shouldApplyHistoryEnvelope(
+            envelope,
+            existingSequences: [73]
+        ))
+    }
+
     /// Daemon restart renumbers `sequence` while keeping `turn_id` stable.
     /// Without the turnID dedupe path, the second arrival appends a second
     /// completed bubble — the multi-arrival 7× duplication the user

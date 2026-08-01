@@ -35,6 +35,7 @@ export function AuthGate({ children }: AuthGateProps) {
   const [retrying, setRetrying] = useState(false);
   const [authHydrated, setAuthHydrated] = useState(false);
   const bootstrappedUserId = useRef<string | null>(null);
+  const savedTeamRestoreUserId = useRef<string | null>(null);
 
   const setupLoaded = useSetupStore((s) => s.loaded);
   const setupRequiredSatisfied = useSetupStore((s) => s.requiredSatisfied());
@@ -51,13 +52,12 @@ export function AuthGate({ children }: AuthGateProps) {
   const refreshDaemonOnboarding = useDaemonOnboardingStore((s) => s.refresh);
   const [daemonOnboardingAck, setDaemonOnboardingAck] = useState(() => devSkipDaemonOnboarding());
 
-  // Multi-team (cross-org) picker: shown on EVERY login when the user belongs to
-  // 2+ teams so they can choose which one to enter. `teamChosen` marks "already
-  // picked this session" so it doesn't re-open after selection; both reset on a
-  // new session (login). Applies on web and Tauri alike (multi-team is backend-
-  // driven, not platform-specific).
+  // Multi-team (cross-org) picker. Match iOS onboarding: restore the last team
+  // the user entered when it is still a membership, activate it to mint an
+  // org-scoped JWT, and only ask on a first multi-team login.
   const [myTeams, setMyTeams] = useState<MembershipTeam[] | null>(null);
   const [teamChosen, setTeamChosen] = useState(false);
+  const [teamChoiceResolved, setTeamChoiceResolved] = useState(false);
   // The team this user last entered (persisted from a prior session). Captured
   // before team-bootstrap can overwrite the cache, so the picker can badge it
   // "Last used". Null on a genuinely-first login (no history).
@@ -71,6 +71,8 @@ export function AuthGate({ children }: AuthGateProps) {
   // whenever the signed-in user changes.
   useEffect(() => {
     setTeamChosen(false);
+    setTeamChoiceResolved(false);
+    savedTeamRestoreUserId.current = null;
     setMyTeams(null);
     // Capture the genuine last-used team (persisted by a prior session) NOW,
     // before the team-bootstrap effect below adopts a team and overwrites the
@@ -100,6 +102,39 @@ export function AuthGate({ children }: AuthGateProps) {
       cancelled = true;
     };
   }, [session, bootstrap, teamChosen]);
+
+  // iOS persists `activeTeamID` and explicitly activates it at the next
+  // bootstrap. Do the same on desktop: the refresh token returned by activate
+  // carries the selected org, so merely restoring a local cache is not enough.
+  useEffect(() => {
+    if (!isTauri() || !session || bootstrap !== "ready" || myTeams === null || teamChoiceResolved) {
+      return;
+    }
+
+    const target =
+      (lastUsedTeamId ? myTeams.find((team) => team.id === lastUsedTeamId) : undefined) ??
+      (myTeams.length === 1 ? myTeams[0] : undefined);
+    if (!target) {
+      setTeamChoiceResolved(true);
+      return;
+    }
+    if (savedTeamRestoreUserId.current === session.user.id) return;
+    savedTeamRestoreUserId.current = session.user.id;
+
+    const userId = session.user.id;
+    void (async () => {
+      try {
+        await useCurrentTeamStore.getState().switchToTeam(target.id);
+        if (useAuthStore.getState().session?.user.id === userId) setTeamChosen(true);
+      } catch (error) {
+        // Keep the picker available if the remembered team was removed or the
+        // activation request failed; this matches iOS falling back to selection.
+        console.warn("[AuthGate] saved-team activation failed", error);
+      } finally {
+        if (useAuthStore.getState().session?.user.id === userId) setTeamChoiceResolved(true);
+      }
+    })();
+  }, [session, bootstrap, myTeams, lastUsedTeamId, teamChoiceResolved]);
 
   useEffect(() => {
     let cancelled = false;
@@ -333,6 +368,12 @@ export function AuthGate({ children }: AuthGateProps) {
   // used to fall through here and paint children, then bounce back to null
   // while myTeams loaded — a white flash once the skeleton was already gone.
   if (bootstrap !== "ready") {
+    return null;
+  }
+
+  // Wait for the iOS-equivalent saved-team restoration decision before
+  // rendering the picker or desktop shell.
+  if (isTauri() && !teamChosen && !teamChoiceResolved) {
     return null;
   }
 

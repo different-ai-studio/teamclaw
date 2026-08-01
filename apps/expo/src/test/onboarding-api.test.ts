@@ -12,6 +12,7 @@ function makeClient(overrides: {
   return {
     auth: {
       getSession: vi.fn().mockResolvedValue({ data: { session } }),
+      setRefreshSession: vi.fn().mockResolvedValue({ data: {}, error: null }),
       ...overrides.auth,
     },
     api: {
@@ -24,7 +25,7 @@ function makeClient(overrides: {
 describe("createOnboardingApi (cloud-only)", () => {
   it("loadBootstrap returns null team when the session is anonymous with no teams", async () => {
     const { createOnboardingApi } = await import("../lib/supabase/onboarding-api");
-    const get = vi.fn().mockResolvedValue({ memberActorId: null, teams: [], memberActorIdByTeam: {} });
+    const get = vi.fn().mockResolvedValue({ items: [] });
     const client = makeClient({
       session: { user: { id: "user-1", is_anonymous: true } },
       get,
@@ -36,20 +37,20 @@ describe("createOnboardingApi (cloud-only)", () => {
       team: null,
       memberActorId: null,
     } satisfies BootstrapResult);
-    expect(get).toHaveBeenCalledWith("/v1/me/bootstrap");
+    expect(get).toHaveBeenCalledWith("/v1/teams");
   });
 
-  it("loadBootstrap maps the first bootstrap team + member actor id", async () => {
+  it("loadBootstrap activates the selected listed team to resolve its actor", async () => {
     const { createOnboardingApi } = await import("../lib/supabase/onboarding-api");
     const get = vi.fn().mockResolvedValue({
-      memberActorId: "actor-1",
-      teams: [
+      items: [
         { id: "team-1", name: "Team Claw", slug: "team-claw", role: "owner" },
         { id: "team-2", name: "Ignored", slug: "ignored", role: "member" },
       ],
-      memberActorIdByTeam: { "team-1": "actor-1", "team-2": "actor-2" },
     });
-    const client = makeClient({ session: { user: { id: "user-1", is_anonymous: false } }, get });
+    const post = vi.fn().mockResolvedValue({ actorId: "actor-1", refreshToken: "refresh-1" });
+    const setRefreshSession = vi.fn().mockResolvedValue({ data: {}, error: null });
+    const client = makeClient({ session: { user: { id: "user-1", is_anonymous: false } }, get, post, auth: { setRefreshSession } });
 
     const api = createOnboardingApi(client);
     await expect(api.loadBootstrap()).resolves.toEqual({
@@ -57,6 +58,8 @@ describe("createOnboardingApi (cloud-only)", () => {
       memberActorId: "actor-1",
       team: { id: "team-1", name: "Team Claw", slug: "team-claw", role: "owner" } satisfies TeamSummary,
     } satisfies BootstrapResult);
+    expect(post).toHaveBeenCalledWith("/v1/teams/team-1/activate");
+    expect(setRefreshSession).toHaveBeenCalledWith("refresh-1");
   });
 
   it("loadBootstrap returns empty when there is no session", async () => {
@@ -138,13 +141,11 @@ describe("createOnboardingApi (cloud-only)", () => {
     });
   });
 
-  it("createTeam posts to /v1/teams then resolves role from bootstrap", async () => {
+  it("createTeam posts to /v1/teams then resolves its role from the team list", async () => {
     const { createOnboardingApi } = await import("../lib/supabase/onboarding-api");
     const post = vi.fn().mockResolvedValue({ id: "team-1", name: "Team Claw", slug: "team-claw" });
     const get = vi.fn().mockResolvedValue({
-      memberActorId: "actor-1",
-      teams: [{ id: "team-1", name: "Team Claw", slug: "team-claw", role: "owner" }],
-      memberActorIdByTeam: { "team-1": "actor-1" },
+      items: [{ id: "team-1", name: "Team Claw", slug: "team-claw", role: "owner" }],
     });
     const client = makeClient({ post, get });
     const api = createOnboardingApi(client);
@@ -156,6 +157,6 @@ describe("createOnboardingApi (cloud-only)", () => {
       role: "owner",
     } satisfies TeamSummary);
     expect(post).toHaveBeenCalledWith("/v1/teams", { name: "Team Claw" });
-    expect(get).toHaveBeenCalledWith("/v1/me/bootstrap");
+    expect(get).toHaveBeenCalledWith("/v1/teams");
   });
 });

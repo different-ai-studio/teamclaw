@@ -3005,7 +3005,9 @@
     "joining": "加入中…",
     "public": "公开",
     "ungrouped": "其它",
-    "lastUsed": "最后使用"
+    "lastUsed": "最后使用",
+    "initializeOrg": "初始化 {{org}}",
+    "initializing": "初始化中…"
   },
   "team": {
     "viewerReadOnly": "只读模式 - 你没有编辑权限",

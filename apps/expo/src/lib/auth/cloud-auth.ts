@@ -17,7 +17,7 @@ import { createSessionStore, type SessionStore, type StoredSession } from "./ses
  * `SessionStore`. Mirrors iOS `CloudAPIAppOnboardingStore`.
  *
  * `api` is an authenticated Cloud API client (bearer sourced from the session
- * store) used by `onboarding-api` for `/v1/me/bootstrap` + `POST /v1/teams`.
+ * store) used by `onboarding-api` for team listing and activation.
  */
 
 type GoTrueUser = {
@@ -146,6 +146,7 @@ export type CloudAuthClient = {
       access_token: string;
       refresh_token: string;
     }) => Promise<{ data: unknown; error: { message: string } | null }>;
+    setRefreshSession: (refreshToken: string) => Promise<{ data: unknown; error: { message: string } | null }>;
     updateUser: (input: {
       email?: string;
       password?: string;
@@ -214,6 +215,20 @@ export const cloudAuth: CloudAuthClient = {
         return { data: {}, error: null };
       } catch (error) {
         return { data: null, error: { message: error instanceof Error ? error.message : "setSession failed" } };
+      }
+    },
+
+    async setRefreshSession(refreshToken) {
+      await store().start();
+      try {
+        const body = await authRequest<GoTrueSessionBody>("/v1/auth/refresh", {
+          method: "POST",
+          body: { refreshToken },
+        });
+        await storeGoTrue(body);
+        return { data: {}, error: null };
+      } catch (error) {
+        return { data: null, error: { message: error instanceof Error ? error.message : "setRefreshSession failed" } };
       }
     },
 

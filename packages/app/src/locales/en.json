@@ -3005,7 +3005,9 @@
     "joining": "Joining…",
     "public": "Public",
     "ungrouped": "Other",
-    "lastUsed": "Last used"
+    "lastUsed": "Last used",
+    "initializeOrg": "Initialize {{org}}",
+    "initializing": "Initializing…"
   },
   "team": {
     "viewerReadOnly": "Read-only mode — you don't have edit permissions",
