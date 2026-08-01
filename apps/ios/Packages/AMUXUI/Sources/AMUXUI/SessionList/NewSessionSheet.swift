@@ -169,8 +169,9 @@ public struct NewSessionSheet: View {
                             collaborators.append(actor)
                         }
                     } else {
-                        errorMessage = "No workspaces available — add one to this agent before starting a session."
+                        return "This agent has no workspace. Add one in Agent settings."
                     }
+                    return nil
                 }
             ) { selected in
                 // `selected` includes humans (from internal selectedIDs) +

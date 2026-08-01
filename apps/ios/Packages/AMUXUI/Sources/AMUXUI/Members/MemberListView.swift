@@ -34,7 +34,11 @@ public struct MemberListView: View {
     /// toggling internal selection. The parent can present a follow-up
     /// sheet (e.g. AgentConfigSheet) and decide whether to track the agent
     /// in `externallySelectedIDs`.
-    private let onAgentTap: ((CachedActor) -> Void)?
+    /// Returns a short message when the tap cannot select the agent. The
+    /// picker renders that feedback in-place, rather than leaving it hidden
+    /// behind this sheet in the presenting view.
+    private let onAgentTap: ((CachedActor) -> String?)?
+    @State private var toastMessage: String?
 
     /// Browse-only mode: tap rows to see detail.
     public init() {
@@ -56,7 +60,7 @@ public struct MemberListView: View {
                 excludeActorID: String? = nil,
                 excludeActorIDs: Set<String> = [],
                 externallySelectedIDs: Set<String> = [],
-                onAgentTap: ((CachedActor) -> Void)? = nil,
+                onAgentTap: ((CachedActor) -> String?)? = nil,
                 onConfirm: @escaping (_ actors: [CachedActor]) -> Void) {
         self.selectionMode = true
         self.accessibleAgentIDs = accessibleAgentIDs
@@ -162,6 +166,29 @@ public struct MemberListView: View {
                     }
                 }
             }
+            .overlay(alignment: .bottom) {
+                if let toastMessage {
+                    Label(toastMessage, systemImage: "exclamationmark.triangle.fill")
+                        .font(.subheadline.weight(.medium))
+                        .foregroundStyle(Color.amux.paper)
+                        .padding(.horizontal, 16)
+                        .padding(.vertical, 12)
+                        .background(Color.amux.cinnabarDeep, in: Capsule())
+                        .padding(.horizontal, 24)
+                        .padding(.bottom, 24)
+                        .transition(.move(edge: .bottom).combined(with: .opacity))
+                        .accessibilityIdentifier("actorPicker.toast")
+                }
+            }
+            .animation(.easeInOut(duration: 0.2), value: toastMessage)
+            .onChange(of: toastMessage) { _, message in
+                guard message != nil else { return }
+                Task {
+                    try? await Task.sleep(for: .seconds(3))
+                    guard !Task.isCancelled else { return }
+                    toastMessage = nil
+                }
+            }
         }
     }
 
@@ -185,7 +212,7 @@ public struct MemberListView: View {
             // `externallySelectedIDs.contains(actor.actorId)` to know
             // whether this is a fresh add or a tap-to-deselect.
             if actor.isAgent, let onAgentTap {
-                onAgentTap(actor)
+                toastMessage = onAgentTap(actor)
                 return
             }
             if selectedIDs.contains(actor.actorId) {
