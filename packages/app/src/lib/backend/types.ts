@@ -351,6 +351,10 @@ export interface MembershipTeam {
    * `true` means the caller is already an actor in the team.
    */
   isMember?: boolean;
+  /** An empty org returned by the login picker, not an activatable team. */
+  itemType?: "team" | "org";
+  /** Null for an empty-org picker row; otherwise the same value as `id`. */
+  teamId?: string | null;
 }
 
 export interface TeamInviteResult {
@@ -458,7 +462,7 @@ export interface TeamsBackend {
    * First-team onboarding only. Creates an owner team named after the caller's
    * current organization, together with the member actor, in one transaction.
    */
-  bootstrapTeam(input?: { displayName?: string | null }): Promise<TeamSummary>;
+  bootstrapTeam(input?: { displayName?: string | null; orgId?: string | null }): Promise<TeamSummary>;
   renameTeam(teamId: string, name: string): Promise<TeamSummary>;
   /**
    * Graduate the caller out of the shared DEFAULT_ORG into their own org:
@@ -468,7 +472,7 @@ export interface TeamsBackend {
   upgradeAccount(input: { teamId: string; orgName: string; contact?: string | null }): Promise<{ orgId: string; teamId: string; teamName: string }>;
   createTeamInvite(input: TeamInviteInput): Promise<TeamInviteResult>;
   removeTeamActor(teamId: string, actorId: string): Promise<void>;
-  listAllMyTeams(): Promise<MembershipTeam[]>;
+  listAllMyTeams(args?: { includeEmptyOrgs?: boolean }): Promise<MembershipTeam[]>;
   /** Public teams that may be browsed before a user joins one. */
   listDiscoverableTeams(): Promise<MembershipTeam[]>;
   /**

@@ -404,6 +404,25 @@ test("bootstrapTeam uses the boundary-verified caller without local GoTrue looku
   assert.equal(team.id, "team-bootstrap");
 });
 
+test("bootstrapTeam targets an explicitly selected empty org", async () => {
+  const rpcCalls: any[] = [];
+  const repo = createRepo(fakeSupabase({
+    rpcCalls,
+    rpcData: {
+      bootstrap_selected_org_team: [{ team_id: "team-bootstrap", team_name: "Other Org", team_slug: "other-org" }],
+    },
+  }), {
+    caller: { id: "betly-user-1", isAnonymous: false, appMetadata: { org_id: "betly-org-1" } },
+  });
+
+  await repo.bootstrapTeam({ orgId: "selected-org", displayName: "Betly User" });
+
+  assert.deepEqual(rpcCalls, [{
+    name: "bootstrap_selected_org_team",
+    args: { p_org_id: "selected-org", p_display_name: "Betly User" },
+  }]);
+});
+
 test("enableShareMode oss calls enable_team_share rpc with null git fields", async () => {
   const rpcCalls = [];
   const repo = createRepo(fakeSupabaseForShareMode({

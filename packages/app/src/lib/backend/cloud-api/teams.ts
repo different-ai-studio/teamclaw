@@ -17,6 +17,8 @@ type CloudMembershipTeam = {
   orgName: string | null;
   visibility?: "public" | "private";
   isMember?: boolean;
+  itemType?: "team" | "org";
+  teamId?: string | null;
 };
 
 type CloudInvite = {
@@ -103,8 +105,9 @@ export function createTeamsModule(client: CloudApiClient): TeamsBackend {
         `/v1/teams/${encodeURIComponent(teamId)}/actors/${encodeURIComponent(actorId)}`,
       );
     },
-    async listAllMyTeams() {
-      const page = await client.get<Page<CloudMembershipTeam>>(`/v1/teams?scope=all`);
+    async listAllMyTeams({ includeEmptyOrgs = false } = {}) {
+      const suffix = includeEmptyOrgs ? "&includeEmptyOrgs=true" : "";
+      const page = await client.get<Page<CloudMembershipTeam>>(`/v1/teams?scope=all${suffix}`);
       return page.items.map((r) => ({
         id: r.id,
         name: r.name,
@@ -113,6 +116,8 @@ export function createTeamsModule(client: CloudApiClient): TeamsBackend {
         orgName: r.orgName,
         visibility: r.visibility,
         isMember: r.isMember !== false,
+        itemType: r.itemType ?? "team",
+        teamId: r.teamId ?? r.id,
       }));
     },
     async listDiscoverableTeams() {

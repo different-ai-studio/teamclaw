@@ -89,7 +89,7 @@ export function AuthGate({ children }: AuthGateProps) {
     let cancelled = false;
     void (async () => {
       try {
-        const teams = await getBackend().teams.listAllMyTeams();
+        const teams = await getBackend().teams.listAllMyTeams({ includeEmptyOrgs: true });
         if (!cancelled) setMyTeams(teams);
       } catch (e) {
         console.warn("[AuthGate] listAllMyTeams failed", e);
@@ -184,7 +184,7 @@ export function AuthGate({ children }: AuthGateProps) {
       let teamSet = false;
       let bootErr: unknown = null;
       try {
-        const allTeams = await getBackend().teams.listAllMyTeams();
+        const allTeams = await getBackend().teams.listAllMyTeams({ includeEmptyOrgs: true });
         markStartup("team-list:end");
         if (allTeams.length > 0) {
           // Do not auto-select the first row: the chooser makes the org then

@@ -30,23 +30,23 @@ function makeApp({
   } as any);
 }
 
-test("GET /v1/teams?scope=all calls listAllMyTeams and returns orgName", async () => {
-  let called = false;
+test("GET /v1/teams?scope=all forwards empty-org picker opt-in and returns orgName", async () => {
+  let received: any;
   const app = makeApp({
-    listAllMyTeams: async () => {
-      called = true;
+    listAllMyTeams: async (args: any) => {
+      received = args;
       return [
         { id: "t1", name: "Alpha", slug: "alpha", orgId: "o1", orgName: "Org One" },
         { id: "t2", name: "Beta", slug: "beta", orgId: "o2", orgName: "Org Two" },
       ];
     },
   });
-  const res = await app.request("/v1/teams?scope=all", {
+  const res = await app.request("/v1/teams?scope=all&includeEmptyOrgs=true", {
     headers: { authorization: "Bearer x" },
   });
   assert.equal(res.status, 200);
   const body = (await res.json()) as any;
-  assert.equal(called, true);
+  assert.deepEqual(received, { includeEmptyOrgs: true });
   assert.equal(body.items.length, 2);
   assert.equal(body.items[0].orgName, "Org One");
   assert.equal(body.nextCursor, null);
@@ -82,8 +82,25 @@ test("POST /v1/teams/bootstrap delegates atomic first-team creation", async () =
     body: JSON.stringify({ displayName: "Boss" }),
   });
   assert.equal(res.status, 200);
-  assert.deepEqual(input, { displayName: "Boss" });
+  assert.deepEqual(input, { displayName: "Boss", orgId: null });
   assert.equal((await res.json() as any).name, "Org One");
+});
+
+test("POST /v1/teams/bootstrap forwards an explicitly selected empty org", async () => {
+  let input: any;
+  const app = makeApp({
+    bootstrapTeam: async (received: any) => {
+      input = received;
+      return { id: "org-team", name: "Org One", slug: "org-one" };
+    },
+  });
+  const res = await app.request("/v1/teams/bootstrap", {
+    method: "POST",
+    headers: { authorization: "Bearer x", "content-type": "application/json" },
+    body: JSON.stringify({ orgId: "00000000-0000-4000-8000-000000000001" }),
+  });
+  assert.equal(res.status, 200);
+  assert.deepEqual(input, { displayName: null, orgId: "00000000-0000-4000-8000-000000000001" });
 });
 
 test("GET /v1/teams (no scope) keeps the active-org listing", async () => {

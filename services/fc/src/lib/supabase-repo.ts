@@ -314,23 +314,26 @@ export function createSupabaseBusinessRepository(options) {
     // picker). The `list_all_my_teams` function lives in the `amux` schema and is
     // SECURITY DEFINER (it bypasses teams_org_guard). The default client schema
     // here is `amux`, so it resolves via a plain `.rpc(...)` like create_team etc.
-    async listAllMyTeams() {
+    async listAllMyTeams({ includeEmptyOrgs = false } = {}) {
       // Cross-org team picker source: member teams plus every public team the
       // caller may join. The legacy argument remains for RPC signature
       // compatibility during rollout.
       const defaultOrgId = process.env.DEFAULT_ORG_ID || null;
       const { data, error } = await supabase.rpc("list_teams_for_picker", {
         p_default_org_id: defaultOrgId,
+        p_include_empty_orgs: includeEmptyOrgs,
       });
       if (error) throw error;
       return (data ?? []).map((r: any) => ({
-        id: r.team_id,
-        name: r.team_name,
+        id: r.team_id ?? r.org_id,
+        name: r.team_name ?? r.org_name,
         slug: r.team_slug ?? null,
         orgId: r.org_id ?? null,
         orgName: r.org_name ?? null,
         visibility: r.visibility ?? "private",
         isMember: r.is_member !== false,
+        itemType: r.item_type === "org" ? "org" : "team",
+        teamId: r.team_id ?? null,
       }));
     },
 
@@ -445,10 +448,16 @@ export function createSupabaseBusinessRepository(options) {
         if (orgErr) throw orgErr;
         fallbackOrg = (provisioned as string | null) ?? null;
       }
-      const { data, error } = await supabase.rpc("bootstrap_current_org_team", {
-        p_fallback_org: fallbackOrg,
-        p_display_name: input?.displayName ?? null,
-      });
+      const selectedOrgId = input?.orgId ?? null;
+      const { data, error } = selectedOrgId
+        ? await supabase.rpc("bootstrap_selected_org_team", {
+          p_org_id: selectedOrgId,
+          p_display_name: input?.displayName ?? null,
+        })
+        : await supabase.rpc("bootstrap_current_org_team", {
+          p_fallback_org: fallbackOrg,
+          p_display_name: input?.displayName ?? null,
+        });
       if (error) throw error;
       const row = requiredRow(data, "teams.bootstrapTeam");
       return mapTeam({ id: row.team_id ?? row.id, name: row.team_name ?? row.name, slug: row.team_slug ?? row.slug });
