@@ -32,6 +32,7 @@ const { authState, currentTeamMock, backendMock } = vi.hoisted(() => ({
       listCurrentUserTeams: vi.fn(),
       listAllMyTeams: vi.fn(),
       createTeam: vi.fn(),
+      bootstrapTeam: vi.fn(),
     },
   },
 }));
@@ -102,6 +103,10 @@ vi.mock("../LoginScreen", () => ({
   LoginScreen: () => <div>Login screen</div>,
 }));
 
+vi.mock("../TeamPicker", () => ({
+  TeamPicker: ({ teams }: { teams: Array<{ name: string }> }) => <div>Team picker: {teams.map((team) => team.name).join(", ")}</div>,
+}));
+
 import { AuthGate } from "../AuthGate";
 
 beforeEach(() => {
@@ -112,12 +117,14 @@ beforeEach(() => {
   backendMock.teams.listCurrentUserTeams.mockReset();
   backendMock.teams.listAllMyTeams.mockReset();
   backendMock.teams.createTeam.mockReset();
+  backendMock.teams.bootstrapTeam.mockReset();
   currentTeamMock.reloadAndSwitchTo.mockReset();
   currentTeamMock.setActiveTeam.mockReset();
   currentTeamMock.switchToTeam.mockReset();
   currentTeamMock.team = null;
   currentTeamMock.teamUserId = null;
   backendMock.teams.listAllMyTeams.mockResolvedValue([]);
+  backendMock.teams.bootstrapTeam.mockResolvedValue({ id: "team-bootstrap", name: "Bootstrap", slug: "bootstrap" });
   setLocalCacheTeamGateMock.mockClear();
   removeStartupSkeletonMock.mockClear();
   isTauriMock.mockReturnValue(true);
@@ -179,12 +186,13 @@ describe("AuthGate", () => {
     expect(screen.queryByText("App shell")).not.toBeInTheDocument();
   });
 
-  it("renders the shell optimistically from a cached team for the same user, without a network probe", async () => {
+  it("requires a fresh team choice even when a same-user team is cached", async () => {
     // current-team was hydrated from the persisted cache for THIS user.
     currentTeamMock.team = { id: "team-cached" };
     currentTeamMock.teamUserId = "user-1";
-    // Make the list probe hang — first paint must not wait on it.
-    backendMock.teams.listCurrentUserTeams.mockReturnValue(new Promise(() => {}));
+    backendMock.teams.listAllMyTeams.mockResolvedValueOnce([
+      { id: "team-cached", name: "Cached", slug: "cached", orgId: "org-1", orgName: "Org" },
+    ]);
 
     render(
       <AuthGate>
@@ -192,13 +200,8 @@ describe("AuthGate", () => {
       </AuthGate>,
     );
 
-    await waitFor(() => expect(screen.getByText("App shell")).toBeInTheDocument());
-    // The optimistic gate must not block on (or even fire) the bootstrap probe;
-    // App's mount-time load() revalidates in the background instead.
-    expect(backendMock.teams.listCurrentUserTeams).not.toHaveBeenCalled();
-    // …but it must prime the local-cache team gate so the backend accepts the
-    // team-scoped session-cache reads App fires on mount (no blank-list flash).
-    expect(setLocalCacheTeamGateMock).toHaveBeenCalledWith("team-cached");
+    await waitFor(() => expect(screen.getByText("Team picker: Cached")).toBeInTheDocument());
+    expect(backendMock.teams.listAllMyTeams).toHaveBeenCalled();
   });
 
   it("does not adopt a cached team that belongs to a different user", async () => {
@@ -206,8 +209,8 @@ describe("AuthGate", () => {
     // session is a different user — must re-resolve, not reuse the foreign team.
     currentTeamMock.team = { id: "team-foreign" };
     currentTeamMock.teamUserId = "other-user";
-    backendMock.teams.listCurrentUserTeams.mockResolvedValueOnce([
-      { id: "team-mine", name: "Mine", slug: "mine" },
+    backendMock.teams.listAllMyTeams.mockResolvedValueOnce([
+      { id: "team-mine", name: "Mine", slug: "mine", orgId: "org-1", orgName: "Org" },
     ]);
     currentTeamMock.setActiveTeam.mockResolvedValueOnce(undefined);
 
@@ -217,19 +220,12 @@ describe("AuthGate", () => {
       </AuthGate>,
     );
 
-    await waitFor(() => expect(backendMock.teams.listCurrentUserTeams).toHaveBeenCalled());
-    await waitFor(() =>
-      expect(currentTeamMock.setActiveTeam).toHaveBeenCalledWith({
-        id: "team-mine",
-        name: "Mine",
-        slug: "mine",
-      }),
-    );
+    await waitFor(() => expect(screen.getByText("Team picker: Mine")).toBeInTheDocument());
   });
 
-  it("switches to an existing team using the listed row, without a redundant getTeam fetch", async () => {
-    backendMock.teams.listCurrentUserTeams.mockResolvedValueOnce([
-      { id: "team-existing", name: "Acme", slug: "acme" },
+  it("shows an existing team in the explicit chooser", async () => {
+    backendMock.teams.listAllMyTeams.mockResolvedValueOnce([
+      { id: "team-existing", name: "Acme", slug: "acme", orgId: "org-1", orgName: "Org" },
     ]);
     currentTeamMock.setActiveTeam.mockResolvedValueOnce(undefined);
 
@@ -239,23 +235,13 @@ describe("AuthGate", () => {
       </AuthGate>,
     );
 
-    await waitFor(() =>
-      expect(currentTeamMock.setActiveTeam).toHaveBeenCalledWith({
-        id: "team-existing",
-        name: "Acme",
-        slug: "acme",
-      }),
-    );
-    // The list row already carries {id,name,slug}; bootstrap must not re-fetch
-    // the same team via reloadAndSwitchTo (which does an extra GET /v1/teams/:id).
-    expect(currentTeamMock.reloadAndSwitchTo).not.toHaveBeenCalled();
-    await waitFor(() => expect(screen.getByText("App shell")).toBeInTheDocument());
+    await waitFor(() => expect(screen.getByText("Team picker: Acme")).toBeInTheDocument());
   });
 
-  it("creates a first team and switches to it before rendering the shell", async () => {
+  it("bootstraps a first org team and switches to it before rendering the shell", async () => {
     backendMock.teams.listCurrentUserTeams.mockResolvedValueOnce([]);
     backendMock.teams.listAllMyTeams.mockResolvedValueOnce([]);
-    backendMock.teams.createTeam.mockResolvedValueOnce({
+    backendMock.teams.bootstrapTeam.mockResolvedValueOnce({
       id: "team-new",
       name: "Trial Team",
       slug: "trial-team",
@@ -278,12 +264,10 @@ describe("AuthGate", () => {
     await waitFor(() => expect(screen.getByText("App shell")).toBeInTheDocument());
   });
 
-  it("switches to a cross-org team when current-org listing is empty", async () => {
-    backendMock.teams.listCurrentUserTeams.mockResolvedValueOnce([]);
+  it("shows a cross-org team instead of auto-switching", async () => {
     backendMock.teams.listAllMyTeams.mockResolvedValueOnce([
       { id: "team-other-org", name: "Other Org Team", slug: "other", orgId: "org-b", orgName: "Org B" },
     ]);
-    currentTeamMock.switchToTeam.mockResolvedValueOnce(undefined);
 
     render(
       <AuthGate>
@@ -291,9 +275,7 @@ describe("AuthGate", () => {
       </AuthGate>,
     );
 
-    await waitFor(() =>
-      expect(currentTeamMock.switchToTeam).toHaveBeenCalledWith("team-other-org"),
-    );
+    await waitFor(() => expect(screen.getByText("Team picker: Other Org Team")).toBeInTheDocument());
     expect(backendMock.teams.createTeam).not.toHaveBeenCalled();
     await waitFor(() => expect(screen.getByText("App shell")).toBeInTheDocument());
   });

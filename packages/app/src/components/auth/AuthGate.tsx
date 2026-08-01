@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { useAuthStore } from "@/stores/auth-store";
-import { useCurrentTeamStore, setLocalCacheTeamGate, readCachedCurrentTeam } from "@/stores/current-team";
+import { useCurrentTeamStore, readCachedCurrentTeam } from "@/stores/current-team";
 import { getBackend } from "@/lib/backend";
 import { isTauri, removeStartupSkeleton } from "@/lib/utils";
 import { devSkipDaemonOnboarding, devSkipSetup } from "@/lib/dev-onboarding-flags";
@@ -18,6 +18,7 @@ import { humanizeFcError } from "@/lib/fc-error";
 import { markStartup } from "@/lib/startup-perf";
 import { TeamPicker } from "./TeamPicker";
 import { PendingInvitesDialog } from "@/components/auth/PendingInvitesDialog";
+import { GuestTeamDiscovery } from "@/components/auth/GuestTeamDiscovery";
 import type { MembershipTeam } from "@/lib/backend";
 
 interface AuthGateProps {
@@ -80,9 +81,9 @@ export function AuthGate({ children }: AuthGateProps) {
     );
   }, [session?.user?.id]);
 
-  // After login + team-bootstrap ready, fetch "all my teams (across orgs)" to
-  // decide whether to show the picker. A fetch failure must not block login:
-  // treat it as "no picker needed" and fall through.
+  // After login + team-bootstrap ready, refresh the discoverable selection
+  // source. Bootstrap normally supplies it already; this also catches an
+  // invite claim that completed while the gate was resolving.
   useEffect(() => {
     if (!session || bootstrap !== "ready" || teamChosen) return;
     let cancelled = false;
@@ -126,7 +127,11 @@ export function AuthGate({ children }: AuthGateProps) {
   useEffect(() => {
     if (!session || session.user?.is_anonymous) return;
     if (!pendingInviteToken) return;
-    void useAuthStore.getState().claimPendingInvite();
+    void useAuthStore.getState().claimPendingInvite().then((result) => {
+      // A claimed invite is an explicit team choice; don't immediately reopen
+      // the general picker after its active-team switch completes.
+      if (result) setTeamChosen(true);
+    });
   }, [session, pendingInviteToken]);
 
   // Separate from the token replay above: these invites were addressed to the
@@ -139,9 +144,8 @@ export function AuthGate({ children }: AuthGateProps) {
     void useAuthStore.getState().refreshPendingInvites();
   }, [session, pendingInviteToken]);
 
-  // After auth: ensure the user belongs to at least one team. If not (fresh
-  // signup, no invites), auto-create a temporary team so the UI lands
-  // somewhere usable instead of an empty shell. Tauri-only for now.
+  // After auth, resolve the full team chooser before entering a team. Only an
+  // empty result may create a team; it uses the dedicated atomic bootstrap RPC.
   //
   // The ref guard (instead of a cleanup-driven `cancelled` flag) is
   // deliberate: under React strict mode the effect runs twice, and a
@@ -156,6 +160,15 @@ export function AuthGate({ children }: AuthGateProps) {
       setRetrying(false);
       return;
     }
+    // Guests may browse public teams, but never create an actor/team or join a
+    // team. A pending member-invite token remains persisted until real sign-in.
+    if (session.user?.is_anonymous) {
+      setBootstrap("ready");
+      return;
+    }
+    // An invite claim has precedence over normal discovery. claimPendingInvite
+    // enters the invited team and clears this token on success.
+    if (pendingInviteToken) return;
     // Browser runtime (Chrome extension / web build) is a real cloud client:
     // it still needs a current team for MQTT + team-scoped reads, so it must
     // run the same team-bootstrap as desktop. The bootstrap path below is
@@ -165,81 +178,20 @@ export function AuthGate({ children }: AuthGateProps) {
     bootstrappedUserId.current = session.user.id;
     markStartup("team-bootstrap:start");
 
-    // Optimistic cold start: if we already hold a team for THIS user — hydrated
-    // synchronously from the persisted cache, or just set by an invite flow —
-    // render the shell immediately instead of blocking first paint behind the
-    // team-bootstrap network round-trips. App's mount-time load() revalidates
-    // and reconciles in the background. The teamUserId match is mandatory: a
-    // cached team from a previous user (localStorage survives logout) must NOT
-    // be reused; that session falls through to a full re-resolve below.
-    const snapshot = useCurrentTeamStore.getState();
-    if (snapshot.team && snapshot.teamUserId === session.user.id) {
-      // Prime the backend's team gate so the team-scoped session-cache reads
-      // App fires on mount are accepted (cold path used to set this during
-      // bootstrap, before App mounted). Fire-and-forget: the IPC is fast and
-      // App's load() re-sets it shortly after anyway.
-      void setLocalCacheTeamGate(snapshot.team.id);
-      setBootstrap("ready");
-      markStartup("team-bootstrap:end");
-      // The cached team is not proof that it is still inside the server-side
-      // active org: the user may have switched orgs elsewhere, or last entered
-      // this team through a path that never activated it. Restoring it blindly
-      // leaves the client pinned to a team every request will be refused for,
-      // and no later code path notices. Probe once in the background (RLS
-      // hides an out-of-org team, so this throws) and self-heal by activating.
-      // Off the critical path — first paint already happened.
-      void (async () => {
-        try {
-          await getBackend().teams.getTeam(snapshot.team!.id);
-        } catch (probeErr) {
-          console.warn("[AuthGate] cached team is outside the active org, re-activating", probeErr);
-          try {
-            await useCurrentTeamStore.getState().enterTeam(snapshot.team!.id);
-            const { useSessionListStore } = await import("@/stores/session-list-store");
-            await useSessionListStore.getState().load();
-          } catch (healErr) {
-            console.warn("[AuthGate] cached-team self-heal failed", healErr);
-          }
-        }
-      })();
-      return;
-    }
-
     setBootstrap("checking");
 
     void (async () => {
       let teamSet = false;
       let bootErr: unknown = null;
       try {
-        const teams = await getBackend().teams.listCurrentUserTeams({ limit: 1 });
+        const allTeams = await getBackend().teams.listAllMyTeams();
         markStartup("team-list:end");
-        // The list row already carries {id,name,slug}, so adopt it directly via
-        // setActiveTeam instead of reloadAndSwitchTo — the latter re-fetches the
-        // same team with a redundant GET /v1/teams/:id on the critical path.
-        const existing = teams[0];
-        if (existing) {
-          await useCurrentTeamStore.getState().setActiveTeam({
-            id: existing.id,
-            name: existing.name,
-            slug: existing.slug ?? "",
-          });
+        if (allTeams.length > 0) {
+          // Do not auto-select the first row: the chooser makes the org then
+          // team decision explicit, including public teams that need joining.
+          setMyTeams(allTeams);
           teamSet = true;
         } else {
-          // Current-org listing can be empty while the user still belongs to
-          // teams in other orgs (JWT org drift, multi-org membership). Calling
-          // create_team in that case fails with "first-team onboarding only".
-          const allTeams = await getBackend().teams.listAllMyTeams();
-          if (allTeams.length > 0) {
-            const cached = readCachedCurrentTeam();
-            const preferredId =
-              cached && cached.teamUserId === session.user.id ? cached.team?.id : null;
-            const pick =
-              (preferredId
-                ? allTeams.find((t) => t.id === preferredId)
-                : undefined) ?? allTeams[0];
-            await useCurrentTeamStore.getState().switchToTeam(pick.id);
-            teamSet = true;
-          } else {
           // First-team onboarding: let the server seed the names from the
           // caller's org. The team adopts the org's name, and the owner actor
           // adopts the account's nickname (saas-mono mirror). We only fall back
@@ -247,18 +199,20 @@ export function AuthGate({ children }: AuthGateProps) {
           // nickname-less account doesn't land as a synthesized handle; the
           // server still prefers the nickname when present.
           const displayName = await resolveDefaultDisplayName(session?.user?.email);
-          const created = await getBackend().teams.createTeam({ displayName });
+          const created = await getBackend().teams.bootstrapTeam({ displayName });
           if (created?.id) {
             await useCurrentTeamStore.getState().setActiveTeam({
               id: created.id,
               name: created.name,
               slug: created.slug ?? "",
             });
+            // The bootstrap response is the only possible team by definition,
+            // so it is already an explicit onboarding outcome.
+            setTeamChosen(true);
             teamSet = true;
             console.log("[AuthGate] auto-created team", created.name);
           } else {
             bootErr = new Error("create_team returned no team id");
-          }
           }
         }
       } catch (err) {
@@ -292,7 +246,7 @@ export function AuthGate({ children }: AuthGateProps) {
         setBootstrap("error");
       }
     })();
-  }, [loading, session, bootstrapNonce]);
+  }, [loading, session, bootstrapNonce, pendingInviteToken]);
 
   const retryBootstrap = () => {
     // Re-arm the per-user ref guard and bump the nonce so the bootstrap effect
@@ -388,11 +342,16 @@ export function AuthGate({ children }: AuthGateProps) {
   // the team server-side, adopts the org-switched JWT, switches current team,
   // and refreshes the daemon) — so the daemon gate below then evaluates against
   // the chosen team and triggers re-onboard on mismatch.
+  if (session?.user?.is_anonymous) {
+    removeStartupSkeleton();
+    return <GuestTeamDiscovery onSignIn={() => void signOut()} />;
+  }
+
   if (session && !teamChosen) {
     if (myTeams === null) {
       return null; // Still loading the team list — keep the skeleton.
     }
-    if (myTeams.length >= 2) {
+    if (myTeams.length >= 1) {
       removeStartupSkeleton();
       return (
         <TeamPicker

@@ -301,11 +301,9 @@ export function createSupabaseBusinessRepository(options) {
     // SECURITY DEFINER (it bypasses teams_org_guard). The default client schema
     // here is `amux`, so it resolves via a plain `.rpc(...)` like create_team etc.
     async listAllMyTeams() {
-      // Cross-org team picker source. `list_teams_for_picker` returns the union
-      // of (a) teams the caller is already an actor in and (b) PUBLIC teams in
-      // the shared DEFAULT_ORG the caller can join self-service. DEFAULT_ORG_ID
-      // is passed server-side (never client-steerable), mirroring the other
-      // onboarding RPCs.
+      // Cross-org team picker source: member teams plus every public team the
+      // caller may join. The legacy argument remains for RPC signature
+      // compatibility during rollout.
       const defaultOrgId = process.env.DEFAULT_ORG_ID || null;
       const { data, error } = await supabase.rpc("list_teams_for_picker", {
         p_default_org_id: defaultOrgId,
@@ -322,10 +320,24 @@ export function createSupabaseBusinessRepository(options) {
       }));
     },
 
-    // Self-service join of a PUBLIC team in the shared DEFAULT_ORG. Invoked when
+    async listDiscoverableTeams() {
+      const { data, error } = await supabase.rpc("list_discoverable_teams");
+      if (error) throw error;
+      return (data ?? []).map((r: any) => ({
+        id: r.team_id,
+        name: r.team_name,
+        slug: r.team_slug ?? null,
+        orgId: r.org_id ?? null,
+        orgName: r.org_name ?? null,
+        visibility: r.visibility ?? "public",
+        isMember: r.is_member === true,
+      }));
+    },
+
+    // Self-service join of a PUBLIC team. Invoked when
     // the user picks a public team they are not yet a member of. The RPC adds a
     // plain 'member' actor (idempotent if already joined) and rejects anything
-    // that is not a public default-org team.
+    // that is not public.
     async joinPublicTeam(teamId) {
       const defaultOrgId = process.env.DEFAULT_ORG_ID || null;
       const { data, error } = await supabase.rpc("join_public_team", {
@@ -366,15 +378,8 @@ export function createSupabaseBusinessRepository(options) {
     },
 
     async createTeam(input) {
-      // Bootstrap (no-invite) onboarding. Behavior depends on the caller's org:
-      //   * DEFAULT_ORG (the partner's shared consumer tenant): each user gets their
-      //     OWN independent solo team — random individuals stay isolated.
-      //   * a REAL customer org (e.g. a climbing gym): everyone bootstrapping
-      //     into that org joins ONE shared team (the org's oldest team). The
-      //     first user seeds it as owner; later users join as plain members.
-      // The amux.join_or_create_org_team RPC makes this decision server-side,
-      // keying the join strictly off the verified token's org (it cannot be
-      // steered by the client).
+      // Explicit creation. Login onboarding calls bootstrapTeam below instead;
+      // this path never silently joins an existing organization team.
       const defaultOrgId = process.env.DEFAULT_ORG_ID || null;
       // Resolve a fallback org to STAMP on a newly created team when the token
       // carries no org. Same order as before: JWT app_metadata.org_id →
@@ -390,17 +395,13 @@ export function createSupabaseBusinessRepository(options) {
         if (orgErr) throw orgErr;
         fallbackOrg = (provisioned as string | null) ?? null;
       }
-      // p_name/p_slug/p_litellm_team_id/p_ai_gateway_endpoint only apply to the
-      // CREATE branch (default org, or the org's first user). When joining an
-      // existing org team the RPC ignores them.
-      const { data, error } = await supabase.rpc("join_or_create_org_team", {
-        p_fallback_org: fallbackOrg,
-        p_default_org_id: defaultOrgId,
+      const { data, error } = await supabase.rpc("create_team", {
         p_name: input.name ?? null,
         p_slug: input.slug ?? null,
         p_display_name: input.displayName ?? null,
         p_litellm_team_id: input.litellmTeamId ?? null,
         p_ai_gateway_endpoint: input.aiGatewayEndpoint ?? null,
+        p_oid: fallbackOrg,
       });
       if (error) throw error;
       const row = requiredRow(data, "teams.createTeam");
@@ -410,6 +411,27 @@ export function createSupabaseBusinessRepository(options) {
         slug: row.team_slug ?? row.slug,
         created_at: row.created_at ?? null,
       });
+    },
+
+    async bootstrapTeam(input) {
+      const { data: caller } = await supabase.auth.getUser();
+      if (caller?.user?.is_anonymous) {
+        throw new ApiError(403, "anonymous_not_allowed", "sign in to create a team");
+      }
+      const defaultOrgId = process.env.DEFAULT_ORG_ID || null;
+      let fallbackOrg: string | null = (caller?.user?.app_metadata as any)?.org_id ?? defaultOrgId;
+      if (!fallbackOrg && caller?.user?.id) {
+        const { data: provisioned, error: orgErr } = await supabase.rpc("ensure_personal_org");
+        if (orgErr) throw orgErr;
+        fallbackOrg = (provisioned as string | null) ?? null;
+      }
+      const { data, error } = await supabase.rpc("bootstrap_current_org_team", {
+        p_fallback_org: fallbackOrg,
+        p_display_name: input?.displayName ?? null,
+      });
+      if (error) throw error;
+      const row = requiredRow(data, "teams.bootstrapTeam");
+      return mapTeam({ id: row.team_id ?? row.id, name: row.team_name ?? row.name, slug: row.team_slug ?? row.slug });
     },
 
     async getTeam(teamId) {

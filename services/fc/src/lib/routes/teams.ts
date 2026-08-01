@@ -3,11 +3,16 @@ import { optionalBearerToken } from "../http-utils.js";
 
 export function registerTeams(router) {
   router.get("/v1/teams", async (ctx) => {
-    // scope=all lists the caller's teams across ALL orgs (cross-org team picker);
-    // omitted preserves the active-org listing.
+    // scope=all lists the caller's teams plus joinable public teams across all
+    // orgs; discoverable is the public-only subset used by anonymous browsing.
+    // Omitted preserves the active-org member listing.
     const scope = ctx.query?.get?.("scope") ?? null;
     if (scope === "all") {
       const items = await ctx.repository.listAllMyTeams();
+      return { body: { items, nextCursor: null } };
+    }
+    if (scope === "discoverable") {
+      const items = await ctx.repository.listDiscoverableTeams();
       return { body: { items, nextCursor: null } };
     }
     const items = await ctx.repository.listTeams({ limit: 50 });
@@ -57,6 +62,17 @@ export function registerTeams(router) {
     };
   });
 
+  // The login bootstrap is deliberately separate from explicit team creation:
+  // it never adopts an arbitrary existing org team. It creates one team named
+  // after the authenticated caller's current org and its owner actor atomically.
+  router.post("/v1/teams/bootstrap", async (ctx) => {
+    const body = ctx.json;
+    const team = await ctx.repository.bootstrapTeam({
+      displayName: optionalStringOrNull(body.displayName, "displayName"),
+    });
+    return { body: team };
+  });
+
   router.get("/v1/teams/:id", async (ctx) => {
     const team = await ctx.repository.getTeam(decodeURIComponent(ctx.params.id));
     return { body: team };
@@ -85,8 +101,7 @@ export function registerTeams(router) {
     return { body: team };
   });
 
-  // POST /v1/teams/:id/join — self-service join of a PUBLIC team in the shared
-  // DEFAULT_ORG (the post-login picker offers these alongside my own teams).
+  // POST /v1/teams/:id/join — self-service join of a public team.
   router.post("/v1/teams/:teamId/join", async (ctx) => {
     const team = await ctx.repository.joinPublicTeam(ctx.params.teamId);
     return { body: team };
