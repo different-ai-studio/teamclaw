@@ -62,7 +62,13 @@ function mapWorkspace(r: any) {
     id: r.id,
     teamId: r.teamId,
     name: r.name,
+    // `path` and `agentId` are part of the OpenAPI Workspace schema and the
+    // supabase repo has always emitted them. Omitting them here left clients
+    // that read `path` (iOS) with pathless workspaces, and clients that filter
+    // by owning device with no agent to match.
+    path: r.path ?? null,
     slug: r.path ?? null,
+    agentId: r.agentId ?? null,
     archived: r.archived === true,
     metadata: null,
     createdAt: iso(r.createdAt)!,

@@ -202,7 +202,7 @@ public actor CloudAPIWorkspaceRepository: WorkspaceRepository {
                 id: row.id,
                 teamID: row.teamId,
                 agentID: row.agentId,
-                path: row.path ?? "",
+                path: row.resolvedPath,
                 displayName: row.name
             )
         }
@@ -1199,7 +1199,13 @@ private struct CloudWorkspace: Decodable, Sendable {
     let teamId: String
     let name: String
     let path: String?
+    /// The Cloud API sends the local directory as both `path` and `slug`; some
+    /// backends only fill `slug`. Desktop and the daemon already fall back to
+    /// it, so `resolvedPath` keeps iOS from rendering pathless workspaces.
+    let slug: String?
     let agentId: String?
+
+    var resolvedPath: String { path ?? slug ?? "" }
 }
 
 private struct CloudMarkViewedRequest: Encodable, Sendable {

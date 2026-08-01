@@ -2,6 +2,8 @@
 // envelopes that TeamClaw clients (iOS / Expo / Web / daemon) consume verbatim.
 // Do NOT change these shapes — they are the fixed client contract.
 
+import { decodeJwt } from "jose";
+
 export type ReshapeUser = {
   id?: string;
   email?: string | null;
@@ -39,6 +41,19 @@ export function toGoTrueSession(s: ReshapeSession) {
 // camelCase refresh shape (NOT GoTrue) — what refreshAccessToken returns.
 export function toRefreshShape(s: { accessToken: string; refreshToken: string; expiresAt: number }) {
   return { accessToken: s.accessToken, refreshToken: s.refreshToken, expiresAt: s.expiresAt };
+}
+
+// `exp` (epoch seconds) of a minted access-token JWT, or null when the token
+// is unparseable / carries no exp. Signature verification is irrelevant here:
+// the token was just minted by us and this only reads its own advertised
+// lifetime.
+export function accessTokenExpiry(accessToken: string): number | null {
+  try {
+    const { exp } = decodeJwt(accessToken);
+    return typeof exp === "number" ? exp : null;
+  } catch {
+    return null;
+  }
 }
 
 // Better-Auth timestamps are Date | ISO string. Normalize to epoch seconds.

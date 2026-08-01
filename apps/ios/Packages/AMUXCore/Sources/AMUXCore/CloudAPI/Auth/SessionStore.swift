@@ -43,10 +43,37 @@ public actor SessionStore {
 
     public func accessToken() async throws -> String {
         guard let s = session else { throw AuthRequired.notAuthenticated }
-        if s.expiresAt.timeIntervalSinceNow <= refreshLeadSeconds {
+        if Self.effectiveExpiry(of: s).timeIntervalSinceNow <= refreshLeadSeconds {
             return try await refreshLocked().accessToken
         }
         return s.accessToken
+    }
+
+    /// When the stored `expiresAt` and the access token's own `exp` disagree, the
+    /// token wins: a server that reports its refresh-credential lifetime here
+    /// (FC's Better-Auth backend did — ~7d session expiry for a ~15m JWT) would
+    /// otherwise park us on a dead token, and every Cloud API read 401s with
+    /// "Invalid or expired access token" until the session lapses. Taking the
+    /// earlier of the two also recovers sessions already persisted with a bad
+    /// expiry, since their `exp` is in the past.
+    static func effectiveExpiry(of session: StoredSession) -> Date {
+        guard let claimed = jwtExpiry(session.accessToken) else { return session.expiresAt }
+        return min(claimed, session.expiresAt)
+    }
+
+    /// `exp` of a JWT, read without verifying the signature — this only reads the
+    /// lifetime the issuer advertised, it is not an authorization decision.
+    static func jwtExpiry(_ token: String) -> Date? {
+        let segments = token.split(separator: ".", omittingEmptySubsequences: false)
+        guard segments.count == 3 else { return nil }
+        var payload = String(segments[1])
+            .replacingOccurrences(of: "-", with: "+")
+            .replacingOccurrences(of: "_", with: "/")
+        payload += String(repeating: "=", count: (4 - payload.count % 4) % 4)
+        guard let data = Data(base64Encoded: payload),
+              let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+              let exp = json["exp"] as? NSNumber else { return nil }
+        return Date(timeIntervalSince1970: exp.doubleValue)
     }
 
     public func forceRefresh() async throws {
@@ -107,7 +134,7 @@ public actor SessionStore {
     private func scheduleProactiveRefresh() {
         refreshTask?.cancel()
         guard let s = session else { return }
-        let delay = max(0, s.expiresAt.timeIntervalSinceNow - refreshLeadSeconds)
+        let delay = max(0, Self.effectiveExpiry(of: s).timeIntervalSinceNow - refreshLeadSeconds)
         refreshTask = Task { [weak self] in
             try? await Task.sleep(nanoseconds: UInt64(delay * 1_000_000_000))
             if Task.isCancelled { return }

@@ -65,6 +65,7 @@ struct CreateTeamView: View {
 struct OnboardingErrorView: View {
     let message: String
     let onRetry: () -> Void
+    var onSignOut: (() -> Void)? = nil
 
     var body: some View {
         ContentUnavailableView(
@@ -73,10 +74,20 @@ struct OnboardingErrorView: View {
             description: Text(message)
         )
         .overlay(alignment: .bottom) {
-            Button("Retry") {
-                onRetry()
+            VStack(spacing: 12) {
+                Button("Retry") {
+                    onRetry()
+                }
+                .buttonStyle(.borderedProminent)
+                .accessibilityIdentifier("onboardingError.retryButton")
+
+                if let onSignOut {
+                    Button("Sign Out", role: .destructive) {
+                        onSignOut()
+                    }
+                    .accessibilityIdentifier("onboardingError.signOutButton")
+                }
             }
-            .buttonStyle(.borderedProminent)
             .padding(.bottom, 48)
         }
     }

@@ -64,6 +64,28 @@ test("refreshAccessToken returns camelCase { accessToken, refreshToken, expiresA
   assert.ok(Number.isInteger(refreshed.expiresAt), "expiresAt integer epoch seconds");
 });
 
+// Clients (iOS SessionStore, desktop, daemon) schedule their refresh off
+// `expires_at`. Reporting the ~7d SESSION expiry there let a ~15m JWT die
+// unnoticed, after which every authenticated request 401'd with
+// "Invalid or expired access token" until the session itself lapsed.
+test("expires_at describes the access-token JWT, not the 7-day session", async () => {
+  const { repo } = await setup();
+  const env = await repo.signInAnonymous();
+
+  const signInJwtExp = decodeJwt(env.access_token).exp;
+  assert.equal(env.expires_at, signInJwtExp, "sign-in expires_at == JWT exp");
+
+  const refreshed = await repo.refreshAccessToken({ refreshToken: env.refresh_token! });
+  const refreshJwtExp = decodeJwt(refreshed.accessToken).exp;
+  assert.equal(refreshed.expiresAt, refreshJwtExp, "refresh expiresAt == JWT exp");
+
+  const now = Math.floor(Date.now() / 1000);
+  assert.ok(
+    refreshed.expiresAt - now < 24 * 60 * 60,
+    `access-token expiry must be short-lived, got ${refreshed.expiresAt - now}s`,
+  );
+});
+
 test("issued access_token JWT: sub == user id, iss/aud == baseURL, verifyAccessToken agrees", async () => {
   const { repo, keyset } = await setup();
   const env = await repo.signInAnonymous();
