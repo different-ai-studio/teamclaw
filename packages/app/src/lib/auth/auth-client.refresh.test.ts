@@ -44,9 +44,9 @@ describe("auth-client refresh — establishing a session from a refresh-only res
     expect(getSession()?.user?.id).toBe("user-123");
   });
 
-  it("preserves the live session's user when refreshing (does not let the JWT override it)", async () => {
-    // The refresh JWT carries a different sub; the existing user must win so a
-    // routine refresh never silently swaps identity.
+  it("uses the adopted token's user when switching to a phone-linked team", async () => {
+    // switch_active_team returns a refresh token for the member account in the
+    // target org. Its JWT subject must replace the prior linked identity.
     const jwt = makeJwt({ sub: "jwt-sub-should-not-win", email: "live@y.z" });
     const fetchImpl = vi.fn().mockResolvedValue(
       new Response(
@@ -66,8 +66,8 @@ describe("auth-client refresh — establishing a session from a refresh-only res
       },
       "SIGNED_IN",
     );
-    const out = await adoptRefreshToken("rt-old");
-    expect(out.user?.id).toBe("existing-1");
+    const out = await adoptRefreshToken("rt-for-linked-team");
+    expect(out.user?.id).toBe("jwt-sub-should-not-win");
     expect(out.access_token).toBe(jwt);
     expect(out.refresh_token).toBe("rt3");
   });
