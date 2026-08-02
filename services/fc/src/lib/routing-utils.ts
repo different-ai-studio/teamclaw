@@ -33,6 +33,34 @@ export function nextSessionCursor(items, limit) {
   });
 }
 
+// Message pagination reads BACKWARDS through a session: a chat wants the most
+// recent N, then progressively older pages. The rows are still handed back
+// oldest-first (timeline order), so the cursor is taken from the OLDEST row of
+// a page — items[0] — not the last one like the forward-paging helpers above.
+export function decodeMessageCursor(value) {
+  if (!value) return null;
+  try {
+    const parsed = JSON.parse(Buffer.from(value, "base64url").toString("utf8"));
+    if (!parsed || typeof parsed !== "object") throw new Error("not an object");
+    return {
+      createdAt: optionalStringOrNull(parsed.createdAt, "cursor.createdAt"),
+      id: optionalStringOrNull(parsed.id, "cursor.id"),
+    };
+  } catch (cause) {
+    throw new ApiError(400, "validation_failed", "Invalid cursor", { cause });
+  }
+}
+
+export function nextMessageCursor(items, limit) {
+  if (!Array.isArray(items) || items.length < limit) return null;
+  const oldest = items[0];
+  if (!oldest) return null;
+  return encodeCursor({
+    createdAt: oldest.createdAt ?? null,
+    id: oldest.id,
+  });
+}
+
 // Sync pagination uses its own cursor shape. The session-list cursor above is
 // keyed on (lastMessageAt, createdAt, id) to match that endpoint's ordering;
 // sync walks forward through (updatedAt, id) instead, because its whole

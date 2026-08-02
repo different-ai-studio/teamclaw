@@ -989,16 +989,36 @@ paths:
     get:
       operationId: listMessages
       summary: List messages
+      description: |
+        The most recent `limit` messages in the session, returned oldest-first
+        within the page so the page drops straight into a timeline.
+
+        Paging runs backwards through history: `nextCursor` is derived from the
+        OLDEST row of the page, and passing it back yields the next-older page.
+        `nextCursor` is null once there is no older history.
       tags: [Messages]
       parameters:
         - $ref: "#/components/parameters/SessionId"
+        - name: limit
+          in: query
+          description: >-
+            How many of the most recent messages to return. Defaults to 50 —
+            omitting it no longer returns the session's entire history.
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 100
+            default: 50
         - name: cursor
           in: query
+          description: >-
+            Opaque keyset cursor from a previous response's `nextCursor`. Omit
+            to start at the newest message.
           schema:
             type: string
       responses:
         "200":
-          description: Session messages.
+          description: Session messages, oldest-first within the page.
           headers:
             X-Request-Id:
               $ref: "#/components/headers/RequestId"

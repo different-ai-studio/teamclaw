@@ -783,6 +783,61 @@ test("POST /v1/sessions/:sessionId/mark-viewed forwards lastReadMessageId", asyn
   assert.deepEqual(repo.calls[0], { method: "markSessionViewed", sessionId: "session-1", lastReadMessageId: "msg-42" });
 });
 
+test("GET /v1/sessions/:id/messages defaults to the most recent 50", async () => {
+  const repo = fakeRepo();
+  const response = await handleBusinessApiRequest({
+    httpMethod: "GET",
+    path: "/v1/sessions/session-1/messages",
+    headers: { Authorization: "Bearer token" },
+  }, { createRepository: () => repo });
+
+  assert.equal(response.statusCode, 200);
+  assert.deepEqual(repo.calls[0], {
+    method: "listMessages",
+    sessionId: "session-1",
+    args: { limit: 50, cursor: null },
+  });
+  // A short page has no older history behind it.
+  assert.equal(JSON.parse(response.body).nextCursor, null);
+});
+
+test("GET /v1/sessions/:id/messages pages backwards from the oldest row", async () => {
+  // A full page means there may be older history; the cursor must come off the
+  // OLDEST row (items[0]), since this endpoint walks backwards in time.
+  const repo = fakeRepo({
+    messages: [
+      { id: "m1", createdAt: "2026-05-27T00:00:00Z", content: "older" },
+      { id: "m2", createdAt: "2026-05-27T01:00:00Z", content: "newer" },
+    ],
+  });
+  const response = await handleBusinessApiRequest({
+    httpMethod: "GET",
+    path: "/v1/sessions/session-1/messages",
+    queryParameters: { limit: "2" },
+    headers: { Authorization: "Bearer token" },
+  }, { createRepository: () => repo });
+
+  const cursor = JSON.parse(response.body).nextCursor;
+  assert.ok(cursor, "a full page must hand back a cursor");
+  assert.deepEqual(JSON.parse(Buffer.from(cursor, "base64url").toString("utf8")), {
+    createdAt: "2026-05-27T00:00:00Z",
+    id: "m1",
+  });
+
+  // And it must round-trip back into the repository call.
+  const next = fakeRepo();
+  await handleBusinessApiRequest({
+    httpMethod: "GET",
+    path: "/v1/sessions/session-1/messages",
+    queryParameters: { limit: "2", cursor },
+    headers: { Authorization: "Bearer token" },
+  }, { createRepository: () => next });
+  assert.deepEqual(next.calls[0].args, {
+    limit: 2,
+    cursor: { createdAt: "2026-05-27T00:00:00Z", id: "m1" },
+  });
+});
+
 test("GET /v1/teams/:teamId/sessions is gone (replaced by /v1/sessions?teamId=)", async () => {
   const repo = fakeRepo();
   const response = await handleBusinessApiRequest({
@@ -1818,7 +1873,7 @@ test("POST /v1/teams/:teamId/client-version returns 400 for invalid clientType",
   assert.equal(parsed.error.code, "validation_failed");
 });
 
-function fakeRepo({ sessions = [], error = null, teamWorkspaceConfigs = {}, workspaces = [], ideas = null } = {}) {
+function fakeRepo({ sessions = [], messages = [], error = null, teamWorkspaceConfigs = {}, workspaces = [], ideas = null } = {}) {
   const calls = [];
   const configs = { ...teamWorkspaceConfigs };
   const workspaceStore = workspaces.length > 0 ? workspaces.slice() : [
@@ -1850,7 +1905,7 @@ function fakeRepo({ sessions = [], error = null, teamWorkspaceConfigs = {}, work
     async getSessionByAcp(acpSessionId) { calls.push({ method: "getSessionByAcp", acpSessionId }); if (error) throw error; return gatewayBindings[acpSessionId] ?? null; },
     async ensureGatewaySession(input) { calls.push({ method: "ensureGatewaySession", input }); if (error) throw error; const b = input.binding; if (gatewayBindings[b]) return { ...gatewayBindings[b], created: false }; const r = { sessionId: "gw-" + b, gatewaySessionId: b, created: true }; gatewayBindings[b] = r; return r; },
     async createCronSession(input) { calls.push({ method: "createCronSession", input }); if (error) throw error; return { sessionId: "cron-" + input.title }; },
-    async listMessages(sessionId) { calls.push({ method: "listMessages", sessionId }); if (error) throw error; return []; },
+    async listMessages(sessionId, args) { calls.push({ method: "listMessages", sessionId, args }); if (error) throw error; return messages; },
     async insertMessage(sessionId, input) { calls.push({ method: "insertMessage", sessionId, input }); if (error) throw error; return { id: input.id, teamId: input.teamId, sessionId, turnId: null, senderActorId: input.senderActorId, replyToMessageId: null, kind: input.kind ?? "text", content: input.content, metadata: input.metadata ?? null, model: null, createdAt: "2026-05-27T01:00:00Z", updatedAt: null }; },
     async patchMessage(messageId, patch) { calls.push({ method: "patchMessage", messageId, patch }); if (error) throw error; return { id: messageId, teamId: "team-1", sessionId: "session-1", turnId: null, senderActorId: "actor-1", replyToMessageId: null, kind: "text", content: patch.content ?? "hello", metadata: patch.metadata ?? null, model: null, createdAt: "2026-05-27T01:00:00Z", updatedAt: "2026-05-27T02:00:00Z" }; },
     async deleteMessage(messageId) { calls.push({ method: "deleteMessage", messageId }); if (error) throw error; },

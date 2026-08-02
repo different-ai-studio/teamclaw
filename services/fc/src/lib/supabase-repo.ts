@@ -1034,16 +1034,27 @@ export function createSupabaseBusinessRepository(options) {
       return (data ?? []).map(mapSession);
     },
 
-    async listMessages(sessionId) {
-      const query = supabase
+    async listMessages(sessionId, { limit = 50, cursor = null }: any = {}) {
+      let query = supabase
         .from("messages")
         .select(MESSAGE_COLUMNS)
         .eq("session_id", sessionId);
+      if (cursor?.createdAt) {
+        // Strictly older than (createdAt, id). PostgREST has no row-value
+        // comparison, so express it as the equivalent OR.
+        query = query.or(
+          `created_at.lt.${cursor.createdAt},and(created_at.eq.${cursor.createdAt},id.lt.${cursor.id})`,
+        );
+      }
+      // Fetch descending so LIMIT keeps the NEWEST rows, then flip the page back
+      // to timeline order. Ordering ascending here would cap the query at the
+      // oldest messages instead — the opposite of what a chat wants.
       const { data, error } = await query
-        .order("created_at", { ascending: true })
-        .order("id", { ascending: true });
+        .order("created_at", { ascending: false })
+        .order("id", { ascending: false })
+        .limit(limit);
       if (error) throw error;
-      return (data ?? []).map(mapMessage);
+      return (data ?? []).map(mapMessage).reverse();
     },
 
     async insertMessage(sessionId, input) {

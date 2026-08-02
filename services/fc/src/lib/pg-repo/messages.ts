@@ -8,7 +8,7 @@
  *   consistent error.code of either "23505" or "conflict".
  */
 
-import { and, asc, eq, gt } from "drizzle-orm";
+import { and, desc, eq, gt, sql } from "drizzle-orm";
 import type { PgDatabase } from "drizzle-orm/pg-core";
 import { messages } from "../../db/schema/index.js";
 import { ApiError } from "../http-utils.js";
@@ -80,13 +80,28 @@ function isPkViolation(err: any): boolean {
 export function makeMessagesRepo(db: DbLike, deps?: MessagesRepoDeps) {
   return {
     // ── listMessages ──────────────────────────────────────────────────────────
-    async listMessages(sessionId: string) {
+    async listMessages(
+      sessionId: string,
+      { limit = 50, cursor = null }: { limit?: number; cursor?: { createdAt?: string | null; id?: string } | null } = {},
+    ) {
+      const conditions = [eq(messages.sessionId, sessionId)];
+      if (cursor?.createdAt) {
+        // Strictly older than (createdAt, id).
+        const cursorCreatedAt = new Date(cursor.createdAt);
+        conditions.push(
+          sql`(messages.created_at < ${cursorCreatedAt} OR (messages.created_at = ${cursorCreatedAt} AND messages.id < ${cursor.id ?? null}))`,
+        );
+      }
+      // Descending + LIMIT keeps the NEWEST rows; the page is flipped back to
+      // timeline order before returning. Ascending would cap at the oldest
+      // messages instead — the opposite of what a chat wants.
       const rows = await db
         .select()
         .from(messages)
-        .where(eq(messages.sessionId, sessionId))
-        .orderBy(asc(messages.createdAt), asc(messages.id));
-      return rows.map(mapMessage);
+        .where(and(...conditions))
+        .orderBy(desc(messages.createdAt), desc(messages.id))
+        .limit(limit);
+      return rows.map(mapMessage).reverse();
     },
 
     // ── insertMessage ─────────────────────────────────────────────────────────

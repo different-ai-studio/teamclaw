@@ -98,6 +98,64 @@ test("listMessages returns messages ordered by createdAt asc, id asc", async () 
   assert.equal(msgs[1].content, "Second");
 });
 
+test("listMessages keeps the NEWEST messages when the limit bites", async () => {
+  const { db } = await makeTestDb();
+  const team = await seedTeam(db);
+  const actor = await seedActor(db, team.id);
+  const repo = createPgBusinessRepository({ db });
+  const session = await seedSession(repo, team.id, actor.id);
+
+  for (let i = 0; i < 5; i++) {
+    await repo.insertMessage(session.id, {
+      teamId: team.id, kind: "text", content: `m${i}`, senderActorId: actor.id,
+    });
+    await new Promise((r) => setTimeout(r, 5));
+  }
+
+  // The window must land on the tail of the conversation, not its head — an
+  // ascending query with a LIMIT would return m0/m1 instead.
+  const page = await repo.listMessages(session.id, { limit: 2, cursor: null });
+  assert.deepEqual(page.map((m: any) => m.content), ["m3", "m4"], "newest two, oldest-first");
+});
+
+test("listMessages cursor walks backwards through older history", async () => {
+  const { db } = await makeTestDb();
+  const team = await seedTeam(db);
+  const actor = await seedActor(db, team.id);
+  const repo = createPgBusinessRepository({ db });
+  const session = await seedSession(repo, team.id, actor.id);
+
+  for (let i = 0; i < 5; i++) {
+    await repo.insertMessage(session.id, {
+      teamId: team.id, kind: "text", content: `m${i}`, senderActorId: actor.id,
+    });
+    await new Promise((r) => setTimeout(r, 5));
+  }
+
+  const first = await repo.listMessages(session.id, { limit: 2, cursor: null });
+  assert.deepEqual(first.map((m: any) => m.content), ["m3", "m4"]);
+
+  // The cursor comes off the OLDEST row of the page, so the next call must
+  // return strictly older messages with no overlap.
+  const second = await repo.listMessages(session.id, {
+    limit: 2,
+    cursor: { createdAt: first[0].createdAt, id: first[0].id },
+  });
+  assert.deepEqual(second.map((m: any) => m.content), ["m1", "m2"]);
+
+  const third = await repo.listMessages(session.id, {
+    limit: 2,
+    cursor: { createdAt: second[0].createdAt, id: second[0].id },
+  });
+  assert.deepEqual(third.map((m: any) => m.content), ["m0"]);
+
+  const exhausted = await repo.listMessages(session.id, {
+    limit: 2,
+    cursor: { createdAt: third[0].createdAt, id: third[0].id },
+  });
+  assert.deepEqual(exhausted, [], "walking past the first message yields nothing");
+});
+
 // ── insertMessage ─────────────────────────────────────────────────────────────
 
 test("insertMessage returns message with all contract keys populated", async () => {
