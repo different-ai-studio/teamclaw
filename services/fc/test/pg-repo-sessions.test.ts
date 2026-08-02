@@ -8,7 +8,8 @@
  */
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { eq } from "drizzle-orm";
+import { randomUUID } from "node:crypto";
+import { eq, sql } from "drizzle-orm";
 import { makeTestDb } from "./db/pglite.js";
 import { createPgBusinessRepository } from "../src/lib/pg-repo/index.js";
 import {
@@ -65,9 +66,38 @@ test("listSessions returns canonical contract keys for actor-visible sessions", 
     "id", "teamId", "title", "mode", "ideaId",
     "lastMessageAt", "lastMessagePreview", "hasUnread",
     "source", "cronJobId",
+    // Display-row fields, previously only on GET /v1/teams/:teamId/sessions.
+    "summary", "primaryAgentId", "createdByActorId", "participantCount",
     "createdAt", "updatedAt",
   ].sort();
   assert.deepEqual(Object.keys(rows[0]).sort(), contractKeys);
+  assert.equal(rows[0].participantCount, 1, "the seeded participant must be counted");
+});
+
+test("listSessions narrows by teamId and ideaId", async () => {
+  const { db } = await makeTestDb();
+  const team = await seedTeam(db);
+  const actor = await seedActor(db, team.id);
+  const repo = createPgBusinessRepository({ db, userId: actor.userId });
+
+  const withIdea = await repo.createSession({
+    teamId: team.id, title: "HasIdea", mode: "solo", participantActorIds: [actor.id],
+  });
+  await repo.createSession({
+    teamId: team.id, title: "NoIdea", mode: "solo", participantActorIds: [actor.id],
+  });
+  // Give exactly one session an idea to filter on.
+  const ideaId = randomUUID();
+  await db.execute(sql`UPDATE sessions SET idea_id = ${ideaId} WHERE id = ${withIdea.id}`);
+
+  const teamScoped = await repo.listSessions({ teamId: team.id, limit: 50, cursor: null });
+  assert.equal(teamScoped.length, 2, "both sessions belong to the team");
+
+  const ideaScoped = await repo.listSessions({ teamId: team.id, ideaId, limit: 50, cursor: null });
+  assert.deepEqual(ideaScoped.map((r: any) => r.title), ["HasIdea"]);
+
+  const otherTeam = await repo.listSessions({ teamId: randomUUID(), limit: 50, cursor: null });
+  assert.deepEqual(otherTeam, [], "a foreign teamId must not leak rows");
 });
 
 test("listSessions ordering: lastMessageAt desc nulls last, then createdAt desc, then id desc", async () => {
@@ -606,22 +636,6 @@ test("createCronSession returns sessionId", async () => {
     title: "Daily summary",
   });
   assert.ok(out.sessionId, "sessionId should be present");
-});
-
-// ── listTeamSessionsFull ──────────────────────────────────────────────────────
-
-test("listTeamSessionsFull returns sessions with participantCount", async () => {
-  const { db } = await makeTestDb();
-  const team = await seedTeam(db);
-  const actor = await seedActor(db, team.id);
-  const repo = createPgBusinessRepository({ db });
-
-  await repo.createSession({ teamId: team.id, title: "Full1", mode: "solo", participantActorIds: [actor.id] });
-  const rows = await repo.listTeamSessionsFull(team.id);
-  assert.ok(Array.isArray(rows));
-  assert.ok(rows.length >= 1);
-  const row = rows[0];
-  assert.ok(typeof row.participantCount === "number");
 });
 
 // ── listSessionsForTeamSince ──────────────────────────────────────────────────

@@ -33,6 +33,35 @@ export function nextSessionCursor(items, limit) {
   });
 }
 
+// Sync pagination uses its own cursor shape. The session-list cursor above is
+// keyed on (lastMessageAt, createdAt, id) to match that endpoint's ordering;
+// sync walks forward through (updatedAt, id) instead, because its whole
+// contract is "everything changed since X" and updatedAt is the only column
+// that moves monotonically as rows are touched.
+export function decodeSyncCursor(value) {
+  if (!value) return null;
+  try {
+    const parsed = JSON.parse(Buffer.from(value, "base64url").toString("utf8"));
+    if (!parsed || typeof parsed !== "object") throw new Error("not an object");
+    return {
+      updatedAt: optionalStringOrNull(parsed.updatedAt, "cursor.updatedAt"),
+      id: optionalStringOrNull(parsed.id, "cursor.id"),
+    };
+  } catch (cause) {
+    throw new ApiError(400, "validation_failed", "Invalid cursor", { cause });
+  }
+}
+
+export function nextSyncCursor(items, limit) {
+  if (!Array.isArray(items) || items.length < limit) return null;
+  const last = items[items.length - 1];
+  if (!last) return null;
+  return encodeCursor({
+    updatedAt: last.updated_at ?? last.updatedAt ?? null,
+    id: last.id,
+  });
+}
+
 export function parseLimit(value) {
   if (value === null || value === undefined || value === "") return DEFAULT_LIST_LIMIT;
   const limit = Number(value);

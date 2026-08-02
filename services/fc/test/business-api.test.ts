@@ -45,6 +45,8 @@ test("handleBusinessApiRequest routes list sessions with bearer-scoped repositor
     args: {
       limit: 2,
       cursor: null,
+      teamId: null,
+      ideaId: null,
     },
   });
 });
@@ -781,7 +783,7 @@ test("POST /v1/sessions/:sessionId/mark-viewed forwards lastReadMessageId", asyn
   assert.deepEqual(repo.calls[0], { method: "markSessionViewed", sessionId: "session-1", lastReadMessageId: "msg-42" });
 });
 
-test("GET /v1/teams/:teamId/sessions returns full session display rows", async () => {
+test("GET /v1/teams/:teamId/sessions is gone (replaced by /v1/sessions?teamId=)", async () => {
   const repo = fakeRepo();
   const response = await handleBusinessApiRequest({
     httpMethod: "GET",
@@ -789,15 +791,41 @@ test("GET /v1/teams/:teamId/sessions returns full session display rows", async (
     headers: { Authorization: "Bearer token" },
   }, { createRepository: () => repo });
 
+  assert.equal(response.statusCode, 404);
+});
+
+test("GET /v1/sessions narrows by teamId and ideaId server-side", async () => {
+  // Narrowing must reach the repository rather than being post-filtered: once
+  // the list is paginated, filtering the returned page silently drops matches
+  // that live on later pages.
+  const repo = fakeRepo();
+  const response = await handleBusinessApiRequest({
+    httpMethod: "GET",
+    path: "/v1/sessions",
+    queryParameters: { teamId: "team-1", ideaId: "idea-1", limit: "25" },
+    headers: { Authorization: "Bearer token" },
+  }, { createRepository: () => repo });
+
   assert.equal(response.statusCode, 200);
-  const parsed = JSON.parse(response.body);
-  assert.ok(Array.isArray(parsed.items));
-  assert.equal(parsed.items[0].id, "session-1");
-  assert.equal(parsed.items[0].participantCount, 3);
-  assert.equal(parsed.items[0].primaryAgentId, "agent-1");
-  assert.equal(parsed.items[0].createdByActorId, "actor-1");
-  assert.equal(parsed.items[0].summary, "s");
-  assert.deepEqual(repo.calls[0], { method: "listTeamSessionsFull", teamId: "team-1" });
+  assert.deepEqual(repo.calls[0], {
+    method: "listSessions",
+    args: { limit: 25, cursor: null, teamId: "team-1", ideaId: "idea-1" },
+  });
+});
+
+test("GET /v1/sessions leaves teamId/ideaId null when not supplied", async () => {
+  const repo = fakeRepo();
+  const response = await handleBusinessApiRequest({
+    httpMethod: "GET",
+    path: "/v1/sessions",
+    headers: { Authorization: "Bearer token" },
+  }, { createRepository: () => repo });
+
+  assert.equal(response.statusCode, 200);
+  assert.deepEqual(repo.calls[0], {
+    method: "listSessions",
+    args: { limit: 50, cursor: null, teamId: null, ideaId: null },
+  });
 });
 
 test("GET /v1/teams/:teamId/agent-runtimes returns team runtimes", async () => {
@@ -1815,7 +1843,6 @@ function fakeRepo({ sessions = [], error = null, teamWorkspaceConfigs = {}, work
     async createSession(input) { calls.push({ method: "createSession", input }); if (error) throw error; const id = input.id ?? "session-new"; const newS = { id, teamId: input.teamId, title: input.title, mode: input.mode, ideaId: null, lastMessageAt: null, lastMessagePreview: null, hasUnread: false, createdAt: "2026-05-27T03:00:00Z", updatedAt: "2026-05-27T03:00:00Z", participants: (input.participantActorIds ?? []).map(a => ({ sessionId: id, actorId: a, role: "member", joinedAt: null })) }; sessionStore.push(newS); return newS; },
     async markSessionViewed(sessionId, lastReadMessageId) { calls.push({ method: "markSessionViewed", sessionId, lastReadMessageId }); if (error) throw error; },
     async markSessionUnread(sessionId) { calls.push({ method: "markSessionUnread", sessionId }); if (error) throw error; },
-    async listTeamSessionsFull(teamId) { calls.push({ method: "listTeamSessionsFull", teamId }); if (error) throw error; return [{ id: "session-1", teamId, title: "T", mode: "solo", ideaId: null, primaryAgentId: "agent-1", createdByActorId: "actor-1", summary: "s", lastMessageAt: null, lastMessagePreview: null, participantCount: 3, hasUnread: false, createdAt: "2026-05-27T01:00:00Z", updatedAt: "2026-05-27T01:00:00Z" }]; },
     async listAgentRuntimesForTeam(teamId) { calls.push({ method: "listAgentRuntimesForTeam", teamId }); if (error) throw error; return [{ id: "rt-1", teamId, agentId: "agent-1", sessionId: "session-1", workspaceId: null, backendType: "claude_code", status: "ready", backendSessionId: "bs-1", runtimeId: "rt12abcd", currentModel: "claude-opus-4-7", lastSeenAt: "2026-05-27T01:00:00Z", createdAt: "2026-05-27T00:00:00Z", updatedAt: "2026-05-27T01:00:00Z" }]; },
     async listSessionParticipants(sessionId) { calls.push({ method: "listSessionParticipants", sessionId }); if (error) throw error; const store = sessions.length > 0 ? sessions : sessionStore; const s = store.find(s => s.id === sessionId); return { items: s?.participants ?? [] }; },
     async upsertSessionParticipant(sessionId, input) { calls.push({ method: "upsertSessionParticipant", sessionId, input }); if (error) throw error; const store = sessions.length > 0 ? sessions : sessionStore; const s = store.find(s => s.id === sessionId); const existing = s?.participants?.find(p => p.actorId === input.actorId); if (existing) { existing.role = input.role ?? existing.role; return existing; } const newP = { sessionId, actorId: input.actorId, role: input.role ?? "member", joinedAt: null }; if (s) s.participants.push(newP); return newP; },

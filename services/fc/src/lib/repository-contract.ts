@@ -16,6 +16,13 @@ export function runBusinessRepositoryContract({ test, assert, createRepository }
       "title",
       "updatedAt",
       "id",
+      // Display-row fields. They used to come from GET /v1/teams/:teamId/sessions;
+      // that endpoint is gone, so both backends must serve them from the list
+      // path or iOS/Expo lose data with no compile-time signal.
+      "summary",
+      "primaryAgentId",
+      "createdByActorId",
+      "participantCount",
     ].sort());
 
     for (let i = 1; i < rows.length; i++) {

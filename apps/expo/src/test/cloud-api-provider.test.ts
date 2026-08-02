@@ -10,7 +10,7 @@ describe("Expo Cloud API provider", () => {
     vi.stubEnv("EXPO_PUBLIC_BACKEND_KIND", "cloud_api");
     vi.stubEnv("EXPO_PUBLIC_CLOUD_API_URL", "https://fc.example.com");
     const fetchMock = vi.spyOn(globalThis, "fetch").mockImplementation(async (url, init) => {
-      if (String(url).endsWith("/v1/teams/team-1/sessions")) {
+      if (String(url).includes("/v1/sessions?")) {
         return response({
           items: [{
             id: "session-1",
@@ -28,6 +28,8 @@ describe("Expo Cloud API provider", () => {
             createdAt: "2026-05-27T00:00:00Z",
             updatedAt: "2026-05-27T01:00:00Z",
           }],
+          // Short page → no cursor, so the pager stops after one request.
+          nextCursor: null,
         });
       }
       if (String(url).endsWith("/v1/sessions/session-1/messages") && init?.method === "POST") {
@@ -55,6 +57,9 @@ describe("Expo Cloud API provider", () => {
     await expect(api.listSessions("team-1")).resolves.toMatchObject([
       { sessionId: "session-1", teamId: "team-1", hasUnread: true },
     ]);
+    // The team filter has to reach the server: post-filtering a paginated list
+    // in the client would drop matches that land on a later page.
+    expect(String(fetchMock.mock.calls[0][0])).toContain("teamId=team-1");
     await expect(api.insertOutgoingMessage({
       id: "message-1",
       teamId: "team-1",
