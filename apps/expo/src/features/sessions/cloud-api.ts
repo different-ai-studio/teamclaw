@@ -94,6 +94,42 @@ type SessionRuntime = {
   status: string;
 };
 
+/** Server-side cap in FC's `parseLimit`; a larger `limit` is rejected as a 400. */
+const MAX_PAGE_SIZE = 100;
+
+/**
+ * Walks `GET /v1/sessions?teamId=…` to exhaustion.
+ *
+ * Replaces `GET /v1/teams/:teamId/sessions`, which returned a team's whole
+ * session list in one response. That endpoint fell over on large teams: it
+ * counted participants with a query that put every session id in the URL,
+ * which crossed the gateway's request-line limit and surfaced as an opaque
+ * 500. The replacement is paginated, so a caller that wants everything pages.
+ */
+async function listAllTeamSessions(
+  client: { get: <T>(path: string) => Promise<T> },
+  teamId: string,
+): Promise<CloudSessionFull[]> {
+  // Bounded so a server that keeps returning a cursor cannot spin forever.
+  const MAX_PAGES = 100;
+  const all: CloudSessionFull[] = [];
+  let cursor: string | null = null;
+  let pages = 0;
+
+  do {
+    const params = new URLSearchParams({ teamId, limit: String(MAX_PAGE_SIZE) });
+    if (cursor) params.set("cursor", cursor);
+    const response = await client.get<{ items?: CloudSessionFull[]; nextCursor?: string | null }>(
+      `/v1/sessions?${params.toString()}`,
+    );
+    all.push(...(response.items ?? []));
+    cursor = response.nextCursor ?? null;
+    pages += 1;
+  } while (cursor && pages < MAX_PAGES);
+
+  return all;
+}
+
 function mapSession(row: CloudSessionFull): SessionSummary {
   return {
     sessionId: row.id,
@@ -101,9 +137,9 @@ function mapSession(row: CloudSessionFull): SessionSummary {
     title: row.title ?? "",
     summary: row.summary ?? "",
     participantCount: row.participantCount ?? 0,
-    // The team-sessions endpoint does not expose the participant actor id
-    // list. The only consumer (mention resolver) treats it as advisory and
-    // falls back to the full team directory, so an empty list is safe.
+    // The session list does not expose the participant actor id list. The only
+    // consumer (mention resolver) treats it as advisory and falls back to the
+    // full team directory, so an empty list is safe.
     participantActorIds: [],
     lastMessagePreview: row.lastMessagePreview ?? "",
     lastMessageAt: row.lastMessageAt ?? "",
@@ -144,10 +180,7 @@ export function createCloudSessionsApi(options: CreateCloudSessionsApiOptions) {
       // currentActorId is derived server-side from the bearer; kept for
       // signature parity with the legacy Supabase implementation.
       void currentActorId;
-      const response = await client.get<{ items?: CloudSessionFull[] }>(
-        `/v1/teams/${encodeURIComponent(teamId)}/sessions`,
-      );
-      return (response.items ?? []).map(mapSession);
+      return (await listAllTeamSessions(client, teamId)).map(mapSession);
     },
 
     async listSessionsForIdea(
@@ -155,16 +188,20 @@ export function createCloudSessionsApi(options: CreateCloudSessionsApiOptions) {
       ideaId: string,
       limit = 5,
     ): Promise<SessionSummary[]> {
-      // The team-sessions endpoint returns rows ordered by last_message_at
-      // desc and carries ideaId, so we filter client-side to mirror the prior
-      // `sessions.eq(idea_id).order(last_message_at).limit(5)` query.
+      // Filtered by the server. This used to pull the whole team list and
+      // filter in the client, which only worked because the old endpoint was
+      // unpaginated — against a paginated one it would silently miss matches
+      // that fall on a later page. Rows come back ordered by last_message_at
+      // desc, so a plain limit is the top-N.
+      const params = new URLSearchParams({
+        teamId,
+        ideaId,
+        limit: String(Math.min(limit, MAX_PAGE_SIZE)),
+      });
       const response = await client.get<{ items?: CloudSessionFull[] }>(
-        `/v1/teams/${encodeURIComponent(teamId)}/sessions`,
+        `/v1/sessions?${params.toString()}`,
       );
-      return (response.items ?? [])
-        .filter((row) => row.ideaId === ideaId)
-        .slice(0, limit)
-        .map(mapSession);
+      return (response.items ?? []).map(mapSession);
     },
 
     async getSession(teamId: string, sessionId: string): Promise<SessionSummary | null> {

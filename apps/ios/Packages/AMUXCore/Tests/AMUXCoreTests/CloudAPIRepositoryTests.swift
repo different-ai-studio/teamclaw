@@ -13,7 +13,7 @@ struct CloudAPIRepositoryTests {
             send: { request in
                 await recorder.append(request)
                 let path = request.url?.path ?? ""
-                if path == "/v1/teams/team-1/sessions" {
+                if path == "/v1/sessions" {
                     return try response("""
                     {
                       "items": [
@@ -108,6 +108,12 @@ struct CloudAPIRepositoryTests {
         #expect(messages.first?.mentionActorIDs == [])
         #expect(messages.first?.updatedAt == nil)
         let requests = await recorder.requests
+        // The session list must be team-narrowed server-side and page-capped.
+        // Narrowing in the client would drop rows on later pages now that
+        // /v1/sessions replaced the unpaginated team endpoint.
+        let listQuery = try #require(requests.first { $0.url?.path == "/v1/sessions" }?.url?.query)
+        #expect(listQuery.contains("teamId=team-1"))
+        #expect(listQuery.contains("limit=100"))
         #expect(requests.allSatisfy { $0.value(forHTTPHeaderField: "Authorization") == "Bearer access-token" })
         #expect(requests.map { $0.value(forHTTPHeaderField: "X-Request-Id")?.isEmpty == false }.allSatisfy { $0 })
     }

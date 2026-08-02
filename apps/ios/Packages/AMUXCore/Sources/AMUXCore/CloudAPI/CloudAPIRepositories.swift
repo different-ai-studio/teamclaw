@@ -28,8 +28,7 @@ public actor CloudAPISessionsRepository: SessionsRepository {
     }
 
     public func listSessions(teamID: String) async throws -> [SessionRecord] {
-        let page: CloudPage<CloudSessionFull> = try await client.get("/v1/teams/\(teamID)/sessions")
-        return page.items.map { row in
+        try await CloudSessionPager.allPages(client: client, teamID: teamID).map { row in
             SessionRecord(
                 id: row.id,
                 teamID: row.teamId,
@@ -74,8 +73,56 @@ public actor CloudAPISessionIDsRepository: SessionIDsRepository {
     }
 
     public func listSessionIDs(teamID: String) async throws -> Set<String> {
-        let page: CloudPage<CloudSessionFull> = try await client.get("/v1/teams/\(teamID)/sessions")
-        return Set(page.items.map(\.id))
+        Set(try await CloudSessionPager.allPages(client: client, teamID: teamID).map(\.id))
+    }
+}
+
+/// Walks `GET /v1/sessions?teamId=…` to exhaustion.
+///
+/// This replaced `GET /v1/teams/:teamID/sessions`, which returned a team's
+/// entire session list in one unpaginated response — and blew up once a team
+/// grew past a couple hundred sessions, because the server built its
+/// participant-count query by putting every session id in a URL. The
+/// replacement is capped at 100 rows per page, so callers that genuinely want
+/// the whole list have to page for it.
+private enum CloudSessionPager {
+    /// Matches the server-side cap in `parseLimit` (MAX_LIST_LIMIT); asking for
+    /// more is a 400, not a bigger page.
+    private static let pageSize = 100
+
+    /// Stops after this many pages so a server that keeps handing back a cursor
+    /// cannot spin the client forever. 100 pages x 100 rows is far beyond any
+    /// real team, so hitting it means something is wrong, not that the team is
+    /// large.
+    private static let maxPages = 100
+
+    static func allPages(client: CloudAPIClient, teamID: String) async throws -> [CloudSessionFull] {
+        var all: [CloudSessionFull] = []
+        var cursor: String?
+        var pages = 0
+
+        repeat {
+            var path = "/v1/sessions?teamId=\(urlEncoded(teamID))&limit=\(pageSize)"
+            if let cursor { path += "&cursor=\(urlEncoded(cursor))" }
+
+            let page: CloudPage<CloudSessionFull> = try await client.get(path)
+            all.append(contentsOf: page.items)
+            cursor = page.nextCursor
+            pages += 1
+        } while cursor != nil && pages < maxPages
+
+        return all
+    }
+
+    /// RFC 3986 unreserved set. Deliberately not `.alphanumerics` (which would
+    /// escape the hyphens in a uuid) nor `.urlQueryAllowed` (which passes `&`
+    /// and `=` through and would let a value forge extra query parameters).
+    private static let unreserved = CharacterSet(
+        charactersIn: "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-._~"
+    )
+
+    private static func urlEncoded(_ value: String) -> String {
+        value.addingPercentEncoding(withAllowedCharacters: unreserved) ?? value
     }
 }
 

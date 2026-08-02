@@ -54,7 +54,57 @@ test("GET /v1/sync/sessions forwards teamId+since", async () => {
   });
   assert.equal(res.statusCode, 200);
   assert.equal(JSON.parse(res.body).items[0].id, "s1");
-  assert.deepEqual(repo.calls[0].args, ["t1", "2026-05-01T00:00:00Z"]);
+  assert.deepEqual(repo.calls[0].args, [
+    "t1",
+    "2026-05-01T00:00:00Z",
+    { limit: 50, cursor: null },
+  ]);
+});
+
+test("GET /v1/sync/sessions paginates: nextCursor set only on a full page", async () => {
+  // A short page means the walk is done — returning a cursor there would make
+  // clients loop forever on an empty tail.
+  const short = makeRepo({
+    listSessionsForTeamSince: () => [
+      { id: "s1", team_id: "t1", updated_at: "2026-05-01T00:00:00Z" },
+    ],
+  });
+  const shortRes = await request(short, {
+    method: "GET",
+    path: "/v1/sync/sessions",
+    query: { teamId: "t1", limit: "2" },
+  });
+  assert.equal(JSON.parse(shortRes.body).nextCursor, null);
+
+  const full = makeRepo({
+    listSessionsForTeamSince: () => [
+      { id: "s1", team_id: "t1", updated_at: "2026-05-01T00:00:00Z" },
+      { id: "s2", team_id: "t1", updated_at: "2026-05-02T00:00:00Z" },
+    ],
+  });
+  const fullRes = await request(full, {
+    method: "GET",
+    path: "/v1/sync/sessions",
+    query: { teamId: "t1", limit: "2" },
+  });
+  const cursor = JSON.parse(fullRes.body).nextCursor;
+  assert.ok(cursor, "a full page must hand back a cursor");
+  assert.deepEqual(JSON.parse(Buffer.from(cursor, "base64url").toString("utf8")), {
+    updatedAt: "2026-05-02T00:00:00Z",
+    id: "s2",
+  });
+
+  // And that cursor must round-trip back into the repository call.
+  const next = makeRepo({ listSessionsForTeamSince: () => [] });
+  await request(next, {
+    method: "GET",
+    path: "/v1/sync/sessions",
+    query: { teamId: "t1", limit: "2", cursor },
+  });
+  assert.deepEqual(next.calls[0].args[2], {
+    limit: 2,
+    cursor: { updatedAt: "2026-05-02T00:00:00Z", id: "s2" },
+  });
 });
 
 test("GET /v1/sync/sessions requires teamId", async () => {

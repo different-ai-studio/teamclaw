@@ -2,10 +2,15 @@ import { ApiError } from "../http-utils.js";
 import { parseLimit, decodeCursor, nextSessionCursor, requireString } from "../routing-utils.js";
 
 export function registerSessions(router) {
+  // `teamId` / `ideaId` are optional narrowing filters, applied server-side so
+  // they stay correct under pagination. They are what replaced the removed
+  // GET /v1/teams/:teamId/sessions — see 20260802000000.
   router.get("/v1/sessions", async (ctx) => {
     const limit = parseLimit(ctx.query.get("limit"));
     const cursor = decodeCursor(ctx.query.get("cursor"));
-    const items = await ctx.repository.listSessions({ limit, cursor });
+    const teamId = ctx.query.get("teamId") || null;
+    const ideaId = ctx.query.get("ideaId") || null;
+    const items = await ctx.repository.listSessions({ limit, cursor, teamId, ideaId });
     return { body: { items, nextCursor: nextSessionCursor(items, limit) } };
   });
 
@@ -84,11 +89,11 @@ export function registerSessions(router) {
     return { body: out };
   });
 
-  router.get("/v1/teams/:teamId/sessions", async (ctx) => {
-    const teamId = decodeURIComponent(ctx.params.teamId);
-    const items = await ctx.repository.listTeamSessionsFull(teamId);
-    return { body: { items } };
-  });
+  // GET /v1/teams/:teamId/sessions is gone — it fetched a team's entire session
+  // list unpaginated, then filtered participants with an `.in(<every id>)` that
+  // outgrew the gateway's URI limit and surfaced as an opaque 500. Use
+  // GET /v1/sessions?teamId=… instead, which is paginated and carries the same
+  // display-row fields.
 
   router.get("/v1/teams/:teamId/agent-runtimes", async (ctx) => {
     const teamId = decodeURIComponent(ctx.params.teamId);

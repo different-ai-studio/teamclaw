@@ -20,7 +20,7 @@
  *  - attach_gateway_session        → attachGatewaySession (move a chat's binding)
  */
 
-import { and, desc, eq, gt, inArray, isNull, or, sql } from "drizzle-orm";
+import { and, asc, desc, eq, gt, inArray, isNull, or, sql } from "drizzle-orm";
 import type { PgDatabase } from "drizzle-orm/pg-core";
 import {
   sessions,
@@ -163,21 +163,25 @@ export function makeSessionsRepo(db: DbLike, ctx: SessionsCtx = {}, deps: Sessio
     // ── List sessions (participant-filtered) ──────────────────────────────────
     /**
      * AUTHZ (#10): lists the CURRENT ACTOR's sessions, resolved from ctx.userId.
-     * The GET /v1/sessions route supplies neither teamId nor actorId, matching
-     * the Supabase RPC `list_current_actor_sessions` (no team filter, scoped to
-     * the authenticated user's participating sessions across all their teams).
+     * Mirrors the Supabase RPC `list_current_actor_sessions`: scoped to the
+     * authenticated user's participating sessions, across all their teams
+     * unless narrowed.
      *
-     * A client-supplied actorId is NEVER trusted. teamId is optional: when given
-     * it narrows the result to that team (still scoped to the user's actors).
-     * When no identity is available the result is empty (fail closed) — an
-     * unauthenticated caller sees nothing rather than every team's sessions.
+     * A client-supplied actorId is NEVER trusted. teamId and ideaId are
+     * optional narrowing filters (still scoped to the user's actors), supplied
+     * by GET /v1/sessions as query params — they are what let this endpoint
+     * replace the removed GET /v1/teams/:teamId/sessions. When no identity is
+     * available the result is empty (fail closed) — an unauthenticated caller
+     * sees nothing rather than every team's sessions.
      */
     async listSessions({
       teamId,
+      ideaId,
       limit = 50,
       cursor = null,
     }: {
       teamId?: string;
+      ideaId?: string;
       limit?: number;
       cursor?: { lastMessageAt?: string | null; createdAt?: string; id?: string } | null;
     } = {}) {
@@ -197,6 +201,11 @@ export function makeSessionsRepo(db: DbLike, ctx: SessionsCtx = {}, deps: Sessio
 
       // Optional team narrowing (scoped to the user's actors regardless).
       const teamFilter = teamId ? sql`sessions.team_id = ${teamId}` : sql`TRUE`;
+
+      // Optional idea narrowing. Filtering here rather than in the client is
+      // what keeps "sessions for this idea" correct once the list is paginated
+      // — a client-side filter over page 1 silently misses matches on page 2.
+      const ideaFilter = ideaId ? sql`sessions.idea_id = ${ideaId}` : sql`TRUE`;
 
       let cursorFilter = sql`TRUE`;
       if (cursor) {
@@ -240,6 +249,13 @@ export function makeSessionsRepo(db: DbLike, ctx: SessionsCtx = {}, deps: Sessio
           sessions.cron_job_id AS "cronJobId",
           sessions.created_at AS "createdAt",
           sessions.updated_at AS "updatedAt",
+          sessions.summary,
+          sessions.primary_agent_id AS "primaryAgentId",
+          sessions.created_by_actor_id AS "createdByActorId",
+          (
+            SELECT COUNT(*) FROM session_participants sp
+            WHERE sp.session_id = sessions.id
+          )::int AS "participantCount",
           CASE
             WHEN sessions.last_message_at IS NULL THEN FALSE
             WHEN (${readMarkerSubq}) IS NULL THEN TRUE
@@ -248,8 +264,12 @@ export function makeSessionsRepo(db: DbLike, ctx: SessionsCtx = {}, deps: Sessio
           END AS "hasUnread"
         FROM sessions
         WHERE (${teamFilter})
+          AND (${ideaFilter})
           AND (${participantFilter})
           AND (${cursorFilter})
+          -- No archived_at filter, unlike the Supabase RPC: this schema has no
+          -- such column (see the note in ensureGatewaySession below). Archive
+          -- semantics live entirely in the supabase path.
         ORDER BY
           sessions.last_message_at DESC NULLS LAST,
           sessions.created_at DESC,
@@ -269,6 +289,10 @@ export function makeSessionsRepo(db: DbLike, ctx: SessionsCtx = {}, deps: Sessio
         hasUnread: r.hasUnread === true,
         source: r.source ?? "user",
         cronJobId: r.cronJobId ?? null,
+        summary: r.summary ?? null,
+        primaryAgentId: r.primaryAgentId ?? null,
+        createdByActorId: r.createdByActorId ?? null,
+        participantCount: Number(r.participantCount ?? 0),
         createdAt: iso(r.createdAt)!,
         updatedAt: iso(r.updatedAt)!,
       }));
@@ -749,55 +773,29 @@ export function makeSessionsRepo(db: DbLike, ctx: SessionsCtx = {}, deps: Sessio
       return { sessionId: r.id, ...mapSessionFull(r, []) };
     },
 
-    // ── listTeamSessionsFull ──────────────────────────────────────────────────
-    async listTeamSessionsFull(teamId: string) {
+    // ── listSessionsForTeamSince ──────────────────────────────────────────────
+    async listSessionsForTeamSince(
+      teamId: string,
+      updatedAfter: string | null,
+      { limit = 50, cursor = null }: { limit?: number; cursor?: { updatedAt?: string | null; id?: string } | null } = {},
+    ) {
+      const conditions = [eq(sessions.teamId, teamId)];
+      if (updatedAfter) conditions.push(gt(sessions.updatedAt, new Date(updatedAfter)));
+      if (cursor?.updatedAt) {
+        // Keyset: strictly after (updatedAt, id).
+        const cursorUpdatedAt = new Date(cursor.updatedAt);
+        conditions.push(
+          sql`(sessions.updated_at > ${cursorUpdatedAt} OR (sessions.updated_at = ${cursorUpdatedAt} AND sessions.id > ${cursor.id ?? null}))`,
+        );
+      }
+      // Ascending and id-tiebroken so paging is deterministic: this query had no
+      // ORDER BY at all before, which made any cursor meaningless.
       const rows = await db
         .select()
         .from(sessions)
-        .where(eq(sessions.teamId, teamId))
-        .orderBy(desc(sessions.lastMessageAt));
-
-      if (rows.length === 0) return [];
-
-      const ids = rows.map((r) => r.id);
-      const partRows = await db
-        .select({ sessionId: sessionParticipants.sessionId })
-        .from(sessionParticipants)
-        .where(inArray(sessionParticipants.sessionId, ids));
-
-      const counts: Record<string, number> = {};
-      for (const p of partRows) {
-        counts[p.sessionId] = (counts[p.sessionId] ?? 0) + 1;
-      }
-
-      return rows.map((r) => ({
-        id: r.id,
-        teamId: r.teamId,
-        title: r.title ?? "",
-        mode: r.mode ?? "solo",
-        ideaId: r.ideaId ?? null,
-        primaryAgentId: r.primaryAgentId ?? null,
-        createdByActorId: r.createdByActorId ?? null,
-        summary: r.summary ?? null,
-        lastMessageAt: iso(r.lastMessageAt),
-        lastMessagePreview: r.lastMessagePreview ?? null,
-        source: r.source ?? "user",
-        cronJobId: r.cronJobId ?? null,
-        participantCount: counts[r.id] ?? 0,
-        hasUnread: false,
-        createdAt: iso(r.createdAt)!,
-        updatedAt: iso(r.updatedAt)!,
-      }));
-    },
-
-    // ── listSessionsForTeamSince ──────────────────────────────────────────────
-    async listSessionsForTeamSince(teamId: string, updatedAfter: string | null) {
-      const rows = updatedAfter
-        ? await db
-            .select()
-            .from(sessions)
-            .where(and(eq(sessions.teamId, teamId), gt(sessions.updatedAt, new Date(updatedAfter))))
-        : await db.select().from(sessions).where(eq(sessions.teamId, teamId));
+        .where(and(...conditions))
+        .orderBy(asc(sessions.updatedAt), asc(sessions.id))
+        .limit(limit);
       return rows.map(mapSessionSyncRow);
     },
 

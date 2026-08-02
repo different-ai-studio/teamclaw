@@ -1018,12 +1018,17 @@ export function createSupabaseBusinessRepository(options) {
       };
     },
 
-    async listSessions({ limit = 50, cursor = null } = {}) {
+    async listSessions({ limit = 50, cursor = null, teamId = null, ideaId = null }: any = {}) {
       const { data, error } = await supabase.rpc("list_current_actor_sessions", {
         p_limit: limit,
         p_before_last_message_at: cursor?.lastMessageAt ?? null,
         p_before_created_at: cursor?.createdAt ?? null,
         p_before_id: cursor?.id ?? null,
+        // Narrowing happens inside the RPC (20260802000000). Doing it there
+        // rather than post-filtering keeps the result correct under pagination
+        // and is what lets this replace GET /v1/teams/:teamId/sessions.
+        p_team_id: teamId ?? null,
+        p_idea_id: ideaId ?? null,
       });
       if (error) throw error;
       return (data ?? []).map(mapSession);
@@ -1913,49 +1918,6 @@ export function createSupabaseBusinessRepository(options) {
     // --- Team workspace git config (separate column set from
     // existing default/pinned workspace config) ---
 
-    async listTeamSessionsFull(teamId) {
-      const FULL_COLUMNS =
-        "id, team_id, title, mode, primary_agent_id, idea_id, summary, last_message_preview, last_message_at, created_by_actor_id, source, cron_job_id, created_at, updated_at";
-      const { data: sessionRows, error: sessionErr } = await supabase
-        .from("sessions")
-        .select(FULL_COLUMNS)
-        .eq("team_id", teamId)
-        .order("last_message_at", { ascending: false, nullsFirst: false });
-      if (sessionErr) throw sessionErr;
-      const rows = sessionRows ?? [];
-      if (rows.length === 0) return [];
-
-      const ids = rows.map((r) => r.id);
-      const { data: pRows, error: pErr } = await supabase
-        .from("session_participants")
-        .select("session_id")
-        .in("session_id", ids);
-      if (pErr) throw pErr;
-      const counts = (pRows ?? []).reduce((acc, r) => {
-        acc[r.session_id] = (acc[r.session_id] ?? 0) + 1;
-        return acc;
-      }, {});
-
-      return rows.map((row) => ({
-        id: row.id,
-        teamId: row.team_id,
-        title: row.title ?? "",
-        mode: row.mode ?? "solo",
-        ideaId: row.idea_id ?? null,
-        primaryAgentId: row.primary_agent_id ?? null,
-        createdByActorId: row.created_by_actor_id ?? null,
-        summary: row.summary ?? null,
-        lastMessageAt: row.last_message_at ?? null,
-        lastMessagePreview: row.last_message_preview ?? null,
-        source: row.source ?? "user",
-        cronJobId: row.cron_job_id ?? null,
-        participantCount: counts[row.id] ?? 0,
-        hasUnread: false,
-        createdAt: row.created_at ?? null,
-        updatedAt: row.updated_at ?? null,
-      }));
-    },
-
     async listAgentRuntimesForTeam(teamId) {
       const COLS =
         "id, team_id, agent_id, session_id, workspace_id, backend_type, status, backend_session_id, runtime_id, current_model, last_seen_at, created_at, updated_at";
@@ -1982,7 +1944,7 @@ export function createSupabaseBusinessRepository(options) {
       }));
     },
 
-    async listSessionsForTeamSince(teamId, updatedAfter) {
+    async listSessionsForTeamSince(teamId, updatedAfter, { limit = 50, cursor = null }: any = {}) {
       const SESSION_SYNC_COLUMNS =
         "id, team_id, title, mode, primary_agent_id, idea_id, summary, last_message_preview, last_message_at, created_by_actor_id, source, cron_job_id, created_at, updated_at";
       let q = supabase
@@ -1990,7 +1952,20 @@ export function createSupabaseBusinessRepository(options) {
         .select(SESSION_SYNC_COLUMNS)
         .eq("team_id", teamId);
       if (updatedAfter) q = q.gt("updated_at", updatedAfter);
-      const { data, error } = await q;
+      if (cursor?.updatedAt) {
+        // Keyset: strictly after (updatedAt, id). PostgREST has no row-value
+        // comparison, so express it as the equivalent OR — later timestamp, or
+        // same timestamp with a larger id.
+        q = q.or(
+          `updated_at.gt.${cursor.updatedAt},and(updated_at.eq.${cursor.updatedAt},id.gt.${cursor.id})`,
+        );
+      }
+      // Ascending and id-tiebroken so paging is deterministic: neither
+      // implementation ordered at all before, which made any cursor meaningless.
+      const { data, error } = await q
+        .order("updated_at", { ascending: true })
+        .order("id", { ascending: true })
+        .limit(limit);
       if (error) throw error;
       return data ?? [];
     },

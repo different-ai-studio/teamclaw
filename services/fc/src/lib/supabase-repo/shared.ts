@@ -208,6 +208,14 @@ export function mapSession(row) {
     // an undefined that the client would read as "unknown origin".
     source: row?.source ?? "user",
     cronJobId: row?.cron_job_id ?? null,
+    // Display-row fields. These moved onto the list RPC in 20260802000000 when
+    // GET /v1/teams/:teamId/sessions (their previous home) was removed; a
+    // database that predates that migration simply omits them, so default
+    // rather than assume.
+    summary: row?.summary ?? null,
+    primaryAgentId: row?.primary_agent_id ?? null,
+    createdByActorId: row?.created_by_actor_id ?? null,
+    participantCount: Number(row?.participant_count ?? 0),
   };
 }
 
