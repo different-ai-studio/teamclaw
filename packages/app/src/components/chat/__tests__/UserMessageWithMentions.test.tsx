@@ -8,8 +8,18 @@ vi.mock('react-i18next', () => ({
   }),
 }))
 
+vi.mock('@/lib/download-remote-attachment', () => ({
+  openOrDownloadRemoteAttachment: vi.fn(async () => 'downloaded' as const),
+}))
+
+vi.mock('@/lib/attachment-download-index', () => ({
+  normalizeAttachmentUrlKey: (url: string) => url.split('?')[0],
+  getCachedAttachmentPath: () => null,
+}))
+
 vi.mock('@/lib/utils', () => ({
   cn: (...classes: unknown[]) => classes.filter(Boolean).join(' '),
+  isTauri: () => false,
 }))
 
 vi.mock('@/packages/ai/message', () => ({
@@ -94,6 +104,17 @@ describe('UserMessageWithMentions', () => {
 
     expect(screen.queryByText(/\(url:/)).toBeNull()
     expect(document.querySelector('img')).toBeNull()
+  })
+
+  it('renders non-image attachment url markers as download buttons', () => {
+    render(
+      <UserMessageWithMentions content="[Attachment: report.pdf] (url: https://cdn.example.test/report.pdf)" />,
+    )
+
+    const button = screen.getByRole('button')
+    expect(button).toHaveAttribute('title', 'Download attachment')
+    expect(screen.getByText('report.pdf')).toBeTruthy()
+    expect(screen.queryByRole('link')).toBeNull()
   })
 
   it('renders agent mentions as a header instead of inline chips', () => {

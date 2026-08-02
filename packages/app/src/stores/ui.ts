@@ -325,7 +325,13 @@ export const useUIStore = create<UIState>((set, get) => ({
     // worktree (e.g. app sessions whose workspace wasn't set yet).
     const currentActiveId = useSessionSelectionStore.getState().activeSessionId
     if (sessionId === currentActiveId) {
-      set({ currentView: 'chat', settingsInitialSection: null, daemonGeneralPrompt: null, ...sidebarPatch })
+      set({
+        currentView: 'chat',
+        settingsInitialSection: null,
+        daemonGeneralPrompt: null,
+        automationPanelOpen: false,
+        ...sidebarPatch,
+      })
       releaseStuckModalLayersAfterViewSwitch()
       resolveWorkspaceInBackground()
       return
@@ -337,6 +343,7 @@ export const useUIStore = create<UIState>((set, get) => ({
       currentView: 'chat',
       settingsInitialSection: null,
       daemonGeneralPrompt: null,
+      automationPanelOpen: false,
     })
     // Flipping currentView unmounts the Settings/History Dialog without going
     // through its onOpenChange handler, so Radix's scroll-lock/overlay residue

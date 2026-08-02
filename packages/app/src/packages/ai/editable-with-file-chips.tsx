@@ -6,6 +6,10 @@ import {
   pageLinkChipLabel,
   parsePageLinkBody,
 } from "@/lib/page-link-token"
+import {
+  encodeSessionAttachmentToken,
+  parseSessionAttachmentBody,
+} from "@/lib/session-attachment-token"
 import { COMPOSER_CHIP_SELECTOR, isComposerChipElement } from "./chip-classes"
 import { getTrailingPathLabel } from "./chip-labels"
 
@@ -127,7 +131,22 @@ export const EditableWithFileChips = React.forwardRef<HTMLDivElement, EditableWi
               `</span>`,
             )
           } else {
-          // @{filepath} - file chip (blue)
+          const sessionAttachment = parseSessionAttachmentBody(atBody)
+          if (sessionAttachment) {
+            const token = encodeSessionAttachmentToken(sessionAttachment)
+            const icon = sessionAttachment.isImage
+              ? `<svg class="lucide lucide-image shrink-0" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect width="18" height="18" x="3" y="3" rx="2" ry="2"/><circle cx="9" cy="9" r="2"/><path d="m21 15-3.086-3.086a2 2 0 0 0-2.828 0L6 21"/></svg>`
+              : `<svg class="lucide lucide-file-text shrink-0" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M15 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7Z"/><path d="M14 2v4a2 2 0 0 0 2 2h4"/><path d="M10 9H8"/><path d="M16 13H8"/><path d="M16 17H8"/></svg>`
+            parts.push(
+              `<span class="session-attachment-chip ${COMPOSER_CHIP_BASE} border border-dashed border-[rgba(26,26,20,0.18)] bg-[#f7f6f3] text-[#5a6270] dark:border-[rgba(255,255,255,0.15)] dark:bg-[#252420] dark:text-[#b8c5d0]" contenteditable="false" data-sessionattachmenttoken="${escapeHTML(token)}" style="vertical-align: middle;">` +
+              icon +
+              `<span class="max-w-[320px] truncate">${escapeHTML(sessionAttachment.name)}</span>` +
+              `<span class="text-faint text-[10px] leading-none">#</span>` +
+              CHIP_REMOVE +
+              `</span>`,
+            )
+          } else {
+          // @{filepath} - workspace file chip (solid blue)
           const filePath = atBody
           const fileLabel = getTrailingPathLabel(filePath)
           parts.push(
@@ -137,6 +156,7 @@ export const EditableWithFileChips = React.forwardRef<HTMLDivElement, EditableWi
             CHIP_REMOVE +
             `</span>`
           )
+          }
           }
           }
         } else if (match[3]) {
@@ -211,6 +231,9 @@ export const EditableWithFileChips = React.forwardRef<HTMLDivElement, EditableWi
           if (el.classList.contains("file-chip")) {
             const filepath = el.getAttribute("data-filepath") || ""
             result += `@{${filepath}}`
+          } else if (el.classList.contains("session-attachment-chip")) {
+            const token = el.getAttribute("data-sessionattachmenttoken") || ""
+            if (token) result += token
           } else if (el.classList.contains("member-chip")) {
             const memberId = el.getAttribute("data-memberid") || ""
             const memberName = el.getAttribute("data-membername") || ""

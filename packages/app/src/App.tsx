@@ -2835,6 +2835,7 @@ function AppContent() {
                 onClick={async () => {
                   try {
                     await navigator.clipboard.writeText(buildSessionDeeplink(activeSession.id));
+                    toast.success(t("chat.shareLinkCopied", "会话链接已复制"));
                   } catch {
                     toast.error(t("chat.shareLinkCopyFailed", "复制失败"));
                   }

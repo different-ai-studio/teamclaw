@@ -71,7 +71,6 @@ import {
 import { buildPostSendSessionNotice } from "@/lib/session-agent-notice-text";
 import { useSessionNoticeStore } from "@/stores/session-notice-store";
 import { toMentionDeliverySnapshot } from "@/lib/session-agent-ui-state";
-import { getFileName } from "./utils/fileUtils";
 import { MessageList, type MessageListHandle } from "./MessageList";
 import { SessionErrorAlert } from "./SessionErrorAlert";
 import { isPersistentSessionTurnError } from "@/lib/agent-turn-error";
@@ -91,6 +90,11 @@ import {
   type StreamingPlanEntry,
 } from "@/stores/v2-streaming-store";
 import { uploadAttachment } from "@/lib/attachment-upload";
+import {
+  collectSessionAttachmentUrlsFromText,
+  expandSessionAttachmentTokensInText,
+  textHasSessionAttachmentTokens,
+} from "@/lib/session-attachment-token";
 import { resolveSessionEstablishedModel } from "@/lib/session-established-model";
 import { ensureSessionLiveSubscribed } from "@/lib/session-live-subscriptions";
 import { resolveSessionMentionActorIds } from "@/lib/resolve-session-mention-ids";
@@ -466,7 +470,7 @@ export function ChatPanel({ compact = false }: ChatPanelProps) {
   // ── Local state ───────────────────────────────────────────────────────
   // draftInput lives in ChatInputArea (store subscription) so typing does not
   // re-render this panel / MessageList.
-  const [attachedFiles, setAttachedFiles] = React.useState<string[]>([]);
+  const [pendingFiles, setPendingFiles] = React.useState<File[]>([]);
   // engagedAgents is per-session: each @-mentioned agent shows as a pill in
   // the prompt-input toolbar. Switching away from a session and back
   // restores its engaged set rather than carrying one across sessions.
@@ -728,7 +732,6 @@ export function ChatPanel({ compact = false }: ChatPanelProps) {
   );
   const [welcomeSessionStarting, setWelcomeSessionStarting] = React.useState(false);
 
-  const [imageFiles, setImageFiles] = React.useState<File[]>([]);
   const [isRestoringArchived, setIsRestoringArchived] = React.useState(false);
   const isRestoringArchivedRef = React.useRef(false);
 
@@ -1079,24 +1082,12 @@ export function ChatPanel({ compact = false }: ChatPanelProps) {
 
   // ── File handling ─────────────────────────────────────────────────────
 
-  const handleFilesChange = React.useCallback((paths: string[]) => {
-    setAttachedFiles((prev) => {
-      const seen = new Set(prev);
-      const uniqueNew = paths.filter((p) => !seen.has(p));
-      return uniqueNew.length > 0 ? [...prev, ...uniqueNew] : prev;
-    });
-  }, []);
-
-  const removeFile = (index: number) => {
-    setAttachedFiles((prev) => prev.filter((_, i) => i !== index));
+  const appendPendingFiles = (files: File[]) => {
+    setPendingFiles((prev) => [...prev, ...files]);
   };
 
-  const handleImageFilesChange = (files: File[]) => {
-    setImageFiles((prev) => [...prev, ...files]);
-  };
-
-  const removeImageFile = (index: number) => {
-    setImageFiles((prev) => prev.filter((_, i) => i !== index));
+  const removePendingFile = (index: number) => {
+    setPendingFiles((prev) => prev.filter((_, i) => i !== index));
   };
 
   // ── Submit handler ────────────────────────────────────────────────────
@@ -1122,17 +1113,17 @@ export function ChatPanel({ compact = false }: ChatPanelProps) {
       mentionCount: mentions.length,
       engagedAgentCount: engagedAgents.length,
       extraMentionAgentCount: extraMentionAgents.length,
-      attachedFileCount: attachedFiles.length,
-      imageFileCount: imageFiles.length,
+      attachedFileCount: pendingFiles.length,
+      sessionAttachmentTokenCount: collectSessionAttachmentUrlsFromText(text).length,
       ...summarizeText(text),
     });
 
     if (
       !text &&
-      attachedFiles.length === 0 &&
+      pendingFiles.length === 0 &&
+      !textHasSessionAttachmentTokens(text) &&
       mentions.length === 0 &&
       !textHasMemberMentionTokens(text) &&
-      imageFiles.length === 0 &&
       engagedAgents.length === 0
     ) {
       return;
@@ -1140,8 +1131,8 @@ export function ChatPanel({ compact = false }: ChatPanelProps) {
 
     if (
       !text.trim() &&
-      attachedFiles.length === 0 &&
-      imageFiles.length === 0 &&
+      pendingFiles.length === 0 &&
+      !textHasSessionAttachmentTokens(text) &&
       engagedAgents.length > 0
     ) {
       sessionFlowLog("send.rejected_empty_with_engaged_agent", {
@@ -1154,11 +1145,15 @@ export function ChatPanel({ compact = false }: ChatPanelProps) {
     // Snapshot file state immediately so the UI clears at once, before any
     // async work. This prevents stale images from leaking into later sends
     // if the user types and submits again while the upload is in flight.
-    const currentImageFiles = imageFiles;
-    const currentAttachedFiles = attachedFiles;
-    setAttachedFiles([]);
-    setImageFiles([]);
+    const currentPendingFiles = pendingFiles;
+    const draftSnapshot = useSessionStore.getState().draftInput;
+    setPendingFiles([]);
     useSessionStore.getState().setDraftInput("");
+
+    const restoreComposer = () => {
+      setPendingFiles(currentPendingFiles);
+      useSessionStore.getState().setDraftInput(draftSnapshot);
+    };
 
     // WYSIWYG: pill in footer, typed @, or explicit extra on first send.
     const engagedFromStore = useEngagedAgentStore.getState().get(sid);
@@ -1199,6 +1194,7 @@ export function ChatPanel({ compact = false }: ChatPanelProps) {
     });
     processedText = stripPickerPersonMentionsFromText(processedText, mentions);
     processedText = expandPageLinkTokensInText(processedText);
+    processedText = expandSessionAttachmentTokensInText(processedText);
     processedText = processedText.replace(/@\{([^}]+)\}/g, '[File: $1]');
     processedText = processedText.replace(/\/\{([^}]+)\}/g, (_full, body) => {
       const token = parseSlashToken(body);
@@ -1215,11 +1211,6 @@ export function ChatPanel({ compact = false }: ChatPanelProps) {
     const structuredMentions = buildStructuredMentionLines(agentForSend);
     if (structuredMentions.length > 0) {
       parts.push(...structuredMentions);
-    }
-    if (currentAttachedFiles.length > 0) {
-      for (const filePath of currentAttachedFiles) {
-        parts.push(`[Attachment: ${getFileName(filePath)}] (path: ${filePath})`);
-      }
     }
     const bodyText = processedText.trim();
     if (bodyText) {
@@ -1245,22 +1236,29 @@ export function ChatPanel({ compact = false }: ChatPanelProps) {
         : Promise.resolve<string | null>(null);
 
     const uploadPromise = (async (): Promise<string[]> => {
-      const urls: string[] = [];
-      if (currentImageFiles.length === 0 || !teamIdForSend) return urls;
+      const urls: string[] = collectSessionAttachmentUrlsFromText(text);
+      if (currentPendingFiles.length === 0 || !teamIdForSend) return urls;
       try {
         sessionFlowLog("send.attachments_upload.begin", {
           sessionId: sid,
           teamId: teamIdForSend,
-          imageFileCount: currentImageFiles.length,
-          imageFileNames: currentImageFiles.map((file) => file.name),
+          pendingFileCount: currentPendingFiles.length,
+          pendingFileNames: currentPendingFiles.map((file) => file.name),
         });
         const uploaded = await Promise.all(
-          currentImageFiles.map((file) =>
+          currentPendingFiles.map((file) =>
             uploadAttachment(file, { teamId: teamIdForSend!, sessionId: sid }),
           ),
         );
         for (const att of uploaded) {
-          parts.push(`[Image: ${att.fileName}] (url: ${att.signedUrl})`);
+          const tokenIsImage =
+            att.mimeType.startsWith("image/") ||
+            /\.(png|jpe?g|gif|webp|svg|bmp|ico|heic|heif)$/i.test(att.fileName);
+          if (tokenIsImage) {
+            parts.push(`[Image: ${att.fileName}] (url: ${att.signedUrl})`);
+          } else {
+            parts.push(`[Attachment: ${att.fileName}] (url: ${att.signedUrl})`);
+          }
           urls.push(att.signedUrl);
         }
         finalContent = parts.join("\n\n");
@@ -1273,7 +1271,7 @@ export function ChatPanel({ compact = false }: ChatPanelProps) {
         sessionFlowError("send.attachments_upload.failed", e, {
           sessionId: sid,
           teamId: teamIdForSend,
-          imageFileCount: currentImageFiles.length,
+          pendingFileCount: currentPendingFiles.length,
         });
         console.error("[ChatPanel] attachment upload failed:", e);
         const { toast } = await import("sonner");
@@ -1298,7 +1296,7 @@ export function ChatPanel({ compact = false }: ChatPanelProps) {
         uploadPromise,
       ]);
     } catch {
-      // upload failure already toasted; abort send
+      restoreComposer();
       return;
     }
 
@@ -2225,9 +2223,9 @@ export function ChatPanel({ compact = false }: ChatPanelProps) {
             <ChatInputArea
             activeSessionId={activeSessionId}
             compact={compact}
-            attachedFiles={attachedFiles}
-            onFilesChange={handleFilesChange}
-            onRemoveFile={removeFile}
+            pendingFiles={pendingFiles}
+            onAppendPendingFiles={appendPendingFiles}
+            onRemovePendingFile={removePendingFile}
             engagedAgents={engagedAgents}
             engagedUiEntries={engagedUiEntries}
             agentToRuntimeId={agentToRuntimeId}
@@ -2255,9 +2253,6 @@ export function ChatPanel({ compact = false }: ChatPanelProps) {
             sessionModelId={activeSessionModelId}
             activeStreamingAgents={activeStreamingAgents}
             onInterruptAgent={handleInterruptAgent}
-            imageFiles={imageFiles}
-            onImageFilesChange={handleImageFilesChange}
-            onRemoveImageFile={removeImageFile}
             onSubmit={handleSubmit}
             isStreaming={isStreaming}
             messageQueue={messageQueue}

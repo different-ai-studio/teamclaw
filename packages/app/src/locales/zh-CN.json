@@ -436,8 +436,9 @@
       "fullAccess": "完全访问权限"
     },
     "mentionPopoverTitle": "提及人或 agent",
-    "mentionPopoverNoMatch": "No match for \"{{query}}\"",
+    "mentionPopoverNoMatch": "没有匹配 \"{{query}}\" 的结果",
     "copyShareLink": "复制会话分享链接",
+    "shareLinkCopied": "会话链接已复制",
     "shareLinkCopyFailed": "复制失败",
     "mentionEmptyState": "当前会话还没有可 @ 的人或 agent",
     "mentionGroupAgents": "智能体",
@@ -609,6 +610,24 @@
       "imagePreview": "图片预览",
       "downloadImage": "下载图片",
       "enlargeDiagram": "放大流程图"
+    },
+    "attachment": {
+      "download": "下载附件",
+      "saveAttachment": "保存附件",
+      "downloadFailed": "下载失败"
+    },
+    "fileMention": {
+      "title": "引用文件",
+      "sessionAttachments": "会话附件",
+      "workspaceFiles": "工作区文件",
+      "scanningWorkspace": "正在扫描工作区…",
+      "noMatch": "没有匹配 \"{{query}}\" 的结果",
+      "noFilesFound": "未找到文件",
+      "noAttachmentsInSession": "此会话暂无附件",
+      "noSessionAttachmentsYet": "暂无会话附件",
+      "keyboardNavigate": "导航",
+      "keyboardSelect": "选择",
+      "keyboardClose": "关闭"
     },
     "feedback": {
       "goodResponse": "回答不错",

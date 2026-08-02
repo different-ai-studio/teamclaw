@@ -38,4 +38,11 @@ describe('switchToSession sidebar handling', () => {
     expect(useUIStore.getState().sidebarFilter).toEqual({ kind: 'apps' })
     expect(useUIStore.getState().currentView).toBe('chat')
   })
+
+  it('closes the automation panel overlay when switching sessions', async () => {
+    useUIStore.setState({ automationPanelOpen: true } as Partial<ReturnType<typeof useUIStore.getState>>)
+    await useUIStore.getState().switchToSession('session-1')
+    expect(useUIStore.getState().automationPanelOpen).toBe(false)
+    expect(useUIStore.getState().currentView).toBe('chat')
+  })
 })

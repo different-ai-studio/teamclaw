@@ -4,6 +4,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 
 import { EditableWithFileChips } from '../editable-with-file-chips'
 import { encodeMemberMentionToken } from '@/lib/member-mention-token'
+import { encodeSessionAttachmentToken } from '@/lib/session-attachment-token'
 
 const originalExecCommand = document.execCommand
 
@@ -160,5 +161,23 @@ describe('EditableWithFileChips', () => {
     await waitFor(() => {
       expect(screen.getByTestId('value').textContent).toBe('')
     })
+  })
+
+  it('renders session attachment tokens as dashed inline chips', async () => {
+    const attachment = {
+      name: 'hiclaw-install.log',
+      url: 'https://example.com/hiclaw-install.log',
+      isImage: false,
+    }
+    const token = encodeSessionAttachmentToken(attachment)
+    render(<TestHarness initialValue={`${token} `} />)
+
+    const editable = document.querySelector('[contenteditable="true"]') as HTMLElement
+    const chip = editable.querySelector('.session-attachment-chip') as HTMLElement
+    expect(chip).toBeTruthy()
+    expect(chip.className).toContain('border-dashed')
+    expect(chip.textContent).toContain('hiclaw-install.log')
+    expect(chip.textContent).toContain('#')
+    expect(screen.getByTestId('value').textContent).toBe(`${token} `)
   })
 })

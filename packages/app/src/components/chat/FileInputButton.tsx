@@ -2,25 +2,28 @@ import * as React from "react";
 import { Plus } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { capabilities } from "@/lib/platform";
+import { readDesktopPathsAsFiles } from "@/lib/read-desktop-files";
+import { exceedsNonImageLimit } from "@/lib/attachment-constants";
 
 interface FileInputButtonProps {
-  /** Desktop (Tauri): absolute filesystem paths from the native dialog. */
-  onFilesSelected: (paths: string[]) => void;
-  /**
-   * Extension / web: browser File objects from `<input type="file">`.
-   * Callers should route these through the same path as paste/drop.
-   */
-  onBrowserFilesSelected?: (files: File[]) => void;
+  /** Selected or pasted files ready for cloud upload. */
+  onFilesSelected: (files: File[]) => void;
 }
 
-export function FileInputButton({
-  onFilesSelected,
-  onBrowserFilesSelected,
-}: FileInputButtonProps) {
+export function FileInputButton({ onFilesSelected }: FileInputButtonProps) {
   const inputRef = React.useRef<HTMLInputElement>(null);
 
+  const rejectOversize = React.useCallback(async (names: string[]) => {
+    if (names.length === 0) return;
+    const { toast } = await import("sonner");
+    toast.error(
+      names.length === 1
+        ? `"${names[0]}" exceeds the 20MB limit`
+        : `${names.length} files exceed the 20MB limit`,
+    );
+  }, []);
+
   const handleClick = async () => {
-    // Extension / web: no Tauri dialog — trigger a hidden file input instead.
     if (!capabilities.tauriInvoke) {
       inputRef.current?.click();
       return;
@@ -34,9 +37,19 @@ export function FileInputButton({
       });
       if (!selected) return;
       const paths = Array.isArray(selected) ? selected : [selected];
-      if (paths.length > 0) {
-        onFilesSelected(paths);
+      if (paths.length === 0) return;
+
+      const { files, oversize, failed } = await readDesktopPathsAsFiles(paths);
+      if (oversize.length > 0) void rejectOversize(oversize);
+      if (failed.length > 0) {
+        const { toast } = await import("sonner");
+        toast.error(
+          failed.length === 1
+            ? `Could not read "${failed[0]}"`
+            : `Could not read ${failed.length} files`,
+        );
       }
+      if (files.length > 0) onFilesSelected(files);
     } catch (error) {
       console.error("[FileInput] Failed to open file dialog:", error);
     }
@@ -44,10 +57,12 @@ export function FileInputButton({
 
   const handleBrowserChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const list = e.target.files;
-    if (list && list.length > 0) {
-      onBrowserFilesSelected?.(Array.from(list));
-    }
-    // Allow re-selecting the same file(s).
+    if (!list || list.length === 0) return;
+    const all = Array.from(list);
+    const accepted = all.filter((f) => !exceedsNonImageLimit(f));
+    const oversize = all.filter((f) => exceedsNonImageLimit(f)).map((f) => f.name);
+    if (oversize.length > 0) void rejectOversize(oversize);
+    if (accepted.length > 0) onFilesSelected(accepted);
     e.target.value = "";
   };
 

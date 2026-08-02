@@ -866,7 +866,7 @@ async fn do_prompt(
     // Resolve before marking the turn active so download latency does not
     // consume the stuck-turn watchdog budget.
     let resolved =
-        crate::runtime::prompt_attachments::resolve_all(&attachment_urls).await;
+        crate::runtime::prompt_attachments::resolve_all(&attachment_urls, session_id).await;
     let (event_tx, directory, model, turn_seq) = {
         let mut routes = shared.routes.lock();
         let Some(route) = routes.get_mut(session_id) else {
@@ -897,16 +897,22 @@ async fn do_prompt(
     )
     .await;
 
+    let mut text = text;
+    crate::runtime::prompt_attachments::substitute_in_message(&mut text, &resolved);
+    crate::runtime::prompt_attachments::append_unreferenced(&mut text, &resolved, false);
     let mut parts = vec![PromptPart::Text { text }];
-    for att in &resolved {
-        match att {
+    for entry in &resolved {
+        match &entry.attachment {
             crate::runtime::prompt_attachments::ResolvedAttachment::Image { .. } => {
-                let (mime, url, filename) = att.opencode_file_fields();
+                let (mime, url, filename) = entry.attachment.opencode_file_fields();
                 parts.push(PromptPart::File {
                     mime,
                     url,
                     filename,
                 });
+            }
+            crate::runtime::prompt_attachments::ResolvedAttachment::LocalFile { .. } => {
+                // Non-image files are referenced via local path in prompt text.
             }
             crate::runtime::prompt_attachments::ResolvedAttachment::Link { url, .. } => {
                 // Failed image downloads fall back to Link; opencode rejects HTTPS
@@ -915,12 +921,7 @@ async fn do_prompt(
                     warn!(url = %url, "skipping unresolved image attachment for opencode prompt");
                     continue;
                 }
-                let (mime, url, filename) = att.opencode_file_fields();
-                parts.push(PromptPart::File {
-                    mime,
-                    url,
-                    filename,
-                });
+                // Non-image link fallbacks stay in text only — no File part.
             }
         }
     }
