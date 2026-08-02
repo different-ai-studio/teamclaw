@@ -161,7 +161,9 @@ jobs:
                     20260801060000_phone_linked_org_team_picker.sql \
                     20260801070000_switch_phone_linked_team_identity.sql \
                     20260801080000_bootstrap_empty_org_public_team.sql \
-                    20260801090000_switch_linked_identity_without_conflict.sql
+                    20260801090000_switch_linked_identity_without_conflict.sql \
+                    20260802000000_session_list_team_and_idea_scope.sql \
+                    20260802120000_switch_active_team_no_org_id_update.sql
                   do
                     if [ "$(psql -Atc "select exists (select 1 from _selfhost.schema_migrations where filename = \$\$${migration}\$\$)")" = "t" ]; then
                       echo "skip external migration: $migration"
