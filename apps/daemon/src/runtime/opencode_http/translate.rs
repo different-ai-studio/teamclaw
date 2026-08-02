@@ -206,7 +206,15 @@ fn translate_part_updated(
             // sessions with deltas don't double-emit, and sessions without
             // deltas still stream incremental text.
             if text.len() > meta.emitted {
-                let chunk = text[meta.emitted..].to_string();
+                // `emitted` is accumulated from delta byte lengths; if the
+                // full text ever disagrees with the delta concatenation the
+                // boundary can land mid-character — back off to the nearest
+                // char boundary instead of panicking on the byte slice.
+                let mut start = meta.emitted.min(text.len());
+                while start > 0 && !text.is_char_boundary(start) {
+                    start -= 1;
+                }
+                let chunk = text[start..].to_string();
                 meta.emitted = text.len();
                 if chunk.is_empty() {
                     vec![]
@@ -237,7 +245,10 @@ fn translate_tool_part(
         .and_then(|v| v.as_str())
         .unwrap_or("");
 
-    // Dedupe repeated identical updates (opencode re-sends the whole part).
+    // Dedupe repeated identical updates (opencode re-sends the whole part;
+    // the post-reconnect reconcile replays persisted parts). A terminal
+    // status re-sent with the same input is always redundant too — the
+    // output can't have changed after completion.
     let sig = format!(
         "{status}|{}",
         tool_state
@@ -245,7 +256,7 @@ fn translate_tool_part(
             .map(|v| v.to_string())
             .unwrap_or_default()
     );
-    if state.tool_last_sig.get(part_id) == Some(&sig) && matches!(status, "pending" | "running") {
+    if state.tool_last_sig.get(part_id) == Some(&sig) {
         return vec![];
     }
     state.tool_last_sig.insert(part_id.to_string(), sig);
@@ -587,6 +598,47 @@ mod tests {
             }
             other => panic!("unexpected: {other:?}"),
         }
+    }
+
+    #[test]
+    fn suffix_slice_survives_non_char_boundary() {
+        let mut s = TranslateState::default();
+        assistant_msg(&mut s, "msg_a1");
+        // A delta whose byte length lands mid-character in the later full
+        // text ("你" is 3 bytes; claim 4 were emitted).
+        ev(
+            &mut s,
+            "message.part.delta",
+            serde_json::json!({"sessionID":"ses_1","messageID":"msg_a1","partID":"prt_9","field":"text","delta":"你a"}),
+        );
+        let e = ev(
+            &mut s,
+            "message.part.updated",
+            serde_json::json!({"sessionID":"ses_1","part":{
+                "id":"prt_9","messageID":"msg_a1","sessionID":"ses_1","type":"text","text":"你好世界"
+            },"time":1.0}),
+        );
+        // Must not panic; emits from the nearest char boundary at or below.
+        assert_eq!(e.len(), 1);
+        match e[0].event.as_ref().unwrap() {
+            amux::acp_event::Event::Output(o) => assert_eq!(o.text, "好世界"),
+            other => panic!("unexpected: {other:?}"),
+        }
+    }
+
+    #[test]
+    fn completed_tool_part_resend_is_deduped() {
+        let mut s = TranslateState::default();
+        let completed = serde_json::json!({"sessionID":"ses_1","part":{
+            "id":"prt_t","messageID":"msg_a1","sessionID":"ses_1","type":"tool",
+            "callID":"call_1","tool":"bash",
+            "state":{"status":"completed","input":{"command":"ls"},"output":"a.txt\n",
+                     "title":"List files","metadata":{},"time":{"start":1,"end":2}}
+        },"time":2.0});
+        let first = ev(&mut s, "message.part.updated", completed.clone());
+        assert_eq!(first.len(), 1);
+        // Replayed by the post-reconnect reconcile → must not double-emit.
+        assert!(ev(&mut s, "message.part.updated", completed).is_empty());
     }
 
     #[test]

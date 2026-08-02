@@ -6,7 +6,7 @@
 //! surface (`AcpCommand`, `AcpStartupMetadata`, `OpencodeHost`) keeps the old
 //! names and signatures so `RuntimeManager` / gateway plumbing is unchanged.
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::time::Duration;
@@ -79,6 +79,10 @@ pub(crate) struct Route {
     /// apart from a transient blip, so we don't wait out the [`FIRST_OUTPUT_TIMEOUT`]
     /// window when the backoff itself never grows past it.
     pub(crate) retry_streak: Option<(String, u32)>,
+    /// Tool call ids currently in flight (ToolUse seen, no ToolResult yet).
+    /// opencode emits no SSE events while a tool runs, so the stuck-turn
+    /// watchdog must not treat that silence as a stalled model.
+    pub(crate) tools_in_flight: HashSet<String>,
     pub(crate) translate: TranslateState,
     /// MCP server names amuxd injected into the worktree's `opencode.json`
     /// for this session (gateway `send` tool / remote tools). Pruned back out
@@ -214,6 +218,15 @@ impl Shared {
         ids
     }
 
+    /// True while any tool call is in flight on this turn — on the parent
+    /// session or on a task-subagent child riding its channel.
+    pub(super) fn turn_has_tool_in_flight(&self, parent_session_id: &str) -> bool {
+        let ids = self.session_ids_for_user_wait(parent_session_id);
+        let routes = self.routes.lock();
+        ids.iter()
+            .any(|id| routes.get(id).is_some_and(|r| !r.tools_in_flight.is_empty()))
+    }
+
     pub(super) fn turn_waiting_on_user(&self, parent_session_id: &str) -> bool {
         let wait_ids = self.session_ids_for_user_wait(parent_session_id);
         let has_perm = self
@@ -296,6 +309,7 @@ impl Shared {
             turn_seq: 0,
             turn_saw_output: false,
             turn_last_event_at: std::time::Instant::now(),
+            tools_in_flight: HashSet::new(),
             translate: TranslateState::default(),
             injected_mcp: Vec::new(),
             parent_session_id: Some(parent_id.to_string()),
@@ -786,6 +800,7 @@ async fn attach(shared: &Arc<Shared>, args: AttachArgs) -> Result<AcpStartupMeta
                 turn_seq: 0,
                 turn_saw_output: false,
                 turn_last_event_at: std::time::Instant::now(),
+                tools_in_flight: HashSet::new(),
                 translate: TranslateState::default(),
                 injected_mcp,
                 parent_session_id: None,
@@ -880,6 +895,7 @@ async fn do_prompt(
         route.turn_saw_output = false;
         route.turn_last_event_at = std::time::Instant::now();
         route.retry_streak = None;
+        route.tools_in_flight.clear();
         (
             route.event_tx.clone(),
             route.directory.clone(),
@@ -956,6 +972,7 @@ async fn do_prompt(
                 route.turn_active = false;
                 route.turn_reply_to = None;
                 route.turn_requester = None;
+                route.tools_in_flight.clear();
             }
         }
         emit_frame(
@@ -972,6 +989,10 @@ async fn do_prompt(
 const STATUS_POLL_INTERVAL: Duration = Duration::from_secs(5);
 /// Give up on a turn that produced no output and no retry status after this.
 pub(crate) const FIRST_OUTPUT_TIMEOUT: Duration = Duration::from_secs(120);
+/// Silence budget while a tool call is in flight. opencode sends no SSE
+/// events while a tool runs (long bash, builds, slow MCP calls), so model
+/// silence is expected then — only give up after this much larger bound.
+pub(crate) const TOOL_SILENCE_TIMEOUT: Duration = Duration::from_secs(60 * 60);
 
 /// A failed upstream provider request (out of credit, usage limit, rate
 /// limit) is invisible on the happy path: opencode keeps the assistant
@@ -1055,6 +1076,28 @@ fn spawn_stuck_turn_watchdog(shared: &Arc<Shared>, session_id: &str, turn_seq: u
                 }
             }
             if silent_for >= FIRST_OUTPUT_TIMEOUT {
+                if shared.turn_has_tool_in_flight(&session_id) {
+                    if silent_for < TOOL_SILENCE_TIMEOUT {
+                        continue;
+                    }
+                    warn!(
+                        session_id,
+                        timeout_s = TOOL_SILENCE_TIMEOUT.as_secs(),
+                        "in-flight tool silent past its budget; aborting stuck opencode turn"
+                    );
+                    abort_turn_with_error(
+                        &shared,
+                        &session_id,
+                        "tool stalled".to_string(),
+                        format!(
+                            "A tool call produced no result for {}s. The turn was \
+                             aborted; try again.",
+                            TOOL_SILENCE_TIMEOUT.as_secs()
+                        ),
+                    )
+                    .await;
+                    return;
+                }
                 warn!(
                     session_id,
                     timeout_s = FIRST_OUTPUT_TIMEOUT.as_secs(),
@@ -1118,6 +1161,7 @@ fn take_active_turn(route: &mut Route) -> Option<(mpsc::Sender<AcpEventFrame>, O
     }
     route.turn_active = false;
     route.turn_requester = None;
+    route.tools_in_flight.clear();
     Some((route.event_tx.clone(), route.turn_reply_to.take()))
 }
 
@@ -1158,6 +1202,7 @@ pub(crate) async fn abort_turn_with_error(
         }
         route.turn_active = false;
         route.turn_requester = None;
+        route.tools_in_flight.clear();
         (
             route.event_tx.clone(),
             route.directory.clone(),
@@ -1176,6 +1221,100 @@ pub(crate) async fn abort_turn_with_error(
             event: Some(amux::acp_event::Event::Error(amux::AcpError {
                 message,
                 details,
+            })),
+            model: String::new(),
+        },
+        reply_to.clone(),
+    )
+    .await;
+    emit_frame(
+        &event_tx,
+        session_id,
+        translate::status_change(amux::AgentStatus::Active, amux::AgentStatus::Idle),
+        reply_to,
+    )
+    .await;
+}
+
+/// After a successful `POST /abort`, how long to wait for opencode's own
+/// `session.error` + `session.idle` to close the turn before forcing it.
+const CANCEL_CLOSE_GRACE: Duration = Duration::from_secs(10);
+
+/// User-initiated interrupt. On the happy path opencode answers the abort
+/// with `session.error` (MessageAbortedError) + `session.idle` over SSE and
+/// those close the turn. The close must not depend on that though: when the
+/// abort call itself fails the turn is force-closed immediately, and even a
+/// successful abort is backstopped by a grace timer in case the terminal SSE
+/// events are lost to a gap — otherwise the client never leaves "replying…"
+/// and cannot even re-interrupt.
+async fn cancel_turn(shared: &Arc<Shared>, session_id: &str) {
+    let (directory, turn_seq) = {
+        let routes = shared.routes.lock();
+        match routes.get(session_id) {
+            Some(route) => (route.directory.clone(), route.turn_seq),
+            None => (String::new(), 0),
+        }
+    };
+    let abort_ok = match shared.serve.ensure().await {
+        Ok(client) => match client.abort(&directory, session_id).await {
+            Ok(()) => {
+                crate::runtime::agent_trace::log_cancel(session_id, true, "");
+                true
+            }
+            Err(e) => {
+                let err = e.to_string();
+                crate::runtime::agent_trace::log_cancel(session_id, false, &err);
+                warn!(session_id, error = %err, "opencode abort failed");
+                false
+            }
+        },
+        Err(e) => {
+            warn!(error = %e, "cancel: serve unavailable");
+            false
+        }
+    };
+    if !abort_ok {
+        force_close_interrupted_turn(shared, session_id, turn_seq).await;
+        return;
+    }
+    let shared = Arc::clone(shared);
+    let session_id = session_id.to_string();
+    tokio::spawn(async move {
+        tokio::time::sleep(CANCEL_CLOSE_GRACE).await;
+        force_close_interrupted_turn(&shared, &session_id, turn_seq).await;
+    });
+}
+
+/// Close a turn that a cancel could not (or did not) close through opencode:
+/// emit the abort-shaped `Error` (so the aggregator produces the durable
+/// interrupted AgentReply, keeping any partial prose) followed by the
+/// Active→Idle terminal. No-op when the turn already closed or a newer
+/// prompt took the route over.
+async fn force_close_interrupted_turn(shared: &Arc<Shared>, session_id: &str, turn_seq: u64) {
+    let (event_tx, reply_to) = {
+        let mut routes = shared.routes.lock();
+        let Some(route) = routes.get_mut(session_id) else {
+            return;
+        };
+        if !route.turn_active || route.turn_seq != turn_seq {
+            return;
+        }
+        route.turn_active = false;
+        route.turn_requester = None;
+        route.tools_in_flight.clear();
+        (route.event_tx.clone(), route.turn_reply_to.take())
+    };
+    warn!(
+        session_id,
+        "turn did not close after cancel; forcing interrupted close"
+    );
+    emit_frame(
+        &event_tx,
+        session_id,
+        amux::AcpEvent {
+            event: Some(amux::acp_event::Event::Error(amux::AcpError {
+                message: "TurnInterrupted".to_string(),
+                details: "The turn was stopped by the user.".to_string(),
             })),
             model: String::new(),
         },
@@ -1322,25 +1461,7 @@ async fn command_loop(shared: Arc<Shared>, mut cmd_rx: mpsc::Receiver<AcpCommand
                 .await;
             }
             AcpCommand::Cancel { acp_session_id } => {
-                let directory = shared
-                    .routes
-                    .lock()
-                    .get(&acp_session_id)
-                    .map(|r| r.directory.clone())
-                    .unwrap_or_default();
-                match shared.serve.ensure().await {
-                    Ok(client) => match client.abort(&directory, &acp_session_id).await {
-                        Ok(()) => {
-                            crate::runtime::agent_trace::log_cancel(&acp_session_id, true, "")
-                        }
-                        Err(e) => {
-                            let err = e.to_string();
-                            crate::runtime::agent_trace::log_cancel(&acp_session_id, false, &err);
-                            warn!(acp_session_id, error = %err, "opencode abort failed");
-                        }
-                    },
-                    Err(e) => warn!(error = %e, "cancel: serve unavailable"),
-                }
+                cancel_turn(&shared, &acp_session_id).await;
             }
             AcpCommand::ResolvePermission {
                 request_id,
@@ -1653,6 +1774,7 @@ mod pool_tests {
                 turn_seq: 0,
                 turn_saw_output: false,
                 turn_last_event_at: std::time::Instant::now(),
+                tools_in_flight: HashSet::new(),
                 translate: TranslateState::default(),
                 injected_mcp: vec!["amuxd-send".to_string()],
                 parent_session_id: None,
@@ -1685,6 +1807,7 @@ mod turn_activity_tests {
             turn_last_event_at: std::time::Instant::now()
                 .checked_sub(std::time::Duration::from_secs(90))
                 .unwrap_or_else(std::time::Instant::now),
+            tools_in_flight: HashSet::new(),
             translate: TranslateState::default(),
             injected_mcp: Vec::new(),
             parent_session_id: None,
@@ -1795,6 +1918,7 @@ mod turn_activity_tests {
                     turn_seq: 0,
                     turn_saw_output: false,
                     turn_last_event_at: std::time::Instant::now(),
+                    tools_in_flight: HashSet::new(),
                     translate: TranslateState::default(),
                     injected_mcp: Vec::new(),
                     parent_session_id: Some("ses_parent".to_string()),

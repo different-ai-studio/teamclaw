@@ -54,6 +54,12 @@ async fn sse_loop(shared: Arc<Shared>, directory: String) {
                 info!(directory = %directory, "opencode SSE subscribed");
                 backoff = BACKOFF_MIN;
                 shared.mark_sse_connected(&directory);
+                // Events emitted while the stream was down are gone (no
+                // replay) — read back anything an active turn missed.
+                tokio::spawn(reconcile_turns_after_reconnect(
+                    Arc::clone(&shared),
+                    directory.clone(),
+                ));
                 let mut stream = resp.bytes_stream();
                 let mut buf = Vec::new();
                 while let Some(chunk) = stream.next().await {
@@ -93,6 +99,79 @@ async fn sse_loop(shared: Arc<Shared>, directory: String) {
         // Nothing left to route for? Keep the subscription anyway — sessions
         // for this directory may be re-attached after a daemon-side resume.
         tokio::time::sleep(BACKOFF_MIN).await;
+    }
+}
+
+/// After an SSE (re)subscribe, events emitted during the gap are lost — the
+/// stream has no cursor/replay. For every turn still marked active in this
+/// directory, read the persisted messages back and replay the tail through
+/// the normal translate path: suffix-diffing and tool-signature dedupe drop
+/// everything already emitted, so only the missing pieces reach clients.
+/// When opencode finished the turn during the gap (last assistant message
+/// carries `time.completed`), the missed `session.idle` is synthesized so the
+/// turn closes instead of hanging until the watchdog aborts it as stalled.
+async fn reconcile_turns_after_reconnect(shared: Arc<Shared>, directory: String) {
+    let session_ids: Vec<String> = {
+        let routes = shared.routes.lock();
+        routes
+            .iter()
+            .filter(|(_, r)| {
+                r.directory == directory && r.turn_active && r.parent_session_id.is_none()
+            })
+            .map(|(id, _)| id.clone())
+            .collect()
+    };
+    if session_ids.is_empty() {
+        return;
+    }
+    let client = match shared.serve.ensure().await {
+        Ok(c) => c,
+        Err(_) => return,
+    };
+    for session_id in session_ids {
+        let messages = match client.session_messages(&directory, &session_id).await {
+            Ok(m) => m,
+            Err(e) => {
+                warn!(session_id, error = %e, "post-reconnect message read failed");
+                continue;
+            }
+        };
+        // Only the tail can have been lost mid-turn: the current user prompt
+        // plus the assistant response being generated.
+        let tail = messages.len().saturating_sub(2);
+        let mut assistant_completed = false;
+        for message in &messages[tail..] {
+            let info = message
+                .get("info")
+                .cloned()
+                .unwrap_or(serde_json::json!({}));
+            handle_event(
+                &shared,
+                &serde_json::json!({"type": "message.updated", "properties": {"info": info}}),
+            )
+            .await;
+            if let Some(parts) = message.get("parts").and_then(|v| v.as_array()) {
+                for part in parts {
+                    handle_event(
+                        &shared,
+                        &serde_json::json!({"type": "message.part.updated", "properties": {"part": part}}),
+                    )
+                    .await;
+                }
+            }
+            if info.get("role").and_then(|v| v.as_str()) == Some("assistant") {
+                assistant_completed = info
+                    .pointer("/time/completed")
+                    .is_some_and(|v| !v.is_null());
+            }
+        }
+        if assistant_completed {
+            info!(
+                session_id,
+                "turn finished during SSE gap; synthesizing session.idle"
+            );
+            handle_session_idle(&shared, &session_id).await;
+        }
     }
 }
 
@@ -160,6 +239,19 @@ async fn handle_event(shared: &Arc<Shared>, event: &serde_json::Value) {
                 let events = translate::translate_event(&mut route.translate, event_type, &props);
                 if !events.is_empty() {
                     route.turn_saw_output = true;
+                }
+                // Track in-flight tool calls: while one is running, opencode
+                // emits nothing, so the stuck-turn watchdog widens its budget.
+                for ev in &events {
+                    match ev.event.as_ref() {
+                        Some(amux::acp_event::Event::ToolUse(tu)) => {
+                            route.tools_in_flight.insert(tu.tool_id.clone());
+                        }
+                        Some(amux::acp_event::Event::ToolResult(tr)) => {
+                            route.tools_in_flight.remove(&tr.tool_id);
+                        }
+                        _ => {}
+                    }
                 }
                 let out = (events, route.event_tx.clone(), route.turn_reply_to.clone());
                 // Keep parent's stuck-turn clock alive while the subagent works.
@@ -603,13 +695,24 @@ async fn handle_session_idle(shared: &Arc<Shared>, session_id: &str) {
         let Some(route) = routes.get_mut(session_id) else {
             return;
         };
-        if !route.turn_active {
-            None
-        } else {
+        route.tools_in_flight.clear();
+        if route.turn_active {
             route.turn_active = false;
             let reply_to = route.turn_reply_to.take();
             route.turn_requester = None;
             Some((route.event_tx.clone(), reply_to))
+        } else if route.parent_session_id.is_none() {
+            // The turn was already closed daemon-side (watchdog abort, cancel
+            // fallback, failed submit) while opencode kept running. Whatever
+            // streamed in after that close sits in the aggregator with no
+            // terminal event to flush it — emit the Active→Idle anyway; an
+            // aggregator with empty buffers emits nothing, so this is
+            // idempotent. Child (task-subagent) sessions must not get this:
+            // their frames ride the parent's channel and a synthetic idle
+            // would flush the parent's turn mid-run.
+            Some((route.event_tx.clone(), None))
+        } else {
+            None
         }
     };
     if let Some((event_tx, reply_to)) = closed {
