@@ -38,6 +38,21 @@ public struct PendingAcpQuestion: Identifiable, Equatable, Sendable {
 @Observable @MainActor
 public final class SessionDetailViewModel {
     public var events: [AgentEvent] = []
+
+    /// Matches the server default; also the size of each "load older" step.
+    static let messagePageSize = 50
+
+    /// Cursor into history older than the oldest message currently seeded, or
+    /// nil when the beginning of the session has been reached. The server
+    /// returns only the most recent page, so anything before that is fetched
+    /// on demand by `loadOlderMessages`.
+    public private(set) var olderMessagesCursor: String?
+
+    /// True while a `loadOlderMessages` fetch is in flight.
+    public private(set) var isLoadingOlderMessages = false
+
+    /// Whether the UI should offer a "load older" affordance.
+    public var canLoadOlderMessages: Bool { olderMessagesCursor != nil }
     /// Slash commands announced by the attached runtime via
     /// ACP `AvailableCommandsUpdate`. Replaced wholesale on each push.
     /// In-memory only — not persisted to SwiftData. Empty until the
@@ -2295,13 +2310,54 @@ public final class SessionDetailViewModel {
     public func seedFromSupabaseMessages(modelContext: ModelContext) async {
         guard let session else { return }
         guard let repo = messagesRepository else { return }
-        let messages: [MessageRecord]
+        let page: MessagePage
         do {
-            messages = try await repo.listForSession(sessionID: session.sessionId)
+            page = try await repo.listPage(
+                sessionID: session.sessionId,
+                limit: Self.messagePageSize,
+                cursor: nil
+            )
         } catch {
             print("[RuntimeDetailVM] supabase messages seed failed: \(error)")
             return
         }
+        // Only the newest page arrives here; `loadOlderMessages` walks back
+        // from this cursor when the reader asks for more.
+        olderMessagesCursor = page.nextCursor
+        applySeededMessages(page.records, modelContext: modelContext)
+    }
+
+    /// Pull the next-older page of history and fold it into the timeline.
+    ///
+    /// No-op when there is nothing older (`olderMessagesCursor == nil`) or a
+    /// fetch is already running. Safe to call repeatedly: the reducer dedupes
+    /// on `supabaseMessageID`.
+    public func loadOlderMessages(modelContext: ModelContext) async {
+        guard let session else { return }
+        guard let repo = messagesRepository else { return }
+        guard let cursor = olderMessagesCursor, !isLoadingOlderMessages else { return }
+
+        isLoadingOlderMessages = true
+        defer { isLoadingOlderMessages = false }
+
+        let page: MessagePage
+        do {
+            page = try await repo.listPage(
+                sessionID: session.sessionId,
+                limit: Self.messagePageSize,
+                cursor: cursor
+            )
+        } catch {
+            // Keep the cursor so the reader can retry; the timeline is
+            // untouched, so a failure costs nothing visible.
+            print("[RuntimeDetailVM] older messages page failed: \(error)")
+            return
+        }
+        olderMessagesCursor = page.nextCursor
+        applySeededMessages(page.records, modelContext: modelContext)
+    }
+
+    private func applySeededMessages(_ messages: [MessageRecord], modelContext: ModelContext) {
         guard !messages.isEmpty else { return }
 
         // Reducer dedupes by `supabaseMessageID` and backfills the

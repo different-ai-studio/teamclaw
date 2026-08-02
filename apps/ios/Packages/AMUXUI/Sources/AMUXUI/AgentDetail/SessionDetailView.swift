@@ -141,6 +141,12 @@ public struct SessionDetailView: View {
                             .padding(.vertical, 60)
                         }
 
+                        // Above the oldest row: the server only sends the most
+                        // recent page, so earlier history is fetched on demand.
+                        if viewModel.canLoadOlderMessages {
+                            loadOlderRow
+                        }
+
                         ForEach(viewModel.feedItems) { item in
                             feedItemRow(item)
                                 .id(item.id)
@@ -624,6 +630,32 @@ public struct SessionDetailView: View {
             return lastTool.toolName.map { "Running \($0)…" } ?? "Working…"
         }
         return "Working…"
+    }
+
+    /// "Load earlier messages" affordance pinned above the oldest row.
+    ///
+    /// Deliberately a tap rather than an on-appear auto-fetch: this sits at the
+    /// top of a chat that scrolls to the bottom on open, so an appear trigger
+    /// would fire during the initial layout pass and page in history nobody
+    /// asked for.
+    @ViewBuilder
+    private var loadOlderRow: some View {
+        Button {
+            Task { await viewModel.loadOlderMessages(modelContext: modelContext) }
+        } label: {
+            if viewModel.isLoadingOlderMessages {
+                ProgressView()
+                    .controlSize(.small)
+            } else {
+                Text("加载更早的消息")
+                    .font(.footnote)
+            }
+        }
+        .buttonStyle(.plain)
+        .foregroundStyle(.secondary)
+        .disabled(viewModel.isLoadingOlderMessages)
+        .frame(maxWidth: .infinity)
+        .padding(.vertical, 12)
     }
 
     @ViewBuilder
