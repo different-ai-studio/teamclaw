@@ -227,6 +227,31 @@ export function createCloudSessionsApi(options: CreateCloudSessionsApiOptions) {
       return (response.items ?? []).map(mapMessage);
     },
 
+    /**
+     * One page of history, walking backwards from the newest message.
+     * `/v1/sessions/:id/messages` returns only the most recent `limit` rows
+     * (default 50), so older history is reached by following `nextCursor`.
+     * Rows are oldest-first within the page.
+     */
+    async listMessagePage(
+      teamId: string,
+      sessionId: string,
+      opts: { limit?: number; cursor?: string | null } = {},
+    ): Promise<{ messages: SessionMessage[]; nextCursor: string | null }> {
+      void teamId;
+      const params = new URLSearchParams();
+      if (opts.limit != null) params.set("limit", String(Math.min(opts.limit, MAX_PAGE_SIZE)));
+      if (opts.cursor) params.set("cursor", opts.cursor);
+      const query = params.toString();
+      const response = await client.get<{ items?: CloudMessage[]; nextCursor?: string | null }>(
+        `/v1/sessions/${encodeURIComponent(sessionId)}/messages${query ? `?${query}` : ""}`,
+      );
+      return {
+        messages: (response.items ?? []).map(mapMessage),
+        nextCursor: response.nextCursor ?? null,
+      };
+    },
+
     async insertOutgoingMessage(input: OutgoingMessageInput): Promise<void> {
       if (!input.id) {
         throw new Error("Cloud API message insert requires a stable message id.");

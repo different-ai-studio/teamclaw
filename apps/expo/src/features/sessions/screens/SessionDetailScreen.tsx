@@ -1,6 +1,7 @@
 import { Ionicons } from "@expo/vector-icons";
 import { useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
 import {
+  ActivityIndicator,
   FlatList,
   Image,
   KeyboardAvoidingView,
@@ -101,6 +102,11 @@ type SessionDetailScreenProps = {
   onBack: () => void;
   onChangeComposerText: (value: string) => void;
   isRefreshing?: boolean;
+  /** True while a "load older" fetch is in flight. */
+  isLoadingOlder?: boolean;
+  /** True when the server reported more history behind the oldest row shown. */
+  hasOlderMessages?: boolean;
+  onLoadOlder?: () => void;
   onClearReply?: () => void;
   onDeleteMessage?: (messageId: string) => void;
   onEditMessage?: (messageId: string, currentContent: string) => void;
@@ -631,6 +637,9 @@ export function SessionDetailScreen(props: SessionDetailScreenProps) {
     replyTarget,
     runtimeInfo,
     isRefreshing,
+    isLoadingOlder,
+    hasOlderMessages,
+    onLoadOlder,
     senderAvatars,
     senderAvatarGlyphs,
     senderNames,
@@ -839,6 +848,27 @@ export function SessionDetailScreen(props: SessionDetailScreenProps) {
               }
             }}
             onScroll={handleFeedScroll}
+            // Older rows are prepended, which would otherwise shove the
+            // reader's position down the screen. minIndexForVisible: 1 anchors
+            // on the first real row so the view stays put as history grows
+            // above it.
+            maintainVisibleContentPosition={{ minIndexForVisible: 1 }}
+            ListHeaderComponent={
+              hasOlderMessages ? (
+                <Pressable
+                  accessibilityRole="button"
+                  disabled={isLoadingOlder}
+                  onPress={onLoadOlder}
+                  style={styles.loadOlderButton}
+                >
+                  {isLoadingOlder ? (
+                    <ActivityIndicator color={colors.slate} size="small" />
+                  ) : (
+                    <Text style={styles.loadOlderLabel}>加载更早的消息</Text>
+                  )}
+                </Pressable>
+              ) : null
+            }
             refreshControl={
               onRefresh ? (
                 <RefreshControl
@@ -1071,6 +1101,16 @@ const styles = StyleSheet.create({
   },
   feedContent: {
     paddingVertical: spacing.sm,
+  },
+  loadOlderButton: {
+    alignItems: "center",
+    justifyContent: "center",
+    minHeight: 36,
+    paddingVertical: spacing.sm,
+  },
+  loadOlderLabel: {
+    color: colors.slate,
+    fontSize: 13,
   },
   row: {
     flexDirection: "row",

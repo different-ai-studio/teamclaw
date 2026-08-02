@@ -43,6 +43,16 @@ export function createMessagesModule(client: CloudApiClient): MessagesBackend {
       );
       return page.items.map(mapMessage);
     },
+    async listMessagePage(sessionId, opts = {}) {
+      const params = new URLSearchParams();
+      if (opts.limit != null) params.set("limit", String(opts.limit));
+      if (opts.cursor) params.set("cursor", opts.cursor);
+      const query = params.toString();
+      const page = await client.get<Page<CloudMessage>>(
+        `/v1/sessions/${encodeURIComponent(sessionId)}/messages${query ? `?${query}` : ""}`,
+      );
+      return { rows: page.items.map(mapMessage), nextCursor: page.nextCursor ?? null };
+    },
     async insertOutgoingMessage(input: OutgoingMessageInput): Promise<MessageHistoryRow> {
       const message = await client.post<CloudMessage>(
         `/v1/sessions/${encodeURIComponent(input.sessionId)}/messages`,

@@ -248,6 +248,99 @@ describe("createSessionDetailController", () => {
     );
   });
 
+  it("loadOlder prepends the next-older page and follows the cursor to the end", async () => {
+    const { createSessionDetailController } = await import(
+      "../features/sessions/session-detail-controller"
+    );
+    const mqtt = createMockMqtt();
+    // Keyed on the cursor rather than call order, because that is how the real
+    // endpoint behaves: `load()` legitimately fetches the newest page twice
+    // (once directly, once from connectRealtime's post-subscribe catch-up), and
+    // both of those must yield the same newest page.
+    const pagesByCursor: Record<string, { messages: unknown[]; nextCursor: string | null }> = {
+      newest: { messages: [createRowMessage("message-3")], nextCursor: "cursor-2" },
+      "cursor-2": { messages: [createRowMessage("message-2")], nextCursor: "cursor-1" },
+      "cursor-1": { messages: [createRowMessage("message-1")], nextCursor: null },
+    };
+    const listMessagePage = vi
+      .fn()
+      .mockImplementation(async (_teamId, _sessionId, opts) => pagesByCursor[opts?.cursor ?? "newest"]);
+    const api = {
+      getSession: vi.fn().mockResolvedValue(createSession()),
+      insertOutgoingMessage: vi.fn(),
+      listMessages: vi.fn().mockResolvedValue([]),
+      listMessagePage,
+      resolveMemberActorId: vi.fn().mockResolvedValue("actor-1"),
+      markSessionRead: vi.fn().mockResolvedValue(undefined),
+    };
+
+    const controller = createSessionDetailController({
+      api: api as any,
+      currentMemberActorId: "actor-1",
+      getAuth: vi.fn().mockResolvedValue({ accessToken: "jwt-token", userId: "user-1" }),
+      mqtt: mqtt as any,
+      mqttUrl: "wss://broker.example.com/mqtt",
+      sessionId: "session-1",
+      teamId: "team-1",
+    });
+
+    await controller.load();
+    expect(controller.getState().olderCursor).toBe("cursor-2");
+
+    await controller.loadOlder();
+    expect(listMessagePage).toHaveBeenLastCalledWith("team-1", "session-1", {
+      limit: 50,
+      cursor: "cursor-2",
+    });
+    expect(controller.getState().olderCursor).toBe("cursor-1");
+
+    await controller.loadOlder();
+    const state = controller.getState();
+    // Null cursor is how the UI knows to stop offering "load older".
+    expect(state.olderCursor).toBeNull();
+    expect(state.isLoadingOlder).toBe(false);
+    // Merged oldest-first regardless of the order the pages arrived in.
+    expect(state.messages.map((m) => m.messageId)).toEqual([
+      "message-1",
+      "message-2",
+      "message-3",
+    ]);
+
+    // Exhausted: further calls must not re-request.
+    const callsWhenExhausted = listMessagePage.mock.calls.length;
+    await controller.loadOlder();
+    expect(listMessagePage).toHaveBeenCalledTimes(callsWhenExhausted);
+  });
+
+  it("loadOlder is a no-op when the api has no pager", async () => {
+    const { createSessionDetailController } = await import(
+      "../features/sessions/session-detail-controller"
+    );
+    const mqtt = createMockMqtt();
+    const api = {
+      getSession: vi.fn().mockResolvedValue(createSession()),
+      insertOutgoingMessage: vi.fn(),
+      listMessages: vi.fn().mockResolvedValue([createRowMessage("message-1")]),
+      resolveMemberActorId: vi.fn().mockResolvedValue("actor-1"),
+      markSessionRead: vi.fn().mockResolvedValue(undefined),
+    };
+
+    const controller = createSessionDetailController({
+      api: api as any,
+      currentMemberActorId: "actor-1",
+      getAuth: vi.fn().mockResolvedValue({ accessToken: "jwt-token", userId: "user-1" }),
+      mqtt: mqtt as any,
+      mqttUrl: "wss://broker.example.com/mqtt",
+      sessionId: "session-1",
+      teamId: "team-1",
+    });
+
+    await controller.load();
+    // Unpaged source → nothing older to reach, so the UI hides the affordance.
+    expect(controller.getState().olderCursor).toBeNull();
+    await expect(controller.loadOlder()).resolves.toBeUndefined();
+  });
+
   it("optimistically appends a sent message and clears the composer text", async () => {
     const { createSessionDetailController } = await import(
       "../features/sessions/session-detail-controller"

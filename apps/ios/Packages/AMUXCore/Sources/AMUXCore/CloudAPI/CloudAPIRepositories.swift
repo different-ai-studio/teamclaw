@@ -102,8 +102,8 @@ private enum CloudSessionPager {
         var pages = 0
 
         repeat {
-            var path = "/v1/sessions?teamId=\(urlEncoded(teamID))&limit=\(pageSize)"
-            if let cursor { path += "&cursor=\(urlEncoded(cursor))" }
+            var path = "/v1/sessions?teamId=\(cloudURLEncoded(teamID))&limit=\(pageSize)"
+            if let cursor { path += "&cursor=\(cloudURLEncoded(cursor))" }
 
             let page: CloudPage<CloudSessionFull> = try await client.get(path)
             all.append(contentsOf: page.items)
@@ -114,16 +114,17 @@ private enum CloudSessionPager {
         return all
     }
 
-    /// RFC 3986 unreserved set. Deliberately not `.alphanumerics` (which would
-    /// escape the hyphens in a uuid) nor `.urlQueryAllowed` (which passes `&`
-    /// and `=` through and would let a value forge extra query parameters).
-    private static let unreserved = CharacterSet(
-        charactersIn: "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-._~"
-    )
+}
 
-    private static func urlEncoded(_ value: String) -> String {
-        value.addingPercentEncoding(withAllowedCharacters: unreserved) ?? value
-    }
+/// RFC 3986 unreserved set. Deliberately not `.alphanumerics` (which would
+/// escape the hyphens in a uuid) nor `.urlQueryAllowed` (which passes `&` and
+/// `=` through and would let a value forge extra query parameters).
+private let cloudUnreservedCharacters = CharacterSet(
+    charactersIn: "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-._~"
+)
+
+func cloudURLEncoded(_ value: String) -> String {
+    value.addingPercentEncoding(withAllowedCharacters: cloudUnreservedCharacters) ?? value
 }
 
 public actor CloudAPIAgentRuntimesRepository: AgentRuntimesRepository {
@@ -268,24 +269,35 @@ public actor CloudAPIMessagesRepository: MessagesRepository {
     }
 
     public func listForSession(sessionID: String) async throws -> [MessageRecord] {
-        let page: CloudPage<CloudMessage> = try await client.get("/v1/sessions/\(sessionID)/messages")
-        return page.items.map { row in
-            MessageRecord(
-                id: row.id,
-                teamID: row.teamId,
-                sessionID: row.sessionId,
-                senderActorID: row.senderActorId ?? "",
-                kind: row.kind,
-                content: row.content,
-                createdAt: parseCloudDate(row.createdAt) ?? .distantPast,
-                updatedAt: parseCloudDate(row.updatedAt),
-                model: row.model,
-                turnID: row.turnId,
-                replyToMessageID: row.replyToMessageId,
-                mentionActorIDs: row.metadata?.mentionActorIds ?? [],
-                sequence: 0
-            )
-        }
+        try await listPage(sessionID: sessionID, limit: 50, cursor: nil).records
+    }
+
+    public func listPage(sessionID: String, limit: Int, cursor: String?) async throws -> MessagePage {
+        var path = "/v1/sessions/\(sessionID)/messages?limit=\(limit)"
+        if let cursor { path += "&cursor=\(cloudURLEncoded(cursor))" }
+        let page: CloudPage<CloudMessage> = try await client.get(path)
+        return MessagePage(
+            records: page.items.map(Self.record(from:)),
+            nextCursor: page.nextCursor
+        )
+    }
+
+    private static func record(from row: CloudMessage) -> MessageRecord {
+        MessageRecord(
+            id: row.id,
+            teamID: row.teamId,
+            sessionID: row.sessionId,
+            senderActorID: row.senderActorId ?? "",
+            kind: row.kind,
+            content: row.content,
+            createdAt: parseCloudDate(row.createdAt) ?? .distantPast,
+            updatedAt: parseCloudDate(row.updatedAt),
+            model: row.model,
+            turnID: row.turnId,
+            replyToMessageID: row.replyToMessageId,
+            mentionActorIDs: row.metadata?.mentionActorIds ?? [],
+            sequence: 0
+        )
     }
 
     public func insert(_ input: MessageInsertInput) async throws {

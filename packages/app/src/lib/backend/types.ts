@@ -232,9 +232,27 @@ export interface MessageSyncRow {
   updated_at: string;
 }
 
+/** One page of history, walking backwards from the newest message. */
+export interface MessagePage {
+  /** Oldest-first within the page, so it drops straight into a timeline. */
+  rows: MessageHistoryRow[];
+  /** Pass back as `cursor` for the next-older page. Null when history ends. */
+  nextCursor: string | null;
+}
+
 export interface MessagesBackend {
   insertOutgoingMessage(input: OutgoingMessageInput): Promise<MessageHistoryRow>;
+  /** The most recent page. Kept parameterless for the many first-load callers. */
   listMessages(sessionId: string): Promise<MessageHistoryRow[]>;
+  /**
+   * Explicit paging for "load older messages". `/v1/sessions/:id/messages`
+   * returns only the most recent `limit` rows (default 50), so reaching older
+   * history means following `nextCursor` backwards.
+   */
+  listMessagePage(
+    sessionId: string,
+    opts?: { limit?: number; cursor?: string | null },
+  ): Promise<MessagePage>;
   updateMessageContent(messageId: string, content: string): Promise<void>;
   listMessagesForSessionSince(sessionId: string, updatedAfter?: string | null): Promise<MessageSyncRow[]>;
 }

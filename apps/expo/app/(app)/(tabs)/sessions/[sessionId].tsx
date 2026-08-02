@@ -54,6 +54,8 @@ const fallbackDetailState: SessionDetailControllerState = {
   sendErrorMessage: null,
   replyTarget: null,
   streamingByAgent: emptyTimelineState().streamingByAgent,
+  olderCursor: null,
+  isLoadingOlder: false,
 };
 
 type RouteRuntimeInfo = {
@@ -564,6 +566,11 @@ export default function SessionDetailRoute() {
           headerAvatars={headerAvatars}
           isSending={detailState.isSending}
           isRefreshing={detailState.isRefreshing}
+          isLoadingOlder={detailState.isLoadingOlder}
+          hasOlderMessages={detailState.olderCursor !== null}
+          onLoadOlder={() => {
+            void controller?.loadOlder();
+          }}
           mentionPool={mentionPool}
           onAttach={() => {
             router.push(`/(app)/attach?sessionId=${sessionId}`);

@@ -48,6 +48,13 @@ export type SessionDetailControllerState = {
   sendErrorMessage: string | null;
   replyTarget: { messageId: string; content: string } | null;
   streamingByAgent: ReadonlyMap<string, StreamingBuffer>;
+  /**
+   * Cursor for the next-older page, or null when there is no more history to
+   * fetch. The server returns only the most recent 50 messages, so anything
+   * before that has to be pulled in explicitly via `loadOlder`.
+   */
+  olderCursor: string | null;
+  isLoadingOlder: boolean;
 };
 
 type SessionsApi = ReturnType<typeof createCloudSessionsApi>;
@@ -60,7 +67,10 @@ type SessionDetailControllerDeps = {
     | "listMessages"
     | "markSessionRead"
     | "resolveMemberActorId"
-  >;
+  > &
+    // Optional so cache-only / test doubles that implement just `listMessages`
+    // stay valid: without it there is simply no older history to page into.
+    Partial<Pick<SessionsApi, "listMessagePage">>;
   currentMemberActorId: string | null;
   getAuth: () => Promise<{ accessToken: string | null; userId: string | null }>;
   getTeamActors?: () => ReadonlyArray<Actor>;
@@ -76,11 +86,21 @@ type SessionDetailController = {
   subscribe: (listener: () => void) => () => void;
   getState: () => SessionDetailControllerState;
   load: (options?: { preserveExisting?: boolean }) => Promise<void>;
+  /**
+   * Pull the next-older page of history and merge it in. No-op when there is
+   * nothing older (`state.olderCursor === null`) or a fetch is already in
+   * flight. The timeline reducer inserts sorted, so ordering takes care of
+   * itself.
+   */
+  loadOlder: () => Promise<void>;
   setComposerText: (value: string) => void;
   setReplyTarget: (target: { messageId: string; content: string } | null) => void;
   sendMessage: () => Promise<void>;
   dispose: () => Promise<void>;
 };
+
+/** Matches the server default; also the size of each "load older" step. */
+const MESSAGE_PAGE_SIZE = 50;
 
 const initialState: SessionDetailControllerState = {
   status: "loading",
@@ -94,6 +114,8 @@ const initialState: SessionDetailControllerState = {
   sendErrorMessage: null,
   replyTarget: null,
   streamingByAgent: emptyTimelineState().streamingByAgent,
+  olderCursor: null,
+  isLoadingOlder: false,
 };
 
 function toIsoFromSeconds(value: bigint): string {
@@ -344,11 +366,45 @@ export function createSessionDetailController(
   let unsubscribeSession: (() => void) | null = null;
   let cleanupConnectionStateListener: (() => void) | null = null;
   let loadToken = 0;
+  /** Held outside `state` so a reload can reset it before the first setState. */
+  let olderCursor: string | null = null;
+  let loadingOlder = false;
+  /**
+   * Whether `olderCursor` has been established for the current load generation.
+   *
+   * `connectRealtime` re-fetches the newest page to catch up, and it also runs
+   * on every reconnect. Without this guard that catch-up would overwrite the
+   * cursor — throwing away however far back the user had paged, and re-offering
+   * "load older" for history already on screen (or after it had been
+   * exhausted). Only the first fetch of a generation gets to set it.
+   */
+  let olderCursorInitialized = false;
 
   function emit() {
     for (const listener of listeners) {
       listener();
     }
+  }
+
+  /**
+   * The newest page of history, plus a cursor into whatever is older.
+   *
+   * Falls back to the unpaged `listMessages` when the dependency does not
+   * provide `listMessagePage` — cache-only sources and test doubles hand back
+   * everything they have at once, so there is nothing older to page into and a
+   * null cursor is the honest answer.
+   */
+  async function fetchNewestPage(): Promise<{
+    messages: SessionMessage[];
+    nextCursor: string | null;
+  }> {
+    if (deps.api.listMessagePage) {
+      return deps.api.listMessagePage(deps.teamId, deps.sessionId, { limit: MESSAGE_PAGE_SIZE });
+    }
+    return {
+      messages: await deps.api.listMessages(deps.teamId, deps.sessionId),
+      nextCursor: null,
+    };
   }
 
   function setState(nextState: SessionDetailControllerState) {
@@ -516,15 +572,19 @@ export function createSessionDetailController(
         }
       });
 
-      const latestMessages = await deps.api.listMessages(deps.teamId, deps.sessionId);
+      const latestPage = await fetchNewestPage();
 
       if (disposed || currentToken !== loadToken) {
         disconnectRealtime();
         return;
       }
 
+      if (!olderCursorInitialized) {
+        olderCursor = latestPage.nextCursor;
+        olderCursorInitialized = true;
+      }
       let next = timeline;
-      for (const m of latestMessages) {
+      for (const m of latestPage.messages) {
         next = reduceTimeline(next, { kind: "messageCommitted", message: m });
       }
       timeline = next;
@@ -535,6 +595,7 @@ export function createSessionDetailController(
         messages: next.messages,
         streamingByAgent: next.streamingByAgent,
         status: nextStatusForMessages(state.session, next.messages, state.status),
+        olderCursor,
       });
     } catch (error) {
       if (disposed || currentToken !== loadToken) {
@@ -563,9 +624,51 @@ export function createSessionDetailController(
     getState() {
       return state;
     },
+    async loadOlder() {
+      // Nothing older, no pager, or a fetch already running.
+      if (!olderCursor || loadingOlder || !deps.api.listMessagePage) return;
+
+      loadingOlder = true;
+      const cursor = olderCursor;
+      const tokenAtStart = loadToken;
+      setState({ ...state, isLoadingOlder: true });
+
+      try {
+        const page = await deps.api.listMessagePage(deps.teamId, deps.sessionId, {
+          limit: MESSAGE_PAGE_SIZE,
+          cursor,
+        });
+        // A reload (or dispose) raced us — its fresher timeline and cursor win.
+        if (disposed || loadToken !== tokenAtStart) return;
+
+        let next = timeline;
+        for (const m of page.messages) {
+          next = reduceTimeline(next, { kind: "messageCommitted", message: m });
+        }
+        timeline = next;
+        olderCursor = page.nextCursor;
+
+        setState({
+          ...state,
+          messages: timeline.messages,
+          streamingByAgent: timeline.streamingByAgent,
+          olderCursor,
+          isLoadingOlder: false,
+        });
+      } catch {
+        // Keep the cursor so the user can retry; just stop the spinner. The
+        // existing timeline is untouched, so a failure costs nothing visible.
+        if (disposed || loadToken !== tokenAtStart) return;
+        setState({ ...state, isLoadingOlder: false });
+      } finally {
+        loadingOlder = false;
+      }
+    },
     async load(options) {
       loadToken += 1;
       const currentToken = loadToken;
+      olderCursor = null;
+      olderCursorInitialized = false;
       const preserveExisting = options?.preserveExisting === true && state.session !== null;
       disconnectRealtime();
 
@@ -615,7 +718,7 @@ export function createSessionDetailController(
 
       const [sessionResult, messagesResult] = await Promise.allSettled([
         deps.api.getSession(deps.teamId, deps.sessionId),
-        deps.api.listMessages(deps.teamId, deps.sessionId),
+        fetchNewestPage(),
       ]);
 
       if (disposed || currentToken !== loadToken) {
@@ -670,8 +773,10 @@ export function createSessionDetailController(
         return;
       }
 
+      olderCursor = messagesResult.value.nextCursor;
+      olderCursorInitialized = true;
       timeline = timelineFromMessages(
-        messagesResult.value,
+        messagesResult.value.messages,
         preserveExisting ? timeline.streamingByAgent : undefined,
       );
       const detailState = buildSessionDetailState(session, timeline.messages);
@@ -683,6 +788,8 @@ export function createSessionDetailController(
         errorMessage: null,
         isRefreshing: preserveExisting,
         streamingByAgent: timeline.streamingByAgent,
+        olderCursor,
+        isLoadingOlder: false,
       });
 
       // Persist authoritative network state for the next cold start.
