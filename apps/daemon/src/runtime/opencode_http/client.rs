@@ -175,6 +175,30 @@ impl ServeClient {
         Self::check(resp, "prompt_async").await.map(|_| ())
     }
 
+    /// GET /session/{id}/message → the session's persisted messages
+    /// (`[{info, parts}, …]`, oldest first). Used to reconcile a turn after
+    /// an SSE gap: the event stream has no replay, so lost tail parts and a
+    /// missed `session.idle` are recovered from this snapshot instead.
+    pub async fn session_messages(
+        &self,
+        directory: &str,
+        session_id: &str,
+    ) -> crate::error::Result<Vec<serde_json::Value>> {
+        let resp = self
+            .req(
+                reqwest::Method::GET,
+                &format!("/session/{session_id}/message"),
+                directory,
+            )
+            .send()
+            .await
+            .map_err(|e| crate::error::AmuxError::Agent(format!("session messages: {e}")))?;
+        let resp = Self::check(resp, "session messages").await?;
+        resp.json()
+            .await
+            .map_err(|e| crate::error::AmuxError::Agent(format!("session messages body: {e}")))
+    }
+
     /// GET /session/status → map of session id to current status
     /// (`{"ses_x": {"type": "retry", "message": …, "next": …}}`). The only
     /// reliable way to observe provider-retry state: the SSE `session.status`
