@@ -1,4 +1,9 @@
 dist/
+# Both forms on purpose. `node_modules/` only matches a directory, and this repo
+# once committed `services/fc/node_modules` as a symlink pointing at itself —
+# which the trailing-slash pattern does not match, so it slipped into the index
+# and every `git checkout services/fc` recreated the loop, breaking npm here.
+node_modules
 node_modules/
 
 # Local-only manual test-deploy tooling (never committed; FC deploys go via GHA)
