@@ -2,6 +2,7 @@ import * as React from "react";
 import { useTranslation } from "react-i18next";
 import { useVirtualizer } from "@tanstack/react-virtual";
 import { ChevronDown, Loader2 } from "lucide-react";
+import { useOlderMessagesStore } from "@/stores/older-messages-store";
 import { cn } from "@/lib/utils";
 import { ErrorBoundary } from "@/components/ErrorBoundary";
 
@@ -81,6 +82,15 @@ const MessageListInner = React.forwardRef<MessageListHandle, MessageListProps>(
     });
     // PERF: Return primitive string instead of session object.
     // Object references from .find() change on every sessions update → unnecessary re-renders.
+    // A cursor is only present once the newest page has landed AND the server
+    // reported more history behind it, so this stays false for short sessions.
+    const canLoadOlder = useOlderMessagesStore((s) =>
+      activeSessionId ? Boolean(s.cursorBySession[activeSessionId]) : false,
+    );
+    const isLoadingOlder = useOlderMessagesStore((s) =>
+      activeSessionId ? Boolean(s.loadingBySession[activeSessionId]) : false,
+    );
+
     // Use `activeSessionId` prop (may lag store during ChatPanel fade) so paths match shown messages.
     const activeSessionDirectory = useSessionStore((s) =>
       sessionDirectory ??
@@ -451,6 +461,29 @@ const MessageListInner = React.forwardRef<MessageListHandle, MessageListProps>(
             )}
             style={{ paddingBottom: `${inputAreaHeight + SAFE_BOTTOM_SPACING}px` }}
           >
+            {/* Above the oldest row: the server sends only the most recent
+                page, so earlier history is fetched on demand. */}
+            {canLoadOlder && !showSessionLoadingSpinner && (
+              <div className="flex justify-center pb-4">
+                <button
+                  type="button"
+                  data-testid="message-list-load-older"
+                  disabled={isLoadingOlder}
+                  onClick={() => {
+                    if (activeSessionId) {
+                      void useOlderMessagesStore.getState().loadOlder(activeSessionId);
+                    }
+                  }}
+                  className="text-xs text-muted-foreground hover:text-foreground disabled:opacity-60"
+                >
+                  {isLoadingOlder ? (
+                    <Loader2 className="h-4 w-4 animate-spin" />
+                  ) : (
+                    "加载更早的消息"
+                  )}
+                </button>
+              </div>
+            )}
             {showSessionLoadingSpinner ? (
               <div
                 className={cn(

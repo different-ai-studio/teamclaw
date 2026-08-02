@@ -197,6 +197,7 @@ import { create as createMessage } from "@bufbuild/protobuf";
 import { MessageSchema, MessageKind, type Message as TeamclawMessage } from "@/lib/proto/teamclaw_pb";
 import { messageRowsToProto } from "@/lib/session-export/collect";
 import { historyRowsToMessageRows } from "@/lib/message-history-map";
+import { useOlderMessagesStore, MESSAGE_PAGE_SIZE } from "@/stores/older-messages-store";
 import {
   agentStreamKey,
   isAgentActiveStatus,
@@ -2552,7 +2553,14 @@ function AppContent() {
 
         let historyRows;
         try {
-          historyRows = await getBackend().messages.listMessages(currentSessionId);
+          {
+          const page = await getBackend().messages.listMessagePage(currentSessionId, {
+            limit: MESSAGE_PAGE_SIZE,
+          });
+          historyRows = page.rows;
+          // Only the newest page arrived; remember where older history resumes.
+          useOlderMessagesStore.getState().setCursor(currentSessionId, page.nextCursor);
+        }
         } catch (error) {
           console.warn(
             "[history] load failed:",
@@ -2602,7 +2610,14 @@ function AppContent() {
       // ── Non-Tauri web: full backend pull ──────────────────────────
       let historyRows;
       try {
-        historyRows = await getBackend().messages.listMessages(currentSessionId);
+        {
+          const page = await getBackend().messages.listMessagePage(currentSessionId, {
+            limit: MESSAGE_PAGE_SIZE,
+          });
+          historyRows = page.rows;
+          // Only the newest page arrived; remember where older history resumes.
+          useOlderMessagesStore.getState().setCursor(currentSessionId, page.nextCursor);
+        }
       } catch (error) {
         console.warn("[history] load failed:", error instanceof Error ? error.message : error);
         if (!cancelled) {
