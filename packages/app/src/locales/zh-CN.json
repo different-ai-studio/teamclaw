@@ -436,8 +436,9 @@
       "fullAccess": "完全访问权限"
     },
     "mentionPopoverTitle": "提及人或 agent",
-    "mentionPopoverNoMatch": "No match for \"{{query}}\"",
+    "mentionPopoverNoMatch": "没有匹配 \"{{query}}\" 的结果",
     "copyShareLink": "复制会话分享链接",
+    "shareLinkCopied": "会话链接已复制",
     "shareLinkCopyFailed": "复制失败",
     "mentionEmptyState": "当前会话还没有可 @ 的人或 agent",
     "mentionGroupAgents": "智能体",
@@ -632,11 +633,7 @@
       "goodResponse": "回答不错",
       "poorResponse": "回答较差"
     },
-    "openAgentSettings": "打开 Agent 设置",
-    "copyShareLink": "复制会话分享链接",
-    "mentionPopoverNoMatch": "没有匹配 \"{{query}}\" 的结果",
-    "shareLinkCopied": "会话链接已复制",
-    "shareLinkCopyFailed": "复制失败"
+    "openAgentSettings": "打开 Agent 设置"
   },
   "onboarding": {
     "common": {

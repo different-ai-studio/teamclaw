@@ -438,6 +438,7 @@
     "mentionPopoverTitle": "Mention people or agents",
     "mentionPopoverNoMatch": "No match for \"{{query}}\"",
     "copyShareLink": "Copy share link",
+    "shareLinkCopied": "Session link copied",
     "shareLinkCopyFailed": "Copy failed",
     "mentionEmptyState": "No one to mention in this session yet",
     "mentionGroupAgents": "Agents",
