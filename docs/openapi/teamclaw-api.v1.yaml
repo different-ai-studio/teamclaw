@@ -198,7 +198,8 @@ paths:
                 displayName:
                   type: [string, "null"]
                 orgId:
-                  description: Organization selected from an `itemType: org` picker row.
+                  description: >-
+                    Organization selected from an `itemType: org` picker row.
                   type: [string, "null"]
                   format: uuid
       responses:
