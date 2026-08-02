@@ -165,8 +165,7 @@ const REDESIGN_ON = import.meta.env.VITE_MENTION_REDESIGN !== 'false';
 interface ChatInputAreaProps {
   activeSessionId: string | null;
   compact: boolean;
-  inputValue: string;
-  onInputChange: (v: string) => void;
+  /** Draft text is owned by the session store so typing does not re-render ChatPanel. */
   pendingFiles: File[];
   onAppendPendingFiles: (files: File[]) => void;
   onRemovePendingFile: (index: number) => void;
@@ -194,6 +193,8 @@ interface ChatInputAreaProps {
   onRemoveAgent: (agentId: string) => void;
   /** Solo (1 human + 1 agent): pill is always on and cannot be removed. */
   agentMentionLocked?: boolean;
+  /** Resolved session model — sizes the context-usage bar. */
+  sessionModelId?: string;
   activeStreamingAgents?: ReadonlyArray<ActiveStreamingAgent>;
   onInterruptAgent?: (agentId: string) => void;
 }
@@ -239,8 +240,6 @@ function PageLinkInsertBridge() {
 export function ChatInputArea({
   activeSessionId,
   compact,
-  inputValue,
-  onInputChange,
   pendingFiles,
   onAppendPendingFiles,
   onRemovePendingFile,
@@ -264,10 +263,77 @@ export function ChatInputArea({
   onEngageAgent = () => {},
   onRemoveAgent = () => {},
   agentMentionLocked = false,
+  sessionModelId,
   activeStreamingAgents = [],
   onInterruptAgent,
 }: ChatInputAreaProps) {
   const { t } = useTranslation();
+
+  // Subscribe here — not in ChatPanel — so keystrokes do not re-render MessageList.
+  const inputValue = useSessionStore((s) => s.draftInput);
+  const setDraftInput = useSessionStore.getState().setDraftInput;
+  const draftPreselectedActor = useUIStore((s) => s.draftPreselectedActor);
+
+  const handleInputChange = React.useCallback(
+    (nextValue: string) => {
+      setDraftInput(nextValue);
+    },
+    [setDraftInput],
+  );
+
+  // Per-actor draft persistence (Actors tab → navigate away → restore).
+  const draftStorageKey = draftPreselectedActor
+    ? `teamclaw-actor-draft:${draftPreselectedActor.id}`
+    : null;
+  const justRestoredDraftRef = React.useRef(false);
+
+  React.useEffect(() => {
+    if (!draftStorageKey) return;
+    let saved: string | null = null;
+    try {
+      saved = localStorage.getItem(draftStorageKey);
+    } catch {
+      /* localStorage disabled */
+    }
+    if (saved != null && saved !== useSessionStore.getState().draftInput) {
+      justRestoredDraftRef.current = true;
+      setDraftInput(saved);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [draftStorageKey]);
+
+  React.useEffect(() => {
+    if (!draftStorageKey) return;
+    if (justRestoredDraftRef.current) {
+      justRestoredDraftRef.current = false;
+      return;
+    }
+    const handle = setTimeout(() => {
+      try {
+        if (inputValue) {
+          localStorage.setItem(draftStorageKey, inputValue);
+        } else {
+          localStorage.removeItem(draftStorageKey);
+        }
+      } catch {
+        /* localStorage disabled */
+      }
+    }, 300);
+    return () => clearTimeout(handle);
+  }, [draftStorageKey, inputValue]);
+
+  // Voice input / "Add to Agent": append transcript or file mention to input
+  React.useEffect(() => {
+    const unregister = useVoiceInputStore.getState().registerInsertToChatHandler(
+      (transcript) => {
+        const prev = useSessionStore.getState().draftInput;
+        const mentionMatch = transcript.match(/@\{([^}]+)\}/);
+        if (mentionMatch && prev.includes(mentionMatch[0])) return;
+        setDraftInput(prev + (prev ? " " : "") + transcript);
+      },
+    );
+    return unregister;
+  }, [setDraftInput]);
 
   // # file reference states
   const [filePopoverOpen, setFilePopoverOpen] = React.useState(false);
@@ -443,7 +509,7 @@ export function ChatInputArea({
         >
           <PromptInput
             value={inputValue}
-            onValueChange={onInputChange}
+            onValueChange={handleInputChange}
             onSubmit={handleSubmit}
             onFilesChange={handleIncomingFiles}
             onFilePathsDrop={handleFilePathsDrop}
@@ -595,7 +661,7 @@ export function ChatInputArea({
             </PromptInputTools>
 
             <div className="flex shrink-0 items-center gap-2">
-              <ContextUsageBadge />
+              <ContextUsageBadge modelId={sessionModelId} />
               <ComposerSubmitButton
                 inputValue={inputValue}
                 pendingFiles={pendingFiles}

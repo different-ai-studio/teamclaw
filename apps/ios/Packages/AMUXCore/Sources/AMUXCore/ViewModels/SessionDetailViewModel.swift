@@ -15,6 +15,26 @@ public struct SlashCommand: Identifiable, Equatable, Hashable, Sendable, Codable
     }
 }
 
+public struct AcpQuestionOption: Identifiable, Equatable, Sendable {
+    public let label: String
+    public let description: String
+    public var id: String { label }
+}
+
+public struct AcpQuestionPrompt: Identifiable, Equatable, Sendable {
+    public let id: String
+    public let header: String
+    public let question: String
+    public let options: [AcpQuestionOption]
+    public let allowsMultiple: Bool
+}
+
+public struct PendingAcpQuestion: Identifiable, Equatable, Sendable {
+    public let id: String
+    public let agentActorID: String
+    public let questions: [AcpQuestionPrompt]
+}
+
 @Observable @MainActor
 public final class SessionDetailViewModel {
     public var events: [AgentEvent] = []
@@ -133,6 +153,10 @@ public final class SessionDetailViewModel {
     /// to this for an inline banner so silent publish failures stop being
     /// invisible.
     public var sendErrorMessage: String?
+    /// OpenCode `question` tool requests awaiting a human answer. They arrive
+    /// as raw ACP control events because the question schema is OpenCode-
+    /// specific; the UI renders the first pending request above the composer.
+    public private(set) var pendingQuestions: [PendingAcpQuestion] = []
     private var errorClearTask: Task<Void, Never>?
     private let errorMessageTTL: TimeInterval = 5
     public var runtime: Runtime?
@@ -399,6 +423,42 @@ public final class SessionDetailViewModel {
         try? modelContext.save()
     }
 
+    /// Repairs the narrow artifact produced by the old cross-turn buffer bug:
+    /// a synthetic sequence-0 segment starts with the full reply from the
+    /// preceding turn, followed by its own text. Sequence 0 is important —
+    /// normal daemon completions may legitimately quote earlier messages and
+    /// must never be rewritten.
+    private func repairStaleStreamingPrefixes(modelContext: ModelContext) {
+        var previousCompletedOutput: AgentEvent?
+        var changed = false
+        for event in events {
+            guard event.eventType == "output", event.isComplete else { continue }
+            if event.sequence == 0,
+               let previous = previousCompletedOutput,
+               previous.turnID != event.turnID,
+               let currentText = event.text,
+               let previousText = previous.text,
+               let repaired = Self.removingStaleStreamingPrefix(
+                   from: currentText,
+                   previousText: previousText
+               ) {
+                event.text = repaired
+                changed = true
+            }
+            previousCompletedOutput = event
+        }
+        if changed { try? modelContext.save() }
+    }
+
+    static func removingStaleStreamingPrefix(from text: String, previousText: String) -> String? {
+        guard !previousText.isEmpty,
+              text.count > previousText.count,
+              text.hasPrefix(previousText) else { return nil }
+        let remainder = text.dropFirst(previousText.count)
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        return remainder.isEmpty ? nil : remainder
+    }
+
     // MARK: - Chip-bar bootstrap + selection
 
     /// Populate chip participants from the session's participant list and
@@ -634,22 +694,6 @@ public final class SessionDetailViewModel {
         memberSheetAgents = snapshot.agents
         pruneGhostAgentSelection()
 
-        // memberSheet now provides runtime_id → actor_id mappings. Live
-        // events that arrived before this load may have been stamped with
-        // the raw runtime_id (bucketKey's `?? rid` fallback) and frozen
-        // there by the resolution cache — see line ~1164. Supabase-seeded
-        // history rows are stamped with the canonical actor_id directly,
-        // so the two sources end up in two buckets for the same agent
-        // and `buildFeedItems` produces duplicate bubbles / a phantom
-        // trailing card. Reconcile here by retroactively rewriting the
-        // raw stamps to the resolved actor_id.
-        relabelRawRuntimeIDStampsToActorIDs()
-
-        // Reconnect replays that couldn't be routed before this roster
-        // loaded (actor_id bucket with no runtime_id mapping) get exactly
-        // one retry now that the mapping exists.
-        await retryPendingTurnReplays()
-
         // Overlay live MQTT-derived data from the SwiftData Runtime row.
         // Supabase agent_runtimes.current_model is only written on ACP
         // StatusChange events (first prompt reply); MQTT state carries
@@ -658,6 +702,19 @@ public final class SessionDetailViewModel {
         // start() time, re-resolve here so a Runtime row created by
         // SessionListVM after MQTT arrived isn't missed.
         overlayMQTTRuntimeState()
+
+        // The live overlay may be what supplies the runtime_id for the sole
+        // session agent (older sessions can have neither primary_agent_id nor
+        // an agent_runtimes row). Relabel only after that binding exists.
+        // Otherwise live events remain under the raw runtime id while seeded
+        // history and optimistic loading use actor id, producing duplicate
+        // process cards every time turn history is replayed.
+        relabelRawRuntimeIDStampsToActorIDs()
+
+        // Reconnect replays that couldn't be routed before this roster
+        // loaded (actor_id bucket with no runtime_id mapping) get exactly
+        // one retry now that the mapping exists.
+        await retryPendingTurnReplays()
 
         // Ensure MQTT subscriptions exist for every session agent so that
         // retained runtime/state messages (carrying availableModels) are
@@ -716,9 +773,17 @@ public final class SessionDetailViewModel {
             }
         }
 
+        let agentCount = memberSheetAgents.count
         memberSheetAgents = memberSheetAgents.map { agent in
             // Primary agent: use bound runtime.
-            if agent.runtimeID == liveRuntime.runtimeId || session?.primaryAgentId == agent.id {
+            // Legacy/sparse sessions may not have primary_agent_id or a
+            // persisted agent_runtimes row yet. RuntimeResolver has already
+            // selected `liveRuntime` for this session, so when there is only
+            // one unbound agent it is unambiguous and safe to attach it here.
+            let isSoleUnboundAgent = agentCount == 1 && agent.runtimeID == nil
+            if agent.runtimeID == liveRuntime.runtimeId
+                || session?.primaryAgentId == agent.id
+                || isSoleUnboundAgent {
                 return MemberSheetAgent(
                     id: agent.id, displayName: agent.displayName,
                     workspacePath: agent.workspacePath, agentType: agent.agentType,
@@ -1508,6 +1573,7 @@ public final class SessionDetailViewModel {
         events = (try? modelContext.fetch(descriptor)) ?? []
         pruneDuplicateRuntimeEvents(modelContext: modelContext)
         sortEventsForDisplay()
+        repairStaleStreamingPrefixes(modelContext: modelContext)
         // Rehydrate the reducer's state from persisted events so
         // future applies dedup against prior session history.
         rehydrateTimelineStateFromEvents()
@@ -1844,7 +1910,19 @@ public final class SessionDetailViewModel {
     /// rather than to a session-wide "primary" agent.
     private func agentActorID(forRuntimeID runtimeID: String?) -> String? {
         guard let runtimeID, !runtimeID.isEmpty else { return nil }
-        return memberSheetAgents.first(where: { $0.runtimeID == runtimeID })?.id
+        if let mapped = memberSheetAgents.first(where: { $0.runtimeID == runtimeID })?.id {
+            return mapped
+        }
+        // A single-agent roster is an unambiguous routing boundary even for
+        // older sessions that have no primary_agent_id / agent_runtimes row.
+        // Route the very first MQTT event into the optimistic actor bucket so
+        // it replaces "Agent loading" instead of creating a raw-runtime card.
+        if memberSheetAgents.count == 1,
+           let only = memberSheetAgents.first,
+           only.runtimeID == nil {
+            return only.id
+        }
+        return nil
     }
 
     /// First-resolved bucket key per runtime_id, frozen for the lifetime
@@ -1891,6 +1969,27 @@ public final class SessionDetailViewModel {
         for agent in memberSheetAgents {
             guard let rid = agent.runtimeID, !rid.isEmpty, rid != agent.id else { continue }
             mapping[rid] = agent.id
+        }
+
+        // Legacy single-agent sessions can have no persisted runtime mapping
+        // at all. In that case every non-user sender bucket belongs to the
+        // sole roster agent. This also repairs raw IDs loaded from SwiftData
+        // before a new MQTT event has arrived to establish the live cache.
+        if mapping.isEmpty,
+           memberSheetAgents.count == 1,
+           let actorID = memberSheetAgents.first?.id {
+            let rawEventBuckets = events.compactMap { event -> String? in
+                guard event.eventType != "user_prompt",
+                      let sender = event.senderActorID,
+                      !sender.isEmpty,
+                      sender != actorID
+                else { return nil }
+                return sender
+            }
+            let rawStreamingBuckets = timelineState.streamingAgentSet.filter { $0 != actorID }
+            for rawID in Set(rawEventBuckets).union(rawStreamingBuckets) {
+                mapping[rawID] = actorID
+            }
         }
         if mapping.isEmpty { return }
 
@@ -2003,6 +2102,34 @@ public final class SessionDetailViewModel {
             if sc.newStatus == .idle { settleAgentTurn(bucket: bucket) }
         }
 
+        // Some runtimes finish a turn with output{isComplete:true} but omit
+        // the final statusChange:.idle. Do not leave the optimistic
+        // "Agent loading" card up for the 60-second safety window. A short
+        // delayed settle gives an immediately-following tool event time to
+        // cancel this task via markAgentWorking(), while still closing a
+        // genuinely completed turn promptly.
+        if !isHistoryReplay,
+           case .output(let output) = acp.event,
+           output.isComplete {
+            armCompletedOutputSettle(bucket: bucket)
+        }
+
+        // Raw OpenCode question events are control-plane state, not timeline
+        // rows. Keep them in-memory and let the composer surface the prompt.
+        if case .raw(let raw) = acp.event,
+           raw.method == "question_asked",
+           let question = Self.decodePendingQuestion(raw.jsonPayload, agentActorID: bucket) {
+            if let index = pendingQuestions.firstIndex(where: { $0.id == question.id }) {
+                pendingQuestions[index] = question
+            } else {
+                pendingQuestions.append(question)
+            }
+        } else if case .raw(let raw) = acp.event,
+                  raw.method == "question_replied" || raw.method == "question_rejected",
+                  let requestID = Self.questionRequestID(raw.jsonPayload) {
+            pendingQuestions.removeAll { $0.id == requestID }
+        }
+
         // Hand-rolled raw tool_title_update parser. The reducer
         // explicitly leaves `.raw` alone (see TimelineInput.swift
         // contract); patch the matching tool_use entry in place.
@@ -2020,6 +2147,46 @@ public final class SessionDetailViewModel {
         }
 
         return dirty
+    }
+
+    static func decodePendingQuestion(_ data: Data, agentActorID: String) -> PendingAcpQuestion? {
+        guard let payload = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+              let requestID = payload["id"] as? String,
+              !requestID.isEmpty,
+              let rawQuestions = payload["questions"] as? [[String: Any]]
+        else { return nil }
+
+        let questions = rawQuestions.enumerated().compactMap { index, raw -> AcpQuestionPrompt? in
+            let text = raw["question"] as? String ?? ""
+            guard !text.isEmpty else { return nil }
+            let options: [AcpQuestionOption] = (raw["options"] as? [Any] ?? []).compactMap { value in
+                if let label = value as? String, !label.isEmpty {
+                    return AcpQuestionOption(label: label, description: "")
+                }
+                guard let option = value as? [String: Any],
+                      let label = option["label"] as? String,
+                      !label.isEmpty else { return nil }
+                return AcpQuestionOption(
+                    label: label,
+                    description: option["description"] as? String ?? ""
+                )
+            }
+            return AcpQuestionPrompt(
+                id: String(index),
+                header: raw["header"] as? String ?? "Question",
+                question: text,
+                options: options,
+                allowsMultiple: raw["multiple"] as? Bool ?? false
+            )
+        }
+        guard !questions.isEmpty else { return nil }
+        return PendingAcpQuestion(id: requestID, agentActorID: agentActorID, questions: questions)
+    }
+
+    private static func questionRequestID(_ data: Data) -> String? {
+        guard let payload = try? JSONSerialization.jsonObject(with: data) as? [String: Any]
+        else { return nil }
+        return (payload["requestID"] as? String) ?? (payload["id"] as? String)
     }
 
     private func handleSessionEvent(_ sessionEvent: Amux_SessionEvent, sequence: Int, modelContext: ModelContext) {
@@ -2057,6 +2224,23 @@ public final class SessionDetailViewModel {
     private var syncGeneration: Int = 0
     private var startModelContext: ModelContext?
 
+    /// A completed output is also the stream-closing signal. History replay
+    /// must pass it through the reducer even when its sequence is already in
+    /// SwiftData: earlier missing deltas in the same batch may have just
+    /// reopened the in-memory stream. The reducer's turn-id merge keeps the
+    /// persisted completion idempotent while clearing that transient state.
+    nonisolated static func shouldApplyHistoryEnvelope(
+        _ envelope: Amux_Envelope,
+        existingSequences: Set<Int>
+    ) -> Bool {
+        let sequence = Int(envelope.sequence)
+        guard existingSequences.contains(sequence) else { return true }
+        guard case .acpEvent(let acp) = envelope.payload,
+              case .output(let output) = acp.event
+        else { return false }
+        return output.isComplete
+    }
+
     private func handleHistoryBatch(_ batch: Amux_HistoryBatch) {
         guard let modelContext = syncModelContext else { return }
         let existingSeqs = Set(events.compactMap { $0.sequence != 0 ? $0.sequence : nil })
@@ -2067,7 +2251,10 @@ public final class SessionDetailViewModel {
         var anyDirty = false
         for envelope in batch.events {
             let seq = Int(envelope.sequence)
-            guard !existingSeqs.contains(seq) else { continue }
+            guard Self.shouldApplyHistoryEnvelope(
+                envelope,
+                existingSequences: existingSeqs
+            ) else { continue }
 
             if case .acpEvent(let acp) = envelope.payload {
                 if handleAcpEvent(acp,
@@ -2584,6 +2771,25 @@ public final class SessionDetailViewModel {
         }
     }
 
+    /// Complete-output fallback for runtimes that do not publish idle.
+    /// `markAgentWorking()` cancels this same task when a follow-on event
+    /// arrives, so an output segment immediately followed by a tool call
+    /// remains visibly active.
+    private func armCompletedOutputSettle(bucket: String) {
+        agentWorkingResetTask?.cancel()
+        agentWorkingResetTask = Task { [weak self] in
+            try? await Task.sleep(for: .milliseconds(300))
+            guard let self, !Task.isCancelled else { return }
+            await MainActor.run {
+                guard self.streamingAgentSet.isEmpty else {
+                    self.armAgentWorkingSafetyReset()
+                    return
+                }
+                self.settleAgentTurn(bucket: bucket)
+            }
+        }
+    }
+
     /// Safety-timer expiry. Clearing `isAgentWorking` is only safe when no
     /// stream is in flight: with a non-empty `streamingAgentSet`, 60 s of
     /// event silence just means a long thinking / tool stretch, and the
@@ -2892,6 +3098,26 @@ public final class SessionDetailViewModel {
         var d = Amux_AcpDenyPermission(); d.requestID = requestId
         try await sendCommand(agentActorID: agentActorID) { $0.command = .denyPermission(d) }
     }
+
+    public func answerQuestion(
+        _ question: PendingAcpQuestion,
+        answers: [[String]],
+        reject: Bool = false
+    ) async throws {
+        let data = try JSONSerialization.data(withJSONObject: answers)
+        guard let answersJSON = String(data: data, encoding: .utf8) else { return }
+        var command = Amux_AcpAnswerQuestion()
+        command.requestID = question.id
+        command.answersJson = answersJSON
+        command.reject = reject
+        try await sendCommand(agentActorID: question.agentActorID) {
+            $0.command = .answerQuestion(command)
+        }
+        // The daemon also emits question_replied/question_rejected. Remove
+        // optimistically after publish so slow broker echo doesn't leave the
+        // answered card blocking the composer.
+        pendingQuestions.removeAll { $0.id == question.id }
+    }
 }
 
 // MARK: - Test seams (DEBUG only)
@@ -2971,6 +3197,18 @@ extension SessionDetailViewModel {
 
     public func _test_setMemberSheetAgents(_ agents: [MemberSheetAgent]) {
         memberSheetAgents = agents
+    }
+
+    public func _test_bucketKey(forRuntimeID runtimeID: String) -> String? {
+        bucketKey(forRuntimeID: runtimeID)
+    }
+
+    /// Mirrors the production refresh ordering: attach the resolved runtime
+    /// to the roster first, then collapse any raw-runtime timeline buckets.
+    public func _test_setMemberSheetAgentsOverlayAndRelabel(_ agents: [MemberSheetAgent]) {
+        memberSheetAgents = agents
+        overlayMQTTRuntimeState()
+        relabelRawRuntimeIDStampsToActorIDs()
     }
 
     public func _test_applyOptimisticModelPatch(agentID: String, model: String) {
@@ -3061,6 +3299,10 @@ extension SessionDetailViewModel {
     /// Run the 60s safety-timer expiry synchronously (no sleeping in tests).
     public func _test_fireAgentWorkingSafetyTimeout() {
         handleAgentWorkingSafetyTimeout()
+    }
+
+    public func _test_armCompletedOutputSettle(bucket: String) {
+        armCompletedOutputSettle(bucket: bucket)
     }
 
     public var _test_streamingTurnIDByAgent: [String: String] {

@@ -72,32 +72,59 @@ for _v in APNS_PRIVATE_KEY_P8 APNS_KEY_ID APNS_TEAM_ID APNS_TOPIC APNS_ENV \
 done
 [ -n "$_backfilled" ] && echo "NOTE: backfilled empty test vars with placeholders:$_backfilled"
 
-# MQTT_PUBLIC_BROKER_URL is deliberately NOT in the backfill list above, and is
-# checked instead. It is the address `GET /v1/config/bootstrap` hands to
-# clients, and an empty one is the single worst failure this script can ship:
-# buildMqttConfig() falls back to MQTT_BROKER_URL (an internal address clients
-# cannot reach) or omits the `mqtt` block entirely — while still answering 200.
-# Every client then has no broker, and nothing anywhere logs an error. That is
-# how real-time sync went down for a day in issue #634.
+# Account-specific infra ids. s.yaml declares these with no default, so a
+# missing one already aborts — but Serverless Devs reports it as a bare
+# "env('FC_VPC_ID') not found" after npm install and a full TypeScript build.
+# Fail here instead, before any of that work, and say what the value is for.
+_missing=""
+for _v in FC_VPC_ID FC_SECURITY_GROUP_ID FC_VSWITCH_ID BUCKET; do
+  [ -z "${!_v:-}" ] && _missing="$_missing $_v"
+done
+if [ -n "$_missing" ]; then
+  echo "ERROR: missing Alibaba infra id(s) in $ENV_FILE:$_missing" >&2
+  echo "" >&2
+  echo "       These used to be hardcoded in s.yaml. They name real resources in" >&2
+  echo "       one Alibaba account, so there is deliberately no default — an" >&2
+  echo "       unset value would deploy into the wrong network or bucket." >&2
+  echo "" >&2
+  echo "       FC_VPC_ID / FC_SECURITY_GROUP_ID / FC_VSWITCH_ID must match the" >&2
+  echo "       network SUPABASE_URL is reachable from; see .env.example." >&2
+  exit 1
+fi
+
+# MQTT_BROKER_URL is deliberately NOT in the backfill list above, and is checked
+# instead. It is the one broker address: FC's own inbox publisher dials it AND
+# `GET /v1/config/bootstrap` hands it to clients. An empty one is the single
+# worst failure this script can ship — buildMqttConfig() omits the `mqtt` block
+# while bootstrap still answers 200, so every client ends up with no broker and
+# nothing anywhere logs an error. That is how real-time sync went down for a day
+# in issue #634, and how belayo shipped a bootstrap with no broker again after
+# the old MQTT_PUBLIC_BROKER_URL override defaulted to "".
+#
+# It must also be reachable BY CLIENTS — a container-internal address is a
+# misconfiguration now that there is no separate public override to correct it.
 #
 # A placeholder would be worse than nothing here, so refuse instead. Deploys
 # that genuinely don't need MQTT (pure smoke tests) opt out explicitly.
-if [ -z "${MQTT_PUBLIC_BROKER_URL:-}" ] && [ "${ALLOW_EMPTY_MQTT:-}" != "1" ]; then
-  echo "ERROR: MQTT_PUBLIC_BROKER_URL is empty in $ENV_FILE." >&2
+if [ -z "${MQTT_BROKER_URL:-}" ] && [ "${ALLOW_EMPTY_MQTT:-}" != "1" ]; then
+  echo "ERROR: MQTT_BROKER_URL is empty in $ENV_FILE." >&2
   echo "       This is the broker address delivered to clients. Deploying" >&2
   echo "       without it produces a bootstrap that answers 200 with no \`mqtt\`" >&2
   echo "       block, silently leaving every client with no broker (#634)." >&2
   echo "" >&2
-  echo "       Set it to the PUBLIC broker hostname, e.g." >&2
-  echo "         MQTT_PUBLIC_BROKER_URL=mqtt://mqtt.example.com:1883" >&2
+  echo "       Set it to the CLIENT-REACHABLE broker address, e.g." >&2
+  echo "         MQTT_BROKER_URL=mqtt://mqtt.example.com:1883" >&2
   echo "" >&2
   echo "       For a smoke test that genuinely does not need MQTT:" >&2
   echo "         ALLOW_EMPTY_MQTT=1 ./deploy-aliyun-fc.sh $FUNCTION_NAME $ENV_FILE" >&2
   exit 1
 fi
-if [ -z "${MQTT_PUBLIC_BROKER_URL:-}" ]; then
-  echo "WARN: deploying with an empty MQTT_PUBLIC_BROKER_URL (ALLOW_EMPTY_MQTT=1)."
+if [ -z "${MQTT_BROKER_URL:-}" ]; then
+  echo "WARN: deploying with an empty MQTT_BROKER_URL (ALLOW_EMPTY_MQTT=1)."
   echo "      Clients will receive no broker from /v1/config/bootstrap."
+  # s.yaml declares MQTT_BROKER_URL with no default, so Serverless Devs would
+  # abort on a blank. Backfill only on the explicit opt-out path.
+  export MQTT_BROKER_URL="test-placeholder"
 fi
 
 # Tell s.yaml which function to deploy.
@@ -110,7 +137,9 @@ export FC_HTTP_TRIGGER_NAME="${FC_HTTP_TRIGGER_NAME:-http-trigger}"
 echo "────────────────────────────────────────────────────────"
 echo "  LOCAL FC deploy (TEST)"
 echo "  function : $FUNCTION_NAME"
-echo "  region   : cn-shenzhen  (from s.yaml)"
+echo "  region   : ${FC_REGION:-cn-shenzhen}"
+echo "  vpc      : ${FC_VPC_ID} / ${FC_VSWITCH_ID}"
+echo "  bucket   : ${BUCKET}"
 echo "  backend  : $BACKEND_KIND"
 echo "  http trig: $FC_HTTP_TRIGGER_NAME"
 echo "  env file : $ENV_FILE"

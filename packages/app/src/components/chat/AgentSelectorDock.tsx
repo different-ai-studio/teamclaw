@@ -9,10 +9,9 @@ import { useLocalDaemonCatalogStore } from '@/stores/local-daemon-catalog-store'
 import { resolveAutoPersistModelId } from '@/lib/agent-model-auto-persist'
 import { useWorkspaceStore } from '@/stores/workspace'
 import {
-  dedupeAgentModelOptions,
-  resolveAgentAvailableModels,
-} from '@/lib/agent-available-models'
-import { firstAvailableRecentModel } from '@/lib/local-daemon-model-catalog'
+  agentAvailableModelsWithLocalCatalog,
+  localRecentModelFallback,
+} from '@/lib/agent-model-fallback'
 import { resolveSessionEstablishedModel } from '@/lib/session-established-model'
 import { sessionFlowError, sessionFlowLog } from '@/lib/session-flow-log'
 import { RuntimeLifecycle, type RuntimeInfo } from '@/lib/proto/amux_pb'
@@ -25,7 +24,10 @@ import {
   selectAgentModel,
 } from '@/lib/runtime-state-resolve'
 import { ensureRuntimeThenSetModel } from '@/lib/teamclaw/ensure-agent-runtime'
-import { useAgentModelPickStore } from '@/stores/agent-model-pick-store'
+import {
+  DRAFT_SESSION_PICK_KEY,
+  useAgentModelPickStore,
+} from '@/stores/agent-model-pick-store'
 import { useSessionSelectionStore } from '@/stores/session-selection-store'
 import { useSessionMessageStore } from '@/stores/session-message-store'
 import { useCurrentTeamStore } from '@/stores/current-team'
@@ -152,6 +154,10 @@ function AgentPill({
     sessionIdProp?.trim() ||
     useSessionSelectionStore.getState().activeSessionId?.trim() ||
     ''
+  // A new chat is draft-first: the pill is live before the session exists. Picks
+  // still need somewhere to land, or choosing a model is a no-op until after the
+  // first send. Promoted onto the real id by `promoteDraftPicks` on create.
+  const pickScopeId = sessionId || DRAFT_SESSION_PICK_KEY
 
   const liveRuntimeEntry = React.useMemo(
     () => resolveRuntimeStateEntryForAgent(agent.id, byRuntimeId, dbRuntimeId),
@@ -168,14 +174,16 @@ function AgentPill({
     isSelf && workspacePath ? s.byWorkspacePath[workspacePath] : undefined,
   )
 
-  const availableModels = React.useMemo(() => {
-    const fromRetain = resolveAgentAvailableModels(liveRuntimeInfo)
-    if (fromRetain.length > 0) return fromRetain
-    // The retain is authoritative but may not have landed (or may not exist at
-    // all, for a daemon with no runtime up). For the local agent the loopback
-    // catalog answers the same question in one hop.
-    return isSelf ? dedupeAgentModelOptions(localCatalog?.models) : []
-  }, [liveRuntimeInfo, isSelf, localCatalog])
+  const availableModels = React.useMemo(
+    () =>
+      agentAvailableModelsWithLocalCatalog({
+        agentId: agent.id,
+        localDaemonActorId: localActorId,
+        runtimeInfo: liveRuntimeInfo,
+        catalogModels: localCatalog?.models,
+      }),
+    [agent.id, localActorId, liveRuntimeInfo, localCatalog],
+  )
 
   const statusSuffix = pillSuffixForUiState(effectiveUiState, t)
   const hideModelOnPill = isSoloBuild()
@@ -191,7 +199,7 @@ function AgentPill({
   // pill — selectAgentModel reads the same store but via getState() and would
   // otherwise miss a re-render trigger.
   const pickEntry = useAgentModelPickStore((s) =>
-    sessionId ? s.bySessionAgent[`${sessionId}::${agent.id}`] : undefined,
+    s.bySessionAgent[`${pickScopeId}::${agent.id}`],
   )
   // The model this session already ran with, from its transcript. Empty for
   // brand-new sessions, so they keep the last-pick default.
@@ -205,14 +213,19 @@ function AgentPill({
   // this device's history says nothing about a remote agent's.
   const localRecentModel = React.useMemo(
     () =>
-      isSelf ? firstAvailableRecentModel(localCatalog?.recentModels, availableModels) : '',
-    [isSelf, localCatalog, availableModels],
+      localRecentModelFallback({
+        agentId: agent.id,
+        localDaemonActorId: localActorId,
+        recentModels: localCatalog?.recentModels,
+        available: availableModels,
+      }),
+    [agent.id, localActorId, localCatalog, availableModels],
   )
 
   const selected = React.useMemo(
     () =>
       selectAgentModel({
-        sessionId,
+        sessionId: pickScopeId,
         agentId: agent.id,
         available: availableModels,
         byRuntimeId,
@@ -220,7 +233,7 @@ function AgentPill({
         providerFallback: localRecentModel || undefined,
       }),
     [
-      sessionId,
+      pickScopeId,
       agent.id,
       availableModels,
       byRuntimeId,
@@ -278,13 +291,11 @@ function AgentPill({
   // back to first-advertised only when there is no history to honour.
   React.useEffect(() => {
     const chosenId = resolveAutoPersistModelId({
-      sessionId,
+      sessionId: pickScopeId,
       uiState: effectiveUiState,
       runtimeInfoLoading,
       availableModelIds: availableModels.map((m) => m.id),
-      existingPick: sessionId
-        ? useAgentModelPickStore.getState().getPick(sessionId, agent.id)
-        : undefined,
+      existingPick: useAgentModelPickStore.getState().getPick(pickScopeId, agent.id),
       sessionEstablishedModel,
       retainCurrentModel: liveRuntimeInfo?.currentModel,
       // The hook is async and reads null on the first renders; the persisted
@@ -299,14 +310,14 @@ function AgentPill({
     const rpcModelId = resolveSetModelId(agent.id, chosenId, byRuntimeId)
     sessionFlowLog('agent_selector.model_auto_select', {
       agentId: agent.id,
-      sessionId,
+      sessionId: pickScopeId,
       modelId: rpcModelId,
       source: localRecentModel ? 'device_mru' : 'first_advertised',
       availableModelIds: availableModels.map((m) => m.id),
     })
-    useAgentModelPickStore.getState().setPick(sessionId, agent.id, rpcModelId)
+    useAgentModelPickStore.getState().setPick(pickScopeId, agent.id, rpcModelId)
   }, [
-    sessionId,
+    pickScopeId,
     agent.id,
     effectiveUiState,
     runtimeInfoLoading,
@@ -340,23 +351,17 @@ function AgentPill({
     })
 
     // Store the pick FIRST. Survives reload; MQTT retains cannot override it.
-    if (sessionId) {
-      useAgentModelPickStore.getState().setPick(sessionId, agent.id, rpcModelId)
-    }
+    // On a draft chat this writes the draft scope, so the dropdown reflects the
+    // choice immediately and `promoteDraftPicks` carries it onto the session.
+    useAgentModelPickStore.getState().setPick(pickScopeId, agent.id, rpcModelId)
 
     if (!sessionId || !teamId) {
       sessionFlowLog('agent_selector.model_pick.deferred_until_session', {
         agentId: agent.id,
         modelId,
         sessionId,
+        pickScopeId,
         teamId,
-      })
-      const { toast } = await import('sonner')
-      toast.success(t('chat.agentSelector.modelPickSaved', '模型已选择'), {
-        description: t(
-          'chat.agentSelector.modelPickSavedHint',
-          '将在发送消息或 runtime 就绪后应用到 Agent',
-        ),
       })
       return
     }
@@ -394,7 +399,7 @@ function AgentPill({
       })
       console.error('[AgentSelectorDock] ensureRuntimeThenSetModel failed (pick preserved)', e)
     }
-  }, [agent.id, agent.displayName, dbRuntimeId, sessionId, t, effectiveModelId, availableModels])
+  }, [agent.id, agent.displayName, dbRuntimeId, sessionId, pickScopeId, t, effectiveModelId, availableModels])
 
   return (
     <Popover open={open} onOpenChange={setOpen}>

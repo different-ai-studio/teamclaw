@@ -346,6 +346,23 @@ struct AppOnboardingCoordinatorTests {
         #expect(await store.recordedSignOutCallCount() == 1)  // dead session cleared
         #expect(await store.recordedCreatedTeamNames().isEmpty)
     }
+
+    @MainActor
+    @Test("an expired FC access token clears the session and returns to auth")
+    func expiredAccessTokenRecoversToAuth() async {
+        let store = InMemoryOnboardingStore(
+            bootstrap: AppBootstrap(memberActorID: nil, teams: []),
+            isAnonymous: false,
+            loadBootstrapError: CloudAPIError.requestFailed(
+                status: 401, code: nil, message: "Invalid or expired access token")
+        )
+        let coordinator = AppOnboardingCoordinator(store: store, defaults: ephemeralDefaults())
+
+        await coordinator.bootstrap()
+
+        #expect(coordinator.route == .needsAuth)
+        #expect(await store.recordedSignOutCallCount() == 1)
+    }
 }
 
 private actor InMemoryOnboardingStore: AppOnboardingStore {

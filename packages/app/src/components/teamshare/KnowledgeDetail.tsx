@@ -53,7 +53,6 @@ export function KnowledgeDetail({ path }: { path: string }) {
       const { writeTextFile } = await import('@tauri-apps/plugin-fs')
       await writeTextFile(path, content)
       setBaseline(content)
-      toast.success(t('teamShare.saved', 'Saved'))
     } catch (e) {
       toast.error(t('teamShare.saveFailed', 'Save failed: {{msg}}', { msg: e instanceof Error ? e.message : String(e) }))
     } finally {

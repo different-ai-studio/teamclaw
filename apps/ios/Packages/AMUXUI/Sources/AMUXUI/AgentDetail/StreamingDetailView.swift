@@ -46,6 +46,16 @@ public struct TurnRoute: Hashable {
     }
 }
 
+enum StreamingDetailPresentation {
+    /// A pinned route always represents an already-completed turn. Live
+    /// buffers are keyed only by agent, so reading them from a pinned view
+    /// can append a newer/stale turn below the historical final response and
+    /// leave its typing indicator and stop button visible forever.
+    static func followsLiveStream(for route: TurnRoute) -> Bool {
+        route.frozenTurnID == nil
+    }
+}
+
 /// Per-turn streaming detail view pushed from the chat list. Shows the
 /// thinking / tool_use / tool_result events that produced the agent's
 /// reply, plus the live streaming text when the turn is still in flight.
@@ -161,8 +171,12 @@ public struct StreamingDetailView: View {
 
     public var body: some View {
         let snapshot = resolvedSnapshot
-        let liveText = viewModel.streamingTextByAgent[route.agentID] ?? ""
-        let stillStreaming = viewModel.streamingAgentSet.contains(route.agentID)
+        let followsLiveStream = StreamingDetailPresentation.followsLiveStream(for: route)
+        let liveText = followsLiveStream
+            ? (viewModel.streamingTextByAgent[route.agentID] ?? "")
+            : ""
+        let stillStreaming = followsLiveStream
+            && viewModel.streamingAgentSet.contains(route.agentID)
 
         ScrollViewReader { proxy in
             ScrollView {

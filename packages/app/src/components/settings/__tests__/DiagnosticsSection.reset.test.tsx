@@ -2,6 +2,7 @@ import * as React from 'react'
 import { fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import type { DiagnosticReport } from '@/lib/diagnostic-report'
+import { DiagnosticsSection } from '../DiagnosticsSection';
 
 const forceResetMock = vi.hoisted(() => vi.fn(async () => {}))
 
@@ -142,7 +143,6 @@ describe('DiagnosticsSection daemon reset remediation', () => {
 
   it('shows remediation banner when report qualifies for daemon reset', async () => {
     diagnosticsState.report = sampleReport
-    const { DiagnosticsSection } = await import('../DiagnosticsSection')
     render(<DiagnosticsSection />)
 
     expect(screen.getByText('建议重置本地 daemon')).toBeTruthy()
@@ -151,7 +151,6 @@ describe('DiagnosticsSection daemon reset remediation', () => {
 
   it('runs forceReset and opens onboarding wizard after confirmation', async () => {
     diagnosticsState.report = sampleReport
-    const { DiagnosticsSection } = await import('../DiagnosticsSection')
     render(<DiagnosticsSection />)
 
     fireEvent.click(screen.getByRole('button', { name: '重置本地 daemon' }))

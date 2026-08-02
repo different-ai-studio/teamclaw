@@ -57,10 +57,6 @@ export const PromptSection = React.memo(function PromptSection() {
   const handleSave = React.useCallback(async () => {
     try {
       await invoke('save_system_prompt', { prompt: systemPrompt, workspacePath: workspacePath ?? undefined })
-      toast.success(
-        t('settings.prompt.saveSuccess', 'System prompt saved successfully'),
-        { duration: 2000 }
-      )
       if (workspacePath) {
         try {
           await reloadDaemonRuntime(encodeWorkspaceId(workspacePath))

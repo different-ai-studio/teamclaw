@@ -1,5 +1,5 @@
 {
-  "cloudApiUrl": "https://teamclaw-api.ucar.cc",
+  "cloudApiUrl": "https://api.teamclaw-dev.ucar.cc",
   "mqttPort": 1883,
   "mqttUseTls": false
 }

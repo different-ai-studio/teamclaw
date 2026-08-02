@@ -199,6 +199,12 @@ export const useOutboxStore = create<OutboxStore>((set, get) => ({
       });
       console.warn("[outbox] enqueue persist failed", e);
     }
+    // Do not wait for the 1s polling interval — the bubble already has a
+    // spinner and the user is waiting on Cloud insert + MQTT. Kicking only
+    // after the row is persisted keeps libsql and memory state in agreement.
+    void import("@/services/outbox-sender").then(({ kickOutboxSender }) => {
+      kickOutboxSender();
+    });
   },
 
   updateState: async (messageId, patch) => {

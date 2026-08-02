@@ -75,13 +75,24 @@ paths:
           required: false
           description: |
             `all` returns the cross-org team picker source: the caller's teams
-            across every org, unioned with PUBLIC teams in the shared
-            DEFAULT_ORG the caller may join (each carrying `isMember`). Omitted
+            across every org, unioned with PUBLIC teams the caller may join
+            (each carrying `isMember`). `discoverable` returns the public-only
+            subset and is safe for an anonymous browsing session. Omitted
             returns only teams in the caller's current org that they are an
             actor in.
           schema:
             type: string
-            enum: [all]
+            enum: [all, discoverable]
+        - name: includeEmptyOrgs
+          in: query
+          required: false
+          description: >-
+            Only with `scope=all`: include organization picker rows for orgs
+            that do not yet have a team. Such a row has `itemType: org` and
+            `teamId: null`; select it with `POST /v1/teams/bootstrap` and its
+            `orgId` to initialize the org-named team.
+          schema:
+            type: boolean
       responses:
         "200":
           description: Current user's teams.
@@ -168,6 +179,39 @@ paths:
         "502":
           description: LiteLLM provisioning failed; no DB rows were written.
           $ref: "#/components/responses/Error"
+  /v1/teams/bootstrap:
+    post:
+      operationId: bootstrapTeam
+      summary: Bootstrap the first team in the current organization
+      description: >-
+        Creates an owner team named after the current organization (or the
+        explicit empty picker `orgId`) and creates its member actor atomically.
+        It never joins an existing team implicitly.
+      tags: [Teams]
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                displayName:
+                  type: [string, "null"]
+                orgId:
+                  description: Organization selected from an `itemType: org` picker row.
+                  type: [string, "null"]
+                  format: uuid
+      responses:
+        "200":
+          description: Bootstrapped team.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Team"
+        "403":
+          $ref: "#/components/responses/Error"
+        "409":
+          $ref: "#/components/responses/Error"
   /v1/teams/{teamId}:
     get:
       operationId: getTeam
@@ -227,9 +271,8 @@ paths:
       operationId: joinPublicTeam
       summary: Join a public team
       description: |
-        Self-service join of a PUBLIC team in the shared DEFAULT_ORG. Adds the
-        caller as a plain `member` (idempotent if already joined). Rejects
-        teams that are not public DEFAULT_ORG teams with 403.
+        Self-service join of a PUBLIC team. Adds the caller as a plain `member`
+        (idempotent if already joined). Anonymous users must sign in first.
       tags: [Teams]
       parameters:
         - $ref: "#/components/parameters/TeamId"
@@ -3765,41 +3808,6 @@ paths:
               schema: { type: object }
         "400":
           $ref: "#/components/responses/Error"
-        "401":
-          $ref: "#/components/responses/Error"
-  /v1/me/bootstrap:
-    get:
-      operationId: getMeBootstrap
-      summary: Member actor + team memberships for the authenticated user
-      description: |
-        Returns the caller's member-actor id, the teams they belong to, and a
-        per-team member-actor map. Backs the iOS onboarding bootstrap that
-        previously read actors + team_members directly from Supabase.
-      tags: [Config]
-      responses:
-        "200":
-          description: Bootstrap payload.
-          content:
-            application/json:
-              schema:
-                type: object
-                required: [memberActorId, teams, memberActorIdByTeam]
-                properties:
-                  memberActorId:
-                    type: [string, "null"]
-                  teams:
-                    type: array
-                    items:
-                      type: object
-                      required: [id, name, role]
-                      properties:
-                        id: { type: string }
-                        name: { type: string }
-                        slug: { type: [string, "null"] }
-                        role: { type: string }
-                  memberActorIdByTeam:
-                    type: object
-                    additionalProperties: { type: string }
         "401":
           $ref: "#/components/responses/Error"
   /v1/apps:

@@ -10,12 +10,14 @@ public struct TeamSummary: Codable, Equatable, Sendable, Identifiable {
     public let name: String
     public let slug: String
     public let role: String
+    public let orgID: String?
 
-    public init(id: String, name: String, slug: String, role: String) {
+    public init(id: String, name: String, slug: String, role: String, orgID: String? = nil) {
         self.id = id
         self.name = name
         self.slug = slug
         self.role = role
+        self.orgID = orgID
     }
 }
 
@@ -564,8 +566,11 @@ public final class AppOnboardingCoordinator {
             // A remembered / explicitly-requested team always wins — skip the picker.
             if let preferred,
                let team = bootstrap.teams.first(where: { $0.id == preferred }) {
-                let memberActorID = bootstrap.memberActorIDByTeam[team.id] ?? bootstrap.memberActorID
-                if let memberActorID {
+                let result = try await store.switchActiveTeam(teamID: team.id)
+                if !result.refreshToken.isEmpty {
+                    try await store.setSession(refreshToken: result.refreshToken)
+                }
+                if let memberActorID = result.actorID ?? bootstrap.memberActorIDByTeam[team.id] ?? bootstrap.memberActorID {
                     setCurrentContext(AppContext(team: team, memberActorID: memberActorID))
                     route = .ready
                     return
@@ -585,11 +590,16 @@ public final class AppOnboardingCoordinator {
             }
 
             // Exactly one team — adopt it directly.
-            if let team = bootstrap.teams.first,
-               let memberActorID = bootstrap.memberActorIDByTeam[team.id] ?? bootstrap.memberActorID {
-                setCurrentContext(AppContext(team: team, memberActorID: memberActorID))
-                route = .ready
-                return
+            if let team = bootstrap.teams.first {
+                let result = try await store.switchActiveTeam(teamID: team.id)
+                if !result.refreshToken.isEmpty {
+                    try await store.setSession(refreshToken: result.refreshToken)
+                }
+                if let memberActorID = result.actorID ?? bootstrap.memberActorIDByTeam[team.id] ?? bootstrap.memberActorID {
+                    setCurrentContext(AppContext(team: team, memberActorID: memberActorID))
+                    route = .ready
+                    return
+                }
             }
 
             // No team yet. Auto-create one after invite handling so newly

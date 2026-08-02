@@ -54,6 +54,27 @@ describe("decodeLiveEvent", () => {
     const decoded = decodeLiveEvent(new Uint8Array([0xff, 0xff, 0xff]));
     expect(decoded === null || decoded!.message === undefined).toBe(true);
   });
+
+  it("normalizes a legacy millisecond message timestamp to seconds", () => {
+    const message = create(MessageSchema, {
+      messageId: "m-ms",
+      sessionId: "s1",
+      senderActorId: "a1",
+      kind: MessageKind.TEXT,
+      createdAt: BigInt(1_754_058_252_000),
+    });
+    const live = create(LiveEventEnvelopeSchema, {
+      eventType: "message.created",
+      sessionId: "s1",
+      body: toBinary(
+        SessionMessageEnvelopeSchema,
+        create(SessionMessageEnvelopeSchema, { message }),
+      ),
+    });
+
+    expect(decodeLiveEvent(toBinary(LiveEventEnvelopeSchema, live))?.message?.createdAt)
+      .toBe(BigInt(1_754_058_252));
+  });
 });
 
 describe("sessionIdFromTopic", () => {

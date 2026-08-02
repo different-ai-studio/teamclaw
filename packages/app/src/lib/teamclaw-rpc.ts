@@ -40,27 +40,71 @@ const DEFAULT_TIMEOUT_MS = 30_000
 // Init / dispose
 // ---------------------------------------------------------------------------
 
+/**
+ * Identity is set, so a request can be *built*.
+ *
+ * Deliberately separate from [`isTeamclawRpcReady`]: the loopback fast path
+ * needs nothing but `teamId` / `requesterActorId`, while the broker path also
+ * needs the response subscription. Conflating the two meant a client that
+ * could not reach the broker could not talk to its **own** daemon either — the
+ * subscribe lives behind `connectMqttWithFreshAuth`, so with no broker the
+ * whole wiring block never ran and `initialized` stayed false forever.
+ */
+export function isTeamclawRpcIdentityReady(): boolean {
+  return teamId !== null && requesterActorId !== null
+}
+
+/** Identity **and** the MQTT response listener — required to reach a remote agent. */
 export function isTeamclawRpcReady(): boolean {
-  return initialized && teamId !== null && requesterActorId !== null
+  return initialized && isTeamclawRpcIdentityReady()
 }
 
 /** Poll until MQTT RPC listener is wired (App.tsx init), or timeout. */
 export async function waitForTeamclawRpcReady(timeoutMs = 15_000): Promise<boolean> {
-  if (isTeamclawRpcReady()) {
-    recordMqttDiag('teamclaw-rpc', 'wait-ready:already-ready', { timeoutMs, teamId })
+  return waitForRpc(isTeamclawRpcReady, timeoutMs, 'wait-ready')
+}
+
+/**
+ * Poll until a request can be built, without waiting on the broker.
+ * Callers that have already established a loopback transport use this.
+ */
+export async function waitForTeamclawRpcIdentity(timeoutMs = 15_000): Promise<boolean> {
+  return waitForRpc(isTeamclawRpcIdentityReady, timeoutMs, 'wait-identity')
+}
+
+async function waitForRpc(
+  ready: () => boolean,
+  timeoutMs: number,
+  diagLabel: string,
+): Promise<boolean> {
+  if (ready()) {
+    recordMqttDiag('teamclaw-rpc', `${diagLabel}:already-ready`, { timeoutMs, teamId })
     return true
   }
-  recordMqttDiag('teamclaw-rpc', 'wait-ready:begin', { timeoutMs, teamId, initialized })
+  recordMqttDiag('teamclaw-rpc', `${diagLabel}:begin`, { timeoutMs, teamId, initialized })
   const deadline = Date.now() + timeoutMs
   while (Date.now() < deadline) {
     await new Promise((r) => setTimeout(r, 200))
-    if (isTeamclawRpcReady()) {
-      recordMqttDiag('teamclaw-rpc', 'wait-ready:ok', { timeoutMs, teamId })
+    if (ready()) {
+      recordMqttDiag('teamclaw-rpc', `${diagLabel}:ok`, { timeoutMs, teamId })
       return true
     }
   }
-  recordMqttDiag('teamclaw-rpc', 'wait-ready:timeout', { timeoutMs, teamId, initialized })
-  return isTeamclawRpcReady()
+  recordMqttDiag('teamclaw-rpc', `${diagLabel}:timeout`, { timeoutMs, teamId, initialized })
+  return ready()
+}
+
+/**
+ * Record who we are. Safe to call before (or without) an MQTT connection —
+ * it touches no transport, which is the point: the loopback path to this
+ * machine's own daemon must not be gated on reaching a cloud broker.
+ */
+export function setTeamclawRpcIdentity(teamIdArg: string, requesterActorIdArg: string): void {
+  const trimmedRequesterActorId = requesterActorIdArg.trim()
+  if (!trimmedRequesterActorId || !teamIdArg.trim()) return
+  teamId = teamIdArg
+  requesterActorId = trimmedRequesterActorId
+  recordMqttDiag('teamclaw-rpc', 'identity:set', { teamId, requesterActorId })
 }
 
 export async function initTeamclawRpc(teamIdArg: string, requesterActorIdArg: string): Promise<void> {
@@ -77,8 +121,7 @@ export async function initTeamclawRpc(teamIdArg: string, requesterActorIdArg: st
     })
     return
   }
-  teamId = teamIdArg
-  requesterActorId = trimmedRequesterActorId
+  setTeamclawRpcIdentity(teamIdArg, trimmedRequesterActorId)
   // Daemon publishes RPC responses to `amux/{team}/{daemon_actor_id}/rpc/res`.
   // Subscribe with a wildcard so any daemon in the team can answer; we correlate
   // by request_id inside the response, so the actor segment doesn't matter for routing.
@@ -218,15 +261,24 @@ async function sendRequest(
   targetActorId: string,
   timeoutMs = DEFAULT_TIMEOUT_MS,
 ): Promise<RpcResponse> {
-  if (!initialized || !teamId) {
-    recordMqttDiag('teamclaw-rpc', 'request:not-initialized', { targetActorId, initialized, teamId })
+  if (!targetActorId) {
+    throw new Error('teamclaw-rpc: targetActorId required')
+  }
+  // Decided before the guards: whether this request needs the broker at all.
+  // `initialized` means the MQTT *response* subscription is wired, which the
+  // loopback path never uses — demanding it here is what kept a client from
+  // driving its own daemon while the broker was unreachable.
+  const localFastPath = shouldTryLocalRpc(targetActorId)
+  if (!teamId) {
+    recordMqttDiag('teamclaw-rpc', 'request:no-identity', { targetActorId, initialized })
     throw new Error('teamclaw-rpc not initialized')
   }
   if (!requesterActorId) {
     throw new Error('teamclaw-rpc: requesterActorId required')
   }
-  if (!targetActorId) {
-    throw new Error('teamclaw-rpc: targetActorId required')
+  if (!initialized && !localFastPath) {
+    recordMqttDiag('teamclaw-rpc', 'request:not-initialized', { targetActorId, initialized, teamId })
+    throw new Error('teamclaw-rpc not initialized')
   }
   const requestId = crypto.randomUUID()
   const requesterClientId = `teamclaw-${requesterActorId.slice(0, 8)}-${requestId.slice(0, 8)}`
@@ -248,7 +300,7 @@ async function sendRequest(
   })
 
   // Local daemon fast path: loopback HTTP first, MQTT on any failure.
-  if (shouldTryLocalRpc(targetActorId)) {
+  if (localFastPath) {
     try {
       const response = await sendViaLocalHttp(req)
       recordMqttDiag('teamclaw-rpc', 'request:local-http-ok', {
@@ -267,6 +319,11 @@ async function sendRequest(
         cooldownMs: LOCAL_RPC_FAILURE_COOLDOWN_MS,
         error: err instanceof Error ? { name: err.name, message: err.message } : String(err),
       })
+      // Falling through is only meaningful when the MQTT path can actually
+      // answer. Without the response subscription the publish below would sit
+      // there until it times out and then report a broker timeout — hiding the
+      // real loopback error, which is the one the user can act on.
+      if (!initialized) throw err
       // Fall through to the MQTT path below.
     }
   }

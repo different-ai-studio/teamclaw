@@ -147,7 +147,6 @@ export function IdeaDetailDialog({ idea, onOpenChange, onChanged }: Props) {
         status,
         workspaceId: detail.workspace_id,
       })
-      toast.success(t('ideas.detail.saved', 'Idea saved'))
       onChanged?.()
       await loadDetail()
     } catch (e) {
@@ -167,7 +166,6 @@ export function IdeaDetailDialog({ idea, onOpenChange, onChanged }: Props) {
         content: activityText.trim(),
       })
       setActivityText('')
-      toast.success(t('ideas.detail.activityPosted', 'Activity posted'))
       onChanged?.()
       await loadDetail()
     } catch (e) {

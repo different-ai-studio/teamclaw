@@ -109,7 +109,7 @@ describe('SessionListColumn', () => {
     setPinnedStorage({ 'team-1': ['s1'] })
     useUIStore.setState({ sidebarFilter: { kind: 'all' }, embedMode: false })
     createQuickSession.mockReset()
-    createQuickSession.mockResolvedValue({ ok: true, sessionId: 'sess-new', agentDisplayName: 'MACPRO' })
+    createQuickSession.mockResolvedValue({ ok: true, agentDisplayName: 'MACPRO' })
     useSessionListStore.setState({
       rows: [
         mkRow({ id: 's1', title: 'Alpha', ideaId: null }),

@@ -11,6 +11,7 @@ import {
   type AcpEvent,
   type Envelope as AmuxEnvelope,
 } from "@/lib/proto/amux_pb";
+import { normalizeUnixTimestampSeconds } from "@/lib/message-timestamp";
 
 export interface DecodedLiveEvent {
   envelope: LiveEventEnvelope;
@@ -34,8 +35,16 @@ export function decodeLiveEvent(bytes: Uint8Array): DecodedLiveEvent | null {
   if (envelope.eventType === "message.created" && envelope.body && envelope.body.length > 0) {
     try {
       const sessionMessage = fromBinary(SessionMessageEnvelopeSchema, envelope.body);
-      decoded.sessionMessage = sessionMessage;
-      decoded.message = sessionMessage.message;
+      // Normalize at the live-event boundary so every consumer (streaming,
+      // cache, preview and render) sees the canonical seconds unit.
+      const message = sessionMessage.message
+        ? {
+            ...sessionMessage.message,
+            createdAt: normalizeUnixTimestampSeconds(sessionMessage.message.createdAt),
+          }
+        : undefined;
+      decoded.sessionMessage = { ...sessionMessage, message };
+      decoded.message = message;
     } catch {
       // ignore body decode failure; envelope still valid for caller inspection
     }

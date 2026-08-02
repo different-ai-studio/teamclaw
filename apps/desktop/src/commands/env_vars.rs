@@ -266,6 +266,21 @@ pub struct EnvVarEntry {
 
 // ─── Internal helpers ───────────────────────────────────────────────────
 
+fn env_keys_match(a: &str, b: &str) -> bool {
+    a.eq_ignore_ascii_case(b)
+}
+
+fn case_variant_keys_in_blob(
+    blob: &serde_json::Map<String, serde_json::Value>,
+    key: &str,
+) -> Vec<String> {
+    blob.keys()
+        .filter(|k| env_keys_match(k, key))
+        .filter(|k| !teamclaw_runtime_env::is_internal_personal_blob_key(k))
+        .cloned()
+        .collect()
+}
+
 /// Get the teamclaw.json path inside the workspace.
 fn get_teamclaw_json_path(workspace_path: &str) -> String {
     format!(
@@ -356,6 +371,9 @@ pub(crate) async fn env_var_set_for_workspace(
     let wp = workspace_path.to_string();
     tokio::task::spawn_blocking(move || -> Result<(), String> {
         let mut blob = read_env_blob(&wp)?;
+        for variant in case_variant_keys_in_blob(&blob, &key_clone) {
+            blob.remove(&variant);
+        }
         blob.insert(key_clone, serde_json::Value::String(value_clone));
         write_env_blob(&blob)
     })
@@ -365,15 +383,12 @@ pub(crate) async fn env_var_set_for_workspace(
     let mut json = read_teamclaw_json(workspace_path)?;
     let mut entries = get_env_vars_from_json(&json);
 
-    if let Some(existing) = entries.iter_mut().find(|e| e.key == key) {
-        existing.description = description;
-    } else {
-        entries.push(EnvVarEntry {
-            key,
-            description,
-            category: None,
-        });
-    }
+    entries.retain(|e| !env_keys_match(&e.key, &key));
+    entries.push(EnvVarEntry {
+        key,
+        description,
+        category: None,
+    });
 
     set_env_vars_in_json(&mut json, &entries);
     write_teamclaw_json(workspace_path, &json)
@@ -410,26 +425,28 @@ pub(crate) async fn env_var_delete_for_workspace(
     let mut json = read_teamclaw_json(workspace_path)?;
     let mut entries = get_env_vars_from_json(&json);
 
-    if let Some(entry) = entries.iter().find(|e| e.key == key) {
+    if let Some(entry) = entries.iter().find(|e| env_keys_match(&e.key, &key)) {
         match entry.category.as_deref() {
             Some("system") | Some("system-shared") => {
-                return Err(format!("System variable '{}' cannot be deleted", key));
+                return Err(format!("System variable '{}' cannot be deleted", entry.key));
             }
             _ => {}
         }
     }
 
-    let key_clone = key.clone();
+    let key_for_blob = key.clone();
     let wp = workspace_path.to_string();
     tokio::task::spawn_blocking(move || -> Result<(), String> {
         let mut blob = read_env_blob(&wp)?;
-        blob.remove(&key_clone);
+        for variant in case_variant_keys_in_blob(&blob, &key_for_blob) {
+            blob.remove(&variant);
+        }
         write_env_blob(&blob)
     })
     .await
     .map_err(|e| e.to_string())??;
 
-    entries.retain(|e| e.key != key);
+    entries.retain(|e| !env_keys_match(&e.key, &key));
     set_env_vars_in_json(&mut json, &entries);
     write_teamclaw_json(workspace_path, &json)
 }
@@ -543,6 +560,101 @@ pub async fn team_env_diagnostics(
         secret_file_count,
         secret_configured,
     })
+}
+
+/// Diagnostics for the personal env-var store + workspace index alignment.
+/// Contains no secret values — only paths, counts, and key-name mismatches.
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PersonalEnvDiagnostics {
+    pub storage_dir: String,
+    pub secrets_dir: String,
+    pub master_key_exists: bool,
+    pub blob_exists: bool,
+    pub blob_readable: bool,
+    pub blob_error: Option<String>,
+    pub stored_var_count: usize,
+    pub user_stored_var_count: usize,
+    pub workspace_index_count: usize,
+    /// Keys listed in `teamclaw.json` but absent from the encrypted blob.
+    pub index_keys_missing_from_blob: Vec<String>,
+    /// Keys in the blob but not listed in the workspace index (non-system).
+    pub blob_keys_missing_from_index: Vec<String>,
+    /// Personal keys that exist in the host OS env and would override opencode serve spawn.
+    pub host_shadowed_keys: Vec<String>,
+}
+
+fn gather_personal_env_diagnostics(workspace_path: &str) -> Result<PersonalEnvDiagnostics, String> {
+    let store = teamclaw_runtime_env::diagnose_personal_env_store_for_brand(super::APP_SHORT_NAME);
+
+    let json = read_teamclaw_json(workspace_path)?;
+    let index_keys: Vec<String> = get_env_vars_from_json(&json)
+        .into_iter()
+        .filter(|entry| entry.category.as_deref() != Some("system"))
+        .map(|entry| entry.key)
+        .collect();
+
+    let blob = read_env_blob(workspace_path)?;
+    let blob_keys: Vec<String> = blob
+        .iter()
+        .filter_map(|(key, value)| value.as_str().map(|_| key.clone()))
+        .collect();
+
+    let blob_key_set: std::collections::HashSet<String> =
+        blob_keys.iter().map(|k| k.to_ascii_lowercase()).collect();
+    let index_key_set: std::collections::HashSet<String> =
+        index_keys.iter().map(|k| k.to_ascii_lowercase()).collect();
+
+    let index_keys_missing_from_blob: Vec<String> = index_keys
+        .iter()
+        .filter(|key| !blob_key_set.contains(&key.to_ascii_lowercase()))
+        .take(8)
+        .cloned()
+        .collect();
+    let blob_keys_missing_from_index: Vec<String> = blob_keys
+        .iter()
+        .filter(|key| {
+            !index_key_set.contains(&key.to_ascii_lowercase())
+                && !teamclaw_runtime_env::is_internal_personal_blob_key(key)
+        })
+        .take(8)
+        .cloned()
+        .collect();
+
+    let env_map: std::collections::HashMap<String, String> = blob
+        .into_iter()
+        .filter_map(|(k, v)| v.as_str().map(|s| (k, s.to_string())))
+        .collect();
+    let host_shadowed_keys = teamclaw_runtime_env::host_shadowed_env_keys(&env_map);
+    let user_stored_var_count = teamclaw_runtime_env::count_user_personal_env_keys(&env_map);
+
+    Ok(PersonalEnvDiagnostics {
+        storage_dir: store.storage_dir,
+        secrets_dir: store.secrets_dir,
+        master_key_exists: store.master_key_exists,
+        blob_exists: store.blob_exists,
+        blob_readable: store.blob_readable,
+        blob_error: store.blob_error,
+        stored_var_count: env_map.len(),
+        user_stored_var_count,
+        workspace_index_count: index_keys.len(),
+        index_keys_missing_from_blob,
+        blob_keys_missing_from_index,
+        host_shadowed_keys,
+    })
+}
+
+/// Gather personal env-var storage diagnostics for the settings UI.
+#[tauri::command]
+pub async fn personal_env_diagnostics(
+    window: tauri::WebviewWindow,
+    registry: State<'_, super::window::WindowRegistry>,
+    workspace_path: Option<String>,
+) -> Result<PersonalEnvDiagnostics, String> {
+    let workspace_path = resolve_workspace_path(workspace_path, &window, &registry)?;
+    tokio::task::spawn_blocking(move || gather_personal_env_diagnostics(&workspace_path))
+        .await
+        .map_err(|e| e.to_string())?
 }
 
 fn parse_env_scope(scope: &str) -> Result<&'static str, String> {
@@ -1132,5 +1244,56 @@ mod tests {
             Some("local-secret")
         );
         assert!(retry_needed);
+    }
+
+    #[test]
+    fn env_var_delete_removes_all_case_variants_from_blob_and_index() {
+        let _home_guard = home_lock().lock().unwrap();
+        let home_dir = tempdir().unwrap();
+        let workspace_dir = tempdir().unwrap();
+        let _home = HomeGuard::set(home_dir.path());
+
+        let teamclaw_dir = workspace_dir.path().join(super::super::TEAMCLAW_DIR);
+        std::fs::create_dir_all(&teamclaw_dir).unwrap();
+        std::fs::write(
+            teamclaw_dir.join(super::super::CONFIG_FILE_NAME),
+            serde_json::json!({
+                "envVars": [
+                    { "key": "jira_token", "description": "lower" },
+                    { "key": "JIRA_TOKEN", "description": "upper" }
+                ]
+            })
+            .to_string(),
+        )
+        .unwrap();
+
+        let paths = SecretStorePaths::for_home_dir().unwrap();
+        let mut blob = serde_json::Map::new();
+        blob.insert(
+            "jira_token".into(),
+            serde_json::Value::String("secret-lower".into()),
+        );
+        blob.insert(
+            "JIRA_TOKEN".into(),
+            serde_json::Value::String("secret-upper".into()),
+        );
+        local_secret_store::write_secret_blob(&paths, &blob).unwrap();
+
+        let workspace_path = workspace_dir.path().to_string_lossy().to_string();
+        tokio::runtime::Runtime::new()
+            .unwrap()
+            .block_on(env_var_delete_for_workspace(
+                &workspace_path,
+                "JIRA_TOKEN".into(),
+            ))
+            .unwrap();
+
+        let remaining_blob = read_env_blob(&workspace_path).unwrap();
+        assert!(!remaining_blob.contains_key("jira_token"));
+        assert!(!remaining_blob.contains_key("JIRA_TOKEN"));
+
+        let json = read_teamclaw_json(&workspace_path).unwrap();
+        let entries = get_env_vars_from_json(&json);
+        assert!(entries.is_empty());
     }
 }

@@ -6,11 +6,13 @@ resources:
   teamclaw-sync:
     component: fc3
     props:
-      region: cn-shenzhen
+      # Platform choices — overridable, but the current values are the defaults
+      # so an env file that omits them still deploys where it always did.
+      region: ${env('FC_REGION', 'cn-shenzhen')}
       # Defaults to the legacy shared function. Set FC_FUNCTION_NAME to target
       # another Function Compute function from this same s.yaml + services/fc code.
       functionName: ${env('FC_FUNCTION_NAME', 'teamclaw-sync')}
-      runtime: nodejs20
+      runtime: ${env('FC_RUNTIME', 'nodejs20')}
       handler: dist/index.handler
       timeout: 30
       cpu: 0.4
@@ -18,19 +20,30 @@ resources:
       diskSize: 512
       logConfig: auto
       internetAccess: true
+      # Account-specific resource ids: deliberately NO defaults. These name real
+      # resources in one Alibaba account, so a baked-in value is either wrong for
+      # everyone else or a silent cross-account deploy. Serverless Devs aborts on
+      # an unset ${env('X')}, which is the intended behaviour — see the required
+      # check in deploy-aliyun-fc.sh for a readable error before it gets there.
+      #
+      # The FC function reaches Supabase over a VPC-internal address, so these
+      # must stay in step with SUPABASE_URL — changing one without the other
+      # leaves the function unable to reach the database.
       vpcConfig:
-        vpcId: vpc-wz96ujjns2sochtdj0rav
-        securityGroupId: sg-wz95jypmeanqrkpy4vi8
+        vpcId: ${env('FC_VPC_ID')}
+        securityGroupId: ${env('FC_SECURITY_GROUP_ID')}
         vSwitchIds:
-          - vsw-wz9ecwto44b29foo8id9r
+          - ${env('FC_VSWITCH_ID')}
       code: ./
       environmentVariables:
         ACCESS_KEY_ID: ${env('ACCESS_KEY_ID')}
         ACCESS_KEY_SECRET: ${env('ACCESS_KEY_SECRET')}
         ROLE_ARN: ${env('ROLE_ARN')}
-        BUCKET: teamclaw-team
-        REGION: cn-shenzhen
-        ENDPOINT: https://oss-cn-shenzhen.aliyuncs.com
+        # OSS bucket is account-specific — no default, same reasoning as the vpc
+        # ids above. REGION/ENDPOINT are derived from the region and keep theirs.
+        BUCKET: ${env('BUCKET')}
+        REGION: ${env('REGION', 'cn-shenzhen')}
+        ENDPOINT: ${env('ENDPOINT', 'https://oss-cn-shenzhen.aliyuncs.com')}
         LITELLM_URL: ${env('LITELLM_URL', 'https://ai.ucar.cc')}
         LITELLM_MASTER_KEY: ${env('LITELLM_MASTER_KEY', '')}
         # Blank = no cap, matching the compose default. Keep the two targets in
@@ -55,7 +68,6 @@ resources:
         ALIYUN_ACCOUNT_ID: ${env('ALIYUN_ACCOUNT_ID', '')}
         PUSH_WEBHOOK_SECRET: ${env('PUSH_WEBHOOK_SECRET')}
         CRON_TRIGGER_SECRET: ${env('CRON_TRIGGER_SECRET', '')}
-        MQTT_PUBLIC_BROKER_URL: ${env('MQTT_PUBLIC_BROKER_URL', '')}
         # Raw-TCP address for clients whose MQTT stack can't do WebSocket (iOS
         # CocoaMQTT, Expo). Keep in step with the compose `environment:` map —
         # a var declared on only one target silently drops `mqtt.tcpUrl` from
@@ -70,6 +82,10 @@ resources:
         APNS_TEAM_ID: ${env('APNS_TEAM_ID')}
         APNS_TOPIC: ${env('APNS_TOPIC')}
         APNS_ENV: ${env('APNS_ENV')}
+        # The ONE broker address: used by FC's own inbox publisher AND handed to
+        # clients by /v1/config/bootstrap. Must be reachable by clients, not just
+        # from inside the container. Required — no default, so a blank aborts the
+        # deploy rather than shipping a bootstrap with no `mqtt` block.
         MQTT_BROKER_URL: ${env('MQTT_BROKER_URL')}
         MQTT_USERNAME: ${env('MQTT_USERNAME')}
         MQTT_PASSWORD: ${env('MQTT_PASSWORD')}
@@ -80,6 +96,15 @@ resources:
         # Hono's own CORS middleware is skipped — prevents duplicate headers.
         CORS_HANDLED_BY_PROXY: ${env('CORS_HANDLED_BY_PROXY', '')}
         DATABASE_URL: ${env('DATABASE_URL', '')}
+        # Parts-based fallback for the same primary Postgres connection.
+        # `resolveLiteLlmConnString` (lib/litellm-usage.ts) prefers DATABASE_URL
+        # and falls back to these. Without them declared here that fallback was
+        # unreachable in production: LiteLLM usage 503s the moment DATABASE_URL
+        # is blank instead of degrading to the parts it already knows how to use.
+        POSTGRES_HOST: ${env('POSTGRES_HOST', '')}
+        POSTGRES_PORT: ${env('POSTGRES_PORT', '')}
+        POSTGRES_USERNAME: ${env('POSTGRES_USERNAME', '')}
+        POSTGRES_PASSWORD: ${env('POSTGRES_PASSWORD', '')}
         BACKEND_KIND: ${env('BACKEND_KIND', 'supabase')}
         # Phone login (partner-aligned). DEFAULT_ORG_ID = the default tenant new
         # users join; PHONE_EMAIL_DOMAIN = domain of the synthetic auth email

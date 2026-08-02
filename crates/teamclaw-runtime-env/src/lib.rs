@@ -21,7 +21,11 @@ pub use active_session::{
     read_active_session_id, write_active_session_id, ACTIVE_SESSION_ID_FILE,
     TEAMCLAW_SESSION_ID_ENV,
 };
-pub use merge::{secrets_for_team_provider, tc_api_key_for_actor};
+pub use merge::{host_shadowed_env_keys, secrets_for_team_provider, tc_api_key_for_actor};
+pub use personal_secrets::{
+    count_user_personal_env_keys, diagnose_personal_env_store, diagnose_personal_env_store_for_brand,
+    is_internal_personal_blob_key, PersonalEnvStoreDiagnostics,
+};
 pub use team_provider::{ManagedLlmModel, ManagedLlmProvider, ManagedLlmState};
 pub use team_provider_sync::{
     sync_team_provider_on_disk, SecretResolveScope, TeamProviderSyncResult,

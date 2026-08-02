@@ -15,7 +15,7 @@ struct CloudAPIConfigurationTests {
         #expect(CloudAPIConfigurationStore.backendKind(in: defaults) == .cloudAPI)
         let config = CloudAPIConfigurationStore.configuration(in: defaults)
         #expect(config != nil)
-        #expect(config?.baseURL.absoluteString == "https://teamclaw-api.ucar.cc")
+        #expect(config?.baseURL.absoluteString == "https://api.teamclaw-dev.ucar.cc")
     }
 
     @Test

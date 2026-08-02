@@ -74,15 +74,30 @@ impl ServeSupervisor {
     }
 
     /// Merge session env into the env applied at (re)spawn. The serve process
-    /// is global, so this is best-effort first-wins per key.
-    pub fn merge_extra_env(&self, extra_env: &HashMap<String, String>) {
+    /// is global; when `force` is false, existing cached keys are kept
+    /// (first-wins). When `force` is true, incoming values overwrite.
+    pub fn merge_extra_env(&self, extra_env: &HashMap<String, String>, force: bool) {
         if extra_env.is_empty() {
             return;
         }
         let mut env = self.extra_env.lock();
         for (k, v) in extra_env {
-            env.entry(k.clone()).or_insert_with(|| v.clone());
+            if force {
+                env.insert(k.clone(), v.clone());
+            } else {
+                env.entry(k.clone()).or_insert_with(|| v.clone());
+            }
         }
+    }
+
+    /// Drop cached env so the next serve spawn does not inherit stale keys.
+    pub fn clear_extra_env(&self) {
+        self.extra_env.lock().clear();
+    }
+
+    /// Count of env keys queued for the next serve spawn (no values exposed).
+    pub fn cached_env_key_count(&self) -> usize {
+        self.extra_env.lock().len()
     }
 
     /// True when a serve child is currently tracked and alive.
@@ -106,6 +121,11 @@ impl ServeSupervisor {
     /// changes. Returns true when a process was running.
     pub fn shutdown(&self) -> bool {
         let taken = self.state.lock().take();
+        // Cached env is queued for the NEXT spawn, so it must go whether or not
+        // a child was alive to kill. Clearing it only in the `Some` arm left
+        // stale keys behind exactly when `evict_agent_types` runs against an
+        // already-dead serve — the case that eviction exists to recover from.
+        self.clear_extra_env();
         match taken {
             Some(mut inst) => {
                 kill_serve_tree(&mut inst.child);
@@ -408,5 +428,37 @@ fn clear_opencode_pgid() {
 impl Default for ServeSupervisor {
     fn default() -> Self {
         Self::new()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn merge_extra_env_force_overwrites_existing_keys() {
+        let serve = ServeSupervisor::new();
+        let mut first = HashMap::new();
+        first.insert("API_KEY".to_string(), "old".to_string());
+        serve.merge_extra_env(&first, false);
+
+        let mut second = HashMap::new();
+        second.insert("API_KEY".to_string(), "new".to_string());
+        serve.merge_extra_env(&second, false);
+        assert_eq!(serve.cached_env_key_count(), 1);
+
+        serve.merge_extra_env(&second, true);
+        assert_eq!(serve.cached_env_key_count(), 1);
+    }
+
+    #[test]
+    fn shutdown_clears_cached_env() {
+        let serve = ServeSupervisor::new();
+        let mut env = HashMap::new();
+        env.insert("FOO".to_string(), "bar".to_string());
+        serve.merge_extra_env(&env, true);
+        assert_eq!(serve.cached_env_key_count(), 1);
+        assert!(!serve.shutdown());
+        assert_eq!(serve.cached_env_key_count(), 0);
     }
 }

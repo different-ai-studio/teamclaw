@@ -506,6 +506,7 @@ pub fn run() {
             commands::env_vars::env_var_get,
             commands::env_vars::env_catalog_list,
             commands::env_vars::team_env_diagnostics,
+            commands::env_vars::personal_env_diagnostics,
             commands::diagnostics::collect_diagnostic_bundle,
             commands::diagnostics::build_diagnostic_zip,
             commands::diagnostics::tail_log_files,

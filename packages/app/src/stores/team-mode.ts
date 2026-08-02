@@ -14,24 +14,15 @@ import { appStoragePrefix, buildConfig, TEAM_REPO_DIR, type TeamModelOption } fr
 const TEAM_PROVIDER_ID = TEAM_SHARED_PROVIDER_ID
 
 const TEAM_MODEL_BASE = `${appStoragePrefix}-team-model`
-const PRE_TEAM_MODEL_BASE = `${appStoragePrefix}-pre-team-model`
 
 function teamModelKey(): string {
   return workspaceScopedKey(TEAM_MODEL_BASE, useWorkspaceStore.getState().workspacePath)
-}
-
-function preTeamModelKey(): string {
-  return workspaceScopedKey(PRE_TEAM_MODEL_BASE, useWorkspaceStore.getState().workspacePath)
 }
 
 // Read with workspace-scoped key first, fall back to legacy unscoped key
 // for users upgrading from before workspace scoping.
 function readTeamModel(): string | null {
   return localStorage.getItem(teamModelKey()) ?? localStorage.getItem(TEAM_MODEL_BASE)
-}
-
-function readPreTeamModel(): string | null {
-  return localStorage.getItem(preTeamModelKey()) ?? localStorage.getItem(PRE_TEAM_MODEL_BASE)
 }
 
 /**
@@ -209,17 +200,13 @@ export const useTeamModeStore = create<TeamModeState>((set, get) => ({
     if (!force && configKey === _appliedConfigKey) return
     set({ _appliedConfigKey: configKey })
 
+    // The team model is applied by registering the team provider with the
+    // daemon; it then shows up in every agent's advertised catalog and is
+    // picked per agent on the pill. There is no workspace-global "current
+    // model" to set (or to back up and restore on exit) — `selectAgentModel`
+    // is the only resolver, and it reads picks, retains and the device MRU.
     try {
-      const providerStore = useProviderStore.getState()
-      const currentModel = providerStore.currentModelKey
-      if (currentModel && !currentModel.startsWith('team/')) {
-        try {
-          localStorage.setItem(preTeamModelKey(), currentModel)
-        } catch { /* ignore */ }
-      }
-
-      await providerStore.selectModel(TEAM_PROVIDER_ID, teamModelConfig.model, teamModelConfig.modelName)
-      await providerStore.refreshConfiguredProviders()
+      await useProviderStore.getState().refreshConfiguredProviders()
     } catch (err) {
       console.error('[TeamMode] Failed to apply team model:', err)
     }
@@ -237,10 +224,6 @@ export const useTeamModeStore = create<TeamModeState>((set, get) => ({
       modelName: option.name,
     }
     set({ teamModelConfig: newConfig })
-
-    // Select the model in the agent runtime (all models are already registered in the provider)
-    const providerStore = useProviderStore.getState()
-    await providerStore.selectModel(TEAM_PROVIDER_ID, modelId, option.name)
 
     // Persist selection
     try {
@@ -297,43 +280,14 @@ export const useTeamModeStore = create<TeamModeState>((set, get) => ({
       } catch { /* ignore */ }
     }
 
-    // Restore previous model if available
+    // Drop the team provider so its models leave every agent's catalog. There
+    // is no global model selection to restore afterwards — an agent whose pick
+    // pointed at a team model re-resolves through `selectAgentModel` (retain,
+    // then device MRU) once the catalog no longer offers it.
     try {
-      const preTeamModel = readPreTeamModel()
       const providerStore = useProviderStore.getState()
-
-      // Force disconnect the team provider to remove it from the list immediately
       await providerStore.disconnectProvider(TEAM_PROVIDER_ID)
-
-      // Ensure UI updates by refreshing providers and initializing
       await providerStore.initAll()
-
-      if (preTeamModel && !preTeamModel.startsWith('team/')) {
-        const parts = preTeamModel.split('/')
-        if (parts.length >= 2) {
-          const providerId = parts[0]
-          const modelId = parts.slice(1).join('/')
-          // Give it a small delay to ensure providers are loaded
-          setTimeout(async () => {
-            await providerStore.selectModel(providerId, modelId, modelId)
-            // Force a refresh of the current model to ensure UI updates
-            await providerStore.refreshCurrentModel()
-          }, 500)
-        }
-        localStorage.removeItem(preTeamModelKey())
-        localStorage.removeItem(PRE_TEAM_MODEL_BASE)
-      } else {
-        // If no valid previous model, try to select the first available one
-        setTimeout(async () => {
-          const models = useProviderStore.getState().models
-          const nonTeamModels = models.filter(m => m.provider !== 'team')
-          if (nonTeamModels.length > 0) {
-            const firstModel = nonTeamModels[0]
-            await providerStore.selectModel(firstModel.provider, firstModel.id, firstModel.name)
-            await providerStore.refreshCurrentModel()
-          }
-        }, 500)
-      }
     } catch { /* ignore */ }
   },
 }))

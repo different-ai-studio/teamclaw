@@ -74,6 +74,8 @@ export interface BuildConfig {
       google?: boolean
       wechat?: boolean
       phone?: boolean
+      /** Email + password sign-in. Off by default; enable per build. */
+      password?: boolean
       /** "快捷登录" — harvest a shared session from the partner admin console
        *  webview. Off by default. The sign-in URL + storage key are delivered
        *  at runtime by the Cloud API (`WEBSSO_LOGIN_URL` / `WEBSSO_STORAGE_KEY`),
@@ -140,12 +142,20 @@ export function hasAnyChannel(channels: boolean | ChannelsFeatureConfig): boolea
   return Object.values(channels).some(Boolean)
 }
 
-const fallback: BuildConfig = {
+/**
+ * Values used when no `build.config.*.json` is baked in.
+ *
+ * Exported because it is a contract worth asserting on: features that must be
+ * opt-in (webSSO) have to default off here, and a test that reads the merged
+ * `buildConfig` instead cannot check that — locally the merge has already
+ * layered `build.config.dev.json` on top.
+ */
+export const FALLBACK_BUILD_CONFIG: BuildConfig = {
   team: {
     lockLlmConfig: false,
   },
   app: { name: 'TeamClaw', shortName: 'teamclaw' },
-  features: { updater: true, channels: { ...allChannelsEnabled }, auth: { google: false, wechat: false, phone: false, webSSO: false }, teamShareBrowser: false, apps: false },
+  features: { updater: true, channels: { ...allChannelsEnabled }, auth: { google: false, wechat: false, phone: false, password: false, webSSO: false }, teamShareBrowser: false, apps: false },
   defaults: { theme: 'system' },
 }
 
@@ -169,8 +179,8 @@ function deepMerge(base: any, override: any): any {
 }
 
 export const buildConfig: BuildConfig = typeof __BUILD_CONFIG__ !== 'undefined' && __BUILD_CONFIG__
-  ? deepMerge(fallback, __BUILD_CONFIG__) as BuildConfig
-  : fallback
+  ? deepMerge(FALLBACK_BUILD_CONFIG, __BUILD_CONFIG__) as BuildConfig
+  : FALLBACK_BUILD_CONFIG
 
 function deriveShortName(name: string): string {
   return name.replace(/[^a-zA-Z0-9]/g, '').toLowerCase()

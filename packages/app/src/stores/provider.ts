@@ -1,9 +1,6 @@
 import { create } from 'zustand'
 import { toast } from 'sonner'
-import { appStoragePrefix } from '@/lib/build-config'
 import { invoke } from '@tauri-apps/api/core'
-import { workspaceScopedKey } from '@/lib/storage'
-import { sessionFlowLog } from '@/lib/session-flow-log'
 import { useWorkspaceStore } from '@/stores/workspace'
 import { useRuntimeStateStore } from '@/stores/runtime-state-store'
 import { AgentType } from '@/lib/proto/amux_pb'
@@ -29,22 +26,9 @@ import {
 } from '@/lib/opencode/config'
 import { TEAM_SHARED_PROVIDER_ID } from '@/lib/team-provider'
 
-const SELECTED_MODEL_BASE = `${appStoragePrefix}-selected-model`
 const DEFAULT_CONNECTABLE_PROVIDERS: ProviderEntry[] = [
   { id: 'openai', name: 'OpenAI', configured: false },
 ]
-
-function selectedModelStorageKey(): string {
-  return workspaceScopedKey(SELECTED_MODEL_BASE, useWorkspaceStore.getState().workspacePath)
-}
-
-// Read the saved model, preferring the workspace-scoped key but falling back
-// to the legacy unscoped key for users upgrading from before workspace scoping.
-function readSavedSelectedModel(): string | null {
-  const scoped = localStorage.getItem(selectedModelStorageKey())
-  if (scoped !== null) return scoped
-  return localStorage.getItem(SELECTED_MODEL_BASE)
-}
 
 function daemonProvidersToConfigured(
   daemonProviders: DaemonProviderInfo[],
@@ -371,9 +355,6 @@ export interface ProviderState {
   // Flattened model list built from configuredProviders
   models: ModelOption[]
 
-  // Currently selected model (from GET /config)
-  currentModelKey: string | null // format: "providerId/modelId"
-
   // Auth methods per provider (from GET /provider/auth)
   authMethods: Record<string, ProviderAuthMethod[]>
 
@@ -386,13 +367,6 @@ export interface ProviderState {
   _disconnectedIds: Set<string>
   _workspacePath: string | null
 
-  // The last model key that was actually found in a non-empty catalog — either
-  // resolved by initAll or picked by the user. Distinguishes "the saved key was
-  // never on offer" (cold start, stale localStorage) from "the key WAS on offer
-  // and the catalog lost it" (a runtime dropped off). Only the latter must
-  // avoid falling back to `models[0]`.
-  _validatedModelKey: string | null
-
   // Actions
   refreshAuthMethods: () => Promise<void>
   connectProviderOAuth: (providerId: string, methodIndex: number) => Promise<
@@ -403,7 +377,6 @@ export interface ProviderState {
   completeOAuthCallback: (providerId: string, methodIndex: number, code?: string) => Promise<boolean>
   refreshProviders: () => Promise<void>
   refreshConfiguredProviders: () => Promise<void>
-  refreshCurrentModel: () => Promise<void>
   refreshCustomProviderIds: (workspacePath: string) => Promise<void>
   connectProvider: (providerId: string, apiKey: string) => Promise<boolean>
   disconnectProvider: (providerId: string) => Promise<boolean>
@@ -411,7 +384,6 @@ export interface ProviderState {
   updateCustomProvider: (workspacePath: string, providerId: string, config: CustomProviderConfig) => Promise<boolean>
   getCustomProvider: (workspacePath: string, providerId: string) => Promise<CustomProviderConfig | null>
   removeCustomProvider: (workspacePath: string, providerId: string) => Promise<boolean>
-  selectModel: (providerId: string, modelId: string, modelName: string) => Promise<void>
   initAll: () => Promise<void>
 }
 
@@ -423,11 +395,9 @@ export const useProviderStore = create<ProviderState>((set, get) => ({
   configuredProviders: [],
   configuredProvidersLoading: false,
   models: [],
-  currentModelKey: null,
   customProviderIds: [],
   _disconnectedIds: new Set<string>(),
   _workspacePath: null,
-  _validatedModelKey: null,
 
   refreshAuthMethods: async () => {
     const workspacePath = useWorkspaceStore.getState().workspacePath
@@ -491,7 +461,6 @@ export const useProviderStore = create<ProviderState>((set, get) => ({
       newDisconnected.delete(providerId)
       return { _disconnectedIds: newDisconnected }
     })
-    toast.success('Provider connected', { description: `Successfully connected ${providerId}` })
     await reloadRuntimeAfterProviderChange(workspacePath)
     await Promise.all([get().refreshProviders(), get().refreshConfiguredProviders()])
     return true
@@ -541,11 +510,6 @@ export const useProviderStore = create<ProviderState>((set, get) => ({
     }
   },
 
-  refreshCurrentModel: async () => {
-    const saved = readSavedSelectedModel()
-    if (saved) set({ currentModelKey: saved })
-  },
-
   connectProvider: async (providerId: string, apiKey: string) => {
     const workspacePath = useWorkspaceStore.getState().workspacePath
     if (!workspacePath) {
@@ -565,9 +529,6 @@ export const useProviderStore = create<ProviderState>((set, get) => ({
       await putDaemonProviderAuth(encodeWorkspaceId(workspacePath), providerId, {
         api_key: trimmedKey,
       })
-      if (providerId !== 'team') {
-        toast.success('Provider connected', { description: `Successfully connected ${providerId}` })
-      }
       set((state) => {
         const newDisconnected = new Set(state._disconnectedIds)
         newDisconnected.delete(providerId)
@@ -594,7 +555,6 @@ export const useProviderStore = create<ProviderState>((set, get) => ({
     try {
       await deleteDaemonProviderAuth(encodeWorkspaceId(workspacePath), providerId)
       await reloadRuntimeAfterProviderChange(workspacePath)
-      toast.success('Provider disconnected', { description: `Successfully disconnected ${providerId}` })
       set((state) => {
         const newDisconnected = new Set(state._disconnectedIds)
         newDisconnected.add(providerId)
@@ -664,9 +624,6 @@ export const useProviderStore = create<ProviderState>((set, get) => ({
       })
       await reloadRuntimeAfterProviderChange(workspacePath)
       await Promise.all([get().refreshProviders(), get().refreshConfiguredProviders()])
-      toast.success('Custom provider added', {
-        description: `${config.name} has been added. Restarting agent...`,
-      })
       return providerId
     } catch (err) {
       console.error('Failed to add custom provider:', err)
@@ -698,9 +655,6 @@ export const useProviderStore = create<ProviderState>((set, get) => ({
       })
       await reloadRuntimeAfterProviderChange(workspacePath)
       await Promise.all([get().refreshProviders(), get().refreshConfiguredProviders()])
-      toast.success('Custom provider updated', {
-        description: `${config.name} has been updated. Restarting agent...`,
-      })
       return true
     } catch (err) {
       console.error('Failed to update custom provider:', err)
@@ -733,9 +687,6 @@ export const useProviderStore = create<ProviderState>((set, get) => ({
     const wsId = encodeWorkspaceId(workspacePath)
     try {
       await deleteDaemonProviderAuth(wsId, providerId)
-      toast.success('Custom provider removed', {
-        description: `Provider has been removed. Restarting agent...`,
-      })
       return true
     } catch (err) {
       console.error('Failed to remove custom provider:', err)
@@ -746,33 +697,15 @@ export const useProviderStore = create<ProviderState>((set, get) => ({
     }
   },
 
-  // Select a model for the OpenCode-backed settings/chat UI.
-  selectModel: async (providerId: string, modelId: string, _modelName: string) => {
-    const modelKey = `${providerId}/${modelId}`
-    // A pick always comes from a rendered catalog, so it counts as validated.
-    set({ currentModelKey: modelKey, _validatedModelKey: modelKey })
-
-    // Cache in workspace-scoped localStorage as fallback
-    localStorage.setItem(selectedModelStorageKey(), modelKey)
-  },
-
   // Initialize all data at once
   initAll: async () => {
     const workspacePathAtStart = useWorkspaceStore.getState().workspacePath
     const previousWorkspacePath = get()._workspacePath
     const workspaceChanged =
       previousWorkspacePath !== null && previousWorkspacePath !== workspacePathAtStart
-    if (workspaceChanged) {
-      set({
-        currentModelKey: null,
-        _validatedModelKey: null,
-        _workspacePath: workspacePathAtStart ?? null,
-      })
-    } else if (previousWorkspacePath === null) {
+    if (workspaceChanged || previousWorkspacePath === null) {
       set({ _workspacePath: workspacePathAtStart ?? null })
     }
-
-    await get().refreshCurrentModel().catch(() => undefined)
 
     const workspacePath = useWorkspaceStore.getState().workspacePath
     if (workspacePath) {
@@ -800,81 +733,13 @@ export const useProviderStore = create<ProviderState>((set, get) => ({
       }
     }
 
-    const { currentModelKey, _validatedModelKey: validatedModelKey } = get()
-    const availableModels = get().models
-
-    let resolvedKey = currentModelKey
-    let resolvedSource = resolvedKey ? 'currentModelKey' : 'none'
-
-    if (!resolvedKey || !availableModels.find((m) => `${m.provider}/${m.id}` === resolvedKey)) {
-      const saved = readSavedSelectedModel()
-      if (saved && availableModels.find((m) => `${m.provider}/${m.id}` === saved)) {
-        resolvedKey = saved
-        resolvedSource = 'localStorage'
-      } else if (validatedModelKey && validatedModelKey === currentModelKey) {
-        // This exact key WAS in the catalog before, and now is not: the model
-        // did not go missing, it went AWAY — typically an agent's runtime
-        // dropped off and took its catalog with it. Falling through to
-        // `availableModels[0]` here silently swaps the user onto an unrelated
-        // model (the "突然变成 sonnet" report). Resolve to nothing instead and
-        // let the session/agent resolvers refill it once a runtime is back.
-        // localStorage is deliberately left alone, so the choice comes back
-        // with the runtime.
-        resolvedKey = null
-        resolvedSource = 'unavailable'
-      } else if (availableModels.length > 0) {
-        // Never validated (cold start with a stale localStorage key, or the
-        // catalog has changed underneath). First entry beats an empty picker
-        // here — nothing was taken away from the user.
-        resolvedKey = `${availableModels[0].provider}/${availableModels[0].id}`
-        resolvedSource = 'firstAvailable'
-      } else {
-        resolvedKey = null
-        resolvedSource = 'none'
-      }
-    }
-
-    sessionFlowLog('provider.init_all.resolve_model', {
-      currentModelKey,
-      resolvedKey,
-      resolvedSource,
-      availableModelKeys: availableModels.map((model) => `${model.provider}/${model.id}`),
-    })
-
-    if (resolvedKey) {
-      // Every path that yields a key here checked it against `availableModels`
-      // (or was carried over from a check on a previous run), so it is validated.
-      set({ currentModelKey: resolvedKey, _validatedModelKey: resolvedKey })
-      // Sync workspace-scoped localStorage to be consistent
-      localStorage.setItem(selectedModelStorageKey(), resolvedKey)
-    } else {
-      set({ currentModelKey: null })
-    }
+    // This store no longer resolves "the selected model". It used to keep a
+    // workspace-global `currentModelKey` here, which meant a per-session answer
+    // and a per-workspace answer competed for the same slot — the pill showed
+    // one model while the outgoing message was stamped with another. Model
+    // selection is per (session, agent) and belongs entirely to
+    // `selectAgentModel`; this store owns providers, credentials and the model
+    // catalog only.
   },
 }))
 
-// Helper: split "providerId/modelId" safely – modelId itself may contain '/'
-function splitModelKey(key: string): [string, string] | null {
-  const idx = key.indexOf('/')
-  if (idx === -1) return null
-  return [key.substring(0, idx), key.substring(idx + 1)]
-}
-
-// Helper: get the currently selected ModelOption from the store
-export function getSelectedModelOption(state: ProviderState): ModelOption | null {
-  if (!state.currentModelKey) return null
-  const parts = splitModelKey(state.currentModelKey)
-  if (!parts) return null
-  const [providerId, modelId] = parts
-  return state.models.find((m) => m.provider === providerId && m.id === modelId) || null
-}
-
-export function getModelOptionsForSelectedBackend(
-  state: Pick<ProviderState, 'models' | 'currentModelKey'>,
-): ModelOption[] {
-  if (!state.currentModelKey) return state.models
-  const parts = splitModelKey(state.currentModelKey)
-  if (!parts) return state.models
-  const [providerId] = parts
-  return state.models.filter((m) => m.provider === providerId)
-}

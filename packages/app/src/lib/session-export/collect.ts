@@ -5,6 +5,7 @@ import {
   type Message as TeamclawMessage,
 } from "@/lib/proto/teamclaw_pb";
 import type { MessageRow } from "@/lib/local-cache";
+import { normalizeUnixTimestampSeconds } from "@/lib/message-timestamp";
 
 const kindMap: Record<string, MessageKind> = {
   text: MessageKind.TEXT,
@@ -27,7 +28,9 @@ export function messageRowsToProto(rows: MessageRow[]): TeamclawMessage[] {
       turnId: r.turnId ?? "",
       replyToMessageId: r.replyToMessageId ?? "",
       metadataJson: r.metadataJson ?? "",
-      createdAt: BigInt(Math.floor(new Date(r.createdAt).getTime() / 1000)),
+      // Normalizing here also repairs existing local-cache rows written by a
+      // legacy millisecond live event without mutating the cache during read.
+      createdAt: normalizeUnixTimestampSeconds(new Date(r.createdAt).getTime()),
     });
     if (r.partsJson) {
       Object.assign(proto, { partsJson: r.partsJson });

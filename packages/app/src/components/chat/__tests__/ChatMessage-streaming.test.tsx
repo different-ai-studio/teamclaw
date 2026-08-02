@@ -2,6 +2,7 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { render, act, fireEvent } from '@testing-library/react';
 import { useStreamingStore } from '@/stores/streaming';
 import { useSessionStore, sessionLookupCache } from '@/stores/session';
+import * as ChatMessageModule from '../ChatMessage';
 
 // ── Mocks ──────────────────────────────────────────────────────────────
 
@@ -76,9 +77,13 @@ describe('ChatMessage streaming typewriter', () => {
     vi.restoreAllMocks();
   });
 
-  async function importChatMessage() {
-    const mod = await import('../ChatMessage');
-    return mod.ChatMessage;
+  // Kept as a function so call sites stay unchanged, but the module is now
+  // resolved statically at file-eval time. Importing it inside each test spent
+  // that test's 5s budget on Vite transforming a large dependency tree, which
+  // under a fully parallel run was enough to time out — and the render then
+  // landed after cleanup, leaking DOM into the next test.
+  function importChatMessage() {
+    return ChatMessageModule.ChatMessage;
   }
 
   it('displays streamingContent from streaming store during active streaming', async () => {

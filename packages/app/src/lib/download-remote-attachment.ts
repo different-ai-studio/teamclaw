@@ -31,7 +31,7 @@ async function fetchRemoteBytes(url: string): Promise<Uint8Array> {
 
 async function downloadViaBrowser(url: string, filename: string): Promise<void> {
   const bytes = await fetchRemoteBytes(url);
-  const blob = new Blob([bytes]);
+  const blob = new Blob([Uint8Array.from(bytes)]);
   const objectUrl = URL.createObjectURL(blob);
   try {
     const anchor = document.createElement("a");

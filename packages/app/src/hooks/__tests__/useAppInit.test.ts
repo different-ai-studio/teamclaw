@@ -1,5 +1,10 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import { renderHook, waitFor } from '@testing-library/react'
+// Derived from `buildConfig.app.name`, so it is brand- and config-dependent —
+// a local run bakes in build.config.dev.json and gets `~/TeamClaw Dev`. These
+// tests are about "falls back to the default workspace", not about which brand
+// is being built, so they assert the constant rather than a literal.
+import { DEFAULT_WORKSPACE_PATH } from '@/lib/build-config'
 
 // --- Hoist mocks ---
 const {
@@ -260,7 +265,7 @@ describe('useWorkspaceInit', () => {
       expect(localStorage.getItem('teamclaw-workspace-path')).toBeNull()
       expect(result.current.initialWorkspaceResolved).toBe(true)
     })
-    expect(mockSetWorkspace).toHaveBeenCalledWith('~/TeamClaw')
+    expect(mockSetWorkspace).toHaveBeenCalledWith(DEFAULT_WORKSPACE_PATH)
   })
 
   it('uses the default workspace when nothing is saved', async () => {
@@ -270,7 +275,7 @@ describe('useWorkspaceInit', () => {
     await waitFor(() => {
       expect(result.current.initialWorkspaceResolved).toBe(true)
     })
-    expect(mockSetWorkspace).toHaveBeenCalledWith('~/TeamClaw')
+    expect(mockSetWorkspace).toHaveBeenCalledWith(DEFAULT_WORKSPACE_PATH)
   })
 
   it('uses the default workspace on first launch even when a team is known', async () => {
@@ -283,7 +288,7 @@ describe('useWorkspaceInit', () => {
     await waitFor(() => {
       expect(result.current.initialWorkspaceResolved).toBe(true)
     })
-    expect(mockSetWorkspace).toHaveBeenCalledWith('~/TeamClaw')
+    expect(mockSetWorkspace).toHaveBeenCalledWith(DEFAULT_WORKSPACE_PATH)
   })
 
   it('uses the default workspace on first launch in Tauri when no team is known', async () => {
@@ -296,7 +301,7 @@ describe('useWorkspaceInit', () => {
     await waitFor(() => {
       expect(result.current.initialWorkspaceResolved).toBe(true)
     })
-    expect(mockSetWorkspace).toHaveBeenCalledWith('~/TeamClaw')
+    expect(mockSetWorkspace).toHaveBeenCalledWith(DEFAULT_WORKSPACE_PATH)
   })
 })
 

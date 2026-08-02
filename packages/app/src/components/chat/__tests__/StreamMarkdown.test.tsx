@@ -43,3 +43,12 @@ describe("splitStableBlocks", () => {
     expect(splitStableBlocks("")).toEqual({ stable: [], tail: "" });
   });
 });
+
+describe("STREAM_TAIL_PLAIN_TEXT_THRESHOLD", () => {
+  it("is set high enough to catch open long fences", async () => {
+    const { STREAM_TAIL_PLAIN_TEXT_THRESHOLD } = await import(
+      "@/components/chat/StreamMarkdown"
+    );
+    expect(STREAM_TAIL_PLAIN_TEXT_THRESHOLD).toBe(4000);
+  });
+});

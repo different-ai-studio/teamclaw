@@ -117,9 +117,12 @@ function AppItemRow({ app, onClick, onRename }: RowProps) {
   const handleCopyUrl = React.useCallback(async (e: React.SyntheticEvent) => {
     e.stopPropagation()
     if (!app.fcEndpoint) return
-    await navigator.clipboard.writeText(app.fcEndpoint)
-    const { toast } = await import('sonner')
-    toast.success(t('apps.urlCopied', '已复制部署地址'))
+    try {
+      await navigator.clipboard.writeText(app.fcEndpoint)
+    } catch {
+      const { toast } = await import('sonner')
+      toast.error(t('apps.urlCopyFailed', '复制失败'))
+    }
   }, [app.fcEndpoint, t])
 
   return (

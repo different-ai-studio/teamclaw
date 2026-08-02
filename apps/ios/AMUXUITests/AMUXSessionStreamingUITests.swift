@@ -125,6 +125,9 @@ final class AMUXSessionStreamingUITests: XCTestCase {
                       "WelcomeView should appear when not authenticated")
         getStarted.tap()
 
+        let methodPicker = app.segmentedControls["login.methodPicker"]
+        XCTAssertTrue(methodPicker.waitForExistence(timeout: 3))
+        methodPicker.buttons["Password"].tap()
         let emailField = app.textFields["login.emailField"]
         XCTAssertTrue(emailField.waitForExistence(timeout: 5))
         emailField.tap()

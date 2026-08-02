@@ -360,11 +360,115 @@ export function persistedPartsCoverLiveArtifacts(partsJson: string | undefined):
   }
 }
 
+/** Pending UI revision bumps, coalesced to one store notify per animation frame
+ *  so high-rate token deltas do not re-render ChatPanel every chunk. Store
+ *  fields (outputText / parts) still update immediately in the caller’s set(). */
+const pendingRevisionCounts = new Map<string, number>();
+
+/** Upper bound on how long a coalesced bump may sit unflushed. */
+const REVISION_FLUSH_FALLBACK_MS = 100;
+
+let revisionFrameHandle: number | null = null;
+let revisionTimerHandle: ReturnType<typeof setTimeout> | null = null;
+let bumpDepth = 0;
+
+function clearScheduledRevisionFlush(): void {
+  if (revisionFrameHandle != null) {
+    if (typeof cancelAnimationFrame === "function") {
+      cancelAnimationFrame(revisionFrameHandle);
+    }
+    revisionFrameHandle = null;
+  }
+  if (revisionTimerHandle != null) {
+    clearTimeout(revisionTimerHandle);
+    revisionTimerHandle = null;
+  }
+}
+
+/**
+ * rAF keeps bumps frame-aligned while the webview renders, but it stops firing
+ * entirely once the window is occluded or backgrounded — which would freeze a
+ * live stream mid-output and then dump everything at once on return. A timer
+ * races it so the flush never depends on a frame being painted.
+ */
+function scheduleRevisionFlush(): void {
+  if (revisionFrameHandle != null || revisionTimerHandle != null) return;
+  if (typeof requestAnimationFrame === "function") {
+    revisionFrameHandle = requestAnimationFrame(() => {
+      revisionFrameHandle = null;
+      flushPendingSessionRevisions();
+    });
+  }
+  revisionTimerHandle = setTimeout(() => {
+    revisionTimerHandle = null;
+    flushPendingSessionRevisions();
+  }, REVISION_FLUSH_FALLBACK_MS);
+}
+
+type RevisionFlushTarget = {
+  setState: (partial: { revisionBySession: Record<string, number> }) => void;
+  getState: () => { revisionBySession: Record<string, number> };
+};
+
+/** Bound after the store is created — avoids TDZ when flush runs. */
+let revisionFlushTarget: RevisionFlushTarget | null = null;
+
+function flushPendingSessionRevisions(): void {
+  // A scheduler that runs its callback synchronously would land us here while
+  // the caller's set() is still being assembled — and that set() writes the
+  // pre-bump revisionBySession, silently reverting whatever we flush. Leave the
+  // counts pending; the fallback timer picks them up outside the bump.
+  if (bumpDepth > 0) return;
+  clearScheduledRevisionFlush();
+  if (pendingRevisionCounts.size === 0 || !revisionFlushTarget) return;
+  const counts = new Map(pendingRevisionCounts);
+  pendingRevisionCounts.clear();
+  const state = revisionFlushTarget.getState();
+  let next = state.revisionBySession;
+  for (const [sessionId, count] of counts) {
+    if (count <= 0) continue;
+    next = {
+      ...next,
+      [sessionId]: (next[sessionId] ?? 0) + count,
+    };
+  }
+  if (next !== state.revisionBySession) {
+    revisionFlushTarget.setState({ revisionBySession: next });
+  }
+}
+
+/** Test helper: apply coalesced revision bumps synchronously. */
+export function flushPendingSessionRevisionsForTests(): void {
+  flushPendingSessionRevisions();
+}
+
+/**
+ * Schedule a React-facing revision bump. Returns the *current* revisions map
+ * unchanged so the caller's set() does not notify revision subscribers until
+ * the coalesced flush runs.
+ */
 function bumpRevision(
   revisions: Record<string, number>,
   sessionId: string,
 ): Record<string, number> {
-  return { ...revisions, [sessionId]: (revisions[sessionId] ?? 0) + 1 };
+  pendingRevisionCounts.set(
+    sessionId,
+    (pendingRevisionCounts.get(sessionId) ?? 0) + 1,
+  );
+  bumpDepth += 1;
+  try {
+    scheduleRevisionFlush();
+  } finally {
+    bumpDepth -= 1;
+  }
+  return revisions;
+}
+
+// Coming back to an occluded window should not wait out the fallback timer.
+if (typeof document !== "undefined" && typeof document.addEventListener === "function") {
+  document.addEventListener("visibilitychange", () => {
+    if (!document.hidden) flushPendingSessionRevisions();
+  });
 }
 
 // Overlap-strip merge: drops the longest prefix of `chunk` that equals a
@@ -2129,6 +2233,13 @@ export const useV2StreamingStore = create<State>((set, get) => ({
     });
   },
 }));
+
+revisionFlushTarget = {
+  setState: (partial) => {
+    useV2StreamingStore.setState(partial);
+  },
+  getState: () => useV2StreamingStore.getState(),
+};
 
 /** Selector helper: get all streaming entries for a session (active + finalized
  * current turn) plus any archived prior turns. Ordered by lastUpdate so the

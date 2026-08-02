@@ -790,57 +790,6 @@ export function makeSessionsRepo(db: DbLike, ctx: SessionsCtx = {}, deps: Sessio
       }));
     },
 
-    // ── getMeBootstrap ────────────────────────────────────────────────────────
-    /**
-     * AUTHZ: /me bootstrap fast-path. Identity is taken strictly from ctx.userId
-     * (no RLS under postgres). Mirrors the Supabase impl which resolves the
-     * caller's `member` actors, then their team memberships joined to teams.
-     * Returns the caller's primary member actor id, their teams, and a
-     * per-team member actor id map. Fail-closed to empty when unauthenticated.
-     */
-    async getMeBootstrap() {
-      const userId = ctx.userId;
-      if (!userId) {
-        throw new ApiError(401, "unauthorized", "no authenticated user");
-      }
-      const actorRows = await db
-        .select({ id: actors.id })
-        .from(actors)
-        .where(and(eq(actors.userId, userId), eq(actors.actorType, "member")));
-      const actorIds = actorRows.map((r: any) => r.id).filter(Boolean);
-      if (actorIds.length === 0) {
-        return { memberActorId: null, teams: [] as any[], memberActorIdByTeam: {} as Record<string, string> };
-      }
-      const memberRows = await db
-        .select({
-          role: teamMembers.role,
-          memberId: teamMembers.memberId,
-          teamId: teams.id,
-          teamName: teams.name,
-          teamSlug: teams.slug,
-        })
-        .from(teamMembers)
-        .innerJoin(teams, eq(teamMembers.teamId, teams.id))
-        .where(inArray(teamMembers.memberId, actorIds));
-
-      const seenTeam = new Map<string, { id: string; name: string; slug: string; role: string }>();
-      const memberByTeam: Record<string, string> = {};
-      for (const m of memberRows) {
-        if (!m.teamId) continue;
-        if (!seenTeam.has(m.teamId)) {
-          seenTeam.set(m.teamId, { id: m.teamId, name: m.teamName, slug: m.teamSlug, role: m.role });
-        }
-        memberByTeam[m.teamId] = m.memberId;
-      }
-      const teamsOut = Array.from(seenTeam.values());
-      const primary = teamsOut[0] ? memberByTeam[teamsOut[0].id] : null;
-      return {
-        memberActorId: primary ?? null,
-        teams: teamsOut,
-        memberActorIdByTeam: memberByTeam,
-      };
-    },
-
     // ── listSessionsForTeamSince ──────────────────────────────────────────────
     async listSessionsForTeamSince(teamId: string, updatedAfter: string | null) {
       const rows = updatedAfter

@@ -221,6 +221,18 @@ describe("enterTeam", () => {
     expect(useCurrentTeamStore.getState().team?.id).toBe("team-2");
   });
 
+  it("resolves the member with the identity returned by the activated session", async () => {
+    teamsMock.activateTeam.mockResolvedValueOnce({ actorId: null, teamId: "team-2", refreshToken: "rt-2" });
+    authMock.adoptSession.mockResolvedValueOnce({ user: { id: "linked-user" } });
+    teamsMock.getTeam.mockResolvedValueOnce({ id: "team-2", name: "Quiet Falcon", slug: "quiet-falcon" });
+    directoryMock.getCurrentTeamMember.mockResolvedValueOnce(ACTIVE_MEMBER);
+
+    await useCurrentTeamStore.getState().enterTeam("team-2");
+
+    expect(directoryMock.getCurrentTeamMember).toHaveBeenCalledWith("team-2", "linked-user");
+    expect(useCurrentTeamStore.getState().teamUserId).toBe("linked-user");
+  });
+
   it("skips activation when the caller knows the team is already in the active org", async () => {
     teamsMock.activateTeam = vi.fn();
     teamsMock.getTeam.mockResolvedValueOnce(ACTIVE_TEAM);

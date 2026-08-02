@@ -296,7 +296,7 @@ function fakeSupabaseForShareMode(rpcData, rpcCalls = []) {
   });
 }
 
-test("createTeam routes to join_or_create_org_team with the caller's JWT org as fallback", async () => {
+test("createTeam routes to create_team with the caller's JWT org as fallback", async () => {
   const rpcCalls = [];
   const prev = process.env.DEFAULT_ORG_ID;
   process.env.DEFAULT_ORG_ID = "org-default";
@@ -309,7 +309,7 @@ test("createTeam routes to join_or_create_org_team with the caller's JWT org as 
         },
       },
       rpcData: {
-        join_or_create_org_team: [{
+        create_team: [{
           team_id: "team-9",
           team_name: "香蕉攀岩",
           team_slug: "banana",
@@ -321,18 +321,17 @@ test("createTeam routes to join_or_create_org_team with the caller's JWT org as 
 
     const team = await repo.createTeam({ displayName: "梁江" });
 
-    // Caller's real org wins as the fallback stamp; default org is passed so the
-    // RPC can tell "this is a real customer org" and join its default team.
+    // Caller's real org wins as the fallback stamp; explicit creation never
+    // silently joins an existing organization team.
     assert.deepEqual(rpcCalls, [{
-      name: "join_or_create_org_team",
+      name: "create_team",
       args: {
-        p_fallback_org: "org-real",
-        p_default_org_id: "org-default",
         p_name: null,
         p_slug: null,
         p_display_name: "梁江",
         p_litellm_team_id: null,
         p_ai_gateway_endpoint: null,
+        p_oid: "org-real",
       },
     }]);
     assert.equal(team.id, "team-9");
@@ -357,7 +356,7 @@ test("createTeam falls back to DEFAULT_ORG_ID when the caller carries no org", a
         },
       },
       rpcData: {
-        join_or_create_org_team: [{
+        create_team: [{
           team_id: "team-solo",
           team_name: "Zesty Falcon",
           team_slug: "zesty-falcon",
@@ -370,14 +369,58 @@ test("createTeam falls back to DEFAULT_ORG_ID when the caller carries no org", a
     await repo.createTeam({ name: "My Team", slug: "my-team" });
 
     assert.equal(rpcCalls.length, 1);
-    assert.equal(rpcCalls[0].name, "join_or_create_org_team");
-    assert.equal(rpcCalls[0].args.p_fallback_org, "org-default");
+    assert.equal(rpcCalls[0].name, "create_team");
+    assert.equal(rpcCalls[0].args.p_oid, "org-default");
     assert.equal(rpcCalls[0].args.p_name, "My Team");
     assert.equal(rpcCalls[0].args.p_slug, "my-team");
   } finally {
     if (prev === undefined) delete process.env.DEFAULT_ORG_ID;
     else process.env.DEFAULT_ORG_ID = prev;
   }
+});
+
+test("bootstrapTeam uses the boundary-verified caller without local GoTrue lookup", async () => {
+  const rpcCalls: any[] = [];
+  const repo = createRepo(fakeSupabase({
+    rpcCalls,
+    auth: {
+      async getUser() {
+        throw new Error("TeamClaw GoTrue must not be called for a trusted external JWT");
+      },
+    },
+    rpcData: {
+      bootstrap_current_org_team: [{ team_id: "team-bootstrap", team_name: "Betly", team_slug: "betly" }],
+    },
+  }), {
+    caller: { id: "betly-user-1", isAnonymous: false, appMetadata: { org_id: "betly-org-1" } },
+  });
+
+  const team = await repo.bootstrapTeam({ displayName: "Betly User" });
+
+  assert.deepEqual(rpcCalls, [{
+    name: "bootstrap_current_org_team",
+    args: { p_fallback_org: "betly-org-1", p_display_name: "Betly User" },
+  }]);
+  assert.equal(team.id, "team-bootstrap");
+});
+
+test("bootstrapTeam targets an explicitly selected empty org", async () => {
+  const rpcCalls: any[] = [];
+  const repo = createRepo(fakeSupabase({
+    rpcCalls,
+    rpcData: {
+      bootstrap_selected_org_team: [{ team_id: "team-bootstrap", team_name: "Other Org", team_slug: "other-org" }],
+    },
+  }), {
+    caller: { id: "betly-user-1", isAnonymous: false, appMetadata: { org_id: "betly-org-1" } },
+  });
+
+  await repo.bootstrapTeam({ orgId: "selected-org", displayName: "Betly User" });
+
+  assert.deepEqual(rpcCalls, [{
+    name: "bootstrap_selected_org_team",
+    args: { p_org_id: "selected-org", p_display_name: "Betly User" },
+  }]);
 });
 
 test("enableShareMode oss calls enable_team_share rpc with null git fields", async () => {
@@ -1430,10 +1473,13 @@ function appsSupabase({ seed = {}, actorRow = { id: "actor-app-1" }, calls = [] 
           ctx.update = row;
           return builder;
         },
-        upsert(row: any) {
-          calls.push({ table, op: "upsert", row });
-          // session_participants seeding etc. — resolve immediately.
-          return Promise.resolve({ data: null, error: null });
+        upsert(row: any, options?: any) {
+          ctx.op = "upsert";
+          calls.push({ table, op: "upsert", row, options });
+          const upserted = { ...row, id: row.id ?? `${table}-id-1` };
+          state[table] = [upserted];
+          ctx.inserted = upserted;
+          return builder;
         },
         eq(column: string, value: any) {
           ctx.filters[column] = value;
@@ -1446,7 +1492,7 @@ function appsSupabase({ seed = {}, actorRow = { id: "actor-app-1" }, calls = [] 
         // table rows (used by listApps).
         limit() { return builder; },
         single() {
-          if (ctx.op === "insert") return Promise.resolve({ data: ctx.inserted, error: null });
+          if (ctx.op === "insert" || ctx.op === "upsert") return Promise.resolve({ data: ctx.inserted, error: null });
           if (ctx.op === "update") {
             const base = state[table]?.[0] ?? {};
             const merged = { ...base, ...ctx.update };
@@ -1807,6 +1853,37 @@ test("apps: createSession omits app_id when no appId given", async () => {
   });
   const insert = calls.find((c) => c.table === "sessions" && c.op === "insert");
   assert.ok(!("app_id" in (insert?.row ?? {})), "app_id must be absent for plain sessions");
+});
+
+test("upsertWorkspace resolves createdByMemberId server-side (ignores client spoof)", async () => {
+  // Same multi-team bug as createSession: client may send another team's member
+  // id; workspaces INSERT RLS requires the team-scoped actor.
+  const calls: any[] = [];
+  const repo = appsRepo(appsSupabase({ actorRow: { id: "actor-team-b" }, calls }));
+  const out = await repo.upsertWorkspace({
+    teamId: "team-b",
+    name: "Alpha",
+    path: "/tmp/alpha",
+    agentId: "agent-1",
+    createdByMemberId: "actor-SPOOFED-team-a",
+  });
+  const upsert = calls.find((c) => c.table === "workspaces" && c.op === "upsert");
+  assert.equal(
+    upsert?.row.created_by_member_id,
+    "actor-team-b",
+    "created_by must be the server-resolved team actor, not the client value",
+  );
+  assert.equal(upsert?.row.team_id, "team-b");
+  assert.equal(out.teamId, "team-b");
+  assert.equal(out.name, "Alpha");
+});
+
+test("upsertWorkspace returns 403 when the caller is not a member of the team", async () => {
+  const repo = appsRepo(appsSupabase({ actorRow: null }));
+  await assert.rejects(
+    () => repo.upsertWorkspace({ teamId: "team-b", name: "Nope", path: "/tmp/x" }),
+    (err: any) => err?.statusCode === 403,
+  );
 });
 
 test("createSession is server-authoritative for created_by (ignores client createdByActorId)", async () => {

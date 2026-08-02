@@ -16,6 +16,7 @@ use super::auth;
 use super::config;
 use super::limit::{body_limit_layer, rate_limit_layer};
 use super::live_events;
+use super::live_ingest;
 use super::observ::request_id_layer;
 use super::rpc;
 use super::sessions;
@@ -76,6 +77,10 @@ pub fn build(state: HttpState) -> Router {
         // Local fast-path: mirrors session/live MQTT publishes over SSE so a
         // same-machine UI streams independently of broker RTT/availability.
         .route("/v1/live/events", get(live_events::stream))
+        // Local fast-path ingest: same LiveEventEnvelope bytes a client would
+        // publish to session/{id}/live, routed through the daemon actor so
+        // message_id dedup matches the MQTT copy.
+        .route("/v1/session-live/ingest", post(live_ingest::ingest))
         // Local fast-path RPC: same protobuf envelope as the MQTT
         // `amux/{team}/{actor}/rpc/req` topic, dispatched over loopback so a
         // same-machine UI's commands skip the broker round-trip.
@@ -165,6 +170,10 @@ pub fn build(state: HttpState) -> Router {
             put(workspaces::put_role).delete(workspaces::delete_role),
         )
         .route("/v1/workspaces/:id/runtime", get(workspaces::get_runtime))
+        .route(
+            "/v1/workspaces/:id/runtime/env-diagnostics",
+            get(workspaces::get_runtime_env_diagnostics),
+        )
         .route(
             "/v1/workspaces/:id/runtime/reload",
             post(workspaces::reload_runtime),

@@ -317,7 +317,7 @@ describe('Knowledge Store', () => {
       await useKnowledgeStore.getState().saveConfig(newConfig)
 
       expect(useKnowledgeStore.getState().needsReindex).toBe(false)
-      expect(mockToast.success).toHaveBeenCalledWith('knowledge.toast.configSaved')
+      expect(mockToast.success).not.toHaveBeenCalled()
     })
 
     it('shows error toast on failure', async () => {

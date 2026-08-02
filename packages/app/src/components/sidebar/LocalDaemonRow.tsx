@@ -490,7 +490,6 @@ export function LocalDaemonRow({
       })
       await useWorkspaceStore.getState().setWorkspace(path)
       await loadWorkspaces()
-      toast.success(t('sidebar.workspaceAdded', 'Workspace added'))
     } catch (err) {
       toast.error(t('sidebar.workspaceAddFailed', 'Failed to add workspace: {{msg}}', { msg: err instanceof Error ? err.message : String(err) }))
     } finally {
@@ -502,7 +501,6 @@ export function LocalDaemonRow({
     if (!ws.path) return
     try {
       await useWorkspaceStore.getState().setWorkspace(ws.path)
-      toast.success(t('sidebar.workspaceSwitched', 'Switched to {{name}}', { name: ws.name }))
     } catch (err) {
       toast.error(t('sidebar.workspaceSwitchFailed', 'Failed to switch workspace: {{msg}}', { msg: err instanceof Error ? err.message : String(err) }))
     }
@@ -512,7 +510,6 @@ export function LocalDaemonRow({
     try {
       await updateDaemonWorkspace({ workspaceId: ws.id, name: ws.name, path: ws.path ?? '', archived: true })
       await loadWorkspaces()
-      toast.success(t('sidebar.workspaceDeleted', 'Workspace deleted'))
     } catch (err) {
       toast.error(t('sidebar.workspaceDeleteFailed', 'Failed to delete workspace: {{msg}}', { msg: err instanceof Error ? err.message : String(err) }))
     }

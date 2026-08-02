@@ -25,10 +25,9 @@ export function removeStartupSkeleton(): void {
   document.getElementById("skeleton")?.remove()
 }
 
-export async function copyToClipboard(text: string, successMessage?: string): Promise<void> {
+export async function copyToClipboard(text: string, _successMessage?: string): Promise<void> {
   try {
     await navigator.clipboard.writeText(text)
-    if (successMessage) toast.success(successMessage)
   } catch {
     toast.error('Failed to copy')
   }

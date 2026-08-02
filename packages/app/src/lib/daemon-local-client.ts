@@ -10,6 +10,7 @@
  */
 
 import { invoke } from '@tauri-apps/api/core'
+import { normalizeDaemonEnvActivationDiagnostics } from '@/lib/env-diagnostics'
 import { isTauri } from '@/lib/utils'
 
 // ─── Workspace ID encoding ────────────────────────────────────────────────────
@@ -270,6 +271,59 @@ async function daemonFetchData<T>(path: string, init?: RequestInit): Promise<T> 
   const result = await daemonFetch<T>(path, init)
   if (!result.ok) throw new Error(result.error)
   return result.data
+}
+
+/**
+ * Like {@link daemonFetch} but does not parse a JSON body. Used for protobuf
+ * POSTs that return an empty 2xx (e.g. `202 Accepted`).
+ */
+async function daemonFetchNoContent(
+  path: string,
+  init?: RequestInit,
+  allowRetry = true,
+): Promise<{ ok: true; status: number } | { ok: false; status: number; error: string }> {
+  const conn = await getConnection()
+  if (!conn) {
+    return {
+      ok: false,
+      status: 0,
+      error: 'amuxd daemon is not connected. Restart TeamClaw or confirm amuxd is running.',
+    }
+  }
+
+  let resp: Response
+  try {
+    resp = await fetch(`${conn.baseUrl}${path}`, {
+      ...init,
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${conn.sessionToken}`,
+        ...(init?.headers ?? {}),
+      },
+    })
+  } catch (err) {
+    const raw = err instanceof Error ? err.message : String(err)
+    if (allowRetry) {
+      invalidateDaemonConnection()
+      return daemonFetchNoContent(path, init, false)
+    }
+    return {
+      ok: false,
+      status: 0,
+      error: formatFetchNetworkError(conn.baseUrl, raw),
+    }
+  }
+
+  if (!resp.ok) {
+    if (resp.status === 401 && allowRetry) {
+      invalidateDaemonConnection()
+      return daemonFetchNoContent(path, init, false)
+    }
+    const text = await resp.text().catch(() => '')
+    return { ok: false, status: resp.status, error: text || `HTTP ${resp.status}` }
+  }
+
+  return { ok: true, status: resp.status }
 }
 
 // ─── Local agent runtime (`agents.local_agent` in daemon.toml) ────────────────
@@ -1009,6 +1063,37 @@ export async function reloadDaemonRuntime(
   return result.ok ? result.data.outcome : null
 }
 
+export interface DaemonEnvActivationBlocker {
+  code: string
+  detail?: string | null
+}
+
+export interface DaemonEnvActivationDiagnostics {
+  personal_env_var_count: number
+  personal_blob_user_var_count: number
+  personal_blob_readable: boolean
+  personal_load_error: string | null
+  team_env_var_count: number
+  opencode_serve_running: boolean
+  opencode_serve_cached_env_count: number
+  active_runtime_count: number
+  workspace_has_active_turn: boolean
+  refresh: DaemonRuntimeRefresh
+  host_env_shadowed_keys: string[]
+  blockers: DaemonEnvActivationBlocker[]
+}
+
+export async function getDaemonEnvActivationDiagnostics(
+  workspaceId: string,
+  teamId?: string | null,
+): Promise<DaemonEnvActivationDiagnostics | null> {
+  const query = teamId?.trim() ? `?team_id=${encodeURIComponent(teamId.trim())}` : ''
+  const result = await daemonFetch<DaemonEnvActivationDiagnostics>(
+    `/v1/workspaces/${workspaceId}/runtime/env-diagnostics${query}`,
+  )
+  return result.ok ? normalizeDaemonEnvActivationDiagnostics(result.data) : null
+}
+
 // ─── Team share ───────────────────────────────────────────────────────────────
 
 export interface DaemonTeamLinkResult {
@@ -1058,5 +1143,38 @@ export async function linkDaemonTeamWorkspace(
     // non-fatal — the link is created lazily on the daemon's next start.
     console.warn('[daemon-local-client] team link unavailable:', msg)
     return null
+  }
+}
+
+/**
+ * Deliver a `teamclaw.LiveEventEnvelope` to the local daemon over loopback
+ * (`POST /v1/session-live/ingest`). Same `route_session_message` sink as MQTT
+ * `amux/{team}/session/{id}/live`, including `message_id` dedup — so a later
+ * MQTT copy of the same envelope is a no-op.
+ */
+export async function ingestSessionLiveLocally(
+  sessionId: string,
+  liveEnvelopeBytes: Uint8Array,
+): Promise<void> {
+  const sid = sessionId.trim()
+  if (!sid) throw new Error('session_id is required')
+  if (liveEnvelopeBytes.byteLength === 0) {
+    throw new Error('empty live envelope payload')
+  }
+
+  const result = await daemonFetchNoContent(
+    `/v1/session-live/ingest?session_id=${encodeURIComponent(sid)}`,
+    {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/x-protobuf' },
+      // `fetch` accepts a Uint8Array at runtime; only TypeScript's `BodyInit`
+      // rejects `Uint8Array<ArrayBufferLike>` since the lib tightened its
+      // generics. Cast rather than wrap — a Blob would change what actually
+      // goes on the wire.
+      body: liveEnvelopeBytes as unknown as BodyInit,
+    },
+  )
+  if (!result.ok) {
+    throw new Error(result.error || `live ingest failed (${result.status})`)
   }
 }

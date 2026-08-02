@@ -2,6 +2,9 @@ import * as React from "react";
 import { useSessionStore } from "@/stores/session";
 import { useStreamingStore } from "@/stores/streaming";
 import { useV2StreamingStore } from "@/stores/v2-streaming-store";
+import {
+  selectSessionParentLinks,
+} from "@/lib/session-parent-links";
 import { buildSessionListActivityMap } from "@/lib/session-list-activity";
 import type { PendingPermissionEntry } from "@/stores/session-types";
 import {
@@ -23,7 +26,14 @@ function mergePendingPermissionEntries(
 }
 
 export function useSessionListActivityMap(activeSessionId: string | null) {
-  const allSessions = useSessionStore((s) => s.sessions);
+  // Parent graph fingerprint — title/preview/message writes must not refresh the list.
+  const sessionParentLinksKey = useSessionStore((s) =>
+    s.sessions.map((row) => `${row.id}:${row.parentID ?? ""}`).join("|"),
+  );
+  const sessionParentLinks = React.useMemo(
+    () => selectSessionParentLinks(useSessionStore.getState().sessions),
+    [sessionParentLinksKey],
+  );
   const sessionStatuses = useSessionStore((s) => s.sessionStatuses) || {};
   const pendingQuestionIdsBySession =
     useSessionStore((s) => s.pendingQuestionIdsBySession) || {};
@@ -39,7 +49,7 @@ export function useSessionListActivityMap(activeSessionId: string | null) {
   return React.useMemo(
     () =>
       buildSessionListActivityMap({
-        sessions: allSessions,
+        sessions: sessionParentLinks,
         activeSessionId,
         sessionStatuses,
         pendingQuestionIdsBySession,
@@ -57,7 +67,7 @@ export function useSessionListActivityMap(activeSessionId: string | null) {
       }),
     [
       activeSessionId,
-      allSessions,
+      sessionParentLinks,
       childSessionStreaming,
       legacyPendingPermissions,
       pendingQuestionIdsBySession,

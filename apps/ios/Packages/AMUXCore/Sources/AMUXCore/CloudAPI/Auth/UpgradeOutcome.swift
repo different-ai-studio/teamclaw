@@ -53,7 +53,10 @@ public enum AuthErrorClassifier {
             return true
         }
         let m = message.lowercased()
-        return m.contains("sub claim") || (m.contains("jwt") && m.contains("does not exist"))
+        return m.contains("sub claim")
+            || (m.contains("jwt") && m.contains("does not exist"))
+            || m.contains("invalid or expired access token")
+            || (m.contains("access token") && m.contains("expired"))
     }
 
     // MARK: - Helpers

@@ -116,14 +116,6 @@ export const useWorkspaceRuntimeRefreshStore = create<WorkspaceRuntimeRefreshSta
           description:
             'Configuration was applied. Start a new session or wait for active runtimes to reload.',
         })
-      } else if (outcome === 'reload_required') {
-        toast.success('Runtime reload queued', {
-          description: 'OpenCode will pick up the pending workspace changes.',
-        })
-      } else if (outcome === 'applied_live') {
-        toast.success('Changes applied', {
-          description: 'The workspace runtime picked up the latest configuration.',
-        })
       }
 
       const refresh = get().refresh

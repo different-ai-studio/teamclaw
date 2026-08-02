@@ -105,7 +105,6 @@ export const DiagnosticsSection = React.memo(function DiagnosticsSection() {
     if (!report) return
     try {
       await copyDiagnosticReport(report)
-      toast.success(t('settings.diagnostics.copied', '诊断报告已复制到剪贴板'))
     } catch {
       toast.error(t('settings.diagnostics.copyFailed', '复制失败'))
     }

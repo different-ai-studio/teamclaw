@@ -100,6 +100,41 @@ describe("agent reply transcript", () => {
     expect(finalTextParts).toEqual(parts);
   });
 
+  it("does not let a trailing todowrite bury the answer in process", () => {
+    const intro = "我来用 Python 为你写一个快速排序算法。";
+    const answer = "这是一个标准的快速排序实现：\n\n```python\ndef quicksort(arr): ...\n```";
+    const closing = "选择哪个版本取决于你的需求：";
+    const parts = [
+      { type: "text", text: intro },
+      { type: "tool-call", toolCall: { id: "t1", name: "todowrite" } },
+      { type: "text", text: answer },
+      { type: "tool-call", toolCall: { id: "t2", name: "todowrite" } },
+      { type: "text", text: closing },
+    ];
+    const { processParts, finalTextParts } = splitAssistantProcessAndFinalParts(parts);
+    // Both todo calls stay visible as process, but neither anchors the boundary.
+    expect(processParts.map((p) => p.type)).toEqual(["tool-call", "tool-call"]);
+    expect(finalTextParts.map((p) => (p as { text?: string }).text)).toEqual([
+      intro,
+      answer,
+      closing,
+    ]);
+  });
+
+  it("still anchors the boundary on real tools when todowrite trails them", () => {
+    const mid = "Let me read the file.";
+    const final = "Here is what it does.";
+    const parts = [
+      { type: "text", text: mid },
+      { type: "tool-call", toolCall: { id: "t1", name: "read" } },
+      { type: "text", text: final },
+      { type: "tool-call", toolCall: { id: "t2", name: "todowrite" } },
+    ];
+    const { processParts, finalTextParts } = splitAssistantProcessAndFinalParts(parts);
+    expect(processParts.map((p) => p.type)).toEqual(["text", "tool-call", "tool-call"]);
+    expect(finalTextParts.map((p) => (p as { text?: string }).text)).toEqual([final]);
+  });
+
   it("keeps mid-turn narration in process when there is no trailing final text", () => {
     const mid = "Now trying remaining tools:";
     const parts = [

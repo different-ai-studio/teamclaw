@@ -180,12 +180,9 @@ export function DaemonWorkspacesSection() {
         await load()
         if (!registration.daemonRegistered && registration.daemonError) {
           notifyDaemonRegistrationWarning(registration.daemonError)
-        } else {
-          toast.success(t('settings.daemonWorkspaces.addedAsDefault', 'Workspace added and set as default'))
         }
       } else {
         await load()
-        toast.success(t('settings.daemonWorkspaces.added', 'Workspace added'))
       }
       setPath(currentWorkspacePath ?? '')
     } catch (err) {
@@ -205,8 +202,6 @@ export function DaemonWorkspacesSection() {
       await load()
       if (!registration.daemonRegistered && registration.daemonError) {
         notifyDaemonRegistrationWarning(registration.daemonError)
-      } else {
-        toast.success(t('settings.daemonWorkspaces.defaultUpdated', 'Default workspace updated'))
       }
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err))

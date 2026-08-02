@@ -1,15 +1,15 @@
 import { getLocalDaemonAgent } from '@/lib/daemon-agent-admin'
-import { createQuickEmptySession } from '@/lib/quick-empty-session'
 import { useCurrentTeamStore } from '@/stores/current-team'
+import { useUIStore } from '@/stores/ui'
 
 export type QuickDaemonSessionResult = {
-  sessionId: string
   agentDisplayName: string
 }
 
 /**
- * One-click session: current member + local amuxd agent, no opening message.
- * Returns null when team/auth/member/agent prerequisites are missing.
+ * Open a draft chat with the local amuxd agent. Does NOT create a backend
+ * session — that happens on the first outgoing message.
+ * Returns null when team/agent prerequisites are missing.
  */
 export async function createQuickDaemonSession(): Promise<QuickDaemonSessionResult | null> {
   const teamId = useCurrentTeamStore.getState().team?.id ?? null
@@ -19,14 +19,11 @@ export async function createQuickDaemonSession(): Promise<QuickDaemonSessionResu
   if (!agent?.id) return null
 
   const displayName = agent.displayName || agent.id
-  const created = await createQuickEmptySession({
-    additionalActorIds: [agent.id],
-    titleName: displayName,
-    engagedAgent: { id: agent.id, displayName },
-    agentActorIdsForRuntime: [agent.id],
-    runtimeReason: 'quick_daemon_session',
+  useUIStore.getState().enterActorDraft({
+    id: agent.id,
+    displayName,
+    kind: 'agent',
   })
-
-  if (!created) return null
-  return { sessionId: created.sessionId, agentDisplayName: displayName }
+  useUIStore.getState().requestComposerFocus()
+  return { agentDisplayName: displayName }
 }

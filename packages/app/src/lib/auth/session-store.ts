@@ -18,7 +18,8 @@ const STORAGE_KEY = "teamclaw.session.v1";
 const CHANNEL_NAME = "teamclaw.auth";
 const REFRESH_LEEWAY_SECONDS = 60;
 
-type Refresher = (refreshToken: string) => Promise<Session>;
+type RefreshReason = "refresh" | "adopt";
+type Refresher = (refreshToken: string, reason: RefreshReason) => Promise<Session>;
 
 let cachedSession: Session | null | undefined = undefined; // undefined = not yet hydrated
 let listeners = new Set<AuthListener>();
@@ -323,7 +324,7 @@ export function refreshSession(): Promise<Session> {
   const stale = () => authGeneration !== startGeneration;
   inFlightRefresh = (async () => {
     try {
-      const next = await fn(refreshToken);
+      const next = await fn(refreshToken, "refresh");
       // Session was cleared or replaced while this refresh was in flight
       // (e.g. the user signed out). Do NOT re-install the old identity.
       if (stale()) {
@@ -361,7 +362,7 @@ export function refreshSession(): Promise<Session> {
  */
 export async function adoptRefreshToken(refreshToken: string): Promise<Session> {
   if (!refresher) throw new Error("SessionStore not configured with a refresher.");
-  const next = await refresher(refreshToken);
+  const next = await refresher(refreshToken, "adopt");
   setSession(next, "TOKEN_REFRESHED");
   return next;
 }
