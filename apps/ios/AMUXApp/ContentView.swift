@@ -102,10 +102,14 @@ struct ContentView: View {
                 readyView
             case .failed:
                 OnboardingErrorView(
-                    message: onboarding.errorMessage ?? "Unknown setup error."
-                ) {
-                    Task { await onboarding.bootstrap() }
-                }
+                    message: onboarding.errorMessage ?? "Unknown setup error.",
+                    onRetry: {
+                        Task { await onboarding.bootstrap() }
+                    },
+                    onSignOut: {
+                        signOut()
+                    }
+                )
             }
         }
         .task {

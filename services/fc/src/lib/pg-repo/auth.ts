@@ -4,7 +4,7 @@ import type { JWTVerifyGetKey } from "jose";
 import type { PgDatabase } from "drizzle-orm/pg-core";
 import { getAuth, type Auth } from "../../auth/better-auth.js";
 import { mintSession } from "../../auth/mint-session.js";
-import { toGoTrueSession, toRefreshShape, toEpochSeconds, type ReshapeUser } from "../../auth/reshape.js";
+import { toGoTrueSession, toRefreshShape, toEpochSeconds, accessTokenExpiry, type ReshapeUser } from "../../auth/reshape.js";
 import { verifyAccessToken } from "../../auth/verify.js";
 import { authBaseURL } from "../../auth/base-url.js";
 import { teamInvites, actors, members, teamMembers, agents, agentMemberAccess, teamWorkspaceConfig, teams } from "../../db/schema/index.js";
@@ -44,6 +44,8 @@ async function seedMemberKeyForTeam(db: PgDatabase<any, any>, teamId: string, ac
 //     -> `{ token: <JWT> }`. The JWT has sub=userId, iss=aud=baseURL (matches
 //     verify.ts), exp ~15m.
 //   - Session (refresh) expiry comes from auth.api.getSession(...).session.expiresAt.
+//     It is ~7d and describes the REFRESH credential, so it must never be
+//     reported as the envelope's `expires_at` (see envelopeExpiry below).
 export function createPgAuthRepository(
   opts: {
     auth?: Auth;
@@ -88,6 +90,19 @@ export function createPgAuthRepository(
     return toEpochSeconds(s?.session?.expiresAt);
   }
 
+  // `expires_at` describes the ACCESS token, so it comes from the JWT's own
+  // `exp` (~15m) — NOT the session expiry (~7d). Clients schedule their refresh
+  // off this value: reporting the session expiry made them sit on a JWT that
+  // died 15 minutes in, and every authenticated read 401'd with
+  // "Invalid or expired access token" until the session itself lapsed.
+  // The session expiry is still a ceiling (refreshing past it fails anyway) and
+  // the fallback for a JWT without `exp`.
+  function envelopeExpiry(accessToken: string, sessionExp: number | null): number | null {
+    const jwtExp = accessTokenExpiry(accessToken);
+    if (jwtExp == null) return sessionExp;
+    return sessionExp == null ? jwtExp : Math.min(jwtExp, sessionExp);
+  }
+
   // Turn a Better-Auth sign-in result ({ token, user }) into the GoTrue envelope:
   // access_token = freshly minted JWT, refresh_token = the session token.
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -96,7 +111,7 @@ export function createPgAuthRepository(
     const user = result?.user;
     if (!sessionToken || !user) throw new Error("auth_signin_no_session");
     const accessToken = await jwtFor(auth, sessionToken);
-    const expiresAt = await sessionExpiry(auth, sessionToken);
+    const expiresAt = envelopeExpiry(accessToken, await sessionExpiry(auth, sessionToken));
     return toGoTrueSession({ accessToken, refreshToken: sessionToken, expiresAt, user });
   }
 
@@ -166,8 +181,9 @@ export function createPgAuthRepository(
       const session = await auth.api.getSession({ headers: bearer(refreshToken) });
       if (!session?.session) throw new Error("invalid_refresh_token");
       const accessToken = await jwtFor(auth, refreshToken);
-      const expiresAt = toEpochSeconds(session.session.expiresAt);
-      if (expiresAt == null) throw new Error("invalid_refresh_token");
+      const sessionExp = toEpochSeconds(session.session.expiresAt);
+      if (sessionExp == null) throw new Error("invalid_refresh_token");
+      const expiresAt = envelopeExpiry(accessToken, sessionExp) ?? sessionExp;
       return toRefreshShape({ accessToken, refreshToken, expiresAt });
     },
 

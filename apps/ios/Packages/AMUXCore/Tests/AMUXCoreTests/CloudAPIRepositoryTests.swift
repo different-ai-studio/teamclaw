@@ -290,7 +290,9 @@ struct CloudAPIRepositoryTests {
                         { "id": "ws-1", "teamId": "team-1", "name": "Main",
                           "path": "~/code/app", "agentId": "actor-2" },
                         { "id": "ws-2", "teamId": "team-1", "name": "Scratch",
-                          "path": null, "agentId": null }
+                          "path": null, "agentId": null },
+                        { "id": "ws-3", "teamId": "team-1", "name": "SlugOnly",
+                          "slug": "~/code/slug-only", "agentId": "actor-2" }
                       ],
                       "nextCursor": null
                     }
@@ -305,10 +307,12 @@ struct CloudAPIRepositoryTests {
 
         let workspaces = try await CloudAPIWorkspaceRepository(client: client)
             .listWorkspaces(teamID: "team-1", agentID: nil)
-        #expect(workspaces.map(\.id) == ["ws-1", "ws-2"])
+        #expect(workspaces.map(\.id) == ["ws-1", "ws-2", "ws-3"])
         #expect(workspaces.first?.path == "~/code/app")
         // null path must decode to empty string, not a decode failure.
-        #expect(workspaces.last?.path == "")
+        #expect(workspaces[1].path == "")
+        // A backend that only fills `slug` must still yield a usable path.
+        #expect(workspaces.last?.path == "~/code/slug-only")
     }
 
     @Test

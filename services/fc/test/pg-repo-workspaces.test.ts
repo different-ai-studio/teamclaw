@@ -53,7 +53,7 @@ test("pg-repo [workspaces]: listWorkspaces returns items with contract keys", as
   assert.ok(Array.isArray(items));
   assert.ok(items.length >= 1, "must include at least one workspace");
   assert.deepEqual(Object.keys(items[0]).sort(), [
-    "archived", "createdAt", "id", "metadata", "name", "slug", "teamId", "updatedAt",
+    "agentId", "archived", "createdAt", "id", "metadata", "name", "path", "slug", "teamId", "updatedAt",
   ].sort());
   assert.equal(items[0].id, W1);
   assert.equal(items[0].name, "Alpha");
@@ -298,15 +298,35 @@ test("pg-repo [workspaces]: patchWorkspace binds and unbinds agentId", async () 
   await seedTeam(pg, T1, "t1-patch-agent-slug");
   await seedWorkspace(pg, W1, T1, "Alpha");
 
-  // mapWorkspace doesn't surface agentId, so assert the column directly.
   const AGENT = "11111111-1111-4111-8111-111111111111";
-  await repo.patchWorkspace(W1, { agentId: AGENT });
-  const bound = await pg.query("SELECT agent_id FROM workspaces WHERE id = $1", [W1]);
-  assert.equal((bound.rows[0] as { agent_id: string | null }).agent_id, AGENT);
+  const bound = await repo.patchWorkspace(W1, { agentId: AGENT });
+  assert.equal(bound?.agentId, AGENT);
+  const boundRow = await pg.query("SELECT agent_id FROM workspaces WHERE id = $1", [W1]);
+  assert.equal((boundRow.rows[0] as { agent_id: string | null }).agent_id, AGENT);
 
-  await repo.patchWorkspace(W1, { agentId: null });
-  const unbound = await pg.query("SELECT agent_id FROM workspaces WHERE id = $1", [W1]);
-  assert.equal((unbound.rows[0] as { agent_id: string | null }).agent_id, null);
+  const unbound = await repo.patchWorkspace(W1, { agentId: null });
+  assert.equal(unbound?.agentId, null);
+  const unboundRow = await pg.query("SELECT agent_id FROM workspaces WHERE id = $1", [W1]);
+  assert.equal((unboundRow.rows[0] as { agent_id: string | null }).agent_id, null);
+});
+
+test("pg-repo [workspaces]: listWorkspaces carries path and agentId so clients can resolve the local directory", async () => {
+  const { pg, repo } = await makeRepo();
+  await seedTeam(pg, T1, "t1-path-agent-slug");
+  const AGENT = "22222222-2222-4222-8222-222222222222";
+
+  await repo.upsertWorkspace({
+    teamId: T1,
+    agentId: AGENT,
+    name: "teamclaw",
+    path: "/Users/me/code/teamclaw",
+  });
+
+  const { items } = await repo.listWorkspaces({ teamId: T1, limit: 50, cursor: null, agentId: AGENT });
+  assert.equal(items.length, 1);
+  assert.equal(items[0].path, "/Users/me/code/teamclaw");
+  assert.equal(items[0].slug, "/Users/me/code/teamclaw");
+  assert.equal(items[0].agentId, AGENT);
 });
 
 // ── getTeamWorkspaceConfig null ───────────────────────────────────────────────
