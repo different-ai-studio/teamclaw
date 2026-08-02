@@ -18,7 +18,7 @@ exception
 end;
 $$;
 
-select plan(7);
+select plan(8);
 
 -- ---------------------------------------------------------------------------
 -- Task 2: list_all_my_teams returns teams across ALL orgs the caller belongs to.
@@ -64,25 +64,33 @@ select ok(
   'annotates org id');
 
 -- ---------------------------------------------------------------------------
--- Task 3: switch_active_team — switching to a member team flips active org to that
--- team's oid and returns a refresh token; switching to a non-member team raises 42501.
+-- Task 3: switch_active_team — returns a refresh token for the actor identity
+-- without rewriting public.users.org_id (partner tenants bind one row per org).
+-- Switching to a non-member team raises 42501.
 -- ---------------------------------------------------------------------------
 do $$
 declare
   v_uid   uuid;
   v_teamB uuid;
-  v_orgB  uuid;
+  v_orgA  uuid;
+  v_org_before uuid;
   v_rt    text;
 begin
-  select id, oid into v_teamB, v_orgB from amux.teams where slug = 'team-b';
+  select id into v_teamB from amux.teams where slug = 'team-b';
+  select id into v_orgA from public.orgs where name = 'Org A';
   -- 复用上面的 fixture 用户：经 team-b 的 actor 确定地定位它（不依赖未过滤表上的 limit 1）。
   select a.user_id into v_uid from amux.actors a where a.team_id = v_teamB;
+  select org_id into v_org_before from public.users where auth_user_id = v_uid;
   select refresh_token into v_rt from amux.switch_active_team(v_teamB);
   perform ok(v_rt is not null, 'switch returns a refresh token');
   perform is(
     (select org_id from public.users where auth_user_id = v_uid),
-    v_orgB,
-    'switch updates active org to target team org');
+    v_org_before,
+    'switch does not rewrite public.users.org_id');
+  perform is(
+    v_org_before,
+    v_orgA,
+    'fixture still on original org after switch');
 end $$;
 
 -- 非成员的 team 调用被拒（42501）。
