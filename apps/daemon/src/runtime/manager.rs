@@ -441,7 +441,16 @@ impl RuntimeManager {
     pub fn set_current_model(&mut self, agent_id: &str, model_id: &str) {
         self.agent_state.set_model(agent_id, model_id);
         let backend = self.backend_id_for_runtime(agent_id);
-        if self.model_mru.record(backend, model_id) {
+        // Catalogs differ per worktree (68–72 models for the same opencode on
+        // one device), so the choice is attributed to the directory it was made
+        // in. A runtime already dropped from `agents` has no worktree to name,
+        // and records device-wide only.
+        let worktree = self
+            .agents
+            .get(agent_id)
+            .map(|h| h.worktree.clone())
+            .unwrap_or_default();
+        if self.model_mru.record(backend, &worktree, model_id) {
             if let Err(e) = self.model_mru.save(&self.model_mru_path) {
                 // A lost preference is not worth failing a runtime start over.
                 warn!(error = %e, "model MRU save failed");

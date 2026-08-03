@@ -82,6 +82,7 @@ impl NatsBackend {
             online: true,
             display_name: display_name.into(),
             timestamp: chrono::Utc::now().timestamp(),
+            ..Default::default()
         };
         let bytes = state.encode_to_vec();
         let topic = self.topics.actor_state();
@@ -97,10 +98,12 @@ impl NatsBackend {
     /// presence drop without waiting for the server-side callout to notice
     /// the closed NATS connection.
     pub async fn announce_offline(&self, display_name: &str) -> crate::error::Result<()> {
+        // Offline snapshot: no attachments, no catalog — see the MQTT LWT.
         let state = ActorPresence {
             online: false,
             display_name: display_name.into(),
             timestamp: chrono::Utc::now().timestamp(),
+            ..Default::default()
         };
         let bytes = state.encode_to_vec();
         let topic = self.topics.actor_state();

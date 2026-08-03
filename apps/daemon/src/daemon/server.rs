@@ -868,10 +868,14 @@ impl DaemonServer {
         if self.config.team_id.is_some() {
             let publisher = Publisher::new_from_handle(self.publisher_handle.clone(), &self.topics);
             if let Err(e) = publisher
+                // Presence only. The catalog / live-session fields of this
+                // retain are filled by `publish_actor_state`, which owns the
+                // full snapshot; this path runs before that data exists.
                 .publish_actor_presence(&crate::proto::amux::ActorPresence {
                     online: true,
                     display_name: self.config.actor.name.clone(),
                     timestamp: chrono::Utc::now().timestamp(),
+                    ..Default::default()
                 })
                 .await
             {
