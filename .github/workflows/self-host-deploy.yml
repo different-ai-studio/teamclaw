@@ -69,14 +69,32 @@ jobs:
               fi
               echo "  set $1"
             }
+            # The FC_SUPABASE_* overrides select an EXTERNAL Supabase for fc.
+            # Unlike the values above, an empty secret here must clear the .env
+            # line rather than leave the previous one standing: otherwise
+            # deleting the secret cannot ever point fc back at the bundled
+            # Supabase (docker-compose defaults SUPABASE_URL to http://kong:8000
+            # only when FC_SUPABASE_URL is unset).
+            sync_env() { # $1=key $2=value — empty value deletes the key
+              if [ -z "$2" ]; then
+                if grep -q "^$1=" .env; then
+                  grep -v "^$1=" .env > .env.tmp && mv .env.tmp .env
+                  echo "  cleared $1 (secret empty)"
+                else
+                  echo "  skip $1 (empty, absent)"
+                fi
+                return 0
+              fi
+              upsert_env "$1" "$2"
+            }
             # Self-host runs against its bundled Supabase data plane. Set this
             # explicitly so a stale server .env cannot select the postgres mode.
             upsert_env BACKEND_KIND "supabase"
             upsert_env TRUSTED_EXTERNAL_JWT_SECRET "$TRUSTED_EXTERNAL_JWT_SECRET"
-            upsert_env FC_SUPABASE_URL "$FC_SUPABASE_URL"
-            upsert_env FC_SUPABASE_PUBLIC_URL "$FC_SUPABASE_PUBLIC_URL"
-            upsert_env FC_SUPABASE_ANON_KEY "$FC_SUPABASE_ANON_KEY"
-            upsert_env FC_SUPABASE_SERVICE_ROLE_KEY "$FC_SUPABASE_SERVICE_ROLE_KEY"
+            sync_env FC_SUPABASE_URL "$FC_SUPABASE_URL"
+            sync_env FC_SUPABASE_PUBLIC_URL "$FC_SUPABASE_PUBLIC_URL"
+            sync_env FC_SUPABASE_ANON_KEY "$FC_SUPABASE_ANON_KEY"
+            sync_env FC_SUPABASE_SERVICE_ROLE_KEY "$FC_SUPABASE_SERVICE_ROLE_KEY"
 
             if [ -n "$FC_SUPABASE_URL" ]; then
               echo "=== migrate external Supabase schema ==="
