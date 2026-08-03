@@ -459,7 +459,8 @@ describe('startAgentRuntimesAsync', () => {
     )
   })
 
-  it('prefers workspaceIdHint from send/outbox over backend lookups', async () => {
+  it('prefers workspaceIdHint from send/outbox for the local daemon agent', async () => {
+    daemonAdminMocks.getLocalDaemonActorId.mockResolvedValue('agent-10')
     mockTables({
       participants: [{ agent_id: 'agent-10', workspace_id: 'ws-session' }],
       actors: [{ id: 'agent-10', agent_types: [], default_agent_type: null, default_workspace_id: 'ws-default' }],
@@ -477,6 +478,79 @@ describe('startAgentRuntimesAsync', () => {
       expect.objectContaining({
         targetActorId: 'agent-10',
         workspaceId: 'ws-from-send',
+        worktree: '',
+      }),
+    )
+  })
+
+  it('ignores workspaceIdHint for remote agents and uses per-agent lookup', async () => {
+    daemonAdminMocks.getLocalDaemonActorId.mockResolvedValue('local-agent')
+    mockTables({
+      participants: [{ agent_id: 'remote-agent', workspace_id: 'ws-session' }],
+      actors: [
+        {
+          id: 'remote-agent',
+          agent_types: ['opencode'],
+          default_agent_type: 'opencode',
+          default_workspace_id: 'ws-remote-default',
+        },
+      ],
+    })
+
+    const { startAgentRuntimesAsync } = await import('../session-create')
+    await startAgentRuntimesAsync({
+      sessionId: 'sess-1',
+      teamId: 'team-1',
+      agentActorIds: ['remote-agent'],
+      workspaceIdHint: 'ws-from-desktop-local',
+    })
+
+    expect(mockRuntimeStart).toHaveBeenCalledWith(
+      expect.objectContaining({
+        targetActorId: 'remote-agent',
+        workspaceId: 'ws-session',
+        worktree: '',
+      }),
+    )
+  })
+
+  it('applies workspaceIdHint only to the local daemon in a mixed batch', async () => {
+    daemonAdminMocks.getLocalDaemonActorId.mockResolvedValue('local-agent')
+    mockTables({
+      participants: [
+        { agent_id: 'local-agent', workspace_id: 'ws-local-participant' },
+        { agent_id: 'remote-agent', workspace_id: 'ws-remote-participant' },
+      ],
+      actors: [
+        { id: 'local-agent', agent_types: ['opencode'], default_agent_type: 'opencode' },
+        {
+          id: 'remote-agent',
+          agent_types: ['opencode'],
+          default_agent_type: 'opencode',
+          default_workspace_id: 'ws-remote-default',
+        },
+      ],
+    })
+
+    const { startAgentRuntimesAsync } = await import('../session-create')
+    await startAgentRuntimesAsync({
+      sessionId: 'sess-1',
+      teamId: 'team-1',
+      agentActorIds: ['local-agent', 'remote-agent'],
+      workspaceIdHint: 'ws-from-desktop-local',
+    })
+
+    expect(mockRuntimeStart).toHaveBeenCalledTimes(2)
+    expect(mockRuntimeStart).toHaveBeenCalledWith(
+      expect.objectContaining({
+        targetActorId: 'local-agent',
+        workspaceId: 'ws-from-desktop-local',
+      }),
+    )
+    expect(mockRuntimeStart).toHaveBeenCalledWith(
+      expect.objectContaining({
+        targetActorId: 'remote-agent',
+        workspaceId: 'ws-remote-participant',
         worktree: '',
       }),
     )
