@@ -29,6 +29,16 @@ export function isSidePanelHostGateEnabled(
   return patterns.length > 0
 }
 
+/** Always allow the extension management page so users can configure domains. */
+export function isChromeExtensionsPageUrl(url: string): boolean {
+  try {
+    const parsed = new URL(url)
+    return parsed.protocol === 'chrome:' && parsed.hostname === 'extensions'
+  } catch {
+    return false
+  }
+}
+
 /**
  * Match hostname against allowlist patterns.
  * `*.example.com` also allows the apex `example.com`.
@@ -59,6 +69,7 @@ export function isUrlAllowedBySidePanelPatterns(
 ): boolean {
   if (patterns.length === 0) return true
   if (!url) return false
+  if (isChromeExtensionsPageUrl(url)) return true
   try {
     const parsed = new URL(url)
     if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') return false
