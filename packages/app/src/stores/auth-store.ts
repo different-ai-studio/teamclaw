@@ -9,6 +9,7 @@ import {
 } from "@/lib/backend";
 import type { AuthClaimResult, AuthSession, PendingInvite } from "@/lib/backend";
 import { accessTokenMatchesBackend } from "@/lib/auth/auth-client";
+import { CloudApiError } from "@/lib/backend/cloud-api/http";
 import { clearBootstrapAppliedFields, fetchAndApplyBootstrap } from "@/lib/bootstrap";
 import { getEffectiveServerConfig } from "@/lib/server-config";
 import { markStartup } from "@/lib/startup-perf";
@@ -109,11 +110,24 @@ function storeSession(session: AuthSession | null): StoreAuthSession | null {
   };
 }
 
-async function claimInviteToken(token: string): Promise<AuthClaimResult | { errorMessage: string }> {
+// A claim that can never succeed, no matter how many times it is replayed:
+// `claim_team_invite` raises for a consumed token, an expired one, and for a
+// user who is already a member of the team — the FC repo maps those to 400
+// (validation_failed) / 404 (invite invalid) / 409 (already claimed).
+// Distinguishing them from a transient failure (offline, 5xx, expired bearer)
+// is what lets `claimPendingInvite` drop a dead token instead of retrying it on
+// every launch forever.
+function isPermanentClaimFailure(error: unknown): boolean {
+  return error instanceof CloudApiError && (error.status === 400 || error.status === 404 || error.status === 409);
+}
+
+type ClaimFailure = { errorMessage: string; permanent: boolean };
+
+async function claimInviteToken(token: string): Promise<AuthClaimResult | ClaimFailure> {
   try {
     return await getBackend().auth.claimInvite(token);
   } catch (error) {
-    return { errorMessage: errorMessageFor(error) };
+    return { errorMessage: errorMessageFor(error), permanent: isPermanentClaimFailure(error) };
   }
 }
 
@@ -418,6 +432,15 @@ export const useAuthStore = create<AuthState>((set, get) => ({
     set({ loading: true, authFlow: "invite", errorMessage: null });
     const result = await claimInviteToken(token);
     if ("errorMessage" in result) {
+      // Drop a token the server will never accept. Keeping it stranded the
+      // account: AuthGate skips team bootstrap while a token is pending, so a
+      // dead token left `bootstrap` at "idle" and the gate rendered nothing —
+      // a white screen on every launch, after the startup skeleton had already
+      // been torn down for the claim splash. Transient failures still retry.
+      if (result.permanent) {
+        persistPendingInviteToken(null);
+        set({ pendingInviteToken: null });
+      }
       set({ loading: false, authFlow: "idle", errorMessage: result.errorMessage });
       return null;
     }

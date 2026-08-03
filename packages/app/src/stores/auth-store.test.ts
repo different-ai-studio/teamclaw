@@ -6,6 +6,7 @@ vi.mock("@/lib/auth/web-sso", () => ({
 }));
 
 import { runWebSso, cancelWebSso } from "@/lib/auth/web-sso";
+import { CloudApiError } from "@/lib/backend/cloud-api/http";
 
 const authMock = {
   getSession: vi.fn(),
@@ -311,6 +312,33 @@ describe("auth-store", () => {
     expect(result).toBeNull();
     expect(authMock.claimInvite).not.toHaveBeenCalled();
     expect(useAuthStore.getState().pendingInviteToken).toBe("tok-2");
+  });
+
+  it("claimPendingInvite drops a token the server permanently rejects", async () => {
+    // 400 validation_failed is what `claim_team_invite` raising 'invite already
+    // consumed' / 'invite expired' / 'already a member of this team' becomes.
+    // Keeping such a token made AuthGate skip team bootstrap on every launch.
+    authMock.claimInvite.mockRejectedValueOnce(
+      new CloudApiError(400, "validation_failed", "invite already consumed", null),
+    );
+    useAuthStore.setState({ session: storeSessionLike("real-5"), pendingInviteToken: "tok-5" });
+
+    const result = await useAuthStore.getState().claimPendingInvite();
+
+    expect(result).toBeNull();
+    expect(useAuthStore.getState().pendingInviteToken).toBeNull();
+    expect(useAuthStore.getState().loading).toBe(false);
+    expect(useAuthStore.getState().authFlow).toBe("idle");
+  });
+
+  it("claimPendingInvite keeps the token when the failure is transient", async () => {
+    authMock.claimInvite.mockRejectedValueOnce(new Error("network down"));
+    useAuthStore.setState({ session: storeSessionLike("real-6"), pendingInviteToken: "tok-6" });
+
+    const result = await useAuthStore.getState().claimPendingInvite();
+
+    expect(result).toBeNull();
+    expect(useAuthStore.getState().pendingInviteToken).toBe("tok-6");
   });
 
   it("claimPendingInvite claims and enters the team for a real session", async () => {

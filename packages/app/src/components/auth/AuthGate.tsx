@@ -159,9 +159,17 @@ export function AuthGate({ children }: AuthGateProps) {
   // in claim_team_invite), so the onboarding stashes the token and routes the
   // user through sign-in; this completes the join afterward.
   const pendingInviteToken = useAuthStore((s) => s.pendingInviteToken);
+  // Which token this mount has already run a claim for. Team bootstrap defers
+  // to a pending claim (below), so without this a claim that fails and leaves
+  // the token in place would block bootstrap forever and the gate would render
+  // nothing. Attempted-once is the condition to stop waiting on — not
+  // claimed-successfully.
+  const inviteClaimAttempted = useRef<string | null>(null);
   useEffect(() => {
     if (!session || session.user?.is_anonymous) return;
     if (!pendingInviteToken) return;
+    if (inviteClaimAttempted.current === pendingInviteToken) return;
+    inviteClaimAttempted.current = pendingInviteToken;
     void useAuthStore.getState().claimPendingInvite().then((result) => {
       // A claimed invite is an explicit team choice; don't immediately reopen
       // the general picker after its active-team switch completes.
@@ -202,8 +210,11 @@ export function AuthGate({ children }: AuthGateProps) {
       return;
     }
     // An invite claim has precedence over normal discovery. claimPendingInvite
-    // enters the invited team and clears this token on success.
-    if (pendingInviteToken) return;
+    // enters the invited team and clears this token on success. Only wait while
+    // the claim is still unattempted: a failed claim keeps its token for a
+    // later retry, and waiting on that pinned `bootstrap` at "idle" — every
+    // gate below then rendered null, i.e. a white screen with no way out.
+    if (pendingInviteToken && inviteClaimAttempted.current !== pendingInviteToken) return;
     // Browser runtime (Chrome extension / web build) is a real cloud client:
     // it still needs a current team for MQTT + team-scoped reads, so it must
     // run the same team-bootstrap as desktop. The bootstrap path below is
