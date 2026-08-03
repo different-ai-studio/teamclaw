@@ -3043,7 +3043,6 @@
     "empty": "No actors in this team yet",
     "noRecentContacts": "No recent contacts",
     "error": "Failed to load actors",
-    "viewAll": "View all actors",
     "filterType": "Filter by type",
     "typeFilterLabel": "Type",
     "searchPlaceholder": "Search actors",
