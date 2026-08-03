@@ -81,9 +81,6 @@ export function createRuntimeModule(client: CloudApiClient): RuntimeBackend {
         default_agent_type: row.defaultAgentType ?? null,
       }));
     },
-    async updateRuntimeModel(runtimeId, model) {
-      await client.patch<void>(`/v1/runtime/${encodeURIComponent(runtimeId)}/model`, { model });
-    },
     async listSessionRuntimeModels(sessionId) {
       const out = await client.get<{ items: SessionRuntimeModelRow[] }>(
         `/v1/sessions/${encodeURIComponent(sessionId)}/runtime-models`,

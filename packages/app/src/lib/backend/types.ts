@@ -288,7 +288,6 @@ export interface RuntimeBackend {
   listLatestAgentRuntimeHints(teamId: string, agentActorIds: string[]): Promise<AgentRuntimeHintRow[]>;
   fetchLatestRuntimeForSession(agentActorId: string, sessionId: string): Promise<DaemonRuntimeBackendRow | null>;
   listAgentDefaults(agentActorIds: string[]): Promise<AgentDefaultRow[]>;
-  updateRuntimeModel(runtimeId: string, model: string): Promise<void>;
   listSessionRuntimeModels(sessionId: string): Promise<SessionRuntimeModelRow[]>;
   listRuntimeTargetsForSession(sessionId: string, agentActorIds: string[]): Promise<RuntimeTargetRow[]>;
   listDaemonRuntimes(teamId: string): Promise<DaemonRuntimeBackendRow[]>;

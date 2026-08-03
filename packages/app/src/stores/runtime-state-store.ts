@@ -1,6 +1,11 @@
 import { create as createZustand } from 'zustand'
-import { fromBinary, toBinary } from '@bufbuild/protobuf'
-import { RuntimeInfoSchema, type RuntimeInfo } from '@/lib/proto/amux_pb'
+import { create, fromBinary, toBinary } from '@bufbuild/protobuf'
+import {
+  ActorPresenceSchema,
+  RuntimeInfoSchema,
+  type ActorPresence,
+  type RuntimeInfo,
+} from '@/lib/proto/amux_pb'
 import { mqttSubscribe, listenForEnvelopes, type IncomingEnvelope } from '@/lib/mqtt-bridge'
 import { sessionFlowLog } from '@/lib/session-flow-log'
 
@@ -133,6 +138,17 @@ export function parseRuntimeStateTopic(
   return { teamId: parts[1], daemonActorId: parts[2], runtimeId: parts[4] }
 }
 
+/** `amux/{team}/{actor}/state` — the one retained topic per actor. */
+export function parseActorStateTopic(
+  topic: string
+): { teamId: string; actorId: string } | null {
+  const parts = topic.split('/')
+  if (parts.length !== 4) return null
+  if (parts[0] !== 'amux') return null
+  if (parts[3] !== 'state') return null
+  return { teamId: parts[1], actorId: parts[2] }
+}
+
 let unlisten: (() => void) | null = null
 let initialized = false
 let queuedRuntimeStateUpdates: RuntimeStateUpdate[] = []
@@ -152,15 +168,97 @@ function enqueueRuntimeStateUpdate(update: RuntimeStateUpdate): void {
   queueMicrotask(flushQueuedRuntimeStateUpdates)
 }
 
+/**
+ * Project an `ActorPresence` retain into the same entry shape the per-runtime
+ * retains produce, one entry per attached session.
+ *
+ * Keyed by `session_id`, not by a spawn id. That is the whole point: a spawn id
+ * is minted per start and stale the moment it is recorded, whereas exactly one
+ * attachment serves a session at a time (ADR-0004). Commands are addressed the
+ * same way since the rpc/req migration, so consumers that treat this key as an
+ * opaque address keep working.
+ *
+ * A session absent from `live_sessions` is deliberately not represented: no
+ * entry means cold, which is how the UI distinguishes "answers immediately"
+ * from "will spawn on send".
+ */
+export function projectActorPresence(
+  daemonActorId: string,
+  presence: ActorPresence,
+): RuntimeStateUpdate[] {
+  const catalogByWorktree = new Map(presence.worktrees.map((w) => [w.worktree, w]))
+
+  return presence.liveSessions.map((live) => {
+    // The catalog is per worktree, but LiveSession carries workspace rather
+    // than worktree, so fall back to the sole catalog when there is only one —
+    // the common single-checkout device — and to empty otherwise.
+    const worktree =
+      presence.worktrees.length === 1 ? presence.worktrees[0]! : catalogByWorktree.get('')
+    const models = worktree
+      ? worktree.modelIndices
+          .map((i) => presence.catalogModels[i])
+          .filter((m): m is NonNullable<typeof m> => !!m)
+      : []
+
+    const info = create(RuntimeInfoSchema, {
+      runtimeId: live.sessionId,
+      agentType: presence.activeAgentType,
+      workspaceId: live.workspaceId,
+      worktree: worktree?.worktree ?? '',
+      status: live.status,
+      state: live.lifecycle,
+      stage: live.stage,
+      errorCode: live.errorCode,
+      errorMessage: live.errorMessage,
+      failedStage: live.failedStage,
+      currentModel: live.currentModel || (worktree?.defaultModel ?? ''),
+      availableModels: models,
+      availableCommands: worktree?.availableCommands ?? [],
+    })
+
+    return { runtimeId: live.sessionId, daemonActorId, info }
+  })
+}
+
 export async function initRuntimeStateStore(teamId: string): Promise<void> {
   if (initialized) {
     console.info('[runtime-state] init skipped: already initialized', { teamId })
     return
   }
+  // The actor retain is the replacement for the per-runtime fan-out: one
+  // bounded message per actor instead of one per spawn, accumulating forever.
+  // Both are consumed during the transition; the daemon publishes both.
+  const actorTopic = `amux/${teamId}/+/state`
+  await mqttSubscribe(actorTopic)
   const topic = `amux/${teamId}/+/runtime/+/state`
   await mqttSubscribe(topic)
   console.info('[runtime-state] subscribed', { teamId, topic })
   unlisten = await listenForEnvelopes((env: IncomingEnvelope) => {
+    const actor = parseActorStateTopic(env.topic)
+    if (actor) {
+      if (actor.teamId !== teamId) return
+      let presence: ActorPresence
+      try {
+        presence = fromBinary(ActorPresenceSchema, new Uint8Array(env.bytes))
+      } catch (e) {
+        console.warn('[runtime-state] failed to decode ActorPresence', e)
+        return
+      }
+      const updates = projectActorPresence(actor.actorId, presence)
+      sessionFlowLog('actor_state.retain.received', {
+        teamId: actor.teamId,
+        actorId: actor.actorId,
+        online: presence.online,
+        activeAgentType: presence.activeAgentType,
+        backendHealth: presence.backendHealth,
+        worktreeCount: presence.worktrees.length,
+        catalogModelCount: presence.catalogModels.length,
+        liveSessionCount: presence.liveSessions.length,
+      })
+      for (const update of updates) enqueueRuntimeStateUpdate(update)
+      return
+    }
+
     const parsed = parseRuntimeStateTopic(env.topic)
     if (!parsed) return
     if (parsed.teamId !== teamId) {

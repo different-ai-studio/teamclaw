@@ -111,6 +111,11 @@ function mapParticipant(r: any) {
     actorId: r.actorId,
     role: r.role ?? null,
     joinedAt: iso(r.joinedAt),
+    // An agent participant's working state for this session (ADR-0005). Null on
+    // member rows — not applicable rather than missing. This is what replaces
+    // reading `agent_runtimes` from the desktop.
+    workspaceId: r.workspaceId ?? null,
+    model: r.model ?? null,
   };
 }
 

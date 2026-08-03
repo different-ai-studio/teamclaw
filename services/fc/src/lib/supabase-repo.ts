@@ -2411,7 +2411,7 @@ export function createSupabaseBusinessRepository(options) {
     async listSessionParticipants(sessionId) {
       const { data, error } = await supabase
         .from("session_participants")
-        .select("session_id, actor_id, role, joined_at")
+        .select("session_id, actor_id, role, joined_at, workspace_id, model")
         .eq("session_id", sessionId);
       if (error) throw error;
       const rows = data ?? [];
@@ -2435,6 +2435,10 @@ export function createSupabaseBusinessRepository(options) {
           actorId: row.actor_id,
           role: row.role ?? null,
           joinedAt: row.joined_at ?? null,
+          // Agent's working state for this session (ADR-0005); null on member
+          // rows. Replaces reading `agent_runtimes` from clients.
+          workspaceId: row.workspace_id ?? null,
+          model: row.model ?? null,
           teamId: actor?.team_id ?? null,
           actorType: actor?.actor_type ?? null,
           displayName: actor?.display_name ?? null,

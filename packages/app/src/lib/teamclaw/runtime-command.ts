@@ -216,7 +216,6 @@ async function dispatch(
       // Distinct from a reachable daemon reporting no attachment: that is an
       // answer, this is the absence of one. Fall through to the legacy topic
       // rather than failing a command the old path could still deliver.
-      dispatched = false;
       await deps.mqtt.publish(
         runtimeCommandsTopic(teamId, targetActorId, runtimeId),
         toBinary(RuntimeCommandEnvelopeSchema, envelope),
