@@ -7,6 +7,7 @@ import {
   AcpGrantPermissionSchema,
   RuntimeCommandEnvelopeSchema,
 } from "@/lib/proto/amux_pb";
+import type { RuntimeCommandEnvelope } from "@/lib/proto/amux_pb";
 
 export type RuntimeCommandMqtt = {
   publish: (topic: string, bytes: Uint8Array, retain?: boolean) => Promise<void>;
@@ -14,6 +15,20 @@ export type RuntimeCommandMqtt = {
 
 type RuntimeCommandSenderDeps = {
   mqtt: RuntimeCommandMqtt;
+  /**
+   * Session-addressed dispatch over `rpc/req`. Preferred over publishing to
+   * `runtime/{runtimeId}/commands`, which has no reply path — a command aimed
+   * at a spawn the daemon no longer knows is dropped silently, which is how a
+   * stop button stopped working (docs/debug/interrupt-agent-stale-runtime.md).
+   *
+   * Resolves false when the session is cold (no attachment). Omitted in tests
+   * and on the legacy path, where the MQTT publish is used instead.
+   */
+  rpc?: (input: {
+    targetActorId: string;
+    sessionId: string;
+    envelope: RuntimeCommandEnvelope;
+  }) => Promise<boolean>;
   teamId: string;
   peerId: string;
   senderActorId?: string | null;
@@ -24,6 +39,8 @@ type RuntimeCommandSenderDeps = {
 export type RuntimePermissionResponseInput = {
   targetActorId: string;
   runtimeId: string;
+  /** Preferred address. Falls back to `runtimeId` topic routing when absent. */
+  sessionId?: string;
   requestId: string;
   granted: boolean;
   /** ACP option_id when granted (e.g. OpenCode "once" / "always"). */
@@ -33,11 +50,15 @@ export type RuntimePermissionResponseInput = {
 export type RuntimeCancelInput = {
   targetActorId: string;
   runtimeId: string;
+  /** Preferred address. Falls back to `runtimeId` topic routing when absent. */
+  sessionId?: string;
 };
 
 export type RuntimeAnswerQuestionInput = {
   targetActorId: string;
   runtimeId: string;
+  /** Preferred address. Falls back to `runtimeId` topic routing when absent. */
+  sessionId?: string;
   requestId: string;
   /** `[[selected labels], ...]` — one array per question, in order. */
   answers: string[][];
@@ -109,11 +130,7 @@ export function createRuntimeCommandSender(
         acpCommand,
       });
 
-      await deps.mqtt.publish(
-        runtimeCommandsTopic(teamId, targetActorId, runtimeId),
-        toBinary(RuntimeCommandEnvelopeSchema, envelope),
-        false,
-      );
+      await dispatch(deps, teamId, targetActorId, runtimeId, input.sessionId, envelope);
     },
 
     async sendAnswerQuestion(input) {
@@ -143,11 +160,7 @@ export function createRuntimeCommandSender(
         acpCommand,
       });
 
-      await deps.mqtt.publish(
-        runtimeCommandsTopic(teamId, targetActorId, runtimeId),
-        toBinary(RuntimeCommandEnvelopeSchema, envelope),
-        false,
-      );
+      await dispatch(deps, teamId, targetActorId, runtimeId, input.sessionId, envelope);
     },
 
     async sendCancel(input) {
@@ -172,13 +185,58 @@ export function createRuntimeCommandSender(
         acpCommand,
       });
 
+      await dispatch(deps, teamId, targetActorId, runtimeId, input.sessionId, envelope);
+    },
+  };
+}
+
+/**
+ * Send by (actor, session) when both a session id and an RPC dispatcher are
+ * available; otherwise fall back to the per-spawn commands topic.
+ *
+ * The fallback exists for callers that have not been threaded a session id yet
+ * and for daemons still on the old channel. It is the path with no delivery
+ * receipt, so it is the one we are retiring.
+ */
+async function dispatch(
+  deps: RuntimeCommandSenderDeps,
+  teamId: string,
+  targetActorId: string,
+  runtimeId: string,
+  sessionId: string | undefined,
+  envelope: RuntimeCommandEnvelope,
+): Promise<void> {
+  const session = sessionId?.trim() ?? "";
+  if (deps.rpc && session) {
+    let dispatched: boolean;
+    try {
+      dispatched = await deps.rpc({ targetActorId, sessionId: session, envelope });
+    } catch {
+      // The RPC channel itself is unavailable (not initialised, broker down).
+      // Distinct from a reachable daemon reporting no attachment: that is an
+      // answer, this is the absence of one. Fall through to the legacy topic
+      // rather than failing a command the old path could still deliver.
+      dispatched = false;
       await deps.mqtt.publish(
         runtimeCommandsTopic(teamId, targetActorId, runtimeId),
         toBinary(RuntimeCommandEnvelopeSchema, envelope),
         false,
       );
-    },
-  };
+      return;
+    }
+    if (!dispatched) {
+      // The daemon answered and holds nothing for this session — it is cold.
+      // Surfacing this is the entire point of moving onto a channel with a
+      // reply path; the old topic swallowed it.
+      throw new Error(`no live attachment for session ${session}`);
+    }
+    return;
+  }
+  await deps.mqtt.publish(
+    runtimeCommandsTopic(teamId, targetActorId, runtimeId),
+    toBinary(RuntimeCommandEnvelopeSchema, envelope),
+    false,
+  );
 }
 
 function unique(values: string[]): string[] {

@@ -5,6 +5,7 @@ import { sessionFlowError, sessionFlowLog } from "@/lib/session-flow-log";
 import { useCurrentTeamStore } from "@/stores/current-team";
 import { useRuntimeStateStore } from "@/stores/runtime-state-store";
 import { createRuntimeCommandSender } from "@/lib/teamclaw/runtime-command";
+import { runtimeCommand } from "@/lib/teamclaw-rpc";
 
 function isAgentActorType(actorType: string | null | undefined): boolean {
   const t = (actorType ?? "").toLowerCase();
@@ -64,6 +65,10 @@ export async function answerAcpQuestion(args: {
   const peerId = `teamclaw-desktop-${(senderActorId || "anon").slice(0, 8)}`;
   const sender = createRuntimeCommandSender({
     mqtt: { publish: mqttPublish },
+    // Session-addressed dispatch with a delivery receipt; falls back to the
+    // per-spawn topic when no session id reaches here.
+    rpc: ({ targetActorId, sessionId: sid, envelope }) =>
+      runtimeCommand({ targetActorId, sessionId: sid, envelope }),
     teamId,
     peerId,
     senderActorId,
@@ -73,6 +78,7 @@ export async function answerAcpQuestion(args: {
     await sender.sendAnswerQuestion({
       targetActorId: target.actorId,
       runtimeId: target.runtimeId,
+      sessionId: args.sessionId,
       requestId: args.requestId,
       answers: args.answers,
       reject: args.reject,

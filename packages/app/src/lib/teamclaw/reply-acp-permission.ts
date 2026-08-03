@@ -7,6 +7,7 @@ import { useRuntimeStateStore } from "@/stores/runtime-state-store";
 import { useV2StreamingStore } from "@/stores/v2-streaming-store";
 import { acpOptionIdForDecision } from "@/lib/teamclaw/acp-permission-option";
 import { createRuntimeCommandSender } from "@/lib/teamclaw/runtime-command";
+import { runtimeCommand } from "@/lib/teamclaw-rpc";
 
 export type AcpPermissionDecision = "allow" | "deny" | "always";
 
@@ -101,6 +102,10 @@ export async function replyAcpPermission(args: {
   const peerId = `teamclaw-desktop-${(senderActorId || "anon").slice(0, 8)}`;
   const sender = createRuntimeCommandSender({
     mqtt: { publish: mqttPublish },
+    // Session-addressed dispatch with a delivery receipt; falls back to the
+    // per-spawn topic when no session id reaches here.
+    rpc: ({ targetActorId, sessionId: sid, envelope }) =>
+      runtimeCommand({ targetActorId, sessionId: sid, envelope }),
     teamId,
     peerId,
     senderActorId,
@@ -110,6 +115,7 @@ export async function replyAcpPermission(args: {
     await sender.sendPermissionResponse({
       targetActorId: target.actorId,
       runtimeId: target.runtimeId,
+      sessionId: args.sessionId,
       requestId: args.requestId,
       granted,
       optionId,

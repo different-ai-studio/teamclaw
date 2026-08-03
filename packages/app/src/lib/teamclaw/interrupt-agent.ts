@@ -5,6 +5,7 @@ import { resolvePermissionCommandTarget } from "@/lib/runtime-state-resolve";
 import { sessionFlowError, sessionFlowLog } from "@/lib/session-flow-log";
 import { logStreamToolDiag } from "@/lib/stream-tool-diag";
 import { createRuntimeCommandSender } from "@/lib/teamclaw/runtime-command";
+import { runtimeCommand } from "@/lib/teamclaw-rpc";
 import { useCurrentTeamStore } from "@/stores/current-team";
 import { useRuntimeStateStore } from "@/stores/runtime-state-store";
 import { isStreamInterruptible, useV2StreamingStore } from "@/stores/v2-streaming-store";
@@ -109,6 +110,10 @@ export async function interruptAgentActor(args: {
   const peerId = `teamclaw-desktop-${(senderActorId || "anon").slice(0, 8)}`;
   const sender = createRuntimeCommandSender({
     mqtt: { publish: mqttPublish },
+    // Session-addressed dispatch with a delivery receipt; falls back to the
+    // per-spawn topic when no session id reaches here.
+    rpc: ({ targetActorId, sessionId: sid, envelope }) =>
+      runtimeCommand({ targetActorId, sessionId: sid, envelope }),
     teamId,
     peerId,
     senderActorId,
@@ -118,6 +123,7 @@ export async function interruptAgentActor(args: {
     await sender.sendCancel({
       targetActorId: target.actorId,
       runtimeId: target.runtimeId,
+      sessionId,
     });
   } catch (error) {
     useV2StreamingStore.getState().clearInterruptedFlushPending(sessionId, agentActorId);
