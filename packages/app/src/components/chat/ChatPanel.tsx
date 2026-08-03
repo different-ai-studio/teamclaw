@@ -2213,7 +2213,7 @@ export function ChatPanel({ compact = false }: ChatPanelProps) {
             onHeightChange={handleInputHeightChange}
             bottomOffsetPx={terminalBottomOffset}
           />
-        ) : (
+        ) : activeSessionId || draftPreselectedActor ? (
           <>
             {activeSessionId ? (
               <div className="shrink-0 px-3 pt-2">
@@ -2265,7 +2265,7 @@ export function ChatPanel({ compact = false }: ChatPanelProps) {
             planSlotHidden={hasComposerPlanData && !showInlineTodo}
           />
           </>
-        )
+        ) : null
       ) : null}
 
       {terminalOpen && workspacePath && (

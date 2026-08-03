@@ -1,11 +1,10 @@
 import * as React from 'react'
 import { useTranslation } from 'react-i18next'
-import { ChevronDown, ChevronRight, Plus, Users } from 'lucide-react'
+import { ChevronDown, ChevronRight } from 'lucide-react'
 import { toast } from 'sonner'
 import { getBackend } from '@/lib/backend'
 import { formatActorRemoveError } from '@/lib/actor-remove-error'
 import { useActorsForTeam, type ActorRow as ActorRowData } from '@/components/panel/ActorsView'
-import { InviteActorDialog } from '@/components/sidebar/InviteActorDialog'
 import { ActorRow } from '@/components/sidebar/ActorRow'
 import { getLocalDaemonAgent } from '@/lib/daemon-agent-admin'
 import { ActorDetailDialog } from '@/components/sidebar/ActorDetailDialog'
@@ -22,7 +21,6 @@ import {
 import { useUIStore } from '@/stores/ui'
 import { useMemberPreferencesStore } from '@/stores/member-preferences-store'
 import { useActorPresenceStore } from '@/stores/actor-presence-store'
-import { cn } from '@/lib/utils'
 import { getRecentContactActors } from '@/components/sidebar/sidebar-list-helpers'
 
 export function ActorsSection() {
@@ -34,7 +32,6 @@ export function ActorsSection() {
   const { actors, loading, refetch, teamId } = useActorsForTeam()
   const defaultAgentId = useMemberPreferencesStore((s) => s.defaultAgentId)
   const ensureDefaultAgentLoaded = useMemberPreferencesStore((s) => s.ensureLoaded)
-  const [inviteOpen, setInviteOpen] = React.useState(false)
   const [detailFor, setDetailFor] = React.useState<ActorRowData | null>(null)
   const [removeFor, setRemoveFor] = React.useState<ActorRowData | null>(null)
   const [removing, setRemoving] = React.useState(false)
@@ -118,29 +115,7 @@ export function ActorsSection() {
             </span>
           )}
         </button>
-        <button
-          type="button"
-          onClick={(e) => { e.stopPropagation(); setFilter({ kind: 'actors' }) }}
-          className={cn(
-            'rounded-md p-0.5 text-faint hover:bg-selected/60 hover:text-foreground',
-            filter.kind === 'actors' && 'bg-selected text-foreground',
-          )}
-          title={t('actors.viewAll', 'View all actors')}
-          aria-label={t('actors.viewAll', 'View all actors')}
-        >
-          <Users className="h-[11px] w-[11px]" />
-        </button>
-        <button
-          type="button"
-          onClick={(e) => { e.stopPropagation(); setInviteOpen(true) }}
-          className="rounded-md p-0.5 text-faint hover:bg-selected/60 hover:text-foreground"
-          title={t('invite.title', 'Invite to team')}
-          aria-label={t('invite.title', 'Invite to team')}
-        >
-          <Plus className="h-[11px] w-[11px]" />
-        </button>
       </div>
-      <InviteActorDialog open={inviteOpen} onOpenChange={setInviteOpen} />
       <ActorDetailDialog
         actor={detailFor}
         teamId={teamId}
