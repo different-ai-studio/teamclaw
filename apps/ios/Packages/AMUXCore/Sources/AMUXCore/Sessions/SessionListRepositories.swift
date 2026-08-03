@@ -137,30 +137,5 @@ public protocol MessagesRepository: Sendable {
 
 
 
-/// Snapshot of one row in the Supabase `agent_runtimes` table. Cached locally
-/// as `CachedAgentRuntime` so the session list can display backend type +
-/// workspace even when the daemon's MQTT runtime topic is offline.
-public struct AgentRuntimeRecord: Equatable, Sendable {
-    public let id: String
-    public let teamID: String
-    public let agentID: String
-    public let sessionID: String?
-    public let workspaceID: String?
-    public let backendType: String
-    public let status: String
-    public let backendSessionID: String?
-    /// Daemon-side 8-char runtime id (the segment in the MQTT topic
-    /// `runtime/{runtime_id}/state`). The bridge to the live SwiftData
-    /// `Runtime` row — distinct from `backendSessionID`, which is the
-    /// 36-char ACP session id used by the daemon to resume Claude Code.
-    public let runtimeID: String?
-    public let currentModel: String?
-    public let lastSeenAt: Date?
-    public let createdAt: Date
-    public let updatedAt: Date
-}
 
-public protocol AgentRuntimesRepository: Sendable {
-    func listForTeam(teamID: String) async throws -> [AgentRuntimeRecord]
-}
 

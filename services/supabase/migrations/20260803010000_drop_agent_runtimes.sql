@@ -1,0 +1,30 @@
+-- Drop `amux.agent_runtimes`.
+--
+-- The table keyed rows on (agent_id, backend_session_id): a fresh row per
+-- process start, never deleted. One team reached 1306 rows across 1296
+-- sessions, and `listSessionDisplayRows` then put all 1296 session ids in a
+-- single PostgREST `in.(…)` filter — a ~48KB URL that kong answered with 414,
+-- surfacing as an empty session list.
+--
+-- Everything it held now lives where its natural key points:
+--
+--   workspace_id, model, last_processed_message_id
+--       → `session_participants`, keyed (session_id, actor_id). See ADR-0005
+--         and migration 20260803000000, which backfilled them.
+--   runtime_id, status, current_model, backend_type, last_seen_at
+--       → `ActorPresence` on `amux/{team}/{actor}/state`: one bounded retained
+--         message per actor rather than one per spawn. See ADR-0004.
+--   backend_session_id
+--       → the daemon's own `sessions.toml`. One device runs one global
+--         backend, so an ACP session another device recorded cannot be resumed
+--         here anyway (ADR-0002).
+--
+-- No client reads the table as of this migration: the daemon, desktop and iOS
+-- all moved in the same change set. There is no compatibility window to keep
+-- because nothing is formally released yet.
+--
+-- CASCADE drops the FK-dependent objects (indexes, constraints) with it. The
+-- data is not recoverable from here — the backfill above is what preserved the
+-- parts that mattered.
+
+DROP TABLE IF EXISTS amux.agent_runtimes CASCADE;

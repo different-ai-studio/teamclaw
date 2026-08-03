@@ -126,35 +126,6 @@ private enum CloudSessionPager {
     }
 }
 
-public actor CloudAPIAgentRuntimesRepository: AgentRuntimesRepository {
-    private let client: CloudAPIClient
-
-    public init(client: CloudAPIClient) {
-        self.client = client
-    }
-
-    public func listForTeam(teamID: String) async throws -> [AgentRuntimeRecord] {
-        let page: CloudPage<CloudAgentRuntime> = try await client.get("/v1/teams/\(teamID)/agent-runtimes")
-        return page.items.map { row in
-            AgentRuntimeRecord(
-                id: row.id,
-                teamID: row.teamId,
-                agentID: row.agentId,
-                sessionID: row.sessionId,
-                workspaceID: row.workspaceId,
-                backendType: row.backendType,
-                status: row.status,
-                backendSessionID: row.backendSessionId,
-                runtimeID: row.runtimeId,
-                currentModel: row.currentModel,
-                lastSeenAt: parseCloudDate(row.lastSeenAt),
-                createdAt: parseCloudDate(row.createdAt) ?? .distantPast,
-                updatedAt: parseCloudDate(row.updatedAt) ?? .distantPast
-            )
-        }
-    }
-}
-
 public actor CloudAPISessionRepository: SessionRepository {
     private let client: CloudAPIClient
 
@@ -777,12 +748,6 @@ public enum CloudAPIRepositoryFactory {
         CloudAPISessionIDsRepository(client: client(configuration: configuration, accessToken: accessToken))
     }
 
-    public static func agentRuntimesRepository(
-        configuration: CloudAPIConfiguration,
-        accessToken: @escaping @Sendable () async throws -> String
-    ) -> any AgentRuntimesRepository {
-        CloudAPIAgentRuntimesRepository(client: client(configuration: configuration, accessToken: accessToken))
-    }
 
     public static func workspacesRepository(
         configuration: CloudAPIConfiguration,

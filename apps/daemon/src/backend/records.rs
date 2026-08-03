@@ -11,25 +11,6 @@ pub struct ClaimResult {
 }
 
 #[derive(Debug, serde::Serialize)]
-pub struct AgentRuntimeUpsert<'a> {
-    pub team_id: &'a str,
-    pub agent_id: &'a str,
-    pub session_id: Option<&'a str>,
-    pub workspace_id: Option<&'a str>,
-    pub backend_type: &'a str,
-    pub backend_session_id: Option<&'a str>,
-    /// Daemon-side 8-char runtime id, the topic segment in
-    /// `runtime/{runtime_id}/state`. iOS uses it to bridge a backend
-    /// `agent_runtimes` row to the live MQTT-published `Runtime`. Distinct
-    /// from `backend_session_id` (the 36-char ACP session id used by the
-    /// daemon to resume a Claude Code session).
-    pub runtime_id: Option<&'a str>,
-    pub status: &'a str,
-    pub current_model: Option<&'a str>,
-    pub last_seen_at: chrono::DateTime<chrono::Utc>,
-}
-
-#[derive(Debug, serde::Serialize)]
 pub struct WorkspaceUpsert<'a> {
     pub team_id: &'a str,
     pub agent_id: &'a str,
@@ -39,23 +20,6 @@ pub struct WorkspaceUpsert<'a> {
     /// Existing cloud workspace UUID — when set, FC upserts in place instead of
     /// inserting a duplicate orphan row on every daemon sync.
     pub cloud_id: Option<&'a str>,
-}
-
-/// Subset of `agent_runtimes` columns read by runtime restore/catch-up flows.
-#[derive(Debug, Clone, serde::Deserialize)]
-#[allow(dead_code)]
-pub struct AgentRuntimeRow {
-    pub id: String,
-    #[serde(default)]
-    pub workspace_id: Option<String>,
-    #[serde(default)]
-    pub backend_type: String,
-    #[serde(default)]
-    pub backend_session_id: Option<String>,
-    #[serde(default)]
-    pub status: String,
-    #[serde(default)]
-    pub last_processed_message_id: Option<String>,
 }
 
 #[derive(Debug, Clone, Default, serde::Deserialize)]
@@ -148,34 +112,6 @@ pub struct BackendSessionAndParticipants {
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    #[test]
-    fn agent_runtime_row_serde_defaults() {
-        let json = r#"{"id":"row-1"}"#;
-        let row: AgentRuntimeRow = serde_json::from_str(json).unwrap();
-        assert_eq!(row.id, "row-1");
-        assert_eq!(row.backend_type, "");
-        assert!(row.workspace_id.is_none());
-        assert!(row.backend_session_id.is_none());
-        assert_eq!(row.status, "");
-        assert!(row.last_processed_message_id.is_none());
-    }
-
-    #[test]
-    fn agent_runtime_row_full() {
-        let json = r#"{
-            "id": "row-2",
-            "workspace_id": "ws-1",
-            "backend_type": "cloud_api",
-            "backend_session_id": "sess-abc",
-            "status": "active",
-            "last_processed_message_id": "msg-99"
-        }"#;
-        let row: AgentRuntimeRow = serde_json::from_str(json).unwrap();
-        assert_eq!(row.backend_type, "cloud_api");
-        assert_eq!(row.status, "active");
-        assert_eq!(row.last_processed_message_id.as_deref(), Some("msg-99"));
-    }
 
     #[test]
     fn backend_session_row_defaults_for_optional_fields() {

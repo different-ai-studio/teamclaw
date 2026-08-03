@@ -1,4 +1,5 @@
 import { create as createProtoMessage, toBinary } from '@bufbuild/protobuf'
+import { runtimeHintsForAgents } from '@/lib/runtime-state-resolve'
 import { getBackend } from '@/lib/backend'
 import { runtimeStart, setModel } from '@/lib/teamclaw-rpc'
 import { resolveAmuxAgentType } from '@/lib/amux-agent-type'
@@ -468,22 +469,12 @@ export async function startAgentRuntimesAsync(
 
   const backend = getBackend()
   const priorByAgent = new Map<string, { workspace_id: string | null; backend_type: string | null }>()
-  let priorRows: Awaited<ReturnType<typeof backend.runtime.listLatestAgentRuntimeHints>> = []
-  try {
-    priorRows = await backend.runtime.listLatestAgentRuntimeHints(args.teamId, agentActorIds)
-  } catch (error) {
-    sessionFlowError('runtime_start.lookup_prior.failed', error, {
-      sessionId: args.sessionId,
-      teamId: args.teamId,
-      agentActorIds: args.agentActorIds,
-    })
-    console.warn('[session-create] runtime hint lookup failed; continuing with fallback values', {
-      sessionId: args.sessionId,
-      teamId: args.teamId,
-      agentActorIds: args.agentActorIds,
-      reason: error instanceof Error ? error.message : String(error),
-    })
-  }
+  // Prior-runtime hints come off the retain now; there is no lookup to fail,
+  // so the fallback path below is unreachable rather than merely unlikely.
+  const priorRows = runtimeHintsForAgents(
+    agentActorIds,
+    useRuntimeStateStore.getState().byRuntimeId,
+  )
   for (const r of priorRows) {
     if (!priorByAgent.has(r.agent_id)) {
       priorByAgent.set(r.agent_id, {

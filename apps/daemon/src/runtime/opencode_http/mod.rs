@@ -223,8 +223,11 @@ impl Shared {
     pub(super) fn turn_has_tool_in_flight(&self, parent_session_id: &str) -> bool {
         let ids = self.session_ids_for_user_wait(parent_session_id);
         let routes = self.routes.lock();
-        ids.iter()
-            .any(|id| routes.get(id).is_some_and(|r| !r.tools_in_flight.is_empty()))
+        ids.iter().any(|id| {
+            routes
+                .get(id)
+                .is_some_and(|r| !r.tools_in_flight.is_empty())
+        })
     }
 
     pub(super) fn turn_waiting_on_user(&self, parent_session_id: &str) -> bool {
@@ -442,7 +445,9 @@ impl OpencodeHost {
         worktree: Option<&str>,
     ) {
         self.apply_binary_hint(launch_configs);
-        self.shared.serve.merge_extra_env(&extra_env, _force_env_override);
+        self.shared
+            .serve
+            .merge_extra_env(&extra_env, _force_env_override);
         if let Err(e) = self.shared.serve.ensure().await {
             warn!(error = %e, "opencode serve prewarm (session env) failed");
             return;
@@ -498,7 +503,9 @@ impl OpencodeHost {
             );
         }
         self.shared.serve.set_binary_hint(&launch.binary);
-        self.shared.serve.merge_extra_env(&extra_env, force_env_override);
+        self.shared
+            .serve
+            .merge_extra_env(&extra_env, force_env_override);
         let cmd_tx = self.command_sender();
         let startup = attach(
             &self.shared,
@@ -1044,8 +1051,9 @@ fn spawn_stuck_turn_watchdog(shared: &Arc<Shared>, session_id: &str, turn_seq: u
                 // know retrying won't help.
                 let repeats = {
                     let mut routes = shared.routes.lock();
-                    routes.get_mut(&session_id).map(|route| {
-                        match &mut route.retry_streak {
+                    routes
+                        .get_mut(&session_id)
+                        .map(|route| match &mut route.retry_streak {
                             Some((last, count)) if last == &message => {
                                 *count += 1;
                                 *count
@@ -1054,8 +1062,7 @@ fn spawn_stuck_turn_watchdog(shared: &Arc<Shared>, session_id: &str, turn_seq: u
                                 route.retry_streak = Some((message.clone(), 1));
                                 1
                             }
-                        }
-                    })
+                        })
                 };
                 // A retry due soon may still succeed — keep waiting for it
                 // (bounded by the silence timeout below).

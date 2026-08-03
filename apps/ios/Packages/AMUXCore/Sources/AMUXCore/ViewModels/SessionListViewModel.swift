@@ -20,10 +20,6 @@ public final class SessionListViewModel {
     public var runtimes: [Runtime] = []
     public var workspaces: [Workspace] = []
     public var sessions: [Session] = []
-    /// Snapshot of Supabase `agent_runtimes` rows. Used by the session list
-    /// row to fall back to backend type / workspace when the daemon's MQTT
-    /// `Runtime` topic is offline.
-    public var cachedAgentRuntimes: [CachedAgentRuntime] = []
     public var isLoading = true
     public var searchText = ""
     private var task: Task<Void, Never>?
@@ -48,7 +44,6 @@ public final class SessionListViewModel {
         runtimes = (try? ctx.fetch(FetchDescriptor<Runtime>(sortBy: [SortDescriptor(\.lastEventTime, order: .reverse)]))) ?? []
         workspaces = (try? ctx.fetch(FetchDescriptor<Workspace>(sortBy: [SortDescriptor(\.displayName)]))) ?? []
         sessions = (try? ctx.fetch(FetchDescriptor<Session>(sortBy: [SortDescriptor(\.lastMessageAt, order: .reverse)]))) ?? []
-        cachedAgentRuntimes = (try? ctx.fetch(FetchDescriptor<CachedAgentRuntime>(sortBy: [SortDescriptor(\.updatedAt, order: .reverse)]))) ?? []
 
         task?.cancel()
 
@@ -544,9 +539,12 @@ public final class SessionListViewModel {
 
         var liveIDs: Set<String> = []
         for live in presence.liveSessions where !live.sessionID.isEmpty {
-            liveIDs.insert(live.sessionID)
+            liveIDs.insert("\(actorID)::\(live.sessionID)")
             var info = Amux_RuntimeInfo()
-            info.runtimeID = live.sessionID
+            // Keyed by (actor, session): a daemon holds at most one attachment
+            // per session, but a session whose agents live on two machines has
+            // one per machine, and this store merges every actor's retain.
+            info.runtimeID = "\(actorID)::\(live.sessionID)" 
             info.agentType = presence.activeAgentType
             info.status = live.status
             info.state = live.lifecycle
@@ -564,13 +562,12 @@ public final class SessionListViewModel {
             syncRuntime(info, routeActorID: actorID, modelContext: modelContext)
         }
 
-        // Prune only rows this projection owns. Legacy per-spawn rows for the
-        // same actor use short hex ids, so matching on the 36-char session-uuid
-        // shape keeps the two sources from deleting each other's work while
-        // both are consumed.
+        // Prune only rows this projection owns. Legacy per-spawn rows use short
+        // hex ids with no "::" in them, so the composite key keeps the two
+        // sources from deleting each other's work while both are consumed.
+        let ownedPrefix = "\(actorID)::"
         let stale = (try? modelContext.fetch(FetchDescriptor<Runtime>()))?.filter {
-            $0.routeActorID == actorID
-                && $0.runtimeId.count == 36
+            $0.runtimeId.hasPrefix(ownedPrefix)
                 && !liveIDs.contains($0.runtimeId)
         } ?? []
         for row in stale { modelContext.delete(row) }
@@ -671,44 +668,6 @@ public final class SessionListViewModel {
         workspaces = (try? modelContext.fetch(FetchDescriptor<Workspace>(sortBy: [SortDescriptor(\.displayName)]))) ?? []
     }
 
-    public func syncAgentRuntimeRecords(_ records: [AgentRuntimeRecord], modelContext: ModelContext) {
-        let existing = (try? modelContext.fetch(FetchDescriptor<CachedAgentRuntime>())) ?? []
-        var byID = Dictionary(uniqueKeysWithValues: existing.map { ($0.id, $0) })
-
-        for record in records {
-            let row = byID.removeValue(forKey: record.id) ?? {
-                let created = CachedAgentRuntime(
-                    id: record.id,
-                    teamId: record.teamID,
-                    agentId: record.agentID,
-                    backendType: record.backendType,
-                    status: record.status
-                )
-                modelContext.insert(created)
-                return created
-            }()
-
-            row.teamId = record.teamID
-            row.agentId = record.agentID
-            row.sessionId = record.sessionID
-            row.workspaceId = record.workspaceID
-            row.backendType = record.backendType
-            row.status = record.status
-            row.backendSessionId = record.backendSessionID
-            row.runtimeId = record.runtimeID
-            row.currentModel = record.currentModel
-            row.lastSeenAt = record.lastSeenAt
-            row.createdAt = record.createdAt
-            row.updatedAt = record.updatedAt
-        }
-
-        for stale in byID.values {
-            modelContext.delete(stale)
-        }
-
-        try? modelContext.save()
-        cachedAgentRuntimes = (try? modelContext.fetch(FetchDescriptor<CachedAgentRuntime>(sortBy: [SortDescriptor(\.updatedAt, order: .reverse)]))) ?? []
-    }
 
     public func syncSessionRecords(_ records: [SessionRecord], modelContext: ModelContext) {
         validSessionIDs = Set(records.map(\.id))

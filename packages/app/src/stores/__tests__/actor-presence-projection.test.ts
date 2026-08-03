@@ -50,9 +50,10 @@ describe("projectActorPresence", () => {
     );
 
     expect(updates).toHaveLength(1);
-    // Keyed by session, not by a spawn id: a spawn id is stale the moment it is
-    // recorded, whereas one attachment serves a session at a time (ADR-0004).
-    expect(updates[0]!.runtimeId).toBe("session-1");
+    // Keyed by (actor, session). A spawn id is stale the moment it is recorded;
+    // a session is stable, and the actor half keeps two machines serving the
+    // same session from evicting each other (ADR-0004).
+    expect(updates[0]!.runtimeId).toBe("actor-1::session-1");
     expect(updates[0]!.daemonActorId).toBe("actor-1");
     expect(updates[0]!.info.availableModels.map((m) => m.id)).toEqual([
       "opencode/a",
@@ -67,6 +68,19 @@ describe("projectActorPresence", () => {
       presence({ liveSessions: [create(LiveSessionSchema, { sessionId: "session-2" })] }),
     );
     expect(updates[0]!.info.currentModel).toBe("opencode/b");
+  });
+
+  it("keys two actors on the same session separately", () => {
+    // Merging every actor's retain into one map means the key must carry the
+    // actor, or the second machine's entry silently replaces the first.
+    const a = projectActorPresence("actor-1", presence({
+      liveSessions: [create(LiveSessionSchema, { sessionId: "shared" })],
+    }));
+    const b = projectActorPresence("actor-2", presence({
+      liveSessions: [create(LiveSessionSchema, { sessionId: "shared" })],
+    }));
+    expect(a[0]!.runtimeId).toBe("actor-1::shared");
+    expect(b[0]!.runtimeId).toBe("actor-2::shared");
   });
 
   it("emits nothing for an actor holding no attachments", () => {

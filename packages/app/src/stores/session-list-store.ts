@@ -312,10 +312,10 @@ export const useSessionListStore = create<State>((set, get) => ({
         // the freshly-fetched rows from rendering.
         reportLocalCacheFailure("session_upsert_batch", error, { teamId });
       }
-      // Fire-and-forget: pull session → workspace links from the cloud
-      // daemon-runtimes list into the local cache so the session-list
-      // workspace filter keeps working offline. Non-fatal: offline / no
-      // daemon stays silent.
+      // Fire-and-forget: refresh the viewer's workspace context so newly
+      // connected agents and newly registered workspaces are picked up. The
+      // session → workspace links themselves are no longer prefetched here —
+      // they come off each session's participant rows on demand (ADR-0005).
       void syncSessionWorkspaces(teamId).catch(() => {});
     }
 

@@ -16,7 +16,7 @@ import {
   APP_COLUMNS, slugify, appIso, mapApp, SESSION_FULL_COLUMNS, ACTOR_DIRECTORY_COLUMNS,
   mapSessionFull, mapDirectoryActor, publishableKeyFromEnv, outgoingMessageRow,
   mapTeam, mapSession, mapMessage, mapWorkspace, mapShortcut, mapTeamRole, mapPermission,
-  mapActor, mapTeamMember, mapIdeaRow, mapShortcutRow, mapAgentRuntimeRow, mapIdeaActivityRow,
+  mapActor, mapTeamMember, mapIdeaRow, mapShortcutRow, mapIdeaActivityRow,
   mapFeedbackRow, mapLeaderboardRow, chunkedIn,
 } from "./supabase-repo/shared.js";
 export { publishableKeyFromEnv } from "./supabase-repo/shared.js";
@@ -341,25 +341,6 @@ export function createSupabaseBusinessRepository(options) {
     return data;
   }
 
-  /**
-   * The catch-up cursor belongs to the participant row (ADR-0005); the copy on
-   * `agent_runtimes` is a legacy mirror kept alive only until iOS migrates.
-   * Prefer the participant value, falling back to the mirror for rows the
-   * backfill has not reached.
-   */
-  async function withParticipantCursor(row) {
-    if (!row?.session_id || !row?.agent_id) return row;
-    const { data, error } = await supabase
-      .from("session_participants")
-      .select("last_processed_message_id")
-      .eq("session_id", row.session_id)
-      .eq("actor_id", row.agent_id)
-      .limit(1)
-      .maybeSingle();
-    if (error) throw error;
-    const cursor = data?.last_processed_message_id;
-    return cursor ? { ...row, last_processed_message_id: cursor } : row;
-  }
 
   return {
     async listTeams({ limit = 50 } = {}) {
@@ -1588,106 +1569,9 @@ export function createSupabaseBusinessRepository(options) {
       if (error) throw error;
     },
 
-    async upsertAgentRuntime(body) {
-      // team_id is NOT NULL on public.agent_runtimes, but the daemon does not
-      // send teamId in its request body. Derive it server-side from the agent
-      // actor (actors.team_id) when the caller omits it. This Supabase client
-      // is bound to the caller's bearer token, so the read runs under the
-      // agent's RLS context (an agent can read its own actor row).
-      let teamId = body.teamId;
-      if (!teamId) {
-        const { data: actorRow, error: actorErr } = await supabase
-          .from("actors")
-          .select("team_id")
-          .eq("id", body.agentActorId)
-          .maybeSingle();
-        if (actorErr) throw actorErr;
-        teamId = actorRow?.team_id ?? null;
-      }
-      if (!teamId) {
-        throw new ApiError(
-          400,
-          "missing_team",
-          "Unable to resolve team_id for agent runtime: agent actor not found or not visible",
-        );
-      }
-      const row = {
-        id: body.id ?? randomUUID(),
-        team_id: teamId,
-        agent_id: body.agentActorId,
-        session_id: body.sessionId,
-        runtime_id: body.runtimeId,
-        backend_type: body.backendType ?? "claude",
-        backend_session_id: body.backendSessionId,
-        status: body.status ?? "running",
-        workspace_id: body.workspaceId ?? null,
-        current_model: body.currentModel ?? null,
-        updated_at: new Date().toISOString(),
-      };
-      // The only matching unique index is agent_runtimes_agent_backend_uniq on
-      // (agent_id, backend_session_id) (migration 202604220027). onConflict must
-      // name a real unique constraint or Postgres raises 42P10.
-      const { data, error } = await supabase
-        .from("agent_runtimes")
-        .upsert(row, { onConflict: "agent_id,backend_session_id" })
-        .select("id")
-        .single();
-      if (error) throw error;
-      return { id: data?.id ?? null };
-    },
 
-    async getAgentRuntime({ sessionId, runtimeId, backendSessionId }) {
-      let query = supabase
-        .from("agent_runtimes")
-        .select("*")
-        .eq("session_id", sessionId);
-      if (runtimeId !== undefined && runtimeId !== null) {
-        query = query.eq("runtime_id", runtimeId);
-      }
-      if (backendSessionId !== undefined && backendSessionId !== null) {
-        query = query.eq("backend_session_id", backendSessionId);
-      }
-      const { data, error } = await query.limit(1).single();
-      if (error && error.code === "PGRST116") return null;
-      if (error) throw error;
-      return data ? mapAgentRuntimeRow(await withParticipantCursor(data)) : null;
-    },
 
-    async getLatestAgentRuntime({ agentId, sessionId }) {
-      const { data, error } = await supabase
-        .from("agent_runtimes")
-        .select("*")
-        .eq("agent_id", agentId)
-        .eq("session_id", sessionId)
-        .order("updated_at", { ascending: false })
-        .limit(1)
-        .single();
-      if (error && error.code === "PGRST116") return null;
-      if (error) throw error;
-      return data ? mapAgentRuntimeRow(await withParticipantCursor(data)) : null;
-    },
 
-    async updateRuntimeCursor(runtimeRowId, { lastProcessedMessageId }) {
-      // Dual-write while iOS still reads `agent_runtimes` (plan phase 7). The
-      // participant row is authoritative for reads from here on.
-      const { data, error } = await supabase
-        .from("agent_runtimes")
-        .update({ last_processed_message_id: lastProcessedMessageId })
-        .eq("id", runtimeRowId)
-        .select("session_id, agent_id");
-      if (error) throw error;
-      const row = data?.[0];
-      if (!row?.session_id || !row?.agent_id) return;
-      const { error: participantError } = await supabase
-        .from("session_participants")
-        .update({
-          last_processed_message_id: lastProcessedMessageId,
-          updated_at: new Date().toISOString(),
-        })
-        .eq("session_id", row.session_id)
-        .eq("actor_id", row.agent_id);
-      if (participantError) throw participantError;
-    },
 
     async ensureAgentTypes({ supportedTypes, defaultAgentType }) {
       // Keep the default a member of the supported set (see normalizeAgentTypes).
@@ -2001,31 +1885,6 @@ export function createSupabaseBusinessRepository(options) {
     // --- Team workspace git config (separate column set from
     // existing default/pinned workspace config) ---
 
-    async listAgentRuntimesForTeam(teamId) {
-      const COLS =
-        "id, team_id, agent_id, session_id, workspace_id, backend_type, status, backend_session_id, runtime_id, current_model, last_seen_at, created_at, updated_at";
-      const { data, error } = await supabase
-        .from("agent_runtimes")
-        .select(COLS)
-        .eq("team_id", teamId)
-        .order("updated_at", { ascending: false });
-      if (error) throw error;
-      return (data ?? []).map((row) => ({
-        id: row.id,
-        teamId: row.team_id,
-        agentId: row.agent_id,
-        sessionId: row.session_id ?? null,
-        workspaceId: row.workspace_id ?? null,
-        backendType: row.backend_type,
-        status: row.status,
-        backendSessionId: row.backend_session_id ?? null,
-        runtimeId: row.runtime_id ?? null,
-        currentModel: row.current_model ?? null,
-        lastSeenAt: row.last_seen_at ?? null,
-        createdAt: row.created_at,
-        updatedAt: row.updated_at,
-      }));
-    },
 
     async listSessionsForTeamSince(teamId, updatedAfter, { limit = 50, cursor = null }: any = {}) {
       const SESSION_SYNC_COLUMNS =
@@ -2705,37 +2564,6 @@ export function createSupabaseBusinessRepository(options) {
       return { items };
     },
 
-    async listLatestAgentRuntimeHints(teamId, agentIds) {
-      if (!Array.isArray(agentIds) || agentIds.length === 0) return [];
-      // Chunking is order-safe here: chunks partition `agentIds`, and the
-      // per-agent dedup below keys on `agent_id`, so every candidate row for a
-      // given agent lands in the same chunk as its rivals.
-      const rows = await chunkedIn(agentIds, async (chunk) => {
-        const { data, error } = await supabase
-          .from("agent_runtimes")
-          .select("id, agent_id, workspace_id, backend_type, runtime_id, session_id, status, current_model, updated_at")
-          .eq("team_id", teamId)
-          .in("agent_id", chunk)
-          .order("updated_at", { ascending: false });
-        if (error) throw error;
-        return data ?? [];
-      });
-      const latest = new Map();
-      for (const row of rows) {
-        if (!latest.has(row.agent_id)) latest.set(row.agent_id, row);
-      }
-      return [...latest.values()].map((row) => ({
-        id: row.id,
-        agent_id: row.agent_id,
-        workspace_id: row.workspace_id ?? null,
-        backend_type: row.backend_type ?? null,
-        runtime_id: row.runtime_id ?? null,
-        session_id: row.session_id ?? null,
-        status: row.status ?? null,
-        current_model: row.current_model ?? null,
-        updated_at: row.updated_at ?? null,
-      }));
-    },
 
     async listAgentDefaults(agentIds) {
       if (!Array.isArray(agentIds) || agentIds.length === 0) return [];
@@ -2757,84 +2585,9 @@ export function createSupabaseBusinessRepository(options) {
       }));
     },
 
-    async updateRuntimeModel(runtimeId, model) {
-      const { error } = await supabase
-        .from("agent_runtimes")
-        .update({ current_model: model })
-        .eq("runtime_id", runtimeId);
-      if (error) throw error;
-    },
 
-    async listSessionRuntimeModels(sessionId) {
-      const { data, error } = await supabase
-        .from("agent_runtimes")
-        .select("id, runtime_id, agent_id, workspace_id, backend_type, current_model, status")
-        .eq("session_id", sessionId);
-      if (error) throw error;
-      return (data ?? []).map((row) => ({
-        id: row.id ?? null,
-        runtime_id: row.runtime_id ?? null,
-        agent_id: row.agent_id ?? null,
-        workspace_id: row.workspace_id ?? null,
-        backend_type: row.backend_type ?? null,
-        current_model: row.current_model ?? null,
-        status: row.status ?? null,
-      }));
-    },
 
-    async listRuntimeTargetsForSession(sessionId, agentIds) {
-      const runQuery = async (chunk) => {
-        let query = supabase
-          .from("agent_runtimes")
-          .select("agent_id, runtime_id")
-          .eq("session_id", sessionId)
-          .order("updated_at", { ascending: false });
-        if (chunk) query = query.in("agent_id", chunk);
-        const { data, error } = await query;
-        if (error) throw error;
-        return data ?? [];
-      };
-      // An empty/absent `agentIds` means "every agent in the session" — that is
-      // NOT the same as an empty filter, so it must skip chunkedIn (which
-      // short-circuits to `[]` on empty input) and run unfiltered.
-      const rows =
-        Array.isArray(agentIds) && agentIds.length > 0
-          ? await chunkedIn(agentIds, runQuery)
-          : await runQuery(null);
-      const latest = new Map();
-      for (const row of rows) {
-        if (!row.agent_id || latest.has(row.agent_id)) continue;
-        latest.set(row.agent_id, row);
-      }
-      return [...latest.values()].map((row) => ({
-        agent_id: row.agent_id ?? null,
-        runtime_id: row.runtime_id ?? null,
-      }));
-    },
 
-    async listDaemonRuntimes(teamId) {
-      const { data, error } = await supabase
-        .from("agent_runtimes")
-        .select("id, runtime_id, team_id, agent_id, session_id, workspace_id, backend_type, backend_session_id, status, current_model, last_seen_at, created_at, updated_at")
-        .eq("team_id", teamId)
-        .order("updated_at", { ascending: false });
-      if (error) throw error;
-      return (data ?? []).map((row) => ({
-        id: row.id,
-        runtimeId: row.runtime_id ?? null,
-        teamId: row.team_id,
-        agentId: row.agent_id,
-        sessionId: row.session_id ?? null,
-        workspaceId: row.workspace_id ?? null,
-        backendType: row.backend_type,
-        backendSessionId: row.backend_session_id ?? null,
-        status: row.status,
-        currentModel: row.current_model ?? null,
-        lastSeenAt: row.last_seen_at ?? null,
-        createdAt: row.created_at,
-        updatedAt: row.updated_at,
-      }));
-    },
 
     // --- Apps domain (production passthrough) ---
     //

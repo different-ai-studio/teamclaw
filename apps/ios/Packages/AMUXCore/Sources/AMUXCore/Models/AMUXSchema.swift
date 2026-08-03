@@ -17,7 +17,6 @@ public enum AMUXSchemaV1: VersionedSchema {
             Runtime.self,
             AgentEvent.self,
             CachedActor.self,
-            CachedAgentRuntime.self,
             Workspace.self,
             Session.self,
             SessionMessage.self,

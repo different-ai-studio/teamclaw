@@ -1,5 +1,4 @@
 import { getBackend } from "@/lib/backend";
-import { listDaemonRuntimes } from "@/lib/daemon-runtimes";
 import {
   loadSessionWorkspacesForTeam,
   loadSessionsForTeam,
@@ -7,10 +6,9 @@ import {
   type SessionWorkspaceRow,
 } from "@/lib/local-cache";
 import { loadViewerWorkspaceContext } from "@/lib/session-viewer-workspace";
-import { resolveRuntimeStateEntryForAgent } from "@/lib/runtime-state-resolve";
 import { isTauri } from "@/lib/utils";
 import type { SessionParticipantInfo } from "@/stores/session-participant-store";
-import type { RuntimeStateEntry } from "@/stores/runtime-state-store";
+import { attachmentsForSession, type RuntimeStateEntry } from "@/stores/runtime-state-store";
 
 export interface SessionRuntimeDetail {
   agentId: string;
@@ -67,62 +65,47 @@ async function loadCachedSessionRow(
   return rows.find((row) => row.id === sessionId) ?? null;
 }
 
-async function buildRuntimeDetails(
+/**
+ * Per-agent runtime detail for a session, built entirely from the actor retain.
+ *
+ * This used to join three cloud calls — runtime-targets, runtime-models and the
+ * whole team's `agent_runtimes` list — to recover a spawn id, a backend type and
+ * a model. The retain carries all of it, keyed by session, so the join is gone
+ * along with the endpoints (ADR-0004).
+ */
+function buildRuntimeDetails(
   sessionId: string,
-  teamId: string,
   participants: SessionParticipantInfo[],
   liveByRuntimeId: Record<string, RuntimeStateEntry>,
-): Promise<SessionRuntimeDetail[]> {
-  const [targets, models, daemonRuntimes] = await Promise.all([
-    getBackend().runtime.listRuntimeTargetsForSession(sessionId, []),
-    getBackend().runtime.listSessionRuntimeModels(sessionId),
-    listDaemonRuntimes(teamId).then((rows) => rows.filter((row) => row.sessionId === sessionId)),
-  ]);
-
-  const modelByRuntime = new Map(
-    models
-      .filter((row) => row.runtime_id)
-      .map((row) => [row.runtime_id as string, row] as const),
-  );
-  const daemonByAgent = new Map(daemonRuntimes.map((row) => [row.agentId, row] as const));
-  const targetByAgent = new Map(
-    targets
-      .filter((row) => row.agent_id)
-      .map((row) => [row.agent_id as string, row] as const),
-  );
-
+): SessionRuntimeDetail[] {
   const agentIds = new Set<string>();
-  for (const target of targets) {
-    if (target.agent_id) agentIds.add(target.agent_id);
-  }
-  for (const runtime of daemonRuntimes) agentIds.add(runtime.agentId);
   for (const participant of participants) {
     if (participant.isAgent) agentIds.add(participant.actorId);
   }
 
   return [...agentIds].map((agentId) => {
-    const target = targetByAgent.get(agentId);
-    const daemon = daemonByAgent.get(agentId);
-    const runtimeId = target?.runtime_id ?? daemon?.runtimeId ?? null;
-    const live = resolveRuntimeStateEntryForAgent(agentId, liveByRuntimeId, runtimeId);
-    const modelRow = runtimeId ? modelByRuntime.get(runtimeId) : undefined;
+    // This agent's own attachment to THIS session. No per-agent fallback — it
+    // would surface another session's attachment here.
+    const live = attachmentsForSession(sessionId, liveByRuntimeId).find(
+      (entry) => entry.daemonActorId === agentId,
+    );
     const participant = participants.find((row) => row.actorId === agentId);
 
     return {
       agentId,
-      agentName: participant?.displayName ?? daemon?.agentName ?? agentId,
-      runtimeId,
-      backendType: modelRow?.backend_type ?? daemon?.backendType ?? null,
-      backendSessionId: daemon?.backendSessionId ?? null,
-      dbStatus: daemon?.status ?? null,
-      dbModel: modelRow?.current_model ?? daemon?.currentModel ?? null,
+      agentName: participant?.displayName ?? agentId,
+      runtimeId: live?.info.runtimeId ?? null,
+      backendType: null,
+      backendSessionId: null,
+      dbStatus: null,
+      dbModel: null,
       liveState: live?.info.state != null ? String(live.info.state) : null,
       liveStatus: live?.info.status != null ? String(live.info.status) : null,
       liveModel: live?.info.currentModel ?? null,
       agentType: live?.info.agentType != null ? String(live.info.agentType) : null,
-      lastSeenAt: daemon?.lastSeenAt ?? null,
-      workspacePath: daemon?.workspacePath ?? null,
-      workspaceId: daemon?.workspaceId ?? null,
+      lastSeenAt: null,
+      workspacePath: null,
+      workspaceId: live?.info.workspaceId ?? null,
     };
   });
 }
@@ -153,10 +136,8 @@ export async function fetchSessionDetailSnapshot(args: {
           .then((rows) => rows.filter((row) => row.sessionId === sessionId))
           .catch(() => [] as SessionWorkspaceRow[])
       : Promise.resolve([] as SessionWorkspaceRow[]),
-    buildRuntimeDetails(sessionId, teamId, participants, liveByRuntimeId).catch((error) => {
-      loadError = loadError ?? (error instanceof Error ? error.message : String(error));
-      return [] as SessionRuntimeDetail[];
-    }),
+    // Synchronous now — it reads the retain rather than three cloud calls.
+    Promise.resolve(buildRuntimeDetails(sessionId, participants, liveByRuntimeId)),
   ]);
 
   return {

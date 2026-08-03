@@ -88,7 +88,9 @@ impl ModelMru {
                     }
                     worktrees.retain(|_, recent| !recent.is_empty());
                 }
-                store.by_worktree.retain(|_, worktrees| !worktrees.is_empty());
+                store
+                    .by_worktree
+                    .retain(|_, worktrees| !worktrees.is_empty());
                 store
             }
             Err(e) => {
@@ -353,7 +355,10 @@ mod tests {
     fn record_with_an_empty_worktree_stays_device_wide_only() {
         let mut mru = ModelMru::default();
         assert!(mru.record("opencode", "", "opencode/ambient"));
-        assert!(mru.by_worktree.is_empty(), "no directory to attribute it to");
+        assert!(
+            mru.by_worktree.is_empty(),
+            "no directory to attribute it to"
+        );
         assert_eq!(mru.recent_for("opencode"), ids(&["opencode/ambient"]));
     }
 }

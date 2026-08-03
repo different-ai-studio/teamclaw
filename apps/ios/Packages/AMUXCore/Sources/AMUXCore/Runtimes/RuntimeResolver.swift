@@ -10,15 +10,13 @@ import SwiftData
 ///
 /// 1. If the caller already has a non-nil `existing` runtime, return it
 ///    unchanged — the view stays bound to whatever the caller picked.
-/// 2. Otherwise, walk Session → primaryAgentId → CachedAgentRuntime
-///    (most recently updated row matching `sessionId`) → Runtime
-///    (matched on the 8-char `runtimeId` bridge from CachedAgentRuntime).
-/// 3. When the live Runtime row hasn't been published yet (just-spawned,
-///    daemon offline, cached row predates the runtime_id column), build
-///    an in-memory placeholder seeded from `cached.backendType` so the
-///    composer's model picker renders before MQTT or Supabase catches
-///    up. The placeholder is NOT inserted into the model context — it's
-///    a transient view-model value.
+/// 2. Otherwise look up the `Runtime` row keyed by `sessionId`. The actor
+///    retain projects each attached session into one, so no bridge id is
+///    involved — there used to be one, through `CachedAgentRuntime.runtimeId`,
+///    and it was a per-spawn id that went stale the moment it was recorded.
+/// 3. When no live row exists yet (just-spawned, or daemon offline), build an
+///    in-memory placeholder so the composer renders. It is NOT inserted into
+///    the model context — a transient view-model value.
 ///
 /// Returns nil only when the session is missing or has no primary agent
 /// (human-only sessions never spawn a runtime; building a placeholder
@@ -38,58 +36,33 @@ public enum RuntimeResolver {
         let primaryAgentID = session.primaryAgentId?.trimmingCharacters(in: .whitespacesAndNewlines)
         guard let primaryAgentID, !primaryAgentID.isEmpty else { return nil }
 
+        // Exactly one attachment serves a session at a time, and the retain
+        // keys `Runtime` rows by session id — so the session id IS the address.
+        // Rows are keyed (actor, session), so match on the session suffix
+        // rather than equality — a session served from two machines has a row
+        // per machine.
         let sessionID = session.sessionId
-        let cachedDescriptor = FetchDescriptor<CachedAgentRuntime>(
-            predicate: #Predicate { $0.sessionId == sessionID }
-        )
-        let cachedRows = (try? modelContext.fetch(cachedDescriptor)) ?? []
-        let cached = cachedRows.max(by: { $0.updatedAt < $1.updatedAt })
-
-        // Prefer the 8-char runtime_id (correct topic segment for
-        // runtime/{id}/commands). Fall back to backend_session_id only as
-        // a last-resort identity for the placeholder when a brand-new
-        // session hasn't been re-fetched from Supabase yet — commands
-        // sent on this id won't route, but the UI renders.
-        let bridge = nonEmpty(cached?.runtimeId) ?? nonEmpty(cached?.backendSessionId) ?? ""
-
-        if !bridge.isEmpty {
-            let runtimeDescriptor = FetchDescriptor<Runtime>(
-                predicate: #Predicate { $0.runtimeId == bridge }
-            )
-            if let resolved = (try? modelContext.fetch(runtimeDescriptor))?.first {
-                return resolved
-            }
+        let suffix = "::\(sessionID)"
+        let matching = ((try? modelContext.fetch(FetchDescriptor<Runtime>())) ?? [])
+            .filter { $0.runtimeId.hasSuffix(suffix) }
+        if let resolved = matching.max(by: {
+            ($0.lastEventTime ?? .distantPast) < ($1.lastEventTime ?? .distantPast)
+        }) {
+            return resolved
         }
 
-        let placeholder = Runtime(
-            runtimeId: bridge,
-            agentType: agentTypeRaw(for: cached?.backendType),
-            status: 1
-        )
+        let placeholder = Runtime(runtimeId: sessionID, agentType: 0, status: 1)
         placeholder.sessionTitle = session.title
         placeholder.currentPrompt = session.summary
-        // No static fallback: the placeholder advertises no models. The picker
-        // stays hidden until the live MQTT-published Runtime row arrives with
-        // the backend's real catalog (mirrors the daemon, which no longer
-        // synthesizes a default model list).
+        // The placeholder advertises no models. The picker stays hidden until
+        // the actor retain lands with the backend's real catalog — mirroring
+        // the daemon, which no longer synthesizes a default model list.
         placeholder.availableModelsJSON = ""
-        if let m = cached?.currentModel, !m.isEmpty { placeholder.currentModel = m }
         return placeholder
     }
 
     static func nonEmpty(_ s: String?) -> String? {
         guard let s, !s.isEmpty else { return nil }
         return s
-    }
-
-    /// Maps `CachedAgentRuntime.backendType` strings to the
-    /// `Amux_AgentType` raw values stored on the placeholder Runtime.
-    static func agentTypeRaw(for backendType: String?) -> Int {
-        switch backendType {
-        case "claude": return 1
-        case "opencode": return 2
-        case "codex": return 3
-        default: return 1
-        }
     }
 }

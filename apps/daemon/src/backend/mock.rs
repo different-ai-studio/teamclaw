@@ -23,42 +23,10 @@ use std::sync::{Arc, Mutex, MutexGuard};
 use async_trait::async_trait;
 
 use crate::backend::{
-    AgentDefaults, AgentRuntimeRow, AgentRuntimeUpsert, Backend, BackendError, BackendResult,
-    BackendSessionAndParticipants, BootstrapMqttOverride, ClaimResult, GatewaySessionRow,
-    ManagedGitCredential, ManagedLlmConfig, ShareModeConfig, StoredMessage, WorkspaceRow,
-    WorkspaceUpsert,
+    AgentDefaults, Backend, BackendError, BackendResult, BackendSessionAndParticipants,
+    BootstrapMqttOverride, ClaimResult, GatewaySessionRow, ManagedGitCredential, ManagedLlmConfig,
+    ShareModeConfig, StoredMessage, WorkspaceRow, WorkspaceUpsert,
 };
-
-/// Owned snapshot of an `AgentRuntimeUpsert` so tests can assert without
-/// worrying about the borrowed lifetimes on the trait input.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct RecordedRuntimeUpsert {
-    pub team_id: String,
-    pub agent_id: String,
-    pub session_id: Option<String>,
-    pub workspace_id: Option<String>,
-    pub backend_type: String,
-    pub backend_session_id: Option<String>,
-    pub runtime_id: Option<String>,
-    pub status: String,
-    pub current_model: Option<String>,
-}
-
-impl RecordedRuntimeUpsert {
-    fn from_upsert(row: &AgentRuntimeUpsert<'_>) -> Self {
-        Self {
-            team_id: row.team_id.to_string(),
-            agent_id: row.agent_id.to_string(),
-            session_id: row.session_id.map(str::to_string),
-            workspace_id: row.workspace_id.map(str::to_string),
-            backend_type: row.backend_type.to_string(),
-            backend_session_id: row.backend_session_id.map(str::to_string),
-            runtime_id: row.runtime_id.map(str::to_string),
-            status: row.status.to_string(),
-            current_model: row.current_model.map(str::to_string),
-        }
-    }
-}
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct RecordedMessageInsert {
@@ -132,7 +100,6 @@ pub struct RecordedWorkspaceUpsert {
 #[derive(Default, Debug)]
 pub struct MockState {
     // ── Recorded writes ────────────────────────────────────────────────
-    pub upserted_runtimes: Vec<RecordedRuntimeUpsert>,
     pub heartbeats: usize,
     pub upserted_workspaces: Vec<RecordedWorkspaceUpsert>,
     pub session_participants_upserted: Vec<(String, String)>,
@@ -920,7 +887,9 @@ mod tests {
             .insert(("session-1".into(), "actor-1".into()), "msg-7".into());
 
         assert_eq!(
-            be.fetch_session_cursor("session-1", "actor-1").await.unwrap(),
+            be.fetch_session_cursor("session-1", "actor-1")
+                .await
+                .unwrap(),
             Some("msg-7".to_string())
         );
         assert_eq!(

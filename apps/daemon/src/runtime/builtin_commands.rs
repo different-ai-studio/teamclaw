@@ -51,11 +51,13 @@ pub fn builtin_commands(agent_type: amux::AgentType) -> Vec<amux::AcpAvailableCo
     };
     table
         .iter()
-        .map(|(name, description, input_hint)| amux::AcpAvailableCommand {
-            name: (*name).to_string(),
-            description: (*description).to_string(),
-            input_hint: (*input_hint).to_string(),
-        })
+        .map(
+            |(name, description, input_hint)| amux::AcpAvailableCommand {
+                name: (*name).to_string(),
+                description: (*description).to_string(),
+                input_hint: (*input_hint).to_string(),
+            },
+        )
         .collect()
 }
 

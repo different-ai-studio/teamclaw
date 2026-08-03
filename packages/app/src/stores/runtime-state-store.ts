@@ -216,8 +216,33 @@ export function projectActorPresence(
       availableCommands: worktree?.availableCommands ?? [],
     })
 
-    return { runtimeId: live.sessionId, daemonActorId, info }
+    // Keyed by (actor, session), not by session alone. A daemon holds at most
+    // one attachment per session — `coalesce_session_runtimes` enforces that —
+    // but this store merges every actor's retain, and a session with agents on
+    // two machines has one attachment per machine. Keying by session alone let
+    // the second actor's entry evict the first.
+    //
+    // `info.runtimeId` stays the bare session id: that is the command address,
+    // and commands are addressed by (actor, session) at the wire level too.
+    return { runtimeId: `${daemonActorId}::${live.sessionId}`, daemonActorId, info }
   })
+}
+
+/** Composite key for one actor's attachment to one session. */
+export function attachmentKey(daemonActorId: string, sessionId: string): string {
+  return `${daemonActorId}::${sessionId}`
+}
+
+/** Every actor's attachment to `sessionId` — one per daemon serving it. */
+export function attachmentsForSession(
+  sessionId: string,
+  byRuntimeId: Record<string, RuntimeStateEntry>,
+): RuntimeStateEntry[] {
+  const id = sessionId.trim()
+  if (!id) return []
+  return Object.entries(byRuntimeId)
+    .filter(([key]) => key.endsWith(`::${id}`))
+    .map(([, entry]) => entry)
 }
 
 export async function initRuntimeStateStore(teamId: string): Promise<void> {

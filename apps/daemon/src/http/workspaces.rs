@@ -1371,8 +1371,7 @@ mod tests {
         // a mismatch here would silently drop the MRU for claude daemons.
         for (group, default_backend) in [("claude", "claude-code"), ("claude-code", "claude")] {
             let probed = vec![acp("anthropic/opus")];
-            let mut catalog =
-                build_model_catalog(&[group.to_string()], Some(&probed), &[], &[]);
+            let mut catalog = build_model_catalog(&[group.to_string()], Some(&probed), &[], &[]);
             attach_recent_models(
                 &mut catalog,
                 Some(default_backend),

@@ -74,12 +74,7 @@ struct SessionMemberSheetLoaderShapingTests {
         func removeParticipant(sessionID: String, actorID: String) async throws {}
     }
 
-    private struct StubRuntimesRepo: AgentRuntimesRepository {
-        let rows: [AgentRuntimeRecord]
-        func listForTeam(teamID: String) async throws -> [AgentRuntimeRecord] { rows }
-    }
-
-    @Test("shapes humans + agents with runtime metadata from agent_runtimes")
+    @Test("shapes humans + agents from the participant row's own state")
     func shapesParticipants() async {
         let participants = [
             SessionParticipantRecord(id: "p1", sessionID: "s-1", actorID: "human-a",
@@ -90,19 +85,12 @@ struct SessionMemberSheetLoaderShapingTests {
                                      actorType: "human"),
             SessionParticipantRecord(id: "p3", sessionID: "s-1", actorID: "agent-1",
                                      role: "agent", displayName: "Claude",
-                                     actorType: "agent")
-        ]
-        let runtimes = [
-            AgentRuntimeRecord(id: "r1", teamID: "team", agentID: "agent-1",
-                               sessionID: "s-1", workspaceID: "ws-1",
-                               backendType: "claude", status: "active",
-                               backendSessionID: nil, runtimeID: "rt-abcd",
-                               currentModel: "claude-sonnet-4-6",
-                               lastSeenAt: .now, createdAt: .now, updatedAt: .now)
+                                     actorType: "agent",
+                                     workspaceID: "ws-1",
+                                     model: "claude-sonnet-4-6")
         ]
         let loader = SessionMemberSheetLoader(
-            sessionsRepository: StubSessionsRepo(participants: participants),
-            agentRuntimesRepository: StubRuntimesRepo(rows: runtimes)
+            sessionsRepository: StubSessionsRepo(participants: participants)
         )
 
         let snapshot = await loader.load(
@@ -123,19 +111,24 @@ struct SessionMemberSheetLoaderShapingTests {
         #expect(result.agents.count == 1)
         let agent = result.agents[0]
         #expect(agent.id == "agent-1")
-        #expect(agent.runtimeID == "rt-abcd")
+        // No runtime id any more: commands address (actor, session), so the
+        // member sheet has nothing to bridge through (ADR-0003/0004).
+        #expect(agent.runtimeID == nil)
         #expect(agent.workspaceID == "ws-1")
-        #expect(agent.backendType == "claude")
-        #expect(agent.agentType == "Claude")
-        #expect(agent.runtimeState == .active)
+        #expect(agent.backendType == nil)
+        // Backend type came off the runtime row; it now lives on the actor
+        // retain, which this loader does not consult.
+        #expect(agent.agentType == "")
+        // Live state likewise: absent here means "unknown from this source",
+        // and the chip bar fills it from the retain.
+        #expect(agent.runtimeState == .idle)
         #expect(agent.availableModels == ["claude-sonnet-4-6", "claude-opus-4-7"])
         #expect(agent.currentModel == "claude-sonnet-4-6")
     }
 
     @Test("returns nil when sessionsRepository is missing")
     func nilWhenNoRepository() async {
-        let loader = SessionMemberSheetLoader(sessionsRepository: nil,
-                                              agentRuntimesRepository: nil)
+        let loader = SessionMemberSheetLoader(sessionsRepository: nil)
         let snapshot = await loader.load(
             sessionID: "s-1", teamID: "team",
             currentHumanActorID: "",

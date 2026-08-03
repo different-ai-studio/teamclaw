@@ -6,7 +6,6 @@ export * from "./workspaces.js";
 export * from "./shortcuts.js";
 export * from "./ideas.js";
 export * from "./agents.js";
-export * from "./runtime.js";
 export * from "./notifications.js";
 export * from "./presence.js";
 export * from "./telemetry.js";

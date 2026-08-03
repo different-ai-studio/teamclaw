@@ -359,11 +359,7 @@ pub fn substitute_in_message(message: &mut String, entries: &[ResolvedEntry]) {
 
 /// Append resolved attachments not already present in the message body.
 /// When `include_images` is false (opencode), images are delivered via File parts only.
-pub fn append_unreferenced(
-    message: &mut String,
-    entries: &[ResolvedEntry],
-    include_images: bool,
-) {
+pub fn append_unreferenced(message: &mut String, entries: &[ResolvedEntry], include_images: bool) {
     let mut extras: Vec<&ResolvedAttachment> = Vec::new();
     for entry in entries {
         match &entry.attachment {
@@ -382,9 +378,7 @@ pub fn append_unreferenced(
     for att in extras {
         match att {
             ResolvedAttachment::Image {
-                data_url,
-                filename,
-                ..
+                data_url, filename, ..
             } => {
                 if let Some(name) = filename {
                     message.push_str(name);
@@ -399,9 +393,7 @@ pub fn append_unreferenced(
                 message.push_str(path);
                 message.push('\n');
             }
-            ResolvedAttachment::Link {
-                url, filename, ..
-            } => {
+            ResolvedAttachment::Link { url, filename, .. } => {
                 message.push_str(filename);
                 message.push_str(": ");
                 message.push_str(url);
@@ -490,7 +482,9 @@ mod tests {
         let _ = tokio::fs::remove_dir_all(&cache_dir).await;
         tokio::fs::create_dir_all(&cache_dir).await.unwrap();
         let local_path = local_cache_path(session_id, url, "doc.pdf");
-        tokio::fs::write(&local_path, b"cached-bytes").await.unwrap();
+        tokio::fs::write(&local_path, b"cached-bytes")
+            .await
+            .unwrap();
 
         let resolved = resolve_one(url, session_id).await.unwrap();
         match resolved {
@@ -524,7 +518,10 @@ mod tests {
         tokio::fs::write(&local_path, b"").await.unwrap();
 
         let err = resolve_one(url, session_id).await;
-        assert!(err.is_err(), "empty cache file should trigger re-download attempt");
+        assert!(
+            err.is_err(),
+            "empty cache file should trigger re-download attempt"
+        );
 
         let _ = tokio::fs::remove_dir_all(&cache_dir).await;
     }

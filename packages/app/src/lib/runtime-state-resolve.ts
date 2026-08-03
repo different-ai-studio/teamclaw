@@ -1,5 +1,6 @@
 import { AgentType, RuntimeLifecycle } from "@/lib/proto/amux_pb";
 import {
+  attachmentsForSession,
   useRuntimeStateStore,
   type RuntimeStateEntry,
 } from "@/stores/runtime-state-store";
@@ -201,6 +202,68 @@ export function resolveCommandRuntimeId(args: {
 
   if (mqttLive && mqttRuntimeId && sessionSafe) return mqttRuntimeId;
   return undefined;
+}
+
+/**
+ * The command targets serving `sessionId`, read from the actor retain.
+ *
+ * Replaces `GET /v1/sessions/:id/runtime-targets`, which read `agent_runtimes`
+ * — a table with one row per spawn, so the answer depended on which of several
+ * stale rows the query happened to return. That is what sent a cancel to a dead
+ * runtime (docs/debug/interrupt-agent-stale-runtime.md). The retain keys the
+ * attachment by session and there is exactly one, so there is nothing to pick
+ * between.
+ *
+ * Empty means the session is cold. Callers must treat that as "no live target",
+ * not as "lookup failed".
+ */
+export function runtimeTargetsForSession(
+  sessionId: string,
+  byRuntimeId: Record<string, RuntimeStateEntry>,
+): Array<{ agent_id: string | null; runtime_id: string | null }> {
+  const id = sessionId.trim();
+  if (!id) return [];
+  // One target per actor serving the session. A single daemon holds at most one
+  // attachment per session (`coalesce_session_runtimes` enforces it), but a
+  // session whose agents live on two machines has one per machine — so this
+  // scans rather than doing a single keyed lookup.
+  return attachmentsForSession(id, byRuntimeId).map((entry) => ({
+    agent_id: entry.daemonActorId,
+    runtime_id: entry.info.runtimeId || id,
+  }));
+}
+
+/**
+ * Per-agent runtime hints, read from the actor retain instead of the DB.
+ *
+ * The DB copy was documented as "often stale; treat as a hint, not as truth"
+ * (see the glossary at the top of this file) — it recorded a spawn id that was
+ * obsolete the moment it was written. The retain is the live source those hints
+ * were always a lagging shadow of.
+ */
+export function runtimeHintsForAgents(
+  agentIds: readonly string[],
+  byRuntimeId: Record<string, RuntimeStateEntry>,
+): Array<{
+  agent_id: string;
+  runtime_id: string | null;
+  current_model: string | null;
+  workspace_id: string | null;
+  backend_type: string | null;
+}> {
+  return agentIds
+    .map((agentId) => {
+      const entry = resolveRuntimeStateEntryForAgent(agentId, byRuntimeId);
+      if (!entry) return null;
+      return {
+        agent_id: agentId,
+        runtime_id: entry.info.runtimeId || null,
+        current_model: entry.info.currentModel || null,
+        workspace_id: entry.info.workspaceId || null,
+        backend_type: backendTypeFromRuntimeEntry(entry) ?? null,
+      };
+    })
+    .filter((row): row is NonNullable<typeof row> => row !== null);
 }
 
 export type PermissionCommandTarget = {

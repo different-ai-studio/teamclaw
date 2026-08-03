@@ -4,7 +4,6 @@ import { Activity, AlertCircle, Clock, Loader2, RefreshCw } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { useCurrentTeamStore } from '@/stores/current-team'
 import { useRuntimeStateStore } from '@/stores/runtime-state-store'
-import { listDaemonRuntimes, type DaemonRuntime } from '@/lib/daemon-runtimes'
 import { cn } from '@/lib/utils'
 import { SectionHeader, SettingCard } from './shared'
 
@@ -37,7 +36,27 @@ function statusClass(status: string): string {
   }
 }
 
-function RuntimeCard({ runtime, liveState }: { runtime: DaemonRuntime; liveState: ReturnType<typeof useRuntimeStateStore.getState>['byRuntimeId'][string] | undefined }) {
+/**
+ * One attached session, as the actor retain reports it.
+ *
+ * This section used to list `agent_runtimes` rows — one per spawn, accumulating
+ * forever. It now lists live attachments, so a session that has gone cold
+ * simply is not here (ADR-0004).
+ */
+type LiveEntry = ReturnType<typeof useRuntimeStateStore.getState>['byRuntimeId'][string]
+
+type DaemonRuntime = {
+  id: string
+  runtimeId: string
+  agentName: string
+  status: string
+  currentModel: string
+  workspaceName: string
+  sessionTitle: string
+  lastSeenAt: string
+}
+
+function RuntimeCard({ runtime, liveState }: { runtime: DaemonRuntime; liveState: LiveEntry | undefined }) {
   const { t } = useTranslation()
   const liveInfo = liveState?.info
   const displayStatus = liveInfo?.state != null ? String(liveInfo.state) : runtime.status
@@ -61,14 +80,11 @@ function RuntimeCard({ runtime, liveState }: { runtime: DaemonRuntime; liveState
           <div className="mt-2 grid gap-1.5 text-xs sm:grid-cols-[112px_minmax(0,1fr)]">
             <span className="text-muted-foreground">{t('settings.daemonRuntimes.runtimeId', 'Runtime ID')}</span>
             <code className="break-all font-mono text-foreground">{runtime.runtimeId || runtime.id}</code>
-            <span className="text-muted-foreground">{t('settings.daemonRuntimes.backend', 'Backend')}</span>
-            <span className="font-mono text-foreground">{runtime.backendType}</span>
             <span className="text-muted-foreground">{t('settings.daemonRuntimes.model', 'Model')}</span>
             <code className="break-all font-mono text-foreground">{displayModel}</code>
             <span className="text-muted-foreground">{t('settings.daemonRuntimes.workspace', 'Workspace')}</span>
             <span className="min-w-0">
               <span className="block truncate text-foreground">{runtime.workspaceName || '-'}</span>
-              {runtime.workspacePath && <code className="block break-all font-mono text-muted-foreground">{runtime.workspacePath}</code>}
             </span>
             <span className="text-muted-foreground">{t('settings.daemonRuntimes.session', 'Session')}</span>
             <span className="truncate text-foreground">{runtime.sessionTitle || '-'}</span>
@@ -79,7 +95,7 @@ function RuntimeCard({ runtime, liveState }: { runtime: DaemonRuntime; liveState
         <div className="shrink-0 text-right text-xs text-muted-foreground">
           <div className="inline-flex items-center gap-1">
             <Clock className="h-3 w-3" />
-            {formatRelative(liveState ? new Date(liveState.lastUpdated).toISOString() : runtime.lastSeenAt || runtime.updatedAt)}
+            {formatRelative(liveState ? new Date(liveState.lastUpdated).toISOString() : runtime.lastSeenAt)}
           </div>
         </div>
       </div>
@@ -91,26 +107,27 @@ export function DaemonRuntimesSection() {
   const { t } = useTranslation()
   const team = useCurrentTeamStore((s) => s.team)
   const runtimeStates = useRuntimeStateStore((s) => s.byRuntimeId)
-  const [runtimes, setRuntimes] = React.useState<DaemonRuntime[]>([])
-  const [loading, setLoading] = React.useState(false)
-  const [error, setError] = React.useState<string | null>(null)
+  const [loading] = React.useState(false)
+  const [error] = React.useState<string | null>(null)
 
-  const load = React.useCallback(async () => {
-    if (!team?.id) return
-    setLoading(true)
-    setError(null)
-    try {
-      setRuntimes(await listDaemonRuntimes(team.id))
-    } catch (err) {
-      setError(err instanceof Error ? err.message : String(err))
-    } finally {
-      setLoading(false)
-    }
-  }, [team?.id])
+  // Derived, not fetched: the retain already holds every live attachment, so
+  // the refresh button has nothing to re-request.
+  const runtimes: DaemonRuntime[] = React.useMemo(
+    () =>
+      Object.entries(runtimeStates).map(([key, entry]) => ({
+        id: key,
+        runtimeId: entry.info.runtimeId || key,
+        agentName: entry.daemonActorId,
+        status: entry.info.status != null ? String(entry.info.status) : '',
+        currentModel: entry.info.currentModel || '',
+        workspaceName: entry.info.workspaceId || '',
+        sessionTitle: entry.info.sessionTitle || '',
+        lastSeenAt: new Date(entry.lastUpdated).toISOString(),
+      })),
+    [runtimeStates],
+  )
 
-  React.useEffect(() => {
-    void load()
-  }, [load])
+  const load = React.useCallback(async () => {}, [])
 
   if (!team) {
     return (

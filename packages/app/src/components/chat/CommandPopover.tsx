@@ -12,9 +12,8 @@ export type Command = {
 }
 import { SKILLS_CHANGED_EVENT } from '@/hooks/useAppInit'
 import { useWorkspaceStore } from '@/stores/workspace'
-import { useRuntimeStateStore } from '@/stores/runtime-state-store'
+import { attachmentsForSession, useRuntimeStateStore } from '@/stores/runtime-state-store'
 import { isTauri } from '@/lib/utils'
-import { getBackend } from '@/lib/backend'
 import { encodeWorkspaceId, getDaemonPermissions } from '@/lib/daemon-local-client'
 import { resolveSkillPermission, type SkillPermissionMap } from '@/lib/teamclaw-config'
 import { loadAllRoles, loadRolesSkillsWorkspaceState } from '@/lib/roles/loader'
@@ -52,12 +51,6 @@ function isRoleEntry(item: PickerItem): item is RoleEntry {
 // Unified type for display in the list
 type CommandOrSkill = Command | SkillEntry
 type PickerItem = Command | SkillEntry | RoleEntry
-
-type RuntimeCommandRow = {
-  runtime_id: string | null
-  backend_type: string | null
-  current_model: string | null
-}
 
 function looksLikeSkillInvocationName(name: string): boolean {
   return /^[A-Za-z0-9._-]+(?:\/[A-Za-z0-9._-]+)+$/.test(name)
@@ -126,36 +119,31 @@ async function loadSessionRuntimeCommands(
     return []
   }
 
-  let runtimeRows: RuntimeCommandRow[]
-  try {
-    runtimeRows = await getBackend().runtime.listSessionRuntimeModels(activeSessionId) as RuntimeCommandRow[]
-  } catch (error) {
-    console.error('[CommandPopover] Failed to load session runtime rows:', error)
-    return []
-  }
-
-  console.info('[CommandPopover] session runtime rows loaded', {
+  // The retain files the session's attachment under its session id and carries
+  // the backend's model list + slash commands with it, so there is no runtime
+  // table left to query.
+  // Walk the attachments directly. Going through a row list and then a keyed
+  // lookup would have to reconstruct the store's (actor, session) key, which is
+  // exactly the kind of id round-trip this migration removes.
+  const attachments = attachmentsForSession(
     activeSessionId,
-    runtimeRows,
-    runtimeStateIds: Object.keys(runtimeStates),
+    useRuntimeStateStore.getState().byRuntimeId,
+  )
+
+  console.info('[CommandPopover] session attachments loaded', {
+    activeSessionId,
+    attachmentCount: attachments.length,
     runtimeStateSummary: summarizeRuntimeStates(runtimeStates),
   })
 
   const deduped = new Map<string, Command>()
-  for (const row of runtimeRows) {
-    if (!row.runtime_id) {
-      console.info('[CommandPopover] runtime row without runtime_id', { activeSessionId, row })
-      continue
-    }
-    const commands = runtimeStates[row.runtime_id]?.info?.availableCommands ?? []
-    console.info('[CommandPopover] commands for runtime row', {
+  for (const attachment of attachments) {
+    const commands = attachment.info?.availableCommands ?? []
+    console.info('[CommandPopover] commands for attachment', {
       activeSessionId,
-      runtimeId: row.runtime_id,
-      backendType: row.backend_type,
-      currentModel: row.current_model,
+      daemonActorId: attachment.daemonActorId,
       commandCount: commands.length,
       commandNames: commands.map((command) => command.name),
-      hasRuntimeState: Boolean(runtimeStates[row.runtime_id]),
     })
     for (const command of commands) {
       if (!command?.name || deduped.has(command.name)) continue

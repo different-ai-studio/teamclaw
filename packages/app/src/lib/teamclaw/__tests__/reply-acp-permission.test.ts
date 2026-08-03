@@ -4,14 +4,12 @@ import { AgentType } from "@/lib/proto/amux_pb";
 
 const mocks = vi.hoisted(() => ({
   listParticipants: vi.fn(),
-  listRuntimeTargetsForSession: vi.fn(),
   mqttPublish: vi.fn(),
 }));
 
 vi.mock("@/lib/backend", () => ({
   getBackend: () => ({
     sessionMembers: { listParticipants: mocks.listParticipants },
-    runtime: { listRuntimeTargetsForSession: mocks.listRuntimeTargetsForSession },
   }),
 }));
 
@@ -60,9 +58,12 @@ describe("replyAcpPermission", () => {
     mocks.mqttPublish.mockResolvedValue(undefined);
   });
 
-  it("prefers session-bound runtime over stale MQTT retain", async () => {
-    useRuntimeStateStore.getState().upsert("stale-spawn", "agent-live", {
-      runtimeId: "stale-spawn",
+  it("addresses the attachment filed under this session, ignoring others", async () => {
+    // Replaces "prefers session-bound runtime over stale MQTT retain": with the
+    // retain keyed by session there is no second candidate to prefer over, which
+    // is the whole point of dropping the per-spawn table (ADR-0004).
+    useRuntimeStateStore.getState().upsert("agent-live::other-session", "agent-live", {
+      runtimeId: "wrong-spawn",
       agentType: AgentType.OPENCODE,
       currentModel: "",
       availableModels: [],
@@ -70,7 +71,7 @@ describe("replyAcpPermission", () => {
       state: 0,
       status: 0,
     });
-    useRuntimeStateStore.getState().upsert("live-spawn", "agent-live", {
+    useRuntimeStateStore.getState().upsert("agent-live::sess-1", "agent-live", {
       runtimeId: "live-spawn",
       agentType: AgentType.OPENCODE,
       currentModel: "",
@@ -79,10 +80,6 @@ describe("replyAcpPermission", () => {
       state: 0,
       status: 0,
     });
-
-    mocks.listRuntimeTargetsForSession.mockResolvedValueOnce([
-      { agent_id: "agent-live", runtime_id: "live-spawn" },
-    ]);
 
     const { replyPermissionById } = await import("../reply-acp-permission");
     await replyPermissionById("perm-uuid-1", "allow");

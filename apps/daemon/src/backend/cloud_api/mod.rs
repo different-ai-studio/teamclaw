@@ -3,10 +3,10 @@ mod gateway;
 mod messages;
 
 use super::{
-    AgentDefaults, AgentRuntimeRow, AgentRuntimeUpsert, Backend, BackendError, BackendResult,
-    BackendSessionAndParticipants, BootstrapMqttOverride, ClaimResult, CloudAuthSnapshot,
-    GatewaySessionRow, ManagedGitCredential, ManagedLlmConfig, ManagedLlmModelInfo,
-    ShareModeConfig, StoredMessage, WorkspaceRow, WorkspaceUpsert,
+    AgentDefaults, Backend, BackendError, BackendResult, BackendSessionAndParticipants,
+    BootstrapMqttOverride, ClaimResult, CloudAuthSnapshot, GatewaySessionRow, ManagedGitCredential,
+    ManagedLlmConfig, ManagedLlmModelInfo, ShareModeConfig, StoredMessage, WorkspaceRow,
+    WorkspaceUpsert,
 };
 use crate::provider_config::CloudApiConfig;
 use async_trait::async_trait;
@@ -1467,28 +1467,6 @@ impl Backend for CloudApiBackend {
 }
 
 /// Shared response type for agent_runtimes rows returned by the Cloud API.
-#[derive(serde::Deserialize)]
-struct CloudAgentRuntime {
-    id: String,
-    #[serde(rename = "backendSessionId", default)]
-    backend_session_id: Option<String>,
-    #[serde(rename = "lastProcessedMessageId", default)]
-    last_processed_message_id: Option<String>,
-}
-
-impl CloudAgentRuntime {
-    fn into_row(self) -> AgentRuntimeRow {
-        AgentRuntimeRow {
-            id: self.id,
-            workspace_id: None,
-            backend_type: String::new(),
-            backend_session_id: self.backend_session_id,
-            status: String::new(),
-            last_processed_message_id: self.last_processed_message_id,
-        }
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -2052,7 +2030,9 @@ mod tests {
             .await;
         let be = CloudApiBackend::new(config(&server));
         assert_eq!(
-            be.fetch_session_cursor("session-1", "actor-1").await.unwrap(),
+            be.fetch_session_cursor("session-1", "actor-1")
+                .await
+                .unwrap(),
             Some("msg-7".to_string())
         );
     }
@@ -2072,13 +2052,12 @@ mod tests {
             .await;
         let be = CloudApiBackend::new(config(&server));
         assert_eq!(
-            be.fetch_session_cursor("session-1", "actor-1").await.unwrap(),
+            be.fetch_session_cursor("session-1", "actor-1")
+                .await
+                .unwrap(),
             None
         );
     }
-
-
-
 
     #[tokio::test]
     async fn list_agent_admin_member_actor_ids_returns_items() {

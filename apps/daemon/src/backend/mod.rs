@@ -54,9 +54,8 @@ pub mod deferred;
 
 pub mod records;
 pub use records::{
-    AgentRuntimeRow, AgentRuntimeUpsert, BackendParticipantRow, BackendSessionAndParticipants,
-    BackendSessionRow, ClaimResult, GatewaySessionRow, StoredMessage, WorkspaceRow,
-    WorkspaceUpsert,
+    BackendParticipantRow, BackendSessionAndParticipants, BackendSessionRow, ClaimResult,
+    GatewaySessionRow, StoredMessage, WorkspaceRow, WorkspaceUpsert,
 };
 
 /// MQTT settings delivered by `/v1/config/bootstrap`. The full broker URL

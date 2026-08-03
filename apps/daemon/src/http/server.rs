@@ -250,7 +250,8 @@ mod tests {
             None,
             None,
             None,
-            None)
+            None,
+        )
         .await
         .unwrap();
         let url = format!("http://{}/v1/healthz", handle.local_addr);
@@ -286,7 +287,8 @@ mod tests {
             None,
             None,
             None,
-            None)
+            None,
+        )
         .await
         .unwrap();
         let base = format!("http://{}", handle.local_addr);
@@ -339,7 +341,8 @@ mod tests {
             None,
             None,
             None,
-            None)
+            None,
+        )
         .await
         .unwrap();
         let base = format!("http://{}", handle.local_addr);
@@ -531,7 +534,8 @@ mod tests {
             None,
             None,
             None,
-            None)
+            None,
+        )
         .await
         .unwrap();
         let base = format!("http://{}", handle.local_addr);
@@ -612,7 +616,8 @@ mod tests {
             None,
             None,
             None,
-            None)
+            None,
+        )
         .await
         .unwrap();
         let base = format!("http://{}", handle.local_addr);
@@ -698,7 +703,8 @@ mod tests {
             None,
             None,
             None,
-            None)
+            None,
+        )
         .await
         .unwrap();
         let url = format!("http://{}/v1/info", handle.local_addr);
@@ -796,7 +802,8 @@ mod tests {
             None,
             None,
             None,
-            None)
+            None,
+        )
         .await
         .unwrap();
         let base = format!("http://{}", handle.local_addr);
@@ -896,7 +903,8 @@ mod tests {
             None,
             None,
             Some(rpc_tx),
-            None)
+            None,
+        )
         .await
         .unwrap();
         let base = format!("http://{}", handle.local_addr);

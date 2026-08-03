@@ -81,18 +81,20 @@ export async function loadAgentWorkspaceLookups(
   }
 
   if (sessionId.trim()) {
-    await Promise.all(
-      ids.map(async (agentId) => {
-        try {
-          const row = await backend.runtime.fetchLatestRuntimeForSession(agentId, sessionId)
-          if (!row?.workspace_id?.trim()) return
-          const existing = out.get(agentId)!
-          existing.sessionWorkspaceId = row.workspace_id
-        } catch {
-          // 404 / offline — fall through to defaults.
-        }
-      }),
-    )
+    // The participant row owns this agent's workspace for this session
+    // (ADR-0005) — one call for the whole session instead of one per agent
+    // against a team-wide runtime table.
+    try {
+      const participants = await backend.sessions.getSessionParticipants(sessionId)
+      for (const row of participants) {
+        const workspaceId = row.workspaceId?.trim()
+        if (!workspaceId) continue
+        const existing = out.get(row.actor_id)
+        if (existing) existing.sessionWorkspaceId = workspaceId
+      }
+    } catch {
+      // offline — fall through to defaults.
+    }
   }
 
   for (const row of actorRows) {

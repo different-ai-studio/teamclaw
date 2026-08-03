@@ -290,15 +290,9 @@ public struct RootTabView: View {
         guard let activeTeam, let runtime = teamRuntime else { return }
 
         let teamID = activeTeam.id
-        let runtimesRepoLocal = runtime.agentRuntimesRepo
         let workspacesRepoLocal = runtime.workspacesRepo
         let sessionsRepoLocal = runtime.sessionsRepo
         let sessionIDsRepoLocal = runtime.sessionIDsRepo
-
-        async let runtimesTask: [AgentRuntimeRecord]? = {
-            guard let repo = runtimesRepoLocal else { return nil }
-            return try? await repo.listForTeam(teamID: teamID)
-        }()
         async let workspacesTask: [WorkspaceRecord]? = {
             guard let repo = workspacesRepoLocal else { return nil }
             return try? await repo.listWorkspaces(teamID: teamID, agentID: nil)
@@ -317,13 +311,6 @@ public struct RootTabView: View {
                   let ids = try? await repo.listSessionIDs(teamID: teamID) {
             viewModel.validSessionIDs = ids
             viewModel.reloadSessions(modelContext: modelContext)
-        }
-
-        if let runtimes = await runtimesTask {
-            viewModel.syncAgentRuntimeRecords(runtimes, modelContext: modelContext)
-        }
-        if let workspaces = await workspacesTask {
-            viewModel.syncWorkspaceRecords(workspaces, modelContext: modelContext)
         }
     }
 }

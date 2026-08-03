@@ -5,8 +5,8 @@ use tracing::{info, warn};
 use uuid::Uuid;
 
 use super::agent_runtime_state::PerAgentRuntimeState;
-use super::builtin_commands::builtin_commands;
 use super::backend::{agent_type_for_local_agent, create_backend, AgentBackend};
+use super::builtin_commands::builtin_commands;
 use super::handle::RuntimeHandle;
 use super::refresh::RuntimeRefreshCoordinator;
 use std::sync::Arc;
@@ -669,7 +669,6 @@ impl RuntimeManager {
         self.seed_cursor_from_prior_runtime(&agent_id, remote_session_id)
             .await;
 
-
         Ok(agent_id)
     }
 
@@ -791,7 +790,6 @@ impl RuntimeManager {
 
         self.seed_cursor_from_prior_runtime(agent_id, remote_session_id)
             .await;
-
 
         Ok(new_acp_sid)
     }
@@ -2701,7 +2699,10 @@ mod tests {
         // paths agree.
         let mut mgr = RuntimeManager::test_dummy_with_runtime("rt-a");
         assert!(mgr.take_actor_state_dirty(), "attach marks it stale");
-        assert!(!mgr.take_actor_state_dirty(), "flag is consumed, not sticky");
+        assert!(
+            !mgr.take_actor_state_dirty(),
+            "flag is consumed, not sticky"
+        );
 
         mgr.stop_runtime("rt-a").await;
         assert!(mgr.take_actor_state_dirty(), "detach marks it stale too");

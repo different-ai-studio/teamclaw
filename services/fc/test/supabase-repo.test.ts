@@ -938,79 +938,8 @@ test("getWorkspaceConfig returns nulls when both rows absent", async () => {
   });
 });
 
-test("upsertAgentRuntime derives team_id from actor when body omits teamId", async () => {
-  const tableCalls = [];
-  const repo = createRepo(fakeSupabase({
-    tableCalls,
-    tableData: {
-      actors: [{ team_id: "team-9" }],
-      agent_runtimes: [{ id: "rt-1" }],
-    },
-  }));
 
-  const result = await repo.upsertAgentRuntime({
-    // teamId intentionally omitted (the daemon does not send it)
-    agentActorId: "agent-1",
-    sessionId: "sess-1",
-    runtimeId: "rtid-1",
-    backendSessionId: "bsid-1",
-    backendType: "claude",
-    status: "running",
-  });
 
-  assert.equal(result.id, "rt-1");
-  // Looked up team_id from the actors table under the caller's RLS.
-  const actorLookup = tableCalls.find((c) => c.table === "actors" && c.op === "select");
-  assert.ok(actorLookup, "expected an actors select for team_id derivation");
-  const upsert = tableCalls.find((c) => c.table === "agent_runtimes" && c.op === "upsert");
-  assert.ok(upsert, "expected an agent_runtimes upsert");
-  assert.equal(upsert.row.team_id, "team-9");
-  assert.equal(upsert.row.agent_id, "agent-1");
-  assert.deepEqual(upsert.options, { onConflict: "agent_id,backend_session_id" });
-});
-
-test("upsertAgentRuntime prefers explicit body.teamId without an actor lookup", async () => {
-  const tableCalls = [];
-  const repo = createRepo(fakeSupabase({
-    tableCalls,
-    // No actors row provided; if the code looked it up it would fail to resolve.
-    tableData: { agent_runtimes: [{ id: "rt-2" }] },
-  }));
-
-  const result = await repo.upsertAgentRuntime({
-    teamId: "team-explicit",
-    agentActorId: "agent-2",
-    sessionId: "sess-2",
-    runtimeId: "rtid-2",
-    backendSessionId: "bsid-2",
-  });
-
-  assert.equal(result.id, "rt-2");
-  assert.equal(tableCalls.some((c) => c.table === "actors"), false, "should not query actors when teamId is given");
-  const upsert = tableCalls.find((c) => c.table === "agent_runtimes" && c.op === "upsert");
-  assert.equal(upsert.row.team_id, "team-explicit");
-  assert.deepEqual(upsert.options, { onConflict: "agent_id,backend_session_id" });
-});
-
-test("upsertAgentRuntime throws 400 missing_team when team cannot be resolved", async () => {
-  const repo = createRepo(fakeSupabase({
-    tableData: {
-      actors: [], // actor not visible -> no team_id
-      agent_runtimes: [{ id: "rt-x" }],
-    },
-  }));
-
-  await assert.rejects(
-    () =>
-      repo.upsertAgentRuntime({
-        agentActorId: "agent-missing",
-        sessionId: "sess-3",
-        runtimeId: "rtid-3",
-        backendSessionId: "bsid-3",
-      }),
-    (err: any) => err.statusCode === 400 && err.code === "missing_team",
-  );
-});
 
 function fakeSupabase({
   rpcCalls = [],

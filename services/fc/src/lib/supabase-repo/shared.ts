@@ -371,24 +371,6 @@ export function mapShortcutRow(row) {
   };
 }
 
-export function mapAgentRuntimeRow(row) {
-  return {
-    id: requiredString(row?.id, "agentRuntimes.mapAgentRuntimeRow", "id"),
-    agentActorId: requiredString(row?.agent_id, "agentRuntimes.mapAgentRuntimeRow", "agent_id"),
-    sessionId: row?.session_id ?? null,
-    runtimeId: row?.runtime_id ?? null,
-    backendSessionId: row?.backend_session_id ?? null,
-    teamId: row?.team_id ?? null,
-    backendType: row?.backend_type ?? null,
-    status: row?.status ?? null,
-    workspaceId: row?.workspace_id ?? null,
-    currentModel: row?.current_model ?? null,
-    lastSeenAt: row?.last_seen_at ?? null,
-    lastProcessedMessageId: row?.last_processed_message_id ?? null,
-    createdAt: row?.created_at ?? null,
-    updatedAt: row?.updated_at ?? null,
-  };
-}
 
 export function mapIdeaActivityRow(row) {
   const kind = row?.kind ?? row?.activity_type;

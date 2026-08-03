@@ -13,8 +13,7 @@ use tokio::sync::{mpsc, oneshot};
 use tracing::{debug, error, info, warn};
 
 use crate::backend::{
-    credential_in_proactive_refresh_window, proactive_reconnect_delay, AgentRuntimeUpsert, Backend,
-    WorkspaceUpsert,
+    credential_in_proactive_refresh_window, proactive_reconnect_delay, Backend, WorkspaceUpsert,
 };
 use crate::channels::{AmuxdAgentHandle, AmuxdChannelStore, ChannelManager};
 use crate::collab::{AuthManager, AuthResult, PeerState, PeerTracker, PermissionManager};

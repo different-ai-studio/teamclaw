@@ -455,7 +455,9 @@ impl DaemonConfig {
 
     /// Concurrent-attachment ceiling, defaulted.
     pub fn max_attachments(&self) -> usize {
-        self.max_attachments.unwrap_or(DEFAULT_MAX_ATTACHMENTS).max(1)
+        self.max_attachments
+            .unwrap_or(DEFAULT_MAX_ATTACHMENTS)
+            .max(1)
     }
 }
 

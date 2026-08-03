@@ -591,23 +591,6 @@ function contractRepo() {
       if (!entry) return null;
       return { mime: entry.mime, bytes: entry.bytes };
     },
-    async upsertAgentRuntime(body) {
-      const id = body.id ?? "runtime-new";
-      runtimeStore[id] = body;
-      return { id };
-    },
-    async getAgentRuntime({ sessionId, runtimeId, backendSessionId }: any) {
-      const entry: any = Object.values(runtimeStore).find((r: any) =>
-        r.sessionId === sessionId &&
-        (runtimeId === undefined || r.runtimeId === runtimeId) &&
-        (backendSessionId === undefined || r.backendSessionId === backendSessionId)
-      );
-      return entry ? { ...entry, id: entry.id ?? "runtime-1" } : null;
-    },
-    async getLatestAgentRuntime({ agentId, sessionId }) {
-      return null;
-    },
-    async updateRuntimeCursor(runtimeRowId, { lastProcessedMessageId }) {},
     async ensureAgentTypes({ supportedTypes, defaultAgentType }) {},
     async submitFeedback(body) {
       const row = {

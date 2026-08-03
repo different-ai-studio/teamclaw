@@ -1,4 +1,6 @@
 import * as React from 'react'
+import { runtimeHintsForAgents } from '@/lib/runtime-state-resolve'
+import { attachmentsForSession } from '@/stores/runtime-state-store'
 import { useTranslation } from 'react-i18next'
 import { AtSign, Loader2, Search, Users, User as UserIcon, Sparkles, X } from 'lucide-react'
 import {
@@ -382,7 +384,6 @@ export function SessionActorPanel({ sessionId, teamId }: SessionActorPanelProps)
   const [loading, setLoading] = React.useState(false)
   const [error, setError] = React.useState(false)
   const [rows, setRows] = React.useState<Row[]>([])
-  const [agentToRuntimeId, setAgentToRuntimeId] = React.useState<Map<string, string>>(new Map())
   const [myActorId, setMyActorId] = React.useState<string | null>(null)
   const [pendingRemove, setPendingRemove] = React.useState<Row | null>(null)
   const [candidateActors, setCandidateActors] = React.useState<CandidateActor[]>([])
@@ -397,7 +398,6 @@ export function SessionActorPanel({ sessionId, teamId }: SessionActorPanelProps)
     // rows visible until the new fetch lands (or forever, if the new
     // session is null/empty).
     setRows([])
-    setAgentToRuntimeId(new Map())
     setMyActorId(null)
     setError(false)
     setCandidateActors([])
@@ -450,7 +450,6 @@ export function SessionActorPanel({ sessionId, teamId }: SessionActorPanelProps)
     ) {
       setRows(actorRows)
       setCandidateActors(candidates)
-      if (actorIds.length === 0) setAgentToRuntimeId(new Map())
     }
 
     void (async () => {
@@ -600,19 +599,8 @@ export function SessionActorPanel({ sessionId, teamId }: SessionActorPanelProps)
         }
         if (cancelled) return
 
-        const [runtimeRows, authSession] = await Promise.all([
-          teamId ? getBackend().runtime.listLatestAgentRuntimeHints(teamId, finalActorIds) : Promise.resolve([]),
-          getBackend().auth.getSession(),
-        ])
+        const authSession = await getBackend().auth.getSession()
         if (cancelled) return
-
-        const runtimeMap = new Map<string, string>()
-        for (const r of runtimeRows) {
-          if (r.session_id === sessionId && r.agent_id && r.runtime_id && !runtimeMap.has(r.agent_id)) {
-            runtimeMap.set(r.agent_id, r.runtime_id)
-          }
-        }
-        setAgentToRuntimeId(runtimeMap)
 
         const user = authSession?.user
         if (user && teamId && finalActorIds.length > 0) {
@@ -689,7 +677,10 @@ export function SessionActorPanel({ sessionId, teamId }: SessionActorPanelProps)
       }
 
       // 2. Resolve cloud workspace id for this agent (path resolved on target daemon).
-      const priorRows = await getBackend().runtime.listLatestAgentRuntimeHints(teamId, [candidate.id])
+      const priorRows = runtimeHintsForAgents(
+        [candidate.id],
+        useRuntimeStateStore.getState().byRuntimeId,
+      )
       const workspaceLookups = await loadAgentWorkspaceLookups(teamId, sessionId, [candidate.id]).catch(() => new Map())
       const workspaceId = resolveAgentRuntimeWorkspaceId(
         workspaceLookups.get(candidate.id) ?? {},
@@ -792,8 +783,13 @@ export function SessionActorPanel({ sessionId, teamId }: SessionActorPanelProps)
                       {t('chat.actorSheet.agentSection', 'AGENT')} <span className="font-mono">· {agents.length}</span>
                     </div>
                     {agents.map((a) => {
-                      const runtimeId = agentToRuntimeId.get(a.id)
-                      const info = runtimeId ? runtimeStates[runtimeId]?.info : undefined
+                      // Look the attachment up by (actor, session), not by the
+                      // runtime id: that id is the command address, while the
+                      // store is keyed so two machines serving one session do
+                      // not evict each other.
+                      const info = attachmentsForSession(sessionId ?? '', runtimeStates).find(
+                        (e) => e.daemonActorId === a.id,
+                      )?.info
                       return (
                       <ActorRowView
                         key={a.id}

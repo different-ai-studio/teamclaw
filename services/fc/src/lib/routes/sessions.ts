@@ -95,12 +95,6 @@ export function registerSessions(router) {
   // GET /v1/sessions?teamId=… instead, which is paginated and carries the same
   // display-row fields.
 
-  router.get("/v1/teams/:teamId/agent-runtimes", async (ctx) => {
-    const teamId = decodeURIComponent(ctx.params.teamId);
-    const items = await ctx.repository.listAgentRuntimesForTeam(teamId);
-    return { body: { items } };
-  });
-
   router.get("/v1/sessions/:sessionId/participants", async (ctx) => {
     const sessionId = decodeURIComponent(ctx.params.sessionId);
     const out = await ctx.repository.listSessionParticipants(sessionId);

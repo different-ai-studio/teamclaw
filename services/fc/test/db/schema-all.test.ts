@@ -8,7 +8,6 @@ import {
   workspaces,
   ideas, ideaActivities,
   agents, agentMemberAccess,
-  agentRuntimes,
   actorDirectory,
 } from "../../src/db/schema/index.js";
 import { sql } from "drizzle-orm";
@@ -106,13 +105,6 @@ test("new domain tables apply and accept rows", async () => {
   assert.ok(msg.id);
 
   // agent_runtime
-  const [rt] = await db.insert(agentRuntimes).values({
-    teamId: team.id,
-    agentId: agent.id,
-    backendType: "claude",
-    status: "running",
-  }).returning();
-  assert.ok(rt.id);
 });
 
 test("actor_directory view returns actor rows", async () => {

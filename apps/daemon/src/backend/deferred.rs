@@ -23,8 +23,7 @@ use async_trait::async_trait;
 use std::sync::{Arc, OnceLock};
 
 use super::records::{
-    AgentRuntimeRow, AgentRuntimeUpsert, BackendSessionAndParticipants, ClaimResult, StoredMessage,
-    WorkspaceRow, WorkspaceUpsert,
+    BackendSessionAndParticipants, ClaimResult, StoredMessage, WorkspaceRow, WorkspaceUpsert,
 };
 use super::{
     AgentDefaults, Backend, BackendError, BackendResult, BootstrapMqttOverride, CloudAuthSnapshot,
@@ -197,9 +196,10 @@ impl Backend for DeferredBackend {
         session_id: &str,
         actor_id: &str,
     ) -> BackendResult<Option<String>> {
-        self.inner()?.fetch_session_cursor(session_id, actor_id).await
+        self.inner()?
+            .fetch_session_cursor(session_id, actor_id)
+            .await
     }
-
 
     async fn ensure_agent_types(
         &self,

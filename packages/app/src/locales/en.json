@@ -1617,7 +1617,6 @@
       "empty": "No runtimes reported yet.",
       "live": "Live",
       "runtimeId": "Runtime ID",
-      "backend": "Backend",
       "model": "Model",
       "workspace": "Workspace",
       "session": "Session",
