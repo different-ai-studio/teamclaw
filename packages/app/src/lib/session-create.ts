@@ -340,7 +340,11 @@ export interface StartAgentRuntimesArgs {
   /** Applied to every agent when `modelIdByAgent` has no entry for that id. */
   modelId?: string
   modelIdByAgent?: Record<string, string>
-  /** Explicit cloud workspace UUID from send/outbox — highest lookup priority. */
+  /**
+   * Explicit cloud workspace UUID from send/outbox — highest lookup priority
+   * for the **local daemon agent only**. Remote agents ignore this and use
+   * their own participant/default/owned workspace lookup.
+   */
   workspaceIdHint?: string | null
   rpcTimeoutMs?: number
   /** Suppress workspace-layer toasts; caller surfaces failures. */
@@ -553,12 +557,13 @@ export async function startAgentRuntimesAsync(
       localDaemonActorId !== null && agentActorId === localDaemonActorId
 
     const baseLookup = workspaceLookups.get(agentActorId) ?? {}
+    const callerHint =
+      isLocalDaemonAgent ? args.workspaceIdHint?.trim() || undefined : undefined
     const workspaceLookup = {
       ...baseLookup,
-      ...(args.workspaceIdHint?.trim() ? { callerWorkspaceId: args.workspaceIdHint } : {}),
+      ...(callerHint ? { callerWorkspaceId: callerHint } : {}),
     }
     let workspaceId = ''
-    const callerHint = args.workspaceIdHint?.trim()
     const sessionWorkspaceId = baseLookup.sessionWorkspaceId?.trim()
     if (callerHint) {
       workspaceId = resolveAgentRuntimeWorkspaceId(workspaceLookup)
