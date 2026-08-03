@@ -1,0 +1,935 @@
+//! `amuxd manage` — interactive headless configuration (LLM + team share).
+//!
+//! Uses dialoguer menus/forms so a server without a GUI or browser can configure
+//! the same stores the desktop setup UI writes to.
+
+use std::path::{Path, PathBuf};
+
+use dialoguer::{theme::ColorfulTheme, Confirm, Input, Password, Select};
+use serde::Deserialize;
+
+use crate::backend::Backend;
+use crate::config::{
+    encode_workspace_path, workspace_path::listable_local_workspace, AgentBackendConfig,
+    DaemonConfig, OpenCodeCompatStore, ProviderAuthRequest, ProviderModelConfig,
+    WorkspaceControlStore,
+};
+use crate::daemon::backend_from_provider_config;
+use crate::provider_config::ProviderConfig;
+use crate::sync::oss::state::LocalSyncState;
+use crate::sync::secret_store::{mask_secret, SecretStore, TeamSecrets, validate_team_secret};
+
+/// One cloud-registered workspace that exists on this machine (same filter as
+/// `GET /v1/workspaces`).
+#[derive(Debug, Clone)]
+struct RegisteredWorkspace {
+    path: PathBuf,
+    display_name: String,
+    is_default: bool,
+    #[allow(dead_code)]
+    workspace_id: String,
+}
+
+pub fn run() -> anyhow::Result<()> {
+    let theme = ColorfulTheme::default();
+    loop {
+        println!();
+        print_header();
+        let choice = Select::with_theme(&theme)
+            .with_prompt("Choose an action")
+            .items(&[
+                "Status overview",
+                "Agent runtime (install & default)",
+                "LLM provider",
+                "Team share secrets",
+                "Sync status / trigger",
+                "Quit",
+            ])
+            .default(0)
+            .interact()?;
+
+        match choice {
+            0 => show_status()?,
+            1 => agent_runtime_menu(&theme)?,
+            2 => llm_menu(&theme)?,
+            3 => team_secrets_menu(&theme)?,
+            4 => sync_menu(&theme)?,
+            _ => break,
+        }
+    }
+    Ok(())
+}
+
+fn print_header() {
+    println!("amuxd manage — headless daemon configuration");
+    println!("Onboarding stays on `amuxd init`; use this for agent runtime, LLM + team share.");
+}
+
+fn show_status() -> anyhow::Result<()> {
+    let config_path = DaemonConfig::default_path();
+    let onboarded = match DaemonConfig::load(&config_path) {
+        Ok(cfg) => {
+            println!("Onboarded: yes");
+            if !cfg.actor.id.trim().is_empty() {
+                println!("  actor_id: {}", cfg.actor.id);
+            }
+            if let Some(team) = cfg.team_id.as_deref() {
+                println!("  team_id:  {team}");
+            }
+            println!("  actor name: {}", cfg.actor.name);
+            true
+        }
+        Err(e) => {
+            println!("Onboarded: no ({e})");
+            false
+        }
+    };
+
+    match daemon_pid() {
+        Some(pid) => println!("Daemon:    running (pid {pid})"),
+        None => println!("Daemon:    not running"),
+    }
+
+    if let Ok((cfg, _)) = load_daemon_config() {
+        println!("Local agent: {}", cfg.agents.local_agent);
+    }
+
+    let doctor = crate::opencode_install::doctor();
+    println!(
+        "opencode:  {} ({})",
+        if doctor.opencode.satisfied { "ready" } else { "missing" },
+        doctor
+            .opencode
+            .version
+            .as_deref()
+            .unwrap_or("(not installed)")
+    );
+    println!(
+        "git:       {} ({})",
+        if doctor.git.present { "ready" } else { "missing" },
+        doctor.git.version.as_deref().unwrap_or("(not installed)")
+    );
+
+    if onboarded {
+        match fetch_registered_workspaces() {
+            Ok(workspaces) if workspaces.is_empty() => {
+                println!("Workspaces: none registered on this machine (add one in Desktop → Daemon → Workspace)");
+            }
+            Ok(workspaces) => {
+                println!("Registered workspaces:");
+                for w in &workspaces {
+                    let tag = if w.is_default { " [default]" } else { "" };
+                    println!("  - {}{}: {}", w.display_name, tag, w.path.display());
+                    print_workspace_llm_summary(&w.path, "    ");
+                }
+            }
+            Err(e) => println!("Workspaces: could not load from cloud ({e})"),
+        }
+
+        if let Ok(team_id) = resolve_team_id(None) {
+            let secrets = SecretStore::new();
+            if let Ok(s) = secrets.load(&team_id) {
+                println!("Team secret:    {}", mask_secret(s.oss_team_secret.as_deref()));
+                println!("Git credential: {}", mask_secret(s.git_credential.as_deref()));
+                println!(
+                    "Git branch:     {}",
+                    s.git_branch.as_deref().unwrap_or("(unset)")
+                );
+            }
+        }
+    }
+
+    Ok(())
+}
+
+/// Headless-friendly agent options for `agents.local_agent`.
+const LOCAL_AGENT_CHOICES: &[(&str, &str)] = &[
+    ("opencode", "OpenCode — default, recommended for Linux servers"),
+    ("pi", "pi — requires npm or bun on the host"),
+    (
+        "claude-code",
+        "Claude Code CLI — requires `claude` on PATH",
+    ),
+];
+
+fn agent_runtime_menu(theme: &ColorfulTheme) -> anyhow::Result<()> {
+    loop {
+        let (cfg, _) = load_daemon_config()?;
+        print_agent_runtime_status(&cfg);
+
+        let choice = Select::with_theme(theme)
+            .with_prompt("Agent runtime")
+            .items(&[
+                "Refresh status",
+                "Install / update OpenCode",
+                "Install / update pi",
+                "Set default agent (agents.local_agent)",
+                "Back",
+            ])
+            .default(0)
+            .interact()?;
+
+        match choice {
+            0 => continue,
+            1 => install_opencode_interactive(theme)?,
+            2 => install_pi_interactive(theme)?,
+            3 => set_local_agent_interactive(theme)?,
+            _ => break,
+        }
+    }
+    Ok(())
+}
+
+fn print_agent_runtime_status(cfg: &DaemonConfig) {
+    println!();
+    println!("Default agent: {}", cfg.agents.local_agent);
+    let doctor = crate::opencode_install::doctor();
+    print_component_status(
+        "OpenCode",
+        doctor.opencode.present,
+        doctor.opencode.version.as_deref(),
+        doctor.opencode.path.as_deref(),
+    );
+    if cfg.agents.local_agent == "pi" {
+        let pi = crate::pi_install::doctor();
+        print_component_status(
+            "pi",
+            pi.present,
+            pi.version.as_deref(),
+            pi.path.as_deref(),
+        );
+        if !pi.satisfied {
+            println!("  required pi version: {}", pi.required_version);
+        }
+    }
+    if matches!(
+        cfg.agents.local_agent.as_str(),
+        "claude" | "claude-code" | "claude_code"
+    ) {
+        let claude = crate::claude_install::doctor();
+        print_component_status(
+            "Claude CLI",
+            claude.binary_present,
+            claude.version.as_deref(),
+            Some(claude.binary.as_str()),
+        );
+    }
+    print_component_status(
+        "git",
+        doctor.git.present,
+        doctor.git.version.as_deref(),
+        None,
+    );
+    println!();
+}
+
+fn print_component_status(name: &str, present: bool, version: Option<&str>, path: Option<&str>) {
+    let state = if present { "ready" } else { "missing" };
+    let ver = version.unwrap_or("(not installed)");
+    match path {
+        Some(p) => println!("{name}: {state} ({ver}) @ {p}"),
+        None => println!("{name}: {state} ({ver})"),
+    }
+}
+
+fn install_opencode_interactive(theme: &ColorfulTheme) -> anyhow::Result<()> {
+    let doctor = crate::opencode_install::doctor();
+    let force = if doctor.opencode.present {
+        Confirm::with_theme(theme)
+            .with_prompt("OpenCode is already installed — re-download the latest release?")
+            .default(false)
+            .interact()?
+    } else {
+        println!("OpenCode is not installed — downloading the latest release…");
+        false
+    };
+    crate::opencode_install::run_install(force)?;
+    let after = crate::opencode_install::doctor();
+    if after.opencode.present {
+        println!("✓ OpenCode ready.");
+        ensure_opencode_agent_section()?;
+        println!("  Restart the daemon if it is already running.");
+    }
+    Ok(())
+}
+
+fn install_pi_interactive(theme: &ColorfulTheme) -> anyhow::Result<()> {
+    let pi = crate::pi_install::doctor();
+    let force = if pi.present {
+        Confirm::with_theme(theme)
+            .with_prompt("pi is already installed — reinstall / upgrade to the required version?")
+            .default(false)
+            .interact()?
+    } else {
+        println!("pi is not installed — installing via npm/bun…");
+        false
+    };
+    crate::pi_install::run_install(force)?;
+    let after = crate::pi_install::doctor();
+    if after.satisfied {
+        println!("✓ pi ready (>= {}).", after.required_version);
+        println!("  Set default agent to pi if you want to use it.");
+    } else {
+        println!("pi install finished but version check did not pass — run `amuxd doctor`.");
+    }
+    Ok(())
+}
+
+fn set_local_agent_interactive(theme: &ColorfulTheme) -> anyhow::Result<()> {
+    let (mut cfg, path) = load_daemon_config()?;
+    let labels: Vec<String> = LOCAL_AGENT_CHOICES
+        .iter()
+        .map(|(_, label)| label.to_string())
+        .collect();
+    let current_idx = LOCAL_AGENT_CHOICES
+        .iter()
+        .position(|(id, _)| *id == cfg.agents.local_agent)
+        .unwrap_or(0);
+    let idx = Select::with_theme(theme)
+        .with_prompt("Default agent (agents.local_agent)")
+        .items(&labels)
+        .default(current_idx)
+        .interact()?;
+    let selected = LOCAL_AGENT_CHOICES[idx].0;
+
+    match selected {
+        "opencode" if !crate::opencode_install::doctor().opencode.present => {
+            if Confirm::with_theme(theme)
+                .with_prompt("OpenCode is not installed yet — install it now?")
+                .default(true)
+                .interact()?
+            {
+                install_opencode_interactive(theme)?;
+            } else {
+                println!("You can install later from this menu.");
+            }
+        }
+        "pi" if !crate::pi_install::doctor().satisfied => {
+            if Confirm::with_theme(theme)
+                .with_prompt("pi is not installed (or too old) — install it now?")
+                .default(true)
+                .interact()?
+            {
+                install_pi_interactive(theme)?;
+            } else {
+                println!("You can install later from this menu.");
+            }
+        }
+        "claude-code" if !crate::claude_install::doctor().binary_present => {
+            println!("Warning: Claude CLI not detected on PATH.");
+            if !Confirm::with_theme(theme)
+                .with_prompt("Set claude-code anyway?")
+                .default(false)
+                .interact()?
+            {
+                return Ok(());
+            }
+        }
+        _ => {}
+    }
+
+    cfg.agents.local_agent = selected.to_string();
+    ensure_opencode_section(&mut cfg);
+    cfg.save(&path).map_err(|e| anyhow::anyhow!("save {}: {e}", path.display()))?;
+    println!("✓ Default agent set to {selected}.");
+    println!("  Restart the daemon (`amuxd stop && amuxd start`) to apply.");
+    Ok(())
+}
+
+fn load_daemon_config() -> anyhow::Result<(DaemonConfig, PathBuf)> {
+    let path = DaemonConfig::default_path();
+    let cfg = DaemonConfig::load_or_bootstrap(&path)
+        .map_err(|e| anyhow::anyhow!("load {}: {e}", path.display()))?;
+    Ok((cfg, path))
+}
+
+/// After installing OpenCode, merge `[agents.opencode]` into daemon.toml.
+fn ensure_opencode_agent_section() -> anyhow::Result<()> {
+    let (mut cfg, path) = load_daemon_config()?;
+    ensure_opencode_section(&mut cfg);
+    if cfg.agents.opencode.is_some() {
+        cfg.save(&path)
+            .map_err(|e| anyhow::anyhow!("save {}: {e}", path.display()))?;
+        println!("✓ Updated [agents.opencode] in {}.", path.display());
+    }
+    Ok(())
+}
+
+fn ensure_opencode_section(cfg: &mut DaemonConfig) {
+    crate::agent_discover::discover_and_merge(cfg);
+    if cfg.agents.local_agent == "opencode" && cfg.agents.opencode.is_none() {
+        cfg.agents.opencode = Some(AgentBackendConfig {
+            binary: crate::opencode_install::resolve_binary(None),
+            default_flags: vec!["acp".to_string()],
+        });
+    }
+}
+
+fn llm_menu(theme: &ColorfulTheme) -> anyhow::Result<()> {
+    let workspace = pick_workspace(theme)?;
+    let ws_id = encode_workspace_path(&workspace)?;
+    let store = OpenCodeCompatStore::new();
+
+    loop {
+        let choice = Select::with_theme(theme)
+            .with_prompt(format!("LLM · {}", workspace.display()))
+            .items(&[
+                "List providers",
+                "Add / update provider",
+                "Remove provider",
+                "Set default model",
+                "Back",
+            ])
+            .default(0)
+            .interact()?;
+
+        match choice {
+            0 => {
+                let providers = store.get_providers(&ws_id)?;
+                if providers.is_empty() {
+                    println!("No providers configured.");
+                } else {
+                    for p in providers {
+                        println!(
+                            "{} · {} · {} · models [{}]",
+                            p.id,
+                            p.display_name,
+                            if p.authenticated { "key set" } else { "no key" },
+                            p.models.join(", ")
+                        );
+                    }
+                }
+                if let Some(model) = read_default_model(&workspace)? {
+                    println!("Default model: {model}");
+                }
+            }
+            1 => {
+                let provider_id: String = Input::with_theme(theme)
+                    .with_prompt("Provider ID (e.g. selfhost)")
+                    .interact_text()?;
+                let provider_id = provider_id.trim().to_string();
+                if provider_id.is_empty() {
+                    anyhow::bail!("provider ID must not be empty");
+                }
+
+                let display_name: String = Input::with_theme(theme)
+                    .with_prompt("Display name")
+                    .default(provider_id.clone())
+                    .interact_text()?;
+                let base_url: String = Input::with_theme(theme)
+                    .with_prompt("Base URL (OpenAI-compatible)")
+                    .interact_text()?;
+                let api_key = Password::with_theme(theme)
+                    .with_prompt("API key")
+                    .interact()?;
+                let models_raw: String = Input::with_theme(theme)
+                    .with_prompt("Model IDs (comma-separated)")
+                    .interact_text()?;
+
+                let models: Vec<ProviderModelConfig> = models_raw
+                    .split(',')
+                    .map(|s| s.trim())
+                    .filter(|s| !s.is_empty())
+                    .map(|id| ProviderModelConfig {
+                        model_id: id.to_owned(),
+                        model_name: None,
+                    })
+                    .collect();
+                if models.is_empty() {
+                    anyhow::bail!("at least one model ID is required");
+                }
+
+                let outcome = store.put_provider_auth(
+                    &ws_id,
+                    &provider_id,
+                    ProviderAuthRequest {
+                        api_key,
+                        base_url: Some(base_url),
+                        display_name: Some(display_name),
+                        models,
+                    },
+                )?;
+                println!("✓ Provider '{provider_id}' saved ({outcome:?}).");
+                if matches!(outcome, crate::config::ApplyOutcome::RestartRequired) {
+                    println!("  Restart the daemon (`amuxd stop && amuxd start`) to pick up LLM changes.");
+                }
+            }
+            2 => {
+                let providers = store.get_providers(&ws_id)?;
+                if providers.is_empty() {
+                    println!("No providers to remove.");
+                    continue;
+                }
+                let labels: Vec<String> = providers.iter().map(|p| p.id.clone()).collect();
+                let idx = Select::with_theme(theme)
+                    .with_prompt("Remove which provider?")
+                    .items(&labels)
+                    .interact()?;
+                let id = &labels[idx];
+                if Confirm::with_theme(theme)
+                    .with_prompt(format!("Remove provider '{id}'?"))
+                    .default(false)
+                    .interact()?
+                {
+                    store.delete_provider_auth(&ws_id, id)?;
+                    println!("✓ Removed '{id}'.");
+                }
+            }
+            3 => {
+                let providers = store.get_providers(&ws_id)?;
+                if providers.is_empty() {
+                    println!("Configure a provider first.");
+                    continue;
+                }
+                let mut options: Vec<String> = Vec::new();
+                for p in &providers {
+                    for m in &p.models {
+                        options.push(format!("{}/{}", p.id, m));
+                    }
+                }
+                if options.is_empty() {
+                    println!("No models on configured providers.");
+                    continue;
+                }
+                let idx = Select::with_theme(theme)
+                    .with_prompt("Default model")
+                    .items(&options)
+                    .interact()?;
+                set_default_model(&workspace, &options[idx])?;
+                println!("✓ Default model set to {}.", options[idx]);
+            }
+            _ => break,
+        }
+    }
+    Ok(())
+}
+
+fn team_secrets_menu(theme: &ColorfulTheme) -> anyhow::Result<()> {
+    let team_id = resolve_team_id(None)?;
+    let store = SecretStore::new();
+    let current = store.load(&team_id).unwrap_or_default();
+
+    println!("Team: {team_id}");
+    println!("  team_secret:    {}", mask_secret(current.oss_team_secret.as_deref()));
+    println!("  git_credential: {}", mask_secret(current.git_credential.as_deref()));
+    println!(
+        "  git_branch:     {}",
+        current.git_branch.as_deref().unwrap_or("(unset)")
+    );
+    println!();
+    println!("Leave a field blank to keep the stored value.");
+
+    let team_secret = prompt_optional_secret(theme, "Team secret (64 hex chars)")?;
+    if let Some(ref s) = team_secret {
+        validate_team_secret(s).map_err(|e| anyhow::anyhow!("team secret: {e}"))?;
+    }
+
+    let git_credential = prompt_optional_secret(theme, "Git credential (user:token or SSH key PEM)")?;
+    let git_branch: String = Input::with_theme(theme)
+        .with_prompt("Git branch")
+        .allow_empty(true)
+        .default(current.git_branch.clone().unwrap_or_default())
+        .interact_text()?;
+    let git_branch = git_branch.trim().to_string();
+
+    if team_secret.is_none() && git_credential.is_none() && git_branch.is_empty() {
+        println!("Nothing to save.");
+        return Ok(());
+    }
+
+    let incoming = TeamSecrets {
+        oss_team_secret: team_secret,
+        user_jwt: None,
+        git_credential,
+        git_branch: if git_branch.is_empty() {
+            None
+        } else {
+            Some(git_branch)
+        },
+    };
+    store
+        .merge(&team_id, &incoming)
+        .map_err(|e| anyhow::anyhow!("{e}"))?;
+    println!("✓ Secrets updated for team {team_id}.");
+    println!("  Restart the daemon so the sync timer picks up workspace changes.");
+
+    Ok(())
+}
+
+fn sync_menu(theme: &ColorfulTheme) -> anyhow::Result<()> {
+    let workspace = pick_workspace(theme)?;
+    let team_id = resolve_team_id(None)?;
+    let sync_info = LocalSyncState::load(&workspace.to_string_lossy(), &team_id).ok();
+    println!("Workspace: {}", workspace.display());
+    println!("Team:      {team_id}");
+    if sync_info
+        .as_ref()
+        .map(|s| s.last_sync_at.is_empty())
+        .unwrap_or(true)
+    {
+        println!("Last sync: (never recorded locally)");
+    } else if let Some(state) = &sync_info {
+        println!("Last sync: {}", state.last_sync_at);
+        println!("Server seq: {}", state.last_server_seq);
+        println!("Tracked files: {}", state.files.len());
+    }
+
+    if daemon_pid().is_none() {
+        println!();
+        println!("Daemon is not running — start it with `amuxd start` before triggering sync.");
+        return Ok(());
+    }
+
+    if !Confirm::with_theme(theme)
+        .with_prompt("Trigger a sync now?")
+        .default(false)
+        .interact()?
+    {
+        return Ok(());
+    }
+
+    match trigger_sync_via_http(&workspace, &team_id) {
+        Ok(status) => {
+            println!("✓ Sync finished.");
+            if let Some(mode) = status.mode {
+                println!("  mode: {mode}");
+            }
+            if !status.last_sync_at.is_empty() {
+                println!("  last_sync_at: {}", status.last_sync_at);
+            }
+            println!(
+                "  pulled {} · pushed {} · conflicts {}",
+                status.pulled, status.pushed, status.conflicts
+            );
+            if let Some(err) = status.last_error.filter(|e| !e.trim().is_empty()) {
+                println!("  last_error: {err}");
+            }
+        }
+        Err(e) => println!("Sync failed: {e}"),
+    }
+    Ok(())
+}
+
+fn pick_workspace(theme: &ColorfulTheme) -> anyhow::Result<PathBuf> {
+    let workspaces = match fetch_registered_workspaces() {
+        Ok(w) => w,
+        Err(e) => {
+            eprintln!("Could not load workspaces from cloud: {e}");
+            Vec::new()
+        }
+    };
+
+    if workspaces.is_empty() {
+        println!("No registered workspaces on this machine.");
+        return prompt_manual_workspace(theme);
+    }
+
+    let mut labels: Vec<String> = workspaces
+        .iter()
+        .map(|w| {
+            let tag = if w.is_default { "[default] " } else { "" };
+            format!("{}{} — {}", tag, w.display_name, w.path.display())
+        })
+        .collect();
+    labels.push("Enter path manually…".to_string());
+
+    let default_idx = workspaces
+        .iter()
+        .position(|w| w.is_default)
+        .unwrap_or(0);
+
+    let idx = Select::with_theme(theme)
+        .with_prompt("Select workspace")
+        .items(&labels)
+        .default(default_idx)
+        .interact()?;
+
+    if idx == workspaces.len() {
+        return prompt_manual_workspace(theme);
+    }
+    Ok(workspaces[idx].path.clone())
+}
+
+fn prompt_manual_workspace(theme: &ColorfulTheme) -> anyhow::Result<PathBuf> {
+    let raw: String = Input::with_theme(theme)
+        .with_prompt("Workspace path (absolute)")
+        .interact_text()?;
+    let path = expand_home_path(raw.trim());
+    if !path.is_dir() {
+        anyhow::bail!("not a directory: {}", path.display());
+    }
+    if !crate::config::workspace_path::is_linkable_workspace_path(&path.to_string_lossy()) {
+        anyhow::bail!(
+            "workspace path must not be under ~/.amuxd (daemon config dir): {}",
+            path.display()
+        );
+    }
+    Ok(path)
+}
+
+fn expand_home_path(raw: &str) -> PathBuf {
+    if raw == "~" {
+        return dirs::home_dir().unwrap_or_else(|| PathBuf::from(raw));
+    }
+    if let Some(rest) = raw.strip_prefix("~/") {
+        if let Some(home) = dirs::home_dir() {
+            return home.join(rest);
+        }
+    }
+    PathBuf::from(raw)
+}
+
+fn fetch_registered_workspaces() -> anyhow::Result<Vec<RegisteredWorkspace>> {
+    let rt = tokio::runtime::Runtime::new()?;
+    rt.block_on(fetch_registered_workspaces_async())
+}
+
+async fn fetch_registered_workspaces_async() -> anyhow::Result<Vec<RegisteredWorkspace>> {
+    let backend_path = ProviderConfig::default_path()
+        .map_err(|e| anyhow::anyhow!("backend config path: {e}"))?;
+    let provider_config = ProviderConfig::load_from_path(&backend_path)
+        .map_err(|e| anyhow::anyhow!("load {}: {e}", backend_path.display()))?;
+    let backend = backend_from_provider_config(provider_config)
+        .map_err(|e| anyhow::anyhow!("cloud backend: {e}"))?;
+
+    let team_id = backend.team_id().to_string();
+    let actor_id = backend.actor_id().to_string();
+    if team_id.trim().is_empty() {
+        anyhow::bail!("no team_id in backend.toml");
+    }
+
+    let default_id = backend
+        .get_agent_defaults(&actor_id)
+        .await
+        .ok()
+        .and_then(|d| d.default_workspace_id);
+
+    let rows = backend
+        .get_workspaces_by_agent(&team_id, &actor_id)
+        .await
+        .map_err(|e| anyhow::anyhow!("get workspaces: {e}"))?;
+
+    let mut out = Vec::new();
+    for row in rows {
+        let Some((path, display_name)) = listable_local_workspace(&row) else {
+            continue;
+        };
+        out.push(RegisteredWorkspace {
+            path: PathBuf::from(path),
+            display_name,
+            is_default: default_id.as_deref() == Some(row.id.as_str()),
+            workspace_id: row.id,
+        });
+    }
+    out.sort_by(|a, b| {
+        b.is_default
+            .cmp(&a.is_default)
+            .then_with(|| a.path.cmp(&b.path))
+    });
+    Ok(out)
+}
+
+fn print_workspace_llm_summary(workspace: &Path, indent: &str) {
+    let Ok(ws_id) = encode_workspace_path(workspace) else {
+        return;
+    };
+    let store = OpenCodeCompatStore::new();
+    match store.get_providers(&ws_id) {
+        Ok(providers) if providers.is_empty() => {
+            println!("{indent}LLM: no providers");
+        }
+        Ok(providers) => {
+            let names: Vec<String> = providers
+                .iter()
+                .map(|p| {
+                    let auth = if p.authenticated { "key" } else { "no key" };
+                    format!("{} ({auth})", p.id)
+                })
+                .collect();
+            println!("{indent}LLM providers: {}", names.join(", "));
+            if let Ok(Some(model)) = read_default_model(workspace) {
+                println!("{indent}default model: {model}");
+            }
+        }
+        Err(e) => println!("{indent}LLM: error ({e})"),
+    }
+}
+
+fn resolve_team_id(explicit: Option<String>) -> anyhow::Result<String> {
+    if let Some(id) = explicit {
+        let id = id.trim().to_string();
+        if id.is_empty() {
+            anyhow::bail!("team id is empty");
+        }
+        return Ok(id);
+    }
+    let path = DaemonConfig::default_path();
+    let config = DaemonConfig::load(&path).map_err(|e| {
+        anyhow::anyhow!(
+            "read {}: {e}\nRun `amuxd init` first.",
+            path.display()
+        )
+    })?;
+    config
+        .team_id
+        .filter(|t| !t.trim().is_empty())
+        .ok_or_else(|| anyhow::anyhow!("no team_id in {}.\nRun `amuxd init` first.", path.display()))
+}
+
+fn read_default_model(workspace: &Path) -> anyhow::Result<Option<String>> {
+    let cfg = teamclaw_runtime_env::opencode_config::OpencodeConfigStore::load(workspace)
+        .map_err(|e| anyhow::anyhow!("{e}"))?;
+    Ok(cfg
+        .get("model")
+        .and_then(|v| v.as_str())
+        .map(str::to_owned))
+}
+
+fn set_default_model(workspace: &Path, model: &str) -> anyhow::Result<()> {
+    let model = model.trim().to_string();
+    teamclaw_runtime_env::opencode_config::OpencodeConfigStore::apply(workspace, |cfg| {
+        let obj = cfg
+            .as_object_mut()
+            .ok_or_else(|| teamclaw_runtime_env::opencode_config::OpencodeConfigError::Parse(
+                "opencode.json root is not an object".into(),
+            ))?;
+        obj.insert("model".to_owned(), serde_json::Value::String(model.clone()));
+        Ok(true)
+    })
+    .map_err(|e| anyhow::anyhow!("{e}"))?;
+    Ok(())
+}
+
+fn prompt_optional_secret(theme: &ColorfulTheme, prompt: &str) -> anyhow::Result<Option<String>> {
+    let value = Password::with_theme(theme)
+        .with_prompt(prompt)
+        .allow_empty_password(true)
+        .interact()?;
+    let trimmed = value.trim().to_string();
+    if trimmed.is_empty() {
+        Ok(None)
+    } else {
+        Ok(Some(trimmed))
+    }
+}
+
+fn daemon_pid() -> Option<i32> {
+    let path = DaemonConfig::pid_path();
+    let raw = std::fs::read_to_string(&path).ok()?;
+    let pid: i32 = raw.trim().parse().ok()?;
+    if is_process_alive(pid) {
+        Some(pid)
+    } else {
+        None
+    }
+}
+
+#[cfg(unix)]
+fn is_process_alive(pid: i32) -> bool {
+    // Signal 0 checks existence without killing.
+    unsafe { libc::kill(pid, 0) == 0 }
+}
+
+#[cfg(windows)]
+fn is_process_alive(pid: i32) -> bool {
+    use std::process::Command;
+    Command::new("tasklist")
+        .args(["/FI", &format!("PID eq {pid}")])
+        .output()
+        .map(|o| {
+            String::from_utf8_lossy(&o.stdout)
+                .lines()
+                .any(|line| line.contains(&pid.to_string()))
+        })
+        .unwrap_or(false)
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct HttpSyncStatus {
+    mode: Option<String>,
+    last_sync_at: String,
+    syncing: bool,
+    last_error: Option<String>,
+    pulled: u32,
+    pushed: u32,
+    conflicts: u32,
+}
+
+fn trigger_sync_via_http(workspace: &Path, team_id: &str) -> anyhow::Result<HttpSyncStatus> {
+    let port_path = DaemonConfig::http_port_path();
+    let token_path = DaemonConfig::http_token_path();
+    let port = std::fs::read_to_string(&port_path)
+        .map_err(|e| anyhow::anyhow!("read {} ({e}). Is the daemon running?", port_path.display()))?
+        .trim()
+        .to_string();
+    let root_token = std::fs::read_to_string(&token_path)
+        .map_err(|e| anyhow::anyhow!("read {} ({e})", token_path.display()))?
+        .trim()
+        .to_string();
+
+    let rt = tokio::runtime::Runtime::new()?;
+    rt.block_on(async {
+        let client = reqwest::Client::new();
+        let base = format!("http://127.0.0.1:{port}");
+
+        #[derive(serde::Serialize)]
+        #[serde(rename_all = "camelCase")]
+        struct ExchangeBody<'a> {
+            scopes: &'a [&'a str],
+            label: &'a str,
+        }
+
+        let exchange: serde_json::Value = client
+            .post(format!("{base}/v1/auth/exchange"))
+            .header("authorization", format!("Bearer {root_token}"))
+            .json(&ExchangeBody {
+                scopes: &["workspace:read", "workspace:write"],
+                label: "manage-cli",
+            })
+            .send()
+            .await?
+            .error_for_status()?
+            .json()
+            .await?;
+        let session_token = exchange["token"]
+            .as_str()
+            .ok_or_else(|| anyhow::anyhow!("exchange response missing token"))?;
+
+        let workspace_path = workspace.to_string_lossy().to_string();
+        let sync: HttpSyncStatus = client
+            .post(format!("{base}/v1/team/sync"))
+            .header("authorization", format!("Bearer {session_token}"))
+            .json(&serde_json::json!({ "workspacePath": workspace_path }))
+            .send()
+            .await?
+            .error_for_status()?
+            .json()
+            .await?;
+
+        // Ignore unused field in struct when API returns extra keys.
+        let _ = team_id;
+        Ok(sync)
+    })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn encode_workspace_path_roundtrip() {
+        let dir = tempfile::tempdir().unwrap();
+        let id = encode_workspace_path(dir.path()).unwrap();
+        let decoded = crate::config::decode_workspace_path(&id).unwrap();
+        assert_eq!(decoded, dir.path());
+    }
+
+    #[test]
+    fn ensure_opencode_section_writes_backend_when_missing() {
+        let mut cfg = DaemonConfig::bootstrap();
+        cfg.agents.local_agent = "opencode".to_string();
+        ensure_opencode_section(&mut cfg);
+        assert!(cfg.agents.opencode.is_some());
+    }
+}

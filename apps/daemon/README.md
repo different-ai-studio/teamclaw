@@ -47,6 +47,27 @@ This writes `~/.amuxd/supabase.toml` with the daemon's credentials.
 ./target/release/amuxd start
 ```
 
+## Headless configuration (no GUI)
+
+After onboarding with `amuxd init`, use the interactive menu for LLM providers
+and team-share secrets on servers without a browser:
+
+```bash
+./target/release/amuxd manage
+```
+
+This writes the same stores as the desktop app and the browser setup UI
+(`<workspace>/opencode.json`, `~/.amuxd/team-secrets/`). Workspaces are loaded
+from the cloud (same list as Desktop → Daemon → Workspace) and you pick one
+before editing LLM or triggering sync. Onboarding stays on `amuxd init`.
+
+Non-interactive equivalents:
+
+```bash
+amuxd team secrets set --team-secret <64-hex> [--git-credential-file ~/.ssh/id_ed25519]
+amuxd config set …   # daemon.toml
+```
+
 ## Config
 
 `amuxd config` edits `~/.amuxd/daemon.toml` by default. Use

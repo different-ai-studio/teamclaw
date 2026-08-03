@@ -54,6 +54,9 @@ fn main() -> anyhow::Result<()> {
                 outcome.config_path.display()
             );
         }
+        Commands::Manage => {
+            cli::manage::run()?;
+        }
         Commands::Clear { force } => {
             cli::clear::run(force)?;
         }

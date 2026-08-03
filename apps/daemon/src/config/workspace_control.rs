@@ -406,6 +406,18 @@ pub fn decode_workspace_path(workspace_id: &str) -> Result<PathBuf, WorkspaceCon
     }
 }
 
+/// Encode an absolute workspace path as the base64url `:id` used by HTTP routes.
+pub fn encode_workspace_path(path: &std::path::Path) -> Result<String, WorkspaceControlError> {
+    use base64::{engine::general_purpose::URL_SAFE_NO_PAD, Engine};
+    let s = path
+        .to_str()
+        .ok_or_else(|| WorkspaceControlError::InvalidInput("workspace path is not UTF-8".into()))?;
+    if !path.is_dir() {
+        return Err(WorkspaceControlError::WorkspaceNotFound(s.to_owned()));
+    }
+    Ok(URL_SAFE_NO_PAD.encode(s))
+}
+
 impl OpenCodeCompatStore {
     pub fn new() -> Self {
         Self {
