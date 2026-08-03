@@ -210,7 +210,9 @@ public actor CloudAPISessionRepository: SessionRepository {
                 actorID: row.actorId,
                 role: row.role,
                 displayName: row.displayName ?? "",
-                actorType: row.actorType ?? ""
+                actorType: row.actorType ?? "",
+                workspaceID: row.workspaceId,
+                model: row.model
             )
         }
     }
@@ -947,6 +949,10 @@ private struct CloudSessionParticipant: Decodable, Sendable {
     let role: String?
     let displayName: String?
     let actorType: String?
+    /// The agent's working state for this session, owned by the participant row
+    /// (ADR-0005). Null on member rows — not applicable rather than missing.
+    let workspaceId: String?
+    let model: String?
 }
 
 private struct CloudActor: Decodable, Sendable {

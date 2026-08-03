@@ -90,6 +90,7 @@ public final class SessionListViewModel {
                 // belt to that suspenders.
                 let stream = await hub.messages(matching: { [teamID] msg in
                     SessionListViewModel.parseRuntimeStateTopic(msg.topic, teamID: teamID) != nil
+                        || SessionListViewModel.parseActorStateTopic(msg.topic, teamID: teamID) != nil
                 })
 
                 // Per-agent subscription set, kept in sync with
@@ -123,6 +124,18 @@ public final class SessionListViewModel {
                 }
 
                 for await msg in stream {
+                    if let actorID = Self.parseActorStateTopic(msg.topic, teamID: teamID) {
+                        // An empty payload is the LWT / offline marker; a
+                        // presence-only publish carries no attachments either.
+                        // Both mean the same thing here: nothing live to show.
+                        guard !msg.payload.isEmpty,
+                              let presence = try? ProtoMQTTCoder.decode(
+                                  Amux_ActorPresence.self, from: msg.payload
+                              ) else { continue }
+                        self.syncActorPresence(presence, actorID: actorID, modelContext: ctx)
+                        self.refreshSessions(modelContext: ctx)
+                        continue
+                    }
                     guard let parsed = Self.parseRuntimeStateTopic(msg.topic, teamID: teamID) else { continue }
                     // Empty retained payload = the daemon cleared this runtime's
                     // slot (session deletion). Drop the local row to match.
@@ -358,10 +371,18 @@ public final class SessionListViewModel {
             let topic = MQTTTopics.runtimeStateWildcard(teamID: teamID, actorID: id)
             try? await mqtt.subscribe(topic)
             NSLog("[SessionListVM] subscribed to %@", topic)
+            // The actor retain is the replacement for the per-runtime fan-out
+            // above: one bounded message per actor instead of one per spawn,
+            // accumulating for the life of the broker. Both are consumed during
+            // the transition — the daemon publishes both.
+            let actorTopic = MQTTTopics.actorState(teamID: teamID, actorID: id)
+            try? await mqtt.subscribe(actorTopic)
+            NSLog("[SessionListVM] subscribed to %@", actorTopic)
         }
         for id in toRemove {
             let topic = MQTTTopics.runtimeStateWildcard(teamID: teamID, actorID: id)
             try? await mqtt.unsubscribe(topic)
+            try? await mqtt.unsubscribe(MQTTTopics.actorState(teamID: teamID, actorID: id))
         }
         subscribedActorIDs = desired
     }
@@ -387,6 +408,18 @@ public final class SessionListViewModel {
     /// `nonisolated` so the MQTTMessageHub predicate (running on the hub
     /// actor) can call it without hopping to the main actor for what is
     /// pure string-splitting.
+    /// Returns the actor-id when `topic` matches `amux/{team}/{actor}/state`
+    /// (4 segments) — the one retained topic per actor. Deliberately checked
+    /// before `parseRuntimeStateTopic`, which requires 6 segments, so the two
+    /// can never both match.
+    nonisolated static func parseActorStateTopic(_ topic: String, teamID: String) -> String? {
+        let parts = topic.split(separator: "/")
+        guard parts.count == 4, parts[0] == "amux", parts[3] == "state" else { return nil }
+        let normalizedTeam = MQTTTopics.normalizedTeamID(teamID)
+        guard parts[1] == Substring(normalizedTeam) else { return nil }
+        return String(parts[2])
+    }
+
     nonisolated static func parseRuntimeStateTopic(_ topic: String, teamID: String) -> (routeActorID: String, runtimeId: String)? {
         let parts = topic.split(separator: "/")
         guard parts.count == 6,
@@ -481,6 +514,72 @@ public final class SessionListViewModel {
         }
         try? modelContext.save()
         runtimes = (try? modelContext.fetch(FetchDescriptor<Runtime>(sortBy: [SortDescriptor(\.lastEventTime, order: .reverse)]))) ?? []
+    }
+
+    /// Ingest the one retained topic per actor, projecting each attached
+    /// session into the same `Runtime` row shape the per-spawn retains produce.
+    ///
+    /// Rows are keyed by `session_id`, not by a spawn id. A spawn id is minted
+    /// per start and stale the moment it is recorded — which is what
+    /// `CachedAgentRuntime.runtimeId` was bridging through — whereas exactly
+    /// one attachment serves a session at a time.
+    ///
+    /// A session absent from `live_sessions` is pruned rather than left behind:
+    /// absence is the signal for "cold", i.e. the next message will spawn.
+    private func syncActorPresence(
+        _ presence: Amux_ActorPresence,
+        actorID: String,
+        modelContext: ModelContext
+    ) {
+        // Catalogs are per worktree, but LiveSession carries workspace rather
+        // than worktree. A single-checkout device (the common case) has one
+        // entry to attribute; otherwise leave the catalog to the legacy path.
+        let soleCatalog = presence.worktrees.count == 1 ? presence.worktrees.first : nil
+        let catalogModels: [Amux_ModelInfo] = soleCatalog.map { wt in
+            wt.modelIndices.compactMap { idx in
+                let i = Int(idx)
+                return presence.catalogModels.indices.contains(i) ? presence.catalogModels[i] : nil
+            }
+        } ?? []
+
+        var liveIDs: Set<String> = []
+        for live in presence.liveSessions where !live.sessionID.isEmpty {
+            liveIDs.insert(live.sessionID)
+            var info = Amux_RuntimeInfo()
+            info.runtimeID = live.sessionID
+            info.agentType = presence.activeAgentType
+            info.status = live.status
+            info.state = live.lifecycle
+            info.stage = live.stage
+            info.errorCode = live.errorCode
+            info.errorMessage = live.errorMessage
+            info.failedStage = live.failedStage
+            info.workspaceID = live.workspaceID
+            info.worktree = soleCatalog?.worktree ?? ""
+            info.currentModel = live.currentModel.isEmpty
+                ? (soleCatalog?.defaultModel ?? "")
+                : live.currentModel
+            info.availableModels = catalogModels
+            info.availableCommands = soleCatalog?.availableCommands ?? []
+            syncRuntime(info, routeActorID: actorID, modelContext: modelContext)
+        }
+
+        // Prune only rows this projection owns. Legacy per-spawn rows for the
+        // same actor use short hex ids, so matching on the 36-char session-uuid
+        // shape keeps the two sources from deleting each other's work while
+        // both are consumed.
+        let stale = (try? modelContext.fetch(FetchDescriptor<Runtime>()))?.filter {
+            $0.routeActorID == actorID
+                && $0.runtimeId.count == 36
+                && !liveIDs.contains($0.runtimeId)
+        } ?? []
+        for row in stale { modelContext.delete(row) }
+        if !stale.isEmpty {
+            try? modelContext.save()
+            runtimes = (try? modelContext.fetch(
+                FetchDescriptor<Runtime>(sortBy: [SortDescriptor(\.lastEventTime, order: .reverse)])
+            )) ?? []
+        }
     }
 
     private func removeRuntime(runtimeId: String, modelContext: ModelContext) {

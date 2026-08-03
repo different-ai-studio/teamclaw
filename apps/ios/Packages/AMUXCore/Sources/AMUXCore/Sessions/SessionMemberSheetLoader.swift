@@ -136,17 +136,22 @@ public struct SessionMemberSheetLoader: Sendable {
             .map { p in
                 let runtime = sessionRuntimes.first(where: { $0.agentID == p.actorID })
                 let liveModels = availableModelsForAgent(p.actorID)
+                // The participant row owns this agent's workspace and model for
+                // this session (ADR-0005). `runtime` is the legacy fallback:
+                // reaching it means fetching every runtime row in the team,
+                // which is the query that produced a 48KB URL and a kong 414.
+                let workspaceID = p.workspaceID ?? runtime?.workspaceID
                 return MemberSheetAgent(
                     id: p.actorID,
                     displayName: p.displayName,
-                    workspacePath: runtime?.workspaceID ?? "",
+                    workspacePath: workspaceID ?? "",
                     agentType: Self.displayName(forBackendType: runtime?.backendType),
                     runtimeState: Self.chipState(forStatus: runtime?.status,
                                                  lastSeenAt: runtime?.lastSeenAt),
                     availableModels: liveModels,
-                    currentModel: runtime?.currentModel,
+                    currentModel: p.model ?? runtime?.currentModel,
                     runtimeID: runtime?.runtimeID,
-                    workspaceID: runtime?.workspaceID,
+                    workspaceID: workspaceID,
                     backendType: runtime?.backendType
                 )
             }

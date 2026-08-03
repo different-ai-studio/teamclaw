@@ -210,7 +210,7 @@ struct SessionListContent: View {
     @ViewBuilder
     private func sessionRow(_ session: Session) -> some View {
         let cached = cachedAgentRuntime(for: session)
-        let runtime = liveRuntime(for: cached)
+        let runtime = liveRuntime(for: session, cached: cached)
         HStack(spacing: 10) {
             if isEditing {
                 Image(systemName: selectedIDs.contains(session.sessionId) ? "checkmark.circle.fill" : "circle")
@@ -298,24 +298,39 @@ struct SessionListContent: View {
     }
 
     /// Most-recently-updated `agent_runtimes` row that serves this session.
-    /// Provides backend type + workspace + status when MQTT is offline.
+    ///
+    /// Legacy fallback only. The actor retain now projects each attached
+    /// session into a `Runtime` row keyed by session id, so `liveRuntime`
+    /// answers without this; it stays until `agent_runtimes` is dropped.
     private func cachedAgentRuntime(for session: Session) -> CachedAgentRuntime? {
         viewModel.cachedAgentRuntimes
             .filter { $0.sessionId == session.sessionId }
             .max(by: { $0.updatedAt < $1.updatedAt })
     }
 
-    /// Bridge from a Supabase `agent_runtimes` row to its MQTT-published
-    /// `Runtime` snapshot via `runtime_id` (the daemon's 8-char id, distinct
-    /// from `backend_session_id`'s 36-char ACP session id). Nil when the
-    /// daemon is offline or hasn't published yet.
-    private func liveRuntime(for cached: CachedAgentRuntime?) -> Runtime? {
+    /// The `Runtime` snapshot serving this session.
+    ///
+    /// Resolves by session id first: `ActorPresence.live_sessions` is keyed
+    /// that way, and exactly one attachment serves a session at a time. The
+    /// `cached.runtimeId` bridge below is the old path — a spawn id that went
+    /// stale the moment it was written down, which is what made a cancel land
+    /// on a dead runtime (docs/debug/interrupt-agent-stale-runtime.md).
+    private func liveRuntime(for session: Session, cached: CachedAgentRuntime?) -> Runtime? {
+        if let bySession = viewModel.runtimes.first(where: { $0.runtimeId == session.sessionId }) {
+            return bySession
+        }
         guard let bridge = cached?.runtimeId, !bridge.isEmpty else { return nil }
         return viewModel.runtimes.first(where: { $0.runtimeId == bridge })
     }
 
+    /// Prefers the live runtime's workspace: it comes from the attachment the
+    /// daemon currently holds, where the cached row may describe a spawn that
+    /// has since been replaced.
     private func workspaceName(runtime: Runtime?, cached: CachedAgentRuntime?) -> String {
-        guard let id = cached?.workspaceId, !id.isEmpty else { return "" }
+        let id = [runtime?.workspaceId, cached?.workspaceId]
+            .compactMap { $0 }
+            .first(where: { !$0.isEmpty })
+        guard let id else { return "" }
         return viewModel.workspaces.first(where: { $0.workspaceId == id })?.displayName ?? ""
     }
 
