@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import {
+  isChromeExtensionsPageUrl,
   isHostnameAllowedByPatterns,
   isUrlAllowedBySidePanelPatterns,
   parseSidePanelDomainPatterns,
@@ -47,13 +48,31 @@ describe('isUrlAllowedBySidePanelPatterns', () => {
     expect(isUrlAllowedBySidePanelPatterns('http://localhost:3000/', patterns)).toBe(true)
   })
 
-  it('rejects non-http and non-matching hosts', () => {
-    expect(isUrlAllowedBySidePanelPatterns('chrome://extensions', patterns)).toBe(false)
+  it('always allows chrome://extensions regardless of patterns', () => {
+    expect(isUrlAllowedBySidePanelPatterns('chrome://extensions', patterns)).toBe(true)
+    expect(isUrlAllowedBySidePanelPatterns('chrome://extensions/', patterns)).toBe(true)
+    expect(
+      isUrlAllowedBySidePanelPatterns('chrome://extensions/?id=abcdefghijklmnop', patterns),
+    ).toBe(true)
+  })
+
+  it('rejects other non-http and non-matching hosts', () => {
+    expect(isUrlAllowedBySidePanelPatterns('chrome://settings', patterns)).toBe(false)
     expect(isUrlAllowedBySidePanelPatterns('https://evil.com', patterns)).toBe(false)
     expect(isUrlAllowedBySidePanelPatterns(undefined, patterns)).toBe(false)
   })
 
   it('allows any url when ungated', () => {
     expect(isUrlAllowedBySidePanelPatterns('https://evil.com', [])).toBe(true)
+  })
+})
+
+describe('isChromeExtensionsPageUrl', () => {
+  it('matches chrome extension management URLs only', () => {
+    expect(isChromeExtensionsPageUrl('chrome://extensions')).toBe(true)
+    expect(isChromeExtensionsPageUrl('chrome://extensions/')).toBe(true)
+    expect(isChromeExtensionsPageUrl('chrome://extensions/?id=abc')).toBe(true)
+    expect(isChromeExtensionsPageUrl('chrome://settings')).toBe(false)
+    expect(isChromeExtensionsPageUrl('https://extensions.example.com')).toBe(false)
   })
 })
