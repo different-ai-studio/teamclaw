@@ -4,6 +4,7 @@ pub mod config_cmd;
 pub mod cursor_permission_hook;
 pub mod doctor;
 pub mod install_opencode;
+pub mod manage;
 pub mod mcp_server;
 pub mod process;
 pub mod remote_tools_mcp;
@@ -36,12 +37,15 @@ pub enum Commands {
     /// Show daemon status (reads the pidfile).
     Status,
     /// Onboard this daemon. Without args, walks you through the iOS side
-    /// and prompts you to paste the deeplink. Pass the URL to skip the
-    /// interactive prompt (useful for scripts).
     Init {
         /// `teamclaw://invite?token=...` URL from the iOS Actors tab.
         join_url: Option<String>,
     },
+    /// Interactive headless configuration (LLM providers + team share secrets).
+    ///
+    /// For onboarding, use `amuxd init`. This menu covers the settings that are
+    /// otherwise easiest from the desktop app or the browser setup UI.
+    Manage,
     /// Print the setup URL for a running daemon, and open it by default.
     ///
     /// The browser UI covers onboarding and every daemon setting, so a fresh

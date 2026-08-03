@@ -35,7 +35,7 @@ pub use roles_skills::{
 };
 pub use session_store::{SessionStore, StoredSession};
 pub use workspace_control::{
-    decode_workspace_path, AllowlistDecision, AllowlistRule, ApplyOutcome, McpServerConfig,
+    decode_workspace_path, encode_workspace_path, AllowlistDecision, AllowlistRule, ApplyOutcome, McpServerConfig,
     NullWorkspaceControlStore, OpenCodeCompatStore, PermissionAction, PermissionConfig,
     ProviderAuthRequest, ProviderInfo, ProviderModelConfig, RuntimeStatus, WorkspaceControlError,
     WorkspaceControlStore,
