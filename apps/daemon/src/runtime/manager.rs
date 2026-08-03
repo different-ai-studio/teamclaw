@@ -5,6 +5,7 @@ use tracing::{info, warn};
 use uuid::Uuid;
 
 use super::agent_runtime_state::PerAgentRuntimeState;
+use super::builtin_commands::builtin_commands;
 use super::backend::{agent_type_for_local_agent, create_backend, AgentBackend};
 use super::handle::RuntimeHandle;
 use super::refresh::RuntimeRefreshCoordinator;
@@ -237,6 +238,9 @@ pub struct RuntimeManager {
     /// through the RPC handler which publishes directly, so they do NOT
     /// enter this buffer.
     evicted_pending_publish: Vec<String>,
+    /// Set on every mutation of `agents`; drained by the main loop, which
+    /// republishes the actor snapshot. See `mark_actor_state_dirty`.
+    actor_state_dirty: bool,
     refresh_coordinator: Option<Arc<RuntimeRefreshCoordinator>>,
     /// Test-only: records the last body sent per agent_id via send_prompt_raw.
     #[cfg(test)]
@@ -323,6 +327,7 @@ impl RuntimeManager {
             backend,
             refresh_coordinator: None,
             evicted_pending_publish: Vec::new(),
+            actor_state_dirty: false,
             #[cfg(test)]
             last_sent: HashMap::new(),
             #[cfg(test)]
@@ -632,6 +637,7 @@ impl RuntimeManager {
         handle.cmd_tx = Some(cmd_tx);
 
         self.agents.insert(agent_id.clone(), handle);
+        self.mark_actor_state_dirty();
         self.aggregators
             .insert(agent_id.clone(), TurnAggregator::new());
 
@@ -811,6 +817,7 @@ impl RuntimeManager {
 
         info!(agent_id, worktree, "agent resumed via shared ACP host");
         self.agents.insert(agent_id.to_string(), handle);
+        self.mark_actor_state_dirty();
         self.aggregators
             .insert(agent_id.to_string(), TurnAggregator::new());
 
@@ -865,6 +872,7 @@ impl RuntimeManager {
 
     pub async fn stop_runtime(&mut self, agent_id: &str) -> Option<RuntimeHandle> {
         if let Some(mut handle) = self.agents.remove(agent_id) {
+            self.mark_actor_state_dirty();
             self.aggregators.remove(agent_id);
             self.agent_state.remove(agent_id);
             self.release_opencode_snapshot(&handle.worktree);
@@ -1282,6 +1290,22 @@ impl RuntimeManager {
         }
     }
 
+    /// Mark the actor snapshot stale so the main loop republishes it.
+    ///
+    /// Hooking the publish onto `apply_start_runtime` is not enough: gateway
+    /// and cron spawn straight through this manager and never reach that
+    /// function, so their attachments stayed invisible in the retain until an
+    /// unrelated MQTT reconnect. Every mutation of `agents` funnels through
+    /// here instead, which is the only way all three spawn paths agree.
+    pub fn mark_actor_state_dirty(&mut self) {
+        self.actor_state_dirty = true;
+    }
+
+    /// Consume the stale flag. Called once per main-loop tick.
+    pub fn take_actor_state_dirty(&mut self) -> bool {
+        std::mem::take(&mut self.actor_state_dirty)
+    }
+
     /// Look up the attachment serving `session_id`, if this daemon holds one.
     ///
     /// The `agents` map is still keyed by the per-spawn id for now; this is the
@@ -1366,14 +1390,12 @@ impl RuntimeManager {
                     .default_model_for(backend, worktree)
                     .unwrap_or_default()
                     .to_string(),
-                // Slash commands come from the worktree's project config, so
-                // any attachment in that directory reports the same set.
-                available_commands: self
-                    .agents
-                    .values()
-                    .find(|h| &h.worktree == worktree)
-                    .map(|h| self.agent_state.commands(&h.agent_id))
-                    .unwrap_or_default(),
+                // Built-ins for the active backend. NOT `agent_state.commands()`:
+                // that cache is fed only by ACP's `AvailableCommandsUpdate`,
+                // which has no producer under the opencode HTTP runtime, so it
+                // is permanently empty. Workspace skills are a separate source
+                // the desktop reads directly — deliberately not merged here.
+                available_commands: builtin_commands(self.default_agent_type()),
             });
         }
 
@@ -1643,6 +1665,9 @@ impl RuntimeManager {
         let mut h = super::handle::RuntimeHandle::test_dummy();
         h.agent_id = runtime_id.to_string();
         mgr.agents.insert(runtime_id.to_string(), h);
+        // Test helpers stand in for an attach, so they hold the same invariant
+        // production does: any mutation of `agents` marks the snapshot stale.
+        mgr.mark_actor_state_dirty();
         mgr
     }
 
@@ -1652,6 +1677,7 @@ impl RuntimeManager {
         h.agent_id = agent_id.to_string();
         h.session_id = session_id.to_string();
         self.agents.insert(runtime_id.to_string(), h);
+        self.mark_actor_state_dirty();
     }
 
     /// Return the last body sent to the given runtime via send_prompt_raw.
@@ -2730,6 +2756,21 @@ mod tests {
         assert!(mgr.get_handle("rt-middle").is_some());
         assert!(mgr.get_handle("rt-newest").is_some());
         assert_eq!(mgr.drain_evicted(), vec!["rt-oldest".to_string()]);
+    }
+
+    #[tokio::test]
+    async fn any_attach_or_detach_marks_the_actor_snapshot_stale() {
+        // Regression: the publish was hooked onto `apply_start_runtime`, which
+        // gateway and cron never reach — they spawn straight through the
+        // manager. A real cron turn created a session, answered, and never
+        // appeared in the retain. Marking here is what makes all three spawn
+        // paths agree.
+        let mut mgr = RuntimeManager::test_dummy_with_runtime("rt-a");
+        assert!(mgr.take_actor_state_dirty(), "attach marks it stale");
+        assert!(!mgr.take_actor_state_dirty(), "flag is consumed, not sticky");
+
+        mgr.stop_runtime("rt-a").await;
+        assert!(mgr.take_actor_state_dirty(), "detach marks it stale too");
     }
 
     #[tokio::test]

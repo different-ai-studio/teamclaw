@@ -1098,23 +1098,22 @@ impl AgentHandle for AmuxdAgentHandle {
         // Resolve agent type: daemon default → ClaudeCode fallback.
         let agent_type = self.default_agent_type;
 
-        // ── 2. Agent built-in commands (ClaudeCode doesn't report via AcpAvailableCommands) ──
-        let known = match agent_type {
-            Some(t) if t == amux::AgentType::ClaudeCode => &[
-                ("compact", "Compact the conversation history", ""),
-                ("cost", "Show token cost for this session", ""),
-            ][..],
-            _ => &[][..],
-        };
-        for (name, description, hint) in known {
-            if !result.iter().any(|c| c.name == *name) {
+        // ── 2. Agent built-in commands ──
+        // Step 1 above is dead weight now: `AvailableCommandsUpdate` has no
+        // producer under the opencode HTTP runtime, so it always yields an
+        // empty list and everything real comes from here. Shared with the
+        // actor-state retain so both surfaces advertise the same set.
+        for cmd in crate::runtime::builtin_commands::builtin_commands(
+            agent_type.unwrap_or(amux::AgentType::ClaudeCode),
+        ) {
+            if !result.iter().any(|c| c.name == cmd.name) {
                 result.push(AgentCommand {
-                    name: name.to_string(),
-                    description: description.to_string(),
-                    input_hint: if hint.is_empty() {
+                    name: cmd.name,
+                    description: cmd.description,
+                    input_hint: if cmd.input_hint.is_empty() {
                         None
                     } else {
-                        Some(hint.to_string())
+                        Some(cmd.input_hint)
                     },
                 });
             }

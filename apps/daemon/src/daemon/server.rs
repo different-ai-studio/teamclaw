@@ -1866,12 +1866,27 @@ impl DaemonServer {
                         }
                         if mqtt_up {
                             // Drain queued runtime events without preempting poll().
-                            let (agent_events, evicted_runtime_ids): (Vec<_>, Vec<String>) = {
+                            let (agent_events, evicted_runtime_ids, actor_state_dirty): (
+                                Vec<_>,
+                                Vec<String>,
+                                bool,
+                            ) = {
                                 let mut mgr = self.agents.lock().await;
-                                (mgr.poll_events(), mgr.drain_evicted())
+                                (
+                                    mgr.poll_events(),
+                                    mgr.drain_evicted(),
+                                    mgr.take_actor_state_dirty(),
+                                )
                             };
                             for runtime_id in evicted_runtime_ids {
                                 self.publish_runtime_stopped(&runtime_id).await;
+                            }
+                            // Covers every attach/detach, including the gateway
+                            // and cron spawns that never reach
+                            // `apply_start_runtime` and so were invisible in the
+                            // retain until an unrelated reconnect.
+                            if actor_state_dirty {
+                                self.publish_actor_state().await;
                             }
                             for (agent_id, acp_event) in coalesce_text_events(agent_events) {
                                 self.forward_agent_event(&agent_id, acp_event).await;

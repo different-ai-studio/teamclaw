@@ -9,6 +9,7 @@ pub mod pi_rpc;
 pub use self::opencode_http as adapter;
 mod agent_runtime_state;
 mod agent_trace;
+pub mod builtin_commands;
 pub mod env_assembly;
 mod handle;
 mod instruction_delivery;
