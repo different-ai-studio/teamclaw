@@ -115,6 +115,20 @@ export function registerSessions(router) {
     return { body: out };
   });
 
+  // Catch-up cursor, addressed by (session, actor) — where it now lives
+  // (ADR-0005). Replaces PATCH /v1/agents/runtimes/:rowId/cursor, which needed
+  // a row id minted by a runtime upsert that no longer happens.
+  router.patch("/v1/sessions/:sessionId/participants/:actorId/cursor", async (ctx) => {
+    const body = ctx.json ?? {};
+    requireString(body.lastProcessedMessageId, "lastProcessedMessageId");
+    await ctx.repository.updateParticipantCursor(
+      decodeURIComponent(ctx.params.sessionId),
+      decodeURIComponent(ctx.params.actorId),
+      { lastProcessedMessageId: body.lastProcessedMessageId },
+    );
+    return { statusCode: 204, body: null };
+  });
+
   router.delete("/v1/sessions/:sessionId/participants/:actorId", async (ctx) => {
     const sessionId = decodeURIComponent(ctx.params.sessionId);
     const actorId = decodeURIComponent(ctx.params.actorId);

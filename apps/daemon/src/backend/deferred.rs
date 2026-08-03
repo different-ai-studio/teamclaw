@@ -182,33 +182,24 @@ impl Backend for DeferredBackend {
         self.inner()?.claim_team_invite(token).await
     }
 
-    async fn upsert_agent_runtime(
+    async fn fetch_session_workspace(
         &self,
-        row: &AgentRuntimeUpsert<'_>,
+        session_id: &str,
+        actor_id: &str,
     ) -> BackendResult<Option<String>> {
-        self.inner()?.upsert_agent_runtime(row).await
-    }
-
-    async fn fetch_agent_runtime_for_session(
-        &self,
-        session_id: &str,
-        runtime_id: &str,
-        backend_session_id: &str,
-    ) -> BackendResult<Option<AgentRuntimeRow>> {
         self.inner()?
-            .fetch_agent_runtime_for_session(session_id, runtime_id, backend_session_id)
+            .fetch_session_workspace(session_id, actor_id)
             .await
     }
 
-    async fn fetch_latest_runtime_for_session(
+    async fn fetch_session_cursor(
         &self,
-        agent_id: &str,
         session_id: &str,
-    ) -> BackendResult<Option<AgentRuntimeRow>> {
-        self.inner()?
-            .fetch_latest_runtime_for_session(agent_id, session_id)
-            .await
+        actor_id: &str,
+    ) -> BackendResult<Option<String>> {
+        self.inner()?.fetch_session_cursor(session_id, actor_id).await
     }
+
 
     async fn ensure_agent_types(
         &self,
@@ -289,13 +280,14 @@ impl Backend for DeferredBackend {
             .await
     }
 
-    async fn update_runtime_cursor(
+    async fn update_session_cursor(
         &self,
-        runtime_row_id: &str,
+        session_id: &str,
+        actor_id: &str,
         last_processed_message_id: &str,
     ) -> BackendResult<()> {
         self.inner()?
-            .update_runtime_cursor(runtime_row_id, last_processed_message_id)
+            .update_session_cursor(session_id, actor_id, last_processed_message_id)
             .await
     }
 

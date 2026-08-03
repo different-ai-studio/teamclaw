@@ -11,7 +11,7 @@ use super::handle::RuntimeHandle;
 use super::refresh::RuntimeRefreshCoordinator;
 use std::sync::Arc;
 
-use crate::backend::{AgentRuntimeUpsert, Backend};
+use crate::backend::Backend;
 use crate::config::{DaemonConfig, DeviceModelCatalog, ModelMru};
 use crate::proto::amux;
 use crate::runtime::acp_event_frame::AcpEventFrame;
@@ -669,40 +669,6 @@ impl RuntimeManager {
         self.seed_cursor_from_prior_runtime(&agent_id, remote_session_id)
             .await;
 
-        // Upsert agent_runtimes with status="starting"; capture the returned
-        // row id so catchup_runtime can use update_runtime_cursor later.
-        if let Some(sb) = &self.backend {
-            let acp_sid = self
-                .agents
-                .get(&agent_id)
-                .map(|h| h.acp_session_id.clone())
-                .unwrap_or_default();
-            let row = AgentRuntimeUpsert {
-                team_id: sb.team_id(),
-                agent_id: sb.actor_id(),
-                session_id: remote_session_id,
-                workspace_id: remote_workspace_id,
-                backend_type: launch.backend_type,
-                backend_session_id: if acp_sid.is_empty() {
-                    None
-                } else {
-                    Some(&acp_sid)
-                },
-                runtime_id: Some(agent_id.as_str()),
-                status: "starting",
-                current_model: self.agent_state.model(&agent_id).map(|s| s.as_str()),
-                last_seen_at: Utc::now(),
-            };
-            match sb.upsert_agent_runtime(&row).await {
-                Ok(Some(row_id)) => {
-                    if let Some(handle) = self.agents.get_mut(&agent_id) {
-                        handle.backend_runtime_row_id = Some(row_id);
-                    }
-                }
-                Ok(None) => warn!(agent_id, "upsert_agent_runtime returned no row id"),
-                Err(e) => warn!("agent_runtimes upsert (starting): {e}"),
-            }
-        }
 
         Ok(agent_id)
     }
@@ -731,29 +697,20 @@ impl RuntimeManager {
         let Some(session_id) = remote_session_id else {
             return;
         };
-        match sb
-            .fetch_latest_runtime_for_session(sb.actor_id(), session_id)
-            .await
-        {
-            Ok(Some(prior)) => {
-                let cursor = prior.last_processed_message_id.filter(|s| !s.is_empty());
-                if let Some(cursor) = cursor {
-                    if let Some(h) = self.agents.get_mut(agent_id) {
-                        info!(
-                            agent_id,
-                            session_id,
-                            cursor = %cursor,
-                            "seeded last_processed_message_id from prior runtime row",
-                        );
-                        h.last_processed_message_id = Some(cursor);
-                    }
+        match sb.fetch_session_cursor(session_id, sb.actor_id()).await {
+            Ok(Some(cursor)) => {
+                if let Some(h) = self.agents.get_mut(agent_id) {
+                    info!(
+                        agent_id,
+                        session_id,
+                        cursor = %cursor,
+                        "seeded last_processed_message_id from the participant row",
+                    );
+                    h.last_processed_message_id = Some(cursor);
                 }
             }
             Ok(None) => {}
-            Err(e) => warn!(
-                agent_id,
-                session_id, "fetch_latest_runtime_for_session failed: {e}"
-            ),
+            Err(e) => warn!(agent_id, session_id, "fetch_session_cursor failed: {e}"),
         }
     }
 
@@ -835,37 +792,6 @@ impl RuntimeManager {
         self.seed_cursor_from_prior_runtime(agent_id, remote_session_id)
             .await;
 
-        // Upsert agent_runtimes with status="starting" on resume
-        if let Some(sb) = &self.backend {
-            let row = AgentRuntimeUpsert {
-                team_id: sb.team_id(),
-                agent_id: sb.actor_id(),
-                session_id: remote_session_id,
-                workspace_id: remote_workspace_id,
-                backend_type: launch.backend_type,
-                backend_session_id: if new_acp_sid.is_empty() {
-                    None
-                } else {
-                    Some(&new_acp_sid)
-                },
-                runtime_id: Some(agent_id),
-                status: "starting",
-                current_model: self.agent_state.model(agent_id).map(|s| s.as_str()),
-                last_seen_at: Utc::now(),
-            };
-            match sb.upsert_agent_runtime(&row).await {
-                Ok(Some(row_id)) => {
-                    if let Some(handle) = self.agents.get_mut(agent_id) {
-                        handle.backend_runtime_row_id = Some(row_id);
-                    }
-                }
-                Ok(None) => warn!(
-                    agent_id,
-                    "upsert_agent_runtime returned no row id on resume"
-                ),
-                Err(e) => warn!("agent_runtimes upsert (starting/resume): {e}"),
-            }
-        }
 
         Ok(new_acp_sid)
     }
@@ -2069,12 +1995,15 @@ mod tests {
     async fn seed_cursor_from_prior_runtime_populates_handle() {
         let srv = MockServer::start().await;
         auth_mock(&srv).await;
+        // The cursor comes off this actor's participant row now (ADR-0005),
+        // so the seed reads the participants list rather than a runtime row.
         Mock::given(method("GET"))
-            .and(path("/v1/agents/runtimes/latest"))
+            .and(path("/v1/sessions/sess-1/participants"))
             .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
-                "id": "row-1",
-                "backendSessionId": "acp-1",
-                "lastProcessedMessageId": "msg-42"
+                "items": [
+                    { "actorId": "someone-else", "lastProcessedMessageId": "msg-1" },
+                    { "actorId": "agent-actor", "lastProcessedMessageId": "msg-42" }
+                ]
             })))
             .mount(&srv)
             .await;
@@ -2575,11 +2504,16 @@ mod tests {
     }
 
     #[test]
-    fn backend_runtime_row_id_returns_none_when_unset() {
-        let mut mgr = RuntimeManager::new(RuntimeManager::test_launch_configs(), None);
-        mgr.add_test_runtime("rt1", "agent_X", "session_S");
-        // backend_runtime_row_id defaults to None until Task 9 wires it.
-        assert_eq!(mgr.backend_runtime_row_id("rt1"), None);
+    fn session_id_for_runtime_reports_only_session_bound_attachments() {
+        // Ambient / bare-agent spawns carry no session, and the cursor write
+        // must skip them rather than address a participant row that has no id.
+        let mut mgr = RuntimeManager::test_dummy_with_runtime("rt1");
+        assert_eq!(mgr.session_id_for_runtime("rt1"), None);
+        mgr.add_test_runtime("rt2", "rt2", "session-2");
+        assert_eq!(
+            mgr.session_id_for_runtime("rt2"),
+            Some("session-2".to_string())
+        );
     }
 
     /// Simulate the "mentioned" branch: send_prompt is called with the message content.

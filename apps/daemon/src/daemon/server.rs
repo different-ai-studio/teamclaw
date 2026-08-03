@@ -2334,18 +2334,22 @@ impl DaemonServer {
         let mut plan = Vec::new();
         let my_actor = self.actor_id.clone();
         for session_id in session_ids {
-            let prior = match self
+            // The cursor comes from this actor's participant row (ADR-0005).
+            // `None` means "never read anything here", which is materially
+            // different from the old "no runtime row → skip the session": a
+            // session this daemon has joined but never answered in should still
+            // be planned for restart, from the beginning.
+            let prior_cursor = match self
                 .backend
-                .fetch_latest_runtime_for_session(&my_actor, &session_id)
+                .fetch_session_cursor(&session_id, &my_actor)
                 .await
             {
-                Ok(Some(row)) => row,
-                Ok(None) => continue,
+                Ok(c) => c,
                 Err(e) => {
                     warn!(
                         ?e,
                         session_id = %session_id,
-                        "plan_auto_restart_offline_sessions: fetch_latest_runtime_for_session failed"
+                        "plan_auto_restart_offline_sessions: fetch_session_cursor failed"
                     );
                     continue;
                 }
@@ -2364,10 +2368,7 @@ impl DaemonServer {
                 continue;
             }
 
-            let cursor = prior
-                .last_processed_message_id
-                .as_deref()
-                .filter(|s| !s.is_empty());
+            let cursor = prior_cursor.as_deref().filter(|s| !s.is_empty());
             let messages = match self
                 .backend
                 .messages_after_cursor(&session_id, cursor)
@@ -2393,18 +2394,20 @@ impl DaemonServer {
                 .filter(|m| m.sender_actor_id != my_actor)
                 .count();
 
-            let backend_requested = match prior.backend_type.as_str() {
-                "claude" | "claude_code" => amux::AgentType::ClaudeCode,
-                "opencode" => amux::AgentType::Opencode,
-                "codex" => amux::AgentType::Codex,
-                _ => amux::AgentType::Unknown,
-            };
-            let backend = resolve_requested_agent_type(&self.config, backend_requested);
+            // One backend is active per actor at a time (ADR-0002), so the
+            // restart uses the daemon's own rather than replaying whatever a
+            // prior spawn happened to record.
+            let backend = resolve_requested_agent_type(&self.config, amux::AgentType::Unknown);
 
-            // `amux.workspaces` is the sole source of truth: the cloud
-            // workspace id IS the workspace id — no more local-id
-            // translation via a `remote_workspace_id` mapping.
-            let local_workspace_id = prior.workspace_id.clone().unwrap_or_default();
+            // Workspace comes from the participant row that owns it (ADR-0005).
+            // Empty means "resolve at spawn from the agent's default", the same
+            // fallback a session with no prior runtime always took.
+            let local_workspace_id = self
+                .backend
+                .fetch_session_workspace(&session_id, &my_actor)
+                .await
+                .unwrap_or_default()
+                .unwrap_or_default();
 
             plan.push(OfflineRestartPlan {
                 session_id,

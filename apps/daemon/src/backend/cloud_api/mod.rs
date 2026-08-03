@@ -517,6 +517,39 @@ impl CloudApiBackend {
     }
 }
 
+/// One participant row for (session, actor). The participant owns this agent's
+/// per-session state now (ADR-0005), so cursor and workspace share one fetch.
+#[derive(serde::Deserialize)]
+struct CloudParticipantState {
+    #[serde(rename = "actorId", default)]
+    actor_id: String,
+    #[serde(rename = "lastProcessedMessageId", default)]
+    last_processed_message_id: Option<String>,
+    #[serde(rename = "workspaceId", default)]
+    workspace_id: Option<String>,
+}
+
+impl CloudApiBackend {
+    async fn fetch_participant(
+        &self,
+        session_id: &str,
+        actor_id: &str,
+    ) -> BackendResult<Option<CloudParticipantState>> {
+        #[derive(serde::Deserialize)]
+        struct Page {
+            #[serde(default)]
+            items: Vec<CloudParticipantState>,
+        }
+        let path = format!("/v1/sessions/{session_id}/participants");
+        let page: Page = match self.get(&path).await {
+            Ok(p) => p,
+            Err(BackendError::NotFound(_)) => return Ok(None),
+            Err(e) => return Err(e),
+        };
+        Ok(page.items.into_iter().find(|p| p.actor_id == actor_id))
+    }
+}
+
 #[async_trait]
 impl Backend for CloudApiBackend {
     fn team_id(&self) -> &str {
@@ -685,75 +718,28 @@ impl Backend for CloudApiBackend {
         })
     }
 
-    async fn upsert_agent_runtime(
+    async fn fetch_session_cursor(
         &self,
-        row: &AgentRuntimeUpsert<'_>,
+        session_id: &str,
+        actor_id: &str,
     ) -> BackendResult<Option<String>> {
-        #[derive(serde::Serialize)]
-        struct Body<'a> {
-            #[serde(rename = "agentActorId")]
-            agent_actor_id: &'a str,
-            #[serde(rename = "sessionId", skip_serializing_if = "Option::is_none")]
-            session_id: Option<&'a str>,
-            #[serde(rename = "runtimeId", skip_serializing_if = "Option::is_none")]
-            runtime_id: Option<&'a str>,
-            #[serde(rename = "backendSessionId", skip_serializing_if = "Option::is_none")]
-            backend_session_id: Option<&'a str>,
-            #[serde(rename = "backendType")]
-            backend_type: &'a str,
-            #[serde(rename = "workspaceId", skip_serializing_if = "Option::is_none")]
-            workspace_id: Option<&'a str>,
-            status: &'a str,
-        }
-        #[derive(serde::Deserialize)]
-        struct Resp {
-            id: Option<String>,
-        }
-        let r: Resp = self
-            .post(
-                "/v1/agents/runtimes",
-                &Body {
-                    agent_actor_id: row.agent_id,
-                    session_id: row.session_id,
-                    runtime_id: row.runtime_id,
-                    backend_session_id: row.backend_session_id,
-                    backend_type: row.backend_type,
-                    workspace_id: row.workspace_id,
-                    status: row.status,
-                },
-                None,
-            )
-            .await?;
-        Ok(r.id)
+        Ok(self
+            .fetch_participant(session_id, actor_id)
+            .await?
+            .and_then(|p| p.last_processed_message_id)
+            .filter(|c| !c.is_empty()))
     }
 
-    async fn fetch_agent_runtime_for_session(
+    async fn fetch_session_workspace(
         &self,
         session_id: &str,
-        runtime_id: &str,
-        backend_session_id: &str,
-    ) -> BackendResult<Option<AgentRuntimeRow>> {
-        let path = format!(
-            "/v1/agents/runtimes?sessionId={session_id}&runtimeId={runtime_id}&backendSessionId={backend_session_id}"
-        );
-        match self.get::<CloudAgentRuntime>(&path).await {
-            Ok(r) => Ok(Some(r.into_row())),
-            Err(BackendError::NotFound(_)) => Ok(None),
-            Err(e) => Err(e),
-        }
-    }
-
-    async fn fetch_latest_runtime_for_session(
-        &self,
-        agent_id: &str,
-        session_id: &str,
-    ) -> BackendResult<Option<AgentRuntimeRow>> {
-        let path = format!("/v1/agents/runtimes/latest?agentId={agent_id}&sessionId={session_id}");
-        match self.get::<CloudAgentRuntime>(&path).await {
-            Ok(r) => Ok(Some(r.into_row())),
-            Err(BackendError::NotFound(_)) => Ok(None),
-            Err(e) => Err(e),
-        }
+        actor_id: &str,
+    ) -> BackendResult<Option<String>> {
+        Ok(self
+            .fetch_participant(session_id, actor_id)
+            .await?
+            .and_then(|p| p.workspace_id)
+            .filter(|w| !w.is_empty()))
     }
 
     async fn ensure_agent_types(
@@ -1036,9 +1022,10 @@ impl Backend for CloudApiBackend {
         self.messages_after_cursor_impl(session_id, after_id).await
     }
 
-    async fn update_runtime_cursor(
+    async fn update_session_cursor(
         &self,
-        runtime_row_id: &str,
+        session_id: &str,
+        actor_id: &str,
         last_processed_message_id: &str,
     ) -> BackendResult<()> {
         #[derive(serde::Serialize)]
@@ -1047,7 +1034,7 @@ impl Backend for CloudApiBackend {
             last_processed_message_id: &'a str,
         }
         self.patch_no_content(
-            &format!("/v1/agents/runtimes/{runtime_row_id}/cursor"),
+            &format!("/v1/sessions/{session_id}/participants/{actor_id}/cursor"),
             &Body {
                 last_processed_message_id,
             },
@@ -2033,142 +2020,65 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn update_runtime_cursor_patches_cloud_api() {
+    async fn update_session_cursor_patches_the_participant_row() {
+        // The cursor is addressed by (session, actor) now — no runtime row id
+        // to resolve first, because there is no runtime row (ADR-0005).
         let server = MockServer::start().await;
         mount_refresh(&server).await;
         Mock::given(method("PATCH"))
-            .and(path("/v1/agents/runtimes/runtime-row-1/cursor"))
+            .and(path("/v1/sessions/session-1/participants/actor-1/cursor"))
             .respond_with(ResponseTemplate::new(204))
             .mount(&server)
             .await;
-        let backend = CloudApiBackend::new(config(&server));
-        backend
-            .update_runtime_cursor("runtime-row-1", "msg-10")
+        let be = CloudApiBackend::new(config(&server));
+        be.update_session_cursor("session-1", "actor-1", "msg-10")
             .await
             .unwrap();
     }
 
     #[tokio::test]
-    async fn fetch_latest_runtime_for_session_returns_none_on_404() {
+    async fn fetch_session_cursor_picks_this_actors_participant_row() {
         let server = MockServer::start().await;
         mount_refresh(&server).await;
         Mock::given(method("GET"))
-            .and(path("/v1/agents/runtimes/latest"))
-            .respond_with(ResponseTemplate::new(404).set_body_json(serde_json::json!({
-                "error": { "code": "not_found", "message": "not found" }
-            })))
-            .mount(&server)
-            .await;
-        let backend = CloudApiBackend::new(config(&server));
-        let row = backend
-            .fetch_latest_runtime_for_session("agent-1", "session-1")
-            .await
-            .unwrap();
-        assert!(row.is_none());
-    }
-
-    #[tokio::test]
-    async fn fetch_agent_runtime_for_session_returns_row() {
-        let server = MockServer::start().await;
-        mount_refresh(&server).await;
-        Mock::given(method("GET"))
-            .and(path("/v1/agents/runtimes"))
+            .and(path("/v1/sessions/session-1/participants"))
             .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
-                "id": "runtime-row-1",
-                "agentActorId": "agent-1",
-                "sessionId": "session-1",
-                "runtimeId": "rt-1",
-                "backendSessionId": "bs-1",
-                "lastProcessedMessageId": "msg-5"
+                "items": [
+                    { "actorId": "someone-else", "lastProcessedMessageId": "msg-1" },
+                    { "actorId": "actor-1", "lastProcessedMessageId": "msg-7" },
+                ]
             })))
             .mount(&server)
             .await;
-        let backend = CloudApiBackend::new(config(&server));
-        let row = backend
-            .fetch_agent_runtime_for_session("session-1", "rt-1", "bs-1")
-            .await
-            .unwrap();
-        assert!(row.is_some());
-        let row = row.unwrap();
-        assert_eq!(row.id, "runtime-row-1");
-        assert_eq!(row.last_processed_message_id, Some("msg-5".to_string()));
+        let be = CloudApiBackend::new(config(&server));
+        assert_eq!(
+            be.fetch_session_cursor("session-1", "actor-1").await.unwrap(),
+            Some("msg-7".to_string())
+        );
     }
 
     #[tokio::test]
-    async fn fetch_agent_runtime_for_session_returns_none_on_404() {
+    async fn fetch_session_cursor_is_none_when_this_actor_never_read() {
+        // Distinct from "no participants": an actor present but with no cursor
+        // has read nothing, and must be planned for restart from the beginning.
         let server = MockServer::start().await;
         mount_refresh(&server).await;
         Mock::given(method("GET"))
-            .and(path("/v1/agents/runtimes"))
-            .respond_with(ResponseTemplate::new(404).set_body_json(serde_json::json!({
-                "error": { "code": "not_found", "message": "not found" }
-            })))
-            .mount(&server)
-            .await;
-        let backend = CloudApiBackend::new(config(&server));
-        let row = backend
-            .fetch_agent_runtime_for_session("session-x", "rt-x", "bs-x")
-            .await
-            .unwrap();
-        assert!(row.is_none());
-    }
-
-    #[tokio::test]
-    async fn upsert_agent_runtime_returns_id() {
-        let server = MockServer::start().await;
-        mount_refresh(&server).await;
-        Mock::given(method("POST"))
-            .and(path("/v1/agents/runtimes"))
+            .and(path("/v1/sessions/session-1/participants"))
             .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
-                "id": "runtime-row-1"
+                "items": [{ "actorId": "actor-1" }]
             })))
             .mount(&server)
             .await;
-        let backend = CloudApiBackend::new(config(&server));
-        let id = backend
-            .upsert_agent_runtime(&AgentRuntimeUpsert {
-                team_id: "team-1",
-                agent_id: "agent-1",
-                session_id: Some("session-1"),
-                workspace_id: None,
-                backend_type: "claude_code",
-                backend_session_id: Some("bs-1"),
-                runtime_id: Some("rt-1"),
-                status: "active",
-                current_model: None,
-                last_seen_at: chrono::Utc::now(),
-            })
-            .await
-            .unwrap();
-        assert_eq!(id, Some("runtime-row-1".to_string()));
+        let be = CloudApiBackend::new(config(&server));
+        assert_eq!(
+            be.fetch_session_cursor("session-1", "actor-1").await.unwrap(),
+            None
+        );
     }
 
-    #[test]
-    fn upsert_runtime_body_includes_workspace_id() {
-        #[derive(serde::Serialize)]
-        struct Body<'a> {
-            #[serde(rename = "agentActorId")]
-            agent_actor_id: &'a str,
-            #[serde(rename = "workspaceId", skip_serializing_if = "Option::is_none")]
-            workspace_id: Option<&'a str>,
-            status: &'a str,
-        }
-        let with = serde_json::to_value(&Body {
-            agent_actor_id: "a1",
-            workspace_id: Some("ws-uuid"),
-            status: "starting",
-        })
-        .unwrap();
-        assert_eq!(with["workspaceId"], "ws-uuid");
 
-        let without = serde_json::to_value(&Body {
-            agent_actor_id: "a1",
-            workspace_id: None,
-            status: "starting",
-        })
-        .unwrap();
-        assert!(without.get("workspaceId").is_none(), "None must be omitted");
-    }
+
 
     #[tokio::test]
     async fn list_agent_admin_member_actor_ids_returns_items() {

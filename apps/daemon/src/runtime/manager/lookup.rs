@@ -53,12 +53,13 @@ impl RuntimeManager {
             })
     }
 
-    /// Return the backend `agent_runtimes.id` for this runtime, if known.
-    /// Currently `None` until Task 9 wires the upsert return value back here.
-    pub fn backend_runtime_row_id(&self, runtime_id: &str) -> Option<String> {
+    /// The cloud session this attachment serves, if it is session-bound.
+    /// Ambient / bare-agent spawns have none.
+    pub fn session_id_for_runtime(&self, runtime_id: &str) -> Option<String> {
         self.agents
             .get(runtime_id)
-            .and_then(|h| h.backend_runtime_row_id.clone())
+            .map(|h| h.session_id.clone())
+            .filter(|s| !s.is_empty())
     }
 
     /// Look up an agent runtime by its ACP session id (the 36-char uuid

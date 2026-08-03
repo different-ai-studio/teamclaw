@@ -88,39 +88,19 @@ fn acp_sid_from_stored_sessions(sessions: &[StoredSession]) -> Option<String> {
     best.map(|s| s.acp_session_id.clone())
 }
 
-/// Canonical ACP session id to pass to `resume_session` / `attach_session`.
+/// Canonical ACP session id to pass to `resume_session` / `attach_session`:
+/// the newest non-empty `acp_session_id` on matching `sessions.toml` rows.
 ///
-/// 1. Cloud `agent_runtimes.backend_session_id` for this daemon actor + session.
-/// 2. Newest non-empty `acp_session_id` on matching `sessions.toml` rows.
-pub(crate) async fn resolve_backend_session_id(
-    backend: &Arc<dyn Backend>,
-    daemon_actor_id: &str,
-    cloud_session_id: &str,
+/// The cloud used to be consulted first, via
+/// `agent_runtimes.backend_session_id`. That lookup is gone with the table, and
+/// losing it costs nothing: one device runs one global backend, so an ACP
+/// session another device recorded does not exist here to resume (ADR-0002).
+pub(crate) fn resolve_backend_session_id(
     store: &SessionStore,
+    cloud_session_id: &str,
     agent_type: amux::AgentType,
     workspace_id: &str,
 ) -> Option<String> {
-    if !cloud_session_id.is_empty() {
-        match backend
-            .fetch_latest_runtime_for_session(daemon_actor_id, cloud_session_id)
-            .await
-        {
-            Ok(Some(row)) => {
-                if let Some(sid) = row.backend_session_id.filter(|s| !s.is_empty()) {
-                    return Some(sid);
-                }
-            }
-            Ok(None) => {}
-            Err(e) => {
-                warn!(
-                    cloud_session_id,
-                    error = %e,
-                    "resolve_backend_session_id: fetch_latest_runtime_for_session failed"
-                );
-            }
-        }
-    }
-
     acp_sid_from_stored_sessions(&matching_stored_sessions(
         store,
         cloud_session_id,

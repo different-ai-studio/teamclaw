@@ -164,9 +164,10 @@ pub struct MockState {
     /// — lets `get_workspaces_by_ids` resolve ids seeded via `upsert_workspace`
     /// without a separate seeding step.
     pub workspaces_by_id: HashMap<String, WorkspaceRow>,
-    pub runtime_upsert_row_ids: HashMap<(String, Option<String>), String>,
-    pub runtime_rows_by_session_runtime: HashMap<(String, String, String), AgentRuntimeRow>,
-    pub latest_runtime_rows: HashMap<(String, String), AgentRuntimeRow>,
+    /// (session_id, actor_id) → catch-up cursor, as the participant row holds it.
+    pub session_cursors: HashMap<(String, String), String>,
+    /// (session_id, actor_id) → workspace, same source.
+    pub session_workspaces: HashMap<(String, String), String>,
     pub ensured_agent_types: Vec<(Vec<String>, String)>,
     pub default_workspace_ids: Vec<String>,
     pub set_default_workspace_error: Option<String>,
@@ -294,50 +295,31 @@ impl Backend for MockBackend {
             .ok_or_else(|| BackendError::Validation("invite invalid or expired".into()))
     }
 
-    async fn upsert_agent_runtime(
-        &self,
-        row: &AgentRuntimeUpsert<'_>,
-    ) -> BackendResult<Option<String>> {
-        let mut st = self.state.lock().unwrap();
-        st.upserted_runtimes
-            .push(RecordedRuntimeUpsert::from_upsert(row));
-        let key = (
-            row.agent_id.to_string(),
-            row.backend_session_id.map(str::to_string),
-        );
-        Ok(st.runtime_upsert_row_ids.get(&key).cloned())
-    }
-
-    async fn fetch_agent_runtime_for_session(
+    async fn fetch_session_cursor(
         &self,
         session_id: &str,
-        runtime_id: &str,
-        backend_session_id: &str,
-    ) -> BackendResult<Option<AgentRuntimeRow>> {
+        actor_id: &str,
+    ) -> BackendResult<Option<String>> {
         Ok(self
             .state
             .lock()
             .unwrap()
-            .runtime_rows_by_session_runtime
-            .get(&(
-                session_id.to_string(),
-                runtime_id.to_string(),
-                backend_session_id.to_string(),
-            ))
+            .session_cursors
+            .get(&(session_id.to_string(), actor_id.to_string()))
             .cloned())
     }
 
-    async fn fetch_latest_runtime_for_session(
+    async fn fetch_session_workspace(
         &self,
-        agent_id: &str,
         session_id: &str,
-    ) -> BackendResult<Option<AgentRuntimeRow>> {
+        actor_id: &str,
+    ) -> BackendResult<Option<String>> {
         Ok(self
             .state
             .lock()
             .unwrap()
-            .latest_runtime_rows
-            .get(&(agent_id.to_string(), session_id.to_string()))
+            .session_workspaces
+            .get(&(session_id.to_string(), actor_id.to_string()))
             .cloned())
     }
 
@@ -479,13 +461,14 @@ impl Backend for MockBackend {
         Ok(msgs)
     }
 
-    async fn update_runtime_cursor(
+    async fn update_session_cursor(
         &self,
-        runtime_row_id: &str,
+        session_id: &str,
+        actor_id: &str,
         last_processed_message_id: &str,
     ) -> BackendResult<()> {
         self.state.lock().unwrap().runtime_cursors_updated.push((
-            runtime_row_id.to_string(),
+            format!("{session_id}:{actor_id}"),
             last_processed_message_id.to_string(),
         ));
         Ok(())
@@ -930,35 +913,27 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn upsert_agent_runtime_records_input_and_returns_seeded_row_id() {
-        let (be, state) = dyn_backend();
-        state.lock().unwrap().runtime_upsert_row_ids.insert(
-            ("agent-a".to_string(), Some("acp-sid".to_string())),
-            "runtime-row-uuid".to_string(),
+    async fn session_cursor_round_trips_through_the_participant_row() {
+        let be = MockBackend::new();
+        be.state()
+            .session_cursors
+            .insert(("session-1".into(), "actor-1".into()), "msg-7".into());
+
+        assert_eq!(
+            be.fetch_session_cursor("session-1", "actor-1").await.unwrap(),
+            Some("msg-7".to_string())
+        );
+        assert_eq!(
+            be.fetch_session_cursor("session-1", "other").await.unwrap(),
+            None
         );
 
-        let row = AgentRuntimeUpsert {
-            team_id: "t",
-            agent_id: "agent-a",
-            session_id: None,
-            workspace_id: None,
-            backend_type: "claude",
-            backend_session_id: Some("acp-sid"),
-            runtime_id: Some("rt-1"),
-            status: "starting",
-            current_model: None,
-            last_seen_at: chrono::Utc::now(),
-        };
-        let id = be.upsert_agent_runtime(&row).await.unwrap();
-        assert_eq!(id.as_deref(), Some("runtime-row-uuid"));
-
-        let snap = state.lock().unwrap();
-        assert_eq!(snap.upserted_runtimes.len(), 1);
-        assert_eq!(snap.upserted_runtimes[0].agent_id, "agent-a");
-        assert_eq!(snap.upserted_runtimes[0].status, "starting");
+        be.update_session_cursor("session-1", "actor-1", "msg-9")
+            .await
+            .unwrap();
         assert_eq!(
-            snap.upserted_runtimes[0].backend_session_id.as_deref(),
-            Some("acp-sid")
+            be.state().runtime_cursors_updated.last().unwrap(),
+            &("session-1:actor-1".to_string(), "msg-9".to_string())
         );
     }
 

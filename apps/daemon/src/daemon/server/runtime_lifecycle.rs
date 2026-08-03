@@ -520,15 +520,7 @@ impl DaemonServer {
 
         let session_id_opt = (!session_id.is_empty()).then_some(session_id);
         let resume_acp_session_id = if !session_id.is_empty() && !ws_id.is_empty() {
-            resolve_backend_session_id(
-                &self.backend,
-                &self.actor_id,
-                session_id,
-                &self.sessions,
-                agent_type,
-                &ws_id,
-            )
-            .await
+            resolve_backend_session_id(&self.sessions, session_id, agent_type, &ws_id)
         } else {
             None
         };
@@ -925,62 +917,13 @@ impl DaemonServer {
             Err(e) => (false, e.to_string()),
         };
 
-        // On success, fan the new current_model out via the retained per-runtime
-        // state topic so iOS subscribers see the change immediately. Also
-        // upsert agent_runtimes.current_model so clients that read the cloud backend
-        // (e.g. when MQTT delivery is flaky) see the change — without this,
-        // iOS picks up the stale current_model and the row label snaps back
-        // to the previous model after refreshMemberSheet runs.
+        // On success, fan the new current_model out via the retained state
+        // topics so subscribers see the change immediately. The mirror into
+        // `agent_runtimes.current_model` this used to do is gone: the model
+        // lives on the participant row and the actor snapshot (ADR-0004/0005).
         if success {
             self.publish_runtime_state_by_id(&runtime_id).await;
-
-            let sb = &self.backend;
-            let agents = self.agents.lock().await;
-            let handle = agents.get_handle(&runtime_id);
-            let (acp_sid, session_id, ws_id, backend_type) = (
-                handle.map(|h| h.acp_session_id.clone()).unwrap_or_default(),
-                handle.map(|h| h.session_id.clone()).unwrap_or_default(),
-                handle.map(|h| h.workspace_id.clone()).unwrap_or_default(),
-                handle
-                    .map(|h| agents.launch_config_for(h.agent_type).backend_type)
-                    .unwrap_or("claude"),
-            );
-            let status_str: &'static str = handle
-                .map(|h| match amux::AgentStatus::try_from(h.status as i32) {
-                    Ok(amux::AgentStatus::Active) => "running",
-                    Ok(amux::AgentStatus::Idle) => "idle",
-                    Ok(amux::AgentStatus::Stopped) => "stopped",
-                    _ => "starting",
-                })
-                .unwrap_or("starting");
-            drop(agents);
-
-            let team_id = sb.team_id().to_string();
-            let actor_id = sb.actor_id().to_string();
-            let sb_clone = sb.clone();
-            let runtime_id_owned = runtime_id.clone();
-            let model_id_owned = model_id.clone();
-            tokio::spawn(async move {
-                let row = AgentRuntimeUpsert {
-                    team_id: &team_id,
-                    agent_id: &actor_id,
-                    session_id: (!session_id.is_empty()).then_some(session_id.as_str()),
-                    workspace_id: (!ws_id.is_empty()).then_some(ws_id.as_str()),
-                    backend_type,
-                    backend_session_id: if acp_sid.is_empty() {
-                        None
-                    } else {
-                        Some(acp_sid.as_str())
-                    },
-                    runtime_id: Some(runtime_id_owned.as_str()),
-                    status: status_str,
-                    current_model: Some(model_id_owned.as_str()),
-                    last_seen_at: chrono::Utc::now(),
-                };
-                if let Err(e) = sb_clone.upsert_agent_runtime(&row).await {
-                    warn!("agent_runtimes upsert (set_model): {e}");
-                }
-            });
+            self.publish_actor_state().await;
         }
 
         RpcResponse {
