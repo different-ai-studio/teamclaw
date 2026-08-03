@@ -18,6 +18,8 @@ import {
   members,
   teamMembers,
   sessions,
+  sessionParticipants,
+  agentRuntimes,
   workspaces,
 } from "../src/db/schema/index.js";
 
@@ -322,6 +324,91 @@ test("updateRuntimeCursor persists lastProcessedMessageId", async () => {
   const msgId = "00000000-0000-0000-0000-000000000001";
   // Should not throw
   await assert.doesNotReject(() => repo.updateRuntimeCursor(id, { lastProcessedMessageId: msgId }));
+});
+
+test("updateRuntimeCursor mirrors onto the participant row", async () => {
+  const db = await makeDb();
+  const team = await seedTeam(db);
+  const agentActor = await seedAgentActor(db, team.id);
+  const session = await seedSession(db, team.id);
+  const repo = makeRepo(db, agentActor.id);
+  await db.insert(sessionParticipants).values({
+    sessionId: session.id,
+    actorId: agentActor.id,
+    role: "agent",
+  });
+
+  const { id } = await repo.upsertAgentRuntime({
+    agentActorId: agentActor.id,
+    sessionId: session.id,
+    runtimeId: "rt-mirror",
+    backendSessionId: "bs-mirror",
+  });
+
+  const msgId = "00000000-0000-0000-0000-0000000000aa";
+  await repo.updateRuntimeCursor(id, { lastProcessedMessageId: msgId });
+
+  const [participant] = await db
+    .select({ cursor: sessionParticipants.lastProcessedMessageId })
+    .from(sessionParticipants)
+    .where(eq(sessionParticipants.sessionId, session.id));
+  assert.equal(participant.cursor, msgId, "participant row owns the cursor (ADR-0005)");
+});
+
+test("getAgentRuntime prefers the participant cursor over the runtime mirror", async () => {
+  const db = await makeDb();
+  const team = await seedTeam(db);
+  const agentActor = await seedAgentActor(db, team.id);
+  const session = await seedSession(db, team.id);
+  const repo = makeRepo(db, agentActor.id);
+
+  const stale = "00000000-0000-0000-0000-0000000000b1";
+  const fresh = "00000000-0000-0000-0000-0000000000b2";
+  await db.insert(sessionParticipants).values({
+    sessionId: session.id,
+    actorId: agentActor.id,
+    role: "agent",
+    lastProcessedMessageId: fresh,
+  });
+  const { id } = await repo.upsertAgentRuntime({
+    agentActorId: agentActor.id,
+    sessionId: session.id,
+    runtimeId: "rt-pref",
+    backendSessionId: "bs-pref",
+  });
+  // Write the stale value straight onto the mirror, bypassing the dual-write.
+  await db
+    .update(agentRuntimes)
+    .set({ lastProcessedMessageId: stale })
+    .where(eq(agentRuntimes.id, id));
+
+  const row = await repo.getAgentRuntime({ sessionId: session.id, runtimeId: "rt-pref" });
+  assert.equal(row.lastProcessedMessageId, fresh);
+});
+
+test("getAgentRuntime falls back to the mirror when the participant has no cursor", async () => {
+  const db = await makeDb();
+  const team = await seedTeam(db);
+  const agentActor = await seedAgentActor(db, team.id);
+  const session = await seedSession(db, team.id);
+  const repo = makeRepo(db, agentActor.id);
+
+  // No participant row at all — the state of every session until the backfill
+  // in 20260803000000 runs.
+  const legacy = "00000000-0000-0000-0000-0000000000c1";
+  const { id } = await repo.upsertAgentRuntime({
+    agentActorId: agentActor.id,
+    sessionId: session.id,
+    runtimeId: "rt-fallback",
+    backendSessionId: "bs-fallback",
+  });
+  await db
+    .update(agentRuntimes)
+    .set({ lastProcessedMessageId: legacy })
+    .where(eq(agentRuntimes.id, id));
+
+  const row = await repo.getAgentRuntime({ sessionId: session.id, runtimeId: "rt-fallback" });
+  assert.equal(row.lastProcessedMessageId, legacy);
 });
 
 test("updateRuntimeModel persists model", async () => {

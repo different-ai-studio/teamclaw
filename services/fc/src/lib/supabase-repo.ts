@@ -341,6 +341,26 @@ export function createSupabaseBusinessRepository(options) {
     return data;
   }
 
+  /**
+   * The catch-up cursor belongs to the participant row (ADR-0005); the copy on
+   * `agent_runtimes` is a legacy mirror kept alive only until iOS migrates.
+   * Prefer the participant value, falling back to the mirror for rows the
+   * backfill has not reached.
+   */
+  async function withParticipantCursor(row) {
+    if (!row?.session_id || !row?.agent_id) return row;
+    const { data, error } = await supabase
+      .from("session_participants")
+      .select("last_processed_message_id")
+      .eq("session_id", row.session_id)
+      .eq("actor_id", row.agent_id)
+      .limit(1)
+      .maybeSingle();
+    if (error) throw error;
+    const cursor = data?.last_processed_message_id;
+    return cursor ? { ...row, last_processed_message_id: cursor } : row;
+  }
+
   return {
     async listTeams({ limit = 50 } = {}) {
       // ACTOR-SCOPED "my current teams". RLS (teams_org_guard) already scopes
@@ -1630,7 +1650,7 @@ export function createSupabaseBusinessRepository(options) {
       const { data, error } = await query.limit(1).single();
       if (error && error.code === "PGRST116") return null;
       if (error) throw error;
-      return data ? mapAgentRuntimeRow(data) : null;
+      return data ? mapAgentRuntimeRow(await withParticipantCursor(data)) : null;
     },
 
     async getLatestAgentRuntime({ agentId, sessionId }) {
@@ -1644,15 +1664,29 @@ export function createSupabaseBusinessRepository(options) {
         .single();
       if (error && error.code === "PGRST116") return null;
       if (error) throw error;
-      return data ? mapAgentRuntimeRow(data) : null;
+      return data ? mapAgentRuntimeRow(await withParticipantCursor(data)) : null;
     },
 
     async updateRuntimeCursor(runtimeRowId, { lastProcessedMessageId }) {
-      const { error } = await supabase
+      // Dual-write while iOS still reads `agent_runtimes` (plan phase 7). The
+      // participant row is authoritative for reads from here on.
+      const { data, error } = await supabase
         .from("agent_runtimes")
         .update({ last_processed_message_id: lastProcessedMessageId })
-        .eq("id", runtimeRowId);
+        .eq("id", runtimeRowId)
+        .select("session_id, agent_id");
       if (error) throw error;
+      const row = data?.[0];
+      if (!row?.session_id || !row?.agent_id) return;
+      const { error: participantError } = await supabase
+        .from("session_participants")
+        .update({
+          last_processed_message_id: lastProcessedMessageId,
+          updated_at: new Date().toISOString(),
+        })
+        .eq("session_id", row.session_id)
+        .eq("actor_id", row.agent_id);
+      if (participantError) throw participantError;
     },
 
     async ensureAgentTypes({ supportedTypes, defaultAgentType }) {

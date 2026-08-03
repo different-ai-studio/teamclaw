@@ -39,6 +39,11 @@ export const sessionParticipants = pgTable("session_participants", {
   sessionId: uuid("session_id").notNull().references(() => sessions.id, { onDelete: "cascade" }),
   actorId: uuid("actor_id").notNull().references(() => actors.id, { onDelete: "cascade" }),
   role: text("role"),
+  // An agent participant's working state for this session. NULL on member rows
+  // — not applicable rather than missing. See ADR-0005.
+  workspaceId: uuid("workspace_id"),
+  model: text("model"),
+  lastProcessedMessageId: uuid("last_processed_message_id"),
   joinedAt: timestamp("joined_at", { withTimezone: true }).notNull().defaultNow(),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),

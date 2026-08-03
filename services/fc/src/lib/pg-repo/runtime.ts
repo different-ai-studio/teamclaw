@@ -10,7 +10,7 @@
 
 import { and, desc, eq, inArray, isNull } from "drizzle-orm";
 import type { PgDatabase } from "drizzle-orm/pg-core";
-import { actors, agentRuntimes, teams } from "../../db/schema/index.js";
+import { actors, agentRuntimes, sessionParticipants, teams } from "../../db/schema/index.js";
 import { ApiError } from "../http-utils.js";
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -44,6 +44,29 @@ function mapRow(row: typeof agentRuntimes.$inferSelect) {
 }
 
 export function makeRuntimeRepo(db: DbLike, ctx: RuntimeCtx = {}) {
+  /**
+   * The catch-up cursor belongs to the participant row (ADR-0005); the copy on
+   * `agent_runtimes` is a legacy mirror kept alive only until iOS migrates.
+   * Prefer the participant value, falling back to the mirror for rows the
+   * backfill has not reached.
+   */
+  async function withParticipantCursor(row: typeof agentRuntimes.$inferSelect) {
+    if (!row.sessionId || !row.agentId) return row;
+    const [participant] = await db
+      .select({ cursor: sessionParticipants.lastProcessedMessageId })
+      .from(sessionParticipants)
+      .where(
+        and(
+          eq(sessionParticipants.sessionId, row.sessionId),
+          eq(sessionParticipants.actorId, row.agentId),
+        ),
+      )
+      .limit(1);
+    return participant?.cursor
+      ? { ...row, lastProcessedMessageId: participant.cursor }
+      : row;
+  }
+
   return {
     /**
      * Upserts an agent runtime row. Derives teamId from the agent actor row
@@ -178,7 +201,7 @@ export function makeRuntimeRepo(db: DbLike, ctx: RuntimeCtx = {}) {
         .where(and(...conditions))
         .limit(1);
 
-      return rows[0] ? mapRow(rows[0]) : null;
+      return rows[0] ? mapRow(await withParticipantCursor(rows[0])) : null;
     },
 
     /**
@@ -204,20 +227,39 @@ export function makeRuntimeRepo(db: DbLike, ctx: RuntimeCtx = {}) {
         .orderBy(desc(agentRuntimes.updatedAt))
         .limit(1);
 
-      return rows[0] ? mapRow(rows[0]) : null;
+      return rows[0] ? mapRow(await withParticipantCursor(rows[0])) : null;
     },
 
     /**
      * Updates lastProcessedMessageId for the given runtime row id.
+     *
+     * Dual-write: the participant row is authoritative (ADR-0005), the runtime
+     * row is a mirror kept alive until iOS migrates off `agent_runtimes`.
      */
     async updateRuntimeCursor(
       runtimeRowId: string,
       { lastProcessedMessageId }: { lastProcessedMessageId: string | null },
     ) {
-      await (db as any)
+      const updated = await (db as any)
         .update(agentRuntimes)
         .set({ lastProcessedMessageId, updatedAt: new Date() })
-        .where(eq(agentRuntimes.id, runtimeRowId));
+        .where(eq(agentRuntimes.id, runtimeRowId))
+        .returning({
+          sessionId: agentRuntimes.sessionId,
+          agentId: agentRuntimes.agentId,
+        });
+
+      const row = updated?.[0];
+      if (!row?.sessionId || !row?.agentId) return;
+      await (db as any)
+        .update(sessionParticipants)
+        .set({ lastProcessedMessageId, updatedAt: new Date() })
+        .where(
+          and(
+            eq(sessionParticipants.sessionId, row.sessionId),
+            eq(sessionParticipants.actorId, row.agentId),
+          ),
+        );
     },
 
     /**
