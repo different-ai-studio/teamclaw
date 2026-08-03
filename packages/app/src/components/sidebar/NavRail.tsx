@@ -1,10 +1,10 @@
 import * as React from 'react'
 import { useTranslation } from 'react-i18next'
-import { Inbox, Lightbulb, Keyboard, Pin, AppWindow } from 'lucide-react'
+import { Inbox, Lightbulb, Keyboard, AppWindow } from 'lucide-react'
 import { useUIStore } from '@/stores/ui'
 import { useSessionListStore } from '@/stores/session-list-store'
 
-// Clicking 会话/已置顶 doubles as a "something looks stale" fallback: refetch
+// Clicking 会话 doubles as a "something looks stale" fallback: refetch
 // the first page of sessions (cloud + local hydrate). Throttled so rapid
 // tab-switching doesn't hammer the Cloud API.
 let lastSessionListRefreshAt = 0
@@ -18,6 +18,7 @@ import { useCronStore } from '@/stores/cron'
 import { createQuickSession, describeQuickSessionFailure } from '@/lib/create-quick-session'
 import { useQuickChatReadiness } from '@/hooks/use-quick-chat-readiness'
 import { ActorsSection } from '@/components/sidebar/ActorsSection'
+import { ContactsNavEntry } from '@/components/sidebar/ContactsNavEntry'
 import { TeamShareNavSection } from '@/components/sidebar/TeamShareNavSection'
 import { NewChatSplitButton } from '@/components/sidebar/NewChatSplitButton'
 import { buildConfig } from '@/lib/build-config'
@@ -72,7 +73,6 @@ export function NavRail() {
   const filter = useUIStore((s) => s.sidebarFilter)
   const setFilter = useUIStore((s) => s.setSidebarFilter)
   const listRows = useSessionListStore((s) => s.rows)
-  const pinnedSessionIds = useSessionListStore((s) => s.pinnedSessionIds)
   const cronSessionIds = useCronStore((s) => s.cronSessionIds)
   const showCronSessions = useCronStore((s) => s.showCronSessions)
   const setShowCronSessions = useCronStore((s) => s.setShowCronSessions)
@@ -83,13 +83,6 @@ export function NavRail() {
     () => listRows.filter((r) => !isScheduledSession(r, cronSessionIds)).length,
     [listRows, cronSessionIds],
   )
-
-  const pinnedCount = React.useMemo(() => {
-    const visibleIds = new Set(
-      listRows.filter((r) => !isScheduledSession(r, cronSessionIds)).map((r) => r.id),
-    )
-    return pinnedSessionIds.filter((id) => visibleIds.has(id)).length
-  }, [listRows, pinnedSessionIds, cronSessionIds])
 
   const handleQuickNewChat = React.useCallback(() => {
     if (quickChatState.kind !== 'ready' || creating) return
@@ -155,16 +148,7 @@ export function NavRail() {
             refreshSessionListThrottled()
           }}
         />
-        <TopEntry
-          label={t('sidebar.pinned', 'Pinned')}
-          icon={Pin}
-          active={filter.kind === 'pinned'}
-          badge={pinnedCount}
-          onClick={() => {
-            setFilter({ kind: 'pinned' })
-            refreshSessionListThrottled()
-          }}
-        />
+        <ContactsNavEntry />
         {!embedMode ? (
           <TopEntry
             label={t('sidebar.ideas', 'Ideas')}

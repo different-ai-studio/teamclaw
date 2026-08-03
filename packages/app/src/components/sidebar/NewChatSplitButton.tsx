@@ -63,9 +63,7 @@ export function NewChatSplitButton({
           >
             {creating ? (
               <Loader2 className="h-[14px] w-[14px] shrink-0 animate-spin" />
-            ) : (
-              <Plus className="h-[14px] w-[14px] shrink-0" strokeWidth={2.5} />
-            )}
+            ) : null}
             <span className="min-w-0 flex-1 truncate">{t('chat.newChat', 'New Chat')}</span>
             <span className="ml-auto shrink-0 font-mono text-[10.5px] font-medium tracking-tight text-white/70">
               ⌘N

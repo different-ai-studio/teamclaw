@@ -22,6 +22,9 @@ const mkListRow = (id: string, title: string) => ({
 vi.mock('@/components/sidebar/ActorsSection', () => ({
   ActorsSection: () => <div data-testid="actors-section" />,
 }))
+vi.mock('@/components/sidebar/ContactsNavEntry', () => ({
+  ContactsNavEntry: () => <div data-testid="contacts-nav-entry" />,
+}))
 vi.mock('@/components/sidebar/NewChatSplitButton', () => ({
   NewChatSplitButton: () => <div data-testid="new-chat-split" />,
 }))
@@ -63,12 +66,6 @@ describe('NavRail', () => {
     expect(useCronStore.getState().showCronSessions).toBe(false)
   })
 
-  it('clicking Pinned sets filter to { kind: "pinned" }', () => {
-    render(<NavRail />)
-    fireEvent.click(screen.getByRole('button', { name: /已置顶/ }))
-    expect(useUIStore.getState().sidebarFilter).toEqual({ kind: 'pinned' })
-  })
-
   it('clicking Shortcuts sets filter to { kind: "shortcuts" }', () => {
     render(<NavRail />)
     fireEvent.click(screen.getByRole('button', { name: /快捷方式/ }))
@@ -89,18 +86,9 @@ describe('NavRail', () => {
     expect(screen.getByText('3')).toBeInTheDocument()
   })
 
-  it('shows pinned count badge in Pinned row', () => {
-    useSessionListStore.setState({
-      rows: [mkListRow('s1', 'A'), mkListRow('s2', 'B')],
-      pinnedSessionIds: ['s1'],
-    })
+  it('renders ContactsNavEntry, ActorsSection, and an Ideas filter entry', () => {
     render(<NavRail />)
-    const pinnedButton = screen.getByRole('button', { name: /Pinned|已置顶/ })
-    expect(pinnedButton).toHaveTextContent('1')
-  })
-
-  it('renders ActorsSection and an Ideas filter entry', () => {
-    render(<NavRail />)
+    expect(screen.getByTestId('contacts-nav-entry')).toBeInTheDocument()
     expect(screen.getByTestId('actors-section')).toBeInTheDocument()
     expect(screen.getByRole('button', { name: /Ideas|想法/ })).toBeInTheDocument()
   })
