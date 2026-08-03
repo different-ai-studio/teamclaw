@@ -735,6 +735,8 @@ impl DaemonServer {
         // dual-publishes to agent/{id}/state + runtime/{id}/state. The handle
         // today encodes state=ACTIVE (Phase 1a Idea 4).
         self.publish_runtime_state_by_id(&new_id).await;
+        // …and refresh the actor snapshot, which is what replaces the above.
+        self.publish_actor_state().await;
 
         // Replay any messages the runtime missed before it was spawned.
         // Uses Option B (event loop hook is not needed here because
@@ -826,6 +828,9 @@ impl DaemonServer {
             .publish_runtime_state(runtime_id, &stopped_info)
             .await;
         let _ = publisher.clear_runtime_state(runtime_id).await;
+        // Detach: the session drops out of `live_sessions`, so clients render
+        // it cold. Absence is the signal — there is no "stopped" entry.
+        self.publish_actor_state().await;
     }
 
     pub(crate) async fn handle_start_runtime(

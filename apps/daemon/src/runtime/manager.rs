@@ -1282,6 +1282,104 @@ impl RuntimeManager {
         }
     }
 
+    /// Look up the attachment serving `session_id`, if this daemon holds one.
+    ///
+    /// The `agents` map is still keyed by the per-spawn id for now; this is the
+    /// session-addressed lookup every caller actually wants, and it is what
+    /// lets commands be addressed by (actor, session) rather than by a spawn id
+    /// that goes stale the moment it is written down (ADR-0004).
+    pub fn attachment_for_session(&self, session_id: &str) -> Option<&RuntimeHandle> {
+        let session_id = session_id.trim();
+        if session_id.is_empty() {
+            return None;
+        }
+        self.agents.values().find(|h| h.session_id == session_id)
+    }
+
+    /// The sessions this daemon currently holds an attachment for.
+    ///
+    /// Absence from this list is meaningful: it is how a client tells "warm,
+    /// answers immediately" from "cold, will spawn on send". Bounded by the
+    /// detach policy rather than by history.
+    pub fn live_sessions(&self) -> Vec<amux::LiveSession> {
+        self.agents
+            .values()
+            .filter(|h| !h.session_id.is_empty())
+            .map(|h| amux::LiveSession {
+                session_id: h.session_id.clone(),
+                // The live adapter does not yet distinguish lifecycle states;
+                // an attachment that exists is serving. Same placeholder as
+                // `RuntimeHandle::to_proto_info`.
+                lifecycle: amux::RuntimeLifecycle::Active as i32,
+                status: h.status as i32,
+                stage: String::new(),
+                error_code: String::new(),
+                error_message: String::new(),
+                failed_stage: String::new(),
+                workspace_id: h.workspace_id.clone(),
+                current_model: self.agent_state.model_or_default(&h.agent_id),
+            })
+            .collect()
+    }
+
+    /// Catalogs for the ACTIVE backend, deduplicated for the wire.
+    ///
+    /// Returns `(union, per_worktree)`: `union` holds each distinct model once,
+    /// and every `WorktreeCatalog` points into it by index. Catalogs repeat
+    /// heavily across worktrees — one device held 563 entries over 8 worktrees
+    /// but only 72 distinct models — so this is ~5.3KB where verbatim copies
+    /// are ~33KB, on a payload every team member downloads on connect.
+    ///
+    /// Only the active backend ships. The store keeps the others so switching
+    /// back does not re-probe, but a client can only use what is running.
+    pub fn actor_catalog_snapshot(&self) -> (Vec<amux::ModelInfo>, Vec<amux::WorktreeCatalog>) {
+        let backend = self.local_backend_type();
+        let Some(by_worktree) = self.model_catalog.by_backend.get(backend) else {
+            return (Vec::new(), Vec::new());
+        };
+
+        let mut union: Vec<amux::ModelInfo> = Vec::new();
+        let mut index_of: HashMap<String, u32> = HashMap::new();
+        let mut worktrees = Vec::with_capacity(by_worktree.len());
+
+        for worktree in by_worktree.keys() {
+            let models = self.model_catalog.models_for(backend, worktree);
+            let mut model_indices = Vec::with_capacity(models.len());
+            for model in models {
+                let idx = match index_of.get(&model.id) {
+                    Some(idx) => *idx,
+                    None => {
+                        let idx = union.len() as u32;
+                        index_of.insert(model.id.clone(), idx);
+                        union.push(model);
+                        idx
+                    }
+                };
+                model_indices.push(idx);
+            }
+
+            worktrees.push(amux::WorktreeCatalog {
+                worktree: worktree.clone(),
+                model_indices,
+                default_model: self
+                    .model_mru
+                    .default_model_for(backend, worktree)
+                    .unwrap_or_default()
+                    .to_string(),
+                // Slash commands come from the worktree's project config, so
+                // any attachment in that directory reports the same set.
+                available_commands: self
+                    .agents
+                    .values()
+                    .find(|h| &h.worktree == worktree)
+                    .map(|h| self.agent_state.commands(&h.agent_id))
+                    .unwrap_or_default(),
+            });
+        }
+
+        (union, worktrees)
+    }
+
     pub fn to_proto_agent_list(&self) -> amux::AgentList {
         amux::AgentList {
             runtimes: self
@@ -2613,6 +2711,54 @@ mod tests {
         assert!(
             mgr.get_handle("rt-fresh").is_some(),
             "fresh handle retained"
+        );
+    }
+
+    #[tokio::test]
+    async fn evict_over_capacity_detaches_least_recently_used_first() {
+        let mut mgr = RuntimeManager::test_dummy_with_runtime("rt-oldest");
+        mgr.get_handle_mut("rt-oldest").unwrap().last_active_at = 100;
+        mgr.add_test_runtime("rt-middle", "rt-middle", "sess-middle");
+        mgr.get_handle_mut("rt-middle").unwrap().last_active_at = 200;
+        mgr.add_test_runtime("rt-newest", "rt-newest", "sess-newest");
+        mgr.get_handle_mut("rt-newest").unwrap().last_active_at = 300;
+
+        let evicted = mgr.evict_over_capacity(2).await;
+
+        assert_eq!(evicted, vec!["rt-oldest".to_string()]);
+        assert!(mgr.get_handle("rt-oldest").is_none());
+        assert!(mgr.get_handle("rt-middle").is_some());
+        assert!(mgr.get_handle("rt-newest").is_some());
+        assert_eq!(mgr.drain_evicted(), vec!["rt-oldest".to_string()]);
+    }
+
+    #[tokio::test]
+    async fn evict_over_capacity_is_a_noop_under_the_cap() {
+        let mut mgr = RuntimeManager::test_dummy_with_runtime("rt-only");
+        assert!(mgr.evict_over_capacity(16).await.is_empty());
+        assert!(mgr.get_handle("rt-only").is_some());
+    }
+
+    #[tokio::test]
+    async fn evict_over_capacity_ignores_the_checked_out_event_rx_guard() {
+        // The idle sweep skips a handle whose receiver is checked out, to
+        // protect a turn in flight. Capacity must NOT: a receiver stranded by a
+        // failed checkout would otherwise exempt its attachment forever, and
+        // the cap is the backstop that has to hold regardless.
+        let mut mgr = RuntimeManager::test_dummy_with_runtime("rt-stranded");
+        mgr.get_handle_mut("rt-stranded").unwrap().last_active_at = 1;
+        mgr.get_handle_mut("rt-stranded").unwrap().event_rx = None;
+        mgr.add_test_runtime("rt-live", "rt-live", "sess-live");
+        mgr.get_handle_mut("rt-live").unwrap().last_active_at = chrono::Utc::now().timestamp();
+
+        assert!(
+            mgr.evict_idle(60).await.is_empty(),
+            "idle sweep leaves the stranded handle alone despite it being ancient"
+        );
+        assert_eq!(
+            mgr.evict_over_capacity(1).await,
+            vec!["rt-stranded".to_string()],
+            "capacity sweep reclaims it anyway"
         );
     }
 

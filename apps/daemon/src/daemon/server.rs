@@ -1268,21 +1268,26 @@ impl DaemonServer {
         // The sweeper holds an `Arc<AsyncMutex<RuntimeManager>>` clone and calls
         // `evict_idle` once a minute. The terminal MQTT publish is done by the
         // main event loop draining `mgr.drain_evicted()` per tick (see Task 7).
-        if let Some(threshold_secs) = self.config.idle_runtime_timeout_secs {
+        {
+            let threshold_secs = self.config.idle_timeout_secs();
+            let max_attachments = self.config.max_attachments();
             let mgr = self.agents.clone();
-            info!(threshold_secs, "idle ACP eviction enabled");
+            info!(
+                threshold_secs,
+                max_attachments, "attachment detach policy active"
+            );
             let threshold = i64::try_from(threshold_secs).unwrap_or(i64::MAX);
             tokio::spawn(async move {
                 let mut tick = tokio::time::interval(Duration::from_secs(60));
                 tick.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
                 loop {
                     tick.tick().await;
-                    let _evicted = mgr.lock().await.evict_idle(threshold).await;
+                    let mut guard = mgr.lock().await;
+                    let _idle = guard.evict_idle(threshold).await;
+                    let _over = guard.evict_over_capacity(max_attachments).await;
                     // No publish here — main loop drains mgr.evicted_pending_publish.
                 }
             });
-        } else {
-            info!("idle_runtime_timeout_secs unset; idle ACP eviction disabled");
         }
 
         // Advertise supported agent backend types on the cloud `agents` row
@@ -3140,6 +3145,7 @@ pub(crate) mod tests {
             team_id: Some("team-test".to_string()),
             channels: crate::config::ChannelsConfig::default(),
             idle_runtime_timeout_secs: None,
+            max_attachments: None,
             http: None,
         }
     }

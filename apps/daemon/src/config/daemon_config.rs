@@ -21,13 +21,18 @@ pub struct DaemonConfig {
     pub team_id: Option<String>,
     #[serde(default)]
     pub channels: ChannelsConfig,
-    /// Stop ACP runtimes whose `last_active_at` is older than this many
-    /// seconds. `None` (default) disables idle eviction. Manual stops via
-    /// the RuntimeStop RPC are unaffected. Recommend ≥ 1800 (30 min) so
-    /// users don't lose context mid-conversation; very short values will
-    /// kill mid-stream replies that exceed the threshold.
+    /// Detach an Attachment whose `last_active_at` is older than this many
+    /// seconds. `None` means the built-in default, not "disabled" — see
+    /// [`Self::idle_timeout_secs`]. Manual stops via the RuntimeStop RPC are
+    /// unaffected. Very short values will kill mid-stream replies that exceed
+    /// the threshold.
     #[serde(default)]
     pub idle_runtime_timeout_secs: Option<u64>,
+    /// Hard ceiling on concurrent Attachments; the least recently used is
+    /// detached to make room. `None` means the built-in default — see
+    /// [`Self::max_attachments`].
+    #[serde(default)]
+    pub max_attachments: Option<usize>,
     /// Browser-facing HTTP/SSE API, bound alongside the Unix control socket.
     ///
     /// Omitting the section does **not** disable the listener — the daemon
@@ -425,6 +430,35 @@ pub struct EmailChannel {
     pub allowed_senders: Vec<String>,
 }
 
+/// How long an idle Attachment stays warm. Not a tuning knob: it defines the
+/// shelf life of the "ready, answers immediately" state a user can feel, and it
+/// is half of what keeps `ActorPresence.live_sessions` bounded (ADR-0004).
+pub const DEFAULT_IDLE_TIMEOUT_SECS: u64 = 30 * 60;
+
+/// Ceiling on concurrent Attachments. The idle timeout alone bounds the set
+/// only by user behaviour — how many sessions someone can open inside 30
+/// minutes — so a hard cap backs it up. Each attachment holds an opencode
+/// session and an event channel, which is the real resource being protected.
+pub const DEFAULT_MAX_ATTACHMENTS: usize = 16;
+
+impl DaemonConfig {
+    /// Idle detach threshold, defaulted.
+    ///
+    /// Historically `None` disabled eviction outright, which meant an
+    /// attachment lived until the daemon restarted and `live_sessions` grew
+    /// with every session ever opened. Defaulting rather than disabling is what
+    /// makes the bound real.
+    pub fn idle_timeout_secs(&self) -> u64 {
+        self.idle_runtime_timeout_secs
+            .unwrap_or(DEFAULT_IDLE_TIMEOUT_SECS)
+    }
+
+    /// Concurrent-attachment ceiling, defaulted.
+    pub fn max_attachments(&self) -> usize {
+        self.max_attachments.unwrap_or(DEFAULT_MAX_ATTACHMENTS).max(1)
+    }
+}
+
 impl DaemonConfig {
     pub fn config_dir() -> PathBuf {
         dirs::home_dir()
@@ -486,6 +520,7 @@ impl DaemonConfig {
             team_id: None,
             channels: Default::default(),
             idle_runtime_timeout_secs: None,
+            max_attachments: None,
             // Present so the packaged desktop WebView's fetch() can reach the
             // loopback control plane without a hand edit.
             http: Some(HttpConfig::default()),

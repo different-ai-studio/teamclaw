@@ -43,6 +43,40 @@ impl RuntimeManager {
         evicted
     }
 
+    /// Detach least-recently-used attachments until at most `max` remain.
+    ///
+    /// The idle sweep alone bounds the set only by user behaviour — how many
+    /// sessions someone opens inside the timeout — so this is the hard ceiling
+    /// behind it (ADR-0004).
+    ///
+    /// Deliberately WITHOUT the `event_rx.is_some()` guard the idle sweep uses:
+    /// that guard exists to protect a turn in flight, but a receiver stranded
+    /// by a failed checkout would exempt its attachment forever. Capacity must
+    /// hold even then, and `stop_runtime` does not consult `event_rx`.
+    pub async fn evict_over_capacity(&mut self, max: usize) -> Vec<String> {
+        if self.agents.len() <= max {
+            return Vec::new();
+        }
+        let mut by_age: Vec<(String, i64)> = self
+            .agents
+            .iter()
+            .map(|(id, h)| (id.clone(), h.last_active_at))
+            .collect();
+        // Oldest first; ties broken by id so the choice is deterministic.
+        by_age.sort_by(|a, b| a.1.cmp(&b.1).then_with(|| a.0.cmp(&b.0)));
+
+        let excess = self.agents.len() - max;
+        let mut evicted = Vec::with_capacity(excess);
+        for (id, _) in by_age.into_iter().take(excess) {
+            if self.stop_runtime(&id).await.is_some() {
+                tracing::info!(agent_id = %id, max, "capacity sweeper: detached LRU attachment");
+                evicted.push(id);
+            }
+        }
+        self.evicted_pending_publish.extend(evicted.iter().cloned());
+        evicted
+    }
+
     /// Drain the buffer of idle-evicted agent_ids whose terminal MQTT state
     /// still needs publishing. Called once per main-loop tick.
     pub fn drain_evicted(&mut self) -> Vec<String> {

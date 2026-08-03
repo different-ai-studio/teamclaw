@@ -78,6 +78,50 @@ impl DaemonServer {
                 .publish_runtime_state(&info.runtime_id, &info)
                 .await;
         }
+        self.publish_actor_state().await;
+    }
+
+    /// Publish the whole actor snapshot on the one retained topic this actor
+    /// already owns: presence, active backend, its catalogs, and the sessions
+    /// currently attached.
+    ///
+    /// This is the replacement for the per-spawn `runtime/{id}/state` fan-out.
+    /// That fan-out could not be bounded — `runtime_id` is minted fresh on every
+    /// spawn and the clear only runs on the idle-eviction path — whereas this is
+    /// one message per actor with every field bounded (ADR-0004).
+    ///
+    /// Gateway and cron attachments are covered for free: they never reach
+    /// `apply_start_runtime` (which is why they never got a spawn-time retain),
+    /// but they do live in `RuntimeManager.agents`, so they appear here as soon
+    /// as this fires on attach.
+    pub(crate) async fn publish_actor_state(&self) {
+        let (active_agent_type, catalog_models, worktrees, live_sessions) = {
+            let agents = self.agents.lock().await;
+            let (catalog_models, worktrees) = agents.actor_catalog_snapshot();
+            (
+                agents.default_agent_type() as i32,
+                catalog_models,
+                worktrees,
+                agents.live_sessions(),
+            )
+        };
+
+        let state = amux::ActorPresence {
+            online: true,
+            display_name: self.config.actor.name.clone(),
+            timestamp: chrono::Utc::now().timestamp(),
+            active_agent_type,
+            // The host is reachable by construction here: we only publish from
+            // inside a running daemon that just serviced an attach or detach.
+            // STARTING/FAILED are wired where the supervisor learns them.
+            backend_health: amux::AgentHostHealth::Ready as i32,
+            catalog_models,
+            worktrees,
+            live_sessions,
+        };
+
+        let publisher = Publisher::new_from_handle(self.publisher_handle.clone(), &self.topics);
+        let _ = publisher.publish_actor_presence(&state).await;
     }
 
     /// Returns the single collab session_id this runtime should publish

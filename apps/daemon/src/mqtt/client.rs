@@ -195,6 +195,7 @@ mod tests {
             team_id: Some("team-uuid-1234".into()),
             channels: Default::default(),
             idle_runtime_timeout_secs: None,
+            max_attachments: None,
             http: None,
         }
     }
