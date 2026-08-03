@@ -44,10 +44,14 @@ export async function listDaemonRuntimes(teamId: string): Promise<DaemonRuntime[
   const sessionIds = [...new Set(rows.map((row) => row.session_id).filter((id): id is string => Boolean(id)))]
   const workspaceIds = [...new Set(rows.map((row) => row.workspace_id).filter((id): id is string => Boolean(id)))]
 
+  // These three only supply display names. A failure here must degrade to
+  // showing ids, never blank the runtime list: a bare Promise.all rejected the
+  // whole call when display-rows 500'd, which is how a 414 on one lookup ended
+  // up emptying the session list's workspace filter.
   const [agentRows, sessionRows, workspaceRows] = await Promise.all([
-    getBackend().actors.listActorDirectoryByIds(agentIds),
-    getBackend().sessions.listSessionDisplayRows(teamId, sessionIds),
-    getBackend().workspaces.listWorkspacesByIds(teamId, workspaceIds),
+    getBackend().actors.listActorDirectoryByIds(agentIds).catch(() => []),
+    getBackend().sessions.listSessionDisplayRows(teamId, sessionIds).catch(() => []),
+    getBackend().workspaces.listWorkspacesByIds(teamId, workspaceIds).catch(() => []),
   ])
 
   const agents = new Map(agentRows.map((row) => [row.id, row.display_name || row.id]))

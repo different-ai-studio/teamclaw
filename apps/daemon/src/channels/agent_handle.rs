@@ -723,9 +723,18 @@ impl AmuxdAgentHandle {
             let (turn, _again) = mgr
                 .checkout_turn_for_acp(&outcome.real_acp_sid)
                 .map_err(|e| AgentError::Send(e.to_string()))?;
-            mgr.send_prompt_raw(&turn.agent_id, &prompt, vec![], None, None)
+            // A `?` here would drop `turn` — destroying the receiver instead of
+            // returning it — and `handle.event_rx` would stay None forever.
+            // `evict_idle` skips handles with a checked-out receiver, so a single
+            // send failure would exempt this runtime from idle eviction for the
+            // rest of the daemon's life. Check in before propagating.
+            if let Err(e) = mgr
+                .send_prompt_raw(&turn.agent_id, &prompt, vec![], None, None)
                 .await
-                .map_err(|e| AgentError::Send(e.to_string()))?;
+            {
+                mgr.checkin_turn(turn);
+                return Err(AgentError::Send(e.to_string()));
+            }
             (turn.agent_id, turn.event_rx)
         };
 
