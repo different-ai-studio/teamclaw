@@ -79,12 +79,9 @@ public struct SessionMemberSheetSnapshot: Equatable, Sendable {
 /// (on the VM, which owns `agentChipSelection`).
 public struct SessionMemberSheetLoader: Sendable {
     public let sessionsRepository: SessionRepository?
-    public let agentRuntimesRepository: AgentRuntimesRepository?
 
-    public init(sessionsRepository: SessionRepository?,
-                agentRuntimesRepository: AgentRuntimesRepository?) {
+    public init(sessionsRepository: SessionRepository?) {
         self.sessionsRepository = sessionsRepository
-        self.agentRuntimesRepository = agentRuntimesRepository
     }
 
     /// Fetches participants + per-agent runtime rows and shapes them
@@ -113,13 +110,6 @@ public struct SessionMemberSheetLoader: Sendable {
             return nil
         }
 
-        var sessionRuntimes: [AgentRuntimeRecord] = []
-        if !teamID.isEmpty, let runtimesRepo = agentRuntimesRepository {
-            if let all = try? await runtimesRepo.listForTeam(teamID: teamID) {
-                sessionRuntimes = all.filter { $0.sessionID == sessionID }
-            }
-        }
-
         let humans: [MemberSheetHuman] = participants
             .filter { $0.actorType != "agent" }
             .map { p in
@@ -134,20 +124,23 @@ public struct SessionMemberSheetLoader: Sendable {
         let agents: [MemberSheetAgent] = participants
             .filter { $0.actorType == "agent" }
             .map { p in
-                let runtime = sessionRuntimes.first(where: { $0.agentID == p.actorID })
                 let liveModels = availableModelsForAgent(p.actorID)
+                // The participant row owns this agent's workspace and model for
+                // this session (ADR-0005). `runtime` is the legacy fallback:
+                // reaching it means fetching every runtime row in the team,
+                // which is the query that produced a 48KB URL and a kong 414.
+                let workspaceID = p.workspaceID
                 return MemberSheetAgent(
                     id: p.actorID,
                     displayName: p.displayName,
-                    workspacePath: runtime?.workspaceID ?? "",
-                    agentType: Self.displayName(forBackendType: runtime?.backendType),
-                    runtimeState: Self.chipState(forStatus: runtime?.status,
-                                                 lastSeenAt: runtime?.lastSeenAt),
+                    workspacePath: workspaceID ?? "",
+                    agentType: Self.displayName(forBackendType: nil),
+                    runtimeState: Self.chipState(forStatus: nil, lastSeenAt: nil),
                     availableModels: liveModels,
-                    currentModel: runtime?.currentModel,
-                    runtimeID: runtime?.runtimeID,
-                    workspaceID: runtime?.workspaceID,
-                    backendType: runtime?.backendType
+                    currentModel: p.model,
+                    runtimeID: nil,
+                    workspaceID: workspaceID,
+                    backendType: nil
                 )
             }
 

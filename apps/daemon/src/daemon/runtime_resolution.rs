@@ -149,6 +149,7 @@ mod tests {
             team_id: None,
             channels: crate::config::ChannelsConfig::default(),
             idle_runtime_timeout_secs: None,
+            max_attachments: None,
             http: None,
         }
     }

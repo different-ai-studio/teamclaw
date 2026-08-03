@@ -95,12 +95,6 @@ export function registerSessions(router) {
   // GET /v1/sessions?teamId=… instead, which is paginated and carries the same
   // display-row fields.
 
-  router.get("/v1/teams/:teamId/agent-runtimes", async (ctx) => {
-    const teamId = decodeURIComponent(ctx.params.teamId);
-    const items = await ctx.repository.listAgentRuntimesForTeam(teamId);
-    return { body: { items } };
-  });
-
   router.get("/v1/sessions/:sessionId/participants", async (ctx) => {
     const sessionId = decodeURIComponent(ctx.params.sessionId);
     const out = await ctx.repository.listSessionParticipants(sessionId);
@@ -113,6 +107,20 @@ export function registerSessions(router) {
     requireString(body.actorId, "actorId");
     const out = await ctx.repository.upsertSessionParticipant(sessionId, body);
     return { body: out };
+  });
+
+  // Catch-up cursor, addressed by (session, actor) — where it now lives
+  // (ADR-0005). Replaces PATCH /v1/agents/runtimes/:rowId/cursor, which needed
+  // a row id minted by a runtime upsert that no longer happens.
+  router.patch("/v1/sessions/:sessionId/participants/:actorId/cursor", async (ctx) => {
+    const body = ctx.json ?? {};
+    requireString(body.lastProcessedMessageId, "lastProcessedMessageId");
+    await ctx.repository.updateParticipantCursor(
+      decodeURIComponent(ctx.params.sessionId),
+      decodeURIComponent(ctx.params.actorId),
+      { lastProcessedMessageId: body.lastProcessedMessageId },
+    );
+    return { statusCode: 204, body: null };
   });
 
   router.delete("/v1/sessions/:sessionId/participants/:actorId", async (ctx) => {

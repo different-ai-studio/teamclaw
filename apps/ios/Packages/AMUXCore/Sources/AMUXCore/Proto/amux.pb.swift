@@ -25,6 +25,49 @@ fileprivate nonisolated struct _GeneratedWithProtocGenSwiftVersion: SwiftProtobu
   typealias Version = _2
 }
 
+/// Availability of the actor's single global backend process (AgentHost).
+public nonisolated enum Amux_AgentHostHealth: SwiftProtobuf.Enum, Swift.CaseIterable {
+  public typealias RawValue = Int
+  case unknown // = 0
+  case ready // = 1
+  case starting // = 2
+  case failed // = 3
+  case UNRECOGNIZED(Int)
+
+  public init() {
+    self = .unknown
+  }
+
+  public init?(rawValue: Int) {
+    switch rawValue {
+    case 0: self = .unknown
+    case 1: self = .ready
+    case 2: self = .starting
+    case 3: self = .failed
+    default: self = .UNRECOGNIZED(rawValue)
+    }
+  }
+
+  public var rawValue: Int {
+    switch self {
+    case .unknown: return 0
+    case .ready: return 1
+    case .starting: return 2
+    case .failed: return 3
+    case .UNRECOGNIZED(let i): return i
+    }
+  }
+
+  // The compiler won't synthesize support with the UNRECOGNIZED case.
+  public static let allCases: [Amux_AgentHostHealth] = [
+    .unknown,
+    .ready,
+    .starting,
+    .failed,
+  ]
+
+}
+
 public nonisolated enum Amux_AgentType: SwiftProtobuf.Enum, Swift.CaseIterable {
   public typealias RawValue = Int
   case unknown // = 0
@@ -1230,6 +1273,12 @@ public nonisolated struct Amux_RemoveMember: Sendable {
 
 /// Payload of {team}/{actor}/state (retained, LWT-backed from Phase 3 onward).
 /// See spec: docs/superpowers/specs/2026-04-24-mqtt-topic-redesign-design.md
+///
+/// This is becoming the SINGLE retained topic per actor, replacing the
+/// per-spawn `runtime/{runtime_id}/state` fan-out. That fan-out was unbounded:
+/// `runtime_id` is minted fresh on every spawn, so retains accumulated for the
+/// life of the broker (see ADR-0004). Every field below is bounded — one
+/// message, one actor.
 public nonisolated struct Amux_ActorPresence: Sendable {
   // SwiftProtobuf.Message conformance is added in an extension below. See the
   // `Message` and `Message+*Additions` files in the SwiftProtobuf library for
@@ -1240,6 +1289,86 @@ public nonisolated struct Amux_ActorPresence: Sendable {
   public var displayName: String = String()
 
   public var timestamp: Int64 = 0
+
+  /// Which backend this actor is running RIGHT NOW. Exactly one is active at a
+  /// time (ADR-0002); `agents.agent_types` records what it could run instead.
+  public var activeAgentType: Amux_AgentType = .unknown
+
+  /// Lets a client tell "daemon is down" (online == false) from "daemon is up
+  /// but its backend won't start" — two failures that used to collapse into one
+  /// opaque offline state.
+  public var backendHealth: Amux_AgentHostHealth = .unknown
+
+  /// Model catalogs for the active backend, deduplicated. Catalogs are keyed by
+  /// (AgentType, worktree) and repeat heavily across worktrees: on a real device
+  /// 8 worktrees held 563 entries but only 72 distinct models. Verbatim copies
+  /// cost ~33KB; union + indices costs ~5.3KB.
+  public var catalogModels: [Amux_ModelInfo] = []
+
+  public var worktrees: [Amux_WorktreeCatalog] = []
+
+  /// Sessions this actor currently holds an Attachment for. Bounded by the
+  /// detach policy (idle timeout / LRU cap), not by history. Absence means
+  /// "not attached" — the client renders that session as cold.
+  public var liveSessions: [Amux_LiveSession] = []
+
+  public var unknownFields = SwiftProtobuf.UnknownStorage()
+
+  public init() {}
+}
+
+public nonisolated struct Amux_WorktreeCatalog: Sendable {
+  // SwiftProtobuf.Message conformance is added in an extension below. See the
+  // `Message` and `Message+*Additions` files in the SwiftProtobuf library for
+  // methods supported on all messages.
+
+  /// Absolute local path. Kept for parity with RuntimeInfo.worktree, which
+  /// already broadcasts it team-wide; narrowing that exposure is tracked
+  /// separately (see proto/CONTEXT.md#worktree).
+  public var worktree: String = String()
+
+  /// Indices into ActorPresence.catalog_models.
+  public var modelIndices: [UInt32] = []
+
+  /// Head of the MRU for (active agent type, this worktree) — the model last
+  /// actually used here. A memory, not a configured preference: there is no UI
+  /// that sets it directly.
+  public var defaultModel: String = String()
+
+  public var availableCommands: [Amux_AcpAvailableCommand] = []
+
+  public var unknownFields = SwiftProtobuf.UnknownStorage()
+
+  public init() {}
+}
+
+/// One Attachment, as seen by clients. Carries only state that changes on
+/// lifecycle transitions; per-token progress rides the ephemeral session/live
+/// stream instead.
+public nonisolated struct Amux_LiveSession: Sendable {
+  // SwiftProtobuf.Message conformance is added in an extension below. See the
+  // `Message` and `Message+*Additions` files in the SwiftProtobuf library for
+  // methods supported on all messages.
+
+  public var sessionID: String = String()
+
+  public var lifecycle: Amux_RuntimeLifecycle = .unknown
+
+  public var status: Amux_AgentStatus = .unknown
+
+  /// meaningful iff lifecycle == STARTING
+  public var stage: String = String()
+
+  /// meaningful iff lifecycle == FAILED
+  public var errorCode: String = String()
+
+  public var errorMessage: String = String()
+
+  public var failedStage: String = String()
+
+  public var workspaceID: String = String()
+
+  public var currentModel: String = String()
 
   public var unknownFields = SwiftProtobuf.UnknownStorage()
 
@@ -1494,6 +1623,10 @@ public nonisolated struct Amux_PeerList: Sendable {
 // MARK: - Code below here is support for the SwiftProtobuf runtime.
 
 fileprivate nonisolated let _protobuf_package = "amux"
+
+nonisolated extension Amux_AgentHostHealth: SwiftProtobuf._ProtoNameProviding {
+  public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{2}\0AGENT_HOST_HEALTH_UNKNOWN\0\u{1}AGENT_HOST_HEALTH_READY\0\u{1}AGENT_HOST_HEALTH_STARTING\0\u{1}AGENT_HOST_HEALTH_FAILED\0")
+}
 
 nonisolated extension Amux_AgentType: SwiftProtobuf._ProtoNameProviding {
   public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{2}\0AGENT_TYPE_UNKNOWN\0\u{1}AGENT_TYPE_CLAUDE_CODE\0\u{1}AGENT_TYPE_OPENCODE\0\u{1}AGENT_TYPE_CODEX\0\u{1}AGENT_TYPE_PI\0\u{1}AGENT_TYPE_CURSOR\0")
@@ -3568,7 +3701,7 @@ nonisolated extension Amux_RemoveMember: SwiftProtobuf.Message, SwiftProtobuf._M
 
 nonisolated extension Amux_ActorPresence: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
   public static let protoMessageName: String = _protobuf_package + ".ActorPresence"
-  public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{1}online\0\u{3}display_name\0\u{1}timestamp\0")
+  public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{1}online\0\u{3}display_name\0\u{1}timestamp\0\u{3}active_agent_type\0\u{3}backend_health\0\u{3}catalog_models\0\u{1}worktrees\0\u{3}live_sessions\0")
 
   public mutating func decodeMessage<D: SwiftProtobuf.Decoder>(decoder: inout D) throws {
     while let fieldNumber = try decoder.nextFieldNumber() {
@@ -3579,6 +3712,11 @@ nonisolated extension Amux_ActorPresence: SwiftProtobuf.Message, SwiftProtobuf._
       case 1: try { try decoder.decodeSingularBoolField(value: &self.online) }()
       case 2: try { try decoder.decodeSingularStringField(value: &self.displayName) }()
       case 3: try { try decoder.decodeSingularInt64Field(value: &self.timestamp) }()
+      case 4: try { try decoder.decodeSingularEnumField(value: &self.activeAgentType) }()
+      case 5: try { try decoder.decodeSingularEnumField(value: &self.backendHealth) }()
+      case 6: try { try decoder.decodeRepeatedMessageField(value: &self.catalogModels) }()
+      case 7: try { try decoder.decodeRepeatedMessageField(value: &self.worktrees) }()
+      case 8: try { try decoder.decodeRepeatedMessageField(value: &self.liveSessions) }()
       default: break
       }
     }
@@ -3594,6 +3732,21 @@ nonisolated extension Amux_ActorPresence: SwiftProtobuf.Message, SwiftProtobuf._
     if self.timestamp != 0 {
       try visitor.visitSingularInt64Field(value: self.timestamp, fieldNumber: 3)
     }
+    if self.activeAgentType != .unknown {
+      try visitor.visitSingularEnumField(value: self.activeAgentType, fieldNumber: 4)
+    }
+    if self.backendHealth != .unknown {
+      try visitor.visitSingularEnumField(value: self.backendHealth, fieldNumber: 5)
+    }
+    if !self.catalogModels.isEmpty {
+      try visitor.visitRepeatedMessageField(value: self.catalogModels, fieldNumber: 6)
+    }
+    if !self.worktrees.isEmpty {
+      try visitor.visitRepeatedMessageField(value: self.worktrees, fieldNumber: 7)
+    }
+    if !self.liveSessions.isEmpty {
+      try visitor.visitRepeatedMessageField(value: self.liveSessions, fieldNumber: 8)
+    }
     try unknownFields.traverse(visitor: &visitor)
   }
 
@@ -3601,6 +3754,126 @@ nonisolated extension Amux_ActorPresence: SwiftProtobuf.Message, SwiftProtobuf._
     if lhs.online != rhs.online {return false}
     if lhs.displayName != rhs.displayName {return false}
     if lhs.timestamp != rhs.timestamp {return false}
+    if lhs.activeAgentType != rhs.activeAgentType {return false}
+    if lhs.backendHealth != rhs.backendHealth {return false}
+    if lhs.catalogModels != rhs.catalogModels {return false}
+    if lhs.worktrees != rhs.worktrees {return false}
+    if lhs.liveSessions != rhs.liveSessions {return false}
+    if lhs.unknownFields != rhs.unknownFields {return false}
+    return true
+  }
+}
+
+nonisolated extension Amux_WorktreeCatalog: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
+  public static let protoMessageName: String = _protobuf_package + ".WorktreeCatalog"
+  public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{1}worktree\0\u{3}model_indices\0\u{3}default_model\0\u{3}available_commands\0")
+
+  public mutating func decodeMessage<D: SwiftProtobuf.Decoder>(decoder: inout D) throws {
+    while let fieldNumber = try decoder.nextFieldNumber() {
+      // The use of inline closures is to circumvent an issue where the compiler
+      // allocates stack space for every case branch when no optimizations are
+      // enabled. https://github.com/apple/swift-protobuf/issues/1034
+      switch fieldNumber {
+      case 1: try { try decoder.decodeSingularStringField(value: &self.worktree) }()
+      case 2: try { try decoder.decodeRepeatedUInt32Field(value: &self.modelIndices) }()
+      case 3: try { try decoder.decodeSingularStringField(value: &self.defaultModel) }()
+      case 4: try { try decoder.decodeRepeatedMessageField(value: &self.availableCommands) }()
+      default: break
+      }
+    }
+  }
+
+  public func traverse<V: SwiftProtobuf.Visitor>(visitor: inout V) throws {
+    if !self.worktree.isEmpty {
+      try visitor.visitSingularStringField(value: self.worktree, fieldNumber: 1)
+    }
+    if !self.modelIndices.isEmpty {
+      try visitor.visitPackedUInt32Field(value: self.modelIndices, fieldNumber: 2)
+    }
+    if !self.defaultModel.isEmpty {
+      try visitor.visitSingularStringField(value: self.defaultModel, fieldNumber: 3)
+    }
+    if !self.availableCommands.isEmpty {
+      try visitor.visitRepeatedMessageField(value: self.availableCommands, fieldNumber: 4)
+    }
+    try unknownFields.traverse(visitor: &visitor)
+  }
+
+  public static func ==(lhs: Amux_WorktreeCatalog, rhs: Amux_WorktreeCatalog) -> Bool {
+    if lhs.worktree != rhs.worktree {return false}
+    if lhs.modelIndices != rhs.modelIndices {return false}
+    if lhs.defaultModel != rhs.defaultModel {return false}
+    if lhs.availableCommands != rhs.availableCommands {return false}
+    if lhs.unknownFields != rhs.unknownFields {return false}
+    return true
+  }
+}
+
+nonisolated extension Amux_LiveSession: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
+  public static let protoMessageName: String = _protobuf_package + ".LiveSession"
+  public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{3}session_id\0\u{1}lifecycle\0\u{1}status\0\u{1}stage\0\u{3}error_code\0\u{3}error_message\0\u{3}failed_stage\0\u{3}workspace_id\0\u{3}current_model\0")
+
+  public mutating func decodeMessage<D: SwiftProtobuf.Decoder>(decoder: inout D) throws {
+    while let fieldNumber = try decoder.nextFieldNumber() {
+      // The use of inline closures is to circumvent an issue where the compiler
+      // allocates stack space for every case branch when no optimizations are
+      // enabled. https://github.com/apple/swift-protobuf/issues/1034
+      switch fieldNumber {
+      case 1: try { try decoder.decodeSingularStringField(value: &self.sessionID) }()
+      case 2: try { try decoder.decodeSingularEnumField(value: &self.lifecycle) }()
+      case 3: try { try decoder.decodeSingularEnumField(value: &self.status) }()
+      case 4: try { try decoder.decodeSingularStringField(value: &self.stage) }()
+      case 5: try { try decoder.decodeSingularStringField(value: &self.errorCode) }()
+      case 6: try { try decoder.decodeSingularStringField(value: &self.errorMessage) }()
+      case 7: try { try decoder.decodeSingularStringField(value: &self.failedStage) }()
+      case 8: try { try decoder.decodeSingularStringField(value: &self.workspaceID) }()
+      case 9: try { try decoder.decodeSingularStringField(value: &self.currentModel) }()
+      default: break
+      }
+    }
+  }
+
+  public func traverse<V: SwiftProtobuf.Visitor>(visitor: inout V) throws {
+    if !self.sessionID.isEmpty {
+      try visitor.visitSingularStringField(value: self.sessionID, fieldNumber: 1)
+    }
+    if self.lifecycle != .unknown {
+      try visitor.visitSingularEnumField(value: self.lifecycle, fieldNumber: 2)
+    }
+    if self.status != .unknown {
+      try visitor.visitSingularEnumField(value: self.status, fieldNumber: 3)
+    }
+    if !self.stage.isEmpty {
+      try visitor.visitSingularStringField(value: self.stage, fieldNumber: 4)
+    }
+    if !self.errorCode.isEmpty {
+      try visitor.visitSingularStringField(value: self.errorCode, fieldNumber: 5)
+    }
+    if !self.errorMessage.isEmpty {
+      try visitor.visitSingularStringField(value: self.errorMessage, fieldNumber: 6)
+    }
+    if !self.failedStage.isEmpty {
+      try visitor.visitSingularStringField(value: self.failedStage, fieldNumber: 7)
+    }
+    if !self.workspaceID.isEmpty {
+      try visitor.visitSingularStringField(value: self.workspaceID, fieldNumber: 8)
+    }
+    if !self.currentModel.isEmpty {
+      try visitor.visitSingularStringField(value: self.currentModel, fieldNumber: 9)
+    }
+    try unknownFields.traverse(visitor: &visitor)
+  }
+
+  public static func ==(lhs: Amux_LiveSession, rhs: Amux_LiveSession) -> Bool {
+    if lhs.sessionID != rhs.sessionID {return false}
+    if lhs.lifecycle != rhs.lifecycle {return false}
+    if lhs.status != rhs.status {return false}
+    if lhs.stage != rhs.stage {return false}
+    if lhs.errorCode != rhs.errorCode {return false}
+    if lhs.errorMessage != rhs.errorMessage {return false}
+    if lhs.failedStage != rhs.failedStage {return false}
+    if lhs.workspaceID != rhs.workspaceID {return false}
+    if lhs.currentModel != rhs.currentModel {return false}
     if lhs.unknownFields != rhs.unknownFields {return false}
     return true
   }

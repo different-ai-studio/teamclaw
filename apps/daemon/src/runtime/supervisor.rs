@@ -21,7 +21,10 @@ const INSTRUCTION_PLUGIN_TEMPLATE: &str = include_str!(
     "../../../../packages/app/src/lib/opencode/templates/teamclaw-instruction-plugin.mjs.txt"
 );
 
-use crate::config::workspace_control::{ApplyOutcome, EnvActivationBlocker, EnvActivationDiagnostics, RuntimeStatus, WorkspaceControlError};
+use crate::config::workspace_control::{
+    ApplyOutcome, EnvActivationBlocker, EnvActivationDiagnostics, RuntimeStatus,
+    WorkspaceControlError,
+};
 use crate::proto::amux;
 use crate::runtime::{
     refresh::{
@@ -889,8 +892,7 @@ impl RuntimeSupervisor {
         workspace_path: &Path,
         team_id: Option<&str>,
     ) -> EnvActivationDiagnostics {
-        let store =
-            teamclaw_runtime_env::diagnose_personal_env_store();
+        let store = teamclaw_runtime_env::diagnose_personal_env_store();
         let personal_env = teamclaw_runtime_env::personal_secrets::load_personal_env();
         let loaded_user_count = personal_env
             .as_ref()
@@ -910,11 +912,15 @@ impl RuntimeSupervisor {
             .unwrap_or_default();
         let personal_load_error = personal_env.err().map(|e| e.to_string());
 
-        let team_env =
-            crate::team_shared_env::load_team_env_for_workspace(workspace_path, team_id);
+        let team_env = crate::team_shared_env::load_team_env_for_workspace(workspace_path, team_id);
 
         let workspace_path_str = workspace_path.to_string_lossy();
-        let (active_runtime_count, workspace_has_active_turn, opencode_serve_running, cached_env_count) = {
+        let (
+            active_runtime_count,
+            workspace_has_active_turn,
+            opencode_serve_running,
+            cached_env_count,
+        ) = {
             let manager = self.agents.lock().await;
             let active_runtime_count = manager
                 .active_handles_for_workspace(&workspace_path_str, workspace_id)

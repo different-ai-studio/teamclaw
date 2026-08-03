@@ -1,46 +1,21 @@
-import { listDaemonRuntimes } from "@/lib/daemon-runtimes";
 import {
   invalidateViewerWorkspaceContext,
-  isViewerAgent,
   loadViewerWorkspaceContext,
-  resolveLocalPathForCloudWorkspace,
 } from "@/lib/session-viewer-workspace";
-import { upsertSessionWorkspacesBatch, type SessionWorkspaceRow } from "@/lib/local-cache";
 
 /**
- * Pull session → workspace links from the cloud daemon-runtimes list and
- * persist them into the local libsql `session_viewer_workspace` table.
- * The session list workspace filter reads ONLY this local table, so it keeps
- * working offline after the first sync.
+ * Refresh the viewer's workspace context for a team.
+ *
+ * This used to pull every `agent_runtimes` row in the team and cache the
+ * session → workspace links locally, because that team-wide fetch was the only
+ * way to get them. The workspace belongs to the participant row now (ADR-0005),
+ * so `session-viewer-workspace` resolves it per session on demand and the
+ * bulk prefetch — the query that reached 1306 rows and a 48KB URL — is gone.
+ *
+ * What remains is invalidating the cached viewer context so newly connected
+ * agents and newly registered workspaces are picked up.
  */
 export async function syncSessionWorkspaces(teamId: string): Promise<void> {
-  // This is the explicit refresh path — rebuild the viewer context from source
-  // (newly connected agents / registered workspaces) instead of a cached copy.
   invalidateViewerWorkspaceContext(teamId);
-  const viewer = await loadViewerWorkspaceContext(teamId);
-  const memberId = viewer.memberId?.trim();
-  if (!memberId) return;
-
-  const runtimes = await listDaemonRuntimes(teamId);
-  const now = new Date().toISOString();
-  const rows: SessionWorkspaceRow[] = [];
-
-  for (const rt of runtimes) {
-    if (!rt.sessionId) continue;
-    if (!isViewerAgent(rt.agentId, viewer)) continue;
-    const workspaceId = rt.workspaceId?.trim();
-    if (!workspaceId) continue;
-    rows.push({
-      sessionId: rt.sessionId,
-      teamId,
-      viewerMemberId: memberId,
-      agentId: rt.agentId,
-      workspaceId,
-      workspacePath: resolveLocalPathForCloudWorkspace(workspaceId, viewer),
-      updatedAt: now,
-    });
-  }
-
-  if (rows.length === 0) return;
-  await upsertSessionWorkspacesBatch(rows);
+  await loadViewerWorkspaceContext(teamId);
 }

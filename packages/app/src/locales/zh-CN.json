@@ -1617,7 +1617,6 @@
       "empty": "暂无 Runtime 上报。",
       "live": "在线",
       "runtimeId": "Runtime ID",
-      "backend": "后端",
       "model": "模型",
       "workspace": "工作区",
       "session": "会话",

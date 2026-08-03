@@ -48,20 +48,63 @@ agent_kind ∈ {'personal', 'team'}
 Agent 的**后端实现种类**取值域：`'claude-code' | 'opencode' | 'codex' | …`
 对应 daemon `amux.AgentType` 枚举（沿用此名）。
 
-DB 上一个 Agent **可同时支持多个 AgentType**：
-- `agents.agent_type` —— **支持列表**（数组），如 `['claude-code','opencode']`
-- `agents.default_agent_type` —— **当前默认选定**（单值，必须 ∈ `agent_type`）
+一个 Agent **具备多个 AgentType，但任一时刻只有一个是活跃的**：
+- `agents.agent_types` (jsonb 数组) —— **设备能力**：这台设备装了哪些后端二进制
+- `agents.default_agent_type` —— **当前活跃**（单值，必须 ∈ `agent_types`）
 
-启动 [Runtime](../apps/daemon/CONTEXT.md#runtime) 时若 RuntimeStartRequest 未指定 type，
-daemon 使用 `default_agent_type`。
+「具备」是能力，「活跃」是状态。切换活跃后端是一次**模式变更**，不是并发 —— 见 ADR-0002。
+
+⚠️ `default_agent_type` 的字段名是历史遗留，语义已不是"默认值"而是"当前就是它"。
+应更名为 `active_agent_type`。
+
+_Avoid_: 默认后端、default backend（会读成"可以被覆盖的缺省值"，但它不可被单次覆盖）
+
+### ModelCatalog
+某 ([AgentType](#agenttype), [Worktree](#worktree)) 组合下**可选模型的全集**。
+不是 [Actor](#actor) 的属性 —— 同一 actor 在不同 worktree 下目录不同
+（实测同一 opencode 跨 worktree 为 68~72 个模型）。
+proto: `repeated ModelInfo`；daemon 持久化于 `~/.amuxd/model-catalog.toml`，
+键为 `by_backend.{agent_type}.{worktree}`。
+
+**存储**保留全部 AgentType 的目录（切回旧后端时无需重探）。
+**`ActorPresence` retain 是 client 侧的唯一来源**，携带当前活跃 AgentType 的
+全部 worktree 分组 —— 不存在按需查询通道，见 ADR-0002。
+
+_Avoid_: available models（字段名可以，术语不要）、模型列表
+
+### DefaultModel
+某 ([Actor](#actor), [AgentType](#agenttype), [Worktree](#worktree)) 组合下**上次实际使用**的模型，
+即该组合 MRU 列表的表头。是**记忆**，不是配置项，用户无处显式设定它。
+daemon 权威：`config::model_mru`（`~/.amuxd/model-mru.toml`）。
+
+_Avoid_: 默认配置、preferred model、fallback model（后者指目录首项那一级派生兜底，是另一回事）
 
 ### Team
 顶层组织单元。所有 Actor / Workspace / Idea / Session 都 scoped to 单个 team。
 DB：`public.teams(id, slug, name)`。`team_members` 表关联 member↔team↔role。
 
 ### Participant
-[Actor](#actor) 作为成员加入某个 [Session](#session) 的关联记录（含 joined_at）。
-proto 中是 SessionInfo 的内嵌列表；非独立 DB 表实体。
+[Actor](#actor) 在某个 [Session](#session) 中的**参与实体**。
+DB 权威：`amux.session_participants`，唯一键 `(session_id, actor_id)`。
+
+对 `actor_type='agent'` 的参与者，它**拥有该 agent 在该 session 中的工作状态**：
+
+| 列 | 含义 |
+|---|---|
+| `workspace_id` | 这个 agent 在这个 session 里用哪个 [Workspace](#workspace) |
+| `model` | 这个 agent 在这个 session 里用哪个模型 |
+| `last_processed_message_id` | 这个 agent 读到哪儿了（重启后 catch-up 用） |
+
+member 参与者这三列恒为 NULL —— 不是数据缺失，是不适用。
+
+> 早前本条写作「非独立 DB 表实体」。该表述是错的，而且代价具体：上述三样状态
+> 因此无处可挂，落到了每次启动新建行的 `agent_runtimes` 上，某团队实测积到
+> 1306 行 / 1296 session。见 ADR-0005。
+
+区别于 desktop 的 **engaged agent**（输入框当前对准的那一个 agent，客户端本地状态，
+每 session 至多 1 个，不落库）—— 那是 UI 选择，不是参与关系。
+
+_Avoid_: 关联记录、join table row（它有自己的状态，不只是连接两端）
 
 ### Session
 跨端一致的会话单元，scoped to 单个 [Team](#team)。
@@ -75,6 +118,18 @@ daemon 一律为新 session 打 `UNKNOWN`（见 `apps/daemon/src/teamclaw/sessio
 ### Workspace
 proto 字段引用 `workspace_id`，DB 权威：`public.workspaces(team_id, path, …)`。
 desktop 端的 [Workspace](../packages/app/CONTEXT.md#workspace) 是其本地视图。
+**团队级注册**，与 [Worktree](#worktree)（设备级实体化）不是同一物。
+
+### Worktree
+一个 [Workspace](#workspace) 在**某台设备上**实体化出的本地绝对路径。
+一个 Workspace 在每台设备上有 0 或 1 个 Worktree —— 未注册的设备上映射为空
+（`resolveLocalPathForCloudWorkspace` 返回 `null`）。
+是 [ModelCatalog](#modelcatalog) 与 [DefaultModel](#defaultmodel) 的键之一。
+
+⚠️ Worktree 是**绝对路径**，含设备使用者的用户名与目录结构。
+当前 `RuntimeInfo.worktree` 随团队级 retain 广播给全团队 —— 待处理的信息泄漏点。
+
+_Avoid_: 本地 workspace、workspace path（会与团队级 Workspace 混淆）
 
 ### Idea / Claim / Submission
 session 内的产品工作流单元：Idea 被 Claim（认领）后 Submission（提交）。

@@ -1,8 +1,8 @@
-import { getBackend } from '@/lib/backend'
 import { setModel } from '@/lib/teamclaw-rpc'
 import {
   resolveRuntimeIdForAgent,
   resolveSetModelId,
+  runtimeTargetsForSession,
 } from '@/lib/runtime-state-resolve'
 import { useRuntimeStateStore } from '@/stores/runtime-state-store'
 import { sessionFlowError, sessionFlowLog } from '@/lib/session-flow-log'
@@ -41,17 +41,11 @@ export async function applySessionRuntimeModel(args: ApplySessionRuntimeModelArg
     })
   }
 
-  let runtimeRows: Array<{ agent_id: string | null; runtime_id: string | null }>
-  try {
-    runtimeRows = await getBackend().runtime.listRuntimeTargetsForSession(args.sessionId, args.agentActorIds)
-  } catch (error) {
-    sessionFlowError('runtime_model.query.failed', error, {
-      sessionId: args.sessionId,
-      modelId: args.modelId,
-      agentActorIds: args.agentActorIds,
-    })
-    throw new Error(`Failed to load agent runtimes: ${error instanceof Error ? error.message : String(error)}`, { cause: error })
-  }
+  // From the retain — no cloud call, so no failure mode to translate here.
+  const runtimeRows = runtimeTargetsForSession(
+    args.sessionId,
+    useRuntimeStateStore.getState().byRuntimeId,
+  )
 
   const validRuntimeRows = runtimeRows.filter(
     (row): row is { agent_id: string; runtime_id: string } => !!row.agent_id && !!row.runtime_id,

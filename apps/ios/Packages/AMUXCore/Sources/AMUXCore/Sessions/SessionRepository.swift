@@ -51,13 +51,21 @@ public struct SessionParticipantRecord: Equatable, Sendable {
     public let role: String?               // "human" | "agent" | nil
     public let displayName: String
     public let actorType: String           // "human" | "agent"
+    /// Agent's workspace for this session; nil on member rows. Replaces the
+    /// team-wide `agent_runtimes` fetch this used to be joined against.
+    public let workspaceID: String?
+    /// Agent's model for this session; nil on member rows.
+    public let model: String?
 
     public init(id: String, sessionID: String, actorID: String, role: String?,
-                displayName: String, actorType: String) {
+                displayName: String, actorType: String,
+                workspaceID: String? = nil, model: String? = nil) {
         self.id = id
         self.sessionID = sessionID
         self.actorID = actorID
         self.role = role
+        self.workspaceID = workspaceID
+        self.model = model
         self.displayName = displayName
         self.actorType = actorType
     }

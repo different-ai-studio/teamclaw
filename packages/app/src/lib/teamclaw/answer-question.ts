@@ -1,15 +1,14 @@
-import { getBackend } from "@/lib/backend";
 import { mqttPublish } from "@/lib/mqtt-bridge";
-import { resolvePermissionCommandTarget } from "@/lib/runtime-state-resolve";
+import {
+  resolvePermissionCommandTarget,
+  runtimeTargetsForSession,
+} from "@/lib/runtime-state-resolve";
 import { sessionFlowError, sessionFlowLog } from "@/lib/session-flow-log";
 import { useCurrentTeamStore } from "@/stores/current-team";
 import { useRuntimeStateStore } from "@/stores/runtime-state-store";
 import { createRuntimeCommandSender } from "@/lib/teamclaw/runtime-command";
+import { runtimeCommand } from "@/lib/teamclaw-rpc";
 
-function isAgentActorType(actorType: string | null | undefined): boolean {
-  const t = (actorType ?? "").toLowerCase();
-  return t === "agent" || t === "ai" || t === "assistant";
-}
 
 /**
  * Send the user's answers (or a rejection) for an opencode `question` tool
@@ -28,29 +27,16 @@ export async function answerAcpQuestion(args: {
   if (!teamId) throw new Error("No active team");
   const senderActorId = useCurrentTeamStore.getState().currentMember?.id?.trim() ?? "";
 
-  let agentParticipantIds: string[] = [args.agentActorId];
-  try {
-    const participants = await getBackend().sessionMembers.listParticipants(args.sessionId);
-    agentParticipantIds = participants
-      .filter((p) => isAgentActorType(p.actor_type))
-      .map((p) => p.id)
-      .filter(Boolean);
-    if (!agentParticipantIds.includes(args.agentActorId)) {
-      agentParticipantIds.push(args.agentActorId);
-    }
-  } catch (error) {
-    console.warn("[answer-question] participant lookup failed", error);
-  }
+  // The participant lookup that used to live here only existed to narrow
+  // `listRuntimeTargetsForSession`. With targets read off the retain there is
+  // nothing to narrow, so this is one fewer network round trip per command.
 
-  let sessionRuntimeRows: Array<{ agent_id: string | null; runtime_id: string | null }> = [];
-  try {
-    sessionRuntimeRows = await getBackend().runtime.listRuntimeTargetsForSession(
-      args.sessionId,
-      agentParticipantIds,
-    );
-  } catch (error) {
-    console.warn("[answer-question] runtime target lookup failed", error);
-  }
+  // Straight off the retain: one attachment per session, no cloud round trip
+  // and nothing stale to choose between.
+  const sessionRuntimeRows = runtimeTargetsForSession(
+    args.sessionId,
+    useRuntimeStateStore.getState().byRuntimeId,
+  );
 
   const target = resolvePermissionCommandTarget({
     agentActorId: args.agentActorId,
@@ -64,6 +50,10 @@ export async function answerAcpQuestion(args: {
   const peerId = `teamclaw-desktop-${(senderActorId || "anon").slice(0, 8)}`;
   const sender = createRuntimeCommandSender({
     mqtt: { publish: mqttPublish },
+    // Session-addressed dispatch with a delivery receipt; falls back to the
+    // per-spawn topic when no session id reaches here.
+    rpc: ({ targetActorId, sessionId: sid, envelope }) =>
+      runtimeCommand({ targetActorId, sessionId: sid, envelope }),
     teamId,
     peerId,
     senderActorId,
@@ -73,6 +63,7 @@ export async function answerAcpQuestion(args: {
     await sender.sendAnswerQuestion({
       targetActorId: target.actorId,
       runtimeId: target.runtimeId,
+      sessionId: args.sessionId,
       requestId: args.requestId,
       answers: args.answers,
       reject: args.reject,

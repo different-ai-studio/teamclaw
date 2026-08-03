@@ -6,11 +6,12 @@ use uuid::Uuid;
 
 use super::agent_runtime_state::PerAgentRuntimeState;
 use super::backend::{agent_type_for_local_agent, create_backend, AgentBackend};
+use super::builtin_commands::builtin_commands;
 use super::handle::RuntimeHandle;
 use super::refresh::RuntimeRefreshCoordinator;
 use std::sync::Arc;
 
-use crate::backend::{AgentRuntimeUpsert, Backend};
+use crate::backend::Backend;
 use crate::config::{DaemonConfig, DeviceModelCatalog, ModelMru};
 use crate::proto::amux;
 use crate::runtime::acp_event_frame::AcpEventFrame;
@@ -237,6 +238,9 @@ pub struct RuntimeManager {
     /// through the RPC handler which publishes directly, so they do NOT
     /// enter this buffer.
     evicted_pending_publish: Vec<String>,
+    /// Set on every mutation of `agents`; drained by the main loop, which
+    /// republishes the actor snapshot. See `mark_actor_state_dirty`.
+    actor_state_dirty: bool,
     refresh_coordinator: Option<Arc<RuntimeRefreshCoordinator>>,
     /// Test-only: records the last body sent per agent_id via send_prompt_raw.
     #[cfg(test)]
@@ -323,6 +327,7 @@ impl RuntimeManager {
             backend,
             refresh_coordinator: None,
             evicted_pending_publish: Vec::new(),
+            actor_state_dirty: false,
             #[cfg(test)]
             last_sent: HashMap::new(),
             #[cfg(test)]
@@ -441,7 +446,16 @@ impl RuntimeManager {
     pub fn set_current_model(&mut self, agent_id: &str, model_id: &str) {
         self.agent_state.set_model(agent_id, model_id);
         let backend = self.backend_id_for_runtime(agent_id);
-        if self.model_mru.record(backend, model_id) {
+        // Catalogs differ per worktree (68–72 models for the same opencode on
+        // one device), so the choice is attributed to the directory it was made
+        // in. A runtime already dropped from `agents` has no worktree to name,
+        // and records device-wide only.
+        let worktree = self
+            .agents
+            .get(agent_id)
+            .map(|h| h.worktree.clone())
+            .unwrap_or_default();
+        if self.model_mru.record(backend, &worktree, model_id) {
             if let Err(e) = self.model_mru.save(&self.model_mru_path) {
                 // A lost preference is not worth failing a runtime start over.
                 warn!(error = %e, "model MRU save failed");
@@ -623,6 +637,7 @@ impl RuntimeManager {
         handle.cmd_tx = Some(cmd_tx);
 
         self.agents.insert(agent_id.clone(), handle);
+        self.mark_actor_state_dirty();
         self.aggregators
             .insert(agent_id.clone(), TurnAggregator::new());
 
@@ -654,41 +669,6 @@ impl RuntimeManager {
         self.seed_cursor_from_prior_runtime(&agent_id, remote_session_id)
             .await;
 
-        // Upsert agent_runtimes with status="starting"; capture the returned
-        // row id so catchup_runtime can use update_runtime_cursor later.
-        if let Some(sb) = &self.backend {
-            let acp_sid = self
-                .agents
-                .get(&agent_id)
-                .map(|h| h.acp_session_id.clone())
-                .unwrap_or_default();
-            let row = AgentRuntimeUpsert {
-                team_id: sb.team_id(),
-                agent_id: sb.actor_id(),
-                session_id: remote_session_id,
-                workspace_id: remote_workspace_id,
-                backend_type: launch.backend_type,
-                backend_session_id: if acp_sid.is_empty() {
-                    None
-                } else {
-                    Some(&acp_sid)
-                },
-                runtime_id: Some(agent_id.as_str()),
-                status: "starting",
-                current_model: self.agent_state.model(&agent_id).map(|s| s.as_str()),
-                last_seen_at: Utc::now(),
-            };
-            match sb.upsert_agent_runtime(&row).await {
-                Ok(Some(row_id)) => {
-                    if let Some(handle) = self.agents.get_mut(&agent_id) {
-                        handle.backend_runtime_row_id = Some(row_id);
-                    }
-                }
-                Ok(None) => warn!(agent_id, "upsert_agent_runtime returned no row id"),
-                Err(e) => warn!("agent_runtimes upsert (starting): {e}"),
-            }
-        }
-
         Ok(agent_id)
     }
 
@@ -716,29 +696,20 @@ impl RuntimeManager {
         let Some(session_id) = remote_session_id else {
             return;
         };
-        match sb
-            .fetch_latest_runtime_for_session(sb.actor_id(), session_id)
-            .await
-        {
-            Ok(Some(prior)) => {
-                let cursor = prior.last_processed_message_id.filter(|s| !s.is_empty());
-                if let Some(cursor) = cursor {
-                    if let Some(h) = self.agents.get_mut(agent_id) {
-                        info!(
-                            agent_id,
-                            session_id,
-                            cursor = %cursor,
-                            "seeded last_processed_message_id from prior runtime row",
-                        );
-                        h.last_processed_message_id = Some(cursor);
-                    }
+        match sb.fetch_session_cursor(session_id, sb.actor_id()).await {
+            Ok(Some(cursor)) => {
+                if let Some(h) = self.agents.get_mut(agent_id) {
+                    info!(
+                        agent_id,
+                        session_id,
+                        cursor = %cursor,
+                        "seeded last_processed_message_id from the participant row",
+                    );
+                    h.last_processed_message_id = Some(cursor);
                 }
             }
             Ok(None) => {}
-            Err(e) => warn!(
-                agent_id,
-                session_id, "fetch_latest_runtime_for_session failed: {e}"
-            ),
+            Err(e) => warn!(agent_id, session_id, "fetch_session_cursor failed: {e}"),
         }
     }
 
@@ -802,6 +773,7 @@ impl RuntimeManager {
 
         info!(agent_id, worktree, "agent resumed via shared ACP host");
         self.agents.insert(agent_id.to_string(), handle);
+        self.mark_actor_state_dirty();
         self.aggregators
             .insert(agent_id.to_string(), TurnAggregator::new());
 
@@ -819,43 +791,12 @@ impl RuntimeManager {
         self.seed_cursor_from_prior_runtime(agent_id, remote_session_id)
             .await;
 
-        // Upsert agent_runtimes with status="starting" on resume
-        if let Some(sb) = &self.backend {
-            let row = AgentRuntimeUpsert {
-                team_id: sb.team_id(),
-                agent_id: sb.actor_id(),
-                session_id: remote_session_id,
-                workspace_id: remote_workspace_id,
-                backend_type: launch.backend_type,
-                backend_session_id: if new_acp_sid.is_empty() {
-                    None
-                } else {
-                    Some(&new_acp_sid)
-                },
-                runtime_id: Some(agent_id),
-                status: "starting",
-                current_model: self.agent_state.model(agent_id).map(|s| s.as_str()),
-                last_seen_at: Utc::now(),
-            };
-            match sb.upsert_agent_runtime(&row).await {
-                Ok(Some(row_id)) => {
-                    if let Some(handle) = self.agents.get_mut(agent_id) {
-                        handle.backend_runtime_row_id = Some(row_id);
-                    }
-                }
-                Ok(None) => warn!(
-                    agent_id,
-                    "upsert_agent_runtime returned no row id on resume"
-                ),
-                Err(e) => warn!("agent_runtimes upsert (starting/resume): {e}"),
-            }
-        }
-
         Ok(new_acp_sid)
     }
 
     pub async fn stop_runtime(&mut self, agent_id: &str) -> Option<RuntimeHandle> {
         if let Some(mut handle) = self.agents.remove(agent_id) {
+            self.mark_actor_state_dirty();
             self.aggregators.remove(agent_id);
             self.agent_state.remove(agent_id);
             self.release_opencode_snapshot(&handle.worktree);
@@ -1273,6 +1214,118 @@ impl RuntimeManager {
         }
     }
 
+    /// Mark the actor snapshot stale so the main loop republishes it.
+    ///
+    /// Hooking the publish onto `apply_start_runtime` is not enough: gateway
+    /// and cron spawn straight through this manager and never reach that
+    /// function, so their attachments stayed invisible in the retain until an
+    /// unrelated MQTT reconnect. Every mutation of `agents` funnels through
+    /// here instead, which is the only way all three spawn paths agree.
+    pub fn mark_actor_state_dirty(&mut self) {
+        self.actor_state_dirty = true;
+    }
+
+    /// Consume the stale flag. Called once per main-loop tick.
+    pub fn take_actor_state_dirty(&mut self) -> bool {
+        std::mem::take(&mut self.actor_state_dirty)
+    }
+
+    /// Look up the attachment serving `session_id`, if this daemon holds one.
+    ///
+    /// The `agents` map is still keyed by the per-spawn id for now; this is the
+    /// session-addressed lookup every caller actually wants, and it is what
+    /// lets commands be addressed by (actor, session) rather than by a spawn id
+    /// that goes stale the moment it is written down (ADR-0004).
+    pub fn attachment_for_session(&self, session_id: &str) -> Option<&RuntimeHandle> {
+        let session_id = session_id.trim();
+        if session_id.is_empty() {
+            return None;
+        }
+        self.agents.values().find(|h| h.session_id == session_id)
+    }
+
+    /// The sessions this daemon currently holds an attachment for.
+    ///
+    /// Absence from this list is meaningful: it is how a client tells "warm,
+    /// answers immediately" from "cold, will spawn on send". Bounded by the
+    /// detach policy rather than by history.
+    pub fn live_sessions(&self) -> Vec<amux::LiveSession> {
+        self.agents
+            .values()
+            .filter(|h| !h.session_id.is_empty())
+            .map(|h| amux::LiveSession {
+                session_id: h.session_id.clone(),
+                // The live adapter does not yet distinguish lifecycle states;
+                // an attachment that exists is serving. Same placeholder as
+                // `RuntimeHandle::to_proto_info`.
+                lifecycle: amux::RuntimeLifecycle::Active as i32,
+                status: h.status as i32,
+                stage: String::new(),
+                error_code: String::new(),
+                error_message: String::new(),
+                failed_stage: String::new(),
+                workspace_id: h.workspace_id.clone(),
+                current_model: self.agent_state.model_or_default(&h.agent_id),
+            })
+            .collect()
+    }
+
+    /// Catalogs for the ACTIVE backend, deduplicated for the wire.
+    ///
+    /// Returns `(union, per_worktree)`: `union` holds each distinct model once,
+    /// and every `WorktreeCatalog` points into it by index. Catalogs repeat
+    /// heavily across worktrees — one device held 563 entries over 8 worktrees
+    /// but only 72 distinct models — so this is ~5.3KB where verbatim copies
+    /// are ~33KB, on a payload every team member downloads on connect.
+    ///
+    /// Only the active backend ships. The store keeps the others so switching
+    /// back does not re-probe, but a client can only use what is running.
+    pub fn actor_catalog_snapshot(&self) -> (Vec<amux::ModelInfo>, Vec<amux::WorktreeCatalog>) {
+        let backend = self.local_backend_type();
+        let Some(by_worktree) = self.model_catalog.by_backend.get(backend) else {
+            return (Vec::new(), Vec::new());
+        };
+
+        let mut union: Vec<amux::ModelInfo> = Vec::new();
+        let mut index_of: HashMap<String, u32> = HashMap::new();
+        let mut worktrees = Vec::with_capacity(by_worktree.len());
+
+        for worktree in by_worktree.keys() {
+            let models = self.model_catalog.models_for(backend, worktree);
+            let mut model_indices = Vec::with_capacity(models.len());
+            for model in models {
+                let idx = match index_of.get(&model.id) {
+                    Some(idx) => *idx,
+                    None => {
+                        let idx = union.len() as u32;
+                        index_of.insert(model.id.clone(), idx);
+                        union.push(model);
+                        idx
+                    }
+                };
+                model_indices.push(idx);
+            }
+
+            worktrees.push(amux::WorktreeCatalog {
+                worktree: worktree.clone(),
+                model_indices,
+                default_model: self
+                    .model_mru
+                    .default_model_for(backend, worktree)
+                    .unwrap_or_default()
+                    .to_string(),
+                // Built-ins for the active backend. NOT `agent_state.commands()`:
+                // that cache is fed only by ACP's `AvailableCommandsUpdate`,
+                // which has no producer under the opencode HTTP runtime, so it
+                // is permanently empty. Workspace skills are a separate source
+                // the desktop reads directly — deliberately not merged here.
+                available_commands: builtin_commands(self.default_agent_type()),
+            });
+        }
+
+        (union, worktrees)
+    }
+
     pub fn to_proto_agent_list(&self) -> amux::AgentList {
         amux::AgentList {
             runtimes: self
@@ -1536,6 +1589,9 @@ impl RuntimeManager {
         let mut h = super::handle::RuntimeHandle::test_dummy();
         h.agent_id = runtime_id.to_string();
         mgr.agents.insert(runtime_id.to_string(), h);
+        // Test helpers stand in for an attach, so they hold the same invariant
+        // production does: any mutation of `agents` marks the snapshot stale.
+        mgr.mark_actor_state_dirty();
         mgr
     }
 
@@ -1545,6 +1601,7 @@ impl RuntimeManager {
         h.agent_id = agent_id.to_string();
         h.session_id = session_id.to_string();
         self.agents.insert(runtime_id.to_string(), h);
+        self.mark_actor_state_dirty();
     }
 
     /// Return the last body sent to the given runtime via send_prompt_raw.
@@ -1936,12 +1993,15 @@ mod tests {
     async fn seed_cursor_from_prior_runtime_populates_handle() {
         let srv = MockServer::start().await;
         auth_mock(&srv).await;
+        // The cursor comes off this actor's participant row now (ADR-0005),
+        // so the seed reads the participants list rather than a runtime row.
         Mock::given(method("GET"))
-            .and(path("/v1/agents/runtimes/latest"))
+            .and(path("/v1/sessions/sess-1/participants"))
             .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
-                "id": "row-1",
-                "backendSessionId": "acp-1",
-                "lastProcessedMessageId": "msg-42"
+                "items": [
+                    { "actorId": "someone-else", "lastProcessedMessageId": "msg-1" },
+                    { "actorId": "agent-actor", "lastProcessedMessageId": "msg-42" }
+                ]
             })))
             .mount(&srv)
             .await;
@@ -2442,11 +2502,16 @@ mod tests {
     }
 
     #[test]
-    fn backend_runtime_row_id_returns_none_when_unset() {
-        let mut mgr = RuntimeManager::new(RuntimeManager::test_launch_configs(), None);
-        mgr.add_test_runtime("rt1", "agent_X", "session_S");
-        // backend_runtime_row_id defaults to None until Task 9 wires it.
-        assert_eq!(mgr.backend_runtime_row_id("rt1"), None);
+    fn session_id_for_runtime_reports_only_session_bound_attachments() {
+        // Ambient / bare-agent spawns carry no session, and the cursor write
+        // must skip them rather than address a participant row that has no id.
+        let mut mgr = RuntimeManager::test_dummy_with_runtime("rt1");
+        assert_eq!(mgr.session_id_for_runtime("rt1"), None);
+        mgr.add_test_runtime("rt2", "rt2", "session-2");
+        assert_eq!(
+            mgr.session_id_for_runtime("rt2"),
+            Some("session-2".to_string())
+        );
     }
 
     /// Simulate the "mentioned" branch: send_prompt is called with the message content.
@@ -2604,6 +2669,72 @@ mod tests {
         assert!(
             mgr.get_handle("rt-fresh").is_some(),
             "fresh handle retained"
+        );
+    }
+
+    #[tokio::test]
+    async fn evict_over_capacity_detaches_least_recently_used_first() {
+        let mut mgr = RuntimeManager::test_dummy_with_runtime("rt-oldest");
+        mgr.get_handle_mut("rt-oldest").unwrap().last_active_at = 100;
+        mgr.add_test_runtime("rt-middle", "rt-middle", "sess-middle");
+        mgr.get_handle_mut("rt-middle").unwrap().last_active_at = 200;
+        mgr.add_test_runtime("rt-newest", "rt-newest", "sess-newest");
+        mgr.get_handle_mut("rt-newest").unwrap().last_active_at = 300;
+
+        let evicted = mgr.evict_over_capacity(2).await;
+
+        assert_eq!(evicted, vec!["rt-oldest".to_string()]);
+        assert!(mgr.get_handle("rt-oldest").is_none());
+        assert!(mgr.get_handle("rt-middle").is_some());
+        assert!(mgr.get_handle("rt-newest").is_some());
+        assert_eq!(mgr.drain_evicted(), vec!["rt-oldest".to_string()]);
+    }
+
+    #[tokio::test]
+    async fn any_attach_or_detach_marks_the_actor_snapshot_stale() {
+        // Regression: the publish was hooked onto `apply_start_runtime`, which
+        // gateway and cron never reach — they spawn straight through the
+        // manager. A real cron turn created a session, answered, and never
+        // appeared in the retain. Marking here is what makes all three spawn
+        // paths agree.
+        let mut mgr = RuntimeManager::test_dummy_with_runtime("rt-a");
+        assert!(mgr.take_actor_state_dirty(), "attach marks it stale");
+        assert!(
+            !mgr.take_actor_state_dirty(),
+            "flag is consumed, not sticky"
+        );
+
+        mgr.stop_runtime("rt-a").await;
+        assert!(mgr.take_actor_state_dirty(), "detach marks it stale too");
+    }
+
+    #[tokio::test]
+    async fn evict_over_capacity_is_a_noop_under_the_cap() {
+        let mut mgr = RuntimeManager::test_dummy_with_runtime("rt-only");
+        assert!(mgr.evict_over_capacity(16).await.is_empty());
+        assert!(mgr.get_handle("rt-only").is_some());
+    }
+
+    #[tokio::test]
+    async fn evict_over_capacity_ignores_the_checked_out_event_rx_guard() {
+        // The idle sweep skips a handle whose receiver is checked out, to
+        // protect a turn in flight. Capacity must NOT: a receiver stranded by a
+        // failed checkout would otherwise exempt its attachment forever, and
+        // the cap is the backstop that has to hold regardless.
+        let mut mgr = RuntimeManager::test_dummy_with_runtime("rt-stranded");
+        mgr.get_handle_mut("rt-stranded").unwrap().last_active_at = 1;
+        mgr.get_handle_mut("rt-stranded").unwrap().event_rx = None;
+        mgr.add_test_runtime("rt-live", "rt-live", "sess-live");
+        mgr.get_handle_mut("rt-live").unwrap().last_active_at = chrono::Utc::now().timestamp();
+
+        assert!(
+            mgr.evict_idle(60).await.is_empty(),
+            "idle sweep leaves the stranded handle alone despite it being ancient"
+        );
+        assert_eq!(
+            mgr.evict_over_capacity(1).await,
+            vec!["rt-stranded".to_string()],
+            "capacity sweep reclaims it anyway"
         );
     }
 

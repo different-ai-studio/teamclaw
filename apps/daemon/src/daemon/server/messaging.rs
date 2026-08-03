@@ -78,6 +78,50 @@ impl DaemonServer {
                 .publish_runtime_state(&info.runtime_id, &info)
                 .await;
         }
+        self.publish_actor_state().await;
+    }
+
+    /// Publish the whole actor snapshot on the one retained topic this actor
+    /// already owns: presence, active backend, its catalogs, and the sessions
+    /// currently attached.
+    ///
+    /// This is the replacement for the per-spawn `runtime/{id}/state` fan-out.
+    /// That fan-out could not be bounded — `runtime_id` is minted fresh on every
+    /// spawn and the clear only runs on the idle-eviction path — whereas this is
+    /// one message per actor with every field bounded (ADR-0004).
+    ///
+    /// Gateway and cron attachments are covered for free: they never reach
+    /// `apply_start_runtime` (which is why they never got a spawn-time retain),
+    /// but they do live in `RuntimeManager.agents`, so they appear here as soon
+    /// as this fires on attach.
+    pub(crate) async fn publish_actor_state(&self) {
+        let (active_agent_type, catalog_models, worktrees, live_sessions) = {
+            let agents = self.agents.lock().await;
+            let (catalog_models, worktrees) = agents.actor_catalog_snapshot();
+            (
+                agents.default_agent_type() as i32,
+                catalog_models,
+                worktrees,
+                agents.live_sessions(),
+            )
+        };
+
+        let state = amux::ActorPresence {
+            online: true,
+            display_name: self.config.actor.name.clone(),
+            timestamp: chrono::Utc::now().timestamp(),
+            active_agent_type,
+            // The host is reachable by construction here: we only publish from
+            // inside a running daemon that just serviced an attach or detach.
+            // STARTING/FAILED are wired where the supervisor learns them.
+            backend_health: amux::AgentHostHealth::Ready as i32,
+            catalog_models,
+            worktrees,
+            live_sessions,
+        };
+
+        let publisher = Publisher::new_from_handle(self.publisher_handle.clone(), &self.topics);
+        let _ = publisher.publish_actor_presence(&state).await;
     }
 
     /// Returns the single collab session_id this runtime should publish
@@ -328,57 +372,10 @@ impl DaemonServer {
                 self.agents.lock().await.learn_session_model(agent_id).await;
             }
 
-            // Upsert agent_runtimes on status transitions
-            {
-                let sb = &self.backend;
-                let new_status = amux::AgentStatus::try_from(sc.new_status)
-                    .unwrap_or(amux::AgentStatus::Unknown);
-                let cloud_status: &'static str = match new_status {
-                    amux::AgentStatus::Active => "running",
-                    amux::AgentStatus::Idle => "idle",
-                    amux::AgentStatus::Stopped => "stopped",
-                    _ => "unknown",
-                };
-                let (acp_sid, session_id, ws_id, current_model, backend_type) = {
-                    let agents = self.agents.lock().await;
-                    let h = agents.get_handle(agent_id);
-                    (
-                        h.map(|h| h.acp_session_id.clone()).unwrap_or_default(),
-                        h.map(|h| h.session_id.clone()).unwrap_or_default(),
-                        h.map(|h| h.workspace_id.clone()).unwrap_or_default(),
-                        agents.current_model(agent_id).cloned(),
-                        h.map(|h| agents.launch_config_for(h.agent_type).backend_type)
-                            .unwrap_or("claude"),
-                    )
-                };
-                let cloud_workspace_id = (!ws_id.is_empty()).then_some(ws_id.clone());
-                let team_id = sb.team_id().to_string();
-                let actor_id = sb.actor_id().to_string();
-                let runtime_id_owned = agent_id.to_string();
-                let sb_clone = sb.clone();
-                let now = chrono::Utc::now();
-                tokio::spawn(async move {
-                    let row = AgentRuntimeUpsert {
-                        team_id: &team_id,
-                        agent_id: &actor_id,
-                        session_id: (!session_id.is_empty()).then_some(session_id.as_str()),
-                        workspace_id: cloud_workspace_id.as_deref(),
-                        backend_type,
-                        backend_session_id: if acp_sid.is_empty() {
-                            None
-                        } else {
-                            Some(acp_sid.as_str())
-                        },
-                        runtime_id: Some(runtime_id_owned.as_str()),
-                        status: cloud_status,
-                        current_model: current_model.as_deref(),
-                        last_seen_at: now,
-                    };
-                    if let Err(e) = sb_clone.upsert_agent_runtime(&row).await {
-                        warn!("agent_runtimes upsert ({cloud_status}): {e}");
-                    }
-                });
-            }
+            // Status transitions used to upsert `agent_runtimes` here. The
+            // actor snapshot carries live status now, published off the manager
+            // whenever `agents` changes (ADR-0004), so there is nothing to
+            // mirror into a second store.
         }
 
         // Update session on tool use
@@ -880,14 +877,16 @@ impl DaemonServer {
             let mut agents = self.agents.lock().await;
             agents.advance_message_cursor(runtime_id, message_id);
         }
-        let row_id = self.agents.lock().await.backend_runtime_row_id(runtime_id);
-        if let Some(row_id) = row_id {
+        // The cursor lives on the participant row, addressed by (session,
+        // actor) — no per-spawn row id to resolve first (ADR-0005).
+        let session_id = self.agents.lock().await.session_id_for_runtime(runtime_id);
+        if let Some(session_id) = session_id {
             if let Err(e) = self
                 .backend
-                .update_runtime_cursor(&row_id, message_id)
+                .update_session_cursor(&session_id, &self.actor_id, message_id)
                 .await
             {
-                warn!(?e, runtime_id, "update_runtime_cursor failed");
+                warn!(?e, runtime_id, "update_session_cursor failed");
             }
         }
     }

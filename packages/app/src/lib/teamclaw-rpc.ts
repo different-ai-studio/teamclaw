@@ -5,6 +5,7 @@ import {
   RpcResponseSchema,
   RuntimeStartRequestSchema,
   RuntimeStopRequestSchema,
+  RuntimeCommandRequestSchema,
   SetModelRequestSchema,
   type FetchWorkspacesResult,
   type RpcRequest,
@@ -13,6 +14,7 @@ import {
   type RuntimeStopResult,
   type SetModelResult,
 } from '@/lib/proto/teamclaw_pb'
+import type { RuntimeCommandEnvelope } from '@/lib/proto/amux_pb'
 import { mqttPublish, mqttSubscribe, listenForEnvelopes, type IncomingEnvelope } from '@/lib/mqtt-bridge'
 import { recordMqttDiag } from '@/lib/mqtt-diagnostics'
 import { getKnownLocalDaemonActorId } from '@/lib/local-daemon-identity'
@@ -456,6 +458,48 @@ export async function runtimeStop(args: RuntimeStopArgs): Promise<RuntimeStopRes
     throw new Error(`unexpected result variant: ${response.result.case}`)
   }
   return response.result.value
+}
+
+// ---------------------------------------------------------------------------
+// Public helper: runtimeCommand
+// ---------------------------------------------------------------------------
+
+export interface RuntimeCommandArgs {
+  targetActorId: string
+  sessionId: string
+  /** Serialised `amux.RuntimeCommandEnvelope`. */
+  envelope: RuntimeCommandEnvelope
+  timeoutMs?: number
+}
+
+/**
+ * Send an AcpCommand addressed by (actor, session) rather than by a spawn id.
+ *
+ * Replaces publishing on `{actor}/runtime/{runtimeId}/commands`, which had no
+ * reply path: a command aimed at a spawn the daemon no longer knew was dropped
+ * with only a log line, and the UI sat waiting for a state change that never
+ * came (docs/debug/interrupt-agent-stale-runtime.md).
+ *
+ * Returns false when the daemon holds no attachment for the session — the
+ * session is cold. That is a real answer, not an error, and callers must not
+ * report the command as delivered.
+ */
+export async function runtimeCommand(args: RuntimeCommandArgs): Promise<boolean> {
+  const response = await sendRequest((req) => {
+    const command = create(RuntimeCommandRequestSchema, {
+      sessionId: args.sessionId,
+      envelope: args.envelope,
+    })
+    req.method = { case: 'runtimeCommand', value: command }
+  }, args.targetActorId, args.timeoutMs)
+
+  if (!response.success) {
+    throw new Error(response.error || 'runtimeCommand rejected')
+  }
+  if (response.result.case !== 'runtimeCommandResult') {
+    throw new Error(`unexpected result variant: ${response.result.case}`)
+  }
+  return response.result.value.dispatched
 }
 
 // ---------------------------------------------------------------------------

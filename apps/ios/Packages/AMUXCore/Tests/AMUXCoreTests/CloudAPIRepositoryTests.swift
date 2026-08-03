@@ -194,39 +194,6 @@ struct CloudAPIRepositoryTests {
         #expect(ids == Set(["session-a", "session-b"]))
     }
 
-    @Test
-    func agentRuntimesRepositoryDecodesTeamRuntimes() async throws {
-        let client = CloudAPIClient(
-            configuration: configuration(),
-            accessToken: { "access-token" },
-            send: { request in
-                #expect(request.url?.path == "/v1/teams/team-1/agent-runtimes")
-                return try response("""
-                {
-                  "items": [
-                    {
-                      "id": "rt-1", "teamId": "team-1", "agentId": "agent-1",
-                      "sessionId": "session-1", "workspaceId": null,
-                      "backendType": "claude_code", "status": "ready",
-                      "backendSessionId": "bs-1", "runtimeId": "rt12abcd",
-                      "currentModel": "claude-opus-4-7",
-                      "lastSeenAt": "2026-05-27T10:00:00Z",
-                      "createdAt": "2026-05-27T09:00:00Z",
-                      "updatedAt": "2026-05-27T10:00:00Z"
-                    }
-                  ],
-                  "nextCursor": null
-                }
-                """)
-            }
-        )
-        let repo = CloudAPIAgentRuntimesRepository(client: client)
-        let runtimes = try await repo.listForTeam(teamID: "team-1")
-        #expect(runtimes.map(\.id) == ["rt-1"])
-        #expect(runtimes.first?.backendType == "claude_code")
-        #expect(runtimes.first?.runtimeID == "rt12abcd")
-        #expect(runtimes.first?.currentModel == "claude-opus-4-7")
-    }
 
     @Test
     func markSessionViewedPostsLastReadMessageId() async throws {

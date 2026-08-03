@@ -4,7 +4,7 @@
 
 import type { GenEnum, GenFile, GenMessage } from "@bufbuild/protobuf/codegenv2";
 import { enumDesc, fileDesc, messageDesc } from "@bufbuild/protobuf/codegenv2";
-import type { AgentType, MemberRole, PeerInfo, WorkspaceInfo } from "./amux_pb";
+import type { AgentType, MemberRole, PeerInfo, RuntimeCommandEnvelope, WorkspaceInfo } from "./amux_pb";
 import { file_amux } from "./amux_pb";
 import type { Message as Message$1 } from "@bufbuild/protobuf";
 
@@ -12,7 +12,7 @@ import type { Message as Message$1 } from "@bufbuild/protobuf";
  * Describes the file teamclaw.proto.
  */
 export const file_teamclaw: GenFile = /*@__PURE__*/
-  fileDesc("Cg50ZWFtY2xhdy5wcm90bxIIdGVhbWNsYXcicQoFQWN0b3ISEAoIYWN0b3JfaWQYASABKAkSJwoKYWN0b3JfdHlwZRgCIAEoDjITLnRlYW1jbGF3LkFjdG9yVHlwZRIUCgxkaXNwbGF5X25hbWUYAyABKAkSFwoPb3duZXJfbWVtYmVyX2lkGAQgASgJIrYCCgtTZXNzaW9uSW5mbxISCgpzZXNzaW9uX2lkGAEgASgJEisKDHNlc3Npb25fdHlwZRgCIAEoDjIVLnRlYW1jbGF3LlNlc3Npb25UeXBlEg8KB3RlYW1faWQYAyABKAkSDQoFdGl0bGUYBCABKAkSEgoKY3JlYXRlZF9ieRgFIAEoCRISCgpjcmVhdGVkX2F0GAYgASgDEisKDHBhcnRpY2lwYW50cxgHIAMoCzIVLnRlYW1jbGF3LlBhcnRpY2lwYW50Eg8KB3N1bW1hcnkYCCABKAkSGAoQcHJpbWFyeV9hZ2VudF9pZBgJIAEoCRIPCgdpZGVhX2lkGAogASgJEhwKFGxhc3RfbWVzc2FnZV9wcmV2aWV3GAsgASgJEhcKD2xhc3RfbWVzc2FnZV9hdBgMIAEoAyJxCgtQYXJ0aWNpcGFudBIQCghhY3Rvcl9pZBgBIAEoCRInCgphY3Rvcl90eXBlGAIgASgOMhMudGVhbWNsYXcuQWN0b3JUeXBlEhQKDGRpc3BsYXlfbmFtZRgDIAEoCRIRCglqb2luZWRfYXQYBCABKAMikwIKB01lc3NhZ2USEgoKbWVzc2FnZV9pZBgBIAEoCRISCgpzZXNzaW9uX2lkGAIgASgJEhcKD3NlbmRlcl9hY3Rvcl9pZBgDIAEoCRIjCgRraW5kGAQgASgOMhUudGVhbWNsYXcuTWVzc2FnZUtpbmQSDwoHY29udGVudBgFIAEoCRISCgpjcmVhdGVkX2F0GAYgASgDEhsKE3JlcGx5X3RvX21lc3NhZ2VfaWQYByABKAkSEAoIbWVudGlvbnMYCCADKAkSDQoFbW9kZWwYCSABKAkSFQoNbWV0YWRhdGFfanNvbhgKIAEoCRIPCgd0dXJuX2lkGAsgASgJEhcKD2F0dGFjaG1lbnRfdXJscxgMIAMoCSKkAgoESWRlYRIPCgdpZGVhX2lkGAEgASgJEhIKCnNlc3Npb25faWQYAiABKAkSDQoFdGl0bGUYAyABKAkSEwoLZGVzY3JpcHRpb24YBCABKAkSJAoGc3RhdHVzGAUgASgOMhQudGVhbWNsYXcuSWRlYVN0YXR1cxIRCglwYXJlbnRfaWQYBiABKAkSEgoKY3JlYXRlZF9ieRgHIAEoCRISCgpjcmVhdGVkX2F0GAggASgDEh8KBmNsYWltcxgJIAMoCzIPLnRlYW1jbGF3LkNsYWltEikKC3N1Ym1pc3Npb25zGAogAygLMhQudGVhbWNsYXcuU3VibWlzc2lvbhIQCghhcmNoaXZlZBgLIAEoCBIUCgx3b3Jrc3BhY2VfaWQYDCABKAkiUAoFQ2xhaW0SEAoIY2xhaW1faWQYASABKAkSDwoHaWRlYV9pZBgCIAEoCRIQCghhY3Rvcl9pZBgDIAEoCRISCgpjbGFpbWVkX2F0GAQgASgDIm0KClN1Ym1pc3Npb24SFQoNc3VibWlzc2lvbl9pZBgBIAEoCRIPCgdpZGVhX2lkGAIgASgJEhAKCGFjdG9yX2lkGAMgASgJEg8KB2NvbnRlbnQYBCABKAkSFAoMc3VibWl0dGVkX2F0GAUgASgDIlcKFlNlc3Npb25NZXNzYWdlRW52ZWxvcGUSIgoHbWVzc2FnZRgBIAEoCzIRLnRlYW1jbGF3Lk1lc3NhZ2USGQoRbWVudGlvbl9hY3Rvcl9pZHMYAiADKAkiqQEKCUlkZWFFdmVudBIhCgdjcmVhdGVkGAEgASgLMg4udGVhbWNsYXcuSWRlYUgAEiEKB3VwZGF0ZWQYAiABKAsyDi50ZWFtY2xhdy5JZGVhSAASIgoHY2xhaW1lZBgDIAEoCzIPLnRlYW1jbGF3LkNsYWltSAASKQoJc3VibWl0dGVkGAQgASgLMhQudGVhbWNsYXcuU3VibWlzc2lvbkgAQgcKBWV2ZW50In4KEUxpdmVFdmVudEVudmVsb3BlEhAKCGV2ZW50X2lkGAEgASgJEhIKCmV2ZW50X3R5cGUYAiABKAkSEgoKc2Vzc2lvbl9pZBgDIAEoCRIQCghhY3Rvcl9pZBgEIAEoCRIPCgdzZW50X2F0GAUgASgDEgwKBGJvZHkYBiABKAwinwoKClJwY1JlcXVlc3QSEgoKcmVxdWVzdF9pZBgBIAEoCRIbChNyZXF1ZXN0ZXJfY2xpZW50X2lkGAMgASgJEhoKEnJlcXVlc3Rlcl9hY3Rvcl9pZBgEIAEoCRI4Cg5jcmVhdGVfc2Vzc2lvbhgKIAEoCzIeLnRlYW1jbGF3LkNyZWF0ZVNlc3Npb25SZXF1ZXN0SAASNAoMam9pbl9zZXNzaW9uGAsgASgLMhwudGVhbWNsYXcuSm9pblNlc3Npb25SZXF1ZXN0SAASNgoNZmV0Y2hfc2Vzc2lvbhgMIAEoCzIdLnRlYW1jbGF3LkZldGNoU2Vzc2lvblJlcXVlc3RIABI6Cg9hZGRfcGFydGljaXBhbnQYDSABKAsyHy50ZWFtY2xhdy5BZGRQYXJ0aWNpcGFudFJlcXVlc3RIABJAChJyZW1vdmVfcGFydGljaXBhbnQYDiABKAsyIi50ZWFtY2xhdy5SZW1vdmVQYXJ0aWNpcGFudFJlcXVlc3RIABIyCgtjcmVhdGVfaWRlYRgPIAEoCzIbLnRlYW1jbGF3LkNyZWF0ZUlkZWFSZXF1ZXN0SAASMAoKY2xhaW1faWRlYRgQIAEoCzIaLnRlYW1jbGF3LkNsYWltSWRlYVJlcXVlc3RIABIyCgtzdWJtaXRfaWRlYRgRIAEoCzIbLnRlYW1jbGF3LlN1Ym1pdElkZWFSZXF1ZXN0SAASMgoLdXBkYXRlX2lkZWEYEiABKAsyGy50ZWFtY2xhdy5VcGRhdGVJZGVhUmVxdWVzdEgAEkcKFmZldGNoX3Nlc3Npb25fbWVzc2FnZXMYFCABKAsyJS50ZWFtY2xhdy5GZXRjaFNlc3Npb25NZXNzYWdlc1JlcXVlc3RIABI2Cg1ydW50aW1lX3N0YXJ0GB4gASgLMh0udGVhbWNsYXcuUnVudGltZVN0YXJ0UmVxdWVzdEgAEjQKDHJ1bnRpbWVfc3RvcBgfIAEoCzIcLnRlYW1jbGF3LlJ1bnRpbWVTdG9wUmVxdWVzdEgAEi4KCXNldF9tb2RlbBggIAEoCzIZLnRlYW1jbGF3LlNldE1vZGVsUmVxdWVzdEgAEjYKDWFubm91bmNlX3BlZXIYKCABKAsyHS50ZWFtY2xhdy5Bbm5vdW5jZVBlZXJSZXF1ZXN0SAASOgoPZGlzY29ubmVjdF9wZWVyGCkgASgLMh8udGVhbWNsYXcuRGlzY29ubmVjdFBlZXJSZXF1ZXN0SAASNgoNcmVtb3ZlX21lbWJlchgqIAEoCzIdLnRlYW1jbGF3LlJlbW92ZU1lbWJlclJlcXVlc3RIABI2Cg1hZGRfd29ya3NwYWNlGCsgASgLMh0udGVhbWNsYXcuQWRkV29ya3NwYWNlUmVxdWVzdEgAEjwKEHJlbW92ZV93b3Jrc3BhY2UYLCABKAsyIC50ZWFtY2xhdy5SZW1vdmVXb3Jrc3BhY2VSZXF1ZXN0SAASMgoLZmV0Y2hfcGVlcnMYLSABKAsyGy50ZWFtY2xhdy5GZXRjaFBlZXJzUmVxdWVzdEgAEjwKEGZldGNoX3dvcmtzcGFjZXMYLiABKAsyIC50ZWFtY2xhdy5GZXRjaFdvcmtzcGFjZXNSZXF1ZXN0SAASPwoScmVtb3RlX3Rvb2xfaW52b2tlGC8gASgLMiEudGVhbWNsYXcuUmVtb3RlVG9vbEludm9rZVJlcXVlc3RIAEIICgZtZXRob2RKBAgCEANKBAgFEAYiagoXUmVtb3RlVG9vbEludm9rZVJlcXVlc3QSEgoKc2Vzc2lvbl9pZBgBIAEoCRIRCgl0b29sX25hbWUYAiABKAkSFgoOYXJndW1lbnRzX2pzb24YAyABKAlKBAgEEAVSCnRpbWVvdXRfbXMimggKC1JwY1Jlc3BvbnNlEhIKCnJlcXVlc3RfaWQYASABKAkSDwoHc3VjY2VzcxgCIAEoCBINCgVlcnJvchgDIAEoCRIbChNyZXF1ZXN0ZXJfY2xpZW50X2lkGAQgASgJEhoKEnJlcXVlc3Rlcl9hY3Rvcl9pZBgFIAEoCRItCgxzZXNzaW9uX2luZm8YCiABKAsyFS50ZWFtY2xhdy5TZXNzaW9uSW5mb0gAEh4KBGlkZWEYCyABKAsyDi50ZWFtY2xhdy5JZGVhSAASIAoFY2xhaW0YDCABKAsyDy50ZWFtY2xhdy5DbGFpbUgAEioKCnN1Ym1pc3Npb24YDSABKAsyFC50ZWFtY2xhdy5TdWJtaXNzaW9uSAASPAoUc2Vzc2lvbl9tZXNzYWdlX3BhZ2UYDiABKAsyHC50ZWFtY2xhdy5TZXNzaW9uTWVzc2FnZVBhZ2VIABI8ChRydW50aW1lX3N0YXJ0X3Jlc3VsdBgUIAEoCzIcLnRlYW1jbGF3LlJ1bnRpbWVTdGFydFJlc3VsdEgAEjoKE3J1bnRpbWVfc3RvcF9yZXN1bHQYFSABKAsyGy50ZWFtY2xhdy5SdW50aW1lU3RvcFJlc3VsdEgAEjQKEHNldF9tb2RlbF9yZXN1bHQYFiABKAsyGC50ZWFtY2xhdy5TZXRNb2RlbFJlc3VsdEgAEjwKFGFubm91bmNlX3BlZXJfcmVzdWx0GB4gASgLMhwudGVhbWNsYXcuQW5ub3VuY2VQZWVyUmVzdWx0SAASQAoWZGlzY29ubmVjdF9wZWVyX3Jlc3VsdBgfIAEoCzIeLnRlYW1jbGF3LkRpc2Nvbm5lY3RQZWVyUmVzdWx0SAASPAoUcmVtb3ZlX21lbWJlcl9yZXN1bHQYICABKAsyHC50ZWFtY2xhdy5SZW1vdmVNZW1iZXJSZXN1bHRIABI8ChRhZGRfd29ya3NwYWNlX3Jlc3VsdBghIAEoCzIcLnRlYW1jbGF3LkFkZFdvcmtzcGFjZVJlc3VsdEgAEkIKF3JlbW92ZV93b3Jrc3BhY2VfcmVzdWx0GCIgASgLMh8udGVhbWNsYXcuUmVtb3ZlV29ya3NwYWNlUmVzdWx0SAASOAoSZmV0Y2hfcGVlcnNfcmVzdWx0GCMgASgLMhoudGVhbWNsYXcuRmV0Y2hQZWVyc1Jlc3VsdEgAEkIKF2ZldGNoX3dvcmtzcGFjZXNfcmVzdWx0GCQgASgLMh8udGVhbWNsYXcuRmV0Y2hXb3Jrc3BhY2VzUmVzdWx0SAASRQoZcmVtb3RlX3Rvb2xfaW52b2tlX3Jlc3VsdBglIAEoCzIgLnRlYW1jbGF3LlJlbW90ZVRvb2xJbnZva2VSZXN1bHRIAEIICgZyZXN1bHRKBAgGEAciaQoWUmVtb3RlVG9vbEludm9rZVJlc3VsdBIPCgdzdWNjZXNzGAEgASgIEhMKC3Jlc3VsdF9qc29uGAIgASgJEhIKCmVycm9yX2NvZGUYAyABKAkSFQoNZXJyb3JfbWVzc2FnZRgEIAEoCSK4AQoUQ3JlYXRlU2Vzc2lvblJlcXVlc3QSKwoMc2Vzc2lvbl90eXBlGAEgASgOMhUudGVhbWNsYXcuU2Vzc2lvblR5cGUSDwoHdGVhbV9pZBgCIAEoCRINCgV0aXRsZRgDIAEoCRIPCgdzdW1tYXJ5GAQgASgJEhgKEGludml0ZV9hY3Rvcl9pZHMYBSADKAkSDwoHaWRlYV9pZBgGIAEoCRIXCg9zZW5kZXJfYWN0b3JfaWQYByABKAkiVAoSSm9pblNlc3Npb25SZXF1ZXN0EhIKCnNlc3Npb25faWQYASABKAkSKgoLcGFydGljaXBhbnQYAiABKAsyFS50ZWFtY2xhdy5QYXJ0aWNpcGFudCIpChNGZXRjaFNlc3Npb25SZXF1ZXN0EhIKCnNlc3Npb25faWQYASABKAkiXwobRmV0Y2hTZXNzaW9uTWVzc2FnZXNSZXF1ZXN0EhIKCnNlc3Npb25faWQYASABKAkSGQoRYmVmb3JlX2NyZWF0ZWRfYXQYAiABKAMSEQoJcGFnZV9zaXplGAMgASgNIn8KElNlc3Npb25NZXNzYWdlUGFnZRISCgpzZXNzaW9uX2lkGAEgASgJEiMKCG1lc3NhZ2VzGAIgAygLMhEudGVhbWNsYXcuTWVzc2FnZRIQCghoYXNfbW9yZRgDIAEoCBIeChZuZXh0X2JlZm9yZV9jcmVhdGVkX2F0GAQgASgDIlcKFUFkZFBhcnRpY2lwYW50UmVxdWVzdBISCgpzZXNzaW9uX2lkGAEgASgJEioKC3BhcnRpY2lwYW50GAIgASgLMhUudGVhbWNsYXcuUGFydGljaXBhbnQiQAoYUmVtb3ZlUGFydGljaXBhbnRSZXF1ZXN0EhIKCnNlc3Npb25faWQYASABKAkSEAoIYWN0b3JfaWQYAiABKAkijQEKEUNyZWF0ZUlkZWFSZXF1ZXN0EhIKCnNlc3Npb25faWQYASABKAkSDQoFdGl0bGUYAiABKAkSEwoLZGVzY3JpcHRpb24YAyABKAkSEQoJcGFyZW50X2lkGAQgASgJEhcKD3NlbmRlcl9hY3Rvcl9pZBgFIAEoCRIUCgx3b3Jrc3BhY2VfaWQYBiABKAkiUAoQQ2xhaW1JZGVhUmVxdWVzdBISCgpzZXNzaW9uX2lkGAEgASgJEg8KB2lkZWFfaWQYAiABKAkSFwoPc2VuZGVyX2FjdG9yX2lkGAMgASgJImIKEVN1Ym1pdElkZWFSZXF1ZXN0EhIKCnNlc3Npb25faWQYASABKAkSDwoHaWRlYV9pZBgCIAEoCRIPCgdjb250ZW50GAMgASgJEhcKD3NlbmRlcl9hY3Rvcl9pZBgEIAEoCSKmAQoRVXBkYXRlSWRlYVJlcXVlc3QSEgoKc2Vzc2lvbl9pZBgBIAEoCRIPCgdpZGVhX2lkGAIgASgJEiQKBnN0YXR1cxgDIAEoDjIULnRlYW1jbGF3LklkZWFTdGF0dXMSDQoFdGl0bGUYBCABKAkSEwoLZGVzY3JpcHRpb24YBSABKAkSFQoIYXJjaGl2ZWQYBiABKAhIAIgBAUILCglfYXJjaGl2ZWQiwgEKE1J1bnRpbWVTdGFydFJlcXVlc3QSIwoKYWdlbnRfdHlwZRgBIAEoDjIPLmFtdXguQWdlbnRUeXBlEhYKDmluaXRpYWxfcHJvbXB0GAIgASgJEhAKCG1vZGVsX2lkGAMgASgJEhQKDHdvcmtzcGFjZV9pZBgEIAEoCRIQCgh3b3JrdHJlZRgFIAEoCRISCgpzZXNzaW9uX2lkGAYgASgJEiAKGHJlbW90ZV90b29sX2NhcGFiaWxpdGllcxgHIAMoCSJnChJSdW50aW1lU3RhcnRSZXN1bHQSEAoIYWNjZXB0ZWQYASABKAgSEgoKcnVudGltZV9pZBgCIAEoCRISCgpzZXNzaW9uX2lkGAMgASgJEhcKD3JlamVjdGVkX3JlYXNvbhgEIAEoCSIoChJSdW50aW1lU3RvcFJlcXVlc3QSEgoKcnVudGltZV9pZBgBIAEoCSI+ChFSdW50aW1lU3RvcFJlc3VsdBIQCghhY2NlcHRlZBgBIAEoCBIXCg9yZWplY3RlZF9yZWFzb24YAiABKAkiNwoPU2V0TW9kZWxSZXF1ZXN0EhIKCnJ1bnRpbWVfaWQYASABKAkSEAoIbW9kZWxfaWQYAiABKAkiMAoOU2V0TW9kZWxSZXN1bHQSDwoHc3VjY2VzcxgBIAEoCBINCgVlcnJvchgCIAEoCSJHChNBbm5vdW5jZVBlZXJSZXF1ZXN0EhwKBHBlZXIYASABKAsyDi5hbXV4LlBlZXJJbmZvEhIKCmF1dGhfdG9rZW4YAiABKAkiXgoSQW5ub3VuY2VQZWVyUmVzdWx0EhAKCGFjY2VwdGVkGAEgASgIEg0KBWVycm9yGAIgASgJEicKDWFzc2lnbmVkX3JvbGUYAyABKA4yEC5hbXV4Lk1lbWJlclJvbGUiKAoVRGlzY29ubmVjdFBlZXJSZXF1ZXN0Eg8KB3BlZXJfaWQYASABKAkiNwoURGlzY29ubmVjdFBlZXJSZXN1bHQSEAoIYWNjZXB0ZWQYASABKAgSDQoFZXJyb3IYAiABKAkiKAoTUmVtb3ZlTWVtYmVyUmVxdWVzdBIRCgltZW1iZXJfaWQYASABKAkiNQoSUmVtb3ZlTWVtYmVyUmVzdWx0EhAKCGFjY2VwdGVkGAEgASgIEg0KBWVycm9yGAIgASgJIiMKE0FkZFdvcmtzcGFjZVJlcXVlc3QSDAoEcGF0aBgBIAEoCSJdChJBZGRXb3Jrc3BhY2VSZXN1bHQSEAoIYWNjZXB0ZWQYASABKAgSDQoFZXJyb3IYAiABKAkSJgoJd29ya3NwYWNlGAMgASgLMhMuYW11eC5Xb3Jrc3BhY2VJbmZvIi4KFlJlbW92ZVdvcmtzcGFjZVJlcXVlc3QSFAoMd29ya3NwYWNlX2lkGAEgASgJIjgKFVJlbW92ZVdvcmtzcGFjZVJlc3VsdBIQCghhY2NlcHRlZBgBIAEoCBINCgVlcnJvchgCIAEoCSITChFGZXRjaFBlZXJzUmVxdWVzdCIxChBGZXRjaFBlZXJzUmVzdWx0Eh0KBXBlZXJzGAEgAygLMg4uYW11eC5QZWVySW5mbyIYChZGZXRjaFdvcmtzcGFjZXNSZXF1ZXN0IkAKFUZldGNoV29ya3NwYWNlc1Jlc3VsdBInCgp3b3Jrc3BhY2VzGAEgAygLMhMuYW11eC5Xb3Jrc3BhY2VJbmZvIkMKBk5vdGlmeRISCgpldmVudF90eXBlGAEgASgJEhQKDHJlZnJlc2hfaGludBgCIAEoCRIPCgdzZW50X2F0GAMgASgDKkAKC1Nlc3Npb25UeXBlEhgKFFNFU1NJT05fVFlQRV9VTktOT1dOEAASCwoHQ09OVFJPTBABEgoKBkNPTExBQhACKlIKCUFjdG9yVHlwZRIWChJBQ1RPUl9UWVBFX1VOS05PV04QABIJCgVIVU1BThABEhIKDlBFUlNPTkFMX0FHRU5UEAISDgoKUk9MRV9BR0VOVBADKp4BCgtNZXNzYWdlS2luZBIYChRNRVNTQUdFX0tJTkRfVU5LTk9XThAAEggKBFRFWFQQARIKCgZTWVNURU0QAhIOCgpXT1JLX0VWRU5UEAMSEgoOQUdFTlRfVEhJTktJTkcQBBITCg9BR0VOVF9UT09MX0NBTEwQBRIVChFBR0VOVF9UT09MX1JFU1VMVBAGEg8KC0FHRU5UX1JFUExZEAcqSgoKSWRlYVN0YXR1cxIXChNJREVBX1NUQVRVU19VTktOT1dOEAASCAoET1BFThABEg8KC0lOX1BST0dSRVNTEAISCAoERE9ORRADYgZwcm90bzM", [file_amux]);
+  fileDesc("Cg50ZWFtY2xhdy5wcm90bxIIdGVhbWNsYXcicQoFQWN0b3ISEAoIYWN0b3JfaWQYASABKAkSJwoKYWN0b3JfdHlwZRgCIAEoDjITLnRlYW1jbGF3LkFjdG9yVHlwZRIUCgxkaXNwbGF5X25hbWUYAyABKAkSFwoPb3duZXJfbWVtYmVyX2lkGAQgASgJIrYCCgtTZXNzaW9uSW5mbxISCgpzZXNzaW9uX2lkGAEgASgJEisKDHNlc3Npb25fdHlwZRgCIAEoDjIVLnRlYW1jbGF3LlNlc3Npb25UeXBlEg8KB3RlYW1faWQYAyABKAkSDQoFdGl0bGUYBCABKAkSEgoKY3JlYXRlZF9ieRgFIAEoCRISCgpjcmVhdGVkX2F0GAYgASgDEisKDHBhcnRpY2lwYW50cxgHIAMoCzIVLnRlYW1jbGF3LlBhcnRpY2lwYW50Eg8KB3N1bW1hcnkYCCABKAkSGAoQcHJpbWFyeV9hZ2VudF9pZBgJIAEoCRIPCgdpZGVhX2lkGAogASgJEhwKFGxhc3RfbWVzc2FnZV9wcmV2aWV3GAsgASgJEhcKD2xhc3RfbWVzc2FnZV9hdBgMIAEoAyJxCgtQYXJ0aWNpcGFudBIQCghhY3Rvcl9pZBgBIAEoCRInCgphY3Rvcl90eXBlGAIgASgOMhMudGVhbWNsYXcuQWN0b3JUeXBlEhQKDGRpc3BsYXlfbmFtZRgDIAEoCRIRCglqb2luZWRfYXQYBCABKAMikwIKB01lc3NhZ2USEgoKbWVzc2FnZV9pZBgBIAEoCRISCgpzZXNzaW9uX2lkGAIgASgJEhcKD3NlbmRlcl9hY3Rvcl9pZBgDIAEoCRIjCgRraW5kGAQgASgOMhUudGVhbWNsYXcuTWVzc2FnZUtpbmQSDwoHY29udGVudBgFIAEoCRISCgpjcmVhdGVkX2F0GAYgASgDEhsKE3JlcGx5X3RvX21lc3NhZ2VfaWQYByABKAkSEAoIbWVudGlvbnMYCCADKAkSDQoFbW9kZWwYCSABKAkSFQoNbWV0YWRhdGFfanNvbhgKIAEoCRIPCgd0dXJuX2lkGAsgASgJEhcKD2F0dGFjaG1lbnRfdXJscxgMIAMoCSKkAgoESWRlYRIPCgdpZGVhX2lkGAEgASgJEhIKCnNlc3Npb25faWQYAiABKAkSDQoFdGl0bGUYAyABKAkSEwoLZGVzY3JpcHRpb24YBCABKAkSJAoGc3RhdHVzGAUgASgOMhQudGVhbWNsYXcuSWRlYVN0YXR1cxIRCglwYXJlbnRfaWQYBiABKAkSEgoKY3JlYXRlZF9ieRgHIAEoCRISCgpjcmVhdGVkX2F0GAggASgDEh8KBmNsYWltcxgJIAMoCzIPLnRlYW1jbGF3LkNsYWltEikKC3N1Ym1pc3Npb25zGAogAygLMhQudGVhbWNsYXcuU3VibWlzc2lvbhIQCghhcmNoaXZlZBgLIAEoCBIUCgx3b3Jrc3BhY2VfaWQYDCABKAkiUAoFQ2xhaW0SEAoIY2xhaW1faWQYASABKAkSDwoHaWRlYV9pZBgCIAEoCRIQCghhY3Rvcl9pZBgDIAEoCRISCgpjbGFpbWVkX2F0GAQgASgDIm0KClN1Ym1pc3Npb24SFQoNc3VibWlzc2lvbl9pZBgBIAEoCRIPCgdpZGVhX2lkGAIgASgJEhAKCGFjdG9yX2lkGAMgASgJEg8KB2NvbnRlbnQYBCABKAkSFAoMc3VibWl0dGVkX2F0GAUgASgDIlcKFlNlc3Npb25NZXNzYWdlRW52ZWxvcGUSIgoHbWVzc2FnZRgBIAEoCzIRLnRlYW1jbGF3Lk1lc3NhZ2USGQoRbWVudGlvbl9hY3Rvcl9pZHMYAiADKAkiqQEKCUlkZWFFdmVudBIhCgdjcmVhdGVkGAEgASgLMg4udGVhbWNsYXcuSWRlYUgAEiEKB3VwZGF0ZWQYAiABKAsyDi50ZWFtY2xhdy5JZGVhSAASIgoHY2xhaW1lZBgDIAEoCzIPLnRlYW1jbGF3LkNsYWltSAASKQoJc3VibWl0dGVkGAQgASgLMhQudGVhbWNsYXcuU3VibWlzc2lvbkgAQgcKBWV2ZW50In4KEUxpdmVFdmVudEVudmVsb3BlEhAKCGV2ZW50X2lkGAEgASgJEhIKCmV2ZW50X3R5cGUYAiABKAkSEgoKc2Vzc2lvbl9pZBgDIAEoCRIQCghhY3Rvcl9pZBgEIAEoCRIPCgdzZW50X2F0GAUgASgDEgwKBGJvZHkYBiABKAwi2woKClJwY1JlcXVlc3QSEgoKcmVxdWVzdF9pZBgBIAEoCRIbChNyZXF1ZXN0ZXJfY2xpZW50X2lkGAMgASgJEhoKEnJlcXVlc3Rlcl9hY3Rvcl9pZBgEIAEoCRI4Cg5jcmVhdGVfc2Vzc2lvbhgKIAEoCzIeLnRlYW1jbGF3LkNyZWF0ZVNlc3Npb25SZXF1ZXN0SAASNAoMam9pbl9zZXNzaW9uGAsgASgLMhwudGVhbWNsYXcuSm9pblNlc3Npb25SZXF1ZXN0SAASNgoNZmV0Y2hfc2Vzc2lvbhgMIAEoCzIdLnRlYW1jbGF3LkZldGNoU2Vzc2lvblJlcXVlc3RIABI6Cg9hZGRfcGFydGljaXBhbnQYDSABKAsyHy50ZWFtY2xhdy5BZGRQYXJ0aWNpcGFudFJlcXVlc3RIABJAChJyZW1vdmVfcGFydGljaXBhbnQYDiABKAsyIi50ZWFtY2xhdy5SZW1vdmVQYXJ0aWNpcGFudFJlcXVlc3RIABIyCgtjcmVhdGVfaWRlYRgPIAEoCzIbLnRlYW1jbGF3LkNyZWF0ZUlkZWFSZXF1ZXN0SAASMAoKY2xhaW1faWRlYRgQIAEoCzIaLnRlYW1jbGF3LkNsYWltSWRlYVJlcXVlc3RIABIyCgtzdWJtaXRfaWRlYRgRIAEoCzIbLnRlYW1jbGF3LlN1Ym1pdElkZWFSZXF1ZXN0SAASMgoLdXBkYXRlX2lkZWEYEiABKAsyGy50ZWFtY2xhdy5VcGRhdGVJZGVhUmVxdWVzdEgAEkcKFmZldGNoX3Nlc3Npb25fbWVzc2FnZXMYFCABKAsyJS50ZWFtY2xhdy5GZXRjaFNlc3Npb25NZXNzYWdlc1JlcXVlc3RIABI2Cg1ydW50aW1lX3N0YXJ0GB4gASgLMh0udGVhbWNsYXcuUnVudGltZVN0YXJ0UmVxdWVzdEgAEjQKDHJ1bnRpbWVfc3RvcBgfIAEoCzIcLnRlYW1jbGF3LlJ1bnRpbWVTdG9wUmVxdWVzdEgAEi4KCXNldF9tb2RlbBggIAEoCzIZLnRlYW1jbGF3LlNldE1vZGVsUmVxdWVzdEgAEjYKDWFubm91bmNlX3BlZXIYKCABKAsyHS50ZWFtY2xhdy5Bbm5vdW5jZVBlZXJSZXF1ZXN0SAASOgoPZGlzY29ubmVjdF9wZWVyGCkgASgLMh8udGVhbWNsYXcuRGlzY29ubmVjdFBlZXJSZXF1ZXN0SAASNgoNcmVtb3ZlX21lbWJlchgqIAEoCzIdLnRlYW1jbGF3LlJlbW92ZU1lbWJlclJlcXVlc3RIABI2Cg1hZGRfd29ya3NwYWNlGCsgASgLMh0udGVhbWNsYXcuQWRkV29ya3NwYWNlUmVxdWVzdEgAEjwKEHJlbW92ZV93b3Jrc3BhY2UYLCABKAsyIC50ZWFtY2xhdy5SZW1vdmVXb3Jrc3BhY2VSZXF1ZXN0SAASMgoLZmV0Y2hfcGVlcnMYLSABKAsyGy50ZWFtY2xhdy5GZXRjaFBlZXJzUmVxdWVzdEgAEjwKEGZldGNoX3dvcmtzcGFjZXMYLiABKAsyIC50ZWFtY2xhdy5GZXRjaFdvcmtzcGFjZXNSZXF1ZXN0SAASPwoScmVtb3RlX3Rvb2xfaW52b2tlGC8gASgLMiEudGVhbWNsYXcuUmVtb3RlVG9vbEludm9rZVJlcXVlc3RIABI6Cg9ydW50aW1lX2NvbW1hbmQYMCABKAsyHy50ZWFtY2xhdy5SdW50aW1lQ29tbWFuZFJlcXVlc3RIAEIICgZtZXRob2RKBAgCEANKBAgFEAYiWwoVUnVudGltZUNvbW1hbmRSZXF1ZXN0EhIKCnNlc3Npb25faWQYASABKAkSLgoIZW52ZWxvcGUYAiABKAsyHC5hbXV4LlJ1bnRpbWVDb21tYW5kRW52ZWxvcGUiKgoUUnVudGltZUNvbW1hbmRSZXN1bHQSEgoKZGlzcGF0Y2hlZBgBIAEoCCJqChdSZW1vdGVUb29sSW52b2tlUmVxdWVzdBISCgpzZXNzaW9uX2lkGAEgASgJEhEKCXRvb2xfbmFtZRgCIAEoCRIWCg5hcmd1bWVudHNfanNvbhgDIAEoCUoECAQQBVIKdGltZW91dF9tcyLcCAoLUnBjUmVzcG9uc2USEgoKcmVxdWVzdF9pZBgBIAEoCRIPCgdzdWNjZXNzGAIgASgIEg0KBWVycm9yGAMgASgJEhsKE3JlcXVlc3Rlcl9jbGllbnRfaWQYBCABKAkSGgoScmVxdWVzdGVyX2FjdG9yX2lkGAUgASgJEi0KDHNlc3Npb25faW5mbxgKIAEoCzIVLnRlYW1jbGF3LlNlc3Npb25JbmZvSAASHgoEaWRlYRgLIAEoCzIOLnRlYW1jbGF3LklkZWFIABIgCgVjbGFpbRgMIAEoCzIPLnRlYW1jbGF3LkNsYWltSAASKgoKc3VibWlzc2lvbhgNIAEoCzIULnRlYW1jbGF3LlN1Ym1pc3Npb25IABI8ChRzZXNzaW9uX21lc3NhZ2VfcGFnZRgOIAEoCzIcLnRlYW1jbGF3LlNlc3Npb25NZXNzYWdlUGFnZUgAEjwKFHJ1bnRpbWVfc3RhcnRfcmVzdWx0GBQgASgLMhwudGVhbWNsYXcuUnVudGltZVN0YXJ0UmVzdWx0SAASOgoTcnVudGltZV9zdG9wX3Jlc3VsdBgVIAEoCzIbLnRlYW1jbGF3LlJ1bnRpbWVTdG9wUmVzdWx0SAASNAoQc2V0X21vZGVsX3Jlc3VsdBgWIAEoCzIYLnRlYW1jbGF3LlNldE1vZGVsUmVzdWx0SAASPAoUYW5ub3VuY2VfcGVlcl9yZXN1bHQYHiABKAsyHC50ZWFtY2xhdy5Bbm5vdW5jZVBlZXJSZXN1bHRIABJAChZkaXNjb25uZWN0X3BlZXJfcmVzdWx0GB8gASgLMh4udGVhbWNsYXcuRGlzY29ubmVjdFBlZXJSZXN1bHRIABI8ChRyZW1vdmVfbWVtYmVyX3Jlc3VsdBggIAEoCzIcLnRlYW1jbGF3LlJlbW92ZU1lbWJlclJlc3VsdEgAEjwKFGFkZF93b3Jrc3BhY2VfcmVzdWx0GCEgASgLMhwudGVhbWNsYXcuQWRkV29ya3NwYWNlUmVzdWx0SAASQgoXcmVtb3ZlX3dvcmtzcGFjZV9yZXN1bHQYIiABKAsyHy50ZWFtY2xhdy5SZW1vdmVXb3Jrc3BhY2VSZXN1bHRIABI4ChJmZXRjaF9wZWVyc19yZXN1bHQYIyABKAsyGi50ZWFtY2xhdy5GZXRjaFBlZXJzUmVzdWx0SAASQgoXZmV0Y2hfd29ya3NwYWNlc19yZXN1bHQYJCABKAsyHy50ZWFtY2xhdy5GZXRjaFdvcmtzcGFjZXNSZXN1bHRIABJFChlyZW1vdGVfdG9vbF9pbnZva2VfcmVzdWx0GCUgASgLMiAudGVhbWNsYXcuUmVtb3RlVG9vbEludm9rZVJlc3VsdEgAEkAKFnJ1bnRpbWVfY29tbWFuZF9yZXN1bHQYJiABKAsyHi50ZWFtY2xhdy5SdW50aW1lQ29tbWFuZFJlc3VsdEgAQggKBnJlc3VsdEoECAYQByJpChZSZW1vdGVUb29sSW52b2tlUmVzdWx0Eg8KB3N1Y2Nlc3MYASABKAgSEwoLcmVzdWx0X2pzb24YAiABKAkSEgoKZXJyb3JfY29kZRgDIAEoCRIVCg1lcnJvcl9tZXNzYWdlGAQgASgJIrgBChRDcmVhdGVTZXNzaW9uUmVxdWVzdBIrCgxzZXNzaW9uX3R5cGUYASABKA4yFS50ZWFtY2xhdy5TZXNzaW9uVHlwZRIPCgd0ZWFtX2lkGAIgASgJEg0KBXRpdGxlGAMgASgJEg8KB3N1bW1hcnkYBCABKAkSGAoQaW52aXRlX2FjdG9yX2lkcxgFIAMoCRIPCgdpZGVhX2lkGAYgASgJEhcKD3NlbmRlcl9hY3Rvcl9pZBgHIAEoCSJUChJKb2luU2Vzc2lvblJlcXVlc3QSEgoKc2Vzc2lvbl9pZBgBIAEoCRIqCgtwYXJ0aWNpcGFudBgCIAEoCzIVLnRlYW1jbGF3LlBhcnRpY2lwYW50IikKE0ZldGNoU2Vzc2lvblJlcXVlc3QSEgoKc2Vzc2lvbl9pZBgBIAEoCSJfChtGZXRjaFNlc3Npb25NZXNzYWdlc1JlcXVlc3QSEgoKc2Vzc2lvbl9pZBgBIAEoCRIZChFiZWZvcmVfY3JlYXRlZF9hdBgCIAEoAxIRCglwYWdlX3NpemUYAyABKA0ifwoSU2Vzc2lvbk1lc3NhZ2VQYWdlEhIKCnNlc3Npb25faWQYASABKAkSIwoIbWVzc2FnZXMYAiADKAsyES50ZWFtY2xhdy5NZXNzYWdlEhAKCGhhc19tb3JlGAMgASgIEh4KFm5leHRfYmVmb3JlX2NyZWF0ZWRfYXQYBCABKAMiVwoVQWRkUGFydGljaXBhbnRSZXF1ZXN0EhIKCnNlc3Npb25faWQYASABKAkSKgoLcGFydGljaXBhbnQYAiABKAsyFS50ZWFtY2xhdy5QYXJ0aWNpcGFudCJAChhSZW1vdmVQYXJ0aWNpcGFudFJlcXVlc3QSEgoKc2Vzc2lvbl9pZBgBIAEoCRIQCghhY3Rvcl9pZBgCIAEoCSKNAQoRQ3JlYXRlSWRlYVJlcXVlc3QSEgoKc2Vzc2lvbl9pZBgBIAEoCRINCgV0aXRsZRgCIAEoCRITCgtkZXNjcmlwdGlvbhgDIAEoCRIRCglwYXJlbnRfaWQYBCABKAkSFwoPc2VuZGVyX2FjdG9yX2lkGAUgASgJEhQKDHdvcmtzcGFjZV9pZBgGIAEoCSJQChBDbGFpbUlkZWFSZXF1ZXN0EhIKCnNlc3Npb25faWQYASABKAkSDwoHaWRlYV9pZBgCIAEoCRIXCg9zZW5kZXJfYWN0b3JfaWQYAyABKAkiYgoRU3VibWl0SWRlYVJlcXVlc3QSEgoKc2Vzc2lvbl9pZBgBIAEoCRIPCgdpZGVhX2lkGAIgASgJEg8KB2NvbnRlbnQYAyABKAkSFwoPc2VuZGVyX2FjdG9yX2lkGAQgASgJIqYBChFVcGRhdGVJZGVhUmVxdWVzdBISCgpzZXNzaW9uX2lkGAEgASgJEg8KB2lkZWFfaWQYAiABKAkSJAoGc3RhdHVzGAMgASgOMhQudGVhbWNsYXcuSWRlYVN0YXR1cxINCgV0aXRsZRgEIAEoCRITCgtkZXNjcmlwdGlvbhgFIAEoCRIVCghhcmNoaXZlZBgGIAEoCEgAiAEBQgsKCV9hcmNoaXZlZCLCAQoTUnVudGltZVN0YXJ0UmVxdWVzdBIjCgphZ2VudF90eXBlGAEgASgOMg8uYW11eC5BZ2VudFR5cGUSFgoOaW5pdGlhbF9wcm9tcHQYAiABKAkSEAoIbW9kZWxfaWQYAyABKAkSFAoMd29ya3NwYWNlX2lkGAQgASgJEhAKCHdvcmt0cmVlGAUgASgJEhIKCnNlc3Npb25faWQYBiABKAkSIAoYcmVtb3RlX3Rvb2xfY2FwYWJpbGl0aWVzGAcgAygJImcKElJ1bnRpbWVTdGFydFJlc3VsdBIQCghhY2NlcHRlZBgBIAEoCBISCgpydW50aW1lX2lkGAIgASgJEhIKCnNlc3Npb25faWQYAyABKAkSFwoPcmVqZWN0ZWRfcmVhc29uGAQgASgJIigKElJ1bnRpbWVTdG9wUmVxdWVzdBISCgpydW50aW1lX2lkGAEgASgJIj4KEVJ1bnRpbWVTdG9wUmVzdWx0EhAKCGFjY2VwdGVkGAEgASgIEhcKD3JlamVjdGVkX3JlYXNvbhgCIAEoCSI3Cg9TZXRNb2RlbFJlcXVlc3QSEgoKcnVudGltZV9pZBgBIAEoCRIQCghtb2RlbF9pZBgCIAEoCSIwCg5TZXRNb2RlbFJlc3VsdBIPCgdzdWNjZXNzGAEgASgIEg0KBWVycm9yGAIgASgJIkcKE0Fubm91bmNlUGVlclJlcXVlc3QSHAoEcGVlchgBIAEoCzIOLmFtdXguUGVlckluZm8SEgoKYXV0aF90b2tlbhgCIAEoCSJeChJBbm5vdW5jZVBlZXJSZXN1bHQSEAoIYWNjZXB0ZWQYASABKAgSDQoFZXJyb3IYAiABKAkSJwoNYXNzaWduZWRfcm9sZRgDIAEoDjIQLmFtdXguTWVtYmVyUm9sZSIoChVEaXNjb25uZWN0UGVlclJlcXVlc3QSDwoHcGVlcl9pZBgBIAEoCSI3ChREaXNjb25uZWN0UGVlclJlc3VsdBIQCghhY2NlcHRlZBgBIAEoCBINCgVlcnJvchgCIAEoCSIoChNSZW1vdmVNZW1iZXJSZXF1ZXN0EhEKCW1lbWJlcl9pZBgBIAEoCSI1ChJSZW1vdmVNZW1iZXJSZXN1bHQSEAoIYWNjZXB0ZWQYASABKAgSDQoFZXJyb3IYAiABKAkiIwoTQWRkV29ya3NwYWNlUmVxdWVzdBIMCgRwYXRoGAEgASgJIl0KEkFkZFdvcmtzcGFjZVJlc3VsdBIQCghhY2NlcHRlZBgBIAEoCBINCgVlcnJvchgCIAEoCRImCgl3b3Jrc3BhY2UYAyABKAsyEy5hbXV4LldvcmtzcGFjZUluZm8iLgoWUmVtb3ZlV29ya3NwYWNlUmVxdWVzdBIUCgx3b3Jrc3BhY2VfaWQYASABKAkiOAoVUmVtb3ZlV29ya3NwYWNlUmVzdWx0EhAKCGFjY2VwdGVkGAEgASgIEg0KBWVycm9yGAIgASgJIhMKEUZldGNoUGVlcnNSZXF1ZXN0IjEKEEZldGNoUGVlcnNSZXN1bHQSHQoFcGVlcnMYASADKAsyDi5hbXV4LlBlZXJJbmZvIhgKFkZldGNoV29ya3NwYWNlc1JlcXVlc3QiQAoVRmV0Y2hXb3Jrc3BhY2VzUmVzdWx0EicKCndvcmtzcGFjZXMYASADKAsyEy5hbXV4LldvcmtzcGFjZUluZm8iQwoGTm90aWZ5EhIKCmV2ZW50X3R5cGUYASABKAkSFAoMcmVmcmVzaF9oaW50GAIgASgJEg8KB3NlbnRfYXQYAyABKAMqQAoLU2Vzc2lvblR5cGUSGAoUU0VTU0lPTl9UWVBFX1VOS05PV04QABILCgdDT05UUk9MEAESCgoGQ09MTEFCEAIqUgoJQWN0b3JUeXBlEhYKEkFDVE9SX1RZUEVfVU5LTk9XThAAEgkKBUhVTUFOEAESEgoOUEVSU09OQUxfQUdFTlQQAhIOCgpST0xFX0FHRU5UEAMqngEKC01lc3NhZ2VLaW5kEhgKFE1FU1NBR0VfS0lORF9VTktOT1dOEAASCAoEVEVYVBABEgoKBlNZU1RFTRACEg4KCldPUktfRVZFTlQQAxISCg5BR0VOVF9USElOS0lORxAEEhMKD0FHRU5UX1RPT0xfQ0FMTBAFEhUKEUFHRU5UX1RPT0xfUkVTVUxUEAYSDwoLQUdFTlRfUkVQTFkQBypKCgpJZGVhU3RhdHVzEhcKE0lERUFfU1RBVFVTX1VOS05PV04QABIICgRPUEVOEAESDwoLSU5fUFJPR1JFU1MQAhIICgRET05FEANiBnByb3RvMw", [file_amux]);
 
 /**
  * @generated from message teamclaw.Actor
@@ -643,6 +643,12 @@ export type RpcRequest = Message$1<"teamclaw.RpcRequest"> & {
      */
     value: RemoteToolInvokeRequest;
     case: "remoteToolInvoke";
+  } | {
+    /**
+     * @generated from field: teamclaw.RuntimeCommandRequest runtime_command = 48;
+     */
+    value: RuntimeCommandRequest;
+    case: "runtimeCommand";
   } | { case: undefined; value?: undefined };
 };
 
@@ -652,6 +658,63 @@ export type RpcRequest = Message$1<"teamclaw.RpcRequest"> & {
  */
 export const RpcRequestSchema: GenMessage<RpcRequest> = /*@__PURE__*/
   messageDesc(file_teamclaw, 10);
+
+/**
+ * An AcpCommand addressed by (actor, session) instead of by a spawn id.
+ *
+ * Replaces the `{actor}/runtime/{runtime_id}/commands` topic, which had two
+ * problems this shape removes (ADR-0003):
+ *
+ *   1. `runtime_id` is minted per spawn and goes stale the moment it is
+ *      written down. A cancel sent to a dead spawn's topic was dropped by a
+ *      daemon that no longer knew that id — see
+ *      docs/debug/interrupt-agent-stale-runtime.md.
+ *   2. That topic had no reply path, so the drop was silent. Riding on
+ *      RpcRequest means every command gets an RpcResponse.
+ *
+ * `session_id` is the TeamClaw session; the daemon resolves it to whichever
+ * Attachment currently serves it, of which there is at most one.
+ *
+ * @generated from message teamclaw.RuntimeCommandRequest
+ */
+export type RuntimeCommandRequest = Message$1<"teamclaw.RuntimeCommandRequest"> & {
+  /**
+   * @generated from field: string session_id = 1;
+   */
+  sessionId: string;
+
+  /**
+   * @generated from field: amux.RuntimeCommandEnvelope envelope = 2;
+   */
+  envelope?: RuntimeCommandEnvelope | undefined;
+};
+
+/**
+ * Describes the message teamclaw.RuntimeCommandRequest.
+ * Use `create(RuntimeCommandRequestSchema)` to create a new message.
+ */
+export const RuntimeCommandRequestSchema: GenMessage<RuntimeCommandRequest> = /*@__PURE__*/
+  messageDesc(file_teamclaw, 11);
+
+/**
+ * @generated from message teamclaw.RuntimeCommandResult
+ */
+export type RuntimeCommandResult = Message$1<"teamclaw.RuntimeCommandResult"> & {
+  /**
+   * False when this daemon holds no Attachment for `session_id` — the session
+   * is cold. Callers must not report the command as delivered.
+   *
+   * @generated from field: bool dispatched = 1;
+   */
+  dispatched: boolean;
+};
+
+/**
+ * Describes the message teamclaw.RuntimeCommandResult.
+ * Use `create(RuntimeCommandResultSchema)` to create a new message.
+ */
+export const RuntimeCommandResultSchema: GenMessage<RuntimeCommandResult> = /*@__PURE__*/
+  messageDesc(file_teamclaw, 12);
 
 /**
  * @generated from message teamclaw.RemoteToolInvokeRequest
@@ -680,7 +743,7 @@ export type RemoteToolInvokeRequest = Message$1<"teamclaw.RemoteToolInvokeReques
  * Use `create(RemoteToolInvokeRequestSchema)` to create a new message.
  */
 export const RemoteToolInvokeRequestSchema: GenMessage<RemoteToolInvokeRequest> = /*@__PURE__*/
-  messageDesc(file_teamclaw, 11);
+  messageDesc(file_teamclaw, 13);
 
 /**
  * @generated from message teamclaw.RpcResponse
@@ -815,6 +878,12 @@ export type RpcResponse = Message$1<"teamclaw.RpcResponse"> & {
      */
     value: RemoteToolInvokeResult;
     case: "remoteToolInvokeResult";
+  } | {
+    /**
+     * @generated from field: teamclaw.RuntimeCommandResult runtime_command_result = 38;
+     */
+    value: RuntimeCommandResult;
+    case: "runtimeCommandResult";
   } | { case: undefined; value?: undefined };
 };
 
@@ -823,7 +892,7 @@ export type RpcResponse = Message$1<"teamclaw.RpcResponse"> & {
  * Use `create(RpcResponseSchema)` to create a new message.
  */
 export const RpcResponseSchema: GenMessage<RpcResponse> = /*@__PURE__*/
-  messageDesc(file_teamclaw, 12);
+  messageDesc(file_teamclaw, 14);
 
 /**
  * @generated from message teamclaw.RemoteToolInvokeResult
@@ -855,7 +924,7 @@ export type RemoteToolInvokeResult = Message$1<"teamclaw.RemoteToolInvokeResult"
  * Use `create(RemoteToolInvokeResultSchema)` to create a new message.
  */
 export const RemoteToolInvokeResultSchema: GenMessage<RemoteToolInvokeResult> = /*@__PURE__*/
-  messageDesc(file_teamclaw, 13);
+  messageDesc(file_teamclaw, 15);
 
 /**
  * @generated from message teamclaw.CreateSessionRequest
@@ -905,7 +974,7 @@ export type CreateSessionRequest = Message$1<"teamclaw.CreateSessionRequest"> & 
  * Use `create(CreateSessionRequestSchema)` to create a new message.
  */
 export const CreateSessionRequestSchema: GenMessage<CreateSessionRequest> = /*@__PURE__*/
-  messageDesc(file_teamclaw, 14);
+  messageDesc(file_teamclaw, 16);
 
 /**
  * @generated from message teamclaw.JoinSessionRequest
@@ -927,7 +996,7 @@ export type JoinSessionRequest = Message$1<"teamclaw.JoinSessionRequest"> & {
  * Use `create(JoinSessionRequestSchema)` to create a new message.
  */
 export const JoinSessionRequestSchema: GenMessage<JoinSessionRequest> = /*@__PURE__*/
-  messageDesc(file_teamclaw, 15);
+  messageDesc(file_teamclaw, 17);
 
 /**
  * @generated from message teamclaw.FetchSessionRequest
@@ -944,7 +1013,7 @@ export type FetchSessionRequest = Message$1<"teamclaw.FetchSessionRequest"> & {
  * Use `create(FetchSessionRequestSchema)` to create a new message.
  */
 export const FetchSessionRequestSchema: GenMessage<FetchSessionRequest> = /*@__PURE__*/
-  messageDesc(file_teamclaw, 16);
+  messageDesc(file_teamclaw, 18);
 
 /**
  * @generated from message teamclaw.FetchSessionMessagesRequest
@@ -971,7 +1040,7 @@ export type FetchSessionMessagesRequest = Message$1<"teamclaw.FetchSessionMessag
  * Use `create(FetchSessionMessagesRequestSchema)` to create a new message.
  */
 export const FetchSessionMessagesRequestSchema: GenMessage<FetchSessionMessagesRequest> = /*@__PURE__*/
-  messageDesc(file_teamclaw, 17);
+  messageDesc(file_teamclaw, 19);
 
 /**
  * @generated from message teamclaw.SessionMessagePage
@@ -1003,7 +1072,7 @@ export type SessionMessagePage = Message$1<"teamclaw.SessionMessagePage"> & {
  * Use `create(SessionMessagePageSchema)` to create a new message.
  */
 export const SessionMessagePageSchema: GenMessage<SessionMessagePage> = /*@__PURE__*/
-  messageDesc(file_teamclaw, 18);
+  messageDesc(file_teamclaw, 20);
 
 /**
  * @generated from message teamclaw.AddParticipantRequest
@@ -1025,7 +1094,7 @@ export type AddParticipantRequest = Message$1<"teamclaw.AddParticipantRequest"> 
  * Use `create(AddParticipantRequestSchema)` to create a new message.
  */
 export const AddParticipantRequestSchema: GenMessage<AddParticipantRequest> = /*@__PURE__*/
-  messageDesc(file_teamclaw, 19);
+  messageDesc(file_teamclaw, 21);
 
 /**
  * @generated from message teamclaw.RemoveParticipantRequest
@@ -1047,7 +1116,7 @@ export type RemoveParticipantRequest = Message$1<"teamclaw.RemoveParticipantRequ
  * Use `create(RemoveParticipantRequestSchema)` to create a new message.
  */
 export const RemoveParticipantRequestSchema: GenMessage<RemoveParticipantRequest> = /*@__PURE__*/
-  messageDesc(file_teamclaw, 20);
+  messageDesc(file_teamclaw, 22);
 
 /**
  * @generated from message teamclaw.CreateIdeaRequest
@@ -1092,7 +1161,7 @@ export type CreateIdeaRequest = Message$1<"teamclaw.CreateIdeaRequest"> & {
  * Use `create(CreateIdeaRequestSchema)` to create a new message.
  */
 export const CreateIdeaRequestSchema: GenMessage<CreateIdeaRequest> = /*@__PURE__*/
-  messageDesc(file_teamclaw, 21);
+  messageDesc(file_teamclaw, 23);
 
 /**
  * @generated from message teamclaw.ClaimIdeaRequest
@@ -1122,7 +1191,7 @@ export type ClaimIdeaRequest = Message$1<"teamclaw.ClaimIdeaRequest"> & {
  * Use `create(ClaimIdeaRequestSchema)` to create a new message.
  */
 export const ClaimIdeaRequestSchema: GenMessage<ClaimIdeaRequest> = /*@__PURE__*/
-  messageDesc(file_teamclaw, 22);
+  messageDesc(file_teamclaw, 24);
 
 /**
  * @generated from message teamclaw.SubmitIdeaRequest
@@ -1157,7 +1226,7 @@ export type SubmitIdeaRequest = Message$1<"teamclaw.SubmitIdeaRequest"> & {
  * Use `create(SubmitIdeaRequestSchema)` to create a new message.
  */
 export const SubmitIdeaRequestSchema: GenMessage<SubmitIdeaRequest> = /*@__PURE__*/
-  messageDesc(file_teamclaw, 23);
+  messageDesc(file_teamclaw, 25);
 
 /**
  * @generated from message teamclaw.UpdateIdeaRequest
@@ -1199,7 +1268,7 @@ export type UpdateIdeaRequest = Message$1<"teamclaw.UpdateIdeaRequest"> & {
  * Use `create(UpdateIdeaRequestSchema)` to create a new message.
  */
 export const UpdateIdeaRequestSchema: GenMessage<UpdateIdeaRequest> = /*@__PURE__*/
-  messageDesc(file_teamclaw, 24);
+  messageDesc(file_teamclaw, 26);
 
 /**
  * Request the daemon spawn a new Claude Code subprocess.
@@ -1266,7 +1335,7 @@ export type RuntimeStartRequest = Message$1<"teamclaw.RuntimeStartRequest"> & {
  * Use `create(RuntimeStartRequestSchema)` to create a new message.
  */
 export const RuntimeStartRequestSchema: GenMessage<RuntimeStartRequest> = /*@__PURE__*/
-  messageDesc(file_teamclaw, 25);
+  messageDesc(file_teamclaw, 27);
 
 /**
  * Accepted-only reply to RuntimeStartRequest.
@@ -1307,7 +1376,7 @@ export type RuntimeStartResult = Message$1<"teamclaw.RuntimeStartResult"> & {
  * Use `create(RuntimeStartResultSchema)` to create a new message.
  */
 export const RuntimeStartResultSchema: GenMessage<RuntimeStartResult> = /*@__PURE__*/
-  messageDesc(file_teamclaw, 26);
+  messageDesc(file_teamclaw, 28);
 
 /**
  * Request a runtime terminate. Accepted-only reply.
@@ -1327,7 +1396,7 @@ export type RuntimeStopRequest = Message$1<"teamclaw.RuntimeStopRequest"> & {
  * Use `create(RuntimeStopRequestSchema)` to create a new message.
  */
 export const RuntimeStopRequestSchema: GenMessage<RuntimeStopRequest> = /*@__PURE__*/
-  messageDesc(file_teamclaw, 27);
+  messageDesc(file_teamclaw, 29);
 
 /**
  * @generated from message teamclaw.RuntimeStopResult
@@ -1351,7 +1420,7 @@ export type RuntimeStopResult = Message$1<"teamclaw.RuntimeStopResult"> & {
  * Use `create(RuntimeStopResultSchema)` to create a new message.
  */
 export const RuntimeStopResultSchema: GenMessage<RuntimeStopResult> = /*@__PURE__*/
-  messageDesc(file_teamclaw, 28);
+  messageDesc(file_teamclaw, 30);
 
 /**
  * Set the model for an existing runtime's ACP session. Maps onto
@@ -1378,7 +1447,7 @@ export type SetModelRequest = Message$1<"teamclaw.SetModelRequest"> & {
  * Use `create(SetModelRequestSchema)` to create a new message.
  */
 export const SetModelRequestSchema: GenMessage<SetModelRequest> = /*@__PURE__*/
-  messageDesc(file_teamclaw, 29);
+  messageDesc(file_teamclaw, 31);
 
 /**
  * @generated from message teamclaw.SetModelResult
@@ -1400,7 +1469,7 @@ export type SetModelResult = Message$1<"teamclaw.SetModelResult"> & {
  * Use `create(SetModelResultSchema)` to create a new message.
  */
 export const SetModelResultSchema: GenMessage<SetModelResult> = /*@__PURE__*/
-  messageDesc(file_teamclaw, 30);
+  messageDesc(file_teamclaw, 32);
 
 /**
  * @generated from message teamclaw.AnnouncePeerRequest
@@ -1422,7 +1491,7 @@ export type AnnouncePeerRequest = Message$1<"teamclaw.AnnouncePeerRequest"> & {
  * Use `create(AnnouncePeerRequestSchema)` to create a new message.
  */
 export const AnnouncePeerRequestSchema: GenMessage<AnnouncePeerRequest> = /*@__PURE__*/
-  messageDesc(file_teamclaw, 31);
+  messageDesc(file_teamclaw, 33);
 
 /**
  * @generated from message teamclaw.AnnouncePeerResult
@@ -1449,7 +1518,7 @@ export type AnnouncePeerResult = Message$1<"teamclaw.AnnouncePeerResult"> & {
  * Use `create(AnnouncePeerResultSchema)` to create a new message.
  */
 export const AnnouncePeerResultSchema: GenMessage<AnnouncePeerResult> = /*@__PURE__*/
-  messageDesc(file_teamclaw, 32);
+  messageDesc(file_teamclaw, 34);
 
 /**
  * @generated from message teamclaw.DisconnectPeerRequest
@@ -1466,7 +1535,7 @@ export type DisconnectPeerRequest = Message$1<"teamclaw.DisconnectPeerRequest"> 
  * Use `create(DisconnectPeerRequestSchema)` to create a new message.
  */
 export const DisconnectPeerRequestSchema: GenMessage<DisconnectPeerRequest> = /*@__PURE__*/
-  messageDesc(file_teamclaw, 33);
+  messageDesc(file_teamclaw, 35);
 
 /**
  * @generated from message teamclaw.DisconnectPeerResult
@@ -1488,7 +1557,7 @@ export type DisconnectPeerResult = Message$1<"teamclaw.DisconnectPeerResult"> & 
  * Use `create(DisconnectPeerResultSchema)` to create a new message.
  */
 export const DisconnectPeerResultSchema: GenMessage<DisconnectPeerResult> = /*@__PURE__*/
-  messageDesc(file_teamclaw, 34);
+  messageDesc(file_teamclaw, 36);
 
 /**
  * @generated from message teamclaw.RemoveMemberRequest
@@ -1505,7 +1574,7 @@ export type RemoveMemberRequest = Message$1<"teamclaw.RemoveMemberRequest"> & {
  * Use `create(RemoveMemberRequestSchema)` to create a new message.
  */
 export const RemoveMemberRequestSchema: GenMessage<RemoveMemberRequest> = /*@__PURE__*/
-  messageDesc(file_teamclaw, 35);
+  messageDesc(file_teamclaw, 37);
 
 /**
  * @generated from message teamclaw.RemoveMemberResult
@@ -1527,7 +1596,7 @@ export type RemoveMemberResult = Message$1<"teamclaw.RemoveMemberResult"> & {
  * Use `create(RemoveMemberResultSchema)` to create a new message.
  */
 export const RemoveMemberResultSchema: GenMessage<RemoveMemberResult> = /*@__PURE__*/
-  messageDesc(file_teamclaw, 36);
+  messageDesc(file_teamclaw, 38);
 
 /**
  * deprecated: workspaces are created via Cloud API POST /v1/workspaces (createDaemonWorkspace); daemon resolves workspace UUID->path from cloud
@@ -1546,7 +1615,7 @@ export type AddWorkspaceRequest = Message$1<"teamclaw.AddWorkspaceRequest"> & {
  * Use `create(AddWorkspaceRequestSchema)` to create a new message.
  */
 export const AddWorkspaceRequestSchema: GenMessage<AddWorkspaceRequest> = /*@__PURE__*/
-  messageDesc(file_teamclaw, 37);
+  messageDesc(file_teamclaw, 39);
 
 /**
  * deprecated: workspaces are created via Cloud API POST /v1/workspaces (createDaemonWorkspace); daemon resolves workspace UUID->path from cloud
@@ -1575,7 +1644,7 @@ export type AddWorkspaceResult = Message$1<"teamclaw.AddWorkspaceResult"> & {
  * Use `create(AddWorkspaceResultSchema)` to create a new message.
  */
 export const AddWorkspaceResultSchema: GenMessage<AddWorkspaceResult> = /*@__PURE__*/
-  messageDesc(file_teamclaw, 38);
+  messageDesc(file_teamclaw, 40);
 
 /**
  * @generated from message teamclaw.RemoveWorkspaceRequest
@@ -1592,7 +1661,7 @@ export type RemoveWorkspaceRequest = Message$1<"teamclaw.RemoveWorkspaceRequest"
  * Use `create(RemoveWorkspaceRequestSchema)` to create a new message.
  */
 export const RemoveWorkspaceRequestSchema: GenMessage<RemoveWorkspaceRequest> = /*@__PURE__*/
-  messageDesc(file_teamclaw, 39);
+  messageDesc(file_teamclaw, 41);
 
 /**
  * @generated from message teamclaw.RemoveWorkspaceResult
@@ -1614,7 +1683,7 @@ export type RemoveWorkspaceResult = Message$1<"teamclaw.RemoveWorkspaceResult"> 
  * Use `create(RemoveWorkspaceResultSchema)` to create a new message.
  */
 export const RemoveWorkspaceResultSchema: GenMessage<RemoveWorkspaceResult> = /*@__PURE__*/
-  messageDesc(file_teamclaw, 40);
+  messageDesc(file_teamclaw, 42);
 
 /**
  * @generated from message teamclaw.FetchPeersRequest
@@ -1627,7 +1696,7 @@ export type FetchPeersRequest = Message$1<"teamclaw.FetchPeersRequest"> & {
  * Use `create(FetchPeersRequestSchema)` to create a new message.
  */
 export const FetchPeersRequestSchema: GenMessage<FetchPeersRequest> = /*@__PURE__*/
-  messageDesc(file_teamclaw, 41);
+  messageDesc(file_teamclaw, 43);
 
 /**
  * @generated from message teamclaw.FetchPeersResult
@@ -1644,7 +1713,7 @@ export type FetchPeersResult = Message$1<"teamclaw.FetchPeersResult"> & {
  * Use `create(FetchPeersResultSchema)` to create a new message.
  */
 export const FetchPeersResultSchema: GenMessage<FetchPeersResult> = /*@__PURE__*/
-  messageDesc(file_teamclaw, 42);
+  messageDesc(file_teamclaw, 44);
 
 /**
  * @generated from message teamclaw.FetchWorkspacesRequest
@@ -1657,7 +1726,7 @@ export type FetchWorkspacesRequest = Message$1<"teamclaw.FetchWorkspacesRequest"
  * Use `create(FetchWorkspacesRequestSchema)` to create a new message.
  */
 export const FetchWorkspacesRequestSchema: GenMessage<FetchWorkspacesRequest> = /*@__PURE__*/
-  messageDesc(file_teamclaw, 43);
+  messageDesc(file_teamclaw, 45);
 
 /**
  * @generated from message teamclaw.FetchWorkspacesResult
@@ -1674,7 +1743,7 @@ export type FetchWorkspacesResult = Message$1<"teamclaw.FetchWorkspacesResult"> 
  * Use `create(FetchWorkspacesResultSchema)` to create a new message.
  */
 export const FetchWorkspacesResultSchema: GenMessage<FetchWorkspacesResult> = /*@__PURE__*/
-  messageDesc(file_teamclaw, 44);
+  messageDesc(file_teamclaw, 46);
 
 /**
  * Hint-only invalidation payload. See spec "New envelope" + "actor notify vs
@@ -1709,7 +1778,7 @@ export type Notify = Message$1<"teamclaw.Notify"> & {
  * Use `create(NotifySchema)` to create a new message.
  */
 export const NotifySchema: GenMessage<Notify> = /*@__PURE__*/
-  messageDesc(file_teamclaw, 45);
+  messageDesc(file_teamclaw, 47);
 
 /**
  * @generated from enum teamclaw.SessionType

@@ -142,6 +142,10 @@ export interface SessionParticipant {
   session_id: string;
   actor_id: string;
   role?: string | null;
+  /** Agent's working state for this session (ADR-0005); null on member rows. */
+  workspaceId?: string | null;
+  model?: string | null;
+  lastProcessedMessageId?: string | null;
 }
 
 export interface SessionDisplayRow {
@@ -285,13 +289,7 @@ export interface DaemonRuntimeBackendRow {
 }
 
 export interface RuntimeBackend {
-  listLatestAgentRuntimeHints(teamId: string, agentActorIds: string[]): Promise<AgentRuntimeHintRow[]>;
-  fetchLatestRuntimeForSession(agentActorId: string, sessionId: string): Promise<DaemonRuntimeBackendRow | null>;
   listAgentDefaults(agentActorIds: string[]): Promise<AgentDefaultRow[]>;
-  updateRuntimeModel(runtimeId: string, model: string): Promise<void>;
-  listSessionRuntimeModels(sessionId: string): Promise<SessionRuntimeModelRow[]>;
-  listRuntimeTargetsForSession(sessionId: string, agentActorIds: string[]): Promise<RuntimeTargetRow[]>;
-  listDaemonRuntimes(teamId: string): Promise<DaemonRuntimeBackendRow[]>;
 }
 
 export interface AttachmentUploadInput {

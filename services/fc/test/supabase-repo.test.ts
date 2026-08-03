@@ -24,10 +24,13 @@ test("createSupabaseBusinessRepository creates caller-scoped Supabase client", a
   assert.equal(calls[0].url, "https://example.supabase.co");
   assert.equal(calls[0].key, "publishable-key");
   assert.deepEqual(calls[0].options.auth, { persistSession: false, autoRefreshToken: false });
-  assert.deepEqual(calls[0].options.global, { headers: { Authorization: "Bearer caller-token" } });
+  assert.deepEqual(calls[0].options.global.headers, { Authorization: "Bearer caller-token" });
   // realtime transport is wired so supabase-js doesn't crash on Node 20 (FC runtime);
   // we don't assert on its identity, just that it's set.
   assert.ok(calls[0].options.realtime?.transport, "expected realtime transport to be set");
+  // Same treatment for the URL-length guard: identity isn't the contract, being
+  // wired is — an unguarded fetch is how a 48KB PostgREST URL reached kong.
+  assert.equal(typeof calls[0].options.global.fetch, "function", "expected guarded fetch");
 });
 
 test("publishableKeyFromEnv prefers publishable key and falls back to anon key", () => {
@@ -935,79 +938,8 @@ test("getWorkspaceConfig returns nulls when both rows absent", async () => {
   });
 });
 
-test("upsertAgentRuntime derives team_id from actor when body omits teamId", async () => {
-  const tableCalls = [];
-  const repo = createRepo(fakeSupabase({
-    tableCalls,
-    tableData: {
-      actors: [{ team_id: "team-9" }],
-      agent_runtimes: [{ id: "rt-1" }],
-    },
-  }));
 
-  const result = await repo.upsertAgentRuntime({
-    // teamId intentionally omitted (the daemon does not send it)
-    agentActorId: "agent-1",
-    sessionId: "sess-1",
-    runtimeId: "rtid-1",
-    backendSessionId: "bsid-1",
-    backendType: "claude",
-    status: "running",
-  });
 
-  assert.equal(result.id, "rt-1");
-  // Looked up team_id from the actors table under the caller's RLS.
-  const actorLookup = tableCalls.find((c) => c.table === "actors" && c.op === "select");
-  assert.ok(actorLookup, "expected an actors select for team_id derivation");
-  const upsert = tableCalls.find((c) => c.table === "agent_runtimes" && c.op === "upsert");
-  assert.ok(upsert, "expected an agent_runtimes upsert");
-  assert.equal(upsert.row.team_id, "team-9");
-  assert.equal(upsert.row.agent_id, "agent-1");
-  assert.deepEqual(upsert.options, { onConflict: "agent_id,backend_session_id" });
-});
-
-test("upsertAgentRuntime prefers explicit body.teamId without an actor lookup", async () => {
-  const tableCalls = [];
-  const repo = createRepo(fakeSupabase({
-    tableCalls,
-    // No actors row provided; if the code looked it up it would fail to resolve.
-    tableData: { agent_runtimes: [{ id: "rt-2" }] },
-  }));
-
-  const result = await repo.upsertAgentRuntime({
-    teamId: "team-explicit",
-    agentActorId: "agent-2",
-    sessionId: "sess-2",
-    runtimeId: "rtid-2",
-    backendSessionId: "bsid-2",
-  });
-
-  assert.equal(result.id, "rt-2");
-  assert.equal(tableCalls.some((c) => c.table === "actors"), false, "should not query actors when teamId is given");
-  const upsert = tableCalls.find((c) => c.table === "agent_runtimes" && c.op === "upsert");
-  assert.equal(upsert.row.team_id, "team-explicit");
-  assert.deepEqual(upsert.options, { onConflict: "agent_id,backend_session_id" });
-});
-
-test("upsertAgentRuntime throws 400 missing_team when team cannot be resolved", async () => {
-  const repo = createRepo(fakeSupabase({
-    tableData: {
-      actors: [], // actor not visible -> no team_id
-      agent_runtimes: [{ id: "rt-x" }],
-    },
-  }));
-
-  await assert.rejects(
-    () =>
-      repo.upsertAgentRuntime({
-        agentActorId: "agent-missing",
-        sessionId: "sess-3",
-        runtimeId: "rtid-3",
-        backendSessionId: "bsid-3",
-      }),
-    (err: any) => err.statusCode === 400 && err.code === "missing_team",
-  );
-});
 
 function fakeSupabase({
   rpcCalls = [],

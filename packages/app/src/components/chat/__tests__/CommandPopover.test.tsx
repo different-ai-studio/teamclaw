@@ -34,17 +34,16 @@ vi.mock('@/stores/workspace', () => ({
     selector({ workspacePath: '/workspace/demo' }),
 }))
 
-vi.mock('@/stores/runtime-state-store', () => ({
-  useRuntimeStateStore: (selector: (s: { byRuntimeId: Record<string, unknown> }) => unknown) =>
-    selector({ byRuntimeId: mocks.runtimeStates }),
-}))
+vi.mock('@/stores/runtime-state-store', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@/stores/runtime-state-store')>()
+  const store = (selector: (s: { byRuntimeId: Record<string, unknown> }) => unknown) =>
+    selector({ byRuntimeId: mocks.runtimeStates })
+  store.getState = () => ({ byRuntimeId: mocks.runtimeStates })
+  return { ...actual, useRuntimeStateStore: store }
+})
 
 vi.mock('@/lib/backend', () => ({
-  getBackend: () => ({
-    runtime: {
-      listSessionRuntimeModels: () => Promise.resolve(mocks.runtimeRows),
-    },
-  }),
+  getBackend: () => ({}),
 }))
 
 vi.mock('@/lib/daemon-local-client', async (importOriginal) => {
@@ -81,11 +80,9 @@ describe('CommandPopover', () => {
   })
 
   it('shows daemon-advertised skills for the active session', async () => {
-    mocks.runtimeRows = [
-      { runtime_id: 'rt-1', backend_type: 'opencode', current_model: null },
-    ]
     mocks.runtimeStates = {
-      'rt-1': {
+      // Keyed (actor, session): that is how the retain is filed.
+      'agent-1::session-1': {
         daemonActorId: 'agent-1',
         lastUpdated: Date.now(),
         info: {
@@ -116,11 +113,9 @@ describe('CommandPopover', () => {
   })
 
   it('selects a daemon-advertised skill using skill token semantics when it matches a known skill', async () => {
-    mocks.runtimeRows = [
-      { runtime_id: 'rt-1', backend_type: 'opencode', current_model: null },
-    ]
     mocks.runtimeStates = {
-      'rt-1': {
+      // Keyed (actor, session): that is how the retain is filed.
+      'agent-1::session-1': {
         daemonActorId: 'agent-1',
         lastUpdated: Date.now(),
         info: {
@@ -178,11 +173,9 @@ describe('CommandPopover', () => {
   })
 
   it('treats daemon-advertised namespaced skills as skill tokens even when local skill scan is empty', async () => {
-    mocks.runtimeRows = [
-      { runtime_id: 'rt-1', backend_type: 'opencode', current_model: null },
-    ]
     mocks.runtimeStates = {
-      'rt-1': {
+      // Keyed (actor, session): that is how the retain is filed.
+      'agent-1::session-1': {
         daemonActorId: 'agent-1',
         lastUpdated: Date.now(),
         info: {

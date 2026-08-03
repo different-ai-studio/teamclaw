@@ -27,6 +27,48 @@ export function requiredInteger(value, operation, field) {
   throw new ApiError(502, "upstream_unavailable", `${operation} returned invalid ${field}`);
 }
 
+/**
+ * Max ids per PostgREST `in.(…)` filter.
+ *
+ * PostgREST serialises `.in("id", ids)` into the GET query string: each uuid
+ * costs 37 bytes (36 + comma). kong rejects request lines past its header
+ * buffer (~8KB) with 414 — observed in production at 1296 ids / ~48KB, which
+ * took the whole session list down.
+ *
+ * 100 keeps the filter near 3.7KB, leaving room for the base path and the
+ * other filters that ride along on the same request.
+ */
+export const IN_FILTER_CHUNK_SIZE = 100;
+
+/**
+ * Run `fn` over `ids` in chunks small enough to survive the URL length limit,
+ * concatenating the results.
+ *
+ * Chunks run sequentially: these calls are already on the request's critical
+ * path and firing 13 concurrent PostgREST queries to render one list trades a
+ * latency win for connection-pool pressure on the shared gateway.
+ *
+ * Callers keep their own empty-input guard — an empty `ids` here returns `[]`
+ * without issuing a request, which is the correct answer for every current
+ * caller but is NOT equivalent to "no filter".
+ */
+// Rows stay `any[]`: PostgREST's generics collapse to `unknown` through this
+// indirection, and the callers in supabase-repo.ts are untyped throughout.
+export async function chunkedIn(
+  ids: readonly any[],
+  fn: (chunk: any[]) => Promise<any[]>,
+  chunkSize: number = IN_FILTER_CHUNK_SIZE,
+): Promise<any[]> {
+  if (!Array.isArray(ids) || ids.length === 0) return [];
+  if (ids.length <= chunkSize) return fn(ids);
+
+  const out: any[] = [];
+  for (let i = 0; i < ids.length; i += chunkSize) {
+    out.push(...(await fn(ids.slice(i, i + chunkSize))));
+  }
+  return out;
+}
+
 // ── Column constants + row mappers (moved from supabase-repo.ts) ──
 
 export const DEFAULT_ATTACHMENT_BUCKET = "attachments";
@@ -329,24 +371,6 @@ export function mapShortcutRow(row) {
   };
 }
 
-export function mapAgentRuntimeRow(row) {
-  return {
-    id: requiredString(row?.id, "agentRuntimes.mapAgentRuntimeRow", "id"),
-    agentActorId: requiredString(row?.agent_id, "agentRuntimes.mapAgentRuntimeRow", "agent_id"),
-    sessionId: row?.session_id ?? null,
-    runtimeId: row?.runtime_id ?? null,
-    backendSessionId: row?.backend_session_id ?? null,
-    teamId: row?.team_id ?? null,
-    backendType: row?.backend_type ?? null,
-    status: row?.status ?? null,
-    workspaceId: row?.workspace_id ?? null,
-    currentModel: row?.current_model ?? null,
-    lastSeenAt: row?.last_seen_at ?? null,
-    lastProcessedMessageId: row?.last_processed_message_id ?? null,
-    createdAt: row?.created_at ?? null,
-    updatedAt: row?.updated_at ?? null,
-  };
-}
 
 export function mapIdeaActivityRow(row) {
   const kind = row?.kind ?? row?.activity_type;

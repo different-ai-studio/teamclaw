@@ -10,7 +10,7 @@ import type { Message } from "@bufbuild/protobuf";
  * Describes the file amux.proto.
  */
 export const file_amux: GenFile = /*@__PURE__*/
-  fileDesc("CgphbXV4LnByb3RvEgRhbXV4IvMBCghFbnZlbG9wZRISCgpydW50aW1lX2lkGAEgASgJEhAKCGFjdG9yX2lkGAIgASgJEhYKDnNvdXJjZV9wZWVyX2lkGAMgASgJEhEKCXRpbWVzdGFtcBgEIAEoAxIQCghzZXF1ZW5jZRgFIAEoBBIPCgd0dXJuX2lkGAYgASgJEhYKDmFjcF9zZXNzaW9uX2lkGAcgASgJEiMKCWFjcF9ldmVudBgKIAEoCzIOLmFtdXguQWNwRXZlbnRIABIrCg1zZXNzaW9uX2V2ZW50GAsgASgLMhIuYW11eC5TZXNzaW9uRXZlbnRIAEIJCgdwYXlsb2FkItEBChZSdW50aW1lQ29tbWFuZEVudmVsb3BlEhIKCnJ1bnRpbWVfaWQYASABKAkSEAoIYWN0b3JfaWQYAiABKAkSDwoHcGVlcl9pZBgDIAEoCRISCgpjb21tYW5kX2lkGAQgASgJEhEKCXRpbWVzdGFtcBgFIAEoAxIXCg9zZW5kZXJfYWN0b3JfaWQYBiABKAkSGQoRcmVwbHlfdG9fYWN0b3JfaWQYByABKAkSJQoLYWNwX2NvbW1hbmQYCiABKAsyEC5hbXV4LkFjcENvbW1hbmQi0AMKCEFjcEV2ZW50EiUKCHRoaW5raW5nGAEgASgLMhEuYW11eC5BY3BUaGlua2luZ0gAEiEKBm91dHB1dBgCIAEoCzIPLmFtdXguQWNwT3V0cHV0SAASJAoIdG9vbF91c2UYAyABKAsyEC5hbXV4LkFjcFRvb2xVc2VIABIqCgt0b29sX3Jlc3VsdBgEIAEoCzITLmFtdXguQWNwVG9vbFJlc3VsdEgAEh8KBWVycm9yGAUgASgLMg4uYW11eC5BY3BFcnJvckgAEjgKEnBlcm1pc3Npb25fcmVxdWVzdBgGIAEoCzIaLmFtdXguQWNwUGVybWlzc2lvblJlcXVlc3RIABIuCg1zdGF0dXNfY2hhbmdlGAcgASgLMhUuYW11eC5BY3BTdGF0dXNDaGFuZ2VIABI4ChJhdmFpbGFibGVfY29tbWFuZHMYCSABKAsyGi5hbXV4LkFjcEF2YWlsYWJsZUNvbW1hbmRzSAASKgoLcGxhbl91cGRhdGUYCiABKAsyEy5hbXV4LkFjcFBsYW5VcGRhdGVIABIfCgNyYXcYDyABKAsyEC5hbXV4LkFjcFJhd0pzb25IABINCgVtb2RlbBgQIAEoCUIHCgVldmVudCIbCgtBY3BUaGlua2luZxIMCgR0ZXh0GAEgASgJIi4KCUFjcE91dHB1dBIMCgR0ZXh0GAEgASgJEhMKC2lzX2NvbXBsZXRlGAIgASgIIj8KE0FjcFRvb2xDYWxsTG9jYXRpb24SDAoEcGF0aBgBIAEoCRIRCgRsaW5lGAIgASgNSACIAQFCBwoFX2xpbmUiJgoWQWNwVG9vbENhbGxUZXh0Q29udGVudBIMCgR0ZXh0GAEgASgJIlUKD0FjcFRvb2xDYWxsRGlmZhIMCgRwYXRoGAEgASgJEhUKCG9sZF90ZXh0GAIgASgJSACIAQESEAoIbmV3X3RleHQYAyABKAlCCwoJX29sZF90ZXh0IioKE0FjcFRvb2xDYWxsVGVybWluYWwSEwoLdGVybWluYWxfaWQYASABKAkiowEKEkFjcFRvb2xDYWxsQ29udGVudBIsCgR0ZXh0GAEgASgLMhwuYW11eC5BY3BUb29sQ2FsbFRleHRDb250ZW50SAASJQoEZGlmZhgCIAEoCzIVLmFtdXguQWNwVG9vbENhbGxEaWZmSAASLQoIdGVybWluYWwYAyABKAsyGS5hbXV4LkFjcFRvb2xDYWxsVGVybWluYWxIAEIJCgdwYXlsb2FkIs8CCgpBY3BUb29sVXNlEg8KB3Rvb2xfaWQYASABKAkSEQoJdG9vbF9uYW1lGAIgASgJEhMKC2Rlc2NyaXB0aW9uGAMgASgJEiwKBnBhcmFtcxgEIAMoCzIcLmFtdXguQWNwVG9vbFVzZS5QYXJhbXNFbnRyeRIRCgl0b29sX2tpbmQYBSABKAkSFgoOcmF3X2lucHV0X2pzb24YBiABKAkSKQoHY29udGVudBgHIAMoCzIYLmFtdXguQWNwVG9vbENhbGxDb250ZW50EiwKCWxvY2F0aW9ucxgIIAMoCzIZLmFtdXguQWNwVG9vbENhbGxMb2NhdGlvbhIOCgZzdGF0dXMYCSABKAkSFwoPcmF3X291dHB1dF9qc29uGAogASgJGi0KC1BhcmFtc0VudHJ5EgsKA2tleRgBIAEoCRINCgV2YWx1ZRgCIAEoCToCOAEihgEKDUFjcFRvb2xSZXN1bHQSDwoHdG9vbF9pZBgBIAEoCRIPCgdzdWNjZXNzGAIgASgIEg8KB3N1bW1hcnkYAyABKAkSFwoPcmF3X291dHB1dF9qc29uGAQgASgJEikKB2NvbnRlbnQYBSADKAsyGC5hbXV4LkFjcFRvb2xDYWxsQ29udGVudCIsCghBY3BFcnJvchIPCgdtZXNzYWdlGAEgASgJEg8KB2RldGFpbHMYAiABKAkiRAoTQWNwUGVybWlzc2lvbk9wdGlvbhIRCglvcHRpb25faWQYASABKAkSDAoEa2luZBgCIAEoCRIMCgRuYW1lGAMgASgJIuUBChRBY3BQZXJtaXNzaW9uUmVxdWVzdBISCgpyZXF1ZXN0X2lkGAEgASgJEhEKCXRvb2xfbmFtZRgCIAEoCRITCgtkZXNjcmlwdGlvbhgDIAEoCRI2CgZwYXJhbXMYBCADKAsyJi5hbXV4LkFjcFBlcm1pc3Npb25SZXF1ZXN0LlBhcmFtc0VudHJ5EioKB29wdGlvbnMYBSADKAsyGS5hbXV4LkFjcFBlcm1pc3Npb25PcHRpb24aLQoLUGFyYW1zRW50cnkSCwoDa2V5GAEgASgJEg0KBXZhbHVlGAIgASgJOgI4ASJfCg9BY3BTdGF0dXNDaGFuZ2USJQoKb2xkX3N0YXR1cxgBIAEoDjIRLmFtdXguQWdlbnRTdGF0dXMSJQoKbmV3X3N0YXR1cxgCIAEoDjIRLmFtdXguQWdlbnRTdGF0dXMiTAoTQWNwQXZhaWxhYmxlQ29tbWFuZBIMCgRuYW1lGAEgASgJEhMKC2Rlc2NyaXB0aW9uGAIgASgJEhIKCmlucHV0X2hpbnQYAyABKAkiQwoUQWNwQXZhaWxhYmxlQ29tbWFuZHMSKwoIY29tbWFuZHMYASADKAsyGS5hbXV4LkFjcEF2YWlsYWJsZUNvbW1hbmQiMgoKQWNwUmF3SnNvbhIOCgZtZXRob2QYASABKAkSFAoManNvbl9wYXlsb2FkGAIgASgMIjQKDUFjcFBsYW5VcGRhdGUSIwoHZW50cmllcxgBIAMoCzISLmFtdXguQWNwUGxhbkVudHJ5IkEKDEFjcFBsYW5FbnRyeRIPCgdjb250ZW50GAEgASgJEhAKCHByaW9yaXR5GAIgASgJEg4KBnN0YXR1cxgDIAEoCSLLAwoKQWNwQ29tbWFuZBIqCgtzZW5kX3Byb21wdBgBIAEoCzITLmFtdXguQWNwU2VuZFByb21wdEgAEiEKBmNhbmNlbBgCIAEoCzIPLmFtdXguQWNwQ2FuY2VsSAASNAoQZ3JhbnRfcGVybWlzc2lvbhgDIAEoCzIYLmFtdXguQWNwR3JhbnRQZXJtaXNzaW9uSAASMgoPZGVueV9wZXJtaXNzaW9uGAQgASgLMhcuYW11eC5BY3BEZW55UGVybWlzc2lvbkgAEioKC3N0YXJ0X2FnZW50GAUgASgLMhMuYW11eC5BY3BTdGFydEFnZW50SAASKAoKc3RvcF9hZ2VudBgGIAEoCzISLmFtdXguQWNwU3RvcEFnZW50SAASMgoPcmVxdWVzdF9oaXN0b3J5GAcgASgLMhcuYW11eC5BY3BSZXF1ZXN0SGlzdG9yeUgAEjsKFHJlcXVlc3RfdHVybl9oaXN0b3J5GAggASgLMhsuYW11eC5BY3BSZXF1ZXN0VHVybkhpc3RvcnlIABIyCg9hbnN3ZXJfcXVlc3Rpb24YCSABKAsyFy5hbXV4LkFjcEFuc3dlclF1ZXN0aW9uSABCCQoHY29tbWFuZCJSChFBY3BSZXF1ZXN0SGlzdG9yeRIWCg5hZnRlcl9zZXF1ZW5jZRgBIAEoBBIRCglwYWdlX3NpemUYAiABKA0SEgoKcmVxdWVzdF9pZBgDIAEoCSI8ChVBY3BSZXF1ZXN0VHVybkhpc3RvcnkSDwoHdHVybl9pZBgBIAEoCRISCgpyZXF1ZXN0X2lkGAIgASgJIkgKDUFjcFNlbmRQcm9tcHQSDAoEdGV4dBgBIAEoCRIQCghtb2RlbF9pZBgCIAEoCRIXCg9hdHRhY2htZW50X3VybHMYAyADKAkiCwoJQWNwQ2FuY2VsIjsKEkFjcEdyYW50UGVybWlzc2lvbhISCgpyZXF1ZXN0X2lkGAEgASgJEhEKCW9wdGlvbl9pZBgCIAEoCSInChFBY3BEZW55UGVybWlzc2lvbhISCgpyZXF1ZXN0X2lkGAEgASgJIk0KEUFjcEFuc3dlclF1ZXN0aW9uEhIKCnJlcXVlc3RfaWQYASABKAkSFAoMYW5zd2Vyc19qc29uGAIgASgJEg4KBnJlamVjdBgDIAEoCCKIAQoNQWNwU3RhcnRBZ2VudBIjCgphZ2VudF90eXBlGAEgASgOMg8uYW11eC5BZ2VudFR5cGUSEAoId29ya3RyZWUYAiABKAkSFgoOaW5pdGlhbF9wcm9tcHQYAyABKAkSFAoMd29ya3NwYWNlX2lkGAQgASgJEhIKCnNlc3Npb25faWQYBSABKAkiDgoMQWNwU3RvcEFnZW50It8BCgxTZXNzaW9uRXZlbnQSLwoPcHJvbXB0X2FjY2VwdGVkGAEgASgLMhQuYW11eC5Qcm9tcHRBY2NlcHRlZEgAEi8KD3Byb21wdF9yZWplY3RlZBgCIAEoCzIULmFtdXguUHJvbXB0UmVqZWN0ZWRIABI3ChNwZXJtaXNzaW9uX3Jlc29sdmVkGAMgASgLMhguYW11eC5QZXJtaXNzaW9uUmVzb2x2ZWRIABIrCg1oaXN0b3J5X2JhdGNoGAQgASgLMhIuYW11eC5IaXN0b3J5QmF0Y2hIAEIHCgVldmVudCJxCgxIaXN0b3J5QmF0Y2gSEgoKcmVxdWVzdF9pZBgBIAEoCRIeCgZldmVudHMYAiADKAsyDi5hbXV4LkVudmVsb3BlEhAKCGhhc19tb3JlGAMgASgIEhsKE25leHRfYWZ0ZXJfc2VxdWVuY2UYBCABKAQiJAoOUHJvbXB0QWNjZXB0ZWQSEgoKY29tbWFuZF9pZBgBIAEoCSI0Cg5Qcm9tcHRSZWplY3RlZBISCgpjb21tYW5kX2lkGAEgASgJEg4KBnJlYXNvbhgCIAEoCSJWChJQZXJtaXNzaW9uUmVzb2x2ZWQSEgoKcmVxdWVzdF9pZBgBIAEoCRIbChNyZXNvbHZlZF9ieV9wZWVyX2lkGAIgASgJEg8KB2dyYW50ZWQYAyABKAgiHAoMQWRkV29ya3NwYWNlEgwKBHBhdGgYASABKAkiJwoPUmVtb3ZlV29ya3NwYWNlEhQKDHdvcmtzcGFjZV9pZBgBIAEoCSJACgxQZWVyQW5ub3VuY2USHAoEcGVlchgBIAEoCzIOLmFtdXguUGVlckluZm8SEgoKYXV0aF90b2tlbhgCIAEoCSIhCgxSZW1vdmVNZW1iZXISEQoJbWVtYmVyX2lkGAEgASgJIkgKDUFjdG9yUHJlc2VuY2USDgoGb25saW5lGAEgASgIEhQKDGRpc3BsYXlfbmFtZRgCIAEoCRIRCgl0aW1lc3RhbXAYAyABKAMiSQoNV29ya3NwYWNlSW5mbxIUCgx3b3Jrc3BhY2VfaWQYASABKAkSDAoEcGF0aBgCIAEoCRIUCgxkaXNwbGF5X25hbWUYAyABKAkiOAoNV29ya3NwYWNlTGlzdBInCgp3b3Jrc3BhY2VzGAEgAygLMhMuYW11eC5Xb3Jrc3BhY2VJbmZvIokECgtSdW50aW1lSW5mbxISCgpydW50aW1lX2lkGAEgASgJEiMKCmFnZW50X3R5cGUYAiABKA4yDy5hbXV4LkFnZW50VHlwZRIQCgh3b3JrdHJlZRgDIAEoCRIOCgZicmFuY2gYBCABKAkSIQoGc3RhdHVzGAUgASgOMhEuYW11eC5BZ2VudFN0YXR1cxISCgpzdGFydGVkX2F0GAYgASgDEhYKDmN1cnJlbnRfcHJvbXB0GAcgASgJEhQKDHdvcmtzcGFjZV9pZBgIIAEoCRIVCg1zZXNzaW9uX3RpdGxlGAkgASgJEhsKE2xhc3Rfb3V0cHV0X3N1bW1hcnkYCiABKAkSFgoOdG9vbF91c2VfY291bnQYCyABKAUSKQoQYXZhaWxhYmxlX21vZGVscxgMIAMoCzIPLmFtdXguTW9kZWxJbmZvEhUKDWN1cnJlbnRfbW9kZWwYDSABKAkSJQoFc3RhdGUYDiABKA4yFi5hbXV4LlJ1bnRpbWVMaWZlY3ljbGUSDQoFc3RhZ2UYDyABKAkSEgoKZXJyb3JfY29kZRgQIAEoCRIVCg1lcnJvcl9tZXNzYWdlGBEgASgJEhQKDGZhaWxlZF9zdGFnZRgSIAEoCRI1ChJhdmFpbGFibGVfY29tbWFuZHMYEyADKAsyGS5hbXV4LkFjcEF2YWlsYWJsZUNvbW1hbmQiRAoJTW9kZWxJbmZvEgoKAmlkGAEgASgJEhQKDGRpc3BsYXlfbmFtZRgCIAEoCRIVCg1wcm92aWRlcl9uYW1lGAMgASgJIjAKCUFnZW50TGlzdBIjCghydW50aW1lcxgBIAMoCzIRLmFtdXguUnVudGltZUluZm8ifAoKTWVtYmVySW5mbxIRCgltZW1iZXJfaWQYASABKAkSFAoMZGlzcGxheV9uYW1lGAIgASgJEh4KBHJvbGUYAyABKA4yEC5hbXV4Lk1lbWJlclJvbGUSEQoJam9pbmVkX2F0GAQgASgDEhIKCmRlcGFydG1lbnQYBSABKAkiLwoKTWVtYmVyTGlzdBIhCgdtZW1iZXJzGAEgAygLMhAuYW11eC5NZW1iZXJJbmZvIo8BCghQZWVySW5mbxIPCgdwZWVyX2lkGAEgASgJEhEKCW1lbWJlcl9pZBgCIAEoCRIUCgxkaXNwbGF5X25hbWUYAyABKAkSEwoLZGV2aWNlX3R5cGUYBCABKAkSHgoEcm9sZRgFIAEoDjIQLmFtdXguTWVtYmVyUm9sZRIUCgxjb25uZWN0ZWRfYXQYBiABKAMiKQoIUGVlckxpc3QSHQoFcGVlcnMYASADKAsyDi5hbXV4LlBlZXJJbmZvKpgBCglBZ2VudFR5cGUSFgoSQUdFTlRfVFlQRV9VTktOT1dOEAASGgoWQUdFTlRfVFlQRV9DTEFVREVfQ09ERRABEhcKE0FHRU5UX1RZUEVfT1BFTkNPREUQAhIUChBBR0VOVF9UWVBFX0NPREVYEAMSEQoNQUdFTlRfVFlQRV9QSRAEEhUKEUFHRU5UX1RZUEVfQ1VSU09SEAUqpAEKC0FnZW50U3RhdHVzEhgKFEFHRU5UX1NUQVRVU19VTktOT1dOEAASGQoVQUdFTlRfU1RBVFVTX1NUQVJUSU5HEAESFwoTQUdFTlRfU1RBVFVTX0FDVElWRRACEhUKEUFHRU5UX1NUQVRVU19JRExFEAMSFgoSQUdFTlRfU1RBVFVTX0VSUk9SEAQSGAoUQUdFTlRfU1RBVFVTX1NUT1BQRUQQBSqsAQoQUnVudGltZUxpZmVjeWNsZRIdChlSVU5USU1FX0xJRkVDWUNMRV9VTktOT1dOEAASHgoaUlVOVElNRV9MSUZFQ1lDTEVfU1RBUlRJTkcQARIcChhSVU5USU1FX0xJRkVDWUNMRV9BQ1RJVkUQAhIcChhSVU5USU1FX0xJRkVDWUNMRV9GQUlMRUQQAxIdChlSVU5USU1FX0xJRkVDWUNMRV9TVE9QUEVEEAQqOwoKTWVtYmVyUm9sZRIVChFNRU1CRVJfUk9MRV9PV05FUhAAEhYKEk1FTUJFUl9ST0xFX01FTUJFUhABYgZwcm90bzM");
+  fileDesc("CgphbXV4LnByb3RvEgRhbXV4IvMBCghFbnZlbG9wZRISCgpydW50aW1lX2lkGAEgASgJEhAKCGFjdG9yX2lkGAIgASgJEhYKDnNvdXJjZV9wZWVyX2lkGAMgASgJEhEKCXRpbWVzdGFtcBgEIAEoAxIQCghzZXF1ZW5jZRgFIAEoBBIPCgd0dXJuX2lkGAYgASgJEhYKDmFjcF9zZXNzaW9uX2lkGAcgASgJEiMKCWFjcF9ldmVudBgKIAEoCzIOLmFtdXguQWNwRXZlbnRIABIrCg1zZXNzaW9uX2V2ZW50GAsgASgLMhIuYW11eC5TZXNzaW9uRXZlbnRIAEIJCgdwYXlsb2FkItEBChZSdW50aW1lQ29tbWFuZEVudmVsb3BlEhIKCnJ1bnRpbWVfaWQYASABKAkSEAoIYWN0b3JfaWQYAiABKAkSDwoHcGVlcl9pZBgDIAEoCRISCgpjb21tYW5kX2lkGAQgASgJEhEKCXRpbWVzdGFtcBgFIAEoAxIXCg9zZW5kZXJfYWN0b3JfaWQYBiABKAkSGQoRcmVwbHlfdG9fYWN0b3JfaWQYByABKAkSJQoLYWNwX2NvbW1hbmQYCiABKAsyEC5hbXV4LkFjcENvbW1hbmQi0AMKCEFjcEV2ZW50EiUKCHRoaW5raW5nGAEgASgLMhEuYW11eC5BY3BUaGlua2luZ0gAEiEKBm91dHB1dBgCIAEoCzIPLmFtdXguQWNwT3V0cHV0SAASJAoIdG9vbF91c2UYAyABKAsyEC5hbXV4LkFjcFRvb2xVc2VIABIqCgt0b29sX3Jlc3VsdBgEIAEoCzITLmFtdXguQWNwVG9vbFJlc3VsdEgAEh8KBWVycm9yGAUgASgLMg4uYW11eC5BY3BFcnJvckgAEjgKEnBlcm1pc3Npb25fcmVxdWVzdBgGIAEoCzIaLmFtdXguQWNwUGVybWlzc2lvblJlcXVlc3RIABIuCg1zdGF0dXNfY2hhbmdlGAcgASgLMhUuYW11eC5BY3BTdGF0dXNDaGFuZ2VIABI4ChJhdmFpbGFibGVfY29tbWFuZHMYCSABKAsyGi5hbXV4LkFjcEF2YWlsYWJsZUNvbW1hbmRzSAASKgoLcGxhbl91cGRhdGUYCiABKAsyEy5hbXV4LkFjcFBsYW5VcGRhdGVIABIfCgNyYXcYDyABKAsyEC5hbXV4LkFjcFJhd0pzb25IABINCgVtb2RlbBgQIAEoCUIHCgVldmVudCIbCgtBY3BUaGlua2luZxIMCgR0ZXh0GAEgASgJIi4KCUFjcE91dHB1dBIMCgR0ZXh0GAEgASgJEhMKC2lzX2NvbXBsZXRlGAIgASgIIj8KE0FjcFRvb2xDYWxsTG9jYXRpb24SDAoEcGF0aBgBIAEoCRIRCgRsaW5lGAIgASgNSACIAQFCBwoFX2xpbmUiJgoWQWNwVG9vbENhbGxUZXh0Q29udGVudBIMCgR0ZXh0GAEgASgJIlUKD0FjcFRvb2xDYWxsRGlmZhIMCgRwYXRoGAEgASgJEhUKCG9sZF90ZXh0GAIgASgJSACIAQESEAoIbmV3X3RleHQYAyABKAlCCwoJX29sZF90ZXh0IioKE0FjcFRvb2xDYWxsVGVybWluYWwSEwoLdGVybWluYWxfaWQYASABKAkiowEKEkFjcFRvb2xDYWxsQ29udGVudBIsCgR0ZXh0GAEgASgLMhwuYW11eC5BY3BUb29sQ2FsbFRleHRDb250ZW50SAASJQoEZGlmZhgCIAEoCzIVLmFtdXguQWNwVG9vbENhbGxEaWZmSAASLQoIdGVybWluYWwYAyABKAsyGS5hbXV4LkFjcFRvb2xDYWxsVGVybWluYWxIAEIJCgdwYXlsb2FkIs8CCgpBY3BUb29sVXNlEg8KB3Rvb2xfaWQYASABKAkSEQoJdG9vbF9uYW1lGAIgASgJEhMKC2Rlc2NyaXB0aW9uGAMgASgJEiwKBnBhcmFtcxgEIAMoCzIcLmFtdXguQWNwVG9vbFVzZS5QYXJhbXNFbnRyeRIRCgl0b29sX2tpbmQYBSABKAkSFgoOcmF3X2lucHV0X2pzb24YBiABKAkSKQoHY29udGVudBgHIAMoCzIYLmFtdXguQWNwVG9vbENhbGxDb250ZW50EiwKCWxvY2F0aW9ucxgIIAMoCzIZLmFtdXguQWNwVG9vbENhbGxMb2NhdGlvbhIOCgZzdGF0dXMYCSABKAkSFwoPcmF3X291dHB1dF9qc29uGAogASgJGi0KC1BhcmFtc0VudHJ5EgsKA2tleRgBIAEoCRINCgV2YWx1ZRgCIAEoCToCOAEihgEKDUFjcFRvb2xSZXN1bHQSDwoHdG9vbF9pZBgBIAEoCRIPCgdzdWNjZXNzGAIgASgIEg8KB3N1bW1hcnkYAyABKAkSFwoPcmF3X291dHB1dF9qc29uGAQgASgJEikKB2NvbnRlbnQYBSADKAsyGC5hbXV4LkFjcFRvb2xDYWxsQ29udGVudCIsCghBY3BFcnJvchIPCgdtZXNzYWdlGAEgASgJEg8KB2RldGFpbHMYAiABKAkiRAoTQWNwUGVybWlzc2lvbk9wdGlvbhIRCglvcHRpb25faWQYASABKAkSDAoEa2luZBgCIAEoCRIMCgRuYW1lGAMgASgJIuUBChRBY3BQZXJtaXNzaW9uUmVxdWVzdBISCgpyZXF1ZXN0X2lkGAEgASgJEhEKCXRvb2xfbmFtZRgCIAEoCRITCgtkZXNjcmlwdGlvbhgDIAEoCRI2CgZwYXJhbXMYBCADKAsyJi5hbXV4LkFjcFBlcm1pc3Npb25SZXF1ZXN0LlBhcmFtc0VudHJ5EioKB29wdGlvbnMYBSADKAsyGS5hbXV4LkFjcFBlcm1pc3Npb25PcHRpb24aLQoLUGFyYW1zRW50cnkSCwoDa2V5GAEgASgJEg0KBXZhbHVlGAIgASgJOgI4ASJfCg9BY3BTdGF0dXNDaGFuZ2USJQoKb2xkX3N0YXR1cxgBIAEoDjIRLmFtdXguQWdlbnRTdGF0dXMSJQoKbmV3X3N0YXR1cxgCIAEoDjIRLmFtdXguQWdlbnRTdGF0dXMiTAoTQWNwQXZhaWxhYmxlQ29tbWFuZBIMCgRuYW1lGAEgASgJEhMKC2Rlc2NyaXB0aW9uGAIgASgJEhIKCmlucHV0X2hpbnQYAyABKAkiQwoUQWNwQXZhaWxhYmxlQ29tbWFuZHMSKwoIY29tbWFuZHMYASADKAsyGS5hbXV4LkFjcEF2YWlsYWJsZUNvbW1hbmQiMgoKQWNwUmF3SnNvbhIOCgZtZXRob2QYASABKAkSFAoManNvbl9wYXlsb2FkGAIgASgMIjQKDUFjcFBsYW5VcGRhdGUSIwoHZW50cmllcxgBIAMoCzISLmFtdXguQWNwUGxhbkVudHJ5IkEKDEFjcFBsYW5FbnRyeRIPCgdjb250ZW50GAEgASgJEhAKCHByaW9yaXR5GAIgASgJEg4KBnN0YXR1cxgDIAEoCSLLAwoKQWNwQ29tbWFuZBIqCgtzZW5kX3Byb21wdBgBIAEoCzITLmFtdXguQWNwU2VuZFByb21wdEgAEiEKBmNhbmNlbBgCIAEoCzIPLmFtdXguQWNwQ2FuY2VsSAASNAoQZ3JhbnRfcGVybWlzc2lvbhgDIAEoCzIYLmFtdXguQWNwR3JhbnRQZXJtaXNzaW9uSAASMgoPZGVueV9wZXJtaXNzaW9uGAQgASgLMhcuYW11eC5BY3BEZW55UGVybWlzc2lvbkgAEioKC3N0YXJ0X2FnZW50GAUgASgLMhMuYW11eC5BY3BTdGFydEFnZW50SAASKAoKc3RvcF9hZ2VudBgGIAEoCzISLmFtdXguQWNwU3RvcEFnZW50SAASMgoPcmVxdWVzdF9oaXN0b3J5GAcgASgLMhcuYW11eC5BY3BSZXF1ZXN0SGlzdG9yeUgAEjsKFHJlcXVlc3RfdHVybl9oaXN0b3J5GAggASgLMhsuYW11eC5BY3BSZXF1ZXN0VHVybkhpc3RvcnlIABIyCg9hbnN3ZXJfcXVlc3Rpb24YCSABKAsyFy5hbXV4LkFjcEFuc3dlclF1ZXN0aW9uSABCCQoHY29tbWFuZCJSChFBY3BSZXF1ZXN0SGlzdG9yeRIWCg5hZnRlcl9zZXF1ZW5jZRgBIAEoBBIRCglwYWdlX3NpemUYAiABKA0SEgoKcmVxdWVzdF9pZBgDIAEoCSI8ChVBY3BSZXF1ZXN0VHVybkhpc3RvcnkSDwoHdHVybl9pZBgBIAEoCRISCgpyZXF1ZXN0X2lkGAIgASgJIkgKDUFjcFNlbmRQcm9tcHQSDAoEdGV4dBgBIAEoCRIQCghtb2RlbF9pZBgCIAEoCRIXCg9hdHRhY2htZW50X3VybHMYAyADKAkiCwoJQWNwQ2FuY2VsIjsKEkFjcEdyYW50UGVybWlzc2lvbhISCgpyZXF1ZXN0X2lkGAEgASgJEhEKCW9wdGlvbl9pZBgCIAEoCSInChFBY3BEZW55UGVybWlzc2lvbhISCgpyZXF1ZXN0X2lkGAEgASgJIk0KEUFjcEFuc3dlclF1ZXN0aW9uEhIKCnJlcXVlc3RfaWQYASABKAkSFAoMYW5zd2Vyc19qc29uGAIgASgJEg4KBnJlamVjdBgDIAEoCCKIAQoNQWNwU3RhcnRBZ2VudBIjCgphZ2VudF90eXBlGAEgASgOMg8uYW11eC5BZ2VudFR5cGUSEAoId29ya3RyZWUYAiABKAkSFgoOaW5pdGlhbF9wcm9tcHQYAyABKAkSFAoMd29ya3NwYWNlX2lkGAQgASgJEhIKCnNlc3Npb25faWQYBSABKAkiDgoMQWNwU3RvcEFnZW50It8BCgxTZXNzaW9uRXZlbnQSLwoPcHJvbXB0X2FjY2VwdGVkGAEgASgLMhQuYW11eC5Qcm9tcHRBY2NlcHRlZEgAEi8KD3Byb21wdF9yZWplY3RlZBgCIAEoCzIULmFtdXguUHJvbXB0UmVqZWN0ZWRIABI3ChNwZXJtaXNzaW9uX3Jlc29sdmVkGAMgASgLMhguYW11eC5QZXJtaXNzaW9uUmVzb2x2ZWRIABIrCg1oaXN0b3J5X2JhdGNoGAQgASgLMhIuYW11eC5IaXN0b3J5QmF0Y2hIAEIHCgVldmVudCJxCgxIaXN0b3J5QmF0Y2gSEgoKcmVxdWVzdF9pZBgBIAEoCRIeCgZldmVudHMYAiADKAsyDi5hbXV4LkVudmVsb3BlEhAKCGhhc19tb3JlGAMgASgIEhsKE25leHRfYWZ0ZXJfc2VxdWVuY2UYBCABKAQiJAoOUHJvbXB0QWNjZXB0ZWQSEgoKY29tbWFuZF9pZBgBIAEoCSI0Cg5Qcm9tcHRSZWplY3RlZBISCgpjb21tYW5kX2lkGAEgASgJEg4KBnJlYXNvbhgCIAEoCSJWChJQZXJtaXNzaW9uUmVzb2x2ZWQSEgoKcmVxdWVzdF9pZBgBIAEoCRIbChNyZXNvbHZlZF9ieV9wZWVyX2lkGAIgASgJEg8KB2dyYW50ZWQYAyABKAgiHAoMQWRkV29ya3NwYWNlEgwKBHBhdGgYASABKAkiJwoPUmVtb3ZlV29ya3NwYWNlEhQKDHdvcmtzcGFjZV9pZBgBIAEoCSJACgxQZWVyQW5ub3VuY2USHAoEcGVlchgBIAEoCzIOLmFtdXguUGVlckluZm8SEgoKYXV0aF90b2tlbhgCIAEoCSIhCgxSZW1vdmVNZW1iZXISEQoJbWVtYmVyX2lkGAEgASgJIqACCg1BY3RvclByZXNlbmNlEg4KBm9ubGluZRgBIAEoCBIUCgxkaXNwbGF5X25hbWUYAiABKAkSEQoJdGltZXN0YW1wGAMgASgDEioKEWFjdGl2ZV9hZ2VudF90eXBlGAQgASgOMg8uYW11eC5BZ2VudFR5cGUSLQoOYmFja2VuZF9oZWFsdGgYBSABKA4yFS5hbXV4LkFnZW50SG9zdEhlYWx0aBInCg5jYXRhbG9nX21vZGVscxgGIAMoCzIPLmFtdXguTW9kZWxJbmZvEigKCXdvcmt0cmVlcxgHIAMoCzIVLmFtdXguV29ya3RyZWVDYXRhbG9nEigKDWxpdmVfc2Vzc2lvbnMYCCADKAsyES5hbXV4LkxpdmVTZXNzaW9uIogBCg9Xb3JrdHJlZUNhdGFsb2cSEAoId29ya3RyZWUYASABKAkSFQoNbW9kZWxfaW5kaWNlcxgCIAMoDRIVCg1kZWZhdWx0X21vZGVsGAMgASgJEjUKEmF2YWlsYWJsZV9jb21tYW5kcxgEIAMoCzIZLmFtdXguQWNwQXZhaWxhYmxlQ29tbWFuZCLsAQoLTGl2ZVNlc3Npb24SEgoKc2Vzc2lvbl9pZBgBIAEoCRIpCglsaWZlY3ljbGUYAiABKA4yFi5hbXV4LlJ1bnRpbWVMaWZlY3ljbGUSIQoGc3RhdHVzGAMgASgOMhEuYW11eC5BZ2VudFN0YXR1cxINCgVzdGFnZRgEIAEoCRISCgplcnJvcl9jb2RlGAUgASgJEhUKDWVycm9yX21lc3NhZ2UYBiABKAkSFAoMZmFpbGVkX3N0YWdlGAcgASgJEhQKDHdvcmtzcGFjZV9pZBgIIAEoCRIVCg1jdXJyZW50X21vZGVsGAkgASgJIkkKDVdvcmtzcGFjZUluZm8SFAoMd29ya3NwYWNlX2lkGAEgASgJEgwKBHBhdGgYAiABKAkSFAoMZGlzcGxheV9uYW1lGAMgASgJIjgKDVdvcmtzcGFjZUxpc3QSJwoKd29ya3NwYWNlcxgBIAMoCzITLmFtdXguV29ya3NwYWNlSW5mbyKJBAoLUnVudGltZUluZm8SEgoKcnVudGltZV9pZBgBIAEoCRIjCgphZ2VudF90eXBlGAIgASgOMg8uYW11eC5BZ2VudFR5cGUSEAoId29ya3RyZWUYAyABKAkSDgoGYnJhbmNoGAQgASgJEiEKBnN0YXR1cxgFIAEoDjIRLmFtdXguQWdlbnRTdGF0dXMSEgoKc3RhcnRlZF9hdBgGIAEoAxIWCg5jdXJyZW50X3Byb21wdBgHIAEoCRIUCgx3b3Jrc3BhY2VfaWQYCCABKAkSFQoNc2Vzc2lvbl90aXRsZRgJIAEoCRIbChNsYXN0X291dHB1dF9zdW1tYXJ5GAogASgJEhYKDnRvb2xfdXNlX2NvdW50GAsgASgFEikKEGF2YWlsYWJsZV9tb2RlbHMYDCADKAsyDy5hbXV4Lk1vZGVsSW5mbxIVCg1jdXJyZW50X21vZGVsGA0gASgJEiUKBXN0YXRlGA4gASgOMhYuYW11eC5SdW50aW1lTGlmZWN5Y2xlEg0KBXN0YWdlGA8gASgJEhIKCmVycm9yX2NvZGUYECABKAkSFQoNZXJyb3JfbWVzc2FnZRgRIAEoCRIUCgxmYWlsZWRfc3RhZ2UYEiABKAkSNQoSYXZhaWxhYmxlX2NvbW1hbmRzGBMgAygLMhkuYW11eC5BY3BBdmFpbGFibGVDb21tYW5kIkQKCU1vZGVsSW5mbxIKCgJpZBgBIAEoCRIUCgxkaXNwbGF5X25hbWUYAiABKAkSFQoNcHJvdmlkZXJfbmFtZRgDIAEoCSIwCglBZ2VudExpc3QSIwoIcnVudGltZXMYASADKAsyES5hbXV4LlJ1bnRpbWVJbmZvInwKCk1lbWJlckluZm8SEQoJbWVtYmVyX2lkGAEgASgJEhQKDGRpc3BsYXlfbmFtZRgCIAEoCRIeCgRyb2xlGAMgASgOMhAuYW11eC5NZW1iZXJSb2xlEhEKCWpvaW5lZF9hdBgEIAEoAxISCgpkZXBhcnRtZW50GAUgASgJIi8KCk1lbWJlckxpc3QSIQoHbWVtYmVycxgBIAMoCzIQLmFtdXguTWVtYmVySW5mbyKPAQoIUGVlckluZm8SDwoHcGVlcl9pZBgBIAEoCRIRCgltZW1iZXJfaWQYAiABKAkSFAoMZGlzcGxheV9uYW1lGAMgASgJEhMKC2RldmljZV90eXBlGAQgASgJEh4KBHJvbGUYBSABKA4yEC5hbXV4Lk1lbWJlclJvbGUSFAoMY29ubmVjdGVkX2F0GAYgASgDIikKCFBlZXJMaXN0Eh0KBXBlZXJzGAEgAygLMg4uYW11eC5QZWVySW5mbyqLAQoPQWdlbnRIb3N0SGVhbHRoEh0KGUFHRU5UX0hPU1RfSEVBTFRIX1VOS05PV04QABIbChdBR0VOVF9IT1NUX0hFQUxUSF9SRUFEWRABEh4KGkFHRU5UX0hPU1RfSEVBTFRIX1NUQVJUSU5HEAISHAoYQUdFTlRfSE9TVF9IRUFMVEhfRkFJTEVEEAMqmAEKCUFnZW50VHlwZRIWChJBR0VOVF9UWVBFX1VOS05PV04QABIaChZBR0VOVF9UWVBFX0NMQVVERV9DT0RFEAESFwoTQUdFTlRfVFlQRV9PUEVOQ09ERRACEhQKEEFHRU5UX1RZUEVfQ09ERVgQAxIRCg1BR0VOVF9UWVBFX1BJEAQSFQoRQUdFTlRfVFlQRV9DVVJTT1IQBSqkAQoLQWdlbnRTdGF0dXMSGAoUQUdFTlRfU1RBVFVTX1VOS05PV04QABIZChVBR0VOVF9TVEFUVVNfU1RBUlRJTkcQARIXChNBR0VOVF9TVEFUVVNfQUNUSVZFEAISFQoRQUdFTlRfU1RBVFVTX0lETEUQAxIWChJBR0VOVF9TVEFUVVNfRVJST1IQBBIYChRBR0VOVF9TVEFUVVNfU1RPUFBFRBAFKqwBChBSdW50aW1lTGlmZWN5Y2xlEh0KGVJVTlRJTUVfTElGRUNZQ0xFX1VOS05PV04QABIeChpSVU5USU1FX0xJRkVDWUNMRV9TVEFSVElORxABEhwKGFJVTlRJTUVfTElGRUNZQ0xFX0FDVElWRRACEhwKGFJVTlRJTUVfTElGRUNZQ0xFX0ZBSUxFRBADEh0KGVJVTlRJTUVfTElGRUNZQ0xFX1NUT1BQRUQQBCo7CgpNZW1iZXJSb2xlEhUKEU1FTUJFUl9ST0xFX09XTkVSEAASFgoSTUVNQkVSX1JPTEVfTUVNQkVSEAFiBnByb3RvMw");
 
 /**
  * Downstream: daemon → clients
@@ -1304,6 +1304,12 @@ export const RemoveMemberSchema: GenMessage<RemoveMember> = /*@__PURE__*/
  * Payload of {team}/{actor}/state (retained, LWT-backed from Phase 3 onward).
  * See spec: docs/superpowers/specs/2026-04-24-mqtt-topic-redesign-design.md
  *
+ * This is becoming the SINGLE retained topic per actor, replacing the
+ * per-spawn `runtime/{runtime_id}/state` fan-out. That fan-out was unbounded:
+ * `runtime_id` is minted fresh on every spawn, so retains accumulated for the
+ * life of the broker (see ADR-0004). Every field below is bounded — one
+ * message, one actor.
+ *
  * @generated from message amux.ActorPresence
  */
 export type ActorPresence = Message<"amux.ActorPresence"> & {
@@ -1321,6 +1327,47 @@ export type ActorPresence = Message<"amux.ActorPresence"> & {
    * @generated from field: int64 timestamp = 3;
    */
   timestamp: bigint;
+
+  /**
+   * Which backend this actor is running RIGHT NOW. Exactly one is active at a
+   * time (ADR-0002); `agents.agent_types` records what it could run instead.
+   *
+   * @generated from field: amux.AgentType active_agent_type = 4;
+   */
+  activeAgentType: AgentType;
+
+  /**
+   * Lets a client tell "daemon is down" (online == false) from "daemon is up
+   * but its backend won't start" — two failures that used to collapse into one
+   * opaque offline state.
+   *
+   * @generated from field: amux.AgentHostHealth backend_health = 5;
+   */
+  backendHealth: AgentHostHealth;
+
+  /**
+   * Model catalogs for the active backend, deduplicated. Catalogs are keyed by
+   * (AgentType, worktree) and repeat heavily across worktrees: on a real device
+   * 8 worktrees held 563 entries but only 72 distinct models. Verbatim copies
+   * cost ~33KB; union + indices costs ~5.3KB.
+   *
+   * @generated from field: repeated amux.ModelInfo catalog_models = 6;
+   */
+  catalogModels: ModelInfo[];
+
+  /**
+   * @generated from field: repeated amux.WorktreeCatalog worktrees = 7;
+   */
+  worktrees: WorktreeCatalog[];
+
+  /**
+   * Sessions this actor currently holds an Attachment for. Bounded by the
+   * detach policy (idle timeout / LRU cap), not by history. Absence means
+   * "not attached" — the client renders that session as cold.
+   *
+   * @generated from field: repeated amux.LiveSession live_sessions = 8;
+   */
+  liveSessions: LiveSession[];
 };
 
 /**
@@ -1329,6 +1376,113 @@ export type ActorPresence = Message<"amux.ActorPresence"> & {
  */
 export const ActorPresenceSchema: GenMessage<ActorPresence> = /*@__PURE__*/
   messageDesc(file_amux, 40);
+
+/**
+ * @generated from message amux.WorktreeCatalog
+ */
+export type WorktreeCatalog = Message<"amux.WorktreeCatalog"> & {
+  /**
+   * Absolute local path. Kept for parity with RuntimeInfo.worktree, which
+   * already broadcasts it team-wide; narrowing that exposure is tracked
+   * separately (see proto/CONTEXT.md#worktree).
+   *
+   * @generated from field: string worktree = 1;
+   */
+  worktree: string;
+
+  /**
+   * Indices into ActorPresence.catalog_models.
+   *
+   * @generated from field: repeated uint32 model_indices = 2;
+   */
+  modelIndices: number[];
+
+  /**
+   * Head of the MRU for (active agent type, this worktree) — the model last
+   * actually used here. A memory, not a configured preference: there is no UI
+   * that sets it directly.
+   *
+   * @generated from field: string default_model = 3;
+   */
+  defaultModel: string;
+
+  /**
+   * @generated from field: repeated amux.AcpAvailableCommand available_commands = 4;
+   */
+  availableCommands: AcpAvailableCommand[];
+};
+
+/**
+ * Describes the message amux.WorktreeCatalog.
+ * Use `create(WorktreeCatalogSchema)` to create a new message.
+ */
+export const WorktreeCatalogSchema: GenMessage<WorktreeCatalog> = /*@__PURE__*/
+  messageDesc(file_amux, 41);
+
+/**
+ * One Attachment, as seen by clients. Carries only state that changes on
+ * lifecycle transitions; per-token progress rides the ephemeral session/live
+ * stream instead.
+ *
+ * @generated from message amux.LiveSession
+ */
+export type LiveSession = Message<"amux.LiveSession"> & {
+  /**
+   * @generated from field: string session_id = 1;
+   */
+  sessionId: string;
+
+  /**
+   * @generated from field: amux.RuntimeLifecycle lifecycle = 2;
+   */
+  lifecycle: RuntimeLifecycle;
+
+  /**
+   * @generated from field: amux.AgentStatus status = 3;
+   */
+  status: AgentStatus;
+
+  /**
+   * meaningful iff lifecycle == STARTING
+   *
+   * @generated from field: string stage = 4;
+   */
+  stage: string;
+
+  /**
+   * meaningful iff lifecycle == FAILED
+   *
+   * @generated from field: string error_code = 5;
+   */
+  errorCode: string;
+
+  /**
+   * @generated from field: string error_message = 6;
+   */
+  errorMessage: string;
+
+  /**
+   * @generated from field: string failed_stage = 7;
+   */
+  failedStage: string;
+
+  /**
+   * @generated from field: string workspace_id = 8;
+   */
+  workspaceId: string;
+
+  /**
+   * @generated from field: string current_model = 9;
+   */
+  currentModel: string;
+};
+
+/**
+ * Describes the message amux.LiveSession.
+ * Use `create(LiveSessionSchema)` to create a new message.
+ */
+export const LiveSessionSchema: GenMessage<LiveSession> = /*@__PURE__*/
+  messageDesc(file_amux, 42);
 
 /**
  * @generated from message amux.WorkspaceInfo
@@ -1355,7 +1509,7 @@ export type WorkspaceInfo = Message<"amux.WorkspaceInfo"> & {
  * Use `create(WorkspaceInfoSchema)` to create a new message.
  */
 export const WorkspaceInfoSchema: GenMessage<WorkspaceInfo> = /*@__PURE__*/
-  messageDesc(file_amux, 41);
+  messageDesc(file_amux, 43);
 
 /**
  * @generated from message amux.WorkspaceList
@@ -1372,7 +1526,7 @@ export type WorkspaceList = Message<"amux.WorkspaceList"> & {
  * Use `create(WorkspaceListSchema)` to create a new message.
  */
 export const WorkspaceListSchema: GenMessage<WorkspaceList> = /*@__PURE__*/
-  messageDesc(file_amux, 42);
+  messageDesc(file_amux, 44);
 
 /**
  * Payload of {team}/{actor}/runtime/{rid}/state (retained).
@@ -1501,7 +1655,7 @@ export type RuntimeInfo = Message<"amux.RuntimeInfo"> & {
  * Use `create(RuntimeInfoSchema)` to create a new message.
  */
 export const RuntimeInfoSchema: GenMessage<RuntimeInfo> = /*@__PURE__*/
-  messageDesc(file_amux, 43);
+  messageDesc(file_amux, 45);
 
 /**
  * @generated from message amux.ModelInfo
@@ -1531,7 +1685,7 @@ export type ModelInfo = Message<"amux.ModelInfo"> & {
  * Use `create(ModelInfoSchema)` to create a new message.
  */
 export const ModelInfoSchema: GenMessage<ModelInfo> = /*@__PURE__*/
-  messageDesc(file_amux, 44);
+  messageDesc(file_amux, 46);
 
 /**
  * @generated from message amux.AgentList
@@ -1548,7 +1702,7 @@ export type AgentList = Message<"amux.AgentList"> & {
  * Use `create(AgentListSchema)` to create a new message.
  */
 export const AgentListSchema: GenMessage<AgentList> = /*@__PURE__*/
-  messageDesc(file_amux, 45);
+  messageDesc(file_amux, 47);
 
 /**
  * @generated from message amux.MemberInfo
@@ -1585,7 +1739,7 @@ export type MemberInfo = Message<"amux.MemberInfo"> & {
  * Use `create(MemberInfoSchema)` to create a new message.
  */
 export const MemberInfoSchema: GenMessage<MemberInfo> = /*@__PURE__*/
-  messageDesc(file_amux, 46);
+  messageDesc(file_amux, 48);
 
 /**
  * @generated from message amux.MemberList
@@ -1602,7 +1756,7 @@ export type MemberList = Message<"amux.MemberList"> & {
  * Use `create(MemberListSchema)` to create a new message.
  */
 export const MemberListSchema: GenMessage<MemberList> = /*@__PURE__*/
-  messageDesc(file_amux, 47);
+  messageDesc(file_amux, 49);
 
 /**
  * @generated from message amux.PeerInfo
@@ -1644,7 +1798,7 @@ export type PeerInfo = Message<"amux.PeerInfo"> & {
  * Use `create(PeerInfoSchema)` to create a new message.
  */
 export const PeerInfoSchema: GenMessage<PeerInfo> = /*@__PURE__*/
-  messageDesc(file_amux, 48);
+  messageDesc(file_amux, 50);
 
 /**
  * @generated from message amux.PeerList
@@ -1661,7 +1815,40 @@ export type PeerList = Message<"amux.PeerList"> & {
  * Use `create(PeerListSchema)` to create a new message.
  */
 export const PeerListSchema: GenMessage<PeerList> = /*@__PURE__*/
-  messageDesc(file_amux, 49);
+  messageDesc(file_amux, 51);
+
+/**
+ * Availability of the actor's single global backend process (AgentHost).
+ *
+ * @generated from enum amux.AgentHostHealth
+ */
+export enum AgentHostHealth {
+  /**
+   * @generated from enum value: AGENT_HOST_HEALTH_UNKNOWN = 0;
+   */
+  UNKNOWN = 0,
+
+  /**
+   * @generated from enum value: AGENT_HOST_HEALTH_READY = 1;
+   */
+  READY = 1,
+
+  /**
+   * @generated from enum value: AGENT_HOST_HEALTH_STARTING = 2;
+   */
+  STARTING = 2,
+
+  /**
+   * @generated from enum value: AGENT_HOST_HEALTH_FAILED = 3;
+   */
+  FAILED = 3,
+}
+
+/**
+ * Describes the enum amux.AgentHostHealth.
+ */
+export const AgentHostHealthSchema: GenEnum<AgentHostHealth> = /*@__PURE__*/
+  enumDesc(file_amux, 0);
 
 /**
  * @generated from enum amux.AgentType
@@ -1702,7 +1889,7 @@ export enum AgentType {
  * Describes the enum amux.AgentType.
  */
 export const AgentTypeSchema: GenEnum<AgentType> = /*@__PURE__*/
-  enumDesc(file_amux, 0);
+  enumDesc(file_amux, 1);
 
 /**
  * @generated from enum amux.AgentStatus
@@ -1743,7 +1930,7 @@ export enum AgentStatus {
  * Describes the enum amux.AgentStatus.
  */
 export const AgentStatusSchema: GenEnum<AgentStatus> = /*@__PURE__*/
-  enumDesc(file_amux, 1);
+  enumDesc(file_amux, 2);
 
 /**
  * Lifecycle state for a Claude Code runtime (subprocess).
@@ -1783,7 +1970,7 @@ export enum RuntimeLifecycle {
  * Describes the enum amux.RuntimeLifecycle.
  */
 export const RuntimeLifecycleSchema: GenEnum<RuntimeLifecycle> = /*@__PURE__*/
-  enumDesc(file_amux, 2);
+  enumDesc(file_amux, 3);
 
 /**
  * @generated from enum amux.MemberRole
@@ -1804,5 +1991,5 @@ export enum MemberRole {
  * Describes the enum amux.MemberRole.
  */
 export const MemberRoleSchema: GenEnum<MemberRole> = /*@__PURE__*/
-  enumDesc(file_amux, 3);
+  enumDesc(file_amux, 4);
 

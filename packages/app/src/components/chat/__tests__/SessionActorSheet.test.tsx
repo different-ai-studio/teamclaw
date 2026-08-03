@@ -19,8 +19,6 @@ const backendListParticipants = vi.fn()
 const backendListCandidateActors = vi.fn()
 const backendAddParticipant = vi.fn()
 const backendRemoveParticipant = vi.fn()
-const backendListLatestRuntimeHints = vi.fn()
-const backendFetchLatestRuntimeForSession = vi.fn()
 const backendListAgentDefaults = vi.fn()
 const backendListActorDirectoryByIds = vi.fn()
 const backendListDaemonWorkspaces = vi.fn()
@@ -41,8 +39,6 @@ vi.mock('@/lib/backend', () => ({
       removeParticipant: backendRemoveParticipant,
     },
     runtime: {
-      listLatestAgentRuntimeHints: backendListLatestRuntimeHints,
-      fetchLatestRuntimeForSession: backendFetchLatestRuntimeForSession,
       listAgentDefaults: backendListAgentDefaults,
     },
     actors: {
@@ -98,8 +94,6 @@ beforeEach(() => {
   backendListCandidateActors.mockReset()
   backendAddParticipant.mockReset()
   backendRemoveParticipant.mockReset()
-  backendListLatestRuntimeHints.mockReset()
-  backendFetchLatestRuntimeForSession.mockReset()
   backendListAgentDefaults.mockReset()
   backendListActorDirectoryByIds.mockReset()
   backendListDaemonWorkspaces.mockReset()
@@ -107,8 +101,9 @@ beforeEach(() => {
   backendResolveCurrentMemberActor.mockReset()
   backendAddParticipant.mockResolvedValue(undefined)
   backendRemoveParticipant.mockResolvedValue(undefined)
-  backendListLatestRuntimeHints.mockResolvedValue([])
-  backendFetchLatestRuntimeForSession.mockResolvedValue(null)
+  backendListAgentDefaults.mockResolvedValue([])
+  backendListActorDirectoryByIds.mockResolvedValue([])
+  backendListDaemonWorkspaces.mockResolvedValue([])
   backendListAgentDefaults.mockResolvedValue([])
   backendListActorDirectoryByIds.mockResolvedValue([])
   backendListDaemonWorkspaces.mockResolvedValue([])
@@ -141,7 +136,6 @@ function mockJoinedRows(participantActorIds: string[], actorRows: unknown[]) {
   )
   backendListParticipants.mockResolvedValue(actorRows)
   backendListCandidateActors.mockResolvedValue([])
-  backendListLatestRuntimeHints.mockResolvedValue([])
   backendListAgentDefaults.mockResolvedValue([])
 }
 
@@ -181,31 +175,38 @@ function mockSheetData(
   backendListCandidateActors.mockResolvedValue(
     (teamAgentRows as Array<any>).map((row) => ({ ...row, is_present: false })),
   )
-  backendListLatestRuntimeHints.mockImplementation((_teamId: string, agentIds: string[]) => {
-    const historyMatches = (agentHistoryRows as Array<any>).filter((row) => agentIds.includes(row.agent_id))
-    if (historyMatches.length > 0) return Promise.resolve(historyMatches)
-    return Promise.resolve((runtimeRows as Array<any>).map((row) => ({ session_id: 'sess-1', ...row })))
-  })
-  backendFetchLatestRuntimeForSession.mockImplementation(async (agentId: string) => {
-    const sessionScopedRows = [...(runtimeRows as Array<any>), ...(agentHistoryRows as Array<any>)]
-    const row = sessionScopedRows.find((r) => r.agent_id === agentId)
-    if (!row?.workspace_id) return null
-    return {
-      id: `session-runtime-${agentId}`,
-      runtime_id: row.runtime_id ?? 'rt-1',
-      team_id: 'team-1',
-      agent_id: agentId,
-      session_id: 'sess-1',
-      workspace_id: row.workspace_id,
-      backend_type: row.backend_type ?? 'claude',
-      backend_session_id: null,
-      status: row.status ?? 'running',
-      current_model: row.current_model ?? null,
-      last_seen_at: null,
-      created_at: '2026-05-18T00:00:00.000Z',
-      updated_at: row.updated_at ?? '2026-05-18T00:00:00.000Z',
-    }
-  })
+  // Runtime hints ride the actor retain now, so seed the store instead of a
+  // backend mock. Keyed (actor, session) — see attachmentsForSession.
+  // First occurrence wins, and pre-seeded entries are left alone: a daemon
+  // holds at most one attachment per session, so "duplicate rows for one agent"
+  // is a shape the retain cannot produce.
+  const seeded = new Set<string>()
+  for (const row of [...(agentHistoryRows as Array<any>), ...(runtimeRows as Array<any>)]) {
+    if (!row.agent_id) continue
+    const key = `${row.agent_id}::sess-1`
+    if (seeded.has(key) || useRuntimeStateStore.getState().byRuntimeId[key]) continue
+    seeded.add(key)
+    useRuntimeStateStore.getState().upsert(
+      key,
+      row.agent_id,
+      create(RuntimeInfoSchema, {
+        runtimeId: row.runtime_id ?? '',
+        agentType: row.backend_type === 'opencode' ? AgentType.OPENCODE : AgentType.CLAUDE_CODE,
+        currentModel: row.current_model ?? '',
+        workspaceId: row.workspace_id ?? '',
+      }),
+    )
+  }
+  // The workspace a spawn starts in comes from the participant row for an agent
+  // already in the session, and from the actor's default for one being added
+  // (ADR-0005) — never from a runtime row, which no longer exists.
+  const workspaceRows = [...(runtimeRows as Array<any>), ...(agentHistoryRows as Array<any>)]
+  backendListActorDirectoryByIds.mockImplementation(async (ids: string[]) =>
+    ids.map((id) => ({
+      id,
+      default_workspace_id: workspaceRows.find((r) => r.agent_id === id)?.workspace_id ?? null,
+    })),
+  )
   backendListAgentDefaults.mockResolvedValue(
     ([...(actorRows as Array<any>), ...(teamAgentRows as Array<any>)]).map((row) => ({
       id: row.id,
@@ -253,7 +254,7 @@ describe('SessionActorSheet', () => {
       status: AgentStatus.ACTIVE,
       currentModel: 'claude-opus-4-7',
     })
-    useRuntimeStateStore.getState().upsert('05532480', 'dev-a', info)
+    useRuntimeStateStore.getState().upsert('a-1::sess-1', 'a-1', info)
 
     mockSheetData(
       ['a-1'],
@@ -282,7 +283,11 @@ describe('SessionActorSheet', () => {
     expect(dot).toBeTruthy()
   })
 
-  it('keeps the newest runtime row when duplicate rows arrive newest-first', async () => {
+  it('shows the single attachment a session has, not a merge of stale rows', async () => {
+    // Replaces "keeps the newest runtime row when duplicate rows arrive
+    // newest-first". `agent_runtimes` could hold several rows per (agent,
+    // session) and the client had to pick; the retain holds exactly one
+    // (`coalesce_session_runtimes` enforces it), so there is nothing to pick.
     useRuntimeStateStore.getState().upsert('rt-new', 'dev-a', create(RuntimeInfoSchema, {
       runtimeId: 'rt-new',
       agentType: AgentType.CLAUDE_CODE,
@@ -334,11 +339,14 @@ describe('SessionActorSheet', () => {
       ],
       [],
     )
-    backendListLatestRuntimeHints.mockRejectedValueOnce(new Error('runtime unavailable'))
+    // Runtime enrichment is a retain read now — it cannot fail. The remaining
+    // enrichment call that can is the actor directory, so that is what this
+    // asserts degrades gracefully.
+    backendListAgentDefaults.mockRejectedValueOnce(new Error('agent defaults unavailable'))
 
     render(<SessionActorPanel sessionId="sess-1" teamId="team-1" />)
 
-    await waitFor(() => expect(backendListLatestRuntimeHints).toHaveBeenCalled())
+    await waitFor(() => expect(backendListAgentDefaults).toHaveBeenCalled())
     expect(screen.getByText('Me')).toBeInTheDocument()
     expect(screen.getByText('Reviewer')).toBeInTheDocument()
     expect(screen.queryByText(/failed to load actors/i)).not.toBeInTheDocument()

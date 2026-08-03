@@ -168,7 +168,6 @@ public final class SessionDetailViewModel {
     private let teamclawService: TeamclawService?
     private let connectedAgentsStore: ConnectedAgentsStore?
     private let sessionsRepository: SessionRepository?
-    private let agentRuntimesRepository: AgentRuntimesRepository?
     private let messagesRepository: MessagesRepository?
     private let workspacesRepository: (any WorkspaceRepository)?
     /// `nonisolated(unsafe)` so the deinit (which runs in a nonisolated
@@ -280,7 +279,6 @@ public final class SessionDetailViewModel {
                 teamclawService: TeamclawService? = nil,
                 connectedAgentsStore: ConnectedAgentsStore? = nil,
                 sessionsRepository: SessionRepository? = nil,
-                agentRuntimesRepository: AgentRuntimesRepository? = nil,
                 messagesRepository: MessagesRepository? = nil,
                 workspacesRepository: (any WorkspaceRepository)? = nil,
                 outboxSender: OutboxSender? = nil) {
@@ -288,7 +286,6 @@ public final class SessionDetailViewModel {
         self.session = session; self.teamclawService = teamclawService
         self.connectedAgentsStore = connectedAgentsStore
         self.sessionsRepository = sessionsRepository
-        self.agentRuntimesRepository = agentRuntimesRepository
         self.messagesRepository = messagesRepository
         self.workspacesRepository = workspacesRepository
         self.outboxSender = outboxSender
@@ -663,8 +660,7 @@ public final class SessionDetailViewModel {
     public func refreshMemberSheet() async {
         guard let session, !session.sessionId.isEmpty else { return }
         let loader = SessionMemberSheetLoader(
-            sessionsRepository: sessionsRepository,
-            agentRuntimesRepository: agentRuntimesRepository
+            sessionsRepository: sessionsRepository
         )
         // Snapshot the bound-runtime model lookup into Sendable locals on the
         // MainActor, then hand the loader a @Sendable closure that touches none

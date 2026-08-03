@@ -82,14 +82,11 @@ impl DaemonServer {
                 (!stored.workspace_id.is_empty()).then_some(stored.workspace_id.clone());
 
             let acp_resume = resolve_backend_session_id(
-                &self.backend,
-                &self.actor_id,
-                cloud_session_id,
                 &self.sessions,
+                cloud_session_id,
                 at,
                 &stored.workspace_id,
             )
-            .await
             .filter(|s| !s.is_empty())
             .unwrap_or_else(|| stored.acp_session_id.clone());
             if acp_resume.is_empty() {
@@ -270,30 +267,24 @@ impl DaemonServer {
         new_acp_sid: &str,
         initial_model_override: Option<&str>,
     ) {
+        // The catch-up cursor lives on the participant row now, addressed by
+        // (session, actor) — a resumed attachment has no runtime row to look up.
         match self
             .backend
-            .fetch_agent_runtime_for_session(cloud_session_id, runtime_id, new_acp_sid)
+            .fetch_session_cursor(cloud_session_id, self.backend.actor_id())
             .await
         {
-            Ok(Some(row)) => {
-                self.agents.lock().await.set_backend_runtime_metadata(
-                    runtime_id,
-                    Some(row.id),
-                    row.last_processed_message_id,
-                );
-            }
-            Ok(None) => {
-                warn!(
-                    runtime_id,
-                    session_id = %cloud_session_id,
-                    "resumed runtime has no matching agent_runtimes row"
-                );
+            Ok(cursor) => {
+                self.agents
+                    .lock()
+                    .await
+                    .set_backend_runtime_metadata(runtime_id, None, cursor);
             }
             Err(e) => {
                 warn!(
                     runtime_id,
                     session_id = %cloud_session_id,
-                    "fetch_agent_runtime_for_session failed after resume: {}",
+                    "fetch_session_cursor failed after resume: {}",
                     e
                 );
             }

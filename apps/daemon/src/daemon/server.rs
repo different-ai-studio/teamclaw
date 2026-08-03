@@ -13,8 +13,7 @@ use tokio::sync::{mpsc, oneshot};
 use tracing::{debug, error, info, warn};
 
 use crate::backend::{
-    credential_in_proactive_refresh_window, proactive_reconnect_delay, AgentRuntimeUpsert, Backend,
-    WorkspaceUpsert,
+    credential_in_proactive_refresh_window, proactive_reconnect_delay, Backend, WorkspaceUpsert,
 };
 use crate::channels::{AmuxdAgentHandle, AmuxdChannelStore, ChannelManager};
 use crate::collab::{AuthManager, AuthResult, PeerState, PeerTracker, PermissionManager};
@@ -868,10 +867,14 @@ impl DaemonServer {
         if self.config.team_id.is_some() {
             let publisher = Publisher::new_from_handle(self.publisher_handle.clone(), &self.topics);
             if let Err(e) = publisher
+                // Presence only. The catalog / live-session fields of this
+                // retain are filled by `publish_actor_state`, which owns the
+                // full snapshot; this path runs before that data exists.
                 .publish_actor_presence(&crate::proto::amux::ActorPresence {
                     online: true,
                     display_name: self.config.actor.name.clone(),
                     timestamp: chrono::Utc::now().timestamp(),
+                    ..Default::default()
                 })
                 .await
             {
@@ -1264,21 +1267,26 @@ impl DaemonServer {
         // The sweeper holds an `Arc<AsyncMutex<RuntimeManager>>` clone and calls
         // `evict_idle` once a minute. The terminal MQTT publish is done by the
         // main event loop draining `mgr.drain_evicted()` per tick (see Task 7).
-        if let Some(threshold_secs) = self.config.idle_runtime_timeout_secs {
+        {
+            let threshold_secs = self.config.idle_timeout_secs();
+            let max_attachments = self.config.max_attachments();
             let mgr = self.agents.clone();
-            info!(threshold_secs, "idle ACP eviction enabled");
+            info!(
+                threshold_secs,
+                max_attachments, "attachment detach policy active"
+            );
             let threshold = i64::try_from(threshold_secs).unwrap_or(i64::MAX);
             tokio::spawn(async move {
                 let mut tick = tokio::time::interval(Duration::from_secs(60));
                 tick.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
                 loop {
                     tick.tick().await;
-                    let _evicted = mgr.lock().await.evict_idle(threshold).await;
+                    let mut guard = mgr.lock().await;
+                    let _idle = guard.evict_idle(threshold).await;
+                    let _over = guard.evict_over_capacity(max_attachments).await;
                     // No publish here — main loop drains mgr.evicted_pending_publish.
                 }
             });
-        } else {
-            info!("idle_runtime_timeout_secs unset; idle ACP eviction disabled");
         }
 
         // Advertise supported agent backend types on the cloud `agents` row
@@ -1857,12 +1865,27 @@ impl DaemonServer {
                         }
                         if mqtt_up {
                             // Drain queued runtime events without preempting poll().
-                            let (agent_events, evicted_runtime_ids): (Vec<_>, Vec<String>) = {
+                            let (agent_events, evicted_runtime_ids, actor_state_dirty): (
+                                Vec<_>,
+                                Vec<String>,
+                                bool,
+                            ) = {
                                 let mut mgr = self.agents.lock().await;
-                                (mgr.poll_events(), mgr.drain_evicted())
+                                (
+                                    mgr.poll_events(),
+                                    mgr.drain_evicted(),
+                                    mgr.take_actor_state_dirty(),
+                                )
                             };
                             for runtime_id in evicted_runtime_ids {
                                 self.publish_runtime_stopped(&runtime_id).await;
+                            }
+                            // Covers every attach/detach, including the gateway
+                            // and cron spawns that never reach
+                            // `apply_start_runtime` and so were invisible in the
+                            // retain until an unrelated reconnect.
+                            if actor_state_dirty {
+                                self.publish_actor_state().await;
                             }
                             for (agent_id, acp_event) in coalesce_text_events(agent_events) {
                                 self.forward_agent_event(&agent_id, acp_event).await;
@@ -2310,18 +2333,22 @@ impl DaemonServer {
         let mut plan = Vec::new();
         let my_actor = self.actor_id.clone();
         for session_id in session_ids {
-            let prior = match self
+            // The cursor comes from this actor's participant row (ADR-0005).
+            // `None` means "never read anything here", which is materially
+            // different from the old "no runtime row → skip the session": a
+            // session this daemon has joined but never answered in should still
+            // be planned for restart, from the beginning.
+            let prior_cursor = match self
                 .backend
-                .fetch_latest_runtime_for_session(&my_actor, &session_id)
+                .fetch_session_cursor(&session_id, &my_actor)
                 .await
             {
-                Ok(Some(row)) => row,
-                Ok(None) => continue,
+                Ok(c) => c,
                 Err(e) => {
                     warn!(
                         ?e,
                         session_id = %session_id,
-                        "plan_auto_restart_offline_sessions: fetch_latest_runtime_for_session failed"
+                        "plan_auto_restart_offline_sessions: fetch_session_cursor failed"
                     );
                     continue;
                 }
@@ -2340,10 +2367,7 @@ impl DaemonServer {
                 continue;
             }
 
-            let cursor = prior
-                .last_processed_message_id
-                .as_deref()
-                .filter(|s| !s.is_empty());
+            let cursor = prior_cursor.as_deref().filter(|s| !s.is_empty());
             let messages = match self
                 .backend
                 .messages_after_cursor(&session_id, cursor)
@@ -2369,18 +2393,20 @@ impl DaemonServer {
                 .filter(|m| m.sender_actor_id != my_actor)
                 .count();
 
-            let backend_requested = match prior.backend_type.as_str() {
-                "claude" | "claude_code" => amux::AgentType::ClaudeCode,
-                "opencode" => amux::AgentType::Opencode,
-                "codex" => amux::AgentType::Codex,
-                _ => amux::AgentType::Unknown,
-            };
-            let backend = resolve_requested_agent_type(&self.config, backend_requested);
+            // One backend is active per actor at a time (ADR-0002), so the
+            // restart uses the daemon's own rather than replaying whatever a
+            // prior spawn happened to record.
+            let backend = resolve_requested_agent_type(&self.config, amux::AgentType::Unknown);
 
-            // `amux.workspaces` is the sole source of truth: the cloud
-            // workspace id IS the workspace id — no more local-id
-            // translation via a `remote_workspace_id` mapping.
-            let local_workspace_id = prior.workspace_id.clone().unwrap_or_default();
+            // Workspace comes from the participant row that owns it (ADR-0005).
+            // Empty means "resolve at spawn from the agent's default", the same
+            // fallback a session with no prior runtime always took.
+            let local_workspace_id = self
+                .backend
+                .fetch_session_workspace(&session_id, &my_actor)
+                .await
+                .unwrap_or_default()
+                .unwrap_or_default();
 
             plan.push(OfflineRestartPlan {
                 session_id,
@@ -3136,6 +3162,7 @@ pub(crate) mod tests {
             team_id: Some("team-test".to_string()),
             channels: crate::config::ChannelsConfig::default(),
             idle_runtime_timeout_secs: None,
+            max_attachments: None,
             http: None,
         }
     }

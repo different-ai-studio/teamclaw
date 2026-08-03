@@ -329,10 +329,74 @@ message RemoveMember {
 
 // Payload of {team}/{actor}/state (retained, LWT-backed from Phase 3 onward).
 // See spec: docs/superpowers/specs/2026-04-24-mqtt-topic-redesign-design.md
+//
+// This is becoming the SINGLE retained topic per actor, replacing the
+// per-spawn `runtime/{runtime_id}/state` fan-out. That fan-out was unbounded:
+// `runtime_id` is minted fresh on every spawn, so retains accumulated for the
+// life of the broker (see ADR-0004). Every field below is bounded — one
+// message, one actor.
 message ActorPresence {
   bool online = 1;
   string display_name = 2;
   int64 timestamp = 3;
+
+  // Which backend this actor is running RIGHT NOW. Exactly one is active at a
+  // time (ADR-0002); `agents.agent_types` records what it could run instead.
+  AgentType active_agent_type = 4;
+
+  // Lets a client tell "daemon is down" (online == false) from "daemon is up
+  // but its backend won't start" — two failures that used to collapse into one
+  // opaque offline state.
+  AgentHostHealth backend_health = 5;
+
+  // Model catalogs for the active backend, deduplicated. Catalogs are keyed by
+  // (AgentType, worktree) and repeat heavily across worktrees: on a real device
+  // 8 worktrees held 563 entries but only 72 distinct models. Verbatim copies
+  // cost ~33KB; union + indices costs ~5.3KB.
+  repeated ModelInfo catalog_models = 6;
+  repeated WorktreeCatalog worktrees = 7;
+
+  // Sessions this actor currently holds an Attachment for. Bounded by the
+  // detach policy (idle timeout / LRU cap), not by history. Absence means
+  // "not attached" — the client renders that session as cold.
+  repeated LiveSession live_sessions = 8;
+}
+
+// Availability of the actor's single global backend process (AgentHost).
+enum AgentHostHealth {
+  AGENT_HOST_HEALTH_UNKNOWN = 0;
+  AGENT_HOST_HEALTH_READY = 1;
+  AGENT_HOST_HEALTH_STARTING = 2;
+  AGENT_HOST_HEALTH_FAILED = 3;
+}
+
+message WorktreeCatalog {
+  // Absolute local path. Kept for parity with RuntimeInfo.worktree, which
+  // already broadcasts it team-wide; narrowing that exposure is tracked
+  // separately (see proto/CONTEXT.md#worktree).
+  string worktree = 1;
+  // Indices into ActorPresence.catalog_models.
+  repeated uint32 model_indices = 2;
+  // Head of the MRU for (active agent type, this worktree) — the model last
+  // actually used here. A memory, not a configured preference: there is no UI
+  // that sets it directly.
+  string default_model = 3;
+  repeated AcpAvailableCommand available_commands = 4;
+}
+
+// One Attachment, as seen by clients. Carries only state that changes on
+// lifecycle transitions; per-token progress rides the ephemeral session/live
+// stream instead.
+message LiveSession {
+  string session_id = 1;
+  RuntimeLifecycle lifecycle = 2;
+  AgentStatus status = 3;
+  string stage = 4;           // meaningful iff lifecycle == STARTING
+  string error_code = 5;      // meaningful iff lifecycle == FAILED
+  string error_message = 6;
+  string failed_stage = 7;
+  string workspace_id = 8;
+  string current_model = 9;
 }
 
 // ═══════════════════════════════════════════

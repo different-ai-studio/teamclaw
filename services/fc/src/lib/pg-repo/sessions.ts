@@ -111,6 +111,12 @@ function mapParticipant(r: any) {
     actorId: r.actorId,
     role: r.role ?? null,
     joinedAt: iso(r.joinedAt),
+    // An agent participant's working state for this session (ADR-0005). Null on
+    // member rows — not applicable rather than missing. This is what replaces
+    // reading `agent_runtimes` from the desktop.
+    workspaceId: r.workspaceId ?? null,
+    model: r.model ?? null,
+    lastProcessedMessageId: r.lastProcessedMessageId ?? null,
   };
 }
 
@@ -825,6 +831,27 @@ export function makeSessionsRepo(db: DbLike, ctx: SessionsCtx = {}, deps: Sessio
         .from(sessionParticipants)
         .where(eq(sessionParticipants.sessionId, sessionId));
       return { items: rows.map(mapParticipant) };
+    },
+
+    // ── updateParticipantCursor ───────────────────────────────────────────────
+    /**
+     * How far this agent has read in this session. Keyed by (session, actor),
+     * which is the participant row's own key — no runtime row id involved.
+     */
+    async updateParticipantCursor(
+      sessionId: string,
+      actorId: string,
+      { lastProcessedMessageId }: { lastProcessedMessageId: string | null },
+    ) {
+      await (db as any)
+        .update(sessionParticipants)
+        .set({ lastProcessedMessageId, updatedAt: new Date() })
+        .where(
+          and(
+            eq(sessionParticipants.sessionId, sessionId),
+            eq(sessionParticipants.actorId, actorId),
+          ),
+        );
     },
 
     // ── upsertSessionParticipant ──────────────────────────────────────────────

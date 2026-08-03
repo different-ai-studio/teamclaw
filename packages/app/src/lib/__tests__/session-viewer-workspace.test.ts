@@ -1,14 +1,16 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import type { ViewerWorkspaceContext } from "@/lib/session-viewer-workspace";
 
-const { listDaemonRuntimes } = vi.hoisted(() => ({
-  listDaemonRuntimes: vi.fn(),
+const { getSessionParticipants } = vi.hoisted(() => ({
+  getSessionParticipants: vi.fn(),
 }));
 const { loadSessionWorkspacesForTeam } = vi.hoisted(() => ({
   loadSessionWorkspacesForTeam: vi.fn(),
 }));
 
-vi.mock("@/lib/daemon-runtimes", () => ({ listDaemonRuntimes }));
+vi.mock("@/lib/backend", () => ({
+  getBackend: () => ({ sessions: { getSessionParticipants } }),
+}));
 vi.mock("@/lib/local-cache", () => ({ loadSessionWorkspacesForTeam }));
 
 import {
@@ -34,18 +36,15 @@ function makeCtx(overrides: Partial<ViewerWorkspaceContext> = {}): ViewerWorkspa
 
 describe("resolveSessionWorkspaceForViewer", () => {
   beforeEach(() => {
-    listDaemonRuntimes.mockReset();
+    getSessionParticipants.mockReset();
     loadSessionWorkspacesForTeam.mockReset();
   });
 
   it("returns null for observer sessions (no owned-agent runtime)", async () => {
-    listDaemonRuntimes.mockResolvedValue([
-      {
-        sessionId: "s1",
-        agentId: "agent-alice",
-        workspaceId: "ws-a",
-        updatedAt: "2026-06-01T00:00:00Z",
-      },
+    // The workspace rides the participant row now (ADR-0005) — one call for
+    // this session instead of the team's whole runtime list.
+    getSessionParticipants.mockResolvedValue([
+      { session_id: "s1", actor_id: "agent-alice", workspaceId: "ws-a" },
     ]);
     loadSessionWorkspacesForTeam.mockResolvedValue([]);
     await expect(
@@ -53,8 +52,8 @@ describe("resolveSessionWorkspaceForViewer", () => {
     ).resolves.toBeNull();
   });
 
-  it("falls back to viewer cache when cloud runtimes are unavailable", async () => {
-    listDaemonRuntimes.mockResolvedValue([]);
+  it("falls back to viewer cache when the session has no bound workspace", async () => {
+    getSessionParticipants.mockResolvedValue([]);
     loadSessionWorkspacesForTeam.mockResolvedValue([
       {
         sessionId: "s1",
@@ -73,19 +72,9 @@ describe("resolveSessionWorkspaceForViewer", () => {
   });
 
   it("prefers local daemon agent binding over other owned agents", async () => {
-    listDaemonRuntimes.mockResolvedValue([
-      {
-        sessionId: "s1",
-        agentId: "agent-other-owned",
-        workspaceId: "ws-other",
-        updatedAt: "2026-06-02T00:00:00Z",
-      },
-      {
-        sessionId: "s1",
-        agentId: "agent-local",
-        workspaceId: "ws-b",
-        updatedAt: "2026-06-01T00:00:00Z",
-      },
+    getSessionParticipants.mockResolvedValue([
+      { session_id: "s1", actor_id: "agent-other-owned", workspaceId: "ws-other" },
+      { session_id: "s1", actor_id: "agent-local", workspaceId: "ws-b" },
     ]);
     const ctx = makeCtx({
       ownedAgentIds: new Set(["agent-local", "agent-other-owned"]),

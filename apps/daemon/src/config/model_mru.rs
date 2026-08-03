@@ -41,10 +41,22 @@ const MAX_RECENT: usize = 10;
 
 /// Backend id (`"opencode"` / `"pi"`) → its `provider/model` ids, most recently
 /// used first.
+///
+/// Two levels, because a catalog is a function of (backend, worktree), not of
+/// backend alone: on a real device the same opencode advertised 68–72 models
+/// depending on the directory. A device-wide head can therefore name a model
+/// the current worktree cannot serve.
+///
+/// `by_backend` stays as the device-wide list. It is not redundant — it is what
+/// a worktree with no history of its own falls back to, which beats offering
+/// nothing on first use in a new checkout.
 #[derive(Debug, Default, Clone, Serialize, Deserialize)]
 pub struct ModelMru {
     #[serde(default)]
     pub by_backend: BTreeMap<String, Vec<String>>,
+    /// backend → worktree → models, most recently used first.
+    #[serde(default)]
+    pub by_worktree: BTreeMap<String, BTreeMap<String, Vec<String>>>,
 }
 
 impl ModelMru {
@@ -69,6 +81,16 @@ impl ModelMru {
                     recent.truncate(MAX_RECENT);
                 }
                 store.by_backend.retain(|_, recent| !recent.is_empty());
+                for worktrees in store.by_worktree.values_mut() {
+                    for recent in worktrees.values_mut() {
+                        recent.retain(|id| !id.trim().is_empty());
+                        recent.truncate(MAX_RECENT);
+                    }
+                    worktrees.retain(|_, recent| !recent.is_empty());
+                }
+                store
+                    .by_worktree
+                    .retain(|_, worktrees| !worktrees.is_empty());
                 store
             }
             Err(e) => {
@@ -88,34 +110,78 @@ impl ModelMru {
         Ok(())
     }
 
-    /// Move `model_id` to the front of `backend`'s list. Returns whether the
-    /// list changed, so callers can skip the disk write on the common "same
-    /// model again" path.
-    pub fn record(&mut self, backend: &str, model_id: &str) -> bool {
+    /// Move `model_id` to the front of the device-wide list for `backend`, and
+    /// of the per-worktree list when a worktree is known. Returns whether
+    /// anything changed, so callers can skip the disk write on the common
+    /// "same model again" path.
+    ///
+    /// An empty `worktree` records device-wide only — the ambient/bare-runtime
+    /// case, which has no directory to attribute the choice to.
+    pub fn record(&mut self, backend: &str, worktree: &str, model_id: &str) -> bool {
         let id = model_id.trim();
         let backend = backend.trim();
         if id.is_empty() || backend.is_empty() {
             return false;
         }
-        let recent = self.by_backend.entry(backend.to_string()).or_default();
-        if recent.first().map(String::as_str) == Some(id) {
-            return false;
+        let mut changed = promote(self.by_backend.entry(backend.to_string()).or_default(), id);
+        let worktree = worktree.trim();
+        if !worktree.is_empty() {
+            let per_worktree = self
+                .by_worktree
+                .entry(backend.to_string())
+                .or_default()
+                .entry(worktree.to_string())
+                .or_default();
+            changed |= promote(per_worktree, id);
         }
-        recent.retain(|existing| existing != id);
-        recent.insert(0, id.to_string());
-        recent.truncate(MAX_RECENT);
-        true
+        changed
     }
 
-    /// `backend`'s recent models, newest first. Empty for a backend this device
-    /// has not run yet — which is the point of the split: starting pi for the
-    /// first time must not inherit opencode's history.
+    /// `backend`'s recent models device-wide, newest first. Empty for a backend
+    /// this device has not run yet — which is the point of the split: starting
+    /// pi for the first time must not inherit opencode's history.
     pub fn recent_for(&self, backend: &str) -> &[String] {
         self.by_backend
             .get(backend.trim())
             .map(Vec::as_slice)
             .unwrap_or_default()
     }
+
+    /// Recent models for one (backend, worktree), falling back to the
+    /// device-wide list when this worktree has no history yet.
+    pub fn recent_for_worktree(&self, backend: &str, worktree: &str) -> &[String] {
+        let per_worktree = self
+            .by_worktree
+            .get(backend.trim())
+            .and_then(|w| w.get(worktree.trim()))
+            .map(Vec::as_slice)
+            .unwrap_or_default();
+        if per_worktree.is_empty() {
+            self.recent_for(backend)
+        } else {
+            per_worktree
+        }
+    }
+
+    /// The DefaultModel for (backend, worktree): the head of its MRU. A memory
+    /// of what was last actually used, not a configured preference — no UI
+    /// sets it directly. See proto/CONTEXT.md#defaultmodel.
+    pub fn default_model_for(&self, backend: &str, worktree: &str) -> Option<&str> {
+        self.recent_for_worktree(backend, worktree)
+            .first()
+            .map(String::as_str)
+    }
+}
+
+/// Move `id` to the front, returning whether the list actually changed.
+fn promote(recent: &mut Vec<String>, id: &str) -> bool {
+    if recent.first().map(String::as_str) == Some(id) {
+        return false;
+    }
+    recent.retain(|existing| existing != id);
+    recent.insert(0, id.to_string());
+    recent.truncate(MAX_RECENT);
+    true
 }
 
 /// Pick the first candidate that the live catalog still offers.
@@ -156,16 +222,16 @@ mod tests {
     #[test]
     fn record_moves_an_existing_entry_to_the_front() {
         let mut mru = mru_with("opencode", &["a/1", "b/2", "c/3"]);
-        assert!(mru.record("opencode", "c/3"));
+        assert!(mru.record("opencode", "", "c/3"));
         assert_eq!(mru.recent_for("opencode"), ids(&["c/3", "a/1", "b/2"]));
     }
 
     #[test]
     fn record_is_a_noop_when_already_current() {
         let mut mru = mru_with("opencode", &["a/1", "b/2"]);
-        assert!(!mru.record("opencode", "a/1"));
-        assert!(!mru.record("opencode", "  "));
-        assert!(!mru.record("  ", "a/1"));
+        assert!(!mru.record("opencode", "", "a/1"));
+        assert!(!mru.record("opencode", "", "  "));
+        assert!(!mru.record("  ", "", "a/1"));
         assert_eq!(mru.recent_for("opencode"), ids(&["a/1", "b/2"]));
     }
 
@@ -173,7 +239,7 @@ mod tests {
     fn record_caps_each_backend_list() {
         let mut mru = ModelMru::default();
         for i in 0..(MAX_RECENT + 5) {
-            assert!(mru.record("opencode", &format!("p/{i}")));
+            assert!(mru.record("opencode", "", &format!("p/{i}")));
         }
         assert_eq!(mru.recent_for("opencode").len(), MAX_RECENT);
         assert_eq!(
@@ -187,8 +253,8 @@ mod tests {
         // Model ids are backend-local, so pi must not inherit opencode's —
         // they would never match pi's catalog anyway, just crowd the list.
         let mut mru = ModelMru::default();
-        mru.record("opencode", "opencode/big-pickle");
-        mru.record("pi", "anthropic/claude-sonnet-4-6");
+        mru.record("opencode", "", "opencode/big-pickle");
+        mru.record("pi", "", "anthropic/claude-sonnet-4-6");
 
         assert_eq!(mru.recent_for("opencode"), ids(&["opencode/big-pickle"]));
         assert_eq!(mru.recent_for("pi"), ids(&["anthropic/claude-sonnet-4-6"]));
@@ -240,9 +306,9 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let path = dir.path().join("nested").join("model-mru.toml");
         let mut mru = ModelMru::default();
-        mru.record("opencode", "anthropic/claude-sonnet-4-6");
-        mru.record("opencode", "opencode/big-pickle");
-        mru.record("pi", "pi-provider/some-model");
+        mru.record("opencode", "/w/one", "anthropic/claude-sonnet-4-6");
+        mru.record("opencode", "", "opencode/big-pickle");
+        mru.record("pi", "", "pi-provider/some-model");
         mru.save(&path).unwrap();
 
         let loaded = ModelMru::load(&path);
@@ -251,5 +317,48 @@ mod tests {
             ids(&["opencode/big-pickle", "anthropic/claude-sonnet-4-6"])
         );
         assert_eq!(loaded.recent_for("pi"), ids(&["pi-provider/some-model"]));
+        // The worktree dimension survives the round trip too.
+        assert_eq!(
+            loaded.recent_for_worktree("opencode", "/w/one"),
+            ids(&["anthropic/claude-sonnet-4-6"])
+        );
+    }
+
+    #[test]
+    fn worktrees_do_not_share_history_but_fall_back_to_the_device_list() {
+        // Catalogs differ per worktree (68–72 models for the same opencode on
+        // one device), so a head recorded in one directory may name a model the
+        // next one cannot serve.
+        let mut mru = ModelMru::default();
+        mru.record("opencode", "/w/a", "opencode/only-in-a");
+        mru.record("opencode", "/w/b", "opencode/only-in-b");
+
+        assert_eq!(
+            mru.default_model_for("opencode", "/w/a"),
+            Some("opencode/only-in-a")
+        );
+        assert_eq!(
+            mru.default_model_for("opencode", "/w/b"),
+            Some("opencode/only-in-b")
+        );
+
+        // A checkout with no history of its own gets the device-wide head
+        // rather than nothing — better than an empty picker on first use.
+        assert_eq!(
+            mru.default_model_for("opencode", "/w/never-used"),
+            Some("opencode/only-in-b")
+        );
+        assert_eq!(mru.default_model_for("pi", "/w/a"), None);
+    }
+
+    #[test]
+    fn record_with_an_empty_worktree_stays_device_wide_only() {
+        let mut mru = ModelMru::default();
+        assert!(mru.record("opencode", "", "opencode/ambient"));
+        assert!(
+            mru.by_worktree.is_empty(),
+            "no directory to attribute it to"
+        );
+        assert_eq!(mru.recent_for("opencode"), ids(&["opencode/ambient"]));
     }
 }

@@ -50,9 +50,8 @@ use std::time::Duration;
 
 use async_trait::async_trait;
 use backend::{
-    AgentRuntimeRow, AgentRuntimeUpsert, Backend, BackendResult, BackendSessionAndParticipants,
-    ClaimResult, ManagedGitCredential, ShareModeConfig, StoredMessage, WorkspaceRow,
-    WorkspaceUpsert,
+    Backend, BackendResult, BackendSessionAndParticipants, ClaimResult, ManagedGitCredential,
+    ShareModeConfig, StoredMessage, WorkspaceRow, WorkspaceUpsert,
 };
 use config::HttpConfig;
 use http::runtime_adapter::RuntimeManagerAdapter;

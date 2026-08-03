@@ -21,7 +21,10 @@ import {
   resolveAgentTransport,
 } from "@/lib/teamclaw/agent-transport";
 import { useRuntimeStateStore } from "@/stores/runtime-state-store";
-import { resolveRuntimeStateEntryForAgent } from "@/lib/runtime-state-resolve";
+import {
+  resolveRuntimeStateEntryForAgent,
+  runtimeTargetsForSession,
+} from "@/lib/runtime-state-resolve";
 import { resolveSessionWorkspaceHintForRuntimeStart } from "@/lib/teamclaw/resolve-runtime-start-workspace";
 import {
   recordRuntimeEnsureAttempt,
@@ -335,9 +338,9 @@ export async function ensureAgentRuntimesForSession(args: EnsureAgentRuntimeArgs
   let sessionRuntimeByAgent = args.sessionRuntimeByAgent;
   if (!sessionRuntimeByAgent && isRuntimeEnsureWakeReason(reason)) {
     try {
-      const rows = await getBackend().runtime.listRuntimeTargetsForSession(
+      const rows = runtimeTargetsForSession(
         args.sessionId,
-        agentActorIds,
+        useRuntimeStateStore.getState().byRuntimeId,
       );
       const map = new Map<string, string>();
       for (const row of rows) {

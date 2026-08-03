@@ -20,12 +20,12 @@ import SwiftProtobuf
 // incompatible with the version of SwiftProtobuf to which you are linking.
 // Please ensure that you are building against the same version of the API
 // that was used to generate this file.
-fileprivate struct _GeneratedWithProtocGenSwiftVersion: SwiftProtobuf.ProtobufAPIVersionCheck {
+fileprivate nonisolated struct _GeneratedWithProtocGenSwiftVersion: SwiftProtobuf.ProtobufAPIVersionCheck {
   struct _2: SwiftProtobuf.ProtobufAPIVersion_2 {}
   typealias Version = _2
 }
 
-public enum Teamclaw_SessionType: SwiftProtobuf.Enum, Swift.CaseIterable {
+public nonisolated enum Teamclaw_SessionType: SwiftProtobuf.Enum, Swift.CaseIterable {
   public typealias RawValue = Int
   case unknown // = 0
   case control // = 1
@@ -63,7 +63,7 @@ public enum Teamclaw_SessionType: SwiftProtobuf.Enum, Swift.CaseIterable {
 
 }
 
-public enum Teamclaw_ActorType: SwiftProtobuf.Enum, Swift.CaseIterable {
+public nonisolated enum Teamclaw_ActorType: SwiftProtobuf.Enum, Swift.CaseIterable {
   public typealias RawValue = Int
   case unknown // = 0
   case human // = 1
@@ -105,7 +105,7 @@ public enum Teamclaw_ActorType: SwiftProtobuf.Enum, Swift.CaseIterable {
 
 }
 
-public enum Teamclaw_MessageKind: SwiftProtobuf.Enum, Swift.CaseIterable {
+public nonisolated enum Teamclaw_MessageKind: SwiftProtobuf.Enum, Swift.CaseIterable {
   public typealias RawValue = Int
   case unknown // = 0
   case text // = 1
@@ -163,7 +163,7 @@ public enum Teamclaw_MessageKind: SwiftProtobuf.Enum, Swift.CaseIterable {
 
 }
 
-public enum Teamclaw_IdeaStatus: SwiftProtobuf.Enum, Swift.CaseIterable {
+public nonisolated enum Teamclaw_IdeaStatus: SwiftProtobuf.Enum, Swift.CaseIterable {
   public typealias RawValue = Int
   case unknown // = 0
   case `open` // = 1
@@ -205,7 +205,7 @@ public enum Teamclaw_IdeaStatus: SwiftProtobuf.Enum, Swift.CaseIterable {
 
 }
 
-public struct Teamclaw_Actor: Sendable {
+public nonisolated struct Teamclaw_Actor: Sendable {
   // SwiftProtobuf.Message conformance is added in an extension below. See the
   // `Message` and `Message+*Additions` files in the SwiftProtobuf library for
   // methods supported on all messages.
@@ -223,7 +223,7 @@ public struct Teamclaw_Actor: Sendable {
   public init() {}
 }
 
-public struct Teamclaw_SessionInfo: Sendable {
+public nonisolated struct Teamclaw_SessionInfo: Sendable {
   // SwiftProtobuf.Message conformance is added in an extension below. See the
   // `Message` and `Message+*Additions` files in the SwiftProtobuf library for
   // methods supported on all messages.
@@ -257,7 +257,7 @@ public struct Teamclaw_SessionInfo: Sendable {
   public init() {}
 }
 
-public struct Teamclaw_Participant: Sendable {
+public nonisolated struct Teamclaw_Participant: Sendable {
   // SwiftProtobuf.Message conformance is added in an extension below. See the
   // `Message` and `Message+*Additions` files in the SwiftProtobuf library for
   // methods supported on all messages.
@@ -275,7 +275,7 @@ public struct Teamclaw_Participant: Sendable {
   public init() {}
 }
 
-public struct Teamclaw_Message: Sendable {
+public nonisolated struct Teamclaw_Message: Sendable {
   // SwiftProtobuf.Message conformance is added in an extension below. See the
   // `Message` and `Message+*Additions` files in the SwiftProtobuf library for
   // methods supported on all messages.
@@ -319,7 +319,7 @@ public struct Teamclaw_Message: Sendable {
   public init() {}
 }
 
-public struct Teamclaw_Idea: Sendable {
+public nonisolated struct Teamclaw_Idea: Sendable {
   // SwiftProtobuf.Message conformance is added in an extension below. See the
   // `Message` and `Message+*Additions` files in the SwiftProtobuf library for
   // methods supported on all messages.
@@ -353,7 +353,7 @@ public struct Teamclaw_Idea: Sendable {
   public init() {}
 }
 
-public struct Teamclaw_Claim: Sendable {
+public nonisolated struct Teamclaw_Claim: Sendable {
   // SwiftProtobuf.Message conformance is added in an extension below. See the
   // `Message` and `Message+*Additions` files in the SwiftProtobuf library for
   // methods supported on all messages.
@@ -371,7 +371,7 @@ public struct Teamclaw_Claim: Sendable {
   public init() {}
 }
 
-public struct Teamclaw_Submission: Sendable {
+public nonisolated struct Teamclaw_Submission: Sendable {
   // SwiftProtobuf.Message conformance is added in an extension below. See the
   // `Message` and `Message+*Additions` files in the SwiftProtobuf library for
   // methods supported on all messages.
@@ -391,7 +391,7 @@ public struct Teamclaw_Submission: Sendable {
   public init() {}
 }
 
-public struct Teamclaw_SessionMessageEnvelope: Sendable {
+public nonisolated struct Teamclaw_SessionMessageEnvelope: Sendable {
   // SwiftProtobuf.Message conformance is added in an extension below. See the
   // `Message` and `Message+*Additions` files in the SwiftProtobuf library for
   // methods supported on all messages.
@@ -418,7 +418,7 @@ public struct Teamclaw_SessionMessageEnvelope: Sendable {
   fileprivate var _message: Teamclaw_Message? = nil
 }
 
-public struct Teamclaw_IdeaEvent: Sendable {
+public nonisolated struct Teamclaw_IdeaEvent: Sendable {
   // SwiftProtobuf.Message conformance is added in an extension below. See the
   // `Message` and `Message+*Additions` files in the SwiftProtobuf library for
   // methods supported on all messages.
@@ -459,7 +459,7 @@ public struct Teamclaw_IdeaEvent: Sendable {
 
   public var unknownFields = SwiftProtobuf.UnknownStorage()
 
-  public enum OneOf_Event: Equatable, Sendable {
+  public nonisolated enum OneOf_Event: Equatable, Sendable {
     case created(Teamclaw_Idea)
     case updated(Teamclaw_Idea)
     case claimed(Teamclaw_Claim)
@@ -470,7 +470,7 @@ public struct Teamclaw_IdeaEvent: Sendable {
   public init() {}
 }
 
-public struct Teamclaw_LiveEventEnvelope: Sendable {
+public nonisolated struct Teamclaw_LiveEventEnvelope: Sendable {
   // SwiftProtobuf.Message conformance is added in an extension below. See the
   // `Message` and `Message+*Additions` files in the SwiftProtobuf library for
   // methods supported on all messages.
@@ -492,7 +492,7 @@ public struct Teamclaw_LiveEventEnvelope: Sendable {
   public init() {}
 }
 
-public struct Teamclaw_RpcRequest: Sendable {
+public nonisolated struct Teamclaw_RpcRequest: Sendable {
   // SwiftProtobuf.Message conformance is added in an extension below. See the
   // `Message` and `Message+*Additions` files in the SwiftProtobuf library for
   // methods supported on all messages.
@@ -636,6 +636,7 @@ public struct Teamclaw_RpcRequest: Sendable {
     set {method = .removeMember(newValue)}
   }
 
+  /// deprecated: workspaces are created via Cloud API POST /v1/workspaces (createDaemonWorkspace); daemon resolves workspace UUID->path from cloud
   public var addWorkspace: Teamclaw_AddWorkspaceRequest {
     get {
       if case .addWorkspace(let v)? = method {return v}
@@ -668,9 +669,25 @@ public struct Teamclaw_RpcRequest: Sendable {
     set {method = .fetchWorkspaces(newValue)}
   }
 
+  public var remoteToolInvoke: Teamclaw_RemoteToolInvokeRequest {
+    get {
+      if case .remoteToolInvoke(let v)? = method {return v}
+      return Teamclaw_RemoteToolInvokeRequest()
+    }
+    set {method = .remoteToolInvoke(newValue)}
+  }
+
+  public var runtimeCommand: Teamclaw_RuntimeCommandRequest {
+    get {
+      if case .runtimeCommand(let v)? = method {return v}
+      return Teamclaw_RuntimeCommandRequest()
+    }
+    set {method = .runtimeCommand(newValue)}
+  }
+
   public var unknownFields = SwiftProtobuf.UnknownStorage()
 
-  public enum OneOf_Method: Equatable, Sendable {
+  public nonisolated enum OneOf_Method: Equatable, Sendable {
     case createSession(Teamclaw_CreateSessionRequest)
     case joinSession(Teamclaw_JoinSessionRequest)
     case fetchSession(Teamclaw_FetchSessionRequest)
@@ -687,17 +704,88 @@ public struct Teamclaw_RpcRequest: Sendable {
     case announcePeer(Teamclaw_AnnouncePeerRequest)
     case disconnectPeer(Teamclaw_DisconnectPeerRequest)
     case removeMember(Teamclaw_RemoveMemberRequest)
+    /// deprecated: workspaces are created via Cloud API POST /v1/workspaces (createDaemonWorkspace); daemon resolves workspace UUID->path from cloud
     case addWorkspace(Teamclaw_AddWorkspaceRequest)
     case removeWorkspace(Teamclaw_RemoveWorkspaceRequest)
     case fetchPeers(Teamclaw_FetchPeersRequest)
     case fetchWorkspaces(Teamclaw_FetchWorkspacesRequest)
+    case remoteToolInvoke(Teamclaw_RemoteToolInvokeRequest)
+    case runtimeCommand(Teamclaw_RuntimeCommandRequest)
 
   }
 
   public init() {}
 }
 
-public struct Teamclaw_RpcResponse: @unchecked Sendable {
+/// An AcpCommand addressed by (actor, session) instead of by a spawn id.
+///
+/// Replaces the `{actor}/runtime/{runtime_id}/commands` topic, which had two
+/// problems this shape removes (ADR-0003):
+///
+///   1. `runtime_id` is minted per spawn and goes stale the moment it is
+///      written down. A cancel sent to a dead spawn's topic was dropped by a
+///      daemon that no longer knew that id — see
+///      docs/debug/interrupt-agent-stale-runtime.md.
+///   2. That topic had no reply path, so the drop was silent. Riding on
+///      RpcRequest means every command gets an RpcResponse.
+///
+/// `session_id` is the TeamClaw session; the daemon resolves it to whichever
+/// Attachment currently serves it, of which there is at most one.
+public nonisolated struct Teamclaw_RuntimeCommandRequest: Sendable {
+  // SwiftProtobuf.Message conformance is added in an extension below. See the
+  // `Message` and `Message+*Additions` files in the SwiftProtobuf library for
+  // methods supported on all messages.
+
+  public var sessionID: String = String()
+
+  public var envelope: Amux_RuntimeCommandEnvelope {
+    get {_envelope ?? Amux_RuntimeCommandEnvelope()}
+    set {_envelope = newValue}
+  }
+  /// Returns true if `envelope` has been explicitly set.
+  public var hasEnvelope: Bool {self._envelope != nil}
+  /// Clears the value of `envelope`. Subsequent reads from it will return its default value.
+  public mutating func clearEnvelope() {self._envelope = nil}
+
+  public var unknownFields = SwiftProtobuf.UnknownStorage()
+
+  public init() {}
+
+  fileprivate var _envelope: Amux_RuntimeCommandEnvelope? = nil
+}
+
+public nonisolated struct Teamclaw_RuntimeCommandResult: Sendable {
+  // SwiftProtobuf.Message conformance is added in an extension below. See the
+  // `Message` and `Message+*Additions` files in the SwiftProtobuf library for
+  // methods supported on all messages.
+
+  /// False when this daemon holds no Attachment for `session_id` — the session
+  /// is cold. Callers must not report the command as delivered.
+  public var dispatched: Bool = false
+
+  public var unknownFields = SwiftProtobuf.UnknownStorage()
+
+  public init() {}
+}
+
+public nonisolated struct Teamclaw_RemoteToolInvokeRequest: Sendable {
+  // SwiftProtobuf.Message conformance is added in an extension below. See the
+  // `Message` and `Message+*Additions` files in the SwiftProtobuf library for
+  // methods supported on all messages.
+
+  public var sessionID: String = String()
+
+  public var toolName: String = String()
+
+  /// JSON object string
+  public var argumentsJson: String = String()
+
+  public var unknownFields = SwiftProtobuf.UnknownStorage()
+
+  public init() {}
+}
+
+public nonisolated struct Teamclaw_RpcResponse: @unchecked Sendable {
   // SwiftProtobuf.Message conformance is added in an extension below. See the
   // `Message` and `Message+*Additions` files in the SwiftProtobuf library for
   // methods supported on all messages.
@@ -822,6 +910,7 @@ public struct Teamclaw_RpcResponse: @unchecked Sendable {
     set {_uniqueStorage()._result = .removeMemberResult(newValue)}
   }
 
+  /// deprecated: workspaces are created via Cloud API POST /v1/workspaces (createDaemonWorkspace); daemon resolves workspace UUID->path from cloud
   public var addWorkspaceResult: Teamclaw_AddWorkspaceResult {
     get {
       if case .addWorkspaceResult(let v)? = _storage._result {return v}
@@ -854,9 +943,25 @@ public struct Teamclaw_RpcResponse: @unchecked Sendable {
     set {_uniqueStorage()._result = .fetchWorkspacesResult(newValue)}
   }
 
+  public var remoteToolInvokeResult: Teamclaw_RemoteToolInvokeResult {
+    get {
+      if case .remoteToolInvokeResult(let v)? = _storage._result {return v}
+      return Teamclaw_RemoteToolInvokeResult()
+    }
+    set {_uniqueStorage()._result = .remoteToolInvokeResult(newValue)}
+  }
+
+  public var runtimeCommandResult: Teamclaw_RuntimeCommandResult {
+    get {
+      if case .runtimeCommandResult(let v)? = _storage._result {return v}
+      return Teamclaw_RuntimeCommandResult()
+    }
+    set {_uniqueStorage()._result = .runtimeCommandResult(newValue)}
+  }
+
   public var unknownFields = SwiftProtobuf.UnknownStorage()
 
-  public enum OneOf_Result: Equatable, Sendable {
+  public nonisolated enum OneOf_Result: Equatable, Sendable {
     case sessionInfo(Teamclaw_SessionInfo)
     case idea(Teamclaw_Idea)
     case claim(Teamclaw_Claim)
@@ -868,10 +973,13 @@ public struct Teamclaw_RpcResponse: @unchecked Sendable {
     case announcePeerResult(Teamclaw_AnnouncePeerResult)
     case disconnectPeerResult(Teamclaw_DisconnectPeerResult)
     case removeMemberResult(Teamclaw_RemoveMemberResult)
+    /// deprecated: workspaces are created via Cloud API POST /v1/workspaces (createDaemonWorkspace); daemon resolves workspace UUID->path from cloud
     case addWorkspaceResult(Teamclaw_AddWorkspaceResult)
     case removeWorkspaceResult(Teamclaw_RemoveWorkspaceResult)
     case fetchPeersResult(Teamclaw_FetchPeersResult)
     case fetchWorkspacesResult(Teamclaw_FetchWorkspacesResult)
+    case remoteToolInvokeResult(Teamclaw_RemoteToolInvokeResult)
+    case runtimeCommandResult(Teamclaw_RuntimeCommandResult)
 
   }
 
@@ -880,7 +988,25 @@ public struct Teamclaw_RpcResponse: @unchecked Sendable {
   fileprivate var _storage = _StorageClass.defaultInstance
 }
 
-public struct Teamclaw_CreateSessionRequest: Sendable {
+public nonisolated struct Teamclaw_RemoteToolInvokeResult: Sendable {
+  // SwiftProtobuf.Message conformance is added in an extension below. See the
+  // `Message` and `Message+*Additions` files in the SwiftProtobuf library for
+  // methods supported on all messages.
+
+  public var success: Bool = false
+
+  public var resultJson: String = String()
+
+  public var errorCode: String = String()
+
+  public var errorMessage: String = String()
+
+  public var unknownFields = SwiftProtobuf.UnknownStorage()
+
+  public init() {}
+}
+
+public nonisolated struct Teamclaw_CreateSessionRequest: Sendable {
   // SwiftProtobuf.Message conformance is added in an extension below. See the
   // `Message` and `Message+*Additions` files in the SwiftProtobuf library for
   // methods supported on all messages.
@@ -906,7 +1032,7 @@ public struct Teamclaw_CreateSessionRequest: Sendable {
   public init() {}
 }
 
-public struct Teamclaw_JoinSessionRequest: Sendable {
+public nonisolated struct Teamclaw_JoinSessionRequest: Sendable {
   // SwiftProtobuf.Message conformance is added in an extension below. See the
   // `Message` and `Message+*Additions` files in the SwiftProtobuf library for
   // methods supported on all messages.
@@ -929,7 +1055,7 @@ public struct Teamclaw_JoinSessionRequest: Sendable {
   fileprivate var _participant: Teamclaw_Participant? = nil
 }
 
-public struct Teamclaw_FetchSessionRequest: Sendable {
+public nonisolated struct Teamclaw_FetchSessionRequest: Sendable {
   // SwiftProtobuf.Message conformance is added in an extension below. See the
   // `Message` and `Message+*Additions` files in the SwiftProtobuf library for
   // methods supported on all messages.
@@ -941,7 +1067,7 @@ public struct Teamclaw_FetchSessionRequest: Sendable {
   public init() {}
 }
 
-public struct Teamclaw_FetchSessionMessagesRequest: Sendable {
+public nonisolated struct Teamclaw_FetchSessionMessagesRequest: Sendable {
   // SwiftProtobuf.Message conformance is added in an extension below. See the
   // `Message` and `Message+*Additions` files in the SwiftProtobuf library for
   // methods supported on all messages.
@@ -957,7 +1083,7 @@ public struct Teamclaw_FetchSessionMessagesRequest: Sendable {
   public init() {}
 }
 
-public struct Teamclaw_SessionMessagePage: Sendable {
+public nonisolated struct Teamclaw_SessionMessagePage: Sendable {
   // SwiftProtobuf.Message conformance is added in an extension below. See the
   // `Message` and `Message+*Additions` files in the SwiftProtobuf library for
   // methods supported on all messages.
@@ -975,7 +1101,7 @@ public struct Teamclaw_SessionMessagePage: Sendable {
   public init() {}
 }
 
-public struct Teamclaw_AddParticipantRequest: Sendable {
+public nonisolated struct Teamclaw_AddParticipantRequest: Sendable {
   // SwiftProtobuf.Message conformance is added in an extension below. See the
   // `Message` and `Message+*Additions` files in the SwiftProtobuf library for
   // methods supported on all messages.
@@ -998,7 +1124,7 @@ public struct Teamclaw_AddParticipantRequest: Sendable {
   fileprivate var _participant: Teamclaw_Participant? = nil
 }
 
-public struct Teamclaw_RemoveParticipantRequest: Sendable {
+public nonisolated struct Teamclaw_RemoveParticipantRequest: Sendable {
   // SwiftProtobuf.Message conformance is added in an extension below. See the
   // `Message` and `Message+*Additions` files in the SwiftProtobuf library for
   // methods supported on all messages.
@@ -1012,7 +1138,7 @@ public struct Teamclaw_RemoveParticipantRequest: Sendable {
   public init() {}
 }
 
-public struct Teamclaw_CreateIdeaRequest: Sendable {
+public nonisolated struct Teamclaw_CreateIdeaRequest: Sendable {
   // SwiftProtobuf.Message conformance is added in an extension below. See the
   // `Message` and `Message+*Additions` files in the SwiftProtobuf library for
   // methods supported on all messages.
@@ -1036,7 +1162,7 @@ public struct Teamclaw_CreateIdeaRequest: Sendable {
   public init() {}
 }
 
-public struct Teamclaw_ClaimIdeaRequest: Sendable {
+public nonisolated struct Teamclaw_ClaimIdeaRequest: Sendable {
   // SwiftProtobuf.Message conformance is added in an extension below. See the
   // `Message` and `Message+*Additions` files in the SwiftProtobuf library for
   // methods supported on all messages.
@@ -1054,7 +1180,7 @@ public struct Teamclaw_ClaimIdeaRequest: Sendable {
   public init() {}
 }
 
-public struct Teamclaw_SubmitIdeaRequest: Sendable {
+public nonisolated struct Teamclaw_SubmitIdeaRequest: Sendable {
   // SwiftProtobuf.Message conformance is added in an extension below. See the
   // `Message` and `Message+*Additions` files in the SwiftProtobuf library for
   // methods supported on all messages.
@@ -1074,7 +1200,7 @@ public struct Teamclaw_SubmitIdeaRequest: Sendable {
   public init() {}
 }
 
-public struct Teamclaw_UpdateIdeaRequest: Sendable {
+public nonisolated struct Teamclaw_UpdateIdeaRequest: Sendable {
   // SwiftProtobuf.Message conformance is added in an extension below. See the
   // `Message` and `Message+*Additions` files in the SwiftProtobuf library for
   // methods supported on all messages.
@@ -1108,7 +1234,7 @@ public struct Teamclaw_UpdateIdeaRequest: Sendable {
 /// Request the daemon spawn a new Claude Code subprocess.
 /// Accepted-only reply — actual lifecycle flows on {team}/{actor}/runtime/{rid}/state.
 /// See spec "Runtime lifecycle" section for the state machine.
-public struct Teamclaw_RuntimeStartRequest: Sendable {
+public nonisolated struct Teamclaw_RuntimeStartRequest: Sendable {
   // SwiftProtobuf.Message conformance is added in an extension below. See the
   // `Message` and `Message+*Additions` files in the SwiftProtobuf library for
   // methods supported on all messages.
@@ -1131,6 +1257,9 @@ public struct Teamclaw_RuntimeStartRequest: Sendable {
   /// empty = no Supabase sessions.id linkage
   public var sessionID: String = String()
 
+  /// Deprecated: ignored by daemon. Remote MCP is always mounted for session-bound runtimes.
+  public var remoteToolCapabilities: [String] = []
+
   public var unknownFields = SwiftProtobuf.UnknownStorage()
 
   public init() {}
@@ -1138,7 +1267,7 @@ public struct Teamclaw_RuntimeStartRequest: Sendable {
 
 /// Accepted-only reply to RuntimeStartRequest.
 /// DOES NOT include RuntimeInfo. Readiness flows on the retained state topic.
-public struct Teamclaw_RuntimeStartResult: Sendable {
+public nonisolated struct Teamclaw_RuntimeStartResult: Sendable {
   // SwiftProtobuf.Message conformance is added in an extension below. See the
   // `Message` and `Message+*Additions` files in the SwiftProtobuf library for
   // methods supported on all messages.
@@ -1161,7 +1290,7 @@ public struct Teamclaw_RuntimeStartResult: Sendable {
 
 /// Request a runtime terminate. Accepted-only reply.
 /// Actual termination observable as state: STOPPED on runtime/{id}/state.
-public struct Teamclaw_RuntimeStopRequest: Sendable {
+public nonisolated struct Teamclaw_RuntimeStopRequest: Sendable {
   // SwiftProtobuf.Message conformance is added in an extension below. See the
   // `Message` and `Message+*Additions` files in the SwiftProtobuf library for
   // methods supported on all messages.
@@ -1173,7 +1302,7 @@ public struct Teamclaw_RuntimeStopRequest: Sendable {
   public init() {}
 }
 
-public struct Teamclaw_RuntimeStopResult: Sendable {
+public nonisolated struct Teamclaw_RuntimeStopResult: Sendable {
   // SwiftProtobuf.Message conformance is added in an extension below. See the
   // `Message` and `Message+*Additions` files in the SwiftProtobuf library for
   // methods supported on all messages.
@@ -1192,7 +1321,7 @@ public struct Teamclaw_RuntimeStopResult: Sendable {
 /// `AcpCommand::SetModel` → `session/set_model`. Synchronous accept gate;
 /// model changes are observable via the runtime's retained state topic
 /// (`current_model` field on RuntimeInfo).
-public struct Teamclaw_SetModelRequest: Sendable {
+public nonisolated struct Teamclaw_SetModelRequest: Sendable {
   // SwiftProtobuf.Message conformance is added in an extension below. See the
   // `Message` and `Message+*Additions` files in the SwiftProtobuf library for
   // methods supported on all messages.
@@ -1206,7 +1335,7 @@ public struct Teamclaw_SetModelRequest: Sendable {
   public init() {}
 }
 
-public struct Teamclaw_SetModelResult: Sendable {
+public nonisolated struct Teamclaw_SetModelResult: Sendable {
   // SwiftProtobuf.Message conformance is added in an extension below. See the
   // `Message` and `Message+*Additions` files in the SwiftProtobuf library for
   // methods supported on all messages.
@@ -1220,7 +1349,7 @@ public struct Teamclaw_SetModelResult: Sendable {
   public init() {}
 }
 
-public struct Teamclaw_AnnouncePeerRequest: Sendable {
+public nonisolated struct Teamclaw_AnnouncePeerRequest: Sendable {
   // SwiftProtobuf.Message conformance is added in an extension below. See the
   // `Message` and `Message+*Additions` files in the SwiftProtobuf library for
   // methods supported on all messages.
@@ -1243,7 +1372,7 @@ public struct Teamclaw_AnnouncePeerRequest: Sendable {
   fileprivate var _peer: Amux_PeerInfo? = nil
 }
 
-public struct Teamclaw_AnnouncePeerResult: Sendable {
+public nonisolated struct Teamclaw_AnnouncePeerResult: Sendable {
   // SwiftProtobuf.Message conformance is added in an extension below. See the
   // `Message` and `Message+*Additions` files in the SwiftProtobuf library for
   // methods supported on all messages.
@@ -1259,7 +1388,7 @@ public struct Teamclaw_AnnouncePeerResult: Sendable {
   public init() {}
 }
 
-public struct Teamclaw_DisconnectPeerRequest: Sendable {
+public nonisolated struct Teamclaw_DisconnectPeerRequest: Sendable {
   // SwiftProtobuf.Message conformance is added in an extension below. See the
   // `Message` and `Message+*Additions` files in the SwiftProtobuf library for
   // methods supported on all messages.
@@ -1271,7 +1400,7 @@ public struct Teamclaw_DisconnectPeerRequest: Sendable {
   public init() {}
 }
 
-public struct Teamclaw_DisconnectPeerResult: Sendable {
+public nonisolated struct Teamclaw_DisconnectPeerResult: Sendable {
   // SwiftProtobuf.Message conformance is added in an extension below. See the
   // `Message` and `Message+*Additions` files in the SwiftProtobuf library for
   // methods supported on all messages.
@@ -1285,7 +1414,7 @@ public struct Teamclaw_DisconnectPeerResult: Sendable {
   public init() {}
 }
 
-public struct Teamclaw_RemoveMemberRequest: Sendable {
+public nonisolated struct Teamclaw_RemoveMemberRequest: Sendable {
   // SwiftProtobuf.Message conformance is added in an extension below. See the
   // `Message` and `Message+*Additions` files in the SwiftProtobuf library for
   // methods supported on all messages.
@@ -1297,7 +1426,7 @@ public struct Teamclaw_RemoveMemberRequest: Sendable {
   public init() {}
 }
 
-public struct Teamclaw_RemoveMemberResult: Sendable {
+public nonisolated struct Teamclaw_RemoveMemberResult: Sendable {
   // SwiftProtobuf.Message conformance is added in an extension below. See the
   // `Message` and `Message+*Additions` files in the SwiftProtobuf library for
   // methods supported on all messages.
@@ -1311,7 +1440,8 @@ public struct Teamclaw_RemoveMemberResult: Sendable {
   public init() {}
 }
 
-public struct Teamclaw_AddWorkspaceRequest: Sendable {
+/// deprecated: workspaces are created via Cloud API POST /v1/workspaces (createDaemonWorkspace); daemon resolves workspace UUID->path from cloud
+public nonisolated struct Teamclaw_AddWorkspaceRequest: Sendable {
   // SwiftProtobuf.Message conformance is added in an extension below. See the
   // `Message` and `Message+*Additions` files in the SwiftProtobuf library for
   // methods supported on all messages.
@@ -1323,7 +1453,8 @@ public struct Teamclaw_AddWorkspaceRequest: Sendable {
   public init() {}
 }
 
-public struct Teamclaw_AddWorkspaceResult: Sendable {
+/// deprecated: workspaces are created via Cloud API POST /v1/workspaces (createDaemonWorkspace); daemon resolves workspace UUID->path from cloud
+public nonisolated struct Teamclaw_AddWorkspaceResult: Sendable {
   // SwiftProtobuf.Message conformance is added in an extension below. See the
   // `Message` and `Message+*Additions` files in the SwiftProtobuf library for
   // methods supported on all messages.
@@ -1348,7 +1479,7 @@ public struct Teamclaw_AddWorkspaceResult: Sendable {
   fileprivate var _workspace: Amux_WorkspaceInfo? = nil
 }
 
-public struct Teamclaw_RemoveWorkspaceRequest: Sendable {
+public nonisolated struct Teamclaw_RemoveWorkspaceRequest: Sendable {
   // SwiftProtobuf.Message conformance is added in an extension below. See the
   // `Message` and `Message+*Additions` files in the SwiftProtobuf library for
   // methods supported on all messages.
@@ -1360,7 +1491,7 @@ public struct Teamclaw_RemoveWorkspaceRequest: Sendable {
   public init() {}
 }
 
-public struct Teamclaw_RemoveWorkspaceResult: Sendable {
+public nonisolated struct Teamclaw_RemoveWorkspaceResult: Sendable {
   // SwiftProtobuf.Message conformance is added in an extension below. See the
   // `Message` and `Message+*Additions` files in the SwiftProtobuf library for
   // methods supported on all messages.
@@ -1374,7 +1505,7 @@ public struct Teamclaw_RemoveWorkspaceResult: Sendable {
   public init() {}
 }
 
-public struct Teamclaw_FetchPeersRequest: Sendable {
+public nonisolated struct Teamclaw_FetchPeersRequest: Sendable {
   // SwiftProtobuf.Message conformance is added in an extension below. See the
   // `Message` and `Message+*Additions` files in the SwiftProtobuf library for
   // methods supported on all messages.
@@ -1384,7 +1515,7 @@ public struct Teamclaw_FetchPeersRequest: Sendable {
   public init() {}
 }
 
-public struct Teamclaw_FetchPeersResult: Sendable {
+public nonisolated struct Teamclaw_FetchPeersResult: Sendable {
   // SwiftProtobuf.Message conformance is added in an extension below. See the
   // `Message` and `Message+*Additions` files in the SwiftProtobuf library for
   // methods supported on all messages.
@@ -1396,7 +1527,7 @@ public struct Teamclaw_FetchPeersResult: Sendable {
   public init() {}
 }
 
-public struct Teamclaw_FetchWorkspacesRequest: Sendable {
+public nonisolated struct Teamclaw_FetchWorkspacesRequest: Sendable {
   // SwiftProtobuf.Message conformance is added in an extension below. See the
   // `Message` and `Message+*Additions` files in the SwiftProtobuf library for
   // methods supported on all messages.
@@ -1406,7 +1537,7 @@ public struct Teamclaw_FetchWorkspacesRequest: Sendable {
   public init() {}
 }
 
-public struct Teamclaw_FetchWorkspacesResult: Sendable {
+public nonisolated struct Teamclaw_FetchWorkspacesResult: Sendable {
   // SwiftProtobuf.Message conformance is added in an extension below. See the
   // `Message` and `Message+*Additions` files in the SwiftProtobuf library for
   // methods supported on all messages.
@@ -1421,7 +1552,7 @@ public struct Teamclaw_FetchWorkspacesResult: Sendable {
 /// Hint-only invalidation payload. See spec "New envelope" + "actor notify vs
 /// user/notify scoping". Receivers route by event_type, not by message type.
 /// Authoritative data lives in Supabase (or daemon RPC for peers).
-public struct Teamclaw_Notify: Sendable {
+public nonisolated struct Teamclaw_Notify: Sendable {
   // SwiftProtobuf.Message conformance is added in an extension below. See the
   // `Message` and `Message+*Additions` files in the SwiftProtobuf library for
   // methods supported on all messages.
@@ -1441,25 +1572,25 @@ public struct Teamclaw_Notify: Sendable {
 
 // MARK: - Code below here is support for the SwiftProtobuf runtime.
 
-fileprivate let _protobuf_package = "teamclaw"
+fileprivate nonisolated let _protobuf_package = "teamclaw"
 
-extension Teamclaw_SessionType: SwiftProtobuf._ProtoNameProviding {
+nonisolated extension Teamclaw_SessionType: SwiftProtobuf._ProtoNameProviding {
   public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{2}\0SESSION_TYPE_UNKNOWN\0\u{1}CONTROL\0\u{1}COLLAB\0")
 }
 
-extension Teamclaw_ActorType: SwiftProtobuf._ProtoNameProviding {
+nonisolated extension Teamclaw_ActorType: SwiftProtobuf._ProtoNameProviding {
   public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{2}\0ACTOR_TYPE_UNKNOWN\0\u{1}HUMAN\0\u{1}PERSONAL_AGENT\0\u{1}ROLE_AGENT\0")
 }
 
-extension Teamclaw_MessageKind: SwiftProtobuf._ProtoNameProviding {
+nonisolated extension Teamclaw_MessageKind: SwiftProtobuf._ProtoNameProviding {
   public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{2}\0MESSAGE_KIND_UNKNOWN\0\u{1}TEXT\0\u{1}SYSTEM\0\u{1}WORK_EVENT\0\u{1}AGENT_THINKING\0\u{1}AGENT_TOOL_CALL\0\u{1}AGENT_TOOL_RESULT\0\u{1}AGENT_REPLY\0")
 }
 
-extension Teamclaw_IdeaStatus: SwiftProtobuf._ProtoNameProviding {
+nonisolated extension Teamclaw_IdeaStatus: SwiftProtobuf._ProtoNameProviding {
   public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{2}\0IDEA_STATUS_UNKNOWN\0\u{1}OPEN\0\u{1}IN_PROGRESS\0\u{1}DONE\0")
 }
 
-extension Teamclaw_Actor: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
+nonisolated extension Teamclaw_Actor: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
   public static let protoMessageName: String = _protobuf_package + ".Actor"
   public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{3}actor_id\0\u{3}actor_type\0\u{3}display_name\0\u{3}owner_member_id\0")
 
@@ -1504,7 +1635,7 @@ extension Teamclaw_Actor: SwiftProtobuf.Message, SwiftProtobuf._MessageImplement
   }
 }
 
-extension Teamclaw_SessionInfo: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
+nonisolated extension Teamclaw_SessionInfo: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
   public static let protoMessageName: String = _protobuf_package + ".SessionInfo"
   public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{3}session_id\0\u{3}session_type\0\u{3}team_id\0\u{1}title\0\u{3}created_by\0\u{3}created_at\0\u{1}participants\0\u{1}summary\0\u{3}primary_agent_id\0\u{3}idea_id\0\u{3}last_message_preview\0\u{3}last_message_at\0")
 
@@ -1589,7 +1720,7 @@ extension Teamclaw_SessionInfo: SwiftProtobuf.Message, SwiftProtobuf._MessageImp
   }
 }
 
-extension Teamclaw_Participant: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
+nonisolated extension Teamclaw_Participant: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
   public static let protoMessageName: String = _protobuf_package + ".Participant"
   public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{3}actor_id\0\u{3}actor_type\0\u{3}display_name\0\u{3}joined_at\0")
 
@@ -1634,7 +1765,7 @@ extension Teamclaw_Participant: SwiftProtobuf.Message, SwiftProtobuf._MessageImp
   }
 }
 
-extension Teamclaw_Message: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
+nonisolated extension Teamclaw_Message: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
   public static let protoMessageName: String = _protobuf_package + ".Message"
   public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{3}message_id\0\u{3}session_id\0\u{3}sender_actor_id\0\u{1}kind\0\u{1}content\0\u{3}created_at\0\u{3}reply_to_message_id\0\u{1}mentions\0\u{1}model\0\u{3}metadata_json\0\u{3}turn_id\0\u{3}attachment_urls\0")
 
@@ -1719,7 +1850,7 @@ extension Teamclaw_Message: SwiftProtobuf.Message, SwiftProtobuf._MessageImpleme
   }
 }
 
-extension Teamclaw_Idea: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
+nonisolated extension Teamclaw_Idea: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
   public static let protoMessageName: String = _protobuf_package + ".Idea"
   public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{3}idea_id\0\u{3}session_id\0\u{1}title\0\u{1}description\0\u{1}status\0\u{3}parent_id\0\u{3}created_by\0\u{3}created_at\0\u{1}claims\0\u{1}submissions\0\u{1}archived\0\u{3}workspace_id\0")
 
@@ -1804,7 +1935,7 @@ extension Teamclaw_Idea: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementa
   }
 }
 
-extension Teamclaw_Claim: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
+nonisolated extension Teamclaw_Claim: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
   public static let protoMessageName: String = _protobuf_package + ".Claim"
   public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{3}claim_id\0\u{3}idea_id\0\u{3}actor_id\0\u{3}claimed_at\0")
 
@@ -1849,7 +1980,7 @@ extension Teamclaw_Claim: SwiftProtobuf.Message, SwiftProtobuf._MessageImplement
   }
 }
 
-extension Teamclaw_Submission: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
+nonisolated extension Teamclaw_Submission: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
   public static let protoMessageName: String = _protobuf_package + ".Submission"
   public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{3}submission_id\0\u{3}idea_id\0\u{3}actor_id\0\u{1}content\0\u{3}submitted_at\0")
 
@@ -1899,7 +2030,7 @@ extension Teamclaw_Submission: SwiftProtobuf.Message, SwiftProtobuf._MessageImpl
   }
 }
 
-extension Teamclaw_SessionMessageEnvelope: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
+nonisolated extension Teamclaw_SessionMessageEnvelope: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
   public static let protoMessageName: String = _protobuf_package + ".SessionMessageEnvelope"
   public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{1}message\0\u{3}mention_actor_ids\0")
 
@@ -1938,7 +2069,7 @@ extension Teamclaw_SessionMessageEnvelope: SwiftProtobuf.Message, SwiftProtobuf.
   }
 }
 
-extension Teamclaw_IdeaEvent: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
+nonisolated extension Teamclaw_IdeaEvent: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
   public static let protoMessageName: String = _protobuf_package + ".IdeaEvent"
   public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{1}created\0\u{1}updated\0\u{1}claimed\0\u{1}submitted\0")
 
@@ -2039,7 +2170,7 @@ extension Teamclaw_IdeaEvent: SwiftProtobuf.Message, SwiftProtobuf._MessageImple
   }
 }
 
-extension Teamclaw_LiveEventEnvelope: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
+nonisolated extension Teamclaw_LiveEventEnvelope: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
   public static let protoMessageName: String = _protobuf_package + ".LiveEventEnvelope"
   public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{3}event_id\0\u{3}event_type\0\u{3}session_id\0\u{3}actor_id\0\u{3}sent_at\0\u{1}body\0")
 
@@ -2094,9 +2225,9 @@ extension Teamclaw_LiveEventEnvelope: SwiftProtobuf.Message, SwiftProtobuf._Mess
   }
 }
 
-extension Teamclaw_RpcRequest: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
+nonisolated extension Teamclaw_RpcRequest: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
   public static let protoMessageName: String = _protobuf_package + ".RpcRequest"
-  public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{3}request_id\0\u{4}\u{2}requester_client_id\0\u{3}requester_actor_id\0\u{4}\u{6}create_session\0\u{3}join_session\0\u{3}fetch_session\0\u{3}add_participant\0\u{3}remove_participant\0\u{3}create_idea\0\u{3}claim_idea\0\u{3}submit_idea\0\u{3}update_idea\0\u{4}\u{2}fetch_session_messages\0\u{4}\u{a}runtime_start\0\u{3}runtime_stop\0\u{3}set_model\0\u{4}\u{8}announce_peer\0\u{3}disconnect_peer\0\u{3}remove_member\0\u{3}add_workspace\0\u{3}remove_workspace\0\u{3}fetch_peers\0\u{3}fetch_workspaces\0\u{c}\u{2}\u{1}\u{c}\u{5}\u{1}")
+  public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{3}request_id\0\u{4}\u{2}requester_client_id\0\u{3}requester_actor_id\0\u{4}\u{6}create_session\0\u{3}join_session\0\u{3}fetch_session\0\u{3}add_participant\0\u{3}remove_participant\0\u{3}create_idea\0\u{3}claim_idea\0\u{3}submit_idea\0\u{3}update_idea\0\u{4}\u{2}fetch_session_messages\0\u{4}\u{a}runtime_start\0\u{3}runtime_stop\0\u{3}set_model\0\u{4}\u{8}announce_peer\0\u{3}disconnect_peer\0\u{3}remove_member\0\u{3}add_workspace\0\u{3}remove_workspace\0\u{3}fetch_peers\0\u{3}fetch_workspaces\0\u{3}remote_tool_invoke\0\u{3}runtime_command\0\u{c}\u{2}\u{1}\u{c}\u{5}\u{1}")
 
   public mutating func decodeMessage<D: SwiftProtobuf.Decoder>(decoder: inout D) throws {
     while let fieldNumber = try decoder.nextFieldNumber() {
@@ -2367,6 +2498,32 @@ extension Teamclaw_RpcRequest: SwiftProtobuf.Message, SwiftProtobuf._MessageImpl
           self.method = .fetchWorkspaces(v)
         }
       }()
+      case 47: try {
+        var v: Teamclaw_RemoteToolInvokeRequest?
+        var hadOneofValue = false
+        if let current = self.method {
+          hadOneofValue = true
+          if case .remoteToolInvoke(let m) = current {v = m}
+        }
+        try decoder.decodeSingularMessageField(value: &v)
+        if let v = v {
+          if hadOneofValue {try decoder.handleConflictingOneOf()}
+          self.method = .remoteToolInvoke(v)
+        }
+      }()
+      case 48: try {
+        var v: Teamclaw_RuntimeCommandRequest?
+        var hadOneofValue = false
+        if let current = self.method {
+          hadOneofValue = true
+          if case .runtimeCommand(let m) = current {v = m}
+        }
+        try decoder.decodeSingularMessageField(value: &v)
+        if let v = v {
+          if hadOneofValue {try decoder.handleConflictingOneOf()}
+          self.method = .runtimeCommand(v)
+        }
+      }()
       default: break
       }
     }
@@ -2467,6 +2624,14 @@ extension Teamclaw_RpcRequest: SwiftProtobuf.Message, SwiftProtobuf._MessageImpl
       guard case .fetchWorkspaces(let v)? = self.method else { preconditionFailure() }
       try visitor.visitSingularMessageField(value: v, fieldNumber: 46)
     }()
+    case .remoteToolInvoke?: try {
+      guard case .remoteToolInvoke(let v)? = self.method else { preconditionFailure() }
+      try visitor.visitSingularMessageField(value: v, fieldNumber: 47)
+    }()
+    case .runtimeCommand?: try {
+      guard case .runtimeCommand(let v)? = self.method else { preconditionFailure() }
+      try visitor.visitSingularMessageField(value: v, fieldNumber: 48)
+    }()
     case nil: break
     }
     try unknownFields.traverse(visitor: &visitor)
@@ -2482,9 +2647,118 @@ extension Teamclaw_RpcRequest: SwiftProtobuf.Message, SwiftProtobuf._MessageImpl
   }
 }
 
-extension Teamclaw_RpcResponse: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
+nonisolated extension Teamclaw_RuntimeCommandRequest: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
+  public static let protoMessageName: String = _protobuf_package + ".RuntimeCommandRequest"
+  public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{3}session_id\0\u{1}envelope\0")
+
+  public mutating func decodeMessage<D: SwiftProtobuf.Decoder>(decoder: inout D) throws {
+    while let fieldNumber = try decoder.nextFieldNumber() {
+      // The use of inline closures is to circumvent an issue where the compiler
+      // allocates stack space for every case branch when no optimizations are
+      // enabled. https://github.com/apple/swift-protobuf/issues/1034
+      switch fieldNumber {
+      case 1: try { try decoder.decodeSingularStringField(value: &self.sessionID) }()
+      case 2: try { try decoder.decodeSingularMessageField(value: &self._envelope) }()
+      default: break
+      }
+    }
+  }
+
+  public func traverse<V: SwiftProtobuf.Visitor>(visitor: inout V) throws {
+    // The use of inline closures is to circumvent an issue where the compiler
+    // allocates stack space for every if/case branch local when no optimizations
+    // are enabled. https://github.com/apple/swift-protobuf/issues/1034 and
+    // https://github.com/apple/swift-protobuf/issues/1182
+    if !self.sessionID.isEmpty {
+      try visitor.visitSingularStringField(value: self.sessionID, fieldNumber: 1)
+    }
+    try { if let v = self._envelope {
+      try visitor.visitSingularMessageField(value: v, fieldNumber: 2)
+    } }()
+    try unknownFields.traverse(visitor: &visitor)
+  }
+
+  public static func ==(lhs: Teamclaw_RuntimeCommandRequest, rhs: Teamclaw_RuntimeCommandRequest) -> Bool {
+    if lhs.sessionID != rhs.sessionID {return false}
+    if lhs._envelope != rhs._envelope {return false}
+    if lhs.unknownFields != rhs.unknownFields {return false}
+    return true
+  }
+}
+
+nonisolated extension Teamclaw_RuntimeCommandResult: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
+  public static let protoMessageName: String = _protobuf_package + ".RuntimeCommandResult"
+  public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{1}dispatched\0")
+
+  public mutating func decodeMessage<D: SwiftProtobuf.Decoder>(decoder: inout D) throws {
+    while let fieldNumber = try decoder.nextFieldNumber() {
+      // The use of inline closures is to circumvent an issue where the compiler
+      // allocates stack space for every case branch when no optimizations are
+      // enabled. https://github.com/apple/swift-protobuf/issues/1034
+      switch fieldNumber {
+      case 1: try { try decoder.decodeSingularBoolField(value: &self.dispatched) }()
+      default: break
+      }
+    }
+  }
+
+  public func traverse<V: SwiftProtobuf.Visitor>(visitor: inout V) throws {
+    if self.dispatched != false {
+      try visitor.visitSingularBoolField(value: self.dispatched, fieldNumber: 1)
+    }
+    try unknownFields.traverse(visitor: &visitor)
+  }
+
+  public static func ==(lhs: Teamclaw_RuntimeCommandResult, rhs: Teamclaw_RuntimeCommandResult) -> Bool {
+    if lhs.dispatched != rhs.dispatched {return false}
+    if lhs.unknownFields != rhs.unknownFields {return false}
+    return true
+  }
+}
+
+nonisolated extension Teamclaw_RemoteToolInvokeRequest: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
+  public static let protoMessageName: String = _protobuf_package + ".RemoteToolInvokeRequest"
+  public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{3}session_id\0\u{3}tool_name\0\u{3}arguments_json\0\u{b}timeout_ms\0\u{c}\u{4}\u{1}")
+
+  public mutating func decodeMessage<D: SwiftProtobuf.Decoder>(decoder: inout D) throws {
+    while let fieldNumber = try decoder.nextFieldNumber() {
+      // The use of inline closures is to circumvent an issue where the compiler
+      // allocates stack space for every case branch when no optimizations are
+      // enabled. https://github.com/apple/swift-protobuf/issues/1034
+      switch fieldNumber {
+      case 1: try { try decoder.decodeSingularStringField(value: &self.sessionID) }()
+      case 2: try { try decoder.decodeSingularStringField(value: &self.toolName) }()
+      case 3: try { try decoder.decodeSingularStringField(value: &self.argumentsJson) }()
+      default: break
+      }
+    }
+  }
+
+  public func traverse<V: SwiftProtobuf.Visitor>(visitor: inout V) throws {
+    if !self.sessionID.isEmpty {
+      try visitor.visitSingularStringField(value: self.sessionID, fieldNumber: 1)
+    }
+    if !self.toolName.isEmpty {
+      try visitor.visitSingularStringField(value: self.toolName, fieldNumber: 2)
+    }
+    if !self.argumentsJson.isEmpty {
+      try visitor.visitSingularStringField(value: self.argumentsJson, fieldNumber: 3)
+    }
+    try unknownFields.traverse(visitor: &visitor)
+  }
+
+  public static func ==(lhs: Teamclaw_RemoteToolInvokeRequest, rhs: Teamclaw_RemoteToolInvokeRequest) -> Bool {
+    if lhs.sessionID != rhs.sessionID {return false}
+    if lhs.toolName != rhs.toolName {return false}
+    if lhs.argumentsJson != rhs.argumentsJson {return false}
+    if lhs.unknownFields != rhs.unknownFields {return false}
+    return true
+  }
+}
+
+nonisolated extension Teamclaw_RpcResponse: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
   public static let protoMessageName: String = _protobuf_package + ".RpcResponse"
-  public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{3}request_id\0\u{1}success\0\u{1}error\0\u{3}requester_client_id\0\u{3}requester_actor_id\0\u{4}\u{5}session_info\0\u{1}idea\0\u{1}claim\0\u{1}submission\0\u{3}session_message_page\0\u{4}\u{6}runtime_start_result\0\u{3}runtime_stop_result\0\u{3}set_model_result\0\u{4}\u{8}announce_peer_result\0\u{3}disconnect_peer_result\0\u{3}remove_member_result\0\u{3}add_workspace_result\0\u{3}remove_workspace_result\0\u{3}fetch_peers_result\0\u{3}fetch_workspaces_result\0\u{c}\u{6}\u{1}")
+  public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{3}request_id\0\u{1}success\0\u{1}error\0\u{3}requester_client_id\0\u{3}requester_actor_id\0\u{4}\u{5}session_info\0\u{1}idea\0\u{1}claim\0\u{1}submission\0\u{3}session_message_page\0\u{4}\u{6}runtime_start_result\0\u{3}runtime_stop_result\0\u{3}set_model_result\0\u{4}\u{8}announce_peer_result\0\u{3}disconnect_peer_result\0\u{3}remove_member_result\0\u{3}add_workspace_result\0\u{3}remove_workspace_result\0\u{3}fetch_peers_result\0\u{3}fetch_workspaces_result\0\u{3}remote_tool_invoke_result\0\u{3}runtime_command_result\0\u{c}\u{6}\u{1}")
 
   fileprivate class _StorageClass {
     var _requestID: String = String()
@@ -2727,6 +3001,32 @@ extension Teamclaw_RpcResponse: SwiftProtobuf.Message, SwiftProtobuf._MessageImp
             _storage._result = .fetchWorkspacesResult(v)
           }
         }()
+        case 37: try {
+          var v: Teamclaw_RemoteToolInvokeResult?
+          var hadOneofValue = false
+          if let current = _storage._result {
+            hadOneofValue = true
+            if case .remoteToolInvokeResult(let m) = current {v = m}
+          }
+          try decoder.decodeSingularMessageField(value: &v)
+          if let v = v {
+            if hadOneofValue {try decoder.handleConflictingOneOf()}
+            _storage._result = .remoteToolInvokeResult(v)
+          }
+        }()
+        case 38: try {
+          var v: Teamclaw_RuntimeCommandResult?
+          var hadOneofValue = false
+          if let current = _storage._result {
+            hadOneofValue = true
+            if case .runtimeCommandResult(let m) = current {v = m}
+          }
+          try decoder.decodeSingularMessageField(value: &v)
+          if let v = v {
+            if hadOneofValue {try decoder.handleConflictingOneOf()}
+            _storage._result = .runtimeCommandResult(v)
+          }
+        }()
         default: break
         }
       }
@@ -2815,6 +3115,14 @@ extension Teamclaw_RpcResponse: SwiftProtobuf.Message, SwiftProtobuf._MessageImp
         guard case .fetchWorkspacesResult(let v)? = _storage._result else { preconditionFailure() }
         try visitor.visitSingularMessageField(value: v, fieldNumber: 36)
       }()
+      case .remoteToolInvokeResult?: try {
+        guard case .remoteToolInvokeResult(let v)? = _storage._result else { preconditionFailure() }
+        try visitor.visitSingularMessageField(value: v, fieldNumber: 37)
+      }()
+      case .runtimeCommandResult?: try {
+        guard case .runtimeCommandResult(let v)? = _storage._result else { preconditionFailure() }
+        try visitor.visitSingularMessageField(value: v, fieldNumber: 38)
+      }()
       case nil: break
       }
     }
@@ -2841,7 +3149,52 @@ extension Teamclaw_RpcResponse: SwiftProtobuf.Message, SwiftProtobuf._MessageImp
   }
 }
 
-extension Teamclaw_CreateSessionRequest: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
+nonisolated extension Teamclaw_RemoteToolInvokeResult: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
+  public static let protoMessageName: String = _protobuf_package + ".RemoteToolInvokeResult"
+  public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{1}success\0\u{3}result_json\0\u{3}error_code\0\u{3}error_message\0")
+
+  public mutating func decodeMessage<D: SwiftProtobuf.Decoder>(decoder: inout D) throws {
+    while let fieldNumber = try decoder.nextFieldNumber() {
+      // The use of inline closures is to circumvent an issue where the compiler
+      // allocates stack space for every case branch when no optimizations are
+      // enabled. https://github.com/apple/swift-protobuf/issues/1034
+      switch fieldNumber {
+      case 1: try { try decoder.decodeSingularBoolField(value: &self.success) }()
+      case 2: try { try decoder.decodeSingularStringField(value: &self.resultJson) }()
+      case 3: try { try decoder.decodeSingularStringField(value: &self.errorCode) }()
+      case 4: try { try decoder.decodeSingularStringField(value: &self.errorMessage) }()
+      default: break
+      }
+    }
+  }
+
+  public func traverse<V: SwiftProtobuf.Visitor>(visitor: inout V) throws {
+    if self.success != false {
+      try visitor.visitSingularBoolField(value: self.success, fieldNumber: 1)
+    }
+    if !self.resultJson.isEmpty {
+      try visitor.visitSingularStringField(value: self.resultJson, fieldNumber: 2)
+    }
+    if !self.errorCode.isEmpty {
+      try visitor.visitSingularStringField(value: self.errorCode, fieldNumber: 3)
+    }
+    if !self.errorMessage.isEmpty {
+      try visitor.visitSingularStringField(value: self.errorMessage, fieldNumber: 4)
+    }
+    try unknownFields.traverse(visitor: &visitor)
+  }
+
+  public static func ==(lhs: Teamclaw_RemoteToolInvokeResult, rhs: Teamclaw_RemoteToolInvokeResult) -> Bool {
+    if lhs.success != rhs.success {return false}
+    if lhs.resultJson != rhs.resultJson {return false}
+    if lhs.errorCode != rhs.errorCode {return false}
+    if lhs.errorMessage != rhs.errorMessage {return false}
+    if lhs.unknownFields != rhs.unknownFields {return false}
+    return true
+  }
+}
+
+nonisolated extension Teamclaw_CreateSessionRequest: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
   public static let protoMessageName: String = _protobuf_package + ".CreateSessionRequest"
   public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{3}session_type\0\u{3}team_id\0\u{1}title\0\u{1}summary\0\u{3}invite_actor_ids\0\u{3}idea_id\0\u{3}sender_actor_id\0")
 
@@ -2901,7 +3254,7 @@ extension Teamclaw_CreateSessionRequest: SwiftProtobuf.Message, SwiftProtobuf._M
   }
 }
 
-extension Teamclaw_JoinSessionRequest: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
+nonisolated extension Teamclaw_JoinSessionRequest: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
   public static let protoMessageName: String = _protobuf_package + ".JoinSessionRequest"
   public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{3}session_id\0\u{1}participant\0")
 
@@ -2940,7 +3293,7 @@ extension Teamclaw_JoinSessionRequest: SwiftProtobuf.Message, SwiftProtobuf._Mes
   }
 }
 
-extension Teamclaw_FetchSessionRequest: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
+nonisolated extension Teamclaw_FetchSessionRequest: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
   public static let protoMessageName: String = _protobuf_package + ".FetchSessionRequest"
   public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{3}session_id\0")
 
@@ -2970,7 +3323,7 @@ extension Teamclaw_FetchSessionRequest: SwiftProtobuf.Message, SwiftProtobuf._Me
   }
 }
 
-extension Teamclaw_FetchSessionMessagesRequest: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
+nonisolated extension Teamclaw_FetchSessionMessagesRequest: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
   public static let protoMessageName: String = _protobuf_package + ".FetchSessionMessagesRequest"
   public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{3}session_id\0\u{3}before_created_at\0\u{3}page_size\0")
 
@@ -3010,7 +3363,7 @@ extension Teamclaw_FetchSessionMessagesRequest: SwiftProtobuf.Message, SwiftProt
   }
 }
 
-extension Teamclaw_SessionMessagePage: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
+nonisolated extension Teamclaw_SessionMessagePage: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
   public static let protoMessageName: String = _protobuf_package + ".SessionMessagePage"
   public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{3}session_id\0\u{1}messages\0\u{3}has_more\0\u{3}next_before_created_at\0")
 
@@ -3055,7 +3408,7 @@ extension Teamclaw_SessionMessagePage: SwiftProtobuf.Message, SwiftProtobuf._Mes
   }
 }
 
-extension Teamclaw_AddParticipantRequest: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
+nonisolated extension Teamclaw_AddParticipantRequest: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
   public static let protoMessageName: String = _protobuf_package + ".AddParticipantRequest"
   public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{3}session_id\0\u{1}participant\0")
 
@@ -3094,7 +3447,7 @@ extension Teamclaw_AddParticipantRequest: SwiftProtobuf.Message, SwiftProtobuf._
   }
 }
 
-extension Teamclaw_RemoveParticipantRequest: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
+nonisolated extension Teamclaw_RemoveParticipantRequest: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
   public static let protoMessageName: String = _protobuf_package + ".RemoveParticipantRequest"
   public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{3}session_id\0\u{3}actor_id\0")
 
@@ -3129,7 +3482,7 @@ extension Teamclaw_RemoveParticipantRequest: SwiftProtobuf.Message, SwiftProtobu
   }
 }
 
-extension Teamclaw_CreateIdeaRequest: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
+nonisolated extension Teamclaw_CreateIdeaRequest: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
   public static let protoMessageName: String = _protobuf_package + ".CreateIdeaRequest"
   public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{3}session_id\0\u{1}title\0\u{1}description\0\u{3}parent_id\0\u{3}sender_actor_id\0\u{3}workspace_id\0")
 
@@ -3184,7 +3537,7 @@ extension Teamclaw_CreateIdeaRequest: SwiftProtobuf.Message, SwiftProtobuf._Mess
   }
 }
 
-extension Teamclaw_ClaimIdeaRequest: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
+nonisolated extension Teamclaw_ClaimIdeaRequest: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
   public static let protoMessageName: String = _protobuf_package + ".ClaimIdeaRequest"
   public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{3}session_id\0\u{3}idea_id\0\u{3}sender_actor_id\0")
 
@@ -3224,7 +3577,7 @@ extension Teamclaw_ClaimIdeaRequest: SwiftProtobuf.Message, SwiftProtobuf._Messa
   }
 }
 
-extension Teamclaw_SubmitIdeaRequest: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
+nonisolated extension Teamclaw_SubmitIdeaRequest: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
   public static let protoMessageName: String = _protobuf_package + ".SubmitIdeaRequest"
   public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{3}session_id\0\u{3}idea_id\0\u{1}content\0\u{3}sender_actor_id\0")
 
@@ -3269,7 +3622,7 @@ extension Teamclaw_SubmitIdeaRequest: SwiftProtobuf.Message, SwiftProtobuf._Mess
   }
 }
 
-extension Teamclaw_UpdateIdeaRequest: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
+nonisolated extension Teamclaw_UpdateIdeaRequest: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
   public static let protoMessageName: String = _protobuf_package + ".UpdateIdeaRequest"
   public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{3}session_id\0\u{3}idea_id\0\u{1}status\0\u{1}title\0\u{1}description\0\u{1}archived\0")
 
@@ -3328,9 +3681,9 @@ extension Teamclaw_UpdateIdeaRequest: SwiftProtobuf.Message, SwiftProtobuf._Mess
   }
 }
 
-extension Teamclaw_RuntimeStartRequest: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
+nonisolated extension Teamclaw_RuntimeStartRequest: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
   public static let protoMessageName: String = _protobuf_package + ".RuntimeStartRequest"
-  public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{3}agent_type\0\u{3}initial_prompt\0\u{3}model_id\0\u{3}workspace_id\0\u{1}worktree\0\u{3}session_id\0")
+  public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{3}agent_type\0\u{3}initial_prompt\0\u{3}model_id\0\u{3}workspace_id\0\u{1}worktree\0\u{3}session_id\0\u{3}remote_tool_capabilities\0")
 
   public mutating func decodeMessage<D: SwiftProtobuf.Decoder>(decoder: inout D) throws {
     while let fieldNumber = try decoder.nextFieldNumber() {
@@ -3344,6 +3697,7 @@ extension Teamclaw_RuntimeStartRequest: SwiftProtobuf.Message, SwiftProtobuf._Me
       case 4: try { try decoder.decodeSingularStringField(value: &self.workspaceID) }()
       case 5: try { try decoder.decodeSingularStringField(value: &self.worktree) }()
       case 6: try { try decoder.decodeSingularStringField(value: &self.sessionID) }()
+      case 7: try { try decoder.decodeRepeatedStringField(value: &self.remoteToolCapabilities) }()
       default: break
       }
     }
@@ -3368,6 +3722,9 @@ extension Teamclaw_RuntimeStartRequest: SwiftProtobuf.Message, SwiftProtobuf._Me
     if !self.sessionID.isEmpty {
       try visitor.visitSingularStringField(value: self.sessionID, fieldNumber: 6)
     }
+    if !self.remoteToolCapabilities.isEmpty {
+      try visitor.visitRepeatedStringField(value: self.remoteToolCapabilities, fieldNumber: 7)
+    }
     try unknownFields.traverse(visitor: &visitor)
   }
 
@@ -3378,12 +3735,13 @@ extension Teamclaw_RuntimeStartRequest: SwiftProtobuf.Message, SwiftProtobuf._Me
     if lhs.workspaceID != rhs.workspaceID {return false}
     if lhs.worktree != rhs.worktree {return false}
     if lhs.sessionID != rhs.sessionID {return false}
+    if lhs.remoteToolCapabilities != rhs.remoteToolCapabilities {return false}
     if lhs.unknownFields != rhs.unknownFields {return false}
     return true
   }
 }
 
-extension Teamclaw_RuntimeStartResult: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
+nonisolated extension Teamclaw_RuntimeStartResult: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
   public static let protoMessageName: String = _protobuf_package + ".RuntimeStartResult"
   public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{1}accepted\0\u{3}runtime_id\0\u{3}session_id\0\u{3}rejected_reason\0")
 
@@ -3428,7 +3786,7 @@ extension Teamclaw_RuntimeStartResult: SwiftProtobuf.Message, SwiftProtobuf._Mes
   }
 }
 
-extension Teamclaw_RuntimeStopRequest: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
+nonisolated extension Teamclaw_RuntimeStopRequest: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
   public static let protoMessageName: String = _protobuf_package + ".RuntimeStopRequest"
   public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{3}runtime_id\0")
 
@@ -3458,7 +3816,7 @@ extension Teamclaw_RuntimeStopRequest: SwiftProtobuf.Message, SwiftProtobuf._Mes
   }
 }
 
-extension Teamclaw_RuntimeStopResult: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
+nonisolated extension Teamclaw_RuntimeStopResult: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
   public static let protoMessageName: String = _protobuf_package + ".RuntimeStopResult"
   public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{1}accepted\0\u{3}rejected_reason\0")
 
@@ -3493,7 +3851,7 @@ extension Teamclaw_RuntimeStopResult: SwiftProtobuf.Message, SwiftProtobuf._Mess
   }
 }
 
-extension Teamclaw_SetModelRequest: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
+nonisolated extension Teamclaw_SetModelRequest: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
   public static let protoMessageName: String = _protobuf_package + ".SetModelRequest"
   public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{3}runtime_id\0\u{3}model_id\0")
 
@@ -3528,7 +3886,7 @@ extension Teamclaw_SetModelRequest: SwiftProtobuf.Message, SwiftProtobuf._Messag
   }
 }
 
-extension Teamclaw_SetModelResult: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
+nonisolated extension Teamclaw_SetModelResult: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
   public static let protoMessageName: String = _protobuf_package + ".SetModelResult"
   public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{1}success\0\u{1}error\0")
 
@@ -3563,7 +3921,7 @@ extension Teamclaw_SetModelResult: SwiftProtobuf.Message, SwiftProtobuf._Message
   }
 }
 
-extension Teamclaw_AnnouncePeerRequest: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
+nonisolated extension Teamclaw_AnnouncePeerRequest: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
   public static let protoMessageName: String = _protobuf_package + ".AnnouncePeerRequest"
   public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{1}peer\0\u{3}auth_token\0")
 
@@ -3602,7 +3960,7 @@ extension Teamclaw_AnnouncePeerRequest: SwiftProtobuf.Message, SwiftProtobuf._Me
   }
 }
 
-extension Teamclaw_AnnouncePeerResult: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
+nonisolated extension Teamclaw_AnnouncePeerResult: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
   public static let protoMessageName: String = _protobuf_package + ".AnnouncePeerResult"
   public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{1}accepted\0\u{1}error\0\u{3}assigned_role\0")
 
@@ -3642,7 +4000,7 @@ extension Teamclaw_AnnouncePeerResult: SwiftProtobuf.Message, SwiftProtobuf._Mes
   }
 }
 
-extension Teamclaw_DisconnectPeerRequest: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
+nonisolated extension Teamclaw_DisconnectPeerRequest: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
   public static let protoMessageName: String = _protobuf_package + ".DisconnectPeerRequest"
   public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{3}peer_id\0")
 
@@ -3672,7 +4030,7 @@ extension Teamclaw_DisconnectPeerRequest: SwiftProtobuf.Message, SwiftProtobuf._
   }
 }
 
-extension Teamclaw_DisconnectPeerResult: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
+nonisolated extension Teamclaw_DisconnectPeerResult: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
   public static let protoMessageName: String = _protobuf_package + ".DisconnectPeerResult"
   public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{1}accepted\0\u{1}error\0")
 
@@ -3707,7 +4065,7 @@ extension Teamclaw_DisconnectPeerResult: SwiftProtobuf.Message, SwiftProtobuf._M
   }
 }
 
-extension Teamclaw_RemoveMemberRequest: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
+nonisolated extension Teamclaw_RemoveMemberRequest: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
   public static let protoMessageName: String = _protobuf_package + ".RemoveMemberRequest"
   public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{3}member_id\0")
 
@@ -3737,7 +4095,7 @@ extension Teamclaw_RemoveMemberRequest: SwiftProtobuf.Message, SwiftProtobuf._Me
   }
 }
 
-extension Teamclaw_RemoveMemberResult: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
+nonisolated extension Teamclaw_RemoveMemberResult: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
   public static let protoMessageName: String = _protobuf_package + ".RemoveMemberResult"
   public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{1}accepted\0\u{1}error\0")
 
@@ -3772,7 +4130,7 @@ extension Teamclaw_RemoveMemberResult: SwiftProtobuf.Message, SwiftProtobuf._Mes
   }
 }
 
-extension Teamclaw_AddWorkspaceRequest: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
+nonisolated extension Teamclaw_AddWorkspaceRequest: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
   public static let protoMessageName: String = _protobuf_package + ".AddWorkspaceRequest"
   public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{1}path\0")
 
@@ -3802,7 +4160,7 @@ extension Teamclaw_AddWorkspaceRequest: SwiftProtobuf.Message, SwiftProtobuf._Me
   }
 }
 
-extension Teamclaw_AddWorkspaceResult: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
+nonisolated extension Teamclaw_AddWorkspaceResult: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
   public static let protoMessageName: String = _protobuf_package + ".AddWorkspaceResult"
   public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{1}accepted\0\u{1}error\0\u{1}workspace\0")
 
@@ -3846,7 +4204,7 @@ extension Teamclaw_AddWorkspaceResult: SwiftProtobuf.Message, SwiftProtobuf._Mes
   }
 }
 
-extension Teamclaw_RemoveWorkspaceRequest: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
+nonisolated extension Teamclaw_RemoveWorkspaceRequest: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
   public static let protoMessageName: String = _protobuf_package + ".RemoveWorkspaceRequest"
   public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{3}workspace_id\0")
 
@@ -3876,7 +4234,7 @@ extension Teamclaw_RemoveWorkspaceRequest: SwiftProtobuf.Message, SwiftProtobuf.
   }
 }
 
-extension Teamclaw_RemoveWorkspaceResult: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
+nonisolated extension Teamclaw_RemoveWorkspaceResult: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
   public static let protoMessageName: String = _protobuf_package + ".RemoveWorkspaceResult"
   public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{1}accepted\0\u{1}error\0")
 
@@ -3911,7 +4269,7 @@ extension Teamclaw_RemoveWorkspaceResult: SwiftProtobuf.Message, SwiftProtobuf._
   }
 }
 
-extension Teamclaw_FetchPeersRequest: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
+nonisolated extension Teamclaw_FetchPeersRequest: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
   public static let protoMessageName: String = _protobuf_package + ".FetchPeersRequest"
   public static let _protobuf_nameMap = SwiftProtobuf._NameMap()
 
@@ -3930,7 +4288,7 @@ extension Teamclaw_FetchPeersRequest: SwiftProtobuf.Message, SwiftProtobuf._Mess
   }
 }
 
-extension Teamclaw_FetchPeersResult: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
+nonisolated extension Teamclaw_FetchPeersResult: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
   public static let protoMessageName: String = _protobuf_package + ".FetchPeersResult"
   public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{1}peers\0")
 
@@ -3960,7 +4318,7 @@ extension Teamclaw_FetchPeersResult: SwiftProtobuf.Message, SwiftProtobuf._Messa
   }
 }
 
-extension Teamclaw_FetchWorkspacesRequest: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
+nonisolated extension Teamclaw_FetchWorkspacesRequest: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
   public static let protoMessageName: String = _protobuf_package + ".FetchWorkspacesRequest"
   public static let _protobuf_nameMap = SwiftProtobuf._NameMap()
 
@@ -3979,7 +4337,7 @@ extension Teamclaw_FetchWorkspacesRequest: SwiftProtobuf.Message, SwiftProtobuf.
   }
 }
 
-extension Teamclaw_FetchWorkspacesResult: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
+nonisolated extension Teamclaw_FetchWorkspacesResult: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
   public static let protoMessageName: String = _protobuf_package + ".FetchWorkspacesResult"
   public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{1}workspaces\0")
 
@@ -4009,7 +4367,7 @@ extension Teamclaw_FetchWorkspacesResult: SwiftProtobuf.Message, SwiftProtobuf._
   }
 }
 
-extension Teamclaw_Notify: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
+nonisolated extension Teamclaw_Notify: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
   public static let protoMessageName: String = _protobuf_package + ".Notify"
   public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{3}event_type\0\u{3}refresh_hint\0\u{3}sent_at\0")
 

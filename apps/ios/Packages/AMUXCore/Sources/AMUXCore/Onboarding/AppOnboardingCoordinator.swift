@@ -369,11 +369,6 @@ public final class AppOnboardingCoordinator {
                 try await store.accessToken()
             }
         }
-        let cloudAPIAgentRuntimesRepo: (any AgentRuntimesRepository)? = cloudAPIConfig.map { config in
-            CloudAPIRepositoryFactory.agentRuntimesRepository(configuration: config) { [store] in
-                try await store.accessToken()
-            }
-        }
         let cloudAPIWorkspacesRepo: (any WorkspaceRepository)? = cloudAPIConfig.map { config in
             CloudAPIRepositoryFactory.workspacesRepository(configuration: config) { [store] in
                 try await store.accessToken()
@@ -421,7 +416,6 @@ public final class AppOnboardingCoordinator {
             sessionIDsRepo: cloudAPISessionIDsRepo,
             sessionsRepo: cloudAPISessionsRepo,
             messagesRepo: cloudAPIMessagesRepo,
-            agentRuntimesRepo: cloudAPIAgentRuntimesRepo,
             workspacesRepo: cloudAPIWorkspacesRepo,
             agentAccessRepo: agentAccessRepo,
             teamRepo: cloudAPITeamRepo,
@@ -450,7 +444,6 @@ public final class AppOnboardingCoordinator {
             try modelContext.delete(model: Runtime.self)
             try modelContext.delete(model: AgentEvent.self)
             try modelContext.delete(model: CachedActor.self)
-            try modelContext.delete(model: CachedAgentRuntime.self)
             try modelContext.delete(model: Workspace.self)
             try modelContext.delete(model: Session.self)
             try modelContext.delete(model: SessionMessage.self)

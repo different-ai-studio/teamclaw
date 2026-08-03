@@ -164,25 +164,34 @@ export function bindingsFromCacheRows(
   return bindings;
 }
 
+/**
+ * Workspace bindings for one session, from its participant rows.
+ *
+ * This used to pull every runtime row in the team and filter client-side —
+ * the query that reached 1306 rows and produced a 48KB URL. The workspace
+ * belongs to the participant now (ADR-0005), so one session costs one call.
+ */
 async function bindingsFromRuntimes(
   teamId: string,
   sessionId: string,
   viewer: ViewerWorkspaceContext,
 ): Promise<ViewerSessionBinding[]> {
-  const { listDaemonRuntimes } = await import("@/lib/daemon-runtimes");
-  const runtimes = await listDaemonRuntimes(teamId).catch(() => []);
+  const { getBackend } = await import("@/lib/backend");
+  const participants = await getBackend()
+    .sessions.getSessionParticipants(sessionId)
+    .catch(() => []);
+  const now = new Date().toISOString();
   const bindings: ViewerSessionBinding[] = [];
 
-  for (const rt of runtimes) {
-    if (rt.sessionId !== sessionId) continue;
-    if (!isViewerAgent(rt.agentId, viewer)) continue;
-    const cloudId = rt.workspaceId?.trim();
+  for (const row of participants) {
+    if (!isViewerAgent(row.actor_id, viewer)) continue;
+    const cloudId = row.workspaceId?.trim();
     if (!cloudId) continue;
     bindings.push({
-      agentId: rt.agentId,
+      agentId: row.actor_id,
       cloudWorkspaceId: cloudId,
       localPath: resolveLocalPathForCloudWorkspace(cloudId, viewer),
-      updatedAt: rt.updatedAt,
+      updatedAt: now,
     });
   }
   return bindings;

@@ -183,7 +183,33 @@ message RpcRequest {
     FetchPeersRequest fetch_peers = 45;
     FetchWorkspacesRequest fetch_workspaces = 46;
     RemoteToolInvokeRequest remote_tool_invoke = 47;
+    RuntimeCommandRequest runtime_command = 48;
   }
+}
+
+// An AcpCommand addressed by (actor, session) instead of by a spawn id.
+//
+// Replaces the `{actor}/runtime/{runtime_id}/commands` topic, which had two
+// problems this shape removes (ADR-0003):
+//
+//   1. `runtime_id` is minted per spawn and goes stale the moment it is
+//      written down. A cancel sent to a dead spawn's topic was dropped by a
+//      daemon that no longer knew that id — see
+//      docs/debug/interrupt-agent-stale-runtime.md.
+//   2. That topic had no reply path, so the drop was silent. Riding on
+//      RpcRequest means every command gets an RpcResponse.
+//
+// `session_id` is the TeamClaw session; the daemon resolves it to whichever
+// Attachment currently serves it, of which there is at most one.
+message RuntimeCommandRequest {
+  string session_id = 1;
+  amux.RuntimeCommandEnvelope envelope = 2;
+}
+
+message RuntimeCommandResult {
+  // False when this daemon holds no Attachment for `session_id` — the session
+  // is cold. Callers must not report the command as delivered.
+  bool dispatched = 1;
 }
 
 message RemoteToolInvokeRequest {
@@ -221,6 +247,7 @@ message RpcResponse {
     FetchPeersResult fetch_peers_result = 35;
     FetchWorkspacesResult fetch_workspaces_result = 36;
     RemoteToolInvokeResult remote_tool_invoke_result = 37;
+    RuntimeCommandResult runtime_command_result = 38;
   }
 }
 

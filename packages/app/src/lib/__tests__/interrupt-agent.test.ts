@@ -5,10 +5,22 @@ import type { RuntimeStateEntry } from "@/stores/runtime-state-store";
 import { useV2StreamingStore } from "@/stores/v2-streaming-store";
 
 const mqttPublish = vi.fn().mockResolvedValue(undefined);
-const listRuntimeTargetsForSession = vi.fn().mockResolvedValue([
-  { agent_id: "agent-a", runtime_id: "rt-abcd" },
-]);
 const mockByRuntimeId: Record<string, RuntimeStateEntry> = {};
+
+/** A retain entry as the daemon files it: keyed by session id. */
+function seedAttachment(sessionId: string, runtimeId: string) {
+  mockByRuntimeId[`agent-a::${sessionId}`] = {
+    daemonActorId: "agent-a",
+    lastUpdated: Date.now(),
+    info: {
+      runtimeId,
+      agentType: AgentType.OPENCODE,
+      availableModels: [],
+      currentModel: "",
+      state: RuntimeLifecycle.ACTIVE,
+    } as RuntimeStateEntry["info"],
+  };
+}
 
 vi.mock("@/lib/mqtt-bridge", () => ({
   mqttPublish: (...args: unknown[]) => mqttPublish(...args),
@@ -20,10 +32,6 @@ vi.mock("@/lib/backend", () => ({
       listParticipants: vi.fn().mockResolvedValue([
         { id: "agent-a", actor_type: "agent" },
       ]),
-    },
-    runtime: {
-      listRuntimeTargetsForSession: (...args: unknown[]) =>
-        listRuntimeTargetsForSession(...args),
     },
   }),
 }));
@@ -37,11 +45,13 @@ vi.mock("@/stores/current-team", () => ({
   },
 }));
 
-vi.mock("@/stores/runtime-state-store", () => ({
-  useRuntimeStateStore: {
-    getState: () => ({ byRuntimeId: mockByRuntimeId }),
-  },
-}));
+vi.mock("@/stores/runtime-state-store", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/stores/runtime-state-store")>();
+  return {
+    ...actual,
+    useRuntimeStateStore: { getState: () => ({ byRuntimeId: mockByRuntimeId }) },
+  };
+});
 
 const discardPendingStreamReply = vi.fn();
 
@@ -60,13 +70,10 @@ describe("interruptAgentActor", () => {
   beforeEach(() => {
     mqttPublish.mockClear();
     discardPendingStreamReply.mockClear();
-    listRuntimeTargetsForSession.mockReset();
-    listRuntimeTargetsForSession.mockResolvedValue([
-      { agent_id: "agent-a", runtime_id: "rt-abcd" },
-    ]);
     for (const key of Object.keys(mockByRuntimeId)) {
       delete mockByRuntimeId[key];
     }
+    seedAttachment("session-1", "rt-abcd");
     useV2StreamingStore.setState({
       byKey: {},
       archived: [],
@@ -95,22 +102,13 @@ describe("interruptAgentActor", () => {
     ).toBe(true);
   });
 
-  it("prefers live MQTT retain when registered for the session and DB row is stale", async () => {
-    listRuntimeTargetsForSession.mockResolvedValueOnce([
-      { agent_id: "agent-a", runtime_id: "stale-spawn" },
-      { agent_id: "agent-a", runtime_id: "live-spawn" },
-    ]);
-    mockByRuntimeId["live-spawn"] = {
-      daemonActorId: "agent-a",
-      lastUpdated: Date.now(),
-      info: {
-        runtimeId: "live-spawn",
-        agentType: AgentType.OPENCODE,
-        availableModels: [],
-        currentModel: "",
-        state: RuntimeLifecycle.ACTIVE,
-      } as RuntimeStateEntry["info"],
-    };
+  it("never reaches for another session's attachment", async () => {
+    // This replaces a test for "prefers the live retain when the DB row is
+    // stale". There is no DB row to be stale: the retain keys attachments by
+    // session and holds exactly one, so there is nothing to choose between —
+    // which is what made the original bug possible
+    // (docs/debug/interrupt-agent-stale-runtime.md).
+    seedAttachment("some-other-session", "wrong-spawn");
 
     await interruptAgentActor({
       sessionId: "session-1",
@@ -118,11 +116,12 @@ describe("interruptAgentActor", () => {
     });
 
     const [topic] = mqttPublish.mock.calls[0] as [string, Uint8Array];
-    expect(topic).toBe("amux/team-1/agent-a/runtime/live-spawn/commands");
+    expect(topic).toBe("amux/team-1/agent-a/runtime/rt-abcd/commands");
   });
 
-  it("cleans up locally when runtime target cannot be resolved", async () => {
-    listRuntimeTargetsForSession.mockResolvedValueOnce([]);
+  it("cleans up locally when the session is cold", async () => {
+    // No attachment for this session — absence is the answer, not a failure.
+    delete mockByRuntimeId["agent-a::session-1"];
 
     await expect(
       interruptAgentActor({

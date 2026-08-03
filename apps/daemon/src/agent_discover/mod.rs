@@ -122,6 +122,7 @@ mod tests {
             team_id: None,
             channels: Default::default(),
             idle_runtime_timeout_secs: None,
+            max_attachments: None,
             http: None,
         }
     }

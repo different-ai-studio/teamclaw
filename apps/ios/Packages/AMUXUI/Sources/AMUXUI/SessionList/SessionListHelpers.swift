@@ -209,8 +209,7 @@ struct SessionListContent: View {
 
     @ViewBuilder
     private func sessionRow(_ session: Session) -> some View {
-        let cached = cachedAgentRuntime(for: session)
-        let runtime = liveRuntime(for: cached)
+        let runtime = liveRuntime(for: session)
         HStack(spacing: 10) {
             if isEditing {
                 Image(systemName: selectedIDs.contains(session.sessionId) ? "checkmark.circle.fill" : "circle")
@@ -221,8 +220,7 @@ struct SessionListContent: View {
             AgentRowView(
                 session: session,
                 runtime: runtime,
-                cachedRuntime: cached,
-                workspaceName: workspaceName(runtime: runtime, cached: cached),
+                workspaceName: workspaceName(runtime: runtime),
                 participants: participantPreviews(for: session),
                 isMuted: notificationPrefsStore?.isMuted(session.sessionId) ?? false
             )
@@ -297,25 +295,28 @@ struct SessionListContent: View {
         }
     }
 
-    /// Most-recently-updated `agent_runtimes` row that serves this session.
-    /// Provides backend type + workspace + status when MQTT is offline.
-    private func cachedAgentRuntime(for session: Session) -> CachedAgentRuntime? {
-        viewModel.cachedAgentRuntimes
-            .filter { $0.sessionId == session.sessionId }
-            .max(by: { $0.updatedAt < $1.updatedAt })
+    /// The `Runtime` snapshot serving this session.
+    ///
+    /// Resolves by session id first: `ActorPresence.live_sessions` is keyed
+    /// that way, and exactly one attachment serves a session at a time. The
+    /// `cached.runtimeId` bridge below is the old path — a spawn id that went
+    /// stale the moment it was written down, which is what made a cancel land
+    /// on a dead runtime (docs/debug/interrupt-agent-stale-runtime.md).
+    private func liveRuntime(for session: Session) -> Runtime? {
+        // Rows are keyed (actor, session); a session whose agents live on two
+        // machines has one row per machine. The list row shows one, so take the
+        // most recently active.
+        let suffix = "::\(session.sessionId)"
+        return viewModel.runtimes
+            .filter { $0.runtimeId.hasSuffix(suffix) }
+            .max(by: { $0.lastEventTime < $1.lastEventTime })
     }
 
-    /// Bridge from a Supabase `agent_runtimes` row to its MQTT-published
-    /// `Runtime` snapshot via `runtime_id` (the daemon's 8-char id, distinct
-    /// from `backend_session_id`'s 36-char ACP session id). Nil when the
-    /// daemon is offline or hasn't published yet.
-    private func liveRuntime(for cached: CachedAgentRuntime?) -> Runtime? {
-        guard let bridge = cached?.runtimeId, !bridge.isEmpty else { return nil }
-        return viewModel.runtimes.first(where: { $0.runtimeId == bridge })
-    }
-
-    private func workspaceName(runtime: Runtime?, cached: CachedAgentRuntime?) -> String {
-        guard let id = cached?.workspaceId, !id.isEmpty else { return "" }
+    /// Prefers the live runtime's workspace: it comes from the attachment the
+    /// daemon currently holds, where the cached row may describe a spawn that
+    /// has since been replaced.
+    private func workspaceName(runtime: Runtime?) -> String {
+        guard let id = runtime?.workspaceId, !id.isEmpty else { return "" }
         return viewModel.workspaces.first(where: { $0.workspaceId == id })?.displayName ?? ""
     }
 
@@ -330,7 +331,6 @@ struct SessionListContent: View {
 struct AgentRowView: View {
     let session: Session
     let runtime: Runtime?
-    let cachedRuntime: CachedAgentRuntime?
     let workspaceName: String
     let participants: [ParticipantPreview]
     let isMuted: Bool
@@ -338,14 +338,12 @@ struct AgentRowView: View {
     init(
         session: Session,
         runtime: Runtime? = nil,
-        cachedRuntime: CachedAgentRuntime? = nil,
         workspaceName: String = "",
         participants: [ParticipantPreview] = [],
         isMuted: Bool = false
     ) {
         self.session = session
         self.runtime = runtime
-        self.cachedRuntime = cachedRuntime
         self.workspaceName = workspaceName
         self.participants = participants
         self.isMuted = isMuted
@@ -364,25 +362,16 @@ struct AgentRowView: View {
     // Either is sufficient to surface a red dot.
     private var isUnread: Bool { (runtime?.hasUnread ?? false) || session.hasUnread }
 
-    private var isRunning: Bool {
-        if let runtime { return runtime.status == 2 }
-        return cachedRuntime?.status == "running"
-    }
-    private var isStarting: Bool {
-        if let runtime { return runtime.status == 1 }
-        return cachedRuntime?.status == "starting"
-    }
-    private var isStopped: Bool {
-        if let runtime { return runtime.status == 5 }
-        return cachedRuntime?.status == "stopped" || cachedRuntime?.status == "failed"
-    }
+    // No `agent_runtimes` fallback behind these any more: absence of a live
+    // Runtime row means the session is cold, which is exactly what the neutral
+    // rendering below says.
+    private var isRunning: Bool { runtime?.status == 2 }
+    private var isStarting: Bool { runtime?.status == 1 }
+    private var isStopped: Bool { runtime?.status == 5 }
 
     private var statusLabel: String {
-        if let runtime, runtime.status != 0 { return runtime.statusLabel }
-        if let raw = cachedRuntime?.status, !raw.isEmpty {
-            return raw.prefix(1).uppercased() + raw.dropFirst()
-        }
-        return ""
+        guard let runtime, runtime.status != 0 else { return "" }
+        return runtime.statusLabel
     }
 
     private var statusForeground: Color {
@@ -411,12 +400,14 @@ struct AgentRowView: View {
 
     private var agentBadge: AgentBadge {
         let bg = Color.amux.pebble
-        switch cachedRuntime?.backendType {
-        case "claude":
+        // Backend now comes off the live Runtime row's Amux_AgentType raw
+        // value, which the actor retain fills from the actor's active backend.
+        switch runtime?.agentType {
+        case 1:
             return AgentBadge(background: bg, foreground: Color.amux.cinnabar, glyph: "CC")
-        case "opencode":
+        case 2:
             return AgentBadge(background: bg, foreground: Color.amux.basalt, glyph: "OC")
-        case "codex":
+        case 3:
             return AgentBadge(background: bg, foreground: Color.amux.basalt, glyph: "CX")
         default:
             return AgentBadge(background: bg, foreground: Color.amux.slate, glyph: fallbackGlyph)

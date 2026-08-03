@@ -54,9 +54,8 @@ pub mod deferred;
 
 pub mod records;
 pub use records::{
-    AgentRuntimeRow, AgentRuntimeUpsert, BackendParticipantRow, BackendSessionAndParticipants,
-    BackendSessionRow, ClaimResult, GatewaySessionRow, StoredMessage, WorkspaceRow,
-    WorkspaceUpsert,
+    BackendParticipantRow, BackendSessionAndParticipants, BackendSessionRow, ClaimResult,
+    GatewaySessionRow, StoredMessage, WorkspaceRow, WorkspaceUpsert,
 };
 
 /// MQTT settings delivered by `/v1/config/bootstrap`. The full broker URL
@@ -242,27 +241,22 @@ pub trait Backend: Send + Sync {
     #[allow(dead_code)]
     async fn claim_team_invite(&self, token: &str) -> BackendResult<ClaimResult>;
 
-    /// Upsert an `agent_runtimes` row keyed on `(agent_id, backend_session_id)`.
-    /// Returns the row id when the response carries one.
-    async fn upsert_agent_runtime(
+    /// The workspace `actor_id` works in for `session_id`, from its
+    /// participant row. `None` when unset — callers fall back to the agent's
+    /// default workspace, the same path a brand-new session takes.
+    async fn fetch_session_workspace(
         &self,
-        row: &AgentRuntimeUpsert<'_>,
+        session_id: &str,
+        actor_id: &str,
     ) -> BackendResult<Option<String>>;
 
-    /// Fetch one `agent_runtimes` row for an exact runtime/backend session.
-    async fn fetch_agent_runtime_for_session(
+    /// How far `actor_id` has read in `session_id`, from its participant row.
+    /// `None` when there is no participant row or no cursor recorded yet.
+    async fn fetch_session_cursor(
         &self,
         session_id: &str,
-        runtime_id: &str,
-        backend_session_id: &str,
-    ) -> BackendResult<Option<AgentRuntimeRow>>;
-
-    /// Fetch the newest `agent_runtimes` row for `(agent_id, session_id)`.
-    async fn fetch_latest_runtime_for_session(
-        &self,
-        agent_id: &str,
-        session_id: &str,
-    ) -> BackendResult<Option<AgentRuntimeRow>>;
+        actor_id: &str,
+    ) -> BackendResult<Option<String>>;
 
     /// Advertise daemon-supported agent backend types on its `agents` row.
     async fn ensure_agent_types(
@@ -351,10 +345,12 @@ pub trait Backend: Send + Sync {
         after_id: Option<&str>,
     ) -> BackendResult<Vec<StoredMessage>>;
 
-    /// Persist the per-runtime read cursor by PATCHing `agent_runtimes`.
-    async fn update_runtime_cursor(
+    /// Persist the read cursor on the participant row that owns it (ADR-0005),
+    /// addressed by (session, actor) rather than by a per-spawn row id.
+    async fn update_session_cursor(
         &self,
-        runtime_row_id: &str,
+        session_id: &str,
+        actor_id: &str,
         last_processed_message_id: &str,
     ) -> BackendResult<()>;
 

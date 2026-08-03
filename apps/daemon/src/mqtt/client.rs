@@ -110,10 +110,13 @@ impl MqttClient {
         // LWT: publish offline status if daemon disconnects unexpectedly
         let team_id = config.team_id.as_deref().unwrap_or("teamclaw");
         let topics = Topics::new(team_id, &config.actor.id);
+        // The will says "this actor is gone"; the catalog and live-session
+        // fields are deliberately empty — a dead daemon holds no attachments.
         let lwt_payload = ActorPresence {
             online: false,
             display_name: config.actor.name.clone(),
             timestamp: chrono::Utc::now().timestamp(),
+            ..Default::default()
         };
         // LWT fires on amux/{team}/{actor}/state. Legacy /status topic has
         // been retired; subscribers treat offline-on-/state as authoritative
@@ -150,6 +153,7 @@ impl MqttClient {
             online: true,
             display_name: display_name.into(),
             timestamp: chrono::Utc::now().timestamp(),
+            ..Default::default()
         };
         self.client
             .publish(
@@ -191,6 +195,7 @@ mod tests {
             team_id: Some("team-uuid-1234".into()),
             channels: Default::default(),
             idle_runtime_timeout_secs: None,
+            max_attachments: None,
             http: None,
         }
     }

@@ -121,6 +121,9 @@ impl DaemonServer {
             Some(Method::RuntimeStop(s)) => self.handle_stop_runtime(&request, s).await,
             Some(Method::RuntimeStart(s)) => self.handle_start_runtime(&request, s).await,
             Some(Method::SetModel(s)) => self.handle_set_model(&request, s).await,
+            Some(Method::RuntimeCommand(c)) => {
+                self.handle_runtime_command_rpc(&request, c.clone()).await
+            }
             Some(Method::RemoteToolInvoke(_)) => not_yet_implemented(
                 &request,
                 "RemoteToolInvoke is handled by clients, not daemon",
@@ -377,6 +380,81 @@ impl DaemonServer {
                 warn!(%e, actor_id = %sender_actor_id, "cloud permission check failed; denying");
                 amux::MemberRole::Member
             }
+        }
+    }
+
+    /// Session-addressed twin of [`Self::handle_agent_command`], reached over
+    /// `rpc/req` instead of the per-spawn commands topic.
+    ///
+    /// The whole point is the reply: the old topic had no response path, so a
+    /// command aimed at a spawn this daemon no longer knows was dropped with
+    /// nothing but a `warn!` — the user saw a stop button that did nothing
+    /// (docs/debug/interrupt-agent-stale-runtime.md). Here, "no Attachment for
+    /// that session" is an answer the caller receives.
+    pub(crate) async fn handle_runtime_command_rpc(
+        &mut self,
+        request: &crate::proto::teamclaw::RpcRequest,
+        command: crate::proto::teamclaw::RuntimeCommandRequest,
+    ) -> crate::proto::teamclaw::RpcResponse {
+        use crate::proto::teamclaw::{rpc_response, RpcResponse, RuntimeCommandResult};
+
+        let session_id = command.session_id.trim().to_string();
+        if session_id.is_empty() {
+            return RpcResponse {
+                request_id: request.request_id.clone(),
+                success: false,
+                error: "runtime_command requires session_id".into(),
+                requester_client_id: request.requester_client_id.clone(),
+                requester_actor_id: request.requester_actor_id.clone(),
+                result: None,
+            };
+        }
+
+        let Some(envelope) = command.envelope else {
+            return RpcResponse {
+                request_id: request.request_id.clone(),
+                success: false,
+                error: "runtime_command requires envelope".into(),
+                requester_client_id: request.requester_client_id.clone(),
+                requester_actor_id: request.requester_actor_id.clone(),
+                result: None,
+            };
+        };
+
+        let agent_id = {
+            let agents = self.agents.lock().await;
+            agents
+                .attachment_for_session(&session_id)
+                .map(|h| h.agent_id.clone())
+        };
+
+        let Some(agent_id) = agent_id else {
+            // Not an error: the session is simply cold. The caller needs to
+            // know the difference so it can stop waiting for a state change
+            // that will never arrive.
+            return RpcResponse {
+                request_id: request.request_id.clone(),
+                success: true,
+                error: String::new(),
+                requester_client_id: request.requester_client_id.clone(),
+                requester_actor_id: request.requester_actor_id.clone(),
+                result: Some(rpc_response::Result::RuntimeCommandResult(
+                    RuntimeCommandResult { dispatched: false },
+                )),
+            };
+        };
+
+        self.handle_agent_command(&agent_id, envelope).await;
+
+        RpcResponse {
+            request_id: request.request_id.clone(),
+            success: true,
+            error: String::new(),
+            requester_client_id: request.requester_client_id.clone(),
+            requester_actor_id: request.requester_actor_id.clone(),
+            result: Some(rpc_response::Result::RuntimeCommandResult(
+                RuntimeCommandResult { dispatched: true },
+            )),
         }
     }
 

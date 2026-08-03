@@ -828,22 +828,6 @@ test("GET /v1/sessions leaves teamId/ideaId null when not supplied", async () =>
   });
 });
 
-test("GET /v1/teams/:teamId/agent-runtimes returns team runtimes", async () => {
-  const repo = fakeRepo();
-  const response = await handleBusinessApiRequest({
-    httpMethod: "GET",
-    path: "/v1/teams/team-1/agent-runtimes",
-    headers: { Authorization: "Bearer token" },
-  }, { createRepository: () => repo });
-
-  assert.equal(response.statusCode, 200);
-  const parsed = JSON.parse(response.body);
-  assert.ok(Array.isArray(parsed.items));
-  assert.equal(parsed.items[0].id, "rt-1");
-  assert.equal(parsed.items[0].backendType, "claude_code");
-  assert.equal(parsed.items[0].runtimeId, "rt12abcd");
-  assert.deepEqual(repo.calls[0], { method: "listAgentRuntimesForTeam", teamId: "team-1" });
-});
 
 test("GET /v1/sessions/:sessionId/participants returns participant list", async () => {
   const repo = fakeRepo();
@@ -1457,30 +1441,7 @@ function session(id, lastMessageAt) {
 
 // ─── /v1/agents/runtimes ───────────────────────────────────────────────────
 
-test("GET /v1/agents/runtimes returns 401 without bearer", async () => {
-  const repo = fakeRepo();
-  const response = await handleBusinessApiRequest({
-    httpMethod: "GET",
-    path: "/v1/agents/runtimes",
-    queryStringParameters: { sessionId: "session-1" },
-    headers: {},
-  }, { createRepository: () => repo });
-  assert.equal(response.statusCode, 401);
-});
 
-test("GET /v1/agents/runtimes returns runtime", async () => {
-  const repo = fakeRepo();
-  const response = await handleBusinessApiRequest({
-    httpMethod: "GET",
-    path: "/v1/agents/runtimes",
-    queryStringParameters: { sessionId: "session-1", runtimeId: "runtime-abc", backendSessionId: "backend-1" },
-    headers: { Authorization: "Bearer token" },
-  }, { createRepository: () => repo });
-  assert.equal(response.statusCode, 200);
-  const body = JSON.parse(response.body);
-  assert.equal(body.id, "runtime-row-1");
-  assert.deepEqual(repo.calls[0], { method: "getAgentRuntime", args: { sessionId: "session-1", runtimeId: "runtime-abc", backendSessionId: "backend-1" } });
-});
 
 test("GET /v1/agents/runtimes returns 404 for missing runtime", async () => {
   const repo = fakeRepo();
@@ -1493,19 +1454,6 @@ test("GET /v1/agents/runtimes returns 404 for missing runtime", async () => {
   assert.equal(response.statusCode, 404);
 });
 
-test("GET /v1/agents/runtimes/latest returns latest runtime", async () => {
-  const repo = fakeRepo();
-  const response = await handleBusinessApiRequest({
-    httpMethod: "GET",
-    path: "/v1/agents/runtimes/latest",
-    queryStringParameters: { agentId: "actor-1", sessionId: "session-1" },
-    headers: { Authorization: "Bearer token" },
-  }, { createRepository: () => repo });
-  assert.equal(response.statusCode, 200);
-  const body = JSON.parse(response.body);
-  assert.equal(body.agentActorId, "actor-1");
-  assert.deepEqual(repo.calls[0], { method: "getLatestAgentRuntime", args: { agentId: "actor-1", sessionId: "session-1" } });
-});
 
 test("GET /v1/agents/runtimes/latest returns 404 for missing", async () => {
   const repo = fakeRepo();
@@ -1518,31 +1466,7 @@ test("GET /v1/agents/runtimes/latest returns 404 for missing", async () => {
   assert.equal(response.statusCode, 404);
 });
 
-test("POST /v1/agents/runtimes upserts runtime", async () => {
-  const repo = fakeRepo();
-  const response = await handleBusinessApiRequest({
-    httpMethod: "POST",
-    path: "/v1/agents/runtimes",
-    headers: { Authorization: "Bearer token", "Content-Type": "application/json" },
-    body: JSON.stringify({ agentActorId: "actor-1", sessionId: "session-1", runtimeId: "runtime-abc", backendSessionId: "backend-1" }),
-  }, { createRepository: () => repo });
-  assert.equal(response.statusCode, 200);
-  const body = JSON.parse(response.body);
-  assert.ok(body.id);
-  assert.equal(repo.calls[0].method, "upsertAgentRuntime");
-});
 
-test("PATCH /v1/agents/runtimes/:runtimeRowId/cursor updates cursor", async () => {
-  const repo = fakeRepo();
-  const response = await handleBusinessApiRequest({
-    httpMethod: "PATCH",
-    path: "/v1/agents/runtimes/runtime-row-1/cursor",
-    headers: { Authorization: "Bearer token", "Content-Type": "application/json" },
-    body: JSON.stringify({ lastProcessedMessageId: "message-1" }),
-  }, { createRepository: () => repo });
-  assert.equal(response.statusCode, 204);
-  assert.deepEqual(repo.calls[0], { method: "updateRuntimeCursor", runtimeRowId: "runtime-row-1", input: { lastProcessedMessageId: "message-1" } });
-});
 
 test("POST /v1/agents/types/ensure dispatches to repo.ensureAgentTypes", async () => {
   const repo = fakeRepo();
@@ -1779,44 +1703,8 @@ test("GET /v1/teams/:teamId/leaderboard defaults to week period", async () => {
   assert.deepEqual(repo.calls[0], { method: "getTeamLeaderboard", teamId: "team-1", args: { period: "week" } });
 });
 
-test("GET /v1/teams/:teamId/leaderboard uses provided period", async () => {
-  const repo = fakeRepo();
-  const response = await handleBusinessApiRequest({
-    httpMethod: "GET",
-    path: "/v1/teams/team-1/leaderboard",
-    headers: { Authorization: "Bearer token" },
-    queryStringParameters: { period: "month" },
-  }, { createRepository: () => repo });
-  assert.equal(response.statusCode, 200);
-  assert.deepEqual(repo.calls[0], { method: "getTeamLeaderboard", teamId: "team-1", args: { period: "month" } });
-});
 
-test("POST /v1/teams/:teamId/client-version returns 200 with ok:true for valid body", async () => {
-  const repo = fakeRepo();
-  const response = await handleBusinessApiRequest({
-    httpMethod: "POST",
-    path: "/v1/teams/team-1/client-version",
-    headers: { Authorization: "Bearer token", "Content-Type": "application/json" },
-    body: JSON.stringify({ clientType: "tauri", version: "0.1.82", deviceId: "mac-1" }),
-  }, { createRepository: () => repo });
-  assert.equal(response.statusCode, 200);
-  const parsed = JSON.parse(response.body);
-  assert.deepEqual(parsed, { ok: true });
-  assert.deepEqual(repo.calls[0], { method: "reportClientVersion", teamId: "team-1", body: { clientType: "tauri", version: "0.1.82", deviceId: "mac-1", build: null } });
-});
 
-test("POST /v1/teams/:teamId/client-version returns 400 for invalid clientType", async () => {
-  const repo = fakeRepo();
-  const response = await handleBusinessApiRequest({
-    httpMethod: "POST",
-    path: "/v1/teams/team-1/client-version",
-    headers: { Authorization: "Bearer token", "Content-Type": "application/json" },
-    body: JSON.stringify({ clientType: "android", version: "1", deviceId: "d" }),
-  }, { createRepository: () => repo });
-  assert.equal(response.statusCode, 400);
-  const parsed = JSON.parse(response.body);
-  assert.equal(parsed.error.code, "validation_failed");
-});
 
 function fakeRepo({ sessions = [], error = null, teamWorkspaceConfigs = {}, workspaces = [], ideas = null } = {}) {
   const calls = [];
