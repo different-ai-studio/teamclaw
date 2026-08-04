@@ -88,21 +88,11 @@ impl DaemonServer {
         let default_workspace_models = if default_worktree.is_empty() {
             Vec::new()
         } else {
-            let mut agents = self.agents.lock().await;
-            match agents
-                .probe_catalog_models(std::path::Path::new(&default_worktree))
-                .await
-            {
-                Ok(models) => models,
-                Err(e) => {
-                    tracing::warn!(
-                        worktree = %default_worktree,
-                        error = %e,
-                        "default workspace catalog probe failed; publishing empty list"
-                    );
-                    Vec::new()
-                }
-            }
+            RuntimeManager::probe_default_workspace_catalog(
+                Arc::clone(&self.agents),
+                std::path::PathBuf::from(&default_worktree),
+            )
+            .await
         };
 
         let (active_agent_type, catalog_models, worktrees, live_sessions) = {

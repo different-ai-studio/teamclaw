@@ -778,6 +778,9 @@ export function ChatPanel({ compact = false }: ChatPanelProps) {
   const activePickEntry = useAgentModelPickStore((s) =>
     modelAgentId ? s.bySessionAgent[`${modelPickScopeId}::${modelAgentId}`] : undefined,
   );
+  const remoteDefaultCatalogModels = useRuntimeStateStore((s) =>
+    modelAgentId ? s.defaultCatalogByActorId[modelAgentId]?.models : undefined,
+  );
   const activeSessionModelId = React.useMemo(() => {
     if (!modelAgentId) return "";
     const available = resolveAgentCatalogModels({
@@ -787,8 +790,7 @@ export function ChatPanel({ compact = false }: ChatPanelProps) {
       byRuntimeId: runtimeStates,
       runtimeInfo: resolveRuntimeStateEntryForAgent(modelAgentId, runtimeStates)?.info,
       localWorkspaceCatalogModels: localDaemonCatalog?.models,
-      remoteDefaultCatalogModels:
-        useRuntimeStateStore.getState().defaultCatalogByActorId[modelAgentId]?.models,
+      remoteDefaultCatalogModels,
     });
     return (
       selectAgentModel({
@@ -814,6 +816,7 @@ export function ChatPanel({ compact = false }: ChatPanelProps) {
     localDaemonCatalog,
     activeEstablishedModel,
     activePickEntry,
+    remoteDefaultCatalogModels,
   ]);
 
   // ── Refs ───────────────────────────────────────────────────────────────
