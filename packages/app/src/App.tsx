@@ -872,16 +872,17 @@ function AppContent() {
   // that guessed the team from localStorage has to refetch once current-team
   // lands — and a team switch has to refetch rather than keep showing the team
   // being left. Concurrent calls with the same scope share one request.
+  const sessionListLoadedTeamId = useSessionListStore((s) => s.loadedTeamId);
   useEffect(() => {
     if (isV2E2EControlActive()) return;
-    if (
-      currentTeamId &&
-      useSessionListStore.getState().scopeTeamId === currentTeamId
-    ) {
-      return;
-    }
+    // Keyed on loadedTeamId, not scopeTeamId: the scope is committed before the
+    // fetch so the list cannot paint the old team's rows, which means a failed
+    // first page would otherwise be indistinguishable from a loaded one and the
+    // sidebar would sit empty with no retry. loadedTeamId only advances on a
+    // page that actually arrived, so a failure leaves this effect armed.
+    if (currentTeamId && sessionListLoadedTeamId === currentTeamId) return;
     void useSessionListStore.getState().load();
-  }, [currentTeamId]);
+  }, [currentTeamId, sessionListLoadedTeamId]);
 
   // Keep team-share status fresh so the top-right "team shared files" tab shows
   // only when share is actually enabled (shareMode != null). Without this the

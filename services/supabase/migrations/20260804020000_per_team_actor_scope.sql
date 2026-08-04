@@ -992,6 +992,166 @@ GRANT ALL ON FUNCTION amux.list_current_actor_sessions(
 ) TO service_role;
 
 -- ---------------------------------------------------------------------------
+-- 6b. Transitional: the un-scoped list, for clients that predate this change
+-- ---------------------------------------------------------------------------
+-- DEPRECATED ON ARRIVAL. Delete this function, amux.current_actor_ids(), and
+-- the fallback in services/fc/src/lib/supabase-repo.ts once no released client
+-- calls GET /v1/sessions without a teamId.
+--
+-- Why it exists: FC redeploys automatically on push to main, clients do not.
+-- Every desktop build and TestFlight/App Store iOS build older than this change
+-- lists sessions with no team (iOS fetchUnreadFlags did so by design), and
+-- rejecting them would blank the session list and freeze the inbox red dots for
+-- everyone who has not updated yet.
+--
+-- Why it is a separate function rather than an overload: named-argument
+-- resolution ignores parameter order, so the old FC's call -- which passes
+-- p_team_id => null explicitly -- would bind to the team-scoped function above
+-- and hit its guard. Only a distinct name catches it.
+--
+-- It reproduces the OLD behaviour on purpose (every team's sessions in one
+-- list), but on the CORRECTED identity: the full set of the caller's actors
+-- rather than whichever one happened to be oldest. Nothing about it is wider
+-- than the caller's own memberships -- see the note at the top of this file on
+-- why the per-team and full-set resolutions select the same rows.
+
+CREATE OR REPLACE FUNCTION amux.current_actor_ids() RETURNS uuid[]
+    LANGUAGE sql STABLE SECURITY DEFINER
+    SET search_path TO 'public', 'auth'
+    AS $$
+  select coalesce(array_agg(id), '{}'::uuid[])
+    from amux.actors
+   where user_id = auth.uid()
+$$;
+
+REVOKE ALL ON FUNCTION amux.current_actor_ids() FROM PUBLIC;
+GRANT ALL ON FUNCTION amux.current_actor_ids() TO authenticated;
+GRANT ALL ON FUNCTION amux.current_actor_ids() TO service_role;
+
+DROP FUNCTION IF EXISTS amux.list_current_actor_sessions_all_teams(
+  integer, timestamp with time zone, timestamp with time zone, uuid, uuid
+);
+
+CREATE FUNCTION amux.list_current_actor_sessions_all_teams(
+  p_limit integer DEFAULT 50,
+  p_before_last_message_at timestamp with time zone DEFAULT NULL::timestamp with time zone,
+  p_before_created_at timestamp with time zone DEFAULT NULL::timestamp with time zone,
+  p_before_id uuid DEFAULT NULL::uuid,
+  p_idea_id uuid DEFAULT NULL::uuid
+) RETURNS TABLE(
+  id uuid,
+  title text,
+  team_id uuid,
+  mode text,
+  idea_id uuid,
+  last_message_at timestamp with time zone,
+  last_message_preview text,
+  created_at timestamp with time zone,
+  updated_at timestamp with time zone,
+  has_unread boolean,
+  source text,
+  cron_job_id text,
+  summary text,
+  primary_agent_id uuid,
+  created_by_actor_id uuid,
+  participant_count integer
+)
+LANGUAGE plpgsql
+STABLE
+SET search_path TO 'public', 'app'
+AS $function$
+begin
+  return query
+  with current_actor as (
+    select unnest(amux.current_actor_ids()) as actor_id
+  )
+  select
+    s.id,
+    s.title,
+    s.team_id,
+    s.mode,
+    s.idea_id,
+    s.last_message_at,
+    s.last_message_preview,
+    s.created_at,
+    s.updated_at,
+    (
+      s.last_message_at is not null
+      and s.last_message_at > coalesce(srm.last_read_at, '-infinity'::timestamptz)
+    ) as has_unread,
+    s.source,
+    s.cron_job_id,
+    s.summary,
+    s.primary_agent_id,
+    s.created_by_actor_id,
+    (
+      select count(*)
+      from amux.session_participants participant
+      where participant.session_id = s.id
+    )::integer as participant_count
+  from current_actor ca
+  join amux.session_participants membership
+    on membership.actor_id = ca.actor_id
+  join amux.sessions s
+    on s.id = membership.session_id
+  left join amux.session_read_markers srm
+    on srm.session_id = s.id
+   and srm.actor_id = ca.actor_id
+  where s.archived_at is null
+    and (p_idea_id is null or s.idea_id = p_idea_id)
+    and (
+      p_before_id is null
+      or (
+        case
+          when p_before_last_message_at is null then
+            s.last_message_at is not null
+            or (
+              s.last_message_at is null
+              and (
+                s.created_at < p_before_created_at
+                or (s.created_at = p_before_created_at and s.id < p_before_id)
+              )
+            )
+          when s.last_message_at is null then false
+          when s.last_message_at < p_before_last_message_at then true
+          when s.last_message_at = p_before_last_message_at then
+            s.created_at < p_before_created_at
+            or (s.created_at = p_before_created_at and s.id < p_before_id)
+          else false
+        end
+      )
+    )
+  order by
+    s.last_message_at desc nulls first,
+    s.created_at desc,
+    s.id desc
+  limit greatest(1, least(coalesce(p_limit, 50), 100));
+end;
+$function$;
+
+REVOKE ALL ON FUNCTION amux.list_current_actor_sessions_all_teams(
+  p_limit integer,
+  p_before_last_message_at timestamp with time zone,
+  p_before_created_at timestamp with time zone,
+  p_before_id uuid,
+  p_idea_id uuid
+) FROM PUBLIC;
+GRANT ALL ON FUNCTION amux.list_current_actor_sessions_all_teams(
+  p_limit integer,
+  p_before_last_message_at timestamp with time zone,
+  p_before_created_at timestamp with time zone,
+  p_before_id uuid,
+  p_idea_id uuid
+) TO authenticated;
+GRANT ALL ON FUNCTION amux.list_current_actor_sessions_all_teams(
+  p_limit integer,
+  p_before_last_message_at timestamp with time zone,
+  p_before_created_at timestamp with time zone,
+  p_before_id uuid,
+  p_idea_id uuid
+) TO service_role;
+
+-- ---------------------------------------------------------------------------
 -- 7. Retire amux.current_actor_id()
 -- ---------------------------------------------------------------------------
 -- No CASCADE: if anything still depends on it, this fails and the migration

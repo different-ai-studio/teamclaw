@@ -815,10 +815,11 @@ test("GET /v1/sessions narrows by teamId and ideaId server-side", async () => {
 });
 
 // teamId identifies WHICH actor the caller is (one actor row per user per
-// team), so a list without it has no identity to scope to. It is rejected here
-// rather than reaching the RPC, whose missing-overload error would surface as a
-// 500 — see 20260804020000_per_team_actor_scope.sql.
-test("GET /v1/sessions rejects a request with no teamId", async () => {
+// team). It stays optional on the wire so already-released builds keep working:
+// FC redeploys on merge, clients ship on tags. The repository routes a
+// team-less call to the deprecated un-scoped RPC — see
+// 20260804020000_per_team_actor_scope.sql.
+test("GET /v1/sessions still serves a client that sends no teamId", async () => {
   const repo = fakeRepo();
   const response = await handleBusinessApiRequest({
     httpMethod: "GET",
@@ -826,9 +827,11 @@ test("GET /v1/sessions rejects a request with no teamId", async () => {
     headers: { Authorization: "Bearer token" },
   }, { createRepository: () => repo });
 
-  assert.equal(response.statusCode, 400);
-  assert.equal(JSON.parse(response.body).error.code, "team_id_required");
-  assert.deepEqual(repo.calls, []);
+  assert.equal(response.statusCode, 200);
+  assert.deepEqual(repo.calls[0], {
+    method: "listSessions",
+    args: { limit: 50, cursor: null, teamId: null, ideaId: null },
+  });
 });
 
 test("GET /v1/sessions leaves ideaId null when not supplied", async () => {

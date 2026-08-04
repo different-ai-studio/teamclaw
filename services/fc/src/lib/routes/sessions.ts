@@ -2,20 +2,21 @@ import { ApiError } from "../http-utils.js";
 import { parseLimit, decodeCursor, nextSessionCursor, requireString } from "../routing-utils.js";
 
 export function registerSessions(router) {
-  // `teamId` is required and `ideaId` is an optional narrowing filter, both
-  // applied server-side so they stay correct under pagination. They are what
-  // replaced the removed GET /v1/teams/:teamId/sessions — see 20260802000000.
+  // `teamId` / `ideaId` are narrowing filters applied server-side so they stay
+  // correct under pagination. They are what replaced the removed
+  // GET /v1/teams/:teamId/sessions — see 20260802000000.
   //
-  // teamId became mandatory in 20260804020000: the caller's actor is resolved
-  // per team (one actor row per user per team), so without a team there is no
-  // identity to scope the list to. Rejected here rather than at the RPC, which
-  // would surface as an opaque 500.
+  // teamId is required of CURRENT clients: since 20260804020000 the caller's
+  // actor is resolved per team (one actor row per user per team), so a team is
+  // what identifies who is asking. It stays optional on the wire because FC
+  // redeploys on merge while desktop and iOS ship on tags — a released build
+  // that omits it falls back to the deprecated un-scoped list rather than
+  // losing its session list. See the repository for that fallback.
   router.get("/v1/sessions", async (ctx) => {
     const limit = parseLimit(ctx.query.get("limit"));
     const cursor = decodeCursor(ctx.query.get("cursor"));
     const teamId = ctx.query.get("teamId") || null;
     const ideaId = ctx.query.get("ideaId") || null;
-    if (!teamId) throw new ApiError(400, "team_id_required", "teamId query parameter is required");
     const items = await ctx.repository.listSessions({ limit, cursor, teamId, ideaId });
     return { body: { items, nextCursor: nextSessionCursor(items, limit) } };
   });

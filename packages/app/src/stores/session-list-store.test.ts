@@ -66,8 +66,10 @@ describe("session-list-store", () => {
       highlightedSessionIds: [],
       hasMore: false,
       nextCursor: null,
-      serverConfirmed: false,
+      serverConfirmedTeams: [],
+      emptyPageKeptTeams: [],
       scopeTeamId: null,
+      loadedTeamId: null,
     });
     useCurrentTeamStore.setState({
       team: { id: "team-1", name: "Team", slug: "team" },
@@ -333,7 +335,7 @@ describe("session-list-store", () => {
 
     const { useSessionListStore } = await import("./session-list-store");
     await useSessionListStore.getState().loadFirstPage();
-    expect(useSessionListStore.getState().serverConfirmed).toBe(true);
+    expect(useSessionListStore.getState().serverConfirmedTeams).toContain("team-1");
 
     await useSessionListStore.getState().loadFirstPage();
 
@@ -367,7 +369,7 @@ describe("session-list-store", () => {
     useSessionListStore.setState({
       rows: [sessionRow({ id: "team-1-session" })],
       scopeTeamId: "team-1",
-      serverConfirmed: true,
+      serverConfirmedTeams: ["team-1"],
     });
     useCurrentTeamStore.setState({
       team: { id: "team-2", name: "Other", slug: "other" },
@@ -390,15 +392,15 @@ describe("session-list-store", () => {
   });
 
   // The empty-response guard keys on "the server has proved it can see rows".
-  // That proof belongs to a team: the previous team's rows say nothing about
-  // whether this one is visible, and carrying the flag over would let an empty
-  // page for the new team be taken at face value.
-  it("re-arms the empty-response guard on a team switch", async () => {
+  // That proof belongs to a team: team-1's rows say nothing about whether
+  // team-2 is visible, so the guard must still apply after the switch — and
+  // team-1's proof must survive for when the user switches back.
+  it("keeps the empty-response guard per team across a switch", async () => {
     const { useSessionListStore } = await import("./session-list-store");
     useSessionListStore.setState({
       rows: [sessionRow({ id: "team-1-session" })],
       scopeTeamId: "team-1",
-      serverConfirmed: true,
+      serverConfirmedTeams: ["team-1"],
     });
     useCurrentTeamStore.setState({
       team: { id: "team-2", name: "Other", slug: "other" },
@@ -407,7 +409,8 @@ describe("session-list-store", () => {
 
     await useSessionListStore.getState().loadFirstPage();
 
-    expect(useSessionListStore.getState().serverConfirmed).toBe(false);
+    expect(useSessionListStore.getState().serverConfirmedTeams).toEqual(["team-1"]);
+    expect(useSessionListStore.getState().serverConfirmedTeams).not.toContain("team-2");
   });
 
   it("keeps the scope on loadMore so page 2 cannot widen the list", async () => {
@@ -430,6 +433,100 @@ describe("session-list-store", () => {
   it("ignores upserted rows from another team", async () => {
     const { useSessionListStore } = await import("./session-list-store");
     useSessionListStore.setState({ rows: [], scopeTeamId: "team-1" });
+
+    useSessionListStore.getState().upsertRows([
+      sessionRow({ id: "mine" }),
+      { ...sessionRow({ id: "theirs" }), team_id: "team-2" },
+    ]);
+
+    expect(useSessionListStore.getState().rows.map((row) => row.id)).toEqual(["mine"]);
+  });
+
+  // A slow first page for the team being LEFT must not land on the team being
+  // entered. The in-flight de-dupe deliberately does not cover this: it only
+  // shares a promise between callers asking for the same team, so a switch
+  // starts a second run while the first is still awaiting.
+  it("discards a first page that resolves after a team switch", async () => {
+    const { useSessionListStore } = await import("./session-list-store");
+    let releaseTeam1: (v: { rows: unknown[] }) => void = () => {};
+    mocks.listCurrentActorSessions
+      .mockImplementationOnce(
+        () => new Promise((resolve) => {
+          releaseTeam1 = resolve as typeof releaseTeam1;
+        }),
+      )
+      .mockResolvedValueOnce({
+        rows: [{ ...sessionRow({ id: "team-2-session" }), team_id: "team-2" }],
+      });
+
+    const slowLoad = useSessionListStore.getState().loadFirstPage();
+
+    useCurrentTeamStore.setState({
+      team: { id: "team-2", name: "Other", slug: "other" },
+    } as never);
+    await useSessionListStore.getState().loadFirstPage();
+
+    // team-1's page only now comes back.
+    releaseTeam1({ rows: [sessionRow({ id: "team-1-session" })] });
+    await slowLoad;
+
+    expect(useSessionListStore.getState().rows.map((row) => row.id)).toEqual([
+      "team-2-session",
+    ]);
+    expect(useSessionListStore.getState().scopeTeamId).toBe("team-2");
+  });
+
+  // resetClientChatState runs from a sibling effect on the same team switch and
+  // nulls the scope while the load is in flight; its follow-up loadFirstPage is
+  // swallowed by the de-dupe, so the commit is the only thing that can restore
+  // it. A null scope would silently disable loadMore and the cross-team filter.
+  it("restores scopeTeamId when a concurrent reset nulls it mid-flight", async () => {
+    const { useSessionListStore } = await import("./session-list-store");
+    mocks.listCurrentActorSessions.mockImplementationOnce(async () => {
+      useSessionListStore.setState({ scopeTeamId: null, loadedTeamId: null });
+      return { rows: [sessionRow({ id: "session-1" })] };
+    });
+
+    await useSessionListStore.getState().loadFirstPage();
+
+    expect(useSessionListStore.getState().scopeTeamId).toBe("team-1");
+    expect(useSessionListStore.getState().loadedTeamId).toBe("team-1");
+  });
+
+  // A failed page must stay distinguishable from a loaded one, or App.tsx's
+  // "already scoped to this team" guard would never retry it.
+  it("leaves loadedTeamId unset when the first page fails", async () => {
+    const { useSessionListStore } = await import("./session-list-store");
+    mocks.listCurrentActorSessions.mockRejectedValueOnce(new Error("boom"));
+
+    await useSessionListStore.getState().loadFirstPage();
+
+    expect(useSessionListStore.getState().loadedTeamId).toBeNull();
+    expect(useSessionListStore.getState().scopeTeamId).toBe("team-1");
+  });
+
+  // The guard hedges against a fail-closed visibility gate. A team that really
+  // is empty never gets confirmed, so an unbounded guard would serve stale
+  // cache rows for the rest of the session.
+  it("keeps cached rows through one empty page, then believes the second", async () => {
+    const { useSessionListStore } = await import("./session-list-store");
+    mocks.listCurrentActorSessions
+      .mockResolvedValueOnce({ rows: [] })
+      .mockResolvedValueOnce({ rows: [] });
+    useSessionListStore.setState({ rows: [sessionRow({ id: "cached-1" })] });
+
+    await useSessionListStore.getState().loadFirstPage();
+    expect(useSessionListStore.getState().rows.map((row) => row.id)).toEqual(["cached-1"]);
+
+    await useSessionListStore.getState().loadFirstPage();
+    expect(useSessionListStore.getState().rows).toEqual([]);
+  });
+
+  // Before the first page commits the scope is null, but the active team is
+  // already known — cron seeds a row for the team it just entered.
+  it("filters upserted rows against the active team before the first load", async () => {
+    const { useSessionListStore } = await import("./session-list-store");
+    useSessionListStore.setState({ rows: [], scopeTeamId: null });
 
     useSessionListStore.getState().upsertRows([
       sessionRow({ id: "mine" }),

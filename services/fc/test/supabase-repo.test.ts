@@ -242,6 +242,22 @@ test("repository throws upstream errors without hiding Supabase error codes", as
   });
 });
 
+// Released clients that predate 20260804020000 send no teamId. They must keep
+// getting a list rather than an error, via the deprecated un-scoped RPC.
+test("listSessions falls back to the un-scoped rpc when no teamId is given", async () => {
+  const rpcCalls: any[] = [];
+  const repo = createRepo(fakeSupabase({
+    rpcCalls,
+    rpcData: { list_current_actor_sessions_all_teams: [] },
+  }));
+
+  await repo.listSessions({ limit: 10 });
+
+  assert.equal(rpcCalls.length, 1);
+  assert.equal(rpcCalls[0].name, "list_current_actor_sessions_all_teams");
+  assert.ok(!("p_team_id" in rpcCalls[0].args), "un-scoped rpc takes no p_team_id");
+});
+
 test("createSupabaseAuthRepository refreshAccessToken calls Supabase auth endpoint", async () => {
   const fetchCalls = [];
   const repo = createSupabaseAuthRepository({

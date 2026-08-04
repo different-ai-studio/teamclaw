@@ -88,9 +88,14 @@ export function createSessionsModule(client: CloudApiClient): SessionsBackend {
       cursor: SessionListCursor | null;
       teamId: string;
     }): Promise<SessionListPage> {
+      // Without this an undefined teamId serializes to the literal string
+      // "undefined", which sails past the server's truthiness check and reaches
+      // the RPC as a malformed uuid — a 500 where a 400 was intended.
+      const teamId = args.teamId?.trim();
+      if (!teamId) throw new Error("listCurrentActorSessions requires teamId");
       const params = new URLSearchParams({
         limit: String(args.limit),
-        teamId: args.teamId,
+        teamId,
       });
       if (args.cursor) params.set("cursor", encodeCursor(args.cursor));
       const page = await client.get<Page<CloudSession>>(`/v1/sessions?${params.toString()}`);

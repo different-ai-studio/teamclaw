@@ -19,7 +19,13 @@ const LAST_RUN_KEY_PREFIX = 'teamclaw.extension.sessionCleanupLastRun'
 
 const MS_PER_DAY = 24 * 60 * 60 * 1000
 
-let sweepInFlight: Promise<{ archived: number; scanned: number }> | null = null
+/**
+ * In-flight sweep, keyed by team. The sweep walks every page of the team's
+ * sessions, which takes seconds on a large team — long enough for a team
+ * switch. Keyed rather than global so the new team is actually scanned instead
+ * of being handed the previous team's promise and told it is done.
+ */
+const sweepInFlightByTeam = new Map<string, Promise<{ archived: number; scanned: number }>>()
 
 export function isEmptySession(entry: Pick<SessionListEntry, 'last_message_at'>): boolean {
   return entry.last_message_at == null
@@ -224,10 +230,14 @@ async function runExtensionSessionCleanupInner(
 export async function runExtensionSessionCleanup(
   options: ExtensionSessionCleanupOptions,
 ): Promise<{ archived: number; scanned: number }> {
-  if (sweepInFlight) return sweepInFlight
+  const inFlight = sweepInFlightByTeam.get(options.teamId)
+  if (inFlight) return inFlight
 
-  sweepInFlight = runExtensionSessionCleanupInner(options).finally(() => {
-    sweepInFlight = null
+  const sweep = runExtensionSessionCleanupInner(options).finally(() => {
+    if (sweepInFlightByTeam.get(options.teamId) === sweep) {
+      sweepInFlightByTeam.delete(options.teamId)
+    }
   })
-  return sweepInFlight
+  sweepInFlightByTeam.set(options.teamId, sweep)
+  return sweep
 }

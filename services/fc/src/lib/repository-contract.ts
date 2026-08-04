@@ -1,8 +1,8 @@
 export function runBusinessRepositoryContract({ test, assert, createRepository }) {
   test("repository contract: sessions keep canonical fields and ordering", async () => {
     const repo = createRepository();
-    // teamId is mandatory: the list resolves the caller's actor per team, and
-    // a user has one actor row per team (20260804020000).
+    // teamId is what the list resolves the caller's actor from — a user has one
+    // actor row per team (20260804020000).
     const rows = await repo.listSessions({ limit: 50, cursor: null, teamId: "team-1" });
 
     assert.ok(Array.isArray(rows));

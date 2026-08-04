@@ -119,6 +119,20 @@ function sortEntries(entries: SessionListEntry[]): SessionListEntry[] {
 }
 
 /**
+ * The team the list should be showing.
+ *
+ * `scopeTeamId` is null until the first page commits, and `resetClientChatState`
+ * puts it back to null on every identity change — so it cannot be the only
+ * source. The active team is: `enterTeam` sets it synchronously, before the
+ * callers that seed rows for the team being entered (cron's "查看对话" does
+ * exactly that), and long before the list's own load resolves.
+ */
+function resolveScopeTeamId(scopeTeamId: string | null): string | null {
+  if (scopeTeamId) return scopeTeamId;
+  return useCurrentTeamStore.getState().team?.id ?? null;
+}
+
+/**
  * Drop rows that do not belong to the team the list is currently scoped to.
  *
  * The server page is already narrowed by `teamId`, but rows also reach the
@@ -127,15 +141,16 @@ function sortEntries(entries: SessionListEntry[]): SessionListEntry[] {
  * a session in the team it is about to switch into. Without this a foreign row
  * lands in a list that is supposed to show one team.
  *
- * A null scope means no page has loaded yet, and lets everything through — at
- * that point `rows` is empty and the first load replaces it wholesale anyway.
+ * Everything passes only when no team is known at all (headless callers and
+ * tests) — a live client always has one, see `resolveScopeTeamId`.
  */
 function filterToScope(
   entries: SessionListEntry[],
   scopeTeamId: string | null,
 ): SessionListEntry[] {
-  if (!scopeTeamId) return entries;
-  return entries.filter((row) => row.team_id === scopeTeamId);
+  const scope = resolveScopeTeamId(scopeTeamId);
+  if (!scope) return entries;
+  return entries.filter((row) => row.team_id === scope);
 }
 
 /**
@@ -173,16 +188,34 @@ interface State {
   hasMore: boolean;
   nextCursor: SessionListCursor | null;
   /**
-   * True once the server has returned at least one session row since sign-in.
+   * Teams the server has returned at least one session row for since sign-in.
    * Gates the empty-response guard in `loadFirstPage` — see the comment there.
+   *
+   * Per team rather than a single flag: this PR's whole subject is that
+   * visibility is resolved per team, so "the server proved it can see my
+   * sessions in team A" says nothing about team B.
    */
-  serverConfirmed: boolean;
+  serverConfirmedTeams: string[];
+  /**
+   * Teams whose cached rows were already kept once in the face of an empty
+   * server page. Bounds that guard to a single refresh, so a team that really
+   * is empty stops showing stale libsql rows on the next load instead of
+   * keeping them for the rest of the session.
+   */
+  emptyPageKeptTeams: string[];
   /**
    * Team the current `rows` belong to; null until the first page loads. Every
    * fetch is narrowed to it, and rows arriving from side channels are filtered
    * against it (see `filterToScope`).
    */
   scopeTeamId: string | null;
+  /**
+   * Last team whose first page actually committed. `scopeTeamId` is set before
+   * the fetch (so the list cannot paint another team's rows while it is in
+   * flight), which makes it useless for "has this team loaded yet" — a failed
+   * fetch would otherwise look identical to a successful one and never retry.
+   */
+  loadedTeamId: string | null;
   load: () => Promise<void>;
   loadFirstPage: (limit?: number) => Promise<void>;
   loadMore: (limit?: number) => Promise<void>;
@@ -244,6 +277,20 @@ async function loadPage(
 let firstPageInFlight: Promise<void> | null = null;
 let firstPageInFlightScope: string | null = null;
 
+/**
+ * Bumped by every first-page run; a run commits only while it is still the
+ * latest one.
+ *
+ * The de-dupe above only shares a promise between callers asking for the SAME
+ * team, so a team switch deliberately starts a second run while the first is
+ * still awaiting its page. Without this counter that first run would come back
+ * and overwrite the new team's list with the team the user just left — the
+ * exact cross-team leak the scoping exists to prevent. `scopeTeamId` cannot
+ * serve as the check: `resetClientChatState` nulls it mid-flight on the same
+ * switch, which would make a live run look stale.
+ */
+let firstPageGeneration = 0;
+
 function resolveNextCursor(page: SessionListPage): State["nextCursor"] {
   return page.nextCursor === undefined ? cursorFromRows(page.rows) : page.nextCursor;
 }
@@ -271,23 +318,20 @@ function applyArchivedSessionLocalState(
 async function loadFirstPageForTeam(
   limit: number,
   teamId: string,
+  generation: number,
   set: (partial: Partial<State>) => void,
   get: () => State,
 ): Promise<void> {
+  // True once a newer first-page run has started. Checked after every await,
+  // before every write.
+  const superseded = () => generation !== firstPageGeneration;
+
   // Team switch: the rows on screen belong to the team being left. Drop them
   // before the fetch rather than after, so the list never shows another team's
   // sessions while the new page is in flight.
   const previousScope = get().scopeTeamId;
   if (previousScope !== null && previousScope !== teamId) {
-    set({
-      rows: [],
-      hasMore: false,
-      nextCursor: null,
-      // Re-arm the empty-response guard: the new team's list has proven
-      // nothing yet, and the previous team's confirmation says nothing about
-      // whether this one is visible.
-      serverConfirmed: false,
-    });
+    set({ rows: [], hasMore: false, nextCursor: null });
   }
   set({ loading: true, error: null, scopeTeamId: teamId });
   markStartup("session-list:start");
@@ -313,6 +357,7 @@ async function loadFirstPageForTeam(
         loadSessionsForTeam(teamId),
         loadSessionIdsForActor(teamId, currentMemberActorId),
       ]);
+      if (superseded()) return;
       const actorSessionIdSet = new Set(actorSessionIds);
       const currentActorRows = localRows.filter((row) => actorSessionIdSet.has(row.id));
       if (currentActorRows.length > 0) {
@@ -332,11 +377,15 @@ async function loadFirstPageForTeam(
   try {
     page = await loadPage(limit, null, teamId);
   } catch (error) {
+    if (superseded()) return;
     const message = error instanceof Error ? error.message : String(error);
+    // `loadedTeamId` is deliberately left alone: this team has NOT loaded, and
+    // the effect in App.tsx keys its retry on that.
     set({ loading: false, error: message });
     notifyRefreshFailed(message);
     return;
   }
+  if (superseded()) return;
   const rows = filterToScope(page.rows, teamId);
   const nextCursor = resolveNextCursor(page);
 
@@ -350,14 +399,32 @@ async function loadFirstPageForTeam(
   // and overwriting the phase-1 hydrate with it blanks a list the user can
   // plainly see, while the rows still sit in libsql.
   //
-  // Once any page has come back with rows, `serverConfirmed` flips and a
+  // Once a page for this team has come back with rows, it is confirmed and a
   // later empty page is taken at face value, so archiving the last session
   // (here or on another device) still empties the list as it should.
-  if (rows.length === 0 && get().rows.length > 0 && !get().serverConfirmed) {
+  //
+  // The guard also fires at most ONCE per team. A team the user really has no
+  // sessions in never gets confirmed, so an unbounded guard would keep serving
+  // whatever the libsql hydrate found for the rest of the session — sessions
+  // that were archived on another device would stay in the sidebar forever.
+  // Keeping them through one refresh is the hedge against a fail-closed
+  // visibility gate; keeping them through every refresh is just a stale list.
+  const teamConfirmed = get().serverConfirmedTeams.includes(teamId);
+  const alreadyKeptOnce = get().emptyPageKeptTeams.includes(teamId);
+  if (rows.length === 0 && get().rows.length > 0 && !teamConfirmed && !alreadyKeptOnce) {
     console.warn(
       "[session-list] server returned 0 sessions and none were confirmed before; keeping cached rows",
     );
-    set({ loading: false, hasMore: false, nextCursor: null });
+    set({
+      loading: false,
+      hasMore: false,
+      nextCursor: null,
+      // Kept rows are cache rows; narrow them to this team so a row seeded for
+      // another team before the first load cannot survive here.
+      rows: filterToScope(get().rows, teamId),
+      scopeTeamId: teamId,
+      emptyPageKeptTeams: [...get().emptyPageKeptTeams, teamId],
+    });
     markStartup("session-list:loaded");
     return;
   }
@@ -382,6 +449,7 @@ async function loadFirstPageForTeam(
       deletedAt: null,
       syncedAt: new Date().toISOString(),
     }));
+    if (superseded()) return;
     try {
       await upsertSessionsBatch(cacheRows);
     } catch (error) {
@@ -396,13 +464,25 @@ async function loadFirstPageForTeam(
     void syncSessionWorkspaces(teamId).catch(() => {});
   }
 
+  if (superseded()) return;
   forgetArchivedSessionIds(rows);
   set({
     rows: filterArchivedEntries(sortEntries(rows)),
     loading: false,
     hasMore: nextCursor != null,
     nextCursor,
-    serverConfirmed: get().serverConfirmed || rows.length > 0,
+    // Re-asserted, not assumed: resetClientChatState nulls the scope on the
+    // same team switch that started this run, and its follow-up loadFirstPage
+    // is swallowed by the in-flight de-dupe — so this commit is the only thing
+    // that can put the scope back.
+    scopeTeamId: teamId,
+    loadedTeamId: teamId,
+    serverConfirmedTeams:
+      rows.length > 0 && !get().serverConfirmedTeams.includes(teamId)
+        ? [...get().serverConfirmedTeams, teamId]
+        : get().serverConfirmedTeams,
+    // A page that actually arrived supersedes the one-shot hedge above.
+    emptyPageKeptTeams: get().emptyPageKeptTeams.filter((id) => id !== teamId),
   });
   markStartup("session-list:loaded");
 }
@@ -415,8 +495,10 @@ export const useSessionListStore = create<State>((set, get) => ({
   highlightedSessionIds: [],
   hasMore: false,
   nextCursor: null,
-  serverConfirmed: false,
+  serverConfirmedTeams: [],
+  emptyPageKeptTeams: [],
   scopeTeamId: null,
+  loadedTeamId: null,
   load: async () => {
     await get().loadFirstPage();
   },
@@ -430,9 +512,11 @@ export const useSessionListStore = create<State>((set, get) => ({
         hasMore: false,
         nextCursor: null,
         // Signing out re-arms the empty-response guard: the next account's
-        // first page has proven nothing yet.
-        serverConfirmed: false,
+        // first page has proven nothing yet, in any team.
+        serverConfirmedTeams: [],
+        emptyPageKeptTeams: [],
         scopeTeamId: null,
+        loadedTeamId: null,
       });
       return;
     }
@@ -455,7 +539,8 @@ export const useSessionListStore = create<State>((set, get) => ({
     if (firstPageInFlight && firstPageInFlightScope === teamId) {
       return firstPageInFlight;
     }
-    const run = loadFirstPageForTeam(limit, teamId, set, get);
+    const generation = ++firstPageGeneration;
+    const run = loadFirstPageForTeam(limit, teamId, generation, set, get);
     firstPageInFlight = run;
     firstPageInFlightScope = teamId;
     try {
@@ -475,8 +560,12 @@ export const useSessionListStore = create<State>((set, get) => ({
 
     // Page 2+ must carry the same scope as page 1 — otherwise scrolling pulls
     // in every team's sessions again, one page at a time.
-    const teamId = get().scopeTeamId;
+    const teamId = resolveScopeTeamId(get().scopeTeamId);
     if (!teamId) return;
+    // A first-page run started after this one supersedes it: it owns `rows` and
+    // `nextCursor`, so appending a page built on the old cursor would splice a
+    // stale window into the list.
+    const generation = firstPageGeneration;
     set({ loading: true, error: null });
     let page: SessionListPage;
     try {
@@ -487,7 +576,7 @@ export const useSessionListStore = create<State>((set, get) => ({
     }
     // A team switch mid-flight makes this page stale; dropping it is correct
     // because loadFirstPage has already reset rows for the new scope.
-    if (get().scopeTeamId !== teamId) {
+    if (resolveScopeTeamId(get().scopeTeamId) !== teamId || generation !== firstPageGeneration) {
       set({ loading: false });
       return;
     }

@@ -178,11 +178,16 @@ export interface SessionsBackend {
    * before LIMIT, so it stays correct under pagination — a client-side filter
    * over page 1 silently drops matches that live on page 2.
    *
-   * Required, because this client has no team-less state: AuthGate holds the
-   * startup skeleton until team bootstrap resolves and refuses to render the
-   * app at all without a current team (AuthGate.tsx, `bootstrap === "ready"`).
-   * The query param stays optional on the wire — iOS still calls
-   * GET /v1/sessions without it.
+   * Required here because this client has no team-less state: AuthGate holds
+   * the startup skeleton until team bootstrap resolves and refuses to render
+   * the app at all without a current team (AuthGate.tsx, `bootstrap ===
+   * "ready"`).
+   *
+   * The query param is still optional on the wire, and deliberately so: FC
+   * redeploys on merge while desktop and iOS ship on tags, so already-released
+   * builds keep working through a deprecated un-scoped fallback
+   * (list_current_actor_sessions_all_teams). Requiring it in this type is what
+   * keeps NEW code off that path.
    */
   listCurrentActorSessions(args: {
     limit: number;

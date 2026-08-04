@@ -27,8 +27,14 @@ export function resetClientChatState(): void {
     // The list is team-scoped; clearing the scope alongside the rows is what
     // makes the next loadFirstPage re-fetch instead of treating the emptied
     // list as an already-loaded page for the team being left.
+    //
+    // `serverConfirmedTeams` is deliberately NOT cleared: it is keyed by team
+    // and this runs on every team switch, so wiping it would throw away the
+    // proof for teams that are not being left. Sign-out clears it (see
+    // loadFirstPage's no-session branch), which is the point where a different
+    // account makes it meaningless.
     scopeTeamId: null,
-    serverConfirmed: false,
+    loadedTeamId: null,
   });
   useSessionParticipantStore.setState({
     participantsBySession: {},
