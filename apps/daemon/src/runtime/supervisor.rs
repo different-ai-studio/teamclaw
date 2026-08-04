@@ -937,6 +937,7 @@ impl RuntimeSupervisor {
                 manager.workspace_has_active_turn(&workspace_path_str, workspace_id);
             let serve_stats = manager
                 .opencode_serve_supervisor()
+                .await
                 .map(|serve| (serve.is_running(), serve.cached_env_key_count()))
                 .unwrap_or((false, 0));
             (
@@ -1051,7 +1052,9 @@ impl RuntimeSupervisor {
             // re-cold-starting the next session — see
             // `RefreshChangeKind::requires_provider_host_evict`.
             if evict_provider_hosts {
-                manager.evict_acp_hosts_after_provider_auth_change();
+                manager
+                    .evict_acp_hosts_after_provider_auth_change()
+                    .await;
             }
             stopped
         };

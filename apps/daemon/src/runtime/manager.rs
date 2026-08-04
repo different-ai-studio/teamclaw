@@ -1,5 +1,6 @@
 use std::collections::HashMap;
 use std::path::PathBuf;
+use std::sync::Arc;
 use tokio::sync::{mpsc, Mutex as AsyncMutex};
 use tracing::{info, warn};
 use uuid::Uuid;
@@ -9,7 +10,6 @@ use super::backend::{agent_type_for_local_agent, create_backend, AgentBackend};
 use super::builtin_commands::builtin_commands;
 use super::handle::RuntimeHandle;
 use super::refresh::RuntimeRefreshCoordinator;
-use std::sync::Arc;
 
 use crate::backend::Backend;
 use crate::config::{DaemonConfig, DeviceModelCatalog, ModelMru};
@@ -301,11 +301,12 @@ impl RuntimeManager {
 
     /// Shared global `opencode serve` supervisor (settings/OAuth + chat).
     /// `None` when the local agent backend is not opencode HTTP (e.g. pi).
-    pub fn opencode_serve_supervisor(
+    pub async fn opencode_serve_supervisor(
         &self,
     ) -> Option<Arc<crate::runtime::opencode_http::supervisor::ServeSupervisor>> {
         self.agent_backend
-            .blocking_lock()
+            .lock()
+            .await
             .opencode_serve_supervisor()
     }
 
@@ -956,10 +957,11 @@ impl RuntimeManager {
     ];
 
     /// Invalidate long-lived ACP host processes after provider credentials change.
-    pub fn evict_acp_hosts_after_provider_auth_change(&mut self) {
+    pub async fn evict_acp_hosts_after_provider_auth_change(&mut self) {
         let removed = self
             .agent_backend
-            .blocking_lock()
+            .lock()
+            .await
             .evict_agent_types(Self::EVICTABLE_AGENT_TYPES);
         if removed > 0 {
             info!(
@@ -979,7 +981,8 @@ impl RuntimeManager {
         }
         let removed = self
             .agent_backend
-            .blocking_lock()
+            .lock()
+            .await
             .evict_agent_types(Self::EVICTABLE_AGENT_TYPES);
         info!(
             removed_hosts = removed,
@@ -1165,8 +1168,8 @@ impl RuntimeManager {
     /// or a prewarmed ACP host. Used by `handle_prompt_await` to gate cron
     /// execution without requiring the Tauri app to have created a session
     /// first (which would break cron on fresh daemon starts).
-    pub fn agent_count(&self) -> usize {
-        self.agents.len() + self.agent_backend.blocking_lock().host_count()
+    pub async fn agent_count(&self) -> usize {
+        self.agents.len() + self.agent_backend.lock().await.host_count()
     }
 
     pub fn first_running_agent_id(&self) -> Option<String> {
@@ -2567,7 +2570,7 @@ mod tests {
                 || err.to_string().contains("opencode serve unavailable"),
             "got: {err}"
         );
-        assert_eq!(mgr.agent_count(), 0);
+        assert_eq!(mgr.agent_count().await, 0);
     }
 
     // ── mention-routing accessors ─────────────────────────────────────────────

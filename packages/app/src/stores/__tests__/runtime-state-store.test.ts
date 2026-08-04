@@ -3,7 +3,6 @@ import { create, toBinary } from '@bufbuild/protobuf'
 import {
   ActorPresenceSchema,
   LiveSessionSchema,
-  ModelInfoSchema,
   RuntimeInfoSchema,
   AgentStatus,
   AgentType,
