@@ -173,7 +173,22 @@ export interface SessionDetailRow {
 }
 
 export interface SessionsBackend {
-  listCurrentActorSessions(args: { limit: number; cursor: SessionListCursor | null }): Promise<SessionListPage>;
+  /**
+   * `teamId` narrows the page to one team. The filter is applied server-side,
+   * before LIMIT, so it stays correct under pagination — a client-side filter
+   * over page 1 silently drops matches that live on page 2.
+   *
+   * Required, because this client has no team-less state: AuthGate holds the
+   * startup skeleton until team bootstrap resolves and refuses to render the
+   * app at all without a current team (AuthGate.tsx, `bootstrap === "ready"`).
+   * The query param stays optional on the wire — iOS still calls
+   * GET /v1/sessions without it.
+   */
+  listCurrentActorSessions(args: {
+    limit: number;
+    cursor: SessionListCursor | null;
+    teamId: string;
+  }): Promise<SessionListPage>;
   markCurrentActorSessionViewed(sessionId: string, lastReadMessageId?: string | null): Promise<void>;
   createSessionShell(input: SessionCreateInput): Promise<{ sessionId: string }>;
   addParticipants(sessionId: string, actorIds: string[]): Promise<void>;

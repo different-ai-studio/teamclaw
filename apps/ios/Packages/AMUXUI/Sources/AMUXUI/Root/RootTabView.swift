@@ -153,6 +153,7 @@ public struct RootTabView: View {
                     mqtt: mqtt,
                     hub: hub,
                     actorID: actorID,
+                    teamID: activeTeam?.id ?? "",
                     sessionsRepo: teamRuntime?.sessionsRepo,
                     modelContext: modelContext
                 )
@@ -304,7 +305,7 @@ public struct RootTabView: View {
             // Overlay server-side has_unread on top of the just-synced rows.
             // Same RPC the desktop session list uses — the source of truth
             // is session_read_markers.last_read_at vs sessions.last_message_at.
-            if let flags = try? await repo.fetchUnreadFlags(limit: 100) {
+            if let flags = try? await repo.fetchUnreadFlags(teamID: teamID, limit: 100) {
                 viewModel.applyUnreadFlags(flags, modelContext: modelContext)
             }
         } else if let repo = sessionIDsRepoLocal,

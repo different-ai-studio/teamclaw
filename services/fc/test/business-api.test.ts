@@ -22,7 +22,7 @@ test("handleBusinessApiRequest routes list sessions with bearer-scoped repositor
       Authorization: "Bearer caller-token",
       "X-Request-Id": "request_12345",
     },
-    queryStringParameters: { limit: "2" },
+    queryStringParameters: { limit: "2", teamId: "team-1" },
   }, {
     createRepository(args) {
       createCalls.push(args);
@@ -45,7 +45,7 @@ test("handleBusinessApiRequest routes list sessions with bearer-scoped repositor
     args: {
       limit: 2,
       cursor: null,
-      teamId: null,
+      teamId: "team-1",
       ideaId: null,
     },
   });
@@ -63,7 +63,7 @@ test("list sessions decodes cursor before calling repository", async () => {
     httpMethod: "GET",
     path: "/v1/sessions",
     headers: { Authorization: "Bearer token" },
-    queryStringParameters: { cursor },
+    queryStringParameters: { cursor, teamId: "team-1" },
   }, { createRepository: () => repo });
 
   assert.equal(response.statusCode, 200);
@@ -441,6 +441,7 @@ test("repository Supabase errors are normalized", async () => {
     httpMethod: "GET",
     path: "/v1/sessions",
     headers: { Authorization: "Bearer token" },
+    queryParameters: { teamId: "team-1" },
   }, {
     createRepository: () => fakeRepo({ error: { code: "23505", message: "duplicate key" } }),
   });
@@ -813,7 +814,11 @@ test("GET /v1/sessions narrows by teamId and ideaId server-side", async () => {
   });
 });
 
-test("GET /v1/sessions leaves teamId/ideaId null when not supplied", async () => {
+// teamId identifies WHICH actor the caller is (one actor row per user per
+// team), so a list without it has no identity to scope to. It is rejected here
+// rather than reaching the RPC, whose missing-overload error would surface as a
+// 500 — see 20260804020000_per_team_actor_scope.sql.
+test("GET /v1/sessions rejects a request with no teamId", async () => {
   const repo = fakeRepo();
   const response = await handleBusinessApiRequest({
     httpMethod: "GET",
@@ -821,10 +826,24 @@ test("GET /v1/sessions leaves teamId/ideaId null when not supplied", async () =>
     headers: { Authorization: "Bearer token" },
   }, { createRepository: () => repo });
 
+  assert.equal(response.statusCode, 400);
+  assert.equal(JSON.parse(response.body).error.code, "team_id_required");
+  assert.deepEqual(repo.calls, []);
+});
+
+test("GET /v1/sessions leaves ideaId null when not supplied", async () => {
+  const repo = fakeRepo();
+  const response = await handleBusinessApiRequest({
+    httpMethod: "GET",
+    path: "/v1/sessions",
+    headers: { Authorization: "Bearer token" },
+    queryParameters: { teamId: "team-1" },
+  }, { createRepository: () => repo });
+
   assert.equal(response.statusCode, 200);
   assert.deepEqual(repo.calls[0], {
     method: "listSessions",
-    args: { limit: 50, cursor: null, teamId: null, ideaId: null },
+    args: { limit: 50, cursor: null, teamId: "team-1", ideaId: null },
   });
 });
 

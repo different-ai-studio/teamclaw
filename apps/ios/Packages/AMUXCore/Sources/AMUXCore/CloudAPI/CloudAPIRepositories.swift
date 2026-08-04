@@ -46,8 +46,10 @@ public actor CloudAPISessionsRepository: SessionsRepository {
         }
     }
 
-    public func fetchUnreadFlags(limit: Int) async throws -> [String: Bool] {
-        let page: CloudPage<CloudSession> = try await client.get("/v1/sessions?limit=\(limit)")
+    public func fetchUnreadFlags(teamID: String, limit: Int) async throws -> [String: Bool] {
+        let page: CloudPage<CloudSession> = try await client.get(
+            "/v1/sessions?teamId=\(urlEncoded(teamID))&limit=\(limit)"
+        )
         return page.items.reduce(into: [String: Bool]()) { acc, row in
             acc[row.id] = row.hasUnread
         }
@@ -114,16 +116,17 @@ private enum CloudSessionPager {
         return all
     }
 
-    /// RFC 3986 unreserved set. Deliberately not `.alphanumerics` (which would
-    /// escape the hyphens in a uuid) nor `.urlQueryAllowed` (which passes `&`
-    /// and `=` through and would let a value forge extra query parameters).
-    private static let unreserved = CharacterSet(
-        charactersIn: "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-._~"
-    )
+}
 
-    private static func urlEncoded(_ value: String) -> String {
-        value.addingPercentEncoding(withAllowedCharacters: unreserved) ?? value
-    }
+/// RFC 3986 unreserved set. Deliberately not `.alphanumerics` (which would
+/// escape the hyphens in a uuid) nor `.urlQueryAllowed` (which passes `&`
+/// and `=` through and would let a value forge extra query parameters).
+private let cloudQueryUnreserved = CharacterSet(
+    charactersIn: "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-._~"
+)
+
+private func urlEncoded(_ value: String) -> String {
+    value.addingPercentEncoding(withAllowedCharacters: cloudQueryUnreserved) ?? value
 }
 
 public actor CloudAPISessionRepository: SessionRepository {

@@ -1078,6 +1078,11 @@ export function createSupabaseBusinessRepository(options) {
     },
 
     async listSessions({ limit = 50, cursor = null, teamId = null, ideaId = null }: any = {}) {
+      // p_team_id is required as of 20260804020000 — it is what resolves the
+      // caller's actor, since a user has one actor row per team. The route
+      // rejects a missing teamId before it gets here; this guard keeps the
+      // repository honest for any other caller.
+      if (!teamId) throw new Error("listSessions requires teamId");
       const { data, error } = await supabase.rpc("list_current_actor_sessions", {
         p_limit: limit,
         p_before_last_message_at: cursor?.lastMessageAt ?? null,
@@ -1086,7 +1091,7 @@ export function createSupabaseBusinessRepository(options) {
         // Narrowing happens inside the RPC (20260802000000). Doing it there
         // rather than post-filtering keeps the result correct under pagination
         // and is what lets this replace GET /v1/teams/:teamId/sessions.
-        p_team_id: teamId ?? null,
+        p_team_id: teamId,
         p_idea_id: ideaId ?? null,
       });
       if (error) throw error;

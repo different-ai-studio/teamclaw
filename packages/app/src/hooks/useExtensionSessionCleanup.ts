@@ -28,6 +28,7 @@ export function useExtensionSessionCleanup() {
       try {
         await runExtensionSessionCleanup({
           userId,
+          teamId,
           shouldAbort: () => cancelled,
         })
       } catch (error) {

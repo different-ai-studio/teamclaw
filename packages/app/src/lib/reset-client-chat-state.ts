@@ -24,6 +24,11 @@ export function resetClientChatState(): void {
     hasMore: false,
     nextCursor: null,
     highlightedSessionIds: [],
+    // The list is team-scoped; clearing the scope alongside the rows is what
+    // makes the next loadFirstPage re-fetch instead of treating the emptied
+    // list as an already-loaded page for the team being left.
+    scopeTeamId: null,
+    serverConfirmed: false,
   });
   useSessionParticipantStore.setState({
     participantsBySession: {},

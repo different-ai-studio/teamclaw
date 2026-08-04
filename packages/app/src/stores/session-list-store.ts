@@ -18,11 +18,6 @@ import { reportLocalCacheFailure } from "@/lib/telemetry/local-cache-error-repor
 import type { SessionListCursor, SessionListPage } from "@/lib/backend/types";
 import { sortSessionListRows } from "@/lib/session-list-sort";
 
-// localStorage key for the most-recently-known teamId. Persisted so that
-// on first ever app boot the libsql phase-1 hydrate can fire — without it,
-// `teamId` is null until the first Supabase RPC returns, defeating the
-// "instant render from cache" path on cold start.
-const LAST_TEAM_ID_KEY = "teamclaw.sessionList.lastTeamId";
 const ARCHIVED_SESSION_IDS_KEY = "teamclaw.sessionList.archivedIds";
 
 function readArchivedSessionIds(): Set<string> {
@@ -85,26 +80,6 @@ function filterArchivedEntries(entries: SessionListEntry[]): SessionListEntry[] 
   return entries.filter((row) => !archived.has(row.id));
 }
 
-function readLastTeamId(): string | null {
-  try {
-    return typeof localStorage !== "undefined"
-      ? localStorage.getItem(LAST_TEAM_ID_KEY)
-      : null;
-  } catch {
-    return null;
-  }
-}
-
-function writeLastTeamId(teamId: string): void {
-  try {
-    if (typeof localStorage !== "undefined") {
-      localStorage.setItem(LAST_TEAM_ID_KEY, teamId);
-    }
-  } catch {
-    // localStorage unavailable (private mode, etc.) — non-fatal.
-  }
-}
-
 export interface SessionListEntry {
   id: string;
   title: string;
@@ -141,6 +116,26 @@ function mapCacheToEntry(r: SessionRow): SessionListEntry {
 
 function sortEntries(entries: SessionListEntry[]): SessionListEntry[] {
   return sortSessionListRows(entries);
+}
+
+/**
+ * Drop rows that do not belong to the team the list is currently scoped to.
+ *
+ * The server page is already narrowed by `teamId`, but rows also reach the
+ * store sideways — MQTT live events (the client subscribes to every team's
+ * topic), the inbox handler, and `open-session-deeplink`, which seeds a row for
+ * a session in the team it is about to switch into. Without this a foreign row
+ * lands in a list that is supposed to show one team.
+ *
+ * A null scope means no page has loaded yet, and lets everything through — at
+ * that point `rows` is empty and the first load replaces it wholesale anyway.
+ */
+function filterToScope(
+  entries: SessionListEntry[],
+  scopeTeamId: string | null,
+): SessionListEntry[] {
+  if (!scopeTeamId) return entries;
+  return entries.filter((row) => row.team_id === scopeTeamId);
 }
 
 /**
@@ -182,6 +177,12 @@ interface State {
    * Gates the empty-response guard in `loadFirstPage` — see the comment there.
    */
   serverConfirmed: boolean;
+  /**
+   * Team the current `rows` belong to; null until the first page loads. Every
+   * fetch is narrowed to it, and rows arriving from side channels are filtered
+   * against it (see `filterToScope`).
+   */
+  scopeTeamId: string | null;
   load: () => Promise<void>;
   loadFirstPage: (limit?: number) => Promise<void>;
   loadMore: (limit?: number) => Promise<void>;
@@ -220,12 +221,28 @@ function cursorFromRows(rows: SessionListEntry[]): State["nextCursor"] {
   };
 }
 
-async function loadPage(limit: number, cursor: State["nextCursor"]) {
+async function loadPage(
+  limit: number,
+  cursor: State["nextCursor"],
+  teamId: string,
+) {
   return getBackend().sessions.listCurrentActorSessions({
     limit,
     cursor,
+    teamId,
   });
 }
+
+/**
+ * De-duplicates concurrent first-page loads for the same team.
+ *
+ * `loadFirstPage` is called from several independent places — mount, the
+ * team-scope effect, the identity-change effect, and the debounced realtime
+ * refresh — which on a team switch fire within the same tick. Without this they
+ * each issue their own request and each overwrite `rows` on arrival.
+ */
+let firstPageInFlight: Promise<void> | null = null;
+let firstPageInFlightScope: string | null = null;
 
 function resolveNextCursor(page: SessionListPage): State["nextCursor"] {
   return page.nextCursor === undefined ? cursorFromRows(page.rows) : page.nextCursor;
@@ -246,6 +263,150 @@ function applyArchivedSessionLocalState(
   get().removeRow(sessionId);
 }
 
+/**
+ * One first-page load, scoped to `teamId`. Extracted from the store action so
+ * concurrent callers can share a single in-flight promise (see
+ * `firstPageInFlight`).
+ */
+async function loadFirstPageForTeam(
+  limit: number,
+  teamId: string,
+  set: (partial: Partial<State>) => void,
+  get: () => State,
+): Promise<void> {
+  // Team switch: the rows on screen belong to the team being left. Drop them
+  // before the fetch rather than after, so the list never shows another team's
+  // sessions while the new page is in flight.
+  const previousScope = get().scopeTeamId;
+  if (previousScope !== null && previousScope !== teamId) {
+    set({
+      rows: [],
+      hasMore: false,
+      nextCursor: null,
+      // Re-arm the empty-response guard: the new team's list has proven
+      // nothing yet, and the previous team's confirmation says nothing about
+      // whether this one is visible.
+      serverConfirmed: false,
+    });
+  }
+  set({ loading: true, error: null, scopeTeamId: teamId });
+  markStartup("session-list:start");
+
+  // ── Phase 1: hydrate instantly from local cache (Tauri only) ────────────
+  // Skip when we already have RPC rows for this team — reloading would flash
+  // archived sessions that still sit in libsql until soft-deleted.
+  //
+  // The cache holds every session of the team, not just the viewer's, so the
+  // rows are narrowed to the ones the current member actually participates in —
+  // otherwise the offline paint shows sessions the server page will then
+  // remove. `teamId` is the active team, so the member actor for that team is
+  // the right one to narrow by.
+  const existingRows = get().rows;
+  const currentMemberActorId = useCurrentTeamStore.getState().currentMember?.id ?? null;
+  if (isTauri() && currentMemberActorId && existingRows.length === 0) {
+    // The cache is an accelerator, never a gate. A rejection here (most
+    // often the current-team gate disagreeing with `teamId`) used to reject
+    // this whole function, leaving `loading: true` forever — the list span
+    // its spinner and the rejection surfaced as an unhandled rejection.
+    try {
+      const [localRows, actorSessionIds] = await Promise.all([
+        loadSessionsForTeam(teamId),
+        loadSessionIdsForActor(teamId, currentMemberActorId),
+      ]);
+      const actorSessionIdSet = new Set(actorSessionIds);
+      const currentActorRows = localRows.filter((row) => actorSessionIdSet.has(row.id));
+      if (currentActorRows.length > 0) {
+        set({
+          rows: filterArchivedEntries(
+            sortEntries(currentActorRows.map(mapCacheToEntry)),
+          ),
+        });
+        markStartup("session-list:local-cache");
+      }
+    } catch (error) {
+      reportLocalCacheFailure("session_load_team", error, { teamId });
+    }
+  }
+
+  let page: SessionListPage;
+  try {
+    page = await loadPage(limit, null, teamId);
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    set({ loading: false, error: message });
+    notifyRefreshFailed(message);
+    return;
+  }
+  const rows = filterToScope(page.rows, teamId);
+  const nextCursor = resolveNextCursor(page);
+
+  // ── Empty-response guard ───────────────────────────────────────────────
+  // GET /v1/sessions answers "you have no sessions" and "I cannot see your
+  // sessions" with the same 200 + `items: []`: every visibility gate on that
+  // endpoint fails closed (no actor row for the caller, no
+  // session_participants row, RLS/org scoping) and returns an empty list
+  // rather than an error. Until the server has handed us a row at least
+  // once, an empty page is therefore not evidence that the list is empty —
+  // and overwriting the phase-1 hydrate with it blanks a list the user can
+  // plainly see, while the rows still sit in libsql.
+  //
+  // Once any page has come back with rows, `serverConfirmed` flips and a
+  // later empty page is taken at face value, so archiving the last session
+  // (here or on another device) still empties the list as it should.
+  if (rows.length === 0 && get().rows.length > 0 && !get().serverConfirmed) {
+    console.warn(
+      "[session-list] server returned 0 sessions and none were confirmed before; keeping cached rows",
+    );
+    set({ loading: false, hasMore: false, nextCursor: null });
+    markStartup("session-list:loaded");
+    return;
+  }
+
+  if (isTauri() && rows.length > 0) {
+    const cacheRows: SessionRow[] = rows.map((r) => ({
+      id: r.id,
+      teamId: r.team_id,
+      title: r.title ?? null,
+      mode: r.mode ?? null,
+      primaryAgentId: null,
+      ideaId: r.idea_id ?? null,
+      summary: null,
+      lastMessagePreview: r.last_message_preview ?? null,
+      lastMessageAt: r.last_message_at ?? null,
+      createdBy: null,
+      metadataJson: null,
+      source: r.source ?? null,
+      cronJobId: r.cron_job_id ?? null,
+      createdAt: r.created_at ?? new Date().toISOString(),
+      updatedAt: r.updated_at ?? new Date().toISOString(),
+      deletedAt: null,
+      syncedAt: new Date().toISOString(),
+    }));
+    try {
+      await upsertSessionsBatch(cacheRows);
+    } catch (error) {
+      // Same contract as the hydrate above: a cache write must never stop
+      // the freshly-fetched rows from rendering.
+      reportLocalCacheFailure("session_upsert_batch", error, { teamId });
+    }
+    // Fire-and-forget: refresh the viewer's workspace context so newly
+    // connected agents and newly registered workspaces are picked up. The
+    // session → workspace links themselves are no longer prefetched here —
+    // they come off each session's participant rows on demand (ADR-0005).
+    void syncSessionWorkspaces(teamId).catch(() => {});
+  }
+
+  forgetArchivedSessionIds(rows);
+  set({
+    rows: filterArchivedEntries(sortEntries(rows)),
+    loading: false,
+    hasMore: nextCursor != null,
+    nextCursor,
+    serverConfirmed: get().serverConfirmed || rows.length > 0,
+  });
+  markStartup("session-list:loaded");
+}
+
 export const useSessionListStore = create<State>((set, get) => ({
   rows: [],
   loading: false,
@@ -255,6 +416,7 @@ export const useSessionListStore = create<State>((set, get) => ({
   hasMore: false,
   nextCursor: null,
   serverConfirmed: false,
+  scopeTeamId: null,
   load: async () => {
     await get().loadFirstPage();
   },
@@ -270,136 +432,40 @@ export const useSessionListStore = create<State>((set, get) => ({
         // Signing out re-arms the empty-response guard: the next account's
         // first page has proven nothing yet.
         serverConfirmed: false,
+        scopeTeamId: null,
       });
       return;
     }
-    set({ loading: true, error: null });
-    markStartup("session-list:start");
 
-    // Derive the team_id for libsql hydrate:
-    //   1. First row already in store (set by prior load), OR
-    //   2. localStorage cache from a previous app session (so first boot
-    //      still gets phase-1 instant render before the Supabase RPC).
-    // The Supabase RPC below populates either path going forward.
-    const existingRows = useSessionListStore.getState().rows;
-    // Prefer the active team from current-team store. Falling back to
-    // localStorage when it's still null lets phase-1 hydrate fire on cold
-    // boot, but using it once current-team is known would cause a
-    // local_cache team-gate mismatch panic after switching accounts/teams.
-    const activeTeamId = useCurrentTeamStore.getState().team?.id ?? null;
-    const teamId = activeTeamId ?? existingRows[0]?.team_id ?? readLastTeamId();
-
-    // ── Phase 1: hydrate instantly from local cache (Tauri only) ──────────
-    // Skip when we already have RPC rows — reloading would flash archived
-    // sessions that still sit in libsql until soft-deleted.
-    const currentMemberActorId = useCurrentTeamStore.getState().currentMember?.id ?? null;
-    if (isTauri() && teamId && currentMemberActorId && existingRows.length === 0) {
-      // The cache is an accelerator, never a gate. A rejection here (most
-      // often the current-team gate disagreeing with `teamId`) used to reject
-      // this whole function, leaving `loading: true` forever — the list span
-      // its spinner and the rejection surfaced as an unhandled rejection.
-      try {
-        const [localRows, actorSessionIds] = await Promise.all([
-          loadSessionsForTeam(teamId),
-          loadSessionIdsForActor(teamId, currentMemberActorId),
-        ]);
-        const actorSessionIdSet = new Set(actorSessionIds);
-        const currentActorRows = localRows.filter((row) => actorSessionIdSet.has(row.id));
-        if (currentActorRows.length > 0) {
-          set({
-            rows: filterArchivedEntries(
-              sortEntries(currentActorRows.map(mapCacheToEntry)),
-            ),
-          });
-          markStartup("session-list:local-cache");
-        }
-      } catch (error) {
-        reportLocalCacheFailure("session_load_team", error, { teamId });
-      }
+    // The active team scopes both the libsql hydrate and the server page.
+    // There is no fallback on purpose: guessing a team (from the previous run,
+    // or from rows already on screen) is how the list ends up fetching one
+    // team while the rest of the app is in another. AuthGate holds the startup
+    // skeleton until team bootstrap resolves, so by the time anything can call
+    // this there IS a current team; a null here means the caller ran outside
+    // that guarantee, and the effect in App.tsx re-runs the moment a team
+    // lands.
+    const teamId = useCurrentTeamStore.getState().team?.id ?? null;
+    if (!teamId) {
+      console.warn("[session-list] skipping load — no active team");
+      set({ loading: false });
+      return;
     }
 
-    let page: SessionListPage;
+    if (firstPageInFlight && firstPageInFlightScope === teamId) {
+      return firstPageInFlight;
+    }
+    const run = loadFirstPageForTeam(limit, teamId, set, get);
+    firstPageInFlight = run;
+    firstPageInFlightScope = teamId;
     try {
-      page = await loadPage(limit, null);
-    } catch (error) {
-      const message = error instanceof Error ? error.message : String(error);
-      set({ loading: false, error: message });
-      notifyRefreshFailed(message);
-      return;
-    }
-    const { rows } = page;
-    const nextCursor = resolveNextCursor(page);
-
-    // ── Empty-response guard ─────────────────────────────────────────────
-    // GET /v1/sessions answers "you have no sessions" and "I cannot see your
-    // sessions" with the same 200 + `items: []`: every visibility gate on that
-    // endpoint fails closed (no actor row for the caller, no
-    // session_participants row, RLS/org scoping) and returns an empty list
-    // rather than an error. Until the server has handed us a row at least
-    // once, an empty page is therefore not evidence that the list is empty —
-    // and overwriting the phase-1 hydrate with it blanks a list the user can
-    // plainly see, while the rows still sit in libsql.
-    //
-    // Once any page has come back with rows, `serverConfirmed` flips and a
-    // later empty page is taken at face value, so archiving the last session
-    // (here or on another device) still empties the list as it should.
-    if (rows.length === 0 && get().rows.length > 0 && !get().serverConfirmed) {
-      console.warn(
-        "[session-list] server returned 0 sessions and none were confirmed before; keeping cached rows",
-      );
-      set({ loading: false, hasMore: false, nextCursor: null });
-      markStartup("session-list:loaded");
-      return;
-    }
-
-    // Persist teamId for the next cold boot — pick from fresh rows if we have
-    // any; otherwise keep whatever the libsql hydrate already exposed.
-    const freshTeamId = rows[0]?.team_id ?? teamId;
-    if (freshTeamId) writeLastTeamId(freshTeamId);
-
-    if (isTauri() && teamId && rows.length > 0) {
-      const cacheRows: SessionRow[] = rows.map((r) => ({
-        id: r.id,
-        teamId: r.team_id,
-        title: r.title ?? null,
-        mode: r.mode ?? null,
-        primaryAgentId: null,
-        ideaId: r.idea_id ?? null,
-        summary: null,
-        lastMessagePreview: r.last_message_preview ?? null,
-        lastMessageAt: r.last_message_at ?? null,
-        createdBy: null,
-        metadataJson: null,
-        source: r.source ?? null,
-        cronJobId: r.cron_job_id ?? null,
-        createdAt: r.created_at ?? new Date().toISOString(),
-        updatedAt: r.updated_at ?? new Date().toISOString(),
-        deletedAt: null,
-        syncedAt: new Date().toISOString(),
-      }));
-      try {
-        await upsertSessionsBatch(cacheRows);
-      } catch (error) {
-        // Same contract as the hydrate above: a cache write must never stop
-        // the freshly-fetched rows from rendering.
-        reportLocalCacheFailure("session_upsert_batch", error, { teamId });
+      await run;
+    } finally {
+      if (firstPageInFlight === run) {
+        firstPageInFlight = null;
+        firstPageInFlightScope = null;
       }
-      // Fire-and-forget: refresh the viewer's workspace context so newly
-      // connected agents and newly registered workspaces are picked up. The
-      // session → workspace links themselves are no longer prefetched here —
-      // they come off each session's participant rows on demand (ADR-0005).
-      void syncSessionWorkspaces(teamId).catch(() => {});
     }
-
-    forgetArchivedSessionIds(rows);
-    set({
-      rows: filterArchivedEntries(sortEntries(rows)),
-      loading: false,
-      hasMore: nextCursor != null,
-      nextCursor,
-      serverConfirmed: get().serverConfirmed || rows.length > 0,
-    });
-    markStartup("session-list:loaded");
   },
   loadMore: async (limit = 50) => {
     const session = useAuthStore.getState().session;
@@ -407,15 +473,25 @@ export const useSessionListStore = create<State>((set, get) => ({
     const cursor = get().nextCursor;
     if (!cursor) return;
 
+    // Page 2+ must carry the same scope as page 1 — otherwise scrolling pulls
+    // in every team's sessions again, one page at a time.
+    const teamId = get().scopeTeamId;
+    if (!teamId) return;
     set({ loading: true, error: null });
     let page: SessionListPage;
     try {
-      page = await loadPage(limit, cursor);
+      page = await loadPage(limit, cursor, teamId);
     } catch (error) {
       set({ loading: false, error: error instanceof Error ? error.message : String(error) });
       return;
     }
-    const { rows } = page;
+    // A team switch mid-flight makes this page stale; dropping it is correct
+    // because loadFirstPage has already reset rows for the new scope.
+    if (get().scopeTeamId !== teamId) {
+      set({ loading: false });
+      return;
+    }
+    const rows = filterToScope(page.rows, teamId);
     const nextCursor = resolveNextCursor(page);
     forgetArchivedSessionIds(rows);
     const nextRows = filterArchivedEntries(mergeRows(get().rows, rows));
@@ -426,7 +502,10 @@ export const useSessionListStore = create<State>((set, get) => ({
       nextCursor,
     });
   },
-  upsertRows: (rows) => set((state) => ({ rows: mergeRows(state.rows, rows) })),
+  upsertRows: (rows) =>
+    set((state) => ({
+      rows: mergeRows(state.rows, filterToScope(rows, state.scopeTeamId)),
+    })),
   patchRow: (sessionId, patch) => set((state) => ({
     rows: state.rows.map((row) =>
       row.id === sessionId ? { ...row, ...patch } : row,

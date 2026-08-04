@@ -55,8 +55,18 @@ export function shouldArchiveStaleExtensionSession(
   return false
 }
 
-function lastRunStorageKey(userId?: string | null): string {
-  const trimmed = userId?.trim()
+function cleanupRunOwner(
+  userId?: string | null,
+  teamId?: string | null,
+): string | null {
+  const user = userId?.trim()
+  const team = teamId?.trim()
+  if (!user) return null
+  return team ? `${user}.${team}` : user
+}
+
+function lastRunStorageKey(owner?: string | null): string {
+  const trimmed = owner?.trim()
   return trimmed ? `${LAST_RUN_KEY_PREFIX}.${trimmed}` : LAST_RUN_KEY_PREFIX
 }
 
@@ -102,7 +112,15 @@ function resolveNextCursor(
   }
 }
 
+/**
+ * Every session the current actor can see in `teamId`.
+ *
+ * Team-scoped rather than global because archiving is destructive and silent:
+ * a cross-team sweep would retire sessions the user cannot even see from the
+ * panel they are looking at.
+ */
 export async function listAllCurrentActorSessions(
+  teamId: string,
   shouldAbort?: () => boolean,
 ): Promise<SessionListEntry[]> {
   const rows: SessionListEntry[] = []
@@ -113,6 +131,7 @@ export async function listAllCurrentActorSessions(
     const page = await getBackend().sessions.listCurrentActorSessions({
       limit: 50,
       cursor,
+      teamId,
     })
     rows.push(...page.rows)
     const nextCursor = resolveNextCursor(page)
@@ -128,6 +147,8 @@ export type ExtensionSessionCleanupOptions = {
   skipSessionIds?: ReadonlySet<string>
   force?: boolean
   userId?: string | null
+  /** Team to sweep. The list endpoint is team-scoped; there is no global sweep. */
+  teamId: string
   shouldAbort?: () => boolean
 }
 
@@ -136,14 +157,19 @@ async function archiveStaleSessionQuiet(sessionId: string): Promise<boolean> {
 }
 
 async function runExtensionSessionCleanupInner(
-  options: ExtensionSessionCleanupOptions = {},
+  options: ExtensionSessionCleanupOptions,
 ): Promise<{ archived: number; scanned: number }> {
   const now = options.now ?? new Date()
   const nowMs = now.getTime()
   const shouldAbort = options.shouldAbort
 
+  // Scoped per team as well as per user: the sweep now only covers one team,
+  // so a team switch inside the min-gap window must not be read as "already
+  // swept".
+  const runKeyOwner = cleanupRunOwner(options.userId, options.teamId)
+
   if (!options.force) {
-    const lastRun = readLastCleanupRunMs(options.userId)
+    const lastRun = readLastCleanupRunMs(runKeyOwner)
     if (nowMs - lastRun < EXTENSION_SESSION_CLEANUP_MIN_GAP_MS) {
       return { archived: 0, scanned: 0 }
     }
@@ -154,7 +180,7 @@ async function runExtensionSessionCleanupInner(
   }
 
   const initialSkip = buildProtectedSessionIds(options.skipSessionIds)
-  const sessions = await listAllCurrentActorSessions(shouldAbort)
+  const sessions = await listAllCurrentActorSessions(options.teamId, shouldAbort)
   if (shouldAbort?.()) {
     return { archived: 0, scanned: sessions.length }
   }
@@ -179,7 +205,7 @@ async function runExtensionSessionCleanupInner(
   }
 
   if (failed === 0 && !shouldAbort?.()) {
-    writeLastCleanupRunMs(nowMs, options.userId)
+    writeLastCleanupRunMs(nowMs, runKeyOwner)
   }
 
   if (archived > 0) {
@@ -196,7 +222,7 @@ async function runExtensionSessionCleanupInner(
  * Skips the active session and pinned sessions (re-checked before each archive).
  */
 export async function runExtensionSessionCleanup(
-  options: ExtensionSessionCleanupOptions = {},
+  options: ExtensionSessionCleanupOptions,
 ): Promise<{ archived: number; scanned: number }> {
   if (sweepInFlight) return sweepInFlight
 

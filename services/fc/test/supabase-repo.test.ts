@@ -19,7 +19,7 @@ test("createSupabaseBusinessRepository creates caller-scoped Supabase client", a
     },
   });
 
-  await repo.listSessions({ limit: 25 });
+  await repo.listSessions({ limit: 25, teamId: "team-1" });
 
   assert.equal(calls.length, 1);
   assert.equal(calls[0].url, "https://example.supabase.co");
@@ -61,11 +61,13 @@ test("listSessions maps current actor session rpc rows", async () => {
 
   const rows = await repo.listSessions({
     limit: 10,
+    teamId: "team-1",
     cursor: { lastMessageAt: "2026-05-27T00:00:00Z", createdAt: "2026-05-26T00:00:00Z", id: "s0" },
   });
 
-  // p_team_id / p_idea_id arrived with 20260802000000_session_list_team_and_idea_scope;
-  // an unscoped list passes them as null rather than omitting them.
+  // p_team_id arrived with 20260802000000_session_list_team_and_idea_scope and
+  // became mandatory in 20260804020000 — it is what resolves the caller's
+  // actor. p_idea_id stays optional and is passed as null when unset.
   assert.deepEqual(rpcCalls, [{
     name: "list_current_actor_sessions",
     args: {
@@ -73,7 +75,7 @@ test("listSessions maps current actor session rpc rows", async () => {
       p_before_last_message_at: "2026-05-27T00:00:00Z",
       p_before_created_at: "2026-05-26T00:00:00Z",
       p_before_id: "s0",
-      p_team_id: null,
+      p_team_id: "team-1",
       p_idea_id: null,
     },
   }]);
@@ -234,7 +236,7 @@ test("repository throws upstream errors without hiding Supabase error codes", as
     },
   }));
 
-  await assert.rejects(() => repo.listSessions(), (err: any) => {
+  await assert.rejects(() => repo.listSessions({ teamId: "team-1" }), (err: any) => {
     assert.equal(err.code, "42501");
     return true;
   });

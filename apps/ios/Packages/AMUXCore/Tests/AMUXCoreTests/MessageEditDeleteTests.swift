@@ -35,7 +35,7 @@ private actor FakeSessionsRepository: SessionsRepository {
     func setShouldFail(_ value: Bool) { shouldFail = value }
 
     func listSessions(teamID: String) async throws -> [SessionRecord] { [] }
-    func fetchUnreadFlags(limit: Int) async throws -> [String: Bool] { [:] }
+    func fetchUnreadFlags(teamID: String, limit: Int) async throws -> [String: Bool] { [:] }
     func markSessionViewed(sessionId: String, lastReadMessageId: String?) async throws {}
 
     func markSessionUnread(sessionId: String) async throws {

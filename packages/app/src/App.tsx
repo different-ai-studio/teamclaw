@@ -826,13 +826,6 @@ function AppContent() {
     }
   }, []);
 
-  // v2 Phase 1: load session list from Supabase once AppContent mounts
-  // (i.e. after auth is verified). Phase 2 will replace with realtime sub.
-  useEffect(() => {
-    if (isV2E2EControlActive()) return;
-    void useSessionListStore.getState().load();
-  }, []);
-
   // Desktop: hand off from the static #skeleton once the workspace resolves to
   // real three-column content. AuthGate keeps the skeleton up through every
   // loading gate and lets App own the final removal, so cold start is
@@ -872,6 +865,23 @@ function AppContent() {
   const currentTeamId = useCurrentTeamStore((s) => s.team?.id ?? null);
   useMemberPresenceHeartbeat(currentTeamId, myActorId);
   useExtensionSessionCleanup();
+
+  // v2 Phase 1: load the session list once AppContent mounts (i.e. after auth
+  // is verified), then re-scope it whenever the active team resolves or
+  // changes. The list is team-scoped (GET /v1/sessions?teamId=), so a cold boot
+  // that guessed the team from localStorage has to refetch once current-team
+  // lands — and a team switch has to refetch rather than keep showing the team
+  // being left. Concurrent calls with the same scope share one request.
+  useEffect(() => {
+    if (isV2E2EControlActive()) return;
+    if (
+      currentTeamId &&
+      useSessionListStore.getState().scopeTeamId === currentTeamId
+    ) {
+      return;
+    }
+    void useSessionListStore.getState().load();
+  }, [currentTeamId]);
 
   // Keep team-share status fresh so the top-right "team shared files" tab shows
   // only when share is actually enabled (shareMode != null). Without this the

@@ -171,6 +171,7 @@ public final class SessionListViewModel {
         mqtt: MQTTService,
         hub: MQTTMessageHub,
         actorID: String,
+        teamID: String,
         sessionsRepo: SessionsRepository?,
         modelContext: ModelContext
     ) {
@@ -211,7 +212,7 @@ public final class SessionListViewModel {
                 if Task.isCancelled { return }
                 switch parseInboxEnvelope(topic: msg.topic, payload: msg.payload, expectedUserID: actorID) {
                 case .success(let ping):
-                    await self.applyInboxPing(ping, sessionsRepo: sessionsRepo, modelContext: ctx)
+                    await self.applyInboxPing(ping, teamID: teamID, sessionsRepo: sessionsRepo, modelContext: ctx)
                 case .failure(let err):
                     NSLog("[SessionListVM] inbox: parse failed (%@)", String(describing: err))
                 }
@@ -220,7 +221,12 @@ public final class SessionListViewModel {
     }
 
     @MainActor
-    private func applyInboxPing(_ ping: InboxPing, sessionsRepo: SessionsRepository?, modelContext: ModelContext) async {
+    private func applyInboxPing(
+        _ ping: InboxPing,
+        teamID: String,
+        sessionsRepo: SessionsRepository?,
+        modelContext: ModelContext
+    ) async {
         let sid = ping.sessionID
         let descriptor = FetchDescriptor<Session>(predicate: #Predicate { $0.sessionId == sid })
 
@@ -244,10 +250,10 @@ public final class SessionListViewModel {
                 try? modelContext.save()
                 reloadSessions(modelContext: modelContext)
             }
-        } else if let repo = sessionsRepo {
+        } else if let repo = sessionsRepo, !teamID.isEmpty {
             // Unknown session id — likely a brand-new session for this user.
             // Pull the authoritative set so the row appears with the right flag.
-            if let flags = try? await repo.fetchUnreadFlags(limit: 100) {
+            if let flags = try? await repo.fetchUnreadFlags(teamID: teamID, limit: 100) {
                 applyUnreadFlags(flags, modelContext: modelContext)
             }
         }

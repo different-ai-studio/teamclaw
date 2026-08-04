@@ -49,7 +49,6 @@ function localStateSnapshot(): DiagData {
     visibilityState: document.visibilityState,
     serverConfig: redactValue('serverConfig', readJsonLocalStorage('teamclaw.serverConfig')),
     currentTeam: redactValue('currentTeam', readJsonLocalStorage('teamclaw:current-team')),
-    sessionListLastTeamId: window.localStorage.getItem('teamclaw.sessionList.lastTeamId'),
     authSession: auth
       ? {
           user: auth.user,

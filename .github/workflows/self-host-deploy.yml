@@ -142,6 +142,19 @@ jobs:
                     done
                   fi
 
+                  # Unlike the bundled Supabase — where the compose `migrate`
+                  # service scans services/supabase/migrations and applies
+                  # everything in lexical order — this external database only
+                  # gets what is listed here. A new migration file that is not
+                  # added below never runs against it, and the deploy still
+                  # reports success. 20260804000000 / 20260804010000 were missed
+                  # exactly that way.
+                  #
+                  # DELIBERATELY NOT LISTED: 20260804020000_per_team_actor_scope.sql.
+                  # It drops the old list_current_actor_sessions signatures, and
+                  # this database is read by an FC deployment that ships
+                  # separately (services/fc/deploy-aliyun-fc.sh, manual). Add it
+                  # in the same change that redeploys that FC, not before.
                   for migration in \
                     20260609000000_actor_directory_contact_amux.sql \
                     20260615000000_list_my_teams_current_org.sql \
@@ -183,7 +196,9 @@ jobs:
                     20260802000000_session_list_team_and_idea_scope.sql \
                     20260802120000_switch_active_team_no_org_id_update.sql \
                     20260803000000_participant_owns_agent_session_state.sql \
-                    20260803010000_drop_agent_runtimes.sql
+                    20260803010000_drop_agent_runtimes.sql \
+                    20260804000000_optimize_current_actor_session_list.sql \
+                    20260804010000_fix_functions_after_drop_agent_runtimes.sql
                   do
                     if [ "$(psql -Atc "select exists (select 1 from _selfhost.schema_migrations where filename = \$\$${migration}\$\$)")" = "t" ]; then
                       echo "skip external migration: $migration"
