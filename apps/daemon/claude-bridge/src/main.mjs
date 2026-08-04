@@ -146,12 +146,20 @@ function makeCanUseTool(sessionKey) {
     })
 }
 
-function handleAssistantMessage(sessionKey, message) {
+function handleAssistantMessage(sessionKey, session, message) {
+  // Top-level text/thinking already streamed through stream_event deltas
+  // (includePartialMessages); re-emitting the completed block would duplicate
+  // it. Subagent messages (parent_tool_use_id set) never stream, keep whole.
+  const topLevel = message.parent_tool_use_id == null
   for (const block of message.message?.content ?? []) {
     if (block.type === 'text' && block.text) {
-      emit({ event: 'assistant_delta', sessionId: sessionKey, text: block.text })
+      if (!(topLevel && session.streamedText)) {
+        emit({ event: 'assistant_delta', sessionId: sessionKey, text: block.text })
+      }
     } else if (block.type === 'thinking' && block.thinking) {
-      emit({ event: 'thinking_delta', sessionId: sessionKey, text: block.thinking })
+      if (!(topLevel && session.streamedThinking)) {
+        emit({ event: 'thinking_delta', sessionId: sessionKey, text: block.thinking })
+      }
     } else if (block.type === 'tool_use') {
       emit({
         event: 'tool_start',
@@ -161,6 +169,25 @@ function handleAssistantMessage(sessionKey, message) {
         args: paramsToObject(block.input),
       })
     }
+  }
+  if (topLevel) {
+    session.streamedText = false
+    session.streamedThinking = false
+  }
+}
+
+/** Token-level streaming (includePartialMessages). Top-level content only. */
+function handleStreamEvent(sessionKey, session, message) {
+  if (message.parent_tool_use_id != null) return
+  const ev = message.event
+  if (ev?.type !== 'content_block_delta') return
+  const delta = ev.delta
+  if (delta?.type === 'text_delta' && delta.text) {
+    session.streamedText = true
+    emit({ event: 'assistant_delta', sessionId: sessionKey, text: delta.text })
+  } else if (delta?.type === 'thinking_delta' && delta.thinking) {
+    session.streamedThinking = true
+    emit({ event: 'thinking_delta', sessionId: sessionKey, text: delta.thinking })
   }
 }
 
@@ -188,15 +215,22 @@ async function pumpSession(sessionKey, session) {
           if (message.subtype === 'init') {
             session.sessionId = message.session_id
             session.model = message.model ?? session.model
+            void emitSlashCommands(sessionKey, session.q, message.slash_commands ?? [])
           }
           break
         case 'assistant':
-          handleAssistantMessage(sessionKey, message)
+          if (!session.priming) handleAssistantMessage(sessionKey, session, message)
+          break
+        case 'stream_event':
+          if (!session.priming) handleStreamEvent(sessionKey, session, message)
           break
         case 'user':
-          handleUserMessage(sessionKey, message)
+          if (!session.priming) handleUserMessage(sessionKey, message)
           break
         case 'result': {
+          // Errors surface even for the invisible priming turn — if that turn
+          // failed (auth, model access), every later turn will fail the same
+          // way and hiding it would leave the user staring at silence.
           if (message.subtype !== 'success') {
             emit({
               event: 'run_error',
@@ -208,14 +242,27 @@ async function pumpSession(sessionKey, session) {
           // authoritative reading, unlike whatever we last asked for.
           const used = Object.keys(message.modelUsage ?? {})
           if (used.length > 0) session.model = used[used.length - 1]
+          const wasPriming = session.priming
+          session.priming = false
           session.turnActive = false
-          emit({
-            event: 'turn_end',
-            sessionId: sessionKey,
-            status: message.subtype,
-            model: session.model,
-            costUsd: message.total_cost_usd,
-          })
+          session.streamedText = false
+          session.streamedThinking = false
+          if (!wasPriming) {
+            emit({
+              event: 'turn_end',
+              sessionId: sessionKey,
+              status: message.subtype,
+              model: session.model,
+              costUsd: message.total_cost_usd,
+            })
+          }
+          // A send that arrived mid-turn was queued; its turn begins only now,
+          // so its turn_start cannot be closed by the previous turn's result.
+          if (session.pendingTurnStarts > 0) {
+            session.pendingTurnStarts -= 1
+            session.turnActive = true
+            emit({ event: 'turn_start', sessionId: sessionKey })
+          }
           break
         }
         default:
@@ -226,6 +273,8 @@ async function pumpSession(sessionKey, session) {
     if (!(err instanceof AbortError)) {
       emit({ event: 'run_error', sessionId: sessionKey, message: String(err?.message ?? err) })
     }
+    session.priming = false
+    session.pendingTurnStarts = 0
     session.turnActive = false
     emit({ event: 'turn_end', sessionId: sessionKey, status: 'error' })
   } finally {
@@ -240,6 +289,33 @@ async function pumpSession(sessionKey, session) {
 function mcpServersOption(mcpServers) {
   if (!mcpServers || typeof mcpServers !== 'object' || Array.isArray(mcpServers)) return {}
   return Object.keys(mcpServers).length > 0 ? { mcpServers } : {}
+}
+
+async function emitSlashCommands(sessionKey, q, fallbackNames = []) {
+  try {
+    const cmds = await q.supportedCommands()
+    if (cmds.length > 0) {
+      emit({
+        event: 'slash_commands',
+        sessionId: sessionKey,
+        commands: cmds.map((c) => ({
+          name: c.name,
+          description: c.description ?? '',
+          inputHint: c.argumentHint ?? '',
+        })),
+      })
+      return
+    }
+  } catch {
+    // Fall back to init-time names when supportedCommands is unavailable.
+  }
+  if (fallbackNames.length > 0) {
+    emit({
+      event: 'slash_commands',
+      sessionId: sessionKey,
+      commands: fallbackNames.map((name) => ({ name, description: '', inputHint: '' })),
+    })
+  }
 }
 
 async function startSession(params, resume) {
@@ -257,29 +333,42 @@ async function startSession(params, resume) {
       ...(resume ? { resume } : {}),
       ...mcpServersOption(params.mcpServers),
       permissionMode: params.permissionMode ?? 'default',
-      // bypassPermissions never consults canUseTool; wiring it anyway would be
-      // dead code that hides which mode is actually in force.
+      // "project" loads <cwd>/.claude/settings.json and .claude/skills/ without
+      // pulling in ~/.claude/* (user scope would bypass canUseTool via personal
+      // permissions.allow rules and flood sessions with personal skills).
+      settingSources: ['project'],
+      // Skills the user explicitly invokes must not stall on an approval
+      // popover; the tools a skill then runs are still gated individually.
+      allowedTools: ['Skill'],
+      // Token-level deltas (stream_event) instead of whole assistant blocks.
+      includePartialMessages: true,
       ...(fullAccess ? {} : { canUseTool: makeCanUseTool(sessionKey) }),
     },
   })
 
+  // The SDK emits system/init (whose session id we persist for resume) only
+  // once a first turn runs. With no initial prompt we prime it with a
+  // throwaway nudge turn whose events are all suppressed — without that flag
+  // the model's answer to the nudge would render as a reply to the user's
+  // real first message, which arrives later via `send`.
+  const priming = !params.initialPrompt
   const session = {
     q,
     input,
     cwd,
     sessionId: resume ?? '',
     model: params.model ?? '',
-    turnActive: false,
+    turnActive: true,
+    priming,
+    pendingTurnStarts: 0,
+    streamedText: false,
+    streamedThinking: false,
   }
   sessions.set(sessionKey, session)
   void pumpSession(sessionKey, session)
 
-  // The SDK emits system/init only once it has spun up; the session id it
-  // carries is what we persist for resume. Nudge it with an empty turn only if
-  // the caller gave no initial prompt — otherwise the prompt itself starts it.
   input.push(userMessage(params.initialPrompt || 'Ready.', session.sessionId))
-  session.turnActive = true
-  emit({ event: 'turn_start', sessionId: sessionKey })
+  if (!priming) emit({ event: 'turn_start', sessionId: sessionKey })
 
   const deadline = Date.now() + 60_000
   while (!session.sessionId && Date.now() < deadline) {
@@ -329,8 +418,15 @@ async function handleRequest(req) {
           await session.q.setModel(params.model)
           session.model = params.model
         }
-        session.turnActive = true
-        emit({ event: 'turn_start', sessionId: params.sessionKey })
+        if (session.turnActive) {
+          // A turn is still running (possibly the invisible priming turn).
+          // Emitting turn_start now would let that turn's result close the
+          // new turn before it produced anything; defer to its `result`.
+          session.pendingTurnStarts += 1
+        } else {
+          session.turnActive = true
+          emit({ event: 'turn_start', sessionId: params.sessionKey })
+        }
         session.input.push(userMessage(params.text, session.sessionId))
         emit({ id, result: { ok: true } })
         break

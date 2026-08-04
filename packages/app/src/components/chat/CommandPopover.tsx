@@ -70,6 +70,17 @@ function summarizeRuntimeStates(
   )
 }
 
+function dedupeSkillEntries(skills: SkillEntry[]): SkillEntry[] {
+  const seen = new Map<string, SkillEntry>()
+  for (const skill of skills) {
+    const key = skill.invocationName || skill.name
+    if (!seen.has(key)) {
+      seen.set(key, skill)
+    }
+  }
+  return Array.from(seen.values())
+}
+
 async function scanAvailableSkills(workspacePath: string): Promise<SkillEntry[]> {
   const state = await loadRolesSkillsWorkspaceState(workspacePath)
   return state.skills
@@ -274,11 +285,15 @@ export function CommandPopover({
 
           const runtimeSkills: SkillEntry[] = []
           const runtimeCommands: Command[] = []
+          const runtimeSkillKeys = new Set<string>()
 
           for (const cmd of cmds) {
             const matchedSkill = skillByInvocation.get(cmd.name) ?? skillByFilename.get(cmd.name)
             if (matchedSkill) {
               if (deniedSkillNames.has(matchedSkill.name)) continue
+              const dedupeKey = matchedSkill.invocationName || matchedSkill.name
+              if (runtimeSkillKeys.has(dedupeKey)) continue
+              runtimeSkillKeys.add(dedupeKey)
               console.info('[CommandPopover] classified daemon command as known skill', {
                 commandName: cmd.name,
                 skillName: matchedSkill.name,
@@ -314,7 +329,7 @@ export function CommandPopover({
           
           setCommands(runtimeCommands)
           setRoles(loadedRoles)
-          setSkills([...runtimeSkills, ...uniqueFrontendSkills])
+          setSkills(dedupeSkillEntries([...runtimeSkills, ...uniqueFrontendSkills]))
           console.info('[CommandPopover] picker state set', {
             activeSessionId,
             runtimeSkillCount: runtimeSkills.length,

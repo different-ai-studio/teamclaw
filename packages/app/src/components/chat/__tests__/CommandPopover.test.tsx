@@ -212,4 +212,52 @@ describe('CommandPopover', () => {
       }),
     )
   })
+
+  it('dedupes duplicate scanned skills that share the same invocation name', async () => {
+    mocks.loadRolesSkillsWorkspaceState.mockResolvedValue({
+      roles: [],
+      skills: [
+        {
+          filename: 'accounting-error-investigator',
+          name: 'accounting-error-investigator',
+          invocationName: 'accounting-error-investigator',
+          description: 'Investigate accounting errors',
+          content: '---\nname: accounting-error-investigator\n---\n',
+          source: 'team',
+          dirPath: '/workspace/demo/teamclaw-team/skills',
+          linkedRoles: [],
+          isRoleSkill: false,
+        },
+        {
+          filename: 'accounting-error-investigator',
+          name: 'accounting-error-investigator',
+          invocationName: 'accounting-error-investigator',
+          description: 'Investigate accounting errors',
+          content: '---\nname: accounting-error-investigator\n---\n',
+          source: 'claude',
+          dirPath: '/workspace/demo/.claude/skills',
+          linkedRoles: [],
+          isRoleSkill: false,
+        },
+      ],
+      roleUsageBySkill: {},
+      skillNamesByRole: {},
+      metrics: { rolesCount: 0, skillsCount: 2, linkedSkillsCount: 0, unlinkedSkillsCount: 2 },
+    })
+
+    render(
+      <CommandPopover
+        open={true}
+        activeSessionId={null}
+        onOpenChange={vi.fn()}
+        searchQuery=""
+        onSelect={vi.fn()}
+      />,
+    )
+
+    await waitFor(() => {
+      expect(screen.getByText('chat.commandPopover.skills:1')).toBeInTheDocument()
+    })
+    expect(screen.getAllByText('accounting-error-investigator')).toHaveLength(1)
+  })
 })

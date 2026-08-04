@@ -280,7 +280,7 @@ export async function loadAllRoles(workspacePath: string | null): Promise<RoleRe
   return state.roles
 }
 
-async function loadRolesSkillsWorkspaceStateFromFs(
+export async function loadRolesSkillsWorkspaceStateFromFs(
   workspacePath: string,
 ): Promise<RolesSkillsWorkspaceState> {
   const [roles, { skills: normalSkills }, roleManagedSkills] = await Promise.all([
@@ -304,8 +304,7 @@ async function loadRolesSkillsWorkspaceStateFromFs(
   const managedSkillsByKey = new Map<string, ManagedSkillRecord>()
 
   for (const skill of normalSkills) {
-    const key = `${skill.dirPath ?? ""}:${skill.filename}`
-    managedSkillsByKey.set(key, {
+    managedSkillsByKey.set(skill.filename, {
       filename: skill.filename,
       name: skill.name,
       invocationName: skill.invocationName,
@@ -336,6 +335,38 @@ async function loadRolesSkillsWorkspaceStateFromFs(
 
 function skillRecordKey(skill: Pick<ManagedSkillRecord, "dirPath" | "filename">): string {
   return `${skill.dirPath}:${skill.filename}`
+}
+
+const SKILL_SOURCE_PRIORITY: Record<SkillSource, number> = {
+  local: 0,
+  claude: 1,
+  clawhub: 2,
+  shared: 3,
+  team: 4,
+  builtin: 5,
+  plugin: 6,
+  "global-teamclaw": 7,
+  "global-claude": 8,
+  "global-agent": 9,
+  personal: 10,
+}
+
+/** Same filename from team share + `.claude/skills` symlink must collapse to one row. */
+function dedupeSkillsByFilename(skills: ManagedSkillRecord[]): ManagedSkillRecord[] {
+  const seen = new Map<string, ManagedSkillRecord>()
+  for (const skill of skills) {
+    const existing = seen.get(skill.filename)
+    if (!existing) {
+      seen.set(skill.filename, skill)
+      continue
+    }
+    const existingPriority = SKILL_SOURCE_PRIORITY[existing.source ?? "team"] ?? 99
+    const nextPriority = SKILL_SOURCE_PRIORITY[skill.source ?? "team"] ?? 99
+    if (nextPriority < existingPriority) {
+      seen.set(skill.filename, skill)
+    }
+  }
+  return Array.from(seen.values())
 }
 
 function buildRolesSkillsWorkspaceState(
@@ -397,7 +428,7 @@ function mergeRolesSkillsStates(
     }
   }
 
-  const skills = Array.from(skillsByKey.values()).sort((a, b) => {
+  const skills = dedupeSkillsByFilename(Array.from(skillsByKey.values())).sort((a, b) => {
     if (a.isRoleSkill !== b.isRoleSkill) return a.isRoleSkill ? 1 : -1
     return a.filename.localeCompare(b.filename)
   })

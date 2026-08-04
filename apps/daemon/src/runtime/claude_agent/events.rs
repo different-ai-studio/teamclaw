@@ -79,6 +79,58 @@ fn acp_session_for(shared: &Arc<Shared>, session_key: &str) -> Option<String> {
     shared.session_keys.lock().get(session_key).cloned()
 }
 
+async fn emit_slash_commands(shared: &Arc<Shared>, session_id: &str, event: &serde_json::Value) {
+    let commands: Vec<amux::AcpAvailableCommand> = event
+        .get("commands")
+        .and_then(|v| v.as_array())
+        .map(|arr| {
+            arr.iter()
+                .filter_map(|c| {
+                    let name = c.get("name").and_then(|v| v.as_str())?;
+                    if name.is_empty() {
+                        return None;
+                    }
+                    Some(amux::AcpAvailableCommand {
+                        name: name.to_string(),
+                        description: c
+                            .get("description")
+                            .and_then(|v| v.as_str())
+                            .unwrap_or("")
+                            .to_string(),
+                        input_hint: c
+                            .get("inputHint")
+                            .and_then(|v| v.as_str())
+                            .unwrap_or("")
+                            .to_string(),
+                    })
+                })
+                .collect()
+        })
+        .unwrap_or_default();
+    if commands.is_empty() {
+        return;
+    }
+
+    let event_tx = {
+        let routes = shared.routes.lock();
+        let Some(route) = routes.get(session_id) else {
+            return;
+        };
+        route.event_tx.clone()
+    };
+
+    let ev = amux::AcpEvent {
+        event: Some(amux::acp_event::Event::AvailableCommands(
+            amux::AcpAvailableCommands { commands },
+        )),
+        model: String::new(),
+    };
+    crate::runtime::agent_trace::log_acp_event(session_id, &ev);
+    let _ = event_tx
+        .send(AcpEventFrame::new(session_id.to_string(), ev))
+        .await;
+}
+
 async fn handle_event(shared: &Arc<Shared>, event: &serde_json::Value) {
     let event_name = event.get("event").and_then(|v| v.as_str()).unwrap_or("");
     let session_key = event
@@ -98,6 +150,11 @@ async fn handle_event(shared: &Arc<Shared>, event: &serde_json::Value) {
 
     if event_name == "permission_request" {
         permission::handle_request(shared, &session_id, session_key, event).await;
+        return;
+    }
+
+    if event_name == "slash_commands" {
+        emit_slash_commands(shared, &session_id, event).await;
         return;
     }
 

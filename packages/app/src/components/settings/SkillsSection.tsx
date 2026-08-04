@@ -26,6 +26,7 @@ import {
   Store,
   Users,
   Package,
+  Stethoscope,
 } from 'lucide-react'
 import { invoke } from '@tauri-apps/api/core'
 import { SKILLS_CHANGED_EVENT } from '@/hooks/useAppInit'
@@ -64,6 +65,7 @@ import { resolveSkillPermission } from '@/lib/opencode/config'
 import type { SkillSource } from '@/lib/git/types'
 import { INHERENT_SKILL_NAMES } from '@/lib/git/types'
 import { SkillsMarketplace } from './SkillsMarketplace'
+import { SkillsDiagnosticsDialog } from './SkillsDiagnosticsDialog'
 
 
 interface Skill {
@@ -145,6 +147,7 @@ export const SkillsSection = React.memo(function SkillsSection({
   const [exitingSkillKeys, setExitingSkillKeys] = React.useState<Set<string>>(new Set())
   const [marketplaceRefreshSignal, setMarketplaceRefreshSignal] = React.useState(0)
   const [marketplaceSource, setMarketplaceSource] = React.useState<'clawhub' | 'skillssh'>('clawhub')
+  const [diagnosticsOpen, setDiagnosticsOpen] = React.useState(false)
   const installedTabRef = React.useRef<HTMLButtonElement>(null)
   const marketplaceTabRef = React.useRef<HTMLButtonElement>(null)
 
@@ -681,6 +684,15 @@ ${skillContent.trim()}`
                   <RefreshCw className={cn("h-4 w-4", isLoading && "animate-spin")} />
                   {t('settings.llm.refresh', 'Refresh')}
                 </Button>
+                <Button
+                  onClick={() => setDiagnosticsOpen(true)}
+                  variant="outline"
+                  size="sm"
+                  className="gap-2"
+                >
+                  <Stethoscope className="h-4 w-4" />
+                  {t('settings.skills.diag.button', 'Diagnose')}
+                </Button>
                 <Button onClick={openCreateDialog} size="sm" className="gap-2">
                   <Plus className="h-4 w-4" />
                   {t('settings.skills.addSkill', 'Add Skill')}
@@ -806,6 +818,15 @@ ${skillContent.trim()}`
                 <Button onClick={loadSkills} variant="outline" size="sm" className="h-8 gap-2" disabled={isLoading}>
                   <RefreshCw className={cn("h-4 w-4", isLoading && "animate-spin")} />
                   {t('settings.llm.refresh', 'Refresh')}
+                </Button>
+                <Button
+                  onClick={() => setDiagnosticsOpen(true)}
+                  variant="outline"
+                  size="sm"
+                  className="h-8 gap-2"
+                >
+                  <Stethoscope className="h-4 w-4" />
+                  {t('settings.skills.diag.button', 'Diagnose')}
                 </Button>
                 <Button onClick={openCreateDialog} size="sm" className="h-8 gap-2">
                   <Plus className="h-4 w-4" />
@@ -1493,6 +1514,12 @@ ${skillContent.trim()}`
           </DialogFooter>
         </DialogContent>
       </Dialog>
+
+      <SkillsDiagnosticsDialog
+        open={diagnosticsOpen}
+        onOpenChange={setDiagnosticsOpen}
+        workspacePath={workspacePath}
+      />
 
       {/* Delete Confirmation Dialog */}
       <Dialog

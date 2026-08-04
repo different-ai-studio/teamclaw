@@ -73,6 +73,10 @@ vi.mock('../SkillsMarketplace', () => ({
     )
   },
 }))
+vi.mock('../SkillsDiagnosticsDialog', () => ({
+  SkillsDiagnosticsDialog: ({ open }: { open: boolean }) =>
+    open ? <div data-testid="skills-diagnostics-dialog">Diagnostics open</div> : null,
+}))
 import { SkillsSection } from '../SkillsSection'
 
 describe('SkillsSection', () => {
@@ -190,6 +194,16 @@ describe('SkillsSection', () => {
     fireEvent.click(await screen.findByRole('button', { name: 'Add Skill' }))
 
     expect(await screen.findByText('Create New Skill')).toBeTruthy()
+  })
+
+  it('opens skills diagnostics from Diagnose button', async () => {
+    workspaceState.workspacePath = '/workspace/project'
+
+    render(<SkillsSection />)
+
+    fireEvent.click(await screen.findByRole('button', { name: 'Diagnose' }))
+
+    expect(await screen.findByTestId('skills-diagnostics-dialog')).toBeTruthy()
   })
 
   it('keeps ZIP import install location selectable', async () => {

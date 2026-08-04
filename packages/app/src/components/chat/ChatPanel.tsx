@@ -104,7 +104,7 @@ import {
   parseMemberMentionsFromText,
   textHasMemberMentionTokens,
 } from "@/lib/member-mention-token";
-import { buildStructuredMentionLines } from "@/lib/outgoing-mention-content";
+import { buildEnhancedChip, buildStructuredMentionLines } from "@/lib/outgoing-mention-content";
 import {
   agentAvailableModelsWithLocalCatalog,
   localRecentModelFallback,
@@ -117,6 +117,7 @@ import { useLocalDaemonCatalogStore } from "@/stores/local-daemon-catalog-store"
 import {
   selectAgentModel,
   resolveRuntimeStateEntryForAgent,
+  backendTypeFromRuntimeEntry,
 } from "@/lib/runtime-state-resolve";
 import {
   sessionFlowError,
@@ -135,18 +136,6 @@ function parseSlashToken(body: string): { type: "role" | "skill" | "command"; na
   if (body.startsWith("skill:")) return { type: "skill", name: body.slice("skill:".length) };
   if (body.startsWith("command:")) return { type: "command", name: body.slice("command:".length) };
   return { type: "skill", name: body };
-}
-
-function buildEnhancedChip(
-  type: "role" | "skill",
-  name: string,
-): string {
-  const label = type === "role" ? "Role" : "Skill";
-  const toolCall =
-    type === "role"
-      ? `role_load({ name: "${name}" })`
-      : `skill({ name: "${name}" })`;
-  return `[${label}: ${name}|instruction:You must call ${toolCall} before any other action.]`;
 }
 
 // ─── Main component ────────────────────────────────────────────────────────
@@ -1210,14 +1199,22 @@ export function ChatPanel({ compact = false }: ChatPanelProps) {
     processedText = expandPageLinkTokensInText(processedText);
     processedText = expandSessionAttachmentTokensInText(processedText);
     processedText = processedText.replace(/@\{([^}]+)\}/g, '[File: $1]');
+    // Skill/role invocation wording depends on which backend runs the agent
+    // (opencode plugin tools vs Claude Code's native Skill tool).
+    const backendTypeForSend = backendTypeFromRuntimeEntry(
+      resolveRuntimeStateEntryForAgent(
+        agentForSend?.id ?? "",
+        useRuntimeStateStore.getState().byRuntimeId,
+      ),
+    );
     processedText = processedText.replace(/\/\{([^}]+)\}/g, (_full, body) => {
       const token = parseSlashToken(body);
-      if (token.type === "role") return buildEnhancedChip("role", token.name);
+      if (token.type === "role") return buildEnhancedChip("role", token.name, backendTypeForSend);
       if (token.type === "command") return `[Command: ${token.name}]`;
-      return buildEnhancedChip("skill", token.name);
+      return buildEnhancedChip("skill", token.name, backendTypeForSend);
     });
     processedText = processedText.replace(/\/<([a-z0-9]+(?:-[a-z0-9]+)*)>/g, (_full, roleName) =>
-      buildEnhancedChip("role", roleName),
+      buildEnhancedChip("role", roleName, backendTypeForSend),
     );
     processedText = processedText.replace(/\/\[([^\]]+)\]/g, '[Command: $1]');
 
