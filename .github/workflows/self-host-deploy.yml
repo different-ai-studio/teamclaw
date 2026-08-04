@@ -162,13 +162,11 @@ jobs:
                   # live one.
                   NEVER="20260601000000_baseline.sql"
                   #
-                  # WITHHELD: correct for this database, but not yet.
-                  #   20260804020000_per_team_actor_scope.sql — drops the old
-                  #   list_current_actor_sessions signatures. The FC in front of
-                  #   THIS database deploys separately and by hand
-                  #   (services/fc/deploy-aliyun-fc.sh), so apply it in the same
-                  #   change that redeploys that FC, not before.
-                  WITHHELD="20260804020000_per_team_actor_scope.sql"
+                  # WITHHELD: correct for this database, but not yet. Empty
+                  # right now — 20260804020000 sat here until its FC was
+                  # redeployed, and both landed on 2026-08-04. Anything added
+                  # back must say why, and who clears it.
+                  WITHHELD=""
 
                   for migration in $(ls /migrations/*.sql | xargs -n1 basename | sort)
                   do
