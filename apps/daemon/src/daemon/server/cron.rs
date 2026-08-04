@@ -544,11 +544,13 @@ impl DaemonServer {
     /// shows no mention, and every catchup re-queues it as silent context
     /// instead of seeing an answered turn.
     ///
-    /// Skips session/live publish so the daemon does not re-route the prompt
-    /// back into the ACP runtime (cron already calls `send_prompt_raw`), and
-    /// burns the message id in the ingestion dedup gate so a catchup replay
-    /// racing the in-flight cron turn cannot fire a second prompt off the
-    /// now-present mention.
+    /// Burns the message id in the ingestion dedup gate first, then publishes
+    /// on `session/live` like any other message. The burn is what makes the
+    /// publish safe: cron drives this turn itself, and without it the loopback
+    /// copy would prompt the runtime a second time — which is why this used to
+    /// skip the publish entirely. Skipping it left the desktop to *pull* the
+    /// prompt, and "Run Now" navigates in before the row is queryable, so the
+    /// thread opened showing the agent talking to nobody.
     pub(crate) async fn persist_cron_user_prompt(
         &mut self,
         team_id: &str,
@@ -594,10 +596,16 @@ impl DaemonServer {
             }
         }
 
-        // Cron drives this turn itself; claim the id so neither the live
-        // ingest nor a catchup replay prompts the runtime a second time.
+        // Claim the id BEFORE publishing: the loopback copy comes back fast,
+        // and the gate has to already be closed when it does.
         if let Some(tc) = self.teamclaw.as_mut() {
             tc.should_process_message(session_id, &message_id);
+        }
+
+        if let Some(tc) = self.teamclaw.as_ref() {
+            if let Err(e) = tc.publish_live_message(session_id, &proto_msg).await {
+                warn!(?e, session_id, "cron: publish user prompt to live failed");
+            }
         }
 
         info!(
