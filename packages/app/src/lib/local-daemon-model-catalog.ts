@@ -247,6 +247,7 @@ export function seedLocalDaemonModelsInBackground(args: {
       const merged = mergeLocalDaemonModels({
         daemonActorId: args.daemonActorId,
         runtimeId: args.runtimeId,
+        sessionId: args.sessionId,
         models,
         recentModels,
       })

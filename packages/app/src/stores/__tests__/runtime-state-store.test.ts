@@ -207,6 +207,82 @@ describe('runtime-state-store', () => {
     )
   })
 
+  it('prunes detached sessions when live_sessions shrinks', async () => {
+    const { initRuntimeStateStore, useRuntimeStateStore } = await import('../runtime-state-store')
+    await initRuntimeStateStore('team-1')
+
+    envelopeHandler!({
+      topic: 'amux/team-1/dev-a/state',
+      bytes: Array.from(
+        toBinary(
+          ActorPresenceSchema,
+          create(ActorPresenceSchema, {
+            liveSessions: [
+              create(LiveSessionSchema, { sessionId: 'session-1', worktree: '/tmp/x' }),
+              create(LiveSessionSchema, { sessionId: 'session-2', worktree: '/tmp/x' }),
+            ],
+          }),
+        ),
+      ),
+    })
+    await flushRuntimeStateBatch()
+
+    expect(useRuntimeStateStore.getState().byRuntimeId['dev-a::session-1']).toBeTruthy()
+    expect(useRuntimeStateStore.getState().byRuntimeId['dev-a::session-2']).toBeTruthy()
+
+    envelopeHandler!({
+      topic: 'amux/team-1/dev-a/state',
+      bytes: Array.from(
+        toBinary(
+          ActorPresenceSchema,
+          create(ActorPresenceSchema, {
+            liveSessions: [
+              create(LiveSessionSchema, { sessionId: 'session-1', worktree: '/tmp/x' }),
+            ],
+          }),
+        ),
+      ),
+    })
+    await flushRuntimeStateBatch()
+
+    const store = useRuntimeStateStore.getState().byRuntimeId
+    expect(store['dev-a::session-1']).toBeTruthy()
+    expect(store['dev-a::session-2']).toBeUndefined()
+  })
+
+  it('clears all actor attachments when live_sessions is empty', async () => {
+    const { initRuntimeStateStore, useRuntimeStateStore } = await import('../runtime-state-store')
+    await initRuntimeStateStore('team-1')
+
+    envelopeHandler!({
+      topic: 'amux/team-1/dev-a/state',
+      bytes: Array.from(
+        toBinary(
+          ActorPresenceSchema,
+          create(ActorPresenceSchema, {
+            liveSessions: [
+              create(LiveSessionSchema, { sessionId: 'session-1', worktree: '/tmp/x' }),
+            ],
+          }),
+        ),
+      ),
+    })
+    await flushRuntimeStateBatch()
+    expect(useRuntimeStateStore.getState().byRuntimeId['dev-a::session-1']).toBeTruthy()
+
+    envelopeHandler!({
+      topic: 'amux/team-1/dev-a/state',
+      bytes: Array.from(
+        toBinary(
+          ActorPresenceSchema,
+          create(ActorPresenceSchema, { liveSessions: [] }),
+        ),
+      ),
+    })
+    await flushRuntimeStateBatch()
+    expect(useRuntimeStateStore.getState().byRuntimeId['dev-a::session-1']).toBeUndefined()
+  })
+
   it('preserves catalog when a partial retain arrives without available_models', async () => {
     const { useRuntimeStateStore } = await import('../runtime-state-store')
 

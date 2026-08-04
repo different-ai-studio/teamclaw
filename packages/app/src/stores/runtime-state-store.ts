@@ -38,6 +38,9 @@ interface RuntimeStateState {
   byRuntimeId: Record<string, RuntimeStateEntry>
   upsert: (runtimeId: string, daemonActorId: string, info: RuntimeInfo) => void
   upsertBatch: (updates: RuntimeStateUpdate[]) => void
+  syncActorPresenceBatch: (
+    syncs: { daemonActorId: string; updates: RuntimeStateUpdate[] }[],
+  ) => void
   clear: () => void
 }
 
@@ -95,6 +98,26 @@ function applyRuntimeStateUpdates(
   return changed ? next : current
 }
 
+function pruneActorAttachments(
+  current: Record<string, RuntimeStateEntry>,
+  daemonActorId: string,
+  liveKeys: ReadonlySet<string>,
+): Record<string, RuntimeStateEntry> {
+  const prefix = `${daemonActorId}::`
+  let next = current
+  let changed = false
+  for (const key of Object.keys(current)) {
+    if (!key.startsWith(prefix)) continue
+    if (liveKeys.has(key)) continue
+    if (!changed) {
+      next = { ...next }
+      changed = true
+    }
+    delete next[key]
+  }
+  return changed ? next : current
+}
+
 export const useRuntimeStateStore = createZustand<RuntimeStateState>((set, get) => ({
   byRuntimeId: {},
   upsert: (runtimeId, daemonActorId, info) => {
@@ -106,6 +129,17 @@ export const useRuntimeStateStore = createZustand<RuntimeStateState>((set, get) 
     if (updates.length === 0) return
     const current = get().byRuntimeId
     const next = applyRuntimeStateUpdates(current, updates)
+    if (next !== current) set({ byRuntimeId: next })
+  },
+  syncActorPresenceBatch: (syncs) => {
+    if (syncs.length === 0) return
+    const current = get().byRuntimeId
+    let next = current
+    for (const { daemonActorId, updates } of syncs) {
+      const liveKeys = new Set(updates.map((u) => u.runtimeId))
+      next = pruneActorAttachments(next, daemonActorId, liveKeys)
+      next = applyRuntimeStateUpdates(next, updates)
+    }
     if (next !== current) set({ byRuntimeId: next })
   },
   clear: () => set({ byRuntimeId: {} }),
@@ -135,18 +169,19 @@ export function parseActorStateTopic(
 
 let unlisten: (() => void) | null = null
 let initialized = false
-let queuedRuntimeStateUpdates: RuntimeStateUpdate[] = []
+type ActorPresenceSync = { daemonActorId: string; updates: RuntimeStateUpdate[] }
+let queuedActorPresenceSyncs: ActorPresenceSync[] = []
 let runtimeStateFlushScheduled = false
 
 function flushQueuedRuntimeStateUpdates(): void {
   runtimeStateFlushScheduled = false
-  const updates = queuedRuntimeStateUpdates
-  queuedRuntimeStateUpdates = []
-  useRuntimeStateStore.getState().upsertBatch(updates)
+  const syncs = queuedActorPresenceSyncs
+  queuedActorPresenceSyncs = []
+  useRuntimeStateStore.getState().syncActorPresenceBatch(syncs)
 }
 
-function enqueueRuntimeStateUpdate(update: RuntimeStateUpdate): void {
-  queuedRuntimeStateUpdates.push(update)
+function enqueueActorPresenceSync(daemonActorId: string, updates: RuntimeStateUpdate[]): void {
+  queuedActorPresenceSyncs.push({ daemonActorId, updates })
   if (runtimeStateFlushScheduled) return
   runtimeStateFlushScheduled = true
   queueMicrotask(flushQueuedRuntimeStateUpdates)
@@ -269,7 +304,7 @@ export async function initRuntimeStateStore(teamId: string): Promise<void> {
       catalogModelCount: presence.catalogModels.length,
       liveSessionCount: presence.liveSessions.length,
     })
-    for (const update of updates) enqueueRuntimeStateUpdate(update)
+    enqueueActorPresenceSync(actor.actorId, updates)
   })
   initialized = true
 }
@@ -277,7 +312,7 @@ export async function initRuntimeStateStore(teamId: string): Promise<void> {
 export function disposeRuntimeStateStore(): void {
   unlisten?.()
   unlisten = null
-  queuedRuntimeStateUpdates = []
+  queuedActorPresenceSyncs = []
   runtimeStateFlushScheduled = false
   useRuntimeStateStore.getState().clear()
   initialized = false
