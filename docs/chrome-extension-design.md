@@ -136,6 +136,13 @@ URL query `?embed=chat` → 启动时把 Zustand `useUIStore.embedMode` 置真 �
   （非 web 即桌面路径，行为不变）。
 - 脚本：`pnpm dev:web` / `pnpm build:web`。
 - `main.tsx` 的 Tauri 调用全部 `isTauri()` 守卫或 try/catch（`initJwtBridge` 实为 no-op）。
+- **打包出的扩展不读 env 文件里的后端地址**：`.env.web` 里的 `VITE_CLOUD_API_URL` /
+  `VITE_MQTT_WS_URL` 只是 `pnpm dev:web` 的 dev fallback。`apps/extension/build.mjs`
+  从 build config 取 `cloudApiUrl` / `mqttWsUrl`（`resolveExtensionBackend`），以真实
+  env var 传给 vite——vite 的优先级里 process env 高于 `.env.*` 文件，所以 brand 的配置
+  才是烘进包里的值。brand 没声明 `cloudApiUrl` 时构建**直接失败**，不再静默回退到
+  TeamClaw 后端。`EXT_ENV=test` 是唯一例外：那条路径就是为了指向 self-host 测试环境，
+  仍由 `.env.web.test` 说了算。
 
 ### 4.4 浏览器 broker 覆盖（dev 专用）
 

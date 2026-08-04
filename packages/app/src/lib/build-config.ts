@@ -35,6 +35,15 @@ export interface BuildConfig {
    *  build/dev time; at runtime an explicit user override (the "Custom server"
    *  entry in onboarding) wins over both — see lib/server-config.ts. */
   cloudApiUrl?: string
+  /** Browser MQTT-over-WebSocket endpoint (ws/wss, e.g.
+   *  wss://mqtt.example.com/mqtt), overriding the TCP broker that
+   *  `/v1/config/bootstrap` hands out. Web/extension builds only — a
+   *  chrome-extension:// secure context cannot reach a plaintext broker. Read by
+   *  `apps/extension/build.mjs`, which passes it to vite as VITE_MQTT_WS_URL so
+   *  a brand's package points at the brand's broker; the desktop build ignores
+   *  it and keeps using the bootstrap address. Also accepted under the
+   *  `extension` / `extensions` block. */
+  mqttWsUrl?: string
   team: {
     lockLlmConfig: boolean
   }
