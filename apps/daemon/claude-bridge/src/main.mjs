@@ -30,6 +30,11 @@ import { query, AbortError } from '@anthropic-ai/claude-agent-sdk'
 
 /** @type {Map<string, Session>} */
 const sessions = new Map()
+/**
+ * In-flight `startSession` for a model probe, so two concurrent `list_models`
+ * calls do not each spawn a session. Cleared when it settles.
+ */
+let modelProbeSession = null
 
 /** requestId → resolve fn for a pending canUseTool callback. */
 const pendingPermissions = new Map()
@@ -383,10 +388,37 @@ async function handleRequest(req) {
   try {
     switch (method) {
       case 'list_models': {
-        const existing = [...sessions.values()][0]
+        // supportedModels() hangs off a live query, so with no session there is
+        // nothing to ask. Returning [] here is what made switching the local
+        // agent to claude-code leave the desktop at "No model configured"
+        // forever: attach probes the catalog before any session exists, the
+        // device catalog is only ever written from a non-empty probe, and
+        // claude-code has no provider file to fall back on — so all three tiers
+        // stayed empty until something else happened to start a session.
+        //
+        // Start one instead. It is the same headless session `create_session`
+        // builds, minus a prompt: nothing is sent to the model, and it is kept
+        // so the next probe (and the first real turn) reuses it.
+        let existing = [...sessions.values()][0]
         if (!existing) {
-          emit({ id, result: { models: [] } })
-          break
+          if (!modelProbeSession) {
+            modelProbeSession = startSession({
+              cwd: params.cwd || process.cwd(),
+              permissionMode: params.permissionMode ?? 'default',
+            }).finally(() => {
+              modelProbeSession = null
+            })
+          }
+          try {
+            existing = (await modelProbeSession).session
+          } catch (e) {
+            // An unusable backend (missing login, bad binary) must read as
+            // "cannot tell", not as "this device has no models" — the caller
+            // persists a non-empty catalog and shows a terminal
+            // "nothing configured" hint for the latter.
+            emit({ id, error: { message: `list_models could not start a session: ${e.message}` } })
+            break
+          }
         }
         const models = await existing.q.supportedModels()
         emit({

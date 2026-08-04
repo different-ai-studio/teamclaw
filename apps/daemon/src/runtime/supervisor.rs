@@ -798,10 +798,17 @@ impl RuntimeSupervisor {
     /// Probe the configured local backend for its live model catalog.
     ///
     /// Dispatches through the backend trait, so opencode reaches `serve.ensure()`
-    /// and `/config/providers`, pi reaches `get_available_models`, cursor reaches
-    /// `list_models`, and claude-code returns its static table — each spawning a
-    /// child if none is live. There is no static fallback — an unavailable
-    /// binary is an error, not a phantom list.
+    /// and `/config/providers`, pi reaches `get_available_models`, and cursor and
+    /// claude-code reach `list_models` — each spawning a child if none is live.
+    /// There is no static fallback — an unavailable binary is an error, not a
+    /// phantom list.
+    ///
+    /// This used to claim claude-code "returns its static table". It never had
+    /// one: the claude bridge answers `list_models` off a live query, and with
+    /// no session it used to answer `[]`. Believing the comment is how switching
+    /// the local agent to claude-code ended up with a permanently empty picker —
+    /// the probe tier looked covered, so nothing else was. The bridge now starts
+    /// a session to answer, which is what makes this dispatch meaningful.
     pub async fn probe_catalog_models(
         &self,
         workspace_path: &Path,

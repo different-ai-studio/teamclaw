@@ -106,19 +106,30 @@ export function shouldFetchLocalDaemonCatalog(
  * Fire-and-forget refresh of this device's catalog. Safe to call on every
  * render — it dedupes in-flight requests and respects the refresh interval.
  *
+ * `force` skips the interval, for the one case where the cached answer is known
+ * to be about a different backend: switching the local agent. Without it the
+ * entry from the previous runtime stays valid for READY_REFRESH_MS and the
+ * picker keeps offering models the new backend has never heard of.
+ *
  * Callers MUST have established that the agent in question is the local daemon;
  * this reaches loopback HTTP and says nothing about any remote agent.
  */
 export function ensureLocalDaemonCatalog(
   workspacePath: string,
   backendType?: string | null,
+  options?: { force?: boolean },
 ): void {
   const path = workspacePath.trim()
   if (!path) return
   if (inFlight.has(path)) return
 
   const store = useLocalDaemonCatalogStore.getState()
-  if (!shouldFetchLocalDaemonCatalog(store.byWorkspacePath[path], Date.now())) return
+  if (
+    options?.force !== true &&
+    !shouldFetchLocalDaemonCatalog(store.byWorkspacePath[path], Date.now())
+  ) {
+    return
+  }
 
   const previous = store.byWorkspacePath[path]
   // Keep whatever we already resolved visible while refreshing — a periodic

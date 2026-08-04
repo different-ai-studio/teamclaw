@@ -80,6 +80,38 @@ describe('ensureLocalDaemonCatalog', () => {
     expect(read('/w1').recentModels).toEqual(['prov/a'])
   })
 
+  // Switching the local agent restarts the daemon onto a different backend, so
+  // the cached entry describes models the new one has never heard of. Without
+  // `force` it stays valid for the full ready-refresh window and the picker
+  // keeps offering them.
+  it('re-probes a fresh ready entry when forced', async () => {
+    useLocalDaemonCatalogStore.getState().setEntry('/w1', {
+      status: 'ready',
+      models: [{ id: 'opencode/big-pickle' } as never],
+      recentModels: [],
+      fetchedAt: Date.now(),
+    })
+    fetchLocalDaemonCatalog.mockResolvedValueOnce({
+      status: 'models',
+      backend: 'claude-code',
+      models: [{ id: 'claude/sonnet' }],
+      recentModels: [],
+    })
+
+    // Not due yet: without the flag this is a no-op.
+    ensureLocalDaemonCatalog('/w1', 'claude-code')
+    await settled()
+    expect(fetchLocalDaemonCatalog).not.toHaveBeenCalled()
+
+    ensureLocalDaemonCatalog('/w1', 'claude-code', { force: true })
+    await settled()
+
+    expect(fetchLocalDaemonCatalog).toHaveBeenCalledWith('/w1', 'claude-code')
+    const after = useLocalDaemonCatalogStore.getState().byWorkspacePath['/w1']
+    expect(after.status).toBe('ready')
+    expect(after.models.map((m) => m.id)).toEqual(['claude/sonnet'])
+  })
+
   it('drops a stale list when the daemon reports empty', async () => {
     // `empty` is authoritative — keeping old models would let the picker offer
     // something the daemon just said it cannot run.
