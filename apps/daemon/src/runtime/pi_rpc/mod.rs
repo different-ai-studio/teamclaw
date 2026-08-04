@@ -295,6 +295,16 @@ async fn attach(shared: &Arc<Shared>, args: AttachArgs) -> Result<AcpStartupMeta
     };
 
     // Model catalog + initial model.
+    // A failed catalog read must not fail the attach: the list only populates a
+    // picker, and the session is perfectly usable without it — `fill_catalog`
+    // backfills from this device's persisted catalog, and `record_catalog`
+    // ignores an empty result rather than overwriting a good list with it.
+    //
+    // Unlike the claude backend, this call is made AFTER a session exists (see
+    // the session resolution just above), so an error here is a real failure
+    // rather than "asked too early" — which is why it is logged at warn and the
+    // HTTP catalog reports it separately as `probe_error`, instead of the empty
+    // list reaching the user as "No model configured".
     let available_models = match proc
         .client
         .request(serde_json::json!({"type": "get_available_models"}))

@@ -499,6 +499,7 @@
       "pillStale": "Rebind required",
       "pillConnecting": "Connecting…",
       "pillUnconfigured": "No model configured",
+      "pillCatalogError": "Model list unavailable",
       "mentionOffline": "Offline",
       "mentionStale": "Rebind required",
       "mentionConnecting": "Connecting…",

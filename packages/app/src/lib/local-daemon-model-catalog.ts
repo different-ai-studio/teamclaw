@@ -70,6 +70,14 @@ export type LocalDaemonCatalogOutcome =
   | { status: 'models'; backend: string; models: ModelInfo[]; recentModels: string[] }
   /** The daemon answered and serves no models for this backend. First install. */
   | { status: 'empty'; backend: string }
+  /**
+   * The daemon answered, and said it could not ask the backend — a rejected
+   * cursor API key, a binary that will not start. Distinct from `empty` on
+   * purpose: that one is a setup gap the user can act on, this one is a
+   * failure, and showing "nothing configured" for it sends them looking for
+   * the wrong thing.
+   */
+  | { status: 'error'; backend: string; message: string }
   /** No answer, or an ambiguous multi-group reply — claim nothing. */
   | { status: 'unknown' }
 
@@ -125,7 +133,12 @@ export async function fetchLocalDaemonCatalog(
 
   const group = resolveCatalogGroup(catalog, backendType)
   if (!group) return { status: 'unknown' }
-  if (group.models.length === 0) return { status: 'empty', backend: group.backend }
+  if (group.models.length === 0) {
+    const probeError = catalog.probe_error?.trim()
+    return probeError
+      ? { status: 'error', backend: group.backend, message: probeError }
+      : { status: 'empty', backend: group.backend }
+  }
 
   return {
     status: 'models',

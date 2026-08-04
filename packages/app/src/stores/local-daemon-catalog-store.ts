@@ -35,7 +35,7 @@ import { fetchLocalDaemonCatalog } from '@/lib/local-daemon-model-catalog'
  *                a fresh install with no provider configured, not a slow start.
  * - `unknown`  — no answer (daemon down / mid-restart), or an ambiguous reply.
  */
-export type LocalDaemonCatalogStatus = 'pending' | 'ready' | 'empty' | 'unknown'
+export type LocalDaemonCatalogStatus = 'pending' | 'ready' | 'empty' | 'error' | 'unknown'
 
 export type LocalDaemonCatalogEntry = {
   status: LocalDaemonCatalogStatus
@@ -58,7 +58,7 @@ export type LocalDaemonCatalogEntry = {
 export function isSettledLocalCatalog(
   status: LocalDaemonCatalogStatus | undefined,
 ): boolean {
-  return status === 'ready' || status === 'empty' || status === 'unknown'
+  return status === 'ready' || status === 'empty' || status === 'error' || status === 'unknown'
 }
 
 /** A settled catalog is stable; re-reading it every render would be waste. */
@@ -153,10 +153,17 @@ export function ensureLocalDaemonCatalog(
               fetchedAt: Date.now(),
             }
           : {
-              status: outcome.status === 'empty' ? 'empty' : 'unknown',
+              status:
+                outcome.status === 'empty'
+                  ? 'empty'
+                  : outcome.status === 'error'
+                    ? 'error'
+                    : 'unknown',
               // An 'empty' answer is authoritative — drop any stale list so the
               // UI can honestly say "nothing configured". 'unknown' means we
               // learned nothing, so the previous list stands.
+              // Only 'empty' is authoritative about the list being gone. A
+              // failed probe knows nothing, so whatever was last resolved stays.
               models: outcome.status === 'empty' ? [] : (previous?.models ?? []),
               recentModels:
                 outcome.status === 'empty' ? [] : (previous?.recentModels ?? []),

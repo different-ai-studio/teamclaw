@@ -634,6 +634,12 @@ export interface DaemonBackendCatalog {
 /** Mirrors Rust `workspaces::ModelCatalog`. */
 export interface DaemonModelCatalog {
   automation_default_backend: string | null
+  /**
+   * Why the live probe could not answer, when it could not. Present only when
+   * the catalog also came back with no models — an empty list plus this is
+   * "could not ask"; an empty list without it is "nothing configured".
+   */
+  probe_error?: string | null
   backends: DaemonBackendCatalog[]
 }
 
