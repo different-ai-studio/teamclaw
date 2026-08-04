@@ -1,5 +1,6 @@
 {
   "cloudApiUrl": "https://api.teamclaw-dev.ucar.cc",
+  "mqttWsUrl": "wss://mqtt.teamclaw-dev.ucar.cc/mqtt",
   "team": {
     "lockLlmConfig": false
   },

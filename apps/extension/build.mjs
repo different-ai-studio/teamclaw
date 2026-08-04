@@ -85,6 +85,23 @@ if (!backend.cloudApiUrl) {
   process.exit(1)
 }
 
+// mqttWsUrl gets the same treatment, for the same reason one step removed. It
+// used to be a console warning that let the build through, and what shipped was
+// a package whose API talked to the brand's cluster while realtime kept the
+// TeamClaw broker baked into .env.web. That package does not fail loudly — it
+// signs in fine and then every session reports `runtime_start_failure:
+// transport_offline`, because the broker it reaches has no idea who the user is.
+// A build error names the missing field; the runtime symptom does not.
+if (!backend.mqttWsUrl) {
+  console.error(
+    '[extension] build.config.json declares no mqttWsUrl — refusing to build a package\n' +
+      '            whose realtime transport would fall back to the TeamClaw broker while\n' +
+      '            its API points elsewhere. Add "mqttWsUrl" (top level, or under the\n' +
+      '            "extensions" block) to the brand config and re-run.',
+  )
+  process.exit(1)
+}
+
 const esbuildAliasWithAllowlist = {
   ...esbuildAlias,
   '@teamclaw/side-panel-host-allowlist': resolve(appDir, 'src/lib/side-panel-host-allowlist.ts'),
@@ -109,7 +126,7 @@ const backendEnv =
     ? {}
     : {
         VITE_CLOUD_API_URL: backend.cloudApiUrl,
-        ...(backend.mqttWsUrl ? { VITE_MQTT_WS_URL: backend.mqttWsUrl } : {}),
+        VITE_MQTT_WS_URL: backend.mqttWsUrl,
       }
 console.log(
   '[extension] web build ->',
@@ -121,13 +138,7 @@ if (process.env.EXT_ENV === 'test') {
   console.log('[extension] backend -> .env.web.test (EXT_ENV=test)')
 } else {
   console.log('[extension] backend -> cloudApiUrl:', backend.cloudApiUrl)
-  // Without a brand-declared endpoint the side panel keeps whatever .env.web
-  // pins, which points at the TeamClaw broker — realtime then talks to the
-  // wrong cluster while the API talks to the right one.
-  console.log(
-    '[extension] backend -> mqttWsUrl:',
-    backend.mqttWsUrl ?? '(none in build config — falling back to .env.web)',
-  )
+  console.log('[extension] backend -> mqttWsUrl:', backend.mqttWsUrl)
 }
 execSync(`pnpm ${webBuildScript}`, {
   cwd: appDir,

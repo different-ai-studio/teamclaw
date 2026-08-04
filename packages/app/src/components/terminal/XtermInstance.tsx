@@ -83,6 +83,11 @@ export function XtermInstance({ tabId, active }: Props) {
     searchRef.current = search;
 
     // WebGL renderer — falls back to canvas/DOM if context creation fails or is lost.
+    //
+    // addon-webgl is pinned to ^0.18.0 on purpose: 0.19.0 reads
+    // `terminal._core._store._isDisposed` on teardown, and that `_store` only
+    // exists in the xterm 6.x core. Against @xterm/xterm 5.5.0 the read throws
+    // and takes the whole cleanup below with it. Bump both or neither.
     try {
       const addon = new WebglAddon();
       addon.onContextLoss(() => {
@@ -192,7 +197,14 @@ export function XtermInstance({ tabId, active }: Props) {
       onDataDisposer?.dispose();
       onResizeDisposer?.dispose();
       oscDisposer?.dispose();
-      webglAddon?.dispose();
+      // Disposing the addon swaps xterm back to its DOM renderer, and that swap
+      // is xterm's code, not ours. When it threw, it took `term.dispose()` and
+      // the ref cleanup below with it and leaked the terminal on every unmount.
+      try {
+        webglAddon?.dispose();
+      } catch (err) {
+        console.warn("[terminal] WebGL addon teardown failed", err);
+      }
       term.dispose();
       termRef.current = null;
       fitRef.current = null;

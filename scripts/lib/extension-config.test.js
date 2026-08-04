@@ -222,3 +222,16 @@ test("build.config.example.json documents both backend fields", () => {
   assert.ok(backend.cloudApiUrl, "example config must declare cloudApiUrl");
   assert.ok(backend.mqttWsUrl, "example config must declare mqttWsUrl");
 });
+
+// apps/extension/build.mjs now exits non-zero when either field is missing, so
+// a config that omits one is not a degraded build — it is no build at all. The
+// omission is invisible in review (the extension build is a separate workflow),
+// which is how packages shipped with realtime pointed at the wrong broker.
+for (const name of ["build.config.dev.json", "build.config.production.json"]) {
+  test(`${name} declares both backend fields the extension build requires`, () => {
+    const cfg = JSON.parse(fs.readFileSync(path.join(repoRoot, name), "utf8"));
+    const backend = resolveExtensionBackend(cfg);
+    assert.ok(backend.cloudApiUrl, `${name} must declare cloudApiUrl`);
+    assert.ok(backend.mqttWsUrl, `${name} must declare mqttWsUrl`);
+  });
+}
