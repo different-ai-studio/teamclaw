@@ -886,6 +886,14 @@ impl DaemonServer {
                 mark_mqtt_connected(&self.mqtt_connected_flag, false);
                 return Err(());
             }
+            // That publish is presence-only, so it overwrites the retained
+            // snapshot with an empty catalog and no live sessions — measured
+            // 7346 bytes down to 19 across a daemon restart. Every reader then
+            // sees an actor holding nothing while it is in fact serving a
+            // session. Re-publishing the real snapshot is not optional on
+            // reconnect: `apply_start_runtime` takes its dedup path for an
+            // attachment that already exists, so nothing else would restore it.
+            self.publish_actor_state().await;
         } else {
             warn!("no team_id yet; skipping presence announce until onboarding completes");
         }
