@@ -11,6 +11,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 const mocks = vi.hoisted(() => ({
   listCurrentActorSessions: vi.fn(),
   loadSessionsForTeam: vi.fn(),
+  loadSessionIdsForActor: vi.fn(),
   upsertSessionsBatch: vi.fn(),
   syncSessionWorkspaces: vi.fn(),
   reportLocalCacheFailure: vi.fn(),
@@ -31,6 +32,7 @@ vi.mock("@/lib/utils", () => ({ isTauri: () => true }));
 
 vi.mock("@/lib/local-cache", () => ({
   loadSessionsForTeam: (...args: unknown[]) => mocks.loadSessionsForTeam(...args),
+  loadSessionIdsForActor: (...args: unknown[]) => mocks.loadSessionIdsForActor(...args),
   upsertSessionsBatch: (...args: unknown[]) => mocks.upsertSessionsBatch(...args),
   softDeleteSession: vi.fn(),
 }));
@@ -48,7 +50,7 @@ vi.mock("@/lib/telemetry/local-cache-error-report", () => ({
 }));
 
 vi.mock("../current-team", () => ({
-  useCurrentTeamStore: { getState: () => ({ team: { id: "team-1" } }) },
+  useCurrentTeamStore: { getState: () => ({ team: { id: "team-1" }, currentMember: { id: "actor-1" } }) },
 }));
 
 // The failing-RPC case below toasts; keep that off the real toaster/i18n.
@@ -93,6 +95,7 @@ beforeEach(() => {
   vi.clearAllMocks();
   localStorage.clear();
   mocks.loadSessionsForTeam.mockResolvedValue([]);
+  mocks.loadSessionIdsForActor.mockResolvedValue([]);
   mocks.upsertSessionsBatch.mockResolvedValue(undefined);
   mocks.syncSessionWorkspaces.mockResolvedValue(undefined);
   mocks.listCurrentActorSessions.mockResolvedValue({ rows: [serverRow], nextCursor: null });
@@ -136,6 +139,40 @@ describe("loadFirstPage local-cache resilience", () => {
     await store.getState().loadFirstPage();
 
     expect(store.getState().loading).toBe(false);
+    expect(store.getState().error).toBe("boom");
+  });
+
+  it("keeps only current-actor cached sessions when the network list fails", async () => {
+    mocks.loadSessionsForTeam.mockResolvedValueOnce([
+      {
+        id: "mine",
+        teamId: "team-1",
+        title: "My empty session",
+        mode: "collab",
+        lastMessageAt: null,
+        createdAt: "2026-07-28T08:00:00.000Z",
+        updatedAt: "2026-07-28T08:00:00.000Z",
+        syncedAt: "2026-07-28T08:00:00.000Z",
+      },
+      {
+        id: "teammate",
+        teamId: "team-1",
+        title: "Teammate session",
+        mode: "collab",
+        lastMessageAt: "2026-07-28T08:00:00.000Z",
+        createdAt: "2026-07-28T07:59:00.000Z",
+        updatedAt: "2026-07-28T08:00:00.000Z",
+        syncedAt: "2026-07-28T08:00:00.000Z",
+      },
+    ]);
+    mocks.loadSessionIdsForActor.mockResolvedValueOnce(["mine"]);
+    mocks.listCurrentActorSessions.mockRejectedValueOnce(new Error("boom"));
+    const store = await freshStore();
+
+    await store.getState().loadFirstPage();
+
+    expect(mocks.loadSessionIdsForActor).toHaveBeenCalledWith("team-1", "actor-1");
+    expect(store.getState().rows.map((row) => row.id)).toEqual(["mine"]);
     expect(store.getState().error).toBe("boom");
   });
 });
