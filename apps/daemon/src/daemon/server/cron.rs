@@ -35,6 +35,21 @@ pub(crate) struct CronTurnDone {
     pub(crate) reply_tx: oneshot::Sender<String>,
 }
 
+/// One ACP event of a cron-driven turn, sent from the turn task to the active
+/// run loop so it can reach `session/live`.
+///
+/// The turn task owns the agent's event channel for the whole turn, so
+/// `poll_events` — and with it `forward_agent_event` — never sees these frames.
+/// Publishing is what `forward_agent_event` would have done; it has to happen
+/// on the loop because it needs `&self.teamclaw`, which is not `Send`.
+pub(crate) struct CronTurnEvent {
+    /// Runtime key (8-char), not the actor id.
+    pub(crate) agent_id: String,
+    /// Set only for subagent sessions, matching `forward_agent_event`.
+    pub(crate) child_acp_session_id: Option<String>,
+    pub(crate) event: crate::proto::amux::AcpEvent,
+}
+
 /// Caches the `(cloud_session_id, acp_session_id)` pair for each cron logical
 /// `session_key`.
 ///
@@ -280,8 +295,10 @@ impl DaemonServer {
         // itself for the whole turn duration.
         let agents = self.agents.clone();
         let done_tx = self.cron_turn_done_tx.clone();
+        let event_tx = self.cron_turn_event_tx.clone();
         tokio::spawn(async move {
-            let turn_result = Self::drive_cron_turn(&agents, &acp_sid, &message, timeout).await;
+            let turn_result =
+                Self::drive_cron_turn(&agents, &acp_sid, &message, timeout, event_tx).await;
             let _ = done_tx
                 .send(CronTurnDone {
                     turn_result,
@@ -370,6 +387,62 @@ impl DaemonServer {
         };
 
         let _ = reply_tx.send(result.to_string());
+    }
+
+    /// Publish one event of a cron-driven turn to `session/live`.
+    ///
+    /// This is `forward_agent_event`'s publish tail and deliberately nothing
+    /// else: the turn task has already fed the event to the aggregator, and
+    /// ingesting it a second time here would emit the reply twice. Without it
+    /// a cron session sat frozen — "Run Now" navigates you into the thread and
+    /// nothing moves until the whole answer appears at once.
+    pub(super) async fn publish_cron_turn_event(&mut self, ev: CronTurnEvent) {
+        use crate::proto::amux;
+
+        let CronTurnEvent {
+            agent_id,
+            child_acp_session_id,
+            mut event,
+        } = ev;
+
+        // Same stamping rule as `forward_agent_event`: only agent-reply events
+        // are model-attributable.
+        if matches!(
+            event.event,
+            Some(amux::acp_event::Event::Output(_)) | Some(amux::acp_event::Event::Thinking(_))
+        ) {
+            if let Some(model) = self.agents.lock().await.current_model(&agent_id).cloned() {
+                event.model = model;
+            }
+        }
+
+        let (seq, turn_id) = {
+            let mut agents = self.agents.lock().await;
+            let seq = agents
+                .get_handle_mut(&agent_id)
+                .map(|h| h.next_sequence())
+                .unwrap_or(0);
+            let turn_id = agents
+                .aggregator(&agent_id)
+                .and_then(|a| a.current_turn_id())
+                .unwrap_or("")
+                .to_string();
+            (seq, turn_id)
+        };
+
+        let envelope = amux::Envelope {
+            runtime_id: agent_id.clone(),
+            actor_id: self.config.actor.id.clone(),
+            source_peer_id: String::new(),
+            timestamp: chrono::Utc::now().timestamp(),
+            sequence: seq,
+            turn_id,
+            acp_session_id: child_acp_session_id.unwrap_or_default(),
+            payload: Some(amux::envelope::Payload::AcpEvent(event)),
+        };
+        self.history.append(&agent_id, &envelope);
+        self.publish_envelope_to_sessions(&agent_id, &envelope)
+            .await;
     }
 
     /// Cron cloud session title, matching what the desktop expects: `Cron: <job
@@ -623,6 +696,7 @@ impl DaemonServer {
         acp_sid: &str,
         prompt: &str,
         timeout: Duration,
+        event_tx: tokio::sync::mpsc::Sender<CronTurnEvent>,
     ) -> anyhow::Result<crate::runtime::turn_aggregator::EmittedMessage> {
         // 1. Per-agent turn lock (held for the whole turn) under a brief
         //    manager lock.
@@ -672,6 +746,23 @@ impl DaemonServer {
                 Ok(None) => break Err(anyhow::anyhow!("ACP event channel closed before reply")),
                 Err(_) => break Err(anyhow::anyhow!("ACP turn timed out")),
             };
+
+            // Hand the loop a copy for `session/live` before consuming it, so
+            // the desktop renders the turn as it happens. Best-effort: a full
+            // channel drops frames rather than stalling the model turn behind
+            // the UI, and the finalized reply lands regardless.
+            let forwarded = CronTurnEvent {
+                agent_id: agent_id.clone(),
+                child_acp_session_id: Some(event.acp_session_id.clone())
+                    .filter(|sid| !sid.is_empty() && sid != acp_sid),
+                event: event.event.clone(),
+            };
+            if event_tx.try_send(forwarded).is_err() {
+                tracing::debug!(
+                    agent_id = %agent_id,
+                    "cron: live event channel full; dropping one streaming frame"
+                );
+            }
 
             if let Some(crate::proto::amux::acp_event::Event::Error(err)) = &event.event.event {
                 let details = if err.details.is_empty() {
