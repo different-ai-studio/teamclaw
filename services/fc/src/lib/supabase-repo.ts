@@ -130,17 +130,29 @@ function guardedFetch(input: any, init?: any) {
   return fetch(input, init);
 }
 
-/** Archive sessions bound to a workspace via agent_runtimes.workspace_id. */
+/**
+ * Archive sessions bound to a workspace via session_participants.workspace_id.
+ *
+ * This used to read `agent_runtimes`, which 20260803010000 dropped once
+ * 20260803000000 moved an agent's per-session working state onto
+ * `session_participants` — its natural (session, actor) key. The read was left
+ * behind, so every `PATCH /v1/workspaces/:id` with `archived: true` threw
+ * `relation "amux.agent_runtimes" does not exist` AFTER the workspace row had
+ * already been updated: the caller got a 500, the workspace was archived
+ * anyway, and its sessions never were. A retry hit the same wall.
+ *
+ * `workspace_id` is NULL for member participants (not applicable, not missing),
+ * so the equality filter already selects agent rows only.
+ */
 async function archiveSessionsForWorkspace(supabase, workspaceId) {
-  const { data: runtimes, error: rtError } = await supabase
-    .from("agent_runtimes")
+  const { data: participants, error: rtError } = await supabase
+    .from("session_participants")
     .select("session_id")
-    .eq("workspace_id", workspaceId)
-    .not("session_id", "is", null);
+    .eq("workspace_id", workspaceId);
   if (rtError) throw rtError;
 
   const sessionIds = [...new Set(
-    (runtimes ?? [])
+    (participants ?? [])
       .map((row) => row.session_id)
       .filter((id) => typeof id === "string" && id.length > 0),
   )];

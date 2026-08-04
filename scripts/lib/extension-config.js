@@ -113,6 +113,77 @@ function resolveExtensionPack(buildConfig) {
   })
 }
 
+/** Trims trailing slashes and rejects anything that is not an http(s) URL. */
+function normalizeHttpUrl(raw) {
+  const trimmed = String(raw || '').trim().replace(/\/+$/, '')
+  if (!trimmed) return null
+  let parsed
+  try {
+    parsed = new URL(trimmed)
+  } catch {
+    return null
+  }
+  if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') return null
+  return trimmed
+}
+
+/** Same shape check for the browser MQTT endpoint, which must be ws/wss. */
+function normalizeWsUrl(raw) {
+  const trimmed = String(raw || '').trim()
+  if (!trimmed) return null
+  let parsed
+  try {
+    parsed = new URL(trimmed)
+  } catch {
+    return null
+  }
+  if (parsed.protocol !== 'ws:' && parsed.protocol !== 'wss:') return null
+  return trimmed
+}
+
+/**
+ * The backend a packaged extension talks to, read from the merged build config.
+ *
+ * This exists because `packages/app/.env.web` pins `VITE_CLOUD_API_URL` /
+ * `VITE_MQTT_WS_URL`, and `server-config.ts` lets the env var win over
+ * `buildConfig.cloudApiUrl`. Every branded package therefore shipped pointing at
+ * the TeamClaw backend no matter which backend the brand declared — the same
+ * class of bug as the `BUILD_ENV` trap documented in release-extension.yml, just
+ * arriving through a committed env file instead. The extension build passes
+ * these values to vite as real env vars, which outrank `.env.*` files, so the
+ * brand's config is what gets baked and `.env.web` degrades to the fallback it
+ * reads as.
+ *
+ * `mqttWsUrl` accepts the `extension` / `extensions` block as well as the top
+ * level: it is a browser-only endpoint (a chrome-extension:// secure context
+ * cannot reach the plaintext TCP broker that `/v1/config/bootstrap` hands out),
+ * so a brand may reasonably file it under its extension block. `cloudApiUrl` is
+ * top-level only — it is the same field the desktop pipeline reads.
+ */
+function resolveExtensionBackend(buildConfig) {
+  const cfg = buildConfig && typeof buildConfig === 'object' ? buildConfig : {}
+  const canonical = cfg.extensions && typeof cfg.extensions === 'object' ? cfg.extensions : {}
+  const alias = cfg.extension && typeof cfg.extension === 'object' ? cfg.extension : {}
+
+  const rawCloudApiUrl = cfg.cloudApiUrl
+  const cloudApiUrl = normalizeHttpUrl(rawCloudApiUrl)
+  if (rawCloudApiUrl && !cloudApiUrl) {
+    throw new Error(
+      `build config cloudApiUrl is not a valid http(s) URL: ${JSON.stringify(rawCloudApiUrl)}`,
+    )
+  }
+
+  const rawMqttWsUrl = canonical.mqttWsUrl ?? alias.mqttWsUrl ?? cfg.mqttWsUrl
+  const mqttWsUrl = normalizeWsUrl(rawMqttWsUrl)
+  if (rawMqttWsUrl && !mqttWsUrl) {
+    throw new Error(
+      `build config mqttWsUrl is not a valid ws(s) URL: ${JSON.stringify(rawMqttWsUrl)}`,
+    )
+  }
+
+  return { cloudApiUrl, mqttWsUrl }
+}
+
 function domainsToChromeMatchPatterns(domains) {
   const out = []
   const seen = new Set()
@@ -178,6 +249,7 @@ const PRUNE_REFERENCE_EXCEPTIONS = [
 module.exports = {
   parseExtensionsConfig,
   resolveExtensionPack,
+  resolveExtensionBackend,
   toSidePanelDomain,
   toChromeMatchPattern,
   domainsToChromeMatchPatterns,

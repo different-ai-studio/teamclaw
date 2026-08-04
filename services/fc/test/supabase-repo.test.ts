@@ -1047,6 +1047,18 @@ function createUpdatableQuery(table, calls, data, error) {
       eqValue = value;
       return query;
     },
+    // `in` / `is` / awaiting the builder are what a filtered bulk UPDATE needs
+    // (archiveSessionsForWorkspace does `.in("id", chunk).is("archived_at", null)`
+    // with no `.select()`). Without them that call resolved to undefined and the
+    // path was untestable — which is how it kept reading a dropped table.
+    in(column, values) {
+      calls.push({ table, op: "update.in", column, values });
+      return query;
+    },
+    is(column, value) {
+      calls.push({ table, op: "update.is", column, value });
+      return query;
+    },
     select(columns) {
       calls.push({ table, op: "update.select", columns });
       return {
@@ -1054,7 +1066,14 @@ function createUpdatableQuery(table, calls, data, error) {
           calls.push({ table, op: "update.maybeSingle" });
           return { data: eqValue ? { id: eqValue } : data[0] ?? null, error };
         },
+        async single() {
+          calls.push({ table, op: "update.single" });
+          return { data: data[0] ?? (eqValue ? { id: eqValue } : null), error };
+        },
       };
+    },
+    then(resolve, reject) {
+      return Promise.resolve({ data: null, error }).then(resolve, reject);
     },
   };
   return query;
@@ -1092,6 +1111,61 @@ function createSelectableQuery(table, calls, data, error) {
   };
   return query;
 }
+
+test("patchWorkspace archives linked sessions via session_participants, not the dropped agent_runtimes", async () => {
+  const tableCalls = [];
+  const repo = createRepo(fakeSupabase({
+    tableCalls,
+    tableData: {
+      workspaces: [{ id: "ws-1", team_id: "team-1", name: "Repo", path: "/repo", archived: true }],
+      session_participants: [
+        { session_id: "session-1" },
+        { session_id: "session-2" },
+        // Same agent re-attached: the id set must be deduped before the update.
+        { session_id: "session-1" },
+      ],
+    },
+  }));
+
+  await repo.patchWorkspace("ws-1", { archived: true });
+
+  const source = tableCalls.find((c) => c.op === "select" && c.table !== "workspaces");
+  assert.equal(
+    source?.table,
+    "session_participants",
+    "workspace_id moved to session_participants in 20260803000000; agent_runtimes was dropped by 20260803010000",
+  );
+  assert.ok(
+    tableCalls.every((c) => c.table !== "agent_runtimes"),
+    "must not touch the dropped agent_runtimes table",
+  );
+  assert.deepEqual(
+    tableCalls.find((c) => c.table === "session_participants" && c.op === "eq"),
+    { table: "session_participants", op: "eq", column: "workspace_id", value: "ws-1" },
+  );
+
+  const sessionUpdate = tableCalls.find((c) => c.table === "sessions" && c.op === "update.in");
+  assert.deepEqual(sessionUpdate?.values, ["session-1", "session-2"], "deduped session ids");
+  assert.ok(
+    tableCalls.some((c) => c.table === "sessions" && c.op === "update.is" && c.column === "archived_at"),
+    "archive must stay idempotent by skipping already-archived rows",
+  );
+});
+
+test("patchWorkspace without archived:true never touches sessions", async () => {
+  const tableCalls = [];
+  const repo = createRepo(fakeSupabase({
+    tableCalls,
+    tableData: { workspaces: [{ id: "ws-1", team_id: "team-1", name: "Renamed", path: "/repo" }] },
+  }));
+
+  await repo.patchWorkspace("ws-1", { name: "Renamed" });
+
+  assert.ok(
+    tableCalls.every((c) => c.table !== "sessions" && c.table !== "session_participants"),
+    "a rename must not cascade into session archival",
+  );
+});
 
 // --- Actor directory ---
 

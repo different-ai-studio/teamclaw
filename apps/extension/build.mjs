@@ -13,9 +13,12 @@ const appDir = resolve(here, '../../packages/app')
 const linkHoverShared = resolve(appDir, 'src/lib/extension-link-hover')
 const linkSessionShared = resolve(appDir, 'src/lib/extension-link-session')
 const nodeRequire = createRequire(import.meta.url)
-const { resolveExtensionPack, domainsToSidePanelCsv, SIDE_PANEL_PRUNE_DIRS } = nodeRequire(
-  resolve(repoRoot, 'scripts/lib/extension-config.js'),
-)
+const {
+  resolveExtensionPack,
+  resolveExtensionBackend,
+  domainsToSidePanelCsv,
+  SIDE_PANEL_PRUNE_DIRS,
+} = nodeRequire(resolve(repoRoot, 'scripts/lib/extension-config.js'))
 
 const esbuildAlias = {
   '@teamclaw/extension-link-hover': resolve(linkHoverShared, 'index.ts'),
@@ -66,6 +69,21 @@ const mergedBuildConfig = loadMergedBuildConfig()
 const extensionPack = resolveExtensionPack(mergedBuildConfig)
 const domainsCsv = domainsToSidePanelCsv(extensionPack.domains)
 const extensionSettingsBake = extensionPack.settings
+const backend = resolveExtensionBackend(mergedBuildConfig)
+
+// A package with no backend is not a degraded package, it is a dead one: every
+// request and the sign-in screen have nowhere to go. Refusing to build is the
+// only outcome that cannot end up on the Chrome Web Store, and it is strictly
+// better than the previous behaviour, where .env.web quietly supplied the
+// TeamClaw backend to a brand that meant to ship its own.
+if (!backend.cloudApiUrl) {
+  console.error(
+    '[extension] build.config.json declares no cloudApiUrl — refusing to build a package\n' +
+      '            with no backend. Add "cloudApiUrl" to the brand config (brands/<brand>/\n' +
+      '            build.config.json in the enterprise-branding repo) and re-run.',
+  )
+  process.exit(1)
+}
 
 const esbuildAliasWithAllowlist = {
   ...esbuildAlias,
@@ -79,13 +97,38 @@ mkdirSync(dist, { recursive: true })
 // EXT_ENV=test targets the wss-capable self-host test deployment
 // (.env.web.test); otherwise the default .env.web is used.
 // solo / domains come from build.config*.json → extensions (baked via __BUILD_CONFIG__).
+//
+// The backend comes from the build config and is passed as a real env var,
+// which vite ranks above any .env.* file — see resolveExtensionBackend for why
+// the committed .env.web values otherwise won. EXT_ENV=test is the one case
+// where the env file is meant to be authoritative: it exists precisely to point
+// a local build at the self-host test deployment, so leave it alone.
 const webBuildScript = process.env.EXT_ENV === 'test' ? 'build:web:test' : 'build:web'
+const backendEnv =
+  process.env.EXT_ENV === 'test'
+    ? {}
+    : {
+        VITE_CLOUD_API_URL: backend.cloudApiUrl,
+        ...(backend.mqttWsUrl ? { VITE_MQTT_WS_URL: backend.mqttWsUrl } : {}),
+      }
 console.log(
   '[extension] web build ->',
   webBuildScript,
   extensionPack.solo ? '(solo)' : '',
   domainsCsv ? `(domains: ${domainsCsv})` : '(domains: ungated)',
 )
+if (process.env.EXT_ENV === 'test') {
+  console.log('[extension] backend -> .env.web.test (EXT_ENV=test)')
+} else {
+  console.log('[extension] backend -> cloudApiUrl:', backend.cloudApiUrl)
+  // Without a brand-declared endpoint the side panel keeps whatever .env.web
+  // pins, which points at the TeamClaw broker — realtime then talks to the
+  // wrong cluster while the API talks to the right one.
+  console.log(
+    '[extension] backend -> mqttWsUrl:',
+    backend.mqttWsUrl ?? '(none in build config — falling back to .env.web)',
+  )
+}
 execSync(`pnpm ${webBuildScript}`, {
   cwd: appDir,
   stdio: 'inherit',
@@ -93,6 +136,7 @@ execSync(`pnpm ${webBuildScript}`, {
     ...process.env,
     VITE_APP_PLATFORM: 'web',
     VITE_FORCE_EMBED: 'chat',
+    ...backendEnv,
   },
 })
 cpSync(resolve(appDir, 'dist'), resolve(dist, 'sidepanel'), { recursive: true })

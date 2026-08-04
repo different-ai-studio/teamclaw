@@ -6,6 +6,7 @@ const path = require("node:path");
 const {
   parseExtensionsConfig,
   resolveExtensionPack,
+  resolveExtensionBackend,
   domainsToChromeMatchPatterns,
   SIDE_PANEL_PRUNE_DIRS,
   PRUNE_REFERENCE_EXCEPTIONS,
@@ -139,4 +140,85 @@ test("every prune exception is genuinely dead — its export is never imported",
         `remove "${exception.dir}" from SIDE_PANEL_PRUNE_DIRS.`
     );
   }
+});
+
+// Regression: packages/app/.env.web pins VITE_CLOUD_API_URL, and
+// server-config.ts lets the env var win over buildConfig.cloudApiUrl, so every
+// branded package shipped talking to the TeamClaw backend regardless of the
+// backend its brand declared. The build now reads the brand config here and
+// passes it to vite as a real env var, which outranks .env.* files.
+test("resolveExtensionBackend reads the brand's cloudApiUrl", () => {
+  const backend = resolveExtensionBackend({ cloudApiUrl: "https://api.brand.example.com" });
+  assert.strictEqual(backend.cloudApiUrl, "https://api.brand.example.com");
+});
+
+test("resolveExtensionBackend trims trailing slashes off cloudApiUrl", () => {
+  const backend = resolveExtensionBackend({ cloudApiUrl: "https://api.brand.example.com//" });
+  assert.strictEqual(backend.cloudApiUrl, "https://api.brand.example.com");
+});
+
+test("resolveExtensionBackend returns null cloudApiUrl when the brand declares none", () => {
+  assert.strictEqual(resolveExtensionBackend({}).cloudApiUrl, null);
+  assert.strictEqual(resolveExtensionBackend(undefined).cloudApiUrl, null);
+});
+
+// A typo'd backend must fail the build, not fall through to null and get
+// reported as "brand declares no cloudApiUrl" — the two need different fixes.
+test("resolveExtensionBackend throws on a non-http cloudApiUrl", () => {
+  assert.throws(
+    () => resolveExtensionBackend({ cloudApiUrl: "api.brand.example.com" }),
+    /not a valid http\(s\) URL/
+  );
+  assert.throws(
+    () => resolveExtensionBackend({ cloudApiUrl: "wss://api.brand.example.com" }),
+    /not a valid http\(s\) URL/
+  );
+});
+
+test("resolveExtensionBackend reads mqttWsUrl from the top level", () => {
+  const backend = resolveExtensionBackend({ mqttWsUrl: "wss://mqtt.brand.example.com/mqtt" });
+  assert.strictEqual(backend.mqttWsUrl, "wss://mqtt.brand.example.com/mqtt");
+});
+
+// Same dual-spelling tolerance resolveExtensionPack needs: brands file
+// extension options under `extension`, the repo's own configs under `extensions`.
+test("resolveExtensionBackend reads mqttWsUrl from either extension block", () => {
+  assert.strictEqual(
+    resolveExtensionBackend({ extension: { mqttWsUrl: "wss://a.example.com/mqtt" } }).mqttWsUrl,
+    "wss://a.example.com/mqtt"
+  );
+  assert.strictEqual(
+    resolveExtensionBackend({ extensions: { mqttWsUrl: "wss://b.example.com/mqtt" } }).mqttWsUrl,
+    "wss://b.example.com/mqtt"
+  );
+  // Canonical spelling wins when a config carries both.
+  assert.strictEqual(
+    resolveExtensionBackend({
+      extensions: { mqttWsUrl: "wss://b.example.com/mqtt" },
+      extension: { mqttWsUrl: "wss://a.example.com/mqtt" },
+    }).mqttWsUrl,
+    "wss://b.example.com/mqtt"
+  );
+});
+
+test("resolveExtensionBackend throws on a non-ws mqttWsUrl", () => {
+  assert.throws(
+    () => resolveExtensionBackend({ mqttWsUrl: "https://mqtt.brand.example.com/mqtt" }),
+    /not a valid ws\(s\) URL/
+  );
+});
+
+test("resolveExtensionBackend returns null mqttWsUrl when the brand declares none", () => {
+  assert.strictEqual(resolveExtensionBackend({ cloudApiUrl: "https://a.example.com" }).mqttWsUrl, null);
+});
+
+// build.config.example.json is what a brand is copied from, so the fields the
+// extension build reads have to be visible in it.
+test("build.config.example.json documents both backend fields", () => {
+  const example = JSON.parse(
+    fs.readFileSync(path.join(repoRoot, "build.config.example.json"), "utf8")
+  );
+  const backend = resolveExtensionBackend(example);
+  assert.ok(backend.cloudApiUrl, "example config must declare cloudApiUrl");
+  assert.ok(backend.mqttWsUrl, "example config must declare mqttWsUrl");
 });
