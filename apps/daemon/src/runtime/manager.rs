@@ -1120,6 +1120,20 @@ impl RuntimeManager {
         self.agents.get(agent_id)
     }
 
+    /// Whether this runtime is driving a turn right now.
+    ///
+    /// The unattended drive paths (cron's `drive_cron_turn`, the gateway's
+    /// `AmuxdAgentHandle::send_prompt`) hold the handle's `turn_lock` for the
+    /// whole turn, so a failed `try_lock` means "an answer is in flight".
+    /// Runtime bookkeeping consults this before stopping anything: a stopped
+    /// runtime takes its unfinished turn with it, and the caller that asked
+    /// for the answer just never gets one.
+    pub fn turn_in_flight(&self, runtime_id: &str) -> bool {
+        self.get_handle(runtime_id)
+            .map(|h| h.turn_lock.try_lock().is_err())
+            .unwrap_or(false)
+    }
+
     /// Find an existing live runtime matching the (session_id, agent_type,
     /// workspace_id) key. Used by `apply_start_runtime` to dedupe duplicate
     /// `RuntimeStart` RPCs from misbehaving clients into a single spawn.
@@ -2518,6 +2532,30 @@ mod tests {
         assert_eq!(
             mgr.resolve_permission_runtime_key("cd073767").as_deref(),
             Some("cd073767")
+        );
+    }
+
+    /// The signal `apply_start_runtime` / `coalesce_session_runtimes` use to
+    /// decide a runtime must not be stopped. Cron holds this lock for the whole
+    /// turn; without the check, the RuntimeStart that follows "Run Now"'s jump
+    /// into the session stopped the runtime mid-answer.
+    #[tokio::test]
+    async fn turn_in_flight_tracks_the_handles_turn_lock() {
+        let mut mgr = RuntimeManager::new(RuntimeManager::test_launch_configs(), None);
+        mgr.add_test_runtime("rt1", "agent_A", "session_S");
+        assert!(!mgr.turn_in_flight("rt1"), "idle runtime is not mid-turn");
+        assert!(
+            !mgr.turn_in_flight("missing"),
+            "unknown runtime is not busy"
+        );
+
+        let turn_lock = mgr.get_handle("rt1").unwrap().turn_lock.clone();
+        let guard = turn_lock.lock().await;
+        assert!(mgr.turn_in_flight("rt1"), "a held turn_lock reads as busy");
+        drop(guard);
+        assert!(
+            !mgr.turn_in_flight("rt1"),
+            "released turn_lock reads as idle"
         );
     }
 
