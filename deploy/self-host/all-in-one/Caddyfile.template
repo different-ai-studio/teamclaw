@@ -34,6 +34,17 @@
 http://127.0.0.1:8089 {
   encode zstd gzip
 
+  # HTTP access log. WebSocket requests such as /mqtt are written when the
+  # upgraded connection closes, including remote IP/port, status, and duration.
+  log {
+    output file /data/logs/caddy-access.log {
+      roll_size 10MiB
+      roll_keep 5
+      roll_keep_for 168h
+    }
+    format json
+  }
+
   # Container health responder
   handle /healthz {
     reverse_proxy 127.0.0.1:19090
@@ -59,6 +70,7 @@ http://127.0.0.1:8089 {
 
   # MQTT over WebSocket
   handle /mqtt {
+    log_append route mqtt_ws
     reverse_proxy 127.0.0.1:8083
   }
 

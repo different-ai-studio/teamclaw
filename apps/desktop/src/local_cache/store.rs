@@ -1249,6 +1249,39 @@ impl LocalCacheStore {
         Ok(result)
     }
 
+    /// Return the active session ids for one actor inside one team. The local
+    /// cache is team-scoped, so callers must use this instead of treating the
+    /// entire team cache as the current actor's session list.
+    pub async fn session_participant_load_actor(
+        &self,
+        actor_id: &str,
+        team_id: &str,
+    ) -> Result<Vec<String>, String> {
+        let conn = self.conn.lock().await;
+        let mut rows = conn
+            .query(
+                "SELECT participant.session_id
+                 FROM session_participant participant
+                 JOIN session s ON s.id = participant.session_id
+                 WHERE participant.actor_id = ?1
+                   AND participant.deleted_at IS NULL
+                   AND s.team_id = ?2
+                   AND s.deleted_at IS NULL",
+                params![actor_id.to_string(), team_id.to_string()],
+            )
+            .await
+            .map_err(|e| format!("session_participant_load_actor: {}", e))?;
+        let mut result = Vec::new();
+        while let Some(row) = rows
+            .next()
+            .await
+            .map_err(|e| format!("session_participant_load_actor row: {}", e))?
+        {
+            result.push(row.get::<String>(0).unwrap_or_default());
+        }
+        Ok(result)
+    }
+
     pub async fn session_participant_soft_delete(
         &self,
         id: &str,

@@ -74,7 +74,7 @@ describe("session-list-store", () => {
     } as never);
   });
 
-  it("sorts rows by last_message_at desc with nulls last after load", async () => {
+  it("sorts rows by last_message_at desc with nulls first after load", async () => {
     mocks.listCurrentActorSessions.mockResolvedValueOnce({
       rows: [
         sessionRow({
@@ -99,9 +99,9 @@ describe("session-list-store", () => {
     await useSessionListStore.getState().loadFirstPage();
 
     expect(useSessionListStore.getState().rows.map((row) => row.id)).toEqual([
+      "empty-old",
       "recent",
       "older",
-      "empty-old",
     ]);
   });
 

@@ -289,6 +289,19 @@ export async function loadSessionParticipants(
   });
 }
 
+/**
+ * Return active cached session ids for one actor in a team. This keeps the
+ * cold-start cache scoped to the signed-in actor rather than exposing every
+ * cached team session while the network list is unavailable.
+ */
+export async function loadSessionIdsForActor(
+  teamId: string,
+  actorId: string,
+): Promise<string[]> {
+  if (!isTauri() || !hasTeamId("session_participant_load_actor", teamId) || !actorId.trim()) return [];
+  return invoke("local_cache_session_participant_load_actor", { actorId, teamId });
+}
+
 export async function softDeleteSessionParticipant(
   id: string,
   deletedAt: string,

@@ -8,6 +8,7 @@ import { syncSessionWorkspaces } from "@/lib/session-workspace-sync";
 import { markStartup } from "@/lib/startup-perf";
 import {
   loadSessionsForTeam,
+  loadSessionIdsForActor,
   softDeleteSession,
   upsertSessionsBatch,
   type SessionRow,
@@ -291,17 +292,23 @@ export const useSessionListStore = create<State>((set, get) => ({
     // ── Phase 1: hydrate instantly from local cache (Tauri only) ──────────
     // Skip when we already have RPC rows — reloading would flash archived
     // sessions that still sit in libsql until soft-deleted.
-    if (isTauri() && teamId && existingRows.length === 0) {
+    const currentMemberActorId = useCurrentTeamStore.getState().currentMember?.id ?? null;
+    if (isTauri() && teamId && currentMemberActorId && existingRows.length === 0) {
       // The cache is an accelerator, never a gate. A rejection here (most
       // often the current-team gate disagreeing with `teamId`) used to reject
       // this whole function, leaving `loading: true` forever — the list span
       // its spinner and the rejection surfaced as an unhandled rejection.
       try {
-        const localRows = await loadSessionsForTeam(teamId);
-        if (localRows.length > 0) {
+        const [localRows, actorSessionIds] = await Promise.all([
+          loadSessionsForTeam(teamId),
+          loadSessionIdsForActor(teamId, currentMemberActorId),
+        ]);
+        const actorSessionIdSet = new Set(actorSessionIds);
+        const currentActorRows = localRows.filter((row) => actorSessionIdSet.has(row.id));
+        if (currentActorRows.length > 0) {
           set({
             rows: filterArchivedEntries(
-              sortEntries(localRows.map(mapCacheToEntry)),
+              sortEntries(currentActorRows.map(mapCacheToEntry)),
             ),
           });
           markStartup("session-list:local-cache");

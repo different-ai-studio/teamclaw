@@ -17,12 +17,12 @@ function createdAtValue(row: SessionListSortKey): string {
   return row.created_at ?? "";
 }
 
-/** Match backend listSessions: last_message_at DESC NULLS LAST, created_at DESC, id DESC. */
+/** Match backend listSessions: last_message_at DESC NULLS FIRST, created_at DESC, id DESC. */
 export function compareSessionListByRecency(a: SessionListSortKey, b: SessionListSortKey): number {
   const aLast = lastMessageAtMs(a);
   const bLast = lastMessageAtMs(b);
-  if (aLast != null && bLast == null) return -1;
-  if (aLast == null && bLast != null) return 1;
+  if (aLast == null && bLast != null) return -1;
+  if (aLast != null && bLast == null) return 1;
   if (aLast != null && bLast != null && aLast !== bLast) return bLast - aLast;
   const byCreated = createdAtValue(b).localeCompare(createdAtValue(a));
   if (byCreated !== 0) return byCreated;

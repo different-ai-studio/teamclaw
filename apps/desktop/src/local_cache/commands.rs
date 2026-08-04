@@ -289,6 +289,17 @@ pub async fn local_cache_session_participant_load_session(
 }
 
 #[tauri::command]
+pub async fn local_cache_session_participant_load_actor(
+    state: tauri::State<'_, LocalCacheState>,
+    actor_id: String,
+    team_id: String,
+) -> Result<Vec<String>, String> {
+    assert_team(&state, &team_id).await?;
+    let db = get_db(&state).await?;
+    db.session_participant_load_actor(&actor_id, &team_id).await
+}
+
+#[tauri::command]
 pub async fn local_cache_session_participant_soft_delete(
     state: tauri::State<'_, LocalCacheState>,
     id: String,
