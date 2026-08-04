@@ -77,6 +77,16 @@ export async function syncTableForSession<TSupabaseRow, TCacheRow>(args: {
   mapRow: (r: TSupabaseRow) => TCacheRow;
   upsertBatch: (rows: TCacheRow[]) => Promise<void>;
   full?: boolean;
+  /**
+   * Full sync only: hand over every row the server still has, so the caller can
+   * drop local rows it no longer does. A delta sync keyed on `updated_at` can
+   * never observe a hard DELETE, so without this a removed row lives forever in
+   * the cache.
+   *
+   * Deliberately not called when the pull failed (the early return above) — a
+   * network error must never be read as "the server has nothing".
+   */
+  reconcileFull?: (rows: TCacheRow[]) => Promise<void>;
 }): Promise<{ count: number }> {
   const wmKey = `${args.watermarkKey}:${args.sessionId}`;
   const watermark = args.full
@@ -104,6 +114,11 @@ export async function syncTableForSession<TSupabaseRow, TCacheRow>(args: {
     if (maxUpdated) {
       await cache.setWatermark(wmKey, args.teamId, maxUpdated);
     }
+  }
+  // Outside the `rows.length > 0` guard on purpose: a session whose every row
+  // was removed returns nothing, and that is exactly when reconciling matters.
+  if (args.full && args.reconcileFull) {
+    await args.reconcileFull(rows);
   }
   return { count: rows.length };
 }

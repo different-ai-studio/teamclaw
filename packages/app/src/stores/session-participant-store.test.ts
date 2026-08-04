@@ -110,7 +110,41 @@ describe("session-participant-store", () => {
     ]);
   });
 
-  it("retries empty cache on extension/web", async () => {
+  it("falls back to the cloud when the desktop local cache has no rows", async () => {
+    // A cron-created session is never synced into libsql just by being opened,
+    // so its local roster is empty while the cloud has the agent. Treating that
+    // empty read as the answer is what left the agent unmentionable and left
+    // messages with no target.
+    mockListParticipants.mockResolvedValue([
+      {
+        id: "daemon-1",
+        actor_type: "agent",
+        display_name: "MACPRO",
+        avatar_url: null,
+      },
+    ]);
+
+    await useSessionParticipantStore.getState().ensureParticipants(["cron-session"]);
+
+    expect(mockListParticipants).toHaveBeenCalledWith("cron-session");
+    expect(useSessionParticipantStore.getState().participantsBySession["cron-session"]).toEqual([
+      {
+        actorId: "daemon-1",
+        displayName: "MACPRO",
+        avatarUrl: null,
+        isAgent: true,
+      },
+    ]);
+  });
+
+  it("prefers the local cache and never calls the cloud when it has rows", async () => {
+    await useSessionParticipantStore.getState().ensureParticipants(["s1"]);
+
+    expect(mockListParticipants).not.toHaveBeenCalled();
+    expect(useSessionParticipantStore.getState().participantsBySession.s1).toHaveLength(2);
+  });
+
+  it("retries an empty roster on the next ensure", async () => {
     mockIsTauri.mockReturnValue(false);
     useSessionParticipantStore.setState({
       participantsBySession: { s1: [] },
@@ -137,6 +171,45 @@ describe("session-participant-store", () => {
         isAgent: true,
       },
     ]);
+  });
+
+  it("setParticipants publishes a roster resolved elsewhere and clears loading", async () => {
+    useSessionParticipantStore.setState({
+      participantsBySession: {},
+      loadingBySession: { s2: true },
+      errorBySession: { s2: "stale error" },
+    });
+
+    useSessionParticipantStore.getState().setParticipants("s2", [
+      { actorId: "agent-1", displayName: "MACPRO", avatarUrl: null, isAgent: true },
+    ]);
+
+    const state = useSessionParticipantStore.getState();
+    expect(state.participantsBySession.s2).toEqual([
+      { actorId: "agent-1", displayName: "MACPRO", avatarUrl: null, isAgent: true },
+    ]);
+    expect(state.loadingBySession.s2).toBe(false);
+    expect(state.errorBySession.s2).toBeNull();
+  });
+
+  it("setParticipants keeps an avatar the caller does not carry", async () => {
+    // The sheet's Row shape has no avatar_url; publishing from it must not blank
+    // an avatar this store already resolved from the actor cache.
+    useSessionParticipantStore.setState({
+      participantsBySession: {
+        s2: [{ actorId: "a1", displayName: "Alice", avatarUrl: "https://img/a1.png", isAgent: false }],
+      },
+      loadingBySession: {},
+      errorBySession: {},
+    });
+
+    useSessionParticipantStore.getState().setParticipants("s2", [
+      { actorId: "a1", displayName: "Alice", avatarUrl: null, isAgent: false },
+    ]);
+
+    expect(useSessionParticipantStore.getState().participantsBySession.s2[0].avatarUrl).toBe(
+      "https://img/a1.png",
+    );
   });
 
   it("clears loading on invalidate while keeping cached roster", async () => {

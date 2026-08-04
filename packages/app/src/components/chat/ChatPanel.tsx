@@ -636,7 +636,10 @@ export function ChatPanel({ compact = false }: ChatPanelProps) {
       return true;
     };
 
-    if (sessionParticipants !== undefined) {
+    // Same rule as resolve-session-mention-ids: an empty roster means the cache
+    // has not answered yet, so fall through to the cloud read below instead of
+    // concluding this session has no agent to engage.
+    if (sessionParticipants !== undefined && sessionParticipants.length > 0) {
       engageFromRoster(sessionParticipants);
       return;
     }
