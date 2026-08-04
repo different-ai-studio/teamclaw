@@ -8,7 +8,7 @@ import { fetchLocalDaemonCatalog } from '@/lib/local-daemon-model-catalog'
  *
  * # Why this exists next to `runtime-state-store`
  *
- * `runtime-state-store` mirrors MQTT `runtime/{id}/state` retains, and a retain
+ * `runtime-state-store` projects MQTT `{actor}/state` attachments, and a retain
  * only exists once a runtime is actually up. That makes it the right source of
  * truth and the wrong thing to *wait* on: a healthy local daemon one loopback
  * hop away still left the pill at 连接中 until the retain landed, and a daemon

@@ -1266,6 +1266,7 @@ impl RuntimeManager {
                 failed_stage: String::new(),
                 workspace_id: h.workspace_id.clone(),
                 current_model: self.agent_state.model_or_default(&h.agent_id),
+                worktree: h.worktree.clone(),
             })
             .collect()
     }

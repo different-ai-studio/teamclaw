@@ -1,5 +1,8 @@
 import { RuntimeLifecycle } from '@/lib/proto/amux_pb'
-import { useRuntimeStateStore } from '@/stores/runtime-state-store'
+import {
+  resolveSessionAttachmentEntry,
+  useRuntimeStateStore,
+} from '@/stores/runtime-state-store'
 
 export const RUNTIME_ENSURE_MIN_INTERVAL_MS = 3_000
 
@@ -37,15 +40,12 @@ export function agentHasLiveRuntimeForSessionBinding(
   sessionRuntimeId: string | null | undefined,
 ): boolean {
   const agentId = agentActorId.trim()
-  const spawnId = sessionRuntimeId?.trim() ?? ''
-  if (!agentId || !spawnId) return false
+  const bindingId = sessionRuntimeId?.trim() ?? ''
+  if (!agentId || !bindingId) return false
 
   const byRuntimeId = useRuntimeStateStore.getState().byRuntimeId
-  const entry = byRuntimeId[spawnId]
+  const entry = resolveSessionAttachmentEntry(agentId, bindingId, byRuntimeId)
   if (!entry) return false
-  if (entry.daemonActorId !== agentId && entry.info.runtimeId !== agentId) {
-    return false
-  }
   return (
     entry.info.state === RuntimeLifecycle.ACTIVE &&
     entry.info.availableModels.length > 0

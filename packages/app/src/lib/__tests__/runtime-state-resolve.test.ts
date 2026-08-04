@@ -17,7 +17,7 @@ import { useAgentModelPickStore } from "@/stores/agent-model-pick-store";
 
 function entry(
   agentId: string,
-  runtimeId: string,
+  sessionId: string,
   models: Array<{ id: string; displayName: string }> = [],
   state: RuntimeLifecycle = RuntimeLifecycle.ACTIVE,
 ): RuntimeStateEntry {
@@ -25,7 +25,7 @@ function entry(
     daemonActorId: agentId,
     lastUpdated: Date.now(),
     info: {
-      runtimeId,
+      runtimeId: sessionId,
       agentType: AgentType.OPENCODE,
       availableModels: models,
       currentModel: "",
@@ -34,62 +34,69 @@ function entry(
   };
 }
 
+function attachmentStore(
+  agentId: string,
+  sessionId: string,
+  models: Array<{ id: string; displayName: string }> = [],
+  state: RuntimeLifecycle = RuntimeLifecycle.ACTIVE,
+  lastUpdated?: number,
+): Record<string, RuntimeStateEntry> {
+  const row = entry(agentId, sessionId, models, state);
+  if (lastUpdated !== undefined) row.lastUpdated = lastUpdated;
+  return { [`${agentId}::${sessionId}`]: row };
+}
+
 beforeEach(() => {
   useAgentModelPickStore.setState({ bySessionAgent: {} });
 });
 
 describe("resolveRuntimeStateEntryForAgent", () => {
-  it("finds retain by daemon device id when DB runtime id differs", () => {
-    const byRuntimeId = {
-      "agent-mac": entry("agent-mac", "agent-mac", [{ id: "m-1", displayName: "Model 1" }]),
-    };
+  it("finds attachment by composite key when session hint matches", () => {
+    const byRuntimeId = attachmentStore("agent-mac", "uuid-from-db", [
+      { id: "m-1", displayName: "Model 1" },
+    ]);
     const resolved = resolveRuntimeStateEntryForAgent("agent-mac", byRuntimeId, "uuid-from-db");
     expect(resolved?.info.availableModels).toHaveLength(1);
-    expect(resolveRuntimeIdForAgent("agent-mac", byRuntimeId, "uuid-from-db")).toBe("agent-mac");
+    expect(resolveRuntimeIdForAgent("agent-mac", byRuntimeId, "uuid-from-db")).toBe("uuid-from-db");
   });
 
-  it("prefers the newest retain when agent uuid and spawn id keys both exist", () => {
+  it("prefers the newest attachment when multiple sessions are live", () => {
     const agentUuid = "b3cbc44e-0000-4000-8000-000000000001";
-    const spawnId = "b8b6b82a";
-    const stale = entry(agentUuid, spawnId, [{ id: "big-pickle", displayName: "Big Pickle" }]);
+    const stale = entry(agentUuid, "session-a", [{ id: "big-pickle", displayName: "Big Pickle" }]);
     stale.info.currentModel = "big-pickle";
     stale.lastUpdated = 1;
-    const fresh = entry(agentUuid, spawnId, [
+    const fresh = entry(agentUuid, "session-b", [
       { id: "big-pickle", displayName: "Big Pickle" },
       { id: "mimo-v2.5-free", displayName: "Mimo" },
     ]);
     fresh.info.currentModel = "mimo-v2.5-free";
     fresh.lastUpdated = 2;
     const byRuntimeId = {
-      [agentUuid]: stale,
-      [spawnId]: fresh,
+      [`${agentUuid}::session-a`]: stale,
+      [`${agentUuid}::session-b`]: fresh,
     };
     expect(resolveRuntimeStateEntryForAgent(agentUuid, byRuntimeId)?.info.currentModel).toBe(
       "mimo-v2.5-free",
     );
   });
 
-  it("ignores stale DB runtime id key that does not match the agent", () => {
+  it("ignores stale DB session hint and falls back to any live attachment", () => {
     const agentUuid = "b3cbc44e-0000-4000-8000-000000000001";
-    const spawnId = "b8b6b82a";
-    const live = entry(agentUuid, spawnId);
+    const live = entry(agentUuid, "session-1");
     const byRuntimeId = {
-      [agentUuid]: live,
-      "stale-db-uuid": entry("other-agent", "other-rt"),
+      [`${agentUuid}::session-1`]: live,
+      "stale-db-uuid": entry("other-agent", "other-session"),
     };
     expect(resolveRuntimeStateEntryForAgent(agentUuid, byRuntimeId, "stale-db-uuid")).toBe(live);
-    expect(resolveRuntimeIdForAgent(agentUuid, byRuntimeId, "stale-db-uuid")).toBe(spawnId);
+    expect(resolveRuntimeIdForAgent(agentUuid, byRuntimeId, "stale-db-uuid")).toBe("session-1");
   });
 
-  it("prefers proto runtime_id over MQTT store key when both index the same retain", () => {
+  it("returns session id from the matched attachment", () => {
     const agentUuid = "b3cbc44e-0000-4000-8000-000000000001";
-    const spawnId = "b8b6b82a";
-    const shared = entry(agentUuid, spawnId, [{ id: "opencode/big-pickle", displayName: "Big Pickle" }]);
-    const byRuntimeId = {
-      [agentUuid]: shared,
-      [spawnId]: shared,
-    };
-    expect(resolveRuntimeIdForAgent(agentUuid, byRuntimeId)).toBe(spawnId);
+    const byRuntimeId = attachmentStore(agentUuid, "session-1", [
+      { id: "opencode/big-pickle", displayName: "Big Pickle" },
+    ]);
+    expect(resolveRuntimeIdForAgent(agentUuid, byRuntimeId)).toBe("session-1");
   });
 
   it("falls back to DB runtime id when no retain exists yet", () => {
@@ -128,9 +135,9 @@ describe("selectAgentModel — canonical model resolver", () => {
     { id: "mimo-v2.5-free", displayName: "Mimo" },
   ];
   const byRuntimeId = {
-    [agentUuid]: {
-      ...entry(agentUuid, "rt-1", available),
-      info: { ...entry(agentUuid, "rt-1", available).info, currentModel: "big-pickle" },
+    [`${agentUuid}::${sessionId}`]: {
+      ...entry(agentUuid, sessionId, available),
+      info: { ...entry(agentUuid, sessionId, available).info, currentModel: "big-pickle" },
     },
   };
 
@@ -148,7 +155,13 @@ describe("selectAgentModel — canonical model resolver", () => {
   });
 
   it("falls back to provider/model key when neither pick nor retain available", () => {
-    const empty = { ...byRuntimeId, [agentUuid]: { ...byRuntimeId[agentUuid], info: { ...byRuntimeId[agentUuid].info, currentModel: "" } } };
+    const empty = {
+      ...byRuntimeId,
+      [`${agentUuid}::${sessionId}`]: {
+        ...byRuntimeId[`${agentUuid}::${sessionId}`],
+        info: { ...byRuntimeId[`${agentUuid}::${sessionId}`].info, currentModel: "" },
+      },
+    };
     const res = selectAgentModel({
       sessionId,
       agentId: agentUuid,
@@ -161,7 +174,13 @@ describe("selectAgentModel — canonical model resolver", () => {
   });
 
   it("falls back to provider fallback when neither pick nor retain available", () => {
-    const empty = { ...byRuntimeId, [agentUuid]: { ...byRuntimeId[agentUuid], info: { ...byRuntimeId[agentUuid].info, currentModel: "" } } };
+    const empty = {
+      ...byRuntimeId,
+      [`${agentUuid}::${sessionId}`]: {
+        ...byRuntimeId[`${agentUuid}::${sessionId}`],
+        info: { ...byRuntimeId[`${agentUuid}::${sessionId}`].info, currentModel: "" },
+      },
+    };
     const res = selectAgentModel({
       sessionId,
       agentId: agentUuid,
@@ -186,9 +205,9 @@ describe("selectAgentModel — canonical model resolver", () => {
 
   it("falls back to the first advertised model when catalog is present", () => {
     const emptyRetain = {
-      [agentUuid]: {
-        ...entry(agentUuid, "rt-1", available),
-        info: { ...entry(agentUuid, "rt-1", available).info, currentModel: "" },
+      [`${agentUuid}::${sessionId}`]: {
+        ...entry(agentUuid, sessionId, available),
+        info: { ...entry(agentUuid, sessionId, available).info, currentModel: "" },
       },
     };
     const res = selectAgentModel({
@@ -205,9 +224,9 @@ describe("selectAgentModel — canonical model resolver", () => {
     useAgentModelPickStore.getState().setPick(sessionId, agentUuid, "mimo-v2.5-free");
     const prefixed = [{ id: "opencode/mimo-v2.5-free", displayName: "Mimo" }];
     const prefixByRuntime = {
-      [agentUuid]: {
-        ...entry(agentUuid, "rt-1", prefixed),
-        info: { ...entry(agentUuid, "rt-1", prefixed).info, currentModel: "" },
+      [`${agentUuid}::${sessionId}`]: {
+        ...entry(agentUuid, sessionId, prefixed),
+        info: { ...entry(agentUuid, sessionId, prefixed).info, currentModel: "" },
       },
     };
     const res = selectAgentModel({
@@ -235,11 +254,9 @@ describe("selectAgentModel — canonical model resolver", () => {
 
 describe("resolveSetModelId", () => {
   it("uses short id when retain advertises short ids", () => {
-    const byRuntimeId = {
-      "agent-mac": entry("agent-mac", "rt-1", [
-        { id: "big-pickle", displayName: "Big Pickle" },
-      ]),
-    };
+    const byRuntimeId = attachmentStore("agent-mac", "session-1", [
+      { id: "big-pickle", displayName: "Big Pickle" },
+    ]);
     expect(resolveSetModelId("agent-mac", "opencode/big-pickle", byRuntimeId)).toBe(
       "big-pickle",
     );
@@ -391,30 +408,27 @@ describe("resolveCommandRuntimeId", () => {
     ).toBeUndefined();
   });
 
-  it("prefers a newer live spawn over a stale db hint when no session scope", () => {
+  it("prefers a newer live attachment over a stale db hint when no session scope", () => {
     const now = Date.now();
     const byRuntimeId = {
-      "rt-stale": { ...entry("agent-a", "rt-stale"), lastUpdated: now - 1000 },
-      "rt-live": { ...entry("agent-a", "rt-live"), lastUpdated: now },
-      "agent-a": { ...entry("agent-a", "rt-stale"), lastUpdated: now - 1000 },
+      ...attachmentStore("agent-a", "session-stale", [], RuntimeLifecycle.ACTIVE, now - 1000),
+      ...attachmentStore("agent-a", "session-live", [], RuntimeLifecycle.ACTIVE, now),
     };
     expect(
       resolveCommandRuntimeId({
         agentId: "agent-a",
-        dbRuntimeId: "rt-stale",
+        dbRuntimeId: "session-stale",
         byRuntimeId,
       }),
-    ).toBe("rt-live");
+    ).toBe("session-live");
   });
 });
 
 describe("normalizeAgentModelId", () => {
   it("maps short picker ids to advertised ACP model ids", () => {
-    const byRuntimeId = {
-      "agent-mac": entry("agent-mac", "agent-mac", [
-        { id: "opencode/mimo-v2.5-free", displayName: "Mimo" },
-      ]),
-    };
+    const byRuntimeId = attachmentStore("agent-mac", "session-1", [
+      { id: "opencode/mimo-v2.5-free", displayName: "Mimo" },
+    ]);
     expect(normalizeAgentModelId("agent-mac", "mimo-v2.5-free", byRuntimeId)).toBe(
       "opencode/mimo-v2.5-free",
     );

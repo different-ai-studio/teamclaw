@@ -19,10 +19,14 @@ vi.mock('react-i18next', () => ({
   }),
 }))
 
-vi.mock('@/stores/runtime-state-store', () => ({
-  useRuntimeStateStore: (selector: (s: unknown) => unknown) =>
-    selector({ byRuntimeId: mocks.runtimeStates }),
-}))
+vi.mock('@/stores/runtime-state-store', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@/stores/runtime-state-store')>()
+  return {
+    ...actual,
+    useRuntimeStateStore: (selector: (s: unknown) => unknown) =>
+      selector({ byRuntimeId: mocks.runtimeStates }),
+  }
+})
 
 vi.mock('@/lib/teamclaw-rpc', () => ({
   setModel: vi.fn(),

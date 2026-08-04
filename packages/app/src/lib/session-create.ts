@@ -659,6 +659,7 @@ export async function startAgentRuntimesAsync(
         seedRuntimeStateAfterStart({
           daemonActorId: agentActorId,
           runtimeId: result.runtimeId,
+          sessionId: args.sessionId,
           agentType,
         })
         // The seed above cannot include models (they only ride the MQTT retain),

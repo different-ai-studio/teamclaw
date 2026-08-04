@@ -6,7 +6,10 @@ import {
   type DaemonBackendCatalog,
   type DaemonModelCatalog,
 } from '@/lib/daemon-local-client'
-import { useRuntimeStateStore } from '@/stores/runtime-state-store'
+import {
+  attachmentKey,
+  useRuntimeStateStore,
+} from '@/stores/runtime-state-store'
 import { sessionFlowLog } from '@/lib/session-flow-log'
 
 /**
@@ -14,13 +17,13 @@ import { sessionFlowLog } from '@/lib/session-flow-log'
  *
  * # Why this exists
  *
- * `RuntimeInfo.available_models` only ever reached the client on the retained
- * MQTT `runtime/{id}/state` message — `RuntimeStartResult` carries no models and
- * `GET /v1/live/events` does not tee runtime state. The session pill needs a
- * non-empty catalog to leave `connecting` (see `resolveSessionAgentUiState`), so
- * on a slow broker a brand-new session sat at 连接中 for the full
- * `SESSION_AGENT_CONNECTING_TIMEOUT_MS` and then reported offline, even with a
- * perfectly healthy local daemon one loopback hop away.
+ * `RuntimeInfo.available_models` reaches the client on the retained actor
+ * `{actor}/state` snapshot (or loopback HTTP below). `RuntimeStartResult`
+ * carries no models and `GET /v1/live/events` does not tee runtime state. The
+ * session pill needs a non-empty catalog to leave `connecting` (see
+ * `resolveSessionAgentUiState`), so on a slow broker a brand-new session sat at
+ * 连接中 for the full `SESSION_AGENT_CONNECTING_TIMEOUT_MS` and then reported
+ * offline, even with a perfectly healthy local daemon one loopback hop away.
  *
  * `GET /v1/workspaces/:id/model-catalog` answers the same question directly, and
  * its handler brings the backend up on demand, so it works with zero sessions
@@ -181,6 +184,7 @@ export function firstAvailableRecentModel(
 export function mergeLocalDaemonModels(args: {
   daemonActorId: string
   runtimeId: string
+  sessionId?: string | null
   models: ModelInfo[]
   /**
    * Device MRU, newest first. Seeds `currentModel` when the entry has none, so
@@ -194,7 +198,11 @@ export function mergeLocalDaemonModels(args: {
   if (!daemonActorId || !runtimeId || args.models.length === 0) return false
 
   const store = useRuntimeStateStore.getState()
-  const entry = store.byRuntimeId[runtimeId]
+  const sessionId = args.sessionId?.trim() ?? ''
+  const entry =
+    (sessionId
+      ? store.byRuntimeId[attachmentKey(daemonActorId, sessionId)]
+      : undefined) ?? store.byRuntimeId[runtimeId]
   if (!entry) return false
   if (entry.info.availableModels.length > 0) return false
 
@@ -209,10 +217,11 @@ export function mergeLocalDaemonModels(args: {
       firstAvailableRecentModel(args.recentModels, args.models) ||
       '',
   })
-  store.upsert(runtimeId, entry.daemonActorId, info)
-  if (runtimeId !== daemonActorId) {
-    store.upsert(daemonActorId, entry.daemonActorId, info)
-  }
+  store.upsert(
+    sessionId ? attachmentKey(daemonActorId, sessionId) : runtimeId,
+    entry.daemonActorId,
+    info,
+  )
   return true
 }
 

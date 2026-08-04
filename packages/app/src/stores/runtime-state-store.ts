@@ -10,24 +10,16 @@ import { mqttSubscribe, listenForEnvelopes, type IncomingEnvelope } from '@/lib/
 import { sessionFlowLog } from '@/lib/session-flow-log'
 
 /**
- * MQTT `runtime/{spawnId}/state` retain cache.
+ * In-memory projection of daemon attachment state from MQTT.
  *
- * Storage shape:
- *  - Primary key: the topic's `{runtimeId}` segment (8-char spawn id).
- *  - Mirror key:  the topic's `{daemonActorId}` segment (agent actor UUID).
- *    Resolvers look up by agent UUID first; without the mirror they'd
- *    have to linear-scan every retain.
+ * The only MQTT source is `amux/{team}/{actor}/state` (ActorPresence). Each
+ * attached session is keyed `{daemonActorId}::{sessionId}` — never a per-spawn
+ * id. Local RPC seeds (`seedRuntimeStateAfterStart`) may write the same key
+ * before the retain arrives.
  *
- *  Both keys point to the SAME `RuntimeStateEntry` reference per upsert. The
- *  mirror is freshness-guarded: a stale republished retain (e.g. broker
- *  re-flushing prior retains on reconnect) will NOT overwrite a fresher entry
- *  already under the agent UUID — that was the source of the "弹回" symptom
- *  where an old spawn's `currentModel` ghost-overrode the live one.
- *
- *  This store is intentionally STATELESS about user picks. It only mirrors
- *  what the daemon publishes. The agent-model-pick-store is the source of
- *  truth for user-selected models; `selectAgentModel` (runtime-state-resolve)
- *  is the only place that reconciles the two.
+ * This store is intentionally STATELESS about user picks. It only mirrors what
+ * the daemon publishes. The agent-model-pick-store is the source of truth for
+ * user-selected models; `selectAgentModel` (runtime-state-resolve) reconciles.
  */
 
 export type RuntimeStateEntry = {
@@ -91,21 +83,13 @@ function applyRuntimeStateUpdates(
       ? { ...prev!, lastUpdated: receivedAt }
       : { info: merged, daemonActorId, lastUpdated: receivedAt }
 
-    const agentKey = daemonActorId.trim()
-    const existingMirror = agentKey && agentKey !== runtimeId ? next[agentKey] : undefined
     const shouldSetRuntime = !prevMatches || entry !== prev
-    const shouldSetMirror =
-      Boolean(agentKey && agentKey !== runtimeId) &&
-      existingMirror !== entry &&
-      (!existingMirror || existingMirror.lastUpdated <= entry.lastUpdated)
-
-    if (!shouldSetRuntime && !shouldSetMirror) continue
+    if (!shouldSetRuntime) continue
     if (!changed) {
       next = { ...next }
       changed = true
     }
-    if (shouldSetRuntime) next[runtimeId] = entry
-    if (shouldSetMirror) next[agentKey] = entry
+    next[runtimeId] = entry
   }
 
   return changed ? next : current
@@ -189,11 +173,7 @@ export function projectActorPresence(
   const catalogByWorktree = new Map(presence.worktrees.map((w) => [w.worktree, w]))
 
   return presence.liveSessions.map((live) => {
-    // The catalog is per worktree, but LiveSession carries workspace rather
-    // than worktree, so fall back to the sole catalog when there is only one —
-    // the common single-checkout device — and to empty otherwise.
-    const worktree =
-      presence.worktrees.length === 1 ? presence.worktrees[0]! : catalogByWorktree.get('')
+    const worktree = catalogByWorktree.get(live.worktree)
     const models = worktree
       ? worktree.modelIndices
           .map((i) => presence.catalogModels[i])
@@ -204,7 +184,7 @@ export function projectActorPresence(
       runtimeId: live.sessionId,
       agentType: presence.activeAgentType,
       workspaceId: live.workspaceId,
-      worktree: worktree?.worktree ?? '',
+      worktree: live.worktree,
       status: live.status,
       state: live.lifecycle,
       stage: live.stage,
@@ -233,6 +213,21 @@ export function attachmentKey(daemonActorId: string, sessionId: string): string 
   return `${daemonActorId}::${sessionId}`
 }
 
+/** One actor's attachment to one session — keyed `{actorId}::{sessionId}`. */
+export function resolveSessionAttachmentEntry(
+  agentId: string,
+  sessionId: string,
+  byRuntimeId: Record<string, RuntimeStateEntry>,
+): RuntimeStateEntry | undefined {
+  const trimmedAgent = agentId.trim()
+  const trimmedSession = sessionId.trim()
+  if (!trimmedAgent || !trimmedSession) return undefined
+
+  const attached = byRuntimeId[attachmentKey(trimmedAgent, trimmedSession)]
+  if (attached?.daemonActorId === trimmedAgent) return attached
+  return undefined
+}
+
 /** Every actor's attachment to `sessionId` — one per daemon serving it. */
 export function attachmentsForSession(
   sessionId: string,
@@ -250,100 +245,31 @@ export async function initRuntimeStateStore(teamId: string): Promise<void> {
     console.info('[runtime-state] init skipped: already initialized', { teamId })
     return
   }
-  // The actor retain is the replacement for the per-runtime fan-out: one
-  // bounded message per actor instead of one per spawn, accumulating forever.
-  // Both are consumed during the transition; the daemon publishes both.
   const actorTopic = `amux/${teamId}/+/state`
   await mqttSubscribe(actorTopic)
-  const topic = `amux/${teamId}/+/runtime/+/state`
-  await mqttSubscribe(topic)
-  console.info('[runtime-state] subscribed', { teamId, topic })
+  console.info('[runtime-state] subscribed', { teamId, topic: actorTopic })
   unlisten = await listenForEnvelopes((env: IncomingEnvelope) => {
     const actor = parseActorStateTopic(env.topic)
-    if (actor) {
-      if (actor.teamId !== teamId) return
-      let presence: ActorPresence
-      try {
-        presence = fromBinary(ActorPresenceSchema, new Uint8Array(env.bytes))
-      } catch (e) {
-        console.warn('[runtime-state] failed to decode ActorPresence', e)
-        return
-      }
-      const updates = projectActorPresence(actor.actorId, presence)
-      sessionFlowLog('actor_state.retain.received', {
-        teamId: actor.teamId,
-        actorId: actor.actorId,
-        online: presence.online,
-        activeAgentType: presence.activeAgentType,
-        backendHealth: presence.backendHealth,
-        worktreeCount: presence.worktrees.length,
-        catalogModelCount: presence.catalogModels.length,
-        liveSessionCount: presence.liveSessions.length,
-      })
-      for (const update of updates) enqueueRuntimeStateUpdate(update)
-      return
-    }
-
-    const parsed = parseRuntimeStateTopic(env.topic)
-    if (!parsed) return
-    if (parsed.teamId !== teamId) {
-      console.info('[runtime-state] ignored envelope for another team', {
-        expectedTeamId: teamId,
-        topic: env.topic,
-        parsed,
-      })
-      return
-    }
-    let info: RuntimeInfo
+    if (!actor || actor.teamId !== teamId) return
+    let presence: ActorPresence
     try {
-      info = fromBinary(RuntimeInfoSchema, new Uint8Array(env.bytes))
+      presence = fromBinary(ActorPresenceSchema, new Uint8Array(env.bytes))
     } catch (e) {
-      console.warn('[runtime-state] failed to decode RuntimeInfo', e)
+      console.warn('[runtime-state] failed to decode ActorPresence', e)
       return
     }
-    sessionFlowLog('runtime_state.retain.received', {
-      teamId: parsed.teamId,
-      daemonActorId: parsed.daemonActorId,
-      runtimeId: parsed.runtimeId,
-      infoRuntimeId: info.runtimeId,
-      agentType: info.agentType,
-      currentModel: info.currentModel,
-      availableModelIds: info.availableModels.map((model) => model.id),
-      availableCommandNames: info.availableCommands.map((command) => command.name),
-      state: info.state,
-      status: info.status,
+    const updates = projectActorPresence(actor.actorId, presence)
+    sessionFlowLog('actor_state.retain.received', {
+      teamId: actor.teamId,
+      actorId: actor.actorId,
+      online: presence.online,
+      activeAgentType: presence.activeAgentType,
+      backendHealth: presence.backendHealth,
+      worktreeCount: presence.worktrees.length,
+      catalogModelCount: presence.catalogModels.length,
+      liveSessionCount: presence.liveSessions.length,
     })
-    console.info('[runtime-state] retained RuntimeInfo received', {
-      topic: env.topic,
-      daemonActorId: parsed.daemonActorId,
-      runtimeIdFromTopic: parsed.runtimeId,
-      runtimeIdFromInfo: info.runtimeId,
-      commandCount: info.availableCommands.length,
-      commandNames: info.availableCommands.map((command) => command.name),
-      currentModel: info.currentModel,
-      state: info.state,
-      status: info.status,
-    })
-    enqueueRuntimeStateUpdate({
-      runtimeId: parsed.runtimeId,
-      daemonActorId: parsed.daemonActorId,
-      info,
-    })
-    void import('@/stores/acp-debug-store').then(({ useAcpDebugStore }) => {
-      useAcpDebugStore.getState().append({
-        topic: env.topic,
-        actorId: parsed.daemonActorId,
-        eventCase: 'runtime_state',
-        payload: {
-          runtimeId: info.runtimeId,
-          agentType: info.agentType,
-          state: info.state,
-          status: info.status,
-          currentModel: info.currentModel,
-          availableModels: info.availableModels,
-        },
-      })
-    })
+    for (const update of updates) enqueueRuntimeStateUpdate(update)
   })
   initialized = true
 }

@@ -2316,7 +2316,7 @@ function AppContent() {
         // Runtime state store: subscribe to daemon-published RuntimeInfo retains.
         recordMqttDiag("app-mqtt", "runtime-state:init-before", {
           wiringId,
-          topic: `amux/${mqttTeamId}/+/runtime/+/state`,
+          topic: `amux/${mqttTeamId}/+/state`,
         });
         await initRuntimeStateStore(mqttTeamId);
         console.log('[runtime-state] initialized for team', mqttTeamId);

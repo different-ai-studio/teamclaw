@@ -416,11 +416,6 @@ impl DaemonServer {
             // Re-publish retained RuntimeInfo so clients that missed the
             // original retain (late subscribe, reconnect) still populate the
             // model picker without spawning a duplicate process.
-            self.publish_runtime_state_by_id(&existing).await;
-            // Same reasoning for the actor snapshot. Reuse is the common case —
-            // every message after the first in a session lands here — and the
-            // model may have just changed above, so leaving the retain untouched
-            // would let it drift from what the attachment is actually running.
             self.publish_actor_state().await;
             if !session_id.is_empty() {
                 if let Some(tc) = self.teamclaw.as_mut() {
@@ -677,22 +672,6 @@ impl DaemonServer {
             }
         }
 
-        // STARTING retain — fleeting but observable by mid-spawn reconnects.
-        let publisher = Publisher::new_from_handle(self.publisher_handle.clone(), &self.topics);
-        let starting_info = amux::RuntimeInfo {
-            runtime_id: new_id.clone(),
-            agent_type: agent_type as i32,
-            worktree: resolved_worktree.clone(),
-            workspace_id: ws_id.clone(),
-            state: amux::RuntimeLifecycle::Starting as i32,
-            stage: "spawning_process".to_string(),
-            started_at: chrono::Utc::now().timestamp(),
-            ..Default::default()
-        };
-        let _ = publisher
-            .publish_runtime_state(&new_id, &starting_info)
-            .await;
-
         // Persist session + transition to ACTIVE.
         let acp_sid = self
             .agents
@@ -728,11 +707,7 @@ impl DaemonServer {
         self.sessions.upsert(stored);
         let _ = self.sessions.save(&self.sessions_path);
 
-        // ACTIVE — publish_runtime_state_by_id reads the live RuntimeHandle and
-        // dual-publishes to agent/{id}/state + runtime/{id}/state. The handle
-        // today encodes state=ACTIVE (Phase 1a Idea 4).
-        self.publish_runtime_state_by_id(&new_id).await;
-        // …and refresh the actor snapshot, which is what replaces the above.
+        // ACTIVE — refresh the actor snapshot so clients see the attachment.
         self.publish_actor_state().await;
 
         // Replay any messages the runtime missed before it was spawned.
@@ -806,25 +781,13 @@ impl DaemonServer {
         }
     }
 
-    /// Publish terminal `runtime/{id}/state`, clear the retained topic, and
-    /// flip the persisted session row to Stopped. Idempotent — calling
-    /// twice on the same `runtime_id` is safe (the second clear is a no-op
-    /// against an already-empty retain).
+    /// Flip the persisted session row to Stopped and refresh the actor snapshot.
+    /// Idempotent — detach removes the session from `live_sessions`.
     pub(crate) async fn publish_runtime_stopped(&mut self, runtime_id: &str) {
         if let Some(session) = self.sessions.find_by_id_mut(runtime_id) {
             session.status = amux::AgentStatus::Stopped as i32;
             let _ = self.sessions.save(&self.sessions_path);
         }
-        let stopped_info = amux::RuntimeInfo {
-            runtime_id: runtime_id.to_string(),
-            state: amux::RuntimeLifecycle::Stopped as i32,
-            ..Default::default()
-        };
-        let publisher = Publisher::new_from_handle(self.publisher_handle.clone(), &self.topics);
-        let _ = publisher
-            .publish_runtime_state(runtime_id, &stopped_info)
-            .await;
-        let _ = publisher.clear_runtime_state(runtime_id).await;
         // Detach: the session drops out of `live_sessions`, so clients render
         // it cold. Absence is the signal — there is no "stopped" entry.
         self.publish_actor_state().await;
@@ -927,7 +890,6 @@ impl DaemonServer {
         // `agent_runtimes.current_model` this used to do is gone: the model
         // lives on the participant row and the actor snapshot (ADR-0004/0005).
         if success {
-            self.publish_runtime_state_by_id(&runtime_id).await;
             self.publish_actor_state().await;
         }
 

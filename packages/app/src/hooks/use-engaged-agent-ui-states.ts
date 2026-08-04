@@ -18,8 +18,13 @@ import {
   noteLocalDaemonActorId,
 } from '@/lib/local-daemon-identity'
 import { resolveEngagedAgentStaleBinding } from '@/lib/session-agent-stale-binding'
+import { RuntimeLifecycle } from '@/lib/proto/amux_pb'
 import { useActorPresenceStore } from '@/stores/actor-presence-store'
-import { useRuntimeStateStore, type RuntimeStateEntry } from '@/stores/runtime-state-store'
+import {
+  resolveSessionAttachmentEntry,
+  useRuntimeStateStore,
+  type RuntimeStateEntry,
+} from '@/stores/runtime-state-store'
 import {
   ensureLocalDaemonCatalog,
   useLocalDaemonCatalogStore,
@@ -54,23 +59,51 @@ function resolveUiSessionRuntimeEntry(
   const dbId = dbRuntimeId?.trim() ?? ''
   if (!trimmedAgent || !dbId) return undefined
 
-  const hinted = byRuntimeId[dbId]
-  if (
-    hinted &&
-    (hinted.daemonActorId === trimmedAgent ||
-      hinted.info.runtimeId === trimmedAgent ||
-      hinted.info.runtimeId === dbId)
-  ) {
-    return hinted
-  }
+  const attached = resolveSessionAttachmentEntry(trimmedAgent, dbId, byRuntimeId)
+  return attached
+}
 
-  // Agent-UUID mirror that already points at THIS session's spawn (same id).
-  // Do not fall through to a different spawn for the same agent.
-  const mirror = byRuntimeId[trimmedAgent]
-  if (mirror?.info.runtimeId?.trim() === dbId) {
-    return mirror
+/**
+ * Any ACTIVE attachment this actor holds, with a model catalog.
+ */
+function resolveActorLiveRuntimeEntry(
+  agentId: string,
+  byRuntimeId: Record<string, RuntimeStateEntry>,
+): RuntimeStateEntry | undefined {
+  let best: RuntimeStateEntry | undefined
+  for (const entry of Object.values(byRuntimeId)) {
+    if (entry.daemonActorId !== agentId) continue
+    if (entry.info.state !== RuntimeLifecycle.ACTIVE) continue
+    if (resolveAgentAvailableModels(entry.info).length === 0) continue
+    if (!best || entry.lastUpdated > best.lastUpdated) best = entry
   }
-  return undefined
+  return best
+}
+
+/**
+ * Runtime entry driving the pill for this session.
+ *
+ * A session binding wins outright. Without one — a draft chat, or a session
+ * this daemon has not attached yet — a **remote** agent falls back to its own
+ * actor-level state: "that machine is online and has models" is a device fact,
+ * not a session one, and withholding it pinned the pill at Connecting until the
+ * first send attached a runtime. Local agents keep the loopback path instead.
+ */
+function resolveProvisionalRuntimeEntry(
+  agent: AttachedAgent,
+  agentToRuntimeId: Map<string, string>,
+  byRuntimeId: Record<string, RuntimeStateEntry>,
+): RuntimeStateEntry | undefined {
+  const agentId = agent.id.trim()
+  const dbRuntimeId = agentToRuntimeId.get(agent.id)
+  const sessionBound = resolveUiSessionRuntimeEntry(agent.id, byRuntimeId, dbRuntimeId)
+  if (sessionBound) return sessionBound
+
+  if (dbRuntimeId?.trim()) return undefined
+  const localId = getKnownLocalDaemonActorId()
+  if (localId && agentId === localId) return undefined
+
+  return resolveActorLiveRuntimeEntry(agentId, byRuntimeId)
 }
 
 function resolveStaleBinding(
@@ -109,7 +142,7 @@ function computeProvisionalState(
   now: number,
 ): SessionAgentUiState {
   const dbRuntimeId = agentToRuntimeId.get(agent.id)
-  const entry = resolveUiSessionRuntimeEntry(agent.id, byRuntimeId, dbRuntimeId)
+  const entry = resolveProvisionalRuntimeEntry(agent, agentToRuntimeId, byRuntimeId)
   const runtimeInfo = entry?.info
   const retainModelCount = resolveAgentAvailableModels(runtimeInfo).length
   const since = connectingSinceByAgent[agent.id]

@@ -125,19 +125,13 @@ function uniqueRuntimeEntries(): RuntimeStateEntry[] {
   return [...seen]
 }
 
-/** Newest live runtime whose worktree matches the target workspace path. */
+/** Newest live attachment whose worktree matches the target workspace path. */
 export function findRuntimeForWorkspace(workspacePath: string): RuntimeStateEntry | undefined {
-  const byRuntimeId = useRuntimeStateStore.getState().byRuntimeId
   let best: RuntimeStateEntry | undefined
   for (const entry of uniqueRuntimeEntries()) {
     const worktree = entry.info.worktree?.trim()
     if (!worktree || !workspacePathsMatch(workspacePath, worktree)) continue
-
-    const agentKey = entry.daemonActorId.trim()
-    const canonical = agentKey ? byRuntimeId[agentKey] : undefined
-    if (canonical && canonical !== entry) continue
-
-    if (!best || entry.lastUpdated > best.lastUpdated) best = entry
+    if (!best || entry.lastUpdated >= best.lastUpdated) best = entry
   }
   return best
 }

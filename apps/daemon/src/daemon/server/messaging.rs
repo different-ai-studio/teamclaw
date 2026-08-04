@@ -56,28 +56,15 @@ impl DaemonServer {
         }
     }
 
-    /// Publish retained RuntimeInfo for a single agent on its per-agent state
-    /// topic. Swallows errors (same convention as other publish helpers).
-    pub(crate) async fn publish_runtime_state_by_id(&self, agent_id: &str) {
-        if let Some(info) = self.agent_info_by_id(agent_id).await {
-            let publisher = Publisher::new_from_handle(self.publisher_handle.clone(), &self.topics);
-            let _ = publisher.publish_runtime_state(agent_id, &info).await;
-        }
+    /// Publish the actor snapshot after attachment changes. Per-spawn
+    /// `runtime/{id}/state` retains are no longer published — clients read
+    /// `{actor}/state` only (ADR-0004 phase 7, iOS out of scope).
+    pub(crate) async fn publish_runtime_state_by_id(&self, _agent_id: &str) {
+        self.publish_actor_state().await;
     }
 
-    /// Publish every known agent (active + historical) individually. Used on
-    /// startup and after MQTT reconnect so clients subscribing to the wildcard
-    /// `agent/+/state` topic receive one retained message per agent — keeping
-    /// each publish small instead of relying on a large broker packet limit,
-    /// which the old single-list publish would blow past once the session
-    /// count grew.
+    /// Re-publish the actor snapshot on startup / MQTT reconnect.
     pub(crate) async fn publish_all_agent_states(&self) {
-        let publisher = Publisher::new_from_handle(self.publisher_handle.clone(), &self.topics);
-        for info in self.merged_agent_list().await.runtimes {
-            let _ = publisher
-                .publish_runtime_state(&info.runtime_id, &info)
-                .await;
-        }
         self.publish_actor_state().await;
     }
 
@@ -270,10 +257,7 @@ impl DaemonServer {
                 session.status = amux::AgentStatus::Error as i32;
                 let _ = self.sessions.save(&self.sessions_path);
             }
-            let publisher = Publisher::new_from_handle(self.publisher_handle.clone(), &self.topics);
-            let _ = publisher
-                .publish_runtime_failed(agent_id, "ACP_ERROR", &details, "acp")
-                .await;
+            self.publish_actor_state().await;
         }
 
         // Handle internal RawJson events (session_title, tool_title_update)

@@ -4,6 +4,7 @@ import {
   isDriftedLocalGhostBinding,
   resolveAgentPillDot,
   resolveSessionAgentUiState,
+  toMentionDeliverySnapshot,
 } from '@/lib/session-agent-ui-state'
 
 describe('isDriftedLocalGhostBinding', () => {
@@ -286,6 +287,18 @@ describe('resolveSessionAgentUiState', () => {
   })
 })
 
+describe('toMentionDeliverySnapshot', () => {
+  it('does not freeze connecting as offline in message metadata', () => {
+    expect(toMentionDeliverySnapshot('connecting')).toBeNull()
+  })
+
+  it('still records true offline and stale states', () => {
+    expect(toMentionDeliverySnapshot('offline')).toBe('offline')
+    expect(toMentionDeliverySnapshot('stale')).toBe('stale')
+    expect(toMentionDeliverySnapshot('ready')).toBe('ready')
+  })
+})
+
 describe('resolveAgentPillDot', () => {
   const GRAY = 'bg-muted-foreground/40'
   const GREEN = 'bg-emerald-500'
@@ -370,8 +383,10 @@ describe('resolveAgentPillDot', () => {
       ).toBe(RED)
     })
 
-    it('connecting is amber', () => {
-      expect(resolveAgentPillDot('connecting', undefined).color).toBe(AMBER)
+    it('connecting is amber with pulse', () => {
+      const dot = resolveAgentPillDot('connecting', undefined)
+      expect(dot.color).toBe(AMBER)
+      expect(dot.pulse).toBe(true)
     })
 
     it('unconfigured is amber — a setup gap, not a failure', () => {

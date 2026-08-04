@@ -88,10 +88,10 @@ describe("sessionHasMentionedRuntimeActiveSince", () => {
     status: AgentStatus,
     lastUpdated: string,
   ): RuntimeStateEntry => ({
-    daemonDeviceId: agentId,
+    daemonActorId: agentId,
     lastUpdated: new Date(lastUpdated).getTime(),
     info: {
-      runtimeId: "abcd1234",
+      runtimeId: "session-1",
       agentType: 0,
       status,
       availableModels: [],
@@ -105,7 +105,7 @@ describe("sessionHasMentionedRuntimeActiveSince", () => {
         [agentId],
         since,
         {
-          [agentId]: runtimeEntry(
+          [`${agentId}::session-1`]: runtimeEntry(
             AgentStatus.ACTIVE,
             "2026-06-03T11:12:35.000Z",
           ),
@@ -120,7 +120,7 @@ describe("sessionHasMentionedRuntimeActiveSince", () => {
         [agentId],
         since,
         {
-          [agentId]: runtimeEntry(
+          [`${agentId}::session-1`]: runtimeEntry(
             AgentStatus.ACTIVE,
             "2026-06-03T11:12:20.000Z",
           ),

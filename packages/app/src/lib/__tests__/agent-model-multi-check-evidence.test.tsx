@@ -236,10 +236,14 @@ vi.mock("@/stores/session-list-store", () => ({
     selector({ rows: [{ id: "session-1", team_id: "team-1" }] }),
 }));
 
-vi.mock("@/stores/runtime-state-store", () => ({
-  useRuntimeStateStore: (selector: (s: unknown) => unknown) =>
-    selector({ byRuntimeId: uiMocks.runtimeStates }),
-}));
+vi.mock("@/stores/runtime-state-store", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/stores/runtime-state-store")>();
+  return {
+    ...actual,
+    useRuntimeStateStore: (selector: (s: unknown) => unknown) =>
+      selector({ byRuntimeId: uiMocks.runtimeStates }),
+  };
+});
 
 vi.mock("@/lib/teamclaw-rpc", () => ({
   setModel: vi.fn(),

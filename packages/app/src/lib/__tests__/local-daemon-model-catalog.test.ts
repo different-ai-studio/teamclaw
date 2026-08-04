@@ -204,16 +204,19 @@ describe('mergeLocalDaemonModels', () => {
     useRuntimeStateStore.getState().clear()
   })
 
-  it('fills an empty catalog on both the spawn and agent-uuid keys', () => {
-    seedEntry('rt-1', 'actor-1')
+  it('fills an empty catalog on the composite attachment key', () => {
+    seedEntry('actor-1::session-1', 'actor-1')
     expect(
-      mergeLocalDaemonModels({ daemonActorId: 'actor-1', runtimeId: 'rt-1', models }),
+      mergeLocalDaemonModels({
+        daemonActorId: 'actor-1',
+        runtimeId: 'rt-1',
+        sessionId: 'session-1',
+        models,
+      }),
     ).toBe(true)
 
     const state = useRuntimeStateStore.getState().byRuntimeId
-    expect(state['rt-1'].info.availableModels[0].id).toBe('prov/http')
-    // The mirror key is what resolvers look up first.
-    expect(state['actor-1'].info.availableModels[0].id).toBe('prov/http')
+    expect(state['actor-1::session-1'].info.availableModels[0].id).toBe('prov/http')
   })
 
   it('leaves a retain that already carries models alone', () => {

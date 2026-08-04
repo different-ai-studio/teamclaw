@@ -60,7 +60,7 @@ describe('runtime-ensure-scheduler', () => {
 
   it('skips wake ensures only when THIS session binding is ACTIVE with models', () => {
     useRuntimeStateStore.getState().upsert(
-      'rt-session',
+      'agent-1::rt-session',
       'agent-1',
       create(RuntimeInfoSchema, {
         runtimeId: 'rt-session',
@@ -75,9 +75,25 @@ describe('runtime-ensure-scheduler', () => {
     expect(shouldSkipAlreadyReadyRuntimeEnsure(['agent-1'], 'session_create', map)).toBe(false)
   })
 
-  it('does not skip when session binding is missing even if another spawn is live', () => {
+  it('skips wake ensures for actor-retain composite session keys (#711)', () => {
     useRuntimeStateStore.getState().upsert(
-      'rt-other-session',
+      'agent-1::session-a',
+      'agent-1',
+      create(RuntimeInfoSchema, {
+        runtimeId: 'session-a',
+        state: RuntimeLifecycle.ACTIVE,
+        status: AgentStatus.IDLE,
+        availableModels: [{ id: 'm1', displayName: 'Model 1' }],
+      }),
+    )
+    const map = new Map([['agent-1', 'session-a']])
+    expect(agentsHaveLiveRuntimeModels(['agent-1'], map)).toBe(true)
+    expect(shouldSkipAlreadyReadyRuntimeEnsure(['agent-1'], 'session_focus', map)).toBe(true)
+  })
+
+  it('does not skip when session binding is missing even if another attachment is live', () => {
+    useRuntimeStateStore.getState().upsert(
+      'agent-1::rt-other-session',
       'agent-1',
       create(RuntimeInfoSchema, {
         runtimeId: 'rt-other-session',

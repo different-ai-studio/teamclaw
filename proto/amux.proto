@@ -397,6 +397,7 @@ message LiveSession {
   string failed_stage = 7;
   string workspace_id = 8;
   string current_model = 9;
+  string worktree = 10;       // local directory this attachment runs in
 }
 
 // ═══════════════════════════════════════════
