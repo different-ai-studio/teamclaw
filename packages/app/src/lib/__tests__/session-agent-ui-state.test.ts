@@ -197,6 +197,27 @@ describe('resolveSessionAgentUiState', () => {
       ).toBe('unconfigured')
     })
 
+    // "Could not ask" and "has nothing" arrive as the same empty list from the
+    // daemon unless probe_error separates them. Reporting a rejected API key as
+    // "No model configured" sends the user hunting for a missing provider.
+    it('separates a failed probe from a genuinely empty catalog', () => {
+      const base = {
+        presenceOnline: true,
+        runtimeInfo: undefined,
+        availableModelCount: 0,
+        isStaleBinding: false,
+        connectingTimedOut: false,
+        localReachabilityConfirmed: true,
+      } as const
+
+      expect(resolveSessionAgentUiState({ ...base, localCatalog: 'empty' })).toBe(
+        'unconfigured',
+      )
+      expect(resolveSessionAgentUiState({ ...base, localCatalog: 'error' })).toBe(
+        'catalog-error',
+      )
+    })
+
     it('still shows connecting while the loopback probe is in flight', () => {
       expect(
         resolveSessionAgentUiState({
@@ -372,6 +393,10 @@ describe('resolveAgentPillDot', () => {
 
     it('connecting is amber', () => {
       expect(resolveAgentPillDot('connecting', undefined).color).toBe(AMBER)
+    })
+
+    it('a failed model probe is red — broken, not merely unset', () => {
+      expect(resolveAgentPillDot('catalog-error', undefined).color).not.toBe(AMBER)
     })
 
     it('unconfigured is amber — a setup gap, not a failure', () => {

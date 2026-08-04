@@ -14,13 +14,20 @@ export type SessionAgentUiState =
    * from the loopback catalog, which cannot see a remote agent.
    */
   | 'unconfigured'
+  /**
+   * The daemon answered and told us it could not ask the backend for its models
+   * — a rejected API key, a binary that will not start. Terminal like
+   * `unconfigured`, but a failure rather than a setup gap: pointing the user at
+   * "configure a model" for a bad credential is what this exists to stop.
+   */
+  | 'catalog-error'
 
 /**
  * What this device's loopback catalog says, for the **local agent only**.
  * Mirrors `LocalDaemonCatalogStatus`; `undefined` for remote agents, which have
  * no loopback path and must keep resolving purely from presence + retain.
  */
-export type LocalCatalogSnapshot = 'pending' | 'ready' | 'empty' | 'unknown'
+export type LocalCatalogSnapshot = 'pending' | 'ready' | 'empty' | 'error' | 'unknown'
 
 export type MentionDeliverySnapshot = 'ready' | 'offline' | 'stale'
 
@@ -92,6 +99,9 @@ export function resolveSessionAgentUiState(input: {
     if (hasModels || input.localCatalog === 'ready') return 'ready'
     // Answered, and genuinely has nothing to run. Terminal, not a wait state.
     if (input.localCatalog === 'empty') return 'unconfigured'
+    // Answered, and could not find out. Also terminal, but not the user's
+    // configuration to fix.
+    if (input.localCatalog === 'error') return 'catalog-error'
     // 'pending' / 'unknown': the loopback request is still out or told us
     // nothing. Fall through — a brief connecting is honest here.
   }
@@ -162,6 +172,9 @@ export function dotClassesForUiState(uiState: SessionAgentUiState): AgentPillDot
       // Amber like connecting — the daemon is up; this is a setup gap, not a
       // failure — but steady, because nothing is in progress.
       return { color: 'bg-amber-400', pulse: false }
+    case 'catalog-error':
+      // Red, unlike unconfigured's amber: something is broken, not merely unset.
+      return { color: 'bg-red-500', pulse: false }
     case 'stale':
       return { color: 'bg-red-500', pulse: false }
     case 'offline':

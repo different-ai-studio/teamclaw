@@ -491,6 +491,20 @@ pub struct ModelCatalog {
     /// `"opencode"` in single-agent mode; `None` when no backend is configured.
     pub automation_default_backend: Option<String>,
     pub backends: Vec<BackendCatalog>,
+    /// Why the live probe could not answer, when it could not.
+    ///
+    /// An empty `backends[].models` has two very different causes: the backend
+    /// answered and has nothing configured, or it could not be asked at all — a
+    /// cursor daemon with a rejected API key, a binary that will not start. Both
+    /// used to arrive at the client as the same empty list, which renders as
+    /// "No model configured": a setup hint that sends the user looking for a
+    /// missing provider when the real answer is in a daemon log line.
+    ///
+    /// Set whenever the probe errored, even if a cached catalog then filled the
+    /// list — callers are expected to surface it only when they end up with no
+    /// models to show.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub probe_error: Option<String>,
 }
 
 fn backend_label(backend: &str) -> &'static str {
@@ -593,6 +607,8 @@ pub fn build_model_catalog(
     ModelCatalog {
         automation_default_backend,
         backends,
+        // Set by the caller, which is the only layer that saw the probe fail.
+        probe_error: None,
     }
 }
 
@@ -650,6 +666,11 @@ pub async fn get_model_catalog(
     // Deliberately not gated on the backend name: it used to run only for
     // `opencode` or `pi`, so a cursor daemon always fell through with `None`
     // and, having no provider-file fallback, served an empty catalog.
+    // `probe_error` is carried separately from `probed`: both a failed probe and
+    // an empty one fall back to the persisted catalog, but only the first one
+    // means "could not ask". Collapsing them is what let a rejected cursor API
+    // key reach the user as "No model configured".
+    let mut probe_error: Option<String> = None;
     let (probed_models, cached_models) = match workspace_path_or_404(&workspace_id).await {
         Ok(wpath) => match state.runtime_supervisor.as_ref() {
             Some(supervisor) => {
@@ -668,6 +689,7 @@ pub async fn get_model_catalog(
                             error = %e,
                             "catalog probe failed; falling back to the persisted catalog"
                         );
+                        probe_error = Some(e.to_string());
                         None
                     }
                 };
@@ -690,6 +712,13 @@ pub async fn get_model_catalog(
         &cached_models,
         &providers,
     );
+
+    // Only meaningful when nothing filled the list: a probe that failed while the
+    // persisted catalog still had models is a log line, not something to put in
+    // front of the user.
+    if catalog.backends.iter().all(|b| b.models.is_empty()) {
+        catalog.probe_error = probe_error;
+    }
 
     // The device MRU rides along so a client can resolve the last-used model
     // without waiting for a runtime to come up and publish its retain.

@@ -28,6 +28,8 @@ import {
   type DaemonLocalAgent,
 } from '@/lib/daemon-local-client'
 import { useUIStore } from '@/stores/ui'
+import { ensureLocalDaemonCatalog } from '@/stores/local-daemon-catalog-store'
+import { useWorkspaceStore } from '@/stores/workspace'
 import { useDaemonMqttConnected } from '@/stores/daemon-mqtt-status'
 import { cn, isTauri } from '@/lib/utils'
 import { SectionHeader, SettingCard } from './shared'
@@ -166,6 +168,20 @@ export function DaemonGeneralSection() {
           )
         }
         setLocalAgentState(next)
+        // Warm the new backend's model catalog before the user goes back to the
+        // conversation. The restart above empties the daemon's process pool, so
+        // the next catalog read is a cold probe — and for claude-code that probe
+        // has to start a session to get an answer at all. Doing it here, while
+        // the switch is still on screen, is what keeps the agent pill from
+        // showing "Offline" and then "No model configured" until a restart.
+        //
+        // `force` because the cached entry describes the backend being left.
+        // Fire-and-forget: a failure here costs a slower first pill, not a
+        // failed switch, and the periodic refresh retries anyway.
+        const workspacePath = useWorkspaceStore.getState().workspacePath?.trim()
+        if (workspacePath) {
+          ensureLocalDaemonCatalog(workspacePath, next, { force: true })
+        }
       } catch (e) {
         setLocalAgentState(previous) // revert on failure
         setError(e instanceof Error ? e.message : String(e))

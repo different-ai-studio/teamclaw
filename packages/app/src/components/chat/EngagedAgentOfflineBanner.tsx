@@ -129,6 +129,11 @@ export function pillSuffixForUiState(
       // Reachable, just has nothing to run — say so instead of implying a wait
       // ("Connecting…") or a network problem ("Offline").
       return t('chat.sessionAgent.pillUnconfigured', 'No model configured')
+    case 'catalog-error':
+      // Reachable, and could not be asked what it can run. Distinct from
+      // `unconfigured` because that one tells the user to go configure a model,
+      // which is the wrong errand for a rejected key or a broken binary.
+      return t('chat.sessionAgent.pillCatalogError', 'Model list unavailable')
     default:
       return null
   }

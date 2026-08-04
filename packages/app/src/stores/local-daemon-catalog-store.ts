@@ -35,7 +35,7 @@ import { fetchLocalDaemonCatalog } from '@/lib/local-daemon-model-catalog'
  *                a fresh install with no provider configured, not a slow start.
  * - `unknown`  — no answer (daemon down / mid-restart), or an ambiguous reply.
  */
-export type LocalDaemonCatalogStatus = 'pending' | 'ready' | 'empty' | 'unknown'
+export type LocalDaemonCatalogStatus = 'pending' | 'ready' | 'empty' | 'error' | 'unknown'
 
 export type LocalDaemonCatalogEntry = {
   status: LocalDaemonCatalogStatus
@@ -58,7 +58,7 @@ export type LocalDaemonCatalogEntry = {
 export function isSettledLocalCatalog(
   status: LocalDaemonCatalogStatus | undefined,
 ): boolean {
-  return status === 'ready' || status === 'empty' || status === 'unknown'
+  return status === 'ready' || status === 'empty' || status === 'error' || status === 'unknown'
 }
 
 /** A settled catalog is stable; re-reading it every render would be waste. */
@@ -106,19 +106,30 @@ export function shouldFetchLocalDaemonCatalog(
  * Fire-and-forget refresh of this device's catalog. Safe to call on every
  * render — it dedupes in-flight requests and respects the refresh interval.
  *
+ * `force` skips the interval, for the one case where the cached answer is known
+ * to be about a different backend: switching the local agent. Without it the
+ * entry from the previous runtime stays valid for READY_REFRESH_MS and the
+ * picker keeps offering models the new backend has never heard of.
+ *
  * Callers MUST have established that the agent in question is the local daemon;
  * this reaches loopback HTTP and says nothing about any remote agent.
  */
 export function ensureLocalDaemonCatalog(
   workspacePath: string,
   backendType?: string | null,
+  options?: { force?: boolean },
 ): void {
   const path = workspacePath.trim()
   if (!path) return
   if (inFlight.has(path)) return
 
   const store = useLocalDaemonCatalogStore.getState()
-  if (!shouldFetchLocalDaemonCatalog(store.byWorkspacePath[path], Date.now())) return
+  if (
+    options?.force !== true &&
+    !shouldFetchLocalDaemonCatalog(store.byWorkspacePath[path], Date.now())
+  ) {
+    return
+  }
 
   const previous = store.byWorkspacePath[path]
   // Keep whatever we already resolved visible while refreshing — a periodic
@@ -142,10 +153,17 @@ export function ensureLocalDaemonCatalog(
               fetchedAt: Date.now(),
             }
           : {
-              status: outcome.status === 'empty' ? 'empty' : 'unknown',
+              status:
+                outcome.status === 'empty'
+                  ? 'empty'
+                  : outcome.status === 'error'
+                    ? 'error'
+                    : 'unknown',
               // An 'empty' answer is authoritative — drop any stale list so the
               // UI can honestly say "nothing configured". 'unknown' means we
               // learned nothing, so the previous list stands.
+              // Only 'empty' is authoritative about the list being gone. A
+              // failed probe knows nothing, so whatever was last resolved stays.
               models: outcome.status === 'empty' ? [] : (previous?.models ?? []),
               recentModels:
                 outcome.status === 'empty' ? [] : (previous?.recentModels ?? []),
