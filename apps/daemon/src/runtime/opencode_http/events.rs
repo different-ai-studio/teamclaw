@@ -291,7 +291,7 @@ async fn handle_permission_asked(
     // Register a lightweight child route (parent event_tx + directory) so the
     // ask reaches the desktop while reply still targets this session_id.
     if !shared.routes.lock().contains_key(session_id) {
-        if let Some(parent_id) = resolve_parent_session_id(shared, session_id).await {
+        if let Some(parent_id) = resolve_routed_ancestor_session_id(shared, session_id).await {
             if !shared.ensure_child_route(session_id, &parent_id) {
                 warn!(
                     session_id,
@@ -301,7 +301,14 @@ async fn handle_permission_asked(
                 return;
             }
         } else {
-            warn!(session_id, "permission.asked for unrouted session");
+            // Nothing to reply on and nobody to ask: opencode keeps waiting on
+            // this permission, so the turn stalls until its timeout. Say so —
+            // the bare "unrouted session" line read like a harmless skip.
+            warn!(
+                session_id,
+                permission_id = %permission_id,
+                "permission.asked: no routed ancestor session; dropping (the turn will stall on it)"
+            );
             return;
         }
     }
@@ -386,6 +393,34 @@ fn maybe_register_subagent_route(
 
 /// Look up `Session.parentID` for an unrouted child via `GET /session/{id}`
 /// across known worktree directories.
+/// Walk up from `child_id` to the nearest ancestor that has a live route.
+///
+/// `resolve_parent_session_id` climbs exactly one level, which is all a
+/// `task` subagent needs. A subagent that spawns its own subagent is one level
+/// deeper: its parent is itself unrouted, `ensure_child_route` refuses to
+/// adopt it, and the permission ask is dropped — the turn then waits on an
+/// approval that was never shown to anyone. Climbing until a routed ancestor
+/// appears keeps those asks reachable.
+const MAX_SUBAGENT_PARENT_DEPTH: usize = 8;
+
+async fn resolve_routed_ancestor_session_id(
+    shared: &Arc<Shared>,
+    child_id: &str,
+) -> Option<String> {
+    let mut current = child_id.to_string();
+    for _ in 0..MAX_SUBAGENT_PARENT_DEPTH {
+        let parent = resolve_parent_session_id(shared, &current).await?;
+        if shared.routes.lock().contains_key(&parent) {
+            return Some(parent);
+        }
+        if parent == current {
+            return None;
+        }
+        current = parent;
+    }
+    None
+}
+
 async fn resolve_parent_session_id(shared: &Arc<Shared>, child_id: &str) -> Option<String> {
     {
         let routes = shared.routes.lock();

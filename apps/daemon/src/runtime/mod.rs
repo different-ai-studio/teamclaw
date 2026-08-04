@@ -28,7 +28,10 @@ pub use handle::{InjectedContextItem, PendingMessage, RuntimeHandle};
 pub use instruction_delivery::{
     resolve_instruction_delivery, skips_buffered_inject, InstructionDelivery,
 };
-pub use manager::{AgentLaunchConfig, CheckedOutTurn, RuntimeManager, SpawnRuntimeEnv};
+pub use manager::{
+    restore_gateway_shape_for_resume, AgentLaunchConfig, CheckedOutTurn, RuntimeManager,
+    SpawnRuntimeEnv,
+};
 pub use permission_policy::PermissionPolicy;
 // Kept importable for external callers/tests even though in-crate code now
 // goes through `AgentBackend`.

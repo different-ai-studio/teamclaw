@@ -36,6 +36,30 @@ impl AgentLaunchConfig {
     }
 }
 
+/// Prefix `create_gateway_session_with_model` stamps onto the `workspace_id`
+/// of every gateway/cron runtime (`gateway:<binding>`). It is the only marker
+/// of "this runtime is unattended" that survives to disk, so the resume path
+/// reads it back to restore full access — see [`is_gateway_workspace_id`].
+pub const GATEWAY_WORKSPACE_ID_PREFIX: &str = "gateway:";
+
+/// Whether a stored `workspace_id` belongs to a gateway/cron runtime.
+pub fn is_gateway_workspace_id(workspace_id: &str) -> bool {
+    workspace_id.starts_with(GATEWAY_WORKSPACE_ID_PREFIX)
+}
+
+/// Restore the unattended shape onto an env assembled for a *resume*.
+///
+/// The env builders produce a desktop-shaped runtime (`is_gateway: false`,
+/// which [`SpawnRuntimeEnv::permission_policy`] reads as "ask"). Resuming is
+/// not a policy change, but `attach()` replaces the session's route with
+/// whatever it is handed — so without this a resumed gateway/cron session
+/// quietly starts asking for approvals nobody is there to answer.
+pub fn restore_gateway_shape_for_resume(env: &mut SpawnRuntimeEnv, workspace_id: &str) {
+    if is_gateway_workspace_id(workspace_id) {
+        env.is_gateway = true;
+    }
+}
+
 /// Environment bundle passed when spawning an ACP-backed agent runtime.
 #[derive(Debug, Clone, Default)]
 pub struct SpawnRuntimeEnv {
@@ -1512,7 +1536,7 @@ impl RuntimeManager {
             }
         };
 
-        let workspace_id = format!("gateway:{binding}");
+        let workspace_id = format!("{GATEWAY_WORKSPACE_ID_PREFIX}{binding}");
         let agent_id = self
             .start_runtime_with_model(
                 agent_type,
@@ -2533,6 +2557,36 @@ mod tests {
             mgr.resolve_permission_runtime_key("cd073767").as_deref(),
             Some("cd073767")
         );
+    }
+
+    /// A resumed cron/gateway runtime must come back with the policy it ran
+    /// under. The env builders always say "desktop", so without the restore a
+    /// resume silently downgrades the session to approval prompts.
+    #[test]
+    fn resume_restores_full_access_for_gateway_runtimes() {
+        let mut env = SpawnRuntimeEnv::default();
+        restore_gateway_shape_for_resume(&mut env, "gateway:cron://cron/job-1/run-1");
+        assert!(env.is_gateway);
+        assert_eq!(env.permission_policy(), PermissionPolicy::Full);
+
+        // A desktop workspace id is untouched: those runtimes have a human
+        // watching, and approvals are the point.
+        let mut env = SpawnRuntimeEnv::default();
+        restore_gateway_shape_for_resume(&mut env, "e78b4c4c-95a3-48bf-9c6f-8eee385cd0d2");
+        assert!(!env.is_gateway);
+        assert_eq!(env.permission_policy(), PermissionPolicy::Ask);
+    }
+
+    /// An explicit policy still wins — a cron job that opted back into "ask"
+    /// keeps asking even though the restore marks it as a gateway runtime.
+    #[test]
+    fn restore_does_not_override_an_explicit_permission() {
+        let mut env = SpawnRuntimeEnv {
+            permission: Some(PermissionPolicy::Ask),
+            ..Default::default()
+        };
+        restore_gateway_shape_for_resume(&mut env, "gateway:cron://cron/job-1/run-1");
+        assert_eq!(env.permission_policy(), PermissionPolicy::Ask);
     }
 
     /// The signal `apply_start_runtime` / `coalesce_session_runtimes` use to
