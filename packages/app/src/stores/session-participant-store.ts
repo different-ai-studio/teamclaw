@@ -28,6 +28,15 @@ type State = {
     options?: { force?: boolean },
   ) => Promise<void>;
   refreshSession: (sessionId: string, teamId?: string | null) => Promise<void>;
+  /**
+   * Publish a roster resolved elsewhere. The participants sheet loads its own
+   * rich rows (statuses, agent types, presence) in one round-trip and used to
+   * keep them entirely to itself — which is how it could list an agent that the
+   * mention popover, reading this store, did not know existed. Whoever learns
+   * the roster tells the store, so there is one answer to "who is in this
+   * session" even though the detail fetch stays where it is.
+   */
+  setParticipants: (sessionId: string, participants: SessionParticipantInfo[]) => void;
   invalidateSessions: (sessionIds: string[]) => void;
 };
 
@@ -183,6 +192,27 @@ export const useSessionParticipantStore = create<State>((set, get) => ({
         },
       }));
     }
+  },
+  setParticipants: (sessionId, participants) => {
+    if (!sessionId) return;
+    set((state) => {
+      // Callers that resolve a roster without avatars (the sheet's Row shape
+      // carries none) must not blank an avatar this store already knows.
+      const known = new Map(
+        (state.participantsBySession[sessionId] ?? []).map((p) => [p.actorId, p] as const),
+      );
+      return {
+        participantsBySession: {
+          ...state.participantsBySession,
+          [sessionId]: participants.map((p) => ({
+            ...p,
+            avatarUrl: p.avatarUrl ?? known.get(p.actorId)?.avatarUrl ?? null,
+          })),
+        },
+        loadingBySession: { ...state.loadingBySession, [sessionId]: false },
+        errorBySession: { ...state.errorBySession, [sessionId]: null },
+      };
+    });
   },
   invalidateSessions: (sessionIds) => {
     const ids = Array.from(new Set(sessionIds)).filter(Boolean);

@@ -27,6 +27,7 @@ import { useActorPresenceStore } from '@/stores/actor-presence-store'
 import { RuntimeLifecycle, AgentStatus, type RuntimeInfo } from '@/lib/proto/amux_pb'
 import { resolveAmuxAgentType } from '@/lib/amux-agent-type'
 import { useSessionParticipantStore } from '@/stores/session-participant-store'
+import { isAgentActorType } from '@/lib/actor-type'
 import { actorAvatarColor } from '@/lib/actor-color'
 import {
   loadAgentWorkspaceLookups,
@@ -450,6 +451,21 @@ export function SessionActorPanel({ sessionId, teamId }: SessionActorPanelProps)
     ) {
       setRows(actorRows)
       setCandidateActors(candidates)
+      // The roster this sheet just resolved is the same roster the mention
+      // popover, the composer's auto-engage and the session list read out of
+      // the participant store. Keeping it local is what let the sheet list an
+      // agent nobody else could see. Detail (statuses, agent types, presence)
+      // stays here; membership does not.
+      if (!sessionId) return
+      useSessionParticipantStore.getState().setParticipants(
+        sessionId,
+        actorRows.map((row) => ({
+          actorId: row.id,
+          displayName: row.display_name?.trim() || row.id,
+          avatarUrl: null,
+          isAgent: isAgentActorType(row.actor_type),
+        })),
+      )
     }
 
     void (async () => {

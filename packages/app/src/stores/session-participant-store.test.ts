@@ -173,6 +173,45 @@ describe("session-participant-store", () => {
     ]);
   });
 
+  it("setParticipants publishes a roster resolved elsewhere and clears loading", async () => {
+    useSessionParticipantStore.setState({
+      participantsBySession: {},
+      loadingBySession: { s2: true },
+      errorBySession: { s2: "stale error" },
+    });
+
+    useSessionParticipantStore.getState().setParticipants("s2", [
+      { actorId: "agent-1", displayName: "MACPRO", avatarUrl: null, isAgent: true },
+    ]);
+
+    const state = useSessionParticipantStore.getState();
+    expect(state.participantsBySession.s2).toEqual([
+      { actorId: "agent-1", displayName: "MACPRO", avatarUrl: null, isAgent: true },
+    ]);
+    expect(state.loadingBySession.s2).toBe(false);
+    expect(state.errorBySession.s2).toBeNull();
+  });
+
+  it("setParticipants keeps an avatar the caller does not carry", async () => {
+    // The sheet's Row shape has no avatar_url; publishing from it must not blank
+    // an avatar this store already resolved from the actor cache.
+    useSessionParticipantStore.setState({
+      participantsBySession: {
+        s2: [{ actorId: "a1", displayName: "Alice", avatarUrl: "https://img/a1.png", isAgent: false }],
+      },
+      loadingBySession: {},
+      errorBySession: {},
+    });
+
+    useSessionParticipantStore.getState().setParticipants("s2", [
+      { actorId: "a1", displayName: "Alice", avatarUrl: null, isAgent: false },
+    ]);
+
+    expect(useSessionParticipantStore.getState().participantsBySession.s2[0].avatarUrl).toBe(
+      "https://img/a1.png",
+    );
+  });
+
   it("clears loading on invalidate while keeping cached roster", async () => {
     await useSessionParticipantStore.getState().ensureParticipants(["s1"]);
     useSessionParticipantStore.setState({
