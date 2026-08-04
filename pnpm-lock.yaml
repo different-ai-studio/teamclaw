@@ -70,8 +70,8 @@ importers:
         specifier: ~56.0.7
         version: 56.0.7(expo@56.0.12)(react-native@0.86.0(@babel/core@7.29.7)(@react-native/metro-config@0.85.3(@babel/core@7.29.7))(@types/react@19.0.14)(react@19.0.0))
       expo-haptics:
-        specifier: ^57.0.0
-        version: 57.0.0(expo@56.0.12)
+        specifier: ^57.0.1
+        version: 57.0.1(expo@56.0.12)
       expo-image-picker:
         specifier: ^57.0.6
         version: 57.0.6(expo@56.0.12)
@@ -5594,8 +5594,8 @@ packages:
       react: '*'
       react-native: '*'
 
-  expo-haptics@57.0.0:
-    resolution: {integrity: sha512-va+uB/DoMlT9f0OJ8v24iNqs+YH6Q6wip+LLjVvalbJzGK8LvZQ+gIiauogFxAAFLQIJzrQVJGf+0BmV3q13bQ==}
+  expo-haptics@57.0.1:
+    resolution: {integrity: sha512-8VhbnxlIrfXjP0syZr1JT197nafYicQu9119adOJnX62osU9Cw+PdDnAx/6LxuKJRzQdwxOMq7b7eWjhNL5zAQ==}
     peerDependencies:
       expo: '*'
 
@@ -12301,9 +12301,7 @@ snapshots:
       metro-runtime: 0.82.5
     transitivePeerDependencies:
       - '@babel/core'
-      - bufferutil
       - supports-color
-      - utf-8-validate
 
   '@react-native/normalize-colors@0.85.3': {}
 
@@ -14419,7 +14417,7 @@ snapshots:
       react: 19.0.0
       react-native: 0.86.0(@babel/core@7.29.7)(@react-native/metro-config@0.85.3(@babel/core@7.29.7))(@types/react@19.0.14)(react@19.0.0)
 
-  expo-haptics@57.0.0(expo@56.0.12):
+  expo-haptics@57.0.1(expo@56.0.12):
     dependencies:
       expo: 56.0.12(@babel/core@7.29.7)(@expo/dom-webview@56.0.5)(@expo/metro-runtime@5.0.5(react-native@0.86.0(@babel/core@7.29.7)(@react-native/metro-config@0.85.3(@babel/core@7.29.7))(@types/react@19.0.14)(react@19.0.0)))(expo-router@56.2.11)(react-native-webview@14.0.1(react-native@0.86.0(@babel/core@7.29.7)(@react-native/metro-config@0.85.3(@babel/core@7.29.7))(@types/react@19.0.14)(react@19.0.0))(react@19.0.0))(react-native-worklets@0.8.3(@babel/core@7.29.7)(@react-native/metro-config@0.85.3(@babel/core@7.29.7))(react-native@0.86.0(@babel/core@7.29.7)(@react-native/metro-config@0.85.3(@babel/core@7.29.7))(@types/react@19.0.14)(react@19.0.0))(react@19.0.0))(react-native@0.86.0(@babel/core@7.29.7)(@react-native/metro-config@0.85.3(@babel/core@7.29.7))(@types/react@19.0.14)(react@19.0.0))(react@19.0.0)(typescript@6.0.3)
 
