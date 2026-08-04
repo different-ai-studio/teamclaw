@@ -186,4 +186,4 @@ test-results/
 playwright-report/
 screenshots/
 tmp/
-
+log/

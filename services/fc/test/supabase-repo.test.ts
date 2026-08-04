@@ -70,6 +70,8 @@ test("listSessions maps current actor session rpc rows", async () => {
       p_before_last_message_at: "2026-05-27T00:00:00Z",
       p_before_created_at: "2026-05-26T00:00:00Z",
       p_before_id: "s0",
+      p_team_id: null,
+      p_idea_id: null,
     },
   }]);
   assert.deepEqual(rows, [{
@@ -81,6 +83,12 @@ test("listSessions maps current actor session rpc rows", async () => {
     lastMessageAt: "2026-05-27T01:00:00Z",
     lastMessagePreview: "hello",
     hasUnread: true,
+    source: "user",
+    cronJobId: null,
+    summary: null,
+    primaryAgentId: null,
+    createdByActorId: null,
+    participantCount: 0,
     createdAt: "2026-05-26T01:00:00Z",
     updatedAt: "2026-05-27T01:00:00Z",
   }]);
