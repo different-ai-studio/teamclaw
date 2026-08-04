@@ -297,19 +297,20 @@ struct SessionListContent: View {
 
     /// The `Runtime` snapshot serving this session.
     ///
-    /// Resolves by session id first: `ActorPresence.live_sessions` is keyed
-    /// that way, and exactly one attachment serves a session at a time. The
-    /// `cached.runtimeId` bridge below is the old path — a spawn id that went
-    /// stale the moment it was written down, which is what made a cancel land
-    /// on a dead runtime (docs/debug/interrupt-agent-stale-runtime.md).
+    /// Resolves by session id: `ActorPresence.live_sessions` is keyed that way,
+    /// and exactly one attachment serves a session at a time. The old path went
+    /// through a spawn id that went stale the moment it was written down, which
+    /// is what made a cancel land on a dead runtime
+    /// (docs/debug/interrupt-agent-stale-runtime.md).
     private func liveRuntime(for session: Session) -> Runtime? {
         // Rows are keyed (actor, session); a session whose agents live on two
         // machines has one row per machine. The list row shows one, so take the
-        // most recently active.
+        // most recently active. A row that has never reported an event sorts
+        // last rather than crashing the comparison.
         let suffix = "::\(session.sessionId)"
         return viewModel.runtimes
             .filter { $0.runtimeId.hasSuffix(suffix) }
-            .max(by: { $0.lastEventTime < $1.lastEventTime })
+            .max(by: { ($0.lastEventTime ?? .distantPast) < ($1.lastEventTime ?? .distantPast) })
     }
 
     /// Prefers the live runtime's workspace: it comes from the attachment the
