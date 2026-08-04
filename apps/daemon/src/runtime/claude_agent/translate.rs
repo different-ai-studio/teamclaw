@@ -221,7 +221,7 @@ mod tests {
     #[test]
     fn unknown_and_lifecycle_events_translate_to_nothing() {
         // turn_start / turn_end drive route state, not the event stream.
-        for name in ["turn_start", "turn_end", "permission_request", "bogus"] {
+        for name in ["turn_start", "turn_end", "permission_request", "slash_commands", "bogus"] {
             assert!(
                 translate_event(&json!({"event": name})).is_empty(),
                 "{name} should not translate"

@@ -304,6 +304,11 @@ fn remap_team_skill_path(workspace_path: &Path, path: PathBuf, team_id: &str) ->
     path
 }
 
+/// Team skill directory roots for a workspace (config paths + default team share).
+pub fn team_skill_roots(workspace_path: &Path) -> Vec<PathBuf> {
+    collect_team_skill_paths(workspace_path)
+}
+
 fn collect_team_skill_paths(workspace_path: &Path) -> Vec<PathBuf> {
     let mut paths: Vec<PathBuf> = Vec::new();
     let mut seen = HashSet::new();

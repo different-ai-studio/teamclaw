@@ -286,9 +286,11 @@ async fn attach(shared: &Arc<Shared>, args: AttachArgs) -> Result<AcpStartupMeta
             permission: args.permission,
             worktree: worktree.clone(),
             session_key,
-            // startSession sends the opening turn itself, so the session is
-            // already mid-turn by the time we get here.
-            turn_active: true,
+            // startSession opens a visible turn only when it carried an
+            // initial prompt. With an empty prompt the bridge runs a hidden
+            // priming turn (to obtain the SDK session id) and suppresses all
+            // of its events, so no turn is active from our point of view.
+            turn_active: !args.initial_prompt.is_empty(),
             turn_reply_to: None,
             turn_requester: None,
             model: model.clone(),

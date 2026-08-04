@@ -282,6 +282,57 @@ Body
     expect(state.metrics.skillsCount).toBe(2)
   })
 
+  it("dedupes the same team skill seen via team share and .claude symlink", async () => {
+    const workspace = "/workspace"
+    mockIsTauri.mockReturnValue(true)
+    mockGetDaemonRolesSkillsState.mockResolvedValue({
+      roles: [],
+      skills: [
+        {
+          filename: "accounting-error-investigator",
+          name: "accounting-error-investigator",
+          invocationName: "accounting-error-investigator",
+          content: "---\nname: accounting-error-investigator\n---\n",
+          description: "Investigate accounting errors",
+          source: "team",
+          dirPath: `${workspace}/teamclaw-team/skills`,
+          linkedRoles: [],
+          isRoleSkill: false,
+        },
+      ],
+      roleUsageBySkill: {},
+      skillNamesByRole: {},
+      metrics: {
+        rolesCount: 0,
+        skillsCount: 1,
+        linkedSkillsCount: 0,
+        unlinkedSkillsCount: 1,
+      },
+    })
+    mockLoadAllSkills.mockResolvedValue({
+      skills: [
+        {
+          filename: "accounting-error-investigator",
+          name: "accounting-error-investigator",
+          invocationName: "accounting-error-investigator",
+          content: "---\nname: accounting-error-investigator\n---\n",
+          source: "claude",
+          dirPath: `${workspace}/.claude/skills`,
+        },
+      ],
+      overrides: [],
+    })
+    mockExists.mockResolvedValue(false)
+    mockReadDir.mockResolvedValue([])
+
+    const state = await loadRolesSkillsWorkspaceState(workspace)
+
+    expect(state.skills).toHaveLength(1)
+    expect(state.skills[0].filename).toBe("accounting-error-investigator")
+    expect(state.skills[0].source).toBe("claude")
+    expect(state.skills[0].dirPath).toBe(`${workspace}/.claude/skills`)
+  })
+
   it("ignores non-role directories under the roles root", async () => {
     const workspace = "/workspace"
     mockExists.mockImplementation(async (path: string) => {

@@ -666,6 +666,7 @@ pub fn prepare_workspace(workspace_path: &Path) -> Result<(), WorkspaceControlEr
     materialize_opencode_for_prepare(workspace_path)?;
     ensure_inherent_skills_in_dir(&workspace_path.join(".teamclaw/skills"))?;
     ensure_inherent_skills_in_dir(&workspace_path.join(".opencode/skills"))?;
+    crate::runtime::claude_skills::ensure_claude_team_skills(workspace_path)?;
 
     if let Ok(Some(result)) =
         teamclaw_runtime_env::opencode_db::maybe_migrate_legacy_opencode_db(workspace_path)

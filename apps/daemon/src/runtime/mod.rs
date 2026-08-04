@@ -1,5 +1,6 @@
 pub mod acp_event_frame;
 pub mod backend;
+mod claude_skills;
 pub mod claude_agent;
 pub mod cursor_sdk;
 pub mod opencode_http;
