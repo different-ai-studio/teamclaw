@@ -826,13 +826,6 @@ function AppContent() {
     }
   }, []);
 
-  // v2 Phase 1: load session list from Supabase once AppContent mounts
-  // (i.e. after auth is verified). Phase 2 will replace with realtime sub.
-  useEffect(() => {
-    if (isV2E2EControlActive()) return;
-    void useSessionListStore.getState().load();
-  }, []);
-
   // Desktop: hand off from the static #skeleton once the workspace resolves to
   // real three-column content. AuthGate keeps the skeleton up through every
   // loading gate and lets App own the final removal, so cold start is
@@ -872,6 +865,24 @@ function AppContent() {
   const currentTeamId = useCurrentTeamStore((s) => s.team?.id ?? null);
   useMemberPresenceHeartbeat(currentTeamId, myActorId);
   useExtensionSessionCleanup();
+
+  // v2 Phase 1: load the session list once AppContent mounts (i.e. after auth
+  // is verified), then re-scope it whenever the active team resolves or
+  // changes. The list is team-scoped (GET /v1/sessions?teamId=), so a cold boot
+  // that guessed the team from localStorage has to refetch once current-team
+  // lands — and a team switch has to refetch rather than keep showing the team
+  // being left. Concurrent calls with the same scope share one request.
+  const sessionListLoadedTeamId = useSessionListStore((s) => s.loadedTeamId);
+  useEffect(() => {
+    if (isV2E2EControlActive()) return;
+    // Keyed on loadedTeamId, not scopeTeamId: the scope is committed before the
+    // fetch so the list cannot paint the old team's rows, which means a failed
+    // first page would otherwise be indistinguishable from a loaded one and the
+    // sidebar would sit empty with no retry. loadedTeamId only advances on a
+    // page that actually arrived, so a failure leaves this effect armed.
+    if (currentTeamId && sessionListLoadedTeamId === currentTeamId) return;
+    void useSessionListStore.getState().load();
+  }, [currentTeamId, sessionListLoadedTeamId]);
 
   // Keep team-share status fresh so the top-right "team shared files" tab shows
   // only when share is actually enabled (shareMode != null). Without this the

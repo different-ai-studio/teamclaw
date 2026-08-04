@@ -37,13 +37,23 @@ const cloudSession = {
 
 describe("sessions module", () => {
   it("listCurrentActorSessions calls /v1/sessions and maps fields", async () => {
-    const client = mockClient({ "GET /v1/sessions?limit=50": { items: [cloudSession], nextCursor: "cursor-1" } });
+    const client = mockClient({ "GET /v1/sessions?limit=50&teamId=team-1": { items: [cloudSession], nextCursor: "cursor-1" } });
     const mod = createSessionsModule(client);
-    const out = await mod.listCurrentActorSessions({ limit: 50, cursor: null });
+    const out = await mod.listCurrentActorSessions({ limit: 50, cursor: null, teamId: "team-1" });
     expect(out.rows[0].id).toBe("session-1");
     expect(out.rows[0].team_id).toBe("team-1");
     expect(out.rows[0].has_unread).toBe(true);
     expect(out.nextCursor).toBe("cursor-1");
+  });
+
+  // A blank teamId used to serialize as the literal string "undefined", which
+  // passes the server's truthiness guard and dies in Postgres as a bad uuid.
+  it("listCurrentActorSessions refuses a blank teamId instead of sending 'undefined'", async () => {
+    const client = mockClient({});
+    const mod = createSessionsModule(client);
+    await expect(
+      mod.listCurrentActorSessions({ limit: 50, cursor: null, teamId: "" }),
+    ).rejects.toThrow(/requires teamId/);
   });
 
   it("markCurrentActorSessionViewed calls POST /v1/sessions/:id/mark-viewed", async () => {

@@ -2528,6 +2528,25 @@
       "loadFailed": "Failed to load roles and skills"
     },
     "skills": {
+      "diag": {
+        "title": "Skills diagnostics",
+        "description": "Checks skill directories, daemon inventory, team paths, and runtime refresh state.",
+        "button": "Diagnose",
+        "running": "Running diagnostics\u2026",
+        "rerun": "Run again",
+        "copy": "Copy report",
+        "copied": "Copied",
+        "counts": "Daemon {{daemon}} \u00b7 FS {{fs}} \u00b7 Merged {{merged}}",
+        "summaryOk": "All checks passed",
+        "summaryWarn": "Issues found \u2014 review hints below",
+        "summaryFail": "Blocking issues found",
+        "brokenTitle": "Folders missing SKILL.md",
+        "tipsTitle": "Common fixes",
+        "tipRefresh": "Click Refresh to reload the skills list from disk.",
+        "tipRestart": "Restart OpenCode after adding or editing skills.",
+        "tipPaths": "Verify teamclaw.json / opencode.json skills.paths point to existing directories.",
+        "tipDaemon": "Ensure amuxd is running if daemon inventory is missing."
+      },
       "title": "Skills",
       "description": "Custom AI skills for your workspace",
       "descriptionDetail": "AI skills from .opencode/skills/, .claude/skills/, and .agent/skills/",

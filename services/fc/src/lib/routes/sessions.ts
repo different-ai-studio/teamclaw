@@ -2,9 +2,16 @@ import { ApiError } from "../http-utils.js";
 import { parseLimit, decodeCursor, nextSessionCursor, requireString } from "../routing-utils.js";
 
 export function registerSessions(router) {
-  // `teamId` / `ideaId` are optional narrowing filters, applied server-side so
-  // they stay correct under pagination. They are what replaced the removed
+  // `teamId` / `ideaId` are narrowing filters applied server-side so they stay
+  // correct under pagination. They are what replaced the removed
   // GET /v1/teams/:teamId/sessions — see 20260802000000.
+  //
+  // teamId is required of CURRENT clients: since 20260804020000 the caller's
+  // actor is resolved per team (one actor row per user per team), so a team is
+  // what identifies who is asking. It stays optional on the wire because FC
+  // redeploys on merge while desktop and iOS ship on tags — a released build
+  // that omits it falls back to the deprecated un-scoped list rather than
+  // losing its session list. See the repository for that fallback.
   router.get("/v1/sessions", async (ctx) => {
     const limit = parseLimit(ctx.query.get("limit"));
     const cursor = decodeCursor(ctx.query.get("cursor"));

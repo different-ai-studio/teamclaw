@@ -168,9 +168,6 @@ export async function runSkillsDiagnostics(workspacePath: string): Promise<Skill
   })
 
   let daemonSkillCount: number | null = null
-  let runtimeRefreshPending = false
-  let runtimeRefreshError: string | null = null
-  let runtimeSkillsPending = false
 
   if (isTauri()) {
     try {
@@ -198,9 +195,9 @@ export async function runSkillsDiagnostics(workspacePath: string): Promise<Skill
       }
 
       const refresh = runtime?.refresh
-      runtimeRefreshPending = refresh?.status === 'pending' || refresh?.status === 'failed'
-      runtimeSkillsPending = refresh?.change_kinds.includes('skills') ?? false
-      runtimeRefreshError = refresh?.last_error ?? null
+      const runtimeRefreshPending = refresh?.status === 'pending' || refresh?.status === 'failed'
+      const runtimeSkillsPending = refresh?.change_kinds.includes('skills') ?? false
+      const runtimeRefreshError = refresh?.last_error ?? null
 
       if (refresh?.status === 'failed') {
         checks.push({

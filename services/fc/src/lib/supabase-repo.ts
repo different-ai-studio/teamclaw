@@ -1078,7 +1078,16 @@ export function createSupabaseBusinessRepository(options) {
     },
 
     async listSessions({ limit = 50, cursor = null, teamId = null, ideaId = null }: any = {}) {
-      const { data, error } = await supabase.rpc("list_current_actor_sessions", {
+      // p_team_id is what resolves the caller's actor as of 20260804020000,
+      // since a user has one actor row per team. Callers that predate that
+      // change send no teamId; they get the deprecated un-scoped RPC, which
+      // reproduces the old every-team list on the corrected identity (all of
+      // the caller's actors, not the oldest one). Delete this branch — and the
+      // function behind it — once no released client omits teamId.
+      const rpcName = teamId
+        ? "list_current_actor_sessions"
+        : "list_current_actor_sessions_all_teams";
+      const { data, error } = await supabase.rpc(rpcName, {
         p_limit: limit,
         p_before_last_message_at: cursor?.lastMessageAt ?? null,
         p_before_created_at: cursor?.createdAt ?? null,
@@ -1086,7 +1095,7 @@ export function createSupabaseBusinessRepository(options) {
         // Narrowing happens inside the RPC (20260802000000). Doing it there
         // rather than post-filtering keeps the result correct under pagination
         // and is what lets this replace GET /v1/teams/:teamId/sessions.
-        p_team_id: teamId ?? null,
+        ...(teamId ? { p_team_id: teamId } : {}),
         p_idea_id: ideaId ?? null,
       });
       if (error) throw error;

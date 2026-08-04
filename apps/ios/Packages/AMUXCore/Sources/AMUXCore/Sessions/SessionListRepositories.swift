@@ -27,7 +27,11 @@ public protocol SessionsRepository: Sendable {
     /// Used by the inbox red-dot feature to authoritatively know which
     /// sessions have unseen peer messages without each client tracking the
     /// state locally.
-    func fetchUnreadFlags(limit: Int) async throws -> [String: Bool]
+    ///
+    /// `teamID` is required: the server resolves the caller's actor per team
+    /// (one actor row per user per team), so an unscoped call has no identity
+    /// to compute unread state against.
+    func fetchUnreadFlags(teamID: String, limit: Int) async throws -> [String: Bool]
     /// Marks the current actor as having viewed `sessionId` up to
     /// `lastReadMessageId`. Server upserts `session_read_markers` so other
     /// devices' next `fetchUnreadFlags` reflects the read.

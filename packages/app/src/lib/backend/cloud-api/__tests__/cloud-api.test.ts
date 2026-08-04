@@ -93,7 +93,7 @@ describe("cloud api backend", () => {
     );
 
     expect(backend.kind).toBe("cloud_api");
-    await expect(backend.sessions.listCurrentActorSessions({ limit: 50, cursor: null })).resolves.toMatchObject({
+    await expect(backend.sessions.listCurrentActorSessions({ limit: 50, cursor: null, teamId: "team-1" })).resolves.toMatchObject({
       rows: [{ id: "session-1", team_id: "team-1", has_unread: true }],
     });
     await expect(backend.messages.listMessages("session-1")).resolves.toMatchObject([
@@ -112,7 +112,7 @@ describe("cloud api backend", () => {
     await expect(backend.auth.claimInvite("invite-token")).resolves.toMatchObject({ actorId: "actor-1" });
 
     expect(calls.map((call) => `${call.method} ${call.path}`)).toEqual([
-      "GET /v1/sessions?limit=50",
+      "GET /v1/sessions?limit=50&teamId=team-1",
       "GET /v1/sessions/session-1/messages",
       "POST /v1/sessions/session-1/messages",
       "GET /v1/teams?limit=1",

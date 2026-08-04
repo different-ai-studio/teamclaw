@@ -142,49 +142,48 @@ jobs:
                     done
                   fi
 
-                  for migration in \
-                    20260609000000_actor_directory_contact_amux.sql \
-                    20260615000000_list_my_teams_current_org.sql \
-                    20260618000000_create_team_default_org_personal_name.sql \
-                    20260618010000_upgrade_account_to_org.sql \
-                    20260618020000_bind_phone_to_account.sql \
-                    20260625000000_team_workspace_config_llm.sql \
-                    20260630000000_add_team_default_agent.sql \
-                    20260702000000_fix_teams_rls_membership_write.sql \
-                    20260706000000_add_auth_mint_session.sql \
-                    20260706000000_org_default_team_onboarding.sql \
-                    20260706120000_member_sub_own_rpc_req.sql \
-                    20260708000000_claim_invite_public_users_for_daemon.sql \
-                    20260715000000_invite_contact_pending.sql \
-                    20260715010000_mint_session_extensions_grant.sql \
-                    20260718000000_fix_remove_team_actor_amux.sql \
-                    20260722000000_agent_runtimes_backend_type_pi.sql \
-                    20260723000000_sessions_source_cron_job_id.sql \
-                    20260723000000_team_visibility.sql \
-                    20260727000000_sessions_source_read_path.sql \
-                    20260727010000_gateway_session_participants_every_call.sql \
-                    20260727020000_gateway_session_unarchive_on_message.sql \
-                    20260727030000_detach_gateway_session.sql \
-                    20260728000000_gateway_session_switch.sql \
-                    20260729100000_agent_delete_authz.sql \
-                    20260729110000_agent_backend_cursor.sql \
-                    20260730000000_update_agent_defaults_cursor.sql \
-                    20260731000000_fix_workspaces_insert_rls.sql \
-                    20260801000000_prefer_org_named_team_on_onboarding.sql \
-                    20260801010000_team_bootstrap_and_discovery.sql \
-                    20260801020000_empty_org_team_picker.sql \
-                    20260801030000_scope_empty_org_picker_to_user.sql \
-                    20260801040000_scope_empty_org_picker_by_phone.sql \
-                    20260801050000_authorize_empty_org_bootstrap_by_phone.sql \
-                    20260801060000_phone_linked_org_team_picker.sql \
-                    20260801070000_switch_phone_linked_team_identity.sql \
-                    20260801080000_bootstrap_empty_org_public_team.sql \
-                    20260801090000_switch_linked_identity_without_conflict.sql \
-                    20260802000000_session_list_team_and_idea_scope.sql \
-                    20260802120000_switch_active_team_no_org_id_update.sql \
-                    20260803000000_participant_owns_agent_session_state.sql \
-                    20260803010000_drop_agent_runtimes.sql
+                  # Scan the directory instead of listing files by hand. The
+                  # hand-maintained list this replaces was a trap: a migration
+                  # that was not added to it never ran against this database and
+                  # the deploy still reported success, which is exactly how
+                  # 20260804000000 and 20260804010000 went missing. The bundled
+                  # Supabase has always scanned (deploy/self-host/init/apply-migrations.sh);
+                  # this loop keeps the same _selfhost.schema_migrations ledger,
+                  # so it can scan too.
+                  #
+                  # Two exclusion lists, for two different reasons. They are the
+                  # only thing worth stating by hand, because they are decisions
+                  # rather than omissions — and unlike the old list, forgetting
+                  # to touch them fails safe (a new migration simply applies).
+                  #
+                  # NEVER: the squashed baseline. It is for brand-new databases
+                  # only — its own header says so — and this database predates
+                  # it. Applying it here would replay the entire schema over a
+                  # live one.
+                  NEVER="20260601000000_baseline.sql"
+                  #
+                  # WITHHELD: correct for this database, but not yet.
+                  #   20260804020000_per_team_actor_scope.sql — drops the old
+                  #   list_current_actor_sessions signatures. The FC in front of
+                  #   THIS database deploys separately and by hand
+                  #   (services/fc/deploy-aliyun-fc.sh), so apply it in the same
+                  #   change that redeploys that FC, not before.
+                  WITHHELD="20260804020000_per_team_actor_scope.sql"
+
+                  for migration in $(ls /migrations/*.sql | xargs -n1 basename | sort)
                   do
+                    case " $NEVER " in
+                      *" $migration "*)
+                        echo "never applied to the external database: $migration"
+                        continue
+                        ;;
+                    esac
+                    case " $WITHHELD " in
+                      *" $migration "*)
+                        echo "withheld (see comment above): $migration"
+                        continue
+                        ;;
+                    esac
                     if [ "$(psql -Atc "select exists (select 1 from _selfhost.schema_migrations where filename = \$\$${migration}\$\$)")" = "t" ]; then
                       echo "skip external migration: $migration"
                       continue

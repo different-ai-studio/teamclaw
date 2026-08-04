@@ -124,7 +124,7 @@ describe('extension-session-cleanup', () => {
       nextCursor: null,
     })
 
-    const result = await runExtensionSessionCleanup({ now, force: true, userId: 'user-1' })
+    const result = await runExtensionSessionCleanup({ now, force: true, userId: 'user-1', teamId: 'team-1' })
 
     expect(result).toEqual({ archived: 1, scanned: 3 })
     expect(mocks.archiveSessionQuiet).toHaveBeenCalledTimes(1)
@@ -146,7 +146,7 @@ describe('extension-session-cleanup', () => {
       return true
     })
 
-    const result = await runExtensionSessionCleanup({ now, force: true, userId: 'user-1' })
+    const result = await runExtensionSessionCleanup({ now, force: true, userId: 'user-1', teamId: 'team-1' })
 
     expect(result).toEqual({ archived: 1, scanned: 2 })
     expect(mocks.archiveSessionQuiet).toHaveBeenCalledTimes(1)
@@ -172,20 +172,20 @@ describe('extension-session-cleanup', () => {
         nextCursor: null,
       })
 
-    const result = await runExtensionSessionCleanup({ now, force: true, userId: 'user-1' })
+    const result = await runExtensionSessionCleanup({ now, force: true, userId: 'user-1', teamId: 'team-1' })
 
     expect(mocks.listCurrentActorSessions).toHaveBeenCalledTimes(2)
     expect(result.archived).toBe(1)
     expect(mocks.archiveSessionQuiet).toHaveBeenCalledWith('stale-2')
   })
 
-  it('respects the minimum gap between sweeps per user', async () => {
+  it('respects the minimum gap between sweeps per user and team', async () => {
     localStorage.setItem(
-      'teamclaw.extension.sessionCleanupLastRun.user-1',
+      'teamclaw.extension.sessionCleanupLastRun.user-1.team-1',
       String(now.getTime()),
     )
 
-    const result = await runExtensionSessionCleanup({ now, userId: 'user-1' })
+    const result = await runExtensionSessionCleanup({ now, userId: 'user-1', teamId: 'team-1' })
 
     expect(result).toEqual({ archived: 0, scanned: 0 })
     expect(mocks.listCurrentActorSessions).not.toHaveBeenCalled()
@@ -198,10 +198,10 @@ describe('extension-session-cleanup', () => {
     })
     mocks.archiveSessionQuiet.mockResolvedValueOnce(false)
 
-    const result = await runExtensionSessionCleanup({ now, force: true, userId: 'user-1' })
+    const result = await runExtensionSessionCleanup({ now, force: true, userId: 'user-1', teamId: 'team-1' })
 
     expect(result).toEqual({ archived: 0, scanned: 1 })
-    expect(localStorage.getItem('teamclaw.extension.sessionCleanupLastRun.user-1')).toBeNull()
+    expect(localStorage.getItem('teamclaw.extension.sessionCleanupLastRun.user-1.team-1')).toBeNull()
   })
 
   it('writes lastRun only after a fully successful sweep', async () => {
@@ -210,9 +210,9 @@ describe('extension-session-cleanup', () => {
       nextCursor: null,
     })
 
-    await runExtensionSessionCleanup({ now, force: true, userId: 'user-1' })
+    await runExtensionSessionCleanup({ now, force: true, userId: 'user-1', teamId: 'team-1' })
 
-    expect(localStorage.getItem('teamclaw.extension.sessionCleanupLastRun.user-1')).toBe(
+    expect(localStorage.getItem('teamclaw.extension.sessionCleanupLastRun.user-1.team-1')).toBe(
       String(now.getTime()),
     )
   })

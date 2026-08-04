@@ -22,6 +22,7 @@ test("golden response: GET /v1/sessions", async () => {
       Authorization: "Bearer contract-token",
       "X-Request-Id": "contract_req_1",
     },
+    queryParameters: { teamId: "team-1" },
   }, { createRepository: () => contractRepo() });
 
   assert.equal(response.statusCode, 200);
@@ -189,7 +190,10 @@ function contractRepo() {
         },
       ];
     },
-    async listSessions() {
+    async listSessions({ teamId } = {}) {
+      // Mirrors the repositories: the list is team-scoped, and a caller with no
+      // team has no actor to resolve (20260804020000).
+      if (!teamId) throw new Error("listSessions requires teamId");
       return fixture("session-list.json").items;
     },
     async getSession(sessionId) {
