@@ -238,6 +238,14 @@ pub struct DaemonServer {
     cron_turn_done_tx: mpsc::Sender<cron::CronTurnDone>,
     /// Receiver half, `take()`n by whichever run loop (MQTT or NATS) is active.
     cron_turn_done_rx: Option<mpsc::Receiver<cron::CronTurnDone>>,
+    /// Sender for the ACP events of an in-flight cron turn. The turn task owns
+    /// the agent's event channel, so nothing else can publish them to
+    /// `session/live`; the loop drains this and does it (see
+    /// `publish_cron_turn_event`). Bounded and `try_send`-only — the UI must
+    /// never be able to stall a model turn.
+    cron_turn_event_tx: mpsc::Sender<cron::CronTurnEvent>,
+    /// Receiver half, `take()`n by whichever run loop is active.
+    cron_turn_event_rx: Option<mpsc::Receiver<cron::CronTurnEvent>>,
 }
 
 /// Single control command parsed off `amuxd.sock`. Variants correspond to the
@@ -746,6 +754,11 @@ impl DaemonServer {
         // Bounded queue of completed cron turns handed back to the run loop for
         // persistence + sock reply (see `cron_turn_done_tx`).
         let (cron_turn_done_tx, cron_turn_done_rx) = mpsc::channel(64);
+        // Streaming events of in-flight cron turns. Deeper than the done queue
+        // because a single turn emits one frame per delta; overflow drops
+        // frames (the UI catches up on the next one) instead of applying
+        // backpressure to the turn.
+        let (cron_turn_event_tx, cron_turn_event_rx) = mpsc::channel(1024);
 
         Ok(Self {
             config,
@@ -788,6 +801,8 @@ impl DaemonServer {
             rpc_client,
             cron_turn_done_tx,
             cron_turn_done_rx: Some(cron_turn_done_rx),
+            cron_turn_event_tx,
+            cron_turn_event_rx: Some(cron_turn_event_rx),
         })
     }
 
@@ -1383,6 +1398,10 @@ impl DaemonServer {
             .cron_turn_done_rx
             .take()
             .expect("cron_turn_done_rx already taken (MQTT run loop entered twice)");
+        let mut cron_event_rx = self
+            .cron_turn_event_rx
+            .take()
+            .expect("cron_turn_event_rx already taken (MQTT run loop entered twice)");
 
         'outer: loop {
             // ── 0. Self-heal team_id from daemon.toml ──
@@ -1779,6 +1798,14 @@ impl DaemonServer {
                             self.finalize_cron_turn(done).await;
                         }
                     }
+                    ev = cron_event_rx.recv() => {
+                        // An in-flight cron turn emitted an ACP event; publish it
+                        // so the desktop streams the run instead of sitting still
+                        // until the finished reply lands.
+                        if let Some(ev) = ev {
+                            self.publish_cron_turn_event(ev).await;
+                        }
+                    }
                     poll_result = self.mqtt.eventloop.poll() => {
                         match poll_result {
                             Ok(Event::Incoming(Packet::ConnAck(_))) => {
@@ -1952,6 +1979,10 @@ impl DaemonServer {
             .cron_turn_done_rx
             .take()
             .expect("cron_turn_done_rx already taken (NATS run loop entered twice)");
+        let mut cron_event_rx = self
+            .cron_turn_event_rx
+            .take()
+            .expect("cron_turn_event_rx already taken (NATS run loop entered twice)");
 
         'outer: loop {
             // 1. Fresh backend access_token; same retry cadence as MQTT path.
@@ -2209,6 +2240,13 @@ impl DaemonServer {
                         // matching arm in the MQTT loop.
                         if let Some(done) = done {
                             self.finalize_cron_turn(done).await;
+                        }
+                    }
+                    ev = cron_event_rx.recv() => {
+                        // Streaming events of an in-flight cron turn. See the
+                        // matching arm in the MQTT loop.
+                        if let Some(ev) = ev {
+                            self.publish_cron_turn_event(ev).await;
                         }
                     }
                     frame = inbound.recv() => {
@@ -3384,6 +3422,7 @@ pub(crate) mod tests {
             backend.clone(),
         ));
         let (cron_turn_done_tx, cron_turn_done_rx) = mpsc::channel(64);
+        let (cron_turn_event_tx, cron_turn_event_rx) = mpsc::channel(1024);
         TestServer {
             server: DaemonServer {
                 config,
@@ -3430,6 +3469,8 @@ pub(crate) mod tests {
                 ))),
                 cron_turn_done_tx,
                 cron_turn_done_rx: Some(cron_turn_done_rx),
+                cron_turn_event_tx,
+                cron_turn_event_rx: Some(cron_turn_event_rx),
             },
             _tmp: tmp,
         }

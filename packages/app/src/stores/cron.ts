@@ -62,6 +62,32 @@ async function detectNewRunSession(
 }
 
 /**
+ * Record the job's model as this session's pick, for the local daemon agent.
+ *
+ * The pick is the top of `selectAgentModel`'s order, so the composer pill names
+ * the model the run is actually on, and the RuntimeStart the desktop fires on
+ * arrival starts its runtime there too. Everything cheaper was too late: the
+ * transcript is the other source of the session's model, and on arrival it
+ * holds one message the desktop has not fetched yet.
+ *
+ * Best-effort — a job with no pinned model, or an unresolvable daemon actor,
+ * simply leaves the existing resolution order alone.
+ */
+async function pinJobModelToSession(sessionId: string, jobId: string): Promise<void> {
+  try {
+    const model = useCronStore.getState().jobs.find((j) => j.id === jobId)?.payload.model?.trim()
+    if (!model) return
+    const { getLocalDaemonActorId } = await import('@/lib/daemon-agent-admin')
+    const agentActorId = (await getLocalDaemonActorId())?.trim()
+    if (!agentActorId) return
+    const { useAgentModelPickStore } = await import('@/stores/agent-model-pick-store')
+    useAgentModelPickStore.getState().setPick(sessionId, agentActorId, model)
+  } catch {
+    // Non-fatal: the pill falls back to the transcript / retain order.
+  }
+}
+
+/**
  * Fire-and-forget: keep polling this run after we've already navigated to its
  * session, and if it ends in failure/timeout, seed a fallback message into the
  * session so opening it later (e.g. from the plain session list, not the run
@@ -442,6 +468,12 @@ export const useCronStore = create<CronState>((set, get) => ({
           // Non-fatal: the session still exists and will show up once the
           // list store's next reload picks it up.
         }
+        // Pin the job's model onto the session before navigating. We land in a
+        // session whose only message is a prompt the desktop has not fetched
+        // yet, so nothing else can tell the composer — or the runtime the
+        // desktop is about to start — which model this run is on; both fell
+        // back to the device MRU and named a model the job never chose.
+        await pinJobModelToSession(sessionId, jobId)
         // Keep watching after we navigate away — if the run ends in failure,
         // seed an explanatory message into the session (see fn doc above).
         void watchRunOutcomeAndSeedFailureMessage(jobId, sessionId, activeScope, selectedWorkspacePath)

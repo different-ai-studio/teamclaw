@@ -82,29 +82,103 @@ fn params_from_input(tool_input: &Value) -> HashMap<String, String> {
     }
 }
 
-/// Route a hook request to the session running in `worktree`. A worktree can
-/// host more than one runtime session, but only the one mid-turn can be making
-/// a tool call, so an active turn is the discriminator.
-fn route_for_worktree(shared: &Arc<Shared>, worktree: &str) -> Option<RouteSnapshot> {
+/// Fields a Cursor hook request might carry an agent/conversation id under.
+/// The SDK's `preToolUse` payload is forwarded verbatim, so if any of these
+/// name a live cursor agent we can route exactly instead of guessing.
+const AGENT_ID_FIELDS: &[&str] = &[
+    "agentId",
+    "agent_id",
+    "conversationId",
+    "conversation_id",
+    "threadId",
+    "thread_id",
+    "sessionId",
+    "session_id",
+];
+
+fn agent_id_from_request(request: &Value) -> Option<String> {
+    let obj = request.as_object()?;
+    AGENT_ID_FIELDS.iter().find_map(|key| {
+        obj.get(*key)
+            .and_then(|v| v.as_str())
+            .map(str::trim)
+            .filter(|s| !s.is_empty())
+            .map(str::to_string)
+    })
+}
+
+/// Pick the route a hook request belongs to.
+///
+/// Resolution order:
+///
+///  1. **An id in the request that names a live cursor agent.** Exact, and the
+///     only branch that is not a guess. The SDK documents `preToolUse` as
+///     carrying `tool_name` + `tool_input` + `cwd`, so this often misses — it
+///     costs one map lookup and is worth it when it hits.
+///  2. **The worktree's mid-turn routes** — a tool call comes from a turn.
+///  3. **The strictest policy among those.** A worktree can host more than one
+///     live session, and since a mid-turn runtime is no longer superseded
+///     (a cron run and a desktop session now stay live side by side) more than
+///     one can be answering at once. The two ways of guessing wrong are not
+///     symmetric: asking about a call that would have been allowed is noise,
+///     while auto-allowing a call that should have been shown to a human grants
+///     a permission the user never gave. So ambiguity resolves toward asking.
+fn route_for_request(
+    shared: &Arc<Shared>,
+    worktree: &str,
+    request: &Value,
+) -> Option<RouteSnapshot> {
     let routes = shared.routes.lock();
-    let mut candidates: Vec<&String> = routes
-        .iter()
-        .filter(|(_, r)| r.worktree == worktree)
-        .map(|(id, _)| id)
-        .collect();
-    candidates.sort();
-    let chosen = candidates
-        .iter()
-        .find(|id| routes.get(**id).is_some_and(|r| r.turn_active))
-        .or_else(|| candidates.first())?;
-    let route = routes.get(*chosen)?;
-    Some(RouteSnapshot {
-        session_id: (*chosen).clone(),
+
+    let snapshot = |session_id: &String, route: &super::Route| RouteSnapshot {
+        session_id: session_id.clone(),
         event_tx: route.event_tx.clone(),
         full_access: route.permission.is_full_access(),
         requester: route.turn_requester.clone(),
         reply_to: route.turn_reply_to.clone(),
-    })
+    };
+
+    if let Some(id) = agent_id_from_request(request) {
+        if let Some((session_id, route)) = routes
+            .iter()
+            .find(|(session_id, route)| route.agent_id == id || session_id.as_str() == id)
+        {
+            return Some(snapshot(session_id, route));
+        }
+    }
+
+    let mut candidates: Vec<(&String, &super::Route)> = routes
+        .iter()
+        .filter(|(_, r)| r.worktree == worktree)
+        .collect();
+    if candidates.is_empty() {
+        return None;
+    }
+    // Sorted so the tie-break below is deterministic rather than hash order.
+    candidates.sort_by(|a, b| a.0.cmp(b.0));
+
+    let active: Vec<(&String, &super::Route)> = candidates
+        .iter()
+        .filter(|(_, r)| r.turn_active)
+        .cloned()
+        .collect();
+    let pool = if active.is_empty() {
+        candidates
+    } else {
+        active
+    };
+
+    if pool.len() > 1 {
+        warn!(
+            worktree,
+            routes = pool.len(),
+            "cursor permission: worktree hosts several candidate sessions; using the strictest policy"
+        );
+    }
+    let (session_id, route) = pool
+        .iter()
+        .min_by_key(|(_, r)| u8::from(r.permission.is_full_access()))?;
+    Some(snapshot(session_id, route))
 }
 
 struct RouteSnapshot {
@@ -135,7 +209,7 @@ pub async fn handle(payload: &Value) -> Value {
         .map(canonical_dir)
         .unwrap_or_default();
 
-    let Some(route) = route_for_worktree(&shared, &worktree) else {
+    let Some(route) = route_for_request(&shared, &worktree, request) else {
         warn!(
             worktree,
             tool_name, "cursor permission: no session for worktree; allowing"
@@ -365,6 +439,145 @@ mod tests {
             "worktree": "/tmp/does-not-need-to-exist",
             "request": { "tool_name": tool, "tool_input": { "command": "rm -rf /" } }
         })
+    }
+
+    /// `register_route` with control over the fields the router discriminates on.
+    fn register_route_as(
+        session_id: &str,
+        agent_id: &str,
+        worktree: &str,
+        permission: crate::runtime::permission_policy::PermissionPolicy,
+        turn_active: bool,
+    ) -> tokio::sync::mpsc::Receiver<AcpEventFrame> {
+        let (event_tx, event_rx) = tokio::sync::mpsc::channel(8);
+        super::super::shared().routes.lock().insert(
+            session_id.to_string(),
+            super::super::Route {
+                event_tx,
+                permission,
+                worktree: worktree.to_string(),
+                agent_id: agent_id.to_string(),
+                turn_active,
+                turn_reply_to: None,
+                turn_requester: None,
+                translate: Default::default(),
+                model: "cursor/composer-2.5".into(),
+            },
+        );
+        event_rx
+    }
+
+    /// A cron run and a desktop session can now be live in the same worktree at
+    /// once — a mid-turn runtime is no longer superseded — and the hook carries
+    /// no session identity. Guessing the full-access one would hand out a
+    /// permission the user never granted, so ambiguity must resolve to asking.
+    #[tokio::test]
+    async fn two_live_sessions_in_one_worktree_resolve_to_the_strictest() {
+        use crate::runtime::permission_policy::PermissionPolicy;
+        let worktree = "/tmp/cursor-perm-ambiguous";
+        // "a-cron" sorts first, so the old id-order pick would have taken the
+        // full-access route and silently allowed.
+        let _cron = register_route_as(
+            "cursor:a-cron",
+            "a-cron",
+            worktree,
+            PermissionPolicy::Full,
+            true,
+        );
+        let mut desktop_rx = register_route_as(
+            "cursor:b-desktop",
+            "b-desktop",
+            worktree,
+            PermissionPolicy::Ask,
+            true,
+        );
+
+        let shared = super::super::shared();
+        let chosen = route_for_request(&shared, worktree, &json!({ "tool_name": "shell" }))
+            .expect("a route is found");
+        assert_eq!(chosen.session_id, "cursor:b-desktop");
+        assert!(!chosen.full_access);
+        assert!(desktop_rx.try_recv().is_err(), "nothing emitted yet");
+    }
+
+    /// An id in the request beats the worktree guess entirely.
+    #[tokio::test]
+    async fn an_agent_id_in_the_request_routes_exactly() {
+        use crate::runtime::permission_policy::PermissionPolicy;
+        let worktree = "/tmp/cursor-perm-exact";
+        let _cron = register_route_as(
+            "cursor:exact-cron",
+            "exact-cron",
+            worktree,
+            PermissionPolicy::Full,
+            true,
+        );
+        let _desktop = register_route_as(
+            "cursor:exact-desktop",
+            "exact-desktop",
+            worktree,
+            PermissionPolicy::Ask,
+            true,
+        );
+
+        let shared = super::super::shared();
+        let chosen = route_for_request(
+            &shared,
+            worktree,
+            &json!({ "tool_name": "shell", "conversationId": "exact-cron" }),
+        )
+        .expect("a route is found");
+        assert_eq!(chosen.session_id, "cursor:exact-cron");
+        assert!(
+            chosen.full_access,
+            "an exact id must win over the strict fallback"
+        );
+    }
+
+    /// Only one session mid-turn: it is the answer regardless of policy, and an
+    /// idle sibling must not drag the pick toward "ask".
+    #[tokio::test]
+    async fn a_single_mid_turn_session_wins_over_idle_siblings() {
+        use crate::runtime::permission_policy::PermissionPolicy;
+        let worktree = "/tmp/cursor-perm-single-active";
+        let _idle = register_route_as(
+            "cursor:a-idle",
+            "a-idle",
+            worktree,
+            PermissionPolicy::Ask,
+            false,
+        );
+        let _busy = register_route_as(
+            "cursor:z-busy",
+            "z-busy",
+            worktree,
+            PermissionPolicy::Full,
+            true,
+        );
+
+        let shared = super::super::shared();
+        let chosen = route_for_request(&shared, worktree, &json!({ "tool_name": "shell" }))
+            .expect("a route is found");
+        assert_eq!(chosen.session_id, "cursor:z-busy");
+        assert!(chosen.full_access);
+    }
+
+    #[test]
+    fn agent_id_is_read_from_any_known_field() {
+        assert_eq!(
+            agent_id_from_request(&json!({ "agentId": "a1" })).as_deref(),
+            Some("a1")
+        );
+        assert_eq!(
+            agent_id_from_request(&json!({ "thread_id": " t2 " })).as_deref(),
+            Some("t2")
+        );
+        assert_eq!(agent_id_from_request(&json!({ "agentId": "" })), None);
+        assert_eq!(
+            agent_id_from_request(&json!({ "tool_name": "shell" })),
+            None
+        );
+        assert_eq!(agent_id_from_request(&json!("scalar")), None);
     }
 
     #[tokio::test]

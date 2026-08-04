@@ -1298,7 +1298,10 @@ impl SessionManager {
         true
     }
 
-    #[allow(dead_code)]
+    /// Publish an already-persisted message on `session/{id}/live`.
+    ///
+    /// Mentions ride along from the message's own metadata, so a subscriber
+    /// sees the same envelope it would have for a desktop-sent message.
     pub async fn publish_live_message(
         &self,
         session_id: &str,
@@ -1306,7 +1309,9 @@ impl SessionManager {
     ) -> crate::error::Result<()> {
         let envelope = teamclaw::SessionMessageEnvelope {
             message: Some(message.clone()),
-            mention_actor_ids: vec![],
+            mention_actor_ids: crate::daemon::session_events::parse_mention_actor_ids(
+                &message.metadata_json,
+            ),
         };
         self.live_publisher
             .publish_message(session_id, &message.sender_actor_id, &envelope)

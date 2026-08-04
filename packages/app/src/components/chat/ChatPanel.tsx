@@ -612,11 +612,22 @@ export function ChatPanel({ compact = false }: ChatPanelProps) {
         useCurrentTeamStore.getState().team?.id ??
         null;
       if (!teamId) return;
+      // Start on the model this session has already been running, not on
+      // whatever the device MRU offers. Opening a cron session used to spawn a
+      // second runtime on the daemon's default model, and since the pill
+      // reports the live runtime, a job pinned to Haiku read as "Big Pickle" —
+      // and the next message really would have run on it.
+      const established =
+        resolveSessionEstablishedModel(
+          useSessionMessageStore.getState().messages[activeSessionId],
+          agentActorId,
+        )?.trim() || undefined;
       void import("@/lib/teamclaw/ensure-agent-runtime").then(({ ensureAgentRuntimesForSession }) => {
         void ensureAgentRuntimesForSession({
           sessionId: activeSessionId,
           teamId,
           agentActorIds: [agentActorId],
+          modelId: established,
           reason: "session_auto_engage",
         });
       });

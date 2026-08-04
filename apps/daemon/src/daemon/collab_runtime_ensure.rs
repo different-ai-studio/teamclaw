@@ -102,7 +102,7 @@ impl DaemonServer {
             );
 
             // opencode.json suppress is inside assemble (after managed-LLM await).
-            let runtime_env = match self
+            let mut runtime_env = match self
                 .assemble_spawn_runtime_env_for_worktree(&stored.worktree, &stored.workspace_id)
                 .await
             {
@@ -118,6 +118,13 @@ impl DaemonServer {
                     crate::runtime::SpawnRuntimeEnv::default()
                 }
             };
+
+            // Both branches above produce a desktop-shaped env, which for a
+            // gateway/cron runtime means it comes back as "ask".
+            crate::runtime::restore_gateway_shape_for_resume(
+                &mut runtime_env,
+                &stored.workspace_id,
+            );
 
             let resume_res = self
                 .agents

@@ -260,32 +260,50 @@ impl DaemonServer {
         // and only a single runtime remains to answer. Also protects against
         // misbehaving clients that fire RuntimeStart twice (picker + inline
         // mention race on the desktop client pre-4210aad8).
-        let (existing_runtime, superseded): (Option<String>, Vec<String>) = if session_id.is_empty()
-        {
-            (None, Vec::new())
-        } else {
-            let agents = self.agents.lock().await;
-            let mut reuse: Option<String> = None;
-            let mut stale: Vec<String> = Vec::new();
-            for rid in agents.runtime_ids_for_session(session_id) {
-                match agents.get_handle(&rid) {
-                    Some(h)
-                        if reuse.is_none()
-                            && h.agent_type == agent_type
-                            && same_runtime_workspace(
-                                &h.worktree,
-                                &h.workspace_id,
-                                &resolved_worktree,
-                                &ws_id,
-                            ) =>
-                    {
-                        reuse = Some(rid);
+        // One runtime is spared that collapse: whichever is mid-turn. Cron's
+        // "Run Now" navigates the desktop straight into the run's session, and
+        // the RuntimeStart that follows arrives while the cron runtime is still
+        // answering — in a different workspace, so it never matches the reuse
+        // key. Superseding it there stopped the runtime mid-answer, and the run
+        // ended as a prompt with no reply. A busy runtime is left running to
+        // finish; it is not routed to (it is not `reuse`), and the next
+        // routing-time `coalesce_session_runtimes` reaps it once it is idle.
+        let (existing_runtime, superseded, in_flight): (Option<String>, Vec<String>, Vec<String>) =
+            if session_id.is_empty() {
+                (None, Vec::new(), Vec::new())
+            } else {
+                let agents = self.agents.lock().await;
+                let mut reuse: Option<String> = None;
+                let mut stale: Vec<String> = Vec::new();
+                let mut busy: Vec<String> = Vec::new();
+                for rid in agents.runtime_ids_for_session(session_id) {
+                    match agents.get_handle(&rid) {
+                        Some(h)
+                            if reuse.is_none()
+                                && h.agent_type == agent_type
+                                && same_runtime_workspace(
+                                    &h.worktree,
+                                    &h.workspace_id,
+                                    &resolved_worktree,
+                                    &ws_id,
+                                ) =>
+                        {
+                            reuse = Some(rid);
+                        }
+                        _ if agents.turn_in_flight(&rid) => busy.push(rid),
+                        _ => stale.push(rid),
                     }
-                    _ => stale.push(rid),
                 }
-            }
-            (reuse, stale)
-        };
+                (reuse, stale, busy)
+            };
+
+        if !in_flight.is_empty() {
+            info!(
+                session_id,
+                in_flight = ?in_flight,
+                "apply_start_runtime: left mid-turn runtimes running rather than superseding them"
+            );
+        }
 
         if !superseded.is_empty() {
             for rid in &superseded {

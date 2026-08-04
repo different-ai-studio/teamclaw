@@ -35,6 +35,21 @@ pub(crate) struct CronTurnDone {
     pub(crate) reply_tx: oneshot::Sender<String>,
 }
 
+/// One ACP event of a cron-driven turn, sent from the turn task to the active
+/// run loop so it can reach `session/live`.
+///
+/// The turn task owns the agent's event channel for the whole turn, so
+/// `poll_events` — and with it `forward_agent_event` — never sees these frames.
+/// Publishing is what `forward_agent_event` would have done; it has to happen
+/// on the loop because it needs `&self.teamclaw`, which is not `Send`.
+pub(crate) struct CronTurnEvent {
+    /// Runtime key (8-char), not the actor id.
+    pub(crate) agent_id: String,
+    /// Set only for subagent sessions, matching `forward_agent_event`.
+    pub(crate) child_acp_session_id: Option<String>,
+    pub(crate) event: crate::proto::amux::AcpEvent,
+}
+
 /// Caches the `(cloud_session_id, acp_session_id)` pair for each cron logical
 /// `session_key`.
 ///
@@ -224,11 +239,24 @@ impl DaemonServer {
             (sb_sid, acp_sid)
         };
 
+        // The model the runtime actually settled on — not `parsed.model_override`,
+        // which the daemon drops when the job's pinned pair is no longer in the
+        // workspace catalog. A desktop-typed message carries the sender's model
+        // the same way; without it "Run Now" navigates into a session whose only
+        // message has no model, and the desktop spawns its own runtime on the
+        // device MRU instead of the model the job asked for.
+        let run_model = {
+            let mgr = self.agents.lock().await;
+            mgr.agent_id_by_acp_session(&acp_sid)
+                .and_then(|runtime_id| mgr.current_model(&runtime_id).cloned())
+                .unwrap_or_default()
+        };
+
         // Cron drives the ACP turn directly (bypassing session/live routing),
         // so the job prompt never lands in Cloud the way a desktop-typed
         // message would. Persist it before the turn so "view session" shows
         // both sides of the exchange.
-        self.persist_cron_user_prompt(&team_id, &remote_session_id, parsed.message)
+        self.persist_cron_user_prompt(&team_id, &remote_session_id, parsed.message, &run_model)
             .await;
 
         Ok((
@@ -267,8 +295,10 @@ impl DaemonServer {
         // itself for the whole turn duration.
         let agents = self.agents.clone();
         let done_tx = self.cron_turn_done_tx.clone();
+        let event_tx = self.cron_turn_event_tx.clone();
         tokio::spawn(async move {
-            let turn_result = Self::drive_cron_turn(&agents, &acp_sid, &message, timeout).await;
+            let turn_result =
+                Self::drive_cron_turn(&agents, &acp_sid, &message, timeout, event_tx).await;
             let _ = done_tx
                 .send(CronTurnDone {
                     turn_result,
@@ -357,6 +387,62 @@ impl DaemonServer {
         };
 
         let _ = reply_tx.send(result.to_string());
+    }
+
+    /// Publish one event of a cron-driven turn to `session/live`.
+    ///
+    /// This is `forward_agent_event`'s publish tail and deliberately nothing
+    /// else: the turn task has already fed the event to the aggregator, and
+    /// ingesting it a second time here would emit the reply twice. Without it
+    /// a cron session sat frozen — "Run Now" navigates you into the thread and
+    /// nothing moves until the whole answer appears at once.
+    pub(super) async fn publish_cron_turn_event(&mut self, ev: CronTurnEvent) {
+        use crate::proto::amux;
+
+        let CronTurnEvent {
+            agent_id,
+            child_acp_session_id,
+            mut event,
+        } = ev;
+
+        // Same stamping rule as `forward_agent_event`: only agent-reply events
+        // are model-attributable.
+        if matches!(
+            event.event,
+            Some(amux::acp_event::Event::Output(_)) | Some(amux::acp_event::Event::Thinking(_))
+        ) {
+            if let Some(model) = self.agents.lock().await.current_model(&agent_id).cloned() {
+                event.model = model;
+            }
+        }
+
+        let (seq, turn_id) = {
+            let mut agents = self.agents.lock().await;
+            let seq = agents
+                .get_handle_mut(&agent_id)
+                .map(|h| h.next_sequence())
+                .unwrap_or(0);
+            let turn_id = agents
+                .aggregator(&agent_id)
+                .and_then(|a| a.current_turn_id())
+                .unwrap_or("")
+                .to_string();
+            (seq, turn_id)
+        };
+
+        let envelope = amux::Envelope {
+            runtime_id: agent_id.clone(),
+            actor_id: self.config.actor.id.clone(),
+            source_peer_id: String::new(),
+            timestamp: chrono::Utc::now().timestamp(),
+            sequence: seq,
+            turn_id,
+            acp_session_id: child_acp_session_id.unwrap_or_default(),
+            payload: Some(amux::envelope::Payload::AcpEvent(event)),
+        };
+        self.history.append(&agent_id, &envelope);
+        self.publish_envelope_to_sessions(&agent_id, &envelope)
+            .await;
     }
 
     /// Cron cloud session title, matching what the desktop expects: `Cron: <job
@@ -451,21 +537,34 @@ impl DaemonServer {
 
     /// Persist the cron job prompt as a `text` message on the cloud session.
     ///
-    /// Skips session/live publish so the daemon does not re-route the prompt
-    /// back into the ACP runtime (cron already calls `send_prompt_raw`).
+    /// The prompt is written the way a human @-mentioning this daemon's agent
+    /// would be — `metadata.mention_actor_ids = [self.actor_id]` — because the
+    /// sender is a human admin member, and an un-mentioned inbound message is
+    /// treated as drive-by chatter everywhere else in the system: the chat UI
+    /// shows no mention, and every catchup re-queues it as silent context
+    /// instead of seeing an answered turn.
+    ///
+    /// Burns the message id in the ingestion dedup gate first, then publishes
+    /// on `session/live` like any other message. The burn is what makes the
+    /// publish safe: cron drives this turn itself, and without it the loopback
+    /// copy would prompt the runtime a second time — which is why this used to
+    /// skip the publish entirely. Skipping it left the desktop to *pull* the
+    /// prompt, and "Run Now" navigates in before the row is queryable, so the
+    /// thread opened showing the agent talking to nobody.
     pub(crate) async fn persist_cron_user_prompt(
-        &self,
+        &mut self,
         team_id: &str,
         session_id: &str,
         prompt: &str,
+        model: &str,
     ) {
-        let Some(tc) = self.teamclaw.as_ref() else {
+        if self.teamclaw.is_none() {
             warn!(
                 session_id,
                 "cron: SessionManager unavailable; user prompt not persisted"
             );
             return;
-        };
+        }
 
         let sender_actor_id = self
             .backend
@@ -477,6 +576,8 @@ impl DaemonServer {
 
         let message_id = uuid::Uuid::new_v4().to_string();
         let now = chrono::Utc::now();
+        let metadata_json =
+            serde_json::json!({ "mention_actor_ids": [self.actor_id.clone()] }).to_string();
         let proto_msg = crate::proto::teamclaw::Message {
             message_id: message_id.clone(),
             session_id: session_id.to_string(),
@@ -484,17 +585,34 @@ impl DaemonServer {
             kind: crate::proto::teamclaw::MessageKind::Text as i32,
             content: prompt.to_string(),
             created_at: now.timestamp(),
+            metadata_json: metadata_json.clone(),
+            model: model.to_string(),
             ..Default::default()
         };
 
-        if let Err(e) = tc.persist_message(session_id, &proto_msg).await {
-            warn!(?e, session_id, "cron: persist user prompt to TOML failed");
+        if let Some(tc) = self.teamclaw.as_ref() {
+            if let Err(e) = tc.persist_message(session_id, &proto_msg).await {
+                warn!(?e, session_id, "cron: persist user prompt to TOML failed");
+            }
+        }
+
+        // Claim the id BEFORE publishing: the loopback copy comes back fast,
+        // and the gate has to already be closed when it does.
+        if let Some(tc) = self.teamclaw.as_mut() {
+            tc.should_process_message(session_id, &message_id);
+        }
+
+        if let Some(tc) = self.teamclaw.as_ref() {
+            if let Err(e) = tc.publish_live_message(session_id, &proto_msg).await {
+                warn!(?e, session_id, "cron: publish user prompt to live failed");
+            }
         }
 
         info!(
             session_id,
             bytes = prompt.len(),
             sender_actor_id = %sender_actor_id,
+            mention_actor_id = %self.actor_id,
             "cron: persisted user prompt to session TOML and cloud"
         );
 
@@ -502,6 +620,7 @@ impl DaemonServer {
         let team_id = team_id.to_string();
         let session = session_id.to_string();
         let content = prompt.to_string();
+        let model = model.to_string();
         tokio::spawn(async move {
             if let Err(e) = backend
                 .insert_message(
@@ -511,8 +630,8 @@ impl DaemonServer {
                     &sender_actor_id,
                     "text",
                     &content,
-                    "",
-                    "",
+                    &metadata_json,
+                    &model,
                     "",
                     "",
                     0,
@@ -585,6 +704,7 @@ impl DaemonServer {
         acp_sid: &str,
         prompt: &str,
         timeout: Duration,
+        event_tx: tokio::sync::mpsc::Sender<CronTurnEvent>,
     ) -> anyhow::Result<crate::runtime::turn_aggregator::EmittedMessage> {
         // 1. Per-agent turn lock (held for the whole turn) under a brief
         //    manager lock.
@@ -634,6 +754,23 @@ impl DaemonServer {
                 Ok(None) => break Err(anyhow::anyhow!("ACP event channel closed before reply")),
                 Err(_) => break Err(anyhow::anyhow!("ACP turn timed out")),
             };
+
+            // Hand the loop a copy for `session/live` before consuming it, so
+            // the desktop renders the turn as it happens. Best-effort: a full
+            // channel drops frames rather than stalling the model turn behind
+            // the UI, and the finalized reply lands regardless.
+            let forwarded = CronTurnEvent {
+                agent_id: agent_id.clone(),
+                child_acp_session_id: Some(event.acp_session_id.clone())
+                    .filter(|sid| !sid.is_empty() && sid != acp_sid),
+                event: event.event.clone(),
+            };
+            if event_tx.try_send(forwarded).is_err() {
+                tracing::debug!(
+                    agent_id = %agent_id,
+                    "cron: live event channel full; dropping one streaming frame"
+                );
+            }
 
             if let Some(crate::proto::amux::acp_event::Event::Error(err)) = &event.event.event {
                 let details = if err.details.is_empty() {
@@ -834,11 +971,11 @@ mod tests {
                 .insert("agent-actor".to_string(), vec!["human-admin".to_string()]);
         }
         let backend: Arc<dyn Backend> = Arc::new(mock.clone());
-        let test_server = test_server_with_cloud_api(backend);
+        let mut test_server = test_server_with_cloud_api(backend);
 
         test_server
             .server
-            .persist_cron_user_prompt("team-test", "session-1", "check approvals")
+            .persist_cron_user_prompt("team-test", "session-1", "check approvals", "")
             .await;
 
         tokio::time::sleep(std::time::Duration::from_millis(50)).await;
@@ -849,5 +986,104 @@ mod tests {
         assert_eq!(snap.messages_inserted[0].content, "check approvals");
         assert_eq!(snap.messages_inserted[0].sender_actor_id, "human-admin");
         assert_eq!(snap.messages_inserted[0].session_id, "session-1");
+    }
+
+    /// The prompt must land as an @mention of this daemon's agent, otherwise
+    /// the chat UI shows an un-addressed message and catchup treats it as
+    /// drive-by chatter rather than an answered turn.
+    #[tokio::test]
+    async fn persist_cron_user_prompt_mentions_the_daemon_agent() {
+        use crate::backend::mock::MockBackend;
+        use crate::backend::Backend;
+        use std::sync::Arc;
+
+        let mock = MockBackend::with_identity("team-test", "agent-actor");
+        {
+            let mut st = mock.state();
+            st.admin_member_actor_ids
+                .insert("agent-actor".to_string(), vec!["human-admin".to_string()]);
+        }
+        let backend: Arc<dyn Backend> = Arc::new(mock.clone());
+        let mut test_server = test_server_with_cloud_api(backend);
+
+        test_server
+            .server
+            .persist_cron_user_prompt("team-test", "session-1", "check approvals", "")
+            .await;
+
+        tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+
+        let snap = mock.state();
+        assert_eq!(
+            crate::daemon::session_events::parse_mention_actor_ids(
+                &snap.messages_inserted[0].metadata_json
+            ),
+            vec!["agent-actor".to_string()],
+        );
+    }
+
+    /// "Run Now" navigates into the session while it holds nothing but this
+    /// prompt. If the prompt carries no model, the desktop cannot tell what the
+    /// job is running on and spawns its own runtime on the device MRU — the
+    /// composer pill then names a model the job never asked for.
+    #[tokio::test]
+    async fn persist_cron_user_prompt_carries_the_run_model() {
+        use crate::backend::mock::MockBackend;
+        use crate::backend::Backend;
+        use std::sync::Arc;
+
+        let mock = MockBackend::with_identity("team-test", "agent-actor");
+        let backend: Arc<dyn Backend> = Arc::new(mock.clone());
+        let mut test_server = test_server_with_cloud_api(backend);
+
+        test_server
+            .server
+            .persist_cron_user_prompt(
+                "team-test",
+                "session-1",
+                "check approvals",
+                "anthropic/claude-haiku-4-5-20251001",
+            )
+            .await;
+
+        tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+
+        assert_eq!(
+            mock.state().messages_inserted[0].model,
+            "anthropic/claude-haiku-4-5-20251001",
+        );
+    }
+
+    /// Cron drives its own turn, so the prompt id must already be spent in the
+    /// ingestion dedup gate — a catchup replay racing the in-flight turn would
+    /// otherwise see the fresh mention and fire a duplicate prompt.
+    #[tokio::test]
+    async fn persist_cron_user_prompt_claims_the_message_id_for_dedup() {
+        use crate::backend::mock::MockBackend;
+        use crate::backend::Backend;
+        use std::sync::Arc;
+
+        let mock = MockBackend::with_identity("team-test", "agent-actor");
+        let backend: Arc<dyn Backend> = Arc::new(mock.clone());
+        let mut test_server = test_server_with_cloud_api(backend);
+
+        test_server
+            .server
+            .persist_cron_user_prompt("team-test", "session-1", "check approvals", "")
+            .await;
+
+        tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+
+        let message_id = mock.state().messages_inserted[0].id.clone();
+        let already_seen = !test_server
+            .server
+            .teamclaw
+            .as_mut()
+            .expect("test server has a SessionManager")
+            .should_process_message("session-1", &message_id);
+        assert!(
+            already_seen,
+            "cron prompt id should be spent so re-ingestion is a no-op"
+        );
     }
 }

@@ -578,13 +578,31 @@ impl DaemonServer {
         let Some(keep) = keep else {
             return ids;
         };
-        let superseded: Vec<String> = ids.into_iter().filter(|id| id != &keep).collect();
-        warn!(
-            session_id = %session_id,
-            keep = %keep,
-            superseded = ?superseded,
-            "coalesce_session_runtimes: stopping duplicate live runtimes before fanout"
-        );
+        // Same carve-out as `apply_start_runtime`: a runtime that is mid-turn
+        // keeps running. It is still dropped from the routing set, so the
+        // prompt goes to `keep` alone — but stopping it here would kill an
+        // in-flight cron/gateway answer just because a message arrived.
+        let (in_flight, superseded): (Vec<String>, Vec<String>) = {
+            let agents = self.agents.lock().await;
+            ids.into_iter()
+                .filter(|id| id != &keep)
+                .partition(|id| agents.turn_in_flight(id))
+        };
+        if !in_flight.is_empty() {
+            info!(
+                session_id = %session_id,
+                in_flight = ?in_flight,
+                "coalesce_session_runtimes: left mid-turn runtimes running rather than stopping them"
+            );
+        }
+        if !superseded.is_empty() {
+            warn!(
+                session_id = %session_id,
+                keep = %keep,
+                superseded = ?superseded,
+                "coalesce_session_runtimes: stopping duplicate live runtimes before fanout"
+            );
+        }
         for rid in &superseded {
             self.agents.lock().await.stop_runtime(rid).await;
             self.remote_tool_turn_contexts
