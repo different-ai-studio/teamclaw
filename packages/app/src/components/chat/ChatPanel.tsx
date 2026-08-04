@@ -106,9 +106,9 @@ import {
 } from "@/lib/member-mention-token";
 import { buildEnhancedChip, buildStructuredMentionLines } from "@/lib/outgoing-mention-content";
 import {
-  agentAvailableModelsWithLocalCatalog,
+  resolveAgentCatalogModels,
   localRecentModelFallback,
-} from "@/lib/agent-model-fallback";
+} from '@/lib/agent-model-fallback'
 import {
   getKnownLocalDaemonActorId,
 } from "@/lib/local-daemon-identity";
@@ -780,11 +780,15 @@ export function ChatPanel({ compact = false }: ChatPanelProps) {
   );
   const activeSessionModelId = React.useMemo(() => {
     if (!modelAgentId) return "";
-    const available = agentAvailableModelsWithLocalCatalog({
+    const available = resolveAgentCatalogModels({
       agentId: modelAgentId,
       localDaemonActorId,
+      sessionId: activeSessionId,
+      byRuntimeId: runtimeStates,
       runtimeInfo: resolveRuntimeStateEntryForAgent(modelAgentId, runtimeStates)?.info,
-      catalogModels: localDaemonCatalog?.models,
+      localWorkspaceCatalogModels: localDaemonCatalog?.models,
+      remoteDefaultCatalogModels:
+        useRuntimeStateStore.getState().defaultCatalogByActorId[modelAgentId]?.models,
     });
     return (
       selectAgentModel({
@@ -1381,12 +1385,16 @@ export function ChatPanel({ compact = false }: ChatPanelProps) {
                 localCatalogWorkspace
               ]
             : undefined;
-          const availableForSend = agentAvailableModelsWithLocalCatalog({
+          const availableForSend = resolveAgentCatalogModels({
             agentId: sendAgentId,
             localDaemonActorId: localDaemonActorIdForSend,
+            sessionId: sid,
+            byRuntimeId: sendByRuntimeId,
             runtimeInfo: resolveRuntimeStateEntryForAgent(sendAgentId, sendByRuntimeId)
               ?.info,
-            catalogModels: localCatalogForSend?.models,
+            localWorkspaceCatalogModels: localCatalogForSend?.models,
+            remoteDefaultCatalogModels:
+              useRuntimeStateStore.getState().defaultCatalogByActorId[sendAgentId]?.models,
           });
           // No agent means no model: there is nothing to run the prompt on, so
           // stamping the message with a workspace-global default only recorded

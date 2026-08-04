@@ -82,6 +82,29 @@ impl DaemonServer {
     /// but they do live in `RuntimeManager.agents`, so they appear here as soon
     /// as this fires on attach.
     pub(crate) async fn publish_actor_state(&self) {
+        let (default_workspace_id, default_worktree) =
+            self.resolve_default_workspace_for_publish().await;
+
+        let default_workspace_models = if default_worktree.is_empty() {
+            Vec::new()
+        } else {
+            let mut agents = self.agents.lock().await;
+            match agents
+                .probe_catalog_models(std::path::Path::new(&default_worktree))
+                .await
+            {
+                Ok(models) => models,
+                Err(e) => {
+                    tracing::warn!(
+                        worktree = %default_worktree,
+                        error = %e,
+                        "default workspace catalog probe failed; publishing empty list"
+                    );
+                    Vec::new()
+                }
+            }
+        };
+
         let (active_agent_type, catalog_models, worktrees, live_sessions) = {
             let agents = self.agents.lock().await;
             let (catalog_models, worktrees) = agents.actor_catalog_snapshot();
@@ -105,6 +128,9 @@ impl DaemonServer {
             catalog_models,
             worktrees,
             live_sessions,
+            default_workspace_id,
+            default_worktree,
+            default_workspace_models,
         };
 
         let publisher = Publisher::new_from_handle(self.publisher_handle.clone(), &self.topics);

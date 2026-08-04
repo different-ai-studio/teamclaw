@@ -8,6 +8,15 @@ import {
 
 const mocks = vi.hoisted(() => ({
   byRuntimeId: {} as Record<string, { info: unknown }>,
+  defaultCatalogByActorId: {} as Record<
+    string,
+    {
+      defaultWorkspaceId: string
+      defaultWorktree: string
+      models: Array<{ id: string; displayName: string }>
+      lastUpdated: number
+    }
+  >,
   presenceByActor: {} as Record<string, { online: boolean } | undefined>,
   probeResult: 'reachable' as 'reachable' | 'unreachable',
   localDaemonActorId: 'local-agent' as string | null,
@@ -17,8 +26,16 @@ vi.mock('@/stores/runtime-state-store', async (importOriginal) => {
   const actual = await importOriginal<typeof import('@/stores/runtime-state-store')>()
   return {
     ...actual,
-    useRuntimeStateStore: (selector: (s: { byRuntimeId: typeof mocks.byRuntimeId }) => unknown) =>
-      selector({ byRuntimeId: mocks.byRuntimeId }),
+    useRuntimeStateStore: (
+      selector: (s: {
+        byRuntimeId: typeof mocks.byRuntimeId
+        defaultCatalogByActorId: typeof mocks.defaultCatalogByActorId
+      }) => unknown,
+    ) =>
+      selector({
+        byRuntimeId: mocks.byRuntimeId,
+        defaultCatalogByActorId: mocks.defaultCatalogByActorId,
+      }),
   }
 })
 
@@ -65,6 +82,7 @@ describe('useEngagedAgentUiStates', () => {
   beforeEach(() => {
     vi.clearAllMocks()
     mocks.byRuntimeId = {}
+    mocks.defaultCatalogByActorId = {}
     mocks.presenceByActor = {}
     mocks.probeResult = 'reachable'
     mocks.localDaemonActorId = 'local-agent'
@@ -252,22 +270,13 @@ describe('useEngagedAgentUiStates', () => {
   })
 
   it('shows an online remote agent ready in a draft chat with no session binding', () => {
-    // The composer renders before the session exists, so there is no binding to
-    // look up. The agent's own machine is online with a catalog — that is the
-    // honest answer, and withholding it pinned the pill at Connecting until the
-    // first send attached a runtime.
     mocks.localDaemonActorId = 'other-local-agent'
     mocks.presenceByActor['remote-agent'] = { online: true }
-    mocks.byRuntimeId = {
-      'remote-agent::other-session': {
-        daemonActorId: 'remote-agent',
-        lastUpdated: Date.now(),
-        info: {
-          state: RuntimeLifecycle.ACTIVE,
-          runtimeId: 'other-session',
-          availableModels: [{ id: 'm1', displayName: 'Model' }],
-        },
-      },
+    mocks.defaultCatalogByActorId['remote-agent'] = {
+      defaultWorkspaceId: 'ws-default',
+      defaultWorktree: '/tmp/default',
+      models: [{ id: 'm1', displayName: 'Model' }],
+      lastUpdated: Date.now(),
     }
 
     const { result } = renderHook(() =>
