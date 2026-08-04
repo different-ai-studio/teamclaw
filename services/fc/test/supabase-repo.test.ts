@@ -1,5 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
+import { SignJWT } from "jose";
 import {
   createSupabaseBusinessRepository,
   createSupabaseAuthRepository,
@@ -63,6 +64,8 @@ test("listSessions maps current actor session rpc rows", async () => {
     cursor: { lastMessageAt: "2026-05-27T00:00:00Z", createdAt: "2026-05-26T00:00:00Z", id: "s0" },
   });
 
+  // p_team_id / p_idea_id arrived with 20260802000000_session_list_team_and_idea_scope;
+  // an unscoped list passes them as null rather than omitting them.
   assert.deepEqual(rpcCalls, [{
     name: "list_current_actor_sessions",
     args: {
@@ -70,8 +73,13 @@ test("listSessions maps current actor session rpc rows", async () => {
       p_before_last_message_at: "2026-05-27T00:00:00Z",
       p_before_created_at: "2026-05-26T00:00:00Z",
       p_before_id: "s0",
+      p_team_id: null,
+      p_idea_id: null,
     },
   }]);
+  // The row grew after this test was written: source/cronJobId came with cron
+  // sessions, participantCount with the list redesign. A fixture that omits
+  // them exercises the defaults, which is the contract clients rely on.
   assert.deepEqual(rows, [{
     id: "session-1",
     teamId: "team-1",
@@ -83,6 +91,12 @@ test("listSessions maps current actor session rpc rows", async () => {
     hasUnread: true,
     createdAt: "2026-05-26T01:00:00Z",
     updatedAt: "2026-05-27T01:00:00Z",
+    createdByActorId: null,
+    cronJobId: null,
+    participantCount: 0,
+    primaryAgentId: null,
+    source: "user",
+    summary: null,
   }]);
 });
 
@@ -382,7 +396,25 @@ test("createTeam falls back to DEFAULT_ORG_ID when the caller carries no org", a
   }
 });
 
-test("bootstrapTeam uses the boundary-verified caller without local GoTrue lookup", async () => {
+// A partner (Betly) session is issued by a separately hosted Supabase Auth, so
+// it has no auth.sessions row here and local GoTrue would reject it. 9cf5db90
+// replaced the `caller` injection these tests used to pass with in-repo
+// verification gated on TRUSTED_EXTERNAL_JWT_SECRET — the tests kept injecting
+// `caller`, which the repo no longer reads, so they fell through to GoTrue and
+// have been failing since 2026-08-01. Same contract, current mechanism.
+const TRUSTED_SECRET = "trusted-external-secret";
+
+async function trustedExternalToken(claims: Record<string, unknown> = {}) {
+  return new SignJWT({ app_metadata: { org_id: "betly-org-1" }, ...claims })
+    .setProtectedHeader({ alg: "HS256" })
+    .setSubject("betly-user-1")
+    .setAudience("authenticated")
+    .setIssuedAt()
+    .setExpirationTime("1h")
+    .sign(new TextEncoder().encode(TRUSTED_SECRET));
+}
+
+test("bootstrapTeam verifies a trusted external JWT without a local GoTrue lookup", async () => {
   const rpcCalls: any[] = [];
   const repo = createRepo(fakeSupabase({
     rpcCalls,
@@ -395,7 +427,8 @@ test("bootstrapTeam uses the boundary-verified caller without local GoTrue looku
       bootstrap_current_org_team: [{ team_id: "team-bootstrap", team_name: "Betly", team_slug: "betly" }],
     },
   }), {
-    caller: { id: "betly-user-1", isAnonymous: false, appMetadata: { org_id: "betly-org-1" } },
+    accessToken: await trustedExternalToken(),
+    trustedExternalJwtSecret: TRUSTED_SECRET,
   });
 
   const team = await repo.bootstrapTeam({ displayName: "Betly User" });
@@ -415,7 +448,8 @@ test("bootstrapTeam targets an explicitly selected empty org", async () => {
       bootstrap_selected_org_team: [{ team_id: "team-bootstrap", team_name: "Other Org", team_slug: "other-org" }],
     },
   }), {
-    caller: { id: "betly-user-1", isAnonymous: false, appMetadata: { org_id: "betly-org-1" } },
+    accessToken: await trustedExternalToken(),
+    trustedExternalJwtSecret: TRUSTED_SECRET,
   });
 
   await repo.bootstrapTeam({ orgId: "selected-org", displayName: "Betly User" });
@@ -424,6 +458,34 @@ test("bootstrapTeam targets an explicitly selected empty org", async () => {
     name: "bootstrap_selected_org_team",
     args: { p_org_id: "selected-org", p_display_name: "Betly User" },
   }]);
+});
+
+test("bootstrapTeam rejects a token the trust secret does not verify", async () => {
+  const rpcCalls: any[] = [];
+  const repo = createRepo(fakeSupabase({
+    rpcCalls,
+    auth: {
+      async getUser() {
+        throw new Error("a forged external JWT must never fall back to local GoTrue");
+      },
+    },
+  }), {
+    accessToken: await new SignJWT({ app_metadata: { org_id: "attacker-org" } })
+      .setProtectedHeader({ alg: "HS256" })
+      .setSubject("attacker")
+      .setAudience("authenticated")
+      .setIssuedAt()
+      .setExpirationTime("1h")
+      .sign(new TextEncoder().encode("wrong-secret")),
+    trustedExternalJwtSecret: TRUSTED_SECRET,
+  });
+
+  await assert.rejects(
+    () => repo.bootstrapTeam({ displayName: "Betly User" }),
+    (err: any) => err?.statusCode === 401,
+    "a signature the trust secret rejects must not bootstrap a team",
+  );
+  assert.deepEqual(rpcCalls, [], "no RPC may run for an unverified caller");
 });
 
 test("enableShareMode oss calls enable_team_share rpc with null git fields", async () => {
@@ -909,18 +971,31 @@ test("getWorkspaceConfig merges teams + team_workspace_config rows", async () =>
       team_workspace_config: [{
         sync_mode: "git",
         litellm_team_id: "litellm-team-zzz",
+        llm_enabled: true,
+        llm_base_url: "https://gateway.example/v1",
+        llm_models: [{ id: "pro", name: "Pro" }],
       }],
     },
   }));
 
   const result = await repo.getWorkspaceConfig("team-6");
 
+  // The `llm` block joined this shape after the test was written. `models` is
+  // the stored, authoritative per-team list; `availableModels` is the optional
+  // gateway picker source and stays empty when no gateway answers.
   assert.deepEqual(result, {
     shareMode: "custom_git",
     gitRemoteUrl: "https://example.com/repo.git",
     gitAuthKind: "https_token",
     syncMode: "git",
     litellmTeamId: "litellm-team-zzz",
+    llm: {
+      enabled: true,
+      baseUrl: "https://gateway.example/v1",
+      models: [{ id: "pro", name: "Pro" }],
+      availableModels: [],
+      aiGatewayEndpoint: null,
+    },
   });
 });
 
@@ -935,6 +1010,15 @@ test("getWorkspaceConfig returns nulls when both rows absent", async () => {
     gitAuthKind: null,
     syncMode: null,
     litellmTeamId: null,
+    // Absent config means LLM disabled, not "unknown": the client renders the
+    // off state from these defaults rather than special-casing a missing block.
+    llm: {
+      enabled: false,
+      baseUrl: null,
+      models: [],
+      availableModels: [],
+      aiGatewayEndpoint: null,
+    },
   });
 });
 
