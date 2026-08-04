@@ -1,8 +1,9 @@
 import { getBackend } from '@/lib/backend'
+import type { SessionDetailRow } from '@/lib/backend/types'
 import { CloudApiError } from '@/lib/backend/cloud-api/http'
 import { useAuthStore } from '@/stores/auth-store'
 import { useCurrentTeamStore } from '@/stores/current-team'
-import { useSessionListStore } from '@/stores/session-list-store'
+import { type SessionListEntry, useSessionListStore } from '@/stores/session-list-store'
 import { useUIStore } from '@/stores/ui'
 import i18n from '@/lib/i18n'
 import { toast } from 'sonner'
@@ -12,6 +13,12 @@ const PENDING_SESSION_DEEPLINK_KEY = 'teamclaw.pendingSessionDeeplink'
 export type PendingSessionDeeplink = {
   sessionId: string
   teamId: string | null
+  /**
+   * `listCurrentActorSessions` is paginated. Keep the row returned by the
+   * successful join so a linked older session remains renderable even when it
+   * does not land in the first page after a team switch.
+   */
+  sessionRow?: SessionListEntry
 }
 
 function readPendingRaw(): PendingSessionDeeplink | null {
@@ -23,6 +30,7 @@ function readPendingRaw(): PendingSessionDeeplink | null {
     return {
       sessionId: parsed.sessionId,
       teamId: parsed.teamId ?? null,
+      sessionRow: parsed.sessionRow,
     }
   } catch {
     return null
@@ -36,8 +44,9 @@ export function readPendingSessionDeeplink(): PendingSessionDeeplink | null {
 export function stashPendingSessionDeeplink(
   sessionId: string,
   teamId: string | null = null,
+  sessionRow?: SessionListEntry,
 ): void {
-  const payload: PendingSessionDeeplink = { sessionId, teamId }
+  const payload: PendingSessionDeeplink = { sessionId, teamId, sessionRow }
   try {
     localStorage.setItem(PENDING_SESSION_DEEPLINK_KEY, JSON.stringify(payload))
   } catch {
@@ -59,9 +68,38 @@ function isAuthedRealUser(): boolean {
   return Boolean(session && !session.user?.is_anonymous)
 }
 
-async function navigateToSession(sessionId: string): Promise<void> {
+function sessionDetailToListEntry(session: SessionDetailRow): SessionListEntry {
+  const mode = session.mode === 'solo' || session.mode === 'control'
+    ? session.mode
+    : 'collab'
+  return {
+    id: session.id,
+    title: session.title,
+    team_id: session.team_id,
+    last_message_at: session.last_message_at,
+    last_message_preview: session.last_message_preview,
+    mode,
+    idea_id: session.idea_id,
+    has_unread: false,
+    source: session.source ?? null,
+    cron_job_id: session.cron_job_id ?? null,
+    created_at: session.created_at,
+    updated_at: session.updated_at,
+  }
+}
+
+async function navigateToSession(
+  sessionId: string,
+  sessionRow?: SessionListEntry,
+): Promise<void> {
+  // A linked session may be older than the first page (50 rows) returned by
+  // listCurrentActorSessions. Seed it before selecting so the chat header and
+  // desktop message sync can resolve its team, then re-apply it after the
+  // paginated reconcile which replaces the list rows.
+  if (sessionRow) useSessionListStore.getState().upsertRows([sessionRow])
   await useUIStore.getState().switchToSession(sessionId)
   await useSessionListStore.getState().load()
+  if (sessionRow) useSessionListStore.getState().upsertRows([sessionRow])
   clearPendingSessionDeeplink()
 }
 
@@ -91,15 +129,16 @@ export async function openSessionFromDeeplink(sessionId: string): Promise<boolea
   try {
     const session = await getBackend().sessions.joinSession(sessionId)
     const teamId = session.team_id ?? null
+    const sessionRow = sessionDetailToListEntry(session)
     const currentTeamId = useCurrentTeamStore.getState().team?.id ?? null
 
     if (teamId && teamId !== currentTeamId) {
-      stashPendingSessionDeeplink(sessionId, teamId)
+      stashPendingSessionDeeplink(sessionId, teamId, sessionRow)
       await useCurrentTeamStore.getState().enterTeam(teamId)
       return true
     }
 
-    await navigateToSession(sessionId)
+    await navigateToSession(sessionId, sessionRow)
     return true
   } catch (err) {
     clearPendingSessionDeeplink()
@@ -120,7 +159,7 @@ export async function completePendingSessionDeeplink(): Promise<boolean> {
   if (pending.teamId && pending.teamId !== currentTeamId) return false
 
   try {
-    await navigateToSession(pending.sessionId)
+    await navigateToSession(pending.sessionId, pending.sessionRow)
     return true
   } catch (err) {
     clearPendingSessionDeeplink()

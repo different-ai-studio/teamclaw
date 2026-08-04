@@ -9,6 +9,7 @@ const mocks = vi.hoisted(() => ({
   enterTeam: vi.fn(),
   switchToSession: vi.fn(),
   load: vi.fn(),
+  upsertRows: vi.fn(),
   session: { user: { id: 'user-1', is_anonymous: false } } as
     | { user: { id: string; is_anonymous?: boolean } }
     | null,
@@ -44,7 +45,7 @@ vi.mock('@/stores/ui', () => ({
 
 vi.mock('@/stores/session-list-store', () => ({
   useSessionListStore: {
-    getState: () => ({ load: mocks.load }),
+    getState: () => ({ load: mocks.load, upsertRows: mocks.upsertRows }),
   },
 }))
 
@@ -66,7 +67,17 @@ describe('openSessionFromDeeplink', () => {
     localStorage.clear()
     mocks.session = { user: { id: 'user-1', is_anonymous: false } }
     mocks.teamId = TEAM_A
-    mocks.joinSession.mockResolvedValue({ team_id: TEAM_A })
+    mocks.joinSession.mockResolvedValue({
+      id: UUID,
+      team_id: TEAM_A,
+      title: 'Linked session',
+      mode: 'collab',
+      idea_id: null,
+      last_message_at: '2026-08-01T00:00:00.000Z',
+      last_message_preview: 'Earlier message',
+      created_at: '2026-07-01T00:00:00.000Z',
+      updated_at: '2026-08-01T00:00:00.000Z',
+    })
     mocks.enterTeam.mockResolvedValue(undefined)
     mocks.switchToSession.mockResolvedValue(undefined)
     mocks.load.mockResolvedValue(undefined)
@@ -90,15 +101,46 @@ describe('openSessionFromDeeplink', () => {
     expect(readPendingSessionDeeplink()).toBeNull()
   })
 
+  it('keeps a joined session visible when it falls outside the refreshed first page', async () => {
+    const ok = await openSessionFromDeeplink(UUID)
+
+    expect(ok).toBe(true)
+    expect(mocks.upsertRows).toHaveBeenCalledTimes(2)
+    expect(mocks.upsertRows).toHaveBeenLastCalledWith([expect.objectContaining({
+      id: UUID,
+      team_id: TEAM_A,
+      title: 'Linked session',
+      last_message_preview: 'Earlier message',
+    })])
+    expect(mocks.upsertRows.mock.invocationCallOrder[0])
+      .toBeLessThan(mocks.switchToSession.mock.invocationCallOrder[0])
+    expect(mocks.upsertRows.mock.invocationCallOrder[1])
+      .toBeGreaterThan(mocks.load.mock.invocationCallOrder[0])
+  })
+
   it('defers navigation across team switches', async () => {
-    mocks.joinSession.mockResolvedValue({ team_id: TEAM_B })
+    mocks.joinSession.mockResolvedValue({
+      id: UUID,
+      team_id: TEAM_B,
+      title: 'Other team session',
+      mode: 'collab',
+      idea_id: null,
+      last_message_at: null,
+      last_message_preview: null,
+      created_at: null,
+      updated_at: null,
+    })
     mocks.teamId = TEAM_A
 
     const ok = await openSessionFromDeeplink(UUID)
     expect(ok).toBe(true)
     expect(mocks.enterTeam).toHaveBeenCalledWith(TEAM_B)
     expect(mocks.switchToSession).not.toHaveBeenCalled()
-    expect(readPendingSessionDeeplink()).toEqual({ sessionId: UUID, teamId: TEAM_B })
+    expect(readPendingSessionDeeplink()).toEqual(expect.objectContaining({
+      sessionId: UUID,
+      teamId: TEAM_B,
+      sessionRow: expect.objectContaining({ id: UUID, team_id: TEAM_B }),
+    }))
   })
 })
 
@@ -113,10 +155,24 @@ describe('completePendingSessionDeeplink', () => {
   })
 
   it('opens the stashed session once the target team is active', async () => {
-    stashPendingSessionDeeplink(UUID, TEAM_B)
+    stashPendingSessionDeeplink(UUID, TEAM_B, {
+      id: UUID,
+      team_id: TEAM_B,
+      title: 'Other team session',
+      last_message_at: null,
+      last_message_preview: null,
+      mode: 'collab',
+      idea_id: null,
+      has_unread: false,
+      source: null,
+      cron_job_id: null,
+      created_at: null,
+      updated_at: null,
+    })
     const ok = await completePendingSessionDeeplink()
     expect(ok).toBe(true)
     expect(mocks.switchToSession).toHaveBeenCalledWith(UUID)
+    expect(mocks.upsertRows).toHaveBeenCalledTimes(2)
     expect(readPendingSessionDeeplink()).toBeNull()
   })
 
