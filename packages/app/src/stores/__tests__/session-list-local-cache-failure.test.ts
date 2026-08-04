@@ -51,6 +51,10 @@ vi.mock("../current-team", () => ({
   useCurrentTeamStore: { getState: () => ({ team: { id: "team-1" } }) },
 }));
 
+// The failing-RPC case below toasts; keep that off the real toaster/i18n.
+vi.mock("sonner", () => ({ toast: { error: vi.fn() } }));
+vi.mock("@/lib/i18n", () => ({ default: { t: (key: string) => key } }));
+
 const serverRow = {
   id: "session-1",
   title: "Session",
@@ -78,6 +82,7 @@ async function freshStore() {
     highlightedSessionIds: [],
     hasMore: false,
     nextCursor: null,
+    serverConfirmed: false,
   });
   const { useAuthStore } = await import("../auth-store");
   useAuthStore.setState({ session: { user: { id: "user-1" } } } as never);

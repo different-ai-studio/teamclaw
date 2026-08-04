@@ -6,6 +6,7 @@ const mocks = vi.hoisted(() => ({
   markCurrentActorSessionViewed: vi.fn(),
   updateSessionTitle: vi.fn(),
   archiveSession: vi.fn(),
+  toastError: vi.fn(),
 }));
 
 vi.mock("@/lib/backend", () => ({
@@ -21,6 +22,14 @@ vi.mock("@/lib/backend", () => ({
 
 vi.mock("@/lib/utils", () => ({
   isTauri: () => false,
+}));
+
+vi.mock("sonner", () => ({
+  toast: { error: mocks.toastError },
+}));
+
+vi.mock("@/lib/i18n", () => ({
+  default: { t: (key: string) => key },
 }));
 
 const sessionRow = (overrides: Partial<{
@@ -55,6 +64,7 @@ describe("session-list-store", () => {
       highlightedSessionIds: [],
       hasMore: false,
       nextCursor: null,
+      serverConfirmed: false,
     });
     useAuthStore.setState({
       session: { user: { id: "user-1" } },
@@ -286,5 +296,59 @@ describe("session-list-store", () => {
       JSON.parse(localStorage.getItem("teamclaw.sessionList.archivedIds") ?? "[]"),
     ).toContain("session-1");
     localStorage.removeItem("teamclaw.sessionList.archivedIds");
+  });
+
+  // Every visibility gate on GET /v1/sessions fails closed with 200 + an empty
+  // list (no actor for the caller, no session_participants row, RLS), so an
+  // empty page is not evidence that the user has no sessions until the server
+  // has proved it can see them at least once.
+  it("keeps rows already on screen when the first server page comes back empty", async () => {
+    mocks.listCurrentActorSessions.mockResolvedValueOnce({ rows: [] });
+
+    const { useSessionListStore } = await import("./session-list-store");
+    useSessionListStore.setState({ rows: [sessionRow({ id: "cached-1" })] });
+
+    await useSessionListStore.getState().loadFirstPage();
+
+    expect(useSessionListStore.getState().rows.map((row) => row.id)).toEqual(["cached-1"]);
+    expect(useSessionListStore.getState().loading).toBe(false);
+    expect(useSessionListStore.getState().hasMore).toBe(false);
+    // Not an error — no toast for this path, or the debounced refresh would
+    // toast on every tick.
+    expect(mocks.toastError).not.toHaveBeenCalled();
+  });
+
+  it("empties the list on an empty page once the server has returned rows", async () => {
+    mocks.listCurrentActorSessions
+      .mockResolvedValueOnce({ rows: [sessionRow({ id: "session-1" })] })
+      .mockResolvedValueOnce({ rows: [] });
+
+    const { useSessionListStore } = await import("./session-list-store");
+    await useSessionListStore.getState().loadFirstPage();
+    expect(useSessionListStore.getState().serverConfirmed).toBe(true);
+
+    await useSessionListStore.getState().loadFirstPage();
+
+    expect(useSessionListStore.getState().rows).toEqual([]);
+  });
+
+  it("toasts when the list refresh fails", async () => {
+    mocks.listCurrentActorSessions.mockRejectedValueOnce(new Error("boom"));
+
+    const { useSessionListStore } = await import("./session-list-store");
+    useSessionListStore.setState({ rows: [sessionRow({ id: "cached-1" })] });
+
+    await useSessionListStore.getState().loadFirstPage();
+
+    // The rows on screen survive a failed refresh; the toast is what tells the
+    // user they may now be stale.
+    expect(useSessionListStore.getState().rows.map((row) => row.id)).toEqual(["cached-1"]);
+    expect(useSessionListStore.getState().error).toBe("boom");
+    await vi.waitFor(() =>
+      expect(mocks.toastError).toHaveBeenCalledWith("sessions.list.refreshFailed", {
+        id: "session-list-refresh-failed",
+        description: "boom",
+      }),
+    );
   });
 });

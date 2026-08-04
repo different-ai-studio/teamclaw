@@ -712,6 +712,9 @@
     "changed": "Changed"
   },
   "sessions": {
+    "list": {
+      "refreshFailed": "Couldn't refresh the session list"
+    },
     "detail": {
       "title": "Session details",
       "description": "View session metadata and runtime state.",
