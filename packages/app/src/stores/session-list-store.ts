@@ -142,6 +142,32 @@ function sortEntries(entries: SessionListEntry[]): SessionListEntry[] {
   return sortSessionListRows(entries);
 }
 
+/**
+ * Surface a failed list refresh to the user.
+ *
+ * The store's `error` field has no renderer — nothing reads it — so a failing
+ * GET /v1/sessions used to be completely silent: the sidebar just kept showing
+ * whatever it already had, with no hint that it had gone stale. The refresh is
+ * also debounced off realtime events (App.tsx), so a backend that is down would
+ * fire this repeatedly; the fixed toast id collapses those into one.
+ *
+ * Imported lazily so the store keeps working headless (tests, non-UI callers).
+ */
+function notifyRefreshFailed(message: string): void {
+  void (async () => {
+    const [{ toast }, { default: i18n }] = await Promise.all([
+      import("sonner"),
+      import("@/lib/i18n"),
+    ]);
+    toast.error(i18n.t("sessions.list.refreshFailed"), {
+      id: "session-list-refresh-failed",
+      description: message,
+    });
+  })().catch(() => {
+    // Toasting is best-effort; never let it mask the original failure.
+  });
+}
+
 interface State {
   rows: SessionListEntry[];
   loading: boolean;
@@ -150,6 +176,11 @@ interface State {
   highlightedSessionIds: string[];
   hasMore: boolean;
   nextCursor: SessionListCursor | null;
+  /**
+   * True once the server has returned at least one session row since sign-in.
+   * Gates the empty-response guard in `loadFirstPage` — see the comment there.
+   */
+  serverConfirmed: boolean;
   load: () => Promise<void>;
   loadFirstPage: (limit?: number) => Promise<void>;
   loadMore: (limit?: number) => Promise<void>;
@@ -222,13 +253,23 @@ export const useSessionListStore = create<State>((set, get) => ({
   highlightedSessionIds: [],
   hasMore: false,
   nextCursor: null,
+  serverConfirmed: false,
   load: async () => {
     await get().loadFirstPage();
   },
   loadFirstPage: async (limit = 50) => {
     const session = useAuthStore.getState().session;
     if (!session) {
-      set({ rows: [], loading: false, error: null, hasMore: false, nextCursor: null });
+      set({
+        rows: [],
+        loading: false,
+        error: null,
+        hasMore: false,
+        nextCursor: null,
+        // Signing out re-arms the empty-response guard: the next account's
+        // first page has proven nothing yet.
+        serverConfirmed: false,
+      });
       return;
     }
     set({ loading: true, error: null });
@@ -274,11 +315,35 @@ export const useSessionListStore = create<State>((set, get) => ({
     try {
       page = await loadPage(limit, null);
     } catch (error) {
-      set({ loading: false, error: error instanceof Error ? error.message : String(error) });
+      const message = error instanceof Error ? error.message : String(error);
+      set({ loading: false, error: message });
+      notifyRefreshFailed(message);
       return;
     }
     const { rows } = page;
     const nextCursor = resolveNextCursor(page);
+
+    // ── Empty-response guard ─────────────────────────────────────────────
+    // GET /v1/sessions answers "you have no sessions" and "I cannot see your
+    // sessions" with the same 200 + `items: []`: every visibility gate on that
+    // endpoint fails closed (no actor row for the caller, no
+    // session_participants row, RLS/org scoping) and returns an empty list
+    // rather than an error. Until the server has handed us a row at least
+    // once, an empty page is therefore not evidence that the list is empty —
+    // and overwriting the phase-1 hydrate with it blanks a list the user can
+    // plainly see, while the rows still sit in libsql.
+    //
+    // Once any page has come back with rows, `serverConfirmed` flips and a
+    // later empty page is taken at face value, so archiving the last session
+    // (here or on another device) still empties the list as it should.
+    if (rows.length === 0 && get().rows.length > 0 && !get().serverConfirmed) {
+      console.warn(
+        "[session-list] server returned 0 sessions and none were confirmed before; keeping cached rows",
+      );
+      set({ loading: false, hasMore: false, nextCursor: null });
+      markStartup("session-list:loaded");
+      return;
+    }
 
     // Persist teamId for the next cold boot — pick from fresh rows if we have
     // any; otherwise keep whatever the libsql hydrate already exposed.
@@ -325,6 +390,7 @@ export const useSessionListStore = create<State>((set, get) => ({
       loading: false,
       hasMore: nextCursor != null,
       nextCursor,
+      serverConfirmed: get().serverConfirmed || rows.length > 0,
     });
     markStartup("session-list:loaded");
   },

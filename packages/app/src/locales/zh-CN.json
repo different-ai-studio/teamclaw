@@ -712,6 +712,9 @@
     "changed": "已更改"
   },
   "sessions": {
+    "list": {
+      "refreshFailed": "会话列表刷新失败"
+    },
     "detail": {
       "title": "会话详情",
       "description": "查看会话元数据与 Runtime 状态。",
