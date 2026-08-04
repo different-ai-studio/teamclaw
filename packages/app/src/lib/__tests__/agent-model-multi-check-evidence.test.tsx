@@ -241,7 +241,7 @@ vi.mock("@/stores/runtime-state-store", async (importOriginal) => {
   return {
     ...actual,
     useRuntimeStateStore: (selector: (s: unknown) => unknown) =>
-      selector({ byRuntimeId: uiMocks.runtimeStates }),
+      selector({ byRuntimeId: uiMocks.runtimeStates, defaultCatalogByActorId: {} }),
   };
 });
 
@@ -271,7 +271,7 @@ describe("agent model multi-check UI evidence", () => {
       },
     ];
     uiMocks.runtimeStates = {
-      "agent-mac": {
+      "agent-mac::session-1": {
         daemonActorId: "agent-mac",
         lastUpdated: Date.now(),
         info: {

@@ -779,7 +779,7 @@ export function ChatPanel({ compact = false }: ChatPanelProps) {
     modelAgentId ? s.bySessionAgent[`${modelPickScopeId}::${modelAgentId}`] : undefined,
   );
   const remoteDefaultCatalogModels = useRuntimeStateStore((s) =>
-    modelAgentId ? s.defaultCatalogByActorId[modelAgentId]?.models : undefined,
+    modelAgentId ? s.defaultCatalogByActorId?.[modelAgentId]?.models : undefined,
   );
   const activeSessionModelId = React.useMemo(() => {
     if (!modelAgentId) return "";

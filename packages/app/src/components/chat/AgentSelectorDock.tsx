@@ -174,7 +174,7 @@ function AgentPill({
     isSelf && workspacePath ? s.byWorkspacePath[workspacePath] : undefined,
   )
   const remoteDefaultCatalog = useRuntimeStateStore(
-    (s) => s.defaultCatalogByActorId[agent.id],
+    (s) => s.defaultCatalogByActorId?.[agent.id],
   )
 
   const availableModels = React.useMemo(
