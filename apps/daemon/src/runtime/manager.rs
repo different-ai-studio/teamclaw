@@ -1653,6 +1653,34 @@ mod tests {
         }
     }
 
+    /// `live_sessions` is what turns the actor retain into something a client
+    /// can key by (actor, session). If it comes back empty while attachments
+    /// exist, the retain degrades to bare presence and every reader concludes
+    /// the actor is serving nothing — the shape observed on 2026-08-04, where a
+    /// reconnect shrank the retain from 7346 bytes to 19 and the desktop store
+    /// held zero composite keys while an agent was mid-turn.
+    #[test]
+    fn live_sessions_reports_every_attachment_by_session() {
+        let mut mgr = RuntimeManager::new(RuntimeManager::test_launch_configs(), None);
+        mgr.add_test_runtime("rt-a", "agent-1", "session-a");
+        mgr.add_test_runtime("rt-b", "agent-2", "session-b");
+
+        let live = mgr.live_sessions();
+        let mut ids: Vec<&str> = live.iter().map(|s| s.session_id.as_str()).collect();
+        ids.sort();
+        assert_eq!(ids, vec!["session-a", "session-b"]);
+    }
+
+    /// An ambient spawn carries no session, so it has no (actor, session) key
+    /// to publish under. Emitting it anyway would put a blank session id in the
+    /// retain, which the client would file under `${actor}::` and never match.
+    #[test]
+    fn live_sessions_skips_attachments_with_no_session() {
+        let mut mgr = RuntimeManager::new(RuntimeManager::test_launch_configs(), None);
+        mgr.add_test_runtime("rt-bare", "agent-1", "");
+        assert!(mgr.live_sessions().is_empty());
+    }
+
     /// The catalog belongs to the device, so a binding that never attached
     /// still advertises it. Before this, such a binding published an empty
     /// list and its session's pill could never leave "connecting".

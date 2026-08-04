@@ -417,6 +417,11 @@ impl DaemonServer {
             // original retain (late subscribe, reconnect) still populate the
             // model picker without spawning a duplicate process.
             self.publish_runtime_state_by_id(&existing).await;
+            // Same reasoning for the actor snapshot. Reuse is the common case —
+            // every message after the first in a session lands here — and the
+            // model may have just changed above, so leaving the retain untouched
+            // would let it drift from what the attachment is actually running.
+            self.publish_actor_state().await;
             if !session_id.is_empty() {
                 if let Some(tc) = self.teamclaw.as_mut() {
                     if let Err(e) = tc.ensure_session_live_subscription(session_id).await {
