@@ -2528,6 +2528,25 @@
       "loadFailed": "加载角色与技能失败"
     },
     "skills": {
+      "diag": {
+        "title": "\u6280\u80fd\u8bca\u65ad",
+        "description": "\u68c0\u67e5\u6280\u80fd\u76ee\u5f55\u3001\u5b88\u62a4\u8fdb\u7a0b\u6e05\u5355\u3001\u56e2\u961f\u8def\u5f84\u4ee5\u53ca\u8fd0\u884c\u65f6\u5237\u65b0\u72b6\u6001\u3002",
+        "button": "\u8bca\u65ad",
+        "running": "\u6b63\u5728\u8bca\u65ad\u2026",
+        "rerun": "\u91cd\u65b0\u8fd0\u884c",
+        "copy": "\u590d\u5236\u62a5\u544a",
+        "copied": "\u5df2\u590d\u5236",
+        "counts": "\u5b88\u62a4\u8fdb\u7a0b {{daemon}} \u00b7 \u6587\u4ef6\u7cfb\u7edf {{fs}} \u00b7 \u5408\u5e76\u540e {{merged}}",
+        "summaryOk": "\u5168\u90e8\u68c0\u67e5\u901a\u8fc7",
+        "summaryWarn": "\u53d1\u73b0\u95ee\u9898 \u2014 \u8bf7\u67e5\u770b\u4e0b\u65b9\u63d0\u793a",
+        "summaryFail": "\u53d1\u73b0\u963b\u585e\u6027\u95ee\u9898",
+        "brokenTitle": "\u7f3a\u5c11 SKILL.md \u7684\u6587\u4ef6\u5939",
+        "tipsTitle": "\u5e38\u89c1\u4fee\u590d\u65b9\u5f0f",
+        "tipRefresh": "\u70b9\u51fb\u5237\u65b0\uff0c\u4ece\u78c1\u76d8\u91cd\u65b0\u52a0\u8f7d\u6280\u80fd\u5217\u8868\u3002",
+        "tipRestart": "\u65b0\u589e\u6216\u4fee\u6539\u6280\u80fd\u540e\u91cd\u542f OpenCode\u3002",
+        "tipPaths": "\u786e\u8ba4 teamclaw.json / opencode.json \u4e2d\u7684 skills.paths \u6307\u5411\u5b58\u5728\u7684\u76ee\u5f55\u3002",
+        "tipDaemon": "\u5982\u679c\u5b88\u62a4\u8fdb\u7a0b\u6e05\u5355\u7f3a\u5931\uff0c\u786e\u8ba4 amuxd \u6b63\u5728\u8fd0\u884c\u3002"
+      },
       "title": "技能",
       "description": "工作区的自定义 AI 技能",
       "descriptionDetail": "来自 .opencode/skills/、.claude/skills/ 和 .agent/skills/ 的 AI 技能",
