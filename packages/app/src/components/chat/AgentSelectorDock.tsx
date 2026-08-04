@@ -425,7 +425,8 @@ function AgentPill({
             <>
               {isSelf ? null : <span className="shrink-0 text-muted-foreground/70">·</span>}
               <span className="min-w-0 flex-1 truncate text-[11px] text-faint">
-                {effectiveUiState === 'connecting' && runtimeInfoLoading ? (
+                {effectiveUiState === 'connecting' &&
+                (runtimeInfoLoading || availableModels.length === 0) ? (
                   <span className="inline-flex items-center gap-1">
                     <Loader2 className="h-3 w-3 shrink-0 animate-spin" />
                     {statusSuffix}

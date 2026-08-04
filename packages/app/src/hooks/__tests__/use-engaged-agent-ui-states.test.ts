@@ -13,10 +13,14 @@ const mocks = vi.hoisted(() => ({
   localDaemonActorId: 'local-agent' as string | null,
 }))
 
-vi.mock('@/stores/runtime-state-store', () => ({
-  useRuntimeStateStore: (selector: (s: { byRuntimeId: typeof mocks.byRuntimeId }) => unknown) =>
-    selector({ byRuntimeId: mocks.byRuntimeId }),
-}))
+vi.mock('@/stores/runtime-state-store', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@/stores/runtime-state-store')>()
+  return {
+    ...actual,
+    useRuntimeStateStore: (selector: (s: { byRuntimeId: typeof mocks.byRuntimeId }) => unknown) =>
+      selector({ byRuntimeId: mocks.byRuntimeId }),
+  }
+})
 
 vi.mock('@/stores/actor-presence-store', () => ({
   useActorPresenceStore: (selector: (s: { byActorId: typeof mocks.presenceByActor }) => unknown) =>
@@ -69,8 +73,8 @@ describe('useEngagedAgentUiStates', () => {
   it('marks agent offline when presence is false despite active runtime retain', () => {
     mocks.localDaemonActorId = 'other-local-agent'
     mocks.presenceByActor['remote-agent'] = { online: false }
-    mocks.byRuntimeId['remote-agent'] = {
-      daemonActorId: 'local-agent',
+    mocks.byRuntimeId['remote-agent::rt-1'] = {
+      daemonActorId: 'remote-agent',
       lastUpdated: Date.now(),
       info: {
         state: RuntimeLifecycle.ACTIVE,
@@ -92,7 +96,7 @@ describe('useEngagedAgentUiStates', () => {
   it('keeps a replying remote agent ready while live stream is active despite stale offline presence', () => {
     mocks.localDaemonActorId = 'other-local-agent'
     mocks.presenceByActor['remote-agent'] = { online: false }
-    mocks.byRuntimeId['remote-agent'] = {
+    mocks.byRuntimeId['remote-agent::rt-1'] = {
       daemonActorId: 'remote-agent',
       lastUpdated: Date.now(),
       info: {
@@ -116,7 +120,7 @@ describe('useEngagedAgentUiStates', () => {
   it('keeps local active runtime ready after HTTP probe succeeds despite stale offline presence', async () => {
     mocks.presenceByActor['local-agent'] = { online: false }
     mocks.probeResult = 'reachable'
-    mocks.byRuntimeId['local-agent'] = {
+    mocks.byRuntimeId['local-agent::rt-1'] = {
       daemonActorId: 'local-agent',
       lastUpdated: Date.now(),
       info: {
@@ -141,7 +145,7 @@ describe('useEngagedAgentUiStates', () => {
   it('marks local ready agent offline when HTTP probe fails', async () => {
     mocks.presenceByActor['local-agent'] = { online: true }
     mocks.probeResult = 'unreachable'
-    mocks.byRuntimeId['local-agent'] = {
+    mocks.byRuntimeId['local-agent::rt-1'] = {
       daemonActorId: 'local-agent',
       lastUpdated: Date.now(),
       info: {
@@ -163,9 +167,9 @@ describe('useEngagedAgentUiStates', () => {
     }, { timeout: 3000 })
   })
 
-  it('stays connecting without a session binding even when another spawn is live', () => {
+  it('stays connecting without a session binding even when another attachment is live', () => {
     mocks.presenceByActor['local-agent'] = { online: true }
-    mocks.byRuntimeId['rt-other'] = {
+    mocks.byRuntimeId['local-agent::rt-other'] = {
       daemonActorId: 'local-agent',
       lastUpdated: Date.now(),
       info: {
@@ -182,9 +186,9 @@ describe('useEngagedAgentUiStates', () => {
     expect(result.current[0]?.uiState).toBe('connecting')
   })
 
-  it('does not hop to another spawn when session binding retain is missing', () => {
+  it('does not hop to another attachment when session binding retain is missing', () => {
     mocks.presenceByActor['local-agent'] = { online: true }
-    mocks.byRuntimeId['rt-other'] = {
+    mocks.byRuntimeId['local-agent::rt-other'] = {
       daemonActorId: 'local-agent',
       lastUpdated: Date.now(),
       info: {
@@ -199,6 +203,97 @@ describe('useEngagedAgentUiStates', () => {
         [{ id: 'local-agent', displayName: 'MACPRO' }],
         new Map([['local-agent', 'rt-new']]),
       ),
+    )
+
+    expect(result.current[0]?.uiState).toBe('connecting')
+  })
+
+  it('resolves actor-retain attachment by composite key when multiple sessions are live', () => {
+    mocks.localDaemonActorId = 'other-local-agent'
+    mocks.presenceByActor['remote-agent'] = { online: true }
+    mocks.byRuntimeId = {
+      'remote-agent::session-a': {
+        daemonActorId: 'remote-agent',
+        lastUpdated: Date.now(),
+        info: {
+          state: RuntimeLifecycle.ACTIVE,
+          runtimeId: 'session-a',
+          availableModels: [{ id: 'm1', displayName: 'Model' }],
+        },
+      },
+      'remote-agent::session-b': {
+        daemonActorId: 'remote-agent',
+        lastUpdated: Date.now(),
+        info: {
+          state: RuntimeLifecycle.ACTIVE,
+          runtimeId: 'session-b',
+          availableModels: [{ id: 'm1', displayName: 'Model' }],
+        },
+      },
+      'remote-agent::session-c': {
+        daemonActorId: 'remote-agent',
+        lastUpdated: Date.now(),
+        info: {
+          state: RuntimeLifecycle.ACTIVE,
+          runtimeId: 'session-c',
+          availableModels: [{ id: 'm1', displayName: 'Model' }],
+        },
+      },
+    }
+
+    const { result } = renderHook(() =>
+      useEngagedAgentUiStates(
+        [{ id: 'remote-agent', displayName: 'SPRBOT' }],
+        new Map([['remote-agent', 'session-a']]),
+      ),
+    )
+
+    expect(result.current[0]?.uiState).toBe('ready')
+  })
+
+  it('shows an online remote agent ready in a draft chat with no session binding', () => {
+    // The composer renders before the session exists, so there is no binding to
+    // look up. The agent's own machine is online with a catalog — that is the
+    // honest answer, and withholding it pinned the pill at Connecting until the
+    // first send attached a runtime.
+    mocks.localDaemonActorId = 'other-local-agent'
+    mocks.presenceByActor['remote-agent'] = { online: true }
+    mocks.byRuntimeId = {
+      'remote-agent::other-session': {
+        daemonActorId: 'remote-agent',
+        lastUpdated: Date.now(),
+        info: {
+          state: RuntimeLifecycle.ACTIVE,
+          runtimeId: 'other-session',
+          availableModels: [{ id: 'm1', displayName: 'Model' }],
+        },
+      },
+    }
+
+    const { result } = renderHook(() =>
+      useEngagedAgentUiStates([{ id: 'remote-agent', displayName: 'SPRBOT' }], new Map()),
+    )
+
+    expect(result.current[0]?.uiState).toBe('ready')
+  })
+
+  it('keeps a remote agent connecting when its machine advertises no models', () => {
+    mocks.localDaemonActorId = 'other-local-agent'
+    mocks.presenceByActor['remote-agent'] = { online: true }
+    mocks.byRuntimeId = {
+      'remote-agent::other-session': {
+        daemonActorId: 'remote-agent',
+        lastUpdated: Date.now(),
+        info: {
+          state: RuntimeLifecycle.ACTIVE,
+          runtimeId: 'other-session',
+          availableModels: [],
+        },
+      },
+    }
+
+    const { result } = renderHook(() =>
+      useEngagedAgentUiStates([{ id: 'remote-agent', displayName: 'SPRBOT' }], new Map()),
     )
 
     expect(result.current[0]?.uiState).toBe('connecting')

@@ -16,6 +16,7 @@ import {
   fetchLocalDaemonModels,
   firstAvailableRecentModel,
   mergeLocalDaemonModels,
+  seedLocalDaemonModelsInBackground,
 } from '../local-daemon-model-catalog'
 
 const catalog = (backend: string, refs: string[], recentModels?: string[]) => ({
@@ -204,16 +205,19 @@ describe('mergeLocalDaemonModels', () => {
     useRuntimeStateStore.getState().clear()
   })
 
-  it('fills an empty catalog on both the spawn and agent-uuid keys', () => {
-    seedEntry('rt-1', 'actor-1')
+  it('fills an empty catalog on the composite attachment key', () => {
+    seedEntry('actor-1::session-1', 'actor-1')
     expect(
-      mergeLocalDaemonModels({ daemonActorId: 'actor-1', runtimeId: 'rt-1', models }),
+      mergeLocalDaemonModels({
+        daemonActorId: 'actor-1',
+        runtimeId: 'rt-1',
+        sessionId: 'session-1',
+        models,
+      }),
     ).toBe(true)
 
     const state = useRuntimeStateStore.getState().byRuntimeId
-    expect(state['rt-1'].info.availableModels[0].id).toBe('prov/http')
-    // The mirror key is what resolvers look up first.
-    expect(state['actor-1'].info.availableModels[0].id).toBe('prov/http')
+    expect(state['actor-1::session-1'].info.availableModels[0].id).toBe('prov/http')
   })
 
   it('leaves a retain that already carries models alone', () => {
@@ -281,5 +285,45 @@ describe('mergeLocalDaemonModels', () => {
     expect(
       mergeLocalDaemonModels({ daemonActorId: 'actor-1', runtimeId: 'rt-1', models: [] }),
     ).toBe(false)
+  })
+})
+
+describe('seedLocalDaemonModelsInBackground', () => {
+  beforeEach(() => {
+    getDaemonModelCatalog.mockReset()
+    useRuntimeStateStore.getState().clear()
+  })
+
+  it('merges HTTP catalog onto the composite attachment key', async () => {
+    useRuntimeStateStore.getState().upsert(
+      'actor-1::session-1',
+      'actor-1',
+      create(RuntimeInfoSchema, {
+        runtimeId: 'session-1',
+        state: RuntimeLifecycle.ACTIVE,
+        availableModels: [],
+      }),
+    )
+    getDaemonModelCatalog.mockResolvedValue(
+      catalog('opencode', ['prov/http']),
+    )
+
+    seedLocalDaemonModelsInBackground({
+      daemonActorId: 'actor-1',
+      runtimeId: 'rt-1',
+      sessionId: 'session-1',
+      workspacePath: '/w1',
+      backendType: 'opencode',
+    })
+
+    await vi.waitFor(() => {
+      expect(
+        useRuntimeStateStore.getState().byRuntimeId['actor-1::session-1']?.info.availableModels,
+      ).toHaveLength(1)
+    })
+    expect(
+      useRuntimeStateStore.getState().byRuntimeId['actor-1::session-1']?.info.availableModels[0]?.id,
+    ).toBe('prov/http')
+    expect(useRuntimeStateStore.getState().byRuntimeId['rt-1']).toBeUndefined()
   })
 })

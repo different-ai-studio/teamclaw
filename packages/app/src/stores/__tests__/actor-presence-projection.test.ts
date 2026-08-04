@@ -44,7 +44,11 @@ describe("projectActorPresence", () => {
       "actor-1",
       presence({
         liveSessions: [
-          create(LiveSessionSchema, { sessionId: "session-1", currentModel: "opencode/a" }),
+          create(LiveSessionSchema, {
+            sessionId: "session-1",
+            currentModel: "opencode/a",
+            worktree: "/w/one",
+          }),
         ],
       }),
     );
@@ -62,10 +66,35 @@ describe("projectActorPresence", () => {
     expect(updates[0]!.info.currentModel).toBe("opencode/a");
   });
 
+  it("resolveSessionAttachmentEntry finds composite keys", async () => {
+    const { resolveSessionAttachmentEntry } = await import("@/stores/runtime-state-store");
+    const updates = projectActorPresence(
+      "actor-1",
+      presence({
+        liveSessions: [
+          create(LiveSessionSchema, {
+            sessionId: "session-1",
+            currentModel: "opencode/a",
+            worktree: "/w/one",
+          }),
+        ],
+      }),
+    );
+    const byRuntimeId = Object.fromEntries(
+      updates.map((u) => [
+        u.runtimeId,
+        { info: u.info, daemonActorId: u.daemonActorId, lastUpdated: 1 },
+      ]),
+    );
+    expect(resolveSessionAttachmentEntry("actor-1", "session-1", byRuntimeId)?.info.runtimeId).toBe(
+      "session-1",
+    );
+  });
+
   it("falls back to the worktree's default model when the session has none", () => {
     const updates = projectActorPresence(
       "actor-1",
-      presence({ liveSessions: [create(LiveSessionSchema, { sessionId: "session-2" })] }),
+      presence({ liveSessions: [create(LiveSessionSchema, { sessionId: "session-2", worktree: "/w/one" })] }),
     );
     expect(updates[0]!.info.currentModel).toBe("opencode/b");
   });
@@ -74,10 +103,10 @@ describe("projectActorPresence", () => {
     // Merging every actor's retain into one map means the key must carry the
     // actor, or the second machine's entry silently replaces the first.
     const a = projectActorPresence("actor-1", presence({
-      liveSessions: [create(LiveSessionSchema, { sessionId: "shared" })],
+      liveSessions: [create(LiveSessionSchema, { sessionId: "shared", worktree: "/w/one" })],
     }));
     const b = projectActorPresence("actor-2", presence({
-      liveSessions: [create(LiveSessionSchema, { sessionId: "shared" })],
+      liveSessions: [create(LiveSessionSchema, { sessionId: "shared", worktree: "/w/one" })],
     }));
     expect(a[0]!.runtimeId).toBe("actor-1::shared");
     expect(b[0]!.runtimeId).toBe("actor-2::shared");

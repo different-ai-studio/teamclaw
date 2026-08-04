@@ -167,7 +167,7 @@ export function dotClassesForUiState(uiState: SessionAgentUiState): AgentPillDot
     case 'ready':
       return { color: 'bg-emerald-500', pulse: false }
     case 'connecting':
-      return { color: 'bg-amber-400', pulse: false }
+      return { color: 'bg-amber-400', pulse: true }
     case 'unconfigured':
       // Amber like connecting — the daemon is up; this is a setup gap, not a
       // failure — but steady, because nothing is in progress.
@@ -211,9 +211,12 @@ export function toMentionDeliverySnapshot(
 ): MentionDeliverySnapshot | null {
   if (uiState === 'ready') return 'ready'
   if (uiState === 'stale') return 'stale'
+  // Connecting means the session binding has not landed yet — the send path
+  // will spawn/wake. Do not freeze that as "offline" in message metadata.
+  if (uiState === 'connecting') return null
   // `unconfigured` is reachable but cannot run a prompt — for delivery purposes
   // that is indistinguishable from offline.
-  if (uiState === 'offline' || uiState === 'connecting' || uiState === 'unconfigured') {
+  if (uiState === 'offline' || uiState === 'unconfigured') {
     return 'offline'
   }
   return null

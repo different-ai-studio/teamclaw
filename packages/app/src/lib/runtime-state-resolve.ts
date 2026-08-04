@@ -1,6 +1,7 @@
 import { AgentType, RuntimeLifecycle } from "@/lib/proto/amux_pb";
 import {
   attachmentsForSession,
+  resolveSessionAttachmentEntry,
   useRuntimeStateStore,
   type RuntimeStateEntry,
 } from "@/stores/runtime-state-store";
@@ -54,26 +55,31 @@ export function resolveRuntimeStateEntryForAgent(
   // session's models here, so a concrete session hint must win outright.
   const dbId = dbRuntimeId?.trim() ?? "";
   if (dbId) {
-    const hinted = byRuntimeId[dbId];
-    if (
-      hinted &&
-      (hinted.daemonActorId === trimmedAgent ||
-        hinted.info.runtimeId === trimmedAgent ||
-        hinted.info.runtimeId === dbId)
-    ) {
-      return hinted;
-    }
+    const attached = resolveSessionAttachmentEntry(trimmedAgent, dbId, byRuntimeId);
+    if (attached) return attached;
   }
 
-  // No session hint (or it hasn't been observed yet): fall back to the most
-  // recently updated runtime for this agent.
+  // No session hint (or it hasn't been observed yet): pick the freshest
+  // attachment for this agent.
   let best: RuntimeStateEntry | undefined;
-  best = considerRuntimeEntry(best, byRuntimeId[trimmedAgent]);
-  for (const entry of Object.values(byRuntimeId)) {
-    if (entry.daemonActorId !== trimmedAgent && entry.info.runtimeId !== trimmedAgent) continue;
+  // Recency alone can land on an entry that advertises no catalog, which reads
+  // as "this agent has no models". Prefer the freshest entry that does have one.
+  let bestWithModels: RuntimeStateEntry | undefined;
+  const consider = (entry: RuntimeStateEntry | undefined) => {
+    if (!entry) return;
     best = considerRuntimeEntry(best, entry);
+    if (entry.info.availableModels.length > 0) {
+      bestWithModels = considerRuntimeEntry(bestWithModels, entry);
+    }
+  };
+  for (const entry of Object.values(byRuntimeId)) {
+    if (entry.daemonActorId !== trimmedAgent) continue;
+    consider(entry);
   }
 
+  if (best && best.info.availableModels.length === 0 && bestWithModels) {
+    return bestWithModels;
+  }
   return best;
 }
 
@@ -99,7 +105,7 @@ function findLiveRuntimeIdForAgent(
 ): string | undefined {
   let best: RuntimeStateEntry | undefined;
   for (const entry of Object.values(byRuntimeId)) {
-    if (entry.daemonActorId !== agentId && entry.info.runtimeId !== agentId) continue;
+    if (entry.daemonActorId !== agentId) continue;
     if (!isRuntimeLifecycleLive(entry.info.state)) continue;
     const id = entry.info.runtimeId?.trim() ?? "";
     if (!id) continue;
@@ -115,9 +121,14 @@ function isDbRuntimeHintLive(
   byRuntimeId: Record<string, RuntimeStateEntry>,
 ): boolean {
   if (!dbRuntimeId) return false;
-  const retain = byRuntimeId[dbRuntimeId];
-  if (!retain) return true;
-  return isRuntimeLifecycleLive(retain.info.state);
+  const direct = byRuntimeId[dbRuntimeId];
+  if (direct) return isRuntimeLifecycleLive(direct.info.state);
+  for (const [key, entry] of Object.entries(byRuntimeId)) {
+    if (key.endsWith(`::${dbRuntimeId}`) || entry.info.runtimeId === dbRuntimeId) {
+      return isRuntimeLifecycleLive(entry.info.state);
+    }
+  }
+  return true;
 }
 
 /**

@@ -5,7 +5,7 @@ export function buildPostSendSessionNotice(
   entries: EngagedAgentUiEntry[],
   t: TFunction,
 ): string | null {
-  const offline = entries.filter((e) => e.uiState === 'offline' || e.uiState === 'connecting')
+  const offline = entries.filter((e) => e.uiState === 'offline')
   const stale = entries.filter((e) => e.uiState === 'stale')
   if (offline.length === 0 && stale.length === 0) return null
 
