@@ -451,21 +451,31 @@ impl DaemonServer {
 
     /// Persist the cron job prompt as a `text` message on the cloud session.
     ///
+    /// The prompt is written the way a human @-mentioning this daemon's agent
+    /// would be — `metadata.mention_actor_ids = [self.actor_id]` — because the
+    /// sender is a human admin member, and an un-mentioned inbound message is
+    /// treated as drive-by chatter everywhere else in the system: the chat UI
+    /// shows no mention, and every catchup re-queues it as silent context
+    /// instead of seeing an answered turn.
+    ///
     /// Skips session/live publish so the daemon does not re-route the prompt
-    /// back into the ACP runtime (cron already calls `send_prompt_raw`).
+    /// back into the ACP runtime (cron already calls `send_prompt_raw`), and
+    /// burns the message id in the ingestion dedup gate so a catchup replay
+    /// racing the in-flight cron turn cannot fire a second prompt off the
+    /// now-present mention.
     pub(crate) async fn persist_cron_user_prompt(
-        &self,
+        &mut self,
         team_id: &str,
         session_id: &str,
         prompt: &str,
     ) {
-        let Some(tc) = self.teamclaw.as_ref() else {
+        if self.teamclaw.is_none() {
             warn!(
                 session_id,
                 "cron: SessionManager unavailable; user prompt not persisted"
             );
             return;
-        };
+        }
 
         let sender_actor_id = self
             .backend
@@ -477,6 +487,8 @@ impl DaemonServer {
 
         let message_id = uuid::Uuid::new_v4().to_string();
         let now = chrono::Utc::now();
+        let metadata_json =
+            serde_json::json!({ "mention_actor_ids": [self.actor_id.clone()] }).to_string();
         let proto_msg = crate::proto::teamclaw::Message {
             message_id: message_id.clone(),
             session_id: session_id.to_string(),
@@ -484,17 +496,27 @@ impl DaemonServer {
             kind: crate::proto::teamclaw::MessageKind::Text as i32,
             content: prompt.to_string(),
             created_at: now.timestamp(),
+            metadata_json: metadata_json.clone(),
             ..Default::default()
         };
 
-        if let Err(e) = tc.persist_message(session_id, &proto_msg).await {
-            warn!(?e, session_id, "cron: persist user prompt to TOML failed");
+        if let Some(tc) = self.teamclaw.as_ref() {
+            if let Err(e) = tc.persist_message(session_id, &proto_msg).await {
+                warn!(?e, session_id, "cron: persist user prompt to TOML failed");
+            }
+        }
+
+        // Cron drives this turn itself; claim the id so neither the live
+        // ingest nor a catchup replay prompts the runtime a second time.
+        if let Some(tc) = self.teamclaw.as_mut() {
+            tc.should_process_message(session_id, &message_id);
         }
 
         info!(
             session_id,
             bytes = prompt.len(),
             sender_actor_id = %sender_actor_id,
+            mention_actor_id = %self.actor_id,
             "cron: persisted user prompt to session TOML and cloud"
         );
 
@@ -511,7 +533,7 @@ impl DaemonServer {
                     &sender_actor_id,
                     "text",
                     &content,
-                    "",
+                    &metadata_json,
                     "",
                     "",
                     "",
@@ -834,7 +856,7 @@ mod tests {
                 .insert("agent-actor".to_string(), vec!["human-admin".to_string()]);
         }
         let backend: Arc<dyn Backend> = Arc::new(mock.clone());
-        let test_server = test_server_with_cloud_api(backend);
+        let mut test_server = test_server_with_cloud_api(backend);
 
         test_server
             .server
@@ -849,5 +871,72 @@ mod tests {
         assert_eq!(snap.messages_inserted[0].content, "check approvals");
         assert_eq!(snap.messages_inserted[0].sender_actor_id, "human-admin");
         assert_eq!(snap.messages_inserted[0].session_id, "session-1");
+    }
+
+    /// The prompt must land as an @mention of this daemon's agent, otherwise
+    /// the chat UI shows an un-addressed message and catchup treats it as
+    /// drive-by chatter rather than an answered turn.
+    #[tokio::test]
+    async fn persist_cron_user_prompt_mentions_the_daemon_agent() {
+        use crate::backend::mock::MockBackend;
+        use crate::backend::Backend;
+        use std::sync::Arc;
+
+        let mock = MockBackend::with_identity("team-test", "agent-actor");
+        {
+            let mut st = mock.state();
+            st.admin_member_actor_ids
+                .insert("agent-actor".to_string(), vec!["human-admin".to_string()]);
+        }
+        let backend: Arc<dyn Backend> = Arc::new(mock.clone());
+        let mut test_server = test_server_with_cloud_api(backend);
+
+        test_server
+            .server
+            .persist_cron_user_prompt("team-test", "session-1", "check approvals")
+            .await;
+
+        tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+
+        let snap = mock.state();
+        assert_eq!(
+            crate::daemon::session_events::parse_mention_actor_ids(
+                &snap.messages_inserted[0].metadata_json
+            ),
+            vec!["agent-actor".to_string()],
+        );
+    }
+
+    /// Cron drives its own turn, so the prompt id must already be spent in the
+    /// ingestion dedup gate — a catchup replay racing the in-flight turn would
+    /// otherwise see the fresh mention and fire a duplicate prompt.
+    #[tokio::test]
+    async fn persist_cron_user_prompt_claims_the_message_id_for_dedup() {
+        use crate::backend::mock::MockBackend;
+        use crate::backend::Backend;
+        use std::sync::Arc;
+
+        let mock = MockBackend::with_identity("team-test", "agent-actor");
+        let backend: Arc<dyn Backend> = Arc::new(mock.clone());
+        let mut test_server = test_server_with_cloud_api(backend);
+
+        test_server
+            .server
+            .persist_cron_user_prompt("team-test", "session-1", "check approvals")
+            .await;
+
+        tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+
+        let message_id = mock.state().messages_inserted[0].id.clone();
+        let already_seen = !test_server
+            .server
+            .teamclaw
+            .as_mut()
+            .expect("test server has a SessionManager")
+            .should_process_message("session-1", &message_id);
+        assert!(
+            already_seen,
+            "cron prompt id should be spent so re-ingestion is a no-op"
+        );
     }
 }
