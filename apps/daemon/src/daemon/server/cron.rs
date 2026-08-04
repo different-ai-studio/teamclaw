@@ -224,11 +224,24 @@ impl DaemonServer {
             (sb_sid, acp_sid)
         };
 
+        // The model the runtime actually settled on — not `parsed.model_override`,
+        // which the daemon drops when the job's pinned pair is no longer in the
+        // workspace catalog. A desktop-typed message carries the sender's model
+        // the same way; without it "Run Now" navigates into a session whose only
+        // message has no model, and the desktop spawns its own runtime on the
+        // device MRU instead of the model the job asked for.
+        let run_model = {
+            let mgr = self.agents.lock().await;
+            mgr.agent_id_by_acp_session(&acp_sid)
+                .and_then(|runtime_id| mgr.current_model(&runtime_id).cloned())
+                .unwrap_or_default()
+        };
+
         // Cron drives the ACP turn directly (bypassing session/live routing),
         // so the job prompt never lands in Cloud the way a desktop-typed
         // message would. Persist it before the turn so "view session" shows
         // both sides of the exchange.
-        self.persist_cron_user_prompt(&team_id, &remote_session_id, parsed.message)
+        self.persist_cron_user_prompt(&team_id, &remote_session_id, parsed.message, &run_model)
             .await;
 
         Ok((
@@ -468,6 +481,7 @@ impl DaemonServer {
         team_id: &str,
         session_id: &str,
         prompt: &str,
+        model: &str,
     ) {
         if self.teamclaw.is_none() {
             warn!(
@@ -497,6 +511,7 @@ impl DaemonServer {
             content: prompt.to_string(),
             created_at: now.timestamp(),
             metadata_json: metadata_json.clone(),
+            model: model.to_string(),
             ..Default::default()
         };
 
@@ -524,6 +539,7 @@ impl DaemonServer {
         let team_id = team_id.to_string();
         let session = session_id.to_string();
         let content = prompt.to_string();
+        let model = model.to_string();
         tokio::spawn(async move {
             if let Err(e) = backend
                 .insert_message(
@@ -534,7 +550,7 @@ impl DaemonServer {
                     "text",
                     &content,
                     &metadata_json,
-                    "",
+                    &model,
                     "",
                     "",
                     0,
@@ -860,7 +876,7 @@ mod tests {
 
         test_server
             .server
-            .persist_cron_user_prompt("team-test", "session-1", "check approvals")
+            .persist_cron_user_prompt("team-test", "session-1", "check approvals", "")
             .await;
 
         tokio::time::sleep(std::time::Duration::from_millis(50)).await;
@@ -893,7 +909,7 @@ mod tests {
 
         test_server
             .server
-            .persist_cron_user_prompt("team-test", "session-1", "check approvals")
+            .persist_cron_user_prompt("team-test", "session-1", "check approvals", "")
             .await;
 
         tokio::time::sleep(std::time::Duration::from_millis(50)).await;
@@ -904,6 +920,38 @@ mod tests {
                 &snap.messages_inserted[0].metadata_json
             ),
             vec!["agent-actor".to_string()],
+        );
+    }
+
+    /// "Run Now" navigates into the session while it holds nothing but this
+    /// prompt. If the prompt carries no model, the desktop cannot tell what the
+    /// job is running on and spawns its own runtime on the device MRU — the
+    /// composer pill then names a model the job never asked for.
+    #[tokio::test]
+    async fn persist_cron_user_prompt_carries_the_run_model() {
+        use crate::backend::mock::MockBackend;
+        use crate::backend::Backend;
+        use std::sync::Arc;
+
+        let mock = MockBackend::with_identity("team-test", "agent-actor");
+        let backend: Arc<dyn Backend> = Arc::new(mock.clone());
+        let mut test_server = test_server_with_cloud_api(backend);
+
+        test_server
+            .server
+            .persist_cron_user_prompt(
+                "team-test",
+                "session-1",
+                "check approvals",
+                "anthropic/claude-haiku-4-5-20251001",
+            )
+            .await;
+
+        tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+
+        assert_eq!(
+            mock.state().messages_inserted[0].model,
+            "anthropic/claude-haiku-4-5-20251001",
         );
     }
 
@@ -922,7 +970,7 @@ mod tests {
 
         test_server
             .server
-            .persist_cron_user_prompt("team-test", "session-1", "check approvals")
+            .persist_cron_user_prompt("team-test", "session-1", "check approvals", "")
             .await;
 
         tokio::time::sleep(std::time::Duration::from_millis(50)).await;
