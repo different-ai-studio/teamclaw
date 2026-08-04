@@ -86,12 +86,19 @@ hkdf = "0.12"
 sha2 = "0.10"
 hex = "0.4"
 urlencoding = "2"
-# Mac → Linux cross-compile (cargo-zigbuild): teamclaw-gateway pulls native-tls/openssl-sys;
-# vendored builds OpenSSL from source so no Linux sysroot/pkg-config is needed on the host.
-openssl = { version = "0.10", features = ["vendored"] }
-
 [target.'cfg(unix)'.dependencies]
 libc = "0.2"
+# Mac → Linux cross-compile (cargo-zigbuild): teamclaw-gateway pulls native-tls/openssl-sys;
+# vendored builds OpenSSL from source so no Linux sysroot/pkg-config is needed on the host.
+#
+# Unix-only on purpose. As a plain dependency this also reached the Windows
+# build, where native-tls uses schannel and nothing else wants openssl-sys — so
+# the only thing it accomplished was making the runner compile OpenSSL from
+# source, which needs perl/NASM and fails there:
+#   cargo:warning=configuring OpenSSL build: 'perl' reported failure with exit code: 2
+# That killed build-windows in release-oss, and publish-manifest requires it, so
+# the 2026-08-03 nightly published nothing for either brand.
+openssl = { version = "0.10", features = ["vendored"] }
 
 [target.'cfg(windows)'.dependencies]
 windows-sys = { version = "0.61", features = ["Win32_Foundation", "Win32_System_Threading"] }
