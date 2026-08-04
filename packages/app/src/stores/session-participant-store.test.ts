@@ -110,7 +110,41 @@ describe("session-participant-store", () => {
     ]);
   });
 
-  it("retries empty cache on extension/web", async () => {
+  it("falls back to the cloud when the desktop local cache has no rows", async () => {
+    // A cron-created session is never synced into libsql just by being opened,
+    // so its local roster is empty while the cloud has the agent. Treating that
+    // empty read as the answer is what left the agent unmentionable and left
+    // messages with no target.
+    mockListParticipants.mockResolvedValue([
+      {
+        id: "daemon-1",
+        actor_type: "agent",
+        display_name: "MACPRO",
+        avatar_url: null,
+      },
+    ]);
+
+    await useSessionParticipantStore.getState().ensureParticipants(["cron-session"]);
+
+    expect(mockListParticipants).toHaveBeenCalledWith("cron-session");
+    expect(useSessionParticipantStore.getState().participantsBySession["cron-session"]).toEqual([
+      {
+        actorId: "daemon-1",
+        displayName: "MACPRO",
+        avatarUrl: null,
+        isAgent: true,
+      },
+    ]);
+  });
+
+  it("prefers the local cache and never calls the cloud when it has rows", async () => {
+    await useSessionParticipantStore.getState().ensureParticipants(["s1"]);
+
+    expect(mockListParticipants).not.toHaveBeenCalled();
+    expect(useSessionParticipantStore.getState().participantsBySession.s1).toHaveLength(2);
+  });
+
+  it("retries an empty roster on the next ensure", async () => {
     mockIsTauri.mockReturnValue(false);
     useSessionParticipantStore.setState({
       participantsBySession: { s1: [] },

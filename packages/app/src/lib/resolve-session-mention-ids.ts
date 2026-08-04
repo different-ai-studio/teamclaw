@@ -18,7 +18,10 @@ async function resolveSoleAgentIdIfSoloSession(sessionId: string): Promise<strin
   const store = useSessionParticipantStore.getState();
   const cached = store.participantsBySession[sessionId];
   const loading = store.loadingBySession[sessionId] ?? false;
-  if (cached !== undefined && !loading) {
+  // An empty roster is "not loaded yet", not "nobody is here" — falling through
+  // to the cloud read below is what keeps a cron-created session answerable.
+  // Trusting the empty array here is what sent messages with no target.
+  if (cached !== undefined && cached.length > 0 && !loading) {
     return soleAgentIdFromRoster(cached);
   }
 

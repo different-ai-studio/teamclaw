@@ -95,6 +95,23 @@ describe("resolveSessionMentionActorIds", () => {
     expect(ids).toEqual(["agent-1"]);
   });
 
+  it("falls back to the backend when the cached roster is empty", async () => {
+    // A cron-created session has no local participant rows until something
+    // syncs them, and nothing does that on open. Reading the empty array as
+    // "no agent here" is what made those sessions silent: the message went out
+    // with no mention_actor_ids and nobody answered.
+    mocks.participantStoreState.participantsBySession = { "session-1": [] };
+    mocks.listParticipants.mockResolvedValue([
+      { id: "member-1", actor_type: "member", display_name: "Alice" },
+      { id: "agent-1", actor_type: "agent", display_name: "Bot" },
+    ]);
+
+    const ids = await resolveSessionMentionActorIds("session-1", [], []);
+
+    expect(ids).toEqual(["agent-1"]);
+    expect(mocks.listParticipants).toHaveBeenCalledWith("session-1");
+  });
+
   it("ignores stale solo cache while roster refresh is in flight", async () => {
     mocks.participantStoreState.participantsBySession = {
       "session-1": [

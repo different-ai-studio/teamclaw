@@ -67,11 +67,30 @@ async function loadParticipantInfoFromLocalCache(
     .filter((p): p is SessionParticipantInfo => p !== null);
 }
 
+/**
+ * The local cache is an accelerator, never the truth.
+ *
+ * Nothing fills it when a session is merely opened — `syncParticipantsForSession`
+ * runs on a forced refresh, on the actor sheet's add/remove, on MQTT
+ * participant events and on a cache rebuild, and nowhere else. A session
+ * created server-side (cron) therefore has an empty local roster, and every
+ * consumer that treated that empty array as authoritative concluded "no
+ * participants": the sole-agent routing in `resolve-session-mention-ids` sent
+ * the message with no target (the agent never answered), the composer never
+ * engaged the agent pill, and the mention popover had nothing to offer — while
+ * the participants sheet, which reads the cloud directly, listed the agent the
+ * whole time.
+ *
+ * So an empty local read means "unknown", and we ask the cloud. A cloud answer
+ * of zero participants is the only empty this store will publish.
+ */
 async function loadParticipantInfo(sessionId: string): Promise<SessionParticipantInfo[]> {
   if (!isTauri()) {
     return loadParticipantInfoFromCloud(sessionId);
   }
-  return loadParticipantInfoFromLocalCache(sessionId);
+  const local = await loadParticipantInfoFromLocalCache(sessionId);
+  if (local.length > 0) return local;
+  return loadParticipantInfoFromCloud(sessionId);
 }
 
 export const useSessionParticipantStore = create<State>((set, get) => ({
@@ -86,8 +105,11 @@ export const useSessionParticipantStore = create<State>((set, get) => ({
       const cached = get().participantsBySession[sessionId]
       if (force) return true
       if (cached === undefined) return true
-      // Extension/web: retry empty cache (legacy loadSessionParticipants stub).
-      if (!isTauri() && cached.length === 0) return true
+      // Retry an empty roster on every platform, not just extension/web. A
+      // session always has at least its creator, so empty means something went
+      // wrong (a cloud read that transiently returned nothing) rather than a
+      // real answer — the retry costs nothing in practice and self-heals.
+      if (cached.length === 0) return true
       return false
     });
     if (missing.length === 0) return;

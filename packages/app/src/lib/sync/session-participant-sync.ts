@@ -50,6 +50,26 @@ export async function syncParticipantsForSession(
     mapRow,
     upsertBatch: cache.upsertSessionParticipantsBatch,
     full: opts?.full,
+    // Removing a participant is a hard DELETE server-side
+    // (supabase-repo `removeSessionParticipant`), so the row simply stops
+    // appearing — a delta sync has nothing to carry and even a full sync used
+    // to only upsert what survived. The removed actor stayed in the cache and
+    // came back the next time the session was opened. A full sync is the one
+    // moment we hold the server's complete answer, so make it authoritative.
+    //
+    // MQTT `participant.removed` already routes through `refreshSession`, which
+    // syncs with `full: true` — so this also propagates removals made on
+    // another device.
+    reconcileFull: async (rows) => {
+      const stillPresent = new Set(rows.map((row) => row.id));
+      const local = await cache.loadSessionParticipants(sessionId);
+      const gone = local.filter((row) => !stillPresent.has(row.id));
+      if (gone.length === 0) return;
+      const deletedAt = new Date().toISOString();
+      await Promise.all(
+        gone.map((row) => cache.softDeleteSessionParticipant(row.id, deletedAt)),
+      );
+    },
   });
   return count;
 }
