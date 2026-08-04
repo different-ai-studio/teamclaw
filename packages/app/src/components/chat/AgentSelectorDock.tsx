@@ -9,7 +9,7 @@ import { useLocalDaemonCatalogStore } from '@/stores/local-daemon-catalog-store'
 import { resolveAutoPersistModelId } from '@/lib/agent-model-auto-persist'
 import { useWorkspaceStore } from '@/stores/workspace'
 import {
-  agentAvailableModelsWithLocalCatalog,
+  resolveAgentCatalogModels,
   localRecentModelFallback,
 } from '@/lib/agent-model-fallback'
 import { resolveSessionEstablishedModel } from '@/lib/session-established-model'
@@ -173,16 +173,30 @@ function AgentPill({
   const localCatalog = useLocalDaemonCatalogStore((s) =>
     isSelf && workspacePath ? s.byWorkspacePath[workspacePath] : undefined,
   )
+  const remoteDefaultCatalog = useRuntimeStateStore(
+    (s) => s.defaultCatalogByActorId?.[agent.id],
+  )
 
   const availableModels = React.useMemo(
     () =>
-      agentAvailableModelsWithLocalCatalog({
+      resolveAgentCatalogModels({
         agentId: agent.id,
         localDaemonActorId: localActorId,
+        sessionId,
+        byRuntimeId,
         runtimeInfo: liveRuntimeInfo,
-        catalogModels: localCatalog?.models,
+        localWorkspaceCatalogModels: localCatalog?.models,
+        remoteDefaultCatalogModels: remoteDefaultCatalog?.models,
       }),
-    [agent.id, localActorId, liveRuntimeInfo, localCatalog],
+    [
+      agent.id,
+      localActorId,
+      sessionId,
+      byRuntimeId,
+      liveRuntimeInfo,
+      localCatalog,
+      remoteDefaultCatalog,
+    ],
   )
 
   const statusSuffix = pillSuffixForUiState(effectiveUiState, t)

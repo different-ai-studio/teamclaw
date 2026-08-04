@@ -165,7 +165,7 @@ impl DaemonServer {
             pair
         } else {
             // Confirm we have a local primary agent runtime.
-            let runtime_count = self.agents.lock().await.agent_count();
+            let runtime_count = self.agents.lock().await.agent_count().await;
             if runtime_count == 0 {
                 anyhow::bail!("no local agent runtime");
             }

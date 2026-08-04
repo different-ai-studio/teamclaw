@@ -360,6 +360,15 @@ message ActorPresence {
   // detach policy (idle timeout / LRU cap), not by history. Absence means
   // "not attached" — the client renders that session as cold.
   repeated LiveSession live_sessions = 8;
+
+  // This agent's default cloud workspace and its live-probed model catalog.
+  // Populated on every publish so remote clients (extension, other desktops)
+  // can render a draft-session picker without loopback HTTP. Desktop clients
+  // talking to their own local daemon use loopback catalog for the selected
+  // workspace instead.
+  string default_workspace_id = 9;
+  string default_worktree = 10;
+  repeated ModelInfo default_workspace_models = 11;
 }
 
 // Availability of the actor's single global backend process (AgentHost).

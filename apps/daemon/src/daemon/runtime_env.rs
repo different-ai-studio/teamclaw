@@ -150,4 +150,53 @@ impl DaemonServer {
     async fn resolve_managed_llm(&self, team_id: &str) -> ManagedLlmState {
         self.managed_llm.resolve(team_id).await
     }
+
+    /// Cloud workspace id + local path for this daemon agent's default workspace.
+    /// Uses the same resolution as cron and `GET /v1/agent/default-workspace`.
+    pub(super) async fn resolve_default_workspace_for_publish(
+        &self,
+    ) -> (String, String) {
+        let actor_id = &self.actor_id;
+        let team_id = self.config.team_id.as_deref();
+
+        let mut workspace_id = String::new();
+        let mut worktree = String::new();
+
+        if let Ok(defaults) = self.backend.get_agent_defaults(actor_id).await {
+            if let Some(id) = defaults
+                .default_workspace_id
+                .as_deref()
+                .map(str::trim)
+                .filter(|s| !s.is_empty())
+            {
+                workspace_id = id.to_string();
+                if let Ok(ws) = self.workspace_resolver.resolve(id).await {
+                    let path = ws.path.trim();
+                    if !path.is_empty() {
+                        worktree = path.to_string();
+                    }
+                }
+            }
+        }
+
+        if worktree.is_empty() {
+            if let Some(path) = crate::config::resolve_default_workspace_path(
+                &self.backend,
+                &self.workspace_resolver,
+                team_id,
+                actor_id,
+            )
+            .await
+            {
+                worktree = path;
+                if workspace_id.is_empty() {
+                    if let Some(id) = self.workspace_resolver.id_for_path(&worktree).await {
+                        workspace_id = id;
+                    }
+                }
+            }
+        }
+
+        (workspace_id, worktree)
+    }
 }
