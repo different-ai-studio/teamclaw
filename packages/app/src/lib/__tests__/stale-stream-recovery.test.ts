@@ -4,7 +4,10 @@ import {
   findStaleLiveStreams,
   STREAM_SILENCE_RECOVERY_MS,
 } from "@/lib/stale-stream-recovery";
-import type { RuntimeStateEntry } from "@/stores/runtime-state-store";
+import {
+  attachmentKey,
+  type RuntimeStateEntry,
+} from "@/stores/runtime-state-store";
 import type { AgentStreamEntry } from "@/stores/v2-streaming-store";
 
 const NOW = 1_800_000_000_000;
@@ -32,12 +35,13 @@ const stream = (
 const runtime = (
   status: AgentStatus,
   lastUpdated: number,
+  sessionId = "s1",
 ): Record<string, RuntimeStateEntry> => ({
-  [AGENT]: {
+  [attachmentKey(AGENT, sessionId)]: {
     daemonActorId: AGENT,
     lastUpdated,
     info: {
-      runtimeId: "abcd1234",
+      runtimeId: sessionId,
       agentType: 0,
       status,
       availableModels: [],
@@ -78,6 +82,32 @@ describe("findStaleLiveStreams — runtime retain reconciliation", () => {
     expect(
       find({ k: stream({ active: false }) }, runtime(AgentStatus.IDLE, NOW)),
     ).toEqual([]);
+  });
+
+  it("ignores a newer terminal retain from another session", () => {
+    expect(
+      find(
+        { k: stream() },
+        {
+          ...runtime(AgentStatus.ACTIVE, NOW - 500, "s1"),
+          ...runtime(AgentStatus.IDLE, NOW - 100, "s2"),
+        },
+      ),
+    ).toEqual([]);
+  });
+
+  it("uses the current session terminal retain when another session is newer", () => {
+    expect(
+      find(
+        { k: stream() },
+        {
+          ...runtime(AgentStatus.IDLE, NOW - 500, "s1"),
+          ...runtime(AgentStatus.ACTIVE, NOW - 100, "s2"),
+        },
+      ),
+    ).toEqual([
+      { sessionId: "s1", actorId: AGENT, reason: "runtime-terminal" },
+    ]);
   });
 });
 
