@@ -225,6 +225,20 @@ jobs:
               upsert_env ENABLE_GOOGLE_SIGNUP "false"
             fi
 
+            # GoTrue only honours a redirect_to that matches GOTRUE_URI_ALLOW_LIST
+            # (= ADDITIONAL_REDIRECT_URLS); anything else is silently rewritten to
+            # SITE_URL. The desktop loopback would then sit waiting for a code that
+            # never arrives — a hang rather than an error. The server .env predates
+            # OAuth and has this blank, and it is not a secret, so seed it here.
+            # Merge instead of overwrite: an entry added by hand on the box (a new
+            # client scheme, a staging callback) must survive the next deploy.
+            redirects="$(grep '^ADDITIONAL_REDIRECT_URLS=' .env | head -1 | cut -d= -f2-)"
+            for want in 'http://127.0.0.1:*/callback' 'teamclaw://auth-callback'; do
+              printf '%s' "$redirects" | tr ',' '\n' | grep -Fxq "$want" \
+                || redirects="${redirects:+$redirects,}$want"
+            done
+            upsert_env ADDITIONAL_REDIRECT_URLS "$redirects"
+
             echo "=== build fc ==="
             docker compose build fc
 
