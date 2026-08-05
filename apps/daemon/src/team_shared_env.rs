@@ -5,6 +5,14 @@ use tracing::{info, warn};
 
 use teamclaw_runtime_env::team_crypto::{self, EncryptedEnvelope};
 
+#[derive(Debug, Clone, Default)]
+pub struct TeamEnvLoadDiagnostics {
+    pub values: HashMap<String, String>,
+    pub source_paths: HashMap<String, String>,
+    pub unresolved_keys: Vec<String>,
+    pub overridden_keys: Vec<String>,
+}
+
 /// Derive the team AES key. Re-exported from the shared `team_crypto` module so
 /// this crate's OSS blob crypto (`sync::oss`) keeps a single import path.
 pub fn derive_key(env_secret: &str) -> anyhow::Result<[u8; 32]> {
@@ -82,12 +90,19 @@ pub fn load_team_env_from_secrets_dir(
     secrets_dir: &Path,
     env_secret: &str,
 ) -> anyhow::Result<HashMap<String, String>> {
+    Ok(load_team_env_from_secrets_dir_detailed(secrets_dir, env_secret)?.values)
+}
+
+fn load_team_env_from_secrets_dir_detailed(
+    secrets_dir: &Path,
+    env_secret: &str,
+) -> anyhow::Result<TeamEnvLoadDiagnostics> {
     if !secrets_dir.exists() {
-        return Ok(HashMap::new());
+        return Ok(TeamEnvLoadDiagnostics::default());
     }
 
     let key = derive_key(env_secret)?;
-    let mut env = HashMap::new();
+    let mut loaded = TeamEnvLoadDiagnostics::default();
     for entry in std::fs::read_dir(secrets_dir)? {
         let path = match entry {
             Ok(entry) => entry.path(),
@@ -102,10 +117,15 @@ pub fn load_team_env_from_secrets_dir(
         if !file_name.ends_with(".enc.json") {
             continue;
         }
+        let key_from_file = file_name
+            .strip_suffix(".enc.json")
+            .unwrap_or(file_name)
+            .to_string();
         let body = match std::fs::read_to_string(&path) {
             Ok(body) => body,
             Err(e) => {
                 warn!(path = %path.display(), "failed to read team secret file: {e}");
+                loaded.unresolved_keys.push(key_from_file);
                 continue;
             }
         };
@@ -113,6 +133,7 @@ pub fn load_team_env_from_secrets_dir(
             Ok(envelope) => envelope,
             Err(e) => {
                 warn!(path = %path.display(), "failed to parse team secret file: {e}");
+                loaded.unresolved_keys.push(key_from_file);
                 continue;
             }
         };
@@ -120,6 +141,7 @@ pub fn load_team_env_from_secrets_dir(
             Ok(secret) => secret,
             Err(e) => {
                 warn!(path = %path.display(), "failed to decrypt team secret file: {e}");
+                loaded.unresolved_keys.push(key_from_file);
                 continue;
             }
         };
@@ -131,9 +153,15 @@ pub fn load_team_env_from_secrets_dir(
         if secret.key_id.eq_ignore_ascii_case("tc_api_key") {
             continue;
         }
-        env.insert(secret.key_id, secret.key);
+        loaded
+            .source_paths
+            .insert(secret.key_id.clone(), path.display().to_string());
+        loaded.values.insert(secret.key_id, secret.key);
     }
-    Ok(normalize_env_map(env))
+    loaded.values = normalize_env_map(loaded.values);
+    loaded.unresolved_keys.sort();
+    loaded.unresolved_keys.dedup();
+    Ok(loaded)
 }
 
 pub fn load_team_env(
@@ -190,6 +218,13 @@ pub fn load_team_env_for_workspace(
     workspace_root: &Path,
     team_id: Option<&str>,
 ) -> HashMap<String, String> {
+    load_team_env_for_workspace_detailed(workspace_root, team_id).values
+}
+
+pub fn load_team_env_for_workspace_detailed(
+    workspace_root: &Path,
+    team_id: Option<&str>,
+) -> TeamEnvLoadDiagnostics {
     let shared_dir_name = read_team_json_shared_dir_name(workspace_root);
     let Some(env_secret) = resolve_env_secret(workspace_root, team_id) else {
         if team_id.is_some() {
@@ -198,23 +233,30 @@ pub fn load_team_env_for_workspace(
                 "team env secret missing; set it with `amuxd team secrets set --team-secret <64-hex>`"
             );
         }
-        return HashMap::new();
+        return TeamEnvLoadDiagnostics::default();
     };
 
     // Merge every candidate `_secrets/` dir — same union as the settings catalog.
     // Stopping at the first non-empty dir (old behaviour) dropped workspace-local
     // secrets whenever the global team store already held a partial copy.
-    let mut merged = HashMap::new();
+    let mut merged = TeamEnvLoadDiagnostics::default();
     for secrets_dir in team_secrets_dir_candidates(workspace_root, team_id, &shared_dir_name) {
-        match load_team_env_from_secrets_dir(&secrets_dir, &env_secret) {
-            Ok(env) if !env.is_empty() => {
+        match load_team_env_from_secrets_dir_detailed(&secrets_dir, &env_secret) {
+            Ok(loaded) if !loaded.values.is_empty() || !loaded.unresolved_keys.is_empty() => {
                 info!(
                     workspace = %workspace_root.display(),
                     secrets_dir = %secrets_dir.display(),
-                    count = env.len(),
+                    count = loaded.values.len(),
                     "merged team shared environment variables"
                 );
-                merged.extend(env);
+                for key in loaded.values.keys() {
+                    if merged.values.contains_key(key) {
+                        merged.overridden_keys.push(key.clone());
+                    }
+                }
+                merged.values.extend(loaded.values);
+                merged.source_paths.extend(loaded.source_paths);
+                merged.unresolved_keys.extend(loaded.unresolved_keys);
             }
             Ok(_) => {}
             Err(e) => {
@@ -227,7 +269,15 @@ pub fn load_team_env_for_workspace(
             }
         }
     }
-    normalize_env_map(merged)
+    merged.values = normalize_env_map(merged.values);
+    merged
+        .unresolved_keys
+        .retain(|key| !merged.values.contains_key(key));
+    merged.unresolved_keys.sort();
+    merged.unresolved_keys.dedup();
+    merged.overridden_keys.sort();
+    merged.overridden_keys.dedup();
+    merged
 }
 
 #[cfg(test)]
@@ -503,6 +553,11 @@ mod tests {
         let env = load_team_env(tmp.path(), "teamclaw", &"77".repeat(32)).unwrap();
 
         assert!(env.is_empty(), "a key mismatch must fail closed");
+
+        let detailed =
+            load_team_env_from_secrets_dir_detailed(&secrets_dir, &"77".repeat(32)).unwrap();
+        assert_eq!(detailed.unresolved_keys, vec!["shared_token"]);
+        assert!(detailed.source_paths.is_empty());
     }
 
     #[test]

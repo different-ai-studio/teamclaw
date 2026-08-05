@@ -53,6 +53,21 @@ impl RuntimeManager {
         })
     }
 
+    /// Resolution snapshot from any live runtime in this workspace.
+    pub fn workspace_env_snapshot(
+        &self,
+        workspace_path: &str,
+        workspace_id: &str,
+    ) -> Option<(teamclaw_runtime_env::ResolvedEnvSnapshot, Option<String>)> {
+        self.active_handles_for_workspace(workspace_path, workspace_id)
+            .find_map(|(_, handle)| {
+                handle
+                    .env_snapshot
+                    .clone()
+                    .map(|snapshot| (snapshot, handle.env_team_id.clone()))
+            })
+    }
+
     /// Stop all runtimes for a workspace (used after settings reload).
     pub async fn stop_runtimes_for_workspace(
         &mut self,

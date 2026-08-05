@@ -1075,19 +1075,50 @@ export interface DaemonEnvActivationBlocker {
   detail?: string | null
 }
 
+export interface DaemonEnvKeyActivationStatus {
+  key: string
+  scope: 'personal' | 'team' | 'system'
+  status: string
+}
+
+export interface DaemonUnresolvedConfigPlaceholder {
+  path: string
+  placeholder: string
+  key: string
+}
+
 export interface DaemonEnvActivationDiagnostics {
   personal_env_var_count: number
   personal_blob_user_var_count: number
   personal_blob_readable: boolean
   personal_load_error: string | null
   team_env_var_count: number
+  system_env_var_count: number
   opencode_serve_running: boolean
   opencode_serve_cached_env_count: number
   active_runtime_count: number
   workspace_has_active_turn: boolean
   refresh: DaemonRuntimeRefresh
   host_env_shadowed_keys: string[]
+  resolved_env_fingerprint: string | null
+  active_env_fingerprint: string | null
+  override_keys: string[]
+  alias_collision_keys: string[]
+  unresolved_env_keys: string[]
+  snapshot_conflict_workspace: string | null
+  activation_status: 'active' | 'pending' | 'blocked'
   blockers: DaemonEnvActivationBlocker[]
+  expected_env_keys: string[]
+  effective_env_keys: string[]
+  missing_expected_keys: string[]
+  key_statuses: DaemonEnvKeyActivationStatus[]
+  mcp_unresolved_placeholders: DaemonUnresolvedConfigPlaceholder[]
+  installed_env_fingerprint: string | null
+  active_handle_env_fingerprint: string | null
+  team_secret_configured: boolean
+  opencode_serve_cached_env_keys: string[]
+  missing_served_env_keys: string[]
+  active_handle_env_keys: string[]
 }
 
 export async function getDaemonEnvActivationDiagnostics(

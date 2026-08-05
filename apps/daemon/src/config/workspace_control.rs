@@ -226,6 +226,7 @@ pub struct EnvActivationDiagnostics {
     pub personal_blob_readable: bool,
     pub personal_load_error: Option<String>,
     pub team_env_var_count: usize,
+    pub system_env_var_count: usize,
     pub opencode_serve_running: bool,
     pub opencode_serve_cached_env_count: usize,
     pub active_runtime_count: usize,
@@ -233,8 +234,44 @@ pub struct EnvActivationDiagnostics {
     pub refresh: RuntimeRefreshDto,
     /// Personal keys shadowed by the host OS env at opencode serve spawn.
     pub host_env_shadowed_keys: Vec<String>,
+    /// Fingerprint most recently resolved/requested for this workspace.
+    pub resolved_env_fingerprint: Option<String>,
+    /// Fingerprint inherited by the currently running global opencode serve.
+    pub active_env_fingerprint: Option<String>,
+    /// Keys whose final value overrides an earlier personal/team/system layer.
+    pub override_keys: Vec<String>,
+    /// Alias keys that collided with an explicitly configured key.
+    pub alias_collision_keys: Vec<String>,
+    /// Keys known to the catalog but unavailable for runtime injection.
+    pub unresolved_env_keys: Vec<String>,
+    /// Workspace blocked from replacing the global host's active env snapshot.
+    pub snapshot_conflict_workspace: Option<String>,
+    /// `active`, `pending`, or `blocked`.
+    pub activation_status: String,
     /// Structured blockers for client-side i18n.
     pub blockers: Vec<EnvActivationBlocker>,
+    /// User-configured personal + team keys expected to resolve for this workspace.
+    pub expected_env_keys: Vec<String>,
+    /// Personal/team keys present in the latest resolved snapshot (non-alias).
+    pub effective_env_keys: Vec<String>,
+    /// Expected keys absent from the resolved snapshot and not marked unresolved.
+    pub missing_expected_keys: Vec<String>,
+    /// Per-key activation status for settings UI badges.
+    pub key_statuses: Vec<teamclaw_runtime_env::EnvKeyActivationStatus>,
+    /// `${KEY}` placeholders still present in opencode.json after resolution.
+    pub mcp_unresolved_placeholders: Vec<teamclaw_runtime_env::UnresolvedConfigPlaceholder>,
+    /// Fingerprint queued on the global OpenCode host for this workspace.
+    pub installed_env_fingerprint: Option<String>,
+    /// Fingerprint captured on the newest active runtime handle, if any.
+    pub active_handle_env_fingerprint: Option<String>,
+    /// Whether a team env secret is configured for decrypting `_secrets/`.
+    pub team_secret_configured: bool,
+    /// Key names queued on the global OpenCode serve host (no values).
+    pub opencode_serve_cached_env_keys: Vec<String>,
+    /// Resolved personal/team keys absent from the serve host queue.
+    pub missing_served_env_keys: Vec<String>,
+    /// Personal/team keys on the newest active runtime handle snapshot.
+    pub active_handle_env_keys: Vec<String>,
 }
 
 // ── WorkspaceControlStore trait ───────────────────────────────────────────────

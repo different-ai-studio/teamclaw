@@ -64,6 +64,10 @@ pub fn restore_gateway_shape_for_resume(env: &mut SpawnRuntimeEnv, workspace_id:
 #[derive(Debug, Clone, Default)]
 pub struct SpawnRuntimeEnv {
     pub extra_env: HashMap<String, String>,
+    /// Non-secret resolution metadata retained for diagnostics. Runtime
+    /// backends still receive `extra_env` during the compatibility phase.
+    pub resolved_env: Option<teamclaw_runtime_env::ResolvedEnvSnapshot>,
+    pub env_team_id: Option<String>,
     /// When true, all keys in `extra_env` override the ACP host process environment.
     pub force_env_override: bool,
     /// Original `opencode.json` before MCP placeholder resolve; restored when the
@@ -304,10 +308,7 @@ impl RuntimeManager {
     pub async fn opencode_serve_supervisor(
         &self,
     ) -> Option<Arc<crate::runtime::opencode_http::supervisor::ServeSupervisor>> {
-        self.agent_backend
-            .lock()
-            .await
-            .opencode_serve_supervisor()
+        self.agent_backend.lock().await.opencode_serve_supervisor()
     }
 
     pub fn agent_backend_handle(&self) -> Arc<AsyncMutex<Box<dyn AgentBackend>>> {
@@ -634,6 +635,8 @@ impl RuntimeManager {
         let permission = runtime_env.permission_policy();
         let SpawnRuntimeEnv {
             extra_env,
+            resolved_env,
+            env_team_id,
             force_env_override,
             opencode_json_original,
             is_gateway,
@@ -647,6 +650,11 @@ impl RuntimeManager {
             workspace_id.into(),
         );
         handle.current_prompt = prompt.into();
+        handle.env_fingerprint = resolved_env
+            .as_ref()
+            .map(|snapshot| snapshot.fingerprint.clone());
+        handle.env_snapshot = resolved_env;
+        handle.env_team_id = env_team_id;
         handle.session_id = remote_session_id.unwrap_or_default().to_string();
         // No static fallback: models come only from the live serve catalog
         // captured at attach time. Empty until the runtime advertises them.
@@ -771,6 +779,8 @@ impl RuntimeManager {
         let permission = runtime_env.permission_policy();
         let SpawnRuntimeEnv {
             extra_env,
+            resolved_env,
+            env_team_id,
             force_env_override,
             opencode_json_original,
             is_gateway,
@@ -784,6 +794,11 @@ impl RuntimeManager {
             worktree.into(),
             workspace_id.into(),
         );
+        handle.env_fingerprint = resolved_env
+            .as_ref()
+            .map(|snapshot| snapshot.fingerprint.clone());
+        handle.env_snapshot = resolved_env;
+        handle.env_team_id = env_team_id;
         handle.session_id = remote_session_id.unwrap_or_default().to_string();
         handle.is_gateway = is_gateway;
 
@@ -1735,6 +1750,19 @@ impl RuntimeManager {
     pub fn set_test_runtime_status(&mut self, runtime_id: &str, status: amux::AgentStatus) {
         if let Some(handle) = self.agents.get_mut(runtime_id) {
             handle.status = status;
+        }
+    }
+
+    pub fn set_test_runtime_env_snapshot(
+        &mut self,
+        runtime_id: &str,
+        snapshot: teamclaw_runtime_env::ResolvedEnvSnapshot,
+        team_id: Option<String>,
+    ) {
+        if let Some(handle) = self.agents.get_mut(runtime_id) {
+            handle.env_fingerprint = Some(snapshot.fingerprint.clone());
+            handle.env_snapshot = Some(snapshot);
+            handle.env_team_id = team_id;
         }
     }
 }

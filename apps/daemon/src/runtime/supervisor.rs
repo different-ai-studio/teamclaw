@@ -901,8 +901,8 @@ impl RuntimeSupervisor {
         team_id: Option<&str>,
     ) -> EnvActivationDiagnostics {
         let store = teamclaw_runtime_env::diagnose_personal_env_store();
-        let personal_env = teamclaw_runtime_env::personal_secrets::load_personal_env();
-        let loaded_user_count = personal_env
+        let personal_env_result = teamclaw_runtime_env::personal_secrets::load_personal_env();
+        let loaded_user_count = personal_env_result
             .as_ref()
             .map(teamclaw_runtime_env::count_user_personal_env_keys)
             .unwrap_or(0);
@@ -914,13 +914,11 @@ impl RuntimeSupervisor {
         } else {
             0
         };
-        let host_env_shadowed_keys = personal_env
-            .as_ref()
-            .map(|env| teamclaw_runtime_env::host_shadowed_env_keys(env))
-            .unwrap_or_default();
-        let personal_load_error = personal_env.err().map(|e| e.to_string());
+        let personal_env = personal_env_result.as_ref().cloned().unwrap_or_default();
+        let personal_load_error = personal_env_result.err().map(|e| e.to_string());
 
-        let team_env = crate::team_shared_env::load_team_env_for_workspace(workspace_path, team_id);
+        let team_env =
+            crate::team_shared_env::load_team_env_for_workspace_detailed(workspace_path, team_id);
 
         let workspace_path_str = workspace_path.to_string_lossy();
         let (
@@ -928,6 +926,11 @@ impl RuntimeSupervisor {
             workspace_has_active_turn,
             opencode_serve_running,
             cached_env_count,
+            served_env_keys,
+            active_env_fingerprint,
+            installed_env_fingerprint,
+            snapshot_conflict_workspace,
+            active_snapshot,
         ) = {
             let manager = self.agents.lock().await;
             let active_runtime_count = manager
@@ -935,18 +938,128 @@ impl RuntimeSupervisor {
                 .count();
             let workspace_has_active_turn =
                 manager.workspace_has_active_turn(&workspace_path_str, workspace_id);
+            let active_snapshot = manager
+                .workspace_env_snapshot(&workspace_path_str, workspace_id)
+                .map(|(snapshot, _)| snapshot);
             let serve_stats = manager
                 .opencode_serve_supervisor()
                 .await
-                .map(|serve| (serve.is_running(), serve.cached_env_key_count()))
-                .unwrap_or((false, 0));
+                .map(|serve| {
+                    let canonical_workspace = std::fs::canonicalize(workspace_path)
+                        .unwrap_or_else(|_| workspace_path.to_path_buf())
+                        .to_string_lossy()
+                        .into_owned();
+                    (
+                        serve.is_running(),
+                        serve.cached_env_key_count(),
+                        serve.cached_env_keys(),
+                        serve.active_env_fingerprint(),
+                        serve.requested_env_fingerprint(&canonical_workspace),
+                        serve.snapshot_conflict_workspace(&canonical_workspace),
+                    )
+                })
+                .unwrap_or((false, 0, Vec::new(), None, None, None));
             (
                 active_runtime_count,
                 workspace_has_active_turn,
                 serve_stats.0,
                 serve_stats.1,
+                serve_stats.2,
+                serve_stats.3,
+                serve_stats.4,
+                serve_stats.5,
+                active_snapshot,
             )
         };
+        let active_handle_env_fingerprint = active_snapshot
+            .as_ref()
+            .map(|snapshot| snapshot.fingerprint.clone());
+
+        let system_ctx = active_snapshot
+            .as_ref()
+            .map(|snapshot| teamclaw_runtime_env::SystemEnvContext {
+                actor_id: snapshot
+                    .bindings
+                    .get("actor_id")
+                    .cloned()
+                    .unwrap_or_default(),
+                display_name: snapshot
+                    .bindings
+                    .get("display_name")
+                    .cloned()
+                    .unwrap_or_default(),
+                cloud_token_file: snapshot.bindings.get("TC_ACCESS_TOKEN_FILE").cloned(),
+            })
+            .unwrap_or(teamclaw_runtime_env::SystemEnvContext {
+                actor_id: String::new(),
+                display_name: String::new(),
+                cloud_token_file: None,
+            });
+        let resolved = teamclaw_runtime_env::resolve_runtime_env(
+            personal_env.clone(),
+            team_env.values.clone(),
+            system_ctx,
+        );
+        let host_env_shadowed_keys =
+            teamclaw_runtime_env::host_shadowed_env_keys(&resolved.bindings);
+        let mut override_keys: Vec<String> = resolved
+            .overrides
+            .iter()
+            .filter(|entry| entry.kind == teamclaw_runtime_env::EnvOverrideKind::Layer)
+            .map(|entry| entry.key.clone())
+            .chain(team_env.overridden_keys.iter().cloned())
+            .collect();
+        override_keys.sort();
+        override_keys.dedup();
+        let mut alias_collision_keys: Vec<String> = resolved
+            .overrides
+            .iter()
+            .filter(|entry| entry.kind == teamclaw_runtime_env::EnvOverrideKind::AliasCollision)
+            .map(|entry| entry.key.clone())
+            .collect();
+        alias_collision_keys.sort();
+        alias_collision_keys.dedup();
+        let mut unresolved_env_keys = team_env.unresolved_keys.clone();
+        unresolved_env_keys.extend(resolved.unresolved.iter().map(|entry| entry.key.clone()));
+        unresolved_env_keys.sort();
+        unresolved_env_keys.dedup();
+        let resolved_env_fingerprint = Some(resolved.fingerprint.clone());
+
+        if let Some(snapshot) = active_snapshot.as_ref() {
+            override_keys.extend(
+                snapshot
+                    .overrides
+                    .iter()
+                    .filter(|entry| entry.kind == teamclaw_runtime_env::EnvOverrideKind::Layer)
+                    .map(|entry| entry.key.clone()),
+            );
+            alias_collision_keys.extend(
+                snapshot
+                    .overrides
+                    .iter()
+                    .filter(|entry| {
+                        entry.kind == teamclaw_runtime_env::EnvOverrideKind::AliasCollision
+                    })
+                    .map(|entry| entry.key.clone()),
+            );
+            override_keys.sort();
+            override_keys.dedup();
+            alias_collision_keys.sort();
+            alias_collision_keys.dedup();
+        }
+        let system_env_var_count = active_snapshot
+            .as_ref()
+            .map(|snapshot| {
+                snapshot
+                    .provenance
+                    .iter()
+                    .filter(|entry| {
+                        entry.scope == teamclaw_runtime_env::EnvScope::System
+                            && entry.alias_of.is_none()
+                    })
+                    .count()
+            })
+            .unwrap_or(0);
 
         let refresh = self.refresh.runtime_refresh_dto(workspace_id).await;
         let mut blockers: Vec<EnvActivationBlocker> = Vec::new();
@@ -998,7 +1111,10 @@ impl RuntimeSupervisor {
                 detail: None,
             });
         }
-        if opencode_serve_running && cached_env_count == 0 && personal_env_var_count > 0 {
+        if opencode_serve_running
+            && cached_env_count == 0
+            && (personal_env_var_count > 0 || !team_env.values.is_empty())
+        {
             blockers.push(EnvActivationBlocker {
                 code: "opencode_serve_no_cached_env".to_string(),
                 detail: None,
@@ -1010,20 +1126,147 @@ impl RuntimeSupervisor {
                 detail: Some(host_env_shadowed_keys.join(", ")),
             });
         }
+        if !unresolved_env_keys.is_empty() {
+            blockers.push(EnvActivationBlocker {
+                code: "unresolved_env_keys".to_string(),
+                detail: Some(unresolved_env_keys.join(", ")),
+            });
+        }
+        if !alias_collision_keys.is_empty() {
+            blockers.push(EnvActivationBlocker {
+                code: "alias_collision".to_string(),
+                detail: Some(alias_collision_keys.join(", ")),
+            });
+        }
+        if !override_keys.is_empty() {
+            blockers.push(EnvActivationBlocker {
+                code: "env_layer_override".to_string(),
+                detail: Some(override_keys.join(", ")),
+            });
+        }
+        let workspace_conflicted = snapshot_conflict_workspace
+            .as_deref()
+            .is_some_and(|conflict| {
+                std::fs::canonicalize(workspace_path)
+                    .unwrap_or_else(|_| workspace_path.to_path_buf())
+                    .to_string_lossy()
+                    == conflict
+            });
+        if workspace_conflicted {
+            blockers.push(EnvActivationBlocker {
+                code: "env_snapshot_conflict".to_string(),
+                detail: snapshot_conflict_workspace.clone(),
+            });
+        }
+        let activation_status = if workspace_conflicted {
+            "blocked"
+        } else if resolved_env_fingerprint.as_deref() == active_env_fingerprint.as_deref() {
+            "active"
+        } else {
+            "pending"
+        }
+        .to_string();
+        if activation_status == "pending" {
+            blockers.push(EnvActivationBlocker {
+                code: "env_snapshot_pending".to_string(),
+                detail: None,
+            });
+        }
+
+        let team_secret_configured = teamclaw_runtime_env::env_catalog::resolve_team_env_secret(
+            workspace_path,
+            team_id,
+            None,
+        )
+        .is_some();
+        let team_secret_files_present = !team_env.source_paths.is_empty()
+            || !team_env.unresolved_keys.is_empty()
+            || !team_env.values.is_empty();
+        if team_secret_files_present && !team_secret_configured {
+            blockers.push(EnvActivationBlocker {
+                code: "team_secret_missing".to_string(),
+                detail: None,
+            });
+        }
+
+        let activation_status_for_analysis = activation_status.as_str();
+        let active_snapshot_ref = active_snapshot.as_ref();
+        let mut analysis = teamclaw_runtime_env::analyze_env_activation(
+            &teamclaw_runtime_env::EnvActivationInput {
+                personal_env: &personal_env,
+                team_env: &team_env.values,
+                resolved: &resolved,
+                unresolved_keys: &unresolved_env_keys,
+                override_keys: &override_keys,
+                host_shadowed_keys: &host_env_shadowed_keys,
+                activation_status: activation_status_for_analysis,
+                active_runtime_count,
+                active_snapshot: active_snapshot_ref,
+                served_env_keys: &served_env_keys,
+                opencode_serve_running,
+            },
+        );
+        analysis.mcp_unresolved_placeholders =
+            teamclaw_runtime_env::find_unresolved_config_placeholders(
+                workspace_path,
+                &resolved.bindings,
+            );
+        if !analysis.mcp_unresolved_placeholders.is_empty() {
+            let keys: Vec<String> = analysis
+                .mcp_unresolved_placeholders
+                .iter()
+                .map(|entry| entry.key.clone())
+                .collect();
+            blockers.push(EnvActivationBlocker {
+                code: "mcp_placeholder_unresolved".to_string(),
+                detail: Some(keys.join(", ")),
+            });
+        }
+        if !analysis.missing_expected_keys.is_empty() {
+            blockers.push(EnvActivationBlocker {
+                code: "missing_expected_env_keys".to_string(),
+                detail: Some(analysis.missing_expected_keys.join(", ")),
+            });
+        }
+        if !analysis.missing_served_env_keys.is_empty() {
+            blockers.push(EnvActivationBlocker {
+                code: "env_not_served".to_string(),
+                detail: Some(analysis.missing_served_env_keys.join(", ")),
+            });
+        }
 
         EnvActivationDiagnostics {
             personal_env_var_count,
             personal_blob_user_var_count,
             personal_blob_readable: store.blob_readable,
             personal_load_error,
-            team_env_var_count: team_env.len(),
+            team_env_var_count: team_env.values.len(),
+            system_env_var_count,
             opencode_serve_running,
             opencode_serve_cached_env_count: cached_env_count,
             active_runtime_count,
             workspace_has_active_turn,
             refresh,
             host_env_shadowed_keys,
+            resolved_env_fingerprint,
+            active_env_fingerprint,
+            override_keys,
+            alias_collision_keys,
+            unresolved_env_keys,
+            snapshot_conflict_workspace,
+            activation_status,
             blockers,
+            expected_env_keys: analysis.expected_env_keys,
+            effective_env_keys: analysis.effective_env_keys,
+            missing_expected_keys: analysis.missing_expected_keys,
+            key_statuses: analysis.key_statuses,
+            mcp_unresolved_placeholders: analysis.mcp_unresolved_placeholders,
+            installed_env_fingerprint,
+            active_handle_env_fingerprint,
+            team_secret_configured,
+            opencode_serve_cached_env_keys: analysis.served_env_keys,
+            missing_served_env_keys: analysis.missing_served_env_keys,
+            active_handle_env_keys: analysis.active_handle_env_keys,
         }
     }
 
@@ -1052,9 +1295,7 @@ impl RuntimeSupervisor {
             // re-cold-starting the next session — see
             // `RefreshChangeKind::requires_provider_host_evict`.
             if evict_provider_hosts {
-                manager
-                    .evict_acp_hosts_after_provider_auth_change()
-                    .await;
+                manager.evict_acp_hosts_after_provider_auth_change().await;
             }
             stopped
         };
@@ -1126,6 +1367,40 @@ impl RuntimeSupervisor {
         applied
     }
 
+    async fn env_snapshot_unchanged(&self, workspace_id: &str, workspace_path: &Path) -> bool {
+        let workspace_path_str = workspace_path.to_string_lossy();
+        let previous = {
+            let manager = self.agents.lock().await;
+            manager.workspace_env_snapshot(&workspace_path_str, workspace_id)
+        };
+        let Some((previous, team_id)) = previous else {
+            return false;
+        };
+        let Ok(personal) = teamclaw_runtime_env::personal_secrets::load_personal_env() else {
+            return false;
+        };
+        let team =
+            crate::team_shared_env::load_team_env_for_workspace(workspace_path, team_id.as_deref());
+        let current = teamclaw_runtime_env::resolve_runtime_env(
+            personal,
+            team,
+            teamclaw_runtime_env::SystemEnvContext {
+                actor_id: previous
+                    .bindings
+                    .get("actor_id")
+                    .cloned()
+                    .unwrap_or_default(),
+                display_name: previous
+                    .bindings
+                    .get("display_name")
+                    .cloned()
+                    .unwrap_or_default(),
+                cloud_token_file: previous.bindings.get("TC_ACCESS_TOKEN_FILE").cloned(),
+            },
+        );
+        current.fingerprint == previous.fingerprint
+    }
+
     async fn auto_apply_pending_refresh_state(&self, state: WorkspaceRefreshState) -> bool {
         if !auto_applicable_refresh(&state) {
             self.refresh
@@ -1135,6 +1410,32 @@ impl RuntimeSupervisor {
         }
 
         let workspace_path = PathBuf::from(&state.workspace_path);
+        let env_only = state
+            .change_kinds
+            .iter()
+            .all(|kind| matches!(kind, RefreshChangeKind::EnvVars));
+        if env_only
+            && self
+                .env_snapshot_unchanged(&state.workspace_id, &workspace_path)
+                .await
+        {
+            let attempt = self
+                .refresh
+                .mark_applying(&state.workspace_id, &workspace_path)
+                .await;
+            self.refresh
+                .set_auto_apply_blocked_by_active_runtime(&state.workspace_id, false)
+                .await;
+            self.refresh
+                .clear_applied(&state.workspace_id, attempt)
+                .await;
+            info!(
+                workspace_id = %state.workspace_id,
+                workspace_path = %state.workspace_path,
+                "cleared env refresh because the resolved fingerprint is unchanged"
+            );
+            return true;
+        }
         let busy = {
             let manager = self.agents.lock().await;
             manager.workspace_has_active_turn(&state.workspace_path, &state.workspace_id)
@@ -1262,6 +1563,61 @@ mod tests {
         let applied = supervisor.auto_apply_pending_refreshes().await;
 
         assert_eq!(applied, 1);
+        let dto = supervisor
+            .refresh_coordinator()
+            .runtime_refresh_dto(&workspace_id)
+            .await;
+        assert_eq!(dto.status, "clean");
+    }
+
+    #[tokio::test]
+    async fn unchanged_env_fingerprint_clears_refresh_without_stopping_runtime() {
+        let dir = tempfile::tempdir().unwrap();
+        let workspace_id = refresh_watch::workspace_runtime_id(dir.path());
+        let supervisor = RuntimeSupervisor::new(Arc::new(AsyncMutex::new(RuntimeManager::new(
+            RuntimeManager::default_launch_configs(),
+            None,
+        ))));
+        let snapshot = teamclaw_runtime_env::resolve_runtime_env(
+            teamclaw_runtime_env::personal_secrets::load_personal_env().unwrap_or_default(),
+            std::collections::HashMap::new(),
+            teamclaw_runtime_env::SystemEnvContext {
+                actor_id: "actor-test".to_string(),
+                display_name: "Agent Test".to_string(),
+                cloud_token_file: None,
+            },
+        );
+        {
+            let mut manager = supervisor.agents.lock().await;
+            manager.add_test_workspace_runtime(
+                "rt-idle",
+                &dir.path().to_string_lossy(),
+                &workspace_id,
+                amux::AgentStatus::Idle,
+            );
+            manager.set_test_runtime_env_snapshot("rt-idle", snapshot, None);
+        }
+        supervisor
+            .refresh_coordinator()
+            .record_change(
+                &workspace_id,
+                dir.path(),
+                refresh::RefreshChangeKind::EnvVars,
+                refresh::RefreshSource::FilesystemWatch,
+            )
+            .await
+            .unwrap();
+
+        assert_eq!(supervisor.auto_apply_pending_refreshes().await, 1);
+        let manager = supervisor.agents.lock().await;
+        assert_eq!(
+            manager
+                .active_handles_for_workspace(&dir.path().to_string_lossy(), &workspace_id)
+                .count(),
+            1,
+            "unchanged env must not evict an idle runtime"
+        );
+        drop(manager);
         let dto = supervisor
             .refresh_coordinator()
             .runtime_refresh_dto(&workspace_id)

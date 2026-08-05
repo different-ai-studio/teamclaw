@@ -20,6 +20,101 @@ export interface PersonalEnvDiagnostics {
   hostShadowedKeys: string[]
 }
 
+export type EnvActivationOverallStatus = 'healthy' | 'degraded' | 'blocked'
+
+const CRITICAL_BLOCKER_CODES = new Set([
+  'personal_blob_undecryptable',
+  'personal_blob_missing',
+  'personal_store_uninitialized',
+  'refresh_failed',
+  'host_env_shadowed',
+  'env_snapshot_conflict',
+  'unresolved_env_keys',
+  'team_secret_missing',
+  'missing_expected_env_keys',
+  'mcp_placeholder_unresolved',
+  'env_not_served',
+])
+
+/** Roll up desktop + daemon diagnostics into a single headline status. */
+export function computeEnvActivationOverallStatus(
+  personal: PersonalEnvDiagnostics | null,
+  activation: DaemonEnvActivationDiagnostics | null,
+  dirtyKeyCount: number,
+): EnvActivationOverallStatus {
+  if (!personal || !activation) return 'degraded'
+
+  if (
+    !personal.blobReadable
+    || personal.indexKeysMissingFromBlob.length > 0
+    || personal.blobKeysMissingFromIndex.length > 0
+    || activation.activation_status === 'blocked'
+    || activation.blockers.some((blocker) => CRITICAL_BLOCKER_CODES.has(blocker.code))
+    || dirtyKeyCount > 0
+  ) {
+    return 'blocked'
+  }
+
+  const reloadPending = (activation.refresh.status === 'pending' || activation.refresh.status === 'applying')
+    && activation.refresh.change_kinds.includes('env_vars')
+
+  if (
+    activation.activation_status !== 'active'
+    || activation.blockers.length > 0
+    || activation.unresolved_env_keys.length > 0
+    || activation.alias_collision_keys.length > 0
+    || activation.override_keys.length > 0
+    || activation.active_runtime_count > 0
+    || personal.hostShadowedKeys.length > 0
+    || activation.host_env_shadowed_keys.length > 0
+    || activation.missing_served_env_keys.length > 0
+    || activation.refresh.status !== 'clean'
+    || reloadPending
+  ) {
+    return 'degraded'
+  }
+
+  return 'healthy'
+}
+
+/** Map a daemon per-key status code to a short settings-row label. */
+export function formatEnvKeyActivationStatus(
+  t: TFunction,
+  status: string | undefined,
+): string | null {
+  if (!status) return null
+  switch (status) {
+    case 'active':
+      return t('settings.envVars.injection.active', 'Injected')
+    case 'pending':
+      return t('settings.envVars.injection.pending', 'Pending reload')
+    case 'pending_session':
+      return t('settings.envVars.injection.pendingSession', 'Reload + new session')
+    case 'overridden':
+      return t('settings.envVars.injection.overridden', 'Overridden')
+    case 'unresolved':
+      return t('settings.envVars.injection.unresolved', 'Unresolved')
+    case 'host_shadowed':
+      return t('settings.envVars.injection.hostShadowed', 'Host shadowed')
+    case 'missing':
+      return t('settings.envVars.injection.missing', 'Missing')
+    case 'not_served':
+      return t('settings.envVars.injection.notServed', 'Not in serve host')
+    default:
+      return status
+  }
+}
+
+export function buildEnvKeyStatusMap(
+  activation: DaemonEnvActivationDiagnostics | null | undefined,
+): Map<string, string> {
+  const map = new Map<string, string>()
+  for (const entry of activation?.key_statuses ?? []) {
+    map.set(entry.key.toLowerCase(), entry.status)
+  }
+  return map
+}
+
 const EMPTY_REFRESH: DaemonRuntimeRefresh = {
   status: 'clean',
   change_kinds: [],
@@ -74,6 +169,45 @@ export function formatEnvActivationBlocker(
         keys: detail ?? '',
         defaultValue: `Host OS environment overrides personal vars for: ${detail ?? ''}`,
       })
+    case 'env_snapshot_conflict':
+      return t('settings.envVars.diag.blockerSnapshotConflict', {
+        workspace: detail ?? '',
+        defaultValue: `Another workspace is using a different environment snapshot: ${detail ?? ''}`,
+      })
+    case 'unresolved_env_keys':
+      return t('settings.envVars.diag.blockerUnresolvedEnvKeys', {
+        keys: detail ?? '',
+        defaultValue: `Variables could not be resolved for runtime injection: ${detail ?? ''}`,
+      })
+    case 'env_snapshot_pending':
+      return t('settings.envVars.diag.blockerEnvSnapshotPending', 'Resolved environment is not yet active in the global OpenCode host — reload runtime and start a new session')
+    case 'alias_collision':
+      return t('settings.envVars.diag.blockerAliasCollision', {
+        keys: detail ?? '',
+        defaultValue: `Alias keys collide with explicitly configured keys: ${detail ?? ''}`,
+      })
+    case 'env_layer_override':
+      return t('settings.envVars.diag.blockerEnvLayerOverride', {
+        keys: detail ?? '',
+        defaultValue: `Higher-priority layers override earlier values for: ${detail ?? ''}`,
+      })
+    case 'team_secret_missing':
+      return t('settings.envVars.diag.blockerTeamSecretMissing', 'Team encrypted env files exist but no team secret is configured on this machine')
+    case 'missing_expected_env_keys':
+      return t('settings.envVars.diag.blockerMissingExpectedEnvKeys', {
+        keys: detail ?? '',
+        defaultValue: `Expected env keys are missing from the resolved snapshot: ${detail ?? ''}`,
+      })
+    case 'mcp_placeholder_unresolved':
+      return t('settings.envVars.diag.blockerMcpPlaceholderUnresolved', {
+        keys: detail ?? '',
+        defaultValue: `opencode.json still references unresolved placeholders: ${detail ?? ''}`,
+      })
+    case 'env_not_served':
+      return t('settings.envVars.diag.blockerEnvNotServed', {
+        keys: detail ?? '',
+        defaultValue: `Resolved keys are missing from the OpenCode serve host queue: ${detail ?? ''}`,
+      })
     default:
       if (blocker.code === 'legacy_message' && detail) return detail
       return detail ? `${blocker.code}: ${detail}` : blocker.code
@@ -92,8 +226,39 @@ export function normalizeDaemonEnvActivationDiagnostics(
   raw: Partial<DaemonEnvActivationDiagnostics> | null | undefined,
 ): DaemonEnvActivationDiagnostics | null {
   if (!raw) return null
+  const wire = raw as Partial<DaemonEnvActivationDiagnostics> & {
+    personalEnvVarCount?: number
+    personalBlobUserVarCount?: number
+    personalBlobReadable?: boolean
+    personalLoadError?: string | null
+    teamEnvVarCount?: number
+    systemEnvVarCount?: number
+    opencodeServeRunning?: boolean
+    opencodeServeCachedEnvCount?: number
+    activeRuntimeCount?: number
+    workspaceHasActiveTurn?: boolean
+    hostEnvShadowedKeys?: string[]
+    resolvedEnvFingerprint?: string | null
+    activeEnvFingerprint?: string | null
+    overrideKeys?: string[]
+    aliasCollisionKeys?: string[]
+    unresolvedEnvKeys?: string[]
+    snapshotConflictWorkspace?: string | null
+    activationStatus?: 'active' | 'pending' | 'blocked'
+    expectedEnvKeys?: string[]
+    effectiveEnvKeys?: string[]
+    missingExpectedKeys?: string[]
+    keyStatuses?: DaemonEnvActivationDiagnostics['key_statuses']
+    mcpUnresolvedPlaceholders?: DaemonEnvActivationDiagnostics['mcp_unresolved_placeholders']
+    installedEnvFingerprint?: string | null
+    activeHandleEnvFingerprint?: string | null
+    teamSecretConfigured?: boolean
+    opencodeServeCachedEnvKeys?: string[]
+    missingServedEnvKeys?: string[]
+    activeHandleEnvKeys?: string[]
+  }
 
-  const blockers = (raw.blockers ?? []).map((entry) => {
+  const blockers = (wire.blockers ?? []).map((entry) => {
     if (typeof entry === 'string') {
       return { code: 'legacy_message', detail: entry }
     }
@@ -101,22 +266,41 @@ export function normalizeDaemonEnvActivationDiagnostics(
   })
 
   return {
-    personal_env_var_count: raw.personal_env_var_count ?? raw.personal_blob_user_var_count ?? 0,
-    personal_blob_user_var_count: raw.personal_blob_user_var_count ?? raw.personal_env_var_count ?? 0,
-    personal_blob_readable: raw.personal_blob_readable ?? false,
-    personal_load_error: raw.personal_load_error ?? null,
-    team_env_var_count: raw.team_env_var_count ?? 0,
-    opencode_serve_running: raw.opencode_serve_running ?? false,
-    opencode_serve_cached_env_count: raw.opencode_serve_cached_env_count ?? 0,
-    active_runtime_count: raw.active_runtime_count ?? 0,
-    workspace_has_active_turn: raw.workspace_has_active_turn ?? false,
+    personal_env_var_count: wire.personal_env_var_count ?? wire.personalEnvVarCount ?? wire.personal_blob_user_var_count ?? wire.personalBlobUserVarCount ?? 0,
+    personal_blob_user_var_count: wire.personal_blob_user_var_count ?? wire.personalBlobUserVarCount ?? wire.personal_env_var_count ?? wire.personalEnvVarCount ?? 0,
+    personal_blob_readable: wire.personal_blob_readable ?? wire.personalBlobReadable ?? false,
+    personal_load_error: wire.personal_load_error ?? wire.personalLoadError ?? null,
+    team_env_var_count: wire.team_env_var_count ?? wire.teamEnvVarCount ?? 0,
+    system_env_var_count: wire.system_env_var_count ?? wire.systemEnvVarCount ?? 0,
+    opencode_serve_running: wire.opencode_serve_running ?? wire.opencodeServeRunning ?? false,
+    opencode_serve_cached_env_count: wire.opencode_serve_cached_env_count ?? wire.opencodeServeCachedEnvCount ?? 0,
+    active_runtime_count: wire.active_runtime_count ?? wire.activeRuntimeCount ?? 0,
+    workspace_has_active_turn: wire.workspace_has_active_turn ?? wire.workspaceHasActiveTurn ?? false,
     refresh: {
       ...EMPTY_REFRESH,
-      ...raw.refresh,
-      change_kinds: raw.refresh?.change_kinds ?? [],
+      ...wire.refresh,
+      change_kinds: wire.refresh?.change_kinds ?? [],
     },
-    host_env_shadowed_keys: raw.host_env_shadowed_keys ?? [],
+    host_env_shadowed_keys: wire.host_env_shadowed_keys ?? wire.hostEnvShadowedKeys ?? [],
+    resolved_env_fingerprint: wire.resolved_env_fingerprint ?? wire.resolvedEnvFingerprint ?? null,
+    active_env_fingerprint: wire.active_env_fingerprint ?? wire.activeEnvFingerprint ?? null,
+    override_keys: wire.override_keys ?? wire.overrideKeys ?? [],
+    alias_collision_keys: wire.alias_collision_keys ?? wire.aliasCollisionKeys ?? [],
+    unresolved_env_keys: wire.unresolved_env_keys ?? wire.unresolvedEnvKeys ?? [],
+    snapshot_conflict_workspace: wire.snapshot_conflict_workspace ?? wire.snapshotConflictWorkspace ?? null,
+    activation_status: wire.activation_status ?? wire.activationStatus ?? 'pending',
     blockers,
+    expected_env_keys: wire.expected_env_keys ?? wire.expectedEnvKeys ?? [],
+    effective_env_keys: wire.effective_env_keys ?? wire.effectiveEnvKeys ?? [],
+    missing_expected_keys: wire.missing_expected_keys ?? wire.missingExpectedKeys ?? [],
+    key_statuses: wire.key_statuses ?? wire.keyStatuses ?? [],
+    mcp_unresolved_placeholders: wire.mcp_unresolved_placeholders ?? wire.mcpUnresolvedPlaceholders ?? [],
+    installed_env_fingerprint: wire.installed_env_fingerprint ?? wire.installedEnvFingerprint ?? null,
+    active_handle_env_fingerprint: wire.active_handle_env_fingerprint ?? wire.activeHandleEnvFingerprint ?? null,
+    team_secret_configured: wire.team_secret_configured ?? wire.teamSecretConfigured ?? false,
+    opencode_serve_cached_env_keys: wire.opencode_serve_cached_env_keys ?? wire.opencodeServeCachedEnvKeys ?? [],
+    missing_served_env_keys: wire.missing_served_env_keys ?? wire.missingServedEnvKeys ?? [],
+    active_handle_env_keys: wire.active_handle_env_keys ?? wire.activeHandleEnvKeys ?? [],
   }
 }
 

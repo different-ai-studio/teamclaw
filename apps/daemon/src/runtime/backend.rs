@@ -46,7 +46,11 @@ pub enum AcpCommand {
         forbid_new_session_fallback: bool,
     },
     /// Drop routing state for a session; the backend process keeps running.
-    DetachSession { acp_session_id: String },
+    DetachSession {
+        acp_session_id: String,
+        /// Completed after backend routing state is actually removed.
+        ack: Option<oneshot::Sender<()>>,
+    },
     /// Send a prompt to a bound session (async; turn ends on idle).
     Prompt {
         acp_session_id: String,
