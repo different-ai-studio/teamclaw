@@ -135,6 +135,23 @@ services:
       GOTRUE_EXTERNAL_GOOGLE_SECRET: ${GOOGLE_CLIENT_SECRET:-}
       GOTRUE_EXTERNAL_GOOGLE_REDIRECT_URI: ${SUPABASE_PUBLIC_URL:-https://${SUPABASE_DOMAIN}}/auth/v1/callback
 
+      # Egress proxy for GoTrue's outbound HTTP. This box sits in mainland China
+      # and Google is black-holed from it, while GoTrue does OIDC discovery
+      # against accounts.google.com on EVERY authorize request — without a proxy
+      # the request stalls until Kong's 10s timeout and returns 504.
+      #
+      # The proxy URL must be https:// (TLS to the proxy itself), not http://.
+      # A plaintext "CONNECT accounts.google.com:443" is keyword-reset in transit,
+      # which fails in a thoroughly confusing way: the proxy reaches Google fine
+      # and then cannot write the 200 back. TLS hides the CONNECT line.
+      #
+      # Left empty, Go ignores these and behaves exactly as before.
+      HTTP_PROXY: ${AUTH_EGRESS_PROXY:-}
+      HTTPS_PROXY: ${AUTH_EGRESS_PROXY:-}
+      # Keep everything inside the compose network off the proxy. Go already
+      # exempts localhost and loopback, but not sibling service names.
+      NO_PROXY: localhost,127.0.0.1,::1,db,kong,rest,realtime,storage,imgproxy,meta,analytics,functions,supavisor,fc,litellm,10.0.0.0/8,172.16.0.0/12,192.168.0.0/16
+
       GOTRUE_SMTP_ADMIN_EMAIL: ${SMTP_ADMIN_EMAIL}
       GOTRUE_SMTP_HOST: ${SMTP_HOST}
       GOTRUE_SMTP_PORT: ${SMTP_PORT}
