@@ -266,6 +266,15 @@ jobs:
             echo "=== up ==="
             docker compose up -d --pull never --remove-orphans
 
+            # auth is recreated whenever its env changes (mailer templates, OAuth,
+            # etc.). Kong keeps stale upstream connections to the old container IP
+            # and answers /auth/v1/* with "invalid response from upstream" until
+            # restarted — which makes the post-deploy e2e suite fail on refresh.
+            echo "=== restart kong (flush stale auth upstream after compose up) ==="
+            docker compose restart kong
+            timeout 60 sh -c \
+              'until docker compose ps kong | grep -q "Up\|running"; do sleep 3; done'
+
             echo "=== wait for litellm healthy (prisma migrate runs on first boot) ==="
             timeout 300 sh -c \
               'until docker compose ps litellm | grep -q healthy; do sleep 5; done'
