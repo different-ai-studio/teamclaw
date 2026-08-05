@@ -6,7 +6,8 @@
   "description": "JSONL RPC sidecar wrapping @cursor/sdk for amuxd",
   "main": "src/main.mjs",
   "scripts": {
-    "start": "node src/main.mjs --mode rpc"
+    "start": "node src/main.mjs --mode rpc",
+    "test": "node --test src/auth-retry.test.mjs"
   },
   "dependencies": {
     "@cursor/sdk": "^1.0.24"
