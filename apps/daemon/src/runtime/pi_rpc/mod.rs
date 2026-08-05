@@ -695,13 +695,19 @@ async fn command_loop(shared: Arc<Shared>, mut cmd_rx: mpsc::Receiver<AcpCommand
                 }
                 None => warn!(model_id = %model_id, "set_model: expected provider/model id"),
             },
-            AcpCommand::DetachSession { acp_session_id } => {
+            AcpCommand::DetachSession {
+                acp_session_id,
+                ack,
+            } => {
                 shared.routes.lock().remove(&acp_session_id);
                 shared
                     .permissions
                     .lock()
                     .retain(|_, p| p.session_id != acp_session_id);
                 info!(acp_session_id, "pi session detached");
+                if let Some(ack) = ack {
+                    let _ = ack.send(());
+                }
             }
             AcpCommand::AnswerQuestion { request_id, .. } => {
                 // pi has no question tool; nothing to route.

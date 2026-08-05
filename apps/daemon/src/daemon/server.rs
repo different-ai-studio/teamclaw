@@ -1070,11 +1070,11 @@ impl DaemonServer {
         {
             // Resolve *real* spawn envs for every linkable workspace up front
             // (writes provider.team, warms the managed-LLM cache, and yields the
-            // exact extra_env the first session will use) so each prewarmed
-            // host's env_fingerprint matches and is actually reused. Covering
-            // all workspaces (not just the first) matters because cron's default
-            // workspace is the agent's `default_workspace_id`, which need not be
-            // the team list's head. Falls back to empty-env when no workspace
+            // exact extra_env the first session will use). The global OpenCode
+            // host activates the first snapshot only; later, different
+            // workspace fingerprints are recorded but cannot overwrite it
+            // during prewarm. A real attach may switch snapshots once the host
+            // has no active routes. Falls back to empty-env when no workspace
             // exists yet (fresh install).
             let prewarm_envs = self.resolve_all_prewarm_envs().await;
             let agents = self.agents.clone();

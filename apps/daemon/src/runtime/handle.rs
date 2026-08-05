@@ -94,6 +94,12 @@ pub struct RuntimeHandle {
     pub remote_tool_member_id: String,
     /// Gateway runtimes auto-allow ACP tool permissions; collab runtimes do not.
     pub is_gateway: bool,
+    /// Fingerprint of the resolved personal/team/system snapshot used at spawn.
+    pub env_fingerprint: Option<String>,
+    /// Internal non-serialized snapshot used to decide whether an env refresh
+    /// changes effective bindings. Never exposed through RuntimeInfo.
+    pub env_snapshot: Option<teamclaw_runtime_env::ResolvedEnvSnapshot>,
+    pub env_team_id: Option<String>,
     /// Another session on the shared OpenCode host may have dropped MCP; refresh
     /// on the next Idle transition (never detach/resume while Active).
     pub remote_tools_mcp_refresh_pending: bool,
@@ -138,6 +144,9 @@ impl RuntimeHandle {
             available_models: Vec::new(),
             remote_tool_member_id: String::new(),
             is_gateway: false,
+            env_fingerprint: None,
+            env_snapshot: None,
+            env_team_id: None,
             remote_tools_mcp_refresh_pending: false,
         }
     }
@@ -276,11 +285,23 @@ impl RuntimeHandle {
     pub async fn shutdown(&self) {
         if let Some(ref tx) = self.cmd_tx {
             if !self.acp_session_id.is_empty() {
-                let _ = tx
+                let (ack_tx, ack_rx) = tokio::sync::oneshot::channel();
+                if tx
                     .send(AcpCommand::DetachSession {
                         acp_session_id: self.acp_session_id.clone(),
+                        ack: Some(ack_tx),
                     })
-                    .await;
+                    .await
+                    .is_ok()
+                    && tokio::time::timeout(std::time::Duration::from_secs(5), ack_rx)
+                        .await
+                        .is_err()
+                {
+                    tracing::warn!(
+                        acp_session_id = %self.acp_session_id,
+                        "timed out waiting for runtime detach acknowledgement"
+                    );
+                }
             }
         }
     }
@@ -377,6 +398,9 @@ impl RuntimeHandle {
             available_models: Vec::new(),
             remote_tool_member_id: String::new(),
             is_gateway: false,
+            env_fingerprint: None,
+            env_snapshot: None,
+            env_team_id: None,
             remote_tools_mcp_refresh_pending: false,
         }
     }
@@ -385,6 +409,31 @@ impl RuntimeHandle {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[tokio::test]
+    async fn shutdown_waits_for_detach_acknowledgement() {
+        let mut handle = RuntimeHandle::test_dummy();
+        let (cmd_tx, mut cmd_rx) = mpsc::channel(1);
+        handle.cmd_tx = Some(cmd_tx);
+        handle.acp_session_id = "session-a".to_string();
+        let backend = tokio::spawn(async move {
+            let AcpCommand::DetachSession {
+                acp_session_id,
+                ack,
+            } = cmd_rx.recv().await.unwrap()
+            else {
+                panic!("expected detach command");
+            };
+            assert_eq!(acp_session_id, "session-a");
+            tokio::time::sleep(std::time::Duration::from_millis(25)).await;
+            ack.unwrap().send(()).unwrap();
+        });
+
+        let started = std::time::Instant::now();
+        handle.shutdown().await;
+        assert!(started.elapsed() >= std::time::Duration::from_millis(20));
+        backend.await.unwrap();
+    }
 
     #[test]
     fn flush_injected_context_drains_into_prefix() {

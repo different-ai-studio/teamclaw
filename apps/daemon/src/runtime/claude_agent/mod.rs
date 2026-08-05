@@ -518,7 +518,10 @@ async fn command_loop(shared: Arc<Shared>, mut cmd_rx: mpsc::Receiver<AcpCommand
                     }
                 }
             }
-            AcpCommand::DetachSession { acp_session_id } => {
+            AcpCommand::DetachSession {
+                acp_session_id,
+                ack,
+            } => {
                 let removed = shared.routes.lock().remove(&acp_session_id);
                 if let Some(route) = removed {
                     shared.session_keys.lock().remove(&route.session_key);
@@ -536,6 +539,9 @@ async fn command_loop(shared: Arc<Shared>, mut cmd_rx: mpsc::Receiver<AcpCommand
                             )
                             .await;
                     }
+                }
+                if let Some(ack) = ack {
+                    let _ = ack.send(());
                 }
             }
             AcpCommand::AnswerQuestion { request_id, .. } => {

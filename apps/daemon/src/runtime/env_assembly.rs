@@ -21,10 +21,10 @@ pub fn assemble_spawn_runtime_env(
     cloud_token_file: Option<&str>,
     managed_llm: &ManagedLlmState,
 ) -> anyhow::Result<SpawnRuntimeEnv> {
-    let team_env = team_shared_env::load_team_env_for_workspace(workspace_root, team_id);
-    let bundle = teamclaw_runtime_env::assemble_runtime_env(
+    let team_env = team_shared_env::load_team_env_for_workspace_detailed(workspace_root, team_id);
+    let mut bundle = teamclaw_runtime_env::assemble_runtime_env(
         workspace_root,
-        team_env,
+        team_env.values,
         teamclaw_runtime_env::SystemEnvContext {
             actor_id: actor_id.to_string(),
             display_name: display_name.to_string(),
@@ -32,6 +32,26 @@ pub fn assemble_spawn_runtime_env(
         },
         managed_llm,
     )?;
+    let personal_store = teamclaw_runtime_env::diagnose_personal_env_store();
+    let personal_location = (!personal_store.secrets_dir.is_empty()).then(|| {
+        std::path::Path::new(&personal_store.secrets_dir)
+            .join("personal-secrets.json.enc")
+            .display()
+            .to_string()
+    });
+    bundle
+        .resolved_env
+        .annotate_sources(personal_location.as_deref(), &team_env.source_paths);
+    bundle
+        .resolved_env
+        .unresolved
+        .extend(team_env.unresolved_keys.into_iter().map(|key| {
+            teamclaw_runtime_env::UnresolvedEnv {
+                key,
+                scope: teamclaw_runtime_env::EnvScope::Team,
+                reason: teamclaw_runtime_env::UnresolvedReason::Unavailable,
+            }
+        }));
     let mut extra_env = bundle.extra_env;
     // Backend-neutral team-provider handoff. opencode consumes the team gateway
     // via `provider.team` in opencode.json (written by `ensure_team_provider`);
@@ -66,6 +86,8 @@ pub fn assemble_spawn_runtime_env(
     }
     Ok(SpawnRuntimeEnv {
         extra_env,
+        resolved_env: Some(bundle.resolved_env),
+        env_team_id: team_id.map(str::to_string),
         force_env_override: true,
         opencode_json_original: bundle.opencode_json_original,
         is_gateway: false,

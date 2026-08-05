@@ -6,7 +6,7 @@
 //! respawns on the next call (the SSE tasks call it in their reconnect loops,
 //! which provides the restart-with-backoff behavior).
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::path::PathBuf;
 use std::time::{Duration, Instant};
 
@@ -31,6 +31,14 @@ pub struct ServeSupervisor {
     binary_override: parking_lot::Mutex<Option<String>>,
     /// Extra env captured from the first prewarm/attach; applied on (re)spawn.
     extra_env: parking_lot::Mutex<HashMap<String, String>>,
+    /// Fingerprint of the complete env queued for the next spawn.
+    configured_env_fingerprint: parking_lot::Mutex<Option<String>>,
+    /// Fingerprint actually inherited by the currently running serve process.
+    active_env_fingerprint: parking_lot::Mutex<Option<String>>,
+    /// Most recently resolved fingerprint per canonical workspace.
+    requested_env_fingerprints: parking_lot::Mutex<HashMap<String, String>>,
+    /// Workspace whose snapshot could not replace the active global host.
+    snapshot_conflict_workspaces: parking_lot::Mutex<HashSet<String>>,
     state: parking_lot::Mutex<Option<ServeInstance>>,
     /// Serializes spawn attempts without holding `state` across awaits.
     spawn_lock: tokio::sync::Mutex<()>,
@@ -59,6 +67,10 @@ impl ServeSupervisor {
         Self {
             binary_override: parking_lot::Mutex::new(None),
             extra_env: parking_lot::Mutex::new(HashMap::new()),
+            configured_env_fingerprint: parking_lot::Mutex::new(None),
+            active_env_fingerprint: parking_lot::Mutex::new(None),
+            requested_env_fingerprints: parking_lot::Mutex::new(HashMap::new()),
+            snapshot_conflict_workspaces: parking_lot::Mutex::new(HashSet::new()),
             state: parking_lot::Mutex::new(None),
             spawn_lock: tokio::sync::Mutex::new(()),
             password: generate_password(),
@@ -88,16 +100,86 @@ impl ServeSupervisor {
                 env.entry(k.clone()).or_insert_with(|| v.clone());
             }
         }
+        *self.configured_env_fingerprint.lock() = Some(
+            teamclaw_runtime_env::resolved_env::fingerprint_bindings(&env),
+        );
+    }
+
+    /// Record and atomically queue a complete workspace env snapshot.
+    ///
+    /// Unlike [`Self::merge_extra_env`], this removes keys absent from the new
+    /// snapshot, preventing values from an earlier workspace leaking into the
+    /// next serve spawn.
+    pub fn install_env_snapshot(
+        &self,
+        workspace: &str,
+        extra_env: HashMap<String, String>,
+    ) -> String {
+        let fingerprint = teamclaw_runtime_env::resolved_env::fingerprint_bindings(&extra_env);
+        self.record_requested_env_fingerprint(workspace, &fingerprint);
+        *self.extra_env.lock() = extra_env;
+        *self.configured_env_fingerprint.lock() = Some(fingerprint.clone());
+        fingerprint
+    }
+
+    pub fn record_requested_env_fingerprint(&self, workspace: &str, fingerprint: &str) {
+        self.requested_env_fingerprints
+            .lock()
+            .insert(workspace.to_string(), fingerprint.to_string());
+    }
+
+    pub fn requested_env_fingerprint(&self, workspace: &str) -> Option<String> {
+        self.requested_env_fingerprints
+            .lock()
+            .get(workspace)
+            .cloned()
+    }
+
+    pub fn active_env_fingerprint(&self) -> Option<String> {
+        self.active_env_fingerprint.lock().clone()
+    }
+
+    pub fn env_snapshot_requires_restart(&self, incoming_fingerprint: &str) -> bool {
+        self.is_running() && self.active_env_fingerprint().as_deref() != Some(incoming_fingerprint)
+    }
+
+    pub fn mark_snapshot_conflict(&self, workspace: &str) {
+        self.snapshot_conflict_workspaces
+            .lock()
+            .insert(workspace.to_string());
+    }
+
+    pub fn clear_snapshot_conflict(&self, workspace: &str) {
+        self.snapshot_conflict_workspaces.lock().remove(workspace);
+    }
+
+    pub fn snapshot_conflict_workspace(&self, workspace: &str) -> Option<String> {
+        if !self.snapshot_conflict_workspaces.lock().contains(workspace) {
+            return None;
+        }
+        let requested = self.requested_env_fingerprint(workspace);
+        let active = self.active_env_fingerprint();
+        (requested.is_some() && active.is_some() && requested != active)
+            .then(|| workspace.to_string())
     }
 
     /// Drop cached env so the next serve spawn does not inherit stale keys.
     pub fn clear_extra_env(&self) {
         self.extra_env.lock().clear();
+        *self.configured_env_fingerprint.lock() = None;
+        *self.active_env_fingerprint.lock() = None;
     }
 
     /// Count of env keys queued for the next serve spawn (no values exposed).
     pub fn cached_env_key_count(&self) -> usize {
         self.extra_env.lock().len()
+    }
+
+    /// Key names queued for the next serve spawn (sorted, no values exposed).
+    pub fn cached_env_keys(&self) -> Vec<String> {
+        let mut keys: Vec<String> = self.extra_env.lock().keys().cloned().collect();
+        keys.sort_by(|left, right| left.to_ascii_lowercase().cmp(&right.to_ascii_lowercase()));
+        keys
     }
 
     /// True when a serve child is currently tracked and alive.
@@ -108,6 +190,7 @@ impl ServeSupervisor {
                 Ok(None) => true,
                 _ => {
                     *guard = None;
+                    *self.active_env_fingerprint.lock() = None;
                     clear_opencode_pgid();
                     false
                 }
@@ -156,6 +239,7 @@ impl ServeSupervisor {
             other => {
                 warn!(exit = ?other, "opencode serve process is gone; will respawn");
                 *guard = None;
+                *self.active_env_fingerprint.lock() = None;
                 clear_opencode_pgid();
                 None
             }
@@ -165,6 +249,12 @@ impl ServeSupervisor {
     async fn spawn(&self) -> crate::error::Result<ServeClient> {
         let configured = self.binary_override.lock().clone();
         let binary = crate::opencode_install::resolve_binary(configured.as_deref());
+        // Capture one immutable env snapshot for this child. Configuration may
+        // change while health-checking; the active fingerprint must describe
+        // what the process actually inherited, not whatever is queued later.
+        let spawn_env = self.extra_env.lock().clone();
+        let spawn_env_fingerprint =
+            teamclaw_runtime_env::resolved_env::fingerprint_bindings(&spawn_env);
         let port = pick_free_port()?;
         let base = format!("http://127.0.0.1:{port}");
 
@@ -185,7 +275,7 @@ impl ServeSupervisor {
             ),
         );
         cmd.env("OPENCODE_SERVER_PASSWORD", &self.password);
-        for (k, v) in self.extra_env.lock().iter() {
+        for (k, v) in &spawn_env {
             if std::env::var_os(k).is_none() {
                 cmd.env(k, v);
             }
@@ -254,6 +344,7 @@ impl ServeSupervisor {
         }
         info!(base = %base, ready_ms = started.elapsed().as_millis() as u64, "opencode serve ready");
 
+        *self.active_env_fingerprint.lock() = Some(spawn_env_fingerprint);
         *self.state.lock() = Some(ServeInstance {
             child,
             client: client.clone(),
@@ -452,6 +543,16 @@ mod tests {
     }
 
     #[test]
+    fn cached_env_keys_returns_sorted_key_names() {
+        let serve = ServeSupervisor::new();
+        let mut env = HashMap::new();
+        env.insert("Z_KEY".to_string(), "z".to_string());
+        env.insert("a_key".to_string(), "a".to_string());
+        serve.merge_extra_env(&env, false);
+        assert_eq!(serve.cached_env_keys(), vec!["a_key".to_string(), "Z_KEY".to_string()]);
+    }
+
+    #[test]
     fn shutdown_clears_cached_env() {
         let serve = ServeSupervisor::new();
         let mut env = HashMap::new();
@@ -460,5 +561,68 @@ mod tests {
         assert_eq!(serve.cached_env_key_count(), 1);
         assert!(!serve.shutdown());
         assert_eq!(serve.cached_env_key_count(), 0);
+    }
+
+    #[test]
+    fn install_snapshot_replaces_stale_keys_and_tracks_workspace() {
+        let serve = ServeSupervisor::new();
+        serve.install_env_snapshot(
+            "/workspace-a",
+            HashMap::from([
+                ("ONLY_A".to_string(), "a".to_string()),
+                ("SHARED".to_string(), "old".to_string()),
+            ]),
+        );
+
+        let fingerprint = serve.install_env_snapshot(
+            "/workspace-b",
+            HashMap::from([("SHARED".to_string(), "new".to_string())]),
+        );
+
+        assert_eq!(serve.cached_env_key_count(), 1);
+        assert_eq!(
+            serve.requested_env_fingerprint("/workspace-b"),
+            Some(fingerprint)
+        );
+    }
+
+    #[test]
+    fn snapshot_conflict_is_non_secret_workspace_metadata() {
+        let serve = ServeSupervisor::new();
+        serve.record_requested_env_fingerprint("/workspace-b", "fingerprint-b");
+        serve.record_requested_env_fingerprint("/workspace-c", "fingerprint-c");
+        *serve.active_env_fingerprint.lock() = Some("fingerprint-a".to_string());
+        serve.mark_snapshot_conflict("/workspace-b");
+        serve.mark_snapshot_conflict("/workspace-c");
+        assert_eq!(
+            serve.snapshot_conflict_workspace("/workspace-b").as_deref(),
+            Some("/workspace-b")
+        );
+        serve.clear_snapshot_conflict("/workspace-b");
+        assert!(serve.snapshot_conflict_workspace("/workspace-b").is_none());
+        assert_eq!(
+            serve.snapshot_conflict_workspace("/workspace-c").as_deref(),
+            Some("/workspace-c")
+        );
+    }
+
+    #[test]
+    fn host_switch_preserves_other_workspace_conflicts() {
+        let serve = ServeSupervisor::new();
+        serve.record_requested_env_fingerprint("/workspace-b", "fingerprint-b");
+        serve.record_requested_env_fingerprint("/workspace-c", "fingerprint-c");
+        *serve.active_env_fingerprint.lock() = Some("fingerprint-a".to_string());
+        serve.mark_snapshot_conflict("/workspace-b");
+        serve.mark_snapshot_conflict("/workspace-c");
+
+        serve.shutdown();
+        assert!(serve.snapshot_conflict_workspace("/workspace-c").is_none());
+
+        *serve.active_env_fingerprint.lock() = Some("fingerprint-b".to_string());
+        assert!(serve.snapshot_conflict_workspace("/workspace-b").is_none());
+        assert_eq!(
+            serve.snapshot_conflict_workspace("/workspace-c").as_deref(),
+            Some("/workspace-c")
+        );
     }
 }

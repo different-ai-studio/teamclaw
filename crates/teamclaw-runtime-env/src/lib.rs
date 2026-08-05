@@ -1,11 +1,13 @@
 pub mod active_session;
 pub mod atomic_write;
+pub mod env_activation;
 pub mod env_catalog;
 pub mod mcp_resolve;
 pub mod merge;
 pub mod opencode_config;
 pub mod opencode_db;
 pub mod personal_secrets;
+pub mod resolved_env;
 pub mod storage_namespace;
 pub mod team_crypto;
 pub mod team_provider;
@@ -21,10 +23,19 @@ pub use active_session::{
     read_active_session_id, write_active_session_id, ACTIVE_SESSION_ID_FILE,
     TEAMCLAW_SESSION_ID_ENV,
 };
+pub use env_activation::{
+    analyze_env_activation, find_unresolved_config_placeholders, EnvActivationAnalysis,
+    EnvActivationInput, EnvKeyActivationStatus, UnresolvedConfigPlaceholder,
+};
 pub use merge::{host_shadowed_env_keys, secrets_for_team_provider, tc_api_key_for_actor};
 pub use personal_secrets::{
-    count_user_personal_env_keys, diagnose_personal_env_store, diagnose_personal_env_store_for_brand,
-    is_internal_personal_blob_key, PersonalEnvStoreDiagnostics,
+    count_user_personal_env_keys, diagnose_personal_env_store,
+    diagnose_personal_env_store_for_brand, is_internal_personal_blob_key,
+    PersonalEnvStoreDiagnostics,
+};
+pub use resolved_env::{
+    resolve_runtime_env, EnvOverride, EnvOverrideKind, EnvProvenance, EnvScope, EnvSource,
+    ResolvedEnvSnapshot, UnresolvedEnv, UnresolvedReason,
 };
 pub use team_provider::{ManagedLlmModel, ManagedLlmProvider, ManagedLlmState};
 pub use team_provider_sync::{
@@ -44,6 +55,7 @@ pub const DEFAULT_TEAM_REPO_DIR: &str = "teamclaw-team";
 #[derive(Debug, Clone, Default)]
 pub struct RuntimeEnvBundle {
     pub extra_env: HashMap<String, String>,
+    pub resolved_env: ResolvedEnvSnapshot,
     pub opencode_json_original: Option<String>,
 }
 
@@ -69,15 +81,16 @@ pub fn assemble_runtime_env(
     opencode_db::maybe_migrate_legacy_opencode_db(workspace)?;
 
     let personal = personal_secrets::load_personal_env()?;
-    let merged = merge::merge_env_maps(personal, team_env, &system);
+    let resolved_env = resolved_env::resolve_runtime_env(personal, team_env, system);
     let sync = sync_team_provider_on_disk(
         workspace,
         managed_llm,
-        &merged,
+        &resolved_env.bindings,
         SecretResolveScope::FullConfig,
     )?;
     Ok(RuntimeEnvBundle {
-        extra_env: merged,
+        extra_env: resolved_env.bindings.clone(),
+        resolved_env,
         opencode_json_original: sync.opencode_json_original,
     })
 }

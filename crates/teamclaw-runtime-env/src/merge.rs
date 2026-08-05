@@ -49,67 +49,7 @@ pub fn merge_env_maps(
     team: HashMap<String, String>,
     system: &SystemEnvContext,
 ) -> HashMap<String, String> {
-    let mut merged = personal;
-    merged.extend(team);
-
-    if !system.actor_id.is_empty() {
-        merged.insert("actor_id".to_string(), system.actor_id.clone());
-        if let Some(key) = tc_api_key_for_actor(&system.actor_id) {
-            merged.insert("tc_api_key".to_string(), key);
-        }
-    }
-    if !system.display_name.is_empty() {
-        merged.insert("display_name".to_string(), system.display_name.clone());
-    }
-    if let Some(path) = system
-        .cloud_token_file
-        .as_deref()
-        .filter(|p| !p.is_empty())
-    {
-        merged.insert("TC_ACCESS_TOKEN_FILE".to_string(), path.to_string());
-    }
-
-    normalize_env_map(merged)
-}
-
-/// Uppercase and dot-free aliases (daemon `normalize_env_map` + desktop OpenCode sidecar).
-fn normalize_env_map(input: HashMap<String, String>) -> HashMap<String, String> {
-    let mut out = input;
-
-    let upper_additions: Vec<(String, String)> = out
-        .iter()
-        .filter_map(|(key, value)| {
-            let upper = key.to_ascii_uppercase();
-            if key == &upper || out.contains_key(&upper) {
-                None
-            } else {
-                Some((upper, value.clone()))
-            }
-        })
-        .collect();
-    for (key, value) in upper_additions {
-        out.insert(key, value);
-    }
-
-    let dot_additions: Vec<(String, String)> = out
-        .iter()
-        .filter_map(|(key, value)| {
-            if !key.contains('.') {
-                return None;
-            }
-            let alias = key.replace('.', "_");
-            if out.contains_key(&alias) {
-                None
-            } else {
-                Some((alias, value.clone()))
-            }
-        })
-        .collect();
-    for (key, value) in dot_additions {
-        out.insert(key, value);
-    }
-
-    out
+    crate::resolved_env::resolve_runtime_env(personal, team, system.clone()).bindings
 }
 
 #[cfg(test)]

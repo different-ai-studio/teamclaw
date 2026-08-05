@@ -495,8 +495,14 @@ async fn command_loop(shared: Arc<Shared>, mut cmd_rx: mpsc::Receiver<AcpCommand
                         .await;
                 }
             }
-            AcpCommand::DetachSession { acp_session_id } => {
+            AcpCommand::DetachSession {
+                acp_session_id,
+                ack,
+            } => {
                 shared.routes.lock().remove(&acp_session_id);
+                if let Some(ack) = ack {
+                    let _ = ack.send(());
+                }
             }
             AcpCommand::AnswerQuestion { .. } => {
                 warn!("cursor backend: AnswerQuestion unsupported");

@@ -110,6 +110,10 @@ pub(crate) struct Shared {
     pub(crate) sse_tasks: parking_lot::Mutex<HashMap<String, tokio::task::JoinHandle<()>>>,
     /// Per-worktree opencode `/event` transport health (for stuck-turn grace).
     pub(crate) sse_transport: parking_lot::Mutex<HashMap<String, SseTransportState>>,
+    /// Serializes env selection with serve spawn/session creation. Without
+    /// this, two concurrent workspace attaches could each validate one
+    /// fingerprint and then create both sessions on whichever env won last.
+    env_switch_lock: tokio::sync::Mutex<()>,
 }
 
 /// Loopback SSE subscription state for one canonical worktree directory.
@@ -140,6 +144,7 @@ impl Shared {
             questions: parking_lot::Mutex::new(HashMap::new()),
             sse_tasks: parking_lot::Mutex::new(HashMap::new()),
             sse_transport: parking_lot::Mutex::new(HashMap::new()),
+            env_switch_lock: tokio::sync::Mutex::new(()),
         })
     }
 
@@ -445,13 +450,49 @@ impl OpencodeHost {
         worktree: Option<&str>,
     ) {
         self.apply_binary_hint(launch_configs);
+        let workspace = canonical_dir(worktree.unwrap_or("<prewarm>"));
+        let incoming = teamclaw_runtime_env::resolved_env::fingerprint_bindings(&extra_env);
+        let _env_guard = self.shared.env_switch_lock.lock().await;
         self.shared
             .serve
-            .merge_extra_env(&extra_env, _force_env_override);
+            .record_requested_env_fingerprint(&workspace, &incoming);
+        if self.shared.serve.env_snapshot_requires_restart(&incoming) {
+            warn!(
+                workspace,
+                "opencode serve prewarm skipped: another workspace snapshot is already active"
+            );
+            return;
+        }
+        self.shared
+            .serve
+            .install_env_snapshot(&workspace, extra_env.clone());
         if let Err(e) = self.shared.serve.ensure().await {
             warn!(error = %e, "opencode serve prewarm (session env) failed");
             return;
         }
+        // An unrelated catalog/OAuth request may have begun spawning between
+        // our initial state check and snapshot install. Verify what the child
+        // actually inherited and repair that race before declaring prewarm
+        // successful.
+        if self.shared.serve.active_env_fingerprint().as_deref() != Some(&incoming) {
+            if !self.shared.routes.lock().is_empty() {
+                self.shared.serve.mark_snapshot_conflict(&workspace);
+                warn!(
+                    workspace,
+                    "opencode serve prewarm raced with an active snapshot"
+                );
+                return;
+            }
+            self.shared.serve.shutdown();
+            self.shared
+                .serve
+                .install_env_snapshot(&workspace, extra_env);
+            if let Err(e) = self.shared.serve.ensure().await {
+                warn!(error = %e, "opencode serve prewarm race recovery failed");
+                return;
+            }
+        }
+        self.shared.serve.clear_snapshot_conflict(&workspace);
         if let Some(worktree) = worktree.filter(|w| !w.is_empty()) {
             events::ensure_sse_task(&self.shared, &canonical_dir(worktree));
         }
@@ -503,9 +544,39 @@ impl OpencodeHost {
             );
         }
         self.shared.serve.set_binary_hint(&launch.binary);
+        let workspace = canonical_dir(&worktree);
+        let incoming = teamclaw_runtime_env::resolved_env::fingerprint_bindings(&extra_env);
+        let _env_guard = self.shared.env_switch_lock.lock().await;
         self.shared
             .serve
-            .merge_extra_env(&extra_env, force_env_override);
+            .record_requested_env_fingerprint(&workspace, &incoming);
+        if self.shared.serve.env_snapshot_requires_restart(&incoming) {
+            if !self.shared.routes.lock().is_empty() {
+                self.shared.serve.mark_snapshot_conflict(&workspace);
+                return Err(crate::error::AmuxError::Agent(format!(
+                    "env_snapshot_conflict: workspace {workspace} resolved a different environment while the global opencode host has active sessions"
+                )));
+            }
+            self.shared.serve.shutdown();
+        }
+        let _ = force_env_override; // preserved in the backend interface during transition
+        self.shared
+            .serve
+            .install_env_snapshot(&workspace, extra_env.clone());
+        self.shared.serve.ensure().await?;
+        if self.shared.serve.active_env_fingerprint().as_deref() != Some(&incoming) {
+            if !self.shared.routes.lock().is_empty() {
+                self.shared.serve.mark_snapshot_conflict(&workspace);
+                return Err(crate::error::AmuxError::Agent(format!(
+                    "env_snapshot_conflict: workspace {workspace} lost an environment activation race"
+                )));
+            }
+            self.shared.serve.shutdown();
+            self.shared
+                .serve
+                .install_env_snapshot(&workspace, extra_env);
+            self.shared.serve.ensure().await?;
+        }
         let cmd_tx = self.command_sender();
         let startup = attach(
             &self.shared,
@@ -522,6 +593,8 @@ impl OpencodeHost {
         )
         .await
         .map_err(crate::error::AmuxError::Agent)?;
+        self.shared.serve.clear_snapshot_conflict(&workspace);
+        drop(_env_guard);
         if !initial_prompt.is_empty() {
             let _ = cmd_tx
                 .send(AcpCommand::Prompt {
@@ -1500,7 +1573,10 @@ async fn command_loop(shared: Arc<Shared>, mut cmd_rx: mpsc::Receiver<AcpCommand
                 }
                 None => warn!(model_id = %model_id, "set_model: expected provider/model id"),
             },
-            AcpCommand::DetachSession { acp_session_id } => {
+            AcpCommand::DetachSession {
+                acp_session_id,
+                ack,
+            } => {
                 let (pruned, orphaned_turn, detached_session_ids) = {
                     let mut routes = shared.routes.lock();
                     let mut detached_session_ids = vec![acp_session_id.clone()];
@@ -1543,6 +1619,9 @@ async fn command_loop(shared: Arc<Shared>, mut cmd_rx: mpsc::Receiver<AcpCommand
                     .lock()
                     .retain(|_, sid| !detached_session_ids.iter().any(|detached| detached == sid));
                 info!(acp_session_id, "opencode session detached");
+                if let Some(ack) = ack {
+                    let _ = ack.send(());
+                }
             }
             AcpCommand::Shutdown => {
                 shared.serve.shutdown();
