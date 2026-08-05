@@ -141,7 +141,8 @@ function computeProvisionalState(
   localCatalog: LocalDaemonCatalogEntry | undefined,
   now: number,
 ): SessionAgentUiState {
-  const dbRuntimeId = agentToRuntimeId.get(agent.id)
+  // The session's own runtime id is resolved inside resolveProvisionalRuntimeEntry
+  // now; reading it again here has been dead since that lookup moved.
   const entry = resolveProvisionalRuntimeEntry(agent, agentToRuntimeId, byRuntimeId)
   const runtimeInfo = entry?.info
   const retainModelCount = resolveAgentAvailableModels(runtimeInfo).length
