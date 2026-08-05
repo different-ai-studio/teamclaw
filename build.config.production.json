@@ -17,6 +17,9 @@
       "kook": true,
       "wecom": true,
       "wechat": true
+    },
+    "auth": {
+      "google": true
     }
   },
   "defaults": {
