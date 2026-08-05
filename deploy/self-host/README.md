@@ -299,6 +299,23 @@ docker compose up -d --no-deps auth
 GitHub Actions secret，`self-host-deploy.yml` 会同步进 `.env` 并按两者是否都存在
 自动开关 `ENABLE_GOOGLE_SIGNUP`；删掉 secret 即关闭。
 
+**如果机器在墙内，还需要一个出网代理。** GoTrue 每次 authorize 都要拉
+`accounts.google.com` 的 OIDC discovery；拉不到就挂到网关超时（现象是 504
+`request_timeout`，很容易误判成 GoTrue 有 bug）。设 `AUTH_EGRESS_PROXY`
+（线上同样走 GitHub secret）：
+
+```bash
+AUTH_EGRESS_PROXY=https://user:password@proxy.example.com:3129
+```
+
+**必须是 `https://`，即到代理这一跳本身也加密。** 用明文 `http://` 代理时，
+`CONNECT accounts.google.com:443` 这一行在链路上是可见的，会被按关键词重置 ——
+表现为代理明明连上了 Google，却写不回那个 `200 Connection established`。
+外层 TLS 的 SNI 是代理自己的域名，不含敏感关键词，所以能过。
+
+注意这条链路上有两个"必须能到 Google"的角色，别混淆：**服务端**（GoTrue 换
+token、验签）和**终端用户浏览器**（打开 Google 授权页）。代理只解决前者。
+
 桌面端按钮另受 `build.config.*.json` 的 `auth.google` 控制，默认 `false`，
 服务端跑通后再打开。
 

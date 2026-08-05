@@ -121,13 +121,36 @@ services:
       # Defaults keep it off, so an .env that predates these keys still boots.
       # GOOGLE_CLIENT_ID / GOOGLE_CLIENT_SECRET are shared with the fc service in
       # ../docker-compose.yml — one credential pair, one .env entry each.
-      # The redirect URI here must byte-match the "Authorized redirect URI" on the
-      # Google OAuth client, and API_EXTERNAL_URL carries no path (gen-secrets.sh
-      # sets it to https://<SUPABASE_DOMAIN>), hence the explicit /auth/v1/callback.
+      # The redirect URI must byte-match the "Authorized redirect URI" on the
+      # Google OAuth client. Do NOT build it from API_EXTERNAL_URL: gen-secrets.sh
+      # sets that to the Supabase host, but it is not run on an existing box, and
+      # the live one carries the *Cloud API* host there instead — which hands
+      # Google a callback on a domain that serves no /auth/v1 at all. Derive it
+      # from the Supabase public URL, the same value FC uses to build the
+      # authorize URL (supabase-repo/auth.ts oauthAuthorizeUrl), so the two halves
+      # of the flow cannot disagree. The path is spelled out because neither
+      # variable carries one.
       GOTRUE_EXTERNAL_GOOGLE_ENABLED: ${ENABLE_GOOGLE_SIGNUP:-false}
       GOTRUE_EXTERNAL_GOOGLE_CLIENT_ID: ${GOOGLE_CLIENT_ID:-}
       GOTRUE_EXTERNAL_GOOGLE_SECRET: ${GOOGLE_CLIENT_SECRET:-}
-      GOTRUE_EXTERNAL_GOOGLE_REDIRECT_URI: ${API_EXTERNAL_URL}/auth/v1/callback
+      GOTRUE_EXTERNAL_GOOGLE_REDIRECT_URI: ${SUPABASE_PUBLIC_URL:-https://${SUPABASE_DOMAIN}}/auth/v1/callback
+
+      # Egress proxy for GoTrue's outbound HTTP. This box sits in mainland China
+      # and Google is black-holed from it, while GoTrue does OIDC discovery
+      # against accounts.google.com on EVERY authorize request — without a proxy
+      # the request stalls until Kong's 10s timeout and returns 504.
+      #
+      # The proxy URL must be https:// (TLS to the proxy itself), not http://.
+      # A plaintext "CONNECT accounts.google.com:443" is keyword-reset in transit,
+      # which fails in a thoroughly confusing way: the proxy reaches Google fine
+      # and then cannot write the 200 back. TLS hides the CONNECT line.
+      #
+      # Left empty, Go ignores these and behaves exactly as before.
+      HTTP_PROXY: ${AUTH_EGRESS_PROXY:-}
+      HTTPS_PROXY: ${AUTH_EGRESS_PROXY:-}
+      # Keep everything inside the compose network off the proxy. Go already
+      # exempts localhost and loopback, but not sibling service names.
+      NO_PROXY: localhost,127.0.0.1,::1,db,kong,rest,realtime,storage,imgproxy,meta,analytics,functions,supavisor,fc,litellm,10.0.0.0/8,172.16.0.0/12,192.168.0.0/16
 
       GOTRUE_SMTP_ADMIN_EMAIL: ${SMTP_ADMIN_EMAIL}
       GOTRUE_SMTP_HOST: ${SMTP_HOST}
