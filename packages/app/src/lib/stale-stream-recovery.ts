@@ -1,7 +1,9 @@
 import { AgentStatus } from "@/lib/proto/amux_pb";
 import { isTerminalAgentStatus } from "@/lib/live-agent-stream";
-import { resolveRuntimeStateEntryForAgent } from "@/lib/runtime-state-resolve";
-import type { RuntimeStateEntry } from "@/stores/runtime-state-store";
+import {
+  resolveSessionAttachmentEntry,
+  type RuntimeStateEntry,
+} from "@/stores/runtime-state-store";
 import type { AgentStreamEntry } from "@/stores/v2-streaming-store";
 
 /**
@@ -44,14 +46,15 @@ export function findStaleLiveStreams(args: {
 
   for (const entry of Object.values(args.byKey)) {
     if (!entry.active) continue;
-    const runtime = resolveRuntimeStateEntryForAgent(
+    const runtime = resolveSessionAttachmentEntry(
       entry.actorId,
+      entry.sessionId,
       args.byRuntimeId,
     );
 
-    // `runtime/{id}/state` is a retained topic, so the broker republishes it on
-    // reconnect. A terminal status stamped after the last stream event is proof
-    // that the turn finished and we missed the event.
+    // Actor state is retained and can be replayed on reconnect. Only the
+    // current session's attachment can prove this live turn ended; sibling
+    // sessions for the same actor are unrelated.
     if (
       runtime &&
       isTerminalAgentStatus(runtime.info.status) &&
