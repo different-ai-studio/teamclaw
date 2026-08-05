@@ -11,7 +11,9 @@
 import readline from 'node:readline'
 import { Agent, Cursor, CursorAgentError } from '@cursor/sdk'
 
-/** @type {Map<string, { agent: import('@cursor/sdk').Agent, cwd: string, model: string }>} */
+import { errorMessage, isStaleAuthError, isStaleAuthErrorMessage } from './auth-retry.mjs'
+
+/** @type {Map<string, { agent: import('@cursor/sdk').Agent, cwd: string, model: string, mcpServers?: Record<string, unknown> | null }>} */
 const agents = new Map()
 
 /** @type {Map<string, { agentId: string, run: import('@cursor/sdk').Run | null, cancelled: boolean }>} */
@@ -19,6 +21,10 @@ const activeRuns = new Map()
 
 function emit(obj) {
   process.stdout.write(`${JSON.stringify(obj)}\n`)
+}
+
+function logStaleAuth(phase, agentId) {
+  console.error(`[cursor-bridge] stale auth during ${phase} for ${agentId}; refreshing agent connection`)
 }
 
 function flatModelId(sdkId) {
@@ -61,6 +67,44 @@ async function disposeAgent(agentId) {
   }
 }
 
+/**
+ * Drop a stale SDK handle and resume with a fresh gRPC connection + token.
+ * Cursor SDK issue: idle agents return AuthenticationError until resumed.
+ */
+async function refreshAgentConnection(agentId) {
+  const entry = agents.get(agentId)
+  if (!entry) throw new Error(`unknown agent ${agentId}`)
+  const { cwd, model, mcpServers } = entry
+  await disposeAgent(agentId)
+  const agent = await Agent.resume(agentId, {
+    apiKey: apiKeyFromEnv(),
+    ...mcpServersOption(mcpServers),
+  })
+  const refreshed = { agent, cwd, model, mcpServers }
+  agents.set(agent.agentId, refreshed)
+  return refreshed
+}
+
+async function agentSend(entry, text) {
+  return entry.agent.send(text, { model: { id: entry.model } })
+}
+
+async function sendWithAuthRetry(agentId, text, modelOverride) {
+  let entry = agents.get(agentId)
+  if (!entry) throw new Error(`unknown agent ${agentId}`)
+  if (modelOverride) entry.model = sdkModelFromFlat(modelOverride)
+  try {
+    const run = await agentSend(entry, text)
+    return { entry, run }
+  } catch (err) {
+    if (!isStaleAuthError(err)) throw err
+    logStaleAuth('send', agentId)
+    entry = await refreshAgentConnection(agentId)
+    const run = await agentSend(entry, text)
+    return { entry, run }
+  }
+}
+
 function paramsToObject(input) {
   if (input == null) return {}
   if (typeof input === 'object' && !Array.isArray(input)) {
@@ -83,7 +127,7 @@ function toolResultText(result) {
   }
 }
 
-function handleStreamEvent(agentId, runId, message) {
+function handleStreamEvent(agentId, runId, message, streamCtx) {
   switch (message.type) {
     case 'assistant': {
       for (const block of message.message?.content ?? []) {
@@ -132,11 +176,16 @@ function handleStreamEvent(agentId, runId, message) {
     }
     case 'status':
       if (message.status === 'ERROR') {
+        const msg = message.message ?? 'cursor run error'
+        if (streamCtx?.deferAuthError && isStaleAuthErrorMessage(msg)) {
+          streamCtx.deferredAuthError = msg
+          break
+        }
         emit({
           event: 'run_error',
           agentId,
           runId,
-          message: message.message ?? 'cursor run error',
+          message: msg,
         })
       }
       break
@@ -145,20 +194,37 @@ function handleStreamEvent(agentId, runId, message) {
   }
 }
 
-async function streamRun(agentId, run) {
+async function retryStreamAfterAuthRefresh(agentId, text) {
+  logStaleAuth('stream', agentId)
+  await refreshAgentConnection(agentId)
+  const entry = agents.get(agentId)
+  if (!entry) throw new Error(`unknown agent ${agentId}`)
+  const run = await agentSend(entry, text)
+  return streamRun(agentId, run, text, true)
+}
+
+async function streamRun(agentId, run, text, authRetried = false) {
   activeRuns.set(agentId, { agentId, run, cancelled: false })
   emit({ event: 'turn_start', agentId, runId: run.id })
+
+  const canRetryAuth = Boolean(text) && !authRetried
+  const streamCtx = canRetryAuth ? { deferAuthError: true, deferredAuthError: null } : null
 
   try {
     for await (const event of run.stream()) {
       const state = activeRuns.get(agentId)
       if (state?.cancelled) break
-      // run.stream() yields SDKMessage directly (assistant, thinking, tool_call, …).
-      handleStreamEvent(agentId, run.id, event)
+      handleStreamEvent(agentId, run.id, event, streamCtx ?? undefined)
     }
 
     const state = activeRuns.get(agentId)
     if (!state?.cancelled) {
+      if (streamCtx?.deferredAuthError && canRetryAuth) {
+        activeRuns.delete(agentId)
+        await retryStreamAfterAuthRefresh(agentId, text)
+        return
+      }
+
       const result = await run.wait()
       emit({
         event: 'turn_end',
@@ -169,7 +235,16 @@ async function streamRun(agentId, run) {
       })
     }
   } catch (err) {
-    const msg = err instanceof CursorAgentError ? err.message : String(err)
+    if (isStaleAuthError(err) && canRetryAuth) {
+      activeRuns.delete(agentId)
+      try {
+        await retryStreamAfterAuthRefresh(agentId, text)
+        return
+      } catch (retryErr) {
+        err = retryErr
+      }
+    }
+    const msg = err instanceof CursorAgentError ? err.message : errorMessage(err)
     emit({ event: 'run_error', agentId, runId: run.id, message: msg })
     emit({ event: 'turn_end', agentId, runId: run.id, status: 'error' })
   } finally {
@@ -209,7 +284,12 @@ async function handleRequest(req) {
           local: { cwd, settingSources: ['project'] },
           ...mcpServersOption(params.mcpServers),
         })
-        agents.set(agent.agentId, { agent, cwd, model })
+        agents.set(agent.agentId, {
+          agent,
+          cwd,
+          model,
+          mcpServers: params.mcpServers ?? null,
+        })
         emit({
           id,
           result: {
@@ -228,7 +308,12 @@ async function handleRequest(req) {
           ...mcpServersOption(params.mcpServers),
         })
         const model = sdkModelFromFlat(params.model) || 'composer-2.5'
-        agents.set(agent.agentId, { agent, cwd: params.cwd ?? process.cwd(), model })
+        agents.set(agent.agentId, {
+          agent,
+          cwd: params.cwd ?? process.cwd(),
+          model,
+          mcpServers: params.mcpServers ?? null,
+        })
         emit({
           id,
           result: {
@@ -242,22 +327,13 @@ async function handleRequest(req) {
         const agentId = params.agentId
         const text = params.text
         if (!agentId || !text) throw new Error('agentId and text are required')
-        const entry = agents.get(agentId)
-        if (!entry) throw new Error(`unknown agent ${agentId}`)
-        // SendOptions.model is what actually switches the model — mutating our
-        // own bookkeeping never reached the agent. Passed on every send, so the
-        // selection survives a set_model between turns.
-        // The daemon carries the selection on every send; fall back to what we
-        // last recorded when it says nothing.
-        if (params.model) entry.model = sdkModelFromFlat(params.model)
-        const run = await entry.agent.send(text, { model: { id: entry.model } })
+        const { entry, run } = await sendWithAuthRetry(agentId, text, params.model)
         emit({ id, result: { runId: run.id, model: flatModelId(entry.model) } })
-        void streamRun(agentId, run)
+        void streamRun(agentId, run, text)
         break
       }
       case 'cancel': {
         const agentId = params.agentId
-        const entry = agents.get(agentId)
         const state = activeRuns.get(agentId)
         if (state?.run?.supports?.('cancel')) {
           await state.run.cancel()
@@ -306,7 +382,7 @@ async function handleRequest(req) {
         emit({ id, error: `unknown method: ${method}` })
     }
   } catch (err) {
-    const msg = err instanceof CursorAgentError ? err.message : String(err)
+    const msg = err instanceof CursorAgentError ? err.message : errorMessage(err)
     emit({ id, error: msg })
   }
 }
