@@ -53,42 +53,27 @@ jobs:
     steps:
       - uses: actions/checkout@v7
 
-      - name: Write production build config from secret
-        env:
-          BUILD_CONFIG_PRODUCTION: ${{ secrets.BUILD_CONFIG_PRODUCTION }}
-        run: |
-          if [ -n "$BUILD_CONFIG_PRODUCTION" ]; then
-            echo "$BUILD_CONFIG_PRODUCTION" > build.config.json
-            echo "✅ Production build config written (replaces repo default)"
-          else
-            echo "⚠️ No BUILD_CONFIG_PRODUCTION secret set, using defaults"
-          fi
-
-      - name: Fetch branding assets (private repo)
-        env:
-          BRANDING_REPO: ${{ vars.BRANDING_REPO }}
-          BRANDING_REPO_PAT: ${{ secrets.BRANDING_REPO_PAT }}
-          BRANDING_CONFIG_FILE: ${{ vars.BRANDING_CONFIG_FILE }}
+      - name: Materialise the official build config
         shell: bash
         run: |
-          if [ -z "$BRANDING_REPO" ] || [ -z "$BRANDING_REPO_PAT" ]; then
-            echo "ℹ️ No branding repo configured (BRANDING_REPO / BRANDING_REPO_PAT) — non-branded build"
-            exit 0
-          fi
-          git clone --depth 1 "https://x-access-token:${BRANDING_REPO_PAT}@github.com/${BRANDING_REPO}.git" .branding-src
-          if [ -d .branding-src/branding ]; then
-            mkdir -p ./branding
-            cp -R .branding-src/branding/. ./branding/
-            echo "✅ Branding assets placed under ./branding"
-          fi
-          cfg="${BRANDING_CONFIG_FILE:-build.config.copilot361.json}"
-          if [ -f ".branding-src/${cfg}" ]; then
-            cp ".branding-src/${cfg}" build.config.json
-            echo "✅ Branding build config applied: ${cfg} (overrides BUILD_CONFIG_PRODUCTION)"
-          else
-            echo "⚠️ Branding config ${cfg} not found in branding repo; keeping existing build.config.json"
-          fi
-          rm -rf .branding-src
+          # This workflow builds ONE brand: official. Its config lives in this
+          # repo. betly and copilot361 live in the private branding repo and are
+          # published by release-oss.yml — nothing here reaches for them.
+          #
+          # Previously the base came from a BUILD_CONFIG_PRODUCTION secret and was
+          # then overwritten by a file from the branding repo, chosen by the
+          # BRANDING_CONFIG_FILE variable. That variable is set to
+          # build.config.copilot361.json, which does not exist in that repo, so the
+          # override silently no-opped — and would have silently repointed the
+          # official build at copilot361's backend the day anyone added it.
+          #
+          # Copy rather than lean on the BUILD_ENV=production merge alone: build.rs
+          # and vite both merge build.config.production.json ON TOP of this file, so
+          # making the two identical turns the merge into a no-op and anything that
+          # reads build.config.json directly sees the same values.
+          cp build.config.production.json build.config.json
+          echo "Official build config:"
+          cat build.config.json
 
       - name: Verify Tauri signing key
         env:
@@ -322,43 +307,14 @@ jobs:
     steps:
       - uses: actions/checkout@v7
 
-      - name: Write production build config from secret
-        env:
-          BUILD_CONFIG_PRODUCTION: ${{ secrets.BUILD_CONFIG_PRODUCTION }}
+      - name: Materialise the official build config
         shell: bash
         run: |
-          if [ -n "$BUILD_CONFIG_PRODUCTION" ]; then
-            echo "$BUILD_CONFIG_PRODUCTION" > build.config.json
-            echo "✅ Production build config written (replaces repo default)"
-          else
-            echo "⚠️ No BUILD_CONFIG_PRODUCTION secret set, using defaults"
-          fi
-
-      - name: Fetch branding assets (private repo)
-        env:
-          BRANDING_REPO: ${{ vars.BRANDING_REPO }}
-          BRANDING_REPO_PAT: ${{ secrets.BRANDING_REPO_PAT }}
-          BRANDING_CONFIG_FILE: ${{ vars.BRANDING_CONFIG_FILE }}
-        shell: bash
-        run: |
-          if [ -z "$BRANDING_REPO" ] || [ -z "$BRANDING_REPO_PAT" ]; then
-            echo "ℹ️ No branding repo configured (BRANDING_REPO / BRANDING_REPO_PAT) — non-branded build"
-            exit 0
-          fi
-          git clone --depth 1 "https://x-access-token:${BRANDING_REPO_PAT}@github.com/${BRANDING_REPO}.git" .branding-src
-          if [ -d .branding-src/branding ]; then
-            mkdir -p ./branding
-            cp -R .branding-src/branding/. ./branding/
-            echo "✅ Branding assets placed under ./branding"
-          fi
-          cfg="${BRANDING_CONFIG_FILE:-build.config.copilot361.json}"
-          if [ -f ".branding-src/${cfg}" ]; then
-            cp ".branding-src/${cfg}" build.config.json
-            echo "✅ Branding build config applied: ${cfg} (overrides BUILD_CONFIG_PRODUCTION)"
-          else
-            echo "⚠️ Branding config ${cfg} not found in branding repo; keeping existing build.config.json"
-          fi
-          rm -rf .branding-src
+          # Same as the macOS job above — see the comment there for why the
+          # BUILD_CONFIG_PRODUCTION secret and the branding-repo override are gone.
+          cp build.config.production.json build.config.json
+          echo "Official build config:"
+          cat build.config.json
 
       - name: Verify Tauri signing key
         env:
