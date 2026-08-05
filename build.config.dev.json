@@ -20,7 +20,7 @@
       "wechat": true
     },
     "auth": {
-      "google": false,
+      "google": true,
       "wechat": false,
       "phone": false,
       "password": true,
