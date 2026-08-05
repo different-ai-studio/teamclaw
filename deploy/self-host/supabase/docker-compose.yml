@@ -71,7 +71,8 @@ services:
 
   templates-server:
     container_name: supabase-auth-templates
-    image: caddy:2-alpine
+    # Match the caddy:2 image already present on ECS (deploy uses --pull never).
+    image: caddy:2
     restart: unless-stopped
     command: ["caddy", "file-server", "-r", "/templates", "--listen", ":80"]
     volumes:
