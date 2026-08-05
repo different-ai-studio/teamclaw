@@ -15,7 +15,7 @@
 use std::sync::Mutex;
 use std::time::Duration;
 
-use tauri::{Manager, State};
+use tauri::State;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::TcpListener;
 use tokio::sync::oneshot;
@@ -243,7 +243,6 @@ pub struct LoopbackCode {
 
 #[tauri::command]
 pub async fn oauth_loopback_start(
-    app: tauri::AppHandle,
     state: State<'_, OAuthLoopbackState>,
 ) -> Result<LoopbackStart, String> {
     let listener = TcpListener::bind("127.0.0.1:0")
