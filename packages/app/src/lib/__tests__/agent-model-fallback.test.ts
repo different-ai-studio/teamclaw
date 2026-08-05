@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   agentAvailableModelsWithLocalCatalog,
   localRecentModelFallback,
+  resolveAgentCatalogModels,
 } from "@/lib/agent-model-fallback";
 import type { RuntimeInfo } from "@/lib/proto/amux_pb";
 
@@ -83,5 +84,33 @@ describe("agentAvailableModelsWithLocalCatalog", () => {
       catalogModels: [{ id: "from/catalog", displayName: "catalog" }],
     });
     expect(models).toEqual([]);
+  });
+});
+
+describe("resolveAgentCatalogModels", () => {
+  it("draft local agent uses selected workspace loopback catalog only", () => {
+    const models = resolveAgentCatalogModels({
+      agentId: LOCAL,
+      localDaemonActorId: LOCAL,
+      sessionId: null,
+      byRuntimeId: {},
+      runtimeInfo: runtimeInfo(["from/retain"]),
+      localWorkspaceCatalogModels: [{ id: "from/http", displayName: "http" }],
+      remoteDefaultCatalogModels: [{ id: "from/mqtt", displayName: "mqtt" }],
+    });
+    expect(models.map((m) => m.id)).toEqual(["from/http"]);
+  });
+
+  it("draft remote agent uses default workspace catalog from actor state", () => {
+    const models = resolveAgentCatalogModels({
+      agentId: REMOTE,
+      localDaemonActorId: LOCAL,
+      sessionId: null,
+      byRuntimeId: {},
+      runtimeInfo: runtimeInfo(["from/retain"]),
+      localWorkspaceCatalogModels: [{ id: "from/http", displayName: "http" }],
+      remoteDefaultCatalogModels: [{ id: "from/mqtt", displayName: "mqtt" }],
+    });
+    expect(models.map((m) => m.id)).toEqual(["from/mqtt"]);
   });
 });

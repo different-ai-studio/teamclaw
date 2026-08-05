@@ -3,7 +3,6 @@ import { create, toBinary } from '@bufbuild/protobuf'
 import {
   ActorPresenceSchema,
   LiveSessionSchema,
-  ModelInfoSchema,
   RuntimeInfoSchema,
   AgentStatus,
   AgentType,
@@ -81,6 +80,28 @@ describe('runtime-state-store', () => {
     expect(entry.daemonActorId).toBe('dev-a')
     expect(entry.info.runtimeId).toBe('session-1')
     expect(entry.info.currentModel).toBe('opencode/mimo')
+  })
+
+  it('stores default workspace catalog from ActorPresence', async () => {
+    const { initRuntimeStateStore, useRuntimeStateStore } = await import('../runtime-state-store')
+    await initRuntimeStateStore('team-1')
+
+    const presence = create(ActorPresenceSchema, {
+      online: true,
+      defaultWorkspaceId: 'ws-default',
+      defaultWorktree: '/tmp/default',
+      defaultWorkspaceModels: [{ id: 'shopee/gpt-5.5', displayName: 'gpt-5.5' }],
+    })
+    envelopeHandler!({
+      topic: 'amux/team-1/dev-a/state',
+      bytes: Array.from(toBinary(ActorPresenceSchema, presence)),
+    })
+    await flushRuntimeStateBatch()
+
+    const entry = useRuntimeStateStore.getState().defaultCatalogByActorId['dev-a']
+    expect(entry?.defaultWorkspaceId).toBe('ws-default')
+    expect(entry?.defaultWorktree).toBe('/tmp/default')
+    expect(entry?.models.map((m) => m.id)).toEqual(['shopee/gpt-5.5'])
   })
 
   it('ignores legacy per-runtime topics', async () => {

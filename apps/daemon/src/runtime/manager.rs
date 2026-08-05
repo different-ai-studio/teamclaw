@@ -1,6 +1,7 @@
 use std::collections::HashMap;
 use std::path::PathBuf;
-use tokio::sync::mpsc;
+use std::sync::Arc;
+use tokio::sync::{mpsc, Mutex as AsyncMutex};
 use tracing::{info, warn};
 use uuid::Uuid;
 
@@ -9,7 +10,6 @@ use super::backend::{agent_type_for_local_agent, create_backend, AgentBackend};
 use super::builtin_commands::builtin_commands;
 use super::handle::RuntimeHandle;
 use super::refresh::RuntimeRefreshCoordinator;
-use std::sync::Arc;
 
 use crate::backend::Backend;
 use crate::config::{DaemonConfig, DeviceModelCatalog, ModelMru};
@@ -223,9 +223,15 @@ pub struct RuntimeManager {
     agents: HashMap<String, RuntimeHandle>,
     pub aggregators: std::collections::HashMap<String, TurnAggregator>,
     launch_configs: HashMap<amux::AgentType, AgentLaunchConfig>,
+<<<<<<< HEAD
     /// Local agent backend selected by daemon config `agents.local_agent`
     /// (`opencode` / `pi` / `cursor` / `claude-code` via `dyn AgentBackend`).
     agent_backend: Box<dyn AgentBackend>,
+=======
+    /// Local agent backend (opencode HTTP today; pi RPC later), selected by
+    /// daemon config `agents.local_agent`.
+    agent_backend: Arc<AsyncMutex<Box<dyn AgentBackend>>>,
+>>>>>>> origin/main
     /// The agent type `agents.local_agent` resolved to — the same value
     /// [`create_backend`] dispatched on when building `agent_backend`.
     ///
@@ -301,10 +307,17 @@ impl RuntimeManager {
 
     /// Shared global `opencode serve` supervisor (settings/OAuth + chat).
     /// `None` when the local agent backend is not opencode HTTP (e.g. pi).
-    pub fn opencode_serve_supervisor(
+    pub async fn opencode_serve_supervisor(
         &self,
     ) -> Option<Arc<crate::runtime::opencode_http::supervisor::ServeSupervisor>> {
-        self.agent_backend.opencode_serve_supervisor()
+        self.agent_backend
+            .lock()
+            .await
+            .opencode_serve_supervisor()
+    }
+
+    pub fn agent_backend_handle(&self) -> Arc<AsyncMutex<Box<dyn AgentBackend>>> {
+        Arc::clone(&self.agent_backend)
     }
 
     pub fn new(
@@ -340,7 +353,7 @@ impl RuntimeManager {
             agents: HashMap::new(),
             aggregators: std::collections::HashMap::new(),
             launch_configs,
-            agent_backend: create_backend(local_agent),
+            agent_backend: Arc::new(AsyncMutex::new(create_backend(local_agent))),
             default_agent_type: agent_type_for_local_agent(local_agent),
             opencode_snapshots: HashMap::new(),
             agent_state: PerAgentRuntimeState::new(),
@@ -414,7 +427,11 @@ impl RuntimeManager {
     /// Pre-warm shared ACP hosts so the first `runtimeStart` only pays for
     /// `session/new`, not process spawn + `initialize`.
     pub async fn prewarm_agent_backend(&mut self) {
-        self.agent_backend.prewarm(&self.launch_configs).await;
+        self.agent_backend
+            .lock()
+            .await
+            .prewarm(&self.launch_configs)
+            .await;
     }
 
     /// Pre-warm shared ACP hosts using a real session env so the fingerprint
@@ -429,6 +446,8 @@ impl RuntimeManager {
         worktree: Option<&str>,
     ) {
         self.agent_backend
+            .lock()
+            .await
             .prewarm_with_env(
                 &self.launch_configs,
                 extra_env,
@@ -523,6 +542,8 @@ impl RuntimeManager {
         }
         let Some(model_id) = self
             .agent_backend
+            .lock()
+            .await
             .session_model(&worktree, &backend_session_id)
             .await
         else {
@@ -642,6 +663,8 @@ impl RuntimeManager {
         let resume_requested = resume_acp_session_id.is_some();
         let (cmd_tx, startup) = self
             .agent_backend
+            .lock()
+            .await
             .attach_session(
                 agent_type,
                 &launch,
@@ -773,6 +796,8 @@ impl RuntimeManager {
         let launch = self.launch_config_for(agent_type);
         let (cmd_tx, startup) = self
             .agent_backend
+            .lock()
+            .await
             .attach_session(
                 agent_type,
                 &launch,
@@ -843,9 +868,46 @@ impl RuntimeManager {
         &mut self,
         workspace_path: &std::path::Path,
     ) -> crate::error::Result<Vec<amux::ModelInfo>> {
-        let models = self.agent_backend.model_catalog(workspace_path).await?;
+        let models = self
+            .agent_backend
+            .lock()
+            .await
+            .model_catalog(workspace_path)
+            .await?;
         self.record_catalog(&workspace_path.to_string_lossy(), &models);
         Ok(models)
+    }
+
+    /// Live-probe a workspace catalog without holding the outer `agents`
+    /// mutex across slow backend I/O (attach/detach only contend on the
+    /// backend lock, not the whole manager).
+    pub async fn probe_default_workspace_catalog(
+        agents: Arc<AsyncMutex<Self>>,
+        workspace_path: std::path::PathBuf,
+    ) -> Vec<amux::ModelInfo> {
+        let backend = {
+            let guard = agents.lock().await;
+            guard.agent_backend_handle()
+        };
+        let probe_result = {
+            let mut backend_guard = backend.lock().await;
+            backend_guard.model_catalog(&workspace_path).await
+        };
+        match probe_result {
+            Ok(models) => {
+                let mut guard = agents.lock().await;
+                guard.record_catalog(&workspace_path.to_string_lossy(), &models);
+                models
+            }
+            Err(e) => {
+                tracing::warn!(
+                    worktree = %workspace_path.display(),
+                    error = %e,
+                    "default workspace catalog probe failed; publishing empty list"
+                );
+                Vec::new()
+            }
+        }
     }
 
     /// Remember `worktree`'s catalog for this device and persist it.
@@ -902,9 +964,11 @@ impl RuntimeManager {
     ];
 
     /// Invalidate long-lived ACP host processes after provider credentials change.
-    pub fn evict_acp_hosts_after_provider_auth_change(&mut self) {
+    pub async fn evict_acp_hosts_after_provider_auth_change(&mut self) {
         let removed = self
             .agent_backend
+            .lock()
+            .await
             .evict_agent_types(Self::EVICTABLE_AGENT_TYPES);
         if removed > 0 {
             info!(
@@ -924,6 +988,8 @@ impl RuntimeManager {
         }
         let removed = self
             .agent_backend
+            .lock()
+            .await
             .evict_agent_types(Self::EVICTABLE_AGENT_TYPES);
         info!(
             removed_hosts = removed,
@@ -1109,8 +1175,8 @@ impl RuntimeManager {
     /// or a prewarmed ACP host. Used by `handle_prompt_await` to gate cron
     /// execution without requiring the Tauri app to have created a session
     /// first (which would break cron on fresh daemon starts).
-    pub fn agent_count(&self) -> usize {
-        self.agents.len() + self.agent_backend.host_count()
+    pub async fn agent_count(&self) -> usize {
+        self.agents.len() + self.agent_backend.lock().await.host_count()
     }
 
     pub fn first_running_agent_id(&self) -> Option<String> {
@@ -1849,9 +1915,9 @@ mod tests {
 
     fn mgr_with_stub_runtime(session_model: Option<&str>) -> RuntimeManager {
         let mut mgr = RuntimeManager::test_dummy_with_runtime("rt-1");
-        mgr.agent_backend = Box::new(StubBackend {
+        mgr.agent_backend = Arc::new(AsyncMutex::new(Box::new(StubBackend {
             session_model: session_model.map(str::to_string),
-        });
+        })));
         if let Some(h) = mgr.agents.get_mut("rt-1") {
             h.acp_session_id = "ses_stub".to_string();
             h.worktree = "/tmp/ws".to_string();
@@ -2510,7 +2576,7 @@ mod tests {
                 || err.to_string().contains("opencode serve unavailable"),
             "got: {err}"
         );
-        assert_eq!(mgr.agent_count(), 0);
+        assert_eq!(mgr.agent_count().await, 0);
     }
 
     // ── mention-routing accessors ─────────────────────────────────────────────

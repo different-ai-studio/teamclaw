@@ -1,6 +1,7 @@
 import * as React from 'react'
 import type { AttachedAgent } from '@/packages/ai/prompt-input-insert-hooks'
 import { resolveAgentAvailableModels } from '@/lib/agent-available-models'
+import { resolveAgentCatalogModels } from '@/lib/agent-model-fallback'
 import {
   probeAgentReachability,
   type AgentReachability,
@@ -23,6 +24,7 @@ import { useActorPresenceStore } from '@/stores/actor-presence-store'
 import {
   resolveSessionAttachmentEntry,
   useRuntimeStateStore,
+  type ActorDefaultCatalogEntry,
   type RuntimeStateEntry,
 } from '@/stores/runtime-state-store'
 import {
@@ -139,19 +141,28 @@ function computeProvisionalState(
   reachabilityByAgent: Record<string, AgentReachability>,
   activeStreamingAgentIds: ReadonlySet<string>,
   localCatalog: LocalDaemonCatalogEntry | undefined,
+  defaultCatalogByActorId: Record<string, ActorDefaultCatalogEntry>,
   now: number,
 ): SessionAgentUiState {
   const dbRuntimeId = agentToRuntimeId.get(agent.id)
   const entry = resolveProvisionalRuntimeEntry(agent, agentToRuntimeId, byRuntimeId)
   const runtimeInfo = entry?.info
-  const retainModelCount = resolveAgentAvailableModels(runtimeInfo).length
+  const localId = getKnownLocalDaemonActorId()
+  const isLocalAgent = !!localId && agent.id === localId
+  const availableModelCount = resolveAgentCatalogModels({
+    agentId: agent.id,
+    localDaemonActorId: localId,
+    sessionId: dbRuntimeId,
+    byRuntimeId,
+    runtimeInfo,
+    localWorkspaceCatalogModels: localCatalog?.models,
+    remoteDefaultCatalogModels: defaultCatalogByActorId[agent.id]?.models,
+  }).length
   const since = connectingSinceByAgent[agent.id]
   const connectingTimedOut =
     since !== undefined && now - since >= SESSION_AGENT_CONNECTING_TIMEOUT_MS
   const reachability = reachabilityByAgent[agent.id]
   const reachabilityFailed = reachability === 'unreachable'
-  const localId = getKnownLocalDaemonActorId()
-  const isLocalAgent = !!localId && agent.id === localId
   const mqttOnline = presenceByActor[agent.id]?.online
   const devicePresence = mergeAgentDevicePresence({
     mqttOnline,
@@ -169,14 +180,6 @@ function computeProvisionalState(
   // Loopback knowledge is about THIS machine — attaching it to a remote agent
   // would let one device's catalog decide another device's readiness.
   const localCatalogSnapshot = isLocalAgent ? localCatalog?.status : undefined
-  // The loopback catalog is a second source of "this agent has models", and for
-  // the local agent it usually lands well before the retain does.
-  const availableModelCount =
-    retainModelCount > 0
-      ? retainModelCount
-      : isLocalAgent
-        ? (localCatalog?.models.length ?? 0)
-        : 0
 
   return resolveSessionAgentUiState({
     presenceOnline,
@@ -202,6 +205,7 @@ function shouldProbeAgent(
   localDaemonActorId: string | null,
   activeStreamingAgentIds: ReadonlySet<string>,
   localCatalog: LocalDaemonCatalogEntry | undefined,
+  defaultCatalogByActorId: Record<string, ActorDefaultCatalogEntry>,
   now: number,
 ): boolean {
   if (isSupersededLocalAgent(agent.id)) return false
@@ -215,6 +219,7 @@ function shouldProbeAgent(
     reachabilityByAgent,
     activeStreamingAgentIds,
     localCatalog,
+    defaultCatalogByActorId,
     now,
   )
   if (state === 'stale') return false
@@ -251,6 +256,7 @@ export function useEngagedAgentUiStates(
   activeStreamingAgentIds: ReadonlySet<string> = EMPTY_ACTIVE_STREAMING_AGENT_IDS,
 ): EngagedAgentUiEntry[] {
   const byRuntimeId = useRuntimeStateStore((s) => s.byRuntimeId)
+  const defaultCatalogByActorId = useRuntimeStateStore((s) => s.defaultCatalogByActorId)
   const presenceByActor = useActorPresenceStore((s) => s.byActorId)
   const workspacePath = useWorkspaceStore((s) => s.workspacePath)?.trim() || ''
   const localCatalog = useLocalDaemonCatalogStore((s) =>
@@ -365,6 +371,7 @@ export function useEngagedAgentUiStates(
           reachabilityByAgent,
           activeStreamingAgentIds,
           localCatalog,
+          defaultCatalogByActorId,
           now,
         )
         if (provisional === 'connecting') {
@@ -425,6 +432,7 @@ export function useEngagedAgentUiStates(
     connectingSinceByAgent,
     activeStreamingAgentIds,
     localCatalog,
+    defaultCatalogByActorId,
   ])
 
   React.useEffect(() => {
@@ -444,6 +452,7 @@ export function useEngagedAgentUiStates(
           localDaemonActorId,
           activeStreamingAgentIds,
           localCatalog,
+          defaultCatalogByActorId,
           now,
         )
       ) {
@@ -481,6 +490,7 @@ export function useEngagedAgentUiStates(
     activeStreamingSignature,
     activeStreamingAgentIds,
     localCatalog,
+    defaultCatalogByActorId,
   ])
 
   return React.useMemo(() => {
@@ -496,6 +506,7 @@ export function useEngagedAgentUiStates(
         reachabilityByAgent,
         activeStreamingAgentIds,
         localCatalog,
+        defaultCatalogByActorId,
         now,
       ),
     }))
@@ -511,6 +522,7 @@ export function useEngagedAgentUiStates(
     agentToRuntimeId,
     activeStreamingAgentIds,
     localCatalog,
+    defaultCatalogByActorId,
     tick,
   ])
 }

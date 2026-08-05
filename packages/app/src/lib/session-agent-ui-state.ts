@@ -127,6 +127,11 @@ export function resolveSessionAgentUiState(input: {
   }
 
   if (input.presenceOnline === true) {
+    // Remote draft: `{actor}/state` carries default-workspace models before any
+    // session attachment exists — treat that as ready when the catalog is non-empty.
+    if (!input.runtimeInfo && hasModels) {
+      return 'ready'
+    }
     if (!input.runtimeInfo || state === RuntimeLifecycle.STARTING || !hasModels) {
       return 'connecting'
     }

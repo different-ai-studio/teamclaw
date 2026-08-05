@@ -1023,7 +1023,7 @@ impl DaemonServer {
             ));
             let opencode_settings = {
                 let manager = self.agents.lock().await;
-                manager.opencode_serve_supervisor().map(|serve| {
+                manager.opencode_serve_supervisor().await.map(|serve| {
                     std::sync::Arc::new(
                         crate::opencode_settings::OpenCodeSettingsService::with_global_serve(serve),
                     )

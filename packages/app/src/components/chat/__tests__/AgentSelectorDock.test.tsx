@@ -10,6 +10,7 @@ import type { EngagedAgentUiEntry } from '@/hooks/use-engaged-agent-ui-states'
 
 const mocks = vi.hoisted(() => ({
   runtimeStates: {} as Record<string, unknown>,
+  defaultCatalogByActorId: {} as Record<string, unknown>,
   isSoloBuild: vi.fn(() => false),
 }))
 
@@ -24,7 +25,10 @@ vi.mock('@/stores/runtime-state-store', async (importOriginal) => {
   return {
     ...actual,
     useRuntimeStateStore: (selector: (s: unknown) => unknown) =>
-      selector({ byRuntimeId: mocks.runtimeStates }),
+      selector({
+        byRuntimeId: mocks.runtimeStates,
+        defaultCatalogByActorId: mocks.defaultCatalogByActorId,
+      }),
   }
 })
 
@@ -75,6 +79,7 @@ describe('AgentSelectorDock', () => {
   beforeEach(() => {
     vi.clearAllMocks()
     mocks.runtimeStates = {}
+    mocks.defaultCatalogByActorId = {}
     mocks.isSoloBuild.mockReturnValue(false)
     useAgentModelPickStore.setState({ bySessionAgent: {} })
     useActorPresenceStore.setState({ byActorId: {} })
@@ -110,9 +115,9 @@ describe('AgentSelectorDock', () => {
     } as any)).toEqual([{ id: 'm-1', displayName: 'Model One' }])
   })
 
-  it('shows ACP-advertised models when retain is keyed by agent id but DB runtime id differs', async () => {
+  it('shows ACP-advertised models when session attachment retain exists', async () => {
     mocks.runtimeStates = {
-      'a-1': {
+      'a-1::session-1': {
         daemonActorId: 'a-1',
         lastUpdated: Date.now(),
         info: {
@@ -175,7 +180,7 @@ describe('AgentSelectorDock', () => {
   it('hides model label on the pill in solo builds', async () => {
     mocks.isSoloBuild.mockReturnValue(true)
     mocks.runtimeStates = {
-      'runtime-1': {
+      'a-1::session-1': {
         daemonActorId: 'a-1',
         lastUpdated: Date.now(),
         info: {
@@ -202,7 +207,7 @@ describe('AgentSelectorDock', () => {
 
   it('auto-selects the first advertised model when none is selected', async () => {
     mocks.runtimeStates = {
-      'runtime-1': {
+      'a-1::session-1': {
         daemonActorId: 'a-1',
         lastUpdated: Date.now(),
         info: {
@@ -240,7 +245,7 @@ describe('AgentSelectorDock', () => {
 
   it('shows no-models hint when ACP retain has no available_models and runtime is active', async () => {
     mocks.runtimeStates = {
-      'runtime-1': {
+      'a-1::session-1': {
         daemonActorId: 'a-1',
         lastUpdated: Date.now(),
         info: {
@@ -268,7 +273,7 @@ describe('AgentSelectorDock', () => {
 
   it('lists only models from ACP retain on the runtime', async () => {
     mocks.runtimeStates = {
-      'runtime-1': {
+      'a-1::session-1': {
         daemonActorId: 'a-1',
         lastUpdated: Date.now(),
         info: {

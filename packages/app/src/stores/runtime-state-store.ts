@@ -4,6 +4,7 @@ import {
   ActorPresenceSchema,
   RuntimeInfoSchema,
   type ActorPresence,
+  type ModelInfo,
   type RuntimeInfo,
 } from '@/lib/proto/amux_pb'
 import { mqttSubscribe, listenForEnvelopes, type IncomingEnvelope } from '@/lib/mqtt-bridge'
@@ -17,6 +18,9 @@ import { sessionFlowLog } from '@/lib/session-flow-log'
  * id. Local RPC seeds (`seedRuntimeStateAfterStart`) may write the same key
  * before the retain arrives.
  *
+ * `defaultCatalogByActorId` mirrors `ActorPresence.default_workspace_*` for
+ * remote-agent draft pickers — no session attachment required.
+ *
  * This store is intentionally STATELESS about user picks. It only mirrors what
  * the daemon publishes. The agent-model-pick-store is the source of truth for
  * user-selected models; `selectAgentModel` (runtime-state-resolve) reconciles.
@@ -28,6 +32,13 @@ export type RuntimeStateEntry = {
   lastUpdated: number // ms epoch
 }
 
+export type ActorDefaultCatalogEntry = {
+  defaultWorkspaceId: string
+  defaultWorktree: string
+  models: ModelInfo[]
+  lastUpdated: number
+}
+
 type RuntimeStateUpdate = {
   runtimeId: string
   daemonActorId: string
@@ -36,10 +47,15 @@ type RuntimeStateUpdate = {
 
 interface RuntimeStateState {
   byRuntimeId: Record<string, RuntimeStateEntry>
+  defaultCatalogByActorId: Record<string, ActorDefaultCatalogEntry>
   upsert: (runtimeId: string, daemonActorId: string, info: RuntimeInfo) => void
   upsertBatch: (updates: RuntimeStateUpdate[]) => void
   syncActorPresenceBatch: (
-    syncs: { daemonActorId: string; updates: RuntimeStateUpdate[] }[],
+    syncs: {
+      daemonActorId: string
+      updates: RuntimeStateUpdate[]
+      defaultCatalog: ActorDefaultCatalogEntry | null
+    }[],
   ) => void
   clear: () => void
 }
@@ -118,8 +134,33 @@ function pruneActorAttachments(
   return changed ? next : current
 }
 
+function applyDefaultCatalogUpdate(
+  current: Record<string, ActorDefaultCatalogEntry>,
+  daemonActorId: string,
+  entry: ActorDefaultCatalogEntry | null,
+): Record<string, ActorDefaultCatalogEntry> {
+  if (!entry) {
+    if (!(daemonActorId in current)) return current
+    const next = { ...current }
+    delete next[daemonActorId]
+    return next
+  }
+  const prev = current[daemonActorId]
+  if (
+    prev &&
+    prev.defaultWorkspaceId === entry.defaultWorkspaceId &&
+    prev.defaultWorktree === entry.defaultWorktree &&
+    prev.models.length === entry.models.length &&
+    prev.models.every((model, index) => model.id === entry.models[index]?.id)
+  ) {
+    return current
+  }
+  return { ...current, [daemonActorId]: entry }
+}
+
 export const useRuntimeStateStore = createZustand<RuntimeStateState>((set, get) => ({
   byRuntimeId: {},
+  defaultCatalogByActorId: {},
   upsert: (runtimeId, daemonActorId, info) => {
     const current = get().byRuntimeId
     const next = applyRuntimeStateUpdates(current, [{ runtimeId, daemonActorId, info }])
@@ -134,15 +175,36 @@ export const useRuntimeStateStore = createZustand<RuntimeStateState>((set, get) 
   syncActorPresenceBatch: (syncs) => {
     if (syncs.length === 0) return
     const current = get().byRuntimeId
-    let next = current
-    for (const { daemonActorId, updates } of syncs) {
+    let nextRuntime = current
+    let nextDefault = get().defaultCatalogByActorId
+    let runtimeChanged = false
+    let defaultChanged = false
+    for (const { daemonActorId, updates, defaultCatalog } of syncs) {
       const liveKeys = new Set(updates.map((u) => u.runtimeId))
-      next = pruneActorAttachments(next, daemonActorId, liveKeys)
-      next = applyRuntimeStateUpdates(next, updates)
+      const pruned = pruneActorAttachments(nextRuntime, daemonActorId, liveKeys)
+      if (pruned !== nextRuntime) {
+        nextRuntime = pruned
+        runtimeChanged = true
+      }
+      const merged = applyRuntimeStateUpdates(nextRuntime, updates)
+      if (merged !== nextRuntime) {
+        nextRuntime = merged
+        runtimeChanged = true
+      }
+      const defaultNext = applyDefaultCatalogUpdate(nextDefault, daemonActorId, defaultCatalog)
+      if (defaultNext !== nextDefault) {
+        nextDefault = defaultNext
+        defaultChanged = true
+      }
     }
-    if (next !== current) set({ byRuntimeId: next })
+    if (runtimeChanged || defaultChanged) {
+      set({
+        ...(runtimeChanged ? { byRuntimeId: nextRuntime } : {}),
+        ...(defaultChanged ? { defaultCatalogByActorId: nextDefault } : {}),
+      })
+    }
   },
-  clear: () => set({ byRuntimeId: {} }),
+  clear: () => set({ byRuntimeId: {}, defaultCatalogByActorId: {} }),
 }))
 
 export function parseRuntimeStateTopic(
@@ -169,7 +231,11 @@ export function parseActorStateTopic(
 
 let unlisten: (() => void) | null = null
 let initialized = false
-type ActorPresenceSync = { daemonActorId: string; updates: RuntimeStateUpdate[] }
+type ActorPresenceSync = {
+  daemonActorId: string
+  updates: RuntimeStateUpdate[]
+  defaultCatalog: ActorDefaultCatalogEntry | null
+}
 let queuedActorPresenceSyncs: ActorPresenceSync[] = []
 let runtimeStateFlushScheduled = false
 
@@ -180,11 +246,29 @@ function flushQueuedRuntimeStateUpdates(): void {
   useRuntimeStateStore.getState().syncActorPresenceBatch(syncs)
 }
 
-function enqueueActorPresenceSync(daemonActorId: string, updates: RuntimeStateUpdate[]): void {
-  queuedActorPresenceSyncs.push({ daemonActorId, updates })
+function enqueueActorPresenceSync(
+  daemonActorId: string,
+  updates: RuntimeStateUpdate[],
+  defaultCatalog: ActorDefaultCatalogEntry | null,
+): void {
+  queuedActorPresenceSyncs.push({ daemonActorId, updates, defaultCatalog })
   if (runtimeStateFlushScheduled) return
   runtimeStateFlushScheduled = true
   queueMicrotask(flushQueuedRuntimeStateUpdates)
+}
+
+/** Live-probed default-workspace catalog from `{actor}/state`. */
+export function extractActorDefaultCatalog(
+  presence: ActorPresence,
+): ActorDefaultCatalogEntry | null {
+  const worktree = presence.defaultWorktree?.trim() ?? ''
+  if (!worktree) return null
+  return {
+    defaultWorkspaceId: presence.defaultWorkspaceId?.trim() ?? '',
+    defaultWorktree: worktree,
+    models: [...(presence.defaultWorkspaceModels ?? [])],
+    lastUpdated: Date.now(),
+  }
 }
 
 /**
@@ -294,6 +378,7 @@ export async function initRuntimeStateStore(teamId: string): Promise<void> {
       return
     }
     const updates = projectActorPresence(actor.actorId, presence)
+    const defaultCatalog = extractActorDefaultCatalog(presence)
     sessionFlowLog('actor_state.retain.received', {
       teamId: actor.teamId,
       actorId: actor.actorId,
@@ -303,8 +388,10 @@ export async function initRuntimeStateStore(teamId: string): Promise<void> {
       worktreeCount: presence.worktrees.length,
       catalogModelCount: presence.catalogModels.length,
       liveSessionCount: presence.liveSessions.length,
+      defaultWorktree: presence.defaultWorktree ?? '',
+      defaultCatalogModelCount: presence.defaultWorkspaceModels.length,
     })
-    enqueueActorPresenceSync(actor.actorId, updates)
+    enqueueActorPresenceSync(actor.actorId, updates, defaultCatalog)
   })
   initialized = true
 }
