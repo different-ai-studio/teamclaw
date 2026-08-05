@@ -15,25 +15,211 @@
 use std::sync::Mutex;
 use std::time::Duration;
 
-use tauri::{Manager, State};
+use tauri::State;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::TcpListener;
 use tokio::sync::oneshot;
 
-fn success_html(brand: &str) -> String {
-    format!(
-        "<!doctype html><meta charset=utf-8><title>{brand}</title>\
-         <body style=\"font-family:system-ui;text-align:center;padding-top:18vh\">\
-         <h2>登录成功 / Signed in</h2><p>你可以关闭此页面返回 {brand}。<br>You can close this tab.</p></body>"
-    )
+/// The one page a user sees outside the app, so it matches the other
+/// out-of-app surface we ship — the release download page built by
+/// `scripts/publish-oss-release.py`. Tokens are deliberately copied from that
+/// file's `build_css` so the two stay recognisably the same system: black
+/// ground, coral accent with a glow, 22px icon tile, uppercase pill.
+///
+/// This is NOT the in-app Editorial Calm palette from AGENTS.md §1 — that one
+/// governs the three-column desktop shell, not a standalone browser tab.
+///
+/// Everything is inlined: the page is served straight off a throwaway loopback
+/// listener with no asset pipeline, and must render identically offline.
+///
+/// The page names no product. This is a multi-brand build, and
+/// `branding::brand_name` falls back to the literal "TeamClaw" whenever a brand
+/// ships without `product_name` — so printing the name here would quietly show
+/// the wrong brand instead of failing loudly. Same reason there is no logo: only
+/// the brand *name* ever reached this code, never its mark or accent, so the
+/// coral below is the default one from the release page.
+const PAGE_TEMPLATE: &str = r#"<!doctype html>
+<html lang="zh-CN">
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>{{TITLE_CN}}</title>
+<style>
+  :root {
+    --bg: #000;
+    --bg-card: #141414;
+    --tx: #fff;
+    --tx2: rgba(255, 255, 255, .7);
+    --tx3: rgba(255, 255, 255, .5);
+    --tx4: rgba(255, 255, 255, .35);
+    --accent: #ff8b7b;
+    --accent2: #ff6b5a;
+    --glow: rgba(255, 139, 123, .4);
+    --bd: rgba(255, 255, 255, .08);
+    --grad: linear-gradient(135deg, #ff8b7b 0%, #ff6b5a 100%);
+    color-scheme: dark;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  html { -webkit-font-smoothing: antialiased; text-rendering: optimizeLegibility; }
+  body {
+    font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto,
+                 'PingFang SC', 'Microsoft YaHei', sans-serif;
+    background: var(--bg);
+    color: var(--tx);
+    min-height: 100vh;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 40px 20px;
+    position: relative;
+    overflow-x: hidden;
+  }
+  body::before {
+    content: '';
+    position: fixed;
+    inset: 0;
+    background: radial-gradient(ellipse 80% 50% at 50% -10%, rgba(255, 139, 123, .15), transparent 70%);
+    pointer-events: none;
+    z-index: 0;
+  }
+  .card {
+    width: 100%;
+    max-width: 440px;
+    text-align: center;
+    position: relative;
+    z-index: 1;
+  }
+  .mark {
+    width: 84px;
+    height: 84px;
+    margin: 0 auto;
+    border-radius: 22px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+  }
+  .mark.ok {
+    background: var(--grad);
+    color: #1a0e0b;
+    box-shadow: 0 0 40px var(--glow), 0 8px 30px rgba(0, 0, 0, .6);
+  }
+  .mark.bad {
+    background: var(--bg-card);
+    border: 1px solid rgba(255, 139, 123, .35);
+    color: var(--accent);
+    box-shadow: 0 8px 30px rgba(0, 0, 0, .6);
+  }
+  .badge {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    margin-top: 22px;
+    font-size: 11px;
+    font-weight: 700;
+    letter-spacing: .12em;
+    text-transform: uppercase;
+    color: var(--accent);
+    border: 1px solid rgba(255, 139, 123, .35);
+    background: rgba(255, 139, 123, .08);
+    border-radius: 999px;
+    padding: 4px 13px;
+  }
+  .badge .dot {
+    width: 6px;
+    height: 6px;
+    border-radius: 50%;
+    background: var(--accent2);
+    box-shadow: 0 0 8px var(--glow);
+  }
+  h1 {
+    font-size: 30px;
+    font-weight: 800;
+    margin: 16px 0 6px;
+    letter-spacing: -.02em;
+    line-height: 1.15;
+  }
+  .meta {
+    color: var(--tx3);
+    font-size: 14px;
+    margin-bottom: 30px;
+  }
+  .panel {
+    background: var(--bg-card);
+    border: 1px solid var(--bd);
+    border-radius: 16px;
+    padding: 18px 20px;
+    color: var(--tx2);
+    font-size: 13.5px;
+    line-height: 1.6;
+  }
+  .panel .en {
+    margin-top: 4px;
+    color: var(--tx4);
+    font: 12px/1.5 ui-monospace, 'SF Mono', Menlo, monospace;
+  }
+</style>
+<body>
+  <main class="card">
+    <div class="mark {{MARK_CLASS}}">{{MARK_SVG}}</div>
+    <div class="badge"><span class="dot"></span>{{BADGE}}</div>
+    <h1>{{TITLE_CN}}</h1>
+    <p class="meta">{{TITLE_EN}}</p>
+    <div class="panel">
+      <p>{{BODY_CN}}</p>
+      <p class="en">{{BODY_EN}}</p>
+    </div>
+  </main>
+</body>
+</html>"#;
+
+const CHECK_SVG: &str = r#"<svg width="38" height="38" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 6 9 17l-5-5"/></svg>"#;
+
+const CROSS_SVG: &str = r#"<svg width="34" height="34" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M18 6 6 18M6 6l12 12"/></svg>"#;
+
+struct PageCopy<'a> {
+    /// Coral pill above the headline, matching the release page's BETA badge.
+    badge: &'a str,
+    title_cn: &'a str,
+    title_en: &'a str,
+    body_cn: &'a str,
+    body_en: &'a str,
+    mark_svg: &'a str,
+    /// `ok` (filled coral tile) or `bad` (outlined tile) — see PAGE_TEMPLATE.
+    mark_class: &'a str,
 }
 
-fn error_html(brand: &str) -> String {
-    format!(
-        "<!doctype html><meta charset=utf-8><title>{brand}</title>\
-         <body style=\"font-family:system-ui;text-align:center;padding-top:18vh\">\
-         <h2>登录失败 / Sign-in failed</h2><p>请返回 {brand} 重试。<br>Please return to {brand} and try again.</p></body>"
-    )
+fn render_page(copy: PageCopy<'_>) -> String {
+    PAGE_TEMPLATE
+        .replace("{{MARK_CLASS}}", copy.mark_class)
+        .replace("{{MARK_SVG}}", copy.mark_svg)
+        .replace("{{BADGE}}", copy.badge)
+        .replace("{{TITLE_CN}}", copy.title_cn)
+        .replace("{{TITLE_EN}}", copy.title_en)
+        .replace("{{BODY_CN}}", copy.body_cn)
+        .replace("{{BODY_EN}}", copy.body_en)
+}
+
+fn success_html() -> String {
+    render_page(PageCopy {
+        badge: "Signed in",
+        title_cn: "登录成功",
+        title_en: "Google account connected",
+        body_cn: "你可以关闭此页面，返回应用继续。",
+        body_en: "You can close this tab and return to the app.",
+        mark_svg: CHECK_SVG,
+        mark_class: "ok",
+    })
+}
+
+fn error_html() -> String {
+    render_page(PageCopy {
+        badge: "Sign-in failed",
+        title_cn: "登录未完成",
+        title_en: "We could not complete the sign-in",
+        body_cn: "请关闭此页面，返回应用重试。",
+        body_en: "Close this tab and try again from the app.",
+        mark_svg: CROSS_SVG,
+        mark_class: "bad",
+    })
 }
 
 #[derive(Default)]
@@ -57,7 +243,6 @@ pub struct LoopbackCode {
 
 #[tauri::command]
 pub async fn oauth_loopback_start(
-    app: tauri::AppHandle,
     state: State<'_, OAuthLoopbackState>,
 ) -> Result<LoopbackStart, String> {
     let listener = TcpListener::bind("127.0.0.1:0")
@@ -67,10 +252,9 @@ pub async fn oauth_loopback_start(
         .local_addr()
         .map_err(|e| format!("oauth_addr_failed: {e}"))?
         .port();
-    let brand = crate::branding::brand_name(app.config().product_name.as_deref());
     let (tx, rx) = oneshot::channel::<Result<String, String>>();
     let handle = tokio::spawn(async move {
-        let _ = tx.send(accept_one(listener, brand).await);
+        let _ = tx.send(accept_one(listener).await);
     });
     // Replace any in-flight listener (e.g. a prior cancelled attempt) and abort
     // its task so we don't leak a parked accept() / bound port across retries.
@@ -128,7 +312,7 @@ pub async fn oauth_loopback_cancel(state: State<'_, OAuthLoopbackState>) -> Resu
     Ok(())
 }
 
-async fn accept_one(listener: TcpListener, brand: String) -> Result<String, String> {
+async fn accept_one(listener: TcpListener) -> Result<String, String> {
     let (mut socket, _) = listener
         .accept()
         .await
@@ -147,8 +331,8 @@ async fn accept_one(listener: TcpListener, brand: String) -> Result<String, Stri
     let result = parse_callback_target(target);
 
     let (status, body) = match &result {
-        Ok(_) => ("200 OK", success_html(&brand)),
-        Err(_) => ("400 Bad Request", error_html(&brand)),
+        Ok(_) => ("200 OK", success_html()),
+        Err(_) => ("400 Bad Request", error_html()),
     };
     let resp = format!(
         "HTTP/1.1 {status}\r\nContent-Type: text/html; charset=utf-8\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}",
@@ -272,17 +456,25 @@ mod tests {
 mod brand_html_tests {
     use super::{error_html, success_html};
 
+    /// The page is brand-neutral on purpose. `branding::brand_name` falls back to
+    /// the literal "TeamClaw" whenever a brand ships without `product_name`, so
+    /// naming the product here would print the wrong one for those builds rather
+    /// than fail loudly. The copy says "应用" / "the app" instead.
     #[test]
-    fn success_html_includes_brand_name() {
-        let html = success_html("Acme");
-        assert!(html.contains("Acme"));
-        assert!(!html.contains("TeamClaw"));
+    fn pages_name_no_product() {
+        for html in [success_html(), error_html()] {
+            assert!(!html.contains("TeamClaw"));
+            assert!(html.contains("应用"));
+        }
     }
 
+    /// Served straight off the loopback socket with no asset pipeline, so a
+    /// reference to any external origin would render as a broken page offline.
     #[test]
-    fn error_html_includes_brand_name() {
-        let html = error_html("Acme");
-        assert!(html.contains("Acme"));
-        assert!(!html.contains("TeamClaw"));
+    fn pages_are_self_contained() {
+        for html in [success_html(), error_html()] {
+            assert!(!html.contains("http://"));
+            assert!(!html.contains("https://"));
+        }
     }
 }
