@@ -11,6 +11,7 @@ import './styles/globals.css'
 import './stores/dev-expose'
 import './lib/i18n'; // Initialize i18n
 import { appStoragePrefix, buildConfig } from './lib/build-config'
+import { fetchPublicConfig } from './lib/bootstrap'
 import { migrateOfficialLocalStorage } from './lib/storage-migration'
 
 migrateOfficialLocalStorage()
@@ -26,6 +27,15 @@ markStartup('main:start')
 // LiteLLM, OSS sync) can authenticate. Must run at startup, before any of those
 // features open. No-op outside Tauri.
 initJwtBridge()
+
+// Pull the public (unauthenticated) config: the Web SSO target and the
+// login-method feature flags.
+//
+// Unconditional, and here rather than in useAppInit, because `App` renders
+// INSIDE <AuthGate> — the login screen never reaches useAppInit, and the login
+// screen is precisely what these flags configure. Fire-and-forget: the last
+// known snapshot already painted, and this only updates it.
+void fetchPublicConfig()
 void ensureBundledAmuxdCurrent()
 
 // Initialize Sentry for frontend error tracking

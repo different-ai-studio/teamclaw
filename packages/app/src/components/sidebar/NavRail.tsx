@@ -21,7 +21,7 @@ import { ActorsSection } from '@/components/sidebar/ActorsSection'
 import { ContactsNavEntry } from '@/components/sidebar/ContactsNavEntry'
 import { TeamShareNavSection } from '@/components/sidebar/TeamShareNavSection'
 import { NewChatSplitButton } from '@/components/sidebar/NewChatSplitButton'
-import { buildConfig } from '@/lib/build-config'
+import { useFeatures } from '@/lib/remote-features'
 import { isScheduledSession } from '@/lib/session-origin'
 import { cn } from '@/lib/utils'
 
@@ -69,6 +69,7 @@ function TopEntry({ label, icon: Icon, active, badge, onClick }: TopEntryProps) 
 
 export function NavRail() {
   const { t } = useTranslation()
+  const features = useFeatures()
   const embedMode = useUIStore((s) => s.embedMode)
   const filter = useUIStore((s) => s.sidebarFilter)
   const setFilter = useUIStore((s) => s.setSidebarFilter)
@@ -157,7 +158,7 @@ export function NavRail() {
             onClick={() => setFilter({ kind: 'ideas' })}
           />
         ) : null}
-        {buildConfig.features.apps && (
+        {features.apps && (
           <TopEntry
             label={t('sidebar.apps', '演示及 APP')}
             icon={AppWindow}
@@ -175,7 +176,7 @@ export function NavRail() {
         ) : null}
       </div>
 
-      {buildConfig.features.teamShareBrowser && <TeamShareNavSection />}
+      {features.teamShareBrowser && <TeamShareNavSection />}
 
       <ActorsSection />
     </div>

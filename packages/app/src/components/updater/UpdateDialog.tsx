@@ -13,7 +13,7 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog"
 import { Button } from "@/components/ui/button"
-import { buildConfig } from "@/lib/build-config"
+import { getFeatures } from "@/lib/remote-features"
 import { useUpdaterStore } from "@/stores/updater"
 
 const releaseNotesMarkdownPlugins = [remarkGfm]
@@ -89,7 +89,7 @@ export function UpdateDialogContainer() {
   // Check for updates on app startup (3s delay) and every 4 hours
   useEffect(() => {
     if (
-      !buildConfig.features.updater
+      !getFeatures().updater
       || import.meta.env.DEV
       || typeof window === "undefined"
       || !(window as unknown as { __TAURI__: unknown }).__TAURI__

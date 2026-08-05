@@ -195,6 +195,42 @@ docker compose build fc && docker compose up -d fc
 > ⚠️ `AUTH_BASE_URL` 在 `services/fc/src/auth/` 里的代码内置默认值仍是**已下线**的
 > `https://cloud.ucar.cc`。留空会落到这个死地址，务必显式配置。
 
+**运行时功能开关（feature flags）：** `/v1/config/public` 与 `/v1/config/bootstrap`
+会把一部分开关下发给客户端，客户端拿它覆盖自己 `build.config*.json` 里烘死的默认值
+——改登录方式、渠道开关不再需要重新打包客户端。
+
+| 变量 | 说明 |
+|------|------|
+| `APP_FEATURES_PROFILE` | 选用哪份 profile。compose 默认 `self-host`，`s.yaml` 默认 `belayo`；两边默认值不同是有意的 |
+| `APP_FEATURES_JSON` | **应急覆盖**，逐键盖在 profile 之上。日常不要用 |
+
+**持久的值在代码里，不在环境变量里**：`services/fc/src/lib/feature-profiles.ts`。
+原因是 belayo（Alibaba FC）那边 `s deploy` 会**整体重写** function 的环境变量表，
+某个变量在这次部署所用的 env 文件里缺失不等于「保持现值」，而等于「清空」——登录
+方式一旦只配在 env 里，一次无关的常规部署就会让登录按钮消失。放代码里则跟着版本走，
+可 review、有 git 历史。
+
+改一个开关 = 改 `feature-profiles.ts` 提 PR：self-host 合并到 main 自动部署生效，
+belayo 跟着下次手工部署生效。
+
+两条不下发的规则，别绕：
+
+- **`updater` 永远不下发。** 它同时关掉启动自检，远程关错会让已装机群体失去自更新
+  能力，只能手动重装。代码里的白名单直接把它丢掉，即使写进 env 也不生效。
+- **`auth.webSSO` 是 AND 不是覆盖。** 允许注入 session 的 admin console 域名烘在
+  桌面端二进制里（`WEBSSO_ADMIN_HOSTS`），服务端单方面打开不会生效，也不该生效。
+
+验证（两个环境都要，belayo 没有 CI 门禁）：
+
+```bash
+curl -s https://api.teamclaw-dev.ucar.cc/v1/config/public | jq   # self-host
+curl -s https://teamclaw-api.ucar.cc/v1/config/public | jq       # belayo
+```
+
+profile 是空的（当前两份都是空的，即「不覆盖任何东西」）时返回 `{}` 属于正常。容器
+日志里的 `[config] features profile=… keys=N` 是区分「没配」和「配了但没生效」的唯一
+手段。
+
 **定时任务：** `docker compose --profile cron up -d`，cron 容器按计划打
 `POST /internal/cron`（带 `x-cron-secret`）。
 

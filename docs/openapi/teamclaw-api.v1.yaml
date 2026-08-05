@@ -198,7 +198,7 @@ paths:
                 displayName:
                   type: [string, "null"]
                 orgId:
-                  description: Organization selected from an `itemType: org` picker row.
+                  description: "Organization selected from an `itemType: org` picker row."
                   type: [string, "null"]
                   format: uuid
       responses:
@@ -1249,11 +1249,51 @@ paths:
           $ref: "#/components/responses/Error"
         "401":
           $ref: "#/components/responses/Error"
+  /v1/config/public:
+    get:
+      operationId: getPublicConfig
+      summary: Non-sensitive configuration needed BEFORE sign-in (login methods, Web SSO target)
+      description: >-
+        Unauthenticated. Serves what the login screen needs before a session
+        exists: which sign-in methods this deployment offers, and the Web SSO
+        快捷登录 target. Never contains the MQTT broker block.
+
+
+        Each key has exactly ONE authoritative endpoint. `features.auth` lives
+        here and NOT in `/v1/config/bootstrap`, because the login screen renders
+        before any token exists. Clients ignore an `auth` block arriving from
+        bootstrap.
+      tags: [Config]
+      security: []
+      parameters:
+        - $ref: "#/components/parameters/ConfigBrand"
+        - $ref: "#/components/parameters/ConfigPlatform"
+        - $ref: "#/components/parameters/ConfigVersion"
+      responses:
+        "200":
+          description: Public configuration payload.
+          headers:
+            X-Request-Id:
+              $ref: "#/components/headers/RequestId"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PublicConfig"
   /v1/config/bootstrap:
     get:
       operationId: getBootstrapConfig
       summary: Runtime configuration for authenticated clients (MQTT broker, feature flags, etc.)
+      description: >-
+        Post-sign-in configuration. Carries the MQTT broker and the feature
+        flags that only matter once signed in.
+
+
+        `features.auth` is deliberately NOT here — see `/v1/config/public`.
       tags: [Config]
+      parameters:
+        - $ref: "#/components/parameters/ConfigBrand"
+        - $ref: "#/components/parameters/ConfigPlatform"
+        - $ref: "#/components/parameters/ConfigVersion"
       responses:
         "200":
           description: Bootstrap configuration payload.
@@ -4066,6 +4106,30 @@ components:
       schema:
         type: string
         format: uuid
+    ConfigBrand:
+      name: brand
+      in: query
+      required: false
+      description: >-
+        Calling build's brand short name. Accepted so one Cloud API can answer
+        per-brand; the current implementation logs it and returns the
+        deployment-wide config regardless.
+      schema:
+        type: string
+    ConfigPlatform:
+      name: platform
+      in: query
+      required: false
+      description: desktop | web | ios | expo | extension | daemon.
+      schema:
+        type: string
+    ConfigVersion:
+      name: version
+      in: query
+      required: false
+      description: Calling build's version, for future version-gated rollouts.
+      schema:
+        type: string
   responses:
     NotFound:
       description: Resource not found.
@@ -4130,26 +4194,126 @@ components:
         updatedAt: { type: string, format: date-time }
     BootstrapConfig:
       type: object
-      description: Runtime configuration delivered to authenticated clients on startup. Fields are optional; clients fall back to local defaults when omitted.
+      description: >-
+        Runtime configuration delivered to authenticated clients on startup.
+        Every field is optional; clients fall back to their baked build config
+        when one is omitted. An empty object is a valid answer and means "no
+        overrides" — it must NEVER be read as "everything is disabled".
       properties:
         mqtt:
           $ref: "#/components/schemas/BootstrapMqttConfig"
+        features:
+          $ref: "#/components/schemas/BootstrapFeatures"
+        webSso:
+          allOf:
+            - $ref: "#/components/schemas/WebSsoConfig"
+          deprecated: true
+          description: >-
+            DEPRECATED — read this from `/v1/config/public` instead. Still
+            served here because shipped clients (which fetch the public config
+            only from a newer build) resolve their 快捷登录 target from this
+            block; removing it would break their sign-in until they update.
       additionalProperties: true
+    PublicConfig:
+      type: object
+      description: >-
+        Unauthenticated pre-sign-in configuration. Same "absent means fall back
+        to the build config" rule as BootstrapConfig.
+      properties:
+        webSso:
+          $ref: "#/components/schemas/WebSsoConfig"
+        features:
+          $ref: "#/components/schemas/PublicFeatures"
+      additionalProperties: true
+    WebSsoConfig:
+      type: object
+      required: [loginUrl]
+      description: 快捷登录 target — the partner admin console whose session is harvested.
+      properties:
+        loginUrl:
+          type: string
+          description: Admin console sign-in URL opened in the modal webview.
+        storageKey:
+          type:
+            - string
+            - "null"
+          description: >-
+            supabase-js localStorage key on that console (`sb-<ref>-auth-token`).
+            Cannot be derived from the host, so it is delivered explicitly.
+    PublicFeatures:
+      type: object
+      description: Feature flags the login screen needs before a session exists.
+      properties:
+        auth:
+          $ref: "#/components/schemas/AuthFeatures"
+      additionalProperties: false
+    AuthFeatures:
+      type: object
+      description: >-
+        Which sign-in methods this deployment offers. Each flag overrides the
+        client's baked `features.auth.*`, EXCEPT `webSSO`, which is ANDed with
+        the build flag: enabling it server-side alone is not enough, because the
+        allowed admin-console hosts are compiled into the desktop binary
+        (`WEBSSO_ADMIN_HOSTS`, apps/desktop/build.rs).
+      properties:
+        google: { type: boolean }
+        wechat: { type: boolean }
+        phone: { type: boolean }
+        password: { type: boolean }
+        webSSO: { type: boolean }
+      additionalProperties: false
+    BootstrapFeatures:
+      type: object
+      description: >-
+        Post-sign-in feature flags. UI gating only — never authorization: a
+        client with a tampered flag must still be refused by the endpoint that
+        owns the feature.
+
+
+        `updater` is deliberately absent and not overridable. It gates the
+        startup auto-check as well as the UI, so a server-side mistake would
+        strand the installed fleet with no way to update out of it.
+      properties:
+        channels:
+          $ref: "#/components/schemas/ChannelFeatures"
+        teamShareBrowser: { type: boolean }
+        apps: { type: boolean }
+        lockLlmConfig:
+          type: boolean
+          description: >-
+            Locks clients out of changing or leaving the team LLM config.
+            Deployment-scoped, matching what it already meant as the build-time
+            `team.lockLlmConfig` (i.e. per brand) — not per team.
+      additionalProperties: false
+    ChannelFeatures:
+      type: object
+      description: Per-channel gateway toggles. Merged key-by-key over the build config.
+      properties:
+        discord: { type: boolean }
+        feishu: { type: boolean }
+        email: { type: boolean }
+        kook: { type: boolean }
+        wecom: { type: boolean }
+        wechat: { type: boolean }
+      additionalProperties: false
     BootstrapMqttConfig:
       type: object
       required: [url]
+      description: >-
+        Broker address handed to clients. Credentials are NOT part of this
+        payload: clients authenticate to EMQX with username=actor_id and
+        password=<Supabase access_token> (JWT auth).
       properties:
         url:
           type: string
           description: Full broker URL including scheme (mqtt://, mqtts://, ws://, wss://) and port.
-        username:
+        tcpUrl:
           type:
             - string
             - "null"
-        password:
-          type:
-            - string
-            - "null"
+          description: >-
+            Raw-TCP address for clients whose MQTT stack cannot do WebSocket
+            (iOS CocoaMQTT, Expo). Desktop and daemon prefer `url`.
         useTls:
           type:
             - boolean

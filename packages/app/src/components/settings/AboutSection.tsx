@@ -13,7 +13,8 @@ import {
   RefreshCw,
   AlertCircle,
 } from "lucide-react";
-import { appDisplayName, buildConfig } from "@/lib/build-config";
+import { appDisplayName } from "@/lib/build-config";
+import { useFeatures } from "@/lib/remote-features";
 import { useUpdaterStore } from "@/stores/updater";
 import { useAppVersion } from "@/lib/version";
 import { Button } from "@/components/ui/button";
@@ -34,7 +35,7 @@ export const AboutSection = React.memo(function AboutSection() {
   const isError = update.state === "error";
   // Build-flavor toggle: when the updater feature is off, the About card shows
   // the version only — no check button, no status cards, no startup auto-check.
-  const updaterEnabled = buildConfig.features.updater && !import.meta.env.DEV;
+  const updaterEnabled = useFeatures().updater && !import.meta.env.DEV;
 
   return (
     <div className="space-y-6">

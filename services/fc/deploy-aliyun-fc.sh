@@ -144,6 +144,22 @@ echo "  backend  : $BACKEND_KIND"
 echo "  http trig: $FC_HTTP_TRIGGER_NAME"
 echo "  env file : $ENV_FILE"
 echo "  supabase : ${SUPABASE_URL:-<unset>}"
+# Feature flags served to clients. The durable values ride in the code
+# (src/lib/feature-profiles.ts), so unlike MQTT_BROKER_URL an empty override
+# here is a completely normal state and NOT worth failing on — adding another
+# ALLOW_EMPTY_* gate would only train people to hit `y` without reading.
+#
+# It is still worth printing: this banner is the only checkpoint before `s
+# deploy` rewrites the function's whole environment map. An override shown here
+# is being written into that map, and will be gone the next time anyone deploys
+# from a machine whose env file lacks it.
+echo "  features : profile=${APP_FEATURES_PROFILE:-belayo} (durable values are in src/lib/feature-profiles.ts)"
+if [ -n "${APP_FEATURES_JSON:-}" ]; then
+  echo "  feat-ovr : $APP_FEATURES_JSON"
+  echo "             ^ temporary — the NEXT deploy without it will drop it."
+else
+  echo "  feat-ovr : <none>"
+fi
 echo "────────────────────────────────────────────────────────"
 read -r -p "Deploy '$FUNCTION_NAME' with the above config? [y/N] " ans
 case "$ans" in

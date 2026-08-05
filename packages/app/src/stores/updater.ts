@@ -1,9 +1,9 @@
 import { create } from "zustand"
-import { buildConfig } from "@/lib/build-config"
+import { getFeatures } from "@/lib/remote-features"
 import { isTauri } from "@/lib/utils"
 
 function isUpdaterEnabled(): boolean {
-  return buildConfig.features.updater && !import.meta.env.DEV
+  return getFeatures().updater && !import.meta.env.DEV
 }
 
 export type UpdateState =
