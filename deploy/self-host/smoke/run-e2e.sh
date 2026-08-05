@@ -57,6 +57,26 @@ else
   [ "$i" -lt 60 ] || echo "WARN: postgrest still not serving after 60s; running the suite anyway"
 fi
 
+# ── Wait for GoTrue through Kong ───────────────────────────────────────────
+#
+# After auth is recreated, Kong may still proxy to a dead upstream until it is
+# restarted (the deploy workflow does that, but this wait catches any residual
+# warm-up). Probe /auth/v1/health so token refresh in the first e2e suite does
+# not fail spuriously.
+echo "=== wait for gotrue via kong ==="
+i=0
+until [ "$i" -ge 30 ]; do
+  code=$(curl -s -o /dev/null -w '%{http_code}' -m 5 \
+    "http://$KONG_IP:8000/auth/v1/health" 2>/dev/null || echo "000")
+  if [ "$code" = "200" ]; then
+    echo "  gotrue ready via kong after ${i}s"
+    break
+  fi
+  i=$((i + 1))
+  sleep 1
+done
+[ "$i" -lt 30 ] || echo "WARN: gotrue health via kong still not 200 after 30s; running the suite anyway"
+
 cd "$REPO_ROOT/services/fc"
 FC_E2E=1 \
 FC_E2E_BASE_URL="http://$FC_IP:9000" \
