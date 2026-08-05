@@ -69,6 +69,14 @@ services:
       # https://github.com/supabase/supabase/issues/12661
       - ./volumes/api/kong.yml:/home/kong/temp.yml:ro
 
+  templates-server:
+    container_name: supabase-auth-templates
+    image: caddy:2-alpine
+    restart: unless-stopped
+    command: ["caddy", "file-server", "-r", "/templates", "--listen", ":80"]
+    volumes:
+      - ./email-templates:/templates:ro
+
   auth:
     container_name: supabase-auth
     image: public.ecr.aws/supabase/gotrue:v2.188.1
@@ -78,6 +86,8 @@ services:
         condition: service_healthy
       analytics:
         condition: service_healthy
+      templates-server:
+        condition: service_started
     healthcheck:
       test:
         [
@@ -162,6 +172,14 @@ services:
       GOTRUE_MAILER_URLPATHS_CONFIRMATION: ${MAILER_URLPATHS_CONFIRMATION}
       GOTRUE_MAILER_URLPATHS_RECOVERY: ${MAILER_URLPATHS_RECOVERY}
       GOTRUE_MAILER_URLPATHS_EMAIL_CHANGE: ${MAILER_URLPATHS_EMAIL_CHANGE}
+      # OTP-only auth emails — no magic link. Templates are served by
+      # templates-server on the internal docker network (see email-templates/).
+      GOTRUE_MAILER_TEMPLATES_MAGIC_LINK: http://templates-server/magic-link.html
+      GOTRUE_MAILER_SUBJECTS_MAGIC_LINK: ${MAILER_SUBJECTS_MAGIC_LINK:-您的验证码：{{ .Token }}}
+      GOTRUE_MAILER_TEMPLATES_EMAIL_CHANGE: http://templates-server/email-change.html
+      GOTRUE_MAILER_SUBJECTS_EMAIL_CHANGE: ${MAILER_SUBJECTS_EMAIL_CHANGE:-您的验证码：{{ .Token }}}
+      GOTRUE_MAILER_TEMPLATES_CONFIRMATION: http://templates-server/confirmation.html
+      GOTRUE_MAILER_SUBJECTS_CONFIRMATION: ${MAILER_SUBJECTS_CONFIRMATION:-您的验证码：{{ .Token }}}
 
       GOTRUE_EXTERNAL_PHONE_ENABLED: ${ENABLE_PHONE_SIGNUP}
       GOTRUE_SMS_AUTOCONFIRM: ${ENABLE_PHONE_AUTOCONFIRM}

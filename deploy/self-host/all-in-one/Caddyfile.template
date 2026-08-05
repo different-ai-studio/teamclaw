@@ -55,6 +55,12 @@ http://127.0.0.1:8089 {
     reverse_proxy 127.0.0.1:9000
   }
 
+  # GoTrue auth email templates (OTP-only; fetched by GoTrue at send time)
+  handle_path /auth-email-templates/* {
+    root * /opt/teamclaw/email-templates
+    file_server
+  }
+
   # Supabase edge — strip the /<svc>/v1 prefix like Kong strip_path.
   handle_path /auth/v1/* {
     reverse_proxy 127.0.0.1:9999

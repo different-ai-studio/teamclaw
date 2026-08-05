@@ -84,6 +84,7 @@ COPY deploy/self-host/all-in-one/jwt.sql               /opt/teamclaw/jwt.sql
 COPY deploy/self-host/all-in-one/Caddyfile.template    /opt/teamclaw/Caddyfile.template
 COPY deploy/self-host/all-in-one/nanomq.conf.template  /opt/teamclaw/nanomq.conf.template
 COPY deploy/self-host/all-in-one/mqtt-auth.mjs         /opt/teamclaw/mqtt-auth.mjs
+COPY deploy/self-host/supabase/email-templates        /opt/teamclaw/email-templates
 COPY deploy/self-host/all-in-one/supervisord.conf      /etc/supervisor/conf.d/teamclaw-all-in-one.conf
 
 RUN chmod +x \

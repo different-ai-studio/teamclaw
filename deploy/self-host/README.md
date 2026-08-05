@@ -267,6 +267,8 @@ curl -s -X POST http://127.0.0.1:9000/v1/auth/signin-password \
 
 在 `.env` 配置可用的 `SMTP_*`（或接入 Mailpit 等），OTP 邮件才能发到真实邮箱。
 
+登录/升级账号的邮件模板已改为**仅发送 6 位验证码**（无 Magic Link），模板在 `supabase/email-templates/`，由 `templates-server` 容器供 GoTrue 拉取。部署后需重启 `auth` 与 `templates-server` 容器生效。
+
 **方式 4 — Google 登录**
 
 三端（桌面 loopback、iOS `ASWebAuthenticationSession`、Expo）都走同一条链路：
