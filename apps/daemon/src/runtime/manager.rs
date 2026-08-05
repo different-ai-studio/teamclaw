@@ -223,15 +223,9 @@ pub struct RuntimeManager {
     agents: HashMap<String, RuntimeHandle>,
     pub aggregators: std::collections::HashMap<String, TurnAggregator>,
     launch_configs: HashMap<amux::AgentType, AgentLaunchConfig>,
-<<<<<<< HEAD
     /// Local agent backend selected by daemon config `agents.local_agent`
     /// (`opencode` / `pi` / `cursor` / `claude-code` via `dyn AgentBackend`).
-    agent_backend: Box<dyn AgentBackend>,
-=======
-    /// Local agent backend (opencode HTTP today; pi RPC later), selected by
-    /// daemon config `agents.local_agent`.
     agent_backend: Arc<AsyncMutex<Box<dyn AgentBackend>>>,
->>>>>>> origin/main
     /// The agent type `agents.local_agent` resolved to — the same value
     /// [`create_backend`] dispatched on when building `agent_backend`.
     ///
