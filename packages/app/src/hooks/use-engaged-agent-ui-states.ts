@@ -527,14 +527,6 @@ export function useEngagedAgentUiStates(
   ])
 }
 
-export function countNonReadyEngaged(entries: EngagedAgentUiEntry[]): number {
-  return entries.filter((e) => e.uiState !== 'ready').length
-}
-
-export function allEngagedNonReady(entries: EngagedAgentUiEntry[]): boolean {
-  return entries.length > 0 && entries.every((e) => e.uiState !== 'ready')
-}
-
 /** True when any engaged agent is not ready (offline, connecting, or stale). */
 export function hasAnyNonReadyEngaged(entries: EngagedAgentUiEntry[]): boolean {
   return entries.some((e) => e.uiState !== 'ready')

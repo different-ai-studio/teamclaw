@@ -16,9 +16,8 @@ import { SectionHeader, SettingCard } from './shared'
  * here. The pane shows the models the running claude runtime advertises and
  * points at the CLI for auth.
  *
- * Note the claude backend reports a fixed model table rather than probing a
- * provider list, so this list changes only with the daemon's own table — unlike
- * opencode, where it follows `opencode.json`.
+ * Models come from a live `list_models` probe (`Query.supportedModels()`), so
+ * the list follows whatever the installed CLI currently supports.
  */
 export function ClaudeLLMSection() {
   const { t } = useTranslation()

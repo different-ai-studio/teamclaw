@@ -12,8 +12,9 @@ import {
 
 /**
  * After runtimeStart RPC succeeds, seed a minimal local runtime-state entry so
- * lifecycle/status UI can render before MQTT retain arrives. Model options come
- * only from daemon ACP `available_models` on the retain — never seeded here.
+ * lifecycle/status UI can render before MQTT retain arrives. Model options are
+ * not seeded here — they arrive on the retain (`availableModels`) and/or via
+ * the loopback catalog (`mergeLocalDaemonModels`).
  */
 export function seedRuntimeStateAfterStart(args: {
   daemonActorId: string;

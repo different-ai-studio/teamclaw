@@ -223,8 +223,8 @@ pub struct RuntimeManager {
     agents: HashMap<String, RuntimeHandle>,
     pub aggregators: std::collections::HashMap<String, TurnAggregator>,
     launch_configs: HashMap<amux::AgentType, AgentLaunchConfig>,
-    /// Local agent backend (opencode HTTP today; pi RPC later), selected by
-    /// daemon config `agents.local_agent`.
+    /// Local agent backend selected by daemon config `agents.local_agent`
+    /// (`opencode` / `pi` / `cursor` / `claude-code` via `dyn AgentBackend`).
     agent_backend: Arc<AsyncMutex<Box<dyn AgentBackend>>>,
     /// The agent type `agents.local_agent` resolved to — the same value
     /// [`create_backend`] dispatched on when building `agent_backend`.
@@ -451,9 +451,10 @@ impl RuntimeManager {
             .await;
     }
 
-    /// Records the latest slash-command list for an agent. Callers feed
-    /// this from the adapter's translated `AvailableCommands` events so
-    /// `to_proto_info` can include them in retained state.
+    /// Records the latest slash-command list for an agent. Callers feed this
+    /// from translated `AvailableCommands` events (e.g. messaging path /
+    /// backend event translators) so `to_proto_info` can include them in
+    /// retained state.
     pub fn set_available_commands(
         &mut self,
         agent_id: &str,
@@ -1353,9 +1354,8 @@ impl RuntimeManager {
             .filter(|h| !h.session_id.is_empty())
             .map(|h| amux::LiveSession {
                 session_id: h.session_id.clone(),
-                // The live adapter does not yet distinguish lifecycle states;
-                // an attachment that exists is serving. Same placeholder as
-                // `RuntimeHandle::to_proto_info`.
+                // Lifecycle is still a placeholder: an attachment that exists
+                // is treated as Active. Same as `RuntimeHandle::to_proto_info`.
                 lifecycle: amux::RuntimeLifecycle::Active as i32,
                 status: h.status as i32,
                 stage: String::new(),

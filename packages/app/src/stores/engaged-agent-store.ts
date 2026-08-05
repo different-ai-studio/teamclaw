@@ -22,8 +22,6 @@ interface State {
   /** Legacy single-agent accessor — returns the first engaged agent or null.
    * Use {@link getAgents} for the full set when routing/rendering. */
   get: (sessionId: string | null) => AttachedAgent | null;
-  /** Legacy setter that replaces the list with [agent] (or clears when null). */
-  setEngagedAgent: (sessionId: string, agent: AttachedAgent | null) => void;
 }
 
 export const useEngagedAgentStore = create<State>((set, getState) => ({
@@ -65,11 +63,4 @@ export const useEngagedAgentStore = create<State>((set, getState) => ({
     const arr = getState().bySession[sessionId];
     return arr && arr.length > 0 ? arr[0] : null;
   },
-  setEngagedAgent: (sessionId, agent) =>
-    set((s) => ({
-      bySession: {
-        ...s.bySession,
-        [sessionId]: agent ? [agent] : [],
-      },
-    })),
 }));

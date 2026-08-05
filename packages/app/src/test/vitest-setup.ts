@@ -130,12 +130,6 @@ if (typeof HTMLElement !== 'undefined') {
   }
 }
 
-// --- Supabase client mock (prevents module evaluation throw in tests) --------
-// supabase-client.ts throws at module eval time when env vars are missing.
-// The test vite.config.ts provides stub env vars, but as a belt-and-suspenders
-// guard we also set them on import.meta.env here.
-// (This runs before any module imports in the test file.)
-
 // --- Tauri event plugin (listen() teardown calls into internals) ------------
 if (typeof window !== 'undefined') {
   const w = window as unknown as {

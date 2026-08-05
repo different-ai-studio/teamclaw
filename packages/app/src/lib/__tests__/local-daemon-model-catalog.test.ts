@@ -13,7 +13,6 @@ import { ModelInfoSchema, RuntimeInfoSchema, RuntimeLifecycle } from '@/lib/prot
 import { useRuntimeStateStore } from '@/stores/runtime-state-store'
 import {
   fetchLocalDaemonCatalog,
-  fetchLocalDaemonModels,
   firstAvailableRecentModel,
   mergeLocalDaemonModels,
   seedLocalDaemonModelsInBackground,
@@ -31,7 +30,15 @@ const catalog = (backend: string, refs: string[], recentModels?: string[]) => ({
   ],
 })
 
-describe('fetchLocalDaemonModels', () => {
+async function modelsFor(
+  workspacePath: string,
+  backendType: string | null | undefined,
+) {
+  const outcome = await fetchLocalDaemonCatalog(workspacePath, backendType)
+  return outcome.status === 'models' ? outcome.models : null
+}
+
+describe('fetchLocalDaemonCatalog model groups', () => {
   beforeEach(() => {
     getDaemonModelCatalog.mockReset()
   })
@@ -46,7 +53,7 @@ describe('fetchLocalDaemonModels', () => {
       ['claude-code', 'claude-code'],
     ] as const) {
       getDaemonModelCatalog.mockResolvedValueOnce(catalog(groupId, ['prov/a', 'prov/b']))
-      const models = await fetchLocalDaemonModels('/w1', backendType)
+      const models = await modelsFor('/w1', backendType)
       expect(models, `${backendType} should resolve models`).toHaveLength(2)
       expect(models?.[0].id).toBe('prov/a')
       expect(models?.[0].providerName).toBe('prov')
@@ -58,7 +65,7 @@ describe('fetchLocalDaemonModels', () => {
       catalog('pi', ['deepseek/deepseek-v4-flash', 'kimi-coding/k3']),
     )
 
-    const models = await fetchLocalDaemonModels('/w1', 'pi')
+    const models = await modelsFor('/w1', 'pi')
 
     expect(models?.map((model) => model.providerName)).toEqual(['deepseek', 'kimi-coding'])
   })
@@ -68,7 +75,7 @@ describe('fetchLocalDaemonModels', () => {
     // launch-config `backend_type` spelling "claude".
     for (const spelling of ['claude', 'claude_code', 'claude-code']) {
       getDaemonModelCatalog.mockResolvedValueOnce(catalog('claude-code', ['anthropic/opus']))
-      const models = await fetchLocalDaemonModels('/w1', spelling)
+      const models = await modelsFor('/w1', spelling)
       expect(models, `${spelling} should resolve`).toHaveLength(1)
     }
   })
@@ -77,18 +84,18 @@ describe('fetchLocalDaemonModels', () => {
     // Single-agent mode serves one group; discarding it over a name mismatch
     // would throw away the only catalog available.
     getDaemonModelCatalog.mockResolvedValue(catalog('pi', ['pi/x']))
-    expect(await fetchLocalDaemonModels('/w1', 'opencode')).toHaveLength(1)
-    expect(await fetchLocalDaemonModels('/w1', null)).toHaveLength(1)
+    expect(await modelsFor('/w1', 'opencode')).toHaveLength(1)
+    expect(await modelsFor('/w1', null)).toHaveLength(1)
   })
 
   it('returns null when the daemon is unreachable, empty, or the path is blank', async () => {
     getDaemonModelCatalog.mockResolvedValueOnce(null)
-    expect(await fetchLocalDaemonModels('/w1', 'opencode')).toBeNull()
+    expect(await modelsFor('/w1', 'opencode')).toBeNull()
 
     getDaemonModelCatalog.mockResolvedValueOnce(catalog('opencode', []))
-    expect(await fetchLocalDaemonModels('/w1', 'opencode')).toBeNull()
+    expect(await modelsFor('/w1', 'opencode')).toBeNull()
 
-    expect(await fetchLocalDaemonModels('   ', 'opencode')).toBeNull()
+    expect(await modelsFor('   ', 'opencode')).toBeNull()
   })
 
   it('does not guess when several groups are offered and none matches', async () => {
@@ -103,7 +110,7 @@ describe('fetchLocalDaemonModels', () => {
         },
       ],
     })
-    expect(await fetchLocalDaemonModels('/w1', 'opencode')).toBeNull()
+    expect(await modelsFor('/w1', 'opencode')).toBeNull()
   })
 })
 

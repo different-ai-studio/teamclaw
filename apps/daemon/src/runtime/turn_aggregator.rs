@@ -199,9 +199,8 @@ impl TurnAggregator {
                     self.turn_was_interrupted = false;
                     self.ensure_turn_started();
                 }
-                // Active -> Idle is the canonical "turn ended" signal
-                // (`daemon/src/runtime/adapter.rs:622-633`). Flush
-                // pending buffers, then close out the turn so the next
+                // Active -> Idle is the canonical "turn ended" signal.
+                // Flush pending buffers, then close out the turn so the next
                 // turn allocates a fresh id.
                 if sc.old_status == active && sc.new_status == idle {
                     self.flush_thinking_into(&mut out);

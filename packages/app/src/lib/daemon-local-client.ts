@@ -618,7 +618,8 @@ export interface DaemonCatalogModel {
   display_name: string
 }
 
-/** Mirrors Rust `workspaces::BackendCatalog`. `backend` is "opencode" | "claude" | "codex". */
+/** Mirrors Rust `workspaces::BackendCatalog`. `backend` is a daemon agent type
+ * id (`opencode` | `pi` | `cursor` | `claude-code`, …). */
 export interface DaemonBackendCatalog {
   backend: string
   label: string

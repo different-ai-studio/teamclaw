@@ -132,22 +132,20 @@ Commands **只来自当前会话绑定的 agent runtime**，不是 workspace 文
 ### 2.1 链路
 
 ```
-1. Agent 进程（OpenCode / Claude Code / Codex）通过 ACP 上报
-   SessionUpdate::AvailableCommandsUpdate
+1. Agent backend reports AvailableCommands (builtin list for opencode;
+   translated events for backends that emit them)
 
-2. amuxd adapter 翻译为 AcpAvailableCommands
-   apps/daemon/src/runtime/adapter.rs
-
-3. RuntimeManager 缓存到 available_commands_per_agent
+2. RuntimeManager caches via set_available_commands / builtin_commands
    apps/daemon/src/runtime/manager.rs
+   apps/daemon/src/runtime/builtin_commands.rs
 
-4. 写入 MQTT retain：amux/{teamId}/{actorId}/runtime/{runtimeId}/state
+3. Written into MQTT retain: amux/{teamId}/{actorId}/runtime/{runtimeId}/state
    payload: RuntimeInfo.availableCommands[]
 
-5. 前端 runtime-state-store 解码并 upsert
+4. Frontend runtime-state-store decodes and upserts
    packages/app/src/stores/runtime-state-store.ts
 
-6. CommandPopover 读取：
+5. CommandPopover reads:
    getBackend().runtime.listSessionRuntimeModels(activeSessionId)  // 拿 runtime_id
    runtimeStates[runtime_id].info.availableCommands                   // 拿命令列表
 ```
@@ -240,7 +238,7 @@ loadAllRoles(workspacePath)
 | Roles + Skills 聚合 API | `packages/app/src/lib/roles/loader.ts` |
 | Daemon 扫描实现 | `apps/daemon/src/config/roles_skills.rs` |
 | Runtime 命令缓存 | `apps/daemon/src/runtime/manager.rs` |
-| ACP → protobuf | `apps/daemon/src/runtime/adapter.rs` |
+| Builtin / 翻译后的命令列表 | `apps/daemon/src/runtime/builtin_commands.rs` |
 | 前端 runtime 状态 | `packages/app/src/stores/runtime-state-store.ts` |
 | 单测 | `packages/app/src/components/chat/__tests__/CommandPopover.test.tsx` |
 

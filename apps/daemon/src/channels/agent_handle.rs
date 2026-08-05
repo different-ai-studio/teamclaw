@@ -458,9 +458,10 @@ impl AmuxdAgentHandle {
         // Consult per-session override so the spawn picks up the desired
         // model. Stored as (provider, model); both fields are forwarded to
         // `create_gateway_session_with_model`, which calls `resolve_initial_model`
-        // to build the correct ACP model id per backend:
+        // to build the correct model id per backend:
         //   - ClaudeCode: maps short names (sonnet→claude-sonnet-4-6), drops provider
-        //   - OpenCode/Codex: rejoins as "provider/model" (required by ACP)
+        //   - OpenCode (and similar provider/model backends): rejoins as
+        //     "provider/model"
         let model_arg: Option<(String, String)> = {
             let overrides = self.model_override.lock().await;
             overrides.get(session).cloned()
@@ -1771,18 +1772,17 @@ mod tests {
     /// Verify `set_model` stores `(provider, model)` as a tuple so the
     /// lazy-spawn in `resolve_or_spawn` forwards BOTH to
     /// `create_gateway_session_with_model`.  The provider must be preserved
-    /// because `resolve_initial_model` needs it to reconstruct the full ACP
-    /// model id for OpenCode/Codex backends.
+    /// because `resolve_initial_model` needs it to reconstruct the full
+    /// `provider/model` id for backends that use that form (e.g. OpenCode).
     #[tokio::test]
     async fn set_model_stores_provider_and_model_tuple() {
         let handle = make_handle();
         let session = AmuxSessionId::from("sess-1");
 
-        // Simulate a user choosing an OpenCode provider/model.
-        // set_model validates against list_models(), which for ClaudeCode
-        // returns the three hardcoded models. Use one of those to avoid a
-        // validation error; the important assertion is that the tuple is
-        // stored intact.
+        // Simulate a user choosing a provider/model. set_model validates
+        // against list_models() (live catalog via MockBackend here); pick a
+        // model the mock serves so validation passes. The assertion is that
+        // the provider/model tuple is stored intact.
         handle
             .set_model(&session, "anthropic", "sonnet")
             .await

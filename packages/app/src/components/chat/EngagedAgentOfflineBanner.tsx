@@ -138,7 +138,3 @@ export function pillSuffixForUiState(
       return null
   }
 }
-
-// `dotClassesForUiState` now lives in `@/lib/session-agent-ui-state`, next to
-// the retain-based variant and the `resolveAgentPillDot` combinator that picks
-// between them.

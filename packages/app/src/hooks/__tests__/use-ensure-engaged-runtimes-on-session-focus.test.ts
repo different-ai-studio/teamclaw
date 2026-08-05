@@ -1,7 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { renderHook } from '@testing-library/react'
 import {
-  agentIdsNeedingRuntimeWake,
   hasConnectingEngagedAgent,
   hasRecoverableNonReadyAgent,
   useEnsureEngagedRuntimesOnSessionFocus,
@@ -19,18 +18,7 @@ function entry(id: string, uiState: EngagedAgentUiEntry['uiState']): EngagedAgen
   return { agent: { id, displayName: id }, uiState }
 }
 
-describe('agentIdsNeedingRuntimeWake', () => {
-  it('includes connecting and offline agents only', () => {
-    expect(
-      agentIdsNeedingRuntimeWake([
-        entry('a1', 'ready'),
-        entry('a2', 'connecting'),
-        entry('a3', 'offline'),
-        entry('a4', 'stale'),
-      ]),
-    ).toEqual(['a2', 'a3'])
-  })
-
+describe('hasConnectingEngagedAgent / hasRecoverableNonReadyAgent', () => {
   it('hasConnectingEngagedAgent is true only for connecting pills', () => {
     expect(
       hasConnectingEngagedAgent([

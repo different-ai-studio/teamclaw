@@ -8,7 +8,6 @@
 //   session-questions.ts  — Question tool handling
 //   session-types.ts      — All type/interface definitions
 //   session-cache.ts      — Session lookup cache utilities
-//   session-converters.ts — Message/Session converters
 //   session-internals.ts  — Module-level mutable state, timers, buffers
 //   session-data-cache.ts — Session-specific data cache (todos, diffs, queue)
 //   session-utils.ts      — Utility functions (workspacePathsMatch)
@@ -35,9 +34,6 @@ export type {
 
 // Cache utilities
 export { sessionLookupCache, getSessionById, updateSessionCache, UI_PAGE_SIZE } from './session-cache';
-
-// Converters
-export { convertMessage, convertSession, convertSessionListItem } from './session-converters';
 
 // Utilities
 export { workspacePathsMatch } from './session-utils';

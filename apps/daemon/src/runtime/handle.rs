@@ -76,11 +76,9 @@ pub struct RuntimeHandle {
     /// TODO(task9): capture and store the returned row id from
     /// `upsert_agent_runtime` once that helper returns it.
     pub backend_runtime_row_id: Option<String>,
-    /// Models the underlying ACP agent reported in its
-    /// `session/new` / `session/load` response (via
-    /// `SessionModelState.available_models`). Populated by the adapter on
-    /// spawn / resume. Empty until the live serve catalog is advertised —
-    /// there is no static fallback table.
+    /// Models the local backend reported for this runtime (startup /
+    /// `list_models` probe, then cached on the handle). Empty until the live
+    /// catalog is advertised — there is no static fallback table.
     pub available_models: Vec<amux::ModelInfo>,
     /// The `messages.id` of the last message this runtime processed (sent or
     /// queued as silent). Used by Task 9 catch-up logic to replay missed
@@ -157,12 +155,10 @@ impl RuntimeHandle {
 
     /// Build a `RuntimeInfo` for this agent.
     ///
-    /// `available_models` is read from `self` — the adapter populates it
-    /// from the live ACP `session/new` response (or the hardcoded fallback
-    /// table for agents that don't implement `unstable_session_model`).
-    /// `current_model` and `available_commands` are passed in by the
-    /// caller (`RuntimeManager`) which tracks them in its own caches.
-    /// Pass empty Vec / empty String for unset.
+    /// `available_models` is read from `self` — filled from the backend's
+    /// startup / `list_models` probe. `current_model` and `available_commands`
+    /// are passed in by the caller (`RuntimeManager`) which tracks them in its
+    /// own caches. Pass empty Vec / empty String for unset.
     pub fn to_proto_info(
         &self,
         current_model: String,
@@ -182,8 +178,8 @@ impl RuntimeHandle {
             tool_use_count: self.tool_use_count,
             available_models: self.available_models.clone(),
             current_model,
-            // Lifecycle fields — not yet populated by the live adapter;
-            // will be wired in a later phase.
+            // Lifecycle fields — still a placeholder (`Active`); the manager
+            // does not yet distinguish finer states on the wire.
             state: amux::RuntimeLifecycle::Active as i32,
             stage: String::new(),
             error_code: String::new(),
