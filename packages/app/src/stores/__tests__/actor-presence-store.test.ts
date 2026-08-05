@@ -17,6 +17,12 @@ vi.mock('@/lib/mqtt-bridge', () => ({
 
 beforeEach(() => {
   mockSubscribe.mockClear()
+  mockSubscribe.mockResolvedValue(undefined)
+  mockListen.mockClear()
+  mockListen.mockImplementation(async (handler: (env: { topic: string; bytes: number[] }) => void) => {
+    envelopeHandler = handler
+    return () => { envelopeHandler = null }
+  })
   envelopeHandler = null
 })
 
@@ -30,6 +36,35 @@ describe('actor-presence-store', () => {
     const { initActorPresenceStore } = await import('../actor-presence-store')
     await initActorPresenceStore('team-1')
     expect(mockSubscribe).toHaveBeenCalledWith('amux/team-1/+/state')
+  })
+
+  it('registers the envelope handler before subscribing (boot retain race)', async () => {
+    const callOrder: string[] = []
+    mockListen.mockImplementation(async (handler) => {
+      callOrder.push('listen')
+      envelopeHandler = handler
+      return () => {
+        envelopeHandler = null
+      }
+    })
+    mockSubscribe.mockImplementation(async () => {
+      callOrder.push('subscribe')
+      envelopeHandler?.({
+        topic: 'amux/team-1/actor-mac/state',
+        bytes: Array.from(
+          toBinary(
+            ActorPresenceSchema,
+            create(ActorPresenceSchema, { online: true, displayName: 'Macmini' }),
+          ),
+        ),
+      })
+    })
+
+    const { initActorPresenceStore, useActorPresenceStore } = await import('../actor-presence-store')
+    await initActorPresenceStore('team-1')
+
+    expect(callOrder).toEqual(['listen', 'subscribe'])
+    expect(useActorPresenceStore.getState().byActorId['actor-mac']?.online).toBe(true)
   })
 
   it('decodes ActorPresence retains and upserts presence by actorId', async () => {

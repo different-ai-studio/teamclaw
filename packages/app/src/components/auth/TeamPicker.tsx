@@ -26,6 +26,9 @@ export function TeamPicker({ teams, lastUsedTeamId, onDone }: TeamPickerProps) {
   // Highlight the last-used team; on first login (no history) fall back to the
   // first team so there's always a visible pre-selection.
   const highlightId = lastUsedTeamId ?? teams.find((item) => item.itemType !== "org")?.id ?? null;
+  const memberTeamCount = teams.filter(
+    (team) => team.itemType !== "org" && team.isMember !== false,
+  ).length;
 
   // Group by org, preserving first-seen order. Teams without an org name fall
   // into a single "ungrouped" bucket.
@@ -72,7 +75,9 @@ export function TeamPicker({ teams, lastUsedTeamId, onDone }: TeamPickerProps) {
           {t("teamPicker.title", "Choose a team")}
         </h1>
         <p className="mt-1.5 text-[12.5px] leading-5 text-muted-foreground">
-          {t("teamPicker.subtitle", "You belong to multiple teams. Pick one to continue.")}
+          {memberTeamCount > 1
+            ? t("teamPicker.subtitle", "You belong to multiple teams. Pick one to continue.")
+            : t("teamPicker.subtitleSingle", "Pick a team to continue.")}
         </p>
 
         {/*

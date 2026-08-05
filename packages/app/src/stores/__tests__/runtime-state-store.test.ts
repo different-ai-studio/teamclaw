@@ -25,6 +25,12 @@ vi.mock('@/lib/mqtt-bridge', () => ({
 
 beforeEach(() => {
   mockSubscribe.mockClear()
+  mockSubscribe.mockResolvedValue(undefined)
+  mockListen.mockClear()
+  mockListen.mockImplementation(async (handler: (env: { topic: string; bytes: number[] }) => void) => {
+    envelopeHandler = handler
+    return () => { envelopeHandler = null }
+  })
   envelopeHandler = null
 })
 
@@ -43,6 +49,41 @@ describe('runtime-state-store', () => {
     await initRuntimeStateStore('team-1')
     expect(mockSubscribe).toHaveBeenCalledTimes(1)
     expect(mockSubscribe).toHaveBeenCalledWith('amux/team-1/+/state')
+  })
+
+  it('registers the envelope handler before subscribing (boot retain race)', async () => {
+    const callOrder: string[] = []
+    mockListen.mockImplementation(async (handler) => {
+      callOrder.push('listen')
+      envelopeHandler = handler
+      return () => {
+        envelopeHandler = null
+      }
+    })
+    mockSubscribe.mockImplementation(async () => {
+      callOrder.push('subscribe')
+      // mqtt.js can deliver retained messages before SUBACK resolves.
+      envelopeHandler?.({
+        topic: 'amux/team-1/dev-a/state',
+        bytes: Array.from(
+          toBinary(
+            ActorPresenceSchema,
+            create(ActorPresenceSchema, {
+              online: true,
+              defaultWorktree: '/tmp/default',
+              defaultWorkspaceModels: [{ id: 'shopee/gpt-5.5', displayName: 'gpt-5.5' }],
+            }),
+          ),
+        ),
+      })
+    })
+
+    const { initRuntimeStateStore, useRuntimeStateStore } = await import('../runtime-state-store')
+    await initRuntimeStateStore('team-1')
+    await flushRuntimeStateBatch()
+
+    expect(callOrder).toEqual(['listen', 'subscribe'])
+    expect(useRuntimeStateStore.getState().defaultCatalogByActorId['dev-a']?.models).toHaveLength(1)
   })
 
   it('decodes ActorPresence retained messages and upserts composite keys', async () => {

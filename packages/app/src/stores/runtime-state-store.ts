@@ -365,8 +365,8 @@ export async function initRuntimeStateStore(teamId: string): Promise<void> {
     return
   }
   const actorTopic = `amux/${teamId}/+/state`
-  await mqttSubscribe(actorTopic)
-  console.info('[runtime-state] subscribed', { teamId, topic: actorTopic })
+  // Register the handler before subscribe: mqtt.js delivers retained messages
+  // as soon as the SUBACK lands, and a subscribe-then-listen race drops boot retain.
   unlisten = await listenForEnvelopes((env: IncomingEnvelope) => {
     const actor = parseActorStateTopic(env.topic)
     if (!actor || actor.teamId !== teamId) return
@@ -393,6 +393,8 @@ export async function initRuntimeStateStore(teamId: string): Promise<void> {
     })
     enqueueActorPresenceSync(actor.actorId, updates, defaultCatalog)
   })
+  await mqttSubscribe(actorTopic)
+  console.info('[runtime-state] subscribed', { teamId, topic: actorTopic })
   initialized = true
 }
 

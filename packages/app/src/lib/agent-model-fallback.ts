@@ -62,6 +62,7 @@ export function resolveAgentCatalogModels(args: {
     localDaemonActorId: args.localDaemonActorId,
     runtimeInfo: args.runtimeInfo,
     catalogModels: args.localWorkspaceCatalogModels,
+    remoteDefaultCatalogModels: args.remoteDefaultCatalogModels,
   });
 }
 
@@ -77,12 +78,14 @@ export function agentAvailableModelsWithLocalCatalog(args: {
   localDaemonActorId: string | null | undefined;
   runtimeInfo: RuntimeInfo | undefined;
   catalogModels: readonly AgentModelOption[] | undefined;
+  remoteDefaultCatalogModels?: readonly AgentModelOption[] | undefined;
 }): AgentModelOption[] {
   const fromRetain = resolveAgentAvailableModels(args.runtimeInfo);
   if (fromRetain.length > 0) return fromRetain;
-  return isLocalDaemonAgent(args.agentId, args.localDaemonActorId)
-    ? dedupeAgentModelOptions(args.catalogModels)
-    : [];
+  if (isLocalDaemonAgent(args.agentId, args.localDaemonActorId)) {
+    return dedupeAgentModelOptions(args.catalogModels);
+  }
+  return dedupeAgentModelOptions(args.remoteDefaultCatalogModels);
 }
 
 /**

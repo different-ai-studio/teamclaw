@@ -53,7 +53,9 @@ let initialized = false
 
 export async function initActorPresenceStore(teamId: string): Promise<void> {
   if (initialized) return
-  await mqttSubscribe(`amux/${teamId}/+/state`)
+  const actorTopic = `amux/${teamId}/+/state`
+  // Same ordering as runtime-state-store: listen before subscribe so boot retain
+  // is not delivered before this handler is attached.
   unlisten = await listenForEnvelopes((env: IncomingEnvelope) => {
     const parsed = parseActorStateTopic(env.topic)
     if (!parsed) return
@@ -69,6 +71,7 @@ export async function initActorPresenceStore(teamId: string): Promise<void> {
       console.warn('[actor-presence] failed to decode ActorPresence', e)
     }
   })
+  await mqttSubscribe(actorTopic)
   initialized = true
 }
 

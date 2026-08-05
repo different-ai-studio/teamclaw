@@ -85,6 +85,17 @@ describe("agentAvailableModelsWithLocalCatalog", () => {
     });
     expect(models).toEqual([]);
   });
+
+  it("falls back to MQTT default workspace catalog for a remote agent", () => {
+    const models = agentAvailableModelsWithLocalCatalog({
+      agentId: REMOTE,
+      localDaemonActorId: LOCAL,
+      runtimeInfo: undefined,
+      catalogModels: [{ id: "from/catalog", displayName: "catalog" }],
+      remoteDefaultCatalogModels: [{ id: "from/mqtt", displayName: "mqtt" }],
+    });
+    expect(models.map((m) => m.id)).toEqual(["from/mqtt"]);
+  });
 });
 
 describe("resolveAgentCatalogModels", () => {
@@ -108,6 +119,25 @@ describe("resolveAgentCatalogModels", () => {
       sessionId: null,
       byRuntimeId: {},
       runtimeInfo: runtimeInfo(["from/retain"]),
+      localWorkspaceCatalogModels: [{ id: "from/http", displayName: "http" }],
+      remoteDefaultCatalogModels: [{ id: "from/mqtt", displayName: "mqtt" }],
+    });
+    expect(models.map((m) => m.id)).toEqual(["from/mqtt"]);
+  });
+
+  it("attached remote agent falls back to default workspace catalog when retain is empty", () => {
+    const models = resolveAgentCatalogModels({
+      agentId: REMOTE,
+      localDaemonActorId: LOCAL,
+      sessionId: "session-1",
+      byRuntimeId: {
+        [`${REMOTE}::session-1`]: {
+          daemonActorId: REMOTE,
+          lastUpdated: 1,
+          info: runtimeInfo([]),
+        },
+      },
+      runtimeInfo: runtimeInfo([]),
       localWorkspaceCatalogModels: [{ id: "from/http", displayName: "http" }],
       remoteDefaultCatalogModels: [{ id: "from/mqtt", displayName: "mqtt" }],
     });

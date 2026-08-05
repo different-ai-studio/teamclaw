@@ -132,6 +132,15 @@ export function resolveSessionAgentUiState(input: {
     if (!input.runtimeInfo && hasModels) {
       return 'ready'
     }
+    // Session attachment can sit at STARTING while the worktree catalog is already
+    // visible (extension draft → first send). With models to pick, "connecting"
+    // is a lie — same rule as the local loopback fast path above.
+    if (
+      hasModels &&
+      (state === RuntimeLifecycle.STARTING || input.activeStreamConfirmed === true)
+    ) {
+      return 'ready'
+    }
     if (!input.runtimeInfo || state === RuntimeLifecycle.STARTING || !hasModels) {
       return 'connecting'
     }
