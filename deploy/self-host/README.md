@@ -267,6 +267,41 @@ curl -s -X POST http://127.0.0.1:9000/v1/auth/signin-password \
 
 在 `.env` 配置可用的 `SMTP_*`（或接入 Mailpit 等），OTP 邮件才能发到真实邮箱。
 
+**方式 4 — Google 登录**
+
+三端（桌面 loopback、iOS `ASWebAuthenticationSession`、Expo）都走同一条链路：
+客户端 → FC `/v1/auth/oauth/google/authorize` → 302 → GoTrue
+`/auth/v1/authorize?provider=google`。GoTrue 未配置 Google 时这一步直接 400
+`Unsupported provider: provider is not enabled`，客户端只会看到一个失败的浏览器窗口。
+
+前置：Google Cloud Console 里建一个 **Web application** 类型的 OAuth client
+（**不能用 Desktop app 类型** —— 它注册不了 https 重定向，而 GoTrue 是在服务端
+用 client_secret 去 Google 换 token 的，Desktop client 必然 `redirect_uri_mismatch`）。
+Authorized redirect URI 填：
+
+```
+https://<SUPABASE_DOMAIN>/auth/v1/callback
+```
+
+然后在 `.env` 里：
+
+```bash
+cd deploy/self-host
+ENABLE_GOOGLE_SIGNUP=true
+GOOGLE_CLIENT_ID=<web client id>
+GOOGLE_CLIENT_SECRET=<web client secret>
+# 客户端回调必须在允许列表里，否则 GoTrue 会把 redirect 改写回 SITE_URL
+ADDITIONAL_REDIRECT_URLS=http://127.0.0.1:*/callback,teamclaw://auth-callback
+docker compose up -d --no-deps auth
+```
+
+线上 ECS 不用手改 `.env`：把 `GOOGLE_CLIENT_ID` / `GOOGLE_CLIENT_SECRET` 设成
+GitHub Actions secret，`self-host-deploy.yml` 会同步进 `.env` 并按两者是否都存在
+自动开关 `ENABLE_GOOGLE_SIGNUP`；删掉 secret 即关闭。
+
+桌面端按钮另受 `build.config.*.json` 的 `auth.google` 控制，默认 `false`，
+服务端跑通后再打开。
+
 #### E. 切换后端后清理缓存
 
 若之前连过线上环境，清掉浏览器/Tauri WebView 里的 MQTT 缓存，避免沿用旧 broker：

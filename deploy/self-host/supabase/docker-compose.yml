@@ -113,6 +113,22 @@ services:
       GOTRUE_MAILER_AUTOCONFIRM: ${ENABLE_EMAIL_AUTOCONFIRM}
       # GOTRUE_MAILER_SECURE_EMAIL_CHANGE_ENABLED: true
       # GOTRUE_SMTP_MAX_FREQUENCY: 1s
+
+      # Google sign-in. Without these GoTrue rejects /auth/v1/authorize?provider=google
+      # with "Unsupported provider: provider is not enabled", which is what every
+      # client sees (desktop loopback, iOS ASWebAuthenticationSession, Expo) since
+      # they all funnel through FC's /v1/auth/oauth/google/authorize -> this URL.
+      # Defaults keep it off, so an .env that predates these keys still boots.
+      # GOOGLE_CLIENT_ID / GOOGLE_CLIENT_SECRET are shared with the fc service in
+      # ../docker-compose.yml — one credential pair, one .env entry each.
+      # The redirect URI here must byte-match the "Authorized redirect URI" on the
+      # Google OAuth client, and API_EXTERNAL_URL carries no path (gen-secrets.sh
+      # sets it to https://<SUPABASE_DOMAIN>), hence the explicit /auth/v1/callback.
+      GOTRUE_EXTERNAL_GOOGLE_ENABLED: ${ENABLE_GOOGLE_SIGNUP:-false}
+      GOTRUE_EXTERNAL_GOOGLE_CLIENT_ID: ${GOOGLE_CLIENT_ID:-}
+      GOTRUE_EXTERNAL_GOOGLE_SECRET: ${GOOGLE_CLIENT_SECRET:-}
+      GOTRUE_EXTERNAL_GOOGLE_REDIRECT_URI: ${API_EXTERNAL_URL}/auth/v1/callback
+
       GOTRUE_SMTP_ADMIN_EMAIL: ${SMTP_ADMIN_EMAIL}
       GOTRUE_SMTP_HOST: ${SMTP_HOST}
       GOTRUE_SMTP_PORT: ${SMTP_PORT}

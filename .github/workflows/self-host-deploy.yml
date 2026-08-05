@@ -28,12 +28,14 @@ jobs:
           BELAYO_TEST_RDS_PORT: ${{ secrets.BELAYO_TEST_RDS_PORT }}
           BELAYO_TEST_RDS_USER: ${{ secrets.BELAYO_TEST_RDS_USER }}
           BELAYO_TEST_RDS_PASSWORD: ${{ secrets.BELAYO_TEST_RDS_PASSWORD }}
+          GOOGLE_CLIENT_ID: ${{ secrets.GOOGLE_CLIENT_ID }}
+          GOOGLE_CLIENT_SECRET: ${{ secrets.GOOGLE_CLIENT_SECRET }}
         with:
           host: ${{ secrets.ECS_HOST }}
           username: ${{ secrets.ECS_USER }}
           key: ${{ secrets.ECS_SSH_PRIVATE_KEY }}
           command_timeout: 30m
-          envs: DEEPSEEK_API_KEY,TRUSTED_EXTERNAL_JWT_SECRET,FC_SUPABASE_URL,FC_SUPABASE_PUBLIC_URL,FC_SUPABASE_ANON_KEY,FC_SUPABASE_SERVICE_ROLE_KEY,BELAYO_TEST_RDS_PRIVATE_HOST,BELAYO_TEST_RDS_PORT,BELAYO_TEST_RDS_USER,BELAYO_TEST_RDS_PASSWORD
+          envs: DEEPSEEK_API_KEY,TRUSTED_EXTERNAL_JWT_SECRET,FC_SUPABASE_URL,FC_SUPABASE_PUBLIC_URL,FC_SUPABASE_ANON_KEY,FC_SUPABASE_SERVICE_ROLE_KEY,BELAYO_TEST_RDS_PRIVATE_HOST,BELAYO_TEST_RDS_PORT,BELAYO_TEST_RDS_USER,BELAYO_TEST_RDS_PASSWORD,GOOGLE_CLIENT_ID,GOOGLE_CLIENT_SECRET
           script: |
             set -e
             cd /opt/teamclaw
@@ -207,6 +209,21 @@ jobs:
               upsert_env LITELLM_UI_PASSWORD "$(openssl rand -hex 16)"
             fi
             upsert_env DEEPSEEK_API_KEY "$DEEPSEEK_API_KEY"
+
+            # Google sign-in. sync_env (not upsert_env) so clearing the GitHub
+            # secret actually turns the provider back off instead of leaving a
+            # stale credential in the server .env. ENABLE_GOOGLE_SIGNUP is
+            # derived rather than a separate secret: a half-configured provider
+            # (enabled with no client id) makes GoTrue answer authorize requests
+            # with a redirect to Google that can only fail, so the flag must not
+            # be able to drift away from the credential pair.
+            sync_env GOOGLE_CLIENT_ID "$GOOGLE_CLIENT_ID"
+            sync_env GOOGLE_CLIENT_SECRET "$GOOGLE_CLIENT_SECRET"
+            if [ -n "$GOOGLE_CLIENT_ID" ] && [ -n "$GOOGLE_CLIENT_SECRET" ]; then
+              upsert_env ENABLE_GOOGLE_SIGNUP "true"
+            else
+              upsert_env ENABLE_GOOGLE_SIGNUP "false"
+            fi
 
             echo "=== build fc ==="
             docker compose build fc
