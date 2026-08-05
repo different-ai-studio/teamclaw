@@ -3042,6 +3042,7 @@
   "teamPicker": {
     "title": "选择团队",
     "subtitle": "你属于多个团队，请选择要进入的一个。",
+    "subtitleSingle": "请选择一个团队继续。",
     "singleOrgNotice": "同一时间只能在一个组织内工作。选择这里的团队后，其它组织的团队将无法访问，直到你切回去。",
     "switching": "切换中…",
     "joining": "加入中…",

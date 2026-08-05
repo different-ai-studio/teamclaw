@@ -27,6 +27,32 @@ interface AuthGateProps {
 
 type BootstrapState = "idle" | "checking" | "ready" | "error";
 
+function memberTeams(teams: MembershipTeam[]): MembershipTeam[] {
+  return teams.filter((team) => team.itemType !== "org" && team.isMember !== false);
+}
+
+/** True when the user must explicitly pick (multi-team, joinable public, or empty org). */
+function needsTeamPicker(teams: MembershipTeam[]): boolean {
+  const members = memberTeams(teams);
+  return (
+    members.length > 1 ||
+    teams.some((team) => team.isMember === false) ||
+    teams.some((team) => team.itemType === "org")
+  );
+}
+
+function pickAutoRestoreTarget(
+  teams: MembershipTeam[],
+  lastUsedTeamId: string | null,
+): MembershipTeam | undefined {
+  if (needsTeamPicker(teams)) return undefined;
+  const members = memberTeams(teams);
+  return (
+    (lastUsedTeamId ? members.find((team) => team.id === lastUsedTeamId) : undefined) ??
+    (members.length === 1 ? members[0] : undefined)
+  );
+}
+
 export function AuthGate({ children }: AuthGateProps) {
   const { session, loading, authFlow, hydrate, signOut } = useAuthStore();
   const [bootstrap, setBootstrap] = useState<BootstrapState>("idle");
@@ -104,16 +130,15 @@ export function AuthGate({ children }: AuthGateProps) {
   }, [session, bootstrap, teamChosen]);
 
   // iOS persists `activeTeamID` and explicitly activates it at the next
-  // bootstrap. Do the same on desktop: the refresh token returned by activate
-  // carries the selected org, so merely restoring a local cache is not enough.
+  // bootstrap. Do the same on every client (desktop + extension/web): the
+  // refresh token returned by activate carries the selected org, so merely
+  // restoring a local cache is not enough.
   useEffect(() => {
-    if (!isTauri() || !session || bootstrap !== "ready" || myTeams === null || teamChoiceResolved) {
+    if (!session || bootstrap !== "ready" || myTeams === null || teamChoiceResolved) {
       return;
     }
 
-    const target =
-      (lastUsedTeamId ? myTeams.find((team) => team.id === lastUsedTeamId) : undefined) ??
-      (myTeams.length === 1 ? myTeams[0] : undefined);
+    const target = pickAutoRestoreTarget(myTeams, lastUsedTeamId);
     if (!target) {
       setTeamChoiceResolved(true);
       return;
@@ -382,9 +407,9 @@ export function AuthGate({ children }: AuthGateProps) {
     return null;
   }
 
-  // Wait for the iOS-equivalent saved-team restoration decision before
-  // rendering the picker or desktop shell.
-  if (isTauri() && !teamChosen && !teamChoiceResolved) {
+  // Wait for the saved-team restoration decision before rendering the picker
+  // or shell (desktop and extension/web alike).
+  if (!teamChosen && !teamChoiceResolved) {
     return null;
   }
 
@@ -403,7 +428,7 @@ export function AuthGate({ children }: AuthGateProps) {
     if (myTeams === null) {
       return null; // Still loading the team list — keep the skeleton.
     }
-    if (myTeams.length >= 1) {
+    if (needsTeamPicker(myTeams)) {
       removeStartupSkeleton();
       return (
         <TeamPicker

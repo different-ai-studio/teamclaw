@@ -305,6 +305,31 @@ describe('resolveSessionAgentUiState', () => {
         }),
       ).toBe('connecting')
     })
+
+    it('is ready for an online remote agent at STARTING once models are known', () => {
+      expect(
+        resolveSessionAgentUiState({
+          presenceOnline: true,
+          runtimeInfo: { state: RuntimeLifecycle.STARTING } as never,
+          availableModelCount: 1,
+          isStaleBinding: false,
+          connectingTimedOut: false,
+        }),
+      ).toBe('ready')
+    })
+
+    it('is ready for a streaming remote agent even before lifecycle flips ACTIVE', () => {
+      expect(
+        resolveSessionAgentUiState({
+          presenceOnline: true,
+          runtimeInfo: { state: RuntimeLifecycle.STARTING } as never,
+          availableModelCount: 1,
+          isStaleBinding: false,
+          connectingTimedOut: false,
+          activeStreamConfirmed: true,
+        }),
+      ).toBe('ready')
+    })
   })
 })
 

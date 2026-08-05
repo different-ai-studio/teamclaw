@@ -302,6 +302,24 @@ describe("AuthGate", () => {
     await waitFor(() => expect(screen.getByText("App shell")).toBeInTheDocument());
   });
 
+  it("extension/web: auto-activates a sole team without showing the chooser", async () => {
+    isTauriMock.mockReturnValue(false);
+    backendMock.teams.listAllMyTeams.mockResolvedValue([
+      { id: "team-existing", name: "Acme", slug: "acme", orgId: "org-1", orgName: "Org", isMember: true },
+    ]);
+    currentTeamMock.switchToTeam.mockResolvedValueOnce(undefined);
+
+    render(
+      <AuthGate>
+        <div>App shell</div>
+      </AuthGate>,
+    );
+
+    await waitFor(() => expect(currentTeamMock.switchToTeam).toHaveBeenCalledWith("team-existing"));
+    await waitFor(() => expect(screen.getByText("App shell")).toBeInTheDocument());
+    expect(screen.queryByText(/Team picker/)).not.toBeInTheDocument();
+  });
+
   it("extension/web: keeps the shell blocked until myTeams resolves, then removes the skeleton", async () => {
     isTauriMock.mockReturnValue(false);
     currentTeamMock.team = { id: "team-cached" };
