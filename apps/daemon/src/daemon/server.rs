@@ -984,8 +984,7 @@ impl DaemonServer {
         let _http_handle = {
             let mut meta = crate::http::server::metadata(self.actor_id.clone(), "amuxd");
             // Expose configured backends so the model-catalog endpoint can
-            // group models per backend (opencode providers vs claude/codex
-            // static tables).
+            // group models per backend (opencode / pi / cursor / claude-code).
             meta.configured_agent_types = supported_agent_type_names(&self.config);
             meta.agent_types_advertise = agent_types_advertise.clone();
             meta.mqtt_connected = mqtt_connected_flag.clone();

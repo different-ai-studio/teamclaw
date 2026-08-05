@@ -154,7 +154,9 @@ function groupFromAcpModels(
   ]
 }
 
-/** Same source as chat AgentSelectorDock: live ACP `available_models`. */
+/** Models from the live runtime retain (`RuntimeInfo.availableModels`). Chat's
+ * AgentSelectorDock also supplements from the loopback catalog; cron stays
+ * retain-only here and uses `modelsFromCatalogFallback` when retain is empty. */
 export function modelsFromLiveRuntime(workspacePath: string): CronModelGroup[] {
   const runtime = findRuntimeForWorkspace(workspacePath)
   if (!runtime) return []
@@ -162,8 +164,8 @@ export function modelsFromLiveRuntime(workspacePath: string): CronModelGroup[] {
   return groupFromAcpModels(models, cronBackendFromAgentType(runtime.info.agentType))
 }
 
-/** When no live runtime advertises models, fall back to the daemon catalog slice
- *  for the default (or preferred) backend — same ACP probe path runtime attach uses. */
+/** When no live runtime advertises models, fall back to
+ * `GET …/model-catalog` for the default (or preferred) backend. */
 export async function modelsFromCatalogFallback(
   workspacePath: string,
   preferBackend?: string | null,

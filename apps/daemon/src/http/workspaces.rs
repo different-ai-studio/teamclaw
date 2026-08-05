@@ -445,11 +445,12 @@ pub async fn delete_provider_auth(
 // settings), replacing the old behavior of showing only OpenCode providers
 // regardless of which backend the daemon runs.
 //
-// Per-backend model sources:
-//   - opencode: live ACP `configOptions[id=model]` when probe succeeds; else
-//     `opencode.json` providers as fallback
-//   - claude:   the runtime's static Claude model table
-//   - codex:    the runtime's static Codex model table (empty today)
+// Per-backend model sources (each probed live; empty probe falls back to the
+// device-persisted catalog where one exists):
+//   - opencode:    `/config/providers`, else `opencode.json` providers
+//   - pi:          `get_available_models` on a live session
+//   - cursor:      `Cursor.models.list({ apiKey })`
+//   - claude-code: `Query.supportedModels()` (starts a headless session if needed)
 
 /// A single selectable model within a backend.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
@@ -657,11 +658,10 @@ pub async fn get_model_catalog(
         .map_err(map_control_err)?;
 
     // Probe the configured local backend for its live model catalog. Every
-    // backend brings a process up on demand — opencode via `serve.ensure()`, pi
-    // and cursor by spawning a child, claude-code by returning its static table
-    // — so this works with zero sessions created, which is what makes this
-    // endpoint usable as the new-session fast path instead of waiting on an
-    // MQTT retain.
+    // backend brings a process up on demand — opencode via `serve.ensure()`, pi /
+    // cursor / claude-code by spawning a child — so this works with zero
+    // sessions created, which is what makes this endpoint usable as the
+    // new-session fast path instead of waiting on an MQTT retain.
     //
     // Deliberately not gated on the backend name: it used to run only for
     // `opencode` or `pi`, so a cursor daemon always fell through with `None`

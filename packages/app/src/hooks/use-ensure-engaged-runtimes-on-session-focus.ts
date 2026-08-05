@@ -60,15 +60,6 @@ export function agentIdsNeedingConnectingWake(
     .map((e) => e.agent.id)
 }
 
-/** Agents whose pill is not ready — runtimeStart can help (not stale rebind). */
-export function agentIdsNeedingRuntimeWake(
-  entries: ReadonlyArray<EngagedAgentUiEntry>,
-): string[] {
-  return entries
-    .filter((e) => e.uiState === 'connecting' || e.uiState === 'offline')
-    .map((e) => e.agent.id)
-}
-
 export function hasConnectingEngagedAgent(
   entries: ReadonlyArray<EngagedAgentUiEntry>,
 ): boolean {

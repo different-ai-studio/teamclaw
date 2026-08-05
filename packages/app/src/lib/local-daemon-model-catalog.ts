@@ -162,19 +162,6 @@ export async function fetchLocalDaemonCatalog(
 }
 
 /**
- * Fetch the local daemon's catalog for `workspacePath` and return the models for
- * `backendType`. `null` when the daemon is unreachable or serves no group for
- * that backend — callers should then simply wait for the MQTT retain.
- */
-export async function fetchLocalDaemonModels(
-  workspacePath: string,
-  backendType: string | null | undefined,
-): Promise<ModelInfo[] | null> {
-  const outcome = await fetchLocalDaemonCatalog(workspacePath, backendType)
-  return outcome.status === 'models' ? outcome.models : null
-}
-
-/**
  * First MRU entry the live catalog still offers, mirroring the daemon's
  * `model_mru::first_available`. Empty string when nothing matches.
  */

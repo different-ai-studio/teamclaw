@@ -1,9 +1,14 @@
 # Agent Backend 探测与云端上报流程
 
-> 状态：说明文档（2026-06-11）  
+> 状态：说明文档（2026-06-11；2026-08-04 勘误）  
 > 背景：Settings → Daemon → General 中 **Backend types** 显示  
 > *"This daemon has not advertised any backend types yet."*，  
-> 但本机已安装 opencode，且 `~/.amuxd/daemon.toml` 里可能已有 `[agents.*]` 配置。
+> 但本机已安装 opencode，且 `~/.amuxd/daemon.toml` 里可能已有 `[agents.*]` 配置。  
+>  
+> **勘误：** 文中仍出现的 `codex` 探测 / advertise 顺序是历史写法。当前可运行的  
+> local backends 是 `opencode` / `pi` / `cursor` / `claude-code`（见  
+> `docs/architecture/adding-an-agent-backend.md`）；`codex` 配置段若仍存在会落回  
+> opencode，不会单独成组。
 
 本文梳理 **三条独立链路**：本机探测、云端上报、UI 展示。  
 三者常被误认为是一回事，实际上可以不同步。

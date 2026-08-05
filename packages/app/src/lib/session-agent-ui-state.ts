@@ -221,7 +221,3 @@ export function toMentionDeliverySnapshot(
   }
   return null
 }
-
-export function isNonReadyEngagedState(uiState: SessionAgentUiState): boolean {
-  return uiState !== 'ready'
-}

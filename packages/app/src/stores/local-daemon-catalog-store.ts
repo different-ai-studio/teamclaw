@@ -33,6 +33,8 @@ import { fetchLocalDaemonCatalog } from '@/lib/local-daemon-model-catalog'
  * - `ready`    — the daemon serves models for this device.
  * - `empty`    — the daemon answered and has **no** models. Terminal: this is
  *                a fresh install with no provider configured, not a slow start.
+ * - `error`    — the daemon answered but could not ask the backend (bad key,
+ *                binary will not start). Terminal like `empty`, but a failure.
  * - `unknown`  — no answer (daemon down / mid-restart), or an ambiguous reply.
  */
 export type LocalDaemonCatalogStatus = 'pending' | 'ready' | 'empty' | 'error' | 'unknown'
@@ -159,11 +161,10 @@ export function ensureLocalDaemonCatalog(
                   : outcome.status === 'error'
                     ? 'error'
                     : 'unknown',
-              // An 'empty' answer is authoritative — drop any stale list so the
-              // UI can honestly say "nothing configured". 'unknown' means we
-              // learned nothing, so the previous list stands.
-              // Only 'empty' is authoritative about the list being gone. A
-              // failed probe knows nothing, so whatever was last resolved stays.
+              // Only 'empty' is authoritative about the list being gone — drop
+              // any stale models so the UI can honestly say "nothing configured".
+              // 'error' / 'unknown' learned nothing about the list, so whatever
+              // was last resolved stays.
               models: outcome.status === 'empty' ? [] : (previous?.models ?? []),
               recentModels:
                 outcome.status === 'empty' ? [] : (previous?.recentModels ?? []),
