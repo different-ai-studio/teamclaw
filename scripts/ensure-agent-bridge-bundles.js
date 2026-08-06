@@ -43,6 +43,14 @@ function npmCi(srcDir, env) {
   }
 }
 
+/** npm's .bin symlinks are not used at runtime (amuxd runs node src/main.mjs). */
+function pruneBridgeNodeModules(srcDir) {
+  const binDir = path.join(srcDir, "node_modules", ".bin");
+  if (fs.existsSync(binDir)) {
+    fs.rmSync(binDir, { recursive: true, force: true });
+  }
+}
+
 function copyBridgeTree(srcDir, destDir) {
   fs.rmSync(destDir, { recursive: true, force: true });
   fs.mkdirSync(destDir, { recursive: true });
@@ -100,6 +108,7 @@ function ensureAgentBridgeBundles(env, opts) {
     }
     console.log(`${logPrefix} preparing ${bridge.name} bundle...`);
     npmCi(srcDir, env);
+    pruneBridgeNodeModules(srcDir);
     copyBridgeTree(srcDir, destDir);
     if (fingerprint) {
       writeStamp(destDir, fingerprint);
