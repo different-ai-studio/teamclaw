@@ -3062,7 +3062,7 @@ pub(crate) mod tests {
     pub(crate) async fn sync_team_shared_dirs_sources_from_cloud_and_skips_missing_paths() {
         let _lock = crate::config::global_team_store::TEST_HOME_LOCK
             .lock()
-            .unwrap();
+.unwrap_or_else(|e| e.into_inner());
         let home = tempfile::tempdir().unwrap();
         // SAFETY: serialized by TEST_HOME_LOCK.
         unsafe { std::env::set_var("HOME", home.path()) };

@@ -1,12 +1,13 @@
 {
   "manifest_version": 3,
-  "name": "TeamClaw",
+  "default_locale": "zh_CN",
+  "name": "__MSG_appName__",
   "version": "0.1.0",
-  "description": "TeamClaw 多人聊天侧边栏 + 当前页内容发给 agent",
+  "description": "__MSG_extensionDescription__",
   "permissions": ["sidePanel", "scripting", "activeTab", "tabs", "storage"],
   "host_permissions": ["http://*/*", "https://*/*"],
   "background": { "service_worker": "background.js", "type": "module" },
-  "action": { "default_title": "TeamClaw" },
+  "action": { "default_title": "__MSG_appName__" },
   "side_panel": { "default_path": "sidepanel/index.html" },
   "content_scripts": [
     {

@@ -253,7 +253,17 @@ function enqueueActorPresenceSync(
   queuedActorPresenceSyncs.push({ daemonActorId, updates, defaultCatalog })
   if (runtimeStateFlushScheduled) return
   runtimeStateFlushScheduled = true
-  queueMicrotask(flushQueuedRuntimeStateUpdates)
+  // A retained-message flood (broker replaying every `runtime/state` retain on
+  // reconnect) does not always arrive as one `mqtt:envelopes` batch — Tauri can
+  // emit it as many back-to-back events. `queueMicrotask` only coalesces
+  // updates that land inside the SAME synchronous callback, so a burst spread
+  // across even a handful of separate emits still produced one `set()` (and
+  // one React commit) per emit, tight enough to blow React's nested-update
+  // limit ("Maximum update depth exceeded", TEAMCLAW-REACT-72/85/7N).
+  // `setTimeout(0)` schedules a macrotask instead, so every emit that lands
+  // before it fires — however many separate deliveries that spans — still
+  // rolls into the same flush.
+  setTimeout(flushQueuedRuntimeStateUpdates, 0)
 }
 
 /** Live-probed default-workspace catalog from `{actor}/state`. */

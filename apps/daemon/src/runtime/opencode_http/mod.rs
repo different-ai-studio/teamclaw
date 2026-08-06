@@ -20,6 +20,7 @@ use crate::runtime::permission_policy::PermissionPolicy;
 
 pub mod client;
 mod envelope;
+mod env_snapshot_policy;
 mod events;
 pub mod supervisor;
 pub mod translate;
@@ -27,6 +28,7 @@ pub mod translate;
 pub use envelope::*;
 
 use client::{PromptBody, PromptPart};
+use env_snapshot_policy::{decide_env_snapshot_conflict, EnvSnapshotDecision};
 use supervisor::ServeSupervisor;
 use translate::TranslateState;
 
@@ -360,6 +362,25 @@ fn canonical_dir(worktree: &str) -> String {
         .unwrap_or_else(|_| worktree.to_string())
 }
 
+fn active_route_directories(shared: &Shared) -> Vec<String> {
+    shared
+        .routes
+        .lock()
+        .values()
+        .map(|route| route.directory.clone())
+        .collect()
+}
+
+fn decide_serve_env_switch(shared: &Shared, workspace: &str, incoming: &str) -> EnvSnapshotDecision {
+    decide_env_snapshot_conflict(
+        incoming,
+        shared.serve.active_env_fingerprint().as_deref(),
+        shared.serve.is_running(),
+        &active_route_directories(shared),
+        workspace,
+    )
+}
+
 // ---------------------------------------------------------------------------
 // OpencodeHost
 // ---------------------------------------------------------------------------
@@ -456,12 +477,25 @@ impl OpencodeHost {
         self.shared
             .serve
             .record_requested_env_fingerprint(&workspace, &incoming);
-        if self.shared.serve.env_snapshot_requires_restart(&incoming) {
-            warn!(
-                workspace,
-                "opencode serve prewarm skipped: another workspace snapshot is already active"
-            );
-            return;
+        match decide_serve_env_switch(&self.shared, &workspace, &incoming) {
+            EnvSnapshotDecision::Continue => {}
+            EnvSnapshotDecision::RestartAllowed => {
+                self.shared.serve.shutdown();
+            }
+            EnvSnapshotDecision::TolerateSameWorkspace => {
+                info!(
+                    workspace,
+                    "opencode serve prewarm tolerating same-workspace env fingerprint drift"
+                );
+            }
+            EnvSnapshotDecision::ConflictOtherWorkspace => {
+                self.shared.serve.mark_snapshot_conflict(&workspace);
+                warn!(
+                    workspace,
+                    "opencode serve prewarm skipped: another workspace snapshot is already active"
+                );
+                return;
+            }
         }
         self.shared
             .serve
@@ -474,21 +508,24 @@ impl OpencodeHost {
         // our initial state check and snapshot install. Verify what the child
         // actually inherited and repair that race before declaring prewarm
         // successful.
-        if self.shared.serve.active_env_fingerprint().as_deref() != Some(&incoming) {
-            if !self.shared.routes.lock().is_empty() {
+        match decide_serve_env_switch(&self.shared, &workspace, &incoming) {
+            EnvSnapshotDecision::Continue | EnvSnapshotDecision::TolerateSameWorkspace => {}
+            EnvSnapshotDecision::RestartAllowed => {
+                self.shared.serve.shutdown();
+                self.shared
+                    .serve
+                    .install_env_snapshot(&workspace, extra_env);
+                if let Err(e) = self.shared.serve.ensure().await {
+                    warn!(error = %e, "opencode serve prewarm race recovery failed");
+                    return;
+                }
+            }
+            EnvSnapshotDecision::ConflictOtherWorkspace => {
                 self.shared.serve.mark_snapshot_conflict(&workspace);
                 warn!(
                     workspace,
                     "opencode serve prewarm raced with an active snapshot"
                 );
-                return;
-            }
-            self.shared.serve.shutdown();
-            self.shared
-                .serve
-                .install_env_snapshot(&workspace, extra_env);
-            if let Err(e) = self.shared.serve.ensure().await {
-                warn!(error = %e, "opencode serve prewarm race recovery failed");
                 return;
             }
         }
@@ -550,32 +587,44 @@ impl OpencodeHost {
         self.shared
             .serve
             .record_requested_env_fingerprint(&workspace, &incoming);
-        if self.shared.serve.env_snapshot_requires_restart(&incoming) {
-            if !self.shared.routes.lock().is_empty() {
+        match decide_serve_env_switch(&self.shared, &workspace, &incoming) {
+            EnvSnapshotDecision::Continue => {}
+            EnvSnapshotDecision::RestartAllowed => {
+                self.shared.serve.shutdown();
+            }
+            EnvSnapshotDecision::TolerateSameWorkspace => {
+                info!(
+                    workspace,
+                    "tolerating same-workspace env fingerprint drift; keeping active serve env"
+                );
+            }
+            EnvSnapshotDecision::ConflictOtherWorkspace => {
                 self.shared.serve.mark_snapshot_conflict(&workspace);
                 return Err(crate::error::AmuxError::Agent(format!(
                     "env_snapshot_conflict: workspace {workspace} resolved a different environment while the global opencode host has active sessions"
                 )));
             }
-            self.shared.serve.shutdown();
         }
         let _ = force_env_override; // preserved in the backend interface during transition
         self.shared
             .serve
             .install_env_snapshot(&workspace, extra_env.clone());
         self.shared.serve.ensure().await?;
-        if self.shared.serve.active_env_fingerprint().as_deref() != Some(&incoming) {
-            if !self.shared.routes.lock().is_empty() {
+        match decide_serve_env_switch(&self.shared, &workspace, &incoming) {
+            EnvSnapshotDecision::Continue | EnvSnapshotDecision::TolerateSameWorkspace => {}
+            EnvSnapshotDecision::RestartAllowed => {
+                self.shared.serve.shutdown();
+                self.shared
+                    .serve
+                    .install_env_snapshot(&workspace, extra_env);
+                self.shared.serve.ensure().await?;
+            }
+            EnvSnapshotDecision::ConflictOtherWorkspace => {
                 self.shared.serve.mark_snapshot_conflict(&workspace);
                 return Err(crate::error::AmuxError::Agent(format!(
                     "env_snapshot_conflict: workspace {workspace} lost an environment activation race"
                 )));
             }
-            self.shared.serve.shutdown();
-            self.shared
-                .serve
-                .install_env_snapshot(&workspace, extra_env);
-            self.shared.serve.ensure().await?;
         }
         let cmd_tx = self.command_sender();
         let startup = attach(

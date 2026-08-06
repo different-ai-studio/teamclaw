@@ -21,7 +21,6 @@ pub mod mcp;
 pub mod mqtt_bus;
 pub mod oauth_loopback;
 pub mod oss_sync;
-pub mod rag_http_server;
 pub mod server_config;
 pub mod session_export;
 pub mod setup;

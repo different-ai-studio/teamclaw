@@ -14,6 +14,7 @@ import {
   __resetRuntimeErrorReportThrottleForTest,
   __resetSentryModuleForTest,
   classifyRuntimeFailureReason,
+  isCancelledRuntimeFailure,
   reportRuntimeEnsureCrash,
   reportRuntimeRpcNotReady,
   reportRuntimeStartFailure,
@@ -57,6 +58,19 @@ describe('classifyRuntimeFailureReason', () => {
     expect(classifyRuntimeFailureReason('runtimeStart rejected')).toBe('daemon_rejected')
     expect(classifyRuntimeFailureReason('')).toBe('unknown')
     expect(classifyRuntimeFailureReason(undefined)).toBe('unknown')
+  })
+
+  it('names the cancellation that disposeTeamclawRpc raises', () => {
+    // Verbatim from `disposeTeamclawRpc()`. Landed in `unknown` before, which
+    // made the startup race indistinguishable from a real daemon failure.
+    expect(classifyRuntimeFailureReason('rpc disposed')).toBe('rpc_disposed')
+    expect(isCancelledRuntimeFailure('rpc disposed')).toBe(true)
+  })
+
+  it('does not treat a genuine rpc failure as a cancellation', () => {
+    expect(isCancelledRuntimeFailure('rpc timeout after 20000ms')).toBe(false)
+    expect(isCancelledRuntimeFailure('runtimeStart rejected')).toBe(false)
+    expect(isCancelledRuntimeFailure(undefined)).toBe(false)
   })
 })
 
@@ -115,6 +129,33 @@ describe('reportRuntimeStartFailure', () => {
     for (const call of mocks.captureMessage.mock.calls) {
       expect((call[1] as { level: string }).level).toBe('warning')
     }
+  })
+
+  it('downgrades a cancellation that arrives as a plain runtime_rpc_failed', async () => {
+    reportRuntimeStartFailure({
+      agentActorId: 'agent-1',
+      code: 'runtime_rpc_failed',
+      reason: 'rpc disposed',
+    })
+    await flush()
+
+    expect(mocks.captureMessage).toHaveBeenCalledTimes(1)
+    const [, options] = mocks.captureMessage.mock.calls[0] as [string, Record<string, never>]
+    expect(options).toMatchObject({
+      level: 'warning',
+      fingerprint: ['runtime', 'runtime_start_failure', 'runtime_rpc_failed', 'rpc_disposed'],
+      tags: { runtime_failure_reason_kind: 'rpc_disposed' },
+    })
+  })
+
+  it('keeps a real rpc failure at error level', async () => {
+    reportRuntimeStartFailure({
+      agentActorId: 'agent-1',
+      code: 'runtime_rpc_failed',
+      reason: 'rpc timeout after 20000ms',
+    })
+    await flush()
+    expect((mocks.captureMessage.mock.calls[0]?.[1] as { level: string }).level).toBe('error')
   })
 
   it('throttles the same (code, agent) within the window but not after it', async () => {

@@ -21,6 +21,14 @@ pub fn assemble_spawn_runtime_env(
     cloud_token_file: Option<&str>,
     managed_llm: &ManagedLlmState,
 ) -> anyhow::Result<SpawnRuntimeEnv> {
+    // Cold ManagedLlm cache often yields Unknown and omits TEAMCLAW_TEAM_PROVIDER;
+    // reconstruct Enabled from on-disk provider.team so the spawn fingerprint
+    // matches a later successful cloud resolve with the same gateway data.
+    let disk_team = teamclaw_runtime_env::read_disk_team_provider(workspace_root);
+    let managed_llm = teamclaw_runtime_env::stabilize_managed_llm_for_spawn(
+        managed_llm,
+        disk_team.as_ref(),
+    );
     let team_env = team_shared_env::load_team_env_for_workspace_detailed(workspace_root, team_id);
     let mut bundle = teamclaw_runtime_env::assemble_runtime_env(
         workspace_root,
@@ -30,7 +38,7 @@ pub fn assemble_spawn_runtime_env(
             display_name: display_name.to_string(),
             cloud_token_file: cloud_token_file.map(str::to_string),
         },
-        managed_llm,
+        &managed_llm,
     )?;
     let personal_store = teamclaw_runtime_env::diagnose_personal_env_store();
     let personal_location = (!personal_store.secrets_dir.is_empty()).then(|| {
@@ -59,30 +67,11 @@ pub fn assemble_spawn_runtime_env(
     // this `TEAMCLAW_TEAM_PROVIDER` env and register the provider themselves.
     // The secret is NOT embedded — the payload references `${tc_api_key}`, the
     // same env-interpolated key opencode uses, which is already in `extra_env`.
-    if let ManagedLlmState::Enabled(provider) = managed_llm {
-        let models: Vec<serde_json::Value> = provider
-            .models
-            .iter()
-            .filter(|m| !m.id.is_empty())
-            .map(|m| {
-                serde_json::json!({
-                    "id": m.id,
-                    "name": if m.name.is_empty() { &m.id } else { &m.name },
-                })
-            })
-            .collect();
-        let name = if provider.name.is_empty() {
-            "Team"
-        } else {
-            &provider.name
-        };
-        let payload = serde_json::json!({
-            "name": name,
-            "baseUrl": provider.base_url,
-            "apiKeyEnv": "tc_api_key",
-            "models": models,
-        });
-        extra_env.insert("TEAMCLAW_TEAM_PROVIDER".to_string(), payload.to_string());
+    if let ManagedLlmState::Enabled(provider) = &managed_llm {
+        extra_env.insert(
+            "TEAMCLAW_TEAM_PROVIDER".to_string(),
+            teamclaw_runtime_env::team_provider_env_payload(provider),
+        );
     }
     Ok(SpawnRuntimeEnv {
         extra_env,
@@ -155,6 +144,74 @@ mod tests {
                 .map(String::as_str),
             Some("expected-team-value"),
             "the uppercase alias is what many ACP agents consume"
+        );
+    }
+
+    #[test]
+    fn unknown_managed_llm_with_disk_provider_matches_enabled_fingerprint() {
+        use teamclaw_runtime_env::{ManagedLlmModel, ManagedLlmProvider};
+
+        let workspace = tempfile::tempdir().unwrap();
+        std::fs::write(
+            workspace.path().join("opencode.json"),
+            serde_json::json!({
+                "provider": {
+                    "team": {
+                        "name": "Team",
+                        "options": {
+                            "baseURL": "https://gateway.example/v1",
+                            "apiKey": "${tc_api_key}"
+                        },
+                        "models": {
+                            "gpt-4": { "name": "GPT-4" }
+                        }
+                    }
+                }
+            })
+            .to_string(),
+        )
+        .unwrap();
+
+        let enabled = ManagedLlmState::Enabled(ManagedLlmProvider {
+            name: "Team".to_string(),
+            base_url: "https://gateway.example/v1".to_string(),
+            models: vec![ManagedLlmModel {
+                id: "gpt-4".to_string(),
+                name: "GPT-4".to_string(),
+            }],
+        });
+
+        let from_unknown = assemble_spawn_runtime_env(
+            workspace.path(),
+            None,
+            "actor-fp",
+            "FP Agent",
+            None,
+            &ManagedLlmState::Unknown,
+        )
+        .unwrap();
+        let from_enabled = assemble_spawn_runtime_env(
+            workspace.path(),
+            None,
+            "actor-fp",
+            "FP Agent",
+            None,
+            &enabled,
+        )
+        .unwrap();
+
+        assert!(
+            from_unknown.extra_env.contains_key("TEAMCLAW_TEAM_PROVIDER"),
+            "Unknown + disk provider.team must still inject TEAMCLAW_TEAM_PROVIDER"
+        );
+        assert_eq!(
+            from_unknown.extra_env.get("TEAMCLAW_TEAM_PROVIDER"),
+            from_enabled.extra_env.get("TEAMCLAW_TEAM_PROVIDER")
+        );
+        assert_eq!(
+            teamclaw_runtime_env::resolved_env::fingerprint_bindings(&from_unknown.extra_env),
+            teamclaw_runtime_env::resolved_env::fingerprint_bindings(&from_enabled.extra_env),
+            "spawn fingerprints must match across Unknown→Enabled when disk already has provider.team"
         );
     }
 }

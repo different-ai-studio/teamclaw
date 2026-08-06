@@ -209,7 +209,10 @@ mod tests {
     use super::*;
     use crate::OFFICIAL_STORAGE_DIR;
     use aes_gcm::aead::{Aead, KeyInit};
+    // Only the tests assert against the unbranded default, so importing it at
+    // module scope left a dead import in every non-test build.
     use crate::test_util::{home_env_lock, HomeGuard};
+    use crate::OFFICIAL_STORAGE_DIR;
     use rand::RngCore;
     use std::io::Write;
     use tempfile::tempdir;

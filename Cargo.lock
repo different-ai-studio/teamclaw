@@ -10973,9 +10973,12 @@ dependencies = [
  "async-trait",
  "futures-util",
  "rumqttc",
+ "rustls 0.22.4",
+ "rustls-native-certs 0.7.3",
  "thiserror 2.0.18",
  "tokio",
  "tracing",
+ "webpki-roots 0.26.11",
 ]
 
 [[package]]

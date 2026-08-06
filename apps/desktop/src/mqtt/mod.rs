@@ -1,4 +1,5 @@
 pub mod client;
+pub mod tls;
 pub mod topics;
 
 pub use client::{ClientConfig, MqttClient};

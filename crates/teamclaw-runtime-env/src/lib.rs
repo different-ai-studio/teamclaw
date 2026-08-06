@@ -37,7 +37,10 @@ pub use resolved_env::{
     resolve_runtime_env, EnvOverride, EnvOverrideKind, EnvProvenance, EnvScope, EnvSource,
     ResolvedEnvSnapshot, UnresolvedEnv, UnresolvedReason,
 };
-pub use team_provider::{ManagedLlmModel, ManagedLlmProvider, ManagedLlmState};
+pub use team_provider::{
+    managed_llm_provider_from_disk_team, read_disk_team_provider, stabilize_managed_llm_for_spawn,
+    team_provider_env_payload, ManagedLlmModel, ManagedLlmProvider, ManagedLlmState,
+};
 pub use team_provider_sync::{
     sync_team_provider_on_disk, SecretResolveScope, TeamProviderSyncResult,
 };

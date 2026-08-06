@@ -181,8 +181,11 @@ await build({
   },
 })
 
-// 3) Copy manifest + icons.
+// 3) Copy manifest, locales, and icons.
 cpSync(resolve(here, 'manifest.json'), resolve(dist, 'manifest.json'))
+if (existsSync(resolve(here, '_locales'))) {
+  cpSync(resolve(here, '_locales'), resolve(dist, '_locales'), { recursive: true })
+}
 if (existsSync(resolve(here, 'icons'))) {
   cpSync(resolve(here, 'icons'), resolve(dist, 'icons'), { recursive: true })
 }

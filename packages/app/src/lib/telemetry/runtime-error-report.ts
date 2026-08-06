@@ -37,6 +37,8 @@ export type RuntimeFailureReasonKind =
   | 'rpc_timeout'
   | 'local_rpc_timeout'
   | 'rpc_not_initialized'
+  /** We cancelled the request ourselves. See {@link isCancelledRuntimeFailure}. */
+  | 'rpc_disposed'
   | 'mqtt_publish_failed'
   | 'mqtt_disconnected'
   | 'device_offline'
@@ -58,6 +60,7 @@ export function classifyRuntimeFailureReason(reason: string | undefined): Runtim
   if (!lower) return 'unknown'
   if (lower.includes('local rpc timeout')) return 'local_rpc_timeout'
   if (lower.includes('rpc timeout')) return 'rpc_timeout'
+  if (lower.includes('rpc disposed')) return 'rpc_disposed'
   if (lower.includes('not initialized') || lower.includes('actorid required')) {
     return 'rpc_not_initialized'
   }
@@ -70,9 +73,34 @@ export function classifyRuntimeFailureReason(reason: string | undefined): Runtim
   return 'unknown'
 }
 
-/** Offline transports are expected states, not defects — keep them off the error feed. */
-function levelForCode(code: RuntimeStartFailureCode | undefined): TelemetryLevel {
-  return code === 'device_offline' || code === 'transport_offline' ? 'warning' : 'error'
+/**
+ * A failure this client caused and recovers from on its own — not a defect, and
+ * not something to put in front of the user.
+ *
+ * `disposeTeamclawRpc()` rejects every in-flight request with `rpc disposed`
+ * whenever the MQTT wiring effect re-runs (token refresh, reconnect nonce bump,
+ * team switch). A `session_runtime_retry` tick that happened to have a
+ * runtimeStart in flight at that moment lands here, and the next tick just
+ * re-attempts it. Before this was classified, the only lasting effects were an
+ * error-level Sentry event and an error toast for something that was never
+ * broken — most of TEAMCLAW-REACT-7W.
+ */
+export function isCancelledRuntimeFailure(reason: string | undefined): boolean {
+  return classifyRuntimeFailureReason(reason) === 'rpc_disposed'
+}
+
+/**
+ * Offline transports are expected states, not defects — keep them off the error
+ * feed. Same for a request we cancelled ourselves, which the `code` alone
+ * cannot express: it arrives as a plain `runtime_rpc_failed`.
+ */
+function levelFor(
+  code: RuntimeStartFailureCode | undefined,
+  reasonKind: RuntimeFailureReasonKind,
+): TelemetryLevel {
+  if (code === 'device_offline' || code === 'transport_offline') return 'warning'
+  if (reasonKind === 'rpc_disposed') return 'warning'
+  return 'error'
 }
 
 type CaptureArgs = {
@@ -87,7 +115,7 @@ function capture({ kind, code, reason, error, context }: CaptureArgs): void {
   const reasonKind = classifyRuntimeFailureReason(reason)
   captureTelemetry({
     message: `${kind}: ${code ?? reasonKind}`,
-    level: levelForCode(code),
+    level: levelFor(code, reasonKind),
     fingerprint: ['runtime', kind, code ?? 'none', reasonKind],
     tags: {
       runtime_error_kind: kind,

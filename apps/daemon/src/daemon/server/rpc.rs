@@ -156,7 +156,30 @@ impl DaemonServer {
                 runtime_id,
                 envelope,
             } => {
-                self.handle_agent_command(&runtime_id, envelope).await;
+                // Topic segment may be a spawn key, cloud session id, or
+                // `{actor}::{session}` (ADR-0004). Resolve before cancel.
+                let resolved = {
+                    let agents = self.agents.lock().await;
+                    agents.resolve_command_agent_id(&runtime_id)
+                };
+                match resolved {
+                    Some(agent_id) => {
+                        if agent_id != runtime_id {
+                            info!(
+                                addressed = %runtime_id,
+                                %agent_id,
+                                "resolved runtime command address to spawn key"
+                            );
+                        }
+                        self.handle_agent_command(&agent_id, envelope).await;
+                    }
+                    None => {
+                        warn!(
+                            addressed = %runtime_id,
+                            "runtime command address resolved to no agent; dropping"
+                        );
+                    }
+                }
             }
             subscriber::IncomingMessage::TeamclawRpc { topic, payload } => {
                 self.handle_rpc_request(&topic, &payload).await;

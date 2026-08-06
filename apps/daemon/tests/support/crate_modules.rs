@@ -35,6 +35,10 @@ mod team_link;
 mod team_shared_env;
 #[path = "../../src/team_shared_git.rs"]
 mod team_shared_git;
+// Not used by the tests in this crate directly. The modules above carry their
+// own `#[cfg(test)]` blocks, which an integration-test crate *does* compile,
+// and those name `crate::test_brand_env` — which resolves against THIS root,
+// not the bin's. Without it `cargo test -p amuxd` fails to build with E0433.
 #[path = "../../src/test_brand_env.rs"]
 mod test_brand_env;
 

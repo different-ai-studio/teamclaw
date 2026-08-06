@@ -18,7 +18,12 @@ vi.mock("@/lib/mqtt-bridge", () => ({
   mqttPublish: mocks.mqttPublish,
 }));
 
-vi.mock("@/lib/teamclaw-rpc", () => ({
+// ADR-0004: a command carrying a session id is dispatched over RPC, not by
+// publishing to the per-spawn `runtime/{runtimeId}/commands` topic. Stubbing
+// the RPC keeps this test on its actual subject — which attachment gets
+// addressed — instead of the transport underneath it.
+vi.mock("@/lib/teamclaw-rpc", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@/lib/teamclaw-rpc")>()),
   runtimeCommand: (...args: unknown[]) => mocks.runtimeCommand(...args),
 }));
 
@@ -61,6 +66,8 @@ describe("replyAcpPermission", () => {
       { id: "agent-live", actor_type: "agent" },
     ]);
     mocks.mqttPublish.mockResolvedValue(undefined);
+    // `true` = the daemon holds a live attachment for the session. Returning
+    // `false` here would make the caller throw "no live attachment".
     mocks.runtimeCommand.mockResolvedValue(true);
   });
 
@@ -91,15 +98,18 @@ describe("replyAcpPermission", () => {
     await replyPermissionById("perm-uuid-1", "allow");
 
     expect(mocks.runtimeCommand).toHaveBeenCalledTimes(1);
-    expect(mocks.runtimeCommand).toHaveBeenCalledWith(
-      expect.objectContaining({
-        targetActorId: "agent-live",
-        sessionId: "sess-1",
-      }),
-    );
-    const envelope = mocks.runtimeCommand.mock.calls[0]![0].envelope;
-    expect(envelope.runtimeId).toBe("live-spawn");
-    expect(envelope.acpCommand?.command.case).toBe("grantPermission");
+    const [call] = mocks.runtimeCommand.mock.calls[0] as [
+      { targetActorId: string; sessionId: string; envelope: { runtimeId: string; acpCommand?: { command: { case: string } } } },
+    ];
+    expect(call.targetActorId).toBe("agent-live");
+    expect(call.sessionId).toBe("sess-1");
+    // The point of the test: the attachment filed under `sess-1`, not the
+    // `other-session` one that is also in the store.
+    expect(call.envelope.runtimeId).toBe("live-spawn");
+    expect(call.envelope.acpCommand?.command.case).toBe("grantPermission");
+
+    // Session-addressed dispatch goes over RPC only — the legacy per-spawn
+    // topic must not also be published to, or a cold session is a silent miss.
     expect(mocks.mqttPublish).not.toHaveBeenCalled();
   });
 });
