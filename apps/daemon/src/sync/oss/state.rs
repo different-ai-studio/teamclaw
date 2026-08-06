@@ -1,4 +1,4 @@
-//! Local sync state — `.teamclaw/sync/state.json` schema (spec §4.2).
+//! Local sync state — `{meta}/sync/state.json` schema (spec §4.2).
 //!
 //! NOTE: `LocalSyncState` load/save/new and `FileState::upsert` are reserved for
 //! the OSS pull/push pipeline; not yet called from the sync dispatcher.
@@ -7,9 +7,6 @@
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
-
-/// Local config dir name inside a workspace (mirrors desktop `TEAMCLAW_DIR`).
-const TEAMCLAW_DIR: &str = ".teamclaw";
 
 const SCHEMA_VERSION: u32 = 1;
 
@@ -50,10 +47,10 @@ pub struct LocalSyncState {
 }
 
 impl LocalSyncState {
-    /// Load from `.teamclaw/sync/state.json` inside `workspace_path`.
+    /// Load from `{meta}/sync/state.json` inside `workspace_path`.
     /// Returns a default empty state if the file doesn't exist.
     pub fn load(workspace_path: &str, team_id: &str) -> Result<Self, String> {
-        let path = state_path(workspace_path);
+        let path = state_read_path(workspace_path);
         if !path.exists() {
             return Ok(Self::new(team_id));
         }
@@ -70,9 +67,9 @@ impl LocalSyncState {
         Ok(state)
     }
 
-    /// Persist state to `.teamclaw/sync/state.json`.
+    /// Persist state to `{meta}/sync/state.json` (brand-canonical write path).
     pub fn save(&self, workspace_path: &str) -> Result<(), String> {
-        let path = state_path(workspace_path);
+        let path = state_write_path(workspace_path);
         if let Some(parent) = path.parent() {
             std::fs::create_dir_all(parent)
                 .map_err(|e| format!("state: create dir {}: {e}", parent.display()))?;
@@ -205,11 +202,18 @@ impl LocalSyncState {
     }
 }
 
-fn state_path(workspace_path: &str) -> PathBuf {
-    Path::new(workspace_path)
-        .join(TEAMCLAW_DIR)
-        .join("sync")
-        .join("state.json")
+fn state_read_path(workspace_path: &str) -> PathBuf {
+    teamclaw_runtime_env::resolve_workspace_meta_path_from_env(
+        Path::new(workspace_path),
+        Path::new("sync").join("state.json"),
+    )
+}
+
+fn state_write_path(workspace_path: &str) -> PathBuf {
+    teamclaw_runtime_env::workspace_meta_write_path_from_env(
+        Path::new(workspace_path),
+        Path::new("sync").join("state.json"),
+    )
 }
 
 fn chrono_now_utc() -> String {
@@ -262,5 +266,33 @@ mod tests {
         let result = LocalSyncState::load(dir.path().to_str().unwrap(), "t");
         assert!(result.is_err());
         assert!(result.unwrap_err().contains("schemaVersion"));
+    }
+
+    #[test]
+    fn white_label_save_writes_brand_meta_and_load_reads_legacy() {
+        let _guard = crate::test_brand_env::BrandEnvGuard::set("copilot361");
+
+        let dir = tempfile::tempdir().unwrap();
+        let ws = dir.path().to_str().unwrap();
+
+        let legacy = dir.path().join(".teamclaw/sync/state.json");
+        std::fs::create_dir_all(legacy.parent().unwrap()).unwrap();
+        std::fs::write(
+            &legacy,
+            r#"{"schemaVersion":1,"teamId":"team-x","lastServerSeq":7,"lastSyncAt":"","files":{}}"#,
+        )
+        .unwrap();
+        let loaded = LocalSyncState::load(ws, "team-x").unwrap();
+        assert_eq!(loaded.last_server_seq, 7);
+
+        let mut state = LocalSyncState::new("team-x");
+        state.last_server_seq = 99;
+        state.save(ws).unwrap();
+        assert!(dir
+            .path()
+            .join(".copilot361/sync/state.json")
+            .is_file());
+        let reloaded = LocalSyncState::load(ws, "team-x").unwrap();
+        assert_eq!(reloaded.last_server_seq, 99);
     }
 }

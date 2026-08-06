@@ -64,6 +64,27 @@ pub fn home_storage_dir_name() -> &'static str {
     teamclaw_runtime_env::resolve_storage_dir_name(APP_SHORT_NAME)
 }
 
+/// Local amuxd state directory for this desktop brand (`~/.amuxd` or `~/.amuxd-<brand>`).
+pub fn amuxd_home_dir() -> std::path::PathBuf {
+    teamclaw_runtime_env::amuxd_home_for_brand(APP_SHORT_NAME)
+}
+
+/// Stamp brand + `AMUXD_HOME` onto a shell sidecar so CLI (`init` / `clear` /
+/// `doctor`) reads the same state dir as the desktop-managed daemon.
+pub fn with_amuxd_brand_env(
+    command: tauri_plugin_shell::process::Command,
+) -> tauri_plugin_shell::process::Command {
+    command
+        .env(
+            teamclaw_runtime_env::BRAND_SHORT_NAME_ENV,
+            APP_SHORT_NAME,
+        )
+        .env(
+            teamclaw_runtime_env::AMUXD_HOME_ENV,
+            amuxd_home_dir().to_string_lossy().as_ref(),
+        )
+}
+
 #[tauri::command]
 pub fn greet(name: &str) -> String {
     format!("Hello, {}! Welcome to TeamClaw.", name)

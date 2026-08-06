@@ -1,13 +1,19 @@
 //! Tauri commands that let the frontend discover the daemon's local HTTP server.
 //!
 //! The daemon writes two runtime files when it starts its HTTP listener:
-//! - `~/.amuxd/amuxd.http.port`  — the bound TCP port (decimal)
-//! - `~/.amuxd/amuxd.http.token` — the root bearer token
+//! - `<amuxd-home>/amuxd.http.port`  — the bound TCP port (decimal)
+//! - `<amuxd-home>/amuxd.http.token` — the root bearer token
+//!
+//! Official brands use `~/.amuxd`; white-label uses `~/.amuxd-<brand>`.
 //!
 //! The desktop reads both and returns them to the frontend webview so it can
 //! build authenticated requests against `http://127.0.0.1:{port}/v1/*`.
 
 use serde::{Deserialize, Serialize};
+
+fn amuxd_dir() -> std::path::PathBuf {
+    super::amuxd_home_dir()
+}
 
 /// Connection information for the daemon's local HTTP server.
 #[derive(Debug, Serialize)]
@@ -47,9 +53,7 @@ struct ListedWorkspaceRecord {
 /// not running or has not started its HTTP listener yet.
 #[tauri::command]
 pub async fn get_daemon_http_info() -> Result<Option<DaemonHttpInfo>, String> {
-    let amuxd_dir = dirs::home_dir()
-        .unwrap_or_else(|| std::path::PathBuf::from("/tmp"))
-        .join(".amuxd");
+    let amuxd_dir = amuxd_dir();
 
     let port_path = amuxd_dir.join("amuxd.http.port");
     let token_path = amuxd_dir.join("amuxd.http.token");
@@ -91,10 +95,7 @@ struct DaemonConfigTeam {
 /// content is synced/linked under the daemon's team, not the app's.
 #[tauri::command]
 pub async fn get_daemon_team_id() -> Result<Option<String>, String> {
-    let config_path = dirs::home_dir()
-        .unwrap_or_else(|| std::path::PathBuf::from("/tmp"))
-        .join(".amuxd")
-        .join("daemon.toml");
+    let config_path = amuxd_dir().join("daemon.toml");
 
     let body = match std::fs::read_to_string(&config_path) {
         Ok(s) => s,
@@ -125,10 +126,7 @@ struct BackendConfig {
 /// Returns an empty string when the daemon hasn't been onboarded (no config /
 /// no actor_id) or the file can't be read — callers treat empty as "not ready".
 pub(crate) fn read_daemon_actor_id() -> String {
-    let config_path = dirs::home_dir()
-        .unwrap_or_else(|| std::path::PathBuf::from("/tmp"))
-        .join(".amuxd")
-        .join("backend.toml");
+    let config_path = amuxd_dir().join("backend.toml");
 
     let body = match std::fs::read_to_string(&config_path) {
         Ok(s) => s,
@@ -157,10 +155,7 @@ pub(crate) fn read_daemon_actor_id() -> String {
 /// up yet (port/token files missing) so callers can treat it as a soft no-op.
 #[tauri::command]
 pub async fn list_local_daemon_workspaces() -> Result<Vec<LocalDaemonWorkspace>, String> {
-    let amuxd_dir = match dirs::home_dir() {
-        Some(h) => h.join(".amuxd"),
-        None => return Ok(vec![]),
-    };
+    let amuxd_dir = amuxd_dir();
     let port: u16 = match std::fs::read_to_string(amuxd_dir.join("amuxd.http.port")) {
         Ok(s) => match s.trim().parse() {
             Ok(p) => p,
@@ -367,7 +362,7 @@ pub async fn daemon_rpc(payload_b64: String) -> Result<String, String> {
 }
 
 fn daemon_http_base() -> Option<(String, String)> {
-    let amuxd_dir = dirs::home_dir()?.join(".amuxd");
+    let amuxd_dir = amuxd_dir();
     let port: u16 = std::fs::read_to_string(amuxd_dir.join("amuxd.http.port"))
         .ok()?
         .trim()
@@ -391,7 +386,7 @@ struct DaemonProviderInfo {
 pub async fn fetch_workspace_provider_model_keys(
     workspace_path: &str,
 ) -> Option<std::collections::HashSet<String>> {
-    let amuxd_dir = dirs::home_dir()?.join(".amuxd");
+    let amuxd_dir = amuxd_dir();
     let port: u16 = std::fs::read_to_string(amuxd_dir.join("amuxd.http.port"))
         .ok()?
         .trim()
@@ -472,7 +467,7 @@ struct DaemonModelCatalog {
 pub async fn fetch_workspace_model_catalog_keys(
     workspace_path: &str,
 ) -> Option<std::collections::HashSet<String>> {
-    let amuxd_dir = dirs::home_dir()?.join(".amuxd");
+    let amuxd_dir = amuxd_dir();
     let port: u16 = std::fs::read_to_string(amuxd_dir.join("amuxd.http.port"))
         .ok()?
         .trim()
@@ -541,7 +536,7 @@ struct DaemonDefaultWorkspaceResponse {
 /// isn't onboarded, or the daemon has no resolvable default (no agent
 /// default configured and no on-disk team workspace either).
 pub async fn fetch_daemon_default_workspace_path() -> Option<String> {
-    let amuxd_dir = dirs::home_dir()?.join(".amuxd");
+    let amuxd_dir = amuxd_dir();
     let port: u16 = std::fs::read_to_string(amuxd_dir.join("amuxd.http.port"))
         .ok()?
         .trim()
@@ -611,29 +606,23 @@ pub async fn register_daemon_workspace(
         return Err("workspace_path must not be empty".into());
     }
 
-    let amuxd_dir = dirs::home_dir()
-        .ok_or_else(|| "no home dir".to_string())?
-        .join(".amuxd");
+    let amuxd_dir = amuxd_dir();
     if std::path::Path::new(&path).starts_with(&amuxd_dir) {
         return Err(format!(
-            "workspace path must not be inside the daemon config directory (~/.amuxd): {path}"
+            "workspace path must not be inside the daemon config directory ({}): {path}",
+            amuxd_dir.display()
         ));
     }
 
     // `apply_add_workspace` requires the path to already exist (it
     // canonicalizes + checks `is_dir`). For a freshly-onboarded team the global
-    // dir `~/.amuxd/teams/<teamId>` may not exist yet — the daemon only
+    // dir under the brand amuxd home may not exist yet — the daemon only
     // scaffolds `teamclaw-team/` inside it once a workspace is linked. Create it
     // up front so registration succeeds; the daemon then fills in the synced
     // `teamclaw-team/` via ensure_team_link.
     if let Err(e) = std::fs::create_dir_all(&path) {
         return Err(format!("create workspace dir {path}: {e}"));
     }
-
-    let amuxd_dir = match dirs::home_dir() {
-        Some(h) => h.join(".amuxd"),
-        None => return Ok(None),
-    };
     let port: u16 = match std::fs::read_to_string(amuxd_dir.join("amuxd.http.port")) {
         Ok(s) => match s.trim().parse() {
             Ok(p) => p,

@@ -11,8 +11,10 @@ use tracing::warn;
 use crate::atomic_write;
 
 pub const OPENCODE_JSON: &str = "opencode.json";
-/// Resolved config used while a runtime is active (secrets substituted).
+/// Official-brand relative overlay path (legacy constant for callers/docs).
+/// Prefer [`runtime_overlay_rel`] / [`runtime_overlay_write_path`].
 pub const RUNTIME_OVERLAY_REL: &str = ".teamclaw/opencode.runtime.json";
+const RUNTIME_OVERLAY_FILE: &str = "opencode.runtime.json";
 
 #[derive(Debug, thiserror::Error)]
 pub enum OpencodeConfigError {
@@ -26,8 +28,23 @@ pub fn opencode_config_path(workspace: &Path) -> PathBuf {
     workspace.join(OPENCODE_JSON)
 }
 
+/// Relative overlay path for the given brand (`{meta}/opencode.runtime.json`).
+pub fn runtime_overlay_rel(brand_short_name: &str) -> String {
+    format!(
+        "{}/{}",
+        crate::workspace_meta_dir_name(brand_short_name),
+        RUNTIME_OVERLAY_FILE
+    )
+}
+
+/// Canonical write path for the runtime overlay (brand meta dir).
+pub fn runtime_overlay_write_path(workspace: &Path) -> PathBuf {
+    crate::workspace_meta_write_path_from_env(workspace, RUNTIME_OVERLAY_FILE)
+}
+
+/// Resolve overlay path for reads (canonical, else legacy `.teamclaw/`).
 pub fn runtime_overlay_path(workspace: &Path) -> PathBuf {
-    workspace.join(RUNTIME_OVERLAY_REL)
+    crate::resolve_workspace_meta_path_from_env(workspace, RUNTIME_OVERLAY_FILE)
 }
 
 pub struct OpencodeConfigStore;

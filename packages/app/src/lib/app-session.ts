@@ -14,15 +14,17 @@ import { useCurrentTeamStore } from '@/stores/current-team'
 import { useAuthStore } from '@/stores/auth-store'
 import { isTauri } from '@/lib/utils'
 import { resolveAppType } from '@/lib/app-types'
+import { appShortName, resolveAmuxdDirName } from '@/lib/build-config'
 import type { AppRow, AppSessionRow } from '@/lib/backend/types'
 
-/** Resolve the local daemon's per-app workdir: `~/.amuxd/apps/<appId>`. */
+/** Resolve the local daemon's per-app workdir: `~/.amuxd[-brand]/apps/<appId>`. */
 export async function appWorkdirPath(appId: string): Promise<string | null> {
   if (!isTauri()) return null
   try {
     const { homeDir } = await import('@tauri-apps/api/path')
     const home = await homeDir()
-    return `${home}/.amuxd/apps/${appId}`
+    const amuxd = resolveAmuxdDirName(appShortName)
+    return `${home}/.${amuxd}/apps/${appId}`
   } catch (e) {
     console.warn('[app-session] could not resolve home dir (non-fatal):', e)
     return null

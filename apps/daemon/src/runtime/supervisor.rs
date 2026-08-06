@@ -447,11 +447,9 @@ fn resolve_introspect_binary() -> Option<String> {
         }
     }
 
-    if let Some(home) = dirs::home_dir() {
-        let amuxd_bin = home.join(".amuxd").join("bin");
-        if let Some(resolved) = introspect_candidates_in_dir(&amuxd_bin) {
-            return Some(resolved.to_string_lossy().into_owned());
-        }
+    let amuxd_bin = crate::config::DaemonConfig::config_dir().join("bin");
+    if let Some(resolved) = introspect_candidates_in_dir(&amuxd_bin) {
+        return Some(resolved.to_string_lossy().into_owned());
     }
 
     if let Some(resolved) = find_introspect_in_installed_app_bundles() {
@@ -664,7 +662,9 @@ pub fn prepare_workspace(workspace_path: &Path) -> Result<(), WorkspaceControlEr
 
     install_instruction_plugin_file(workspace_path)?;
     materialize_opencode_for_prepare(workspace_path)?;
-    ensure_inherent_skills_in_dir(&workspace_path.join(".teamclaw/skills"))?;
+    ensure_inherent_skills_in_dir(
+        &teamclaw_runtime_env::workspace_meta_write_path_from_env(workspace_path, "skills"),
+    )?;
     ensure_inherent_skills_in_dir(&workspace_path.join(".opencode/skills"))?;
     crate::runtime::claude_skills::ensure_claude_team_skills(workspace_path)?;
 
@@ -1173,10 +1173,11 @@ impl RuntimeSupervisor {
             });
         }
 
+        let brand = teamclaw_runtime_env::brand_short_name_from_env();
         let team_secret_configured = teamclaw_runtime_env::env_catalog::resolve_team_env_secret(
             workspace_path,
             team_id,
-            None,
+            Some(brand.as_str()),
         )
         .is_some();
         let team_secret_files_present = !team_env.source_paths.is_empty()
@@ -1753,6 +1754,7 @@ mod tests {
 
     #[test]
     fn prepare_workspace_creates_defaults() {
+        let _guard = crate::test_brand_env::BrandEnvGuard::set("teamclaw");
         let dir = tempfile::tempdir().unwrap();
         prepare_workspace(dir.path()).unwrap();
 
@@ -1775,6 +1777,22 @@ mod tests {
             .join(".teamclaw/skills/create-role/SKILL.md")
             .is_file());
         assert!(!dir.path().join(".opencode/data").exists());
+    }
+
+    #[test]
+    fn prepare_workspace_white_label_writes_brand_skills() {
+        let _guard = crate::test_brand_env::BrandEnvGuard::set("copilot361");
+
+        let dir = tempfile::tempdir().unwrap();
+        prepare_workspace(dir.path()).unwrap();
+        assert!(dir
+            .path()
+            .join(".copilot361/skills/create-role/SKILL.md")
+            .is_file());
+        assert!(!dir
+            .path()
+            .join(".teamclaw/skills/create-role/SKILL.md")
+            .exists());
     }
 
     #[test]

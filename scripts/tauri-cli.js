@@ -6,6 +6,7 @@ const path = require("path");
 const { createRustBuildEnv } = require("./rust-build-env");
 const { ensureTeamclawIntrospectSidecar } = require("./ensure-introspect-sidecar");
 const { ensureAmuxdSidecar } = require("./ensure-amuxd-sidecar");
+const { ensureAgentBridgeBundles } = require("./ensure-agent-bridge-bundles");
 const { platform } = process;
 
 let args = process.argv.slice(2);
@@ -105,6 +106,7 @@ const env = createRustBuildEnv(process.env, __dirname);
 args = applyDevSkipFlags(args, env);
 ensureTeamclawIntrospectSidecar(env, { logPrefix: "[tauri-cli]" });
 ensureAmuxdSidecar(env, { logPrefix: "[tauri-cli]" });
+ensureAgentBridgeBundles(env, { logPrefix: "[tauri-cli]" });
 
 const desktopDir = path.resolve(__dirname, "..", "apps", "desktop");
 const child = spawn("pnpm", ["exec", "tauri", ...args], {

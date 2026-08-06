@@ -3,6 +3,7 @@
 use serde::Serialize;
 
 use crate::runtime::cursor_sdk::process::{default_bridge_command, default_bridge_main};
+use crate::runtime::sidecar::bridge_path::sdk_installed_for_main;
 
 #[derive(Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -17,18 +18,15 @@ pub struct CursorStatus {
 
 pub fn doctor() -> CursorStatus {
     let bridge_command = default_bridge_command();
-    let bridge_script_present = default_bridge_main().is_file();
+    let main = default_bridge_main();
+    let bridge_script_present = main.is_file();
     let node_present = which_node().is_some();
     let api_key_present = std::env::var("CURSOR_API_KEY")
         .ok()
         .filter(|k| !k.trim().is_empty())
         .is_some()
         || daemon_config_has_cursor_api_key();
-    let sdk_installed = default_bridge_main()
-        .parent()
-        .and_then(|p| p.parent())
-        .map(|p| p.join("node_modules/@cursor/sdk/package.json").is_file())
-        .unwrap_or(false);
+    let sdk_installed = sdk_installed_for_main(&main);
     let satisfied = node_present && bridge_script_present && api_key_present && sdk_installed;
     CursorStatus {
         node_present,

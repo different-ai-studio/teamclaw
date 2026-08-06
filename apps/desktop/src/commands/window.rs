@@ -226,6 +226,14 @@ pub fn register_window_workspace(
             e
         );
     }
+    // Personal values are machine-global; backfill this workspace's envVars
+    // cache so settings/diagnostics stay aligned after switching projects.
+    if let Err(e) = super::env_vars::derive_personal_env_index_from_blob(&workspace_path) {
+        eprintln!(
+            "[EnvVars] Warning: failed to derive personal env index on workspace bind: {}",
+            e
+        );
+    }
     Ok(())
 }
 

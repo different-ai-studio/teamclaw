@@ -29,7 +29,7 @@ pub fn global_team_home_dir(team_id: &str) -> Option<PathBuf> {
     if team_id.trim().is_empty() {
         return None;
     }
-    dirs::home_dir().map(|h| h.join(".amuxd").join("teams").join(team_id))
+    Some(crate::commands::amuxd_home_dir().join("teams").join(team_id))
 }
 
 /// `~/.amuxd/team-secrets/<team_id>.enc` — the daemon's encrypted team secrets.
@@ -42,11 +42,11 @@ pub fn global_team_secrets_path(team_id: &str) -> Option<PathBuf> {
     if team_id.trim().is_empty() {
         return None;
     }
-    dirs::home_dir().map(|h| {
-        h.join(".amuxd")
+    Some(
+        crate::commands::amuxd_home_dir()
             .join("team-secrets")
-            .join(format!("{team_id}.enc"))
-    })
+            .join(format!("{team_id}.enc")),
+    )
 }
 
 /// Remove the daemon's stored secrets for a team. Absent secrets are not an error.

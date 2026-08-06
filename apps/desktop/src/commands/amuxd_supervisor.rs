@@ -27,6 +27,10 @@ const STOP_TIMEOUT: Duration = Duration::from_secs(8);
 /// Cmd+Q: brief grace for SIGTERM before SIGKILL + wait (reap).
 const EXIT_CHILD_GRACE: Duration = Duration::from_millis(500);
 const INTROSPECT_ENV: &str = "TEAMCLAW_INTROSPECT_BIN";
+const CURSOR_BRIDGE_MAIN_ENV: &str = "TEAMCLAW_CURSOR_BRIDGE_MAIN";
+const CLAUDE_BRIDGE_MAIN_ENV: &str = "TEAMCLAW_CLAUDE_BRIDGE_MAIN";
+const BRAND_SHORT_NAME_ENV: &str = teamclaw_runtime_env::BRAND_SHORT_NAME_ENV;
+const AMUXD_HOME_ENV: &str = teamclaw_runtime_env::AMUXD_HOME_ENV;
 const LAUNCHD_LABEL: &str = "cc.ucar.amuxd";
 
 struct SupervisorInner {
@@ -128,10 +132,29 @@ fn bundled_introspect_path() -> Option<PathBuf> {
     locate_bundled_sidecar("teamclaw-introspect")
 }
 
+fn locate_bundled_bridge_main(bridge_name: &str) -> Option<PathBuf> {
+    let rel = format!("{bridge_name}/src/main.mjs");
+    let dev = Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("binaries")
+        .join(&rel);
+    if dev.is_file() {
+        return Some(dev);
+    }
+    let exe = std::env::current_exe().ok()?;
+    let dir = exe.parent()?;
+    let sibling = dir.join(&rel);
+    if sibling.is_file() {
+        return Some(sibling);
+    }
+    let resources = dir.join("../Resources").join(&rel);
+    if resources.is_file() {
+        return Some(resources);
+    }
+    None
+}
+
 fn amuxd_dir() -> PathBuf {
-    dirs::home_dir()
-        .unwrap_or_else(|| PathBuf::from("/tmp"))
-        .join(".amuxd")
+    super::amuxd_home_dir()
 }
 
 fn amuxd_pid_is_running() -> bool {
@@ -584,8 +607,19 @@ impl AmuxdSupervisor {
         {
             cmd.process_group(0);
         }
+        // White-label: personal secrets under ~/.{brand}/secrets and amuxd
+        // state under ~/.amuxd-<brand> (official keeps ~/.amuxd).
+        let amuxd_home = amuxd_dir();
+        cmd.env(BRAND_SHORT_NAME_ENV, super::APP_SHORT_NAME);
+        cmd.env(AMUXD_HOME_ENV, &amuxd_home);
         if let Some(introspect) = bundled_introspect_path() {
             cmd.env(INTROSPECT_ENV, introspect);
+        }
+        if let Some(main) = locate_bundled_bridge_main("cursor-bridge") {
+            cmd.env(CURSOR_BRIDGE_MAIN_ENV, main);
+        }
+        if let Some(main) = locate_bundled_bridge_main("claude-bridge") {
+            cmd.env(CLAUDE_BRIDGE_MAIN_ENV, main);
         }
         eprintln!(
             "[amuxd-supervisor] spawning managed amuxd: {}",

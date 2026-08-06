@@ -8,6 +8,7 @@ use tokio::io::{AsyncBufReadExt, BufReader};
 use tracing::{info, warn};
 
 use super::{events, Shared};
+use crate::runtime::sidecar::bridge_path::default_cursor_bridge_main;
 use crate::runtime::sidecar::client::SidecarClient;
 
 pub(crate) struct CursorProcess {
@@ -267,13 +268,13 @@ impl CursorProcessPool {
 }
 
 pub fn default_bridge_main() -> PathBuf {
-    PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("cursor-bridge/src/main.mjs")
+    default_cursor_bridge_main()
 }
 
 pub fn default_bridge_command() -> Vec<String> {
     vec![
         "node".to_string(),
-        default_bridge_main().to_string_lossy().into_owned(),
+        default_cursor_bridge_main().to_string_lossy().into_owned(),
         "--mode".to_string(),
         "rpc".to_string(),
     ]
@@ -295,5 +296,6 @@ mod tests {
         let cmd = default_bridge_command();
         assert_eq!(cmd[0], "node");
         assert!(cmd[1].ends_with("cursor-bridge/src/main.mjs"));
+        assert!(default_bridge_main().is_file());
     }
 }

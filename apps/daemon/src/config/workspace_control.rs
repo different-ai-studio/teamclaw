@@ -124,7 +124,7 @@ pub enum AllowlistDecision {
 }
 
 /// A permanently-remembered tool-call decision for a workspace project.
-/// Stored in `<workspace>/.teamclaw/allowlist.json` (daemon-owned).
+/// Stored in `<workspace>/{meta}/allowlist.json` (daemon-owned, brand meta dir).
 /// Fields intentionally mirror the component's `PermissionRule` shape so
 /// the frontend can use them directly without transformation.
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -415,7 +415,7 @@ struct OcPermissionSection {
 /// Production implementation of `WorkspaceControlStore` that persists to the
 /// on-disk formats OpenCode already uses. The daemon owns reads/writes to:
 /// - `<workspace_path>/opencode.json` — providers, skill permissions
-/// - `<workspace_path>/.teamclaw/allowlist.json` — permanently-remembered
+/// - `<workspace_path>/{meta}/allowlist.json` — permanently-remembered
 ///   tool-call decisions (daemon-owned sidecar; separate from OpenCode's
 ///   SQLite allowlist DB)
 /// Stateless workspace-control store. The workspace identity is the
@@ -471,11 +471,23 @@ impl OpenCodeCompatStore {
     }
 
     fn teamclaw_json_path(workspace_path: &std::path::Path) -> PathBuf {
+        // Legacy workspace-root config; brand meta config is resolved separately
+        // via teamclaw_runtime_env helpers where needed.
         workspace_path.join("teamclaw.json")
     }
 
-    fn allowlist_path(workspace_path: &std::path::Path) -> PathBuf {
-        workspace_path.join(".teamclaw").join("allowlist.json")
+    fn allowlist_read_path(workspace_path: &std::path::Path) -> PathBuf {
+        teamclaw_runtime_env::resolve_workspace_meta_path_from_env(
+            workspace_path,
+            "allowlist.json",
+        )
+    }
+
+    fn allowlist_write_path(workspace_path: &std::path::Path) -> PathBuf {
+        teamclaw_runtime_env::workspace_meta_write_path_from_env(
+            workspace_path,
+            "allowlist.json",
+        )
     }
 
     /// True when `options.apiKey` is a non-empty literal or `${env_ref}` placeholder.
@@ -533,7 +545,7 @@ impl OpenCodeCompatStore {
     fn read_allowlist(
         workspace_path: &std::path::Path,
     ) -> Result<Vec<AllowlistRule>, WorkspaceControlError> {
-        let path = Self::allowlist_path(workspace_path);
+        let path = Self::allowlist_read_path(workspace_path);
         if !path.exists() {
             return Ok(vec![]);
         }
@@ -546,7 +558,7 @@ impl OpenCodeCompatStore {
         workspace_path: &std::path::Path,
         rules: &[AllowlistRule],
     ) -> Result<(), WorkspaceControlError> {
-        let path = Self::allowlist_path(workspace_path);
+        let path = Self::allowlist_write_path(workspace_path);
         if let Some(parent) = path.parent() {
             std::fs::create_dir_all(parent)
                 .map_err(|e| WorkspaceControlError::Io(e.to_string()))?;
@@ -1284,6 +1296,8 @@ mod tests {
 
     #[test]
     fn put_and_get_allowlist_round_trips() {
+        // Hold brand lock so parallel white-label tests cannot divert the write path.
+        let _guard = crate::test_brand_env::BrandEnvGuard::set("teamclaw");
         let dir = tempfile::tempdir().unwrap();
         let store = make_store();
         let wid = ws_id(dir.path());
@@ -1311,6 +1325,44 @@ mod tests {
         assert_eq!(got[0].permission, "bash");
         assert_eq!(got[0].pattern, "rm -rf *");
         assert_eq!(got[1].decision, AllowlistDecision::Allow);
+        assert!(dir.path().join(".teamclaw/allowlist.json").is_file());
+    }
+
+    #[test]
+    fn white_label_allowlist_writes_brand_meta_and_reads_legacy() {
+        let _guard = crate::test_brand_env::BrandEnvGuard::set("copilot361");
+
+        let dir = tempfile::tempdir().unwrap();
+        let store = make_store();
+        let wid = ws_id(dir.path());
+
+        // Legacy-only allowlist must still load.
+        let legacy = dir.path().join(".teamclaw/allowlist.json");
+        std::fs::create_dir_all(legacy.parent().unwrap()).unwrap();
+        std::fs::write(
+            &legacy,
+            r#"[{"project_id":"p","permission":"bash","pattern":"*","decision":"allow"}]"#,
+        )
+        .unwrap();
+        let got = store.get_allowlist(&wid).unwrap();
+        assert_eq!(got.len(), 1);
+        assert_eq!(got[0].permission, "bash");
+
+        store
+            .put_allowlist(
+                &wid,
+                vec![AllowlistRule {
+                    project_id: "p".to_owned(),
+                    permission: "edit".to_owned(),
+                    pattern: "*".to_owned(),
+                    decision: AllowlistDecision::Deny,
+                }],
+            )
+            .unwrap();
+        assert!(dir.path().join(".copilot361/allowlist.json").is_file());
+        let got = store.get_allowlist(&wid).unwrap();
+        assert_eq!(got[0].permission, "edit");
+        assert_eq!(got[0].decision, AllowlistDecision::Deny);
     }
 
     #[test]

@@ -320,9 +320,7 @@ impl DeliveryManager {
     /// Resolve WeCom ownerId from amuxd's persisted gateway state, with a legacy
     /// fallback to the workspace teamclaw.json for pre-migration installs.
     fn resolve_wecom_owner_id(&self) -> Result<String, String> {
-        let daemon_root = dirs::home_dir()
-            .unwrap_or_else(|| PathBuf::from("/tmp"))
-            .join(".amuxd")
+        let daemon_root = crate::commands::amuxd_home_dir()
             .to_string_lossy()
             .into_owned();
 

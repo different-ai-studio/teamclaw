@@ -180,7 +180,9 @@ async function ensureDefaultWorkspaceRegistered(teamId: string | null): Promise<
   if (!isTauri() || !teamId) return
   const { useWorkspaceStore } = await import('@/stores/workspace')
   const workspacePath = useWorkspaceStore.getState().workspacePath
-  if (!workspacePath || workspacePath.includes('/.amuxd/')) return
+  // Official `~/.amuxd/...` and white-label `~/.amuxd-<brand>/...` are daemon
+  // state dirs, not user project workspaces.
+  if (!workspacePath || /\/\.amuxd(-[^/]+)?\//.test(workspacePath)) return
   try {
     const { invoke } = await import('@tauri-apps/api/core')
     await invoke('register_daemon_workspace', { workspacePath })
