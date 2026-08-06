@@ -217,26 +217,21 @@ fn copy_dir_contents(from: &Path, to: &Path) -> std::io::Result<()> {
 mod tests {
     use super::*;
 
-    /// Sets an isolated `HOME`, pins official brand paths, and holds the shared
-    /// HOME lock for the test's duration so path assertions don't race.
-    fn temp_home() -> (
-        tempfile::TempDir,
-        std::sync::MutexGuard<'static, ()>,
-        crate::test_brand_env::BrandEnvGuard,
-    ) {
+    /// Sets an isolated `HOME` and holds the shared HOME lock for the test's
+    /// duration so path assertions don't race other HOME-mutating tests.
+    fn temp_home() -> (tempfile::TempDir, std::sync::MutexGuard<'static, ()>) {
         let guard = global_team_store::TEST_HOME_LOCK
             .lock()
             .unwrap_or_else(|e| e.into_inner());
-        let brand = crate::test_brand_env::BrandEnvGuard::set("teamclaw");
         let tmp = tempfile::tempdir().unwrap();
         std::env::set_var("HOME", tmp.path());
-        (tmp, guard, brand)
+        (tmp, guard)
     }
 
     #[cfg(unix)]
     #[test]
     fn creates_symlink_to_global_dir() {
-        let (_home, _guard, _brand) = temp_home();
+        let (_home, _guard) = temp_home();
         let ws = tempfile::tempdir().unwrap();
         let status = ensure_workspace_link(ws.path(), "team-1");
         assert_eq!(status, LinkStatus::Linked(LinkKind::Symlink));
@@ -254,7 +249,7 @@ mod tests {
     #[cfg(unix)]
     #[test]
     fn is_idempotent() {
-        let (_home, _guard, _brand) = temp_home();
+        let (_home, _guard) = temp_home();
         let ws = tempfile::tempdir().unwrap();
         assert_eq!(
             ensure_workspace_link(ws.path(), "team-1"),
@@ -270,7 +265,7 @@ mod tests {
     #[cfg(unix)]
     #[test]
     fn repoints_stale_symlink() {
-        let (_home, _guard, _brand) = temp_home();
+        let (_home, _guard) = temp_home();
         let ws = tempfile::tempdir().unwrap();
         let link = ws.path().join("teamclaw-team");
         std::os::unix::fs::symlink("/nonexistent/old", &link).unwrap();
@@ -287,7 +282,7 @@ mod tests {
     #[cfg(unix)]
     #[test]
     fn refuses_self_symlink_when_workspace_is_the_global_dir() {
-        let (_home, _guard, _brand) = temp_home();
+        let (_home, _guard) = temp_home();
         // Seed the team's global dir with real content.
         let global = global_team_store::ensure_initialized("team-self").unwrap();
         std::fs::write(global.join("skills/keep.md"), b"keep me").unwrap();
@@ -320,7 +315,7 @@ mod tests {
     #[cfg(unix)]
     #[test]
     fn migrates_clean_legacy_dir_into_empty_global() {
-        let (_home, _guard, _brand) = temp_home();
+        let (_home, _guard) = temp_home();
         let ws = tempfile::tempdir().unwrap();
         let legacy = ws.path().join("teamclaw-team");
         std::fs::create_dir_all(legacy.join("skills")).unwrap();
@@ -341,7 +336,7 @@ mod tests {
     #[cfg(unix)]
     #[test]
     fn seeds_git_legacy_dir_into_empty_global_preserving_dot_git() {
-        let (_home, _guard, _brand) = temp_home();
+        let (_home, _guard) = temp_home();
         let ws = tempfile::tempdir().unwrap();
         let legacy = ws.path().join("teamclaw-team");
         std::fs::create_dir_all(legacy.join("skills")).unwrap();
@@ -368,7 +363,7 @@ mod tests {
     #[cfg(unix)]
     #[test]
     fn retains_non_git_legacy_dir_when_global_already_populated() {
-        let (_home, _guard, _brand) = temp_home();
+        let (_home, _guard) = temp_home();
         // Pre-populate the global dir for this team with real content.
         let global = global_team_store::ensure_initialized("team-pop").unwrap();
         std::fs::write(global.join("skills/existing.md"), b"already here").unwrap();
@@ -398,7 +393,7 @@ mod tests {
     #[cfg(unix)]
     #[test]
     fn retains_dirty_legacy_git_dir() {
-        let (_home, _guard, _brand) = temp_home();
+        let (_home, _guard) = temp_home();
         let ws = tempfile::tempdir().unwrap();
         let legacy = ws.path().join("teamclaw-team");
         std::fs::create_dir_all(&legacy).unwrap();
