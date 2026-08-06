@@ -165,6 +165,104 @@ pub fn mutate_team_provider(
     Ok(changed)
 }
 
+/// Read `provider.team` from workspace `opencode.json`, if present.
+pub fn read_disk_team_provider(workspace: &Path) -> Option<serde_json::Value> {
+    let content = OpencodeConfigStore::load_raw(workspace).ok().flatten()?;
+    let json: serde_json::Value = serde_json::from_str(&content).ok()?;
+    json.get("provider")
+        .and_then(|provider| provider.get("team"))
+        .filter(|team| team.is_object())
+        .cloned()
+}
+
+/// Reconstruct a [`ManagedLlmProvider`] from an on-disk `provider.team` object.
+pub fn managed_llm_provider_from_disk_team(
+    team: &serde_json::Value,
+) -> Option<ManagedLlmProvider> {
+    let base_url = team
+        .get("options")
+        .and_then(|options| options.get("baseURL"))
+        .and_then(|v| v.as_str())
+        .filter(|s| !s.trim().is_empty())?
+        .to_string();
+    let name = team
+        .get("name")
+        .and_then(|v| v.as_str())
+        .unwrap_or("Team")
+        .to_string();
+    let models = team
+        .get("models")
+        .and_then(|v| v.as_object())
+        .map(|map| {
+            let mut models: Vec<ManagedLlmModel> = map
+                .iter()
+                .map(|(id, entry)| ManagedLlmModel {
+                    id: id.clone(),
+                    name: entry
+                        .get("name")
+                        .and_then(|v| v.as_str())
+                        .unwrap_or(id)
+                        .to_string(),
+                })
+                .collect();
+            models.sort_by(|left, right| left.id.cmp(&right.id));
+            models
+        })
+        .unwrap_or_default();
+    Some(ManagedLlmProvider {
+        name,
+        base_url,
+        models,
+    })
+}
+
+/// Stabilize managed-LLM state before spawn env fingerprinting.
+///
+/// Cold cloud fetches / empty TTL caches often yield [`ManagedLlmState::Unknown`],
+/// which omits `TEAMCLAW_TEAM_PROVIDER` from the spawn env. A later successful
+/// fetch then injects the key and flips the global OpenCode host fingerprint.
+/// When disk already has `provider.team`, reconstruct `Enabled` from it so the
+/// first attach matches a subsequent confirmed cloud answer with the same data.
+pub fn stabilize_managed_llm_for_spawn(
+    state: &ManagedLlmState,
+    disk_team_provider: Option<&serde_json::Value>,
+) -> ManagedLlmState {
+    if !matches!(state, ManagedLlmState::Unknown) {
+        return state.clone();
+    }
+    match disk_team_provider.and_then(managed_llm_provider_from_disk_team) {
+        Some(provider) => ManagedLlmState::Enabled(provider),
+        None => ManagedLlmState::Unknown,
+    }
+}
+
+/// JSON payload for the `TEAMCLAW_TEAM_PROVIDER` spawn env (no secret embedded).
+pub fn team_provider_env_payload(provider: &ManagedLlmProvider) -> String {
+    let models: Vec<serde_json::Value> = provider
+        .models
+        .iter()
+        .filter(|m| !m.id.is_empty())
+        .map(|m| {
+            serde_json::json!({
+                "id": m.id,
+                "name": if m.name.is_empty() { &m.id } else { &m.name },
+            })
+        })
+        .collect();
+    let name = if provider.name.is_empty() {
+        "Team"
+    } else {
+        &provider.name
+    };
+    serde_json::json!({
+        "name": name,
+        "baseUrl": provider.base_url,
+        "apiKeyEnv": "tc_api_key",
+        "models": models,
+    })
+    .to_string()
+}
+
 /// Reconcile `provider.team` in opencode.json against the cloud-sourced managed LLM.
 ///
 /// Returns whether the on-disk config was rewritten. External callers should prefer
@@ -306,5 +404,66 @@ mod tests {
         let dir = TempDir::new().unwrap();
         write_teamclaw_json(dir.path(), Some("custom-team"));
         assert_eq!(resolve_shared_dir_name(dir.path()), "custom-team");
+    }
+
+    #[test]
+    fn stabilize_leaves_enabled_and_disabled_unchanged() {
+        let enabled = ManagedLlmState::Enabled(sample_provider());
+        assert!(matches!(
+            stabilize_managed_llm_for_spawn(&enabled, None),
+            ManagedLlmState::Enabled(_)
+        ));
+        assert!(matches!(
+            stabilize_managed_llm_for_spawn(&ManagedLlmState::Disabled, None),
+            ManagedLlmState::Disabled
+        ));
+    }
+
+    #[test]
+    fn stabilize_unknown_without_disk_stays_unknown() {
+        assert!(matches!(
+            stabilize_managed_llm_for_spawn(&ManagedLlmState::Unknown, None),
+            ManagedLlmState::Unknown
+        ));
+    }
+
+    #[test]
+    fn stabilize_unknown_with_disk_team_becomes_enabled() {
+        let disk = serde_json::json!({
+            "name": "Team",
+            "options": { "baseURL": "https://gateway.example/v1", "apiKey": "${tc_api_key}" },
+            "models": {
+                "gpt-4": { "name": "GPT-4" }
+            }
+        });
+        match stabilize_managed_llm_for_spawn(&ManagedLlmState::Unknown, Some(&disk)) {
+            ManagedLlmState::Enabled(provider) => {
+                assert_eq!(provider.base_url, "https://gateway.example/v1");
+                assert_eq!(provider.models.len(), 1);
+                assert_eq!(provider.models[0].id, "gpt-4");
+            }
+            other => panic!("expected Enabled from disk, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn stabilize_unknown_disk_payload_matches_enabled_env_payload() {
+        let provider = sample_provider();
+        let disk = serde_json::json!({
+            "name": provider.name,
+            "options": { "baseURL": provider.base_url, "apiKey": "${tc_api_key}" },
+            "models": {
+                "gpt-4": { "name": "GPT-4" }
+            }
+        });
+        let stabilized =
+            stabilize_managed_llm_for_spawn(&ManagedLlmState::Unknown, Some(&disk));
+        let ManagedLlmState::Enabled(from_disk) = stabilized else {
+            panic!("expected Enabled");
+        };
+        assert_eq!(
+            team_provider_env_payload(&from_disk),
+            team_provider_env_payload(&provider)
+        );
     }
 }
