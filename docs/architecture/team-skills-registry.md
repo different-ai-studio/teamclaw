@@ -39,7 +39,7 @@
 桌面端                      FC /v1                     存储
 ─────────────────────────────────────────────────────────────
 浏览市场      ──────────>  GET  /teams/:id/skills   ──> Postgres 元数据
-发布 skill    ──────────>  POST /teams/:id/skills   ──> zip → OSS (amuxc_blobs)
+发布 skill    ──────────>  POST /teams/:id/skills   ──> zip → Supabase Storage (amuxc_blobs)
 安装          ──────────>  GET  .../download        ──> 签名 URL
                            PUT  .../install         ──> Postgres 安装记录
                     │
@@ -49,7 +49,7 @@
 三条约束：
 
 1. **客户端不直连 Supabase。** `cloud_api` 是唯一客户端后端，`packages/app/src/lib/backend/__tests__/no-supabase-import.test.ts` 是守卫。表建在 Supabase Postgres，访问一律走 FC `/v1`。
-2. **包体不进 Supabase Storage。** 复用 `amuxc_blobs` + OSS，避免第二套存储运维面。
+2. **包体走 Supabase Storage，不进 OSS。**（2026-08-06 反转此前决定：注册表刚合并、生产环境尚无真实 skill 包，改动是干净切换而非数据迁移。）私有 bucket `team-skills`，签名 URL 由 FC 的 service-role 客户端签发（`services/fc/src/lib/skills-storage.ts`）。`amuxc_blobs` 仍是内容哈希去重/记账表，`oss_key` 列复用为 Supabase Storage 的 object path（该表也被 `amuxc_files` 等无关的 OSS 同步功能共用，那部分继续走 OSS，不受影响）。
 3. **只有 registry 是发行面。** `teamclaw-team/skills/` 最终退出团队同步（时机见待定 #1），否则两套管线传同一批内容、版本语义作废。
 
 ## 4. 数据模型
@@ -140,7 +140,7 @@
 | POST | `/v1/teams/:id/skills` | 发布新 skill（两步上传：prepare 拿签名 URL → complete 提交元数据） |
 | POST | `/v1/teams/:id/skills/:slug/versions` | 发新版本 |
 | PATCH | `/v1/teams/:id/skills/:slug` | 改元数据 / 转交 owner / 标记 deprecated |
-| GET | `/v1/teams/:id/skills/:slug/versions/:v/download` | 返回 OSS 签名 URL |
+| GET | `/v1/teams/:id/skills/:slug/versions/:v/download` | 返回 Supabase Storage 签名 URL |
 | PUT | `/v1/teams/:id/skills/:slug/install` | 记录安装（`actorId` + version + scope） |
 | DELETE | `/v1/teams/:id/skills/:slug/install` | 记录卸载 |
 
@@ -152,7 +152,7 @@
 - 目标是 **`visibility='team'` 的 agent actor** → 要求团队 owner，或该 agent 的 `owner_member_id`。沿用 `pg-repo/agents.ts` 里 visibility 切换那套 owner-gated 判断，不新造一套
 - 目标是**别人的 member actor** → 拒绝。管理员不能替成员做安装决定
 
-**别忘了 FC 的两个部署目标**：新增环境变量要同时进 `services/fc/s.yaml` 和 `deploy/self-host/docker-compose.yml` 的 `environment:` 白名单，缺一个就在某一边静默丢失。本设计预计不新增 env（OSS 凭据已有）。
+**别忘了 FC 的两个部署目标**：新增环境变量要同时进 `services/fc/s.yaml` 和 `deploy/self-host/docker-compose.yml` 的 `environment:` 白名单，缺一个就在某一边静默丢失。本设计不新增 env（复用两边已有的 `SUPABASE_URL` / `SUPABASE_SERVICE_ROLE_KEY`）。
 
 ## 6. 发布门：6 个必填字段
 
