@@ -107,6 +107,21 @@ describe('AgentSelectorDock', () => {
     expect(screen.getByText('Ops Buddy')).toBeInTheDocument()
   })
 
+  it('does not show an endless model spinner once a remote draft is ready', () => {
+    const agent = { id: 'remote-1', displayName: 'Remote Bot' }
+    const { container } = render(
+      <AgentSelectorDock
+        {...dockProps({
+          engagedAgents: [agent],
+          engagedUiEntries: [{ agent, uiState: 'ready' }],
+        })}
+      />,
+    )
+
+    expect(screen.getByText('Remote Bot')).toBeInTheDocument()
+    expect(container.querySelector('.animate-spin')).toBeNull()
+  })
+
   it('does not synthesize fallback models when runtime info has not advertised models', () => {
     expect(resolveAgentAvailableModels(undefined)).toEqual([])
     expect(resolveAgentAvailableModels({ availableModels: [] } as any)).toEqual([])

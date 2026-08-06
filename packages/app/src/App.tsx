@@ -110,15 +110,17 @@ import { describeJwt, recordMqttDiag } from "@/lib/mqtt-diagnostics";
 import { useMqttReconnectStore } from "@/stores/mqtt-reconnect";
 import { getEffectiveServerConfig } from "@/lib/server-config";
 import {
-  initTeamclawRpc,
-  disposeTeamclawRpc,
-  setTeamclawRpcIdentity,
+  acquireTeamclawRpcBroker,
+  acquireTeamclawRpcIdentity,
 } from "@/lib/teamclaw-rpc";
 import {
-  disposeRemoteToolsRpcServer,
-  initRemoteToolsRpcServer,
+  acquireRemoteToolsRpcServer,
   registerPlatformExecutors,
 } from "@/lib/remote-tools";
+import {
+  acquireMqttModuleLeaseGroup,
+  type MqttModuleLeaseGroup,
+} from "@/lib/mqtt-module-wiring";
 import {
   decodeLiveEvent,
   sessionIdFromLiveEvent,
@@ -182,15 +184,14 @@ import { startOutboxSender } from "@/services/outbox-sender";
 import { useAcpDebugStore } from "@/stores/acp-debug-store";
 import { isStreamInterruptible, useV2StreamingStore } from "@/stores/v2-streaming-store";
 import {
-  initRuntimeStateStore,
-  disposeRuntimeStateStore,
+  acquireRuntimeStateStore,
   useRuntimeStateStore,
 } from "@/stores/runtime-state-store";
 import {
   findStaleLiveStreams,
   STALE_STREAM_SWEEP_MS,
 } from "@/lib/stale-stream-recovery";
-import { initActorPresenceStore, disposeActorPresenceStore } from "@/stores/actor-presence-store";
+import { acquireActorPresenceStore } from "@/stores/actor-presence-store";
 import { getBackend } from "@/lib/backend";
 import { getVersion } from "@tauri-apps/api/app";
 import { getDesktopDeviceId } from "./lib/backend/cloud-api/device-id";
@@ -1335,6 +1336,8 @@ function AppContent() {
     if (!mqttAuthKey || !userId || !mqttTeamId || !mqttAccessToken) return;
     let cancelled = false;
     let unlisten: (() => void) | null = null;
+    let identityLease: ReturnType<typeof acquireTeamclawRpcIdentity> | null = null;
+    let moduleLeaseGroup: MqttModuleLeaseGroup | null = null;
     const wiringId = crypto.randomUUID();
     recordMqttDiag("app-mqtt", "wiring:effect-start", {
       wiringId,
@@ -1371,10 +1374,14 @@ function AppContent() {
         // return below this point is a broker problem (no host configured,
         // connect failed), and none of them should cost us the loopback path
         // to this machine's own daemon — which needs only who we are, not a
-        // broker. `initTeamclawRpc` further down still adds the MQTT response
+        // broker. The broker lease further down still adds the MQTT response
         // subscription for remote agents.
-        setTeamclawRpcIdentity(mqttTeamId, actorId);
+        identityLease = acquireTeamclawRpcIdentity(mqttTeamId, actorId, wiringId);
         const serverConfig = await getEffectiveServerConfig();
+        if (cancelled) {
+          recordMqttDiag("app-mqtt", "wiring:cancelled-after-server-config", { wiringId });
+          return;
+        }
         const brokerHost = serverConfig.mqttHost;
         const brokerPort = serverConfig.mqttPort ?? 1883;
         const useTls = serverConfig.mqttUseTls ?? false;
@@ -1452,6 +1459,36 @@ function AppContent() {
         if (cancelled) {
           recordMqttDiag("app-mqtt", "wiring:cancelled-after-connect", { wiringId });
           return;
+        }
+
+        // Start the four broker-backed state modules before any unrelated
+        // subscription/listener await. Browser MQTT subscriptions have no
+        // timeout, so putting these later could prevent presence/RPC wiring
+        // from ever starting even though the broker connection is healthy.
+        if (brokerUsable) {
+          recordMqttDiag("app-mqtt", "rpc:init-before", {
+            wiringId,
+            topic: `amux/${mqttTeamId}/+/rpc/res`,
+          });
+          registerPlatformExecutors();
+          moduleLeaseGroup = acquireMqttModuleLeaseGroup([
+            {
+              name: 'teamclaw-rpc',
+              acquire: () => acquireTeamclawRpcBroker(mqttTeamId, actorId, wiringId),
+            },
+            {
+              name: 'remote-tools-rpc',
+              acquire: () => acquireRemoteToolsRpcServer({ teamId: mqttTeamId, actorId }, wiringId),
+            },
+            {
+              name: 'runtime-state',
+              acquire: () => acquireRuntimeStateStore(mqttTeamId, wiringId),
+            },
+            {
+              name: 'actor-presence',
+              acquire: () => acquireActorPresenceStore(mqttTeamId, wiringId),
+            },
+          ]);
         }
 
         // FC fans out to inbox/<auth.user_id> (see push-dispatch.ts), not actor_id.
@@ -2315,34 +2352,26 @@ function AppContent() {
           console.log('[MQTT] receiver wired: subscribed to', recentAtBoot.length, 'recent session/live topics');
         }
 
-        // RPC client: subscribe to the team's rpc/res topic and start correlating.
-        recordMqttDiag("app-mqtt", "rpc:init-before", {
-          wiringId,
-          topic: `amux/${mqttTeamId}/+/rpc/res`,
-        });
-        registerPlatformExecutors();
-        await initTeamclawRpc(mqttTeamId, actorId);
-        await initRemoteToolsRpcServer({ teamId: mqttTeamId, actorId });
-        console.log('[teamclaw-rpc] initialized for team', mqttTeamId);
-        recordMqttDiag("app-mqtt", "rpc:init-ok", { wiringId, topic: `amux/${mqttTeamId}/+/rpc/res` });
+        if (cancelled) {
+          recordMqttDiag("app-mqtt", "wiring:cancelled-before-modules", { wiringId });
+          return;
+        }
 
-        // Runtime state store: subscribe to daemon-published RuntimeInfo retains.
-        recordMqttDiag("app-mqtt", "runtime-state:init-before", {
-          wiringId,
-          topic: `amux/${mqttTeamId}/+/state`,
+        const moduleResults = await moduleLeaseGroup!.ready;
+        moduleResults.forEach((result) => {
+          if (result.status === 'fulfilled') {
+            recordMqttDiag("app-mqtt", `${result.name}:init-ok`, { wiringId });
+            return;
+          }
+          console.error(`[MQTT] ${result.name} initialization failed`, result.reason);
+          recordMqttDiag("app-mqtt", `${result.name}:init-error`, {
+            wiringId,
+            error: result.reason instanceof Error
+              ? { name: result.reason.name, message: result.reason.message, stack: result.reason.stack }
+              : String(result.reason),
+          });
         });
-        await initRuntimeStateStore(mqttTeamId);
-        console.log('[runtime-state] initialized for team', mqttTeamId);
-        recordMqttDiag("app-mqtt", "runtime-state:init-ok", { wiringId });
-
-        // Actor presence: subscribe to daemon LWT-backed online/offline state.
-        recordMqttDiag("app-mqtt", "presence:init-before", {
-          wiringId,
-          topic: `amux/${mqttTeamId}/+/state`,
-        });
-        await initActorPresenceStore(mqttTeamId);
-        console.log('[device-presence] initialized for team', mqttTeamId);
-        recordMqttDiag("app-mqtt", "presence:init-ok", { wiringId });
+        if (cancelled) return;
         recordMqttDiag("app-mqtt", "wiring:ready", { wiringId });
 
         // Background: sync actor directory into local cache so display-name
@@ -2388,10 +2417,8 @@ function AppContent() {
       interruptedStreamFlushRef.current = {};
       interruptedFlushSupersededRef.current = {};
       interruptedFlushSupersededStreamIdRef.current = {};
-      disposeTeamclawRpc();
-      disposeRemoteToolsRpcServer();
-      disposeRuntimeStateStore();
-      disposeActorPresenceStore();
+      moduleLeaseGroup?.release();
+      identityLease?.release();
     };
   }, [mqttAuthKey, userId, mqttTeamId, mqttAccessToken, mqttReconnectNonce]);
 

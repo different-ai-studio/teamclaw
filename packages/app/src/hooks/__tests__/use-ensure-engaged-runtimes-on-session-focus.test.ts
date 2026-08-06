@@ -46,6 +46,10 @@ describe('hasConnectingEngagedAgent / hasRecoverableNonReadyAgent', () => {
     useActorPresenceStore.setState({ byActorId: {} })
     expect(hasRecoverableNonReadyAgent([entry('a1', 'offline')])).toBe(true)
   })
+
+  it('treats runtime startup failures as recoverable', () => {
+    expect(hasRecoverableNonReadyAgent([entry('a1', 'runtime-error')])).toBe(true)
+  })
 })
 
 describe('useEnsureEngagedRuntimesOnSessionFocus', () => {

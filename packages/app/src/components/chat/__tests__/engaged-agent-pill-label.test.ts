@@ -17,6 +17,7 @@ describe('pillSuffixForUiState', () => {
       'connecting',
       'unconfigured',
       'catalog-error',
+      'runtime-error',
     ]
     for (const state of labelled) {
       expect(pillSuffixForUiState(state, t), `no label for ${state}`).not.toBeNull()

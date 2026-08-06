@@ -6,6 +6,7 @@ export type SessionAgentUiState =
   | 'connecting'
   | 'offline'
   | 'stale'
+  | 'runtime-error'
   /**
    * The daemon is up and answering, and it has no models to run — a fresh
    * install with no provider configured. Terminal until the user configures
@@ -30,6 +31,18 @@ export type SessionAgentUiState =
 export type LocalCatalogSnapshot = 'pending' | 'ready' | 'empty' | 'error' | 'unknown'
 
 export type MentionDeliverySnapshot = 'ready' | 'offline' | 'stale'
+
+export type SessionAgentContext =
+  | { kind: 'draft' }
+  | { kind: 'session'; sessionId: string }
+
+export type ReachabilityEvidence = {
+  status: 'pending' | 'reachable' | 'unreachable' | 'indeterminate'
+  startedAt: number
+  observedAt: number
+  requestId: number
+  contextKey: string
+}
 
 export const SESSION_AGENT_CONNECTING_TIMEOUT_MS = 10_000
 
@@ -66,15 +79,16 @@ export function isDriftedLocalGhostBinding(input: {
 }
 
 export function resolveSessionAgentUiState(input: {
+  context: SessionAgentContext
+  isLocalAgent?: boolean
   presenceOnline: boolean | undefined
+  presenceObservedAt?: number
   runtimeInfo: RuntimeInfo | undefined
+  runtimeObservedAt?: number
   availableModelCount: number
   isStaleBinding: boolean
   connectingTimedOut: boolean
-  /** Active HTTP/RPC probe failed while still connecting. */
-  reachabilityFailed?: boolean
-  /** Local daemon HTTP answered while MQTT presence is stale or delayed. */
-  localReachabilityConfirmed?: boolean
+  reachability?: ReachabilityEvidence
   /** The current session is receiving a live stream from this agent. */
   activeStreamConfirmed?: boolean
   /**
@@ -85,69 +99,73 @@ export function resolveSessionAgentUiState(input: {
 }): SessionAgentUiState {
   if (input.isStaleBinding) return 'stale'
 
-  const hasModels = input.availableModelCount > 0
+  // A live stream is direct, session-scoped evidence. It intentionally wins
+  // over a delayed LWT/probe result, but never over a stale actor binding.
+  if (input.activeStreamConfirmed === true) return 'ready'
 
-  // ── Local agent fast path ────────────────────────────────────────────────
-  // Gated on `localReachabilityConfirmed`, which only the local daemon's
-  // loopback probe can set. Remote agents never enter this block and fall
-  // through to the presence + retain logic below, unchanged.
-  if (input.localReachabilityConfirmed === true && input.reachabilityFailed !== true) {
-    // The daemon answered over loopback and told us it has models. That is a
-    // stronger, fresher signal than an MQTT retain we have not received yet —
-    // waiting for `RuntimeLifecycle.ACTIVE` here is what produced the spurious
-    // 连接中 on a perfectly healthy local daemon.
-    if (hasModels || input.localCatalog === 'ready') return 'ready'
-    // Answered, and genuinely has nothing to run. Terminal, not a wait state.
-    if (input.localCatalog === 'empty') return 'unconfigured'
-    // Answered, and could not find out. Also terminal, but not the user's
-    // configuration to fix.
-    if (input.localCatalog === 'error') return 'catalog-error'
-    // 'pending' / 'unknown': the loopback request is still out or told us
-    // nothing. Fall through — a brief connecting is honest here.
-  }
+  {
+    const reachabilityStatus = input.reachability?.status
+    const reachabilityStartedAt = input.reachability?.startedAt ?? 0
+    const presenceObservedAt = input.presenceObservedAt ?? 0
+    const runtimeObservedAt = input.runtimeObservedAt ?? 0
 
-  const state = input.runtimeInfo?.state
-  if (
-    state === RuntimeLifecycle.ACTIVE &&
-    input.reachabilityFailed !== true &&
-    (input.activeStreamConfirmed === true ||
-      (hasModels &&
-        (input.presenceOnline !== false || input.localReachabilityConfirmed === true)))
-  ) {
-    return 'ready'
-  }
+    if (input.context.kind === 'session') {
+      if (input.presenceOnline === false) return 'offline'
+      if (input.isLocalAgent && reachabilityStatus === 'unreachable') return 'offline'
 
-  // Presence (LWT) and active probe failures veto MQTT retain ghosts before ready.
-  if (input.presenceOnline === false || input.reachabilityFailed === true) {
-    return 'offline'
-  }
+      const latestPositiveAt = Math.max(
+        input.presenceOnline === true ? presenceObservedAt : 0,
+        runtimeObservedAt,
+      )
+      if (
+        !input.isLocalAgent &&
+        reachabilityStatus === 'unreachable' &&
+        reachabilityStartedAt >= latestPositiveAt
+      ) {
+        return 'runtime-error'
+      }
 
-  if (input.connectingTimedOut) {
-    return 'offline'
-  }
-
-  if (input.presenceOnline === true) {
-    // Remote draft: `{actor}/state` carries default-workspace models before any
-    // session attachment exists — treat that as ready when the catalog is non-empty.
-    if (!input.runtimeInfo && hasModels) {
-      return 'ready'
+      switch (input.runtimeInfo?.state) {
+        case RuntimeLifecycle.ACTIVE:
+          return 'ready'
+        case RuntimeLifecycle.FAILED:
+        case RuntimeLifecycle.STOPPED:
+          return 'runtime-error'
+        case RuntimeLifecycle.STARTING:
+        case RuntimeLifecycle.UNKNOWN:
+        default:
+          return input.connectingTimedOut ? 'runtime-error' : 'connecting'
+      }
     }
-    // Session attachment can sit at STARTING while the worktree catalog is already
-    // visible (extension draft → first send). With models to pick, "connecting"
-    // is a lie — same rule as the local loopback fast path above.
+
+    if (input.isLocalAgent) {
+      if (reachabilityStatus === 'unreachable' || input.presenceOnline === false) {
+        return 'offline'
+      }
+      if (reachabilityStatus === 'reachable') {
+        if (input.availableModelCount > 0 || input.localCatalog === 'ready') return 'ready'
+        if (input.localCatalog === 'empty') return 'unconfigured'
+        if (input.localCatalog === 'error') return 'catalog-error'
+      }
+      return input.connectingTimedOut ? 'offline' : 'connecting'
+    }
+
+    // A presence retain received after the probe began is newer evidence and
+    // cannot be overturned by that older request's eventual result.
     if (
-      hasModels &&
-      (state === RuntimeLifecycle.STARTING || input.activeStreamConfirmed === true)
+      input.presenceOnline === true &&
+      presenceObservedAt >= reachabilityStartedAt
     ) {
       return 'ready'
     }
-    if (!input.runtimeInfo || state === RuntimeLifecycle.STARTING || !hasModels) {
-      return 'connecting'
+    if (input.presenceOnline === false) return 'offline'
+    if (reachabilityStatus === 'reachable') return 'ready'
+    if (reachabilityStatus === 'unreachable') {
+      return input.presenceOnline === true ? 'runtime-error' : 'offline'
     }
-    return 'offline'
+    return input.connectingTimedOut ? 'offline' : 'connecting'
   }
 
-  return 'connecting'
 }
 
 // ────────────────────────────────────────────────────────────────────────────
@@ -188,6 +206,8 @@ export function dotClassesForUiState(uiState: SessionAgentUiState): AgentPillDot
       return { color: 'bg-amber-400', pulse: false }
     case 'catalog-error':
       // Red, unlike unconfigured's amber: something is broken, not merely unset.
+      return { color: 'bg-red-500', pulse: false }
+    case 'runtime-error':
       return { color: 'bg-red-500', pulse: false }
     case 'stale':
       return { color: 'bg-red-500', pulse: false }

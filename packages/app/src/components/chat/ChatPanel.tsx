@@ -498,10 +498,17 @@ export function ChatPanel({ compact = false }: ChatPanelProps) {
     activeSessionId,
     engagedAgentIds,
   );
+  const agentUiContext = React.useMemo(
+    () => activeSessionId
+      ? ({ kind: 'session', sessionId: activeSessionId } as const)
+      : ({ kind: 'draft' } as const),
+    [activeSessionId],
+  );
   const engagedUiEntries = useEngagedAgentUiStates(
     engagedAgents,
     agentToRuntimeId,
     activeStreamingAgentIds,
+    agentUiContext,
   );
 
   const sessionParticipants = useSessionParticipantStore((s) =>
@@ -557,7 +564,8 @@ export function ChatPanel({ compact = false }: ChatPanelProps) {
         if (
           entry.uiState === "offline" ||
           entry.uiState === "stale" ||
-          entry.uiState === "connecting"
+          entry.uiState === "connecting" ||
+          entry.uiState === "runtime-error"
         ) {
           // Same cleanup the pill's own X does (AgentSelectorDock onRemove):
           // a dropped agent's model pick must not outlive it, or the local
@@ -690,7 +698,7 @@ export function ChatPanel({ compact = false }: ChatPanelProps) {
   const handleRetryOfflineAgents = React.useCallback(() => {
     if (!activeSessionId || !sheetTeamId) return;
     const offlineIds = engagedUiEntries
-      .filter((e) => e.uiState === "offline")
+      .filter((e) => e.uiState === "offline" || e.uiState === "runtime-error")
       .map((e) => e.agent.id);
     if (offlineIds.length === 0) return;
     void import("@/lib/teamclaw/runtime-ensure-scheduler").then(({ resetRuntimeEnsureThrottle }) => {

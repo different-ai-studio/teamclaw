@@ -9,6 +9,7 @@ import {
 } from '@/lib/proto/amux_pb'
 import { mqttSubscribe, listenForEnvelopes, type IncomingEnvelope } from '@/lib/mqtt-bridge'
 import { sessionFlowLog } from '@/lib/session-flow-log'
+import { createSharedModuleLeaseManager, type SharedModuleLease } from '@/lib/shared-module-lease'
 
 /**
  * In-memory projection of daemon attachment state from MQTT.
@@ -229,8 +230,6 @@ export function parseActorStateTopic(
   return { teamId: parts[1], actorId: parts[2] }
 }
 
-let unlisten: (() => void) | null = null
-let initialized = false
 type ActorPresenceSync = {
   daemonActorId: string
   updates: RuntimeStateUpdate[]
@@ -359,15 +358,11 @@ export function attachmentsForSession(
     .map(([, entry]) => entry)
 }
 
-export async function initRuntimeStateStore(teamId: string): Promise<void> {
-  if (initialized) {
-    console.info('[runtime-state] init skipped: already initialized', { teamId })
-    return
-  }
-  const actorTopic = `amux/${teamId}/+/state`
-  // Register the handler before subscribe: mqtt.js delivers retained messages
-  // as soon as the SUBACK lands, and a subscribe-then-listen race drops boot retain.
-  unlisten = await listenForEnvelopes((env: IncomingEnvelope) => {
+const runtimeStateLeaseManager = createSharedModuleLeaseManager<string>({
+  key: (teamId) => teamId.trim(),
+  setup: async (teamId, controls) => {
+    const actorTopic = `amux/${teamId}/+/state`
+    const unlisten = await listenForEnvelopes((env: IncomingEnvelope) => {
     const actor = parseActorStateTopic(env.topic)
     if (!actor || actor.teamId !== teamId) return
     let presence: ActorPresence
@@ -392,18 +387,19 @@ export async function initRuntimeStateStore(teamId: string): Promise<void> {
       defaultCatalogModelCount: presence.defaultWorkspaceModels.length,
     })
     enqueueActorPresenceSync(actor.actorId, updates, defaultCatalog)
-  })
-  await mqttSubscribe(actorTopic)
-  console.info('[runtime-state] subscribed', { teamId, topic: actorTopic })
-  initialized = true
-}
+    })
+    controls.setCleanup(unlisten)
+    if (!controls.isCurrent()) return
+    await mqttSubscribe(actorTopic)
+    console.info('[runtime-state] subscribed', { teamId, topic: actorTopic })
+  },
+  onDeactivate: () => {
+    queuedActorPresenceSyncs = []
+    runtimeStateFlushScheduled = false
+    useRuntimeStateStore.getState().clear()
+  },
+})
 
-export function disposeRuntimeStateStore(): void {
-  unlisten?.()
-  unlisten = null
-  queuedActorPresenceSyncs = []
-  runtimeStateFlushScheduled = false
-  useRuntimeStateStore.getState().clear()
-  initialized = false
-  console.info('[runtime-state] disposed')
+export function acquireRuntimeStateStore(teamId: string, ownerId: string): SharedModuleLease {
+  return runtimeStateLeaseManager.acquire(teamId.trim(), ownerId)
 }

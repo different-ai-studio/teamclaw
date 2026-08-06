@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
-import { renderHook, waitFor } from '@testing-library/react'
+import { act, renderHook, waitFor } from '@testing-library/react'
 import { RuntimeLifecycle } from '@/lib/proto/amux_pb'
 import {
   hasAnyNonReadyEngaged,
@@ -105,6 +105,8 @@ describe('useEngagedAgentUiStates', () => {
       useEngagedAgentUiStates(
         [{ id: 'remote-agent', displayName: 'MACPRO' }],
         new Map([['remote-agent', 'rt-1']]),
+        new Set(),
+        { kind: 'session', sessionId: 'rt-1' },
       ),
     )
 
@@ -129,6 +131,7 @@ describe('useEngagedAgentUiStates', () => {
         [{ id: 'remote-agent', displayName: 'b002-agent' }],
         new Map([['remote-agent', 'rt-1']]),
         new Set(['remote-agent']),
+        { kind: 'session', sessionId: 'rt-1' },
       ),
     )
 
@@ -152,6 +155,8 @@ describe('useEngagedAgentUiStates', () => {
       useEngagedAgentUiStates(
         [{ id: 'local-agent', displayName: 'MACPRO' }],
         new Map([['local-agent', 'rt-1']]),
+        new Set(),
+        { kind: 'session', sessionId: 'rt-1' },
       ),
     )
 
@@ -177,6 +182,8 @@ describe('useEngagedAgentUiStates', () => {
       useEngagedAgentUiStates(
         [{ id: 'local-agent', displayName: 'MACPRO' }],
         new Map([['local-agent', 'rt-1']]),
+        new Set(),
+        { kind: 'session', sessionId: 'rt-1' },
       ),
     )
 
@@ -198,7 +205,12 @@ describe('useEngagedAgentUiStates', () => {
     }
 
     const { result } = renderHook(() =>
-      useEngagedAgentUiStates([{ id: 'local-agent', displayName: 'MACPRO' }], new Map()),
+      useEngagedAgentUiStates(
+        [{ id: 'local-agent', displayName: 'MACPRO' }],
+        new Map(),
+        new Set(),
+        { kind: 'session', sessionId: 'session-cold' },
+      ),
     )
 
     expect(result.current[0]?.uiState).toBe('connecting')
@@ -220,6 +232,8 @@ describe('useEngagedAgentUiStates', () => {
       useEngagedAgentUiStates(
         [{ id: 'local-agent', displayName: 'MACPRO' }],
         new Map([['local-agent', 'rt-new']]),
+        new Set(),
+        { kind: 'session', sessionId: 'rt-new' },
       ),
     )
 
@@ -263,6 +277,8 @@ describe('useEngagedAgentUiStates', () => {
       useEngagedAgentUiStates(
         [{ id: 'remote-agent', displayName: 'SPRBOT' }],
         new Map([['remote-agent', 'session-a']]),
+        new Set(),
+        { kind: 'session', sessionId: 'session-a' },
       ),
     )
 
@@ -280,13 +296,18 @@ describe('useEngagedAgentUiStates', () => {
     }
 
     const { result } = renderHook(() =>
-      useEngagedAgentUiStates([{ id: 'remote-agent', displayName: 'SPRBOT' }], new Map()),
+      useEngagedAgentUiStates(
+        [{ id: 'remote-agent', displayName: 'SPRBOT' }],
+        new Map(),
+        new Set(),
+        { kind: 'draft' },
+      ),
     )
 
     expect(result.current[0]?.uiState).toBe('ready')
   })
 
-  it('keeps a remote agent connecting when its machine advertises no models', () => {
+  it('does not keep a remote draft connecting only because its machine advertises no models', () => {
     mocks.localDaemonActorId = 'other-local-agent'
     mocks.presenceByActor['remote-agent'] = { online: true }
     mocks.byRuntimeId = {
@@ -302,9 +323,84 @@ describe('useEngagedAgentUiStates', () => {
     }
 
     const { result } = renderHook(() =>
-      useEngagedAgentUiStates([{ id: 'remote-agent', displayName: 'SPRBOT' }], new Map()),
+      useEngagedAgentUiStates(
+        [{ id: 'remote-agent', displayName: 'SPRBOT' }],
+        new Map(),
+        new Set(),
+        { kind: 'draft' },
+      ),
+    )
+
+    expect(result.current[0]?.uiState).toBe('ready')
+  })
+
+  it('keeps an established cold session connecting even when the remote device is online', () => {
+    mocks.localDaemonActorId = 'other-local-agent'
+    mocks.presenceByActor['remote-agent'] = { online: true }
+
+    const { result } = renderHook(() =>
+      useEngagedAgentUiStates(
+        [{ id: 'remote-agent', displayName: 'SPRBOT' }],
+        new Map(),
+        new Set(),
+        { kind: 'session', sessionId: 'session-cold' },
+      ),
     )
 
     expect(result.current[0]?.uiState).toBe('connecting')
+  })
+
+  it('does not borrow another session ACTIVE attachment for a cold remote session', () => {
+    mocks.localDaemonActorId = 'other-local-agent'
+    mocks.presenceByActor['remote-agent'] = { online: true }
+    mocks.byRuntimeId['remote-agent::session-a'] = {
+      daemonActorId: 'remote-agent',
+      lastUpdated: Date.now(),
+      info: {
+        state: RuntimeLifecycle.ACTIVE,
+        runtimeId: 'session-a',
+        availableModels: [{ id: 'm1', displayName: 'Model' }],
+      },
+    }
+
+    const { result } = renderHook(() =>
+      useEngagedAgentUiStates(
+        [{ id: 'remote-agent', displayName: 'SPRBOT' }],
+        new Map(),
+        new Set(),
+        { kind: 'session', sessionId: 'session-b' },
+      ),
+    )
+
+    expect(result.current[0]?.uiState).toBe('connecting')
+  })
+
+  it('keeps the timeout terminal state stable until fresh evidence arrives', async () => {
+    vi.useFakeTimers()
+    mocks.localDaemonActorId = 'other-local-agent'
+    mocks.presenceByActor['remote-agent'] = { online: true }
+
+    try {
+      const { result } = renderHook(() =>
+        useEngagedAgentUiStates(
+          [{ id: 'remote-agent', displayName: 'SPRBOT' }],
+          new Map(),
+          new Set(),
+          { kind: 'session', sessionId: 'session-cold' },
+        ),
+      )
+
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(11_000)
+      })
+      expect(result.current[0]?.uiState).toBe('runtime-error')
+
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(2_000)
+      })
+      expect(result.current[0]?.uiState).toBe('runtime-error')
+    } finally {
+      vi.useRealTimers()
+    }
   })
 })

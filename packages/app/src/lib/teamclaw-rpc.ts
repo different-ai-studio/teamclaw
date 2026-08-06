@@ -20,6 +20,7 @@ import { recordMqttDiag } from '@/lib/mqtt-diagnostics'
 import { getKnownLocalDaemonActorId } from '@/lib/local-daemon-identity'
 import { resolveAgentDevicePresenceSync } from '@/lib/agent-device-reachability'
 import { isTauri } from '@/lib/utils'
+import { createSharedModuleLeaseManager, type SharedModuleLease } from '@/lib/shared-module-lease'
 
 // ---------------------------------------------------------------------------
 // Module-scoped state
@@ -34,9 +35,25 @@ type Pending = {
 const pending = new Map<string, Pending>()
 let teamId: string | null = null
 let requesterActorId: string | null = null
-let unlisten: (() => void) | null = null
 let initialized = false
 const DEFAULT_TIMEOUT_MS = 30_000
+
+export type TeamclawRpcTransportErrorKind =
+  | 'transport-not-ready'
+  | 'publish-failed'
+  | 'target-timeout'
+  | 'cancelled'
+
+export class TeamclawRpcTransportError extends Error {
+  constructor(
+    public readonly kind: TeamclawRpcTransportErrorKind,
+    message: string,
+    options?: { cause?: unknown },
+  ) {
+    super(message, options)
+    this.name = 'TeamclawRpcTransportError'
+  }
+}
 
 // ---------------------------------------------------------------------------
 // Init / dispose
@@ -96,57 +113,76 @@ async function waitForRpc(
   return ready()
 }
 
-/**
- * Record who we are. Safe to call before (or without) an MQTT connection —
- * it touches no transport, which is the point: the loopback path to this
- * machine's own daemon must not be gated on reaching a cloud broker.
- */
-export function setTeamclawRpcIdentity(teamIdArg: string, requesterActorIdArg: string): void {
-  const trimmedRequesterActorId = requesterActorIdArg.trim()
-  if (!trimmedRequesterActorId || !teamIdArg.trim()) return
-  teamId = teamIdArg
-  requesterActorId = trimmedRequesterActorId
-  recordMqttDiag('teamclaw-rpc', 'identity:set', { teamId, requesterActorId })
-}
+type RpcContext = { teamId: string; requesterActorId: string }
 
-export async function initTeamclawRpc(teamIdArg: string, requesterActorIdArg: string): Promise<void> {
-  const trimmedRequesterActorId = requesterActorIdArg.trim()
-  if (!trimmedRequesterActorId) {
-    throw new Error('teamclaw-rpc: requesterActorId required')
-  }
-  if (initialized) {
-    recordMqttDiag('teamclaw-rpc', 'init:skip-already-initialized', {
-      existingTeamId: teamId,
-      requestedTeamId: teamIdArg,
-      requesterActorId,
-      requestedRequesterActorId: trimmedRequesterActorId,
+const identityLeaseManager = createSharedModuleLeaseManager<RpcContext>({
+  key: (context) => `${context.teamId}:${context.requesterActorId}`,
+  setup: async (context) => {
+    teamId = context.teamId
+    requesterActorId = context.requesterActorId
+    recordMqttDiag('teamclaw-rpc', 'identity:set', { teamId, requesterActorId })
+  },
+  onDeactivate: () => {
+    teamId = null
+    requesterActorId = null
+  },
+})
+
+const brokerLeaseManager = createSharedModuleLeaseManager<RpcContext>({
+  key: (context) => `${context.teamId}:${context.requesterActorId}`,
+  setup: async (context, controls) => {
+    const topic = `amux/${context.teamId}/+/rpc/res`
+    // Listen first: a fast retained/loopback response must not beat the handler.
+    const unlisten = await listenForEnvelopes(handleEnvelope)
+    controls.setCleanup(unlisten)
+    if (!controls.isCurrent()) return
+    recordMqttDiag('teamclaw-rpc', 'init:subscribe-before', { topic })
+    await mqttSubscribe(topic)
+    if (!controls.isCurrent()) return
+    initialized = true
+    recordMqttDiag('teamclaw-rpc', 'init:ready', {
+      teamId: context.teamId,
+      requesterActorId: context.requesterActorId,
     })
-    return
+  },
+  onDeactivate: () => {
+    initialized = false
+    for (const p of pending.values()) {
+      clearTimeout(p.timer)
+      p.reject(new TeamclawRpcTransportError('cancelled', 'rpc disposed'))
+    }
+    pending.clear()
+  },
+})
+
+export function acquireTeamclawRpcIdentity(
+  teamIdArg: string,
+  requesterActorIdArg: string,
+  ownerId: string,
+): SharedModuleLease {
+  const context = {
+    teamId: teamIdArg.trim(),
+    requesterActorId: requesterActorIdArg.trim(),
   }
-  setTeamclawRpcIdentity(teamIdArg, trimmedRequesterActorId)
-  // Daemon publishes RPC responses to `amux/{team}/{daemon_actor_id}/rpc/res`.
-  // Subscribe with a wildcard so any daemon in the team can answer; we correlate
-  // by request_id inside the response, so the actor segment doesn't matter for routing.
-  recordMqttDiag('teamclaw-rpc', 'init:subscribe-before', { topic: `amux/${teamIdArg}/+/rpc/res` })
-  await mqttSubscribe(`amux/${teamIdArg}/+/rpc/res`)
-  recordMqttDiag('teamclaw-rpc', 'init:subscribe-ok', { topic: `amux/${teamIdArg}/+/rpc/res` })
-  unlisten = await listenForEnvelopes(handleEnvelope)
-  initialized = true
-  recordMqttDiag('teamclaw-rpc', 'init:ready', { teamId, requesterActorId })
+  if (!context.teamId || !context.requesterActorId) {
+    throw new Error('teamclaw-rpc: teamId and requesterActorId required')
+  }
+  return identityLeaseManager.acquire(context, ownerId)
 }
 
-export function disposeTeamclawRpc(): void {
-  recordMqttDiag('teamclaw-rpc', 'dispose', { teamId, pending: pending.size, initialized })
-  unlisten?.()
-  unlisten = null
-  teamId = null
-  requesterActorId = null
-  for (const p of pending.values()) {
-    clearTimeout(p.timer)
-    p.reject(new Error('rpc disposed'))
+export function acquireTeamclawRpcBroker(
+  teamIdArg: string,
+  requesterActorIdArg: string,
+  ownerId: string,
+): SharedModuleLease {
+  const context = {
+    teamId: teamIdArg.trim(),
+    requesterActorId: requesterActorIdArg.trim(),
   }
-  pending.clear()
-  initialized = false
+  if (!context.teamId || !context.requesterActorId) {
+    throw new Error('teamclaw-rpc: teamId and requesterActorId required')
+  }
+  return brokerLeaseManager.acquire(context, ownerId)
 }
 
 // ---------------------------------------------------------------------------
@@ -273,14 +309,14 @@ async function sendRequest(
   const localFastPath = shouldTryLocalRpc(targetActorId)
   if (!teamId) {
     recordMqttDiag('teamclaw-rpc', 'request:no-identity', { targetActorId, initialized })
-    throw new Error('teamclaw-rpc not initialized')
+    throw new TeamclawRpcTransportError('transport-not-ready', 'teamclaw-rpc not initialized')
   }
   if (!requesterActorId) {
-    throw new Error('teamclaw-rpc: requesterActorId required')
+    throw new TeamclawRpcTransportError('transport-not-ready', 'teamclaw-rpc: requesterActorId required')
   }
   if (!initialized && !localFastPath) {
     recordMqttDiag('teamclaw-rpc', 'request:not-initialized', { targetActorId, initialized, teamId })
-    throw new Error('teamclaw-rpc not initialized')
+    throw new TeamclawRpcTransportError('transport-not-ready', 'teamclaw-rpc not initialized')
   }
   const requestId = crypto.randomUUID()
   const requesterClientId = `teamclaw-${requesterActorId.slice(0, 8)}-${requestId.slice(0, 8)}`
@@ -340,7 +376,7 @@ async function sendRequest(
         timeoutMs,
         pending: pending.size,
       })
-      reject(new Error(`rpc timeout after ${timeoutMs}ms`))
+      reject(new TeamclawRpcTransportError('target-timeout', `rpc timeout after ${timeoutMs}ms`))
     }, timeoutMs)
 
     pending.set(requestId, { resolve, reject, timer })
@@ -361,7 +397,11 @@ async function sendRequest(
         method: req.method.case,
         error: err instanceof Error ? { name: err.name, message: err.message, stack: err.stack } : String(err),
       })
-      reject(err instanceof Error ? err : new Error(String(err)))
+      reject(new TeamclawRpcTransportError(
+        'publish-failed',
+        err instanceof Error ? err.message : String(err),
+        { cause: err },
+      ))
     })
   })
 }
@@ -396,6 +436,27 @@ export async function fetchWorkspaces(args: FetchWorkspacesArgs): Promise<FetchW
   const error = fetchWorkspacesResponseError(response)
   if (error) throw error
   return response.result.value as FetchWorkspacesResult
+}
+
+/** Raw liveness probe: any well-formed response proves the target answered. */
+export async function probeAgentRpcReachability(args: {
+  targetActorId: string
+  timeoutMs?: number
+}): Promise<'reachable' | 'unreachable' | 'indeterminate'> {
+  try {
+    await sendRequest((req) => {
+      req.method = {
+        case: 'fetchWorkspaces',
+        value: create(FetchWorkspacesRequestSchema, {}),
+      }
+    }, args.targetActorId, args.timeoutMs)
+    return 'reachable'
+  } catch (error) {
+    if (error instanceof TeamclawRpcTransportError && error.kind === 'target-timeout') {
+      return 'unreachable'
+    }
+    return 'indeterminate'
+  }
 }
 
 // ---------------------------------------------------------------------------

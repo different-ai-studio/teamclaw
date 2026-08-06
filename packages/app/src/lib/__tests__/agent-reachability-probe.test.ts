@@ -1,24 +1,20 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 
 const mockProbeDaemonHttp = vi.fn()
-const mockFetchWorkspaces = vi.fn()
-const mockWaitForTeamclawRpcReady = vi.fn()
+const mockProbeAgentRpcReachability = vi.fn()
 
 vi.mock('@/lib/daemon-local-client', () => ({
   probeDaemonHttp: (...args: unknown[]) => mockProbeDaemonHttp(...args),
 }))
 
 vi.mock('@/lib/teamclaw-rpc', () => ({
-  fetchWorkspaces: (...args: unknown[]) => mockFetchWorkspaces(...args),
-  waitForTeamclawRpcReady: (...args: unknown[]) => mockWaitForTeamclawRpcReady(...args),
+  probeAgentRpcReachability: (...args: unknown[]) => mockProbeAgentRpcReachability(...args),
 }))
 
 describe('probeAgentReachability', () => {
   beforeEach(() => {
     mockProbeDaemonHttp.mockReset()
-    mockFetchWorkspaces.mockReset()
-    mockWaitForTeamclawRpcReady.mockReset()
-    mockWaitForTeamclawRpcReady.mockResolvedValue(true)
+    mockProbeAgentRpcReachability.mockReset()
   })
 
   it('uses HTTP health for the local daemon actor', async () => {
@@ -30,7 +26,7 @@ describe('probeAgentReachability', () => {
         localDaemonActorId: 'local-agent',
       }),
     ).resolves.toBe('reachable')
-    expect(mockFetchWorkspaces).not.toHaveBeenCalled()
+    expect(mockProbeAgentRpcReachability).not.toHaveBeenCalled()
   })
 
   it('marks local daemon unreachable when HTTP probe fails', async () => {
@@ -45,7 +41,7 @@ describe('probeAgentReachability', () => {
   })
 
   it('uses short RPC for remote agent actors', async () => {
-    mockFetchWorkspaces.mockResolvedValue({ workspaces: [] })
+    mockProbeAgentRpcReachability.mockResolvedValue('reachable')
     const { probeAgentReachability } = await import('@/lib/agent-reachability-probe')
     await expect(
       probeAgentReachability({
@@ -53,14 +49,14 @@ describe('probeAgentReachability', () => {
         localDaemonActorId: 'local-agent',
       }),
     ).resolves.toBe('reachable')
-    expect(mockFetchWorkspaces).toHaveBeenCalledWith({
+    expect(mockProbeAgentRpcReachability).toHaveBeenCalledWith({
       targetActorId: 'remote-agent',
       timeoutMs: 3_000,
     })
   })
 
   it('marks remote agent unreachable when RPC fails', async () => {
-    mockFetchWorkspaces.mockRejectedValue(new Error('rpc timeout after 3000ms'))
+    mockProbeAgentRpcReachability.mockResolvedValue('unreachable')
     const { probeAgentReachability } = await import('@/lib/agent-reachability-probe')
     await expect(
       probeAgentReachability({
@@ -68,5 +64,16 @@ describe('probeAgentReachability', () => {
         localDaemonActorId: 'new-local',
       }),
     ).resolves.toBe('unreachable')
+  })
+
+  it('keeps local transport setup failures indeterminate', async () => {
+    mockProbeAgentRpcReachability.mockResolvedValue('indeterminate')
+    const { probeAgentReachability } = await import('@/lib/agent-reachability-probe')
+    await expect(
+      probeAgentReachability({
+        agentActorId: 'old-macpro',
+        localDaemonActorId: 'new-local',
+      }),
+    ).resolves.toBe('indeterminate')
   })
 })

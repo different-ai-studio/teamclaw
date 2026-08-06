@@ -74,7 +74,7 @@ describe('resolveAutoPersistModelId', () => {
   })
 
   it('writes nothing when the agent cannot run anything', () => {
-    for (const uiState of ['offline', 'stale', 'unconfigured'] as const) {
+    for (const uiState of ['offline', 'stale', 'runtime-error', 'unconfigured'] as const) {
       expect(base({ uiState }), uiState).toBeNull()
     }
   })
