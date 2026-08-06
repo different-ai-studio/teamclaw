@@ -1,0 +1,11 @@
+{
+  "appName": {
+    "message": "TeamClaw"
+  },
+  "extensionDescription": {
+    "message": "Team chat side panel + send current page to your AI agent"
+  },
+  "storeDesc": {
+    "message": "TeamClaw is a browser extension that opens an AI chat side panel while you browse. Talk to your AI agent and teammates without leaving the page.\n\nKey features:\n• Side panel chat — converse with your agent while staying on the current tab\n• Page context — on explicit user action, send visible page text, links, or selection to the agent\n• Team collaboration — shared sessions, live message sync, and agent replies\n• Privacy-first — page content is read only when you trigger capture; no background monitoring\n\nHow to use:\n1. Click the toolbar icon to open the Chrome side panel\n2. Sign in with email (password tab for reviewers — see Test instructions)\n3. Pick a team and agent, then start chatting\n4. Optionally capture the active tab and send it as conversation context\n\nThe extension ships with a pre-configured cloud backend — sign in and go, no server setup required."
+  }
+}
