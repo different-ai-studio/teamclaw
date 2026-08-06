@@ -23,7 +23,7 @@ while IFS= read -r -d '' f; do
   codesign --force --options runtime --timestamp --sign "$IDENT" "$f"
   count=$((count + 1))
 done < <(
-  find "$ROOT" -type f -print0 | while IFS= read -r -d '' candidate; do
+  find -L "$ROOT" -type f -print0 | while IFS= read -r -d '' candidate; do
     if file -b "$candidate" | grep -q 'Mach-O'; then
       printf '%s\0' "$candidate"
     fi
