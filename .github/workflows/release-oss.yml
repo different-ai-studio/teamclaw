@@ -231,6 +231,16 @@ jobs:
           PID_AMUXD=$!
 
           (
+            set -e
+            echo "Bundling agent bridge sidecars..."
+            node scripts/ensure-agent-bridge-bundles.js
+            test -f apps/desktop/binaries/cursor-bridge/src/main.mjs
+            test -d apps/desktop/binaries/cursor-bridge/node_modules/@cursor/sdk
+            echo "agent bridge bundles ready"
+          ) > /tmp/bridge-bundles.log 2>&1 &
+          PID_BRIDGES=$!
+
+          (
             if [ -z "$APPLE_CERTIFICATE" ]; then
               echo "No certificate, using ad-hoc signing."
               exit 0
@@ -257,10 +267,15 @@ jobs:
           wait $PID_FRONTEND   || { echo "::error::Frontend build failed:"; cat /tmp/frontend.log; FAILED=1; }
           wait $PID_INTROSPECT || { echo "::error::introspect build failed:"; cat /tmp/introspect.log; FAILED=1; }
           wait $PID_AMUXD      || { echo "::error::amuxd build failed:"; cat /tmp/amuxd.log; FAILED=1; }
+          wait $PID_BRIDGES    || { echo "::error::agent bridge bundle failed:"; cat /tmp/bridge-bundles.log; FAILED=1; }
           wait $PID_CERT       || { echo "::error::Certificate import failed:"; cat /tmp/cert.log; FAILED=1; }
           if [ "$FAILED" -ne 0 ]; then exit 1; fi
           echo "All parallel tasks completed"
           ls -lh apps/desktop/binaries/
+
+      - name: Sign nested Mach-O in bundled sidecars (notarization)
+        shell: bash
+        run: ./scripts/sign-macos-bundle-binaries.sh apps/desktop/binaries
 
       - name: Finalize tauri.conf.json (version from tag + frontend prebuilt + OSS updater endpoint)
         env:
@@ -523,6 +538,13 @@ jobs:
           cargo build --release --locked --manifest-path apps/daemon/Cargo.toml -p amuxd
           cp "$TARGET_DIR/release/amuxd.exe" apps/desktop/binaries/amuxd-x86_64-pc-windows-msvc.exe
           echo "amuxd sidecar ready"
+
+      - name: Bundle agent bridge sidecars
+        shell: bash
+        run: |
+          node scripts/ensure-agent-bridge-bundles.js
+          test -f apps/desktop/binaries/cursor-bridge/src/main.mjs
+          test -d apps/desktop/binaries/cursor-bridge/node_modules/@cursor/sdk
 
       - name: Finalize tauri.conf.json (version from tag + frontend prebuilt + OSS updater endpoint)
         shell: bash

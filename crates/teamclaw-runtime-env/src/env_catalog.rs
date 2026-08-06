@@ -1,6 +1,6 @@
 //! Canonical env-var catalog — list and resolve metadata from one source.
 //!
-//! - Personal/system: `{workspace}/.teamclaw/teamclaw.json` → `envVars`
+//! - Personal/system: `{workspace}/{meta}/{brand}.json` → `envVars`
 //! - Team: `{sharedDirName}/_secrets/*.enc.json` (Git default: `teamclaw/_secrets`)
 //!
 //! Desktop writes go through `env_catalog_set` / `env_catalog_delete`; daemon
@@ -13,9 +13,7 @@ use tracing::warn;
 
 use crate::team_crypto::{self, EncryptedEnvelope};
 use crate::team_provider;
-use crate::{
-    is_official_brand, WORKSPACE_CONFIG_FILE, WORKSPACE_META_DIR,
-};
+use crate::storage_namespace::resolve_workspace_config_path;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -75,13 +73,7 @@ pub struct AgentEnvListing {
 const SECRETS_SUBDIR: &str = "_secrets";
 
 fn workspace_config_path(workspace: &Path, brand_short_name: &str) -> PathBuf {
-    if is_official_brand(brand_short_name) {
-        workspace.join(WORKSPACE_META_DIR).join(WORKSPACE_CONFIG_FILE)
-    } else {
-        workspace
-            .join(format!(".{brand_short_name}"))
-            .join(format!("{brand_short_name}.json"))
-    }
+    resolve_workspace_config_path(workspace, brand_short_name)
 }
 
 fn read_teamclaw_config_for_brand(
@@ -318,37 +310,77 @@ pub fn load_team_env_listings(
     out
 }
 
+/// Personal env catalog: machine-global blob keys merged with workspace index metadata.
+///
+/// Values live in `~/.{brand}/secrets`; workspace `envVars` is only a description
+/// / category cache (and system-seeded rows like `tc_api_key`).
 pub fn load_personal_env_listings(
     workspace: &Path,
     brand_short_name: Option<&str>,
 ) -> Vec<PersonalEnvListing> {
-    let brand = brand_short_name.unwrap_or("teamclaw");
-    let Some(config) = read_teamclaw_config_for_brand(workspace, brand) else {
-        return Vec::new();
-    };
-    config
-        .get("envVars")
-        .and_then(|v| v.as_array())
-        .map(|entries| {
-            entries
-                .iter()
-                .filter_map(|entry| {
-                    let key = entry.get("key")?.as_str()?.to_string();
-                    Some(PersonalEnvListing {
-                        key,
-                        description: entry
-                            .get("description")
-                            .and_then(|v| v.as_str())
-                            .map(str::to_string),
-                        category: entry
-                            .get("category")
-                            .and_then(|v| v.as_str())
-                            .map(str::to_string),
+    let brand = brand_short_name
+        .map(str::trim)
+        .filter(|s| !s.is_empty())
+        .unwrap_or("teamclaw");
+
+    let index_entries: Vec<PersonalEnvListing> = read_teamclaw_config_for_brand(workspace, brand)
+        .and_then(|config| {
+            config.get("envVars").and_then(|v| v.as_array()).map(|entries| {
+                entries
+                    .iter()
+                    .filter_map(|entry| {
+                        let key = entry.get("key")?.as_str()?.to_string();
+                        Some(PersonalEnvListing {
+                            key,
+                            description: entry
+                                .get("description")
+                                .and_then(|v| v.as_str())
+                                .map(str::to_string),
+                            category: entry
+                                .get("category")
+                                .and_then(|v| v.as_str())
+                                .map(str::to_string),
+                        })
                     })
-                })
-                .collect()
+                    .collect()
+            })
         })
-        .unwrap_or_default()
+        .unwrap_or_default();
+
+    let mut by_lower: std::collections::HashMap<String, PersonalEnvListing> =
+        std::collections::HashMap::new();
+
+    // System / index-only rows first (e.g. tc_api_key before a value is present).
+    for entry in index_entries {
+        by_lower.insert(entry.key.to_ascii_lowercase(), entry);
+    }
+
+    // Blob user keys are authoritative for machine-global personal vars.
+    if let Ok(blob) = crate::personal_secrets::load_personal_env_for_brand(brand) {
+        for key in blob.keys() {
+            if crate::personal_secrets::is_internal_personal_blob_key(key) {
+                continue;
+            }
+            let lower = key.to_ascii_lowercase();
+            by_lower
+                .entry(lower)
+                .and_modify(|existing| {
+                    // Prefer the blob's canonical key casing when index drifted.
+                    if existing.key != *key {
+                        existing.key = key.clone();
+                    }
+                })
+                .or_insert_with(|| PersonalEnvListing {
+                    key: key.clone(),
+                    description: None,
+                    category: None,
+                });
+        }
+    }
+
+    let mut out: Vec<PersonalEnvListing> = by_lower.into_values().collect();
+    out.sort_by(|a, b| a.key.cmp(&b.key));
+    out
 }
 
 pub fn load_env_catalog(
@@ -524,6 +556,11 @@ mod tests {
 
     #[test]
     fn agent_listing_merges_personal_and_team_without_duplicates() {
+        let _lock = crate::test_util::home_env_lock();
+        let home = tempfile::tempdir().unwrap();
+        let _home_guard = crate::test_util::HomeGuard::set(home.path());
+        std::env::remove_var(crate::BRAND_SHORT_NAME_ENV);
+
         let tmp = tempfile::tempdir().unwrap();
         let env_secret = "66".repeat(32);
         std::fs::create_dir_all(tmp.path().join(".teamclaw")).unwrap();
@@ -556,6 +593,49 @@ mod tests {
         assert!(keys.contains(&"mine"));
         assert!(keys.contains(&"team_only"));
         assert_eq!(keys.len(), 3);
+    }
+
+    #[test]
+    fn personal_listings_include_blob_keys_missing_from_workspace_index() {
+        let _lock = crate::test_util::home_env_lock();
+        let home = tempfile::tempdir().unwrap();
+        let _home_guard = crate::test_util::HomeGuard::set(home.path());
+        std::env::remove_var(crate::BRAND_SHORT_NAME_ENV);
+
+        write_personal_secret_blob(
+            home.path(),
+            &[
+                ("ANTHROPIC_AUTH_TOKEN", "secret"),
+                ("tc_api_key", "sk-tc-x"),
+                ("_team_secret.abc", "team"),
+            ],
+        );
+
+        let workspace = tempfile::tempdir().unwrap();
+        std::fs::create_dir_all(workspace.path().join(".teamclaw")).unwrap();
+        std::fs::write(
+            workspace.path().join(".teamclaw/teamclaw.json"),
+            serde_json::json!({
+                "envVars": [
+                    { "key": "tc_api_key", "category": "system", "description": "Team LLM API Key" }
+                ]
+            })
+            .to_string(),
+        )
+        .unwrap();
+
+        let listings = load_personal_env_listings(workspace.path(), Some("teamclaw"));
+        let by_key: std::collections::HashMap<_, _> = listings
+            .iter()
+            .map(|e| (e.key.as_str(), e))
+            .collect();
+        assert!(by_key.contains_key("ANTHROPIC_AUTH_TOKEN"));
+        assert_eq!(
+            by_key.get("tc_api_key").and_then(|e| e.category.as_deref()),
+            Some("system")
+        );
+        assert!(!by_key.contains_key("_team_secret.abc"));
+        assert_eq!(listings.len(), 2);
     }
 
     /// Write a personal-secrets blob (`$HOME/.teamclaw/secrets/`) matching the
@@ -617,6 +697,49 @@ mod tests {
         assert_eq!(
             resolve_team_env_secret(workspace.path(), Some(team_id), None).as_deref(),
             Some(env_secret.as_str())
+        );
+    }
+
+    #[test]
+    fn white_label_reads_brand_config_and_legacy_fallback() {
+        let workspace = tempfile::tempdir().unwrap();
+        let brand = "copilot361";
+
+        // Prefer brand config when present.
+        std::fs::create_dir_all(workspace.path().join(".copilot361")).unwrap();
+        std::fs::write(
+            workspace.path().join(".copilot361/copilot361.json"),
+            serde_json::json!({
+                "envVars": [{ "key": "BRAND_KEY", "description": "from brand" }],
+                "team": { "envSecret": "brand-secret" }
+            })
+            .to_string(),
+        )
+        .unwrap();
+        let listings = load_personal_env_listings(workspace.path(), Some(brand));
+        assert!(listings.iter().any(|e| e.key == "BRAND_KEY"));
+        assert_eq!(
+            resolve_team_env_secret(workspace.path(), None, Some(brand)).as_deref(),
+            Some("brand-secret")
+        );
+
+        // Legacy-only workspace still resolves for white-label brand.
+        let legacy_only = tempfile::tempdir().unwrap();
+        std::fs::create_dir_all(legacy_only.path().join(".teamclaw")).unwrap();
+        std::fs::write(
+            legacy_only.path().join(".teamclaw/teamclaw.json"),
+            serde_json::json!({
+                "envVars": [{ "key": "LEGACY_KEY", "description": "from legacy" }],
+                "team": { "envSecret": "legacy-secret" }
+            })
+            .to_string(),
+        )
+        .unwrap();
+        let listings = load_personal_env_listings(legacy_only.path(), Some(brand));
+        assert!(listings.iter().any(|e| e.key == "LEGACY_KEY"));
+        assert_eq!(
+            resolve_team_env_secret(legacy_only.path(), None, Some(brand)).as_deref(),
+            Some("legacy-secret")
         );
     }
 }

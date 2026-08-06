@@ -53,17 +53,11 @@ fn amuxd_unavailable() -> String {
 }
 
 pub(crate) fn sock_path() -> PathBuf {
-    dirs::home_dir()
-        .unwrap_or_else(|| PathBuf::from("/tmp"))
-        .join(".amuxd")
-        .join("amuxd.sock")
+    crate::commands::amuxd_home_dir().join("amuxd.sock")
 }
 
 fn daemon_config_path() -> PathBuf {
-    let path = dirs::home_dir()
-        .unwrap_or_else(|| PathBuf::from("/tmp"))
-        .join(".amuxd")
-        .join("daemon.toml");
+    let path = crate::commands::amuxd_home_dir().join("daemon.toml");
     let legacy_path = dirs::config_dir()
         .unwrap_or_else(|| PathBuf::from("/tmp"))
         .join("amux")

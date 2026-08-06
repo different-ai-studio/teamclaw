@@ -8,7 +8,7 @@ fn opencode_config_path(workspace: &Path) -> PathBuf {
 }
 
 /// Replace `${KEY}` and `$KEY` references in the canonical config, write the
-/// resolved copy to `.teamclaw/opencode.runtime.json`, and install it at
+/// resolved copy to `{meta}/opencode.runtime.json`, and install it at
 /// `opencode.json` for the active runtime.
 ///
 /// Returns the canonical (placeholder) file content when an overlay was
@@ -42,7 +42,7 @@ pub fn resolve_config_secret_refs(
         );
     }
 
-    let overlay_path = crate::opencode_config::runtime_overlay_path(workspace);
+    let overlay_path = crate::opencode_config::runtime_overlay_write_path(workspace);
     OpencodeConfigStore::write_raw(&overlay_path, &resolved)?;
 
     let config_path = opencode_config_path(workspace);
@@ -137,8 +137,12 @@ pub fn restore_config(
         let write_lock = crate::atomic_write::opencode_write_lock(&config_path);
         let _guard = write_lock.lock().unwrap_or_else(|e| e.into_inner());
         OpencodeConfigStore::write_raw(&config_path, &restored)?;
-        let overlay = crate::opencode_config::runtime_overlay_path(workspace);
-        let _ = std::fs::remove_file(overlay);
+        let overlay = crate::opencode_config::runtime_overlay_write_path(workspace);
+        let _ = std::fs::remove_file(&overlay);
+        let legacy = crate::opencode_config::runtime_overlay_path(workspace);
+        if legacy != overlay {
+            let _ = std::fs::remove_file(legacy);
+        }
     }
     Ok(())
 }
@@ -211,8 +215,15 @@ mod tests {
         fs::read_to_string(dir.join("opencode.json")).unwrap()
     }
 
+    fn lock_official_brand() -> std::sync::MutexGuard<'static, ()> {
+        let lock = crate::test_util::home_env_lock();
+        std::env::remove_var(crate::BRAND_SHORT_NAME_ENV);
+        lock
+    }
+
     #[test]
     fn resolve_replaces_mcp_environment_placeholders() {
+        let _lock = lock_official_brand();
         let dir = TempDir::new().unwrap();
         write_opencode_json(
             dir.path(),
@@ -237,6 +248,45 @@ mod tests {
         let on_disk = read_opencode_json(dir.path());
         assert!(on_disk.contains("ghp_secret123"));
         assert!(!on_disk.contains("${API_KEY}"));
+        assert!(dir.path().join(".teamclaw/opencode.runtime.json").exists());
+    }
+
+    #[test]
+    fn white_label_overlay_writes_brand_meta() {
+        let _lock = crate::test_util::home_env_lock();
+        std::env::set_var(crate::BRAND_SHORT_NAME_ENV, "copilot361");
+
+        let dir = TempDir::new().unwrap();
+        write_opencode_json(
+            dir.path(),
+            r#"{ "mcp": { "x": { "environment": { "T": "${API_KEY}" } } } }"#,
+        );
+        let mut secrets = HashMap::new();
+        secrets.insert("API_KEY".to_string(), "secret".to_string());
+        resolve_config_secret_refs(dir.path(), &secrets).unwrap();
+        assert!(dir
+            .path()
+            .join(".copilot361/opencode.runtime.json")
+            .exists());
+        assert!(!dir
+            .path()
+            .join(".teamclaw/opencode.runtime.json")
+            .exists());
+
+        std::env::remove_var(crate::BRAND_SHORT_NAME_ENV);
+    }
+
+    #[test]
+    fn official_overlay_writes_teamclaw_meta() {
+        let _lock = lock_official_brand();
+        let dir = TempDir::new().unwrap();
+        write_opencode_json(
+            dir.path(),
+            r#"{ "mcp": { "x": { "environment": { "T": "${API_KEY}" } } } }"#,
+        );
+        let mut secrets = HashMap::new();
+        secrets.insert("API_KEY".to_string(), "secret".to_string());
+        resolve_config_secret_refs(dir.path(), &secrets).unwrap();
         assert!(dir.path().join(".teamclaw/opencode.runtime.json").exists());
     }
 
@@ -353,6 +403,7 @@ mod tests {
 
     #[test]
     fn resolve_provider_api_keys_on_disk_leaves_mcp_placeholders() {
+        let _lock = lock_official_brand();
         let dir = TempDir::new().unwrap();
         write_opencode_json(
             dir.path(),
@@ -380,6 +431,7 @@ mod tests {
 
     #[test]
     fn resolve_replaces_bare_dollar_key() {
+        let _lock = lock_official_brand();
         let dir = TempDir::new().unwrap();
         write_opencode_json(
             dir.path(),

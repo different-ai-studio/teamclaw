@@ -8,7 +8,7 @@ use std::collections::HashMap;
 use std::path::PathBuf;
 use tracing::warn;
 
-use crate::{resolve_storage_dir_name, OFFICIAL_STORAGE_DIR};
+use crate::{brand_short_name_from_env, resolve_storage_dir_name, OFFICIAL_STORAGE_DIR};
 
 #[derive(Debug, Clone)]
 struct SecretStorePaths {
@@ -98,8 +98,12 @@ pub fn user_personal_env_from_map(
         .collect()
 }
 
+/// Load personal env for the process brand ([`brand_short_name_from_env`]).
+///
+/// Desktop sets `TEAMCLAW_BRAND_SHORT_NAME` when spawning amuxd so white-label
+/// builds read `~/.{brand}/secrets` instead of always `~/.teamclaw`.
 pub fn load_personal_env() -> anyhow::Result<HashMap<String, String>> {
-    load_personal_env_for_storage_dir(OFFICIAL_STORAGE_DIR)
+    load_personal_env_for_brand(&brand_short_name_from_env())
 }
 
 /// Load decrypted personal env vars for a build `brand_short_name` (`teamclaw`,
@@ -124,8 +128,9 @@ pub struct PersonalEnvStoreDiagnostics {
     pub user_stored_var_count: usize,
 }
 
+/// Diagnose the personal store for the process brand ([`brand_short_name_from_env`]).
 pub fn diagnose_personal_env_store() -> PersonalEnvStoreDiagnostics {
-    diagnose_personal_env_store_for_storage_dir(OFFICIAL_STORAGE_DIR)
+    diagnose_personal_env_store_for_brand(&brand_short_name_from_env())
 }
 
 pub fn diagnose_personal_env_store_for_brand(brand_short_name: &str) -> PersonalEnvStoreDiagnostics {
@@ -262,6 +267,7 @@ mod tests {
         let _lock = home_env_lock();
         let dir = tempdir().unwrap();
         let _home = HomeGuard::set(dir.path());
+        std::env::remove_var(crate::BRAND_SHORT_NAME_ENV);
 
         let diag = super::diagnose_personal_env_store();
         assert_eq!(diag.storage_dir, OFFICIAL_STORAGE_DIR);
@@ -275,6 +281,7 @@ mod tests {
         let _lock = home_env_lock();
         let dir = tempdir().unwrap();
         let _home = HomeGuard::set(dir.path());
+        std::env::remove_var(crate::BRAND_SHORT_NAME_ENV);
 
         let secrets_dir = dir
             .path()
@@ -287,6 +294,45 @@ mod tests {
 
         let env = load_personal_env().unwrap();
         assert_eq!(env.get("my_key"), Some(&"secret".to_string()));
+    }
+
+    #[test]
+    fn load_personal_env_respects_brand_short_name_env() {
+        let _lock = home_env_lock();
+        let dir = tempdir().unwrap();
+        let _home = HomeGuard::set(dir.path());
+
+        let teamclaw_secrets = dir
+            .path()
+            .join(format!(".{OFFICIAL_STORAGE_DIR}"))
+            .join("secrets");
+        let mut teamclaw_map = serde_json::Map::new();
+        teamclaw_map.insert(
+            "FROM_TEAMCLAW".into(),
+            serde_json::Value::String("tc".into()),
+        );
+        write_secret_blob_for_test(
+            &SecretStorePaths::for_base_dir(teamclaw_secrets),
+            &teamclaw_map,
+        );
+
+        let c361_secrets = dir.path().join(".copilot361").join("secrets");
+        let mut c361_map = serde_json::Map::new();
+        c361_map.insert(
+            "FROM_COPILOT361".into(),
+            serde_json::Value::String("c361".into()),
+        );
+        write_secret_blob_for_test(&SecretStorePaths::for_base_dir(c361_secrets), &c361_map);
+
+        std::env::set_var(crate::BRAND_SHORT_NAME_ENV, "copilot361");
+        let env = load_personal_env().unwrap();
+        assert_eq!(env.get("FROM_COPILOT361"), Some(&"c361".to_string()));
+        assert!(!env.contains_key("FROM_TEAMCLAW"));
+
+        std::env::remove_var(crate::BRAND_SHORT_NAME_ENV);
+        let env = load_personal_env().unwrap();
+        assert_eq!(env.get("FROM_TEAMCLAW"), Some(&"tc".to_string()));
+        assert!(!env.contains_key("FROM_COPILOT361"));
     }
 
     #[test]

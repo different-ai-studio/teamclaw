@@ -80,6 +80,8 @@ mod tests {
 
     #[test]
     fn provider_only_scope_resolves_team_api_key_leaves_mcp_placeholder() {
+        let _lock = crate::test_util::home_env_lock();
+        std::env::remove_var(crate::BRAND_SHORT_NAME_ENV);
         let dir = TempDir::new().unwrap();
         fs::write(
             dir.path().join("opencode.json"),
@@ -197,6 +199,8 @@ mod tests {
 
     #[test]
     fn full_config_scope_materializes_team_provider_and_resolves_secrets() {
+        let _lock = crate::test_util::home_env_lock();
+        std::env::remove_var(crate::BRAND_SHORT_NAME_ENV);
         let dir = TempDir::new().unwrap();
         fs::write(
             dir.path().join("opencode.json"),

@@ -25,9 +25,10 @@ fn default_shared_dir_name() -> String {
     crate::config::global_team_store::TEAM_LINK_NAME.to_string()
 }
 
-/// Read the enabled `team` section from `{workspace}/.teamclaw/teamclaw.json`.
+/// Read the enabled `team` section from the brand workspace config
+/// (`{meta}/{brand}.json`, with legacy `.teamclaw/teamclaw.json` fallback).
 pub fn read_team_config(workspace_root: &Path) -> Option<TeamSharedGitConfig> {
-    let path = workspace_root.join(".teamclaw").join("teamclaw.json");
+    let path = teamclaw_runtime_env::resolve_workspace_config_path_from_env(workspace_root);
     let body = std::fs::read_to_string(&path).ok()?;
     let parsed: serde_json::Value = serde_json::from_str(&body).ok()?;
     parsed
@@ -1014,5 +1015,32 @@ mod tests {
         assert_eq!(config.shared_dir_name, "teamclaw");
         assert_eq!(config.env_secret.as_deref(), Some("00"));
         assert!(config.enabled);
+    }
+
+    #[test]
+    fn read_team_config_white_label_brand_and_legacy() {
+        let _guard = crate::test_brand_env::BrandEnvGuard::set("copilot361");
+
+        let brand_ws = tempfile::tempdir().unwrap();
+        let brand_cfg = brand_ws.path().join(".copilot361/copilot361.json");
+        std::fs::create_dir_all(brand_cfg.parent().unwrap()).unwrap();
+        std::fs::write(
+            &brand_cfg,
+            r#"{"team":{"enabled":true,"gitUrl":"https://example.com/b.git","sharedDirName":"teamclaw-team"}}"#,
+        )
+        .unwrap();
+        let cfg = read_team_config(brand_ws.path()).expect("brand config");
+        assert_eq!(cfg.git_url.as_deref(), Some("https://example.com/b.git"));
+
+        let legacy_ws = tempfile::tempdir().unwrap();
+        let legacy_cfg = legacy_ws.path().join(".teamclaw/teamclaw.json");
+        std::fs::create_dir_all(legacy_cfg.parent().unwrap()).unwrap();
+        std::fs::write(
+            &legacy_cfg,
+            r#"{"team":{"enabled":true,"gitUrl":"https://example.com/l.git","sharedDirName":"teamclaw-team"}}"#,
+        )
+        .unwrap();
+        let cfg = read_team_config(legacy_ws.path()).expect("legacy config");
+        assert_eq!(cfg.git_url.as_deref(), Some("https://example.com/l.git"));
     }
 }

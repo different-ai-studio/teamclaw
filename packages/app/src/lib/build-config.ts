@@ -207,6 +207,14 @@ export function resolveStorageDirName(shortName: string): string {
   return isOfficialBrand(shortName) ? 'teamclaw' : shortName
 }
 
+/**
+ * Local amuxd state folder under `$HOME` (no leading dot).
+ * Official → `amuxd` (`~/.amuxd`); white-label → `amuxd-<brand>`.
+ */
+export function resolveAmuxdDirName(shortName: string): string {
+  return isOfficialBrand(shortName) ? 'amuxd' : `amuxd-${shortName}`
+}
+
 export const appShortName: string = buildConfig.app.shortName ?? deriveShortName(buildConfig.app.name)
 /** Prefix for localStorage keys — unified `teamclaw` for official builds (Decision 1 = B). */
 export const appStoragePrefix: string = resolveStorageDirName(appShortName)

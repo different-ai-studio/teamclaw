@@ -3,6 +3,7 @@ import {
   buildConfig,
   appDisplayName,
   FALLBACK_BUILD_CONFIG,
+  resolveAmuxdDirName,
 } from "@/lib/build-config";
 
 describe("build-config auth.webSSO", () => {
@@ -19,5 +20,13 @@ describe("build-config app.displayName", () => {
   it("falls back to app.name when displayName is unset", () => {
     // app.name stays the bundle identity; displayName only overrides the label.
     expect(appDisplayName).toBe(buildConfig.app.displayName ?? buildConfig.app.name);
+  });
+});
+
+describe("resolveAmuxdDirName", () => {
+  it("keeps official brands on ~/.amuxd and namespaces white-labels", () => {
+    expect(resolveAmuxdDirName("teamclaw")).toBe("amuxd");
+    expect(resolveAmuxdDirName("teamclawdev")).toBe("amuxd");
+    expect(resolveAmuxdDirName("copilot361")).toBe("amuxd-copilot361");
   });
 });

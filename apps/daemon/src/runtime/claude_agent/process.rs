@@ -13,6 +13,7 @@ use std::sync::Arc;
 use tokio::io::{AsyncBufReadExt, BufReader};
 use tracing::info;
 
+use crate::runtime::sidecar::bridge_path::default_claude_bridge_main;
 use crate::runtime::sidecar::client::SidecarClient;
 
 use super::{events, Shared};
@@ -268,7 +269,7 @@ impl ClaudeProcessPool {
 }
 
 pub fn default_bridge_main() -> PathBuf {
-    PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("claude-bridge/src/main.mjs")
+    default_claude_bridge_main()
 }
 
 pub fn default_bridge_command() -> Vec<String> {

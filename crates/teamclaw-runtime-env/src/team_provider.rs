@@ -3,10 +3,8 @@ use std::path::Path;
 use tracing::info;
 
 use crate::opencode_config::OpencodeConfigStore;
+use crate::storage_namespace::{brand_short_name_from_env, resolve_workspace_config_path};
 use crate::DEFAULT_TEAM_REPO_DIR;
-
-const TEAMCLAW_DIR: &str = ".teamclaw";
-const CONFIG_FILE_NAME: &str = "teamclaw.json";
 
 /// One model exposed by the team's managed LLM gateway.
 #[derive(Debug, Clone)]
@@ -34,10 +32,10 @@ pub enum ManagedLlmState {
 }
 
 fn teamclaw_config_path(workspace: &Path) -> std::path::PathBuf {
-    workspace.join(TEAMCLAW_DIR).join(CONFIG_FILE_NAME)
+    resolve_workspace_config_path(workspace, &brand_short_name_from_env())
 }
 
-/// Read `{workspace}/.teamclaw/teamclaw.json` → `team.sharedDirName`, or fall back to
+/// Read workspace brand config → `team.sharedDirName`, or fall back to
 /// [`DEFAULT_TEAM_REPO_DIR`].
 pub fn resolve_shared_dir_name(workspace: &Path) -> String {
     let config_path = teamclaw_config_path(workspace);
@@ -189,17 +187,13 @@ mod tests {
     use tempfile::TempDir;
 
     fn write_teamclaw_json(dir: &Path, shared_dir_name: Option<&str>) {
-        let config_dir = dir.join(TEAMCLAW_DIR);
-        fs::create_dir_all(&config_dir).unwrap();
+        let config_path = crate::workspace_config_path(dir, "teamclaw");
+        fs::create_dir_all(config_path.parent().unwrap()).unwrap();
         let json = match shared_dir_name {
             Some(name) => serde_json::json!({ "team": { "sharedDirName": name } }),
             None => serde_json::json!({ "team": {} }),
         };
-        fs::write(
-            config_dir.join(CONFIG_FILE_NAME),
-            serde_json::to_string(&json).unwrap(),
-        )
-        .unwrap();
+        fs::write(&config_path, serde_json::to_string(&json).unwrap()).unwrap();
     }
 
     fn sample_provider() -> ManagedLlmProvider {

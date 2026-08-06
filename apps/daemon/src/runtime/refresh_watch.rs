@@ -14,6 +14,38 @@ use crate::runtime::RuntimeSupervisor;
 
 use super::{RefreshChangeKind, RefreshSource, RuntimeRefreshCoordinator};
 
+fn brand_workspace_config(workspace: &Path) -> PathBuf {
+    teamclaw_runtime_env::workspace_config_path_from_env(workspace)
+}
+
+fn brand_skills_dir(workspace: &Path) -> PathBuf {
+    teamclaw_runtime_env::workspace_meta_write_path_from_env(workspace, "skills")
+}
+
+fn legacy_workspace_config(workspace: &Path) -> PathBuf {
+    workspace
+        .join(teamclaw_runtime_env::WORKSPACE_META_DIR)
+        .join(teamclaw_runtime_env::WORKSPACE_CONFIG_FILE)
+}
+
+fn legacy_skills_dir(workspace: &Path) -> PathBuf {
+    workspace
+        .join(teamclaw_runtime_env::WORKSPACE_META_DIR)
+        .join("skills")
+}
+
+fn is_workspace_config_path(path: &Path, workspace: &Path) -> bool {
+    let brand = brand_workspace_config(workspace);
+    let legacy = legacy_workspace_config(workspace);
+    path == brand || (legacy != brand && path == legacy)
+}
+
+fn is_meta_skills_path(path: &Path, workspace: &Path) -> bool {
+    let brand = brand_skills_dir(workspace);
+    let legacy = legacy_skills_dir(workspace);
+    path.starts_with(&brand) || (legacy != brand && path.starts_with(&legacy))
+}
+
 /// How often the watch loop reconciles OS watches against the registry absent an
 /// explicit change signal. This performs only cheap `is_dir()` checks on the
 /// handful of `watch_roots` — never a recursive tree walk — so it stays
@@ -131,7 +163,7 @@ pub fn classify_change_path(
     for workspace in workspaces {
         let kind = if path == workspace.workspace_path.join("opencode.json") {
             Some(RefreshChangeKind::OpencodeJson)
-        } else if path == workspace.workspace_path.join(".teamclaw/teamclaw.json") {
+        } else if is_workspace_config_path(path, &workspace.workspace_path) {
             Some(RefreshChangeKind::TeamclawConfig)
         } else if path.starts_with(workspace.workspace_path.join(TEAM_LINK_NAME).join(".mcp")) {
             Some(RefreshChangeKind::Mcp)
@@ -143,7 +175,7 @@ pub fn classify_change_path(
         ) || path.starts_with(workspace.workspace_path.join("teamclaw").join("_secrets"))
         {
             Some(RefreshChangeKind::EnvVars)
-        } else if path.starts_with(workspace.workspace_path.join(".teamclaw/skills"))
+        } else if is_meta_skills_path(path, &workspace.workspace_path)
             || path.starts_with(workspace.workspace_path.join(".opencode/skills"))
             || path.starts_with(workspace.workspace_path.join(".claude/skills"))
             || path.starts_with(workspace.workspace_path.join(".agents/skills"))
@@ -184,14 +216,30 @@ fn watch_roots(workspaces: &[WatchedWorkspace], home: Option<&Path>) -> Vec<Watc
             path: workspace.workspace_path.join("opencode.json"),
             recursive: false,
         });
+        let brand_cfg = brand_workspace_config(&workspace.workspace_path);
+        let legacy_cfg = legacy_workspace_config(&workspace.workspace_path);
         roots.push(WatchRoot {
-            path: workspace.workspace_path.join(".teamclaw/teamclaw.json"),
+            path: brand_cfg.clone(),
             recursive: false,
         });
+        if legacy_cfg != brand_cfg {
+            roots.push(WatchRoot {
+                path: legacy_cfg,
+                recursive: false,
+            });
+        }
+        let brand_skills = brand_skills_dir(&workspace.workspace_path);
+        let legacy_skills = legacy_skills_dir(&workspace.workspace_path);
         roots.push(WatchRoot {
-            path: workspace.workspace_path.join(".teamclaw/skills"),
+            path: brand_skills.clone(),
             recursive: true,
         });
+        if legacy_skills != brand_skills {
+            roots.push(WatchRoot {
+                path: legacy_skills,
+                recursive: true,
+            });
+        }
         roots.push(WatchRoot {
             path: workspace.workspace_path.join(".opencode/skills"),
             recursive: true,
@@ -754,5 +802,52 @@ mod tests {
             !targets.contains_key(&ws.join(".teamclaw")),
             "missing config parent dir must be excluded"
         );
+    }
+
+    #[test]
+    fn white_label_config_and_skills_paths_classify() {
+        let _guard = crate::test_brand_env::BrandEnvGuard::set("copilot361");
+        let workspaces = vec![watched_workspace("ws-1", "/tmp/ws-1")];
+
+        let brand_cfg = classify_change_path(
+            Path::new("/tmp/ws-1/.copilot361/copilot361.json"),
+            &workspaces,
+            None,
+        );
+        assert_eq!(
+            brand_cfg[0].kind,
+            RefreshChangeKind::TeamclawConfig,
+            "brand config should classify"
+        );
+
+        let legacy_cfg = classify_change_path(
+            Path::new("/tmp/ws-1/.teamclaw/teamclaw.json"),
+            &workspaces,
+            None,
+        );
+        assert_eq!(
+            legacy_cfg[0].kind,
+            RefreshChangeKind::TeamclawConfig,
+            "legacy config should still classify during migration"
+        );
+
+        let brand_skill = classify_change_path(
+            Path::new("/tmp/ws-1/.copilot361/skills/demo/SKILL.md"),
+            &workspaces,
+            None,
+        );
+        assert_eq!(brand_skill[0].kind, RefreshChangeKind::Skills);
+    }
+
+    #[test]
+    fn white_label_watch_roots_include_brand_and_legacy() {
+        let _guard = crate::test_brand_env::BrandEnvGuard::set("copilot361");
+        let workspaces = vec![watched_workspace("ws-1", "/tmp/ws-1")];
+        let roots = watch_roots(&workspaces, None);
+        let paths: Vec<_> = roots.iter().map(|r| r.path.clone()).collect();
+        assert!(paths.contains(&PathBuf::from("/tmp/ws-1/.copilot361/copilot361.json")));
+        assert!(paths.contains(&PathBuf::from("/tmp/ws-1/.copilot361/skills")));
+        assert!(paths.contains(&PathBuf::from("/tmp/ws-1/.teamclaw/teamclaw.json")));
+        assert!(paths.contains(&PathBuf::from("/tmp/ws-1/.teamclaw/skills")));
     }
 }

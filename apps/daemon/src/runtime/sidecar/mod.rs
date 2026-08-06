@@ -9,5 +9,6 @@
 //! Everything else (event vocabulary, session identity, permission semantics)
 //! differs per SDK and lives in the backend's own module.
 
+pub mod bridge_path;
 pub mod client;
 pub mod mcp;

@@ -42,11 +42,13 @@ pub async fn daemon_init<R: Runtime>(
     app: AppHandle<R>,
     invite_url: String,
 ) -> Result<DaemonInitResult, String> {
-    let (mut rx, _child_guard) = app
-        .shell()
-        .sidecar("amuxd")
-        .map_err(|e| format!("sidecar amuxd: {e}"))?
-        .args(["init", &invite_url])
+    let command = super::with_amuxd_brand_env(
+        app.shell()
+            .sidecar("amuxd")
+            .map_err(|e| format!("sidecar amuxd: {e}"))?
+            .args(["init", &invite_url]),
+    );
+    let (mut rx, _child_guard) = command
         .spawn()
         .map_err(|e| format!("spawn amuxd init: {e}"))?;
 
@@ -74,11 +76,13 @@ pub async fn daemon_init<R: Runtime>(
 
 /// Run `amuxd <args>` to completion, returning Err with stderr on non-zero exit.
 async fn run_amuxd<R: Runtime>(app: &AppHandle<R>, args: &[&str]) -> Result<(), String> {
-    let (mut rx, _child_guard) = app
-        .shell()
-        .sidecar("amuxd")
-        .map_err(|e| format!("sidecar amuxd: {e}"))?
-        .args(args)
+    let command = super::with_amuxd_brand_env(
+        app.shell()
+            .sidecar("amuxd")
+            .map_err(|e| format!("sidecar amuxd: {e}"))?
+            .args(args),
+    );
+    let (mut rx, _child_guard) = command
         .spawn()
         .map_err(|e| format!("spawn amuxd {}: {e}", args.join(" ")))?;
     let mut stderr_buf = String::new();

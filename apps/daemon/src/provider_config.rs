@@ -26,11 +26,14 @@ impl ProviderConfig {
         }
     }
 
+    /// `backend.toml` under the brand-aware amuxd home (`AMUXD_HOME` /
+    /// `TEAMCLAW_BRAND_SHORT_NAME` → `~/.amuxd` or `~/.amuxd-<brand>`).
+    ///
+    /// Must stay aligned with [`crate::config::DaemonConfig::config_dir`]; a
+    /// hard-coded `~/.amuxd` here made white-label daemons load the official
+    /// TeamClaw credentials and fail identity validation on startup.
     pub fn default_path() -> Result<PathBuf, ProviderConfigError> {
-        let dir = dirs::home_dir()
-            .ok_or_else(|| ProviderConfigError::Config("no home dir".to_string()))?
-            .join(".amuxd");
-        Ok(dir.join("backend.toml"))
+        Ok(teamclaw_runtime_env::amuxd_home_from_env().join("backend.toml"))
     }
 
     /// Whether *any* onboarding config exists at `backend_path` — either the
@@ -276,5 +279,24 @@ actor_id = "agent-1"
         let err =
             ProviderConfig::load_from_path(&backend_path).expect_err("unknown kind should fail");
         assert!(err.to_string().contains("unsupported backend kind"));
+    }
+
+    #[test]
+    fn default_path_follows_amuxd_home_env() {
+        let dir = tempfile::tempdir().unwrap();
+        let _guard = crate::test_brand_env::BrandEnvGuard::set_amuxd_home(dir.path());
+        let path = ProviderConfig::default_path().unwrap();
+        assert_eq!(path, dir.path().join("backend.toml"));
+    }
+
+    #[test]
+    fn default_path_follows_brand_short_name_when_home_unset() {
+        let _guard = crate::test_brand_env::BrandEnvGuard::set("copilot361");
+        let path = ProviderConfig::default_path().unwrap();
+        assert!(
+            path.ends_with(".amuxd-copilot361/backend.toml"),
+            "got {}",
+            path.display()
+        );
     }
 }

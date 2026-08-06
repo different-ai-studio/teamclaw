@@ -1,0 +1,189 @@
+name: Daemon Deploy
+
+# Build amuxd in GitHub Actions, push to GHCR, stream the image to ECS over SSH,
+# and roll the daemon profile. The server never runs `cargo build`.
+#
+# First-time bootstrap (once per ECS box):
+#   1. Ensure at least one team + human member exist.
+#   2. SSH to ECS and mint a daemon invite:
+#        cd /opt/teamclaw/deploy/self-host && ./amuxd/mint-invite.sh <TEAM_ID>
+#   3. Store the token in GitHub secret AMUXD_JOIN_TOKEN (or upsert into .env).
+#   4. Trigger this workflow. Identity persists in the amuxd_state volume; later
+#      deploys skip the join token even if the secret is removed.
+#
+# Agent capability is optional:
+#   - presence-only (default): leave OPENCODE_API_KEY unset.
+#   - full agent sessions: set OPENCODE_BASE_URL + OPENCODE_API_KEY + OPENCODE_MODEL
+#     (LiteLLM on the same box: http://litellm:4000/v1 + a virtual key).
+
+on:
+  workflow_dispatch: {}
+  push:
+    branches: [main]
+    paths:
+      - 'apps/daemon/**'
+      - 'crates/**'
+      - 'deploy/self-host/amuxd/**'
+      - 'deploy/self-host/docker-compose.yml'
+      - 'deploy/self-host/smoke/amuxd-smoke.sh'
+      - 'Cargo.toml'
+      - 'Cargo.lock'
+      - '.github/workflows/daemon-deploy.yml'
+
+permissions:
+  contents: read
+  packages: write
+
+concurrency:
+  group: daemon-deploy
+  cancel-in-progress: true
+
+env:
+  REGISTRY: ghcr.io
+  IMAGE_NAME: teamclaw-amuxd
+  DEPLOY_REF: ${{ github.event_name == 'push' && 'main' || github.ref_name }}
+
+jobs:
+  build:
+    name: Build & push image
+    runs-on: ubuntu-latest
+    outputs:
+      image_tag: ${{ steps.meta.outputs.version }}
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Log in to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Docker metadata
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ env.REGISTRY }}/${{ github.repository_owner }}/${{ env.IMAGE_NAME }}
+          tags: |
+            type=sha,prefix=
+            type=raw,value=self-host
+
+      - name: Build and push
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: deploy/self-host/amuxd/Dockerfile
+          push: true
+          platforms: linux/amd64
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+  deploy:
+    name: Deploy to ECS
+    needs: build
+    runs-on: ubuntu-latest
+    environment: self-host-production
+    env:
+      AMUXD_IMAGE: ghcr.io/${{ github.repository_owner }}/teamclaw-amuxd:self-host
+    steps:
+      - name: Prepare SSH key
+        env:
+          ECS_SSH_PRIVATE_KEY: ${{ secrets.ECS_SSH_PRIVATE_KEY }}
+        run: |
+          mkdir -p ~/.ssh
+          printf '%s\n' "$ECS_SSH_PRIVATE_KEY" > ~/.ssh/ecs_key
+          chmod 600 ~/.ssh/ecs_key
+
+      - name: Set up Docker CLI
+        uses: docker/setup-buildx-action@v3
+
+      - name: Log in to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Stream image to ECS
+        env:
+          ECS_HOST: ${{ secrets.ECS_HOST }}
+          ECS_USER: ${{ secrets.ECS_USER }}
+        run: |
+          docker pull "$AMUXD_IMAGE"
+          docker save "$AMUXD_IMAGE" | gzip -1 | \
+            ssh -i ~/.ssh/ecs_key -o StrictHostKeyChecking=no "$ECS_USER@$ECS_HOST" \
+              "gunzip | docker load"
+
+      - name: Deploy amuxd on ECS
+        uses: appleboy/ssh-action@v1.2.5
+        env:
+          AMUXD_IMAGE: ${{ env.AMUXD_IMAGE }}
+          DEPLOY_REF: ${{ env.DEPLOY_REF }}
+          AMUXD_JOIN_TOKEN: ${{ secrets.AMUXD_JOIN_TOKEN }}
+          OPENCODE_BASE_URL: ${{ secrets.OPENCODE_BASE_URL }}
+          OPENCODE_API_KEY: ${{ secrets.OPENCODE_API_KEY }}
+          OPENCODE_MODEL: ${{ secrets.OPENCODE_MODEL }}
+          OPENCODE_PROVIDER_ID: ${{ secrets.OPENCODE_PROVIDER_ID }}
+          OPENCODE_PROVIDER_NAME: ${{ secrets.OPENCODE_PROVIDER_NAME }}
+        with:
+          host: ${{ secrets.ECS_HOST }}
+          username: ${{ secrets.ECS_USER }}
+          key: ${{ secrets.ECS_SSH_PRIVATE_KEY }}
+          command_timeout: 15m
+          envs: AMUXD_IMAGE,DEPLOY_REF,AMUXD_JOIN_TOKEN,OPENCODE_BASE_URL,OPENCODE_API_KEY,OPENCODE_MODEL,OPENCODE_PROVIDER_ID,OPENCODE_PROVIDER_NAME
+          script: |
+            set -e
+            cd /opt/teamclaw
+
+            echo "=== git pull (${DEPLOY_REF}) ==="
+            git config http.lowSpeedLimit 1000
+            git config http.lowSpeedTime 20
+            fetched=""
+            for i in 1 2 3 4 5 6 7 8; do
+              if git fetch origin "$DEPLOY_REF"; then fetched=yes; echo "  fetch ok (attempt $i)"; break; fi
+              echo "  fetch attempt $i failed; retrying in 10s"
+              sleep 10
+            done
+            [ -n "$fetched" ] || { echo "git fetch failed after 8 attempts"; exit 1; }
+            git reset --hard "origin/$DEPLOY_REF"
+
+            cd deploy/self-host
+
+            upsert_env() {
+              [ -n "$2" ] || { echo "  skip $1 (empty)"; return 0; }
+              if grep -q "^$1=" .env; then
+                awk -v k="$1" -v v="$2" 'BEGIN{FS=OFS="="} $1==k{print k"="v; next}{print}' .env > .env.tmp && mv .env.tmp .env
+              else
+                printf '%s=%s\n' "$1" "$2" >> .env
+              fi
+              echo "  set $1"
+            }
+
+            echo "=== sync daemon env (presence-only when OPENCODE_* secrets empty) ==="
+            upsert_env AMUXD_IMAGE "$AMUXD_IMAGE"
+            upsert_env AMUXD_JOIN_TOKEN "$AMUXD_JOIN_TOKEN"
+            upsert_env OPENCODE_BASE_URL "$OPENCODE_BASE_URL"
+            upsert_env OPENCODE_API_KEY "$OPENCODE_API_KEY"
+            upsert_env OPENCODE_MODEL "$OPENCODE_MODEL"
+            upsert_env OPENCODE_PROVIDER_ID "$OPENCODE_PROVIDER_ID"
+            upsert_env OPENCODE_PROVIDER_NAME "$OPENCODE_PROVIDER_NAME"
+
+            echo "=== ensure fc + emqx healthy ==="
+            docker compose up -d fc emqx
+            timeout 180 sh -c \
+              'until docker compose ps fc | grep -q healthy; do sleep 5; done'
+            timeout 180 sh -c \
+              'until docker compose ps emqx | grep -q healthy; do sleep 5; done'
+
+            echo "=== recreate amuxd (image streamed from CI) ==="
+            docker compose --profile daemon up -d --pull never --remove-orphans amuxd
+
+            echo "=== amuxd smoke ==="
+            sh smoke/amuxd-smoke.sh
+
+            echo "=== daemon deploy complete ==="

@@ -984,6 +984,61 @@ pub(crate) fn ensure_system_env_vars(workspace_path: &str, actor_id: &str) -> Re
     Ok(())
 }
 
+/// Derive workspace `envVars` cache entries for user keys present in the
+/// machine-global personal blob but missing from this workspace's index.
+///
+/// Does not write secret values into the workspace config — key-only rows.
+/// Internal blob keys (`tc_api_key`, `_team_secret.*`) are skipped.
+pub(crate) fn derive_personal_env_index_from_blob(workspace_path: &str) -> Result<usize, String> {
+    let blob = read_env_blob(workspace_path)?;
+    let mut json = read_teamclaw_json(workspace_path)?;
+    let mut entries = get_env_vars_from_json(&json);
+    let index_lower: std::collections::HashSet<String> = entries
+        .iter()
+        .map(|e| e.key.to_ascii_lowercase())
+        .collect();
+
+    let mut added = 0usize;
+    let mut blob_keys: Vec<String> = blob
+        .iter()
+        .filter_map(|(key, value)| {
+            if !value.is_string() {
+                return None;
+            }
+            if teamclaw_runtime_env::is_internal_personal_blob_key(key) {
+                return None;
+            }
+            Some(key.clone())
+        })
+        .collect();
+    blob_keys.sort();
+
+    for key in blob_keys {
+        if index_lower.contains(&key.to_ascii_lowercase()) {
+            continue;
+        }
+        entries.push(EnvVarEntry {
+            key,
+            description: None,
+            category: None,
+        });
+        added += 1;
+    }
+
+    if added > 0 {
+        set_env_vars_in_json(&mut json, &entries);
+        write_teamclaw_json(workspace_path, &json)?;
+        println!(
+            "[EnvVars] Derived {} personal envVars index entr{} from blob for '{}'",
+            added,
+            if added == 1 { "y" } else { "ies" },
+            workspace_path
+        );
+    }
+
+    Ok(added)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1295,5 +1350,51 @@ mod tests {
         let json = read_teamclaw_json(&workspace_path).unwrap();
         let entries = get_env_vars_from_json(&json);
         assert!(entries.is_empty());
+    }
+
+    #[test]
+    fn derive_personal_env_index_from_blob_adds_missing_user_keys() {
+        let _home_guard = home_lock().lock().unwrap();
+        let home_dir = tempdir().unwrap();
+        let workspace_dir = tempdir().unwrap();
+        let _home = HomeGuard::set(home_dir.path());
+
+        let teamclaw_dir = workspace_dir.path().join(super::super::TEAMCLAW_DIR);
+        std::fs::create_dir_all(&teamclaw_dir).unwrap();
+        std::fs::write(
+            teamclaw_dir.join(super::super::CONFIG_FILE_NAME),
+            r#"{"envVars":[{"key":"tc_api_key","category":"system"}]}"#,
+        )
+        .unwrap();
+
+        let paths = SecretStorePaths::for_home_dir().unwrap();
+        let mut blob = serde_json::Map::new();
+        blob.insert(
+            "tc_api_key".into(),
+            serde_json::Value::String("sk-tc-x".into()),
+        );
+        blob.insert(
+            "_team_secret.abc".into(),
+            serde_json::Value::String("team".into()),
+        );
+        blob.insert(
+            "ANTHROPIC_AUTH_TOKEN".into(),
+            serde_json::Value::String("secret".into()),
+        );
+        local_secret_store::write_secret_blob(&paths, &blob).unwrap();
+
+        let workspace_path = workspace_dir.path().to_string_lossy().to_string();
+        let added = derive_personal_env_index_from_blob(&workspace_path).unwrap();
+        assert_eq!(added, 1);
+
+        let json = read_teamclaw_json(&workspace_path).unwrap();
+        let entries = get_env_vars_from_json(&json);
+        let keys: Vec<_> = entries.iter().map(|e| e.key.as_str()).collect();
+        assert!(keys.contains(&"tc_api_key"));
+        assert!(keys.contains(&"ANTHROPIC_AUTH_TOKEN"));
+        assert!(!keys.iter().any(|k| k.starts_with("_team_secret.")));
+
+        // Idempotent — second call adds nothing.
+        assert_eq!(derive_personal_env_index_from_blob(&workspace_path).unwrap(), 0);
     }
 }
