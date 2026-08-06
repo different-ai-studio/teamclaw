@@ -212,7 +212,10 @@ mod tests {
 
     #[test]
     fn materialize_or_teardown_disabled_does_not_create_global_dir() {
-        let _lock = global_team_store::TEST_HOME_LOCK.lock().unwrap();
+        let _lock = global_team_store::TEST_HOME_LOCK
+            .lock()
+            .unwrap_or_else(|e| e.into_inner());
+        let _brand = crate::test_brand_env::BrandEnvGuard::set("teamclaw");
         let home = tempfile::tempdir().unwrap();
         // SAFETY: serialized by TEST_HOME_LOCK.
         unsafe { std::env::set_var("HOME", home.path()) };
@@ -250,7 +253,10 @@ mod tests {
 
     #[test]
     fn app_workspaces_get_no_team_link_and_lose_a_stale_one() {
-        let _lock = global_team_store::TEST_HOME_LOCK.lock().unwrap();
+        let _lock = global_team_store::TEST_HOME_LOCK
+            .lock()
+            .unwrap_or_else(|e| e.into_inner());
+        let _brand = crate::test_brand_env::BrandEnvGuard::set("teamclaw");
         let home = tempfile::tempdir().unwrap();
         // SAFETY: serialized by TEST_HOME_LOCK.
         unsafe { std::env::set_var("HOME", home.path()) };
@@ -279,7 +285,10 @@ mod tests {
 
     #[test]
     fn app_workspace_cleanup_never_deletes_a_real_directory() {
-        let _lock = global_team_store::TEST_HOME_LOCK.lock().unwrap();
+        let _lock = global_team_store::TEST_HOME_LOCK
+            .lock()
+            .unwrap_or_else(|e| e.into_inner());
+        let _brand = crate::test_brand_env::BrandEnvGuard::set("teamclaw");
         let home = tempfile::tempdir().unwrap();
         unsafe { std::env::set_var("HOME", home.path()) };
 
@@ -296,7 +305,10 @@ mod tests {
 
     #[test]
     fn prune_scaffold_team_home_removes_empty_global_copy() {
-        let _lock = global_team_store::TEST_HOME_LOCK.lock().unwrap();
+        let _lock = global_team_store::TEST_HOME_LOCK
+            .lock()
+            .unwrap_or_else(|e| e.into_inner());
+        let _brand = crate::test_brand_env::BrandEnvGuard::set("teamclaw");
         let home = tempfile::tempdir().unwrap();
         unsafe { std::env::set_var("HOME", home.path()) };
 

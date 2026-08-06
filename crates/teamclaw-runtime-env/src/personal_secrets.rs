@@ -8,7 +8,7 @@ use std::collections::HashMap;
 use std::path::PathBuf;
 use tracing::warn;
 
-use crate::{brand_short_name_from_env, resolve_storage_dir_name, OFFICIAL_STORAGE_DIR};
+use crate::{brand_short_name_from_env, resolve_storage_dir_name};
 
 #[derive(Debug, Clone)]
 struct SecretStorePaths {
@@ -207,6 +207,7 @@ fn load_personal_env_for_storage_dir(storage_dir: &str) -> anyhow::Result<HashMa
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::OFFICIAL_STORAGE_DIR;
     use aes_gcm::aead::{Aead, KeyInit};
     use crate::test_util::{home_env_lock, HomeGuard};
     use rand::RngCore;
