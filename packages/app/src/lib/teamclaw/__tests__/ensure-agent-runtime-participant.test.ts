@@ -43,7 +43,10 @@ vi.mock('@/lib/teamclaw/runtime-ensure-scheduler', () => ({
   isRuntimeEnsureWakeReason: () => false,
   shouldSkipAlreadyReadyRuntimeEnsure: () => false,
 }))
-vi.mock('@/lib/telemetry/runtime-error-report', () => ({
+vi.mock('@/lib/telemetry/runtime-error-report', async (importOriginal) => ({
+  // Spread the real module so pure helpers the module under test calls
+  // (`isCancelledRuntimeFailure`) keep working; only the reporters are stubbed.
+  ...(await importOriginal<typeof import('@/lib/telemetry/runtime-error-report')>()),
   reportRuntimeEnsureCrash: vi.fn(),
   reportRuntimeRpcNotReady: vi.fn(),
   reportRuntimeStartFailure: (...a: unknown[]) => mocks.reportRuntimeStartFailure(...a),

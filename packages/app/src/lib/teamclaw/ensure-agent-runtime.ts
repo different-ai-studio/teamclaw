@@ -37,6 +37,7 @@ import {
 } from "@/lib/teamclaw/runtime-rpc-timeouts";
 import { sessionFlowError, sessionFlowLog } from "@/lib/session-flow-log";
 import {
+  isCancelledRuntimeFailure,
   reportRuntimeEnsureCrash,
   reportRuntimeRpcNotReady,
   reportRuntimeStartFailure,
@@ -101,26 +102,32 @@ function failureDescription(failure: RuntimeStartFailure): string {
   }
 }
 
-function notifyRuntimeStartFailures(
+/** Exported for tests; every production call site is in this module. */
+export function notifyRuntimeStartFailures(
   failures: RuntimeStartFailure[],
   context: RuntimeErrorContext = {},
 ): void {
   if (failures.length === 0) return;
   for (const failure of failures) {
     reportRuntimeStartFailure(failure, context);
+    logDebug(
+      "client:runtime_start_failed",
+      failure,
+      { actorId: failure.agentActorId },
+    );
   }
+  // A request we cancelled ourselves is not a user-facing failure: the retry
+  // tick that follows re-attempts it. It still reaches Sentry (as a warning)
+  // and the debug log above, just not the user.
+  const toastable = failures.filter((f) => !isCancelledRuntimeFailure(f.reason));
+  if (toastable.length === 0) return;
   void import("sonner").then(({ toast }) => {
-    for (const failure of failures) {
+    for (const failure of toastable) {
       toast.error(i18n.t("daemon.agentRuntime.notStartedTitle"), {
         id: `runtime-start-failed-${failure.agentActorId}`,
         description: failureDescription(failure),
         duration: 8000,
       });
-      logDebug(
-        "client:runtime_start_failed",
-        failure,
-        { actorId: failure.agentActorId },
-      );
     }
   });
 }
