@@ -31,10 +31,12 @@ function bridgeFingerprint(srcDir) {
 }
 
 function npmCi(srcDir, env) {
+  const isWindows = process.platform === "win32";
   const result = spawnSync("npm", ["ci", "--omit=dev"], {
     cwd: srcDir,
     stdio: "inherit",
     env,
+    shell: isWindows,
   });
   if (result.status !== 0) {
     throw new Error(`npm ci failed in ${srcDir}`);
