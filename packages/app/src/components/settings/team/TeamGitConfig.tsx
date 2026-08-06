@@ -328,6 +328,7 @@ function TeamGitConfigConnected({
       const result = await tauriInvoke<TeamGitResult>('team_shared_git_sync', {
         config: { workspacePath },
         force: forceWipeNonGit,
+        forceSync: true,
       })
       if (result.needsConfirmation && result.confirmKind === 'wipeNonGitDir') {
         setWipeConfirmOpen(true)

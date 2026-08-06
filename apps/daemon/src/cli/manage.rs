@@ -574,11 +574,75 @@ fn team_secrets_menu(theme: &ColorfulTheme) -> anyhow::Result<()> {
 }
 
 fn sync_menu(theme: &ColorfulTheme) -> anyhow::Result<()> {
-    let workspace = pick_workspace(theme)?;
+    let config_path = DaemonConfig::default_path();
+    let auto_sync = DaemonConfig::load(&config_path)
+        .map(|c| c.team_share_auto_sync_enabled())
+        .unwrap_or(true);
     let team_id = resolve_team_id(None)?;
-    let sync_info = LocalSyncState::load(&workspace.to_string_lossy(), &team_id).ok();
+
+    println!("Team: {team_id}");
+    println!(
+        "Local auto_sync: {} (daemon.toml [team_share])",
+        if auto_sync { "enabled" } else { "disabled" }
+    );
+    if !auto_sync {
+        println!("  Cloud share-mode may still be enabled; this daemon skips automatic git/OSS sync.");
+        println!("  Use manual sync below or `amuxd config set team_share.auto_sync true`.");
+    }
+
+    if let Ok(rt) = tokio::runtime::Runtime::new() {
+        if let Ok(mode) = rt.block_on(fetch_cloud_share_mode(&team_id)) {
+            println!("Cloud share-mode: {mode}");
+        }
+    }
+
+    let toggle_label = if auto_sync {
+        "Disable local auto_sync".to_string()
+    } else {
+        "Enable local auto_sync".to_string()
+    };
+    let items = [
+        toggle_label.as_str(),
+        "Trigger manual sync now",
+        "Back",
+    ];
+    let choice = Select::with_theme(theme)
+        .with_prompt("Sync menu")
+        .items(&items)
+        .default(0)
+        .interact()?;
+
+    match choice {
+        0 => {
+            let next = !auto_sync;
+            let label = if next { "enable" } else { "disable" };
+            if Confirm::with_theme(theme)
+                .with_prompt(format!("{label} team_share.auto_sync?"))
+                .default(next)
+                .interact()?
+            {
+                crate::config::edit::set_config_value(
+                    &config_path,
+                    "team_share.auto_sync",
+                    if next { "true" } else { "false" },
+                )?;
+                println!("✓ team_share.auto_sync = {next}");
+                if !next {
+                    println!("  Restart the daemon so the sync timer picks up the change.");
+                }
+            }
+        }
+        1 => trigger_manual_sync(theme, &team_id)?,
+        _ => {}
+    }
+    Ok(())
+}
+
+fn trigger_manual_sync(theme: &ColorfulTheme, team_id: &str) -> anyhow::Result<()> {
+    let workspace = pick_workspace(theme)?;
+    let sync_info = LocalSyncState::load(&workspace.to_string_lossy(), team_id).ok();
     println!("Workspace: {}", workspace.display());
-    println!("Team:      {team_id}");
+
     if sync_info
         .as_ref()
         .map(|s| s.last_sync_at.is_empty())
@@ -598,15 +662,19 @@ fn sync_menu(theme: &ColorfulTheme) -> anyhow::Result<()> {
     }
 
     if !Confirm::with_theme(theme)
-        .with_prompt("Trigger a sync now?")
+        .with_prompt("Trigger a manual sync now? (bypasses auto_sync off)")
         .default(false)
         .interact()?
     {
         return Ok(());
     }
 
-    match trigger_sync_via_http(&workspace, &team_id) {
+    match trigger_sync_via_http(&workspace, team_id, true) {
         Ok(status) => {
+            if status.skipped {
+                println!("Sync skipped (auto_sync disabled — this should not happen for manual sync).");
+                return Ok(());
+            }
             println!("✓ Sync finished.");
             if let Some(mode) = status.mode {
                 println!("  mode: {mode}");
@@ -625,6 +693,23 @@ fn sync_menu(theme: &ColorfulTheme) -> anyhow::Result<()> {
         Err(e) => println!("Sync failed: {e}"),
     }
     Ok(())
+}
+
+async fn fetch_cloud_share_mode(team_id: &str) -> anyhow::Result<String> {
+    let backend_path =
+        ProviderConfig::default_path().map_err(|e| anyhow::anyhow!("backend config path: {e}"))?;
+    let provider_config = ProviderConfig::load_from_path(&backend_path)
+        .map_err(|e| anyhow::anyhow!("load {}: {e}", backend_path.display()))?;
+    let backend = backend_from_provider_config(provider_config)
+        .map_err(|e| anyhow::anyhow!("cloud backend: {e}"))?;
+    let share = backend
+        .team_share_config(team_id)
+        .await
+        .map_err(|e| anyhow::anyhow!("{e}"))?;
+    Ok(share
+        .mode
+        .filter(|m| !m.trim().is_empty())
+        .unwrap_or_else(|| "(unset)".to_string()))
 }
 
 fn pick_workspace(theme: &ColorfulTheme) -> anyhow::Result<PathBuf> {
@@ -863,9 +948,15 @@ struct HttpSyncStatus {
     pulled: u32,
     pushed: u32,
     conflicts: u32,
+    #[serde(default)]
+    skipped: bool,
 }
 
-fn trigger_sync_via_http(workspace: &Path, team_id: &str) -> anyhow::Result<HttpSyncStatus> {
+fn trigger_sync_via_http(
+    workspace: &Path,
+    team_id: &str,
+    force_sync: bool,
+) -> anyhow::Result<HttpSyncStatus> {
     let port_path = DaemonConfig::http_port_path();
     let token_path = DaemonConfig::http_token_path();
     let port = std::fs::read_to_string(&port_path)
@@ -909,7 +1000,10 @@ fn trigger_sync_via_http(workspace: &Path, team_id: &str) -> anyhow::Result<Http
         let sync: HttpSyncStatus = client
             .post(format!("{base}/v1/team/sync"))
             .header("authorization", format!("Bearer {session_token}"))
-            .json(&serde_json::json!({ "workspacePath": workspace_path }))
+            .json(&serde_json::json!({
+                "workspacePath": workspace_path,
+                "forceSync": force_sync,
+            }))
             .send()
             .await?
             .error_for_status()?

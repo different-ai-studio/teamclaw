@@ -15,6 +15,10 @@ pub fn spawn(dispatcher: SyncDispatcher, workspaces: Vec<(String, Vec<String>)>)
         tick.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
         loop {
             tick.tick().await;
+            if !crate::config::DaemonConfig::team_share_auto_sync_enabled_from_disk() {
+                tracing::debug!("timer sync skipped: team_share.auto_sync is disabled");
+                continue;
+            }
             for (team_id, paths) in &workspaces {
                 if let Some(ws) = paths.first() {
                     if dispatcher.status(team_id).await.syncing {
