@@ -83,6 +83,9 @@ function requireWorkspacePath(): string {
 async function fetchEnvCatalog(): Promise<EnvCatalog> {
   return invoke<EnvCatalog>('env_catalog_list', {
     teamId: useCurrentTeamStore.getState().team?.id,
+    // Team values are fetched from the Cloud API and decrypted locally, so the
+    // read needs a bearer too — without it only legacy on-disk files show up.
+    accessToken: await getFreshAccessToken().catch(() => null),
     workspacePath: requireWorkspacePath(),
   })
 }

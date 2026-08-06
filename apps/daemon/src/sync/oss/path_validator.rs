@@ -3,14 +3,27 @@
 
 use std::path::Path;
 
-pub const ALLOWED_PREFIXES: &[&str] = &[
-    "skills/",
-    "knowledge/",
-    ".mcp/",
-    "_meta/",
-    "_secrets/",
-    "_feedback/",
-];
+/// Prefixes this client still syncs — what the scanner pushes and what a pull
+/// materializes.
+pub const ALLOWED_PREFIXES: &[&str] = &["skills/", "knowledge/", "_meta/", "_feedback/"];
+
+/// Prefixes that moved to the Cloud API (`docs/architecture/team-mcp-and-env-cloud.md`).
+///
+/// Still **accepted on the wire**, deliberately. A team that synced these before
+/// the migration has rows for them in its manifest, and `validate` is called
+/// with a hard `?` inside the per-item pull loop — so rejecting them would abort
+/// the entire manifest apply on the first legacy row, taking `knowledge/` (the
+/// one thing that is supposed to keep syncing) down with it. `SyncError::InvalidPath`
+/// is classified non-transient, so that failure would never self-heal either.
+///
+/// They are excluded from `ALLOWED_PREFIXES` instead, which is what actually
+/// stops them: the scanner never pushes them, and the pull loop skips them.
+pub const RETIRED_PREFIXES: &[&str] = &[".mcp/", "_secrets/"];
+
+/// Whether a path belongs to a prefix that has moved to the Cloud API.
+pub fn is_retired(path: &str) -> bool {
+    RETIRED_PREFIXES.iter().any(|p| path.starts_with(p))
+}
 
 #[derive(Debug, thiserror::Error)]
 #[error("InvalidPath: {0}")]
@@ -73,7 +86,9 @@ pub fn validate(path: &str) -> Result<(), PathValidationError> {
         }
     }
 
-    if !ALLOWED_PREFIXES.iter().any(|p| path.starts_with(p)) {
+    // Retired prefixes stay acceptable here — see RETIRED_PREFIXES for why
+    // rejecting them would break the prefixes that are still live.
+    if !ALLOWED_PREFIXES.iter().any(|p| path.starts_with(p)) && !is_retired(path) {
         return Err(PathValidationError(format!(
             "path must start with one of: {}",
             ALLOWED_PREFIXES.join(", ")
@@ -131,10 +146,34 @@ mod tests {
     fn test_valid_paths() {
         ok("skills/foo.md");
         ok("knowledge/bar/baz.txt");
-        ok(".mcp/config.json");
         ok("_meta/team.json");
-        ok("_secrets/key.txt");
         ok("_feedback/report.md");
+    }
+
+    /// Retired prefixes must still validate. A team that synced them before the
+    /// migration has manifest rows for them, and the pull loop validates with a
+    /// hard `?` — rejecting here would abort the whole apply on the first legacy
+    /// row and take `knowledge/` down with it.
+    #[test]
+    fn retired_prefixes_still_validate_but_are_flagged() {
+        ok(".mcp/config.json");
+        ok("_secrets/key.txt");
+        assert!(is_retired(".mcp/config.json"));
+        assert!(is_retired("_secrets/key.txt"));
+        assert!(!is_retired("skills/foo.md"));
+        assert!(!is_retired("knowledge/bar.md"));
+    }
+
+    /// ...but they are no longer in the set the scanner walks, which is what
+    /// actually stops this client pushing them.
+    #[test]
+    fn retired_prefixes_are_not_scanned() {
+        for retired in RETIRED_PREFIXES {
+            assert!(
+                !ALLOWED_PREFIXES.contains(retired),
+                "{retired} must not be pushed any more"
+            );
+        }
     }
 
     #[test]

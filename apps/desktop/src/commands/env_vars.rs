@@ -457,7 +457,9 @@ pub(crate) async fn env_var_delete_for_workspace(
 pub async fn env_catalog_list(
     window: tauri::WebviewWindow,
     registry: State<'_, super::window::WindowRegistry>,
+    shared_secrets: State<'_, super::shared_secrets::SharedSecretsState>,
     team_id: Option<String>,
+    access_token: Option<String>,
     workspace_path: Option<String>,
 ) -> Result<teamclaw_runtime_env::env_catalog::EnvCatalog, String> {
     let workspace_path = resolve_workspace_path(workspace_path, &window, &registry)?;
@@ -466,11 +468,43 @@ pub async fn env_catalog_list(
     // fallback: when `teamclaw.json` carries no inline `team.envSecret` (the
     // common case), passing None here leaves every team var undecryptable.
     let team_id = team_id.as_deref().map(str::trim).filter(|s| !s.is_empty());
-    Ok(teamclaw_runtime_env::env_catalog::load_env_catalog(
+    let mut catalog = teamclaw_runtime_env::env_catalog::load_env_catalog(
         Path::new(&workspace_path),
         team_id,
         Some(super::APP_SHORT_NAME),
-    ))
+    );
+
+    // The on-disk scan above only ever finds legacy `_secrets/` files, which
+    // nothing writes any more — without this the team list would read as empty
+    // right after a successful save. Failures are logged, not surfaced: personal
+    // vars are already loaded and are worth returning on their own.
+    match super::shared_secrets::team_listings_from_cloud(
+        &shared_secrets,
+        &workspace_path,
+        team_id,
+        access_token.as_deref(),
+    )
+    .await
+    {
+        Ok(cloud) if !cloud.is_empty() => {
+            // Cloud wins per key; any legacy file not yet migrated still shows.
+            let mut merged: Vec<_> = cloud;
+            let cloud_keys: std::collections::HashSet<String> =
+                merged.iter().map(|t| t.key_id.clone()).collect();
+            merged.extend(
+                catalog
+                    .team
+                    .into_iter()
+                    .filter(|t| !cloud_keys.contains(&t.key_id)),
+            );
+            merged.sort_by(|a, b| a.key_id.cmp(&b.key_id));
+            catalog.team = merged;
+        }
+        Ok(_) => {}
+        Err(e) => log::warn!("env_catalog_list: cloud team env unavailable: {e}"),
+    }
+
+    Ok(catalog)
 }
 
 /// Diagnostics for the team env-var sync chain, surfaced in the settings UI so

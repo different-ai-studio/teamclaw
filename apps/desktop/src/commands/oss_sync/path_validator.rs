@@ -3,14 +3,17 @@
 
 use std::path::Path;
 
-pub const ALLOWED_PREFIXES: &[&str] = &[
-    "skills/",
-    "knowledge/",
-    ".mcp/",
-    "_meta/",
-    "_secrets/",
-    "_feedback/",
-];
+/// Prefixes this client still syncs. Mirrors the daemon's list.
+pub const ALLOWED_PREFIXES: &[&str] = &["skills/", "knowledge/", "_meta/", "_feedback/"];
+
+/// Moved to the Cloud API — see `apps/daemon/src/sync/oss/path_validator.rs`
+/// for why these stay acceptable on the wire instead of being rejected.
+pub const RETIRED_PREFIXES: &[&str] = &[".mcp/", "_secrets/"];
+
+/// Whether a path belongs to a prefix that has moved to the Cloud API.
+pub fn is_retired(path: &str) -> bool {
+    RETIRED_PREFIXES.iter().any(|p| path.starts_with(p))
+}
 
 #[derive(Debug, thiserror::Error)]
 #[error("InvalidPath: {0}")]
@@ -73,7 +76,7 @@ pub fn validate(path: &str) -> Result<(), PathValidationError> {
         }
     }
 
-    if !ALLOWED_PREFIXES.iter().any(|p| path.starts_with(p)) {
+    if !ALLOWED_PREFIXES.iter().any(|p| path.starts_with(p)) && !is_retired(path) {
         return Err(PathValidationError(format!(
             "path must start with one of: {}",
             ALLOWED_PREFIXES.join(", ")
@@ -131,10 +134,20 @@ mod tests {
     fn test_valid_paths() {
         ok("skills/foo.md");
         ok("knowledge/bar/baz.txt");
-        ok(".mcp/config.json");
         ok("_meta/team.json");
-        ok("_secrets/key.txt");
         ok("_feedback/report.md");
+    }
+
+    /// Retired prefixes must still validate — see the daemon twin for why.
+    #[test]
+    fn retired_prefixes_still_validate_but_are_flagged() {
+        ok(".mcp/config.json");
+        ok("_secrets/key.txt");
+        assert!(is_retired(".mcp/config.json"));
+        assert!(!is_retired("skills/foo.md"));
+        for retired in RETIRED_PREFIXES {
+            assert!(!ALLOWED_PREFIXES.contains(retired));
+        }
     }
 
     #[test]

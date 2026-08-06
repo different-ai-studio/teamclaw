@@ -137,7 +137,22 @@ DELETE /v1/teams/:teamId/env-secrets/:keyId           创建者或 admin
 | PR2 ✅ | daemon：backend trait + `team_cloud_config.rs` reconciler + 落盘缓存 + 双源读取 |
 | PR3 ✅ | 桌面端团队 env 读写切云；store 层 `team-mcp.ts` |
 | PR4 ✅ | 三栏 UI：`McpDetail` 安装/编辑/删除、`EnvDetail` 就地编辑、列表新增入口 |
-| PR5 | 摘掉 `.mcp/`、`_secrets/` 前缀；拉取循环改跳过；删旧磁盘回退 |
+| PR5 ✅ | 摘掉 `.mcp/`、`_secrets/` 前缀；拉取循环改跳过 |
+
+**「摘前缀」摘的是同步，不是读取。** `ALLOWED_PREFIXES` 里去掉这两个前缀，扫描器
+就不再推、拉取循环也不再落盘；但**旧目录仍然读**。理由：既然不同步了，这些文件
+只可能存在于「迁移前就有」的机器上，读它们的成本为零，却能让老 checkout 继续工作；
+而云缓存在候选列表的最后，所以它们永远盖不过云端的值。
+
+**关键：`validate()` 必须继续接受这两个前缀。** 拉取循环里是
+`validate(&item.path).map_err(SyncError::from)?`——硬 `?`，而 `SyncError::InvalidPath`
+被归类为非瞬时错误、永不自愈。迁移前同步过的团队，manifest 里还有这些行；一旦
+`validate` 拒绝，第一条遗留记录就会中止整个 manifest apply，把**本该继续同步的
+`knowledge/` 一起带走**。所以拆成两个常量：`ALLOWED_PREFIXES`（还推还拉）和
+`RETIRED_PREFIXES`（线上仍合法，但扫描器不推、拉取循环 `continue` 跳过）。
+
+服务端 `services/fc/src/lib/sync-path.ts` **不动**——保持宽松，避免旧 daemon 的推送
+拿到永久性 422 把它们的同步循环刷爆。
 
 **两个后端实现都要写。** `BACKEND_KIND` 在 docker-compose 里默认 `supabase`，
 只写 `pg-repo` 的功能在真实部署上是 500。单测发现不了——它注入 fake repository，

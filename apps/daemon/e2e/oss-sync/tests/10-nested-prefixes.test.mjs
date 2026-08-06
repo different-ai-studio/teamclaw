@@ -20,7 +20,7 @@ after(async () => { await ctx?.teardown(); }, { timeout: 120000 });
 const FILES = {
   "skills/deep/nested/dir/a.md": "nested skill\n",
   "knowledge/notes/k.md": "knowledge entry\n",
-  ".mcp/servers/m.json": "{\"mcp\":true}\n",
+  "_feedback/f.md": "feedback\n",
   "_meta/info.txt": "meta\n",
 };
 

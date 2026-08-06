@@ -7,7 +7,8 @@
 //!
 //! Values live in the Cloud API (`/v1/teams/:id/env-secrets`); the legacy
 //! `<team_dir>/_secrets/*.enc.json` files are still read so a workspace that has
-//! not been migrated keeps working, but nothing writes them any more.
+//! not been migrated keeps working, but nothing writes them and `_secrets/` is
+//! no longer synced — so they can only exist on a machine that already had them.
 //! See `docs/architecture/team-mcp-and-env-cloud.md`.
 //!
 //! What did NOT change is the part that matters: encryption still happens here,
@@ -103,8 +104,8 @@ pub fn secrets_dir(team_dir: &Path) -> Result<PathBuf, String> {
 
 // The `_secrets/*.enc.json` writer and deleter are gone: values are written to
 // the Cloud API now, and a helper that still wrote files nobody reads back would
-// be a trap for the next person. The reader below stays until PR5 retires the
-// legacy directory outright.
+// be a trap for the next person. `load_all_secrets` below still reads the
+// directory so an unmigrated workspace is not silently blank.
 
 // ---------------------------------------------------------------------------
 // Public functions (called from other modules, not Tauri commands)
@@ -595,6 +596,44 @@ pub(crate) async fn refresh_team_secrets_from_cloud(
         }
     }
     Ok(())
+}
+
+/// Refresh from the Cloud API and return the team entries as catalog listings.
+///
+/// The settings/browser list is built by scanning `_secrets/` on disk, which
+/// finds nothing now that writes go to the cloud — this is what puts the values
+/// back in front of the user.
+pub(crate) async fn team_listings_from_cloud(
+    state: &SharedSecretsState,
+    workspace_path: &str,
+    team_id: Option<&str>,
+    access_token: Option<&str>,
+) -> Result<Vec<teamclaw_runtime_env::env_catalog::TeamEnvListing>, String> {
+    refresh_team_secrets_from_cloud(state, workspace_path, team_id, access_token).await?;
+
+    let secrets = state
+        .secrets
+        .lock()
+        .map_err(|e| format!("team_listings_from_cloud: lock secrets: {e}"))?;
+    let mut out: Vec<_> = secrets
+        .values()
+        .map(|e| teamclaw_runtime_env::env_catalog::TeamEnvListing {
+            key_id: e.key_id.clone(),
+            description: e.description.clone(),
+            category: e.category.clone(),
+            created_by: e.created_by.clone(),
+            updated_by: e.updated_by.clone(),
+            updated_at: e.updated_at.clone(),
+            // Everything here came back from `decrypt_secret`, so by construction
+            // it decrypted. Rows that did not are dropped upstream with a warning
+            // rather than surfaced as undecryptable, because unlike the file scan
+            // there is no filename to show a key we cannot read.
+            decrypted: true,
+            key_mismatch: false,
+        })
+        .collect();
+    out.sort_by(|a, b| a.key_id.cmp(&b.key_id));
+    Ok(out)
 }
 
 #[cfg(test)]

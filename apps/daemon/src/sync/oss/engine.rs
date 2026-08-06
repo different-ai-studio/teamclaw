@@ -90,6 +90,13 @@ pub async fn tick(
     let mut pull_items: Vec<PullItem> = Vec::new();
 
     for item in &all_items {
+        // `.mcp/` and `_secrets/` moved to the Cloud API. A team synced before the
+        // migration still has rows for them; skip rather than write them back to
+        // disk, where they would shadow the cloud copy. Skipped before `validate`
+        // so the two never have to agree about them.
+        if super::path_validator::is_retired(&item.path) {
+            continue;
+        }
         // Spec §4.3: path-validate all manifest items (defense vs. malicious remote).
         validate(&item.path).map_err(SyncError::from)?;
 
