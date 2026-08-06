@@ -13,3 +13,5 @@ export * from "./directory.js";
 export * from "./oss-sync.js";
 export * from "./apps.js";
 export * from "./team-skills.js";
+export * from "./team-mcp.js";
+export * from "./team-env-secrets.js";
