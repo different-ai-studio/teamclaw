@@ -6,7 +6,6 @@ import { TeamLlmSection } from './TeamLlmSection'
 import { GeneralSection } from './GeneralSection'
 import { PromptSection } from './PromptSection'
 import { MCPSection } from './MCPSection'
-import { SkillsSection } from './SkillsSection'
 import { RolesSection } from './RolesSection'
 import { RolesSkillsSection } from './RolesSkillsSection'
 import { ChannelsSection } from './ChannelsSection'
@@ -41,7 +40,10 @@ export const SETTINGS_SECTION_COMPONENTS: Record<SettingsSection, React.Componen
   daemonRuntimes: DaemonRuntimesSection,
   team: TeamSection,
   envVars: EnvVarsSection,
-  skills: SkillsSection,
+  // Standalone Skills settings page removed — team/personal skills live in the
+  // Team Share browser. Keep the registry key so deep links to `skills` land
+  // on Role Skills (which still embeds SkillsSection for role attachment).
+  skills: RolesSkillsSection,
   roles: RolesSection,
   rolesSkills: RolesSkillsSection,
   knowledge: KnowledgeSection,

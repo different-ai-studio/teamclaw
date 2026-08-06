@@ -153,9 +153,7 @@ impl DaemonServer {
 
     /// Cloud workspace id + local path for this daemon agent's default workspace.
     /// Uses the same resolution as cron and `GET /v1/agent/default-workspace`.
-    pub(super) async fn resolve_default_workspace_for_publish(
-        &self,
-    ) -> (String, String) {
+    pub(super) async fn resolve_default_workspace_for_publish(&self) -> (String, String) {
         let actor_id = &self.actor_id;
         let team_id = self.config.team_id.as_deref();
 

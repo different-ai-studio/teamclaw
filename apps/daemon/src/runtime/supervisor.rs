@@ -580,6 +580,19 @@ fn ensure_extended_inherent_config(
             paths.push(serde_json::json!(TEAM_SKILLS_PATH));
             *changed = true;
         }
+        if let Some(home) = dirs::home_dir() {
+            let agents = home.join(".agents").join("skills");
+            let agents_str = agents.to_string_lossy().to_string();
+            let already = paths.iter().any(|v| {
+                v.as_str()
+                    .map(|s| s == agents_str || s == "~/.agents/skills")
+                    .unwrap_or(false)
+            });
+            if !already {
+                paths.push(serde_json::json!(agents_str));
+                *changed = true;
+            }
+        }
     }
 
     Ok(())
@@ -662,9 +675,10 @@ pub fn prepare_workspace(workspace_path: &Path) -> Result<(), WorkspaceControlEr
 
     install_instruction_plugin_file(workspace_path)?;
     materialize_opencode_for_prepare(workspace_path)?;
-    ensure_inherent_skills_in_dir(
-        &teamclaw_runtime_env::workspace_meta_write_path_from_env(workspace_path, "skills"),
-    )?;
+    ensure_inherent_skills_in_dir(&teamclaw_runtime_env::workspace_meta_write_path_from_env(
+        workspace_path,
+        "skills",
+    ))?;
     ensure_inherent_skills_in_dir(&workspace_path.join(".opencode/skills"))?;
     crate::runtime::claude_skills::ensure_claude_team_skills(workspace_path)?;
 

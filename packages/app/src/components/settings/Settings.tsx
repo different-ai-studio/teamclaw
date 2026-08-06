@@ -77,7 +77,6 @@ const localAgentSections: Section[] = [
   { id: 'mcp', label: 'MCP', labelKey: 'settings.nav.mcp', icon: Plug },
   { id: 'roles', label: 'Roles', labelKey: 'settings.nav.roles', icon: UserRound },
   { id: 'rolesSkills', label: 'Role Skills', labelKey: 'settings.nav.rolesSkills', icon: Sparkles },
-  { id: 'skills', label: 'Skills', labelKey: 'settings.nav.skills', icon: Sparkles },
   { id: 'knowledge', label: 'Knowledge Base', labelKey: 'settings.nav.knowledge', icon: BookOpen },
   { id: 'deps', label: 'Dependencies', labelKey: 'settings.nav.deps', icon: Package },
 ]

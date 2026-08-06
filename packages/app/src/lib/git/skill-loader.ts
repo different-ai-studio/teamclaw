@@ -1,5 +1,6 @@
 import { readDir, readTextFile, exists } from '@tauri-apps/plugin-fs'
 import { collectTeamSkillPaths } from '@/lib/team-skill-paths'
+import { frontmatterString } from '@/lib/skills/frontmatter'
 import { homeDir } from '@tauri-apps/api/path'
 import type { SkillWithSource, SkillSource } from './types'
 import { INHERENT_SKILL_NAMES, shouldIncludeDesktopControlSkill } from './types'
@@ -9,12 +10,17 @@ import i18n from '@/lib/i18n'
 
 // ─── Helpers ────────────────────────────────────────────────────────────────
 
-/** Extract skill name from SKILL.md content (frontmatter or heading) */
+/**
+ * Extract skill name from SKILL.md content (frontmatter or heading).
+ *
+ * Frontmatter goes through the shared parser rather than a regex: block
+ * scalars (`when_not_to_use: |`) truncate at the first newline under the old
+ * `/^---\n[\s\S]*?name:\s*(.+?)\n/` approach, and the daemon reads the same
+ * files with the Rust twin of that parser.
+ */
 function extractSkillName(content: string, fallback: string): string {
-  const frontmatterMatch = content.match(/^---\n[\s\S]*?name:\s*(.+?)\n[\s\S]*?---/)
-  if (frontmatterMatch) {
-    return frontmatterMatch[1].trim()
-  }
+  const name = frontmatterString(content, 'name')
+  if (name) return name
   const firstLine = content.split('\n').find(line => line.startsWith('#'))
   if (firstLine) {
     return firstLine.replace(/^#+\s*/, '').trim()

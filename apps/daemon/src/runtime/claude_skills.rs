@@ -183,7 +183,11 @@ mod tests {
     fn write_skill(dir: &Path, slug: &str) {
         let skill_dir = dir.join(slug);
         std::fs::create_dir_all(&skill_dir).unwrap();
-        std::fs::write(skill_dir.join("SKILL.md"), format!("---\nname: {slug}\n---\n")).unwrap();
+        std::fs::write(
+            skill_dir.join("SKILL.md"),
+            format!("---\nname: {slug}\n---\n"),
+        )
+        .unwrap();
     }
 
     #[test]

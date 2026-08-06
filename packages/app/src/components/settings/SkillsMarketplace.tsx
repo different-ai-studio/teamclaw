@@ -16,13 +16,12 @@ import {
   AlertCircle,
   ArrowUpCircle,
   Check,
-  FolderOpen,
-  Globe,
   ChevronDown,
   Trash2,
 } from "lucide-react"
 import { invoke } from "@tauri-apps/api/core"
 import { useWorkspaceStore } from "@/stores/workspace"
+import { ensureAgentsSkillsPaths } from "@/lib/skills/ensure-agents-paths"
 import { cn } from "@/lib/utils"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
@@ -117,9 +116,6 @@ export const SkillsMarketplace = React.memo(function SkillsMarketplace({
   const [error, setError] = React.useState<string | null>(null)
   const [installingSlugs, setInstallingSlugs] = React.useState<Set<string>>(new Set())
   const [installedSlugs, setInstalledSlugs] = React.useState<Set<string>>(new Set())
-  const [installDialogOpen, setInstallDialogOpen] = React.useState(false)
-  const [installLocation, setInstallLocation] = React.useState<'workspace' | 'global'>('workspace')
-  const [pendingInstall, setPendingInstall] = React.useState<{ owner: string; repo: string; slug: string } | null>(null)
 
   // Detail dialog
   const [detailDialogOpen, setDetailDialogOpen] = React.useState(false)
@@ -307,15 +303,16 @@ export const SkillsMarketplace = React.memo(function SkillsMarketplace({
     return leaderboard?.skills ?? []
   }, [leaderboard])
 
-  const handleInstallSkillSh = React.useCallback(async (owner: string, repo: string, slug: string, location: 'workspace' | 'global') => {
+  const handleInstallSkillSh = React.useCallback(async (owner: string, repo: string, slug: string) => {
     setInstallingSlugs((prev) => new Set(prev).add(slug))
     try {
       await invoke<string>("npx_skills_add", {
-        workspacePath: location === 'workspace' ? workspacePath : null,
+        workspacePath: workspacePath ?? null,
         source: `${owner}/${repo}`,
         skill: slug,
-        isGlobal: location === 'global',
+        isGlobal: true,
       })
+      await ensureAgentsSkillsPaths(workspacePath)
       setInstalledSlugs((prev) => new Set(prev).add(slug))
       await onInstalled?.()
     } catch (err) {
@@ -331,34 +328,25 @@ export const SkillsMarketplace = React.memo(function SkillsMarketplace({
   }, [workspacePath, onInstalled])
 
   const openInstallDialog = React.useCallback((owner: string, repo: string, slug: string) => {
-    setPendingInstall({ owner, repo, slug })
-    setInstallLocation('workspace')
-    setInstallDialogOpen(true)
-  }, [])
-
-  const confirmInstall = React.useCallback(async () => {
-    if (!pendingInstall) return
-    setInstallDialogOpen(false)
-    await handleInstallSkillSh(pendingInstall.owner, pendingInstall.repo, pendingInstall.slug, installLocation)
-    setPendingInstall(null)
-  }, [pendingInstall, installLocation, handleInstallSkillSh])
+    void handleInstallSkillSh(owner, repo, slug)
+  }, [handleInstallSkillSh])
 
   const handleReinstallSkillSh = React.useCallback(
     async (owner: string, repo: string, slug: string) => {
-      if (!workspacePath) return
       setInstallingSlugs((prev) => new Set(prev).add(slug))
       try {
         await invoke<string>("npx_skills_remove", {
-          workspacePath,
+          workspacePath: workspacePath ?? null,
           skillName: slug,
-          isGlobal: false,
+          isGlobal: true,
         }).catch(() => {})
         await invoke<string>("npx_skills_add", {
-          workspacePath,
+          workspacePath: workspacePath ?? null,
           source: `${owner}/${repo}`,
           skill: slug,
-          isGlobal: false,
+          isGlobal: true,
         })
+        await ensureAgentsSkillsPaths(workspacePath)
         await onInstalled?.()
       } catch (err) {
         console.error("[SkillsMarketplace] Failed to reinstall skill:", err)
@@ -376,13 +364,12 @@ export const SkillsMarketplace = React.memo(function SkillsMarketplace({
 
   const handleUninstallSkillSh = React.useCallback(
     async (slug: string) => {
-      if (!workspacePath) return
       setInstallingSlugs((prev) => new Set(prev).add(slug))
       try {
         await invoke<string>("npx_skills_remove", {
-          workspacePath,
+          workspacePath: workspacePath ?? null,
           skillName: slug,
-          isGlobal: false,
+          isGlobal: true,
         })
         setInstalledSlugs((prev) => {
           const next = new Set(prev)
@@ -664,25 +651,16 @@ export const SkillsMarketplace = React.memo(function SkillsMarketplace({
                       return
                     }
 
-                    if (!workspacePath) {
-                      setError(
-                        t(
-                          "skillssh.workspaceRequiredForGit",
-                          "Open a workspace folder first — skills install into .opencode/skills in that project.",
-                        ),
-                      )
-                      return
-                    }
-
                     const tag = skillName || source
                     setInstallingSlugs((prev) => new Set(prev).add(tag))
                     try {
                       await invoke<string>("npx_skills_add", {
-                        workspacePath,
+                        workspacePath: workspacePath ?? null,
                         source,
                         skill: skillName ?? null,
-                        isGlobal: false,
+                        isGlobal: true,
                       })
+                      await ensureAgentsSkillsPaths(workspacePath)
                       if (skillName) {
                         setInstalledSlugs((prev) => new Set(prev).add(skillName))
                       }
@@ -700,7 +678,6 @@ export const SkillsMarketplace = React.memo(function SkillsMarketplace({
                       })
                     }
                   }}
-                  disabled={!workspacePath}
                 >
                   <Download className="h-3.5 w-3.5" />
                   {t("skillssh.install", "Install")}
@@ -958,63 +935,6 @@ export const SkillsMarketplace = React.memo(function SkillsMarketplace({
           </div>
         </div>
       )}
-
-      {/* Install Location Dialog */}
-      <Dialog open={installDialogOpen} onOpenChange={setInstallDialogOpen}>
-        <DialogContent>
-          <DialogHeader>
-            <DialogTitle>{t('settings.skills.installSkill', 'Install Skill')}</DialogTitle>
-            <DialogDescription>
-              {t('settings.skills.installSkillDesc', 'Choose where to install')} <span className="font-mono text-foreground">{pendingInstall?.slug}</span>
-            </DialogDescription>
-          </DialogHeader>
-
-          <div className="space-y-4 py-4">
-            <div className="space-y-2">
-              <label className="text-[13px] font-medium">{t('settings.skills.installLocation', 'Install Location')}</label>
-              <Select value={installLocation} onValueChange={(v) => setInstallLocation(v as 'workspace' | 'global')}>
-                <SelectTrigger>
-                  <SelectValue>
-                    {installLocation === 'workspace'
-                      ? t('settings.skills.locationWorkspace', 'Workspace')
-                      : t('settings.skills.locationGlobal', 'Global')}
-                  </SelectValue>
-                </SelectTrigger>
-                <SelectContent className="min-w-[380px]">
-                  <SelectItem value="workspace" className="cursor-pointer">
-                    <div className="flex items-start gap-2 py-1">
-                      <FolderOpen className="h-4 w-4 text-violet-500 mt-0.5 shrink-0" />
-                      <div className="flex flex-col gap-0.5 min-w-0">
-                        <span className="font-medium">{t('settings.skills.locationWorkspace', 'Workspace')}</span>
-                        <span className="text-xs text-muted-foreground whitespace-normal break-words">.agents/skills/ - {t('settings.skills.projectOnly', 'Current project only')}</span>
-                      </div>
-                    </div>
-                  </SelectItem>
-                  <SelectItem value="global" className="cursor-pointer">
-                    <div className="flex items-start gap-2 py-1">
-                      <Globe className="h-4 w-4 text-cyan-500 mt-0.5 shrink-0" />
-                      <div className="flex flex-col gap-0.5 min-w-0">
-                        <span className="font-medium">{t('settings.skills.locationGlobal', 'Global')}</span>
-                        <span className="text-xs text-muted-foreground whitespace-normal break-words">~/.config/opencode/skills/ - {t('settings.skills.allProjects', 'All projects')}</span>
-                      </div>
-                    </div>
-                  </SelectItem>
-                </SelectContent>
-              </Select>
-            </div>
-          </div>
-
-          <DialogFooter>
-            <Button variant="outline" onClick={() => setInstallDialogOpen(false)}>
-              {t('common.cancel', 'Cancel')}
-            </Button>
-            <Button onClick={confirmInstall} disabled={installLocation === 'workspace' && !workspacePath}>
-              <Download className="mr-2 h-4 w-4" />
-              {t('skillssh.install', 'Install')}
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
 
       {/* Skill Detail Dialog */}
       <Dialog open={detailDialogOpen} onOpenChange={setDetailDialogOpen}>

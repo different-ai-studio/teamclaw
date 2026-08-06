@@ -477,17 +477,11 @@ impl OpenCodeCompatStore {
     }
 
     fn allowlist_read_path(workspace_path: &std::path::Path) -> PathBuf {
-        teamclaw_runtime_env::resolve_workspace_meta_path_from_env(
-            workspace_path,
-            "allowlist.json",
-        )
+        teamclaw_runtime_env::resolve_workspace_meta_path_from_env(workspace_path, "allowlist.json")
     }
 
     fn allowlist_write_path(workspace_path: &std::path::Path) -> PathBuf {
-        teamclaw_runtime_env::workspace_meta_write_path_from_env(
-            workspace_path,
-            "allowlist.json",
-        )
+        teamclaw_runtime_env::workspace_meta_write_path_from_env(workspace_path, "allowlist.json")
     }
 
     /// True when `options.apiKey` is a non-empty literal or `${env_ref}` placeholder.

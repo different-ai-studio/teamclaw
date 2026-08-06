@@ -993,10 +993,8 @@ pub(crate) fn derive_personal_env_index_from_blob(workspace_path: &str) -> Resul
     let blob = read_env_blob(workspace_path)?;
     let mut json = read_teamclaw_json(workspace_path)?;
     let mut entries = get_env_vars_from_json(&json);
-    let index_lower: std::collections::HashSet<String> = entries
-        .iter()
-        .map(|e| e.key.to_ascii_lowercase())
-        .collect();
+    let index_lower: std::collections::HashSet<String> =
+        entries.iter().map(|e| e.key.to_ascii_lowercase()).collect();
 
     let mut added = 0usize;
     let mut blob_keys: Vec<String> = blob
@@ -1395,6 +1393,9 @@ mod tests {
         assert!(!keys.iter().any(|k| k.starts_with("_team_secret.")));
 
         // Idempotent — second call adds nothing.
-        assert_eq!(derive_personal_env_index_from_blob(&workspace_path).unwrap(), 0);
+        assert_eq!(
+            derive_personal_env_index_from_blob(&workspace_path).unwrap(),
+            0
+        );
     }
 }

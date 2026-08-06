@@ -17,7 +17,7 @@ use crate::config::{
 use crate::daemon::backend_from_provider_config;
 use crate::provider_config::ProviderConfig;
 use crate::sync::oss::state::LocalSyncState;
-use crate::sync::secret_store::{mask_secret, SecretStore, TeamSecrets, validate_team_secret};
+use crate::sync::secret_store::{mask_secret, validate_team_secret, SecretStore, TeamSecrets};
 
 /// One cloud-registered workspace that exists on this machine (same filter as
 /// `GET /v1/workspaces`).
@@ -97,7 +97,11 @@ fn show_status() -> anyhow::Result<()> {
     let doctor = crate::opencode_install::doctor();
     println!(
         "opencode:  {} ({})",
-        if doctor.opencode.satisfied { "ready" } else { "missing" },
+        if doctor.opencode.satisfied {
+            "ready"
+        } else {
+            "missing"
+        },
         doctor
             .opencode
             .version
@@ -106,7 +110,11 @@ fn show_status() -> anyhow::Result<()> {
     );
     println!(
         "git:       {} ({})",
-        if doctor.git.present { "ready" } else { "missing" },
+        if doctor.git.present {
+            "ready"
+        } else {
+            "missing"
+        },
         doctor.git.version.as_deref().unwrap_or("(not installed)")
     );
 
@@ -129,8 +137,14 @@ fn show_status() -> anyhow::Result<()> {
         if let Ok(team_id) = resolve_team_id(None) {
             let secrets = SecretStore::new();
             if let Ok(s) = secrets.load(&team_id) {
-                println!("Team secret:    {}", mask_secret(s.oss_team_secret.as_deref()));
-                println!("Git credential: {}", mask_secret(s.git_credential.as_deref()));
+                println!(
+                    "Team secret:    {}",
+                    mask_secret(s.oss_team_secret.as_deref())
+                );
+                println!(
+                    "Git credential: {}",
+                    mask_secret(s.git_credential.as_deref())
+                );
                 println!(
                     "Git branch:     {}",
                     s.git_branch.as_deref().unwrap_or("(unset)")
@@ -144,12 +158,12 @@ fn show_status() -> anyhow::Result<()> {
 
 /// Headless-friendly agent options for `agents.local_agent`.
 const LOCAL_AGENT_CHOICES: &[(&str, &str)] = &[
-    ("opencode", "OpenCode — default, recommended for Linux servers"),
-    ("pi", "pi — requires npm or bun on the host"),
     (
-        "claude-code",
-        "Claude Code CLI — requires `claude` on PATH",
+        "opencode",
+        "OpenCode — default, recommended for Linux servers",
     ),
+    ("pi", "pi — requires npm or bun on the host"),
+    ("claude-code", "Claude Code CLI — requires `claude` on PATH"),
 ];
 
 fn agent_runtime_menu(theme: &ColorfulTheme) -> anyhow::Result<()> {
@@ -192,12 +206,7 @@ fn print_agent_runtime_status(cfg: &DaemonConfig) {
     );
     if cfg.agents.local_agent == "pi" {
         let pi = crate::pi_install::doctor();
-        print_component_status(
-            "pi",
-            pi.present,
-            pi.version.as_deref(),
-            pi.path.as_deref(),
-        );
+        print_component_status("pi", pi.present, pi.version.as_deref(), pi.path.as_deref());
         if !pi.satisfied {
             println!("  required pi version: {}", pi.required_version);
         }
@@ -330,7 +339,8 @@ fn set_local_agent_interactive(theme: &ColorfulTheme) -> anyhow::Result<()> {
 
     cfg.agents.local_agent = selected.to_string();
     ensure_opencode_section(&mut cfg);
-    cfg.save(&path).map_err(|e| anyhow::anyhow!("save {}: {e}", path.display()))?;
+    cfg.save(&path)
+        .map_err(|e| anyhow::anyhow!("save {}: {e}", path.display()))?;
     println!("✓ Default agent set to {selected}.");
     println!("  Restart the daemon (`amuxd stop && amuxd start`) to apply.");
     Ok(())
@@ -510,8 +520,14 @@ fn team_secrets_menu(theme: &ColorfulTheme) -> anyhow::Result<()> {
     let current = store.load(&team_id).unwrap_or_default();
 
     println!("Team: {team_id}");
-    println!("  team_secret:    {}", mask_secret(current.oss_team_secret.as_deref()));
-    println!("  git_credential: {}", mask_secret(current.git_credential.as_deref()));
+    println!(
+        "  team_secret:    {}",
+        mask_secret(current.oss_team_secret.as_deref())
+    );
+    println!(
+        "  git_credential: {}",
+        mask_secret(current.git_credential.as_deref())
+    );
     println!(
         "  git_branch:     {}",
         current.git_branch.as_deref().unwrap_or("(unset)")
@@ -524,7 +540,8 @@ fn team_secrets_menu(theme: &ColorfulTheme) -> anyhow::Result<()> {
         validate_team_secret(s).map_err(|e| anyhow::anyhow!("team secret: {e}"))?;
     }
 
-    let git_credential = prompt_optional_secret(theme, "Git credential (user:token or SSH key PEM)")?;
+    let git_credential =
+        prompt_optional_secret(theme, "Git credential (user:token or SSH key PEM)")?;
     let git_branch: String = Input::with_theme(theme)
         .with_prompt("Git branch")
         .allow_empty(true)
@@ -633,10 +650,7 @@ fn pick_workspace(theme: &ColorfulTheme) -> anyhow::Result<PathBuf> {
         .collect();
     labels.push("Enter path manually…".to_string());
 
-    let default_idx = workspaces
-        .iter()
-        .position(|w| w.is_default)
-        .unwrap_or(0);
+    let default_idx = workspaces.iter().position(|w| w.is_default).unwrap_or(0);
 
     let idx = Select::with_theme(theme)
         .with_prompt("Select workspace")
@@ -685,8 +699,8 @@ fn fetch_registered_workspaces() -> anyhow::Result<Vec<RegisteredWorkspace>> {
 }
 
 async fn fetch_registered_workspaces_async() -> anyhow::Result<Vec<RegisteredWorkspace>> {
-    let backend_path = ProviderConfig::default_path()
-        .map_err(|e| anyhow::anyhow!("backend config path: {e}"))?;
+    let backend_path =
+        ProviderConfig::default_path().map_err(|e| anyhow::anyhow!("backend config path: {e}"))?;
     let provider_config = ProviderConfig::load_from_path(&backend_path)
         .map_err(|e| anyhow::anyhow!("load {}: {e}", backend_path.display()))?;
     let backend = backend_from_provider_config(provider_config)
@@ -764,35 +778,30 @@ fn resolve_team_id(explicit: Option<String>) -> anyhow::Result<String> {
         return Ok(id);
     }
     let path = DaemonConfig::default_path();
-    let config = DaemonConfig::load(&path).map_err(|e| {
-        anyhow::anyhow!(
-            "read {}: {e}\nRun `amuxd init` first.",
-            path.display()
-        )
-    })?;
+    let config = DaemonConfig::load(&path)
+        .map_err(|e| anyhow::anyhow!("read {}: {e}\nRun `amuxd init` first.", path.display()))?;
     config
         .team_id
         .filter(|t| !t.trim().is_empty())
-        .ok_or_else(|| anyhow::anyhow!("no team_id in {}.\nRun `amuxd init` first.", path.display()))
+        .ok_or_else(|| {
+            anyhow::anyhow!("no team_id in {}.\nRun `amuxd init` first.", path.display())
+        })
 }
 
 fn read_default_model(workspace: &Path) -> anyhow::Result<Option<String>> {
     let cfg = teamclaw_runtime_env::opencode_config::OpencodeConfigStore::load(workspace)
         .map_err(|e| anyhow::anyhow!("{e}"))?;
-    Ok(cfg
-        .get("model")
-        .and_then(|v| v.as_str())
-        .map(str::to_owned))
+    Ok(cfg.get("model").and_then(|v| v.as_str()).map(str::to_owned))
 }
 
 fn set_default_model(workspace: &Path, model: &str) -> anyhow::Result<()> {
     let model = model.trim().to_string();
     teamclaw_runtime_env::opencode_config::OpencodeConfigStore::apply(workspace, |cfg| {
-        let obj = cfg
-            .as_object_mut()
-            .ok_or_else(|| teamclaw_runtime_env::opencode_config::OpencodeConfigError::Parse(
+        let obj = cfg.as_object_mut().ok_or_else(|| {
+            teamclaw_runtime_env::opencode_config::OpencodeConfigError::Parse(
                 "opencode.json root is not an object".into(),
-            ))?;
+            )
+        })?;
         obj.insert("model".to_owned(), serde_json::Value::String(model.clone()));
         Ok(true)
     })

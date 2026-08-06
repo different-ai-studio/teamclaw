@@ -2879,5 +2879,565 @@ export function createSupabaseBusinessRepository(options) {
         updatedAt: appIso(r.updated_at)!,
       }));
     },
+
+    // ─── Team skills registry ────────────────────────────────────────────────
+    // docs/architecture/team-skills-registry.md
+    //
+    // Authz lives in RLS here (see 20260806000000_team_skills_registry.sql), so
+    // these are thin. The pg-repo twin re-implements the same three install
+    // gates in application code because that backend has no RLS to lean on —
+    // when you change one, change the other.
+
+    async listTeamSkills(teamId, opts: any = {}) {
+      let subjectActorId = opts.actorId ?? null;
+      if (!subjectActorId) {
+        subjectActorId = (await this.resolveCallerActorForTeam(teamId))?.id ?? null;
+      }
+      let query = supabase.from("team_skills").select("*").eq("team_id", teamId);
+      if (opts.status) query = query.eq("status", opts.status);
+      if (opts.category) query = query.eq("category", opts.category);
+      const { data, error } = await query.order("slug", { ascending: true });
+      if (error) throw error;
+      const rows = data ?? [];
+      if (!rows.length) return [];
+
+      const installs = subjectActorId
+        ? await teamSkillInstallRows(supabase, subjectActorId, rows.map((r: any) => r.id))
+        : new Map();
+      return rows.map((r: any) => mapTeamSkillRow(r, installs.get(r.id)));
+    },
+
+    async getTeamSkill(teamId, slug, opts: any = {}) {
+      let subjectActorId = opts.actorId ?? null;
+      if (!subjectActorId) {
+        subjectActorId = (await this.resolveCallerActorForTeam(teamId))?.id ?? null;
+      }
+      const { data, error } = await supabase
+        .from("team_skills")
+        .select("*")
+        .eq("team_id", teamId)
+        .eq("slug", slug)
+        .maybeSingle();
+      if (error) throw error;
+      if (!data) throw new ApiError(404, "not_found", `skill not found: ${slug}`);
+
+      const { data: versions, error: vErr } = await supabase
+        .from("team_skill_versions")
+        .select("*")
+        .eq("skill_id", data.id)
+        .order("version", { ascending: false });
+      if (vErr) throw vErr;
+
+      const installs = subjectActorId
+        ? await teamSkillInstallRows(supabase, subjectActorId, [data.id])
+        : new Map();
+      return {
+        ...mapTeamSkillRow(data, installs.get(data.id)),
+        versions: (versions ?? []).map(mapTeamSkillVersionRow),
+      };
+    },
+
+    async createTeamSkill(teamId, body: any = {}) {
+      const fields = requireTeamSkillFields(body);
+      const slug = String(body.slug ?? "").trim();
+      if (!TEAM_SKILL_SLUG_RE.test(slug)) {
+        throw new ApiError(
+          400,
+          "validation_failed",
+          "slug must be 2-64 chars of [a-z0-9-] and start with a letter or digit",
+        );
+      }
+      const changelog = String(body.changelog ?? "").trim();
+      if (!changelog) throw new ApiError(400, "validation_failed", "changelog is required");
+      const contentHash = String(body.contentHash ?? "").trim();
+      if (!contentHash) throw new ApiError(400, "validation_failed", "contentHash is required");
+
+      const callerActorId = (await this.resolveCallerActorForTeam(teamId))?.id;
+      if (!callerActorId) throw new ApiError(403, "forbidden", "not a member of this team");
+
+      const { data, error } = await supabase
+        .from("team_skills")
+        .insert({
+          team_id: teamId,
+          slug,
+          owner_actor_id: body.ownerActorId ?? callerActorId,
+          summary: fields.summary,
+          category: fields.category,
+          when_to_use: fields.whenToUse,
+          when_not_to_use: fields.whenNotToUse,
+          requires: fields.requires ?? null,
+          status: TEAM_SKILL_STATUSES.includes(body.status) ? body.status : "published",
+          latest_version: 1,
+          created_by: callerActorId,
+        })
+        .select("*")
+        .single();
+      if (error) {
+        if (error.code === "23505") {
+          throw new ApiError(
+            409,
+            "conflict",
+            `a skill named ${slug} already exists — publish a new version instead`,
+          );
+        }
+        throw error;
+      }
+
+      const { error: vErr } = await supabase.from("team_skill_versions").insert({
+        skill_id: data.id,
+        version: 1,
+        content_hash: contentHash,
+        size: Number(body.size ?? 0),
+        changelog,
+        summary: fields.summary,
+        when_to_use: fields.whenToUse,
+        when_not_to_use: fields.whenNotToUse,
+        requires: fields.requires ?? null,
+        created_by: callerActorId,
+      });
+      if (vErr) throw vErr;
+      return mapTeamSkillRow(data);
+    },
+
+    async createTeamSkillVersion(teamId, slug, body: any = {}) {
+      const changelog = String(body.changelog ?? "").trim();
+      if (!changelog) throw new ApiError(400, "validation_failed", "changelog is required");
+      const contentHash = String(body.contentHash ?? "").trim();
+      if (!contentHash) throw new ApiError(400, "validation_failed", "contentHash is required");
+
+      const { data: skill, error } = await supabase
+        .from("team_skills")
+        .select("*")
+        .eq("team_id", teamId)
+        .eq("slug", slug)
+        .maybeSingle();
+      if (error) throw error;
+      if (!skill) throw new ApiError(404, "not_found", `skill not found: ${slug}`);
+
+      const callerActorId = (await this.resolveCallerActorForTeam(teamId))?.id;
+      if (!callerActorId) throw new ApiError(403, "forbidden", "not a member of this team");
+
+      const patch = requireTeamSkillFields(body, { partial: true });
+      const merged = {
+        summary: patch.summary ?? skill.summary,
+        when_to_use: patch.whenToUse ?? skill.when_to_use,
+        when_not_to_use: patch.whenNotToUse ?? skill.when_not_to_use,
+        requires: patch.requires !== undefined ? patch.requires : skill.requires,
+        category: patch.category ?? skill.category,
+      };
+      const nextVersion = (skill.latest_version ?? 0) + 1;
+
+      const { data: version, error: vErr } = await supabase
+        .from("team_skill_versions")
+        .insert({
+          skill_id: skill.id,
+          version: nextVersion,
+          content_hash: contentHash,
+          size: Number(body.size ?? 0),
+          changelog,
+          summary: merged.summary,
+          when_to_use: merged.when_to_use,
+          when_not_to_use: merged.when_not_to_use,
+          requires: merged.requires ?? null,
+          created_by: callerActorId,
+        })
+        .select("*")
+        .single();
+      if (vErr) throw vErr;
+
+      const { error: uErr } = await supabase
+        .from("team_skills")
+        .update({ latest_version: nextVersion, ...merged })
+        .eq("id", skill.id);
+      if (uErr) throw uErr;
+      return mapTeamSkillVersionRow(version);
+    },
+
+    async updateTeamSkill(teamId, slug, patch: any = {}) {
+      const fields = requireTeamSkillFields(patch, { partial: true });
+      const update: any = {};
+      if (fields.summary !== undefined) update.summary = fields.summary;
+      if (fields.category !== undefined) update.category = fields.category;
+      if (fields.whenToUse !== undefined) update.when_to_use = fields.whenToUse;
+      if (fields.whenNotToUse !== undefined) update.when_not_to_use = fields.whenNotToUse;
+      if (fields.requires !== undefined) update.requires = fields.requires;
+      if (patch.ownerActorId !== undefined) update.owner_actor_id = patch.ownerActorId;
+      if (patch.status !== undefined) {
+        if (!TEAM_SKILL_STATUSES.includes(patch.status)) {
+          throw new ApiError(400, "validation_failed", `unknown status: ${patch.status}`);
+        }
+        update.status = patch.status;
+      }
+      if (patch.supersededBy !== undefined) update.superseded_by = patch.supersededBy || null;
+
+      if (!Object.keys(update).length) return this.getTeamSkill(teamId, slug);
+
+      const { data, error } = await supabase
+        .from("team_skills")
+        .update(update)
+        .eq("team_id", teamId)
+        .eq("slug", slug)
+        .select("*")
+        .maybeSingle();
+      if (error) throw error;
+      if (!data) throw new ApiError(404, "not_found", `skill not found: ${slug}`);
+      return mapTeamSkillRow(data);
+    },
+
+    async deleteTeamSkill(teamId, slug) {
+      const { error } = await supabase
+        .from("team_skills")
+        .delete()
+        .eq("team_id", teamId)
+        .eq("slug", slug);
+      if (error) throw error;
+    },
+
+    async getTeamSkillVersion(teamId, slug, version) {
+      const { data: skill, error } = await supabase
+        .from("team_skills")
+        .select("id, slug")
+        .eq("team_id", teamId)
+        .eq("slug", slug)
+        .maybeSingle();
+      if (error) throw error;
+      if (!skill) throw new ApiError(404, "not_found", `skill not found: ${slug}`);
+
+      const { data, error: vErr } = await supabase
+        .from("team_skill_versions")
+        .select("*")
+        .eq("skill_id", skill.id)
+        .eq("version", version)
+        .maybeSingle();
+      if (vErr) throw vErr;
+      if (!data) throw new ApiError(404, "not_found", `version ${version} not found`);
+      return { ...mapTeamSkillVersionRow(data), slug: skill.slug, skillId: skill.id, teamId };
+    },
+
+    async getTeamSkillDownload(teamId, slug, version) {
+      const v = await this.getTeamSkillVersion(teamId, slug, version);
+      const { data, error } = await supabase
+        .from("amuxc_blobs")
+        .select("oss_key")
+        .eq("team_id", teamId)
+        .eq("content_hash", v.contentHash)
+        .maybeSingle();
+      if (error) throw error;
+      if (!data?.oss_key) {
+        throw new ApiError(
+          409,
+          "blob_missing",
+          `package blob for ${slug}@${version} is not uploaded yet`,
+        );
+      }
+      return { contentHash: v.contentHash, size: v.size ?? 0, ossKey: data.oss_key };
+    },
+
+    async prepareTeamSkillBlob(teamId, body: any = {}) {
+      const caller = await this.resolveCallerActorForTeam(teamId);
+      if (!caller) throw new ApiError(403, "forbidden", "not a member of this team");
+      const contentHash = String(body.contentHash ?? "").trim().toLowerCase();
+      if (!/^[a-f0-9]{64}$/.test(contentHash)) {
+        throw new ApiError(400, "validation_failed", "contentHash must be a sha256 hex digest");
+      }
+      const size = Number(body.size ?? NaN);
+      if (!Number.isFinite(size) || size < 0) {
+        throw new ApiError(400, "validation_failed", "size must be a non-negative number");
+      }
+      const ossKey = `teams/${teamId}/blobs/sha256/${contentHash.slice(0, 2)}/${contentHash.slice(2, 4)}/${contentHash}`;
+      const { error } = await supabase.from("amuxc_blobs").upsert(
+        {
+          team_id: teamId,
+          content_hash: contentHash,
+          oss_key: ossKey,
+          size,
+          verified: false,
+        },
+        { onConflict: "team_id,content_hash", ignoreDuplicates: true },
+      );
+      if (error) throw error;
+      return { contentHash, size, ossKey };
+    },
+
+    async completeTeamSkillBlob(teamId, body: any = {}) {
+      const caller = await this.resolveCallerActorForTeam(teamId);
+      if (!caller) throw new ApiError(403, "forbidden", "not a member of this team");
+      const contentHash = String(body.contentHash ?? "").trim().toLowerCase();
+      if (!/^[a-f0-9]{64}$/.test(contentHash)) {
+        throw new ApiError(400, "validation_failed", "contentHash must be a sha256 hex digest");
+      }
+      const { data, error } = await supabase
+        .from("amuxc_blobs")
+        .select("oss_key, size")
+        .eq("team_id", teamId)
+        .eq("content_hash", contentHash)
+        .maybeSingle();
+      if (error) throw error;
+      if (!data) {
+        throw new ApiError(404, "not_found", "blob placeholder not found — call prepare first");
+      }
+      const { error: uErr } = await supabase
+        .from("amuxc_blobs")
+        .update({ verified: true })
+        .eq("team_id", teamId)
+        .eq("content_hash", contentHash);
+      if (uErr) throw uErr;
+      return { contentHash, size: data.size ?? 0, ossKey: data.oss_key };
+    },
+
+    /**
+     * The three install gates. RLS already refuses the bad cases, but its
+     * message is a raw Postgres string — this turns them into the same answers
+     * the pg-repo backend gives, so a client sees one behaviour regardless of
+     * which backend is deployed.
+     */
+    async assertCanInstallTeamSkillFor(teamId, targetActorId) {
+      const callerActorId = (await this.resolveCallerActorForTeam(teamId))?.id ?? null;
+      if (!callerActorId) throw new ApiError(403, "forbidden", "not a member of this team");
+      if (targetActorId === callerActorId) return callerActorId;
+
+      const { data: target, error } = await supabase
+        .from("actors")
+        .select("id, team_id")
+        .eq("id", targetActorId)
+        .maybeSingle();
+      if (error) throw error;
+      if (!target) throw new ApiError(404, "not_found", "target actor not found");
+      if (target.team_id !== teamId) {
+        throw new ApiError(403, "forbidden", "target actor belongs to a different team");
+      }
+
+      const { data: agentRow, error: agErr } = await supabase
+        .from("agents")
+        .select("visibility")
+        .eq("id", targetActorId)
+        .maybeSingle();
+      if (agErr) throw agErr;
+      if (!agentRow) {
+        throw new ApiError(
+          403,
+          "forbidden",
+          "cannot install on behalf of another member — only on yourself or a team agent",
+        );
+      }
+      if (agentRow.visibility !== "team") {
+        throw new ApiError(
+          403,
+          "forbidden",
+          "that agent is personal; only its owner can install skills on it",
+        );
+      }
+      return callerActorId;
+    },
+
+    async installTeamSkill(teamId, slug, body: any = {}) {
+      const { data: skill, error } = await supabase
+        .from("team_skills")
+        .select("id, latest_version")
+        .eq("team_id", teamId)
+        .eq("slug", slug)
+        .maybeSingle();
+      if (error) throw error;
+      if (!skill) throw new ApiError(404, "not_found", `skill not found: ${slug}`);
+
+      let actorId = body.actorId ?? null;
+      if (!actorId) actorId = (await this.resolveCallerActorForTeam(teamId))?.id ?? null;
+      if (!actorId) throw new ApiError(403, "forbidden", "not a member of this team");
+      await this.assertCanInstallTeamSkillFor(teamId, actorId);
+
+      const scope = body.scope === "workspace" ? "workspace" : "global";
+      const workspaceId = scope === "workspace" ? (body.workspaceId ?? null) : null;
+      if (scope === "workspace" && !workspaceId) {
+        throw new ApiError(400, "validation_failed", "workspaceId is required for workspace scope");
+      }
+      const version = Number(body.version ?? skill.latest_version);
+      if (!Number.isInteger(version) || version < 1 || version > skill.latest_version) {
+        throw new ApiError(400, "validation_failed", `unknown version: ${body.version}`);
+      }
+
+      // No onConflict target here: the unique index coalesces workspace_id, and
+      // PostgREST cannot name an expression index. Delete-then-insert keeps the
+      // upsert semantics without depending on the index name.
+      const { error: dErr } = await supabase
+        .from("team_skill_installs")
+        .delete()
+        .eq("actor_id", actorId)
+        .eq("skill_id", skill.id)
+        .eq("scope", scope);
+      if (dErr) throw dErr;
+
+      const { data, error: iErr } = await supabase
+        .from("team_skill_installs")
+        .insert({
+          team_id: teamId,
+          actor_id: actorId,
+          skill_id: skill.id,
+          installed_version: version,
+          scope,
+          workspace_id: workspaceId,
+        })
+        .select("*")
+        .single();
+      if (iErr) throw iErr;
+      return mapTeamSkillInstallRow(data);
+    },
+
+    async uninstallTeamSkill(teamId, slug, body: any = {}) {
+      const { data: skill, error } = await supabase
+        .from("team_skills")
+        .select("id")
+        .eq("team_id", teamId)
+        .eq("slug", slug)
+        .maybeSingle();
+      if (error) throw error;
+      if (!skill) throw new ApiError(404, "not_found", `skill not found: ${slug}`);
+
+      let actorId = body.actorId ?? null;
+      if (!actorId) actorId = (await this.resolveCallerActorForTeam(teamId))?.id ?? null;
+      if (!actorId) throw new ApiError(403, "forbidden", "not a member of this team");
+      await this.assertCanInstallTeamSkillFor(teamId, actorId);
+
+      const { error: dErr } = await supabase
+        .from("team_skill_installs")
+        .delete()
+        .eq("actor_id", actorId)
+        .eq("skill_id", skill.id);
+      if (dErr) throw dErr;
+    },
+
+    async listTeamSkillInstalls(teamId, opts: any = {}) {
+      let actorId = opts.actorId ?? null;
+      if (!actorId) actorId = (await this.resolveCallerActorForTeam(teamId))?.id ?? null;
+      if (!actorId) throw new ApiError(403, "forbidden", "not a member of this team");
+
+      const { data, error } = await supabase
+        .from("team_skill_installs")
+        .select("*, team_skills!inner(slug, latest_version, status)")
+        .eq("team_id", teamId)
+        .eq("actor_id", actorId);
+      if (error) throw error;
+      return (data ?? [])
+        .map((r: any) => ({
+          ...mapTeamSkillInstallRow(r),
+          slug: r.team_skills?.slug ?? null,
+          latestVersion: r.team_skills?.latest_version ?? 0,
+          status: r.team_skills?.status ?? null,
+          hasUpdate: (r.installed_version ?? 0) < (r.team_skills?.latest_version ?? 0),
+        }))
+        .sort((a: any, b: any) => String(a.slug).localeCompare(String(b.slug)));
+    },
+  };
+}
+
+// ─── Team skills helpers ─────────────────────────────────────────────────────
+
+const TEAM_SKILL_SLUG_RE = /^[a-z0-9][a-z0-9-]{1,63}$/;
+
+const TEAM_SKILL_CATEGORIES = [
+  "general", "coding", "devops", "data",
+  "research", "writing", "communication", "integration",
+];
+
+const TEAM_SKILL_STATUSES = ["draft", "published", "deprecated"];
+
+/**
+ * The publish gate: every one of these is required because the registry exists
+ * to stop "who owns this / when to use it / when NOT to use it" from living in
+ * one free-text description blob. Kept behaviourally identical to
+ * pg-repo/team-skills.ts requirePublishFields.
+ */
+function requireTeamSkillFields(body: any, { partial = false } = {}): any {
+  const out: any = {};
+  const need = (key: string, value: unknown, label: string) => {
+    if (value === undefined) {
+      if (partial) return;
+      throw new ApiError(400, "validation_failed", `${label} is required`);
+    }
+    if (typeof value !== "string" || !value.trim()) {
+      throw new ApiError(400, "validation_failed", `${label} must be a non-empty string`);
+    }
+    out[key] = value.trim();
+  };
+  need("summary", body.summary, "summary");
+  need("category", body.category, "category");
+  need("whenToUse", body.whenToUse, "whenToUse");
+  need("whenNotToUse", body.whenNotToUse, "whenNotToUse");
+
+  if (out.summary !== undefined && out.summary.length > 200) {
+    throw new ApiError(400, "validation_failed", "summary must be 200 characters or fewer");
+  }
+  if (out.category !== undefined && !TEAM_SKILL_CATEGORIES.includes(out.category)) {
+    throw new ApiError(
+      400,
+      "validation_failed",
+      `category must be one of: ${TEAM_SKILL_CATEGORIES.join(", ")}`,
+    );
+  }
+  if (body.requires !== undefined) out.requires = body.requires ?? null;
+  return out;
+}
+
+async function teamSkillInstallRows(supabase, actorId: string, skillIds: string[]) {
+  const { data, error } = await supabase
+    .from("team_skill_installs")
+    .select("*")
+    .eq("actor_id", actorId)
+    .in("skill_id", skillIds);
+  if (error) throw error;
+  const map = new Map<string, any>();
+  for (const row of data ?? []) map.set(row.skill_id, row);
+  return map;
+}
+
+function mapTeamSkillRow(r: any, install?: any) {
+  return {
+    id: r.id,
+    teamId: r.team_id,
+    slug: r.slug,
+    ownerActorId: r.owner_actor_id,
+    summary: r.summary,
+    category: r.category,
+    whenToUse: r.when_to_use,
+    whenNotToUse: r.when_not_to_use,
+    requires: r.requires ?? null,
+    status: r.status,
+    supersededBy: r.superseded_by ?? null,
+    latestVersion: r.latest_version ?? 0,
+    createdBy: r.created_by,
+    createdAt: appIso(r.created_at),
+    updatedAt: appIso(r.updated_at),
+    installed: !!install,
+    installedVersion: install?.installed_version ?? null,
+    installScope: install?.scope ?? null,
+    hasUpdate: !!install && install.installed_version < (r.latest_version ?? 0),
+  };
+}
+
+function mapTeamSkillVersionRow(r: any) {
+  return {
+    version: r.version,
+    contentHash: r.content_hash,
+    size: r.size ?? 0,
+    changelog: r.changelog,
+    summary: r.summary,
+    whenToUse: r.when_to_use,
+    whenNotToUse: r.when_not_to_use,
+    requires: r.requires ?? null,
+    createdBy: r.created_by,
+    createdAt: appIso(r.created_at),
+  };
+}
+
+function mapTeamSkillInstallRow(r: any) {
+  return {
+    id: r.id,
+    teamId: r.team_id,
+    actorId: r.actor_id,
+    skillId: r.skill_id,
+    installedVersion: r.installed_version,
+    scope: r.scope,
+    workspaceId: r.workspace_id ?? null,
+    installedAt: appIso(r.installed_at),
+    updatedAt: appIso(r.updated_at),
   };
 }

@@ -19,6 +19,7 @@ import { createAttachmentsModule } from "./attachments";
 import { createTelemetryModule } from "./telemetry";
 import { createSyncModule } from "./sync";
 import { createSystemModule } from "./system";
+import { createTeamSkillsModule } from "./team-skills";
 
 export function hasCloudApiBackendConfig(config: ServerConfig): boolean {
   return Boolean(config.cloudApiUrl);
@@ -56,6 +57,7 @@ export function createCloudApiBackend(
     telemetry: createTelemetryModule(client),
     sync: createSyncModule(client),
     system: createSystemModule(client),
+    teamSkills: createTeamSkillsModule(client),
   };
 }
 

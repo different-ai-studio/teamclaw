@@ -75,7 +75,7 @@ export function TeamShareNavSection() {
   const handleSelect = React.useCallback(
     (section: TeamShareSection) => {
       setFilter({ kind: 'teamShare', section })
-      void loadSection(section, { withTools: section === 'mcp' })
+      void loadSection(section, { force: true, withTools: section === 'mcp' })
     },
     [setFilter, loadSection],
   )

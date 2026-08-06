@@ -1,23 +1,37 @@
 import * as React from 'react'
 import { useTranslation } from 'react-i18next'
-import { Search, Plus, Sparkles, Plug, Box, Lock, FileText, Bookmark, Loader2 } from 'lucide-react'
+import {
+  Search,
+  Sparkles,
+  Plug,
+  Box,
+  Lock,
+  FileText,
+  Bookmark,
+  Loader2,
+  Check,
+  ArrowUpCircle,
+} from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { cn } from '@/lib/utils'
 import { SidebarCollapseToggle } from '@/components/app-sidebar'
 import { TrafficLights } from '@/components/ui/traffic-lights'
 import { useSidebar } from '@/components/ui/sidebar'
-import { useUIStore, type SettingsSection } from '@/stores/ui'
 import { useEnvVarsStore } from '@/stores/env-vars'
-import { useTeamShareBrowserStore, type TeamShareSection } from '@/stores/team-share-browser'
+import {
+  useTeamShareBrowserStore,
+  type TeamShareSection,
+  type TeamSkillKind,
+} from '@/stores/team-share-browser'
 
 const SECTION_META: Record<
   TeamShareSection,
-  { icon: React.ComponentType<{ className?: string }>; titleKey: string; titleFallback: string; settings: SettingsSection }
+  { icon: React.ComponentType<{ className?: string }>; titleKey: string; titleFallback: string }
 > = {
-  skills: { icon: Sparkles, titleKey: 'teamShare.skills', titleFallback: 'Skills', settings: 'skills' },
-  mcp: { icon: Plug, titleKey: 'teamShare.mcp', titleFallback: 'MCP', settings: 'mcp' },
-  env: { icon: Box, titleKey: 'teamShare.env', titleFallback: 'Team Env', settings: 'envVars' },
-  knowledge: { icon: Bookmark, titleKey: 'teamShare.knowledge', titleFallback: 'Knowledge', settings: 'knowledge' },
+  skills: { icon: Sparkles, titleKey: 'teamShare.skills', titleFallback: 'Skills' },
+  mcp: { icon: Plug, titleKey: 'teamShare.mcp', titleFallback: 'MCP' },
+  env: { icon: Box, titleKey: 'teamShare.env', titleFallback: 'Team Env' },
+  knowledge: { icon: Bookmark, titleKey: 'teamShare.knowledge', titleFallback: 'Knowledge' },
 }
 
 interface RowProps {
@@ -27,11 +41,28 @@ interface RowProps {
   title: string
   titleMono?: boolean
   subtitle?: string
+  meta?: string
+  badge?: React.ReactNode
   statusDot?: 'ready' | 'failed' | 'idle'
+  trailing?: React.ReactNode
+  dimmed?: boolean
   onClick: () => void
 }
 
-function ItemRow({ active, icon: Icon, iconTint, title, titleMono, subtitle, statusDot, onClick }: RowProps) {
+function ItemRow({
+  active,
+  icon: Icon,
+  iconTint,
+  title,
+  titleMono,
+  subtitle,
+  meta,
+  badge,
+  statusDot,
+  trailing,
+  dimmed,
+  onClick,
+}: RowProps) {
   return (
     <button
       type="button"
@@ -49,9 +80,18 @@ function ItemRow({ active, icon: Icon, iconTint, title, titleMono, subtitle, sta
       >
         <Icon className="h-[15px] w-[15px]" />
       </span>
-      <span className="flex min-w-0 flex-1 flex-col">
-        <span className={cn('truncate text-[13.5px] font-semibold text-foreground', titleMono && 'font-mono text-[12.5px]')}>
-          {title}
+      <span className="flex min-w-0 flex-1 flex-col gap-0.5">
+        <span className="flex min-w-0 items-center gap-1.5">
+          <span
+            className={cn(
+              'truncate text-[13.5px] font-semibold',
+              titleMono && 'font-mono text-[12.5px]',
+              dimmed ? 'text-muted-foreground' : 'text-foreground',
+            )}
+          >
+            {title}
+          </span>
+          {badge}
         </span>
         {subtitle && (
           <span className="flex items-center gap-1.5 truncate text-[11.5px] text-muted-foreground">
@@ -68,9 +108,33 @@ function ItemRow({ active, icon: Icon, iconTint, title, titleMono, subtitle, sta
             <span className="truncate">{subtitle}</span>
           </span>
         )}
+        {meta && <span className="truncate font-mono text-[10.5px] text-faint">{meta}</span>}
       </span>
+      {trailing && <span className="flex shrink-0 items-center">{trailing}</span>}
     </button>
   )
+}
+
+function GroupHeader({ label, count }: { label: string; count: number }) {
+  return (
+    <div className="flex items-center gap-1.5 px-4 pb-1 pt-3 first:pt-2">
+      <span className="text-[10.5px] font-semibold uppercase tracking-[0.8px] text-faint">{label}</span>
+      <span className="font-mono text-[10.5px] text-faint">· {count}</span>
+    </div>
+  )
+}
+
+type SkillRow = {
+  id: string
+  kind: TeamSkillKind
+  icon: typeof Sparkles
+  iconTint: string
+  title: string
+  subtitle?: string
+  meta?: string
+  badge?: React.ReactNode
+  dimmed?: boolean
+  trailing?: React.ReactNode
 }
 
 export function TeamShareListColumn({ section }: { section: TeamShareSection }) {
@@ -79,7 +143,6 @@ export function TeamShareListColumn({ section }: { section: TeamShareSection }) 
   const sidebarCollapsed = sidebarState === 'collapsed'
   const meta = SECTION_META[section]
 
-  const openSettings = useUIStore((s) => s.openSettings)
   const selected = useTeamShareBrowserStore((s) => s.selectedId[section])
   const select = useTeamShareBrowserStore((s) => s.select)
   const loadSection = useTeamShareBrowserStore((s) => s.loadSection)
@@ -92,15 +155,20 @@ export function TeamShareListColumn({ section }: { section: TeamShareSection }) 
   const [query, setQuery] = React.useState('')
   const [searchOpen, setSearchOpen] = React.useState(false)
 
-  // Reset transient UI when switching section; ensure data is loaded.
   React.useEffect(() => {
     setQuery('')
     setSearchOpen(false)
-    void loadSection(section, { withTools: section === 'mcp' })
+    void loadSection(section, { force: true, withTools: section === 'mcp' })
   }, [section, loadSection])
 
   const loading =
-    section === 'skills' ? skills.loading : section === 'mcp' ? mcp.loading : section === 'knowledge' ? knowledge.loading : false
+    section === 'skills'
+      ? skills.loading
+      : section === 'mcp'
+        ? mcp.loading
+        : section === 'knowledge'
+          ? knowledge.loading
+          : false
 
   const count =
     section === 'skills'
@@ -113,18 +181,84 @@ export function TeamShareListColumn({ section }: { section: TeamShareSection }) 
 
   const q = query.trim().toLowerCase()
 
-  const rows = React.useMemo(() => {
-    if (section === 'skills') {
-      return skills.items
-        .filter((s) => !q || s.name.toLowerCase().includes(q) || s.slug.toLowerCase().includes(q))
-        .map((s) => ({
+  const skillRows = React.useMemo((): SkillRow[] => {
+    if (section !== 'skills') return []
+    return skills.items
+      .filter(
+        (s) =>
+          !q ||
+          s.name.toLowerCase().includes(q) ||
+          s.slug.toLowerCase().includes(q) ||
+          (s.summary?.toLowerCase().includes(q) ?? false),
+      )
+      .map((s) => {
+        const metaParts: string[] = []
+        if (s.kind === 'personal') {
+          if (s.personalSourceLabel) metaParts.push(s.personalSourceLabel)
+          if (s.category) metaParts.push(s.category)
+        } else {
+          if (s.category) metaParts.push(s.category)
+          if (s.hasUpdate && s.installedVersion != null && s.latestVersion != null) {
+            metaParts.push(`v${s.installedVersion} → v${s.latestVersion}`)
+          } else if (s.latestVersion) metaParts.push(`v${s.latestVersion}`)
+        }
+        return {
           id: s.slug,
+          kind: s.kind,
           icon: Sparkles,
           iconTint: 'bg-coral/10 text-coral',
           title: s.name,
-          subtitle: s.category ?? s.invocationName,
-        }))
-    }
+          subtitle: s.summary || undefined,
+          meta: metaParts.filter(Boolean).join(' · ') || undefined,
+          badge:
+            s.status === 'deprecated' ? (
+              <span className="shrink-0 rounded bg-muted px-1.5 py-0.5 text-[9.5px] font-semibold uppercase tracking-wide text-muted-foreground">
+                {t('teamShare.skillDeprecated', 'Deprecated')}
+              </span>
+            ) : undefined,
+          dimmed: s.status === 'deprecated',
+          trailing:
+            s.kind === 'team-installed' ? (
+              s.hasUpdate ? (
+                <ArrowUpCircle
+                  className="h-[15px] w-[15px] text-coral"
+                  aria-label={t('teamShare.skillHasUpdate', 'Update available')}
+                />
+              ) : (
+                <Check
+                  className="h-[15px] w-[15px] text-muted-foreground"
+                  aria-label={t('teamShare.skillInstalled', 'Installed')}
+                />
+              )
+            ) : undefined,
+        }
+      })
+  }, [section, q, skills.items, t])
+
+  const skillGroups = React.useMemo(() => {
+    const available = skillRows.filter((r) => r.kind === 'team-available')
+    const installed = skillRows.filter((r) => r.kind === 'team-installed')
+    const personal = skillRows.filter((r) => r.kind === 'personal')
+    return [
+      {
+        key: 'available' as const,
+        label: t('teamShare.skillGroupAvailable', 'Team · Available'),
+        rows: available,
+      },
+      {
+        key: 'installed' as const,
+        label: t('teamShare.skillGroupInstalled', 'Team · Installed'),
+        rows: installed,
+      },
+      {
+        key: 'personal' as const,
+        label: t('teamShare.skillGroupPersonal', 'Personal'),
+        rows: personal,
+      },
+    ].filter((g) => g.rows.length > 0 || !q)
+  }, [skillRows, t, q])
+
+  const otherRows = React.useMemo(() => {
     if (section === 'mcp') {
       return mcp.items
         .filter((m) => !q || m.name.toLowerCase().includes(q))
@@ -161,18 +295,29 @@ export function TeamShareListColumn({ section }: { section: TeamShareSection }) 
           }
         })
     }
-    // env
-    return teamSecrets
-      .filter((e) => !q || e.keyId.toLowerCase().includes(q))
-      .map((e) => ({
-        id: e.keyId,
-        icon: e.category === 'config' ? Box : Lock,
-        iconTint: 'bg-muted text-muted-foreground',
-        title: e.keyId,
-        titleMono: true,
-        subtitle: e.category || t('teamShare.envDetail.secret', 'Secret'),
-      }))
-  }, [section, q, skills.items, mcp.items, knowledge.items, teamSecrets, t])
+    if (section === 'env') {
+      return teamSecrets
+        .filter((e) => !q || e.keyId.toLowerCase().includes(q))
+        .map((e) => ({
+          id: e.keyId,
+          icon: e.category === 'config' ? Box : Lock,
+          iconTint: 'bg-muted text-muted-foreground',
+          title: e.keyId,
+          titleMono: true,
+          subtitle: e.category || t('teamShare.envDetail.secret', 'Secret'),
+        }))
+    }
+    return []
+  }, [section, q, mcp.items, knowledge.items, teamSecrets, t])
+
+  const installedCount = React.useMemo(
+    () => skills.items.filter((s) => s.kind === 'team-installed').length,
+    [skills.items],
+  )
+  const registryCount = React.useMemo(
+    () => skills.items.filter((s) => s.kind !== 'personal').length,
+    [skills.items],
+  )
 
   return (
     <div className="flex h-full min-w-0 flex-col border-r border-border bg-background">
@@ -187,7 +332,11 @@ export function TeamShareListColumn({ section }: { section: TeamShareSection }) 
           <meta.icon className="h-4 w-4 shrink-0 text-muted-foreground" />
           <div className="truncate text-[15px] font-bold tracking-tight text-foreground">
             {t(meta.titleKey, meta.titleFallback)}
-            <span className="font-mono text-[11px] font-normal text-faint"> · {count}</span>
+            <span className="font-mono text-[11px] font-normal text-faint">
+              {' '}
+              ·{' '}
+              {section === 'skills' ? `${installedCount}/${registryCount}` : count}
+            </span>
           </div>
         </div>
         <div className="flex shrink-0 items-center gap-0.5">
@@ -200,16 +349,6 @@ export function TeamShareListColumn({ section }: { section: TeamShareSection }) 
             title={t('common.search', 'Search')}
           >
             <Search className="h-4 w-4" />
-          </Button>
-          <Button
-            type="button"
-            variant="ghost"
-            size="icon"
-            className="h-7 w-7 text-muted-foreground hover:text-foreground"
-            onClick={() => openSettings(meta.settings)}
-            title={t('teamShare.manageInSettings', 'Manage in settings')}
-          >
-            <Plus className="h-4 w-4" />
           </Button>
         </div>
       </div>
@@ -227,26 +366,66 @@ export function TeamShareListColumn({ section }: { section: TeamShareSection }) 
       )}
 
       <div className="min-h-0 flex-1 overflow-y-auto overflow-x-hidden">
-        {loading && rows.length === 0 ? (
+        {loading && count === 0 ? (
           <div className="flex items-center justify-center gap-2 py-10 text-[13px] text-muted-foreground">
             <Loader2 className="h-4 w-4 animate-spin" />
             {t('common.loading', 'Loading…')}
           </div>
-        ) : rows.length === 0 ? (
+        ) : section === 'skills' ? (
+          skillRows.length === 0 ? (
+            <div className="px-6 py-10 text-center text-[13px] text-muted-foreground">
+              {t(
+                'teamShare.skillsEmptyUnified',
+                'No team or personal skills yet. Add a skill folder on disk, or wait for a teammate to publish.',
+              )}
+            </div>
+          ) : (
+            skillGroups.map((group) => (
+              <div key={group.key}>
+                <GroupHeader label={group.label} count={group.rows.length} />
+                {group.rows.length === 0 ? (
+                  <div className="px-4 pb-2 text-[11.5px] text-faint">
+                    {t('teamShare.skillGroupEmpty', 'None')}
+                  </div>
+                ) : (
+                  group.rows.map((row) => (
+                    <ItemRow
+                      key={`${row.kind}-${row.id}`}
+                      active={selected === row.id}
+                      icon={row.icon}
+                      iconTint={row.iconTint}
+                      title={row.title}
+                      subtitle={row.subtitle}
+                      meta={row.meta}
+                      badge={row.badge}
+                      trailing={row.trailing}
+                      dimmed={row.dimmed}
+                      onClick={() => select(section, row.id)}
+                    />
+                  ))
+                )}
+              </div>
+            ))
+          )
+        ) : otherRows.length === 0 ? (
           <div className="px-6 py-10 text-center text-[13px] text-muted-foreground">
             {t('teamShare.empty', 'Nothing shared with the team yet.')}
           </div>
         ) : (
-          rows.map((row) => (
+          otherRows.map((row) => (
             <ItemRow
               key={row.id}
               active={selected === row.id}
               icon={row.icon}
               iconTint={row.iconTint}
               title={row.title}
-              titleMono={'titleMono' in row ? (row.titleMono as boolean) : false}
+              titleMono={'titleMono' in row ? Boolean(row.titleMono) : false}
               subtitle={row.subtitle}
-              statusDot={'statusDot' in row ? (row.statusDot as 'ready' | 'failed' | 'idle') : undefined}
+              statusDot={
+                'statusDot' in row
+                  ? (row.statusDot as 'ready' | 'failed' | 'idle' | undefined)
+                  : undefined
+              }
               onClick={() => select(section, row.id)}
             />
           ))

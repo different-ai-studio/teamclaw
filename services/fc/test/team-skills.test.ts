@@ -1,0 +1,227 @@
+import { test } from "node:test";
+import assert from "node:assert/strict";
+import { handleBusinessApiRequest } from "../src/lib/business-api.js";
+
+// Route-level coverage for the team skills registry.
+// Design: docs/architecture/team-skills-registry.md
+
+function fakeRepo(overrides: Record<string, unknown> = {}) {
+  const calls: Array<{ method: string; args: unknown[] }> = [];
+  const record =
+    (method: string, result: unknown = null) =>
+    (...args: unknown[]) => {
+      calls.push({ method, args });
+      return Promise.resolve(result);
+    };
+  return {
+    calls,
+    listTeamSkills: record("listTeamSkills", []),
+    listTeamSkillInstalls: record("listTeamSkillInstalls", []),
+    getTeamSkill: record("getTeamSkill", { slug: "deploy-check", versions: [] }),
+    createTeamSkill: record("createTeamSkill", { slug: "deploy-check" }),
+    createTeamSkillVersion: record("createTeamSkillVersion", { version: 2 }),
+    getTeamSkillVersion: record("getTeamSkillVersion", { version: 1, contentHash: "abc" }),
+    updateTeamSkill: record("updateTeamSkill", { slug: "deploy-check", status: "deprecated" }),
+    deleteTeamSkill: record("deleteTeamSkill"),
+    prepareTeamSkillBlob: record("prepareTeamSkillBlob", {
+      contentHash: "a".repeat(64),
+      size: 12,
+      ossKey: "teams/team-1/blobs/sha256/aa/aa/" + "a".repeat(64),
+    }),
+    completeTeamSkillBlob: record("completeTeamSkillBlob", {
+      contentHash: "a".repeat(64),
+      size: 12,
+      ossKey: "teams/team-1/blobs/sha256/aa/aa/" + "a".repeat(64),
+    }),
+    installTeamSkill: record("installTeamSkill", { installedVersion: 3 }),
+    uninstallTeamSkill: record("uninstallTeamSkill"),
+    ...overrides,
+  };
+}
+
+function request(overrides: Record<string, unknown>, repo: unknown) {
+  return handleBusinessApiRequest(
+    {
+      headers: { Authorization: "Bearer caller-token" },
+      ...overrides,
+    } as never,
+    { createRepository: () => repo } as never,
+  );
+}
+
+test("GET /v1/teams/:id/skills returns the full registry", async () => {
+  const repo = fakeRepo({
+    listTeamSkills: async () => [
+      { slug: "deploy-check", installed: true, hasUpdate: true, latestVersion: 3 },
+      { slug: "triage", installed: false, hasUpdate: false, latestVersion: 1 },
+    ],
+  });
+  const res = await request(
+    { httpMethod: "GET", path: "/v1/teams/team-1/skills" },
+    repo,
+  );
+  assert.equal(res.statusCode, 200);
+  const body = JSON.parse(res.body);
+  // The list is the whole registry, not just what the caller installed —
+  // "installed" is a decoration, not a filter.
+  assert.equal(body.items.length, 2);
+  assert.equal(body.items[1].installed, false);
+});
+
+test("GET skills forwards actorId so an admin can inspect a team agent", async () => {
+  const repo = fakeRepo();
+  await request(
+    {
+      httpMethod: "GET",
+      path: "/v1/teams/team-1/skills",
+      queryStringParameters: { actorId: "agent-actor-1", status: "published" },
+    },
+    repo,
+  );
+  assert.deepEqual(repo.calls[0], {
+    method: "listTeamSkills",
+    args: ["team-1", { actorId: "agent-actor-1", status: "published" }],
+  });
+});
+
+test("POST /v1/teams/:id/skills publishes and returns 201", async () => {
+  const repo = fakeRepo();
+  const res = await request(
+    {
+      httpMethod: "POST",
+      path: "/v1/teams/team-1/skills",
+      body: JSON.stringify({
+        slug: "deploy-check",
+        summary: "发布前检查清单",
+        category: "devops",
+        whenToUse: "发布前",
+        whenNotToUse: "本地开发不要用",
+        changelog: "first",
+        contentHash: "sha256:abc",
+      }),
+    },
+    repo,
+  );
+  assert.equal(res.statusCode, 201);
+  assert.equal(repo.calls[0].method, "createTeamSkill");
+});
+
+test("POST versions publishes a new version", async () => {
+  const repo = fakeRepo();
+  const res = await request(
+    {
+      httpMethod: "POST",
+      path: "/v1/teams/team-1/skills/deploy-check/versions",
+      body: JSON.stringify({ contentHash: "sha256:def", changelog: "fix typo" }),
+    },
+    repo,
+  );
+  assert.equal(res.statusCode, 201);
+  assert.deepEqual(repo.calls[0].args, [
+    "team-1",
+    "deploy-check",
+    { contentHash: "sha256:def", changelog: "fix typo" },
+  ]);
+});
+
+test("GET a version rejects a non-numeric version rather than passing it down", async () => {
+  const repo = fakeRepo();
+  const res = await request(
+    { httpMethod: "GET", path: "/v1/teams/team-1/skills/deploy-check/versions/latest" },
+    repo,
+  );
+  assert.equal(res.statusCode, 400);
+  assert.equal(repo.calls.length, 0);
+});
+
+test("PATCH deprecates with a replacement pointer", async () => {
+  const repo = fakeRepo();
+  const res = await request(
+    {
+      httpMethod: "PATCH",
+      path: "/v1/teams/team-1/skills/deploy-check",
+      body: JSON.stringify({ status: "deprecated", supersededBy: "hotfix-deploy" }),
+    },
+    repo,
+  );
+  assert.equal(res.statusCode, 200);
+  assert.deepEqual(repo.calls[0].args[2], {
+    status: "deprecated",
+    supersededBy: "hotfix-deploy",
+  });
+});
+
+test("PUT install passes the target actor through", async () => {
+  const repo = fakeRepo();
+  const res = await request(
+    {
+      httpMethod: "PUT",
+      path: "/v1/teams/team-1/skills/deploy-check/install",
+      body: JSON.stringify({ actorId: "agent-actor-1", version: 3, scope: "global" }),
+    },
+    repo,
+  );
+  assert.equal(res.statusCode, 200);
+  assert.deepEqual(repo.calls[0].args[2], {
+    actorId: "agent-actor-1",
+    version: 3,
+    scope: "global",
+  });
+});
+
+test("DELETE install accepts actorId as a query param", async () => {
+  // DELETE bodies are legal but awkward for some HTTP clients, so the route
+  // folds ?actorId= into the body shape the repository expects.
+  const repo = fakeRepo();
+  const res = await request(
+    {
+      httpMethod: "DELETE",
+      path: "/v1/teams/team-1/skills/deploy-check/install",
+      queryStringParameters: { actorId: "agent-actor-1" },
+    },
+    repo,
+  );
+  assert.equal(res.statusCode, 204);
+  assert.deepEqual(repo.calls[0].args[2], { actorId: "agent-actor-1" });
+});
+
+test("GET skill-installs is the reconcile list a daemon pulls", async () => {
+  const repo = fakeRepo({
+    listTeamSkillInstalls: async () => [
+      { slug: "deploy-check", installedVersion: 2, latestVersion: 3, hasUpdate: true },
+    ],
+  });
+  const res = await request(
+    {
+      httpMethod: "GET",
+      path: "/v1/teams/team-1/skill-installs",
+      queryStringParameters: { actorId: "agent-actor-1" },
+    },
+    repo,
+  );
+  assert.equal(res.statusCode, 200);
+  assert.equal(JSON.parse(res.body).items[0].hasUpdate, true);
+});
+
+test("POST skill-blobs/prepare is routed to the repository", async () => {
+  const { ApiError } = await import("../src/lib/http-utils.js");
+  const seen: unknown[] = [];
+  const repo = fakeRepo({
+    prepareTeamSkillBlob: async (...args: unknown[]) => {
+      seen.push(args);
+      // Fail before the route HEADs OSS so the test stays offline-safe.
+      throw new ApiError(400, "validation_failed", "skip-oss-for-test");
+    },
+  });
+  const res = await request(
+    {
+      httpMethod: "POST",
+      path: "/v1/teams/team-1/skill-blobs/prepare",
+      body: JSON.stringify({ contentHash: "a".repeat(64), size: 12 }),
+    },
+    repo,
+  );
+  assert.equal(res.statusCode, 400);
+  assert.equal(seen.length, 1);
+  assert.deepEqual(seen[0], ["team-1", { contentHash: "a".repeat(64), size: 12 }]);
+});

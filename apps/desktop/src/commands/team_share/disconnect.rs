@@ -29,7 +29,11 @@ pub fn global_team_home_dir(team_id: &str) -> Option<PathBuf> {
     if team_id.trim().is_empty() {
         return None;
     }
-    Some(crate::commands::amuxd_home_dir().join("teams").join(team_id))
+    Some(
+        crate::commands::amuxd_home_dir()
+            .join("teams")
+            .join(team_id),
+    )
 }
 
 /// `~/.amuxd/team-secrets/<team_id>.enc` — the daemon's encrypted team secrets.

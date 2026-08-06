@@ -1127,18 +1127,12 @@ pub async fn install_skill_from_git_url(
     // Discover skills using vercel-labs/skills pattern
     let found_dir = discover_skill_directory(&temp_dir, slug)?;
 
-    // Determine target directory based on install location
-    let target_dir = if is_global {
+    // Always land in ~/.agents/skills (shared by OpenCode / Claude / Pi).
+    // `workspace_path` / `is_global` remain in the signature for API stability.
+    let _ = (workspace_path.as_ref(), is_global);
+    let target_dir = {
         let home = dirs::home_dir().ok_or_else(|| "HOME directory not found".to_string())?;
-        crate::opencode_paths::global_opencode_config_skills_dir(&home).join(slug)
-    } else {
-        // Workspace install: <workspace>/.opencode/skills/<slug>
-        let ws_path = workspace_path
-            .ok_or_else(|| "Workspace path required for workspace installation".to_string())?;
-        Path::new(&ws_path)
-            .join(".opencode")
-            .join("skills")
-            .join(slug)
+        home.join(".agents").join("skills").join(slug)
     };
 
     // Remove existing if any
@@ -1155,12 +1149,11 @@ pub async fn install_skill_from_git_url(
     // Cleanup
     let _ = fs::remove_dir_all(&temp_dir);
 
-    let location = if is_global {
-        "globally"
-    } else {
-        "to workspace"
-    };
-    Ok(format!("Successfully installed {} {}", slug, location))
+    Ok(format!(
+        "Successfully installed {} to {}",
+        slug,
+        target_dir.display()
+    ))
 }
 
 // ─── Import skill from local .zip (manual upload) ─────────────────────────────
@@ -1299,6 +1292,9 @@ pub fn import_skill_from_zip(
 ) -> Result<String, String> {
     use std::fs;
 
+    // Always lands in ~/.agents/skills; params kept for API stability.
+    let _ = (workspace_path.as_ref(), is_global);
+
     let zip_path = PathBuf::from(zip_path.trim());
     if !zip_path.is_file() {
         return Err("Zip file not found".to_string());
@@ -1352,17 +1348,8 @@ pub fn import_skill_from_zip(
 
         validate_skill_import_slug(&slug)?;
 
-        let target_dir = if is_global {
-            let home = dirs::home_dir().ok_or_else(|| "HOME directory not found".to_string())?;
-            crate::opencode_paths::global_opencode_config_skills_dir(&home).join(&slug)
-        } else {
-            let ws_path = workspace_path
-                .ok_or_else(|| "Workspace path required for workspace installation".to_string())?;
-            Path::new(&ws_path)
-                .join(".opencode")
-                .join("skills")
-                .join(&slug)
-        };
+        let home = dirs::home_dir().ok_or_else(|| "HOME directory not found".to_string())?;
+        let target_dir = home.join(".agents").join("skills").join(&slug);
 
         if target_dir.exists() {
             let _ = fs::remove_dir_all(&target_dir);
@@ -1639,10 +1626,10 @@ pub async fn npx_skills_add(
     }
 
     args_owned.extend(["--agent".into(), "opencode".into()]);
-
-    if is_global {
-        args_owned.push("-g".into());
-    }
+    // Always global — TeamClaw installs into ~/.agents/skills and points
+    // runtime configs at that root via ensure_agents_skills_paths.
+    args_owned.push("-g".into());
+    let _ = is_global;
 
     args_owned.push("-y".into());
     args_owned.push("--copy".into());
@@ -1664,10 +1651,8 @@ pub async fn npx_skills_remove(
     let mut args_owned: Vec<String> = vec!["skills".into(), "remove".into(), skill_name.clone()];
 
     args_owned.extend(["--agent".into(), "opencode".into()]);
-
-    if is_global {
-        args_owned.push("-g".into());
-    }
+    args_owned.push("-g".into());
+    let _ = is_global;
 
     args_owned.push("-y".into());
 
@@ -1690,16 +1675,14 @@ pub async fn npx_skills_remove(
         }
     }
 
-    if is_global {
-        if let Ok(home) = std::env::var("HOME") {
-            let home = std::path::Path::new(&home);
-            for sub in &[
-                ".config/opencode/skills",
-                ".agents/skills",
-                ".claude/skills",
-            ] {
-                dirs_to_remove.push(home.join(sub).join(&skill_name));
-            }
+    if let Ok(home) = std::env::var("HOME") {
+        let home = std::path::Path::new(&home);
+        for sub in &[
+            ".agents/skills",
+            ".config/opencode/skills",
+            ".claude/skills",
+        ] {
+            dirs_to_remove.push(home.join(sub).join(&skill_name));
         }
     }
 
