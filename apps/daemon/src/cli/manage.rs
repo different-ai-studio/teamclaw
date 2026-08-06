@@ -8,7 +8,6 @@ use std::path::{Path, PathBuf};
 use dialoguer::{theme::ColorfulTheme, Confirm, Input, Password, Select};
 use serde::Deserialize;
 
-use crate::backend::Backend;
 use crate::config::{
     encode_workspace_path, workspace_path::listable_local_workspace, AgentBackendConfig,
     DaemonConfig, OpenCodeCompatStore, ProviderAuthRequest, ProviderModelConfig,
@@ -943,6 +942,7 @@ fn is_process_alive(pid: i32) -> bool {
 struct HttpSyncStatus {
     mode: Option<String>,
     last_sync_at: String,
+    #[allow(dead_code)]
     syncing: bool,
     last_error: Option<String>,
     pulled: u32,

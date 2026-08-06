@@ -219,6 +219,7 @@ describe('TeamGitConfig status panel', () => {
       expect(mockInvoke).toHaveBeenCalledWith('team_shared_git_sync', {
         config: { workspacePath: '/workspace-a' },
         force: false,
+        forceSync: true,
       })
     })
   })
