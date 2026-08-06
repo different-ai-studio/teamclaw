@@ -236,6 +236,21 @@ pub struct AgentsConfig {
     /// `AgentType::Unknown` rather than silently falling back to opencode.
     #[serde(default = "default_local_agent")]
     pub local_agent: String,
+    /// Ceiling on concurrently running `opencode serve` children.
+    ///
+    /// One child is spawned per *distinct* resolved runtime env, because env is
+    /// inherited at spawn and is process-wide (see `runtime/opencode_http/
+    /// supervisor.rs`). A single-team device therefore runs exactly one no
+    /// matter what this is set to; the ceiling only bites when workspaces from
+    /// different teams are open at once.
+    ///
+    /// Default 2, because a serve child measures ~250 MB of physical footprint
+    /// and almost none of it is shared between instances — a higher ceiling
+    /// trades real desktop memory for the ability to keep more teams' sessions
+    /// alive simultaneously. Raise it if you routinely work across three or
+    /// more teams and would rather spend the memory than wait for a slot.
+    #[serde(default = "default_max_serve_instances")]
+    pub max_serve_instances: usize,
     #[serde(default)]
     pub claude_code: Option<AgentBackendConfig>,
     #[serde(default)]
@@ -285,11 +300,16 @@ fn default_local_agent() -> String {
     "opencode".to_string()
 }
 
+fn default_max_serve_instances() -> usize {
+    2
+}
+
 impl Default for AgentsConfig {
     fn default() -> Self {
         Self {
             auto_discover: true,
             local_agent: default_local_agent(),
+            max_serve_instances: default_max_serve_instances(),
             claude_code: None,
             opencode: None,
             codex: None,
@@ -622,9 +642,9 @@ impl DaemonConfig {
         Self::config_dir().join("amuxd.http.port")
     }
 
-    /// Process-group id of the managed `opencode serve` tree (Unix). Written
-    /// while serve is live so `amuxd stop` can reap the group even if the
-    /// daemon was hard-killed mid-shutdown.
+    /// Process-group leaders of the managed `opencode serve` children (Unix),
+    /// one per line. Written while any serve is live so `amuxd stop` can reap
+    /// every group even if the daemon was hard-killed mid-shutdown.
     pub fn opencode_serve_pgid_path() -> PathBuf {
         Self::config_dir().join("opencode.serve.pgid")
     }

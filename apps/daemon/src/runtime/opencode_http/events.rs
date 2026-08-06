@@ -40,7 +40,7 @@ async fn sse_loop(shared: Arc<Shared>, directory: String) {
     let mut backoff = BACKOFF_MIN;
     loop {
         shared.mark_sse_disconnected(&directory);
-        let client = match shared.serve.ensure().await {
+        let client = match shared.serve.ensure_for_workspace(&directory).await {
             Ok(c) => c,
             Err(e) => {
                 warn!(directory = %directory, error = %e, "SSE: serve unavailable; retrying");
@@ -124,7 +124,7 @@ async fn reconcile_turns_after_reconnect(shared: Arc<Shared>, directory: String)
     if session_ids.is_empty() {
         return;
     }
-    let client = match shared.serve.ensure().await {
+    let client = match shared.serve.ensure_for_workspace(&directory).await {
         Ok(c) => c,
         Err(_) => return,
     };
@@ -332,7 +332,7 @@ async fn handle_permission_asked(
         // Full-access sessions (gateway conversations, cron jobs) have no human
         // to ask — auto-allow rather than wait forever.
         info!(session_id, permission_id = %permission_id, "auto-allow full-access permission");
-        if let Ok(client) = shared.serve.ensure().await {
+        if let Ok(client) = shared.serve.ensure_for_workspace(&directory).await {
             if let Err(e) = client
                 .permission_respond(&directory, session_id, &permission_id, "once")
                 .await
@@ -441,8 +441,12 @@ async fn resolve_parent_session_id(shared: &Arc<Shared>, child_id: &str) -> Opti
     if directories.is_empty() {
         return None;
     }
-    let client = shared.serve.ensure().await.ok()?;
     for directory in directories {
+        // Directories can be served by different pool instances, so resolve a
+        // client per directory rather than probing them all through one.
+        let Ok(client) = shared.serve.ensure_for_workspace(&directory).await else {
+            continue;
+        };
         match client.get_session(&directory, child_id).await {
             Ok(Some(session)) => {
                 return session
@@ -510,7 +514,7 @@ async fn handle_question_asked(shared: &Arc<Shared>, session_id: &str, props: &s
     };
     if let Some(directory) = full_access {
         info!(session_id, request_id, "auto-reject full-access question");
-        if let Ok(client) = shared.serve.ensure().await {
+        if let Ok(client) = shared.serve.ensure_for_workspace(&directory).await {
             if let Err(e) = client.question_reject(&directory, request_id).await {
                 warn!(session_id, error = %e, "full-access question auto-reject failed");
             }
@@ -556,7 +560,7 @@ pub(super) async fn resync_pending_questions(shared: &Arc<Shared>, session_id: &
         };
         route.directory.clone()
     };
-    let client = match shared.serve.ensure().await {
+    let client = match shared.serve.ensure_for_workspace(&directory).await {
         Ok(c) => c,
         Err(_) => return,
     };

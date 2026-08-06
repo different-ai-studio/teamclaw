@@ -354,20 +354,25 @@ fn reap_opencode_pgid_file() {
     let Ok(body) = fs::read_to_string(&path) else {
         return;
     };
-    let Ok(pgid) = body.trim().parse::<i32>() else {
-        let _ = fs::remove_file(&path);
-        return;
-    };
-    if pgid <= 1 {
-        let _ = fs::remove_file(&path);
-        return;
+    // The daemon runs one `opencode serve` per distinct runtime env and records
+    // each group leader on its own line.
+    for pgid in body
+        .lines()
+        .filter_map(|line| line.trim().parse::<i32>().ok())
+        .filter(|pgid| *pgid > 1)
+    {
+        reap_opencode_pgid(pgid);
     }
+    let _ = fs::remove_file(&path);
+}
+
+#[cfg(unix)]
+fn reap_opencode_pgid(pgid: i32) {
     // Identity check before signaling the whole group (PID/PGID reuse safety).
     match cmdline_of(pgid) {
         Some(cmd) if looks_like_opencode_serve(&cmd) => {}
         Some(cmd) => {
             println!("amuxd: refusing to reap pgid {pgid}: cmdline is not opencode serve ({cmd})");
-            let _ = fs::remove_file(&path);
             return;
         }
         None if !is_alive(pgid) => {
@@ -375,14 +380,12 @@ fn reap_opencode_pgid_file() {
             // (e.g. the daemon reaped the leader before the group finished
             // dying). Only reap when a surviving member is verifiably ours.
             if !(process_group_alive(pgid) && group_has_managed_member(pgid)) {
-                let _ = fs::remove_file(&path);
                 return;
             }
             println!("amuxd: opencode serve leader {pgid} is gone but group members remain");
         }
         None => {
             println!("amuxd: refusing to reap pgid {pgid}: cannot verify process identity");
-            let _ = fs::remove_file(&path);
             return;
         }
     }
@@ -402,7 +405,6 @@ fn reap_opencode_pgid_file() {
             kill_process_group(pgid, libc::SIGKILL);
         }
     }
-    let _ = fs::remove_file(&path);
 }
 
 /// MCP children that escaped the serve PG still hold our sock path in argv.
@@ -468,36 +470,38 @@ fn reap_opencode_pid_file_windows() {
     let Ok(body) = fs::read_to_string(&path) else {
         return;
     };
-    let Ok(pid) = body.trim().parse::<i32>() else {
-        let _ = fs::remove_file(&path);
-        return;
-    };
-    if pid <= 0 || !is_alive(pid) {
-        let _ = fs::remove_file(&path);
-        return;
+    // One line per live serve instance (the daemon runs one per distinct
+    // runtime env).
+    for pid in body
+        .lines()
+        .filter_map(|line| line.trim().parse::<i32>().ok())
+        .filter(|pid| *pid > 0)
+    {
+        if !is_alive(pid) {
+            continue;
+        }
+        // Verify image name looks like opencode before taskkill /T.
+        let verified = std::process::Command::new("tasklist")
+            .args(["/FI", &format!("PID eq {pid}"), "/FO", "CSV", "/NH"])
+            .output()
+            .ok()
+            .and_then(|o| {
+                let s = String::from_utf8_lossy(&o.stdout).to_ascii_lowercase();
+                if s.contains("opencode") {
+                    Some(())
+                } else {
+                    None
+                }
+            });
+        if verified.is_none() {
+            println!("amuxd: refusing to taskkill pid {pid}: not an opencode process");
+            continue;
+        }
+        println!("amuxd: taskkill /T opencode tree pid {pid}…");
+        let _ = std::process::Command::new("taskkill")
+            .args(["/PID", &pid.to_string(), "/T", "/F"])
+            .status();
     }
-    // Verify image name looks like opencode before taskkill /T.
-    let verified = std::process::Command::new("tasklist")
-        .args(["/FI", &format!("PID eq {pid}"), "/FO", "CSV", "/NH"])
-        .output()
-        .ok()
-        .and_then(|o| {
-            let s = String::from_utf8_lossy(&o.stdout).to_ascii_lowercase();
-            if s.contains("opencode") {
-                Some(())
-            } else {
-                None
-            }
-        });
-    if verified.is_none() {
-        println!("amuxd: refusing to taskkill pid {pid}: not an opencode process");
-        let _ = fs::remove_file(&path);
-        return;
-    }
-    println!("amuxd: taskkill /T opencode tree pid {pid}…");
-    let _ = std::process::Command::new("taskkill")
-        .args(["/PID", &pid.to_string(), "/T", "/F"])
-        .status();
     let _ = fs::remove_file(&path);
 }
 

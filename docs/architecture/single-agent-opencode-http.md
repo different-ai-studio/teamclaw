@@ -56,7 +56,7 @@ stdio 换成了 HTTP。
 
 | 组件 | 职责 | 替代 |
 |---|---|---|
-| `serve_supervisor` | spawn/守护全局 `opencode serve`（loopback + `OPENCODE_SERVER_PASSWORD`），健康检查、崩溃重启、版本校验 | `acp_host.rs` host pool、指纹键、evict 机制（整体删除） |
+| `serve_supervisor` | spawn/守护 `opencode serve`（loopback + `OPENCODE_SERVER_PASSWORD`），健康检查、崩溃重启、版本校验 | `acp_host.rs` host pool、指纹键、evict 机制（整体删除） |
 | `client` | OpenAPI 生成 types + 手写调用层（实际用到 ~10 个端点：session 创建/恢复、prompt_async、abort、权限应答、模型/配置） | `adapter.rs` 的 JSON-RPC 命令面 |
 | `events` | 全局 SSE 订阅 + 断线重连 + 按 sessionID 路由 | `adapter.rs` 通知管线（`NotifInflightGuard` 等） |
 | `translate` | SSE 事件 → `AcpEvent`（文本/思考/工具增量/权限/plan） | `adapter/translate.rs` |
@@ -168,3 +168,50 @@ MQTT，同一 `event_id`），前端在 `App.tsx` 按 `sessionId::eventId` 去�
   消息 `path.cwd` 落在对应目录，工具执行上下文按会话隔离。
 - 坑：目录过滤要求 canonicalize 后的路径；不设 `OPENCODE_SERVER_PASSWORD`
   则无鉴权。
+
+## 10. 修订：serve 从单实例改为按环境指纹池化（2026-08-06）
+
+§9 验证的是「一个 serve 进程能同时服务多个目录」，这对**会话**成立，对**环境
+变量**不成立：runtime env（个人密钥 + 团队密钥 + 团队 LLM 网关）是 spawn 时
+一次性注入、进程级的，没有 per-request 作用域。于是解析出不同 env 的两个
+workspace 无法共用一个子进程——共用要么让第二个 workspace 拿到第一个的密钥，
+要么把 A 团队的密钥泄漏进 B 团队 agent 的进程。
+
+单实例设计对这个矛盾的处理是**硬拒绝**：`attach_session` 发现新快照与在跑进程
+的指纹不一致且还有活跃会话时，返回 `env_snapshot_conflict`，整个 run 失败。
+线上（beta24）踩到的正是这条：env 在 daemon 预热期是**单调增长**的——团队密钥
+要等首次 git/OSS 同步落盘、`TEAMCLAW_TEAM_PROVIDER` 要等 team 解析出来、
+`TC_ACCESS_TOKEN_FILE` 曾挂在 `cloud_auth_health()` 这个会随 deferred backend
+被 claim 而翻转的动态信号上。用户在预热期开了任务 1（瘦 env），任务 1 还在跑
+时预热完成，开任务 2（胖 env），就撞上硬拒绝。单 workspace 也能复现。
+
+改为**按 env 指纹池化**：
+
+- `ServeSupervisor` 持有 `HashMap<fingerprint, ServeInstance>` 与
+  `canonical workspace -> 已解析快照` 两张表；`ensure_for_workspace(dir)` 取代
+  原来的全局 `ensure()`（所有调用点手上本来就有 directory）。
+- env 相同的 workspace 仍共用一个进程——单团队设备上的全部情况，所以 §1 用单
+  实例换掉的 50–70s 冷启动收益一分没丢；只有 env 真不同时才多付一个进程。
+- 池键用**实际生效**的 env 指纹，而非请求快照：spawn 会跳过 daemon 自身环境已
+  定义的 key（首次胜出，见 `host_env_shadowed` 诊断项），只在 shadowed key 上
+  有差异的两份快照因此仍是同一个进程。
+- 池上限来自 `daemon.toml` 的 `agents.max_serve_instances`，**默认 2**。满了先
+  淘汰没有活跃会话的 LRU 实例，全忙则等待 `POOL_FULL_WAIT`（30s）再报错；会话
+  detach 后回收空闲实例，始终留一个热的。
+
+  上限定这么低是实测的结果（macOS，opencode 1.17.7，本机 2026-08-06）：
+
+  | | RSS | phys_footprint |
+  |---|---|---|
+  | 单个 idle `opencode serve` | ~316 MB | 256 MB |
+  | 再起第二个（共享页仅 ~49 MB） | 115 + 255 MB | 256 + 275 MB |
+
+  也就是第二个实例的**边际**成本几乎等于第一个，共享的部分可以忽略。默认 2 的
+  最坏情况约 500 MB；单团队设备永远只会有 1 个实例（所有 workspace 解析出同一
+  份 env），跟改动前一模一样。跨三个以上团队同时开会话的用户可以自行调高。
+- 诊断从「全局 active 指纹」改为 per-workspace，`env_snapshot_conflict` 只在
+  「池满且全忙」时才出现，不再是环境一变就报。
+
+配套：pgid 文件改为每行一个进程组 leader（`amuxd stop` / 下次 spawn 按行回收
+不属于任何存活实例的孤儿组）；`TEAMCLAW_TEAM_PROVIDER` 的模型列表按 id 排序后
+再序列化，否则云端返回顺序一变就会在每次 60s TTL 刷新时重新指纹、白白换进程。

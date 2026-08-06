@@ -186,6 +186,20 @@ pub trait Backend: Send + Sync {
         None
     }
 
+    /// Whether this backend maintains the on-disk cloud access-token file that
+    /// runtimes read through `TC_ACCESS_TOKEN_FILE`.
+    ///
+    /// Static per backend kind, deliberately. Env assembly used to gate that
+    /// variable on [`Self::cloud_auth_health`], which is diagnostic-only and
+    /// flips from `None` to `Some` the moment a deferred backend is claimed —
+    /// so the same workspace resolved a smaller env before the claim and a
+    /// larger one after, for no configuration change at all. A backend either
+    /// runs the token refresher or it does not; that answer must not depend on
+    /// when it is asked.
+    fn maintains_cloud_token_file(&self) -> bool {
+        false
+    }
+
     /// Fetch runtime MQTT broker overrides from the cloud backend. Default
     /// implementation is a no-op for backends that have no remote config
     /// surface (e.g. mock, Supabase).

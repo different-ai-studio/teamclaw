@@ -60,10 +60,21 @@ pub fn assemble_spawn_runtime_env(
     // The secret is NOT embedded — the payload references `${tc_api_key}`, the
     // same env-interpolated key opencode uses, which is already in `extra_env`.
     if let ManagedLlmState::Enabled(provider) = managed_llm {
-        let models: Vec<serde_json::Value> = provider
+        // Sorted by id, because this string is part of the spawn env and the
+        // env's fingerprint decides which `opencode serve` process a workspace
+        // rides. The cloud model list arrives in whatever order the API
+        // returns; letting that order through would re-fingerprint the
+        // workspace on every managed-LLM TTL refresh and churn serve processes
+        // for a list that never actually changed.
+        let mut sorted_models: Vec<&teamclaw_runtime_env::ManagedLlmModel> = provider
             .models
             .iter()
             .filter(|m| !m.id.is_empty())
+            .collect();
+        sorted_models.sort_by(|left, right| left.id.cmp(&right.id));
+        sorted_models.dedup_by(|left, right| left.id == right.id);
+        let models: Vec<serde_json::Value> = sorted_models
+            .into_iter()
             .map(|m| {
                 serde_json::json!({
                     "id": m.id,

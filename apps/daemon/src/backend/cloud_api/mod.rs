@@ -568,6 +568,10 @@ impl Backend for CloudApiBackend {
         Some(self.auth_health.snapshot())
     }
 
+    fn maintains_cloud_token_file(&self) -> bool {
+        true
+    }
+
     async fn fetch_bootstrap_mqtt(&self) -> BackendResult<Option<BootstrapMqttOverride>> {
         let payload: BootstrapResponse = self.get("/v1/config/bootstrap").await?;
         Ok(payload.mqtt.map(|m| BootstrapMqttOverride {

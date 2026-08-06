@@ -121,10 +121,15 @@ impl DaemonServer {
         // maintaining it (mock backends have no auth surface). The refresher task
         // in `run()` is gated the same way, so the file exists whenever the path
         // is injected.
+        //
+        // This asks the *static* capability rather than `cloud_auth_health()`:
+        // the health snapshot is diagnostic-only and flips as a deferred
+        // backend is claimed, which silently changed this workspace's resolved
+        // env — and therefore which serve process it rides — mid-run.
         let cloud_token_file = self
             .backend
-            .cloud_auth_health()
-            .map(|_| crate::config::DaemonConfig::cloud_token_path())
+            .maintains_cloud_token_file()
+            .then(crate::config::DaemonConfig::cloud_token_path)
             .map(|p| p.to_string_lossy().into_owned());
 
         // Suppress immediately before sync disk writes (inherent MCP, then

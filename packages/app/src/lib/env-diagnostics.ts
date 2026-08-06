@@ -176,7 +176,7 @@ export function formatEnvActivationBlocker(
     case 'env_snapshot_conflict':
       return t('settings.envVars.diag.blockerSnapshotConflict', {
         workspace: detail ?? '',
-        defaultValue: `Another workspace is using a different environment snapshot: ${detail ?? ''}`,
+        defaultValue: `This workspace needs its own OpenCode runtime and every running one is busy — finish or stop a task in another workspace, then retry: ${detail ?? ''}`,
       })
     case 'unresolved_env_keys':
       return t('settings.envVars.diag.blockerUnresolvedEnvKeys', {
@@ -184,7 +184,7 @@ export function formatEnvActivationBlocker(
         defaultValue: `Variables could not be resolved for runtime injection: ${detail ?? ''}`,
       })
     case 'env_snapshot_pending':
-      return t('settings.envVars.diag.blockerEnvSnapshotPending', 'Resolved environment is not yet active in the global OpenCode host — reload runtime and start a new session')
+      return t('settings.envVars.diag.blockerEnvSnapshotPending', 'Resolved environment is not yet running for this workspace — reload runtime and start a new session')
     case 'alias_collision':
       return t('settings.envVars.diag.blockerAliasCollision', {
         keys: detail ?? '',

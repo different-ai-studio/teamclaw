@@ -236,7 +236,10 @@ pub struct EnvActivationDiagnostics {
     pub host_env_shadowed_keys: Vec<String>,
     /// Fingerprint most recently resolved/requested for this workspace.
     pub resolved_env_fingerprint: Option<String>,
-    /// Fingerprint inherited by the currently running global opencode serve.
+    /// Fingerprint this workspace is actually running on, i.e. its resolved
+    /// fingerprint once a serve process for that env exists. `None` while the
+    /// snapshot is still pending. Per-workspace: the daemon runs one serve
+    /// process per distinct runtime env, so there is no single global answer.
     pub active_env_fingerprint: Option<String>,
     /// Keys whose final value overrides an earlier personal/team/system layer.
     pub override_keys: Vec<String>,
@@ -244,7 +247,8 @@ pub struct EnvActivationDiagnostics {
     pub alias_collision_keys: Vec<String>,
     /// Keys known to the catalog but unavailable for runtime injection.
     pub unresolved_env_keys: Vec<String>,
-    /// Workspace blocked from replacing the global host's active env snapshot.
+    /// Workspace that needs its own serve process but could not get one — the
+    /// pool is at its cap and every instance is serving live sessions.
     pub snapshot_conflict_workspace: Option<String>,
     /// `active`, `pending`, or `blocked`.
     pub activation_status: String,
@@ -260,15 +264,17 @@ pub struct EnvActivationDiagnostics {
     pub key_statuses: Vec<teamclaw_runtime_env::EnvKeyActivationStatus>,
     /// `${KEY}` placeholders still present in opencode.json after resolution.
     pub mcp_unresolved_placeholders: Vec<teamclaw_runtime_env::UnresolvedConfigPlaceholder>,
-    /// Fingerprint queued on the global OpenCode host for this workspace.
+    /// Fingerprint of the snapshot installed for this workspace, whether or not
+    /// a serve process is running it yet.
     pub installed_env_fingerprint: Option<String>,
     /// Fingerprint captured on the newest active runtime handle, if any.
     pub active_handle_env_fingerprint: Option<String>,
     /// Whether a team env secret is configured for decrypting `_secrets/`.
     pub team_secret_configured: bool,
-    /// Key names queued on the global OpenCode serve host (no values).
+    /// Key names installed for this workspace's serve process (no values).
+    /// Field name kept for wire compatibility with shipped clients.
     pub opencode_serve_cached_env_keys: Vec<String>,
-    /// Resolved personal/team keys absent from the serve host queue.
+    /// Resolved personal/team keys absent from this workspace's installed env.
     pub missing_served_env_keys: Vec<String>,
     /// Personal/team keys on the newest active runtime handle snapshot.
     pub active_handle_env_keys: Vec<String>,

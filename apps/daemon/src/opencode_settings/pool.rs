@@ -61,8 +61,16 @@ impl OpenCodeSettingsService {
             ));
         };
 
-        let client = serve.ensure().await.map_err(|e| {
-            OpenCodeSettingsError::SpawnFailed(format!("ensure global opencode serve: {e}"))
+        // Ride the pool instance already running this workspace's env, so
+        // provider auth lands in the same process as its sessions. A workspace
+        // that never ran a session has no snapshot installed and falls back to
+        // any live instance.
+        let canonical = std::fs::canonicalize(workspace)
+            .unwrap_or_else(|_| workspace.to_path_buf())
+            .to_string_lossy()
+            .into_owned();
+        let client = serve.ensure_for_workspace(&canonical).await.map_err(|e| {
+            OpenCodeSettingsError::SpawnFailed(format!("ensure opencode serve: {e}"))
         })?;
         Ok(OpenCodeSettingsClient::with_auth(
             client.base_url().to_string(),

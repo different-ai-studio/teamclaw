@@ -142,6 +142,14 @@ impl Backend for DeferredBackend {
         self.inner_opt()?.cloud_auth_health()
     }
 
+    /// Answers for the backend this will become, not the unclaimed placeholder:
+    /// a deferred backend is the cloud backend awaiting its credentials, and
+    /// this answer must not change when the claim lands (see the trait doc).
+    fn maintains_cloud_token_file(&self) -> bool {
+        self.inner_opt()
+            .map_or(true, |inner| inner.maintains_cloud_token_file())
+    }
+
     async fn fetch_bootstrap_mqtt(&self) -> BackendResult<Option<BootstrapMqttOverride>> {
         // Unclaimed: no broker to resolve. `None` (not an error) keeps
         // `apply_bootstrap_overrides` on its quiet path — it already warns

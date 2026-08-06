@@ -1024,6 +1024,11 @@ impl DaemonServer {
             let opencode_settings = {
                 let manager = self.agents.lock().await;
                 manager.opencode_serve_supervisor().await.map(|serve| {
+                    // The pool ceiling is a memory budget, so it belongs to
+                    // daemon config rather than a code constant: each serve
+                    // child costs ~250 MB of physical footprint and instances
+                    // share almost none of it.
+                    serve.set_max_instances(self.config.agents.max_serve_instances);
                     std::sync::Arc::new(
                         crate::opencode_settings::OpenCodeSettingsService::with_global_serve(serve),
                     )

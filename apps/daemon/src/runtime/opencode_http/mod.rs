@@ -96,8 +96,8 @@ pub(crate) struct Route {
 }
 
 pub(crate) struct Shared {
-    /// Shared with settings/OAuth so provider APIs use the same serve process
-    /// as chat (no second per-workspace `opencode serve`).
+    /// Shared with settings/OAuth so provider APIs land in the same serve
+    /// process as that workspace's chat sessions.
     pub(crate) serve: Arc<ServeSupervisor>,
     /// opencode session id → route.
     pub(crate) routes: parking_lot::Mutex<HashMap<String, Route>>,
@@ -110,9 +110,9 @@ pub(crate) struct Shared {
     pub(crate) sse_tasks: parking_lot::Mutex<HashMap<String, tokio::task::JoinHandle<()>>>,
     /// Per-worktree opencode `/event` transport health (for stuck-turn grace).
     pub(crate) sse_transport: parking_lot::Mutex<HashMap<String, SseTransportState>>,
-    /// Serializes env selection with serve spawn/session creation. Without
-    /// this, two concurrent workspace attaches could each validate one
-    /// fingerprint and then create both sessions on whichever env won last.
+    /// Serializes snapshot install with serve resolution and session creation,
+    /// so two concurrent attaches on the same workspace cannot interleave one's
+    /// install with the other's lookup and land a session on the wrong env.
     env_switch_lock: tokio::sync::Mutex<()>,
 }
 
@@ -331,6 +331,16 @@ impl Shared {
         true
     }
 
+    /// Canonical worktrees that still have at least one live route. A serve
+    /// instance serving none of these is reapable.
+    pub(super) fn live_directories(&self) -> HashSet<String> {
+        self.routes
+            .lock()
+            .values()
+            .map(|route| route.directory.clone())
+            .collect()
+    }
+
     pub(super) fn refresh_active_turn_clocks_for_directory(&self, directory: &str) {
         let now = std::time::Instant::now();
         let mut routes = self.routes.lock();
@@ -364,12 +374,13 @@ fn canonical_dir(worktree: &str) -> String {
 // OpencodeHost
 // ---------------------------------------------------------------------------
 
-/// Facade over the single global `opencode serve` instance.
+/// Facade over the `opencode serve` pool.
 ///
-/// Not a pool and not a process launcher: [`ServeSupervisor`] owns the one
-/// `opencode serve` child for the whole device, and everything here is HTTP
-/// against it plus in-memory bookkeeping. "Starting a runtime" is
-/// `POST /session` and a [`Route`] entry — no fork, no exec.
+/// Not a process launcher: [`ServeSupervisor`] owns the children (one per
+/// distinct runtime env in use), and everything here is HTTP against them plus
+/// in-memory bookkeeping. "Starting a runtime" is `POST /session` and a
+/// [`Route`] entry — no fork, no exec, unless the workspace's env has no live
+/// instance yet.
 pub struct OpencodeHost {
     shared: Arc<Shared>,
     cmd_tx: std::sync::OnceLock<mpsc::Sender<AcpCommand>>,
@@ -383,7 +394,7 @@ impl OpencodeHost {
         }
     }
 
-    /// Handle to the global serve supervisor (shared with settings/OAuth).
+    /// Handle to the serve pool supervisor (shared with settings/OAuth).
     pub fn serve_supervisor(&self) -> Arc<ServeSupervisor> {
         Arc::clone(&self.shared.serve)
     }
@@ -406,34 +417,37 @@ impl OpencodeHost {
         if session_id.is_empty() {
             return None;
         }
-        let client = self.shared.serve.ensure().await.ok()?;
-        let session = client
-            .get_session(&canonical_dir(worktree), session_id)
+        let directory = canonical_dir(worktree);
+        let client = self
+            .shared
+            .serve
+            .ensure_for_workspace(&directory)
             .await
-            .ok()??;
+            .ok()?;
+        let session = client.get_session(&directory, session_id).await.ok()??;
         client::session_model_id(&session)
     }
 
-    /// Number of live backend processes (0 or 1: the global serve instance).
+    /// Number of live backend processes (one per distinct runtime env in use).
     pub fn host_count(&self) -> usize {
-        usize::from(self.shared.serve.is_running())
+        self.shared.serve.instance_count()
     }
 
-    /// Restart the single global `opencode serve` process so new sessions
-    /// pick up provider auth/config changes. The parameter is ignored — there
-    /// is no per-agent-type host to filter anymore; the name and signature
-    /// are kept only for `RuntimeManager` compatibility.
+    /// Restart every `opencode serve` process so new sessions pick up provider
+    /// auth/config changes. The parameter is ignored — there is no
+    /// per-agent-type host to filter anymore; the name and signature are kept
+    /// only for `RuntimeManager` compatibility.
     pub fn evict_agent_types(&mut self, _agent_types: &[amux::AgentType]) -> usize {
         usize::from(self.shared.serve.shutdown())
     }
 
-    /// Pre-warm: start the global serve process.
+    /// Pre-warm: start a serve process.
     pub async fn prewarm(
         &mut self,
         launch_configs: &HashMap<amux::AgentType, super::manager::AgentLaunchConfig>,
     ) {
         self.apply_binary_hint(launch_configs);
-        if let Err(e) = self.shared.serve.ensure().await {
+        if let Err(e) = self.shared.serve.ensure_any().await {
             warn!(error = %e, "opencode serve prewarm failed");
         } else {
             info!("opencode serve prewarmed");
@@ -451,46 +465,27 @@ impl OpencodeHost {
     ) {
         self.apply_binary_hint(launch_configs);
         let workspace = canonical_dir(worktree.unwrap_or("<prewarm>"));
-        let incoming = teamclaw_runtime_env::resolved_env::fingerprint_bindings(&extra_env);
-        let _env_guard = self.shared.env_switch_lock.lock().await;
-        self.shared
-            .serve
-            .record_requested_env_fingerprint(&workspace, &incoming);
-        if self.shared.serve.env_snapshot_requires_restart(&incoming) {
-            warn!(
-                workspace,
-                "opencode serve prewarm skipped: another workspace snapshot is already active"
-            );
-            return;
-        }
-        self.shared
-            .serve
-            .install_env_snapshot(&workspace, extra_env.clone());
-        if let Err(e) = self.shared.serve.ensure().await {
-            warn!(error = %e, "opencode serve prewarm (session env) failed");
-            return;
-        }
-        // An unrelated catalog/OAuth request may have begun spawning between
-        // our initial state check and snapshot install. Verify what the child
-        // actually inherited and repair that race before declaring prewarm
-        // successful.
-        if self.shared.serve.active_env_fingerprint().as_deref() != Some(&incoming) {
-            if !self.shared.routes.lock().is_empty() {
-                self.shared.serve.mark_snapshot_conflict(&workspace);
-                warn!(
-                    workspace,
-                    "opencode serve prewarm raced with an active snapshot"
-                );
-                return;
-            }
-            self.shared.serve.shutdown();
+        {
+            let _env_guard = self.shared.env_switch_lock.lock().await;
             self.shared
                 .serve
                 .install_env_snapshot(&workspace, extra_env);
-            if let Err(e) = self.shared.serve.ensure().await {
-                warn!(error = %e, "opencode serve prewarm race recovery failed");
-                return;
-            }
+        }
+        // Installing the snapshot is the part that always matters — it pins the
+        // env this workspace's first attach will use. Spawning is best-effort:
+        // warming every workspace of a team that spans several distinct envs
+        // must not evict instances in a round-robin, so a workspace that would
+        // need an eviction just waits for its real attach.
+        if !self.shared.serve.has_idle_capacity_for(&workspace) {
+            info!(
+                workspace,
+                "opencode serve prewarm deferred: pool is full, spawning lazily on attach"
+            );
+            return;
+        }
+        if let Err(e) = self.shared.serve.ensure_for_workspace(&workspace).await {
+            warn!(error = %e, workspace, "opencode serve prewarm (session env) failed");
+            return;
         }
         self.shared.serve.clear_snapshot_conflict(&workspace);
         if let Some(worktree) = worktree.filter(|w| !w.is_empty()) {
@@ -513,10 +508,9 @@ impl OpencodeHost {
         &mut self,
         workspace_path: &Path,
     ) -> crate::error::Result<Vec<amux::ModelInfo>> {
-        let client = self.shared.serve.ensure().await?;
-        client
-            .model_catalog(&canonical_dir(&workspace_path.to_string_lossy()))
-            .await
+        let directory = canonical_dir(&workspace_path.to_string_lossy());
+        let client = self.shared.serve.ensure_for_workspace(&directory).await?;
+        client.model_catalog(&directory).await
     }
 
     /// Bind a TeamClaw runtime to an opencode session (create or resume).
@@ -545,37 +539,25 @@ impl OpencodeHost {
         }
         self.shared.serve.set_binary_hint(&launch.binary);
         let workspace = canonical_dir(&worktree);
-        let incoming = teamclaw_runtime_env::resolved_env::fingerprint_bindings(&extra_env);
-        let _env_guard = self.shared.env_switch_lock.lock().await;
-        self.shared
-            .serve
-            .record_requested_env_fingerprint(&workspace, &incoming);
-        if self.shared.serve.env_snapshot_requires_restart(&incoming) {
-            if !self.shared.routes.lock().is_empty() {
-                self.shared.serve.mark_snapshot_conflict(&workspace);
-                return Err(crate::error::AmuxError::Agent(format!(
-                    "env_snapshot_conflict: workspace {workspace} resolved a different environment while the global opencode host has active sessions"
-                )));
-            }
-            self.shared.serve.shutdown();
-        }
         let _ = force_env_override; // preserved in the backend interface during transition
-        self.shared
-            .serve
-            .install_env_snapshot(&workspace, extra_env.clone());
-        self.shared.serve.ensure().await?;
-        if self.shared.serve.active_env_fingerprint().as_deref() != Some(&incoming) {
-            if !self.shared.routes.lock().is_empty() {
-                self.shared.serve.mark_snapshot_conflict(&workspace);
-                return Err(crate::error::AmuxError::Agent(format!(
-                    "env_snapshot_conflict: workspace {workspace} lost an environment activation race"
-                )));
-            }
-            self.shared.serve.shutdown();
+                                    // Installing a snapshot never disturbs a running child: the workspace
+                                    // just routes to whichever pool key its env maps to. A workspace whose
+                                    // env differs from every live session's is given its own serve
+                                    // instance, where the single-instance design used to refuse it with
+                                    // `env_snapshot_conflict`.
+        {
+            let _env_guard = self.shared.env_switch_lock.lock().await;
             self.shared
                 .serve
                 .install_env_snapshot(&workspace, extra_env);
-            self.shared.serve.ensure().await?;
+        }
+        // Resolving the instance stays outside that lock. Waiting on pool
+        // capacity can take up to `POOL_FULL_WAIT`, and stalling every other
+        // workspace's attach behind it helps nobody: capacity is freed by
+        // detaches, which never take this lock.
+        if let Err(e) = self.shared.serve.ensure_for_workspace(&workspace).await {
+            self.shared.serve.mark_snapshot_conflict(&workspace);
+            return Err(e);
         }
         let cmd_tx = self.command_sender();
         let startup = attach(
@@ -594,7 +576,6 @@ impl OpencodeHost {
         .await
         .map_err(crate::error::AmuxError::Agent)?;
         self.shared.serve.clear_snapshot_conflict(&workspace);
-        drop(_env_guard);
         if !initial_prompt.is_empty() {
             let _ = cmd_tx
                 .send(AcpCommand::Prompt {
@@ -764,7 +745,7 @@ async fn attach(shared: &Arc<Shared>, args: AttachArgs) -> Result<AcpStartupMeta
     };
     let client = shared
         .serve
-        .ensure()
+        .ensure_for_workspace(&directory)
         .await
         .map_err(|e| format!("opencode serve unavailable: {e}"))?;
     events::ensure_sse_task(shared, &directory);
@@ -891,6 +872,12 @@ async fn attach(shared: &Arc<Shared>, args: AttachArgs) -> Result<AcpStartupMeta
     };
     close_orphaned_turn(&session_id, orphaned_turn).await;
     shared.sync_child_routes_from_parent(&session_id);
+    // The pool must know this directory is live before anything else asks for
+    // room, or an instance serving a brand-new session looks idle and gets
+    // evicted out from under it.
+    shared
+        .serve
+        .set_live_directories(&shared.live_directories());
 
     info!(
         session_id = %session_id,
@@ -1023,7 +1010,7 @@ async fn do_prompt(
     }
     let body = PromptBody { model, parts };
 
-    let result = match shared.serve.ensure().await {
+    let result = match shared.serve.ensure_for_workspace(&directory).await {
         Ok(client) => client.prompt_async(&directory, session_id, &body).await,
         Err(e) => Err(e),
     };
@@ -1209,7 +1196,7 @@ async fn retry_status_for(
     directory: &str,
     session_id: &str,
 ) -> Option<(String, i64)> {
-    let client = shared.serve.ensure().await.ok()?;
+    let client = shared.serve.ensure_for_workspace(directory).await.ok()?;
     let statuses = client.session_status(directory).await.ok()?;
     let status = statuses.get(session_id)?;
     if status.get("type").and_then(|v| v.as_str()) != Some("retry") {
@@ -1290,7 +1277,7 @@ pub(crate) async fn abort_turn_with_error(
             route.turn_reply_to.take(),
         )
     };
-    if let Ok(client) = shared.serve.ensure().await {
+    if let Ok(client) = shared.serve.ensure_for_workspace(&directory).await {
         if let Err(e) = client.abort(&directory, session_id).await {
             warn!(session_id, error = %e, "turn abort failed");
         }
@@ -1336,7 +1323,7 @@ async fn cancel_turn(shared: &Arc<Shared>, session_id: &str) {
             None => (String::new(), 0),
         }
     };
-    let abort_ok = match shared.serve.ensure().await {
+    let abort_ok = match shared.serve.ensure_for_workspace(&directory).await {
         Ok(client) => match client.abort(&directory, session_id).await {
             Ok(()) => {
                 crate::runtime::agent_trace::log_cancel(session_id, true, "");
@@ -1431,7 +1418,7 @@ async fn resolve_permission(
         .map(|r| r.directory.clone())
         .unwrap_or_default();
     let response = translate::permission_response_for(granted, option_id.as_deref());
-    match shared.serve.ensure().await {
+    match shared.serve.ensure_for_workspace(&directory).await {
         Ok(client) => {
             if let Err(e) = client
                 .permission_respond(&directory, &session_id, request_id, response)
@@ -1459,7 +1446,7 @@ async fn answer_question(shared: &Arc<Shared>, request_id: &str, answers_json: &
         .get(&session_id)
         .map(|r| r.directory.clone())
         .unwrap_or_default();
-    let client = match shared.serve.ensure().await {
+    let client = match shared.serve.ensure_for_workspace(&directory).await {
         Ok(client) => client,
         Err(e) => {
             warn!(error = %e, "question reply: serve unavailable");
@@ -1618,6 +1605,11 @@ async fn command_loop(shared: Arc<Shared>, mut cmd_rx: mpsc::Receiver<AcpCommand
                     .questions
                     .lock()
                     .retain(|_, sid| !detached_session_ids.iter().any(|detached| detached == sid));
+                // The instance this session rode may now be serving nothing.
+                // Reaping keeps a one-off env (a workspace visited once) from
+                // holding a serve process for the rest of the daemon's life;
+                // the most recently used instance is always kept warm.
+                shared.serve.reap_unused(&shared.live_directories());
                 info!(acp_session_id, "opencode session detached");
                 if let Some(ack) = ack {
                     let _ = ack.send(());
@@ -1652,7 +1644,9 @@ pub fn start_standalone_runtime(
 ) -> crate::error::Result<mpsc::Sender<AcpCommand>> {
     let shared = Shared::new();
     shared.serve.set_binary_hint(&binary);
-    shared.serve.merge_extra_env(&extra_env, true);
+    shared
+        .serve
+        .install_env_snapshot(&canonical_dir(&worktree), extra_env);
     let (cmd_tx, cmd_rx) = mpsc::channel::<AcpCommand>(64);
     tokio::spawn(command_loop(Arc::clone(&shared), cmd_rx));
     let attach_tx = cmd_tx.clone();

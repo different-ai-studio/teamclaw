@@ -963,11 +963,14 @@ impl RuntimeSupervisor {
                         .unwrap_or_else(|_| workspace_path.to_path_buf())
                         .to_string_lossy()
                         .into_owned();
+                    // All per-workspace: with one serve process per distinct
+                    // runtime env, a global "active fingerprint" would report
+                    // some other workspace's environment.
                     (
                         serve.is_running(),
-                        serve.cached_env_key_count(),
-                        serve.cached_env_keys(),
-                        serve.active_env_fingerprint(),
+                        serve.installed_env_key_count(&canonical_workspace),
+                        serve.installed_env_keys(&canonical_workspace),
+                        serve.active_env_fingerprint_for_workspace(&canonical_workspace),
                         serve.requested_env_fingerprint(&canonical_workspace),
                         serve.snapshot_conflict_workspace(&canonical_workspace),
                     )
@@ -1172,9 +1175,20 @@ impl RuntimeSupervisor {
                 detail: snapshot_conflict_workspace.clone(),
             });
         }
+        // Compare *installed* against active, not `resolved_env_fingerprint`.
+        // The resolved one comes from `resolve_runtime_env`, which stops at the
+        // personal/team/system layers; the env actually installed for a spawn
+        // additionally carries `TEAMCLAW_TEAM_PROVIDER` (assembled in
+        // `env_assembly`). Comparing across the two therefore never matched on
+        // any workspace with a managed team LLM, pinning it to "pending" and
+        // emitting a permanent `env_snapshot_pending` blocker. Installed vs
+        // active asks the question the status actually means: is the snapshot
+        // this workspace installed the one it is running on?
         let activation_status = if workspace_conflicted {
             "blocked"
-        } else if resolved_env_fingerprint.as_deref() == active_env_fingerprint.as_deref() {
+        } else if installed_env_fingerprint.is_some()
+            && installed_env_fingerprint.as_deref() == active_env_fingerprint.as_deref()
+        {
             "active"
         } else {
             "pending"
