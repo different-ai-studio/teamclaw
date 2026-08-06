@@ -43,6 +43,11 @@ mod team_link;
 mod team_shared_env;
 #[path = "../src/team_shared_git.rs"]
 mod team_shared_git;
+// Same reason as `claude_install` above: the modules declared here carry
+// `#[cfg(test)]` blocks that an integration-test crate compiles, and those name
+// `crate::test_brand_env` — which resolves against this root, not the bin's.
+#[path = "../src/test_brand_env.rs"]
+mod test_brand_env;
 
 use std::process::Command;
 use std::sync::Arc;
