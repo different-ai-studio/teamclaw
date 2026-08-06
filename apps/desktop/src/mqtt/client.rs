@@ -1,7 +1,6 @@
 use anyhow::Result;
 use rumqttc::{
-    AsyncClient, ConnectReturnCode, Event, EventLoop, LastWill, MqttOptions, Packet, QoS,
-    TlsConfiguration, Transport,
+    AsyncClient, ConnectReturnCode, Event, EventLoop, LastWill, MqttOptions, Packet, QoS, Transport,
 };
 use serde::Serialize;
 use std::sync::Arc;
@@ -69,12 +68,15 @@ fn build_mqtt_options(cfg: &ClientConfig, clean_session: bool) -> MqttOptions {
     opts.set_keep_alive(Duration::from_secs(30));
     opts.set_max_packet_size(4 * 1024 * 1024, 4 * 1024 * 1024);
 
+    // Not `wss_with_default_config()` / `tls_with_default_config()`: both build
+    // `TlsConfiguration::default()`, which panics the process when the platform
+    // cert store cannot be read. See `super::tls`.
     if broker.is_websocket() && broker.use_tls {
-        opts.set_transport(Transport::wss_with_default_config());
+        opts.set_transport(Transport::Wss(super::tls::default_tls_config()));
     } else if broker.is_websocket() {
         opts.set_transport(Transport::Ws);
     } else if broker.use_tls {
-        opts.set_transport(Transport::tls_with_config(TlsConfiguration::default()));
+        opts.set_transport(Transport::tls_with_config(super::tls::default_tls_config()));
     }
 
     if !clean_session {

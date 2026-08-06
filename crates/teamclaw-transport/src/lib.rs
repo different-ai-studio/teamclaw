@@ -11,9 +11,12 @@
 //!   (teamclaw::SessionManager, live, rpc, notify) so they don't depend on
 //!   rumqttc directly
 //! - [`encode_subject`] / [`decode_subject`]: MQTT topic ↔ NATS subject
+//! - [`tls::default_tls_config`]: panic-free replacement for rumqttc's
+//!   `TlsConfiguration::default()`
 
 pub mod nats;
 pub mod publisher;
+pub mod tls;
 pub use publisher::{MessagePublisher, PublisherError};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
