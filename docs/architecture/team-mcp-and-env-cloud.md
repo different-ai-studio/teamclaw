@@ -133,11 +133,21 @@ DELETE /v1/teams/:teamId/env-secrets/:keyId           创建者或 admin
 
 | 阶段 | 内容 |
 |---|---|
-| PR1 ✅ | OpenAPI + 迁移 + drizzle + pg-repo + routes + 测试 |
-| PR2 | daemon：backend trait + `team_cloud_config.rs` reconciler + 落盘缓存 + 双源读取 |
-| PR3 | 桌面端团队 env 读写切云；store 层 `team-mcp.ts` |
-| PR4 | 三栏 UI：`McpDetail` 安装/编辑/删除、`EnvDetail` 就地编辑、列表新增入口 |
+| PR1 ✅ | OpenAPI + 迁移 + drizzle + pg-repo + **supabase-repo** + routes + 测试 |
+| PR2 ✅ | daemon：backend trait + `team_cloud_config.rs` reconciler + 落盘缓存 + 双源读取 |
+| PR3 ✅ | 桌面端团队 env 读写切云；store 层 `team-mcp.ts` |
+| PR4 ✅ | 三栏 UI：`McpDetail` 安装/编辑/删除、`EnvDetail` 就地编辑、列表新增入口 |
 | PR5 | 摘掉 `.mcp/`、`_secrets/` 前缀；拉取循环改跳过；删旧磁盘回退 |
+
+**两个后端实现都要写。** `BACKEND_KIND` 在 docker-compose 里默认 `supabase`，
+只写 `pg-repo` 的功能在真实部署上是 500。单测发现不了——它注入 fake repository，
+从来看不到容器实际加载的是哪个后端。这是本地起完整 self-host 栈做端到端测试才发现的。
+
+**桌面端写入不再需要本地 `team_dir`。** `set_secret_for_workspace` 改成只解出
+密钥（`ensure_derived_key`）就加密上传，不再走 `try_lazy_init_from_workspace`——
+后者还要求已同步的共享目录，会让「加入了团队但没拉过共享文件夹」的成员写不了
+团队 env，而那恰恰是最需要它的场景。删除的本地 role 预检保留，但只为了给出一句
+人能看懂的错误；真正的权限边界是 RLS，它看到的是真实 actor 而不是本机 node id。
 
 ### 5.1 daemon 侧的硬约束（PR2 必须处理）
 

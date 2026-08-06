@@ -468,6 +468,13 @@ async fn handle_env_var_set(app: &AppHandle, body: &[u8]) -> Result<String, Stri
         .or_else(|| v.get("team_id"))
         .and_then(|v| v.as_str())
         .map(|s| s.to_string());
+    // Team-scope values live in the Cloud API, so a bearer has to come in with
+    // the request. Personal-scope writes stay local and ignore it.
+    let access_token = v
+        .get("accessToken")
+        .or_else(|| v.get("access_token"))
+        .and_then(|v| v.as_str())
+        .map(|s| s.to_string());
 
     let workspace_path = {
         let registry = app.state::<super::window::WindowRegistry>();
@@ -490,6 +497,7 @@ async fn handle_env_var_set(app: &AppHandle, body: &[u8]) -> Result<String, Stri
         category,
         node_id,
         team_id,
+        access_token,
     )
     .await?;
 
@@ -524,6 +532,11 @@ async fn handle_env_var_delete(app: &AppHandle, body: &[u8]) -> Result<String, S
         .or_else(|| v.get("team_id"))
         .and_then(|v| v.as_str())
         .map(|s| s.to_string());
+    let access_token = v
+        .get("accessToken")
+        .or_else(|| v.get("access_token"))
+        .and_then(|v| v.as_str())
+        .map(|s| s.to_string());
 
     let workspace_path = {
         let registry = app.state::<super::window::WindowRegistry>();
@@ -544,6 +557,7 @@ async fn handle_env_var_delete(app: &AppHandle, body: &[u8]) -> Result<String, S
         node_id,
         role,
         team_id,
+        access_token,
     )
     .await?;
 

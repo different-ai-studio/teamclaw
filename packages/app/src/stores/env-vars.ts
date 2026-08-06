@@ -3,6 +3,7 @@ import { invoke } from '@tauri-apps/api/core'
 import { withAsync } from '@/lib/store-utils'
 import { useWorkspaceStore } from '@/stores/workspace'
 import { useCurrentTeamStore } from '@/stores/current-team'
+import { getFreshAccessToken } from '@/lib/auth/session-store'
 
 /** Environment variable entry (key + description, no secret value). */
 export interface EnvVarEntry {
@@ -110,6 +111,9 @@ export const useEnvVarsStore = create<EnvVarsState>((set) => ({
         category: options?.category,
         nodeId: options?.nodeId,
         teamId: useCurrentTeamStore.getState().team?.id,
+        // Team-scope values are stored in the Cloud API, so the Rust side needs
+        // a bearer. Personal values never leave the machine and ignore it.
+        accessToken: scope === 'team' ? await getFreshAccessToken().catch(() => null) : null,
         workspacePath: requireWorkspacePath(),
       })
       const catalog = await fetchEnvCatalog()
@@ -125,6 +129,7 @@ export const useEnvVarsStore = create<EnvVarsState>((set) => ({
         nodeId: options?.nodeId,
         role: options?.role,
         teamId: useCurrentTeamStore.getState().team?.id,
+        accessToken: scope === 'team' ? await getFreshAccessToken().catch(() => null) : null,
         workspacePath: requireWorkspacePath(),
       })
       const catalog = await fetchEnvCatalog()

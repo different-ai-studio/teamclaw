@@ -679,6 +679,7 @@ pub(crate) async fn env_catalog_set_for_workspace(
     category: Option<String>,
     node_id: Option<String>,
     team_id: Option<String>,
+    access_token: Option<String>,
 ) -> Result<(), String> {
     match parse_env_scope(scope)? {
         "personal" => env_var_set_for_workspace(workspace_path, key, value, description).await,
@@ -696,6 +697,7 @@ pub(crate) async fn env_catalog_set_for_workspace(
                 category.unwrap_or_else(|| "custom".to_string()),
                 node_id,
                 team_id,
+                access_token,
             )
             .await
         }
@@ -713,6 +715,7 @@ pub(crate) async fn env_catalog_delete_for_workspace(
     node_id: Option<String>,
     role: Option<String>,
     team_id: Option<String>,
+    access_token: Option<String>,
 ) -> Result<(), String> {
     match parse_env_scope(scope)? {
         "personal" => env_var_delete_for_workspace(workspace_path, key).await,
@@ -728,6 +731,7 @@ pub(crate) async fn env_catalog_delete_for_workspace(
                 node_id,
                 role.unwrap_or_default(),
                 team_id,
+                access_token,
             )
             .await
         }
@@ -749,6 +753,7 @@ pub async fn env_catalog_set(
     category: Option<String>,
     node_id: Option<String>,
     team_id: Option<String>,
+    access_token: Option<String>,
     workspace_path: Option<String>,
 ) -> Result<(), String> {
     let workspace_path = resolve_workspace_path(workspace_path, &window, &registry)?;
@@ -763,6 +768,7 @@ pub async fn env_catalog_set(
         category,
         node_id,
         team_id,
+        access_token,
     )
     .await
 }
@@ -779,6 +785,7 @@ pub async fn env_catalog_delete(
     node_id: Option<String>,
     role: Option<String>,
     team_id: Option<String>,
+    access_token: Option<String>,
     workspace_path: Option<String>,
 ) -> Result<(), String> {
     let workspace_path = resolve_workspace_path(workspace_path, &window, &registry)?;
@@ -791,6 +798,7 @@ pub async fn env_catalog_delete(
         node_id,
         role,
         team_id,
+        access_token,
     )
     .await
 }
