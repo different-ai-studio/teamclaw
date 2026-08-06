@@ -128,7 +128,7 @@ pub fn extract_handle_env_keys(snapshot: &ResolvedEnvSnapshot) -> Vec<String> {
         .filter(|entry| matches!(entry.scope, EnvScope::Personal | EnvScope::Team))
         .map(|entry| entry.key.clone())
         .collect();
-    keys.sort_by(|left, right| left.to_ascii_lowercase().cmp(&right.to_ascii_lowercase()));
+    keys.sort_by_key(|left| left.to_ascii_lowercase());
     keys.dedup_by(|left, right| left.eq_ignore_ascii_case(right));
     keys
 }
@@ -205,7 +205,7 @@ fn collect_expected_keys(
             keys.push((key.clone(), EnvScope::Team));
         }
     }
-    keys.sort_by(|left, right| left.0.to_ascii_lowercase().cmp(&right.0.to_ascii_lowercase()));
+    keys.sort_by_key(|left| left.0.to_ascii_lowercase());
     keys.dedup_by(|left, right| left.0.eq_ignore_ascii_case(&right.0));
     keys
 }

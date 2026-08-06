@@ -353,7 +353,7 @@ fn add_aliases(
 /// an opaque identifier and never serialize the underlying bindings.
 pub fn fingerprint_bindings(bindings: &HashMap<String, String>) -> String {
     let mut entries: Vec<_> = bindings.iter().collect();
-    entries.sort_by(|(left, _), (right, _)| left.cmp(right));
+    entries.sort_by_key(|(left, _)| *left);
 
     let mut hasher = Sha256::new();
     for (key, value) in entries {
