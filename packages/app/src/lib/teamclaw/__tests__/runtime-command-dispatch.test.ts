@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 
-import { createRuntimeCommandSender, runtimeCommandsTopic } from "@/lib/teamclaw/runtime-command";
+import { createRuntimeCommandSender } from "@/lib/teamclaw/runtime-command";
 
 function makeSender(overrides: {
   rpc?: (input: { targetActorId: string; sessionId: string }) => Promise<boolean>;
@@ -44,22 +44,19 @@ describe("runtime command dispatch", () => {
     expect(publish).not.toHaveBeenCalled();
   });
 
-  it("falls back to the legacy topic when the rpc channel itself is down", async () => {
-    // Distinct from the case above: no answer at all, rather than a negative
-    // one. The old path may still deliver, so failing here would lose a command
-    // needlessly during the dual-channel transition.
+  it("does not fall back to the legacy topic when the rpc channel itself is down", async () => {
+    // Legacy fallback published cancel with session UUID as the topic
+    // segment; the daemon looked that up as a spawn key and dropped it
+    // silently — stop looked like a no-op (cross-actor interrupt on the
+    // same machine). Prefer a loud failure over a silent miss.
     const { sender, publish } = makeSender({
       rpc: async () => {
         throw new Error("teamclaw-rpc not initialized");
       },
     });
 
-    await sender.sendCancel(CANCEL);
-
-    expect(publish).toHaveBeenCalledTimes(1);
-    expect(publish.mock.calls[0]![0]).toBe(
-      runtimeCommandsTopic("team-1", "agent-a", "rt-abcd"),
-    );
+    await expect(sender.sendCancel(CANCEL)).rejects.toThrow(/teamclaw-rpc not initialized/);
+    expect(publish).not.toHaveBeenCalled();
   });
 
   it("uses the legacy topic when the caller has no session id yet", async () => {

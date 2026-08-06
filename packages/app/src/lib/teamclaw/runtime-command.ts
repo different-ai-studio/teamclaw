@@ -21,8 +21,9 @@ type RuntimeCommandSenderDeps = {
    * at a spawn the daemon no longer knows is dropped silently, which is how a
    * stop button stopped working (docs/debug/interrupt-agent-stale-runtime.md).
    *
-   * Resolves false when the session is cold (no attachment). Omitted in tests
-   * and on the legacy path, where the MQTT publish is used instead.
+   * Resolves false when the session is cold (no attachment). Omitted when the
+   * caller has no session id yet — then the MQTT topic is used instead.
+   * RPC errors are not silently re-routed to that topic.
    */
   rpc?: (input: {
     targetActorId: string;
@@ -194,9 +195,9 @@ export function createRuntimeCommandSender(
  * Send by (actor, session) when both a session id and an RPC dispatcher are
  * available; otherwise fall back to the per-spawn commands topic.
  *
- * The fallback exists for callers that have not been threaded a session id yet
- * and for daemons still on the old channel. It is the path with no delivery
- * receipt, so it is the one we are retiring.
+ * When RPC is attempted, failures are not silently re-routed to the legacy
+ * topic — that topic has no delivery receipt and after ADR-0004 often
+ * addresses by session UUID while the daemon map is still spawn-keyed.
  */
 async function dispatch(
   deps: RuntimeCommandSenderDeps,
@@ -208,21 +209,10 @@ async function dispatch(
 ): Promise<void> {
   const session = sessionId?.trim() ?? "";
   if (deps.rpc && session) {
-    let dispatched: boolean;
-    try {
-      dispatched = await deps.rpc({ targetActorId, sessionId: session, envelope });
-    } catch {
-      // The RPC channel itself is unavailable (not initialised, broker down).
-      // Distinct from a reachable daemon reporting no attachment: that is an
-      // answer, this is the absence of one. Fall through to the legacy topic
-      // rather than failing a command the old path could still deliver.
-      await deps.mqtt.publish(
-        runtimeCommandsTopic(teamId, targetActorId, runtimeId),
-        toBinary(RuntimeCommandEnvelopeSchema, envelope),
-        false,
-      );
-      return;
-    }
+    // No silent legacy fallback: publishing to runtime/{sessionId}/commands
+    // after ADR-0004 addresses by session while the daemon map is still
+    // spawn-keyed, so a failed RPC that "falls back" becomes a silent miss.
+    const dispatched = await deps.rpc({ targetActorId, sessionId: session, envelope });
     if (!dispatched) {
       // The daemon answered and holds nothing for this session — it is cold.
       // Surfacing this is the entire point of moving onto a channel with a

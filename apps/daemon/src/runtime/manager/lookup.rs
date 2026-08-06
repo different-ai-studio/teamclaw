@@ -85,4 +85,34 @@ impl RuntimeManager {
             .find(|(_, h)| h.acp_session_id == acp_session_id)
             .map(|(_, h)| h.agent_type)
     }
+
+    /// Resolve a command address (MQTT topic segment or legacy runtime id) to
+    /// the spawn key in `agents`.
+    ///
+    /// After ADR-0004 clients may address by cloud `session_id` (or iOS's
+    /// `{actor}::{session}` composite) while this map is still keyed by the
+    /// per-spawn id. Cancel that used the session UUID as a map key failed
+    /// with `agent {session} not found` and left Cursor running.
+    pub fn resolve_command_agent_id(&self, addressed_as: &str) -> Option<String> {
+        let addressed = addressed_as.trim();
+        if addressed.is_empty() {
+            return None;
+        }
+        if self.agents.contains_key(addressed) {
+            return Some(addressed.to_string());
+        }
+        if let Some(id) = self.newest_runtime_id_for_session(addressed) {
+            return Some(id);
+        }
+        // iOS composite: `{actor}::{session}`
+        if let Some((_, session)) = addressed.split_once("::") {
+            let session = session.trim();
+            if !session.is_empty() {
+                if let Some(id) = self.newest_runtime_id_for_session(session) {
+                    return Some(id);
+                }
+            }
+        }
+        None
+    }
 }
