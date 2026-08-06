@@ -1,8 +1,7 @@
 name: Daemon Deploy
 
-# Build amuxd in GitHub Actions, push to GHCR, and roll the daemon profile on
-# the self-host ECS box. The server never runs `cargo build` — it only pulls
-# the prebuilt image and recreates the amuxd service.
+# Build amuxd in GitHub Actions, push to GHCR, stream the image to ECS over SSH,
+# and roll the daemon profile. The server never runs `cargo build`.
 #
 # First-time bootstrap (once per ECS box):
 #   1. Ensure at least one team + human member exist.
@@ -84,33 +83,47 @@ jobs:
           cache-from: type=gha
           cache-to: type=gha,mode=max
 
-      # ECS pulls without credentials when the package is public. The first push
-      # creates the package; this step opens read access for docker pull on the
-      # box. Falls back to GHCR_PULL_TOKEN when the API call is denied.
-      - name: Ensure GHCR package is public
-        continue-on-error: true
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: |
-          gh api --method PATCH \
-            "/orgs/${{ github.repository_owner }}/packages/container/${{ env.IMAGE_NAME }}/visibility" \
-            -f visibility=public
-
   deploy:
     name: Deploy to ECS
     needs: build
     runs-on: ubuntu-latest
     environment: self-host-production
     env:
-      AMUXD_IMAGE: ghcr.io/${{ github.repository_owner }}/teamclaw-amuxd:${{ github.sha }}
+      AMUXD_IMAGE: ghcr.io/${{ github.repository_owner }}/teamclaw-amuxd:self-host
     steps:
+      - name: Prepare SSH key
+        env:
+          ECS_SSH_PRIVATE_KEY: ${{ secrets.ECS_SSH_PRIVATE_KEY }}
+        run: |
+          mkdir -p ~/.ssh
+          printf '%s\n' "$ECS_SSH_PRIVATE_KEY" > ~/.ssh/ecs_key
+          chmod 600 ~/.ssh/ecs_key
+
+      - name: Set up Docker CLI
+        uses: docker/setup-buildx-action@v3
+
+      - name: Log in to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Stream image to ECS
+        env:
+          ECS_HOST: ${{ secrets.ECS_HOST }}
+          ECS_USER: ${{ secrets.ECS_USER }}
+        run: |
+          docker pull "$AMUXD_IMAGE"
+          docker save "$AMUXD_IMAGE" | gzip -1 | \
+            ssh -i ~/.ssh/ecs_key -o StrictHostKeyChecking=no "$ECS_USER@$ECS_HOST" \
+              "gunzip | docker load"
+
       - name: Deploy amuxd on ECS
         uses: appleboy/ssh-action@v1.2.5
         env:
           AMUXD_IMAGE: ${{ env.AMUXD_IMAGE }}
           DEPLOY_REF: ${{ env.DEPLOY_REF }}
-          GHCR_PULL_TOKEN: ${{ secrets.GHCR_PULL_TOKEN || secrets.UPDATER_GITHUB_TOKEN }}
-          GHCR_PULL_USER: ${{ secrets.GHCR_PULL_USER }}
           AMUXD_JOIN_TOKEN: ${{ secrets.AMUXD_JOIN_TOKEN }}
           OPENCODE_BASE_URL: ${{ secrets.OPENCODE_BASE_URL }}
           OPENCODE_API_KEY: ${{ secrets.OPENCODE_API_KEY }}
@@ -122,7 +135,7 @@ jobs:
           username: ${{ secrets.ECS_USER }}
           key: ${{ secrets.ECS_SSH_PRIVATE_KEY }}
           command_timeout: 15m
-          envs: AMUXD_IMAGE,DEPLOY_REF,GHCR_PULL_TOKEN,GHCR_PULL_USER,AMUXD_JOIN_TOKEN,OPENCODE_BASE_URL,OPENCODE_API_KEY,OPENCODE_MODEL,OPENCODE_PROVIDER_ID,OPENCODE_PROVIDER_NAME
+          envs: AMUXD_IMAGE,DEPLOY_REF,AMUXD_JOIN_TOKEN,OPENCODE_BASE_URL,OPENCODE_API_KEY,OPENCODE_MODEL,OPENCODE_PROVIDER_ID,OPENCODE_PROVIDER_NAME
           script: |
             set -e
             cd /opt/teamclaw
@@ -151,15 +164,7 @@ jobs:
               echo "  set $1"
             }
 
-            echo "=== pull amuxd image from GHCR ==="
-            pull_user="${GHCR_PULL_USER:-${{ github.repository_owner }}}"
-            if [ -n "${GHCR_PULL_TOKEN:-}" ]; then
-              echo "$GHCR_PULL_TOKEN" | docker login ghcr.io -u "$pull_user" --password-stdin
-            else
-              echo "  skip ghcr login (public package pull)"
-            fi
-
-            echo "=== sync daemon env ==="
+            echo "=== sync daemon env (presence-only when OPENCODE_* secrets empty) ==="
             upsert_env AMUXD_IMAGE "$AMUXD_IMAGE"
             upsert_env AMUXD_JOIN_TOKEN "$AMUXD_JOIN_TOKEN"
             upsert_env OPENCODE_BASE_URL "$OPENCODE_BASE_URL"
@@ -175,8 +180,7 @@ jobs:
             timeout 180 sh -c \
               'until docker compose ps emqx | grep -q healthy; do sleep 5; done'
 
-            echo "=== pull + recreate amuxd ==="
-            docker compose pull amuxd
+            echo "=== recreate amuxd (image streamed from CI) ==="
             docker compose --profile daemon up -d --pull never --remove-orphans amuxd
 
             echo "=== amuxd smoke ==="

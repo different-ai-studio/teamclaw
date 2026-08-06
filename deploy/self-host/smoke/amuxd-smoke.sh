@@ -20,6 +20,13 @@ ok()  { echo "  PASS  $1"; }
 bad() { echo "  FAIL  $1"; fails=$((fails + 1)); }
 
 echo "1. amuxd container running"
+deadline=$(( $(date +%s) + 120 ))
+while [ "$(date +%s)" -lt "$deadline" ]; do
+  if docker compose ps amuxd 2>/dev/null | grep -qE 'Up|running'; then
+    break
+  fi
+  sleep 3
+done
 if docker compose ps amuxd 2>/dev/null | grep -qE 'Up|running'; then
   ok "container Up"
 else
