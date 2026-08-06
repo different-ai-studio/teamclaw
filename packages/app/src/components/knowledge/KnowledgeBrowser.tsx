@@ -46,7 +46,7 @@ export function KnowledgeBrowser({
       const result = await invoke<{
         success: boolean
         message: string
-      }>('team_sync_repo', { force: false, workspacePath })
+      }>('team_sync_repo', { force: false, forceSync: true, workspacePath })
       if (result.success) {
         toast.success(result.message)
         useTeamModeStore.setState({ teamGitLastSyncAt: new Date().toISOString() })

@@ -506,7 +506,7 @@ pub async fn oss_sync_status(
         .is_some_and(is_missing_team_secret_error)
         && redeliver_local_team_secret(&team_id, &workspace_path).await
     {
-        let _ = daemon_team_sync(&workspace_path, false, false).await;
+        let _ = daemon_team_sync(&workspace_path, false, true).await;
         return daemon_team_sync_status(&team_id).await;
     }
     Ok(status)
@@ -593,6 +593,16 @@ async fn invoke_daemon_team_sync(
 ) -> Result<serde_json::Value, String> {
     match daemon_team_sync(workspace_path, force_wipe_non_git, force_sync).await {
         Ok(resp) => {
+            if resp.get("skipped").and_then(|v| v.as_bool()) == Some(true) {
+                return Ok(serde_json::json!({
+                    "success": false,
+                    "message": "Automatic sync is disabled on this daemon (team_share.auto_sync = false). Use Sync Now to sync manually.",
+                    "needsConfirmation": false,
+                    "newFiles": [],
+                    "totalBytes": 0,
+                    "skipped": true,
+                }));
+            }
             team_sync_error_from_status(&resp)?;
             Ok(team_sync_success_payload())
         }
@@ -611,9 +621,6 @@ async fn invoke_daemon_team_sync(
 }
 
 fn team_sync_error_from_status(status: &serde_json::Value) -> Result<(), String> {
-    if status.get("skipped").and_then(|v| v.as_bool()) == Some(true) {
-        return Ok(());
-    }
     if let Some(err) = status
         .get("lastError")
         .and_then(|v| v.as_str())

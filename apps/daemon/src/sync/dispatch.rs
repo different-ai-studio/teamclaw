@@ -161,12 +161,19 @@ impl SyncDispatcher {
         let mut s = self.status.lock().await;
         let entry = s.entry(team_id.to_string()).or_default();
         match result {
+            Ok(st) if st.skipped => {
+                // auto_sync off: do not replace cached mode/errors/counts with defaults.
+                entry.syncing = false;
+                entry.skipped = true;
+            }
             Ok(mut st) => {
                 st.syncing = false;
+                st.skipped = false;
                 *entry = st;
             }
             Err(e) => {
                 entry.syncing = false;
+                entry.skipped = false;
                 entry.last_error = Some(e);
             }
         }
@@ -392,6 +399,47 @@ mod tests {
             .await;
         assert!(st.skipped);
         assert!(st.last_error.is_none());
+
+        if let Some(v) = orig {
+            std::env::set_var("AMUXD_HOME", v);
+        } else {
+            std::env::remove_var("AMUXD_HOME");
+        }
+    }
+
+    #[tokio::test]
+    async fn auto_sync_disabled_skip_preserves_cached_status() {
+        let tmp = tempfile::tempdir().unwrap();
+        let config_path = tmp.path().join("daemon.toml");
+        let mut cfg = crate::config::DaemonConfig::bootstrap();
+        cfg.team_share.auto_sync = true;
+        cfg.save(&config_path).unwrap();
+
+        let orig = std::env::var("AMUXD_HOME").ok();
+        std::env::set_var("AMUXD_HOME", tmp.path());
+
+        let store = SecretStore::with_base(tmp.path().to_path_buf());
+        let d = SyncDispatcher::new(store, None);
+        let err_st = d
+            .sync_team(
+                "t",
+                "/tmp/ws",
+                SyncOptions {
+                    force: true,
+                    ..Default::default()
+                },
+            )
+            .await;
+        assert!(err_st.last_error.is_some());
+
+        cfg.team_share.auto_sync = false;
+        cfg.save(&config_path).unwrap();
+
+        let st = d
+            .sync_team("t", "/tmp/ws", SyncOptions { force: false, ..Default::default() })
+            .await;
+        assert!(st.skipped);
+        assert!(st.last_error.is_some());
 
         if let Some(v) = orig {
             std::env::set_var("AMUXD_HOME", v);
