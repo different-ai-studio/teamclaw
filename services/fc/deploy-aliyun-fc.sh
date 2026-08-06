@@ -153,7 +153,12 @@ echo "  supabase : ${SUPABASE_URL:-<unset>}"
 # deploy` rewrites the function's whole environment map. An override shown here
 # is being written into that map, and will be gone the next time anyone deploys
 # from a machine whose env file lacks it.
-echo "  features : profile=${APP_FEATURES_PROFILE:-belayo} (durable values are in src/lib/feature-profiles.ts)"
+if [ -n "${APP_FEATURES_PROFILE:-}" ]; then
+  echo "  features : profile=$APP_FEATURES_PROFILE (values in src/lib/feature-profiles.ts)"
+else
+  echo "  features : <no profile> — clients keep their baked build config."
+  echo "             Set APP_FEATURES_PROFILE in $ENV_FILE to serve overrides."
+fi
 if [ -n "${APP_FEATURES_JSON:-}" ]; then
   echo "  feat-ovr : $APP_FEATURES_JSON"
   echo "             ^ temporary — the NEXT deploy without it will drop it."

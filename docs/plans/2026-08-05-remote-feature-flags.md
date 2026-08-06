@@ -319,13 +319,29 @@ curl -s https://teamclaw-api.ucar.cc/v1/config/public | jq       # belayo
 
 `services/fc` 的 `npm run typecheck`（tsconfig.test.json）有 9 个错误，改动前后**完全一致**，全在既有 test 文件里，与本次无关。
 
-### 两个环境的当前状态
+### 后续：三份 profile 已按各品牌 build config 填好（2026-08-06）
 
-两份 profile **都是空的**（`{}`），即「不覆盖任何东西」——上线当天所有客户端行为不变。机制已通，值等决策。
+初版两份 profile 都是空的。填值时发现**有三个在跑的 Cloud API，不是两个**：
 
-部署后各 curl 一次确认：
+| profile | 部署 | 品牌来源 |
+|---|---|---|
+| `self-host` | `api.teamclaw-dev.ucar.cc` | `build.config.production.json`（本仓库） |
+| `belayo` | `teamclaw-api.ucar.cc` | 品牌私仓 `brands/betly` |
+| `copilot361` | `copilot.accounting.i.test.shopee.io` | 品牌私仓 `brands/copilot361` |
 
-```bash
-curl -s https://api.teamclaw-dev.ucar.cc/v1/config/public | jq
-curl -s https://teamclaw-api.ucar.cc/v1/config/public | jq
+每份都是**照抄该品牌 build config 已经烘死的值**，所以启用当天行为零变化。
+
+**因此必须去掉 `s.yaml` 的默认 profile。** 原来默认 `belayo`，在 profile 为空时无害；一旦有值就成了陷阱——`s.yaml` 同时部署 belayo 和 copilot361，copilot361 那台只要没显式设 profile 就会继承 belayo 的开关，**给从没提供过手机登录的用户打开手机登录**。改成无默认值：不设 = 不覆盖 = 客户端保持 build config，永远安全。compose 保留 `self-host` 默认值，因为那台机器就是唯一一个环境，不存在歧义。
+
+新增两个测试：每份 profile 过一遍真实 resolver 后必须原样出来（拼错的 key 会被 allowlist 静默丢掉），以及没有任何 profile 试图控制 `updater`。
+
+线上验证（belayo 的返回印证了 `brands/betly` 的 `webSSO: true`）：
+
 ```
+$ curl -s https://teamclaw-api.ucar.cc/v1/config/public
+{"webSso":{"loginUrl":"https://admin.mx5.cn/sign-in","storageKey":"sb-supa-auth-token"}}
+$ curl -s https://api.teamclaw-dev.ucar.cc/v1/config/public
+{}
+```
+
+（两边都还没部署本次改动，所以暂时都没有 `features` 块。）

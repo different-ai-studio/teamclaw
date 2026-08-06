@@ -105,7 +105,15 @@ resources:
         # it is lost at the next deploy. Keep in step with the compose
         # `environment:` map — a var declared on only one target silently drops
         # the whole features block there.
-        APP_FEATURES_PROFILE: ${env('APP_FEATURES_PROFILE', 'belayo')}
+        #
+        # Deliberately NO default profile here, unlike compose. This s.yaml
+        # deploys more than one Cloud API (belayo at teamclaw-api.ucar.cc, and
+        # the copilot361 backend), so any default is the wrong brand's flags for
+        # somebody: a copilot361 deploy that inherited `belayo` would switch on
+        # phone login for users whose build never offered it. Unset means "no
+        # overrides", which is always safe — clients keep their baked config.
+        # Each env file names its own profile; deploy-aliyun-fc.sh prints it.
+        APP_FEATURES_PROFILE: ${env('APP_FEATURES_PROFILE', '')}
         APP_FEATURES_JSON: ${env('APP_FEATURES_JSON', '')}
         # Set to true when a reverse proxy (Caddy/FC gateway) handles CORS so
         # Hono's own CORS middleware is skipped — prevents duplicate headers.

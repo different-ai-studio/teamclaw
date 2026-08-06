@@ -396,3 +396,25 @@ test("GET /v1/config/public serves auth flags without a bearer, and still no mqt
     },
   );
 });
+
+test("every shipped profile survives sanitization intact — no silently dropped key", () => {
+  // A typo in a profile (`teamSharebrowser`, `webSso`) is dropped by the
+  // allowlist and the deployment then serves a flag nobody notices is missing.
+  // Round-tripping each profile through the real resolver catches that here
+  // instead of in production.
+  for (const [name, profile] of Object.entries(FEATURE_PROFILES)) {
+    withEnv({ APP_FEATURES_PROFILE: name, APP_FEATURES_JSON: undefined }, () => {
+      const served = {
+        ...(buildPublicConfig().features ?? {}),
+        ...(buildBootstrapConfig().features ?? {}),
+      };
+      assert.deepEqual(served, profile, `profile ${name} lost keys in transit`);
+    });
+  }
+});
+
+test("no shipped profile tries to control the updater", () => {
+  for (const [name, profile] of Object.entries(FEATURE_PROFILES)) {
+    assert.equal("updater" in profile, false, `profile ${name} must not set updater`);
+  }
+});

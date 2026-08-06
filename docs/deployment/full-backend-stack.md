@@ -201,8 +201,18 @@ docker compose build fc && docker compose up -d fc
 
 | 变量 | 说明 |
 |------|------|
-| `APP_FEATURES_PROFILE` | 选用哪份 profile。compose 默认 `self-host`，`s.yaml` 默认 `belayo`；两边默认值不同是有意的 |
+| `APP_FEATURES_PROFILE` | 选用哪份 profile。compose 默认 `self-host`（那台机器就是唯一一个环境）；**`s.yaml` 故意没有默认值** |
 | `APP_FEATURES_JSON` | **应急覆盖**，逐键盖在 profile 之上。日常不要用 |
+
+现有三份 profile，一个运行中的 Cloud API 对应一份：
+
+| profile | 部署 | 服务的品牌 |
+|---|---|---|
+| `self-host` | `api.teamclaw-dev.ucar.cc` | 官方 TeamClaw（`build.config.production.json`） |
+| `belayo` | `teamclaw-api.ucar.cc` | betly（品牌私仓 `brands/betly`） |
+| `copilot361` | `copilot.accounting.i.test.shopee.io` | Copilot 361（品牌私仓 `brands/copilot361`） |
+
+`s.yaml` 不给默认值，是因为它同时部署 belayo 和 copilot361 两个后端——任何默认值对其中一个都是**别的品牌的开关**（copilot361 若继承了 `belayo`，会给从没提供过手机登录的用户打开手机登录）。不设 = 不覆盖，永远安全。每个 env 文件自己写 profile 名，`deploy-aliyun-fc.sh` 的确认 banner 会打印出来。
 
 **持久的值在代码里，不在环境变量里**：`services/fc/src/lib/feature-profiles.ts`。
 原因是 belayo（Alibaba FC）那边 `s deploy` 会**整体重写** function 的环境变量表，
@@ -227,9 +237,15 @@ curl -s https://api.teamclaw-dev.ucar.cc/v1/config/public | jq   # self-host
 curl -s https://teamclaw-api.ucar.cc/v1/config/public | jq       # belayo
 ```
 
-profile 是空的（当前两份都是空的，即「不覆盖任何东西」）时返回 `{}` 属于正常。容器
-日志里的 `[config] features profile=… keys=N` 是区分「没配」和「配了但没生效」的唯一
-手段。
+三份 profile 的初始值都是**照抄各自品牌 build config 已经烘死的值**，所以开启这套机制
+当天客户端行为零变化——服务端只是把每个客户端本来就相信的东西再讲一遍。之后改开关就
+只改 `feature-profiles.ts`，不用重新打包客户端。
+
+品牌 build config 改了要记得同步这里：一边是默认值、一边是覆盖值，两边漂移的表现是
+「开关在网络请求回来的瞬间翻转」，很难查但很好避免。
+
+没设 profile 时返回 `{}` 属于正常（= 不覆盖）。容器日志里的
+`[config] features profile=… keys=N` 是区分「没配」和「配了但没生效」的唯一手段。
 
 **定时任务：** `docker compose --profile cron up -d`，cron 容器按计划打
 `POST /internal/cron`（带 `x-cron-secret`）。

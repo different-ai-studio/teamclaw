@@ -57,20 +57,66 @@ export interface FeatureFlags {
 }
 
 /**
- * Selected by `APP_FEATURES_PROFILE`. Both deploy definitions declare a
- * non-empty default for it (`self-host` in docker-compose.yml, `belayo` in
- * s.yaml), so an operator who sets nothing still gets the right profile.
+ * Selected by `APP_FEATURES_PROFILE`. One profile per RUNNING Cloud API, not
+ * per brand — though today each deployment happens to serve one brand:
  *
- * Both start EMPTY, which means "no overrides — every client keeps its baked
- * build config". That is deliberate: shipping this machinery must not change
- * any client's behaviour on day one. Add keys as decisions are actually made.
+ *   self-host   api.teamclaw-dev.ucar.cc     official TeamClaw
+ *                                            (build.config.production.json)
+ *   belayo      teamclaw-api.ucar.cc         betly
+ *                                            (branding repo brands/betly)
+ *   copilot361  copilot.accounting.i.test.shopee.io
+ *                                            (branding repo brands/copilot361)
  *
- * One caveat before adding any: a profile applies to EVERY brand pointing at
- * this Cloud API, not just the one you have in mind. If two brands share a
- * deployment and want different answers, the endpoints already accept a `brand`
- * query param — key off it rather than flipping a flag for everyone.
+ * Only docker-compose.yml defaults the name (`self-host` — that box is exactly
+ * one environment). s.yaml deliberately has NO default, because it deploys both
+ * belayo and copilot361 and a default would be the wrong brand's flags for one
+ * of them. Unset means "no overrides", which is always safe.
+ *
+ * Each profile below RESTATES what that brand's build config already bakes, so
+ * turning this on changes nothing: the server tells every client exactly what
+ * it already believed. From here a flag is changed by editing this file — the
+ * client no longer has to be repackaged.
+ *
+ * Keep them in sync when a brand's build config changes. They are defaults on
+ * one side and overrides on the other; drift shows up as a flag that flips the
+ * moment the network answers, which is confusing to debug and trivial to avoid.
+ *
+ * Two things you cannot express here, both by design:
+ *   - `updater` (build-time only — a remote mistake is unrecoverable)
+ *   - `auth.webSSOHosts` (compiled into the desktop binary)
+ * `auth.webSSO` can be turned OFF here but not ON: the client ANDs it with the
+ * build flag.
  */
 export const FEATURE_PROFILES: Record<string, FeatureFlags> = {
-  "self-host": {},
-  belayo: {},
+  // Mirrors build.config.production.json (in this repo).
+  "self-host": {
+    auth: { google: true, wechat: false, phone: false, password: false, webSSO: false },
+    channels: { discord: true, feishu: true, email: true, kook: true, wecom: true, wechat: true },
+    teamShareBrowser: false,
+    apps: false,
+    lockLlmConfig: false,
+  },
+
+  // Mirrors the branding repo's brands/betly/build.config.json. `webSSO: true`
+  // holds only because that build also bakes it on, together with
+  // `webSSOHosts: ["admin.mx5.cn"]`.
+  belayo: {
+    auth: { google: false, wechat: false, phone: true, password: false, webSSO: true },
+    channels: { discord: true, feishu: true, email: true, kook: true, wecom: true, wechat: true },
+    teamShareBrowser: false,
+    apps: false,
+    lockLlmConfig: false,
+  },
+
+  // Mirrors the branding repo's brands/copilot361/build.config.json, which
+  // carries no `auth` block at all — every alternative sign-in method is off and
+  // only email OTP remains. Restated explicitly here so it is a decision on the
+  // record rather than an omission.
+  copilot361: {
+    auth: { google: false, wechat: false, phone: false, password: false, webSSO: false },
+    channels: { discord: true, feishu: true, email: true, kook: true, wecom: true, wechat: true },
+    teamShareBrowser: false,
+    apps: false,
+    lockLlmConfig: false,
+  },
 };
