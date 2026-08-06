@@ -1,10 +1,10 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { fromBinary } from "@bufbuild/protobuf";
-import { AgentType, RuntimeCommandEnvelopeSchema, RuntimeLifecycle } from "@/lib/proto/amux_pb";
+import { AgentType, RuntimeLifecycle } from "@/lib/proto/amux_pb";
 import type { RuntimeStateEntry } from "@/stores/runtime-state-store";
 import { useV2StreamingStore } from "@/stores/v2-streaming-store";
 
 const mqttPublish = vi.fn().mockResolvedValue(undefined);
+const runtimeCommand = vi.fn().mockResolvedValue(true);
 const mockByRuntimeId: Record<string, RuntimeStateEntry> = {};
 
 /** A retain entry as the daemon files it: keyed by session id. */
@@ -24,6 +24,10 @@ function seedAttachment(sessionId: string, runtimeId: string) {
 
 vi.mock("@/lib/mqtt-bridge", () => ({
   mqttPublish: (...args: unknown[]) => mqttPublish(...args),
+}));
+
+vi.mock("@/lib/teamclaw-rpc", () => ({
+  runtimeCommand: (...args: unknown[]) => runtimeCommand(...args),
 }));
 
 vi.mock("@/lib/backend", () => ({
@@ -69,6 +73,8 @@ import { interruptAgentActor } from "@/lib/teamclaw/interrupt-agent";
 describe("interruptAgentActor", () => {
   beforeEach(() => {
     mqttPublish.mockClear();
+    runtimeCommand.mockClear();
+    runtimeCommand.mockResolvedValue(true);
     discardPendingStreamReply.mockClear();
     for (const key of Object.keys(mockByRuntimeId)) {
       delete mockByRuntimeId[key];
@@ -82,18 +88,19 @@ describe("interruptAgentActor", () => {
     useV2StreamingStore.getState().appendOutput("session-1", "agent-a", "Hello");
   });
 
-  it("publishes AcpCancel to the resolved runtime command topic", async () => {
+  it("sends AcpCancel over session-addressed rpc", async () => {
     await interruptAgentActor({
       sessionId: "session-1",
       agentActorId: "agent-a",
     });
 
-    expect(mqttPublish).toHaveBeenCalledTimes(1);
-    const [topic, bytes] = mqttPublish.mock.calls[0] as [string, Uint8Array];
-    expect(topic).toBe("amux/team-1/agent-a/runtime/rt-abcd/commands");
-
-    const envelope = fromBinary(RuntimeCommandEnvelopeSchema, bytes);
+    expect(runtimeCommand).toHaveBeenCalledTimes(1);
+    expect(runtimeCommand).toHaveBeenCalledWith(
+      expect.objectContaining({ targetActorId: "agent-a", sessionId: "session-1" }),
+    );
+    const envelope = runtimeCommand.mock.calls[0]![0].envelope;
     expect(envelope.acpCommand?.command.case).toBe("cancel");
+    expect(mqttPublish).not.toHaveBeenCalled();
 
     expect(discardPendingStreamReply).not.toHaveBeenCalled();
     expect(useV2StreamingStore.getState().byKey["session-1::agent-a"]?.active).toBe(true);
@@ -115,20 +122,40 @@ describe("interruptAgentActor", () => {
       agentActorId: "agent-a",
     });
 
-    const [topic] = mqttPublish.mock.calls[0] as [string, Uint8Array];
-    expect(topic).toBe("amux/team-1/agent-a/runtime/rt-abcd/commands");
+    expect(runtimeCommand).toHaveBeenCalledWith(
+      expect.objectContaining({ targetActorId: "agent-a", sessionId: "session-1" }),
+    );
+    expect(mqttPublish).not.toHaveBeenCalled();
   });
 
-  it("cleans up locally when the session is cold", async () => {
-    // No attachment for this session — absence is the answer, not a failure.
+  it("rpcs cancel by (actor, session) even without a retain entry", async () => {
+    // Cross-actor interrupt on the same machine often has no local retain for
+    // the remote agent; session + actor is enough for the daemon to resolve.
     delete mockByRuntimeId["agent-a::session-1"];
+
+    await interruptAgentActor({
+      sessionId: "session-1",
+      agentActorId: "agent-a",
+    });
+
+    expect(runtimeCommand).toHaveBeenCalledWith(
+      expect.objectContaining({ targetActorId: "agent-a", sessionId: "session-1" }),
+    );
+    expect(mqttPublish).not.toHaveBeenCalled();
+    expect(
+      useV2StreamingStore.getState().isInterruptedFlushPending("session-1", "agent-a"),
+    ).toBe(true);
+  });
+
+  it("cleans up locally when the daemon reports no attachment", async () => {
+    runtimeCommand.mockResolvedValue(false);
 
     await expect(
       interruptAgentActor({
         sessionId: "session-1",
         agentActorId: "agent-a",
       }),
-    ).rejects.toThrow(/Could not resolve agent runtime/);
+    ).rejects.toThrow(/no live attachment/);
 
     expect(mqttPublish).not.toHaveBeenCalled();
     expect(discardPendingStreamReply).toHaveBeenCalledWith("session-1", "agent-a");

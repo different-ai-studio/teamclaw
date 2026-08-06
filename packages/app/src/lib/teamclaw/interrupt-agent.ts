@@ -76,17 +76,18 @@ export async function interruptAgentActor(args: {
     byRuntimeId,
   });
 
-  if (!target) {
-    useV2StreamingStore.getState().clearInterruptedFlushPending(sessionId, agentActorId);
-    cleanupLocalAgentStream(sessionId, agentActorId);
-    throw new Error("Could not resolve agent runtime for interrupt");
-  }
+  // Prefer (actor, session) RPC even when retain is missing — the owning
+  // daemon resolves the live attachment by session_id. Requiring retain here
+  // blocked cross-actor interrupt when the local client had no copy of the
+  // remote agent's retain.
+  const targetActorId = target?.actorId ?? agentActorId;
+  const runtimeId = target?.runtimeId ?? sessionId;
 
   sessionFlowLog("interrupt.begin", {
     sessionId,
     agentActorId,
-    targetActorId: target.actorId,
-    runtimeId: target.runtimeId,
+    targetActorId,
+    runtimeId,
     sessionRuntimeId:
       sessionRuntimeRows.find((row) => row.agent_id?.trim() === agentActorId)?.runtime_id ??
       null,
@@ -95,10 +96,10 @@ export async function interruptAgentActor(args: {
   const peerId = `teamclaw-desktop-${(senderActorId || "anon").slice(0, 8)}`;
   const sender = createRuntimeCommandSender({
     mqtt: { publish: mqttPublish },
-    // Session-addressed dispatch with a delivery receipt; falls back to the
-    // per-spawn topic when no session id reaches here.
-    rpc: ({ targetActorId, sessionId: sid, envelope }) =>
-      runtimeCommand({ targetActorId, sessionId: sid, envelope }),
+    // Session-addressed dispatch with a delivery receipt. No silent legacy
+    // topic fallback — that path mis-addresses by session UUID as a spawn key.
+    rpc: ({ targetActorId: actor, sessionId: sid, envelope }) =>
+      runtimeCommand({ targetActorId: actor, sessionId: sid, envelope }),
     teamId,
     peerId,
     senderActorId,
@@ -106,8 +107,8 @@ export async function interruptAgentActor(args: {
 
   try {
     await sender.sendCancel({
-      targetActorId: target.actorId,
-      runtimeId: target.runtimeId,
+      targetActorId,
+      runtimeId,
       sessionId,
     });
   } catch (error) {
@@ -116,7 +117,7 @@ export async function interruptAgentActor(args: {
     sessionFlowError("interrupt.failed", error, {
       sessionId,
       agentActorId,
-      runtimeId: target.runtimeId,
+      runtimeId,
     });
     throw error;
   }
@@ -128,7 +129,7 @@ export async function interruptAgentActor(args: {
   sessionFlowLog("interrupt.ok", {
     sessionId,
     agentActorId,
-    runtimeId: target.runtimeId,
+    runtimeId,
   });
 }
 
