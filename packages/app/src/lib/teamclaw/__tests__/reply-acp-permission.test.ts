@@ -1,4 +1,4 @@
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 import { useRuntimeStateStore } from "@/stores/runtime-state-store";
 import { AgentType } from "@/lib/proto/amux_pb";
 
