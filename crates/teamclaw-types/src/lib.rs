@@ -1,4 +1,5 @@
 pub mod mqtt;
+pub mod skill_frontmatter;
 
 pub type ActorId = String;
 pub type MessageId = String;

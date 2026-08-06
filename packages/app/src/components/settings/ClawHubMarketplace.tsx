@@ -13,13 +13,12 @@ import {
   Clock,
   ChevronDown,
   AlertCircle,
-  FolderOpen,
-  Globe,
   RefreshCw,
   Trash2,
 } from "lucide-react"
 import { invoke } from "@tauri-apps/api/core"
 import { useWorkspaceStore } from "@/stores/workspace"
+import { ensureAgentsSkillsPaths } from "@/lib/skills/ensure-agents-paths"
 import { openExternalUrl } from "@/lib/utils"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
@@ -42,13 +41,6 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog"
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select"
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -93,11 +85,6 @@ export const ClawHubMarketplace = React.memo(function ClawHubMarketplace({
   const [detailSlug, setDetailSlug] = React.useState<string | null>(null)
   const [detail, setDetail] = React.useState<ClawHubSkillDetail | null>(null)
   const [isLoadingDetail, setIsLoadingDetail] = React.useState(false)
-
-  // Install location dialog
-  const [installDialogOpen, setInstallDialogOpen] = React.useState(false)
-  const [installLocation, setInstallLocation] = React.useState<'workspace' | 'global'>('workspace')
-  const [pendingInstallSlug, setPendingInstallSlug] = React.useState<string | null>(null)
   const effectiveSearchQuery = externalSearch ? (sharedSearchQuery ?? "") : searchQuery
 
   const searchTimerRef = React.useRef<ReturnType<typeof setTimeout> | null>(null)
@@ -253,16 +240,17 @@ export const ClawHubMarketplace = React.memo(function ClawHubMarketplace({
   }, [doSearch, effectiveSearchQuery, externalRefreshSignal, loadExplore, loadInstalled])
 
   const handleInstall = React.useCallback(
-    async (slug: string, location: 'workspace' | 'global') => {
+    async (slug: string) => {
       setInstallingSlugs((prev) => new Set(prev).add(slug))
       try {
         await invoke<string>("clawhub_install", {
-          workspacePath: location === 'workspace' ? workspacePath : null,
+          workspacePath: workspacePath ?? null,
           slug,
           version: null,
           force: false,
-          isGlobal: location === 'global',
+          isGlobal: true,
         })
+        await ensureAgentsSkillsPaths(workspacePath)
         setInstalledSlugs((prev) => new Set(prev).add(slug))
         await onInstalled?.()
       } catch (err) {
@@ -278,18 +266,12 @@ export const ClawHubMarketplace = React.memo(function ClawHubMarketplace({
     [workspacePath, onInstalled]
   )
 
-  const openInstallDialog = React.useCallback((slug: string) => {
-    setPendingInstallSlug(slug)
-    setInstallLocation('workspace')
-    setInstallDialogOpen(true)
-  }, [])
-
-  const confirmInstall = React.useCallback(async () => {
-    if (!pendingInstallSlug) return
-    setInstallDialogOpen(false)
-    await handleInstall(pendingInstallSlug, installLocation)
-    setPendingInstallSlug(null)
-  }, [pendingInstallSlug, installLocation, handleInstall])
+  const openInstallDialog = React.useCallback(
+    (slug: string) => {
+      void handleInstall(slug)
+    },
+    [handleInstall],
+  )
 
   const handleUninstall = React.useCallback(
     async (slug: string) => {
@@ -753,63 +735,6 @@ export const ClawHubMarketplace = React.memo(function ClawHubMarketplace({
                 </Button>
               )
             )}
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
-
-      {/* Install Location Dialog */}
-      <Dialog open={installDialogOpen} onOpenChange={setInstallDialogOpen}>
-        <DialogContent>
-          <DialogHeader>
-            <DialogTitle>{t('settings.skills.installSkill', 'Install Skill')}</DialogTitle>
-            <DialogDescription>
-              {t('settings.skills.installSkillDesc', 'Choose where to install')} <span className="font-mono text-foreground">{pendingInstallSlug}</span>
-            </DialogDescription>
-          </DialogHeader>
-
-          <div className="space-y-4 py-4">
-            <div className="space-y-2">
-              <label className="text-[13px] font-medium">{t('settings.skills.installLocation', 'Install Location')}</label>
-              <Select value={installLocation} onValueChange={(v) => setInstallLocation(v as 'workspace' | 'global')}>
-                <SelectTrigger>
-                  <SelectValue>
-                    {installLocation === 'workspace'
-                      ? t('settings.skills.locationWorkspace', 'Workspace')
-                      : t('settings.skills.locationGlobal', 'Global')}
-                  </SelectValue>
-                </SelectTrigger>
-                <SelectContent className="min-w-[380px]">
-                  <SelectItem value="workspace" className="cursor-pointer">
-                    <div className="flex items-start gap-2 py-1">
-                      <FolderOpen className="h-4 w-4 text-violet-500 mt-0.5 shrink-0" />
-                      <div className="flex flex-col gap-0.5 min-w-0">
-                        <span className="font-medium">{t('settings.skills.locationWorkspace', 'Workspace')}</span>
-                        <span className="text-xs text-muted-foreground whitespace-normal break-words">.agents/skills/ - {t('settings.skills.projectOnly', 'Current project only')}</span>
-                      </div>
-                    </div>
-                  </SelectItem>
-                  <SelectItem value="global" className="cursor-pointer">
-                    <div className="flex items-start gap-2 py-1">
-                      <Globe className="h-4 w-4 text-cyan-500 mt-0.5 shrink-0" />
-                      <div className="flex flex-col gap-0.5 min-w-0">
-                        <span className="font-medium">{t('settings.skills.locationGlobal', 'Global')}</span>
-                        <span className="text-xs text-muted-foreground whitespace-normal break-words">~/.config/opencode/skills/ - {t('settings.skills.allProjects', 'All projects')}</span>
-                      </div>
-                    </div>
-                  </SelectItem>
-                </SelectContent>
-              </Select>
-            </div>
-          </div>
-
-          <DialogFooter>
-            <Button variant="outline" onClick={() => setInstallDialogOpen(false)}>
-              {t('common.cancel', 'Cancel')}
-            </Button>
-            <Button onClick={confirmInstall} disabled={installLocation === 'workspace' && !workspacePath}>
-              <Download className="mr-2 h-4 w-4" />
-              {t('clawhub.install', 'Install')}
-            </Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>

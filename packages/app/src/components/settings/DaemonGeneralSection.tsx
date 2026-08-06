@@ -30,6 +30,7 @@ import {
 import { useUIStore } from '@/stores/ui'
 import { ensureLocalDaemonCatalog } from '@/stores/local-daemon-catalog-store'
 import { useWorkspaceStore } from '@/stores/workspace'
+import { ensureAgentsSkillsPaths } from '@/lib/skills/ensure-agents-paths'
 import { useDaemonMqttConnected } from '@/stores/daemon-mqtt-status'
 import { cn, isTauri } from '@/lib/utils'
 import { SectionHeader, SettingCard } from './shared'
@@ -182,6 +183,9 @@ export function DaemonGeneralSection() {
         if (workspacePath) {
           ensureLocalDaemonCatalog(workspacePath, next, { force: true })
         }
+        // Point Claude / OpenCode skills.paths at ~/.agents/skills for the
+        // newly selected runtime (and refresh workspace configs when open).
+        void ensureAgentsSkillsPaths(workspacePath)
       } catch (e) {
         setLocalAgentState(previous) // revert on failure
         setError(e instanceof Error ? e.message : String(e))

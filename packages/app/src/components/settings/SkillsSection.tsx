@@ -36,11 +36,11 @@ import {
   getDaemonPermissions,
   putDaemonPermissions,
   reloadDaemonRuntime,
-  putDaemonSkill,
   deleteDaemonSkill,
 } from '@/lib/daemon-local-client'
 import { cn } from '@/lib/utils'
 import { appDisplayName, TEAMCLAW_DIR } from '@/lib/build-config'
+import { ensureAgentsSkillsPaths } from '@/lib/skills/ensure-agents-paths'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Skeleton } from '@/components/ui/skeleton'
@@ -140,7 +140,6 @@ export const SkillsSection = React.memo(function SkillsSection({
   const [hasSkillRuntimeChanges, setHasSkillRuntimeChanges] = React.useState(false)
   const [isRestarting, setIsRestarting] = React.useState(false)
   const [restartError, setRestartError] = React.useState<string | null>(null)
-  const [installLocation, setInstallLocation] = React.useState<'workspace' | 'global'>('workspace')
   const [isViewMode, setIsViewMode] = React.useState(false)
   const [importZipPath, setImportZipPath] = React.useState<string | null>(null)
   const [importZipLabel, setImportZipLabel] = React.useState<string | null>(null)
@@ -335,16 +334,16 @@ export const SkillsSection = React.memo(function SkillsSection({
 
   const importSkillFromZip = async () => {
     if (!importZipPath) return
-    if (installLocation === 'workspace' && !workspacePath) return
 
     setIsSaving(true)
     setError(null)
     try {
       await invoke<string>('import_skill_from_zip', {
-        workspacePath: installLocation === 'global' ? null : workspacePath,
+        workspacePath: workspacePath ?? null,
         zipPath: importZipPath,
-        isGlobal: installLocation === 'global',
+        isGlobal: true,
       })
+      await ensureAgentsSkillsPaths(workspacePath)
       await loadSkills()
       onDataChange?.()
       await restartOpenCodeInstance()
@@ -352,7 +351,6 @@ export const SkillsSection = React.memo(function SkillsSection({
       setSkillDialogMode('create')
       setImportZipPath(null)
       setImportZipLabel(null)
-      setInstallLocation('workspace')
     } catch (err) {
       console.error('Failed to import skill zip:', err)
       setError(err instanceof Error ? err.message : 'Failed to import skill')
@@ -363,7 +361,6 @@ export const SkillsSection = React.memo(function SkillsSection({
 
   const saveSkill = async () => {
     if (!skillName.trim()) return
-    if (installLocation === 'workspace' && !workspacePath) return
 
     setIsSaving(true)
     setError(null)
@@ -385,40 +382,15 @@ description: ${description.replace(/\n/g, ' ')}
 ${skillContent.trim()}`
       }
 
-      if (workspacePath && installLocation === 'workspace') {
-        const saved = await putDaemonSkill(encodeWorkspaceId(workspacePath), skillDirName, {
-          content: finalContent,
-          skillName,
-          installLocation,
-          dirPath: editingSkill?.dirPath,
-          filename: editingSkill?.filename,
-        })
-        if (saved) {
-          await loadSkills()
-          onDataChange?.()
-          setHasSkillRuntimeChanges(true)
-          window.dispatchEvent(new CustomEvent(SKILLS_CHANGED_EVENT))
-          setDialogOpen(false)
-          setEditingSkill(null)
-          setSkillDialogMode('create')
-          setSkillName('')
-          setSkillContent('')
-          setInstallLocation('workspace')
-          return
-        }
-      }
-
       const { writeTextFile, exists, mkdir } = await import('@tauri-apps/plugin-fs')
       const { homeDir } = await import('@tauri-apps/api/path')
 
       let skillsDir: string
       if (editingSkill?.dirPath) {
         skillsDir = editingSkill.dirPath
-      } else if (installLocation === 'global') {
-        const home = await homeDir()
-        skillsDir = `${home.replace(/\/$/, '')}/.config/opencode/skills`
       } else {
-        skillsDir = `${workspacePath}/${TEAMCLAW_DIR}/skills`
+        const home = await homeDir()
+        skillsDir = `${home.replace(/\/$/, '')}/.agents/skills`
       }
 
       if (!(await exists(skillsDir))) {
@@ -432,6 +404,7 @@ ${skillContent.trim()}`
       }
 
       await writeTextFile(`${skillDir}/SKILL.md`, finalContent)
+      await ensureAgentsSkillsPaths(workspacePath)
       await loadSkills()
       onDataChange?.()
       setHasSkillRuntimeChanges(true)
@@ -442,7 +415,6 @@ ${skillContent.trim()}`
       setSkillDialogMode('create')
       setSkillName('')
       setSkillContent('')
-      setInstallLocation('workspace')
     } catch (err) {
       console.error('Failed to save skill:', err)
       setError(err instanceof Error ? err.message : 'Failed to save skill')
@@ -512,8 +484,6 @@ ${skillContent.trim()}`
     setEditingSkill(skill)
     setSkillName(skill.name)
     setSkillContent(skill.content)
-    // Set location based on skill source
-    setInstallLocation(skill.source?.startsWith('global-') ? 'global' : 'workspace')
     // Set view mode for non-editable skills (not local or clawhub)
     const isEditable = skill.source === 'local' || skill.source === 'clawhub' || skill.isRoleSkill
     setIsViewMode(!isEditable)
@@ -525,7 +495,6 @@ ${skillContent.trim()}`
     setEditingSkill(null)
     setSkillName('')
     setSkillContent('')
-    setInstallLocation('workspace')
     setIsViewMode(false)
     setSkillDialogMode('create')
     setImportZipPath(null)
@@ -548,7 +517,6 @@ ${skillContent.trim()}`
       if (!editingSkill) {
         setSkillName('')
         setSkillContent('')
-        setInstallLocation('workspace')
       }
     }
     if (mode === 'import') {
@@ -559,31 +527,18 @@ ${skillContent.trim()}`
   }, [editingSkill])
 
   const renderInstallLocationField = () => (
-    <div className="space-y-2">
-      <label className="text-[13px] font-medium">{t('settings.skills.installLocation', 'Install Location')}</label>
-      <Select value={installLocation} onValueChange={(v) => setInstallLocation(v as 'workspace' | 'global')}>
-        <SelectTrigger className="h-8">
-          <SelectValue>
-            {installLocation === 'workspace'
-              ? t('settings.skills.locationWorkspace', 'Workspace')
-              : t('settings.skills.locationGlobal', 'Global')}
-          </SelectValue>
-        </SelectTrigger>
-        <SelectContent className="w-[400px]">
-          <SelectItem value="workspace" className="cursor-pointer">
-            <div className="flex flex-col gap-0.5 py-1">
-              <span className="font-medium">{t('settings.skills.locationWorkspace', 'Workspace')}</span>
-              <span className="text-xs text-muted-foreground whitespace-normal">.opencode/skills/ - {t('settings.skills.projectOnly', 'Current project only')}</span>
-            </div>
-          </SelectItem>
-          <SelectItem value="global" className="cursor-pointer">
-            <div className="flex flex-col gap-0.5 py-1">
-              <span className="font-medium">{t('settings.skills.locationGlobal', 'Global')}</span>
-              <span className="text-xs text-muted-foreground whitespace-normal">~/.config/opencode/skills/ - {t('settings.skills.allProjects', 'All projects')}</span>
-            </div>
-          </SelectItem>
-        </SelectContent>
-      </Select>
+    <div className="space-y-1 rounded-[8px] border border-border-soft bg-panel/40 px-3 py-2">
+      <div className="text-[13px] font-medium text-foreground">
+        {t('settings.skills.installLocation', 'Install Location')}
+        {': '}
+        <span className="font-normal font-mono text-[12px] text-ink-2">~/.agents/skills/</span>
+      </div>
+      <p className="text-[11.5px] text-muted-foreground">
+        {t(
+          'settings.skills.installLocationAgentsHint',
+          'Shared with OpenCode, Claude Code, and Pi via skills.paths.',
+        )}
+      </p>
     </div>
   )
 
@@ -661,7 +616,7 @@ ${skillContent.trim()}`
         <SectionHeader
           icon={Sparkles}
           title={t('settings.skills.title', 'Skills')}
-          description={t('settings.skills.descriptionDetail', 'AI skills from workspace and global directories (~/.config/opencode/skills, ~/.claude/skills, ~/.agents/skills)')}
+          description={t('settings.skills.descriptionDetail', 'AI skills installed under ~/.agents/skills (shared with OpenCode, Claude Code, and Pi)')}
           iconColor="text-yellow-500"
         />
       ) : null}
@@ -1369,7 +1324,7 @@ ${skillContent.trim()}`
                 ? t('settings.skills.viewDescription', 'Read-only view of skill content')
                 : skillDialogMode === 'import'
                   ? t('settings.skills.importZipDescription', 'Upload a .zip that contains exactly one SKILL.md. The entire skill folder is copied to your skills directory. Archives without SKILL.md are rejected.')
-                  : t('settings.skills.dialogDescription', 'Skills are SKILL.md files with YAML frontmatter. Saved to .opencode/skills/<name>/SKILL.md (OpenCode format).')}
+                  : t('settings.skills.dialogDescription', 'Skills are SKILL.md files with YAML frontmatter. Saved to ~/.agents/skills/<name>/SKILL.md.')}
             </DialogDescription>
           </DialogHeader>
 

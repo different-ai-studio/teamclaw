@@ -19,6 +19,7 @@ import { registerSync } from "./sync.js";
 import { registerTeamShare } from "./team-share.js";
 import { registerTeamLiteLlm } from "./team-litellm.js";
 import { registerAccount } from "./account.js";
+import { registerTeamSkills } from "./team-skills.js";
 
 export function registerAllRoutes(router) {
   registerAuth(router);
@@ -34,6 +35,9 @@ export function registerAllRoutes(router) {
   // PUT remains reachable since it's a distinct verb.
   registerTeamShare(router);
   registerTeamLiteLlm(router);
+  // Before workspaces for the same reason team-share is: these own
+  // /v1/teams/:teamId/skills* and must not be shadowed by a broader match.
+  registerTeamSkills(router);
   registerWorkspaces(router);
   registerSystem(router);
   registerActors(router);
@@ -48,4 +52,4 @@ export function registerAllRoutes(router) {
   registerSync(router);
 }
 
-export { registerAuth, registerTeams, registerSessions, registerApps, registerMessages, registerInvites, registerWorkspaces, registerSystem, registerActors, registerNotifications, registerIdeas, registerShortcuts, registerRuntime, registerAttachments, registerTelemetry, registerConfig };
+export { registerAuth, registerTeams, registerSessions, registerApps, registerMessages, registerInvites, registerWorkspaces, registerSystem, registerActors, registerNotifications, registerIdeas, registerShortcuts, registerRuntime, registerAttachments, registerTelemetry, registerConfig, registerTeamSkills };

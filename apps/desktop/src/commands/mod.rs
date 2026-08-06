@@ -1,6 +1,7 @@
 pub mod acp_debug_log;
 pub mod amuxd_supervisor;
 pub mod clawhub;
+pub mod agents_skills;
 pub mod cron;
 pub mod daemon_http;
 pub mod daemon_installer;
@@ -35,6 +36,7 @@ pub mod team_git;
 pub mod team_litellm;
 pub mod team_secret_store;
 pub mod team_share;
+pub mod team_skills;
 pub mod team_sync_proxy;
 pub mod team_types;
 pub mod team_unified;

@@ -9,6 +9,8 @@ use std::path::{Path, PathBuf};
 
 use serde::{Deserialize, Serialize};
 
+use teamclaw_types::skill_frontmatter::parse_frontmatter;
+
 use super::global_team_store::TEAM_LINK_NAME;
 use super::workspace_control::WorkspaceControlError;
 
@@ -151,13 +153,8 @@ fn read_json_paths(workspace_path: &Path, config_rel: &str, key: &str) -> Vec<Pa
 }
 
 fn extract_skill_name(content: &str, fallback: &str) -> String {
-    for line in content.lines() {
-        if let Some(value) = line.strip_prefix("name:") {
-            let trimmed = value.trim();
-            if !trimmed.is_empty() {
-                return trimmed.to_owned();
-            }
-        }
+    if let Some(name) = parse_frontmatter(content).string("name") {
+        return name.to_owned();
     }
     for line in content.lines() {
         if let Some(rest) = line.strip_prefix('#') {
@@ -171,15 +168,10 @@ fn extract_skill_name(content: &str, fallback: &str) -> String {
 }
 
 fn extract_skill_description(content: &str, fallback: &str) -> String {
-    for line in content.lines() {
-        if let Some(value) = line.strip_prefix("description:") {
-            let trimmed = value.trim();
-            if !trimmed.is_empty() {
-                return trimmed.to_owned();
-            }
-        }
+    match parse_frontmatter(content).string("description") {
+        Some(d) => d.to_owned(),
+        None => extract_skill_name(content, fallback),
     }
-    extract_skill_name(content, fallback)
 }
 
 fn build_invocation_name(parent_dir: &Path, filename: &str) -> String {
@@ -794,7 +786,7 @@ fn skills_dir_for_request(
         return confine_path(dir, workspace_path, home);
     }
     if req.install_location.as_deref() == Some("global") {
-        return Ok(home.join(".config/opencode/skills"));
+        return Ok(home.join(".agents/skills"));
     }
     Ok(workspace_path.join(".teamclaw/skills"))
 }

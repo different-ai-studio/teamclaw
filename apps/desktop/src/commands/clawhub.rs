@@ -172,7 +172,15 @@ pub struct ClawHubUpdateInfo {
 pub struct LockfileEntry {
     pub version: Option<String>,
     pub installed_at: u64,
+    /// Which registry this came from. `None` on entries written before the
+    /// team registry existed, which are all ClawHub — so absent reads as
+    /// "clawhub" rather than forcing a lockfile migration.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub source: Option<String>,
 }
+
+pub(crate) const SOURCE_CLAWHUB: &str = "clawhub";
+pub(crate) const SOURCE_TEAM: &str = "team";
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Lockfile {
@@ -193,12 +201,12 @@ impl Default for Lockfile {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
-struct SkillOrigin {
-    version: u32,
-    registry: String,
-    slug: String,
-    installed_version: String,
-    installed_at: u64,
+pub(crate) struct SkillOrigin {
+    pub version: u32,
+    pub registry: String,
+    pub slug: String,
+    pub installed_version: String,
+    pub installed_at: u64,
 }
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
@@ -207,7 +215,7 @@ fn get_registry() -> String {
     std::env::var("CLAWHUB_REGISTRY").unwrap_or_else(|_| DEFAULT_REGISTRY.to_string())
 }
 
-fn build_client() -> Result<reqwest::blocking::Client, String> {
+pub(crate) fn build_client() -> Result<reqwest::blocking::Client, String> {
     reqwest::blocking::Client::builder()
         .timeout(std::time::Duration::from_secs(REQUEST_TIMEOUT_SECS))
         .build()
@@ -220,7 +228,7 @@ fn lockfile_path(workspace_path: &str) -> PathBuf {
         .join("lock.json")
 }
 
-fn read_lockfile(workspace_path: &str) -> Lockfile {
+pub(crate) fn read_lockfile(workspace_path: &str) -> Lockfile {
     let path = lockfile_path(workspace_path);
     if !path.exists() {
         let legacy = PathBuf::from(workspace_path)
@@ -241,7 +249,7 @@ fn read_lockfile(workspace_path: &str) -> Lockfile {
     }
 }
 
-fn write_lockfile(workspace_path: &str, lock: &Lockfile) -> Result<(), String> {
+pub(crate) fn write_lockfile(workspace_path: &str, lock: &Lockfile) -> Result<(), String> {
     let path = lockfile_path(workspace_path);
     if let Some(parent) = path.parent() {
         std::fs::create_dir_all(parent)
@@ -253,20 +261,21 @@ fn write_lockfile(workspace_path: &str, lock: &Lockfile) -> Result<(), String> {
         .map_err(|e| format!("Failed to write lockfile: {}", e))
 }
 
-fn skills_dir(workspace_path: &str) -> PathBuf {
-    PathBuf::from(workspace_path)
-        .join(".opencode")
-        .join("skills")
+pub(crate) fn skills_dir(_workspace_path: &str) -> PathBuf {
+    // All TeamClaw / ClawHub / marketplace installs land in the shared Agents
+    // skills root so OpenCode, Claude Code, and Pi can discover the same pack.
+    agents_skills_dir().unwrap_or_else(|_| PathBuf::from(".agents/skills"))
 }
 
-fn global_skills_dir() -> Result<PathBuf, String> {
-    let home = dirs::home_dir().ok_or_else(|| "HOME directory not found".to_string())?;
-    Ok(crate::opencode_paths::global_opencode_config_skills_dir(
-        &home,
-    ))
+pub(crate) fn global_skills_dir() -> Result<PathBuf, String> {
+    agents_skills_dir()
 }
 
-fn validate_slug(slug: &str) -> Result<(), String> {
+fn agents_skills_dir() -> Result<PathBuf, String> {
+    super::agents_skills::agents_skills_dir()
+}
+
+pub(crate) fn validate_slug(slug: &str) -> Result<(), String> {
     let trimmed = slug.trim();
     if trimmed.is_empty() {
         return Err("Slug is required".to_string());
@@ -290,7 +299,7 @@ fn sanitize_zip_path(raw: &str) -> Option<String> {
     Some(normalized.to_string())
 }
 
-fn extract_zip_to_dir(zip_bytes: &[u8], target_dir: &std::path::Path) -> Result<(), String> {
+pub(crate) fn extract_zip_to_dir(zip_bytes: &[u8], target_dir: &std::path::Path) -> Result<(), String> {
     let cursor = std::io::Cursor::new(zip_bytes);
     let mut archive =
         zip::ZipArchive::new(cursor).map_err(|e| format!("Failed to open zip: {}", e))?;
@@ -340,7 +349,7 @@ fn extract_zip_to_dir(zip_bytes: &[u8], target_dir: &std::path::Path) -> Result<
     Ok(())
 }
 
-fn write_skill_origin(skill_folder: &std::path::Path, origin: &SkillOrigin) -> Result<(), String> {
+pub(crate) fn write_skill_origin(skill_folder: &std::path::Path, origin: &SkillOrigin) -> Result<(), String> {
     let origin_dir = skill_folder.join(".clawhub");
     std::fs::create_dir_all(&origin_dir)
         .map_err(|e| format!("Failed to create .clawhub origin dir: {}", e))?;
@@ -350,7 +359,7 @@ fn write_skill_origin(skill_folder: &std::path::Path, origin: &SkillOrigin) -> R
         .map_err(|e| format!("Failed to write origin.json: {}", e))
 }
 
-fn now_millis() -> u64 {
+pub(crate) fn now_millis() -> u64 {
     std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
         .unwrap_or_default()
@@ -358,7 +367,7 @@ fn now_millis() -> u64 {
 }
 
 /// Write permission.skill entry for newly installed ClawHub skills.
-fn set_skill_permission_ask(workspace_path: &str, slug: &str) {
+pub(crate) fn set_skill_permission_ask(workspace_path: &str, slug: &str) {
     let config_path = PathBuf::from(workspace_path).join("opencode.json");
     let content = match std::fs::read_to_string(&config_path) {
         Ok(c) => c,
@@ -561,15 +570,9 @@ fn clawhub_install_blocking(
     let registry = get_registry();
     let client = build_client()?;
 
-    let is_global = is_global.unwrap_or(false);
-    let ws_path = workspace_path
-        .as_ref()
-        .ok_or_else(|| "Workspace path required for skill installation".to_string())?;
-    let skills = if is_global {
-        global_skills_dir()?
-    } else {
-        skills_dir(ws_path)
-    };
+    // Always install under ~/.agents/skills; `is_global` kept for API stability.
+    let _ = is_global;
+    let skills = global_skills_dir()?;
 
     std::fs::create_dir_all(&skills).map_err(|e| format!("Failed to create skills dir: {}", e))?;
 
@@ -652,31 +655,29 @@ fn clawhub_install_blocking(
         },
     )?;
 
-    // Update lockfile (only for workspace installs)
-    if !is_global {
-        if let Some(ref ws_path) = workspace_path {
-            let mut lock = read_lockfile(ws_path);
-            lock.skills.insert(
-                slug.clone(),
-                LockfileEntry {
-                    version: Some(resolved_version.clone()),
-                    installed_at: now_millis(),
-                },
-            );
-            write_lockfile(ws_path, &lock)?;
-
-            // Auto-set permission to "ask" for new ClawHub skills
-            set_skill_permission_ask(ws_path, &slug);
-        }
+    // Lockfile + default permission when a workspace is open (tracking only).
+    if let Some(ws_path) = workspace_path
+        .as_deref()
+        .map(str::trim)
+        .filter(|s| !s.is_empty())
+    {
+        let mut lock = read_lockfile(ws_path);
+        lock.skills.insert(
+            slug.clone(),
+            LockfileEntry {
+                version: Some(resolved_version.clone()),
+                installed_at: now_millis(),
+                source: Some(SOURCE_CLAWHUB.to_string()),
+            },
+        );
+        write_lockfile(ws_path, &lock)?;
+        set_skill_permission_ask(ws_path, &slug);
     }
-    // Note: Global skills don't use a lockfile or set permissions
 
-    let location = if is_global { " globally" } else { "" };
     Ok(format!(
-        "Installed {}@{}{} -> {}",
+        "Installed {}@{} -> {}",
         slug,
         resolved_version,
-        location,
         target.display()
     ))
 }
@@ -687,8 +688,17 @@ pub fn clawhub_uninstall(workspace_path: String, slug: String) -> Result<String,
     validate_slug(&slug)?;
 
     let mut lock = read_lockfile(&workspace_path);
-    if !lock.skills.contains_key(&slug) {
+    let Some(entry) = lock.skills.get(&slug) else {
         return Err(format!("Skill '{}' is not installed via ClawHub", slug));
+    };
+    // The lockfile is shared with the team registry so update checks run once
+    // over one list. Uninstalling a team skill has to go through
+    // team_skill_uninstall, which also clears the server-side install record.
+    if entry.source.as_deref() == Some(SOURCE_TEAM) {
+        return Err(format!(
+            "Skill '{}' came from the team registry — uninstall it there",
+            slug
+        ));
     }
 
     let target = skills_dir(&workspace_path).join(&slug);
@@ -724,6 +734,11 @@ pub async fn clawhub_check_updates(
 
         for (slug, entry) in &lock.skills {
             if slug.contains('/') || slug.contains('\\') || slug.contains("..") {
+                continue;
+            }
+            // Team-registry skills share this lockfile but live on a different
+            // registry; asking ClawHub about them returns 404 at best.
+            if entry.source.as_deref() == Some(SOURCE_TEAM) {
                 continue;
             }
 

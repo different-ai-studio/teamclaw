@@ -15,6 +15,7 @@ import { makeRuntimeRepo } from "./runtime.js";
 import { makeNotificationsRepo } from "./notifications.js";
 import { makeTelemetryRepo } from "./telemetry.js";
 import { makeAttachmentsRepo } from "./attachments.js";
+import { makeTeamSkillsRepo } from "./team-skills.js";
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 export function createPgBusinessRepository({ db, accessToken, userId, callerActorId, provisionLiteLlm, fetchLiteLlmModels: fetchLiteLlmModelsOpt, provisionMemberKey, queryLiteLlmUsage, startDeploy, finalizeDeploy, dispatchPush, publishReadEvent, deleteMemberKey }: { db: PgDatabase<any, any>; accessToken?: string; userId?: string; callerActorId?: string; provisionLiteLlm?: TeamsRepoDeps["provisionLiteLlm"]; fetchLiteLlmModels?: TeamsRepoDeps["fetchLiteLlmModels"]; provisionMemberKey?: TeamsRepoDeps["provisionMemberKey"]; queryLiteLlmUsage?: TeamsRepoDeps["queryLiteLlmUsage"]; deleteMemberKey?: TeamsRepoDeps["deleteMemberKey"]; startDeploy?: AppsRepoDeps["startDeploy"]; finalizeDeploy?: AppsRepoDeps["finalizeDeploy"]; dispatchPush?: MessagesRepoDeps["dispatchPush"]; publishReadEvent?: SessionsRepoDeps["publishReadEvent"] }) {
@@ -44,6 +45,7 @@ export function createPgBusinessRepository({ db, accessToken, userId, callerActo
   const runtimeRepo = makeRuntimeRepo(db, ctx);
   const notificationsRepo = makeNotificationsRepo(db, ctx);
   const telemetryRepo = makeTelemetryRepo(db, ctx);
+  const teamSkillsRepo = makeTeamSkillsRepo(db, ctx);
   return {
     ...teamsRepo,
     ...ideasRepo,
@@ -59,6 +61,7 @@ export function createPgBusinessRepository({ db, accessToken, userId, callerActo
     ...runtimeRepo,
     ...notificationsRepo,
     ...telemetryRepo,
+    ...teamSkillsRepo,
     ...makeAttachmentsRepo(),
     listTeams: (args: { limit?: number } = {}) => teamsRepo.listTeams(args, teamsCtx),
     listAllMyTeams: () => teamsRepo.listAllMyTeams(teamsCtx),

@@ -1634,6 +1634,338 @@ paths:
           $ref: "#/components/responses/Error"
         "404":
           $ref: "#/components/responses/Error"
+  /v1/teams/{teamId}/skills:
+    get:
+      operationId: listTeamSkills
+      summary: List the team skills registry
+      description: >
+        Full registry, not just what the caller installed. `actorId` selects
+        whose install state decorates each row — omit for the caller, pass a
+        team agent's actor id to inspect that agent.
+      tags: [TeamSkills]
+      parameters:
+        - $ref: "#/components/parameters/TeamId"
+        - name: actorId
+          in: query
+          schema: { type: string, format: uuid }
+        - name: status
+          in: query
+          schema: { type: string, enum: [draft, published, deprecated] }
+        - name: category
+          in: query
+          schema: { $ref: "#/components/schemas/TeamSkillCategory" }
+      responses:
+        "200":
+          description: Registry entries.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  items:
+                    type: array
+                    items: { $ref: "#/components/schemas/TeamSkill" }
+        "401": { $ref: "#/components/responses/Error" }
+        "403": { $ref: "#/components/responses/Error" }
+    post:
+      operationId: publishTeamSkill
+      summary: Publish a skill (version 1)
+      description: >
+        The publish gate. summary / category / whenToUse / whenNotToUse /
+        changelog are all required — the registry exists so those stop living
+        inside one free-text description. The package zip is uploaded
+        separately via the amuxc blob path; only its contentHash arrives here.
+      tags: [TeamSkills]
+      parameters:
+        - $ref: "#/components/parameters/TeamId"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/TeamSkillPublish" }
+      responses:
+        "201":
+          description: Published.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/TeamSkill" }
+        "400": { $ref: "#/components/responses/Error" }
+        "409":
+          description: A skill with that slug already exists — publish a version instead.
+          $ref: "#/components/responses/Error"
+  /v1/teams/{teamId}/skill-blobs/prepare:
+    post:
+      operationId: prepareTeamSkillBlob
+      summary: Prepare a skill package blob upload
+      description: >
+        Upserts an amuxc_blobs placeholder and returns a short-lived
+        presigned PUT URL when the object is not already in OSS. Does not
+        create an amuxc_files sync path — skill packages are content-addressed
+        only.
+      tags: [TeamSkills]
+      parameters:
+        - $ref: "#/components/parameters/TeamId"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [contentHash, size]
+              properties:
+                contentHash: { type: string, description: sha256 hex of the zip }
+                size: { type: integer, minimum: 0 }
+      responses:
+        "200":
+          description: Upload instructions for the package blob.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [contentHash, size, ossKey, requiresUpload]
+                properties:
+                  contentHash: { type: string }
+                  size: { type: integer }
+                  ossKey: { type: string }
+                  requiresUpload: { type: boolean }
+                  presignedPut: { type: [string, "null"] }
+        "400": { $ref: "#/components/responses/Error" }
+        "401": { $ref: "#/components/responses/Error" }
+        "403": { $ref: "#/components/responses/Error" }
+  /v1/teams/{teamId}/skill-blobs/complete:
+    post:
+      operationId: completeTeamSkillBlob
+      summary: Verify and mark a skill package blob uploaded
+      description: >
+        After the client PUTs to the presigned URL, HEAD-checks OSS and marks
+        the amuxc_blobs row verified so download can resolve it.
+      tags: [TeamSkills]
+      parameters:
+        - $ref: "#/components/parameters/TeamId"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [contentHash, size]
+              properties:
+                contentHash: { type: string }
+                size: { type: integer, minimum: 0 }
+      responses:
+        "200":
+          description: Blob verified.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [contentHash, size, ossKey]
+                properties:
+                  contentHash: { type: string }
+                  size: { type: integer }
+                  ossKey: { type: string }
+        "400": { $ref: "#/components/responses/Error" }
+        "401": { $ref: "#/components/responses/Error" }
+        "403": { $ref: "#/components/responses/Error" }
+        "404": { $ref: "#/components/responses/Error" }
+        "422": { $ref: "#/components/responses/Error" }
+  /v1/teams/{teamId}/skill-installs:
+    get:
+      operationId: listTeamSkillInstalls
+      summary: What a given actor should have installed
+      description: >
+        The reconcile list. A daemon hosting a team agent pulls the full set and
+        diffs it against its local lockfile — full set rather than a delta,
+        because notifications drop and daemons go offline.
+      tags: [TeamSkills]
+      parameters:
+        - $ref: "#/components/parameters/TeamId"
+        - name: actorId
+          in: query
+          schema: { type: string, format: uuid }
+      responses:
+        "200":
+          description: Install records.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  items:
+                    type: array
+                    items: { $ref: "#/components/schemas/TeamSkillInstall" }
+        "403": { $ref: "#/components/responses/Error" }
+  /v1/teams/{teamId}/skills/{slug}:
+    get:
+      operationId: getTeamSkill
+      summary: Skill detail with version history
+      tags: [TeamSkills]
+      parameters:
+        - $ref: "#/components/parameters/TeamId"
+        - $ref: "#/components/parameters/TeamSkillSlug"
+        - name: actorId
+          in: query
+          schema: { type: string, format: uuid }
+      responses:
+        "200":
+          description: Skill detail.
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: "#/components/schemas/TeamSkill"
+                  - type: object
+                    properties:
+                      versions:
+                        type: array
+                        items: { $ref: "#/components/schemas/TeamSkillVersion" }
+        "404": { $ref: "#/components/responses/Error" }
+    patch:
+      operationId: updateTeamSkill
+      summary: Edit metadata, transfer owner, deprecate
+      tags: [TeamSkills]
+      parameters:
+        - $ref: "#/components/parameters/TeamId"
+        - $ref: "#/components/parameters/TeamSkillSlug"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                summary: { type: string, maxLength: 200 }
+                category: { $ref: "#/components/schemas/TeamSkillCategory" }
+                whenToUse: { type: string }
+                whenNotToUse: { type: string }
+                requires: { type: [object, "null"] }
+                ownerActorId: { type: string, format: uuid }
+                status: { type: string, enum: [draft, published, deprecated] }
+                supersededBy:
+                  type: [string, "null"]
+                  description: When deprecating, the slug that replaces this one.
+      responses:
+        "200":
+          description: Updated.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/TeamSkill" }
+        "403": { $ref: "#/components/responses/Error" }
+        "404": { $ref: "#/components/responses/Error" }
+    delete:
+      operationId: deleteTeamSkill
+      summary: Remove a skill from the registry
+      tags: [TeamSkills]
+      parameters:
+        - $ref: "#/components/parameters/TeamId"
+        - $ref: "#/components/parameters/TeamSkillSlug"
+      responses:
+        "204": { description: Deleted. }
+        "403": { $ref: "#/components/responses/Error" }
+        "404": { $ref: "#/components/responses/Error" }
+  /v1/teams/{teamId}/skills/{slug}/versions:
+    post:
+      operationId: publishTeamSkillVersion
+      summary: Publish a new version
+      description: >
+        Metadata fields are optional here and inherit the skill's current
+        values, so a content-only change stays a one-liner. Whatever is
+        effective at publish time is snapshotted onto the version row, so
+        somebody sitting on v1 keeps reading v1's notes.
+      tags: [TeamSkills]
+      parameters:
+        - $ref: "#/components/parameters/TeamId"
+        - $ref: "#/components/parameters/TeamSkillSlug"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [contentHash, changelog]
+              properties:
+                contentHash: { type: string }
+                size: { type: integer }
+                changelog: { type: string }
+                summary: { type: string, maxLength: 200 }
+                category: { $ref: "#/components/schemas/TeamSkillCategory" }
+                whenToUse: { type: string }
+                whenNotToUse: { type: string }
+                requires: { type: [object, "null"] }
+      responses:
+        "201":
+          description: Version published.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/TeamSkillVersion" }
+        "400": { $ref: "#/components/responses/Error" }
+        "403": { $ref: "#/components/responses/Error" }
+  /v1/teams/{teamId}/skills/{slug}/versions/{version}:
+    get:
+      operationId: getTeamSkillVersion
+      summary: Resolve a version's package blob
+      tags: [TeamSkills]
+      parameters:
+        - $ref: "#/components/parameters/TeamId"
+        - $ref: "#/components/parameters/TeamSkillSlug"
+        - name: version
+          in: path
+          required: true
+          schema: { type: integer, minimum: 1 }
+      responses:
+        "200":
+          description: Version record, including the contentHash to fetch.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/TeamSkillVersion" }
+        "404": { $ref: "#/components/responses/Error" }
+  /v1/teams/{teamId}/skills/{slug}/install:
+    put:
+      operationId: installTeamSkill
+      summary: Record an install
+      description: >
+        Three gates. Installing for yourself is always allowed. Installing onto
+        a `visibility=team` agent actor requires a team admin. Installing onto
+        another member's actor is always refused — an admin owns the team's
+        shared agents, not a teammate's personal setup.
+      tags: [TeamSkills]
+      parameters:
+        - $ref: "#/components/parameters/TeamId"
+        - $ref: "#/components/parameters/TeamSkillSlug"
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                actorId:
+                  type: string
+                  format: uuid
+                  description: Defaults to the caller's actor in this team.
+                version: { type: integer, minimum: 1 }
+                scope: { type: string, enum: [global, workspace], default: global }
+                workspaceId: { type: string, format: uuid }
+      responses:
+        "200":
+          description: Install recorded.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/TeamSkillInstall" }
+        "400": { $ref: "#/components/responses/Error" }
+        "403": { $ref: "#/components/responses/Error" }
+    delete:
+      operationId: uninstallTeamSkill
+      summary: Record an uninstall
+      tags: [TeamSkills]
+      parameters:
+        - $ref: "#/components/parameters/TeamId"
+        - $ref: "#/components/parameters/TeamSkillSlug"
+        - name: actorId
+          in: query
+          schema: { type: string, format: uuid }
+      responses:
+        "204": { description: Uninstalled. }
+        "403": { $ref: "#/components/responses/Error" }
   /v1/teams/{teamId}/share-mode:
     post:
       operationId: enableTeamShareMode
@@ -4086,6 +4418,13 @@ components:
       required: true
       schema:
         type: string
+    TeamSkillSlug:
+      name: slug
+      in: path
+      required: true
+      schema:
+        type: string
+        pattern: "^[a-z0-9][a-z0-9-]{1,63}$"
     InviteId:
       name: inviteId
       in: path
@@ -4150,6 +4489,95 @@ components:
           schema:
             $ref: "#/components/schemas/ErrorEnvelope"
   schemas:
+    TeamSkillCategory:
+      type: string
+      description: >
+        Fixed set rather than free text. The point is that two skills in the
+        same category can be compared side by side; an open vocabulary defeats
+        that within a week.
+      enum: [general, coding, devops, data, research, writing, communication, integration]
+    TeamSkill:
+      type: object
+      properties:
+        id: { type: string, format: uuid }
+        teamId: { type: string, format: uuid }
+        slug: { type: string }
+        ownerActorId:
+          type: string
+          format: uuid
+          description: Who is accountable for this skill. Transferable.
+        summary: { type: string, maxLength: 200 }
+        category: { $ref: "#/components/schemas/TeamSkillCategory" }
+        whenToUse: { type: string }
+        whenNotToUse:
+          type: string
+          description: >
+            Required, and shown next to whenToUse rather than folded away —
+            two overlapping skills can only be told apart by their boundaries.
+        requires:
+          type: [object, "null"]
+          description: Optional dependency declaration (platform, MCP server, credentials).
+        status: { type: string, enum: [draft, published, deprecated] }
+        supersededBy: { type: [string, "null"] }
+        latestVersion: { type: integer }
+        createdBy: { type: string, format: uuid }
+        createdAt: { type: [string, "null"], format: date-time }
+        updatedAt: { type: [string, "null"], format: date-time }
+        installed: { type: boolean }
+        installedVersion: { type: [integer, "null"] }
+        installScope: { type: [string, "null"], enum: [global, workspace, null] }
+        hasUpdate: { type: boolean }
+    TeamSkillVersion:
+      type: object
+      description: >
+        Metadata is snapshotted here on purpose. team_skills carries "current";
+        a version row carries the fact at that version, so editing a
+        description does not rewrite the notes of every historical version.
+      properties:
+        version: { type: integer }
+        contentHash: { type: string }
+        size: { type: integer }
+        changelog: { type: string }
+        summary: { type: string }
+        whenToUse: { type: string }
+        whenNotToUse: { type: string }
+        requires: { type: [object, "null"] }
+        createdBy: { type: string, format: uuid }
+        createdAt: { type: [string, "null"], format: date-time }
+    TeamSkillInstall:
+      type: object
+      description: >
+        actorId generalises over both install subjects — a member installing
+        for themselves, and a `visibility=team` agent an admin installs for.
+      properties:
+        id: { type: string, format: uuid }
+        teamId: { type: string, format: uuid }
+        actorId: { type: string, format: uuid }
+        skillId: { type: string, format: uuid }
+        installedVersion: { type: integer }
+        scope: { type: string, enum: [global, workspace] }
+        workspaceId: { type: [string, "null"], format: uuid }
+        installedAt: { type: [string, "null"], format: date-time }
+        updatedAt: { type: [string, "null"], format: date-time }
+        slug: { type: string }
+        latestVersion: { type: integer }
+        status: { type: string }
+        hasUpdate: { type: boolean }
+    TeamSkillPublish:
+      type: object
+      required: [slug, summary, category, whenToUse, whenNotToUse, changelog, contentHash]
+      properties:
+        slug: { type: string, pattern: "^[a-z0-9][a-z0-9-]{1,63}$" }
+        summary: { type: string, maxLength: 200 }
+        category: { $ref: "#/components/schemas/TeamSkillCategory" }
+        whenToUse: { type: string }
+        whenNotToUse: { type: string }
+        requires: { type: [object, "null"] }
+        changelog: { type: string }
+        contentHash: { type: string }
+        size: { type: integer }
+        ownerActorId: { type: string, format: uuid }
+        status: { type: string, enum: [draft, published, deprecated] }
     AppType:
       type: string
       description: |

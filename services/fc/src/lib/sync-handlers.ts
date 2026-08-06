@@ -30,7 +30,7 @@ const DOWNLOAD_TTL_SEC = 900;
  * (cheaper, cache-deduped egress for the (N-1)x fan-out), else an OSS presigned
  * GET (fallback, current behaviour). Uploads are unaffected.
  */
-async function signedDownloadUrl(s3: S3Client, bucket: string, ossKey: string): Promise<string> {
+export async function signedDownloadUrl(s3: S3Client, bucket: string, ossKey: string): Promise<string> {
   if (cdnEnabled()) {
     return signCdnUrl(ossKey, DOWNLOAD_TTL_SEC);
   }
