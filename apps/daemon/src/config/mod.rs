@@ -35,10 +35,10 @@ pub use roles_skills::{
 };
 pub use session_store::{SessionStore, StoredSession};
 pub use workspace_control::{
-    decode_workspace_path, encode_workspace_path, AllowlistDecision, AllowlistRule, ApplyOutcome, McpServerConfig,
-    NullWorkspaceControlStore, OpenCodeCompatStore, PermissionAction, PermissionConfig,
-    ProviderAuthRequest, ProviderInfo, ProviderModelConfig, RuntimeStatus, WorkspaceControlError,
-    WorkspaceControlStore,
+    decode_workspace_path, encode_workspace_path, AllowlistDecision, AllowlistRule, ApplyOutcome,
+    McpServerConfig, NullWorkspaceControlStore, OpenCodeCompatStore, PermissionAction,
+    PermissionConfig, ProviderAuthRequest, ProviderInfo, ProviderModelConfig, RuntimeStatus,
+    WorkspaceControlError, WorkspaceControlStore,
 };
 pub use workspace_instructions::{
     claude_md_block_present_at, load_system_prompt, sync_teamclaw_claude_md,

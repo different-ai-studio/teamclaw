@@ -204,9 +204,7 @@ async fn run_amuxd_sidecar<R: Runtime>(app: &AppHandle<R>, args: &[&str]) -> Res
             .map_err(|e| format!("sidecar amuxd: {e}"))?
             .args(args),
     );
-    let (mut rx, _child) = command
-        .spawn()
-        .map_err(|e| format!("spawn amuxd: {e}"))?;
+    let (mut rx, _child) = command.spawn().map_err(|e| format!("spawn amuxd: {e}"))?;
     let mut code: Option<i32> = None;
     while let Some(event) = rx.recv().await {
         if let CommandEvent::Terminated(p) = event {

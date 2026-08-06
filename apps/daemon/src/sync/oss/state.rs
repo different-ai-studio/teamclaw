@@ -288,10 +288,7 @@ mod tests {
         let mut state = LocalSyncState::new("team-x");
         state.last_server_seq = 99;
         state.save(ws).unwrap();
-        assert!(dir
-            .path()
-            .join(".copilot361/sync/state.json")
-            .is_file());
+        assert!(dir.path().join(".copilot361/sync/state.json").is_file());
         let reloaded = LocalSyncState::load(ws, "team-x").unwrap();
         assert_eq!(reloaded.last_server_seq, 99);
     }

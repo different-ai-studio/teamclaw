@@ -558,11 +558,7 @@ fn role_roots(workspace_path: &Path) -> Vec<PathBuf> {
         })
         .collect();
     for config_rel in config_candidates {
-        for extra in read_json_paths(
-            workspace_path,
-            &config_rel.to_string_lossy(),
-            "/paths",
-        ) {
+        for extra in read_json_paths(workspace_path, &config_rel.to_string_lossy(), "/paths") {
             if !roots.contains(&extra) {
                 roots.push(extra);
             }
@@ -1037,8 +1033,7 @@ mod tests {
         // Global skill dirs (~/.config/…) may contribute skills on a developer
         // machine; assert the workspace-local meta dirs contributed nothing.
         assert!(!state.skills.iter().any(|s| {
-            s.dir_path.contains("/.teamclaw/skills")
-                || s.dir_path.contains("/.copilot361/skills")
+            s.dir_path.contains("/.teamclaw/skills") || s.dir_path.contains("/.copilot361/skills")
         }));
         assert_eq!(state.metrics.roles_count, 0);
     }

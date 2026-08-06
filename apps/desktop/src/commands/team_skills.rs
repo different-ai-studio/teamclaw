@@ -202,8 +202,11 @@ fn write_registry_frontmatter(
 }
 
 fn copy_dir_recursive(src: &std::path::Path, dst: &std::path::Path) -> Result<(), String> {
-    std::fs::create_dir_all(dst).map_err(|e| format!("Failed to create {}: {}", dst.display(), e))?;
-    for entry in std::fs::read_dir(src).map_err(|e| format!("Failed to read {}: {}", src.display(), e))? {
+    std::fs::create_dir_all(dst)
+        .map_err(|e| format!("Failed to create {}: {}", dst.display(), e))?;
+    for entry in
+        std::fs::read_dir(src).map_err(|e| format!("Failed to read {}: {}", src.display(), e))?
+    {
         let entry = entry.map_err(|e| format!("Failed to read dir entry: {}", e))?;
         let ty = entry
             .file_type()
@@ -245,8 +248,8 @@ fn zip_skill_dir(dir: &std::path::Path) -> Result<Vec<u8>, String> {
             writer
                 .start_file(name, opts)
                 .map_err(|e| format!("zip start: {}", e))?;
-            let bytes =
-                std::fs::read(&full).map_err(|e| format!("Failed to read {}: {}", full.display(), e))?;
+            let bytes = std::fs::read(&full)
+                .map_err(|e| format!("Failed to read {}: {}", full.display(), e))?;
             use std::io::Write;
             writer
                 .write_all(&bytes)
@@ -308,7 +311,11 @@ fn team_skill_install_blocking(
 
     // Lockfile stays workspace-scoped for update checks, even though the pack
     // itself always lives under ~/.agents/skills.
-    if let Some(ws) = req.workspace_path.as_deref().filter(|s| !s.trim().is_empty()) {
+    if let Some(ws) = req
+        .workspace_path
+        .as_deref()
+        .filter(|s| !s.trim().is_empty())
+    {
         let mut lock = read_lockfile(ws);
         lock.skills.insert(
             slug.clone(),
@@ -427,17 +434,16 @@ pub async fn team_skill_pack_and_upload(
             let put_url = prepared
                 .presigned_put
                 .filter(|u| !u.is_empty())
-                .ok_or_else(|| "skill blob prepare required upload but returned no URL".to_string())?;
+                .ok_or_else(|| {
+                    "skill blob prepare required upload but returned no URL".to_string()
+                })?;
             let put_resp = client
                 .put(&put_url)
                 .body(zip_bytes)
                 .send()
                 .map_err(|e| format!("skill blob PUT failed: {}", e))?;
             if !put_resp.status().is_success() {
-                return Err(format!(
-                    "skill blob PUT HTTP {}",
-                    put_resp.status()
-                ));
+                return Err(format!("skill blob PUT HTTP {}", put_resp.status()));
             }
         }
 
@@ -458,10 +464,7 @@ pub async fn team_skill_pack_and_upload(
             return Err(format!("skill blob complete HTTP {}: {}", status, body));
         }
 
-        Ok(TeamSkillPackResult {
-            content_hash,
-            size,
-        })
+        Ok(TeamSkillPackResult { content_hash, size })
     })
     .await
     .map_err(|e| format!("team skill pack_and_upload task failed: {}", e))?
@@ -470,7 +473,10 @@ pub async fn team_skill_pack_and_upload(
 /// Zip a personal skill directory and return sha256 + size (local only — no OSS).
 /// Prefer `team_skill_pack_and_upload` for Share; this remains for hash checks.
 #[tauri::command]
-pub async fn team_skill_pack(dir_path: String, slug: String) -> Result<TeamSkillPackResult, String> {
+pub async fn team_skill_pack(
+    dir_path: String,
+    slug: String,
+) -> Result<TeamSkillPackResult, String> {
     tokio::task::spawn_blocking(move || {
         let slug = slug.trim().to_string();
         validate_slug(&slug)?;

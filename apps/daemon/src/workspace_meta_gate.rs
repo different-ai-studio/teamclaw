@@ -65,9 +65,7 @@ mod tests {
         collect_rs_files(&daemon_src_root(), &mut files);
         // This gate file itself may mention the forbidden strings in the
         // FORBIDDEN table — exclude it from scanning.
-        files.retain(|p| {
-            p.file_name().and_then(|n| n.to_str()) != Some("workspace_meta_gate.rs")
-        });
+        files.retain(|p| p.file_name().and_then(|n| n.to_str()) != Some("workspace_meta_gate.rs"));
 
         let mut violations = Vec::new();
         for path in files {

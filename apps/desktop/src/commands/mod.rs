@@ -1,7 +1,7 @@
 pub mod acp_debug_log;
+pub mod agents_skills;
 pub mod amuxd_supervisor;
 pub mod clawhub;
-pub mod agents_skills;
 pub mod cron;
 pub mod daemon_http;
 pub mod daemon_installer;
@@ -77,10 +77,7 @@ pub fn with_amuxd_brand_env(
     command: tauri_plugin_shell::process::Command,
 ) -> tauri_plugin_shell::process::Command {
     command
-        .env(
-            teamclaw_runtime_env::BRAND_SHORT_NAME_ENV,
-            APP_SHORT_NAME,
-        )
+        .env(teamclaw_runtime_env::BRAND_SHORT_NAME_ENV, APP_SHORT_NAME)
         .env(
             teamclaw_runtime_env::AMUXD_HOME_ENV,
             amuxd_home_dir().to_string_lossy().as_ref(),

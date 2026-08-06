@@ -136,7 +136,6 @@ describe('Settings navigation', () => {
       'MCP',
       'Roles',
       'Role Skills',
-      'Skills',
       'Knowledge Base',
       'Dependencies',
     ])

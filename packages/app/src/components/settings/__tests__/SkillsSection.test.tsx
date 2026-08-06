@@ -206,7 +206,7 @@ describe('SkillsSection', () => {
     expect(await screen.findByTestId('skills-diagnostics-dialog')).toBeTruthy()
   })
 
-  it('keeps ZIP import install location selectable', async () => {
+  it('shows ZIP import installs into ~/.agents/skills', async () => {
     workspaceState.workspacePath = '/workspace/project'
 
     render(<SkillsSection />)
@@ -214,10 +214,8 @@ describe('SkillsSection', () => {
     fireEvent.click(await screen.findByRole('button', { name: 'Add Skill' }))
     fireEvent.click(await screen.findByRole('button', { name: 'Import Skill from ZIP' }))
 
-    expect(await screen.findByText('Install Location')).toBeTruthy()
-
-    fireEvent.click(screen.getByRole('combobox'))
-    expect(await screen.findByText('Global')).toBeTruthy()
+    expect(await screen.findByText(/Install Location/)).toBeTruthy()
+    expect(screen.getByText('~/.agents/skills/')).toBeTruthy()
   })
 
   it('exposes the installed and marketplace switch as tabs in embedded mode', async () => {

@@ -52,9 +52,7 @@ fn ensure_skills_paths_entry(root: &mut Value, agents_skills: &str) -> Result<bo
     let skills_obj = skills
         .as_object_mut()
         .ok_or_else(|| "skills is not an object".to_string())?;
-    let paths_val = skills_obj
-        .entry("paths")
-        .or_insert_with(|| json!([]));
+    let paths_val = skills_obj.entry("paths").or_insert_with(|| json!([]));
     let paths = paths_val
         .as_array_mut()
         .ok_or_else(|| "skills.paths is not an array".to_string())?;

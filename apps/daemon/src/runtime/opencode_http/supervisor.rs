@@ -549,7 +549,10 @@ mod tests {
         env.insert("Z_KEY".to_string(), "z".to_string());
         env.insert("a_key".to_string(), "a".to_string());
         serve.merge_extra_env(&env, false);
-        assert_eq!(serve.cached_env_keys(), vec!["a_key".to_string(), "Z_KEY".to_string()]);
+        assert_eq!(
+            serve.cached_env_keys(),
+            vec!["a_key".to_string(), "Z_KEY".to_string()]
+        );
     }
 
     #[test]

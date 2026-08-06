@@ -299,7 +299,10 @@ fn sanitize_zip_path(raw: &str) -> Option<String> {
     Some(normalized.to_string())
 }
 
-pub(crate) fn extract_zip_to_dir(zip_bytes: &[u8], target_dir: &std::path::Path) -> Result<(), String> {
+pub(crate) fn extract_zip_to_dir(
+    zip_bytes: &[u8],
+    target_dir: &std::path::Path,
+) -> Result<(), String> {
     let cursor = std::io::Cursor::new(zip_bytes);
     let mut archive =
         zip::ZipArchive::new(cursor).map_err(|e| format!("Failed to open zip: {}", e))?;
@@ -349,7 +352,10 @@ pub(crate) fn extract_zip_to_dir(zip_bytes: &[u8], target_dir: &std::path::Path)
     Ok(())
 }
 
-pub(crate) fn write_skill_origin(skill_folder: &std::path::Path, origin: &SkillOrigin) -> Result<(), String> {
+pub(crate) fn write_skill_origin(
+    skill_folder: &std::path::Path,
+    origin: &SkillOrigin,
+) -> Result<(), String> {
     let origin_dir = skill_folder.join(".clawhub");
     std::fs::create_dir_all(&origin_dir)
         .map_err(|e| format!("Failed to create .clawhub origin dir: {}", e))?;
