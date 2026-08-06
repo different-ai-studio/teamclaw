@@ -1,10 +1,11 @@
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { useRuntimeStateStore } from "@/stores/runtime-state-store";
 import { AgentType } from "@/lib/proto/amux_pb";
 
 const mocks = vi.hoisted(() => ({
   listParticipants: vi.fn(),
   mqttPublish: vi.fn(),
+  runtimeCommand: vi.fn(),
 }));
 
 vi.mock("@/lib/backend", () => ({
@@ -15,6 +16,15 @@ vi.mock("@/lib/backend", () => ({
 
 vi.mock("@/lib/mqtt-bridge", () => ({
   mqttPublish: mocks.mqttPublish,
+}));
+
+// ADR-0004: a command carrying a session id is dispatched over RPC, not by
+// publishing to the per-spawn `runtime/{runtimeId}/commands` topic. Stubbing
+// the RPC keeps this test on its actual subject — which attachment gets
+// addressed — instead of the transport underneath it.
+vi.mock("@/lib/teamclaw-rpc", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@/lib/teamclaw-rpc")>()),
+  runtimeCommand: (...args: unknown[]) => mocks.runtimeCommand(...args),
 }));
 
 vi.mock("@/stores/current-team", () => ({
@@ -56,6 +66,9 @@ describe("replyAcpPermission", () => {
       { id: "agent-live", actor_type: "agent" },
     ]);
     mocks.mqttPublish.mockResolvedValue(undefined);
+    // `true` = the daemon holds a live attachment for the session. Returning
+    // `false` here would make the caller throw "no live attachment".
+    mocks.runtimeCommand.mockResolvedValue(true);
   });
 
   it("addresses the attachment filed under this session, ignoring others", async () => {
@@ -84,10 +97,18 @@ describe("replyAcpPermission", () => {
     const { replyPermissionById } = await import("../reply-acp-permission");
     await replyPermissionById("perm-uuid-1", "allow");
 
-    expect(mocks.mqttPublish).toHaveBeenCalledTimes(1);
-    const topic = mocks.mqttPublish.mock.calls[0][0] as string;
-    expect(topic).toBe(
-      "amux/team-1/agent-live/runtime/live-spawn/commands",
-    );
+    expect(mocks.runtimeCommand).toHaveBeenCalledTimes(1);
+    const [call] = mocks.runtimeCommand.mock.calls[0] as [
+      { targetActorId: string; sessionId: string; envelope: { runtimeId: string } },
+    ];
+    expect(call.targetActorId).toBe("agent-live");
+    expect(call.sessionId).toBe("sess-1");
+    // The point of the test: the attachment filed under `sess-1`, not the
+    // `other-session` one that is also in the store.
+    expect(call.envelope.runtimeId).toBe("live-spawn");
+
+    // Session-addressed dispatch goes over RPC only — the legacy per-spawn
+    // topic must not also be published to, or a cold session is a silent miss.
+    expect(mocks.mqttPublish).not.toHaveBeenCalled();
   });
 });
