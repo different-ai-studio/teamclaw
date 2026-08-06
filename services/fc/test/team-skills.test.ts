@@ -209,8 +209,8 @@ test("POST skill-blobs/prepare is routed to the repository", async () => {
   const repo = fakeRepo({
     prepareTeamSkillBlob: async (...args: unknown[]) => {
       seen.push(args);
-      // Fail before the route HEADs OSS so the test stays offline-safe.
-      throw new ApiError(400, "validation_failed", "skip-oss-for-test");
+      // Fail before the route reaches Supabase Storage so the test stays offline-safe.
+      throw new ApiError(400, "validation_failed", "skip-storage-for-test");
     },
   });
   const res = await request(
@@ -224,4 +224,27 @@ test("POST skill-blobs/prepare is routed to the repository", async () => {
   assert.equal(res.statusCode, 400);
   assert.equal(seen.length, 1);
   assert.deepEqual(seen[0], ["team-1", { contentHash: "a".repeat(64), size: 12 }]);
+});
+
+test("POST skill-blobs/prepare skips the upload URL when the blob is already verified", async () => {
+  const repo = fakeRepo({
+    prepareTeamSkillBlob: async () => ({
+      contentHash: "a".repeat(64),
+      size: 12,
+      ossKey: "teams/team-1/blobs/sha256/aa/aa/" + "a".repeat(64),
+      verified: true,
+    }),
+  });
+  const res = await request(
+    {
+      httpMethod: "POST",
+      path: "/v1/teams/team-1/skill-blobs/prepare",
+      body: JSON.stringify({ contentHash: "a".repeat(64), size: 12 }),
+    },
+    repo,
+  );
+  assert.equal(res.statusCode, 200);
+  const body = JSON.parse(res.body);
+  assert.equal(body.requiresUpload, false);
+  assert.equal(body.presignedPut, null);
 });

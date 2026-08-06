@@ -592,9 +592,9 @@ export function makeTeamSkillsRepo(db: DbLike, ctx: TeamSkillsCtx) {
 
     /**
      * Ensure an amuxc_blobs placeholder exists for a skill package. The route
-     * layer then HEADs OSS and returns a presigned PUT when needed. Keeps
-     * skill packages on the same content-addressed store as sync without
-     * creating an amuxc_files path entry.
+     * layer then asks Supabase Storage for a signed PUT when the blob isn't
+     * verified yet. Keeps skill packages on the same content-addressed store
+     * as sync without creating an amuxc_files path entry.
      */
     async prepareTeamSkillBlob(teamId: string, body: any = {}) {
       const userId = requireUser();
@@ -612,7 +612,12 @@ export function makeTeamSkillsRepo(db: DbLike, ctx: TeamSkillsCtx) {
       await (db.insert(amuxcBlobs) as any)
         .values({ teamId, contentHash: hash, ossKey, size, verified: false })
         .onConflictDoNothing();
-      return { contentHash: hash, size, ossKey };
+      const [row] = await db
+        .select({ ossKey: amuxcBlobs.ossKey, size: amuxcBlobs.size, verified: amuxcBlobs.verified })
+        .from(amuxcBlobs)
+        .where(and(eq(amuxcBlobs.teamId, teamId), eq(amuxcBlobs.contentHash, hash)))
+        .limit(1);
+      return { contentHash: hash, size: row.size ?? size, ossKey: row.ossKey, verified: row.verified };
     },
 
     /** Mark a skill package blob verified after the client PUTs to OSS. */

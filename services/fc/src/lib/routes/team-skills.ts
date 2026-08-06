@@ -55,43 +55,17 @@ export function registerTeamSkills(router) {
       ctx.params.teamId,
       ctx.json ?? {},
     );
-    const { getS3Client, OSS_BUCKET } = await import("../oss.js");
-    const { HeadObjectCommand, PutObjectCommand } = await import("@aws-sdk/client-s3");
-    const { getSignedUrl } = await import("@aws-sdk/s3-request-presigner");
-    const s3 = getS3Client();
-    const bucket = OSS_BUCKET();
-    let requiresUpload = true;
     let presignedPut: string | null = null;
-    try {
-      const head = await s3.send(
-        new HeadObjectCommand({ Bucket: bucket, Key: prepared.ossKey }),
-      );
-      if (head.ContentLength === prepared.size) {
-        requiresUpload = false;
-      }
-    } catch (e: any) {
-      if (
-        e.$metadata?.httpStatusCode !== 404 &&
-        e.name !== "NotFound" &&
-        e.Code !== "NoSuchKey"
-      ) {
-        console.error("[skill-blobs/prepare] HEAD OSS error:", e.message);
-      }
-    }
-    if (requiresUpload) {
-      const putCmd = new PutObjectCommand({
-        Bucket: bucket,
-        Key: prepared.ossKey,
-        ContentLength: prepared.size,
-      });
-      presignedPut = await getSignedUrl(s3 as any, putCmd, { expiresIn: 900 });
+    if (!prepared.verified) {
+      const { createSkillUploadUrl } = await import("../skills-storage.js");
+      presignedPut = await createSkillUploadUrl(prepared.ossKey);
     }
     return {
       body: {
         contentHash: prepared.contentHash,
         size: prepared.size,
         ossKey: prepared.ossKey,
-        requiresUpload,
+        requiresUpload: !prepared.verified,
         presignedPut,
       },
     };
@@ -100,26 +74,16 @@ export function registerTeamSkills(router) {
   router.post("/v1/teams/:teamId/skill-blobs/complete", async (ctx) => {
     const body = ctx.json ?? {};
     const contentHash = String(body.contentHash ?? "").trim().toLowerCase();
-    // Re-resolve placeholder so we know expected size before HEAD.
+    // Re-resolve placeholder so we know expected size before checking storage.
     const prepared = await ctx.repository.prepareTeamSkillBlob(ctx.params.teamId, body);
-    const { getS3Client, OSS_BUCKET } = await import("../oss.js");
-    const { HeadObjectCommand } = await import("@aws-sdk/client-s3");
-    const s3 = getS3Client();
-    const bucket = OSS_BUCKET();
-    try {
-      const head = await s3.send(
-        new HeadObjectCommand({ Bucket: bucket, Key: prepared.ossKey }),
+    const { statSkillObject } = await import("../skills-storage.js");
+    const stat = await statSkillObject(prepared.ossKey);
+    if (!stat || stat.size !== prepared.size) {
+      throw new ApiError(
+        422,
+        "blob_missing",
+        `Blob missing or size mismatch: expected ${prepared.size}, got ${stat?.size ?? "none"}`,
       );
-      if (head.ContentLength !== prepared.size) {
-        throw new ApiError(
-          422,
-          "blob_missing",
-          `Blob size mismatch: expected ${prepared.size}, got ${head.ContentLength}`,
-        );
-      }
-    } catch (e: any) {
-      if (e instanceof ApiError) throw e;
-      throw new ApiError(422, "blob_missing", `Blob missing or unreachable: ${e.message}`);
     }
     const done = await ctx.repository.completeTeamSkillBlob(ctx.params.teamId, {
       contentHash,
@@ -162,9 +126,8 @@ export function registerTeamSkills(router) {
       ctx.params.slug,
       version,
     );
-    const { getS3Client, OSS_BUCKET } = await import("../oss.js");
-    const { signedDownloadUrl } = await import("../sync-handlers.js");
-    const url = await signedDownloadUrl(getS3Client(), OSS_BUCKET(), blob.ossKey);
+    const { createSkillDownloadUrl } = await import("../skills-storage.js");
+    const url = await createSkillDownloadUrl(blob.ossKey);
     return { body: { url, contentHash: blob.contentHash, size: blob.size } };
   });
 

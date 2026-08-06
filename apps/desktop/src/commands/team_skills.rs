@@ -439,6 +439,7 @@ pub async fn team_skill_pack_and_upload(
                 })?;
             let put_resp = client
                 .put(&put_url)
+                .header("x-upsert", "true")
                 .body(zip_bytes)
                 .send()
                 .map_err(|e| format!("skill blob PUT failed: {}", e))?;
