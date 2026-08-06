@@ -273,6 +273,10 @@ jobs:
           echo "All parallel tasks completed"
           ls -lh apps/desktop/binaries/
 
+      - name: Sign nested Mach-O in bundled sidecars (notarization)
+        shell: bash
+        run: ./scripts/sign-macos-bundle-binaries.sh apps/desktop/binaries
+
       - name: Finalize tauri.conf.json (version from tag + frontend prebuilt + OSS updater endpoint)
         env:
           TAG: ${{ inputs.tag }}
@@ -534,6 +538,13 @@ jobs:
           cargo build --release --locked --manifest-path apps/daemon/Cargo.toml -p amuxd
           cp "$TARGET_DIR/release/amuxd.exe" apps/desktop/binaries/amuxd-x86_64-pc-windows-msvc.exe
           echo "amuxd sidecar ready"
+
+      - name: Bundle agent bridge sidecars
+        shell: bash
+        run: |
+          node scripts/ensure-agent-bridge-bundles.js
+          test -f apps/desktop/binaries/cursor-bridge/src/main.mjs
+          test -d apps/desktop/binaries/cursor-bridge/node_modules/@cursor/sdk
 
       - name: Finalize tauri.conf.json (version from tag + frontend prebuilt + OSS updater endpoint)
         shell: bash

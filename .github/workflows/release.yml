@@ -240,6 +240,10 @@ jobs:
           ls -lh apps/desktop/binaries/
           ls -lh packages/app/dist/ | head -5
 
+      - name: Sign nested Mach-O in bundled sidecars (notarization)
+        shell: bash
+        run: ./scripts/sign-macos-bundle-binaries.sh apps/desktop/binaries
+
       # Skip beforeBuildCommand since frontend is already built above,
       # and substitute __OSS_BASE_URL__ in updater endpoints (drop if OSS not configured).
       - name: Finalize tauri.conf.json for build
