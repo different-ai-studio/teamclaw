@@ -2,6 +2,25 @@
 //!
 //! Official Production + Dev share `~/.teamclaw` and `{workspace}/.teamclaw/`.
 //! White-label builds keep `~/.{shortName}` / `{workspace}/.{shortName}/`.
+//!
+//! Local amuxd state follows the same split: official → `~/.amuxd`, white-label
+//! → `~/.amuxd-<brand>` (see [`resolve_amuxd_dir_name`]).
+//!
+//! Workspace meta paths (P1) mirror Desktop `build.rs` / `TEAMCLAW_DIR` /
+//! `CONFIG_FILE_NAME`: see [`workspace_meta_dir_name`] and friends.
+
+use std::path::{Path, PathBuf};
+
+/// Process env set by desktop when spawning managed amuxd so the daemon reads
+/// the same personal secrets store as the brand (`~/.copilot361/secrets`, …).
+pub const BRAND_SHORT_NAME_ENV: &str = "TEAMCLAW_BRAND_SHORT_NAME";
+
+/// Optional absolute override for the amuxd state directory (`DaemonConfig::config_dir`).
+/// When unset, derived from [`BRAND_SHORT_NAME_ENV`] via [`amuxd_home_from_env`].
+pub const AMUXD_HOME_ENV: &str = "AMUXD_HOME";
+
+/// Folder name under `$HOME` for official amuxd state (`~/.amuxd`).
+pub const OFFICIAL_AMUXD_DIR_NAME: &str = "amuxd";
 
 /// Home + workspace storage dir name for official builds (`~/.teamclaw`).
 pub const OFFICIAL_STORAGE_DIR: &str = "teamclaw";
@@ -38,6 +57,49 @@ pub fn resolve_storage_dir_name(short_name: &str) -> &str {
     }
 }
 
+/// Brand short name for process-global personal secrets (daemon injection).
+///
+/// Reads [`BRAND_SHORT_NAME_ENV`]; empty/unset falls back to [`OFFICIAL_STORAGE_DIR`].
+pub fn brand_short_name_from_env() -> String {
+    std::env::var(BRAND_SHORT_NAME_ENV)
+        .ok()
+        .map(|s| s.trim().to_string())
+        .filter(|s| !s.is_empty())
+        .unwrap_or_else(|| OFFICIAL_STORAGE_DIR.to_string())
+}
+
+/// Local amuxd state folder name under `$HOME` (no leading dot).
+///
+/// Official brands share `amuxd` → `~/.amuxd`. White-label uses `amuxd-<brand>`
+/// → `~/.amuxd-copilot361`.
+pub fn resolve_amuxd_dir_name(brand_short_name: &str) -> String {
+    if is_official_brand(brand_short_name) {
+        OFFICIAL_AMUXD_DIR_NAME.to_string()
+    } else {
+        format!("{OFFICIAL_AMUXD_DIR_NAME}-{brand_short_name}")
+    }
+}
+
+/// Absolute amuxd state directory for a brand (`$HOME/.amuxd` or `$HOME/.amuxd-<brand>`).
+pub fn amuxd_home_for_brand(brand_short_name: &str) -> PathBuf {
+    let home = dirs::home_dir().unwrap_or_else(|| PathBuf::from("/tmp"));
+    home.join(format!(".{}", resolve_amuxd_dir_name(brand_short_name)))
+}
+
+/// Resolve amuxd state directory for this process.
+///
+/// 1. [`AMUXD_HOME_ENV`] if set and non-empty
+/// 2. else [`amuxd_home_for_brand`] using [`brand_short_name_from_env`]
+pub fn amuxd_home_from_env() -> PathBuf {
+    if let Ok(raw) = std::env::var(AMUXD_HOME_ENV) {
+        let trimmed = raw.trim();
+        if !trimmed.is_empty() {
+            return PathBuf::from(trimmed);
+        }
+    }
+    amuxd_home_for_brand(&brand_short_name_from_env())
+}
+
 /// Legacy official Dev home dir (`teamclawdev`) when migrating an existing install.
 pub fn legacy_official_home_dir_name(short_name: &str) -> Option<&'static str> {
     if short_name == LEGACY_OFFICIAL_DEV_STORAGE_DIR {
@@ -47,9 +109,123 @@ pub fn legacy_official_home_dir_name(short_name: &str) -> Option<&'static str> {
     }
 }
 
+/// Workspace meta directory name (leading dot), matching Desktop `TEAMCLAW_DIR`.
+///
+/// Official → `.teamclaw`; white-label → `.{brand}` (e.g. `.copilot361`).
+pub fn workspace_meta_dir_name(brand_short_name: &str) -> String {
+    if is_official_brand(brand_short_name) {
+        WORKSPACE_META_DIR.to_string()
+    } else {
+        format!(".{brand_short_name}")
+    }
+}
+
+/// Workspace primary config file name, matching Desktop `CONFIG_FILE_NAME`.
+///
+/// Official → `teamclaw.json`; white-label → `{brand}.json`.
+pub fn workspace_config_file_name(brand_short_name: &str) -> String {
+    if is_official_brand(brand_short_name) {
+        WORKSPACE_CONFIG_FILE.to_string()
+    } else {
+        format!("{brand_short_name}.json")
+    }
+}
+
+/// Canonical `{workspace}/.{brand|teamclaw}/` directory.
+pub fn workspace_meta_dir(workspace: &Path, brand_short_name: &str) -> PathBuf {
+    workspace.join(workspace_meta_dir_name(brand_short_name))
+}
+
+/// Canonical workspace config path (write target / primary read).
+pub fn workspace_config_path(workspace: &Path, brand_short_name: &str) -> PathBuf {
+    workspace_meta_dir(workspace, brand_short_name)
+        .join(workspace_config_file_name(brand_short_name))
+}
+
+/// Always-canonical path for a relative entry under workspace meta (writes).
+pub fn workspace_meta_write_path(
+    workspace: &Path,
+    brand_short_name: &str,
+    rel: impl AsRef<Path>,
+) -> PathBuf {
+    workspace_meta_dir(workspace, brand_short_name).join(rel)
+}
+
+/// Resolve a meta-relative path for reads: prefer canonical, else legacy `.teamclaw/`.
+///
+/// When neither exists, returns the canonical path (caller may create it).
+pub fn resolve_workspace_meta_path(
+    workspace: &Path,
+    brand_short_name: &str,
+    rel: impl AsRef<Path>,
+) -> PathBuf {
+    let rel = rel.as_ref();
+    let canonical = workspace_meta_write_path(workspace, brand_short_name, rel);
+    if canonical.exists() || is_official_brand(brand_short_name) {
+        return canonical;
+    }
+    let legacy = workspace.join(WORKSPACE_META_DIR).join(rel);
+    if legacy.exists() {
+        legacy
+    } else {
+        canonical
+    }
+}
+
+/// Resolve workspace config for reads (canonical brand file, else legacy official).
+pub fn resolve_workspace_config_path(workspace: &Path, brand_short_name: &str) -> PathBuf {
+    let canonical = workspace_config_path(workspace, brand_short_name);
+    if canonical.exists() || is_official_brand(brand_short_name) {
+        return canonical;
+    }
+    let legacy = workspace.join(WORKSPACE_META_DIR).join(WORKSPACE_CONFIG_FILE);
+    if legacy.exists() {
+        legacy
+    } else {
+        canonical
+    }
+}
+
+/// Unique meta roots to scan for reads (canonical first, then legacy when distinct).
+pub fn workspace_meta_read_roots(workspace: &Path, brand_short_name: &str) -> Vec<PathBuf> {
+    let canonical = workspace_meta_dir(workspace, brand_short_name);
+    if is_official_brand(brand_short_name) {
+        return vec![canonical];
+    }
+    let legacy = workspace.join(WORKSPACE_META_DIR);
+    if legacy == canonical {
+        vec![canonical]
+    } else {
+        vec![canonical, legacy]
+    }
+}
+
+/// Convenience: meta helpers using [`brand_short_name_from_env`].
+pub fn workspace_meta_dir_from_env(workspace: &Path) -> PathBuf {
+    workspace_meta_dir(workspace, &brand_short_name_from_env())
+}
+
+pub fn workspace_config_path_from_env(workspace: &Path) -> PathBuf {
+    workspace_config_path(workspace, &brand_short_name_from_env())
+}
+
+pub fn resolve_workspace_meta_path_from_env(workspace: &Path, rel: impl AsRef<Path>) -> PathBuf {
+    resolve_workspace_meta_path(workspace, &brand_short_name_from_env(), rel)
+}
+
+pub fn workspace_meta_write_path_from_env(workspace: &Path, rel: impl AsRef<Path>) -> PathBuf {
+    workspace_meta_write_path(workspace, &brand_short_name_from_env(), rel)
+}
+
+pub fn resolve_workspace_config_path_from_env(workspace: &Path) -> PathBuf {
+    resolve_workspace_config_path(workspace, &brand_short_name_from_env())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::test_util::{home_env_lock, HomeGuard};
+    use tempfile::tempdir;
 
     #[test]
     fn official_brands_share_teamclaw_storage() {
@@ -60,5 +236,191 @@ mod tests {
         assert_eq!(resolve_storage_dir_name("teamclaw"), "teamclaw");
         assert_eq!(resolve_storage_dir_name("teamclawdev"), "teamclaw");
         assert_eq!(resolve_storage_dir_name("copilot361"), "copilot361");
+    }
+
+    #[test]
+    fn brand_short_name_from_env_defaults_and_reads_override() {
+        let _lock = home_env_lock();
+        std::env::remove_var(BRAND_SHORT_NAME_ENV);
+        assert_eq!(brand_short_name_from_env(), OFFICIAL_STORAGE_DIR);
+
+        std::env::set_var(BRAND_SHORT_NAME_ENV, "copilot361");
+        assert_eq!(brand_short_name_from_env(), "copilot361");
+
+        std::env::set_var(BRAND_SHORT_NAME_ENV, "  ");
+        assert_eq!(brand_short_name_from_env(), OFFICIAL_STORAGE_DIR);
+        std::env::remove_var(BRAND_SHORT_NAME_ENV);
+    }
+
+    #[test]
+    fn amuxd_dir_name_official_vs_white_label() {
+        assert_eq!(resolve_amuxd_dir_name("teamclaw"), "amuxd");
+        assert_eq!(resolve_amuxd_dir_name("teamclawdev"), "amuxd");
+        assert_eq!(resolve_amuxd_dir_name("copilot361"), "amuxd-copilot361");
+    }
+
+    #[test]
+    fn amuxd_home_from_env_prefers_explicit_override() {
+        let _lock = home_env_lock();
+        let dir = tempdir().unwrap();
+        let _home = HomeGuard::set(dir.path());
+        std::env::remove_var(BRAND_SHORT_NAME_ENV);
+        std::env::remove_var(AMUXD_HOME_ENV);
+
+        assert_eq!(amuxd_home_from_env(), dir.path().join(".amuxd"));
+
+        std::env::set_var(BRAND_SHORT_NAME_ENV, "copilot361");
+        assert_eq!(
+            amuxd_home_from_env(),
+            dir.path().join(".amuxd-copilot361")
+        );
+
+        let custom = dir.path().join("custom-amuxd");
+        std::env::set_var(AMUXD_HOME_ENV, &custom);
+        assert_eq!(amuxd_home_from_env(), custom);
+
+        std::env::remove_var(AMUXD_HOME_ENV);
+        std::env::remove_var(BRAND_SHORT_NAME_ENV);
+    }
+
+    /// Locks Desktop `build.rs` / frontend `TEAMCLAW_DIR` naming rules.
+    #[test]
+    fn workspace_meta_names_match_desktop_brand_table() {
+        assert_eq!(workspace_meta_dir_name("teamclaw"), ".teamclaw");
+        assert_eq!(workspace_config_file_name("teamclaw"), "teamclaw.json");
+
+        assert_eq!(workspace_meta_dir_name("teamclawdev"), ".teamclaw");
+        assert_eq!(workspace_config_file_name("teamclawdev"), "teamclaw.json");
+
+        assert_eq!(workspace_meta_dir_name("copilot361"), ".copilot361");
+        assert_eq!(workspace_config_file_name("copilot361"), "copilot361.json");
+    }
+
+    #[test]
+    fn workspace_config_and_meta_paths_are_brand_scoped() {
+        let ws = Path::new("/tmp/ws");
+        assert_eq!(
+            workspace_config_path(ws, "teamclaw"),
+            PathBuf::from("/tmp/ws/.teamclaw/teamclaw.json")
+        );
+        assert_eq!(
+            workspace_config_path(ws, "copilot361"),
+            PathBuf::from("/tmp/ws/.copilot361/copilot361.json")
+        );
+        assert_eq!(
+            workspace_meta_write_path(ws, "copilot361", "skills"),
+            PathBuf::from("/tmp/ws/.copilot361/skills")
+        );
+        assert_eq!(
+            workspace_meta_write_path(ws, "copilot361", "allowlist.json"),
+            PathBuf::from("/tmp/ws/.copilot361/allowlist.json")
+        );
+        assert_eq!(
+            workspace_meta_write_path(ws, "copilot361", Path::new("sync").join("state.json")),
+            PathBuf::from("/tmp/ws/.copilot361/sync/state.json")
+        );
+    }
+
+    #[test]
+    fn resolve_prefers_canonical_then_legacy_for_white_label() {
+        let dir = tempdir().unwrap();
+        let ws = dir.path();
+        let brand = "copilot361";
+
+        // Neither exists → canonical (for subsequent create).
+        assert_eq!(
+            resolve_workspace_meta_path(ws, brand, "skills"),
+            workspace_meta_write_path(ws, brand, "skills")
+        );
+        assert_eq!(
+            resolve_workspace_config_path(ws, brand),
+            workspace_config_path(ws, brand)
+        );
+
+        // Only legacy → read legacy.
+        let legacy_skills = ws.join(".teamclaw/skills");
+        std::fs::create_dir_all(&legacy_skills).unwrap();
+        assert_eq!(
+            resolve_workspace_meta_path(ws, brand, "skills"),
+            legacy_skills
+        );
+        let legacy_cfg = ws.join(".teamclaw/teamclaw.json");
+        std::fs::write(&legacy_cfg, "{}").unwrap();
+        assert_eq!(resolve_workspace_config_path(ws, brand), legacy_cfg);
+
+        // Canonical wins when both exist.
+        let canonical_skills = workspace_meta_write_path(ws, brand, "skills");
+        std::fs::create_dir_all(&canonical_skills).unwrap();
+        assert_eq!(
+            resolve_workspace_meta_path(ws, brand, "skills"),
+            canonical_skills
+        );
+        let canonical_cfg = workspace_config_path(ws, brand);
+        std::fs::create_dir_all(canonical_cfg.parent().unwrap()).unwrap();
+        std::fs::write(&canonical_cfg, "{}").unwrap();
+        assert_eq!(resolve_workspace_config_path(ws, brand), canonical_cfg);
+    }
+
+    #[test]
+    fn resolve_official_never_uses_alternate_legacy_branch() {
+        let dir = tempdir().unwrap();
+        let ws = dir.path();
+        let path = resolve_workspace_meta_path(ws, "teamclaw", "skills");
+        assert_eq!(path, ws.join(".teamclaw/skills"));
+        assert_eq!(
+            resolve_workspace_config_path(ws, "teamclawdev"),
+            ws.join(".teamclaw/teamclaw.json")
+        );
+    }
+
+    #[test]
+    fn write_path_always_canonical_even_when_legacy_exists() {
+        let dir = tempdir().unwrap();
+        let ws = dir.path();
+        std::fs::create_dir_all(ws.join(".teamclaw/skills")).unwrap();
+        assert_eq!(
+            workspace_meta_write_path(ws, "copilot361", "skills"),
+            ws.join(".copilot361/skills")
+        );
+    }
+
+    #[test]
+    fn meta_read_roots_include_legacy_for_white_label_only() {
+        let ws = Path::new("/tmp/ws");
+        assert_eq!(
+            workspace_meta_read_roots(ws, "teamclaw"),
+            vec![PathBuf::from("/tmp/ws/.teamclaw")]
+        );
+        assert_eq!(
+            workspace_meta_read_roots(ws, "copilot361"),
+            vec![
+                PathBuf::from("/tmp/ws/.copilot361"),
+                PathBuf::from("/tmp/ws/.teamclaw"),
+            ]
+        );
+    }
+
+    #[test]
+    fn from_env_helpers_follow_brand_short_name_env() {
+        let _lock = home_env_lock();
+        let dir = tempdir().unwrap();
+        std::env::set_var(BRAND_SHORT_NAME_ENV, "copilot361");
+        assert_eq!(
+            workspace_meta_dir_from_env(dir.path()),
+            dir.path().join(".copilot361")
+        );
+        assert_eq!(
+            workspace_config_path_from_env(dir.path()),
+            dir.path().join(".copilot361/copilot361.json")
+        );
+        assert_eq!(
+            workspace_meta_write_path_from_env(dir.path(), "allowlist.json"),
+            dir.path().join(".copilot361/allowlist.json")
+        );
+        std::env::remove_var(BRAND_SHORT_NAME_ENV);
+        assert_eq!(
+            workspace_meta_dir_from_env(dir.path()),
+            dir.path().join(".teamclaw")
+        );
     }
 }

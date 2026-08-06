@@ -44,7 +44,7 @@ pub struct DiagnosticBundleParts {
 }
 
 fn amuxd_dir() -> Option<PathBuf> {
-    dirs::home_dir().map(|home| home.join(".amuxd"))
+    Some(super::amuxd_home_dir())
 }
 
 fn amuxd_out_log_path() -> Option<PathBuf> {

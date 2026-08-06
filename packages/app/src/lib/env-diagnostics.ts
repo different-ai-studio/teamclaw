@@ -46,8 +46,6 @@ export function computeEnvActivationOverallStatus(
 
   if (
     !personal.blobReadable
-    || personal.indexKeysMissingFromBlob.length > 0
-    || personal.blobKeysMissingFromIndex.length > 0
     || activation.activation_status === 'blocked'
     || activation.blockers.some((blocker) => CRITICAL_BLOCKER_CODES.has(blocker.code))
     || dirtyKeyCount > 0
@@ -57,6 +55,11 @@ export function computeEnvActivationOverallStatus(
 
   const reloadPending = (activation.refresh.status === 'pending' || activation.refresh.status === 'applying')
     && activation.refresh.change_kinds.includes('env_vars')
+
+  // Index vs blob drift is degraded only: personal values are machine-global
+  // (encrypted blob). Workspace envVars is a derived cache, not an allowlist.
+  const indexDrift = personal.indexKeysMissingFromBlob.length > 0
+    || personal.blobKeysMissingFromIndex.length > 0
 
   if (
     activation.activation_status !== 'active'
@@ -70,6 +73,7 @@ export function computeEnvActivationOverallStatus(
     || activation.missing_served_env_keys.length > 0
     || activation.refresh.status !== 'clean'
     || reloadPending
+    || indexDrift
   ) {
     return 'degraded'
   }

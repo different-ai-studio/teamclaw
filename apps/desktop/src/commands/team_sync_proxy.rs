@@ -30,11 +30,9 @@ struct DaemonAuthExchangeResponse {
     token: String,
 }
 
-/// Read `~/.amuxd/amuxd.http.{port,token}` and return `(base_url, root_token)`.
+/// Read brand amuxd home `amuxd.http.{port,token}` and return `(base_url, root_token)`.
 fn daemon_endpoint() -> Result<(String, String), String> {
-    let amuxd_dir = dirs::home_dir()
-        .ok_or_else(|| "no home dir".to_string())?
-        .join(".amuxd");
+    let amuxd_dir = super::amuxd_home_dir();
     let port: u16 = std::fs::read_to_string(amuxd_dir.join("amuxd.http.port"))
         .map_err(|e| format!("daemon HTTP port unavailable (is amuxd running?): {e}"))?
         .trim()

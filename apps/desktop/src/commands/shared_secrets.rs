@@ -533,9 +533,7 @@ mod tests {
 
         let resolved = resolve_team_dir(workspace, Some("team-abc")).unwrap();
 
-        let expected = home_dir
-            .path()
-            .join(".amuxd")
+        let expected = crate::commands::amuxd_home_dir()
             .join("teams")
             .join("team-abc")
             .join(crate::commands::TEAM_REPO_DIR);

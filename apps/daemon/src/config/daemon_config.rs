@@ -462,10 +462,12 @@ impl DaemonConfig {
 }
 
 impl DaemonConfig {
+    /// Local amuxd state directory.
+    ///
+    /// Official brands: `~/.amuxd`. White-label: `~/.amuxd-<brand>`.
+    /// Override with `AMUXD_HOME`, or derive from `TEAMCLAW_BRAND_SHORT_NAME`.
     pub fn config_dir() -> PathBuf {
-        dirs::home_dir()
-            .unwrap_or_else(|| PathBuf::from("/tmp"))
-            .join(".amuxd")
+        teamclaw_runtime_env::amuxd_home_from_env()
     }
 
     pub fn legacy_config_dir() -> PathBuf {

@@ -77,6 +77,33 @@ describe('computeEnvActivationOverallStatus', () => {
     ).toBe('blocked')
   })
 
+  it('returns degraded (not blocked) when blob keys are missing from workspace index', () => {
+    expect(
+      computeEnvActivationOverallStatus(
+        {
+          ...basePersonal,
+          blobKeysMissingFromIndex: ['ANTHROPIC_AUTH_TOKEN'],
+          workspaceIndexCount: 0,
+        },
+        baseActivation,
+        0,
+      ),
+    ).toBe('degraded')
+  })
+
+  it('returns degraded (not blocked) when index lists keys absent from blob', () => {
+    expect(
+      computeEnvActivationOverallStatus(
+        {
+          ...basePersonal,
+          indexKeysMissingFromBlob: ['STALE_KEY'],
+        },
+        baseActivation,
+        0,
+      ),
+    ).toBe('degraded')
+  })
+
   it('returns degraded when active runtimes exist', () => {
     expect(
       computeEnvActivationOverallStatus(

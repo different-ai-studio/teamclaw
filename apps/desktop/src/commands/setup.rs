@@ -87,7 +87,8 @@ pub(crate) async fn read_doctor<R: Runtime>(
 ) -> Option<serde_json::Value> {
     use tauri_plugin_shell::process::CommandEvent;
     use tauri_plugin_shell::ShellExt;
-    let mut command = app.shell().sidecar("amuxd").ok()?.args(["doctor"]);
+    let mut command =
+        crate::commands::with_amuxd_brand_env(app.shell().sidecar("amuxd").ok()?.args(["doctor"]));
     // Reflect the build's target runtime (buildConfig.localAgent) so the wizard
     // shows pi vs opencode status regardless of the current daemon.toml config.
     if let Some(agent) = local_agent.map(str::trim).filter(|a| !a.is_empty()) {
@@ -197,11 +198,13 @@ fn emit_progress<R: Runtime>(app: &AppHandle<R>, p: SetupProgress) {
 async fn run_amuxd_sidecar<R: Runtime>(app: &AppHandle<R>, args: &[&str]) -> Result<(), String> {
     use tauri_plugin_shell::process::CommandEvent;
     use tauri_plugin_shell::ShellExt;
-    let (mut rx, _child) = app
-        .shell()
-        .sidecar("amuxd")
-        .map_err(|e| format!("sidecar amuxd: {e}"))?
-        .args(args)
+    let command = crate::commands::with_amuxd_brand_env(
+        app.shell()
+            .sidecar("amuxd")
+            .map_err(|e| format!("sidecar amuxd: {e}"))?
+            .args(args),
+    );
+    let (mut rx, _child) = command
         .spawn()
         .map_err(|e| format!("spawn amuxd: {e}"))?;
     let mut code: Option<i32> = None;

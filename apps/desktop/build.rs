@@ -278,6 +278,8 @@ fn main() {
         );
     }
     println!("cargo:rerun-if-changed={}", amuxd_bin);
+    println!("cargo:rerun-if-changed=binaries/cursor-bridge");
+    println!("cargo:rerun-if-changed=binaries/claude-bridge");
 
     tauri_build::build()
 }

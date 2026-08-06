@@ -516,14 +516,14 @@ pub(crate) fn detect_link_status(workspace_path: &str) -> &'static str {
 /// `~/.amuxd/teams/<team_id>/teamclaw-team` — the daemon's global copy path,
 /// shown in the UI so users can see where synced content actually lives.
 pub(crate) fn global_team_dir_display(team_id: &str) -> Option<String> {
-    dirs::home_dir().map(|h| {
-        h.join(".amuxd")
+    Some(
+        crate::commands::amuxd_home_dir()
             .join("teams")
             .join(team_id)
             .join(TEAM_REPO_DIR)
             .to_string_lossy()
-            .into_owned()
-    })
+            .into_owned(),
+    )
 }
 
 pub async fn get_share_status_impl(

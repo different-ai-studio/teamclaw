@@ -809,7 +809,7 @@ function PersonalEnvActivationDiagnosticsCard({
               />
               <DiagRow
                 ok={indexAligned}
-                label={t('settings.envVars.diag.personalIndex', '索引与 blob 对齐')}
+                label={t('settings.envVars.diag.personalIndex', '工作区索引缓存')}
                 value={
                   indexAligned
                     ? t('settings.envVars.diag.personalIndexOk', '一致')
@@ -817,20 +817,20 @@ function PersonalEnvActivationDiagnosticsCard({
                         personal.indexKeysMissingFromBlob.length
                           ? t('settings.envVars.diag.personalIndexMissingBlob', {
                               keys: personal.indexKeysMissingFromBlob.join(', '),
-                              defaultValue: `索引缺值: ${personal.indexKeysMissingFromBlob.join(', ')}`,
+                              defaultValue: `缓存有、存储无: ${personal.indexKeysMissingFromBlob.join(', ')}`,
                             })
                           : null,
                         personal.blobKeysMissingFromIndex.length
                           ? t('settings.envVars.diag.personalIndexMissingIndex', {
                               keys: personal.blobKeysMissingFromIndex.join(', '),
-                              defaultValue: `blob 未索引: ${personal.blobKeysMissingFromIndex.join(', ')}`,
+                              defaultValue: `存储有、缓存未登记: ${personal.blobKeysMissingFromIndex.join(', ')}`,
                             })
                           : null,
                       ].filter(Boolean).join(' · ')
                 }
                 hint={
                   !indexAligned
-                    ? t('settings.envVars.diag.personalIndexHint', '索引与加密 blob 不一致时，设置页可能显示变量但 Agent 读不到（或反之）。尝试重新保存该变量。')
+                    ? t('settings.envVars.diag.personalIndexHint', '个人变量的值存在本机加密存储中；工作区 envVars 只是标签缓存，不一致不会阻止注入。重新打开工作区或 Reload runtime 可刷新缓存。')
                     : undefined
                 }
               />

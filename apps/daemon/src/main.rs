@@ -28,6 +28,10 @@ mod team_link;
 mod team_shared_env;
 mod team_shared_git;
 mod teamclaw;
+#[cfg(test)]
+mod test_brand_env;
+#[cfg(test)]
+mod workspace_meta_gate;
 
 use clap::Parser;
 use cli::{Cli, Commands, TestClientAction};
