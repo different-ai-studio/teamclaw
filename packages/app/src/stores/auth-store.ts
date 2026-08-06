@@ -425,7 +425,7 @@ export const useAuthStore = create<AuthState>((set, get) => ({
     const session = get().session;
     // Member invites require a real account. If the user isn't signed in yet,
     // or is still anonymous, keep the token pending and wait for a real login.
-    if (!session || session.user?.is_anonymous) return null;
+    if (!session || session.user?.isAnonymous) return null;
     if (!hasBackendConfig()) {
       set({ errorMessage: BACKEND_CONFIG_MISSING_MESSAGE });
       return null;
@@ -458,7 +458,7 @@ export const useAuthStore = create<AuthState>((set, get) => ({
     const session = get().session;
     // An anonymous session has no verified email/phone, so there is nothing the
     // server could match against — skip the round-trip entirely.
-    if (!session || session.user?.is_anonymous) {
+    if (!session || session.user?.isAnonymous) {
       set({ pendingInvites: [] });
       return;
     }

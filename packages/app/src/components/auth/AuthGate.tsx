@@ -191,7 +191,7 @@ export function AuthGate({ children }: AuthGateProps) {
   // claimed-successfully.
   const inviteClaimAttempted = useRef<string | null>(null);
   useEffect(() => {
-    if (!session || session.user?.is_anonymous) return;
+    if (!session || session.user?.isAnonymous) return;
     if (!pendingInviteToken) return;
     if (inviteClaimAttempted.current === pendingInviteToken) return;
     inviteClaimAttempted.current = pendingInviteToken;
@@ -207,7 +207,7 @@ export function AuthGate({ children }: AuthGateProps) {
   // a link. Skipped while a token claim is queued — that invite is the one the
   // user actually acted on, and joining it may satisfy the pending list anyway.
   useEffect(() => {
-    if (!session || session.user?.is_anonymous) return;
+    if (!session || session.user?.isAnonymous) return;
     if (pendingInviteToken) return;
     void useAuthStore.getState().refreshPendingInvites();
   }, [session, pendingInviteToken]);
@@ -230,7 +230,7 @@ export function AuthGate({ children }: AuthGateProps) {
     }
     // Guests may browse public teams, but never create an actor/team or join a
     // team. A pending member-invite token remains persisted until real sign-in.
-    if (session.user?.is_anonymous) {
+    if (session.user?.isAnonymous) {
       setBootstrap("ready");
       return;
     }
@@ -419,7 +419,7 @@ export function AuthGate({ children }: AuthGateProps) {
   // the team server-side, adopts the org-switched JWT, switches current team,
   // and refreshes the daemon) — so the daemon gate below then evaluates against
   // the chosen team and triggers re-onboard on mismatch.
-  if (session?.user?.is_anonymous) {
+  if (session?.user?.isAnonymous) {
     removeStartupSkeleton();
     return <GuestTeamDiscovery onSignIn={() => void signOut()} />;
   }

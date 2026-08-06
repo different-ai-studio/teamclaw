@@ -4,6 +4,7 @@ import { useTranslation } from "react-i18next";
 
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { probeCloudApi } from "@/lib/bootstrap";
 import { parseInviteTokenInput } from "@/lib/invite-deeplink";
 import {
   getCloudApiUrlOverride,
@@ -238,6 +239,11 @@ function ServerStep({ onBack }: { onBack: () => void }) {
   const defaultUrl = getDefaultCloudApiUrl();
   const [raw, setRaw] = useState(override ?? defaultUrl ?? "");
   const [localError, setLocalError] = useState<string | null>(null);
+  const [checking, setChecking] = useState(false);
+  // Set once a probe has failed, so the user can override a verdict that may be
+  // wrong for their situation — configuring a server that is not up yet, or one
+  // only reachable from a network they are not on right now.
+  const [allowUnverified, setAllowUnverified] = useState(false);
 
   // A session issued by the previous backend is meaningless against the new one,
   // so reload from scratch instead of trying to migrate state in place.
@@ -251,12 +257,43 @@ function ServerStep({ onBack }: { onBack: () => void }) {
     window.location.reload();
   };
 
+  // Syntax is not enough. `https://api.example.com111` parses fine, saves fine,
+  // and reloads the app into a backend that does not exist — every subsequent
+  // failure then looks like a bug somewhere else. Ask the address whether it is
+  // a Cloud API before persisting anything.
+  const verifyAndApply = async (value: string) => {
+    setLocalError(null);
+    setChecking(true);
+    try {
+      const probe = await probeCloudApi(value);
+      if (!probe.ok) {
+        setAllowUnverified(true);
+        setLocalError(
+          probe.reason === "unreachable"
+            ? t(
+                "auth.onboarding.serverUnreachable",
+                "Could not reach that address. Check the URL and that the server is running.",
+              )
+            : t(
+                "auth.onboarding.serverNotCloudApi",
+                "That address answered, but it is not a TeamClaw Cloud API ({{status}}).",
+                { status: probe.status ?? "?" },
+              ),
+        );
+        return;
+      }
+      applyAndReload(value);
+    } finally {
+      setChecking(false);
+    }
+  };
+
   return (
     <DetailFrame onBack={onBack}>
       <form
         onSubmit={(event) => {
           event.preventDefault();
-          applyAndReload(raw);
+          void verifyAndApply(raw);
         }}
         className="rounded-[16px] border border-border bg-paper p-5"
       >
@@ -276,6 +313,9 @@ function ServerStep({ onBack }: { onBack: () => void }) {
             onChange={(event) => {
               setRaw(event.target.value);
               setLocalError(null);
+              // A different address has not been rejected yet, so it does not
+              // inherit the previous one's "save anyway".
+              setAllowUnverified(false);
             }}
             placeholder="https://api.example.com"
             spellCheck={false}
@@ -291,11 +331,22 @@ function ServerStep({ onBack }: { onBack: () => void }) {
         {localError && <p className="mt-3 text-[12px] text-destructive">{localError}</p>}
         <Button
           type="submit"
-          disabled={!raw.trim() || raw.trim() === override}
+          disabled={checking || !raw.trim() || raw.trim() === override}
           className="mt-5 h-10 w-full bg-coral text-coral-foreground"
         >
-          {t("auth.onboarding.serverSaveAndReload", "Save and reload")}
+          {checking
+            ? t("auth.onboarding.serverChecking", "Checking…")
+            : t("auth.onboarding.serverSaveAndReload", "Save and reload")}
         </Button>
+        {allowUnverified && !checking && (
+          <button
+            type="button"
+            onClick={() => applyAndReload(raw)}
+            className="mt-3 w-full rounded-[6px] py-1 text-[12px] text-muted-foreground underline-offset-4 transition-colors hover:text-foreground hover:underline"
+          >
+            {t("auth.onboarding.serverSaveAnyway", "Save it anyway")}
+          </button>
+        )}
         {override && (
           <button
             type="button"

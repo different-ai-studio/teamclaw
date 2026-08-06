@@ -151,6 +151,58 @@ export async function fetchPublicConfig(args?: { fetchImpl?: typeof fetch }): Pr
   await saveServerConfig({ ...saved, ...patch });
 }
 
+export type CloudApiProbe =
+  | { ok: true }
+  /** Nothing answered: DNS failure, connection refused, TLS error, timeout. */
+  | { ok: false; reason: "unreachable" }
+  /** Something answered, but it is not a TeamClaw Cloud API. */
+  | { ok: false; reason: "not-cloud-api"; status?: number };
+
+const PROBE_TIMEOUT_MS = 8000;
+
+/**
+ * Check that a URL is actually a reachable TeamClaw Cloud API, before anything
+ * is persisted against it.
+ *
+ * `/v1/config/public` is the right probe: it needs no session, it is the first
+ * thing the app calls on every launch anyway, and a valid JSON object back is
+ * evidence of a TeamClaw Cloud API rather than merely *a* web server — a
+ * mistyped host that happens to resolve (a parked domain, a proxy, a company
+ * intranet page) answers 200 to `/healthz`-style probes and would pass a
+ * liveness check while being useless to this app.
+ *
+ * Never throws; the failure modes are the return value.
+ */
+export async function probeCloudApi(
+  url: string,
+  args?: { fetchImpl?: typeof fetch; timeoutMs?: number },
+): Promise<CloudApiProbe> {
+  const baseUrl = url.trim().replace(/\/+$/, "");
+  if (!baseUrl) return { ok: false, reason: "unreachable" };
+  const fetchImpl = args?.fetchImpl ?? fetch;
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), args?.timeoutMs ?? PROBE_TIMEOUT_MS);
+  try {
+    const res = await fetchImpl(`${baseUrl}/v1/config/public${callerQuery()}`, {
+      signal: controller.signal,
+    });
+    if (!res.ok) return { ok: false, reason: "not-cloud-api", status: res.status };
+    const body = await res.json();
+    // `{}` is a perfectly valid answer — it means "this deployment overrides
+    // nothing". What it must not be is a string, an array, or null.
+    if (!body || typeof body !== "object" || Array.isArray(body)) {
+      return { ok: false, reason: "not-cloud-api", status: res.status };
+    }
+    return { ok: true };
+  } catch {
+    // AbortError and network errors are indistinguishable to the user here, and
+    // the remedy is the same: check the address, check the server is up.
+    return { ok: false, reason: "unreachable" };
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
 /**
  * What the last bootstrap attempt did to the MQTT broker config.
  *

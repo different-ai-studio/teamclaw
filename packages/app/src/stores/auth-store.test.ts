@@ -90,8 +90,11 @@ beforeEach(() => {
   });
 });
 
+// `isAnonymous` — camelCase — is what mapSession actually produces. This fixture
+// used to say `is_anonymous`, matching the production code's equally wrong
+// guess, so the suite passed while every anonymous guard in the app was dead.
 function anonSessionLike(userId: string) {
-  return { ...storeSessionLike(userId), user: { id: userId, email: null, is_anonymous: true } };
+  return { ...storeSessionLike(userId), user: { id: userId, email: null, isAnonymous: true } };
 }
 
 describe("auth-store", () => {

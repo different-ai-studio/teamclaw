@@ -21,7 +21,7 @@ vi.mock("@/lib/server-config", () => ({
   saveServerConfig: saveSpy,
 }));
 
-import { clearBootstrapAppliedFields, fetchAndApplyBootstrap } from "../bootstrap";
+import { clearBootstrapAppliedFields, fetchAndApplyBootstrap, probeCloudApi } from "../bootstrap";
 
 beforeEach(() => {
   savedConfigRef.value = { cloudApiUrl: "https://cloud.example.com" };
@@ -198,5 +198,65 @@ describe("fetchAndApplyBootstrap", () => {
       fetchAndApplyBootstrap({ accessToken: "tok", fetchImpl: fetchImpl as unknown as typeof fetch }),
     ).resolves.toBe("unreachable");
     expect(saveSpy).not.toHaveBeenCalled();
+  });
+});
+
+describe("probeCloudApi", () => {
+  it("accepts a Cloud API that answers with a JSON object", async () => {
+    const fetchImpl = vi.fn().mockResolvedValue(jsonResponse({ features: { auth: {} } }));
+
+    expect(await probeCloudApi("https://api.example.com", { fetchImpl: fetchImpl as unknown as typeof fetch }))
+      .toEqual({ ok: true });
+    const [url] = fetchImpl.mock.calls[0];
+    expect(String(url)).toContain("/v1/config/public");
+  });
+
+  it("accepts an empty object — that means 'this deployment overrides nothing'", async () => {
+    const fetchImpl = vi.fn().mockResolvedValue(jsonResponse({}));
+
+    expect(await probeCloudApi("https://api.example.com", { fetchImpl: fetchImpl as unknown as typeof fetch }))
+      .toEqual({ ok: true });
+  });
+
+  it("reports an unreachable host rather than throwing", async () => {
+    const fetchImpl = vi.fn().mockRejectedValue(new TypeError("Failed to fetch"));
+
+    // The typo case: https://api.teamclaw-dev.ucar.cc111 parses fine and
+    // resolves to nothing.
+    expect(await probeCloudApi("https://api.example.com111", { fetchImpl: fetchImpl as unknown as typeof fetch }))
+      .toEqual({ ok: false, reason: "unreachable" });
+  });
+
+  it("rejects a server that answers but is not a Cloud API", async () => {
+    const fetchImpl = vi
+      .fn()
+      .mockResolvedValue(new Response("<html>nope</html>", { status: 404 }));
+
+    expect(await probeCloudApi("https://example.com", { fetchImpl: fetchImpl as unknown as typeof fetch }))
+      .toEqual({ ok: false, reason: "not-cloud-api", status: 404 });
+  });
+
+  it("rejects a 200 that is not a JSON object — a parked page or a proxy", async () => {
+    const fetchImpl = vi
+      .fn()
+      .mockResolvedValue(new Response('"hello"', { status: 200, headers: { "Content-Type": "application/json" } }));
+
+    // A liveness check would have passed this. It is still useless to the app.
+    expect(await probeCloudApi("https://parked.example.com", { fetchImpl: fetchImpl as unknown as typeof fetch }))
+      .toEqual({ ok: false, reason: "not-cloud-api", status: 200 });
+  });
+
+  it("gives up rather than hanging when the server never answers", async () => {
+    const fetchImpl = vi.fn().mockImplementation(
+      (_url: string, init?: { signal?: AbortSignal }) =>
+        new Promise((_resolve, reject) => {
+          init?.signal?.addEventListener("abort", () => reject(new Error("aborted")));
+        }),
+    );
+
+    expect(await probeCloudApi("https://blackhole.example.com", {
+      fetchImpl: fetchImpl as unknown as typeof fetch,
+      timeoutMs: 20,
+    })).toEqual({ ok: false, reason: "unreachable" });
   });
 });
