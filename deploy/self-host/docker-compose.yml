@@ -408,7 +408,9 @@ services:
     build:
       context: ../..
       dockerfile: deploy/self-host/amuxd/Dockerfile
-    image: teamclaw-amuxd:self-host
+    # Local dev: `docker compose build amuxd` → teamclaw-amuxd:self-host.
+    # CI/ECS: daemon-deploy.yml sets AMUXD_IMAGE to a GHCR tag and pulls it.
+    image: ${AMUXD_IMAGE:-teamclaw-amuxd:self-host}
     restart: unless-stopped
     profiles: ["daemon"]
     depends_on:
