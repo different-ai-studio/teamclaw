@@ -1,9 +1,17 @@
 //! Serialize tests that mutate brand / amuxd-home path env vars.
+//!
+//! Shares `TEST_HOME_LOCK` with the tests that mutate `HOME` rather than
+//! keeping a second mutex. Both sets drive the *same* process-global path
+//! resolution — `HOME`, `AMUXD_HOME` and the brand name all feed
+//! `global_team_dir()` / `config_dir()` — so two independent locks serialized
+//! each set against itself while leaving them free to race against each other.
+//! That race is what made `team_link` / `workspace_link` / `daemon::server`
+//! tests fail under `cargo test` but pass under `--test-threads=1`.
 
 use std::path::Path;
-use std::sync::{Mutex, MutexGuard};
+use std::sync::MutexGuard;
 
-static BRAND_ENV_LOCK: Mutex<()> = Mutex::new(());
+use crate::config::global_team_store::TEST_HOME_LOCK;
 
 pub struct BrandEnvGuard {
     _lock: MutexGuard<'static, ()>,
@@ -15,7 +23,7 @@ impl BrandEnvGuard {
     /// Set `TEAMCLAW_BRAND_SHORT_NAME` and clear `AMUXD_HOME` so path resolution
     /// is driven by brand alone.
     pub fn set(brand: &str) -> Self {
-        let lock = BRAND_ENV_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+        let lock = TEST_HOME_LOCK.lock().unwrap_or_else(|e| e.into_inner());
         let previous_brand = std::env::var(teamclaw_runtime_env::BRAND_SHORT_NAME_ENV).ok();
         let previous_home = std::env::var(teamclaw_runtime_env::AMUXD_HOME_ENV).ok();
         std::env::set_var(teamclaw_runtime_env::BRAND_SHORT_NAME_ENV, brand);
@@ -29,7 +37,7 @@ impl BrandEnvGuard {
 
     /// Set an explicit `AMUXD_HOME` override (brand env left unchanged).
     pub fn set_amuxd_home(home: &Path) -> Self {
-        let lock = BRAND_ENV_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+        let lock = TEST_HOME_LOCK.lock().unwrap_or_else(|e| e.into_inner());
         let previous_brand = std::env::var(teamclaw_runtime_env::BRAND_SHORT_NAME_ENV).ok();
         let previous_home = std::env::var(teamclaw_runtime_env::AMUXD_HOME_ENV).ok();
         std::env::set_var(teamclaw_runtime_env::AMUXD_HOME_ENV, home);
