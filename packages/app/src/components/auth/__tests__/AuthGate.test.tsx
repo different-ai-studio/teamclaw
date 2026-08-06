@@ -31,6 +31,10 @@ const { authState, currentTeamMock, backendMock } = vi.hoisted(() => ({
     teams: {
       listCurrentUserTeams: vi.fn(),
       listAllMyTeams: vi.fn(),
+      // GuestTeamDiscovery calls this on mount. Without it the guest test
+      // renders fine and then rejects unhandled, which vitest reports as an
+      // error with every test still green — green suite, exit code 1.
+      listDiscoverableTeams: vi.fn(),
       createTeam: vi.fn(),
       bootstrapTeam: vi.fn(),
     },
@@ -116,6 +120,7 @@ beforeEach(() => {
   authState.hydrate.mockReset();
   backendMock.teams.listCurrentUserTeams.mockReset();
   backendMock.teams.listAllMyTeams.mockReset();
+  backendMock.teams.listDiscoverableTeams.mockReset();
   backendMock.teams.createTeam.mockReset();
   backendMock.teams.bootstrapTeam.mockReset();
   currentTeamMock.reloadAndSwitchTo.mockReset();
@@ -124,6 +129,7 @@ beforeEach(() => {
   currentTeamMock.team = null;
   currentTeamMock.teamUserId = null;
   backendMock.teams.listAllMyTeams.mockResolvedValue([]);
+  backendMock.teams.listDiscoverableTeams.mockResolvedValue([]);
   backendMock.teams.bootstrapTeam.mockResolvedValue({ id: "team-bootstrap", name: "Bootstrap", slug: "bootstrap" });
   setLocalCacheTeamGateMock.mockClear();
   removeStartupSkeletonMock.mockClear();
