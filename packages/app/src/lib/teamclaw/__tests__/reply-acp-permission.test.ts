@@ -5,6 +5,7 @@ import { AgentType } from "@/lib/proto/amux_pb";
 const mocks = vi.hoisted(() => ({
   listParticipants: vi.fn(),
   mqttPublish: vi.fn(),
+  runtimeCommand: vi.fn(),
 }));
 
 vi.mock("@/lib/backend", () => ({
@@ -15,6 +16,10 @@ vi.mock("@/lib/backend", () => ({
 
 vi.mock("@/lib/mqtt-bridge", () => ({
   mqttPublish: mocks.mqttPublish,
+}));
+
+vi.mock("@/lib/teamclaw-rpc", () => ({
+  runtimeCommand: (...args: unknown[]) => mocks.runtimeCommand(...args),
 }));
 
 vi.mock("@/stores/current-team", () => ({
@@ -56,6 +61,7 @@ describe("replyAcpPermission", () => {
       { id: "agent-live", actor_type: "agent" },
     ]);
     mocks.mqttPublish.mockResolvedValue(undefined);
+    mocks.runtimeCommand.mockResolvedValue(true);
   });
 
   it("addresses the attachment filed under this session, ignoring others", async () => {
@@ -84,10 +90,16 @@ describe("replyAcpPermission", () => {
     const { replyPermissionById } = await import("../reply-acp-permission");
     await replyPermissionById("perm-uuid-1", "allow");
 
-    expect(mocks.mqttPublish).toHaveBeenCalledTimes(1);
-    const topic = mocks.mqttPublish.mock.calls[0][0] as string;
-    expect(topic).toBe(
-      "amux/team-1/agent-live/runtime/live-spawn/commands",
+    expect(mocks.runtimeCommand).toHaveBeenCalledTimes(1);
+    expect(mocks.runtimeCommand).toHaveBeenCalledWith(
+      expect.objectContaining({
+        targetActorId: "agent-live",
+        sessionId: "sess-1",
+      }),
     );
+    const envelope = mocks.runtimeCommand.mock.calls[0]![0].envelope;
+    expect(envelope.runtimeId).toBe("live-spawn");
+    expect(envelope.acpCommand?.command.case).toBe("grantPermission");
+    expect(mocks.mqttPublish).not.toHaveBeenCalled();
   });
 });

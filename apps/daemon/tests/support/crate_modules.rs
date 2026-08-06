@@ -35,6 +35,8 @@ mod team_link;
 mod team_shared_env;
 #[path = "../../src/team_shared_git.rs"]
 mod team_shared_git;
+#[path = "../../src/test_brand_env.rs"]
+mod test_brand_env;
 
 fn test_sync_dispatcher() -> sync::dispatch::SyncDispatcher {
     sync::dispatch::SyncDispatcher::new(sync::secret_store::SecretStore::new(), None)

@@ -43,6 +43,8 @@ mod team_link;
 mod team_shared_env;
 #[path = "../src/team_shared_git.rs"]
 mod team_shared_git;
+#[path = "../src/test_brand_env.rs"]
+mod test_brand_env;
 
 use std::process::Command;
 use std::sync::Arc;
