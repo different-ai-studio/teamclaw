@@ -9,7 +9,7 @@ const { setLocalCacheTeamGateMock, removeStartupSkeletonMock, isTauriMock } = vi
 
 const { authState, currentTeamMock, backendMock } = vi.hoisted(() => ({
   authState: {
-    session: { user: { id: "user-1" } } as { user: { id: string; is_anonymous?: boolean } } | null,
+    session: { user: { id: "user-1" } } as { user: { id: string; isAnonymous?: boolean } } | null,
     loading: false,
     authFlow: "idle" as "idle" | "invite",
     hydrate: vi.fn(),
@@ -183,6 +183,26 @@ describe("AuthGate", () => {
 
     await waitFor(() => expect(screen.getByText("Desktop onboarding")).toBeInTheDocument());
     expect(screen.queryByText(/loading/i)).not.toBeInTheDocument();
+    expect(screen.queryByText("App shell")).not.toBeInTheDocument();
+  });
+
+  it("never runs team bootstrap for an anonymous session", async () => {
+    // The server refuses `POST /v1/teams/bootstrap` for guests with 403
+    // anonymous_not_allowed, and the client is supposed to know that and route
+    // them to public-team browsing instead. It did not: the guard read
+    // `user.is_anonymous` while mapSession emits `isAnonymous`, so every guest
+    // was pushed through bootstrap and landed on a "temporary server issue"
+    // screen whose Retry could never succeed.
+    authState.session = { user: { id: "anon-1", isAnonymous: true } };
+
+    render(
+      <AuthGate>
+        <div>App shell</div>
+      </AuthGate>,
+    );
+
+    await waitFor(() => expect(screen.getByText(/browse public teams/i)).toBeInTheDocument());
+    expect(backendMock.teams.bootstrapTeam).not.toHaveBeenCalled();
     expect(screen.queryByText("App shell")).not.toBeInTheDocument();
   });
 

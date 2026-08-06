@@ -3002,7 +3002,7 @@ function App() {
         // yet (or is still anonymous), stash the token and let sign-in +
         // AuthGate's pending-invite effect claim it once they're authenticated.
         const authState = useAuthStore.getState();
-        if (!authState.session || authState.session.user?.is_anonymous) {
+        if (!authState.session || authState.session.user?.isAnonymous) {
           authState.setPendingInviteToken(token);
           continue;
         }
@@ -3069,7 +3069,7 @@ function App() {
   const authSession = useAuthStore((s) => s.session);
   useEffect(() => {
     if (!isTauri()) return;
-    if (!authSession || authSession.user?.is_anonymous) return;
+    if (!authSession || authSession.user?.isAnonymous) return;
     const pending = readPendingSessionDeeplink();
     if (!pending) return;
     void openSessionFromDeeplink(pending.sessionId);

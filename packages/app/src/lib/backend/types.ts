@@ -5,8 +5,21 @@ export type BackendKind = "cloud_api";
 export interface AuthUser {
   id: string;
   email?: string | null;
+  /**
+   * Canonical camelCase, set by `mapSession`. The Cloud API sends snake_case
+   * `is_anonymous`; only the raw payload under `providerData` uses that name.
+   */
   isAnonymous?: boolean;
-  [key: string]: unknown;
+  /** Provider profile fields (avatar_url, full_name, name, …) — the raw
+   *  `user_metadata` block, renamed to match the camelCase convention. */
+  userMetadata?: Record<string, unknown> | null;
+  /** The untouched provider user, for anything not surfaced above. */
+  providerData?: unknown;
+  // NO index signature. It used to be `[key: string]: unknown`, which let
+  // `user.is_anonymous` and `user.user_metadata` type-check while being
+  // permanently undefined — mapSession emits neither. Every anonymous-user
+  // guard in the app was silently dead as a result, so guests were pushed
+  // through team bootstrap and hit a 403 they could only retry forever.
 }
 
 export interface AuthSession {

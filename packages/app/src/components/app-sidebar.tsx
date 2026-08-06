@@ -237,7 +237,7 @@ function SidebarUserAccountMenu() {
 
   if (!authSession) return null
 
-  const meta = authSession.user.user_metadata as Record<string, unknown> | undefined
+  const meta = authSession.user.userMetadata ?? undefined
   const avatarUrl = typeof meta?.avatar_url === 'string' ? meta.avatar_url : null
   const email = authSession.user.email || ""
   const isAnonymous = Boolean(authSession.user.isAnonymous)

@@ -24,7 +24,11 @@ function mapSession(session: Session | null): AuthSession | null {
     user: {
       id: user.id,
       email: user.email ?? null,
+      // The Cloud API speaks snake_case; everything above this line is
+      // camelCase. This is the ONLY place the two names may both appear.
       isAnonymous: Boolean((user as { is_anonymous?: boolean }).is_anonymous),
+      userMetadata:
+        (user as { user_metadata?: Record<string, unknown> | null }).user_metadata ?? null,
       providerData: user,
     },
     accessToken: session.access_token ?? null,
