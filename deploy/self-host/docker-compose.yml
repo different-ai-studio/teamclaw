@@ -290,6 +290,13 @@ services:
       # desktop build config, or session injection silently does nothing.
       WEBSSO_LOGIN_URL: "${WEBSSO_LOGIN_URL:-}"
       WEBSSO_STORAGE_KEY: "${WEBSSO_STORAGE_KEY:-}"
+      # Runtime feature flags served by /v1/config/{public,bootstrap}. The
+      # durable values live in services/fc/src/lib/feature-profiles.ts, in git;
+      # APP_FEATURES_JSON here is an emergency override only. Keep both vars in
+      # step with s.yaml — one declared on only one target silently drops the
+      # whole features block there.
+      APP_FEATURES_PROFILE: "${APP_FEATURES_PROFILE:-self-host}"
+      APP_FEATURES_JSON: "${APP_FEATURES_JSON:-}"
       # Points FC at the bundled gateway. FC now fails closed on a blank value
       # rather than falling back to a hosted endpoint, so this default is a
       # convenience, not a safety net.

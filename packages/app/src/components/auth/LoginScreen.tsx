@@ -1,7 +1,8 @@
 import { useState } from "react";
 import { useTranslation } from "react-i18next";
 import { useAuthStore } from "@/stores/auth-store";
-import { appDisplayName, buildConfig } from "@/lib/build-config";
+import { appDisplayName } from "@/lib/build-config";
+import { useFeatures } from "@/lib/remote-features";
 import { hasBackendConfig } from "@/lib/backend";
 import { getEffectiveServerConfigSync } from "@/lib/server-config";
 import { useAppVersion } from "@/lib/version";
@@ -15,10 +16,12 @@ import type { OAuthProvider } from "@/lib/auth";
 export function OAuthButtons() {
   const { t } = useTranslation();
   const { signInWithOAuth, cancelOAuth, signInWithWebSso, cancelWebSso, loading, oauthPending, webSsoPending } = useAuthStore();
-  const auth = buildConfig.features?.auth;
-  const showGoogle = isTauri() && Boolean(auth?.google);
-  const showWechat = isTauri() && Boolean(auth?.wechat);
-  const showWebSso = isTauri() && Boolean(auth?.webSSO);
+  // Read through useFeatures, not the build config: the Cloud API delivers
+  // these at startup and they can land after first paint.
+  const auth = useFeatures().auth;
+  const showGoogle = isTauri() && auth.google;
+  const showWechat = isTauri() && auth.wechat;
+  const showWebSso = isTauri() && auth.webSSO;
   if (!showGoogle && !showWechat && !showWebSso) return null;
 
   const Btn = ({ provider, icon, label }: { provider: OAuthProvider; icon: React.ReactNode; label: string }) => (
@@ -138,8 +141,9 @@ export function LoginScreen({ embedded = false, onBack }: LoginScreenProps) {
   const [phone, setPhone] = useState("+86");
   const [password, setPassword] = useState("");
   const [method, setMethod] = useState<"email" | "phone" | "password">("email");
-  const phoneEnabled = isTauri() && Boolean(buildConfig.features?.auth?.phone);
-  const passwordEnabled = Boolean(buildConfig.features?.auth?.password);
+  const auth = useFeatures().auth;
+  const phoneEnabled = isTauri() && auth.phone;
+  const passwordEnabled = auth.password;
   const appVersion = useAppVersion();
   const cloudApiUrl = getEffectiveServerConfigSync().cloudApiUrl;
   const onSendEmail = async (e: React.FormEvent) => {

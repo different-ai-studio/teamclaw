@@ -10,12 +10,14 @@ import { EmailChannel } from './channels/Email'
 import { KookChannel } from './channels/Kook'
 import { WeComChannel } from './channels/Wecom'
 import { WeChatChannel } from './channels/Wechat'
-import { buildConfig, resolveChannelsConfig } from '@/lib/build-config'
-const channelsConfig = resolveChannelsConfig(buildConfig.features.channels)
+import { useFeatures } from '@/lib/remote-features'
 
 // Main Channels Section Component
 export function ChannelsSection() {
   const { t } = useTranslation()
+  // Resolved per render, not once at module scope: these flags now arrive
+  // from the Cloud API and can change mid-session.
+  const channelsConfig = useFeatures().channels
   const { discord, isLoading, error, loadConfig, clearError } = useChannelsStore()
 
   // Load config on mount to sync UI state

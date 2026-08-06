@@ -8,7 +8,8 @@ import { useTeamShareStore } from './team-share'
 import { useCurrentTeamStore } from './current-team'
 import { isTauri } from '@/lib/utils'
 import { workspaceScopedKey } from '@/lib/storage'
-import { appStoragePrefix, buildConfig, TEAM_REPO_DIR, type TeamModelOption } from '@/lib/build-config'
+import { appStoragePrefix, TEAM_REPO_DIR, type TeamModelOption } from '@/lib/build-config'
+import { getFeatures } from '@/lib/remote-features'
 
 
 const TEAM_PROVIDER_ID = TEAM_SHARED_PROVIDER_ID
@@ -268,8 +269,10 @@ export const useTeamModeStore = create<TeamModeState>((set, get) => ({
   },
 
   clearTeamMode: async (workspacePath?: string) => {
-    // When LLM config is locked via build config, prevent exiting team mode
-    if (buildConfig.team.lockLlmConfig) return
+    // When LLM config is locked, prevent exiting team mode. The lock now
+    // comes from the Cloud API when it sends one, and falls back to the
+    // build config otherwise.
+    if (getFeatures().lockLlmConfig) return
 
     // Set state immediately to trigger UI updates
     set({ teamModelConfig: null, _appliedConfigKey: null, teamGitFileSyncStatusMap: {} })

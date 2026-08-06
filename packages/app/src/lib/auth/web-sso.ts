@@ -5,7 +5,7 @@
 // valid against TeamClaw's Cloud API. This is the reverse of
 // admin-sso-inject.ts.
 
-import { buildConfig } from "@/lib/build-config";
+import { getFeatures } from "@/lib/remote-features";
 import { fetchPublicConfig } from "@/lib/bootstrap";
 import { getEffectiveServerConfigSync } from "@/lib/server-config";
 import { invoke } from "@tauri-apps/api/core";
@@ -48,10 +48,14 @@ export function adminConsoleTarget(): SsoConfig | null {
 
 /**
  * Resolve the SSO target, or null when the feature is off or not configured.
- * The build flag `features.auth.webSSO` is the per-build kill switch.
+ *
+ * `features.auth.webSSO` is the kill switch, and it is ANDed: the build must
+ * have opted in AND the Cloud API must not have turned it off. A server alone
+ * cannot enable it — the admin-console hosts allowed to receive an injected
+ * session are compiled into the desktop binary.
  */
 export function ssoConfig(): SsoConfig | null {
-  if (!buildConfig.features.auth?.webSSO) return null;
+  if (!getFeatures().auth.webSSO) return null;
   return adminConsoleTarget();
 }
 

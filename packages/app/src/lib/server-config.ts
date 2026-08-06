@@ -77,6 +77,21 @@ export function normalizeCloudApiUrl(raw: string): string | null {
   return trimmed;
 }
 
+// Broadcast whenever the effective Cloud API URL changes. Anything keyed by
+// backend identity (the remote feature snapshots, today) listens for it.
+//
+// The "Custom server" flow reloads the window immediately after writing the
+// override, so listeners would be re-seeded by module load anyway — but that is
+// a property of one caller, not a guarantee. An in-place server switch added
+// later would otherwise leave per-origin caches pointing at the old backend,
+// and nothing would fail loudly enough to notice.
+//
+// A DOM event rather than an exported subscribe(): a direct import would put
+// this module in the import graph of every listener, and any suite that
+// partially mocks @/lib/server-config would then fail to import them at all.
+// Listeners hardcode the same literal — see lib/remote-features.ts.
+export const CLOUD_API_URL_CHANGED_EVENT = "teamclaw:cloud-api-url-changed";
+
 /** The user-chosen Cloud API URL, or null when none is set. */
 export function getCloudApiUrlOverride(): string | null {
   if (typeof window === "undefined") return null;
@@ -105,12 +120,25 @@ export function setCloudApiUrlOverride(raw: string | null): string | null {
   if (typeof window === "undefined") return null;
   if (raw === null) {
     window.localStorage.removeItem(CLOUD_API_OVERRIDE_KEY);
+    notifyCloudApiUrlChanged(null);
     return null;
   }
   const normalized = normalizeCloudApiUrl(raw);
   if (!normalized) throw new Error(`Not a valid http(s) URL: ${raw}`);
   window.localStorage.setItem(CLOUD_API_OVERRIDE_KEY, normalized);
+  notifyCloudApiUrlChanged(normalized);
   return normalized;
+}
+
+function notifyCloudApiUrlChanged(url: string | null): void {
+  if (typeof window === "undefined") return;
+  try {
+    window.dispatchEvent(new CustomEvent(CLOUD_API_URL_CHANGED_EVENT, { detail: url }));
+  } catch (error) {
+    // The override is already written; a failed notification must not abort
+    // the switch itself.
+    console.warn("[server-config] cloud API url change notification failed:", error);
+  }
 }
 
 /**

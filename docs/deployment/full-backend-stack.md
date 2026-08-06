@@ -195,6 +195,58 @@ docker compose build fc && docker compose up -d fc
 > ⚠️ `AUTH_BASE_URL` 在 `services/fc/src/auth/` 里的代码内置默认值仍是**已下线**的
 > `https://cloud.ucar.cc`。留空会落到这个死地址，务必显式配置。
 
+**运行时功能开关（feature flags）：** `/v1/config/public` 与 `/v1/config/bootstrap`
+会把一部分开关下发给客户端，客户端拿它覆盖自己 `build.config*.json` 里烘死的默认值
+——改登录方式、渠道开关不再需要重新打包客户端。
+
+| 变量 | 说明 |
+|------|------|
+| `APP_FEATURES_PROFILE` | 选用哪份 profile。compose 默认 `self-host`（那台机器就是唯一一个环境）；**`s.yaml` 故意没有默认值** |
+| `APP_FEATURES_JSON` | **应急覆盖**，逐键盖在 profile 之上。日常不要用 |
+
+现有三份 profile，一个运行中的 Cloud API 对应一份：
+
+| profile | 部署 | 服务的品牌 |
+|---|---|---|
+| `self-host` | `api.teamclaw-dev.ucar.cc` | 官方 TeamClaw（`build.config.production.json`） |
+| `belayo` | `teamclaw-api.ucar.cc` | betly（品牌私仓 `brands/betly`） |
+| `copilot361` | `copilot.accounting.i.test.shopee.io` | Copilot 361（品牌私仓 `brands/copilot361`） |
+
+`s.yaml` 不给默认值，是因为它同时部署 belayo 和 copilot361 两个后端——任何默认值对其中一个都是**别的品牌的开关**（copilot361 若继承了 `belayo`，会给从没提供过手机登录的用户打开手机登录）。不设 = 不覆盖，永远安全。每个 env 文件自己写 profile 名，`deploy-aliyun-fc.sh` 的确认 banner 会打印出来。
+
+**持久的值在代码里，不在环境变量里**：`services/fc/src/lib/feature-profiles.ts`。
+原因是 belayo（Alibaba FC）那边 `s deploy` 会**整体重写** function 的环境变量表，
+某个变量在这次部署所用的 env 文件里缺失不等于「保持现值」，而等于「清空」——登录
+方式一旦只配在 env 里，一次无关的常规部署就会让登录按钮消失。放代码里则跟着版本走，
+可 review、有 git 历史。
+
+改一个开关 = 改 `feature-profiles.ts` 提 PR：self-host 合并到 main 自动部署生效，
+belayo 跟着下次手工部署生效。
+
+两条不下发的规则，别绕：
+
+- **`updater` 永远不下发。** 它同时关掉启动自检，远程关错会让已装机群体失去自更新
+  能力，只能手动重装。代码里的白名单直接把它丢掉，即使写进 env 也不生效。
+- **`auth.webSSO` 是 AND 不是覆盖。** 允许注入 session 的 admin console 域名烘在
+  桌面端二进制里（`WEBSSO_ADMIN_HOSTS`），服务端单方面打开不会生效，也不该生效。
+
+验证（两个环境都要，belayo 没有 CI 门禁）：
+
+```bash
+curl -s https://api.teamclaw-dev.ucar.cc/v1/config/public | jq   # self-host
+curl -s https://teamclaw-api.ucar.cc/v1/config/public | jq       # belayo
+```
+
+三份 profile 的初始值都是**照抄各自品牌 build config 已经烘死的值**，所以开启这套机制
+当天客户端行为零变化——服务端只是把每个客户端本来就相信的东西再讲一遍。之后改开关就
+只改 `feature-profiles.ts`，不用重新打包客户端。
+
+品牌 build config 改了要记得同步这里：一边是默认值、一边是覆盖值，两边漂移的表现是
+「开关在网络请求回来的瞬间翻转」，很难查但很好避免。
+
+没设 profile 时返回 `{}` 属于正常（= 不覆盖）。容器日志里的
+`[config] features profile=… keys=N` 是区分「没配」和「配了但没生效」的唯一手段。
+
 **定时任务：** `docker compose --profile cron up -d`，cron 容器按计划打
 `POST /internal/cron`（带 `x-cron-secret`）。
 

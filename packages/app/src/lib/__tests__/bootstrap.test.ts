@@ -65,8 +65,14 @@ describe("fetchAndApplyBootstrap", () => {
       }),
     );
     await fetchAndApplyBootstrap({ accessToken: "tok", fetchImpl: fetchImpl as unknown as typeof fetch });
-    expect(fetchImpl).toHaveBeenCalledWith(
-      "https://cloud.example.com/v1/config/bootstrap",
+    // The request carries brand/platform/version so a per-brand or
+    // version-gated rollout is a server-side change later.
+    const [requestedUrl, requestInit] = fetchImpl.mock.calls[0];
+    const url = new URL(requestedUrl as string);
+    expect(`${url.origin}${url.pathname}`).toBe("https://cloud.example.com/v1/config/bootstrap");
+    expect(url.searchParams.get("brand")).toBeTruthy();
+    expect(url.searchParams.get("platform")).toBeTruthy();
+    expect(requestInit).toEqual(
       expect.objectContaining({ headers: expect.objectContaining({ Authorization: "Bearer tok" }) }),
     );
     expect(saveSpy).toHaveBeenCalledTimes(1);

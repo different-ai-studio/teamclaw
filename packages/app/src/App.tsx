@@ -14,7 +14,8 @@ import { cn, isTauri, removeStartupSkeleton } from "@/lib/utils";
 import { capabilities, isChromeExtension } from "@/lib/platform";
 import { isSoloBuild } from "@/lib/solo-build";
 import { scheduleReleaseStuckModalLayers } from "@/lib/modal-layer-cleanup";
-import { appDisplayName, buildConfig } from "@/lib/build-config";
+import { appDisplayName } from "@/lib/build-config";
+import { useFeatures } from "@/lib/remote-features";
 import { buildSessionDeeplink } from "@/lib/session-deeplink";
 import { markStartup } from "@/lib/startup-perf";
 import {
@@ -738,7 +739,8 @@ function AppContent() {
   const embedMode = useUIStore((s) => s.embedMode);
   const currentView = useUIStore((s) => s.currentView);
   const sidebarFilter = useUIStore((s) => s.sidebarFilter);
-  const teamShareMode = sidebarFilter?.kind === "teamShare" && buildConfig.features.teamShareBrowser;
+  const teamShareBrowserEnabled = useFeatures().teamShareBrowser;
+  const teamShareMode = sidebarFilter?.kind === "teamShare" && teamShareBrowserEnabled;
   const closeSettings = useUIStore((s) => s.closeSettings);
   const authSession = useAuthStore((s) => s.session);
   const loadCurrentTeam = useCurrentTeamStore((s) => s.load);

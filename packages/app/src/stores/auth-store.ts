@@ -11,6 +11,7 @@ import type { AuthClaimResult, AuthSession, PendingInvite } from "@/lib/backend"
 import { accessTokenMatchesBackend } from "@/lib/auth/auth-client";
 import { CloudApiError } from "@/lib/backend/cloud-api/http";
 import { clearBootstrapAppliedFields, fetchAndApplyBootstrap } from "@/lib/bootstrap";
+import { clearSessionFeatures } from "@/lib/remote-features";
 import { getEffectiveServerConfig } from "@/lib/server-config";
 import { markStartup } from "@/lib/startup-perf";
 
@@ -608,6 +609,14 @@ export const useAuthStore = create<AuthState>((set, get) => ({
       await clearBootstrapAppliedFields();
     } catch (error) {
       console.warn("[auth] clearBootstrapAppliedFields on signOut failed:", error);
+    }
+    try {
+      // Only the post-sign-in flags. The public snapshot (login methods) is
+      // deployment config, not account data — clearing it would send the login
+      // screen we are about to show back to the baked defaults.
+      clearSessionFeatures();
+    } catch (error) {
+      console.warn("[auth] clearSessionFeatures on signOut failed:", error);
     }
     try {
       const { resetClientChatState } = await import("@/lib/reset-client-chat-state");

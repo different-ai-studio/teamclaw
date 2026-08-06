@@ -1,9 +1,12 @@
+import { appShortName } from "@/lib/build-config";
+import { applyRemoteFeatures } from "@/lib/remote-features";
 import {
   getEffectiveServerConfig,
   getSavedServerConfig,
   saveServerConfig,
   type ServerConfig,
 } from "@/lib/server-config";
+import { isTauri } from "@/lib/utils";
 
 interface BootstrapMqttPayload {
   url?: string;
@@ -31,6 +34,28 @@ interface BootstrapWebSsoPayload {
 interface BootstrapPayload {
   mqtt?: BootstrapMqttPayload;
   webSso?: BootstrapWebSsoPayload;
+  /**
+   * Runtime feature overrides. Which flags arrive depends on the endpoint:
+   * `/v1/config/public` carries `auth` (the login screen needs it before any
+   * token exists) and `/v1/config/bootstrap` carries the rest. Each key has one
+   * authoritative endpoint — see lib/remote-features.ts.
+   */
+  features?: unknown;
+}
+
+/**
+ * Identifies the calling build to the Cloud API. Nothing depends on it yet: it
+ * exists so a per-brand or version-gated rollout is a server-side change later,
+ * rather than waiting on a client release to start sending the parameters.
+ */
+function callerQuery(): string {
+  const params = new URLSearchParams({
+    brand: appShortName,
+    platform: isTauri() ? "desktop" : "web",
+  });
+  const version = import.meta.env.PACKAGE_VERSION;
+  if (version) params.set("version", String(version));
+  return `?${params.toString()}`;
 }
 
 function parseBrokerUrl(raw: string): { host: string; port?: number; useTls?: boolean } | null {
@@ -94,9 +119,15 @@ export async function clearBootstrapAppliedFields(): Promise<void> {
   });
 }
 
-// Fetch the PUBLIC (unauthenticated) config — currently the Web SSO 快捷登录
-// target — and cache it. Unlike fetchAndApplyBootstrap this needs no session,
-// so it can run before/at the login screen. Best-effort; never throws.
+// Fetch the PUBLIC (unauthenticated) config — the Web SSO 快捷登录 target and
+// the login-method feature flags — and cache it. Unlike fetchAndApplyBootstrap
+// this needs no session, so it can run before/at the login screen.
+// Best-effort; never throws.
+//
+// This MUST run unconditionally at startup, not lazily behind a feature it
+// itself configures: `features.auth` decides which sign-in buttons the login
+// screen draws, so fetching it only once the user presses one of those buttons
+// is circular.
 export async function fetchPublicConfig(args?: { fetchImpl?: typeof fetch }): Promise<void> {
   const effective = await getEffectiveServerConfig();
   const baseUrl = effective.cloudApiUrl?.replace(/\/+$/, "");
@@ -104,12 +135,16 @@ export async function fetchPublicConfig(args?: { fetchImpl?: typeof fetch }): Pr
   const fetchImpl = args?.fetchImpl ?? fetch;
   let body: BootstrapPayload;
   try {
-    const res = await fetchImpl(`${baseUrl}/v1/config/public`);
+    const res = await fetchImpl(`${baseUrl}/v1/config/public${callerQuery()}`);
     if (!res.ok) return;
     body = (await res.json()) as BootstrapPayload;
   } catch {
     return;
   }
+  // Applied even when absent: `applyRemoteFeatures` treats a missing block as
+  // "no overrides", and recording that is how a flag the server has STOPPED
+  // sending stops applying instead of living on in the cache forever.
+  applyRemoteFeatures("public", body.features);
   const patch = webSsoPatchFrom(body.webSso);
   if (!patch) return;
   const saved = await getSavedServerConfig();
@@ -143,7 +178,7 @@ export async function fetchAndApplyBootstrap(args: {
   const fetchImpl = args.fetchImpl ?? fetch;
   let body: BootstrapPayload;
   try {
-    const res = await fetchImpl(`${baseUrl}/v1/config/bootstrap`, {
+    const res = await fetchImpl(`${baseUrl}/v1/config/bootstrap${callerQuery()}`, {
       headers: { Authorization: `Bearer ${token}` },
     });
     if (!res.ok) return "unreachable";
@@ -151,6 +186,9 @@ export async function fetchAndApplyBootstrap(args: {
   } catch {
     return "unreachable";
   }
+  // Post-sign-in flags only; `auth` arriving here is ignored by design (it is
+  // owned by /v1/config/public, which answers early enough to matter).
+  applyRemoteFeatures("session", body.features);
   const mqttPatch = patchFromPayload(body.mqtt);
   const webSsoPatch = webSsoPatchFrom(body.webSso);
   const saved = await getSavedServerConfig();

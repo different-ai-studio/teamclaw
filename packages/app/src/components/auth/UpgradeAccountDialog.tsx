@@ -11,7 +11,7 @@ import {
 } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { useAuthStore } from "@/stores/auth-store";
-import { buildConfig } from "@/lib/build-config";
+import { useFeatures } from "@/lib/remote-features";
 import { isTauri } from "@/lib/utils";
 
 interface Props {
@@ -34,9 +34,10 @@ export function UpgradeAccountDialog({ open, onOpenChange }: Props) {
     upgradeLoading: loading,
     errorMessage,
   } = useAuthStore();
-  // Phone upgrade is only offered when the build enables phone auth (same flag
-  // that gates phone login). It uses our partner-aligned send-code + bind-phone.
-  const phoneEnabled = isTauri() && Boolean(buildConfig.features?.auth?.phone);
+  // Phone upgrade is only offered when phone auth is enabled (same flag that
+  // gates phone login). It uses our partner-aligned send-code + bind-phone.
+  const phoneAuth = useFeatures().auth.phone;
+  const phoneEnabled = isTauri() && phoneAuth;
   const [method, setMethod] = useState<Method>("email");
   const [email, setEmail] = useState("");
   const [phone, setPhone] = useState("");

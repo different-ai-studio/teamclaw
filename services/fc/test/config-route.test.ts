@@ -1,7 +1,8 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { handleBusinessApiRequest } from "../src/lib/business-api.js";
-import { buildBootstrapConfig } from "../src/lib/routes/config.js";
+import { buildBootstrapConfig, buildPublicConfig } from "../src/lib/routes/config.js";
+import { FEATURE_PROFILES } from "../src/lib/feature-profiles.js";
 
 async function withEnv(overrides: Record<string, any>, fn: () => any) {
   const restore: Record<string, any> = {};
@@ -243,4 +244,177 @@ test("GET /v1/config/public returns webSso WITHOUT auth (login-time config)", as
       });
     },
   );
+});
+
+// ---------------------------------------------------------------------------
+// Feature flags
+// ---------------------------------------------------------------------------
+
+const NO_FEATURES = { APP_FEATURES_PROFILE: undefined, APP_FEATURES_JSON: undefined };
+
+test("no profile and no override emits no features block at all", () => {
+  withEnv(
+    { MQTT_BROKER_URL: "wss://mqtt.example.com/mqtt", WEBSSO_LOGIN_URL: undefined, ...NO_FEATURES },
+    () => {
+      assert.deepEqual(buildBootstrapConfig(), { mqtt: { url: "wss://mqtt.example.com/mqtt" } });
+      assert.deepEqual(buildPublicConfig(), {});
+    },
+  );
+});
+
+test("an unknown profile name degrades to no overrides instead of throwing", () => {
+  withEnv(
+    { MQTT_BROKER_URL: undefined, WEBSSO_LOGIN_URL: undefined, APP_FEATURES_PROFILE: "typo-here", APP_FEATURES_JSON: undefined },
+    () => {
+      // A misspelled profile is a config mistake, not an outage: the deploy
+      // must still serve, just without overrides.
+      assert.deepEqual(buildBootstrapConfig(), {});
+      assert.deepEqual(buildPublicConfig(), {});
+    },
+  );
+});
+
+test("auth goes to public ONLY and channels to bootstrap ONLY — never both", () => {
+  withEnv(
+    {
+      MQTT_BROKER_URL: undefined,
+      WEBSSO_LOGIN_URL: undefined,
+      APP_FEATURES_PROFILE: undefined,
+      APP_FEATURES_JSON: JSON.stringify({
+        auth: { google: true, phone: false },
+        channels: { discord: false },
+        apps: true,
+      }),
+    },
+    () => {
+      assert.deepEqual(buildPublicConfig(), { features: { auth: { google: true, phone: false } } });
+      assert.deepEqual(buildBootstrapConfig(), {
+        features: { channels: { discord: false }, apps: true },
+      });
+    },
+  );
+});
+
+test("unknown keys and non-boolean values are dropped, not coerced", () => {
+  withEnv(
+    {
+      MQTT_BROKER_URL: undefined,
+      WEBSSO_LOGIN_URL: undefined,
+      APP_FEATURES_PROFILE: undefined,
+      // "false" as a STRING is the dangerous one: coercing it would enable the
+      // feature it was written to disable.
+      APP_FEATURES_JSON: JSON.stringify({ apps: "false", nope: true, teamShareBrowser: true }),
+    },
+    () => {
+      assert.deepEqual(buildBootstrapConfig(), { features: { teamShareBrowser: true } });
+    },
+  );
+});
+
+test("updater is never served, even when a deployment sets it", () => {
+  withEnv(
+    {
+      MQTT_BROKER_URL: undefined,
+      WEBSSO_LOGIN_URL: undefined,
+      APP_FEATURES_PROFILE: undefined,
+      APP_FEATURES_JSON: JSON.stringify({ updater: false, apps: true }),
+    },
+    () => {
+      // Remotely disabling the updater would strand the installed fleet with no
+      // way to update out of the mistake. It is build-time only, by design.
+      const cfg: any = buildBootstrapConfig();
+      assert.equal("updater" in cfg.features, false);
+      assert.deepEqual(cfg.features, { apps: true });
+    },
+  );
+});
+
+test("APP_FEATURES_JSON overrides the profile key-by-key, not block-by-block", () => {
+  FEATURE_PROFILES["test-merge"] = {
+    auth: { google: true, phone: true },
+    channels: { discord: true, feishu: true },
+    apps: true,
+  };
+  try {
+    withEnv(
+      {
+        MQTT_BROKER_URL: undefined,
+        WEBSSO_LOGIN_URL: undefined,
+        APP_FEATURES_PROFILE: "test-merge",
+        APP_FEATURES_JSON: JSON.stringify({ auth: { google: false } }),
+      },
+      () => {
+        // Turning off exactly one flag in an emergency must not wipe the rest.
+        assert.deepEqual(buildPublicConfig(), {
+          features: { auth: { google: false, phone: true } },
+        });
+        assert.deepEqual(buildBootstrapConfig(), {
+          features: { channels: { discord: true, feishu: true }, apps: true },
+        });
+      },
+    );
+  } finally {
+    delete FEATURE_PROFILES["test-merge"];
+  }
+});
+
+test("invalid APP_FEATURES_JSON is ignored and leaves the profile intact", () => {
+  FEATURE_PROFILES["test-badjson"] = { apps: true };
+  try {
+    withEnv(
+      {
+        MQTT_BROKER_URL: undefined,
+        WEBSSO_LOGIN_URL: undefined,
+        APP_FEATURES_PROFILE: "test-badjson",
+        APP_FEATURES_JSON: "{not json",
+      },
+      () => {
+        assert.deepEqual(buildBootstrapConfig(), { features: { apps: true } });
+      },
+    );
+  } finally {
+    delete FEATURE_PROFILES["test-badjson"];
+  }
+});
+
+test("GET /v1/config/public serves auth flags without a bearer, and still no mqtt", async () => {
+  await withEnv(
+    {
+      MQTT_BROKER_URL: "mqtts://secret.example.com:8883",
+      WEBSSO_LOGIN_URL: undefined,
+      APP_FEATURES_PROFILE: undefined,
+      APP_FEATURES_JSON: JSON.stringify({ auth: { webSSO: true }, channels: { wecom: false } }),
+    },
+    async () => {
+      const response = await handleBusinessApiRequest(
+        { httpMethod: "GET", path: "/v1/config/public", headers: {} },
+        { createRepository: () => ({}), createAuthRepository: () => ({}) },
+      );
+      assert.equal(response.statusCode, 200);
+      const body = JSON.parse(response.body);
+      assert.deepEqual(body, { features: { auth: { webSSO: true } } });
+    },
+  );
+});
+
+test("every shipped profile survives sanitization intact — no silently dropped key", () => {
+  // A typo in a profile (`teamSharebrowser`, `webSso`) is dropped by the
+  // allowlist and the deployment then serves a flag nobody notices is missing.
+  // Round-tripping each profile through the real resolver catches that here
+  // instead of in production.
+  for (const [name, profile] of Object.entries(FEATURE_PROFILES)) {
+    withEnv({ APP_FEATURES_PROFILE: name, APP_FEATURES_JSON: undefined }, () => {
+      const served = {
+        ...(buildPublicConfig().features ?? {}),
+        ...(buildBootstrapConfig().features ?? {}),
+      };
+      assert.deepEqual(served, profile, `profile ${name} lost keys in transit`);
+    });
+  }
+});
+
+test("no shipped profile tries to control the updater", () => {
+  for (const [name, profile] of Object.entries(FEATURE_PROFILES)) {
+    assert.equal("updater" in profile, false, `profile ${name} must not set updater`);
+  }
 });

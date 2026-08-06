@@ -32,7 +32,8 @@ import { ScrollArea } from '@/components/ui/scroll-area'
 import { Button } from '@/components/ui/button'
 import { useAppVersion } from '@/lib/version'
 import { useUpdaterStore } from '@/stores/updater'
-import { buildConfig, hasAnyChannel } from '@/lib/build-config'
+import { hasAnyChannel } from '@/lib/build-config'
+import { getFeatures, useFeatures } from '@/lib/remote-features'
 import { useUIStore, type SettingsSection } from '@/stores/ui'
 import { SettingsSectionBody } from './section-registry'
 
@@ -87,7 +88,7 @@ function UpdateButton() {
   const checkForUpdates = useUpdaterStore(s => s.checkForUpdates)
   const restart = useUpdaterStore(s => s.restart)
 
-  if (!buildConfig.features.updater || import.meta.env.DEV) {
+  if (!getFeatures().updater || import.meta.env.DEV) {
     return null
   }
 
@@ -139,11 +140,14 @@ export function Settings(_props?: SettingsProps) {
   const settingsInitialSection = useUIStore(s => s.settingsInitialSection)
   const appVersion = useAppVersion()
 
-  // Filter sections based on build config feature flags
+  // Filter sections on the effective feature flags (build config + whatever
+  // the Cloud API delivered). Depends on `features` so a flag landing after
+  // first paint re-filters instead of leaving a stale nav.
+  const features = useFeatures()
   const filteredPrimarySections = primarySections
   const filteredDaemonSections = React.useMemo(() =>
-    daemonSections.filter(s => s.id !== 'channels' || hasAnyChannel(buildConfig.features.channels)),
-    []
+    daemonSections.filter(s => s.id !== 'channels' || hasAnyChannel(features.channels)),
+    [features]
   )
   const filteredLocalAgentSections = React.useMemo(() => localAgentSections, [])
 
