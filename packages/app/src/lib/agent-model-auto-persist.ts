@@ -65,6 +65,7 @@ export function resolveAutoPersistModelId(input: {
   if (
     input.uiState === 'offline' ||
     input.uiState === 'stale' ||
+    input.uiState === 'runtime-error' ||
     input.uiState === 'unconfigured'
   ) {
     return null

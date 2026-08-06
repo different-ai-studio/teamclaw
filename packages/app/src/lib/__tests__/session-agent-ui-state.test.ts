@@ -5,7 +5,42 @@ import {
   resolveAgentPillDot,
   resolveSessionAgentUiState,
   toMentionDeliverySnapshot,
+  type ReachabilityEvidence,
 } from '@/lib/session-agent-ui-state'
+
+function evidence(
+  status: ReachabilityEvidence['status'],
+  startedAt = 10,
+  observedAt = startedAt,
+): ReachabilityEvidence {
+  return {
+    status,
+    startedAt,
+    observedAt,
+    requestId: 1,
+    contextKey: 'team:context:agent',
+  }
+}
+
+const draftBase = {
+  context: { kind: 'draft' as const },
+  isLocalAgent: false,
+  presenceOnline: undefined,
+  runtimeInfo: undefined,
+  availableModelCount: 0,
+  isStaleBinding: false,
+  connectingTimedOut: false,
+}
+
+const sessionBase = {
+  context: { kind: 'session' as const, sessionId: 'session-1' },
+  isLocalAgent: false,
+  presenceOnline: undefined,
+  runtimeInfo: undefined,
+  availableModelCount: 0,
+  isStaleBinding: false,
+  connectingTimedOut: false,
+}
 
 describe('isDriftedLocalGhostBinding', () => {
   it('detects ghost online retain for a superseded local actor', () => {
@@ -38,304 +73,184 @@ describe('isDriftedLocalGhostBinding', () => {
 })
 
 describe('resolveSessionAgentUiState', () => {
-  it('returns stale when binding superseded', () => {
-    expect(
-      resolveSessionAgentUiState({
+  it('lets stale binding win over every other signal', () => {
+    expect(resolveSessionAgentUiState({
+      ...sessionBase,
+      isStaleBinding: true,
+      activeStreamConfirmed: true,
+    })).toBe('stale')
+  })
+
+  it('lets an active stream override delayed offline evidence', () => {
+    expect(resolveSessionAgentUiState({
+      ...sessionBase,
+      presenceOnline: false,
+      reachability: evidence('unreachable'),
+      activeStreamConfirmed: true,
+    })).toBe('ready')
+  })
+
+  it('treats an online remote draft as ready without models', () => {
+    expect(resolveSessionAgentUiState({
+      ...draftBase,
+      presenceOnline: true,
+      presenceObservedAt: 20,
+    })).toBe('ready')
+  })
+
+  it('treats any valid remote RPC response as draft ready', () => {
+    expect(resolveSessionAgentUiState({
+      ...draftBase,
+      reachability: evidence('reachable'),
+    })).toBe('ready')
+  })
+
+  it('reports explicit offline presence immediately', () => {
+    expect(resolveSessionAgentUiState({
+      ...draftBase,
+      presenceOnline: false,
+    })).toBe('offline')
+  })
+
+  it('reports a target timeout with unknown presence as draft offline', () => {
+    expect(resolveSessionAgentUiState({
+      ...draftBase,
+      reachability: evidence('unreachable'),
+    })).toBe('offline')
+  })
+
+  it('does not let a probe started before fresh draft presence override it', () => {
+    expect(resolveSessionAgentUiState({
+      ...draftBase,
+      presenceOnline: true,
+      presenceObservedAt: 20,
+      reachability: evidence('unreachable', 10, 30),
+    })).toBe('ready')
+  })
+
+  it('reports a target timeout started after online presence as runtime-error', () => {
+    expect(resolveSessionAgentUiState({
+      ...draftBase,
+      presenceOnline: true,
+      presenceObservedAt: 10,
+      reachability: evidence('unreachable', 20, 30),
+    })).toBe('runtime-error')
+  })
+
+  it('keeps indeterminate draft evidence connecting until timeout', () => {
+    expect(resolveSessionAgentUiState({
+      ...draftBase,
+      reachability: evidence('indeterminate'),
+    })).toBe('connecting')
+    expect(resolveSessionAgentUiState({
+      ...draftBase,
+      reachability: evidence('indeterminate'),
+      connectingTimedOut: true,
+    })).toBe('offline')
+  })
+
+  it('keeps a cold established session connecting even when the device is online', () => {
+    expect(resolveSessionAgentUiState({
+      ...sessionBase,
+      presenceOnline: true,
+      presenceObservedAt: 20,
+    })).toBe('connecting')
+  })
+
+  it('converges a cold established session timeout to runtime-error', () => {
+    expect(resolveSessionAgentUiState({
+      ...sessionBase,
+      presenceOnline: true,
+      connectingTimedOut: true,
+    })).toBe('runtime-error')
+  })
+
+  it('does not require models for an ACTIVE session attachment', () => {
+    expect(resolveSessionAgentUiState({
+      ...sessionBase,
+      presenceOnline: true,
+      runtimeInfo: { state: RuntimeLifecycle.ACTIVE } as never,
+    })).toBe('ready')
+  })
+
+  it.each([RuntimeLifecycle.FAILED, RuntimeLifecycle.STOPPED])(
+    'maps failed or stopped attachment %s to runtime-error',
+    (state) => {
+      expect(resolveSessionAgentUiState({
+        ...sessionBase,
         presenceOnline: true,
-        runtimeInfo: undefined,
-        availableModelCount: 0,
-        isStaleBinding: true,
-        connectingTimedOut: false,
-      }),
-    ).toBe('stale')
+        runtimeInfo: { state } as never,
+      })).toBe('runtime-error')
+    },
+  )
+
+  it('does not let a probe started before fresh session evidence override it', () => {
+    expect(resolveSessionAgentUiState({
+      ...sessionBase,
+      presenceOnline: true,
+      presenceObservedAt: 20,
+      runtimeInfo: { state: RuntimeLifecycle.STARTING } as never,
+      runtimeObservedAt: 20,
+      reachability: evidence('unreachable', 10, 30),
+    })).toBe('connecting')
   })
 
-  it('returns offline when presence is false', () => {
-    expect(
-      resolveSessionAgentUiState({
-        presenceOnline: false,
-        runtimeInfo: undefined,
-        availableModelCount: 0,
-        isStaleBinding: false,
-        connectingTimedOut: false,
-      }),
-    ).toBe('offline')
+  it('lets a newer remote target timeout surface a session runtime-error', () => {
+    expect(resolveSessionAgentUiState({
+      ...sessionBase,
+      presenceOnline: true,
+      presenceObservedAt: 10,
+      runtimeInfo: { state: RuntimeLifecycle.STARTING } as never,
+      runtimeObservedAt: 10,
+      reachability: evidence('unreachable', 20, 30),
+    })).toBe('runtime-error')
   })
 
-  it('returns ready when online with models and active runtime', () => {
-    expect(
-      resolveSessionAgentUiState({
-        presenceOnline: true,
-        runtimeInfo: { state: RuntimeLifecycle.ACTIVE } as never,
-        availableModelCount: 2,
-        isStaleBinding: false,
-        connectingTimedOut: false,
-      }),
-    ).toBe('ready')
+  it('keeps the local draft fast path and catalog terminal states', () => {
+    const local = {
+      ...draftBase,
+      isLocalAgent: true,
+      reachability: evidence('reachable'),
+    }
+    expect(resolveSessionAgentUiState({
+      ...local,
+      localCatalog: 'ready',
+    })).toBe('ready')
+    expect(resolveSessionAgentUiState({
+      ...local,
+      localCatalog: 'empty',
+    })).toBe('unconfigured')
+    expect(resolveSessionAgentUiState({
+      ...local,
+      localCatalog: 'error',
+    })).toBe('catalog-error')
   })
 
-  it('returns offline when presence is false despite active runtime retain', () => {
-    expect(
-      resolveSessionAgentUiState({
-        presenceOnline: false,
-        runtimeInfo: { state: RuntimeLifecycle.ACTIVE } as never,
-        availableModelCount: 2,
-        isStaleBinding: false,
-        connectingTimedOut: false,
-      }),
-    ).toBe('offline')
+  it('does not apply the local catalog to a remote draft', () => {
+    expect(resolveSessionAgentUiState({
+      ...draftBase,
+      localCatalog: 'ready',
+    })).toBe('connecting')
   })
 
-  it('returns ready when an active stream confirms the agent is replying despite stale offline presence', () => {
-    expect(
-      resolveSessionAgentUiState({
-        presenceOnline: false,
-        runtimeInfo: { state: RuntimeLifecycle.ACTIVE } as never,
-        availableModelCount: 0,
-        isStaleBinding: false,
-        connectingTimedOut: false,
-        activeStreamConfirmed: true,
-      }),
-    ).toBe('ready')
-  })
-
-  it('returns offline when reachability probe fails despite active runtime retain', () => {
-    expect(
-      resolveSessionAgentUiState({
-        presenceOnline: true,
-        runtimeInfo: { state: RuntimeLifecycle.ACTIVE } as never,
-        availableModelCount: 2,
-        isStaleBinding: false,
-        connectingTimedOut: false,
-        reachabilityFailed: true,
-      }),
-    ).toBe('offline')
-  })
-
-  it('returns offline after connecting timeout', () => {
-    expect(
-      resolveSessionAgentUiState({
-        presenceOnline: undefined,
-        runtimeInfo: undefined,
-        availableModelCount: 0,
-        isStaleBinding: false,
-        connectingTimedOut: true,
-      }),
-    ).toBe('offline')
-  })
-
-  it('returns offline when reachability probe fails', () => {
-    expect(
-      resolveSessionAgentUiState({
-        presenceOnline: true,
-        runtimeInfo: undefined,
-        availableModelCount: 0,
-        isStaleBinding: false,
-        connectingTimedOut: false,
-        reachabilityFailed: true,
-      }),
-    ).toBe('offline')
-  })
-
-  it('returns offline when online presence ghost times out without runtime', () => {
-    expect(
-      resolveSessionAgentUiState({
-        presenceOnline: true,
-        runtimeInfo: undefined,
-        availableModelCount: 0,
-        isStaleBinding: false,
-        connectingTimedOut: true,
-      }),
-    ).toBe('offline')
-  })
-
-  describe('local agent fast path', () => {
-    // The whole point: a healthy local daemon answering over loopback must not
-    // sit at 连接中 waiting for an MQTT retain that may be seconds away — or,
-    // on a fresh install, may never come at all.
-
-    it('is ready from the loopback catalog alone, with no retain', () => {
-      expect(
-        resolveSessionAgentUiState({
-          presenceOnline: undefined,
-          runtimeInfo: undefined,
-          availableModelCount: 0,
-          isStaleBinding: false,
-          connectingTimedOut: false,
-          localReachabilityConfirmed: true,
-          localCatalog: 'ready',
-        }),
-      ).toBe('ready')
-    })
-
-    it('is ready on loopback models even while the runtime still reports STARTING', () => {
-      expect(
-        resolveSessionAgentUiState({
-          presenceOnline: true,
-          runtimeInfo: { state: RuntimeLifecycle.STARTING } as never,
-          availableModelCount: 3,
-          isStaleBinding: false,
-          connectingTimedOut: false,
-          localReachabilityConfirmed: true,
-          localCatalog: 'ready',
-        }),
-      ).toBe('ready')
-    })
-
-    it('reports unconfigured — not connecting — when the daemon has no models', () => {
-      // First install: the daemon is up and answering, it simply has no
-      // provider configured. Terminal, so "Connecting…" would be a lie.
-      expect(
-        resolveSessionAgentUiState({
-          presenceOnline: true,
-          runtimeInfo: undefined,
-          availableModelCount: 0,
-          isStaleBinding: false,
-          connectingTimedOut: false,
-          localReachabilityConfirmed: true,
-          localCatalog: 'empty',
-        }),
-      ).toBe('unconfigured')
-    })
-
-    // "Could not ask" and "has nothing" arrive as the same empty list from the
-    // daemon unless probe_error separates them. Reporting a rejected API key as
-    // "No model configured" sends the user hunting for a missing provider.
-    it('separates a failed probe from a genuinely empty catalog', () => {
-      const base = {
-        presenceOnline: true,
-        runtimeInfo: undefined,
-        availableModelCount: 0,
-        isStaleBinding: false,
-        connectingTimedOut: false,
-        localReachabilityConfirmed: true,
-      } as const
-
-      expect(resolveSessionAgentUiState({ ...base, localCatalog: 'empty' })).toBe(
-        'unconfigured',
-      )
-      expect(resolveSessionAgentUiState({ ...base, localCatalog: 'error' })).toBe(
-        'catalog-error',
-      )
-    })
-
-    it('still shows connecting while the loopback probe is in flight', () => {
-      expect(
-        resolveSessionAgentUiState({
-          presenceOnline: true,
-          runtimeInfo: undefined,
-          availableModelCount: 0,
-          isStaleBinding: false,
-          connectingTimedOut: false,
-          localReachabilityConfirmed: true,
-          localCatalog: 'pending',
-        }),
-      ).toBe('connecting')
-    })
-
-    it('lets a stale binding and a failed probe still win over the fast path', () => {
-      expect(
-        resolveSessionAgentUiState({
-          presenceOnline: true,
-          runtimeInfo: undefined,
-          availableModelCount: 0,
-          isStaleBinding: true,
-          connectingTimedOut: false,
-          localReachabilityConfirmed: true,
-          localCatalog: 'ready',
-        }),
-      ).toBe('stale')
-
-      expect(
-        resolveSessionAgentUiState({
-          presenceOnline: true,
-          runtimeInfo: undefined,
-          availableModelCount: 0,
-          isStaleBinding: false,
-          connectingTimedOut: false,
-          reachabilityFailed: true,
-          localReachabilityConfirmed: true,
-          localCatalog: 'ready',
-        }),
-      ).toBe('offline')
-    })
-  })
-
-  describe('remote agents are untouched by the local fast path', () => {
-    // Loopback HTTP reaches this machine only. A remote agent must resolve
-    // purely from presence + retain, exactly as before.
-
-    it('keeps connecting for an online remote agent with no models', () => {
-      expect(
-        resolveSessionAgentUiState({
-          presenceOnline: true,
-          runtimeInfo: { state: RuntimeLifecycle.STARTING } as never,
-          availableModelCount: 0,
-          isStaleBinding: false,
-          connectingTimedOut: false,
-          // No localReachabilityConfirmed — this is someone else's machine.
-        }),
-      ).toBe('connecting')
-    })
-
-    it('never reports unconfigured for a remote agent', () => {
-      // Even if a catalog snapshot leaked in, without loopback confirmation it
-      // must not be allowed to describe another device.
-      expect(
-        resolveSessionAgentUiState({
-          presenceOnline: true,
-          runtimeInfo: undefined,
-          availableModelCount: 0,
-          isStaleBinding: false,
-          connectingTimedOut: false,
-          localCatalog: 'empty',
-        }),
-      ).toBe('connecting')
-    })
-
-    it('does not turn a remote agent ready on this device’s catalog', () => {
-      expect(
-        resolveSessionAgentUiState({
-          presenceOnline: true,
-          runtimeInfo: undefined,
-          availableModelCount: 0,
-          isStaleBinding: false,
-          connectingTimedOut: false,
-          localCatalog: 'ready',
-        }),
-      ).toBe('connecting')
-    })
-
-    it('is ready for an online remote agent at STARTING once models are known', () => {
-      expect(
-        resolveSessionAgentUiState({
-          presenceOnline: true,
-          runtimeInfo: { state: RuntimeLifecycle.STARTING } as never,
-          availableModelCount: 1,
-          isStaleBinding: false,
-          connectingTimedOut: false,
-        }),
-      ).toBe('ready')
-    })
-
-    it('is ready for a streaming remote agent even before lifecycle flips ACTIVE', () => {
-      expect(
-        resolveSessionAgentUiState({
-          presenceOnline: true,
-          runtimeInfo: { state: RuntimeLifecycle.STARTING } as never,
-          availableModelCount: 1,
-          isStaleBinding: false,
-          connectingTimedOut: false,
-          activeStreamConfirmed: true,
-        }),
-      ).toBe('ready')
-    })
+  it('lets local loopback unreachable veto an ACTIVE session retain', () => {
+    expect(resolveSessionAgentUiState({
+      ...sessionBase,
+      isLocalAgent: true,
+      presenceOnline: true,
+      runtimeInfo: { state: RuntimeLifecycle.ACTIVE } as never,
+      reachability: evidence('unreachable'),
+    })).toBe('offline')
   })
 })
 
 describe('toMentionDeliverySnapshot', () => {
   it('does not freeze connecting as offline in message metadata', () => {
     expect(toMentionDeliverySnapshot('connecting')).toBeNull()
+  })
+
+  it('does not freeze runtime startup failures as network offline metadata', () => {
+    expect(toMentionDeliverySnapshot('runtime-error')).toBeNull()
   })
 
   it('still records true offline and stale states', () => {
@@ -449,6 +364,8 @@ describe('resolveAgentPillDot', () => {
     // resolveSessionAgentUiState, so ready-without-retain is unreachable for it
     // and this change cannot alter any remote dot.
     const remoteReady = resolveSessionAgentUiState({
+      context: { kind: 'session', sessionId: 'session-1' },
+      isLocalAgent: false,
       presenceOnline: true,
       runtimeInfo: { state: RuntimeLifecycle.ACTIVE, status: AgentStatus.IDLE } as never,
       availableModelCount: 3,

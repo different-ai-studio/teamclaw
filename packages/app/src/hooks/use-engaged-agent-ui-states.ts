@@ -4,13 +4,14 @@ import { resolveAgentAvailableModels } from '@/lib/agent-available-models'
 import { resolveAgentCatalogModels } from '@/lib/agent-model-fallback'
 import {
   probeAgentReachability,
-  type AgentReachability,
 } from '@/lib/agent-reachability-probe'
 import { mergeAgentDevicePresence } from '@/lib/agent-device-reachability'
 import { resolveRuntimeStateEntryForAgent } from '@/lib/runtime-state-resolve'
 import {
   SESSION_AGENT_CONNECTING_TIMEOUT_MS,
   resolveSessionAgentUiState,
+  type ReachabilityEvidence,
+  type SessionAgentContext,
   type SessionAgentUiState,
 } from '@/lib/session-agent-ui-state'
 import {
@@ -33,9 +34,12 @@ import {
   type LocalDaemonCatalogEntry,
 } from '@/stores/local-daemon-catalog-store'
 import { useWorkspaceStore } from '@/stores/workspace'
+import { useCurrentTeamStore } from '@/stores/current-team'
 import { getLocalDaemonActorId } from '@/lib/daemon-agent-admin'
 import {
   AGENT_REACHABILITY_PROBE_RETRY_MS,
+  AGENT_REACHABILITY_INDETERMINATE_RETRY_MS,
+  AGENT_REACHABILITY_REACHABLE_TTL_MS,
   LOCAL_AGENT_READY_PROBE_INTERVAL_MS,
   LOCAL_CATALOG_POLL_INTERVAL_MS,
 } from '@/lib/session-agent-probe'
@@ -44,8 +48,6 @@ export type EngagedAgentUiEntry = {
   agent: AttachedAgent
   uiState: SessionAgentUiState
 }
-
-const EMPTY_ACTIVE_STREAMING_AGENT_IDS = new Set<string>()
 
 /**
  * Pill UI must not hop to another session's live retain. Without a session
@@ -95,13 +97,14 @@ function resolveProvisionalRuntimeEntry(
   agent: AttachedAgent,
   agentToRuntimeId: Map<string, string>,
   byRuntimeId: Record<string, RuntimeStateEntry>,
+  context: SessionAgentContext,
 ): RuntimeStateEntry | undefined {
   const agentId = agent.id.trim()
   const dbRuntimeId = agentToRuntimeId.get(agent.id)
   const sessionBound = resolveUiSessionRuntimeEntry(agent.id, byRuntimeId, dbRuntimeId)
   if (sessionBound) return sessionBound
 
-  if (dbRuntimeId?.trim()) return undefined
+  if (dbRuntimeId?.trim() || context.kind === 'session') return undefined
   const localId = getKnownLocalDaemonActorId()
   if (localId && agentId === localId) return undefined
 
@@ -112,7 +115,7 @@ function resolveStaleBinding(
   agent: AttachedAgent,
   agentToRuntimeId: Map<string, string>,
   byRuntimeId: Record<string, RuntimeStateEntry>,
-  presenceByActor: Record<string, { online: boolean } | undefined>,
+  presenceByActor: Record<string, { online: boolean; lastUpdated?: number } | undefined>,
 ): boolean {
   const localId = getKnownLocalDaemonActorId()
   const dbRuntimeId = agentToRuntimeId.get(agent.id)
@@ -136,16 +139,18 @@ function computeProvisionalState(
   agent: AttachedAgent,
   agentToRuntimeId: Map<string, string>,
   byRuntimeId: Record<string, RuntimeStateEntry>,
-  presenceByActor: Record<string, { online: boolean } | undefined>,
+  presenceByActor: Record<string, { online: boolean; lastUpdated?: number } | undefined>,
   connectingSinceByAgent: Record<string, number>,
-  reachabilityByAgent: Record<string, AgentReachability>,
+  reachabilityByAgent: Record<string, ReachabilityEvidence>,
   activeStreamingAgentIds: ReadonlySet<string>,
   localCatalog: LocalDaemonCatalogEntry | undefined,
   defaultCatalogByActorId: Record<string, ActorDefaultCatalogEntry>,
+  context: SessionAgentContext,
+  contextKey: string,
   now: number,
 ): SessionAgentUiState {
   const dbRuntimeId = agentToRuntimeId.get(agent.id)
-  const entry = resolveProvisionalRuntimeEntry(agent, agentToRuntimeId, byRuntimeId)
+  const entry = resolveProvisionalRuntimeEntry(agent, agentToRuntimeId, byRuntimeId, context)
   const runtimeInfo = entry?.info
   const localId = getKnownLocalDaemonActorId()
   const isLocalAgent = !!localId && agent.id === localId
@@ -162,15 +167,16 @@ function computeProvisionalState(
   const connectingTimedOut =
     since !== undefined && now - since >= SESSION_AGENT_CONNECTING_TIMEOUT_MS
   const reachability = reachabilityByAgent[agent.id]
-  const reachabilityFailed = reachability === 'unreachable'
+  const currentReachability =
+    reachability?.contextKey === `${contextKey}:${agent.id}` ? reachability : undefined
   const mqttOnline = presenceByActor[agent.id]?.online
   const devicePresence = mergeAgentDevicePresence({
     mqttOnline,
     isLocalDaemon: isLocalAgent,
     localHttpOk:
-      isLocalAgent && reachability === 'reachable'
+      isLocalAgent && currentReachability?.status === 'reachable'
         ? true
-        : isLocalAgent && reachability === 'unreachable'
+        : isLocalAgent && currentReachability?.status === 'unreachable'
           ? false
           : null,
   })
@@ -182,30 +188,57 @@ function computeProvisionalState(
   const localCatalogSnapshot = isLocalAgent ? localCatalog?.status : undefined
 
   return resolveSessionAgentUiState({
+    context,
+    isLocalAgent,
     presenceOnline,
+    presenceObservedAt: presenceByActor[agent.id]?.lastUpdated,
     runtimeInfo,
+    runtimeObservedAt: entry?.lastUpdated,
     availableModelCount,
     isStaleBinding: resolveStaleBinding(agent, agentToRuntimeId, byRuntimeId, presenceByActor),
     connectingTimedOut,
-    reachabilityFailed,
-    localReachabilityConfirmed: isLocalAgent && reachability === 'reachable',
+    reachability: currentReachability,
     activeStreamConfirmed: activeStreamingAgentIds.has(agent.id),
     localCatalog: localCatalogSnapshot,
   })
+}
+
+function latestPositiveEvidenceAt(
+  agent: AttachedAgent,
+  agentToRuntimeId: Map<string, string>,
+  byRuntimeId: Record<string, RuntimeStateEntry>,
+  presenceByActor: Record<string, { online: boolean; lastUpdated?: number } | undefined>,
+  reachabilityByAgent: Record<string, ReachabilityEvidence>,
+  context: SessionAgentContext,
+  contextKey: string,
+): number {
+  const entry = resolveProvisionalRuntimeEntry(agent, agentToRuntimeId, byRuntimeId, context)
+  const presence = presenceByActor[agent.id]
+  const reachability = reachabilityByAgent[agent.id]
+  return Math.max(
+    presence?.online === true ? presence.lastUpdated ?? 0 : 0,
+    entry?.lastUpdated ?? 0,
+    reachability?.contextKey === `${contextKey}:${agent.id}` &&
+      reachability.status === 'reachable'
+      ? reachability.observedAt
+      : 0,
+  )
 }
 
 function shouldProbeAgent(
   agent: AttachedAgent,
   agentToRuntimeId: Map<string, string>,
   byRuntimeId: Record<string, RuntimeStateEntry>,
-  presenceByActor: Record<string, { online: boolean } | undefined>,
+  presenceByActor: Record<string, { online: boolean; lastUpdated?: number } | undefined>,
   connectingSinceByAgent: Record<string, number>,
-  reachabilityByAgent: Record<string, AgentReachability>,
+  reachabilityByAgent: Record<string, ReachabilityEvidence>,
   lastProbeAtByAgent: Record<string, number>,
   localDaemonActorId: string | null,
   activeStreamingAgentIds: ReadonlySet<string>,
   localCatalog: LocalDaemonCatalogEntry | undefined,
   defaultCatalogByActorId: Record<string, ActorDefaultCatalogEntry>,
+  context: SessionAgentContext,
+  contextKey: string,
   now: number,
 ): boolean {
   if (isSupersededLocalAgent(agent.id)) return false
@@ -220,6 +253,8 @@ function shouldProbeAgent(
     activeStreamingAgentIds,
     localCatalog,
     defaultCatalogByActorId,
+    context,
+    contextKey,
     now,
   )
   if (state === 'stale') return false
@@ -228,17 +263,33 @@ function shouldProbeAgent(
   const isLocalAgent = !!localId && agent.id === localId
 
   if (state === 'ready') {
-    if (!isLocalAgent) return false
+    if (!isLocalAgent) {
+      if (presenceByActor[agent.id]?.online === true) return false
+      const evidence = reachabilityByAgent[agent.id]
+      return Boolean(
+        evidence?.contextKey === `${contextKey}:${agent.id}` &&
+        evidence.status === 'reachable' &&
+        now - evidence.observedAt >= AGENT_REACHABILITY_REACHABLE_TTL_MS
+      )
+    }
     const lastProbeAt = lastProbeAtByAgent[agent.id] ?? 0
     return now - lastProbeAt >= LOCAL_AGENT_READY_PROBE_INTERVAL_MS
   }
 
   const reachability = reachabilityByAgent[agent.id]
-  if (reachability === 'pending') return false
-  if (reachability === 'reachable') return false
-  if (reachability === 'unreachable') {
+  if (reachability?.contextKey === `${contextKey}:${agent.id}`) {
+    if (reachability.status === 'pending') return false
     const lastProbeAt = lastProbeAtByAgent[agent.id] ?? 0
-    return now - lastProbeAt >= AGENT_REACHABILITY_PROBE_RETRY_MS
+    if (reachability.status === 'reachable') {
+      if (!isLocalAgent && presenceByActor[agent.id]?.online === true) return false
+      return now - reachability.observedAt >= AGENT_REACHABILITY_REACHABLE_TTL_MS
+    }
+    if (reachability.status === 'unreachable') {
+      return now - lastProbeAt >= AGENT_REACHABILITY_PROBE_RETRY_MS
+    }
+    if (reachability.status === 'indeterminate') {
+      return now - lastProbeAt >= AGENT_REACHABILITY_INDETERMINATE_RETRY_MS
+    }
   }
 
   if (state === 'connecting') return true
@@ -247,13 +298,19 @@ function shouldProbeAgent(
     return now - lastProbeAt >= AGENT_REACHABILITY_PROBE_RETRY_MS
   }
   if (state === 'offline' && presenceByActor[agent.id]?.online === true) return true
+  if (
+    state === 'offline' &&
+    context.kind === 'draft' &&
+    presenceByActor[agent.id]?.online === undefined
+  ) return true
   return false
 }
 
 export function useEngagedAgentUiStates(
   engagedAgents: AttachedAgent[],
   agentToRuntimeId: Map<string, string>,
-  activeStreamingAgentIds: ReadonlySet<string> = EMPTY_ACTIVE_STREAMING_AGENT_IDS,
+  activeStreamingAgentIds: ReadonlySet<string>,
+  context: SessionAgentContext,
 ): EngagedAgentUiEntry[] {
   const byRuntimeId = useRuntimeStateStore((s) => s.byRuntimeId)
   const defaultCatalogByActorId = useRuntimeStateStore((s) => s.defaultCatalogByActorId)
@@ -266,13 +323,29 @@ export function useEngagedAgentUiStates(
     Record<string, number>
   >({})
   const [reachabilityByAgent, setReachabilityByAgent] = React.useState<
-    Record<string, AgentReachability>
+    Record<string, ReachabilityEvidence>
   >({})
+  const requestIdRef = React.useRef(0)
+  const teamId = useCurrentTeamStore((s) => s.team?.id)?.trim() || ''
+  const contextKey = `${teamId}:${context.kind}:${context.kind === 'session' ? context.sessionId : 'draft'}`
+  const stableContext = React.useMemo<SessionAgentContext>(
+    () => context.kind === 'session'
+      ? { kind: 'session', sessionId: context.sessionId }
+      : { kind: 'draft' },
+    [contextKey],
+  )
   const lastProbeAtByAgentRef = React.useRef<Record<string, number>>({})
   const engagedAgentsRef = React.useRef(engagedAgents)
   engagedAgentsRef.current = engagedAgents
   const [, tick] = React.useReducer((x: number) => x + 1, 0)
   const [, probeScheduleTick] = React.useReducer((x: number) => x + 1, 0)
+
+  React.useEffect(() => {
+    setConnectingSinceByAgent({})
+    setReachabilityByAgent({})
+    lastProbeAtByAgentRef.current = {}
+    requestIdRef.current += 1
+  }, [contextKey])
 
   React.useEffect(() => {
     let cancelled = false
@@ -319,7 +392,7 @@ export function useEngagedAgentUiStates(
   React.useEffect(() => {
     const interval = setInterval(
       () => probeScheduleTick(),
-      LOCAL_AGENT_READY_PROBE_INTERVAL_MS,
+      AGENT_REACHABILITY_INDETERMINATE_RETRY_MS,
     )
     return () => clearInterval(interval)
   }, [])
@@ -372,11 +445,33 @@ export function useEngagedAgentUiStates(
           activeStreamingAgentIds,
           localCatalog,
           defaultCatalogByActorId,
+          stableContext,
+          contextKey,
           now,
         )
-        if (provisional === 'connecting') {
-          next[agent.id] = prev[agent.id] ?? now
+        const previousSince = prev[agent.id]
+        if (
+          previousSince !== undefined &&
+          (provisional === 'connecting' ||
+            provisional === 'offline' ||
+            provisional === 'runtime-error')
+        ) {
+          const positiveAt = latestPositiveEvidenceAt(
+            agent,
+            agentToRuntimeId,
+            byRuntimeId,
+            presenceByActor,
+            reachabilityByAgent,
+            stableContext,
+            contextKey,
+          )
+          next[agent.id] = positiveAt > previousSince + SESSION_AGENT_CONNECTING_TIMEOUT_MS
+            ? now
+            : previousSince
           if (prev[agent.id] !== next[agent.id]) changed = true
+        } else if (provisional === 'connecting') {
+          next[agent.id] = now
+          changed = true
         }
       }
 
@@ -398,10 +493,10 @@ export function useEngagedAgentUiStates(
     })
 
     setReachabilityByAgent((prev) => {
-      const next: Record<string, AgentReachability> = {}
+      const next: Record<string, ReachabilityEvidence> = {}
       let changed = false
       for (const agent of engagedAgents) {
-        if (prev[agent.id]) {
+        if (prev[agent.id]?.contextKey === `${contextKey}:${agent.id}`) {
           next[agent.id] = prev[agent.id]
         }
       }
@@ -433,6 +528,8 @@ export function useEngagedAgentUiStates(
     activeStreamingAgentIds,
     localCatalog,
     defaultCatalogByActorId,
+    stableContext,
+    contextKey,
   ])
 
   React.useEffect(() => {
@@ -453,6 +550,8 @@ export function useEngagedAgentUiStates(
           activeStreamingAgentIds,
           localCatalog,
           defaultCatalogByActorId,
+          stableContext,
+          contextKey,
           now,
         )
       ) {
@@ -460,9 +559,21 @@ export function useEngagedAgentUiStates(
       }
 
       const agentId = agent.id
+      const requestId = ++requestIdRef.current
+      const startedAt = now
+      const evidenceContextKey = `${contextKey}:${agentId}`
       setReachabilityByAgent((prev) => {
-        if (prev[agentId] === 'pending') return prev
-        return { ...prev, [agentId]: 'pending' }
+        if (prev[agentId]?.status === 'pending' && prev[agentId]?.contextKey === evidenceContextKey) return prev
+        return {
+          ...prev,
+          [agentId]: {
+            status: 'pending',
+            startedAt,
+            observedAt: startedAt,
+            requestId,
+            contextKey: evidenceContextKey,
+          },
+        }
       })
       lastProbeAtByAgentRef.current[agentId] = now
 
@@ -471,10 +582,20 @@ export function useEngagedAgentUiStates(
         localDaemonActorId,
       }).then((result) => {
         if (!engagedAgentsRef.current.some((row) => row.id === agentId)) return
-        setReachabilityByAgent((prev) => ({
-          ...prev,
-          [agentId]: result,
-        }))
+        setReachabilityByAgent((prev) => {
+          const current = prev[agentId]
+          if (current?.requestId !== requestId || current.contextKey !== evidenceContextKey) {
+            return prev
+          }
+          return {
+            ...prev,
+            [agentId]: {
+              ...current,
+              status: result,
+              observedAt: Date.now(),
+            },
+          }
+        })
       })
     }
   }, [
@@ -491,6 +612,8 @@ export function useEngagedAgentUiStates(
     activeStreamingAgentIds,
     localCatalog,
     defaultCatalogByActorId,
+    stableContext,
+    contextKey,
   ])
 
   return React.useMemo(() => {
@@ -507,6 +630,8 @@ export function useEngagedAgentUiStates(
         activeStreamingAgentIds,
         localCatalog,
         defaultCatalogByActorId,
+        stableContext,
+        contextKey,
         now,
       ),
     }))
@@ -523,6 +648,8 @@ export function useEngagedAgentUiStates(
     activeStreamingAgentIds,
     localCatalog,
     defaultCatalogByActorId,
+    stableContext,
+    contextKey,
     tick,
   ])
 }

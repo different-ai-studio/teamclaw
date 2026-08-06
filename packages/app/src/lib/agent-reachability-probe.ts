@@ -1,7 +1,7 @@
-import { fetchWorkspaces, waitForTeamclawRpcReady } from '@/lib/teamclaw-rpc'
+import { probeAgentRpcReachability } from '@/lib/teamclaw-rpc'
 import { probeDaemonHttp } from '@/lib/daemon-local-client'
 
-export type AgentReachability = 'pending' | 'reachable' | 'unreachable'
+export type AgentReachability = 'pending' | 'reachable' | 'unreachable' | 'indeterminate'
 
 export const SESSION_AGENT_RPC_PROBE_TIMEOUT_MS = 3_000
 
@@ -20,13 +20,5 @@ export async function probeAgentReachability(args: {
     return probe.ok ? 'reachable' : 'unreachable'
   }
 
-  const rpcReady = await waitForTeamclawRpcReady(Math.min(rpcTimeoutMs, 5_000))
-  if (!rpcReady) return 'unreachable'
-
-  try {
-    await fetchWorkspaces({ targetActorId: agentId, timeoutMs: rpcTimeoutMs })
-    return 'reachable'
-  } catch {
-    return 'unreachable'
-  }
+  return probeAgentRpcReachability({ targetActorId: agentId, timeoutMs: rpcTimeoutMs })
 }

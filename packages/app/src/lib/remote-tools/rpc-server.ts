@@ -7,6 +7,7 @@ import {
   type RpcResponse,
 } from '@/lib/proto/teamclaw_pb'
 import { listenForEnvelopes, mqttPublish, mqttSubscribe, type IncomingEnvelope } from '@/lib/mqtt-bridge'
+import { createSharedModuleLeaseManager, type SharedModuleLease } from '@/lib/shared-module-lease'
 
 import { getExecutor } from './registry'
 import { REMOTE_TOOL_ERROR } from './types'
@@ -24,31 +25,40 @@ const state: RpcServerState = {
   unlisten: null,
 }
 
-export async function initRemoteToolsRpcServer(args: {
+type RpcServerContext = {
   teamId: string
   actorId: string
-}): Promise<void> {
+}
+
+const rpcServerLeaseManager = createSharedModuleLeaseManager<RpcServerContext>({
+  key: (context) => `${context.teamId}:${context.actorId}`,
+  setup: async (context, controls) => {
+    state.teamId = context.teamId
+    state.actorId = context.actorId
+    const topic = `amux/${context.teamId}/${context.actorId}/rpc/req`
+    const unlisten = await listenForEnvelopes(handleEnvelope)
+    controls.setCleanup(unlisten)
+    if (!controls.isCurrent()) return
+    await mqttSubscribe(topic)
+    if (controls.isCurrent()) state.unlisten = unlisten
+  },
+  onDeactivate: () => {
+    state.unlisten = null
+    state.teamId = ''
+    state.actorId = ''
+  },
+})
+
+export function acquireRemoteToolsRpcServer(
+  args: RpcServerContext,
+  ownerId: string,
+): SharedModuleLease {
   const teamId = args.teamId.trim()
   const actorId = args.actorId.trim()
   if (!teamId || !actorId) {
     throw new Error('remote-tools-rpc: teamId and actorId required')
   }
-  if (state.unlisten && state.teamId === teamId && state.actorId === actorId) {
-    return
-  }
-  disposeRemoteToolsRpcServer()
-  state.teamId = teamId
-  state.actorId = actorId
-  const topic = `amux/${teamId}/${actorId}/rpc/req`
-  await mqttSubscribe(topic)
-  state.unlisten = await listenForEnvelopes(handleEnvelope)
-}
-
-export function disposeRemoteToolsRpcServer(): void {
-  state.unlisten?.()
-  state.unlisten = null
-  state.teamId = ''
-  state.actorId = ''
+  return rpcServerLeaseManager.acquire({ teamId, actorId }, ownerId)
 }
 
 function handleEnvelope(env: IncomingEnvelope): void {
@@ -76,6 +86,7 @@ function handleEnvelope(env: IncomingEnvelope): void {
     const exec = getExecutor(toolName)
     if (!exec) {
       await publishRpcResponse(
+        teamId,
         request,
         buildRemoteToolResponse(
           request,
@@ -97,6 +108,7 @@ function handleEnvelope(env: IncomingEnvelope): void {
       authorized = await authorizeRemoteToolRequest(teamId, request, invoke)
     } catch {
       await publishRpcResponse(
+        teamId,
         request,
         buildRemoteToolResponse(
           request,
@@ -111,6 +123,7 @@ function handleEnvelope(env: IncomingEnvelope): void {
 
     if (!authorized) {
       await publishRpcResponse(
+        teamId,
         request,
         buildRemoteToolResponse(
           request,
@@ -125,7 +138,7 @@ function handleEnvelope(env: IncomingEnvelope): void {
 
     const response = await dispatchRemoteToolInvoke(request, toolName, invoke.argumentsJson, exec)
     if (!response) return
-    await publishRpcResponse(request, response)
+    await publishRpcResponse(teamId, request, response)
   })()
 }
 
@@ -182,10 +195,14 @@ function buildRemoteToolResponse(
   })
 }
 
-async function publishRpcResponse(request: RpcRequest, response: RpcResponse): Promise<void> {
+async function publishRpcResponse(
+  requestTeamId: string,
+  request: RpcRequest,
+  response: RpcResponse,
+): Promise<void> {
   const requester = request.requesterActorId.trim()
-  if (!requester || !state.teamId) return
-  const topic = `amux/${state.teamId}/${requester}/rpc/res`
+  if (!requester || !requestTeamId) return
+  const topic = `amux/${requestTeamId}/${requester}/rpc/res`
   const bytes = toBinary(RpcResponseSchema, response)
   await mqttPublish(topic, bytes, false)
 }

@@ -71,19 +71,102 @@ import {
 } from '@/lib/proto/teamclaw_pb'
 
 import { clearExecutorsForTests, registerExecutor } from './registry'
-import { disposeRemoteToolsRpcServer, initRemoteToolsRpcServer } from './rpc-server'
+import { acquireRemoteToolsRpcServer } from './rpc-server'
 import { TOOL_GET_PAGE_DOM } from './types'
+
+const testLeases: Array<{ release(): void }> = []
+
+async function acquireRemoteToolsRpcServerForTest(args: { teamId: string; actorId: string }) {
+  const lease = acquireRemoteToolsRpcServer(args, `test-remote-tools-${testLeases.length}`)
+  testLeases.push(lease)
+  await lease.ready
+}
 
 describe('remote-tools rpc-server', () => {
   beforeEach(() => {
     vi.clearAllMocks()
-    disposeRemoteToolsRpcServer()
+    for (let index = testLeases.length - 1; index >= 0; index -= 1) {
+      testLeases[index].release()
+    }
+    testLeases.length = 0
     clearExecutorsForTests()
   })
 
   it('subscribes to actor rpc/req on init', async () => {
-    await initRemoteToolsRpcServer({ teamId: 'team-1', actorId: 'actor-1' })
+    await acquireRemoteToolsRpcServerForTest({ teamId: 'team-1', actorId: 'actor-1' })
     expect(mockSubscribe).toHaveBeenCalledWith('amux/team-1/actor-1/rpc/req')
+  })
+
+  it('keeps the shared listener until the final same-context owner releases', async () => {
+    const cleanup = vi.fn()
+    mockListen.mockResolvedValue(cleanup)
+    const a = acquireRemoteToolsRpcServer(
+      { teamId: 'team-1', actorId: 'actor-1' },
+      'owner-a',
+    )
+    const b = acquireRemoteToolsRpcServer(
+      { teamId: 'team-1', actorId: 'actor-1' },
+      'owner-b',
+    )
+    await Promise.all([a.ready, b.ready])
+
+    expect(mockSubscribe).toHaveBeenCalledTimes(1)
+    expect(mockListen).toHaveBeenCalledTimes(1)
+    a.release()
+    expect(cleanup).not.toHaveBeenCalled()
+    b.release()
+    expect(cleanup).toHaveBeenCalledTimes(1)
+  })
+
+  it('publishes a slow request response to the team captured when the request arrived', async () => {
+    const handlers: Array<(env: { topic: string; bytes: ArrayBuffer }) => void> = []
+    mockListen.mockImplementation(async (handler) => {
+      handlers.push(handler)
+      return () => undefined
+    })
+    let finishExecutor!: () => void
+    const executorGate = new Promise<void>((resolve) => { finishExecutor = resolve })
+    const executorStarted = vi.fn()
+    registerExecutor(TOOL_GET_PAGE_DOM, async () => {
+      executorStarted()
+      await executorGate
+      return { ok: true }
+    })
+
+    const teamA = acquireRemoteToolsRpcServer(
+      { teamId: 'team-1', actorId: 'actor-1' },
+      'owner-a',
+    )
+    await teamA.ready
+    const request = create(RpcRequestSchema, {
+      requestId: 'req-slow',
+      requesterActorId: 'daemon-1',
+      method: {
+        case: 'remoteToolInvoke',
+        value: create(RemoteToolInvokeRequestSchema, {
+          sessionId: 'sess-1',
+          toolName: TOOL_GET_PAGE_DOM,
+          argumentsJson: '{}',
+        }),
+      },
+    })
+    handlers[0]?.({
+      topic: 'amux/team-1/actor-1/rpc/req',
+      bytes: toBinary(RpcRequestSchema, request).buffer,
+    })
+    await vi.waitFor(() => expect(executorStarted).toHaveBeenCalledTimes(1))
+
+    const teamB = acquireRemoteToolsRpcServer(
+      { teamId: 'team-2', actorId: 'actor-1' },
+      'owner-b',
+    )
+    await teamB.ready
+    finishExecutor()
+
+    await vi.waitFor(() => expect(mockPublish).toHaveBeenCalled())
+    expect(mockPublish.mock.calls[0]?.[0]).toBe('amux/team-1/daemon-1/rpc/res')
+    teamA.release()
+    teamB.release()
   })
 
   it('replies unsupported_platform when executor missing', async () => {
@@ -93,7 +176,7 @@ describe('remote-tools rpc-server', () => {
       return () => undefined
     })
 
-    await initRemoteToolsRpcServer({ teamId: 'team-1', actorId: 'actor-1' })
+    await acquireRemoteToolsRpcServerForTest({ teamId: 'team-1', actorId: 'actor-1' })
 
     const request = create(RpcRequestSchema, {
       requestId: 'req-1',
@@ -127,7 +210,7 @@ describe('remote-tools rpc-server', () => {
       return () => undefined
     })
 
-    await initRemoteToolsRpcServer({ teamId: 'team-1', actorId: 'actor-1' })
+    await acquireRemoteToolsRpcServerForTest({ teamId: 'team-1', actorId: 'actor-1' })
 
     const request = create(RpcRequestSchema, {
       requestId: 'req-forbidden',
@@ -162,7 +245,7 @@ describe('remote-tools rpc-server', () => {
       return () => undefined
     })
 
-    await initRemoteToolsRpcServer({ teamId: 'team-1', actorId: 'actor-1' })
+    await acquireRemoteToolsRpcServerForTest({ teamId: 'team-1', actorId: 'actor-1' })
 
     const request = create(RpcRequestSchema, {
       requestId: 'req-auth-error',
@@ -196,7 +279,7 @@ describe('remote-tools rpc-server', () => {
       return () => undefined
     })
 
-    await initRemoteToolsRpcServer({ teamId: 'team-1', actorId: 'actor-1' })
+    await acquireRemoteToolsRpcServerForTest({ teamId: 'team-1', actorId: 'actor-1' })
 
     const request = create(RpcRequestSchema, {
       requestId: 'req-2',
@@ -230,7 +313,7 @@ describe('remote-tools rpc-server', () => {
       return () => undefined
     })
 
-    await initRemoteToolsRpcServer({ teamId: 'team-1', actorId: 'actor-1' })
+    await acquireRemoteToolsRpcServerForTest({ teamId: 'team-1', actorId: 'actor-1' })
 
     const request = create(RpcRequestSchema, {
       requestId: 'req-3',

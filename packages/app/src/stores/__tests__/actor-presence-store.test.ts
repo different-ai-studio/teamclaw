@@ -4,6 +4,14 @@ import { ActorPresenceSchema } from '@/lib/proto/amux_pb'
 
 const mockSubscribe = vi.fn().mockResolvedValue(undefined)
 let envelopeHandler: ((env: { topic: string; bytes: number[] }) => void) | null = null
+const presenceLeases: Array<{ release(): void }> = []
+
+async function acquireActorPresenceStoreForTest(teamId: string): Promise<void> {
+  const { acquireActorPresenceStore } = await import('../actor-presence-store')
+  const lease = acquireActorPresenceStore(teamId, `test-presence-${presenceLeases.length}`)
+  presenceLeases.push(lease)
+  await lease.ready
+}
 const mockListen = vi.fn().mockImplementation(async (handler: (env: { topic: string; bytes: number[] }) => void) => {
   envelopeHandler = handler
   return () => { envelopeHandler = null }
@@ -26,15 +34,16 @@ beforeEach(() => {
   envelopeHandler = null
 })
 
-afterEach(async () => {
-  const mod = await import('../actor-presence-store')
-  mod.disposeActorPresenceStore()
+afterEach(() => {
+  for (let index = presenceLeases.length - 1; index >= 0; index -= 1) {
+    presenceLeases[index].release()
+  }
+  presenceLeases.length = 0
 })
 
 describe('actor-presence-store', () => {
   it('subscribes to the state wildcard for the team', async () => {
-    const { initActorPresenceStore } = await import('../actor-presence-store')
-    await initActorPresenceStore('team-1')
+    await acquireActorPresenceStoreForTest('team-1')
     expect(mockSubscribe).toHaveBeenCalledWith('amux/team-1/+/state')
   })
 
@@ -60,16 +69,16 @@ describe('actor-presence-store', () => {
       })
     })
 
-    const { initActorPresenceStore, useActorPresenceStore } = await import('../actor-presence-store')
-    await initActorPresenceStore('team-1')
+    const { useActorPresenceStore } = await import('../actor-presence-store')
+    await acquireActorPresenceStoreForTest('team-1')
 
     expect(callOrder).toEqual(['listen', 'subscribe'])
     expect(useActorPresenceStore.getState().byActorId['actor-mac']?.online).toBe(true)
   })
 
   it('decodes ActorPresence retains and upserts presence by actorId', async () => {
-    const { initActorPresenceStore, useActorPresenceStore } = await import('../actor-presence-store')
-    await initActorPresenceStore('team-1')
+    const { useActorPresenceStore } = await import('../actor-presence-store')
+    await acquireActorPresenceStoreForTest('team-1')
 
     const onlineState = create(ActorPresenceSchema, {
       online: true,
@@ -88,8 +97,8 @@ describe('actor-presence-store', () => {
   })
 
   it('reflects LWT offline transition', async () => {
-    const { initActorPresenceStore, useActorPresenceStore } = await import('../actor-presence-store')
-    await initActorPresenceStore('team-1')
+    const { useActorPresenceStore } = await import('../actor-presence-store')
+    await acquireActorPresenceStoreForTest('team-1')
 
     const online = create(ActorPresenceSchema, { online: true, displayName: 'Macmini', timestamp: 1n })
     envelopeHandler!({
@@ -108,8 +117,8 @@ describe('actor-presence-store', () => {
   })
 
   it('ignores envelopes for other teams and malformed topics', async () => {
-    const { initActorPresenceStore, useActorPresenceStore } = await import('../actor-presence-store')
-    await initActorPresenceStore('team-1')
+    const { useActorPresenceStore } = await import('../actor-presence-store')
+    await acquireActorPresenceStoreForTest('team-1')
 
     const state = create(ActorPresenceSchema, { online: true })
     envelopeHandler!({
@@ -119,5 +128,25 @@ describe('actor-presence-store', () => {
     envelopeHandler!({ topic: 'amux/team-1/session/x/live', bytes: [1, 2, 3] })
 
     expect(Object.keys(useActorPresenceStore.getState().byActorId)).toHaveLength(0)
+  })
+
+  it('shares one subscription across same-team owners until the final release', async () => {
+    const { acquireActorPresenceStore, useActorPresenceStore } = await import('../actor-presence-store')
+    const a = acquireActorPresenceStore('team-1', 'owner-a')
+    const b = acquireActorPresenceStore('team-1', 'owner-b')
+    await Promise.all([a.ready, b.ready])
+    expect(mockSubscribe).toHaveBeenCalledTimes(1)
+    expect(mockListen).toHaveBeenCalledTimes(1)
+
+    a.release()
+    const online = create(ActorPresenceSchema, { online: true, displayName: 'Still live' })
+    envelopeHandler!({
+      topic: 'amux/team-1/actor-mac/state',
+      bytes: Array.from(toBinary(ActorPresenceSchema, online)),
+    })
+    expect(useActorPresenceStore.getState().byActorId['actor-mac']?.online).toBe(true)
+
+    b.release()
+    expect(useActorPresenceStore.getState().byActorId).toEqual({})
   })
 })

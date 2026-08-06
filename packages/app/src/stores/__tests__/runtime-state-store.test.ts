@@ -12,6 +12,14 @@ import {
 
 const mockSubscribe = vi.fn().mockResolvedValue(undefined)
 let envelopeHandler: ((env: { topic: string; bytes: number[] }) => void) | null = null
+const runtimeLeases: Array<{ release(): void }> = []
+
+async function acquireRuntimeStateStoreForTest(teamId: string): Promise<void> {
+  const { acquireRuntimeStateStore } = await import('../runtime-state-store')
+  const lease = acquireRuntimeStateStore(teamId, `test-runtime-${runtimeLeases.length}`)
+  runtimeLeases.push(lease)
+  await lease.ready
+}
 const mockListen = vi.fn().mockImplementation(async (handler: (env: { topic: string; bytes: number[] }) => void) => {
   envelopeHandler = handler
   return () => { envelopeHandler = null }
@@ -38,15 +46,16 @@ function flushRuntimeStateBatch(): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, 0))
 }
 
-afterEach(async () => {
-  const mod = await import('../runtime-state-store')
-  mod.disposeRuntimeStateStore()
+afterEach(() => {
+  for (let index = runtimeLeases.length - 1; index >= 0; index -= 1) {
+    runtimeLeases[index].release()
+  }
+  runtimeLeases.length = 0
 })
 
 describe('runtime-state-store', () => {
   it('subscribes only to the actor state wildcard for the team', async () => {
-    const { initRuntimeStateStore } = await import('../runtime-state-store')
-    await initRuntimeStateStore('team-1')
+    await acquireRuntimeStateStoreForTest('team-1')
     expect(mockSubscribe).toHaveBeenCalledTimes(1)
     expect(mockSubscribe).toHaveBeenCalledWith('amux/team-1/+/state')
   })
@@ -78,8 +87,8 @@ describe('runtime-state-store', () => {
       })
     })
 
-    const { initRuntimeStateStore, useRuntimeStateStore } = await import('../runtime-state-store')
-    await initRuntimeStateStore('team-1')
+    const { useRuntimeStateStore } = await import('../runtime-state-store')
+    await acquireRuntimeStateStoreForTest('team-1')
     await flushRuntimeStateBatch()
 
     expect(callOrder).toEqual(['listen', 'subscribe'])
@@ -87,8 +96,8 @@ describe('runtime-state-store', () => {
   })
 
   it('decodes ActorPresence retained messages and upserts composite keys', async () => {
-    const { initRuntimeStateStore, useRuntimeStateStore } = await import('../runtime-state-store')
-    await initRuntimeStateStore('team-1')
+    const { useRuntimeStateStore } = await import('../runtime-state-store')
+    await acquireRuntimeStateStoreForTest('team-1')
 
     const presence = create(ActorPresenceSchema, {
       online: true,
@@ -124,8 +133,8 @@ describe('runtime-state-store', () => {
   })
 
   it('stores default workspace catalog from ActorPresence', async () => {
-    const { initRuntimeStateStore, useRuntimeStateStore } = await import('../runtime-state-store')
-    await initRuntimeStateStore('team-1')
+    const { useRuntimeStateStore } = await import('../runtime-state-store')
+    await acquireRuntimeStateStoreForTest('team-1')
 
     const presence = create(ActorPresenceSchema, {
       online: true,
@@ -146,8 +155,8 @@ describe('runtime-state-store', () => {
   })
 
   it('ignores legacy per-runtime topics', async () => {
-    const { initRuntimeStateStore, useRuntimeStateStore } = await import('../runtime-state-store')
-    await initRuntimeStateStore('team-1')
+    const { useRuntimeStateStore } = await import('../runtime-state-store')
+    await acquireRuntimeStateStoreForTest('team-1')
 
     const info = create(RuntimeInfoSchema, {
       runtimeId: 'rt-1',
@@ -165,8 +174,8 @@ describe('runtime-state-store', () => {
   })
 
   it('ignores envelopes with malformed topics', async () => {
-    const { initRuntimeStateStore, useRuntimeStateStore } = await import('../runtime-state-store')
-    await initRuntimeStateStore('team-1')
+    const { useRuntimeStateStore } = await import('../runtime-state-store')
+    await acquireRuntimeStateStoreForTest('team-1')
 
     envelopeHandler!({ topic: 'amux/team-1/session/x/live', bytes: [1, 2, 3] })
     envelopeHandler!({ topic: 'unrelated', bytes: [1] })
@@ -176,8 +185,8 @@ describe('runtime-state-store', () => {
   })
 
   it('ignores envelopes for other teams', async () => {
-    const { initRuntimeStateStore, useRuntimeStateStore } = await import('../runtime-state-store')
-    await initRuntimeStateStore('team-1')
+    const { useRuntimeStateStore } = await import('../runtime-state-store')
+    await acquireRuntimeStateStoreForTest('team-1')
 
     const presence = create(ActorPresenceSchema, {
       liveSessions: [create(LiveSessionSchema, { sessionId: 'session-other', worktree: '/tmp/x' })],
@@ -192,8 +201,8 @@ describe('runtime-state-store', () => {
   })
 
   it('batches actor state bursts into one store notification', async () => {
-    const { initRuntimeStateStore, useRuntimeStateStore } = await import('../runtime-state-store')
-    await initRuntimeStateStore('team-1')
+    const { useRuntimeStateStore } = await import('../runtime-state-store')
+    await acquireRuntimeStateStoreForTest('team-1')
 
     let notifications = 0
     const unsubscribe = useRuntimeStateStore.subscribe(() => {
@@ -270,8 +279,8 @@ describe('runtime-state-store', () => {
   })
 
   it('prunes detached sessions when live_sessions shrinks', async () => {
-    const { initRuntimeStateStore, useRuntimeStateStore } = await import('../runtime-state-store')
-    await initRuntimeStateStore('team-1')
+    const { useRuntimeStateStore } = await import('../runtime-state-store')
+    await acquireRuntimeStateStoreForTest('team-1')
 
     envelopeHandler!({
       topic: 'amux/team-1/dev-a/state',
@@ -313,8 +322,8 @@ describe('runtime-state-store', () => {
   })
 
   it('clears all actor attachments when live_sessions is empty', async () => {
-    const { initRuntimeStateStore, useRuntimeStateStore } = await import('../runtime-state-store')
-    await initRuntimeStateStore('team-1')
+    const { useRuntimeStateStore } = await import('../runtime-state-store')
+    await acquireRuntimeStateStoreForTest('team-1')
 
     envelopeHandler!({
       topic: 'amux/team-1/dev-a/state',

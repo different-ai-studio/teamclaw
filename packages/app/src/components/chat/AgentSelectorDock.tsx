@@ -201,11 +201,10 @@ function AgentPill({
 
   const statusSuffix = pillSuffixForUiState(effectiveUiState, t)
   const hideModelOnPill = isSoloBuild()
-  const showModelPicker = effectiveUiState === 'ready' || effectiveUiState === 'connecting'
   // `unconfigured` is a settled answer ("nothing to run"), so it must not read
   // as loading — that is the spinner-forever bug this state exists to end.
   const runtimeInfoLoading =
-    showModelPicker &&
+    effectiveUiState === 'connecting' &&
     availableModels.length === 0 &&
     localCatalog?.status !== 'empty' &&
     (!liveRuntimeInfo || liveRuntimeInfo.state === RuntimeLifecycle.STARTING)
@@ -491,6 +490,10 @@ function AgentPill({
                 {effectiveUiState === 'stale'
                   ? t('chat.sessionAgent.dropdownStale')
                   : t('chat.sessionAgent.dropdownOffline')}
+              </div>
+            ) : effectiveUiState === 'runtime-error' ? (
+              <div className="px-2 py-3 text-xs text-muted-foreground">
+                {t('chat.sessionAgent.dropdownRuntimeError', 'Agent failed to start — retry the connection')}
               </div>
             ) : effectiveUiState === 'unconfigured' ? (
               // Point at the fix rather than the generic "no models advertised",

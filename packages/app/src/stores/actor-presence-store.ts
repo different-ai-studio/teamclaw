@@ -2,6 +2,7 @@ import { create as createZustand } from 'zustand'
 import { fromBinary } from '@bufbuild/protobuf'
 import { ActorPresenceSchema } from '@/lib/proto/amux_pb'
 import { mqttSubscribe, listenForEnvelopes, type IncomingEnvelope } from '@/lib/mqtt-bridge'
+import { createSharedModuleLeaseManager, type SharedModuleLease } from '@/lib/shared-module-lease'
 
 // Per-actor presence. Fed by retained `amux/{team}/{actor}/state` publishes —
 // including the LWT the daemon registers at connect-time, which the broker
@@ -48,36 +49,31 @@ export function parseActorStateTopic(
   return { teamId: parts[1], actorId: parts[2] }
 }
 
-let unlisten: (() => void) | null = null
-let initialized = false
+const presenceLeaseManager = createSharedModuleLeaseManager<string>({
+  key: (teamId) => teamId.trim(),
+  setup: async (teamId, controls) => {
+    const actorTopic = `amux/${teamId}/+/state`
+    const unlisten = await listenForEnvelopes((env: IncomingEnvelope) => {
+      const parsed = parseActorStateTopic(env.topic)
+      if (!parsed || parsed.teamId !== teamId) return
+      try {
+        const state = fromBinary(ActorPresenceSchema, new Uint8Array(env.bytes))
+        useActorPresenceStore.getState().upsert(parsed.actorId, {
+          online: state.online,
+          displayName: state.displayName,
+          lastUpdated: Date.now(),
+        })
+      } catch (e) {
+        console.warn('[actor-presence] failed to decode ActorPresence', e)
+      }
+    })
+    controls.setCleanup(unlisten)
+    if (!controls.isCurrent()) return
+    await mqttSubscribe(actorTopic)
+  },
+  onDeactivate: () => useActorPresenceStore.getState().clear(),
+})
 
-export async function initActorPresenceStore(teamId: string): Promise<void> {
-  if (initialized) return
-  const actorTopic = `amux/${teamId}/+/state`
-  // Same ordering as runtime-state-store: listen before subscribe so boot retain
-  // is not delivered before this handler is attached.
-  unlisten = await listenForEnvelopes((env: IncomingEnvelope) => {
-    const parsed = parseActorStateTopic(env.topic)
-    if (!parsed) return
-    if (parsed.teamId !== teamId) return
-    try {
-      const state = fromBinary(ActorPresenceSchema, new Uint8Array(env.bytes))
-      useActorPresenceStore.getState().upsert(parsed.actorId, {
-        online: state.online,
-        displayName: state.displayName,
-        lastUpdated: Date.now(),
-      })
-    } catch (e) {
-      console.warn('[actor-presence] failed to decode ActorPresence', e)
-    }
-  })
-  await mqttSubscribe(actorTopic)
-  initialized = true
-}
-
-export function disposeActorPresenceStore(): void {
-  unlisten?.()
-  unlisten = null
-  useActorPresenceStore.getState().clear()
-  initialized = false
+export function acquireActorPresenceStore(teamId: string, ownerId: string): SharedModuleLease {
+  return presenceLeaseManager.acquire(teamId.trim(), ownerId)
 }

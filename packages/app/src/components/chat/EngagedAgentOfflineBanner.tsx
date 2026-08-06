@@ -15,7 +15,8 @@ type Props = {
 }
 
 function filterActionable(entries: EngagedAgentUiEntry[]): EngagedAgentUiEntry[] {
-  return entries.filter((e) => e.uiState === 'offline' || e.uiState === 'stale')
+  return entries.filter((e) =>
+    e.uiState === 'offline' || e.uiState === 'stale' || e.uiState === 'runtime-error')
 }
 
 function bannerMessage(
@@ -24,6 +25,16 @@ function bannerMessage(
 ): string {
   const stale = actionable.filter((e) => e.uiState === 'stale')
   const offline = actionable.filter((e) => e.uiState === 'offline')
+  const runtimeErrors = actionable.filter((e) => e.uiState === 'runtime-error')
+  if (runtimeErrors.length > 0 && runtimeErrors.length === actionable.length) {
+    const names = runtimeErrors.map((e) => e.agent.displayName).join('、')
+    return runtimeErrors.length === 1
+      ? t('chat.sessionAgent.bannerRuntimeErrorOne', { name: names })
+      : t('chat.sessionAgent.bannerRuntimeErrorMany', { count: runtimeErrors.length })
+  }
+  if (runtimeErrors.length > 0) {
+    return t('chat.sessionAgent.bannerUnavailableMixed', { count: actionable.length })
+  }
 
   if (stale.length > 0 && offline.length > 0) {
     return t('chat.sessionAgent.bannerMixed', {
@@ -57,11 +68,12 @@ export function EngagedAgentOfflineBanner({
 
   const hasStale = actionable.some((e) => e.uiState === 'stale')
   const hasOffline = actionable.some((e) => e.uiState === 'offline')
+  const hasRuntimeError = actionable.some((e) => e.uiState === 'runtime-error')
   const showSwitch =
     !!localDaemonAgent &&
     !!onSwitchToLocalAgent &&
     (hasStale || actionable.length > 0)
-  const showRetry = hasOffline && !!onRetryOffline
+  const showRetry = (hasOffline || hasRuntimeError) && !!onRetryOffline
 
   return (
     <div
@@ -134,6 +146,8 @@ export function pillSuffixForUiState(
       // `unconfigured` because that one tells the user to go configure a model,
       // which is the wrong errand for a rejected key or a broken binary.
       return t('chat.sessionAgent.pillCatalogError', 'Model list unavailable')
+    case 'runtime-error':
+      return t('chat.sessionAgent.pillRuntimeError', 'Agent start failed')
     default:
       return null
   }

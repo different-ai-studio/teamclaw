@@ -36,6 +36,7 @@ export function agentIdsNeedingRecoverableRuntimeWake(
       // Same ruler as the pill: only skip when THIS session's binding is live.
       if (sessionBindingLive(e.agent.id, sessionRuntimeByAgent)) return false
       if (e.uiState === 'connecting') return true
+      if (e.uiState === 'runtime-error') return true
       if (e.uiState === 'offline') {
         // Shared merge: LWT-offline remote stays out; local stale LWT may still wake.
         return !isDeviceOfflineForWake(e.agent.id)
@@ -83,6 +84,7 @@ export function hasRecoverableNonReadyAgent(
 ): boolean {
   return (
     hasConnectingEngagedAgent(entries) ||
+    entries.some((e) => e.uiState === 'runtime-error') ||
     hasRecoverableOfflineEngagedAgent(entries, presenceByActor)
   )
 }

@@ -7,7 +7,22 @@ export function buildPostSendSessionNotice(
 ): string | null {
   const offline = entries.filter((e) => e.uiState === 'offline')
   const stale = entries.filter((e) => e.uiState === 'stale')
-  if (offline.length === 0 && stale.length === 0) return null
+  const runtimeErrors = entries.filter((e) => e.uiState === 'runtime-error')
+  if (offline.length === 0 && stale.length === 0 && runtimeErrors.length === 0) return null
+
+  if (runtimeErrors.length > 0) {
+    if (offline.length > 0 || stale.length > 0) {
+      return t('chat.sessionNotice.sentUnavailableMixed', {
+        runtimeErrorCount: runtimeErrors.length,
+        offlineCount: offline.length,
+        staleCount: stale.length,
+      })
+    }
+    const names = runtimeErrors.map((e) => e.agent.displayName).join('、')
+    return runtimeErrors.length === 1
+      ? t('chat.sessionNotice.sentRuntimeErrorOne', { name: names })
+      : t('chat.sessionNotice.sentRuntimeErrorMany', { count: runtimeErrors.length })
+  }
 
   if (stale.length > 0 && offline.length > 0) {
     return t('chat.sessionNotice.sentMixed', {
