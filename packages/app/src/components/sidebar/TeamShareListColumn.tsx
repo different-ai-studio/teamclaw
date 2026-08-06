@@ -11,6 +11,7 @@ import {
   Loader2,
   Check,
   ArrowUpCircle,
+  Plus,
 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { cn } from '@/lib/utils'
@@ -146,6 +147,7 @@ export function TeamShareListColumn({ section }: { section: TeamShareSection }) 
   const selected = useTeamShareBrowserStore((s) => s.selectedId[section])
   const select = useTeamShareBrowserStore((s) => s.select)
   const loadSection = useTeamShareBrowserStore((s) => s.loadSection)
+  const setCreating = useTeamShareBrowserStore((s) => s.setCreating)
 
   const skills = useTeamShareBrowserStore((s) => s.skills)
   const mcp = useTeamShareBrowserStore((s) => s.mcp)
@@ -263,6 +265,21 @@ export function TeamShareListColumn({ section }: { section: TeamShareSection }) 
       return mcp.items
         .filter((m) => !q || m.name.toLowerCase().includes(q))
         .map((m) => {
+          // An uninstalled server isn't wired up, so probe state is meaningless
+          // for it — show what it is instead of a misleading "Idle".
+          if (!m.installed) {
+            return {
+              id: m.name,
+              icon: Plug,
+              iconTint: 'bg-muted text-muted-foreground',
+              title: m.name,
+              subtitle:
+                m.catalog?.description ||
+                t('teamShare.mcpNotInstalledSubtitle', 'Available — install to run it here'),
+              statusDot: 'idle' as const,
+              dimmed: true,
+            }
+          }
           const statusDot: 'ready' | 'failed' | 'idle' =
             m.probeStatus === 'ready' ? 'ready' : m.probeStatus === 'failed' ? 'failed' : 'idle'
           const statusLabel =
@@ -278,6 +295,12 @@ export function TeamShareListColumn({ section }: { section: TeamShareSection }) 
             title: m.name,
             subtitle: `${statusLabel} · ${t('teamShare.mcpDetail.toolCount', '{{count}} tools', { count: m.tools.length })}`,
             statusDot,
+            trailing: (
+              <Check
+                className="h-[15px] w-[15px] text-muted-foreground"
+                aria-label={t('teamShare.mcpInstalled', 'Installed')}
+              />
+            ),
           }
         })
     }
@@ -314,6 +337,10 @@ export function TeamShareListColumn({ section }: { section: TeamShareSection }) 
     () => skills.items.filter((s) => s.kind === 'team-installed').length,
     [skills.items],
   )
+  const mcpInstalledCount = React.useMemo(
+    () => mcp.items.filter((m) => m.installed).length,
+    [mcp.items],
+  )
   const registryCount = React.useMemo(
     () => skills.items.filter((s) => s.kind !== 'personal').length,
     [skills.items],
@@ -335,11 +362,31 @@ export function TeamShareListColumn({ section }: { section: TeamShareSection }) 
             <span className="font-mono text-[11px] font-normal text-faint">
               {' '}
               ·{' '}
-              {section === 'skills' ? `${installedCount}/${registryCount}` : count}
+              {section === 'skills'
+              ? `${installedCount}/${registryCount}`
+              : section === 'mcp'
+                ? `${mcpInstalledCount}/${mcp.items.length}`
+                : count}
             </span>
           </div>
         </div>
         <div className="flex shrink-0 items-center gap-0.5">
+          {(section === 'mcp' || section === 'env') && (
+            <Button
+              type="button"
+              variant="ghost"
+              size="icon"
+              className="h-7 w-7 text-muted-foreground hover:text-foreground"
+              onClick={() => setCreating(section)}
+              title={
+                section === 'mcp'
+                  ? t('teamShare.mcpAdd', 'Add MCP server')
+                  : t('teamShare.envAdd', 'Add team env key')
+              }
+            >
+              <Plus className="h-4 w-4" />
+            </Button>
+          )}
           <Button
             type="button"
             variant="ghost"
@@ -426,6 +473,8 @@ export function TeamShareListColumn({ section }: { section: TeamShareSection }) 
                   ? (row.statusDot as 'ready' | 'failed' | 'idle' | undefined)
                   : undefined
               }
+              trailing={'trailing' in row ? (row.trailing as React.ReactNode) : undefined}
+              dimmed={'dimmed' in row ? Boolean(row.dimmed) : false}
               onClick={() => select(section, row.id)}
             />
           ))

@@ -79,6 +79,21 @@ pub fn team_secrets_dir_candidates(
     ) {
         push(path);
     }
+
+    // The Cloud API cache goes LAST on purpose. `load_team_env_for_workspace_detailed`
+    // merges every candidate with later dirs overriding earlier ones, so being
+    // last is what makes the cloud value authoritative over a stale copy still
+    // sitting in the synced team dir.
+    //
+    // Note this list is also used by `resolve_team_secrets_dir`, which picks the
+    // first *existing* dir — that one is a write-target resolver for the legacy
+    // on-disk flow, and the cloud cache must never be its answer, so last is
+    // correct there too.
+    if let Some(team_id) = team_id.filter(|id| !id.trim().is_empty()) {
+        push(crate::runtime::team_cloud_config::team_cloud_secrets_dir(
+            team_id,
+        ));
+    }
     out
 }
 

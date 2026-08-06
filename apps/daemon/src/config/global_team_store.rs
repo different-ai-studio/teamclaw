@@ -31,6 +31,23 @@ pub fn global_team_dir(team_id: &str) -> PathBuf {
         .join(TEAM_LINK_NAME)
 }
 
+/// `~/.amuxd/teams/<team_id>/cloud` — daemon-owned mirror of the team config
+/// that now comes from the Cloud API rather than the sync engine (team MCP,
+/// team env). See `runtime::team_cloud_config`.
+///
+/// Deliberately a *sibling* of `teamclaw-team`, never inside it. Inside, a
+/// daemon writer would show up as a dirty working tree in git share modes
+/// (commit churn, ambiguous ownership) and would be picked up by the sync
+/// scanner as local content to push — including emitting tombstones for other
+/// members when it changed. Outside, the whole feature rolls back by deleting
+/// one directory.
+pub fn global_team_cloud_dir(team_id: &str) -> PathBuf {
+    DaemonConfig::config_dir()
+        .join("teams")
+        .join(team_id)
+        .join("cloud")
+}
+
 /// `~/.amuxd/teams/<team_id>/workspace` — the writable default worktree used for
 /// workspace-less runtime spawns (e.g. the embedded `/v1/ui` chat, which creates
 /// sessions with only an `agent_type`). It is a sibling of the synced

@@ -75,11 +75,23 @@ fn onboarded_team_id() -> Option<String> {
         })
 }
 
-fn team_mcp_dir(workspace: &Path) -> PathBuf {
-    if let Some(team_id) = onboarded_team_id() {
-        resolve_team_dir(workspace, &team_id).join(".mcp")
-    } else {
-        workspace.join(TEAM_LINK_NAME).join(".mcp")
+/// Directories holding team MCP definitions, **least** preferred first.
+///
+/// Two sources during the migration to the Cloud API: the legacy synced
+/// `teamclaw-team/.mcp/` and the daemon-owned cloud cache written by
+/// `runtime::team_cloud_config`. The cloud cache is last so it wins on a name
+/// collision — it reflects what this member actually installed, whereas the
+/// synced directory is whatever the team repo happens to still carry.
+fn team_mcp_dirs(workspace: &Path) -> Vec<PathBuf> {
+    let team_id = onboarded_team_id();
+    let legacy = match &team_id {
+        Some(id) => resolve_team_dir(workspace, id).join(".mcp"),
+        None => workspace.join(TEAM_LINK_NAME).join(".mcp"),
+    };
+    match &team_id {
+        Some(id) => vec![legacy, crate::runtime::team_cloud_config::team_cloud_mcp_dir(id)],
+        // Without an onboarded team there is no cloud cache to read.
+        None => vec![legacy],
     }
 }
 
@@ -118,19 +130,28 @@ fn convert_cursor_server(server: &CursorMcpServer) -> McpServerConfig {
     }
 }
 
-/// Scan `teamclaw-team/.mcp/*.json` (Cursor `mcpServers` format).
+/// Scan every team MCP source for `*.json` in Cursor `mcpServers` format.
+///
+/// Later directories override earlier ones on a name collision — see
+/// [`team_mcp_dirs`] for the ordering and why.
 pub fn scan_team_mcp(workspace: &Path) -> HashMap<String, McpServerConfig> {
-    let mcp_dir = team_mcp_dir(workspace);
+    let mut team_servers = HashMap::new();
+    for mcp_dir in team_mcp_dirs(workspace) {
+        scan_team_mcp_dir_into(&mcp_dir, &mut team_servers);
+    }
+    team_servers
+}
+
+fn scan_team_mcp_dir_into(mcp_dir: &Path, out: &mut HashMap<String, McpServerConfig>) {
     if !mcp_dir.is_dir() {
-        return HashMap::new();
+        return;
     }
 
-    let entries = match std::fs::read_dir(&mcp_dir) {
+    let entries = match std::fs::read_dir(mcp_dir) {
         Ok(entries) => entries,
-        Err(_) => return HashMap::new(),
+        Err(_) => return,
     };
 
-    let mut team_servers = HashMap::new();
     for entry in entries.flatten() {
         let path = entry.path();
         if path.extension().and_then(|ext| ext.to_str()) != Some("json") {
@@ -145,10 +166,9 @@ pub fn scan_team_mcp(workspace: &Path) -> HashMap<String, McpServerConfig> {
             Err(_) => continue,
         };
         for (name, server) in team_file.mcp_servers {
-            team_servers.insert(name, convert_cursor_server(&server));
+            out.insert(name, convert_cursor_server(&server));
         }
     }
-    team_servers
 }
 
 pub fn read_persisted_mcp(
@@ -318,6 +338,62 @@ mod tests {
             source: None,
             extra: HashMap::new(),
         }
+    }
+
+    /// The dual-source merge, exercised on the directory scanner directly.
+    ///
+    /// `scan_team_mcp` itself resolves the cloud cache through the daemon's real
+    /// config dir (via the onboarded team id), which a unit test has no business
+    /// reaching into. `scan_team_mcp_dir_into` is the part that actually decides
+    /// precedence, and it takes explicit paths.
+    #[test]
+    fn later_dirs_override_earlier_ones_on_name_collision() {
+        let tmp = tempfile::tempdir().unwrap();
+        let legacy = tmp.path().join("legacy");
+        let cloud = tmp.path().join("cloud");
+        std::fs::create_dir_all(&legacy).unwrap();
+        std::fs::create_dir_all(&cloud).unwrap();
+        std::fs::write(
+            legacy.join("a.json"),
+            r#"{"mcpServers":{"shared":{"command":"stale"},"legacy-only":{"command":"keep"}}}"#,
+        )
+        .unwrap();
+        std::fs::write(
+            cloud.join("team.json"),
+            r#"{"mcpServers":{"shared":{"command":"fresh"}}}"#,
+        )
+        .unwrap();
+
+        let mut merged = HashMap::new();
+        scan_team_mcp_dir_into(&legacy, &mut merged);
+        scan_team_mcp_dir_into(&cloud, &mut merged);
+
+        // Cloud reflects what this member actually installed; the synced dir is
+        // whatever the team repo still happens to carry.
+        assert_eq!(merged.get("shared").unwrap().command, vec!["fresh"]);
+        // ...but it does not erase entries the cloud never mentioned.
+        assert_eq!(merged.get("legacy-only").unwrap().command, vec!["keep"]);
+    }
+
+    #[test]
+    fn a_missing_dir_contributes_nothing_and_does_not_clear_the_map() {
+        let tmp = tempfile::tempdir().unwrap();
+        let present = tmp.path().join("present");
+        std::fs::create_dir_all(&present).unwrap();
+        std::fs::write(
+            present.join("a.json"),
+            r#"{"mcpServers":{"team-db":{"command":"npx"}}}"#,
+        )
+        .unwrap();
+
+        let mut merged = HashMap::new();
+        scan_team_mcp_dir_into(&present, &mut merged);
+        // The offline case: no cloud cache yet. It must be a no-op, not a wipe —
+        // an empty team map would reclassify materialized servers as workspace-owned.
+        scan_team_mcp_dir_into(&tmp.path().join("absent"), &mut merged);
+
+        assert_eq!(merged.len(), 1);
+        assert!(merged.contains_key("team-db"));
     }
 
     #[test]
