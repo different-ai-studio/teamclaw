@@ -102,7 +102,7 @@ jobs:
     runs-on: ubuntu-latest
     environment: self-host-production
     env:
-      AMUXD_IMAGE: ${{ env.REGISTRY }}/${{ github.repository_owner }}/${{ env.IMAGE_NAME }}:${{ github.sha }}
+      AMUXD_IMAGE: ghcr.io/${{ github.repository_owner }}/teamclaw-amuxd:${{ github.sha }}
     steps:
       - name: Deploy amuxd on ECS
         uses: appleboy/ssh-action@v1.2.5
