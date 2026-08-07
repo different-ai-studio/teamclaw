@@ -4,6 +4,7 @@ mod config;
 mod cron;
 mod env_vars;
 mod knowledge;
+mod mcp;
 mod roles;
 mod send;
 mod session;
@@ -90,7 +91,7 @@ fn tool_definitions() -> Value {
                     "channel": {
                         "type": "string",
                         "description": "The channel to send through, or 'all' to broadcast to all configured channels.",
-                        "enum": ["all", "wecom", "discord", "email", "feishu", "kook", "wechat"]
+                        "enum": ["all", "wecom", "discord", "email", "feishu", "kook", "wechat", "seatalk"]
                     },
                     "message": {
                         "type": "string",
@@ -281,12 +282,65 @@ fn tool_definitions() -> Value {
                     },
                     "channel": {
                         "type": "string",
-                        "enum": ["wecom", "discord", "feishu", "email", "kook", "wechat"],
+                        "enum": ["wecom", "discord", "feishu", "email", "kook", "wechat", "seatalk"],
                         "description": "Target channel. Required for set; optional for get (omit to get all channels)."
                     },
                     "config": {
                         "type": "object",
                         "description": "Channel config fields to set. Required for set. Fields vary by channel:\n- wecom: botId, secret, encodingAesKey, ownerId\n- discord: token, dm, guilds\n- feishu: appId, appSecret, chats\n- email: provider, gmailEmail, gmailClientId, gmailClientSecret (or imapServer, smtpServer, username, password for custom)\n- kook: token, dm, guilds\n- wechat: botToken, accountId, baseUrl"
+                    }
+                },
+                "required": ["action"]
+            }
+        },
+        {
+            "name": "manage_mcp",
+            "description": "Manage MCP servers for this workspace: list configured servers, get one by name, add/update a local (stdio) or remote (HTTP) server, enable/disable, or remove a custom server. Built-in servers (teamclaw-introspect, playwright, chrome-control, autoui) cannot be deleted; team-shared servers under teamclaw-team/.mcp cannot be edited or deleted here. Env/header secret values are redacted on list/get. Changes require an agent runtime restart to take effect.",
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "action": {
+                        "type": "string",
+                        "enum": ["list", "get", "add", "update", "remove", "enable", "disable"],
+                        "description": "The action to perform."
+                    },
+                    "name": {
+                        "type": "string",
+                        "description": "MCP server name. Required for get/add/update/remove/enable/disable."
+                    },
+                    "type": {
+                        "type": "string",
+                        "enum": ["local", "remote"],
+                        "description": "Server kind. Required for add; optional for update."
+                    },
+                    "command": {
+                        "description": "Local stdio command as an argv array, or a whitespace-separated string (e.g. 'npx -y @modelcontextprotocol/server-filesystem /tmp'). Required for add when type=local.",
+                        "anyOf": [
+                            { "type": "string" },
+                            { "type": "array", "items": { "type": "string" } }
+                        ]
+                    },
+                    "environment": {
+                        "type": "object",
+                        "description": "Environment variables for local servers (string values).",
+                        "additionalProperties": { "type": "string" }
+                    },
+                    "url": {
+                        "type": "string",
+                        "description": "Base URL for remote HTTP MCP servers. Required for add when type=remote."
+                    },
+                    "headers": {
+                        "type": "object",
+                        "description": "HTTP headers for remote servers (string values).",
+                        "additionalProperties": { "type": "string" }
+                    },
+                    "enabled": {
+                        "type": "boolean",
+                        "description": "Whether the server is enabled (default true on add)."
+                    },
+                    "timeout": {
+                        "type": "integer",
+                        "description": "Optional timeout in milliseconds."
                     }
                 },
                 "required": ["action"]
@@ -464,6 +518,13 @@ async fn handle_request(req: &Value, workspace: &str, api_port: u16) -> Option<V
                         Err(e) => tool_err(&e),
                     }
                 }
+                "manage_mcp" => match mcp::handle(workspace, api_port, &arguments).await {
+                    Ok(v) => {
+                        let text = serde_json::to_string_pretty(&v).unwrap_or_default();
+                        tool_ok(&text)
+                    }
+                    Err(e) => tool_err(&e),
+                },
                 "get_session_deeplink" => match session::handle(workspace, &arguments) {
                     Ok(v) => {
                         let text = serde_json::to_string_pretty(&v).unwrap_or_default();
