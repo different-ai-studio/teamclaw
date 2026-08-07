@@ -285,7 +285,7 @@ mod tests {
         let (_home, _guard) = temp_home();
         // Seed the team's global dir with real content.
         let global = global_team_store::ensure_initialized("team-self").unwrap();
-        std::fs::write(global.join("skills/keep.md"), b"keep me").unwrap();
+        std::fs::write(global.join("knowledge/keep.md"), b"keep me").unwrap();
 
         // A bogus "workspace" whose path is the team store dir itself makes
         // link == target. We must NOT migrate/delete the global dir or create a
@@ -298,7 +298,7 @@ mod tests {
         let meta = std::fs::symlink_metadata(&global).unwrap();
         assert!(meta.is_dir() && !meta.file_type().is_symlink());
         assert_eq!(
-            std::fs::read(global.join("skills/keep.md")).unwrap(),
+            std::fs::read(global.join("knowledge/keep.md")).unwrap(),
             b"keep me"
         );
     }
@@ -318,14 +318,17 @@ mod tests {
         let (_home, _guard) = temp_home();
         let ws = tempfile::tempdir().unwrap();
         let legacy = ws.path().join("teamclaw-team");
-        std::fs::create_dir_all(legacy.join("skills")).unwrap();
-        std::fs::write(legacy.join("skills/a.md"), b"hello").unwrap();
+        std::fs::create_dir_all(legacy.join("knowledge")).unwrap();
+        std::fs::write(legacy.join("knowledge/a.md"), b"hello").unwrap();
 
         let status = ensure_workspace_link(ws.path(), "team-mig");
         assert_eq!(status, LinkStatus::Linked(LinkKind::Symlink));
         // Content moved into the global dir.
         let global = global_team_store::global_team_dir("team-mig");
-        assert_eq!(std::fs::read(global.join("skills/a.md")).unwrap(), b"hello");
+        assert_eq!(
+            std::fs::read(global.join("knowledge/a.md")).unwrap(),
+            b"hello"
+        );
         // Workspace entry is now a symlink, not a real dir.
         assert!(std::fs::symlink_metadata(&legacy)
             .unwrap()
@@ -339,8 +342,8 @@ mod tests {
         let (_home, _guard) = temp_home();
         let ws = tempfile::tempdir().unwrap();
         let legacy = ws.path().join("teamclaw-team");
-        std::fs::create_dir_all(legacy.join("skills")).unwrap();
-        std::fs::write(legacy.join("skills/a.md"), b"hello").unwrap();
+        std::fs::create_dir_all(legacy.join("knowledge")).unwrap();
+        std::fs::write(legacy.join("knowledge/a.md"), b"hello").unwrap();
         // A clean git repo (committed) — its .git is the team repo and must
         // survive into the global copy so the global stays a valid repo.
         run_git(&legacy, &["init", "-q"]);
@@ -353,7 +356,10 @@ mod tests {
         assert_eq!(status, LinkStatus::Linked(LinkKind::Symlink));
         let global = global_team_store::global_team_dir("team-gitseed");
         // Content AND the team repo's .git landed in global.
-        assert_eq!(std::fs::read(global.join("skills/a.md")).unwrap(), b"hello");
+        assert_eq!(
+            std::fs::read(global.join("knowledge/a.md")).unwrap(),
+            b"hello"
+        );
         assert!(
             global.join(".git").is_dir(),
             "global must remain a valid git repo (.git preserved)"
@@ -366,13 +372,13 @@ mod tests {
         let (_home, _guard) = temp_home();
         // Pre-populate the global dir for this team with real content.
         let global = global_team_store::ensure_initialized("team-pop").unwrap();
-        std::fs::write(global.join("skills/existing.md"), b"already here").unwrap();
+        std::fs::write(global.join("knowledge/existing.md"), b"already here").unwrap();
 
         // A non-git legacy dir with its own (possibly unsynced) content.
         let ws = tempfile::tempdir().unwrap();
         let legacy = ws.path().join("teamclaw-team");
-        std::fs::create_dir_all(legacy.join("skills")).unwrap();
-        std::fs::write(legacy.join("skills/unsynced.md"), b"do not lose").unwrap();
+        std::fs::create_dir_all(legacy.join("knowledge")).unwrap();
+        std::fs::write(legacy.join("knowledge/unsynced.md"), b"do not lose").unwrap();
 
         let status = ensure_workspace_link(ws.path(), "team-pop");
         match status {
@@ -381,7 +387,7 @@ mod tests {
         }
         // Legacy content preserved, not deleted.
         assert_eq!(
-            std::fs::read(legacy.join("skills/unsynced.md")).unwrap(),
+            std::fs::read(legacy.join("knowledge/unsynced.md")).unwrap(),
             b"do not lose"
         );
         assert!(!std::fs::symlink_metadata(&legacy)

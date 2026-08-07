@@ -1326,9 +1326,11 @@ impl DaemonServer {
             .map(str::to_owned)
         {
             use crate::runtime::team_cloud_config::log_team_cloud_outcome;
-            let resolver = Arc::new(crate::runtime::team_cloud_config::TeamCloudConfigResolver::new(
-                self.backend.clone(),
-            ));
+            let resolver = Arc::new(
+                crate::runtime::team_cloud_config::TeamCloudConfigResolver::new(
+                    self.backend.clone(),
+                ),
+            );
             tokio::spawn(async move {
                 // Once up front so a freshly started daemon converges without
                 // waiting out the first tick, then on the TTL cadence.
@@ -3168,7 +3170,7 @@ pub(crate) mod tests {
         // Global dir + scaffold created under ~/.amuxd/teams/<id>/teamclaw-team.
         let global = crate::config::global_team_store::global_team_dir("team-ondemand");
         assert!(global.is_dir(), "global team dir should be created");
-        assert!(global.join("skills").is_dir());
+        assert!(global.join("knowledge").is_dir());
 
         // Workspace exposes it via a teamclaw-team symlink to that global dir.
         let link = ws.path().join("teamclaw-team");
