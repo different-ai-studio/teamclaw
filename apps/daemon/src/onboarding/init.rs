@@ -1,4 +1,4 @@
-use crate::config::{ActorConfig, AgentsConfig, DaemonConfig, HttpConfig, MqttConfig};
+use crate::config::{ActorConfig, AgentsConfig, DaemonConfig, HttpConfig, MqttConfig, TeamShareConfig};
 use crate::onboarding::invite_url::{self, ParsedInvite};
 use crate::provider_config::{CloudApiConfig, ProviderConfig};
 use anyhow::{anyhow, Context, Result};
@@ -296,6 +296,7 @@ mod tests {
                 idle_runtime_timeout_secs: None,
                 max_attachments: None,
                 http: None,
+                team_share: TeamShareConfig::default(),
             }),
             "host",
             "team-1",
@@ -372,6 +373,7 @@ mod tests {
                 idle_runtime_timeout_secs: None,
                 max_attachments: None,
                 http: None,
+                team_share: TeamShareConfig::default(),
             }),
             "new-display-name",
             "team-2",

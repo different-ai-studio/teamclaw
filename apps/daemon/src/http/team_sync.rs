@@ -21,6 +21,9 @@ pub struct SyncRequest {
     pub workspace_path: String,
     #[serde(default)]
     pub force_wipe_non_git: bool,
+    /// When `true`, run sync even if `team_share.auto_sync` is `false`.
+    #[serde(default)]
+    pub force_sync: bool,
 }
 
 #[derive(Debug, Serialize)]
@@ -49,9 +52,13 @@ pub async fn sync_now(
             workspace_path,
             crate::sync::dispatch::SyncOptions {
                 wipe_non_git: body.force_wipe_non_git,
+                force: body.force_sync,
             },
         )
         .await;
+    if status.skipped {
+        return Ok(Json(SyncResponse { status }));
+    }
     if let Some(err) = status
         .last_error
         .as_deref()

@@ -290,24 +290,33 @@ impl DaemonServer {
             // restart re-captures the now-registered workspace. Fire-and-forget
             // so registration stays responsive; failures (e.g. team secret not
             // delivered yet) are logged and left to the timer / secret self-heal.
-            let dispatcher = self.sync_dispatcher.clone();
-            let team = team_id.to_string();
-            let path = canonical_str.clone();
-            tokio::spawn(async move {
-                let status = dispatcher
-                    .sync_team(&team, &path, crate::sync::dispatch::SyncOptions::default())
-                    .await;
-                match status.last_error {
-                    Some(err) => warn!(
-                        team_id = %team,
-                        error = %err,
-                        "initial team sync after workspace add failed (will retry via timer/self-heal)"
-                    ),
-                    None => {
-                        info!(team_id = %team, "initial team sync after workspace add complete")
+            // Fire-and-forget initial sync only when auto_sync is enabled.
+            if crate::config::DaemonConfig::team_share_auto_sync_enabled_from_disk() {
+                let dispatcher = self.sync_dispatcher.clone();
+                let team = team_id.to_string();
+                let path = canonical_str.clone();
+                tokio::spawn(async move {
+                    let status = dispatcher
+                        .sync_team(&team, &path, crate::sync::dispatch::SyncOptions::default())
+                        .await;
+                    match status.last_error {
+                        Some(err) => warn!(
+                            team_id = %team,
+                            error = %err,
+                            "initial team sync after workspace add failed (will retry via timer/self-heal)"
+                        ),
+                        None if status.skipped => {
+                            tracing::debug!(
+                                team_id = %team,
+                                "initial team sync skipped (team_share.auto_sync disabled)"
+                            );
+                        }
+                        None => {
+                            info!(team_id = %team, "initial team sync after workspace add complete")
+                        }
                     }
-                }
-            });
+                });
+            }
         }
         if let Some(registry) = self.refresh_watch_registry.as_ref() {
             registry

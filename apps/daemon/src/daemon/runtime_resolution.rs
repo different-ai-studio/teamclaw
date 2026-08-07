@@ -151,6 +151,7 @@ mod tests {
             idle_runtime_timeout_secs: None,
             max_attachments: None,
             http: None,
+            team_share: crate::config::TeamShareConfig::default(),
         }
     }
 

@@ -166,10 +166,11 @@ fn urlencode(value: &str) -> String {
 
 // ─── typed helpers ─────────────────────────────────────────────────────────
 
-/// `POST /v1/team/sync` `{ workspacePath, forceWipeNonGit? }` — trigger a team sync.
+/// `POST /v1/team/sync` `{ workspacePath, forceWipeNonGit?, forceSync? }` — trigger a team sync.
 pub async fn daemon_team_sync(
     workspace_path: &str,
     force_wipe_non_git: bool,
+    force_sync: bool,
 ) -> Result<serde_json::Value, String> {
     daemon_request(
         reqwest::Method::POST,
@@ -179,6 +180,7 @@ pub async fn daemon_team_sync(
         Some(&serde_json::json!({
             "workspacePath": workspace_path,
             "forceWipeNonGit": force_wipe_non_git,
+            "forceSync": force_sync,
         })),
     )
     .await
@@ -463,7 +465,7 @@ pub async fn oss_sync_now(
     workspace_path: String,
     team_id: String,
 ) -> Result<serde_json::Value, String> {
-    let mut status = daemon_team_sync(&workspace_path, false).await?;
+    let mut status = daemon_team_sync(&workspace_path, false, true).await?;
     // Self-heal: if the daemon reports it has no team secret, re-deliver the
     // locally-stored one and retry the sync once.
     if status
@@ -472,7 +474,7 @@ pub async fn oss_sync_now(
         .is_some_and(is_missing_team_secret_error)
         && redeliver_local_team_secret(&team_id, &workspace_path).await
     {
-        status = daemon_team_sync(&workspace_path, false).await?;
+        status = daemon_team_sync(&workspace_path, false, true).await?;
     }
     let pick = |k: &str| status.get(k).and_then(|v| v.as_u64()).unwrap_or(0);
     Ok(serde_json::json!({
@@ -504,7 +506,7 @@ pub async fn oss_sync_status(
         .is_some_and(is_missing_team_secret_error)
         && redeliver_local_team_secret(&team_id, &workspace_path).await
     {
-        let _ = daemon_team_sync(&workspace_path, false).await;
+        let _ = daemon_team_sync(&workspace_path, false, true).await;
         return daemon_team_sync_status(&team_id).await;
     }
     Ok(status)
@@ -587,9 +589,20 @@ fn team_sync_success_payload() -> serde_json::Value {
 async fn invoke_daemon_team_sync(
     workspace_path: &str,
     force_wipe_non_git: bool,
+    force_sync: bool,
 ) -> Result<serde_json::Value, String> {
-    match daemon_team_sync(workspace_path, force_wipe_non_git).await {
+    match daemon_team_sync(workspace_path, force_wipe_non_git, force_sync).await {
         Ok(resp) => {
+            if resp.get("skipped").and_then(|v| v.as_bool()) == Some(true) {
+                return Ok(serde_json::json!({
+                    "success": false,
+                    "message": "Automatic sync is disabled on this daemon (team_share.auto_sync = false). Use Sync Now to sync manually.",
+                    "needsConfirmation": false,
+                    "newFiles": [],
+                    "totalBytes": 0,
+                    "skipped": true,
+                }));
+            }
             team_sync_error_from_status(&resp)?;
             Ok(team_sync_success_payload())
         }
@@ -642,12 +655,14 @@ fn team_sync_error_from_status(status: &serde_json::Value) -> Result<(), String>
 pub async fn team_sync_repo(
     workspace_path: Option<String>,
     force: Option<bool>,
+    force_sync: Option<bool>,
 ) -> Result<serde_json::Value, String> {
     let force_wipe = force.unwrap_or(false);
+    let force_sync = force_sync.unwrap_or(false);
     let workspace_path = workspace_path
         .filter(|p| !p.is_empty())
         .ok_or_else(|| "No workspace path set. Please select a workspace first.".to_string())?;
-    invoke_daemon_team_sync(&workspace_path, force_wipe).await
+    invoke_daemon_team_sync(&workspace_path, force_wipe, force_sync).await
 }
 
 /// `team_shared_git_sync(config, force?)` → proxy to the daemon sync.
@@ -659,13 +674,15 @@ pub async fn team_sync_repo(
 pub async fn team_shared_git_sync(
     config: serde_json::Value,
     force: Option<bool>,
+    force_sync: Option<bool>,
 ) -> Result<serde_json::Value, String> {
     let force_wipe = force.unwrap_or(false);
+    let force_sync = force_sync.unwrap_or(false);
     let workspace_path = config
         .get("workspacePath")
         .and_then(|v| v.as_str())
         .ok_or_else(|| "config.workspacePath is required".to_string())?;
-    invoke_daemon_team_sync(workspace_path, force_wipe).await
+    invoke_daemon_team_sync(workspace_path, force_wipe, force_sync).await
 }
 
 /// `team_shared_git_validate(config)` → daemon sync status (best effort).

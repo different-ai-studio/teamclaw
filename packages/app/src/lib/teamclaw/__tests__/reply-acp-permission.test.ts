@@ -99,13 +99,14 @@ describe("replyAcpPermission", () => {
 
     expect(mocks.runtimeCommand).toHaveBeenCalledTimes(1);
     const [call] = mocks.runtimeCommand.mock.calls[0] as [
-      { targetActorId: string; sessionId: string; envelope: { runtimeId: string } },
+      { targetActorId: string; sessionId: string; envelope: { runtimeId: string; acpCommand?: { command: { case: string } } } },
     ];
     expect(call.targetActorId).toBe("agent-live");
     expect(call.sessionId).toBe("sess-1");
     // The point of the test: the attachment filed under `sess-1`, not the
     // `other-session` one that is also in the store.
     expect(call.envelope.runtimeId).toBe("live-spawn");
+    expect(call.envelope.acpCommand?.command.case).toBe("grantPermission");
 
     // Session-addressed dispatch goes over RPC only — the legacy per-spawn
     // topic must not also be published to, or a cold session is a silent miss.
