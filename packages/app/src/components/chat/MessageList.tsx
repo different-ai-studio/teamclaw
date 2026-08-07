@@ -12,6 +12,13 @@ import { Button } from "@/components/ui/button";
 import { ChatMessage } from "./ChatMessage";
 import { useChatStickToBottom } from "@/hooks/use-chat-stick-to-bottom";
 import { DEFAULT_INPUT_AREA_HEIGHT, SAFE_BOTTOM_SPACING } from "./layout-constants";
+import {
+  CHAT_SCROLL_TO_MESSAGE_EVENT,
+  type ChatScrollToMessageDetail,
+  findChatMessageElement,
+  flashChatMessage,
+  scrollChatMessageIntoView,
+} from "@/lib/chat-scroll-to-message";
 
 // ─── Constants ────────────────────────────────────────────────────────────────
 
@@ -219,7 +226,29 @@ const MessageListInner = React.forwardRef<MessageListHandle, MessageListProps>(
       onScroll,
       enableAutoFollow,
       pauseAutoFollowIfReading,
+      stopAutoFollow,
     } = useChatStickToBottom(scrollRef);
+
+    const pendingScrollMessageIdRef = React.useRef<string | null>(null);
+
+    const scrollToMessageInList = React.useCallback(
+      (messageId: string) => {
+        const el = findChatMessageElement(messageId);
+        if (!el) return false;
+        scrollChatMessageIntoView(el);
+        flashChatMessage(el);
+        return true;
+      },
+      [],
+    );
+
+    const fulfillPendingScroll = React.useCallback(() => {
+      const messageId = pendingScrollMessageIdRef.current;
+      if (!messageId) return;
+      if (scrollToMessageInList(messageId)) {
+        pendingScrollMessageIdRef.current = null;
+      }
+    }, [scrollToMessageInList]);
 
     /**
      * Called from ChatPanel right after optimistic append.
@@ -286,6 +315,63 @@ const MessageListInner = React.forwardRef<MessageListHandle, MessageListProps>(
       overscan: 5,
       gap: 4,
     });
+
+    React.useEffect(() => {
+      const onScrollRequest = (event: Event) => {
+        const messageId = (event as CustomEvent<ChatScrollToMessageDetail>).detail
+          ?.messageId;
+        if (!messageId) return;
+
+        stopAutoFollow();
+        pendingScrollMessageIdRef.current = messageId;
+
+        const idx = messages.findIndex((message) => message.id === messageId);
+        if (idx < 0) {
+          pendingScrollMessageIdRef.current = null;
+          return;
+        }
+
+        const firstRenderedIndex = Math.max(0, messages.length - visibleMessageCount);
+        if (idx < firstRenderedIndex) {
+          setVisibleMessageCount(messages.length - idx);
+          return;
+        }
+
+        if (useVirtualMessages) {
+          const renderedIndex = renderedMessages.findIndex(
+            (message) => message.id === messageId,
+          );
+          if (renderedIndex >= 0) {
+            messageVirtualizer.scrollToIndex(renderedIndex, {
+              align: "center",
+              behavior: "smooth",
+            });
+          }
+        }
+
+        requestAnimationFrame(() => {
+          requestAnimationFrame(fulfillPendingScroll);
+        });
+      };
+
+      window.addEventListener(CHAT_SCROLL_TO_MESSAGE_EVENT, onScrollRequest);
+      return () => {
+        window.removeEventListener(CHAT_SCROLL_TO_MESSAGE_EVENT, onScrollRequest);
+      };
+    }, [
+      fulfillPendingScroll,
+      messageVirtualizer,
+      messages,
+      renderedMessages,
+      stopAutoFollow,
+      useVirtualMessages,
+      visibleMessageCount,
+    ]);
+
+    React.useLayoutEffect(() => {
+      if (!pendingScrollMessageIdRef.current) return;
+      fulfillPendingScroll();
+    }, [fulfillPendingScroll, renderedMessages, visibleMessageCount, messageAreaWidth]);
 
     React.useLayoutEffect(() => {
       if (!useVirtualMessages || messageAreaWidth <= 0) return;
