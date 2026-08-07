@@ -15,7 +15,6 @@
     "@alicloud/dysmsapi20170525": "^4.5.1",
     "@alicloud/fc20230330": "^4.7.6",
     "@alicloud/openapi-client": "^0.4.12",
-    "@alicloud/sts20150401": "^1.1.2",
     "@aws-sdk/client-s3": "^3.600.0",
     "@aws-sdk/s3-request-presigner": "^3.600.0",
     "@hono/node-server": "^1.19.14",
