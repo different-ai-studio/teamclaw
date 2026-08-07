@@ -17,14 +17,17 @@ let ctx;
 before(async () => { if (RUN_HEAVY) ctx = await provisionTwoNodeTeam(); }, { timeout: 180000 });
 after(async () => { await ctx?.teardown(); }, { timeout: 120000 });
 
+// File sync carries `knowledge/` only now; the other prefixes are retired
+// (accepted on the wire so legacy manifest rows don't abort an apply, but
+// never scanned or materialized). Depth and sibling trees are what this
+// exercises.
 const FILES = {
-  "skills/deep/nested/dir/a.md": "nested skill\n",
+  "knowledge/deep/nested/dir/a.md": "nested doc\n",
   "knowledge/notes/k.md": "knowledge entry\n",
-  "_feedback/f.md": "feedback\n",
-  "_meta/info.txt": "meta\n",
+  "knowledge/top.md": "top level\n",
 };
 
-test("nested dirs + multiple prefixes all sync and converge", { skip: !RUN_HEAVY, timeout: 180000 }, async () => {
+test("nested dirs across the knowledge tree all sync and converge", { skip: !RUN_HEAVY, timeout: 180000 }, async () => {
   const { nodes, teamId } = ctx;
   const root = contentRootPath(teamId);
 

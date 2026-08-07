@@ -8,26 +8,24 @@ import { validateSyncPath, ALLOWED_PREFIXES } from '../src/lib/sync-path.js';
 // ---------------------------------------------------------------------------
 // Allowed paths (should all return { ok: true })
 // ---------------------------------------------------------------------------
-test('valid skills path', () => {
-  assert.deepEqual(validateSyncPath('skills/foo.md'), { ok: true });
-});
-test('valid skills nested path', () => {
-  assert.deepEqual(validateSyncPath('skills/sub/dir/file.md'), { ok: true });
-});
 test('valid knowledge path', () => {
   assert.deepEqual(validateSyncPath('knowledge/data.json'), { ok: true });
 });
-test('valid .mcp path', () => {
-  assert.deepEqual(validateSyncPath('.mcp/server.json'), { ok: true });
+test('valid knowledge nested path', () => {
+  assert.deepEqual(validateSyncPath('knowledge/sub/dir/file.md'), { ok: true });
 });
-test('valid _meta path', () => {
-  assert.deepEqual(validateSyncPath('_meta/team.json'), { ok: true });
-});
-test('valid _secrets path', () => {
-  assert.deepEqual(validateSyncPath('_secrets/key.pem'), { ok: true });
-});
-test('valid _feedback path', () => {
-  assert.deepEqual(validateSyncPath('_feedback/2026-01-01.md'), { ok: true });
+test('rejects the prefixes that moved off file sync', () => {
+  // skills/ went to the skills registry, .mcp/ and _secrets/ to the team
+  // MCP / env endpoints; _meta/ and _feedback/ never had a writer here.
+  for (const p of [
+    'skills/foo.md',
+    '.mcp/server.json',
+    '_secrets/key.pem',
+    '_meta/team.json',
+    '_feedback/2026-01-01.md',
+  ]) {
+    assert.equal(validateSyncPath(p).ok, false, `${p} must no longer be accepted`);
+  }
 });
 
 // ---------------------------------------------------------------------------
@@ -53,12 +51,12 @@ test('rejects empty string', () => {
 // Directory traversal (.. segments)
 // ---------------------------------------------------------------------------
 test('rejects .. segment', () => {
-  const r = validateSyncPath('skills/../etc/passwd');
+  const r = validateSyncPath('knowledge/../etc/passwd');
   assert.equal(r.ok, false);
   assert.equal(r.code, 'InvalidPath');
   assert.match(r.message, /\.\./);
 });
-test('rejects leading ../skills/', () => {
+test('rejects leading ../knowledge/', () => {
   assert.equal(validateSyncPath('../skills/foo.md').ok, false);
 });
 
@@ -91,7 +89,7 @@ test('rejects backslash', () => {
 // NUL byte
 // ---------------------------------------------------------------------------
 test('rejects NUL byte', () => {
-  const r = validateSyncPath('skills/foo\0bar');
+  const r = validateSyncPath('knowledge/foo\0bar');
   assert.equal(r.ok, false);
   assert.match(r.message, /NUL/i);
 });
@@ -100,19 +98,19 @@ test('rejects NUL byte', () => {
 // Control characters
 // ---------------------------------------------------------------------------
 test('rejects tab control char (0x09)', () => {
-  const r = validateSyncPath('skills/foo\tbar');
+  const r = validateSyncPath('knowledge/foo\tbar');
   assert.equal(r.ok, false);
   assert.match(r.message, /control/i);
 });
 test('rejects newline control char', () => {
-  assert.equal(validateSyncPath('skills/foo\nbar').ok, false);
+  assert.equal(validateSyncPath('knowledge/foo\nbar').ok, false);
 });
 
 // ---------------------------------------------------------------------------
 // Empty segment (double slash or trailing slash)
 // ---------------------------------------------------------------------------
 test('rejects double slash', () => {
-  const r = validateSyncPath('skills//foo.md');
+  const r = validateSyncPath('knowledge//foo.md');
   assert.equal(r.ok, false);
   assert.match(r.message, /empty segment/i);
 });
@@ -121,7 +119,7 @@ test('rejects double slash', () => {
 // Dot segment
 // ---------------------------------------------------------------------------
 test('rejects "." segment', () => {
-  const r = validateSyncPath('skills/./foo.md');
+  const r = validateSyncPath('knowledge/./foo.md');
   assert.equal(r.ok, false);
   assert.match(r.message, /\./);
 });
@@ -131,20 +129,20 @@ test('rejects "." segment', () => {
 // ---------------------------------------------------------------------------
 test('rejects segment > 255 bytes', () => {
   const longSeg = 'a'.repeat(256);
-  const r = validateSyncPath(`skills/${longSeg}`);
+  const r = validateSyncPath(`knowledge/${longSeg}`);
   assert.equal(r.ok, false);
   assert.match(r.message, /255/);
 });
 test('accepts segment of exactly 255 bytes', () => {
   const seg = 'a'.repeat(255);
-  assert.equal(validateSyncPath(`skills/${seg}`).ok, true);
+  assert.equal(validateSyncPath(`knowledge/${seg}`).ok, true);
 });
 
 // ---------------------------------------------------------------------------
 // Total length > 1024
 // ---------------------------------------------------------------------------
 test('rejects path > 1024 bytes total', () => {
-  const longPath = 'skills/' + 'a'.repeat(1018);
+  const longPath = 'knowledge/' + 'a'.repeat(1015);
   assert.equal(longPath.length, 1025);
   const r = validateSyncPath(longPath);
   assert.equal(r.ok, false);
@@ -152,11 +150,11 @@ test('rejects path > 1024 bytes total', () => {
 });
 test('accepts path of exactly 1024 bytes (with valid segments)', () => {
   // Build a path with multiple segments, each ≤255, that totals exactly 1024 chars.
-  // skills/ = 7 chars; we add 3 segments of 255 + '/' separators + final segment.
-  // 7 + 255 + 1 + 255 + 1 + 255 + 1 + 249 = 1024
+  // knowledge/ = 10 chars; we add 3 segments of 255 + '/' separators + final segment.
+  // 10 + 255 + 1 + 255 + 1 + 255 + 1 + 246 = 1024
   const seg = 'a'.repeat(255);
-  const last = 'b'.repeat(249);
-  const p = `skills/${seg}/${seg}/${seg}/${last}`;
+  const last = 'b'.repeat(246);
+  const p = `knowledge/${seg}/${seg}/${seg}/${last}`;
   assert.equal(p.length, 1024);
   assert.equal(validateSyncPath(p).ok, true);
 });
@@ -179,8 +177,9 @@ test('rejects bare filename with no prefix', () => {
 // ---------------------------------------------------------------------------
 // ALLOWED_PREFIXES export
 // ---------------------------------------------------------------------------
-test('ALLOWED_PREFIXES contains expected values', () => {
-  for (const prefix of ['skills/', 'knowledge/', '.mcp/', '_meta/', '_secrets/', '_feedback/']) {
-    assert.ok(ALLOWED_PREFIXES.includes(prefix), `missing prefix ${prefix}`);
-  }
+test('ALLOWED_PREFIXES is knowledge/ and nothing else', () => {
+  // An exact match on purpose: this list is mirrored in three Rust constants
+  // (daemon + desktop path_validator, global_team_store), and a prefix quietly
+  // added back on one side is the failure mode this pins down.
+  assert.deepEqual([...ALLOWED_PREFIXES], ['knowledge/']);
 });

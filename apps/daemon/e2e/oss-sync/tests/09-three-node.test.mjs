@@ -13,7 +13,7 @@ after(async () => { await ctx?.teardown(); }, { timeout: 150000 });
 test("three-node: A write converges to B and C", { skip: !RUN, timeout: 180000 }, async () => {
   const { nodes, teamId } = ctx;
   const root = contentRootPath(teamId);
-  await writeFile("node-a", `${root}/skills/y.md`, Buffer.from("tri\n"));
+  await writeFile("node-a", `${root}/knowledge/y.md`, Buffer.from("tri\n"));
   await sync(nodes.a);
   await sync(nodes.b);
   await sync(nodes.c);

@@ -15,11 +15,12 @@ pub const TEAM_LINK_NAME: &str = "teamclaw-team";
 /// Fixed top-level subdirectories the sync engine watches inside the team dir.
 /// Mirrors `oss_sync::path_validator::ALLOWED_PREFIXES` (without trailing `/`).
 ///
-/// `.mcp` and `_secrets` are gone: they moved to the Cloud API
-/// (`docs/architecture/team-mcp-and-env-cloud.md`) and the daemon now mirrors
-/// them into `<team>/cloud/` instead — a sibling of this directory, so the sync
-/// engine never sees them.
-pub const SHARED_PREFIXES: &[&str] = &["skills", "knowledge", "_meta", "_feedback"];
+/// Only `knowledge` is left. `.mcp` and `_secrets` moved to the Cloud API
+/// (`docs/architecture/team-mcp-and-env-cloud.md`) and are mirrored into
+/// `<team>/cloud/` — a sibling of this directory, so the sync engine never sees
+/// them. `skills` moved to the skills registry. `_meta` and `_feedback` never
+/// had a writer here.
+pub const SHARED_PREFIXES: &[&str] = &["knowledge"];
 
 /// `~/.amuxd/teams/<team_id>/teamclaw-team` — the one synced copy.
 pub fn global_team_dir(team_id: &str) -> PathBuf {

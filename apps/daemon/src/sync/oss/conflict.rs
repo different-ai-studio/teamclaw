@@ -157,13 +157,13 @@ mod tests {
     fn test_original_from_conflict_roundtrip() {
         // With extension
         assert_eq!(
-            original_from_conflict("skills/foo.conflict.1748332800.abc123de.md").as_deref(),
-            Some("skills/foo.md")
+            original_from_conflict("knowledge/foo.conflict.1748332800.abc123de.md").as_deref(),
+            Some("knowledge/foo.md")
         );
         // No extension
         assert_eq!(
-            original_from_conflict("skills/Makefile.conflict.9999.deadbeef").as_deref(),
-            Some("skills/Makefile")
+            original_from_conflict("knowledge/Makefile.conflict.9999.deadbeef").as_deref(),
+            Some("knowledge/Makefile")
         );
         // Multi-dot original (only the last segment is the recorded ext)
         assert_eq!(
@@ -172,8 +172,8 @@ mod tests {
         );
         // Dotfile
         assert_eq!(
-            original_from_conflict("skills/.conflict.100.aabbccdd.gitignore").as_deref(),
-            Some("skills/.gitignore")
+            original_from_conflict("knowledge/.conflict.100.aabbccdd.gitignore").as_deref(),
+            Some("knowledge/.gitignore")
         );
         // Root-level (no dir)
         assert_eq!(
@@ -181,13 +181,13 @@ mod tests {
             Some("foo.md")
         );
         // Not a conflict file
-        assert_eq!(original_from_conflict("skills/foo.md"), None);
+        assert_eq!(original_from_conflict("knowledge/foo.md"), None);
     }
 
     #[test]
     fn test_filename_conflict_roundtrip_via_helpers() {
         // conflict_filename → original_from_conflict should recover the original.
-        for original in ["skills/foo.md", "k/Makefile", "a/b/note.txt"] {
+        for original in ["knowledge/foo.md", "k/Makefile", "a/b/note.txt"] {
             let conflict = conflict_filename(
                 Path::new(&format!("/ws/{original}")),
                 1748332800,
@@ -209,7 +209,7 @@ mod tests {
     #[tokio::test]
     async fn test_write_conflict_sidecar() {
         let dir = tempfile::tempdir().unwrap();
-        let original = dir.path().join("skills").join("test.md");
+        let original = dir.path().join("knowledge").join("test.md");
         std::fs::create_dir_all(original.parent().unwrap()).unwrap();
         std::fs::write(&original, b"original").unwrap();
 

@@ -341,9 +341,25 @@ fn remap_team_skill_path(workspace_path: &Path, path: PathBuf, team_id: &str) ->
     path
 }
 
-/// Team skill directory roots for a workspace (config paths + default team share).
+/// Team skill directory roots for a workspace (config paths + default team
+/// share + the registry install dir).
+///
+/// `~/.agents/skills` is where the team skills registry installs packages, and
+/// it has to be in here rather than only in `load_all_skills`: this list is the
+/// sole input to the `.claude/skills/` symlink bridge
+/// (`runtime::claude_skills`), and `teamclaw-team/skills` no longer receives
+/// anything — file sync carries documents only. Without this, registry-installed
+/// team skills reach OpenCode (via `skills.paths`) but are invisible to Claude
+/// Code, and an empty list makes the bridge prune every team symlink it had.
 pub fn team_skill_roots(workspace_path: &Path) -> Vec<PathBuf> {
-    collect_team_skill_paths(workspace_path)
+    let mut roots = collect_team_skill_paths(workspace_path);
+    if let Some(home) = dirs::home_dir() {
+        let registry_dir = home.join(".agents/skills");
+        if registry_dir.is_dir() && !roots.contains(&registry_dir) {
+            roots.push(registry_dir);
+        }
+    }
+    roots
 }
 
 fn collect_team_skill_paths(workspace_path: &Path) -> Vec<PathBuf> {

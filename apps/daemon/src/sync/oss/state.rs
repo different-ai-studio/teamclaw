@@ -234,7 +234,7 @@ mod tests {
         assert_eq!(state.last_server_seq, 0);
 
         state.upsert(
-            "skills/foo.md",
+            "knowledge/foo.md",
             3,
             "cipherhash".into(),
             "plainhash".into(),
@@ -247,7 +247,7 @@ mod tests {
 
         let loaded = LocalSyncState::load(ws, "team-abc").unwrap();
         assert_eq!(loaded.last_server_seq, 42);
-        let f = loaded.files.get("skills/foo.md").unwrap();
+        let f = loaded.files.get("knowledge/foo.md").unwrap();
         assert_eq!(f.synced_version, 3);
         assert_eq!(f.synced_cipher_hash, "cipherhash");
         assert!(!f.dirty);

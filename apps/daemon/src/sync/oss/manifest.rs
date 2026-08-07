@@ -62,17 +62,17 @@ mod tests {
         let pages: Vec<ManifestPage> = vec![
             ManifestPage {
                 snapshot_seq: 100,
-                items: vec![make_item("skills/a.md", 1, 10)],
+                items: vec![make_item("knowledge/a.md", 1, 10)],
                 next_cursor: Some("cursor-A".to_string()),
             },
             ManifestPage {
                 snapshot_seq: 100,
-                items: vec![make_item("skills/b.md", 2, 20)],
+                items: vec![make_item("knowledge/b.md", 2, 20)],
                 next_cursor: Some("cursor-B".to_string()),
             },
             ManifestPage {
                 snapshot_seq: 100,
-                items: vec![make_item("skills/c.md", 3, 30)],
+                items: vec![make_item("knowledge/c.md", 3, 30)],
                 next_cursor: None,
             },
         ];
@@ -89,9 +89,9 @@ mod tests {
         .await;
 
         assert_eq!(all_items.len(), 3);
-        assert_eq!(all_items[0].path, "skills/a.md");
-        assert_eq!(all_items[1].path, "skills/b.md");
-        assert_eq!(all_items[2].path, "skills/c.md");
+        assert_eq!(all_items[0].path, "knowledge/a.md");
+        assert_eq!(all_items[1].path, "knowledge/b.md");
+        assert_eq!(all_items[2].path, "knowledge/c.md");
         // snapshot_seq from first page should be used
         assert_eq!(final_seq, 100);
     }
@@ -125,12 +125,12 @@ mod tests {
         let pages = vec![
             ManifestPage {
                 snapshot_seq: 50,
-                items: vec![make_item("skills/p1.md", 1, 10)],
+                items: vec![make_item("knowledge/p1.md", 1, 10)],
                 next_cursor: Some("c1".to_string()),
             },
             ManifestPage {
                 snapshot_seq: 99, // server returned different seq on page 2 (shouldn't happen but test robustness)
-                items: vec![make_item("skills/p2.md", 2, 20)],
+                items: vec![make_item("knowledge/p2.md", 2, 20)],
                 next_cursor: None,
             },
         ];

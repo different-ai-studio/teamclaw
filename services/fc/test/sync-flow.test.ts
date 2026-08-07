@@ -170,7 +170,7 @@ test('Test 1: happy path prepare → complete → version=1', async (t) => {
   const hash = `aabb${RUN}001`.padEnd(64, '0');
 
   const sessionId = await insertSession({
-    actorId: ctx.actorAlice, path: 'skills/test1.md',
+    actorId: ctx.actorAlice, path: 'knowledge/test1.md',
     parentVersion: 0, contentHash: hash, size: 100,
   });
 
@@ -199,10 +199,10 @@ test('Test 2: concurrent complete → one wins, one gets cas-mismatch', async (t
   const hash2 = `ccdd${RUN}002b`.padEnd(64, '0');
 
   const sessionId1 = await insertSession({
-    actorId: ctx.actorAlice, path: 'skills/test2.md', parentVersion: 0, contentHash: hash1, size: 100,
+    actorId: ctx.actorAlice, path: 'knowledge/test2.md', parentVersion: 0, contentHash: hash1, size: 100,
   });
   const sessionId2 = await insertSession({
-    actorId: ctx.actorAlice, path: 'skills/test2.md', parentVersion: 0, contentHash: hash2, size: 200,
+    actorId: ctx.actorAlice, path: 'knowledge/test2.md', parentVersion: 0, contentHash: hash2, size: 200,
   });
 
   const [r1, r2] = await Promise.all([
@@ -227,14 +227,14 @@ test('Test 3: stale parent_version → cas-mismatch', async (t) => {
 
   // First commit (v=0 → v=1)
   const sid1 = await insertSession({
-    actorId: ctx.actorAlice, path: 'skills/test3.md', parentVersion: 0, contentHash: hash1, size: 100,
+    actorId: ctx.actorAlice, path: 'knowledge/test3.md', parentVersion: 0, contentHash: hash1, size: 100,
   });
   const { error: err1 } = await completeUpload(sid1, ctx.actorAlice);
   assert.ok(!err1, `first commit: ${err1?.message}`);
 
   // Second commit with stale parent_version=0
   const sid2 = await insertSession({
-    actorId: ctx.actorAlice, path: 'skills/test3.md', parentVersion: 0, contentHash: hash2, size: 200,
+    actorId: ctx.actorAlice, path: 'knowledge/test3.md', parentVersion: 0, contentHash: hash2, size: 200,
   });
   const { error: err2 } = await completeUpload(sid2, ctx.actorAlice);
   assert.ok(err2, 'should fail with cas-mismatch');
@@ -251,7 +251,7 @@ test('Test 4: actor mismatch → P0403', async (t) => {
   const hash = `3344${RUN}004`.padEnd(64, '0');
   // Alice creates, Bob tries to complete
   const sessionId = await insertSession({
-    actorId: ctx.actorAlice, path: 'skills/test4.md', parentVersion: 0, contentHash: hash, size: 100,
+    actorId: ctx.actorAlice, path: 'knowledge/test4.md', parentVersion: 0, contentHash: hash, size: 100,
   });
   const { error } = await completeUpload(sessionId, ctx.actorBob);
   assert.ok(error, 'should fail with actor mismatch');
@@ -267,7 +267,7 @@ test('Test 5: expired session → P0410', async (t) => {
   const hash = `5566${RUN}005`.padEnd(64, '0');
   // expires_at in the past
   const sessionId = await insertSession({
-    actorId: ctx.actorAlice, path: 'skills/test5.md', parentVersion: 0, contentHash: hash, size: 100,
+    actorId: ctx.actorAlice, path: 'knowledge/test5.md', parentVersion: 0, contentHash: hash, size: 100,
     expiresIn: -1000, // 1 second in the past
   });
   const { error } = await completeUpload(sessionId, ctx.actorAlice);

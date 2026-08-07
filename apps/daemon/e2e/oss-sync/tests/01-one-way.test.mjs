@@ -9,11 +9,11 @@ let ctx;
 before(async () => { ctx = await provisionTwoNodeTeam(); }, { timeout: 180000 });
 after(async () => { await ctx?.teardown(); }, { timeout: 120000 });
 
-test("one-way: A writes skills/x.md -> B pulls identical", { timeout: 120000 }, async () => {
+test("one-way: A writes knowledge/x.md -> B pulls identical", { timeout: 120000 }, async () => {
   const { nodes, teamId } = ctx;
   const root = contentRootPath(teamId);
 
-  await writeFile("node-a", `${root}/skills/x.md`, Buffer.from("hello from A\n"));
+  await writeFile("node-a", `${root}/knowledge/x.md`, Buffer.from("hello from A\n"));
   const a1 = await sync(nodes.a);
   assert.equal(a1.lastError ?? null, null, `A sync error: ${a1.lastError}`);
   assert.equal(a1.mode, "oss");
@@ -25,6 +25,6 @@ test("one-way: A writes skills/x.md -> B pulls identical", { timeout: 120000 }, 
 
   const treeA = await ctx.lsContentRoot("node-a", teamId);
   const treeB = await ctx.lsContentRoot("node-b", teamId);
-  assert.ok(treeB["skills/x.md"], "B should have skills/x.md");
+  assert.ok(treeB["knowledge/x.md"], "B should have knowledge/x.md");
   assertConverged(treeA, treeB, "one-way");
 });
