@@ -6,12 +6,16 @@ const path = require("path");
 const { createRustBuildEnv } = require("./rust-build-env");
 const { ensureTeamclawIntrospectSidecar } = require("./ensure-introspect-sidecar");
 const { ensureAmuxdSidecar } = require("./ensure-amuxd-sidecar");
-const { ensureAgentBridgeBundles } = require("./ensure-agent-bridge-bundles");
+const {
+  ensureAgentBridgeBundles,
+  extractTargetFromArgv,
+} = require("./ensure-agent-bridge-bundles");
 const { platform } = process;
 
 let args = process.argv.slice(2);
 const isWindows = platform === "win32";
 const sub = args[0];
+const bridgeTarget = extractTargetFromArgv(args);
 
 /**
  * Strip desktop-dev-only flags and expose them via env before sidecars / tauri run.
@@ -106,7 +110,10 @@ const env = createRustBuildEnv(process.env, __dirname);
 args = applyDevSkipFlags(args, env);
 ensureTeamclawIntrospectSidecar(env, { logPrefix: "[tauri-cli]" });
 ensureAmuxdSidecar(env, { logPrefix: "[tauri-cli]" });
-ensureAgentBridgeBundles(env, { logPrefix: "[tauri-cli]" });
+ensureAgentBridgeBundles(env, {
+  logPrefix: "[tauri-cli]",
+  target: bridgeTarget,
+});
 
 const desktopDir = path.resolve(__dirname, "..", "apps", "desktop");
 const child = spawn("pnpm", ["exec", "tauri", ...args], {
