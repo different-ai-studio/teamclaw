@@ -36,6 +36,12 @@ pub struct TickResult {
     pub pulled: u32,
     pub pushed: u32,
     pub conflicts: u32,
+    /// Files the server listed but we could not fetch this tick.
+    ///
+    /// Previously this number had nowhere to go: a failed pull only produced a
+    /// `warn!`, the tick still returned `Ok`, and the UI just saw a smaller
+    /// `pulled`. Surfacing it is what makes the failure observable at all.
+    pub failed: u32,
 }
 
 /// Run a full sync tick: PULL then PUSH (spec §4.3).
@@ -171,12 +177,20 @@ pub async fn tick(
     }
 
     // Batched download (with per-file fallback on a pre-batch FC).
+    let expected_pulls = pull_items.len();
     let pulled = pull_phase(content_root, &key, fc, &mut state, pull_items).await;
+    let pull_failures = expected_pulls.saturating_sub(pulled as usize);
 
-    // Only advance high-water mark after fully draining cursor (spec §4.3).
-    if let Some(seq) = snapshot_seq {
-        state.last_server_seq = seq;
+    let advanced = next_high_water(state.last_server_seq, snapshot_seq, pull_failures);
+    if advanced == state.last_server_seq && pull_failures > 0 {
+        tracing::warn!(
+            team_id,
+            failed = pull_failures,
+            held_at = state.last_server_seq,
+            "holding sync cursor: some files could not be pulled; they will be retried next tick"
+        );
     }
+    state.last_server_seq = advanced;
 
     // ── PUSH ─────────────────────────────────────────────────────────────────
     // Re-scan (the tree may have changed during PULL) to pick up current
@@ -258,6 +272,7 @@ pub async fn tick(
         pulled,
         pushed,
         conflicts: conflict_count,
+        failed: pull_failures as u32,
     };
 
     tracing::info!(
@@ -265,6 +280,7 @@ pub async fn tick(
         pulled = result.pulled,
         pushed = result.pushed,
         conflicts = result.conflicts,
+        failed = result.failed,
         "oss sync tick complete"
     );
 
@@ -400,6 +416,23 @@ fn prepare_upload(
 
 /// Batched PULL: sign N GET URLs in one FC round-trip, then fetch + decrypt +
 /// write blobs concurrently straight from OSS. Returns the number pulled.
+/// Where the sync cursor should sit after a pull.
+///
+/// Advance only when the cursor was fully drained (`snapshot_seq` is `Some`)
+/// **and** every listed file landed. Advancing past a failed pull loses that
+/// file permanently: the next tick asks for `changeSeq > last_server_seq`, so
+/// the server never lists it again, `needs_download` never gets to re-evaluate
+/// it, and nothing retries — pull failures are not counted in `deferred`, the
+/// tick still returns `Ok`, and only a `warn!` records it. Holding the mark
+/// back costs one extra version comparison per already-synced file on the next
+/// tick (`needs_download` skips them; nothing is re-downloaded).
+fn next_high_water(current: i64, snapshot_seq: Option<i64>, pull_failures: usize) -> i64 {
+    match snapshot_seq {
+        Some(seq) if pull_failures == 0 => seq,
+        _ => current,
+    }
+}
+
 async fn pull_phase(
     content_root: &str,
     key: &[u8; 32],
@@ -1239,6 +1272,18 @@ mod tests {
         state.files.insert("skills/a.md".into(), synced_file(2));
         let scan = vec![scanned("skills/a.md")];
         assert!(locally_deleted_paths(&state, &scan).is_empty());
+    }
+
+    #[test]
+    fn high_water_advances_only_on_a_fully_successful_pull() {
+        // Clean drain → advance.
+        assert_eq!(next_high_water(10, Some(42), 0), 42);
+        // One file failed → hold, so the next manifest request re-lists it.
+        assert_eq!(next_high_water(10, Some(42), 1), 10);
+        // Manifest never produced a snapshot → nothing to advance to.
+        assert_eq!(next_high_water(10, None, 0), 10);
+        // Never regress, even if the server hands back an older snapshot.
+        assert_eq!(next_high_water(10, Some(42), 3), 10);
     }
 
     #[test]

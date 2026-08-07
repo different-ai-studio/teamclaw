@@ -618,6 +618,12 @@ fn sync_menu(theme: &ColorfulTheme) -> anyhow::Result<()> {
                 "  pulled {} · pushed {} · conflicts {}",
                 status.pulled, status.pushed, status.conflicts
             );
+            if status.failed > 0 {
+                println!(
+                    "  ⚠ {} file(s) could not be pulled — cursor held back, will retry",
+                    status.failed
+                );
+            }
             if let Some(err) = status.last_error.filter(|e| !e.trim().is_empty()) {
                 println!("  last_error: {err}");
             }
@@ -863,6 +869,8 @@ struct HttpSyncStatus {
     pulled: u32,
     pushed: u32,
     conflicts: u32,
+    #[serde(default)]
+    failed: u32,
 }
 
 fn trigger_sync_via_http(workspace: &Path, team_id: &str) -> anyhow::Result<HttpSyncStatus> {
