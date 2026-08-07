@@ -13,7 +13,8 @@ pub(crate) enum EnvSnapshotDecision {
     /// Fingerprint changed and no routes hold the host — safe to restart.
     RestartAllowed,
     /// Fingerprint changed, but every active route belongs to this workspace.
-    /// Keep the running env; queue the new snapshot for a later idle restart.
+    /// Keep the running env; queue the new snapshot and recycle the serve when
+    /// the last route detaches (`ServeSupervisor::apply_pending_env_if_idle`).
     TolerateSameWorkspace,
     /// Fingerprint changed and at least one other workspace still holds a route.
     ConflictOtherWorkspace,
