@@ -228,7 +228,7 @@ pub enum AgentError {
     Create(String),
     #[error("agent send failed: {0}")]
     Send(String),
-    #[error("agent turn timed out")]
+    #[error("agent turn timed out waiting for a reply — please retry")]
     Timeout,
     #[error("not found: {0}")]
     NotFound(String),
