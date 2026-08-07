@@ -22,6 +22,14 @@ const inputCls =
 
 /** Same rule as the desktop `validate_key_id` and the server's column check. */
 const KEY_ID_RE = /^[a-z0-9_]{1,64}$/
+/**
+ * A personal key becomes a real environment variable name on the agent's spawn
+ * command, so it has to be a legal one. Nothing downstream checks: the Rust
+ * personal path validates nothing, and a name with a space or `=` is silently
+ * dropped or corrupts the surrounding block. The settings dialog this form
+ * replaced enforced exactly this.
+ */
+const PERSONAL_KEY_RE = /^[A-Za-z_][A-Za-z0-9_]*$/
 
 /** Match SharedSecretsState init failures — keep keywords aligned with EnvVarsSection. */
 function isTeamSecretMissingError(message: string): boolean {
@@ -58,6 +66,25 @@ function toastSaveError(
  * encrypted before it leaves the machine" contract, and that is easy to break
  * from a distance.
  */
+/**
+ * Resolve the local daemon actor id, which team-scope writes are attributed to.
+ *
+ * The store only ever had `reset()` called on it — the one component that used
+ * to load it was the old Settings > Env Variables page, and that navigation
+ * entry is gone. So `currentNodeId` stayed null, every team write sent
+ * `nodeId: ''`, and the Rust command refused it ("nodeId is required for team
+ * env vars"). Loading it where it is consumed keeps that from drifting apart
+ * again. The store call is idempotent and returns early once resolved.
+ */
+function useCurrentNodeId(): string | null {
+  const currentNodeId = useTeamMembersStore((s) => s.currentNodeId)
+  const loadCurrentNodeId = useTeamMembersStore((s) => s.loadCurrentNodeId)
+  React.useEffect(() => {
+    if (!currentNodeId) void loadCurrentNodeId()
+  }, [currentNodeId, loadCurrentNodeId])
+  return currentNodeId
+}
+
 export function EnvCreateForm({
   onDone,
   onCancel,
@@ -72,7 +99,7 @@ export function EnvCreateForm({
   const setCatalogEntry = useEnvVarsStore((s) => s.setCatalogEntry)
   // Team-scope writes are node-attributed; the Rust command rejects the call
   // outright without it (env_vars.rs: "nodeId is required for team env vars").
-  const currentNodeId = useTeamMembersStore((s) => s.currentNodeId)
+  const currentNodeId = useCurrentNodeId()
   const [scope, setScope] = React.useState<'team' | 'personal'>('team')
   const [keyId, setKeyId] = React.useState('')
   const [value, setValue] = React.useState('')
@@ -83,8 +110,22 @@ export function EnvCreateForm({
   // The key-id charset is a team-store rule (it becomes a row key server-side).
   // Personal keys are ordinary env var names and conventionally upper-case, so
   // holding them to the team rule would reject `OPENAI_API_KEY`.
-  const keyValid = scope === 'team' ? KEY_ID_RE.test(keyId) : keyId.trim().length > 0
-  const canSubmit = keyValid && value.trim().length > 0 && !busy
+  const keyValid =
+    scope === 'team' ? KEY_ID_RE.test(keyId) : PERSONAL_KEY_RE.test(keyId.trim())
+  // Team writes need the local daemon actor. Say so, rather than greying the
+  // button out for a reason that is nowhere on screen.
+  const teamBlocker =
+    scope === 'team' && !currentNodeId
+      ? t('teamShare.envDetail.needsDaemon', 'Waiting for the local daemon — team keys are attributed to it.')
+      : keyId.length > 0 && !keyValid
+        ? scope === 'team'
+          ? t('teamShare.envDetail.keyIdRule', 'Team keys allow lower-case letters, digits and underscore only.')
+          : t(
+              'teamShare.envDetail.personalKeyRule',
+              'Must be a valid environment variable name: letters, digits and underscore, not starting with a digit.',
+            )
+        : null
+  const canSubmit = keyValid && value.trim().length > 0 && !busy && !teamBlocker
 
   const submit = React.useCallback(async () => {
     if (!canSubmit) return
@@ -194,6 +235,9 @@ export function EnvCreateForm({
         </label>
         <input className={inputCls} value={category} onChange={(e) => setCategory(e.target.value)} />
       </div>
+      {teamBlocker && (
+        <p className="text-[12px] text-amber-600">{teamBlocker}</p>
+      )}
       <div className="flex items-center gap-2 pt-1">
         <Button
           type="button"
@@ -250,7 +294,7 @@ export function EnvDetail({ keyId: selectionId }: { keyId: string }) {
   const undecryptable = isTeam && teamItem?.decrypted === false
   const setCatalogEntry = useEnvVarsStore((s) => s.setCatalogEntry)
   const deleteCatalogEntry = useEnvVarsStore((s) => s.deleteCatalogEntry)
-  const currentNodeId = useTeamMembersStore((s) => s.currentNodeId)
+  const currentNodeId = useCurrentNodeId()
   const select = useTeamShareBrowserStore((s) => s.select)
   const loadCounts = useTeamShareBrowserStore((s) => s.loadCounts)
 

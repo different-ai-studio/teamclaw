@@ -19,7 +19,7 @@ import { markStartup } from "@/lib/startup-perf";
 import { TeamPicker } from "./TeamPicker";
 import { PendingInvitesDialog } from "@/components/auth/PendingInvitesDialog";
 import { GuestTeamDiscovery } from "@/components/auth/GuestTeamDiscovery";
-import { getDesktopDeviceId } from "@/lib/backend/cloud-api/device-id";
+import { getDesktopDeviceIdOrNull } from "@/lib/backend/cloud-api/device-id";
 import type { MembershipTeam } from "@/lib/backend";
 
 interface AuthGateProps {
@@ -273,9 +273,14 @@ export function AuthGate({ children }: AuthGateProps) {
           // Guests pass the per-install id so a second quick trial on this
           // machine lands back in the team the first one made, rather than
           // leaving another abandoned team in the shared org.
+          //
+          // Deliberately the null-returning variant: the plain one falls back
+          // to a shared "desktop-unknown" literal, and every install that hit
+          // that fallback would be handed the SAME guest team. A null just
+          // means no reuse — one extra team beats strangers sharing one.
           const created = await getBackend().teams.bootstrapTeam({
             displayName,
-            deviceId: session.user?.isAnonymous ? getDesktopDeviceId() : null,
+            deviceId: session.user?.isAnonymous ? getDesktopDeviceIdOrNull() : null,
           });
           if (created?.id) {
             await useCurrentTeamStore.getState().setActiveTeam({

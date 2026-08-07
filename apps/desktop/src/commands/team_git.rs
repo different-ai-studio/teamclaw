@@ -526,7 +526,11 @@ async fn team_git_join_impl(
         super::CONFIG_FILE_NAME
     );
 
-    crate::commands::team_secret_store::save_team_secret(&workspace_path, &team_id, &team_secret)?;
+    crate::commands::team_secret_store::save_team_secret_logged(
+        &workspace_path,
+        &team_id,
+        &team_secret,
+    )?;
     println!("[Team Join] Saved team_secret to local encrypted store");
 
     {
@@ -817,6 +821,7 @@ pub async fn get_git_team_secret(
     let workspace_path =
         crate::commands::team::resolve_workspace_path(workspace_path, &window, &registry)?;
     crate::commands::team_secret_store::load_team_secret(&workspace_path, &team_id)
+        .map_err(Into::into)
 }
 
 #[cfg(test)]

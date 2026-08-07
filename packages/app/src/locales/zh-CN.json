@@ -25,7 +25,6 @@
     "mcp": "MCP",
     "env": "环境变量",
     "knowledge": "知识库",
-    "toggle": "团队共享",
     "empty": "团队尚未共享任何内容。",
     "selectPrompt": "选择一项{{section}}在此查看。",
     "save": "保存",
@@ -111,6 +110,10 @@
       "noTools": "未报告任何工具。"
     },
     "envDetail": {
+      "secretMissing": "本机缺少团队加密密钥，无法保存。请先在设置 → Daemon → 通用中配置。",
+      "personalKeyRule": "必须是合法的环境变量名：字母、数字、下划线，且不能以数字开头。",
+      "needsDaemon": "正在等待本机 daemon —— 团队密钥需要归属到它。",
+      "keyIdRule": "团队密钥只允许小写字母、数字和下划线。",
       "added": "已添加",
       "deleted": "已删除",
       "deleteFailed": "删除失败：{{msg}}",
@@ -200,6 +203,9 @@
     "remember": "记住我的选择（可在设置里改）",
     "confirm": "确定",
     "panelTitle": "本地 Agent"
+  },
+  "menu": {
+    "settings": "设置…"
   },
   "tray": {
     "showMain": "打开主窗口",
@@ -1227,7 +1233,6 @@
       "team": "团队共享",
       "tokenUsage": "Token 用量",
       "voice": "语音",
-      "envVars": "环境变量",
       "knowledge": "知识库",
       "privacy": "隐私与遥测",
       "cache": "本地缓存",
@@ -1336,13 +1341,6 @@
       "connected": "已连接",
       "title": "LLM 模型",
       "description": "管理 AI 提供商，连接并启用模型选择",
-      "workspacePath": "Workspace 路径",
-      "noWorkspace": "未选择 workspace",
-      "switchWorkspace": "切换 Workspace",
-      "switchTeamWorkspaceTitle": "切换团队 Workspace？",
-      "switchTeamWorkspaceDesc": "当前团队挂载了共享 Git 仓库。切换 workspace 后，会在新目录重新初始化团队并 clone 团队共享内容。",
-      "nextWorkspacePath": "新的 workspace 路径",
-      "confirmSwitchWorkspace": "切换并初始化",
       "addCustom": "添加自定义",
       "addCustomTooltip": "添加 OpenAI 兼容的自定义提供商",
       "teamSharedModel": "团队共享模型",
@@ -1698,14 +1696,7 @@
       "description": "管理 Daemon Agent 可使用的 workspace",
       "noTeam": "加入或创建团队后再配置 Daemon workspace。",
       "noCurrentAgent": "本机暂未关联 Daemon Agent。",
-      "addTitle": "添加 Daemon workspace",
-      "addDesc": "为本机 Daemon Agent 登记一个本地目录。",
       "bindToAgent": "将绑定到本机 Agent「{{name}}」",
-      "namePreview": "登记名称：{{name}}",
-      "setDefaultOnAdd": "设为默认并注册到 Daemon",
-      "setDefaultOnAddHint": "一步完成：更新 Agent 默认 workspace，并在本机 Daemon 上注册该目录。",
-      "path": "路径",
-      "useCurrent": "使用当前",
       "add": "添加 Workspace",
       "alreadyRegistered": "这个目录已经注册过了。",
       "availableTitle": "Daemon 工作区",
@@ -2959,9 +2950,6 @@
       "sshLocalHint": "留空即复用本机的 SSH 密钥与 ssh-agent（~/.ssh）——无需输入密码或粘贴私钥。",
       "tokenPlaceholder": "粘贴具有 repo 权限的 Personal Access Token",
       "branchLabel": "分支（可选，默认 main）",
-      "teamSecretOptionalLabel": "团队密钥（可选）",
-      "teamSecretOptionalPlaceholder": "留空自动生成；或粘贴 64 位十六进制",
-      "teamSecretOptionalDesc": "用于加密团队共享环境变量。填写后成员需使用同一密钥；留空则由本机自动生成。",
       "lockWarning": "⚠️ 开通后不可切换。",
       "confirmEnable": "确认开通",
       "title": "团队共享",
@@ -2996,6 +2984,7 @@
       "enableButton": "开通 LiteLLM"
     },
     "teamSecret": {
+      "storeUnreadable": "无法读取本机密钥库：{{msg}}",
       "emptyError": "请输入团队密钥，或点击生成。",
       "label": "团队密钥",
       "placeholder": "任意口令，或 64 位十六进制密钥",

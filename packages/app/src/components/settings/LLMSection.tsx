@@ -18,12 +18,10 @@ import {
   ExternalLink,
   Copy,
   Check,
-  FolderOpen,
 } from 'lucide-react'
 import { useProviderStore } from '@/stores/provider'
 import { useWorkspaceStore } from '@/stores/workspace'
 import { useTeamModeStore } from '@/stores/team-mode'
-import { useTeamShareStore, isShareModeLocked } from '@/stores/team-share'
 import { TEAM_SHARED_PROVIDER_ID } from '@/lib/team-provider'
 import { cn } from '@/lib/utils'
 import { Button } from '@/components/ui/button'
@@ -80,7 +78,6 @@ async function fetchOpenAICompatibleModels(baseURL: string, apiKey: string): Pro
 
 export const OpenCodeLLMSection = React.memo(function OpenCodeLLMSection() {
   const { t } = useTranslation()
-  const teamShareActive = useTeamShareStore((s) => isShareModeLocked(s.status.mode))
   const teamModelConfig = useTeamModeStore((s) => s.teamModelConfig)
   const devUnlocked = useTeamModeStore((s) => s.devUnlocked)
   const providers = useProviderStore((s) => s.providers)
@@ -101,7 +98,6 @@ export const OpenCodeLLMSection = React.memo(function OpenCodeLLMSection() {
   const removeCustomProvider = useProviderStore((s) => s.removeCustomProvider)
   const disconnectProvider = useProviderStore((s) => s.disconnectProvider)
   const workspacePath = useWorkspaceStore((s) => s.workspacePath)
-  const setWorkspace = useWorkspaceStore((s) => s.setWorkspace)
 
   // Dialog state for connecting a provider
   const [connectDialogOpen, setConnectDialogOpen] = React.useState(false)

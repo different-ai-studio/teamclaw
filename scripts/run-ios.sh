@@ -6,7 +6,7 @@ IOS_DIR="$ROOT_DIR/apps/ios"
 DERIVED_DATA_PATH="$IOS_DIR/build"
 APP_PATH="$DERIVED_DATA_PATH/Build/Products/Debug-iphonesimulator/AMUX.app"
 SCHEME="${IOS_SCHEME:-AMUX}"
-SIMULATOR_NAME="${IOS_SIMULATOR_NAME:-iPhone 16e}"
+SIMULATOR_NAME="${IOS_SIMULATOR_NAME:-iPhone 17e}"
 DESTINATION="${IOS_DESTINATION:-platform=iOS Simulator,name=$SIMULATOR_NAME}"
 BUNDLE_ID="${IOS_BUNDLE_ID:-tech.teamclaw.mobile}"
 

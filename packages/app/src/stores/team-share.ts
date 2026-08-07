@@ -253,8 +253,12 @@ export const useTeamShareStore = create<TeamShareState>((set, get) => ({
         workspacePath,
       })
       return secret ?? null
-    } catch {
-      return null
+    } catch (e) {
+      // Rust distinguishes "no secret configured" (returns null) from "the
+      // store is there but unreadable" (throws). Collapsing both to null told
+      // the user to configure a key they already have, and hid the real cause —
+      // a corrupt blob or wrong master key, which needs quarantine, not typing.
+      throw e
     }
   },
 

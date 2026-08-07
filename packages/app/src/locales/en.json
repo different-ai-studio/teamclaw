@@ -25,7 +25,6 @@
     "mcp": "MCP",
     "env": "Environment Variables",
     "knowledge": "Knowledge",
-    "toggle": "Team shared",
     "empty": "Nothing shared with the team yet.",
     "selectPrompt": "Select a {{section}} item to view it here.",
     "save": "Save",
@@ -111,6 +110,10 @@
       "noTools": "No tools reported."
     },
     "envDetail": {
+      "secretMissing": "This machine has no team encryption key, so the value cannot be saved. Set it under Settings → Daemon → General first.",
+      "personalKeyRule": "Must be a valid environment variable name: letters, digits and underscore, not starting with a digit.",
+      "needsDaemon": "Waiting for the local daemon — team keys are attributed to it.",
+      "keyIdRule": "Team keys allow lower-case letters, digits and underscore only.",
       "added": "Added",
       "deleted": "Deleted",
       "deleteFailed": "Delete failed: {{msg}}",
@@ -200,6 +203,9 @@
     "remember": "Remember my choice (change anytime in Settings)",
     "confirm": "Confirm",
     "panelTitle": "Local Agent"
+  },
+  "menu": {
+    "settings": "Settings…"
   },
   "tray": {
     "showMain": "Open main window",
@@ -1227,7 +1233,6 @@
       "team": "Team Shared",
       "tokenUsage": "Token Usage",
       "voice": "Voice",
-      "envVars": "Env Variables",
       "knowledge": "Knowledge Base",
       "privacy": "Privacy & Telemetry",
       "cache": "Local Cache",
@@ -1336,13 +1341,6 @@
       "connected": "Connected",
       "title": "LLM Model",
       "description": "Manage AI providers and connect them to enable model selection",
-      "workspacePath": "Workspace Path",
-      "noWorkspace": "No workspace selected",
-      "switchWorkspace": "Switch Workspace",
-      "switchTeamWorkspaceTitle": "Switch team workspace?",
-      "switchTeamWorkspaceDesc": "This team is backed by a shared Git repository. Switching workspace will initialize the team again in the new folder and clone the shared files there.",
-      "nextWorkspacePath": "New workspace path",
-      "confirmSwitchWorkspace": "Switch and initialize",
       "addCustom": "Add Custom",
       "addCustomTooltip": "Add custom OpenAI-compatible provider",
       "teamSharedModel": "Team Shared Model",
@@ -1698,14 +1696,7 @@
       "description": "Manage workspaces that daemon agents can use",
       "noTeam": "Join or create a team before configuring daemon workspaces.",
       "noCurrentAgent": "No daemon agent is associated with this machine yet.",
-      "addTitle": "Add daemon workspace",
-      "addDesc": "Register a local directory for this machine's daemon agent.",
       "bindToAgent": "Will bind to local agent {{name}}",
-      "namePreview": "Registered as {{name}}",
-      "setDefaultOnAdd": "Set as default and register on daemon",
-      "setDefaultOnAddHint": "Updates the agent default workspace and adds the directory to the local daemon in one step.",
-      "path": "Path",
-      "useCurrent": "Use current",
       "add": "Add Workspace",
       "alreadyRegistered": "That directory is already registered.",
       "availableTitle": "Daemon workspaces",
@@ -2959,9 +2950,6 @@
       "sshLocalHint": "Leave empty to reuse this machine's SSH keys and agent (~/.ssh) — no password or key paste needed.",
       "tokenPlaceholder": "Paste a Personal Access Token with repo permissions",
       "branchLabel": "Branch (optional, defaults to main)",
-      "teamSecretOptionalLabel": "Team secret (optional)",
-      "teamSecretOptionalPlaceholder": "Leave blank to auto-generate, or paste 64 hex chars",
-      "teamSecretOptionalDesc": "Encrypts team-shared environment variables. If set, members must use the same secret; otherwise one is generated on this device.",
       "lockWarning": "⚠️ Cannot be changed once enabled.",
       "confirmEnable": "Confirm and enable",
       "title": "Team sharing",
@@ -2996,6 +2984,7 @@
       "enableButton": "Enable LiteLLM"
     },
     "teamSecret": {
+      "storeUnreadable": "Cannot read the local secret store: {{msg}}",
       "emptyError": "Enter a team secret or generate one.",
       "label": "Team secret",
       "placeholder": "Any passphrase, or a 64-hex key",

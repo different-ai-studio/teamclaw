@@ -109,6 +109,7 @@
     "process:allow-restart",
     "aptabase:allow-track-event",
     "log:default",
-    "window-state:default"
+    "window-state:default",
+    "mcp:default"
   ]
 }

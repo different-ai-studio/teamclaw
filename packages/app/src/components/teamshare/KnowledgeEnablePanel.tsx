@@ -96,25 +96,34 @@ export function useKnowledgeNeedsEnabling(): boolean {
   const workspacePath = useWorkspaceStore((s) => s.workspacePath)
   const status = useTeamShareStore((s) => s.status)
   const refresh = useTeamShareStore((s) => s.refresh)
-  const [resolved, setResolved] = React.useState(false)
+  const [resolved, setResolved] = React.useState<'pending' | 'ok' | 'failed'>('pending')
 
   // The zustand snapshot can be left over from another team, so re-read rather
   // than trusting it — showing "enable" to a team that already has it, or the
   // reverse, are both worse than a beat of nothing.
   React.useEffect(() => {
     if (!teamId || !workspacePath || !isTauri()) {
-      setResolved(true)
+      setResolved('ok')
       return
     }
     let cancelled = false
-    setResolved(false)
-    void refresh(teamId, workspacePath).finally(() => {
-      if (!cancelled) setResolved(true)
-    })
+    setResolved('pending')
+    refresh(teamId, workspacePath).then(
+      () => {
+        if (!cancelled) setResolved('ok')
+      },
+      () => {
+        if (!cancelled) setResolved('failed')
+      },
+    )
     return () => {
       cancelled = true
     }
   }, [teamId, workspacePath, refresh])
 
-  return resolved && !isShareModeLocked(status.mode)
+  // A refresh that FAILED must not read as "not enabled". `status.mode` is null
+  // in both cases, so resolving on `.finally` made a transient FC/token/daemon
+  // error hide an enabled team's whole document tree — and invite its owner to
+  // "enable" it again, which rotates the team key.
+  return resolved === 'ok' && !isShareModeLocked(status.mode)
 }

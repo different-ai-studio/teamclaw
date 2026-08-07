@@ -38,4 +38,8 @@ if [ "${APPLY_SEED:-false}" = "true" ]; then
 else
   echo "skip seed (APPLY_SEED != true)"
 fi
+# Migrations often add/replace RPCs PostgREST already cached. Without a reload,
+# the next client call gets PGRST202 ("Could not find the function … in the
+# schema cache") until rest happens to restart.
+psql -v ON_ERROR_STOP=1 -c "notify pgrst, 'reload schema';" >/dev/null
 echo "apply-migrations: done"

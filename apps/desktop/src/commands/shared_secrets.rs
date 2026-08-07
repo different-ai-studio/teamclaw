@@ -568,13 +568,13 @@ pub(crate) async fn refresh_team_secrets_from_cloud(
     team_id: Option<&str>,
     access_token: Option<&str>,
     cloud_api_url: Option<&str>,
-) -> Result<(), String> {
+) -> Result<Vec<String>, String> {
     let Some(team_id) = team_id.map(str::trim).filter(|id| !id.is_empty()) else {
-        return Ok(());
+        return Ok(Vec::new());
     };
     let derived_key = ensure_derived_key(state, workspace_path, Some(team_id))?;
     let Some(client) = fc_client_for(workspace_path, access_token, cloud_api_url) else {
-        return Ok(());
+        return Ok(Vec::new());
     };
 
     let resp = client
@@ -589,6 +589,11 @@ pub(crate) async fn refresh_team_secrets_from_cloud(
         .unwrap_or_default();
 
     let mut fetched: HashMap<String, SecretEntry> = HashMap::new();
+    // Key ids whose envelope did not open. Kept rather than dropped: a key the
+    // user configured but this machine cannot read is a state they need to SEE
+    // — silently omitting it looks identical to "never configured", which is
+    // how someone ends up retyping a secret they already have.
+    let mut undecryptable: Vec<String> = Vec::new();
     for item in items {
         let Some(key_id) = item.get("keyId").and_then(|v| v.as_str()) else {
             continue;
@@ -600,6 +605,7 @@ pub(crate) async fn refresh_team_secrets_from_cloud(
             Ok(e) => e,
             Err(e) => {
                 log::warn!("shared_secrets: bad envelope for '{key_id}': {e}");
+                undecryptable.push(key_id.to_string());
                 continue;
             }
         };
@@ -609,7 +615,10 @@ pub(crate) async fn refresh_team_secrets_from_cloud(
             Ok(entry) => {
                 fetched.insert(key_id.to_string(), entry);
             }
-            Err(e) => log::warn!("shared_secrets: cannot decrypt '{key_id}': {e}"),
+            Err(e) => {
+                log::warn!("shared_secrets: cannot decrypt '{key_id}': {e}");
+                undecryptable.push(key_id.to_string());
+            }
         }
     }
 
@@ -622,7 +631,7 @@ pub(crate) async fn refresh_team_secrets_from_cloud(
             secrets.insert(key, entry);
         }
     }
-    Ok(())
+    Ok(undecryptable)
 }
 
 /// Refresh from the Cloud API and return the team entries as catalog listings.
@@ -637,8 +646,9 @@ pub(crate) async fn team_listings_from_cloud(
     access_token: Option<&str>,
     cloud_api_url: Option<&str>,
 ) -> Result<Vec<teamclaw_runtime_env::env_catalog::TeamEnvListing>, String> {
-    refresh_team_secrets_from_cloud(state, workspace_path, team_id, access_token, cloud_api_url)
-        .await?;
+    let undecryptable =
+        refresh_team_secrets_from_cloud(state, workspace_path, team_id, access_token, cloud_api_url)
+            .await?;
 
     let secrets = state
         .secrets
@@ -654,13 +664,38 @@ pub(crate) async fn team_listings_from_cloud(
             updated_by: e.updated_by.clone(),
             updated_at: e.updated_at.clone(),
             // Everything here came back from `decrypt_secret`, so by construction
-            // it decrypted. Rows that did not are dropped upstream with a warning
-            // rather than surfaced as undecryptable, because unlike the file scan
-            // there is no filename to show a key we cannot read.
+            // it decrypted.
             decrypted: true,
             key_mismatch: false,
         })
         .collect();
+
+    // Rows the team key would not open still get listed, flagged. The UI shows
+    // them as "cannot decrypt" instead of hiding them, which is the difference
+    // between "your key is wrong" and "this key does not exist".
+    //
+    // key_mismatch is true rather than false: reaching this point required a
+    // derived team key, so a local secret WAS available — it just did not match.
+    // The "no local key at all" case fails earlier, in ensure_derived_key.
+    // Drop any readable row for a key that also failed to decrypt. The two
+    // sources are independent — one walks the decrypted map, the other the
+    // failures — so a key whose blob stopped decrypting while a stale plaintext
+    // lingered in the map was emitted twice, once readable and once Locked,
+    // with the readable row serving a value the blob can no longer produce.
+    out.retain(|row| !undecryptable.contains(&row.key_id));
+
+    for key_id in undecryptable {
+        out.push(teamclaw_runtime_env::env_catalog::TeamEnvListing {
+            key_id,
+            description: String::new(),
+            category: String::new(),
+            created_by: String::new(),
+            updated_by: String::new(),
+            updated_at: String::new(),
+            decrypted: false,
+            key_mismatch: true,
+        });
+    }
     out.sort_by(|a, b| a.key_id.cmp(&b.key_id));
     Ok(out)
 }

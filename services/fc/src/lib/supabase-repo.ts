@@ -2,6 +2,19 @@ import { randomUUID } from "node:crypto";
 import { createClient as defaultCreateClient } from "@supabase/supabase-js";
 import { verifyTrustedExternalJwt } from "./trusted-external-jwt.js";
 import { ApiError } from "./http-utils.js";
+
+/**
+ * Device ids that are not identities. Clients emit these when they cannot read
+ * their own storage; treating one as a reuse key would collapse every such
+ * install onto a single guest team.
+ */
+const SHARED_DEVICE_ID_PLACEHOLDERS = new Set([
+  "desktop-unknown",
+  "ios-unknown",
+  "unknown",
+  "",
+]);
+
 import { isLegalStatusTransition } from "./pg-repo/app-status.js";
 // Shared with the pg-repo twin on purpose — see the "Team MCP / env helpers"
 // note below. These are validation rules, not backend-specific plumbing.
@@ -525,9 +538,16 @@ export function createSupabaseBusinessRepository(options) {
       // A guest that names its device gets that device's team back rather than
       // a new one. Signed-in users are unaffected: the reuse table only ever
       // holds guest teams, and this branch is gated on is_anonymous.
-      const guestDeviceId = caller.user.is_anonymous
-        ? (input?.deviceId?.trim() || null)
-        : null;
+      // Reject the client-side placeholders outright. `getDesktopDeviceId`
+      // falls back to a shared literal when storage is unavailable, and any
+      // install that hit it would otherwise be handed the same guest team as
+      // every other one. A null here just means "no reuse" — one extra team is
+      // the correct outcome, strangers sharing a team is not.
+      const rawDeviceId = caller.user.is_anonymous ? (input?.deviceId?.trim() || null) : null;
+      const guestDeviceId =
+        rawDeviceId && !SHARED_DEVICE_ID_PLACEHOLDERS.has(rawDeviceId.toLowerCase())
+          ? rawDeviceId
+          : null;
       const { data, error } = selectedOrgId
         ? await supabase.rpc("bootstrap_selected_org_team", {
           p_org_id: selectedOrgId,

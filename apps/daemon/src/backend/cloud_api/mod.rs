@@ -6,8 +6,7 @@ use super::{
     AgentDefaults, Backend, BackendError, BackendResult, BackendSessionAndParticipants,
     BootstrapMqttOverride, ClaimResult, CloudAuthSnapshot, GatewaySessionRow, ManagedGitCredential,
     ManagedLlmConfig, ManagedLlmModelInfo, ShareModeConfig, StoredMessage, TeamEnvSecretRow,
-    WorkspaceRow,
-    WorkspaceUpsert,
+    WorkspaceRow, WorkspaceUpsert,
 };
 use crate::provider_config::CloudApiConfig;
 use async_trait::async_trait;

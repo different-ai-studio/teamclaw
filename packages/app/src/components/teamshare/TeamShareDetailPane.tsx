@@ -95,13 +95,20 @@ export function TeamShareDetailPane() {
   // Knowledge is a file tree now: clicking a node goes through the workspace's
   // own selectFile, so the pane follows selectedFile rather than a curated id.
   const selectedFile = useWorkspaceStore((s) => s.selectedFile)
+  const knowledgeRoot = useTeamShareBrowserStore((s) => s.knowledgeRoot)
 
   if (!section) return null
   if (creating === section && (section === 'mcp' || section === 'env')) {
     return <CreatePane section={section} />
   }
   if (section === 'knowledge') {
-    if (!selectedFile) return <EmptyState section={section} />
+    // `selectedFile` is the app-wide workspace selection, not this column's.
+    // Rendering it unchecked meant clicking Knowledge while a source file was
+    // open put that file in the Knowledge editor — and saving wrote to it,
+    // labelled as a team document. Only paths under the shared root belong here.
+    const inKnowledge =
+      selectedFile && knowledgeRoot && selectedFile.startsWith(`${knowledgeRoot}/`)
+    if (!inKnowledge) return <EmptyState section={section} />
     return <KnowledgeDetail key={selectedFile} path={selectedFile} />
   }
   if (!selectedId) return <EmptyState section={section} />

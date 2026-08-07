@@ -201,6 +201,20 @@ paths:
                   description: "Organization selected from an `itemType: org` picker row."
                   type: [string, "null"]
                   format: uuid
+                deviceId:
+                  description: >-
+                    Guests only: the calling device's stable id. An anonymous
+                    caller that names its device gets back the team that
+                    device's previous guest already had, instead of a new one
+                    per quick-trial sign-in — every `signInAnonymously()` mints
+                    a fresh auth user, so without this the teams pile up in the
+                    shared default org and nothing collects them. Ignored for
+                    signed-in callers. Housekeeping, NOT a security boundary:
+                    the id lives in the client's own storage, so clearing app
+                    data or switching devices simply yields a fresh team. Omit
+                    it to opt out of reuse; never send a shared placeholder, as
+                    that would hand unrelated devices the same team.
+                  type: [string, "null"]
       responses:
         "200":
           description: Bootstrapped team.
