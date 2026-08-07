@@ -1,6 +1,9 @@
 import { describe, expect, it, vi } from "vitest";
 
-import { createRuntimeCommandSender } from "@/lib/teamclaw/runtime-command";
+import {
+  createRuntimeCommandSender,
+  runtimeCommandsTopic,
+} from "@/lib/teamclaw/runtime-command";
 
 function makeSender(overrides: {
   rpc?: (input: { targetActorId: string; sessionId: string }) => Promise<boolean>;
@@ -19,6 +22,21 @@ function makeSender(overrides: {
 }
 
 const CANCEL = { targetActorId: "agent-a", runtimeId: "rt-abcd", sessionId: "session-1" };
+const PERMISSION = {
+  targetActorId: "agent-a",
+  runtimeId: "rt-abcd",
+  sessionId: "session-1",
+  requestId: "perm-1",
+  granted: true,
+  optionId: "once",
+};
+const ANSWER = {
+  targetActorId: "agent-a",
+  runtimeId: "rt-abcd",
+  sessionId: "session-1",
+  requestId: "q-1",
+  answers: [["yes"]],
+};
 
 describe("runtime command dispatch", () => {
   it("addresses the session over rpc when one is available", async () => {
@@ -44,7 +62,7 @@ describe("runtime command dispatch", () => {
     expect(publish).not.toHaveBeenCalled();
   });
 
-  it("does not fall back to the legacy topic when the rpc channel itself is down", async () => {
+  it("does not fall back to the legacy topic when cancel rpc is down", async () => {
     // Legacy fallback published cancel with session UUID as the topic
     // segment; the daemon looked that up as a spawn key and dropped it
     // silently — stop looked like a no-op (cross-actor interrupt on the
@@ -67,5 +85,54 @@ describe("runtime command dispatch", () => {
 
     expect(rpc).not.toHaveBeenCalled();
     expect(publish).toHaveBeenCalledTimes(1);
+  });
+
+  // Issue #783: permission / answer share dispatch with cancel. A transport
+  // blip must not leave the agent stuck waiting on an approval the user
+  // already clicked — deliver via spawn-keyed MQTT after one RPC retry.
+  it("delivers permission response via spawn topic when rpc transport fails", async () => {
+    const rpc = vi.fn(async () => {
+      throw new Error("teamclaw-rpc not initialized");
+    });
+    const { sender, publish } = makeSender({ rpc });
+
+    await sender.sendPermissionResponse(PERMISSION);
+
+    expect(rpc.mock.calls.length).toBeGreaterThanOrEqual(2);
+    expect(publish).toHaveBeenCalledTimes(1);
+    expect(publish.mock.calls[0]?.[0]).toBe(
+      runtimeCommandsTopic("team-1", "agent-a", "rt-abcd"),
+    );
+  });
+
+  it("delivers answer-question via spawn topic when rpc transport fails", async () => {
+    const rpc = vi.fn(async () => {
+      throw new Error("broker disconnected");
+    });
+    const { sender, publish } = makeSender({ rpc });
+
+    await sender.sendAnswerQuestion(ANSWER);
+
+    expect(rpc.mock.calls.length).toBeGreaterThanOrEqual(2);
+    expect(publish).toHaveBeenCalledTimes(1);
+    expect(publish.mock.calls[0]?.[0]).toBe(
+      runtimeCommandsTopic("team-1", "agent-a", "rt-abcd"),
+    );
+  });
+
+  it("does not mqtt-fallback permission when the session is cold", async () => {
+    const { sender, publish } = makeSender({ rpc: async () => false });
+
+    await expect(sender.sendPermissionResponse(PERMISSION)).rejects.toThrow(
+      /no live attachment/,
+    );
+    expect(publish).not.toHaveBeenCalled();
+  });
+
+  it("does not mqtt-fallback answer-question when the session is cold", async () => {
+    const { sender, publish } = makeSender({ rpc: async () => false });
+
+    await expect(sender.sendAnswerQuestion(ANSWER)).rejects.toThrow(/no live attachment/);
+    expect(publish).not.toHaveBeenCalled();
   });
 });

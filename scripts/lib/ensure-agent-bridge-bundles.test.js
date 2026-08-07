@@ -6,6 +6,11 @@ const { test } = require("node:test");
 
 const {
   bridgeFingerprint,
+  bundleStamp,
+  extractTargetFromArgv,
+  parseCliArgs,
+  resolveNpmPlatform,
+  rustTargetToNpmPlatform,
   shouldRebuildBundle,
 } = require("../ensure-agent-bridge-bundles");
 
@@ -45,4 +50,58 @@ test("bridgeFingerprint tracks package + lock", () => {
   } finally {
     fs.rmSync(dir, { recursive: true, force: true });
   }
+});
+
+test("rustTargetToNpmPlatform maps release matrix triples", () => {
+  assert.deepEqual(rustTargetToNpmPlatform("aarch64-apple-darwin"), {
+    os: "darwin",
+    cpu: "arm64",
+  });
+  assert.deepEqual(rustTargetToNpmPlatform("x86_64-apple-darwin"), {
+    os: "darwin",
+    cpu: "x64",
+  });
+  assert.deepEqual(rustTargetToNpmPlatform("x86_64-pc-windows-msvc"), {
+    os: "win32",
+    cpu: "x64",
+  });
+  assert.throws(() => rustTargetToNpmPlatform("wasm32-unknown-unknown"), /unsupported/);
+});
+
+test("bundleStamp includes npm platform so cross-target rebuilds", () => {
+  const arm = bundleStamp("abc", { os: "darwin", cpu: "arm64" });
+  const x64 = bundleStamp("abc", { os: "darwin", cpu: "x64" });
+  assert.equal(arm, "abc:darwin-arm64");
+  assert.equal(x64, "abc:darwin-x64");
+  assert.notEqual(arm, x64);
+});
+
+test("resolveNpmPlatform uses host when target omitted", () => {
+  const host = resolveNpmPlatform(null);
+  assert.ok(host.os);
+  assert.ok(host.cpu);
+  assert.deepEqual(resolveNpmPlatform("x86_64-apple-darwin"), {
+    os: "darwin",
+    cpu: "x64",
+  });
+});
+
+test("parseCliArgs and extractTargetFromArgv", () => {
+  assert.deepEqual(parseCliArgs(["--force", "--target", "x86_64-apple-darwin"]), {
+    force: true,
+    target: "x86_64-apple-darwin",
+  });
+  assert.deepEqual(parseCliArgs(["--target=aarch64-apple-darwin"]), {
+    force: false,
+    target: "aarch64-apple-darwin",
+  });
+  assert.equal(
+    extractTargetFromArgv(["build", "--target", "x86_64-apple-darwin"]),
+    "x86_64-apple-darwin",
+  );
+  assert.equal(
+    extractTargetFromArgv(["build", "--target=aarch64-apple-darwin", "--debug"]),
+    "aarch64-apple-darwin",
+  );
+  assert.equal(extractTargetFromArgv(["dev"]), null);
 });

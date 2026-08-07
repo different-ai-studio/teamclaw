@@ -139,6 +139,58 @@ impl ServeSupervisor {
         self.active_env_fingerprint.lock().clone()
     }
 
+    /// Test seam: pretend a serve child inherited `fingerprint` without spawning.
+    #[cfg(test)]
+    pub(crate) fn set_active_env_fingerprint_for_test(&self, fingerprint: Option<String>) {
+        *self.active_env_fingerprint.lock() = fingerprint;
+    }
+
+    /// Fingerprint queued for the next spawn (`install_env_snapshot` / merge).
+    pub fn configured_env_fingerprint(&self) -> Option<String> {
+        self.configured_env_fingerprint.lock().clone()
+    }
+
+    /// True when a running serve still holds an older env than the queued snapshot.
+    ///
+    /// Used after the last route detaches so we can recycle the process without
+    /// discarding the queued bindings (see #779).
+    pub fn has_pending_env_refresh(&self) -> bool {
+        match (
+            self.configured_env_fingerprint.lock().clone(),
+            self.active_env_fingerprint.lock().clone(),
+        ) {
+            (Some(configured), Some(active)) => configured != active,
+            _ => false,
+        }
+    }
+
+    /// Stop the serve process group but keep the queued env for the next spawn.
+    ///
+    /// Unlike [`Self::shutdown`], this does **not** call [`Self::clear_extra_env`].
+    /// Returns whether a child was running.
+    pub fn shutdown_preserving_configured_env(&self) -> bool {
+        let taken = self.state.lock().take();
+        *self.active_env_fingerprint.lock() = None;
+        match taken {
+            Some(mut inst) => {
+                kill_serve_tree(&mut inst.child);
+                info!("opencode serve shut down to apply pending env snapshot");
+                true
+            }
+            None => false,
+        }
+    }
+
+    /// When no routes remain and a newer env is queued, recycle the serve child
+    /// so the next `ensure()` inherits the configured snapshot.
+    pub fn apply_pending_env_if_idle(&self, routes_empty: bool) -> bool {
+        if !routes_empty || !self.has_pending_env_refresh() {
+            return false;
+        }
+        let _ = self.shutdown_preserving_configured_env();
+        true
+    }
+
     pub fn env_snapshot_requires_restart(&self, incoming_fingerprint: &str) -> bool {
         self.is_running() && self.active_env_fingerprint().as_deref() != Some(incoming_fingerprint)
     }
@@ -587,6 +639,75 @@ mod tests {
             serve.requested_env_fingerprint("/workspace-b"),
             Some(fingerprint)
         );
+    }
+
+    #[test]
+    fn configured_env_fingerprint_is_readable_after_install() {
+        let serve = ServeSupervisor::new();
+        let fingerprint = serve.install_env_snapshot(
+            "/workspace-a",
+            HashMap::from([("KEY".to_string(), "value".to_string())]),
+        );
+        assert_eq!(
+            serve.configured_env_fingerprint().as_deref(),
+            Some(fingerprint.as_str())
+        );
+    }
+
+    #[test]
+    fn pending_env_refresh_when_configured_differs_from_active() {
+        let serve = ServeSupervisor::new();
+        let active = serve.install_env_snapshot(
+            "/workspace-a",
+            HashMap::from([("KEY".to_string(), "old".to_string())]),
+        );
+        *serve.active_env_fingerprint.lock() = Some(active);
+        assert!(!serve.has_pending_env_refresh());
+
+        serve.install_env_snapshot(
+            "/workspace-a",
+            HashMap::from([("KEY".to_string(), "new".to_string())]),
+        );
+        assert!(serve.has_pending_env_refresh());
+    }
+
+    #[test]
+    fn shutdown_preserving_configured_env_keeps_queued_snapshot() {
+        let serve = ServeSupervisor::new();
+        let fingerprint = serve.install_env_snapshot(
+            "/workspace-a",
+            HashMap::from([("KEY".to_string(), "new".to_string())]),
+        );
+        *serve.active_env_fingerprint.lock() = Some("stale-active".to_string());
+        assert!(serve.has_pending_env_refresh());
+
+        assert!(!serve.shutdown_preserving_configured_env());
+        assert_eq!(serve.cached_env_key_count(), 1);
+        assert_eq!(
+            serve.configured_env_fingerprint().as_deref(),
+            Some(fingerprint.as_str())
+        );
+        assert!(serve.active_env_fingerprint().is_none());
+        assert!(!serve.has_pending_env_refresh());
+    }
+
+    #[test]
+    fn apply_pending_env_if_idle_only_when_routes_empty_and_pending() {
+        let serve = ServeSupervisor::new();
+        serve.install_env_snapshot(
+            "/workspace-a",
+            HashMap::from([("KEY".to_string(), "new".to_string())]),
+        );
+        *serve.active_env_fingerprint.lock() = Some("stale-active".to_string());
+
+        assert!(!serve.apply_pending_env_if_idle(false));
+        assert!(serve.has_pending_env_refresh());
+        assert_eq!(serve.cached_env_key_count(), 1);
+
+        assert!(serve.apply_pending_env_if_idle(true));
+        assert!(!serve.has_pending_env_refresh());
+        assert_eq!(serve.cached_env_key_count(), 1);
+        assert!(serve.active_env_fingerprint().is_none());
     }
 
     #[test]

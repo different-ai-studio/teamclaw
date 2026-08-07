@@ -9,6 +9,12 @@ on:
       - 'services/fc/**'
       - 'services/supabase/migrations/**'
 
+# Shared with daemon-deploy.yml deploy job — both reset /opt/teamclaw on the
+# same ECS box. Never cancel mid compose build / up.
+concurrency:
+  group: selfhost-ecs
+  cancel-in-progress: false
+
 jobs:
   deploy:
     runs-on: ubuntu-latest

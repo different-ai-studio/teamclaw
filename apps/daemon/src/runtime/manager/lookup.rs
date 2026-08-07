@@ -9,7 +9,19 @@
 
 use crate::proto::amux;
 
+use super::super::handle::RuntimeHandle;
 use super::RuntimeManager;
+
+fn owner_matches(handle: &RuntimeHandle, actor_id: &str) -> bool {
+    if actor_id.is_empty() {
+        return true;
+    }
+    // Legacy / unstamped handles: do not fail closed on missing owner.
+    if handle.owner_actor_id.is_empty() {
+        return true;
+    }
+    handle.owner_actor_id == actor_id
+}
 
 impl RuntimeManager {
     /// Return all runtime IDs whose handle has `session_id == session_id`.
@@ -25,9 +37,19 @@ impl RuntimeManager {
     /// the greatest `started_at`. Defense-in-depth when multiple runtimes
     /// leaked despite the one-runtime-per-session invariant.
     pub fn newest_runtime_id_for_session(&self, session_id: &str) -> Option<String> {
+        self.newest_runtime_id_for_session_actor(session_id, "")
+    }
+
+    /// Like [`Self::newest_runtime_id_for_session`], but when `actor_id` is
+    /// non-empty prefer attachments owned by that cloud actor (ADR-0004).
+    pub fn newest_runtime_id_for_session_actor(
+        &self,
+        session_id: &str,
+        actor_id: &str,
+    ) -> Option<String> {
         self.agents
             .iter()
-            .filter(|(_, h)| h.session_id == session_id)
+            .filter(|(_, h)| h.session_id == session_id && owner_matches(h, actor_id))
             .max_by_key(|(_, h)| h.started_at)
             .map(|(id, _)| id.clone())
     }
@@ -93,7 +115,15 @@ impl RuntimeManager {
     /// `{actor}::{session}` composite) while this map is still keyed by the
     /// per-spawn id. Cancel that used the session UUID as a map key failed
     /// with `agent {session} not found` and left Cursor running.
-    pub fn resolve_command_agent_id(&self, addressed_as: &str) -> Option<String> {
+    ///
+    /// `actor_id` is the cloud agent actor from the envelope (and/or MQTT
+    /// topic). When non-empty, session fallbacks prefer that owner's
+    /// attachment so a multi-agent session cannot cancel the newest sibling.
+    pub fn resolve_command_agent_id(
+        &self,
+        addressed_as: &str,
+        actor_id: &str,
+    ) -> Option<String> {
         let addressed = addressed_as.trim();
         if addressed.is_empty() {
             return None;
@@ -101,18 +131,28 @@ impl RuntimeManager {
         if self.agents.contains_key(addressed) {
             return Some(addressed.to_string());
         }
-        if let Some(id) = self.newest_runtime_id_for_session(addressed) {
-            return Some(id);
-        }
-        // iOS composite: `{actor}::{session}`
-        if let Some((_, session)) = addressed.split_once("::") {
+
+        let actor_id = actor_id.trim();
+
+        // iOS composite: `{actor}::{session}` — keep the left side for filter
+        // / validation instead of discarding it.
+        if let Some((left, session)) = addressed.split_once("::") {
+            let left = left.trim();
             let session = session.trim();
-            if !session.is_empty() {
-                if let Some(id) = self.newest_runtime_id_for_session(session) {
-                    return Some(id);
-                }
+            if session.is_empty() {
+                return None;
             }
+            if !actor_id.is_empty() && !left.is_empty() && left != actor_id {
+                return None;
+            }
+            let filter_actor = if !actor_id.is_empty() {
+                actor_id
+            } else {
+                left
+            };
+            return self.newest_runtime_id_for_session_actor(session, filter_actor);
         }
-        None
+
+        self.newest_runtime_id_for_session_actor(addressed, actor_id)
     }
 }
