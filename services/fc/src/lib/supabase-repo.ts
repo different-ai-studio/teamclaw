@@ -508,9 +508,12 @@ export function createSupabaseBusinessRepository(options) {
       if (callerErr || !caller?.user?.id) {
         throw new ApiError(401, "missing_auth", "authenticated user required");
       }
-      if (caller.user.is_anonymous) {
-        throw new ApiError(403, "anonymous_not_allowed", "sign in to create a team");
-      }
+      // Anonymous users DO get a team. The product wants a try-before-signup
+      // path: one throwaway team per anonymous user inside the shared
+      // DEFAULT_ORG, upgradable later by attaching an email identity to the
+      // same auth user (which keeps the team). Joining someone else's public
+      // team is still refused — see join_public_team, which stays guarded so a
+      // guest can never appear in another team's member list.
       const defaultOrgId = process.env.DEFAULT_ORG_ID || null;
       let fallbackOrg: string | null = (caller.user.app_metadata as any)?.org_id ?? defaultOrgId;
       if (!fallbackOrg) {
