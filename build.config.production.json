@@ -20,7 +20,8 @@
     },
     "auth": {
       "google": true
-    }
+    },
+    "teamShareBrowser": true
   },
   "defaults": {
     "theme": "system"
