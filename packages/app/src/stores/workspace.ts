@@ -2,6 +2,7 @@ import { create } from "zustand";
 import { UNSUPPORTED_BINARY_EXTENSIONS } from "@/components/viewers/UnsupportedFileViewer";
 import { isTauri } from '@/lib/utils'
 import { ensureGitignoreEntries } from '@/lib/gitignore-manager'
+import { seedDefaultWorkspaceInstructions } from '@/lib/workspace-seed/seed-default-instructions'
 import { appDisplayName, appStoragePrefix, TEAM_REPO_DIR } from '@/lib/build-config'
 import { useTeamModeStore } from './team-mode'
 
@@ -412,11 +413,24 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => ({
     }
 
     try {
-      // Load root directory
-      await get().refreshFileTree();
+      // Seed root AGENTS.md / CLAUDE.md for nearly empty workspaces (never overwrite)
+      // before refreshing the tree so the new files show up immediately.
+      try {
+        const { useCurrentTeamStore } = await import('./current-team')
+        const teamName = useCurrentTeamStore.getState().team?.name ?? null
+        await seedDefaultWorkspaceInstructions(expandedPath, {
+          teamName,
+          workspaceName: getFolderName(expandedPath),
+        })
+      } catch (error) {
+        console.warn('[Workspace] Failed to seed default instructions:', error)
+      }
 
       // Ensure .gitignore has required entries
       await ensureGitignoreEntries(expandedPath);
+
+      // Load root directory
+      await get().refreshFileTree();
 
       // Start watching the new workspace for file changes
       await startWatching(expandedPath);
