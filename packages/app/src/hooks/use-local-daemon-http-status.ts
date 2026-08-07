@@ -8,9 +8,56 @@ import { useDaemonMqttConnected } from '@/stores/daemon-mqtt-status'
 
 export type LocalDaemonHttpStatus = 'idle' | 'checking' | 'online' | 'offline'
 
+/**
+ * Shared probe state. One timer for the whole app, ref-counted by mounts —
+ * mirroring `daemon-mqtt-status`, which already worked this way.
+ *
+ * Per-mount intervals meant N copies of the same probe against one local
+ * daemon, all landing at slightly different times, and `requestDaemonProbe()`
+ * fanned out to every one of them at once.
+ */
+let sharedStatus: LocalDaemonHttpStatus = 'idle'
+const statusListeners = new Set<(s: LocalDaemonHttpStatus) => void>()
+let probeSubscribers = 0
+let probeTimer: ReturnType<typeof setInterval> | null = null
+let unsubscribeProbeSignal: (() => void) | null = null
+let probeInFlight: Promise<void> | null = null
+
+function setSharedStatus(next: LocalDaemonHttpStatus) {
+  if (sharedStatus === next) return
+  sharedStatus = next
+  statusListeners.forEach((fn) => fn(next))
+}
+
+function runSharedProbe(): Promise<void> {
+  // Coalesce: a poll tick landing on top of a requestDaemonProbe() must not
+  // produce two concurrent probes.
+  probeInFlight ??= probeDaemonHttp()
+    .then((probe) => setSharedStatus(probe.ok ? 'online' : 'offline'))
+    .finally(() => {
+      probeInFlight = null
+    })
+  return probeInFlight
+}
+
+function startSharedProbe() {
+  setSharedStatus('checking')
+  void runSharedProbe()
+  probeTimer = setInterval(() => void runSharedProbe(), QUICK_CHAT_DAEMON_PROBE_INTERVAL_MS)
+  unsubscribeProbeSignal = onDaemonProbeRequested(() => void runSharedProbe())
+}
+
+function stopSharedProbe() {
+  if (probeTimer) clearInterval(probeTimer)
+  probeTimer = null
+  unsubscribeProbeSignal?.()
+  unsubscribeProbeSignal = null
+  setSharedStatus('idle')
+}
+
 export function useLocalDaemonHttpStatus(enabled = true): LocalDaemonHttpStatus {
   const daemonReady = useDaemonOnboardingStore((s) => s.status === 'ready')
-  const [status, setStatus] = React.useState<LocalDaemonHttpStatus>('idle')
+  const [status, setStatus] = React.useState<LocalDaemonHttpStatus>(sharedStatus)
 
   React.useEffect(() => {
     if (!enabled || !daemonReady) {
@@ -18,23 +65,15 @@ export function useLocalDaemonHttpStatus(enabled = true): LocalDaemonHttpStatus 
       return
     }
 
-    let cancelled = false
-    const runProbe = async () => {
-      const probe = await probeDaemonHttp()
-      if (cancelled) return
-      setStatus(probe.ok ? 'online' : 'offline')
-    }
+    setStatus(sharedStatus)
+    statusListeners.add(setStatus)
+    probeSubscribers += 1
+    if (probeSubscribers === 1) startSharedProbe()
 
-    setStatus('checking')
-    void runProbe()
-    const interval = setInterval(() => void runProbe(), QUICK_CHAT_DAEMON_PROBE_INTERVAL_MS)
-    // Let Retry / network-online force an immediate re-probe instead of waiting
-    // out the poll interval.
-    const unsubscribe = onDaemonProbeRequested(() => void runProbe())
     return () => {
-      cancelled = true
-      clearInterval(interval)
-      unsubscribe()
+      statusListeners.delete(setStatus)
+      probeSubscribers -= 1
+      if (probeSubscribers === 0) stopSharedProbe()
     }
   }, [daemonReady, enabled])
 

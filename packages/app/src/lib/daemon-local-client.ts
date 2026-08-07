@@ -167,10 +167,21 @@ export async function probeDaemonHttp(): Promise<DaemonHttpProbe> {
     return { ok: false, reason: 'not_running' }
   }
 
-  // 2) Token valid? — exchange the root token for a scoped session token.
-  invalidateDaemonConnection()
-  _connection = null
-  const conn = await _fetchConnection()
+  // 2) Token valid? — through the cache, deliberately.
+  //
+  // This used to invalidate the cached session and force a fresh
+  // `/v1/auth/exchange` on every probe. Three pollers run this on a 20s tick,
+  // and each one also wiped the connection every other caller shares — so the
+  // cache was never warm and the exchange count scaled with probes, not with
+  // token lifetime (measured on the box: ~33 `/v1/auth/exchange` per minute for
+  // a token that lives an hour).
+  //
+  // `getConnection` already answers the question this step is asking. It drops
+  // the cache when the daemon rebinds to a new port, refreshes 5 minutes before
+  // expiry, and coalesces concurrent callers — so a non-null result means the
+  // root token exchanged successfully at some point within the token's life,
+  // and null means it cannot be exchanged now.
+  const conn = await getConnection()
   if (!conn) return { ok: false, reason: 'token_invalid' }
 
   return { ok: true, baseUrl: conn.baseUrl }
