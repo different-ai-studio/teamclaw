@@ -33,15 +33,21 @@ jobs:
       FASTLANE_XCODEBUILD_SETTINGS_RETRIES: 6
 
     steps:
+      - uses: actions/checkout@v7
+
       # Debounce: wait before starting the real build so that a burst of
       # iOS PRs merged in quick succession collapses into a single release.
       # Each new push cancels the in-progress run (concurrency above) and
       # restarts this timer. Tag pushes and workflow_dispatch skip the wait.
+      #
+      # Must run AFTER checkout: `defaults.run.working-directory` is apps/ios,
+      # which does not exist on the runner until the repo is checked out. As the
+      # first step it failed instantly with "No such file or directory", killing
+      # every main-push release from 2026-08-01 onward — silently, because tag
+      # pushes skip this step and so never hit it.
       - name: Debounce (batch consecutive iOS merges)
         if: github.event_name == 'push' && github.ref == 'refs/heads/main'
         run: sleep 300
-
-      - uses: actions/checkout@v7
 
       - name: Set up Ruby
         uses: ruby/setup-ruby@v1
