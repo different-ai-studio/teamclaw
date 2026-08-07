@@ -22,6 +22,10 @@ pub fn is_channel_bound_pub(name: &str, channels: &Value) -> bool {
             non_empty_str(ch.get("appId").or_else(|| ch.get("app_id")))
                 && non_empty_str(ch.get("appSecret").or_else(|| ch.get("app_secret")))
         }
+        "seatalk" => {
+            non_empty_str(ch.get("appId").or_else(|| ch.get("app_id")))
+                && non_empty_str(ch.get("appSecret").or_else(|| ch.get("app_secret")))
+        }
         "kook" => non_empty_str(ch.get("token")),
         "wechat" => non_empty_str(ch.get("botToken").or_else(|| ch.get("bot_token"))),
         _ => false,
@@ -57,7 +61,7 @@ fn build_overview(workspace: &str) -> Result<Value, String> {
     let config = crate::config::read_teamclaw_config(workspace)?;
 
     let channels_val = config.get("channels").cloned().unwrap_or(json!({}));
-    let channel_names = ["wecom", "discord", "email", "feishu", "kook", "wechat"];
+    let channel_names = ["wecom", "discord", "email", "feishu", "kook", "wechat", "seatalk"];
     let mut bound = Vec::new();
     let mut unbound = Vec::new();
     for name in channel_names {

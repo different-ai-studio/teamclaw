@@ -6,6 +6,7 @@ const SENSITIVE: &[(&str, &[&str])] = &[
     ("wecom", &["secret", "encodingAesKey"]),
     ("discord", &["token"]),
     ("feishu", &["appSecret"]),
+    ("seatalk", &["appSecret"]),
     ("email", &["gmailClientSecret", "password"]),
     ("kook", &["token"]),
     ("wechat", &["botToken"]),
@@ -60,7 +61,7 @@ fn get_channels(workspace: &str, channel: Option<&str>) -> Result<Value, String>
             "config": redact(name, ch_cfg),
         }))
     } else {
-        let all_channels = ["wecom", "discord", "feishu", "email", "kook", "wechat"];
+        let all_channels = ["wecom", "discord", "feishu", "email", "kook", "wechat", "seatalk"];
         let result: serde_json::Map<String, Value> = all_channels
             .iter()
             .map(|name| {

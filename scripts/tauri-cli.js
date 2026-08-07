@@ -24,12 +24,16 @@ const bridgeTarget = extractTargetFromArgv(args);
  *   pnpm tauri:dev -- --skip-setup
  *   pnpm tauri:dev -- --skip-daemon-onboarding
  *   pnpm tauri:dev -- --force-amuxd
+ *   pnpm tauri:dev -- --force-introspect
  *   pnpm tauri:dev:daemon
+ *   pnpm tauri:dev:introspect
  *
  * Aliases: --skip-onboarding → --skip-daemon-onboarding
  *          --rebuild-daemon / --rebuild-amuxd → --force-amuxd
+ *          --rebuild-introspect → --force-introspect
  * Env fallbacks: TEAMCLAW_SKIP_SETUP=1, TEAMCLAW_SKIP_DAEMON_ONBOARDING=1,
- *                TEAMCLAW_FORCE_AMUXD_SIDECAR=1
+ *                TEAMCLAW_FORCE_AMUXD_SIDECAR=1,
+ *                TEAMCLAW_FORCE_INTROSPECT_SIDECAR=1
  */
 function applyDevSkipFlags(argv, env) {
   if (argv[0] !== "dev") {
@@ -44,6 +48,9 @@ function applyDevSkipFlags(argv, env) {
   let forceAmuxd =
     env.TEAMCLAW_FORCE_AMUXD_SIDECAR === "1" ||
     env.TEAMCLAW_FORCE_AMUXD_SIDECAR === "true";
+  let forceIntrospect =
+    env.TEAMCLAW_FORCE_INTROSPECT_SIDECAR === "1" ||
+    env.TEAMCLAW_FORCE_INTROSPECT_SIDECAR === "true";
 
   const filtered = [];
   for (const arg of argv) {
@@ -63,6 +70,10 @@ function applyDevSkipFlags(argv, env) {
       forceAmuxd = true;
       continue;
     }
+    if (arg === "--force-introspect" || arg === "--rebuild-introspect") {
+      forceIntrospect = true;
+      continue;
+    }
     filtered.push(arg);
   }
 
@@ -75,10 +86,13 @@ function applyDevSkipFlags(argv, env) {
   if (forceAmuxd) {
     env.TEAMCLAW_FORCE_AMUXD_SIDECAR = "1";
   }
+  if (forceIntrospect) {
+    env.TEAMCLAW_FORCE_INTROSPECT_SIDECAR = "1";
+  }
 
-  if (skipSetup || skipDaemonOnboarding || forceAmuxd) {
+  if (skipSetup || skipDaemonOnboarding || forceAmuxd || forceIntrospect) {
     console.log(
-      `[tauri-cli] dev flags: setup_skip=${skipSetup}, daemon_onboarding_skip=${skipDaemonOnboarding}, force_amuxd=${forceAmuxd}`,
+      `[tauri-cli] dev flags: setup_skip=${skipSetup}, daemon_onboarding_skip=${skipDaemonOnboarding}, force_amuxd=${forceAmuxd}, force_introspect=${forceIntrospect}`,
     );
   }
 

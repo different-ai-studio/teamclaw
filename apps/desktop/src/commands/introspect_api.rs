@@ -10,6 +10,8 @@
 //   POST /knowledge-delete  — delete a memory entry
 //   POST /env-var-set       — create or update an env var (`scope`: personal | team)
 //   POST /env-var-delete    — delete an env var (`scope`: personal | team)
+//   POST /mcp-get           — fetch merged workspace MCP map (daemon)
+//   POST /mcp-put           — replace workspace MCP map (daemon)
 //   POST /session-export    — export session messages as opencode-compatible JSON
 //
 // Uses raw TCP + manual HTTP parsing to stay minimal (no axum state needed).
@@ -101,6 +103,8 @@ pub async fn start_introspect_api(app: AppHandle) -> anyhow::Result<()> {
                 ("POST", "/env-var-delete") => handle_env_var_delete(&app_clone, body_bytes).await,
                 ("POST", "/session-export") => handle_session_export(&app_clone, body_bytes).await,
                 ("POST", "/channel-set") => handle_channel_set(&app_clone, body_bytes).await,
+                ("POST", "/mcp-get") => handle_mcp_get(&app_clone, body_bytes).await,
+                ("POST", "/mcp-put") => handle_mcp_put(&app_clone, body_bytes).await,
                 ("POST", "/git-credential-get") => {
                     handle_git_credential_get(&app_clone, body_bytes).await
                 }
@@ -562,7 +566,7 @@ async fn handle_channel_set(app: &AppHandle, body: &[u8]) -> Result<String, Stri
         .ok_or("Missing field: channel")?;
     let patch = v.get("config").ok_or("Missing field: config")?;
 
-    let valid_channels = ["wecom", "discord", "feishu", "email", "kook", "wechat"];
+    let valid_channels = ["wecom", "discord", "feishu", "email", "kook", "wechat", "seatalk"];
     if !valid_channels.contains(&channel) {
         return Err(format!(
             "Unknown channel: '{}'. Valid: {}",
@@ -608,6 +612,52 @@ async fn handle_channel_set(app: &AppHandle, body: &[u8]) -> Result<String, Stri
     super::env_vars::write_teamclaw_json(&workspace, &json)?;
 
     Ok(format!(r#"{{"ok":true,"channel":"{}"}}"#, channel))
+}
+
+fn resolve_workspace_path(app: &AppHandle, body: &serde_json::Value) -> Result<String, String> {
+    if let Some(ws) = body
+        .get("workspace")
+        .or_else(|| body.get("workspace_path"))
+        .and_then(|v| v.as_str())
+        .map(str::trim)
+        .filter(|s| !s.is_empty())
+    {
+        return Ok(ws.to_string());
+    }
+    let registry = app.state::<super::window::WindowRegistry>();
+    registry
+        .current_workspace
+        .lock()
+        .ok()
+        .and_then(|cw| cw.clone())
+        .ok_or_else(|| "No workspace path set. Please select a workspace first.".to_string())
+}
+
+/// Body: `{ "workspace"?: string }`. Returns the merged MCP server map from amuxd.
+async fn handle_mcp_get(app: &AppHandle, body: &[u8]) -> Result<String, String> {
+    let v: serde_json::Value = if body.is_empty() {
+        serde_json::json!({})
+    } else {
+        serde_json::from_slice(body).map_err(|e| format!("JSON parse error: {}", e))?
+    };
+    let workspace = resolve_workspace_path(app, &v)?;
+    let servers = super::daemon_http::get_mcp_via_daemon(&workspace).await?;
+    serde_json::to_string(&servers).map_err(|e| format!("Serialization error: {e}"))
+}
+
+/// Body: `{ "workspace"?: string, "servers": { ... } }`. Replaces workspace MCP map.
+async fn handle_mcp_put(app: &AppHandle, body: &[u8]) -> Result<String, String> {
+    let v: serde_json::Value =
+        serde_json::from_slice(body).map_err(|e| format!("JSON parse error: {}", e))?;
+    let workspace = resolve_workspace_path(app, &v)?;
+    let servers = v
+        .get("servers")
+        .ok_or("Missing field: servers")?;
+    if !servers.is_object() {
+        return Err("servers must be a JSON object".to_string());
+    }
+    let result = super::daemon_http::put_mcp_via_daemon(&workspace, servers).await?;
+    serde_json::to_string(&result).map_err(|e| format!("Serialization error: {e}"))
 }
 
 /// Fetch a stored Git credential by ref. Body: `{"workspace_path": "...", "credential_ref": "..."}`.
