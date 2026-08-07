@@ -87,8 +87,8 @@ export async function replyAcpPermission(args: {
   const peerId = `teamclaw-desktop-${(senderActorId || "anon").slice(0, 8)}`;
   const sender = createRuntimeCommandSender({
     mqtt: { publish: mqttPublish },
-    // Session-addressed dispatch with a delivery receipt; falls back to the
-    // per-spawn topic when no session id reaches here.
+    // Session-addressed RPC; on transport failure the sender retries once
+    // then publishes to the spawn-keyed commands topic (issue #783).
     rpc: ({ targetActorId, sessionId: sid, envelope }) =>
       runtimeCommand({ targetActorId, sessionId: sid, envelope }),
     teamId,

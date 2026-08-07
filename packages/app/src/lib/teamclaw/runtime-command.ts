@@ -131,7 +131,9 @@ export function createRuntimeCommandSender(
         acpCommand,
       });
 
-      await dispatch(deps, teamId, targetActorId, runtimeId, input.sessionId, envelope);
+      await dispatch(deps, teamId, targetActorId, runtimeId, input.sessionId, envelope, {
+        onRpcTransportFailure: "mqtt-fallback",
+      });
     },
 
     async sendAnswerQuestion(input) {
@@ -161,7 +163,9 @@ export function createRuntimeCommandSender(
         acpCommand,
       });
 
-      await dispatch(deps, teamId, targetActorId, runtimeId, input.sessionId, envelope);
+      await dispatch(deps, teamId, targetActorId, runtimeId, input.sessionId, envelope, {
+        onRpcTransportFailure: "mqtt-fallback",
+      });
     },
 
     async sendCancel(input) {
@@ -186,18 +190,32 @@ export function createRuntimeCommandSender(
         acpCommand,
       });
 
-      await dispatch(deps, teamId, targetActorId, runtimeId, input.sessionId, envelope);
+      await dispatch(deps, teamId, targetActorId, runtimeId, input.sessionId, envelope, {
+        onRpcTransportFailure: "throw",
+      });
     },
   };
 }
+
+type DispatchOptions = {
+  /**
+   * When the RPC *channel* throws (not initialized, broker down), cancel
+   * stays loud (`throw`) so a stop never looks like a silent no-op.
+   * Permission / answer-question retry once then publish on the spawn-keyed
+   * MQTT topic — a stuck approval is worse than a best-effort delivery
+   * (issue #783). Cold-session (`dispatched === false`) always throws.
+   */
+  onRpcTransportFailure: "throw" | "mqtt-fallback";
+};
 
 /**
  * Send by (actor, session) when both a session id and an RPC dispatcher are
  * available; otherwise fall back to the per-spawn commands topic.
  *
- * When RPC is attempted, failures are not silently re-routed to the legacy
- * topic — that topic has no delivery receipt and after ADR-0004 often
- * addresses by session UUID while the daemon map is still spawn-keyed.
+ * Cold-session answers (`dispatched === false`) never fall back — that is
+ * how cancel learned the session was dead. Transport errors are per-command:
+ * cancel throws; permission / answer may MQTT-fallback with the spawn
+ * `runtimeId` (never the session UUID as a topic segment).
  */
 async function dispatch(
   deps: RuntimeCommandSenderDeps,
@@ -206,21 +224,45 @@ async function dispatch(
   runtimeId: string,
   sessionId: string | undefined,
   envelope: RuntimeCommandEnvelope,
+  options: DispatchOptions,
 ): Promise<void> {
   const session = sessionId?.trim() ?? "";
   if (deps.rpc && session) {
-    // No silent legacy fallback: publishing to runtime/{sessionId}/commands
-    // after ADR-0004 addresses by session while the daemon map is still
-    // spawn-keyed, so a failed RPC that "falls back" becomes a silent miss.
-    const dispatched = await deps.rpc({ targetActorId, sessionId: session, envelope });
-    if (!dispatched) {
-      // The daemon answered and holds nothing for this session — it is cold.
-      // Surfacing this is the entire point of moving onto a channel with a
-      // reply path; the old topic swallowed it.
-      throw new Error(`no live attachment for session ${session}`);
+    const maxAttempts = options.onRpcTransportFailure === "mqtt-fallback" ? 2 : 1;
+    let lastTransportError: unknown;
+    for (let attempt = 0; attempt < maxAttempts; attempt++) {
+      try {
+        const dispatched = await deps.rpc({ targetActorId, sessionId: session, envelope });
+        if (!dispatched) {
+          // The daemon answered and holds nothing for this session — it is cold.
+          // Surfacing this is the entire point of moving onto a channel with a
+          // reply path; the old topic swallowed it.
+          throw new Error(`no live attachment for session ${session}`);
+        }
+        return;
+      } catch (error) {
+        if (error instanceof Error && /no live attachment/.test(error.message)) {
+          throw error;
+        }
+        lastTransportError = error;
+      }
     }
-    return;
+    if (options.onRpcTransportFailure === "mqtt-fallback") {
+      await publishSpawnCommands(deps, teamId, targetActorId, runtimeId, envelope);
+      return;
+    }
+    throw lastTransportError;
   }
+  await publishSpawnCommands(deps, teamId, targetActorId, runtimeId, envelope);
+}
+
+async function publishSpawnCommands(
+  deps: RuntimeCommandSenderDeps,
+  teamId: string,
+  targetActorId: string,
+  runtimeId: string,
+  envelope: RuntimeCommandEnvelope,
+): Promise<void> {
   await deps.mqtt.publish(
     runtimeCommandsTopic(teamId, targetActorId, runtimeId),
     toBinary(RuntimeCommandEnvelopeSchema, envelope),
