@@ -834,6 +834,11 @@ export function ChatPanel({ compact = false }: ChatPanelProps) {
   // v2: messages live in useSessionMessageStore.messages keyed by sessionId.
   // Adapt each Teamclaw_Message → SDK Message shape so legacy MessageList
   // renders unchanged. Phase 2 will replace MessageList with native render.
+  /** Shown messages lag store during fade so old session can fade out before swap */
+  const [displaySessionId, setDisplaySessionId] = React.useState<string | null>(activeSessionId);
+  const [sessionFadeOpacity, setSessionFadeOpacity] = React.useState(1);
+  const sessionsInSync = displaySessionId === activeSessionId;
+
   const activeMessagesRaw = useSessionMessageStore(s =>
     activeSessionId ? s.messages?.[activeSessionId] : undefined
   );
@@ -841,17 +846,17 @@ export function ChatPanel({ compact = false }: ChatPanelProps) {
     () => adaptTeamclawMessages(activeMessagesRaw),
     [activeMessagesRaw],
   );
-  /** Shown messages lag store during fade so old session can fade out before swap */
-  const [displaySessionId, setDisplaySessionId] = React.useState<string | null>(activeSessionId);
-  const [sessionFadeOpacity, setSessionFadeOpacity] = React.useState(1);
 
+  // During session fade, displaySessionId lags activeSessionId — adapt both.
+  // Steady state: reuse activeMessages and skip a second full adapt pass.
   const displayMessagesRaw = useSessionMessageStore((s) =>
-    displaySessionId ? s.messages?.[displaySessionId] : undefined,
+    !sessionsInSync && displaySessionId ? s.messages?.[displaySessionId] : undefined,
   );
-  const displayMessages = React.useMemo(
-    () => adaptTeamclawMessages(displayMessagesRaw),
-    [displayMessagesRaw],
+  const displayOnlyMessages = React.useMemo(
+    () => (sessionsInSync ? undefined : adaptTeamclawMessages(displayMessagesRaw)),
+    [sessionsInSync, displayMessagesRaw],
   );
+  const displayMessages = sessionsInSync ? activeMessages : displayOnlyMessages;
 
   const activeStreamingAgents = React.useMemo(() => {
     const seen = new Set<string>();

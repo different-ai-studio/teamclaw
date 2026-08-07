@@ -2,11 +2,17 @@ import { describe, it, expect } from "vitest";
 import { create } from "@bufbuild/protobuf";
 import { MessageSchema, MessageKind } from "@/lib/proto/teamclaw_pb";
 import { adaptTeamclawMessages } from "@/lib/v2-message-adapter";
+import { hydrateDeferredProcessParts } from "@/lib/lazy-process-parts";
 
 // Simple counter for stable IDs in tests (avoids crypto.randomUUID dependency)
 let _idCounter = 0;
 function nextId() {
   return `msg-${++_idCounter}`;
+}
+
+/** Full adapt (export / legacy tests). UI path defers process by default. */
+function adaptFull(msgs: NonNullable<Parameters<typeof adaptTeamclawMessages>[0]>) {
+  return adaptTeamclawMessages(msgs, { forceFull: true })!;
 }
 
 function tmsg(o: {
@@ -111,7 +117,7 @@ describe("adaptTeamclawMessages", () => {
       tmsg({ kind: MessageKind.AGENT_REPLY, content: "First part", turnId: "t3", t: 2 }),
       tmsg({ kind: MessageKind.AGENT_REPLY, content: "Second part", turnId: "t3", t: 3 }),
     ];
-    const result = adaptTeamclawMessages(msgs)!;
+    const result = adaptFull(msgs);
     expect(result).toHaveLength(1);
 
     const msg = result[0];
@@ -182,7 +188,7 @@ describe("adaptTeamclawMessages", () => {
         t: 3,
       }),
     ];
-    const result = adaptTeamclawMessages(msgs)!;
+    const result = adaptFull(msgs);
     expect(result).toHaveLength(1);
 
     const msg = result[0];
@@ -285,7 +291,7 @@ describe("adaptTeamclawMessages", () => {
       }),
     ];
 
-    const result = adaptTeamclawMessages(msgs)!;
+    const result = adaptFull(msgs);
 
     expect(result).toHaveLength(1);
     expect(result[0].content).toBe("I found one match.");
@@ -477,7 +483,7 @@ describe("adaptTeamclawMessages", () => {
       }),
     ];
 
-    const result = adaptTeamclawMessages(msgs)!;
+    const result = adaptFull(msgs);
 
     expect(result).toHaveLength(1);
     expect(result[0].id).toBe("local-reply-with-parts");
@@ -519,7 +525,7 @@ describe("adaptTeamclawMessages", () => {
       }),
     ];
 
-    const result = adaptTeamclawMessages(msgs)!;
+    const result = adaptFull(msgs);
 
     expect(result).toHaveLength(1);
     expect(result[0].content).toBe("I will check the file.\n\nThe file says hello.");
@@ -558,7 +564,7 @@ describe("adaptTeamclawMessages", () => {
       }),
     ];
 
-    const result = adaptTeamclawMessages(msgs)!;
+    const result = adaptFull(msgs);
 
     expect(result[0].parts.map((p) => p.type)).toEqual(["tool-call", "text"]);
     expect(result[0].parts[0].toolCall?.id).toBe(toolId);
@@ -798,5 +804,50 @@ describe("adaptTeamclawMessages", () => {
     expect(result?.[0]?.parts?.some((p) => p.type === "text" && p.text === prose)).toBe(
       true,
     );
+  });
+
+  it("defers completed process parts for UI adapt (hydrate on expand)", () => {
+    const toolId = "lazy-tool-1";
+    const msgs = [
+      tmsg({
+        id: "call-1",
+        kind: MessageKind.AGENT_TOOL_CALL,
+        metadataJson: JSON.stringify({
+          tool_id: toolId,
+          tool_name: "grep",
+          description: "search",
+        }),
+        turnId: "lazy-turn",
+        t: 1,
+      }),
+      tmsg({
+        id: "result-1",
+        kind: MessageKind.AGENT_TOOL_RESULT,
+        content: "match",
+        metadataJson: JSON.stringify({ tool_id: toolId, success: true }),
+        turnId: "lazy-turn",
+        t: 2,
+      }),
+      tmsg({
+        id: "reply-1",
+        kind: MessageKind.AGENT_REPLY,
+        content: "Final answer.",
+        turnId: "lazy-turn",
+        t: 3,
+      }),
+    ];
+
+    const result = adaptTeamclawMessages(msgs)!;
+
+    expect(result).toHaveLength(1);
+    expect(result[0].processDeferred).toBe(true);
+    expect(result[0].processMeta).toEqual({ toolCount: 1, hasThinking: false });
+    expect(result[0].toolCalls).toEqual([]);
+    expect(result[0].parts.map((p) => p.type)).toEqual(["text"]);
+    expect(result[0].content).toBe("Final answer.");
+
+    const hydrated = hydrateDeferredProcessParts(msgs, result[0]);
+    expect(hydrated.some((p) => p.type === "tool-call")).toBe(true);
+    expect(hydrated.filter((p) => p.type === "tool-call")).toHaveLength(1);
   });
 });

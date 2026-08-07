@@ -179,6 +179,19 @@ export interface Message {
   turnId?: string | null;
   /** Daemon AGENT_REPLY metadata.turn_status — e.g. user abort. */
   turnStatus?: "interrupted" | null;
+  /** Completed turn: process (thinking/tools) omitted until user expands. */
+  processDeferred?: boolean;
+  /** Lightweight process summary while {@link processDeferred} is true. */
+  processMeta?: {
+    toolCount: number;
+    hasThinking: boolean;
+  };
+  /** Lookup key to hydrate deferred process parts from session protos. */
+  lazyProcessRef?: {
+    sessionId: string;
+    turnId: string;
+    senderActorId: string;
+  };
 }
 
 export interface PlanEntry {
