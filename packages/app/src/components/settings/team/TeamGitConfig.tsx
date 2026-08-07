@@ -19,7 +19,6 @@ import { DaemonOnboardingWizard } from '@/components/auth/DaemonOnboardingWizard
 import { TeamSyncPaths } from './TeamSyncPaths'
 import { TeamShareDisconnect } from './TeamShareDisconnect'
 import { TeamShareSection } from './TeamShareSection'
-import { TeamSecretEntry } from './TeamSecretEntry'
 import { useTeamPermissions } from '@/lib/team-permissions'
 import { useDaemonOnboardingStore } from '@/stores/daemon-onboarding'
 import { useWorkspaceStore } from '@/stores/workspace'
@@ -594,17 +593,6 @@ function TeamGitConfigConnected({
         workspacePath={workspacePath}
         refreshKey={pathsRefreshKey}
       />
-
-      {/* Team secret re-entry */}
-      <SettingCard className="bg-muted/30">
-        <p className="text-[12px] font-medium text-foreground/70 mb-1">
-          {t('settings.teamSecret.updateSectionTitle')}
-        </p>
-        <p className="text-[11.5px] text-muted-foreground mb-3">
-          {t('settings.teamSecret.updateSectionDesc')}
-        </p>
-        <TeamSecretEntry teamId={teamId} workspacePath={workspacePath} allowGenerate />
-      </SettingCard>
 
       {/* Repo setup guide */}
       <Collapsible open={repoGuideOpen} onOpenChange={setRepoGuideOpen}>

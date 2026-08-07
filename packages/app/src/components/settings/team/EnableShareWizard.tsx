@@ -23,7 +23,6 @@ import {
 } from '@/components/ui/select'
 import { useTeamShareStore, type EnableShareResult } from '@/stores/team-share'
 import { humanizeFcError } from '@/lib/fc-error'
-import { resolveSecretHex } from './TeamSecretEntry'
 
 type Mode = 'oss' | 'managed_git' | 'custom_git'
 type AuthKind = 'ssh_key' | 'https_token'
@@ -45,7 +44,6 @@ export function EnableShareWizard({
 }: Props) {
   const { t } = useTranslation()
   const [mode, setMode] = useState<Mode>('oss')
-  const [teamSecret, setTeamSecret] = useState('')
   const [remoteUrl, setRemoteUrl] = useState('')
   const [authKind, setAuthKind] = useState<AuthKind>('ssh_key')
   const [credential, setCredential] = useState('')
@@ -68,7 +66,6 @@ export function EnableShareWizard({
 
   function reset() {
     setMode('oss')
-    setTeamSecret('')
     setRemoteUrl('')
     setAuthKind('ssh_key')
     setCredential('')
@@ -76,36 +73,25 @@ export function EnableShareWizard({
     setError(null)
   }
 
-  // Empty → let the backend mint a random key. Otherwise resolve arbitrary
-  // input to a 64-hex key (verbatim if already hex, else SHA-256 derived).
-  async function optionalTeamSecret(): Promise<string | undefined> {
-    const trimmed = teamSecret.trim()
-    return trimmed.length > 0 ? await resolveSecretHex(trimmed) : undefined
-  }
-
   async function handleSubmit() {
     if (!canSubmit) return
     setSubmitting(true)
     setError(null)
     try {
-      const secret = await optionalTeamSecret()
+      // Team encryption key is configured under Daemon → General, not here.
+      // Pass undefined so enable mint/auto-generates when needed.
       let res: EnableShareResult
       if (mode === 'oss') {
-        res = await enableOss(teamId, workspacePath, secret)
+        res = await enableOss(teamId, workspacePath)
       } else if (mode === 'managed_git') {
-        res = await enableManagedGit(teamId, workspacePath, secret)
+        res = await enableManagedGit(teamId, workspacePath)
       } else {
-        res = await enableCustomGit(
-          teamId,
-          workspacePath,
-          {
-            remoteUrl: remoteUrl.trim(),
-            authKind: authKind,
-            credential: credential.trim(),
-            branch: branch.trim() || undefined,
-          },
-          secret,
-        )
+        res = await enableCustomGit(teamId, workspacePath, {
+          remoteUrl: remoteUrl.trim(),
+          authKind: authKind,
+          credential: credential.trim(),
+          branch: branch.trim() || undefined,
+        })
       }
       // Share is on server-side, so the wizard is done and closes — but the
       // daemon may not have taken the secret, which leaves shared env vars
@@ -244,27 +230,6 @@ export function EnableShareWizard({
               </div>
             </div>
           )}
-
-          <div className="space-y-1.5 rounded-md border border-border-soft bg-surface p-3">
-            <Label htmlFor="share-team-secret">
-              {t('settings.teamShare.teamSecretOptionalLabel')}
-            </Label>
-            <Input
-              id="share-team-secret"
-              className="font-mono text-[12px] md:text-[12px]"
-              placeholder={t('settings.teamShare.teamSecretOptionalPlaceholder')}
-              autoComplete="off"
-              spellCheck={false}
-              value={teamSecret}
-              onChange={(e) => {
-                setTeamSecret(e.target.value)
-                setError(null)
-              }}
-            />
-            <p className="text-[11px] leading-5 text-muted-foreground">
-              {t('settings.teamShare.teamSecretOptionalDesc')}
-            </p>
-          </div>
 
           <p className="text-[12px] text-amber-600">
             {t('settings.teamShare.lockWarning')}

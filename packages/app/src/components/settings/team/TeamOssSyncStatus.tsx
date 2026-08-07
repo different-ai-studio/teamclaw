@@ -9,7 +9,6 @@ import { useWorkspaceStore } from '@/stores/workspace'
 import { isTauri } from '@/lib/utils'
 import { TeamSyncPaths } from './TeamSyncPaths'
 import { TeamShareDisconnect } from './TeamShareDisconnect'
-import { TeamSecretEntry } from './TeamSecretEntry'
 
 /**
  * OSS sync status panel — shown when a team's share mode is locked to 'oss'.
@@ -118,20 +117,6 @@ export function TeamOssSyncStatus() {
       </div>
 
       <TeamSyncPaths teamId={teamId} workspacePath={workspacePath} className="mt-4" />
-
-      {teamId && workspacePath && (
-        <div className="mt-4 pt-4 border-t border-border/40 space-y-1.5">
-          <p className="text-[12px] font-medium text-foreground/70">
-            {t('settings.teamSecret.updateSectionTitle')}
-          </p>
-          <p className="text-[11.5px] text-muted-foreground">
-            {t('settings.teamSecret.updateSectionDesc')}
-          </p>
-          <div className="pt-1">
-            <TeamSecretEntry teamId={teamId} workspacePath={workspacePath} allowGenerate />
-          </div>
-        </div>
-      )}
 
       {lastError && (
         <div className="mt-3 flex items-start gap-2 rounded-md border border-destructive/40 bg-destructive/10 px-3 py-2 text-[12px] text-destructive">

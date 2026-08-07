@@ -35,6 +35,7 @@ import { useDaemonMqttConnected } from '@/stores/daemon-mqtt-status'
 import { cn, isTauri } from '@/lib/utils'
 import { SectionHeader, SettingCard } from './shared'
 import { DaemonManualResetCard } from './DaemonManualResetCard'
+import { TeamSecretEntry } from './team/TeamSecretEntry'
 
 const permissionLevels: AgentPermissionLevel[] = ['view', 'prompt', 'admin']
 
@@ -90,6 +91,7 @@ export function DaemonGeneralSection() {
   const autoHealCloudSession = useDaemonOnboardingStore((s) => s.autoHealCloudSession)
   const daemonGeneralPrompt = useUIStore((s) => s.daemonGeneralPrompt)
   const clearDaemonGeneralPrompt = useUIStore((s) => s.clearDaemonGeneralPrompt)
+  const workspacePath = useWorkspaceStore((s) => s.workspacePath)
 
   // The local daemon is single-team (its team_id is fixed at `amuxd init`).
   // Read it so we can warn when it diverges from the app's selected team —
@@ -465,6 +467,28 @@ export function DaemonGeneralSection() {
                 </div>
               )}
             </div>
+          </div>
+        </SettingCard>
+      )}
+
+      {/* Team env encryption key for amuxd — lives here (not Team Share) because
+          the secret is delivered to the local daemon, not the share sync path. */}
+      {isTauri() && team.id && workspacePath?.trim() && (
+        <SettingCard>
+          <div className="space-y-3">
+            <div>
+              <p className="text-[13px] font-semibold">
+                {t('settings.teamSecret.updateSectionTitle')}
+              </p>
+              <p className="mt-0.5 text-[12px] text-muted-foreground">
+                {t('settings.teamSecret.updateSectionDesc')}
+              </p>
+            </div>
+            <TeamSecretEntry
+              teamId={daemonTeamId || team.id}
+              workspacePath={workspacePath.trim()}
+              allowGenerate
+            />
           </div>
         </SettingCard>
       )}

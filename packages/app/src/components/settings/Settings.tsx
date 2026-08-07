@@ -11,7 +11,6 @@ import {
   Users,
   Package,
   Clock,
-  KeyRound,
   Coins,
   Shield,
   SlidersHorizontal,
@@ -52,7 +51,6 @@ interface Section {
 const primarySections: Section[] = [
   { id: 'general', label: 'General', labelKey: 'settings.nav.general', icon: Settings2 },
   { id: 'shortcuts', label: 'Shortcuts', labelKey: 'settings.nav.shortcuts', icon: Bookmark },
-  { id: 'team', label: 'Team Shared', labelKey: 'settings.nav.team', icon: Users },
   { id: 'tokenUsage', label: 'Token Usage', labelKey: 'settings.nav.tokenUsage', icon: Coins },
   { id: 'voice', label: 'Voice', labelKey: 'settings.nav.voice', icon: Mic },
   { id: 'privacy', label: 'Privacy & Telemetry', labelKey: 'settings.nav.privacy', icon: Shield },
@@ -72,7 +70,6 @@ const daemonSections: Section[] = [
 const localAgentSections: Section[] = [
   { id: 'llm', label: 'LLM Model', labelKey: 'settings.nav.llm', icon: Brain },
   { id: 'teamLlm', label: 'Team LLM', labelKey: 'settings.nav.teamLlm', icon: Users },
-  { id: 'envVars', label: 'Env Variables', labelKey: 'settings.nav.envVars', icon: KeyRound },
   { id: 'prompt', label: 'Prompt', labelKey: 'settings.nav.prompt', icon: MessageSquareText },
   { id: 'mcp', label: 'MCP', labelKey: 'settings.nav.mcp', icon: Plug },
   { id: 'roles', label: 'Roles', labelKey: 'settings.nav.roles', icon: UserRound },
@@ -169,14 +166,12 @@ export function Settings(_props?: SettingsProps) {
     }
   }, [settingsInitialSection])
 
-  // Settings is split into two independent dialogs by entry point: the regular
-  // entry shows the Client group; the local-daemon row's "Settings" shows the
-  // Daemon + Local Agent (opencode) groups together (Client hidden). Which
-  // dialog renders is derived from the active section's group.
-  const clientGroup = { id: 'client' as const, label: 'Client', labelKey: 'settings.nav.client', icon: Laptop, sections: filteredPrimarySections, testid: 'client-subnav' }
+  // Single Settings dialog: Desktop + Daemon + Local Agent groups together.
+  // Deep links (e.g. openSettings('daemonGeneral')) still expand the matching group.
+  const clientGroup = { id: 'client' as const, label: 'Desktop', labelKey: 'settings.nav.client', icon: Laptop, sections: filteredPrimarySections, testid: 'client-subnav' }
   const daemonGroup = { id: 'daemon' as const, label: 'Daemon', labelKey: 'settings.nav.daemon', icon: Server, sections: filteredDaemonSections, testid: 'daemon-subnav' }
   const localAgentGroup = { id: 'localAgent' as const, label: 'Local Agent', labelKey: 'settings.nav.localAgent', icon: SlidersHorizontal, sections: filteredLocalAgentSections, testid: 'local-agent-subnav' }
-  const navGroups = groupForSection(activeView) === 'client' ? [clientGroup] : [daemonGroup, localAgentGroup]
+  const navGroups = [clientGroup, daemonGroup, localAgentGroup]
   const [expandedGroup, setExpandedGroup] = React.useState<AccordionGroup | null>(() => groupForSection(activeView))
   const toggleGroup = (group: AccordionGroup) => {
     setExpandedGroup(prev => (prev === group ? null : group))

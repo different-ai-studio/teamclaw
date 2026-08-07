@@ -215,10 +215,14 @@ describe('TeamShareSection', () => {
       expect(screen.getByText(/已开通/)).toBeTruthy()
       expect(screen.getByText('OSS')).toBeTruthy()
     })
+    // Team encryption key moved to Daemon → General; share UI must not collect it.
+    expect(screen.queryByLabelText(/团队密钥/)).toBeNull()
   })
 })
 
 describe('TeamSecretEntry', () => {
+  // Component unit tests — TeamSecretEntry now mounts from Daemon → General,
+  // not Team Share / OSS / Git panels.
   beforeEach(() => {
     vi.clearAllMocks()
     resetStore()

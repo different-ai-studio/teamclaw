@@ -13,7 +13,6 @@ import { DaemonGeneralSection } from './DaemonGeneralSection'
 import { DaemonWorkspacesSection } from './DaemonWorkspacesSection'
 import { DaemonRuntimesSection } from './DaemonRuntimesSection'
 import { DependenciesSection } from './DependenciesSection'
-import { TeamSection } from './TeamSection'
 import { CronSection } from './CronSection'
 import { EnvVarsSection } from './EnvVarsSection'
 import { TokenUsageSection } from './TokenUsageSection'
@@ -38,7 +37,6 @@ export const SETTINGS_SECTION_COMPONENTS: Record<SettingsSection, React.Componen
   daemonGeneral: DaemonGeneralSection,
   daemonWorkspaces: DaemonWorkspacesSection,
   daemonRuntimes: DaemonRuntimesSection,
-  team: TeamSection,
   envVars: EnvVarsSection,
   // Standalone Skills settings page removed — team/personal skills live in the
   // Team Share browser. Keep the registry key so deep links to `skills` land
