@@ -2192,19 +2192,19 @@ paths:
   /v1/teams/{teamId}/share-mode:
     post:
       operationId: enableTeamShareMode
-      summary: Enable team share mode (one-shot lock)
+      summary: Enable team knowledge sync (one-shot, permanent)
       description: |
-        Atomically locks the team's share mode to one of `oss`, `managed_git`,
-        or `custom_git`. Once locked, the mode cannot be changed — a second
-        call returns 409 `share_mode_locked`. For `managed_git` and
-        `custom_git`, a `gitConfig.remoteUrl` is required. For `custom_git`,
-        the caller must also supply `gitConfig.authKind` and
-        `gitConfig.credentialRef`.
+        Turns on team knowledge sync. This is a switch, not a choice: git
+        share modes are gone and the only backend is Supabase Storage. `mode`
+        is vestigial — omit it, or send `oss`; `managed_git` and `custom_git`
+        are rejected with 400. Once enabled the team cannot be un-enabled
+        (`DELETE` returns 410) and a second call returns 409
+        `share_mode_locked`.
       tags: [Teams]
       parameters:
         - $ref: "#/components/parameters/TeamId"
       requestBody:
-        required: true
+        required: false
         content:
           application/json:
             schema:
@@ -2235,7 +2235,11 @@ paths:
         - $ref: "#/components/parameters/TeamId"
       responses:
         "200":
-          description: Current team share status. `mode` is null when share has not been opened.
+          description: |
+            Current team share status. `mode` is null when sync has never been
+            enabled; any non-null value means enabled. Branch on null-ness, not
+            on the value — `managed_git` / `custom_git` survive on legacy rows
+            and mean nothing beyond "enabled".
           headers:
             X-Request-Id:
               $ref: "#/components/headers/RequestId"
@@ -5360,26 +5364,13 @@ components:
         git remote with explicit credential metadata.
     EnableShareModeRequest:
       type: object
-      required: [mode]
+      description: |
+        Body is optional and carries no decision. `mode` is kept only so
+        existing clients keep working; the sole accepted value is `oss`.
       properties:
         mode:
-          $ref: "#/components/schemas/TeamShareMode"
-        gitConfig:
-          type: object
-          description: |
-            Required when `mode` is `managed_git` or `custom_git`. For
-            `custom_git`, `authKind` and `credentialRef` are also required.
-            `credentialRef` references a device-local secret entry; the FC
-            never sees the raw credential material.
-          required: [remoteUrl]
-          properties:
-            remoteUrl:
-              type: string
-            authKind:
-              type: string
-              enum: [ssh_key, https_token]
-            credentialRef:
-              type: string
+          type: string
+          enum: [oss]
     ShareStatus:
       type: object
       required: [mode, enabledAt, gitRemoteUrl, gitAuthKind]

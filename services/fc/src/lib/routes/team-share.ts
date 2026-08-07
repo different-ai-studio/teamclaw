@@ -1,52 +1,26 @@
 import { ApiError } from "../http-utils.js";
 
-const VALID_MODES = new Set(["oss", "managed_git", "custom_git"]);
-const VALID_AUTH_KINDS = new Set(["ssh_key", "https_token"]);
+// `share_mode` is now a switch, not a choice. The column, the enum and this
+// field keep their historical names — the value that means "on" is `oss`
+// because that is the only one every existing client already understands:
+// `normalizeShareStatus` in packages/app/src/stores/team-share.ts collapses an
+// unrecognised value to `mode: null`, which renders an enabled team as
+// "not set up" and reopens the onboarding wizard.
+const SHARE_MODE_ON = "oss";
 
 function validateShareModeInput(body) {
   const mode = body?.mode;
-  if (typeof mode !== "string" || !VALID_MODES.has(mode)) {
+  // Accepting only the enabled value keeps the endpoint honest about what it
+  // can actually do; a client still asking for a git mode gets told, rather
+  // than getting a team configured for a backend that no longer exists.
+  if (mode !== undefined && mode !== SHARE_MODE_ON) {
     throw new ApiError(
       400,
       "validation_failed",
-      "mode must be one of oss, managed_git, custom_git",
+      `mode must be "${SHARE_MODE_ON}" — git share modes are no longer supported`,
     );
   }
-  let gitConfig = null;
-  if (mode === "managed_git" || mode === "custom_git") {
-    const gc = body.gitConfig ?? {};
-    const remoteUrl = typeof gc.remoteUrl === "string" ? gc.remoteUrl.trim() : "";
-    if (!remoteUrl) {
-      throw new ApiError(
-        400,
-        "validation_failed",
-        "gitConfig.remoteUrl is required for managed_git and custom_git modes",
-      );
-    }
-    gitConfig = { remoteUrl };
-    if (mode === "custom_git") {
-      const authKind = gc.authKind;
-      if (typeof authKind !== "string" || !VALID_AUTH_KINDS.has(authKind)) {
-        throw new ApiError(
-          400,
-          "validation_failed",
-          "gitConfig.authKind must be ssh_key or https_token for custom_git",
-        );
-      }
-      const credentialRef =
-        typeof gc.credentialRef === "string" ? gc.credentialRef.trim() : "";
-      if (!credentialRef) {
-        throw new ApiError(
-          400,
-          "validation_failed",
-          "gitConfig.credentialRef is required for custom_git",
-        );
-      }
-      gitConfig.authKind = authKind;
-      gitConfig.credentialRef = credentialRef;
-    }
-  }
-  return { mode, gitConfig };
+  return { mode: SHARE_MODE_ON, gitConfig: null };
 }
 
 function validateLlmConfigInput(body) {
@@ -110,9 +84,15 @@ export function registerTeamShare(router) {
     return { body: result };
   });
 
-  router.delete("/v1/teams/:teamId/share-mode", async (ctx) => {
-    const result = await ctx.repository.disableShareMode(ctx.params.teamId);
-    return { body: result };
+  router.delete("/v1/teams/:teamId/share-mode", async () => {
+    // Turning sync off would leave every member holding a half-synced tree with
+    // no way to reconcile it, and the DB trigger refuses to clear the column
+    // anyway. Say so instead of failing deeper down.
+    throw new ApiError(
+      410,
+      "share_mode_permanent",
+      "Team knowledge sync cannot be disabled once enabled",
+    );
   });
 
   router.get("/v1/teams/:teamId/workspace-config", async (ctx) => {
