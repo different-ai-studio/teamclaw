@@ -13,6 +13,33 @@ import { createServiceRoleClient } from "./supabase.js";
 // bytes are", and renaming it would be a large migration for zero behaviour.
 // ---------------------------------------------------------------------------
 
+/**
+ * Signed URLs are minted with the service-role client, which talks to Supabase
+ * over `SUPABASE_URL`. On self-host that is the in-cluster address
+ * (`http://kong:8000`) — correct for FC, useless to the client the URL is
+ * handed to, which cannot resolve `kong` and fails the transfer outright.
+ *
+ * So rewrite the origin to the publicly reachable one. The path, query and
+ * token are untouched; only the host the client dials changes.
+ */
+function toPublicUrl(signedUrl: string): string {
+  const publicBase = process.env.SUPABASE_PUBLIC_URL?.trim();
+  if (!publicBase) return signedUrl;
+  try {
+    const target = new URL(signedUrl, process.env.SUPABASE_URL || undefined);
+    const base = new URL(publicBase);
+    target.protocol = base.protocol;
+    // hostname + port, not `host`: the `host` setter leaves the existing port
+    // in place when the value it is given has none, so kong's :8000 survived
+    // onto the public hostname and the transfer still failed.
+    target.hostname = base.hostname;
+    target.port = base.port;
+    return target.toString();
+  } catch {
+    return signedUrl;
+  }
+}
+
 /** What sync-handlers and the skills routes need from a blob store. */
 export interface BlobStorage {
   createUploadUrl(objectPath: string): Promise<string>;
@@ -41,7 +68,7 @@ export function supabaseBlobStorage(bucket: () => string): BlobStorage {
           `failed to create signed upload url: ${error?.message ?? "unknown error"}`,
         );
       }
-      return data.signedUrl;
+      return toPublicUrl(data.signedUrl);
     },
 
     async createDownloadUrl(objectPath, expiresIn = 900) {
@@ -53,7 +80,7 @@ export function supabaseBlobStorage(bucket: () => string): BlobStorage {
           `failed to create signed download url: ${error?.message ?? "unknown error"}`,
         );
       }
-      return data.signedUrl;
+      return toPublicUrl(data.signedUrl);
     },
 
     async stat(objectPath) {
