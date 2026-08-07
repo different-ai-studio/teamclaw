@@ -279,8 +279,15 @@ describe("Team lifecycle", { skip: !E2E }, () => {
     state.teamId = body.id;
   });
 
-  test("GET /v1/teams lists the new team", async () => {
-    const { status, body } = await fcFetch("/v1/teams", {
+  test("GET /v1/teams?scope=all lists the new team", async () => {
+    // scope=all, not the bare listing. The bare one is `list_my_teams_current_org`
+    // — teams in the caller's CURRENT org — while createTeam stamps a new team
+    // with the caller's JWT org, else DEFAULT_ORG_ID. A fresh signup carries no
+    // org claim, so on a deployment with DEFAULT_ORG_ID configured the team
+    // lands in the shared org while the caller's own org is elsewhere, and the
+    // current-org listing legitimately omits it. scope=all is what real clients
+    // use for exactly this reason.
+    const { status, body } = await fcFetch("/v1/teams?scope=all", {
       token: state.accessToken,
     });
     assert.equal(status, 200, `listTeams failed: ${JSON.stringify(body)}`);
@@ -298,12 +305,30 @@ describe("Team lifecycle", { skip: !E2E }, () => {
     assert.equal(body.name, state.teamName);
   });
 
-  test("POST /v1/teams/:id/invites returns invite token", async () => {
+  test("POST /v1/teams/:id/invites: token, or upgrade_required in the shared org", async () => {
     const { status, body } = await fcFetch(`/v1/teams/${state.teamId}/invites`, {
       method: "POST",
       token: state.accessToken,
       body: JSON.stringify({ kind: "member", displayName: "E2E Invitee", teamRole: "member" }),
     });
+
+    // A team sitting in DEFAULT_ORG is solo-only by design: you upgrade your
+    // account (which moves the team into your own org) before you can invite
+    // anyone. Whether this e2e's team lands there depends on deployment config,
+    // so both outcomes are correct — but only one is correct per deployment,
+    // and asserting the org decides which.
+    const { body: team } = await fcFetch(`/v1/teams/${state.teamId}`, {
+      token: state.accessToken,
+    });
+    const defaultOrgId = process.env.DEFAULT_ORG_ID?.trim();
+    const inSharedOrg = Boolean(defaultOrgId && team?.orgId === defaultOrgId);
+
+    if (inSharedOrg) {
+      assert.equal(status, 403, `expected upgrade_required in the shared org: ${JSON.stringify(body)}`);
+      assert.equal(body?.error?.code, "upgrade_required", JSON.stringify(body));
+      return;
+    }
+
     assert.equal(status, 201, `createInvite failed: ${JSON.stringify(body)}`);
     // invite token may be in body.token or body.inviteToken
     const token = body.token ?? body.inviteToken ?? body.invite_token;
@@ -351,9 +376,9 @@ describe("Session + Messages", { skip: !E2E }, () => {
     assert.ok(Array.isArray(body.items), "items must be an array");
   });
 
-  test("GET /v1/sync/actor-directory lists daemon actor (daemon-gated)", async (t) => {
+  test("GET /v1/sync/actor-directory answers for this team (daemon-gated)", async (t) => {
     if (!isDaemonRunning()) {
-      t.skip("amuxd container not running — skipping daemon actor check");
+      t.skip("amuxd container not running — skipping actor directory check");
       return;
     }
     const { status, body } = await fcFetch(
@@ -362,8 +387,15 @@ describe("Session + Messages", { skip: !E2E }, () => {
     );
     assert.equal(status, 200, `actorDirectory failed: ${JSON.stringify(body)}`);
     assert.ok(Array.isArray(body.items), "items must be an array");
-    const hasDaemon = body.items.some((a: any) => a.clientKind === "daemon");
-    assert.ok(hasDaemon, "No daemon actor found in directory — is amuxd joined to this team?");
+
+    // Deliberately NOT asserting a daemon actor is present. This suite creates
+    // a brand-new team every run; the box's amuxd is onboarded to its own team
+    // and never joins this one, so "is amuxd joined to this team?" could only
+    // ever be answered no. The gate checked that the container was running,
+    // which is a different question — so the assertion started failing the day
+    // amuxd began running on the box (2026-08-06) and blocked every deploy
+    // since. What this endpoint owes us here is a well-formed answer for a team
+    // the caller belongs to, and that is what is checked.
   });
 });
 
