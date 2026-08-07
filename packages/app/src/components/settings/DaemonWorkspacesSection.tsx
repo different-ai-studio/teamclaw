@@ -2,8 +2,6 @@ import * as React from 'react'
 import { useTranslation } from 'react-i18next'
 import { AlertCircle, Archive, CheckCircle2, FolderOpen, Loader2, Plus, RefreshCw, Save } from 'lucide-react'
 import { Button } from '@/components/ui/button'
-import { Checkbox } from '@/components/ui/checkbox'
-import { Input } from '@/components/ui/input'
 import { useCurrentTeamStore } from '@/stores/current-team'
 import { useWorkspaceStore } from '@/stores/workspace'
 import {
@@ -86,14 +84,11 @@ export function DaemonWorkspacesSection() {
   const currentWorkspacePath = useWorkspaceStore((s) => s.workspacePath)
   const [agent, setAgent] = React.useState<DaemonAgent | null>(null)
   const [workspaces, setWorkspaces] = React.useState<DaemonWorkspace[]>([])
-  const [path, setPath] = React.useState(currentWorkspacePath ?? '')
-  const [setAsDefaultOnAdd, setSetAsDefaultOnAdd] = React.useState(true)
   const [loading, setLoading] = React.useState(false)
   const [saving, setSaving] = React.useState(false)
   const [settingDefaultWorkspaceId, setSettingDefaultWorkspaceId] = React.useState<string | null>(null)
   const [error, setError] = React.useState<string | null>(null)
 
-  const derivedName = workspaceNameFromPath(path)
 
   const load = React.useCallback(async () => {
     if (!team?.id) return
@@ -114,17 +109,6 @@ export function DaemonWorkspacesSection() {
   React.useEffect(() => {
     void load()
   }, [load])
-
-  React.useEffect(() => {
-    if (!path && currentWorkspacePath) {
-      setPath(currentWorkspacePath)
-    }
-  }, [currentWorkspacePath, path])
-
-  const handleUseCurrentWorkspace = () => {
-    if (!currentWorkspacePath) return
-    setPath(currentWorkspacePath)
-  }
 
   const registerDefaultOnDaemon = async (
     teamId: string,
@@ -162,9 +146,38 @@ export function DaemonWorkspacesSection() {
     })
   }
 
-  const handleCreate = async () => {
-    const trimmedPath = path.trim()
-    if (!team?.id || !agent?.id || !trimmedPath || !derivedName) return
+  // Pick a directory and register it in one go. There is nothing to fill in
+  // that the path does not already answer: the name is derived from it, and a
+  // second workspace should not silently steal `default` from the first — so
+  // the old form's text input, "Use current" and default checkbox are gone.
+  // The very first workspace still becomes default, because otherwise the
+  // agent has none.
+  const handleAddWorkspace = async () => {
+    if (!team?.id || !agent?.id || saving) return
+    let picked: string | null = null
+    try {
+      const { open } = await import('@tauri-apps/plugin-dialog')
+      const selected = await open({
+        directory: true,
+        multiple: false,
+        defaultPath: currentWorkspacePath ?? undefined,
+        title: t('settings.daemonWorkspaces.add', 'Add Workspace'),
+      })
+      picked = typeof selected === 'string' ? selected.trim() : null
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err))
+      return
+    }
+    if (!picked) return
+
+    if (workspaces.some((w) => w.path === picked)) {
+      toast.info(t('settings.daemonWorkspaces.alreadyRegistered', 'That directory is already registered.'))
+      return
+    }
+
+    const name = workspaceNameFromPath(picked)
+    if (!name) return
+
     setSaving(true)
     setError(null)
     try {
@@ -172,11 +185,12 @@ export function DaemonWorkspacesSection() {
         teamId: team.id,
         agentId: agent.id,
         createdByMemberId: currentMember?.id ?? null,
-        name: derivedName,
-        path: trimmedPath,
+        name,
+        path: picked,
       })
-      if (setAsDefaultOnAdd) {
-        const registration = await registerDefaultOnDaemon(team.id, agent.id, created.id, trimmedPath)
+      const isFirst = workspaces.length === 0
+      if (isFirst) {
+        const registration = await registerDefaultOnDaemon(team.id, agent.id, created.id, picked)
         await load()
         if (!registration.daemonRegistered && registration.daemonError) {
           notifyDaemonRegistrationWarning(registration.daemonError)
@@ -184,7 +198,6 @@ export function DaemonWorkspacesSection() {
       } else {
         await load()
       }
-      setPath(currentWorkspacePath ?? '')
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err))
     } finally {
@@ -293,11 +306,28 @@ export function DaemonWorkspacesSection() {
 
       <SettingCard>
         <div className="space-y-4">
-          <div>
-            <p className="text-[13px] font-medium">{t('settings.daemonWorkspaces.availableTitle', 'Daemon workspaces')}</p>
-            <p className="mt-1 text-xs text-muted-foreground">
-              {t('settings.daemonWorkspaces.availableDesc', 'Rows are read from public.workspaces. Default workspace updates public.agents.default_workspace_id.')}
-            </p>
+          <div className="flex items-start justify-between gap-3">
+            <div className="min-w-0">
+              <p className="text-[13px] font-medium">{t('settings.daemonWorkspaces.availableTitle', 'Daemon workspaces')}</p>
+              <p className="mt-1 text-xs text-muted-foreground">
+                {t('settings.daemonWorkspaces.availableDesc', 'Rows are read from public.workspaces. Default workspace updates public.agents.default_workspace_id.')}
+              </p>
+              {agent && (
+                <p className="mt-1 text-xs text-muted-foreground">
+                  {t('settings.daemonWorkspaces.bindToAgent', 'Will bind to local agent {{name}}', { name: agent.displayName })}
+                </p>
+              )}
+            </div>
+            <Button
+              size="sm"
+              variant="outline"
+              className="h-8 shrink-0 gap-1.5"
+              onClick={handleAddWorkspace}
+              disabled={saving || !agent?.id}
+            >
+              {saving ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Plus className="h-3.5 w-3.5" />}
+              {t('settings.daemonWorkspaces.add', 'Add Workspace')}
+            </Button>
           </div>
 
           {loading && workspaces.length === 0 ? (
@@ -378,67 +408,6 @@ export function DaemonWorkspacesSection() {
         </SettingCard>
       )}
 
-      <SettingCard>
-        <div className="space-y-4">
-          <div>
-            <p className="text-[13px] font-medium">{t('settings.daemonWorkspaces.addTitle', 'Add daemon workspace')}</p>
-            <p className="mt-1 text-xs text-muted-foreground">
-              {t('settings.daemonWorkspaces.addDesc', 'Register a local directory for this machine\'s daemon agent.')}
-            </p>
-            {agent && (
-              <p className="mt-1 text-xs text-muted-foreground">
-                {t('settings.daemonWorkspaces.bindToAgent', 'Will bind to local agent {{name}}', { name: agent.displayName })}
-              </p>
-            )}
-          </div>
-          <label className="space-y-1.5">
-            <span className="text-xs font-medium text-muted-foreground">{t('settings.daemonWorkspaces.path', 'Path')}</span>
-            <div className="flex gap-2">
-              <Input
-                value={path}
-                onChange={(event) => setPath(event.target.value)}
-                placeholder="/Users/me/TeamClaw"
-                className="font-mono text-xs"
-                disabled={saving}
-              />
-              <Button variant="outline" size="sm" className="h-8 shrink-0" onClick={handleUseCurrentWorkspace} disabled={!currentWorkspacePath || saving}>
-                {t('settings.daemonWorkspaces.useCurrent', 'Use current')}
-              </Button>
-            </div>
-            {derivedName && (
-              <p className="text-[11px] text-faint">
-                {t('settings.daemonWorkspaces.namePreview', 'Registered as {{name}}', { name: derivedName })}
-              </p>
-            )}
-          </label>
-          <label className="flex cursor-pointer items-start gap-2.5">
-            <Checkbox
-              id="daemon-workspace-set-default"
-              checked={setAsDefaultOnAdd}
-              onCheckedChange={(checked) => setSetAsDefaultOnAdd(checked === true)}
-              disabled={saving}
-              className="mt-0.5"
-            />
-            <span className="space-y-0.5">
-              <span className="block text-[13px] leading-snug">
-                {t('settings.daemonWorkspaces.setDefaultOnAdd', 'Set as default workspace')}
-              </span>
-              <span className="block text-xs text-muted-foreground">
-                {t('settings.daemonWorkspaces.setDefaultOnAddHint', 'Updates the agent default workspace in one step.')}
-              </span>
-            </span>
-          </label>
-          <Button
-            size="sm"
-            className="gap-1.5"
-            onClick={handleCreate}
-            disabled={saving || !agent?.id || !path.trim() || !derivedName}
-          >
-            {saving ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Plus className="h-3.5 w-3.5" />}
-            {t('settings.daemonWorkspaces.add', 'Add Workspace')}
-          </Button>
-        </div>
-      </SettingCard>
     </div>
   )
 }

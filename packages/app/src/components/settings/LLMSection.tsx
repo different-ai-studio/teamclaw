@@ -78,41 +78,6 @@ async function fetchOpenAICompatibleModels(baseURL: string, apiKey: string): Pro
     .filter((model) => model.id.length > 0)
 }
 
-function WorkspacePathCard({
-  path,
-  t,
-  onSwitch,
-  switching,
-}: {
-  path: string | null
-  t: ReturnType<typeof useTranslation>['t']
-  onSwitch: () => void
-  switching: boolean
-}) {
-  return (
-    <SettingCard>
-      <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-        <div className="grid min-w-0 flex-1 gap-1.5 sm:grid-cols-[128px_minmax(0,1fr)] sm:items-start">
-          <span className="text-xs text-muted-foreground">{t('settings.llm.workspacePath', 'Workspace Path')}</span>
-          <code className="min-w-0 break-all font-mono text-xs text-foreground">
-            {path || t('settings.llm.noWorkspace', 'No workspace selected')}
-          </code>
-        </div>
-        <Button
-          variant="outline"
-          size="sm"
-          onClick={onSwitch}
-          disabled={switching}
-          className="h-8 shrink-0 gap-1.5 text-xs"
-        >
-          {switching ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <FolderOpen className="h-3.5 w-3.5" />}
-          {t('settings.llm.switchWorkspace', 'Switch Workspace')}
-        </Button>
-      </div>
-    </SettingCard>
-  )
-}
-
 export const OpenCodeLLMSection = React.memo(function OpenCodeLLMSection() {
   const { t } = useTranslation()
   const teamShareActive = useTeamShareStore((s) => isShareModeLocked(s.status.mode))
@@ -183,90 +148,6 @@ export const OpenCodeLLMSection = React.memo(function OpenCodeLLMSection() {
 
   // Collapsible other providers
   const [showAllProviders, setShowAllProviders] = React.useState(false)
-  const [switchingWorkspace, setSwitchingWorkspace] = React.useState(false)
-  const [pendingWorkspacePath, setPendingWorkspacePath] = React.useState<string | null>(null)
-  const [teamSwitchDialogOpen, setTeamSwitchDialogOpen] = React.useState(false)
-
-  const switchWorkspaceTo = React.useCallback(async (nextPath: string) => {
-    setSwitchingWorkspace(true)
-    try {
-      await setWorkspace(nextPath)
-    } finally {
-      setSwitchingWorkspace(false)
-    }
-  }, [setWorkspace])
-
-  const handleSwitchWorkspace = React.useCallback(async () => {
-    setSwitchingWorkspace(true)
-    try {
-      const { open } = await import('@tauri-apps/plugin-dialog')
-      const selected = await open({
-        directory: true,
-        multiple: false,
-        title: t('workspace.switchWorkspace', 'Switch Workspace'),
-      })
-
-      if (!selected || typeof selected !== 'string') return
-      if (selected === workspacePath) return
-
-      if (teamShareActive) {
-        setPendingWorkspacePath(selected)
-        setTeamSwitchDialogOpen(true)
-        return
-      }
-
-      await setWorkspace(selected)
-    } catch (error) {
-      console.error('[LLMSection] Failed to switch workspace:', error)
-    } finally {
-      setSwitchingWorkspace(false)
-    }
-  }, [setWorkspace, t, teamShareActive, workspacePath])
-
-  const handleConfirmTeamWorkspaceSwitch = React.useCallback(async () => {
-    if (!pendingWorkspacePath) return
-    setTeamSwitchDialogOpen(false)
-    const nextPath = pendingWorkspacePath
-    setPendingWorkspacePath(null)
-    await switchWorkspaceTo(nextPath)
-  }, [pendingWorkspacePath, switchWorkspaceTo])
-
-  const teamWorkspaceSwitchDialog = (
-    <Dialog open={teamSwitchDialogOpen} onOpenChange={setTeamSwitchDialogOpen}>
-      <DialogContent>
-        <DialogHeader>
-          <DialogTitle>{t('settings.llm.switchTeamWorkspaceTitle', 'Switch team workspace?')}</DialogTitle>
-          <DialogDescription>
-            {t(
-              'settings.llm.switchTeamWorkspaceDesc',
-              'This team is backed by a shared Git repository. Switching workspace will initialize the team again in the new folder and clone the shared files there.',
-            )}
-          </DialogDescription>
-        </DialogHeader>
-        {pendingWorkspacePath && (
-          <div className="rounded-lg border border-border-soft bg-background/50 p-3">
-            <p className="mb-1 text-xs text-muted-foreground">{t('settings.llm.nextWorkspacePath', 'New workspace path')}</p>
-            <code className="block break-all font-mono text-xs text-foreground">{pendingWorkspacePath}</code>
-          </div>
-        )}
-        <DialogFooter>
-          <Button
-            variant="outline"
-            onClick={() => {
-              setTeamSwitchDialogOpen(false)
-              setPendingWorkspacePath(null)
-            }}
-          >
-            {t('common.cancel', 'Cancel')}
-          </Button>
-          <Button onClick={handleConfirmTeamWorkspaceSwitch} disabled={switchingWorkspace}>
-            {switchingWorkspace && <Loader2 className="mr-2 h-3.5 w-3.5 animate-spin" />}
-            {t('settings.llm.confirmSwitchWorkspace', 'Switch and initialize')}
-          </Button>
-        </DialogFooter>
-      </DialogContent>
-    </Dialog>
-  )
 
   const { visibleProviders, hiddenCount } = React.useMemo(() => {
     const connected: typeof providers = []
@@ -613,7 +494,6 @@ export const OpenCodeLLMSection = React.memo(function OpenCodeLLMSection() {
           description={t('settings.llm.description', 'Manage AI providers and connect them to enable model selection')}
           iconColor="text-purple-500"
         />
-        <WorkspacePathCard path={workspacePath} t={t} onSwitch={handleSwitchWorkspace} switching={switchingWorkspace} />
         <SettingCard>
           <div className="flex items-center gap-3">
             <div className="h-9 w-9 rounded-lg flex items-center justify-center bg-violet-100 dark:bg-violet-900/30 text-violet-700 dark:text-violet-400">
@@ -654,7 +534,6 @@ export const OpenCodeLLMSection = React.memo(function OpenCodeLLMSection() {
             </div>
           </div>
         </SettingCard>
-        {teamWorkspaceSwitchDialog}
       </div>
     )
   }
@@ -693,7 +572,6 @@ export const OpenCodeLLMSection = React.memo(function OpenCodeLLMSection() {
         </div>
       </div>
 
-      <WorkspacePathCard path={workspacePath} t={t} onSwitch={handleSwitchWorkspace} switching={switchingWorkspace} />
 
       {/* Loading State */}
       {providersLoading && providers.length === 0 && (
@@ -704,7 +582,6 @@ export const OpenCodeLLMSection = React.memo(function OpenCodeLLMSection() {
         </SettingCard>
       )}
 
-      {teamWorkspaceSwitchDialog}
 
       {/* Provider List */}
       {!providersLoading || providers.length > 0 ? (

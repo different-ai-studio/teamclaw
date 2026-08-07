@@ -39,6 +39,9 @@ const updateDaemonWorkspace = vi.hoisted(() => vi.fn(async () => ({})))
 // will be invoked and the regression assertion below will fail.
 const rpcAddWorkspace = vi.hoisted(() => vi.fn(async () => ({ accepted: true })))
 
+const dialogOpen = vi.fn()
+vi.mock('@tauri-apps/plugin-dialog', () => ({ open: (...a: unknown[]) => dialogOpen(...a) }))
+
 vi.mock('@/lib/teamclaw-rpc', () => ({
   addWorkspace: rpcAddWorkspace,
 }))
@@ -108,11 +111,9 @@ describe('DaemonWorkspacesSection', () => {
     setAgentDefaultWorkspace.mockClear()
   })
 
-  it('adding a workspace calls createDaemonWorkspace only, never the daemon addWorkspace RPC', async () => {
+  it('adding a workspace picks a directory, then calls createDaemonWorkspace only', async () => {
+    dialogOpen.mockResolvedValueOnce('/Users/me/my-project')
     render(<DaemonWorkspacesSection />)
-
-    const pathInput = await screen.findByPlaceholderText('/Users/me/TeamClaw')
-    fireEvent.change(pathInput, { target: { value: '/Users/me/my-project' } })
 
     const addButton = await screen.findByRole('button', { name: /Add Workspace/i })
     fireEvent.click(addButton)
@@ -121,8 +122,22 @@ describe('DaemonWorkspacesSection', () => {
     expect(createDaemonWorkspace).toHaveBeenCalledWith(
       expect.objectContaining({ teamId: 'team-1', agentId: 'agent-1', path: '/Users/me/my-project' }),
     )
+    // Name comes from the path — there is no field left to type it into.
+    expect(createDaemonWorkspace).toHaveBeenCalledWith(
+      expect.objectContaining({ name: 'my-project' }),
+    )
 
     // The regression under test: no daemon RPC round-trip for the same action.
     expect(rpcAddWorkspace).not.toHaveBeenCalled()
+  })
+
+  it('cancelling the directory picker registers nothing', async () => {
+    dialogOpen.mockResolvedValueOnce(null)
+    render(<DaemonWorkspacesSection />)
+
+    fireEvent.click(await screen.findByRole('button', { name: /Add Workspace/i }))
+
+    await waitFor(() => expect(dialogOpen).toHaveBeenCalled())
+    expect(createDaemonWorkspace).not.toHaveBeenCalled()
   })
 })

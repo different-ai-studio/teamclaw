@@ -99,21 +99,13 @@ describe('LLMSection', () => {
     expect(screen.getByText('LLM Model')).toBeTruthy()
   })
 
-  it('shows the current workspace path', () => {
+  it('no longer offers a workspace switcher', () => {
+    // Providers are per-workspace, so the section still reads workspacePath —
+    // but switching from here was a second, competing way to change the
+    // workspace and is gone. Daemon → Workspaces owns that now.
     render(<LLMSection />)
-    expect(screen.getByText('Workspace Path')).toBeTruthy()
-    expect(screen.getByText('/test')).toBeTruthy()
-  })
-
-  it('switches workspace from the workspace path card', async () => {
-    mocks.dialogOpen.mockResolvedValueOnce('/next-workspace')
-
-    render(<LLMSection />)
-    fireEvent.click(screen.getByRole('button', { name: 'Switch Workspace' }))
-
-    await waitFor(() => {
-      expect(mocks.workspaceState.setWorkspace).toHaveBeenCalledWith('/next-workspace')
-    })
+    expect(screen.queryByText('Workspace Path')).toBeNull()
+    expect(screen.queryByRole('button', { name: 'Switch Workspace' })).toBeNull()
   })
 
   it('refreshes provider data from the daemon workspace-control plane on mount', async () => {

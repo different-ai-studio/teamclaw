@@ -1707,6 +1707,7 @@
       "path": "Path",
       "useCurrent": "Use current",
       "add": "Add Workspace",
+      "alreadyRegistered": "That directory is already registered.",
       "availableTitle": "Daemon workspaces",
       "availableDesc": "Rows are read from public.workspaces. Default workspace updates public.agents.default_workspace_id.",
       "empty": "No daemon workspaces configured yet.",

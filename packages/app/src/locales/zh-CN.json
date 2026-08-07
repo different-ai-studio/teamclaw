@@ -1707,6 +1707,7 @@
       "path": "路径",
       "useCurrent": "使用当前",
       "add": "添加 Workspace",
+      "alreadyRegistered": "这个目录已经注册过了。",
       "availableTitle": "Daemon 工作区",
       "availableDesc": "数据读取自 public.workspaces。默认 workspace 会更新 public.agents.default_workspace_id。",
       "empty": "还没有配置 Daemon workspace。",
