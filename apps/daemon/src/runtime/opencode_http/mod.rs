@@ -381,6 +381,26 @@ fn decide_serve_env_switch(shared: &Shared, workspace: &str, incoming: &str) -> 
     )
 }
 
+/// After a route detach, recycle the global serve when nothing holds it and a
+/// newer env snapshot is queued (same-workspace tolerate path — see #779).
+fn maybe_apply_pending_env_after_detach(shared: &Shared) {
+    let routes_empty = shared.routes.lock().is_empty();
+    if shared.serve.apply_pending_env_if_idle(routes_empty) {
+        info!("applied pending opencode env snapshot after last route detached");
+    }
+}
+
+/// Book-keeping after attach/prewarm finishes deciding the serve env.
+///
+/// Same-workspace tolerate leaves a pending refresh (`configured != active`);
+/// keep the conflict mark so diagnostics can show the stale host until idle
+/// restart applies the queued snapshot.
+fn finish_env_snapshot_activation(serve: &ServeSupervisor, workspace: &str) {
+    if !serve.has_pending_env_refresh() {
+        serve.clear_snapshot_conflict(workspace);
+    }
+}
+
 // ---------------------------------------------------------------------------
 // OpencodeHost
 // ---------------------------------------------------------------------------
@@ -487,6 +507,7 @@ impl OpencodeHost {
                     workspace,
                     "opencode serve prewarm tolerating same-workspace env fingerprint drift"
                 );
+                self.shared.serve.mark_snapshot_conflict(&workspace);
             }
             EnvSnapshotDecision::ConflictOtherWorkspace => {
                 self.shared.serve.mark_snapshot_conflict(&workspace);
@@ -509,7 +530,10 @@ impl OpencodeHost {
         // actually inherited and repair that race before declaring prewarm
         // successful.
         match decide_serve_env_switch(&self.shared, &workspace, &incoming) {
-            EnvSnapshotDecision::Continue | EnvSnapshotDecision::TolerateSameWorkspace => {}
+            EnvSnapshotDecision::Continue => {}
+            EnvSnapshotDecision::TolerateSameWorkspace => {
+                self.shared.serve.mark_snapshot_conflict(&workspace);
+            }
             EnvSnapshotDecision::RestartAllowed => {
                 self.shared.serve.shutdown();
                 self.shared
@@ -529,7 +553,7 @@ impl OpencodeHost {
                 return;
             }
         }
-        self.shared.serve.clear_snapshot_conflict(&workspace);
+        finish_env_snapshot_activation(&self.shared.serve, &workspace);
         if let Some(worktree) = worktree.filter(|w| !w.is_empty()) {
             events::ensure_sse_task(&self.shared, &canonical_dir(worktree));
         }
@@ -597,6 +621,7 @@ impl OpencodeHost {
                     workspace,
                     "tolerating same-workspace env fingerprint drift; keeping active serve env"
                 );
+                self.shared.serve.mark_snapshot_conflict(&workspace);
             }
             EnvSnapshotDecision::ConflictOtherWorkspace => {
                 self.shared.serve.mark_snapshot_conflict(&workspace);
@@ -611,7 +636,10 @@ impl OpencodeHost {
             .install_env_snapshot(&workspace, extra_env.clone());
         self.shared.serve.ensure().await?;
         match decide_serve_env_switch(&self.shared, &workspace, &incoming) {
-            EnvSnapshotDecision::Continue | EnvSnapshotDecision::TolerateSameWorkspace => {}
+            EnvSnapshotDecision::Continue => {}
+            EnvSnapshotDecision::TolerateSameWorkspace => {
+                self.shared.serve.mark_snapshot_conflict(&workspace);
+            }
             EnvSnapshotDecision::RestartAllowed => {
                 self.shared.serve.shutdown();
                 self.shared
@@ -642,7 +670,7 @@ impl OpencodeHost {
         )
         .await
         .map_err(crate::error::AmuxError::Agent)?;
-        self.shared.serve.clear_snapshot_conflict(&workspace);
+        finish_env_snapshot_activation(&self.shared.serve, &workspace);
         drop(_env_guard);
         if !initial_prompt.is_empty() {
             let _ = cmd_tx
@@ -1667,6 +1695,7 @@ async fn command_loop(shared: Arc<Shared>, mut cmd_rx: mpsc::Receiver<AcpCommand
                     .questions
                     .lock()
                     .retain(|_, sid| !detached_session_ids.iter().any(|detached| detached == sid));
+                maybe_apply_pending_env_after_detach(&shared);
                 info!(acp_session_id, "opencode session detached");
                 if let Some(ack) = ack {
                     let _ = ack.send(());
@@ -2259,5 +2288,101 @@ mod turn_activity_tests {
             .turn_last_event_at
             .elapsed();
         assert!(idle_elapsed >= std::time::Duration::from_secs(80));
+    }
+
+    #[test]
+    fn last_route_detach_applies_pending_env_refresh() {
+        let shared = Shared::new();
+        let fingerprint = shared.serve.install_env_snapshot(
+            "/ws",
+            HashMap::from([("KEY".to_string(), "new".to_string())]),
+        );
+        shared
+            .serve
+            .set_active_env_fingerprint_for_test(Some("stale-active".to_string()));
+        {
+            let mut routes = shared.routes.lock();
+            routes.insert("ses_1".to_string(), test_route("/ws"));
+        }
+        shared.routes.lock().remove("ses_1");
+        maybe_apply_pending_env_after_detach(&shared);
+
+        assert!(!shared.serve.has_pending_env_refresh());
+        assert_eq!(
+            shared.serve.configured_env_fingerprint().as_deref(),
+            Some(fingerprint.as_str())
+        );
+        assert_eq!(shared.serve.cached_env_key_count(), 1);
+        assert!(shared.serve.active_env_fingerprint().is_none());
+    }
+
+    #[test]
+    fn detach_with_remaining_routes_keeps_pending_env() {
+        let shared = Shared::new();
+        shared.serve.install_env_snapshot(
+            "/ws",
+            HashMap::from([("KEY".to_string(), "new".to_string())]),
+        );
+        shared
+            .serve
+            .set_active_env_fingerprint_for_test(Some("stale-active".to_string()));
+        {
+            let mut routes = shared.routes.lock();
+            routes.insert("ses_1".to_string(), test_route("/ws"));
+            routes.insert("ses_2".to_string(), test_route("/ws"));
+        }
+        shared.routes.lock().remove("ses_1");
+        maybe_apply_pending_env_after_detach(&shared);
+
+        assert!(shared.serve.has_pending_env_refresh());
+        assert_eq!(
+            shared.serve.active_env_fingerprint().as_deref(),
+            Some("stale-active")
+        );
+    }
+
+    #[test]
+    fn tolerate_surfaces_snapshot_conflict_until_pending_env_applies() {
+        let shared = Shared::new();
+        let old = shared.serve.install_env_snapshot(
+            "/ws",
+            HashMap::from([("KEY".to_string(), "old".to_string())]),
+        );
+        shared
+            .serve
+            .set_active_env_fingerprint_for_test(Some(old));
+
+        // Book-keeping attach/prewarm use on TolerateSameWorkspace:
+        shared.serve.mark_snapshot_conflict("/ws");
+        shared.serve.install_env_snapshot(
+            "/ws",
+            HashMap::from([("KEY".to_string(), "new".to_string())]),
+        );
+        finish_env_snapshot_activation(&shared.serve, "/ws");
+
+        assert!(shared.serve.has_pending_env_refresh());
+        assert_eq!(
+            shared.serve.snapshot_conflict_workspace("/ws").as_deref(),
+            Some("/ws")
+        );
+
+        maybe_apply_pending_env_after_detach(&shared);
+        assert!(!shared.serve.has_pending_env_refresh());
+        assert!(shared.serve.snapshot_conflict_workspace("/ws").is_none());
+    }
+
+    #[test]
+    fn finish_activation_clears_conflict_when_env_already_matches() {
+        let shared = Shared::new();
+        let fingerprint = shared.serve.install_env_snapshot(
+            "/ws",
+            HashMap::from([("KEY".to_string(), "value".to_string())]),
+        );
+        shared
+            .serve
+            .set_active_env_fingerprint_for_test(Some(fingerprint));
+        shared.serve.mark_snapshot_conflict("/ws");
+        finish_env_snapshot_activation(&shared.serve, "/ws");
+        assert!(shared.serve.snapshot_conflict_workspace("/ws").is_none());
     }
 }
