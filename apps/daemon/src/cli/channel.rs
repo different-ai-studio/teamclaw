@@ -58,11 +58,16 @@ fn list(cfg: &DaemonConfig) {
         "email",
         cfg.channels.email.as_ref().is_some_and(|c| c.enabled),
     );
+    line(
+        "seatalk",
+        cfg.channels.seatalk.as_ref().is_some_and(|c| c.enabled),
+    );
 }
 
 fn bind(cfg: &mut DaemonConfig, b: ChannelBindArgs) -> anyhow::Result<()> {
     use crate::config::{
-        DiscordChannel, EmailChannel, FeishuChannel, KookChannel, WeChatChannel, WeComChannel,
+        DiscordChannel, EmailChannel, FeishuChannel, KookChannel, SeaTalkChannel, WeChatChannel,
+        WeComChannel,
     };
     match b.platform {
         ChannelBindPlatform::Discord {
@@ -134,6 +139,18 @@ fn bind(cfg: &mut DaemonConfig, b: ChannelBindArgs) -> anyhow::Result<()> {
                 allowed_senders: vec![],
             });
         }
+        ChannelBindPlatform::Seatalk { app_id, app_secret } => {
+            cfg.channels.seatalk = Some(SeaTalkChannel {
+                enabled: true,
+                app_id,
+                app_secret,
+                mode: "websocket".to_string(),
+                dm_policy: "open".to_string(),
+                allow_from: vec![],
+                group_policy: "open".to_string(),
+                group_allow_from: vec![],
+            });
+        }
     }
     Ok(())
 }
@@ -158,6 +175,9 @@ fn unbind(cfg: &mut DaemonConfig, platform: &str) -> anyhow::Result<()> {
         "email" => {
             cfg.channels.email = None;
         }
+        "seatalk" => {
+            cfg.channels.seatalk = None;
+        }
         other => anyhow::bail!("unknown platform: {other}"),
     }
     Ok(())
@@ -171,6 +191,7 @@ fn test_channel(cfg: &DaemonConfig, platform: &str) -> anyhow::Result<()> {
         "kook" => cfg.channels.kook.is_some(),
         "wechat" => cfg.channels.wechat.is_some(),
         "email" => cfg.channels.email.is_some(),
+        "seatalk" => cfg.channels.seatalk.is_some(),
         other => anyhow::bail!("unknown platform: {other}"),
     };
     println!(

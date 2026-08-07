@@ -34,6 +34,18 @@ pub fn wechat_dm(ilink_account: &str, from_user_id: &str) -> String {
 pub fn email_thread(account_key: &str, thread_key: &str) -> String {
     format!("email://{account_key}/thread/{thread_key}")
 }
+pub fn seatalk_group(app_id: &str, group_id: &str) -> String {
+    format!("seatalk://{app_id}/group/{group_id}")
+}
+pub fn seatalk_group_thread(app_id: &str, group_id: &str, thread_id: &str) -> String {
+    format!("seatalk://{app_id}/group/{group_id}/thread/{thread_id}")
+}
+pub fn seatalk_dm(app_id: &str, employee_code: &str) -> String {
+    format!("seatalk://{app_id}/single/{employee_code}")
+}
+pub fn seatalk_dm_thread(app_id: &str, employee_code: &str, thread_id: &str) -> String {
+    format!("seatalk://{app_id}/single/{employee_code}/thread/{thread_id}")
+}
 
 pub fn urn_wecom_user(corp_id: &str, userid: &str) -> String {
     format!("wecom-user:{corp_id}:{userid}")
@@ -55,6 +67,9 @@ pub fn urn_wechat_user(ilink_account: &str, from_user_id: &str) -> String {
 }
 pub fn urn_email_user(addr: &str) -> String {
     format!("email-user:{}", addr.to_lowercase())
+}
+pub fn urn_seatalk_user(app_id: &str, employee_code: &str) -> String {
+    format!("seatalk-user:{app_id}:{employee_code}")
 }
 
 #[cfg(test)]

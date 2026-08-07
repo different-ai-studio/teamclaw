@@ -136,7 +136,7 @@ pub async fn list_wecom_bots_status() -> Result<Vec<WeComBotStatus>, String> {
 pub fn load_channel_config(platform: String) -> Result<Option<serde_json::Value>, String> {
     if !matches!(
         platform.as_str(),
-        "discord" | "wecom" | "feishu" | "kook" | "wechat" | "email"
+        "discord" | "wecom" | "feishu" | "kook" | "wechat" | "email" | "seatalk"
     ) {
         return Err(format!("unknown platform: {platform}"));
     }
@@ -198,6 +198,16 @@ pub async fn reload_channels() -> Result<(), String> {
             .map_err(|e| format!("write failed: {e}"))?;
         Ok(())
     }
+}
+
+/// Probe SeaTalk App ID / App Secret against the Open Platform token API.
+/// Does not require amuxd — useful before saving/starting the gateway.
+#[tauri::command]
+pub async fn test_seatalk_credentials(
+    app_id: String,
+    app_secret: String,
+) -> Result<String, String> {
+    SeaTalkGateway::test_credentials(&app_id, &app_secret).await
 }
 
 /// Persist a per-session model preference for gateway-backed chats.
