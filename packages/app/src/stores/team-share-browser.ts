@@ -10,6 +10,17 @@ import { getBackend } from '@/lib/backend/provider'
 import { getFreshAccessToken } from '@/lib/auth/session-store'
 import { ensureAgentsSkillsPaths } from '@/lib/skills/ensure-agents-paths'
 import { useCurrentTeamStore } from '@/stores/current-team'
+import { TEAM_REPO_DIR } from '@/lib/build-config'
+
+/** `knowledge/` may not exist yet on a freshly enabled team. */
+async function ensureDir(path: string): Promise<void> {
+  try {
+    const { mkdir } = await import('@tauri-apps/plugin-fs')
+    await mkdir(path, { recursive: true })
+  } catch {
+    // Already there, or no FS access — the tree just renders empty.
+  }
+}
 import type {
   TeamSkill,
   TeamSkillCategory,
@@ -114,6 +125,8 @@ interface TeamShareBrowserState {
   mcp: SectionState<TeamMcpItem>
   knowledge: SectionState<TeamKnowledgeItem>
   envCount: number
+  /** Absolute path of the team shared root, for the knowledge file tree. */
+  knowledgeRoot: string | null
   selectedId: Record<TeamShareSection, string | null>
   subjectActorId: string | null
 
@@ -430,6 +443,7 @@ export const useTeamShareBrowserStore = create<TeamShareBrowserState>((set, get)
   mcp: emptySection<TeamMcpItem>(),
   knowledge: emptySection<TeamKnowledgeItem>(),
   envCount: 0,
+  knowledgeRoot: null,
   selectedId: { skills: null, mcp: null, env: null, knowledge: null },
   subjectActorId: null,
   creating: null,
@@ -642,7 +656,9 @@ export const useTeamShareBrowserStore = create<TeamShareBrowserState>((set, get)
       } catch {
         /* surfaced by env store */
       }
-      set({ envCount: useEnvVarsStore.getState().teamSecrets.length })
+      // The env section manages both scopes now, so the badge counts both.
+      const envState = useEnvVarsStore.getState()
+      set({ envCount: envState.teamSecrets.length + envState.envVars.length })
       return
     }
 
@@ -665,8 +681,28 @@ export const useTeamShareBrowserStore = create<TeamShareBrowserState>((set, get)
         )
         set({ skills: { items, loading: false, loaded: true, error: registryError } })
       } else if (section === 'knowledge') {
+        // The tree renders straight off disk now, so this only has to resolve
+        // where its root is. The flat listing stays for the nav count.
+        //
+        // Two things this path has to get right, both of which were wrong:
+        //
+        // 1. It must be the IN-WORKSPACE path, not `resolveTeamDir`'s answer.
+        //    `teamclaw-team` is a symlink into ~/.amuxd, and resolveTeamDir
+        //    returns the link TARGET — but the workspace file tree is built
+        //    from workspace paths, so `findSubtree` looked up an absolute
+        //    ~/.amuxd path that is never in the tree and always came back
+        //    empty. The column read "No files found" no matter what was on
+        //    disk.
+        //
+        // 2. It must be `knowledge/`, not the team root. File sync carries
+        //    that one prefix now, so a file created at the root is silently
+        //    never synced, and the team dir's other entries (skills/, .mcp/,
+        //    _secrets/, _meta/, _feedback/) are all retired.
+        const teamDir = wsPath ? await resolveTeamDir(wsPath) : null
+        const root = teamDir && wsPath ? `${wsPath}/${TEAM_REPO_DIR}/knowledge` : null
+        if (root) await ensureDir(root)
         const items = wsPath ? await listTeamKnowledge(wsPath) : []
-        set({ knowledge: { items, loading: false, loaded: true, error: null } })
+        set({ knowledgeRoot: root, knowledge: { items, loading: false, loaded: true, error: null } })
       } else if (section === 'mcp') {
         const items = wsPath ? await listTeamMcp(wsPath, currentTeamId()) : []
         set({ mcp: { items, loading: false, loaded: true, error: null } })

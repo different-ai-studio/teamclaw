@@ -19,6 +19,7 @@ import { markStartup } from "@/lib/startup-perf";
 import { TeamPicker } from "./TeamPicker";
 import { PendingInvitesDialog } from "@/components/auth/PendingInvitesDialog";
 import { GuestTeamDiscovery } from "@/components/auth/GuestTeamDiscovery";
+import { getDesktopDeviceId } from "@/lib/backend/cloud-api/device-id";
 import type { MembershipTeam } from "@/lib/backend";
 
 interface AuthGateProps {
@@ -269,7 +270,13 @@ export function AuthGate({ children }: AuthGateProps) {
           // nickname-less account doesn't land as a synthesized handle; the
           // server still prefers the nickname when present.
           const displayName = await resolveDefaultDisplayName(session?.user?.email);
-          const created = await getBackend().teams.bootstrapTeam({ displayName });
+          // Guests pass the per-install id so a second quick trial on this
+          // machine lands back in the team the first one made, rather than
+          // leaving another abandoned team in the shared org.
+          const created = await getBackend().teams.bootstrapTeam({
+            displayName,
+            deviceId: session.user?.isAnonymous ? getDesktopDeviceId() : null,
+          });
           if (created?.id) {
             await useCurrentTeamStore.getState().setActiveTeam({
               id: created.id,

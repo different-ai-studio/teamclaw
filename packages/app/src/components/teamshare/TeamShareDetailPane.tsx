@@ -1,7 +1,9 @@
+import * as React from 'react'
 import { useTranslation } from 'react-i18next'
 import { MousePointerClick, Plug, Box } from 'lucide-react'
 import { toast } from 'sonner'
 import { useUIStore } from '@/stores/ui'
+import { useWorkspaceStore } from '@/stores/workspace'
 import { useTeamShareBrowserStore, type TeamShareSection } from '@/stores/team-share-browser'
 import { SkillDetail } from './SkillDetail'
 import { KnowledgeDetail } from './KnowledgeDetail'
@@ -24,6 +26,9 @@ function EmptyState({ section }: { section: TeamShareSection }) {
 /** Compose surface for a new item. Authoring happens here, never in the list. */
 function CreatePane({ section }: { section: 'mcp' | 'env' }) {
   const { t } = useTranslation()
+  // The env form owns the scope toggle, but the title sits in this header — so
+  // it reports back rather than the header guessing.
+  const [envScope, setEnvScope] = React.useState<'team' | 'personal'>('team')
   const setCreating = useTeamShareBrowserStore((s) => s.setCreating)
   const createMcp = useTeamShareBrowserStore((s) => s.createMcp)
   const loadCounts = useTeamShareBrowserStore((s) => s.loadCounts)
@@ -44,7 +49,9 @@ function CreatePane({ section }: { section: 'mcp' | 'env' }) {
           <div className="truncate text-[15px] font-bold text-foreground">
             {section === 'mcp'
               ? t('teamShare.mcpAdd', 'Add MCP server')
-              : t('teamShare.envAdd', 'Add team env key')}
+              : envScope === 'team'
+                ? t('teamShare.envAddTeam', 'Add team env key')
+                : t('teamShare.envAddPersonal', 'Add personal env key')}
           </div>
         </div>
       </div>
@@ -67,6 +74,7 @@ function CreatePane({ section }: { section: 'mcp' | 'env' }) {
           />
         ) : (
           <EnvCreateForm
+            onScopeChange={setEnvScope}
             onCancel={() => setCreating(null)}
             onDone={() => {
               setCreating(null)
@@ -84,18 +92,23 @@ export function TeamShareDetailPane() {
   const section = filter.kind === 'teamShare' ? filter.section : null
   const selectedId = useTeamShareBrowserStore((s) => (section ? s.selectedId[section] : null))
   const creating = useTeamShareBrowserStore((s) => s.creating)
+  // Knowledge is a file tree now: clicking a node goes through the workspace's
+  // own selectFile, so the pane follows selectedFile rather than a curated id.
+  const selectedFile = useWorkspaceStore((s) => s.selectedFile)
 
   if (!section) return null
   if (creating === section && (section === 'mcp' || section === 'env')) {
     return <CreatePane section={section} />
+  }
+  if (section === 'knowledge') {
+    if (!selectedFile) return <EmptyState section={section} />
+    return <KnowledgeDetail key={selectedFile} path={selectedFile} />
   }
   if (!selectedId) return <EmptyState section={section} />
 
   switch (section) {
     case 'skills':
       return <SkillDetail key={selectedId} slug={selectedId} />
-    case 'knowledge':
-      return <KnowledgeDetail key={selectedId} path={selectedId} />
     case 'mcp':
       return <McpDetail key={selectedId} name={selectedId} />
     case 'env':

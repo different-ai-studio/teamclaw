@@ -496,7 +496,16 @@ export interface TeamsBackend {
    * First-team onboarding only. Creates an owner team named after the caller's
    * current organization, together with the member actor, in one transaction.
    */
-  bootstrapTeam(input?: { displayName?: string | null; orgId?: string | null }): Promise<TeamSummary>;
+  bootstrapTeam(input?: {
+    displayName?: string | null;
+    orgId?: string | null;
+    /**
+     * Guests only. Lets the server hand back the team this device's previous
+     * guest already got, instead of a new one per quick-trial click. Ignored
+     * for signed-in callers.
+     */
+    deviceId?: string | null;
+  }): Promise<TeamSummary>;
   renameTeam(teamId: string, name: string): Promise<TeamSummary>;
   /**
    * Graduate the caller out of the shared DEFAULT_ORG into their own org:

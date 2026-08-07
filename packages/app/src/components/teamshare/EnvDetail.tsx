@@ -23,51 +23,123 @@ const inputCls =
 /** Same rule as the desktop `validate_key_id` and the server's column check. */
 const KEY_ID_RE = /^[a-z0-9_]{1,64}$/
 
+/** Match SharedSecretsState init failures — keep keywords aligned with EnvVarsSection. */
+function isTeamSecretMissingError(message: string): boolean {
+  return (
+    message.includes('not initialized') ||
+    message.includes('Missing team encryption key') ||
+    message.includes('No team configured') ||
+    message.includes('derived_key not set')
+  )
+}
+
+function toastSaveError(
+  t: (key: string, fallback: string, options?: Record<string, string>) => string,
+  err: unknown,
+) {
+  const msg = err instanceof Error ? err.message : String(err)
+  if (isTeamSecretMissingError(msg)) {
+    toast.error(
+      t(
+        'teamShare.envDetail.secretMissing',
+        '本机缺少团队加密密钥，无法保存。请先在设置 → Daemon → 通用中配置。',
+      ),
+    )
+    return
+  }
+  toast.error(
+    t('teamShare.envDetail.saveFailed', 'Save failed: {{msg}}', { msg }),
+  )
+}
+
 /**
  * Add a new team env key. Lives here rather than in the list column so the
  * create and edit forms stay adjacent — they share the "value is write-only,
  * encrypted before it leaves the machine" contract, and that is easy to break
  * from a distance.
  */
-export function EnvCreateForm({ onDone, onCancel }: { onDone: () => void; onCancel: () => void }) {
+export function EnvCreateForm({
+  onDone,
+  onCancel,
+  onScopeChange,
+}: {
+  onDone: () => void
+  onCancel: () => void
+  /** Lets the surrounding pane retitle itself — the header lives outside this form. */
+  onScopeChange?: (scope: 'team' | 'personal') => void
+}) {
   const { t } = useTranslation()
   const setCatalogEntry = useEnvVarsStore((s) => s.setCatalogEntry)
   // Team-scope writes are node-attributed; the Rust command rejects the call
   // outright without it (env_vars.rs: "nodeId is required for team env vars").
   const currentNodeId = useTeamMembersStore((s) => s.currentNodeId)
+  const [scope, setScope] = React.useState<'team' | 'personal'>('team')
   const [keyId, setKeyId] = React.useState('')
   const [value, setValue] = React.useState('')
   const [description, setDescription] = React.useState('')
   const [category, setCategory] = React.useState('')
   const [busy, setBusy] = React.useState(false)
 
-  const keyValid = KEY_ID_RE.test(keyId)
+  // The key-id charset is a team-store rule (it becomes a row key server-side).
+  // Personal keys are ordinary env var names and conventionally upper-case, so
+  // holding them to the team rule would reject `OPENAI_API_KEY`.
+  const keyValid = scope === 'team' ? KEY_ID_RE.test(keyId) : keyId.trim().length > 0
   const canSubmit = keyValid && value.trim().length > 0 && !busy
 
   const submit = React.useCallback(async () => {
     if (!canSubmit) return
     setBusy(true)
     try {
-      await setCatalogEntry('team', keyId, value, {
+      await setCatalogEntry(scope, keyId.trim(), value, {
         description: description.trim() || undefined,
         category: category.trim() || 'custom',
-        nodeId: currentNodeId ?? '',
+        ...(scope === 'team' ? { nodeId: currentNodeId ?? '' } : {}),
       })
       toast.success(t('teamShare.envDetail.added', 'Added'))
       onDone()
     } catch (e) {
-      toast.error(
-        t('teamShare.envDetail.saveFailed', 'Save failed: {{msg}}', {
-          msg: e instanceof Error ? e.message : String(e),
-        }),
-      )
+      toastSaveError(t, e)
     } finally {
       setBusy(false)
     }
-  }, [canSubmit, setCatalogEntry, keyId, value, description, category, currentNodeId, t, onDone])
+  }, [canSubmit, setCatalogEntry, scope, keyId, value, description, category, currentNodeId, t, onDone])
 
   return (
     <div className="space-y-3">
+      <div>
+        <label className="mb-1 block text-[12px] font-medium uppercase tracking-wide text-faint">
+          {t('teamShare.scope.label', 'Scope')}
+        </label>
+        <div className="flex gap-2">
+          {(['team', 'personal'] as const).map((s2) => (
+            <button
+              key={s2}
+              type="button"
+              onClick={() => {
+                setScope(s2)
+                onScopeChange?.(s2)
+              }}
+              className={cn(
+                'rounded-md border px-3 py-1.5 text-[13px]',
+                scope === s2 ? 'border-coral bg-coral/10 text-coral' : 'border-border text-muted-foreground',
+              )}
+            >
+              {s2 === 'team' ? t('teamShare.scope.team', 'Team') : t('teamShare.scope.personal', 'Personal')}
+            </button>
+          ))}
+        </div>
+        <p className="mt-1.5 text-[12px] text-muted-foreground">
+          {scope === 'team'
+            ? t(
+                'teamShare.envDetail.teamScopeHint',
+                'Encrypted with the team key and shared with every member.',
+              )
+            : t(
+                'teamShare.envDetail.personalScopeHint',
+                'Stays on this machine. Never uploaded.',
+              )}
+        </p>
+      </div>
       <div>
         <label className="mb-1 block text-[12px] font-medium uppercase tracking-wide text-faint">
           {t('teamShare.envDetail.key', 'Key')}
@@ -79,7 +151,7 @@ export function EnvCreateForm({ onDone, onCancel }: { onDone: () => void; onCanc
           onChange={(e) => setKeyId(e.target.value)}
           placeholder="team_api_token"
         />
-        {keyId && !keyValid && (
+        {keyId && !keyValid && scope === 'team' && (
           <p className="mt-1.5 text-[12px] text-amber-600">
             {t(
               'teamShare.envDetail.keyRule',
@@ -99,10 +171,15 @@ export function EnvCreateForm({ onDone, onCancel }: { onDone: () => void; onCanc
           onChange={(e) => setValue(e.target.value)}
         />
         <p className="mt-1.5 text-[12px] text-muted-foreground">
-          {t(
-            'teamShare.envDetail.encryptOnSave',
-            'Encrypted with the team key before it leaves this machine. The server only ever stores ciphertext.',
-          )}
+          {scope === 'team'
+            ? t(
+                'teamShare.envDetail.encryptOnSave',
+                'Encrypted with the team key before it leaves this machine. The server only ever stores ciphertext.',
+              )
+            : t(
+                'teamShare.envDetail.personalOnSave',
+                'Encrypted and kept on this machine. Personal values are never uploaded.',
+              )}
         </p>
       </div>
       <div>
@@ -125,7 +202,9 @@ export function EnvCreateForm({ onDone, onCancel }: { onDone: () => void; onCanc
           className="h-8 gap-1.5 bg-coral text-[13px] font-semibold text-white hover:bg-coral/90"
         >
           {busy && <Loader2 className="h-3.5 w-3.5 animate-spin" />}
-          {t('teamShare.envAddSubmit', 'Add to team')}
+          {scope === 'team'
+            ? t('teamShare.envAddSubmitTeam', 'Add to team')
+            : t('teamShare.envAddSubmitPersonal', 'Add for me')}
         </Button>
         <Button type="button" variant="outline" onClick={onCancel} className="h-8 text-[13px]">
           {t('common.cancel', 'Cancel')}
@@ -135,9 +214,40 @@ export function EnvCreateForm({ onDone, onCancel }: { onDone: () => void; onCanc
   )
 }
 
-export function EnvDetail({ keyId }: { keyId: string }) {
+/** `team:FOO` / `personal:FOO` — see the list column for why the scope is in the id. */
+export function parseEnvSelection(id: string): { scope: 'team' | 'personal'; key: string } {
+  if (id.startsWith('personal:')) return { scope: 'personal', key: id.slice('personal:'.length) }
+  if (id.startsWith('team:')) return { scope: 'team', key: id.slice('team:'.length) }
+  // Selections made before ids carried a scope were team-only.
+  return { scope: 'team', key: id }
+}
+
+export function EnvDetail({ keyId: selectionId }: { keyId: string }) {
   const { t } = useTranslation()
-  const item = useEnvVarsStore((s) => s.teamSecrets.find((x) => x.keyId === keyId))
+  const { scope, key: keyId } = parseEnvSelection(selectionId)
+  const isTeam = scope === 'team'
+  const teamItem = useEnvVarsStore((s) => s.teamSecrets.find((x) => x.keyId === keyId))
+  const personalItem = useEnvVarsStore((s) => s.envVars.find((x) => x.key === keyId))
+  // Memoised because it is a fresh object every render for the personal branch,
+  // which would otherwise invalidate every callback that closes over it.
+  const item = React.useMemo(
+    () =>
+      isTeam
+        ? teamItem
+        : personalItem && {
+            keyId: personalItem.key,
+            description: personalItem.description ?? '',
+            category: personalItem.category ?? '',
+            // The personal store keeps no authorship trail; the detail rows
+            // below render "—" for these rather than inventing one.
+            createdBy: '',
+            updatedBy: '',
+            updatedAt: '',
+          },
+    [isTeam, teamItem, personalItem],
+  )
+  /** The team key on this machine will not open this value. */
+  const undecryptable = isTeam && teamItem?.decrypted === false
   const setCatalogEntry = useEnvVarsStore((s) => s.setCatalogEntry)
   const deleteCatalogEntry = useEnvVarsStore((s) => s.deleteCatalogEntry)
   const currentNodeId = useTeamMembersStore((s) => s.currentNodeId)
@@ -163,30 +273,27 @@ export function EnvDetail({ keyId }: { keyId: string }) {
     if (busy || !value.trim()) return
     setBusy(true)
     try {
-      await setCatalogEntry('team', keyId, value, {
+      await setCatalogEntry(scope, keyId, value, {
         description: description.trim() || undefined,
         category: category.trim() || 'custom',
-        nodeId: currentNodeId ?? '',
+        // Only the team scope is node-attributed; the personal store ignores it.
+        ...(isTeam ? { nodeId: currentNodeId ?? '' } : {}),
       })
       setEditing(false)
       setValue('')
       toast.success(t('teamShare.envDetail.saved', 'Saved'))
     } catch (e) {
-      toast.error(
-        t('teamShare.envDetail.saveFailed', 'Save failed: {{msg}}', {
-          msg: e instanceof Error ? e.message : String(e),
-        }),
-      )
+      toastSaveError(t, e)
     } finally {
       setBusy(false)
     }
-  }, [busy, value, setCatalogEntry, keyId, description, category, currentNodeId, t])
+  }, [busy, value, setCatalogEntry, scope, isTeam, keyId, description, category, currentNodeId, t])
 
   const remove = React.useCallback(async () => {
     if (busy) return
     setBusy(true)
     try {
-      await deleteCatalogEntry('team', keyId, { nodeId: currentNodeId ?? '' })
+      await deleteCatalogEntry(scope, keyId, isTeam ? { nodeId: currentNodeId ?? '' } : {})
       select('env', null)
       await loadCounts()
       toast.success(t('teamShare.envDetail.deleted', 'Deleted'))
@@ -199,7 +306,7 @@ export function EnvDetail({ keyId }: { keyId: string }) {
     } finally {
       setBusy(false)
     }
-  }, [busy, deleteCatalogEntry, keyId, currentNodeId, select, loadCounts, t])
+  }, [busy, deleteCatalogEntry, scope, isTeam, keyId, currentNodeId, select, loadCounts, t])
 
   if (!item) return null
 
@@ -211,9 +318,18 @@ export function EnvDetail({ keyId }: { keyId: string }) {
         </span>
         <div className="min-w-0 flex-1">
           <div className="text-[11px] font-medium uppercase tracking-wide text-faint">
-            {t('teamShare.env', 'Team Env')}
+            {isTeam
+              ? t('teamShare.scope.team', 'Team')
+              : t('teamShare.scope.personal', 'Personal')}
           </div>
-          <div className="truncate font-mono text-[15px] font-bold text-foreground">{item.keyId}</div>
+          <div className="flex items-center gap-2">
+            <span className="truncate font-mono text-[15px] font-bold text-foreground">{item.keyId}</span>
+            {undecryptable && (
+              <span className="shrink-0 rounded bg-amber-500/10 px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-amber-600">
+                {t('teamShare.envDetail.locked', 'Locked')}
+              </span>
+            )}
+          </div>
         </div>
         {!editing && (
           <div className="flex items-center gap-1.5">
@@ -254,10 +370,15 @@ export function EnvDetail({ keyId }: { keyId: string }) {
                 placeholder={t('teamShare.envDetail.valuePlaceholder', 'Enter the replacement value')}
               />
               <p className="mt-1.5 text-[12px] text-muted-foreground">
-                {t(
-                  'teamShare.envDetail.encryptOnSave',
-                  'Encrypted with the team key before it leaves this machine. The server only ever stores ciphertext.',
-                )}
+                {isTeam
+                  ? t(
+                      'teamShare.envDetail.encryptOnSave',
+                      'Encrypted with the team key before it leaves this machine. The server only ever stores ciphertext.',
+                    )
+                  : t(
+                      'teamShare.envDetail.personalOnSave',
+                      'Encrypted and kept on this machine. Personal values are never uploaded.',
+                    )}
               </p>
             </div>
             <div>
@@ -304,10 +425,25 @@ export function EnvDetail({ keyId }: { keyId: string }) {
                 <span className="font-mono text-[14px] tracking-widest text-muted-foreground">••••••••</span>
               </div>
               <p className="mt-1.5 text-[12px] text-muted-foreground">
-                {t(
-                  'teamShare.envDetail.encryptedHint',
-                  'Team values are encrypted and not shown here. Use Edit to replace.',
-                )}
+                {undecryptable
+                  ? teamItem?.keyMismatch
+                    ? t(
+                        'teamShare.envDetail.keyMismatchHint',
+                        'This value exists, but the team key on this machine does not decrypt it. Save the correct team key, or replace the value with Edit.',
+                      )
+                    : t(
+                        'teamShare.envDetail.noLocalKeyHint',
+                        'This value exists, but no team key is configured on this machine. Save the team key to read it.',
+                      )
+                  : isTeam
+                    ? t(
+                        'teamShare.envDetail.encryptedHint',
+                        'Team values are encrypted and not shown here. Use Edit to replace.',
+                      )
+                    : t(
+                        'teamShare.envDetail.personalEncryptedHint',
+                        'Stored encrypted on this machine and never uploaded. Use Edit to replace.',
+                      )}
               </p>
             </section>
 
@@ -321,7 +457,9 @@ export function EnvDetail({ keyId }: { keyId: string }) {
               <InfoRow label={t('teamShare.envDetail.category', 'Category')}>
                 {item.category || t('teamShare.envDetail.secret', 'Secret')}
               </InfoRow>
-              <InfoRow label={t('teamShare.scope.label', 'Scope')}>{t('teamShare.scope.team', 'Team')}</InfoRow>
+              <InfoRow label={t('teamShare.scope.label', 'Scope')}>
+                {isTeam ? t('teamShare.scope.team', 'Team') : t('teamShare.scope.personal', 'Personal')}
+              </InfoRow>
               <InfoRow label={t('teamShare.envDetail.createdBy', 'Created by')}>{item.createdBy || '—'}</InfoRow>
               <InfoRow label={t('teamShare.envDetail.updatedBy', 'Updated by')}>{item.updatedBy || '—'}</InfoRow>
               <InfoRow label={t('teamShare.envDetail.updatedAt', 'Updated at')}>{item.updatedAt || '—'}</InfoRow>

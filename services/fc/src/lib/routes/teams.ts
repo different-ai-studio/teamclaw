@@ -71,6 +71,9 @@ export function registerTeams(router) {
     const team = await ctx.repository.bootstrapTeam({
       displayName: optionalStringOrNull(body.displayName, "displayName"),
       orgId: optionalStringOrNull(body.orgId, "orgId"),
+      // Guests only: reuse the team this device's last guest got instead of
+      // stacking up a new one per quick-trial click.
+      deviceId: optionalStringOrNull(body.deviceId, "deviceId"),
     });
     return { body: team };
   });

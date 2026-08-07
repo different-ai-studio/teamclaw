@@ -522,15 +522,27 @@ export function createSupabaseBusinessRepository(options) {
         fallbackOrg = (provisioned as string | null) ?? null;
       }
       const selectedOrgId = input?.orgId ?? null;
+      // A guest that names its device gets that device's team back rather than
+      // a new one. Signed-in users are unaffected: the reuse table only ever
+      // holds guest teams, and this branch is gated on is_anonymous.
+      const guestDeviceId = caller.user.is_anonymous
+        ? (input?.deviceId?.trim() || null)
+        : null;
       const { data, error } = selectedOrgId
         ? await supabase.rpc("bootstrap_selected_org_team", {
           p_org_id: selectedOrgId,
           p_display_name: input?.displayName ?? null,
         })
-        : await supabase.rpc("bootstrap_current_org_team", {
-          p_fallback_org: fallbackOrg,
-          p_display_name: input?.displayName ?? null,
-        });
+        : guestDeviceId
+          ? await supabase.rpc("claim_guest_device_team", {
+            p_device_id: guestDeviceId,
+            p_fallback_org: fallbackOrg,
+            p_display_name: input?.displayName ?? null,
+          })
+          : await supabase.rpc("bootstrap_current_org_team", {
+            p_fallback_org: fallbackOrg,
+            p_display_name: input?.displayName ?? null,
+          });
       if (error) throw error;
       const row = requiredRow(data, "teams.bootstrapTeam");
       return mapTeam({ id: row.team_id ?? row.id, name: row.team_name ?? row.name, slug: row.team_slug ?? row.slug });
