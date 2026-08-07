@@ -42,6 +42,7 @@ type UnifiedEntry =
 function isTeamSecretMissingError(message: string): boolean {
   return (
     message.includes('not initialized') ||
+    message.includes('Missing team encryption key') ||
     message.includes('No team configured') ||
     message.includes('derived_key not set')
   )
@@ -254,7 +255,7 @@ function EnvVarDialog({ open, onOpenChange, editingEntry, teamSecretMissing, onS
             <div className="flex items-start gap-2 rounded-[10px] border border-amber-300/70 bg-amber-50 px-3 py-2 text-xs text-amber-900 dark:border-amber-800 dark:bg-amber-950/30 dark:text-amber-100">
               <TriangleAlert className="mt-0.5 h-4 w-4 shrink-0 text-amber-600 dark:text-amber-400" />
               <span>
-                {t('settings.envVars.localSecretMissingWrite', '本地密钥缺失，未同步：本机缺少团队密钥，此变量无法加密并同步给团队。请先在 Team Shared 设置中填写正确的团队密钥。')}
+                {t('settings.envVars.localSecretMissingWrite', '本地密钥缺失，未同步：本机缺少团队密钥，此变量无法加密并同步给团队。请先在设置 → Daemon → 通用中填写正确的团队加密密钥。')}
               </span>
             </div>
           )}
@@ -421,7 +422,7 @@ function EnvVarRow({ entry, canDelete, injectionStatus, onEdit, onDelete }: EnvV
               className="inline-flex items-center gap-1 text-xs text-amber-700 dark:text-amber-300 bg-amber-50 dark:bg-amber-950/40 px-1.5 py-0.5 rounded"
               title={entry.keyMismatch
                 ? t('settings.envVars.keyMismatchHint', '此变量是用另一个（已轮换/更早的）团队密钥加密的，本机当前密钥解不开。需由持有明文的成员重新保存该变量。')
-                : t('settings.envVars.notDecryptedHint', '本机缺少团队密钥，无法解密此变量。请在 Team Shared 设置中填写正确的团队密钥。')}
+                : t('settings.envVars.notDecryptedHint', '本机缺少团队密钥，无法解密此变量。请在设置 → Daemon → 通用中填写正确的团队加密密钥。')}
             >
               <TriangleAlert className="h-3 w-3" />
               {entry.keyMismatch
@@ -628,7 +629,7 @@ function TeamEnvDiagnosticsCard({
                   : t('settings.envVars.diag.secretMissingShort', '未配置')}
                 hint={
                   !diag.secretConfigured
-                    ? t('settings.envVars.diag.secretMissing', '本机没有团队密钥，无法加密/解密团队变量。请在 Team Shared 设置中填写正确的团队密钥。')
+                    ? t('settings.envVars.diag.secretMissing', '本机没有团队密钥，无法加密/解密团队变量。请在设置 → Daemon → 通用中填写正确的团队加密密钥。')
                     : undefined
                 }
               />
@@ -1367,7 +1368,7 @@ export const EnvVarsSection = React.memo(function EnvVarsSection() {
               {t('settings.envVars.teamUnavailableTitle', 'Team variables are not available to this agent')}
             </p>
             <p className="mt-0.5 text-amber-800 dark:text-amber-200">
-              {t('settings.envVars.teamUnavailableBody', 'The local daemon does not have the team secret required to decrypt shared variables. Set the correct Team Secret in Team Shared settings, then start a new agent session.')}
+              {t('settings.envVars.teamUnavailableBody', '本机 daemon 没有解密团队变量所需的团队密钥。请在设置 → Daemon → 通用中填写正确的团队加密密钥，然后新建一个 Agent 会话。')}
             </p>
           </div>
         </div>

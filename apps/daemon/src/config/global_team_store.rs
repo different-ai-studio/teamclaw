@@ -14,14 +14,13 @@ pub const TEAM_LINK_NAME: &str = "teamclaw-team";
 
 /// Fixed top-level subdirectories the sync engine watches inside the team dir.
 /// Mirrors `oss_sync::path_validator::ALLOWED_PREFIXES` (without trailing `/`).
-pub const SHARED_PREFIXES: &[&str] = &[
-    "skills",
-    "knowledge",
-    ".mcp",
-    "_meta",
-    "_secrets",
-    "_feedback",
-];
+///
+/// Only `knowledge` is left. `.mcp` and `_secrets` moved to the Cloud API
+/// (`docs/architecture/team-mcp-and-env-cloud.md`) and are mirrored into
+/// `<team>/cloud/` — a sibling of this directory, so the sync engine never sees
+/// them. `skills` moved to the skills registry. `_meta` and `_feedback` never
+/// had a writer here.
+pub const SHARED_PREFIXES: &[&str] = &["knowledge"];
 
 /// `~/.amuxd/teams/<team_id>/teamclaw-team` — the one synced copy.
 pub fn global_team_dir(team_id: &str) -> PathBuf {
@@ -29,6 +28,23 @@ pub fn global_team_dir(team_id: &str) -> PathBuf {
         .join("teams")
         .join(team_id)
         .join(TEAM_LINK_NAME)
+}
+
+/// `~/.amuxd/teams/<team_id>/cloud` — daemon-owned mirror of the team config
+/// that now comes from the Cloud API rather than the sync engine (team MCP,
+/// team env). See `runtime::team_cloud_config`.
+///
+/// Deliberately a *sibling* of `teamclaw-team`, never inside it. Inside, a
+/// daemon writer would show up as a dirty working tree in git share modes
+/// (commit churn, ambiguous ownership) and would be picked up by the sync
+/// scanner as local content to push — including emitting tombstones for other
+/// members when it changed. Outside, the whole feature rolls back by deleting
+/// one directory.
+pub fn global_team_cloud_dir(team_id: &str) -> PathBuf {
+    DaemonConfig::config_dir()
+        .join("teams")
+        .join(team_id)
+        .join("cloud")
 }
 
 /// `~/.amuxd/teams/<team_id>/workspace` — the writable default worktree used for

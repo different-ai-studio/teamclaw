@@ -2,13 +2,14 @@
  * sync-handlers-pg.test.ts
  *
  * Tests for the BACKEND_KIND=postgres path in sync-handlers.ts.
- * Uses a pglite in-memory DB and a mock S3 client — no real OSS or Supabase.
+ * Uses a pglite in-memory DB and an in-memory BlobStorage — no real storage or
+ * Supabase.
  */
 
 import { test, before, after, describe } from "node:test";
 import assert from "node:assert/strict";
-import { S3Client } from "@aws-sdk/client-s3";
 import { makeTestDb } from "./db/pglite.js";
+import type { BlobStorage } from "../src/lib/team-blob-storage.js";
 import { makeOssSyncRepo } from "../src/lib/pg-repo/oss-sync.js";
 import {
   teams,
@@ -52,88 +53,29 @@ after(() => {
 });
 
 // ---------------------------------------------------------------------------
-// Mock S3 client
+// In-memory BlobStorage
 // ---------------------------------------------------------------------------
 
-interface MockS3State {
-  objects: Map<string, number>; // key → size
-  headShouldFail?: boolean;
+interface MockStorageState {
+  objects: Map<string, number>; // objectPath → size
+  /** Every stat() the handlers performed — asserts the dedupe short-circuit. */
+  stats?: string[];
 }
 
-function makeMockS3(state: MockS3State) {
+function makeMockStorage(state: MockStorageState): BlobStorage {
   return {
-    send(cmd: any) {
-      const name = cmd.constructor?.name ?? "";
-
-      if (name === "HeadObjectCommand") {
-        const key = cmd.input?.Key as string;
-        if (state.headShouldFail) {
-          const err: any = new Error("NoSuchKey");
-          err.$metadata = { httpStatusCode: 404 };
-          err.Code = "NoSuchKey";
-          return Promise.reject(err);
-        }
-        const size = state.objects.get(key);
-        if (size === undefined) {
-          const err: any = new Error("NoSuchKey");
-          err.$metadata = { httpStatusCode: 404 };
-          err.Code = "NoSuchKey";
-          return Promise.reject(err);
-        }
-        return Promise.resolve({ ContentLength: size });
-      }
-
-      if (name === "PutObjectCommand" || name === "GetObjectCommand") {
-        // Just need to succeed for getSignedUrl to work
-        return Promise.resolve({});
-      }
-
-      return Promise.reject(new Error(`Unknown command: ${name}`));
+    async createUploadUrl(objectPath) {
+      return `https://storage.test/upload/${objectPath}?token=fake`;
+    },
+    async createDownloadUrl(objectPath, expiresIn = 900) {
+      return `https://storage.test/download/${objectPath}?exp=${expiresIn}`;
+    },
+    async stat(objectPath) {
+      state.stats?.push(objectPath);
+      const size = state.objects.get(objectPath);
+      return size === undefined ? null : { size };
     },
   };
-}
-
-// Override getSignedUrl for tests (we don't actually need real AWS signing)
-// We monkey-patch by injecting a fake s3 that returns a fake presigned URL.
-// Since getSignedUrl calls s3.send internally, we need a smarter mock.
-// Instead, we use a wrapper that intercepts getSignedUrl via the s3 object.
-// Actually, the simplest approach: use the real getSignedUrl with a mock s3
-// that returns a response with the right shape — but getSignedUrl doesn't
-// actually call send(). It just serializes the command. So we just need an
-// s3 client with the right config. Let's use a thin shim:
-
-function makeMockS3WithPresign(state: MockS3State) {
-  const base = new S3Client({
-    region: "cn-hangzhou",
-    endpoint: "https://oss-cn-hangzhou.aliyuncs.com",
-    credentials: { accessKeyId: "test", secretAccessKey: "test" },
-    forcePathStyle: false,
-  });
-  // Override send to use mock behavior
-  const origSend = base.send.bind(base);
-  (base as any).send = (cmd: any) => {
-    const name = cmd.constructor?.name ?? "";
-    if (name === "HeadObjectCommand") {
-      const key = cmd.input?.Key as string;
-      if (state.headShouldFail) {
-        const err: any = new Error("NoSuchKey");
-        err.$metadata = { httpStatusCode: 404 };
-        err.Code = "NoSuchKey";
-        return Promise.reject(err);
-      }
-      const size = state.objects.get(key);
-      if (size === undefined) {
-        const err: any = new Error("NoSuchKey");
-        err.$metadata = { httpStatusCode: 404 };
-        err.Code = "NoSuchKey";
-        return Promise.reject(err);
-      }
-      return Promise.resolve({ ContentLength: size });
-    }
-    // For presign commands (PutObject/GetObject), let the real client handle serialization
-    return origSend(cmd);
-  };
-  return base;
 }
 
 // ---------------------------------------------------------------------------
@@ -177,19 +119,19 @@ describe("sync-handlers postgres path", () => {
     const team = await seedTeam(db);
     const actor = await seedMember(db, team.id);
 
-    const s3State: MockS3State = { objects: new Map() }; // no blob in OSS
-    const s3 = makeMockS3WithPresign(s3State);
+    const storeState: MockStorageState = { objects: new Map() }; // nothing in storage yet
+    const storage = makeMockStorage(storeState);
 
     const caller = makeCaller(team.id, actor.id);
     const res = await handleSyncUploadPrepare(
       caller,
       {
-        path: "skills/hello.md",
+        path: "knowledge/hello.md",
         parentVersion: 0,
         contentHash: "abc123def456abc123def456abc123de",
         size: 42,
       },
-      { db, repo, s3: s3 as any, bucket: "test-bucket" }
+      { db, repo, storage }
     );
 
     assert.equal(res.statusCode, 200);
@@ -208,13 +150,13 @@ describe("sync-handlers postgres path", () => {
 
     const hash = "cafecafecafecafecafecafecafecafe";
     const ossKey = `teams/${team.id}/blobs/sha256/${hash.slice(0, 2)}/${hash.slice(2, 4)}/${hash}`;
-    const s3State: MockS3State = { objects: new Map([[ossKey, 100]]) };
-    const s3 = makeMockS3WithPresign(s3State);
+    const storeState: MockStorageState = { objects: new Map([[ossKey, 100]]) };
+    const storage = makeMockStorage(storeState);
 
     const res = await handleSyncUploadPrepare(
       makeCaller(team.id, actor.id),
-      { path: "skills/b.txt", parentVersion: 0, contentHash: hash, size: 100 },
-      { db, repo, s3: s3 as any, bucket: "test-bucket" }
+      { path: "knowledge/b.txt", parentVersion: 0, contentHash: hash, size: 100 },
+      { db, repo, storage }
     );
 
     assert.equal(res.statusCode, 200);
@@ -233,23 +175,23 @@ describe("sync-handlers postgres path", () => {
     const hash = "deadbeefdeadbeefdeadbeefdeadbeef";
     const size = 50;
     const ossKey = `teams/${team.id}/blobs/sha256/${hash.slice(0, 2)}/${hash.slice(2, 4)}/${hash}`;
-    const s3State: MockS3State = { objects: new Map() };
-    const s3 = makeMockS3WithPresign(s3State);
+    const storeState: MockStorageState = { objects: new Map() };
+    const storage = makeMockStorage(storeState);
 
     const prepRes = await handleSyncUploadPrepare(
       makeCaller(team.id, actor.id),
-      { path: "skills/file.md", parentVersion: 0, contentHash: hash, size },
-      { db, repo, s3: s3 as any, bucket: "test-bucket" }
+      { path: "knowledge/file.md", parentVersion: 0, contentHash: hash, size },
+      { db, repo, storage }
     );
     const sessionId = JSON.parse(prepRes.body).uploadSessionId;
 
     // Simulate blob uploaded to OSS
-    s3State.objects.set(ossKey, size);
+    storeState.objects.set(ossKey, size);
 
     const completeRes = await handleSyncUploadComplete(
       makeCaller(team.id, actor.id),
       { uploadSessionId: sessionId },
-      { db, repo, s3: s3 as any, bucket: "test-bucket" }
+      { db, repo, storage }
     );
 
     assert.equal(completeRes.statusCode, 200);
@@ -268,20 +210,20 @@ describe("sync-handlers postgres path", () => {
     const hash = "feedfeedfeedfeedfeedfeedfeedfeed";
     const size = 77;
     const ossKey = `teams/${team.id}/blobs/sha256/${hash.slice(0, 2)}/${hash.slice(2, 4)}/${hash}`;
-    const s3State: MockS3State = { objects: new Map([[ossKey, size]]) };
-    const s3 = makeMockS3WithPresign(s3State);
+    const storeState: MockStorageState = { objects: new Map([[ossKey, size]]) };
+    const storage = makeMockStorage(storeState);
 
     // Prepare + complete
     const pr = await handleSyncUploadPrepare(
       makeCaller(team.id, actor.id),
-      { path: "skills/manifest-test.md", parentVersion: 0, contentHash: hash, size },
-      { db, repo, s3: s3 as any, bucket: "test-bucket" }
+      { path: "knowledge/manifest-test.md", parentVersion: 0, contentHash: hash, size },
+      { db, repo, storage }
     );
     const sessionId = JSON.parse(pr.body).uploadSessionId;
     await handleSyncUploadComplete(
       makeCaller(team.id, actor.id),
       { uploadSessionId: sessionId },
-      { db, repo, s3: s3 as any, bucket: "test-bucket" }
+      { db, repo, storage }
     );
 
     // Manifest afterSeq=0
@@ -294,7 +236,7 @@ describe("sync-handlers postgres path", () => {
     assert.equal(mRes.statusCode, 200);
     const body = JSON.parse(mRes.body);
     assert.ok(Array.isArray(body.items));
-    const found = body.items.find((i: any) => i.path === "skills/manifest-test.md");
+    const found = body.items.find((i: any) => i.path === "knowledge/manifest-test.md");
     assert.ok(found, "uploaded file should appear in manifest");
     assert.equal(found.contentHash, hash);
     assert.equal(found.deleted, false);
@@ -309,25 +251,25 @@ describe("sync-handlers postgres path", () => {
     const hash = "a1b2c3d4a1b2c3d4a1b2c3d4a1b2c3d4";
     const size = 200;
     const ossKey = `teams/${team.id}/blobs/sha256/${hash.slice(0, 2)}/${hash.slice(2, 4)}/${hash}`;
-    const s3State: MockS3State = { objects: new Map([[ossKey, size]]) };
-    const s3 = makeMockS3WithPresign(s3State);
+    const storeState: MockStorageState = { objects: new Map([[ossKey, size]]) };
+    const storage = makeMockStorage(storeState);
 
     // Prepare + complete to register verified blob
     const pr = await handleSyncUploadPrepare(
       makeCaller(team.id, actor.id),
-      { path: "skills/dl-test.bin", parentVersion: 0, contentHash: hash, size },
-      { db, repo, s3: s3 as any, bucket: "test-bucket" }
+      { path: "knowledge/dl-test.bin", parentVersion: 0, contentHash: hash, size },
+      { db, repo, storage }
     );
     await handleSyncUploadComplete(
       makeCaller(team.id, actor.id),
       { uploadSessionId: JSON.parse(pr.body).uploadSessionId },
-      { db, repo, s3: s3 as any, bucket: "test-bucket" }
+      { db, repo, storage }
     );
 
     const dlRes = await handleSyncDownload(
       makeCaller(team.id, actor.id),
       { contentHash: hash },
-      { db, repo, s3: s3 as any, bucket: "test-bucket" }
+      { db, repo, storage }
     );
 
     assert.equal(dlRes.statusCode, 200);
@@ -335,6 +277,55 @@ describe("sync-handlers postgres path", () => {
     assert.ok(body.downloadUrl, "should have downloadUrl");
     assert.equal(body.size, size);
     assert.equal(body.ttlSec, 900);
+  });
+
+  test("prepare: a verified blob short-circuits without touching storage", async () => {
+    const { db } = await makeTestDb();
+    const repo = makeOssSyncRepo(db);
+    const team = await seedTeam(db);
+    const actor = await seedMember(db, team.id);
+
+    const hash = "dedupe00dedupe00dedupe00dedupe00";
+    const size = 33;
+    const ossKey = `teams/${team.id}/blobs/sha256/${hash.slice(0, 2)}/${hash.slice(2, 4)}/${hash}`;
+    const storeState: MockStorageState = {
+      objects: new Map([[ossKey, size]]),
+      stats: [],
+    };
+    const storage = makeMockStorage(storeState);
+
+    // First push of this content: verifies the blob.
+    const pr = await handleSyncUploadPrepare(
+      makeCaller(team.id, actor.id),
+      { path: "knowledge/a.md", parentVersion: 0, contentHash: hash, size },
+      { db, repo, storage }
+    );
+    await handleSyncUploadComplete(
+      makeCaller(team.id, actor.id),
+      { uploadSessionId: JSON.parse(pr.body).uploadSessionId },
+      { db, repo, storage }
+    );
+    const statsAfterFirst = storeState.stats!.length;
+    assert.ok(statsAfterFirst > 0, "the first round-trip must consult storage");
+
+    // Same content at a different path — the DB row already says verified, so
+    // this must not cost a storage call. Supabase Storage has no HEAD; every
+    // stat() here is a `list`, and prepare runs per changed file per tick.
+    const again = await handleSyncUploadPrepare(
+      makeCaller(team.id, actor.id),
+      { path: "knowledge/b.md", parentVersion: 0, contentHash: hash, size },
+      { db, repo, storage }
+    );
+
+    assert.equal(again.statusCode, 200);
+    const body = JSON.parse(again.body);
+    assert.equal(body.requiresUpload, false, "content already stored");
+    assert.equal(body.presignedPut, null, "no upload URL when nothing to upload");
+    assert.equal(
+      storeState.stats!.length,
+      statsAfterFirst,
+      "a verified blob must not trigger another storage lookup"
+    );
   });
 
   test("delete: tombstones file", async () => {
@@ -346,25 +337,25 @@ describe("sync-handlers postgres path", () => {
     const hash = "f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0";
     const size = 10;
     const ossKey = `teams/${team.id}/blobs/sha256/${hash.slice(0, 2)}/${hash.slice(2, 4)}/${hash}`;
-    const s3State: MockS3State = { objects: new Map([[ossKey, size]]) };
-    const s3 = makeMockS3WithPresign(s3State);
+    const storeState: MockStorageState = { objects: new Map([[ossKey, size]]) };
+    const storage = makeMockStorage(storeState);
 
     // Upload first
     const pr = await handleSyncUploadPrepare(
       makeCaller(team.id, actor.id),
-      { path: "skills/to-delete.md", parentVersion: 0, contentHash: hash, size },
-      { db, repo, s3: s3 as any, bucket: "test-bucket" }
+      { path: "knowledge/to-delete.md", parentVersion: 0, contentHash: hash, size },
+      { db, repo, storage }
     );
     await handleSyncUploadComplete(
       makeCaller(team.id, actor.id),
       { uploadSessionId: JSON.parse(pr.body).uploadSessionId },
-      { db, repo, s3: s3 as any, bucket: "test-bucket" }
+      { db, repo, storage }
     );
 
     // Delete
     const delRes = await handleSyncDelete(
       makeCaller(team.id, actor.id),
-      { path: "skills/to-delete.md", parentVersion: 1 },
+      { path: "knowledge/to-delete.md", parentVersion: 1 },
       { db, repo }
     );
 
@@ -380,7 +371,7 @@ describe("sync-handlers postgres path", () => {
       { db, repo }
     );
     const items = JSON.parse(mRes.body).items;
-    const item = items.find((i: any) => i.path === "skills/to-delete.md");
+    const item = items.find((i: any) => i.path === "knowledge/to-delete.md");
     assert.ok(item, "deleted file should appear in manifest");
     assert.equal(item.deleted, true);
   });
@@ -398,41 +389,41 @@ describe("sync-handlers postgres path", () => {
     const makeOssKey = (h: string) =>
       `teams/${team.id}/blobs/sha256/${h.slice(0, 2)}/${h.slice(2, 4)}/${h}`;
 
-    const s3State: MockS3State = {
+    const storeState: MockStorageState = {
       objects: new Map([
         [makeOssKey(hash1), size],
         [makeOssKey(hash2), size],
       ]),
     };
-    const s3 = makeMockS3WithPresign(s3State);
+    const storage = makeMockStorage(storeState);
 
     // Upload version 1
     const pr1 = await handleSyncUploadPrepare(
       makeCaller(team.id, actor.id),
-      { path: "skills/versions-test.md", parentVersion: 0, contentHash: hash1, size },
-      { db, repo, s3: s3 as any, bucket: "test-bucket" }
+      { path: "knowledge/versions-test.md", parentVersion: 0, contentHash: hash1, size },
+      { db, repo, storage }
     );
     await handleSyncUploadComplete(
       makeCaller(team.id, actor.id),
       { uploadSessionId: JSON.parse(pr1.body).uploadSessionId },
-      { db, repo, s3: s3 as any, bucket: "test-bucket" }
+      { db, repo, storage }
     );
 
     // Upload version 2
     const pr2 = await handleSyncUploadPrepare(
       makeCaller(team.id, actor.id),
-      { path: "skills/versions-test.md", parentVersion: 1, contentHash: hash2, size },
-      { db, repo, s3: s3 as any, bucket: "test-bucket" }
+      { path: "knowledge/versions-test.md", parentVersion: 1, contentHash: hash2, size },
+      { db, repo, storage }
     );
     await handleSyncUploadComplete(
       makeCaller(team.id, actor.id),
       { uploadSessionId: JSON.parse(pr2.body).uploadSessionId },
-      { db, repo, s3: s3 as any, bucket: "test-bucket" }
+      { db, repo, storage }
     );
 
     const vRes = await handleSyncVersions(
       makeCaller(team.id, actor.id),
-      { path: "skills/versions-test.md" },
+      { path: "knowledge/versions-test.md" },
       { db, repo }
     );
 
@@ -503,24 +494,24 @@ describe("sync-handlers postgres path", () => {
     const hash = "abababababababababababababababab01";
     const size = 8;
     const ossKey = `teams/${team.id}/blobs/sha256/${hash.slice(0, 2)}/${hash.slice(2, 4)}/${hash}`;
-    const s3State: MockS3State = { objects: new Map([[ossKey, size]]) };
-    const s3 = makeMockS3WithPresign(s3State);
+    const storeState: MockStorageState = { objects: new Map([[ossKey, size]]) };
+    const storage = makeMockStorage(storeState);
 
     const pr = await handleSyncUploadPrepare(
       makeCaller(team.id, actor.id),
-      { path: "skills/cas-test.md", parentVersion: 0, contentHash: hash, size },
-      { db, repo, s3: s3 as any, bucket: "test-bucket" }
+      { path: "knowledge/cas-test.md", parentVersion: 0, contentHash: hash, size },
+      { db, repo, storage }
     );
     await handleSyncUploadComplete(
       makeCaller(team.id, actor.id),
       { uploadSessionId: JSON.parse(pr.body).uploadSessionId },
-      { db, repo, s3: s3 as any, bucket: "test-bucket" }
+      { db, repo, storage }
     );
 
     // Delete with wrong parentVersion (0 instead of 1)
     const res = await handleSyncDelete(
       makeCaller(team.id, actor.id),
-      { path: "skills/cas-test.md", parentVersion: 0 },
+      { path: "knowledge/cas-test.md", parentVersion: 0 },
       { db, repo }
     );
 
@@ -544,19 +535,19 @@ describe("sync batch endpoints postgres path", () => {
     const team = await seedTeam(db);
     const actor = await seedMember(db, team.id);
 
-    const s3State: MockS3State = { objects: new Map() }; // no blobs yet
-    const s3 = makeMockS3WithPresign(s3State);
+    const storeState: MockStorageState = { objects: new Map() }; // no blobs yet
+    const storage = makeMockStorage(storeState);
 
     const items = [
-      { path: "skills/a.md", parentVersion: 0, contentHash: h32("a"), size: 10 },
-      { path: "skills/b.md", parentVersion: 0, contentHash: h32("b"), size: 20 },
-      { path: "skills/c.md", parentVersion: 0, contentHash: h32("c"), size: 30 },
+      { path: "knowledge/a.md", parentVersion: 0, contentHash: h32("a"), size: 10 },
+      { path: "knowledge/b.md", parentVersion: 0, contentHash: h32("b"), size: 20 },
+      { path: "knowledge/c.md", parentVersion: 0, contentHash: h32("c"), size: 30 },
     ];
 
     const res = await handleSyncUploadPrepareBatch(
       makeCaller(team.id, actor.id),
       { items },
-      { db, repo, s3: s3 as any, bucket: "test-bucket" }
+      { db, repo, storage }
     );
 
     assert.equal(res.statusCode, 200);
@@ -581,14 +572,14 @@ describe("sync batch endpoints postgres path", () => {
     const hB = h32("2");
     const sizeA = 11;
     const sizeB = 22;
-    const s3State: MockS3State = {
+    const storeState: MockStorageState = {
       objects: new Map([
         [ossKeyFor(team.id, hA), sizeA],
         [ossKeyFor(team.id, hB), sizeB],
       ]),
     };
-    const s3 = makeMockS3WithPresign(s3State);
-    const deps = { db, repo, s3: s3 as any, bucket: "test-bucket" };
+    const storage = makeMockStorage(storeState);
+    const deps = { db, repo, storage };
 
     // Prepare: A (fresh), B (will be completed first → bumps to v1),
     //          B2 (stale pv0 session on same path → must conflict at complete).
@@ -597,9 +588,9 @@ describe("sync batch endpoints postgres path", () => {
         (await handleSyncUploadPrepare(caller, { path, parentVersion: pv, contentHash: hash, size }, deps)).body
       ).uploadSessionId;
 
-    const sessA = await prep("skills/batch-a.md", hA, sizeA, 0);
-    const sessB = await prep("skills/batch-b.md", hB, sizeB, 0);
-    const sessB2 = await prep("skills/batch-b.md", hB, sizeB, 0); // stale once B → v1
+    const sessA = await prep("knowledge/batch-a.md", hA, sizeA, 0);
+    const sessB = await prep("knowledge/batch-b.md", hB, sizeB, 0);
+    const sessB2 = await prep("knowledge/batch-b.md", hB, sizeB, 0); // stale once B → v1
 
     // Land B first so sessB2's parentVersion(0) is stale.
     const firstB = await handleSyncUploadComplete(caller, { uploadSessionId: sessB }, deps);
@@ -636,7 +627,7 @@ describe("sync batch endpoints postgres path", () => {
     // Confirm A actually persisted despite siblings failing.
     const mRes = await handleSyncManifest(caller, { afterSeq: 0 }, { db, repo });
     const items = JSON.parse(mRes.body).items;
-    assert.ok(items.find((i: any) => i.path === "skills/batch-a.md"), "A persisted");
+    assert.ok(items.find((i: any) => i.path === "knowledge/batch-a.md"), "A persisted");
   });
 
   test("download-batch: mixed found / not-found per item", async () => {
@@ -648,13 +639,13 @@ describe("sync batch endpoints postgres path", () => {
 
     const hash = h32("d");
     const size = 64;
-    const s3State: MockS3State = { objects: new Map([[ossKeyFor(team.id, hash), size]]) };
-    const s3 = makeMockS3WithPresign(s3State);
-    const deps = { db, repo, s3: s3 as any, bucket: "test-bucket" };
+    const storeState: MockStorageState = { objects: new Map([[ossKeyFor(team.id, hash), size]]) };
+    const storage = makeMockStorage(storeState);
+    const deps = { db, repo, storage };
 
     // Register one verified blob via prepare+complete.
     const pr = await handleSyncUploadPrepare(
-      caller, { path: "skills/dl.bin", parentVersion: 0, contentHash: hash, size }, deps
+      caller, { path: "knowledge/dl.bin", parentVersion: 0, contentHash: hash, size }, deps
     );
     await handleSyncUploadComplete(caller, { uploadSessionId: JSON.parse(pr.body).uploadSessionId }, deps);
 
@@ -682,22 +673,22 @@ describe("sync batch endpoints postgres path", () => {
 
     const hash = h32("f");
     const size = 9;
-    const s3State: MockS3State = { objects: new Map([[ossKeyFor(team.id, hash), size]]) };
-    const s3 = makeMockS3WithPresign(s3State);
-    const deps = { db, repo, s3: s3 as any, bucket: "test-bucket" };
+    const storeState: MockStorageState = { objects: new Map([[ossKeyFor(team.id, hash), size]]) };
+    const storage = makeMockStorage(storeState);
+    const deps = { db, repo, storage };
 
     // Upload one file so it can be tombstoned at v1.
     const pr = await handleSyncUploadPrepare(
-      caller, { path: "skills/del.md", parentVersion: 0, contentHash: hash, size }, deps
+      caller, { path: "knowledge/del.md", parentVersion: 0, contentHash: hash, size }, deps
     );
     await handleSyncUploadComplete(caller, { uploadSessionId: JSON.parse(pr.body).uploadSessionId }, deps);
 
     const res = await handleSyncDeleteBatch(
       caller,
       { items: [
-        { path: "skills/del.md", parentVersion: 1 },          // ok → v2 tombstone
-        { path: "skills/del.md", parentVersion: 0 },          // stale → 409
-        { path: "skills/never-existed.md", parentVersion: 0 } // missing → 404
+        { path: "knowledge/del.md", parentVersion: 1 },          // ok → v2 tombstone
+        { path: "knowledge/del.md", parentVersion: 0 },          // stale → 409
+        { path: "knowledge/never-existed.md", parentVersion: 0 } // missing → 404
       ] },
       { db, repo }
     );
@@ -720,7 +711,7 @@ describe("sync batch endpoints postgres path", () => {
     const actor = await seedMember(db, team.id);
 
     const items = Array.from({ length: MAX_SYNC_BATCH + 1 }, (_, i) => ({
-      path: `skills/x${i}.md`, parentVersion: 0, contentHash: h32("a"), size: 1,
+      path: `knowledge/x${i}.md`, parentVersion: 0, contentHash: h32("a"), size: 1,
     }));
     const res = await handleSyncUploadPrepareBatch(
       makeCaller(team.id, actor.id), { items }, { db, repo }

@@ -258,8 +258,7 @@ async fn exchange_daemon_workspace_token(
 pub async fn materialize_team_mcp_via_daemon(
     workspace_path: &str,
 ) -> Result<MaterializeTeamMcpResponse, String> {
-    let (base, token) =
-        exchange_daemon_workspace_token(&["workspace:write"], 300).await?;
+    let (base, token) = exchange_daemon_workspace_token(&["workspace:write"], 300).await?;
 
     let ws_id = encode_workspace_id(workspace_path);
     let client = reqwest::Client::new();

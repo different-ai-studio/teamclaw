@@ -326,6 +326,7 @@ private actor FailingOnboardingStore: AppOnboardingStore {
     func createTeam(named name: String) async throws -> CreatedTeam {
         throw error
     }
+    func bootstrapTeam(deviceId: String?) async throws -> CreatedTeam { throw error }
     func listAllMyTeams() async throws -> [MembershipTeam] { throw error }
     func switchActiveTeam(teamID: String) async throws -> TeamSwitchResult { throw error }
 

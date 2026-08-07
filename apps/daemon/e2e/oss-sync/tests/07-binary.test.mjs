@@ -15,7 +15,7 @@ test("binary: 5MB random blob round-trips byte-identical", { timeout: 180000 }, 
   const blob = randomBytes(5 * 1024 * 1024);
   const sha = createHash("sha256").update(blob).digest("hex");
 
-  await writeFile("node-a", `${root}/skills/big.bin`, blob);
+  await writeFile("node-a", `${root}/knowledge/big.bin`, blob);
   const a1 = await sync(nodes.a);
   assert.equal(a1.lastError ?? null, null, `A sync error: ${a1.lastError}`);
 
@@ -26,10 +26,10 @@ test("binary: 5MB random blob round-trips byte-identical", { timeout: 180000 }, 
     const b1 = await sync(nodes.b);
     assert.equal(b1.lastError ?? null, null, `B sync error: ${b1.lastError}`);
     treeB = await ctx.lsContentRoot("node-b", teamId);
-    if (treeB["skills/big.bin"]) break;
+    if (treeB["knowledge/big.bin"]) break;
     await new Promise((r) => setTimeout(r, 3000));
   }
-  assert.ok(treeB["skills/big.bin"], "B should have the binary");
-  const got = createHash("sha256").update(Buffer.from(treeB["skills/big.bin"], "base64")).digest("hex");
+  assert.ok(treeB["knowledge/big.bin"], "B should have the binary");
+  const got = createHash("sha256").update(Buffer.from(treeB["knowledge/big.bin"], "base64")).digest("hex");
   assert.equal(got, sha, "binary content must be byte-identical after encrypt/presigned round-trip");
 });

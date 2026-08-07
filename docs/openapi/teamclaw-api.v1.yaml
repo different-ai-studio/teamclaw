@@ -201,6 +201,20 @@ paths:
                   description: "Organization selected from an `itemType: org` picker row."
                   type: [string, "null"]
                   format: uuid
+                deviceId:
+                  description: >-
+                    Guests only: the calling device's stable id. An anonymous
+                    caller that names its device gets back the team that
+                    device's previous guest already had, instead of a new one
+                    per quick-trial sign-in — every `signInAnonymously()` mints
+                    a fresh auth user, so without this the teams pile up in the
+                    shared default org and nothing collects them. Ignored for
+                    signed-in callers. Housekeeping, NOT a security boundary:
+                    the id lives in the client's own storage, so clearing app
+                    data or switching devices simply yields a fresh team. Omit
+                    it to opt out of reuse; never send a shared placeholder, as
+                    that would hand unrelated devices the same team.
+                  type: [string, "null"]
       responses:
         "200":
           description: Bootstrapped team.
@@ -1966,22 +1980,245 @@ paths:
       responses:
         "204": { description: Uninstalled. }
         "403": { $ref: "#/components/responses/Error" }
-  /v1/teams/{teamId}/share-mode:
+  /v1/teams/{teamId}/mcp-servers:
+    get:
+      operationId: listTeamMcpServers
+      summary: List the team MCP catalog
+      description: >
+        Full catalog, decorated with the caller's own `installed` flag. There is
+        no actorId parameter: installs are self-only, so another actor's install
+        state has no corresponding action.
+      tags: [TeamMcp]
+      parameters:
+        - $ref: "#/components/parameters/TeamId"
+      responses:
+        "200":
+          description: Catalog entries.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  items:
+                    type: array
+                    items: { $ref: "#/components/schemas/TeamMcpServer" }
+        "401": { $ref: "#/components/responses/Error" }
+        "403": { $ref: "#/components/responses/Error" }
     post:
-      operationId: enableTeamShareMode
-      summary: Enable team share mode (one-shot lock)
-      description: |
-        Atomically locks the team's share mode to one of `oss`, `managed_git`,
-        or `custom_git`. Once locked, the mode cannot be changed — a second
-        call returns 409 `share_mode_locked`. For `managed_git` and
-        `custom_git`, a `gitConfig.remoteUrl` is required. For `custom_git`,
-        the caller must also supply `gitConfig.authKind` and
-        `gitConfig.credentialRef`.
-      tags: [Teams]
+      operationId: createTeamMcpServer
+      summary: Add a server to the team MCP catalog
+      description: >
+        Any team member may add. Adding does not run anything on anyone's
+        machine — a server only reaches a member once that member installs it.
+        Values in `env`/`headers` whose key looks like a secret must use a
+        `${KEY}` placeholder resolved at runtime from team env; literals are
+        rejected with 422.
+      tags: [TeamMcp]
       parameters:
         - $ref: "#/components/parameters/TeamId"
       requestBody:
         required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/TeamMcpServerWrite" }
+      responses:
+        "201":
+          description: Created.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/TeamMcpServer" }
+        "400": { $ref: "#/components/responses/Error" }
+        "409":
+          description: A server with that name already exists.
+          $ref: "#/components/responses/Error"
+        "422":
+          description: A secret-looking env/header value was a literal instead of a `${KEY}` placeholder.
+          $ref: "#/components/responses/Error"
+  /v1/teams/{teamId}/mcp-servers/config:
+    get:
+      operationId: getTeamMcpConfig
+      summary: Resolved MCP config for the caller (daemon-facing)
+      description: >
+        Exactly a Cursor `mcpServers` map containing ONLY the servers the caller
+        has installed. This is the byte shape the daemon previously read from
+        `.mcp/*.json` on disk, so its parser is unchanged — the daemon writes
+        this body straight into its local cache.
+      tags: [TeamMcp]
+      parameters:
+        - $ref: "#/components/parameters/TeamId"
+      responses:
+        "200":
+          description: Installed servers, in on-disk config shape.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  mcpServers:
+                    type: object
+                    additionalProperties: { $ref: "#/components/schemas/TeamMcpServerConfigEntry" }
+        "401": { $ref: "#/components/responses/Error" }
+        "403": { $ref: "#/components/responses/Error" }
+  /v1/teams/{teamId}/mcp-servers/{name}:
+    patch:
+      operationId: updateTeamMcpServer
+      summary: Edit a catalog entry
+      description: Creator or team admin only.
+      tags: [TeamMcp]
+      parameters:
+        - $ref: "#/components/parameters/TeamId"
+        - $ref: "#/components/parameters/TeamMcpServerName"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/TeamMcpServerWrite" }
+      responses:
+        "200":
+          description: Updated.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/TeamMcpServer" }
+        "400": { $ref: "#/components/responses/Error" }
+        "403": { $ref: "#/components/responses/Error" }
+        "404": { $ref: "#/components/responses/Error" }
+        "422":
+          description: A secret-looking env/header value was a literal instead of a `${KEY}` placeholder.
+          $ref: "#/components/responses/Error"
+    delete:
+      operationId: deleteTeamMcpServer
+      summary: Remove a catalog entry
+      description: Creator or team admin only. Cascades to every member's install record.
+      tags: [TeamMcp]
+      parameters:
+        - $ref: "#/components/parameters/TeamId"
+        - $ref: "#/components/parameters/TeamMcpServerName"
+      responses:
+        "204": { description: Deleted. }
+        "403": { $ref: "#/components/responses/Error" }
+        "404": { $ref: "#/components/responses/Error" }
+  /v1/teams/{teamId}/mcp-servers/{name}/install:
+    put:
+      operationId: installTeamMcpServer
+      summary: Install a team MCP server for yourself
+      description: >
+        Self-only, idempotent. Passing an actorId is a 400: installing means
+        "run this command on my machine", which is not a decision anyone gets to
+        make on another person's behalf.
+      tags: [TeamMcp]
+      parameters:
+        - $ref: "#/components/parameters/TeamId"
+        - $ref: "#/components/parameters/TeamMcpServerName"
+      responses:
+        "200":
+          description: Installed.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/TeamMcpInstall" }
+        "400":
+          description: actorId was supplied — installs are self-only.
+          $ref: "#/components/responses/Error"
+        "403": { $ref: "#/components/responses/Error" }
+        "404": { $ref: "#/components/responses/Error" }
+    delete:
+      operationId: uninstallTeamMcpServer
+      summary: Uninstall a team MCP server for yourself
+      tags: [TeamMcp]
+      parameters:
+        - $ref: "#/components/parameters/TeamId"
+        - $ref: "#/components/parameters/TeamMcpServerName"
+      responses:
+        "204": { description: Uninstalled. }
+        "403": { $ref: "#/components/responses/Error" }
+        "404": { $ref: "#/components/responses/Error" }
+  /v1/teams/{teamId}/env-secrets:
+    get:
+      operationId: listTeamEnvSecrets
+      summary: List team env secrets (ciphertext only)
+      description: >
+        Returns the encrypted envelopes as stored. The server holds no key and
+        cannot decrypt; description/category/author metadata live inside the
+        ciphertext, so only `createdBy`/`updatedBy` (plaintext columns kept for
+        authorisation) are readable here.
+      tags: [TeamEnvSecrets]
+      parameters:
+        - $ref: "#/components/parameters/TeamId"
+      responses:
+        "200":
+          description: Encrypted team env entries.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  items:
+                    type: array
+                    items: { $ref: "#/components/schemas/TeamEnvSecret" }
+        "401": { $ref: "#/components/responses/Error" }
+        "403": { $ref: "#/components/responses/Error" }
+  /v1/teams/{teamId}/env-secrets/{keyId}:
+    put:
+      operationId: putTeamEnvSecret
+      summary: Create or replace a team env secret
+      description: >
+        Upsert. The body carries only the client-encrypted envelope. `createdBy`
+        is never reassigned on update — it is the delete gate, and letting the
+        most recent writer claim it would quietly transfer deletion rights.
+      tags: [TeamEnvSecrets]
+      parameters:
+        - $ref: "#/components/parameters/TeamId"
+        - $ref: "#/components/parameters/TeamEnvKeyId"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [envelope]
+              properties:
+                envelope: { $ref: "#/components/schemas/TeamEnvEnvelope" }
+      responses:
+        "200":
+          description: Stored.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/TeamEnvSecret" }
+        "400": { $ref: "#/components/responses/Error" }
+        "403": { $ref: "#/components/responses/Error" }
+        "422":
+          description: Reserved key id (e.g. tc_api_key, _team_secret.*).
+          $ref: "#/components/responses/Error"
+    delete:
+      operationId: deleteTeamEnvSecret
+      summary: Delete a team env secret
+      description: >
+        Creator or team admin only — narrower than update on purpose. Changing a
+        value is collaboration; removing a key strips an env var from every
+        member's runtime.
+      tags: [TeamEnvSecrets]
+      parameters:
+        - $ref: "#/components/parameters/TeamId"
+        - $ref: "#/components/parameters/TeamEnvKeyId"
+      responses:
+        "204": { description: Deleted. }
+        "403": { $ref: "#/components/responses/Error" }
+        "404": { $ref: "#/components/responses/Error" }
+  /v1/teams/{teamId}/share-mode:
+    post:
+      operationId: enableTeamShareMode
+      summary: Enable team knowledge sync (one-shot, permanent)
+      description: |
+        Turns on team knowledge sync. This is a switch, not a choice: git
+        share modes are gone and the only backend is Supabase Storage. `mode`
+        is vestigial — omit it, or send `oss`; `managed_git` and `custom_git`
+        are rejected with 400. Once enabled the team cannot be un-enabled
+        (`DELETE` returns 410) and a second call returns 409
+        `share_mode_locked`.
+      tags: [Teams]
+      parameters:
+        - $ref: "#/components/parameters/TeamId"
+      requestBody:
+        required: false
         content:
           application/json:
             schema:
@@ -2012,7 +2249,11 @@ paths:
         - $ref: "#/components/parameters/TeamId"
       responses:
         "200":
-          description: Current team share status. `mode` is null when share has not been opened.
+          description: |
+            Current team share status. `mode` is null when sync has never been
+            enabled; any non-null value means enabled. Branch on null-ness, not
+            on the value — `managed_git` / `custom_git` survive on legacy rows
+            and mean nothing beyond "enabled".
           headers:
             X-Request-Id:
               $ref: "#/components/headers/RequestId"
@@ -4425,6 +4666,20 @@ components:
       schema:
         type: string
         pattern: "^[a-z0-9][a-z0-9-]{1,63}$"
+    TeamMcpServerName:
+      name: name
+      in: path
+      required: true
+      schema:
+        type: string
+        pattern: "^[A-Za-z0-9][A-Za-z0-9_.-]{0,63}$"
+    TeamEnvKeyId:
+      name: keyId
+      in: path
+      required: true
+      schema:
+        type: string
+        pattern: "^[a-z0-9_]{1,64}$"
     InviteId:
       name: inviteId
       in: path
@@ -4578,6 +4833,87 @@ components:
         size: { type: integer }
         ownerActorId: { type: string, format: uuid }
         status: { type: string, enum: [draft, published, deprecated] }
+    TeamMcpServer:
+      type: object
+      description: >
+        A catalog entry. Presence here means "available to the team", not
+        "running" — `installed` reflects only the calling actor.
+      properties:
+        id: { type: string, format: uuid }
+        teamId: { type: string, format: uuid }
+        name: { type: string, pattern: "^[A-Za-z0-9][A-Za-z0-9_.-]{0,63}$" }
+        transport: { type: string, enum: [local, remote] }
+        command: { type: [string, "null"] }
+        args: { type: [array, "null"], items: { type: string } }
+        url: { type: [string, "null"] }
+        headers: { type: [object, "null"], additionalProperties: { type: string } }
+        env: { type: [object, "null"], additionalProperties: { type: string } }
+        description: { type: [string, "null"] }
+        installed: { type: boolean }
+        createdBy: { type: [string, "null"], format: uuid }
+        updatedBy: { type: [string, "null"], format: uuid }
+        createdAt: { type: [string, "null"], format: date-time }
+        updatedAt: { type: [string, "null"], format: date-time }
+    TeamMcpServerWrite:
+      type: object
+      description: >
+        Create or patch body. `transport=local` requires `command` and forbids
+        `url`; `transport=remote` is the mirror image. Secret-looking keys in
+        `env`/`headers` must carry a `${KEY}` placeholder, not a literal.
+      properties:
+        name: { type: string, pattern: "^[A-Za-z0-9][A-Za-z0-9_.-]{0,63}$" }
+        transport: { type: string, enum: [local, remote] }
+        command: { type: [string, "null"] }
+        args: { type: [array, "null"], items: { type: string } }
+        url: { type: [string, "null"] }
+        headers: { type: [object, "null"], additionalProperties: { type: string } }
+        env: { type: [object, "null"], additionalProperties: { type: string } }
+        description: { type: [string, "null"] }
+    TeamMcpServerConfigEntry:
+      type: object
+      description: >
+        One entry of the daemon-facing `mcpServers` map — the on-disk Cursor
+        shape, with only the fields relevant to its transport.
+      properties:
+        command: { type: string }
+        args: { type: array, items: { type: string } }
+        url: { type: string }
+        headers: { type: object, additionalProperties: { type: string } }
+        env: { type: object, additionalProperties: { type: string } }
+    TeamMcpInstall:
+      type: object
+      description: Always the calling actor's own install — installs are self-only.
+      properties:
+        id: { type: string, format: uuid }
+        teamId: { type: string, format: uuid }
+        actorId: { type: string, format: uuid }
+        serverId: { type: string, format: uuid }
+        name: { type: string }
+        installedAt: { type: [string, "null"], format: date-time }
+        updatedAt: { type: [string, "null"], format: date-time }
+    TeamEnvEnvelope:
+      type: object
+      description: >
+        Client-side AES-256-GCM envelope. The server stores these three fields
+        verbatim and holds no key — it cannot decrypt, by design.
+      required: [v, nonce, ciphertext]
+      properties:
+        v: { type: integer, minimum: 1 }
+        nonce: { type: string, description: Base64 12-byte nonce. }
+        ciphertext: { type: string, description: Base64 ciphertext including the GCM tag. }
+    TeamEnvSecret:
+      type: object
+      description: >
+        Note what is absent: there is no `value`, and no description/category
+        either — that metadata is encrypted inside the envelope alongside the
+        value, so only the client can read it.
+      properties:
+        keyId: { type: string, pattern: "^[a-z0-9_]{1,64}$" }
+        envelope: { $ref: "#/components/schemas/TeamEnvEnvelope" }
+        createdBy: { type: [string, "null"], format: uuid }
+        updatedBy: { type: [string, "null"], format: uuid }
+        createdAt: { type: [string, "null"], format: date-time }
+        updatedAt: { type: [string, "null"], format: date-time }
     AppType:
       type: string
       description: |
@@ -5042,26 +5378,13 @@ components:
         git remote with explicit credential metadata.
     EnableShareModeRequest:
       type: object
-      required: [mode]
+      description: |
+        Body is optional and carries no decision. `mode` is kept only so
+        existing clients keep working; the sole accepted value is `oss`.
       properties:
         mode:
-          $ref: "#/components/schemas/TeamShareMode"
-        gitConfig:
-          type: object
-          description: |
-            Required when `mode` is `managed_git` or `custom_git`. For
-            `custom_git`, `authKind` and `credentialRef` are also required.
-            `credentialRef` references a device-local secret entry; the FC
-            never sees the raw credential material.
-          required: [remoteUrl]
-          properties:
-            remoteUrl:
-              type: string
-            authKind:
-              type: string
-              enum: [ssh_key, https_token]
-            credentialRef:
-              type: string
+          type: string
+          enum: [oss]
     ShareStatus:
       type: object
       required: [mode, enabledAt, gitRemoteUrl, gitAuthKind]

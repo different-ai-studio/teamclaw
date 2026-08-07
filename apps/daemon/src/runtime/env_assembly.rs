@@ -25,10 +25,8 @@ pub fn assemble_spawn_runtime_env(
     // reconstruct Enabled from on-disk provider.team so the spawn fingerprint
     // matches a later successful cloud resolve with the same gateway data.
     let disk_team = teamclaw_runtime_env::read_disk_team_provider(workspace_root);
-    let managed_llm = teamclaw_runtime_env::stabilize_managed_llm_for_spawn(
-        managed_llm,
-        disk_team.as_ref(),
-    );
+    let managed_llm =
+        teamclaw_runtime_env::stabilize_managed_llm_for_spawn(managed_llm, disk_team.as_ref());
     let team_env = team_shared_env::load_team_env_for_workspace_detailed(workspace_root, team_id);
     let mut bundle = teamclaw_runtime_env::assemble_runtime_env(
         workspace_root,
@@ -201,7 +199,9 @@ mod tests {
         .unwrap();
 
         assert!(
-            from_unknown.extra_env.contains_key("TEAMCLAW_TEAM_PROVIDER"),
+            from_unknown
+                .extra_env
+                .contains_key("TEAMCLAW_TEAM_PROVIDER"),
             "Unknown + disk provider.team must still inject TEAMCLAW_TEAM_PROVIDER"
         );
         assert_eq!(

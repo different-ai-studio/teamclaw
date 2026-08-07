@@ -2432,7 +2432,11 @@ mod tests {
     #[test]
     fn resolve_command_agent_id_accepts_spawn_key() {
         let mut mgr = RuntimeManager::new(RuntimeManager::test_launch_configs(), None);
-        mgr.add_test_runtime("76fd9bf2", "76fd9bf2", "54809303-ed5b-4f10-893f-2d0fd2db4e00");
+        mgr.add_test_runtime(
+            "76fd9bf2",
+            "76fd9bf2",
+            "54809303-ed5b-4f10-893f-2d0fd2db4e00",
+        );
         assert_eq!(
             mgr.resolve_command_agent_id("76fd9bf2", "").as_deref(),
             Some("76fd9bf2")
@@ -2445,7 +2449,11 @@ mod tests {
         // commands topic used that segment and cancel_agent looked up the
         // session UUID as a spawn key → not found.
         let mut mgr = RuntimeManager::new(RuntimeManager::test_launch_configs(), None);
-        mgr.add_test_runtime("76fd9bf2", "76fd9bf2", "54809303-ed5b-4f10-893f-2d0fd2db4e00");
+        mgr.add_test_runtime(
+            "76fd9bf2",
+            "76fd9bf2",
+            "54809303-ed5b-4f10-893f-2d0fd2db4e00",
+        );
         assert_eq!(
             mgr.resolve_command_agent_id("54809303-ed5b-4f10-893f-2d0fd2db4e00", "")
                 .as_deref(),

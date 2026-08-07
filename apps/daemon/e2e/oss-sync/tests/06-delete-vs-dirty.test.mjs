@@ -12,14 +12,14 @@ test("remote delete + local dirty: B keeps its local edit (no data loss)", { tim
   const { nodes, teamId } = ctx;
   const root = contentRootPath(teamId);
 
-  await writeFile("node-a", `${root}/skills/x.md`, Buffer.from("v1\n"));
+  await writeFile("node-a", `${root}/knowledge/x.md`, Buffer.from("v1\n"));
   await sync(nodes.a);
   await sync(nodes.b); // 双方有 x.md
 
   // A 删除并同步；B 在 sync 前本地改脏 x.md。
-  await execSh("node-a", `rm -f ${root}/skills/x.md`);
+  await execSh("node-a", `rm -f ${root}/knowledge/x.md`);
   await sync(nodes.a);
-  await writeFile("node-b", `${root}/skills/x.md`, Buffer.from("B-dirty-edit\n"));
+  await writeFile("node-b", `${root}/knowledge/x.md`, Buffer.from("B-dirty-edit\n"));
 
   const b2 = await sync(nodes.b);
   assert.equal(b2.lastError ?? null, null, `B sync error: ${b2.lastError}`);
@@ -27,7 +27,7 @@ test("remote delete + local dirty: B keeps its local edit (no data loss)", { tim
   // 期望：B 的本地改动不被远端删除直接抹掉（保留 / 备份）。
   const treeB = await ctx.lsContentRoot("node-b", teamId);
   const hasDirty =
-    treeB["skills/x.md"] && Buffer.from(treeB["skills/x.md"], "base64").toString() === "B-dirty-edit\n";
+    treeB["knowledge/x.md"] && Buffer.from(treeB["knowledge/x.md"], "base64").toString() === "B-dirty-edit\n";
   const hasSidecar = Object.keys(treeB).some((k) => /x\.conflict\./.test(k));
   assert.ok(
     hasDirty || hasSidecar,

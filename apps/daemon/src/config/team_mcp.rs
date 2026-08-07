@@ -1,4 +1,10 @@
-//! Team-shared MCP definitions from `teamclaw-team/.mcp/*.json`.
+//! Team-shared MCP definitions, mirrored from the Cloud API into
+//! `~/.amuxd/teams/<id>/cloud/.mcp/` by `runtime::team_cloud_config`.
+//!
+//! The file format is unchanged (Cursor `mcpServers`) because the server hands
+//! back exactly that shape — see `docs/architecture/team-mcp-and-env-cloud.md`.
+//! The synced `teamclaw-team/.mcp/` directory is no longer synced, but is still
+//! read for machines that already have it; the cloud copy always wins.
 //!
 //! Merged at read time with workspace `opencode.json` entries. On name
 //! collision the workspace layer wins (user local override).
@@ -75,11 +81,26 @@ fn onboarded_team_id() -> Option<String> {
         })
 }
 
-fn team_mcp_dir(workspace: &Path) -> PathBuf {
-    if let Some(team_id) = onboarded_team_id() {
-        resolve_team_dir(workspace, &team_id).join(".mcp")
-    } else {
-        workspace.join(TEAM_LINK_NAME).join(".mcp")
+/// Directories holding team MCP definitions, **least** preferred first.
+///
+/// The cloud cache is last so it wins on a name collision. The legacy synced
+/// `teamclaw-team/.mcp/` is still read rather than dropped: `.mcp/` is no longer
+/// synced, so those files can only exist on a machine that already had them —
+/// reading them keeps a pre-migration checkout working, and the ordering means
+/// they can never shadow what the member actually installed.
+fn team_mcp_dirs(workspace: &Path) -> Vec<PathBuf> {
+    let team_id = onboarded_team_id();
+    let legacy = match &team_id {
+        Some(id) => resolve_team_dir(workspace, id).join(".mcp"),
+        None => workspace.join(TEAM_LINK_NAME).join(".mcp"),
+    };
+    match &team_id {
+        Some(id) => vec![
+            legacy,
+            crate::runtime::team_cloud_config::team_cloud_mcp_dir(id),
+        ],
+        // Without an onboarded team there is no cloud cache to read.
+        None => vec![legacy],
     }
 }
 
@@ -118,19 +139,28 @@ fn convert_cursor_server(server: &CursorMcpServer) -> McpServerConfig {
     }
 }
 
-/// Scan `teamclaw-team/.mcp/*.json` (Cursor `mcpServers` format).
+/// Scan every team MCP source for `*.json` in Cursor `mcpServers` format.
+///
+/// Later directories override earlier ones on a name collision — see
+/// [`team_mcp_dirs`] for the ordering and why.
 pub fn scan_team_mcp(workspace: &Path) -> HashMap<String, McpServerConfig> {
-    let mcp_dir = team_mcp_dir(workspace);
+    let mut team_servers = HashMap::new();
+    for mcp_dir in team_mcp_dirs(workspace) {
+        scan_team_mcp_dir_into(&mcp_dir, &mut team_servers);
+    }
+    team_servers
+}
+
+fn scan_team_mcp_dir_into(mcp_dir: &Path, out: &mut HashMap<String, McpServerConfig>) {
     if !mcp_dir.is_dir() {
-        return HashMap::new();
+        return;
     }
 
-    let entries = match std::fs::read_dir(&mcp_dir) {
+    let entries = match std::fs::read_dir(mcp_dir) {
         Ok(entries) => entries,
-        Err(_) => return HashMap::new(),
+        Err(_) => return,
     };
 
-    let mut team_servers = HashMap::new();
     for entry in entries.flatten() {
         let path = entry.path();
         if path.extension().and_then(|ext| ext.to_str()) != Some("json") {
@@ -145,10 +175,9 @@ pub fn scan_team_mcp(workspace: &Path) -> HashMap<String, McpServerConfig> {
             Err(_) => continue,
         };
         for (name, server) in team_file.mcp_servers {
-            team_servers.insert(name, convert_cursor_server(&server));
+            out.insert(name, convert_cursor_server(&server));
         }
     }
-    team_servers
 }
 
 pub fn read_persisted_mcp(
@@ -259,7 +288,18 @@ pub struct MaterializeTeamMcpOutcome {
 pub fn materialize_team_mcp_for_runtime(
     workspace: &Path,
 ) -> Result<MaterializeTeamMcpOutcome, WorkspaceControlError> {
-    let team = scan_team_mcp(workspace);
+    materialize_team_mcp_entries(workspace, &scan_team_mcp(workspace))
+}
+
+/// The applying half, taking the team map explicitly.
+///
+/// Split from [`materialize_team_mcp_for_runtime`] so it can be tested without a
+/// daemon config dir: resolving *where* team MCP comes from now goes through the
+/// cloud cache under `~/.amuxd`, which a unit test has no business creating.
+pub fn materialize_team_mcp_entries(
+    workspace: &Path,
+    team: &HashMap<String, McpServerConfig>,
+) -> Result<MaterializeTeamMcpOutcome, WorkspaceControlError> {
     if team.is_empty() {
         return Ok(MaterializeTeamMcpOutcome {
             changed: false,
@@ -284,7 +324,7 @@ pub fn materialize_team_mcp_for_runtime(
                 .as_object_mut()
                 .ok_or_else(|| OpencodeConfigError::Parse("mcp is not an object".into()))?;
 
-            for (name, cfg) in &team {
+            for (name, cfg) in team {
                 if !mcp_obj.contains_key(name) {
                     let value = serde_json::to_value(cfg)
                         .map_err(|e| OpencodeConfigError::Parse(e.to_string()))?;
@@ -320,13 +360,72 @@ mod tests {
         }
     }
 
+    /// The dual-source merge, exercised on the directory scanner directly.
+    ///
+    /// `scan_team_mcp` itself resolves the cloud cache through the daemon's real
+    /// config dir (via the onboarded team id), which a unit test has no business
+    /// reaching into. `scan_team_mcp_dir_into` is the part that actually decides
+    /// precedence, and it takes explicit paths.
+    #[test]
+    fn later_dirs_override_earlier_ones_on_name_collision() {
+        let tmp = tempfile::tempdir().unwrap();
+        let legacy = tmp.path().join("legacy");
+        let cloud = tmp.path().join("cloud");
+        std::fs::create_dir_all(&legacy).unwrap();
+        std::fs::create_dir_all(&cloud).unwrap();
+        std::fs::write(
+            legacy.join("a.json"),
+            r#"{"mcpServers":{"shared":{"command":"stale"},"legacy-only":{"command":"keep"}}}"#,
+        )
+        .unwrap();
+        std::fs::write(
+            cloud.join("team.json"),
+            r#"{"mcpServers":{"shared":{"command":"fresh"}}}"#,
+        )
+        .unwrap();
+
+        let mut merged = HashMap::new();
+        scan_team_mcp_dir_into(&legacy, &mut merged);
+        scan_team_mcp_dir_into(&cloud, &mut merged);
+
+        // Cloud reflects what this member actually installed; the synced dir is
+        // whatever the team repo still happens to carry.
+        assert_eq!(merged.get("shared").unwrap().command, vec!["fresh"]);
+        // ...but it does not erase entries the cloud never mentioned.
+        assert_eq!(merged.get("legacy-only").unwrap().command, vec!["keep"]);
+    }
+
+    #[test]
+    fn a_missing_dir_contributes_nothing_and_does_not_clear_the_map() {
+        let tmp = tempfile::tempdir().unwrap();
+        let present = tmp.path().join("present");
+        std::fs::create_dir_all(&present).unwrap();
+        std::fs::write(
+            present.join("a.json"),
+            r#"{"mcpServers":{"team-db":{"command":"npx"}}}"#,
+        )
+        .unwrap();
+
+        let mut merged = HashMap::new();
+        scan_team_mcp_dir_into(&present, &mut merged);
+        // The offline case: no cloud cache yet. It must be a no-op, not a wipe —
+        // an empty team map would reclassify materialized servers as workspace-owned.
+        scan_team_mcp_dir_into(&tmp.path().join("absent"), &mut merged);
+
+        assert_eq!(merged.len(), 1);
+        assert!(merged.contains_key("team-db"));
+    }
+
+    /// Parses the Cursor `mcpServers` shape the Cloud API hands back verbatim.
+    ///
+    /// Exercises the directory scanner directly rather than `scan_team_mcp`:
+    /// that one resolves the cloud cache through the daemon's real config dir,
+    /// which a unit test has no business reaching into.
     #[test]
     fn scan_team_mcp_parses_cursor_json_files() {
-        let ws = tempfile::tempdir().unwrap();
-        let mcp_dir = ws.path().join(TEAM_LINK_NAME).join(".mcp");
-        std::fs::create_dir_all(&mcp_dir).unwrap();
+        let dir = tempfile::tempdir().unwrap();
         std::fs::write(
-            mcp_dir.join("shared.json"),
+            dir.path().join("team.json"),
             r#"{
   "mcpServers": {
     "team-db": {
@@ -338,11 +437,22 @@ mod tests {
         )
         .unwrap();
 
-        let team = scan_team_mcp(ws.path());
+        let mut team = HashMap::new();
+        scan_team_mcp_dir_into(dir.path(), &mut team);
         assert_eq!(team.len(), 1);
         let cfg = team.get("team-db").unwrap();
         assert_eq!(cfg.server_type, "local");
         assert_eq!(cfg.command, vec!["npx", "-y", "team-db-mcp"]);
+    }
+
+    /// The legacy directory is still read, but never last — so a stale copy in a
+    /// synced team repo cannot shadow what the member actually installed.
+    #[test]
+    fn legacy_team_mcp_directory_is_read_but_never_wins() {
+        let ws = tempfile::tempdir().unwrap();
+        let dirs = team_mcp_dirs(ws.path());
+        assert!(!dirs.is_empty());
+        assert!(dirs[0].starts_with(ws.path()), "legacy dir comes first");
     }
 
     #[test]
@@ -400,20 +510,17 @@ mod tests {
     #[test]
     fn materialize_adds_team_only_entries_without_overwriting_workspace() {
         let ws = tempfile::tempdir().unwrap();
-        let mcp_dir = ws.path().join(TEAM_LINK_NAME).join(".mcp");
-        std::fs::create_dir_all(&mcp_dir).unwrap();
-        std::fs::write(
-            mcp_dir.join("shared.json"),
-            r#"{"mcpServers":{"team-a":{"command":"npx","args":["a"]},"shared":{"command":"npx","args":["team"]}}}"#,
-        )
-        .unwrap();
         std::fs::write(
             ws.path().join("opencode.json"),
             r#"{"mcp":{"shared":{"type":"local","enabled":true,"command":["npx","local"]}}}"#,
         )
         .unwrap();
 
-        let outcome = materialize_team_mcp_for_runtime(ws.path()).unwrap();
+        let mut team = HashMap::new();
+        team.insert("team-a".to_owned(), local_cfg(&["npx", "a"]));
+        team.insert("shared".to_owned(), local_cfg(&["npx", "team"]));
+
+        let outcome = materialize_team_mcp_entries(ws.path(), &team).unwrap();
         assert!(outcome.changed);
         assert_eq!(outcome.added_count, 1);
 

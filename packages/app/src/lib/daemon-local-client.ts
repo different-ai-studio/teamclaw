@@ -1001,6 +1001,20 @@ export async function getDaemonMcp(
   )
 }
 
+/**
+ * Ask the daemon to fold team MCP entries into this workspace's
+ * `opencode.json`. Only the daemon writes that file (atomic + process lock), so
+ * this is how the app applies a team MCP change rather than editing it directly.
+ */
+export async function materializeDaemonTeamMcp(
+  workspaceId: string,
+): Promise<{ changed: boolean; added_count: number }> {
+  return daemonFetchData<{ changed: boolean; added_count: number }>(
+    `/v1/workspaces/${workspaceId}/mcp/materialize-team`,
+    { method: 'POST' },
+  )
+}
+
 export async function putDaemonMcp(
   workspaceId: string,
   servers: Record<string, DaemonMcpServerConfig>,

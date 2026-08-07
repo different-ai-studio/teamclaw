@@ -78,26 +78,47 @@ const settingsNavState = vi.hoisted(() => ({
 }))
 
 describe('Settings navigation', () => {
-  it('default (client) entry shows only the Client group — no Daemon/Local Agent', async () => {
+  it('default entry shows Desktop + Daemon + Local Agent groups together', async () => {
     const { Settings } = await import('../Settings')
 
     render(<Settings />)
 
-    // Client group present, expanded by default to a client section.
-    expect(screen.getByRole('button', { name: 'Client' })).toBeInTheDocument()
-    expect(screen.getByRole('button', { name: 'General' })).toBeInTheDocument()
-    expect(screen.getByRole('button', { name: 'Team Shared' })).toBeInTheDocument()
-    expect(screen.getByTestId('client-subnav')).toBeInTheDocument()
+    const clientButton = screen.getByRole('button', { name: 'Desktop' })
+    const daemonButton = screen.getByRole('button', { name: 'Daemon' })
+    const localAgentButton = screen.getByRole('button', { name: 'Local Agent' })
+    const topLevelButtons = screen.getAllByRole('button')
+    expect(topLevelButtons.indexOf(clientButton)).toBeLessThan(topLevelButtons.indexOf(daemonButton))
+    expect(topLevelButtons.indexOf(daemonButton)).toBeLessThan(topLevelButtons.indexOf(localAgentButton))
 
-    // The Daemon + Local Agent settings are a SEPARATE dialog — not shown here.
-    expect(screen.queryByRole('button', { name: 'Daemon' })).toBeNull()
-    expect(screen.queryByRole('button', { name: 'Local Agent' })).toBeNull()
-    expect(screen.queryByTestId('local-agent-subnav')).toBeNull()
-    expect(screen.queryByRole('button', { name: 'Workspace' })).toBeNull()
-    expect(screen.queryByRole('button', { name: 'LLM Model' })).toBeNull()
+    // Desktop group expanded by default (active section is general).
+    expect(screen.getByTestId('client-subnav')).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Shortcuts' })).toBeInTheDocument()
+    // Team Shared stays: onboarding moved to the Knowledge column, but sync
+    // status / git remote / disconnect are reachable only from here.
+    expect(screen.getByRole('button', { name: 'Team Shared' })).toBeInTheDocument()
+
+    // Daemon / Local Agent present but collapsed until expanded.
+    fireEvent.click(daemonButton)
+    expect(
+      within(screen.getByTestId('daemon-subnav')).getAllByRole('button').map((button) => button.textContent),
+    ).toEqual(['General', 'Workspace', 'Automation', 'Channels'])
+
+    fireEvent.click(localAgentButton)
+    expect(
+      within(screen.getByTestId('local-agent-subnav')).getAllByRole('button').map((button) => button.textContent),
+    ).toEqual([
+      'LLM Model',
+      'Team LLM',
+      'Prompt',
+      'MCP',
+      'Roles',
+      'Role Skills',
+      'Knowledge Base',
+      'Dependencies',
+    ])
   })
 
-  it('daemon entry shows the Daemon + Local Agent groups together (Client hidden)', async () => {
+  it('daemonGeneral deep link expands Daemon while keeping Desktop + Local Agent visible', async () => {
     vi.resetModules()
     vi.doMock('@/stores/ui', () => ({
       useUIStore: (selector: (state: unknown) => unknown) =>
@@ -107,38 +128,17 @@ describe('Settings navigation', () => {
 
     render(<Settings />)
 
-    // The Client group is a separate dialog — not shown here.
-    expect(screen.queryByRole('button', { name: 'Client' })).toBeNull()
-    expect(screen.queryByTestId('client-subnav')).toBeNull()
+    expect(screen.getByRole('button', { name: 'Desktop' })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Daemon' })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Local Agent' })).toBeInTheDocument()
 
-    // Both Daemon and Local Agent groups are present (daemon is NOT missing).
-    const daemonButton = screen.getByRole('button', { name: 'Daemon' })
-    const localAgentButton = screen.getByRole('button', { name: 'Local Agent' })
-    const topLevelButtons = screen.getAllByRole('button')
-    expect(topLevelButtons.indexOf(daemonButton)).toBeLessThan(topLevelButtons.indexOf(localAgentButton))
-
-    // The Daemon group is expanded by default (active section is daemonGeneral).
+    // Daemon group expanded (active section is daemonGeneral).
     const daemonSubnav = screen.getByTestId('daemon-subnav')
     expect(
-      within(daemonSubnav).getAllByRole('button').map((button) => button.textContent)
+      within(daemonSubnav).getAllByRole('button').map((button) => button.textContent),
     ).toEqual(['General', 'Workspace', 'Automation', 'Channels'])
 
-    // Local Agent starts collapsed (accordion) — expand it to read its sections.
-    fireEvent.click(localAgentButton)
-    const localAgentSubnav = screen.getByTestId('local-agent-subnav')
-    expect(
-      within(localAgentSubnav).getAllByRole('button').map((button) => button.textContent)
-    ).toEqual([
-      'LLM Model',
-      'Team LLM',
-      'Env Variables',
-      'Prompt',
-      'MCP',
-      'Roles',
-      'Role Skills',
-      'Knowledge Base',
-      'Dependencies',
-    ])
+    expect(screen.getByTestId('settings-section')).toHaveTextContent('daemonGeneral')
     vi.doUnmock('@/stores/ui')
   })
 

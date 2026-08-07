@@ -19,8 +19,8 @@ use crate::runtime::acp_event_frame::AcpEventFrame;
 use crate::runtime::permission_policy::PermissionPolicy;
 
 pub mod client;
-mod envelope;
 mod env_snapshot_policy;
+mod envelope;
 mod events;
 pub mod supervisor;
 pub mod translate;
@@ -371,7 +371,11 @@ fn active_route_directories(shared: &Shared) -> Vec<String> {
         .collect()
 }
 
-fn decide_serve_env_switch(shared: &Shared, workspace: &str, incoming: &str) -> EnvSnapshotDecision {
+fn decide_serve_env_switch(
+    shared: &Shared,
+    workspace: &str,
+    incoming: &str,
+) -> EnvSnapshotDecision {
     decide_env_snapshot_conflict(
         incoming,
         shared.serve.active_env_fingerprint().as_deref(),

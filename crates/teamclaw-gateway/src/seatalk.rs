@@ -945,10 +945,7 @@ fn extract_message_text(message: &serde_json::Value) -> String {
 /// for group mention events, so the agent sees the user's question only.
 fn strip_leading_mentions(text: &str) -> String {
     let mut rest = text.trim_start();
-    loop {
-        let Some(stripped) = rest.strip_prefix('@') else {
-            break;
-        };
+    while let Some(stripped) = rest.strip_prefix('@') {
         let end = stripped
             .find(|c: char| c.is_whitespace())
             .unwrap_or(stripped.len());

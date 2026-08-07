@@ -376,8 +376,9 @@ cd services/fc && sh ../../deploy/self-host/smoke/run-e2e.sh
 `https://api.teamclaw-dev.ucar.cc`（可用仓库变量 `PROD_API_URL` 覆盖），失败时告警企微：
 
 - `GET /v1/config/bootstrap` → 401
-- `POST /register` → 400
-- `POST /token` → 400
+- `GET /v1/config/public` → 200
+
+（原来探的 `POST /register` / `POST /token` 已随阿里云 STS 直连 OSS 的模式一起删掉。）
 
 ### 7.2 SQL 验收（amux）
 

@@ -1,7 +1,6 @@
 import * as React from 'react'
 import { describe, it, expect, beforeEach, vi } from 'vitest'
 import { render, screen } from '@testing-library/react'
-import userEvent from '@testing-library/user-event'
 
 // ---------------------------------------------------------------------------
 // Hoisted, mutable store state — each test assigns before render.
@@ -56,26 +55,6 @@ vi.mock('@/lib/team-permissions', () => ({
   useTeamPermissions: () => ({ role: 'owner', isOwner: true, canManageTeam: true, canEditFiles: true }),
 }))
 
-vi.mock('../team/TeamShareSection', () => ({
-  TeamShareSection: (props: {
-    teamId: string
-    workspacePath: string
-    onConfigured?: () => void | Promise<void>
-  }) => (
-    <div data-testid="onboarding">
-      onboarding:{props.teamId}:{props.workspacePath}
-      {props.onConfigured && (
-        <button
-          type="button"
-          data-testid="simulate-configured"
-          onClick={() => void props.onConfigured?.()}
-        >
-          simulate configured
-        </button>
-      )}
-    </div>
-  ),
-}))
 vi.mock('../team/TeamDefaultAgentConfig', () => ({
   TeamDefaultAgentConfig: () => <div data-testid="default-agent-config">agent</div>,
 }))
@@ -96,14 +75,13 @@ beforeEach(() => {
 })
 
 describe('TeamSection share-mode gating', () => {
-  it('shows the onboarding wizard for an unconfigured team with a workspace', async () => {
+  it('points an unconfigured team at the Knowledge panel instead of a wizard', async () => {
+    // Enabling moved to the Knowledge list column, where the empty state it
+    // fixes is on screen. Settings only reports.
     currentTeam.teamId = 'team-1'
     workspace.workspacePath = '/ws'
     render(<TeamSection />)
-    // share status resolves async (spinner first), then the wizard renders.
-    expect((await screen.findByTestId('onboarding')).textContent).toContain(
-      'onboarding:team-1:/ws',
-    )
+    expect(await screen.findByTestId('not-enabled')).toBeTruthy()
     expect(screen.queryByTestId('git-config')).toBeNull()
     expect(screen.queryByTestId('oss-status')).toBeNull()
   })
@@ -111,7 +89,7 @@ describe('TeamSection share-mode gating', () => {
   it('shows the missing-prereq notice when there is no team/workspace context', () => {
     render(<TeamSection />)
     // PR #224: no team + no workspace surfaces the prereq notice, not the git form.
-    expect(screen.queryByTestId('onboarding')).toBeNull()
+    expect(screen.queryByTestId('not-enabled')).toBeNull()
     expect(screen.queryByTestId('git-config')).toBeNull()
     expect(screen.queryByTestId('oss-status')).toBeNull()
   })
@@ -125,12 +103,12 @@ describe('TeamSection share-mode gating', () => {
     expect(screen.queryByTestId('git-config')).toBeNull()
   })
 
-  it('routes an unconfigured team (no cloud shareMode) to the onboarding wizard', async () => {
+  it('routes an unconfigured team (no cloud shareMode) to the not-enabled notice', async () => {
     teamShare.mode = null
     currentTeam.teamId = 'team-1'
     workspace.workspacePath = '/ws'
     render(<TeamSection />)
-    expect(await screen.findByTestId('onboarding')).toBeTruthy()
+    expect(await screen.findByTestId('not-enabled')).toBeTruthy()
     expect(screen.queryByTestId('git-config')).toBeNull()
     expect(screen.queryByTestId('oss-status')).toBeNull()
   })
@@ -144,33 +122,7 @@ describe('TeamSection share-mode gating', () => {
     expect(screen.queryByTestId('oss-status')).toBeNull()
   })
 
-  it('routes to the git detail view after the onboarding wizard completes', async () => {
-    const user = userEvent.setup()
-    teamShare.mode = null
-    teamShare.refresh = vi
-      .fn()
-      .mockResolvedValueOnce({
-        mode: null,
-        gitRemoteUrl: null,
-        gitAuthKind: null,
-        enabledAt: null,
-      })
-      .mockResolvedValueOnce({
-        mode: 'custom_git',
-        gitRemoteUrl: 'https://git.example.com/repo.git',
-        gitAuthKind: 'ssh_key',
-        enabledAt: '2026-01-01T00:00:00Z',
-      })
-    currentTeam.teamId = 'team-1'
-    workspace.workspacePath = '/ws'
-    render(<TeamSection />)
-    expect(await screen.findByTestId('onboarding')).toBeTruthy()
-    await user.click(screen.getByTestId('simulate-configured'))
-    expect(await screen.findByTestId('git-config')).toBeTruthy()
-    expect(screen.queryByTestId('onboarding')).toBeNull()
-  })
-
-  it('shows the onboarding wizard when FC returns null even if the store snapshot had git mode', async () => {
+  it('shows the not-enabled notice when FC returns null even if the store snapshot had git mode', async () => {
     // Regression: routing must follow refresh() result, not a stale zustand value.
     teamShare.mode = null
     teamShare.refresh = vi.fn().mockResolvedValue({
@@ -182,7 +134,7 @@ describe('TeamSection share-mode gating', () => {
     currentTeam.teamId = 'team-1'
     workspace.workspacePath = '/ws'
     render(<TeamSection />)
-    expect(await screen.findByTestId('onboarding')).toBeTruthy()
+    expect(await screen.findByTestId('not-enabled')).toBeTruthy()
     expect(screen.queryByTestId('git-config')).toBeNull()
   })
 })

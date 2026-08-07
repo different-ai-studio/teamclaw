@@ -214,6 +214,11 @@ services:
       SUPABASE_ANON_KEY: "${FC_SUPABASE_ANON_KEY:-${ANON_KEY}}"
       TRUSTED_EXTERNAL_JWT_SECRET: "${TRUSTED_EXTERNAL_JWT_SECRET:-}"
       SUPABASE_SERVICE_ROLE_KEY: "${FC_SUPABASE_SERVICE_ROLE_KEY:-${SERVICE_ROLE_KEY}}"
+      # Private Supabase Storage buckets holding client-encrypted blobs: team
+      # file-sync bodies and skill packages. This map is an allowlist, so a var
+      # missing here never reaches the container regardless of the box's .env.
+      TEAM_BLOBS_STORAGE_BUCKET: "${TEAM_BLOBS_STORAGE_BUCKET:-team-blobs}"
+      SKILLS_STORAGE_BUCKET: "${SKILLS_STORAGE_BUCKET:-team-skills}"
       # The ONE broker address: FC's own inbox publisher dials it AND
       # /v1/config/bootstrap hands it to clients. The separate
       # MQTT_PUBLIC_BROKER_URL override is gone (it defaulted to "", `""` is not

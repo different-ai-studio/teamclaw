@@ -3,6 +3,8 @@ import { invoke } from '@tauri-apps/api/core'
 import { withAsync } from '@/lib/store-utils'
 import { useWorkspaceStore } from '@/stores/workspace'
 import { useCurrentTeamStore } from '@/stores/current-team'
+import { getFreshAccessToken } from '@/lib/auth/session-store'
+import { getEffectiveServerConfigSync } from '@/lib/server-config'
 
 /** Environment variable entry (key + description, no secret value). */
 export interface EnvVarEntry {
@@ -82,6 +84,12 @@ function requireWorkspacePath(): string {
 async function fetchEnvCatalog(): Promise<EnvCatalog> {
   return invoke<EnvCatalog>('env_catalog_list', {
     teamId: useCurrentTeamStore.getState().team?.id,
+    // Team values are fetched from the Cloud API and decrypted locally, so the
+    // read needs a bearer too — without it only legacy on-disk files show up.
+    accessToken: await getFreshAccessToken().catch(() => null),
+    // Must travel with the token: runtime server selection lives here, and a
+    // token minted by the selected server is a 401 anywhere else.
+    cloudApiUrl: getEffectiveServerConfigSync().cloudApiUrl,
     workspacePath: requireWorkspacePath(),
   })
 }
@@ -110,6 +118,10 @@ export const useEnvVarsStore = create<EnvVarsState>((set) => ({
         category: options?.category,
         nodeId: options?.nodeId,
         teamId: useCurrentTeamStore.getState().team?.id,
+        // Team-scope values are stored in the Cloud API, so the Rust side needs
+        // a bearer. Personal values never leave the machine and ignore it.
+        accessToken: scope === 'team' ? await getFreshAccessToken().catch(() => null) : null,
+        cloudApiUrl: getEffectiveServerConfigSync().cloudApiUrl,
         workspacePath: requireWorkspacePath(),
       })
       const catalog = await fetchEnvCatalog()
@@ -125,6 +137,8 @@ export const useEnvVarsStore = create<EnvVarsState>((set) => ({
         nodeId: options?.nodeId,
         role: options?.role,
         teamId: useCurrentTeamStore.getState().team?.id,
+        accessToken: scope === 'team' ? await getFreshAccessToken().catch(() => null) : null,
+        cloudApiUrl: getEffectiveServerConfigSync().cloudApiUrl,
         workspacePath: requireWorkspacePath(),
       })
       const catalog = await fetchEnvCatalog()

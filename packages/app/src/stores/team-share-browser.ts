@@ -10,15 +10,28 @@ import { getBackend } from '@/lib/backend/provider'
 import { getFreshAccessToken } from '@/lib/auth/session-store'
 import { ensureAgentsSkillsPaths } from '@/lib/skills/ensure-agents-paths'
 import { useCurrentTeamStore } from '@/stores/current-team'
+import { TEAM_REPO_DIR } from '@/lib/build-config'
+
+/** `knowledge/` may not exist yet on a freshly enabled team. */
+async function ensureDir(path: string): Promise<void> {
+  try {
+    const { mkdir } = await import('@tauri-apps/plugin-fs')
+    await mkdir(path, { recursive: true })
+  } catch {
+    // Already there, or no FS access — the tree just renders empty.
+  }
+}
 import type {
   TeamSkill,
   TeamSkillCategory,
   TeamSkillStatus,
 } from '@/lib/backend/cloud-api/team-skills'
+import type { TeamMcpServer, TeamMcpServerWrite } from '@/lib/backend/cloud-api/team-mcp'
 import {
   encodeWorkspaceId,
   getDaemonMcp,
   getDaemonMcpTools,
+  materializeDaemonTeamMcp,
   type DaemonMcpServerConfig,
   type DaemonMcpServerProbeResult,
 } from '@/lib/daemon-local-client'
@@ -72,6 +85,14 @@ export interface TeamMcpItem {
   probeStatus: DaemonMcpServerProbeResult['probe_status'] | 'unknown'
   tools: string[]
   error: string | null
+  /**
+   * The catalog row, when this server came from the Cloud API. `null` for a
+   * legacy entry that only exists as a synced `.mcp/*.json` file — those stay
+   * read-only, since there is no catalog row to edit.
+   */
+  catalog: TeamMcpServer | null
+  /** Whether *you* have installed it. Uninstalled servers do not run. */
+  installed: boolean
 }
 
 export interface TeamKnowledgeItem {
@@ -104,14 +125,32 @@ interface TeamShareBrowserState {
   mcp: SectionState<TeamMcpItem>
   knowledge: SectionState<TeamKnowledgeItem>
   envCount: number
+  /** Absolute path of the team shared root, for the knowledge file tree. */
+  knowledgeRoot: string | null
   selectedId: Record<TeamShareSection, string | null>
   subjectActorId: string | null
 
   counts: () => Record<TeamShareSection, number>
   select: (section: TeamShareSection, id: string | null) => void
+  /**
+   * Which section is currently composing a new item, if any.
+   *
+   * Lives in the store rather than in the list column because the trigger and
+   * the form are in different columns: the "+" is in the list (column two) and
+   * the form renders in the detail pane (column three). Column two stays a
+   * list — nothing is ever authored there.
+   */
+  creating: TeamShareSection | null
+  setCreating: (section: TeamShareSection | null) => void
   setSubjectActor: (actorId: string | null) => Promise<void>
   installSkill: (slug: string) => Promise<void>
   uninstallSkill: (slug: string) => Promise<void>
+  /** Install a team MCP server for yourself — there is no install-for-others. */
+  installMcp: (name: string) => Promise<void>
+  uninstallMcp: (name: string) => Promise<void>
+  createMcp: (input: TeamMcpServerWrite) => Promise<void>
+  updateMcp: (name: string, patch: TeamMcpServerWrite) => Promise<void>
+  deleteMcp: (name: string) => Promise<void>
   /** Copy-publish a personal skill to the team registry, then auto-install. */
   sharePersonalSkill: (slug: string, input: TeamSkillShareInput) => Promise<void>
   loadSection: (section: TeamShareSection, opts?: { force?: boolean; withTools?: boolean }) => Promise<void>
@@ -125,6 +164,25 @@ function workspacePath(): string | null {
 
 function currentTeamId(): string | null {
   return useCurrentTeamStore.getState().team?.id ?? null
+}
+
+/**
+ * Nudge the daemon to re-fold team MCP into `opencode.json` after a catalog or
+ * install change, so the user sees their action take effect now rather than on
+ * the next reconcile tick.
+ *
+ * Best-effort: the daemon converges on its own schedule regardless, so a
+ * failure here is a latency problem, not a correctness one, and must not turn a
+ * successful cloud write into a visible error.
+ */
+async function materializeTeamMcp(): Promise<void> {
+  const wsPath = workspacePath()
+  if (!wsPath) return
+  try {
+    await materializeDaemonTeamMcp(encodeWorkspaceId(wsPath))
+  } catch {
+    // Intentionally swallowed — see above.
+  }
 }
 
 function frontmatterValue(content: string, key: string): string | null {
@@ -303,19 +361,81 @@ async function listTeamSkills(
   return { items: [...available, ...installed, ...personal], registryError }
 }
 
-async function listTeamMcp(wsPath: string): Promise<TeamMcpItem[]> {
+/**
+ * Two sources, deliberately unioned rather than one replacing the other.
+ *
+ * The Cloud API catalog is the full list of what the team offers — including
+ * servers you have NOT installed, which is the point of a catalog and which the
+ * daemon therefore knows nothing about. The daemon's view is what is actually
+ * wired into this workspace right now, and is the only source of live probe
+ * state (connected / tools / errors).
+ *
+ * A legacy server that exists only as a synced `.mcp/*.json` file shows up from
+ * the daemon side with no catalog row; it stays read-only and is reported as
+ * installed, because for those the two concepts never separated.
+ */
+async function listTeamMcp(wsPath: string, teamId: string | null): Promise<TeamMcpItem[]> {
   const wid = encodeWorkspaceId(wsPath)
-  const config = await getDaemonMcp(wid)
-  return Object.entries(config)
-    .filter(([, cfg]) => cfg.source === 'team')
-    .map(([name, cfg]) => ({
-      name,
-      config: cfg,
-      probeStatus: 'unknown' as const,
+  const daemonConfig = await getDaemonMcp(wid).catch(() => ({}) as Record<string, DaemonMcpServerConfig>)
+  const daemonTeamEntries = Object.entries(daemonConfig).filter(([, cfg]) => cfg.source === 'team')
+
+  let catalog: TeamMcpServer[] = []
+  if (teamId) {
+    catalog = await getBackend()
+      .teamMcp.listTeamMcpServers(teamId)
+      // A catalog fetch failure must not blank the servers already running —
+      // fall back to the daemon's view rather than showing an empty team.
+      .catch(() => [])
+  }
+  const catalogByName = new Map(catalog.map((c) => [c.name, c]))
+
+  const items = new Map<string, TeamMcpItem>()
+
+  for (const entry of catalog) {
+    items.set(entry.name, {
+      name: entry.name,
+      config: catalogToDaemonConfig(entry),
+      probeStatus: 'unknown',
       tools: [],
       error: null,
-    }))
-    .sort((a, b) => a.name.localeCompare(b.name))
+      catalog: entry,
+      installed: entry.installed,
+    })
+  }
+
+  for (const [name, cfg] of daemonTeamEntries) {
+    const known = items.get(name)
+    // The daemon's config is the live one, so it wins for display; the catalog
+    // row is still what edit/delete act on.
+    items.set(name, {
+      name,
+      config: cfg,
+      probeStatus: known?.probeStatus ?? 'unknown',
+      tools: known?.tools ?? [],
+      error: known?.error ?? null,
+      catalog: catalogByName.get(name) ?? null,
+      installed: true,
+    })
+  }
+
+  return [...items.values()].sort((a, b) => a.name.localeCompare(b.name))
+}
+
+/** Render a catalog row in the daemon's config shape so one detail view serves both. */
+function catalogToDaemonConfig(entry: TeamMcpServer): DaemonMcpServerConfig {
+  const base = {
+    source: 'team',
+    enabled: true,
+    environment: entry.env ?? {},
+  }
+  return entry.transport === 'remote'
+    ? ({ ...base, type: 'remote', url: entry.url ?? undefined, headers: entry.headers ?? {} } as DaemonMcpServerConfig)
+    : ({
+        ...base,
+        type: 'local',
+        command: [entry.command ?? '', ...(entry.args ?? [])].filter(Boolean),
+        headers: {},
+      } as DaemonMcpServerConfig)
 }
 
 export const useTeamShareBrowserStore = create<TeamShareBrowserState>((set, get) => ({
@@ -323,8 +443,10 @@ export const useTeamShareBrowserStore = create<TeamShareBrowserState>((set, get)
   mcp: emptySection<TeamMcpItem>(),
   knowledge: emptySection<TeamKnowledgeItem>(),
   envCount: 0,
+  knowledgeRoot: null,
   selectedId: { skills: null, mcp: null, env: null, knowledge: null },
   subjectActorId: null,
+  creating: null,
 
   counts: () => {
     const s = get()
@@ -336,7 +458,20 @@ export const useTeamShareBrowserStore = create<TeamShareBrowserState>((set, get)
     }
   },
 
-  select: (section, id) => set((s) => ({ selectedId: { ...s.selectedId, [section]: id } })),
+  // Selecting an item leaves compose mode: the detail pane can only show one
+  // of the two, and the user just asked for the item.
+  select: (section, id) =>
+    set((s) => ({
+      selectedId: { ...s.selectedId, [section]: id },
+      creating: id ? null : s.creating,
+    })),
+
+  setCreating: (section) =>
+    set((s) => ({
+      creating: section,
+      // Clear the selection so the detail pane is free to render the form.
+      selectedId: section ? { ...s.selectedId, [section]: null } : s.selectedId,
+    })),
 
   setSubjectActor: async (actorId) => {
     set({ subjectActorId: actorId })
@@ -402,6 +537,50 @@ export const useTeamShareBrowserStore = create<TeamShareBrowserState>((set, get)
       ...(subjectActorId ? { actorId: subjectActorId } : {}),
     })
     await get().loadSection('skills', { force: true })
+  },
+
+  installMcp: async (name) => {
+    const teamId = currentTeamId()
+    if (!teamId) throw new Error('no current team')
+    await getBackend().teamMcp.installTeamMcpServer(teamId, name)
+    // The daemon mirrors the cloud on a TTL tick; nudge the workspace so the
+    // server appears without waiting it out.
+    await materializeTeamMcp()
+    await get().loadSection('mcp', { force: true })
+  },
+
+  uninstallMcp: async (name) => {
+    const teamId = currentTeamId()
+    if (!teamId) throw new Error('no current team')
+    await getBackend().teamMcp.uninstallTeamMcpServer(teamId, name)
+    await materializeTeamMcp()
+    await get().loadSection('mcp', { force: true })
+  },
+
+  createMcp: async (input) => {
+    const teamId = currentTeamId()
+    if (!teamId) throw new Error('no current team')
+    await getBackend().teamMcp.createTeamMcpServer(teamId, input)
+    // Deliberately no auto-install: adding to the catalog is not a decision to
+    // run the command, not even on the author's own machine.
+    await get().loadSection('mcp', { force: true })
+  },
+
+  updateMcp: async (name, patch) => {
+    const teamId = currentTeamId()
+    if (!teamId) throw new Error('no current team')
+    await getBackend().teamMcp.updateTeamMcpServer(teamId, name, patch)
+    await materializeTeamMcp()
+    await get().loadSection('mcp', { force: true })
+  },
+
+  deleteMcp: async (name) => {
+    const teamId = currentTeamId()
+    if (!teamId) throw new Error('no current team')
+    await getBackend().teamMcp.deleteTeamMcpServer(teamId, name)
+    await materializeTeamMcp()
+    if (get().selectedId.mcp === name) get().select('mcp', null)
+    await get().loadSection('mcp', { force: true })
   },
 
   sharePersonalSkill: async (slug, input) => {
@@ -477,7 +656,9 @@ export const useTeamShareBrowserStore = create<TeamShareBrowserState>((set, get)
       } catch {
         /* surfaced by env store */
       }
-      set({ envCount: useEnvVarsStore.getState().teamSecrets.length })
+      // The env section manages both scopes now, so the badge counts both.
+      const envState = useEnvVarsStore.getState()
+      set({ envCount: envState.teamSecrets.length + envState.envVars.length })
       return
     }
 
@@ -500,10 +681,30 @@ export const useTeamShareBrowserStore = create<TeamShareBrowserState>((set, get)
         )
         set({ skills: { items, loading: false, loaded: true, error: registryError } })
       } else if (section === 'knowledge') {
+        // The tree renders straight off disk now, so this only has to resolve
+        // where its root is. The flat listing stays for the nav count.
+        //
+        // Two things this path has to get right, both of which were wrong:
+        //
+        // 1. It must be the IN-WORKSPACE path, not `resolveTeamDir`'s answer.
+        //    `teamclaw-team` is a symlink into ~/.amuxd, and resolveTeamDir
+        //    returns the link TARGET — but the workspace file tree is built
+        //    from workspace paths, so `findSubtree` looked up an absolute
+        //    ~/.amuxd path that is never in the tree and always came back
+        //    empty. The column read "No files found" no matter what was on
+        //    disk.
+        //
+        // 2. It must be `knowledge/`, not the team root. File sync carries
+        //    that one prefix now, so a file created at the root is silently
+        //    never synced, and the team dir's other entries (skills/, .mcp/,
+        //    _secrets/, _meta/, _feedback/) are all retired.
+        const teamDir = wsPath ? await resolveTeamDir(wsPath) : null
+        const root = teamDir && wsPath ? `${wsPath}/${TEAM_REPO_DIR}/knowledge` : null
+        if (root) await ensureDir(root)
         const items = wsPath ? await listTeamKnowledge(wsPath) : []
-        set({ knowledge: { items, loading: false, loaded: true, error: null } })
+        set({ knowledgeRoot: root, knowledge: { items, loading: false, loaded: true, error: null } })
       } else if (section === 'mcp') {
-        const items = wsPath ? await listTeamMcp(wsPath) : []
+        const items = wsPath ? await listTeamMcp(wsPath, currentTeamId()) : []
         set({ mcp: { items, loading: false, loaded: true, error: null } })
         if (opts?.withTools) await get().loadMcpTools()
       }

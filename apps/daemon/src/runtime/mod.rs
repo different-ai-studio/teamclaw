@@ -21,6 +21,7 @@ pub mod prompt_attachments;
 pub mod refresh;
 pub mod sidecar;
 pub mod supervisor;
+pub mod team_cloud_config;
 pub mod turn_aggregator;
 mod workspace_runtime;
 

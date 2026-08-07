@@ -595,6 +595,7 @@ pub fn run() {
             commands::window_chrome::get_window_close_preference,
             commands::window_chrome::set_window_close_preference,
             commands::tray_menu::update_tray_menu_labels,
+            commands::app_menu::update_app_menu_labels,
             commands::team_share::team_share_create,
             commands::team_share::enable::team_share_enable_oss,
             commands::team_share::enable::team_share_enable_managed_git,
@@ -676,6 +677,19 @@ pub fn run() {
             {
                 let state = app.state::<commands::window_chrome::MainWindowState>();
                 commands::window_chrome::load_close_preference(app.handle(), &state);
+            }
+
+            // --- App menu bar (Settings… ⌘,, brand-correct About/Hide/Quit) ---
+            match commands::app_menu::install_app_menu(app.handle()) {
+                Ok(settings_item) => {
+                    app.manage(commands::app_menu::AppMenuState::new(settings_item));
+                    app.on_menu_event(|app, event| {
+                        if event.id().as_ref() == commands::app_menu::APP_SETTINGS_ID {
+                            commands::app_menu::open_app_settings(app);
+                        }
+                    });
+                }
+                Err(e) => eprintln!("[Startup] install_app_menu failed: {e}"),
             }
 
             // --- System Tray ---

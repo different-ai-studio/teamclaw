@@ -52,9 +52,10 @@ jobs:
             fi
           }
 
+          # Unauthenticated probes only: a 401/200 here proves routing, TLS and
+          # the app are alive without needing a token in CI.
           check GET  /v1/config/bootstrap 401
-          check POST /register            400
-          check POST /token               400
+          check GET  /v1/config/public    200
 
           if [ -n "$fails" ]; then
             {

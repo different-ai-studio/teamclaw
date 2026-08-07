@@ -3,6 +3,19 @@
 const KEY = "teamclaw.client-version.device-id";
 
 export function getDesktopDeviceId(): string {
+  return getDesktopDeviceIdOrNull() ?? "desktop-unknown";
+}
+
+/**
+ * The same id, but `null` instead of the shared "desktop-unknown" placeholder
+ * when storage is unavailable.
+ *
+ * Telemetry can live with every unidentifiable install collapsing onto one
+ * label. Anything that keys *state* on this id cannot: two machines that both
+ * fall back would be handed the same row. Guest-team reuse is exactly that —
+ * see AuthGate, which sends null rather than let strangers share a team.
+ */
+export function getDesktopDeviceIdOrNull(): string | null {
   try {
     const existing = localStorage.getItem(KEY);
     if (existing) return existing;
@@ -10,6 +23,6 @@ export function getDesktopDeviceId(): string {
     localStorage.setItem(KEY, id);
     return id;
   } catch {
-    return "desktop-unknown";
+    return null;
   }
 }

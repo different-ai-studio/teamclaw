@@ -652,8 +652,8 @@ mod tests {
     fn sync_rejects_non_git_dir_without_wipe() {
         let tmp = tempfile::tempdir().unwrap();
         let team_dir = tmp.path().join("teamclaw-team");
-        std::fs::create_dir_all(team_dir.join("skills")).unwrap();
-        std::fs::write(team_dir.join("skills/local.md"), "keep me\n").unwrap();
+        std::fs::create_dir_all(team_dir.join("knowledge")).unwrap();
+        std::fs::write(team_dir.join("knowledge/local.md"), "keep me\n").unwrap();
 
         let config = TeamSharedGitConfig {
             git_url: Some("https://example.com/repo.git".into()),
@@ -686,8 +686,8 @@ mod tests {
             tmp.path(),
         );
         cfg_identity(&work);
-        std::fs::create_dir_all(work.join("skills")).unwrap();
-        std::fs::write(work.join("skills/readme.md"), "hi\n").unwrap();
+        std::fs::create_dir_all(work.join("knowledge")).unwrap();
+        std::fs::write(work.join("knowledge/readme.md"), "hi\n").unwrap();
         run(&["add", "-A"], &work);
         run(&["commit", "-m", "init"], &work);
         run(&["push", "origin", "HEAD:refs/heads/main"], &work);
@@ -712,7 +712,7 @@ mod tests {
         let status = sync_git_dir(&team_dir, &config).unwrap();
         assert!(status.synced);
         assert!(team_dir.join(".git").exists());
-        assert!(team_dir.join("skills/readme.md").exists());
+        assert!(team_dir.join("knowledge/readme.md").exists());
     }
 
     #[test]
@@ -834,8 +834,8 @@ mod tests {
             tmp.path(),
         );
         cfg_identity(&work_a);
-        std::fs::create_dir_all(work_a.join("skills")).unwrap();
-        std::fs::write(work_a.join("skills/x.md"), "remoteA\n").unwrap();
+        std::fs::create_dir_all(work_a.join("knowledge")).unwrap();
+        std::fs::write(work_a.join("knowledge/x.md"), "remoteA\n").unwrap();
         run(&["add", "-A"], &work_a);
         run(&["commit", "-m", "a1"], &work_a);
         run(&["push", "origin", "HEAD:refs/heads/main"], &work_a);
@@ -852,9 +852,9 @@ mod tests {
         );
         cfg_identity(&team_dir);
         // local DIRTY change (sync_git_dir will commit it, then conflict on pull)
-        std::fs::write(team_dir.join("skills/x.md"), "localB\n").unwrap();
+        std::fs::write(team_dir.join("knowledge/x.md"), "localB\n").unwrap();
         // author pushes a conflicting change to the same file
-        std::fs::write(work_a.join("skills/x.md"), "remoteB\n").unwrap();
+        std::fs::write(work_a.join("knowledge/x.md"), "remoteB\n").unwrap();
         run(&["add", "-A"], &work_a);
         run(&["commit", "-m", "a2"], &work_a);
         run(&["push", "origin", "HEAD:refs/heads/main"], &work_a);
@@ -873,12 +873,12 @@ mod tests {
             conflict
                 .backed_up
                 .iter()
-                .any(|p| p.ends_with("skills/x.md")),
+                .any(|p| p.ends_with("knowledge/x.md")),
             "backed_up={:?}",
             conflict.backed_up
         );
         let backup_dir = conflict.backup_dir.expect("backup dir");
-        let backed = std::path::Path::new(&backup_dir).join("skills/x.md");
+        let backed = std::path::Path::new(&backup_dir).join("knowledge/x.md");
         assert!(backed.exists(), "backup file should exist at {backed:?}");
         assert_eq!(
             std::fs::read_to_string(&backed).unwrap(),
@@ -887,7 +887,7 @@ mod tests {
         );
         // working tree now has remote content
         assert_eq!(
-            std::fs::read_to_string(team_dir.join("skills/x.md")).unwrap(),
+            std::fs::read_to_string(team_dir.join("knowledge/x.md")).unwrap(),
             "remoteB\n"
         );
         // backup dir must be OUTSIDE the git work tree
@@ -916,8 +916,8 @@ mod tests {
             tmp.path(),
         );
         cfg_identity(&work_a);
-        std::fs::create_dir_all(work_a.join("skills")).unwrap();
-        std::fs::write(work_a.join("skills/x.md"), "remoteA\n").unwrap();
+        std::fs::create_dir_all(work_a.join("knowledge")).unwrap();
+        std::fs::write(work_a.join("knowledge/x.md"), "remoteA\n").unwrap();
         run(&["add", "-A"], &work_a);
         run(&["commit", "-m", "a1"], &work_a);
         run(&["push", "origin", "HEAD:refs/heads/main"], &work_a);
@@ -932,8 +932,8 @@ mod tests {
             tmp.path(),
         );
         // NOTE: deliberately do NOT call cfg_identity(&team_dir).
-        std::fs::write(team_dir.join("skills/x.md"), "localB\n").unwrap();
-        std::fs::write(work_a.join("skills/x.md"), "remoteB\n").unwrap();
+        std::fs::write(team_dir.join("knowledge/x.md"), "localB\n").unwrap();
+        std::fs::write(work_a.join("knowledge/x.md"), "remoteB\n").unwrap();
         run(&["add", "-A"], &work_a);
         run(&["commit", "-m", "a2"], &work_a);
         run(&["push", "origin", "HEAD:refs/heads/main"], &work_a);
@@ -949,7 +949,7 @@ mod tests {
         let status = sync_git_dir(&team_dir, &config).unwrap();
         let conflict = status.conflict.expect("expected a conflict backup");
         let backup_dir = conflict.backup_dir.expect("backup dir");
-        let backed = std::path::Path::new(&backup_dir).join("skills/x.md");
+        let backed = std::path::Path::new(&backup_dir).join("knowledge/x.md");
         assert!(
             backed.exists(),
             "local edit must be backed up even without a git identity"

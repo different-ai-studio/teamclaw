@@ -1311,6 +1311,41 @@ impl DaemonServer {
             });
         }
 
+        // Mirror the team config that lives in the Cloud API (team MCP, team
+        // env) onto the local cache the synchronous readers use.
+        //
+        // A background tick rather than a fetch on the read path: both readers
+        // are synchronous and sit on the runtime spawn path, and agents have to
+        // start while offline. See `runtime::team_cloud_config`.
+        if let Some(team_id) = self
+            .config
+            .team_id
+            .as_deref()
+            .map(str::trim)
+            .filter(|id| !id.is_empty())
+            .map(str::to_owned)
+        {
+            use crate::runtime::team_cloud_config::log_team_cloud_outcome;
+            let resolver = Arc::new(
+                crate::runtime::team_cloud_config::TeamCloudConfigResolver::new(
+                    self.backend.clone(),
+                ),
+            );
+            tokio::spawn(async move {
+                // Once up front so a freshly started daemon converges without
+                // waiting out the first tick, then on the TTL cadence.
+                let outcome = resolver.reconcile_now(&team_id).await;
+                log_team_cloud_outcome(&team_id, outcome);
+                let mut tick = tokio::time::interval(Duration::from_secs(300));
+                tick.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
+                loop {
+                    tick.tick().await;
+                    let outcome = resolver.reconcile(&team_id).await;
+                    log_team_cloud_outcome(&team_id, outcome);
+                }
+            });
+        }
+
         // Advertise supported agent backend types on the cloud `agents` row
         // (background, with retries). Routing identity is the actor_id; no
         // separate device-id upsert. Skip when daemon.toml has no `[agents.*]`
@@ -3135,7 +3170,7 @@ pub(crate) mod tests {
         // Global dir + scaffold created under ~/.amuxd/teams/<id>/teamclaw-team.
         let global = crate::config::global_team_store::global_team_dir("team-ondemand");
         assert!(global.is_dir(), "global team dir should be created");
-        assert!(global.join("skills").is_dir());
+        assert!(global.join("knowledge").is_dir());
 
         // Workspace exposes it via a teamclaw-team symlink to that global dir.
         let link = ws.path().join("teamclaw-team");

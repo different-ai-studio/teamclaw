@@ -23,14 +23,14 @@ test("concurrent edit: B's unsynced edit is preserved as a conflict sidecar (rem
   const { nodes, teamId } = ctx;
   const root = contentRootPath(teamId);
 
-  // Base: A creates skills/x.md, both sync to it (B's state: synced, dirty=false).
-  await writeFile("node-a", `${root}/skills/x.md`, Buffer.from("base\n"));
+  // Base: A creates knowledge/x.md, both sync to it (B's state: synced, dirty=false).
+  await writeFile("node-a", `${root}/knowledge/x.md`, Buffer.from("base\n"));
   await sync(nodes.a);
   await settle();
   await sync(nodes.b);
 
   // A edits + syncs FIRST → remote advances to A-edit.
-  await writeFile("node-a", `${root}/skills/x.md`, Buffer.from("A-edit\n"));
+  await writeFile("node-a", `${root}/knowledge/x.md`, Buffer.from("A-edit\n"));
   const a1 = await sync(nodes.a);
   assert.equal(a1.lastError ?? null, null, `A sync error: ${a1.lastError}`);
   assert.ok(a1.pushed >= 1, `A should push, got ${a1.pushed}`);
@@ -38,7 +38,7 @@ test("concurrent edit: B's unsynced edit is preserved as a conflict sidecar (rem
   // B edits the SAME file but has NOT synced since (state still dirty=false),
   // then syncs once after A's version is visible in the manifest.
   await settle();
-  await writeFile("node-b", `${root}/skills/x.md`, Buffer.from("B-edit\n"));
+  await writeFile("node-b", `${root}/knowledge/x.md`, Buffer.from("B-edit\n"));
   const b1 = await sync(nodes.b);
   assert.equal(b1.lastError ?? null, null, `B sync error: ${b1.lastError}`);
 
@@ -47,7 +47,7 @@ test("concurrent edit: B's unsynced edit is preserved as a conflict sidecar (rem
   assert.ok(b1.conflicts >= 1, `B should report a conflict, got ${b1.conflicts}`);
 
   const treeB = await ctx.lsContentRoot("node-b", teamId);
-  const bContent = treeB["skills/x.md"] && Buffer.from(treeB["skills/x.md"], "base64").toString();
+  const bContent = treeB["knowledge/x.md"] && Buffer.from(treeB["knowledge/x.md"], "base64").toString();
   assert.equal(bContent, "A-edit\n", `B's x.md should hold remote (A-edit), got ${JSON.stringify(bContent)}`);
 
   const cs = await conflicts(nodes.b);

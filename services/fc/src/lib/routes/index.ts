@@ -20,6 +20,8 @@ import { registerTeamShare } from "./team-share.js";
 import { registerTeamLiteLlm } from "./team-litellm.js";
 import { registerAccount } from "./account.js";
 import { registerTeamSkills } from "./team-skills.js";
+import { registerTeamMcp } from "./team-mcp.js";
+import { registerTeamEnvSecrets } from "./team-env-secrets.js";
 
 export function registerAllRoutes(router) {
   registerAuth(router);
@@ -38,6 +40,11 @@ export function registerAllRoutes(router) {
   // Before workspaces for the same reason team-share is: these own
   // /v1/teams/:teamId/skills* and must not be shadowed by a broader match.
   registerTeamSkills(router);
+  // Same ordering reason: these own /v1/teams/:teamId/mcp-servers* and
+  // /v1/teams/:teamId/env-secrets* and must not be shadowed by workspaces'
+  // broader team match.
+  registerTeamMcp(router);
+  registerTeamEnvSecrets(router);
   registerWorkspaces(router);
   registerSystem(router);
   registerActors(router);
@@ -52,4 +59,4 @@ export function registerAllRoutes(router) {
   registerSync(router);
 }
 
-export { registerAuth, registerTeams, registerSessions, registerApps, registerMessages, registerInvites, registerWorkspaces, registerSystem, registerActors, registerNotifications, registerIdeas, registerShortcuts, registerRuntime, registerAttachments, registerTelemetry, registerConfig, registerTeamSkills };
+export { registerAuth, registerTeams, registerSessions, registerApps, registerMessages, registerInvites, registerWorkspaces, registerSystem, registerActors, registerNotifications, registerIdeas, registerShortcuts, registerRuntime, registerAttachments, registerTelemetry, registerConfig, registerTeamSkills, registerTeamMcp, registerTeamEnvSecrets };

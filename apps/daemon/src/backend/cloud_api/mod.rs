@@ -5,8 +5,8 @@ mod messages;
 use super::{
     AgentDefaults, Backend, BackendError, BackendResult, BackendSessionAndParticipants,
     BootstrapMqttOverride, ClaimResult, CloudAuthSnapshot, GatewaySessionRow, ManagedGitCredential,
-    ManagedLlmConfig, ManagedLlmModelInfo, ShareModeConfig, StoredMessage, WorkspaceRow,
-    WorkspaceUpsert,
+    ManagedLlmConfig, ManagedLlmModelInfo, ShareModeConfig, StoredMessage, TeamEnvSecretRow,
+    WorkspaceRow, WorkspaceUpsert,
 };
 use crate::provider_config::CloudApiConfig;
 use async_trait::async_trait;
@@ -647,6 +647,31 @@ impl Backend for CloudApiBackend {
             name: None,
             models,
         })
+    }
+
+    async fn team_mcp_config(&self, team_id: &str) -> BackendResult<serde_json::Value> {
+        let path = format!("/v1/teams/{team_id}/mcp-servers/config");
+        match self.get::<serde_json::Value>(&path).await {
+            Ok(v) => Ok(v),
+            // A team that never enabled team config simply has no team MCP —
+            // same treatment as managed_llm_config's 404 branch.
+            Err(BackendError::NotFound(_)) => Ok(serde_json::json!({ "mcpServers": {} })),
+            Err(e) => Err(e),
+        }
+    }
+
+    async fn team_env_secrets(&self, team_id: &str) -> BackendResult<Vec<TeamEnvSecretRow>> {
+        #[derive(serde::Deserialize)]
+        struct Resp {
+            #[serde(default)]
+            items: Vec<TeamEnvSecretRow>,
+        }
+        let path = format!("/v1/teams/{team_id}/env-secrets");
+        match self.get::<Resp>(&path).await {
+            Ok(r) => Ok(r.items),
+            Err(BackendError::NotFound(_)) => Ok(Vec::new()),
+            Err(e) => Err(e),
+        }
     }
 
     async fn ensure_llm_member_key(&self, team_id: &str) -> BackendResult<()> {

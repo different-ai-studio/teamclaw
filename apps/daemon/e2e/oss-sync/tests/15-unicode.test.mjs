@@ -8,7 +8,7 @@ import { assertConverged } from "../harness/converge.mjs";
 // Non-ASCII filenames + content (Chinese + emoji) round-trip through encryption,
 // presigned OSS, and the manifest.
 const settle = (ms) => new Promise((r) => setTimeout(r, ms));
-const REL = "skills/中文-文件 名.md";
+const REL = "knowledge/中文-文件 名.md";
 const CONTENT = "你好，世界 🌏\n第二行：测试 UTF-8 往返。\n";
 
 let ctx;

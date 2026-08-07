@@ -457,6 +457,24 @@ public actor CloudAPIAppOnboardingStore: AppOnboardingStore {
         )
     }
 
+    public func bootstrapTeam(deviceId: String?) async throws -> CreatedTeam {
+        await ensureStarted()
+        // Same shape as createTeam: the endpoint returns only the team row, so
+        // activation remains the source of the team-scoped actor id (and moves
+        // the session into the team's org).
+        let team: CloudTeam = try await api.post(
+            "/v1/teams/bootstrap", body: BootstrapTeamRequest(deviceId: deviceId)
+        )
+        let result = try await switchActiveTeam(teamID: team.id)
+        try await setSession(refreshToken: result.refreshToken)
+        return CreatedTeam(
+            team: TeamSummary(id: team.id, name: team.name, slug: team.slug ?? "", role: "owner"),
+            memberActorID: result.actorID ?? "",
+            workspaceID: "",
+            workspaceName: ""
+        )
+    }
+
     public func claimInvite(token: String) async throws -> ClaimResult {
         await ensureStarted()
         // The claim endpoint works UNAUTHENTICATED for agent/member re-invites
@@ -702,6 +720,12 @@ private struct PKCEExchangeRequest: Encodable, Sendable {
 
 private struct CreateTeamRequest: Encodable, Sendable {
     let name: String
+}
+
+/// Nil `deviceId` is omitted from the body by the synthesized encoder, which is
+/// exactly the "no reuse" signal the endpoint expects.
+private struct BootstrapTeamRequest: Encodable, Sendable {
+    let deviceId: String?
 }
 
 private struct ClaimInviteRequest: Encodable, Sendable {

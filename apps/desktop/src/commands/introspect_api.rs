@@ -472,6 +472,20 @@ async fn handle_env_var_set(app: &AppHandle, body: &[u8]) -> Result<String, Stri
         .or_else(|| v.get("team_id"))
         .and_then(|v| v.as_str())
         .map(|s| s.to_string());
+    // Team-scope values live in the Cloud API, so a bearer has to come in with
+    // the request. Personal-scope writes stay local and ignore it.
+    let access_token = v
+        .get("accessToken")
+        .or_else(|| v.get("access_token"))
+        .and_then(|v| v.as_str())
+        .map(|s| s.to_string());
+    // Paired with the token on purpose: it was minted by whichever server the
+    // caller is pointed at, so the endpoint has to come from the same place.
+    let cloud_api_url = v
+        .get("cloudApiUrl")
+        .or_else(|| v.get("cloud_api_url"))
+        .and_then(|v| v.as_str())
+        .map(|s| s.to_string());
 
     let workspace_path = {
         let registry = app.state::<super::window::WindowRegistry>();
@@ -494,6 +508,8 @@ async fn handle_env_var_set(app: &AppHandle, body: &[u8]) -> Result<String, Stri
         category,
         node_id,
         team_id,
+        access_token,
+        cloud_api_url,
     )
     .await?;
 
@@ -528,6 +544,18 @@ async fn handle_env_var_delete(app: &AppHandle, body: &[u8]) -> Result<String, S
         .or_else(|| v.get("team_id"))
         .and_then(|v| v.as_str())
         .map(|s| s.to_string());
+    let access_token = v
+        .get("accessToken")
+        .or_else(|| v.get("access_token"))
+        .and_then(|v| v.as_str())
+        .map(|s| s.to_string());
+    // Paired with the token on purpose: it was minted by whichever server the
+    // caller is pointed at, so the endpoint has to come from the same place.
+    let cloud_api_url = v
+        .get("cloudApiUrl")
+        .or_else(|| v.get("cloud_api_url"))
+        .and_then(|v| v.as_str())
+        .map(|s| s.to_string());
 
     let workspace_path = {
         let registry = app.state::<super::window::WindowRegistry>();
@@ -548,6 +576,8 @@ async fn handle_env_var_delete(app: &AppHandle, body: &[u8]) -> Result<String, S
         node_id,
         role,
         team_id,
+        access_token,
+        cloud_api_url,
     )
     .await?;
 
@@ -566,7 +596,9 @@ async fn handle_channel_set(app: &AppHandle, body: &[u8]) -> Result<String, Stri
         .ok_or("Missing field: channel")?;
     let patch = v.get("config").ok_or("Missing field: config")?;
 
-    let valid_channels = ["wecom", "discord", "feishu", "email", "kook", "wechat", "seatalk"];
+    let valid_channels = [
+        "wecom", "discord", "feishu", "email", "kook", "wechat", "seatalk",
+    ];
     if !valid_channels.contains(&channel) {
         return Err(format!(
             "Unknown channel: '{}'. Valid: {}",
@@ -650,9 +682,7 @@ async fn handle_mcp_put(app: &AppHandle, body: &[u8]) -> Result<String, String> 
     let v: serde_json::Value =
         serde_json::from_slice(body).map_err(|e| format!("JSON parse error: {}", e))?;
     let workspace = resolve_workspace_path(app, &v)?;
-    let servers = v
-        .get("servers")
-        .ok_or("Missing field: servers")?;
+    let servers = v.get("servers").ok_or("Missing field: servers")?;
     if !servers.is_object() {
         return Err("servers must be a JSON object".to_string());
     }

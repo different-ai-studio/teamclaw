@@ -2,7 +2,31 @@ import { randomUUID } from "node:crypto";
 import { createClient as defaultCreateClient } from "@supabase/supabase-js";
 import { verifyTrustedExternalJwt } from "./trusted-external-jwt.js";
 import { ApiError } from "./http-utils.js";
+
+/**
+ * Device ids that are not identities. Clients emit these when they cannot read
+ * their own storage; treating one as a reuse key would collapse every such
+ * install onto a single guest team.
+ */
+const SHARED_DEVICE_ID_PLACEHOLDERS = new Set([
+  "desktop-unknown",
+  "ios-unknown",
+  "unknown",
+  "",
+]);
+
 import { isLegalStatusTransition } from "./pg-repo/app-status.js";
+// Shared with the pg-repo twin on purpose — see the "Team MCP / env helpers"
+// note below. These are validation rules, not backend-specific plumbing.
+import {
+  assertTransportShape as assertTeamMcpTransportShape,
+  readServerFields as readTeamMcpServerFields,
+  NAME_RE as TEAM_MCP_NAME_RE,
+} from "./pg-repo/team-mcp.js";
+import {
+  assertWritableKeyId as assertWritableTeamEnvKeyId,
+  readEnvelope as readTeamEnvEnvelope,
+} from "./pg-repo/team-env-secrets.js";
 import { isLegalFcTransition } from "./provisioning/app-fc-status.js";
 import { appOssObjectName } from "./provisioning/app-deploy.js";
 import { normalizeAgentTypes } from "./agent-types.js";
@@ -497,9 +521,12 @@ export function createSupabaseBusinessRepository(options) {
       if (callerErr || !caller?.user?.id) {
         throw new ApiError(401, "missing_auth", "authenticated user required");
       }
-      if (caller.user.is_anonymous) {
-        throw new ApiError(403, "anonymous_not_allowed", "sign in to create a team");
-      }
+      // Anonymous users DO get a team. The product wants a try-before-signup
+      // path: one throwaway team per anonymous user inside the shared
+      // DEFAULT_ORG, upgradable later by attaching an email identity to the
+      // same auth user (which keeps the team). Joining someone else's public
+      // team is still refused — see join_public_team, which stays guarded so a
+      // guest can never appear in another team's member list.
       const defaultOrgId = process.env.DEFAULT_ORG_ID || null;
       let fallbackOrg: string | null = (caller.user.app_metadata as any)?.org_id ?? defaultOrgId;
       if (!fallbackOrg) {
@@ -508,15 +535,34 @@ export function createSupabaseBusinessRepository(options) {
         fallbackOrg = (provisioned as string | null) ?? null;
       }
       const selectedOrgId = input?.orgId ?? null;
+      // A guest that names its device gets that device's team back rather than
+      // a new one. Signed-in users are unaffected: the reuse table only ever
+      // holds guest teams, and this branch is gated on is_anonymous.
+      // Reject the client-side placeholders outright. `getDesktopDeviceId`
+      // falls back to a shared literal when storage is unavailable, and any
+      // install that hit it would otherwise be handed the same guest team as
+      // every other one. A null here just means "no reuse" — one extra team is
+      // the correct outcome, strangers sharing a team is not.
+      const rawDeviceId = caller.user.is_anonymous ? (input?.deviceId?.trim() || null) : null;
+      const guestDeviceId =
+        rawDeviceId && !SHARED_DEVICE_ID_PLACEHOLDERS.has(rawDeviceId.toLowerCase())
+          ? rawDeviceId
+          : null;
       const { data, error } = selectedOrgId
         ? await supabase.rpc("bootstrap_selected_org_team", {
           p_org_id: selectedOrgId,
           p_display_name: input?.displayName ?? null,
         })
-        : await supabase.rpc("bootstrap_current_org_team", {
-          p_fallback_org: fallbackOrg,
-          p_display_name: input?.displayName ?? null,
-        });
+        : guestDeviceId
+          ? await supabase.rpc("claim_guest_device_team", {
+            p_device_id: guestDeviceId,
+            p_fallback_org: fallbackOrg,
+            p_display_name: input?.displayName ?? null,
+          })
+          : await supabase.rpc("bootstrap_current_org_team", {
+            p_fallback_org: fallbackOrg,
+            p_display_name: input?.displayName ?? null,
+          });
       if (error) throw error;
       const row = requiredRow(data, "teams.bootstrapTeam");
       return mapTeam({ id: row.team_id ?? row.id, name: row.team_name ?? row.name, slug: row.team_slug ?? row.slug });
@@ -3326,6 +3372,336 @@ export function createSupabaseBusinessRepository(options) {
         }))
         .sort((a: any, b: any) => String(a.slug).localeCompare(String(b.slug)));
     },
+
+    // ─── Team MCP catalog ────────────────────────────────────────────────────
+    // docs/architecture/team-mcp-and-env-cloud.md
+    //
+    // Authz lives in RLS here (20260806020000_team_mcp_and_env.sql), so these
+    // are thin. The *validation* is not authz and must not be left to RLS: the
+    // secret-literal gate and the transport invariants are imported from the
+    // pg-repo twin rather than restated, because two copies of a security rule
+    // is exactly how one of them ends up weaker.
+
+    async listTeamMcpServers(teamId) {
+      const callerActorId = (await this.resolveCallerActorForTeam(teamId))?.id ?? null;
+      const { data, error } = await supabase
+        .from("team_mcp_servers")
+        .select("*")
+        .eq("team_id", teamId)
+        .order("name", { ascending: true });
+      if (error) throw error;
+      const rows = data ?? [];
+      if (!rows.length) return [];
+
+      let installedIds = new Set<string>();
+      if (callerActorId) {
+        const { data: installs, error: iErr } = await supabase
+          .from("team_mcp_installs")
+          .select("server_id")
+          .eq("actor_id", callerActorId);
+        if (iErr) throw iErr;
+        installedIds = new Set((installs ?? []).map((i: any) => i.server_id));
+      }
+      return rows.map((r: any) => mapTeamMcpServerRow(r, installedIds.has(r.id)));
+    },
+
+    async getTeamMcpConfig(teamId) {
+      const callerActorId = (await this.resolveCallerActorForTeam(teamId))?.id ?? null;
+      if (!callerActorId) return { mcpServers: {} };
+      const { data, error } = await supabase
+        .from("team_mcp_installs")
+        .select("team_mcp_servers!inner(name, transport, command, args, url, headers, env)")
+        .eq("team_id", teamId)
+        .eq("actor_id", callerActorId);
+      if (error) throw error;
+      const mcpServers: Record<string, any> = {};
+      for (const row of data ?? []) {
+        const s = (row as any).team_mcp_servers;
+        if (!s) continue;
+        const entry: Record<string, unknown> = {};
+        if (s.transport === "remote") {
+          entry.url = s.url;
+          if (s.headers) entry.headers = s.headers;
+        } else {
+          entry.command = s.command;
+          if (s.args) entry.args = s.args;
+        }
+        if (s.env) entry.env = s.env;
+        mcpServers[s.name] = entry;
+      }
+      return { mcpServers };
+    },
+
+    async createTeamMcpServer(teamId, body: any = {}) {
+      const callerActorId = (await this.resolveCallerActorForTeam(teamId))?.id ?? null;
+      if (!callerActorId) throw new ApiError(403, "forbidden", "not a member of this team");
+      const name = String(body.name ?? "").trim();
+      if (!TEAM_MCP_NAME_RE.test(name)) {
+        throw new ApiError(
+          400,
+          "validation_failed",
+          "name must be 1-64 chars of [A-Za-z0-9_.-] and start with a letter or digit",
+        );
+      }
+      const fields = readTeamMcpServerFields(body);
+      assertTeamMcpTransportShape({
+        transport: fields.transport as string,
+        command: fields.command,
+        url: fields.url,
+      });
+
+      const { data, error } = await supabase
+        .from("team_mcp_servers")
+        .insert({
+          team_id: teamId,
+          name,
+          transport: fields.transport,
+          command: fields.command ?? null,
+          args: fields.args ?? null,
+          url: fields.url ?? null,
+          headers: fields.headers ?? null,
+          env: fields.env ?? null,
+          description: fields.description ?? null,
+          created_by: callerActorId,
+          updated_by: callerActorId,
+        })
+        .select()
+        .single();
+      if (error) {
+        if ((error as any).code === "23505") {
+          throw new ApiError(409, "conflict", `an mcp server named ${name} already exists`);
+        }
+        throw error;
+      }
+      return mapTeamMcpServerRow(data, false);
+    },
+
+    async updateTeamMcpServer(teamId, name, patch: any = {}) {
+      const callerActorId = (await this.resolveCallerActorForTeam(teamId))?.id ?? null;
+      if (!callerActorId) throw new ApiError(403, "forbidden", "not a member of this team");
+      const { data: existing, error: exErr } = await supabase
+        .from("team_mcp_servers")
+        .select("*")
+        .eq("team_id", teamId)
+        .eq("name", name)
+        .maybeSingle();
+      if (exErr) throw exErr;
+      if (!existing) throw new ApiError(404, "not_found", `mcp server not found: ${name}`);
+
+      const fields = readTeamMcpServerFields(patch, { partial: true });
+      if (!Object.keys(fields).length) return mapTeamMcpServerRow(existing, false);
+      assertTeamMcpTransportShape({
+        transport: (fields.transport as string) ?? existing.transport,
+        command: fields.command !== undefined ? fields.command : existing.command,
+        url: fields.url !== undefined ? fields.url : existing.url,
+      });
+
+      const update: Record<string, unknown> = { updated_by: callerActorId };
+      if (fields.transport !== undefined) update.transport = fields.transport;
+      if (fields.command !== undefined) update.command = fields.command;
+      if (fields.args !== undefined) update.args = fields.args;
+      if (fields.url !== undefined) update.url = fields.url;
+      if (fields.headers !== undefined) update.headers = fields.headers;
+      if (fields.env !== undefined) update.env = fields.env;
+      if (fields.description !== undefined) update.description = fields.description;
+
+      const { data, error } = await supabase
+        .from("team_mcp_servers")
+        .update(update)
+        .eq("id", existing.id)
+        .select()
+        .maybeSingle();
+      if (error) throw error;
+      // RLS filters the row out rather than erroring when the caller is neither
+      // creator nor admin, so an empty result is a permission answer.
+      if (!data) {
+        throw new ApiError(403, "forbidden", "only the server's creator or a team admin may do this");
+      }
+      return mapTeamMcpServerRow(data, false);
+    },
+
+    async deleteTeamMcpServer(teamId, name) {
+      const { data: existing, error: exErr } = await supabase
+        .from("team_mcp_servers")
+        .select("id")
+        .eq("team_id", teamId)
+        .eq("name", name)
+        .maybeSingle();
+      if (exErr) throw exErr;
+      if (!existing) throw new ApiError(404, "not_found", `mcp server not found: ${name}`);
+      const { data, error } = await supabase
+        .from("team_mcp_servers")
+        .delete()
+        .eq("id", existing.id)
+        .select("id");
+      if (error) throw error;
+      if (!data?.length) {
+        throw new ApiError(403, "forbidden", "only the server's creator or a team admin may do this");
+      }
+    },
+
+    async installTeamMcpServer(teamId, name) {
+      const callerActorId = (await this.resolveCallerActorForTeam(teamId))?.id ?? null;
+      if (!callerActorId) throw new ApiError(403, "forbidden", "not a member of this team");
+      const { data: server, error: sErr } = await supabase
+        .from("team_mcp_servers")
+        .select("id, name")
+        .eq("team_id", teamId)
+        .eq("name", name)
+        .maybeSingle();
+      if (sErr) throw sErr;
+      if (!server) throw new ApiError(404, "not_found", `mcp server not found: ${name}`);
+
+      const { data, error } = await supabase
+        .from("team_mcp_installs")
+        .upsert(
+          { team_id: teamId, actor_id: callerActorId, server_id: server.id },
+          { onConflict: "actor_id,server_id" },
+        )
+        .select()
+        .single();
+      if (error) throw error;
+      return {
+        id: data.id,
+        teamId: data.team_id,
+        actorId: data.actor_id,
+        serverId: data.server_id,
+        name: server.name,
+        installedAt: data.installed_at ?? null,
+        updatedAt: data.updated_at ?? null,
+      };
+    },
+
+    async uninstallTeamMcpServer(teamId, name) {
+      const callerActorId = (await this.resolveCallerActorForTeam(teamId))?.id ?? null;
+      if (!callerActorId) throw new ApiError(403, "forbidden", "not a member of this team");
+      const { data: server, error: sErr } = await supabase
+        .from("team_mcp_servers")
+        .select("id")
+        .eq("team_id", teamId)
+        .eq("name", name)
+        .maybeSingle();
+      if (sErr) throw sErr;
+      if (!server) throw new ApiError(404, "not_found", `mcp server not found: ${name}`);
+      const { error } = await supabase
+        .from("team_mcp_installs")
+        .delete()
+        .eq("actor_id", callerActorId)
+        .eq("server_id", server.id);
+      if (error) throw error;
+    },
+
+    // ─── Team env secrets ────────────────────────────────────────────────────
+    // Ciphertext in, ciphertext out. Nothing here can decrypt, by design.
+
+    async listTeamEnvSecrets(teamId) {
+      const { data, error } = await supabase
+        .from("team_env_secrets")
+        .select("*")
+        .eq("team_id", teamId)
+        .order("key_id", { ascending: true });
+      if (error) throw error;
+      return (data ?? []).map(mapTeamEnvSecretRow);
+    },
+
+    async putTeamEnvSecret(teamId, keyId, body: any = {}) {
+      const callerActorId = (await this.resolveCallerActorForTeam(teamId))?.id ?? null;
+      if (!callerActorId) throw new ApiError(403, "forbidden", "not a member of this team");
+      assertWritableTeamEnvKeyId(keyId);
+      const envelope = readTeamEnvEnvelope(body);
+
+      const { data: existing, error: exErr } = await supabase
+        .from("team_env_secrets")
+        .select("id")
+        .eq("team_id", teamId)
+        .eq("key_id", keyId)
+        .maybeSingle();
+      if (exErr) throw exErr;
+
+      // Split insert/update rather than upsert so `created_by` is never
+      // reassigned: it is the delete gate, and handing it to the most recent
+      // writer would quietly transfer deletion rights.
+      if (existing) {
+        const { data, error } = await supabase
+          .from("team_env_secrets")
+          .update({ envelope, updated_by: callerActorId })
+          .eq("id", existing.id)
+          .select()
+          .single();
+        if (error) throw error;
+        return mapTeamEnvSecretRow(data);
+      }
+      const { data, error } = await supabase
+        .from("team_env_secrets")
+        .insert({
+          team_id: teamId,
+          key_id: keyId,
+          envelope,
+          created_by: callerActorId,
+          updated_by: callerActorId,
+        })
+        .select()
+        .single();
+      if (error) throw error;
+      return mapTeamEnvSecretRow(data);
+    },
+
+    async deleteTeamEnvSecret(teamId, keyId) {
+      const { data, error } = await supabase
+        .from("team_env_secrets")
+        .delete()
+        .eq("team_id", teamId)
+        .eq("key_id", keyId)
+        .select("id");
+      if (error) throw error;
+      if (!data?.length) {
+        // Either it never existed or RLS refused — the caller cannot tell those
+        // apart, and neither can we without a second privileged read.
+        throw new ApiError(
+          404,
+          "not_found",
+          `env secret not found, or you are not its creator: ${keyId}`,
+        );
+      }
+    },
+  };
+}
+
+// ─── Team MCP / env helpers ──────────────────────────────────────────────────
+//
+// Validation is imported from the pg-repo twin rather than restated: these are
+// security rules (what may hold a literal secret) and correctness rules (which
+// transport needs which fields), and a second copy is how the two backends
+// drift into disagreeing about what is allowed.
+
+function mapTeamMcpServerRow(row: any, installed: boolean) {
+  return {
+    id: row.id,
+    teamId: row.team_id,
+    name: row.name,
+    transport: row.transport,
+    command: row.command ?? null,
+    args: row.args ?? null,
+    url: row.url ?? null,
+    headers: row.headers ?? null,
+    env: row.env ?? null,
+    description: row.description ?? null,
+    installed,
+    createdBy: row.created_by ?? null,
+    updatedBy: row.updated_by ?? null,
+    createdAt: row.created_at ?? null,
+    updatedAt: row.updated_at ?? null,
+  };
+}
+
+function mapTeamEnvSecretRow(row: any) {
+  return {
+    keyId: row.key_id,
+    envelope: row.envelope,
+    createdBy: row.created_by ?? null,
+    updatedBy: row.updated_by ?? null,
+    createdAt: row.created_at ?? null,
+    updatedAt: row.updated_at ?? null,
   };
 }
 

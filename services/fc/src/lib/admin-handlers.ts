@@ -1,14 +1,5 @@
-import { createHash } from "node:crypto";
-import { nanoid } from "nanoid";
 import { json } from "./responses.js";
-import { sha256, ossGet, ossPut, ossInfo, verifyTeam } from "./oss-store.js";
-import {
-  assumeRole,
-  memberPolicy,
-  editorPolicy,
-  managerPolicy,
-  ownerPolicy,
-} from "./sts.js";
+import { sha256, ossGet, ossPut } from "./oss-store.js";
 import { litellmFetch, LITELLM_DEFAULT_TEAM_MAX_BUDGET_USD } from "./litellm.js";
 import {
   codeupFetch,
@@ -33,101 +24,15 @@ const PUSH_WEBHOOK_SECRET = () => process.env.PUSH_WEBHOOK_SECRET;
 // Route handlers
 //
 // These are intentionally thin: each parses/validates its request body, then
-// orchestrates the OSS team registry (oss-store), STS credential minting (sts),
-// the LiteLLM proxy (litellm), CodeUp managed git (codeup), or push dispatch
-// (push-deps + push-dispatch). All infra lives in those modules.
+// orchestrates the OSS team registry (oss-store), the LiteLLM proxy (litellm),
+// CodeUp managed git (codeup), or push dispatch (push-deps + push-dispatch).
+// All infra lives in those modules.
+//
+// /register, /token and /apply used to live here. They minted Alibaba STS
+// credentials for the direct-to-OSS team drive, which no longer exists — team
+// blobs are in Supabase Storage and every client goes through /v1. Nothing had
+// called them for months.
 // ---------------------------------------------------------------------------
-export async function handleRegister(body: any) {
-  // ownerActorId is the owner's actor_id (the value used to seed OSS/LiteLLM).
-  // Accept legacy ownerNodeId as a fallback.
-  const { teamSecret, teamName, ownerName, ownerEmail } = body;
-  const ownerNodeId = body.ownerActorId ?? body.ownerNodeId;
-  if (!teamSecret || !ownerNodeId || !teamName) {
-    return json(400, { error: "Missing required fields" });
-  }
-
-  const teamId = nanoid();
-  const createdAt = new Date().toISOString();
-  const teamSecretHash = sha256(teamSecret);
-
-  await ossPut(`teams/${teamId}/_registry/auth.json`, {
-    schemaVersion: 1,
-    teamSecretHash,
-    ownerNodeId,
-    createdAt,
-  });
-
-  await ossPut(`teams/${teamId}/_meta/team.json`, {
-    schemaVersion: 1,
-    teamId,
-    teamName,
-    ownerName,
-    ownerEmail,
-    ownerNodeId,
-    createdAt,
-  });
-
-  console.log(`[register] Created team teamId=${teamId} nodeId=${ownerNodeId}`);
-
-  const policy = ownerPolicy(teamId, ownerNodeId);
-  const hashedId = createHash("sha256").update(ownerNodeId).digest("hex").slice(0, 16);
-  const credentials = await assumeRole(`owner-${hashedId}`, policy);
-
-  return json(200, {
-    teamId,
-    credentials,
-    oss: ossInfo(),
-    role: "owner",
-  });
-}
-
-export async function handleToken(body: any) {
-  // nodeId carries the caller's actor_id (legacy field name kept on the wire).
-  const { teamId, teamSecret } = body;
-  const nodeId = body.actorId ?? body.nodeId;
-  if (!teamId || !teamSecret || !nodeId) {
-    return json(400, { error: "Missing required fields" });
-  }
-
-  const auth = await ossGet(`teams/${teamId}/_registry/auth.json`);
-  if (!auth) {
-    return json(404, { error: "Team not found" });
-  }
-
-  if (sha256(teamSecret) !== auth.teamSecretHash) {
-    console.log(`[token] Secret mismatch for teamId=${teamId} nodeId=${nodeId}`);
-    return json(403, { error: "Invalid team secret" });
-  }
-
-  const isOwner = nodeId === auth.ownerNodeId;
-  let role = isOwner ? "owner" : "member";
-  let policy = isOwner
-    ? ownerPolicy(teamId, nodeId)
-    : memberPolicy(teamId, nodeId);
-
-  if (!isOwner) {
-    const manifest = await ossGet(`teams/${teamId}/_meta/members.json`);
-    if (manifest) {
-      const member = manifest.members?.find((m: any) => (m.nodeId ?? m.node_id) === nodeId);
-      if (member?.role === "manager") {
-        role = member.role;
-        policy = managerPolicy(teamId, nodeId);
-      } else if (member?.role === "editor") {
-        role = member.role;
-        policy = editorPolicy(teamId, nodeId);
-      }
-    }
-  }
-
-  const hashedId = createHash("sha256").update(nodeId).digest("hex").slice(0, 16);
-  const sessionName = `${role}-${hashedId}`;
-  const credentials = await assumeRole(sessionName, policy);
-
-  console.log(`[token] Issued ${role} token for teamId=${teamId} nodeId=${nodeId}`);
-
-  return json(200, { credentials, oss: ossInfo(), role });
-}
-
 export async function handleResetSecret(body: any) {
   const { teamId, oldSecret, newSecret } = body;
   const ownerNodeId = body.ownerActorId ?? body.ownerNodeId;
@@ -154,40 +59,6 @@ export async function handleResetSecret(body: any) {
   await ossPut(`teams/${teamId}/_registry/auth.json`, auth);
 
   console.log(`[reset-secret] Secret updated for teamId=${teamId}`);
-  return json(200, { success: true });
-}
-
-export async function handleApply(body: any) {
-  const { teamId, teamSecret, name, email, note, platform, arch, hostname } = body;
-  const nodeId = body.actorId ?? body.nodeId;
-  if (!teamId || !teamSecret || !nodeId || !name || !email) {
-    return json(400, { error: "Missing required fields" });
-  }
-
-  const auth = await ossGet(`teams/${teamId}/_registry/auth.json`);
-  if (!auth) {
-    return json(404, { error: "Team not found" });
-  }
-
-  if (sha256(teamSecret) !== auth.teamSecretHash) {
-    console.log(`[apply] Secret mismatch for teamId=${teamId} nodeId=${nodeId}`);
-    return json(403, { error: "Invalid team secret" });
-  }
-
-  const application = {
-    nodeId,
-    name,
-    email,
-    note: note || "",
-    platform: platform || "",
-    arch: arch || "",
-    hostname: hostname || "",
-    appliedAt: new Date().toISOString(),
-  };
-
-  await ossPut(`teams/${teamId}/_meta/applications/${nodeId}.json`, application);
-
-  console.log(`[apply] Application submitted for teamId=${teamId} nodeId=${nodeId}`);
   return json(200, { success: true });
 }
 

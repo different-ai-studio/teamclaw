@@ -98,6 +98,19 @@ pub struct ManagedLlmModelInfo {
     pub name: String,
 }
 
+/// One team env secret as the Cloud API returns it: a key id plus the
+/// client-encrypted envelope. The daemon never receives plaintext — it writes
+/// the envelope to its cache and decrypts locally with the team key.
+#[derive(Debug, Clone, serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct TeamEnvSecretRow {
+    pub key_id: String,
+    /// `{v, nonce, ciphertext}`, kept as raw JSON so the cache file is
+    /// byte-identical to the `_secrets/<key_id>.enc.json` format the decrypter
+    /// already reads.
+    pub envelope: serde_json::Value,
+}
+
 /// The team's managed (shared) LLM, as sourced from
 /// `GET /v1/teams/:id/workspace-config` (`llm.*`). This replaces the old
 /// disk-mirrored `_meta/provider.json` so the shared provider converges on first
@@ -210,6 +223,27 @@ pub trait Backend: Send + Sync {
     /// with no HTTP surface (mock) return a disabled config.
     async fn managed_llm_config(&self, _team_id: &str) -> BackendResult<ManagedLlmConfig> {
         Ok(ManagedLlmConfig::default())
+    }
+
+    /// Fetch the team MCP servers the calling actor has installed, in the
+    /// on-disk Cursor `mcpServers` shape
+    /// (`GET /v1/teams/:id/mcp-servers/config`).
+    ///
+    /// Returned verbatim as JSON rather than parsed into a typed struct
+    /// on purpose: `runtime::team_cloud_config` writes the body straight to its
+    /// cache file, which `config::team_mcp` then parses with the same code path
+    /// it has always used for `.mcp/*.json`. Round-tripping through a Rust type
+    /// here would add a second schema to keep in sync for no gain.
+    async fn team_mcp_config(&self, _team_id: &str) -> BackendResult<serde_json::Value> {
+        Ok(serde_json::json!({ "mcpServers": {} }))
+    }
+
+    /// Fetch the team's env secrets (`GET /v1/teams/:id/env-secrets`).
+    ///
+    /// Ciphertext only — the envelope is opaque here and stays that way until
+    /// the team key decrypts it locally.
+    async fn team_env_secrets(&self, _team_id: &str) -> BackendResult<Vec<TeamEnvSecretRow>> {
+        Ok(Vec::new())
     }
 
     /// Idempotently ensure the caller's LiteLLM member key is provisioned via

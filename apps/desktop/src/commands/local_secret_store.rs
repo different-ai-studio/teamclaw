@@ -148,6 +148,48 @@ fn load_existing_master_key(paths: &SecretStorePaths) -> Result<[u8; 32], String
     Ok(key)
 }
 
+/// Prefix shared by every "the store is present but will not decrypt" error, so
+/// callers can recognise that case without matching the whole sentence.
+///
+/// It matters because it is the one read failure that will never fix itself: an
+/// IO error can be retried, a key/blob mismatch cannot.
+pub(crate) const UNDECRYPTABLE_PREFIX: &str = "Failed to decrypt secret blob";
+
+/// True when this error means the store exists but the master key does not open it.
+pub(crate) fn is_undecryptable(err: &str) -> bool {
+    err.starts_with(UNDECRYPTABLE_PREFIX)
+}
+
+/// Move an undecryptable blob aside so a fresh store can be created, returning
+/// where it went.
+///
+/// Deliberately a rename, never a delete. The ciphertext is the user's personal
+/// API keys, and "cannot decrypt here, now" is not the same as "worthless" — the
+/// matching `master.key` may still exist in a backup or on another machine.
+/// Destroying it to unblock a save would trade a recoverable problem for an
+/// unrecoverable one.
+pub(crate) fn quarantine_unreadable_blob(paths: &SecretStorePaths) -> Result<PathBuf, String> {
+    let stamp = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_secs())
+        .unwrap_or(0);
+    let backup = paths
+        .base_dir
+        .join(format!("personal-secrets.json.enc.unreadable.{stamp}"));
+    std::fs::rename(&paths.blob_path, &backup)
+        .map_err(|e| format!("Failed to set aside the unreadable secret store: {e}"))?;
+    // The key cannot open the old blob, so keeping it would only make the next
+    // write reuse a key already known not to match anything. Park it next to the
+    // blob it belongs with — recovering the backup needs this exact file.
+    if paths.master_key_path.exists() {
+        let key_backup = paths
+            .base_dir
+            .join(format!("master.key.unreadable.{stamp}"));
+        let _ = std::fs::rename(&paths.master_key_path, &key_backup);
+    }
+    Ok(backup)
+}
+
 pub(crate) fn write_secret_blob(
     paths: &SecretStorePaths,
     map: &serde_json::Map<String, serde_json::Value>,

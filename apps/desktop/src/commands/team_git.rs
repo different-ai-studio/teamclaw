@@ -101,16 +101,12 @@ pub const GITIGNORE_CONTENT: &str = r#"# =======================================
 # 2. Allow shared layers
 !skills/
 !skills/**
-!.mcp/
-!.mcp/**
 !knowledge/
 !knowledge/**
 !_feedback/
 !_feedback/**
 !_meta/
 !_meta/**
-!_secrets/
-!_secrets/**
 !.leaderboard/
 !.leaderboard/**
 
@@ -247,14 +243,10 @@ pub fn scaffold_team_dir(team_dir: &str) -> Result<(), String> {
         return Ok(());
     }
 
-    let dirs = [
-        "skills",
-        ".mcp",
-        "knowledge",
-        "_feedback",
-        "_meta",
-        "_secrets",
-    ];
+    // No `.mcp` / `_secrets`: team MCP and team env live in the Cloud API now
+    // (docs/architecture/team-mcp-and-env-cloud.md). Creating the directories
+    // would invite hand-authored files that nothing reads.
+    let dirs = ["skills", "knowledge", "_feedback", "_meta"];
     for d in &dirs {
         std::fs::create_dir_all(team_path.join(d))
             .map_err(|e| format!("Failed to create {}: {}", d, e))?;
@@ -262,7 +254,7 @@ pub fn scaffold_team_dir(team_dir: &str) -> Result<(), String> {
 
     let readme_path = team_path.join("README.md");
     if !readme_path.exists() {
-        let readme = "# TeamClaw Team Drive\n\nShared team resources.\n\n## Structure\n\n- `skills/` - Shared agent skills\n- `.mcp/` - MCP server configurations\n- `knowledge/` - Shared knowledge base\n- `_feedback/` - Member feedback summaries (auto-synced)\n- `_meta/` - Shared team metadata and app-managed files\n";
+        let readme = "# TeamClaw Team Drive\n\nShared team resources.\n\n## Structure\n\n- `skills/` - Shared agent skills\n- `knowledge/` - Shared knowledge base\n- `_feedback/` - Member feedback summaries (auto-synced)\n- `_meta/` - Shared team metadata and app-managed files\n";
         std::fs::write(&readme_path, readme)
             .map_err(|e| format!("Failed to write README.md: {}", e))?;
     }
@@ -534,7 +526,11 @@ async fn team_git_join_impl(
         super::CONFIG_FILE_NAME
     );
 
-    crate::commands::team_secret_store::save_team_secret(&workspace_path, &team_id, &team_secret)?;
+    crate::commands::team_secret_store::save_team_secret_logged(
+        &workspace_path,
+        &team_id,
+        &team_secret,
+    )?;
     println!("[Team Join] Saved team_secret to local encrypted store");
 
     {
@@ -825,6 +821,7 @@ pub async fn get_git_team_secret(
     let workspace_path =
         crate::commands::team::resolve_workspace_path(workspace_path, &window, &registry)?;
     crate::commands::team_secret_store::load_team_secret(&workspace_path, &team_id)
+        .map_err(Into::into)
 }
 
 #[cfg(test)]

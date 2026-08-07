@@ -26,7 +26,6 @@ import {
 } from "@/lib/agent-turn-error";
 import {
   BookOpen,
-  Share2,
   FolderGit,
   ChevronLeft,
   X,
@@ -250,7 +249,7 @@ import {
   stashPendingSessionDeeplink,
 } from "@/lib/open-session-deeplink";
 import { useCurrentTeamStore } from "@/stores/current-team";
-import { useTeamShareStore, isShareModeLocked } from "@/stores/team-share";
+import { useTeamShareStore } from "@/stores/team-share";
 import { resolveCurrentMemberActorId } from "@/lib/current-actor";
 import { installV2E2EControl, isV2E2EControlActive } from "@/lib/e2e/v2-control";
 import {
@@ -286,7 +285,7 @@ const useWebviewUIStore = create<{
     set({ zoomLevels: { ...get().zoomLevels, [label]: level } }),
 }))
 
-/** Sync native tray menu labels with the active UI locale. */
+/** Sync native tray + app menu labels with the active UI locale. */
 function useTrayMenuLocaleSync() {
   useEffect(() => {
     void syncTrayMenuLabels();
@@ -296,6 +295,28 @@ function useTrayMenuLocaleSync() {
     i18n.on("languageChanged", onLang);
     return () => {
       i18n.off("languageChanged", onLang);
+    };
+  }, []);
+}
+
+/** Native TeamClaw → Settings… (⌘,) opens the in-app Settings dialog. */
+function useAppMenuOpenSettings() {
+  useEffect(() => {
+    if (!isTauri()) return;
+    let unlisten: (() => void) | undefined;
+    let cancelled = false;
+    void import("@tauri-apps/api/event")
+      .then(({ listen }) => listen("open-app-settings", () => {
+        useUIStore.getState().openSettings();
+      }))
+      .then((fn) => {
+        if (cancelled) fn();
+        else unlisten = fn;
+      })
+      .catch(() => {});
+    return () => {
+      cancelled = true;
+      unlisten?.();
     };
   }, []);
 }
@@ -748,7 +769,6 @@ function AppContent() {
   // Team-share state drives the top-right "team shared files" tab visibility.
   // Refresh it centrally (below) so the tab reflects the true share mode even
   // before the user ever opens the panel or Settings → Team.
-  const teamSharedTabMode = useTeamShareStore((s) => s.status.mode);
   const refreshTeamShare = useTeamShareStore((s) => s.refresh);
   const mainContentLayout = useUIStore((s) => s.mainContentLayout);
   const { open: sidebarOpen, setOpen: setSidebarOpen } = useSidebar();
@@ -2929,16 +2949,10 @@ function AppContent() {
                   onClick={() => isPanelOpen && activeTab === "files" ? closePanel() : openPanel("files")}
                 />
               )}
-              {capabilities.workspace && isShareModeLocked(teamSharedTabMode) && (
-                <HeaderPanelTab
-                  icon={Share2}
-                  label={t("navigation.teamSharedFiles", "team shared files")}
-                  isActive={isPanelOpen && activeTab === "teamShared"}
-                  onClick={() =>
-                    isPanelOpen && activeTab === "teamShared" ? closePanel() : openPanel("teamShared")
-                  }
-                />
-              )}
+              {/* The team shared files tab moved to the Knowledge entry in the
+                  left nav, where the same tree renders in column two with its
+                  editor in column three. Kept out of the header so the two do
+                  not diverge. */}
               {capabilities.workspace && hasCurrentSession && (
                 <HeaderPanelTab
                   icon={FolderGit}
@@ -3003,6 +3017,7 @@ function App() {
   useTerminalShortcuts()
   useDaemonLiveStatus()
   useTrayMenuLocaleSync()
+  useAppMenuOpenSettings()
 
   // ── Initialize tauri-plugin-mcp event listeners (dev only) ──
   useEffect(() => {

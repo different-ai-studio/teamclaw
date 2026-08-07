@@ -4,14 +4,11 @@
 // All endpoints that accept a `path` field call validateSyncPath() and return
 // 422 InvalidPath if it fails.
 
-export const ALLOWED_PREFIXES = [
-  'skills/',
-  'knowledge/',
-  '.mcp/',
-  '_meta/',
-  '_secrets/',
-  '_feedback/',
-];
+// File sync carries documents only. Everything else that used to live here
+// moved to a purpose-built API: skills to the skills registry, `.mcp/` and
+// `_secrets/` to the team MCP / env endpoints, and the team LLM config that
+// `_meta/` was meant to hold to /v1/teams/:id/workspace-config.
+export const ALLOWED_PREFIXES = ['knowledge/'];
 
 /**
  * Validate a sync path coming from the wire.

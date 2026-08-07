@@ -19,6 +19,7 @@ import { markStartup } from "@/lib/startup-perf";
 import { TeamPicker } from "./TeamPicker";
 import { PendingInvitesDialog } from "@/components/auth/PendingInvitesDialog";
 import { GuestTeamDiscovery } from "@/components/auth/GuestTeamDiscovery";
+import { getDesktopDeviceIdOrNull } from "@/lib/backend/cloud-api/device-id";
 import type { MembershipTeam } from "@/lib/backend";
 
 interface AuthGateProps {
@@ -228,12 +229,11 @@ export function AuthGate({ children }: AuthGateProps) {
       setRetrying(false);
       return;
     }
-    // Guests may browse public teams, but never create an actor/team or join a
-    // team. A pending member-invite token remains persisted until real sign-in.
-    if (session.user?.isAnonymous) {
-      setBootstrap("ready");
-      return;
-    }
+    // Quick trial: a guest DOES get a team — one throwaway team of its own in
+    // the shared default org, so the product is usable before signing up. It
+    // still never joins someone else's team (the server refuses), so a guest
+    // cannot appear in another team's member list. A pending member-invite
+    // token remains persisted until real sign-in.
     // An invite claim has precedence over normal discovery. claimPendingInvite
     // enters the invited team and clears this token on success. Only wait while
     // the claim is still unattempted: a failed claim keeps its token for a
@@ -270,7 +270,18 @@ export function AuthGate({ children }: AuthGateProps) {
           // nickname-less account doesn't land as a synthesized handle; the
           // server still prefers the nickname when present.
           const displayName = await resolveDefaultDisplayName(session?.user?.email);
-          const created = await getBackend().teams.bootstrapTeam({ displayName });
+          // Guests pass the per-install id so a second quick trial on this
+          // machine lands back in the team the first one made, rather than
+          // leaving another abandoned team in the shared org.
+          //
+          // Deliberately the null-returning variant: the plain one falls back
+          // to a shared "desktop-unknown" literal, and every install that hit
+          // that fallback would be handed the SAME guest team. A null just
+          // means no reuse — one extra team beats strangers sharing one.
+          const created = await getBackend().teams.bootstrapTeam({
+            displayName,
+            deviceId: session.user?.isAnonymous ? getDesktopDeviceIdOrNull() : null,
+          });
           if (created?.id) {
             await useCurrentTeamStore.getState().setActiveTeam({
               id: created.id,
@@ -419,7 +430,10 @@ export function AuthGate({ children }: AuthGateProps) {
   // the team server-side, adopts the org-switched JWT, switches current team,
   // and refreshes the daemon) — so the daemon gate below then evaluates against
   // the chosen team and triggers re-onboard on mismatch.
-  if (session?.user?.isAnonymous) {
+  // A guest with no team of its own has nothing to render but the public-team
+  // browser. Once quick-trial has seeded one, fall through to the normal shell
+  // — otherwise the trial dead-ends on the screen it just succeeded past.
+  if (session?.user?.isAnonymous && !teamChosen) {
     removeStartupSkeleton();
     return <GuestTeamDiscovery onSignIn={() => void signOut()} />;
   }

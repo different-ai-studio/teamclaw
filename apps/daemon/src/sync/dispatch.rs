@@ -23,6 +23,10 @@ pub struct SyncStatus {
     pub pulled: u32,
     pub pushed: u32,
     pub conflicts: u32,
+    /// Files the server offered that we failed to pull this tick. Non-zero
+    /// means the sync cursor is deliberately being held back so they get
+    /// retried, and the UI should not present the tick as fully clean.
+    pub failed: u32,
     /// Set when sync was skipped because `team_share.auto_sync` is disabled.
     #[serde(default)]
     pub skipped: bool,
@@ -260,6 +264,7 @@ impl SyncDispatcher {
                     pulled: r.pulled,
                     pushed: r.pushed,
                     conflicts: r.conflicts,
+                    failed: r.failed,
                     ..Default::default()
                 })
             }

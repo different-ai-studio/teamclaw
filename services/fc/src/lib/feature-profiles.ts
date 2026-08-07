@@ -92,7 +92,13 @@ export const FEATURE_PROFILES: Record<string, FeatureFlags> = {
   "self-host": {
     auth: { google: true, wechat: false, phone: false, password: false, webSSO: false },
     channels: { discord: true, feishu: true, email: true, kook: true, wecom: true, wechat: true },
-    teamShareBrowser: false,
+    // On for the official deployment: the team-share browser is how team MCP and
+    // team env are managed now that both live in the Cloud API
+    // (docs/architecture/team-mcp-and-env-cloud.md). Set in
+    // build.config.production.json too — leaving that one absent would mean the
+    // client boots with the section hidden and reveals it once the network
+    // answers, which is exactly the drift this file warns about above.
+    teamShareBrowser: true,
     apps: false,
     lockLlmConfig: false,
   },

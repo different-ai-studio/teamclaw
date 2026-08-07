@@ -1198,7 +1198,30 @@ export function FileTree({
     return () => { cancelled = true; unlisteners.forEach(fn => fn()); };
   }, [workspacePath, refreshFileTree, expandDirectory, t]);
 
+  // An empty tree still has to render the root create row when one is pending:
+  // the per-node create flow hangs off a node's context menu, so an empty tree
+  // has no other way in, and returning the empty state here made the caller's
+  // "New document" button look inert.
   if (fileTree.length === 0) {
+    if (rootCreating && onRootCreateConfirm && onRootCreateCancel) {
+      return (
+        <div className="py-1">
+          <InlineInput
+            defaultValue={rootCreating === "file" ? "untitled" : "new-folder"}
+            onConfirm={onRootCreateConfirm}
+            onCancel={onRootCreateCancel}
+            level={0}
+            icon={
+              rootCreating === "file" ? (
+                <File className="h-4 w-4 shrink-0 text-muted-foreground" />
+              ) : (
+                <ChevronRight className="h-3.5 w-3.5 shrink-0 text-muted-foreground rotate-90" />
+              )
+            }
+          />
+        </div>
+      );
+    }
     return (
       <div className="flex items-center justify-center py-8 text-sm text-muted-foreground">
         {t("fileExplorer.noFilesFound", "No files found")}

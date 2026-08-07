@@ -24,7 +24,7 @@ test("wrong team secret on B: decrypt fails gracefully, no corrupted file, no cr
   const root = contentRootPath(teamId);
 
   // A pushes a file encrypted with the correct shared secret.
-  await writeFile("node-a", `${root}/skills/secret.md`, Buffer.from("top secret\n"));
+  await writeFile("node-a", `${root}/knowledge/secret.md`, Buffer.from("top secret\n"));
   const a1 = await sync(nodes.a);
   assert.equal(a1.lastError ?? null, null, `A sync error: ${a1.lastError}`);
   assert.ok(a1.pushed >= 1, `A should push, got ${a1.pushed}`);
@@ -42,7 +42,7 @@ test("wrong team secret on B: decrypt fails gracefully, no corrupted file, no cr
   }
 
   // B must NOT have written a decrypted file (it couldn't decrypt) — no garbage.
-  assert.equal(treeB["skills/secret.md"], undefined, "B must not write a file it cannot decrypt");
+  assert.equal(treeB["knowledge/secret.md"], undefined, "B must not write a file it cannot decrypt");
 
   // Daemon is still alive: a follow-up status/sync call still works.
   const after = await sync(nodes.b);

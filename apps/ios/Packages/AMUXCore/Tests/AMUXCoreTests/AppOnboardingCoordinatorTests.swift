@@ -24,10 +24,79 @@ struct AppOnboardingCoordinatorTests {
 
         #expect(await store.recordedEnsureSessionCallCount() == 1)
         #expect(await store.recordedCreatedTeamNames().count == 1)
+        // Signed-in users must NOT go through bootstrap: it names the team
+        // after the caller's org, which is only meaningful when the org is
+        // really theirs. Explicit creation keeps the random name.
+        #expect(await store.recordedBootstrapDeviceIDs().isEmpty)
         #expect(coordinator.route == .ready)
         #expect(coordinator.currentContext?.team.id == "team-auto")
         #expect(coordinator.currentContext?.memberActorID == "member-auto")
         #expect(coordinator.pendingCreatedTeam == created)
+    }
+
+    @MainActor
+    @Test("a guest without a team bootstraps by device id so a repeat trial reclaims its team")
+    func anonymousBootstrapReusesDeviceTeam() async throws {
+        // Every signInAnonymously() mints a fresh auth user, so a returning
+        // guest looks brand new and plain creation would leave another
+        // abandoned team in the shared default org. Bootstrap keyed by the
+        // device is what lets the server recognise the device and hand back
+        // the team its last guest already had.
+        let created = CreatedTeam(
+            team: TeamSummary(id: "team-guest", name: "Calm Otter", slug: "calm-otter", role: "owner"),
+            memberActorID: "member-guest",
+            workspaceID: "",
+            workspaceName: ""
+        )
+        let store = InMemoryOnboardingStore(
+            bootstrap: AppBootstrap(memberActorID: nil, teams: []),
+            createdTeam: created,
+            isAnonymous: true
+        )
+        let coordinator = AppOnboardingCoordinator(
+            store: store, defaults: ephemeralDefaults(), deviceID: "device-abc"
+        )
+
+        await coordinator.bootstrap()
+
+        #expect(await store.recordedBootstrapDeviceIDs() == ["device-abc"])
+        #expect(await store.recordedCreatedTeamNames().isEmpty)
+        #expect(coordinator.route == .ready)
+        #expect(coordinator.currentContext?.team.id == "team-guest")
+    }
+
+    @MainActor
+    @Test("a guest on an unidentifiable device bootstraps without a reuse key")
+    func anonymousBootstrapWithoutDeviceIDSendsNil() async throws {
+        // `identifierForVendor` is nil until first unlock. Sending a shared
+        // placeholder would collapse every device in that window onto ONE guest
+        // team, so the reuse key is omitted instead: a fresh team, which is
+        // simply the old behaviour.
+        let created = CreatedTeam(
+            team: TeamSummary(id: "team-guest2", name: "Brave Yak", slug: "brave-yak", role: "owner"),
+            memberActorID: "member-guest2",
+            workspaceID: "",
+            workspaceName: ""
+        )
+        let store = InMemoryOnboardingStore(
+            bootstrap: AppBootstrap(memberActorID: nil, teams: []),
+            createdTeam: created,
+            isAnonymous: true
+        )
+        // Nothing injected, so the coordinator falls back to the system id —
+        // absent under the macOS SwiftPM test host, where UIKit does not exist.
+        let coordinator = AppOnboardingCoordinator(store: store, defaults: ephemeralDefaults())
+
+        await coordinator.bootstrap()
+
+        let sent = await store.recordedBootstrapDeviceIDs()
+        #expect(sent.count == 1)
+        // The assertion that matters on any host: a missing id is never
+        // substituted with a constant, which would be a device id shared by
+        // everyone who hit this path.
+        #expect(sent.first ?? nil != "ios-unknown")
+        #expect(await store.recordedCreatedTeamNames().isEmpty)
+        #expect(coordinator.route == .ready)
     }
 
     @MainActor
@@ -259,6 +328,7 @@ struct AppOnboardingCoordinatorTests {
         #expect(coordinator.route == .ready)
         #expect(coordinator.currentContext?.team.id == "team-y")        // joined the invited team
         #expect(await store.recordedCreatedTeamNames().isEmpty)         // did NOT auto-create a junk team
+        #expect(await store.recordedBootstrapDeviceIDs().isEmpty)       // ...nor bootstrap one
         // Token consumed exactly once — must not replay on the next launch.
         #expect(defaults.string(forKey: InviteDeepLink.pendingTokenDefaultsKey) == nil)
     }
@@ -290,6 +360,7 @@ struct AppOnboardingCoordinatorTests {
         #expect(coordinator.currentContext?.team.id == "team-y")          // joined the invited team
         #expect(await store.recordedSetSessionTokens() == ["rt-target"])  // adopted the target session
         #expect(await store.recordedCreatedTeamNames().isEmpty)           // did NOT auto-create a junk team
+        #expect(await store.recordedBootstrapDeviceIDs().isEmpty)         // ...nor bootstrap one
     }
 
     @MainActor
@@ -375,6 +446,9 @@ private actor InMemoryOnboardingStore: AppOnboardingStore {
     let loadBootstrapError: Error?
     var ensureSessionCallCount = 0
     var createdTeamNames: [String] = []
+    /// One entry per `bootstrapTeam` call, holding the device id it was given
+    /// (nil included — that is the "no reuse" case, not an absence of a call).
+    var bootstrapDeviceIDs: [String?] = []
     var signOutCallCount = 0
     var didClaim = false
     var setSessionRefreshTokens: [String] = []
@@ -414,6 +488,14 @@ private actor InMemoryOnboardingStore: AppOnboardingStore {
         }
         throw InMemoryError.missingCreatedTeam
     }
+
+    func bootstrapTeam(deviceId: String?) async throws -> CreatedTeam {
+        bootstrapDeviceIDs.append(deviceId)
+        if let createdTeamResult {
+            return createdTeamResult
+        }
+        throw InMemoryError.missingCreatedTeam
+    }
     func listAllMyTeams() async throws -> [MembershipTeam] { [] }
     func switchActiveTeam(teamID: String) async throws -> TeamSwitchResult {
         TeamSwitchResult(actorID: nil, teamID: teamID, refreshToken: "")
@@ -425,6 +507,10 @@ private actor InMemoryOnboardingStore: AppOnboardingStore {
 
     func recordedCreatedTeamNames() -> [String] {
         createdTeamNames
+    }
+
+    func recordedBootstrapDeviceIDs() -> [String?] {
+        bootstrapDeviceIDs
     }
 
     // MARK: - Auth stub methods (not used in tests)
