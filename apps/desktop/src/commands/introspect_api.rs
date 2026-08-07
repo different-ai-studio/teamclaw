@@ -475,6 +475,13 @@ async fn handle_env_var_set(app: &AppHandle, body: &[u8]) -> Result<String, Stri
         .or_else(|| v.get("access_token"))
         .and_then(|v| v.as_str())
         .map(|s| s.to_string());
+    // Paired with the token on purpose: it was minted by whichever server the
+    // caller is pointed at, so the endpoint has to come from the same place.
+    let cloud_api_url = v
+        .get("cloudApiUrl")
+        .or_else(|| v.get("cloud_api_url"))
+        .and_then(|v| v.as_str())
+        .map(|s| s.to_string());
 
     let workspace_path = {
         let registry = app.state::<super::window::WindowRegistry>();
@@ -498,6 +505,7 @@ async fn handle_env_var_set(app: &AppHandle, body: &[u8]) -> Result<String, Stri
         node_id,
         team_id,
         access_token,
+        cloud_api_url,
     )
     .await?;
 
@@ -537,6 +545,13 @@ async fn handle_env_var_delete(app: &AppHandle, body: &[u8]) -> Result<String, S
         .or_else(|| v.get("access_token"))
         .and_then(|v| v.as_str())
         .map(|s| s.to_string());
+    // Paired with the token on purpose: it was minted by whichever server the
+    // caller is pointed at, so the endpoint has to come from the same place.
+    let cloud_api_url = v
+        .get("cloudApiUrl")
+        .or_else(|| v.get("cloud_api_url"))
+        .and_then(|v| v.as_str())
+        .map(|s| s.to_string());
 
     let workspace_path = {
         let registry = app.state::<super::window::WindowRegistry>();
@@ -558,6 +573,7 @@ async fn handle_env_var_delete(app: &AppHandle, body: &[u8]) -> Result<String, S
         role,
         team_id,
         access_token,
+        cloud_api_url,
     )
     .await?;
 

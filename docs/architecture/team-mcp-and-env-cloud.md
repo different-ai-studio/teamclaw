@@ -158,6 +158,18 @@ DELETE /v1/teams/:teamId/env-secrets/:keyId           创建者或 admin
 只写 `pg-repo` 的功能在真实部署上是 500。单测发现不了——它注入 fake repository，
 从来看不到容器实际加载的是哪个后端。这是本地起完整 self-host 栈做端到端测试才发现的。
 
+**端点必须跟着渲染层走，不能用编译进二进制的那个。** token 是渲染层当前指向的那台
+服务器签发的，而 `get_fc_endpoint()` 返回的是 build-config 里的地址——两者一旦不一致，
+就是必然 401。所以团队 env 的读写都从前端接收
+`getEffectiveServerConfigSync().cloudApiUrl`，走 `resolve_runtime_fc_endpoint()`，
+和 `team_share/join.rs` 等既有命令同一套契约（那个函数的文档原话就是「运行时选服务器
+这件事发生在渲染层，原生命令必须用这个值而不是二进制里烘的那个」）。
+
+注意这跟 `get_fc_endpoint` 注释里**故意删掉**的那个 override 不是一回事：被删的是
+`teamclaw.json` 里的**每工作区持久化 pin**——陈旧、不可见、会悄悄盖过 build config。
+这里传的是渲染层**当前生效**的值，和 token 同源同批次，正是那段注释想要的「两边锁步」。
+URL 格式非法时返回 `None` 而不是回退到 build config——回退会把要避免的错配又请回来。
+
 **桌面端写入不再需要本地 `team_dir`。** `set_secret_for_workspace` 改成只解出
 密钥（`ensure_derived_key`）就加密上传，不再走 `try_lazy_init_from_workspace`——
 后者还要求已同步的共享目录，会让「加入了团队但没拉过共享文件夹」的成员写不了

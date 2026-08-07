@@ -365,16 +365,30 @@ fn ensure_derived_key(
     Ok(derived_key)
 }
 
-/// The Cloud API client for team-secret calls, or `None` when this workspace has
-/// no team / no signed-in session to authenticate with.
+/// The Cloud API client for team-secret calls, or `None` when there is no
+/// signed-in session to authenticate with.
+///
+/// `cloud_api_url` is the renderer's *effective* endpoint
+/// (`getEffectiveServerConfigSync().cloudApiUrl`), which honours a runtime
+/// server switch. It has to be threaded through rather than read from the build
+/// config, because the endpoint and the bearer are a matched pair: the token was
+/// minted by whichever server the renderer is pointed at, so sending it to the
+/// compiled-in host is a guaranteed 401 the moment the two differ.
+///
+/// This is the same contract `team_share/join.rs` and friends already follow —
+/// see `resolve_runtime_fc_endpoint`, whose whole purpose is that runtime server
+/// selection lives in the renderer. Falling back to the build config keeps
+/// callers that predate the parameter working unchanged.
 fn fc_client_for(
     workspace_path: &str,
     access_token: Option<&str>,
+    cloud_api_url: Option<&str>,
 ) -> Option<super::oss_sync::fc_client::FcClient> {
     let token = access_token.map(str::trim).filter(|t| !t.is_empty())?;
-    // Endpoint comes from the build config, not from the caller — same rule the
-    // rest of the Rust Cloud API surface follows (see `get_fc_endpoint`).
-    let endpoint = super::oss_sync::get_fc_endpoint(workspace_path);
+    let endpoint = match cloud_api_url.map(str::trim).filter(|u| !u.is_empty()) {
+        Some(url) => super::oss_sync::resolve_runtime_fc_endpoint(url).ok()?,
+        None => super::oss_sync::get_fc_endpoint(workspace_path),
+    };
     Some(super::oss_sync::fc_client::FcClient::new(
         endpoint,
         token.to_string(),
@@ -403,6 +417,7 @@ pub(crate) async fn set_secret_for_workspace(
     node_id: String,
     team_id: Option<String>,
     access_token: Option<String>,
+    cloud_api_url: Option<String>,
 ) -> Result<(), String> {
     validate_key_id(&key_id)?;
 
@@ -440,7 +455,12 @@ pub(crate) async fn set_secret_for_workspace(
     let envelope = encrypt_secret(&entry, &derived_key)?;
 
     // Ciphertext only past this point — the plaintext never leaves the process.
-    let client = fc_client_for(workspace_path, access_token.as_deref()).ok_or_else(|| {
+    let client = fc_client_for(
+        workspace_path,
+        access_token.as_deref(),
+        cloud_api_url.as_deref(),
+    )
+    .ok_or_else(|| {
         "Not signed in — team env vars are stored in the team's cloud account".to_string()
     })?;
     let body = serde_json::json!({ "envelope": envelope });
@@ -477,6 +497,7 @@ pub(crate) async fn delete_secret_for_workspace(
     role: String,
     team_id: Option<String>,
     access_token: Option<String>,
+    cloud_api_url: Option<String>,
 ) -> Result<(), String> {
     validate_key_id(&key_id)?;
 
@@ -506,7 +527,12 @@ pub(crate) async fn delete_secret_for_workspace(
         }
     }
 
-    let client = fc_client_for(workspace_path, access_token.as_deref()).ok_or_else(|| {
+    let client = fc_client_for(
+        workspace_path,
+        access_token.as_deref(),
+        cloud_api_url.as_deref(),
+    )
+    .ok_or_else(|| {
         "Not signed in — team env vars are stored in the team's cloud account".to_string()
     })?;
     client
@@ -541,12 +567,13 @@ pub(crate) async fn refresh_team_secrets_from_cloud(
     workspace_path: &str,
     team_id: Option<&str>,
     access_token: Option<&str>,
+    cloud_api_url: Option<&str>,
 ) -> Result<(), String> {
     let Some(team_id) = team_id.map(str::trim).filter(|id| !id.is_empty()) else {
         return Ok(());
     };
     let derived_key = ensure_derived_key(state, workspace_path, Some(team_id))?;
-    let Some(client) = fc_client_for(workspace_path, access_token) else {
+    let Some(client) = fc_client_for(workspace_path, access_token, cloud_api_url) else {
         return Ok(());
     };
 
@@ -608,8 +635,10 @@ pub(crate) async fn team_listings_from_cloud(
     workspace_path: &str,
     team_id: Option<&str>,
     access_token: Option<&str>,
+    cloud_api_url: Option<&str>,
 ) -> Result<Vec<teamclaw_runtime_env::env_catalog::TeamEnvListing>, String> {
-    refresh_team_secrets_from_cloud(state, workspace_path, team_id, access_token).await?;
+    refresh_team_secrets_from_cloud(state, workspace_path, team_id, access_token, cloud_api_url)
+        .await?;
 
     let secrets = state
         .secrets
@@ -651,6 +680,32 @@ mod tests {
 
         assert!(result.is_ok());
         assert!(!team_dir.exists());
+    }
+
+    /// The endpoint must follow the renderer, not the compiled-in default.
+    ///
+    /// The bearer is minted by whichever server the renderer is pointed at, so a
+    /// client built against the build-config host would send that token
+    /// somewhere it is not valid — a guaranteed 401 the moment a runtime server
+    /// switch is in play.
+    #[test]
+    fn fc_client_endpoint_follows_the_renderer_when_supplied() {
+        let client = fc_client_for("/tmp/ws", Some("tok"), Some("http://localhost:9000"))
+            .expect("a token is all that is required");
+        assert_eq!(client.base_url, "http://localhost:9000");
+
+        // Trailing slashes are normalised so paths do not end up doubled.
+        let client = fc_client_for("/tmp/ws", Some("tok"), Some("http://localhost:9000/")).unwrap();
+        assert_eq!(client.base_url, "http://localhost:9000");
+    }
+
+    #[test]
+    fn fc_client_requires_a_token_and_rejects_a_bad_url() {
+        assert!(fc_client_for("/tmp/ws", None, Some("http://localhost:9000")).is_none());
+        assert!(fc_client_for("/tmp/ws", Some("   "), Some("http://localhost:9000")).is_none());
+        // A malformed override must not silently fall back to the build config —
+        // that would resurrect exactly the token/endpoint mismatch this avoids.
+        assert!(fc_client_for("/tmp/ws", Some("tok"), Some("not a url")).is_none());
     }
 
     fn home_lock() -> &'static std::sync::Mutex<()> {

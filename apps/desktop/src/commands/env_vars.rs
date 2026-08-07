@@ -460,6 +460,7 @@ pub async fn env_catalog_list(
     shared_secrets: State<'_, super::shared_secrets::SharedSecretsState>,
     team_id: Option<String>,
     access_token: Option<String>,
+    cloud_api_url: Option<String>,
     workspace_path: Option<String>,
 ) -> Result<teamclaw_runtime_env::env_catalog::EnvCatalog, String> {
     let workspace_path = resolve_workspace_path(workspace_path, &window, &registry)?;
@@ -483,6 +484,7 @@ pub async fn env_catalog_list(
         &workspace_path,
         team_id,
         access_token.as_deref(),
+        cloud_api_url.as_deref(),
     )
     .await
     {
@@ -714,6 +716,7 @@ pub(crate) async fn env_catalog_set_for_workspace(
     node_id: Option<String>,
     team_id: Option<String>,
     access_token: Option<String>,
+    cloud_api_url: Option<String>,
 ) -> Result<(), String> {
     match parse_env_scope(scope)? {
         "personal" => env_var_set_for_workspace(workspace_path, key, value, description).await,
@@ -732,6 +735,7 @@ pub(crate) async fn env_catalog_set_for_workspace(
                 node_id,
                 team_id,
                 access_token,
+                cloud_api_url,
             )
             .await
         }
@@ -750,6 +754,7 @@ pub(crate) async fn env_catalog_delete_for_workspace(
     role: Option<String>,
     team_id: Option<String>,
     access_token: Option<String>,
+    cloud_api_url: Option<String>,
 ) -> Result<(), String> {
     match parse_env_scope(scope)? {
         "personal" => env_var_delete_for_workspace(workspace_path, key).await,
@@ -766,6 +771,7 @@ pub(crate) async fn env_catalog_delete_for_workspace(
                 role.unwrap_or_default(),
                 team_id,
                 access_token,
+                cloud_api_url,
             )
             .await
         }
@@ -788,6 +794,7 @@ pub async fn env_catalog_set(
     node_id: Option<String>,
     team_id: Option<String>,
     access_token: Option<String>,
+    cloud_api_url: Option<String>,
     workspace_path: Option<String>,
 ) -> Result<(), String> {
     let workspace_path = resolve_workspace_path(workspace_path, &window, &registry)?;
@@ -803,6 +810,7 @@ pub async fn env_catalog_set(
         node_id,
         team_id,
         access_token,
+        cloud_api_url,
     )
     .await
 }
@@ -820,6 +828,7 @@ pub async fn env_catalog_delete(
     role: Option<String>,
     team_id: Option<String>,
     access_token: Option<String>,
+    cloud_api_url: Option<String>,
     workspace_path: Option<String>,
 ) -> Result<(), String> {
     let workspace_path = resolve_workspace_path(workspace_path, &window, &registry)?;
@@ -833,6 +842,7 @@ pub async fn env_catalog_delete(
         role,
         team_id,
         access_token,
+        cloud_api_url,
     )
     .await
 }
