@@ -4,39 +4,23 @@
 // Each export is a standalone async function; the router in index.mjs
 // dispatches here after JWT/actor auth.
 //
-// Under BACKEND_KIND=postgres: metadata ops go through makeOssSyncRepo(getDb())
-//   and S3 presign/HEAD uses src/lib/oss.ts helpers.
+// Under BACKEND_KIND=postgres: metadata ops go through makeOssSyncRepo(getDb()).
 // Under BACKEND_KIND=supabase (default): original Supabase path is unchanged.
+// Blob bytes live in Supabase Storage under both (see team-blob-storage.ts).
 
 import { createHash, randomUUID } from 'node:crypto';
-import { HeadObjectCommand, PutObjectCommand, GetObjectCommand, type S3Client } from '@aws-sdk/client-s3';
-import { getSignedUrl } from '@aws-sdk/s3-request-presigner';
 import { createServiceRoleClient } from './supabase.js';
 import { validateSyncPath } from './sync-path.js';
 import { resolveBackendKind } from './backend-kind.js';
-import { getS3Client, OSS_BUCKET } from './oss.js';
+import { getTeamBlobStorage, type BlobStorage } from './team-blob-storage.js';
 import { makeOssSyncRepo, type OssSyncRepo } from './pg-repo/oss-sync.js';
 import { resolveActorForTeam } from './pg-repo/authz.js';
 import { getDb, type Db } from '../db/client.js';
 import { ApiError } from './http-utils.js';
 import { teamWorkspaceConfig, amuxcUploadSessions } from '../db/schema/index.js';
 import { eq } from 'drizzle-orm';
-import { cdnEnabled, signCdnUrl } from './cdn.js';
 
 const DOWNLOAD_TTL_SEC = 900;
-
-/**
- * Signed GET URL for a blob: a CDN "type A" URL when the CDN is configured
- * (cheaper, cache-deduped egress for the (N-1)x fan-out), else an OSS presigned
- * GET (fallback, current behaviour). Uploads are unaffected.
- */
-export async function signedDownloadUrl(s3: S3Client, bucket: string, ossKey: string): Promise<string> {
-  if (cdnEnabled()) {
-    return signCdnUrl(ossKey, DOWNLOAD_TTL_SEC);
-  }
-  const getCmd = new GetObjectCommand({ Bucket: bucket, Key: ossKey });
-  return getSignedUrl(s3 as any, getCmd, { expiresIn: DOWNLOAD_TTL_SEC });
-}
 
 // ---------------------------------------------------------------------------
 // Injectable deps — production callers omit these; tests inject stubs.
@@ -45,8 +29,7 @@ export async function signedDownloadUrl(s3: S3Client, bucket: string, ossKey: st
 export interface SyncHandlerDeps {
   db?: Db;
   repo?: OssSyncRepo;
-  s3?: S3Client;
-  bucket?: string;
+  storage?: BlobStorage;
 }
 
 // ---------------------------------------------------------------------------
@@ -65,12 +48,35 @@ function ossKeyForHash(teamId: string, hash: string) {
   return `teams/${teamId}/blobs/sha256/${hash.slice(0, 2)}/${hash.slice(2, 4)}/${hash}`;
 }
 
-function resolveS3(deps: SyncHandlerDeps): S3Client {
-  return deps.s3 ?? getS3Client();
+function resolveStorage(deps: SyncHandlerDeps): BlobStorage {
+  return deps.storage ?? getTeamBlobStorage();
 }
 
-function resolveBucket(deps: SyncHandlerDeps): string {
-  return deps.bucket ?? OSS_BUCKET();
+/**
+ * Whether the client still has to upload the bytes for this content hash.
+ *
+ * The `amuxc_blobs` row is authoritative: `verified` means some completed
+ * upload was size-checked against storage for this exact hash, and the hash IS
+ * the content. Only an unverified (or absent) row costs a storage round-trip.
+ *
+ * That ordering matters here in a way it doesn't for skills: a prepare runs per
+ * changed file per sync tick, an order of magnitude more often than a skill
+ * install, and Supabase Storage has no HEAD — the fallback is a `list` call.
+ */
+async function blobRequiresUpload(
+  storage: BlobStorage,
+  ossKey: string,
+  size: number,
+  verified: boolean,
+): Promise<boolean> {
+  if (verified) return false;
+  try {
+    const stat = await storage.stat(ossKey);
+    return !stat || stat.size !== size;
+  } catch (e: any) {
+    console.error('[sync/prepare] blob stat failed:', e?.message ?? e);
+    return true;
+  }
 }
 
 function resolveRepo(deps: SyncHandlerDeps): OssSyncRepo {
@@ -314,12 +320,13 @@ export async function handleSyncUploadPrepare(
 
   const { teamId, actorId } = caller;
   const ossKey = ossKeyForHash(teamId, contentHash);
-  const s3 = resolveS3(deps);
-  const bucket = resolveBucket(deps);
+  const storage = resolveStorage(deps);
 
   if (resolveBackendKind() === 'postgres') {
     // --- postgres path ---
     const repo = resolveRepo(deps);
+
+    const known = await repo.download({ teamId, contentHash });
 
     const expiresAt = new Date(Date.now() + 3600_000);
     const sessionId = await repo.uploadPrepare({
@@ -334,25 +341,13 @@ export async function handleSyncUploadPrepare(
       expiresAt,
     });
 
-    // HEAD OSS — check if blob already exists
-    let requiresUpload = true;
-    let presignedPut: string | null = null;
-
-    try {
-      const head = await s3.send(new HeadObjectCommand({ Bucket: bucket, Key: ossKey }));
-      if (head.ContentLength === size) {
-        requiresUpload = false;
-      }
-    } catch (e: any) {
-      if (e.$metadata?.httpStatusCode !== 404 && e.name !== 'NotFound' && e.Code !== 'NoSuchKey') {
-        console.error('[sync/prepare] HEAD OSS error:', e.message);
-      }
-    }
-
-    if (requiresUpload) {
-      const putCmd = new PutObjectCommand({ Bucket: bucket, Key: ossKey, ContentLength: size });
-      presignedPut = await getSignedUrl(s3 as any, putCmd, { expiresIn: 900 });
-    }
+    const requiresUpload = await blobRequiresUpload(
+      storage,
+      ossKey,
+      size,
+      Boolean(known?.verified),
+    );
+    const presignedPut = requiresUpload ? await storage.createUploadUrl(ossKey) : null;
 
     return json(200, {
       uploadSessionId: sessionId,
@@ -362,8 +357,17 @@ export async function handleSyncUploadPrepare(
     });
   }
 
-  // --- supabase path (unchanged) ---
+  // --- supabase path ---
   const supabase = createServiceRoleClient();
+
+  // Read before upsert: `ignoreDuplicates` makes the upsert a no-op on an
+  // existing row, so it can neither tell us nor clear an existing `verified`.
+  const { data: known } = await supabase
+    .from('amuxc_blobs')
+    .select('verified')
+    .eq('team_id', teamId)
+    .eq('content_hash', contentHash)
+    .maybeSingle();
 
   await supabase
     .from('amuxc_blobs')
@@ -394,24 +398,13 @@ export async function handleSyncUploadPrepare(
     return json(500, { error: `Failed to create upload session: ${sessionErr.message}` });
   }
 
-  let requiresUpload = true;
-  let presignedPut: string | null = null;
-
-  try {
-    const head = await s3.send(new HeadObjectCommand({ Bucket: bucket, Key: ossKey }));
-    if (head.ContentLength === size) {
-      requiresUpload = false;
-    }
-  } catch (e: any) {
-    if (e.$metadata?.httpStatusCode !== 404 && e.name !== 'NotFound' && e.Code !== 'NoSuchKey') {
-      console.error('[sync/prepare] HEAD OSS error:', e.message);
-    }
-  }
-
-  if (requiresUpload) {
-    const putCmd = new PutObjectCommand({ Bucket: bucket, Key: ossKey, ContentLength: size });
-    presignedPut = await getSignedUrl(s3 as any, putCmd, { expiresIn: 900 });
-  }
+  const requiresUpload = await blobRequiresUpload(
+    storage,
+    ossKey,
+    size,
+    Boolean((known as any)?.verified),
+  );
+  const presignedPut = requiresUpload ? await storage.createUploadUrl(ossKey) : null;
 
   return json(200, {
     uploadSessionId: (session as any).id,
@@ -440,8 +433,7 @@ export async function handleSyncUploadComplete(
   }
 
   const { teamId, actorId } = caller;
-  const s3 = resolveS3(deps);
-  const bucket = resolveBucket(deps);
+  const storage = resolveStorage(deps);
 
   if (resolveBackendKind() === 'postgres') {
     // --- postgres path ---
@@ -459,14 +451,14 @@ export async function handleSyncUploadComplete(
     if (!session) return json(404, { error: 'upload session not found' });
     if (session.teamId !== teamId) return json(403, { error: 'session does not belong to this team' });
 
-    // HEAD OSS verify
+    // Verify the bytes actually landed before marking the version live.
     try {
-      const head = await s3.send(new HeadObjectCommand({ Bucket: bucket, Key: session.ossKey }));
-      if (head.ContentLength !== session.size) {
+      const stat = await storage.stat(session.ossKey);
+      if (!stat || stat.size !== session.size) {
         return json(422, {
           error: 'BlobMissingOrSizeMismatch',
           expected: session.size,
-          actual: head.ContentLength,
+          actual: stat?.size ?? null,
         });
       }
     } catch (e: any) {
@@ -518,12 +510,12 @@ export async function handleSyncUploadComplete(
   }
 
   try {
-    const head = await s3.send(new HeadObjectCommand({ Bucket: bucket, Key: (session as any).oss_key }));
-    if (head.ContentLength !== (session as any).size) {
+    const stat = await storage.stat((session as any).oss_key);
+    if (!stat || stat.size !== (session as any).size) {
       return json(422, {
         error: 'BlobMissingOrSizeMismatch',
         expected: (session as any).size,
-        actual: head.ContentLength,
+        actual: stat?.size ?? null,
       });
     }
   } catch (e: any) {
@@ -587,8 +579,7 @@ export async function handleSyncDownload(
   }
 
   const { teamId } = caller;
-  const s3 = resolveS3(deps);
-  const bucket = resolveBucket(deps);
+  const storage = resolveStorage(deps);
 
   if (resolveBackendKind() === 'postgres') {
     // --- postgres path ---
@@ -598,7 +589,7 @@ export async function handleSyncDownload(
     if (!blob) return json(404, { error: 'blob not found' });
     if (!blob.verified) return json(404, { error: 'blob not yet verified (upload not completed)' });
 
-    const downloadUrl = await signedDownloadUrl(s3, bucket, blob.ossKey);
+    const downloadUrl = await storage.createDownloadUrl(blob.ossKey, DOWNLOAD_TTL_SEC);
 
     return json(200, { downloadUrl, size: blob.size, ttlSec: DOWNLOAD_TTL_SEC });
   }
@@ -620,7 +611,7 @@ export async function handleSyncDownload(
     return json(404, { error: 'blob not yet verified (upload not completed)' });
   }
 
-  const downloadUrl = await signedDownloadUrl(s3, bucket, (blob as any).oss_key);
+  const downloadUrl = await storage.createDownloadUrl((blob as any).oss_key, DOWNLOAD_TTL_SEC);
 
   return json(200, { downloadUrl, size: (blob as any).size, ttlSec: DOWNLOAD_TTL_SEC });
 }

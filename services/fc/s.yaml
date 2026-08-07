@@ -77,6 +77,12 @@ resources:
         SUPABASE_PUBLIC_URL: ${env('SUPABASE_PUBLIC_URL', '')}
         SUPABASE_SERVICE_ROLE_KEY: ${env('SUPABASE_SERVICE_ROLE_KEY')}
         SUPABASE_ANON_KEY: ${env('SUPABASE_ANON_KEY')}
+        # Private Supabase Storage buckets holding client-encrypted blobs:
+        # team file-sync bodies and skill packages. Both have working defaults,
+        # but `s deploy` overwrites the whole environment map — an undeclared
+        # var simply never arrives, so declare them even when unset.
+        TEAM_BLOBS_STORAGE_BUCKET: ${env('TEAM_BLOBS_STORAGE_BUCKET', 'team-blobs')}
+        SKILLS_STORAGE_BUCKET: ${env('SKILLS_STORAGE_BUCKET', 'team-skills')}
         APNS_PRIVATE_KEY_P8: ${env('APNS_PRIVATE_KEY_P8')}
         APNS_KEY_ID: ${env('APNS_KEY_ID')}
         APNS_TEAM_ID: ${env('APNS_TEAM_ID')}
