@@ -32,6 +32,10 @@ use teamclaw_gateway::{
 /// hundreds of them is unreadable — the newest are the ones anyone switches
 /// back to.
 const GATEWAY_SESSION_LIST_LIMIT: u32 = 20;
+/// Bound how long a channel/gateway turn may wait for Active→Idle. Long enough
+/// for real tool use; short enough that a wedged permission/provider wait does
+/// not look like a permanently stuck SeaTalk/WeCom bot.
+const GATEWAY_TURN_TIMEOUT_SECS: u64 = 120;
 
 use crate::backend::Backend;
 use crate::proto::amux;
@@ -750,7 +754,8 @@ impl AmuxdAgentHandle {
         let mut last_update = std::time::Instant::now();
         let mut sent_update = String::new();
 
-        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(5 * 60);
+        let deadline =
+            std::time::Instant::now() + std::time::Duration::from_secs(GATEWAY_TURN_TIMEOUT_SECS);
         // On a turn-level timeout, salvage any reply text the agent already
         // produced instead of failing the whole turn (issue #555): OpenCode can
         // finish and persist its final assistant text while the ACP adapter

@@ -22,6 +22,8 @@ pub mod i18n;
 pub mod kook;
 pub mod kook_config;
 pub mod pending_question;
+pub mod seatalk;
+pub mod seatalk_config;
 pub mod session;
 pub mod session_queue;
 pub mod wechat;
@@ -42,6 +44,8 @@ pub use pending_question::{
     extract_question_marker, format_question_message, handle_question_event, parse_question_event,
     ForwardedQuestion, PendingQuestionStore, QuestionContext,
 };
+pub use seatalk::SeaTalkGateway;
+pub use seatalk_config::*;
 pub use session::SessionMapping;
 pub use wechat::WeChatGateway;
 pub use wechat_config::*;

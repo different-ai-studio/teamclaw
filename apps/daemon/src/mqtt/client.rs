@@ -88,8 +88,13 @@ impl MqttClient {
         // do not trip rumqttc's 10 KiB default packet cap.
         opts.set_max_packet_size(MQTT_MAX_PACKET_SIZE_BYTES, MQTT_MAX_PACKET_SIZE_BYTES);
 
+        // Not `wss_with_default_config()` / `tls_with_default_config()`: both
+        // build `TlsConfiguration::default()`, which panics the process when the
+        // platform cert store cannot be read. See `teamclaw_transport::tls`.
         if broker.is_websocket() && broker.use_tls {
-            opts.set_transport(Transport::wss_with_default_config());
+            opts.set_transport(Transport::Wss(
+                teamclaw_transport::tls::default_tls_config().config,
+            ));
         } else if broker.is_websocket() {
             opts.set_transport(Transport::Ws);
         } else if broker.use_tls && std::env::var("AMUXD_MQTT_INSECURE_TLS").as_deref() == Ok("1") {
@@ -104,7 +109,9 @@ impl MqttClient {
                 rumqttc::TlsConfiguration::Rustls(Arc::new(tls_config)),
             ));
         } else if broker.use_tls {
-            opts.set_transport(Transport::tls_with_default_config());
+            opts.set_transport(Transport::tls_with_config(
+                teamclaw_transport::tls::default_tls_config().config,
+            ));
         }
 
         // LWT: publish offline status if daemon disconnects unexpectedly
@@ -197,6 +204,7 @@ mod tests {
             idle_runtime_timeout_secs: None,
             max_attachments: None,
             http: None,
+            team_share: crate::config::TeamShareConfig::default(),
         }
     }
 

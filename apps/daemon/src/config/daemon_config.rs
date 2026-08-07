@@ -41,6 +41,33 @@ pub struct DaemonConfig {
     /// setup UI is served, so an unconfigured daemon needs it most.
     #[serde(default)]
     pub http: Option<HttpConfig>,
+    /// Local control over automatic team-share sync (git/OSS). Cloud `share_mode`
+    /// is unchanged; this only gates timer / workspace-registration / runtime
+    /// triggers on this daemon. Manual sync via `POST /v1/team/sync` with
+    /// `forceSync: true` still runs.
+    #[serde(default)]
+    pub team_share: TeamShareConfig,
+}
+
+/// Per-daemon team-share behavior. Distinct from the cloud team's `share_mode`.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct TeamShareConfig {
+    /// When `false`, skip automatic git/OSS sync (300s timer, workspace add,
+    /// runtime start). Defaults to `true` so existing installs keep syncing.
+    #[serde(default = "default_team_share_auto_sync")]
+    pub auto_sync: bool,
+}
+
+fn default_team_share_auto_sync() -> bool {
+    true
+}
+
+impl Default for TeamShareConfig {
+    fn default() -> Self {
+        Self {
+            auto_sync: default_team_share_auto_sync(),
+        }
+    }
 }
 
 /// Configuration for the browser-facing HTTP+SSE listener. Defaults are tuned
@@ -325,6 +352,8 @@ pub struct ChannelsConfig {
     pub wechat: Option<WeChatChannel>,
     #[serde(default)]
     pub email: Option<EmailChannel>,
+    #[serde(default)]
+    pub seatalk: Option<SeaTalkChannel>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -416,6 +445,38 @@ pub struct WeChatChannel {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SeaTalkChannel {
+    pub enabled: bool,
+    pub app_id: String,
+    pub app_secret: String,
+    /// `websocket` (default) or `webhook`
+    #[serde(default = "default_seatalk_mode")]
+    pub mode: String,
+    /// `open` | `allowlist`
+    #[serde(default = "default_seatalk_dm_policy")]
+    pub dm_policy: String,
+    #[serde(default)]
+    pub allow_from: Vec<String>,
+    /// `disabled` | `allowlist` | `open`
+    #[serde(default = "default_seatalk_group_policy")]
+    pub group_policy: String,
+    #[serde(default)]
+    pub group_allow_from: Vec<String>,
+}
+
+fn default_seatalk_mode() -> String {
+    "websocket".to_string()
+}
+
+fn default_seatalk_dm_policy() -> String {
+    "open".to_string()
+}
+
+fn default_seatalk_group_policy() -> String {
+    "open".to_string()
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct EmailChannel {
     pub enabled: bool,
     pub imap_host: String,
@@ -458,6 +519,19 @@ impl DaemonConfig {
         self.max_attachments
             .unwrap_or(DEFAULT_MAX_ATTACHMENTS)
             .max(1)
+    }
+
+    /// Whether this daemon should run automatic team-share sync. Defaults to
+    /// `true` when `daemon.toml` is missing or unparsable for this field.
+    pub fn team_share_auto_sync_enabled(&self) -> bool {
+        self.team_share.auto_sync
+    }
+
+    /// Load `daemon.toml` and read [`TeamShareConfig::auto_sync`].
+    pub fn team_share_auto_sync_enabled_from_disk() -> bool {
+        Self::load(&Self::default_path())
+            .map(|c| c.team_share_auto_sync_enabled())
+            .unwrap_or(true)
     }
 }
 
@@ -528,6 +602,7 @@ impl DaemonConfig {
             // Present so the packaged desktop WebView's fetch() can reach the
             // loopback control plane without a hand edit.
             http: Some(HttpConfig::default()),
+            team_share: TeamShareConfig::default(),
         }
     }
 

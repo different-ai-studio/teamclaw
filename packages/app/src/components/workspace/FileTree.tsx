@@ -4,6 +4,7 @@ import { useVirtualizer } from "@tanstack/react-virtual";
 import { ChevronRight, File } from "lucide-react";
 
 import { toast } from 'sonner';
+import { isChatInputDropTarget, isPointOverElement } from '@/lib/chat-file-drop';
 import { copyToClipboard, isTauri } from '@/lib/utils';
 import { GitStatus } from "@/lib/git/service";
 import { useWorkspaceStore, type FileNode } from "@/stores/workspace";
@@ -1127,6 +1128,22 @@ export function FileTree({
           }
           const paths = event.payload.paths;
           if (!paths || paths.length === 0) return;
+
+          // OS drops on the chat composer attach as pending files (PromptInput
+          // listens to the same tauri://drag-drop event). Do not copy into the
+          // workspace in that case — previously every external drop was treated
+          // as a file-tree import, so drag-to-input silently stopped working.
+          const dropPos = event.payload.position;
+          const chatInput = document.querySelector('[data-testid="chat-input-area"]');
+          // Prefer geometry over elementFromPoint — during native DnD the
+          // hit-test under the cursor can miss the composer chrome.
+          if (
+            isPointOverElement(dropPos, chatInput) ||
+            isChatInputDropTarget(document.elementFromPoint(dropPos.x, dropPos.y))
+          ) {
+            setDragOverPath(null);
+            return;
+          }
 
           const targetDir = dragOverPathRef.current || workspacePath;
 

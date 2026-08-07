@@ -67,6 +67,29 @@ export interface FeishuGatewayStatusResponse {
   appId?: string
 }
 
+// SeaTalk configuration
+export interface SeaTalkConfig {
+  enabled: boolean
+  appId: string
+  appSecret: string
+  /** `websocket` (default) or `webhook` */
+  mode: string
+  /** `open` | `allowlist` */
+  dmPolicy: string
+  allowFrom: string[]
+  /** `disabled` | `allowlist` | `open` — default `open` for @bot */
+  groupPolicy: string
+  groupAllowFrom: string[]
+}
+
+export type SeaTalkGatewayStatus = 'disconnected' | 'connecting' | 'connected' | 'error'
+
+export interface SeaTalkGatewayStatusResponse {
+  status: SeaTalkGatewayStatus
+  errorMessage?: string
+  appId?: string
+}
+
 // Email provider type
 export type EmailProvider = 'gmail' | 'custom'
 
@@ -217,6 +240,7 @@ export interface ChannelsConfig {
   kook?: KookConfig
   wecom?: WeComConfig
   wechat?: WeChatConfig
+  seatalk?: SeaTalkConfig
 }
 
 // Gateway status response
@@ -261,6 +285,17 @@ export const defaultFeishuConfig: FeishuConfig = {
   appId: '',
   appSecret: '',
   chats: {},
+}
+
+export const defaultSeaTalkConfig: SeaTalkConfig = {
+  enabled: false,
+  appId: '',
+  appSecret: '',
+  mode: 'websocket',
+  dmPolicy: 'open',
+  allowFrom: [],
+  groupPolicy: 'open',
+  groupAllowFrom: [],
 }
 
 export const defaultKookDmConfig: KookDmConfig = {
@@ -351,6 +386,14 @@ export interface ChannelsState {
   wechatIsTesting: boolean
   wechatTestResult: { success: boolean; message: string } | null
 
+  // SeaTalk state
+  seatalk: SeaTalkConfig | null
+  seatalkIsLoading: boolean
+  seatalkGatewayStatus: SeaTalkGatewayStatusResponse
+  seatalkHasChanges: boolean
+  seatalkIsTesting: boolean
+  seatalkTestResult: { success: boolean; message: string } | null
+
   // Actions
   loadConfig: () => Promise<void>
   saveDiscordConfig: (config: DiscordConfig) => Promise<void>
@@ -417,6 +460,16 @@ export interface ChannelsState {
   clearWechatTestResult: () => void
   setWechatHasChanges: (hasChanges: boolean) => void
 
+  // SeaTalk actions
+  loadSeaTalkConfig: () => Promise<void>
+  saveSeaTalkConfig: (config: SeaTalkConfig) => Promise<void>
+  startSeaTalkGateway: () => Promise<void>
+  stopSeaTalkGateway: () => Promise<void>
+  refreshSeaTalkStatus: () => Promise<void>
+  testSeaTalkCredentials: (appId: string, appSecret: string) => Promise<boolean>
+  clearSeaTalkTestResult: () => void
+  setSeaTalkHasChanges: (hasChanges: boolean) => void
+
   // Toggle enabled and persist immediately
   toggleDiscordEnabled: (enabled: boolean, config: DiscordConfig) => Promise<void>
   toggleFeishuEnabled: (enabled: boolean, config: FeishuConfig) => Promise<void>
@@ -424,6 +477,7 @@ export interface ChannelsState {
   toggleKookEnabled: (enabled: boolean, config: KookConfig) => Promise<void>
   toggleWecomEnabled: (enabled: boolean, config: WeComConfig) => Promise<void>
   toggleWechatEnabled: (enabled: boolean, config: WeChatConfig) => Promise<void>
+  toggleSeaTalkEnabled: (enabled: boolean, config: SeaTalkConfig) => Promise<void>
 
   // Auto-start enabled gateways
   autoStartEnabledGateways: () => Promise<void>

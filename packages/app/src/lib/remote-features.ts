@@ -177,6 +177,7 @@ function normalizeChannels(value: boolean | ChannelsFeatureConfig | undefined): 
       kook: value,
       wecom: value,
       wechat: value,
+      seatalk: value,
     };
   }
   return value;
@@ -218,6 +219,7 @@ function resolveFrom(patches: RemoteFeaturePatch[]): ResolvedFeatures {
       kook: merged.channels?.kook ?? channels.kook,
       wecom: merged.channels?.wecom ?? channels.wecom,
       wechat: merged.channels?.wechat ?? channels.wechat,
+      seatalk: merged.channels?.seatalk ?? channels.seatalk,
     },
     teamShareBrowser: merged.teamShareBrowser ?? base.teamShareBrowser ?? false,
     apps: merged.apps ?? base.apps ?? false,

@@ -6,12 +6,14 @@ import type {
   KookConfig,
   WeComConfig,
   WeChatConfig,
+  SeaTalkConfig,
   GatewayStatusResponse,
   FeishuGatewayStatusResponse,
   EmailGatewayStatusResponse,
   KookGatewayStatusResponse,
   WeComGatewayStatusResponse,
   WeChatGatewayStatusResponse,
+  SeaTalkGatewayStatusResponse,
   ChannelsState,
 } from './channels-types'
 import {
@@ -21,6 +23,7 @@ import {
   defaultEmailConfig,
   defaultWeComConfig,
   defaultWeChatConfig,
+  defaultSeaTalkConfig,
 } from './channels-types'
 import { createDiscordActions } from './channels/discord'
 import { createFeishuActions } from './channels/feishu'
@@ -28,6 +31,7 @@ import { createEmailActions } from './channels/email'
 import { createKookActions } from './channels/kook'
 import { createWecomActions } from './channels/wecom'
 import { createWechatActions } from './channels/wechat'
+import { createSeaTalkActions } from './channels/seatalk'
 import {
   listChannels,
   loadChannelConfig,
@@ -89,6 +93,15 @@ function wecomStatus(list: AmuxdChannelStatus[]): WeComGatewayStatusResponse {
 
 function wechatStatus(list: AmuxdChannelStatus[]): WeChatGatewayStatusResponse {
   const entry = list.find((c) => c.platform === 'wechat')
+  if (!entry) return { status: 'disconnected' }
+  if (entry.lastError) return { status: 'error', errorMessage: entry.lastError }
+  if (entry.connected) return { status: 'connected' }
+  if (entry.enabled) return { status: 'connecting' }
+  return { status: 'disconnected' }
+}
+
+function seatalkStatus(list: AmuxdChannelStatus[]): SeaTalkGatewayStatusResponse {
+  const entry = list.find((c) => c.platform === 'seatalk')
   if (!entry) return { status: 'disconnected' }
   if (entry.lastError) return { status: 'error', errorMessage: entry.lastError }
   if (entry.connected) return { status: 'connected' }
@@ -159,6 +172,14 @@ export const useChannelsStore = create<ChannelsState>((set) => ({
   emailTestResult: null,
   gmailAuthUrl: null,
 
+  // SeaTalk initial state
+  seatalk: null,
+  seatalkIsLoading: false,
+  seatalkGatewayStatus: { status: 'disconnected' },
+  seatalkHasChanges: false,
+  seatalkIsTesting: false,
+  seatalkTestResult: null,
+
   // Compose all channel actions
   ...createDiscordActions(set),
   ...createFeishuActions(set),
@@ -166,6 +187,7 @@ export const useChannelsStore = create<ChannelsState>((set) => ({
   ...createKookActions(set),
   ...createWecomActions(set),
   ...createWechatActions(set),
+  ...createSeaTalkActions(set),
 
   // ========== Shared gateway logic ==========
 
@@ -183,6 +205,7 @@ export const useChannelsStore = create<ChannelsState>((set) => ({
         kookConfig,
         wecomConfig,
         wechatConfig,
+        seatalkConfig,
       ] = await Promise.all([
         listChannels(),
         loadChannelConfig<DiscordConfig>('discord'),
@@ -191,6 +214,7 @@ export const useChannelsStore = create<ChannelsState>((set) => ({
         loadChannelConfig<KookConfig>('kook'),
         loadChannelConfig<WeComConfig>('wecom'),
         loadChannelConfig<WeChatConfig>('wechat'),
+        loadChannelConfig<SeaTalkConfig>('seatalk'),
       ])
       set({
         discord: { ...defaultDiscordConfig, ...discordConfig },
@@ -205,6 +229,8 @@ export const useChannelsStore = create<ChannelsState>((set) => ({
         wecomGatewayStatus: wecomStatus(list),
         wechat: { ...defaultWeChatConfig, ...wechatConfig },
         wechatGatewayStatus: wechatStatus(list),
+        seatalk: { ...defaultSeaTalkConfig, ...seatalkConfig },
+        seatalkGatewayStatus: seatalkStatus(list),
         error: null,
         isLoading: false,
         hasChanges: false,
@@ -212,6 +238,7 @@ export const useChannelsStore = create<ChannelsState>((set) => ({
         emailHasChanges: false,
         wecomHasChanges: false,
         wechatHasChanges: false,
+        seatalkHasChanges: false,
       })
     } catch (error) {
       set({
@@ -268,6 +295,12 @@ export const useChannelsStore = create<ChannelsState>((set) => ({
       wechatHasChanges: false,
       wechatIsTesting: false,
       wechatTestResult: null,
+      seatalk: null,
+      seatalkIsLoading: false,
+      seatalkGatewayStatus: { status: 'disconnected' },
+      seatalkHasChanges: false,
+      seatalkIsTesting: false,
+      seatalkTestResult: null,
     })
   },
 

@@ -34,10 +34,9 @@ permissions:
   contents: read
   packages: write
 
-concurrency:
-  group: daemon-deploy
-  cancel-in-progress: true
-
+# Shared with self-host-deploy.yml so both never reset /opt/teamclaw at once.
+# cancel-in-progress is false at the ECS gate (deploy job); build may still
+# cancel newer superseding builds via its own group below.
 env:
   REGISTRY: ghcr.io
   IMAGE_NAME: teamclaw-amuxd
@@ -47,6 +46,9 @@ jobs:
   build:
     name: Build & push image
     runs-on: ubuntu-latest
+    concurrency:
+      group: daemon-build
+      cancel-in-progress: true
     outputs:
       image_tag: ${{ steps.meta.outputs.version }}
     steps:
@@ -87,6 +89,10 @@ jobs:
     name: Deploy to ECS
     needs: build
     runs-on: ubuntu-latest
+    # Serialize with self-host-deploy; never cancel mid docker load / compose up.
+    concurrency:
+      group: selfhost-ecs
+      cancel-in-progress: false
     environment: self-host-production
     env:
       AMUXD_IMAGE: ghcr.io/${{ github.repository_owner }}/teamclaw-amuxd:self-host
@@ -155,7 +161,7 @@ jobs:
             cd deploy/self-host
 
             upsert_env() {
-              [ -n "$2" ] || { echo "  skip $1 (empty)"; return 0; }
+              [ -n "$2" ] || { echo "  keep $1 (secret empty, leave existing)"; return 0; }
               if grep -q "^$1=" .env; then
                 awk -v k="$1" -v v="$2" 'BEGIN{FS=OFS="="} $1==k{print k"="v; next}{print}' .env > .env.tmp && mv .env.tmp .env
               else
@@ -163,15 +169,31 @@ jobs:
               fi
               echo "  set $1"
             }
+            # Empty value deletes the key (same as self-host-deploy sync_env).
+            # OPENCODE_* must clear so removing the GitHub secret actually
+            # returns the box to presence-only; AMUXD_JOIN_TOKEN stays on
+            # upsert_env because identity already lives in the volume.
+            sync_env() {
+              if [ -z "$2" ]; then
+                if grep -q "^$1=" .env; then
+                  grep -v "^$1=" .env > .env.tmp && mv .env.tmp .env
+                  echo "  cleared $1 (secret empty)"
+                else
+                  echo "  skip $1 (empty, absent)"
+                fi
+                return 0
+              fi
+              upsert_env "$1" "$2"
+            }
 
-            echo "=== sync daemon env (presence-only when OPENCODE_* secrets empty) ==="
+            echo "=== sync daemon env (OPENCODE_* cleared when secrets empty → presence-only) ==="
             upsert_env AMUXD_IMAGE "$AMUXD_IMAGE"
             upsert_env AMUXD_JOIN_TOKEN "$AMUXD_JOIN_TOKEN"
-            upsert_env OPENCODE_BASE_URL "$OPENCODE_BASE_URL"
-            upsert_env OPENCODE_API_KEY "$OPENCODE_API_KEY"
-            upsert_env OPENCODE_MODEL "$OPENCODE_MODEL"
-            upsert_env OPENCODE_PROVIDER_ID "$OPENCODE_PROVIDER_ID"
-            upsert_env OPENCODE_PROVIDER_NAME "$OPENCODE_PROVIDER_NAME"
+            sync_env OPENCODE_BASE_URL "$OPENCODE_BASE_URL"
+            sync_env OPENCODE_API_KEY "$OPENCODE_API_KEY"
+            sync_env OPENCODE_MODEL "$OPENCODE_MODEL"
+            sync_env OPENCODE_PROVIDER_ID "$OPENCODE_PROVIDER_ID"
+            sync_env OPENCODE_PROVIDER_NAME "$OPENCODE_PROVIDER_NAME"
 
             echo "=== ensure fc + emqx healthy ==="
             docker compose up -d fc emqx
@@ -182,6 +204,9 @@ jobs:
 
             echo "=== recreate amuxd (image streamed from CI) ==="
             docker compose --profile daemon up -d --pull never --remove-orphans amuxd
+
+            echo "=== prune dangling images from docker load ==="
+            docker image prune -f
 
             echo "=== amuxd smoke ==="
             sh smoke/amuxd-smoke.sh

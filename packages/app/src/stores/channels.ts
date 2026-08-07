@@ -41,6 +41,9 @@ export type {
   WeChatConfig,
   WeChatGatewayStatus,
   WeChatGatewayStatusResponse,
+  SeaTalkConfig,
+  SeaTalkGatewayStatus,
+  SeaTalkGatewayStatusResponse,
   ChannelsConfig,
   GatewayStatusResponse,
   ChannelsState,
@@ -56,4 +59,5 @@ export {
   defaultKookDmConfig,
   defaultKookConfig,
   defaultEmailConfig,
+  defaultSeaTalkConfig,
 } from './channels-types'

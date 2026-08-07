@@ -8,6 +8,8 @@ use crate::proto::amux;
 pub enum IncomingMessage {
     // Decoded from amux/{team}/{actor}/runtime/+/commands.
     RuntimeCommand {
+        /// Target agent actor from the topic (`parts[2]`).
+        actor_id: String,
         runtime_id: String,
         envelope: amux::RuntimeCommandEnvelope,
     },
@@ -82,10 +84,12 @@ pub fn parse_frame(frame: &IncomingFrame) -> Option<IncomingMessage> {
         // amux / {team} / {actor} / runtime / {runtime_id} / commands
         // = 6 segments
         if parts.len() == 6 && parts[3] == "runtime" {
+            let actor_id = parts[2].to_string();
             let runtime_id = parts[4].to_string();
             match amux::RuntimeCommandEnvelope::decode(payload.as_slice()) {
                 Ok(envelope) => {
                     return Some(IncomingMessage::RuntimeCommand {
+                        actor_id,
                         runtime_id,
                         envelope,
                     });
@@ -118,7 +122,12 @@ mod tests {
         );
         let msg = parse_incoming(&p).expect("should parse");
         match msg {
-            IncomingMessage::RuntimeCommand { runtime_id, .. } => {
+            IncomingMessage::RuntimeCommand {
+                actor_id,
+                runtime_id,
+                ..
+            } => {
+                assert_eq!(actor_id, "actor-a");
                 assert_eq!(runtime_id, "rt1");
             }
             _ => panic!("wrong variant"),

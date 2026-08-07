@@ -58,7 +58,7 @@ async fn send_broadcast(
     let config = crate::config::read_teamclaw_config(workspace)?;
     let channels_val = config.get("channels").cloned().unwrap_or(json!({}));
 
-    let channel_names = ["wecom", "discord", "feishu", "kook", "wechat"];
+    let channel_names = ["wecom", "discord", "feishu", "kook", "wechat", "seatalk"];
     let mut results = serde_json::Map::new();
     let mut sent_count = 0usize;
     let mut failed_count = 0usize;

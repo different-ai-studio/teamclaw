@@ -6,7 +6,8 @@ export type ChannelPlatform =
   | "feishu"
   | "kook"
   | "wechat"
-  | "email";
+  | "email"
+  | "seatalk";
 
 export interface ChannelStatus {
   platform: ChannelPlatform;
@@ -92,6 +93,19 @@ function toDaemonConfig(platform: ChannelPlatform, config: ChannelConfig): Chann
         app_id: String(config.appId ?? ""),
         app_secret: String(config.appSecret ?? ""),
       };
+    case "seatalk":
+      return {
+        enabled: Boolean(config.enabled),
+        app_id: String(config.appId ?? ""),
+        app_secret: String(config.appSecret ?? ""),
+        mode: String(config.mode ?? "websocket"),
+        dm_policy: String(config.dmPolicy ?? "open"),
+        allow_from: Array.isArray(config.allowFrom) ? config.allowFrom : [],
+        group_policy: String(config.groupPolicy ?? "open"),
+        group_allow_from: Array.isArray(config.groupAllowFrom)
+          ? config.groupAllowFrom
+          : [],
+      };
     case "kook":
       return {
         enabled: Boolean(config.enabled),
@@ -165,6 +179,19 @@ function fromDaemonConfig(platform: ChannelPlatform, config: ChannelConfig): Cha
         enabled: Boolean(config.enabled),
         appId: String(config.app_id ?? ""),
         appSecret: String(config.app_secret ?? ""),
+      };
+    case "seatalk":
+      return {
+        enabled: Boolean(config.enabled),
+        appId: String(config.app_id ?? ""),
+        appSecret: String(config.app_secret ?? ""),
+        mode: String(config.mode ?? "websocket"),
+        dmPolicy: String(config.dm_policy ?? "open"),
+        allowFrom: Array.isArray(config.allow_from) ? config.allow_from : [],
+        groupPolicy: String(config.group_policy ?? "open"),
+        groupAllowFrom: Array.isArray(config.group_allow_from)
+          ? config.group_allow_from
+          : [],
       };
     case "kook":
       return {

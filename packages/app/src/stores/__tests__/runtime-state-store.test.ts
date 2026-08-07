@@ -229,6 +229,55 @@ describe('runtime-state-store', () => {
     expect(notifications).toBe(1)
   })
 
+  it('batches an actor-state burst delivered as separate mqtt:envelopes emits into one notification', async () => {
+    // TEAMCLAW-REACT-72/85/7N: a reconnect retain flood is not guaranteed to
+    // arrive as a single `mqtt:envelopes` batch — Tauri can emit it as several
+    // back-to-back events, each its own macrotask. `queueMicrotask` only
+    // coalesces updates within the SAME synchronous callback, so a second
+    // emit landing on its own macrotask used to slip past an already-flushed
+    // microtask and trigger its own extra `set()` — one more React commit per
+    // emit, tight enough to blow React's nested-update limit. The `setTimeout`
+    // flush must instead pick up any emit that lands before it fires,
+    // regardless of which macrotask it arrived on.
+    const { useRuntimeStateStore } = await import('../runtime-state-store')
+    await acquireRuntimeStateStoreForTest('team-1')
+
+    let notifications = 0
+    const unsubscribe = useRuntimeStateStore.subscribe(() => {
+      notifications += 1
+    })
+
+    const presenceA = create(ActorPresenceSchema, {
+      liveSessions: [create(LiveSessionSchema, { sessionId: 'session-a', worktree: '/w' })],
+    })
+    const presenceB = create(ActorPresenceSchema, {
+      liveSessions: [create(LiveSessionSchema, { sessionId: 'session-b', worktree: '/w' })],
+    })
+
+    // Registered first, so it lands in the macrotask queue ahead of the flush
+    // timer that the first envelope below schedules — simulating a second,
+    // separate `mqtt:envelopes` emit that arrives before the pending flush.
+    setTimeout(() => {
+      envelopeHandler!({
+        topic: 'amux/team-1/dev-b/state',
+        bytes: Array.from(toBinary(ActorPresenceSchema, presenceB)),
+      })
+    }, 0)
+
+    envelopeHandler!({
+      topic: 'amux/team-1/dev-a/state',
+      bytes: Array.from(toBinary(ActorPresenceSchema, presenceA)),
+    })
+
+    await new Promise((r) => setTimeout(r, 20))
+    unsubscribe()
+
+    const store = useRuntimeStateStore.getState().byRuntimeId
+    expect(store['dev-a::session-a']).toBeTruthy()
+    expect(store['dev-b::session-b']).toBeTruthy()
+    expect(notifications).toBe(1)
+  })
+
   it('upsert preserves entries under distinct composite keys', async () => {
     const { useRuntimeStateStore } = await import('../runtime-state-store')
 

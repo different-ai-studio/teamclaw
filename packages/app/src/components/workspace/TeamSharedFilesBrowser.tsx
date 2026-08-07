@@ -148,6 +148,7 @@ export function TeamSharedFilesBrowser({
       }>('team_shared_git_sync', {
         config: { workspacePath },
         force: false,
+        forceSync: true,
       })
       if (result.success) {
         toast.success(result.message)

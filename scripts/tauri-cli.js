@@ -6,12 +6,16 @@ const path = require("path");
 const { createRustBuildEnv } = require("./rust-build-env");
 const { ensureTeamclawIntrospectSidecar } = require("./ensure-introspect-sidecar");
 const { ensureAmuxdSidecar } = require("./ensure-amuxd-sidecar");
-const { ensureAgentBridgeBundles } = require("./ensure-agent-bridge-bundles");
+const {
+  ensureAgentBridgeBundles,
+  extractTargetFromArgv,
+} = require("./ensure-agent-bridge-bundles");
 const { platform } = process;
 
 let args = process.argv.slice(2);
 const isWindows = platform === "win32";
 const sub = args[0];
+const bridgeTarget = extractTargetFromArgv(args);
 
 /**
  * Strip desktop-dev-only flags and expose them via env before sidecars / tauri run.
@@ -20,12 +24,16 @@ const sub = args[0];
  *   pnpm tauri:dev -- --skip-setup
  *   pnpm tauri:dev -- --skip-daemon-onboarding
  *   pnpm tauri:dev -- --force-amuxd
+ *   pnpm tauri:dev -- --force-introspect
  *   pnpm tauri:dev:daemon
+ *   pnpm tauri:dev:introspect
  *
  * Aliases: --skip-onboarding → --skip-daemon-onboarding
  *          --rebuild-daemon / --rebuild-amuxd → --force-amuxd
+ *          --rebuild-introspect → --force-introspect
  * Env fallbacks: TEAMCLAW_SKIP_SETUP=1, TEAMCLAW_SKIP_DAEMON_ONBOARDING=1,
- *                TEAMCLAW_FORCE_AMUXD_SIDECAR=1
+ *                TEAMCLAW_FORCE_AMUXD_SIDECAR=1,
+ *                TEAMCLAW_FORCE_INTROSPECT_SIDECAR=1
  */
 function applyDevSkipFlags(argv, env) {
   if (argv[0] !== "dev") {
@@ -40,6 +48,9 @@ function applyDevSkipFlags(argv, env) {
   let forceAmuxd =
     env.TEAMCLAW_FORCE_AMUXD_SIDECAR === "1" ||
     env.TEAMCLAW_FORCE_AMUXD_SIDECAR === "true";
+  let forceIntrospect =
+    env.TEAMCLAW_FORCE_INTROSPECT_SIDECAR === "1" ||
+    env.TEAMCLAW_FORCE_INTROSPECT_SIDECAR === "true";
 
   const filtered = [];
   for (const arg of argv) {
@@ -59,6 +70,10 @@ function applyDevSkipFlags(argv, env) {
       forceAmuxd = true;
       continue;
     }
+    if (arg === "--force-introspect" || arg === "--rebuild-introspect") {
+      forceIntrospect = true;
+      continue;
+    }
     filtered.push(arg);
   }
 
@@ -71,10 +86,13 @@ function applyDevSkipFlags(argv, env) {
   if (forceAmuxd) {
     env.TEAMCLAW_FORCE_AMUXD_SIDECAR = "1";
   }
+  if (forceIntrospect) {
+    env.TEAMCLAW_FORCE_INTROSPECT_SIDECAR = "1";
+  }
 
-  if (skipSetup || skipDaemonOnboarding || forceAmuxd) {
+  if (skipSetup || skipDaemonOnboarding || forceAmuxd || forceIntrospect) {
     console.log(
-      `[tauri-cli] dev flags: setup_skip=${skipSetup}, daemon_onboarding_skip=${skipDaemonOnboarding}, force_amuxd=${forceAmuxd}`,
+      `[tauri-cli] dev flags: setup_skip=${skipSetup}, daemon_onboarding_skip=${skipDaemonOnboarding}, force_amuxd=${forceAmuxd}, force_introspect=${forceIntrospect}`,
     );
   }
 
@@ -106,7 +124,10 @@ const env = createRustBuildEnv(process.env, __dirname);
 args = applyDevSkipFlags(args, env);
 ensureTeamclawIntrospectSidecar(env, { logPrefix: "[tauri-cli]" });
 ensureAmuxdSidecar(env, { logPrefix: "[tauri-cli]" });
-ensureAgentBridgeBundles(env, { logPrefix: "[tauri-cli]" });
+ensureAgentBridgeBundles(env, {
+  logPrefix: "[tauri-cli]",
+  target: bridgeTarget,
+});
 
 const desktopDir = path.resolve(__dirname, "..", "apps", "desktop");
 const child = spawn("pnpm", ["exec", "tauri", ...args], {

@@ -4,6 +4,7 @@ use std::collections::HashMap;
 use crate::email_config::EmailConfig;
 use crate::feishu_config::FeishuConfig;
 use crate::kook_config::KookConfig;
+use crate::seatalk_config::SeaTalkConfig;
 use crate::wechat_config::WeChatConfig;
 use crate::wecom_config::WeComConfig;
 
@@ -16,6 +17,7 @@ pub struct ChannelsConfig {
     pub kook: Option<KookConfig>,
     pub wechat: Option<WeChatConfig>,
     pub wecom: Option<WeComConfig>,
+    pub seatalk: Option<SeaTalkConfig>,
 }
 
 /// Discord channel configuration (mirrors OpenClaw structure)

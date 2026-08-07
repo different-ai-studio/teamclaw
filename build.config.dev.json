@@ -17,7 +17,8 @@
       "email": true,
       "kook": true,
       "wecom": true,
-      "wechat": true
+      "wechat": true,
+      "seatalk": true
     },
     "auth": {
       "google": true,

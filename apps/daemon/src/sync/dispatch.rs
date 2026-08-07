@@ -27,11 +27,16 @@ pub struct SyncStatus {
     /// means the sync cursor is deliberately being held back so they get
     /// retried, and the UI should not present the tick as fully clean.
     pub failed: u32,
+    /// Set when sync was skipped because `team_share.auto_sync` is disabled.
+    #[serde(default)]
+    pub skipped: bool,
 }
 
 #[derive(Debug, Clone, Copy, Default)]
 pub struct SyncOptions {
     pub wipe_non_git: bool,
+    /// When `true`, run sync even if `team_share.auto_sync` is `false`.
+    pub force: bool,
 }
 
 #[derive(Clone)]
@@ -160,12 +165,19 @@ impl SyncDispatcher {
         let mut s = self.status.lock().await;
         let entry = s.entry(team_id.to_string()).or_default();
         match result {
+            Ok(st) if st.skipped => {
+                // auto_sync off: do not replace cached mode/errors/counts with defaults.
+                entry.syncing = false;
+                entry.skipped = true;
+            }
             Ok(mut st) => {
                 st.syncing = false;
+                st.skipped = false;
                 *entry = st;
             }
             Err(e) => {
                 entry.syncing = false;
+                entry.skipped = false;
                 entry.last_error = Some(e);
             }
         }
@@ -178,6 +190,14 @@ impl SyncDispatcher {
         _workspace_path: &str,
         options: SyncOptions,
     ) -> Result<SyncStatus, String> {
+        if !options.force && !crate::config::DaemonConfig::team_share_auto_sync_enabled_from_disk()
+        {
+            return Ok(SyncStatus {
+                skipped: true,
+                last_sync_at: now_rfc3339(),
+                ..Default::default()
+            });
+        }
         use crate::sync::{git, oss};
         // Config (mode + git url + auth kind) comes from FC; the git branch +
         // credential come from the per-team secret store (FC does not surface
@@ -367,6 +387,72 @@ mod tests {
             .unwrap_err();
         assert!(err.contains("managed-git credential"), "got: {err}");
     }
+    #[tokio::test]
+    async fn auto_sync_disabled_skips_without_backend() {
+        let tmp = tempfile::tempdir().unwrap();
+        let config_path = tmp.path().join("daemon.toml");
+        let mut cfg = crate::config::DaemonConfig::bootstrap();
+        cfg.team_share.auto_sync = false;
+        cfg.save(&config_path).unwrap();
+
+        let orig = std::env::var("AMUXD_HOME").ok();
+        std::env::set_var("AMUXD_HOME", tmp.path());
+
+        let (d, _backend) = dispatcher_with_mock(&tmp);
+        let st = d
+            .sync_team("t", "/tmp/ws", SyncOptions { force: false, ..Default::default() })
+            .await;
+        assert!(st.skipped);
+        assert!(st.last_error.is_none());
+
+        if let Some(v) = orig {
+            std::env::set_var("AMUXD_HOME", v);
+        } else {
+            std::env::remove_var("AMUXD_HOME");
+        }
+    }
+
+    #[tokio::test]
+    async fn auto_sync_disabled_skip_preserves_cached_status() {
+        let tmp = tempfile::tempdir().unwrap();
+        let config_path = tmp.path().join("daemon.toml");
+        let mut cfg = crate::config::DaemonConfig::bootstrap();
+        cfg.team_share.auto_sync = true;
+        cfg.save(&config_path).unwrap();
+
+        let orig = std::env::var("AMUXD_HOME").ok();
+        std::env::set_var("AMUXD_HOME", tmp.path());
+
+        let store = SecretStore::with_base(tmp.path().to_path_buf());
+        let d = SyncDispatcher::new(store, None);
+        let err_st = d
+            .sync_team(
+                "t",
+                "/tmp/ws",
+                SyncOptions {
+                    force: true,
+                    ..Default::default()
+                },
+            )
+            .await;
+        assert!(err_st.last_error.is_some());
+
+        cfg.team_share.auto_sync = false;
+        cfg.save(&config_path).unwrap();
+
+        let st = d
+            .sync_team("t", "/tmp/ws", SyncOptions { force: false, ..Default::default() })
+            .await;
+        assert!(st.skipped);
+        assert!(st.last_error.is_some());
+
+        if let Some(v) = orig {
+            std::env::set_var("AMUXD_HOME", v);
+        } else {
+            std::env::remove_var("AMUXD_HOME");
+        }
+    }
+
     #[test]
     fn fc_endpoint_errors_without_backend() {
         let d = SyncDispatcher::new(crate::sync::secret_store::SecretStore::new(), None);

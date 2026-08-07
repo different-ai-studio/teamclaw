@@ -558,8 +558,11 @@ impl DaemonServer {
             crate::team_link::materialize_or_teardown(gate, team_id, &resolved_worktree);
         }
 
-        if let Some(config) = load_team_shared_config_for_workspace(Path::new(&resolved_worktree)) {
-            sync_team_shared_dir_for_workspace(Path::new(&resolved_worktree), &config);
+        if crate::config::DaemonConfig::team_share_auto_sync_enabled_from_disk() {
+            if let Some(config) = load_team_shared_config_for_workspace(Path::new(&resolved_worktree))
+            {
+                sync_team_shared_dir_for_workspace(Path::new(&resolved_worktree), &config);
+            }
         }
 
         // Refresh-watch suppress for opencode.json is owned by
@@ -634,6 +637,17 @@ impl DaemonServer {
                 });
             }
         };
+
+        // Belt-and-suspenders: env snapshot usually stamps owner_actor_id, but
+        // gateway / bare spawns may omit it. Command resolve keys on this field.
+        {
+            let mut agents = self.agents.lock().await;
+            if let Some(h) = agents.get_handle_mut(&new_id) {
+                if h.owner_actor_id.is_empty() {
+                    h.owner_actor_id = self.actor_id.clone();
+                }
+            }
+        }
 
         if !session_id.is_empty() {
             if let Err(e) = teamclaw_runtime_env::write_active_session_id(

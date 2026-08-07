@@ -82,6 +82,13 @@ jobs:
           mkdir -p apps/desktop/binaries
           touch apps/desktop/binaries/teamclaw-introspect-x86_64-unknown-linux-gnu
           touch apps/desktop/binaries/amuxd-x86_64-unknown-linux-gnu
+          # `resources` in tauri.conf.json globs binaries/{cursor,claude}-bridge/**/*.
+          # The whole binaries/ dir is gitignored, so on a fresh checkout those
+          # globs resolve to nothing and tauri-build fails the build script —
+          # before clippy ever runs. A glob needs a file, not just the directory.
+          mkdir -p apps/desktop/binaries/cursor-bridge apps/desktop/binaries/claude-bridge
+          touch apps/desktop/binaries/cursor-bridge/.keep
+          touch apps/desktop/binaries/claude-bridge/.keep
 
       - name: Check Rust formatting
         run: cargo fmt --check --manifest-path apps/desktop/Cargo.toml

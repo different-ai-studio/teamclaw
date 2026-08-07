@@ -410,6 +410,7 @@ pub fn run() {
             commands::gateway::load_channel_config,
             commands::gateway::save_channel_config,
             commands::gateway::reload_channels,
+            commands::gateway::test_seatalk_credentials,
             commands::gateway::qr::start_wechat_qr_login,
             commands::gateway::qr::poll_wechat_qr_status,
             commands::gateway::qr::start_wecom_qr_auth,
@@ -625,16 +626,14 @@ pub fn run() {
             // for its internal `tokio::spawn` polling loop.
             app.handle().plugin(tauri_plugin_aptabase::Builder::new("A-US-9094113207").build())?;
 
-            // Start RAG HTTP API server for MCP bridge
-            let rag_state_handle = app.handle().state::<commands::knowledge::RagState>();
-            let rag_state_for_http = std::sync::Arc::new(rag_state_handle.inner().clone());
-
-            tauri::async_runtime::spawn(async move {
-                if let Err(e) = commands::rag_http_server::start_http_server(rag_state_for_http, 13143).await {
-                    sentry_utils::capture_err("[RAG HTTP] Failed to start HTTP server", &e);
-                    eprintln!("[RAG HTTP] Failed to start HTTP server: {}", e);
-                }
-            });
+            // The RAG surface agents actually use is served by the introspect
+            // API below (`/knowledge-search`, `/knowledge-add`,
+            // `/knowledge-list` on 13144). A second HTTP server on 13143
+            // exposed the same store under `/api/rag/*` for an "MCP bridge"
+            // that no longer exists — nothing in the repo, the sidecar
+            // binaries, or any MCP config ever called it. All it still did was
+            // fail to bind on relaunch and report it (Sentry TEAMCLAW-2, the
+            // loudest Rust issue we had), so it is gone.
 
             // Start introspect MCP internal API server
             {
