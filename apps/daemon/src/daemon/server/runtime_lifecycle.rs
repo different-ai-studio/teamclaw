@@ -638,6 +638,17 @@ impl DaemonServer {
             }
         };
 
+        // Belt-and-suspenders: env snapshot usually stamps owner_actor_id, but
+        // gateway / bare spawns may omit it. Command resolve keys on this field.
+        {
+            let mut agents = self.agents.lock().await;
+            if let Some(h) = agents.get_handle_mut(&new_id) {
+                if h.owner_actor_id.is_empty() {
+                    h.owner_actor_id = self.actor_id.clone();
+                }
+            }
+        }
+
         if !session_id.is_empty() {
             if let Err(e) = teamclaw_runtime_env::write_active_session_id(
                 Path::new(&resolved_worktree),
