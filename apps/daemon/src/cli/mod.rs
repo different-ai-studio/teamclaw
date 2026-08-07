@@ -333,6 +333,13 @@ pub enum ChannelBindPlatform {
         #[arg(long)]
         smtp_pass: String,
     },
+    /// Bind a SeaTalk Open Platform bot.
+    Seatalk {
+        #[arg(long)]
+        app_id: String,
+        #[arg(long)]
+        app_secret: String,
+    },
 }
 
 #[derive(Subcommand)]

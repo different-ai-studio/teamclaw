@@ -410,6 +410,7 @@ pub fn run() {
             commands::gateway::load_channel_config,
             commands::gateway::save_channel_config,
             commands::gateway::reload_channels,
+            commands::gateway::test_seatalk_credentials,
             commands::gateway::qr::start_wechat_qr_login,
             commands::gateway::qr::poll_wechat_qr_status,
             commands::gateway::qr::start_wecom_qr_auth,

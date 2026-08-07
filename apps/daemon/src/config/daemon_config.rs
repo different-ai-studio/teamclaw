@@ -352,6 +352,8 @@ pub struct ChannelsConfig {
     pub wechat: Option<WeChatChannel>,
     #[serde(default)]
     pub email: Option<EmailChannel>,
+    #[serde(default)]
+    pub seatalk: Option<SeaTalkChannel>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -440,6 +442,38 @@ pub struct WeChatChannel {
     pub enabled: bool,
     pub ilink_account: String,
     pub ilink_token: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SeaTalkChannel {
+    pub enabled: bool,
+    pub app_id: String,
+    pub app_secret: String,
+    /// `websocket` (default) or `webhook`
+    #[serde(default = "default_seatalk_mode")]
+    pub mode: String,
+    /// `open` | `allowlist`
+    #[serde(default = "default_seatalk_dm_policy")]
+    pub dm_policy: String,
+    #[serde(default)]
+    pub allow_from: Vec<String>,
+    /// `disabled` | `allowlist` | `open`
+    #[serde(default = "default_seatalk_group_policy")]
+    pub group_policy: String,
+    #[serde(default)]
+    pub group_allow_from: Vec<String>,
+}
+
+fn default_seatalk_mode() -> String {
+    "websocket".to_string()
+}
+
+fn default_seatalk_dm_policy() -> String {
+    "open".to_string()
+}
+
+fn default_seatalk_group_policy() -> String {
+    "open".to_string()
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

@@ -235,6 +235,7 @@ impl DaemonServer {
                 "kook" => cfg.kook.as_ref().map(|c| c.enabled).unwrap_or(false),
                 "wechat" => cfg.wechat.as_ref().map(|c| c.enabled).unwrap_or(false),
                 "email" => cfg.email.as_ref().map(|c| c.enabled).unwrap_or(false),
+                "seatalk" => cfg.seatalk.as_ref().map(|c| c.enabled).unwrap_or(false),
                 _ => false,
             }
         };
@@ -248,6 +249,7 @@ impl DaemonServer {
                 ("kook", false, None),
                 ("wechat", false, None),
                 ("email", false, None),
+                ("seatalk", false, None),
             ],
         };
 
@@ -391,6 +393,11 @@ impl DaemonServer {
                     let v: crate::config::EmailChannel = serde_json::from_str(config_json)
                         .map_err(|e| format!("parse email: {e}"))?;
                     self.config.channels.email = Some(v);
+                }
+                "seatalk" => {
+                    let v: crate::config::SeaTalkChannel = serde_json::from_str(config_json)
+                        .map_err(|e| format!("parse seatalk: {e}"))?;
+                    self.config.channels.seatalk = Some(v);
                 }
                 other => {
                     return Err(format!("unknown platform '{other}'"));

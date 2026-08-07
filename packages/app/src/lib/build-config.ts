@@ -22,6 +22,7 @@ export interface ChannelsFeatureConfig {
   kook: boolean
   wecom: boolean
   wechat: boolean
+  seatalk: boolean
 }
 
 export interface TeamModelOption {
@@ -131,6 +132,7 @@ const allChannelsEnabled: ChannelsFeatureConfig = {
   kook: true,
   wecom: true,
   wechat: true,
+  seatalk: true,
 }
 
 /**
@@ -140,7 +142,7 @@ export function resolveChannelsConfig(channels: boolean | ChannelsFeatureConfig)
   if (typeof channels === 'boolean') {
     return channels
       ? { ...allChannelsEnabled }
-      : { discord: false, feishu: false, email: false, kook: false, wecom: false, wechat: false }
+      : { discord: false, feishu: false, email: false, kook: false, wecom: false, wechat: false, seatalk: false }
   }
   return channels
 }
