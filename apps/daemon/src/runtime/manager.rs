@@ -655,6 +655,7 @@ impl RuntimeManager {
             .map(|snapshot| snapshot.fingerprint.clone());
         handle.env_snapshot = resolved_env;
         handle.env_team_id = env_team_id;
+        handle.stamp_owner_actor_from_env();
         handle.session_id = remote_session_id.unwrap_or_default().to_string();
         // No static fallback: models come only from the live serve catalog
         // captured at attach time. Empty until the runtime advertises them.
@@ -799,6 +800,7 @@ impl RuntimeManager {
             .map(|snapshot| snapshot.fingerprint.clone());
         handle.env_snapshot = resolved_env;
         handle.env_team_id = env_team_id;
+        handle.stamp_owner_actor_from_env();
         handle.session_id = remote_session_id.unwrap_or_default().to_string();
         handle.is_gateway = is_gateway;
 
@@ -1351,11 +1353,31 @@ impl RuntimeManager {
     /// lets commands be addressed by (actor, session) rather than by a spawn id
     /// that goes stale the moment it is written down (ADR-0004).
     pub fn attachment_for_session(&self, session_id: &str) -> Option<&RuntimeHandle> {
+        self.attachment_for_session_actor(session_id, "")
+    }
+
+    /// Session attachment lookup scoped to a cloud actor when `actor_id` is set.
+    /// Among matches, prefer the newest `started_at` (same rule as command
+    /// resolve) so a leaked mid-turn sibling is not picked at random.
+    pub fn attachment_for_session_actor(
+        &self,
+        session_id: &str,
+        actor_id: &str,
+    ) -> Option<&RuntimeHandle> {
         let session_id = session_id.trim();
         if session_id.is_empty() {
             return None;
         }
-        self.agents.values().find(|h| h.session_id == session_id)
+        let actor_id = actor_id.trim();
+        self.agents
+            .values()
+            .filter(|h| {
+                h.session_id == session_id
+                    && (actor_id.is_empty()
+                        || h.owner_actor_id.is_empty()
+                        || h.owner_actor_id == actor_id)
+            })
+            .max_by_key(|h| h.started_at)
     }
 
     /// The sessions this daemon currently holds an attachment for.
@@ -2412,7 +2434,7 @@ mod tests {
         let mut mgr = RuntimeManager::new(RuntimeManager::test_launch_configs(), None);
         mgr.add_test_runtime("76fd9bf2", "76fd9bf2", "54809303-ed5b-4f10-893f-2d0fd2db4e00");
         assert_eq!(
-            mgr.resolve_command_agent_id("76fd9bf2").as_deref(),
+            mgr.resolve_command_agent_id("76fd9bf2", "").as_deref(),
             Some("76fd9bf2")
         );
     }
@@ -2425,7 +2447,7 @@ mod tests {
         let mut mgr = RuntimeManager::new(RuntimeManager::test_launch_configs(), None);
         mgr.add_test_runtime("76fd9bf2", "76fd9bf2", "54809303-ed5b-4f10-893f-2d0fd2db4e00");
         assert_eq!(
-            mgr.resolve_command_agent_id("54809303-ed5b-4f10-893f-2d0fd2db4e00")
+            mgr.resolve_command_agent_id("54809303-ed5b-4f10-893f-2d0fd2db4e00", "")
                 .as_deref(),
             Some("76fd9bf2")
         );
@@ -2435,9 +2457,12 @@ mod tests {
     fn resolve_command_agent_id_accepts_actor_session_composite() {
         let mut mgr = RuntimeManager::new(RuntimeManager::test_launch_configs(), None);
         mgr.add_test_runtime("76fd9bf2", "76fd9bf2", "54809303-ed5b-4f10-893f-2d0fd2db4e00");
+        mgr.get_handle_mut("76fd9bf2").unwrap().owner_actor_id =
+            "614433ab-52dd-4ce3-b5f4-14376f8eb680".into();
         assert_eq!(
             mgr.resolve_command_agent_id(
-                "614433ab-52dd-4ce3-b5f4-14376f8eb680::54809303-ed5b-4f10-893f-2d0fd2db4e00"
+                "614433ab-52dd-4ce3-b5f4-14376f8eb680::54809303-ed5b-4f10-893f-2d0fd2db4e00",
+                "614433ab-52dd-4ce3-b5f4-14376f8eb680",
             )
             .as_deref(),
             Some("76fd9bf2")
@@ -2447,8 +2472,42 @@ mod tests {
     #[test]
     fn resolve_command_agent_id_unknown_returns_none() {
         let mgr = RuntimeManager::new(RuntimeManager::test_launch_configs(), None);
-        assert_eq!(mgr.resolve_command_agent_id("no-such").as_deref(), None);
-        assert_eq!(mgr.resolve_command_agent_id("").as_deref(), None);
+        assert_eq!(mgr.resolve_command_agent_id("no-such", "").as_deref(), None);
+        assert_eq!(mgr.resolve_command_agent_id("", "").as_deref(), None);
+    }
+
+    #[test]
+    fn resolve_command_agent_id_prefers_matching_actor_when_session_has_two() {
+        // Issue #780: same session, two owners — cancel for A must not hit B
+        // just because B started later.
+        let mut mgr = RuntimeManager::new(RuntimeManager::test_launch_configs(), None);
+        mgr.add_test_runtime("rt-a", "rt-a", "session_S");
+        mgr.add_test_runtime("rt-b", "rt-b", "session_S");
+        mgr.get_handle_mut("rt-a").unwrap().owner_actor_id = "actor-A".into();
+        mgr.get_handle_mut("rt-a").unwrap().started_at = 100;
+        mgr.get_handle_mut("rt-b").unwrap().owner_actor_id = "actor-B".into();
+        mgr.get_handle_mut("rt-b").unwrap().started_at = 200;
+
+        assert_eq!(
+            mgr.resolve_command_agent_id("session_S", "actor-A")
+                .as_deref(),
+            Some("rt-a")
+        );
+        assert_eq!(
+            mgr.resolve_command_agent_id("actor-A::session_S", "actor-A")
+                .as_deref(),
+            Some("rt-a")
+        );
+        assert_eq!(
+            mgr.resolve_command_agent_id("actor-A::session_S", "actor-B")
+                .as_deref(),
+            None
+        );
+        assert_eq!(
+            mgr.resolve_command_agent_id("session_S", "actor-B")
+                .as_deref(),
+            Some("rt-b")
+        );
     }
 
     #[tokio::test]

@@ -153,14 +153,21 @@ impl DaemonServer {
         use prost::Message as ProstMessage;
         match msg {
             subscriber::IncomingMessage::RuntimeCommand {
+                actor_id,
                 runtime_id,
                 envelope,
             } => {
                 // Topic segment may be a spawn key, cloud session id, or
                 // `{actor}::{session}` (ADR-0004). Resolve before cancel.
+                // Prefer envelope.actor_id (target agent); fall back to topic.
+                let resolve_actor = if !envelope.actor_id.trim().is_empty() {
+                    envelope.actor_id.trim()
+                } else {
+                    actor_id.trim()
+                };
                 let resolved = {
                     let agents = self.agents.lock().await;
-                    agents.resolve_command_agent_id(&runtime_id)
+                    agents.resolve_command_agent_id(&runtime_id, resolve_actor)
                 };
                 match resolved {
                     Some(agent_id) => {
@@ -444,10 +451,15 @@ impl DaemonServer {
             };
         };
 
+        let resolve_actor = if !envelope.actor_id.trim().is_empty() {
+            envelope.actor_id.trim().to_string()
+        } else {
+            self.actor_id.clone()
+        };
         let agent_id = {
             let agents = self.agents.lock().await;
             agents
-                .attachment_for_session(&session_id)
+                .attachment_for_session_actor(&session_id, &resolve_actor)
                 .map(|h| h.agent_id.clone())
         };
 

@@ -26,6 +26,11 @@ pub struct RuntimeHandle {
     pub agent_id: String,
     pub acp_session_id: String,
     pub session_id: String,
+    /// Cloud agent actor UUID that owns this attachment (daemon routing
+    /// identity). Distinct from `agent_id`, which is the 8-char spawn key.
+    /// Used to resolve session-addressed commands when multiple attachments
+    /// share a session_id (ADR-0004 `(actor, session)`).
+    pub owner_actor_id: String,
     pub agent_type: amux::AgentType,
     pub worktree: String,
     pub workspace_id: String,
@@ -118,6 +123,7 @@ impl RuntimeHandle {
             agent_id,
             acp_session_id: String::new(),
             session_id: String::new(),
+            owner_actor_id: String::new(),
             agent_type,
             worktree,
             workspace_id,
@@ -148,6 +154,22 @@ impl RuntimeHandle {
             env_snapshot: None,
             env_team_id: None,
             remote_tools_mcp_refresh_pending: false,
+        }
+    }
+
+    /// Copy cloud actor id from the resolved env snapshot when present.
+    pub fn stamp_owner_actor_from_env(&mut self) {
+        if !self.owner_actor_id.is_empty() {
+            return;
+        }
+        if let Some(actor) = self
+            .env_snapshot
+            .as_ref()
+            .and_then(|snap| snap.bindings.get("actor_id"))
+            .map(|s| s.trim())
+            .filter(|s| !s.is_empty())
+        {
+            self.owner_actor_id = actor.to_string();
         }
     }
 
@@ -372,6 +394,7 @@ impl RuntimeHandle {
             agent_id: String::new(),
             acp_session_id: String::new(),
             session_id: String::new(),
+            owner_actor_id: String::new(),
             agent_type: crate::proto::amux::AgentType::ClaudeCode,
             worktree: String::new(),
             workspace_id: String::new(),
