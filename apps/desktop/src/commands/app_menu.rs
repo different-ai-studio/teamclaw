@@ -8,8 +8,8 @@ use std::sync::Mutex;
 
 use tauri::{
     menu::{
-        AboutMetadata, HELP_SUBMENU_ID, Menu, MenuItem, MenuItemBuilder, PredefinedMenuItem,
-        Submenu, WINDOW_SUBMENU_ID,
+        AboutMetadata, Menu, MenuItem, MenuItemBuilder, PredefinedMenuItem, Submenu,
+        HELP_SUBMENU_ID, WINDOW_SUBMENU_ID,
     },
     AppHandle, Emitter, Manager, State, Wry,
 };
@@ -95,11 +95,7 @@ pub fn install_app_menu(app: &AppHandle) -> tauri::Result<MenuItem<Wry>> {
         &brand,
         true,
         &[
-            &PredefinedMenuItem::about(
-                app,
-                Some(&format!("About {brand}")),
-                Some(about_metadata),
-            )?,
+            &PredefinedMenuItem::about(app, Some(&format!("About {brand}")), Some(about_metadata))?,
             &PredefinedMenuItem::separator(app)?,
             &settings,
             &PredefinedMenuItem::separator(app)?,

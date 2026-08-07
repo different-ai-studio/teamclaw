@@ -106,6 +106,9 @@ import { DaemonWorkspacesSection } from '../DaemonWorkspacesSection'
 
 describe('DaemonWorkspacesSection', () => {
   beforeEach(() => {
+    // mockClear alone leaves queued mockResolvedValueOnce values from a prior
+    // test, so a cancelled-picker case could hand its `null` to the next one.
+    dialogOpen.mockReset()
     createDaemonWorkspace.mockClear()
     rpcAddWorkspace.mockClear()
     setAgentDefaultWorkspace.mockClear()

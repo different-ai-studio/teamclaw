@@ -247,19 +247,17 @@ export const useTeamShareStore = create<TeamShareState>((set, get) => ({
 
   async getSecret(teamId, workspacePath) {
     if (!isTauri()) return null
-    try {
-      const secret = await invoke<string | null>('team_share_get_team_secret', {
-        teamId,
-        workspacePath,
-      })
-      return secret ?? null
-    } catch (e) {
-      // Rust distinguishes "no secret configured" (returns null) from "the
-      // store is there but unreadable" (throws). Collapsing both to null told
-      // the user to configure a key they already have, and hid the real cause —
-      // a corrupt blob or wrong master key, which needs quarantine, not typing.
-      throw e
-    }
+    // Deliberately unguarded. Rust distinguishes "no secret configured"
+    // (returns null) from "the store is there but unreadable" (throws), and a
+    // catch-all here collapsed both to null — telling the user to configure a
+    // key they already have, and hiding the real cause: a corrupt blob or wrong
+    // master key, which needs quarantine, not retyping. Callers handle the
+    // throw (see TeamSecretEntry).
+    const secret = await invoke<string | null>('team_share_get_team_secret', {
+      teamId,
+      workspacePath,
+    })
+    return secret ?? null
   },
 
   async disconnect(teamId, workspacePath) {

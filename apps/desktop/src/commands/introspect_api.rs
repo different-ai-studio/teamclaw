@@ -596,7 +596,9 @@ async fn handle_channel_set(app: &AppHandle, body: &[u8]) -> Result<String, Stri
         .ok_or("Missing field: channel")?;
     let patch = v.get("config").ok_or("Missing field: config")?;
 
-    let valid_channels = ["wecom", "discord", "feishu", "email", "kook", "wechat", "seatalk"];
+    let valid_channels = [
+        "wecom", "discord", "feishu", "email", "kook", "wechat", "seatalk",
+    ];
     if !valid_channels.contains(&channel) {
         return Err(format!(
             "Unknown channel: '{}'. Valid: {}",
@@ -680,9 +682,7 @@ async fn handle_mcp_put(app: &AppHandle, body: &[u8]) -> Result<String, String> 
     let v: serde_json::Value =
         serde_json::from_slice(body).map_err(|e| format!("JSON parse error: {}", e))?;
     let workspace = resolve_workspace_path(app, &v)?;
-    let servers = v
-        .get("servers")
-        .ok_or("Missing field: servers")?;
+    let servers = v.get("servers").ok_or("Missing field: servers")?;
     if !servers.is_object() {
         return Err("servers must be a JSON object".to_string());
     }

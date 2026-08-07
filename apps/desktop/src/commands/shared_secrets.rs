@@ -646,9 +646,14 @@ pub(crate) async fn team_listings_from_cloud(
     access_token: Option<&str>,
     cloud_api_url: Option<&str>,
 ) -> Result<Vec<teamclaw_runtime_env::env_catalog::TeamEnvListing>, String> {
-    let undecryptable =
-        refresh_team_secrets_from_cloud(state, workspace_path, team_id, access_token, cloud_api_url)
-            .await?;
+    let undecryptable = refresh_team_secrets_from_cloud(
+        state,
+        workspace_path,
+        team_id,
+        access_token,
+        cloud_api_url,
+    )
+    .await?;
 
     let secrets = state
         .secrets

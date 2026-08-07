@@ -182,7 +182,9 @@ pub(crate) fn quarantine_unreadable_blob(paths: &SecretStorePaths) -> Result<Pat
     // write reuse a key already known not to match anything. Park it next to the
     // blob it belongs with — recovering the backup needs this exact file.
     if paths.master_key_path.exists() {
-        let key_backup = paths.base_dir.join(format!("master.key.unreadable.{stamp}"));
+        let key_backup = paths
+            .base_dir
+            .join(format!("master.key.unreadable.{stamp}"));
         let _ = std::fs::rename(&paths.master_key_path, &key_backup);
     }
     Ok(backup)
