@@ -1,5 +1,4 @@
 import { Ionicons } from "@expo/vector-icons";
-import * as Linking from "expo-linking";
 import { useRouter } from "expo-router";
 import * as WebBrowser from "expo-web-browser";
 import { useState } from "react";
@@ -21,7 +20,10 @@ import {
   OTP_CODE_LENGTH,
   sanitizeOtpInput,
 } from "../../src/features/onboarding/auth-otp";
-import type { OAuthProvider } from "../../src/features/onboarding/onboarding-oauth";
+import {
+  OAUTH_REDIRECT_URL,
+  type OAuthProvider,
+} from "../../src/features/onboarding/onboarding-oauth";
 import { Hairline } from "../../src/ui/atoms/Hairline";
 import { showToast } from "../../src/ui/Toast";
 import { colors, hai, radii, spacing, typography } from "../../src/ui/theme";
@@ -102,7 +104,7 @@ export default function UpgradeAccountRoute() {
     setError(null);
     try {
       await controller.linkIdentityWithOAuth(provider, {
-        redirectTo: Linking.createURL("auth/callback"),
+        redirectTo: OAUTH_REDIRECT_URL,
         openAuthSession: WebBrowser.openAuthSessionAsync,
       });
       showToast("success", "Account connected.");
