@@ -1,5 +1,23 @@
 export type OAuthProvider = "apple" | "google";
 
+/**
+ * Where GoTrue sends the browser back after an external provider signs the user
+ * in. Must appear **verbatim** in `GOTRUE_URI_ALLOW_LIST`; anything else is
+ * rejected and the browser falls back to `SITE_URL`, so the app never sees a
+ * callback and the sign-in silently dies.
+ *
+ * Deliberately a literal rather than `Linking.createURL("auth-callback")`:
+ * `createURL` varies by runtime (`exp://…/--/…` under Expo Go) and has shipped
+ * both `scheme://path` and `scheme:///path` forms, neither of which the allow
+ * list would match. The app bundles a custom native module
+ * (`plugins/withTeamClawMqtt`) so it never runs under Expo Go anyway — the
+ * scheme is always `teamclaw`.
+ *
+ * Keep in sync with iOS `CloudAPIAppOnboardingStore.oauthAuthorizeURL`, which
+ * uses this same string.
+ */
+export const OAUTH_REDIRECT_URL = "teamclaw://auth-callback";
+
 export type OAuthCallback =
   | { type: "code"; code: string }
   | { type: "tokens"; accessToken: string; refreshToken: string };

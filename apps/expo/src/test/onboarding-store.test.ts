@@ -215,24 +215,24 @@ describe("createOnboardingController", () => {
     });
     const openAuthSession = vi
       .fn()
-      .mockResolvedValue({ type: "success", url: "teamclaw://auth/callback?code=abc" });
+      .mockResolvedValue({ type: "success", url: "teamclaw://auth-callback?code=abc" });
     const controller = createOnboardingController(api);
 
     await controller.signInWithOAuth("google", {
-      redirectTo: "teamclaw://auth/callback",
+      redirectTo: "teamclaw://auth-callback",
       openAuthSession,
     });
 
     expect(api.createOAuthSignInUrl).toHaveBeenCalledWith(
       "google",
-      "teamclaw://auth/callback",
+      "teamclaw://auth-callback",
     );
     expect(openAuthSession).toHaveBeenCalledWith(
       "https://auth.example.com/oauth",
-      "teamclaw://auth/callback",
+      "teamclaw://auth-callback",
     );
     expect(api.completeOAuthCallback).toHaveBeenCalledWith(
-      "teamclaw://auth/callback?code=abc",
+      "teamclaw://auth-callback?code=abc",
     );
     expect(controller.getState()).toMatchObject<Partial<OnboardingState>>({
       route: "ready",
@@ -248,7 +248,7 @@ describe("createOnboardingController", () => {
     const controller = createOnboardingController(api);
 
     await controller.signInWithOAuth("apple", {
-      redirectTo: "teamclaw://auth/callback",
+      redirectTo: "teamclaw://auth-callback",
       openAuthSession,
     });
 
@@ -279,24 +279,24 @@ describe("createOnboardingController", () => {
     });
     const openAuthSession = vi
       .fn()
-      .mockResolvedValue({ type: "success", url: "teamclaw://auth/callback?code=abc" });
+      .mockResolvedValue({ type: "success", url: "teamclaw://auth-callback?code=abc" });
     const controller = createOnboardingController(api);
 
     await controller.linkIdentityWithOAuth("apple", {
-      redirectTo: "teamclaw://auth/callback",
+      redirectTo: "teamclaw://auth-callback",
       openAuthSession,
     });
 
     expect(api.createOAuthLinkUrl).toHaveBeenCalledWith(
       "apple",
-      "teamclaw://auth/callback",
+      "teamclaw://auth-callback",
     );
     expect(openAuthSession).toHaveBeenCalledWith(
       "https://auth.example.com/link",
-      "teamclaw://auth/callback",
+      "teamclaw://auth-callback",
     );
     expect(api.completeOAuthCallback).toHaveBeenCalledWith(
-      "teamclaw://auth/callback?code=abc",
+      "teamclaw://auth-callback?code=abc",
     );
     expect(controller.getState()).toMatchObject<Partial<OnboardingState>>({
       route: "ready",
