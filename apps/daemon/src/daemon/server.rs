@@ -3448,7 +3448,7 @@ pub(crate) mod tests {
         .unwrap();
 
         let mut agents = RuntimeManager::new(RuntimeManager::default_launch_configs(), None);
-        agents.add_test_runtime("rt1", "runtime-agent", "session-1");
+        agents.add_test_runtime("session-1");
 
         let publisher_handle: Arc<dyn MessagePublisher> = Arc::new(mqtt.client.clone());
         let topics = mqtt.topics.clone();
@@ -3672,10 +3672,10 @@ pub(crate) mod tests {
         // here implies the early-exit guard fired.
         let mut fixture = test_server();
         fixture.server.auto_restart_offline_sessions().await;
-        // No runtimes added beyond the fixture's seeded "rt1".
+        // No runtimes added beyond the fixture's seeded "session-1".
         let agents = fixture.server.agents.lock().await;
         assert!(
-            agents.get_handle("rt1").is_some(),
+            agents.get_handle("session-1").is_some(),
             "fixture runtime should be untouched"
         );
     }
@@ -3811,6 +3811,20 @@ pub(crate) mod tests {
             .mount(&srv)
             .await;
 
+        // An attachment is keyed by its session (ADR-0004), so a spawn needs a
+        // resolvable one before it can reach the workspace fallback this test
+        // is about.
+        Mock::given(method("GET"))
+            .and(path("/v1/sessions/session-offline"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
+                "id": "session-offline",
+                "teamId": "team-1",
+                "title": "offline",
+                "participants": [],
+            })))
+            .mount(&srv)
+            .await;
+
         let mut fixture = test_server_with_cloud_api(test_cloud_api_with_url(srv.uri()));
         let worktree_dir = TempDir::new().unwrap();
         let worktree_path = worktree_dir.path().to_string_lossy().to_string();
@@ -3821,7 +3835,7 @@ pub(crate) mod tests {
                 amux::AgentType::ClaudeCode,
                 "ws-cloud-uuid-offline",
                 &worktree_path,
-                "",
+                "session-offline",
                 "",
                 None,
                 "",
@@ -4096,7 +4110,7 @@ pub(crate) mod tests {
     pub(crate) async fn plan_skips_session_with_live_runtime_already_running() {
         let srv = MockServer::start().await;
         auth_token_mock(&srv).await;
-        // The fixture seeds a runtime "rt1" bound to session_id
+        // The fixture seeds a runtime "session-1" bound to session_id
         // "session-1" via add_test_runtime. Make that the membership
         // session and confirm the planner refuses to schedule a second
         // spawn for the same session.
@@ -4201,7 +4215,7 @@ pub(crate) mod tests {
         .await;
 
         let mut fixture = test_server_with_cloud_api(test_cloud_api_with_url(srv.uri()));
-        fixture.server.catchup_runtime("rt1").await;
+        fixture.server.catchup_runtime("session-1").await;
 
         // `send_prompt` (not raw) auto-drains the silent queue via
         // `flush_pending_silent`, so by the time msg-b's prompt fires the
@@ -4210,7 +4224,7 @@ pub(crate) mod tests {
         // the next real prompt.
         let agents = fixture.server.agents.lock().await;
         let last = agents
-            .last_sent_to("rt1")
+            .last_sent_to("session-1")
             .expect("the last @-mention should trigger send_prompt");
         assert!(
             last.contains("ask B"),
@@ -4227,7 +4241,7 @@ pub(crate) mod tests {
 
         // After the prompt fires, msg-c sits alone in the silent queue —
         // msg-a was already drained into the prefix above.
-        let pending = &agents.get_handle("rt1").unwrap().pending_silent;
+        let pending = &agents.get_handle("session-1").unwrap().pending_silent;
         assert_eq!(
             pending
                 .iter()
@@ -4257,13 +4271,13 @@ pub(crate) mod tests {
         .await;
 
         let mut fixture = test_server_with_cloud_api(test_cloud_api_with_url(srv.uri()));
-        assert!(fixture.server.catchup_runtime("rt1").await);
+        assert!(fixture.server.catchup_runtime("session-1").await);
         {
             let agents = fixture.server.agents.lock().await;
-            assert_eq!(agents.last_sent_to("rt1").as_deref(), Some("ask once"),);
+            assert_eq!(agents.last_sent_to("session-1").as_deref(), Some("ask once"),);
             assert_eq!(
                 agents
-                    .get_handle("rt1")
+                    .get_handle("session-1")
                     .unwrap()
                     .last_processed_message_id
                     .as_deref(),
@@ -4272,9 +4286,9 @@ pub(crate) mod tests {
         }
 
         // Session refresh → runtimeStart dedup → catchup must not re-prompt.
-        assert!(!fixture.server.catchup_runtime("rt1").await);
+        assert!(!fixture.server.catchup_runtime("session-1").await);
         let agents = fixture.server.agents.lock().await;
-        assert_eq!(agents.last_sent_to("rt1").as_deref(), Some("ask once"));
+        assert_eq!(agents.last_sent_to("session-1").as_deref(), Some("ask once"));
     }
 
     #[tokio::test]
@@ -4306,16 +4320,16 @@ pub(crate) mod tests {
         .await;
 
         let mut fixture = test_server_with_cloud_api(test_cloud_api_with_url(srv.uri()));
-        fixture.server.catchup_runtime("rt1").await;
+        fixture.server.catchup_runtime("session-1").await;
 
         let agents = fixture.server.agents.lock().await;
         assert!(
-            agents.last_sent_to("rt1").is_none(),
+            agents.last_sent_to("session-1").is_none(),
             "answered @mention must not trigger send_prompt on catchup"
         );
         assert_eq!(
             agents
-                .get_handle("rt1")
+                .get_handle("session-1")
                 .unwrap()
                 .last_processed_message_id
                 .as_deref(),
@@ -4391,15 +4405,15 @@ pub(crate) mod tests {
         .await;
 
         let mut fixture = test_server_with_cloud_api(test_cloud_api_with_url(srv.uri()));
-        fixture.server.catchup_runtime("rt1").await;
+        fixture.server.catchup_runtime("session-1").await;
 
         let agents = fixture.server.agents.lock().await;
         assert!(
-            agents.last_sent_to("rt1").is_none(),
+            agents.last_sent_to("session-1").is_none(),
             "no @-mention → no send_prompt"
         );
         assert_eq!(
-            agents.get_handle("rt1").unwrap().pending_silent.len(),
+            agents.get_handle("session-1").unwrap().pending_silent.len(),
             2,
             "both messages should land in silent context"
         );
@@ -4501,7 +4515,7 @@ pub(crate) mod tests {
             .await;
 
         let agents = fixture.server.agents.lock().await;
-        assert_eq!(agents.last_sent_to("rt1").as_deref(), Some("first"));
+        assert_eq!(agents.last_sent_to("session-1").as_deref(), Some("first"));
     }
 
     #[tokio::test]
@@ -4542,10 +4556,10 @@ pub(crate) mod tests {
 
         let agents = fixture.server.agents.lock().await;
         assert_eq!(
-            agents.current_model("rt1").map(|s| s.as_str()),
+            agents.current_model("session-1").map(|s| s.as_str()),
             Some("opencode/deepseek-v4-flash-free")
         );
-        assert_eq!(agents.last_sent_to("rt1").as_deref(), Some("which model?"));
+        assert_eq!(agents.last_sent_to("session-1").as_deref(), Some("which model?"));
     }
 
     pub(crate) fn seed_startup_workspace_sync(

@@ -615,7 +615,7 @@ impl DaemonServer {
                 "",
                 &ws_id,
                 (!ws_id.is_empty()).then_some(ws_id.as_str()),
-                session_id_opt,
+                session_id,
                 initial_model_override,
                 mcp_config_path,
                 resume_acp_session_id,

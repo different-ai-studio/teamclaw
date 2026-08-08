@@ -636,18 +636,26 @@ impl DaemonServer {
                                 crate::runtime::SpawnRuntimeEnv::default()
                             }
                         };
+                        // A stored session with no cloud session id cannot be
+                        // re-attached: the attachment map is keyed by it.
+                        if session_id.is_empty() {
+                            warn!(
+                                agent_id,
+                                "lazy-resume: stored session has no cloud session id; skipping"
+                            );
+                            return;
+                        }
                         let resume_res = self
                             .agents
                             .lock()
                             .await
                             .resume_agent(
-                                agent_id,
+                                &session_id,
                                 &acp_sid,
                                 at,
                                 &worktree,
                                 &ws_id,
                                 remote_workspace_id.as_deref(),
-                                (!session_id.is_empty()).then_some(session_id.as_str()),
                                 "",
                                 None,
                                 runtime_env,
