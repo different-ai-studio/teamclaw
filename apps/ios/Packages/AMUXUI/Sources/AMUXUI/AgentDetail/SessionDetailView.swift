@@ -310,7 +310,7 @@ public struct SessionDetailView: View {
                         AgentChipBar.AgentChip(
                             id: a.id,
                             displayName: a.displayName,
-                            runtimeState: AgentChipBar.RuntimeChipState.fromCore(a.runtimeState)
+                            lifecycleState: AgentChipBar.LifecycleChipState.fromCore(a.lifecycleState)
                         )
                     },
                     agentChipSelection: Binding(
@@ -365,13 +365,13 @@ public struct SessionDetailView: View {
                         displayName: row.displayName,
                         workspacePath: row.workspacePath,
                         agentType: row.agentType,
-                        runtimeState: AgentChipBar.RuntimeChipState.fromCore(row.runtimeState),
+                        lifecycleState: AgentChipBar.LifecycleChipState.fromCore(row.lifecycleState),
                         availableModels: row.availableModels,
                         currentModel: row.currentModel
                     )
                 },
                 onRemoveHuman: { viewModel.removeHuman($0) },
-                onRestartRuntime: { viewModel.restartRuntime(forAgent: $0) },
+                onRestartAgent: { viewModel.restartAgent(forAgent: $0) },
                 onChangeModel: { viewModel.setModel(forAgent: $0, model: $1) },
                 onRemoveAgent: { viewModel.removeAgent($0) },
                 onAddAgent: { isAddAgentSheetPresented = true },
@@ -977,10 +977,10 @@ private struct EditMessageSheet: View {
     }
 }
 
-// MARK: - AgentChipBar.RuntimeChipState translation
+// MARK: - AgentChipBar.LifecycleChipState translation
 
-extension AgentChipBar.RuntimeChipState {
-    static func fromCore(_ s: AgentRuntimeChipState) -> AgentChipBar.RuntimeChipState {
+extension AgentChipBar.LifecycleChipState {
+    static func fromCore(_ s: AgentLifecycleState) -> AgentChipBar.LifecycleChipState {
         switch s {
         case .spawning: .spawning
         case .ready: .ready

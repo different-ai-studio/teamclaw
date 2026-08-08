@@ -120,7 +120,7 @@ struct SessionMemberSheetLoaderShapingTests {
         #expect(agent.agentType == "")
         // Live state likewise: absent here means "unknown from this source",
         // and the chip bar fills it from the retain.
-        #expect(agent.runtimeState == .idle)
+        #expect(agent.lifecycleState == .idle)
         #expect(agent.availableModels == ["claude-sonnet-4-6", "claude-opus-4-7"])
         #expect(agent.currentModel == "claude-sonnet-4-6")
     }

@@ -26,7 +26,7 @@ struct StreamingRestoreAndTimerTests {
             displayName: id,
             workspacePath: "",
             agentType: "claude",
-            runtimeState: .active,
+            lifecycleState: .active,
             availableModels: [],
             currentModel: nil,
             workspaceID: nil,

@@ -79,8 +79,8 @@ public enum SessionCreationOutcome: Sendable {
 /// `runtimeStart` outcomes are intentionally absent: per-agent spawns
 /// fire in detached tasks so the sheet can dismiss before ACP bring-up
 /// (~6s per daemon). The chip bar in the destination view reflects
-/// `agent_runtimes.status` (yellow=spawning → green=active → red=failed)
-/// directly, which is the source of truth for per-agent spawn state.
+/// the attachment's status (yellow=spawning → green=active → red=failed),
+/// which is the source of truth for per-agent spawn state.
 public struct SessionCreationPartial: Sendable {
     /// false when local persistence succeeded but the MQTT publish for
     /// the first message failed — the message lives in the outbox and
@@ -212,7 +212,7 @@ public final class SessionCreationUseCase {
         // Step 5: Spawn agent runtimes in detached tasks — fire-and-forget
         // so the sheet dismisses immediately and the user lands on the
         // session detail right away. The daemon takes ~6s per agent to
-        // bring ACP up; spawn outcomes manifest via `agent_runtimes`
+        // bring ACP up; spawn outcomes manifest via the actor retain
         // status updates that the chip bar reflects directly.
         spawnRuntimes(input)
 

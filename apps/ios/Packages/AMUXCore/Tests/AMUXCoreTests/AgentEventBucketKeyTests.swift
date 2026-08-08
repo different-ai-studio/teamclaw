@@ -19,14 +19,14 @@ final class AgentEventBucketKeyTests: XCTestCase {
     func test_bucketKey_isTheActorIdVerbatim() {
         let vm = SessionDetailViewModel.testInstance()
         let actorID = "eba7abb1-c131-4e31-9ae6-0fe1aced3c94"
-        XCTAssertEqual(vm._test_bucketKey(forRuntimeID: actorID), actorID,
+        XCTAssertEqual(vm._test_bucketKey(forActorID: actorID), actorID,
             "the wire value is already the bucket key; no resolution step remains")
     }
 
     func test_bucketKey_rejectsEmptyAndWhitespace() {
         let vm = SessionDetailViewModel.testInstance()
-        XCTAssertNil(vm._test_bucketKey(forRuntimeID: ""))
-        XCTAssertNil(vm._test_bucketKey(forRuntimeID: "   "),
+        XCTAssertNil(vm._test_bucketKey(forActorID: ""))
+        XCTAssertNil(vm._test_bucketKey(forActorID: "   "),
             "a blank actor id must not create a bucket named by whitespace")
     }
 
@@ -34,7 +34,7 @@ final class AgentEventBucketKeyTests: XCTestCase {
         // The old freeze-on-first-resolve cache could map two agents onto one
         // bucket while the roster was still loading, merging their turns.
         let vm = SessionDetailViewModel.testInstance()
-        XCTAssertNotEqual(vm._test_bucketKey(forRuntimeID: "actor-a"),
-                          vm._test_bucketKey(forRuntimeID: "actor-b"))
+        XCTAssertNotEqual(vm._test_bucketKey(forActorID: "actor-a"),
+                          vm._test_bucketKey(forActorID: "actor-b"))
     }
 }

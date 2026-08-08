@@ -8,12 +8,12 @@ struct TimelineInputBuilderTests {
     @Test("non-session-live topics yield nil")
     func filtersIrrelevantTopics() {
         let builder = TimelineInputBuilder()
-        let runtimeState = MQTTIncoming(
+        let perSpawnState = MQTTIncoming(
             topic: "amux/team-x/actor-1/runtime/rt-1/state",
             payload: Data(),
             retained: true
         )
-        #expect(builder.build(from: runtimeState) == nil)
+        #expect(builder.build(from: perSpawnState) == nil)
 
         let actorState = MQTTIncoming(
             topic: "amux/team-x/actor-1/status",
@@ -106,7 +106,8 @@ struct TimelineInputBuilderTests {
 
         var amuxEnvelope = Amux_Envelope()
         amuxEnvelope.sequence = 42
-        amuxEnvelope.runtimeID = "rt-claude"
+        amuxEnvelope.runtimeID = "rt-claude"   // per-spawn id, deliberately ignored
+        amuxEnvelope.actorID = "agent-actor-1"
         amuxEnvelope.payload = .acpEvent(acp)
 
         var live = Teamclaw_LiveEventEnvelope()
@@ -119,23 +120,15 @@ struct TimelineInputBuilderTests {
             retained: false
         )
 
-        // With a mapping, agentBucketKey resolves to the agent actor id.
-        let mapped = TimelineInputBuilder(agentActorIDByRuntimeID: ["rt-claude": "agent-actor-1"])
-        guard case .acp(let a)? = mapped.build(from: incoming) else {
+        // The bucket key is the envelope's actor id, verbatim. There used to
+        // be a runtime-id → actor-id lookup table here; it existed because the
+        // wire carried a per-spawn id that no client could map back.
+        let builder = TimelineInputBuilder()
+        guard case .acp(let a)? = builder.build(from: incoming) else {
             Issue.record("expected .acp")
             return
         }
         #expect(a.envelopeSequence == 42)
-        #expect(a.runtimeID == "rt-claude")
-        #expect(a.agentBucketKey == "agent-actor-1",
-                "bucket key resolves through the mapping when present")
-
-        // Without a mapping, agentBucketKey falls back to the raw runtimeID.
-        let unmapped = TimelineInputBuilder()
-        guard case .acp(let b)? = unmapped.build(from: incoming) else {
-            Issue.record("expected .acp")
-            return
-        }
-        #expect(b.agentBucketKey == "rt-claude")
+        #expect(a.agentBucketKey == "agent-actor-1")
     }
 }

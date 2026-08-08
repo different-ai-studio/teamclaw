@@ -13,7 +13,7 @@ public struct SessionMemberSheet: View {
         public let displayName: String
         public let workspacePath: String
         public let agentType: String          // "Claude" / "OpenCode" / "Codex"
-        public let runtimeState: AgentChipBar.RuntimeChipState
+        public let lifecycleState: AgentChipBar.LifecycleChipState
         public let availableModels: [String]
         public let currentModel: String?
     }
@@ -21,7 +21,7 @@ public struct SessionMemberSheet: View {
     let humans: [HumanRow]
     let agents: [AgentRow]
     let onRemoveHuman: (String) -> Void
-    let onRestartRuntime: (String) -> Void
+    let onRestartAgent: (String) -> Void
     let onChangeModel: (String, String) -> Void
     let onRemoveAgent: (String) -> Void
     let onAddAgent: () -> Void
@@ -29,14 +29,14 @@ public struct SessionMemberSheet: View {
 
     public init(humans: [HumanRow], agents: [AgentRow],
                 onRemoveHuman: @escaping (String) -> Void,
-                onRestartRuntime: @escaping (String) -> Void,
+                onRestartAgent: @escaping (String) -> Void,
                 onChangeModel: @escaping (String, String) -> Void,
                 onRemoveAgent: @escaping (String) -> Void,
                 onAddAgent: @escaping () -> Void,
                 onAddMember: @escaping () -> Void) {
         self.humans = humans; self.agents = agents
         self.onRemoveHuman = onRemoveHuman
-        self.onRestartRuntime = onRestartRuntime
+        self.onRestartAgent = onRestartAgent
         self.onChangeModel = onChangeModel
         self.onRemoveAgent = onRemoveAgent
         self.onAddAgent = onAddAgent; self.onAddMember = onAddMember
@@ -63,7 +63,7 @@ public struct SessionMemberSheet: View {
                     ForEach(agents) { a in
                         AgentMemberRow(
                             row: a,
-                            onRestart: { onRestartRuntime(a.id) },
+                            onRestart: { onRestartAgent(a.id) },
                             onChangeModel: { m in onChangeModel(a.id, m) },
                             onRemove: { onRemoveAgent(a.id) }
                         )
@@ -108,7 +108,7 @@ private struct AgentMemberRow: View {
     /// stopped/error stay disabled (no live ACP to talk to).
     private var isInteractive: Bool {
         guard !row.availableModels.isEmpty else { return false }
-        switch row.runtimeState {
+        switch row.lifecycleState {
         case .ready, .idle, .active, .spawning: return true
         case .stopped, .error: return false
         }
@@ -128,7 +128,7 @@ private struct AgentMemberRow: View {
     // the previous full-row Menu wrapper just no-op'd on tap.
     private var rowContent: some View {
         HStack(spacing: 8) {
-            Circle().fill(row.runtimeState.color).frame(width: 8, height: 8)
+            Circle().fill(row.lifecycleState.color).frame(width: 8, height: 8)
             Text(row.displayName).fontWeight(.semibold).foregroundStyle(.primary)
             Text(row.agentType).foregroundStyle(.secondary).font(.caption)
             Spacer(minLength: 8)
@@ -154,12 +154,11 @@ private struct AgentMemberRow: View {
 
     @ViewBuilder
     private var trailingLabel: some View {
-        // Daemon writes `current_model` into the initial agent_runtimes
-        // upsert (manager.rs awaits initial_model_rx before the row
-        // write) — so the model is known well before Supabase status
-        // flips off "starting". Show it whenever we have it; the chip
-        // dot color already communicates the spawning state. Only fall
-        // through to spinner / "default" when we genuinely have no
+        // The daemon has the model before it reports the attachment as
+        // anything but starting (manager.rs awaits initial_model_rx first),
+        // so show it whenever we have it — the chip dot already communicates
+        // the spawning state. Only fall through to spinner / "default" when
+        // we genuinely have no
         // model id yet (very early window, or MQTT-only path that hasn't
         // surfaced currentModel yet).
         if let model = row.currentModel, !model.isEmpty {
@@ -167,7 +166,7 @@ private struct AgentMemberRow: View {
                 .font(.caption)
                 .foregroundStyle(.secondary)
                 .lineLimit(1)
-        } else if row.runtimeState == .spawning {
+        } else if row.lifecycleState == .spawning {
             ProgressView()
                 .controlSize(.small)
         } else {

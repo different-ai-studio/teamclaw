@@ -10,7 +10,7 @@ final class SessionDetailAvailableModelsTests: XCTestCase {
         let vm = SessionDetailViewModel.testInstance()
         let agent = MemberSheetAgent(
             id: "agent-a", displayName: "Claude", workspacePath: "",
-            agentType: "Claude", runtimeState: .active,
+            agentType: "Claude", lifecycleState: .active,
             availableModels: [],
             currentModel: nil,
             workspaceID: nil, backendType: "claude"
@@ -24,7 +24,7 @@ final class SessionDetailAvailableModelsTests: XCTestCase {
         let vm = SessionDetailViewModel.testInstance()
         let agent = MemberSheetAgent(
             id: "agent-a", displayName: "Claude", workspacePath: "",
-            agentType: "Claude", runtimeState: .active,
+            agentType: "Claude", lifecycleState: .active,
             availableModels: ["claude-sonnet-4-6"],
             currentModel: "claude-sonnet-4-6",
             workspaceID: nil, backendType: "claude"

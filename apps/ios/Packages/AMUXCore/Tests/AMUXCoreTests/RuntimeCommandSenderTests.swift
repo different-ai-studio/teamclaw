@@ -5,7 +5,7 @@ import Foundation
 @Suite("RuntimeCommandSender")
 struct RuntimeCommandSenderTests {
 
-    @Test("empty runtimeID throws runtimeIdEmpty before any publish")
+    @Test("empty runtimeID throws addressEmpty before any publish")
     func emptyRuntimeIDThrows() async throws {
         let published = ConcurrencyBox<[(String, Data, Bool)]>(value: [])
         let mqtt = MQTTService(
@@ -24,8 +24,8 @@ struct RuntimeCommandSenderTests {
                 currentHumanActorID: nil,
                 makeCommand: { $0.command = .cancel(Amux_AcpCancel()) }
             )
-            Issue.record("expected runtimeIdEmpty")
-        } catch SendCommandError.runtimeIdEmpty {
+            Issue.record("expected addressEmpty")
+        } catch SendCommandError.addressEmpty {
             // expected
         }
         let after = await published.value

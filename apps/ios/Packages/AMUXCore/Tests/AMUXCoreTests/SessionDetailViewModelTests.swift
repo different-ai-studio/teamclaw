@@ -18,7 +18,7 @@ final class SessionDetailViewModelTests: XCTestCase {
             displayName: actorID,
             workspacePath: "",
             agentType: "Claude",
-            runtimeState: .ready,
+            lifecycleState: .ready,
             availableModels: [],
             currentModel: nil,
             workspaceID: nil,

@@ -260,7 +260,7 @@ public final class SessionDetailViewModel {
     /// `refreshMemberSheet` re-registers after each onChange.
     private var isObservingRuntimeChanges = false
     public var participantCount: Int { session?.participantCount ?? 0 }
-    public var hasRuntime: Bool { !sessionAttachments.isEmpty }
+    public var hasLiveAttachment: Bool { !sessionAttachments.isEmpty }
 
     /// Bucket key for AgentEvent storage: the session id. One daemon agent
     /// serves many sessions, so keying by agent identity would collide their
@@ -455,7 +455,7 @@ public final class SessionDetailViewModel {
     /// Multi-agent sessions start with empty selection (broadcast mode).
     public func bootstrapChips(
         participants: [SessionParticipant],
-        runtimeStates: [String: AgentRuntimeChipState],
+        runtimeStates: [String: AgentLifecycleState],
         legacyPrimaryAgentID: String? = nil
     ) {
         var agents = participants.filter { $0.role == "agent" }
@@ -471,7 +471,7 @@ public final class SessionDetailViewModel {
             AgentChipParticipant(
                 id: $0.actorID,
                 displayName: $0.displayName ?? String($0.actorID.prefix(8)),
-                runtimeState: runtimeStates[$0.actorID] ?? .spawning
+                lifecycleState: runtimeStates[$0.actorID] ?? .spawning
             )
         }
 
@@ -660,7 +660,7 @@ public final class SessionDetailViewModel {
             currentHumanActorID: teamclawService?.currentHumanActorId ?? "",
             availableModelsForAgent: { actorID in modelsByActor[actorID] ?? [] }
         ) else {
-            print("[RuntimeDetailVM] refreshMemberSheet: loader returned nil (no repo or fetch failed)")
+            print("[SessionDetailVM] refreshMemberSheet: loader returned nil (no repo or fetch failed)")
             return
         }
 
@@ -712,7 +712,7 @@ public final class SessionDetailViewModel {
                 agentType: SessionMemberSheetLoader.displayName(
                     forBackendType: Self.backendType(forAgentTypeRaw: att.agentType)
                 ),
-                runtimeState: Self.chipState(forAttachment: att),
+                lifecycleState: Self.chipState(forAttachment: att),
                 availableModels: models.isEmpty ? agent.availableModels : models,
                 currentModel: att.currentModel ?? agent.currentModel,
                 workspaceID: agent.workspaceID,
@@ -738,7 +738,7 @@ public final class SessionDetailViewModel {
     /// Chip state from the attachment. `lifecycle` carries the attach/detach
     /// story and `status` the backend's own idea of busy/idle; lifecycle wins
     /// when it says something definite.
-    private static func chipState(forAttachment att: AgentAttachment) -> AgentRuntimeChipState {
+    private static func chipState(forAttachment att: AgentAttachment) -> AgentLifecycleState {
         switch att.status {
         case 1: return .spawning
         case 2: return .active
@@ -783,10 +783,10 @@ public final class SessionDetailViewModel {
     /// attach, so an empty list on a live agent means "not yet", not "none".
     private var needsSpawningPoll: Bool {
         memberSheetAgents.contains { agent in
-            if agent.runtimeState == .spawning { return true }
-            let isLive = agent.runtimeState == .active
-                || agent.runtimeState == .idle
-                || agent.runtimeState == .ready
+            if agent.lifecycleState == .spawning { return true }
+            let isLive = agent.lifecycleState == .active
+                || agent.lifecycleState == .idle
+                || agent.lifecycleState == .ready
             return isLive && agent.availableModels.isEmpty
         }
     }
@@ -900,13 +900,13 @@ public final class SessionDetailViewModel {
 
         let sessionsRepo = self.sessionsRepository
         guard let sessionsRepo else {
-            print("[RuntimeDetailVM] addMembers: no sessions repo available")
+            print("[SessionDetailVM] addMembers: no sessions repo available")
             return
         }
         do {
             try await sessionsRepo.addParticipants(sessionID: sessionID, actorIDs: actorIDs)
         } catch {
-            print("[RuntimeDetailVM] addMembers: addParticipants failed: \(error)")
+            print("[SessionDetailVM] addMembers: addParticipants failed: \(error)")
             // Fall through — refreshMemberSheet will still re-pull truth.
         }
         await refreshMemberSheet()
@@ -928,17 +928,17 @@ public final class SessionDetailViewModel {
             do {
                 try await sessionsRepo.addParticipants(sessionID: sessionID, actorIDs: [actorID])
             } catch {
-                print("[RuntimeDetailVM] addAgent: addParticipants failed: \(error)")
+                print("[SessionDetailVM] addAgent: addParticipants failed: \(error)")
             }
         } else {
-            print("[RuntimeDetailVM] addAgent: no sessions repo available")
+            print("[SessionDetailVM] addAgent: no sessions repo available")
         }
 
         // Resolve the routing actor id for this agent actor so the
         // runtime-start RPC reaches the right daemon. ConnectedAgentsStore
         // is the authoritative source — same lookup NewSessionSheet uses.
         guard let routeActor = routeActorID(forAgentActorID: actorID), !routeActor.isEmpty else {
-            print("[RuntimeDetailVM] addAgent: no route actor id for agent actor \(actorID)")
+            print("[SessionDetailVM] addAgent: no route actor id for agent actor \(actorID)")
             await refreshMemberSheet()
             return
         }
@@ -946,8 +946,8 @@ public final class SessionDetailViewModel {
         // Refresh once so the agent row appears (participant row just
         // written), then immediately flip it to .spawning so the sheet
         // shows a spinner for the ~1-3s that the RPC + ACP spawn takes.
-        // The Supabase agent_runtimes row won't exist yet at this point,
-        // so without the optimistic patch the row would show "default".
+        // The attachment has not been published yet at this point, so without
+        // the optimistic patch the row would show "default".
         spawningPollCount = 0
         await refreshMemberSheet()
         if let idx = memberSheetAgents.firstIndex(where: { $0.id == actorID }) {
@@ -955,7 +955,7 @@ public final class SessionDetailViewModel {
             memberSheetAgents[idx] = MemberSheetAgent(
                 id: cur.id, displayName: cur.displayName,
                 workspacePath: cur.workspacePath, agentType: cur.agentType,
-                runtimeState: .spawning, availableModels: cur.availableModels,
+                lifecycleState: .spawning, availableModels: cur.availableModels,
                 currentModel: cur.currentModel,
                 workspaceID: cur.workspaceID, backendType: cur.backendType
             )
@@ -971,10 +971,10 @@ public final class SessionDetailViewModel {
                 initialPrompt: ""
             )
             if case .rejected(let reason) = outcome {
-                print("[RuntimeDetailVM] addAgent: runtimeStart rejected: \(reason)")
+                print("[SessionDetailVM] addAgent: runtimeStart rejected: \(reason)")
             }
         } else {
-            print("[RuntimeDetailVM] addAgent: no teamclawService configured")
+            print("[SessionDetailVM] addAgent: no teamclawService configured")
         }
 
         await refreshMemberSheet()
@@ -999,10 +999,10 @@ public final class SessionDetailViewModel {
                 do {
                     try await sessionsRepo.removeParticipant(sessionID: sessionID, actorID: actorID)
                 } catch {
-                    print("[RuntimeDetailVM] removeHuman: removeParticipant failed: \(error)")
+                    print("[SessionDetailVM] removeHuman: removeParticipant failed: \(error)")
                 }
             } else {
-                print("[RuntimeDetailVM] removeHuman: no sessions repo available")
+                print("[SessionDetailVM] removeHuman: no sessions repo available")
             }
 
             await self.refreshMemberSheet()
@@ -1011,7 +1011,7 @@ public final class SessionDetailViewModel {
 
     /// Restarts an agent's runtime in the current session: best-effort Stop
     /// of the existing daemon subprocess followed by a fresh Start RPC in the
-    /// same workspace + agent type. The daemon writes a new `agent_runtimes`
+    /// same workspace + agent type. The daemon publishes a new attachment
     /// row (or updates the existing one — its choice); `refreshMemberSheet`
     /// at the end re-pulls truth so the UI catches up.
     ///
@@ -1022,7 +1022,7 @@ public final class SessionDetailViewModel {
     ///    the Stop and go straight to Start.
     ///  - Empty / unresolvable worktree path: try Start anyway. The daemon
     ///    rejects with a clean error rather than us pre-validating.
-    public func restartRuntime(forAgent actorID: String) {
+    public func restartAgent(forAgent actorID: String) {
         Task { [weak self] in
             guard let self,
                   let sessionID = self.session?.sessionId,
@@ -1033,12 +1033,12 @@ public final class SessionDetailViewModel {
             guard let routeActorID = self.routeActorID(forAgentActorID: actorID),
                   !routeActorID.isEmpty
             else {
-                print("[RuntimeDetailVM] restartRuntime: no route actor id for agent actor \(actorID); aborting")
+                print("[SessionDetailVM] restartAgent: no route actor id for agent actor \(actorID); aborting")
                 return
             }
 
             guard let teamclawService = self.teamclawService else {
-                print("[RuntimeDetailVM] restartRuntime: no teamclawService configured")
+                print("[SessionDetailVM] restartAgent: no teamclawService configured")
                 return
             }
 
@@ -1051,10 +1051,10 @@ public final class SessionDetailViewModel {
                     runtimeID: runtimeID
                 )
                 if !ok {
-                    print("[RuntimeDetailVM] restartRuntime: runtimeStop failed: \(err) — proceeding to start")
+                    print("[SessionDetailVM] restartAgent: runtimeStop failed: \(err) — proceeding to start")
                 }
             } else {
-                print("[RuntimeDetailVM] restartRuntime: no runtime id for actor \(actorID); skipping stop")
+                print("[SessionDetailVM] restartAgent: no runtime id for actor \(actorID); skipping stop")
             }
 
             // 2. Resolve the worktree filesystem path. `MemberSheetAgent`
@@ -1080,14 +1080,14 @@ public final class SessionDetailViewModel {
                 initialPrompt: ""
             )
             if case .rejected(let reason) = outcome {
-                print("[RuntimeDetailVM] restartRuntime: runtimeStart rejected: \(reason)")
+                print("[SessionDetailVM] restartAgent: runtimeStart rejected: \(reason)")
             }
 
             await self.refreshMemberSheet()
         }
     }
 
-    /// Maps the `agent_runtimes.backend_type` string to the proto enum
+    /// Maps the backend-type spelling to the proto enum
     /// `runtimeStartRpc` expects. Mirrors the AMUXUI-side
     /// `AgentConfigSheet.AgentType.asAmuxAgentType` mapping; we duplicate it
     /// here because that helper lives in the UI package and can't be
@@ -1134,7 +1134,7 @@ public final class SessionDetailViewModel {
     /// retained state, so the member sheet refreshes via the normal state
     /// stream as well — but we still call `refreshMemberSheet` to pick up
     /// any participant-row deltas and to keep parity with the other write
-    /// paths (`removeAgent`, `restartRuntime`).
+    /// paths (`removeAgent`, `restartAgent`).
     public func setModel(forAgent actorID: String, model: String) {
         Task { [weak self] in
             guard let self,
@@ -1159,7 +1159,7 @@ public final class SessionDetailViewModel {
                 runtimeID: address,
                 modelID: model)
             if !ok {
-                print("[RuntimeDetailVM] setModel RPC failed: \(err)")
+                print("[SessionDetailVM] setModel RPC failed: \(err)")
                 self.rollbackOptimisticModelPatch(agentID: actorID, previousModel: previousModel)
                 return
             }
@@ -1173,7 +1173,7 @@ public final class SessionDetailViewModel {
                 self.memberSheetAgents[idx] = MemberSheetAgent(
                     id: cur.id, displayName: cur.displayName,
                     workspacePath: cur.workspacePath, agentType: cur.agentType,
-                    runtimeState: cur.runtimeState, availableModels: cur.availableModels,
+                    lifecycleState: cur.lifecycleState, availableModels: cur.availableModels,
                     currentModel: model,
                     workspaceID: cur.workspaceID, backendType: cur.backendType
                 )
@@ -1189,7 +1189,7 @@ public final class SessionDetailViewModel {
         memberSheetAgents[idx] = MemberSheetAgent(
             id: cur.id, displayName: cur.displayName,
             workspacePath: cur.workspacePath, agentType: cur.agentType,
-            runtimeState: cur.runtimeState, availableModels: cur.availableModels,
+            lifecycleState: cur.lifecycleState, availableModels: cur.availableModels,
             currentModel: model,
             workspaceID: cur.workspaceID, backendType: cur.backendType
         )
@@ -1202,7 +1202,7 @@ public final class SessionDetailViewModel {
         memberSheetAgents[idx] = MemberSheetAgent(
             id: cur.id, displayName: cur.displayName,
             workspacePath: cur.workspacePath, agentType: cur.agentType,
-            runtimeState: cur.runtimeState, availableModels: cur.availableModels,
+            lifecycleState: cur.lifecycleState, availableModels: cur.availableModels,
             currentModel: previousModel,
             workspaceID: cur.workspaceID, backendType: cur.backendType
         )
@@ -1213,7 +1213,7 @@ public final class SessionDetailViewModel {
     /// Three-step ordering:
     ///   1. Stop the agent's runtime (best-effort) so the Claude Code
     ///      subprocess actually exits — otherwise it keeps the worktree
-    ///      busy and the session row in `agent_runtimes` stays "active"
+    ///      busy and the attachment stays "active"
     ///      until next daemon restart.
     ///   2. RPC the daemon to drop the agent from its in-memory session
     ///      participant cache + sessions.toml, and fan a notify event so
@@ -1222,7 +1222,7 @@ public final class SessionDetailViewModel {
     ///   3. Delete the participant row from Supabase (source of truth).
     ///
     /// When the agent has no resolvable runtime id (e.g. the daemon is
-    /// offline or `agent_runtimes` hasn't surfaced the row yet), step 1
+    /// offline or the attachment hasn't been published yet), step 1
     /// is skipped with a logged warning. The subprocess then keeps running
     /// until the daemon notices the participant is gone on next reload —
     /// suboptimal but recoverable.
@@ -1242,10 +1242,10 @@ public final class SessionDetailViewModel {
                 let (ok, err) = await teamclawService.runtimeStopRpc(
                     targetActorID: routeActor, runtimeID: runtimeID)
                 if !ok {
-                    print("[RuntimeDetailVM] removeAgent: runtimeStop failed: \(err)")
+                    print("[SessionDetailVM] removeAgent: runtimeStop failed: \(err)")
                 }
             } else {
-                print("[RuntimeDetailVM] removeAgent: skipping runtimeStop — routeActor=\(routeActor ?? "nil") runtimeID=\(runtimeID ?? "nil")")
+                print("[SessionDetailVM] removeAgent: skipping runtimeStop — routeActor=\(routeActor ?? "nil") runtimeID=\(runtimeID ?? "nil")")
             }
 
             // 2. Best-effort daemon-side participant removal for cache
@@ -1257,7 +1257,7 @@ public final class SessionDetailViewModel {
                     sessionID: sessionID,
                     actorID: actorID)
                 if !ok {
-                    print("[RuntimeDetailVM] removeAgent: removeParticipantRpc failed: \(err)")
+                    print("[SessionDetailVM] removeAgent: removeParticipantRpc failed: \(err)")
                 }
             }
 
@@ -1267,10 +1267,10 @@ public final class SessionDetailViewModel {
                 do {
                     try await sessionsRepo.removeParticipant(sessionID: sessionID, actorID: actorID)
                 } catch {
-                    print("[RuntimeDetailVM] removeAgent: removeParticipant failed: \(error)")
+                    print("[SessionDetailVM] removeAgent: removeParticipant failed: \(error)")
                 }
             } else {
-                print("[RuntimeDetailVM] removeAgent: no sessions repo available")
+                print("[SessionDetailVM] removeAgent: no sessions repo available")
             }
 
             await self.refreshMemberSheet()
@@ -1517,7 +1517,7 @@ public final class SessionDetailViewModel {
         // by fanning all agent envelopes (ACP events + HistoryBatch
         // replies) onto the same topic.
         guard let session else {
-            print("[RuntimeDetailVM] no session bound; skipping subscribe")
+            print("[SessionDetailVM] no session bound; skipping subscribe")
             return
         }
         let subscribeTopic = MQTTTopics.sessionLive(teamID: teamID, sessionID: session.sessionId)
@@ -1540,7 +1540,7 @@ public final class SessionDetailViewModel {
                 // deliver them; the predicate is the belt to those suspenders.
                 let stream = await hub.messages(topic: subscribeTopic)
                 try? await mqtt.subscribe(subscribeTopic)
-                print("[RuntimeDetailVM] subscribed to \(subscribeTopic)")
+                print("[SessionDetailVM] subscribed to \(subscribeTopic)")
 
                 // Two-source recovery:
                 //   1. Supabase `messages` for past finalized turns —
@@ -1593,7 +1593,7 @@ public final class SessionDetailViewModel {
                 }
                 // Stream finished — connection likely dropped. Loop and resubscribe.
                 if Task.isCancelled { return }
-                print("[RuntimeDetailVM] stream ended, waiting to resubscribe…")
+                print("[SessionDetailVM] stream ended, waiting to resubscribe…")
             }
         }
     }
@@ -1615,16 +1615,16 @@ public final class SessionDetailViewModel {
         for (_, t) in interruptTimeoutTasks { t.cancel() }
         interruptTimeoutTasks = [:]
         interruptPendingAgents = []
-        // Unsubscribe from extra runtime-state topics added for session agents
-        // that aren't in ConnectedAgentsStore. SessionListViewModel manages its
-        // own set; we only clean up the ones we added here.
+        // Unsubscribe from the actor-state topics added for session agents that
+        // aren't in ConnectedAgentsStore. SessionListViewModel manages its own
+        // set; we only clean up the ones we added here.
         if !sessionAgentSubscribedActorIDs.isEmpty {
             let toUnsub = sessionAgentSubscribedActorIDs
             let mqtt = self.mqtt
             let teamID = self.teamID
             Task {
                 for actorID in toUnsub {
-                    let topic = MQTTTopics.runtimeStateWildcard(teamID: teamID, actorID: actorID)
+                    let topic = MQTTTopics.actorState(teamID: teamID, actorID: actorID)
                     try? await mqtt.unsubscribe(topic)
                 }
             }
@@ -1798,7 +1798,7 @@ public final class SessionDetailViewModel {
 
     /// Normalises an envelope's `actor_id` into a bucket key. No resolution
     /// step any more: the value on the wire is already the agent actor id.
-    private func bucketKey(forRuntimeID runtimeID: String?) -> String? {
+    private func bucketKey(forActorID runtimeID: String?) -> String? {
         let trimmed = runtimeID?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
         return trimmed.isEmpty ? nil : trimmed
     }
@@ -1814,7 +1814,7 @@ public final class SessionDetailViewModel {
                                     eventType: String,
                                     runtimeID: String? = nil) -> AgentEvent {
         let event = AgentEvent(agentId: eventScopeKey, sequence: sequence, eventType: eventType)
-        event.senderActorID = bucketKey(forRuntimeID: runtimeID)
+        event.senderActorID = bucketKey(forActorID: runtimeID)
         return event
     }
 
@@ -1847,11 +1847,10 @@ public final class SessionDetailViewModel {
         // Reducer is source of truth for entry mutations. Apply +
         // project. Side effects the reducer doesn't track (runtime
         // status flip, heartbeat reset) are handled below.
-        let bucket = bucketKey(forRuntimeID: runtimeID) ?? eventScopeKey
+        let bucket = bucketKey(forActorID: runtimeID) ?? eventScopeKey
         let dirty = applyTimelineInput(
             .acp(AcpInput(
                 envelopeSequence: UInt64(sequence),
-                runtimeID: runtimeID ?? "",
                 agentBucketKey: bucket,
                 timestamp: .now,
                 turnID: turnID,
@@ -2071,7 +2070,7 @@ public final class SessionDetailViewModel {
         do {
             messages = try await repo.listForSession(sessionID: session.sessionId)
         } catch {
-            print("[RuntimeDetailVM] supabase messages seed failed: \(error)")
+            print("[SessionDetailVM] supabase messages seed failed: \(error)")
             return
         }
         guard !messages.isEmpty else { return }
@@ -2129,9 +2128,9 @@ public final class SessionDetailViewModel {
             // unknown runtime id with nothing and the active-stream card
             // hangs forever. Park the bucket instead and retry once after
             // `refreshMemberSheet` lands the roster.
-            guard let runtimeID = turnReplayRuntimeID(forBucket: bucket), !runtimeID.isEmpty else {
+            guard let runtimeID = turnReplayAddress(forBucket: bucket), !runtimeID.isEmpty else {
                 pendingTurnReplayBuckets.insert(bucket)
-                print("[RuntimeDetailVM] replay deferred for \(bucket)/\(turnID): runtime id not resolvable yet")
+                print("[SessionDetailVM] replay deferred for \(bucket)/\(turnID): runtime id not resolvable yet")
                 continue
             }
             pendingTurnReplayBuckets.remove(bucket)
@@ -2142,7 +2141,7 @@ public final class SessionDetailViewModel {
                     agentID: runtimeID
                 )
             } catch {
-                print("[RuntimeDetailVM] replay turn history failed for \(bucket)/\(turnID): \(error)")
+                print("[SessionDetailVM] replay turn history failed for \(bucket)/\(turnID): \(error)")
             }
         }
     }
@@ -2156,7 +2155,7 @@ public final class SessionDetailViewModel {
     /// are agent actor ids — events carry `Envelope.actor_id` — so this is a
     /// pure derivation. Nil only before the session id is known, which is the
     /// one case where deferring is still correct.
-    private func turnReplayRuntimeID(forBucket bucket: String) -> String? {
+    private func turnReplayAddress(forBucket bucket: String) -> String? {
         attachmentAddress(forAgentActorID: bucket)
     }
 
@@ -2176,14 +2175,14 @@ public final class SessionDetailViewModel {
             // waited for the roster — nothing left to replay then.
             guard streamingAgentSet.contains(bucket),
                   let turnID = streamingTurnIDByAgent[bucket], !turnID.isEmpty else { continue }
-            guard let runtimeID = turnReplayRuntimeID(forBucket: bucket), !runtimeID.isEmpty else {
-                print("[RuntimeDetailVM] replay retry for \(bucket)/\(turnID) still unroutable; giving up")
+            guard let runtimeID = turnReplayAddress(forBucket: bucket), !runtimeID.isEmpty else {
+                print("[SessionDetailVM] replay retry for \(bucket)/\(turnID) still unroutable; giving up")
                 continue
             }
             do {
                 try await requestTurnHistory(modelContext: ctx, turnID: turnID, agentID: runtimeID)
             } catch {
-                print("[RuntimeDetailVM] replay retry failed for \(bucket)/\(turnID): \(error)")
+                print("[SessionDetailVM] replay retry failed for \(bucket)/\(turnID): \(error)")
             }
         }
     }
@@ -2222,7 +2221,7 @@ public final class SessionDetailViewModel {
         // the owning runtime + route actor id via the same helper sendCommand
         // uses so the MQTT topic matches the daemon's subscription.
         let route = commandRoute(forAgentActorID: agentID)
-        guard !route.runtimeID.isEmpty else { return }
+        guard !route.address.isEmpty else { return }
 
         var req = Amux_AcpRequestTurnHistory()
         req.turnID = turnID
@@ -2230,7 +2229,7 @@ public final class SessionDetailViewModel {
 
         let sender = RuntimeCommandSender(mqtt: mqtt, teamID: teamID, peerID: peerId)
         try await sender.send(
-            runtimeID: route.runtimeID,
+            runtimeID: route.address,
             actorID: route.actorID,
             currentHumanActorID: teamclawService?.currentHumanActorId,
             makeCommand: { $0.command = .requestTurnHistory(req) }
@@ -2240,23 +2239,23 @@ public final class SessionDetailViewModel {
     private func sendCommand(agentActorID: String? = nil,
                              makeCommand: sending (inout Amux_AcpCommand) -> Void) async throws {
         let route = commandRoute(forAgentActorID: agentActorID)
-        guard !route.runtimeID.isEmpty else {
+        guard !route.address.isEmpty else {
             let key = agentActorID?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
-            let error: SendCommandError = key.isEmpty ? .noRuntime : .runtimeIdEmpty
+            let error: SendCommandError = key.isEmpty ? .noAgent : .addressEmpty
             await surfaceSendError(error)
             throw error
         }
         let sender = RuntimeCommandSender(mqtt: mqtt, teamID: teamID, peerID: peerId)
         do {
             try await sender.send(
-                runtimeID: route.runtimeID,
+                runtimeID: route.address,
                 actorID: route.actorID,
                 currentHumanActorID: teamclawService?.currentHumanActorId,
                 makeCommand: makeCommand
             )
         } catch let error as SendCommandError {
             if case .routeActorIdUnresolved = error {
-                print("[RuntimeDetailVM] dropping command — route actor id not resolved (primaryAgentId=\(session?.primaryAgentId ?? "nil") runtimeId=\(route.runtimeID) agentActorID=\(agentActorID ?? "nil"))")
+                print("[SessionDetailVM] dropping command — route actor id not resolved (primaryAgentId=\(session?.primaryAgentId ?? "nil") address=\(route.address) agentActorID=\(agentActorID ?? "nil"))")
             }
             surfaceSendError(error)
             throw error
@@ -2270,7 +2269,7 @@ public final class SessionDetailViewModel {
     /// the daemon resolves. Both derive from (agent actor, session) — the
     /// former chain of fallbacks existed only because the runtime id had to be
     /// discovered from a store, a retain, or a stale row.
-    private func commandRoute(forAgentActorID agentActorID: String?) -> (runtimeID: String, actorID: String) {
+    private func commandRoute(forAgentActorID agentActorID: String?) -> (address: String, actorID: String) {
         let key = agentActorID?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
         let target = key.isEmpty ? resolveRouteActorID() : key
         guard !target.isEmpty, let address = attachmentAddress(forAgentActorID: target) else {
@@ -2600,7 +2599,6 @@ public final class SessionDetailViewModel {
         let dirty = applyTimelineInput(
             .acp(AcpInput(
                 envelopeSequence: seq,
-                runtimeID: "",
                 agentBucketKey: bucket,
                 timestamp: .now,
                 turnID: streamingTurnIDByAgent[bucket],
@@ -2928,8 +2926,8 @@ extension SessionDetailViewModel {
         memberSheetAgents = agents
     }
 
-    public func _test_bucketKey(forRuntimeID runtimeID: String) -> String? {
-        bucketKey(forRuntimeID: runtimeID)
+    public func _test_bucketKey(forActorID runtimeID: String) -> String? {
+        bucketKey(forActorID: runtimeID)
     }
 
     /// Mirrors the production refresh ordering: attach the resolved runtime
@@ -3033,7 +3031,7 @@ extension SessionDetailViewModel {
     }
 
     public func _test_turnReplayRuntimeID(forBucket bucket: String) -> String? {
-        turnReplayRuntimeID(forBucket: bucket)
+        turnReplayAddress(forBucket: bucket)
     }
 
     public func _test_replayStreamingTurnsAfterReconnect(modelContext: ModelContext) async {
@@ -3107,7 +3105,7 @@ extension MemberSheetAgent {
             displayName: displayName ?? id,
             workspacePath: "",
             agentType: "claude",
-            runtimeState: .idle,
+            lifecycleState: .idle,
             availableModels: [],
             currentModel: nil,
             workspaceID: nil,
@@ -3171,13 +3169,11 @@ extension SessionDetailViewModel {
     @MainActor
     public func _testApplyAcp(_ acp: Amux_AcpEvent,
                               sequence: Int,
-                              runtimeID: String,
                               agentBucketKey: String,
                               modelContext: ModelContext) {
         _ = applyTimelineInput(
             .acp(AcpInput(
                 envelopeSequence: UInt64(sequence),
-                runtimeID: runtimeID,
                 agentBucketKey: agentBucketKey,
                 timestamp: .now,
                 turnID: nil,

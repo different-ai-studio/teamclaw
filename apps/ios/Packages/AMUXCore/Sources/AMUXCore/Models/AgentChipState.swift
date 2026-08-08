@@ -6,16 +6,16 @@ import Foundation
 public struct AgentChipParticipant: Identifiable, Equatable, Sendable {
     public let id: String           // agent_id (uuid)
     public let displayName: String
-    public let runtimeState: AgentRuntimeChipState
+    public let lifecycleState: AgentLifecycleState
 
-    public init(id: String, displayName: String, runtimeState: AgentRuntimeChipState) {
+    public init(id: String, displayName: String, lifecycleState: AgentLifecycleState) {
         self.id = id
         self.displayName = displayName
-        self.runtimeState = runtimeState
+        self.lifecycleState = lifecycleState
     }
 }
 
-public enum AgentRuntimeChipState: String, Equatable, Sendable, CaseIterable {
+public enum AgentLifecycleState: String, Equatable, Sendable, CaseIterable {
     case spawning, ready, idle, active, stopped, error
 }
 
