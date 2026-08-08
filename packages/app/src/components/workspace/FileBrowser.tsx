@@ -127,6 +127,11 @@ export function FileBrowser({ className, variant = 'default', rootPath, rootPath
       let current = wp
       for (const seg of segments) {
         current = `${current}/${seg}`
+        // Only load the levels that are actually missing, and re-read the tree
+        // each step because it changes across the await. Re-expanding a loaded
+        // ancestor costs an IPC round-trip and republishes the whole level,
+        // which is how this effect used to keep re-arming itself.
+        if (findSubtree(useWorkspaceStore.getState().fileTree, current) !== undefined) continue
         await useWorkspaceStore.getState().expandDirectory(current)
       }
     }
