@@ -9,15 +9,27 @@
       "**/*"
     ],
     "android": {
-      "package": "com.bertrand319.teamclawexpo"
+      "package": "com.bertrand319.teamclawexpo",
+      "permissions": [
+        "android.permission.RECORD_AUDIO",
+        "android.permission.MODIFY_AUDIO_SETTINGS"
+      ]
     },
     "plugins": [
       "./plugins/withTeamClawMqtt",
       "expo-audio",
-      "expo-web-browser"
+      "expo-web-browser",
+      "expo-router",
+      "expo-sqlite"
     ],
     "ios": {
       "bundleIdentifier": "com.bertrand319.teamclawexpo"
-    }
+    },
+    "extra": {
+      "eas": {
+        "projectId": "d68ed240-fe6c-4180-a1b4-305faff315ff"
+      }
+    },
+    "owner": "teamklo-team"
   }
 }
