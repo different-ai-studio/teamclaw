@@ -166,16 +166,6 @@ pub fn log_acp_event(session_id: &str, event: &amux::AcpEvent) {
     }
 }
 
-pub fn log_acp_error(session_id: &str, message: &str, details: &str) {
-    error!(
-        target: LOG_TARGET,
-        session_id = %session_id,
-        message = %message,
-        details = %preview(details),
-        "agent error emit"
-    );
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;

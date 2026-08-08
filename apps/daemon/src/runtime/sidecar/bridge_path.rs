@@ -93,16 +93,6 @@ pub fn sdk_installed_for_main(main: &Path) -> bool {
         .unwrap_or(false)
 }
 
-pub fn claude_sdk_installed_for_main(main: &Path) -> bool {
-    bridge_root_for_main(main)
-        .map(|root| {
-            root.join("node_modules")
-                .join("@anthropic-ai/claude-agent-sdk/package.json")
-                .is_file()
-        })
-        .unwrap_or(false)
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;

@@ -53,7 +53,6 @@ pub fn suppress_internal_opencode_write(worktree: &std::path::Path) {
         );
     }
 }
-pub const INTERNAL_TEAMCLAW_KINDS: [RefreshChangeKind; 1] = [RefreshChangeKind::TeamclawConfig];
 pub const INTERNAL_PREPARE_KINDS: [RefreshChangeKind; 3] = [
     RefreshChangeKind::OpencodeJson,
     RefreshChangeKind::Skills,

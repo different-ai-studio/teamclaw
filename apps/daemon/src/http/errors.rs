@@ -153,10 +153,6 @@ impl HttpError {
         Self::new(ErrorCode::Internal, detail)
     }
 
-    pub fn not_implemented(detail: impl Into<String>) -> Self {
-        Self::new(ErrorCode::NotImplemented, detail)
-    }
-
     pub fn runtime_unavailable(detail: impl Into<String>) -> Self {
         Self::new(ErrorCode::RuntimeUnavailable, detail)
     }

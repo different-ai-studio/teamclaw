@@ -72,11 +72,6 @@ pub fn read_teamclaw_config(workspace: &str) -> Result<Value, String> {
     read_json_file_or_default(&config_path(workspace), Value::Object(Default::default()))
 }
 
-/// Write `{workspace}/.teamclaw/teamclaw.json` with pretty print + trailing newline.
-pub fn write_teamclaw_config(workspace: &str, config: &Value) -> Result<(), String> {
-    write_json_file(&config_path(workspace), config)
-}
-
 /// Read `{workspace}/.teamclaw/cron-jobs.json`. Returns `{ "jobs": [] }` if missing.
 pub fn read_cron_jobs(workspace: &str) -> Result<Value, String> {
     read_json_file_or_default(

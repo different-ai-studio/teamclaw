@@ -191,10 +191,6 @@ impl ServeSupervisor {
         true
     }
 
-    pub fn env_snapshot_requires_restart(&self, incoming_fingerprint: &str) -> bool {
-        self.is_running() && self.active_env_fingerprint().as_deref() != Some(incoming_fingerprint)
-    }
-
     pub fn mark_snapshot_conflict(&self, workspace: &str) {
         self.snapshot_conflict_workspaces
             .lock()
