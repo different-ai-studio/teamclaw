@@ -14,10 +14,13 @@ use super::RuntimeManager;
 
 impl RuntimeManager {
     /// Public wrapper used by the SetModel RPC handler. Forwards to the
-    /// adapter and immediately mirrors the choice into `agent_state` so
-    /// retained `runtime/{id}/state` reflects the request without waiting for
-    /// an out-of-band ack from the adapter.
-    /// `runtime_id` is the same key `send_prompt` / `stop_runtime` use.
+    /// adapter and immediately mirrors the choice into `agent_state` so the
+    /// actor snapshot on `{actor}/state` reflects the request without waiting
+    /// for an out-of-band ack from the adapter.
+    ///
+    /// `runtime_id` must already be a spawn key — the RPC handler resolves the
+    /// client-facing address (session id / `{actor}::{session}`) via
+    /// `resolve_command_agent_id` before calling this.
     pub async fn set_model(
         &mut self,
         runtime_id: &str,

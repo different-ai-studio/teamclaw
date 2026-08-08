@@ -1829,9 +1829,16 @@ public final class SessionDetailViewModel {
     private func handleEnvelope(_ env: Amux_Envelope, modelContext: ModelContext) {
         switch env.payload {
         case .acpEvent(let acp):
+            // Bucket by `actor_id`, not `runtime_id`. The latter is the
+            // daemon's per-spawn key: minted fresh on every start, published
+            // on no topic since ADR-0004, and therefore impossible for a
+            // client to map back to an agent. `actor_id` rides the same
+            // envelope, is stable across restarts, and is the very value the
+            // daemon persists as `sender_actor_id` on agent messages — so
+            // live events and seeded history land in the same bucket for free.
             if handleAcpEvent(acp,
                               sequence: Int(env.sequence),
-                              runtimeID: env.runtimeID,
+                              runtimeID: env.actorID,
                               turnID: env.turnID.isEmpty ? nil : env.turnID,
                               modelContext: modelContext) {
                 try? modelContext.save()

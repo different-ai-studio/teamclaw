@@ -18,6 +18,9 @@ extension Session {
 @Observable @MainActor
 public final class SessionListViewModel {
     public var runtimes: [Runtime] = []
+    /// Live attachments projected from every subscribed actor's `ActorPresence`
+    /// retain, keyed `{actor}::{session}`. A session absent here is cold.
+    public var attachments: [AgentAttachment] = []
     public var workspaces: [Workspace] = []
     public var sessions: [Session] = []
     public var isLoading = true
@@ -42,6 +45,7 @@ public final class SessionListViewModel {
 
         // Load cached data immediately
         runtimes = (try? ctx.fetch(FetchDescriptor<Runtime>(sortBy: [SortDescriptor(\.lastEventTime, order: .reverse)]))) ?? []
+        attachments = (try? ctx.fetch(FetchDescriptor<AgentAttachment>(sortBy: [SortDescriptor(\.lastEventTime, order: .reverse)]))) ?? []
         workspaces = (try? ctx.fetch(FetchDescriptor<Workspace>(sortBy: [SortDescriptor(\.displayName)]))) ?? []
         sessions = (try? ctx.fetch(FetchDescriptor<Session>(sortBy: [SortDescriptor(\.lastMessageAt, order: .reverse)]))) ?? []
 
@@ -532,57 +536,107 @@ public final class SessionListViewModel {
         actorID: String,
         modelContext: ModelContext
     ) {
-        // Catalogs are per worktree, but LiveSession carries workspace rather
-        // than worktree. A single-checkout device (the common case) has one
-        // entry to attribute; otherwise leave the catalog to the legacy path.
-        let soleCatalog = presence.worktrees.count == 1 ? presence.worktrees.first : nil
-        let catalogModels: [Amux_ModelInfo] = soleCatalog.map { wt in
-            wt.modelIndices.compactMap { idx in
+        // Catalogs are keyed by worktree and `LiveSession.worktree` says which
+        // one this attachment runs in — a multi-checkout device would otherwise
+        // have to guess, which is exactly what the daemon added that field to
+        // stop. `catalog_models` is a deduplicated union; `model_indices` are
+        // offsets into it (8 worktrees / 563 entries collapse to 72 models).
+        let catalogByWorktree = Dictionary(
+            presence.worktrees.map { ($0.worktree, $0) },
+            uniquingKeysWith: { first, _ in first }
+        )
+        func models(for catalog: Amux_WorktreeCatalog?) -> [AvailableModel] {
+            guard let catalog else { return [] }
+            return catalog.modelIndices.compactMap { idx in
                 let i = Int(idx)
-                return presence.catalogModels.indices.contains(i) ? presence.catalogModels[i] : nil
+                guard presence.catalogModels.indices.contains(i) else { return nil }
+                let m = presence.catalogModels[i]
+                return AvailableModel(id: m.id, displayName: m.displayName)
             }
-        } ?? []
+        }
 
         var liveIDs: Set<String> = []
         for live in presence.liveSessions where !live.sessionID.isEmpty {
-            liveIDs.insert("\(actorID)::\(live.sessionID)")
-            var info = Amux_RuntimeInfo()
-            // Keyed by (actor, session): a daemon holds at most one attachment
-            // per session, but a session whose agents live on two machines has
-            // one per machine, and this store merges every actor's retain.
-            info.runtimeID = "\(actorID)::\(live.sessionID)" 
-            info.agentType = presence.activeAgentType
-            info.status = live.status
-            info.state = live.lifecycle
-            info.stage = live.stage
-            info.errorCode = live.errorCode
-            info.errorMessage = live.errorMessage
-            info.failedStage = live.failedStage
-            info.workspaceID = live.workspaceID
-            info.worktree = soleCatalog?.worktree ?? ""
-            info.currentModel = live.currentModel.isEmpty
-                ? (soleCatalog?.defaultModel ?? "")
+            let id = AgentAttachment.makeID(actorID: actorID, sessionID: live.sessionID)
+            liveIDs.insert(id)
+
+            let catalog = catalogByWorktree[live.worktree]
+            let modelsJSON = Self.encodeJSON(models(for: catalog))
+            let commandsJSON = Self.encodeJSON((catalog?.availableCommands ?? []).map {
+                SlashCommand(name: $0.name, description: $0.description_p, inputHint: $0.inputHint)
+            })
+            // `default_model` is the worktree's MRU head — a memory of what was
+            // last used here, owned by the daemon. Never shadow a live value.
+            let resolvedModel = live.currentModel.isEmpty
+                ? (catalog?.defaultModel ?? "")
                 : live.currentModel
-            info.availableModels = catalogModels
-            info.availableCommands = soleCatalog?.availableCommands ?? []
-            syncRuntime(info, routeActorID: actorID, modelContext: modelContext)
+
+            let descriptor = FetchDescriptor<AgentAttachment>(
+                predicate: #Predicate { $0.id == id }
+            )
+            if let existing = try? modelContext.fetch(descriptor).first {
+                if existing.status != Int(live.status.rawValue)
+                    || existing.lifecycle != Int(live.lifecycle.rawValue) {
+                    existing.lastEventTime = .now
+                }
+                existing.lifecycle = Int(live.lifecycle.rawValue)
+                existing.status = Int(live.status.rawValue)
+                existing.agentType = Int(presence.activeAgentType.rawValue)
+                existing.stage = live.stage
+                existing.errorCode = live.errorCode
+                existing.errorMessage = live.errorMessage
+                existing.failedStage = live.failedStage
+                existing.workspaceID = live.workspaceID
+                existing.worktree = live.worktree
+                existing.currentModel = resolvedModel.isEmpty ? nil : resolvedModel
+                // A cold-spawned attachment publishes an empty catalog until the
+                // backend finishes probing; never blow away a known list with it.
+                if !modelsJSON.isEmpty { existing.availableModelsJSON = modelsJSON }
+                if !commandsJSON.isEmpty { existing.availableCommandsJSON = commandsJSON }
+            } else {
+                let row = AgentAttachment(
+                    actorID: actorID,
+                    sessionID: live.sessionID,
+                    lifecycle: Int(live.lifecycle.rawValue),
+                    status: Int(live.status.rawValue),
+                    agentType: Int(presence.activeAgentType.rawValue),
+                    stage: live.stage,
+                    errorCode: live.errorCode,
+                    errorMessage: live.errorMessage,
+                    failedStage: live.failedStage,
+                    workspaceID: live.workspaceID,
+                    worktree: live.worktree,
+                    currentModel: resolvedModel.isEmpty ? nil : resolvedModel,
+                    availableModelsJSON: modelsJSON,
+                    availableCommandsJSON: commandsJSON,
+                    lastEventTime: .now
+                )
+                modelContext.insert(row)
+            }
         }
 
-        // Prune only rows this projection owns. Legacy per-spawn rows use short
-        // hex ids with no "::" in them, so the composite key keeps the two
-        // sources from deleting each other's work while both are consumed.
+        // Absence from `live_sessions` is the signal for "detached / cold", so
+        // prune this actor's rows that the retain no longer lists. Only rows
+        // this actor owns — another machine serving the same session has its
+        // own row under its own actor id.
         let ownedPrefix = "\(actorID)::"
-        let stale = (try? modelContext.fetch(FetchDescriptor<Runtime>()))?.filter {
-            $0.runtimeId.hasPrefix(ownedPrefix)
-                && !liveIDs.contains($0.runtimeId)
+        let stale = (try? modelContext.fetch(FetchDescriptor<AgentAttachment>()))?.filter {
+            $0.id.hasPrefix(ownedPrefix) && !liveIDs.contains($0.id)
         } ?? []
         for row in stale { modelContext.delete(row) }
-        if !stale.isEmpty {
-            try? modelContext.save()
-            runtimes = (try? modelContext.fetch(
-                FetchDescriptor<Runtime>(sortBy: [SortDescriptor(\.lastEventTime, order: .reverse)])
-            )) ?? []
-        }
+
+        try? modelContext.save()
+        attachments = (try? modelContext.fetch(
+            FetchDescriptor<AgentAttachment>(sortBy: [SortDescriptor(\.lastEventTime, order: .reverse)])
+        )) ?? []
+    }
+
+    private static func encodeJSON<T: Encodable>(_ value: [T]) -> String {
+        guard !value.isEmpty,
+              let data = try? JSONEncoder().encode(value),
+              let str = String(data: data, encoding: .utf8)
+        else { return "" }
+        return str
     }
 
     private func removeRuntime(runtimeId: String, modelContext: ModelContext) {

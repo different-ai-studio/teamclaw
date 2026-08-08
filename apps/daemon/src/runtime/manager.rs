@@ -2518,6 +2518,60 @@ mod tests {
         );
     }
 
+    /// `handle_set_model` used to pass the client-facing address straight into
+    /// the spawn-key map. Once the per-spawn `runtime/{id}/state` retain
+    /// stopped being published (ADR-0004), no client could learn a spawn key,
+    /// so every set-model call failed with "agent {address} not found".
+    #[tokio::test]
+    async fn set_model_needs_the_address_resolved_first() {
+        let mut mgr = RuntimeManager::new(RuntimeManager::test_launch_configs(), None);
+        mgr.add_test_runtime("76fd9bf2", "76fd9bf2", "session_S");
+
+        // What clients actually send is not a key in `agents`.
+        assert!(mgr.set_model("session_S", "claude-sonnet-4-6").await.is_err());
+
+        let resolved = mgr
+            .resolve_command_agent_id("session_S", "")
+            .expect("cloud session id must resolve to the spawn key");
+        assert_eq!(resolved, "76fd9bf2");
+        assert!(mgr.set_model(&resolved, "claude-sonnet-4-6").await.is_ok());
+    }
+
+    /// iOS addresses by `{actor}::{session}` (ADR-0004). Same contract as the
+    /// stop/cancel path, which has resolved since #780.
+    #[tokio::test]
+    async fn set_model_accepts_actor_session_composite() {
+        let mut mgr = RuntimeManager::new(RuntimeManager::test_launch_configs(), None);
+        mgr.add_test_runtime("76fd9bf2", "76fd9bf2", "session_S");
+        mgr.get_handle_mut("76fd9bf2").unwrap().owner_actor_id = "actor-A".into();
+
+        let resolved = mgr
+            .resolve_command_agent_id("actor-A::session_S", "actor-A")
+            .expect("composite address must resolve");
+        assert_eq!(resolved, "76fd9bf2");
+        assert!(mgr.set_model(&resolved, "claude-sonnet-4-6").await.is_ok());
+
+        // A composite naming a different owner must not reach this handle.
+        assert_eq!(
+            mgr.resolve_command_agent_id("actor-A::session_S", "actor-B"),
+            None
+        );
+    }
+
+    /// Stop takes the same addresses as set-model; both handlers resolve now.
+    #[tokio::test]
+    async fn stop_runtime_accepts_resolved_session_address() {
+        let mut mgr = RuntimeManager::new(RuntimeManager::test_launch_configs(), None);
+        mgr.add_test_runtime("76fd9bf2", "76fd9bf2", "session_S");
+
+        let resolved = mgr
+            .resolve_command_agent_id("session_S", "")
+            .expect("cloud session id must resolve to the spawn key");
+        assert!(mgr.stop_runtime(&resolved).await.is_some());
+        // Gone from the map — a second stop finds nothing to resolve.
+        assert_eq!(mgr.resolve_command_agent_id("session_S", ""), None);
+    }
+
     #[tokio::test]
     async fn inject_context_buffers_without_sending() {
         let mut mgr = RuntimeManager::test_dummy_with_runtime("rt1");

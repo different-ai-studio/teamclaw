@@ -52,16 +52,8 @@ public enum MQTTTopics {
         "\(actorBase(teamID: teamID, actorID: actorID))/runtime/+/state"
     }
 
-    public static func runtimeStatePrefix(teamID: String, actorID: String) -> String {
-        "\(actorBase(teamID: teamID, actorID: actorID))/runtime/"
-    }
-
     public static func runtimeCommands(teamID: String, actorID: String, runtimeID: String) -> String {
         "\(actorBase(teamID: teamID, actorID: actorID))/runtime/\(runtimeID)/commands"
-    }
-
-    public static func runtimeCommandsWildcard(teamID: String, actorID: String) -> String {
-        "\(actorBase(teamID: teamID, actorID: actorID))/runtime/+/commands"
     }
 
     /// Team-scoped user notify channel. Requires broker JWT auth before use

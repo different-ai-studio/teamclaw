@@ -52,26 +52,6 @@ public struct SessionDetailView: View {
 
     let connectedAgentsStore: ConnectedAgentsStore?
 
-    public init(runtime: Runtime, mqtt: MQTTService, hub: MQTTMessageHub, peerId: String,
-                connectedAgentsStore: ConnectedAgentsStore? = nil,
-                messagesRepository: (any MessagesRepository)? = nil,
-                workspacesRepository: (any WorkspaceRepository)? = nil,
-                sessionsRepository: (any SessionRepository)? = nil,
-                pushPrefs: (any PushPreferencesAPI)? = nil,
-                notificationPrefsStore: NotificationPrefsStore? = nil) {
-        _viewModel = State(initialValue: SessionDetailViewModel(
-            runtime: runtime, mqtt: mqtt, hub: hub, peerId: peerId,
-            connectedAgentsStore: connectedAgentsStore,
-            sessionsRepository: sessionsRepository,
-            messagesRepository: messagesRepository,
-            workspacesRepository: workspacesRepository))
-        self.connectedAgentsStore = connectedAgentsStore
-        self.pendingTeamclawService = nil
-        self.pushPrefs = pushPrefs
-        self.notificationPrefsStore = notificationPrefsStore
-        self.workspacesRepository = workspacesRepository
-    }
-
     public init(session: Session, mqtt: MQTTService, hub: MQTTMessageHub, peerId: String,
                 teamclawService: TeamclawService?,
                 connectedAgentsStore: ConnectedAgentsStore? = nil,
