@@ -68,6 +68,48 @@ describe('ActorsView', () => {
     expect(screen.getByRole('button', { name: /Alice/ })).toHaveClass('hover:bg-selected')
   })
 
+  it('sorts all actors by display name', async () => {
+    mockActorsRows([
+      {
+        id: 'a-2',
+        actor_type: 'agent',
+        display_name: 'Zed',
+        member_status: null,
+        agent_status: 'online',
+        last_active_at: null,
+      },
+      {
+        id: 'a-1',
+        actor_type: 'member',
+        display_name: 'Alice',
+        member_status: 'active',
+        agent_status: null,
+        last_active_at: null,
+      },
+      {
+        id: 'a-3',
+        actor_type: 'agent',
+        display_name: 'Bob',
+        member_status: null,
+        agent_status: 'online',
+        last_active_at: null,
+      },
+    ])
+
+    render(<ActorsView />)
+
+    await waitFor(() => expect(screen.getByRole('button', { name: /Alice/ })).toBeInTheDocument())
+    const actorButtons = screen.getAllByRole('button').filter((button) =>
+      ['Alice', 'Bob', 'Zed'].some((name) => button.textContent?.includes(name)),
+    )
+
+    expect(actorButtons.map((button) => button.textContent ?? '')).toEqual([
+      expect.stringContaining('Alice'),
+      expect.stringContaining('Bob'),
+      expect.stringContaining('Zed'),
+    ])
+  })
+
   it('renders empty state when no actors', async () => {
     mockActorsRows([])
     render(<ActorsView />)

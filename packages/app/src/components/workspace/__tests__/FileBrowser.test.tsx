@@ -135,6 +135,11 @@ vi.mock("@/stores/workspace", () => ({
     {
       getState: () => ({
         workspacePath: "/workspace",
+        // Mirrors the selector view above: FileBrowser reads the tree back out
+        // of getState between awaits, since the closed-over value goes stale.
+        get fileTree() {
+          return mockFileTree;
+        },
         expandDirectory: mockExpandDirectory,
       }),
       subscribe: vi.fn(() => vi.fn()),

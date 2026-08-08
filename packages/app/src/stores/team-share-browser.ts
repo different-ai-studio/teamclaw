@@ -189,8 +189,17 @@ function frontmatterValue(content: string, key: string): string | null {
   return frontmatterString(content, key) ?? null
 }
 
-const KNOWLEDGE_EXTS = new Set(['md', 'mdx', 'markdown', 'txt'])
-
+/**
+ * The entries directly under `knowledge/` — the same rows the column's file
+ * tree shows at its root.
+ *
+ * This listing exists only to produce the header and nav counts, so it has to
+ * agree with what sits next to those counts, the way every other section's does.
+ * It previously walked the tree recursively and counted only `md/mdx/markdown/
+ * txt`, which disagreed twice over: a folder was visible but never counted, and
+ * any other file type — a PDF, an image — was shared by sync yet invisible to
+ * the count.
+ */
 async function listTeamKnowledge(wsPath: string): Promise<TeamKnowledgeItem[]> {
   const teamDir = await resolveTeamDir(wsPath)
   if (!teamDir) return []
@@ -198,25 +207,16 @@ async function listTeamKnowledge(wsPath: string): Promise<TeamKnowledgeItem[]> {
   const { exists, readDir } = await import('@tauri-apps/plugin-fs')
   if (!(await exists(knowledgeDir))) return []
 
-  const out: TeamKnowledgeItem[] = []
-  const walk = async (dir: string, rel: string): Promise<void> => {
-    const entries = await readDir(dir)
-    for (const entry of entries) {
-      const childRel = rel ? `${rel}/${entry.name}` : entry.name
-      const childPath = `${dir}/${entry.name}`
-      if (entry.isDirectory) {
-        await walk(childPath, childRel)
-      } else {
-        const ext = entry.name.split('.').pop()?.toLowerCase() ?? ''
-        if (KNOWLEDGE_EXTS.has(ext)) {
-          out.push({ path: childPath, relPath: childRel, name: entry.name })
-        }
-      }
-    }
-  }
-  await walk(knowledgeDir, '')
-  out.sort((a, b) => a.relPath.localeCompare(b.relPath))
-  return out
+  const entries = await readDir(knowledgeDir)
+  // Dotfiles are deliberately not filtered: the tree renders them, so counting
+  // them is what keeps the two numbers equal.
+  return entries
+    .map((entry) => ({
+      path: `${knowledgeDir}/${entry.name}`,
+      relPath: entry.name,
+      name: entry.name,
+    }))
+    .sort((a, b) => a.relPath.localeCompare(b.relPath))
 }
 
 type OnDisk = { content: string; dirPath: string; invocationName: string; source: SkillSource }
