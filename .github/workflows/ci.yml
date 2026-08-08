@@ -40,9 +40,12 @@ jobs:
       - name: Run unit tests
         run: pnpm test:unit
 
-      # `test:unit` is scoped to @teamclaw/app, so the Expo app's suite ran
-      # nowhere until now. Typecheck is deliberately NOT gated for it yet — it
-      # has 14 pre-existing errors, itemised with root causes in apps/expo/CI.md.
+      # The scripts above are scoped to @teamclaw/app, so the Expo app was
+      # outside every gate until now. See apps/expo/CI.md for what is and is
+      # not covered.
+      - name: Run Expo TypeScript check
+        run: pnpm typecheck:expo
+
       - name: Run Expo unit tests
         run: pnpm test:expo
 
