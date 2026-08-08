@@ -15,22 +15,6 @@ import { WebView, type WebViewNavigation } from "react-native-webview";
 
 import { colors, spacing, typography } from "../../ui/theme";
 
-/**
- * `react-native-webview@14`'s `types` field points at its package-root
- * `index.d.ts`, which declares
- *
- *     declare class WebView<P = undefined> extends Component<WebViewProps & P>
- *
- * so the default instantiation gives props of `WebViewProps & undefined` —
- * i.e. `never`, which makes *every* prop fail to typecheck. (The correct
- * declaration exists at `lib/index.d.ts`; `types` just does not point there.)
- *
- * Supplying the parameter explicitly restores `WebViewProps & object` =
- * `WebViewProps`. Drop this alias once the package ships a fixed root
- * declaration, or once `types` points at `lib/`.
- */
-type Web = WebView<object>;
-
 export type ShortcutWebScreenProps = {
   url: string;
   title: string;
@@ -38,7 +22,7 @@ export type ShortcutWebScreenProps = {
 };
 
 export function ShortcutWebScreen({ url, title, onClose }: ShortcutWebScreenProps) {
-  const webviewRef = useRef<Web>(null);
+  const webviewRef = useRef<WebView>(null);
   const insets = useSafeAreaInsets();
   const [nav, setNav] = useState<WebViewNavigation>({
     canGoBack: false,
@@ -119,7 +103,7 @@ export function ShortcutWebScreen({ url, title, onClose }: ShortcutWebScreenProp
         ) : null}
       </View>
 
-      <WebView<object>
+      <WebView
         ref={webviewRef}
         source={{ uri: url }}
         onNavigationStateChange={setNav}

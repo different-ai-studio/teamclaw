@@ -18,7 +18,9 @@
     "plugins": [
       "./plugins/withTeamClawMqtt",
       "expo-audio",
-      "expo-web-browser"
+      "expo-web-browser",
+      "expo-router",
+      "expo-sqlite"
     ],
     "ios": {
       "bundleIdentifier": "com.bertrand319.teamclawexpo"
