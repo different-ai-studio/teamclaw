@@ -14,6 +14,8 @@ interface ImportMetaEnv {
   readonly VITE_TEAMCLAW_SKIP_SETUP?: string;
   /** Set by scripts/tauri-cli.js for `pnpm tauri:dev -- --skip-daemon-onboarding`. */
   readonly VITE_TEAMCLAW_SKIP_DAEMON_ONBOARDING?: string;
+  /** E2E build: installs the window.__TEAMCLAW_V2_E2E__ control surface. */
+  readonly VITE_TEAMCLAW_E2E?: string;
   /** Extension embed build: force chat-only shell (apps/extension/build.mjs). */
   readonly VITE_FORCE_EMBED?: string;
 }

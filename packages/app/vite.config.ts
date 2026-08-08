@@ -115,8 +115,9 @@ export default defineConfig({
     },
     // Bundle analysis: run with ANALYZE=true pnpm build
     process.env.ANALYZE && visualizer({
-      open: true,
-      filename: 'dist/bundle-analysis.html',
+      open: !process.env.ANALYZE_RAW,
+      template: process.env.ANALYZE_RAW ? 'raw-data' : 'treemap',
+      filename: process.env.ANALYZE_RAW ? 'dist/bundle-analysis.json' : 'dist/bundle-analysis.html',
       gzipSize: true,
     }),
   ].filter(Boolean),
@@ -150,6 +151,16 @@ export default defineConfig({
     'import.meta.env.PACKAGE_VERSION': JSON.stringify(
       JSON.parse(readFileSync(path.join(rootDir, 'apps/desktop/tauri.conf.json'), 'utf-8')).version ?? '0.0.0'
     ),
+    // Literal so the E2E control surface can be dead-code-eliminated. Read
+    // through a bare `import.meta.env.VITE_TEAMCLAW_E2E` the value would stay
+    // a runtime lookup and the ~30KB `lib/e2e/v2-control` module would ship in
+    // every production build.
+    'import.meta.env.VITE_TEAMCLAW_E2E': JSON.stringify(process.env.VITE_TEAMCLAW_E2E ?? ''),
+    // Sentry tree-shaking flags. We only use error capture + user feedback —
+    // no performance tracing — and the SDK's own debug logging is dead weight
+    // in a shipped build. Trims ~16KB off the (lazily loaded) Sentry chunk.
+    __SENTRY_DEBUG__: false,
+    __SENTRY_TRACING__: false,
   },
   // Prevent vite from obscuring rust errors
   clearScreen: false,

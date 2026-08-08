@@ -184,7 +184,6 @@
     "daysAgo_plural": "{{count}} 天前",
     "refresh": "刷新",
     "dismiss": "忽略",
-    "more": "更多",
     "showLess": "收起",
     "showMore": "展开更多",
     "shortcuts": "快捷方式",
@@ -319,14 +318,11 @@
   },
   "navigation": {
     "changes": "变更",
-    "session": "会话",
     "shortcuts": "快捷方式",
     "files": "文件",
     "teamSharedFilesLoading": "正在加载团队共享文件...",
     "teamSharedFilesDirMissing": "团队共享目录尚不存在。点击同步从团队拉取。",
     "teamSharedFilesEmpty": "当前团队共享目录为空。",
-    "actors": "成员",
-    "ideas": "想法",
     "hideTabs": "隐藏文件",
     "restoreTabs": "显示文件",
     "collapsePanel": "收起面板",
@@ -526,10 +522,6 @@
       },
       "argCount": "{{count}} 个参数"
     },
-    "voiceInputStart": "开始语音输入",
-    "voiceInputStop": "停止录音",
-    "voiceInputPermissionDenied": "麦克风权限被拒绝",
-    "voiceInputInsertToChat": "插入到聊天",
     "inputPlaceholderDescription": "添加描述...",
     "inputPlaceholderMention": "输入 @ 提及人或 agent，# 引用文件...",
     "permissionMode": {
@@ -560,10 +552,6 @@
     "refreshMessages": "刷新消息",
     "startingAgent": "正在启动助手...",
     "taskRunning": "任务运行中...",
-    "voiceInputChecking": "正在检查麦克风...",
-    "voiceInputDesktopNoTranscript": "桌面应用暂不支持语音转文字。请使用 Web 版本进行语音输入。",
-    "voiceInputNoMicrophone": "未检测到麦克风",
-    "voiceInputRecognizing": "识别中...",
     "waitingForAgent": "会话已准备好。正在等待助手运行时完成启动。",
     "backToMainSession": "返回主会话",
     "waitingForConfirmationShort": "待确认",
@@ -751,16 +739,6 @@
   "onboarding": {
     "common": {
       "back": "上一步"
-    },
-    "joinTeam": {
-      "checkingStatus": "正在检查团队共享状态…",
-      "initializing": "正在初始化团队工作区…",
-      "joined": "已加入团队",
-      "shareNotOpened": "团队共享未开通，待 owner 开通后即可同步。",
-      "failed": "加入流程失败：{{error}}",
-      "joinedWithMode": "已加入团队（模式：{{mode}}）",
-      "unknownMode": "未知",
-      "enterSecret": "请输入团队密钥以解密共享内容。密钥由邀请人提供。"
     }
   },
   "workspace": {
@@ -774,9 +752,7 @@
       "blockedByActive": "当前有 Agent 在运行 — 确认后将执行重载。",
       "apply": "应用变更"
     },
-    "noProject": "无项目",
-    "selectWorkspace": "选择工作区",
-    "switchWorkspace": "切换工作区"
+    "selectWorkspace": "选择工作区"
   },
   "fileExplorer": {
     "newFile": "新建文件",
@@ -1022,14 +998,6 @@
     "updateError": "更新过程中发生错误。",
     "retry": "重试"
   },
-  "detail": {
-    "searchResults": "搜索结果",
-    "filePreview": "文件预览",
-    "terminalOutput": "终端输出",
-    "mcpToolDetails": "MCP 工具详情",
-    "details": "详情",
-    "unknownContentType": "未知内容类型"
-  },
   "permission": {
     "request": "权限请求",
     "deny": "拒绝",
@@ -1266,8 +1234,6 @@
       "notifMute": "静音",
       "acpStreamDebug": "ACP 流调试",
       "acpStreamDebugDesc": "在聊天区域上方显示实时 ACP 事件流"
-    },
-    "about": {
     },
     "llm": {
       "cursorTitle": "Cursor 模型",
@@ -2227,8 +2193,6 @@
       "defaultAgentPlaceholder": "选择团队默认 Agent（可选）",
       "defaultAgentReadOnly": "仅团队 owner/admin 可编辑"
     },
-    "plugins": {
-    },
     "extension": {
       "general": {
         "title": "通用",
@@ -2267,17 +2231,6 @@
         "confirmDescription": "将删除当前团队所有已保存的链接与会话关联，此操作无法撤销。",
         "confirmAction": "确认清除"
       }
-    },
-    "git": {
-      "title": "Git 仓库",
-      "available": "Git 可用",
-      "description": "配置个人和团队 Git 仓库，用于技能和文档",
-      "personalSkills": "个人技能仓库",
-      "personalSkillsPlaceholder": "https://github.com/user/my-skills.git",
-      "personalDocs": "个人文档仓库",
-      "personalDocsPlaceholder": "https://github.com/user/my-documents.git",
-      "managedRepos": "托管仓库",
-      "syncAll": "全部同步"
     },
     "envVars": {
       "title": "环境变量",
@@ -2829,8 +2782,6 @@
       "installFailed": "安装失败",
       "upToDate": "已是最新"
     },
-    "gitStatus": {
-    },
     "permissions": {
       "allow": "允许",
       "allowDesc": "无需提示，自动批准",
@@ -2893,13 +2844,6 @@
       "dirNotCreated": "尚未创建",
       "workspaceSymlinks": "工作区软链（{{count}}）",
       "current": "当前"
-    },
-    "teamLlm": {
-      "title": "团队 LiteLLM",
-      "description": "为团队开通共享 LiteLLM 网关，统一管理 AI 模型与额度。",
-      "enabledLabel": "已开通:",
-      "notEnabled": "团队 LiteLLM 未开通",
-      "enableButton": "开通 LiteLLM"
     },
     "teamSecret": {
       "storeUnreadable": "无法读取本机密钥库：{{msg}}",
@@ -3081,8 +3025,6 @@
     "keepMine": "保留我的版本",
     "viewDiff": "查看差异"
   },
-  "mainContent": {
-  },
   "history": {
     "loadCommitContentFailed": "无法加载该提交的内容 ({{sha}})",
     "noFileHistory": "该文件还没有提交历史",
@@ -3108,13 +3050,7 @@
     "initializing": "初始化中…"
   },
   "team": {
-    "viewerReadOnly": "只读模式 - 你没有编辑权限",
-    "createDialog": {
-      "title": "创建团队",
-      "description": "创建后请在「设置 → 团队共享」与「LLM 配置」中分别开通共享与 LiteLLM。",
-      "nameLabel": "团队名称",
-      "namePlaceholder": "例如：设计组"
-    }
+    "viewerReadOnly": "只读模式 - 你没有编辑权限"
   },
   "actors": {
     "allTitle": "所有成员",
@@ -3236,21 +3172,9 @@
     "createButton": "创建",
     "createFailed": "创建失败：{{msg}}",
     "contextMenu": {
-      "view": "查看",
-      "status": "状态",
       "statusOpen": "暂搁置",
       "statusInProgress": "进行中",
-      "statusDone": "已完成",
-      "rename": "重命名",
-      "copyId": "复制 ID",
-      "delete": "删除"
-    },
-    "deleteConfirm": {
-    },
-    "renameDialog": {
-      "title": "重命名想法",
-      "placeholder": "想法标题",
-      "save": "保存"
+      "statusDone": "已完成"
     },
     "detail": {
       "edit": "编辑",
@@ -3268,8 +3192,7 @@
       "timeline": "动态",
       "noActivity": "暂无动态。",
       "unknownActor": "未知"
-    },
-    "renameFailed": "重命名失败: {{msg}}"
+    }
   },
   "invite": {
     "title": "邀请加入团队",
@@ -3351,10 +3274,7 @@
     "noMatches": "无匹配项",
     "previousShiftEnter": "上一个 (Shift+Enter)",
     "nextEnter": "下一个 (Enter)",
-    "find": "查找",
-    "searchFiles": "搜索文件…",
-    "noWorkspaceOpen": "未打开工作区。",
-    "noFilesFound": "未找到文件。"
+    "find": "查找"
   },
   "webview": {
     "back": "后退",

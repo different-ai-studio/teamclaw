@@ -184,7 +184,6 @@
     "daysAgo_plural": "{{count}} days ago",
     "refresh": "Refresh",
     "dismiss": "Dismiss",
-    "more": "More",
     "showLess": "Show less",
     "showMore": "Show more",
     "shortcuts": "Shortcuts",
@@ -319,14 +318,11 @@
   },
   "navigation": {
     "changes": "Changes",
-    "session": "Session",
     "shortcuts": "Shortcuts",
     "files": "files",
     "teamSharedFilesLoading": "Loading team shared files...",
     "teamSharedFilesDirMissing": "Team shared directory does not exist yet. Sync to fetch it from the team.",
     "teamSharedFilesEmpty": "This team shared directory is empty.",
-    "actors": "Actors",
-    "ideas": "Ideas",
     "hideTabs": "Hide files",
     "restoreTabs": "Show files",
     "collapsePanel": "Collapse panel",
@@ -526,10 +522,6 @@
       },
       "argCount": "{{count}} args"
     },
-    "voiceInputStart": "Start voice input",
-    "voiceInputStop": "Stop recording",
-    "voiceInputPermissionDenied": "Microphone permission denied",
-    "voiceInputInsertToChat": "Insert to chat",
     "inputPlaceholderDescription": "Add a description...",
     "inputPlaceholderMention": "Mention with @, reference files with #...",
     "permissionMode": {
@@ -560,10 +552,6 @@
     "refreshMessages": "Refresh messages",
     "startingAgent": "Starting agent...",
     "taskRunning": "Task running...",
-    "voiceInputChecking": "Checking microphone...",
-    "voiceInputDesktopNoTranscript": "Speech-to-text is not supported in the desktop app. Use the web version for voice input.",
-    "voiceInputNoMicrophone": "No microphone detected",
-    "voiceInputRecognizing": "Recognizing...",
     "waitingForAgent": "Sessions are ready. Waiting for agent runtime to finish starting.",
     "backToMainSession": "Back to main session",
     "waitingForConfirmationShort": "Waiting",
@@ -751,16 +739,6 @@
   "onboarding": {
     "common": {
       "back": "Back"
-    },
-    "joinTeam": {
-      "checkingStatus": "Checking team share status…",
-      "initializing": "Initializing team workspace…",
-      "joined": "Joined the team",
-      "shareNotOpened": "Team share is not enabled yet. You can sync once the owner enables it.",
-      "failed": "Join flow failed: {{error}}",
-      "joinedWithMode": "Joined the team (mode: {{mode}})",
-      "unknownMode": "unknown",
-      "enterSecret": "Enter the team secret to decrypt shared content. The secret is provided by the person who invited you."
     }
   },
   "workspace": {
@@ -774,9 +752,7 @@
       "blockedByActive": "An agent runtime is active — apply reloads when you confirm.",
       "apply": "Apply changes"
     },
-    "noProject": "No Project",
-    "selectWorkspace": "Select Workspace",
-    "switchWorkspace": "Switch Workspace"
+    "selectWorkspace": "Select Workspace"
   },
   "fileExplorer": {
     "newFile": "New File",
@@ -1022,14 +998,6 @@
     "updateError": "An error occurred during the update process.",
     "retry": "Retry"
   },
-  "detail": {
-    "searchResults": "Search Results",
-    "filePreview": "File Preview",
-    "terminalOutput": "Terminal Output",
-    "mcpToolDetails": "MCP Tool Details",
-    "details": "Details",
-    "unknownContentType": "Unknown content type"
-  },
   "permission": {
     "request": "Permission Request",
     "deny": "Deny",
@@ -1266,8 +1234,6 @@
       "notifMute": "Mute",
       "acpStreamDebug": "ACP stream debug",
       "acpStreamDebugDesc": "Show live ACP event stream above the chat thread"
-    },
-    "about": {
     },
     "llm": {
       "cursorTitle": "Cursor models",
@@ -2227,8 +2193,6 @@
       "defaultAgentPlaceholder": "Select team default agent (optional)",
       "defaultAgentReadOnly": "Only team owner/admin can edit"
     },
-    "plugins": {
-    },
     "extension": {
       "general": {
         "title": "General",
@@ -2267,17 +2231,6 @@
         "confirmDescription": "This removes all saved link-to-session associations for the current team. You cannot undo this.",
         "confirmAction": "Clear mappings"
       }
-    },
-    "git": {
-      "title": "Git Repositories",
-      "available": "Git available",
-      "description": "Configure personal and team git repositories for skills and documents",
-      "personalSkills": "Personal Skills Repository",
-      "personalSkillsPlaceholder": "https://github.com/user/my-skills.git",
-      "personalDocs": "Personal Documents Repository",
-      "personalDocsPlaceholder": "https://github.com/user/my-documents.git",
-      "managedRepos": "Managed Repositories",
-      "syncAll": "Sync All"
     },
     "envVars": {
       "title": "Environment Variables",
@@ -2829,8 +2782,6 @@
       "installFailed": "Install failed",
       "upToDate": "Up to date"
     },
-    "gitStatus": {
-    },
     "permissions": {
       "allow": "Allow",
       "allowDesc": "Auto-approve without prompting",
@@ -2893,13 +2844,6 @@
       "dirNotCreated": "Not yet created",
       "workspaceSymlinks": "Workspace symlinks ({{count}})",
       "current": "Current"
-    },
-    "teamLlm": {
-      "title": "Team LiteLLM",
-      "description": "Enable a shared LiteLLM gateway for your team to centrally manage AI models and quotas.",
-      "enabledLabel": "Enabled:",
-      "notEnabled": "Team LiteLLM not enabled",
-      "enableButton": "Enable LiteLLM"
     },
     "teamSecret": {
       "storeUnreadable": "Cannot read the local secret store: {{msg}}",
@@ -3081,8 +3025,6 @@
     "keepMine": "Keep Mine",
     "viewDiff": "View Diff"
   },
-  "mainContent": {
-  },
   "history": {
     "loadCommitContentFailed": "Unable to load content for this commit ({{sha}})",
     "noFileHistory": "This file has no commit history yet",
@@ -3108,13 +3050,7 @@
     "initializing": "Initializing…"
   },
   "team": {
-    "viewerReadOnly": "Read-only mode — you don't have edit permissions",
-    "createDialog": {
-      "title": "Create Team",
-      "description": "After creating, enable sharing and LiteLLM separately under \"Settings → Team Share\" and \"LLM Config\".",
-      "nameLabel": "Team name",
-      "namePlaceholder": "e.g. Design Team"
-    }
+    "viewerReadOnly": "Read-only mode — you don't have edit permissions"
   },
   "actors": {
     "allTitle": "All actors",
@@ -3236,21 +3172,9 @@
     "createButton": "Create",
     "createFailed": "Failed to create idea: {{msg}}",
     "contextMenu": {
-      "view": "View",
-      "status": "Status",
       "statusOpen": "Open",
       "statusInProgress": "In progress",
-      "statusDone": "Done",
-      "rename": "Rename",
-      "copyId": "Copy ID",
-      "delete": "Delete"
-    },
-    "deleteConfirm": {
-    },
-    "renameDialog": {
-      "title": "Rename idea",
-      "placeholder": "Idea title",
-      "save": "Save"
+      "statusDone": "Done"
     },
     "detail": {
       "edit": "Edit",
@@ -3268,8 +3192,7 @@
       "timeline": "Activity",
       "noActivity": "No activity yet.",
       "unknownActor": "Unknown"
-    },
-    "renameFailed": "Rename failed: {{msg}}"
+    }
   },
   "invite": {
     "title": "Invite to team",
@@ -3351,10 +3274,7 @@
     "noMatches": "No matches",
     "previousShiftEnter": "Previous (Shift+Enter)",
     "nextEnter": "Next (Enter)",
-    "find": "Find",
-    "searchFiles": "Search files...",
-    "noWorkspaceOpen": "No workspace open.",
-    "noFilesFound": "No files found."
+    "find": "Find"
   },
   "webview": {
     "back": "Back",
