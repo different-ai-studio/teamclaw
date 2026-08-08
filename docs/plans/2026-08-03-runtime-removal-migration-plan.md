@@ -34,7 +34,11 @@ URL 约 48KB，kong 返回 414 → session 列表空白。
 
 ## 阶段 0 — 止血
 
-可立即上线，与其余阶段无依赖。**iOS 在阶段 7 前一直打 `GET /v1/runtime`，这是它唯一的保护。**
+可立即上线，与其余阶段无依赖。
+
+> **更正（2026-08-08）**：原文写「iOS 在阶段 7 前一直打 `GET /v1/runtime`，这是它唯一的
+> 保护」。核实不成立 —— iOS 已不调用任何 runtime REST 端点，`agent_runtimes` 在
+> `AMUXCore` 里只剩注释。所谓的兼容层从一开始就没在保护它。
 
 - [ ] `chunkedIn(ids, size, fn)` helper（100 uuid 一片）→ `services/fc/src/lib/supabase-repo/shared.ts`
 - [ ] 套用到 `supabase-repo.ts` 的 7 处无上限 `.in()`：L115 / 1903 / 1992 / 2012 / 2337 / 2604 / 2629
@@ -79,7 +83,13 @@ ALTER TABLE amux.session_participants
 3b 的单一发布点顺带解决 gateway / cron —— 它们的挂载本就进 `RuntimeManager.agents`
 （`channels/agent_handle.rs`、`server/cron.rs:196`），发布挂在 attach 上即自动覆盖。
 
-旧的 `runtime/{rid}/state` 继续发（iOS 与未迁移的桌面端仍在读）。
+~~旧的 `runtime/{rid}/state` 继续发（iOS 与未迁移的桌面端仍在读）。~~
+
+> **更正（2026-08-08）**：这条在写下的**次日**就作废了 —— `1b5a25ee` 直接停发了
+> per-spawn retain（`publish_runtime_state_by_id` 被掏空成转发 actor 快照）。同一天
+> 之前，`657de72e` 已经 `DROP TABLE agent_runtimes`。iOS 因此被夹在两次删除中间：
+> 旧腿断了，新腿没接，agent 的模型既看不到也选不了。修复见
+> [`2026-08-08-ios-runtime-removal-migration.md`](./2026-08-08-ios-runtime-removal-migration.md)。
 
 ## 阶段 4 — proto + 三端：命令通道合并（ADR-0003）
 
@@ -113,10 +123,13 @@ ALTER TABLE amux.session_participants
 | `updateRuntimeModel` | **0** | 死代码，直接删 |
 | `session-workspace-sync.ts` | 1 | `participant.workspace_id`，分页拉取 |
 
-## 阶段 7 — 收尾（**阻塞于 iOS，不在本轮**）
+## 阶段 7 — 收尾（**已完成，2026-08-08**）
 
-停发旧 retain、停写 `agent_runtimes`、删表、删 6 个 FC 端点、
-`default_agent_type` → `active_agent_type` 更名。
+停发旧 retain、停写 `agent_runtimes`、删表 —— 这三项实际发生在 8/3~8/4，早于本文
+预期。iOS 的迁移随后补上（见上方链接），并顺带完成了 ADR-0004 里一直没落地的
+`RuntimeManager.agents` 改按 `session_id` 键控。
+
+`default_agent_type` → `active_agent_type` 更名仍未做。
 
 ---
 
@@ -131,8 +144,12 @@ ALTER TABLE amux.session_participants
 | 4 命令通道 | — |
 | 5 detach 策略 | 1、3 |
 | 6 desktop 读取 | 3、4 |
-| 7 收尾 | **iOS 迁移** |
+| 7 收尾 | ~~iOS 迁移~~（已完成） |
 
 0、1、4 互不依赖，可并行开工。
 
-做到阶段 6 即可停 —— 那时桌面端已完全不碰 `agent_runtimes`，表与端点作为 iOS 兼容层保留。
+~~做到阶段 6 即可停 —— 那时桌面端已完全不碰 `agent_runtimes`，表与端点作为 iOS 兼容层保留。~~
+
+> **更正（2026-08-08）**：并没有停在阶段 6。表在 8/3 就删了，旧 retain 在 8/4 就停发了，
+> 而当时 iOS 尚未迁移 —— 那句「作为 iOS 兼容层保留」在写下时就已经不成立。教训：
+> 计划文档里关于「另一端还依赖什么」的断言，要么当场核实，要么别写。
