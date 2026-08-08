@@ -1,7 +1,7 @@
 import { Ionicons } from "@expo/vector-icons";
 import { Tabs } from "expo-router";
 import { useEffect, useState } from "react";
-import { StyleSheet } from "react-native";
+import { StyleSheet, type ColorValue } from "react-native";
 
 import {
   getUnreadSessionCount,
@@ -10,7 +10,9 @@ import {
 import { colors, typography } from "../../../src/ui/theme";
 
 type TabIconProps = {
-  color: string;
+  // `ColorValue`, not `string`: this is what expo-router hands `tabBarIcon`,
+  // and a `string` parameter makes the callback unassignable to the prop.
+  color: ColorValue;
   focused: boolean;
   size: number;
 };
