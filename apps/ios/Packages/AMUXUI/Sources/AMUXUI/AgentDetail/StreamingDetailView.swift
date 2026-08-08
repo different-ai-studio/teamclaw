@@ -160,9 +160,9 @@ public struct StreamingDetailView: View {
     /// event in the turn has a model (legacy rows, or the daemon hasn't
     /// stamped current_model yet).
     private func modelDisplayName(for events: [AgentEvent]) -> String? {
-        guard let runtime = viewModel.runtime else { return nil }
+        guard let attachment = viewModel.attachment(forAgentActorID: route.agentID) else { return nil }
         for event in events.reversed() {
-            if let name = event.modelDisplayName(via: runtime) {
+            if let name = event.modelDisplayName(via: attachment) {
                 return name
             }
         }
@@ -196,7 +196,7 @@ public struct StreamingDetailView: View {
                     ForEach(snapshot.events, id: \.id) { event in
                         EventBubbleView(
                             event: event,
-                            runtime: viewModel.runtime,
+                            runtime: viewModel.attachment(forAgentActorID: route.agentID),
                             onGrant: { id, agentID in Task { try? await viewModel.grantPermission(requestId: id, agentActorID: agentID ?? route.agentID) } },
                             onDeny: { id, agentID in Task { try? await viewModel.denyPermission(requestId: id, agentActorID: agentID ?? route.agentID) } },
                             // The nav-bar title already shows

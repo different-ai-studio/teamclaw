@@ -322,7 +322,7 @@ public struct SessionDetailView: View {
                         viewModel.interruptAgent(agentID)
                     },
                     memberSheetAgents: viewModel.memberSheetAgents,
-                    runtimeForAgent: viewModel.runtime(for:),
+                    runtimeForAgent: viewModel.attachment(for:),
                     onApplyModelForAgent: { agent, modelID in
                         viewModel.setModel(forAgent: agent.id, model: modelID)
                     },
@@ -450,12 +450,10 @@ public struct SessionDetailView: View {
             viewModel.start(modelContext: modelContext)
             await viewModel.refreshMemberSheet()
         }
-        .onChange(of: viewModel.runtime?.status) { _, _ in
-            // Bound-runtime lifecycle just transitioned (spawning →
-            // running → idle / stopped / etc.). Re-pull agent_runtimes
-            // so the member-sheet row dot color tracks reality. The
-            // status string lives on Supabase and is one-shot fetched,
-            // so without this onChange the snapshot goes stale.
+        .onChange(of: viewModel.attachmentStateKey) { _, _ in
+            // An attachment for this session changed lifecycle (attached →
+            // running → idle → detached). Re-shape the member sheet so the
+            // row dot colour and the model list track it.
             Task { await viewModel.refreshMemberSheet() }
         }
         .onChange(of: viewModel.isStreaming) { _, newValue in
@@ -529,10 +527,11 @@ public struct SessionDetailView: View {
 
     private var resolvedModelId: String? {
         // Per-agent model selection is owned by AgentsSheet via
-        // viewModel.setModel(forAgent:model:), so there's no longer a
-        // session-level override stored on the view. Fall back to the bound
-        // primary runtime's current model for the legacy single-agent path.
-        guard let current = viewModel.runtime?.currentModel, !current.isEmpty else { return nil }
+        // viewModel.setModel(forAgent:model:), so there's no session-level
+        // override on the view. Report the model of the agent this send will
+        // actually reach; nil when no agent is attached (the session is cold
+        // and the daemon will pick on spawn).
+        guard let current = viewModel.currentModelForSendTarget, !current.isEmpty else { return nil }
         return current
     }
 
@@ -612,7 +611,7 @@ public struct SessionDetailView: View {
         case .userMessage(let event), .permission(let event), .todo(let event), .error(let event):
             EventBubbleView(
                 event: event,
-                runtime: viewModel.runtime,
+                runtime: viewModel.attachment(forAgentActorID: event.senderActorID ?? ""),
                 onGrant: { id, agentID in Task { try? await viewModel.grantPermission(requestId: id, agentActorID: agentID) } },
                 onDeny: { id, agentID in Task { try? await viewModel.denyPermission(requestId: id, agentActorID: agentID) } },
                 onRetryOutbox: { msgID in
@@ -658,7 +657,7 @@ public struct SessionDetailView: View {
         case .completedTurn(let id, let agentID, let final, _):
             CompletedTurnBubbleView(
                 finalEvent: final,
-                runtime: viewModel.runtime,
+                runtime: viewModel.attachment(forAgentActorID: agentID),
                 agentName: agentDisplayName(for: agentID),
                 detailIcon: {
                     // Always offer the detail entry point — even text-only

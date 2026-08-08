@@ -285,7 +285,7 @@ impl DaemonServer {
                 self.agents
                     .lock()
                     .await
-                    .set_backend_runtime_metadata(runtime_id, None, cursor);
+                    .set_session_cursor(runtime_id, cursor);
             }
             Err(e) => {
                 warn!(

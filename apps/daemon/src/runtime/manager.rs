@@ -1493,19 +1493,19 @@ impl RuntimeManager {
         self.agents.keys().cloned().collect()
     }
 
-    pub fn set_backend_runtime_metadata(
+    /// Seed the catch-up cursor for an attachment. Addressed by (session,
+    /// actor) on the wire; there is no runtime row id to carry any more
+    /// (ADR-0005).
+    pub fn set_session_cursor(
         &mut self,
         runtime_id: &str,
-        row_id: Option<String>,
         last_processed_message_id: Option<String>,
     ) {
+        if last_processed_message_id.is_none() {
+            return;
+        }
         if let Some(handle) = self.agents.get_mut(runtime_id) {
-            if row_id.is_some() {
-                handle.backend_runtime_row_id = row_id;
-            }
-            if last_processed_message_id.is_some() {
-                handle.last_processed_message_id = last_processed_message_id;
-            }
+            handle.last_processed_message_id = last_processed_message_id;
         }
     }
 

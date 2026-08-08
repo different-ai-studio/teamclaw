@@ -21,7 +21,7 @@ struct AgentsSheet: View {
     let streamingAgentIDs: Set<String>
     /// Resolves the live `Runtime` SwiftData object for a given agent.
     /// Kept as a closure so the sheet itself doesn't hold a SwiftData query.
-    let runtimeForAgent: (MemberSheetAgent) -> Runtime?
+    let runtimeForAgent: (MemberSheetAgent) -> AgentAttachment?
     /// Called when the user picks a different model for an agent.
     let onApplyModel: (MemberSheetAgent, String) -> Void
     /// Called when the user confirms they want to interrupt an agent's reply.
@@ -173,7 +173,7 @@ struct AgentsSheet: View {
 
     // MARK: - Helpers
 
-    private func currentModelLabel(_ runtime: Runtime) -> String {
+    private func currentModelLabel(_ runtime: AgentAttachment) -> String {
         guard let currentID = runtime.currentModel, !currentID.isEmpty else {
             return "Model"
         }

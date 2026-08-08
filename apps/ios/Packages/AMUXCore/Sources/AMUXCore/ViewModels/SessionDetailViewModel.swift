@@ -662,25 +662,20 @@ public final class SessionDetailViewModel {
         let loader = SessionMemberSheetLoader(
             sessionsRepository: sessionsRepository
         )
-        // Snapshot the bound-runtime model lookup into Sendable locals on the
-        // MainActor, then hand the loader a @Sendable closure that touches none
-        // of `self`. `availableModels(forAgentActorID:)` only consults the
-        // single bound `runtime` + the session's primary agent, so this is
-        // behaviourally identical without sending main-actor state into the
-        // loader's nonisolated execution.
-        let boundRuntimeID = runtime?.runtimeId
-        let boundModelIDs = runtime?.availableModels.map(\.id) ?? []
-        let primaryAgentID = session.primaryAgentId
+        // Snapshot every attachment serving this session into a Sendable
+        // `actorID -> model ids` map on the MainActor, then hand the loader a
+        // @Sendable closure that touches none of `self`.
+        //
+        // The old version could only answer for the single bound runtime and
+        // compared a runtime id against an actor id to do it, so every agent
+        // got an empty list and the picker never rendered. Attachments are
+        // keyed by (actor, session), which is exactly what is being asked for.
+        let modelsByActor = attachmentModelIDsForSession()
         guard let snapshot = await loader.load(
             sessionID: session.sessionId,
             teamID: teamID,
             currentHumanActorID: teamclawService?.currentHumanActorId ?? "",
-            availableModelsForAgent: { actorID in
-                if let boundRuntimeID, boundRuntimeID == actorID || primaryAgentID == actorID {
-                    return boundModelIDs
-                }
-                return []
-            }
+            availableModelsForAgent: { actorID in modelsByActor[actorID] ?? [] }
         ) else {
             print("[RuntimeDetailVM] refreshMemberSheet: loader returned nil (no repo or fetch failed)")
             return
@@ -928,14 +923,66 @@ public final class SessionDetailViewModel {
         }
     }
 
-    /// Best-effort lookup of model ids for the chosen agent actor. Falls back
-    /// to the bound `runtime.availableModels` (loaded by SessionListVM from the
-    /// MQTT runtime/{id}/state retained topic) when it matches the agent.
+    /// The attachment serving this session for the given agent actor, or nil
+    /// when that agent is cold. Keyed `(actor, session)` — no runtime id is
+    /// involved, and none is obtainable (ADR-0004).
+    public func attachment(forAgentActorID actorID: String) -> AgentAttachment? {
+        guard let ctx = startModelContext,
+              let sessionID = session?.sessionId, !sessionID.isEmpty,
+              !actorID.isEmpty
+        else { return nil }
+        let id = AgentAttachment.makeID(actorID: actorID, sessionID: sessionID)
+        let desc = FetchDescriptor<AgentAttachment>(predicate: #Predicate { $0.id == id })
+        return (try? ctx.fetch(desc))?.first
+    }
+
+    /// `actorID -> available model ids` for every attachment serving this
+    /// session. Built on the MainActor so it can be handed to @Sendable code.
+    private func attachmentModelIDsForSession() -> [String: [String]] {
+        guard let ctx = startModelContext,
+              let sessionID = session?.sessionId, !sessionID.isEmpty
+        else { return [:] }
+        let suffix = "::\(sessionID)"
+        let rows = (try? ctx.fetch(FetchDescriptor<AgentAttachment>()))?
+            .filter { $0.id.hasSuffix(suffix) } ?? []
+        return Dictionary(
+            rows.map { ($0.actorID, $0.availableModels.map(\.id)) },
+            uniquingKeysWith: { first, _ in first }
+        )
+    }
+
+    /// Model ids this agent can switch to in this session.
     private func availableModels(forAgentActorID actorID: String) -> [String] {
-        if let runtime, runtime.runtimeId == actorID || session?.primaryAgentId == actorID {
-            return runtime.availableModels.map(\.id)
+        attachment(forAgentActorID: actorID)?.availableModels.map(\.id) ?? []
+    }
+
+    /// Cheap change-detection key over this session's attachments. SwiftData
+    /// mutations don't re-evaluate nested optionals through `@Observable`, so
+    /// views observe this scalar instead of reaching into a row.
+    public var attachmentStateKey: String {
+        guard let ctx = startModelContext,
+              let sessionID = session?.sessionId, !sessionID.isEmpty
+        else { return "" }
+        let suffix = "::\(sessionID)"
+        let rows = (try? ctx.fetch(FetchDescriptor<AgentAttachment>()))?
+            .filter { $0.id.hasSuffix(suffix) }
+            .sorted(by: { $0.id < $1.id }) ?? []
+        return rows
+            .map { "\($0.id):\($0.lifecycle):\($0.status):\($0.currentModel ?? "")" }
+            .joined(separator: "|")
+    }
+
+    /// The model the next send will actually run on: the selected agent's, or
+    /// the sole agent's when the chip bar has no explicit selection. Nil when
+    /// no agent is attached — the session is cold and the daemon picks on spawn.
+    public var currentModelForSendTarget: String? {
+        if let selected = agentChipSelection.first,
+           let model = attachment(forAgentActorID: selected)?.currentModel,
+           !model.isEmpty {
+            return model
         }
-        return []
+        guard memberSheetAgents.count == 1, let only = memberSheetAgents.first else { return nil }
+        return attachment(forAgentActorID: only.id)?.currentModel
     }
 
     /// Union of human + agent actor ids currently in the session, used by
@@ -1190,16 +1237,8 @@ public final class SessionDetailViewModel {
     /// the primary bound runtime's runtimeId doesn't match the agent's).
     /// Used by AgentsSheet to drive the model picker without the sheet itself
     /// holding a SwiftData query or accessing internal VM state.
-    public func runtime(for agent: MemberSheetAgent) -> Runtime? {
-        // Fast path: bound primary runtime's `runtimeId` (UUID) matches this
-        // agent's `runtimeID`. UUID collisions across distinct agents are not
-        // a practical concern, so id equality implies identity here.
-        if let r = runtime, let rid = agent.runtimeID, r.runtimeId == rid { return r }
-        // Slow path: fetch from the persistent store by runtimeID.
-        guard let rid = agent.runtimeID, !rid.isEmpty,
-              let ctx = startModelContext else { return nil }
-        let desc = FetchDescriptor<Runtime>(predicate: #Predicate { $0.runtimeId == rid })
-        return (try? ctx.fetch(desc))?.first
+    public func attachment(for agent: MemberSheetAgent) -> AgentAttachment? {
+        attachment(forAgentActorID: agent.id)
     }
 
     /// Switches the model for an agent's runtime. The daemon's SetModel RPC
@@ -1212,38 +1251,24 @@ public final class SessionDetailViewModel {
         Task { [weak self] in
             guard let self,
                   let teamclawService = self.teamclawService,
-                  let runtimeID = self.runtimeID(forAgentActorID: actorID),
-                  !runtimeID.isEmpty
+                  let sessionID = self.session?.sessionId, !sessionID.isEmpty,
+                  !actorID.isEmpty
             else {
-                print("[RuntimeDetailVM] setModel: skipping — no runtimeID for actor=\(actorID)")
+                print("[SessionDetailVM] setModel: skipping — no session/actor")
                 return
             }
-            // Resolve route actor id. connectedAgentsStore only contains agents
-            // the current user has explicit access to, so non-primary agents added
-            // to a session by someone else may not be in the store. Fall back to
-            // the bound runtime (primary agent) or a SwiftData fetch by runtimeId.
-            let routeActor: String = {
-                if let id = self.routeActorID(forAgentActorID: actorID), !id.isEmpty { return id }
-                if let r = self.runtime, r.runtimeId == runtimeID, !r.routeActorID.isEmpty {
-                    return r.routeActorID
-                }
-                if let ctx = self.startModelContext {
-                    let rid = runtimeID
-                    let desc = FetchDescriptor<Runtime>(predicate: #Predicate { $0.runtimeId == rid })
-                    return (try? ctx.fetch(desc).first?.routeActorID) ?? ""
-                }
-                return ""
-            }()
-            guard !routeActor.isEmpty else {
-                print("[RuntimeDetailVM] setModel: skipping — no route actor id for actor=\(actorID)")
-                return
-            }
+            // Address by `{actor}::{session}`. The daemon resolves this to its
+            // internal spawn key; that key is never published, so a client
+            // cannot address by it (ADR-0004). The agent actor is also the
+            // route target — one actor, one daemon.
+            let address = AgentAttachment.makeID(actorID: actorID, sessionID: sessionID)
+            let routeActor = actorID
             // Apply optimistic update immediately so the UI reflects the choice
             // without waiting for the full RPC + refreshMemberSheet round-trip.
             let previousModel = self.applyOptimisticModelPatch(agentID: actorID, model: model)
             let (ok, err) = await teamclawService.setModelRpc(
                 targetActorID: routeActor,
-                runtimeID: runtimeID,
+                runtimeID: address,
                 modelID: model)
             if !ok {
                 print("[RuntimeDetailVM] setModel RPC failed: \(err)")

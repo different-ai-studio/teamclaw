@@ -746,8 +746,8 @@ impl DaemonServer {
         // Uses Option B (event loop hook is not needed here because
         // apply_start_runtime already has `&mut self` access and runs
         // synchronously after start_runtime returns). This is the cleanest
-        // insertion point — the handle is fully populated (session_id,
-        // backend_runtime_row_id) and state is ACTIVE.
+        // insertion point — the handle is fully populated (session_id)
+        // and state is ACTIVE.
         self.catchup_runtime(&new_id).await;
 
         if remote_mcp_ready {

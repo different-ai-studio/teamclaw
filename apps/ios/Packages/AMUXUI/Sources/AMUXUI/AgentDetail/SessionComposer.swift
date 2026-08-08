@@ -29,7 +29,7 @@ struct SessionComposer: View {
     /// Resolves the live Runtime for a given agent; nil when no runtime row
     /// exists yet (e.g. agent still spawning). Kept as a closure so the
     /// composer doesn't hold a SwiftData query.
-    let runtimeForAgent: (MemberSheetAgent) -> Runtime?
+    let runtimeForAgent: (MemberSheetAgent) -> AgentAttachment?
     /// Called when the user selects a different model for an agent in AgentsSheet.
     let onApplyModelForAgent: (MemberSheetAgent, String) -> Void
 
