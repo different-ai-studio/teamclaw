@@ -29,8 +29,8 @@ public final class Session {
     /// (sessions.last_message_at > session_read_markers.last_read_at).
     /// Set on inbox MQTT ping (FC fan-out after message INSERT); cleared
     /// when the user opens the session via `mark_current_actor_session_viewed`.
-    /// Distinct from `Runtime.hasUnread`, which tracks local agent output
-    /// rather than peer messages — the UI ORs the two signals together.
+    /// The only unread signal. A local client-side flag used to be OR'd in,
+    /// but it rode on fields the actor retain does not carry (ADR-0004).
     public var hasUnread: Bool = false
     /// Agent actorIDs the user has selected via the composer's `[@]` button or
     /// inline `@` mention. Persisted so reopening the session restores

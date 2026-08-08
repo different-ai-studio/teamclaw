@@ -322,7 +322,7 @@ public struct SessionDetailView: View {
                         viewModel.interruptAgent(agentID)
                     },
                     memberSheetAgents: viewModel.memberSheetAgents,
-                    runtimeForAgent: viewModel.attachment(for:),
+                    attachmentForAgent: viewModel.attachment(for:),
                     onApplyModelForAgent: { agent, modelID in
                         viewModel.setModel(forAgent: agent.id, model: modelID)
                     },
@@ -457,11 +457,11 @@ public struct SessionDetailView: View {
             Task { await viewModel.refreshMemberSheet() }
         }
         .onChange(of: viewModel.isStreaming) { _, newValue in
-            // First ACP event arrived — the runtime is definitely up
-            // even if the SwiftData Runtime entity's status field hasn't
-            // propagated through @Observable yet (a known limitation
-            // when SwiftData mutations don't re-evaluate computed nested
-            // optionals). Refresh so the chip flips spawning → active
+            // First ACP event arrived — the agent is definitely up even if
+            // the attachment's status field hasn't propagated through
+            // @Observable yet (a known limitation: SwiftData mutations don't
+            // re-evaluate computed nested optionals). Refresh so the chip
+            // flips spawning → active
             // and the member sheet row's "loading" turns into the
             // current model picker.
             if newValue {
@@ -721,11 +721,10 @@ public struct SessionDetailView: View {
             MentionTarget(id: h.id, displayName: h.displayName, subtitle: "Member", kind: .member)
         }
         let agents = viewModel.memberSheetAgents.map { a in
-            // Subtitle shows the agent type only — the lifecycle state is
-            // sourced from the agent_runtimes snapshot which is fetched
-            // once on sheet open and goes stale fast (e.g. shows "spawning"
-            // long after spawn). The chip bar above the composer carries
-            // the live state via MQTT-pushed Runtime entities.
+            // Subtitle shows the agent type only. The chip bar above the
+            // composer carries the live lifecycle state, which arrives on the
+            // actor retain; repeating it here would show a value captured at
+            // sheet-open time and go stale within seconds.
             MentionTarget(id: a.id, displayName: a.displayName, subtitle: a.agentType, kind: .agent)
         }
         return agents + members

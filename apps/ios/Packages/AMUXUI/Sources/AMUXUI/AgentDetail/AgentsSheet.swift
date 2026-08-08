@@ -19,9 +19,9 @@ struct AgentsSheet: View {
     @Binding var selection: Set<String>
     /// Agent IDs that have an in-flight streaming reply.
     let streamingAgentIDs: Set<String>
-    /// Resolves the live `Runtime` SwiftData object for a given agent.
+    /// Resolves the live `AgentAttachment` for a given agent.
     /// Kept as a closure so the sheet itself doesn't hold a SwiftData query.
-    let runtimeForAgent: (MemberSheetAgent) -> AgentAttachment?
+    let attachmentForAgent: (MemberSheetAgent) -> AgentAttachment?
     /// Called when the user picks a different model for an agent.
     let onApplyModel: (MemberSheetAgent, String) -> Void
     /// Called when the user confirms they want to interrupt an agent's reply.
@@ -96,7 +96,7 @@ struct AgentsSheet: View {
     private func agentRow(for agent: MemberSheetAgent) -> some View {
         let isSelected = selection.contains(agent.id)
         let isRunning = streamingAgentIDs.contains(agent.id)
-        let runtime = runtimeForAgent(agent)
+        let runtime = attachmentForAgent(agent)
 
         HStack(spacing: 12) {
             // Selection indicator

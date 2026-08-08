@@ -262,12 +262,10 @@ public final class SessionDetailViewModel {
     public var participantCount: Int { session?.participantCount ?? 0 }
     public var hasRuntime: Bool { !sessionAttachments.isEmpty }
 
-    /// Bucket key for AgentEvent storage. Multiple sessions sharing a single
-    /// daemon agent identity (Runtime.runtimeId == daemon's Supabase actor_id
-    /// — see resolveRuntime) would otherwise collide their event histories
-    /// under one shared agentId, leaking session N-1's prompts/replies into
-    /// session N's view. When a session is in scope we key by session_id;
-    /// the legacy runtime-only path (no session) keeps using runtime.runtimeId.
+    /// Bucket key for AgentEvent storage: the session id. One daemon agent
+    /// serves many sessions, so keying by agent identity would collide their
+    /// event histories under one id and leak session N-1's prompts into
+    /// session N's view.
     private var eventScopeKey: String {
         session?.sessionId ?? ""
     }
@@ -670,13 +668,9 @@ public final class SessionDetailViewModel {
         memberSheetAgents = snapshot.agents
         pruneGhostAgentSelection()
 
-        // Overlay live MQTT-derived data from the SwiftData Runtime row.
-        // Supabase agent_runtimes.current_model is only written on ACP
-        // StatusChange events (first prompt reply); MQTT state carries
-        // currentModel right after set_session_model() completes (~2-3s
-        // after spawn). For session-based views where runtime was nil at
-        // start() time, re-resolve here so a Runtime row created by
-        // SessionListVM after MQTT arrived isn't missed.
+        // The participants fetch above knows what the cloud knows: workspace,
+        // last chosen model. Whether an agent is running *right now*, and what
+        // it can run, only the actor retain knows — overlay it.
         overlayAttachmentState()
 
 
@@ -1128,11 +1122,9 @@ public final class SessionDetailViewModel {
         return ""
     }
 
-    /// Returns the live SwiftData `Runtime` row for the given agent, or nil
-    /// when no runtime row has been loaded yet (e.g. agent still spawning or
-    /// the primary bound runtime's runtimeId doesn't match the agent's).
-    /// Used by AgentsSheet to drive the model picker without the sheet itself
-    /// holding a SwiftData query or accessing internal VM state.
+    /// The attachment serving this session for `agent`, or nil when that agent
+    /// is cold. Used by AgentsSheet to drive the model picker without the sheet
+    /// itself holding a SwiftData query or reaching into VM internals.
     public func attachment(for agent: MemberSheetAgent) -> AgentAttachment? {
         attachment(forAgentActorID: agent.id)
     }
@@ -1868,7 +1860,7 @@ public final class SessionDetailViewModel {
             modelContext: modelContext
         )
 
-        // Runtime status + heartbeat side effects. Idle settles ONLY this
+        // Heartbeat side effects. Idle settles ONLY this
         // bucket — the reducer just flushed its partial text and cleared
         // its streaming slots; concurrent agents' live buffers stay
         // untouched (the old global markAgentDone() wiped them, losing
@@ -2758,11 +2750,10 @@ public final class SessionDetailViewModel {
     /// NEWEST row wins (the old single-index path restored only the last
     /// row overall, dropping every other agent's text and turn id).
     ///
-    /// Runtime-status guard: skip restore only when the bound runtime is
-    /// known-settled (3=Idle 4=Error 5=Stopped) — a leftover row then
-    /// belongs to a finished turn and must not re-trigger the loading
-    /// card. `nil` status (collab-only session, runtime row not resolved
-    /// yet) means "unknown" and restores: the synthetic rows are
+    /// Status guard: skip restore only when every attachment is known-settled
+    /// (3=Idle 4=Error 5=Stopped) — a leftover row then belongs to a finished
+    /// turn and must not re-trigger the loading card. No attachment at all
+    /// (cold session) means "unknown" and restores: the synthetic rows are
     /// themselves evidence a stream was live moments ago, and a stale
     /// restore is converged back down by the Supabase seed's
     /// residual-streaming cleanup (reducer `.historyMessage`) and the
