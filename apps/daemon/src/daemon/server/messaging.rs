@@ -39,23 +39,6 @@ impl DaemonServer {
         agent_list
     }
 
-    /// Look up a single agent's current RuntimeInfo — live adapter first, then
-    /// the historical session store. Returns `None` if unknown.
-    pub(crate) async fn agent_info_by_id(&self, agent_id: &str) -> Option<amux::RuntimeInfo> {
-        let agents = self.agents.lock().await;
-        match agents.to_proto_info(agent_id) {
-            Some(info) => Some(info),
-            None => {
-                // Same reason as `merged_agent_list`: a historical row must
-                // still advertise the device's catalog, or its session can
-                // never leave "connecting".
-                let mut info = self.sessions.to_proto_agent_info(agent_id)?;
-                agents.fill_catalog(&mut info);
-                Some(info)
-            }
-        }
-    }
-
     /// Publish the actor snapshot after attachment changes. Per-spawn
     /// `runtime/{id}/state` retains are no longer published — clients read
     /// `{actor}/state` only (ADR-0004 phase 7, iOS out of scope).

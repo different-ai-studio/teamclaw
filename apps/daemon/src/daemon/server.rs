@@ -75,10 +75,6 @@ pub(crate) struct StartRuntimeError {
     failed_stage: String,
 }
 
-fn load_team_runtime_env(workspace_root: &Path, team_id: Option<&str>) -> HashMap<String, String> {
-    crate::team_shared_env::load_team_env_for_workspace(workspace_root, team_id)
-}
-
 fn sync_team_shared_dir_for_workspace(workspace_root: &Path, config: &TeamSharedGitConfig) {
     match crate::team_shared_git::setup_or_sync_shared_dir(workspace_root, config) {
         Ok(status) => {
