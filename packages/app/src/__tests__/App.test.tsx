@@ -143,7 +143,6 @@ vi.mock('@/components/settings/section-registry', () => ({
 }))
 vi.mock('@/components/chat/ChatPanel', () => ({ ChatPanel: () => <div data-testid="chat-panel">chat</div> }))
 vi.mock('@/components/chat/NewSessionDialog', () => ({ NewSessionDialog: () => null }))
-vi.mock('@/components/voice/VoiceInputFloatingButton', () => ({ VoiceInputFloatingButton: () => null }))
 vi.mock('@/components/ErrorBoundary', () => ({ ErrorBoundary: ({ children }: { children: React.ReactNode }) => <>{children}</> }))
 vi.mock('@/components/updater/UpdateDialog', () => ({ UpdateDialogContainer: () => null }))
 vi.mock('@/components/panel', () => ({
@@ -154,7 +153,6 @@ vi.mock('@/components/settings', () => ({ Settings: () => <div>settings</div> })
 vi.mock('@/components/settings/FeedbackDialog', () => ({ FeedbackDialog: () => null }))
 vi.mock('@/components/SetupGuide', () => ({ SetupGuide: () => null }))
 vi.mock('@/components/telemetry/TelemetryConsentDialog', () => ({ TelemetryConsentDialog: () => null }))
-vi.mock('@/components/workspace', () => ({}))
 vi.mock('@/stores/session', () => ({
   useSessionStore: vi.fn((sel: (s: any) => any) => {
     const state = {
