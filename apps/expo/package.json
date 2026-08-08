@@ -7,7 +7,8 @@
     "dev": "expo start",
     "ios": "expo run:ios",
     "android": "expo run:android",
-    "test": "vitest run"
+    "test": "vitest run",
+    "typecheck": "tsc --noEmit"
   },
   "dependencies": {
     "@bufbuild/protobuf": "^2.13.0",

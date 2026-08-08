@@ -47,6 +47,8 @@
     "test": "pnpm test:unit",
     "test:all": "pnpm test:unit && pnpm expo:test",
     "test:unit": "pnpm --filter @teamclaw/app test:unit",
+    "test:expo": "pnpm --filter @teamclaw/expo test",
+    "typecheck:expo": "pnpm --filter @teamclaw/expo typecheck",
     "test:scripts": "node --test scripts/lib/*.test.js",
     "test:smoke": "vitest run --config vitest.config.v2-e2e.ts tests/v2-e2e/pr",
     "test:e2e": "pnpm test:e2e:v2:pr",

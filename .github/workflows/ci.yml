@@ -40,6 +40,15 @@ jobs:
       - name: Run unit tests
         run: pnpm test:unit
 
+      # The scripts above are scoped to @teamclaw/app, so the Expo app was
+      # outside every gate until now. See apps/expo/CI.md for what is and is
+      # not covered.
+      - name: Run Expo TypeScript check
+        run: pnpm typecheck:expo
+
+      - name: Run Expo unit tests
+        run: pnpm test:expo
+
       - name: Run script tests
         run: pnpm test:scripts
 
