@@ -71,22 +71,6 @@ fn opencode_json_path(workspace_path: &Path) -> PathBuf {
     workspace_path.join("opencode.json")
 }
 
-fn read_json_object(path: &Path) -> Result<serde_json::Value, WorkspaceControlError> {
-    let workspace = path
-        .parent()
-        .ok_or_else(|| WorkspaceControlError::Io("opencode.json has no parent".into()))?;
-    teamclaw_runtime_env::opencode_config::OpencodeConfigStore::load(workspace)
-        .map_err(|e| WorkspaceControlError::Parse(e.to_string()))
-}
-
-fn write_json_pretty(path: &Path, value: &serde_json::Value) -> Result<(), WorkspaceControlError> {
-    let workspace = path
-        .parent()
-        .ok_or_else(|| WorkspaceControlError::Io("opencode.json has no parent".into()))?;
-    teamclaw_runtime_env::opencode_config::OpencodeConfigStore::write_value(workspace, value)
-        .map_err(|e| WorkspaceControlError::Io(e.to_string()))
-}
-
 fn map_store_err(
     e: teamclaw_runtime_env::opencode_config::OpencodeConfigError,
 ) -> WorkspaceControlError {
@@ -252,15 +236,6 @@ pub fn materialize_inherent_mcp_for_spawn(
 ) -> Result<(), WorkspaceControlError> {
     teamclaw_runtime_env::opencode_config::OpencodeConfigStore::apply(workspace_path, |config| {
         mutate_inherent_mcp(workspace_path, config).map_err(ws_to_store_err)
-    })
-    .map_err(map_store_err)?;
-    Ok(())
-}
-
-/// Ensure tool-level permission defaults exist in `opencode.json`.
-fn ensure_default_permissions(workspace_path: &Path) -> Result<(), WorkspaceControlError> {
-    teamclaw_runtime_env::opencode_config::OpencodeConfigStore::apply(workspace_path, |config| {
-        mutate_default_permissions(config).map_err(ws_to_store_err)
     })
     .map_err(map_store_err)?;
     Ok(())

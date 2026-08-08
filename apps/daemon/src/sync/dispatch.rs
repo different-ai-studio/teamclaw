@@ -70,15 +70,6 @@ impl SyncDispatcher {
         }
     }
 
-    /// `true` when the cloud API reports an enabled share mode. When no backend
-    /// is wired (focused HTTP tests), returns `true` to preserve legacy link behavior.
-    pub async fn is_team_share_enabled(&self, team_id: &str) -> bool {
-        matches!(
-            self.team_share_gate(team_id).await,
-            crate::team_link::TeamShareGate::Enabled
-        )
-    }
-
     /// FC base URL for OSS sync: the cloud URL from the authenticated backend.
     /// Returns an error if no backend is configured or it exposes no URL.
     pub fn fc_endpoint(&self) -> Result<String, String> {

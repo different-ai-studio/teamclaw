@@ -280,13 +280,6 @@ pub fn default_bridge_command() -> Vec<String> {
     ]
 }
 
-pub fn resolve_bridge_command(configured: Option<&[String]>) -> Vec<String> {
-    configured
-        .filter(|c| !c.is_empty())
-        .map(|c| c.to_vec())
-        .unwrap_or_else(default_bridge_command)
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;

@@ -1346,16 +1346,6 @@ impl RuntimeManager {
         std::mem::take(&mut self.actor_state_dirty)
     }
 
-    /// Look up the attachment serving `session_id`, if this daemon holds one.
-    ///
-    /// The `agents` map is still keyed by the per-spawn id for now; this is the
-    /// session-addressed lookup every caller actually wants, and it is what
-    /// lets commands be addressed by (actor, session) rather than by a spawn id
-    /// that goes stale the moment it is written down (ADR-0004).
-    pub fn attachment_for_session(&self, session_id: &str) -> Option<&RuntimeHandle> {
-        self.attachment_for_session_actor(session_id, "")
-    }
-
     /// Session attachment lookup scoped to a cloud actor when `actor_id` is set.
     /// Among matches, prefer the newest `started_at` (same rule as command
     /// resolve) so a leaked mid-turn sibling is not picked at random.
