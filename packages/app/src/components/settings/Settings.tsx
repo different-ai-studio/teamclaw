@@ -15,7 +15,6 @@ import {
   Shield,
   SlidersHorizontal,
   BookOpen,
-  Mic,
   Bookmark,
   ChevronDown,
   Loader2,
@@ -35,7 +34,6 @@ import { hasAnyChannel } from '@/lib/build-config'
 import { getFeatures, useFeatures } from '@/lib/remote-features'
 import { useUIStore, type SettingsSection } from '@/stores/ui'
 import { SettingsSectionBody } from './section-registry'
-
 interface SettingsProps {
   onClose?: () => void
 }
@@ -56,7 +54,6 @@ const primarySections: Section[] = [
   // entry left an enabled team with no way to see or repair any of them.
   { id: 'team', label: 'Team Shared', labelKey: 'settings.nav.team', icon: Users },
   { id: 'tokenUsage', label: 'Token Usage', labelKey: 'settings.nav.tokenUsage', icon: Coins },
-  { id: 'voice', label: 'Voice', labelKey: 'settings.nav.voice', icon: Mic },
   { id: 'privacy', label: 'Privacy & Telemetry', labelKey: 'settings.nav.privacy', icon: Shield },
   { id: 'cache', label: 'Local Cache', labelKey: 'settings.nav.cache', icon: Database },
   { id: 'diagnostics', label: 'Diagnostics', labelKey: 'settings.nav.diagnostics', icon: LifeBuoy },

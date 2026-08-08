@@ -624,8 +624,8 @@ export function FileTree({
         displayPath = path.slice(workspacePath.length + 1);
       }
       const mention = `@{${displayPath}} `;
-      import("@/stores/voice-input").then(({ useVoiceInputStore }) => {
-        useVoiceInputStore.getState().insertToChat(mention);
+      import("@/stores/composer-insert").then(({ useComposerInsertStore }) => {
+        useComposerInsertStore.getState().insertToChat(mention);
       });
     },
     [workspacePath],

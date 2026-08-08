@@ -19,7 +19,6 @@ export const SETTINGS_SECTION_COMPONENTS: Record<SettingsSection, React.Componen
   llm: lazySection(() => import('./LLMSectionRouter'), 'LLMSection'),
   teamLlm: lazySection(() => import('./TeamLlmSection'), 'TeamLlmSection'),
   general: lazySection(() => import('./GeneralSection'), 'GeneralSection'),
-  voice: lazySection(() => import('./VoiceSection'), 'VoiceSection'),
   prompt: lazySection(() => import('./PromptSection'), 'PromptSection'),
   mcp: lazySection(() => import('./MCPSection'), 'MCPSection'),
   channels: lazySection(() => import('./ChannelsSection'), 'ChannelsSection'),

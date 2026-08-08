@@ -1165,7 +1165,6 @@
       "channels": "通道",
       "team": "团队共享",
       "tokenUsage": "Token 用量",
-      "voice": "语音",
       "knowledge": "知识库",
       "privacy": "隐私与遥测",
       "cache": "本地缓存",
@@ -2437,20 +2436,6 @@
       "analyticsDesc": "在本地存储匿名使用指标（Token、工具统计、评分等）。不包含代码、对话或个人数据，数据仅保存在您的设备上。",
       "analyticsEnabled": "分析已启用",
       "analyticsDisabled": "分析已禁用"
-    },
-    "voice": {
-      "title": "离线语音输入",
-      "description": "下载 Whisper 模型以进行离线语音转文字。较小的模型速度更快、占用空间更少；较大的模型准确度更高。",
-      "webHint": "语音模型设置仅在桌面应用中可用。",
-      "enableVoice": "启用语音输入",
-      "enableVoiceDesc": "显示语音输入按钮并允许语音快捷方式。",
-      "models": "语音识别模型",
-      "loading": "加载中...",
-      "installed": "已安装",
-      "download": "下载",
-      "downloading": "下载中...",
-      "delete": "删除",
-      "confirmDelete": "确定要删除此离线语音模型吗？"
     },
     "update": {
       "check": "检查更新",
