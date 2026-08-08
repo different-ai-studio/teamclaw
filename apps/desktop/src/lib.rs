@@ -342,7 +342,6 @@ pub fn run() {
         .manage(local_cache::commands::LocalCacheState::default())
         .manage(commands::amuxd_supervisor::AmuxdSupervisor::new())
 
-        .manage(teamclaw_stt::SttState::default())
         .manage({
             #[allow(unused_mut)]
             let mut wvm = commands::webview::WebviewManager::default();
@@ -371,12 +370,6 @@ pub fn run() {
             commands::open_with_default_app,
             commands::open_in_terminal,
             commands::system_appearance::get_system_accent_color,
-            commands::stt::stt_is_available,
-            commands::stt::stt_start_listening,
-            commands::stt::stt_stop_listening,
-            commands::stt::stt_list_downloadable_models,
-            commands::stt::stt_download_model,
-            commands::stt::stt_delete_model,
             commands::knowledge::convert_to_markdown,
             commands::knowledge::batch_convert_to_markdown,
             commands::knowledge::rag_index,

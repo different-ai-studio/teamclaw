@@ -16,7 +16,7 @@ import type { FileDiff } from '@/stores/session-types'
 import { copyToClipboard } from '@/lib/utils'
 import { useWorkspaceStore } from '@/stores/workspace'
 import { useTabsStore } from '@/stores/tabs'
-import { useVoiceInputStore } from '@/stores/voice-input'
+import { useComposerInsertStore } from '@/stores/composer-insert'
 import {
   revealInFinder,
   openInTerminal,
@@ -71,7 +71,7 @@ export function SessionDiffPanel({ diff, compact: _compact }: SessionDiffPanelPr
   }, [t])
 
   const handleAddToAgent = useCallback((relativePath: string) => {
-    useVoiceInputStore.getState().insertToChat(`@{${relativePath}} `)
+    useComposerInsertStore.getState().insertToChat(`@{${relativePath}} `)
   }, [])
 
   const handleRevealInFinder = useCallback((relativePath: string) => {
