@@ -466,10 +466,7 @@
       },
       "permission": {
         "bash": "Bash",
-        "tool": "Tool",
-        "externalPath": "External path outside workspace",
-        "alwaysAllowLabel": "Always allow '{{label}}'",
-        "deniedByUser": "Denied by user"
+        "tool": "Tool"
       },
       "pageNav": {
         "invalid": "Invalid navigation links"
@@ -560,7 +557,6 @@
       "humanMentionInstruction": "This message also mentions human {{name}}"
     },
     "inputPlaceholderContinue": "Continue typing...",
-    "newSession": "New Session",
     "refreshMessages": "Refresh messages",
     "startingAgent": "Starting agent...",
     "taskRunning": "Task running...",
@@ -920,7 +916,6 @@
     "searchWithShortcut": "Search (⌘K)",
     "pinned": "Pinned",
     "contacts": "Contacts",
-    "ideasSection": "Top Ideas",
     "actorsSection": "Recents",
     "participantCount": "{{count}} participants",
     "unread": "Unread",
@@ -1037,41 +1032,11 @@
   },
   "permission": {
     "request": "Permission Request",
-    "required": "permission required",
-    "affectedFiles": "Affected files:",
-    "executeWarning": "Executing commands may modify your system. Make sure you trust this operation.",
-    "modifyWarning": "This operation will modify files. Make sure you have backed up important data.",
     "deny": "Deny",
-    "allowOnce": "Allow Once",
     "alwaysAllow": "Always Allow",
     "read": "Read",
     "write": "Write",
-    "edit": "Edit",
-    "execute": "Execute",
-    "share": "Share",
-    "batchTitle": "Permission Management",
-    "batchDesc": "Grant all basic permissions at once",
-    "grantAll": "Grant All",
-    "reauthorize": "Re-authorize",
-    "batchCompleted": "Completed",
-    "batchNotifPermission": "Desktop Notifications",
-    "batchNotifDesc": "Allow sending desktop notifications",
-    "batchAccessibilityPermission": "Accessibility",
-    "batchAccessibilityDesc": "Required for mouse/keyboard automation (autoui MCP, macOS control)",
-    "batchScreenRecordingPermission": "Screen Recording",
-    "batchScreenRecordingDesc": "Required for screen capture and vision-based UI automation",
-    "batchFilePermission": "File Read/Write",
-    "batchFileDesc": "Allow reading and writing files in the workspace",
-    "batchShellPermission": "Shell Execute",
-    "batchShellDesc": "Allow executing shell commands",
-    "batchInputMonitoringPermission": "Input Monitoring",
-    "batchInputMonitoringDesc": "Required for keyboard input simulation (autoui MCP)",
-    "manualLabel": "Manual",
-    "openSystemSettings": "Open System Settings → Privacy & Security",
-    "batchSuccess": "All permissions granted successfully",
-    "batchPartial": "Permissions granted. System-level permissions (Accessibility, Screen Recording, Input Monitoring) must be granted manually in System Settings.",
-    "externalDirectory": "External Directory",
-    "skill": "Skill"
+    "edit": "Edit"
   },
   "app": {
     "fileUpdated": "File updated",
@@ -1303,23 +1268,6 @@
       "acpStreamDebugDesc": "Show live ACP event stream above the chat thread"
     },
     "about": {
-      "title": "About",
-      "description": "AI Agent Desktop Platform",
-      "checking": "Checking...",
-      "checkUpdates": "Check Updates",
-      "upToDate": "Up to date",
-      "newVersion": "New version available:",
-      "downloadInstall": "Download & Install",
-      "updateInstalled": "Update installed successfully",
-      "restartToApply": "Restart the app to apply changes.",
-      "restartNow": "Restart Now",
-      "updateFailed": "Update check failed",
-      "quickLinks": "Quick Links",
-      "documentation": "Documentation",
-      "reportIssue": "Report Issue",
-      "license": "License",
-      "madeWith": "Made with",
-      "byTeam": "by TeamClaw Team"
     },
     "llm": {
       "cursorTitle": "Cursor models",
@@ -2274,31 +2222,12 @@
       "llmModels": "Models",
       "modelNamePlaceholder": "Display name",
       "teamName": "Team Name",
-      "versionHistory": "File Version History",
-      "viewHistory": "View History",
-      "fileCount": "{{count}} files",
-      "prevPage": "Previous",
-      "nextPage": "Next",
-      "applyTitle": "Apply to Join Team",
-      "applyDesc": "Your device is not yet a member of \"{{teamName}}\". Please fill in the form and submit an application.",
-      "applyNameLabel": "Name",
-      "applyNamePlaceholder": "Enter your name",
-      "applyEmailLabel": "Email",
-      "applyEmailPlaceholder": "Enter your email",
-      "applyNoteLabel": "Note",
-      "applyNotePlaceholder": "e.g. Frontend developer, Dashboard module",
-      "submitting": "Submitting...",
-      "submitApplication": "Submit Application",
-      "noVersionHistory": "No file version records",
       "defaultAgent": "Team Default Agent",
       "defaultAgentDesc": "Used for team members who have not set a personal default agent.",
       "defaultAgentPlaceholder": "Select team default agent (optional)",
       "defaultAgentReadOnly": "Only team owner/admin can edit"
     },
     "plugins": {
-      "title": "Plugins",
-      "description": "Extend functionality with plugins",
-      "browse": "Browse Plugins"
     },
     "extension": {
       "general": {
@@ -2593,8 +2522,6 @@
       "feedbacks": "feedbacks",
       "tokenUsage": "Token Usage",
       "feedbackCount": "Feedback Count",
-      "teamRanking": "Team Ranking",
-      "clickToView": "Click to view",
       "you": "You",
       "skillRank": "Skill Rank",
       "skillInvocations": "Skill Invocations",
@@ -2903,39 +2830,6 @@
       "upToDate": "Up to date"
     },
     "gitStatus": {
-      "modified": "Modified",
-      "added": "Added",
-      "deleted": "Deleted",
-      "untracked": "Untracked",
-      "staged": "Staged",
-      "renamed": "Renamed",
-      "yellow": "Yellow",
-      "green": "Green",
-      "red": "Red",
-      "blue": "Blue",
-      "purple": "Purple",
-      "cyan": "Cyan",
-      "orange": "Orange",
-      "pink": "Pink",
-      "gray": "Gray",
-      "amber": "Amber",
-      "emerald": "Emerald",
-      "indigo": "Indigo",
-      "15sec": "15 seconds",
-      "30sec": "30 seconds",
-      "1min": "1 minute",
-      "2min": "2 minutes",
-      "5min": "5 minutes",
-      "title": "Git Status",
-      "description": "Configure how Git file status is displayed in the file tree",
-      "showStatus": "Show Git Status",
-      "showStatusDesc": "Display file change indicators in the file tree",
-      "statusIcons": "Status Icons",
-      "statusIconsDesc": "Show distinct icons per status type (color-blind friendly)",
-      "statusColors": "Status Colors",
-      "reset": "Reset",
-      "refreshInterval": "Refresh Interval",
-      "refreshIntervalDesc": "How often to automatically check for Git status changes"
     },
     "permissions": {
       "allow": "Allow",
@@ -3188,7 +3082,6 @@
     "viewDiff": "View Diff"
   },
   "mainContent": {
-    "selectShortcut": "Select a shortcut to get started"
   },
   "history": {
     "loadCommitContentFailed": "Unable to load content for this commit ({{sha}})",
@@ -3326,7 +3219,6 @@
     "loading": "Loading ideas...",
     "empty": "No ideas yet",
     "error": "Failed to load ideas",
-    "viewAll": "View all ideas",
     "filterStatus": "Filter by status",
     "statusFilterLabel": "Status",
     "searchPlaceholder": "Search ideas",
@@ -3354,9 +3246,6 @@
       "delete": "Delete"
     },
     "deleteConfirm": {
-      "title": "Delete idea?",
-      "body": "Delete \"{{title}}\". This archives the idea and removes it from the list.",
-      "cta": "Delete"
     },
     "renameDialog": {
       "title": "Rename idea",
@@ -3380,9 +3269,6 @@
       "noActivity": "No activity yet.",
       "unknownActor": "Unknown"
     },
-    "copyFailed": "Copy failed",
-    "deleteFailed": "Delete failed: {{msg}}",
-    "statusFailed": "Status update failed: {{msg}}",
     "renameFailed": "Rename failed: {{msg}}"
   },
   "invite": {

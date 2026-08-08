@@ -104,7 +104,6 @@ vi.mock('@/lib/build-config', () => ({
   },
 }))
 vi.mock('@/components/FileEditor', () => ({ FileContentViewer: () => <div data-testid="file-content-viewer" /> }))
-vi.mock('@/hooks/useTrafficLightSpacer', () => ({ useNeedsTrafficLightSpacer: () => false }))
 vi.mock('@/hooks/useAppInit', () => ({
   useWorkspaceInit: () => ({ initialWorkspaceResolved: true }),
   useOpenCodePreload: vi.fn(),

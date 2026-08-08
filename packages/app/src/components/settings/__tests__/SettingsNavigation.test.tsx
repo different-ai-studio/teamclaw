@@ -51,10 +51,6 @@ vi.mock('@/lib/build-config', () => ({
   hasAnyChannel: () => true,
 }))
 
-vi.mock('../TeamRankingCard', () => ({
-  TeamRankingCard: () => null,
-}))
-
 vi.mock('@/stores/team-mode', () => ({
   useTeamModeStore: (selector: (state: unknown) => unknown) =>
     selector({

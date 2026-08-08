@@ -78,10 +78,6 @@ vi.mock("@/lib/utils", () => ({
   removeStartupSkeleton: () => removeStartupSkeletonMock(),
 }));
 
-vi.mock("@/lib/random-team-name", () => ({
-  generateRandomTeamName: () => "Trial Team",
-}));
-
 vi.mock("@/stores/setup", () => ({
   useSetupStore: (selector: (s: { loaded: boolean; requiredSatisfied: () => boolean; listRequirements: () => void }) => unknown) =>
     selector({ loaded: true, requiredSatisfied: () => true, listRequirements: () => {} }),

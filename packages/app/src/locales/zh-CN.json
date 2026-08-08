@@ -466,10 +466,7 @@
       },
       "permission": {
         "bash": "Bash",
-        "tool": "工具",
-        "externalPath": "外部路径，位于工作区之外",
-        "alwaysAllowLabel": "始终允许 '{{label}}'",
-        "deniedByUser": "已被用户拒绝"
+        "tool": "工具"
       },
       "pageNav": {
         "invalid": "无效的导航链接"
@@ -560,7 +557,6 @@
       "humanMentionInstruction": "这条信息还提及了人类 {{name}}"
     },
     "inputPlaceholderContinue": "继续输入...",
-    "newSession": "新会话",
     "refreshMessages": "刷新消息",
     "startingAgent": "正在启动助手...",
     "taskRunning": "任务运行中...",
@@ -920,7 +916,6 @@
     "searchWithShortcut": "搜索 (⌘K)",
     "pinned": "已置顶",
     "contacts": "联系人",
-    "ideasSection": "热门想法",
     "actorsSection": "最近联系",
     "participantCount": "{{count}} 位",
     "unread": "未读",
@@ -1037,41 +1032,11 @@
   },
   "permission": {
     "request": "权限请求",
-    "required": "需要权限",
-    "affectedFiles": "受影响文件：",
-    "executeWarning": "执行命令可能会修改您的系统。请确保您信任此操作。",
-    "modifyWarning": "此操作将修改文件。请确保已备份重要数据。",
     "deny": "拒绝",
-    "allowOnce": "仅允许一次",
     "alwaysAllow": "始终允许",
     "read": "读取",
     "write": "写入",
-    "edit": "编辑",
-    "execute": "执行",
-    "share": "分享",
-    "batchTitle": "权限管理",
-    "batchDesc": "一次性申请所有基本权限",
-    "grantAll": "全部授权",
-    "reauthorize": "重新授权",
-    "batchCompleted": "已完成",
-    "batchNotifPermission": "桌面通知",
-    "batchNotifDesc": "允许发送桌面通知",
-    "batchAccessibilityPermission": "辅助功能",
-    "batchAccessibilityDesc": "鼠标/键盘自动化所需（autoui MCP、macOS 控制）",
-    "batchScreenRecordingPermission": "屏幕录制",
-    "batchScreenRecordingDesc": "截屏和基于视觉的 UI 自动化所需",
-    "batchFilePermission": "文件读写",
-    "batchFileDesc": "允许读写工作区中的文件",
-    "batchShellPermission": "Shell 执行",
-    "batchShellDesc": "允许执行 Shell 命令",
-    "batchInputMonitoringPermission": "输入监控",
-    "batchInputMonitoringDesc": "键盘输入模拟所需（autoui MCP）",
-    "manualLabel": "需手动授权",
-    "openSystemSettings": "打开系统设置 → 隐私与安全性",
-    "batchSuccess": "所有权限已成功授权",
-    "batchPartial": "权限已授权。系统级权限（辅助功能、屏幕录制、输入监控）需在系统设置中手动授权。",
-    "externalDirectory": "外部目录",
-    "skill": "技能"
+    "edit": "编辑"
   },
   "app": {
     "fileUpdated": "文件已更新",
@@ -1303,23 +1268,6 @@
       "acpStreamDebugDesc": "在聊天区域上方显示实时 ACP 事件流"
     },
     "about": {
-      "title": "关于",
-      "description": "AI 助手桌面平台",
-      "checking": "检查中...",
-      "checkUpdates": "检查更新",
-      "upToDate": "已是最新",
-      "newVersion": "有新版本可用：",
-      "downloadInstall": "下载并安装",
-      "updateInstalled": "更新已成功安装",
-      "restartToApply": "重启应用以应用更改。",
-      "restartNow": "立即重启",
-      "updateFailed": "更新检查失败",
-      "quickLinks": "快捷链接",
-      "documentation": "文档",
-      "reportIssue": "反馈问题",
-      "license": "许可证",
-      "madeWith": "用心制作",
-      "byTeam": "TeamClaw 团队"
     },
     "llm": {
       "cursorTitle": "Cursor 模型",
@@ -2274,31 +2222,12 @@
       "llmModels": "模型列表",
       "modelNamePlaceholder": "显示名称",
       "teamName": "团队名称",
-      "versionHistory": "文件版本历史",
-      "viewHistory": "查看历史",
-      "fileCount": "{{count}} 个文件",
-      "prevPage": "上一页",
-      "nextPage": "下一页",
-      "applyTitle": "申请加入团队",
-      "applyDesc": "你的设备尚未加入「{{teamName}}」，请填写信息后提交申请",
-      "applyNameLabel": "姓名",
-      "applyNamePlaceholder": "输入你的姓名",
-      "applyEmailLabel": "邮箱",
-      "applyEmailPlaceholder": "输入你的邮箱",
-      "applyNoteLabel": "备注",
-      "applyNotePlaceholder": "例如：前端开发，负责 Dashboard 模块",
-      "submitting": "提交中...",
-      "submitApplication": "提交申请",
-      "noVersionHistory": "暂无文件版本记录",
       "defaultAgent": "团队默认 Agent",
       "defaultAgentDesc": "团队成员未设置个人默认 Agent 时，将使用此 Agent。",
       "defaultAgentPlaceholder": "选择团队默认 Agent（可选）",
       "defaultAgentReadOnly": "仅团队 owner/admin 可编辑"
     },
     "plugins": {
-      "title": "插件",
-      "description": "通过插件扩展功能",
-      "browse": "浏览插件"
     },
     "extension": {
       "general": {
@@ -2593,8 +2522,6 @@
       "feedbacks": "条反馈",
       "tokenUsage": "Token 用量",
       "feedbackCount": "反馈数",
-      "teamRanking": "团队排名",
-      "clickToView": "点击查看",
       "you": "你",
       "skillRank": "Skill 排名",
       "skillInvocations": "Skill 调用",
@@ -2903,39 +2830,6 @@
       "upToDate": "已是最新"
     },
     "gitStatus": {
-      "modified": "已修改",
-      "added": "已添加",
-      "deleted": "已删除",
-      "untracked": "未跟踪",
-      "staged": "已暂存",
-      "renamed": "已重命名",
-      "yellow": "黄色",
-      "green": "绿色",
-      "red": "红色",
-      "blue": "蓝色",
-      "purple": "紫色",
-      "cyan": "青色",
-      "orange": "橙色",
-      "pink": "粉色",
-      "gray": "灰色",
-      "amber": "琥珀色",
-      "emerald": "翠绿色",
-      "indigo": "靛蓝色",
-      "15sec": "15 秒",
-      "30sec": "30 秒",
-      "1min": "1 分钟",
-      "2min": "2 分钟",
-      "5min": "5 分钟",
-      "title": "Git 状态",
-      "description": "配置文件树中 Git 文件状态的显示方式",
-      "showStatus": "显示 Git 状态",
-      "showStatusDesc": "在文件树中显示文件变更指示器",
-      "statusIcons": "状态图标",
-      "statusIconsDesc": "按状态类型显示不同图标（色盲友好）",
-      "statusColors": "状态颜色",
-      "reset": "重置",
-      "refreshInterval": "刷新间隔",
-      "refreshIntervalDesc": "自动检查 Git 状态变更的频率"
     },
     "permissions": {
       "allow": "允许",
@@ -3188,7 +3082,6 @@
     "viewDiff": "查看差异"
   },
   "mainContent": {
-    "selectShortcut": "选择一个快捷方式开始"
   },
   "history": {
     "loadCommitContentFailed": "无法加载该提交的内容 ({{sha}})",
@@ -3326,7 +3219,6 @@
     "loading": "正在加载想法...",
     "empty": "暂无想法",
     "error": "加载想法失败",
-    "viewAll": "查看全部想法",
     "filterStatus": "按状态筛选",
     "statusFilterLabel": "状态",
     "searchPlaceholder": "搜索 Ideas",
@@ -3354,9 +3246,6 @@
       "delete": "删除"
     },
     "deleteConfirm": {
-      "title": "删除想法?",
-      "body": "删除 \"{{title}}\"。该想法将被归档并从列表中移除。",
-      "cta": "删除"
     },
     "renameDialog": {
       "title": "重命名想法",
@@ -3380,9 +3269,6 @@
       "noActivity": "暂无动态。",
       "unknownActor": "未知"
     },
-    "copyFailed": "复制失败",
-    "deleteFailed": "删除失败: {{msg}}",
-    "statusFailed": "状态更新失败: {{msg}}",
     "renameFailed": "重命名失败: {{msg}}"
   },
   "invite": {
