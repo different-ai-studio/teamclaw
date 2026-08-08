@@ -35,8 +35,6 @@ import { selectSessionParentLinks } from "@/lib/session-parent-links";
 import { isAgentActorType } from "@/lib/actor-type";
 import type { AttachedAgent } from "@/packages/ai/prompt-input-insert-hooks";
 import { Button } from "@/components/ui/button";
-import { LocalAgentWelcomeEmptyState } from "./LocalAgentWelcomeEmptyState";
-import { SessionEmptyThreadState } from "./SessionEmptyThreadState";
 import { createQuickSession, describeQuickSessionFailure, type QuickSessionFailureReason } from "@/lib/create-quick-session";
 import { isSoloAgentSession } from "@/lib/session-empty-thread-starters";
 import type { Message } from "@/stores/session";
@@ -54,6 +52,7 @@ import {
 import { useSessionNoticeStore } from "@/stores/session-notice-store";
 import { MessageList, type MessageListHandle } from "./MessageList";
 import { useChatSend } from "./use-chat-send";
+import { renderChatEmptyState } from "./chat-empty-state";
 import { SessionErrorAlert } from "./SessionErrorAlert";
 import { isPersistentSessionTurnError } from "@/lib/agent-turn-error";
 import { hasVisiblePendingPermissions } from "./PermissionCard";
@@ -64,7 +63,6 @@ import { toast } from "sonner";
 import { AcpStreamDebugPanel } from "./AcpStreamDebugPanel";
 import type { Todo } from "@/stores/session-types";
 import { QuestionInputDock } from "./QuestionInputDock";
-import { SessionContinueBanner } from "./SessionContinueBanner";
 import {
   isStreamInterruptible,
   useV2StreamingStore,
@@ -1142,94 +1140,22 @@ export function ChatPanel({ compact = false }: ChatPanelProps) {
     }
   }, [restoreSession, viewingArchivedSessionId]);
 
-  const emptyState = React.useMemo(() => {
-    if (activeSessionId) {
-      if (compact) {
-        return null;
-      }
-      return (
-        <SessionEmptyThreadState
-          sessionId={activeSessionId}
-        />
-      );
-    }
-    if (draftPreselectedActor) {
-      return (
-        <div
-          className={cn(
-            "flex flex-col items-center justify-center text-center",
-            compact ? "py-8 px-2" : "py-20",
-          )}
-        >
-          <h2
-            className={cn(
-              "mb-1 font-semibold",
-              compact ? "text-sm" : "text-xl",
-            )}
-          >
-            {draftPreselectedActor.displayName}
-          </h2>
-          <p
-            className={cn(
-              "text-muted-foreground",
-              compact ? "text-xs" : "text-sm",
-            )}
-          >
-            {draftPreselectedActor.kind === 'agent'
-              ? t('chat.draftWithAgentHint', '在下方输入消息，发送后创建与该 Agent 的会话')
-              : t('chat.draftWithMemberHint', '在下方输入消息，发送后创建与该成员的会话')}
-          </p>
-          <SessionContinueBanner
-            actorId={draftPreselectedActor.id}
-            actorName={draftPreselectedActor.displayName}
-          />
-        </div>
-      );
-    }
-    // Creating the first session from welcome/draft — keep the thread blank
-    // instead of flashing the "… is waiting on this device" welcome card.
-    if (welcomeSessionStarting) {
-      return null;
-    }
-    if (!compact) {
-      return (
-        <LocalAgentWelcomeEmptyState
-          agent={welcomeQuickChatAgent}
-          agentLoading={welcomeQuickChatLoading}
-          starting={welcomeSessionStarting}
-          onStartConversation={() => void handleStartLocalAgentSession()}
-          onQuickAction={(message) => void handleLocalAgentQuickAction(message)}
-          onOpenAgentSettings={handleOpenAgentSettings}
-        />
-      );
-    }
-    return (
-      <div
-        className={cn(
-          "flex flex-col items-center justify-center text-center",
-          "py-8 px-2",
-        )}
-      >
-        <h2 className="mb-1 text-sm font-semibold">
-          {welcomeQuickChatAgent?.displayName ?? t("chat.agent", "Agent")}
-        </h2>
-        <p className="text-xs text-muted-foreground">
-          {t("chat.askAboutFile", "Ask questions about the file")}
-        </p>
-      </div>
-    );
-  }, [
-    compact,
-    t,
-    draftPreselectedActor,
-    welcomeQuickChatAgent,
-    welcomeQuickChatLoading,
-    welcomeSessionStarting,
-    handleStartLocalAgentSession,
-    handleLocalAgentQuickAction,
-    handleOpenAgentSettings,
-    activeSessionId,
-  ]);
+  const emptyState = React.useMemo(
+    () =>
+      renderChatEmptyState({
+        activeSessionId,
+        compact,
+        t,
+        draftPreselectedActor,
+        welcomeQuickChatAgent,
+        welcomeQuickChatLoading,
+        welcomeSessionStarting,
+        handleStartLocalAgentSession,
+        handleLocalAgentQuickAction,
+        handleOpenAgentSettings,
+      }),
+    [compact, t, draftPreselectedActor, welcomeQuickChatAgent, welcomeQuickChatLoading, welcomeSessionStarting, handleStartLocalAgentSession, handleLocalAgentQuickAction, handleOpenAgentSettings, activeSessionId],
+  );
 
   const visibleSessionError =
     sessionError?.sessionId && sessionError.sessionId === displaySessionId
