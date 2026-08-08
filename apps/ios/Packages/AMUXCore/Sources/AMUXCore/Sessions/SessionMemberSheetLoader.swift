@@ -24,26 +24,19 @@ public struct MemberSheetAgent: Identifiable, Equatable, Sendable {
     public let runtimeState: AgentRuntimeChipState
     public let availableModels: [String]
     public let currentModel: String?
-    /// Daemon-side 8-char runtime id (segment in
-    /// `runtime/{runtime_id}/state`). Nil when the agent participates
-    /// in this session without a live runtime row yet — `removeAgent`
-    /// skips `runtimeStopRpc` in that case and only does the Supabase
-    /// delete.
-    public let runtimeID: String?
-    /// Workspace UUID from the `agent_runtimes.workspace_id` column —
-    /// authoritative key for resolving the worktree filesystem path on
-    /// restart. Distinct from `workspacePath` which currently still
-    /// holds the same UUID for legacy display reasons.
+    /// Workspace UUID owned by the participant row — the authoritative key for
+    /// resolving the worktree filesystem path on restart. Distinct from
+    /// `workspacePath`, which still holds the same UUID for legacy display.
     public let workspaceID: String?
-    /// Backend type spelling stored in `agent_runtimes.backend_type`
-    /// ("claude" / "opencode" / "codex"). Used to map to
-    /// `Amux_AgentType` for `runtimeStartRpc` on restart. Distinct from
-    /// `agentType` which carries the capitalized display name.
+    /// Backend spelling ("claude" / "opencode" / "codex" / "pi" / "cursor"),
+    /// derived from the attachment's `Amux_AgentType`. Used to map back to the
+    /// proto enum for `runtimeStartRpc` on restart. Distinct from `agentType`,
+    /// which carries the capitalised display name.
     public let backendType: String?
 
     public init(id: String, displayName: String, workspacePath: String, agentType: String,
                 runtimeState: AgentRuntimeChipState, availableModels: [String],
-                currentModel: String?, runtimeID: String?, workspaceID: String?,
+                currentModel: String?, workspaceID: String?,
                 backendType: String?) {
         self.id = id
         self.displayName = displayName
@@ -52,7 +45,6 @@ public struct MemberSheetAgent: Identifiable, Equatable, Sendable {
         self.runtimeState = runtimeState
         self.availableModels = availableModels
         self.currentModel = currentModel
-        self.runtimeID = runtimeID
         self.workspaceID = workspaceID
         self.backendType = backendType
     }
@@ -138,7 +130,6 @@ public struct SessionMemberSheetLoader: Sendable {
                     runtimeState: Self.chipState(forStatus: nil, lastSeenAt: nil),
                     availableModels: liveModels,
                     currentModel: p.model,
-                    runtimeID: nil,
                     workspaceID: workspaceID,
                     backendType: nil
                 )

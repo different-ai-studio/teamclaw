@@ -10,7 +10,7 @@ final class SessionDetailModelSwitchTests: XCTestCase {
             id: "agent-a", displayName: "Claude", workspacePath: "",
             agentType: "Claude", runtimeState: .active,
             availableModels: ["claude-haiku-4-5", "claude-sonnet-4-6"],
-            currentModel: "claude-haiku-4-5", runtimeID: "rid-1",
+            currentModel: "claude-haiku-4-5",
             workspaceID: nil, backendType: "claude"
         )
         vm._test_setMemberSheetAgents([agent])
@@ -28,7 +28,7 @@ final class SessionDetailModelSwitchTests: XCTestCase {
             id: "agent-a", displayName: "Claude", workspacePath: "",
             agentType: "Claude", runtimeState: .active,
             availableModels: ["claude-haiku-4-5", "claude-sonnet-4-6"],
-            currentModel: "claude-haiku-4-5", runtimeID: "rid-1",
+            currentModel: "claude-haiku-4-5",
             workspaceID: nil, backendType: "claude"
         )
         vm._test_setMemberSheetAgents([agent])

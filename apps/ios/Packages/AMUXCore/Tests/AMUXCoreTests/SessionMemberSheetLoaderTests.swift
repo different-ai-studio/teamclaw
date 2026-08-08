@@ -113,7 +113,6 @@ struct SessionMemberSheetLoaderShapingTests {
         #expect(agent.id == "agent-1")
         // No runtime id any more: commands address (actor, session), so the
         // member sheet has nothing to bridge through (ADR-0003/0004).
-        #expect(agent.runtimeID == nil)
         #expect(agent.workspaceID == "ws-1")
         #expect(agent.backendType == nil)
         // Backend type came off the runtime row; it now lives on the actor

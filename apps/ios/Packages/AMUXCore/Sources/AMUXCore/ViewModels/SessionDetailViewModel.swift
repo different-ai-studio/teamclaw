@@ -159,7 +159,6 @@ public final class SessionDetailViewModel {
     public private(set) var pendingQuestions: [PendingAcpQuestion] = []
     private var errorClearTask: Task<Void, Never>?
     private let errorMessageTTL: TimeInterval = 5
-    public var runtime: Runtime?
     public let session: Session?
     private let mqtt: MQTTService
     private let hub: MQTTMessageHub
@@ -208,21 +207,32 @@ public final class SessionDetailViewModel {
     public var routeActorIDRef: String { resolveRouteActorID() }
 
     public var sessionTitle: String {
-        if let runtime, !runtime.sessionTitle.isEmpty { return runtime.sessionTitle }
-        if let runtime {
-            let wt = runtime.worktree
+        if let session, !session.title.isEmpty { return session.title }
+        // Worktree leaf as a last resort; `sessions.title` is authoritative and
+        // the attachment's copy was only ever a mirror of it (ADR-0004).
+        if let att = sessionAttachments.first {
+            let wt = att.worktree
             if !wt.isEmpty {
                 let last = wt.split(separator: "/").last.map(String.init) ?? wt
                 if last != "." { return last }
             }
-            return runtime.runtimeId
         }
-        if let session, !session.title.isEmpty { return session.title }
         return "Session"
     }
 
-    public var isActive: Bool { runtime?.isActive ?? false }
-    public var isIdle: Bool { runtime?.isIdle ?? true }
+    /// Every attachment currently serving this session, newest first.
+    private var sessionAttachments: [AgentAttachment] {
+        guard let ctx = startModelContext,
+              let sessionID = session?.sessionId, !sessionID.isEmpty
+        else { return [] }
+        let suffix = "::\(sessionID)"
+        return (try? ctx.fetch(FetchDescriptor<AgentAttachment>()))?
+            .filter { $0.id.hasSuffix(suffix) }
+            .sorted(by: { ($0.lastEventTime ?? .distantPast) > ($1.lastEventTime ?? .distantPast) }) ?? []
+    }
+
+    public var isActive: Bool { sessionAttachments.contains(where: \.isActive) }
+    public var isIdle: Bool { !isActive }
 
     /// Heartbeat-style "agent is currently doing something" flag. Source
     /// of truth for the chip-bar's stop button and any other UI that
@@ -250,7 +260,7 @@ public final class SessionDetailViewModel {
     /// `refreshMemberSheet` re-registers after each onChange.
     private var isObservingRuntimeChanges = false
     public var participantCount: Int { session?.participantCount ?? 0 }
-    public var hasRuntime: Bool { runtime != nil }
+    public var hasRuntime: Bool { !sessionAttachments.isEmpty }
 
     /// Bucket key for AgentEvent storage. Multiple sessions sharing a single
     /// daemon agent identity (Runtime.runtimeId == daemon's Supabase actor_id
@@ -259,8 +269,7 @@ public final class SessionDetailViewModel {
     /// session N's view. When a session is in scope we key by session_id;
     /// the legacy runtime-only path (no session) keeps using runtime.runtimeId.
     private var eventScopeKey: String {
-        if let session, !session.sessionId.isEmpty { return session.sessionId }
-        return runtime?.runtimeId ?? ""
+        session?.sessionId ?? ""
     }
 
     /// Background sender that drains queued OutboxMessage rows. Injected
@@ -270,7 +279,7 @@ public final class SessionDetailViewModel {
     /// outbox isn't applicable.
     public var outboxSender: OutboxSender?
 
-    public init(runtime: Runtime?,
+    public init(runtime: AgentAttachment? = nil,
                 mqtt: MQTTService,
                 hub: MQTTMessageHub,
                 teamID: String = "",
@@ -282,7 +291,7 @@ public final class SessionDetailViewModel {
                 messagesRepository: MessagesRepository? = nil,
                 workspacesRepository: (any WorkspaceRepository)? = nil,
                 outboxSender: OutboxSender? = nil) {
-        self.runtime = runtime; self.mqtt = mqtt; self.hub = hub; self.teamID = teamID; self.peerId = peerId
+        _ = runtime; self.mqtt = mqtt; self.hub = hub; self.teamID = teamID; self.peerId = peerId
         self.session = session; self.teamclawService = teamclawService
         self.connectedAgentsStore = connectedAgentsStore
         self.sessionsRepository = sessionsRepository
@@ -291,39 +300,19 @@ public final class SessionDetailViewModel {
         self.outboxSender = outboxSender
     }
 
-    /// Resolves the routing actor id for the current runtime/session.
-    /// Preference order:
-    ///   1. ConnectedAgentsStore lookup keyed by `session.primaryAgentId` —
-    ///      authoritative when the session is iOS-Supabase-created.
-    ///   2. The runtime row's stored `routeActorID` (populated by
-    ///      SessionListVM from the topic path it received the state on).
-    /// Returns an empty string when no daemon mapping is known yet — callers
-    /// should treat that as "skip publish, retry later".
+    /// The session's default routing actor: its primary agent, or the sole
+    /// agent when the session predates `primary_agent_id`. Empty when the
+    /// roster has not loaded or the session has several agents and no primary —
+    /// callers should treat that as "skip publish, retry later" rather than
+    /// guessing, since guessing cross-attributes commands between agents.
     private func resolveRouteActorID() -> String {
-        if let primary = session?.primaryAgentId,
-           !primary.isEmpty,
-           let agent = connectedAgentsStore?.agents.first(where: { $0.id == primary }),
-           !agent.id.isEmpty {
-            return agent.id
+        if let primary = session?.primaryAgentId, !primary.isEmpty {
+            return primary
         }
-        if let runtime, !runtime.routeActorID.isEmpty {
-            return runtime.routeActorID
+        if memberSheetAgents.count == 1, let only = memberSheetAgents.first {
+            return only.id
         }
         return ""
-    }
-
-    /// Resolves the live `Runtime` row that backs this session. Delegates
-    /// to `RuntimeResolver` (in AMUXCore/Runtimes) for the actual rule;
-    /// this wrapper caches the result onto `self.runtime` so subsequent
-    /// calls in the same view session return the same instance.
-    private func resolveRuntime(modelContext: ModelContext) -> Runtime? {
-        let resolved = RuntimeResolver.resolve(existing: runtime,
-                                               session: session,
-                                               modelContext: modelContext)
-        if runtime == nil, let resolved {
-            runtime = resolved
-        }
-        return resolved
     }
 
     /// Rebuilds `groupedEvents` from `events`. Call after any mutation that
@@ -533,12 +522,8 @@ public final class SessionDetailViewModel {
         // stop button stays up even if the heartbeat flag misses an
         // event for any reason.
         guard isAgentWorking || isActive || isStreaming else { return [] }
-        if let boundRuntimeID = runtime?.runtimeId,
-           let agent = memberSheetAgents.first(where: { $0.runtimeID == boundRuntimeID }) {
-            return [agent.id]
-        }
-        // Session-based fallback: no bound runtime, so we can't disambiguate
-        // among multiple agents. With exactly one agent, attribute the
+        // We can't disambiguate among multiple agents from a session-wide busy
+        // flag. With exactly one agent, attribute the
         // busy state to it. With more, leave empty (chip stays as ×)
         // until per-agent attribution lands.
         if memberSheetAgents.count == 1, let only = memberSheetAgents.first {
@@ -692,15 +677,8 @@ public final class SessionDetailViewModel {
         // after spawn). For session-based views where runtime was nil at
         // start() time, re-resolve here so a Runtime row created by
         // SessionListVM after MQTT arrived isn't missed.
-        overlayMQTTRuntimeState()
+        overlayAttachmentState()
 
-        // The live overlay may be what supplies the runtime_id for the sole
-        // session agent (older sessions can have neither primary_agent_id nor
-        // an agent_runtimes row). Relabel only after that binding exists.
-        // Otherwise live events remain under the raw runtime id while seeded
-        // history and optimistic loading use actor id, producing duplicate
-        // process cards every time turn history is replayed.
-        relabelRawRuntimeIDStampsToActorIDs()
 
         // Reconnect replays that couldn't be routed before this roster
         // loaded (actor_id bucket with no runtime_id mapping) get exactly
@@ -719,166 +697,78 @@ public final class SessionDetailViewModel {
         scheduleSpawningRefreshIfNeeded()
     }
 
-    /// Re-resolves the bound Runtime (if nil) and overlays its MQTT-derived
-    /// chip state + currentModel onto the matching member-sheet agent row.
-    /// Also (re-)registers a one-shot observation on the runtime so MQTT
-    /// mutations trigger an immediate refresh — removes the 2s polling
-    /// latency for state transitions once the Runtime row is known.
-    private func overlayMQTTRuntimeState() {
-        if runtime == nil, let ctx = startModelContext {
-            runtime = RuntimeResolver.resolve(existing: nil, session: session, modelContext: ctx)
-        }
-        // Upgrade a transient placeholder to the real SwiftData Runtime row if
-        // one has arrived since start(). A placeholder is never inserted into a
-        // ModelContext, so `modelContext == nil` identifies it.
-        if let ctx = startModelContext,
-           let ph = runtime, ph.modelContext == nil, !ph.runtimeId.isEmpty {
-            let rid = ph.runtimeId
-            let desc = FetchDescriptor<Runtime>(predicate: #Predicate { $0.runtimeId == rid })
-            if let real = (try? ctx.fetch(desc))?.first {
-                runtime = real
-            }
-        }
-        // Seed slash commands from the (possibly newly resolved) runtime.
-        // Covers both: placeholder→real upgrade above and the race where
-        // SessionListViewModel writes availableCommandsJSON after start().
-        if let cmds = runtime?.availableCommands, !cmds.isEmpty {
-            dynamicAvailableCommands = cmds
-        }
-        guard let liveRuntime = runtime else { return }
-        observeBoundRuntimeChanges()
-
-        // Build a runtimeId → SwiftData Runtime lookup for non-primary agents so
-        // their MQTT-synced currentModel / state is reflected here too. Without
-        // this, only the bound (primary) agent's SwiftData row is read; non-primary
-        // agents rely solely on Supabase, which the daemon writes with a brief delay.
-        var extraByRID: [String: Runtime] = [:]
-        if let ctx = startModelContext {
-            let rids = memberSheetAgents.compactMap(\.runtimeID).filter {
-                $0 != liveRuntime.runtimeId
-            }
-            for rid in rids {
-                let r = rid
-                let desc = FetchDescriptor<Runtime>(predicate: #Predicate { $0.runtimeId == r })
-                if let found = try? ctx.fetch(desc).first { extraByRID[rid] = found }
-            }
-        }
-
-        let agentCount = memberSheetAgents.count
+    /// Overlays live attachment state (chip state, current model, model
+    /// catalog) onto the member-sheet rows the participants fetch produced.
+    ///
+    /// The participants row owns per-session facts the cloud knows — workspace,
+    /// last chosen model. Everything about whether an agent is *running right
+    /// now* comes from the actor retain, which the cloud never sees.
+    private func overlayAttachmentState() {
         memberSheetAgents = memberSheetAgents.map { agent in
-            // Primary agent: use bound runtime.
-            // Legacy/sparse sessions may not have primary_agent_id or a
-            // persisted agent_runtimes row yet. RuntimeResolver has already
-            // selected `liveRuntime` for this session, so when there is only
-            // one unbound agent it is unambiguous and safe to attach it here.
-            let isSoleUnboundAgent = agentCount == 1 && agent.runtimeID == nil
-            if agent.runtimeID == liveRuntime.runtimeId
-                || session?.primaryAgentId == agent.id
-                || isSoleUnboundAgent {
-                return MemberSheetAgent(
-                    id: agent.id, displayName: agent.displayName,
-                    workspacePath: agent.workspacePath, agentType: agent.agentType,
-                    runtimeState: chipStateFromRuntime(liveRuntime),
-                    availableModels: {
-                        let live = liveRuntime.availableModels.map(\.id)
-                        if !live.isEmpty { return live }
-                        if !agent.availableModels.isEmpty { return agent.availableModels }
-                        return []
-                    }(),
-                    currentModel: liveRuntime.currentModel ?? agent.currentModel,
-                    runtimeID: agent.runtimeID ?? liveRuntime.runtimeId,
-                    workspaceID: agent.workspaceID, backendType: agent.backendType
-                )
+            guard let att = attachment(forAgentActorID: agent.id) else {
+                // No attachment: the agent is cold for this session. Absence is
+                // the signal, not a lookup failure — leave the row neutral.
+                return agent
             }
-            // Non-primary agent: overlay from their SwiftData Runtime if available.
-            if let rid = agent.runtimeID, let extra = extraByRID[rid] {
-                return MemberSheetAgent(
-                    id: agent.id, displayName: agent.displayName,
-                    workspacePath: agent.workspacePath, agentType: agent.agentType,
-                    runtimeState: chipStateFromRuntime(extra),
-                    availableModels: {
-                        let live = extra.availableModels.map(\.id)
-                        if !live.isEmpty { return live }
-                        if !agent.availableModels.isEmpty { return agent.availableModels }
-                        return []
-                    }(),
-                    currentModel: extra.currentModel ?? agent.currentModel,
-                    runtimeID: agent.runtimeID, workspaceID: agent.workspaceID,
-                    backendType: agent.backendType
-                )
-            }
-            return agent
+            let models = att.availableModels.map(\.id)
+            return MemberSheetAgent(
+                id: agent.id,
+                displayName: agent.displayName,
+                workspacePath: agent.workspacePath,
+                agentType: SessionMemberSheetLoader.displayName(
+                    forBackendType: Self.backendType(forAgentTypeRaw: att.agentType)
+                ),
+                runtimeState: Self.chipState(forAttachment: att),
+                availableModels: models.isEmpty ? agent.availableModels : models,
+                currentModel: att.currentModel ?? agent.currentModel,
+                workspaceID: agent.workspaceID,
+                backendType: Self.backendType(forAgentTypeRaw: att.agentType)
+            )
         }
         pruneGhostAgentSelection()
     }
 
-    private func chipStateFromRuntime(_ r: Runtime) -> AgentRuntimeChipState {
-        switch r.status {
+    /// `Amux_AgentType` raw value → the backend spelling the loader's display
+    /// helper expects.
+    private static func backendType(forAgentTypeRaw raw: Int) -> String? {
+        switch raw {
+        case 1: return "claude"
+        case 2: return "opencode"
+        case 3: return "codex"
+        case 4: return "pi"
+        case 5: return "cursor"
+        default: return nil
+        }
+    }
+
+    /// Chip state from the attachment. `lifecycle` carries the attach/detach
+    /// story and `status` the backend's own idea of busy/idle; lifecycle wins
+    /// when it says something definite.
+    private static func chipState(forAttachment att: AgentAttachment) -> AgentRuntimeChipState {
+        switch att.status {
         case 1: return .spawning
         case 2: return .active
         case 3: return .idle
         case 4: return .error
         case 5: return .stopped
-        default: return .spawning
+        default: return .idle
         }
     }
 
-    /// Registers a one-shot Observation on the bound runtime's `status` and
-    /// `currentModel`. When SwiftData propagates a mutation (driven by
-    /// SessionListVM's MQTT retained-state ingest), fire a refresh so the
-    /// member sheet self-updates without waiting for the 2s poll tick.
-    /// `refreshMemberSheet` calls back into `overlayMQTTRuntimeState`, which
-    /// re-invokes this method — so the next change is observed too.
-    private func observeBoundRuntimeChanges() {
-        guard !isObservingRuntimeChanges, let runtime else { return }
-        isObservingRuntimeChanges = true
-        withObservationTracking {
-            _ = runtime.status
-            _ = runtime.currentModel
-            _ = runtime.availableCommandsJSON
-            _ = runtime.availableModels      // MQTT 更新 models 时触发 refresh
-        } onChange: { [weak self] in
-            Task { @MainActor [weak self] in
-                self?.isObservingRuntimeChanges = false
-                if let cmds = self?.runtime?.availableCommands, !cmds.isEmpty {
-                    self?.dynamicAvailableCommands = cmds
-                }
-                await self?.refreshMemberSheet()
-            }
-        }
-    }
-
-    /// Ensures MQTT runtime-state subscriptions exist for every agent in the
-    /// current session, not just those already in ConnectedAgentsStore.
-    /// SessionListViewModel covers ConnectedAgentsStore agents; this method
-    /// patches the gap for agents owned by other daemons / team members.
-    ///
-    /// Call this after `memberSheetAgents` is populated. When a new retained
-    /// runtime/state message arrives, SessionListViewModel's hub predicate
-    /// picks it up and writes models into SwiftData, and the subsequent
-    /// `refreshMemberSheet` call from `scheduleSpawningRefreshIfNeeded`
-    /// surfaces them via `overlayMQTTRuntimeState`.
+    /// Ensures an actor-state subscription exists for every agent in this
+    /// session, not just those in `ConnectedAgentsStore` — that store only
+    /// holds agents the current user has explicit access to, so agents a
+    /// teammate added would otherwise never deliver their catalog.
     private func subscribeToSessionAgentRuntimeStates() {
-        guard let ctx = startModelContext, !teamID.isEmpty else { return }
-        var toSubscribe: Set<String> = []
-        for agent in memberSheetAgents {
-            guard let rid = agent.runtimeID, !rid.isEmpty else { continue }
-            // Look up the routeActorID from the SwiftData Runtime row.
-            let r = rid
-            let desc = FetchDescriptor<Runtime>(predicate: #Predicate { $0.runtimeId == r })
-            guard let routeActorID = (try? ctx.fetch(desc))?.first?.routeActorID,
-                  !routeActorID.isEmpty else { continue }
-            guard !sessionAgentSubscribedActorIDs.contains(routeActorID) else { continue }
-            toSubscribe.insert(routeActorID)
-        }
+        guard !teamID.isEmpty else { return }
+        let toSubscribe = Set(memberSheetAgents.map(\.id))
+            .filter { !$0.isEmpty && !sessionAgentSubscribedActorIDs.contains($0) }
         guard !toSubscribe.isEmpty else { return }
         let mqtt = self.mqtt
         let teamID = self.teamID
         Task { [weak self] in
             for actorID in toSubscribe {
-                let topic = MQTTTopics.runtimeStateWildcard(teamID: teamID, actorID: actorID)
-                try? await mqtt.subscribe(topic)
-                NSLog("[SessionDetailVM] subscribed runtime state for extra actor=%@", actorID)
+                try? await mqtt.subscribe(MQTTTopics.actorState(teamID: teamID, actorID: actorID))
             }
             await self?.onExtraRuntimeSubscriptionsAdded()
         }
@@ -891,18 +781,24 @@ public final class SessionDetailViewModel {
     @MainActor
     private func onExtraRuntimeSubscriptionsAdded() async {
         try? await Task.sleep(for: .milliseconds(300))
-        overlayMQTTRuntimeState()
+        overlayAttachmentState()
+    }
+
+    /// Poll while an agent is still coming up, or is up but has not yet
+    /// advertised a catalog — the backend probes models asynchronously after
+    /// attach, so an empty list on a live agent means "not yet", not "none".
+    private var needsSpawningPoll: Bool {
+        memberSheetAgents.contains { agent in
+            if agent.runtimeState == .spawning { return true }
+            let isLive = agent.runtimeState == .active
+                || agent.runtimeState == .idle
+                || agent.runtimeState == .ready
+            return isLive && agent.availableModels.isEmpty
+        }
     }
 
     private func scheduleSpawningRefreshIfNeeded() {
-        let needsPoll = memberSheetAgents.contains {
-            $0.runtimeState == .spawning
-            || $0.runtimeID == nil
-            || ($0.availableModels.isEmpty
-                && ($0.runtimeState == .active
-                    || $0.runtimeState == .idle
-                    || $0.runtimeState == .ready))
-        }
+        let needsPoll = needsSpawningPoll
         if needsPoll, spawningPollCount < maxSpawningPolls {
             guard spawningPollTask == nil else { return }
             spawningPollCount += 1
@@ -1066,7 +962,7 @@ public final class SessionDetailViewModel {
                 id: cur.id, displayName: cur.displayName,
                 workspacePath: cur.workspacePath, agentType: cur.agentType,
                 runtimeState: .spawning, availableModels: cur.availableModels,
-                currentModel: cur.currentModel, runtimeID: cur.runtimeID,
+                currentModel: cur.currentModel,
                 workspaceID: cur.workspaceID, backendType: cur.backendType
             )
         }
@@ -1154,7 +1050,7 @@ public final class SessionDetailViewModel {
 
             // 1. Stop existing runtime. Best-effort; if it's already gone the
             //    Start below will still do the right thing.
-            if let runtimeID = self.runtimeID(forAgentActorID: actorID),
+            if let runtimeID = self.attachmentAddress(forAgentActorID: actorID),
                !runtimeID.isEmpty {
                 let (ok, err) = await teamclawService.runtimeStopRpc(
                     targetActorID: routeActorID,
@@ -1286,7 +1182,7 @@ public final class SessionDetailViewModel {
                     id: cur.id, displayName: cur.displayName,
                     workspacePath: cur.workspacePath, agentType: cur.agentType,
                     runtimeState: cur.runtimeState, availableModels: cur.availableModels,
-                    currentModel: model, runtimeID: cur.runtimeID,
+                    currentModel: model,
                     workspaceID: cur.workspaceID, backendType: cur.backendType
                 )
             }
@@ -1303,7 +1199,7 @@ public final class SessionDetailViewModel {
             workspacePath: cur.workspacePath, agentType: cur.agentType,
             runtimeState: cur.runtimeState, availableModels: cur.availableModels,
             currentModel: model,
-            runtimeID: cur.runtimeID, workspaceID: cur.workspaceID, backendType: cur.backendType
+            workspaceID: cur.workspaceID, backendType: cur.backendType
         )
         return previous
     }
@@ -1316,7 +1212,7 @@ public final class SessionDetailViewModel {
             workspacePath: cur.workspacePath, agentType: cur.agentType,
             runtimeState: cur.runtimeState, availableModels: cur.availableModels,
             currentModel: previousModel,
-            runtimeID: cur.runtimeID, workspaceID: cur.workspaceID, backendType: cur.backendType
+            workspaceID: cur.workspaceID, backendType: cur.backendType
         )
     }
 
@@ -1345,7 +1241,7 @@ public final class SessionDetailViewModel {
                   !sessionID.isEmpty else { return }
 
             let routeActor = self.routeActorID(forAgentActorID: actorID)
-            let runtimeID = self.runtimeID(forAgentActorID: actorID)
+            let runtimeID = self.attachmentAddress(forAgentActorID: actorID)
 
             // 1. Stop the agent's runtime (best-effort).
             if let routeActor, !routeActor.isEmpty,
@@ -1389,20 +1285,23 @@ public final class SessionDetailViewModel {
         }
     }
 
-    /// Resolves the routing actor id of the daemon backing an agent actor,
-    /// using the in-memory `ConnectedAgentsStore`. Returns nil when the store
-    /// hasn't loaded the agent yet (caller should treat as "skip / log").
-    /// Same lookup `addAgent` and `NewSessionSheet` use to route runtime RPCs.
+    /// The routing actor for an agent actor is the agent actor itself: one
+    /// daemon serves one agent actor, and it owns the `amux/{team}/{actor}/…`
+    /// namespace. This used to be gated on a `ConnectedAgentsStore` membership
+    /// check, which returned nil for agents a teammate added to the session —
+    /// silently dropping every command aimed at them.
     private func routeActorID(forAgentActorID actorID: String) -> String? {
-        connectedAgentsStore?.agents.first(where: { $0.id == actorID })?.id
+        actorID.isEmpty ? nil : actorID
     }
 
-    /// Looks up the daemon's 8-char runtime id for an agent actor in the
-    /// current session, reading from the `MemberSheetAgent` snapshot that
-    /// `refreshMemberSheet` populated. Nil when the row hasn't been seen yet
-    /// (just-spawned, daemon offline, or not-yet-bound to this session).
-    private func runtimeID(forAgentActorID actorID: String) -> String? {
-        memberSheetAgents.first(where: { $0.id == actorID })?.runtimeID
+    /// The command address for an agent actor in this session:
+    /// `{actor}::{session}`. The daemon resolves it to its internal spawn key,
+    /// which is never published and therefore cannot be addressed directly.
+    private func attachmentAddress(forAgentActorID actorID: String) -> String? {
+        guard !actorID.isEmpty,
+              let sessionID = session?.sessionId, !sessionID.isEmpty
+        else { return nil }
+        return AgentAttachment.makeID(actorID: actorID, sessionID: sessionID)
     }
 
     // MARK: - Index caches (for O(1) event lookup during streaming)
@@ -1545,20 +1444,12 @@ public final class SessionDetailViewModel {
         // Either is fine — the cached event load + Supabase seed work off
         // session.sessionId scope, and the streaming subscribe block below
         // gates on `session` not on `runtime`.
-        let runtime = resolveRuntime(modelContext: modelContext)
-
-        if let runtime {
-            // Clear unread badge when user opens the session
-            runtime.hasUnread = false
-            try? modelContext.save()
-
-            // Seed slash commands from the cached state-topic snapshot so
-            // the composer popup is populated before (or even without) a
-            // fresh AvailableCommandsUpdate arriving on the events stream.
-            let cachedCommands = runtime.availableCommands
-            if !cachedCommands.isEmpty && dynamicAvailableCommands.isEmpty {
-                dynamicAvailableCommands = cachedCommands
-            }
+        // Seed slash commands from the cached actor retain so the composer
+        // popup is populated before (or even without) a fresh
+        // AvailableCommandsUpdate arriving on the events stream.
+        let cachedCommands = sessionAttachments.first?.availableCommands ?? []
+        if !cachedCommands.isEmpty && dynamicAvailableCommands.isEmpty {
+            dynamicAvailableCommands = cachedCommands
         }
 
         // Inbox red-dot clear: local first for instant UI, then the
@@ -1602,7 +1493,6 @@ public final class SessionDetailViewModel {
         // Insert initial prompt as first user bubble if not already present
         let initialPrompt: String = {
             if let session, !session.summary.isEmpty { return session.summary }
-            if let runtime, !runtime.currentPrompt.isEmpty { return runtime.currentPrompt }
             return ""
         }()
 
@@ -1757,7 +1647,7 @@ public final class SessionDetailViewModel {
         // interval — sync it first so the persisted partial carries the
         // full streamed text.
         mirrorReducerStreamingState()
-        if !streamingAgentSet.isEmpty, runtime != nil, let ctx = startModelContext {
+        if !streamingAgentSet.isEmpty, let ctx = startModelContext {
             var seq = (events.last?.sequence ?? 0) + 1
             for agentID in streamingAgentSet {
                 guard let text = streamingTextByAgent[agentID], !text.isEmpty else { continue }
@@ -1802,7 +1692,6 @@ public final class SessionDetailViewModel {
         // streamed text, not a buffer up to one flush interval stale.
         mirrorReducerStreamingState()
         guard !streamingAgentSet.isEmpty,
-              runtime != nil,
               let ctx = startModelContext else { return }
 
         // Drop any prior snapshot first so repeat bg/fg cycles don't
@@ -1915,167 +1804,26 @@ public final class SessionDetailViewModel {
         if dirty { recomputeGroups() }
     }
 
+    /// Normalises an envelope's `actor_id` into a bucket key. No resolution
+    /// step any more: the value on the wire is already the agent actor id.
+    private func bucketKey(forRuntimeID runtimeID: String?) -> String? {
+        let trimmed = runtimeID?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        return trimmed.isEmpty ? nil : trimmed
+    }
+
     /// Builds a fresh AgentEvent stamped with the agent that produced it.
-    /// Resolution prefers the agent actor id mapped from the envelope's
-    /// `runtime_id` via `memberSheetAgents`; when that mapping isn't ready
-    /// yet (cold start before refreshMemberSheet, or a runtime row not
-    /// in the session participants) we stamp the runtime id itself so
-    /// the event still lands in its own per-runtime bucket. We
-    /// deliberately do NOT fall back to `session.primaryAgentId` —
-    /// concurrent agents would otherwise cross-attribute their early
-    /// events to whichever agent happens to be "primary."
+    /// `runtimeID` is the envelope's `actor_id` — already the bucket key, and
+    /// the same value the daemon persists as `sender_actor_id`, so live events
+    /// and seeded history group together with no reconciliation pass. We
+    /// deliberately do NOT fall back to `session.primaryAgentId`: concurrent
+    /// agents would cross-attribute their early events to whichever agent
+    /// happens to be "primary".
     private func makeAgentSideEvent(sequence: Int,
                                     eventType: String,
                                     runtimeID: String? = nil) -> AgentEvent {
         let event = AgentEvent(agentId: eventScopeKey, sequence: sequence, eventType: eventType)
         event.senderActorID = bucketKey(forRuntimeID: runtimeID)
         return event
-    }
-
-    /// Resolve a daemon-side `runtime_id` (8-char) to the owning agent
-    /// actor id by walking `memberSheetAgents`. Returns nil when no match
-    /// — callers should fall back to the runtime id via `bucketKey`
-    /// rather than to a session-wide "primary" agent.
-    private func agentActorID(forRuntimeID runtimeID: String?) -> String? {
-        guard let runtimeID, !runtimeID.isEmpty else { return nil }
-        if let mapped = memberSheetAgents.first(where: { $0.runtimeID == runtimeID })?.id {
-            return mapped
-        }
-        // A single-agent roster is an unambiguous routing boundary even for
-        // older sessions that have no primary_agent_id / agent_runtimes row.
-        // Route the very first MQTT event into the optimistic actor bucket so
-        // it replaces "Agent loading" instead of creating a raw-runtime card.
-        if memberSheetAgents.count == 1,
-           let only = memberSheetAgents.first,
-           only.runtimeID == nil {
-            return only.id
-        }
-        return nil
-    }
-
-    /// First-resolved bucket key per runtime_id, frozen for the lifetime
-    /// of this VM. The mapping memberSheetAgents → bucketKey can flip
-    /// from raw runtime_id to agent_actor_id mid-turn (memberSheet is
-    /// loaded asynchronously). If thinking lands with the raw form and
-    /// the closing output lands with the mapped form, the two entries
-    /// pick up different `senderActorID`s and `buildFeedItems` strands
-    /// the thinking row in a trailing activeStream card instead of
-    /// bundling it into the completedTurn. Freezing on first resolve
-    /// trades a momentary "raw id as chip label" cosmetic miss for a
-    /// stable grouping key. New VM per detail view → cache rebuilds
-    /// from scratch on every session open.
-    private var resolvedBucketKeyByRuntimeID: [String: String] = [:]
-
-    /// Stable per-agent bucket key used for `senderActorID` stamping and
-    /// the streaming-buffer dictionaries. Returns the cached resolution
-    /// if we've seen this runtime_id before; otherwise resolves once
-    /// (mapped → fall back to raw runtime_id) and caches. Nil only when
-    /// no runtime_id is supplied at all (legacy session-event paths).
-    private func bucketKey(forRuntimeID runtimeID: String?) -> String? {
-        guard let rid = runtimeID, !rid.isEmpty else { return nil }
-        if let cached = resolvedBucketKeyByRuntimeID[rid] { return cached }
-        let resolved = agentActorID(forRuntimeID: rid) ?? rid
-        resolvedBucketKeyByRuntimeID[rid] = resolved
-        return resolved
-    }
-
-    /// Once `memberSheetAgents` finishes loading, walk every state slice
-    /// that stamps `senderActorID` and rewrite raw runtime_id stamps to
-    /// the resolved agent_actor_id. Without this:
-    ///   - live MQTT events that arrived before memberSheet loaded sit in
-    ///     a "5ffcd7fc" (raw) bucket forever (`bucketKey` cache freezes
-    ///     on first resolve to avoid mid-turn flips)
-    ///   - Supabase-seeded history rows land in a "c6205a14-…" (actor id)
-    ///     bucket for the same agent
-    ///   - `buildFeedItems` strands them into separate `.completedTurn`
-    ///     entries + leaves a permanent trailing `.activeStream` card
-    ///     because `statusChange:.idle` resolves to the actor_id bucket
-    ///     and doesn't match the streaming buffer's raw-id key
-    private func relabelRawRuntimeIDStampsToActorIDs() {
-        // runtime_id → actor_id from the freshly-loaded memberSheet.
-        var mapping: [String: String] = [:]
-        for agent in memberSheetAgents {
-            guard let rid = agent.runtimeID, !rid.isEmpty, rid != agent.id else { continue }
-            mapping[rid] = agent.id
-        }
-
-        // Legacy single-agent sessions can have no persisted runtime mapping
-        // at all. In that case every non-user sender bucket belongs to the
-        // sole roster agent. This also repairs raw IDs loaded from SwiftData
-        // before a new MQTT event has arrived to establish the live cache.
-        if mapping.isEmpty,
-           memberSheetAgents.count == 1,
-           let actorID = memberSheetAgents.first?.id {
-            let rawEventBuckets = events.compactMap { event -> String? in
-                guard event.eventType != "user_prompt",
-                      let sender = event.senderActorID,
-                      !sender.isEmpty,
-                      sender != actorID
-                else { return nil }
-                return sender
-            }
-            let rawStreamingBuckets = timelineState.streamingAgentSet.filter { $0 != actorID }
-            for rawID in Set(rawEventBuckets).union(rawStreamingBuckets) {
-                mapping[rawID] = actorID
-            }
-        }
-        if mapping.isEmpty { return }
-
-        var didMutateEvents = false
-        for (rawID, actorID) in mapping {
-            // Refresh the resolution cache so future `bucketKey` calls
-            // route to the actor id, not the raw runtime id.
-            resolvedBucketKeyByRuntimeID[rawID] = actorID
-
-            for idx in events.indices where events[idx].senderActorID == rawID {
-                events[idx].senderActorID = actorID
-                didMutateEvents = true
-            }
-
-            for idx in timelineState.entries.indices
-                where timelineState.entries[idx].senderActorID == rawID {
-                timelineState.entries[idx].senderActorID = actorID
-            }
-
-            // streamingAgentSet / streamingTextByAgent / streamingModelByAgent
-            // are mirrored from timelineState by `applyTimelineInput` —
-            // rewrite timelineState first, then mirror at the end.
-            if timelineState.streamingAgentSet.remove(rawID) != nil {
-                timelineState.streamingAgentSet.insert(actorID)
-            }
-            if let text = timelineState.streamingTextByAgent.removeValue(forKey: rawID) {
-                timelineState.streamingTextByAgent[actorID, default: ""] += text
-            }
-            if let model = timelineState.streamingModelByAgent.removeValue(forKey: rawID) {
-                timelineState.streamingModelByAgent[actorID] = model
-            }
-            if let turnID = timelineState.streamingTurnIDByAgent.removeValue(forKey: rawID) {
-                timelineState.streamingTurnIDByAgent[actorID] = turnID
-            }
-            // Parked reconnect replays follow their bucket through the
-            // relabel, so retryPendingTurnReplays() resolves against the
-            // post-relabel key the streaming dictionaries now use.
-            if pendingTurnReplayBuckets.remove(rawID) != nil {
-                pendingTurnReplayBuckets.insert(actorID)
-            }
-        }
-
-        // Mirror reducer state onto the VM's @Observable fields so the
-        // chat feed picks up the rebucketed streaming buffers.
-        streamingAgentSet = timelineState.streamingAgentSet
-        streamingTextByAgent = timelineState.streamingTextByAgent
-        streamingModelByAgent = timelineState.streamingModelByAgent
-        streamingTurnIDByAgent = timelineState.streamingTurnIDByAgent
-
-        if didMutateEvents {
-            try? startModelContext?.save()
-            recomputeGroups()
-        } else {
-            // Even if no SwiftData rows changed, streaming/state buckets
-            // may have moved; recompute so the trailing activeStream card
-            // (if any) re-renders against the new bucket.
-            recomputeGroups()
-        }
     }
 
     /// Applies one ACP event to in-memory + SwiftData state. Returns `true`
@@ -2125,9 +1873,11 @@ public final class SessionDetailViewModel {
         // its streaming slots; concurrent agents' live buffers stay
         // untouched (the old global markAgentDone() wiped them, losing
         // their streamed text mid-turn).
-        if case .statusChange(let sc) = acp.event {
-            runtime?.status = Int(sc.newStatus.rawValue)
-            if sc.newStatus == .idle { settleAgentTurn(bucket: bucket) }
+        if case .statusChange(let sc) = acp.event, sc.newStatus == .idle {
+            // Status itself is owned by the actor retain — writing it locally
+            // would be overwritten on the next publish and lie until then.
+            // Only the turn-settling side effect belongs here.
+            settleAgentTurn(bucket: bucket)
         }
 
         // Some runtimes finish a turn with output{isComplete:true} but omit
@@ -2220,8 +1970,10 @@ public final class SessionDetailViewModel {
     private func handleSessionEvent(_ sessionEvent: Amux_SessionEvent, sequence: Int, modelContext: ModelContext) {
         switch sessionEvent.event {
         case .promptAccepted:
-            // Confirmation: set runtime to active (triggers typing indicator)
-            runtime?.status = Int(Amux_AgentStatus.active.rawValue)
+            // The typing indicator rides on `isAgentWorking`, which the ACP
+            // event stream already drives; attachment status comes from the
+            // retain and is not ours to write.
+            break
         case .promptRejected(let pr):
             let event = makeAgentSideEvent(sequence: sequence, eventType: "error")
             event.text = "Rejected: \(pr.reason)"
@@ -2408,24 +2160,12 @@ public final class SessionDetailViewModel {
     /// `refreshMemberSheet` completes (see `retryPendingTurnReplays`).
     private var pendingTurnReplayBuckets: Set<String> = []
 
-    /// Resolve the daemon runtime id to use when replaying `bucket`'s
-    /// in-flight turn. Returns nil to mean "defer — don't send anything":
-    /// passing the bucket itself through is only valid in the
-    /// pre-memberSheet window where buckets ARE raw runtime ids. Once the
-    /// roster is loaded, an actor-id bucket without a bound runtime row
-    /// must wait instead of being sent verbatim as a runtime id.
+    /// The command address for replaying `bucket`'s in-flight turn. Buckets
+    /// are agent actor ids — events carry `Envelope.actor_id` — so this is a
+    /// pure derivation. Nil only before the session id is known, which is the
+    /// one case where deferring is still correct.
     private func turnReplayRuntimeID(forBucket bucket: String) -> String? {
-        if let rid = runtimeID(forAgentActorID: bucket), !rid.isEmpty { return rid }
-        // Roster not loaded yet — can't tell actor ids from raw runtime
-        // ids; defer until refreshMemberSheet lands.
-        if memberSheetAgents.isEmpty { return nil }
-        // Known agent actor id whose runtime row isn't bound yet
-        // (just-spawned / daemon offline) — defer rather than misroute.
-        if memberSheetAgents.contains(where: { $0.id == bucket }) { return nil }
-        // Roster is loaded and the bucket isn't an actor id in it: this is
-        // a raw runtime-id stamp from the pre-memberSheet window. Sending
-        // it as the runtime id is correct.
-        return bucket
+        attachmentAddress(forAgentActorID: bucket)
     }
 
     /// One-shot retry for replays parked by
@@ -2489,7 +2229,7 @@ public final class SessionDetailViewModel {
         // The bubble passes an actor id (route.agentID). Resolve it to
         // the owning runtime + route actor id via the same helper sendCommand
         // uses so the MQTT topic matches the daemon's subscription.
-        let route = commandRoute(forAgentActorID: agentID, fallbackRuntime: runtime)
+        let route = commandRoute(forAgentActorID: agentID)
         guard !route.runtimeID.isEmpty else { return }
 
         var req = Amux_AcpRequestTurnHistory()
@@ -2507,7 +2247,7 @@ public final class SessionDetailViewModel {
 
     private func sendCommand(agentActorID: String? = nil,
                              makeCommand: sending (inout Amux_AcpCommand) -> Void) async throws {
-        let route = commandRoute(forAgentActorID: agentActorID, fallbackRuntime: runtime)
+        let route = commandRoute(forAgentActorID: agentActorID)
         guard !route.runtimeID.isEmpty else {
             let key = agentActorID?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
             let error: SendCommandError = key.isEmpty ? .noRuntime : .runtimeIdEmpty
@@ -2534,33 +2274,17 @@ public final class SessionDetailViewModel {
         }
     }
 
-    private func commandRoute(forAgentActorID agentActorID: String?,
-                              fallbackRuntime: Runtime?) -> (runtimeID: String, actorID: String) {
+    /// Where to send a command for an agent: the topic actor, and the address
+    /// the daemon resolves. Both derive from (agent actor, session) — the
+    /// former chain of fallbacks existed only because the runtime id had to be
+    /// discovered from a store, a retain, or a stale row.
+    private func commandRoute(forAgentActorID agentActorID: String?) -> (runtimeID: String, actorID: String) {
         let key = agentActorID?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
-        let targetRuntimeID: String = {
-            guard !key.isEmpty else { return fallbackRuntime?.runtimeId ?? "" }
-            if let mapped = runtimeID(forAgentActorID: key), !mapped.isEmpty { return mapped }
-            if fallbackRuntime?.runtimeId == key { return key }
-            if memberSheetAgents.contains(where: { $0.id == key }) { return "" }
-            return key
-        }()
-
-        let actorID: String = {
-            if !key.isEmpty, let id = routeActorID(forAgentActorID: key), !id.isEmpty { return id }
-            if fallbackRuntime?.runtimeId == targetRuntimeID,
-               let id = fallbackRuntime?.routeActorID,
-               !id.isEmpty {
-                return id
-            }
-            if let ctx = startModelContext, !targetRuntimeID.isEmpty {
-                let rid = targetRuntimeID
-                let desc = FetchDescriptor<Runtime>(predicate: #Predicate { $0.runtimeId == rid })
-                if let id = (try? ctx.fetch(desc).first?.routeActorID), !id.isEmpty { return id }
-            }
-            return resolveRouteActorID()
-        }()
-
-        return (targetRuntimeID, actorID)
+        let target = key.isEmpty ? resolveRouteActorID() : key
+        guard !target.isEmpty, let address = attachmentAddress(forAgentActorID: target) else {
+            return ("", "")
+        }
+        return (address, target)
     }
 
     public func sendPrompt(_ text: String, modelId: String? = nil, attachmentURLs: [URL] = [], modelContext: ModelContext? = nil) async throws {
@@ -2643,24 +2367,6 @@ public final class SessionDetailViewModel {
                 surfaceSendError(error)
                 throw error
             }
-        } else if runtime != nil {
-            // Legacy runtime-only flow (no session): send via ACP command.
-            let seq = (events.last?.sequence ?? 0) + 1
-            let userEvent = AgentEvent(agentId: eventScopeKey, sequence: seq, eventType: "user_prompt")
-            userEvent.text = text
-            userEvent.senderActorID = teamclawService?.currentHumanActorId
-            if let ctx = modelContext ?? syncModelContext { ctx.insert(userEvent); try? ctx.save() }
-            appendEvent(userEvent)
-            recomputeGroups()
-
-            var p = Amux_AcpSendPrompt(); p.text = text
-            if let modelId, !modelId.isEmpty {
-                p.modelID = modelId
-            }
-            if !attachmentURLs.isEmpty {
-                p.attachmentUrls = attachmentURLs.map(\.absoluteString)
-            }
-            try await sendCommand { $0.command = .sendPrompt(p) }
         }
     }
     @MainActor
@@ -2679,7 +2385,8 @@ public final class SessionDetailViewModel {
         // Same wait-for-idle semantics as interruptAgent: the bound
         // runtime's bucket settles when the daemon acknowledges, with
         // the timeout as backstop. No optimistic global clear.
-        if let bucket = bucketKey(forRuntimeID: runtime?.runtimeId) {
+        let bucket = resolveRouteActorID()
+        if !bucket.isEmpty {
             interruptPendingAgents.insert(bucket)
             armInterruptAckTimeout(for: bucket)
         }
@@ -3061,8 +2768,12 @@ public final class SessionDetailViewModel {
     /// residual-streaming cleanup (reducer `.historyMessage`) and the
     /// reconnect turn replay.
     private func restoreStreamingAgentSetFromIncompleteOutput() {
-        // Runtime status ints: 1=Starting 2=Active 3=Idle 4=Error 5=Stopped.
-        if let runtimeStatus = runtime?.status, runtimeStatus != 1, runtimeStatus != 2 { return }
+        // Status ints: 1=Starting 2=Active 3=Idle 4=Error 5=Stopped. Restore
+        // only while some attachment is still coming up or running; a settled
+        // session's incomplete rows are history, not an interrupted stream.
+        // No attachment at all means "unknown" — restore, per the note above.
+        let live = sessionAttachments
+        if !live.isEmpty, !live.contains(where: { $0.status == 1 || $0.status == 2 }) { return }
 
         var rowsByAgent: [String: [AgentEvent]] = [:]
         for event in events where event.eventType == "output" && event.isComplete == false {
@@ -3178,11 +2889,11 @@ extension SessionDetailViewModel {
         let ctx = ModelContext(container)
         ctx.insert(session)
         let vm = SessionDetailViewModel(
-            runtime: nil,
             mqtt: mqtt,
             hub: MQTTMessageHub(mqtt: mqtt),
             teamID: "test-team",
-            peerId: "test-peer"
+            peerId: "test-peer",
+            session: session
         )
         vm.bind(session: session, modelContext: ctx)
         return vm
@@ -3220,7 +2931,6 @@ extension SessionDetailViewModel {
     /// Supabase loader.
     public func _test_setMemberSheetAgentsAndRelabel(_ agents: [MemberSheetAgent]) {
         memberSheetAgents = agents
-        relabelRawRuntimeIDStampsToActorIDs()
     }
 
     public func _test_setMemberSheetAgents(_ agents: [MemberSheetAgent]) {
@@ -3235,8 +2945,7 @@ extension SessionDetailViewModel {
     /// to the roster first, then collapse any raw-runtime timeline buckets.
     public func _test_setMemberSheetAgentsOverlayAndRelabel(_ agents: [MemberSheetAgent]) {
         memberSheetAgents = agents
-        overlayMQTTRuntimeState()
-        relabelRawRuntimeIDStampsToActorIDs()
+        overlayAttachmentState()
     }
 
     public func _test_applyOptimisticModelPatch(agentID: String, model: String) {
@@ -3266,16 +2975,7 @@ extension SessionDetailViewModel {
 
     /// Returns whether the current member sheet state would cause
     /// scheduleSpawningRefreshIfNeeded() to enqueue a poll.
-    public func _test_needsSpawningPoll() -> Bool {
-        memberSheetAgents.contains {
-            $0.runtimeState == .spawning
-            || $0.runtimeID == nil
-            || ($0.availableModels.isEmpty
-                && ($0.runtimeState == .active
-                    || $0.runtimeState == .idle
-                    || $0.runtimeState == .ready))
-        }
-    }
+    public func _test_needsSpawningPoll() -> Bool { needsSpawningPoll }
 
     /// Exposes the partial-retain merge logic for testing.
     public static func _test_mergeAvailableModels(liveModels: [String], existingModels: [String]) -> [String] {
@@ -3419,7 +3119,6 @@ extension MemberSheetAgent {
             runtimeState: .idle,
             availableModels: [],
             currentModel: nil,
-            runtimeID: nil,
             workspaceID: nil,
             backendType: nil
         )

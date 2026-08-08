@@ -15,7 +15,6 @@ public enum AMUXSchemaV1: VersionedSchema {
     public static var models: [any PersistentModel.Type] {
         [
             AgentAttachment.self,
-            Runtime.self,
             AgentEvent.self,
             CachedActor.self,
             Workspace.self,
