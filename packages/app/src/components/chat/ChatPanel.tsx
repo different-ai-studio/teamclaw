@@ -124,7 +124,11 @@ import {
   sessionFlowLog,
   summarizeText,
 } from "@/lib/session-flow-log";
-import { TerminalPanel } from "@/components/terminal/TerminalPanel";
+// xterm + its webgl/search addons are ~560KB of the startup chunk and are only
+// needed once the terminal drawer is actually opened, so pay for them then.
+const TerminalPanel = React.lazy(async () => ({
+  default: (await import("@/components/terminal/TerminalPanel")).TerminalPanel,
+}));
 import { useTerminalStore } from "@/stores/terminal-store";
 
 
@@ -2299,11 +2303,13 @@ export function ChatPanel({ compact = false }: ChatPanelProps) {
       ) : null}
 
       {terminalOpen && workspacePath && (
-        <TerminalPanel
-          workspaceId={workspacePath}
-          workspacePath={workspacePath}
-          allowedRoots={[workspacePath]}
-        />
+        <React.Suspense fallback={null}>
+          <TerminalPanel
+            workspaceId={workspacePath}
+            workspacePath={workspacePath}
+            allowedRoots={[workspacePath]}
+          />
+        </React.Suspense>
       )}
     </div>
   );

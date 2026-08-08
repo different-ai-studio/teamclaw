@@ -34,9 +34,45 @@ export function loadSentry(): Promise<typeof import('@sentry/react')> {
   return sentryModule
 }
 
+/**
+ * Resolves once `Sentry.init` has run. Every capture path goes through this so
+ * an event raised during startup — before the SDK chunk has finished loading —
+ * still lands, instead of hitting a client-less `captureException` no-op.
+ */
+let sentryReady: Promise<typeof import('@sentry/react')> | null = null
+
+/**
+ * Boot Sentry off the startup path.
+ *
+ * The SDK is ~450KB of the startup chunk if imported statically, all of it
+ * parsed and executed before first paint for a service that reports nothing in
+ * the common case. Loading it dynamically starts the fetch just as early but
+ * keeps it out of the critical chunk.
+ */
+export function initSentry(
+  options: Parameters<typeof import('@sentry/react').init>[0],
+): Promise<typeof import('@sentry/react')> {
+  sentryReady ??= loadSentry().then((Sentry) => {
+    Sentry.init(options)
+    return Sentry
+  })
+  return sentryReady
+}
+
+/**
+ * Run `fn` against an initialized Sentry. Callers must not care when that
+ * happens — the returned promise is already error-swallowed.
+ */
+export function withSentry(fn: (Sentry: typeof import('@sentry/react')) => void): Promise<void> {
+  return (sentryReady ?? loadSentry()).then(fn).catch(() => {
+    // Telemetry must never break the path it observes.
+  })
+}
+
 /** @internal test hook */
 export function __resetSentryModuleForTest(): void {
   sentryModule = null
+  sentryReady = null
 }
 
 const lastReportedAt = new Map<string, number>()
@@ -72,15 +108,11 @@ export function captureTelemetry({
   fingerprint,
   error,
 }: TelemetryCaptureArgs): void {
-  void loadSentry()
-    .then((Sentry) => {
-      if (error !== undefined) {
-        Sentry.captureException(error, { level, tags, extra, fingerprint })
-        return
-      }
-      Sentry.captureMessage(message, { level, tags, extra, fingerprint })
-    })
-    .catch(() => {
-      // Telemetry must never break the path it observes.
-    })
+  void withSentry((Sentry) => {
+    if (error !== undefined) {
+      Sentry.captureException(error, { level, tags, extra, fingerprint })
+      return
+    }
+    Sentry.captureMessage(message, { level, tags, extra, fingerprint })
+  })
 }
