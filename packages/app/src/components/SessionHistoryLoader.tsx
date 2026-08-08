@@ -13,7 +13,7 @@
 import { useEffect, useRef } from "react";
 import { isChromeExtension } from "@/lib/platform";
 import { isTauri } from "@/lib/utils";
-import { isV2E2EControlActive } from "@/lib/e2e/v2-control";
+import { isV2E2EControlActive } from "@/lib/e2e/v2-control-active";
 import { getBackend } from "@/lib/backend";
 import { historyRowsToMessageRows } from "@/lib/message-history-map";
 import { messageRowsToProto } from "@/lib/session-export/collect";

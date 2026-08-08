@@ -68,7 +68,7 @@ import { syncIdeasForTeam } from "@/lib/sync/idea-sync";
 import { syncSessionsForTeam } from "@/lib/sync/session-sync";
 import { useCurrentTeamStore } from "@/stores/current-team";
 import { resolveCurrentMemberActorId } from "@/lib/current-actor";
-import { isV2E2EControlActive } from "@/lib/e2e/v2-control";
+import { isV2E2EControlActive } from "@/lib/e2e/v2-control-active";
 import {
   ensureSessionLiveSubscribed,
   ensureTeamSessionLiveSubscribed,

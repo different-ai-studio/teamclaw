@@ -119,7 +119,7 @@ import {
 } from "@/lib/open-session-deeplink";
 import { useCurrentTeamStore } from "@/stores/current-team";
 import { useTeamShareStore } from "@/stores/team-share";
-import { installV2E2EControl, isV2E2EControlActive } from "@/lib/e2e/v2-control";
+import { E2E_BUILD, isV2E2EControlActive } from "@/lib/e2e/v2-control-active";
 import { TrafficLights } from "@/components/ui/traffic-lights";
 import {
   SidebarInset,
@@ -1150,7 +1150,13 @@ function AppContent() {
 
 function App() {
   React.useEffect(() => {
-    installV2E2EControl();
+    // Test-only control surface. Behind a build-time constant and a dynamic
+    // import so a normal build drops both this branch and the ~30KB module it
+    // reaches; the E2E harness polls for `window.__TEAMCLAW_V2_E2E__`, so the
+    // extra tick before it appears is fine.
+    if (E2E_BUILD) {
+      void import("@/lib/e2e/v2-control").then((m) => m.installV2E2EControl());
+    }
   }, []);
 
   // ── Global webview shortcuts (find, zoom, context menu) ──
