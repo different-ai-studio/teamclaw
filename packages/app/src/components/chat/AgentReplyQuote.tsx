@@ -3,6 +3,8 @@ import { useTranslation } from "react-i18next";
 import { CornerDownRight } from "lucide-react";
 import { cn } from "@/lib/utils";
 
+export { jumpToMessageById } from "@/lib/chat-scroll-to-message";
+
 /** Soft-strip quote (style B): faint pad + author + inline AGENT pills + body. */
 export function AgentReplyQuote({
   authorName,
@@ -107,21 +109,4 @@ export function parseReplyQuoteContent(
 /** @deprecated Prefer parseReplyQuoteContent — kept for call sites that only need text. */
 export function formatReplyQuoteSnippet(content: string, maxLen = 80): string {
   return parseReplyQuoteContent(content, maxLen).body;
-}
-
-export function jumpToMessageById(messageId: string): boolean {
-  const id = messageId.trim();
-  if (!id) return false;
-  const el = document.querySelector(
-    `[data-testid="chat-message"][data-message-id="${CSS.escape(id)}"]`,
-  ) as HTMLElement | null;
-  if (!el) return false;
-  el.scrollIntoView({ behavior: "smooth", block: "center" });
-  el.classList.remove("agent-reply-quote-flash");
-  void el.offsetWidth;
-  el.classList.add("agent-reply-quote-flash");
-  window.setTimeout(() => {
-    el.classList.remove("agent-reply-quote-flash");
-  }, 1100);
-  return true;
 }

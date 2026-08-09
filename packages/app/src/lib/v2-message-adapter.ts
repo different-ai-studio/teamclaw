@@ -8,6 +8,7 @@
 // tool_result row, one or more agent_reply rows — all sharing a
 // turn_id) renders as a single coherent agent bubble.
 
+import { splitAssistantProcessAndFinalParts } from "@/lib/agent-reply-transcript";
 import type { Message as TeamcluMessage } from "@/lib/proto/teamclu_pb";
 import { MessageKind } from "@/lib/proto/teamclu_pb";
 import type {
@@ -311,7 +312,7 @@ function firstNonEmptyReplyToMessageId(group: TeamcluMessage[]): string | undefi
  * messages into one SdkMessage. Thinking → reasoning part. Tool calls →
  * toolCalls[] matched with results by metadata.tool_id. Replies →
  * concatenated content. */
-function buildTurnSdkMessage(group: TeamcluMessage[]): SdkMessage {
+export function buildFullTurnSdkMessageFromGroup(group: TeamcluMessage[]): SdkMessage {
   const thinking = group.filter((m) => m.kind === MessageKind.AGENT_THINKING);
   const toolCallProtos = group.filter((m) => m.kind === MessageKind.AGENT_TOOL_CALL);
   const toolResultProtos = group.filter((m) => m.kind === MessageKind.AGENT_TOOL_RESULT);
@@ -552,7 +553,196 @@ function buildTurnSdkMessage(group: TeamcluMessage[]): SdkMessage {
   };
 }
 
-function groupByTurn(msgs: TeamcluMessage[]): SdkMessage[] {
+function countTurnProcessMeta(group: TeamcluMessage[]): {
+  toolCount: number;
+  hasThinking: boolean;
+} {
+  const toolCount = group.filter((m) => m.kind === MessageKind.AGENT_TOOL_CALL).length;
+  const hasThinking = group.some(
+    (m) => m.kind === MessageKind.AGENT_THINKING && (m.content ?? "").trim().length > 0,
+  );
+  return { toolCount, hasThinking };
+}
+
+function isTurnCompleteForProcessDefer(group: TeamcluMessage[]): boolean {
+  const replies = group.filter((m) => m.kind === MessageKind.AGENT_REPLY);
+  if (replies.some((r) => partsJson(r).trim())) return true;
+
+  const toolCalls = group.filter((m) => m.kind === MessageKind.AGENT_TOOL_CALL);
+  if (toolCalls.length === 0) return true;
+
+  const results = group.filter((m) => m.kind === MessageKind.AGENT_TOOL_RESULT);
+  if (results.length >= toolCalls.length) return true;
+
+  for (const tc of toolCalls) {
+    const md = parseMetadata(tc);
+    const status = String(md.status ?? "").toLowerCase();
+    if (status === "pending" || status === "in_progress" || status === "in progress") {
+      return false;
+    }
+  }
+
+  return replies.some((r) => displayContentForReply(r).trim().length > 0);
+}
+
+function shouldDeferProcessParts(group: TeamcluMessage[]): boolean {
+  const meta = countTurnProcessMeta(group);
+  if (meta.toolCount === 0 && !meta.hasThinking) return false;
+  if (!isTurnCompleteForProcessDefer(group)) return false;
+
+  const finalParts = extractFinalTextPartsForDeferredTurn(group);
+  const hasFinalText = finalParts.some((p) => (p.text || p.content || "").trim());
+  if (!hasFinalText) return false;
+
+  return true;
+}
+
+function extractFinalTextPartsForDeferredTurn(group: TeamcluMessage[]): MessagePart[] {
+  const replies = group.filter((m) => m.kind === MessageKind.AGENT_REPLY);
+  const uniqueReplies: TeamcluMessage[] = [];
+  const uniqueReplyIds = new Set<string>();
+  const replyIndexByKey = new Map<string, number>();
+  for (const reply of replies) {
+    const key = `${reply.content}\u0000${reply.model}`;
+    const existingIndex = replyIndexByKey.get(key);
+    if (existingIndex !== undefined) {
+      const existing = uniqueReplies[existingIndex];
+      if (!partsJson(existing) && partsJson(reply)) {
+        uniqueReplyIds.delete(existing.messageId);
+        uniqueReplies[existingIndex] = reply;
+        uniqueReplyIds.add(reply.messageId);
+      }
+      continue;
+    }
+    replyIndexByKey.set(key, uniqueReplies.length);
+    uniqueReplies.push(reply);
+    uniqueReplyIds.add(reply.messageId);
+  }
+
+  const repliesWithParts = uniqueReplies.filter((reply) => partsJson(reply).trim());
+  const mergedPersistedParts =
+    repliesWithParts.length > 1
+      ? mergeTurnPartsFromReplies(repliesWithParts)
+      : repliesWithParts.length === 1
+        ? parsePartsJson(partsJson(repliesWithParts[0]!))
+        : [];
+
+  if (mergedPersistedParts.length > 0) {
+    const renderable = mergedPersistedParts.filter(
+      (p) =>
+        (p.type === "reasoning" && Boolean(p.text || p.content)) ||
+        (p.type === "text" && Boolean(p.text || p.content)) ||
+        (p.type === "tool-call" && Boolean(p.toolCall)),
+    );
+    const { finalTextParts } = splitAssistantProcessAndFinalParts(renderable);
+    if (finalTextParts.length > 0) return finalTextParts;
+  }
+
+  const replyText = uniqueReplies
+    .map((r) => displayContentForReply(r))
+    .filter((text) => text.trim().length > 0)
+    .join("\n\n");
+  const groupId =
+    uniqueReplies.find((r) => displayContentForReply(r).trim())?.messageId ??
+    uniqueReplies[0]?.messageId ??
+    group[0].messageId;
+
+  if (!replyText.trim()) return [];
+  return [
+    {
+      id: `${groupId}-final`,
+      type: "text",
+      text: replyText,
+      content: replyText,
+    },
+  ];
+}
+
+function buildDeferredProcessTurnSdkMessage(group: TeamcluMessage[]): SdkMessage {
+  const replies = group.filter((m) => m.kind === MessageKind.AGENT_REPLY);
+  const uniqueReplies: TeamcluMessage[] = [];
+  const replyIndexByKey = new Map<string, number>();
+  for (const reply of replies) {
+    const key = `${reply.content}\u0000${reply.model}`;
+    const existingIndex = replyIndexByKey.get(key);
+    if (existingIndex !== undefined) {
+      const existing = uniqueReplies[existingIndex];
+      if (!partsJson(existing) && partsJson(reply)) {
+        uniqueReplies[existingIndex] = reply;
+      }
+      continue;
+    }
+    replyIndexByKey.set(key, uniqueReplies.length);
+    uniqueReplies.push(reply);
+  }
+
+  const turnStatus = turnStatusFromReplies(uniqueReplies);
+  const finalParts = extractFinalTextPartsForDeferredTurn(group);
+  const finalText = finalParts
+    .map((p) => p.text || p.content || "")
+    .filter(Boolean)
+    .join("\n\n");
+  const groupId =
+    uniqueReplies.find((r) => displayContentForReply(r).trim())?.messageId ??
+    uniqueReplies[0]?.messageId ??
+    group[0].messageId;
+  const modelID =
+    uniqueReplies[uniqueReplies.length - 1]?.model ||
+    group.find((m) => m.model)?.model ||
+    undefined;
+  const turnId = group[0]?.turnId?.trim() || undefined;
+  const processMeta = countTurnProcessMeta(group);
+
+  return {
+    id: groupId,
+    sessionId: group[0].sessionId,
+    senderActorId: group[0].senderActorId,
+    role: "assistant",
+    content: finalText,
+    modelID,
+    parts: finalParts,
+    toolCalls: [],
+    replyToMessageId: firstNonEmptyReplyToMessageId(group),
+    turnId,
+    turnStatus,
+    timestamp: new Date(Number(group[0].createdAt) * 1000),
+    processDeferred: true,
+    processMeta,
+    lazyProcessRef: turnId
+      ? {
+          sessionId: group[0].sessionId,
+          turnId,
+          senderActorId: group[0].senderActorId,
+        }
+      : undefined,
+  };
+}
+
+type BuildTurnSdkMessageOptions = {
+  /** Omit process parts for completed historical turns (chat list). */
+  deferProcess?: boolean;
+  /** Always build full process (export). Overrides deferProcess. */
+  forceFull?: boolean;
+};
+
+function buildTurnSdkMessage(
+  group: TeamcluMessage[],
+  opts?: BuildTurnSdkMessageOptions,
+): SdkMessage {
+  if (
+    !opts?.forceFull &&
+    opts?.deferProcess &&
+    shouldDeferProcessParts(group)
+  ) {
+    return buildDeferredProcessTurnSdkMessage(group);
+  }
+  return buildFullTurnSdkMessageFromGroup(group);
+}
+
+function groupByTurn(
+  msgs: TeamcluMessage[],
+  opts?: BuildTurnSdkMessageOptions,
+): SdkMessage[] {
   const out: SdkMessage[] = [];
   let i = 0;
   while (i < msgs.length) {
@@ -574,17 +764,18 @@ function groupByTurn(msgs: TeamcluMessage[]): SdkMessage[] {
       group.push(msgs[i]);
       i++;
     }
-    out.push(buildTurnSdkMessage(group));
+    out.push(buildTurnSdkMessage(group, opts));
   }
   return out;
 }
 
+export type AdaptTeamcluMessagesOptions = BuildTurnSdkMessageOptions;
+
 export function adaptTeamcluMessages(
   msgs: TeamcluMessage[] | undefined,
+  opts?: AdaptTeamcluMessagesOptions,
 ): SdkMessage[] | undefined {
   if (!msgs) return undefined;
-  // Sort defensively — caller should already merge in createdAt order,
-  // but local cache + supabase merge can interleave at the same epoch.
   const sorted = [...msgs].sort(compareTeamcluMessages);
-  return groupByTurn(sorted);
+  return groupByTurn(sorted, opts);
 }

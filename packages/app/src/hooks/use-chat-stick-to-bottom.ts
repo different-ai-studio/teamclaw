@@ -144,6 +144,10 @@ export function useChatStickToBottom(
     isAtBottomRef.current = true;
   }, []);
 
+  const stopAutoFollow = React.useCallback(() => {
+    isAtBottomRef.current = false;
+  }, []);
+
   return {
     scrollToBottom,
     scrollToBottomIfAtBottom,
@@ -152,5 +156,6 @@ export function useChatStickToBottom(
     onScroll,
     enableAutoFollow,
     pauseAutoFollowIfReading,
+    stopAutoFollow,
   };
 }

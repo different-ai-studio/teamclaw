@@ -18,6 +18,7 @@ import { useTeamModeStore } from "@/stores/team-mode";
 import { useCurrentTeamStore } from "@/stores/current-team";
 import { TEAMCLU_DIR, CONFIG_FILE_NAME, TEAM_REPO_DIR } from "@/lib/build-config";
 import { adaptTeamcluMessages } from "@/lib/v2-message-adapter";
+import { clearDeferredProcessCache } from "@/lib/lazy-process-parts";
 import { logInterruptMsgDiag } from "@/lib/interrupt-msg-diag";
 import { logExtMsgDiag } from "@/lib/extension-msg-diag";
 import { isChromeExtension } from "@/lib/platform";
@@ -789,20 +790,25 @@ export function ChatPanel({ compact = false }: ChatPanelProps) {
     activeSessionId ? s.messages?.[activeSessionId] : undefined
   );
   const activeMessages = React.useMemo(
-    () => adaptTeamcluMessages(activeMessagesRaw),
+    () => adaptTeamcluMessages(activeMessagesRaw, { deferProcess: true }),
     [activeMessagesRaw],
   );
   /** Shown messages lag store during fade so old session can fade out before swap */
   const [displaySessionId, setDisplaySessionId] = React.useState<string | null>(activeSessionId);
   const [sessionFadeOpacity, setSessionFadeOpacity] = React.useState(1);
+  const sessionsInSync = displaySessionId === activeSessionId;
 
   const displayMessagesRaw = useSessionMessageStore((s) =>
-    displaySessionId ? s.messages?.[displaySessionId] : undefined,
+    !sessionsInSync && displaySessionId ? s.messages?.[displaySessionId] : undefined,
   );
-  const displayMessages = React.useMemo(
-    () => adaptTeamcluMessages(displayMessagesRaw),
-    [displayMessagesRaw],
+  const displayOnlyMessages = React.useMemo(
+    () =>
+      sessionsInSync
+        ? undefined
+        : adaptTeamcluMessages(displayMessagesRaw, { deferProcess: true }),
+    [sessionsInSync, displayMessagesRaw],
   );
+  const displayMessages = sessionsInSync ? activeMessages : displayOnlyMessages;
 
   const activeStreamingAgents = React.useMemo(() => {
     const seen = new Set<string>();
@@ -845,6 +851,9 @@ export function ChatPanel({ compact = false }: ChatPanelProps) {
     }
     setSessionFadeOpacity(0);
     const t = window.setTimeout(() => {
+      if (displaySessionId) {
+        clearDeferredProcessCache(displaySessionId);
+      }
       setDisplaySessionId(activeSessionId);
       requestAnimationFrame(() => {
         requestAnimationFrame(() => setSessionFadeOpacity(1));

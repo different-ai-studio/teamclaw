@@ -23,7 +23,7 @@ export function exportSessionFromRows(
   } = opts;
 
   const protos = messageRowsToProto(rows);
-  const sdkMessages = adaptTeamcluMessages(protos) ?? [];
+  const sdkMessages = adaptTeamcluMessages(protos, { forceFull: true }) ?? [];
 
   let messages = sdkMessages
     .filter((msg) => includeSystem || msg.role !== "system")
