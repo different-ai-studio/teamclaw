@@ -51,6 +51,7 @@ function createApiMock(overrides: Partial<OnboardingApi> = {}): OnboardingApi {
       pendingEmail: email,
     })),
     verifyOTP: vi.fn().mockResolvedValue({}),
+    signInWithPassword: vi.fn().mockResolvedValue(undefined),
     createOAuthSignInUrl: vi.fn().mockResolvedValue("https://auth.example.com/oauth"),
     createOAuthLinkUrl: vi.fn().mockResolvedValue("https://auth.example.com/link"),
     completeOAuthCallback: vi.fn().mockResolvedValue({}),
@@ -193,6 +194,49 @@ describe("createOnboardingController", () => {
     expect(controller.getState()).toMatchObject<Partial<OnboardingState>>({
       route: "createTeam",
       pendingEmailOTPEmail: null,
+    });
+  });
+
+  it("signInWithPassword signs in and bootstraps without a pending-email step", async () => {
+    const { createOnboardingController } = await loadController();
+    const api = createApiMock({
+      getCurrentSession: vi
+        .fn()
+        .mockResolvedValue({ user: { id: "user-1", is_anonymous: false } }),
+    });
+    const controller = createOnboardingController(api);
+
+    // Unlike the OTP flow there is no requestOtp first: one call is the whole
+    // sign-in, so it must reach bootstrap on its own.
+    await controller.signInWithPassword("  Person@Example.com  ", "hunter2");
+
+    expect(api.signInWithPassword).toHaveBeenCalledWith(
+      "Person@Example.com",
+      "hunter2",
+    );
+    expect(api.loadBootstrap).toHaveBeenCalledTimes(1);
+    expect(controller.getState()).toMatchObject<Partial<OnboardingState>>({
+      route: "createTeam",
+    });
+  });
+
+  it("signInWithPassword surfaces a rejected credential as an error, not a crash", async () => {
+    const { createOnboardingController } = await loadController();
+    const api = createApiMock({
+      signInWithPassword: vi
+        .fn()
+        .mockRejectedValue(new Error("Invalid login credentials")),
+    });
+    const controller = createOnboardingController(api);
+
+    await expect(
+      controller.signInWithPassword("person@example.com", "wrong"),
+    ).rejects.toThrow("Invalid login credentials");
+
+    expect(api.loadBootstrap).not.toHaveBeenCalled();
+    expect(controller.getState()).toMatchObject<Partial<OnboardingState>>({
+      errorMessage: "Invalid login credentials",
+      isBusy: false,
     });
   });
 
