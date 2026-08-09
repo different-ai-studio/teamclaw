@@ -1295,7 +1295,9 @@ private struct CloudClaimInviteResult: Decodable, Sendable {
     let refreshToken: String?
 }
 
-private func parseCloudDate(_ value: String?) -> Date? {
+/// Shared with `CloudAPITeamResources.swift` — hence internal rather than
+/// file-private.
+func parseCloudDate(_ value: String?) -> Date? {
     guard let value else { return nil }
     if let date = ISO8601DateFormatter.cloudWithFractionalSeconds.date(from: value) {
         return date
