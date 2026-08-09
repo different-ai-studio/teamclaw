@@ -92,6 +92,10 @@ GOTRUE_EXTERNAL_GOOGLE_ENABLED=${ENABLE_GOOGLE_SIGNUP:-false}
 GOTRUE_EXTERNAL_GOOGLE_CLIENT_ID=${GOOGLE_CLIENT_ID:-}
 GOTRUE_EXTERNAL_GOOGLE_SECRET=${GOOGLE_CLIENT_SECRET:-}
 GOTRUE_EXTERNAL_GOOGLE_REDIRECT_URI=$PUBLIC_BASE_URL/auth/v1/callback
+# Apple: native id_token grant only, so CLIENT_ID is the accepted `aud` list
+# (the iOS bundle ID) and no secret is involved. See supabase/docker-compose.yml.
+GOTRUE_EXTERNAL_APPLE_ENABLED=${ENABLE_APPLE_SIGNUP:-true}
+GOTRUE_EXTERNAL_APPLE_CLIENT_ID=${APPLE_CLIENT_IDS:-tech.teamclaw.mobile}
 EOF_GOTRUE
 
 # ---- PostgREST (:3000) -----------------------------------------------------

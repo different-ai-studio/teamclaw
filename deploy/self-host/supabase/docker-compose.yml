@@ -146,6 +146,28 @@ services:
       GOTRUE_EXTERNAL_GOOGLE_SECRET: ${GOOGLE_CLIENT_SECRET:-}
       GOTRUE_EXTERNAL_GOOGLE_REDIRECT_URI: ${SUPABASE_PUBLIC_URL:-https://${SUPABASE_DOMAIN}}/auth/v1/callback
 
+      # Apple sign-in. Unlike Google this is a *native* flow only: iOS gets an
+      # id_token from ASAuthorizationAppleIDProvider and posts it to FC
+      # /v1/auth/signin-idtoken -> /auth/v1/token?grant_type=id_token. Without
+      # these keys GoTrue answers that grant with
+      #   Provider (issuer "https://appleid.apple.com") is not enabled
+      # and every "Sign in with Apple" tap fails after the system sheet has
+      # already succeeded — so it reads as a client bug rather than a config gap.
+      #
+      # CLIENT_ID is a comma-separated list of accepted `aud` values, not a
+      # credential. For native Sign in with Apple the audience is the app's
+      # bundle identifier (apps/ios/project.yml PRODUCT_BUNDLE_IDENTIFIER); a
+      # Services ID would only be needed for the web/redirect flow, which no
+      # client uses. Defaulted here rather than left blank because the bundle ID
+      # is public and constant — the box's .env is not in git, so anything that
+      # has to be typed there by hand is a thing that is missing in practice.
+      #
+      # No SECRET: the id_token grant verifies the token against Apple's public
+      # JWKS, so there is nothing to exchange. The client-secret JWT (which
+      # expires every 6 months) belongs to the authorize/callback flow only.
+      GOTRUE_EXTERNAL_APPLE_ENABLED: ${ENABLE_APPLE_SIGNUP:-true}
+      GOTRUE_EXTERNAL_APPLE_CLIENT_ID: ${APPLE_CLIENT_IDS:-tech.teamclaw.mobile}
+
       # Egress proxy for GoTrue's outbound HTTP. This box sits in mainland China
       # and Google is black-holed from it, while GoTrue does OIDC discovery
       # against accounts.google.com on EVERY authorize request — without a proxy
@@ -161,7 +183,14 @@ services:
       HTTPS_PROXY: ${AUTH_EGRESS_PROXY:-}
       # Keep everything inside the compose network off the proxy. Go already
       # exempts localhost and loopback, but not sibling service names.
-      NO_PROXY: localhost,127.0.0.1,::1,db,kong,rest,realtime,storage,imgproxy,meta,analytics,functions,supavisor,fc,litellm,10.0.0.0/8,172.16.0.0/12,192.168.0.0/16
+      #
+      # appleid.apple.com is exempted for the opposite reason: it is directly
+      # reachable from mainland China (~0.7s), while the egress proxy above is a
+      # tinyproxy with a destination allowlist built for Google — sending Apple
+      # through it returns tinyproxy's "Filtered" page, which surfaces as a bare
+      # 500 unexpected_failure on the id_token grant. Routing Apple direct also
+      # keeps Sign in with Apple working if that proxy box ever goes away.
+      NO_PROXY: localhost,127.0.0.1,::1,db,kong,rest,realtime,storage,imgproxy,meta,analytics,functions,supavisor,fc,litellm,10.0.0.0/8,172.16.0.0/12,192.168.0.0/16,appleid.apple.com
 
       GOTRUE_SMTP_ADMIN_EMAIL: ${SMTP_ADMIN_EMAIL}
       GOTRUE_SMTP_HOST: ${SMTP_HOST}
