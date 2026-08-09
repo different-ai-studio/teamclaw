@@ -1,5 +1,11 @@
 import "../src/lib/polyfills";
 
+import { initSentry, wrapRoot } from "../src/lib/telemetry/sentry";
+
+// Before any other module runs, so an error thrown while the tree is still
+// being built is still reported.
+initSentry();
+
 import Constants from "expo-constants";
 import * as Linking from "expo-linking";
 import * as Notifications from "expo-notifications";
@@ -404,7 +410,7 @@ function OnboardingProvider({ children }: { children: ReactNode }) {
   );
 }
 
-export default function RootLayout() {
+function RootLayout() {
   return (
     <GestureHandlerRootView style={styles.root}>
       <StatusBar {...appStatusBarProps} />
@@ -419,6 +425,8 @@ export default function RootLayout() {
     </GestureHandlerRootView>
   );
 }
+
+export default wrapRoot(RootLayout);
 
 const styles = StyleSheet.create({
   root: {

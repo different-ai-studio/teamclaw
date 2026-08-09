@@ -20,7 +20,8 @@
       "expo-audio",
       "expo-web-browser",
       "expo-router",
-      "expo-sqlite"
+      "expo-sqlite",
+      "@sentry/react-native"
     ],
     "ios": {
       "bundleIdentifier": "com.bertrand319.teamclawexpo"
