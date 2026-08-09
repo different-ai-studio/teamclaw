@@ -4,7 +4,10 @@ import AMUXCore
 import AMUXSharedUI
 
 enum MembersTabPresentation {
-    static func isTabBarVisible(navigationPath: [String]) -> Bool {
+    /// `NavigationPath` rather than `[String]`: the stack pushes two kinds of
+    /// destination now — an actor id, and an `ActorResourceRoute` for that
+    /// actor's skills / MCP / env list — and a typed array can only hold one.
+    static func isTabBarVisible(navigationPath: NavigationPath) -> Bool {
         navigationPath.isEmpty
     }
 }
@@ -20,6 +23,7 @@ public struct MembersTab: View {
     let connectedAgentsStore: ConnectedAgentsStore?
     let workspacesRepository: (any WorkspaceRepository)?
     let agentAccessRepository: (any AgentAccessRepository)?
+    let teamResourceRepository: (any TeamResourceRepository)?
     /// One-shot trigger from the parent (e.g. the zero-agent reminder) to
     /// open the invite sheet without a toolbar tap. Toggled back to false
     /// after firing so subsequent triggers re-fire cleanly.
@@ -27,7 +31,7 @@ public struct MembersTab: View {
 
     @State private var showInvite     = false
     @State private var showTeamStats  = false
-    @State private var navigationPath: [String] = []
+    @State private var navigationPath = NavigationPath()
 
     @Query(sort: \CachedActor.displayName) private var actors: [CachedActor]
 
@@ -41,6 +45,7 @@ public struct MembersTab: View {
                 connectedAgentsStore: ConnectedAgentsStore? = nil,
                 workspacesRepository: (any WorkspaceRepository)? = nil,
                 agentAccessRepository: (any AgentAccessRepository)? = nil,
+                teamResourceRepository: (any TeamResourceRepository)? = nil,
                 showInvite: Binding<Bool> = .constant(false)) {
         self.pairing = pairing
         self.mqtt = mqtt
@@ -52,6 +57,7 @@ public struct MembersTab: View {
         self.connectedAgentsStore = connectedAgentsStore
         self.workspacesRepository = workspacesRepository
         self.agentAccessRepository = agentAccessRepository
+        self.teamResourceRepository = teamResourceRepository
         self._externalInviteTrigger = showInvite
     }
 
@@ -116,7 +122,8 @@ public struct MembersTab: View {
                             teamclawService: teamclawService,
                             connectedAgentsStore: connectedAgentsStore,
                             workspacesRepository: workspacesRepository,
-                            agentAccessRepository: agentAccessRepository
+                            agentAccessRepository: agentAccessRepository,
+                            teamResourceRepository: teamResourceRepository
                         )
                     } else {
                         ContentUnavailableView(

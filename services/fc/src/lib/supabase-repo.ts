@@ -3382,8 +3382,12 @@ export function createSupabaseBusinessRepository(options) {
     // pg-repo twin rather than restated, because two copies of a security rule
     // is exactly how one of them ends up weaker.
 
-    async listTeamMcpServers(teamId) {
+    // `actorId` defaults to the caller; passing another actor's id reads their
+    // install state. Writes still refuse it — see the pg-repo twin for why the
+    // read and the write are deliberately asymmetric.
+    async listTeamMcpServers(teamId, opts: { actorId?: string } = {}) {
       const callerActorId = (await this.resolveCallerActorForTeam(teamId))?.id ?? null;
+      const subjectActorId = opts.actorId ?? callerActorId;
       const { data, error } = await supabase
         .from("team_mcp_servers")
         .select("*")
@@ -3394,11 +3398,11 @@ export function createSupabaseBusinessRepository(options) {
       if (!rows.length) return [];
 
       let installedIds = new Set<string>();
-      if (callerActorId) {
+      if (subjectActorId) {
         const { data: installs, error: iErr } = await supabase
           .from("team_mcp_installs")
           .select("server_id")
-          .eq("actor_id", callerActorId);
+          .eq("actor_id", subjectActorId);
         if (iErr) throw iErr;
         installedIds = new Set((installs ?? []).map((i: any) => i.server_id));
       }

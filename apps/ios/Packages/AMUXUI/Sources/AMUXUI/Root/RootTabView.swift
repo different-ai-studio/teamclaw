@@ -114,6 +114,7 @@ public struct RootTabView: View {
                                connectedAgentsStore: teamRuntime?.connectedAgentsStore,
                                workspacesRepository: teamRuntime?.workspacesRepo,
                                agentAccessRepository: teamRuntime?.agentAccessRepo,
+                               teamResourceRepository: teamRuntime?.teamResourceRepo,
                                showInvite: $showInviteAfterReminder)
                 } else {
                     ContentUnavailableView("No Team Selected",

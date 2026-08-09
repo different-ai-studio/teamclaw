@@ -201,14 +201,23 @@ export function makeTeamMcpRepo(db: DbLike, ctx: TeamMcpCtx) {
 
   return {
     /**
-     * Full catalog, decorated with the caller's own install state. `actorId` is
-     * NOT accepted here (unlike listTeamSkills): you cannot install on anyone
-     * else's behalf, so inspecting another actor's install state has no
-     * corresponding action.
+     * Full catalog, decorated with an actor's install state. `actorId`
+     * defaults to the caller; passing another actor's id reads their install
+     * state, which is how a client shows what a given agent has installed.
+     *
+     * Reading is not symmetric with writing here: install/uninstall still
+     * refuse `actorId`, because you cannot install on anyone else's behalf.
+     * The read used to be refused for the same reason — "inspecting another
+     * actor's install state has no corresponding action" — which stopped being
+     * true once a UI needed to display it.
+     *
+     * Membership in the team is the only gate, matching `listTeamSkills`. An
+     * actor id from outside the team simply matches no installs.
      */
-    async listTeamMcpServers(teamId: string) {
+    async listTeamMcpServers(teamId: string, opts: { actorId?: string } = {}) {
       const userId = requireUser();
       const callerActorId = await requireActorForTeam(db, userId, teamId);
+      const subjectActorId = opts.actorId ?? callerActorId;
 
       const rows = await db
         .select()
@@ -222,7 +231,7 @@ export function makeTeamMcpRepo(db: DbLike, ctx: TeamMcpCtx) {
         .from(teamMcpInstalls)
         .where(
           and(
-            eq(teamMcpInstalls.actorId, callerActorId),
+            eq(teamMcpInstalls.actorId, subjectActorId),
             inArray(
               teamMcpInstalls.serverId,
               rows.map((r: any) => r.id),

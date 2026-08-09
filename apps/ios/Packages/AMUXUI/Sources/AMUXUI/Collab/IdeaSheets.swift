@@ -6,37 +6,6 @@ import AMUXSharedUI
 
 #if os(iOS)
 
-public struct IdeaSheet: View {
-    @Environment(\.dismiss) private var dismiss
-
-    let pairing: PairingManager
-    let teamclawService: TeamclawService?
-
-    public init(pairing: PairingManager, teamclawService: TeamclawService? = nil) {
-        self.pairing = pairing
-        self.teamclawService = teamclawService
-    }
-
-    public var body: some View {
-        NavigationStack {
-            ContentUnavailableView(
-                "Ideas Live In The Ideas Tab",
-                systemImage: IdeaUIPresentation.systemImage,
-                description: Text("Use the dedicated Ideas tab for Supabase-backed idea management.")
-            )
-            .navigationTitle(IdeaUIPresentation.pluralTitle)
-            .navigationBarTitleDisplayMode(.large)
-            .toolbar {
-                ToolbarItem(placement: .navigationBarTrailing) {
-                    Button { dismiss() } label: {
-                        Image(systemName: "xmark").font(.title3)
-                    }
-                    .buttonStyle(.plain)
-                }
-            }
-        }
-    }
-}
 
 /// Hai-styled "New Idea" sheet. Mirrors the prototype: Pebble surface,
 /// icon-only liquid-glass toolbar actions, large editorial title field
@@ -318,102 +287,6 @@ struct CreateIdeaSheet: View {
     }
 }
 
-struct EditIdeaSheet: View {
-    @Environment(\.dismiss) private var dismiss
-
-    @Bindable var ideaStore: IdeaStore
-    let idea: IdeaRecord
-
-    @State private var title: String
-    @State private var description: String
-    @State private var status: String
-    @State private var isSaving = false
-
-    init(ideaStore: IdeaStore, idea: IdeaRecord) {
-        self.ideaStore = ideaStore
-        self.idea = idea
-        _title = State(initialValue: idea.title)
-        _description = State(initialValue: idea.description)
-        _status = State(initialValue: idea.status)
-    }
-
-    private var canSave: Bool {
-        !title.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-            && !isSaving
-    }
-
-    var body: some View {
-        NavigationStack {
-            Form {
-                Section("Title") {
-                    TextField("Idea title", text: $title, axis: .vertical)
-                        .lineLimit(2...5)
-                }
-
-                Section("Description") {
-                    TextField("Optional context", text: $description, axis: .vertical)
-                        .lineLimit(4...8)
-                }
-
-                Section("Status") {
-                    Picker("Status", selection: $status) {
-                        Text("Open").tag("open")
-                        Text("In Progress").tag("in_progress")
-                        Text("Done").tag("done")
-                    }
-                    .pickerStyle(.segmented)
-                }
-
-                if let errorMessage = ideaStore.errorMessage {
-                    Section {
-                        Text(errorMessage)
-                            .font(.footnote)
-                            .foregroundStyle(Color.amux.cinnabarDeep)
-                    }
-                }
-            }
-            .navigationTitle("Edit Idea")
-            .navigationBarTitleDisplayMode(.inline)
-            .toolbar {
-                ToolbarItem(placement: .navigationBarLeading) {
-                    Button { dismiss() } label: {
-                        Image(systemName: "xmark")
-                    }
-                }
-                ToolbarItem(placement: .navigationBarTrailing) {
-                    Button {
-                        save()
-                    } label: {
-                        if isSaving {
-                            ProgressView()
-                        } else {
-                            Image(systemName: "checkmark")
-                        }
-                    }
-                    .disabled(!canSave)
-                }
-            }
-        }
-    }
-
-    private func save() {
-        guard !isSaving else { return }
-        isSaving = true
-        Task {
-            let ok = await ideaStore.updateIdea(
-                ideaID: idea.id,
-                title: title,
-                description: description,
-                status: status,
-                workspaceID: idea.workspaceID
-            )
-            isSaving = false
-            if ok {
-                dismiss()
-            }
-        }
-    }
-}
 
 struct IdeaRow: View {
     let item: IdeaRecord
@@ -551,13 +424,6 @@ private extension Date {
     }
 }
 #else
-public struct IdeaSheet: View {
-    public init(pairing: PairingManager, teamclawService: TeamclawService? = nil) {}
-
-    public var body: some View {
-        ContentUnavailableView("Ideas", systemImage: IdeaUIPresentation.systemImage)
-    }
-}
 
 struct CreateIdeaSheet: View {
     @Bindable var ideaStore: IdeaStore
@@ -568,14 +434,6 @@ struct CreateIdeaSheet: View {
     }
 }
 
-struct EditIdeaSheet: View {
-    @Bindable var ideaStore: IdeaStore
-    let idea: IdeaRecord
-
-    var body: some View {
-        ContentUnavailableView("Edit Idea", systemImage: "pencil")
-    }
-}
 
 struct IdeaRow: View {
     let item: IdeaRecord

@@ -74,19 +74,3 @@ struct LiquidGlassContainer<Content: View>: View {
 
 // MARK: - LiquidGlassBar
 
-struct LiquidGlassBar<Content: View>: View {
-    let content: () -> Content
-
-    init(@ViewBuilder content: @escaping () -> Content) {
-        self.content = content
-    }
-
-    var body: some View {
-        content()
-            .padding(.horizontal, 20)
-            .padding(.vertical, 12)
-            .liquidGlass(in: RoundedRectangle(cornerRadius: 20), interactive: false)
-            .padding(.horizontal, 16)
-            .padding(.bottom, 8)
-    }
-}

@@ -542,14 +542,5 @@ struct ZoomTransitionModifier: ViewModifier {
     }
 }
 
-struct MatchedTransitionSourceModifier: ViewModifier {
-    let sourceID: String
-    let namespace: Namespace.ID
-    func body(content: Content) -> some View {
-        if #available(iOS 18.0, *) {
-            content.matchedTransitionSource(id: sourceID, in: namespace)
-        } else { content }
-    }
-}
 
 #endif

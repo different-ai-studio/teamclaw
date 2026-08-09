@@ -63,6 +63,46 @@ test("GET /v1/teams/:id/mcp-servers returns the full catalog", async () => {
   assert.equal(body.items[1].installed, false);
 });
 
+test("GET mcp-servers forwards actorId so a client can inspect another agent's installs", async () => {
+  const repo = fakeRepo();
+  await request(
+    {
+      httpMethod: "GET",
+      path: "/v1/teams/team-1/mcp-servers",
+      queryStringParameters: { actorId: "agent-actor-1" },
+    },
+    repo,
+  );
+  assert.deepEqual(repo.calls[0], {
+    method: "listTeamMcpServers",
+    args: ["team-1", { actorId: "agent-actor-1" }],
+  });
+});
+
+test("GET mcp-servers without actorId leaves the subject to the repo (the caller)", async () => {
+  const repo = fakeRepo();
+  await request({ httpMethod: "GET", path: "/v1/teams/team-1/mcp-servers" }, repo);
+  assert.deepEqual(repo.calls[0], {
+    method: "listTeamMcpServers",
+    args: ["team-1", {}],
+  });
+});
+
+// Reading someone else's install state is allowed; writing it is not. The two
+// are deliberately asymmetric — there is no "install on behalf of".
+test("PUT install still rejects actorId", async () => {
+  const repo = fakeRepo();
+  const res = await request(
+    {
+      httpMethod: "PUT",
+      path: "/v1/teams/team-1/mcp-servers/sentry/install",
+      body: JSON.stringify({ actorId: "agent-actor-1" }),
+    },
+    repo,
+  );
+  assert.equal(res.statusCode, 400);
+});
+
 test("GET mcp-servers/config is routed to the config resolver, not treated as a server name", async () => {
   const seen: unknown[] = [];
   const repo = fakeRepo({

@@ -2,7 +2,7 @@ import SwiftUI
 import AMUXSharedUI
 
 /// Small uppercase section header used to label a paper card on a Hai-style
-/// sheet (pebble background, paper cards). See `IdeaSheet.swift` for the
+/// sheet (pebble background, paper cards). See `IdeaSheets.swift` for the
 /// canonical example.
 struct HaiSectionLabel: View {
     let title: String

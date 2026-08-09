@@ -667,27 +667,6 @@ public actor CloudAPINotificationsRepository: NotificationsRepository {
     }
 }
 
-public actor CloudAPIInviteClaimer {
-    private let client: CloudAPIClient
-
-    public init(client: CloudAPIClient) {
-        self.client = client
-    }
-
-    public func claimInvite(token: String) async throws -> ClaimResult {
-        let row: CloudClaimInviteResult = try await client.post(
-            "/v1/invites/claim",
-            body: CloudClaimInviteRequest(token: token)
-        )
-        return ClaimResult(
-            actorID: row.actorId,
-            teamID: row.teamId,
-            actorType: row.actorType,
-            displayName: row.displayName,
-            refreshToken: row.refreshToken
-        )
-    }
-}
 
 public struct ClientVersionReport: Encodable, Sendable {
     public let clientType: String
@@ -792,6 +771,15 @@ public enum CloudAPIRepositoryFactory {
         CloudAPIAgentAccessRepository(
             client: client(configuration: configuration, accessToken: accessToken),
             memberActorID: memberActorID
+        )
+    }
+
+    public static func teamResourceRepository(
+        configuration: CloudAPIConfiguration,
+        accessToken: @escaping @Sendable () async throws -> String
+    ) -> any TeamResourceRepository {
+        CloudAPITeamResourceRepository(
+            client: client(configuration: configuration, accessToken: accessToken)
         )
     }
 
@@ -1295,7 +1283,9 @@ private struct CloudClaimInviteResult: Decodable, Sendable {
     let refreshToken: String?
 }
 
-private func parseCloudDate(_ value: String?) -> Date? {
+/// Shared with `CloudAPITeamResources.swift` — hence internal rather than
+/// file-private.
+func parseCloudDate(_ value: String?) -> Date? {
     guard let value else { return nil }
     if let date = ISO8601DateFormatter.cloudWithFractionalSeconds.date(from: value) {
         return date
