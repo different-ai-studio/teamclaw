@@ -7,32 +7,51 @@ import { colors, spacing, typography } from "../src/ui/theme";
 /**
  * Landing route for the `teamclaw://auth-callback` deep link.
  *
- * The OAuth flow itself is completed by `openAuthSessionAsync`, which resolves
- * with the callback URL and hands it to `signInWithOAuth`. But the redirect is
- * also a real deep link into the app, so expo-router receives
- * `/auth-callback` as a navigation target — and with no file to match it, the
- * user landed on "Unmatched Route — Page could not be found" *after a
- * successful sign-in*.
+ * The OS routes this URL two places at once: to `Linking`, where the root
+ * layout hands it to `completeOAuthFromUrl` to actually exchange the code, and
+ * to expo-router, which treats `/auth-callback` as a navigation target. With
+ * no file to match it the user landed on "Unmatched Route — Page could not be
+ * found" *after a successful sign-in*, which is why this screen exists.
  *
- * So this screen deliberately does no auth work: completing the callback a
- * second time would re-spend a one-time PKCE code. It only holds the user
- * still while the session settles, then forwards to wherever onboarding says
- * they belong.
+ * It deliberately does no auth work of its own — the exchange is already
+ * running, and spending the one-time PKCE code twice would fail the second
+ * time. It just holds the user still until onboarding knows where they belong.
  *
  * iOS handles the same URL in `AMUXApp.swift` (`case "auth-callback"`), which
- * likewise just forwards it rather than treating it as a screen.
+ * likewise forwards it rather than treating it as a screen.
  */
 export default function AuthCallbackRoute() {
   const { state } = useOnboarding();
-  const href = routeToHref(state.route);
 
+  // Redirecting on `route` alone sent the user to `/welcome` for the whole
+  // exchange — a successful Google sign-in looked like being dumped back on
+  // the first screen. `needsAuth` is simply what the state machine says until
+  // a session exists, so wait it out.
+  if (state.isBusy) {
+    return <Progress />;
+  }
+
+  if (state.route === "needsAuth") {
+    // Signing in didn't produce a session. Go back to the form, which renders
+    // `errorMessage` — the welcome screen shows nothing, so a real failure
+    // there is indistinguishable from "nothing happened".
+    return <Redirect href="/auth" />;
+  }
+
+  const href = routeToHref(state.route);
   if (href) {
     return <Redirect href={href} />;
   }
 
-  // `loading` / `failed` have no href. Bootstrap is mid-flight right after a
-  // sign-in, so this is the expected state for a moment — show progress rather
-  // than a dead end, and let the redirect fire once the route resolves.
+  // `failed` has no href; `/` renders it with retry + sign out.
+  if (state.route === "failed") {
+    return <Redirect href="/" />;
+  }
+
+  return <Progress />;
+}
+
+function Progress() {
   return (
     <View style={styles.screen}>
       <ActivityIndicator color={colors.coral} size="small" />

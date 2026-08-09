@@ -304,6 +304,86 @@ describe("createOnboardingController", () => {
     });
   });
 
+  /**
+   * On Android the OAuth redirect is a deep link, so the OS hands the callback
+   * URL to the app and the custom tab merely closes — `openAuthSessionAsync`
+   * reports `dismiss`, exactly as if the user had backed out. Sign-in therefore
+   * has to survive being carried entirely by the deep link.
+   */
+  it("signs in from the callback deep link even when the browser reports a dismiss", async () => {
+    const { createOnboardingController } = await loadController();
+    const api = createApiMock({
+      getCurrentSession: vi
+        .fn()
+        .mockResolvedValue({ user: { id: "user-1", is_anonymous: false } }),
+      loadBootstrap: vi.fn().mockResolvedValue({
+        isAnonymous: false,
+        team: { id: "team-1", name: "Team Claw", slug: "team-claw", role: "owner" },
+        memberActorId: "member-1",
+      } satisfies BootstrapResult),
+    });
+    const controller = createOnboardingController(api);
+
+    await controller.signInWithOAuth("google", {
+      redirectTo: "teamclaw://auth-callback",
+      openAuthSession: vi.fn().mockResolvedValue({ type: "dismiss" }),
+    });
+    expect(api.completeOAuthCallback).not.toHaveBeenCalled();
+
+    await controller.completeOAuthFromUrl("teamclaw://auth-callback?code=abc");
+
+    expect(api.completeOAuthCallback).toHaveBeenCalledWith(
+      "teamclaw://auth-callback?code=abc",
+    );
+    expect(controller.getState()).toMatchObject<Partial<OnboardingState>>({
+      route: "ready",
+      currentMemberActorId: "member-1",
+      isBusy: false,
+    });
+  });
+
+  it("spends a callback url once even when both channels deliver it", async () => {
+    const { createOnboardingController } = await loadController();
+    const api = createApiMock({
+      getCurrentSession: vi
+        .fn()
+        .mockResolvedValue({ user: { id: "user-1", is_anonymous: false } }),
+    });
+    const controller = createOnboardingController(api);
+    const url = "teamclaw://auth-callback?code=abc";
+
+    // The browser result path wins the race...
+    await controller.signInWithOAuth("google", {
+      redirectTo: "teamclaw://auth-callback",
+      openAuthSession: vi.fn().mockResolvedValue({ type: "success", url }),
+    });
+    // ...then the OS delivers the same URL to the Linking listener.
+    const second = await controller.completeOAuthFromUrl(url);
+
+    expect(second).toBe(false);
+    // A PKCE code is single-use: exchanging twice fails the second time.
+    expect(api.completeOAuthCallback).toHaveBeenCalledTimes(1);
+  });
+
+  it("surfaces a failed callback exchange instead of returning silently", async () => {
+    const { createOnboardingController } = await loadController();
+    const api = createApiMock({
+      completeOAuthCallback: vi
+        .fn()
+        .mockRejectedValue(new Error("invalid or expired code")),
+    });
+    const controller = createOnboardingController(api);
+
+    await expect(
+      controller.completeOAuthFromUrl("teamclaw://auth-callback?code=stale"),
+    ).rejects.toThrow("invalid or expired code");
+
+    expect(controller.getState()).toMatchObject<Partial<OnboardingState>>({
+      isBusy: false,
+      errorMessage: "invalid or expired code",
+    });
+  });
+
   it("linkIdentityWithOAuth links an identity, completes callback, and bootstraps", async () => {
     const { createOnboardingController } = await loadController();
     const api = createApiMock({

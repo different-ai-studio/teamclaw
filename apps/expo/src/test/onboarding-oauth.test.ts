@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 
 import {
   OAUTH_REDIRECT_URL,
+  isOAuthCallbackUrl,
   parseOAuthCallbackUrl,
   shouldCompleteOAuthResult,
 } from "../features/onboarding/onboarding-oauth";
@@ -51,6 +52,22 @@ describe("onboarding oauth helpers", () => {
         "teamclaw://auth-callback?error=access_denied&error_description=Nope",
       ),
     ).toThrow("Nope");
+  });
+
+  it("recognises the callback deep link the OS hands to Linking", () => {
+    // The root layout routes matching URLs to `completeOAuthFromUrl`; anything
+    // it fails to recognise means the sign-in never completes on Android.
+    expect(isOAuthCallbackUrl(`${OAUTH_REDIRECT_URL}?code=abc123`)).toBe(true);
+    expect(isOAuthCallbackUrl(OAUTH_REDIRECT_URL)).toBe(true);
+    expect(isOAuthCallbackUrl("teamclaw://auth-callback/?code=abc")).toBe(true);
+    expect(isOAuthCallbackUrl("teamclaw:///auth-callback?code=abc")).toBe(true);
+    expect(isOAuthCallbackUrl("teamclaw://auth-callback#access_token=a")).toBe(true);
+
+    // Invite links share the scheme and must keep reaching the invite handler.
+    expect(isOAuthCallbackUrl("teamclaw://invite/token123")).toBe(false);
+    expect(isOAuthCallbackUrl("https://example.com/auth-callback")).toBe(false);
+    expect(isOAuthCallbackUrl(null)).toBe(false);
+    expect(isOAuthCallbackUrl(undefined)).toBe(false);
   });
 
   it("only completes successful browser auth sessions with a callback url", () => {

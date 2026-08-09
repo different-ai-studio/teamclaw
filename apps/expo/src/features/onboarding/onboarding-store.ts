@@ -173,6 +173,47 @@ export function createOnboardingController(api: OnboardingApi) {
     }
   };
 
+  /**
+   * Callback URLs already spent, so the one-time PKCE code is exchanged exactly
+   * once no matter which channel delivers it. Both can fire for a single
+   * sign-in: `openAuthSessionAsync` may resolve with the URL, *and* the OS
+   * delivers the same URL to `Linking` because the redirect is a deep link.
+   */
+  const consumedOAuthCallbacks = new Set<string>();
+
+  /**
+   * Exchange an OAuth callback URL for a session, then bootstrap.
+   *
+   * This is the path that actually carries Google sign-in on Android: the
+   * redirect is a deep link, so the OS routes it to the app and the custom tab
+   * merely closes — `openAuthSessionAsync` reports `dismiss`, indistinguishable
+   * from the user backing out. Driving the exchange off the URL instead means
+   * the browser result no longer has to be trusted to carry it.
+   *
+   * Returns false when the callback was already consumed.
+   */
+  const completeOAuthFromUrl = async (
+    url: string,
+    existingToken?: number,
+  ): Promise<boolean> => {
+    if (consumedOAuthCallbacks.has(url)) return false;
+    consumedOAuthCallbacks.add(url);
+
+    const token = existingToken ?? beginOperation();
+    dispatchIfCurrent(token, { type: "beginBusy" });
+
+    try {
+      await api.completeOAuthCallback(url);
+      await bootstrap(token);
+      return true;
+    } catch (error) {
+      if (!(error instanceof BootstrapFailureError)) {
+        finishWithError(token, toErrorMessage(error));
+      }
+      throw (error instanceof BootstrapFailureError ? error.cause : error);
+    }
+  };
+
   const runOAuthBrowserFlow = async (
     token: number,
     authUrl: string,
@@ -184,6 +225,10 @@ export function createOnboardingController(api: OnboardingApi) {
   ): Promise<boolean> => {
     const result = await openAuthSession(authUrl, redirectTo);
     if (!shouldCompleteOAuthResult(result)) {
+      // Not necessarily a cancel — on Android a *successful* redirect also
+      // lands here, because the OS consumed the deep link. If the URL already
+      // arrived via `Linking`, that completion owns the operation token now,
+      // so leave its busy state alone rather than clearing it out from under.
       if (isActiveOperation(token)) {
         setState({
           ...state,
@@ -193,8 +238,7 @@ export function createOnboardingController(api: OnboardingApi) {
       }
       return false;
     }
-    await api.completeOAuthCallback(result.url!);
-    return true;
+    return completeOAuthFromUrl(result.url!, token);
   };
 
   const signInWithOAuth = async (
@@ -215,14 +259,9 @@ export function createOnboardingController(api: OnboardingApi) {
 
     try {
       const authUrl = await api.createOAuthSignInUrl(provider, redirectTo);
-      const completed = await runOAuthBrowserFlow(
-        token,
-        authUrl,
-        redirectTo,
-        openAuthSession,
-      );
-      if (!completed) return;
-      await bootstrap(token);
+      // Bootstraps internally on success — the deep-link path has to bootstrap
+      // too, so it lives inside `completeOAuthFromUrl` rather than out here.
+      await runOAuthBrowserFlow(token, authUrl, redirectTo, openAuthSession);
     } catch (error) {
       if (!(error instanceof BootstrapFailureError)) {
         finishWithError(token, toErrorMessage(error));
@@ -249,14 +288,7 @@ export function createOnboardingController(api: OnboardingApi) {
 
     try {
       const authUrl = await api.createOAuthLinkUrl(provider, redirectTo);
-      const completed = await runOAuthBrowserFlow(
-        token,
-        authUrl,
-        redirectTo,
-        openAuthSession,
-      );
-      if (!completed) return;
-      await bootstrap(token);
+      await runOAuthBrowserFlow(token, authUrl, redirectTo, openAuthSession);
     } catch (error) {
       if (!(error instanceof BootstrapFailureError)) {
         finishWithError(token, toErrorMessage(error));
@@ -312,6 +344,7 @@ export function createOnboardingController(api: OnboardingApi) {
     verifyOtp,
     signInWithPassword,
     signInWithOAuth,
+    completeOAuthFromUrl,
     linkIdentityWithOAuth,
     resetPendingEmail,
     createTeam,

@@ -20,6 +20,7 @@ import { SafeAreaView } from "react-native-safe-area-context";
 
 import { ToastHost, showToast } from "../src/ui/Toast";
 import { createConfiguredInviteApi, parseInviteToken } from "../src/features/onboarding/invite-api";
+import { isOAuthCallbackUrl } from "../src/features/onboarding/onboarding-oauth";
 import { createOnboardingController } from "../src/features/onboarding/onboarding-store";
 import type {
   OnboardingRoute,
@@ -145,6 +146,17 @@ function OnboardingProvider({ children }: { children: ReactNode }) {
   // user is signed in.
   useEffect(() => {
     const handleUrl = (url: string | null | undefined) => {
+      // The OAuth redirect is a deep link, so this listener — not
+      // `openAuthSessionAsync`'s return value — is what reliably carries a
+      // Google/Apple sign-in back to us on Android. Completing it here is
+      // idempotent; the controller spends each callback once.
+      if (isOAuthCallbackUrl(url)) {
+        void controller.completeOAuthFromUrl(url!).catch(() => {
+          // Rendered from controller state by the auth screen.
+        });
+        return;
+      }
+
       const token = parseInviteToken(url);
       if (!token) return;
       void savePendingInviteToken(token).then(() => {
