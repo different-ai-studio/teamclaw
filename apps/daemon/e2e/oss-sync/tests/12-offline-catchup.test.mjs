@@ -24,7 +24,7 @@ test(`offline catch-up: B pulls all ${N} files A created while B was idle`, { sk
   // A creates N files under knowledge/ in one shot.
   await execSh(
     "node-a",
-    `mkdir -p ${root}/skills && for i in $(seq 1 ${N}); do printf 'file-%s\\n' "$i" > ${root}/knowledge/f$i.md; done`,
+    `mkdir -p ${root}/knowledge && for i in $(seq 1 ${N}); do printf 'file-%s\\n' "$i" > ${root}/knowledge/f$i.md; done`,
   );
 
   // Upload success is only observable via B, and a transiently-failed upload stays
