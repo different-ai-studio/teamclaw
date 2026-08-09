@@ -45,12 +45,16 @@ also not the same thing as `EXPO_TOKEN`.
 
 1. Create an **organization auth token** at
    Settings → Auth Tokens (scope: `project:releases`).
-2. Give it to EAS as a secret, so cloud builds can upload:
+2. Give it to EAS as a secret, so cloud builds can upload. Run from
+   `apps/expo/`. There is no global `eas` and the repo does not depend on
+   `eas-cli`, so invoke it through `npx`:
 
    ```sh
-   eas env:create --name SENTRY_AUTH_TOKEN --value <token> --visibility secret \
-     --environment preview --environment production
+   npx eas-cli@latest env:set --name SENTRY_AUTH_TOKEN --value <token> \
+     --visibility secret --environment preview --environment production
    ```
+
+   Use `env:set`, not `env:create` — the latter is deprecated as of eas-cli 21.
 
 Until that exists, builds still succeed and errors still report — only the
 stack traces stay minified.
