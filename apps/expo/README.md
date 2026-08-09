@@ -65,13 +65,16 @@ should be made in the `app/` directory.
 
 Create `apps/expo/.env` from `.env.example` and provide:
 
-- `EXPO_PUBLIC_SUPABASE_URL`
-- `EXPO_PUBLIC_SUPABASE_PUBLISHABLE_KEY`
-- `EXPO_PUBLIC_MQTT_URL` only when pinning a broker for local development
+- `EXPO_PUBLIC_CLOUD_API_URL` — **required**
+- `EXPO_PUBLIC_MQTT_URL` — optional, only when pinning a broker for local
+  development
 
-These values are required for the Expo app to start correctly. If either one is
-missing, the current app bootstrap fails instead of falling back to a limited
-onboarding shell.
+`EXPO_PUBLIC_CLOUD_API_URL` is the one that must be set. Without it the app
+throws on its first render (`EXPO_PUBLIC_CLOUD_API_URL is required (cloud_api is
+the only backend)`) rather than falling back to a limited onboarding shell.
+
+`EXPO_PUBLIC_*` values are inlined at bundle time, so **restart Metro after
+editing `.env`** — an already-running dev server keeps serving the old values.
 
 The MQTT broker address is **not** bundled: `resolveMqttUrl` fetches it from
 `GET /v1/config/bootstrap` (server-side `MQTT_PUBLIC_TCP_BROKER_URL` /
