@@ -24,10 +24,10 @@ fn deprecated_config_paths() -> Vec<PathBuf> {
             .join(APP_CONFIG_DIR)
             .join(SERVER_CONFIG_FILE),
         legacy_config_base_dir()
-            .join("teamclu")
+            .join("teamclaw")
             .join(LEGACY_TEAMCLU_CONFIG_FILE),
         legacy_config_base_dir()
-            .join("teamclu")
+            .join("teamclaw")
             .join(LEGACY_SERVER_CONFIG_FILE),
         legacy_config_base_dir()
             .join(LEGACY_CONFIG_DIR)

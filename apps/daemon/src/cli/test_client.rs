@@ -1,4 +1,5 @@
 use prost::Message;
+use teamclu_types::mqtt::MQTT_FALLBACK_TEAM_ID;
 use rumqttc::{AsyncClient, Event, EventLoop, MqttOptions, Packet, QoS, Transport};
 use std::sync::Arc;
 use tracing::{info, warn};
@@ -46,7 +47,7 @@ impl TestClient {
             ));
         }
 
-        let team_id = config.team_id.as_deref().unwrap_or("teamclu");
+        let team_id = config.team_id.as_deref().unwrap_or(MQTT_FALLBACK_TEAM_ID);
         let topics = Topics::new(team_id, &config.actor.id);
         let (client, eventloop) = AsyncClient::new(opts, 100);
 
@@ -70,7 +71,7 @@ impl TestClient {
         self.client
             .subscribe(self.topics.runtime_state_wildcard(), QoS::AtLeastOnce)
             .await?;
-        let team_id = self.config.team_id.as_deref().unwrap_or("teamclu");
+        let team_id = self.config.team_id.as_deref().unwrap_or(MQTT_FALLBACK_TEAM_ID);
         self.client
             .subscribe(
                 &format!("amux/{}/{}/runtime/+/events", team_id, actor_id),

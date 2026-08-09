@@ -21,7 +21,11 @@ use crate::commands::team_share::enable::load_team_workspaces;
 use crate::commands::team_sync_proxy;
 use crate::commands::{team_secret_store, TEAM_REPO_DIR};
 
-const LEGACY_TEAM_REPO: &str = "teamclu";
+/// Oldest team-drive directory name, from before `<workspace>/teamclaw-team`.
+/// Names a directory that may still exist on disk, so it does not follow the
+/// teamclaw → teamclu rebrand — renaming it points the cleanup at a path that
+/// never existed and leaves the real one behind forever.
+const LEGACY_TEAM_REPO: &str = "teamclaw";
 
 /// `~/.amuxd/teams/<team_id>/` — daemon home for this team (global checkout +
 /// default workspace).

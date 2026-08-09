@@ -1,8 +1,20 @@
 import Foundation
 
 public enum MQTTTopics {
+    /// Team-id stand-in used in MQTT topics when the device has no team yet.
+    ///
+    /// A wire constant, not a brand string: it is a path segment in
+    /// `amux/<team>/<actor>/…` that this app and the desktop daemon — which
+    /// update independently — have to agree on, so the teamclaw → teamclu
+    /// rebrand deliberately left it alone. A rendezvous point has no migration
+    /// available; renaming it would silently stop every mixed-version, team-less
+    /// device pair from seeing each other's messages.
+    ///
+    /// Mirrors `teamclu_types::mqtt::MQTT_FALLBACK_TEAM_ID`; keep the two equal.
+    public static let fallbackTeamID = "teamclaw"
+
     public static func normalizedTeamID(_ teamID: String) -> String {
-        teamID.isEmpty ? "teamclu" : teamID
+        teamID.isEmpty ? fallbackTeamID : teamID
     }
 
     public static func actorBase(teamID: String, actorID: String) -> String {

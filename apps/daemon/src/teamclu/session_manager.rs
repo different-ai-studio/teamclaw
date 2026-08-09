@@ -55,6 +55,9 @@ impl SessionManager {
             team_id.to_string(),
             config_actor_id.to_string(),
         );
+        // Before the first read: sessions/messages/ideas written by a
+        // pre-rebrand daemon live one directory over.
+        super::migrate_rebrand_state_dir(&config_dir);
         let sessions_path = TeamcluSessionStore::default_path(&config_dir);
         let sessions = TeamcluSessionStore::load(&sessions_path)?;
 

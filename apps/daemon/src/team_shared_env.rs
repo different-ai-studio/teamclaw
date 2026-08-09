@@ -443,9 +443,9 @@ mod tests {
     }
 
     #[test]
-    fn team_secrets_dir_candidates_includes_legacy_teamclu_path() {
+    fn team_secrets_dir_candidates_includes_legacy_teamclaw_path() {
         let tmp = tempfile::tempdir().unwrap();
-        let legacy = tmp.path().join("teamclu").join("_secrets");
+        let legacy = tmp.path().join("teamclaw").join("_secrets");
         std::fs::create_dir_all(&legacy).unwrap();
 
         let dirs = team_secrets_dir_candidates(tmp.path(), None, "teamclu-team");
@@ -453,7 +453,7 @@ mod tests {
     }
 
     #[test]
-    fn load_team_env_for_workspace_reads_legacy_teamclu_dir() {
+    fn load_team_env_for_workspace_reads_legacy_teamclaw_dir() {
         let tmp = tempfile::tempdir().unwrap();
         let env_secret = "33".repeat(32);
         let config_dir = tmp.path().join(".teamclu");
@@ -466,7 +466,7 @@ mod tests {
             .to_string(),
         )
         .unwrap();
-        let secrets_dir = tmp.path().join("teamclu").join("_secrets");
+        let secrets_dir = tmp.path().join("teamclaw").join("_secrets");
         std::fs::create_dir_all(&secrets_dir).unwrap();
         std::fs::write(
             secrets_dir.join("s3_bucket.enc.json"),
@@ -637,7 +637,7 @@ mod tests {
         )
         .unwrap();
 
-        let legacy = tmp.path().join("teamclu").join("_secrets");
+        let legacy = tmp.path().join("teamclaw").join("_secrets");
         std::fs::create_dir_all(&legacy).unwrap();
         std::fs::write(
             legacy.join("from_local.enc.json"),

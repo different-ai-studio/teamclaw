@@ -141,8 +141,10 @@ pub fn team_secrets_dir_candidates_workspace(
     if shared_dir_name != crate::DEFAULT_TEAM_REPO_DIR {
         push(workspace.join(shared_dir_name).join(SECRETS_SUBDIR));
     }
-    // Legacy desktop default before sharedDirName was aligned with teamclu-team.
-    push(workspace.join("teamclu").join(SECRETS_SUBDIR));
+    // Legacy desktop default before sharedDirName was aligned with the team
+    // drive dir. A path that exists on disk, so it keeps its pre-rebrand
+    // spelling — "teamclu" here would name a directory nobody ever created.
+    push(workspace.join("teamclaw").join(SECRETS_SUBDIR));
     out
 }
 

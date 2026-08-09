@@ -6,6 +6,12 @@ describe('parseInviteDeeplink', () => {
     expect(parseInviteDeeplink('teamclu://invite?token=ABCXYZ_24bytes')).toBe('ABCXYZ_24bytes')
   })
 
+  it('still accepts the pre-rebrand teamclaw:// scheme', () => {
+    // Invite links handed out before the rename carry it; rejecting them makes
+    // every one of those links dead.
+    expect(parseInviteDeeplink('teamclaw://invite?token=OLD_LINK')).toBe('OLD_LINK')
+  })
+
   it('also accepts amux://invite?token=… (RPC native scheme)', () => {
     expect(parseInviteDeeplink('amux://invite?token=XYZ')).toBe('XYZ')
   })

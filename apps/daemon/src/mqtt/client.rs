@@ -8,6 +8,7 @@ use crate::config::DaemonConfig;
 use crate::proto::amux::ActorPresence;
 
 use super::Topics;
+use teamclu_types::mqtt::MQTT_FALLBACK_TEAM_ID;
 
 const MQTT_MAX_PACKET_SIZE_BYTES: usize = 4 * 1024 * 1024;
 
@@ -115,7 +116,7 @@ impl MqttClient {
         }
 
         // LWT: publish offline status if daemon disconnects unexpectedly
-        let team_id = config.team_id.as_deref().unwrap_or("teamclu");
+        let team_id = config.team_id.as_deref().unwrap_or(MQTT_FALLBACK_TEAM_ID);
         let topics = Topics::new(team_id, &config.actor.id);
         // The will says "this actor is gone"; the catalog and live-session
         // fields are deliberately empty — a dead daemon holds no attachments.

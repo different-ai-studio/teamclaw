@@ -1,7 +1,7 @@
 use anyhow::{anyhow, Result};
 use url::Url;
 
-const LEGACY_INVITE_SCHEMES: &[&str] = &["teamclu", "amux"];
+const LEGACY_INVITE_SCHEMES: &[&str] = &["teamclu", "teamclaw", "amux"];
 
 const BLOCKED_INVITE_SCHEMES: &[&str] = &[
     "http",

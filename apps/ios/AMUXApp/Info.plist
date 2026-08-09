@@ -25,9 +25,13 @@
         <dict>
             <key>CFBundleURLName</key>
             <string>com.teamclu.invite</string>
+            <!-- teamclaw is the pre-rebrand scheme. Invite and session links
+                 already shared with teammates carry it, so the app keeps
+                 claiming it; dropping it makes those links open nothing. -->
             <key>CFBundleURLSchemes</key>
             <array>
                 <string>teamclu</string>
+                <string>teamclaw</string>
                 <string>amux</string>
             </array>
         </dict>

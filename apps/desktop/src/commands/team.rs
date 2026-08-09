@@ -31,8 +31,12 @@ pub struct TeamConfig {
     pub fc_endpoint: Option<String>,
 }
 
+/// serde default for `sharedDirName`, i.e. what a workspace config written
+/// *before* the field existed resolves to. That is a statement about directories
+/// already on disk, so it keeps the pre-rebrand spelling — changing it makes
+/// every such workspace look for a team drive that was never created.
 fn default_shared_dir_name() -> String {
-    "teamclu".to_string()
+    "teamclaw".to_string()
 }
 
 // ─── Workspace Helpers ───────────────────────────────────────────────────────

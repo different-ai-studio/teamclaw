@@ -172,7 +172,7 @@ pub fn classify_change_path(
                 .workspace_path
                 .join(TEAM_LINK_NAME)
                 .join("_secrets"),
-        ) || path.starts_with(workspace.workspace_path.join("teamclu").join("_secrets"))
+        ) || path.starts_with(workspace.workspace_path.join("teamclaw").join("_secrets"))
         {
             Some(RefreshChangeKind::EnvVars)
         } else if is_meta_skills_path(path, &workspace.workspace_path)
@@ -265,7 +265,7 @@ fn watch_roots(workspaces: &[WatchedWorkspace], home: Option<&Path>) -> Vec<Watc
             recursive: true,
         });
         roots.push(WatchRoot {
-            path: workspace.workspace_path.join("teamclu").join("_secrets"),
+            path: workspace.workspace_path.join("teamclaw").join("_secrets"),
             recursive: true,
         });
     }
@@ -559,7 +559,7 @@ mod tests {
                 RefreshChangeKind::EnvVars,
             ),
             (
-                Path::new("/tmp/ws-1/teamclu/_secrets/legacy_key.enc.json"),
+                Path::new("/tmp/ws-1/teamclaw/_secrets/legacy_key.enc.json"),
                 RefreshChangeKind::EnvVars,
             ),
         ];

@@ -388,7 +388,9 @@ public struct NewSessionSheet: View {
     }
 
     private var effectiveTeamID: String {
-        teamID.isEmpty ? "teamclu" : teamID
+        // Same wire constant as MQTTTopics.normalizedTeamID — this value ends up
+        // in the topic path, so it must not follow the brand rename.
+        MQTTTopics.normalizedTeamID(teamID)
     }
 
     /// Returns the routing actor id for the given agent actor (== its id),

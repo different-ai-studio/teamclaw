@@ -294,7 +294,7 @@ private struct InviteJoinSheet: View {
         guard !trimmed.isEmpty else { return nil }
         if let url = URL(string: trimmed),
            let scheme = url.scheme,
-           ["teamclu", "amux"].contains(scheme), url.host == "invite",
+           ["teamclu", "teamclaw", "amux"].contains(scheme), url.host == "invite",
            let comps = URLComponents(url: url, resolvingAgainstBaseURL: false),
            let token = comps.queryItems?.first(where: { $0.name == "token" })?.value,
            !token.isEmpty {

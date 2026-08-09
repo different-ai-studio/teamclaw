@@ -91,23 +91,26 @@ betly 没有声明 `identifier`，继承 `tauri.conf.json` 的默认值，所以
 一起从 `com.teamclaw.app` 变成 `com.teamclu.app`。macOS 上自动更新能跨过去（原地替换 .app），
 **Windows 不行**——NSIS 的卸载键由 identifier + productName 派生，会变成并排安装两份。
 
-### `brands/copilot361/build.config.json` — 需要一个决定
+### `brands/copilot361/build.config.json`
 
 copilot361 自带 `identifier: com.copilot361.app` 和 `shortName: copilot361`，主仓改名碰不到它。
-但它显式 pin 了：
+但它显式 pin 了 `"scheme": "teamclaw"`，已决定改成自己的品牌 scheme：
 
-```json
-"scheme": "teamclaw"
+```diff
+-    "scheme": "teamclaw",
++    "scheme": "copilot361",
 ```
 
-存量 copilot361 装机注册的就是 `teamclaw://`。三个选项：
+它本来就是独立品牌，用自己的 scheme 才对；顺带解决了 copilot361 和官方版在同一台机器上
+抢注同一个 `teamclaw://` 的冲突。
 
-1. **保持 `teamclaw`** — 存量深链继续可用，但 `teamclaw` 这个词在 copilot 用户机器上留着
-2. **改成 `teamclu`** — 与主仓一致，但旧版 copilot 的深链失效
-3. **改成 `copilot361`**（推荐）— 它本来就是独立品牌，用自己的 scheme 才对；且能解决现在
-   copilot361 和官方版在同一台机器上抢注同一个 `teamclaw://` 的冲突
+**代价**：`scripts/lib/branding.js` 的 `applyIdentityToTauriConf` 只写入**一个** scheme
+（`desktop.schemes = [app.scheme]`），所以 copilot 桌面端只能注册 `copilot361://`。发给
+copilot 用户的旧 `teamclaw://` 邀请/会话链接，从此不会再唤起 copilot。解析器已经接受旧
+scheme，但操作系统层面的 URL 路由不认——这个靠代码补不回来。
 
-无论选哪个，旧深链的失效范围都只限 copilot361，不影响主线。
+若要避免这一点，需要把 `app.scheme` 扩展成支持数组（让 copilot 同时注册
+`copilot361` 和 `teamclaw`）。目前没有做。
 
 ## 刻意没有改名的东西
 
@@ -115,9 +118,21 @@ copilot361 自带 `identifier: com.copilot361.app` 和 `shortName: copilot361`�
 
 | 位置 | 保留的字面量 | 原因 |
 |---|---|---|
+| `crates/teamclu-types/src/mqtt.rs` | `MQTT_FALLBACK_TEAM_ID = "teamclaw"` | **线上常量**。无 team 时 MQTT topic `amux/<team>/<actor>/…` 里的路径段，daemon 与 iOS App 各自独立升级。会合点没有迁移可言：一边升级一边没升的设备对会**静默**收不到对方消息。Swift 侧 `MQTTTopics.fallbackTeamID` 是镜像，必须相等 |
 | `crates/teamclu-runtime-env/src/storage_namespace.rs` | `teamclaw` / `teamclawdev` 作为 `is_official_brand()` 的 legacy 值 | betly 仍在发 `shortName: "teamclaw"`；见上 |
 | `apps/desktop/src/commands/storage_migration.rs` | `.teamclaw` / `teamclaw.json` / `teamclaw-team` | 迁移要靠这些名字找到旧数据 |
+| `apps/desktop/src/commands/team_share/disconnect.rs` | `LEGACY_TEAM_REPO = "teamclaw"` | 本来就是用来找旧目录的常量；改了永远找不到，旧目录留在用户工作区里 |
+| `apps/desktop/src/commands/team.rs` | `default_shared_dir_name() = "teamclaw"` | 缺 `sharedDirName` 字段的**旧配置**解析成什么。改了会让这些工作区去找一个从未创建过的团队盘 |
+| `crates/teamclu-runtime-env/src/env_catalog.rs` | `workspace/teamclaw/_secrets` 候选路径 | 团队密钥的 legacy 目录 |
+| `apps/desktop/src/commands/server_config.rs` | `deprecated_config_paths()` 里的 `teamclaw` | 顾名思义，是待清理的旧路径 |
+| `apps/daemon/src/runtime/refresh_watch.rs` | `workspace/teamclaw/_secrets` watch root | 同上 |
+| `packages/app/src/lib/{invite,session}-deeplink.ts`、iOS `Info.plist` / 三处 scheme 数组 | 接受 `teamclaw://` | 已经发给同事的邀请/会话链接带的就是旧 scheme |
 | `packages/app/src/lib/auth/session-store.ts` | `teamclaw.session.v1` | 首次读取时改键；改掉等于把所有用户登出 |
+
+`~/.amuxd/teamclaw/`（daemon 的会话/消息/想法存储）没有沿用旧名，而是**做了迁移**：
+`apps/daemon/src/teamclu/mod.rs` 的 `migrate_rebrand_state_dir()` 在第一次读取前把整个目录搬到
+`~/.amuxd/teamclu/`。桌面端那个迁移够不到这里——它管的是 `~/.teamclaw` 和工作区元数据，
+而这棵树在 daemon 自己的 home 下。少了它，改名会让每台已有设备看起来**没有任何历史记录**。
 
 ## 切换后的验证
 

@@ -1,3 +1,16 @@
+/// Team-id stand-in used in MQTT topics when the device has no team yet.
+///
+/// This is a wire constant, not a brand string: it is a path segment in
+/// `amux/<team>/<actor>/…` that a desktop daemon and an iOS app — which update
+/// independently of each other — have to agree on. The teamclaw → teamclu
+/// rebrand deliberately did not touch it. There is no migration available for a
+/// rendezvous point (unlike on-disk state, neither side can rewrite the other),
+/// so renaming it would silently stop every mixed-version, team-less device pair
+/// from seeing each other's messages — no error, just silence.
+///
+/// The Swift mirror is `MQTTTopics.normalizedTeamID`; the two must stay equal.
+pub const MQTT_FALLBACK_TEAM_ID: &str = "teamclaw";
+
 /// Builds MQTT topic paths for a given team-scoped actor namespace.
 #[derive(Clone, Debug)]
 pub struct Topics {

@@ -14,6 +14,7 @@
 
 use async_nats::{Client, ConnectOptions};
 use std::sync::Arc;
+use teamclu_types::mqtt::MQTT_FALLBACK_TEAM_ID;
 use teamclu_transport::nats::NatsClient;
 use teamclu_transport::{DeliveryGuarantee, IncomingFrame, MessagePublisher};
 use tokio::sync::mpsc;
@@ -53,7 +54,7 @@ impl NatsBackend {
         let retained = RetainedKv::ensure(&raw).await?;
 
         let (client, inbound) = NatsClient::new(raw);
-        let team_id = config.team_id.as_deref().unwrap_or("teamclu");
+        let team_id = config.team_id.as_deref().unwrap_or(MQTT_FALLBACK_TEAM_ID);
         let topics = Topics::new(team_id, &config.actor.id);
 
         Ok(Self {
