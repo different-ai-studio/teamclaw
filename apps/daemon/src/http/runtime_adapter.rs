@@ -624,9 +624,10 @@ impl RuntimeManagerAdapter {
     ) -> Result<String, HttpError> {
         #[cfg(test)]
         {
-            let runtime_id = format!("rt-{}", &session_id.to_string()[..8]);
+            // The attachment key is the session (ADR-0004).
+            let runtime_id = session_id.to_string();
             let mut manager = self.manager.lock().await;
-            manager.add_test_runtime(&runtime_id, &runtime_id, &session_id.to_string());
+            manager.add_test_runtime(&runtime_id);
             let startup_prompt = initial_prompt.clone();
             let event_tx = if let Some(handle) = manager.get_handle_mut(&runtime_id) {
                 handle.agent_type = agent_type;
@@ -680,7 +681,7 @@ impl RuntimeManagerAdapter {
                     initial_prompt.as_deref().unwrap_or(""),
                     workspace_id.as_deref().unwrap_or(""),
                     None,
-                    Some(&session_id.to_string()),
+                    &session_id.to_string(),
                     model,
                     None,
                     None,

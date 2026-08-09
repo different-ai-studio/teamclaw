@@ -24,15 +24,13 @@ struct ApplyTimelineInputFastPathTests {
         // to absorb → reducer returns .streamingBufferOnly too (no entries).
         var first = Amux_AcpEvent()
         first.event = .output(makeOutput(text: "Hel", isComplete: false))
-        vm._testApplyAcp(first, sequence: 1, runtimeID: "rt-1",
-                         agentBucketKey: "agent-1", modelContext: ctx)
+        vm._testApplyAcp(first, sequence: 1, agentBucketKey: "agent-1", modelContext: ctx)
         let afterFirst = SessionDetailViewModel._testFastPathSkipCount
 
         // Second delta — bucket already in set, pure buffer append.
         var second = Amux_AcpEvent()
         second.event = .output(makeOutput(text: "lo", isComplete: false))
-        vm._testApplyAcp(second, sequence: 2, runtimeID: "rt-1",
-                         agentBucketKey: "agent-1", modelContext: ctx)
+        vm._testApplyAcp(second, sequence: 2, agentBucketKey: "agent-1", modelContext: ctx)
 
         #expect(SessionDetailViewModel._testFastPathSkipCount == afterFirst + 1)
         // The @Observable mirror is throttled on the fast path; the
@@ -55,12 +53,10 @@ struct ApplyTimelineInputFastPathTests {
 
         var first = Amux_AcpEvent()
         first.event = .output(makeOutput(text: "Hel", isComplete: false))
-        vm._testApplyAcp(first, sequence: 1, runtimeID: "rt-1",
-                         agentBucketKey: "agent-1", modelContext: ctx)
+        vm._testApplyAcp(first, sequence: 1, agentBucketKey: "agent-1", modelContext: ctx)
         var second = Amux_AcpEvent()
         second.event = .output(makeOutput(text: "lo", isComplete: false))
-        vm._testApplyAcp(second, sequence: 2, runtimeID: "rt-1",
-                         agentBucketKey: "agent-1", modelContext: ctx)
+        vm._testApplyAcp(second, sequence: 2, agentBucketKey: "agent-1", modelContext: ctx)
 
         // Flush interval is 100ms; poll up to 1s to keep CI tolerant.
         for _ in 0..<20 where vm.streamingTextByAgent["agent-1"] != "Hello" {
@@ -83,14 +79,12 @@ struct ApplyTimelineInputFastPathTests {
 
         var delta = Amux_AcpEvent()
         delta.event = .output(makeOutput(text: "Hel", isComplete: false))
-        vm._testApplyAcp(delta, sequence: 1, runtimeID: "rt-1",
-                         agentBucketKey: "agent-1", modelContext: ctx)
+        vm._testApplyAcp(delta, sequence: 1, agentBucketKey: "agent-1", modelContext: ctx)
         let afterDelta = SessionDetailViewModel._testFastPathSkipCount
 
         var complete = Amux_AcpEvent()
         complete.event = .output(makeOutput(text: "Hello, world", isComplete: true))
-        vm._testApplyAcp(complete, sequence: 2, runtimeID: "rt-1",
-                         agentBucketKey: "agent-1", modelContext: ctx)
+        vm._testApplyAcp(complete, sequence: 2, agentBucketKey: "agent-1", modelContext: ctx)
 
         // Counter must not have moved — complete output takes the
         // entriesChanged path, not the streamingBufferOnly fast path.

@@ -881,22 +881,6 @@ private struct CloudSessionFull: Decodable, Sendable {
     let updatedAt: String?
 }
 
-private struct CloudAgentRuntime: Decodable, Sendable {
-    let id: String
-    let teamId: String
-    let agentId: String
-    let sessionId: String?
-    let workspaceId: String?
-    let backendType: String
-    let status: String
-    let backendSessionId: String?
-    let runtimeId: String?
-    let currentModel: String?
-    let lastSeenAt: String?
-    let createdAt: String
-    let updatedAt: String
-}
-
 private struct CloudSessionCreateRequest: Encodable, Sendable {
     let id: String
     let teamId: String

@@ -75,12 +75,6 @@ pub struct RuntimeHandle {
     pub next_prompt_context: String,
     /// How static workspace instructions are delivered for this runtime.
     pub instruction_delivery: InstructionDelivery,
-    /// Backend `agent_runtimes.id` for this runtime row. Used to PATCH
-    /// `last_processed_message_id` via `update_runtime_cursor`.
-    ///
-    /// TODO(task9): capture and store the returned row id from
-    /// `upsert_agent_runtime` once that helper returns it.
-    pub backend_runtime_row_id: Option<String>,
     /// Models the local backend reported for this runtime (startup /
     /// `list_models` probe, then cached on the handle). Empty until the live
     /// catalog is advertised — there is no static fallback table.
@@ -144,7 +138,6 @@ impl RuntimeHandle {
             injected_context: Vec::new(),
             next_prompt_context: String::new(),
             instruction_delivery: InstructionDelivery::BufferedInject,
-            backend_runtime_row_id: None,
             last_processed_message_id: None,
             pending_reply_to_message_id: None,
             available_models: Vec::new(),
@@ -415,7 +408,6 @@ impl RuntimeHandle {
             injected_context: Vec::new(),
             next_prompt_context: String::new(),
             instruction_delivery: InstructionDelivery::BufferedInject,
-            backend_runtime_row_id: None,
             last_processed_message_id: None,
             pending_reply_to_message_id: None,
             available_models: Vec::new(),

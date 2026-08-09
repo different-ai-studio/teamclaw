@@ -42,26 +42,8 @@ public enum MQTTTopics {
         "\(actorBase(teamID: teamID, actorID: actorID))/state"
     }
 
-    /// Per-runtime retained state. Payload is the same `Amux_RuntimeInfo` that
-    /// `agentState(...)` carries — only the wire path differs.
-    public static func runtimeState(teamID: String, actorID: String, runtimeID: String) -> String {
-        "\(actorBase(teamID: teamID, actorID: actorID))/runtime/\(runtimeID)/state"
-    }
-
-    public static func runtimeStateWildcard(teamID: String, actorID: String) -> String {
-        "\(actorBase(teamID: teamID, actorID: actorID))/runtime/+/state"
-    }
-
-    public static func runtimeStatePrefix(teamID: String, actorID: String) -> String {
-        "\(actorBase(teamID: teamID, actorID: actorID))/runtime/"
-    }
-
     public static func runtimeCommands(teamID: String, actorID: String, runtimeID: String) -> String {
         "\(actorBase(teamID: teamID, actorID: actorID))/runtime/\(runtimeID)/commands"
-    }
-
-    public static func runtimeCommandsWildcard(teamID: String, actorID: String) -> String {
-        "\(actorBase(teamID: teamID, actorID: actorID))/runtime/+/commands"
     }
 
     /// Team-scoped user notify channel. Requires broker JWT auth before use

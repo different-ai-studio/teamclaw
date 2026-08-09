@@ -615,7 +615,7 @@ impl DaemonServer {
                 "",
                 &ws_id,
                 (!ws_id.is_empty()).then_some(ws_id.as_str()),
-                session_id_opt,
+                session_id,
                 initial_model_override,
                 mcp_config_path,
                 resume_acp_session_id,
@@ -746,8 +746,8 @@ impl DaemonServer {
         // Uses Option B (event loop hook is not needed here because
         // apply_start_runtime already has `&mut self` access and runs
         // synchronously after start_runtime returns). This is the cleanest
-        // insertion point — the handle is fully populated (session_id,
-        // backend_runtime_row_id) and state is ACTIVE.
+        // insertion point — the handle is fully populated (session_id)
+        // and state is ACTIVE.
         self.catchup_runtime(&new_id).await;
 
         if remote_mcp_ready {
@@ -768,14 +768,29 @@ impl DaemonServer {
     ) -> crate::proto::teamclaw::RpcResponse {
         use crate::proto::teamclaw::{rpc_response, RpcResponse, RuntimeStopResult};
 
-        let runtime_id = stop.runtime_id.clone();
-        if runtime_id.is_empty() {
+        let addressed = stop.runtime_id.clone();
+        if addressed.is_empty() {
             return reject_stop(request, "runtime_id required");
         }
 
-        // Reject if runtime is not known.
-        if self.agents.lock().await.get_handle(&runtime_id).is_none() {
-            return reject_stop(request, &format!("unknown runtime_id: {}", runtime_id));
+        // The address may be a spawn key, a cloud session id, or the
+        // `{actor}::{session}` composite (ADR-0004). Resolve before touching
+        // the handle — `agents` is still keyed by the per-spawn id, which no
+        // topic broadcasts any more, so clients cannot address by it.
+        let resolve_actor = request.requester_actor_id.trim();
+        let resolved = {
+            let agents = self.agents.lock().await;
+            agents.resolve_command_agent_id(&addressed, resolve_actor)
+        };
+        let Some(runtime_id) = resolved else {
+            return reject_stop(request, &format!("unknown runtime address: {}", addressed));
+        };
+        if runtime_id != addressed {
+            info!(
+                %addressed,
+                %runtime_id,
+                "resolved runtime stop address to spawn key"
+            );
         }
 
         // Terminate via RuntimeManager (same path as AcpCommand::StopAgent).
@@ -897,13 +912,33 @@ impl DaemonServer {
     ) -> crate::proto::teamclaw::RpcResponse {
         use crate::proto::teamclaw::{rpc_response, RpcResponse, SetModelResult};
 
-        let runtime_id = set.runtime_id.clone();
+        let addressed = set.runtime_id.clone();
         let model_id = set.model_id.clone();
-        if runtime_id.is_empty() {
+        if addressed.is_empty() {
             return reject_set_model(request, "runtime_id required");
         }
         if model_id.is_empty() {
             return reject_set_model(request, "model_id required");
+        }
+
+        // Same addressing contract as stop/cancel: spawn key, cloud session
+        // id, or `{actor}::{session}` composite (ADR-0004). Without this the
+        // raw map lookup in `send_set_model` fails for every client, because
+        // the per-spawn key is no longer published anywhere.
+        let resolve_actor = request.requester_actor_id.trim();
+        let resolved = {
+            let agents = self.agents.lock().await;
+            agents.resolve_command_agent_id(&addressed, resolve_actor)
+        };
+        let Some(runtime_id) = resolved else {
+            return reject_set_model(request, &format!("unknown runtime address: {}", addressed));
+        };
+        if runtime_id != addressed {
+            info!(
+                %addressed,
+                %runtime_id,
+                "resolved set-model address to spawn key"
+            );
         }
 
         let result = self

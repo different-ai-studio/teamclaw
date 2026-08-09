@@ -470,7 +470,7 @@ public final class AppOnboardingCoordinator {
     /// otherwise.
     public func signOutAndWipeCache(modelContext: ModelContext) async {
         do {
-            try modelContext.delete(model: Runtime.self)
+            try modelContext.delete(model: AgentAttachment.self)
             try modelContext.delete(model: AgentEvent.self)
             try modelContext.delete(model: CachedActor.self)
             try modelContext.delete(model: Workspace.self)

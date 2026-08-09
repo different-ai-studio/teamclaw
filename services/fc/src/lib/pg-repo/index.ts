@@ -11,7 +11,7 @@ import { makeShortcutsRepo } from "./shortcuts.js";
 import { makeActorsRepo } from "./actors.js";
 import { makeAgentsRepo } from "./agents.js";
 import { makeAppsRepo, type AppsRepoDeps } from "./apps.js";
-import { makeRuntimeRepo } from "./runtime.js";
+import { makeHeartbeatRepo } from "./heartbeat.js";
 import { makeNotificationsRepo } from "./notifications.js";
 import { makeTelemetryRepo } from "./telemetry.js";
 import { makeAttachmentsRepo } from "./attachments.js";
@@ -44,7 +44,7 @@ export function createPgBusinessRepository({ db, accessToken, userId, callerActo
   const actorsRepo = makeActorsRepo(db, ctx);
   const agentsRepo = makeAgentsRepo(db, ctx);
   const appsRepo = makeAppsRepo(db, ctx, { startDeploy, finalizeDeploy });
-  const runtimeRepo = makeRuntimeRepo(db, ctx);
+  const heartbeatRepo = makeHeartbeatRepo(db, ctx);
   const notificationsRepo = makeNotificationsRepo(db, ctx);
   const telemetryRepo = makeTelemetryRepo(db, ctx);
   const teamSkillsRepo = makeTeamSkillsRepo(db, ctx);
@@ -62,7 +62,7 @@ export function createPgBusinessRepository({ db, accessToken, userId, callerActo
     ...actorsRepo,
     ...agentsRepo,
     ...appsRepo,
-    ...runtimeRepo,
+    ...heartbeatRepo,
     ...notificationsRepo,
     ...telemetryRepo,
     ...teamSkillsRepo,

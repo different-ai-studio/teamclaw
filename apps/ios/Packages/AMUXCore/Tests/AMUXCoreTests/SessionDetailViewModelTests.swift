@@ -18,10 +18,9 @@ final class SessionDetailViewModelTests: XCTestCase {
             displayName: actorID,
             workspacePath: "",
             agentType: "Claude",
-            runtimeState: .ready,
+            lifecycleState: .ready,
             availableModels: [],
             currentModel: nil,
-            runtimeID: runtimeID,
             workspaceID: nil,
             backendType: "claude"
         )
@@ -29,7 +28,7 @@ final class SessionDetailViewModelTests: XCTestCase {
 
     func testStartPrunesPersistedSameAgentOutputPrefixDuplicate() async throws {
         let container = try ModelContainer(
-            for: Session.self, Runtime.self, AgentEvent.self,
+            for: Session.self, AgentAttachment.self, AgentEvent.self,
             configurations: ModelConfiguration(isStoredInMemoryOnly: true)
         )
         let context = container.mainContext
@@ -83,7 +82,7 @@ final class SessionDetailViewModelTests: XCTestCase {
         )
         let teamclawService = TeamclawService()
         let container = try ModelContainer(
-            for: Session.self, Runtime.self, AgentEvent.self,
+            for: Session.self, AgentAttachment.self, AgentEvent.self,
             configurations: ModelConfiguration(isStoredInMemoryOnly: true)
         )
         teamclawService.configureRuntimeForTesting(
@@ -96,11 +95,8 @@ final class SessionDetailViewModelTests: XCTestCase {
 
         let session = Session(sessionId: "session-1", teamId: "team-1")
         session.primaryAgentId = "agent-actor-1"
-        let placeholder = Runtime(runtimeId: "agent-actor-1")
-        placeholder.routeActorID = "daemon-device-1"
 
         let viewModel = SessionDetailViewModel(
-            runtime: placeholder,
             mqtt: mqtt,
             hub: MQTTMessageHub(mqtt: mqtt),
             teamID: "team-1",
@@ -133,11 +129,9 @@ final class SessionDetailViewModelTests: XCTestCase {
 
         let session = Session(sessionId: "session-1", teamId: "team-1")
         session.primaryAgentId = "agent-primary"
-        let primaryRuntime = Runtime(runtimeId: "rt-primary")
-        primaryRuntime.routeActorID = "daemon-device-1"
 
         let viewModel = SessionDetailViewModel(
-            runtime: primaryRuntime,
+            runtime: nil,
             mqtt: mqtt,
             hub: MQTTMessageHub(mqtt: mqtt),
             teamID: "team-1",
@@ -157,10 +151,17 @@ final class SessionDetailViewModelTests: XCTestCase {
         XCTAssertFalse(retain)
         XCTAssertEqual(
             topic,
-            MQTTTopics.runtimeCommands(teamID: "team-1", actorID: "daemon-device-1", runtimeID: "rt-secondary")
+            // Commands go to the agent actor's own namespace, addressed
+            // `{actor}::{session}`. The daemon resolves that to its internal
+            // spawn key — which it never publishes, so no client can name it.
+            MQTTTopics.runtimeCommands(
+                teamID: "team-1",
+                actorID: "agent-secondary",
+                runtimeID: "agent-secondary::session-1"
+            )
         )
         let envelope = try Amux_RuntimeCommandEnvelope(serializedBytes: data)
-        XCTAssertEqual(envelope.runtimeID, "rt-secondary")
+        XCTAssertEqual(envelope.runtimeID, "agent-secondary::session-1")
         if case .grantPermission(let grant) = envelope.acpCommand.command {
             XCTAssertEqual(grant.requestID, "perm-1")
         } else {
@@ -178,7 +179,7 @@ final class SessionDetailViewModelTests: XCTestCase {
             }
         )
         let container = try ModelContainer(
-            for: Session.self, Runtime.self, AgentEvent.self,
+            for: Session.self, AgentAttachment.self, AgentEvent.self,
             configurations: ModelConfiguration(isStoredInMemoryOnly: true)
         )
         let context = container.mainContext
@@ -187,9 +188,6 @@ final class SessionDetailViewModelTests: XCTestCase {
         session.primaryAgentId = "agent-secondary"
         context.insert(session)
 
-        let secondaryRuntime = Runtime(runtimeId: "rt-secondary")
-        secondaryRuntime.routeActorID = "daemon-device-2"
-        context.insert(secondaryRuntime)
         try context.save()
 
         let viewModel = SessionDetailViewModel(
@@ -214,10 +212,14 @@ final class SessionDetailViewModelTests: XCTestCase {
         XCTAssertFalse(retain)
         XCTAssertEqual(
             topic,
-            MQTTTopics.runtimeCommands(teamID: "team-1", actorID: "daemon-device-2", runtimeID: "rt-secondary")
+            MQTTTopics.runtimeCommands(
+                teamID: "team-1",
+                actorID: "agent-secondary",
+                runtimeID: "agent-secondary::session-1"
+            )
         )
         let envelope = try Amux_RuntimeCommandEnvelope(serializedBytes: data)
-        XCTAssertEqual(envelope.runtimeID, "rt-secondary")
+        XCTAssertEqual(envelope.runtimeID, "agent-secondary::session-1")
         if case .grantPermission(let grant) = envelope.acpCommand.command {
             XCTAssertEqual(grant.requestID, "perm-2")
         } else {
@@ -243,7 +245,7 @@ final class SessionDetailViewModelTests: XCTestCase {
         )
         let teamclawService = TeamclawService()
         let container = try ModelContainer(
-            for: Session.self, Runtime.self, AgentEvent.self,
+            for: Session.self, AgentAttachment.self, AgentEvent.self,
             configurations: ModelConfiguration(isStoredInMemoryOnly: true)
         )
         teamclawService.configureRuntimeForTesting(
@@ -258,13 +260,10 @@ final class SessionDetailViewModelTests: XCTestCase {
         let session = Session(sessionId: "session-1", teamId: "team-1")
         session.primaryAgentId = "agent-actor-1"
         context.insert(session)
-        let agentRuntime = Runtime(runtimeId: "agent-actor-1")
-        agentRuntime.routeActorID = "daemon-device-1"
-        context.insert(agentRuntime)
         try context.save()
 
         let viewModel = SessionDetailViewModel(
-            runtime: agentRuntime,
+            runtime: nil,
             mqtt: mqtt,
             hub: MQTTMessageHub(mqtt: mqtt),
             teamID: "team-1",
@@ -312,7 +311,7 @@ final class SessionDetailViewModelTests: XCTestCase {
         )
         let teamclawService = TeamclawService()
         let container = try ModelContainer(
-            for: Session.self, Runtime.self, AgentEvent.self,
+            for: Session.self, AgentAttachment.self, AgentEvent.self,
             configurations: ModelConfiguration(isStoredInMemoryOnly: true)
         )
         teamclawService.configureRuntimeForTesting(
@@ -327,9 +326,6 @@ final class SessionDetailViewModelTests: XCTestCase {
         let session = Session(sessionId: "session-1", teamId: "team-1")
         session.primaryAgentId = "agent-actor-1"
         context.insert(session)
-        let agentRuntime = Runtime(runtimeId: "rt-mini-1")
-        agentRuntime.routeActorID = "daemon-device-1"
-        context.insert(agentRuntime)
         try context.save()
 
         let viewModel = SessionDetailViewModel(
@@ -356,16 +352,16 @@ final class SessionDetailViewModelTests: XCTestCase {
             snapshot.first?.0,
             MQTTTopics.runtimeCommands(
                 teamID: "team-1",
-                actorID: "daemon-device-1",
-                runtimeID: "rt-mini-1"
+                actorID: "agent-actor-1",
+                runtimeID: "agent-actor-1::session-1"
             )
         )
         XCTAssertFalse(snapshot.first?.2 ?? true)
 
         let payload = try XCTUnwrap(snapshot.first?.1)
         let envelope = try Amux_RuntimeCommandEnvelope(serializedBytes: payload)
-        XCTAssertEqual(envelope.runtimeID, "rt-mini-1")
-        XCTAssertEqual(envelope.actorID, "daemon-device-1")
+        XCTAssertEqual(envelope.runtimeID, "agent-actor-1::session-1")
+        XCTAssertEqual(envelope.actorID, "agent-actor-1")
         XCTAssertEqual(envelope.senderActorID, "human-1")
         guard case .cancel = envelope.acpCommand.command else {
             return XCTFail("expected AcpCancel command")

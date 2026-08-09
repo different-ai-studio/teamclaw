@@ -209,7 +209,7 @@ struct SessionListContent: View {
 
     @ViewBuilder
     private func sessionRow(_ session: Session) -> some View {
-        let runtime = liveRuntime(for: session)
+        let runtime = liveAttachment(for: session)
         HStack(spacing: 10) {
             if isEditing {
                 Image(systemName: selectedIDs.contains(session.sessionId) ? "checkmark.circle.fill" : "circle")
@@ -230,9 +230,7 @@ struct SessionListContent: View {
             if isEditing {
                 toggleSelection(session.sessionId)
             } else {
-                if let runtimeId = runtime?.runtimeId {
-                    viewModel.markAsRead(runtimeId: runtimeId)
-                }
+                viewModel.markAsRead(sessionId: session.sessionId)
                 navigationPath.append("session:\(session.sessionId)")
             }
         }
@@ -295,29 +293,23 @@ struct SessionListContent: View {
         }
     }
 
-    /// The `Runtime` snapshot serving this session.
+    /// The attachment serving this session, or nil when it is cold.
     ///
-    /// Resolves by session id: `ActorPresence.live_sessions` is keyed that way,
-    /// and exactly one attachment serves a session at a time. The old path went
-    /// through a spawn id that went stale the moment it was written down, which
-    /// is what made a cancel land on a dead runtime
-    /// (docs/debug/interrupt-agent-stale-runtime.md).
-    private func liveRuntime(for session: Session) -> Runtime? {
-        // Rows are keyed (actor, session); a session whose agents live on two
-        // machines has one row per machine. The list row shows one, so take the
-        // most recently active. A row that has never reported an event sorts
-        // last rather than crashing the comparison.
-        let suffix = "::\(session.sessionId)"
-        return viewModel.runtimes
-            .filter { $0.runtimeId.hasSuffix(suffix) }
+    /// Rows are keyed (actor, session); a session whose agents live on two
+    /// machines has one row per machine. The list row shows one, so take the
+    /// most recently active. A row that has never reported an event sorts
+    /// last rather than crashing the comparison.
+    private func liveAttachment(for session: Session) -> AgentAttachment? {
+        viewModel.attachments
+            .filter { $0.sessionID == session.sessionId }
             .max(by: { ($0.lastEventTime ?? .distantPast) < ($1.lastEventTime ?? .distantPast) })
     }
 
     /// Prefers the live runtime's workspace: it comes from the attachment the
     /// daemon currently holds, where the cached row may describe a spawn that
     /// has since been replaced.
-    private func workspaceName(runtime: Runtime?) -> String {
-        guard let id = runtime?.workspaceId, !id.isEmpty else { return "" }
+    private func workspaceName(runtime: AgentAttachment?) -> String {
+        guard let id = runtime?.workspaceID, !id.isEmpty else { return "" }
         return viewModel.workspaces.first(where: { $0.workspaceId == id })?.displayName ?? ""
     }
 
@@ -331,14 +323,14 @@ struct SessionListContent: View {
 
 struct AgentRowView: View {
     let session: Session
-    let runtime: Runtime?
+    let runtime: AgentAttachment?
     let workspaceName: String
     let participants: [ParticipantPreview]
     let isMuted: Bool
 
     init(
         session: Session,
-        runtime: Runtime? = nil,
+        runtime: AgentAttachment? = nil,
         workspaceName: String = "",
         participants: [ParticipantPreview] = [],
         isMuted: Bool = false
@@ -355,17 +347,14 @@ struct AgentRowView: View {
     }
 
     private var lastMessage: String { session.lastMessagePreview }
-    // Two distinct unread signals:
-    //   - runtime.hasUnread: this client noticed new agent output it hasn't shown
-    //   - session.hasUnread: server says a peer's message arrived since last view
-    //                         (computed by list_current_actor_sessions from
-    //                          session_read_markers + sessions.last_message_at)
-    // Either is sufficient to surface a red dot.
-    private var isUnread: Bool { (runtime?.hasUnread ?? false) || session.hasUnread }
+    // Server-computed: `list_current_actor_sessions` derives it from
+    // session_read_markers + sessions.last_message_at. The old client-side
+    // signal rode on `lastOutputSummary`/`toolUseCount` deltas, which the
+    // actor retain does not carry (ADR-0004), so this is the only source now.
+    private var isUnread: Bool { session.hasUnread }
 
-    // No `agent_runtimes` fallback behind these any more: absence of a live
-    // Runtime row means the session is cold, which is exactly what the neutral
-    // rendering below says.
+    // Absence of an attachment means the session is cold, which is exactly what
+    // the neutral rendering below says.
     private var isRunning: Bool { runtime?.status == 2 }
     private var isStarting: Bool { runtime?.status == 1 }
     private var isStopped: Bool { runtime?.status == 5 }
@@ -401,8 +390,8 @@ struct AgentRowView: View {
 
     private var agentBadge: AgentBadge {
         let bg = Color.amux.pebble
-        // Backend now comes off the live Runtime row's Amux_AgentType raw
-        // value, which the actor retain fills from the actor's active backend.
+        // Backend comes off the attachment's Amux_AgentType raw value, which
+        // the actor retain fills from the actor's active backend.
         switch runtime?.agentType {
         case 1:
             return AgentBadge(background: bg, foreground: Color.amux.cinnabar, glyph: "CC")

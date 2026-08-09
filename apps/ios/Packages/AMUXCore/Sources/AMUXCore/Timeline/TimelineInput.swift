@@ -51,19 +51,15 @@ public enum TimelineInput: Sendable {
 
 // MARK: - Per-variant payloads
 
-/// Daemon-side ACP event. Carries the originating `runtimeID` plus the
-/// `agentBucketKey` already resolved at the boundary (mapping from
-/// `runtimeID` → owning agent actor id when known, otherwise the
-/// runtime id itself). Reducer never re-runs the resolution.
+/// Daemon-side ACP event, bucketed by the producing agent's actor id —
+/// `Envelope.actor_id`, which is stable across restarts and matches the
+/// `sender_actor_id` the daemon persists for the same turn.
 public struct AcpInput: Sendable {
     /// Monotonic per-runtime sequence stamped by the daemon. Fallback
     /// dedupe / ordering key. Not stable across daemon restarts — see
     /// `turnID` for the cross-restart identity used to dedupe completion
     /// outputs.
     public let envelopeSequence: UInt64
-    /// Daemon-side runtime id; may be empty for legacy session-event
-    /// paths that pre-date per-runtime stamping.
-    public let runtimeID: String
     /// Stable per-agent bucket used for streaming buffers, final-event
     /// attribution, and the active-stream card. Resolved at the boundary
     /// so the reducer doesn't depend on `memberSheetAgents`.
@@ -85,13 +81,11 @@ public struct AcpInput: Sendable {
     public let acpEvent: Amux_AcpEvent
 
     public init(envelopeSequence: UInt64,
-                runtimeID: String,
                 agentBucketKey: String,
                 timestamp: Date,
                 turnID: String? = nil,
                 acpEvent: Amux_AcpEvent) {
         self.envelopeSequence = envelopeSequence
-        self.runtimeID = runtimeID
         self.agentBucketKey = agentBucketKey
         self.timestamp = timestamp
         self.turnID = turnID
@@ -240,7 +234,7 @@ public struct PermissionResolutionInput: Sendable {
 // permutation of inputs that share a logical ordering. The ordering key
 // per variant:
 //
-//   - `.acp`           → (runtimeID, envelopeSequence) primary;
+//   - `.acp`           → (agentBucketKey, envelopeSequence) primary;
 //                        `timestamp` tiebreaker when sequence==0.
 //   - `.liveMessage`   → `createdAt`.
 //   - `.historyMessage`→ `createdAt`.
@@ -250,7 +244,7 @@ public struct PermissionResolutionInput: Sendable {
 //
 // Across variants, the canonical ordering is:
 //
-//   1. ACP events sorted by `(runtimeID, envelopeSequence)`, then
+//   1. ACP events sorted by `(agentBucketKey, envelopeSequence)`, then
 //      tiebroken by `timestamp`.
 //   2. Cross-variant messages (live, history, local prompt) interleaved
 //      by `createdAt`.
@@ -266,7 +260,7 @@ public struct PermissionResolutionInput: Sendable {
 //
 // ## Identity / dedupe
 //
-//   - `.acp`           → `(runtimeID, envelopeSequence)` is the
+//   - `.acp`           → `(agentBucketKey, envelopeSequence)` is the
 //                        replay-dedupe key. Same (runtime, sequence)
 //                        applied twice is a no-op.
 //   - `.liveMessage`   → `messageID`.

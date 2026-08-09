@@ -45,27 +45,6 @@ impl<'a> Publisher<'a> {
             .await
     }
 
-    /// Publishes RuntimeInfo to the retained runtime/{id}/state topic.
-    pub async fn publish_runtime_state(
-        &self,
-        agent_id: &str,
-        info: &amux::RuntimeInfo,
-    ) -> Result<(), teamclaw_transport::PublisherError> {
-        let payload = info.encode_to_vec();
-        self.publish_message(self.topics.runtime_state(agent_id), true, payload)
-            .await
-    }
-
-    /// Clears retained state on runtime/{id}/state. Otherwise subscribers
-    /// would see ghost state after runtime termination.
-    pub async fn clear_runtime_state(
-        &self,
-        agent_id: &str,
-    ) -> Result<(), teamclaw_transport::PublisherError> {
-        self.publish_message(self.topics.runtime_state(agent_id), true, Vec::<u8>::new())
-            .await
-    }
-
     /// Publishes ActorPresence (online/offline) to the retained
     /// amux/{team}/{actor}/state topic. The legacy /status topic was retired
     /// and LWT retargeted here, so this is the single authoritative retained
@@ -77,27 +56,6 @@ impl<'a> Publisher<'a> {
         let payload = state.encode_to_vec();
         self.publish_message(self.topics.actor_state(), true, payload)
             .await
-    }
-
-    /// Publishes RuntimeInfo with state=FAILED and populated error fields
-    /// to the retained runtime/{id}/state topic. The retain stays until a
-    /// future clear — iOS surfaces the error_message to the user.
-    pub async fn publish_runtime_failed(
-        &self,
-        runtime_id: &str,
-        error_code: &str,
-        error_message: &str,
-        failed_stage: &str,
-    ) -> Result<(), teamclaw_transport::PublisherError> {
-        let info = crate::proto::amux::RuntimeInfo {
-            runtime_id: runtime_id.to_string(),
-            state: crate::proto::amux::RuntimeLifecycle::Failed as i32,
-            error_code: error_code.to_string(),
-            error_message: error_message.to_string(),
-            failed_stage: failed_stage.to_string(),
-            ..Default::default()
-        };
-        self.publish_runtime_state(runtime_id, &info).await
     }
 
     /// Publishes a Notify hint to the daemon's own actor notify topic

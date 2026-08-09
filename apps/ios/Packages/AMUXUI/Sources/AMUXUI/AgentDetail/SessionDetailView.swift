@@ -52,26 +52,6 @@ public struct SessionDetailView: View {
 
     let connectedAgentsStore: ConnectedAgentsStore?
 
-    public init(runtime: Runtime, mqtt: MQTTService, hub: MQTTMessageHub, peerId: String,
-                connectedAgentsStore: ConnectedAgentsStore? = nil,
-                messagesRepository: (any MessagesRepository)? = nil,
-                workspacesRepository: (any WorkspaceRepository)? = nil,
-                sessionsRepository: (any SessionRepository)? = nil,
-                pushPrefs: (any PushPreferencesAPI)? = nil,
-                notificationPrefsStore: NotificationPrefsStore? = nil) {
-        _viewModel = State(initialValue: SessionDetailViewModel(
-            runtime: runtime, mqtt: mqtt, hub: hub, peerId: peerId,
-            connectedAgentsStore: connectedAgentsStore,
-            sessionsRepository: sessionsRepository,
-            messagesRepository: messagesRepository,
-            workspacesRepository: workspacesRepository))
-        self.connectedAgentsStore = connectedAgentsStore
-        self.pendingTeamclawService = nil
-        self.pushPrefs = pushPrefs
-        self.notificationPrefsStore = notificationPrefsStore
-        self.workspacesRepository = workspacesRepository
-    }
-
     public init(session: Session, mqtt: MQTTService, hub: MQTTMessageHub, peerId: String,
                 teamclawService: TeamclawService?,
                 connectedAgentsStore: ConnectedAgentsStore? = nil,
@@ -330,7 +310,7 @@ public struct SessionDetailView: View {
                         AgentChipBar.AgentChip(
                             id: a.id,
                             displayName: a.displayName,
-                            runtimeState: AgentChipBar.RuntimeChipState.fromCore(a.runtimeState)
+                            lifecycleState: AgentChipBar.LifecycleChipState.fromCore(a.lifecycleState)
                         )
                     },
                     agentChipSelection: Binding(
@@ -342,7 +322,7 @@ public struct SessionDetailView: View {
                         viewModel.interruptAgent(agentID)
                     },
                     memberSheetAgents: viewModel.memberSheetAgents,
-                    runtimeForAgent: viewModel.runtime(for:),
+                    attachmentForAgent: viewModel.attachment(for:),
                     onApplyModelForAgent: { agent, modelID in
                         viewModel.setModel(forAgent: agent.id, model: modelID)
                     },
@@ -385,13 +365,13 @@ public struct SessionDetailView: View {
                         displayName: row.displayName,
                         workspacePath: row.workspacePath,
                         agentType: row.agentType,
-                        runtimeState: AgentChipBar.RuntimeChipState.fromCore(row.runtimeState),
+                        lifecycleState: AgentChipBar.LifecycleChipState.fromCore(row.lifecycleState),
                         availableModels: row.availableModels,
                         currentModel: row.currentModel
                     )
                 },
                 onRemoveHuman: { viewModel.removeHuman($0) },
-                onRestartRuntime: { viewModel.restartRuntime(forAgent: $0) },
+                onRestartAgent: { viewModel.restartAgent(forAgent: $0) },
                 onChangeModel: { viewModel.setModel(forAgent: $0, model: $1) },
                 onRemoveAgent: { viewModel.removeAgent($0) },
                 onAddAgent: { isAddAgentSheetPresented = true },
@@ -470,20 +450,18 @@ public struct SessionDetailView: View {
             viewModel.start(modelContext: modelContext)
             await viewModel.refreshMemberSheet()
         }
-        .onChange(of: viewModel.runtime?.status) { _, _ in
-            // Bound-runtime lifecycle just transitioned (spawning →
-            // running → idle / stopped / etc.). Re-pull agent_runtimes
-            // so the member-sheet row dot color tracks reality. The
-            // status string lives on Supabase and is one-shot fetched,
-            // so without this onChange the snapshot goes stale.
+        .onChange(of: viewModel.attachmentStateKey) { _, _ in
+            // An attachment for this session changed lifecycle (attached →
+            // running → idle → detached). Re-shape the member sheet so the
+            // row dot colour and the model list track it.
             Task { await viewModel.refreshMemberSheet() }
         }
         .onChange(of: viewModel.isStreaming) { _, newValue in
-            // First ACP event arrived — the runtime is definitely up
-            // even if the SwiftData Runtime entity's status field hasn't
-            // propagated through @Observable yet (a known limitation
-            // when SwiftData mutations don't re-evaluate computed nested
-            // optionals). Refresh so the chip flips spawning → active
+            // First ACP event arrived — the agent is definitely up even if
+            // the attachment's status field hasn't propagated through
+            // @Observable yet (a known limitation: SwiftData mutations don't
+            // re-evaluate computed nested optionals). Refresh so the chip
+            // flips spawning → active
             // and the member sheet row's "loading" turns into the
             // current model picker.
             if newValue {
@@ -549,10 +527,11 @@ public struct SessionDetailView: View {
 
     private var resolvedModelId: String? {
         // Per-agent model selection is owned by AgentsSheet via
-        // viewModel.setModel(forAgent:model:), so there's no longer a
-        // session-level override stored on the view. Fall back to the bound
-        // primary runtime's current model for the legacy single-agent path.
-        guard let current = viewModel.runtime?.currentModel, !current.isEmpty else { return nil }
+        // viewModel.setModel(forAgent:model:), so there's no session-level
+        // override on the view. Report the model of the agent this send will
+        // actually reach; nil when no agent is attached (the session is cold
+        // and the daemon will pick on spawn).
+        guard let current = viewModel.currentModelForSendTarget, !current.isEmpty else { return nil }
         return current
     }
 
@@ -632,7 +611,7 @@ public struct SessionDetailView: View {
         case .userMessage(let event), .permission(let event), .todo(let event), .error(let event):
             EventBubbleView(
                 event: event,
-                runtime: viewModel.runtime,
+                runtime: viewModel.attachment(forAgentActorID: event.senderActorID ?? ""),
                 onGrant: { id, agentID in Task { try? await viewModel.grantPermission(requestId: id, agentActorID: agentID) } },
                 onDeny: { id, agentID in Task { try? await viewModel.denyPermission(requestId: id, agentActorID: agentID) } },
                 onRetryOutbox: { msgID in
@@ -678,7 +657,7 @@ public struct SessionDetailView: View {
         case .completedTurn(let id, let agentID, let final, _):
             CompletedTurnBubbleView(
                 finalEvent: final,
-                runtime: viewModel.runtime,
+                runtime: viewModel.attachment(forAgentActorID: agentID),
                 agentName: agentDisplayName(for: agentID),
                 detailIcon: {
                     // Always offer the detail entry point — even text-only
@@ -742,11 +721,10 @@ public struct SessionDetailView: View {
             MentionTarget(id: h.id, displayName: h.displayName, subtitle: "Member", kind: .member)
         }
         let agents = viewModel.memberSheetAgents.map { a in
-            // Subtitle shows the agent type only — the lifecycle state is
-            // sourced from the agent_runtimes snapshot which is fetched
-            // once on sheet open and goes stale fast (e.g. shows "spawning"
-            // long after spawn). The chip bar above the composer carries
-            // the live state via MQTT-pushed Runtime entities.
+            // Subtitle shows the agent type only. The chip bar above the
+            // composer carries the live lifecycle state, which arrives on the
+            // actor retain; repeating it here would show a value captured at
+            // sheet-open time and go stale within seconds.
             MentionTarget(id: a.id, displayName: a.displayName, subtitle: a.agentType, kind: .agent)
         }
         return agents + members
@@ -999,10 +977,10 @@ private struct EditMessageSheet: View {
     }
 }
 
-// MARK: - AgentChipBar.RuntimeChipState translation
+// MARK: - AgentChipBar.LifecycleChipState translation
 
-extension AgentChipBar.RuntimeChipState {
-    static func fromCore(_ s: AgentRuntimeChipState) -> AgentChipBar.RuntimeChipState {
+extension AgentChipBar.LifecycleChipState {
+    static func fromCore(_ s: AgentLifecycleState) -> AgentChipBar.LifecycleChipState {
         switch s {
         case .spawning: .spawning
         case .ready: .ready

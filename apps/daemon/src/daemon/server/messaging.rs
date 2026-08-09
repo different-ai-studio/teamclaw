@@ -772,7 +772,7 @@ impl DaemonServer {
         }
         let attachment_urls = message_attachment_urls(message);
         for runtime_id in runtime_ids {
-            if self.agents.lock().await.agent_id_of(&runtime_id).is_none() {
+            if self.agents.lock().await.get_handle(&runtime_id).is_none() {
                 continue;
             }
             let mentioned = mentioned_actor;

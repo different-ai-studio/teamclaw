@@ -52,7 +52,7 @@ public struct SessionParticipantRecord: Equatable, Sendable {
     public let displayName: String
     public let actorType: String           // "human" | "agent"
     /// Agent's workspace for this session; nil on member rows. Replaces the
-    /// team-wide `agent_runtimes` fetch this used to be joined against.
+    /// team-wide runtime fetch this used to be joined against (table now dropped).
     public let workspaceID: String?
     /// Agent's model for this session; nil on member rows.
     public let model: String?

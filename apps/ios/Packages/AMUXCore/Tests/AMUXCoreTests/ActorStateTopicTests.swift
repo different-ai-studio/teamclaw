@@ -15,13 +15,13 @@ struct ActorStateTopicTests {
         )
     }
 
-    @Test("does not match the per-spawn runtime topic")
+    @Test("does not match the retired per-spawn runtime topic")
     func rejectsRuntimeState() {
-        // The two must stay disjoint: the ingest loop checks actor-state first,
-        // and a topic matching both would be decoded as the wrong message type.
+        // The daemon stopped publishing this shape and we stopped subscribing,
+        // but the broker can still hold retains from an older daemon. Parsing
+        // one as actor state would decode a RuntimeInfo as an ActorPresence.
         let topic = "amux/\(team)/eba7abb1/runtime/6369759d/state"
         #expect(SessionListViewModel.parseActorStateTopic(topic, teamID: team) == nil)
-        #expect(SessionListViewModel.parseRuntimeStateTopic(topic, teamID: team) != nil)
     }
 
     @Test("rejects another team's actor")

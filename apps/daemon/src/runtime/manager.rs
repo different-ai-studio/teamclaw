@@ -593,7 +593,7 @@ impl RuntimeManager {
         prompt: &str,
         workspace_id: &str,
         remote_workspace_id: Option<&str>,
-        remote_session_id: Option<&str>,
+        session_id: &str,
     ) -> crate::error::Result<String> {
         self.start_runtime_with_model(
             agent_type,
@@ -601,7 +601,7 @@ impl RuntimeManager {
             prompt,
             workspace_id,
             remote_workspace_id,
-            remote_session_id,
+            session_id,
             None,
             None,
             None,
@@ -625,13 +625,29 @@ impl RuntimeManager {
         prompt: &str,
         workspace_id: &str,
         remote_workspace_id: Option<&str>,
-        remote_session_id: Option<&str>,
+        session_id: &str,
         initial_model_override: Option<String>,
         mcp_config_path: Option<PathBuf>,
         resume_acp_session_id: Option<String>,
         runtime_env: SpawnRuntimeEnv,
     ) -> crate::error::Result<String> {
-        let agent_id = Uuid::new_v4().to_string()[..8].to_string();
+        // An attachment is an attachment *to a session* (ADR-0004). The map is
+        // keyed by that session, so a spawn without one has no identity — it
+        // would collide with every other sessionless spawn under "".
+        if session_id.trim().is_empty() {
+            return Err(crate::error::AmuxError::Agent(
+                "session_id is required to attach a runtime".into(),
+            ));
+        }
+        // The key IS the session. There is no per-spawn id: that id was minted
+        // fresh on every start, published nowhere, and stale the moment it was
+        // written down — which is what made a cancel land on a dead runtime.
+        let agent_id = session_id.to_string();
+        if self.agents.contains_key(&agent_id) {
+            return Err(crate::error::AmuxError::Agent(format!(
+                "session {agent_id} already has an attachment on this daemon"
+            )));
+        }
         let permission = runtime_env.permission_policy();
         let SpawnRuntimeEnv {
             extra_env,
@@ -656,7 +672,7 @@ impl RuntimeManager {
         handle.env_snapshot = resolved_env;
         handle.env_team_id = env_team_id;
         handle.stamp_owner_actor_from_env();
-        handle.session_id = remote_session_id.unwrap_or_default().to_string();
+        handle.session_id = session_id.to_string();
         // No static fallback: models come only from the live serve catalog
         // captured at attach time. Empty until the runtime advertises them.
         handle.available_models = Vec::new();
@@ -717,7 +733,7 @@ impl RuntimeManager {
             self.set_current_model(&agent_id, &model_id);
         }
 
-        self.seed_cursor_from_prior_runtime(&agent_id, remote_session_id)
+        self.seed_cursor_from_prior_runtime(&agent_id, Some(session_id))
             .await;
 
         Ok(agent_id)
@@ -764,15 +780,17 @@ impl RuntimeManager {
         }
     }
 
+    /// Re-attach to a session whose backend conversation already exists.
+    /// `session_id` is both the map key and the handle's session — there is no
+    /// second identity to keep in sync.
     pub async fn resume_agent(
         &mut self,
-        agent_id: &str,
+        session_id: &str,
         acp_session_id: &str,
         agent_type: amux::AgentType,
         worktree: &str,
         workspace_id: &str,
         remote_workspace_id: Option<&str>,
-        remote_session_id: Option<&str>,
         prompt: &str,
         mcp_config_path: Option<std::path::PathBuf>,
         runtime_env: SpawnRuntimeEnv,
@@ -790,7 +808,7 @@ impl RuntimeManager {
         self.register_opencode_snapshot(worktree, opencode_json_original, &extra_env);
 
         let mut handle = RuntimeHandle::new(
-            agent_id.to_string(),
+            session_id.to_string(),
             agent_type,
             worktree.into(),
             workspace_id.into(),
@@ -801,7 +819,7 @@ impl RuntimeManager {
         handle.env_snapshot = resolved_env;
         handle.env_team_id = env_team_id;
         handle.stamp_owner_actor_from_env();
-        handle.session_id = remote_session_id.unwrap_or_default().to_string();
+        handle.session_id = session_id.to_string();
         handle.is_gateway = is_gateway;
 
         let launch = self.launch_config_for(agent_type);
@@ -832,24 +850,24 @@ impl RuntimeManager {
         // captured at attach time. Empty until the runtime advertises them.
         handle.available_models = Vec::new();
 
-        info!(agent_id, worktree, "agent resumed via shared ACP host");
-        self.agents.insert(agent_id.to_string(), handle);
+        info!(session_id, worktree, "agent resumed via shared ACP host");
+        self.agents.insert(session_id.to_string(), handle);
         self.mark_actor_state_dirty();
         self.aggregators
-            .insert(agent_id.to_string(), TurnAggregator::new());
+            .insert(session_id.to_string(), TurnAggregator::new());
 
         let new_acp_sid = startup.acp_session_id.clone();
         self.record_catalog(worktree, &startup.available_models);
-        if let Some(h) = self.agents.get_mut(agent_id) {
+        if let Some(h) = self.agents.get_mut(session_id) {
             h.available_models = startup.available_models;
             h.acp_session_id = startup.acp_session_id;
             h.status = amux::AgentStatus::Active;
         }
         if let Some(model_id) = startup.initial_model {
-            self.set_current_model(agent_id, &model_id);
+            self.set_current_model(session_id, &model_id);
         }
 
-        self.seed_cursor_from_prior_runtime(agent_id, remote_session_id)
+        self.seed_cursor_from_prior_runtime(session_id, Some(session_id))
             .await;
 
         Ok(new_acp_sid)
@@ -1493,19 +1511,19 @@ impl RuntimeManager {
         self.agents.keys().cloned().collect()
     }
 
-    pub fn set_backend_runtime_metadata(
+    /// Seed the catch-up cursor for an attachment. Addressed by (session,
+    /// actor) on the wire; there is no runtime row id to carry any more
+    /// (ADR-0005).
+    pub fn set_session_cursor(
         &mut self,
         runtime_id: &str,
-        row_id: Option<String>,
         last_processed_message_id: Option<String>,
     ) {
+        if last_processed_message_id.is_none() {
+            return;
+        }
         if let Some(handle) = self.agents.get_mut(runtime_id) {
-            if row_id.is_some() {
-                handle.backend_runtime_row_id = row_id;
-            }
-            if last_processed_message_id.is_some() {
-                handle.last_processed_message_id = last_processed_message_id;
-            }
+            handle.last_processed_message_id = last_processed_message_id;
         }
     }
 
@@ -1634,6 +1652,17 @@ impl RuntimeManager {
             }
         };
 
+        // An attachment is keyed by its cloud session, so the gateway must
+        // have resolved one before spawning. This used to fall through with
+        // `None` and "still spawn so basic prompt/reply works" — that produced
+        // an attachment keyed by the empty string, which every other
+        // session-less gateway spawn then collided with.
+        let Some(session_id) = remote_session_id else {
+            return Err(crate::error::AmuxError::Agent(format!(
+                "gateway session {logical_session_id} has no cloud session yet; \
+                 cannot attach"
+            )));
+        };
         let workspace_id = format!("{GATEWAY_WORKSPACE_ID_PREFIX}{binding}");
         let agent_id = self
             .start_runtime_with_model(
@@ -1642,7 +1671,7 @@ impl RuntimeManager {
                 "",
                 &workspace_id,
                 None,
-                remote_session_id,
+                session_id,
                 initial_model,
                 mcp_cfg_path,
                 None,
@@ -1719,12 +1748,15 @@ impl RuntimeManager {
         Self::default_launch_configs()
     }
 
-    /// Build a manager with a single dummy runtime pre-inserted, for tests.
-    pub fn test_dummy_with_runtime(runtime_id: &str) -> Self {
+    /// Build a manager with a single dummy attachment pre-inserted, for tests.
+    /// The id is the session: key, `agent_id` and `session_id` are one value
+    /// now (ADR-0004).
+    pub fn test_dummy_with_runtime(session_id: &str) -> Self {
         let mut mgr = RuntimeManager::new(Self::test_launch_configs(), None);
         let mut h = super::handle::RuntimeHandle::test_dummy();
-        h.agent_id = runtime_id.to_string();
-        mgr.agents.insert(runtime_id.to_string(), h);
+        h.agent_id = session_id.to_string();
+        h.session_id = session_id.to_string();
+        mgr.agents.insert(session_id.to_string(), h);
         // Test helpers stand in for an attach, so they hold the same invariant
         // production does: any mutation of `agents` marks the snapshot stale.
         mgr.mark_actor_state_dirty();
@@ -1732,11 +1764,14 @@ impl RuntimeManager {
     }
 
     /// Insert a test runtime with explicit runtime_id, agent_id, and session_id.
-    pub fn add_test_runtime(&mut self, runtime_id: &str, agent_id: &str, session_id: &str) {
+    /// Insert an attachment for `session_id`. The map key, `handle.agent_id`
+    /// and `handle.session_id` are all that one id — there is no separate
+    /// per-spawn identity to diverge (ADR-0004).
+    pub fn add_test_runtime(&mut self, session_id: &str) {
         let mut h = super::handle::RuntimeHandle::test_dummy();
-        h.agent_id = agent_id.to_string();
+        h.agent_id = session_id.to_string();
         h.session_id = session_id.to_string();
-        self.agents.insert(runtime_id.to_string(), h);
+        self.agents.insert(session_id.to_string(), h);
         self.mark_actor_state_dirty();
     }
 
@@ -1811,8 +1846,8 @@ mod tests {
     #[test]
     fn live_sessions_reports_every_attachment_by_session() {
         let mut mgr = RuntimeManager::new(RuntimeManager::test_launch_configs(), None);
-        mgr.add_test_runtime("rt-a", "agent-1", "session-a");
-        mgr.add_test_runtime("rt-b", "agent-2", "session-b");
+        mgr.add_test_runtime("session-a");
+        mgr.add_test_runtime("session-b");
 
         let live = mgr.live_sessions();
         let mut ids: Vec<&str> = live.iter().map(|s| s.session_id.as_str()).collect();
@@ -1820,14 +1855,18 @@ mod tests {
         assert_eq!(ids, vec!["session-a", "session-b"]);
     }
 
-    /// An ambient spawn carries no session, so it has no (actor, session) key
-    /// to publish under. Emitting it anyway would put a blank session id in the
-    /// retain, which the client would file under `${actor}::` and never match.
+    /// Every attachment has a session: `start_runtime_with_model` rejects an
+    /// empty one, and the map is keyed by it. This pins the invariant so a
+    /// future "spawn without a session" path cannot slip back in unnoticed.
     #[test]
-    fn live_sessions_skips_attachments_with_no_session() {
+    fn every_attachment_is_reported_as_a_live_session() {
         let mut mgr = RuntimeManager::new(RuntimeManager::test_launch_configs(), None);
-        mgr.add_test_runtime("rt-bare", "agent-1", "");
-        assert!(mgr.live_sessions().is_empty());
+        mgr.add_test_runtime("session-a");
+        mgr.add_test_runtime("session-b");
+        let sessions: Vec<String> = mgr.live_sessions().into_iter().map(|s| s.session_id).collect();
+        assert_eq!(sessions.len(), 2);
+        assert!(sessions.contains(&"session-a".to_string()));
+        assert!(sessions.contains(&"session-b".to_string()));
     }
 
     /// The catalog belongs to the device, so a binding that never attached
@@ -1855,7 +1894,7 @@ mod tests {
         mgr.record_catalog("/w1", &[catalog_model("a/x"), catalog_model("a/y")]);
 
         let mut info = amux::RuntimeInfo {
-            runtime_id: "rt-live".into(),
+            runtime_id: "sess-live".into(),
             worktree: "/w1".into(),
             available_models: vec![catalog_model("live/only")],
             ..Default::default()
@@ -2430,42 +2469,27 @@ mod tests {
     }
 
     #[test]
-    fn resolve_command_agent_id_accepts_spawn_key() {
+    fn resolve_command_agent_id_accepts_cloud_session_id() {
         let mut mgr = RuntimeManager::new(RuntimeManager::test_launch_configs(), None);
-        mgr.add_test_runtime(
-            "76fd9bf2",
-            "76fd9bf2",
-            "54809303-ed5b-4f10-893f-2d0fd2db4e00",
-        );
+        mgr.add_test_runtime("54809303-ed5b-4f10-893f-2d0fd2db4e00");
         assert_eq!(
-            mgr.resolve_command_agent_id("76fd9bf2", "").as_deref(),
-            Some("76fd9bf2")
+            mgr.resolve_command_agent_id("54809303-ed5b-4f10-893f-2d0fd2db4e00", "").as_deref(),
+            Some("54809303-ed5b-4f10-893f-2d0fd2db4e00"),
+            "the session id is the key; resolution is identity"
         );
     }
 
     #[test]
-    fn resolve_command_agent_id_accepts_cloud_session_id() {
-        // Regression: desktop retain advertises runtimeId = sessionId; legacy
-        // commands topic used that segment and cancel_agent looked up the
-        // session UUID as a spawn key → not found.
-        let mut mgr = RuntimeManager::new(RuntimeManager::test_launch_configs(), None);
-        mgr.add_test_runtime(
-            "76fd9bf2",
-            "76fd9bf2",
-            "54809303-ed5b-4f10-893f-2d0fd2db4e00",
-        );
-        assert_eq!(
-            mgr.resolve_command_agent_id("54809303-ed5b-4f10-893f-2d0fd2db4e00", "")
-                .as_deref(),
-            Some("76fd9bf2")
-        );
+    fn resolve_command_agent_id_rejects_an_unknown_session() {
+        let mgr = RuntimeManager::new(RuntimeManager::test_launch_configs(), None);
+        assert_eq!(mgr.resolve_command_agent_id("54809303-ed5b-4f10-893f-2d0fd2db4e00", ""), None);
     }
 
     #[test]
     fn resolve_command_agent_id_accepts_actor_session_composite() {
         let mut mgr = RuntimeManager::new(RuntimeManager::test_launch_configs(), None);
-        mgr.add_test_runtime("76fd9bf2", "76fd9bf2", "54809303-ed5b-4f10-893f-2d0fd2db4e00");
-        mgr.get_handle_mut("76fd9bf2").unwrap().owner_actor_id =
+        mgr.add_test_runtime("54809303-ed5b-4f10-893f-2d0fd2db4e00");
+        mgr.get_handle_mut("54809303-ed5b-4f10-893f-2d0fd2db4e00").unwrap().owner_actor_id =
             "614433ab-52dd-4ce3-b5f4-14376f8eb680".into();
         assert_eq!(
             mgr.resolve_command_agent_id(
@@ -2473,7 +2497,7 @@ mod tests {
                 "614433ab-52dd-4ce3-b5f4-14376f8eb680",
             )
             .as_deref(),
-            Some("76fd9bf2")
+            Some("54809303-ed5b-4f10-893f-2d0fd2db4e00")
         );
     }
 
@@ -2484,38 +2508,80 @@ mod tests {
         assert_eq!(mgr.resolve_command_agent_id("", "").as_deref(), None);
     }
 
+    /// One daemon holds at most one attachment per session, so the old
+    /// "pick the newest of several" case is gone. What must still hold is the
+    /// owner gate: a composite naming another actor must not resolve.
     #[test]
-    fn resolve_command_agent_id_prefers_matching_actor_when_session_has_two() {
-        // Issue #780: same session, two owners — cancel for A must not hit B
-        // just because B started later.
+    fn resolve_command_agent_id_rejects_a_foreign_owner() {
         let mut mgr = RuntimeManager::new(RuntimeManager::test_launch_configs(), None);
-        mgr.add_test_runtime("rt-a", "rt-a", "session_S");
-        mgr.add_test_runtime("rt-b", "rt-b", "session_S");
-        mgr.get_handle_mut("rt-a").unwrap().owner_actor_id = "actor-A".into();
-        mgr.get_handle_mut("rt-a").unwrap().started_at = 100;
-        mgr.get_handle_mut("rt-b").unwrap().owner_actor_id = "actor-B".into();
-        mgr.get_handle_mut("rt-b").unwrap().started_at = 200;
+        mgr.add_test_runtime("session_S");
+        mgr.get_handle_mut("session_S").unwrap().owner_actor_id = "actor-A".into();
 
         assert_eq!(
-            mgr.resolve_command_agent_id("session_S", "actor-A")
-                .as_deref(),
-            Some("rt-a")
+            mgr.resolve_command_agent_id("actor-A::session_S", "actor-A").as_deref(),
+            Some("session_S")
         );
         assert_eq!(
-            mgr.resolve_command_agent_id("actor-A::session_S", "actor-A")
-                .as_deref(),
-            Some("rt-a")
+            mgr.resolve_command_agent_id("actor-A::session_S", "actor-B"),
+            None,
+            "the composite's actor must match the requester"
         );
         assert_eq!(
-            mgr.resolve_command_agent_id("actor-A::session_S", "actor-B")
-                .as_deref(),
+            mgr.resolve_command_agent_id("session_S", "actor-B"),
+            None,
+            "a bare session id must still respect the attachment's owner"
+        );
+    }
+
+    /// The client-facing address and the map key are the same value now, so
+    /// set-model needs no lookup. Before the rekey this call failed with
+    /// "agent {session} not found" for every client, because the map was keyed
+    /// by a per-spawn id that nothing published.
+    #[tokio::test]
+    async fn set_model_addresses_the_session_directly() {
+        let mut mgr = RuntimeManager::new(RuntimeManager::test_launch_configs(), None);
+        mgr.add_test_runtime("session_S");
+
+        assert!(mgr.set_model("session_S", "claude-sonnet-4-6").await.is_ok());
+        assert!(
+            mgr.set_model("session_UNKNOWN", "claude-sonnet-4-6").await.is_err(),
+            "an unknown session must not silently succeed"
+        );
+    }
+
+    /// iOS addresses by `{actor}::{session}` (ADR-0004). Same contract as the
+    /// stop/cancel path, which has resolved since #780.
+    #[tokio::test]
+    async fn set_model_accepts_actor_session_composite() {
+        let mut mgr = RuntimeManager::new(RuntimeManager::test_launch_configs(), None);
+        mgr.add_test_runtime("session_S");
+        mgr.get_handle_mut("session_S").unwrap().owner_actor_id = "actor-A".into();
+
+        let resolved = mgr
+            .resolve_command_agent_id("actor-A::session_S", "actor-A")
+            .expect("composite address must resolve");
+        assert_eq!(resolved, "session_S");
+        assert!(mgr.set_model(&resolved, "claude-sonnet-4-6").await.is_ok());
+
+        // A composite naming a different owner must not reach this handle.
+        assert_eq!(
+            mgr.resolve_command_agent_id("actor-A::session_S", "actor-B"),
             None
         );
-        assert_eq!(
-            mgr.resolve_command_agent_id("session_S", "actor-B")
-                .as_deref(),
-            Some("rt-b")
-        );
+    }
+
+    /// Stop takes the same addresses as set-model; both handlers resolve now.
+    #[tokio::test]
+    async fn stop_runtime_accepts_resolved_session_address() {
+        let mut mgr = RuntimeManager::new(RuntimeManager::test_launch_configs(), None);
+        mgr.add_test_runtime("session_S");
+
+        let resolved = mgr
+            .resolve_command_agent_id("session_S", "")
+            .expect("cloud session id must resolve to the spawn key");
+        assert!(mgr.stop_runtime(&resolved).await.is_some());
+        // Gone from the map — a second stop finds nothing to resolve.
+        assert_eq!(mgr.resolve_command_agent_id("session_S", ""), None);
     }
 
     #[tokio::test]
@@ -2695,7 +2761,7 @@ mod tests {
                 "",
                 "workspace-1",
                 None,
-                None,
+                "session-1",
                 None,
                 None,
                 None,
@@ -2714,31 +2780,28 @@ mod tests {
 
     // ── mention-routing accessors ─────────────────────────────────────────────
 
+    /// At most one attachment per session, by construction — a second insert
+    /// for the same session replaces rather than accumulates. This is the
+    /// property the 1306-rows-for-1296-sessions incident was missing.
     #[test]
-    fn runtime_ids_for_session_filters_by_session() {
+    fn a_session_has_at_most_one_attachment() {
         let mut mgr = RuntimeManager::new(RuntimeManager::test_launch_configs(), None);
-        mgr.add_test_runtime("rt1", "agent_A", "session_S");
-        mgr.add_test_runtime("rt2", "agent_B", "session_S");
-        mgr.add_test_runtime("rt3", "agent_C", "session_OTHER");
+        mgr.add_test_runtime("session_S");
+        mgr.add_test_runtime("session_S");
+        mgr.add_test_runtime("session_OTHER");
 
-        let mut ids = mgr.runtime_ids_for_session("session_S");
-        ids.sort();
-        assert_eq!(ids, vec!["rt1", "rt2"]);
-        assert_eq!(mgr.runtime_ids_for_session("session_OTHER"), vec!["rt3"]);
+        assert_eq!(mgr.runtime_ids_for_session("session_S"), vec!["session_S"]);
+        assert_eq!(mgr.runtime_ids_for_session("session_OTHER"), vec!["session_OTHER"]);
         assert!(mgr.runtime_ids_for_session("unknown").is_empty());
     }
 
     #[test]
-    fn newest_runtime_id_for_session_picks_latest_started_at() {
+    fn newest_runtime_id_for_session_is_the_session_itself() {
         let mut mgr = RuntimeManager::new(RuntimeManager::test_launch_configs(), None);
-        mgr.add_test_runtime("rt-old", "agent_A", "session_S");
-        mgr.add_test_runtime("rt-new", "agent_B", "session_S");
-        mgr.get_handle_mut("rt-old").unwrap().started_at = 100;
-        mgr.get_handle_mut("rt-new").unwrap().started_at = 200;
-
+        mgr.add_test_runtime("session_S");
         assert_eq!(
             mgr.newest_runtime_id_for_session("session_S"),
-            Some("rt-new".to_string())
+            Some("session_S".to_string())
         );
         assert_eq!(mgr.newest_runtime_id_for_session("missing"), None);
     }
@@ -2746,16 +2809,16 @@ mod tests {
     #[test]
     fn resolve_permission_runtime_key_retargets_stale_topic_to_sole_active_runtime() {
         let mut mgr = RuntimeManager::new(RuntimeManager::test_launch_configs(), None);
-        mgr.add_test_runtime("cd073767", "agent-x", "session-s");
-        mgr.get_handle_mut("cd073767").unwrap().status = amux::AgentStatus::Active;
+        mgr.add_test_runtime("session-s");
+        mgr.get_handle_mut("session-s").unwrap().status = amux::AgentStatus::Active;
 
         assert_eq!(
             mgr.resolve_permission_runtime_key("ff679fef").as_deref(),
-            Some("cd073767")
+            Some("session-s")
         );
         assert_eq!(
-            mgr.resolve_permission_runtime_key("cd073767").as_deref(),
-            Some("cd073767")
+            mgr.resolve_permission_runtime_key("session-s").as_deref(),
+            Some("session-s")
         );
     }
 
@@ -2796,16 +2859,16 @@ mod tests {
     #[tokio::test]
     async fn turn_in_flight_tracks_the_handles_turn_lock() {
         let mut mgr = RuntimeManager::new(RuntimeManager::test_launch_configs(), None);
-        mgr.add_test_runtime("rt1", "agent_A", "session_S");
+        mgr.add_test_runtime("session_S");
         assert!(!mgr.turn_in_flight("rt1"), "idle runtime is not mid-turn");
         assert!(
             !mgr.turn_in_flight("missing"),
             "unknown runtime is not busy"
         );
 
-        let turn_lock = mgr.get_handle("rt1").unwrap().turn_lock.clone();
+        let turn_lock = mgr.get_handle("session_S").unwrap().turn_lock.clone();
         let guard = turn_lock.lock().await;
-        assert!(mgr.turn_in_flight("rt1"), "a held turn_lock reads as busy");
+        assert!(mgr.turn_in_flight("session_S"), "a held turn_lock reads as busy");
         drop(guard);
         assert!(
             !mgr.turn_in_flight("rt1"),
@@ -2814,59 +2877,48 @@ mod tests {
     }
 
     #[test]
-    fn agent_id_of_returns_handle_agent_id() {
-        let mut mgr = RuntimeManager::new(RuntimeManager::test_launch_configs(), None);
-        mgr.add_test_runtime("rt1", "agent_X", "session_S");
-        assert_eq!(mgr.agent_id_of("rt1").as_deref(), Some("agent_X"));
-        assert_eq!(mgr.agent_id_of("missing"), None);
-    }
-
-    #[test]
-    fn session_id_for_runtime_reports_only_session_bound_attachments() {
-        // Ambient / bare-agent spawns carry no session, and the cursor write
-        // must skip them rather than address a participant row that has no id.
-        let mut mgr = RuntimeManager::test_dummy_with_runtime("rt1");
-        assert_eq!(mgr.session_id_for_runtime("rt1"), None);
-        mgr.add_test_runtime("rt2", "rt2", "session-2");
-        assert_eq!(
-            mgr.session_id_for_runtime("rt2"),
-            Some("session-2".to_string())
-        );
+    fn session_id_for_runtime_is_the_key_itself() {
+        let mut mgr = RuntimeManager::test_dummy_with_runtime("session-1");
+        assert_eq!(mgr.session_id_for_runtime("session-1").as_deref(), Some("session-1"));
+        mgr.add_test_runtime("session-2");
+        assert_eq!(mgr.session_id_for_runtime("session-2").as_deref(), Some("session-2"));
+        assert_eq!(mgr.session_id_for_runtime("missing"), None);
     }
 
     /// Simulate the "mentioned" branch: send_prompt is called with the message content.
     #[tokio::test]
     async fn route_mentioned_sends_prompt() {
         let mut mgr = RuntimeManager::new(RuntimeManager::test_launch_configs(), None);
-        mgr.add_test_runtime("rt1", "agent_X", "session_S");
+        mgr.add_test_runtime("session_S");
+        mgr.get_handle_mut("session_S").unwrap().owner_actor_id = "agent_X".into();
 
         // Simulates the mentioned path: directly call send_prompt (as route_session_message does).
+        // Mentions name the cloud *actor*, which is `owner_actor_id` — the
+        // attachment key is the session and was never an actor id.
         let mention_actor_ids = vec!["agent_X".to_string()];
-        let runtime_ids = mgr.runtime_ids_for_session("session_S");
-        for rid in runtime_ids {
-            let agent_id = mgr.agent_id_of(&rid).unwrap();
-            let mentioned = mention_actor_ids.iter().any(|m| m == &agent_id);
-            if mentioned {
+        for rid in mgr.runtime_ids_for_session("session_S") {
+            let owner = mgr.get_handle(&rid).unwrap().owner_actor_id.clone();
+            if mention_actor_ids.contains(&owner) {
                 mgr.send_prompt(&rid, "hi", vec![]).await.unwrap();
             }
         }
 
-        assert_eq!(mgr.last_sent_to("rt1").as_deref(), Some("hi"));
-        assert!(mgr.get_handle("rt1").unwrap().pending_silent.is_empty());
+        assert_eq!(mgr.last_sent_to("session_S").as_deref(), Some("hi"));
+        assert!(mgr.get_handle("session_S").unwrap().pending_silent.is_empty());
     }
 
     /// Simulate the "not mentioned" branch: message is queued as pending_silent.
     #[tokio::test]
     async fn route_not_mentioned_queues_silent() {
         let mut mgr = RuntimeManager::new(RuntimeManager::test_launch_configs(), None);
-        mgr.add_test_runtime("rt1", "agent_X", "session_S");
+        mgr.add_test_runtime("session_S");
+        mgr.get_handle_mut("session_S").unwrap().owner_actor_id = "agent_X".into();
 
         let mention_actor_ids: Vec<String> = vec!["agent_OTHER".to_string()];
         let runtime_ids = mgr.runtime_ids_for_session("session_S");
         for rid in &runtime_ids {
-            let agent_id = mgr.agent_id_of(rid).unwrap();
-            let mentioned = mention_actor_ids.iter().any(|m| m == &agent_id);
-            if !mentioned {
+            let owner = mgr.get_handle(rid).unwrap().owner_actor_id.clone();
+            if !mention_actor_ids.contains(&owner) {
                 if let Some(h) = mgr.get_handle_mut(rid) {
                     h.pending_silent.push(PendingMessage {
                         message_id: "m1".into(),
@@ -2878,10 +2930,10 @@ mod tests {
             }
         }
 
-        assert_eq!(mgr.last_sent_to("rt1"), None);
-        assert_eq!(mgr.get_handle("rt1").unwrap().pending_silent.len(), 1);
+        assert_eq!(mgr.last_sent_to("session_S"), None);
+        assert_eq!(mgr.get_handle("session_S").unwrap().pending_silent.len(), 1);
         assert_eq!(
-            mgr.get_handle("rt1").unwrap().pending_silent[0].message_id,
+            mgr.get_handle("session_S").unwrap().pending_silent[0].message_id,
             "m1"
         );
     }
@@ -2929,7 +2981,7 @@ mod tests {
         // path. `poll_events_for` must touch ONLY the allowlisted runtimes and
         // leave everyone else's events queued for the main loop.
         let mut mgr = RuntimeManager::test_dummy_with_runtime("rt-http");
-        mgr.add_test_runtime("rt-mqtt", "rt-mqtt", "sess-mqtt");
+        mgr.add_test_runtime("sess-mqtt");
 
         let mk = || {
             AcpEventFrame::new(
@@ -2941,7 +2993,7 @@ mod tests {
             )
         };
         let http_tx = mgr.get_handle_mut("rt-http").unwrap().event_tx.clone();
-        let mqtt_tx = mgr.get_handle_mut("rt-mqtt").unwrap().event_tx.clone();
+        let mqtt_tx = mgr.get_handle_mut("sess-mqtt").unwrap().event_tx.clone();
         http_tx.try_send(mk()).expect("http channel ready");
         mqtt_tx.try_send(mk()).expect("mqtt channel ready");
 
@@ -2968,7 +3020,7 @@ mod tests {
             "main loop still receives the un-stolen rt-mqtt event"
         );
         assert_eq!(
-            main_drained[0].0, "rt-mqtt",
+            main_drained[0].0, "sess-mqtt",
             "main loop drains exactly rt-mqtt's event, not rt-http's (already taken)"
         );
     }
@@ -2978,16 +3030,16 @@ mod tests {
         let mut mgr = RuntimeManager::test_dummy_with_runtime("rt-stale");
         let stale_ts = chrono::Utc::now().timestamp() - 3600; // 1h ago
         mgr.get_handle_mut("rt-stale").unwrap().last_active_at = stale_ts;
-        mgr.add_test_runtime("rt-fresh", "rt-fresh", "sess-fresh");
+        mgr.add_test_runtime("sess-fresh");
         // rt-fresh was just inserted, last_active_at = 0 from test_dummy,
         // so set it to now so it isn't evicted.
-        mgr.get_handle_mut("rt-fresh").unwrap().last_active_at = chrono::Utc::now().timestamp();
+        mgr.get_handle_mut("sess-fresh").unwrap().last_active_at = chrono::Utc::now().timestamp();
 
         let evicted = mgr.evict_idle(1800).await; // 30-minute threshold
         assert_eq!(evicted, vec!["rt-stale".to_string()]);
         assert!(mgr.get_handle("rt-stale").is_none(), "stale handle removed");
         assert!(
-            mgr.get_handle("rt-fresh").is_some(),
+            mgr.get_handle("sess-fresh").is_some(),
             "fresh handle retained"
         );
     }
@@ -2996,17 +3048,17 @@ mod tests {
     async fn evict_over_capacity_detaches_least_recently_used_first() {
         let mut mgr = RuntimeManager::test_dummy_with_runtime("rt-oldest");
         mgr.get_handle_mut("rt-oldest").unwrap().last_active_at = 100;
-        mgr.add_test_runtime("rt-middle", "rt-middle", "sess-middle");
-        mgr.get_handle_mut("rt-middle").unwrap().last_active_at = 200;
-        mgr.add_test_runtime("rt-newest", "rt-newest", "sess-newest");
-        mgr.get_handle_mut("rt-newest").unwrap().last_active_at = 300;
+        mgr.add_test_runtime("sess-middle");
+        mgr.get_handle_mut("sess-middle").unwrap().last_active_at = 200;
+        mgr.add_test_runtime("sess-newest");
+        mgr.get_handle_mut("sess-newest").unwrap().last_active_at = 300;
 
         let evicted = mgr.evict_over_capacity(2).await;
 
         assert_eq!(evicted, vec!["rt-oldest".to_string()]);
         assert!(mgr.get_handle("rt-oldest").is_none());
-        assert!(mgr.get_handle("rt-middle").is_some());
-        assert!(mgr.get_handle("rt-newest").is_some());
+        assert!(mgr.get_handle("sess-middle").is_some());
+        assert!(mgr.get_handle("sess-newest").is_some());
         assert_eq!(mgr.drain_evicted(), vec!["rt-oldest".to_string()]);
     }
 
@@ -3044,8 +3096,8 @@ mod tests {
         let mut mgr = RuntimeManager::test_dummy_with_runtime("rt-stranded");
         mgr.get_handle_mut("rt-stranded").unwrap().last_active_at = 1;
         mgr.get_handle_mut("rt-stranded").unwrap().event_rx = None;
-        mgr.add_test_runtime("rt-live", "rt-live", "sess-live");
-        mgr.get_handle_mut("rt-live").unwrap().last_active_at = chrono::Utc::now().timestamp();
+        mgr.add_test_runtime("sess-live");
+        mgr.get_handle_mut("sess-live").unwrap().last_active_at = chrono::Utc::now().timestamp();
 
         assert!(
             mgr.evict_idle(60).await.is_empty(),

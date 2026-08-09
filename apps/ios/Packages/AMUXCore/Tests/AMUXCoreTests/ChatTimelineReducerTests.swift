@@ -21,8 +21,7 @@ struct ReducerStreamingOutputTests {
         var acp = Amux_AcpEvent()
         acp.event = .output(makeOutput(text: "Hel", isComplete: false))
         ChatTimelineReducer.apply(
-            .acp(AcpInput(envelopeSequence: 1, runtimeID: "rt-1",
-                          agentBucketKey: "agent-1", timestamp: .now,
+            .acp(AcpInput(envelopeSequence: 1, agentBucketKey: "agent-1", timestamp: .now,
                           acpEvent: acp)),
             to: &state
         )
@@ -39,8 +38,7 @@ struct ReducerStreamingOutputTests {
             var acp = Amux_AcpEvent()
             acp.event = .output(makeOutput(text: chunk, isComplete: false))
             ChatTimelineReducer.apply(
-                .acp(AcpInput(envelopeSequence: 1, runtimeID: "rt-1",
-                              agentBucketKey: "agent-1", timestamp: .now,
+                .acp(AcpInput(envelopeSequence: 1, agentBucketKey: "agent-1", timestamp: .now,
                               acpEvent: acp)),
                 to: &state
             )
@@ -55,8 +53,7 @@ struct ReducerStreamingOutputTests {
         var oldDelta = Amux_AcpEvent()
         oldDelta.event = .output(makeOutput(text: "old reply", isComplete: false))
         ChatTimelineReducer.apply(
-            .acp(AcpInput(envelopeSequence: 1, runtimeID: "rt-1",
-                          agentBucketKey: "agent-1", timestamp: .now,
+            .acp(AcpInput(envelopeSequence: 1, agentBucketKey: "agent-1", timestamp: .now,
                           turnID: "turn-old", acpEvent: oldDelta)),
             to: &state
         )
@@ -64,8 +61,7 @@ struct ReducerStreamingOutputTests {
         var newDelta = Amux_AcpEvent()
         newDelta.event = .output(makeOutput(text: "new reply", isComplete: false))
         ChatTimelineReducer.apply(
-            .acp(AcpInput(envelopeSequence: 2, runtimeID: "rt-1",
-                          agentBucketKey: "agent-1", timestamp: .now,
+            .acp(AcpInput(envelopeSequence: 2, agentBucketKey: "agent-1", timestamp: .now,
                           turnID: "turn-new", acpEvent: newDelta)),
             to: &state
         )
@@ -81,8 +77,7 @@ struct ReducerStreamingOutputTests {
         var delta = Amux_AcpEvent()
         delta.event = .output(makeOutput(text: "Hel", isComplete: false))
         ChatTimelineReducer.apply(
-            .acp(AcpInput(envelopeSequence: 1, runtimeID: "rt-1",
-                          agentBucketKey: "agent-1", timestamp: .now,
+            .acp(AcpInput(envelopeSequence: 1, agentBucketKey: "agent-1", timestamp: .now,
                           acpEvent: delta)),
             to: &state
         )
@@ -91,8 +86,7 @@ struct ReducerStreamingOutputTests {
         done.event = .output(makeOutput(text: "Hello, world", isComplete: true))
         done.model = "claude-opus-4-7"
         ChatTimelineReducer.apply(
-            .acp(AcpInput(envelopeSequence: 2, runtimeID: "rt-1",
-                          agentBucketKey: "agent-1", timestamp: .now,
+            .acp(AcpInput(envelopeSequence: 2, agentBucketKey: "agent-1", timestamp: .now,
                           acpEvent: done)),
             to: &state
         )
@@ -111,8 +105,7 @@ struct ReducerStreamingOutputTests {
         var delta = Amux_AcpEvent()
         delta.event = .output(makeOutput(text: "Hel", isComplete: false))
         ChatTimelineReducer.apply(
-            .acp(AcpInput(envelopeSequence: 1, runtimeID: "rt-1",
-                          agentBucketKey: "agent-1", timestamp: .now,
+            .acp(AcpInput(envelopeSequence: 1, agentBucketKey: "agent-1", timestamp: .now,
                           turnID: "turn-xyz",
                           acpEvent: delta)),
             to: &state
@@ -124,8 +117,7 @@ struct ReducerStreamingOutputTests {
         var more = Amux_AcpEvent()
         more.event = .output(makeOutput(text: "lo", isComplete: false))
         ChatTimelineReducer.apply(
-            .acp(AcpInput(envelopeSequence: 2, runtimeID: "rt-1",
-                          agentBucketKey: "agent-1", timestamp: .now,
+            .acp(AcpInput(envelopeSequence: 2, agentBucketKey: "agent-1", timestamp: .now,
                           turnID: "turn-xyz",
                           acpEvent: more)),
             to: &state
@@ -136,8 +128,7 @@ struct ReducerStreamingOutputTests {
         var idle = Amux_AcpEvent()
         idle.event = .statusChange(makeStatusChange(.idle))
         ChatTimelineReducer.apply(
-            .acp(AcpInput(envelopeSequence: 3, runtimeID: "rt-1",
-                          agentBucketKey: "agent-1", timestamp: .now,
+            .acp(AcpInput(envelopeSequence: 3, agentBucketKey: "agent-1", timestamp: .now,
                           turnID: "turn-xyz",
                           acpEvent: idle)),
             to: &state
@@ -154,22 +145,19 @@ struct ReducerStreamingOutputTests {
         var bDelta = Amux_AcpEvent()
         bDelta.event = .output(makeOutput(text: "B: ", isComplete: false))
         ChatTimelineReducer.apply(
-            .acp(AcpInput(envelopeSequence: 1, runtimeID: "rt-a",
-                          agentBucketKey: "agent-a", timestamp: .now,
+            .acp(AcpInput(envelopeSequence: 1, agentBucketKey: "agent-a", timestamp: .now,
                           acpEvent: aDelta)),
             to: &state
         )
         ChatTimelineReducer.apply(
-            .acp(AcpInput(envelopeSequence: 2, runtimeID: "rt-b",
-                          agentBucketKey: "agent-b", timestamp: .now,
+            .acp(AcpInput(envelopeSequence: 2, agentBucketKey: "agent-b", timestamp: .now,
                           acpEvent: bDelta)),
             to: &state
         )
         var aDelta2 = Amux_AcpEvent()
         aDelta2.event = .output(makeOutput(text: "hi", isComplete: false))
         ChatTimelineReducer.apply(
-            .acp(AcpInput(envelopeSequence: 3, runtimeID: "rt-a",
-                          agentBucketKey: "agent-a", timestamp: .now,
+            .acp(AcpInput(envelopeSequence: 3, agentBucketKey: "agent-a", timestamp: .now,
                           acpEvent: aDelta2)),
             to: &state
         )
@@ -213,16 +201,14 @@ struct ReducerToolResultPairingTests {
         var use = Amux_AcpEvent()
         use.event = .toolUse(makeToolUse(toolID: "t-1", toolName: "Read", description: "reading"))
         ChatTimelineReducer.apply(
-            .acp(AcpInput(envelopeSequence: 1, runtimeID: "rt",
-                          agentBucketKey: "agent", timestamp: .now,
+            .acp(AcpInput(envelopeSequence: 1, agentBucketKey: "agent", timestamp: .now,
                           acpEvent: use)),
             to: &state
         )
         var result = Amux_AcpEvent()
         result.event = .toolResult(makeToolResult(toolID: "t-1", success: true, summary: "ok"))
         ChatTimelineReducer.apply(
-            .acp(AcpInput(envelopeSequence: 2, runtimeID: "rt",
-                          agentBucketKey: "agent", timestamp: .now,
+            .acp(AcpInput(envelopeSequence: 2, agentBucketKey: "agent", timestamp: .now,
                           acpEvent: result)),
             to: &state
         )
@@ -240,16 +226,14 @@ struct ReducerToolResultPairingTests {
         var initial = Amux_AcpEvent()
         initial.event = .toolUse(makeToolUse(toolID: "t-grep", toolName: "grep", description: ""))
         ChatTimelineReducer.apply(
-            .acp(AcpInput(envelopeSequence: 1, runtimeID: "rt",
-                          agentBucketKey: "agent", timestamp: .now,
+            .acp(AcpInput(envelopeSequence: 1, agentBucketKey: "agent", timestamp: .now,
                           acpEvent: initial)),
             to: &state
         )
         var update = Amux_AcpEvent()
         update.event = .toolUse(makeToolUse(toolID: "t-grep", toolName: "", description: #"{"pattern":"MQTT","path":"apps/daemon"}"#))
         ChatTimelineReducer.apply(
-            .acp(AcpInput(envelopeSequence: 2, runtimeID: "rt",
-                          agentBucketKey: "agent", timestamp: .now,
+            .acp(AcpInput(envelopeSequence: 2, agentBucketKey: "agent", timestamp: .now,
                           acpEvent: update)),
             to: &state
         )
@@ -265,8 +249,7 @@ struct ReducerToolResultPairingTests {
         var result = Amux_AcpEvent()
         result.event = .toolResult(makeToolResult(toolID: "t-orphan", success: false, summary: "fail"))
         ChatTimelineReducer.apply(
-            .acp(AcpInput(envelopeSequence: 1, runtimeID: "rt",
-                          agentBucketKey: "agent", timestamp: .now,
+            .acp(AcpInput(envelopeSequence: 1, agentBucketKey: "agent", timestamp: .now,
                           acpEvent: result)),
             to: &state
         )
@@ -282,8 +265,7 @@ struct ReducerToolResultPairingTests {
             var delta = Amux_AcpEvent()
             delta.event = .output(makeOutput(text: chunk, isComplete: false))
             ChatTimelineReducer.apply(
-                .acp(AcpInput(envelopeSequence: 1, runtimeID: "rt",
-                              agentBucketKey: "agent", timestamp: .now,
+                .acp(AcpInput(envelopeSequence: 1, agentBucketKey: "agent", timestamp: .now,
                               turnID: "turn-A",
                               acpEvent: delta)),
                 to: &state
@@ -298,8 +280,7 @@ struct ReducerToolResultPairingTests {
         var use = Amux_AcpEvent()
         use.event = .toolUse(makeToolUse(toolID: "t-1", toolName: "Read", description: "reading SKILL.md"))
         ChatTimelineReducer.apply(
-            .acp(AcpInput(envelopeSequence: 5, runtimeID: "rt",
-                          agentBucketKey: "agent", timestamp: .now,
+            .acp(AcpInput(envelopeSequence: 5, agentBucketKey: "agent", timestamp: .now,
                           turnID: "turn-A",
                           acpEvent: use)),
             to: &state
@@ -328,8 +309,7 @@ struct ReducerToolResultPairingTests {
         var d1 = Amux_AcpEvent()
         d1.event = .output(makeOutput(text: "thinking aloud ", isComplete: false))
         ChatTimelineReducer.apply(
-            .acp(AcpInput(envelopeSequence: 1, runtimeID: "rt",
-                          agentBucketKey: "agent", timestamp: .now,
+            .acp(AcpInput(envelopeSequence: 1, agentBucketKey: "agent", timestamp: .now,
                           turnID: "turn-X",
                           acpEvent: d1)),
             to: &state
@@ -337,8 +317,7 @@ struct ReducerToolResultPairingTests {
         var use = Amux_AcpEvent()
         use.event = .toolUse(makeToolUse(toolID: "t-1", toolName: "Read", description: "reading"))
         ChatTimelineReducer.apply(
-            .acp(AcpInput(envelopeSequence: 2, runtimeID: "rt",
-                          agentBucketKey: "agent", timestamp: .now,
+            .acp(AcpInput(envelopeSequence: 2, agentBucketKey: "agent", timestamp: .now,
                           turnID: "turn-X",
                           acpEvent: use)),
             to: &state
@@ -352,15 +331,13 @@ struct ReducerToolResultPairingTests {
         // synthetic entry must be skipped. The replayed ToolUse merges
         // back onto the existing tool_use row via toolID, not append.
         ChatTimelineReducer.apply(
-            .acp(AcpInput(envelopeSequence: 50, runtimeID: "rt",
-                          agentBucketKey: "agent", timestamp: .now,
+            .acp(AcpInput(envelopeSequence: 50, agentBucketKey: "agent", timestamp: .now,
                           turnID: "turn-X",
                           acpEvent: d1)),
             to: &state
         )
         ChatTimelineReducer.apply(
-            .acp(AcpInput(envelopeSequence: 100, runtimeID: "rt",
-                          agentBucketKey: "agent", timestamp: .now,
+            .acp(AcpInput(envelopeSequence: 100, agentBucketKey: "agent", timestamp: .now,
                           turnID: "turn-X",
                           acpEvent: use)),
             to: &state
@@ -380,8 +357,7 @@ struct ReducerPlanReplaceTests {
         var first = Amux_AcpEvent()
         first.event = .planUpdate(makePlanUpdate([("plan", "pending")]))
         ChatTimelineReducer.apply(
-            .acp(AcpInput(envelopeSequence: 1, runtimeID: "rt",
-                          agentBucketKey: "agent", timestamp: .now,
+            .acp(AcpInput(envelopeSequence: 1, agentBucketKey: "agent", timestamp: .now,
                           acpEvent: first)),
             to: &state
         )
@@ -389,8 +365,7 @@ struct ReducerPlanReplaceTests {
         second.event = .planUpdate(makePlanUpdate([("plan", "completed"),
                                                    ("ship", "in_progress")]))
         ChatTimelineReducer.apply(
-            .acp(AcpInput(envelopeSequence: 2, runtimeID: "rt",
-                          agentBucketKey: "agent", timestamp: .now,
+            .acp(AcpInput(envelopeSequence: 2, agentBucketKey: "agent", timestamp: .now,
                           acpEvent: second)),
             to: &state
         )
@@ -406,8 +381,7 @@ struct ReducerPlanReplaceTests {
         var agentA = Amux_AcpEvent()
         agentA.event = .planUpdate(makePlanUpdate([("a-old", "in_progress")]))
         ChatTimelineReducer.apply(
-            .acp(AcpInput(envelopeSequence: 1, runtimeID: "rt-a",
-                          agentBucketKey: "agent-a", timestamp: .now,
+            .acp(AcpInput(envelopeSequence: 1, agentBucketKey: "agent-a", timestamp: .now,
                           acpEvent: agentA)),
             to: &state
         )
@@ -415,8 +389,7 @@ struct ReducerPlanReplaceTests {
         var agentB = Amux_AcpEvent()
         agentB.event = .planUpdate(makePlanUpdate([("b-task", "in_progress")]))
         ChatTimelineReducer.apply(
-            .acp(AcpInput(envelopeSequence: 1, runtimeID: "rt-b",
-                          agentBucketKey: "agent-b", timestamp: .now,
+            .acp(AcpInput(envelopeSequence: 1, agentBucketKey: "agent-b", timestamp: .now,
                           acpEvent: agentB)),
             to: &state
         )
@@ -424,8 +397,7 @@ struct ReducerPlanReplaceTests {
         var agentANext = Amux_AcpEvent()
         agentANext.event = .planUpdate(makePlanUpdate([("a-done", "completed")]))
         ChatTimelineReducer.apply(
-            .acp(AcpInput(envelopeSequence: 2, runtimeID: "rt-a",
-                          agentBucketKey: "agent-a", timestamp: .now,
+            .acp(AcpInput(envelopeSequence: 2, agentBucketKey: "agent-a", timestamp: .now,
                           acpEvent: agentANext)),
             to: &state
         )
@@ -446,8 +418,7 @@ struct ReducerPermissionResolveTests {
                                                                  toolName: "Bash",
                                                                  description: "rm -rf /"))
         ChatTimelineReducer.apply(
-            .acp(AcpInput(envelopeSequence: 1, runtimeID: "rt",
-                          agentBucketKey: "agent", timestamp: .now,
+            .acp(AcpInput(envelopeSequence: 1, agentBucketKey: "agent", timestamp: .now,
                           acpEvent: request)),
             to: &state
         )
@@ -481,16 +452,14 @@ struct ReducerStatusChangeIdleTests {
         delta.event = .output(makeOutput(text: "partial", isComplete: false))
         delta.model = "claude-sonnet-4-6"
         ChatTimelineReducer.apply(
-            .acp(AcpInput(envelopeSequence: 1, runtimeID: "rt",
-                          agentBucketKey: "agent", timestamp: .now,
+            .acp(AcpInput(envelopeSequence: 1, agentBucketKey: "agent", timestamp: .now,
                           acpEvent: delta)),
             to: &state
         )
         var idle = Amux_AcpEvent()
         idle.event = .statusChange(makeStatusChange(.idle))
         ChatTimelineReducer.apply(
-            .acp(AcpInput(envelopeSequence: 2, runtimeID: "rt",
-                          agentBucketKey: "agent", timestamp: .now,
+            .acp(AcpInput(envelopeSequence: 2, agentBucketKey: "agent", timestamp: .now,
                           acpEvent: idle)),
             to: &state
         )
@@ -510,22 +479,19 @@ struct ReducerStatusChangeIdleTests {
         var bDelta = Amux_AcpEvent()
         bDelta.event = .output(makeOutput(text: "b", isComplete: false))
         ChatTimelineReducer.apply(
-            .acp(AcpInput(envelopeSequence: 1, runtimeID: "rt-a",
-                          agentBucketKey: "agent-a", timestamp: .now,
+            .acp(AcpInput(envelopeSequence: 1, agentBucketKey: "agent-a", timestamp: .now,
                           acpEvent: aDelta)),
             to: &state
         )
         ChatTimelineReducer.apply(
-            .acp(AcpInput(envelopeSequence: 2, runtimeID: "rt-b",
-                          agentBucketKey: "agent-b", timestamp: .now,
+            .acp(AcpInput(envelopeSequence: 2, agentBucketKey: "agent-b", timestamp: .now,
                           acpEvent: bDelta)),
             to: &state
         )
         var idleA = Amux_AcpEvent()
         idleA.event = .statusChange(makeStatusChange(.idle))
         ChatTimelineReducer.apply(
-            .acp(AcpInput(envelopeSequence: 3, runtimeID: "rt-a",
-                          agentBucketKey: "agent-a", timestamp: .now,
+            .acp(AcpInput(envelopeSequence: 3, agentBucketKey: "agent-a", timestamp: .now,
                           acpEvent: idleA)),
             to: &state
         )
@@ -591,8 +557,7 @@ struct ReducerHistoryCrossDedupeTests {
         var done = Amux_AcpEvent()
         done.event = .output(makeOutput(text: "Hello", isComplete: true))
         ChatTimelineReducer.apply(
-            .acp(AcpInput(envelopeSequence: 1, runtimeID: "rt",
-                          agentBucketKey: "agent", timestamp: .now,
+            .acp(AcpInput(envelopeSequence: 1, agentBucketKey: "agent", timestamp: .now,
                           acpEvent: done)),
             to: &state
         )
@@ -912,7 +877,6 @@ struct ReducerAcpTurnIDDedupeTests {
 
         ChatTimelineReducer.apply(
             .acp(AcpInput(envelopeSequence: 42,
-                          runtimeID: "rt-1",
                           agentBucketKey: "agent-1",
                           timestamp: .now,
                           turnID: "turn-abc",
@@ -922,7 +886,6 @@ struct ReducerAcpTurnIDDedupeTests {
         // Daemon restart → same logical event replays with new sequence.
         ChatTimelineReducer.apply(
             .acp(AcpInput(envelopeSequence: 9,
-                          runtimeID: "rt-1",
                           agentBucketKey: "agent-1",
                           timestamp: .now,
                           turnID: "turn-abc",
@@ -946,14 +909,12 @@ struct ReducerAcpTurnIDDedupeTests {
         acp.event = .output(makeOutput(text: "好的", isComplete: true))
 
         ChatTimelineReducer.apply(
-            .acp(AcpInput(envelopeSequence: 1, runtimeID: "rt-1",
-                          agentBucketKey: "agent-1", timestamp: .now,
+            .acp(AcpInput(envelopeSequence: 1, agentBucketKey: "agent-1", timestamp: .now,
                           turnID: "turn-1", acpEvent: acp)),
             to: &state
         )
         ChatTimelineReducer.apply(
-            .acp(AcpInput(envelopeSequence: 2, runtimeID: "rt-1",
-                          agentBucketKey: "agent-1", timestamp: .now,
+            .acp(AcpInput(envelopeSequence: 2, agentBucketKey: "agent-1", timestamp: .now,
                           turnID: "turn-2", acpEvent: acp)),
             to: &state
         )
@@ -970,14 +931,12 @@ struct ReducerAcpTurnIDDedupeTests {
         acp.event = .output(makeOutput(text: "done", isComplete: true))
 
         ChatTimelineReducer.apply(
-            .acp(AcpInput(envelopeSequence: 1, runtimeID: "rt-a",
-                          agentBucketKey: "agent-a", timestamp: .now,
+            .acp(AcpInput(envelopeSequence: 1, agentBucketKey: "agent-a", timestamp: .now,
                           turnID: "turn-1", acpEvent: acp)),
             to: &state
         )
         ChatTimelineReducer.apply(
-            .acp(AcpInput(envelopeSequence: 2, runtimeID: "rt-b",
-                          agentBucketKey: "agent-b", timestamp: .now,
+            .acp(AcpInput(envelopeSequence: 2, agentBucketKey: "agent-b", timestamp: .now,
                           turnID: "turn-1", acpEvent: acp)),
             to: &state
         )
@@ -993,15 +952,13 @@ struct ReducerAcpTurnIDDedupeTests {
         acp.event = .output(makeOutput(text: "legacy", isComplete: true))
 
         ChatTimelineReducer.apply(
-            .acp(AcpInput(envelopeSequence: 5, runtimeID: "rt-1",
-                          agentBucketKey: "agent-1", timestamp: .now,
+            .acp(AcpInput(envelopeSequence: 5, agentBucketKey: "agent-1", timestamp: .now,
                           turnID: nil, acpEvent: acp)),
             to: &state
         )
         // Same sequence — sequence dedupe still catches it.
         ChatTimelineReducer.apply(
-            .acp(AcpInput(envelopeSequence: 5, runtimeID: "rt-1",
-                          agentBucketKey: "agent-1", timestamp: .now,
+            .acp(AcpInput(envelopeSequence: 5, agentBucketKey: "agent-1", timestamp: .now,
                           turnID: nil, acpEvent: acp)),
             to: &state
         )
@@ -1010,8 +967,7 @@ struct ReducerAcpTurnIDDedupeTests {
         // duplicate. Documenting the regression boundary: only daemons that
         // stamp turn_id get the cross-restart guarantee.
         ChatTimelineReducer.apply(
-            .acp(AcpInput(envelopeSequence: 6, runtimeID: "rt-1",
-                          agentBucketKey: "agent-1", timestamp: .now,
+            .acp(AcpInput(envelopeSequence: 6, agentBucketKey: "agent-1", timestamp: .now,
                           turnID: nil, acpEvent: acp)),
             to: &state
         )
@@ -1038,8 +994,7 @@ struct ReducerAcpTurnIDDedupeTests {
         var acp = Amux_AcpEvent()
         acp.event = .output(makeOutput(text: "partial+final", isComplete: true))
         ChatTimelineReducer.apply(
-            .acp(AcpInput(envelopeSequence: 10, runtimeID: "rt-1",
-                          agentBucketKey: "agent-1", timestamp: .now,
+            .acp(AcpInput(envelopeSequence: 10, agentBucketKey: "agent-1", timestamp: .now,
                           turnID: "turn-z", acpEvent: acp)),
             to: &state
         )
@@ -1051,8 +1006,7 @@ struct ReducerAcpTurnIDDedupeTests {
         // Now replay the same logical event with renumbered sequence — the
         // turnID guard catches it.
         ChatTimelineReducer.apply(
-            .acp(AcpInput(envelopeSequence: 3, runtimeID: "rt-1",
-                          agentBucketKey: "agent-1", timestamp: .now,
+            .acp(AcpInput(envelopeSequence: 3, agentBucketKey: "agent-1", timestamp: .now,
                           turnID: "turn-z", acpEvent: acp)),
             to: &state
         )
@@ -1183,8 +1137,7 @@ struct ReducerTurnIDPropagationTests {
         var use = Amux_AcpEvent()
         use.event = .toolUse(makeToolUse(toolID: "t-1", toolName: "Bash", description: "cd /tmp"))
         ChatTimelineReducer.apply(
-            .acp(AcpInput(envelopeSequence: 1, runtimeID: "rt",
-                          agentBucketKey: "agent", timestamp: .now,
+            .acp(AcpInput(envelopeSequence: 1, agentBucketKey: "agent", timestamp: .now,
                           turnID: "TURN-42",
                           acpEvent: use)),
             to: &state
@@ -1203,8 +1156,7 @@ struct ReducerTurnIDPropagationTests {
         t.text = "let me think"
         think.event = .thinking(t)
         ChatTimelineReducer.apply(
-            .acp(AcpInput(envelopeSequence: 1, runtimeID: "rt",
-                          agentBucketKey: "agent", timestamp: .now,
+            .acp(AcpInput(envelopeSequence: 1, agentBucketKey: "agent", timestamp: .now,
                           turnID: "TURN-42",
                           acpEvent: think)),
             to: &state
@@ -1220,8 +1172,7 @@ struct ReducerTurnIDPropagationTests {
         var result = Amux_AcpEvent()
         result.event = .toolResult(makeToolResult(toolID: "t-orphan", success: true, summary: "ok"))
         ChatTimelineReducer.apply(
-            .acp(AcpInput(envelopeSequence: 1, runtimeID: "rt",
-                          agentBucketKey: "agent", timestamp: .now,
+            .acp(AcpInput(envelopeSequence: 1, agentBucketKey: "agent", timestamp: .now,
                           turnID: "TURN-42",
                           acpEvent: result)),
             to: &state
@@ -1294,8 +1245,7 @@ struct ReducerEffectReturnTests {
         var acp = Amux_AcpEvent()
         acp.event = .output(makeOutput(text: "lo", isComplete: false))
         let effect = ChatTimelineReducer.apply(
-            .acp(AcpInput(envelopeSequence: 2, runtimeID: "rt-1",
-                          agentBucketKey: "agent-1", timestamp: .now, turnID: nil,
+            .acp(AcpInput(envelopeSequence: 2, agentBucketKey: "agent-1", timestamp: .now, turnID: nil,
                           acpEvent: acp)),
             to: &state
         )
@@ -1313,8 +1263,7 @@ struct ReducerEffectReturnTests {
         var acp = Amux_AcpEvent()
         acp.event = .output(makeOutput(text: "more", isComplete: false))
         let effect = ChatTimelineReducer.apply(
-            .acp(AcpInput(envelopeSequence: 1, runtimeID: "rt-1",
-                          agentBucketKey: "agent-1", timestamp: .now, turnID: nil,
+            .acp(AcpInput(envelopeSequence: 1, agentBucketKey: "agent-1", timestamp: .now, turnID: nil,
                           acpEvent: acp)),
             to: &state
         )
@@ -1328,8 +1277,7 @@ struct ReducerEffectReturnTests {
         var acp = Amux_AcpEvent()
         acp.event = .output(makeOutput(text: "Hello", isComplete: false))
         let effect = ChatTimelineReducer.apply(
-            .acp(AcpInput(envelopeSequence: 1, runtimeID: "rt-1",
-                          agentBucketKey: "agent-1", timestamp: .now, turnID: nil,
+            .acp(AcpInput(envelopeSequence: 1, agentBucketKey: "agent-1", timestamp: .now, turnID: nil,
                           acpEvent: acp)),
             to: &state
         )
@@ -1345,8 +1293,7 @@ struct ReducerEffectReturnTests {
         var acp = Amux_AcpEvent()
         acp.event = .output(makeOutput(text: "Hello, world", isComplete: true))
         let effect = ChatTimelineReducer.apply(
-            .acp(AcpInput(envelopeSequence: 3, runtimeID: "rt-1",
-                          agentBucketKey: "agent-1", timestamp: .now, turnID: nil,
+            .acp(AcpInput(envelopeSequence: 3, agentBucketKey: "agent-1", timestamp: .now, turnID: nil,
                           acpEvent: acp)),
             to: &state
         )
@@ -1365,8 +1312,7 @@ struct ReducerEffectReturnTests {
         var t1 = Amux_AcpThinking(); t1.text = "t"
         acp.event = .thinking(t1)
         let effect = ChatTimelineReducer.apply(
-            .acp(AcpInput(envelopeSequence: 7, runtimeID: "rt-1",
-                          agentBucketKey: "agent-1", timestamp: .now, turnID: nil,
+            .acp(AcpInput(envelopeSequence: 7, agentBucketKey: "agent-1", timestamp: .now, turnID: nil,
                           acpEvent: acp)),
             to: &state
         )
@@ -1380,8 +1326,7 @@ struct ReducerEffectReturnTests {
         var t2 = Amux_AcpThinking(); t2.text = "thought"
         acp.event = .thinking(t2)
         let effect = ChatTimelineReducer.apply(
-            .acp(AcpInput(envelopeSequence: 1, runtimeID: "rt-1",
-                          agentBucketKey: "agent-1", timestamp: .now, turnID: nil,
+            .acp(AcpInput(envelopeSequence: 1, agentBucketKey: "agent-1", timestamp: .now, turnID: nil,
                           acpEvent: acp)),
             to: &state
         )
@@ -1397,8 +1342,7 @@ struct ReducerEffectReturnTests {
         var acp = Amux_AcpEvent()
         acp.event = .statusChange(makeStatusChange(.idle))
         let effect = ChatTimelineReducer.apply(
-            .acp(AcpInput(envelopeSequence: 5, runtimeID: "rt-1",
-                          agentBucketKey: "agent-1", timestamp: .now, turnID: "turn-x",
+            .acp(AcpInput(envelopeSequence: 5, agentBucketKey: "agent-1", timestamp: .now, turnID: "turn-x",
                           acpEvent: acp)),
             to: &state
         )
@@ -1415,8 +1359,7 @@ struct ReducerEffectReturnTests {
         var acp = Amux_AcpEvent()
         acp.event = .statusChange(makeStatusChange(.idle))
         let effect = ChatTimelineReducer.apply(
-            .acp(AcpInput(envelopeSequence: 5, runtimeID: "rt-1",
-                          agentBucketKey: "agent-1", timestamp: .now, turnID: nil,
+            .acp(AcpInput(envelopeSequence: 5, agentBucketKey: "agent-1", timestamp: .now, turnID: nil,
                           acpEvent: acp)),
             to: &state
         )

@@ -37,6 +37,7 @@
     "daemon:build": "cargo build -p amuxd",
     "daemon:test": "cargo test -p amuxd",
     "ios:generate": "cd apps/ios && xcodegen generate",
+    "ios:proto-gen": "protoc -I proto --swift_out=apps/ios/Packages/AMUXCore/Sources/AMUXCore/Proto --swift_opt=Visibility=Public proto/amux.proto proto/teamclaw.proto",
     "ios:build": "xcodebuild -project apps/ios/AMUX.xcodeproj -scheme AMUX -destination 'generic/platform=iOS Simulator' -derivedDataPath apps/ios/build build",
     "ios:run": "scripts/run-ios.sh",
     "ios:test:core": "swift test --package-path apps/ios/Packages/AMUXCore",

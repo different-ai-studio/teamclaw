@@ -14,16 +14,7 @@ import Foundation
 /// listens on today; everything else is SessionListVM / TeamclawService
 /// territory.
 public struct TimelineInputBuilder: Sendable {
-    /// Map from daemon runtime id to the owning agent's actor id, used
-    /// to set `AcpInput.agentBucketKey`. Pre-resolved at the boundary
-    /// so the reducer doesn't depend on `memberSheetAgents`. Empty
-    /// during fixture replay tests when bucket attribution isn't being
-    /// exercised.
-    public let agentActorIDByRuntimeID: [String: String]
-
-    public init(agentActorIDByRuntimeID: [String: String] = [:]) {
-        self.agentActorIDByRuntimeID = agentActorIDByRuntimeID
-    }
+    public init() {}
 
     /// Decode one `MQTTIncoming` to a timeline input. Returns nil when
     /// the topic isn't session-live or the payload doesn't decode.
@@ -62,12 +53,9 @@ public struct TimelineInputBuilder: Sendable {
         }
         guard case .acpEvent(let acp) = amuxEnvelope.payload else { return nil }
 
-        let runtimeID = amuxEnvelope.runtimeID
-        let bucket = agentActorIDByRuntimeID[runtimeID] ?? runtimeID
         return .acp(AcpInput(
             envelopeSequence: amuxEnvelope.sequence,
-            runtimeID: runtimeID,
-            agentBucketKey: bucket,
+            agentBucketKey: amuxEnvelope.actorID,
             timestamp: Date(),
             turnID: amuxEnvelope.turnID.isEmpty ? nil : amuxEnvelope.turnID,
             acpEvent: acp

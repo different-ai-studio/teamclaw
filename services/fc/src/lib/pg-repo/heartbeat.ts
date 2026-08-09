@@ -1,43 +1,27 @@
 /**
- * Runtime domain — pg-repo implementation.
+ * Heartbeat / presence — pg-repo implementation.
  *
- * Covers all agent_runtimes operations: upsert, get, list, cursor/model
- * updates, heartbeat probe.
- *
- * Natural upsert key: (agent_id, backend_session_id) — mirrors the Supabase
- * unique index agent_runtimes_agent_backend_uniq (migration 202604220027).
+ * This file used to be `runtime.ts` and covered every `agent_runtimes`
+ * operation. That table was dropped (migration 20260803010000): per-session
+ * agent state moved to `session_participants` (ADR-0005) and live state to the
+ * `ActorPresence` retain (ADR-0004). Only the connectivity probe was left, and
+ * it never touched `agent_runtimes` in the first place.
  */
 
-import { and, desc, eq, inArray, isNull } from "drizzle-orm";
+import { eq } from "drizzle-orm";
 import type { PgDatabase } from "drizzle-orm/pg-core";
 import { actors, teams } from "../../db/schema/index.js";
-import { ApiError } from "../http-utils.js";
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 type DbLike = PgDatabase<any, any>;
 
-interface RuntimeCtx {
+interface HeartbeatCtx {
   userId?: string;
   callerActorId?: string;
 }
 
-const iso = (d: Date | string | null | undefined): string | null =>
-  d ? new Date(d).toISOString() : null;
-
-
-export function makeRuntimeRepo(db: DbLike, ctx: RuntimeCtx = {}) {
-
+export function makeHeartbeatRepo(db: DbLike, ctx: HeartbeatCtx = {}) {
   return {
-
-
-
-
-
-
-
-
-
-
     /**
      * Connectivity probe + actor presence update.
      * Stamps last_active_at for the calling actor so clients see it as online.
