@@ -21,6 +21,8 @@ import { snapshotSubagentEntry } from "@/lib/subagent-snapshot";
 import { extractTaskChildBinding, isTaskToolCall } from "@/lib/teamclu/subagent-acp-binding";
 import { useSessionMessageStore } from "@/stores/session-message-store";
 import { getFlushedTurn } from "@/lib/flushed-turn-registry";
+import { toolUseArguments } from "@/stores/v2-stream-parts";
+import type { ToolCallContentBlock } from "@/components/chat/tool-calls/tool-call-content";
 
 /** Snapshot live transcript parts — the only canonical source for parts_json. */
 export function snapshotTranscriptParts(
@@ -257,6 +259,84 @@ function withPatchedToolResult(
     return { ...part, toolCall };
   });
   return matched ? next : null;
+}
+
+/**
+ * Append a late toolUse onto the already-flushed AGENT_REPLY in the message
+ * store. Returns true when a new tool-call part was added.
+ */
+export async function patchPersistedToolUse(args: {
+  sessionId: string;
+  actorId: string;
+  toolId: string;
+  toolName: string;
+  description: string;
+  params: Record<string, string>;
+  toolKind?: string;
+  content?: ToolCallContentBlock[];
+  locations?: Array<{ path: string; line?: number }>;
+  acpStatus?: string;
+  rawInput?: unknown;
+}): Promise<boolean> {
+  const flushed = getFlushedTurn(args.sessionId, args.actorId);
+  if (!flushed) return false;
+
+  const toolId = args.toolId.trim();
+  if (!toolId) return false;
+
+  const messages = useSessionMessageStore.getState().messages[args.sessionId] ?? [];
+  const message = messages.find((m) => m.messageId === flushed.messageId);
+  if (!message) return false;
+
+  const parts = parsePartsJson(messagePartsJson(message));
+  if (parts.some((part) => part.type === "tool-call" && part.toolCall?.id === toolId)) {
+    return false;
+  }
+
+  const newToolCall: ToolCall = {
+    id: toolId,
+    name: args.toolName || "unknown",
+    toolKind: args.toolKind || undefined,
+    acpStatus: args.acpStatus,
+    content: args.content,
+    locations: args.locations,
+    rawInput: args.rawInput,
+    status: "calling",
+    arguments: toolUseArguments(args.params, args.description),
+    startTime: new Date(),
+  };
+  const nextParts: MessagePart[] = [
+    ...parts,
+    {
+      id: `stream:tool:${toolId}`,
+      type: "tool-call",
+      toolCallId: toolId,
+      toolCall: newToolCall,
+    },
+  ];
+
+  const partsJson = JSON.stringify(nextParts);
+  let enrichedPartsJson = partsJson;
+  try {
+    enrichedPartsJson = await setMessageParts(
+      flushed.messageId,
+      partsJson,
+      useWorkspaceStore.getState().workspacePath,
+    );
+  } catch (e) {
+    console.warn("[streaming-persist] late toolUse parts_json write failed:", e);
+  }
+
+  const updated = Object.assign(
+    Object.create(Object.getPrototypeOf(message)),
+    message,
+    { partsJson: enrichedPartsJson },
+  ) as TeamcluMessage;
+
+  useSessionMessageStore
+    .getState()
+    .replaceTurnAgentRepliesInStore(args.sessionId, updated);
+  return true;
 }
 
 /**
