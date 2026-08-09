@@ -1985,12 +1985,16 @@ paths:
       operationId: listTeamMcpServers
       summary: List the team MCP catalog
       description: >
-        Full catalog, decorated with the caller's own `installed` flag. There is
-        no actorId parameter: installs are self-only, so another actor's install
-        state has no corresponding action.
+        Full catalog, decorated with an actor's `installed` flag. `actorId`
+        defaults to the caller; pass a team agent's actor id to inspect what
+        that agent has installed. Reading another actor's install state is
+        allowed, writing it is not — install and uninstall are self-only.
       tags: [TeamMcp]
       parameters:
         - $ref: "#/components/parameters/TeamId"
+        - name: actorId
+          in: query
+          schema: { type: string, format: uuid }
       responses:
         "200":
           description: Catalog entries.

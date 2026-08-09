@@ -13,7 +13,12 @@ import { ApiError } from "../http-utils.js";
 export function registerTeamMcp(router) {
   // Full catalog, decorated with the caller's own `installed` flag.
   router.get("/v1/teams/:teamId/mcp-servers", async (ctx) => {
-    const items = await ctx.repository.listTeamMcpServers(ctx.params.teamId);
+    // `actorId` picks whose install state decorates each row — the same
+    // contract `GET /skills` has. The install routes below still refuse it.
+    const opts: any = {};
+    const actorId = ctx.query.get("actorId");
+    if (actorId) opts.actorId = actorId;
+    const items = await ctx.repository.listTeamMcpServers(ctx.params.teamId, opts);
     return { body: { items } };
   });
 
