@@ -1,4 +1,4 @@
-# TeamClaw
+# TeamClu
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 [![CI](https://github.com/different-ai-studio/teamclaw/actions/workflows/ci.yml/badge.svg)](https://github.com/different-ai-studio/teamclaw/actions)
@@ -19,7 +19,7 @@
 
 | 主页 | 渠道 |
 |---|---|
-| ![TeamClaw Home](images/home.png) | ![TeamClaw Channels](images/channel.png) |
+| ![TeamClu Home](images/home.png) | ![TeamClu Channels](images/channel.png) |
 
 ## 功能特性
 
@@ -36,7 +36,7 @@
 
 ## 工作原理
 
-TeamClaw 分为客户端层、智能体宿主与云端后端三部分：
+TeamClu 分为客户端层、智能体宿主与云端后端三部分：
 
 ```
   Desktop (Tauri)     iOS      Mobile (Expo)     Chrome extension
@@ -58,7 +58,7 @@ TeamClaw 分为客户端层、智能体宿主与云端后端三部分：
                     └─────────────────┘
 ```
 
-- **客户端**负责 UI 与本地文件。安装 TeamClaw 桌面端时会一并安装 `amuxd` 守护进程，因此你的机器开箱即是一个智能体宿主。
+- **客户端**负责 UI 与本地文件。安装 TeamClu 桌面端时会一并安装 `amuxd` 守护进程，因此你的机器开箱即是一个智能体宿主。
 - **amuxd** 托管本地智能体后端、运行渠道网关，并负责团队同步。它也可以在服务器上独立安装，无需 GUI。
 - **Cloud API**（`/v1`）是客户端唯一对接的后端。接口契约见 [`docs/openapi/teamclaw-api.v1.yaml`](docs/openapi/teamclaw-api.v1.yaml)，完整架构见 [`docs/architecture/v2.md`](docs/architecture/v2.md)。
 
@@ -94,7 +94,7 @@ pnpm install
 pnpm tauri:dev
 ```
 
-启动后，在 TeamClaw 界面中选择一个工作区目录。
+启动后，在 TeamClu 界面中选择一个工作区目录。
 
 在开发过程中跳过首次运行向导：
 

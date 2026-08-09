@@ -1,4 +1,4 @@
-# TeamClaw
+# TeamClu
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 [![CI](https://github.com/different-ai-studio/teamclaw/actions/workflows/ci.yml/badge.svg)](https://github.com/different-ai-studio/teamclaw/actions)
@@ -19,7 +19,7 @@ English | [简体中文](README.zh-CN.md) | [繁體中文](README.zh-TW.md) | [�
 
 | Home | Channels |
 |---|---|
-| ![TeamClaw Home](images/home.png) | ![TeamClaw Channels](images/channel.png) |
+| ![TeamClu Home](images/home.png) | ![TeamClu Channels](images/channel.png) |
 
 ## Features
 
@@ -36,7 +36,7 @@ English | [简体中文](README.zh-CN.md) | [繁體中文](README.zh-TW.md) | [�
 
 ## How it works
 
-TeamClaw is split into a client layer, an agent host, and a cloud backend:
+TeamClu is split into a client layer, an agent host, and a cloud backend:
 
 ```
   Desktop (Tauri)     iOS      Mobile (Expo)     Chrome extension
@@ -58,7 +58,7 @@ TeamClaw is split into a client layer, an agent host, and a cloud backend:
                     └─────────────────┘
 ```
 
-- **Clients** own the UI and local files. Installing TeamClaw Desktop also installs the `amuxd` daemon, so your machine is an agent host out of the box.
+- **Clients** own the UI and local files. Installing TeamClu Desktop also installs the `amuxd` daemon, so your machine is an agent host out of the box.
 - **amuxd** hosts local agent backends, runs the channel gateways, and owns team sync. It can also be installed standalone on a server, with no GUI.
 - **Cloud API** (`/v1`) is the only backend clients talk to. See [`docs/openapi/teamclaw-api.v1.yaml`](docs/openapi/teamclaw-api.v1.yaml) for the contract, and [`docs/architecture/v2.md`](docs/architecture/v2.md) for the full architecture.
 
@@ -94,7 +94,7 @@ pnpm install
 pnpm tauri:dev
 ```
 
-After launching, pick a workspace directory in the TeamClaw UI.
+After launching, pick a workspace directory in the TeamClu UI.
 
 To skip the first-run wizards during development:
 

@@ -1,4 +1,4 @@
-# TeamClaw
+# TeamClu
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 [![CI](https://github.com/different-ai-studio/teamclaw/actions/workflows/ci.yml/badge.svg)](https://github.com/different-ai-studio/teamclaw/actions)
@@ -19,7 +19,7 @@
 
 | 홈 | 채널 |
 |---|---|
-| ![TeamClaw Home](images/home.png) | ![TeamClaw Channels](images/channel.png) |
+| ![TeamClu Home](images/home.png) | ![TeamClu Channels](images/channel.png) |
 
 ## 주요 기능
 
@@ -36,7 +36,7 @@
 
 ## 동작 방식
 
-TeamClaw 는 클라이언트 계층, 에이전트 호스트, 클라우드 백엔드로 나뉩니다:
+TeamClu 는 클라이언트 계층, 에이전트 호스트, 클라우드 백엔드로 나뉩니다:
 
 ```
   Desktop (Tauri)     iOS      Mobile (Expo)     Chrome extension
@@ -58,7 +58,7 @@ TeamClaw 는 클라이언트 계층, 에이전트 호스트, 클라우드 백엔
                     └─────────────────┘
 ```
 
-- **클라이언트**는 UI 와 로컬 파일을 담당합니다. TeamClaw Desktop 을 설치하면 `amuxd` 데몬도 함께 설치되므로, 사용자의 머신이 곧바로 에이전트 호스트가 됩니다.
+- **클라이언트**는 UI 와 로컬 파일을 담당합니다. TeamClu Desktop 을 설치하면 `amuxd` 데몬도 함께 설치되므로, 사용자의 머신이 곧바로 에이전트 호스트가 됩니다.
 - **amuxd**는 로컬 에이전트 백엔드를 호스팅하고, 채널 게이트웨이를 실행하며, 팀 동기화를 담당합니다. GUI 없이 서버에 단독으로 설치할 수도 있습니다.
 - **Cloud API**(`/v1`)는 클라이언트가 통신하는 유일한 백엔드입니다. 계약은 [`docs/openapi/teamclaw-api.v1.yaml`](docs/openapi/teamclaw-api.v1.yaml), 전체 아키텍처는 [`docs/architecture/v2.md`](docs/architecture/v2.md) 를 참조하세요.
 
@@ -94,7 +94,7 @@ pnpm install
 pnpm tauri:dev
 ```
 
-시작한 후 TeamClaw UI 에서 워크스페이스 디렉토리를 선택하세요.
+시작한 후 TeamClu UI 에서 워크스페이스 디렉토리를 선택하세요.
 
 개발 중 최초 실행 마법사를 건너뛰려면:
 
