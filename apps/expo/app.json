@@ -21,7 +21,13 @@
       "expo-web-browser",
       "expo-router",
       "expo-sqlite",
-      "@sentry/react-native"
+      [
+        "@sentry/react-native",
+        {
+          "organization": "ucar-inc",
+          "project": "teamclu-expo"
+        }
+      ]
     ],
     "ios": {
       "bundleIdentifier": "com.bertrand319.teamclawexpo"
