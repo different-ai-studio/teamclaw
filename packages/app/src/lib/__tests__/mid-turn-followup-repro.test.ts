@@ -24,7 +24,6 @@ import { AgentStatus } from "@/lib/proto/amux_pb";
 import { decodeLiveEvent } from "@/lib/teamclu-events";
 import {
   clearFlushedTurn,
-  getFlushedTurn,
   registerFlushedTurn,
   resetFlushedTurnRegistryForTests,
 } from "@/lib/flushed-turn-registry";
