@@ -12,6 +12,16 @@
 `~/.teamclaw` → `~/.teamclu` 有迁移兜底，DNS 和 GitHub 没有。旧名字一停，那批用户就永久断更、
 永久连不上后端，且没有任何补救手段。
 
+### 例外：`*.teamclaw-dev.ucar.cc` 已经决定不保留（2026-08-09）
+
+五条 `*.teamclaw-dev.ucar.cc` 记录在 DNS 切换时被**删除**而不是保留为别名，且经确认这是有意的
+决定，不是失误。后果照上面那条规则：**所有存量装机——桌面端、iOS、betly、copilot361——从此
+连不上后端，只能引导重装新版本**，没有服务端补救手段。
+
+这条例外只适用于 `-dev` 那五个主机名。GitHub 仓库重定向、`teamclaw.ucar.cc`（betly 更新清单）、
+`teamclaw-api.ucar.cc`（belayo 后端）**仍然适用原规则**——它们服务的是自动更新链路，断了连
+"重装新版本"这条路都没有。
+
 ## 合并前必须就位
 
 | 项 | 现状 | 要做什么 |
@@ -33,6 +43,27 @@
 | `supabase` / `studio` / `emqx.teamclaw-dev.ucar.cc` | `…teamclu-dev…` | 网关 / 控制台 |
 | `teamclaw.ucar.cc` | `teamclu.ucar.cc` | **betly 的更新清单地址**（`release-oss.yml` 的 `CDN_BASE_DEFAULT`）。新主机不存在就发布 betly，等于把 betly 的 `latest.json` 指向 404 |
 | `teamclaw-api.ucar.cc` | `teamclu-api.ucar.cc` | belayo 后端，betly 的 `cloudApiUrl` |
+
+#### 已完成（2026-08-09）
+
+五个 `-dev` 新主机名已解析到 `47.112.210.217`，箱子 `.env` 已切、Caddy 已签发全部五张
+Let's Encrypt 证书，`https://api.teamclu-dev.ucar.cc/healthz` 返回 `{"ok":true}`。
+
+要点：**Caddy 只给自己配置里出现的名字签证书**，DNS 指过来它不会自动去签——`.env` 不改，
+新主机名就是 TLS 握手直接 `tlsv1 alert internal error`。
+
+`.env` 里要改的不止 `*_DOMAIN` 五个。`SUPABASE_PUBLIC_URL` / `API_EXTERNAL_URL` /
+`SITE_URL` / `MQTT_PUBLIC_BROKER_URL` 是**单独存的值**，不会跟着 `*_DOMAIN` 走；漏了它们，
+GoTrue 会继续往旧主机发重定向。备份在箱子上的 `.env.bak.pre-teamclu-dns`。
+
+#### 遗留：EMQX 8883 的 MQTTS 是坏的（先于这次改名）
+
+Caddy 把证书存成 `0700 root:root`，而 emqx 容器跑在 uid 1000 下，读不到——listener 能 bind，
+但每个连接都在握手阶段被丢弃、不发证书。用 uid 1000 读**改名前**那份证书同样是
+`Permission denied`，所以不是这次切换造成的。
+
+目前没有使用者：`/v1/config/bootstrap` 下发的是 `mqtt://…:1883`，iOS 也是
+`mqttUseTls: false`，所以一直没人察觉。要修得把证书复制到 emqx 读得到的地方，改路径没用。
 
 ### 自建机（ECS `47.112.210.217`）的 `.env`
 
@@ -111,6 +142,21 @@ scheme，但操作系统层面的 URL 路由不认——这个靠代码补不回
 
 若要避免这一点，需要把 `app.scheme` 扩展成支持数组（让 copilot 同时注册
 `copilot361` 和 `teamclaw`）。目前没有做。
+
+## 箱子上已经存在的东西（改名扫到了，已改回）
+
+这些不是品牌字符串，是**那台 ECS 上已经存在什么**。改名把它们一起改了，任何一条都足以让
+一次部署看起来像把环境清空了：
+
+| 位置 | 恢复成 | 改了会怎样 |
+|---|---|---|
+| `docker-compose.yml` / `docker-compose.podman.yml` 的 `name:` | `teamclaw-self-host` | 容器和卷全都带这个前缀。改名不会重命名任何东西——compose 当成全新项目，19 个容器起在全新空卷上，数据库、Caddy 已签的证书、EMQX 状态全部搁浅在孤儿项目里 |
+| `smoke/run-e2e.sh` 的容器名 | `teamclaw-self-host-fc-1` | 跟着 `name:` 走，必须一致 |
+| `apps-db-init` 的库名 | `teamclaw_apps` | 库已经在线上；改名只会在旁边再建一个空的 |
+| 两个 deploy workflow 的 `cd` 路径 | `/opt/teamclaw` | 箱子上就叫这个，`/opt/teamclu` 不存在，部署第一步就失败 |
+| `emqx.conf` 的 certfile/keyfile | 见上，改由 `${MQTT_DOMAIN}` 派生 | Caddy 手上只有旧名字的证书，路径写成新名字 = 8883 listener 起不来，MQTTS 全断 |
+
+想真的改成 `teamclu-*`，得先在箱子上迁移卷和数据库、再改这里，不能只改仓库。
 
 ## 刻意没有改名的东西
 

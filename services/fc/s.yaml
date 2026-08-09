@@ -56,7 +56,7 @@ resources:
         CODEUP_ORG_ID: ${env('CODEUP_ORG_ID', '')}
         CODEUP_PAT: ${env('CODEUP_PAT', '')}
         CODEUP_BOT_USERNAME: ${env('CODEUP_BOT_USERNAME', 'teamclu')}
-        # Admin connection to the shared per-app Postgres DB (teamclu_apps),
+        # Admin connection to the shared per-app Postgres DB (teamclaw_apps),
         # same RDS instance as the control plane but a DIFFERENT database. Used
         # only by apps provisioning (CREATE SCHEMA / CREATE ROLE). Never sent
         # to clients.
