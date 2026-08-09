@@ -252,16 +252,24 @@ export const cloudAuth: CloudAuthClient = {
           throw new Error("Authentication response did not include a session.");
         }
         const previous = store().current();
-        await store().setSession({
-          accessToken: body.accessToken,
-          refreshToken: body.refreshToken,
-          expiresAt: body.expiresAt ?? nowSeconds() + 3600,
-          // The refresh response carries no user, so identity fields come from
-          // the session being replaced — this swaps tokens, not accounts.
-          isAnonymous: previous?.isAnonymous ?? false,
-          email: previous?.email ?? null,
-          userId: previous?.userId ?? null,
-        });
+        await store().setSession(
+          {
+            accessToken: body.accessToken,
+            refreshToken: body.refreshToken,
+            expiresAt: body.expiresAt ?? nowSeconds() + 3600,
+            // The refresh response carries no user, so identity fields come
+            // from the session being replaced — this swaps tokens, not
+            // accounts.
+            isAnonymous: previous?.isAnonymous ?? false,
+            email: previous?.email ?? null,
+            userId: previous?.userId ?? null,
+          },
+          // Silent because `loadBootstrap` calls this mid-bootstrap: notifying
+          // re-enters `bootstrap()`, which invalidates the in-flight run and
+          // loops forever on "Opening TeamClaw". Nobody needs waking — the
+          // access token is always read live through `accessToken()`.
+          { silent: true },
+        );
         return { data: {}, error: null };
       } catch (error) {
         return { data: null, error: { message: error instanceof Error ? error.message : "setRefreshSession failed" } };
