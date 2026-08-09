@@ -4,6 +4,7 @@ import {
   ActionSheetIOS,
   ActivityIndicator,
   Alert,
+  KeyboardAvoidingView,
   Platform,
   Pressable,
   RefreshControl,
@@ -17,7 +18,17 @@ import {
 import { Hairline } from "../../../ui/atoms/Hairline";
 import { SectionEyebrow } from "../../../ui/atoms/SectionEyebrow";
 import { colors, hai, radii, spacing, typography } from "../../../ui/theme";
-import type { Idea, IdeaStatus } from "../idea-types";
+import { ImageLightbox } from "../../sessions/components/ImageLightbox";
+import {
+  IdeaActivityTimeline,
+  type IdeaActivityAuthor,
+} from "../components/IdeaActivityTimeline";
+import {
+  IdeaProgressComposer,
+  type ComposerAttachment,
+  type IdeaImageSource,
+} from "../components/IdeaProgressComposer";
+import type { Idea, IdeaActivity, IdeaStatus } from "../idea-types";
 
 export type IdeaDetailScreenProps = {
   busyAction: "toggleStatus" | "archive" | "save" | null;
@@ -38,6 +49,16 @@ export type IdeaDetailScreenProps = {
     title: string;
     lastMessageAt: string;
   }>;
+  /** Activity feed — newest first, as the Cloud API returns it. */
+  activities?: ReadonlyArray<IdeaActivity>;
+  activityAuthorsById?: Readonly<Record<string, IdeaActivityAuthor>>;
+  isLoadingActivities?: boolean;
+  /** Progress composer — omit `onSubmitProgress` to hide the composer. */
+  composerAttachments?: ReadonlyArray<ComposerAttachment>;
+  isSubmittingProgress?: boolean;
+  onAddProgressImage?: (source: IdeaImageSource) => void;
+  onRemoveProgressAttachment?: (id: string) => void;
+  onSubmitProgress?: (text: string) => void;
 };
 
 type StatusPill = {
@@ -98,9 +119,18 @@ export function IdeaDetailScreen({
   onStartSession,
   onToggleStatus,
   relatedSessions,
+  activities,
+  activityAuthorsById,
+  isLoadingActivities,
+  composerAttachments,
+  isSubmittingProgress,
+  onAddProgressImage,
+  onRemoveProgressAttachment,
+  onSubmitProgress,
 }: IdeaDetailScreenProps) {
   const [titleDraft, setTitleDraft] = useState("");
   const [descDraft, setDescDraft] = useState("");
+  const [lightboxUrl, setLightboxUrl] = useState<string | null>(null);
 
   useEffect(() => {
     setTitleDraft(idea?.title ?? "");
@@ -244,6 +274,27 @@ export function IdeaDetailScreen({
               </View>
             </View>
 
+            {activities ? (
+              <View style={styles.section}>
+                <SectionEyebrow
+                  label={
+                    activities.length > 0
+                      ? `ACTIVITY · ${activities.length}`
+                      : "ACTIVITY"
+                  }
+                  style={styles.sectionEyebrow}
+                />
+                <View style={styles.card}>
+                  <IdeaActivityTimeline
+                    activities={activities}
+                    authorsById={activityAuthorsById}
+                    isLoading={isLoadingActivities}
+                    onSelectImage={setLightboxUrl}
+                  />
+                </View>
+              </View>
+            ) : null}
+
             {relatedSessions && relatedSessions.length > 0 ? (
               <View style={styles.section}>
                 <SectionEyebrow
@@ -351,6 +402,23 @@ export function IdeaDetailScreen({
           </>
         )}
       </ScrollView>
+
+      {idea && onSubmitProgress ? (
+        <KeyboardAvoidingView
+          behavior={Platform.OS === "ios" ? "padding" : undefined}
+          style={styles.composerDock}
+        >
+          <IdeaProgressComposer
+            attachments={composerAttachments ?? []}
+            isSubmitting={Boolean(isSubmittingProgress)}
+            onAddImage={onAddProgressImage ?? (() => {})}
+            onRemoveAttachment={onRemoveProgressAttachment ?? (() => {})}
+            onSubmit={onSubmitProgress}
+          />
+        </KeyboardAvoidingView>
+      ) : null}
+
+      <ImageLightbox onClose={() => setLightboxUrl(null)} url={lightboxUrl} />
     </View>
   );
 }
@@ -392,6 +460,12 @@ const styles = StyleSheet.create({
   },
   actionReopen: {
     backgroundColor: hai.pebble,
+  },
+  composerDock: {
+    backgroundColor: colors.mist,
+    paddingBottom: spacing.md,
+    paddingHorizontal: spacing.lg,
+    paddingTop: spacing.sm,
   },
   actionStart: {
     backgroundColor: hai.cinnabar,

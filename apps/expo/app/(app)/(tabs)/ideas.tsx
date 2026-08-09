@@ -5,9 +5,11 @@ import { routeToHref, useOnboarding } from "../../_layout";
 import { createActorsApi } from "../../../src/features/actors/actor-api";
 import { createIdeasApi } from "../../../src/features/ideas/idea-api";
 import { createIdeasController } from "../../../src/features/ideas/idea-controller";
+import { reorderIdeaIds } from "../../../src/features/ideas/idea-types";
 import { IdeasListScreen } from "../../../src/features/ideas/screens/IdeasListScreen";
 import { supabase } from "../../../src/lib/supabase/client";
 import { supabaseAccessToken } from "../../../src/lib/cloud-api/client";
+import { showToast } from "../../../src/ui/Toast";
 
 export default function IdeasIndexRoute() {
   const router = useRouter();
@@ -69,6 +71,39 @@ export default function IdeasIndexRoute() {
     return <Redirect href="/" />;
   }
 
+  /**
+   * Optimistic reorder → POST /v1/ideas/reorder → one `reorder` activity for
+   * the moved idea, exactly the sequence iOS `IdeaStore.moveIdeas` performs.
+   * A failed write reverts by refetching.
+   */
+  const handleReorder = async (ideaId: string, destinationIndex: number) => {
+    const current = controller.getState().ideas;
+    const orderedIds = reorderIdeaIds(current, ideaId, destinationIndex);
+    const newIndex = orderedIds.indexOf(ideaId);
+    if (newIndex < 0) return;
+    controller.applyReorder(orderedIds);
+    const api = createIdeasApi({ getAccessToken: supabaseAccessToken(supabase) });
+    try {
+      await api.reorderIdeas(teamId, orderedIds);
+    } catch (err) {
+      showToast("error", err instanceof Error ? err.message : "Couldn't reorder ideas.");
+      await controller.refresh();
+      return;
+    }
+    const actorId = state.currentMemberActorId;
+    if (!actorId) return;
+    try {
+      await api.createActivity(ideaId, {
+        activityType: "reorder",
+        content: `Moved to position ${newIndex + 1}`,
+        actorId,
+        metadata: { position: `${newIndex + 1}`, total: `${orderedIds.length}` },
+      });
+    } catch {
+      // The order itself saved; the audit row is best-effort.
+    }
+  };
+
   return (
     <IdeasListScreen
       actorNames={actorNames}
@@ -91,6 +126,9 @@ export default function IdeasIndexRoute() {
       }}
       onRefresh={() => {
         void controller.refresh();
+      }}
+      onReorder={(ideaId, destinationIndex) => {
+        void handleReorder(ideaId, destinationIndex);
       }}
       onSelectIdea={(ideaId) => {
         router.push(`/(app)/idea-detail?ideaId=${ideaId}`);

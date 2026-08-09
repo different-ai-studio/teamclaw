@@ -45,6 +45,8 @@ export type IdeasListScreenProps = {
   onLoad: () => void;
   onOpenArchived?: () => void;
   onRefresh: () => void;
+  /** Move `ideaId` to `destinationIndex` in the team's stored idea order. */
+  onReorder?: (ideaId: string, destinationIndex: number) => void;
   onSelectIdea?: (ideaId: string) => void;
   state: IdeasListState;
 };
@@ -103,6 +105,7 @@ export function IdeasListScreen({
   onLoad,
   onOpenArchived,
   onRefresh,
+  onReorder,
   onSelectIdea,
   state,
 }: IdeasListScreenProps) {
@@ -133,27 +136,55 @@ export function IdeasListScreen({
 
   const clearSelection = () => setSelection(new Set());
 
+  /** A search or filter hides rows, so "position N" would no longer match the
+   * stored order the reorder endpoint writes. Reordering is offered only on the
+   * full list. */
+  const isFiltered = filter !== "all" || query.trim().length > 0 || workspaceFilter !== null;
+
   const showRowContextMenu = useCallback(
     (ideaId: string) => {
       impactLight();
-      const labels = ["归档", "选择更多…", "取消"];
-      const dispatch = (index: number) => {
-        switch (index) {
-          case 0:
+      // Reorder entries stand in for the drag handle iOS gets from
+      // `List.onMove`; they call the same reorder endpoint underneath. Only
+      // offered on the unfiltered list, where the visible order is the stored
+      // order and a "position" is meaningful.
+      const canReorder = Boolean(onReorder) && !isFiltered;
+      const position = state.ideas.findIndex((idea) => idea.ideaId === ideaId);
+      const canMoveUp = canReorder && position > 0;
+      const canMoveDown = canReorder && position >= 0 && position < state.ideas.length - 1;
+
+      type Entry = { label: string; destructive?: boolean; run: () => void };
+      const entries: Entry[] = [
+        {
+          label: "归档",
+          destructive: true,
+          run: () => {
             if (onArchiveBatch) void onArchiveBatch([ideaId]);
-            break;
-          case 1:
-            toggleSelection(ideaId);
-            break;
-          default:
-            break;
-        }
+          },
+        },
+        { label: "选择更多…", run: () => toggleSelection(ideaId) },
+      ];
+      if (canMoveUp) {
+        entries.push({ label: "上移", run: () => onReorder?.(ideaId, position - 1) });
+        entries.push({ label: "移到顶部", run: () => onReorder?.(ideaId, 0) });
+      }
+      if (canMoveDown) {
+        entries.push({ label: "下移", run: () => onReorder?.(ideaId, position + 1) });
+        entries.push({
+          label: "移到底部",
+          run: () => onReorder?.(ideaId, state.ideas.length - 1),
+        });
+      }
+
+      const labels = [...entries.map((entry) => entry.label), "取消"];
+      const dispatch = (index: number) => {
+        entries[index]?.run();
       };
       if (Platform.OS === "ios") {
         ActionSheetIOS.showActionSheetWithOptions(
           {
             options: labels,
-            cancelButtonIndex: 2,
+            cancelButtonIndex: entries.length,
             destructiveButtonIndex: 0,
           },
           dispatch,
@@ -161,12 +192,15 @@ export function IdeasListScreen({
         return;
       }
       Alert.alert("想法操作", undefined, [
-        { text: labels[0], style: "destructive", onPress: () => dispatch(0) },
-        { text: labels[1], onPress: () => dispatch(1) },
-        { text: labels[2], style: "cancel" },
+        ...entries.map((entry, index) => ({
+          text: entry.label,
+          style: entry.destructive ? ("destructive" as const) : undefined,
+          onPress: () => dispatch(index),
+        })),
+        { text: "取消", style: "cancel" as const },
       ]);
     },
-    [onArchiveBatch],
+    [isFiltered, onArchiveBatch, onReorder, state.ideas],
   );
 
   const handleArchiveSelected = async () => {

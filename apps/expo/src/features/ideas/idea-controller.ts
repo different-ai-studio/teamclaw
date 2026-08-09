@@ -1,6 +1,8 @@
 import { createIdeasApi } from "./idea-api";
 import {
+  compareIdeas,
   initialIdeasListState,
+  sortOrderForIndex,
   type IdeasListState,
 } from "./idea-types";
 
@@ -11,6 +13,12 @@ export type IdeasController = {
   getState: () => IdeasListState;
   load: () => Promise<void>;
   refresh: () => Promise<void>;
+  /**
+   * Renumber `sortOrder` from the given id order and re-sort, so a reorder
+   * shows up before the round-trip lands. Mirrors the optimistic half of iOS
+   * `IdeaStore.moveIdeas`; the caller reverts by refreshing on failure.
+   */
+  applyReorder: (orderedIds: ReadonlyArray<string>) => void;
 };
 
 export function createIdeasController(
@@ -65,5 +73,15 @@ export function createIdeasController(
     getState: () => state,
     load: () => fetch("load"),
     refresh: () => fetch("refresh"),
+    applyReorder(orderedIds) {
+      const position = new Map(orderedIds.map((id, index) => [id, index]));
+      const ideas = state.ideas
+        .map((idea) => {
+          const index = position.get(idea.ideaId);
+          return index === undefined ? idea : { ...idea, sortOrder: sortOrderForIndex(index) };
+        })
+        .sort(compareIdeas);
+      setState({ ...state, ideas });
+    },
   };
 }
