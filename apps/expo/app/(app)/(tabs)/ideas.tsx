@@ -110,6 +110,7 @@ export default function IdeasIndexRoute() {
       currentActorId={state.currentMemberActorId}
       onCreate={() => router.push("/(app)/new-idea")}
       onOpenArchived={() => router.push("/(app)/archived-ideas")}
+      onOpenStats={() => router.push("/(app)/idea-stats")}
       onArchiveBatch={async (ideaIds) => {
         const api = createIdeasApi({ getAccessToken: supabaseAccessToken(supabase) });
         for (const id of ideaIds) {

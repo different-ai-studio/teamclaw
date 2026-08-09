@@ -44,6 +44,7 @@ export type IdeasListScreenProps = {
   onCreate?: () => void;
   onLoad: () => void;
   onOpenArchived?: () => void;
+  onOpenStats?: () => void;
   onRefresh: () => void;
   /** Move `ideaId` to `destinationIndex` in the team's stored idea order. */
   onReorder?: (ideaId: string, destinationIndex: number) => void;
@@ -55,16 +56,29 @@ function HeaderBar({
   count,
   onCreate,
   onOpenArchived,
+  onOpenStats,
 }: {
   count: number;
   onCreate?: () => void;
   onOpenArchived?: () => void;
+  onOpenStats?: () => void;
 }) {
   return (
     <PageHeader
       count={count}
       right={
         <View style={styles.toolbarGroup}>
+          {onOpenStats ? (
+            <Pressable
+              accessibilityLabel="Idea statistics"
+              accessibilityRole="button"
+              hitSlop={8}
+              onPress={onOpenStats}
+              style={styles.toolbarButton}
+            >
+              <Ionicons color={colors.onyx} name="stats-chart-outline" size={20} />
+            </Pressable>
+          ) : null}
           {onOpenArchived ? (
             <Pressable
               accessibilityLabel="Archived ideas"
@@ -104,6 +118,7 @@ export function IdeasListScreen({
   onCreate,
   onLoad,
   onOpenArchived,
+  onOpenStats,
   onRefresh,
   onReorder,
   onSelectIdea,
@@ -259,6 +274,7 @@ export function IdeasListScreen({
       count={state.ideas.length}
       onCreate={onCreate}
       onOpenArchived={onOpenArchived}
+      onOpenStats={onOpenStats}
     />
   );
 

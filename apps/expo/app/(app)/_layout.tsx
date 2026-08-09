@@ -44,6 +44,22 @@ export default function AppLayout() {
           }}
         />
         <Stack.Screen
+          name="idea-stats"
+          options={{
+            presentation: "modal",
+            animation: "slide_from_bottom",
+            contentStyle: { backgroundColor: colors.mist },
+          }}
+        />
+        <Stack.Screen
+          name="team-stats"
+          options={{
+            presentation: "modal",
+            animation: "slide_from_bottom",
+            contentStyle: { backgroundColor: colors.mist },
+          }}
+        />
+        <Stack.Screen
           name="actor-resources"
           options={{
             presentation: "card",

@@ -35,6 +35,7 @@ export type ActorsListScreenProps = {
   currentActorId: string | null;
   onInvite?: () => void;
   onLoad: () => void;
+  onOpenStats?: () => void;
   onRefresh: () => void;
   onSelectActor?: (actorId: string) => void;
   state: ActorsListState;
@@ -43,28 +44,43 @@ export type ActorsListScreenProps = {
 function HeaderBar({
   count,
   onInvite,
+  onOpenStats,
 }: {
   count: number;
   onInvite?: () => void;
+  onOpenStats?: () => void;
 }) {
   return (
     <PageHeader
       count={count}
       right={
-        <Pressable
-          accessibilityLabel="Invite Member"
-          accessibilityRole="button"
-          disabled={!onInvite}
-          hitSlop={8}
-          onPress={onInvite}
-          style={styles.toolbarButton}
-        >
-          <Ionicons
-            color={onInvite ? colors.onyx : colors.slate}
-            name="person-add-outline"
-            size={22}
-          />
-        </Pressable>
+        <View style={styles.toolbarGroup}>
+          {onOpenStats ? (
+            <Pressable
+              accessibilityLabel="Team statistics"
+              accessibilityRole="button"
+              hitSlop={8}
+              onPress={onOpenStats}
+              style={styles.toolbarButton}
+            >
+              <Ionicons color={colors.onyx} name="stats-chart-outline" size={20} />
+            </Pressable>
+          ) : null}
+          <Pressable
+            accessibilityLabel="Invite Member"
+            accessibilityRole="button"
+            disabled={!onInvite}
+            hitSlop={8}
+            onPress={onInvite}
+            style={styles.toolbarButton}
+          >
+            <Ionicons
+              color={onInvite ? colors.onyx : colors.slate}
+              name="person-add-outline"
+              size={22}
+            />
+          </Pressable>
+        </View>
       }
       title="Actors"
     />
@@ -105,6 +121,7 @@ export function ActorsListScreen({
   currentActorId,
   onInvite,
   onLoad,
+  onOpenStats,
   onRefresh,
   onSelectActor,
   state,
@@ -136,7 +153,13 @@ export function ActorsListScreen({
   const visibleHumans = filter === "agents" ? [] : humans;
   const visibleAgents = filter === "humans" ? [] : agents;
 
-  const headerBar = <HeaderBar count={humans.length + agents.length} onInvite={onInvite} />;
+  const headerBar = (
+    <HeaderBar
+      count={humans.length + agents.length}
+      onInvite={onInvite}
+      onOpenStats={onOpenStats}
+    />
+  );
 
   if (state.status === "loading" || (state.status === "idle" && state.actors.length === 0)) {
     return (
@@ -310,6 +333,10 @@ const styles = StyleSheet.create({
     height: 40,
     justifyContent: "center",
     width: 40,
+  },
+  toolbarGroup: {
+    alignItems: "center",
+    flexDirection: "row",
   },
 });
 

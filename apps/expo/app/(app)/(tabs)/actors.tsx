@@ -58,6 +58,7 @@ export default function ActorsIndexRoute() {
       onLoad={() => {
         void controller.load();
       }}
+      onOpenStats={() => router.push("/(app)/team-stats")}
       onRefresh={() => {
         void controller.refresh();
       }}
