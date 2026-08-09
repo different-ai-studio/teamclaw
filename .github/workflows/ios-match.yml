@@ -1,0 +1,68 @@
+name: iOS Signing (match)
+
+# Manual only, and deliberately so. This is the one workflow that WRITES to the
+# shared match certificates repo and creates provisioning profiles at Apple —
+# never give it a push or schedule trigger.
+#
+# Why it exists: match encrypts different-ai-studio/match-certificates with a
+# passphrase that lives in the MATCH_PASSWORD secret and nowhere else, so
+# generating a profile from a laptop means someone has to know that passphrase
+# and clear Apple 2FA. CI already holds the passphrase, the git credentials, and
+# an App Store Connect API key (which needs no 2FA), so it can do it unattended.
+#
+# Run this once per new bundle id. The teamclaw → teamclu rebrand moved the app
+# to com.teamclu.mobile, which has no profile yet — until this has run, the
+# TestFlight workflow's `match(readonly: true)` finds nothing and the release
+# fails at signing.
+#
+# Prerequisite: the App ID must already exist in the developer portal, with
+# Sign In with Apple and Push Notifications enabled (they mirror
+# apps/ios/AMUXApp/AMUX.entitlements). match does NOT create App IDs — it exits
+# with "Could not find App with App Identifier".
+on:
+  workflow_dispatch:
+    inputs:
+      app_identifier:
+        description: "Bundle id to generate an App Store profile for"
+        required: true
+        default: "com.teamclu.mobile"
+
+concurrency:
+  # Two runs would race pushing to the certificates repo; the loser's commit is
+  # rejected and its generated profile is lost. Queue instead of cancelling —
+  # a cancelled run can leave a profile created at Apple but never stored.
+  group: ios-match
+  cancel-in-progress: false
+
+jobs:
+  match:
+    runs-on: macos-26
+
+    defaults:
+      run:
+        working-directory: apps/ios
+
+    env:
+      TEAM_ID: ${{ secrets.TEAM_ID }}
+      MATCH_PASSWORD: ${{ secrets.MATCH_PASSWORD }}
+      MATCH_GIT_BASIC_AUTHORIZATION: ${{ secrets.MATCH_GIT_BASIC_AUTHORIZATION }}
+      ASC_KEY_ID: ${{ secrets.ASC_KEY_ID }}
+      ASC_ISSUER_ID: ${{ secrets.ASC_ISSUER_ID }}
+      ASC_KEY_CONTENT: ${{ secrets.ASC_KEY_CONTENT }}
+
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Set up Ruby
+        uses: ruby/setup-ruby@v1
+        with:
+          ruby-version: "3.2"
+          bundler-cache: true
+          working-directory: apps/ios
+
+      # No Xcode select, no xcodegen: match neither builds nor reads the
+      # project, so this run is minutes rather than the full release build.
+      - name: Generate the App Store profile and store it
+        env:
+          APP_IDENTIFIER: ${{ inputs.app_identifier }}
+        run: bundle exec fastlane bootstrap_certs app_identifier:"$APP_IDENTIFIER"
