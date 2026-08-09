@@ -1,22 +1,22 @@
 {
   "expo": {
-    "name": "TeamClaw Expo",
-    "slug": "teamclaw-expo",
-    "scheme": "teamclaw",
+    "name": "TeamClu Expo",
+    "slug": "teamclu-expo",
+    "scheme": "teamclu",
     "version": "0.1.0",
     "orientation": "portrait",
     "assetBundlePatterns": [
       "**/*"
     ],
     "android": {
-      "package": "com.bertrand319.teamclawexpo",
+      "package": "com.bertrand319.teamcluexpo",
       "permissions": [
         "android.permission.RECORD_AUDIO",
         "android.permission.MODIFY_AUDIO_SETTINGS"
       ]
     },
     "plugins": [
-      "./plugins/withTeamClawMqtt",
+      "./plugins/withTeamCluMqtt",
       "expo-audio",
       "expo-web-browser",
       "expo-router",
@@ -30,7 +30,7 @@
       ]
     ],
     "ios": {
-      "bundleIdentifier": "com.bertrand319.teamclawexpo"
+      "bundleIdentifier": "com.bertrand319.teamcluexpo"
     },
     "extra": {
       "eas": {

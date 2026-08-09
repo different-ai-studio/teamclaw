@@ -1,5 +1,5 @@
 -- Members (iOS humans) need SUB on amux/{team}/device/+/notify so the
--- iOS TeamclawService.resyncDaemonSubscriptions() path can receive
+-- iOS TeamcluService.resyncDaemonSubscriptions() path can receive
 -- `Notify` events from any daemon in the team (e.g. membership.refresh
 -- hints). The original member ACL granted only `sub user/{self}/notify`,
 -- so iOS's per-daemon `subscribe(deviceNotify(teamID, deviceID))` call

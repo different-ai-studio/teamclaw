@@ -14,25 +14,25 @@ describe("parseInviteToken", () => {
   });
 
   it("returns null when the URL is for a different action", () => {
-    expect(parseInviteToken("teamclaw://session/abc-123")).toBeNull();
+    expect(parseInviteToken("teamclu://session/abc-123")).toBeNull();
   });
 
-  it("extracts the token from the path form (teamclaw://invite/<token>)", () => {
-    expect(parseInviteToken("teamclaw://invite/tok-abc")).toBe("tok-abc");
+  it("extracts the token from the path form (teamclu://invite/<token>)", () => {
+    expect(parseInviteToken("teamclu://invite/tok-abc")).toBe("tok-abc");
   });
 
-  it("extracts the token from the query form (teamclaw://invite?token=<token>)", () => {
-    expect(parseInviteToken("teamclaw://invite?token=tok-xyz")).toBe("tok-xyz");
+  it("extracts the token from the query form (teamclu://invite?token=<token>)", () => {
+    expect(parseInviteToken("teamclu://invite?token=tok-xyz")).toBe("tok-xyz");
   });
 
   it("prefers the query token when both are present", () => {
-    expect(parseInviteToken("teamclaw://invite/path-tok?token=query-tok")).toBe(
+    expect(parseInviteToken("teamclu://invite/path-tok?token=query-tok")).toBe(
       "query-tok",
     );
   });
 
   it("accepts /invite/<token> with no host (https universal link form)", () => {
-    expect(parseInviteToken("https://app.teamclaw.tech/invite/tok-https")).toBe(
+    expect(parseInviteToken("https://app.teamclu.tech/invite/tok-https")).toBe(
       "tok-https",
     );
   });

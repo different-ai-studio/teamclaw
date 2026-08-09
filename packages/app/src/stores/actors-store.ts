@@ -1,5 +1,5 @@
 import { create } from "zustand";
-import type { Actor } from "@/lib/proto/teamclaw_pb";
+import type { Actor } from "@/lib/proto/teamclu_pb";
 
 interface ActorsState {
   byId: Record<string, Actor>;

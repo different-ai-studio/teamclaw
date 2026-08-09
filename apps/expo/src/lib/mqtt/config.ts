@@ -6,7 +6,7 @@ import { cloudApiBaseUrl, createCloudApiClient } from "../cloud-api/client";
 // must not require an app release. The last address is cached so a cold or
 // offline launch can still connect.
 
-const CACHE_KEY = "teamclaw.mqtt.broker-url";
+const CACHE_KEY = "teamclu.mqtt.broker-url";
 
 type StorageLike = Pick<typeof AsyncStorage, "getItem" | "setItem" | "removeItem">;
 

@@ -36,7 +36,7 @@ public final class SessionListViewModel {
                       teamID: String = "",
                       connectedAgentsStore: ConnectedAgentsStore?,
                       modelContext: ModelContext,
-                      teamclawService: TeamclawService? = nil) {
+                      teamcluService: TeamcluService? = nil) {
         // Create a dedicated context from the same container for async work
         let container = modelContext.container
         let ctx = ModelContext(container)
@@ -108,10 +108,10 @@ public final class SessionListViewModel {
                     }
                 }
 
-                if let teamclawService {
+                if let teamcluService {
                     Task { [weak self] in
                         guard let self else { return }
-                        let workspaces = await teamclawService.fetchWorkspaces()
+                        let workspaces = await teamcluService.fetchWorkspaces()
                         self.syncWorkspaces(workspaces, modelContext: ctx)
                     }
                 }
@@ -561,7 +561,7 @@ public final class SessionListViewModel {
     /// active subscription on. Mutated only by `resyncActorStateSubscriptions`.
     private var subscribedActorIDs: Set<String> = []
 
-    /// Call this from views when sessions are known to have changed (e.g. after TeamclawService sync).
+    /// Call this from views when sessions are known to have changed (e.g. after TeamcluService sync).
     public func reloadSessions(modelContext: ModelContext) {
         if let validIDs = validSessionIDs {
             let all = (try? modelContext.fetch(FetchDescriptor<Session>())) ?? []

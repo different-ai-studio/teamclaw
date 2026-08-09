@@ -5,7 +5,7 @@ import { S3Client } from "@aws-sdk/client-s3";
 // ---------------------------------------------------------------------------
 export const ACCESS_KEY_ID = () => process.env.ACCESS_KEY_ID;
 export const ACCESS_KEY_SECRET = () => process.env.ACCESS_KEY_SECRET;
-export const OSS_BUCKET = () => process.env.BUCKET || "teamclaw-sync";
+export const OSS_BUCKET = () => process.env.BUCKET || "teamclu-sync";
 export const OSS_REGION = () => process.env.REGION || "cn-hangzhou";
 export const OSS_ENDPOINT = () =>
   process.env.ENDPOINT || "https://oss-cn-hangzhou.aliyuncs.com";

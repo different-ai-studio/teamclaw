@@ -133,7 +133,7 @@ SaaS chat tool.
 ### Window chrome
 
 The sidebar header strip carries macOS traffic lights on the left and the
-brand label (`TeamClaw · workspace`) right-aligned. **Never** put a logo
+brand label (`TeamClu · workspace`) right-aligned. **Never** put a logo
 glyph in this strip. Traffic lights are real (native), not faked.
 
 ### Sidebar (panel)
@@ -324,7 +324,7 @@ The user-facing rule is "适度区分 — 清晰但不抢眼". Concretely:
 
 **`cloud_api` is the default and canonical backend. The `supabase` backend kind is deprecated and will be removed in a future release.**
 
-The API contract is defined in `docs/openapi/teamclaw-api.v1.yaml`. All business data operations must go through the TeamClaw Cloud API (`/v1`) rather than direct Supabase client calls.
+The API contract is defined in `docs/openapi/teamclu-api.v1.yaml`. All business data operations must go through the TeamClu Cloud API (`/v1`) rather than direct Supabase client calls.
 
 The Cloud API facade (`services/fc/lib/business-api.mjs`) is the canonical entry point for teams, sessions, messages, and invite operations. Clients (Tauri, Expo, iOS, daemon) should use their respective Cloud API providers:
 
@@ -337,7 +337,7 @@ Direct Supabase client usage (e.g. `supabase.from('sessions').select()`) is **re
 
 **When adding new business endpoints:**
 
-1. Define the endpoint in `docs/openapi/teamclaw-api.v1.yaml` first.
+1. Define the endpoint in `docs/openapi/teamclu-api.v1.yaml` first.
 2. Implement the repository contract in `services/fc/lib/repository-contract.mjs`.
 3. Add the route handler in `services/fc/lib/business-api.mjs`.
 4. Implement the Supabase passthrough in `services/fc/lib/supabase-repo.mjs`.
@@ -357,7 +357,7 @@ paths in place but do not render them in the main thread:
 - **Permission request** popover anchored to the input bar (Codex-style).
 
 When the time comes to re-introduce these, follow the prototype shapes in
-`/tmp/design-OLWqff/teamclaw-v2/project/direction-b.jsx` —
+`/tmp/design-OLWqff/teamclu-v2/project/direction-b.jsx` —
 `BThinking` and `BPermissionPopover`.
 
 Also future work, listed here so the team has it:

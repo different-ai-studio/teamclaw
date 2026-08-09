@@ -7,7 +7,7 @@ let dbPromise: Promise<SQLite.SQLiteDatabase> | null = null;
 export function getDb(): Promise<SQLite.SQLiteDatabase> {
   if (!dbPromise) {
     dbPromise = (async () => {
-      const db = await SQLite.openDatabaseAsync("teamclaw.db");
+      const db = await SQLite.openDatabaseAsync("teamclu.db");
       await db.execAsync("PRAGMA journal_mode = WAL;");
       await runMigrations(db);
       return db;

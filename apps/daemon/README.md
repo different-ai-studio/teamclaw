@@ -30,11 +30,11 @@ cd daemon && cargo build
 
 ## First-time setup (daemon onboarding)
 
-1. On the owner's iOS device, create an agent invite — copy the `teamclaw://invite?...` deeplink.
+1. On the owner's iOS device, create an agent invite — copy the `teamclu://invite?...` deeplink.
 2. Run:
 
 ```bash
-./target/release/amuxd init "teamclaw://invite?token=<token>&broker=<mqtt-url>&username=<user>&password=<pass>"
+./target/release/amuxd init "teamclu://invite?token=<token>&broker=<mqtt-url>&username=<user>&password=<pass>"
 ```
 
 Expected output: `Daemon onboarded. actor_id=<uuid> team_id=<uuid> display_name=<name> config=<path>`

@@ -193,7 +193,7 @@ fn assert_committed(workdir: &std::path::Path) {
 /// Seeding writes a compiled-in template into the checkout and commits it.
 ///
 /// It does NOT clone a template repo and does NOT push anywhere — the remote
-/// was dropped, so `TEAMCLAW_APP_TEMPLATE_URL`, the bare-remote fixture, and
+/// was dropped, so `TEAMCLU_APP_TEMPLATE_URL`, the bare-remote fixture, and
 /// the managed-git credential JIT-fetch this file used to assert are all gone
 /// with it. Template *content* is covered by the unit tests in
 /// `sync::app_templates`; this asserts the HTTP contract.

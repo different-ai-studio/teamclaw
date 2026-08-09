@@ -13,8 +13,8 @@ import {
 import type { MessagePart, ToolCall } from "@/stores/session-types";
 import type { ToolCallContentBlock } from "@/components/chat/tool-calls/tool-call-content";
 import type { AcpEvent } from "@/lib/proto/amux_pb";
-import { maybeBindTaskChildFromToolUpdate, isTaskToolCall } from "@/lib/teamclaw/subagent-acp-binding";
-import { routeSubagentAcpEvent } from "@/lib/teamclaw/subagent-acp-route";
+import { maybeBindTaskChildFromToolUpdate, isTaskToolCall } from "@/lib/teamclu/subagent-acp-binding";
+import { routeSubagentAcpEvent } from "@/lib/teamclu/subagent-acp-route";
 // Part/tool-call merging lives next door; see v2-stream-parts.ts.
 import {
   entryParts,

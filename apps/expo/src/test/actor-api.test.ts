@@ -113,7 +113,7 @@ describe("createActorsApi", () => {
       }),
     ).resolves.toEqual({
       token: "tok-1",
-      deeplink: "teamclaw://invite/tok-1",
+      deeplink: "teamclu://invite/tok-1",
       expiresAt: "2026-05-29T00:00:00.000Z",
     });
 

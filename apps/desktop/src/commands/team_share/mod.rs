@@ -5,7 +5,7 @@
 //! `POST /v1/teams` call and returns `{ team_id, team_slug }`.
 //!
 //! Secret generation, OSS / Git directory setup, and writes to
-//! `.teamclaw/teamclaw.json` (e.g. `oss_team_id`, `share_mode`,
+//! `.teamclu/teamclu.json` (e.g. `oss_team_id`, `share_mode`,
 //! `ai_gateway_endpoint`) are intentionally NOT performed here. Those
 //! responsibilities move to the `enable_oss` / `enable_managed_git` /
 //! `enable_custom_git` commands in Task 6 (`team_share::enable`).
@@ -51,7 +51,7 @@ pub struct CreateTeamResult {
 /// Tauri command: create a new team server-side by hitting `POST /v1/teams`.
 ///
 /// This does NOT generate a team secret, does NOT provision OSS / Git
-/// remotes, and does NOT touch `.teamclaw/teamclaw.json`. Use one of the
+/// remotes, and does NOT touch `.teamclu/teamclu.json`. Use one of the
 /// `team_share::enable::*` commands to wire the team into a sharing mode
 /// after creation.
 #[tauri::command]

@@ -6,7 +6,7 @@
 //!   2. Returns `{ team_id, team_slug }`.
 //!   3. Does NOT write any OSS-mode fields (`oss_team_id`, `team_mode`,
 //!      `oss_team_slug`, `ai_gateway_endpoint`, `litellm_key`) into the
-//!      workspace `teamclaw.json`.
+//!      workspace `teamclu.json`.
 //!
 //! Secret persistence is intentionally NOT asserted here — `team_secret_store`
 //! talks to the OS keychain / a host-wide env blob, which is not safely
@@ -14,8 +14,8 @@
 //! and stores secrets) will exercise that path under its own harness.
 
 use serde_json::json;
-use teamclaw_lib::commands::team_secret_store;
-use teamclaw_lib::commands::team_share;
+use teamclu_lib::commands::team_secret_store;
+use teamclu_lib::commands::team_share;
 use tempfile::TempDir;
 use wiremock::matchers::{body_partial_json, header, method, path};
 use wiremock::{Mock, MockServer, ResponseTemplate};
@@ -32,8 +32,8 @@ fn isolate_home(tmp: &TempDir) {
     // Prime the legacy disk-fallback env-blob with a non-empty map so
     // `read_legacy_disk_blob` returns Ok(Some(..)). The personal secret store
     // will migrate this into its own encrypted blob on first read.
-    let fallback_dir = tmp.path().join(".teamclaw");
-    std::fs::create_dir_all(&fallback_dir).expect("mkdir ~/.teamclaw");
+    let fallback_dir = tmp.path().join(".teamclu");
+    std::fs::create_dir_all(&fallback_dir).expect("mkdir ~/.teamclu");
     std::fs::write(
         fallback_dir.join("env-blob.json"),
         r#"{"_test_isolation_marker":"1"}"#,
@@ -44,32 +44,32 @@ fn isolate_home(tmp: &TempDir) {
 /// Serialize Task 6 tests that mutate $HOME / global env state.
 static HOME_GUARD: std::sync::Mutex<()> = std::sync::Mutex::new(());
 
-/// Construct a workspace dir + write `.teamclaw/teamclaw.json` pointing at
+/// Construct a workspace dir + write `.teamclu/teamclu.json` pointing at
 /// the mock FC endpoint, with a fake supabase_jwt.
 fn seed_workspace(tmp: &TempDir, fc_endpoint: &str) -> String {
     let workspace = tmp.path().to_path_buf();
-    // Mirror `commands::TEAMCLAW_DIR` (`.teamclaw`) / `CONFIG_FILE_NAME`
-    // (`teamclaw.json`) using the APP_SHORT_NAME compiled into the lib.
-    let cfg_dir = workspace.join(".teamclaw");
-    std::fs::create_dir_all(&cfg_dir).expect("mkdir .teamclaw");
+    // Mirror `commands::TEAMCLU_DIR` (`.teamclu`) / `CONFIG_FILE_NAME`
+    // (`teamclu.json`) using the APP_SHORT_NAME compiled into the lib.
+    let cfg_dir = workspace.join(".teamclu");
+    std::fs::create_dir_all(&cfg_dir).expect("mkdir .teamclu");
     let cfg = json!({
         "fc_endpoint": fc_endpoint,
         "supabase_jwt": "test-jwt",
     });
     std::fs::write(
-        cfg_dir.join("teamclaw.json"),
+        cfg_dir.join("teamclu.json"),
         serde_json::to_string_pretty(&cfg).unwrap(),
     )
-    .expect("write teamclaw.json");
+    .expect("write teamclu.json");
     workspace.to_string_lossy().into_owned()
 }
 
 fn read_cfg(workspace_path: &str) -> serde_json::Value {
     let p = std::path::Path::new(workspace_path)
-        .join(".teamclaw")
-        .join("teamclaw.json");
-    let s = std::fs::read_to_string(p).expect("read teamclaw.json");
-    serde_json::from_str(&s).expect("parse teamclaw.json")
+        .join(".teamclu")
+        .join("teamclu.json");
+    let s = std::fs::read_to_string(p).expect("read teamclu.json");
+    serde_json::from_str(&s).expect("parse teamclu.json")
 }
 
 #[tokio::test]
@@ -174,8 +174,8 @@ async fn enable_oss_provisions_secret_and_local_dir() {
         "secret should be hex"
     );
 
-    // teamclaw-team is created+linked by the daemon, not by enable_oss.
-    let team_repo_dir = std::path::Path::new(&workspace).join("teamclaw-team");
+    // teamclu-team is created+linked by the daemon, not by enable_oss.
+    let team_repo_dir = std::path::Path::new(&workspace).join("teamclu-team");
     assert!(
         !team_repo_dir.exists()
             || team_repo_dir
@@ -183,11 +183,11 @@ async fn enable_oss_provisions_secret_and_local_dir() {
                 .unwrap()
                 .file_type()
                 .is_symlink(),
-        "enable must not create a real teamclaw-team dir (daemon owns it)"
+        "enable must not create a real teamclu-team dir (daemon owns it)"
     );
 
     // NOTE: team fields (oss_team_id / share_mode) are intentionally NOT
-    // persisted to teamclaw.json anymore — the single source of truth is the
+    // persisted to teamclu.json anymore — the single source of truth is the
     // current-team store (commits ad563711 / b1baec40). The returned
     // share_mode / team_id are asserted above.
 }
@@ -304,7 +304,7 @@ async fn enable_custom_git_writes_git_config() {
     assert_eq!(result.share_mode, "custom_git");
 
     // NOTE: team fields (share_mode / git_remote_url / oss_team_id) are no
-    // longer persisted to teamclaw.json — single source of truth is the
+    // longer persisted to teamclu.json — single source of truth is the
     // current-team store (commits ad563711 / b1baec40). The returned
     // share_mode is asserted above.
 }
@@ -343,8 +343,8 @@ async fn join_existing_writes_config_when_share_enabled() {
     assert!(result.initialized);
     assert_eq!(result.share_mode.as_deref(), Some("oss"));
 
-    // teamclaw-team is created+linked by the daemon, not by join_existing.
-    let team_repo_dir = std::path::Path::new(&workspace).join("teamclaw-team");
+    // teamclu-team is created+linked by the daemon, not by join_existing.
+    let team_repo_dir = std::path::Path::new(&workspace).join("teamclu-team");
     assert!(
         !team_repo_dir.exists()
             || team_repo_dir
@@ -352,11 +352,11 @@ async fn join_existing_writes_config_when_share_enabled() {
                 .unwrap()
                 .file_type()
                 .is_symlink(),
-        "join must not create a real teamclaw-team dir (daemon owns it)"
+        "join must not create a real teamclu-team dir (daemon owns it)"
     );
 
     // NOTE: team fields (oss_team_id / share_mode / litellm_team_id) are no
-    // longer persisted to teamclaw.json — single source of truth is the
+    // longer persisted to teamclu.json — single source of truth is the
     // current-team store (commits ad563711 / b1baec40). The returned
     // initialized / share_mode are asserted above.
 }
@@ -392,12 +392,9 @@ async fn join_existing_noop_when_share_not_opened() {
     assert!(!result.initialized);
     assert!(result.share_mode.is_none());
 
-    // No teamclaw-team dir.
-    let team_repo_dir = std::path::Path::new(&workspace).join("teamclaw-team");
-    assert!(
-        !team_repo_dir.exists(),
-        "teamclaw-team dir should NOT exist"
-    );
+    // No teamclu-team dir.
+    let team_repo_dir = std::path::Path::new(&workspace).join("teamclu-team");
+    assert!(!team_repo_dir.exists(), "teamclu-team dir should NOT exist");
 
     // No share_mode/oss_team_id written.
     let cfg = read_cfg(&workspace);

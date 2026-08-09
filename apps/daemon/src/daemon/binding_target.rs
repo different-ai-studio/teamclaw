@@ -3,7 +3,7 @@
 /// the per-platform target shape used by `ChannelManager::dispatch_send`
 /// (`user:<id>` or `chat:<id>`).
 ///
-/// Binding shapes (from `crates/teamclaw-gateway/src/binding.rs`):
+/// Binding shapes (from `crates/teamclu-gateway/src/binding.rs`):
 ///   wecom://{corp_id}/{agent_id}/single/{userid}
 ///   wecom://{corp_id}/{agent_id}/external-single/{ext_userid}
 ///   wecom://{corp_id}/{agent_id}/group/{chat_id}

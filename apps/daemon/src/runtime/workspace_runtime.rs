@@ -5,8 +5,8 @@ use super::RuntimeManager;
 use crate::config::{claude_md_block_present_at, load_system_prompt};
 use crate::proto::amux;
 
-pub const INSTRUCTION_PLUGIN_REL: &str = ".opencode/plugins/teamclaw-instruction.mjs";
-pub const INSTRUCTION_PLUGIN_CONFIG_ENTRY: &str = "./.opencode/plugins/teamclaw-instruction.mjs";
+pub const INSTRUCTION_PLUGIN_REL: &str = ".opencode/plugins/teamclu-instruction.mjs";
+pub const INSTRUCTION_PLUGIN_CONFIG_ENTRY: &str = "./.opencode/plugins/teamclu-instruction.mjs";
 
 pub fn instruction_plugin_installed(worktree: &Path) -> bool {
     if !worktree.join(INSTRUCTION_PLUGIN_REL).is_file() {
@@ -26,7 +26,7 @@ pub fn instruction_plugin_installed(worktree: &Path) -> bool {
             entries.iter().any(|entry| {
                 entry
                     .as_str()
-                    .map(|s| s.contains("teamclaw-instruction"))
+                    .map(|s| s.contains("teamclu-instruction"))
                     .unwrap_or(false)
             })
         })

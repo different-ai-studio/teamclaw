@@ -2,7 +2,7 @@
 //!
 //! - `team_litellm_setup`: provisions LiteLLM for a team via FC.
 //! - `build_llm_config` / `write_llm_config`: read/write the `"llm"` key in
-//!   the workspace `teamclaw.json` (still used by the team-join flow when
+//!   the workspace `teamclu.json` (still used by the team-join flow when
 //!   materializing local config). The Settings "团队共享模型" pane now stores
 //!   the team LLM config in the cloud (`PUT /v1/teams/:id/llm-config`); the
 //!   client materializes `_meta/provider.json` for the daemon directly.
@@ -22,7 +22,7 @@ pub struct LlmModelEntry {
     pub name: String,
 }
 
-/// LLM configuration stored in teamclaw.json under "llm" key.
+/// LLM configuration stored in teamclu.json under "llm" key.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct LlmConfig {
@@ -63,11 +63,11 @@ pub fn build_llm_config(
     })
 }
 
-/// Write LLM config to teamclaw.json under "llm" key, preserving other fields.
+/// Write LLM config to teamclu.json under "llm" key, preserving other fields.
 pub fn write_llm_config(workspace_path: &str, config: Option<&LlmConfig>) -> Result<(), String> {
-    let teamclaw_dir = format!("{}/{}", workspace_path, crate::commands::TEAMCLAW_DIR);
-    let _ = std::fs::create_dir_all(&teamclaw_dir);
-    let config_path = format!("{}/{}", teamclaw_dir, crate::commands::CONFIG_FILE_NAME);
+    let teamclu_dir = format!("{}/{}", workspace_path, crate::commands::TEAMCLU_DIR);
+    let _ = std::fs::create_dir_all(&teamclu_dir);
+    let config_path = format!("{}/{}", teamclu_dir, crate::commands::CONFIG_FILE_NAME);
 
     let mut json: serde_json::Value = if Path::new(&config_path).exists() {
         let content = std::fs::read_to_string(&config_path).map_err(|e| {
@@ -153,7 +153,7 @@ pub async fn setup_impl(
         .ok_or_else(|| "litellm/setup: missing litellmKey".to_string())?
         .to_string();
 
-    let mut cfg = env_vars::read_teamclaw_json(&workspace_path)?;
+    let mut cfg = env_vars::read_teamclu_json(&workspace_path)?;
     if let Some(obj) = cfg.as_object_mut() {
         obj.insert(
             "ai_gateway_endpoint".to_string(),
@@ -164,7 +164,7 @@ pub async fn setup_impl(
             serde_json::Value::String(litellm_key.clone()),
         );
     }
-    env_vars::write_teamclaw_json(&workspace_path, &cfg)?;
+    env_vars::write_teamclu_json(&workspace_path, &cfg)?;
 
     Ok(LiteLlmSetupResult {
         ai_gateway_endpoint,

@@ -33,7 +33,7 @@ import {
   loadAgentWorkspaceLookups,
   resolveAgentRuntimeWorkspaceId,
   runtimeStartWorkspaceArgs,
-} from '@/lib/teamclaw/resolve-runtime-start-workspace'
+} from '@/lib/teamclu/resolve-runtime-start-workspace'
 
 // ── Types ──────────────────────────────────────────────────────────────────
 
@@ -714,7 +714,7 @@ export function SessionActorPanel({ sessionId, teamId }: SessionActorPanelProps)
       // 3. Call runtimeStart RPC. Daemon may reject if it already has a
       //    runtime for this (session, agent) — treat that as success since
       //    the existing runtime will service the next prompt anyway.
-      const { runtimeStart } = await import('@/lib/teamclaw-rpc')
+      const { runtimeStart } = await import('@/lib/teamclu-rpc')
       try {
         const result = await runtimeStart({
           targetActorId: candidate.id,

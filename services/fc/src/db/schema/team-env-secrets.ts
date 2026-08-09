@@ -18,7 +18,7 @@ export const teamEnvSecrets = pgTable(
     // including whoever operates a self-host box — never sees plaintext.
     //
     // Note the metadata (description/category/createdBy/...) lives *inside* the
-    // ciphertext (see crates/teamclaw-runtime-env/src/team_crypto.rs), so
+    // ciphertext (see crates/teamclu-runtime-env/src/team_crypto.rs), so
     // anything the server must authorise on needs its own plaintext column.
     // That is what createdBy below is for; it cannot be read from the envelope.
     envelope: jsonb("envelope").notNull(),

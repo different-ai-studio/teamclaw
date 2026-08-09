@@ -1,6 +1,6 @@
 import { describe, it, expect } from "vitest";
 import { collectSessionAttachments } from "@/lib/session-attachments";
-import type { Message } from "@/lib/proto/teamclaw_pb";
+import type { Message } from "@/lib/proto/teamclu_pb";
 
 function msg(content: string, createdAt = 100, attachmentUrls?: string[]): Message {
   return {

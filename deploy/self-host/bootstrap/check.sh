@@ -123,7 +123,7 @@ check_running_healthy() {
 }
 
 check_migrate() {
-  local name="teamclaw-self-host_migrate_1"
+  local name="teamclu-self-host_migrate_1"
   if ! container_exists "$name"; then
     fail "migrate — container missing ($name)"
     return
@@ -188,7 +188,7 @@ curl_health() {
   curl -fsS --connect-timeout 3 --max-time 5 "$@" "$url" 2>/dev/null
 }
 
-echo "TeamClaw self-host — health check"
+echo "TeamClu self-host — health check"
 echo "Runtime: $RUNTIME_LABEL"
 echo "Env: ${ENV_FILE} (FC_DOMAIN=$FC_DOMAIN, CADDY_HTTP_PORT=$CADDY_HTTP_PORT)"
 echo ""
@@ -199,9 +199,9 @@ check_running_healthy supabase-auth "auth (gotrue)"
 check_running_healthy supabase-kong "kong (supabase API gateway)"
 check_running_healthy supabase-storage "storage"
 check_migrate
-check_running_healthy teamclaw-self-host_emqx_1 "emqx (MQTT)"
-check_running_healthy teamclaw-self-host_fc_1 "fc (Cloud API)"
-check_running_healthy teamclaw-self-host_caddy_1 "caddy (reverse proxy)"
+check_running_healthy teamclu-self-host_emqx_1 "emqx (MQTT)"
+check_running_healthy teamclu-self-host_fc_1 "fc (Cloud API)"
+check_running_healthy teamclu-self-host_caddy_1 "caddy (reverse proxy)"
 
 echo ""
 echo "[HTTP probes]"
@@ -211,18 +211,18 @@ CADDY_URL="http://127.0.0.1:${CADDY_HTTP_PORT}/healthz"
 if curl_health "$FC_URL" | grep -q '"ok"[[:space:]]*:[[:space:]]*true'; then
   ok "FC direct — $FC_URL → {\"ok\":true}"
 else
-  st="$(container_status teamclaw-self-host_fc_1 2>/dev/null || echo missing)"
+  st="$(container_status teamclu-self-host_fc_1 2>/dev/null || echo missing)"
   if [ "$st" = "created" ] || [ "$st" = "missing" ]; then
     fail "FC direct — $FC_URL unreachable (fc not running)"
   else
-    fail "FC direct — $FC_URL failed — run: $RUNTIME logs teamclaw-self-host_fc_1 --tail 40"
+    fail "FC direct — $FC_URL failed — run: $RUNTIME logs teamclu-self-host_fc_1 --tail 40"
   fi
 fi
 
 if curl_health "$CADDY_URL" -H "Host: ${FC_DOMAIN}" | grep -q '"ok"[[:space:]]*:[[:space:]]*true'; then
   ok "Caddy proxy — $CADDY_URL (Host: $FC_DOMAIN) → {\"ok\":true}"
 else
-  cst="$(container_status teamclaw-self-host_caddy_1 2>/dev/null || echo missing)"
+  cst="$(container_status teamclu-self-host_caddy_1 2>/dev/null || echo missing)"
   if [ "$cst" = "created" ] || [ "$cst" = "missing" ]; then
     warn "Caddy proxy — skipped (caddy not running); Desktop can use FC direct :9000"
   else
@@ -240,7 +240,7 @@ if [ "$TRY_START" = true ] && [ "$FAIL" -gt 0 ]; then
   echo ""
   echo "[--try-start] recreating fc + caddy (--no-deps)..."
   for svc in fc caddy; do
-    "$RUNTIME" rm -f "teamclaw-self-host_${svc}_1" 2>/dev/null || true
+    "$RUNTIME" rm -f "teamclu-self-host_${svc}_1" 2>/dev/null || true
     "${RUN[@]}" up -d --no-deps "$svc" 2>&1 || true
   done
   sleep 2
@@ -280,7 +280,7 @@ for issue in "${ISSUES[@]}"; do
       echo "  • Caddy stuck Created: ${RUN[*]} up -d --no-deps caddy"
       ;;
     *migrate*Created*)
-      echo "  • Migrate not run: ${RUN[*]} up -d migrate && $RUNTIME logs -f teamclaw-self-host_migrate_1"
+      echo "  • Migrate not run: ${RUN[*]} up -d migrate && $RUNTIME logs -f teamclu-self-host_migrate_1"
       ;;
   esac
 done

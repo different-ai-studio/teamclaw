@@ -8,12 +8,12 @@ import { getEffectiveServerConfigSync } from '@/lib/server-config'
 
 /**
  * TeamSyncPaths — shows *where team content physically lives* and *every
- * `teamclaw-team` symlink that points at it*, for all three share modes
+ * `teamclu-team` symlink that points at it*, for all three share modes
  * (OSS / 自建 Git / 托管 Git).
  *
  * All modes converge on one real directory per team
- * (`~/.amuxd/teams/<team_id>/teamclaw-team`, the daemon's global copy — git
- * modes clone into it) with a `teamclaw-team` symlink in each joined workspace.
+ * (`~/.amuxd/teams/<team_id>/teamclu-team`, the daemon's global copy — git
+ * modes clone into it) with a `teamclu-team` symlink in each joined workspace.
  * The data comes from the `team_sync_paths` Tauri command, which reads the
  * current workspace locally and fetches the rest of the team's workspaces
  * from the Cloud API, so this renders the same in every panel.

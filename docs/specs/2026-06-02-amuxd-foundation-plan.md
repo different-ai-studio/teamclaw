@@ -37,7 +37,7 @@
 - `apps/desktop/tauri.conf.json:81-82` — `externalBin` 加 `binaries/amuxd`。
 - `apps/desktop/build.rs` — 加 amuxd sidecar 校验(仿 introspect)。
 - `.github/workflows/release.yml` — macOS 与 Windows job 各加 amuxd 编译+copy 步骤。
-- 调用 `ensureTeamclawIntrospectSidecar` 的脚本 — 并排调用 `ensureAmuxdSidecar`。
+- 调用 `ensureTeamcluIntrospectSidecar` 的脚本 — 并排调用 `ensureAmuxdSidecar`。
 
 > **模块注册说明**:先确认 amuxd 是否有 `lib.rs`。运行 `ls apps/daemon/src/lib.rs`;若存在,模块 `mod` 声明加在 `lib.rs`;若只有 `main.rs`,加在 `main.rs` 顶部已有的 `mod ...;` 列表旁。本计划下文统称"在 crate 根模块声明处"。
 
@@ -1030,7 +1030,7 @@ pub fn launchd_plist(exe: &Path) -> String {
 pub fn systemd_unit(exe: &Path) -> String {
     format!(
         r#"[Unit]
-Description=amuxd (TeamClaw agent daemon)
+Description=amuxd (TeamClu agent daemon)
 After=network-online.target
 
 [Service]
@@ -1249,7 +1249,7 @@ git commit -m "feat(daemon): amuxd install-service / uninstall-service (launchd/
 
 **Files:**
 - Create: `scripts/ensure-amuxd-sidecar.js`
-- Modify: 调用 `ensureTeamclawIntrospectSidecar` 的脚本
+- Modify: 调用 `ensureTeamcluIntrospectSidecar` 的脚本
 
 - [ ] **Step 1: 新建构建脚本**
 
@@ -1265,7 +1265,7 @@ const path = require("path");
 
 /**
  * Build and install amuxd into apps/desktop/binaries/amuxd-<target> if missing.
- * Mirrors ensureTeamclawIntrospectSidecar so tauri bundling finds the sidecar.
+ * Mirrors ensureTeamcluIntrospectSidecar so tauri bundling finds the sidecar.
  * @param {NodeJS.ProcessEnv} env
  * @param {{ logPrefix?: string }} [opts]
  */
@@ -1318,14 +1318,14 @@ module.exports = { ensureAmuxdSidecar };
 
 - [ ] **Step 2: 找到 introspect 的调用点并并排调用 amuxd**
 
-Run: `grep -rn "ensureTeamclawIntrospectSidecar" scripts/`
-对每个 `require(... ensure-introspect-sidecar ...)` + 调用的地方,加上对应的 amuxd 调用。典型改法:在 `const { ensureTeamclawIntrospectSidecar } = require("./ensure-introspect-sidecar");` 后加:
+Run: `grep -rn "ensureTeamcluIntrospectSidecar" scripts/`
+对每个 `require(... ensure-introspect-sidecar ...)` + 调用的地方,加上对应的 amuxd 调用。典型改法:在 `const { ensureTeamcluIntrospectSidecar } = require("./ensure-introspect-sidecar");` 后加:
 
 ```js
 const { ensureAmuxdSidecar } = require("./ensure-amuxd-sidecar");
 ```
 
-并在调用 `ensureTeamclawIntrospectSidecar(env, ...)` 处的下一行加:
+并在调用 `ensureTeamcluIntrospectSidecar(env, ...)` 处的下一行加:
 
 ```js
 ensureAmuxdSidecar(env, { logPrefix });
@@ -1359,7 +1359,7 @@ git commit -m "build: ensure-amuxd-sidecar.js + wire into rust build"
 
 ```json
     "externalBin": [
-      "binaries/teamclaw-introspect"
+      "binaries/teamclu-introspect"
     ],
 ```
 
@@ -1367,7 +1367,7 @@ git commit -m "build: ensure-amuxd-sidecar.js + wire into rust build"
 
 ```json
     "externalBin": [
-      "binaries/teamclaw-introspect",
+      "binaries/teamclu-introspect",
       "binaries/amuxd"
     ],
 ```

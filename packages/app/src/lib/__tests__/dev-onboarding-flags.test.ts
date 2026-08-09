@@ -11,9 +11,9 @@ describe('dev-onboarding-flags', () => {
     expect(devSkipDaemonOnboarding()).toBe(false)
   })
 
-  it('reads VITE_TEAMCLAW_SKIP_* from import.meta.env', () => {
-    vi.stubEnv('VITE_TEAMCLAW_SKIP_SETUP', 'true')
-    vi.stubEnv('VITE_TEAMCLAW_SKIP_DAEMON_ONBOARDING', 'true')
+  it('reads VITE_TEAMCLU_SKIP_* from import.meta.env', () => {
+    vi.stubEnv('VITE_TEAMCLU_SKIP_SETUP', 'true')
+    vi.stubEnv('VITE_TEAMCLU_SKIP_DAEMON_ONBOARDING', 'true')
     expect(devSkipSetup()).toBe(true)
     expect(devSkipDaemonOnboarding()).toBe(true)
   })

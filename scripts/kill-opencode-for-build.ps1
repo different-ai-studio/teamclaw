@@ -1,4 +1,4 @@
-# Kill OpenCode / Teamclaw processes that may lock sidecar binaries in target/
+# Kill OpenCode / Teamclu processes that may lock sidecar binaries in target/
 # so that "tauri dev" or "tauri build" can overwrite them (avoids "拒绝访问").
 # Run from repo root: .\scripts\kill-opencode-for-build.ps1
 # Or before dev: .\scripts\kill-opencode-for-build.ps1; pnpm tauri:dev:win
@@ -16,7 +16,7 @@ Get-CimInstance Win32_Process -ErrorAction SilentlyContinue | Where-Object {
     $exe = $_.ExecutablePath
     if (-not $exe) { return $false }
     $name = [System.IO.Path]::GetFileName($exe)
-    if ($name -notlike "opencode*" -and $name -ne "teamclaw.exe") { return $false }
+    if ($name -notlike "opencode*" -and $name -ne "teamclu.exe") { return $false }
     try {
         $fullPath = $exe
         if (Test-Path $exe) { $fullPath = (Resolve-Path $exe -ErrorAction Stop).Path }
@@ -32,7 +32,7 @@ Get-CimInstance Win32_Process -ErrorAction SilentlyContinue | Where-Object {
 
 if ($script:killed -eq 0) {
     Get-Process -ErrorAction SilentlyContinue | Where-Object {
-        $_.Name -like "opencode*" -or $_.Name -eq "teamclaw"
+        $_.Name -like "opencode*" -or $_.Name -eq "teamclu"
     } | Where-Object {
         try {
             $path = $_.Path
@@ -50,5 +50,5 @@ $killed = $script:killed
 if ($script:killed -gt 0) {
     Write-Host "[kill-opencode] Stopped $killed process(es). You can run pnpm tauri:dev:win now."
 } else {
-    Write-Host "[kill-opencode] No matching processes under target. If build still fails with 拒绝访问, close the app and run: Remove-Item -Recurse -Force apps\desktop\target\debug\build\teamclaw-*"
+    Write-Host "[kill-opencode] No matching processes under target. If build still fails with 拒绝访问, close the app and run: Remove-Item -Recurse -Force apps\desktop\target\debug\build\teamclu-*"
 }

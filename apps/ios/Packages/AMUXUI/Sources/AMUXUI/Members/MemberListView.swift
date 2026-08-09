@@ -78,7 +78,7 @@ public struct MemberListView: View {
         // outside that set are hidden from the picker (instead of shown
         // locked). Humans are always visible. Gateway-only external actors
         // are intentionally hidden here; they are message/session
-        // participants, not selectable TeamClaw collaborators.
+        // participants, not selectable TeamClu collaborators.
         // `excludeActorID` / `excludeActorIDs` hide the calling user (and
         // any pre-known participants) from the picker.
         var rows = actors.filter { $0.isMember || $0.isAgent }

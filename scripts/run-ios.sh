@@ -10,7 +10,7 @@ SIMULATOR_NAME="${IOS_SIMULATOR_NAME:-iPhone 17e}"
 # Filled in below once the device is resolved; targeting by id rather than by
 # name keeps xcodebuild on the exact device this script booted.
 DESTINATION="${IOS_DESTINATION:-}"
-BUNDLE_ID="${IOS_BUNDLE_ID:-tech.teamclaw.mobile}"
+BUNDLE_ID="${IOS_BUNDLE_ID:-com.teamclu.mobile}"
 
 cd "$ROOT_DIR"
 

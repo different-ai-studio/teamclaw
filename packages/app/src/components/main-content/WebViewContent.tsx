@@ -134,7 +134,7 @@ export function WebViewContent({ url: rawUrl }: WebViewContentProps) {
             // Create new native webview
             setIsLoading(true)
 
-            // Identity injection is vestigial now: `window.teamclaw.deviceToken`
+            // Identity injection is vestigial now: `window.teamclu.deviceToken`
             // is always null and the `get_persistent_device_id` command was
             // removed. Pass no deviceNo so the native side skips injecting the
             // (empty) identity script.
@@ -151,7 +151,7 @@ export function WebViewContent({ url: rawUrl }: WebViewContentProps) {
             }
 
             // Partner admin console auto-login: for the allowlisted admin host,
-            // hand the current TeamClaw session to the native side so it seeds
+            // hand the current TeamClu session to the native side so it seeds
             // the page's supabase-js localStorage before the bundle runs.
             const authInject = adminSsoInjectionFor(url)
 

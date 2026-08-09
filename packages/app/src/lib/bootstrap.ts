@@ -155,18 +155,18 @@ export type CloudApiProbe =
   | { ok: true }
   /** Nothing answered: DNS failure, connection refused, TLS error, timeout. */
   | { ok: false; reason: "unreachable" }
-  /** Something answered, but it is not a TeamClaw Cloud API. */
+  /** Something answered, but it is not a TeamClu Cloud API. */
   | { ok: false; reason: "not-cloud-api"; status?: number };
 
 const PROBE_TIMEOUT_MS = 8000;
 
 /**
- * Check that a URL is actually a reachable TeamClaw Cloud API, before anything
+ * Check that a URL is actually a reachable TeamClu Cloud API, before anything
  * is persisted against it.
  *
  * `/v1/config/public` is the right probe: it needs no session, it is the first
  * thing the app calls on every launch anyway, and a valid JSON object back is
- * evidence of a TeamClaw Cloud API rather than merely *a* web server — a
+ * evidence of a TeamClu Cloud API rather than merely *a* web server — a
  * mistyped host that happens to resolve (a parked domain, a proxy, a company
  * intranet page) answers 200 to `/healthz`-style probes and would pass a
  * liveness check while being useless to this app.

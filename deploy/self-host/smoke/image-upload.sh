@@ -13,7 +13,7 @@ set -eu
 
 cd "$(dirname "$0")/.."
 ENV_FILE="${ENV_FILE:-.env}"
-PROJECT="${COMPOSE_PROJECT:-teamclaw-self-host}"
+PROJECT="${COMPOSE_PROJECT:-teamclu-self-host}"
 NET="${PROJECT}_default"
 BUCKET="${BUCKET:-smoke-images}"
 OBJECT="${OBJECT:-test.png}"

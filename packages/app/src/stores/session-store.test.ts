@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeEach } from "vitest";
 import { create as createMessage } from "@bufbuild/protobuf";
-import { MessageSchema, MessageKind } from "@/lib/proto/teamclaw_pb";
+import { MessageSchema, MessageKind } from "@/lib/proto/teamclu_pb";
 import { useSessionMessageStore } from "./session-message-store";
 import { useSessionSelectionStore } from "./session-selection-store";
 import { useSessionStore } from "./session-store";

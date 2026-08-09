@@ -286,7 +286,7 @@ if (brandTheme) {
 
 Run:
 ```bash
-pnpm --filter @teamclaw/app build >/dev/null 2>&1 && grep -c 'id="brand-theme"' packages/app/dist/index.html
+pnpm --filter @teamclu/app build >/dev/null 2>&1 && grep -c 'id="brand-theme"' packages/app/dist/index.html
 ```
 Expected: `0`（默认无 palette/theme.json → `__BRAND_THEME__` 替换为空串;`index.html` 产物里无 brand-theme;`__BRAND_THEME__` 字样也不残留）。
 另外确认占位符没漏替换:
@@ -306,7 +306,7 @@ JSON
 cat > build.config.local.json <<'JSON'
 { "app": { "palette": "acme" } }
 JSON
-pnpm --filter @teamclaw/app build >/dev/null 2>&1
+pnpm --filter @teamclu/app build >/dev/null 2>&1
 echo "--- injected style ---"
 grep -o '<style id="brand-theme">[^<]*</style>' packages/app/dist/index.html
 # 清理,务必不留脏
@@ -399,7 +399,7 @@ Expected: 无新增失败(已知预存 `App.tsx:91` 除外)。
 - [ ] **Step 3: 默认零差异 + 占位符不残留**
 
 ```bash
-pnpm --filter @teamclaw/app build >/dev/null 2>&1
+pnpm --filter @teamclu/app build >/dev/null 2>&1
 echo "brand-theme count:"; grep -c 'id="brand-theme"' packages/app/dist/index.html
 echo "placeholder leak:"; grep -c '__BRAND_THEME__' packages/app/dist/index.html
 rm -rf packages/app/dist
@@ -413,7 +413,7 @@ Expected: brand-theme count `0`、placeholder leak `0`、`git status` 干净。
 mkdir -p branding/acme
 printf '{"tokens":{"--primary":"#0f6e62","--background":"#f2f0ea"}}\n' > branding/acme/theme.json
 printf '{"app":{"name":"Acme","shortName":"acme","palette":"acme"}}\n' > build.config.local.json
-BUILD_ENV= pnpm --filter @teamclaw/app dev   # 浏览器看 acme 配色生效(主色/底色变化)
+BUILD_ENV= pnpm --filter @teamclu/app dev   # 浏览器看 acme 配色生效(主色/底色变化)
 ```
 验证后 Ctrl-C 并清理:
 ```bash
@@ -428,7 +428,7 @@ Expected: 页面用 acme 配色(primary #0f6e62、background #f2f0ea);清理后�
 mkdir -p branding/bad
 printf '{"tokens":{"--not-a-real-token":"#000"}}\n' > branding/bad/theme.json
 printf '{"app":{"palette":"bad"}}\n' > build.config.local.json
-pnpm --filter @teamclaw/app build; echo "exit=$?"
+pnpm --filter @teamclu/app build; echo "exit=$?"
 rm -rf branding/bad build.config.local.json packages/app/dist
 ```
 Expected: 构建**失败**(非 0 退出),报错含 `unknown token name(s): --not-a-real-token`。

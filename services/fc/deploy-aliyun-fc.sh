@@ -4,7 +4,7 @@
 # Function Compute function for testing the Alibaba FC deploy path.
 #
 # ⚠️  This script is intentionally strict:
-#       - refuses to deploy to `teamclaw-sync` unless explicitly forced
+#       - refuses to deploy to `teamclu-sync` unless explicitly forced
 #       - requires an explicit env file (no implicit/stale .env)
 #       - prints the target + a confirmation prompt before `s deploy`
 #       - does NOT touch the database unless RUN_MIGRATIONS=1
@@ -13,9 +13,9 @@
 #   ./deploy-aliyun-fc.sh <function-name> [env-file]
 #
 # Examples:
-#   ./deploy-aliyun-fc.sh teamclaw-api-test                 # uses .env.test.local
-#   ./deploy-aliyun-fc.sh teamclaw-api-test .env.staging.local
-#   RUN_MIGRATIONS=1 ./deploy-aliyun-fc.sh teamclaw-api-test   # also migrate
+#   ./deploy-aliyun-fc.sh teamclu-api-test                 # uses .env.test.local
+#   ./deploy-aliyun-fc.sh teamclu-api-test .env.staging.local
+#   RUN_MIGRATIONS=1 ./deploy-aliyun-fc.sh teamclu-api-test   # also migrate
 #
 # The env file must define (at minimum):
 #   ACCESS_KEY_ID, ACCESS_KEY_SECRET   (Aliyun credentials)
@@ -35,8 +35,8 @@ if [ -z "$FUNCTION_NAME" ]; then
   exit 1
 fi
 
-if [ "$FUNCTION_NAME" = "teamclaw-sync" ] && [ "${FORCE:-}" != "1" ]; then
-  echo "ERROR: refusing to deploy to 'teamclaw-sync' without FORCE=1." >&2
+if [ "$FUNCTION_NAME" = "teamclu-sync" ] && [ "${FORCE:-}" != "1" ]; then
+  echo "ERROR: refusing to deploy to 'teamclu-sync' without FORCE=1." >&2
   echo "       Set FORCE=1 only when you intend to update the shared function." >&2
   exit 1
 fi

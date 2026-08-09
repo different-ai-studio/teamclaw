@@ -10,7 +10,7 @@ import type { PendingPermissionEntry } from "@/stores/session-types";
 import {
   collectAcpStreamingPermissionsForList,
   selectStreamingPermissionSnapshot,
-} from "@/lib/teamclaw/acp-permission-entries";
+} from "@/lib/teamclu/acp-permission-entries";
 
 function mergePendingPermissionEntries(
   ...groups: PendingPermissionEntry[][]

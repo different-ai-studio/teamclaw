@@ -50,7 +50,7 @@ function shouldRebuildSidecar({ exists, expectedVersion, existingVersion }) {
 }
 
 /**
- * Build and install teamclaw-introspect into apps/desktop/binaries/ if missing,
+ * Build and install teamclu-introspect into apps/desktop/binaries/ if missing,
  * version-stale, or forced.
  *
  * Must run before main cargo/tauri build: build.rs panics when the file is
@@ -59,15 +59,15 @@ function shouldRebuildSidecar({ exists, expectedVersion, existingVersion }) {
  * @param {NodeJS.ProcessEnv} env - Use the same env as cargo (e.g. CARGO_TARGET_DIR)
  * @param {{ logPrefix?: string, force?: boolean }} [opts]
  */
-function ensureTeamclawIntrospectSidecar(env, opts) {
+function ensureTeamcluIntrospectSidecar(env, opts) {
   if (env.CI) {
     return;
   }
   const logPrefix = opts?.logPrefix ?? "[rust-cli]";
   const force =
     opts?.force === true ||
-    env.TEAMCLAW_FORCE_INTROSPECT_SIDECAR === "1" ||
-    env.TEAMCLAW_FORCE_INTROSPECT_SIDECAR === "true";
+    env.TEAMCLU_FORCE_INTROSPECT_SIDECAR === "1" ||
+    env.TEAMCLU_FORCE_INTROSPECT_SIDECAR === "true";
   const tauriDir = path.resolve(__dirname, "..", "apps/desktop");
   const target =
     env.TARGET ||
@@ -80,16 +80,16 @@ function ensureTeamclawIntrospectSidecar(env, opts) {
     return;
   }
   const binName =
-    process.platform === "win32" ? "teamclaw-introspect.exe" : "teamclaw-introspect";
+    process.platform === "win32" ? "teamclu-introspect.exe" : "teamclu-introspect";
   const destName =
     process.platform === "win32"
-      ? `teamclaw-introspect-${target}.exe`
-      : `teamclaw-introspect-${target}`;
+      ? `teamclu-introspect-${target}.exe`
+      : `teamclu-introspect-${target}`;
   const dest = path.join(tauriDir, "binaries", destName);
   const packageManifestPath = path.join(
     tauriDir,
     "crates",
-    "teamclaw-introspect",
+    "teamclu-introspect",
     "Cargo.toml",
   );
   const workspaceManifestPath = path.join(tauriDir, "Cargo.toml");
@@ -107,13 +107,13 @@ function ensureTeamclawIntrospectSidecar(env, opts) {
     return;
   }
   if (force) {
-    console.log(`${logPrefix} Forcing teamclaw-introspect sidecar rebuild...`);
+    console.log(`${logPrefix} Forcing teamclu-introspect sidecar rebuild...`);
   } else if (exists) {
     console.log(
-      `${logPrefix} Rebuilding teamclaw-introspect sidecar (${existingVersion ?? "unknown"} -> ${expectedVersion ?? "unknown"})...`,
+      `${logPrefix} Rebuilding teamclu-introspect sidecar (${existingVersion ?? "unknown"} -> ${expectedVersion ?? "unknown"})...`,
     );
   }
-  console.log(`${logPrefix} Building teamclaw-introspect sidecar...`);
+  console.log(`${logPrefix} Building teamclu-introspect sidecar...`);
   const targetDir = env.CARGO_TARGET_DIR || path.join(tauriDir, "target");
   const result = spawnSync(
     "cargo",
@@ -122,14 +122,14 @@ function ensureTeamclawIntrospectSidecar(env, opts) {
       "--manifest-path",
       workspaceManifestPath,
       "-p",
-      "teamclaw-introspect",
+      "teamclu-introspect",
       "--target-dir",
       targetDir,
     ],
     { stdio: "inherit", env },
   );
   if (result.status !== 0) {
-    console.error(`${logPrefix} Failed to build teamclaw-introspect`);
+    console.error(`${logPrefix} Failed to build teamclu-introspect`);
     process.exit(1);
   }
   const built = path.join(targetDir, "debug", binName);
@@ -138,7 +138,7 @@ function ensureTeamclawIntrospectSidecar(env, opts) {
 }
 
 module.exports = {
-  ensureTeamclawIntrospectSidecar,
+  ensureTeamcluIntrospectSidecar,
   parseVersionFromOutput,
   readCargoPackageVersion,
   readExecutableVersion,

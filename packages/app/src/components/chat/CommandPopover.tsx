@@ -15,7 +15,7 @@ import { useWorkspaceStore } from '@/stores/workspace'
 import { attachmentsForSession, useRuntimeStateStore } from '@/stores/runtime-state-store'
 import { isTauri } from '@/lib/utils'
 import { encodeWorkspaceId, getDaemonPermissions } from '@/lib/daemon-local-client'
-import { resolveSkillPermission, type SkillPermissionMap } from '@/lib/teamclaw-config'
+import { resolveSkillPermission, type SkillPermissionMap } from '@/lib/teamclu-config'
 import { loadAllRoles, loadRolesSkillsWorkspaceState } from '@/lib/roles/loader'
 
 interface CommandPopoverProps {

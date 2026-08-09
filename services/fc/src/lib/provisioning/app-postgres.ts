@@ -52,8 +52,8 @@ export interface EnsureAppSchemaParams {
   appId: string;
   slug: string;
   password: string;
-  // The teamclaw_apps base URL WITHOUT credentials/db-specific role, e.g.
-  // postgres://host:5432/teamclaw_apps — used to compose the app's own
+  // The teamclu_apps base URL WITHOUT credentials/db-specific role, e.g.
+  // postgres://host:5432/teamclu_apps — used to compose the app's own
   // connection string (role + password + pinned search_path).
   baseUrl: string;
 }
@@ -82,7 +82,7 @@ export async function ensureAppSchema(
 
 let _adminSql: ReturnType<typeof postgres> | null = null;
 
-// Dedicated admin connection to the teamclaw_apps database (NOT supabase_db).
+// Dedicated admin connection to the teamclu_apps database (NOT supabase_db).
 // Mirrors db/client.ts serverless-safe defaults. Separate singleton so app
 // provisioning never shares the control-plane pool.
 export function getAppsAdminExecutor(): SqlExecutor {

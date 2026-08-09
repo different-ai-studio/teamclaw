@@ -54,7 +54,7 @@ vi.mock('@/lib/utils', () => ({
 }))
 
 vi.mock('@/lib/build-config', () => ({
-  TEAM_REPO_DIR: 'teamclaw-team',
+  TEAM_REPO_DIR: 'teamclu-team',
 }))
 
 import { KnowledgeBrowser } from '../KnowledgeBrowser'

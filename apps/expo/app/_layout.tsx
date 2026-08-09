@@ -63,7 +63,7 @@ import { cloudApiBaseUrl, createCloudApiClient } from "../src/lib/cloud-api/clie
 import { createPushTokenApi } from "../src/features/notifications/push-token-api";
 import { registerNativePushToken } from "../src/features/notifications/push-registration";
 import { getDb } from "../src/lib/db/sqlite";
-import { decodeRuntimeInfo } from "../src/lib/teamclaw/runtime-info";
+import { decodeRuntimeInfo } from "../src/lib/teamclu/runtime-info";
 
 const onboardingApi = createOnboardingApi(supabase);
 
@@ -146,7 +146,7 @@ function OnboardingProvider({ children }: { children: ReactNode }) {
   }, [controller]);
 
   // Mirrors iOS `AppOnboardingCoordinator` invite token replay. Any
-  // `teamclaw://invite/<token>` link — whether the OS hands it to us on
+  // `teamclu://invite/<token>` link — whether the OS hands it to us on
   // cold start or while the app is foregrounded — is stashed for later
   // replay; the route `ready` effect below redeems it once we know the
   // user is signed in.
@@ -339,7 +339,7 @@ function OnboardingProvider({ children }: { children: ReactNode }) {
         url: mqttUrl,
         username: state.currentMemberActorId!,
         password: accessToken,
-        clientId: `teamclaw-expo-${state.currentMemberActorId!.slice(0, 8)}`,
+        clientId: `teamclu-expo-${state.currentMemberActorId!.slice(0, 8)}`,
       });
       try {
         await mqtt.start();

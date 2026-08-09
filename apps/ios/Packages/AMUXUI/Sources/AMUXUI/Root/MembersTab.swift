@@ -16,7 +16,7 @@ public struct MembersTab: View {
     let pairing: PairingManager
     let mqtt: MQTTService
     let sessionViewModel: SessionListViewModel
-    let teamclawService: TeamclawService?
+    let teamcluService: TeamcluService?
     let activeTeam: TeamSummary?
     let currentActorID: String?
     let store: ActorStore
@@ -38,7 +38,7 @@ public struct MembersTab: View {
     public init(pairing: PairingManager,
                 mqtt: MQTTService,
                 sessionViewModel: SessionListViewModel,
-                teamclawService: TeamclawService?,
+                teamcluService: TeamcluService?,
                 activeTeam: TeamSummary?,
                 currentActorID: String? = nil,
                 store: ActorStore,
@@ -50,7 +50,7 @@ public struct MembersTab: View {
         self.pairing = pairing
         self.mqtt = mqtt
         self.sessionViewModel = sessionViewModel
-        self.teamclawService = teamclawService
+        self.teamcluService = teamcluService
         self.activeTeam = activeTeam
         self.currentActorID = currentActorID
         self.store = store
@@ -68,7 +68,7 @@ public struct MembersTab: View {
                 pairing: pairing,
                 mqtt: mqtt,
                 sessionViewModel: sessionViewModel,
-                teamclawService: teamclawService,
+                teamcluService: teamcluService,
                 currentActorID: currentActorID,
                 connectedAgentsStore: connectedAgentsStore,
                 onAddYourAgent: { showInvite = true }
@@ -119,7 +119,7 @@ public struct MembersTab: View {
                             mqtt: mqtt,
                             sessionViewModel: sessionViewModel,
                             store: store,
-                            teamclawService: teamclawService,
+                            teamcluService: teamcluService,
                             connectedAgentsStore: connectedAgentsStore,
                             workspacesRepository: workspacesRepository,
                             agentAccessRepository: agentAccessRepository,

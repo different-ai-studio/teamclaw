@@ -1,5 +1,5 @@
 import * as React from 'react'
-import { ensureAgentRuntimesForSession } from '@/lib/teamclaw/ensure-agent-runtime'
+import { ensureAgentRuntimesForSession } from '@/lib/teamclu/ensure-agent-runtime'
 import {
   agentIdsNeedingRecoverableRuntimeWake,
 } from '@/hooks/use-ensure-engaged-runtimes-on-session-focus'
@@ -8,7 +8,7 @@ import {
   resetRuntimeEnsureThrottle,
   shouldSkipAlreadyReadyRuntimeEnsure,
   shouldSkipThrottledRuntimeEnsure,
-} from '@/lib/teamclaw/runtime-ensure-scheduler'
+} from '@/lib/teamclu/runtime-ensure-scheduler'
 import { useActorPresenceStore } from '@/stores/actor-presence-store'
 import { useMqttReconnectStore } from '@/stores/mqtt-reconnect'
 

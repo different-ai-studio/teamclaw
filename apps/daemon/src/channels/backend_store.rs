@@ -1,12 +1,12 @@
 //! `ChannelStore` impl: adapts amuxd's backend client to the
-//! `teamclaw_gateway::ChannelStore` trait so channels persist external
+//! `teamclu_gateway::ChannelStore` trait so channels persist external
 //! actors, gateway sessions, and messages through the same backend
 //! endpoints amuxd already uses for native sessions.
 
 use async_trait::async_trait;
 use std::sync::Arc;
 
-use teamclaw_gateway::{AttachmentRecord, ChannelStore, EnsureSessionOutcome, StoreError};
+use teamclu_gateway::{AttachmentRecord, ChannelStore, EnsureSessionOutcome, StoreError};
 
 use crate::backend::Backend;
 
@@ -145,7 +145,7 @@ mod tests {
 
     use super::*;
     use crate::backend::mock::MockBackend;
-    use teamclaw_gateway::AttachmentRecord;
+    use teamclu_gateway::AttachmentRecord;
 
     fn store() -> (AmuxdChannelStore, MockBackend) {
         let mock = MockBackend::with_identity("team-x", "agent-x");

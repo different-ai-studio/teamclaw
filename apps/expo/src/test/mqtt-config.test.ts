@@ -48,14 +48,14 @@ describe("resolveMqttUrl", () => {
     });
 
     expect(url).toBe("mqtts://mqtt.example.com:8883");
-    expect(storage.items.get("teamclaw.mqtt.broker-url")).toBe("mqtts://mqtt.example.com:8883");
+    expect(storage.items.get("teamclu.mqtt.broker-url")).toBe("mqtts://mqtt.example.com:8883");
   });
 
   it("falls back to the cached address when the Cloud API is unreachable", async () => {
     vi.stubEnv("EXPO_PUBLIC_MQTT_URL", "");
     const { resolveMqttUrl } = await import("../lib/mqtt/config");
     const storage = memoryStorage({
-      "teamclaw.mqtt.broker-url": "mqtts://cached.example.com:8883",
+      "teamclu.mqtt.broker-url": "mqtts://cached.example.com:8883",
     });
 
     const url = await resolveMqttUrl({
@@ -103,7 +103,7 @@ describe("resolveMqttUrl", () => {
 
     expect(getKnownMqttUrl()).toBeNull();
     expect(await getCachedMqttUrl(storage)).toBeNull();
-    expect(storage.items.has("teamclaw.mqtt.broker-url")).toBe(false);
+    expect(storage.items.has("teamclu.mqtt.broker-url")).toBe(false);
   });
 
   // The whole point of clearing: the next account must not inherit the previous

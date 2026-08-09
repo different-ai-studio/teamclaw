@@ -25,11 +25,11 @@ describe('acp-debug-store', () => {
   it('persists enabled state via setEnabled', () => {
     useAcpDebugStore.getState().setEnabled(true)
     expect(useAcpDebugStore.getState().enabled).toBe(true)
-    expect(localStorage.getItem('teamclaw-acp-stream-debug')).toBe('true')
+    expect(localStorage.getItem('teamclu-acp-stream-debug')).toBe('true')
 
     useAcpDebugStore.getState().setEnabled(false)
     expect(useAcpDebugStore.getState().enabled).toBe(false)
-    expect(localStorage.getItem('teamclaw-acp-stream-debug')).toBe('false')
+    expect(localStorage.getItem('teamclu-acp-stream-debug')).toBe('false')
   })
 
   it('drops appends while disabled', async () => {
@@ -38,7 +38,7 @@ describe('acp-debug-store', () => {
     expect(useAcpDebugStore.getState().lines).toHaveLength(0)
   })
 
-  // Regression (Sentry TEAMCLAW-REACT-85): a set() per line meant a synchronous
+  // Regression (Sentry TEAMCLU-REACT-85): a set() per line meant a synchronous
   // React render per live event, and a streaming reply overran React's nested
   // update limit. A burst has to land as one store update, not N.
   it('coalesces a burst of appends into a single store update', async () => {

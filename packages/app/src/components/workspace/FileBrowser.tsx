@@ -117,7 +117,7 @@ export function FileBrowser({ className, variant = 'default', rootPath, rootPath
 
   // Ensure custom rootPath(s) are present in the global tree before we try to
   // render them as virtual roots. In practice the initial attempt can race the
-  // first root refresh, especially for deep team paths like teamclaw-team/knowledge.
+  // first root refresh, especially for deep team paths like teamclu-team/knowledge.
   React.useEffect(() => {
     const expandWithAncestors = async (targetPath: string) => {
       const wp = useWorkspaceStore.getState().workspacePath

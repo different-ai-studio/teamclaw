@@ -2,11 +2,11 @@
 
 **Date:** 2026-06-04
 **Branch:** to be created from main
-**Scope:** `crates/teamclaw-gateway` (+ `acp.rs` trait extension)
+**Scope:** `crates/teamclu-gateway` (+ `acp.rs` trait extension)
 
 ## Overview
 
-Add a universal slash-command system to the `teamclaw-gateway` crate so every channel gateway (WeChat Work, Discord, Feishu, etc.) can interpret `/command` messages from users without each gateway implementing its own parser.
+Add a universal slash-command system to the `teamclu-gateway` crate so every channel gateway (WeChat Work, Discord, Feishu, etc.) can interpret `/command` messages from users without each gateway implementing its own parser.
 
 ## Commands
 
@@ -35,7 +35,7 @@ Commands are dispatched in priority order:
 
 This means if an ACP agent reports `/clear`, its `/clear` wins over the gateway's built-in `/clear`. Gateway meta commands only fire when the agent doesn't know the command.
 
-### New file: `crates/teamclaw-gateway/src/commands.rs`
+### New file: `crates/teamclu-gateway/src/commands.rs`
 
 **Public API:**
 
@@ -241,7 +241,7 @@ Unit tests in `commands.rs`:
 ## File Changes Summary
 
 ```
-crates/teamclaw-gateway/src/
+crates/teamclu-gateway/src/
 ├── commands.rs     ← NEW: parse_command, dispatch_command, Command enum
 ├── acp.rs          ← add: send_slash_command, available_commands, list_sessions, list_agents, set_agent, list_workspaces, set_workspace
 ├── lib.rs          ← add: pub mod commands

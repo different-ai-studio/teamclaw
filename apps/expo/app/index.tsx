@@ -26,7 +26,7 @@ export default function IndexRoute() {
         <AppCard elevated style={styles.card}>
           <Text style={styles.title}>We hit a loading problem</Text>
           <Text style={styles.body}>
-            {state.errorMessage ?? "We couldn't open TeamClaw right now."}
+            {state.errorMessage ?? "We couldn't open TeamClu right now."}
           </Text>
           <PrimaryButton
             isLoading={state.isBusy}
@@ -70,7 +70,7 @@ export default function IndexRoute() {
       <AppCard elevated style={styles.card}>
         <View style={styles.loadingRow}>
           <ActivityIndicator color={colors.coral} size="small" />
-          <Text style={styles.title}>Opening TeamClaw</Text>
+          <Text style={styles.title}>Opening TeamClu</Text>
         </View>
         <Text style={styles.body}>
           Checking your session and workspace so we can send you to the right place.

@@ -26,7 +26,7 @@ export function composeProject() {
 }
 
 export function contentRootPath(teamId) {
-  return `/root/.amuxd/teams/${teamId}/teamclaw-team`;
+  return `/root/.amuxd/teams/${teamId}/teamclu-team`;
 }
 export function syncStatePath(teamId) {
   return `/root/.amuxd/teams/${teamId}/sync/state.json`;

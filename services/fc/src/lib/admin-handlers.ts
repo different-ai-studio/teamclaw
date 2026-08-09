@@ -163,7 +163,7 @@ export async function handleManagedGitCreateRepo(body: any) {
       name: repoName,
       path: repoName,
       visibility: "private",
-      description: `TeamClaw managed team repo: ${teamName || teamId}`,
+      description: `TeamClu managed team repo: ${teamName || teamId}`,
     }
   );
 

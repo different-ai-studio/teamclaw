@@ -7,7 +7,7 @@ import {
   deriveAgentReplyContent,
   joinTextPartsFromParts,
 } from "@/lib/agent-reply-transcript";
-import type { Message as TeamclawMessage } from "@/lib/proto/teamclaw_pb";
+import type { Message as TeamcluMessage } from "@/lib/proto/teamclu_pb";
 import type { MessagePart, ToolCall } from "@/stores/session-types";
 import {
   finishUnresolvedTools,
@@ -18,7 +18,7 @@ import {
 import { enrichMessageParts, setMessageParts } from "@/lib/local-cache";
 import { useWorkspaceStore } from "@/stores/workspace";
 import { snapshotSubagentEntry } from "@/lib/subagent-snapshot";
-import { extractTaskChildBinding, isTaskToolCall } from "@/lib/teamclaw/subagent-acp-binding";
+import { extractTaskChildBinding, isTaskToolCall } from "@/lib/teamclu/subagent-acp-binding";
 import { useSessionMessageStore } from "@/stores/session-message-store";
 import { getFlushedTurn } from "@/lib/flushed-turn-registry";
 
@@ -168,10 +168,10 @@ export async function syncStreamingToolOutputsFromLocalCache(
 export async function persistStreamingPartsForReply(
   sessionId: string,
   actorId: string,
-  reply: TeamclawMessage,
-  pendingReplies: TeamclawMessage[] = [],
+  reply: TeamcluMessage,
+  pendingReplies: TeamcluMessage[] = [],
   opts?: { streamEntrySnapshot?: AgentStreamEntry },
-): Promise<TeamclawMessage> {
+): Promise<TeamcluMessage> {
   const turnId = reply.turnId;
   if (!turnId) return reply;
   const rawSnapshot =
@@ -215,7 +215,7 @@ export async function persistStreamingPartsForReply(
   return reply;
 }
 
-function messagePartsJson(message: TeamclawMessage): string {
+function messagePartsJson(message: TeamcluMessage): string {
   return (message as unknown as { partsJson?: string | null }).partsJson ?? "";
 }
 
@@ -301,7 +301,7 @@ export async function patchPersistedToolResult(args: {
     Object.create(Object.getPrototypeOf(message)),
     message,
     { partsJson: enrichedPartsJson },
-  ) as TeamclawMessage;
+  ) as TeamcluMessage;
 
   useSessionMessageStore
     .getState()
@@ -312,7 +312,7 @@ export async function patchPersistedToolResult(args: {
 /** @internal test helper */
 export function transcriptPartsForTests(
   parts: MessagePart[],
-  pending: TeamclawMessage[],
+  pending: TeamcluMessage[],
 ): { parts: MessagePart[]; content: string } {
   return {
     parts,

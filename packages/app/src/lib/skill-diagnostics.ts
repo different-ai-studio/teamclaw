@@ -8,7 +8,7 @@ import {
   getDaemonRuntime,
 } from '@/lib/daemon-local-client'
 import { collectTeamSkillPaths, globalTeamShareDir, TEAM_SHARE_LINK_DIR } from '@/lib/team-skill-paths'
-import { TEAMCLAW_DIR } from '@/lib/build-config'
+import { TEAMCLU_DIR } from '@/lib/build-config'
 import { isTauri } from '@/lib/utils'
 
 export type SkillDiagnosticStatus = 'ok' | 'warn' | 'fail'
@@ -44,10 +44,10 @@ export interface SkillsDiagnosticsReport {
 }
 
 const DIRECTORY_LABELS: Record<string, string> = {
-  workspace: `${TEAMCLAW_DIR}/skills`,
+  workspace: `${TEAMCLU_DIR}/skills`,
   claude: '.claude/skills',
   agents: '.agents/skills',
-  globalTeamclaw: '~/.config/teamclaw/skills',
+  globalTeamclu: '~/.config/teamclu/skills',
   globalClaude: '~/.claude/skills',
   globalAgents: '~/.agents/skills',
 }
@@ -68,16 +68,16 @@ function summarizeChecks(checks: SkillDiagnosticCheck[]): SkillDiagnosticStatus 
 function labelForDirectory(path: string, workspacePath: string): string {
   const normalized = path.replace(/\\/g, '/')
   const workspace = workspacePath.replace(/\\/g, '/')
-  if (normalized.includes(`/${TEAMCLAW_DIR}/skills`)) return DIRECTORY_LABELS.workspace
+  if (normalized.includes(`/${TEAMCLU_DIR}/skills`)) return DIRECTORY_LABELS.workspace
   if (normalized.includes('/.claude/skills')) {
     return normalized.startsWith(workspace) ? DIRECTORY_LABELS.claude : DIRECTORY_LABELS.globalClaude
   }
   if (normalized.includes('/.agents/skills')) {
     return normalized.startsWith(workspace) ? DIRECTORY_LABELS.agents : DIRECTORY_LABELS.globalAgents
   }
-  if (normalized.includes('/.config/teamclaw/skills')) return DIRECTORY_LABELS.globalTeamclaw
+  if (normalized.includes('/.config/teamclu/skills')) return DIRECTORY_LABELS.globalTeamclu
   if (normalized.includes(`/${TEAM_SHARE_LINK_DIR}/skills`)) return `${TEAM_SHARE_LINK_DIR}/skills`
-  if (normalized.includes('/roles/skills')) return `${TEAMCLAW_DIR}/roles/skills`
+  if (normalized.includes('/roles/skills')) return `${TEAMCLU_DIR}/roles/skills`
   return path
 }
 
@@ -262,7 +262,7 @@ export async function runSkillsDiagnostics(workspacePath: string): Promise<Skill
     hint: !teamLinkExists && globalTeamDir
       ? `Workspace symlink missing; global team dir is ${globalTeamDir}`
       : !teamLinkExists
-        ? 'No team share link found. Team skills from teamclaw-team/ will not appear.'
+        ? 'No team share link found. Team skills from teamclu-team/ will not appear.'
         : undefined,
   })
 
@@ -274,7 +274,7 @@ export async function runSkillsDiagnostics(workspacePath: string): Promise<Skill
       label: 'Configured skill path',
       status: pathExists ? 'ok' : 'fail',
       detail: configPath,
-      hint: pathExists ? undefined : 'Path from teamclaw.json / opencode.json does not exist or is inaccessible.',
+      hint: pathExists ? undefined : 'Path from teamclu.json / opencode.json does not exist or is inaccessible.',
     })
   }
 

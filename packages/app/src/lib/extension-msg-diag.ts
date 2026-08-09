@@ -1,14 +1,14 @@
 /**
  * Temporary diagnostics for extension Process / Reply-to / duplicate-header bugs.
  * DevTools filter: `ext-msg-diag`
- * Dump: `window.teamclawExtMsgDiagDump()`
+ * Dump: `window.teamcluExtMsgDiagDump()`
  *
  * Always logs (not gated on import.meta.env.DEV) so packaged extension builds
  * still surface evidence in the side panel inspector.
  */
 
-import type { Message as TeamclawMessage } from "@/lib/proto/teamclaw_pb";
-import { MessageKind } from "@/lib/proto/teamclaw_pb";
+import type { Message as TeamcluMessage } from "@/lib/proto/teamclu_pb";
+import { MessageKind } from "@/lib/proto/teamclu_pb";
 
 const LOG_PREFIX = "[ext-msg-diag]";
 const RING_MAX = 120;
@@ -44,7 +44,7 @@ function partsMeta(partsJson: string | null | undefined): {
 }
 
 /** Compact one-line summary of a proto message for Process / duplicate checks. */
-export function summarizeProtoForExtDiag(m: TeamclawMessage): Record<string, unknown> {
+export function summarizeProtoForExtDiag(m: TeamcluMessage): Record<string, unknown> {
   const partsJson = (m as { partsJson?: string | null }).partsJson ?? null;
   const id = m.messageId ?? "";
   return {
@@ -59,7 +59,7 @@ export function summarizeProtoForExtDiag(m: TeamclawMessage): Record<string, unk
 }
 
 export function summarizeProtosForExtDiag(
-  messages: TeamclawMessage[],
+  messages: TeamcluMessage[],
 ): Record<string, unknown> {
   const assistant = messages.filter(
     (m) =>
@@ -111,10 +111,10 @@ export function dumpExtMsgDiag(): DiagRecord[] {
 
 declare global {
   interface Window {
-    teamclawExtMsgDiagDump?: () => DiagRecord[];
+    teamcluExtMsgDiagDump?: () => DiagRecord[];
   }
 }
 
 if (typeof window !== "undefined") {
-  window.teamclawExtMsgDiagDump = dumpExtMsgDiag;
+  window.teamcluExtMsgDiagDump = dumpExtMsgDiag;
 }

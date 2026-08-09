@@ -18,7 +18,7 @@ import { reportLocalCacheFailure } from "@/lib/telemetry/local-cache-error-repor
 import type { SessionListCursor, SessionListPage } from "@/lib/backend/types";
 import { sortSessionListRows } from "@/lib/session-list-sort";
 
-const ARCHIVED_SESSION_IDS_KEY = "teamclaw.sessionList.archivedIds";
+const ARCHIVED_SESSION_IDS_KEY = "teamclu.sessionList.archivedIds";
 
 function readArchivedSessionIds(): Set<string> {
   try {

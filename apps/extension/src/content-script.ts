@@ -2,16 +2,16 @@ import { handleContentMessage } from './lib/content-handler'
 import { mountLinkHover, type LinkHoverMount } from './lib/link-hover'
 import { openSidePanelMsg, PENDING_LINK_OPEN_KEY } from './lib/messages'
 import { extractPage } from './lib/page-extract'
-import { normalizeLinkKey } from '@teamclaw/extension-link-session'
+import { normalizeLinkKey } from '@teamclu/extension-link-session'
 import {
   isLinkHoverEnabledForHost,
   isLinkUrlAllowed,
   readLinkHoverConfig,
   watchLinkHoverConfig,
   type LinkHoverConfig,
-} from '@teamclaw/extension-link-hover'
+} from '@teamclu/extension-link-hover'
 
-const GUARD_KEY = '__teamclawContentScriptLoaded' as const
+const GUARD_KEY = '__teamcluContentScriptLoaded' as const
 type GuardedWindow = Window & { [GUARD_KEY]?: boolean }
 
 function buildPendingLinkOpen(link: HTMLAnchorElement, doc: Document, win: Window) {
@@ -76,11 +76,11 @@ function boot() {
           chrome.runtime.sendMessage(openSidePanelMsg(payload), (resp) => {
             const err = chrome.runtime.lastError
             if (err) {
-              console.warn('[teamclaw] open side panel failed:', err.message)
+              console.warn('[teamclu] open side panel failed:', err.message)
               return
             }
             if (resp && typeof resp === 'object' && 'ok' in resp && !(resp as { ok: boolean }).ok) {
-              console.warn('[teamclaw] open side panel rejected:', resp)
+              console.warn('[teamclu] open side panel rejected:', resp)
             }
           })
         },

@@ -1,2 +1,2 @@
-app_identifier("tech.teamclaw.mobile")
+app_identifier("com.teamclu.mobile")
 team_id(ENV["TEAM_ID"])

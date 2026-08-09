@@ -13,13 +13,13 @@ test('sends payload with correct headers', async () => {
   };
   const apns = createApnsClient({
     jwt: fakeJwt(),
-    topic: 'tech.teamclaw.app',
+    topic: 'com.teamclu.app',
     transport,
   });
   await apns.send('TOKEN', { aps: { alert: { title: 't', body: 'b' } } });
   assert.equal(calls.length, 1);
   assert.equal(calls[0].path, '/3/device/TOKEN');
-  assert.equal(calls[0].headers['apns-topic'], 'tech.teamclaw.app');
+  assert.equal(calls[0].headers['apns-topic'], 'com.teamclu.app');
   assert.equal(calls[0].headers['authorization'], 'bearer jwt-token');
   assert.equal(calls[0].headers['apns-push-type'], 'alert');
 });

@@ -3,7 +3,7 @@ import { resolveQuickChatTarget } from '../resolve-quick-chat-target'
 
 const deps = vi.hoisted(() => ({
   isTauri: true,
-  workspacePath: '/ws/teamclaw' as string | null,
+  workspacePath: '/ws/teamclu' as string | null,
   localAgent: null as { id: string; displayName: string } | null,
   memberDefault: null as string | null,
   effectiveDefault: null as string | null,
@@ -43,7 +43,7 @@ describe('resolveQuickChatTarget', () => {
   beforeEach(() => {
     vi.clearAllMocks()
     deps.isTauri = true
-    deps.workspacePath = '/ws/teamclaw'
+    deps.workspacePath = '/ws/teamclu'
     deps.localAgent = null
     deps.memberDefault = null
     deps.effectiveDefault = null

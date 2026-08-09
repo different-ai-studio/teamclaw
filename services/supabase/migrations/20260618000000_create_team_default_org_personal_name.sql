@@ -9,7 +9,7 @@
 --   explicit p_name -> deterministic "Adjective Animal".
 -- Owner display name is unchanged: nickname -> client best-effort -> Adjective Animal.
 --
--- See docs/specs/2026-06-17-teamclaw-phone-login-and-tenancy.md.
+-- See docs/specs/2026-06-17-teamclu-phone-login-and-tenancy.md.
 -- APPLY WITH the amux schema (references amux tables). Supersedes
 -- 20260616000000_create_team_org_defaults.sql.
 -- ============================================================================

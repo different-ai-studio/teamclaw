@@ -1,6 +1,6 @@
 import { join } from '@tauri-apps/api/path'
 import { exists, readDir, writeTextFile } from '@tauri-apps/plugin-fs'
-import { TEAMCLAW_DIR } from '@/lib/build-config'
+import { TEAMCLU_DIR } from '@/lib/build-config'
 import agentsTemplate from './AGENTS.default.md?raw'
 import claudeTemplate from './CLAUDE.default.md?raw'
 
@@ -15,7 +15,7 @@ export const WORKSPACE_SEED_IGNORED_NAMES = new Set([
   '.git',
   '.gitignore',
   '.DS_Store',
-  TEAMCLAW_DIR,
+  TEAMCLU_DIR,
 ])
 
 export type WorkspaceInstructionVars = {

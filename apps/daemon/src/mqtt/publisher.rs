@@ -9,9 +9,9 @@
 //! `NatsBackend::announce_online/offline`. This split means `Publisher`
 //! callers don't need to know which backend they're on.
 
-use crate::proto::{amux, teamclaw};
+use crate::proto::{amux, teamclu};
 use std::sync::Arc;
-use teamclaw_transport::{DeliveryGuarantee, MessagePublisher};
+use teamclu_transport::{DeliveryGuarantee, MessagePublisher};
 
 use super::Topics;
 
@@ -39,7 +39,7 @@ impl<'a> Publisher<'a> {
         topic: String,
         retain: bool,
         payload: Vec<u8>,
-    ) -> Result<(), teamclaw_transport::PublisherError> {
+    ) -> Result<(), teamclu_transport::PublisherError> {
         self.client
             .publish(&topic, payload, retain, DeliveryGuarantee::AtLeastOnce)
             .await
@@ -52,7 +52,7 @@ impl<'a> Publisher<'a> {
     pub async fn publish_actor_presence(
         &self,
         state: &amux::ActorPresence,
-    ) -> Result<(), teamclaw_transport::PublisherError> {
+    ) -> Result<(), teamclu_transport::PublisherError> {
         let payload = state.encode_to_vec();
         self.publish_message(self.topics.actor_state(), true, payload)
             .await
@@ -66,8 +66,8 @@ impl<'a> Publisher<'a> {
         &self,
         event_type: &str,
         refresh_hint: &str,
-    ) -> Result<(), teamclaw_transport::PublisherError> {
-        let notify = teamclaw::Notify {
+    ) -> Result<(), teamclu_transport::PublisherError> {
+        let notify = teamclu::Notify {
             event_type: event_type.to_string(),
             refresh_hint: refresh_hint.to_string(),
             sent_at: chrono::Utc::now().timestamp(),

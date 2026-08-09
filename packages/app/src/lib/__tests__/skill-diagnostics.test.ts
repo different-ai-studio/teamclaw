@@ -4,7 +4,7 @@ import { runSkillsDiagnostics, formatSkillsDiagnosticsReport } from '../skill-di
 const mockExists = vi.fn(async () => true)
 const mockReadDir = vi.fn(async () => [])
 const mockLoadAllSkills = vi.fn(async () => ({ skills: [], overrides: [] }))
-const mockGetSkillDirectories = vi.fn(async () => ['/workspace/.teamclaw/skills'])
+const mockGetSkillDirectories = vi.fn(async () => ['/workspace/.teamclu/skills'])
 const mockLoadRolesSkillsWorkspaceStateFromFs = vi.fn(async () => ({
   roles: [],
   skills: [],
@@ -47,7 +47,7 @@ vi.mock('@/lib/daemon-local-client', () => ({
 vi.mock('@/lib/team-skill-paths', () => ({
   collectTeamSkillPaths: (...args: unknown[]) => mockCollectTeamSkillPaths(...args),
   globalTeamShareDir: (...args: unknown[]) => mockGlobalTeamShareDir(...args),
-  TEAM_SHARE_LINK_DIR: 'teamclaw-team',
+  TEAM_SHARE_LINK_DIR: 'teamclu-team',
 }))
 
 vi.mock('@/lib/utils', () => ({
@@ -60,7 +60,7 @@ describe('runSkillsDiagnostics', () => {
     mockExists.mockResolvedValue(true)
     mockReadDir.mockResolvedValue([])
     mockLoadAllSkills.mockResolvedValue({ skills: [], overrides: [] })
-    mockGetSkillDirectories.mockResolvedValue(['/workspace/.teamclaw/skills'])
+    mockGetSkillDirectories.mockResolvedValue(['/workspace/.teamclu/skills'])
     mockLoadRolesSkillsWorkspaceStateFromFs.mockResolvedValue({
       roles: [],
       skills: [],
@@ -134,7 +134,7 @@ describe('runSkillsDiagnostics', () => {
 
   it('flags broken skill folders missing SKILL.md', async () => {
     mockReadDir.mockImplementation(async (path: string) => {
-      if (path.endsWith('/.teamclaw/skills')) {
+      if (path.endsWith('/.teamclu/skills')) {
         return [
           { name: 'broken-skill', isDirectory: true },
           { name: 'good-skill', isDirectory: true },

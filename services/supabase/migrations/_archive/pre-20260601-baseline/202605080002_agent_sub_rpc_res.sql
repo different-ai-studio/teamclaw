@@ -1,6 +1,6 @@
 -- Agents (daemons) need SUB on their own amux/{team}/device/{actor}/rpc/res
 -- because the daemon also acts as an RPC client (RpcClient::handle_response
--- in daemon/src/teamclaw/rpc.rs listens on this topic to receive responses
+-- in daemon/src/teamclu/rpc.rs listens on this topic to receive responses
 -- from RPC calls it makes to peer daemons). The hook's original ACL only
 -- granted PUB on rpc/res (for serving requests), missing the symmetric SUB
 -- needed when the daemon is the requester.

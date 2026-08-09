@@ -1,5 +1,5 @@
 pub fn session_live(team_id: &str, session_id: &str) -> String {
-    teamclaw_types::mqtt::session_live(team_id, session_id)
+    teamclu_types::mqtt::session_live(team_id, session_id)
 }
 
 pub fn actor_rpc_req(team_id: &str, actor_id: &str) -> String {
@@ -11,7 +11,7 @@ pub fn actor_rpc_res(team_id: &str, actor_id: &str) -> String {
 }
 
 pub fn actor_state(team_id: &str, actor_id: &str) -> String {
-    teamclaw_types::mqtt::actor_state(team_id, actor_id)
+    teamclu_types::mqtt::actor_state(team_id, actor_id)
 }
 
 #[cfg(test)]

@@ -95,15 +95,15 @@ Be precise.
     const workspace = "/workspace"
     mockExists.mockImplementation(async (path: string) => {
       return [
-        `${workspace}/.teamclaw/roles`,
-        `${workspace}/.teamclaw/roles/config.json`,
-        `${workspace}/.teamclaw/roles/default-role/ROLE.md`,
+        `${workspace}/.teamclu/roles`,
+        `${workspace}/.teamclu/roles/config.json`,
+        `${workspace}/.teamclu/roles/default-role/ROLE.md`,
         `${workspace}/team-roles`,
         `${workspace}/team-roles/external-role/ROLE.md`,
       ].includes(path)
     })
     mockReadTextFile.mockImplementation(async (path: string) => {
-      if (path === `${workspace}/.teamclaw/roles/config.json`) {
+      if (path === `${workspace}/.teamclu/roles/config.json`) {
         return JSON.stringify({ paths: ["./team-roles"] })
       }
       if (path.endsWith("default-role/ROLE.md")) {
@@ -142,7 +142,7 @@ External
 `
     })
     mockReadDir.mockImplementation(async (path: string) => {
-      if (path === `${workspace}/.teamclaw/roles`) {
+      if (path === `${workspace}/.teamclu/roles`) {
         return [{ isDirectory: true, name: "default-role" }, { isDirectory: true, name: "skill" }]
       }
       if (path === `${workspace}/team-roles`) {
@@ -160,15 +160,15 @@ External
     const workspace = "/workspace"
     mockExists.mockImplementation(async (path: string) => {
       return [
-        `${workspace}/.teamclaw/roles`,
-        `${workspace}/.teamclaw/roles/config.json`,
-        `${workspace}/.teamclaw/roles/default-role/ROLE.md`,
-        `${workspace}/.teamclaw/roles/skills`,
-        `${workspace}/.teamclaw/roles/skills/design-helper/SKILL.md`,
+        `${workspace}/.teamclu/roles`,
+        `${workspace}/.teamclu/roles/config.json`,
+        `${workspace}/.teamclu/roles/default-role/ROLE.md`,
+        `${workspace}/.teamclu/roles/skills`,
+        `${workspace}/.teamclu/roles/skills/design-helper/SKILL.md`,
       ].includes(path)
     })
     mockReadTextFile.mockImplementation(async (path: string) => {
-      if (path === `${workspace}/.teamclaw/roles/config.json`) {
+      if (path === `${workspace}/.teamclu/roles/config.json`) {
         return JSON.stringify({ paths: [] })
       }
       if (path.endsWith("default-role/ROLE.md")) {
@@ -201,10 +201,10 @@ Body
       return ""
     })
     mockReadDir.mockImplementation(async (path: string) => {
-      if (path === `${workspace}/.teamclaw/roles`) {
+      if (path === `${workspace}/.teamclu/roles`) {
         return [{ isDirectory: true, name: "default-role" }, { isDirectory: true, name: "skills" }]
       }
-      if (path === `${workspace}/.teamclaw/roles/skills`) {
+      if (path === `${workspace}/.teamclu/roles/skills`) {
         return [{ isDirectory: true, name: "design-helper" }]
       }
       return []
@@ -233,7 +233,7 @@ Body
           content: "---\nname: Create Role\n---\n",
           description: "Create Role",
           source: "local",
-          dirPath: `${workspace}/.teamclaw/skills`,
+          dirPath: `${workspace}/.teamclu/skills`,
           linkedRoles: [],
           isRoleSkill: false,
         },
@@ -255,7 +255,7 @@ Body
           invocationName: "create-role",
           content: "---\nname: Create Role\n---\n",
           source: "local",
-          dirPath: `${workspace}/.teamclaw/skills`,
+          dirPath: `${workspace}/.teamclu/skills`,
         },
         {
           filename: "biz-code-delete",
@@ -263,7 +263,7 @@ Body
           invocationName: "biz-code-delete",
           content: "---\nname: Biz Code Delete\n---\n",
           source: "team",
-          dirPath: `${workspace}/teamclaw-team/skills`,
+          dirPath: `${workspace}/teamclu-team/skills`,
         },
       ],
       overrides: [],
@@ -295,7 +295,7 @@ Body
           content: "---\nname: accounting-error-investigator\n---\n",
           description: "Investigate accounting errors",
           source: "team",
-          dirPath: `${workspace}/teamclaw-team/skills`,
+          dirPath: `${workspace}/teamclu-team/skills`,
           linkedRoles: [],
           isRoleSkill: false,
         },
@@ -337,15 +337,15 @@ Body
     const workspace = "/workspace"
     mockExists.mockImplementation(async (path: string) => {
       return [
-        `${workspace}/.teamclaw/roles`,
-        `${workspace}/.teamclaw/roles/config.json`,
-        `${workspace}/.teamclaw/roles/default-role/ROLE.md`,
-        `${workspace}/.teamclaw/roles/legacy`,
-        `${workspace}/.teamclaw/roles/legacy/design-helper/SKILL.md`,
+        `${workspace}/.teamclu/roles`,
+        `${workspace}/.teamclu/roles/config.json`,
+        `${workspace}/.teamclu/roles/default-role/ROLE.md`,
+        `${workspace}/.teamclu/roles/legacy`,
+        `${workspace}/.teamclu/roles/legacy/design-helper/SKILL.md`,
       ].includes(path)
     })
     mockReadTextFile.mockImplementation(async (path: string) => {
-      if (path === `${workspace}/.teamclaw/roles/config.json`) {
+      if (path === `${workspace}/.teamclu/roles/config.json`) {
         return JSON.stringify({ paths: [] })
       }
       if (path.endsWith("default-role/ROLE.md")) {
@@ -378,10 +378,10 @@ Body
       return ""
     })
     mockReadDir.mockImplementation(async (path: string) => {
-      if (path === `${workspace}/.teamclaw/roles`) {
+      if (path === `${workspace}/.teamclu/roles`) {
         return [{ isDirectory: true, name: "default-role" }, { isDirectory: true, name: "legacy" }]
       }
-      if (path === `${workspace}/.teamclaw/roles/legacy`) {
+      if (path === `${workspace}/.teamclu/roles/legacy`) {
         return [{ isDirectory: true, name: "design-helper" }]
       }
       return []

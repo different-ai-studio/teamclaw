@@ -1,6 +1,6 @@
-# Contributing to TeamClaw
+# Contributing to TeamClu
 
-First off, thank you for considering contributing to TeamClaw! It's people like you that make TeamClaw such a great tool.
+First off, thank you for considering contributing to TeamClu! It's people like you that make TeamClu such a great tool.
 
 Following these guidelines helps to communicate that you respect the time of the developers managing and developing this open source project. In return, they should reciprocate that respect in addressing your issue, assessing changes, and helping you finalize your pull requests.
 
@@ -43,8 +43,8 @@ We welcome contributions at all levels! Here are different ways you can help:
 ```bash
 # Just fork and edit on GitHub - no setup needed!
 # Or clone locally for larger changes:
-git clone https://github.com/different-ai-studio/teamclaw.git
-cd teamclaw
+git clone https://github.com/different-ai-studio/teamclu.git
+cd teamclu
 ```
 
 ### For Frontend Contributors
@@ -55,8 +55,8 @@ cd teamclaw
 
 ```bash
 # 1. Clone and install
-git clone https://github.com/different-ai-studio/teamclaw.git
-cd teamclaw
+git clone https://github.com/different-ai-studio/teamclu.git
+cd teamclu
 pnpm install
 
 # 2. Start frontend only (no Tauri needed)
@@ -79,14 +79,14 @@ pnpm tauri:dev
 pnpm tauri:dev -- --skip-setup --skip-daemon-onboarding
 ```
 
-After launching, pick a workspace directory in the TeamClaw UI.
+After launching, pick a workspace directory in the TeamClu UI.
 
 ## Repo Layout
 
-TeamClaw is a monorepo. See [CONTEXT-MAP.md](CONTEXT-MAP.md) for how these map to bounded contexts.
+TeamClu is a monorepo. See [CONTEXT-MAP.md](CONTEXT-MAP.md) for how these map to bounded contexts.
 
 ```
-teamclaw/
+teamclu/
 ├── packages/app/        # React 19 frontend (components, stores, hooks, lib)
 ├── apps/
 │   ├── desktop/         # Tauri backend — commands, RAG, STT
@@ -96,7 +96,7 @@ teamclaw/
 │   └── extension/       # Chrome MV3 extension
 ├── crates/              # Shared Rust crates (proto, types, transport, gateway)
 ├── services/
-│   ├── fc/              # TeamClaw Cloud API (Node.js 20)
+│   ├── fc/              # TeamClu Cloud API (Node.js 20)
 │   └── supabase/        # Migrations, seed, database tests
 ├── proto/               # Protobuf wire format
 ├── docs/                # Architecture, ADRs, OpenAPI, plans
@@ -134,7 +134,7 @@ pnpm daemon:test          # Daemon tests
 pnpm ios:test:core        # AMUXCore SwiftPM tests
 ```
 
-Watch mode for unit tests: `pnpm --filter @teamclaw/app test:unit --watch`
+Watch mode for unit tests: `pnpm --filter @teamclu/app test:unit --watch`
 
 Rust checks before opening a PR:
 
@@ -219,7 +219,7 @@ Before submitting your PR, please ensure:
 
 ## Questions?
 
-- Join our [GitHub Discussions](https://github.com/different-ai-studio/teamclaw/discussions)
+- Join our [GitHub Discussions](https://github.com/different-ai-studio/teamclu/discussions)
 - Open an issue for questions
 
 ## License

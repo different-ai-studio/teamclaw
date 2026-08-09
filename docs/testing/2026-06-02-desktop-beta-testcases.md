@@ -30,7 +30,7 @@
 | daemon 行为 | cargo | `apps/daemon/tests/`(`pnpm daemon:test`) |
 | 前端 store/组件单测 | vitest | `packages/app/src/**/__tests__/`(`pnpm test:unit`) |
 
-**自动化前置环境**:桌面 e2e 需先 `pnpm tauri:build:debug`(产出 `.cargo-target/debug/teamclaw`,debug 构建才带 tauri-plugin-mcp);桌面 e2e 默认 stub 后端;**登录自动化(B 套件)需 FC `BACKEND_KIND=postgres` + 测试库**(从 Better-Auth `verification` 表读 OTP);全链路用例需本地起 daemon + FC。
+**自动化前置环境**:桌面 e2e 需先 `pnpm tauri:build:debug`(产出 `.cargo-target/debug/teamclu`,debug 构建才带 tauri-plugin-mcp);桌面 e2e 默认 stub 后端;**登录自动化(B 套件)需 FC `BACKEND_KIND=postgres` + 测试库**(从 Better-Auth `verification` 表读 OTP);全链路用例需本地起 daemon + FC。
 
 ## 套件与数量分配(共 60)
 

@@ -1,7 +1,7 @@
-use crate::proto::teamclaw::IdeaEvent;
+use crate::proto::teamclu::IdeaEvent;
 
 pub(crate) fn format_idea_prompt(session_id: &str, event: &IdeaEvent) -> String {
-    use crate::proto::teamclaw::idea_event::Event;
+    use crate::proto::teamclu::idea_event::Event;
     match &event.event {
         Some(Event::Created(item)) => format!(
             "[Collab session: {}] New idea: {} - {}",
@@ -59,7 +59,7 @@ pub(crate) fn parse_attachment_urls(metadata_json: &str) -> Vec<String> {
         .unwrap_or_default()
 }
 
-pub(crate) fn message_attachment_urls(message: &crate::proto::teamclaw::Message) -> Vec<String> {
+pub(crate) fn message_attachment_urls(message: &crate::proto::teamclu::Message) -> Vec<String> {
     if !message.attachment_urls.is_empty() {
         return message.attachment_urls.clone();
     }
@@ -69,7 +69,7 @@ pub(crate) fn message_attachment_urls(message: &crate::proto::teamclaw::Message)
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::proto::teamclaw;
+    use crate::proto::teamclu;
 
     #[test]
     fn parse_mention_actor_ids_extracts_ids() {
@@ -120,8 +120,8 @@ mod tests {
 
     #[test]
     fn format_idea_prompt_formats_created_event() {
-        let event = teamclaw::IdeaEvent {
-            event: Some(teamclaw::idea_event::Event::Created(teamclaw::Idea {
+        let event = teamclu::IdeaEvent {
+            event: Some(teamclu::idea_event::Event::Created(teamclu::Idea {
                 title: "Draft launch".to_string(),
                 description: "Ship the beta".to_string(),
                 ..Default::default()
@@ -136,8 +136,8 @@ mod tests {
 
     #[test]
     fn format_idea_prompt_formats_updated_event() {
-        let event = teamclaw::IdeaEvent {
-            event: Some(teamclaw::idea_event::Event::Updated(teamclaw::Idea {
+        let event = teamclu::IdeaEvent {
+            event: Some(teamclu::idea_event::Event::Updated(teamclu::Idea {
                 title: "Revised scope".to_string(),
                 ..Default::default()
             })),
@@ -151,8 +151,8 @@ mod tests {
 
     #[test]
     fn format_idea_prompt_formats_claimed_event() {
-        let event = teamclaw::IdeaEvent {
-            event: Some(teamclaw::idea_event::Event::Claimed(teamclaw::Claim {
+        let event = teamclu::IdeaEvent {
+            event: Some(teamclu::idea_event::Event::Claimed(teamclu::Claim {
                 idea_id: "idea-1".to_string(),
                 actor_id: "agent-1".to_string(),
                 ..Default::default()
@@ -167,9 +167,9 @@ mod tests {
 
     #[test]
     fn format_idea_prompt_formats_submitted_event() {
-        let event = teamclaw::IdeaEvent {
-            event: Some(teamclaw::idea_event::Event::Submitted(
-                teamclaw::Submission {
+        let event = teamclu::IdeaEvent {
+            event: Some(teamclu::idea_event::Event::Submitted(
+                teamclu::Submission {
                     idea_id: "idea-1".to_string(),
                     content: "Done".to_string(),
                     ..Default::default()
@@ -186,7 +186,7 @@ mod tests {
     #[test]
     fn format_idea_prompt_returns_empty_for_missing_event() {
         assert_eq!(
-            format_idea_prompt("sess-1", &teamclaw::IdeaEvent { event: None }),
+            format_idea_prompt("sess-1", &teamclu::IdeaEvent { event: None }),
             ""
         );
     }

@@ -1,7 +1,7 @@
 # Desktop Context
 
 Tauri 桌面端（`apps/desktop/` + `packages/app/`）的领域语言。
-仅术语，不含实现细节。Actor/Participant 等跨端实体的权威定义在 `proto` context（`proto/teamclaw.proto`），此处仅注明在 desktop 端的使用约定。
+仅术语，不含实现细节。Actor/Participant 等跨端实体的权威定义在 `proto` context（`proto/teamclu.proto`），此处仅注明在 desktop 端的使用约定。
 
 ## Glossary
 
@@ -33,7 +33,7 @@ desktop 接收后弹 UI，用户的选择回写为 PermissionOutcome。
 
 ### Workspace
 用户在 desktop 端**打开的本地目录**，是 desktop 端最外层的工作单元。
-持有 file watcher、FileNode 树、`.teamclaw/` 元数据目录、可选的 team 共享 git 仓库子目录。
+持有 file watcher、FileNode 树、`.teamclu/` 元数据目录、可选的 team 共享 git 仓库子目录。
 区别于：
 - [Session](#session)（会话，可在 Workspace 内创建多个）
 - Team（团队层身份，跨 Workspace）

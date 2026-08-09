@@ -1,5 +1,5 @@
 //! Shared Agents Skills directory (`~/.agents/skills`) — the single install
-//! target for TeamClaw skill packages, readable by Pi natively and wired into
+//! target for TeamClu skill packages, readable by Pi natively and wired into
 //! OpenCode / Claude Code via each runtime's `skills.paths` config.
 
 use serde_json::{json, Value};

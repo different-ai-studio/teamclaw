@@ -1,7 +1,7 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import { renderHook, waitFor } from '@testing-library/react'
 // Derived from `buildConfig.app.name`, so it is brand- and config-dependent —
-// a local run bakes in build.config.dev.json and gets `~/TeamClaw Dev`. These
+// a local run bakes in build.config.dev.json and gets `~/TeamClu Dev`. These
 // tests are about "falls back to the default workspace", not about which brand
 // is being built, so they assert the constant rather than a literal.
 import { DEFAULT_WORKSPACE_PATH } from '@/lib/build-config'
@@ -91,7 +91,7 @@ vi.mock('@/stores/workspace', () => ({
   // Mirrors the real export; the restore path reads/clears localStorage
   // through it, and omitting it made every restore throw and silently fall
   // back to the default workspace.
-  WORKSPACE_STORAGE_KEY: 'teamclaw-workspace-path',
+  WORKSPACE_STORAGE_KEY: 'teamclu-workspace-path',
 }))
 
 const teamModeState = {
@@ -242,13 +242,13 @@ describe('useWorkspaceInit', () => {
   })
 
   it('restores the last workspace when one is saved', async () => {
-    localStorage.setItem('teamclaw-workspace-path', '/tmp/teamclaw-last')
+    localStorage.setItem('teamclu-workspace-path', '/tmp/teamclu-last')
 
     const { useWorkspaceInit } = await import('@/hooks/useAppInit')
     const { result } = renderHook(() => useWorkspaceInit())
 
     await waitFor(() => {
-      expect(mockSetWorkspace).toHaveBeenCalledWith('/tmp/teamclaw-last')
+      expect(mockSetWorkspace).toHaveBeenCalledWith('/tmp/teamclu-last')
       expect(result.current.initialWorkspaceResolved).toBe(true)
     })
   })
@@ -256,13 +256,13 @@ describe('useWorkspaceInit', () => {
   it('clears a saved workspace when it no longer exists in Tauri and falls back to default', async () => {
     mockIsTauri.mockReturnValue(true)
     mockExists.mockResolvedValue(false)
-    localStorage.setItem('teamclaw-workspace-path', '/tmp/missing-workspace')
+    localStorage.setItem('teamclu-workspace-path', '/tmp/missing-workspace')
 
     const { useWorkspaceInit } = await import('@/hooks/useAppInit')
     const { result } = renderHook(() => useWorkspaceInit())
 
     await waitFor(() => {
-      expect(localStorage.getItem('teamclaw-workspace-path')).toBeNull()
+      expect(localStorage.getItem('teamclu-workspace-path')).toBeNull()
       expect(result.current.initialWorkspaceResolved).toBe(true)
     })
     expect(mockSetWorkspace).toHaveBeenCalledWith(DEFAULT_WORKSPACE_PATH)

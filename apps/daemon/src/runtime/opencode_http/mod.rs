@@ -496,7 +496,7 @@ impl OpencodeHost {
     ) {
         self.apply_binary_hint(launch_configs);
         let workspace = canonical_dir(worktree.unwrap_or("<prewarm>"));
-        let incoming = teamclaw_runtime_env::resolved_env::fingerprint_bindings(&extra_env);
+        let incoming = teamclu_runtime_env::resolved_env::fingerprint_bindings(&extra_env);
         let _env_guard = self.shared.env_switch_lock.lock().await;
         self.shared
             .serve
@@ -584,7 +584,7 @@ impl OpencodeHost {
             .await
     }
 
-    /// Bind a TeamClaw runtime to an opencode session (create or resume).
+    /// Bind a TeamClu runtime to an opencode session (create or resume).
     #[allow(clippy::too_many_arguments)]
     pub async fn attach_session(
         &mut self,
@@ -610,7 +610,7 @@ impl OpencodeHost {
         }
         self.shared.serve.set_binary_hint(&launch.binary);
         let workspace = canonical_dir(&worktree);
-        let incoming = teamclaw_runtime_env::resolved_env::fingerprint_bindings(&extra_env);
+        let incoming = teamclu_runtime_env::resolved_env::fingerprint_bindings(&extra_env);
         let _env_guard = self.shared.env_switch_lock.lock().await;
         self.shared
             .serve

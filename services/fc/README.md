@@ -1,6 +1,6 @@
-# teamclaw-fc
+# teamclu-fc
 
-The TeamClaw Cloud API (Hono). It can run on Alibaba Function Compute via
+The TeamClu Cloud API (Hono). It can run on Alibaba Function Compute via
 `s.yaml`, and also runs as a standalone Docker container for self-hosting.
 
 ## Run in Docker (self-host)

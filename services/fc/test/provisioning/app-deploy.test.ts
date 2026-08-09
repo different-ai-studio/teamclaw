@@ -33,7 +33,7 @@ test("finalizeDeploy provisions the schema, then sets code + env together", asyn
         ensureFunction: async (n: string, a: any) => { calls.push(["ensureFunction", n, a]); },
         ensureHttpTrigger: async (n: string) => { calls.push(["trigger", n]); return "https://fn.example.fcapp.run"; },
       },
-      appsBaseUrl: "postgres://host:5432/teamclaw_apps",
+      appsBaseUrl: "postgres://host:5432/teamclu_apps",
       genPassword: () => "pw-fixed",
     },
     {

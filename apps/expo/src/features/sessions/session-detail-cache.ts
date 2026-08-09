@@ -2,8 +2,8 @@ import AsyncStorage from "@react-native-async-storage/async-storage";
 
 import type { SessionMessage, SessionSummary } from "./session-types";
 
-const SESSION_PREFIX = "teamclaw.sessionDetail.v1.session.";
-const MESSAGES_PREFIX = "teamclaw.sessionDetail.v1.messages.";
+const SESSION_PREFIX = "teamclu.sessionDetail.v1.session.";
+const MESSAGES_PREFIX = "teamclu.sessionDetail.v1.messages.";
 
 function sessionKey(sessionId: string): string {
   return `${SESSION_PREFIX}${sessionId}`;

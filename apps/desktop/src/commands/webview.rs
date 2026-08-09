@@ -32,7 +32,7 @@ const EXTERNAL_WEBVIEW_INIT_SCRIPT: &str = r#"(function(){
       if (!window.Notification) return;
 
       function wrapNotification(candidate) {
-        if (typeof candidate !== 'function' || candidate.__TEAMCLAW_SAFE_NOTIFICATION__) {
+        if (typeof candidate !== 'function' || candidate.__TEAMCLU_SAFE_NOTIFICATION__) {
           return candidate;
         }
 
@@ -70,7 +70,7 @@ const EXTERNAL_WEBVIEW_INIT_SCRIPT: &str = r#"(function(){
             try { candidate.permission = next; } catch (_) {}
           }
         });
-        Object.defineProperty(SafeNotification, '__TEAMCLAW_SAFE_NOTIFICATION__', {
+        Object.defineProperty(SafeNotification, '__TEAMCLU_SAFE_NOTIFICATION__', {
           value: true,
           configurable: false
         });
@@ -160,18 +160,18 @@ impl Default for WebviewManager {
     }
 }
 
-fn build_teamclaw_identity_script(device_no: &str, device_name: &str) -> String {
+fn build_teamclu_identity_script(device_no: &str, device_name: &str) -> String {
     let escaped_no = serde_json::to_string(device_no).unwrap_or_else(|_| "\"\"".to_string());
     let escaped_name = serde_json::to_string(device_name).unwrap_or_else(|_| "\"\"".to_string());
 
     format!(
         r#"(function(){{
   // deviceToken (master-data-api JWT) was seeded by the removed random-hex
-  // device identity; the getter is kept on window.teamclaw but is always null.
+  // device identity; the getter is kept on window.teamclu but is always null.
   var __next = {{ deviceNo: {no}, deviceName: {name}, deviceToken: null }};
-  if (typeof window.__TEAMCLAW_SET_IDENTITY__ !== 'function') {{
+  if (typeof window.__TEAMCLU_SET_IDENTITY__ !== 'function') {{
     var __state = {{ deviceNo: '', deviceName: '', deviceToken: null }};
-    Object.defineProperty(window, '__TEAMCLAW_SET_IDENTITY__', {{
+    Object.defineProperty(window, '__TEAMCLU_SET_IDENTITY__', {{
       value: function(next) {{
         __state.deviceNo = next && next.deviceNo ? next.deviceNo : '';
         __state.deviceName = next && next.deviceName ? next.deviceName : '';
@@ -182,7 +182,7 @@ fn build_teamclaw_identity_script(device_no: &str, device_name: &str) -> String 
       configurable: true
     }});
     // Capture native Storage methods before any page script can monkey-patch them.
-    // Pages that detect window.teamclaw sometimes wrap localStorage in a way that
+    // Pages that detect window.teamclu sometimes wrap localStorage in a way that
     // breaks keys containing hyphens (e.g. "active-eruda"). Binding to
     // Storage.prototype here — at document start — preserves the original behaviour.
     var __nativeStorage;
@@ -200,7 +200,7 @@ fn build_teamclaw_identity_script(device_no: &str, device_name: &str) -> String 
     }} catch(_) {{
       __nativeStorage = null;
     }}
-    Object.defineProperty(window, 'teamclaw', {{
+    Object.defineProperty(window, 'teamclu', {{
       value: Object.freeze({{
         get deviceNo() {{ return __state.deviceNo; }},
         get deviceName() {{ return __state.deviceName; }},
@@ -212,15 +212,15 @@ fn build_teamclaw_identity_script(device_no: &str, device_name: &str) -> String 
       configurable: true
     }});
   }}
-  window.__TEAMCLAW_SET_IDENTITY__(__next);
+  window.__TEAMCLU_SET_IDENTITY__(__next);
 }})();"#,
         no = escaped_no,
         name = escaped_name,
     )
 }
 
-/// Hosts of the partner admin SPA that share TeamClaw's GoTrue. Only these
-/// hosts receive an injected TeamClaw session — never inject tokens into
+/// Hosts of the partner admin SPA that share TeamClu's GoTrue. Only these
+/// hosts receive an injected TeamClu session — never inject tokens into
 /// arbitrary third-party webviews, that would leak the bearer token to any
 /// site.
 ///
@@ -336,7 +336,7 @@ fn build_supabase_session_script(storage_key: &str, session_json: &str) -> Strin
 /// the page's localStorage exactly once per webview session, forcing a fresh
 /// authenticated login. Used by Web SSO: the webview shares a persistent data
 /// store, so a previous admin-console session lingers in localStorage — and its
-/// refresh token was already rotated/consumed when TeamClaw adopted it, so reusing it
+/// refresh token was already rotated/consumed when TeamClu adopted it, so reusing it
 /// fails with "refresh token not found". The sessionStorage flag ensures we only
 /// clear on the initial load, never wiping the session the user just signed into
 /// after a post-login redirect.
@@ -345,8 +345,8 @@ fn build_clear_session_script(storage_key: &str) -> String {
     format!(
         r#"(function(){{
   try {{
-    if (!sessionStorage.getItem('__teamclaw_websso_cleared')) {{
-      sessionStorage.setItem('__teamclaw_websso_cleared', '1');
+    if (!sessionStorage.getItem('__teamclu_websso_cleared')) {{
+      sessionStorage.setItem('__teamclu_websso_cleared', '1');
       localStorage.removeItem({key});
     }}
   }} catch (_e) {{}}
@@ -439,10 +439,10 @@ pub fn init_shared_config(manager: &mut WebviewManager) {
 
         // Keep Safari Web Inspector available in release builds too.
         // If this causes layout issues in specific scenarios, users can disable
-        // it via TEAMCLAW_DISABLE_WEBVIEW_DEVTOOLS=1 when launching the app.
+        // it via TEAMCLU_DISABLE_WEBVIEW_DEVTOOLS=1 when launching the app.
         let prefs = config.preferences();
         let prefs_ptr: *mut AnyObject = objc2::rc::Retained::as_ptr(&prefs) as *mut AnyObject;
-        let disable_devtools = std::env::var("TEAMCLAW_DISABLE_WEBVIEW_DEVTOOLS")
+        let disable_devtools = std::env::var("TEAMCLU_DISABLE_WEBVIEW_DEVTOOLS")
             .map(|v| matches!(v.as_str(), "1" | "true" | "TRUE" | "yes" | "YES"))
             .unwrap_or(false);
         let ns_bool: *mut AnyObject =
@@ -540,7 +540,7 @@ pub async fn webview_eval_js(app: tauri::AppHandle, code: String) -> Result<Stri
 
 /// Create a native webview as a child of the calling window at the given position.
 ///
-/// When `device_no` and `device_name` are provided, a `window.teamclaw` global
+/// When `device_no` and `device_name` are provided, a `window.teamclu` global
 /// is injected into the webview before any page scripts run, exposing identity
 /// information for the current team member.
 #[tauri::command]
@@ -606,9 +606,9 @@ pub async fn webview_create(
         height
     );
 
-    // Partner admin console auto-login: seed the current TeamClaw session into
+    // Partner admin console auto-login: seed the current TeamClu session into
     // the page's supabase-js localStorage key, but ONLY for allowlisted hosts
-    // that share TeamClaw's GoTrue. Computed before parsed_url is moved into
+    // that share TeamClu's GoTrue. Computed before parsed_url is moved into
     // the builder.
     let auth_inject_script = match (auth_storage_key.as_deref(), auth_session_json.as_deref()) {
         (Some(key), Some(session))
@@ -686,7 +686,7 @@ pub async fn webview_create(
         .map(|dno| (dno.to_string(), device_name.clone().unwrap_or_default()));
     let initial_identity_script = identity
         .as_ref()
-        .map(|(dno, dname)| build_teamclaw_identity_script(dno, dname));
+        .map(|(dno, dname)| build_teamclu_identity_script(dno, dname));
 
     // Page load progress via on_page_load callback (no JS injection needed —
     // child webviews don't have __TAURI_INTERNALS__)
@@ -710,7 +710,7 @@ pub async fn webview_create(
             );
 
             if let Some((device_no, device_name)) = &identity {
-                let script = build_teamclaw_identity_script(device_no, device_name);
+                let script = build_teamclu_identity_script(device_no, device_name);
                 match payload.event() {
                     tauri::webview::PageLoadEvent::Started => {
                         add_document_start_script(&webview, &script);
@@ -743,14 +743,14 @@ pub async fn webview_create(
     // Right-click: rely on the native WKWebView / WebView2 context menu.
     // No custom init script needed — native menus provide Copy/Paste/Look Up/etc.
 
-    // Inject window.teamclaw before page scripts run. The object is stable but
+    // Inject window.teamclu before page scripts run. The object is stable but
     // its getters read refreshed values after OAuth redirects and page reloads.
     if let Some(script) = initial_identity_script {
         webview_builder = webview_builder.initialization_script(&script);
     }
 
     // Seed the supabase session before the admin SPA's bundle runs, so
-    // supabase-js picks up the logged-in TeamClaw session on init.
+    // supabase-js picks up the logged-in TeamClu session on init.
     if let Some(ref script) = auth_inject_script {
         webview_builder = webview_builder.initialization_script(script);
     }
@@ -1185,10 +1185,10 @@ mod tests {
     use super::*;
 
     #[test]
-    fn teamclaw_identity_script_is_refreshable() {
-        let script = build_teamclaw_identity_script("device-1", "Alice");
+    fn teamclu_identity_script_is_refreshable() {
+        let script = build_teamclu_identity_script("device-1", "Alice");
 
-        assert!(script.contains("__TEAMCLAW_SET_IDENTITY__"));
+        assert!(script.contains("__TEAMCLU_SET_IDENTITY__"));
         assert!(script.contains("get deviceToken()"));
         assert!(script.contains("configurable: true"));
         assert!(script.contains("\"device-1\""));
@@ -1198,8 +1198,8 @@ mod tests {
     }
 
     #[test]
-    fn teamclaw_identity_script_escapes_values() {
-        let script = build_teamclaw_identity_script("device\"quoted", "name\nline");
+    fn teamclu_identity_script_escapes_values() {
+        let script = build_teamclu_identity_script("device\"quoted", "name\nline");
 
         assert!(script.contains("device\\\"quoted"));
         assert!(script.contains("name\\nline"));
@@ -1215,7 +1215,7 @@ mod tests {
 
     #[test]
     fn external_webview_init_script_wraps_notification_permission_setter() {
-        assert!(EXTERNAL_WEBVIEW_INIT_SCRIPT.contains("__TEAMCLAW_SAFE_NOTIFICATION__"));
+        assert!(EXTERNAL_WEBVIEW_INIT_SCRIPT.contains("__TEAMCLU_SAFE_NOTIFICATION__"));
         assert!(EXTERNAL_WEBVIEW_INIT_SCRIPT.contains("function SafeNotification"));
         assert!(EXTERNAL_WEBVIEW_INIT_SCRIPT.contains("set: function(next)"));
     }
@@ -1237,7 +1237,7 @@ mod tests {
         let js = build_clear_session_script("sb-test-supa-auth-token");
         // Guarded by a one-shot sessionStorage flag so the post-login session
         // isn't wiped on a redirect.
-        assert!(js.contains("__teamclaw_websso_cleared"));
+        assert!(js.contains("__teamclu_websso_cleared"));
         assert!(js.contains("sessionStorage.getItem"));
         assert!(js.contains("localStorage.removeItem(\"sb-test-supa-auth-token\")"));
     }
@@ -1257,12 +1257,12 @@ mod tests {
     #[test]
     fn ensure_http_host_resolvable_rejects_unresolvable_host() {
         // `.invalid` is reserved by RFC 2606 and must not resolve on the public DNS.
-        let url: tauri::Url = "https://no-such-host-teamclaw-617.invalid/path"
+        let url: tauri::Url = "https://no-such-host-teamclu-617.invalid/path"
             .parse()
             .expect("url");
         let err = ensure_http_host_resolvable(&url).expect_err("unresolvable host");
         assert!(
-            err.contains("no-such-host-teamclaw-617.invalid"),
+            err.contains("no-such-host-teamclu-617.invalid"),
             "error should name the host: {err}"
         );
     }

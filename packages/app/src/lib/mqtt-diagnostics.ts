@@ -37,8 +37,8 @@ function readJsonLocalStorage(key: string): unknown {
 
 function localStateSnapshot(): DiagData {
   if (typeof window === 'undefined') return {}
-  const auth = (readJsonLocalStorage('teamclaw.session.v1') ??
-    readJsonLocalStorage('teamclaw.auth.session.v1')) as {
+  const auth = (readJsonLocalStorage('teamclu.session.v1') ??
+    readJsonLocalStorage('teamclu.auth.session.v1')) as {
     access_token?: string | null
     refresh_token?: string | null
     expires_at?: number | null
@@ -47,8 +47,8 @@ function localStateSnapshot(): DiagData {
   return {
     location: window.location.href,
     visibilityState: document.visibilityState,
-    serverConfig: redactValue('serverConfig', readJsonLocalStorage('teamclaw.serverConfig')),
-    currentTeam: redactValue('currentTeam', readJsonLocalStorage('teamclaw:current-team')),
+    serverConfig: redactValue('serverConfig', readJsonLocalStorage('teamclu.serverConfig')),
+    currentTeam: redactValue('currentTeam', readJsonLocalStorage('teamclu:current-team')),
     authSession: auth
       ? {
           user: auth.user,
@@ -83,12 +83,12 @@ async function copyMqttDiag(extra?: DiagData): Promise<string> {
 
 declare global {
   interface Window {
-    __teamclawMqttDiag?: () => DiagData
-    __teamclawCopyMqttDiag?: () => Promise<string>
+    __teamcluMqttDiag?: () => DiagData
+    __teamcluCopyMqttDiag?: () => Promise<string>
   }
 }
 
 if (typeof window !== 'undefined') {
-  window.__teamclawMqttDiag = () => getMqttDiagSnapshot()
-  window.__teamclawCopyMqttDiag = () => copyMqttDiag()
+  window.__teamcluMqttDiag = () => getMqttDiagSnapshot()
+  window.__teamcluCopyMqttDiag = () => copyMqttDiag()
 }

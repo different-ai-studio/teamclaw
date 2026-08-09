@@ -6,14 +6,14 @@ import {
   SessionMessageEnvelopeSchema,
   type Message,
   type LiveEventEnvelope,
-} from "@teamclaw/app/proto/teamclaw_pb";
+} from "@teamclu/app/proto/teamclu_pb";
 import {
   AgentStatus,
   type AcpEvent,
   type AcpPlanEntry,
-} from "@teamclaw/app/proto/amux_pb";
+} from "@teamclu/app/proto/amux_pb";
 
-import { decodeLiveEvent } from "../../lib/teamclaw/live-events";
+import { decodeLiveEvent } from "../../lib/teamclu/live-events";
 import type { TeamMqttClient } from "../../lib/mqtt/team-mqtt";
 import { uuidV4 } from "../../lib/uuid";
 import type { Actor } from "../actors/actor-types";

@@ -70,7 +70,7 @@ impl RuntimeManager {
                 refresh::INTERNAL_WRITE_SUPPRESS,
             );
         }
-        if let Err(err) = teamclaw_runtime_env::mcp_resolve::restore_config(
+        if let Err(err) = teamclu_runtime_env::mcp_resolve::restore_config(
             Path::new(worktree),
             &Some(snapshot.original),
             &snapshot.secrets,

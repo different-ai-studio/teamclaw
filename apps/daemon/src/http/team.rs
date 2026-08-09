@@ -1,7 +1,7 @@
 //! `POST /v1/team/link` / `POST /v1/team/unlink` — materialize or tear down
-//! the daemon's team global dir and a workspace `teamclaw-team` symlink.
+//! the daemon's team global dir and a workspace `teamclu-team` symlink.
 //!
-//! The team-share global copy (`~/.amuxd/teams/<team_id>/teamclaw-team`) and
+//! The team-share global copy (`~/.amuxd/teams/<team_id>/teamclu-team`) and
 //! the per-workspace symlink are otherwise only created by the daemon's startup
 //! sweep or when a workspace is registered for a runtime (AddWorkspace). When
 //! the app enables team-share (OSS / managed_git / custom_git) the user expects
@@ -36,7 +36,7 @@ pub struct LinkTeamWorkspaceResponse {
     /// Resulting link state: `symlink` | `junction` | `fallback` |
     /// `legacy_retained` (mirrors `workspace_link::LinkStatus`).
     pub status: &'static str,
-    /// `~/.amuxd/teams/<team_id>/teamclaw-team`.
+    /// `~/.amuxd/teams/<team_id>/teamclu-team`.
     pub global_dir: String,
 }
 

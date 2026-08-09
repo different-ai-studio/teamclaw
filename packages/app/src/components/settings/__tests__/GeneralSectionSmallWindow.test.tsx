@@ -28,11 +28,11 @@ vi.mock('i18next', () => ({
 }))
 
 vi.mock('@/lib/build-config', () => ({
-  appShortName: 'teamclaw',
-  appStoragePrefix: 'teamclaw',
-  TEAMCLAW_DIR: '.teamclaw',
+  appShortName: 'teamclu',
+  appStoragePrefix: 'teamclu',
+  TEAMCLU_DIR: '.teamclu',
   buildConfig: {
-    app: { shortName: 'teamclaw' },
+    app: { shortName: 'teamclu' },
     defaults: { theme: 'system' },
     team: { llm: { models: [] } },
   },

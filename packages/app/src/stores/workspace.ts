@@ -605,7 +605,7 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => ({
       const visibleNodes = [...nodes];
 
       visibleNodes.sort((a, b) => {
-        // Always put teamclaw-team first
+        // Always put teamclu-team first
         if (a.name === TEAM_REPO_DIR && b.name !== TEAM_REPO_DIR) return -1;
         if (b.name === TEAM_REPO_DIR && a.name !== TEAM_REPO_DIR) return 1;
         

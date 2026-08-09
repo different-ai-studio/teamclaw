@@ -191,7 +191,7 @@ export function PromptInput({
     return formRef.current?.closest('[data-testid="chat-input-area"]') ?? formRef.current
   }, [])
 
-  // Listen for teamclaw:filedrop custom events dispatched when Tauri intercepts
+  // Listen for teamclu:filedrop custom events dispatched when Tauri intercepts
   // an internal file-tree drag that lands outside the tree (e.g. on this input).
   React.useEffect(() => {
     if (!onFilePathsDrop) return
@@ -200,8 +200,8 @@ export function PromptInput({
       if (!isPointOverElement(position, dropHitTarget())) return
       onFilePathsDrop([path])
     }
-    window.addEventListener('teamclaw:filedrop', handler)
-    return () => window.removeEventListener('teamclaw:filedrop', handler)
+    window.addEventListener('teamclu:filedrop', handler)
+    return () => window.removeEventListener('teamclu:filedrop', handler)
   }, [onFilePathsDrop, dropHitTarget])
 
   // Tauri with dragDropEnabled steals HTML5 dataTransfer.files. Attach OS drops

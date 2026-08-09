@@ -1,5 +1,5 @@
 import { create as createProto } from "@bufbuild/protobuf";
-import { ActorSchema, ActorType, MessageKind, MessageSchema, type Message } from "@/lib/proto/teamclaw_pb";
+import { ActorSchema, ActorType, MessageKind, MessageSchema, type Message } from "@/lib/proto/teamclu_pb";
 import {
   setLocalCacheCurrentTeam,
   upsertActorsBatch,
@@ -202,7 +202,7 @@ type V2E2EControl = {
 
 declare global {
   interface Window {
-    __TEAMCLAW_V2_E2E__?: V2E2EControl;
+    __TEAMCLU_V2_E2E__?: V2E2EControl;
   }
 }
 
@@ -856,5 +856,5 @@ const control: V2E2EControl = {
 export function installV2E2EControl(): void {
   if (!E2E_BUILD || typeof window === "undefined") return;
   markV2E2EControlInstalled();
-  window.__TEAMCLAW_V2_E2E__ = control;
+  window.__TEAMCLU_V2_E2E__ = control;
 }

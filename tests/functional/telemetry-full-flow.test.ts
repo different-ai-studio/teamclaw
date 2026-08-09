@@ -9,7 +9,7 @@
 
 import { describe, it, expect, beforeAll, afterAll } from 'vitest';
 import {
-  launchTeamClawApp,
+  launchTeamCluApp,
   stopApp,
   takeScreenshot,
   sendKeys,
@@ -24,7 +24,7 @@ describe('Telemetry Full Flow Regression', () => {
 
   beforeAll(async () => {
     try {
-      await launchTeamClawApp();
+      await launchTeamCluApp();
       console.log('Waiting for app to initialise …');
       await sleep(8000);
       await focusWindow();

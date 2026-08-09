@@ -24,11 +24,11 @@ pub fn seed_app_repo(workdir: &Path, vars: &TemplateVars<'_>) -> anyhow::Result<
     if !workdir.join(".git").exists() {
         run_git(&["init", "--initial-branch=main"], workdir)?;
         run_git(
-            &["-C", &wd, "config", "user.email", "daemon@teamclaw"],
+            &["-C", &wd, "config", "user.email", "daemon@teamclu"],
             workdir,
         )?;
         run_git(
-            &["-C", &wd, "config", "user.name", "teamclaw-daemon"],
+            &["-C", &wd, "config", "user.name", "teamclu-daemon"],
             workdir,
         )?;
     }
@@ -41,9 +41,9 @@ pub fn seed_app_repo(workdir: &Path, vars: &TemplateVars<'_>) -> anyhow::Result<
                 "-C",
                 &wd,
                 "-c",
-                "user.email=daemon@teamclaw",
+                "user.email=daemon@teamclu",
                 "-c",
-                "user.name=teamclaw-daemon",
+                "user.name=teamclu-daemon",
                 "commit",
                 "-m",
                 "chore: scaffold app template",

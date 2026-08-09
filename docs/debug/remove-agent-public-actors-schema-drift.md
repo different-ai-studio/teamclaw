@@ -18,7 +18,7 @@ Remove failed: relation "public.actors" does not exist
 
 ## 复现路径
 
-1. 登录 TeamClaw Desktop。
+1. 登录 TeamClu Desktop。
 2. 切换到一个新的 team。
 3. 让本机 daemon 重新绑定或进入新 team，使左下角显示当前本机 agent。
 4. 观察左侧 `RECENTS`。

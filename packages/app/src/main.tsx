@@ -23,7 +23,7 @@ import { removeStartupSkeleton } from './lib/utils'
 
 markStartup('main:start')
 
-// Sync the Supabase JWT into teamclaw.json so FC-backed commands (team share,
+// Sync the Supabase JWT into teamclu.json so FC-backed commands (team share,
 // LiteLLM, OSS sync) can authenticate. Must run at startup, before any of those
 // features open. No-op outside Tauri.
 initJwtBridge()
@@ -43,7 +43,7 @@ void ensureBundledAmuxdCurrent()
 // before it settles are queued rather than dropped.
 void initSentry({
   dsn: 'https://87ad99c36806946fe743be71ed87fffe@o60909.ingest.us.sentry.io/4511110370295808',
-  release: `teamclaw-web@${import.meta.env.PACKAGE_VERSION ?? '0.0.0'}`,
+  release: `teamclu-web@${import.meta.env.PACKAGE_VERSION ?? '0.0.0'}`,
   environment: import.meta.env.DEV ? 'development' : 'production',
   sendDefaultPii: true,
 })
@@ -126,7 +126,7 @@ const panelMode =
 
 createRoot(document.getElementById('root')!).render(
   <StrictMode>
-    <ErrorBoundary scope="TeamClaw">
+    <ErrorBoundary scope="TeamClu">
       {panelMode === 'local-agent' ? (
         <AuthGate>
           <LocalAgentPanelApp />

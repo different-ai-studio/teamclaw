@@ -1,9 +1,9 @@
 edition: 3.0.0
-name: teamclaw-fc
+name: teamclu-fc
 access: default
 
 resources:
-  teamclaw-sync:
+  teamclu-sync:
     component: fc3
     props:
       # Platform choices — overridable, but the current values are the defaults
@@ -11,7 +11,7 @@ resources:
       region: ${env('FC_REGION', 'cn-shenzhen')}
       # Defaults to the legacy shared function. Set FC_FUNCTION_NAME to target
       # another Function Compute function from this same s.yaml + services/fc code.
-      functionName: ${env('FC_FUNCTION_NAME', 'teamclaw-sync')}
+      functionName: ${env('FC_FUNCTION_NAME', 'teamclu-sync')}
       runtime: ${env('FC_RUNTIME', 'nodejs20')}
       handler: dist/index.handler
       timeout: 30
@@ -55,8 +55,8 @@ resources:
         LITELLM_DB_NAME: ${env('LITELLM_DB_NAME', 'litellm')}
         CODEUP_ORG_ID: ${env('CODEUP_ORG_ID', '')}
         CODEUP_PAT: ${env('CODEUP_PAT', '')}
-        CODEUP_BOT_USERNAME: ${env('CODEUP_BOT_USERNAME', 'teamclaw')}
-        # Admin connection to the shared per-app Postgres DB (teamclaw_apps),
+        CODEUP_BOT_USERNAME: ${env('CODEUP_BOT_USERNAME', 'teamclu')}
+        # Admin connection to the shared per-app Postgres DB (teamclu_apps),
         # same RDS instance as the control plane but a DIFFERENT database. Used
         # only by apps provisioning (CREATE SCHEMA / CREATE ROLE). Never sent
         # to clients.
@@ -113,7 +113,7 @@ resources:
         # the whole features block there.
         #
         # Deliberately NO default profile here, unlike compose. This s.yaml
-        # deploys more than one Cloud API (belayo at teamclaw-api.ucar.cc, and
+        # deploys more than one Cloud API (belayo at teamclu-api.ucar.cc, and
         # the copilot361 backend), so any default is the wrong brand's flags for
         # somebody: a copilot361 deploy that inherited `belayo` would switch on
         # phone login for users whose build never offered it. Unset means "no
@@ -163,7 +163,7 @@ resources:
       triggers:
         # Trigger name is parameterized so we can adopt a pre-existing function's
         # http trigger (FC console default is `defaultTrigger`). Defaults to
-        # http-trigger for the legacy teamclaw-sync function.
+        # http-trigger for the legacy teamclu-sync function.
         - triggerName: ${env('FC_HTTP_TRIGGER_NAME', 'http-trigger')}
           triggerType: http
           triggerConfig:

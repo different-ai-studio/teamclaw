@@ -185,7 +185,7 @@ fn sock_roundtrip_error(err: std::io::Error) -> String {
         || err.kind() == std::io::ErrorKind::TimedOut
         || err.raw_os_error() == Some(35)
     {
-        return "daemon response timeout: no capable client replied (is the TeamClaw browser extension side panel open and connected?)".to_string();
+        return "daemon response timeout: no capable client replied (is the TeamClu browser extension side panel open and connected?)".to_string();
     }
     format!("amuxd.sock roundtrip failed: {err}")
 }

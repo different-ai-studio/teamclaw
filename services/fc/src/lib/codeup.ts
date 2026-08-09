@@ -8,7 +8,7 @@
 
 export const CODEUP_ORG_ID = () => process.env.CODEUP_ORG_ID || "";
 export const CODEUP_PAT = () => process.env.CODEUP_PAT || "";
-export const CODEUP_BOT_USERNAME = () => process.env.CODEUP_BOT_USERNAME || "teamclaw";
+export const CODEUP_BOT_USERNAME = () => process.env.CODEUP_BOT_USERNAME || "teamclu";
 export const CODEUP_API_BASE = "https://openapi-rdc.aliyuncs.com";
 
 /**

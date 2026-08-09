@@ -10,13 +10,13 @@ export type OAuthProvider = "apple" | "google";
  * `createURL` varies by runtime (`exp://…/--/…` under Expo Go) and has shipped
  * both `scheme://path` and `scheme:///path` forms, neither of which the allow
  * list would match. The app bundles a custom native module
- * (`plugins/withTeamClawMqtt`) so it never runs under Expo Go anyway — the
- * scheme is always `teamclaw`.
+ * (`plugins/withTeamCluMqtt`) so it never runs under Expo Go anyway — the
+ * scheme is always `teamclu`.
  *
  * Keep in sync with iOS `CloudAPIAppOnboardingStore.oauthAuthorizeURL`, which
  * uses this same string.
  */
-export const OAUTH_REDIRECT_URL = "teamclaw://auth-callback";
+export const OAUTH_REDIRECT_URL = "teamclu://auth-callback";
 
 /**
  * True for the URL GoTrue redirects to once a provider has signed the user in.
@@ -32,7 +32,7 @@ export const OAUTH_REDIRECT_URL = "teamclaw://auth-callback";
 export function isOAuthCallbackUrl(url: string | null | undefined): boolean {
   if (!url) return false;
   const withoutParams = url.split(/[?#]/)[0] ?? "";
-  return /^teamclaw:\/{2,3}auth-callback\/?$/i.test(withoutParams);
+  return /^teamclu:\/{2,3}auth-callback\/?$/i.test(withoutParams);
 }
 
 export type OAuthCallback =

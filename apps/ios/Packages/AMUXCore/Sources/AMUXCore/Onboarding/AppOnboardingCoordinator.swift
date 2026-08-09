@@ -56,7 +56,7 @@ public struct CreatedTeam: Equatable, Sendable {
 
 /// A team the user belongs to, with its org — used by the org→team login picker
 /// (GET /v1/teams?scope=all). See
-/// docs/specs/2026-06-17-teamclaw-phone-login-and-tenancy.md §6.
+/// docs/specs/2026-06-17-teamclu-phone-login-and-tenancy.md §6.
 public struct MembershipTeam: Equatable, Sendable, Identifiable {
     public let id: String
     public let name: String
@@ -98,7 +98,7 @@ public enum AppOnboardingRoute: Equatable, Sendable {
     case createTeam
     /// The user belongs to >1 team (across orgs) and hasn't a remembered choice
     /// — show the org→team picker (`teamChoices`). See
-    /// docs/specs/2026-06-17-teamclaw-phone-login-and-tenancy.md §6.
+    /// docs/specs/2026-06-17-teamclu-phone-login-and-tenancy.md §6.
     case selectTeam
     case ready
     case failed
@@ -263,7 +263,7 @@ public final class AppOnboardingCoordinator {
     /// back on the same team across launches instead of an arbitrary
     /// `teams.first`. Only a hint — bootstrap validates it against the user's
     /// current memberships before honoring it.
-    private static let activeTeamIDKey = "teamclaw.activeTeamID"
+    private static let activeTeamIDKey = "teamclu.activeTeamID"
 
     private var persistedActiveTeamID: String? {
         defaults.string(forKey: Self.activeTeamIDKey)

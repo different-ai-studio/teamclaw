@@ -96,7 +96,7 @@ final class ActorStoreTests: XCTestCase {
         let repo = MockActorRepository()
         await repo.configure(inviteCreated: InviteCreated(token: "tok",
                                                           expiresAt: Date().addingTimeInterval(3600),
-                                                          deeplink: "teamclaw://invite?token=tok"))
+                                                          deeplink: "teamclu://invite?token=tok"))
         let store = ActorStore(teamID: "t-1", repository: repo, modelContext: ctx)
         let r = await store.createInvite(.init(kind: .member, displayName: "Bob", teamRole: .admin))
         XCTAssertEqual(r?.token, "tok")
@@ -109,7 +109,7 @@ final class ActorStoreTests: XCTestCase {
         let ctx = try makeContext()
         let repo = MockActorRepository()
         await repo.configure(inviteCreated: InviteCreated(token: "tok-a", expiresAt: Date(),
-                                                          deeplink: "teamclaw://invite?token=tok-a"))
+                                                          deeplink: "teamclu://invite?token=tok-a"))
         let store = ActorStore(teamID: "t-1", repository: repo, modelContext: ctx)
         _ = await store.createInvite(.init(kind: .agent, displayName: "M1 Studio",
                                            agentKind: "daemon"))

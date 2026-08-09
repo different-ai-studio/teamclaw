@@ -2,18 +2,18 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** 把定制 opencode fork 镜像到阿里云 OSS 方便国内下载，并让 onboarding 识别到的是带 TeamClaw 标记的定制 opencode 而非公版。
+**Goal:** 把定制 opencode fork 镜像到阿里云 OSS 方便国内下载，并让 onboarding 识别到的是带 TeamClu 标记的定制 opencode 而非公版。
 
-**Architecture:** fork 构建产物的 `--version` 带 `-teamclaw` 后缀作为身份标记；amuxd 的 `doctor()` 在版本比较之外增加 marker 检查；新增 GitHub Action 把 fork release 资产镜像到 OSS `opencode/stable/`；build.config 与默认下载源全部指向 fork（OSS / fork GitHub），不再回落公版。
+**Architecture:** fork 构建产物的 `--version` 带 `-teamclu` 后缀作为身份标记；amuxd 的 `doctor()` 在版本比较之外增加 marker 检查；新增 GitHub Action 把 fork release 资产镜像到 OSS `opencode/stable/`；build.config 与默认下载源全部指向 fork（OSS / fork GitHub），不再回落公版。
 
 **Tech Stack:** Rust (amuxd `opencode_install` 模块)、GitHub Actions + Python `oss2`、bash 发布脚本、JSON build.config。
 
 ## Global Constraints
 
 - fork 仓库：`different-ai-studio/opencode`，分支 `dev`，当前版本 `v1.17.7`。
-- marker 字符串：`teamclaw`，以 semver pre-release 后缀形式出现：`<ver>-teamclaw`。
+- marker 字符串：`teamclu`，以 semver pre-release 后缀形式出现：`<ver>-teamclu`。
 - 平台资产名（5 个，固定）：`opencode-darwin-arm64.zip`、`opencode-darwin-x64.zip`、`opencode-windows-x64.zip`、`opencode-linux-x64.tar.gz`、`opencode-linux-arm64.tar.gz`。
-- OSS 稳定基址：`https://teamclaw.ucar.cc/opencode/stable`（覆盖式，不随版本改）。
+- OSS 稳定基址：`https://teamclu.ucar.cc/opencode/stable`（覆盖式，不随版本改）。
 - OSS 上传复用现有 secrets：`OSS_ACCESS_KEY_ID`、`OSS_ACCESS_KEY_SECRET`、`OSS_ENDPOINT`、`OSS_BUCKET`（见 `.github/workflows/release-oss.yml`）。
 - fork 默认 GitHub 源：`https://github.com/different-ai-studio/opencode/releases/latest/download`。
 - Rust 检查命令：`pnpm rust:check`（或 `cargo test -p amuxd opencode_install`）。
@@ -43,7 +43,7 @@
 ```json
 {
   "version": "v1.17.7",
-  "marker": "teamclaw"
+  "marker": "teamclu"
 }
 ```
 
@@ -54,22 +54,22 @@
 ```rust
     #[test]
     fn lock_parses_marker_optional() {
-        let with = OpencodeLock::parse(r#"{"version":"v1.17.7","marker":"teamclaw"}"#).unwrap();
-        assert_eq!(with.marker.as_deref(), Some("teamclaw"));
+        let with = OpencodeLock::parse(r#"{"version":"v1.17.7","marker":"teamclu"}"#).unwrap();
+        assert_eq!(with.marker.as_deref(), Some("teamclu"));
         let without = OpencodeLock::parse(r#"{"version":"v1.15.13"}"#).unwrap();
         assert_eq!(without.marker, None);
     }
 
     #[test]
     fn required_marker_reads_embedded_lock() {
-        assert_eq!(required_marker().as_deref(), Some("teamclaw"));
+        assert_eq!(required_marker().as_deref(), Some("teamclu"));
     }
 
     #[test]
     fn doctor_is_fork_requires_marker() {
         // fork version (carries marker) is a fork; public version is not.
-        assert!(version_has_marker("1.17.7-teamclaw", Some("teamclaw")));
-        assert!(!version_has_marker("1.17.7", Some("teamclaw")));
+        assert!(version_has_marker("1.17.7-teamclu", Some("teamclu")));
+        assert!(!version_has_marker("1.17.7", Some("teamclu")));
         // no required marker -> always treated as fork (back-compat)
         assert!(version_has_marker("1.17.7", None));
     }
@@ -99,7 +99,7 @@ pub struct OpencodeLock {
 
 ```rust
 /// The fork identity marker this build requires in `opencode --version`
-/// (e.g. "teamclaw"). None means any opencode is acceptable (back-compat).
+/// (e.g. "teamclu"). None means any opencode is acceptable (back-compat).
 pub fn required_marker() -> Option<String> {
     OpencodeLock::parse(LOCK_JSON)
         .ok()
@@ -172,7 +172,7 @@ Expected: PASS（含新测试 `lock_parses_marker_optional`、`required_marker_r
 
 ```bash
 git add apps/daemon/opencode.lock.json apps/daemon/src/opencode_install/mod.rs
-git commit -m "feat(daemon): require teamclaw fork marker in opencode doctor"
+git commit -m "feat(daemon): require teamclu fork marker in opencode doctor"
 ```
 
 ---
@@ -215,7 +215,7 @@ Expected: FAIL —— 实际仍是 `sst/opencode`。
 修改常量（约 `mod.rs:111-112`）：
 
 ```rust
-/// Default upstream for opencode release assets — the TeamClaw fork (NOT public
+/// Default upstream for opencode release assets — the TeamClu fork (NOT public
 /// sst/opencode). Overseas fallback when no OSS mirror base is configured.
 const DEFAULT_DOWNLOAD_BASE: &str =
     "https://github.com/different-ai-studio/opencode/releases/latest/download";
@@ -230,7 +230,7 @@ Expected: PASS。
 
 ```bash
 git add apps/daemon/src/opencode_install/mod.rs
-git commit -m "feat(daemon): default opencode download to teamclaw fork, never public"
+git commit -m "feat(daemon): default opencode download to teamclu fork, never public"
 ```
 
 ---
@@ -252,7 +252,7 @@ git commit -m "feat(daemon): default opencode download to teamclaw fork, never p
 
 ```json
   "opencode": {
-    "downloadBase": "https://teamclaw.ucar.cc/opencode/stable"
+    "downloadBase": "https://teamclu.ucar.cc/opencode/stable"
   }
 ```
 
@@ -260,7 +260,7 @@ git commit -m "feat(daemon): default opencode download to teamclaw fork, never p
 
 ```json
   "opencode": {
-    "downloadBase": "https://teamclaw.ucar.cc/opencode/stable"
+    "downloadBase": "https://teamclu.ucar.cc/opencode/stable"
   }
 ```
 
@@ -280,14 +280,14 @@ git commit -m "feat: point opencode downloadBase to OSS fork mirror"
 
 ---
 
-### Task 4: 发布脚本注入 teamclaw marker
+### Task 4: 发布脚本注入 teamclu marker
 
 **Files:**
 - Modify: `scripts/release-opencode-fork.sh`
 
 **Interfaces:**
 - Consumes: 现有变量 `VERSION`、`TAG`、`bun run script/build.ts --single`、`gh workflow run release-cli`。
-- Produces: 构建出的二进制 `--version` 含 `-teamclaw`。
+- Produces: 构建出的二进制 `--version` 含 `-teamclu`。
 
 - [ ] **Step 1: 本地构建路径注入 marker**
 
@@ -300,7 +300,7 @@ git commit -m "feat: point opencode downloadBase to OSS fork mirror"
 改为：
 
 ```bash
-MARKER_VERSION="${VERSION#v}-teamclaw"
+MARKER_VERSION="${VERSION#v}-teamclu"
 (cd "$WORKDIR/repo/packages/opencode" && OPENCODE_VERSION="$MARKER_VERSION" bun run script/build.ts --single)
 ```
 
@@ -315,7 +315,7 @@ MARKER_VERSION="${VERSION#v}-teamclaw"
 改为：
 
 ```bash
-  gh workflow run release-cli --repo "$REPO" -f "version=${VERSION#v}-teamclaw" -f "tag=${tag}"
+  gh workflow run release-cli --repo "$REPO" -f "version=${VERSION#v}-teamclu" -f "tag=${tag}"
 ```
 
 - [ ] **Step 3: 静态校验脚本**
@@ -327,7 +327,7 @@ Expected: `syntax ok`。
 
 ```bash
 git add scripts/release-opencode-fork.sh
-git commit -m "feat(scripts): stamp -teamclaw marker into opencode fork builds"
+git commit -m "feat(scripts): stamp -teamclu marker into opencode fork builds"
 ```
 
 ---
@@ -339,7 +339,7 @@ git commit -m "feat(scripts): stamp -teamclaw marker into opencode fork builds"
 
 **Interfaces:**
 - Consumes: secrets `OSS_ACCESS_KEY_ID`、`OSS_ACCESS_KEY_SECRET`、`OSS_ENDPOINT`、`OSS_BUCKET`、`GITHUB_TOKEN`；fork release 资产。
-- Produces: OSS 对象 `opencode/stable/<asset>`（5 个平台），可经 `https://teamclaw.ucar.cc/opencode/stable/<asset>` 下载。
+- Produces: OSS 对象 `opencode/stable/<asset>`（5 个平台），可经 `https://teamclu.ucar.cc/opencode/stable/<asset>` 下载。
 
 - [ ] **Step 1: 创建 workflow 文件**
 
@@ -473,5 +473,5 @@ git commit -m "chore: finalize opencode OSS mirror + fork marker wiring"
 
 - fork 需产出 5 平台资产（当前仅 darwin-arm64）；其余依赖 fork `release-cli` 多平台 CI。
 - 升级 opencode 时同步更新 `opencode.lock.json` 的 `version`，并重跑 `mirror-opencode-oss.yml`。
-- 首跑 workflow 后验证 `https://teamclaw.ucar.cc/opencode/stable/opencode-darwin-arm64.zip` 可下载。
+- 首跑 workflow 后验证 `https://teamclu.ucar.cc/opencode/stable/opencode-darwin-arm64.zip` 可下载。
 - 生产 `BUILD_CONFIG_PRODUCTION` secret 若覆盖 build.config，需确保其 `opencode.downloadBase` 同样指向 OSS stable。

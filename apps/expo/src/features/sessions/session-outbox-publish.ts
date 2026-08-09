@@ -4,7 +4,7 @@ import {
   MessageKind,
   MessageSchema,
   SessionMessageEnvelopeSchema,
-} from "@teamclaw/app/proto/teamclaw_pb";
+} from "@teamclu/app/proto/teamclu_pb";
 
 import type { TeamMqttClient } from "../../lib/mqtt/team-mqtt";
 import { uuidV4 } from "../../lib/uuid";

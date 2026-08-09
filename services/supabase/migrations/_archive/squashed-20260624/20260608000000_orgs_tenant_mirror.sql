@@ -1,9 +1,9 @@
 -- ============================================================================
--- Stage 1 of teamclaw × saas-mono integration
--- (spec: docs/specs/2026-06-08-teamclaw-saas-mono-integration.md)
+-- Stage 1 of teamclu × saas-mono integration
+-- (spec: docs/specs/2026-06-08-teamclu-saas-mono-integration.md)
 --
 -- Brings saas-mono's tenant table `public.orgs` (+ its prerequisites) into the
--- teamclaw database as a MIRROR, so the rest of the integration can be built
+-- teamclu database as a MIRROR, so the rest of the integration can be built
 -- and tested on our own instance first.
 --
 -- IMPORTANT — DO NOT APPLY ON THE MERGED saas-mono INSTANCE.
@@ -45,7 +45,7 @@ create table if not exists public.plans (
   constraint plans_pkey primary key (id)
 );
 comment on table public.plans is
-  'STUB mirror of saas-mono public.plans for local integration dev. Replace with real DDL before merge. See docs/specs/2026-06-08-teamclaw-saas-mono-integration.md';
+  'STUB mirror of saas-mono public.plans for local integration dev. Replace with real DDL before merge. See docs/specs/2026-06-08-teamclu-saas-mono-integration.md';
 
 -- ---------------------------------------------------------------------------
 -- Tenant table: orgs (mirror of saas-mono public.orgs)
@@ -83,7 +83,7 @@ create table if not exists public.orgs (
   )
 );
 comment on table public.orgs is
-  'Mirror of saas-mono public.orgs (canonical tenant). saas-mono-owned on the merged instance. See docs/specs/2026-06-08-teamclaw-saas-mono-integration.md';
+  'Mirror of saas-mono public.orgs (canonical tenant). saas-mono-owned on the merged instance. See docs/specs/2026-06-08-teamclu-saas-mono-integration.md';
 
 create index if not exists idx_orgs_code              on public.orgs using btree (code);
 create index if not exists idx_orgs_plan_id           on public.orgs using btree (plan_id);

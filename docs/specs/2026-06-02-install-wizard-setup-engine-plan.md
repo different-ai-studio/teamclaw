@@ -71,9 +71,9 @@ mod tests {
 
 - [ ] **Step 2: 运行测试确认失败**
 
-Run: `cargo test -p teamclaw-desktop --lib setup::tests 2>&1 | tail -20`
+Run: `cargo test -p teamclu-desktop --lib setup::tests 2>&1 | tail -20`
 Expected: 编译失败 `cannot find function bin_present`。
-(注：desktop crate 名见 `apps/desktop/Cargo.toml` 的 `[package] name`;若不是 `teamclaw-desktop`,用实际包名。可先 `grep '^name' apps/desktop/Cargo.toml` 确认,后续命令同。)
+(注：desktop crate 名见 `apps/desktop/Cargo.toml` 的 `[package] name`;若不是 `teamclu-desktop`,用实际包名。可先 `grep '^name' apps/desktop/Cargo.toml` 确认,后续命令同。)
 
 - [ ] **Step 3: 写最小实现**
 
@@ -128,14 +128,14 @@ Add `pub mod setup;` to `apps/desktop/src/commands/mod.rs` (keep the alphabetica
 
 - [ ] **Step 4: 运行测试确认通过**
 
-Run: `cargo test -p teamclaw-desktop --lib setup::tests 2>&1 | tail -20`
+Run: `cargo test -p teamclu-desktop --lib setup::tests 2>&1 | tail -20`
 Expected: 2 passed.
 (若报 `tempfile` 不可用:`grep tempfile apps/desktop/Cargo.toml`;不存在则在 `[dev-dependencies]` 加 `tempfile = "3"`。)
 
 - [ ] **Step 5: 提交**
 
 ```bash
-cd /Volumes/openbeta/workspace/teamclaw-v2/.worktrees/unified-install-onboarding
+cd /Volumes/openbeta/workspace/teamclu-v2/.worktrees/unified-install-onboarding
 git branch --show-current   # must be agent/unified-install-onboarding
 git add apps/desktop/src/commands/setup.rs apps/desktop/src/commands/mod.rs apps/desktop/Cargo.toml
 git commit -m "feat(desktop): setup engine detection helpers"
@@ -166,7 +166,7 @@ git commit -m "feat(desktop): setup engine detection helpers"
 
 - [ ] **Step 2: 运行测试确认失败**
 
-Run: `cargo test -p teamclaw-desktop --lib setup::tests::resolve_exe_finds_plain_and_missing 2>&1 | tail -20`
+Run: `cargo test -p teamclu-desktop --lib setup::tests::resolve_exe_finds_plain_and_missing 2>&1 | tail -20`
 Expected: `cannot find function resolve_exe`.
 
 - [ ] **Step 3: 写实现**
@@ -262,7 +262,7 @@ Register in `apps/desktop/src/lib.rs` `invoke_handler!` list (next to the `daemo
 
 - [ ] **Step 4: 运行测试 + 编译**
 
-Run: `cargo test -p teamclaw-desktop --lib setup::tests 2>&1 | tail -20`
+Run: `cargo test -p teamclu-desktop --lib setup::tests 2>&1 | tail -20`
 Expected: 3 passed.
 (若此时 `setup_install` 尚未定义导致 lib 不编译,先只在 handler 加 `setup_list_requirements` 一行。)
 
@@ -401,12 +401,12 @@ pub async fn setup_install<R: Runtime>(app: AppHandle<R>, id: String) -> Result<
 
 - [ ] **Step 2: 编译检查**
 
-Run: `cargo check -p teamclaw-desktop 2>&1 | tail -20`
+Run: `cargo check -p teamclu-desktop 2>&1 | tail -20`
 Expected: 无 error。
 
 - [ ] **Step 3: 手测(本机已有 amuxd sidecar)**
 
-确保已构建 amuxd sidecar(`node -e "require('./scripts/ensure-amuxd-sidecar').ensureAmuxdSidecar(process.env)"`),然后用一个临时单测或 `pnpm tauri:dev` 触发(Task 5-7 接前端后整链路验证)。最小验证:`cargo test -p teamclaw-desktop --lib setup::tests` 仍 3 passed,且 `cargo check` 干净。
+确保已构建 amuxd sidecar(`node -e "require('./scripts/ensure-amuxd-sidecar').ensureAmuxdSidecar(process.env)"`),然后用一个临时单测或 `pnpm tauri:dev` 触发(Task 5-7 接前端后整链路验证)。最小验证:`cargo test -p teamclu-desktop --lib setup::tests` 仍 3 passed,且 `cargo check` 干净。
 > 真实链路(amuxd 复制 + opencode 下载)在 Task 7 接好前端后手测;opencode 实际下载需 `opencode.lock.json` 的 version 已填实(见 Block ② 待办)。
 
 - [ ] **Step 4: 提交**
@@ -475,7 +475,7 @@ describe('setup store progress reducer', () => {
 
 - [ ] **Step 2: 运行测试确认失败**
 
-Run: `pnpm --filter @teamclaw/app test:unit -- src/stores/__tests__/setup.test.ts 2>&1 | tail -20`
+Run: `pnpm --filter @teamclu/app test:unit -- src/stores/__tests__/setup.test.ts 2>&1 | tail -20`
 Expected: 失败 `Cannot find module '../setup'`.
 (若该过滤参数语法不被接受,用 `pnpm test:unit` 跑全量也可;或 `grep '"test:unit"' package.json` 看实际脚本。)
 
@@ -578,7 +578,7 @@ export function applyProgress(p: SetupProgress) {
 
 - [ ] **Step 4: 运行测试确认通过**
 
-Run: `pnpm --filter @teamclaw/app test:unit -- src/stores/__tests__/setup.test.ts 2>&1 | tail -20`
+Run: `pnpm --filter @teamclu/app test:unit -- src/stores/__tests__/setup.test.ts 2>&1 | tail -20`
 Expected: 4 passed.
 
 - [ ] **Step 5: 提交**
@@ -700,7 +700,7 @@ export function SetupWizard({ onDone }: { onDone: () => void }) {
 
 - [ ] **Step 2: typecheck**
 
-Run: `pnpm --filter @teamclaw/app typecheck 2>&1 | tail -20`
+Run: `pnpm --filter @teamclu/app typecheck 2>&1 | tail -20`
 Expected: 无 SetupWizard 相关错误。
 (若 lucide 图标名不存在,用 `grep -r "from 'lucide-react'" packages/app/src | head` 参照现有用法替换。)
 
@@ -765,8 +765,8 @@ import { useSetupStore } from '@/stores/setup'
 
 - [ ] **Step 3: typecheck + 单测**
 
-Run: `pnpm --filter @teamclaw/app typecheck 2>&1 | tail -20` → 无错误。
-Run: `pnpm --filter @teamclaw/app test:unit -- src/stores/__tests__/setup.test.ts 2>&1 | tail -5` → 4 passed。
+Run: `pnpm --filter @teamclu/app typecheck 2>&1 | tail -20` → 无错误。
+Run: `pnpm --filter @teamclu/app test:unit -- src/stores/__tests__/setup.test.ts 2>&1 | tail -5` → 4 passed。
 
 - [ ] **Step 4: 提交**
 
@@ -784,7 +784,7 @@ git commit -m "feat(app): gate first-run setup wizard in AuthGate"
 - [ ] **Step 1: 准备 sidecar**
 
 ```bash
-cd /Volumes/openbeta/workspace/teamclaw-v2/.worktrees/unified-install-onboarding
+cd /Volumes/openbeta/workspace/teamclu-v2/.worktrees/unified-install-onboarding
 node -e "require('./scripts/ensure-amuxd-sidecar').ensureAmuxdSidecar(process.env)"
 ls apps/desktop/binaries/amuxd-*
 ```
@@ -806,9 +806,9 @@ Run: `pnpm tauri:dev`
 - [ ] **Step 4: 全量校验**
 
 ```bash
-cargo test -p teamclaw-desktop --lib setup::tests 2>&1 | tail -5
-pnpm --filter @teamclaw/app test:unit -- src/stores/__tests__/setup.test.ts 2>&1 | tail -5
-pnpm --filter @teamclaw/app typecheck 2>&1 | tail -5
+cargo test -p teamclu-desktop --lib setup::tests 2>&1 | tail -5
+pnpm --filter @teamclu/app test:unit -- src/stores/__tests__/setup.test.ts 2>&1 | tail -5
+pnpm --filter @teamclu/app typecheck 2>&1 | tail -5
 cargo clippy --manifest-path apps/desktop/Cargo.toml -- -D warnings 2>&1 | tail -15
 ```
 Expected: Rust setup 测试通过、前端 setup 测试 4 passed、typecheck 干净、clippy 无新增 setup 相关警告。

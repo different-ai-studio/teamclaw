@@ -2,7 +2,7 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** One `docker compose up` (after a one-shot secret-gen step) stands up a complete deployable TeamClaw backend: self-hosted Supabase, EMQX, the FC Cloud API, edge TLS via Caddy, and an automatic idempotent DB migration/seed step.
+**Goal:** One `docker compose up` (after a one-shot secret-gen step) stands up a complete deployable TeamClu backend: self-hosted Supabase, EMQX, the FC Cloud API, edge TLS via Caddy, and an automatic idempotent DB migration/seed step.
 
 **Architecture:** A new self-contained `deploy/self-host/` directory holds a top-level `docker-compose.yml` that `include:`s the vendored official Supabase compose and adds `emqx`, `fc`, `caddy`, `migrate`, plus opt-in `cron` and `postgres` profiles. Caddy is the only public ingress (80/443) and terminates TLS; all other services talk over the internal compose network. All secrets derive from one operator-supplied `JWT_SECRET`.
 
@@ -86,7 +86,7 @@ POSTGRES_BACKEND_PASSWORD=postgres
 ACCESS_KEY_ID=
 ACCESS_KEY_SECRET=
 ROLE_ARN=
-BUCKET=teamclaw-team
+BUCKET=teamclu-team
 REGION=cn-shenzhen
 ENDPOINT=https://oss-cn-shenzhen.aliyuncs.com
 
@@ -285,7 +285,7 @@ Author the EMQX 5.x config enabling a single JWT authenticator keyed by `JWT_SEC
 
 node {
   name = "emqx@127.0.0.1"
-  cookie = "teamclaw-self-host"
+  cookie = "teamclu-self-host"
 }
 
 listeners.tcp.default {
@@ -499,7 +499,7 @@ The orchestration file: `include`s Supabase, adds `emqx`, `fc`, `caddy`, `migrat
 - [ ] **Step 1: Write `deploy/self-host/docker-compose.yml`**
 
 ```yaml
-name: teamclaw-self-host
+name: teamclu-self-host
 
 include:
   - path: ./supabase/docker-compose.yml
@@ -543,7 +543,7 @@ services:
   fc:
     build:
       context: ../../services/fc
-    image: teamclaw-fc:self-host
+    image: teamclu-fc:self-host
     restart: unless-stopped
     depends_on:
       migrate:
@@ -569,7 +569,7 @@ services:
       ACCESS_KEY_ID: "${ACCESS_KEY_ID:-}"
       ACCESS_KEY_SECRET: "${ACCESS_KEY_SECRET:-}"
       ROLE_ARN: "${ROLE_ARN:-}"
-      BUCKET: "${BUCKET:-teamclaw-team}"
+      BUCKET: "${BUCKET:-teamclu-team}"
       REGION: "${REGION:-cn-shenzhen}"
       ENDPOINT: "${ENDPOINT:-}"
       LITELLM_URL: "${LITELLM_URL:-}"

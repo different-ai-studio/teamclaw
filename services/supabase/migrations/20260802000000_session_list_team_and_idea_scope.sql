@@ -8,7 +8,7 @@
 -- line limit of the gateway in front of Supabase and came back as a bare
 -- `URI too long` body — no PostgREST error code, no HTTP status — which the FC
 -- error mapper could not classify and surfaced to clients as an opaque 500.
--- (Sentry BETLY-APP-Q, teamclaw-belayo-live-api.)
+-- (Sentry BETLY-APP-Q, teamclu-belayo-live-api.)
 --
 -- GET /v1/sessions is the paginated replacement, but it was missing three
 -- things the team endpoint had:

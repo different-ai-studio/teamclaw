@@ -14,7 +14,7 @@ export function nodeHandle(service, hostPort) {
 
 /** amuxd init <invite>（容器内自领 invite + 写 backend.toml/daemon.toml）。返回 actorId+teamId。 */
 export async function initNode(node, inviteToken) {
-  const url = `teamclaw://invite?token=${inviteToken}&broker=${encodeURIComponent(DUMMY_BROKER)}`;
+  const url = `teamclu://invite?token=${inviteToken}&broker=${encodeURIComponent(DUMMY_BROKER)}`;
   const { stdout, stderr } = await exec(node.service, ["amuxd", "init", url]);
   // 从 backend.toml 读取 team_id / actor_id（init 已写入）。
   const { stdout: backend } = await execSh(node.service, "cat /root/.amuxd/backend.toml");

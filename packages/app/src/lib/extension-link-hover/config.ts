@@ -1,5 +1,5 @@
 /** chrome.storage.local key for link-hover domain allowlist. */
-export const LINK_HOVER_CONFIG_KEY = 'teamclaw.extension.linkHover'
+export const LINK_HOVER_CONFIG_KEY = 'teamclu.extension.linkHover'
 
 export interface LinkHoverConfig {
   domains: string[]

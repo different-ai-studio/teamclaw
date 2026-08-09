@@ -7,9 +7,9 @@ import AMUXCore
 struct ShortcutPresentationTests {
     @Test("link shortcuts open embedded web only for http URLs")
     func linkShortcutsOpenEmbeddedWebOnlyForHTTPURLs() {
-        let secure = shortcut(id: "secure", type: .link, target: "https://teamclaw.app/docs")
+        let secure = shortcut(id: "secure", type: .link, target: "https://teamclu.app/docs")
         let plain = shortcut(id: "plain", type: .link, target: "http://localhost:3000")
-        let customScheme = shortcut(id: "custom", type: .link, target: "teamclaw://join?token=x")
+        let customScheme = shortcut(id: "custom", type: .link, target: "teamclu://join?token=x")
         let malformed = shortcut(id: "bad", type: .link, target: "not a url")
 
         #expect(ShortcutPresentation.destination(for: secure) == .web(URL(string: secure.target)!))

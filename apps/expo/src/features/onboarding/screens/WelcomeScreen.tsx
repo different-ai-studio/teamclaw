@@ -27,7 +27,7 @@ export function WelcomeScreen({ onGetStarted, errorMessage }: WelcomeScreenProps
     <View style={styles.screen}>
       <View style={styles.hero}>
         <RoleCardsRow />
-        <Text style={styles.title}>Teamclaw</Text>
+        <Text style={styles.title}>Teamclu</Text>
         <View style={styles.copyBlock}>
           <Text style={styles.body}>AI digital employees</Text>
           <Text style={styles.body}>for every role.</Text>

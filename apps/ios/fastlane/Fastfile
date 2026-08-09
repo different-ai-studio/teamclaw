@@ -26,23 +26,23 @@ platform :ios do
     match(type: "appstore", readonly: true, api_key: api_key) unless manual_signing
 
     profile_name = ENV["IOS_PROVISIONING_PROFILE_NAME"] ||
-      ENV["sigh_tech.teamclaw.mobile_appstore_profile-name"]
+      ENV["sigh_com.teamclu.mobile_appstore_profile-name"]
 
     update_code_signing_settings(
       use_automatic_signing: false,
       path: "AMUX.xcodeproj",
       team_id: ENV["TEAM_ID"] || "43G5A6G9QV",
-      bundle_identifier: "tech.teamclaw.mobile",
+      bundle_identifier: "com.teamclu.mobile",
       code_sign_identity: "Apple Distribution",
       profile_name: profile_name,
     )
 
     # GITHUB_RUN_NUMBER resets per-repo, so it collides with build numbers
-    # already uploaded to App Store Connect from the old teamclaw-next CI.
+    # already uploaded to App Store Connect from the old teamclu-next CI.
     # Ask ASC for the actual latest build number instead.
     next_build_number = latest_testflight_build_number(
       api_key: api_key,
-      app_identifier: "tech.teamclaw.mobile",
+      app_identifier: "com.teamclu.mobile",
     ) + 1
 
     increment_build_number(
@@ -57,7 +57,7 @@ platform :ios do
       export_method: "app-store",
       export_options: {
         provisioningProfiles: {
-          "tech.teamclaw.mobile" => profile_name,
+          "com.teamclu.mobile" => profile_name,
         },
       },
     )

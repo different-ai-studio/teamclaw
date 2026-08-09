@@ -49,8 +49,8 @@ fn resolve_workspace_view_path(workspace_path: &str, path: &str) -> Result<PathB
 /// symlinks**.
 ///
 /// A symlink that resolves to a directory must browse as a directory — e.g. the
-/// per-workspace `teamclaw-team` link into the daemon's global team dir
-/// (`~/.amuxd/teams/<id>/teamclaw-team`). The previous
+/// per-workspace `teamclu-team` link into the daemon's global team dir
+/// (`~/.amuxd/teams/<id>/teamclu-team`). The previous
 /// `metadata().or_else(symlink_metadata)` form silently degraded *any* symlink
 /// whose `metadata()` (follow) call failed into a plain `"file"`, so a
 /// symlinked directory that momentarily failed to stat would render in the file

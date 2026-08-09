@@ -39,7 +39,7 @@ status: accepted
 ```rust
 // apps/daemon/src/daemon/server/rpc.rs:150-160 —— 同一 match、同一 &mut self、依次 await
 IncomingMessage::RuntimeCommand { .. } => { self.handle_agent_command(…).await; }
-IncomingMessage::TeamclawRpc     { .. } => { self.handle_rpc_request(…).await; }
+IncomingMessage::TeamcluRpc     { .. } => { self.handle_rpc_request(…).await; }
 ```
 
 `runtime/{rid}/commands` 从未与 `rpc/req` 并发过，合并是并发中性的。
@@ -48,5 +48,5 @@ IncomingMessage::TeamclawRpc     { .. } => { self.handle_rpc_request(…).await;
 - `AcpRequestTurnHistory` 的 scoping 注释（`proto/amux.proto:214-217`，
   "scoped to one runtime so callers don't conflate runtimes"）需改写为
   scoped to one session。
-- 改动面覆盖 `proto/amux.proto`、`proto/teamclaw.proto`、daemon subscriber 分派、
+- 改动面覆盖 `proto/amux.proto`、`proto/teamclu.proto`、daemon subscriber 分派、
   以及三端全部发送方。

@@ -27,7 +27,7 @@ object path 现在指向 Supabase Storage。
 select id, name, public from storage.buckets where id = 'team-blobs';
 ```
 
-- **self-host**（`api.teamclaw-dev.ucar.cc`）：push 到 main 自动跑 migration。
+- **self-host**（`api.teamclu-dev.ucar.cc`）：push 到 main 自动跑 migration。
 - **belayo**：迁移是手工 + `_selfhost.schema_migrations` 账本，且只在
   `RUN_MIGRATIONS=1` 时执行 —— 必须手动确认。
 - **copilot361**：同样手动确认。
@@ -86,7 +86,7 @@ docker compose exec fc env -u ACCESS_KEY_ID -u ACCESS_KEY_SECRET node -e '...'
 
 这些团队的 `knowledge/` 在 git repo 里，不在 `amuxc_blobs`。最后一次
 `git checkout` 后把 `knowledge/` 放进本地 team dir
-（`~/.amuxd/teams/<team_id>/teamclaw-team/knowledge/`），让 sync 的 push
+（`~/.amuxd/teams/<team_id>/teamclu-team/knowledge/`），让 sync 的 push
 阶段把它们送进 Storage。`share_mode` 不用改：新语义下非空即"已启用"。
 
 ### 6. 磁盘阈值 —— 不是"以后再说"

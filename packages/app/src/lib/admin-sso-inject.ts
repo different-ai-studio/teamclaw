@@ -1,9 +1,9 @@
-// Partner admin console auto-login — share the current TeamClaw session with
+// Partner admin console auto-login — share the current TeamClu session with
 // the partner admin SPA opened in a native webview, so it skips its own login
 // screen.
 //
-// The admin console is a supabase-js SPA whose Supabase shares TeamClaw's
-// GoTrue (same JWT signing secret + user table), so the TeamClaw access/refresh
+// The admin console is a supabase-js SPA whose Supabase shares TeamClu's
+// GoTrue (same JWT signing secret + user table), so the TeamClu access/refresh
 // token validates there directly. supabase-js reads its session from
 // localStorage under `sb-<ref>-auth-token`. We hand the storage key + the
 // serialized session to the native side, which seeds it before the page bundle
@@ -15,7 +15,7 @@
 // injects a session instead of harvesting one.
 //
 // Security: the resolved host is the allowlist. We only ever expose the
-// TeamClaw bearer token to the host the Cloud API declares — never to arbitrary
+// TeamClu bearer token to the host the Cloud API declares — never to arbitrary
 // third-party webviews. The native side re-checks the host against its own
 // build-time allowlist (WEBSSO_ADMIN_HOSTS) as defense in depth.
 
@@ -28,7 +28,7 @@ export interface AdminSsoInjection {
 }
 
 /**
- * If `url` points at the Cloud-API-declared partner admin host and a TeamClaw
+ * If `url` points at the Cloud-API-declared partner admin host and a TeamClu
  * session is present, return the storage key + serialized supabase-js session
  * to inject. Returns null otherwise (no injection).
  */

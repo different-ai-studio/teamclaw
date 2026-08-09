@@ -19,5 +19,5 @@ fn main() {
         },
     ));
 
-    teamclaw_lib::run()
+    teamclu_lib::run()
 }

@@ -51,7 +51,7 @@ function shouldRebuildSidecar({ exists, expectedVersion, existingVersion }) {
 
 /**
  * Build and install amuxd into apps/desktop/binaries/amuxd-<target> if missing.
- * Mirrors ensureTeamclawIntrospectSidecar so tauri bundling finds the sidecar.
+ * Mirrors ensureTeamcluIntrospectSidecar so tauri bundling finds the sidecar.
  * @param {NodeJS.ProcessEnv} env
  * @param {{ logPrefix?: string, force?: boolean }} [opts]
  */
@@ -62,8 +62,8 @@ function ensureAmuxdSidecar(env, opts) {
   const logPrefix = opts?.logPrefix ?? "[rust-cli]";
   const force =
     opts?.force === true ||
-    env.TEAMCLAW_FORCE_AMUXD_SIDECAR === "1" ||
-    env.TEAMCLAW_FORCE_AMUXD_SIDECAR === "true";
+    env.TEAMCLU_FORCE_AMUXD_SIDECAR === "1" ||
+    env.TEAMCLU_FORCE_AMUXD_SIDECAR === "true";
   const repoRoot = path.resolve(__dirname, "..");
   const tauriDir = path.join(repoRoot, "apps/desktop");
   const target =

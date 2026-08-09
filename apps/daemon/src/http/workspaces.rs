@@ -236,7 +236,7 @@ pub async fn get_providers(
     Ok(Json(providers))
 }
 
-/// Re-materialize `provider.team` via [`teamclaw_runtime_env::sync_team_provider_on_disk`], best-effort.
+/// Re-materialize `provider.team` via [`teamclu_runtime_env::sync_team_provider_on_disk`], best-effort.
 ///
 /// Silently no-ops when the daemon has no managed-LLM resolver (focused tests),
 /// no cloud backend, no team, or an unresolvable workspace path — in each case
@@ -866,7 +866,7 @@ pub struct MaterializeTeamMcpResponse {
 
 /// `POST /v1/workspaces/:id/mcp/materialize-team`
 ///
-/// Materialize team-shared MCP definitions from `teamclaw-team/.mcp/*.json`
+/// Materialize team-shared MCP definitions from `teamclu-team/.mcp/*.json`
 /// into this workspace's `opencode.json`. Only amuxd writes the file (atomic +
 /// process-local lock). Desktop/git join flows call this instead of touching
 /// `opencode.json` directly.

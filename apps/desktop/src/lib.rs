@@ -88,7 +88,7 @@ fn read_path_cache(cache_path: &std::path::Path, current_mtime: u64) -> Option<S
     Some(path.to_string())
 }
 
-/// Write PATH cache file. Creates ~/.teamclaw/ if needed.
+/// Write PATH cache file. Creates ~/.teamclu/ if needed.
 fn write_path_cache(cache_path: &std::path::Path, mtime: u64, path: &str) {
     if let Some(parent) = cache_path.parent() {
         let _ = std::fs::create_dir_all(parent);
@@ -173,7 +173,7 @@ fn fix_path_env() {
     // Try cache first
     let home = std::env::var("HOME").unwrap_or_default();
     let cache_path = std::path::PathBuf::from(&home)
-        .join(commands::TEAMCLAW_DIR)
+        .join(commands::TEAMCLU_DIR)
         .join("cached-path.txt");
     let profile_mtime = get_shell_profile_mtime(&shell, &home);
 
@@ -325,7 +325,7 @@ pub fn run() {
             #[cfg(debug_assertions)]
             {
                 tauri_plugin_mcp::init_with_config(
-                    tauri_plugin_mcp::PluginConfig::new(String::from("teamclaw"))
+                    tauri_plugin_mcp::PluginConfig::new(String::from("teamclu"))
                         .socket_path(std::path::PathBuf::from("/tmp/tauri-mcp.sock"))
                 )
             }
@@ -625,7 +625,7 @@ pub fn run() {
             // exposed the same store under `/api/rag/*` for an "MCP bridge"
             // that no longer exists — nothing in the repo, the sidecar
             // binaries, or any MCP config ever called it. All it still did was
-            // fail to bind on relaunch and report it (Sentry TEAMCLAW-2, the
+            // fail to bind on relaunch and report it (Sentry TEAMCLU-2, the
             // loudest Rust issue we had), so it is gone.
 
             // Start introspect MCP internal API server

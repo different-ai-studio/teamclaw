@@ -1,13 +1,13 @@
 #!/usr/bin/env bash
-# TeamClaw self-host all-in-one — SUPABASE-mode first-boot orchestrator.
+# TeamClu self-host all-in-one — SUPABASE-mode first-boot orchestrator.
 set -eu
 
 SCRIPT_DIR="$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)"
 . "$SCRIPT_DIR/lib.sh"
 
 DATA_DIR="${DATA_DIR:-/data}"
-RUN_DIR="${RUN_DIR:-/run/teamclaw}"
-SECRETS_FILE="$DATA_DIR/teamclaw/secrets.env"
+RUN_DIR="${RUN_DIR:-/run/teamclu}"
+SECRETS_FILE="$DATA_DIR/teamclu/secrets.env"
 PGDATA="$DATA_DIR/postgres"
 BASE_ENTRYPOINT=/usr/local/bin/docker-entrypoint.sh
 
@@ -34,7 +34,7 @@ PSQL="$(command -v psql)"       || fatal "psql not found"
 PG_CTL="$(command -v pg_ctl)"   || fatal "pg_ctl not found"
 PG_ISREADY="$(command -v pg_isready)" || fatal "pg_isready not found"
 
-ensure_dir "$DATA_DIR/teamclaw"
+ensure_dir "$DATA_DIR/teamclu"
 ensure_dir "$DATA_DIR/storage"
 ensure_dir "$DATA_DIR/nanomq"
 ensure_dir "$DATA_DIR/caddy"
@@ -57,7 +57,7 @@ JWT_EXP="$(read_env_value "$SECRETS_FILE" JWT_EXP)"
 # raw JWT_SECRET — NanoMQ's HTTP auth hook validates the password as a JWT, and
 # real clients likewise present JWTs signed with the same secret.
 if ! grep -q '^MQTT_SERVICE_TOKEN=' "$SECRETS_FILE"; then
-  MQTT_SERVICE_TOKEN="$(jwt_sign_hs256 "$JWT_SECRET" '{"alg":"HS256","typ":"JWT"}' '{"role":"service","sub":"fc-service","iss":"teamclaw","iat":1700000000,"exp":4102444800}')"
+  MQTT_SERVICE_TOKEN="$(jwt_sign_hs256 "$JWT_SECRET" '{"alg":"HS256","typ":"JWT"}' '{"role":"service","sub":"fc-service","iss":"teamclu","iat":1700000000,"exp":4102444800}')"
   write_env_value "$SECRETS_FILE" MQTT_SERVICE_TOKEN "$MQTT_SERVICE_TOKEN"
 fi
 
@@ -168,8 +168,8 @@ if [ "$FRESH" = true ]; then
   log "auth schema migrated"
 
   log "applying real supabase migrations"
-  MIGRATIONS_DIR=/opt/teamclaw/supabase-migrations APPLY_SEED=false \
-    bash /opt/teamclaw/apply-migrations.sh
+  MIGRATIONS_DIR=/opt/teamclu/supabase-migrations APPLY_SEED=false \
+    bash /opt/teamclu/apply-migrations.sh
 
   # Supabase's default anon/authenticated statement_timeout (3s/8s) is too tight
   # for the cold PostgREST OpenAPI-root introspection on first boot. Give it
@@ -190,4 +190,4 @@ while "$PG_ISREADY" -h 127.0.0.1 -p 5432 -U postgres >/dev/null 2>&1; do
 done
 
 log "starting supervisor"
-exec supervisord -c /etc/supervisor/conf.d/teamclaw-all-in-one.conf
+exec supervisord -c /etc/supervisor/conf.d/teamclu-all-in-one.conf

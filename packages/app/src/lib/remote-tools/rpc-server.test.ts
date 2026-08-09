@@ -68,7 +68,7 @@ import { create, toBinary } from '@bufbuild/protobuf'
 import {
   RemoteToolInvokeRequestSchema,
   RpcRequestSchema,
-} from '@/lib/proto/teamclaw_pb'
+} from '@/lib/proto/teamclu_pb'
 
 import { clearExecutorsForTests, registerExecutor } from './registry'
 import { acquireRemoteToolsRpcServer } from './rpc-server'

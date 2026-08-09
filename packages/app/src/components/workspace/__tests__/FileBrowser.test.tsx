@@ -15,7 +15,7 @@ let mockFileTree: MockFileNode[] = [];
 let latestNodesProp: MockFileNode[] | undefined;
 
 const mockExpandDirectory = vi.fn(async (path: string) => {
-  if (path === "/workspace/teamclaw-team") {
+  if (path === "/workspace/teamclu-team") {
     mockFileTree = mockFileTree.map((node) =>
       node.path === path
         ? {
@@ -23,7 +23,7 @@ const mockExpandDirectory = vi.fn(async (path: string) => {
             children: [
               {
                 name: "knowledge",
-                path: "/workspace/teamclaw-team/knowledge",
+                path: "/workspace/teamclu-team/knowledge",
                 type: "directory",
               },
             ],
@@ -32,9 +32,9 @@ const mockExpandDirectory = vi.fn(async (path: string) => {
     );
   }
 
-  if (path === "/workspace/teamclaw-team/knowledge") {
+  if (path === "/workspace/teamclu-team/knowledge") {
     mockFileTree = mockFileTree.map((node) =>
-      node.path === "/workspace/teamclaw-team"
+      node.path === "/workspace/teamclu-team"
         ? {
             ...node,
             children: node.children?.map((child) =>
@@ -44,7 +44,7 @@ const mockExpandDirectory = vi.fn(async (path: string) => {
                     children: [
                       {
                         name: "guide.md",
-                        path: "/workspace/teamclaw-team/knowledge/guide.md",
+                        path: "/workspace/teamclu-team/knowledge/guide.md",
                         type: "file",
                       },
                     ],
@@ -177,22 +177,22 @@ describe("FileBrowser", () => {
   });
 
   it("retries loading custom root ancestors after the global tree becomes available", async () => {
-    const rootPath = "/workspace/teamclaw-team/knowledge";
+    const rootPath = "/workspace/teamclu-team/knowledge";
     const rootPaths = [rootPath];
     const { rerender } = render(
       <FileBrowser variant="panel" rootPaths={rootPaths} />,
     );
 
     await waitFor(() => {
-      expect(mockExpandDirectory).toHaveBeenCalledWith("/workspace/teamclaw-team");
+      expect(mockExpandDirectory).toHaveBeenCalledWith("/workspace/teamclu-team");
       expect(mockExpandDirectory).toHaveBeenCalledWith(rootPath);
     });
 
     await act(async () => {
       mockFileTree = [
         {
-          name: "teamclaw-team",
-          path: "/workspace/teamclaw-team",
+          name: "teamclu-team",
+          path: "/workspace/teamclu-team",
           type: "directory",
         },
       ];
@@ -210,7 +210,7 @@ describe("FileBrowser", () => {
     expect(latestNodesProp?.[0]?.children).toEqual([
       {
         name: "guide.md",
-        path: "/workspace/teamclaw-team/knowledge/guide.md",
+        path: "/workspace/teamclu-team/knowledge/guide.md",
         type: "file",
       },
     ]);

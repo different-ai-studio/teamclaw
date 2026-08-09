@@ -90,7 +90,7 @@ describe("server config", () => {
     vi.stubEnv("VITE_MQTT_WS_URL", "ws://ai.ucar.cc:8083/mqtt");
 
     localStorage.setItem(
-      "teamclaw.serverConfig",
+      "teamclu.serverConfig",
       JSON.stringify({
         mqttHost: "bootstrap.example.com",
         mqttPort: 1883,
@@ -124,18 +124,18 @@ describe("server config", () => {
   });
 
   it("VITE_MQTT_WS_URL without a port defaults to 443 for wss (reverse proxy)", async () => {
-    vi.stubEnv("VITE_MQTT_WS_URL", "wss://mqtt.teamclaw-dev.ucar.cc/mqtt");
+    vi.stubEnv("VITE_MQTT_WS_URL", "wss://mqtt.teamclu-dev.ucar.cc/mqtt");
 
     localStorage.setItem(
-      "teamclaw.serverConfig",
-      JSON.stringify({ mqttHost: "mqtt.teamclaw-dev.ucar.cc", mqttPort: 1883, mqttUseTls: false }),
+      "teamclu.serverConfig",
+      JSON.stringify({ mqttHost: "mqtt.teamclu-dev.ucar.cc", mqttPort: 1883, mqttUseTls: false }),
     );
 
     const { getEffectiveServerConfigSync } = await import("../server-config");
     const config = getEffectiveServerConfigSync();
 
     // Must NOT inherit the bootstrap TCP port (1883); a portless wss URL means 443.
-    expect(config.mqttHost).toBe("mqtt.teamclaw-dev.ucar.cc");
+    expect(config.mqttHost).toBe("mqtt.teamclu-dev.ucar.cc");
     expect(config.mqttPort).toBe(443);
     expect(config.mqttUseTls).toBe(true);
   });
@@ -156,7 +156,7 @@ describe("server config", () => {
     vi.stubEnv("VITE_MQTT_PORT", "9999");
 
     localStorage.setItem(
-      "teamclaw.serverConfig",
+      "teamclu.serverConfig",
       JSON.stringify({
         mqttHost: "bootstrap.example.com",
         mqttPort: 1883,
@@ -172,11 +172,11 @@ describe("server config", () => {
   });
 
   it("does not fall back to env MQTT credentials when saved config explicitly clears them", async () => {
-    vi.stubEnv("VITE_MQTT_USERNAME", "teamclaw");
-    vi.stubEnv("VITE_MQTT_PASSWORD", "teamclaw2026");
+    vi.stubEnv("VITE_MQTT_USERNAME", "teamclu");
+    vi.stubEnv("VITE_MQTT_PASSWORD", "teamclu2026");
 
     localStorage.setItem(
-      "teamclaw.serverConfig",
+      "teamclu.serverConfig",
       JSON.stringify({
         mqttHost: "ai.ucar.cc",
         mqttPort: 1883,

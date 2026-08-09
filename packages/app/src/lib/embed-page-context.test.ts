@@ -62,7 +62,7 @@ describe('consumePendingLinkContext', () => {
       storage: {
         session: {
           get: vi.fn().mockResolvedValue({
-            'teamclaw.pendingLinkContext': {
+            'teamclu.pendingLinkContext': {
               title: 'Page',
               url: 'https://example.com/doc',
               text: 'Read me',
@@ -76,7 +76,7 @@ describe('consumePendingLinkContext', () => {
     await consumePendingLinkContext()
     expect(spy).toHaveBeenCalledOnce()
     expect(spy.mock.calls[0][0]).toContain('https://example.com/doc')
-    expect(remove).toHaveBeenCalledWith('teamclaw.pendingLinkContext')
+    expect(remove).toHaveBeenCalledWith('teamclu.pendingLinkContext')
   })
 })
 

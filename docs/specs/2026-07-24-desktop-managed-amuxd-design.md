@@ -8,7 +8,7 @@
 > ### 已拍板
 >
 > 1. 关 App 后 agent / 渠道 / cron **离线** — 接受，v1 唯一行为。  
-> 2. `teamclaw-introspect` **也不拷贝**，由桌面 sidecar 管理（启动 amuxd 时注入绝对路径）。  
+> 2. `teamclu-introspect` **也不拷贝**，由桌面 sidecar 管理（启动 amuxd 时注入绝对路径）。  
 > 3. macOS 关窗口但 App 仍在 Dock — amuxd **继续跑**；仅真正退出 App 时 stop。
 
 ---
@@ -75,7 +75,7 @@
 
 ```text
 ┌─────────────────────────────────────────┐
-│  TeamClaw Desktop (Tauri)               │
+│  TeamClu Desktop (Tauri)               │
 │                                         │
 │  AmuxdSupervisor (Rust, AppState)       │
 │    start: shell.sidecar("amuxd") start  │
@@ -198,7 +198,7 @@ bind/create:
 
 ### 6.5 设置页
 
-- 文案：「后台服务 / 开机启动」→「随 TeamClaw 运行」。
+- 文案：「后台服务 / 开机启动」→「随 TeamClu 运行」。
 - 去掉「安装/修复 LaunchAgent」类按钮；改为「重新启动本机 Agent」。
 
 ---
@@ -211,12 +211,12 @@ bind/create:
 | `amuxd.pid` / `lock` / `sock` / `http.*` | LaunchAgent / systemd unit / 计划任务 |
 | `teams/`、`team-secrets/`、`sessions.toml`… | `ensureBundledAmuxdCurrent` 拷贝 |
 
-可选清理（迁移一次）：若 `bin/amuxd` 或 `bin/teamclaw-introspect` 存在，可删除（不再是真相源）。
+可选清理（迁移一次）：若 `bin/amuxd` 或 `bin/teamclu-introspect` 存在，可删除（不再是真相源）。
 
 **Introspect（已拍板）：** 与 amuxd 一样 **不拷贝**。桌面 `spawn amuxd start` 时设置环境变量，例如：
 
 ```text
-TEAMCLAW_INTROSPECT_BIN=/…/TeamClaw.app/Contents/MacOS/teamclaw-introspect-<triple>
+TEAMCLU_INTROSPECT_BIN=/…/TeamClu.app/Contents/MacOS/teamclu-introspect-<triple>
 ```
 
 daemon `resolve_introspect_binary()` **优先读该 env**，再回退 PATH / 旧 `~/.amuxd/bin` / App bundle 搜索（兼容过渡）。
@@ -289,7 +289,7 @@ Rust：`AmuxdSupervisor` 进 `AppState`，在 `lib.rs` Exit 钩子 shutdown。
 ## 13. 已拍板（2026-07-24）
 
 1. 关 App = agent / 渠道 / cron 离线 — **接受，v1 唯一行为**。  
-2. introspect **不拷贝**，sidecar + `TEAMCLAW_INTROSPECT_BIN` 注入。  
+2. introspect **不拷贝**，sidecar + `TEAMCLU_INTROSPECT_BIN` 注入。  
 3. macOS 关窗口、App 仍在 Dock — amuxd **保持运行**；仅 Exit 时 stop。
 
 下一步：实现计划 → 改代码。

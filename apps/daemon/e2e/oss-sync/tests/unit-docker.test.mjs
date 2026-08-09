@@ -8,7 +8,7 @@ import {
 } from "../harness/docker.mjs";
 
 test("contentRootPath maps to global team dir", () => {
-  assert.equal(contentRootPath("team-x"), "/root/.amuxd/teams/team-x/teamclaw-team");
+  assert.equal(contentRootPath("team-x"), "/root/.amuxd/teams/team-x/teamclu-team");
 });
 test("syncStatePath maps to per-team state", () => {
   assert.equal(syncStatePath("team-x"), "/root/.amuxd/teams/team-x/sync/state.json");

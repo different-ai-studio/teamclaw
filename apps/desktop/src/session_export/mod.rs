@@ -327,7 +327,7 @@ pub fn export_from_rows(
         session_id: session_id.to_string(),
         exported_at: Utc::now().to_rfc3339_opts(SecondsFormat::Millis, true),
         source: SessionExportSource {
-            source_type: "teamclaw_local_cache".to_string(),
+            source_type: "teamclu_local_cache".to_string(),
         },
         messages,
     })

@@ -77,13 +77,13 @@ export function classifyRuntimeFailureReason(reason: string | undefined): Runtim
  * A failure this client caused and recovers from on its own — not a defect, and
  * not something to put in front of the user.
  *
- * `disposeTeamclawRpc()` rejects every in-flight request with `rpc disposed`
+ * `disposeTeamcluRpc()` rejects every in-flight request with `rpc disposed`
  * whenever the MQTT wiring effect re-runs (token refresh, reconnect nonce bump,
  * team switch). A `session_runtime_retry` tick that happened to have a
  * runtimeStart in flight at that moment lands here, and the next tick just
  * re-attempts it. Before this was classified, the only lasting effects were an
  * error-level Sentry event and an error toast for something that was never
- * broken — most of TEAMCLAW-REACT-7W.
+ * broken — most of TEAMCLU-REACT-7W.
  */
 export function isCancelledRuntimeFailure(reason: string | undefined): boolean {
   return classifyRuntimeFailureReason(reason) === 'rpc_disposed'
@@ -160,7 +160,7 @@ export function reportRuntimeRpcNotReady(
   if (!shouldReportThrottled(key, THROTTLE_WINDOW_MS)) return
   capture({
     kind: 'rpc_not_ready',
-    reason: `teamclaw rpc not ready after ${waitedMs}ms`,
+    reason: `teamclu rpc not ready after ${waitedMs}ms`,
     context,
   })
 }

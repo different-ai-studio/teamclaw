@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
-# deploy-daemon-binaries — build amuxd + teamclaw-introspect from the current
-# checkout and overwrite ~/.amuxd/bin/{amuxd,teamclaw-introspect}, then reload
+# deploy-daemon-binaries — build amuxd + teamclu-introspect from the current
+# checkout and overwrite ~/.amuxd/bin/{amuxd,teamclu-introspect}, then reload
 # the user service (launchd / systemd).
 #
 # Uses .cargo-target/ (same as pnpm rust:build / dev:daemon), not target/.
@@ -44,12 +44,12 @@ done
 
 case "$(uname -s)" in MINGW*|MSYS*|CYGWIN*)
   AMUXD_NAME="amuxd.exe"
-  INTROSPECT_NAME="teamclaw-introspect.exe"
+  INTROSPECT_NAME="teamclu-introspect.exe"
   SIDE_EXT=".exe"
   ;;
 *)
   AMUXD_NAME="amuxd"
-  INTROSPECT_NAME="teamclaw-introspect"
+  INTROSPECT_NAME="teamclu-introspect"
   SIDE_EXT=""
   ;;
 esac
@@ -60,7 +60,7 @@ SRC_INTROSPECT="${CARGO_TARGET_DIR}/${PROFILE}/${INTROSPECT_NAME}"
 DEST_AMUXD="${BIN_DIR}/${AMUXD_NAME}"
 DEST_INTROSPECT="${BIN_DIR}/${INTROSPECT_NAME}"
 SIDECAR_AMUXD="${ROOT_DIR}/apps/desktop/binaries/amuxd-${TARGET}${SIDE_EXT}"
-SIDECAR_INTROSPECT="${ROOT_DIR}/apps/desktop/binaries/teamclaw-introspect-${TARGET}${SIDE_EXT}"
+SIDECAR_INTROSPECT="${ROOT_DIR}/apps/desktop/binaries/teamclu-introspect-${TARGET}${SIDE_EXT}"
 
 GIT_SHA="$(git -C "${ROOT_DIR}" rev-parse --short HEAD 2>/dev/null || echo unknown)"
 GIT_BRANCH="$(git -C "${ROOT_DIR}" rev-parse --abbrev-ref HEAD 2>/dev/null || echo unknown)"
@@ -94,13 +94,13 @@ refresh_sidecar() {
 
 # ── 1. build ────────────────────────────────────────────────────────────────
 if [[ "${SKIP_BUILD}" -eq 0 ]]; then
-  say "building amuxd + teamclaw-introspect (${PROFILE}) from ${GIT_BRANCH}@${GIT_SHA}${GIT_DIRTY}"
+  say "building amuxd + teamclu-introspect (${PROFILE}) from ${GIT_BRANCH}@${GIT_SHA}${GIT_DIRTY}"
   RELEASE_FLAG=()
   if [[ "${PROFILE}" == "release" ]]; then
     RELEASE_FLAG=(--release)
   fi
   cargo build -p amuxd "${RELEASE_FLAG[@]}"
-  cargo build --manifest-path apps/desktop/Cargo.toml -p teamclaw-introspect "${RELEASE_FLAG[@]}"
+  cargo build --manifest-path apps/desktop/Cargo.toml -p teamclu-introspect "${RELEASE_FLAG[@]}"
 fi
 
 # ── 2. detect platform service manager ──────────────────────────────────────
@@ -177,13 +177,13 @@ fi
 
 # ── 4. report ───────────────────────────────────────────────────────────────
 echo
-say "deployed amuxd + teamclaw-introspect  (${GIT_BRANCH}@${GIT_SHA}${GIT_DIRTY}, ${PROFILE})"
+say "deployed amuxd + teamclu-introspect  (${GIT_BRANCH}@${GIT_SHA}${GIT_DIRTY}, ${PROFILE})"
 for dest in "${DEST_AMUXD}" "${DEST_INTROSPECT}"; do
   stat -f "  %N : %Sm  %z bytes" -t "%Y-%m-%d %H:%M:%S" "${dest}" 2>/dev/null \
     || stat -c "  %n : %y  %s bytes" "${dest}" 2>/dev/null || true
 done
 if [[ "${NO_SIDECAR}" -eq 0 && -n "${TARGET}" ]]; then
-  echo "  sidecars: apps/desktop/binaries/{amuxd,teamclaw-introspect}-${TARGET}${SIDE_EXT}"
+  echo "  sidecars: apps/desktop/binaries/{amuxd,teamclu-introspect}-${TARGET}${SIDE_EXT}"
 fi
 if [[ "${NO_RELOAD}" -eq 0 && "${OS}" == "Darwin" ]]; then
   PID="$(launchctl print "gui/${UID_NUM}/${LABEL}" 2>/dev/null | awk -F'= ' '/[^a-z]pid =/{print $2; exit}')"

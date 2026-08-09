@@ -19,7 +19,7 @@ public struct MemberListContent: View {
     let pairing: PairingManager
     let mqtt: MQTTService
     let sessionViewModel: SessionListViewModel
-    let teamclawService: TeamclawService?
+    let teamcluService: TeamcluService?
     /// Actor id of the signed-in user. Drives the "YOU" badge on their row.
     /// `nil` hides the badge.
     let currentActorID: String?
@@ -35,7 +35,7 @@ public struct MemberListContent: View {
         pairing: PairingManager,
         mqtt: MQTTService,
         sessionViewModel: SessionListViewModel,
-        teamclawService: TeamclawService?,
+        teamcluService: TeamcluService?,
         currentActorID: String? = nil,
         connectedAgentsStore: ConnectedAgentsStore? = nil,
         onAddYourAgent: (() -> Void)? = nil
@@ -44,7 +44,7 @@ public struct MemberListContent: View {
         self.pairing = pairing
         self.mqtt = mqtt
         self.sessionViewModel = sessionViewModel
-        self.teamclawService = teamclawService
+        self.teamcluService = teamcluService
         self.currentActorID = currentActorID
         self.connectedAgentsStore = connectedAgentsStore
         self.onAddYourAgent = onAddYourAgent
@@ -437,7 +437,7 @@ struct ActorDetailView: View {
     let mqtt: MQTTService
     let sessionViewModel: SessionListViewModel
     let store: ActorStore
-    let teamclawService: TeamclawService?
+    let teamcluService: TeamcluService?
     let connectedAgentsStore: ConnectedAgentsStore?
     var workspacesRepository: (any WorkspaceRepository)?
     var agentAccessRepository: (any AgentAccessRepository)?
@@ -866,8 +866,8 @@ struct ActorDetailView: View {
             workspaceErrorMessage = "MQTT is not connected."
             return
         }
-        guard let teamclawService else {
-            workspaceErrorMessage = "TeamclawService unavailable."
+        guard let teamcluService else {
+            workspaceErrorMessage = "TeamcluService unavailable."
             return
         }
 
@@ -876,7 +876,7 @@ struct ActorDetailView: View {
 
         let target = routeActorID
         Task {
-            let (ok, err) = await teamclawService.addWorkspaceRpc(targetActorID: target, path: path)
+            let (ok, err) = await teamcluService.addWorkspaceRpc(targetActorID: target, path: path)
             await MainActor.run {
                 isAddingWorkspace = false
                 if ok {
@@ -1592,7 +1592,7 @@ private struct AuthorizedMemberPickerSheet: View {
 
 #else
 struct MemberListContent: View {
-    init(store: ActorStore, pairing: PairingManager, mqtt: MQTTService, sessionViewModel: SessionListViewModel, teamclawService: TeamclawService?) {}
+    init(store: ActorStore, pairing: PairingManager, mqtt: MQTTService, sessionViewModel: SessionListViewModel, teamcluService: TeamcluService?) {}
     var body: some View { ContentUnavailableView("Actors", systemImage: "person.2") }
 }
 #endif

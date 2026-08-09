@@ -54,14 +54,14 @@ impl CronStorage {
     /// Get the jobs file path
     fn jobs_path(workspace: &str) -> PathBuf {
         PathBuf::from(workspace)
-            .join(crate::commands::TEAMCLAW_DIR)
+            .join(crate::commands::TEAMCLU_DIR)
             .join("cron-jobs.json")
     }
 
     /// Get the runs directory path
     fn runs_dir(workspace: &str) -> PathBuf {
         PathBuf::from(workspace)
-            .join(crate::commands::TEAMCLAW_DIR)
+            .join(crate::commands::TEAMCLU_DIR)
             .join("cron-runs")
     }
 
@@ -159,7 +159,7 @@ impl CronStorage {
     }
 
     /// Reload jobs from disk so changes made by external tools (such as the
-    /// teamclaw-introspect MCP sidecar) become visible to the UI and scheduler.
+    /// teamclu-introspect MCP sidecar) become visible to the UI and scheduler.
     async fn reload_jobs_from_disk(&self) {
         // Serialize against mutations: never replace in-memory state from disk
         // while a mutation has updated memory but not yet finished persisting.

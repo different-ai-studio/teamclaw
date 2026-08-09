@@ -3,7 +3,7 @@ import path from "node:path";
 import { pathToFileURL } from "node:url";
 import { readAppName } from "./lib/read-app-name.mjs";
 
-const REPO = "different-ai-studio/teamclaw";
+const REPO = "different-ai-studio/teamclu";
 
 export function renderDesktopReleaseBody({
   appName = readAppName(),

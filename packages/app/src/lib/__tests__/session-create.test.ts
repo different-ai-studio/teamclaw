@@ -35,7 +35,7 @@ vi.mock('@/lib/daemon-agent-admin', () => ({
   getLocalDaemonActorId: (...args: unknown[]) => daemonAdminMocks.getLocalDaemonActorId(...args),
 }))
 
-vi.mock('@/lib/teamclaw-rpc', () => ({
+vi.mock('@/lib/teamclu-rpc', () => ({
   runtimeStart: (...args: unknown[]) => mockRuntimeStart(...args),
   setModel: (...args: unknown[]) => mockSetModel(...args),
 }))
@@ -315,13 +315,13 @@ describe('startAgentRuntimesAsync', () => {
     backendMocks.listAgentDefaults.mockResolvedValue([
       { id: 'agent-7', agent_types: [], default_agent_type: null },
     ])
-    workspaceStoreMocks.workspacePath = '/Users/me/TeamClaw'
+    workspaceStoreMocks.workspacePath = '/Users/me/TeamClu'
     backendMocks.createDaemonWorkspace.mockResolvedValue({
       id: 'ws-created',
       team_id: 'team-1',
       agent_id: 'agent-7',
-      name: 'TeamClaw',
-      path: '/Users/me/TeamClaw',
+      name: 'TeamClu',
+      path: '/Users/me/TeamClu',
       archived: false,
       created_at: '',
       updated_at: '',
@@ -338,7 +338,7 @@ describe('startAgentRuntimesAsync', () => {
       expect.objectContaining({
         teamId: 'team-1',
         agentId: 'agent-7',
-        path: '/Users/me/TeamClaw',
+        path: '/Users/me/TeamClu',
       }),
     )
     expect(mockRuntimeStart).toHaveBeenCalledWith(

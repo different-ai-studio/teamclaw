@@ -61,7 +61,7 @@ impl PtyHandle {
         cmd.cwd(&args.cwd);
         cmd.env("TERM", "xterm-256color");
         cmd.env("COLORTERM", "truecolor");
-        cmd.env("TEAMCLAW_TERMINAL", "1");
+        cmd.env("TEAMCLU_TERMINAL", "1");
 
         let child = pair
             .slave
@@ -219,7 +219,7 @@ fn configure_shell_command(cmd: &mut CommandBuilder, shell: &str) {
             if let Some(dir) = shell_integration::ensure_dir() {
                 if let Ok(orig) = std::env::var("ZDOTDIR") {
                     if !orig.is_empty() {
-                        cmd.env("TEAMCLAW_USER_ZDOTDIR", orig);
+                        cmd.env("TEAMCLU_USER_ZDOTDIR", orig);
                     }
                 }
                 cmd.env("ZDOTDIR", dir);

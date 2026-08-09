@@ -1,7 +1,7 @@
 import { beforeEach, describe, expect, it } from "vitest";
 import { loadPinnedSessionIds, savePinnedSessionIds } from "../session-pins";
 
-const STORAGE_KEY = "teamclaw-pinned-sessions";
+const STORAGE_KEY = "teamclu-pinned-sessions";
 
 describe("session-pins (team-scoped)", () => {
   beforeEach(() => {
@@ -18,7 +18,7 @@ describe("session-pins (team-scoped)", () => {
     localStorage.setItem(
       STORAGE_KEY,
       JSON.stringify({
-        "/Users/dev/TeamClaw": ["s-pin"],
+        "/Users/dev/TeamClu": ["s-pin"],
         "/Users/dev/other-ws": ["s-other"],
         __legacy__: ["s-legacy"],
       }),
@@ -32,7 +32,7 @@ describe("session-pins (team-scoped)", () => {
       string[]
     >;
     expect(stored["team-a"].sort()).toEqual(["s-legacy", "s-other", "s-pin"].sort());
-    expect(stored["/Users/dev/TeamClaw"]).toBeUndefined();
+    expect(stored["/Users/dev/TeamClu"]).toBeUndefined();
     expect(stored.__legacy__).toBeUndefined();
   });
 

@@ -4,7 +4,7 @@ use std::sync::Arc;
 use tauri::State;
 use tokio::sync::Mutex;
 
-use teamclaw_rag::{
+use teamclu_rag::{
     bm25::BM25Index, config::RagConfig, db::DocumentRecord, embedding, indexer::Indexer,
     search::SearchResponse, watcher::KnowledgeWatcher, Database, IndexResult,
 };
@@ -62,11 +62,11 @@ impl RagState {
         // Create new instance
         tracing::info!("[RAG] Creating instance for workspace: {}", workspace_path);
         let workspace_path_buf = PathBuf::from(workspace_path);
-        let config = RagConfig::load_from_workspace(&workspace_path_buf, super::TEAMCLAW_DIR)
+        let config = RagConfig::load_from_workspace(&workspace_path_buf, super::TEAMCLU_DIR)
             .await
             .map_err(|e| format!("Failed to load config: {}", e))?;
 
-        let db_path = config.db_path(&workspace_path_buf, super::TEAMCLAW_DIR);
+        let db_path = config.db_path(&workspace_path_buf, super::TEAMCLU_DIR);
         let db = Database::new(&db_path)
             .await
             .map_err(|e| format!("Failed to create database: {}", e))?;
@@ -77,7 +77,7 @@ impl RagState {
         let embedding_provider = embedding::create_provider(&config)
             .map_err(|e| format!("Failed to create embedding provider: {}", e))?;
 
-        let bm25_index_path = config.bm25_index_path(&workspace_path_buf, super::TEAMCLAW_DIR);
+        let bm25_index_path = config.bm25_index_path(&workspace_path_buf, super::TEAMCLU_DIR);
         let bm25_index = BM25Index::new(&bm25_index_path).ok();
         if bm25_index.is_none() {
             eprintln!("Warning: Failed to initialize BM25 index");
@@ -134,11 +134,11 @@ pub async fn rag_index(
     if force.unwrap_or(false) && path.is_none() {
         // Force reindex: delete BM25 index directory and recreate instance
         let workspace_path_buf = PathBuf::from(&workspace_path);
-        let config = RagConfig::load_from_workspace(&workspace_path_buf, super::TEAMCLAW_DIR)
+        let config = RagConfig::load_from_workspace(&workspace_path_buf, super::TEAMCLU_DIR)
             .await
             .map_err(|e| format!("Failed to load config: {}", e))?;
 
-        let bm25_path = config.bm25_index_path(&workspace_path_buf, super::TEAMCLAW_DIR);
+        let bm25_path = config.bm25_index_path(&workspace_path_buf, super::TEAMCLU_DIR);
         if bm25_path.exists() {
             if let Err(e) = std::fs::remove_dir_all(&bm25_path) {
                 eprintln!("Warning: Failed to remove old BM25 index: {}", e);
@@ -228,16 +228,16 @@ pub async fn rag_search(
     let instance = instance.lock().await;
 
     let top_k = top_k.unwrap_or(5);
-    let mode = teamclaw_rag::hybrid_search::SearchMode::parse_or_hybrid(
+    let mode = teamclu_rag::hybrid_search::SearchMode::parse_or_hybrid(
         search_mode.as_deref().unwrap_or("hybrid"),
     );
 
-    teamclaw_rag::search::search(
+    teamclu_rag::search::search(
         &instance.db,
         &instance.embedding,
         instance.bm25_index.as_ref(),
         &instance.config,
-        teamclaw_rag::search::SearchParams {
+        teamclu_rag::search::SearchParams {
             query: &query,
             top_k,
             mode,
@@ -314,7 +314,7 @@ pub async fn rag_save_config(
 ) -> Result<(), String> {
     let workspace_path_buf = PathBuf::from(&workspace_path);
     config
-        .save_to_workspace(&workspace_path_buf, super::TEAMCLAW_DIR)
+        .save_to_workspace(&workspace_path_buf, super::TEAMCLU_DIR)
         .await
         .map_err(|e| format!("Failed to save config: {}", e))?;
 
@@ -330,7 +330,7 @@ pub async fn rag_save_config(
 
 /// (Re)arm the knowledge file watcher. Returns `true` when every configured
 /// knowledge directory is being watched, `false` when some did not exist yet
-/// (e.g. a team `knowledge/` whose `teamclaw-team` symlink target isn't cloned
+/// (e.g. a team `knowledge/` whose `teamclu-team` symlink target isn't cloned
 /// yet). The caller polls with a bounded retry and stops once this returns
 /// `true`. Each call rebuilds the watcher against the directories that exist
 /// right now, so a retry after the missing dirs materialize picks them up.

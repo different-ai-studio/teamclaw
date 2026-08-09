@@ -173,19 +173,19 @@ test("pg-repo [workspaces]: upsertWorkspace disambiguates name when same agent a
   await repo.upsertWorkspace({
     teamId: T1,
     agentId,
-    name: "teamclaw",
-    path: "/Users/me/code/teamclaw",
+    name: "teamclu",
+    path: "/Users/me/code/teamclu",
   });
 
   const second = await repo.upsertWorkspace({
     teamId: T1,
     agentId,
-    name: "teamclaw",
-    path: "/Users/me/other/teamclaw",
+    name: "teamclu",
+    path: "/Users/me/other/teamclu",
   });
 
-  assert.equal(second.name, "teamclaw (2)");
-  assert.equal(second.slug, "/Users/me/other/teamclaw");
+  assert.equal(second.name, "teamclu (2)");
+  assert.equal(second.slug, "/Users/me/other/teamclu");
 
   const count = await pg.query(
     "SELECT count(*)::int AS n FROM workspaces WHERE team_id = $1 AND agent_id = $2",
@@ -318,14 +318,14 @@ test("pg-repo [workspaces]: listWorkspaces carries path and agentId so clients c
   await repo.upsertWorkspace({
     teamId: T1,
     agentId: AGENT,
-    name: "teamclaw",
-    path: "/Users/me/code/teamclaw",
+    name: "teamclu",
+    path: "/Users/me/code/teamclu",
   });
 
   const { items } = await repo.listWorkspaces({ teamId: T1, limit: 50, cursor: null, agentId: AGENT });
   assert.equal(items.length, 1);
-  assert.equal(items[0].path, "/Users/me/code/teamclaw");
-  assert.equal(items[0].slug, "/Users/me/code/teamclaw");
+  assert.equal(items[0].path, "/Users/me/code/teamclu");
+  assert.equal(items[0].slug, "/Users/me/code/teamclu");
   assert.equal(items[0].agentId, AGENT);
 });
 

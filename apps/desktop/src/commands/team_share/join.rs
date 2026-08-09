@@ -6,9 +6,9 @@
 //! has already enabled a share mode.
 //!
 //! The team shared directory is created and linked by the daemon (a
-//! `teamclaw-team` symlink to the team's single global copy); joining no longer
+//! `teamclu-team` symlink to the team's single global copy); joining no longer
 //! creates a per-workspace real dir, and team identifiers are not persisted to
-//! `teamclaw.json` (single source of truth = the Cloud API current-team store).
+//! `teamclu.json` (single source of truth = the Cloud API current-team store).
 //!
 //! Per spec: the joiner enters their own team secret manually afterwards via
 //! `team_share_set_team_secret`. For git modes the daemon owns the clone — the
@@ -54,7 +54,7 @@ pub async fn team_share_join_existing_impl(
     }
 
     // The team shared dir is created and linked by the daemon (one global copy
-    // per team, exposed via a `teamclaw-team` symlink). Joining no longer
+    // per team, exposed via a `teamclu-team` symlink). Joining no longer
     // eagerly creates a per-workspace real directory; the daemon's sweep links
     // it (and consolidates any legacy real dir into the global copy). Trigger
     // the link now so the symlink appears immediately. The joiner's team secret
@@ -66,7 +66,7 @@ pub async fn team_share_join_existing_impl(
     }
 
     // NOTE: team_id / share_mode / git_remote_url / litellm_team_id are NOT
-    // written to teamclaw.json anymore. They duplicated the Cloud API (teams /
+    // written to teamclu.json anymore. They duplicated the Cloud API (teams /
     // workspace-config) and drifted from the active team; the single source of
     // truth is the current-team store (OSS sync takes team_id from there).
 

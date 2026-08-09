@@ -73,7 +73,7 @@ export async function sendOtpEmail({
   await transporter.sendMail({
     from,
     to: email,
-    subject: `Your TeamClaw verification code: ${otp}`,
+    subject: `Your TeamClu verification code: ${otp}`,
     text: `Your verification code to ${actionLabel} is: ${otp}\n\nThis code expires in 10 minutes.`,
     html: `<p>Your verification code to <strong>${actionLabel}</strong> is:</p>
 <h2 style="letter-spacing:4px">${otp}</h2>

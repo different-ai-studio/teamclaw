@@ -10,7 +10,7 @@ export default function App() {
         justifyContent: "center",
       }}
     >
-      <Text style={{ color: "#1a1a14", fontSize: 16 }}>TeamClaw Expo</Text>
+      <Text style={{ color: "#1a1a14", fontSize: 16 }}>TeamClu Expo</Text>
     </View>
   );
 }

@@ -230,7 +230,7 @@ pub fn translate_event(
 /// Options for a pi confirm dialog surfaced as a permission request. Same wire
 /// vocabulary as the opencode backend (`allow_once` / `allow_always` /
 /// `reject_once`); `allow_always` is offered only when the dialog text
-/// indicates an "always" option exists (the TeamClaw pi extension remembers
+/// indicates an "always" option exists (the TeamClu pi extension remembers
 /// always-grants on its side).
 pub fn permission_options(offers_always: bool) -> Vec<amux::AcpPermissionOption> {
     let mut options = vec![amux::AcpPermissionOption {
@@ -253,10 +253,10 @@ pub fn permission_options(offers_always: bool) -> Vec<amux::AcpPermissionOption>
     options
 }
 
-/// Machine-readable trailer the TeamClaw pi extension appends to confirm
-/// messages: `teamclaw.always-pattern=<pattern>`. The daemon persists the
+/// Machine-readable trailer the TeamClu pi extension appends to confirm
+/// messages: `teamclu.always-pattern=<pattern>`. The daemon persists the
 /// pattern to the session's rules file when the host approves with "always".
-pub const ALWAYS_PATTERN_MARKER: &str = "teamclaw.always-pattern=";
+pub const ALWAYS_PATTERN_MARKER: &str = "teamclu.always-pattern=";
 
 /// Extract the "always allow" pattern from a confirm message, if present.
 pub fn extract_always_pattern(message: &str) -> Option<String> {
@@ -511,14 +511,14 @@ mod tests {
     #[test]
     fn always_pattern_extracted_and_stripped_from_display() {
         assert_eq!(
-            extract_always_pattern("{\"command\":\"ls -la\"}\n\nteamclaw.always-pattern=ls *"),
+            extract_always_pattern("{\"command\":\"ls -la\"}\n\nteamclu.always-pattern=ls *"),
             Some("ls *".to_string())
         );
         assert_eq!(extract_always_pattern("no marker here"), None);
-        assert_eq!(extract_always_pattern("teamclaw.always-pattern="), None);
+        assert_eq!(extract_always_pattern("teamclu.always-pattern="), None);
 
         let event: serde_json::Value = serde_json::from_str(
-            r#"{"type":"extension_ui_request","id":"ui_3","method":"confirm","title":"bash: ls -la","message":"{\"command\":\"ls -la\"}\n\nteamclaw.always-pattern=ls *"}"#,
+            r#"{"type":"extension_ui_request","id":"ui_3","method":"confirm","title":"bash: ls -la","message":"{\"command\":\"ls -la\"}\n\nteamclu.always-pattern=ls *"}"#,
         )
         .unwrap();
         let e = permission_request_event(&event, None);

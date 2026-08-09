@@ -10,8 +10,8 @@ const CURSOR_BRIDGE_REL: &str = "cursor-bridge/src/main.mjs";
 const CLAUDE_BRIDGE_REL: &str = "claude-bridge/src/main.mjs";
 
 /// Env override injected by the desktop supervisor when spawning amuxd.
-pub const CURSOR_BRIDGE_MAIN_ENV: &str = "TEAMCLAW_CURSOR_BRIDGE_MAIN";
-pub const CLAUDE_BRIDGE_MAIN_ENV: &str = "TEAMCLAW_CLAUDE_BRIDGE_MAIN";
+pub const CURSOR_BRIDGE_MAIN_ENV: &str = "TEAMCLU_CURSOR_BRIDGE_MAIN";
+pub const CLAUDE_BRIDGE_MAIN_ENV: &str = "TEAMCLU_CLAUDE_BRIDGE_MAIN";
 
 fn env_override(env_key: &str) -> Option<PathBuf> {
     std::env::var(env_key)
@@ -45,7 +45,7 @@ pub fn bundled_bridge_candidates(relative: &str) -> Vec<PathBuf> {
                         &mut out,
                         parent
                             .join("share")
-                            .join("teamclaw")
+                            .join("teamclu")
                             .join(bridge_dir)
                             .join(relative.split('/').skip(1).collect::<Vec<_>>().join("/")),
                     );

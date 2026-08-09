@@ -29,10 +29,10 @@ describe('GitHistoryProvider', () => {
     }))
     logFile.mockResolvedValue(full)
 
-    const p = new GitHistoryProvider('/ws/teamclaw-team', 'knowledge/a.md', '/ws/teamclaw-team/knowledge/a.md')
+    const p = new GitHistoryProvider('/ws/teamclu-team', 'knowledge/a.md', '/ws/teamclu-team/knowledge/a.md')
     const page = await p.list(null)
 
-    expect(logFile).toHaveBeenCalledWith('/ws/teamclaw-team', 'knowledge/a.md', 50, 0)
+    expect(logFile).toHaveBeenCalledWith('/ws/teamclu-team', 'knowledge/a.md', 50, 0)
     expect(page.entries[0]).toEqual({
       ref: 'sha0',
       parentRef: 'sha1',

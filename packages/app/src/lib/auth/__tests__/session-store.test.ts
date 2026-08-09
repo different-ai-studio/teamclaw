@@ -35,14 +35,14 @@ describe("session-store", () => {
     const s = makeSession();
     setSession(s);
     expect(getSession()).toEqual(s);
-    expect(JSON.parse(window.localStorage.getItem("teamclaw.session.v1")!)).toEqual(s);
+    expect(JSON.parse(window.localStorage.getItem("teamclu.session.v1")!)).toEqual(s);
   });
 
   it("setSession(null) clears the persisted session", () => {
     setSession(makeSession());
     setSession(null);
     expect(getSession()).toBeNull();
-    expect(window.localStorage.getItem("teamclaw.session.v1")).toBeNull();
+    expect(window.localStorage.getItem("teamclu.session.v1")).toBeNull();
   });
 
   it("subscribe receives change events", () => {
@@ -138,7 +138,7 @@ describe("session-store", () => {
     expect(getSession()?.access_token).toBe("atk-new-identity");
   });
 
-  it("migrates legacy supabase-js auth-token into teamclaw.session.v1 and clears sb-* keys", () => {
+  it("migrates legacy supabase-js auth-token into teamclu.session.v1 and clears sb-* keys", () => {
     const legacy = {
       access_token: "legacy-atk",
       refresh_token: "legacy-rtk",
@@ -155,12 +155,28 @@ describe("session-store", () => {
     expect(out?.refresh_token).toBe("legacy-rtk");
     expect(out?.user.id).toBe("legacy-user");
     // new key populated
-    const stored = window.localStorage.getItem("teamclaw.session.v1");
+    const stored = window.localStorage.getItem("teamclu.session.v1");
     expect(stored).not.toBeNull();
     expect(JSON.parse(stored!).access_token).toBe("legacy-atk");
     // legacy keys removed
     expect(window.localStorage.getItem("sb-abcdef-auth-token")).toBeNull();
     expect(window.localStorage.getItem("sb-abcdef-provider-token")).toBeNull();
+  });
+
+  it("re-keys a pre-rebrand teamclaw.session.v1 session instead of signing out", () => {
+    const legacy = makeSession();
+    window.localStorage.setItem("teamclaw.session.v1", JSON.stringify(legacy));
+
+    const out = getSession();
+    expect(out).toEqual(legacy);
+    expect(JSON.parse(window.localStorage.getItem("teamclu.session.v1")!)).toEqual(legacy);
+    expect(window.localStorage.getItem("teamclaw.session.v1")).toBeNull();
+  });
+
+  it("drops a malformed pre-rebrand session without throwing", () => {
+    window.localStorage.setItem("teamclaw.session.v1", "not json");
+    expect(getSession()).toBeNull();
+    expect(window.localStorage.getItem("teamclu.session.v1")).toBeNull();
   });
 
   it("clears malformed legacy supabase-js data and returns signed-out", () => {
@@ -170,7 +186,7 @@ describe("session-store", () => {
     expect(out).toBeNull();
     expect(window.localStorage.getItem("sb-bad-auth-token")).toBeNull();
     expect(window.localStorage.getItem("sb-bad-provider-token")).toBeNull();
-    expect(window.localStorage.getItem("teamclaw.session.v1")).toBeNull();
+    expect(window.localStorage.getItem("teamclu.session.v1")).toBeNull();
   });
 
   it("auto-refresh fires shortly before expires_at", async () => {

@@ -32,8 +32,8 @@ import { SettingCard, SectionHeader, ToggleSwitch } from './shared'
 import { AddMCPDialog } from './AddMCPDialog'
 import type { DaemonLocalAgent } from '@/lib/daemon-local-client'
 
-// MCP names that are always auto-injected by TeamClaw and cannot be deleted
-const INHERENT_MCP_NAMES = new Set(['playwright', 'chrome-control', 'autoui', 'teamclaw-introspect'])
+// MCP names that are always auto-injected by TeamClu and cannot be deleted
+const INHERENT_MCP_NAMES = new Set(['playwright', 'chrome-control', 'autoui', 'teamclu-introspect'])
 
 type McpEntrySource = 'inherent' | 'team' | 'workspace'
 
@@ -335,7 +335,7 @@ export const MCPSection = React.memo(function MCPSection() {
   const [editingServer, setEditingServer] = React.useState<{ name: string; config: MCPServerConfig } | null>(null)
   const [deleteConfirm, setDeleteConfirm] = React.useState<string | null>(null)
   // The local runtime determines how these servers are consumed: opencode reads
-  // opencode.json natively; pi has no native MCP, so the TeamClaw extension
+  // opencode.json natively; pi has no native MCP, so the TeamClu extension
   // spawns each enabled local server and proxies its tools.
   const [localAgent, setLocalAgent] = React.useState<DaemonLocalAgent>('opencode')
   React.useEffect(() => {
@@ -403,7 +403,7 @@ export const MCPSection = React.memo(function MCPSection() {
         <span className="text-faint">·</span>
         <span className="text-muted-foreground">
           {localAgent === 'pi'
-            ? t('settings.mcp.piBridgeNote', 'pi 无原生 MCP，已启用的本地 server 由 TeamClaw 扩展桥接为 pi 工具')
+            ? t('settings.mcp.piBridgeNote', 'pi 无原生 MCP，已启用的本地 server 由 TeamClu 扩展桥接为 pi 工具')
             : localAgent === 'cursor'
               ? t('settings.mcp.cursorBridgeNote', 'Cursor SDK 第一版尚未桥接 workspace MCP')
               : localAgent === 'claude-code'
@@ -463,7 +463,7 @@ export const MCPSection = React.memo(function MCPSection() {
           <h4 className="font-medium mb-4 flex items-center gap-2">
             <Shield className="h-4 w-4 text-blue-500" />
             {t('settings.mcp.inherentMCP')}
-            <span className="text-xs font-normal text-muted-foreground ml-auto">{t('settings.mcp.managedByTeamClaw', { defaultValue: 'Managed by {{appName}}', appName: appDisplayName })}</span>
+            <span className="text-xs font-normal text-muted-foreground ml-auto">{t('settings.mcp.managedByTeamClu', { defaultValue: 'Managed by {{appName}}', appName: appDisplayName })}</span>
           </h4>
           <div className="space-y-3">
             {inherentEntries.map(([name, config]) => {

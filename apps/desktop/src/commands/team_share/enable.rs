@@ -9,10 +9,10 @@
 //!      (for git modes) the `gitConfig` payload.
 //!
 //! The team shared directory is created and linked by the daemon (one global
-//! copy per team under `~/.amuxd/teams/<team_id>/teamclaw-team`, exposed via a
-//! `teamclaw-team` symlink in each workspace); these commands no longer create
+//! copy per team under `~/.amuxd/teams/<team_id>/teamclu-team`, exposed via a
+//! `teamclu-team` symlink in each workspace); these commands no longer create
 //! a per-workspace real dir. Team identifiers (team_id / share_mode / git URL)
-//! are NOT persisted to `teamclaw.json` — the single source of truth is the
+//! are NOT persisted to `teamclu.json` — the single source of truth is the
 //! Cloud API current-team store.
 
 use serde::{Deserialize, Serialize};
@@ -143,8 +143,8 @@ fn resolve_team_secret_hex(
 }
 
 /// The team shared directory is now created and linked by the daemon
-/// (one global copy per team under `~/.amuxd/teams/<team_id>/teamclaw-team`,
-/// exposed via a `teamclaw-team` symlink in each workspace). Desktop no longer
+/// (one global copy per team under `~/.amuxd/teams/<team_id>/teamclu-team`,
+/// exposed via a `teamclu-team` symlink in each workspace). Desktop no longer
 /// eagerly creates a per-workspace real directory here; if a real dir is
 /// created later (git clone / OSS engine first write), the daemon consolidates
 /// it into the global copy and replaces it with a symlink. Kept as a no-op so
@@ -535,7 +535,7 @@ pub async fn team_share_get_team_secret(
 
 // ─── get_share_status ────────────────────────────────────────────────────
 
-/// What the workspace `teamclaw-team` entry currently is:
+/// What the workspace `teamclu-team` entry currently is:
 /// `"symlink"` (linked to the daemon's global copy — a Windows junction also
 /// reports as a symlink to symlink_metadata), `"real_dir"` (legacy local dir,
 /// awaiting daemon consolidation), or `"missing"` (not linked yet).
@@ -548,7 +548,7 @@ pub(crate) fn detect_link_status(workspace_path: &str) -> &'static str {
     }
 }
 
-/// `~/.amuxd/teams/<team_id>/teamclaw-team` — the daemon's global copy path,
+/// `~/.amuxd/teams/<team_id>/teamclu-team` — the daemon's global copy path,
 /// shown in the UI so users can see where synced content actually lives.
 pub(crate) fn global_team_dir_display(team_id: &str) -> Option<String> {
     Some(
@@ -598,21 +598,21 @@ pub async fn team_share_get_status(
 // ─── team_sync_paths ───────────────────────────────────────────────────────
 //
 // Surfaces, for the settings UI, *where team content physically lives* and
-// *every `teamclaw-team` symlink that points at it*. All three share modes
+// *every `teamclu-team` symlink that points at it*. All three share modes
 // (oss / managed_git / custom_git) converge on the same topology: one real
-// directory per team at `~/.amuxd/teams/<team_id>/teamclaw-team` (the daemon's
-// global copy; git modes clone into it), with a `teamclaw-team` symlink in each
+// directory per team at `~/.amuxd/teams/<team_id>/teamclu-team` (the daemon's
+// global copy; git modes clone into it), with a `teamclu-team` symlink in each
 // workspace that joined the team. The list of workspaces comes from the Cloud
 // API (`GET /v1/workspaces?teamId=...`, the single source of truth for a
 // team's workspaces), filtered to paths that exist on this machine.
 
-/// One workspace's `teamclaw-team` entry, for the settings UI.
+/// One workspace's `teamclu-team` entry, for the settings UI.
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct WorkspaceLinkInfo {
     pub workspace_path: String,
     pub display_name: String,
-    /// `<workspace_path>/teamclaw-team` — the symlink (or legacy local dir).
+    /// `<workspace_path>/teamclu-team` — the symlink (or legacy local dir).
     pub link_path: String,
     /// `"symlink"` | `"real_dir"` | `"missing"` (see `detect_link_status`).
     pub status: String,
@@ -623,12 +623,12 @@ pub struct WorkspaceLinkInfo {
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct TeamSyncPaths {
-    /// `~/.amuxd/teams/<team_id>/teamclaw-team` — the single real copy.
+    /// `~/.amuxd/teams/<team_id>/teamclu-team` — the single real copy.
     pub real_dir: Option<String>,
     /// Whether that real directory currently exists on disk.
     pub real_dir_exists: bool,
     /// The current workspace plus every workspace bound to this team in the
-    /// daemon registry, each with its `teamclaw-team` link status.
+    /// daemon registry, each with its `teamclu-team` link status.
     pub links: Vec<WorkspaceLinkInfo>,
 }
 
@@ -913,7 +913,7 @@ mod link_status_tests {
         let out = team_sync_paths_impl("team-xyz".into(), ws_path.clone(), None, None).await;
 
         // Current workspace is always present and flagged, even when it isn't
-        // team-bound in the cloud list yet. With no teamclaw-team entry on
+        // team-bound in the cloud list yet. With no teamclu-team entry on
         // disk → "missing".
         let current: Vec<_> = out.links.iter().filter(|l| l.is_current).collect();
         assert_eq!(current.len(), 1);

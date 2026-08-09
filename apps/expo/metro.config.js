@@ -1,9 +1,9 @@
 // Metro config tuned for our pnpm monorepo layout.
 //
-// `@teamclaw/app` declares react@^19.2.6 in its own dependencies. pnpm
+// `@teamclu/app` declares react@^19.2.6 in its own dependencies. pnpm
 // honours that by symlinking a second React copy into the workspace.
-// When `apps/expo` imports from `@teamclaw/app/proto/...`, Metro walks
-// `@teamclaw/app`'s dep graph and resolves a different React copy than
+// When `apps/expo` imports from `@teamclu/app/proto/...`, Metro walks
+// `@teamclu/app`'s dep graph and resolves a different React copy than
 // the one `apps/expo` itself uses (react@19.0.0). Two Reacts in the same
 // bundle break hooks at runtime ("Invalid hook call" / "Cannot read
 // property 'useMemo' of null").

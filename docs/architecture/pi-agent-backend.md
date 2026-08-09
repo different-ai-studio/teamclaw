@@ -12,8 +12,8 @@
 | 进程模型 | 全局单 `opencode serve`（HTTP + SSE） | **每 worktree 一个 `pi --mode rpc` 进程**（stdin/stdout JSONL） |
 | 会话 | serve 内多会话，`?directory=` 定界 | 一进程一活动会话；`--session-dir` 持久化（append-only JSONL），`switch_session`/`get_entries since` 恢复 |
 | 流式事件 | SSE：`message.part.delta` 等 | stdout 事件：`message_update`（text/thinking delta）、`tool_execution_start/update/end`、`turn_end`、`agent_settled` |
-| 权限审批 | 内建 `permission.asked` / reply 端点 | **无内建**——须由 TeamClaw 自带的 pi extension 拦截工具执行，经 `extension_ui_request(confirm)` ↔ `extension_ui_response` 与宿主交互 |
-| MCP | 内建（`opencode.json` 的 `mcp` 表） | **无内建**——须 extension 实现（TeamClaw extension 内桥接 amuxd-remote-tools） |
+| 权限审批 | 内建 `permission.asked` / reply 端点 | **无内建**——须由 TeamClu 自带的 pi extension 拦截工具执行，经 `extension_ui_request(confirm)` ↔ `extension_ui_response` 与宿主交互 |
+| MCP | 内建（`opencode.json` 的 `mcp` 表） | **无内建**——须 extension 实现（TeamClu extension 内桥接 amuxd-remote-tools） |
 | 模型 | `/config/providers` 目录 | `get_available_models` / `set_model`；自定义 provider 用 `registerProvider`（LiteLLM 走 `openai-completions`，注意 compat 钩子） |
 | 取消 | `POST abort` | `abort` 命令 |
 | 安装分发 | 官方渠道 + `opencode.lock.json` | npm 包或 Bun 编译单二进制；同样做 `pi.lock.json` 最低版本锁 |
@@ -53,11 +53,11 @@ pub trait AgentBackend: Send {
 
 ### 权限审批（关键差异点）
 
-pi 无内建权限。方案：随 daemon 分发一个 **TeamClaw pi extension**（TS 单文件，
+pi 无内建权限。方案：随 daemon 分发一个 **TeamClu pi extension**（TS 单文件，
 安装到 `--extensions` 路径）：
 
 1. extension 钩住全部工具执行（bash/edit/write 等）；
-2. 按 TeamClaw workspace 权限规则（daemon 通过 env/配置文件传入）决定放行或询问；
+2. 按 TeamClu workspace 权限规则（daemon 通过 env/配置文件传入）决定放行或询问；
 3. 需询问时调 `confirm` dialog → pi 发 `extension_ui_request{method:"confirm"}`
    到 stdout → `pi_rpc/events.rs` 翻译为 `AcpPermissionRequest`（request_id =
    ui request id）→ 走既有 UI 审批 → `ResolvePermission` → 写回
@@ -68,7 +68,7 @@ pi 无内建权限。方案：随 daemon 分发一个 **TeamClaw pi extension**�
 
 ### MCP / remote-tools
 
-同一个 TeamClaw extension 内实现 MCP 客户端桥（pi 生态无内建 MCP）：
+同一个 TeamClu extension 内实现 MCP 客户端桥（pi 生态无内建 MCP）：
 读取 daemon 注入的 MCP server 清单（沿用现在物化到 worktree 的配置文件，
 或 env 指针），把 MCP tools 注册为 pi 工具。第一版可只桥
 `amuxd-remote-tools`（gateway/团队功能依赖），通用 MCP 桥后续跟进。
@@ -101,7 +101,7 @@ LiteLLM 网关（`openai-completions` API）。已知坑（调研已证实）：
 1. `AgentBackend` trait 抽取 + `opencode_http` 适配（无行为变化，回归即证）。
 2. build config 参数 + app 透传 + daemon 配置位（本 PR 已含参数与透传骨架）。
 3. `pi_rpc` 四组件 + JSONL 协议层 + 单测（用文档 JSON 样例喂 translate）。
-4. TeamClaw pi extension（权限门 + remote-tools MCP 桥）。
+4. TeamClu pi extension（权限门 + remote-tools MCP 桥）。
 5. `pi_install`（对等 `opencode_install`：版本锁、doctor、安装/升级）。
 6. tauri-mcp 桌面实测（对等本次 opencode 验收项）+ 文档。
 

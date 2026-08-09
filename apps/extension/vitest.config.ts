@@ -8,12 +8,12 @@ const appLib = resolve(here, '../../packages/app/src/lib')
 export default defineConfig({
   resolve: {
     alias: {
-      '@teamclaw/extension-link-hover': resolve(appLib, 'extension-link-hover/index.ts'),
-      '@teamclaw/extension-link-session': resolve(appLib, 'extension-link-session/index.ts'),
+      '@teamclu/extension-link-hover': resolve(appLib, 'extension-link-hover/index.ts'),
+      '@teamclu/extension-link-session': resolve(appLib, 'extension-link-session/index.ts'),
     },
   },
   define: {
-    __TEAMCLAW_EXTENSION_SETTINGS__: JSON.stringify({}),
+    __TEAMCLU_EXTENSION_SETTINGS__: JSON.stringify({}),
   },
   test: {
     environment: 'node',

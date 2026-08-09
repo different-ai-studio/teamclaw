@@ -259,24 +259,24 @@ describe("createOnboardingController", () => {
     });
     const openAuthSession = vi
       .fn()
-      .mockResolvedValue({ type: "success", url: "teamclaw://auth-callback?code=abc" });
+      .mockResolvedValue({ type: "success", url: "teamclu://auth-callback?code=abc" });
     const controller = createOnboardingController(api);
 
     await controller.signInWithOAuth("google", {
-      redirectTo: "teamclaw://auth-callback",
+      redirectTo: "teamclu://auth-callback",
       openAuthSession,
     });
 
     expect(api.createOAuthSignInUrl).toHaveBeenCalledWith(
       "google",
-      "teamclaw://auth-callback",
+      "teamclu://auth-callback",
     );
     expect(openAuthSession).toHaveBeenCalledWith(
       "https://auth.example.com/oauth",
-      "teamclaw://auth-callback",
+      "teamclu://auth-callback",
     );
     expect(api.completeOAuthCallback).toHaveBeenCalledWith(
-      "teamclaw://auth-callback?code=abc",
+      "teamclu://auth-callback?code=abc",
     );
     expect(controller.getState()).toMatchObject<Partial<OnboardingState>>({
       route: "ready",
@@ -292,7 +292,7 @@ describe("createOnboardingController", () => {
     const controller = createOnboardingController(api);
 
     await controller.signInWithOAuth("apple", {
-      redirectTo: "teamclaw://auth-callback",
+      redirectTo: "teamclu://auth-callback",
       openAuthSession,
     });
 
@@ -325,15 +325,15 @@ describe("createOnboardingController", () => {
     const controller = createOnboardingController(api);
 
     await controller.signInWithOAuth("google", {
-      redirectTo: "teamclaw://auth-callback",
+      redirectTo: "teamclu://auth-callback",
       openAuthSession: vi.fn().mockResolvedValue({ type: "dismiss" }),
     });
     expect(api.completeOAuthCallback).not.toHaveBeenCalled();
 
-    await controller.completeOAuthFromUrl("teamclaw://auth-callback?code=abc");
+    await controller.completeOAuthFromUrl("teamclu://auth-callback?code=abc");
 
     expect(api.completeOAuthCallback).toHaveBeenCalledWith(
-      "teamclaw://auth-callback?code=abc",
+      "teamclu://auth-callback?code=abc",
     );
     expect(controller.getState()).toMatchObject<Partial<OnboardingState>>({
       route: "ready",
@@ -350,11 +350,11 @@ describe("createOnboardingController", () => {
         .mockResolvedValue({ user: { id: "user-1", is_anonymous: false } }),
     });
     const controller = createOnboardingController(api);
-    const url = "teamclaw://auth-callback?code=abc";
+    const url = "teamclu://auth-callback?code=abc";
 
     // The browser result path wins the race...
     await controller.signInWithOAuth("google", {
-      redirectTo: "teamclaw://auth-callback",
+      redirectTo: "teamclu://auth-callback",
       openAuthSession: vi.fn().mockResolvedValue({ type: "success", url }),
     });
     // ...then the OS delivers the same URL to the Linking listener.
@@ -375,7 +375,7 @@ describe("createOnboardingController", () => {
     const controller = createOnboardingController(api);
 
     await expect(
-      controller.completeOAuthFromUrl("teamclaw://auth-callback?code=stale"),
+      controller.completeOAuthFromUrl("teamclu://auth-callback?code=stale"),
     ).rejects.toThrow("invalid or expired code");
 
     expect(controller.getState()).toMatchObject<Partial<OnboardingState>>({
@@ -403,24 +403,24 @@ describe("createOnboardingController", () => {
     });
     const openAuthSession = vi
       .fn()
-      .mockResolvedValue({ type: "success", url: "teamclaw://auth-callback?code=abc" });
+      .mockResolvedValue({ type: "success", url: "teamclu://auth-callback?code=abc" });
     const controller = createOnboardingController(api);
 
     await controller.linkIdentityWithOAuth("apple", {
-      redirectTo: "teamclaw://auth-callback",
+      redirectTo: "teamclu://auth-callback",
       openAuthSession,
     });
 
     expect(api.createOAuthLinkUrl).toHaveBeenCalledWith(
       "apple",
-      "teamclaw://auth-callback",
+      "teamclu://auth-callback",
     );
     expect(openAuthSession).toHaveBeenCalledWith(
       "https://auth.example.com/link",
-      "teamclaw://auth-callback",
+      "teamclu://auth-callback",
     );
     expect(api.completeOAuthCallback).toHaveBeenCalledWith(
-      "teamclaw://auth-callback?code=abc",
+      "teamclu://auth-callback?code=abc",
     );
     expect(controller.getState()).toMatchObject<Partial<OnboardingState>>({
       route: "ready",
@@ -463,7 +463,7 @@ describe("createOnboardingController", () => {
   // Without this, signing out of one deployment and into another on the same
   // device hands the new session the old broker whenever the config fetch fails.
   it("signOut drops the cached broker so the next account cannot inherit it", async () => {
-    storageMock.items.set("teamclaw.mqtt.broker-url", "mqtts://deployment-a.example.com:8883");
+    storageMock.items.set("teamclu.mqtt.broker-url", "mqtts://deployment-a.example.com:8883");
 
     const { createOnboardingController } = await loadController();
     const api = createApiMock({
@@ -479,7 +479,7 @@ describe("createOnboardingController", () => {
 
     await controller.signOut();
 
-    expect(storageMock.items.has("teamclaw.mqtt.broker-url")).toBe(false);
+    expect(storageMock.items.has("teamclu.mqtt.broker-url")).toBe(false);
   });
 
   it("ignores a stale signOut completion after a newer requestOtp", async () => {

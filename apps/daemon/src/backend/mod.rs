@@ -71,7 +71,7 @@ pub struct BootstrapMqttOverride {
 #[cfg(test)]
 pub mod mock;
 
-/// A team's share-mode + git configuration, as sourced from the TeamClaw Cloud
+/// A team's share-mode + git configuration, as sourced from the TeamClu Cloud
 /// API (`GET /v1/teams/:id/share-mode`). `mode == None` means team-share has not
 /// been enabled for this team yet (the daemon should treat this as "no sync").
 ///
@@ -133,7 +133,7 @@ pub struct ManagedLlmConfig {
 /// The gateway path uses these to spawn the daemon's agent with its configured
 /// backend type and working directory instead of the daemon-wide fallback type
 /// and a throwaway scratch dir. All-`None` means "no override; use defaults".
-/// The team-scoped managed-git credential, as sourced from the TeamClaw Cloud
+/// The team-scoped managed-git credential, as sourced from the TeamClu Cloud
 /// API (`GET /v1/teams/:id/managed-git-credential`). Used to authenticate the
 /// daemon's per-app git push/clone against the team's managed-git remote.
 #[derive(Debug, Clone, serde::Deserialize)]

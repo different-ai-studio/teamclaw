@@ -67,8 +67,8 @@ export function createConfiguredInviteApi(
 }
 
 /**
- * Pulls the invite token out of a `teamclaw://invite/...` or
- * `teamclaw://invite?token=...` deep link. Returns null when the URL is for
+ * Pulls the invite token out of a `teamclu://invite/...` or
+ * `teamclu://invite?token=...` deep link. Returns null when the URL is for
  * something other than invites or has no parseable token.
  *
  * Tolerates the two shapes the iOS app emits (path token + query token) so
@@ -87,16 +87,16 @@ export function parseInviteToken(url: string | null | undefined): string | null 
   }
 
   // RN's URL parser puts the scheme in `protocol` with the trailing colon,
-  // e.g. "teamclaw:". The host is what comes right after `//`.
+  // e.g. "teamclu:". The host is what comes right after `//`.
   const isInvite =
-    (parsed.protocol === "teamclaw:" && parsed.host === "invite") ||
+    (parsed.protocol === "teamclu:" && parsed.host === "invite") ||
     parsed.pathname.startsWith("/invite");
   if (!isInvite) return null;
 
   const queryToken = parsed.searchParams.get("token");
   if (queryToken && queryToken.length > 0) return queryToken;
 
-  // Path forms: "teamclaw://invite/<token>" → host="invite", pathname="/<token>"
+  // Path forms: "teamclu://invite/<token>" → host="invite", pathname="/<token>"
   // or "/invite/<token>" → pathname="/invite/<token>".
   const segments = parsed.pathname.split("/").filter(Boolean);
   if (segments[0] === "invite" && segments[1]) return segments[1];

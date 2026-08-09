@@ -77,26 +77,26 @@ daemon 不可用时回退到前端 `loadRolesSkillsWorkspaceStateFromFs()`，内
 
 | 优先级 | 路径 | `source` 标记 |
 |--------|------|---------------|
-| 1 | `<workspace>/.teamclaw/skills/` | `local` / `builtin` / `clawhub` |
+| 1 | `<workspace>/.teamclu/skills/` | `local` / `builtin` / `clawhub` |
 | 2 | `<workspace>/.claude/skills/` | `claude` |
 | 3 | `<workspace>/.agents/skills/`（含嵌套 bundle，如 `superpowers/brainstorming`） | `shared` |
-| 4 | `~/.config/teamclaw/skills/` | `global-teamclaw` |
+| 4 | `~/.config/teamclu/skills/` | `global-teamclu` |
 | 5 | `~/.claude/skills/` | `global-claude` |
 | 6 | `~/.agents/skills/` | `global-agent` |
-| 7 | `<workspace>/.teamclaw/cache/agent/node_modules/*/skills/` | `plugin` |
+| 7 | `<workspace>/.teamclu/cache/agent/node_modules/*/skills/` | `plugin` |
 | 8+ | **Team 共享路径**（见下表） | `team` |
 
 **Team 共享 skill 目录**（`collectTeamSkillPaths`，`packages/app/src/lib/team-skill-paths.ts`）：
 
 | 配置来源 | 示例 |
 |----------|------|
-| `teamclaw.json` → `skills.paths` | 自定义相对/绝对路径 |
-| `opencode.json` → `skills.paths` | 如 `"teamclaw-team/skills"` |
-| 默认目录（存在即用） | `<workspace>/teamclaw-team/skills` |
+| `teamclu.json` → `skills.paths` | 自定义相对/绝对路径 |
+| `opencode.json` → `skills.paths` | 如 `"teamclu-team/skills"` |
+| 默认目录（存在即用） | `<workspace>/teamclu-team/skills` |
 
-`teamclaw-team` 通常是 symlink，指向 `~/.amuxd/teams/<team-id>/teamclaw-team`。
+`teamclu-team` 通常是 symlink，指向 `~/.amuxd/teams/<team-id>/teamclu-team`。
 
-另有 **Role 专属 skill**：`<workspace>/.teamclaw/roles/<role>/skills/<slug>/SKILL.md`（`isRoleSkill: true`）。
+另有 **Role 专属 skill**：`<workspace>/.teamclu/roles/<role>/skills/<slug>/SKILL.md`（`isRoleSkill: true`）。
 
 ### 1.3 invocationName（选中后发送的名字）
 
@@ -190,8 +190,8 @@ cmd from availableCommands
 
 | 现象 | 原因 |
 |------|------|
-| `teamclaw-team` skill 出现在 **Commands** | 扁平名（无 `/`）且 workspace 扫描未命中同名 `invocationName` / `filename` |
-| 本地 `.teamclaw/skills` 在 **Skills**，team skill 在 **Commands** | 本地扫描正常，但 team 路径未纳入 scan 或与 runtime 名不一致 |
+| `teamclu-team` skill 出现在 **Commands** | 扁平名（无 `/`）且 workspace 扫描未命中同名 `invocationName` / `filename` |
+| 本地 `.teamclu/skills` 在 **Skills**，team skill 在 **Commands** | 本地扫描正常，但 team 路径未纳入 scan 或与 runtime 名不一致 |
 | 带 `/` 的 bundle skill 总在 **Skills** | 命中 `looksLikeSkillInvocationName`，即使本地 scan 为空 |
 
 ### 3.2 权限过滤
@@ -207,7 +207,7 @@ loadAllRoles(workspacePath)
   → loadRolesSkillsWorkspaceState(workspacePath).roles
 ```
 
-扫描 `<workspace>/.teamclaw/roles/<slug>/ROLE.md`（及 daemon 返回的同等数据）。与 Skills 共用同一次 `roles-skills` API 响应。
+扫描 `<workspace>/.teamclu/roles/<slug>/ROLE.md`（及 daemon 返回的同等数据）。与 Skills 共用同一次 `roles-skills` API 响应。
 
 选中后 token 为 `/{role:<slug>}`，与 skill/command 不同。
 
@@ -255,6 +255,6 @@ loadAllRoles(workspacePath)
 
 若 team skill 误入 Commands，依次检查：
 
-1. `opencode.json` / `teamclaw.json` 的 `skills.paths` 是否包含 `teamclaw-team/skills`
+1. `opencode.json` / `teamclu.json` 的 `skills.paths` 是否包含 `teamclu-team/skills`
 2. `GET .../roles-skills` 返回的 skill 是否含对应 `filename` / `invocationName`
 3. runtime 上报的 `cmd.name` 是否与 `invocationName` 一致（有无前导 `/`、是否用了 frontmatter `name` 而非目录名）

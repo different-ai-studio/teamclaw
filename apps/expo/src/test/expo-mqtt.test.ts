@@ -110,10 +110,10 @@ describe("createExpoMqttAdapter", () => {
     });
     await adapter.subscribe("amux/team-1/session/session-1/live");
     await adapter.publish("topic", new Uint8Array([1, 2, 3]), true);
-    listeners.get("TeamClawMqttConnectionState")?.forEach((handler) =>
+    listeners.get("TeamCluMqttConnectionState")?.forEach((handler) =>
       handler({ state: "connected" } as never),
     );
-    listeners.get("TeamClawMqttMessage")?.forEach((handler) =>
+    listeners.get("TeamCluMqttMessage")?.forEach((handler) =>
       handler({ topic: "topic", payload: [7, 8] } as never),
     );
     await adapter.disconnect();
@@ -134,11 +134,11 @@ describe("createExpoMqttAdapter", () => {
     expect(states).toEqual(["connecting", "connected", "disconnected"]);
     expect(messages).toEqual([{ topic: "topic", payload: new Uint8Array([7, 8]) }]);
     expect(nativeEvents.addListener).toHaveBeenCalledWith(
-      "TeamClawMqttMessage",
+      "TeamCluMqttMessage",
       expect.any(Function),
     );
     expect(nativeEvents.addListener).toHaveBeenCalledWith(
-      "TeamClawMqttConnectionState",
+      "TeamCluMqttConnectionState",
       expect.any(Function),
     );
   });

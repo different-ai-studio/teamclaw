@@ -17,7 +17,7 @@ describe('mqtt diagnostics', () => {
     const { getMqttDiagSnapshot } = await import('./mqtt-diagnostics')
     const exp = 1_783_050_348
     localStorage.setItem(
-      'teamclaw.session.v1',
+      'teamclu.session.v1',
       JSON.stringify({
         access_token: jwtWithExp(exp),
         refresh_token: 'refresh-token',
@@ -44,7 +44,7 @@ describe('mqtt diagnostics', () => {
   it('redacts sensitive values from local server config', async () => {
     const { getMqttDiagSnapshot } = await import('./mqtt-diagnostics')
     localStorage.setItem(
-      'teamclaw.serverConfig',
+      'teamclu.serverConfig',
       JSON.stringify({
         mqttHost: 'broker.example.test',
         mqttUsername: 'user-1',

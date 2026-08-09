@@ -56,7 +56,7 @@ async function readDaemonHttpInfo(): Promise<DaemonHttpInfo | null> {
 
 function formatFetchNetworkError(baseUrl: string, raw: string): string {
   if (/load failed|failed to fetch|networkerror|econnrefused|connection refused/i.test(raw)) {
-    return `Cannot reach amuxd daemon at ${baseUrl}. The daemon may have restarted on a new port — restart TeamClaw or wait a moment and retry.`
+    return `Cannot reach amuxd daemon at ${baseUrl}. The daemon may have restarted on a new port — restart TeamClu or wait a moment and retry.`
   }
   return raw
 }
@@ -235,7 +235,7 @@ async function daemonFetch<T>(
     return {
       ok: false,
       status: 0,
-      error: 'amuxd daemon is not connected. Restart TeamClaw or confirm amuxd is running.',
+      error: 'amuxd daemon is not connected. Restart TeamClu or confirm amuxd is running.',
     }
   }
 
@@ -298,7 +298,7 @@ async function daemonFetchNoContent(
     return {
       ok: false,
       status: 0,
-      error: 'amuxd daemon is not connected. Restart TeamClaw or confirm amuxd is running.',
+      error: 'amuxd daemon is not connected. Restart TeamClu or confirm amuxd is running.',
     }
   }
 
@@ -1163,13 +1163,13 @@ export interface DaemonTeamLinkResult {
   team_id: string
   /** `symlink` | `junction` | `fallback` | `legacy_retained` */
   status: 'symlink' | 'junction' | 'fallback' | 'legacy_retained'
-  /** `~/.amuxd/teams/<team_id>/teamclaw-team` */
+  /** `~/.amuxd/teams/<team_id>/teamclu-team` */
   global_dir: string
 }
 
 /**
  * Ask the local daemon to materialize the team's global dir + this workspace's
- * `teamclaw-team` symlink *now* — called right after enabling/joining
+ * `teamclu-team` symlink *now* — called right after enabling/joining
  * team-share so the synced directory exists immediately instead of waiting for
  * the daemon's next start or the first runtime (the AddWorkspace path rides
  * MQTT, which may not be connected right after onboarding).
@@ -1210,7 +1210,7 @@ export async function linkDaemonTeamWorkspace(
 }
 
 /**
- * Deliver a `teamclaw.LiveEventEnvelope` to the local daemon over loopback
+ * Deliver a `teamclu.LiveEventEnvelope` to the local daemon over loopback
  * (`POST /v1/session-live/ingest`). Same `route_session_message` sink as MQTT
  * `amux/{team}/session/{id}/live`, including `message_id` dedup — so a later
  * MQTT copy of the same envelope is a no-op.

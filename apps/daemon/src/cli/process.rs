@@ -434,7 +434,7 @@ fn reap_remote_tools_mcp_best_effort() {
         if !lower.contains("remote-tools-mcp") || !cmdline.contains(sock_s.as_ref()) {
             continue;
         }
-        if !(lower.contains("amuxd") || lower.contains("teamclaw")) {
+        if !(lower.contains("amuxd") || lower.contains("teamclu")) {
             continue;
         }
         println!("amuxd: reaping leftover remote-tools-mcp pid {pid}…");

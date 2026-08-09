@@ -15,7 +15,7 @@ export const EXTENSION_SESSION_CLEANUP_INTERVAL_MS = 6 * 60 * 60 * 1000
 /** Minimum gap between sweeps — avoids duplicate work when the panel remounts. */
 export const EXTENSION_SESSION_CLEANUP_MIN_GAP_MS = 60 * 60 * 1000
 
-const LAST_RUN_KEY_PREFIX = 'teamclaw.extension.sessionCleanupLastRun'
+const LAST_RUN_KEY_PREFIX = 'teamclu.extension.sessionCleanupLastRun'
 
 const MS_PER_DAY = 24 * 60 * 60 * 1000
 

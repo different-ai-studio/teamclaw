@@ -11,7 +11,7 @@ import { useWorkspaceStore } from '@/stores/workspace'
 import { useCurrentTeamStore } from '@/stores/current-team'
 import { useTeamShareStore } from '@/stores/team-share'
 import { useTeamPermissions } from '@/lib/team-permissions'
-import { TEAMCLAW_DIR, TEAM_REPO_DIR } from '@/lib/build-config'
+import { TEAMCLU_DIR, TEAM_REPO_DIR } from '@/lib/build-config'
 import { humanizeFcError } from '@/lib/fc-error'
 import { cn, isTauri } from '@/lib/utils'
 
@@ -109,7 +109,7 @@ export function TeamShareDisconnect({
         </p>
         <p className="mt-1 text-[12px] text-muted-foreground">
           {t('settings.team.disconnectDesc', {
-            teamclawDir: TEAMCLAW_DIR,
+            teamcluDir: TEAMCLU_DIR,
             teamRepoDir: TEAM_REPO_DIR,
           })}
         </p>

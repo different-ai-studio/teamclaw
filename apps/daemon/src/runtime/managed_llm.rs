@@ -2,11 +2,11 @@
 //! the HTTP provider snapshot.
 //!
 //! Team `provider.team` rows are materialized through
-//! [`teamclaw_runtime_env::sync_team_provider_on_disk`]:
-//! - **Spawn** — [`teamclaw_runtime_env::assemble_runtime_env`] with
-//!   [`teamclaw_runtime_env::SecretResolveScope::FullConfig`]
+//! [`teamclu_runtime_env::sync_team_provider_on_disk`]:
+//! - **Spawn** — [`teamclu_runtime_env::assemble_runtime_env`] with
+//!   [`teamclu_runtime_env::SecretResolveScope::FullConfig`]
 //! - **Provider reads** — [`ManagedLlmResolver::reconcile_workspace`] with
-//!   [`teamclaw_runtime_env::SecretResolveScope::ProviderApiKeysOnly`]
+//!   [`teamclu_runtime_env::SecretResolveScope::ProviderApiKeysOnly`]
 //!
 //! Before reconcile existed, `provider.team` was written only at spawn time, so an
 //! admin's model-list change never reached a member until the next runtime spawn
@@ -24,7 +24,7 @@ use std::time::{Duration, Instant};
 
 use tokio::sync::Mutex as AsyncMutex;
 
-use teamclaw_runtime_env::{ManagedLlmModel, ManagedLlmProvider, ManagedLlmState};
+use teamclu_runtime_env::{ManagedLlmModel, ManagedLlmProvider, ManagedLlmState};
 
 use crate::backend::Backend;
 
@@ -120,7 +120,7 @@ impl ManagedLlmResolver {
         }
     }
 
-    /// Re-materialize `provider.team` via [`teamclaw_runtime_env::sync_team_provider_on_disk`].
+    /// Re-materialize `provider.team` via [`teamclu_runtime_env::sync_team_provider_on_disk`].
     ///
     /// Safe to call on every provider read: the cloud fetch is TTL-throttled and
     /// [`sync_team_provider_on_disk`] only writes when the entry actually differs,
@@ -128,12 +128,12 @@ impl ManagedLlmResolver {
     /// A `Unknown` resolution (no fresh cloud answer) leaves the file untouched.
     pub async fn reconcile_workspace(&self, workspace: &Path, team_id: &str) {
         let state = self.resolve(team_id).await;
-        let secrets = teamclaw_runtime_env::secrets_for_team_provider(self.backend.actor_id());
-        if let Err(e) = teamclaw_runtime_env::sync_team_provider_on_disk(
+        let secrets = teamclu_runtime_env::secrets_for_team_provider(self.backend.actor_id());
+        if let Err(e) = teamclu_runtime_env::sync_team_provider_on_disk(
             workspace,
             &state,
             &secrets,
-            teamclaw_runtime_env::SecretResolveScope::ProviderApiKeysOnly,
+            teamclu_runtime_env::SecretResolveScope::ProviderApiKeysOnly,
         ) {
             tracing::warn!(
                 team_id,
@@ -352,11 +352,11 @@ mod tests {
 
         // MockBackend with no seeded config resolves to Disabled, not Unknown,
         // so drive the untouched path through `sync_team_provider_on_disk` directly.
-        teamclaw_runtime_env::sync_team_provider_on_disk(
+        teamclu_runtime_env::sync_team_provider_on_disk(
             workspace.path(),
             &ManagedLlmState::Unknown,
             &HashMap::new(),
-            teamclaw_runtime_env::SecretResolveScope::ProviderApiKeysOnly,
+            teamclu_runtime_env::SecretResolveScope::ProviderApiKeysOnly,
         )
         .unwrap();
 

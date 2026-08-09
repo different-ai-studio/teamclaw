@@ -6,36 +6,36 @@
 //!      configured FC endpoint.
 //!   2. Returns `{ ai_gateway_endpoint, litellm_key }`.
 //!   3. Writes `ai_gateway_endpoint` and `litellm_key` into
-//!      `.teamclaw/teamclaw.json` while preserving existing keys.
+//!      `.teamclu/teamclu.json` while preserving existing keys.
 
 use serde_json::json;
-use teamclaw_lib::commands::team_litellm;
+use teamclu_lib::commands::team_litellm;
 use tempfile::TempDir;
 use wiremock::matchers::{body_partial_json, header, method, path};
 use wiremock::{Mock, MockServer, ResponseTemplate};
 
 fn seed_workspace(tmp: &TempDir, fc_endpoint: &str) -> String {
     let workspace = tmp.path().to_path_buf();
-    let cfg_dir = workspace.join(".teamclaw");
-    std::fs::create_dir_all(&cfg_dir).expect("mkdir .teamclaw");
+    let cfg_dir = workspace.join(".teamclu");
+    std::fs::create_dir_all(&cfg_dir).expect("mkdir .teamclu");
     let cfg = json!({
         "fc_endpoint": fc_endpoint,
         "supabase_jwt": "test-jwt",
     });
     std::fs::write(
-        cfg_dir.join("teamclaw.json"),
+        cfg_dir.join("teamclu.json"),
         serde_json::to_string_pretty(&cfg).unwrap(),
     )
-    .expect("write teamclaw.json");
+    .expect("write teamclu.json");
     workspace.to_string_lossy().into_owned()
 }
 
 fn read_cfg(workspace_path: &str) -> serde_json::Value {
     let p = std::path::Path::new(workspace_path)
-        .join(".teamclaw")
-        .join("teamclaw.json");
-    let s = std::fs::read_to_string(p).expect("read teamclaw.json");
-    serde_json::from_str(&s).expect("parse teamclaw.json")
+        .join(".teamclu")
+        .join("teamclu.json");
+    let s = std::fs::read_to_string(p).expect("read teamclu.json");
+    serde_json::from_str(&s).expect("parse teamclu.json")
 }
 
 #[tokio::test]

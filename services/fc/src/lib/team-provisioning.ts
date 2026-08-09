@@ -45,7 +45,7 @@ async function litellmFetch(path, method, body) {
 }
 
 /**
- * Provision a LiteLLM team + default key for a new TeamClaw team.
+ * Provision a LiteLLM team + default key for a new TeamClu team.
  * Returns null when LITELLM_MASTER_KEY is not configured (skip provisioning).
  *
  * @param {string} teamName

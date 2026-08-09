@@ -163,7 +163,7 @@ export const DiagnosticsSection = React.memo(function DiagnosticsSection() {
           <p className="text-[13px] text-muted-foreground">
             {t(
               'settings.diagnostics.desktopOnlyDetail',
-              '一键诊断需要在 Desktop 客户端中使用。请下载并安装 TeamClaw Desktop 后重试。',
+              '一键诊断需要在 Desktop 客户端中使用。请下载并安装 TeamClu Desktop 后重试。',
             )}
           </p>
         </SettingCard>

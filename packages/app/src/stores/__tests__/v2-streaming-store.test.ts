@@ -57,13 +57,13 @@ describe("v2-streaming-store", () => {
     for (const chunk of [
       "/Users",
       "/Users/haigang",
-      "/Users/haigang.ye/project/external/teamclaw-next",
+      "/Users/haigang.ye/project/external/teamclu-next",
     ]) {
       store.appendOutput("s1", "a1", chunk, true);
     }
     const [stream] = selectStreamsForSession(useV2StreamingStore.getState(), "s1");
-    expect(stream.outputText).toBe("/Users/haigang.ye/project/external/teamclaw-next");
-    expect(stream.parts[0].text).toBe("/Users/haigang.ye/project/external/teamclaw-next");
+    expect(stream.outputText).toBe("/Users/haigang.ye/project/external/teamclu-next");
+    expect(stream.parts[0].text).toBe("/Users/haigang.ye/project/external/teamclu-next");
   });
 
   it("appendOutput tolerates duplicate resume delivery of the same chunks", () => {
@@ -762,15 +762,15 @@ describe("v2-streaming-store", () => {
           toolKind: "execute",
           status: "completed",
           arguments: { command: "pwd", description: "Print working directory" },
-          result: "/Users/haigang.ye/project/external/teamclaw-next\n",
+          result: "/Users/haigang.ye/project/external/teamclu-next\n",
           startTime: "2026-05-25T00:00:00.000Z" as unknown as Date,
         },
       },
     ]);
 
     const [stream] = selectStreamsForSession(useV2StreamingStore.getState(), "s1");
-    expect(stream.toolCalls[0].result).toContain("teamclaw-next");
-    expect(stream.parts[0].toolCall?.result).toContain("teamclaw-next");
+    expect(stream.toolCalls[0].result).toContain("teamclu-next");
+    expect(stream.parts[0].toolCall?.result).toContain("teamclu-next");
     expect(stream.parts[0].toolCall?.startTime).toBeInstanceOf(Date);
   });
 

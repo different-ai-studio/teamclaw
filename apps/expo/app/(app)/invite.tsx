@@ -32,7 +32,7 @@ type InviteResult = {
 };
 
 function buildDeeplink(token: string): string {
-  return `teamclaw://invite/${token}`;
+  return `teamclu://invite/${token}`;
 }
 
 export default function InviteRoute() {

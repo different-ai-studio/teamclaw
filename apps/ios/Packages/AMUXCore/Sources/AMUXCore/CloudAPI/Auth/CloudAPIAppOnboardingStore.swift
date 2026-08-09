@@ -1,6 +1,6 @@
 import Foundation
 
-/// `AppOnboardingStore` implemented entirely over the TeamClaw Cloud API (FC),
+/// `AppOnboardingStore` implemented entirely over the TeamClu Cloud API (FC),
 /// replacing the Supabase-SDK-backed `SupabaseAppOnboardingStore`.
 ///
 /// Token lifecycle (Keychain persistence, proactive/reactive refresh, the
@@ -150,7 +150,7 @@ public actor CloudAPIAppOnboardingStore: AppOnboardingStore {
     /// phone-native users divergent from the partner SaaS). We send our own SMS code via
     /// `/v1/auth/phone/send-code` and resolve/create the partner user via
     /// `/v1/auth/phone/login`. See
-    /// docs/specs/2026-06-17-teamclaw-phone-login-and-tenancy.md.
+    /// docs/specs/2026-06-17-teamclu-phone-login-and-tenancy.md.
     public func sendPhoneOTP(phone: String) async throws {
         await ensureStarted()
         try await auth.postVoid(
@@ -312,7 +312,7 @@ public actor CloudAPIAppOnboardingStore: AppOnboardingStore {
         // partner-aligned: send OUR OWN SMS code (not GoTrue phone_change), the same
         // channel phone login uses. Binding happens in verifyUpgradePhoneOTP via
         // /v1/account/bind-phone. See
-        // docs/specs/2026-06-17-teamclaw-phone-login-and-tenancy.md.
+        // docs/specs/2026-06-17-teamclu-phone-login-and-tenancy.md.
         try await auth.postVoid(
             "/v1/auth/phone/send-code",
             body: PhoneSendCodeRequest(phone: phone, captchaVerify: Self.captchaPlaceholder)
@@ -375,7 +375,7 @@ public actor CloudAPIAppOnboardingStore: AppOnboardingStore {
 
     /// Build the authorize URL for the Google OAuth flow, stashing a fresh
     /// PKCE verifier for the subsequent `handleAuthCallback` exchange.
-    public func oauthAuthorizeURL(redirect: String = "teamclaw://auth-callback") async -> URL? {
+    public func oauthAuthorizeURL(redirect: String = "teamclu://auth-callback") async -> URL? {
         let challenge = await pkce.makeChallenge()
         let base = api.baseURL.absoluteString.trimmingCharacters(in: CharacterSet(charactersIn: "/"))
         var components = URLComponents(string: "\(base)/v1/auth/oauth/google/authorize")

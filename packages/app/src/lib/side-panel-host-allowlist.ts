@@ -6,7 +6,7 @@
  * (e.g. `example.com`, `*.example.com`).
  */
 
-export const SIDE_PANEL_HOST_GATE_STORAGE_KEY = 'teamclaw.sidePanelHostGate'
+export const SIDE_PANEL_HOST_GATE_STORAGE_KEY = 'teamclu.sidePanelHostGate'
 
 export type SidePanelHostGateSnapshot = {
   allowed: boolean

@@ -161,7 +161,7 @@ await fc.createFunction(new $fc.CreateFunctionRequest({
       port: 9000,
     }),
     code: new $fc.InputCodeLocation({
-      ossBucketName: process.env.BUCKET || "teamclaw-sync",
+      ossBucketName: process.env.BUCKET || "teamclu-sync",
       ossObjectName: `apps/${appId}/code.zip`,
     }),
   }),
@@ -196,7 +196,7 @@ customRuntimeConfig). To re-point code at a new OSS object:
 await fc.updateFunction(functionName, new $fc.UpdateFunctionRequest({
   body: new $fc.UpdateFunctionInput({
     code: new $fc.InputCodeLocation({
-      ossBucketName: process.env.BUCKET || "teamclaw-sync",
+      ossBucketName: process.env.BUCKET || "teamclu-sync",
       ossObjectName: `apps/${appId}/code.zip`,
     }),
   }),

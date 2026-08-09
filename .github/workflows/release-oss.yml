@@ -1,7 +1,7 @@
 name: Release (OSS, multi-brand)
 
 # Multi-brand OSS release channel. Replaces the old release-beta.yml, which was
-# hardwired to a single unbranded TeamClaw build published under `beta/`.
+# hardwired to a single unbranded TeamClu build published under `beta/`.
 #
 # Every brand — including `betly`, the live-beta channel that used to BE this
 # workflow's only mode — is defined by a directory in the private
@@ -57,7 +57,7 @@ env:
   BRANDING_REPO: ${{ vars.BRANDING_REPO }}
   OSS_BUCKET_DEFAULT: ${{ secrets.OSS_BUCKET }}
   OSS_ENDPOINT_DEFAULT: ${{ secrets.OSS_ENDPOINT }}
-  CDN_BASE_DEFAULT: ${{ vars.OSS_CDN_BASE || 'https://teamclaw.ucar.cc' }}
+  CDN_BASE_DEFAULT: ${{ vars.OSS_CDN_BASE || 'https://teamclu.ucar.cc' }}
 
 jobs:
   build-macos:
@@ -71,7 +71,7 @@ jobs:
             runner: macos-latest
     runs-on: ${{ matrix.runner }}
     # Job-level, not step-level: these used to sit only on the tauri-action step,
-    # so the amuxd and teamclaw-introspect sidecar builds (and the Cargo.lock
+    # so the amuxd and teamclu-introspect sidecar builds (and the Cargo.lock
     # sync) compiled with no sccache at all — despite sharing most of their
     # dependency graph with the tauri build that follows. Every cargo invocation
     # in this job now shares one sccache. The `Setup sccache` step still has to
@@ -155,7 +155,7 @@ jobs:
       # label the OSS release with the tag input but otherwise build from source-
       # file versions, so without this the bundled amuxd version never changes and
       # clients never force-upgrade the daemon. Runs after Rust + protoc are
-      # available because the Cargo.lock sync compiles teamclaw-introspect/amuxd.
+      # available because the Cargo.lock sync compiles teamclu-introspect/amuxd.
       - name: Sync + verify version bump (bundled amuxd)
         shell: bash
         run: |
@@ -173,7 +173,7 @@ jobs:
       # writes productName/window title, bundle identifier, deep-link scheme,
       # regenerates the icon set, and copies the in-app logo PNG into
       # packages/app/public/) would otherwise never run — leaving the OS app name
-      # and icons stuck on the default TeamClaw. The in-app logo PNGs must land
+      # and icons stuck on the default TeamClu. The in-app logo PNGs must land
       # before Vite bundles them, which is why this is its own step ahead of the
       # parallel block rather than part of it.
       #
@@ -200,22 +200,22 @@ jobs:
             # Do NOT set BUILD_ENV: it selects build.config.<env>.json and
             # BUILD_ENV=production deep-merges build.config.production.json OVER
             # the brand's build.config.json, silently baking the wrong backend
-            # AND clobbering app.name back to "TeamClaw". The brand's
+            # AND clobbering app.name back to "TeamClu". The brand's
             # build.config.json is the sole source; `vite build` already runs in
             # production mode regardless.
-            pnpm --filter @teamclaw/app build
+            pnpm --filter @teamclu/app build
             echo "frontend build done"
           ) > /tmp/frontend.log 2>&1 &
           PID_FRONTEND=$!
 
           (
             set -e
-            echo "Building teamclaw-introspect for ${{ matrix.target }}..."
+            echo "Building teamclu-introspect for ${{ matrix.target }}..."
             TARGET_DIR="$(cargo metadata --format-version 1 --no-deps --manifest-path apps/desktop/Cargo.toml | jq -r .target_directory)"
-            cargo build --release --locked --manifest-path apps/desktop/Cargo.toml -p teamclaw-introspect --target ${{ matrix.target }}
-            cp "$TARGET_DIR/${{ matrix.target }}/release/teamclaw-introspect" apps/desktop/binaries/teamclaw-introspect-${{ matrix.target }}
-            chmod +x apps/desktop/binaries/teamclaw-introspect-${{ matrix.target }}
-            echo "teamclaw-introspect ready"
+            cargo build --release --locked --manifest-path apps/desktop/Cargo.toml -p teamclu-introspect --target ${{ matrix.target }}
+            cp "$TARGET_DIR/${{ matrix.target }}/release/teamclu-introspect" apps/desktop/binaries/teamclu-introspect-${{ matrix.target }}
+            chmod +x apps/desktop/binaries/teamclu-introspect-${{ matrix.target }}
+            echo "teamclu-introspect ready"
           ) > /tmp/introspect.log 2>&1 &
           PID_INTROSPECT=$!
 
@@ -500,7 +500,7 @@ jobs:
 
       # See build-macos: sync all four version sources + Cargo.lock to the tag and
       # enforce the bundled amuxd bump. Runs after Rust + protoc are available
-      # because the Cargo.lock sync compiles teamclaw-introspect/amuxd.
+      # because the Cargo.lock sync compiles teamclu-introspect/amuxd.
       - name: Sync + verify version bump (bundled amuxd)
         shell: bash
         run: |
@@ -524,19 +524,19 @@ jobs:
 
       - name: Build frontend
         shell: bash
-        run: pnpm --filter @teamclaw/app build
+        run: pnpm --filter @teamclu/app build
 
       - name: Prepare binaries directory
         shell: bash
         run: mkdir -p apps/desktop/binaries
 
-      - name: Build teamclaw-introspect sidecar
+      - name: Build teamclu-introspect sidecar
         shell: bash
         run: |
           TARGET_DIR="$(cargo metadata --format-version 1 --no-deps --manifest-path apps/desktop/Cargo.toml | jq -r .target_directory)"
-          cargo build --release --locked --manifest-path apps/desktop/Cargo.toml -p teamclaw-introspect
-          cp "$TARGET_DIR/release/teamclaw-introspect.exe" apps/desktop/binaries/teamclaw-introspect-x86_64-pc-windows-msvc.exe
-          echo "teamclaw-introspect ready"
+          cargo build --release --locked --manifest-path apps/desktop/Cargo.toml -p teamclu-introspect
+          cp "$TARGET_DIR/release/teamclu-introspect.exe" apps/desktop/binaries/teamclu-introspect-x86_64-pc-windows-msvc.exe
+          echo "teamclu-introspect ready"
 
       - name: Build amuxd sidecar
         shell: bash
@@ -779,8 +779,8 @@ jobs:
       - uses: actions/checkout@v7
 
       # The release page needs the brand's name, logo and accent colour, so this
-      # job resolves the brand too — a plain checkout would render a TeamClaw
-      # page and publish the TeamClaw logo into the brand's bucket.
+      # job resolves the brand too — a plain checkout would render a TeamClu
+      # page and publish the TeamClu logo into the brand's bucket.
       - name: Resolve brand
         uses: ./.github/actions/brand-setup
         with:

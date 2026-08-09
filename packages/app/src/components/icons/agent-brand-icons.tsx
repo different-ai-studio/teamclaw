@@ -13,7 +13,7 @@
  *
  * These identify third-party runtimes in our own UI — nominative use. The marks
  * remain the trademarks of Anthropic and Anysphere; do not restyle them into
- * something that reads as a TeamClaw mark.
+ * something that reads as a TeamClu mark.
  */
 
 /** opencode: a bordered portrait square with a hollow slot (evenodd cuts the hole). */

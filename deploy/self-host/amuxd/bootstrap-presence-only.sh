@@ -16,7 +16,7 @@ cd "$ROOT"
 [ -f .env ] || { echo "bootstrap: $ROOT/.env not found"; exit 1; }
 
 TEAM_ID="${1:-${TEAM_ID:-}}"
-STATE_VOLUME="${COMPOSE_PROJECT_NAME:-teamclaw-self-host}_amuxd_state"
+STATE_VOLUME="${COMPOSE_PROJECT_NAME:-teamclu-self-host}_amuxd_state"
 
 upsert_env() {
   local key="$1" value="$2"

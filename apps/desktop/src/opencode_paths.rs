@@ -1,6 +1,6 @@
 //! Canonical OpenCode global data paths (shared across desktop sidecar, cache, skills).
 //!
-//! TeamClaw no longer injects per-workspace `XDG_*` overrides; OpenCode uses the
+//! TeamClu no longer injects per-workspace `XDG_*` overrides; OpenCode uses the
 //! user's default global directories. Workspace-local paths under `.opencode/skills`
 //! and `opencode.json` remain project-scoped.
 
@@ -22,7 +22,7 @@ pub fn global_opencode_config_skills_dir(home: &Path) -> PathBuf {
     home.join(".config/opencode/skills")
 }
 
-/// TeamClaw plugin update throttle file under the global XDG state dir.
+/// TeamClu plugin update throttle file under the global XDG state dir.
 pub fn global_plugin_update_state_path(home: &Path) -> PathBuf {
     home.join(".local/state/plugin-update-check.json")
 }

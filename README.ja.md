@@ -1,8 +1,8 @@
 # TeamClu
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
-[![CI](https://github.com/different-ai-studio/teamclaw/actions/workflows/ci.yml/badge.svg)](https://github.com/different-ai-studio/teamclaw/actions)
-[![Contributors](https://img.shields.io/github/contributors/different-ai-studio/teamclaw.svg)](https://github.com/different-ai-studio/teamclaw/graphs/contributors)
+[![CI](https://github.com/different-ai-studio/teamclu/actions/workflows/ci.yml/badge.svg)](https://github.com/different-ai-studio/teamclu/actions)
+[![Contributors](https://img.shields.io/github/contributors/different-ai-studio/teamclu.svg)](https://github.com/different-ai-studio/teamclu/graphs/contributors)
 
 ローカル AI エージェント — あらゆる職務のための AI パートナー
 
@@ -27,7 +27,7 @@
 - **ローカルエージェントランタイム** — エージェントは自分のマシン上で動作し、`amuxd` デーモンがホストします
 - **チャンネルゲートウェイ** — Discord、Feishu、Email、Kook、WeCom、WeChat からエージェントにアクセス
 - **自動化** — cron によるスケジュールタスク
-- **チーム協力** — OSS または Git 経由でチームドライブ（`teamclaw-team/`）を共有。[チーム協力](#チーム協力)を参照
+- **チーム協力** — OSS または Git 経由でチームドライブ（`teamclu-team/`）を共有。[チーム協力](#チーム協力)を参照
 - **MCP サポート** — Model Context Protocol でエージェントをエンタープライズシステムに接続
 - **Skills / プラグイン** — ワークスペースレベルおよびグローバルなスキルソースでエージェントを拡張
 - **ナレッジベース** — 全文検索と埋め込みベースのインデックス作成・検索
@@ -44,7 +44,7 @@ TeamClu はクライアント層、エージェントホスト、クラウドバ
         └──────────────┴─────┬──────┴──────────────────┘
                              │
               ┌──────────────┴───────────────┐
-              │      TeamClaw Cloud API      │   identity, teams,
+              │      TeamClu Cloud API      │   identity, teams,
               │            (/v1)             │   sessions, messages
               └──────────────┬───────────────┘
                              │
@@ -60,7 +60,7 @@ TeamClu はクライアント層、エージェントホスト、クラウドバ
 
 - **クライアント** は UI とローカルファイルを担当します。TeamClu Desktop をインストールすると `amuxd` デーモンも同時にインストールされるため、そのマシンは最初からエージェントホストになります。
 - **amuxd** はローカルエージェントバックエンドをホストし、チャンネルゲートウェイを実行し、チーム同期を担当します。GUI なしでサーバー上に単体インストールすることもできます。
-- **Cloud API**（`/v1`）はクライアントが通信する唯一のバックエンドです。契約は [`docs/openapi/teamclaw-api.v1.yaml`](docs/openapi/teamclaw-api.v1.yaml)、アーキテクチャ全体は [`docs/architecture/v2.md`](docs/architecture/v2.md) を参照してください。
+- **Cloud API**（`/v1`）はクライアントが通信する唯一のバックエンドです。契約は [`docs/openapi/teamclu-api.v1.yaml`](docs/openapi/teamclu-api.v1.yaml)、アーキテクチャ全体は [`docs/architecture/v2.md`](docs/architecture/v2.md) を参照してください。
 
 ## クライアント
 
@@ -73,14 +73,14 @@ TeamClu はクライアント層、エージェントホスト、クラウドバ
 
 ## インストール
 
-[GitHub Releases](https://github.com/different-ai-studio/teamclaw/releases) からプラットフォームに対応したインストーラーをダウンロードしてください — macOS は `.dmg`、Windows は `.exe` です。
+[GitHub Releases](https://github.com/different-ai-studio/teamclu/releases) からプラットフォームに対応したインストーラーをダウンロードしてください — macOS は `.dmg`、Windows は `.exe` です。
 
 ### macOS で「壊れている」と表示される場合
 
 macOS がアプリを **「壊れている」** または **「開発元を確認できないため開けません」** と表示する場合、それは未署名のダウンロードに対する Gatekeeper の反応です。次のコマンドで隔離属性を解除してください：
 
 ```bash
-xattr -cr /Applications/TeamClaw.app
+xattr -cr /Applications/TeamClu.app
 ```
 
 Apple Developer 証明書で署名・公証されたビルドでは、この手順は不要です。
@@ -106,7 +106,7 @@ pnpm tauri:dev -- --skip-setup --skip-daemon-onboarding
 
 ## チーム協力
 
-チームが共有するのは専用の **チームドライブ**（`teamclaw-team/`）であり、ワークスペース全体ではありません。オンボーディング時にオーナーが **共有モード** を一度選択すると、サーバー側でロックされます：
+チームが共有するのは専用の **チームドライブ**（`teamclu-team/`）であり、ワークスペース全体ではありません。オンボーディング時にオーナーが **共有モード** を一度選択すると、サーバー側でロックされます：
 
 | モード | 内容 |
 |---|---|
@@ -114,7 +114,7 @@ pnpm tauri:dev -- --skip-setup --skip-daemon-onboarding
 | `managed_git` | 自動的にプロビジョニングされた Git リポジトリ経由で同期 |
 | `custom_git` | 自分でホストする Git リポジトリ経由で同期 |
 
-同期は `amuxd` デーモンが担当します。チームごとに `~/.amuxd/teams/<team_id>/` へグローバルコピーを保持し、リンク済みの各ワークスペースは `teamclaw-team` シンボリックリンクでそのコピーを指します。
+同期は `amuxd` デーモンが担当します。チームごとに `~/.amuxd/teams/<team_id>/` へグローバルコピーを保持し、リンク済みの各ワークスペースは `teamclu-team` シンボリックリンクでそのコピーを指します。
 
 ### 共有される内容
 
@@ -146,11 +146,11 @@ build.config.json → build.config.${BUILD_ENV}.json → build.config.local.json
 cp build.config.example.json build.config.local.json
 ```
 
-最も重要な設定は `cloudApiUrl` で、アプリが接続する TeamClaw Cloud API のデプロイ先を指定します：
+最も重要な設定は `cloudApiUrl` で、アプリが接続する TeamClu Cloud API のデプロイ先を指定します：
 
 ```json
 {
-  "cloudApiUrl": "https://api.teamclaw-dev.ucar.cc",
+  "cloudApiUrl": "https://api.teamclu-dev.ucar.cc",
   "features": {
     "channels": { "discord": true, "feishu": true, "email": true }
   }
@@ -164,7 +164,7 @@ Cloud API の実装は `services/fc/`（Node.js 20）にあり、Supabase をバ
 ## ドキュメント
 
 - [アーキテクチャ](docs/architecture/v2.md) — コンポーネント、トポロジー、データモデル
-- [API 契約](docs/openapi/teamclaw-api.v1.yaml) — TeamClaw Cloud API `/v1`
+- [API 契約](docs/openapi/teamclu-api.v1.yaml) — TeamClu Cloud API `/v1`
 - [コンテキストマップ](CONTEXT-MAP.md) — リポジトリの境界づけられたコンテキストへの分割
 - [コントリビューション](CONTRIBUTING.md) — 開発環境のセットアップ、テスト、リポジトリ構成
 - [セキュリティポリシー](SECURITY.md)

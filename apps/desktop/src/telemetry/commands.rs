@@ -18,7 +18,7 @@ struct ConsentFile {
 
 fn consent_path() -> Result<PathBuf, String> {
     let home = dirs::home_dir().ok_or("home dir unavailable")?;
-    Ok(home.join(".teamclaw").join("telemetry-consent.json"))
+    Ok(home.join(".teamclu").join("telemetry-consent.json"))
 }
 
 #[tauri::command]

@@ -31,12 +31,12 @@ interface AddMCPDialogProps {
   onSave: (name: string, config: MCPServerConfig) => Promise<void>
 }
 
-/** MCP servers TeamClaw auto-injects — env vars are managed in the env-var settings page. */
+/** MCP servers TeamClu auto-injects — env vars are managed in the env-var settings page. */
 const INHERENT_MCP_NAMES = new Set([
   'playwright',
   'chrome-control',
   'autoui',
-  'teamclaw-introspect',
+  'teamclu-introspect',
 ])
 
 /** For each inherent server, the env-var keys the user should configure on the env-var page. */

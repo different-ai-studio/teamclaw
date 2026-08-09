@@ -1,4 +1,4 @@
-//! Skills.sh integration for TeamClaw
+//! Skills.sh integration for TeamClu
 //!
 //! This module provides integration with skills.sh marketplace for discovering and installing
 //! agent skills. The implementation follows the vercel-labs/skills pattern for skill discovery:
@@ -210,7 +210,7 @@ pub async fn fetch_skillssh_leaderboard(
 ) -> Result<SkillsShLeaderboard, String> {
     let client = reqwest::Client::builder()
         .timeout(Duration::from_secs(REQUEST_TIMEOUT_SECS))
-        .user_agent("TeamClaw/1.0")
+        .user_agent("TeamClu/1.0")
         .build()
         .map_err(|e| format!("Failed to create HTTP client: {}", e))?;
 
@@ -296,7 +296,7 @@ pub async fn search_skillssh_skills(query: String) -> Result<SkillsShLeaderboard
 
     let client = reqwest::Client::builder()
         .timeout(Duration::from_secs(REQUEST_TIMEOUT_SECS))
-        .user_agent("TeamClaw/1.0")
+        .user_agent("TeamClu/1.0")
         .build()
         .map_err(|e| format!("Failed to create HTTP client: {}", e))?;
 
@@ -651,7 +651,7 @@ pub async fn fetch_skillssh_content(
 ) -> Result<String, String> {
     let client = reqwest::Client::builder()
         .timeout(Duration::from_secs(REQUEST_TIMEOUT_SECS))
-        .user_agent("TeamClaw/1.0")
+        .user_agent("TeamClu/1.0")
         .build()
         .map_err(|e| format!("Failed to create HTTP client: {}", e))?;
 
@@ -728,7 +728,7 @@ fn extract_skillmd_from_rsc_payload(html: &str) -> Option<String> {
 async fn fetch_skill_content_from_url(git_url: &str, slug: &str) -> Result<String, String> {
     let client = reqwest::Client::builder()
         .timeout(Duration::from_secs(REQUEST_TIMEOUT_SECS))
-        .user_agent("TeamClaw/1.0")
+        .user_agent("TeamClu/1.0")
         .build()
         .map_err(|e| format!("Failed to create HTTP client: {}", e))?;
 
@@ -1100,7 +1100,7 @@ pub async fn install_skill_from_git_url(
 
     // Generate unique temp directory name
     let url_hash = format!("{:x}", md5::compute(&git_url));
-    let temp_dir = std::env::temp_dir().join(format!("teamclaw-skill-{}", url_hash));
+    let temp_dir = std::env::temp_dir().join(format!("teamclu-skill-{}", url_hash));
 
     // Remove if exists
     if temp_dir.exists() {
@@ -1302,7 +1302,7 @@ pub fn import_skill_from_zip(
 
     let hash_input = zip_path.to_string_lossy();
     let temp_dir = std::env::temp_dir().join(format!(
-        "teamclaw-skill-zip-{:x}",
+        "teamclu-skill-zip-{:x}",
         md5::compute(hash_input.as_bytes())
     ));
 
@@ -1626,7 +1626,7 @@ pub async fn npx_skills_add(
     }
 
     args_owned.extend(["--agent".into(), "opencode".into()]);
-    // Always global — TeamClaw installs into ~/.agents/skills and points
+    // Always global — TeamClu installs into ~/.agents/skills and points
     // runtime configs at that root via ensure_agents_skills_paths.
     args_owned.push("-g".into());
     let _ = is_global;

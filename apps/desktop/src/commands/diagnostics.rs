@@ -182,7 +182,7 @@ fn gather_team_env_diagnostics(workspace_path: &str, team_id: Option<&str>) -> T
         .map(str::to_string);
     let ws = Path::new(workspace_path);
 
-    let link = teamclaw_runtime_env::env_catalog::resolve_team_dir_for_workspace(ws);
+    let link = teamclu_runtime_env::env_catalog::resolve_team_dir_for_workspace(ws);
     let symlink_meta = std::fs::symlink_metadata(&link).ok();
     let link_is_symlink = symlink_meta
         .as_ref()
@@ -204,7 +204,7 @@ fn gather_team_env_diagnostics(workspace_path: &str, team_id: Option<&str>) -> T
     let legacy_secrets_dir_exists = legacy_secrets_dir.exists();
     let legacy_secret_file_count = super::env_vars::count_enc_json_files(&legacy_secrets_dir);
 
-    let secret_configured = teamclaw_runtime_env::env_catalog::resolve_team_env_secret(
+    let secret_configured = teamclu_runtime_env::env_catalog::resolve_team_env_secret(
         ws,
         team_id_trimmed.as_deref(),
         None,

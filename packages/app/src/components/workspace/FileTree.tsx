@@ -378,7 +378,7 @@ export function FileTree({
     return {};
   }, [isGitShare, teamGitFileSyncStatusMap]);
 
-  // Which mode drives the teamclaw-team folder spinner / last-sync tooltip.
+  // Which mode drives the teamclu-team folder spinner / last-sync tooltip.
   const teamSyncing = isOssShare ? ossSyncing : teamGitSyncing;
   const teamLastSyncAt = isOssShare ? ossLastSyncAt : teamGitLastSyncAt;
 
@@ -1121,7 +1121,7 @@ export function FileTree({
             }
 
             // Drop landed outside the file tree → dispatch for prompt input
-            window.dispatchEvent(new CustomEvent('teamclaw:filedrop', {
+            window.dispatchEvent(new CustomEvent('teamclu:filedrop', {
               detail: { path: sourcePath, position: event.payload.position },
             }));
             return;
@@ -1277,7 +1277,7 @@ export function FileTree({
     statusColors,
     isRenaming: renamingPath === node.path,
     isDragOver: dragOverPath === node.path,
-    isTeamClawTeam: node.name === TEAM_REPO_DIR && node.type === "directory" && level === 0,
+    isTeamCluTeam: node.name === TEAM_REPO_DIR && node.type === "directory" && level === 0,
     teamSyncing: node.name === TEAM_REPO_DIR && node.type === "directory" && level === 0 ? teamSyncing : undefined,
     teamLastSyncAt: node.name === TEAM_REPO_DIR && node.type === "directory" && level === 0 ? teamLastSyncAt : undefined,
     syncStatus: (() => {
@@ -1285,7 +1285,7 @@ export function FileTree({
       if (node.type === 'directory') {
         return syncDirtyDirectories.get(node.path) ?? null;
       }
-      // Extract relative path within teamclaw-team/
+      // Extract relative path within teamclu-team/
       const teamDirPrefix = `${workspacePath}/${TEAM_REPO_DIR}/`;
       if (!node.path.startsWith(teamDirPrefix)) return null;
       const relPath = node.path.slice(teamDirPrefix.length);

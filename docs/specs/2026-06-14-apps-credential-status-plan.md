@@ -57,7 +57,7 @@ Append to `services/fc/test/pg-repo-apps.test.ts`:
 ```typescript
 test("getManagedGitCredential returns creds for a team member, null for non-member", async () => {
   process.env.CODEUP_PAT = "pt-secret";
-  process.env.CODEUP_BOT_USERNAME = "teamclaw";
+  process.env.CODEUP_BOT_USERNAME = "teamclu";
   const { db } = await makeTestDb();
   const team = await seedTeam(db);
   const member = await seedActor(db, team.id);
@@ -68,7 +68,7 @@ test("getManagedGitCredential returns creds for a team member, null for non-memb
   const outsiderRepo = createPgBusinessRepository({ db, userId: outsider.userId });
 
   const cred = await memberRepo.getManagedGitCredential(team.id);
-  assert.deepEqual(cred, { username: "teamclaw", token: "pt-secret" });
+  assert.deepEqual(cred, { username: "teamclu", token: "pt-secret" });
 
   const denied = await outsiderRepo.getManagedGitCredential(team.id);
   assert.equal(denied, null);
@@ -144,7 +144,7 @@ Expected: PASS.
 - [ ] **Step 7: Commit**
 
 ```bash
-git -C /Volumes/openbeta/workspace/teamclaw-v2/.worktrees/apps-module add services/fc/src/lib/admin-handlers.ts services/fc/src/lib/pg-repo/apps.ts services/fc/src/lib/supabase-repo.ts services/fc/test/pg-repo-apps.test.ts services/fc/test/supabase-repo.test.ts
+git -C /Volumes/openbeta/workspace/teamclu-v2/.worktrees/apps-module add services/fc/src/lib/admin-handlers.ts services/fc/src/lib/pg-repo/apps.ts services/fc/src/lib/supabase-repo.ts services/fc/test/pg-repo-apps.test.ts services/fc/test/supabase-repo.test.ts
 git commit -m "feat(apps): getManagedGitCredential (team-scoped, member-gated)"
 ```
 
@@ -174,9 +174,9 @@ test("GET /v1/teams/:teamId/managed-git-credential returns creds", async () => {
   const handler = routes.find((r) => r[0] === "GET" && r[1] === "/v1/teams/:teamId/managed-git-credential")[2];
   const res = await handler({
     params: { teamId: "t1" },
-    repository: { getManagedGitCredential: async () => ({ username: "teamclaw", token: "pt" }) },
+    repository: { getManagedGitCredential: async () => ({ username: "teamclu", token: "pt" }) },
   });
-  assert.deepEqual(res.body, { username: "teamclaw", token: "pt" });
+  assert.deepEqual(res.body, { username: "teamclu", token: "pt" });
 });
 
 test("GET managed-git-credential 404s for non-member (repo returns null)", async () => {
@@ -387,7 +387,7 @@ git commit -m "feat(apps): updateApp validates provisionStatus transitions"
 ### Task A4: OpenAPI for the credential endpoint + PATCH provisionStatus
 
 **Files:**
-- Modify: `docs/openapi/teamclaw-api.v1.yaml`
+- Modify: `docs/openapi/teamclu-api.v1.yaml`
 
 - [ ] **Step 1: Add the credential path + schema**
 
@@ -404,7 +404,7 @@ Run: `cd services/fc && npm run openapi:lint` (redocly). Expected: "valid" (pre-
 - [ ] **Step 4: Commit**
 
 ```bash
-git -C <worktree> add docs/openapi/teamclaw-api.v1.yaml
+git -C <worktree> add docs/openapi/teamclu-api.v1.yaml
 git commit -m "docs(apps): OpenAPI for managed-git-credential + PATCH provisionStatus"
 ```
 
@@ -524,7 +524,7 @@ In the `body_deserializes_camel_case` test, add `"teamId": "team-1"` to the JSON
 
 - [ ] **Step 3: Write the integration test (credential pulled from a mock backend)**
 
-In `apps/daemon/tests/http_apps.rs`, add a test that builds `HttpState` with a mock `Backend` whose `managed_git_credential` returns `{ username: "teamclaw", token: "pt-xyz" }`, then POSTs `/v1/apps/seed` with `{ appId, teamId, gitRemoteUrl: <local bare repo>, workdir: <fresh> }` (NO `gitToken`), and asserts 200 + the template landed in the bare repo (clone-and-check, like the existing seed test). Use the existing test harness for spinning the server; you must attach the mock backend via `HttpState::with_backend(Some(Arc::new(MockBackend)))`. Define a minimal `MockBackend` implementing the `Backend` trait (only `managed_git_credential` returns the credential; other methods can `unimplemented!()` or return errors if the test never calls them — check the trait surface and stub the rest minimally). The bare repo accepts the embedded credential regardless (local push), so success proves the fetch+embed path ran.
+In `apps/daemon/tests/http_apps.rs`, add a test that builds `HttpState` with a mock `Backend` whose `managed_git_credential` returns `{ username: "teamclu", token: "pt-xyz" }`, then POSTs `/v1/apps/seed` with `{ appId, teamId, gitRemoteUrl: <local bare repo>, workdir: <fresh> }` (NO `gitToken`), and asserts 200 + the template landed in the bare repo (clone-and-check, like the existing seed test). Use the existing test harness for spinning the server; you must attach the mock backend via `HttpState::with_backend(Some(Arc::new(MockBackend)))`. Define a minimal `MockBackend` implementing the `Backend` trait (only `managed_git_credential` returns the credential; other methods can `unimplemented!()` or return errors if the test never calls them — check the trait surface and stub the rest minimally). The bare repo accepts the embedded credential regardless (local push), so success proves the fetch+embed path ran.
 
 - [ ] **Step 4: Run the tests**
 

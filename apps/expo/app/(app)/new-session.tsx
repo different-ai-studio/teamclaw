@@ -15,7 +15,7 @@ import {
   NewSessionScreen,
   type AgentWorkspaceChoice,
 } from "../../src/features/sessions/screens/NewSessionScreen";
-import { createRuntimeRpcClient } from "../../src/lib/teamclaw/runtime-rpc";
+import { createRuntimeRpcClient } from "../../src/lib/teamclu/runtime-rpc";
 import { supabase } from "../../src/lib/supabase/client";
 import { supabaseAccessToken } from "../../src/lib/cloud-api/client";
 import { uuidV4 } from "../../src/lib/uuid";
@@ -125,7 +125,7 @@ export default function NewSessionRoute() {
             .map((id) => actorById.get(id))
             .filter((actor): actor is Actor => Boolean(actor && isAgentActor(actor)));
           if (selectedAgents.length > 0 && !connectedAgentsStore) {
-            throw new Error("Connected agents are not ready — wait for Teamclaw to reconnect.");
+            throw new Error("Connected agents are not ready — wait for Teamclu to reconnect.");
           }
           if (selectedAgents.length > 0) {
             await connectedAgentsStore?.reload();
@@ -154,7 +154,7 @@ export default function NewSessionRoute() {
               : [];
 
           if (runtimePlans.length > 0 && !teamMqtt) {
-            throw new Error("MQTT is not connected — wait for Teamclaw to reconnect.");
+            throw new Error("MQTT is not connected — wait for Teamclu to reconnect.");
           }
 
           const idea = chosenIdeaId

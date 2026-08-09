@@ -15,22 +15,22 @@ use crate::runtime::RuntimeSupervisor;
 use super::{RefreshChangeKind, RefreshSource, RuntimeRefreshCoordinator};
 
 fn brand_workspace_config(workspace: &Path) -> PathBuf {
-    teamclaw_runtime_env::workspace_config_path_from_env(workspace)
+    teamclu_runtime_env::workspace_config_path_from_env(workspace)
 }
 
 fn brand_skills_dir(workspace: &Path) -> PathBuf {
-    teamclaw_runtime_env::workspace_meta_write_path_from_env(workspace, "skills")
+    teamclu_runtime_env::workspace_meta_write_path_from_env(workspace, "skills")
 }
 
 fn legacy_workspace_config(workspace: &Path) -> PathBuf {
     workspace
-        .join(teamclaw_runtime_env::WORKSPACE_META_DIR)
-        .join(teamclaw_runtime_env::WORKSPACE_CONFIG_FILE)
+        .join(teamclu_runtime_env::WORKSPACE_META_DIR)
+        .join(teamclu_runtime_env::WORKSPACE_CONFIG_FILE)
 }
 
 fn legacy_skills_dir(workspace: &Path) -> PathBuf {
     workspace
-        .join(teamclaw_runtime_env::WORKSPACE_META_DIR)
+        .join(teamclu_runtime_env::WORKSPACE_META_DIR)
         .join("skills")
 }
 
@@ -154,7 +154,7 @@ pub fn classify_change_path(
     let mut seen = HashSet::new();
 
     let is_global_skill_path = home.is_some_and(|home_dir| {
-        path.starts_with(home_dir.join(".config/teamclaw/skills"))
+        path.starts_with(home_dir.join(".config/teamclu/skills"))
             || path.starts_with(home_dir.join(".config/opencode/skills"))
             || path.starts_with(home_dir.join(".claude/skills"))
             || path.starts_with(home_dir.join(".agents/skills"))
@@ -164,7 +164,7 @@ pub fn classify_change_path(
         let kind = if path == workspace.workspace_path.join("opencode.json") {
             Some(RefreshChangeKind::OpencodeJson)
         } else if is_workspace_config_path(path, &workspace.workspace_path) {
-            Some(RefreshChangeKind::TeamclawConfig)
+            Some(RefreshChangeKind::TeamcluConfig)
         } else if path.starts_with(workspace.workspace_path.join(TEAM_LINK_NAME).join(".mcp")) {
             Some(RefreshChangeKind::Mcp)
         } else if path.starts_with(
@@ -271,7 +271,7 @@ fn watch_roots(workspaces: &[WatchedWorkspace], home: Option<&Path>) -> Vec<Watc
     }
     if let Some(home_dir) = home {
         roots.push(WatchRoot {
-            path: home_dir.join(".config/teamclaw/skills"),
+            path: home_dir.join(".config/teamclu/skills"),
             recursive: true,
         });
         roots.push(WatchRoot {
@@ -329,7 +329,7 @@ async fn record_classified_changes(
 /// OS watcher, deduped by path.
 ///
 /// OS watchers (FSEvents / inotify / ReadDirectoryChangesW) watch *directories*,
-/// so a non-recursive file root (`opencode.json`, `teamclaw.json`) is covered by
+/// so a non-recursive file root (`opencode.json`, `teamclu.json`) is covered by
 /// watching its parent directory shallowly — this also survives atomic saves
 /// (write-temp + rename) that would break a watch pinned to the file's inode.
 /// Only directories that currently exist are returned; missing roots are armed
@@ -515,7 +515,7 @@ mod tests {
 
         let cases = [
             (
-                Path::new("/tmp/ws-1/.teamclaw/skills/demo-skill/SKILL.md"),
+                Path::new("/tmp/ws-1/.teamclu/skills/demo-skill/SKILL.md"),
                 RefreshChangeKind::Skills,
             ),
             (
@@ -523,7 +523,7 @@ mod tests {
                 RefreshChangeKind::Skills,
             ),
             (
-                Path::new("/Users/tester/.config/teamclaw/skills/global-skill/SKILL.md"),
+                Path::new("/Users/tester/.config/teamclu/skills/global-skill/SKILL.md"),
                 RefreshChangeKind::Skills,
             ),
             (
@@ -551,11 +551,11 @@ mod tests {
                 RefreshChangeKind::OpencodeJson,
             ),
             (
-                Path::new("/tmp/ws-1/.teamclaw/teamclaw.json"),
-                RefreshChangeKind::TeamclawConfig,
+                Path::new("/tmp/ws-1/.teamclu/teamclu.json"),
+                RefreshChangeKind::TeamcluConfig,
             ),
             (
-                Path::new("/tmp/ws-1/teamclaw-team/_secrets/api_key.enc.json"),
+                Path::new("/tmp/ws-1/teamclu-team/_secrets/api_key.enc.json"),
                 RefreshChangeKind::EnvVars,
             ),
             (
@@ -586,7 +586,7 @@ mod tests {
         let workspaces = vec![watched_workspace("ws-1", "/tmp/ws-1")];
         let mut debounce = RefreshDebounce::new(Duration::from_millis(250));
         let now = Instant::now();
-        let path = Path::new("/tmp/ws-1/.teamclaw/skills/demo-skill/SKILL.md");
+        let path = Path::new("/tmp/ws-1/.teamclu/skills/demo-skill/SKILL.md");
 
         record_classified_changes(&coordinator, &mut debounce, &workspaces, None, path, now).await;
         record_classified_changes(
@@ -633,7 +633,7 @@ mod tests {
             &mut debounce,
             &workspaces,
             None,
-            &dir.path().join(".teamclaw/skills/demo-skill/SKILL.md"),
+            &dir.path().join(".teamclu/skills/demo-skill/SKILL.md"),
             Instant::now(),
         )
         .await;
@@ -797,9 +797,9 @@ mod tests {
             !targets.contains_key(&ws.join(".agents/skills")),
             "missing skills dir must be excluded until it is created"
         );
-        // `.teamclaw/teamclaw.json`'s parent does not exist here, so it is skipped.
+        // `.teamclu/teamclu.json`'s parent does not exist here, so it is skipped.
         assert!(
-            !targets.contains_key(&ws.join(".teamclaw")),
+            !targets.contains_key(&ws.join(".teamclu")),
             "missing config parent dir must be excluded"
         );
     }
@@ -816,18 +816,18 @@ mod tests {
         );
         assert_eq!(
             brand_cfg[0].kind,
-            RefreshChangeKind::TeamclawConfig,
+            RefreshChangeKind::TeamcluConfig,
             "brand config should classify"
         );
 
         let legacy_cfg = classify_change_path(
-            Path::new("/tmp/ws-1/.teamclaw/teamclaw.json"),
+            Path::new("/tmp/ws-1/.teamclu/teamclu.json"),
             &workspaces,
             None,
         );
         assert_eq!(
             legacy_cfg[0].kind,
-            RefreshChangeKind::TeamclawConfig,
+            RefreshChangeKind::TeamcluConfig,
             "legacy config should still classify during migration"
         );
 
@@ -847,7 +847,7 @@ mod tests {
         let paths: Vec<_> = roots.iter().map(|r| r.path.clone()).collect();
         assert!(paths.contains(&PathBuf::from("/tmp/ws-1/.copilot361/copilot361.json")));
         assert!(paths.contains(&PathBuf::from("/tmp/ws-1/.copilot361/skills")));
-        assert!(paths.contains(&PathBuf::from("/tmp/ws-1/.teamclaw/teamclaw.json")));
-        assert!(paths.contains(&PathBuf::from("/tmp/ws-1/.teamclaw/skills")));
+        assert!(paths.contains(&PathBuf::from("/tmp/ws-1/.teamclu/teamclu.json")));
+        assert!(paths.contains(&PathBuf::from("/tmp/ws-1/.teamclu/skills")));
     }
 }

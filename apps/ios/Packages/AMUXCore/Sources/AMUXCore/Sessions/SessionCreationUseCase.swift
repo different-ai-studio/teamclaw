@@ -16,11 +16,11 @@ public struct SessionCreationInput: Sendable {
     public let createdAt: Date
     public let participants: [SessionParticipantInput]
     /// Pre-built protobuf participants used by the local cache persist
-    /// step (it builds a Teamclaw_SessionInfo to seed the SwiftData row
+    /// step (it builds a Teamclu_SessionInfo to seed the SwiftData row
     /// without round-tripping through the daemon). Mirrors `participants`
     /// but carries the display-name attribution the local cache wants to
     /// show immediately.
-    public let participantInfos: [Teamclaw_Participant]
+    public let participantInfos: [Teamclu_Participant]
     /// Agents to spawn after the first message lands. Empty for human-
     /// only sessions (which take the simpler local-only path elsewhere
     /// and don't reach this use case).
@@ -49,7 +49,7 @@ public struct SessionCreationInput: Sendable {
     public init(sessionID: String, teamID: String, currentActorID: String,
                 ideaID: String?, title: String, summary: String, createdAt: Date,
                 participants: [SessionParticipantInput],
-                participantInfos: [Teamclaw_Participant],
+                participantInfos: [Teamclu_Participant],
                 agentSpawns: [AgentSpawn],
                 mentionAgentActorIDs: [String]) {
         self.sessionID = sessionID
@@ -102,7 +102,7 @@ public enum SessionCreationFailure: Sendable {
     /// view should stay on the sheet for retry.
     case supabaseCreate(String)
     /// Local SwiftData persistence failed for the session row.
-    /// (Subscribe-live is fire-and-forget on `TeamclawService` and
+    /// (Subscribe-live is fire-and-forget on `TeamcluService` and
     /// can't surface a failure here today; intentionally absent.)
     case localCachePersist(String)
     /// First-message persist + publish both failed (i.e. nothing went
@@ -142,14 +142,14 @@ public enum SessionCreationFailure: Sendable {
 @MainActor
 public final class SessionCreationUseCase {
     private let repository: SessionRepository
-    private let teamclawService: TeamclawService
+    private let teamcluService: TeamcluService
     private let modelContext: ModelContext
 
     public init(repository: SessionRepository,
-                teamclawService: TeamclawService,
+                teamcluService: TeamcluService,
                 modelContext: ModelContext) {
         self.repository = repository
-        self.teamclawService = teamclawService
+        self.teamcluService = teamcluService
         self.modelContext = modelContext
     }
 
@@ -174,9 +174,9 @@ public final class SessionCreationUseCase {
         }
 
         // Step 2: Subscribe live before spawning so no events are missed.
-        // TeamclawService.subscribeToSession is fire-and-forget; we can't
+        // TeamcluService.subscribeToSession is fire-and-forget; we can't
         // surface a failure here. Best-effort.
-        teamclawService.subscribeToSession(input.sessionID)
+        teamcluService.subscribeToSession(input.sessionID)
 
         // Step 3: Local cache persist. Hard failure — without the local
         // row, navigation to the detail view would land on an empty state.
@@ -193,12 +193,12 @@ public final class SessionCreationUseCase {
         // Split failure semantics, target shape: persist+publish both fail
         // → hard failure; persist succeeded but publish failed → partial
         // with `firstMessagePersisted = false`. Today the underlying
-        // TeamclawService.sendMessage only throws on Supabase write fail,
+        // TeamcluService.sendMessage only throws on Supabase write fail,
         // so the "publish failed only" path falls through to a successful
         // return and the outbox picks it up invisibly here. The partial
         // type stays in the API for when the split is plumbed through.
         do {
-            _ = try await teamclawService.sendMessage(
+            _ = try await teamcluService.sendMessage(
                 sessionId: input.sessionID,
                 content: input.summary,
                 mentionActorIDs: input.mentionAgentActorIDs,
@@ -257,7 +257,7 @@ public final class SessionCreationUseCase {
     }
 
     private func spawnRuntimes(_ input: SessionCreationInput) {
-        let service = teamclawService
+        let service = teamcluService
         let sessionID = input.sessionID
         for spawn in input.agentSpawns {
             Task.detached {

@@ -3,7 +3,7 @@
 **现象:** 用户点击 Composer 停止按钮后，agent 仍在输出；偶发，无 toast。  
 **调查日期:** 2026-07-02  
 **状态:** 已修复（分支 `fix/stale-runtime-interrupt`）  
-**环境:** `teamclaw-dev`（`api.teamclaw-dev.ucar.cc`），本地 MACPRO daemon（`01fbb592-8e52-4505-8e13-9ae86d2bc4d4`）
+**环境:** `teamclu-dev`（`api.teamclu-dev.ucar.cc`），本地 MACPRO daemon（`01fbb592-8e52-4505-8e13-9ae86d2bc4d4`）
 
 ---
 
@@ -32,10 +32,10 @@
 
 | 环节 | 文件 |
 |------|------|
-| 中断入口 | `packages/app/src/lib/teamclaw/interrupt-agent.ts` |
+| 中断入口 | `packages/app/src/lib/teamclu/interrupt-agent.ts` |
 | runtime 解析 | `packages/app/src/lib/runtime-state-resolve.ts` → `resolvePermissionCommandTarget` |
 | DB 查询 | `services/fc/src/lib/supabase-repo.ts` → `listRuntimeTargetsForSession` |
-| MQTT cancel | `packages/app/src/lib/teamclaw/runtime-command.ts` → `sendCancel` |
+| MQTT cancel | `packages/app/src/lib/teamclu/runtime-command.ts` → `sendCancel` |
 | daemon 执行 | `apps/daemon/src/daemon/server/rpc.rs` → `Cancel` 分支 |
 | daemon 查找 | `apps/daemon/src/runtime/manager/cancel.rs` → `cancel_agent` |
 
@@ -213,7 +213,7 @@ grep -A6 'session_id = "<SESSION_UUID>"' ~/.amuxd/sessions.toml
 
 # 3. DevTools
 # 过滤 [session-flow] interrupt.begin / interrupt.ok
-# 或 interrupt-msg-diag → window.teamclawInterruptMsgDiagDump?.()
+# 或 interrupt-msg-diag → window.teamcluInterruptMsgDiagDump?.()
 
 # 4. daemon 日志（若写入）
 rg 'failed to cancel|agent cancelled via ACP' ~/.amuxd/amuxd.out.log

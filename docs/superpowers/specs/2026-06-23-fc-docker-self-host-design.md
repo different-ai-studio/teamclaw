@@ -6,7 +6,7 @@
 
 ## Goal
 
-Make Docker a real deployment target for the TeamClaw Cloud API (`services/fc`)
+Make Docker a real deployment target for the TeamClu Cloud API (`services/fc`)
 that can stand in for Alibaba Function Compute (FC), while the existing FC
 deploy path — `dist/index.handler`, `s.yaml`, and `.github/workflows/fc-deploy.yml`
 — stays 100% intact and functional.

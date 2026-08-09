@@ -1,5 +1,5 @@
 {
-  "name": "teamclaw-fc",
+  "name": "teamclu-fc",
   "version": "1.0.0",
   "type": "module",
   "scripts": {
@@ -7,8 +7,8 @@
     "build": "tsc -p tsconfig.json",
     "typecheck": "tsc -p tsconfig.test.json",
     "test": "node --import tsx --test \"test/**/*.test.ts\"",
-    "openapi:lint": "redocly lint ../../docs/openapi/teamclaw-api.v1.yaml",
-    "openapi:types": "openapi-typescript ../../docs/openapi/teamclaw-api.v1.yaml --output /tmp/teamclaw-api.v1.d.ts",
+    "openapi:lint": "redocly lint ../../docs/openapi/teamclu-api.v1.yaml",
+    "openapi:types": "openapi-typescript ../../docs/openapi/teamclu-api.v1.yaml --output /tmp/teamclu-api.v1.d.ts",
     "db:generate": "tsx node_modules/.bin/drizzle-kit generate"
   },
   "dependencies": {

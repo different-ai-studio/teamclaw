@@ -23,9 +23,9 @@ public enum OutboxState: String, Sendable, Codable {
 /// survives the relaunch and the sender resumes from where it left off.
 @Model
 public final class OutboxMessage {
-    /// Canonical message id shared with the `Teamclaw_Message` proto and
+    /// Canonical message id shared with the `Teamclu_Message` proto and
     /// the `messages.id` Supabase row. `OutboxSender` passes this id into
-    /// `TeamclawService.sendMessage` so the daemon's dedup (slice B) sees
+    /// `TeamcluService.sendMessage` so the daemon's dedup (slice B) sees
     /// retries land on the same id.
     @Attribute(.unique) public var messageID: String
     public var sessionID: String
@@ -49,7 +49,7 @@ public final class OutboxMessage {
     public var attachmentIDsJSON: String = "[]"
     /// JSON-encoded list of completed Supabase Storage URLs for this message's
     /// attachments. Populated from AttachmentUpload.storageURL after uploads
-    /// finish; sent in Teamclaw_Message.attachment_urls instead of appended to content.
+    /// finish; sent in Teamclu_Message.attachment_urls instead of appended to content.
     public var attachmentUrlsJSON: String = "[]"
 
     public init(messageID: String, sessionID: String, senderActorID: String,

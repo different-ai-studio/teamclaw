@@ -1,4 +1,4 @@
-import type { Message as TeamclawMessage } from "@/lib/proto/teamclaw_pb";
+import type { Message as TeamcluMessage } from "@/lib/proto/teamclu_pb";
 import {
   isToolOnlyTurnAnchor,
   mergePendingAgentReplies,
@@ -31,7 +31,7 @@ export function summarizeStreamEntry(
 }
 
 export function summarizePendingReplies(
-  pending: TeamclawMessage[] | undefined,
+  pending: TeamcluMessage[] | undefined,
 ): Record<string, unknown> {
   const rows = pending ?? [];
   return {
@@ -43,7 +43,7 @@ export function summarizePendingReplies(
 }
 
 export function summarizeFlushDecision(args: {
-  pending: TeamclawMessage[];
+  pending: TeamcluMessage[];
   liveStream?: AgentStreamEntry;
   resolvedStream?: AgentStreamEntry;
 }): Record<string, unknown> {

@@ -3,14 +3,14 @@
 //! Scans the same on-disk layouts the frontend loaders use (`{meta}/skills`,
 //! `{meta}/roles`, global skill dirs, etc.) and returns a single aggregated
 //! payload so the app no longer needs direct filesystem access for listing.
-//! Meta dir follows the process brand (see `teamclaw_runtime_env` workspace helpers).
+//! Meta dir follows the process brand (see `teamclu_runtime_env` workspace helpers).
 
 use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
 
 use serde::{Deserialize, Serialize};
 
-use teamclaw_types::skill_frontmatter::parse_frontmatter;
+use teamclu_types::skill_frontmatter::parse_frontmatter;
 
 use super::global_team_store::TEAM_LINK_NAME;
 use super::workspace_control::WorkspaceControlError;
@@ -80,31 +80,31 @@ const ROLE_SKILL_DIR: &str = "skills";
 const INHERENT_SKILL_NAMES: &[&str] = &["create-role", "macos-control", "windows-control"];
 
 fn process_brand() -> String {
-    teamclaw_runtime_env::brand_short_name_from_env()
+    teamclu_runtime_env::brand_short_name_from_env()
 }
 
 /// Canonical (write) skills directory for the process brand.
 fn brand_skills_dir(workspace_path: &Path) -> PathBuf {
-    teamclaw_runtime_env::workspace_meta_write_path_from_env(workspace_path, "skills")
+    teamclu_runtime_env::workspace_meta_write_path_from_env(workspace_path, "skills")
 }
 
-/// Meta skills roots to scan (canonical first, then legacy `.teamclaw/skills`).
+/// Meta skills roots to scan (canonical first, then legacy `.teamclu/skills`).
 fn meta_skills_dirs(workspace_path: &Path) -> Vec<PathBuf> {
-    teamclaw_runtime_env::workspace_meta_read_roots(workspace_path, &process_brand())
+    teamclu_runtime_env::workspace_meta_read_roots(workspace_path, &process_brand())
         .into_iter()
         .map(|root| root.join("skills"))
         .collect()
 }
 
 fn meta_roles_dirs(workspace_path: &Path) -> Vec<PathBuf> {
-    teamclaw_runtime_env::workspace_meta_read_roots(workspace_path, &process_brand())
+    teamclu_runtime_env::workspace_meta_read_roots(workspace_path, &process_brand())
         .into_iter()
         .map(|root| root.join("roles"))
         .collect()
 }
 
 fn brand_roles_dir(workspace_path: &Path) -> PathBuf {
-    teamclaw_runtime_env::workspace_meta_write_path_from_env(workspace_path, "roles")
+    teamclu_runtime_env::workspace_meta_write_path_from_env(workspace_path, "roles")
 }
 
 fn is_meta_skills_dir(path: &Path) -> bool {
@@ -119,8 +119,8 @@ fn is_meta_skills_dir(path: &Path) -> bool {
 fn workspace_brand_config_rel() -> String {
     format!(
         "{}/{}",
-        teamclaw_runtime_env::workspace_meta_dir_name(&process_brand()),
-        teamclaw_runtime_env::workspace_config_file_name(&process_brand())
+        teamclu_runtime_env::workspace_meta_dir_name(&process_brand()),
+        teamclu_runtime_env::workspace_config_file_name(&process_brand())
     )
 }
 
@@ -298,7 +298,7 @@ fn source_priority(source: &str) -> u8 {
         "team" => 4,
         "builtin" => 5,
         "plugin" => 6,
-        "global-teamclaw" => 7,
+        "global-teamclu" => 7,
         "global-claude" => 8,
         "global-agent" => 9,
         "global-opencode" => 10,
@@ -307,7 +307,7 @@ fn source_priority(source: &str) -> u8 {
     }
 }
 
-fn classify_teamclaw_skill(filename: &str, clawhub_slugs: &HashSet<String>) -> &'static str {
+fn classify_teamclu_skill(filename: &str, clawhub_slugs: &HashSet<String>) -> &'static str {
     if INHERENT_SKILL_NAMES.contains(&filename) {
         "builtin"
     } else if clawhub_slugs.contains(filename) {
@@ -347,7 +347,7 @@ fn remap_team_skill_path(workspace_path: &Path, path: PathBuf, team_id: &str) ->
 /// `~/.agents/skills` is where the team skills registry installs packages, and
 /// it has to be in here rather than only in `load_all_skills`: this list is the
 /// sole input to the `.claude/skills/` symlink bridge
-/// (`runtime::claude_skills`), and `teamclaw-team/skills` no longer receives
+/// (`runtime::claude_skills`), and `teamclu-team/skills` no longer receives
 /// anything — file sync carries documents only. Without this, registry-installed
 /// team skills reach OpenCode (via `skills.paths`) but are invisible to Claude
 /// Code, and an empty list makes the bridge prune every team symlink it had.
@@ -381,10 +381,10 @@ fn collect_team_skill_paths(workspace_path: &Path) -> Vec<PathBuf> {
         workspace_brand_config_rel(),
         format!(
             "{}/{}",
-            teamclaw_runtime_env::WORKSPACE_META_DIR,
-            teamclaw_runtime_env::WORKSPACE_CONFIG_FILE
+            teamclu_runtime_env::WORKSPACE_META_DIR,
+            teamclu_runtime_env::WORKSPACE_CONFIG_FILE
         ),
-        "teamclaw.json".to_string(),
+        "teamclu.json".to_string(),
     ] {
         for extra in read_json_paths(workspace_path, &config_rel, "/skills/paths") {
             push(extra);
@@ -435,8 +435,8 @@ fn load_all_skills(
             source: "shared",
         },
         SkillDirSpec {
-            path: PathBuf::from(format!("{home_trimmed}/.config/teamclaw/skills")),
-            source: "global-teamclaw",
+            path: PathBuf::from(format!("{home_trimmed}/.config/teamclu/skills")),
+            source: "global-teamclu",
         },
         SkillDirSpec {
             path: PathBuf::from(format!("{home_trimmed}/.config/opencode/skills")),
@@ -464,7 +464,7 @@ fn load_all_skills(
         let mut batch = load_skills_from_dir(&spec.path, spec.source)?;
         for skill in batch.drain(..) {
             let source = if is_meta_skills_dir(&spec.path) {
-                classify_teamclaw_skill(&skill.filename, &clawhub_slugs).to_owned()
+                classify_teamclu_skill(&skill.filename, &clawhub_slugs).to_owned()
             } else {
                 skill.source.clone()
             };
@@ -1049,7 +1049,7 @@ mod tests {
         // Global skill dirs (~/.config/…) may contribute skills on a developer
         // machine; assert the workspace-local meta dirs contributed nothing.
         assert!(!state.skills.iter().any(|s| {
-            s.dir_path.contains("/.teamclaw/skills") || s.dir_path.contains("/.copilot361/skills")
+            s.dir_path.contains("/.teamclu/skills") || s.dir_path.contains("/.copilot361/skills")
         }));
         assert_eq!(state.metrics.roles_count, 0);
     }
@@ -1109,7 +1109,7 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let ws = dir.path();
 
-        let skill_dir = ws.join(".teamclaw/skills/demo-skill");
+        let skill_dir = ws.join(".teamclu/skills/demo-skill");
         std::fs::create_dir_all(&skill_dir).unwrap();
         std::fs::write(
             skill_dir.join("SKILL.md"),
@@ -1117,7 +1117,7 @@ mod tests {
         )
         .unwrap();
 
-        let role_dir = ws.join(".teamclaw/roles/reviewer");
+        let role_dir = ws.join(".teamclu/roles/reviewer");
         std::fs::create_dir_all(&role_dir).unwrap();
         std::fs::write(
             role_dir.join("ROLE.md"),
@@ -1153,7 +1153,7 @@ mod tests {
             !state.skills.iter().any(|s| s.filename == "demo-skill"),
             "deleted workspace skill must be gone"
         );
-        assert!(!ws.path().join(".teamclaw/skills/demo-skill").exists());
+        assert!(!ws.path().join(".teamclu/skills/demo-skill").exists());
     }
 
     #[test]
@@ -1209,7 +1209,7 @@ mod tests {
     #[test]
     fn delete_role_removes_managed_role_dir_via_file_path() {
         let ws = tempfile::tempdir().unwrap();
-        let role_dir = ws.path().join(".teamclaw/roles/reviewer");
+        let role_dir = ws.path().join(".teamclu/roles/reviewer");
         std::fs::create_dir_all(&role_dir).unwrap();
         std::fs::write(role_dir.join("ROLE.md"), "---\nname: reviewer\n---\n").unwrap();
         let file_path = role_dir.join("ROLE.md");
@@ -1218,7 +1218,7 @@ mod tests {
     }
 
     #[test]
-    fn white_label_scan_reads_brand_meta_without_teamclaw_dir() {
+    fn white_label_scan_reads_brand_meta_without_teamclu_dir() {
         let _guard = crate::test_brand_env::BrandEnvGuard::set("copilot361");
         let ws = tempfile::tempdir().unwrap();
         let skill_dir = ws.path().join(".copilot361/skills/brand-skill");
@@ -1236,7 +1236,7 @@ mod tests {
         )
         .unwrap();
 
-        assert!(!ws.path().join(".teamclaw").exists());
+        assert!(!ws.path().join(".teamclu").exists());
         let state = scan_roles_skills_state(ws.path()).unwrap();
         assert!(
             state.skills.iter().any(|s| s.filename == "brand-skill"),
@@ -1249,10 +1249,10 @@ mod tests {
     }
 
     #[test]
-    fn white_label_scan_falls_back_to_legacy_teamclaw_meta() {
+    fn white_label_scan_falls_back_to_legacy_teamclu_meta() {
         let _guard = crate::test_brand_env::BrandEnvGuard::set("copilot361");
         let ws = tempfile::tempdir().unwrap();
-        let skill_dir = ws.path().join(".teamclaw/skills/legacy-skill");
+        let skill_dir = ws.path().join(".teamclu/skills/legacy-skill");
         std::fs::create_dir_all(&skill_dir).unwrap();
         std::fs::write(
             skill_dir.join("SKILL.md"),
@@ -1263,7 +1263,7 @@ mod tests {
         let state = scan_roles_skills_state(ws.path()).unwrap();
         assert!(
             state.skills.iter().any(|s| s.filename == "legacy-skill"),
-            "legacy .teamclaw/skills must still be scanned for white-label"
+            "legacy .teamclu/skills must still be scanned for white-label"
         );
     }
 
@@ -1284,6 +1284,6 @@ mod tests {
             .path()
             .join(".copilot361/skills/brand-skill/SKILL.md")
             .is_file());
-        assert!(!ws.path().join(".teamclaw/skills/brand-skill").exists());
+        assert!(!ws.path().join(".teamclu/skills/brand-skill").exists());
     }
 }

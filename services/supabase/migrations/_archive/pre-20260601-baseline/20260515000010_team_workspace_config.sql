@@ -1,5 +1,5 @@
 -- team_workspace_config: 1:1 with teams, holds desktop workspace metadata
--- that used to live in .teamclaw/teamclaw.json.
+-- that used to live in .teamclu/teamclu.json.
 
 create table public.team_workspace_config (
   team_id              uuid primary key references public.teams(id) on delete cascade,

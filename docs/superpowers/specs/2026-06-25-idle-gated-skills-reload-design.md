@@ -74,7 +74,7 @@ Automatic apply should be enabled for:
 | `Permissions` | Auto apply when workspace is idle. |
 | `OpencodeJson` | Auto apply when workspace is idle. |
 
-`Mcp` and `TeamclawConfig` remain pending for the first implementation unless
+`Mcp` and `TeamcluConfig` remain pending for the first implementation unless
 the current impact rules are intentionally relaxed. They may require broader
 runtime or daemon-level semantics and should not be folded into the skills
 change path casually.

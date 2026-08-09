@@ -25,8 +25,8 @@ describe("build-config app.displayName", () => {
 
 describe("resolveAmuxdDirName", () => {
   it("keeps official brands on ~/.amuxd and namespaces white-labels", () => {
-    expect(resolveAmuxdDirName("teamclaw")).toBe("amuxd");
-    expect(resolveAmuxdDirName("teamclawdev")).toBe("amuxd");
+    expect(resolveAmuxdDirName("teamclu")).toBe("amuxd");
+    expect(resolveAmuxdDirName("teamcludev")).toBe("amuxd");
     expect(resolveAmuxdDirName("copilot361")).toBe("amuxd-copilot361");
   });
 });

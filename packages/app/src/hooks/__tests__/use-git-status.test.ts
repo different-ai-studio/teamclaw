@@ -35,13 +35,13 @@ vi.mock('@/stores/git-settings', () => ({
 // isTauri() returns false in jsdom — web mode branch is exercised
 vi.mock('@tauri-apps/api/core', () => ({ isTauri: () => false }))
 vi.mock('@/lib/git/manager', () => ({ gitManager: { status: vi.fn() } }))
-vi.mock('@/lib/build-config', () => ({ TEAM_REPO_DIR: 'teamclaw-team' }))
+vi.mock('@/lib/build-config', () => ({ TEAM_REPO_DIR: 'teamclu-team' }))
 
 import { useGitStatus } from '@/hooks/use-git-status'
 
-// In web mode the hook filters to only files under <workspace>/teamclaw-team/
-const TEAM_FILE = 'teamclaw-team/src/file.ts'
-const TEAM_FILE_ABS = '/workspace/teamclaw-team/src/file.ts'
+// In web mode the hook filters to only files under <workspace>/teamclu-team/
+const TEAM_FILE = 'teamclu-team/src/file.ts'
+const TEAM_FILE_ABS = '/workspace/teamclu-team/src/file.ts'
 
 describe('useGitStatus', () => {
   beforeEach(() => {
@@ -58,10 +58,10 @@ describe('useGitStatus', () => {
     expect(result.current.error).toBeNull()
   })
 
-  it('loads git statuses from service (only teamclaw-team files)', async () => {
+  it('loads git statuses from service (only teamclu-team files)', async () => {
     mockGetGitStatus.mockResolvedValue([
       { path: TEAM_FILE, status: 'modified' },
-      { path: 'other/file.ts', status: 'modified' }, // outside teamclaw-team — filtered out
+      { path: 'other/file.ts', status: 'modified' }, // outside teamclu-team — filtered out
     ])
     const { result } = renderHook(() => useGitStatus())
     await waitFor(() => {
@@ -79,6 +79,6 @@ describe('useGitStatus', () => {
       expect(result.current.gitStatuses.size).toBe(1)
     })
     expect(result.current.hasFileChanged(TEAM_FILE_ABS)).toBe(true)
-    expect(result.current.hasFileChanged('/workspace/teamclaw-team/src/other.ts')).toBe(false)
+    expect(result.current.hasFileChanged('/workspace/teamclu-team/src/other.ts')).toBe(false)
   })
 })

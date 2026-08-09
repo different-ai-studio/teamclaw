@@ -9,7 +9,7 @@ export function authBaseURL(explicit?: string | null): string {
   const url = (explicit ?? process.env.AUTH_BASE_URL)?.trim();
   if (!url) {
     throw new Error(
-      "AUTH_BASE_URL is not set. It is the JWT issuer/audience and the JWKS origin — set it explicitly (self-host: https://api.teamclaw-dev.ucar.cc).",
+      "AUTH_BASE_URL is not set. It is the JWT issuer/audience and the JWKS origin — set it explicitly (self-host: https://api.teamclu-dev.ucar.cc).",
     );
   }
   return url;

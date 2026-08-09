@@ -152,7 +152,7 @@ struct ChooseAuthView: View {
 
 // MARK: - InviteJoinSheet
 
-/// Lets the user paste a `teamclaw://invite?token=…` link (or a bare token)
+/// Lets the user paste a `teamclu://invite?token=…` link (or a bare token)
 /// before they have a session. Two paths: "Continue" joins anonymously (then
 /// RootTabView replays the token through the usual claim pipeline), or "I
 /// already have an account" routes to sign-in with the token stashed so an
@@ -178,7 +178,7 @@ private struct InviteJoinSheet: View {
                         .foregroundStyle(.secondary)
                 }
 
-                TextField("teamclaw://invite?token=… or just the token",
+                TextField("teamclu://invite?token=… or just the token",
                           text: $raw,
                           axis: .vertical)
                     .lineLimit(2...4)
@@ -288,13 +288,13 @@ private struct InviteJoinSheet: View {
         onUseExistingAccount(token)
     }
 
-    /// Accepts both `teamclaw://invite?token=XYZ` and bare `XYZ`. Trims whitespace.
+    /// Accepts both `teamclu://invite?token=XYZ` and bare `XYZ`. Trims whitespace.
     private func parseToken(_ raw: String) -> String? {
         let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { return nil }
         if let url = URL(string: trimmed),
            let scheme = url.scheme,
-           ["teamclaw", "amux"].contains(scheme), url.host == "invite",
+           ["teamclu", "teamclaw", "amux"].contains(scheme), url.host == "invite",
            let comps = URLComponents(url: url, resolvingAgainstBaseURL: false),
            let token = comps.queryItems?.first(where: { $0.name == "token" })?.value,
            !token.isEmpty {

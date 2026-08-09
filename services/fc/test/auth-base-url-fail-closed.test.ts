@@ -35,8 +35,8 @@ test("authBaseURL: blank and whitespace-only are treated as unset", () => {
 });
 
 test("authBaseURL: env value is returned trimmed", () => {
-  withEnv("  https://api.teamclaw-dev.ucar.cc  ", () => {
-    assert.equal(authBaseURL(), "https://api.teamclaw-dev.ucar.cc");
+  withEnv("  https://api.teamclu-dev.ucar.cc  ", () => {
+    assert.equal(authBaseURL(), "https://api.teamclu-dev.ucar.cc");
   });
 });
 

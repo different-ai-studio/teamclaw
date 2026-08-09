@@ -16,8 +16,8 @@ declare
   v_expires   timestamptz;
   v_ttl       int;
   v_broker    text := 'mqtts://ai.ucar.cc:8883';
-  v_username  text := 'teamclaw';
-  v_password  text := 'teamclaw2026';
+  v_username  text := 'teamclu';
+  v_password  text := 'teamclu2026';
 begin
   if v_actor_id is null then
     raise exception 'create_team_invite requires team membership'

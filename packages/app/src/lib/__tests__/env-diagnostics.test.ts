@@ -191,7 +191,7 @@ describe('normalizeDaemonEnvActivationDiagnostics', () => {
 describe('normalizePersonalEnvDiagnostics', () => {
   it('fills missing hostShadowedKeys', () => {
     const normalized = normalizePersonalEnvDiagnostics({
-      storageDir: 'teamclaw',
+      storageDir: 'teamclu',
       blobReadable: true,
     })
     expect(normalized?.hostShadowedKeys).toEqual([])

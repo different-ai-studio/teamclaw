@@ -1,4 +1,4 @@
-// Thin HTTP client for TeamClaw's FC auth proxy endpoints (/v1/auth/*).
+// Thin HTTP client for TeamClu's FC auth proxy endpoints (/v1/auth/*).
 // Returns / consumes the raw GoTrue session shape.
 
 import { AuthError, type AuthUser, type OtpType, type Session } from "./types";
@@ -228,7 +228,7 @@ export function createAuthClient(opts: AuthClientOptions): AuthClient {
     },
     // Partner-aligned phone login: our own SMS code + a combined login endpoint
     // (no GoTrue native OTP). See
-    // docs/specs/2026-06-17-teamclaw-phone-login-and-tenancy.md.
+    // docs/specs/2026-06-17-teamclu-phone-login-and-tenancy.md.
     async sendPhoneOtp(phone) {
       // Captcha verification is a server-side pass-through stub today (mirrors
       // the partner SaaS); it only needs a non-empty token. TODO: real Aliyun captcha.

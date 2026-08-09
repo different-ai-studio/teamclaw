@@ -113,11 +113,11 @@ describe("session-detail cache", () => {
 
   it("returns an empty list when messages payload is corrupted", async () => {
     await AsyncStorage.setItem(
-      "teamclaw.sessionDetail.v1.session.s1",
+      "teamclu.sessionDetail.v1.session.s1",
       JSON.stringify(summary()),
     );
     await AsyncStorage.setItem(
-      "teamclaw.sessionDetail.v1.messages.s1",
+      "teamclu.sessionDetail.v1.messages.s1",
       JSON.stringify({ oops: true }),
     );
     const cache = createSessionDetailCache();

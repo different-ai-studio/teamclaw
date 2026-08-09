@@ -4,4 +4,4 @@
 declare const __SIDE_PANEL_DOMAINS__: string
 
 /** Baked `extensions.settings` from build.config*.json (content-script pack). */
-declare const __TEAMCLAW_EXTENSION_SETTINGS__: unknown
+declare const __TEAMCLU_EXTENSION_SETTINGS__: unknown

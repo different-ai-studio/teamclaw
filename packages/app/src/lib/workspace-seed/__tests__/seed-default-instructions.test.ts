@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
-import { TEAMCLAW_DIR } from '@/lib/build-config'
+import { TEAMCLU_DIR } from '@/lib/build-config'
 import {
   isNearlyEmptyWorkspace,
   renderWorkspaceInstructionTemplate,
@@ -25,7 +25,7 @@ describe('isNearlyEmptyWorkspace', () => {
 
   it('ignores scaffolding noise entries', () => {
     expect(
-      isNearlyEmptyWorkspace(['.git', '.gitignore', '.DS_Store', TEAMCLAW_DIR]),
+      isNearlyEmptyWorkspace(['.git', '.gitignore', '.DS_Store', TEAMCLU_DIR]),
     ).toBe(true)
   })
 

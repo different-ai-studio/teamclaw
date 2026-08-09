@@ -759,7 +759,7 @@ mod tests {
     }
 
     // `GET /v1/team/conflicts` for an unknown team is hermetic: the OSS sidecar
-    // scan runs against `~/.amuxd/teams/zzznonexistent/teamclaw-team` (which does
+    // scan runs against `~/.amuxd/teams/zzznonexistent/teamclu-team` (which does
     // not exist — read-only, returns no files) and the in-memory dispatcher
     // status is the zero value (`conflicts == 0`), so no git-backup marker is
     // appended. The result is an empty array without touching real team state.
@@ -881,8 +881,8 @@ mod tests {
         tokio::spawn(async move {
             while let Some(req) = rpc_rx.recv().await {
                 let request =
-                    crate::proto::teamclaw::RpcRequest::decode(req.payload.as_slice()).unwrap();
-                let response = crate::proto::teamclaw::RpcResponse {
+                    crate::proto::teamclu::RpcRequest::decode(req.payload.as_slice()).unwrap();
+                let response = crate::proto::teamclu::RpcResponse {
                     request_id: request.request_id,
                     success: true,
                     error: String::new(),
@@ -920,7 +920,7 @@ mod tests {
             .to_owned();
         let client = reqwest::Client::new();
 
-        let request = crate::proto::teamclaw::RpcRequest {
+        let request = crate::proto::teamclu::RpcRequest {
             request_id: "req-42".into(),
             requester_client_id: "client-1".into(),
             requester_actor_id: "actor-1".into(),
@@ -965,7 +965,7 @@ mod tests {
             Some("application/x-protobuf")
         );
         let bytes = resp.bytes().await.unwrap();
-        let decoded = crate::proto::teamclaw::RpcResponse::decode(bytes.as_ref()).unwrap();
+        let decoded = crate::proto::teamclu::RpcResponse::decode(bytes.as_ref()).unwrap();
         assert!(decoded.success);
         assert_eq!(decoded.request_id, "req-42");
         handle.shutdown().await;

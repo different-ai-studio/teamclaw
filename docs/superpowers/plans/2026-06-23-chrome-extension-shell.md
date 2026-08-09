@@ -2,7 +2,7 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** 把子工程 1 的浏览器版 `@teamclaw/app` 装进一个 MV3 Chrome 扩展的 side panel，并让用户能把当前网页内容（选中文本 / 全页 innerText）一键注入聊天输入框发给 agent。
+**Goal:** 把子工程 1 的浏览器版 `@teamclu/app` 装进一个 MV3 Chrome 扩展的 side panel，并让用户能把当前网页内容（选中文本 / 全页 innerText）一键注入聊天输入框发给 agent。
 
 **Architecture:** 用「app 静态 build + 手写 MV3 外壳」组合，绕开 crxjs/wxt 对 Vite 8 的兼容不确定性。新建 `apps/extension`：`build:web` 产出的 app dist 作为 side panel 页面；手写 `manifest.json` + `background`(service worker) + `content-script`，三者用 esbuild 编译。页面抓取经 `chrome.runtime` 消息：content script 抽取 → background 转发 → app 内 embed 监听器注入聊天 composer。app 侧改动（composer 插入总线 + chrome.runtime 监听 + 强制 embed + 相对 base）落在 `packages/app`，对无 chrome 环境(web/desktop)完全惰性。
 
@@ -13,7 +13,7 @@
 - daemon 零改动；扩展不持有 daemon root token。
 - app 侧新增的 chrome 相关代码必须对 `typeof chrome === 'undefined'`（web/desktop）完全惰性，不抛错、不改变现有行为。
 - 平台判定沿用既有 `isTauri()`（`packages/app/src/lib/utils.ts`），不新造。
-- 包命名 `@teamclaw/extension`；workspace 依赖用 `workspace:*`；pnpm@10.33.0，node>=20。
+- 包命名 `@teamclu/extension`；workspace 依赖用 `workspace:*`；pnpm@10.33.0，node>=20。
 - 测试默认 locale `zh-CN`；mock `chrome` 全局，不依赖真实扩展运行时。
 - MV3 background 用 ES module service worker（`"type":"module"`，对齐 `scripts/playwright-extension`）。
 - 正文抽取只用 `innerText` 兜底，不引入 Readability。
@@ -374,7 +374,7 @@ git commit -m "feat(app): VITE_FORCE_EMBED + relative base for extension web bui
 - Create: `apps/extension/src/icons/.gitkeep`（占位，图标 Task 9 复制）
 
 **Interfaces:**
-- Produces: `@teamclaw/extension` 包，scripts `build`/`typecheck`/`test`。
+- Produces: `@teamclu/extension` 包，scripts `build`/`typecheck`/`test`。
 
 - [ ] **Step 1: 纳入 workspace**
 
@@ -393,7 +393,7 @@ packages:
 ```json
 // apps/extension/package.json
 {
-  "name": "@teamclaw/extension",
+  "name": "@teamclu/extension",
   "version": "0.1.0",
   "private": true,
   "type": "module",
@@ -403,7 +403,7 @@ packages:
     "test": "vitest run"
   },
   "dependencies": {
-    "@teamclaw/app": "workspace:*"
+    "@teamclu/app": "workspace:*"
   },
   "devDependencies": {
     "@types/chrome": "^0.0.270",
@@ -441,12 +441,12 @@ packages:
 // apps/extension/manifest.json
 {
   "manifest_version": 3,
-  "name": "TeamClaw",
+  "name": "TeamClu",
   "version": "0.1.0",
-  "description": "TeamClaw 多人聊天侧边栏 + 当前页内容发给 agent",
+  "description": "TeamClu 多人聊天侧边栏 + 当前页内容发给 agent",
   "permissions": ["sidePanel", "scripting", "activeTab"],
   "background": { "service_worker": "background.js", "type": "module" },
-  "action": { "default_title": "TeamClaw" },
+  "action": { "default_title": "TeamClu" },
   "side_panel": { "default_path": "sidepanel/index.html" },
   "icons": {
     "16": "icons/icon-16.png",
@@ -466,7 +466,7 @@ Expected: install 成功；typecheck 通过（暂无 src ts 文件，空 include
 
 ```bash
 git add pnpm-workspace.yaml apps/extension/package.json apps/extension/tsconfig.json apps/extension/manifest.json apps/extension/src/icons/.gitkeep pnpm-lock.yaml
-git commit -m "chore(extension): scaffold @teamclaw/extension MV3 package"
+git commit -m "chore(extension): scaffold @teamclu/extension MV3 package"
 ```
 
 ---
@@ -939,7 +939,7 @@ Chrome → `chrome://extensions` → 开发者模式 → 「加载已解压的�
 
 - [ ] **Step 2: 打开 side panel**
 
-点工具栏 TeamClaw 图标 → side panel 打开 → 显示登录界面（embed 精简布局）。
+点工具栏 TeamClu 图标 → side panel 打开 → 显示登录界面（embed 精简布局）。
 Expected: app 在 `chrome-extension://` 下正常渲染（资源相对 base 生效，无 404 白屏）。
 
 - [ ] **Step 3: 页面抓取 → 注入**

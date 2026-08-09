@@ -5,14 +5,14 @@ description: Use when the user wants to check Sentry issues, run a Sentry daily 
 
 # Sentry Monitor — Daily Issue Report
 
-Scan both TeamClaw Sentry projects for unresolved fatal/high issues, analyze root causes, and push a summary report to WeCom.
+Scan both TeamClu Sentry projects for unresolved fatal/high issues, analyze root causes, and push a summary report to WeCom.
 
 ## Projects
 
 | Project | Sentry Slug | Platform |
 |---------|-------------|----------|
-| Rust backend | `ucar-inc/teamclaw` | Rust |
-| React frontend | `ucar-inc/teamclaw-react` | JavaScript React |
+| Rust backend | `ucar-inc/teamclu` | Rust |
+| React frontend | `ucar-inc/teamclu-react` | JavaScript React |
 
 ## Execution Steps
 
@@ -21,11 +21,11 @@ Scan both TeamClaw Sentry projects for unresolved fatal/high issues, analyze roo
 Run these two commands in parallel:
 
 ```bash
-sentry issue list ucar-inc/teamclaw --query "is:unresolved" --json --fields shortId,title,priority,level,status --limit 20
+sentry issue list ucar-inc/teamclu --query "is:unresolved" --json --fields shortId,title,priority,level,status --limit 20
 ```
 
 ```bash
-sentry issue list ucar-inc/teamclaw-react --query "is:unresolved" --json --fields shortId,title,priority,level,status --limit 20
+sentry issue list ucar-inc/teamclu-react --query "is:unresolved" --json --fields shortId,title,priority,level,status --limit 20
 ```
 
 Filter results: keep only issues where `level` is `fatal` OR `priority` is `high`.
@@ -77,7 +77,7 @@ If a project has zero matching issues, omit that section entirely.
 
 ### 4. Push to WeCom
 
-Send the formatted report to the **TeamClaw** group chat:
+Send the formatted report to the **TeamClu** group chat:
 
 ```bash
 wecom-cli msg send_message '{"chat_type": 2, "chatid": "wrOOClYgAA5gMJijxEUfWC6M0RAjwlWQ", "msgtype": "text", "text": {"content": "<report text>"}}'

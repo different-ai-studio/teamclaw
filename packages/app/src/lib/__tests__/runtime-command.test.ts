@@ -4,7 +4,7 @@ import { describe, expect, it, vi } from "vitest";
 import {
   createRuntimeCommandSender,
   resolvePermissionRuntimeTarget,
-} from "@/lib/teamclaw/runtime-command";
+} from "@/lib/teamclu/runtime-command";
 
 describe("runtime command sender", () => {
   it("publishes a grant_permission ACP command to the runtime command topic", async () => {
@@ -12,7 +12,7 @@ describe("runtime command sender", () => {
     const sender = createRuntimeCommandSender({
       mqtt,
       teamId: "team-1",
-      peerId: "teamclaw-desktop-member-1",
+      peerId: "teamclu-desktop-member-1",
       senderActorId: "member-actor-1",
       commandId: () => "command-1",
       nowSeconds: () => 1_779_430_400,
@@ -38,7 +38,7 @@ describe("runtime command sender", () => {
     const envelope = fromBinary(RuntimeCommandEnvelopeSchema, bytes);
     expect(envelope.runtimeId).toBe("rt-abcd");
     expect(envelope.actorId).toBe("actor-1");
-    expect(envelope.peerId).toBe("teamclaw-desktop-member-1");
+    expect(envelope.peerId).toBe("teamclu-desktop-member-1");
     expect(envelope.commandId).toBe("command-1");
     expect(envelope.timestamp).toBe(1_779_430_400n);
     expect(envelope.senderActorId).toBe("member-actor-1");
@@ -55,7 +55,7 @@ describe("runtime command sender", () => {
     const sender = createRuntimeCommandSender({
       mqtt,
       teamId: "team-1",
-      peerId: "teamclaw-desktop-member-1",
+      peerId: "teamclu-desktop-member-1",
       senderActorId: "member-actor-1",
       commandId: () => "command-2",
       nowSeconds: () => 1_779_430_400,

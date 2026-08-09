@@ -26,7 +26,7 @@ import Foundation
 //    output, thinking, tool_use/tool_result, permission_request,
 //    plan_update, status_change, raw tool_title_update, error,
 //    available_commands). Carried by `Amux_AcpEvent`.
-// 2. Live chat messages — cross-actor `Teamclaw_Message` (kind=text)
+// 2. Live chat messages — cross-actor `Teamclu_Message` (kind=text)
 //    arriving over `session/{id}/live`.
 // 3. History messages — `messages` rows pulled from Supabase, projected
 //    into either an `agent_reply` (=output) or `user_message`/

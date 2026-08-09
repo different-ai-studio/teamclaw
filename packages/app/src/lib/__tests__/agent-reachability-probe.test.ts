@@ -7,7 +7,7 @@ vi.mock('@/lib/daemon-local-client', () => ({
   probeDaemonHttp: (...args: unknown[]) => mockProbeDaemonHttp(...args),
 }))
 
-vi.mock('@/lib/teamclaw-rpc', () => ({
+vi.mock('@/lib/teamclu-rpc', () => ({
   probeAgentRpcReachability: (...args: unknown[]) => mockProbeAgentRpcReachability(...args),
 }))
 

@@ -24,9 +24,13 @@
     <array>
         <dict>
             <key>CFBundleURLName</key>
-            <string>tech.teamclaw.invite</string>
+            <string>com.teamclu.invite</string>
+            <!-- teamclaw is the pre-rebrand scheme. Invite and session links
+                 already shared with teammates carry it, so the app keeps
+                 claiming it; dropping it makes those links open nothing. -->
             <key>CFBundleURLSchemes</key>
             <array>
+                <string>teamclu</string>
                 <string>teamclaw</string>
                 <string>amux</string>
             </array>
@@ -47,13 +51,13 @@
         <string>UIInterfaceOrientationLandscapeRight</string>
     </array>
     <key>NSMicrophoneUsageDescription</key>
-    <string>Teamclaw needs microphone access for voice input to send prompts to your AI agent.</string>
+    <string>Teamclu needs microphone access for voice input to send prompts to your AI agent.</string>
     <key>NSSpeechRecognitionUsageDescription</key>
-    <string>Teamclaw uses on-device speech recognition to convert your voice into text prompts.</string>
+    <string>Teamclu uses on-device speech recognition to convert your voice into text prompts.</string>
     <key>NSCameraUsageDescription</key>
-    <string>Teamclaw uses the camera to attach photos to prompts you send to your AI agent.</string>
+    <string>Teamclu uses the camera to attach photos to prompts you send to your AI agent.</string>
     <key>NSPhotoLibraryUsageDescription</key>
-    <string>Teamclaw accesses your photo library to attach images to prompts you send to your AI agent.</string>
+    <string>Teamclu accesses your photo library to attach images to prompts you send to your AI agent.</string>
     <key>ITSAppUsesNonExemptEncryption</key>
     <false/>
     <key>UILaunchScreen</key>

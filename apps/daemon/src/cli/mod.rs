@@ -38,7 +38,7 @@ pub enum Commands {
     Status,
     /// Onboard this daemon. Without args, walks you through the iOS side
     Init {
-        /// `teamclaw://invite?token=...` URL from the iOS Actors tab.
+        /// `teamclu://invite?token=...` URL from the iOS Actors tab.
         join_url: Option<String>,
     },
     /// Interactive headless configuration (LLM providers + team share secrets).
@@ -114,7 +114,7 @@ pub enum Commands {
     /// bound to.
     McpServer(McpServerArgs),
     /// Run the remote-tools MCP server on stdio. Proxies browser/client tools
-    /// to the bound TeamClaw client over MQTT RPC.
+    /// to the bound TeamClu client over MQTT RPC.
     RemoteToolsMcp(RemoteToolsMcpArgs),
     /// Cursor `preToolUse` hook. Spawned by `@cursor/sdk` per tool call;
     /// reads the hook request on stdin and prints an allow/deny decision.

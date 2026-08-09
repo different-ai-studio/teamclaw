@@ -1,6 +1,6 @@
 // Phone-number sign-in / sign-up, aligned with the partner SaaS's model
 // (`apps/api/src/routes/app/auth/phone.ts` there) and re-implemented here
-// against the SHARED `supabase_db` so a teamclaw phone login lands on the SAME
+// against the SHARED `supabase_db` so a teamclu phone login lands on the SAME
 // user the partner would resolve (no duplicate accounts).
 //
 // Identity model (mirrors the partner SaaS, NOT GoTrue native phone OTP):
@@ -18,9 +18,9 @@
 // for every phone number instead of failing loudly.
 //
 // Differences from the partner SaaS that are intentional (see
-// docs/specs/2026-06-17-teamclaw-phone-login-and-tenancy.md):
+// docs/specs/2026-06-17-teamclu-phone-login-and-tenancy.md):
 //   - NO `processAfterUserCreated` side-effects (no self-participant / tags);
-//     teamclaw only writes the `public.users` row.
+//     teamclu only writes the `public.users` row.
 //
 // All external effects (Supabase clients, SMS, captcha, clock, code generator)
 // are injected so the flow is unit-testable without live infra.

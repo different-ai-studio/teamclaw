@@ -1,6 +1,6 @@
 use std::path::Path;
 
-use teamclaw_runtime_env::ManagedLlmState;
+use teamclu_runtime_env::ManagedLlmState;
 
 use crate::runtime::SpawnRuntimeEnv;
 

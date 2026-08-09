@@ -5,7 +5,7 @@ import {
   collectAcpStreamingPermissions,
   collectAcpStreamingPermissionsForList,
   selectStreamingPermissionSnapshot,
-} from "@/lib/teamclaw/acp-permission-entries";
+} from "@/lib/teamclu/acp-permission-entries";
 import { useCurrentTeamStore } from "@/stores/current-team";
 import { useV2StreamingStore } from "@/stores/v2-streaming-store";
 

@@ -66,7 +66,7 @@ const { resolveBrandTheme, generateBrandThemeCss, extractRootTokenNames } =
 // Derive shortName if not explicitly set
 if (!(buildConfig as any).app?.shortName) {
   const app = (buildConfig as any).app || ((buildConfig as any).app = {})
-  app.shortName = (app.name || 'TeamClaw')
+  app.shortName = (app.name || 'TeamClu')
     .replace(/[^a-zA-Z0-9]/g, '')
     .toLowerCase()
 }
@@ -101,11 +101,11 @@ export default defineConfig({
       name: 'inject-app-short-name',
       transformIndexHtml(html) {
         const palette = ((buildConfig as any).app?.palette as string) || 'default'
-        // The <title> was hardcoded to "TeamClaw", so every branded build —
+        // The <title> was hardcoded to "TeamClu", so every branded build —
         // desktop window title and extension side panel alike — announced the
         // wrong product before React had rendered anything.
         const app = (buildConfig as any).app || {}
-        const displayName = (app.displayName as string) || (app.name as string) || 'TeamClaw'
+        const displayName = (app.displayName as string) || (app.name as string) || 'TeamClu'
         return html
           .replace(/__APP_SHORT_NAME__/g, sn as string)
           .replace(/__APP_NAME__/g, displayName)
@@ -145,17 +145,17 @@ export default defineConfig({
   },
   define: {
     __BUILD_CONFIG__: JSON.stringify(buildConfig),
-    __TEAMCLAW_EXTENSION_SETTINGS__: JSON.stringify(resolveExtensionPack(buildConfig).settings),
+    __TEAMCLU_EXTENSION_SETTINGS__: JSON.stringify(resolveExtensionPack(buildConfig).settings),
     // Inject build config defaults into import.meta.env so they work without .env files
     'import.meta.env.VITE_LOCALE': JSON.stringify((buildConfig as any).defaults?.locale ?? ''),
     'import.meta.env.PACKAGE_VERSION': JSON.stringify(
       JSON.parse(readFileSync(path.join(rootDir, 'apps/desktop/tauri.conf.json'), 'utf-8')).version ?? '0.0.0'
     ),
     // Literal so the E2E control surface can be dead-code-eliminated. Read
-    // through a bare `import.meta.env.VITE_TEAMCLAW_E2E` the value would stay
+    // through a bare `import.meta.env.VITE_TEAMCLU_E2E` the value would stay
     // a runtime lookup and the ~30KB `lib/e2e/v2-control` module would ship in
     // every production build.
-    'import.meta.env.VITE_TEAMCLAW_E2E': JSON.stringify(process.env.VITE_TEAMCLAW_E2E ?? ''),
+    'import.meta.env.VITE_TEAMCLU_E2E': JSON.stringify(process.env.VITE_TEAMCLU_E2E ?? ''),
     // Sentry tree-shaking flags. We only use error capture + user feedback —
     // no performance tracing — and the SDK's own debug logging is dead weight
     // in a shipped build. Trims ~16KB off the (lazily loaded) Sentry chunk.

@@ -29,5 +29,5 @@ export function readAppName(repoRoot = process.cwd()) {
     }
   }
 
-  return "TeamClaw";
+  return "TeamClu";
 }

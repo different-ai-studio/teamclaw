@@ -1,6 +1,6 @@
 //! `POST /v1/session-live/ingest` — local fast-path twin of MQTT session/live.
 //!
-//! Same-machine clients publish the exact `teamclaw.LiveEventEnvelope`
+//! Same-machine clients publish the exact `teamclu.LiveEventEnvelope`
 //! protobuf bytes they would otherwise send to
 //! `amux/{team}/session/{id}/live`. The daemon actor loop runs the same
 //! `route_session_message` sink (including `message_id` dedup), so a later

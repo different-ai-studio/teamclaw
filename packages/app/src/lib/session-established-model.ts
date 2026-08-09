@@ -1,4 +1,4 @@
-import { MessageKind } from "@/lib/proto/teamclaw_pb";
+import { MessageKind } from "@/lib/proto/teamclu_pb";
 
 /**
  * "Which model has this session already run with, for THIS agent?"

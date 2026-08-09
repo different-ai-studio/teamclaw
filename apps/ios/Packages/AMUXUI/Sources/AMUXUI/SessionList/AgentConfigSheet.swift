@@ -122,7 +122,7 @@ extension AgentConfigSheet.AgentType {
 #Preview("Single workspace") {
     AgentConfigSheet(
         actorDisplayName: "mini",
-        workspaces: [WorkspaceRef(id: "w1", path: "/Volumes/openbeta/workspace/teamclaw-v2")],
+        workspaces: [WorkspaceRef(id: "w1", path: "/Volumes/openbeta/workspace/teamclu-v2")],
         onConfirm: { _ in },
         onCancel: {}
     )

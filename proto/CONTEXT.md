@@ -1,6 +1,6 @@
 # Proto Context
 
-跨端共享 schema 的领域语言（`proto/*.proto` + `crates/teamclaw-proto/` + `crates/teamclaw-types/` + `crates/teamclaw-transport/`）。
+跨端共享 schema 的领域语言（`proto/*.proto` + `crates/teamclu-proto/` + `crates/teamclu-types/` + `crates/teamclu-transport/`）。
 是所有 context 的权威上游 —— desktop / daemon / ios / android / mobile-rn 都在此处取定义。
 
 ## Glossary
@@ -112,7 +112,7 @@ proto: `SessionInfo { session_id, session_type, team_id, title, participants, pr
 
 ### SessionType（弃用）
 proto 历史枚举 `CONTROL | COLLAB`，已弃用。
-daemon 一律为新 session 打 `UNKNOWN`（见 `apps/daemon/src/teamclaw/session_store.rs:110`）。
+daemon 一律为新 session 打 `UNKNOWN`（见 `apps/daemon/src/teamclu/session_store.rs:110`）。
 所有 session 当前是单一种类，无需此字段区分。新代码不要读不要写。
 
 ### Workspace

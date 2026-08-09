@@ -6,7 +6,7 @@ import Aptabase
 /// the desktop `trackEvent` helper (Rust `telemetry_track`) and shares the same
 /// Aptabase app key `A-US-9094113207`.
 enum Analytics {
-    /// App key for the shared TeamClaw Aptabase project (matches desktop).
+    /// App key for the shared TeamClu Aptabase project (matches desktop).
     static let appKey = "A-US-9094113207"
 
     /// Initialise the SDK once at launch. Safe to call from `AMUXApp.init()`.

@@ -9,7 +9,7 @@ const TURN_CONTEXT_TTL: Duration = Duration::from_secs(10 * 60);
 pub struct RemoteToolTurnContext {
     pub runtime_id: String,
     pub acp_session_id: String,
-    pub teamclaw_session_id: String,
+    pub teamclu_session_id: String,
     pub requester_actor_id: String,
     created_at: Instant,
 }
@@ -25,12 +25,12 @@ impl RemoteToolTurnContextStore {
         &mut self,
         runtime_id: &str,
         acp_session_id: &str,
-        teamclaw_session_id: &str,
+        teamclu_session_id: &str,
         requester_actor_id: &str,
     ) -> Option<String> {
         if runtime_id.is_empty()
             || acp_session_id.is_empty()
-            || teamclaw_session_id.is_empty()
+            || teamclu_session_id.is_empty()
             || requester_actor_id.is_empty()
         {
             return None;
@@ -42,7 +42,7 @@ impl RemoteToolTurnContextStore {
             RemoteToolTurnContext {
                 runtime_id: runtime_id.to_string(),
                 acp_session_id: acp_session_id.to_string(),
-                teamclaw_session_id: teamclaw_session_id.to_string(),
+                teamclu_session_id: teamclu_session_id.to_string(),
                 requester_actor_id: requester_actor_id.to_string(),
                 created_at: Instant::now(),
             },
@@ -94,7 +94,7 @@ pub fn remote_context_instructions(remote_context_id: &str) -> String {
         return String::new();
     }
     format!(
-        "TeamClaw remote tool context for this reply:\n\
+        "TeamClu remote tool context for this reply:\n\
          When calling any amuxd-remote-tools tool, include remote_context_id exactly as: {remote_context_id}\n\
          Do not reuse it after this reply."
     )
@@ -112,7 +112,7 @@ mod tests {
             .expect("context id");
         let ctx = store.resolve(&id).expect("context");
         assert_eq!(ctx.requester_actor_id, "actor1");
-        assert_eq!(ctx.teamclaw_session_id, "session1");
+        assert_eq!(ctx.teamclu_session_id, "session1");
 
         store.clear_runtime("rt1");
         assert!(store.resolve(&id).is_none());

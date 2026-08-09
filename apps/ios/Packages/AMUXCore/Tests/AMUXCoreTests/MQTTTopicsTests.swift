@@ -2,7 +2,7 @@ import XCTest
 @testable import AMUXCore
 
 final class MQTTTopicsTests: XCTestCase {
-    func testTeamclawRearchitectureTopics() {
+    func testTeamcluRearchitectureTopics() {
         XCTAssertEqual(
             MQTTTopics.actorRpcRequest(teamID: "team1", actorID: "actor-a"),
             "amux/team1/actor-a/rpc/req"

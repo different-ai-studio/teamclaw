@@ -2,14 +2,14 @@
 # Smoke test for the SUPABASE-mode all-in-one image.
 set -euo pipefail
 
-IMAGE="${IMAGE:-teamclaw-selfhost-allinone:local}"
-CONTAINER="${CONTAINER:-teamclaw-allinone-smoke}"
-VOLUME="${VOLUME:-teamclaw-allinone-smoke-data}"
+IMAGE="${IMAGE:-teamclu-selfhost-allinone:local}"
+CONTAINER="${CONTAINER:-teamclu-allinone-smoke}"
+VOLUME="${VOLUME:-teamclu-allinone-smoke-data}"
 PORT="${PORT:-18080}"
 PLATFORM="${PLATFORM:-linux/arm64}"
 # Overridable for a corporate-base variant Dockerfile, e.g.:
 #   DOCKERFILE=<corporate-base Dockerfile> PLATFORM=linux/amd64 \
-#   BUILD_ARGS="--build-arg BASE_IMAGE=ubuntu:16.04" IMAGE=teamclaw-allinone:corp ./smoke.sh
+#   BUILD_ARGS="--build-arg BASE_IMAGE=ubuntu:16.04" IMAGE=teamclu-allinone:corp ./smoke.sh
 # SKIP_BUILD=1 reuses an already-built $IMAGE.
 DOCKERFILE="${DOCKERFILE:-deploy/self-host/all-in-one/Dockerfile}"
 BUILD_ARGS="${BUILD_ARGS:-}"
@@ -57,8 +57,8 @@ curl -fsS "$BASE/" | grep -q "supabase mode" || fail "landing string missing"
 echo "  ok"
 
 echo "== read ANON_KEY / PG password from container =="
-ANON_KEY="$(docker exec "$CONTAINER" sh -c '. /data/teamclaw/secrets.env; printf "%s" "$ANON_KEY"')"
-PGPW="$(docker exec "$CONTAINER" sh -c '. /data/teamclaw/secrets.env; printf "%s" "$POSTGRES_PASSWORD"')"
+ANON_KEY="$(docker exec "$CONTAINER" sh -c '. /data/teamclu/secrets.env; printf "%s" "$ANON_KEY"')"
+PGPW="$(docker exec "$CONTAINER" sh -c '. /data/teamclu/secrets.env; printf "%s" "$POSTGRES_PASSWORD"')"
 [ -n "$ANON_KEY" ] || fail "ANON_KEY empty"
 
 echo "== [3] PostgREST root /rest/v1/ (amux exposure) =="
@@ -119,7 +119,7 @@ s.on("data",d=>{ (d[0]===0x20&&d.length>=4)?fin("CONNACK="+d[3],d[3]===0?0:1):fi
 s.on("close",()=>fin("CLOSED",4));
 s.on("error",e=>fin("ERR "+e.message,5));
 '
-MQTT_TOKEN="$(docker exec "$CONTAINER" sh -c '. /data/teamclaw/secrets.env; printf "%s" "$MQTT_SERVICE_TOKEN"')"
+MQTT_TOKEN="$(docker exec "$CONTAINER" sh -c '. /data/teamclu/secrets.env; printf "%s" "$MQTT_SERVICE_TOKEN"')"
 
 echo "== [8] MQTT CONNECT with valid token -> CONNACK 0 =="
 out="$(docker exec -e MQ_USER=fc-service -e MQ_PASS="$MQTT_TOKEN" "$CONTAINER" /opt/storage/bin/node -e "$MQTT_TESTER" 2>&1)" \
@@ -136,7 +136,7 @@ out="$(docker exec -e MQ_HOST=127.0.0.1 -e MQ_PORT=8080 -e MQ_USER=fc-service -e
   && echo "  ok ($out)" || fail "raw MQTT via :8080 layer4 rejected: $out"
 
 echo "== [10] validator endpoint (200 valid / 403 garbage) =="
-c_ok="$(docker exec "$CONTAINER" sh -c ". /data/teamclaw/secrets.env; curl -s -o /dev/null -w '%{http_code}' -X POST --data-urlencode \"password=\$MQTT_SERVICE_TOKEN\" http://127.0.0.1:9091/mqtt-auth")"
+c_ok="$(docker exec "$CONTAINER" sh -c ". /data/teamclu/secrets.env; curl -s -o /dev/null -w '%{http_code}' -X POST --data-urlencode \"password=\$MQTT_SERVICE_TOKEN\" http://127.0.0.1:9091/mqtt-auth")"
 c_bad="$(docker exec "$CONTAINER" sh -c "curl -s -o /dev/null -w '%{http_code}' -X POST --data 'password=garbage' http://127.0.0.1:9091/mqtt-auth")"
 [ "$c_ok" = "200" ] || fail "validator rejected valid token ($c_ok)"
 [ "$c_bad" = "403" ] || fail "validator accepted garbage ($c_bad)"
@@ -148,7 +148,7 @@ wait_http "$BASE/healthz" 90 || fail "/healthz not 200 after restart"
 echo "  ok"
 
 echo "== [12] secrets persisted =="
-docker exec "$CONTAINER" test -s /data/teamclaw/secrets.env || fail "secrets.env missing/empty"
+docker exec "$CONTAINER" test -s /data/teamclu/secrets.env || fail "secrets.env missing/empty"
 echo "  ok"
 
 echo "all-in-one (supabase) smoke passed"

@@ -62,7 +62,7 @@ copy_if_present() {
 copy_if_present ".env"
 copy_if_present ".env.local"
 
-# Web/desktop preview. Vite loads package-local env files for @teamclaw/app.
+# Web/desktop preview. Vite loads package-local env files for @teamclu/app.
 copy_if_present "packages/app/.env.development.local"
 
 # Daemon onboarding/self-test fallback reads apps/daemon/.env directly.

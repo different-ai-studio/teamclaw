@@ -1,6 +1,6 @@
 import AsyncStorage from "@react-native-async-storage/async-storage";
 
-const STORAGE_PREFIX = "teamclaw.zeroAgentReminder.v1.";
+const STORAGE_PREFIX = "teamclu.zeroAgentReminder.v1.";
 
 /**
  * Per-team "shown once" flag for the zero-agent onboarding reminder. iOS

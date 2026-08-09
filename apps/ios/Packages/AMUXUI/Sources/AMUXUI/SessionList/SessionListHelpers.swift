@@ -13,7 +13,7 @@ struct SessionListContent: View {
     @Binding var navigationPath: [String]
     @Binding var isEditing: Bool
     @Binding var selectedIDs: Set<String>
-    let teamclawService: TeamclawService?
+    let teamcluService: TeamcluService?
     let pairing: PairingManager
     let mqtt: MQTTService
     let actorId: String

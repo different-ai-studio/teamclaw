@@ -992,7 +992,7 @@ public nonisolated struct Amux_AcpSendPrompt: Sendable {
   public var modelID: String = String()
 
   /// Supabase Storage URLs for attachments (legacy bare-runtime path).
-  /// Session-backed chats carry these in Teamclaw_Message.attachment_urls instead.
+  /// Session-backed chats carry these in Teamclu_Message.attachment_urls instead.
   public var attachmentUrls: [String] = []
 
   public var unknownFields = SwiftProtobuf.UnknownStorage()

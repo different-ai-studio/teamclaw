@@ -2,11 +2,11 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** Build an additive all-in-one self-host deployment target that packages TeamClaw, Postgres-backed Cloud API, MinIO object storage, MQTT over WebSocket, and a single HTTP reverse proxy into one Docker image exposing one port.
+**Goal:** Build an additive all-in-one self-host deployment target that packages TeamClu, Postgres-backed Cloud API, MinIO object storage, MQTT over WebSocket, and a single HTTP reverse proxy into one Docker image exposing one port.
 
 **Architecture:** Add `deploy/self-host/all-in-one/` without changing the existing Compose stack. The image uses a Debian runtime, `supervisord` for long-running processes, an idempotent entrypoint for `/data` initialization and migrations, and Caddy as the only public listener on `8080`. All external traffic is path-routed through Caddy; internal services bind to localhost/private ports.
 
-**Tech Stack:** Docker multi-stage builds, Debian Bookworm, Node 20, Rust release binary for `amuxd`, Postgres 15, Caddy 2, EMQX 5.10.3, MinIO and TeamClaw FC Postgres backend, POSIX shell scripts, `supervisord`, `curl`, `psql`.
+**Tech Stack:** Docker multi-stage builds, Debian Bookworm, Node 20, Rust release binary for `amuxd`, Postgres 15, Caddy 2, EMQX 5.10.3, MinIO and TeamClu FC Postgres backend, POSIX shell scripts, `supervisord`, `curl`, `psql`.
 
 ---
 
@@ -50,7 +50,7 @@ Do not modify these existing paths for the first MVP:
 Write `deploy/self-host/all-in-one/README.md` with this content:
 
 ````markdown
-# TeamClaw Self-host All-in-one
+# TeamClu Self-host All-in-one
 
 This deployment target is for platforms that allow exactly one Docker image and one exposed port.
 
@@ -65,8 +65,8 @@ This mode is additive. The existing Docker Compose deployment in `deploy/self-ho
 Persistent state lives under `/data`:
 
 ```text
-/data/teamclaw/secrets.env
-/data/teamclaw/runtime.env
+/data/teamclu/secrets.env
+/data/teamclu/runtime.env
 /data/postgres/
 /data/storage/
 /data/emqx/
@@ -80,7 +80,7 @@ Persistent state lives under `/data`:
 | Path | Purpose |
 | --- | --- |
 | `/healthz` | Container health check |
-| `/v1/*` | TeamClaw Cloud API |
+| `/v1/*` | TeamClu Cloud API |
 | `/auth/*` | Auth service |
 | `/rest/*` | PostgREST |
 | `/storage/*` | Storage API |
@@ -95,14 +95,14 @@ Raw MQTT TCP `1883` is not exposed in this mode. Clients must use `ws://host:808
 Run from the repository root:
 
 ```bash
-docker build -f deploy/self-host/all-in-one/Dockerfile -t teamclaw-selfhost-allinone .
+docker build -f deploy/self-host/all-in-one/Dockerfile -t teamclu-selfhost-allinone .
 ```
 
 ## Run Locally
 
 ```bash
-docker volume create teamclaw-data
-docker run --rm --name teamclaw-allinone -p 8080:8080 -v teamclaw-data:/data teamclaw-selfhost-allinone
+docker volume create teamclu-data
+docker run --rm --name teamclu-allinone -p 8080:8080 -v teamclu-data:/data teamclu-selfhost-allinone
 ```
 
 Open:
@@ -131,7 +131,7 @@ VITE_MQTT_WS_URL=wss://your-host.example.com/mqtt
 
 ## First Boot
 
-On first boot, the entrypoint creates `/data/teamclaw/secrets.env` and generates required secrets. Later boots reuse the same file so tokens and stored data remain stable.
+On first boot, the entrypoint creates `/data/teamclu/secrets.env` and generates required secrets. Later boots reuse the same file so tokens and stored data remain stable.
 
 ## Limits
 
@@ -181,11 +181,11 @@ Write `deploy/self-host/all-in-one/lib.sh`:
 set -eu
 
 log() {
-  printf '[teamclaw-allinone] %s\n' "$*" >&2
+  printf '[teamclu-allinone] %s\n' "$*" >&2
 }
 
 fatal() {
-  printf '[teamclaw-allinone] error: %s\n' "$*" >&2
+  printf '[teamclu-allinone] error: %s\n' "$*" >&2
   exit 1
 }
 
@@ -384,7 +384,7 @@ Write `deploy/self-host/all-in-one/Caddyfile.template`:
   }
 
   handle / {
-    respond "TeamClaw self-host all-in-one is running" 200
+    respond "TeamClu self-host all-in-one is running" 200
   }
 
   handle {
@@ -398,7 +398,7 @@ Write `deploy/self-host/all-in-one/Caddyfile.template`:
 Write `deploy/self-host/all-in-one/emqx.conf.template`:
 
 ```hocon
-node.name = teamclaw@127.0.0.1
+node.name = teamclu@127.0.0.1
 
 listeners.tcp.default {
   bind = "127.0.0.1:1883"
@@ -470,9 +470,9 @@ SCRIPT_DIR="$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)"
 . "$SCRIPT_DIR/lib.sh"
 
 DATA_DIR="${DATA_DIR:-/data}"
-RUN_DIR="${RUN_DIR:-/run/teamclaw}"
-SECRETS_FILE="${SECRETS_FILE:-$DATA_DIR/teamclaw/secrets.env}"
-RUNTIME_ENV="$DATA_DIR/teamclaw/runtime.env"
+RUN_DIR="${RUN_DIR:-/run/teamclu}"
+SECRETS_FILE="${SECRETS_FILE:-$DATA_DIR/teamclu/secrets.env}"
+RUNTIME_ENV="$DATA_DIR/teamclu/runtime.env"
 PUBLIC_BASE_URL="${PUBLIC_BASE_URL:-http://127.0.0.1:8080}"
 
 [ -f "$SECRETS_FILE" ] || fatal "missing secrets file: $SECRETS_FILE"
@@ -527,7 +527,7 @@ MQTT_USERNAME=fc-service
 MQTT_PASSWORD=$MQTT_SERVICE_TOKEN
 MQTT_USE_TLS=false
 CRON_TRIGGER_SECRET=$CRON_TRIGGER_SECRET
-BUCKET=teamclaw-team
+BUCKET=teamclu-team
 REGION=local
 ENDPOINT=http://127.0.0.1:5000/storage/v1/s3
 EOF_FC
@@ -595,8 +595,8 @@ SCRIPT_DIR="$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)"
 . "$SCRIPT_DIR/lib.sh"
 
 DATA_DIR="${DATA_DIR:-/data}"
-RUN_DIR="${RUN_DIR:-/run/teamclaw}"
-SECRETS_FILE="$DATA_DIR/teamclaw/secrets.env"
+RUN_DIR="${RUN_DIR:-/run/teamclu}"
+SECRETS_FILE="$DATA_DIR/teamclu/secrets.env"
 PGDATA="$DATA_DIR/postgres"
 
 require_cmd openssl
@@ -608,7 +608,7 @@ require_cmd psql
 require_cmd curl
 require_cmd nc
 
-ensure_dir "$DATA_DIR/teamclaw"
+ensure_dir "$DATA_DIR/teamclu"
 ensure_dir "$DATA_DIR/storage"
 ensure_dir "$DATA_DIR/emqx"
 ensure_dir "$DATA_DIR/amuxd"
@@ -653,14 +653,14 @@ export PGDATABASE=postgres
 
 psql -v ON_ERROR_STOP=1 -c "select 1" >/dev/null
 
-if [ -x /opt/teamclaw/apply-migrations.sh ]; then
-  MIGRATIONS_DIR=/opt/teamclaw/migrations SEED_FILE=/opt/teamclaw/seed.sql APPLY_SEED=false /opt/teamclaw/apply-migrations.sh
+if [ -x /opt/teamclu/apply-migrations.sh ]; then
+  MIGRATIONS_DIR=/opt/teamclu/migrations SEED_FILE=/opt/teamclu/seed.sql APPLY_SEED=false /opt/teamclu/apply-migrations.sh
 fi
 
 pg_ctl -D "$PGDATA" -m fast -w stop
 
 log "starting supervisor"
-exec supervisord -c /etc/supervisor/conf.d/teamclaw-all-in-one.conf
+exec supervisord -c /etc/supervisor/conf.d/teamclu-all-in-one.conf
 ```
 
 - [ ] **Step 2: Replace process substitution for POSIX shell compatibility**
@@ -722,7 +722,7 @@ Write `deploy/self-host/all-in-one/supervisord.conf`:
 [supervisord]
 nodaemon=true
 logfile=/data/logs/supervisord.log
-pidfile=/run/teamclaw/supervisord.pid
+pidfile=/run/teamclu/supervisord.pid
 childlogdir=/data/logs
 
 [program:postgres]
@@ -734,7 +734,7 @@ stdout_logfile=/data/logs/postgres.log
 stderr_logfile=/data/logs/postgres.err.log
 
 [program:emqx]
-command=/opt/emqx/bin/emqx foreground -c /run/teamclaw/emqx/emqx.conf
+command=/opt/emqx/bin/emqx foreground -c /run/teamclu/emqx/emqx.conf
 autostart=true
 autorestart=true
 priority=20
@@ -743,7 +743,7 @@ stdout_logfile=/data/logs/emqx.log
 stderr_logfile=/data/logs/emqx.err.log
 
 [program:fc]
-command=/bin/sh -c '. /run/teamclaw/fc/env && cd /opt/teamclaw/fc && exec node dist/server.js'
+command=/bin/sh -c '. /run/teamclu/fc/env && cd /opt/teamclu/fc && exec node dist/server.js'
 autostart=true
 autorestart=true
 priority=40
@@ -760,7 +760,7 @@ stdout_logfile=/data/logs/amuxd.log
 stderr_logfile=/data/logs/amuxd.err.log
 
 [program:health]
-command=/opt/teamclaw/healthcheck.sh --serve
+command=/opt/teamclu/healthcheck.sh --serve
 autostart=true
 autorestart=true
 priority=80
@@ -768,7 +768,7 @@ stdout_logfile=/data/logs/health.log
 stderr_logfile=/data/logs/health.err.log
 
 [program:caddy]
-command=/usr/bin/caddy run --config /run/teamclaw/caddy/Caddyfile --adapter caddyfile
+command=/usr/bin/caddy run --config /run/teamclu/caddy/Caddyfile --adapter caddyfile
 autostart=true
 autorestart=true
 priority=90
@@ -881,7 +881,7 @@ FROM emqx/emqx:5.10.3 AS emqx-image
 FROM debian:bookworm-slim AS runtime
 ENV DEBIAN_FRONTEND=noninteractive
 ENV DATA_DIR=/data
-ENV RUN_DIR=/run/teamclaw
+ENV RUN_DIR=/run/teamclu
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
     ca-certificates curl git openssl gettext-base netcat-openbsd supervisor \
@@ -889,36 +889,36 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
   && rm -rf /var/lib/apt/lists/*
 
 COPY --from=emqx-image /opt/emqx /opt/emqx
-COPY --from=fc-build /src/package.json /opt/teamclaw/fc/package.json
-COPY --from=fc-build /src/node_modules /opt/teamclaw/fc/node_modules
-COPY --from=fc-build /src/dist /opt/teamclaw/fc/dist
+COPY --from=fc-build /src/package.json /opt/teamclu/fc/package.json
+COPY --from=fc-build /src/node_modules /opt/teamclu/fc/node_modules
+COPY --from=fc-build /src/dist /opt/teamclu/fc/dist
 COPY --from=amuxd-build /out/release/amuxd /usr/local/bin/amuxd
 
-COPY services/supabase/migrations /opt/teamclaw/migrations
-COPY services/supabase/seed.sql /opt/teamclaw/seed.sql
-COPY deploy/self-host/init/apply-migrations.sh /opt/teamclaw/apply-migrations.sh
-COPY deploy/self-host/all-in-one/lib.sh /opt/teamclaw/lib.sh
-COPY deploy/self-host/all-in-one/render-config.sh /opt/teamclaw/render-config.sh
-COPY deploy/self-host/all-in-one/entrypoint.sh /opt/teamclaw/entrypoint.sh
-COPY deploy/self-host/all-in-one/healthcheck.sh /opt/teamclaw/healthcheck.sh
-COPY deploy/self-host/all-in-one/Caddyfile.template /opt/teamclaw/Caddyfile.template
-COPY deploy/self-host/all-in-one/emqx.conf.template /opt/teamclaw/emqx.conf.template
-COPY deploy/self-host/all-in-one/supervisord.conf /etc/supervisor/conf.d/teamclaw-all-in-one.conf
+COPY services/supabase/migrations /opt/teamclu/migrations
+COPY services/supabase/seed.sql /opt/teamclu/seed.sql
+COPY deploy/self-host/init/apply-migrations.sh /opt/teamclu/apply-migrations.sh
+COPY deploy/self-host/all-in-one/lib.sh /opt/teamclu/lib.sh
+COPY deploy/self-host/all-in-one/render-config.sh /opt/teamclu/render-config.sh
+COPY deploy/self-host/all-in-one/entrypoint.sh /opt/teamclu/entrypoint.sh
+COPY deploy/self-host/all-in-one/healthcheck.sh /opt/teamclu/healthcheck.sh
+COPY deploy/self-host/all-in-one/Caddyfile.template /opt/teamclu/Caddyfile.template
+COPY deploy/self-host/all-in-one/emqx.conf.template /opt/teamclu/emqx.conf.template
+COPY deploy/self-host/all-in-one/supervisord.conf /etc/supervisor/conf.d/teamclu-all-in-one.conf
 
 RUN chmod +x \
-    /opt/teamclaw/apply-migrations.sh \
-    /opt/teamclaw/lib.sh \
-    /opt/teamclaw/render-config.sh \
-    /opt/teamclaw/entrypoint.sh \
-    /opt/teamclaw/healthcheck.sh \
-  && ln -sf /opt/teamclaw/lib.sh /opt/teamclaw/all-in-one-lib.sh
+    /opt/teamclu/apply-migrations.sh \
+    /opt/teamclu/lib.sh \
+    /opt/teamclu/render-config.sh \
+    /opt/teamclu/entrypoint.sh \
+    /opt/teamclu/healthcheck.sh \
+  && ln -sf /opt/teamclu/lib.sh /opt/teamclu/all-in-one-lib.sh
 
-WORKDIR /opt/teamclaw
+WORKDIR /opt/teamclu
 EXPOSE 8080
 VOLUME ["/data"]
 HEALTHCHECK --interval=30s --timeout=5s --start-period=60s --retries=5 \
-  CMD /opt/teamclaw/healthcheck.sh
-ENTRYPOINT ["/opt/teamclaw/entrypoint.sh"]
+  CMD /opt/teamclu/healthcheck.sh
+ENTRYPOINT ["/opt/teamclu/entrypoint.sh"]
 ```
 
 - [ ] **Step 2: Align script paths with Dockerfile location**
@@ -926,14 +926,14 @@ ENTRYPOINT ["/opt/teamclaw/entrypoint.sh"]
 Because scripts use `SCRIPT_DIR`, they must find templates next to themselves at runtime. Confirm these files are copied to the same directory in the Dockerfile:
 
 ```text
-/opt/teamclaw/lib.sh
-/opt/teamclaw/render-config.sh
-/opt/teamclaw/entrypoint.sh
-/opt/teamclaw/Caddyfile.template
-/opt/teamclaw/emqx.conf.template
+/opt/teamclu/lib.sh
+/opt/teamclu/render-config.sh
+/opt/teamclu/entrypoint.sh
+/opt/teamclu/Caddyfile.template
+/opt/teamclu/emqx.conf.template
 ```
 
-If any path differs, update the Dockerfile copy destination so all five files live under `/opt/teamclaw/`.
+If any path differs, update the Dockerfile copy destination so all five files live under `/opt/teamclu/`.
 
 - [ ] **Step 3: Verify Dockerfile references existing sources**
 
@@ -987,8 +987,8 @@ find_asset() {
     printf '%s\n' "$SCRIPT_DIR/$name"
     return 0
   fi
-  if [ -f "/opt/teamclaw/$name" ]; then
-    printf '%s\n' "/opt/teamclaw/$name"
+  if [ -f "/opt/teamclu/$name" ]; then
+    printf '%s\n' "/opt/teamclu/$name"
     return 0
   fi
   fatal "missing asset: $name"
@@ -1013,8 +1013,8 @@ find_script() {
     printf '%s\n' "$SCRIPT_DIR/$name"
     return 0
   fi
-  if [ -x "/opt/teamclaw/$name" ]; then
-    printf '%s\n' "/opt/teamclaw/$name"
+  if [ -x "/opt/teamclu/$name" ]; then
+    printf '%s\n' "/opt/teamclu/$name"
     return 0
   fi
   fatal "missing executable script: $name"
@@ -1066,9 +1066,9 @@ Write `deploy/self-host/all-in-one/smoke.sh`:
 #!/usr/bin/env sh
 set -eu
 
-IMAGE="${IMAGE:-teamclaw-selfhost-allinone:local}"
-CONTAINER="${CONTAINER:-teamclaw-allinone-smoke}"
-VOLUME="${VOLUME:-teamclaw-allinone-smoke-data}"
+IMAGE="${IMAGE:-teamclu-selfhost-allinone:local}"
+CONTAINER="${CONTAINER:-teamclu-allinone-smoke}"
+VOLUME="${VOLUME:-teamclu-allinone-smoke-data}"
 PORT="${PORT:-18080}"
 
 cleanup() {
@@ -1096,12 +1096,12 @@ docker volume create "$VOLUME" >/dev/null
 
 docker run -d --name "$CONTAINER" -p "$PORT:8080" -v "$VOLUME:/data" "$IMAGE" >/dev/null
 wait_http "http://127.0.0.1:$PORT/healthz"
-curl -fsS "http://127.0.0.1:$PORT/" | grep -q "TeamClaw self-host all-in-one"
+curl -fsS "http://127.0.0.1:$PORT/" | grep -q "TeamClu self-host all-in-one"
 
 docker restart "$CONTAINER" >/dev/null
 wait_http "http://127.0.0.1:$PORT/healthz"
 
-docker exec "$CONTAINER" test -s /data/teamclaw/secrets.env
+docker exec "$CONTAINER" test -s /data/teamclu/secrets.env
 
 echo "all-in-one smoke passed"
 cleanup
@@ -1149,7 +1149,7 @@ git commit -m "test: add all-in-one smoke script"
 Run:
 
 ```bash
-docker build -f deploy/self-host/all-in-one/Dockerfile -t teamclaw-selfhost-allinone:local .
+docker build -f deploy/self-host/all-in-one/Dockerfile -t teamclu-selfhost-allinone:local .
 ```
 
 Expected: build succeeds.
@@ -1169,7 +1169,7 @@ If `services/fc/package-lock.json` or `services/fc/.npmrc` is missing, update th
 Run inside a temporary container:
 
 ```bash
-docker run --rm --entrypoint sh teamclaw-selfhost-allinone:local -c 'command -v initdb || ls /usr/lib/postgresql/15/bin/initdb'
+docker run --rm --entrypoint sh teamclu-selfhost-allinone:local -c 'command -v initdb || ls /usr/lib/postgresql/15/bin/initdb'
 ```
 
 If `command -v initdb` fails, update `entrypoint.sh` command checks and invocations to use:
@@ -1206,7 +1206,7 @@ git commit -m "fix: make all-in-one image build"
 Run:
 
 ```bash
-IMAGE=teamclaw-selfhost-allinone:local PORT=18080 deploy/self-host/all-in-one/smoke.sh
+IMAGE=teamclu-selfhost-allinone:local PORT=18080 deploy/self-host/all-in-one/smoke.sh
 ```
 
 Expected output:
@@ -1220,8 +1220,8 @@ all-in-one smoke passed
 Run:
 
 ```bash
-docker logs teamclaw-allinone-smoke
-docker exec teamclaw-allinone-smoke sh -c 'ls -la /data/logs && tail -n 200 /data/logs/*.err.log /data/logs/*.log 2>/dev/null'
+docker logs teamclu-allinone-smoke
+docker exec teamclu-allinone-smoke sh -c 'ls -la /data/logs && tail -n 200 /data/logs/*.err.log /data/logs/*.log 2>/dev/null'
 ```
 
 Use the failing service log to make the smallest config or startup fix.
@@ -1231,7 +1231,7 @@ Use the failing service log to make the smallest config or startup fix.
 Run:
 
 ```bash
-docker inspect teamclaw-selfhost-allinone:local --format '{{json .Config.ExposedPorts}}'
+docker inspect teamclu-selfhost-allinone:local --format '{{json .Config.ExposedPorts}}'
 ```
 
 Expected output contains only:
@@ -1245,11 +1245,11 @@ Expected output contains only:
 Run:
 
 ```bash
-docker exec teamclaw-allinone-smoke sh -c 'sha256sum /data/teamclaw/secrets.env' > /tmp/teamclaw-secrets-before.txt
-docker restart teamclaw-allinone-smoke >/dev/null
+docker exec teamclu-allinone-smoke sh -c 'sha256sum /data/teamclu/secrets.env' > /tmp/teamclu-secrets-before.txt
+docker restart teamclu-allinone-smoke >/dev/null
 sleep 10
-docker exec teamclaw-allinone-smoke sh -c 'sha256sum /data/teamclaw/secrets.env' > /tmp/teamclaw-secrets-after.txt
-diff -u /tmp/teamclaw-secrets-before.txt /tmp/teamclaw-secrets-after.txt
+docker exec teamclu-allinone-smoke sh -c 'sha256sum /data/teamclu/secrets.env' > /tmp/teamclu-secrets-after.txt
+diff -u /tmp/teamclu-secrets-before.txt /tmp/teamclu-secrets-after.txt
 ```
 
 Expected: `diff` has no output.
@@ -1330,4 +1330,4 @@ If no README updates are needed, do not create an empty commit.
 - Type/name consistency:
   - `DATA_DIR`, `RUN_DIR`, and `SECRETS_FILE` are used consistently across scripts.
   - Caddy routes and README routes use `/v1`, `/auth`, `/rest`, `/storage`, `/realtime`, and `/mqtt` consistently.
-  - Dockerfile copies scripts/templates into `/opt/teamclaw`, and Task 8 ensures runtime lookup supports both in-repo and in-image execution.
+  - Dockerfile copies scripts/templates into `/opt/teamclu`, and Task 8 ensures runtime lookup supports both in-repo and in-image execution.

@@ -20,7 +20,7 @@ describe('mqtt module wiring', () => {
 
     const wire = async () => {
       group = acquireMqttModuleLeaseGroup(
-        ['teamclaw-rpc', 'remote-tools-rpc', 'runtime-state', 'actor-presence'].map((name) => ({
+        ['teamclu-rpc', 'remote-tools-rpc', 'runtime-state', 'actor-presence'].map((name) => ({
           name,
           acquire: () => {
             acquired.push(name)
@@ -38,7 +38,7 @@ describe('mqtt module wiring', () => {
 
     void wire()
     expect(acquired).toEqual([
-      'teamclaw-rpc',
+      'teamclu-rpc',
       'remote-tools-rpc',
       'runtime-state',
       'actor-presence',
@@ -48,7 +48,7 @@ describe('mqtt module wiring', () => {
       'actor-presence',
       'runtime-state',
       'remote-tools-rpc',
-      'teamclaw-rpc',
+      'teamclu-rpc',
     ])
   })
 

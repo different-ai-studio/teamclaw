@@ -1,6 +1,6 @@
 # Context Map
 
-TeamClaw 是一个多端协同的 AI Agent 平台，本仓库划分为以下 bounded contexts。
+TeamClu 是一个多端协同的 AI Agent 平台，本仓库划分为以下 bounded contexts。
 每个 context 拥有自己的领域语言（`CONTEXT.md`）与本地架构决策（`docs/adr/`）。
 跨 context 的共享术语和决策放在根 `docs/adr/`。
 
@@ -15,8 +15,8 @@ TeamClaw 是一个多端协同的 AI Agent 平台，本仓库划分为以下 bou
 | team-api | `services/fc/` | Alibaba FC 团队后端：team、member、budget、managed-git |
 | data | `services/supabase/` | Supabase 数据层：schema、RLS、migrations |
 | pocketbase | `services/pocketbase/` | PocketBase 持久化（daemon runtime） |
-| proto | `proto/`, `crates/teamclaw-proto/`, `crates/teamclaw-types/`, `crates/teamclaw-transport/` | 跨端共享 schema 与传输 |
-| gateway | `crates/teamclaw-gateway/` | 通道网关（neutralized supabase boundary） |
+| proto | `proto/`, `crates/teamclu-proto/`, `crates/teamclu-types/`, `crates/teamclu-transport/` | 跨端共享 schema 与传输 |
+| gateway | `crates/teamclu-gateway/` | 通道网关（neutralized supabase boundary） |
 
 ## 文件位置
 

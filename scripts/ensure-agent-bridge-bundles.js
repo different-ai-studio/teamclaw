@@ -247,11 +247,11 @@ function ensureAgentBridgeBundles(env, opts) {
   const logPrefix = opts?.logPrefix ?? "[bridge-bundle]";
   const force =
     opts?.force === true ||
-    env.TEAMCLAW_FORCE_BRIDGE_BUNDLES === "1" ||
-    env.TEAMCLAW_FORCE_BRIDGE_BUNDLES === "true";
+    env.TEAMCLU_FORCE_BRIDGE_BUNDLES === "1" ||
+    env.TEAMCLU_FORCE_BRIDGE_BUNDLES === "true";
   const target =
     opts?.target ||
-    env.TEAMCLAW_BRIDGE_TARGET ||
+    env.TEAMCLU_BRIDGE_TARGET ||
     env.TARGET ||
     null;
   const npmPlatform = resolveNpmPlatform(target);

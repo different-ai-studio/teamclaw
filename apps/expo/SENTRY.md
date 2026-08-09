@@ -3,7 +3,7 @@
 Sentry project: [`ucar-inc/teamclu-expo`](https://ucar-inc.sentry.io/projects/teamclu-expo/).
 One React Native project covers both Android and iOS.
 
-> The slug really is `teamclu-expo`, not `teamclaw-expo`. If it is ever renamed,
+> The slug really is `teamclu-expo`, not `teamclu-expo`. If it is ever renamed,
 > update `organization`/`project` in the `@sentry/react-native` plugin entry in
 > `app.json` — the DSN keeps working, but source map upload breaks.
 

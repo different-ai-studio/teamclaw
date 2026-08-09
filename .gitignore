@@ -73,8 +73,8 @@ __pycache__/
 venv/
 .Python
 
-# TeamClaw local runtime data (all config/data stored in .teamclaw/ directory)
-.teamclaw/
+# TeamClu local runtime data (all config/data stored in .teamclu/ directory)
+.teamclu/
 
 # Spec workflow config (copy from .spec.example.json)
 .spec.json
@@ -105,7 +105,7 @@ playwright-report/
 
 .workspace/
 
-teamclaw-team/
+teamclu-team/
 
 # Sensitive information
 *.key
@@ -140,7 +140,7 @@ tests/stress/reports/
 sre/
 .superpowers/
 
-# TeamClaw system directories
+# TeamClu system directories
 .ac360/
 
 # gstack / codex CLI skills (per-machine tool install, not project config)

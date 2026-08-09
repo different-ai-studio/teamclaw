@@ -1,6 +1,6 @@
 import { create } from "zustand";
-import type { Message } from "@/lib/proto/teamclaw_pb";
-import { MessageKind } from "@/lib/proto/teamclaw_pb";
+import type { Message } from "@/lib/proto/teamclu_pb";
+import { MessageKind } from "@/lib/proto/teamclu_pb";
 import { useSessionSelectionStore } from "./session-selection-store";
 
 const EMPTY_MESSAGES: Message[] = [];

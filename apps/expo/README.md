@@ -1,6 +1,6 @@
-# TeamClaw Expo
+# TeamClu Expo
 
-Expo workspace for the current mobile onboarding + sessions slice of TeamClaw.
+Expo workspace for the current mobile onboarding + sessions slice of TeamClu.
 
 ## Current scope
 

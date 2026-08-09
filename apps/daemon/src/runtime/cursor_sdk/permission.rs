@@ -46,7 +46,7 @@ fn allow() -> Value {
 fn deny(tool_name: &str) -> Value {
     json!({
         "permission": "deny",
-        "user_message": format!("{tool_name} was rejected by the TeamClaw user"),
+        "user_message": format!("{tool_name} was rejected by the TeamClu user"),
         "agent_message": format!(
             "The user rejected this {tool_name} call. Do not retry it; \
              pick another approach or ask what to do instead."

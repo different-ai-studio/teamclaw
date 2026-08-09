@@ -25,10 +25,10 @@ vi.mock("@tauri-apps/api/path", () => ({
   join: (...args: unknown[]) => mockJoin(...(args as string[])),
 }))
 
-const teamclawjson = (paths: string[]) =>
+const teamclujson = (paths: string[]) =>
   JSON.stringify({ skills: { paths } })
 
-describe("skill-loader dynamic team paths (from teamclaw.json)", () => {
+describe("skill-loader dynamic team paths (from teamclu.json)", () => {
   const workspacePath = "/tmp/ws"
 
   beforeEach(() => {
@@ -40,18 +40,18 @@ describe("skill-loader dynamic team paths (from teamclaw.json)", () => {
     mockJoin.mockImplementation((...args: string[]) => Promise.resolve(args.join("/")))
   })
 
-  it("loads team skills from paths listed in teamclaw.json", async () => {
+  it("loads team skills from paths listed in teamclu.json", async () => {
     const teamDir = `${workspacePath}/${TEAM_REPO_DIR}/skills`
 
     mockExists.mockImplementation((path: string) => {
-      if (path === `${workspacePath}/teamclaw.json`) return Promise.resolve(true)
+      if (path === `${workspacePath}/teamclu.json`) return Promise.resolve(true)
       if (path === teamDir) return Promise.resolve(true)
       if (path.includes("my-team-skill") && path.endsWith("SKILL.md")) return Promise.resolve(true)
       return Promise.resolve(false)
     })
     mockReadTextFile.mockImplementation((path: string) => {
-      if (path === `${workspacePath}/teamclaw.json`)
-        return Promise.resolve(teamclawjson([`${TEAM_REPO_DIR}/skills`]))
+      if (path === `${workspacePath}/teamclu.json`)
+        return Promise.resolve(teamclujson([`${TEAM_REPO_DIR}/skills`]))
       if (path.includes("my-team-skill"))
         return Promise.resolve("# my-team-skill\n")
       return Promise.resolve("")
@@ -73,14 +73,14 @@ describe("skill-loader dynamic team paths (from teamclaw.json)", () => {
     const expandedDir = "/home/user/shared-skills"
 
     mockExists.mockImplementation((path: string) => {
-      if (path === `${workspacePath}/teamclaw.json`) return Promise.resolve(true)
+      if (path === `${workspacePath}/teamclu.json`) return Promise.resolve(true)
       if (path === expandedDir) return Promise.resolve(true)
       if (path.includes("home-skill") && path.endsWith("SKILL.md")) return Promise.resolve(true)
       return Promise.resolve(false)
     })
     mockReadTextFile.mockImplementation((path: string) => {
-      if (path === `${workspacePath}/teamclaw.json`)
-        return Promise.resolve(teamclawjson(["~/shared-skills"]))
+      if (path === `${workspacePath}/teamclu.json`)
+        return Promise.resolve(teamclujson(["~/shared-skills"]))
       if (path.includes("home-skill"))
         return Promise.resolve("# home-skill\n")
       return Promise.resolve("")
@@ -102,12 +102,12 @@ describe("skill-loader dynamic team paths (from teamclaw.json)", () => {
     const absoluteDir = "D:\\shared\\skills"
 
     mockExists.mockImplementation((path: string) => {
-      if (path === `${workspacePath}/teamclaw.json`) return Promise.resolve(true)
+      if (path === `${workspacePath}/teamclu.json`) return Promise.resolve(true)
       return Promise.resolve(false)
     })
     mockReadTextFile.mockImplementation((path: string) => {
-      if (path === `${workspacePath}/teamclaw.json`) {
-        return Promise.resolve(teamclawjson([absoluteDir]))
+      if (path === `${workspacePath}/teamclu.json`) {
+        return Promise.resolve(teamclujson([absoluteDir]))
       }
       return Promise.resolve("")
     })
@@ -120,12 +120,12 @@ describe("skill-loader dynamic team paths (from teamclaw.json)", () => {
     mockHomeDir.mockResolvedValue("C:\\Users\\alice")
 
     mockExists.mockImplementation((path: string) => {
-      if (path === `${workspacePath}/teamclaw.json`) return Promise.resolve(true)
+      if (path === `${workspacePath}/teamclu.json`) return Promise.resolve(true)
       return Promise.resolve(false)
     })
     mockReadTextFile.mockImplementation((path: string) => {
-      if (path === `${workspacePath}/teamclaw.json`) {
-        return Promise.resolve(teamclawjson(["~\\shared-skills"]))
+      if (path === `${workspacePath}/teamclu.json`) {
+        return Promise.resolve(teamclujson(["~\\shared-skills"]))
       }
       return Promise.resolve("")
     })
@@ -137,13 +137,13 @@ describe("skill-loader dynamic team paths (from teamclaw.json)", () => {
 
   it("contributes zero team skills when no team share dir and no skills.paths", async () => {
     mockExists.mockImplementation((path: string) => {
-      if (path === `${workspacePath}/teamclaw.json`) return Promise.resolve(true)
+      if (path === `${workspacePath}/teamclu.json`) return Promise.resolve(true)
       if (path === `${workspacePath}/opencode.json`) return Promise.resolve(false)
       if (path === `${workspacePath}/${TEAM_SHARE_LINK_DIR}/skills`) return Promise.resolve(false)
       return Promise.resolve(false)
     })
     mockReadTextFile.mockImplementation((path: string) => {
-      if (path === `${workspacePath}/teamclaw.json`)
+      if (path === `${workspacePath}/teamclu.json`)
         return Promise.resolve(JSON.stringify({}))
       return Promise.resolve("")
     })
@@ -152,12 +152,12 @@ describe("skill-loader dynamic team paths (from teamclaw.json)", () => {
     expect(skills.filter((s) => s.source === "team")).toHaveLength(0)
   })
 
-  it("falls back to global team dir when workspace teamclaw-team link is broken", async () => {
+  it("falls back to global team dir when workspace teamclu-team link is broken", async () => {
     const brokenLinkSkills = `${workspacePath}/${TEAM_SHARE_LINK_DIR}/skills`
     const globalSkills = `/home/user/.amuxd/teams/team-abc/${TEAM_SHARE_LINK_DIR}/skills`
 
     mockExists.mockImplementation((path: string) => {
-      if (path === `${workspacePath}/teamclaw.json`) return Promise.resolve(false)
+      if (path === `${workspacePath}/teamclu.json`) return Promise.resolve(false)
       if (path === `${workspacePath}/opencode.json`) return Promise.resolve(true)
       if (path === brokenLinkSkills) return Promise.resolve(false)
       if (path === `${workspacePath}/${TEAM_SHARE_LINK_DIR}`) return Promise.resolve(false)
@@ -169,7 +169,7 @@ describe("skill-loader dynamic team paths (from teamclaw.json)", () => {
     })
     mockReadTextFile.mockImplementation((path: string) => {
       if (path === `${workspacePath}/opencode.json`)
-        return Promise.resolve(JSON.stringify({ skills: { paths: ["teamclaw-team/skills"] } }))
+        return Promise.resolve(JSON.stringify({ skills: { paths: ["teamclu-team/skills"] } }))
       if (path === `/home/user/.amuxd/daemon.toml`)
         return Promise.resolve('team_id = "team-abc"\n')
       if (path.includes("shared-skill")) return Promise.resolve("# shared-skill\n")
@@ -188,10 +188,10 @@ describe("skill-loader dynamic team paths (from teamclaw.json)", () => {
     expect(skills.some((s) => s.source === "team" && s.filename === "shared-skill")).toBe(true)
   })
 
-  it("auto-loads the global team skills dir without teamclaw.json skills.paths", async () => {
+  it("auto-loads the global team skills dir without teamclu.json skills.paths", async () => {
     // No workspace-link fallback anymore: skills come from the daemon-owned
-    // global dir `~/.amuxd/teams/<team_id>/teamclaw-team/skills`.
-    expect(TEAM_SHARE_LINK_DIR).toBe("teamclaw-team")
+    // global dir `~/.amuxd/teams/<team_id>/teamclu-team/skills`.
+    expect(TEAM_SHARE_LINK_DIR).toBe("teamclu-team")
     const globalTeamDir = `/home/user/.amuxd/teams/team-abc/${TEAM_SHARE_LINK_DIR}`
     const globalSkills = `${globalTeamDir}/skills`
 
@@ -265,7 +265,7 @@ describe("skill-loader dynamic team paths (from teamclaw.json)", () => {
   })
 
   it("prefers flat skill over bundled skill with same slug", async () => {
-    const localDir = `${workspacePath}/.teamclaw/skills`
+    const localDir = `${workspacePath}/.teamclu/skills`
     const globalBundleDir = "/home/user/.agents/skills"
     const superpowersDir = `${globalBundleDir}/superpowers`
 
@@ -330,7 +330,7 @@ describe("skill-loader dynamic team paths (from teamclaw.json)", () => {
 
 describe("skill-loader plugin cache scanning", () => {
   const workspacePath = "/tmp/ws"
-  const pluginCacheDir = `${workspacePath}/.teamclaw/cache/agent/node_modules`
+  const pluginCacheDir = `${workspacePath}/.teamclu/cache/agent/node_modules`
 
   beforeEach(() => {
     vi.clearAllMocks()
@@ -401,7 +401,7 @@ describe("skill-loader plugin cache scanning", () => {
   })
 
   it("local skills override plugin skills with the same name", async () => {
-    const localDir = `${workspacePath}/.teamclaw/skills`
+    const localDir = `${workspacePath}/.teamclu/skills`
     const superpowersSkillsDir = `${pluginCacheDir}/superpowers/skills`
 
     mockExists.mockImplementation((path: string) => {
@@ -467,7 +467,7 @@ describe("skill-loader plugin cache scanning", () => {
     expect(skills.filter((s) => s.source === "plugin")).toHaveLength(0)
   })
 
-  it("getSourceDirHint(plugin) shows teamclaw.json reference", () => {
-    expect(getSourceDirHint("plugin")).toBe("teamclaw.json → plugin")
+  it("getSourceDirHint(plugin) shows teamclu.json reference", () => {
+    expect(getSourceDirHint("plugin")).toBe("teamclu.json → plugin")
   })
 })

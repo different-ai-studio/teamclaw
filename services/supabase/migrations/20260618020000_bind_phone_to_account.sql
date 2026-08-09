@@ -11,7 +11,7 @@
 -- Also flips the auth user to non-anonymous (the actual "upgrade"). The caller's
 -- JWT still reads is_anonymous=true until the session is refreshed.
 --
--- See docs/specs/2026-06-17-teamclaw-phone-login-and-tenancy.md.
+-- See docs/specs/2026-06-17-teamclu-phone-login-and-tenancy.md.
 -- ============================================================================
 create or replace function amux.bind_phone_to_account(
   p_phone text,

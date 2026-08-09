@@ -43,7 +43,7 @@ function Home() {
 
   return (
     <main style={{ fontFamily: 'system-ui, sans-serif', maxWidth: 640, margin: '2rem auto', padding: '0 1rem' }}>
-      <h1>TeamClaw App</h1>
+      <h1>TeamClu App</h1>
       <p>TanStack Start (Node SSR) + Postgres. Items below are read from and written to the database.</p>
 
       <form

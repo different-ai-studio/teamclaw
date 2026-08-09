@@ -2,11 +2,11 @@
 set -eu
 
 log() {
-  printf '[teamclaw-allinone] %s\n' "$*" >&2
+  printf '[teamclu-allinone] %s\n' "$*" >&2
 }
 
 fatal() {
-  printf '[teamclaw-allinone] error: %s\n' "$*" >&2
+  printf '[teamclu-allinone] error: %s\n' "$*" >&2
   exit 1
 }
 
