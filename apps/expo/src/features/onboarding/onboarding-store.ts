@@ -153,6 +153,26 @@ export function createOnboardingController(api: OnboardingApi) {
     }
   };
 
+  /**
+   * Email + password sign-in. Unlike the OTP flow there is no pending-email
+   * step: one call either produces a session or fails, so it goes straight to
+   * bootstrap.
+   */
+  const signInWithPassword = async (email: string, password: string) => {
+    const operationToken = beginOperation();
+    dispatchIfCurrent(operationToken, { type: "beginBusy" });
+
+    try {
+      await api.signInWithPassword(email.trim(), password);
+      await bootstrap(operationToken);
+    } catch (error) {
+      if (!(error instanceof BootstrapFailureError)) {
+        finishWithError(operationToken, toErrorMessage(error));
+      }
+      throw (error instanceof BootstrapFailureError ? error.cause : error);
+    }
+  };
+
   const runOAuthBrowserFlow = async (
     token: number,
     authUrl: string,
@@ -290,6 +310,7 @@ export function createOnboardingController(api: OnboardingApi) {
     signInAnonymously,
     requestOtp,
     verifyOtp,
+    signInWithPassword,
     signInWithOAuth,
     linkIdentityWithOAuth,
     resetPendingEmail,

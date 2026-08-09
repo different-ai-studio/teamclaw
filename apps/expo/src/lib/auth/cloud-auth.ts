@@ -159,6 +159,10 @@ export type CloudAuthClient = {
       email: string;
       options?: { shouldCreateUser?: boolean };
     }) => Promise<void>;
+    signInWithPassword: (input: {
+      email: string;
+      password: string;
+    }) => Promise<{ data: unknown; error: { message: string } | null }>;
     verifyOtp: (input: {
       email: string;
       token: string;
@@ -276,6 +280,33 @@ export const cloudAuth: CloudAuthClient = {
         method: "POST",
         body: { email, options: { shouldCreateUser: options?.shouldCreateUser ?? true } },
       });
+    },
+
+    /**
+     * Email + password sign-in, matching iOS
+     * `CloudAPIAppOnboardingStore.signIn(email:password:)`.
+     *
+     * Returns the error rather than throwing, like `verifyOtp` — a wrong
+     * password is an ordinary outcome the form has to render, not an exception.
+     */
+    async signInWithPassword({ email, password }) {
+      await store().start();
+      try {
+        const body = await authRequest<GoTrueSessionBody>("/v1/auth/signin-password", {
+          method: "POST",
+          body: { email, password },
+        });
+        if (!body.access_token || !body.refresh_token) {
+          return { data: null, error: { message: "Sign-in did not return a session." } };
+        }
+        await storeGoTrue(body);
+        return { data: body, error: null };
+      } catch (error) {
+        return {
+          data: null,
+          error: { message: error instanceof Error ? error.message : "Sign-in failed" },
+        };
+      }
     },
 
     async verifyOtp({ email, token, type }) {
