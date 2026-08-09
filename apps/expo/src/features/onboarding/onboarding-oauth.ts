@@ -18,6 +18,23 @@ export type OAuthProvider = "apple" | "google";
  */
 export const OAUTH_REDIRECT_URL = "teamclaw://auth-callback";
 
+/**
+ * True for the URL GoTrue redirects to once a provider has signed the user in.
+ *
+ * That redirect is a real Android deep link, so the OS delivers it to the app
+ * as an intent — `Linking` sees it whether or not `openAuthSessionAsync`
+ * resolves with it. Completing the sign-in therefore has to be driven from the
+ * URL itself; see `completeOAuthFromUrl`.
+ *
+ * Tolerates the double- and triple-slash spellings because `Linking.createURL`
+ * has emitted both, and a trailing slash because some browsers add one.
+ */
+export function isOAuthCallbackUrl(url: string | null | undefined): boolean {
+  if (!url) return false;
+  const withoutParams = url.split(/[?#]/)[0] ?? "";
+  return /^teamclaw:\/{2,3}auth-callback\/?$/i.test(withoutParams);
+}
+
 export type OAuthCallback =
   | { type: "code"; code: string }
   | { type: "tokens"; accessToken: string; refreshToken: string };

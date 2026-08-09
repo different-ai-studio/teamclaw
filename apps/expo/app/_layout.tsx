@@ -1,5 +1,11 @@
 import "../src/lib/polyfills";
 
+import { initSentry, wrapRoot } from "../src/lib/telemetry/sentry";
+
+// Before any other module runs, so an error thrown while the tree is still
+// being built is still reported.
+initSentry();
+
 import Constants from "expo-constants";
 import * as Linking from "expo-linking";
 import * as Notifications from "expo-notifications";
@@ -20,6 +26,7 @@ import { SafeAreaView } from "react-native-safe-area-context";
 
 import { ToastHost, showToast } from "../src/ui/Toast";
 import { createConfiguredInviteApi, parseInviteToken } from "../src/features/onboarding/invite-api";
+import { isOAuthCallbackUrl } from "../src/features/onboarding/onboarding-oauth";
 import { createOnboardingController } from "../src/features/onboarding/onboarding-store";
 import type {
   OnboardingRoute,
@@ -145,6 +152,17 @@ function OnboardingProvider({ children }: { children: ReactNode }) {
   // user is signed in.
   useEffect(() => {
     const handleUrl = (url: string | null | undefined) => {
+      // The OAuth redirect is a deep link, so this listener — not
+      // `openAuthSessionAsync`'s return value — is what reliably carries a
+      // Google/Apple sign-in back to us on Android. Completing it here is
+      // idempotent; the controller spends each callback once.
+      if (isOAuthCallbackUrl(url)) {
+        void controller.completeOAuthFromUrl(url!).catch(() => {
+          // Rendered from controller state by the auth screen.
+        });
+        return;
+      }
+
       const token = parseInviteToken(url);
       if (!token) return;
       void savePendingInviteToken(token).then(() => {
@@ -392,7 +410,7 @@ function OnboardingProvider({ children }: { children: ReactNode }) {
   );
 }
 
-export default function RootLayout() {
+function RootLayout() {
   return (
     <GestureHandlerRootView style={styles.root}>
       <StatusBar {...appStatusBarProps} />
@@ -407,6 +425,8 @@ export default function RootLayout() {
     </GestureHandlerRootView>
   );
 }
+
+export default wrapRoot(RootLayout);
 
 const styles = StyleSheet.create({
   root: {

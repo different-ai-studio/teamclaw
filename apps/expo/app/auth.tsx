@@ -43,6 +43,7 @@ export default function AuthRoute() {
           openAuthSession: WebBrowser.openAuthSessionAsync,
         })
       }
+      onSignInWithPassword={controller.signInWithPassword}
       onVerifyOtp={controller.verifyOtp}
     />
   );

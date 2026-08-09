@@ -18,6 +18,7 @@ export default function CreateTeamRoute() {
       isAnonymous={state.isAnonymous}
       isBusy={state.isBusy}
       onCreateTeam={controller.createTeam}
+      onSignOut={controller.signOut}
     />
   );
 }

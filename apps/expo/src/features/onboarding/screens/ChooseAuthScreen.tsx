@@ -259,7 +259,6 @@ const styles = StyleSheet.create({
   header: {
     gap: spacing.sm,
     paddingHorizontal: spacing.xl,
-    paddingTop: spacing.xxxl + spacing.lg,
   },
   iconWrap: {
     alignItems: "center",
@@ -309,6 +308,10 @@ const styles = StyleSheet.create({
   screen: {
     backgroundColor: colors.mist,
     flex: 1,
+    // Centre header + actions + error as one block. The header used to carry a
+    // fixed `paddingTop` that pinned everything near the top; that offset now
+    // fights the centring, so it is gone.
+    justifyContent: "center",
   },
   sheet: {
     backgroundColor: colors.mist,

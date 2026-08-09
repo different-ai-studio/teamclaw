@@ -14,7 +14,7 @@ import {
   View,
 } from "react-native";
 
-import { colors, spacing, typography } from "../../../ui/theme";
+import { colors, radii, shadows, spacing, typography } from "../../../ui/theme";
 import { OTP_CODE_LENGTH, sanitizeOtpInput } from "../auth-otp";
 
 type AuthScreenProps = {
@@ -24,19 +24,28 @@ type AuthScreenProps = {
   onBack: () => void;
   onRequestOtp: (email: string) => Promise<void>;
   onVerifyOtp: (token: string) => Promise<void>;
+  onSignInWithPassword: (email: string, password: string) => Promise<void>;
   onResetPendingEmail: () => void;
   onSignInWithApple?: () => Promise<void> | void;
   onSignInWithGoogle?: () => Promise<void> | void;
 };
+
+/** iOS `LoginView.LoginMethod`, minus `phone` — not implemented here yet. */
+type LoginMethod = "email" | "password";
 
 function isValidEmail(value: string) {
   return /\S+@\S+\.\S+/.test(value);
 }
 
 /**
- * 1:1 port of `apps/ios/AMUXApp/LoginView.swift`. Email-OTP first, then
- * "Sign in with Apple" / "Sign in with Google" rails below an "or" divider.
- * Guest / private-workspace lives on the ChooseAuthScreen — same as iOS.
+ * Port of `apps/ios/AMUXApp/LoginView.swift`: a segmented method picker over
+ * email-OTP and email+password, then "Sign in with Apple" / "Sign in with
+ * Google" rails below an "or" divider. Guest / private-workspace lives on the
+ * ChooseAuthScreen — same as iOS.
+ *
+ * iOS also offers a `phone` method with a multi-account picker sheet; that is
+ * deliberately not ported yet, so the picker here shows two tabs rather than
+ * three.
  */
 export function AuthScreen({
   errorMessage,
@@ -45,12 +54,15 @@ export function AuthScreen({
   onBack,
   onRequestOtp,
   onVerifyOtp,
+  onSignInWithPassword,
   onResetPendingEmail,
   onSignInWithApple,
   onSignInWithGoogle,
 }: AuthScreenProps) {
   const [email, setEmail] = useState(pendingEmail ?? "");
+  const [password, setPassword] = useState("");
   const [code, setCode] = useState("");
+  const [method, setMethod] = useState<LoginMethod>("email");
 
   useEffect(() => {
     if (pendingEmail) setEmail(pendingEmail);
@@ -63,6 +75,14 @@ export function AuthScreen({
     if (!isValidEmail(next)) return;
     try {
       await onRequestOtp(next);
+    } catch {}
+  };
+
+  const submitPassword = async () => {
+    const next = email.trim().toLowerCase();
+    if (!isValidEmail(next) || password.length === 0) return;
+    try {
+      await onSignInWithPassword(next, password);
     } catch {}
   };
 
@@ -97,7 +117,17 @@ export function AuthScreen({
 
   const canSubmit = isCodeStep
     ? code.length === OTP_CODE_LENGTH
-    : email.trim().length > 0;
+    : method === "password"
+      ? email.trim().length > 0 && password.length > 0
+      : email.trim().length > 0;
+
+  // Mirrors iOS `headerSubtitle`: the copy tracks the selected method, so the
+  // screen never promises a code when the user picked password.
+  const subtitle = isCodeStep
+    ? "Check your inbox for a 6-digit code."
+    : method === "password"
+      ? "Use your email and password to sign in."
+      : "We'll email you a 6-digit code.";
 
   return (
     <KeyboardAvoidingView
@@ -122,12 +152,25 @@ export function AuthScreen({
           <Text style={styles.title}>
             {isCodeStep ? "Enter the code" : "Sign in"}
           </Text>
-          <Text style={styles.subtitle}>
-            {isCodeStep
-              ? "Check your inbox for a 6-digit code."
-              : "We'll email you a 6-digit code."}
-          </Text>
+          <Text style={styles.subtitle}>{subtitle}</Text>
         </View>
+
+        {!isCodeStep ? (
+          <View style={styles.methodPicker} testID="login.methodPicker">
+            <MethodTab
+              disabled={isBusy}
+              label="Email"
+              onPress={() => setMethod("email")}
+              selected={method === "email"}
+            />
+            <MethodTab
+              disabled={isBusy}
+              label="Password"
+              onPress={() => setMethod("password")}
+              selected={method === "password"}
+            />
+          </View>
+        ) : null}
 
         {isCodeStep ? (
           <View style={styles.section}>
@@ -188,17 +231,43 @@ export function AuthScreen({
                 placeholderTextColor={colors.slate}
                 selectionColor={colors.cinnabar}
                 style={styles.fieldText}
-                textContentType="emailAddress"
+                testID="login.emailField"
+                textContentType={method === "password" ? "username" : "emailAddress"}
                 value={email}
               />
             </View>
 
+            {method === "password" ? (
+              <View style={styles.authField}>
+                <TextInput
+                  accessibilityLabel="Password"
+                  autoCapitalize="none"
+                  autoComplete="current-password"
+                  autoCorrect={false}
+                  editable={!isBusy}
+                  onChangeText={setPassword}
+                  onSubmitEditing={() => {
+                    void submitPassword();
+                  }}
+                  placeholder="Password"
+                  placeholderTextColor={colors.slate}
+                  returnKeyType="go"
+                  secureTextEntry
+                  selectionColor={colors.cinnabar}
+                  style={styles.fieldText}
+                  testID="login.passwordField"
+                  textContentType="password"
+                  value={password}
+                />
+              </View>
+            ) : null}
+
             <PrimaryButton
               busy={isBusy}
               enabled={canSubmit}
-              label="Send code"
+              label={method === "password" ? "Sign in" : "Send code"}
               onPress={() => {
-                void sendCode();
+                void (method === "password" ? submitPassword() : sendCode());
               }}
             />
           </View>
@@ -230,6 +299,42 @@ export function AuthScreen({
         </View>
       </ScrollView>
     </KeyboardAvoidingView>
+  );
+}
+
+/** One segment of the method picker — RN has no built-in segmented control. */
+function MethodTab({
+  disabled,
+  label,
+  onPress,
+  selected,
+}: {
+  disabled: boolean;
+  label: string;
+  onPress: () => void;
+  selected: boolean;
+}) {
+  return (
+    <Pressable
+      accessibilityRole="button"
+      accessibilityState={{ disabled, selected }}
+      disabled={disabled}
+      onPress={onPress}
+      style={({ pressed }) => [
+        styles.methodTab,
+        selected ? styles.methodTabSelected : null,
+        pressed && !disabled ? styles.pressed : null,
+      ]}
+    >
+      <Text
+        style={[
+          styles.methodTabLabel,
+          selected ? styles.methodTabLabelSelected : null,
+        ]}
+      >
+        {label}
+      </Text>
+    </Pressable>
   );
 }
 
@@ -424,6 +529,34 @@ const styles = StyleSheet.create({
   screen: {
     backgroundColor: colors.mist,
     flex: 1,
+  },
+  // Stands in for iOS's `.pickerStyle(.segmented)` — a recessed track with a
+  // raised selected segment. React Native ships no segmented control.
+  methodPicker: {
+    backgroundColor: colors.pebble,
+    borderRadius: radii.button + 2,
+    flexDirection: "row",
+    gap: 2,
+    padding: 2,
+  },
+  methodTab: {
+    alignItems: "center",
+    borderRadius: radii.button,
+    flex: 1,
+    paddingVertical: 7,
+  },
+  methodTabLabel: {
+    color: colors.basalt,
+    ...typography.body,
+    fontWeight: "500",
+  },
+  methodTabLabelSelected: {
+    color: colors.onyx,
+    fontWeight: "600",
+  },
+  methodTabSelected: {
+    backgroundColor: colors.paper,
+    ...shadows.card,
   },
   section: {
     gap: 12,
