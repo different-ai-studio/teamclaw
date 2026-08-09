@@ -28,6 +28,7 @@ import {
   registerFlushedTurn,
   resetFlushedTurnRegistryForTests,
 } from "@/lib/flushed-turn-registry";
+import { shouldPatchFlushedToolEvent } from "@/lib/live-agent-stream";
 import {
   isStreamInterruptible,
   useV2StreamingStore,
@@ -206,9 +207,11 @@ describe("mid-turn follow-up repro (client store simulation)", () => {
     const liveEntry = useV2StreamingStore.getState().byKey[`${sessionId}::${actorId}`];
     expect(liveEntry?.active ?? false).toBe(false);
 
-    const wouldSkipLateToolUse = Boolean(
-      getFlushedTurn(sessionId, actorId) &&
-        (!liveEntry || !isStreamInterruptible(liveEntry)),
+    const wouldSkipLateToolUse = shouldPatchFlushedToolEvent(
+      sessionId,
+      actorId,
+      "tool-late",
+      liveEntry,
     );
     expect(wouldSkipLateToolUse).toBe(true);
   });
