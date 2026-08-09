@@ -89,17 +89,6 @@ impl RuntimeManager {
             .map(|(id, _)| id.clone())
     }
 
-    /// Return the agent type for the runtime with the given ACP session id.
-    pub fn agent_type_for_acp_session(&self, acp_session_id: &str) -> Option<amux::AgentType> {
-        if acp_session_id.is_empty() {
-            return None;
-        }
-        self.agents
-            .iter()
-            .find(|(_, h)| h.acp_session_id == acp_session_id)
-            .map(|(_, h)| h.agent_type)
-    }
-
     /// Normalise a client-facing command address to the attachment key.
     ///
     /// The map is keyed by cloud `session_id` (ADR-0004), so this is parsing,

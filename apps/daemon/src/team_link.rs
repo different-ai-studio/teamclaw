@@ -46,14 +46,6 @@ pub async fn team_share_gate(backend: &dyn Backend, team_id: &str) -> TeamShareG
     }
 }
 
-/// Whether team-share is actively enabled (excludes `Unknown`).
-pub async fn team_share_enabled(backend: &dyn Backend, team_id: &str) -> bool {
-    matches!(
-        team_share_gate(backend, team_id).await,
-        TeamShareGate::Enabled
-    )
-}
-
 /// Whether a workspace path is an app checkout (`<amuxd home>/apps/<appId>`).
 ///
 /// App workspaces deliberately get NO `teamclaw-team` link. An app's workspace
