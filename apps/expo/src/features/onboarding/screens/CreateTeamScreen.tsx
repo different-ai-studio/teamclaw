@@ -2,6 +2,7 @@ import { useState } from "react";
 import {
   KeyboardAvoidingView,
   Platform,
+  Pressable,
   ScrollView,
   StyleSheet,
   Text,
@@ -18,6 +19,7 @@ type CreateTeamScreenProps = {
   isAnonymous: boolean;
   isBusy: boolean;
   onCreateTeam: (name: string) => Promise<void>;
+  onSignOut: () => Promise<void>;
 };
 
 export function CreateTeamScreen({
@@ -25,6 +27,7 @@ export function CreateTeamScreen({
   isAnonymous,
   isBusy,
   onCreateTeam,
+  onSignOut,
 }: CreateTeamScreenProps) {
   const [teamName, setTeamName] = useState("");
   const [localError, setLocalError] = useState<string | null>(null);
@@ -98,6 +101,27 @@ export function CreateTeamScreen({
               : "Your account is ready. This step creates the first shared space for your team."}
           </Text>
         </AppCard>
+
+        {/*
+          The only way out. Being signed in with no team routes straight back
+          here, so without this the screen is a dead end — you cannot even
+          switch accounts. iOS offers the same escape from its onboarding error
+          state (`Button("Sign Out", role: .destructive)`).
+        */}
+        <Pressable
+          accessibilityRole="button"
+          disabled={isBusy}
+          onPress={() => {
+            void onSignOut();
+          }}
+          style={({ pressed }) => [
+            styles.signOut,
+            pressed && !isBusy ? styles.signOutPressed : null,
+          ]}
+          testID="createTeam.signOutButton"
+        >
+          <Text style={styles.signOutLabel}>Sign out</Text>
+        </Pressable>
       </ScrollView>
     </KeyboardAvoidingView>
   );
@@ -136,6 +160,18 @@ const styles = StyleSheet.create({
   screen: {
     backgroundColor: colors.background,
     flex: 1,
+  },
+  signOut: {
+    alignItems: "center",
+    paddingVertical: spacing.sm,
+  },
+  signOutLabel: {
+    color: colors.danger,
+    ...typography.body,
+    fontWeight: "600",
+  },
+  signOutPressed: {
+    opacity: 0.6,
   },
   title: {
     color: colors.foreground,
