@@ -70,6 +70,30 @@ describe("setRefreshSession", () => {
     expect(JSON.parse(init.body)).toEqual({ refreshToken: "old-refresh-token" });
   });
 
+  /**
+   * `loadBootstrap` calls this in the middle of a bootstrap, right after team
+   * activation. The app's `onAuthStateChange` listener re-runs `bootstrap()`,
+   * so notifying here re-entered bootstrap, and the new run's
+   * `beginOperation()` invalidated the in-flight one — whose `bootstrapResolved`
+   * then dropped on the floor. The result was an infinite loop stuck on
+   * "Opening TeamClaw", hammering /v1/teams + activate + refresh each pass.
+   *
+   * Swapping tokens is not an auth-state change: same user, new claims.
+   */
+  it("does not wake auth-state subscribers, which would re-enter bootstrap", async () => {
+    vi.stubGlobal("fetch", mockFetchOnce(CAMEL_CASE_REFRESH_RESPONSE));
+    const { cloudAuth } = await import("../lib/auth/cloud-auth");
+    const onAuthStateChange = vi.fn();
+    cloudAuth.auth.onAuthStateChange(onAuthStateChange);
+
+    await cloudAuth.auth.setRefreshSession("old-refresh-token");
+
+    expect(onAuthStateChange).not.toHaveBeenCalled();
+    // ...and the swap still took effect.
+    const { data } = await cloudAuth.auth.getSession();
+    expect(data.session?.access_token).toBe("new-access-token");
+  });
+
   it("reports a body with no tokens as an error rather than storing a blank session", async () => {
     vi.stubGlobal("fetch", mockFetchOnce({}));
     const { cloudAuth } = await import("../lib/auth/cloud-auth");
