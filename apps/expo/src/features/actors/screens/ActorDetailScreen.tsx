@@ -18,6 +18,12 @@ import { formatRelativeTime } from "../../../lib/relative-time";
 import { colors, hai, radii, spacing, typography } from "../../../ui/theme";
 import { isActorOnline, type Actor } from "../actor-types";
 import type { AgentAuthorizedHuman } from "../connected-agent-types";
+import {
+  isActorScopedResource,
+  resourceCount,
+  type TeamResourceCounts,
+  type TeamResourceKind,
+} from "../team-resources-api";
 
 export type AgentWorkspaceChoice = {
   id: string;
@@ -50,6 +56,8 @@ export type ActorDetailScreenProps = {
   onRemoveAgentWorkspace?: (workspaceId: string) => void;
   onRevokeAuthorizedHuman?: (memberActorId: string) => void;
   onSelectSession?: (sessionId: string) => void;
+  /** Drill into this actor's installed skills / MCP servers, or the team's env keys. */
+  onSelectResource?: (kind: TeamResourceKind) => void;
   onShareAgentToTeam?: () => void;
   onUpdateAgentDefaults?: (patch: {
     defaultWorkspaceId?: string | null;
@@ -67,6 +75,12 @@ export type ActorDetailScreenProps = {
     sessions: number;
     ideas: number;
   };
+  /** Null until the first fetch lands, so the row can tell "loading" from a real zero. */
+  resourceCounts?: TeamResourceCounts | null;
+  /** True when this agent is the signed-in member's personal default agent. */
+  isMyDefaultAgent?: boolean;
+  isSavingMyDefaultAgent?: boolean;
+  onSetMyDefaultAgent?: (makeDefault: boolean) => void;
 };
 
 const HUMAN_PALETTE = [hai.basalt, hai.slate, hai.sage, hai.onyx];
@@ -126,9 +140,12 @@ export function ActorDetailScreen({
   isRefreshing,
   isRemoving,
   isRemovingAgentWorkspace,
+  isMyDefaultAgent,
   isRevokingAuthorizedHuman,
   isSavingAgentDefaults,
+  isSavingMyDefaultAgent,
   isUpdatingAgentVisibility,
+  onSetMyDefaultAgent,
   onClose,
   onCreateReinvite,
   onGrantAuthorizedHuman,
@@ -138,10 +155,12 @@ export function ActorDetailScreen({
   onRemoveActor,
   onRemoveAgentWorkspace,
   onRevokeAuthorizedHuman,
+  onSelectResource,
   onSelectSession,
   onShareAgentToTeam,
   onUpdateAgentDefaults,
   recentSessions,
+  resourceCounts,
   stats,
 }: ActorDetailScreenProps) {
   return (
@@ -193,6 +212,21 @@ export function ActorDetailScreen({
                   <Text style={styles.statValue}>{stats.ideas}</Text>
                   <Text style={styles.statLabel}>Ideas</Text>
                 </View>
+              </View>
+            ) : null}
+
+            {onSelectResource ? (
+              <View style={styles.resourceRow}>
+                {(["skills", "mcp", "env"] as const).map((kind, index) => (
+                  <View key={kind} style={styles.resourceCell}>
+                    {index > 0 ? <View style={styles.resourceDivider} /> : null}
+                    <ResourceBlock
+                      counts={resourceCounts ?? null}
+                      kind={kind}
+                      onPress={() => onSelectResource(kind)}
+                    />
+                  </View>
+                ))}
               </View>
             ) : null}
 
@@ -251,27 +285,89 @@ export function ActorDetailScreen({
                 <DetailRow label="Name" value={actor.displayName} />
                 <Hairline />
                 <DetailRow label="Kind" value={deriveKindLabel(actor)} />
-                <Hairline />
-                <DetailRow
-                  label={actor.actorType === "member" ? "Role" : "Status"}
-                  value={deriveSubtitle(actor, isMe)}
-                />
-                {actor.actorType === "agent" ? (
+                {actor.actorType === "member" ? (
                   <>
+                    <Hairline />
+                    <DetailRow label="Role" value={actor.role ?? "member"} />
+                    <Hairline />
+                    <DetailRow label="Status" value={capitalize(actor.memberStatus)} />
+                    {actor.email ? (
+                      <>
+                        <Hairline />
+                        <DetailRow label="Email" selectable value={actor.email} />
+                      </>
+                    ) : null}
+                    {actor.phone ? (
+                      <>
+                        <Hairline />
+                        <DetailRow label="Phone" selectable value={actor.phone} />
+                      </>
+                    ) : null}
+                  </>
+                ) : (
+                  <>
+                    <Hairline />
+                    <DetailRow
+                      label="Agent type"
+                      value={actor.defaultAgentType ?? actor.agentTypes[0] ?? "—"}
+                    />
+                    <Hairline />
+                    <DetailRow label="Status" value={capitalize(actor.agentStatus)} />
                     <Hairline />
                     <DetailRow
                       label="Visibility"
                       value={actor.visibility === "personal" ? "Personal" : "Team"}
                     />
                   </>
-                ) : null}
+                )}
                 <Hairline />
                 <DetailRow
                   label="Online"
                   value={isActorOnline(actor) ? "Yes" : "No"}
                 />
+                <Hairline />
+                <DetailRow label="Joined" value={formatJoined(actor.createdAt)} />
               </View>
             </View>
+
+            {actor.actorType === "agent" && onSetMyDefaultAgent ? (
+              <View style={styles.section}>
+                <SectionEyebrow label="MY DEFAULT" style={styles.sectionEyebrow} />
+                <View style={styles.card}>
+                  <Pressable
+                    accessibilityRole="button"
+                    disabled={Boolean(isSavingMyDefaultAgent)}
+                    onPress={() => onSetMyDefaultAgent(!isMyDefaultAgent)}
+                    style={({ pressed }) => [
+                      styles.managementRow,
+                      pressed && !isSavingMyDefaultAgent ? styles.managementRowPressed : null,
+                      isSavingMyDefaultAgent ? styles.managementRowDisabled : null,
+                    ]}
+                  >
+                    <Ionicons
+                      color={isMyDefaultAgent ? hai.cinnabar : hai.slate}
+                      name={isMyDefaultAgent ? "star" : "star-outline"}
+                      size={18}
+                    />
+                    <View style={styles.managementBody}>
+                      <Text style={styles.neutralActionTitle}>
+                        {isMyDefaultAgent ? "Your default agent" : "Not your default"}
+                      </Text>
+                      <Text style={styles.managementHelper}>
+                        Your personal default agent — pre-selected when you start a new session.
+                      </Text>
+                    </View>
+                    {isSavingMyDefaultAgent ? (
+                      <ActivityIndicator color={colors.slate} />
+                    ) : (
+                      <Text style={styles.optionChipText}>
+                        {isMyDefaultAgent ? "Remove" : "Set as default"}
+                      </Text>
+                    )}
+                  </Pressable>
+                </View>
+              </View>
+            ) : null}
 
             {actor.actorType === "agent" ? (
               <>
@@ -414,13 +510,81 @@ function HeroCard({ actor, isMe }: { actor: Actor; isMe: boolean }) {
   );
 }
 
-function DetailRow({ label, value }: { label: string; value: string }) {
+/**
+ * One of the three team-resource counts. Skills and MCP are this actor's
+ * installs; env is the team's set and reads the same on every actor's page.
+ * The TEAM tag carries that difference — without it three side-by-side numbers
+ * imply one scope.
+ */
+function ResourceBlock({
+  counts,
+  kind,
+  onPress,
+}: {
+  counts: TeamResourceCounts | null;
+  kind: TeamResourceKind;
+  onPress: () => void;
+}) {
+  return (
+    <Pressable
+      accessibilityRole="button"
+      onPress={onPress}
+      style={({ pressed }) => [styles.resourceBlock, pressed ? { opacity: 0.7 } : null]}
+    >
+      {counts ? (
+        <Text style={styles.statValue}>{resourceCount(counts, kind)}</Text>
+      ) : (
+        // Placeholder rather than 0: a real zero and "not loaded yet" mean
+        // different things here.
+        <Text style={[styles.statValue, styles.resourcePlaceholder]}>—</Text>
+      )}
+      <View style={styles.resourceLabelRow}>
+        <Text style={styles.statLabel}>{kind.toUpperCase()}</Text>
+        {isActorScopedResource(kind) ? null : (
+          <View style={styles.teamTag}>
+            <Text style={styles.teamTagText}>TEAM</Text>
+          </View>
+        )}
+      </View>
+    </Pressable>
+  );
+}
+
+function DetailRow({
+  label,
+  selectable,
+  value,
+}: {
+  label: string;
+  selectable?: boolean;
+  value: string;
+}) {
   return (
     <View style={styles.detailRow}>
       <Text style={styles.detailLabel}>{label}</Text>
-      <Text style={styles.detailValue}>{value}</Text>
+      <Text numberOfLines={1} selectable={selectable} style={styles.detailValue}>
+        {value}
+      </Text>
     </View>
   );
+}
+
+function capitalize(value: string | null | undefined): string {
+  if (!value) return "—";
+  return value.charAt(0).toUpperCase() + value.slice(1);
+}
+
+function formatJoined(value: string | null | undefined): string {
+  if (!value) return "—";
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return "—";
+  return date.toLocaleString(undefined, {
+    day: "numeric",
+    hour: "2-digit",
+    minute: "2-digit",
+    month: "short",
+    year: "numeric",
+  });
 }
 
 function normalizeAgentType(value: string): string {
@@ -1057,6 +1221,51 @@ const styles = StyleSheet.create({
   stateTitle: {
     color: colors.onyx,
     ...typography.cardTitle,
+  },
+  resourceBlock: {
+    alignItems: "center",
+    gap: 2,
+    paddingVertical: spacing.md,
+  },
+  resourceCell: {
+    flex: 1,
+    position: "relative",
+  },
+  resourceDivider: {
+    backgroundColor: colors.hairline,
+    bottom: spacing.md,
+    left: 0,
+    position: "absolute",
+    top: spacing.md,
+    width: StyleSheet.hairlineWidth,
+  },
+  resourceLabelRow: {
+    alignItems: "center",
+    flexDirection: "row",
+    gap: 3,
+  },
+  resourcePlaceholder: {
+    color: colors.slate,
+  },
+  resourceRow: {
+    backgroundColor: colors.paper,
+    borderColor: colors.hairline,
+    borderRadius: radii.card,
+    borderWidth: StyleSheet.hairlineWidth,
+    flexDirection: "row",
+    overflow: "hidden",
+  },
+  teamTag: {
+    backgroundColor: hai.pebble,
+    borderRadius: radii.hairline,
+    paddingHorizontal: 3,
+    paddingVertical: 1,
+  },
+  teamTagText: {
+    color: hai.basalt,
+    fontSize: 8,
+    fontWeight: "700",
+    letterSpacing: 0.3,
   },
   statLabel: {
     color: colors.slate,

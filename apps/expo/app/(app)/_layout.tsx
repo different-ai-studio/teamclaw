@@ -44,6 +44,14 @@ export default function AppLayout() {
           }}
         />
         <Stack.Screen
+          name="actor-resources"
+          options={{
+            presentation: "card",
+            animation: "slide_from_right",
+            contentStyle: { backgroundColor: colors.mist },
+          }}
+        />
+        <Stack.Screen
           name="idea-detail"
           options={{
             presentation: "modal",

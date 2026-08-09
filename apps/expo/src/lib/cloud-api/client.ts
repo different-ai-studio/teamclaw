@@ -7,6 +7,7 @@ export type CloudApiClient = {
   get: <T>(path: string) => Promise<T>;
   post: <T>(path: string, body?: unknown, options?: { idempotencyKey?: string }) => Promise<T>;
   patch: <T>(path: string, body?: unknown) => Promise<T>;
+  put: <T>(path: string, body?: unknown) => Promise<T>;
   del: (path: string) => Promise<void>;
 };
 
@@ -54,7 +55,7 @@ export function createCloudApiClient(args: {
   const fetchImpl = args.fetchImpl ?? fetch;
 
   async function request<T>(
-    method: "GET" | "POST" | "PATCH" | "DELETE",
+    method: "GET" | "POST" | "PATCH" | "PUT" | "DELETE",
     path: string,
     body?: unknown,
     options: { idempotencyKey?: string } = {},
@@ -89,6 +90,7 @@ export function createCloudApiClient(args: {
     post: <T>(path: string, body?: unknown, options?: { idempotencyKey?: string }) =>
       request<T>("POST", path, body, options),
     patch: <T>(path: string, body?: unknown) => request<T>("PATCH", path, body),
+    put: <T>(path: string, body?: unknown) => request<T>("PUT", path, body),
     del: async (path: string) => {
       await request<unknown>("DELETE", path);
     },

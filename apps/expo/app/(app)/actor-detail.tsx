@@ -16,6 +16,10 @@ import {
   ActorDetailScreen,
   type AgentWorkspaceChoice,
 } from "../../src/features/actors/screens/ActorDetailScreen";
+import {
+  createTeamResourcesApi,
+  type TeamResourceCounts,
+} from "../../src/features/actors/team-resources-api";
 import { createWorkspacesApi } from "../../src/features/workspaces/workspace-api";
 import { createConfiguredSessionsApi } from "../../src/features/sessions/api-provider";
 import { createIdeasApi } from "../../src/features/ideas/idea-api";
@@ -51,6 +55,10 @@ export default function ActorDetailRoute() {
     () => createWorkspacesApi({ getAccessToken: supabaseAccessToken(supabase) }),
     [],
   );
+  const teamResourcesApi = useMemo(
+    () => createTeamResourcesApi({ getAccessToken: supabaseAccessToken(supabase) }),
+    [],
+  );
 
   const [actor, setActor] = useState<Actor | null>(null);
   const [agentIsOwner, setAgentIsOwner] = useState(false);
@@ -70,6 +78,9 @@ export default function ActorDetailRoute() {
   const [isUpdatingAgentVisibility, setIsUpdatingAgentVisibility] = useState(false);
   const [recentSessions, setRecentSessions] = useState<RecentSession[]>([]);
   const [stats, setStats] = useState<{ sessions: number; ideas: number } | null>(null);
+  const [resourceCounts, setResourceCounts] = useState<TeamResourceCounts | null>(null);
+  const [myDefaultAgentId, setMyDefaultAgentId] = useState<string | null>(null);
+  const [isSavingMyDefaultAgent, setIsSavingMyDefaultAgent] = useState(false);
   const canRemove = canRemoveActor({
     actorId,
     currentMemberActorId: state.currentMemberActorId,
@@ -85,6 +96,59 @@ export default function ActorDetailRoute() {
       row.actorType === "member" &&
       row.actorId !== state.currentMemberActorId &&
       !authorizedHumanIds.has(row.actorId),
+  );
+
+  // Three concurrent reads that decorate the header; a failing leg reports 0
+  // rather than blanking the screen (iOS `TeamResourceRepository.counts`).
+  useEffect(() => {
+    if (!teamId || !actorId) return;
+    let cancelled = false;
+    void teamResourcesApi.counts(teamId, actorId).then((counts) => {
+      if (!cancelled) setResourceCounts(counts);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [actorId, teamId, teamResourcesApi]);
+
+  // `members.default_agent_id` — the viewer's own default, distinct from the
+  // agent-owned defaults below and from the team-wide default in Settings.
+  useEffect(() => {
+    if (!teamId || actor?.actorType !== "agent") return;
+    let cancelled = false;
+    void actorsApi
+      .getMemberDefaultAgent(teamId)
+      .then((id) => {
+        if (!cancelled) setMyDefaultAgentId(id);
+      })
+      .catch(() => {
+        if (!cancelled) setMyDefaultAgentId(null);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [actor?.actorType, actorsApi, teamId]);
+
+  const setMyDefaultAgent = useCallback(
+    async (makeDefault: boolean) => {
+      if (!teamId || !actorId || isSavingMyDefaultAgent) return;
+      setIsSavingMyDefaultAgent(true);
+      try {
+        const next = await actorsApi.setMemberDefaultAgent(
+          teamId,
+          makeDefault ? actorId : null,
+        );
+        setMyDefaultAgentId(next);
+      } catch (err) {
+        showToast(
+          "error",
+          err instanceof Error ? err.message : "Couldn't update your default agent.",
+        );
+      } finally {
+        setIsSavingMyDefaultAgent(false);
+      }
+    },
+    [actorId, actorsApi, isSavingMyDefaultAgent, teamId],
   );
 
   const reloadAgentWorkspaces = useCallback(async () => {
@@ -500,11 +564,13 @@ export default function ActorDetailRoute() {
       isGrantingAuthorizedHuman={isGrantingAuthorizedHuman}
       isLoadingAuthorizedHumans={isLoadingAuthorizedHumans}
       isMe={isMe}
+      isMyDefaultAgent={actorId !== null && myDefaultAgentId === actorId}
       isRefreshing={isRefreshing}
       isRemoving={isRemoving}
       isRemovingAgentWorkspace={isRemovingAgentWorkspace}
       isRevokingAuthorizedHuman={isRevokingAuthorizedHuman}
       isSavingAgentDefaults={isSavingAgentDefaults}
+      isSavingMyDefaultAgent={isSavingMyDefaultAgent}
       isUpdatingAgentVisibility={isUpdatingAgentVisibility}
       onClose={() => router.back()}
       onAddAgentWorkspace={canManageAccess ? addAgentWorkspace : undefined}
@@ -521,6 +587,21 @@ export default function ActorDetailRoute() {
       onRemoveActor={canRemove ? removeActor : undefined}
       onRemoveAgentWorkspace={canManageAccess ? removeAgentWorkspace : undefined}
       onRevokeAuthorizedHuman={canManageAccess ? revokeAuthorizedHuman : undefined}
+      onSetMyDefaultAgent={
+        actor?.actorType === "agent"
+          ? (makeDefault) => void setMyDefaultAgent(makeDefault)
+          : undefined
+      }
+      onSelectResource={
+        actorId
+          ? (kind) => {
+              const name = encodeURIComponent(actor?.displayName ?? "This actor");
+              router.push(
+                `/(app)/actor-resources?actorId=${encodeURIComponent(actorId)}&actorName=${name}&kind=${kind}`,
+              );
+            }
+          : undefined
+      }
       onSelectSession={(sessionId) => {
         router.replace(`/(app)/sessions/${sessionId}`);
       }}
@@ -531,6 +612,7 @@ export default function ActorDetailRoute() {
       }
       onUpdateAgentDefaults={actor?.actorType === "agent" ? updateAgentDefaults : undefined}
       recentSessions={recentSessions}
+      resourceCounts={resourceCounts}
       stats={stats ?? undefined}
     />
   );
