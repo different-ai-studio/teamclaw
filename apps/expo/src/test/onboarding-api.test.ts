@@ -111,9 +111,9 @@ describe("createOnboardingApi (cloud-only)", () => {
     const api = createOnboardingApi(client);
 
     await expect(
-      api.createOAuthSignInUrl("google", "teamclaw://auth-callback"),
+      api.createOAuthSignInUrl("google", "teamclu://auth-callback"),
     ).resolves.toBe("https://fc.example.com/v1/auth/oauth/google/authorize?...");
-    expect(oauthAuthorize).toHaveBeenCalledWith("google", "teamclaw://auth-callback");
+    expect(oauthAuthorize).toHaveBeenCalledWith("google", "teamclu://auth-callback");
   });
 
   it("completeOAuthCallback exchanges a PKCE code", async () => {
@@ -122,7 +122,7 @@ describe("createOnboardingApi (cloud-only)", () => {
     const client = makeClient({ auth: { exchangeOAuthCode } });
     const api = createOnboardingApi(client);
 
-    await api.completeOAuthCallback("teamclaw://auth-callback?code=abc");
+    await api.completeOAuthCallback("teamclu://auth-callback?code=abc");
     expect(exchangeOAuthCode).toHaveBeenCalledWith("abc");
   });
 
@@ -133,7 +133,7 @@ describe("createOnboardingApi (cloud-only)", () => {
     const api = createOnboardingApi(client);
 
     await api.completeOAuthCallback(
-      "teamclaw://auth-callback#access_token=access&refresh_token=refresh",
+      "teamclu://auth-callback#access_token=access&refresh_token=refresh",
     );
     expect(setSession).toHaveBeenCalledWith({
       access_token: "access",

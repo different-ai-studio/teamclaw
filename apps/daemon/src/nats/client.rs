@@ -14,8 +14,8 @@
 
 use async_nats::{Client, ConnectOptions};
 use std::sync::Arc;
-use teamclaw_transport::nats::NatsClient;
-use teamclaw_transport::{DeliveryGuarantee, IncomingFrame, MessagePublisher};
+use teamclu_transport::nats::NatsClient;
+use teamclu_transport::{DeliveryGuarantee, IncomingFrame, MessagePublisher};
 use tokio::sync::mpsc;
 use tracing::info;
 
@@ -53,7 +53,7 @@ impl NatsBackend {
         let retained = RetainedKv::ensure(&raw).await?;
 
         let (client, inbound) = NatsClient::new(raw);
-        let team_id = config.team_id.as_deref().unwrap_or("teamclaw");
+        let team_id = config.team_id.as_deref().unwrap_or("teamclu");
         let topics = Topics::new(team_id, &config.actor.id);
 
         Ok(Self {

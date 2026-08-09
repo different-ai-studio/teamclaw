@@ -1,9 +1,9 @@
 // SessionStore — local persistence + cross-tab sync + auto-refresh for the
-// TeamClaw auth session. Replaces what supabase-js's GoTrueClient previously
+// TeamClu auth session. Replaces what supabase-js's GoTrueClient previously
 // provided for the web/desktop frontend.
 //
 // Responsibilities:
-//   - persist the session under `teamclaw.session.v1` in localStorage
+//   - persist the session under `teamclu.session.v1` in localStorage
 //   - cache it in module-level memory for synchronous reads
 //   - notify subscribers on change (in-process + cross-tab via BroadcastChannel
 //     with `storage` event fallback)
@@ -14,8 +14,11 @@
 
 import type { AuthChangeEvent, AuthListener, Session } from "./types";
 
-const STORAGE_KEY = "teamclaw.session.v1";
-const CHANNEL_NAME = "teamclaw.auth";
+const STORAGE_KEY = "teamclu.session.v1";
+// Pre-rebrand key. A historical fact about what sits in users' localStorage, not
+// a brand string — renaming it would sign every existing install out.
+const LEGACY_BRAND_STORAGE_KEY = "teamclaw.session.v1";
+const CHANNEL_NAME = "teamclu.auth";
 const REFRESH_LEEWAY_SECONDS = 60;
 
 type RefreshReason = "refresh" | "adopt";
@@ -74,14 +77,40 @@ function readPersistedSession(): Session | null {
   } catch {
     // fall through to legacy migration
   }
+  // One-time move off the pre-rebrand key, before the older supabase-js path.
+  const rebranded = migrateLegacyBrandSession(ls);
+  if (rebranded) return rebranded;
   // Attempt one-time migration from legacy supabase-js localStorage keys.
   return migrateLegacySupabaseSession(ls);
 }
 
 /**
- * One-time migration: pre-existing TeamClaw installs persisted their auth
+ * One-time migration: installs from before the teamclaw → teamclu rebrand hold
+ * their session under `teamclaw.session.v1`. Re-key it rather than letting the
+ * miss fall through, which would sign the user out on first launch of the
+ * renamed build.
+ */
+function migrateLegacyBrandSession(ls: Storage): Session | null {
+  try {
+    const raw = ls.getItem(LEGACY_BRAND_STORAGE_KEY);
+    if (!raw) return null;
+    const parsed = JSON.parse(raw);
+    if (!isValidSession(parsed)) {
+      ls.removeItem(LEGACY_BRAND_STORAGE_KEY);
+      return null;
+    }
+    ls.setItem(STORAGE_KEY, raw);
+    ls.removeItem(LEGACY_BRAND_STORAGE_KEY);
+    return parsed;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * One-time migration: pre-existing TeamClu installs persisted their auth
  * session via supabase-js under `sb-<project-ref>-auth-token`. We translate
- * that to the new `teamclaw.session.v1` key (and remove all `sb-*` keys we
+ * that to the new `teamclu.session.v1` key (and remove all `sb-*` keys we
  * find) so existing users are not silently signed out after this release.
  */
 function migrateLegacySupabaseSession(ls: Storage): Session | null {
@@ -375,7 +404,7 @@ export async function adoptRefreshToken(refreshToken: string): Promise<Session> 
  * "not logged in" when there is no session (humanized by `lib/fc-error.ts`).
  *
  * This replaces the old flow where the Rust side read a `supabase_jwt` cached
- * in `teamclaw.json` that nothing refreshed after the JWT bridge was removed.
+ * in `teamclu.json` that nothing refreshed after the JWT bridge was removed.
  */
 export async function getFreshAccessToken(): Promise<string> {
   let session = getSession();

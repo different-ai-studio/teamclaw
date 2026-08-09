@@ -12,7 +12,7 @@ pub use crate::commands::team_git::{
 
 // ─── Types ───────────────────────────────────────────────────────────────────
 
-/// Git team configuration stored in .teamclaw/teamclaw.json under "team".
+/// Git team configuration stored in .teamclu/teamclu.json under "team".
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct TeamConfig {
@@ -32,7 +32,7 @@ pub struct TeamConfig {
 }
 
 fn default_shared_dir_name() -> String {
-    "teamclaw".to_string()
+    "teamclu".to_string()
 }
 
 // ─── Workspace Helpers ───────────────────────────────────────────────────────
@@ -62,7 +62,7 @@ pub fn resolve_workspace_path(
 
 pub fn read_workspace_config(workspace_path: &str) -> Result<serde_json::Value, String> {
     let config_path = Path::new(workspace_path)
-        .join(crate::commands::TEAMCLAW_DIR)
+        .join(crate::commands::TEAMCLU_DIR)
         .join(super::CONFIG_FILE_NAME);
 
     if !config_path.exists() {
@@ -79,11 +79,11 @@ pub fn write_workspace_config(
     workspace_path: &str,
     json: &serde_json::Value,
 ) -> Result<(), String> {
-    let teamclaw_dir = Path::new(workspace_path).join(crate::commands::TEAMCLAW_DIR);
-    std::fs::create_dir_all(&teamclaw_dir)
-        .map_err(|e| format!("Failed to create {}: {}", super::TEAMCLAW_DIR, e))?;
+    let teamclu_dir = Path::new(workspace_path).join(crate::commands::TEAMCLU_DIR);
+    std::fs::create_dir_all(&teamclu_dir)
+        .map_err(|e| format!("Failed to create {}: {}", super::TEAMCLU_DIR, e))?;
 
-    let config_path = teamclaw_dir.join(super::CONFIG_FILE_NAME);
+    let config_path = teamclu_dir.join(super::CONFIG_FILE_NAME);
     let content = serde_json::to_string_pretty(json)
         .map_err(|e| format!("Failed to serialize config: {}", e))?;
     std::fs::write(&config_path, content)
@@ -107,7 +107,7 @@ pub async fn get_team_config(
         .map_err(|e| format!("Failed to parse team config: {}", e))
 }
 
-/// Read `teamclaw-team/_meta/team.json` from the given workspace, if present.
+/// Read `teamclu-team/_meta/team.json` from the given workspace, if present.
 #[tauri::command]
 pub fn workspace_read_team_meta(workspace_path: String) -> Result<Option<TeamMeta>, String> {
     let meta_path = Path::new(&workspace_path)
@@ -127,7 +127,7 @@ pub fn workspace_read_team_meta(workspace_path: String) -> Result<Option<TeamMet
     }
 }
 
-/// Delete the `teamclaw-team/` directory inside `workspace_path`.
+/// Delete the `teamclu-team/` directory inside `workspace_path`.
 #[tauri::command]
 pub fn workspace_delete_team_repo(workspace_path: String) -> Result<(), String> {
     crate::commands::team_share::disconnect::remove_workspace_team_repo_entry(&workspace_path)
@@ -143,7 +143,7 @@ mod tests {
             "gitUrl": "https://example.com/shared.git",
             "enabled": true,
             "lastSyncAt": null,
-            "sharedDirName": "teamclaw",
+            "sharedDirName": "teamclu",
             "envSecret": "secret",
             "gitToken": "token",
             "gitBranch": "main",

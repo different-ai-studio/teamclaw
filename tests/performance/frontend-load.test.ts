@@ -5,7 +5,7 @@
 
 import { describe, it, expect, beforeAll, afterAll } from 'vitest';
 import {
-  launchTeamClawApp,
+  launchTeamCluApp,
   stopApp,
   sleep,
   getWindowInfo,
@@ -17,7 +17,7 @@ describe('Performance: frontend load', () => {
   beforeAll(async () => {
     try {
       const start = Date.now();
-      await launchTeamClawApp();
+      await launchTeamCluApp();
       await sleep(3000);
       const win = await getWindowInfo();
       appReady = win.isVisible;

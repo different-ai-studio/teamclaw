@@ -1,7 +1,7 @@
 import { create as createProtoMessage, toBinary } from '@bufbuild/protobuf'
 import { runtimeHintsForAgents } from '@/lib/runtime-state-resolve'
 import { getBackend } from '@/lib/backend'
-import { runtimeStart, setModel } from '@/lib/teamclaw-rpc'
+import { runtimeStart, setModel } from '@/lib/teamclu-rpc'
 import { resolveAmuxAgentType } from '@/lib/amux-agent-type'
 import { seedRuntimeStateAfterStart } from '@/lib/seed-runtime-state'
 import { seedLocalDaemonModelsInBackground } from '@/lib/local-daemon-model-catalog'
@@ -23,7 +23,7 @@ import {
   MessageKind,
   MessageSchema,
   SessionMessageEnvelopeSchema,
-} from '@/lib/proto/teamclaw_pb'
+} from '@/lib/proto/teamclu_pb'
 import {
   upsertSessionsBatch,
   upsertSessionParticipantsBatch,
@@ -42,9 +42,9 @@ import {
   resolveAgentRuntimeWorkspaceId,
   resolveCloudWorkspaceIdForLocalPath,
   runtimeStartWorkspaceArgs,
-} from '@/lib/teamclaw/resolve-runtime-start-workspace'
+} from '@/lib/teamclu/resolve-runtime-start-workspace'
 import { resolveSessionWorkspacePath } from '@/lib/session-by-workspace'
-import { RUNTIME_START_RPC_TIMEOUT_MS } from '@/lib/teamclaw/runtime-rpc-timeouts'
+import { RUNTIME_START_RPC_TIMEOUT_MS } from '@/lib/teamclu/runtime-rpc-timeouts'
 export interface CreateSessionShellArgs {
   teamId: string
   creatorActorId: string

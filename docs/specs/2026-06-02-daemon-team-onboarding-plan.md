@@ -4,7 +4,7 @@
 
 **Goal:** 用户登录后,桌面 app 自动检测本机 daemon 是否已 onboard;未 onboard 则弹向导让用户**新建 agent**(名字+可见性)或**绑定已有 agent**,后台跑 `amuxd init` + `amuxd install-service` 完成绑定与启动;daemon 已绑定的 team 与登录 team 不一致时**强制重置**(`amuxd clear --force`)后重走。
 
-**Architecture:** 登录后在 `AuthGate` 的 bootstrap-ready 之后插一个 daemon-onboarding gate。app 用已有 `getBackend().teams.createTeamInvite`(kind=agent,绑定时带 targetActorId)拿 invite token → 新增 Tauri 命令跑捆绑的 `amuxd`(sidecar)执行 `init <teamclaw://invite?token=...>`(解析 stdout 拿 actorId)、`install-service`、`clear --force`。"新建 personal" 在 init 后调新增的 `makeAgentPersonal(actorId)` provider 方法(claim 默认 team)。状态机由新 store `stores/daemon-onboarding.ts` 驱动。
+**Architecture:** 登录后在 `AuthGate` 的 bootstrap-ready 之后插一个 daemon-onboarding gate。app 用已有 `getBackend().teams.createTeamInvite`(kind=agent,绑定时带 targetActorId)拿 invite token → 新增 Tauri 命令跑捆绑的 `amuxd`(sidecar)执行 `init <teamclu://invite?token=...>`(解析 stdout 拿 actorId)、`install-service`、`clear --force`。"新建 personal" 在 init 后调新增的 `makeAgentPersonal(actorId)` provider 方法(claim 默认 team)。状态机由新 store `stores/daemon-onboarding.ts` 驱动。
 
 **Tech Stack:** Rust/Tauri 2(tauri-plugin-shell sidecar)、React 19 + Zustand、Vitest、node:test。
 
@@ -31,7 +31,7 @@
 
 不动:`get_daemon_team_id`/`get_daemon_http_info`(已存在,复用);`DaemonGeneralSection.tsx`(被动 mismatch 提示保留;强制重置在 gate 里处理)。
 
-> **测试命令:** Rust 桌面 `cargo test -p teamclaw --lib daemon_onboarding::tests`;前端 `pnpm --filter @teamclaw/app exec vitest run <file>`;前端类型 `pnpm --filter @teamclaw/app typecheck`;FC 不涉及。
+> **测试命令:** Rust 桌面 `cargo test -p teamclu --lib daemon_onboarding::tests`;前端 `pnpm --filter @teamclu/app exec vitest run <file>`;前端类型 `pnpm --filter @teamclu/app typecheck`;FC 不涉及。
 
 ---
 
@@ -69,7 +69,7 @@ mod tests {
 
 - [ ] **Step 2: 运行测试确认失败**
 
-Run: `cargo test -p teamclaw --lib daemon_onboarding::tests 2>&1 | tail -15`
+Run: `cargo test -p teamclu --lib daemon_onboarding::tests 2>&1 | tail -15`
 Expected: `cannot find function parse_init_outcome`.
 
 - [ ] **Step 3: 写实现(纯解析 + 命令)**
@@ -155,13 +155,13 @@ Add `pub mod daemon_onboarding;` to `apps/desktop/src/commands/mod.rs` (near `pu
 
 - [ ] **Step 4: 运行测试确认通过**
 
-Run: `cargo test -p teamclaw --lib daemon_onboarding::tests 2>&1 | tail -10`
+Run: `cargo test -p teamclu --lib daemon_onboarding::tests 2>&1 | tail -10`
 Expected: 2 passed.
 
 - [ ] **Step 5: 提交**
 
 ```bash
-cd /Volumes/openbeta/workspace/teamclaw-v2/.worktrees/unified-install-onboarding
+cd /Volumes/openbeta/workspace/teamclu-v2/.worktrees/unified-install-onboarding
 git branch --show-current   # must be agent/unified-install-onboarding
 git add apps/desktop/src/commands/daemon_onboarding.rs apps/desktop/src/commands/mod.rs
 git commit -m "feat(desktop): daemon_init command + init-output parser"
@@ -236,7 +236,7 @@ pub async fn daemon_clear<R: Runtime>(app: AppHandle<R>) -> Result<(), String> {
 
 - [ ] **Step 3: 编译检查**
 
-Run: `cargo check -p teamclaw 2>&1 | tail -15`
+Run: `cargo check -p teamclu 2>&1 | tail -15`
 Expected: 无 error(`daemon_onboarding.rs` 不应有新 warning)。
 
 - [ ] **Step 4: 提交**
@@ -288,7 +288,7 @@ Run: `sed -n '110,140p' packages/app/src/lib/backend/cloud-api/actors.ts && grep
 
 - [ ] **Step 4: typecheck**
 
-Run: `pnpm --filter @teamclaw/app typecheck 2>&1 | tail -10`
+Run: `pnpm --filter @teamclu/app typecheck 2>&1 | tail -10`
 Expected: 无 actors.ts / types.ts 相关错误。
 
 - [ ] **Step 5: 提交**
@@ -335,7 +335,7 @@ describe('computeOnboardingStatus', () => {
 
 - [ ] **Step 2: 运行测试确认失败**
 
-Run: `pnpm --filter @teamclaw/app exec vitest run src/stores/__tests__/daemon-onboarding.test.ts 2>&1 | tail -15`
+Run: `pnpm --filter @teamclu/app exec vitest run src/stores/__tests__/daemon-onboarding.test.ts 2>&1 | tail -15`
 Expected: 失败 `Cannot find module '../daemon-onboarding'`.
 
 - [ ] **Step 3: 写实现**
@@ -393,7 +393,7 @@ async function onboard(teamId: string, displayName: string, targetActorId: strin
     ttlSeconds: null,
     targetActorId,
   })
-  const inviteUrl = `teamclaw://invite?token=${encodeURIComponent(invite.token)}`
+  const inviteUrl = `teamclu://invite?token=${encodeURIComponent(invite.token)}`
   const result = await invoke<{ actorId: string; teamId: string }>('daemon_init', { inviteUrl })
   await invoke('daemon_install_service')
   return result.actorId
@@ -480,7 +480,7 @@ export const useDaemonOnboardingStore = create<DaemonOnboardingState>((set, get)
 
 - [ ] **Step 4: 运行测试确认通过**
 
-Run: `pnpm --filter @teamclaw/app exec vitest run src/stores/__tests__/daemon-onboarding.test.ts 2>&1 | tail -10`
+Run: `pnpm --filter @teamclu/app exec vitest run src/stores/__tests__/daemon-onboarding.test.ts 2>&1 | tail -10`
 Expected: 4 passed.
 
 - [ ] **Step 5: 提交**
@@ -620,7 +620,7 @@ function ErrorLine({ error }: { error: string }) {
 
 - [ ] **Step 2: typecheck**
 
-Run: `pnpm --filter @teamclaw/app typecheck 2>&1 | tail -10`
+Run: `pnpm --filter @teamclu/app typecheck 2>&1 | tail -10`
 Expected: 无 DaemonOnboardingWizard 相关错误。(若 `Button` 无 `variant="outline"` 或 lucide 图标名不符,`grep -n "variant" packages/app/src/components/ui/button.tsx` / `grep -rn "from 'lucide-react'" packages/app/src | head` 对照修正。)
 
 - [ ] **Step 3: 提交**
@@ -687,8 +687,8 @@ import { useDaemonOnboardingStore } from '@/stores/daemon-onboarding'
 
 - [ ] **Step 4: typecheck + 单测**
 
-Run: `pnpm --filter @teamclaw/app typecheck 2>&1 | tail -10` → 无错误。
-Run: `pnpm --filter @teamclaw/app exec vitest run src/stores/__tests__/daemon-onboarding.test.ts src/components/auth/__tests__/AuthGate.test.tsx 2>&1 | tail -8` → 全绿。
+Run: `pnpm --filter @teamclu/app typecheck 2>&1 | tail -10` → 无错误。
+Run: `pnpm --filter @teamclu/app exec vitest run src/stores/__tests__/daemon-onboarding.test.ts src/components/auth/__tests__/AuthGate.test.tsx 2>&1 | tail -8` → 全绿。
 > 若 `AuthGate.test.tsx` 因新 store 渲染路径失败,仿 block① 给它的 setup-store mock 方式,给 `@/stores/daemon-onboarding` 加 mock(返回 `status:'ready'`/`loaded:true`)+ mock `../DaemonOnboardingWizard`,让既有用例直通。
 
 - [ ] **Step 5: 提交**
@@ -707,7 +707,7 @@ git commit -m "feat(app): gate daemon team onboarding in AuthGate"
 - [ ] **Step 1: 准备**
 
 ```bash
-cd /Volumes/openbeta/workspace/teamclaw-v2/.worktrees/unified-install-onboarding
+cd /Volumes/openbeta/workspace/teamclu-v2/.worktrees/unified-install-onboarding
 node -e "require('./scripts/ensure-amuxd-sidecar').ensureAmuxdSidecar(process.env)"   # amuxd sidecar 在位
 ls ~/.amuxd/bin/amuxd 2>/dev/null || echo "amuxd 未安装(首启向导 block① 会装)"
 ```
@@ -730,9 +730,9 @@ Run: `pnpm tauri:dev`
 - [ ] **Step 4: 自动化校验**
 
 ```bash
-cargo test -p teamclaw --lib daemon_onboarding::tests 2>&1 | tail -5
-pnpm --filter @teamclaw/app exec vitest run src/stores/__tests__/daemon-onboarding.test.ts 2>&1 | tail -5
-pnpm --filter @teamclaw/app typecheck 2>&1 | tail -5
+cargo test -p teamclu --lib daemon_onboarding::tests 2>&1 | tail -5
+pnpm --filter @teamclu/app exec vitest run src/stores/__tests__/daemon-onboarding.test.ts 2>&1 | tail -5
+pnpm --filter @teamclu/app typecheck 2>&1 | tail -5
 cargo clippy --manifest-path apps/desktop/Cargo.toml -- -D warnings 2>&1 | grep -i "daemon_onboarding" || echo "no daemon_onboarding clippy issues"
 ```
 Expected: Rust 2 pass、前端 4 pass、typecheck 干净、clippy 无 daemon_onboarding 警告。

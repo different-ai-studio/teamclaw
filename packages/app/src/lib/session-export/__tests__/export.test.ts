@@ -25,7 +25,7 @@ describe("exportSessionFromRows", () => {
 
     expect(bundle.session_id).toBe(SESSION_ID);
     expect(bundle.exported_at).toBe(FIXED_EXPORT_TIME);
-    expect(bundle.source).toEqual({ type: "teamclaw_local_cache" });
+    expect(bundle.source).toEqual({ type: "teamclu_local_cache" });
     expect(Array.isArray(bundle.messages)).toBe(true);
     expect(bundle.messages.length).toBeGreaterThan(0);
   });

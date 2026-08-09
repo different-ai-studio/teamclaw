@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeEach } from "vitest";
 import { create as createActor } from "@bufbuild/protobuf";
-import { ActorSchema, ActorType } from "@/lib/proto/teamclaw_pb";
+import { ActorSchema, ActorType } from "@/lib/proto/teamclu_pb";
 import { useActorsStore } from "./actors-store";
 
 beforeEach(() => {

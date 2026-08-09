@@ -6,12 +6,12 @@
 
 -- Stash the password in a session GUC: psql does NOT interpolate :vars inside
 -- dollar-quoted blocks, so we read it back via current_setting() below.
-select set_config('teamclaw.pgpass', :'pgpass', false);
+select set_config('teamclu.pgpass', :'pgpass', false);
 
 do $$
 declare
   r  text;
-  pw text := current_setting('teamclaw.pgpass');
+  pw text := current_setting('teamclu.pgpass');
 begin
   foreach r in array array[
     'authenticator',

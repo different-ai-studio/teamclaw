@@ -1,4 +1,4 @@
-//! `AgentHandle` impl: bridges `teamclaw_gateway` channels to amuxd's
+//! `AgentHandle` impl: bridges `teamclu_gateway` channels to amuxd's
 //! in-process `RuntimeManager` so a chat message arriving over Discord /
 //! WeCom / Feishu / etc. drives an agent turn without going through the
 //! deprecated opencode HTTP server.
@@ -22,7 +22,7 @@ use std::collections::HashMap;
 use std::sync::Arc;
 use tokio::sync::Mutex;
 
-use teamclaw_gateway::{
+use teamclu_gateway::{
     AgentCommand, AgentError, AgentHandle, AmuxSessionId, ModelInfo, SessionInfo, TurnOutcome,
     WorkspaceInfo,
 };
@@ -207,7 +207,7 @@ impl AmuxdAgentHandle {
         };
 
         let managed_llm = if self.team_id.trim().is_empty() {
-            teamclaw_runtime_env::ManagedLlmState::Unknown
+            teamclu_runtime_env::ManagedLlmState::Unknown
         } else {
             self.spawn_env.managed_llm.resolve(&self.team_id).await
         };
@@ -635,7 +635,7 @@ fn absorb_emitted(
 ) -> bool {
     let mut flushed = false;
     for m in emitted {
-        if matches!(m.kind, crate::proto::teamclaw::MessageKind::AgentReply) {
+        if matches!(m.kind, crate::proto::teamclu::MessageKind::AgentReply) {
             // Tool-only turns emit an empty AgentReply at turn end purely to
             // anchor the turn for clients; it carries no text and must not
             // add a blank segment.
@@ -1564,7 +1564,7 @@ mod tests {
     }
 
     /// The team-wide list registers the SAME path once per agent, so a shared
-    /// directory name like `~/TeamClaw` appears once per device — and every
+    /// directory name like `~/TeamClu` appears once per device — and every
     /// duplicate passes the "does this path exist locally" filter on a machine
     /// that happens to have that path. `/workspaces` showed 15 entries for two
     /// real workspaces until it started asking by agent. Archived rows are

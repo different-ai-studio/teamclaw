@@ -1,4 +1,4 @@
-# Cargo build configuration for TeamClaw
+# Cargo build configuration for TeamClu
 # Optimizes compile time and binary size for each platform
 
 [target.aarch64-apple-darwin]

@@ -3,7 +3,7 @@
 // API cannot give (per-team token counts require the enterprise /spend/report).
 //
 // Data source: the `LiteLLM_SpendLogs` table (one row per request) keyed by
-// `team_id = tc-{teamClawTeamId}`, with `total_tokens` / `spend` / `startTime`.
+// `team_id = tc-{teamCluTeamId}`, with `total_tokens` / `spend` / `startTime`.
 // See docs/specs/2026-06-15-litellm-token-usage-rds-design.md.
 //
 // FC reads via a SELECT-only role; connection string in env `LITELLM_DB_URL`.

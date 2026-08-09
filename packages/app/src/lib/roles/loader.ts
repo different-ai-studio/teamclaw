@@ -14,11 +14,11 @@ import type { SkillSource } from "@/lib/git/types"
 import { isTauri } from "@/lib/utils"
 import { encodeWorkspaceId, getDaemonRolesSkillsState, putDaemonRole, deleteDaemonRole } from "@/lib/daemon-local-client"
 
-import { TEAMCLAW_DIR } from "@/lib/build-config"
+import { TEAMCLU_DIR } from "@/lib/build-config"
 
-const ROLE_ROOT = `${TEAMCLAW_DIR}/roles`
-const ROLE_SKILL_DIR = `${TEAMCLAW_DIR}/roles/skills`
-const ROLE_CONFIG_PATH = `${TEAMCLAW_DIR}/roles/config.json`
+const ROLE_ROOT = `${TEAMCLU_DIR}/roles`
+const ROLE_SKILL_DIR = `${TEAMCLU_DIR}/roles/skills`
+const ROLE_CONFIG_PATH = `${TEAMCLU_DIR}/roles/config.json`
 const ROLE_SKILL_DIR_NAME = "skills"
 
 const SECTION_NAMES = {
@@ -311,7 +311,7 @@ export async function loadRolesSkillsWorkspaceStateFromFs(
       content: skill.content,
       description: extractSkillDescription(skill.content, skill.name),
       source: skill.source,
-      dirPath: skill.dirPath ?? `${workspacePath}/${TEAMCLAW_DIR}/skills`,
+      dirPath: skill.dirPath ?? `${workspacePath}/${TEAMCLU_DIR}/skills`,
       linkedRoles: roleUsageBySkill[skill.filename] ?? [],
       isRoleSkill: false,
     })
@@ -345,7 +345,7 @@ const SKILL_SOURCE_PRIORITY: Record<SkillSource, number> = {
   team: 4,
   builtin: 5,
   plugin: 6,
-  "global-teamclaw": 7,
+  "global-teamclu": 7,
   "global-claude": 8,
   "global-agent": 9,
   personal: 10,
@@ -410,7 +410,7 @@ function normalizeDaemonRolesSkillsState(
 
 /**
  * Merge daemon scan with a local FS scan. Daemon rows win on key collision so
- * live inventory stays canonical; FS-only rows (e.g. teamclaw-team via Tauri FS
+ * live inventory stays canonical; FS-only rows (e.g. teamclu-team via Tauri FS
  * when daemon missed a symlinked tree) are retained.
  */
 function mergeRolesSkillsStates(
@@ -540,7 +540,7 @@ export async function deleteRole(workspacePath: string, roleSlug: string, roleFi
 
 export async function loadAttachableSkills(workspacePath: string): Promise<AttachableSkill[]> {
   const { skills } = await loadAllSkills(workspacePath)
-  const workspaceSkillRoot = `${workspacePath}/${TEAMCLAW_DIR}/skills`
+  const workspaceSkillRoot = `${workspacePath}/${TEAMCLU_DIR}/skills`
   return skills
     .filter((skill) => skill.source === "local" && skill.dirPath === workspaceSkillRoot)
     .map((skill) => ({
@@ -602,7 +602,7 @@ export async function attachSkillToRole(input: AttachSkillToRoleInput): Promise<
     throw new Error(`Role "${roleSlug}" does not exist`)
   }
 
-  const sourceDir = `${workspacePath}/${TEAMCLAW_DIR}/skills/${skillSlug}`
+  const sourceDir = `${workspacePath}/${TEAMCLU_DIR}/skills/${skillSlug}`
   const sourceSkillPath = `${sourceDir}/SKILL.md`
   if (!(await exists(sourceSkillPath))) {
     throw new Error(`Skill "${skillSlug}" is not available for role attachment`)

@@ -510,7 +510,7 @@ export interface TeamsBackend {
   /**
    * Graduate the caller out of the shared DEFAULT_ORG into their own org:
    * create the org (name + contact), reparent + rename their default-org team.
-   * See docs/specs/2026-06-17-teamclaw-phone-login-and-tenancy.md §8.
+   * See docs/specs/2026-06-17-teamclu-phone-login-and-tenancy.md §8.
    */
   upgradeAccount(input: { teamId: string; orgName: string; contact?: string | null }): Promise<{ orgId: string; teamId: string; teamName: string }>;
   createTeamInvite(input: TeamInviteInput): Promise<TeamInviteResult>;
@@ -983,7 +983,7 @@ export interface SystemBackend {
   heartbeat(): Promise<void>;
 }
 
-export interface TeamClawBackend {
+export interface TeamCluBackend {
   kind: BackendKind;
   auth: AuthBackend;
   directory: DirectoryBackend;

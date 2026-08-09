@@ -1,4 +1,4 @@
-// Internal HTTP API server for the teamclaw-introspect MCP binary.
+// Internal HTTP API server for the teamclu-introspect MCP binary.
 //
 // Listens on 127.0.0.1:13144 and handles:
 //   POST /send-wecom        — send a proactive WeCom message
@@ -152,7 +152,7 @@ async fn handle_send_wecom(app: &AppHandle, body: &[u8]) -> Result<String, Strin
 
     // Send text message if provided
     if !message.is_empty() {
-        teamclaw_gateway::wecom::send_proactive_message(chatid, chat_type, message).await?;
+        teamclu_gateway::wecom::send_proactive_message(chatid, chat_type, message).await?;
     }
 
     // Send media file if provided (image/voice/video/file)
@@ -169,7 +169,7 @@ async fn handle_send_wecom(app: &AppHandle, body: &[u8]) -> Result<String, Strin
             .and_then(|v| v.as_str())
             .unwrap_or_else(|| detect_media_type(filename));
 
-        teamclaw_gateway::wecom::upload_and_send_media(
+        teamclu_gateway::wecom::upload_and_send_media(
             chatid, chat_type, &data, filename, media_type,
         )
         .await?;
@@ -269,7 +269,7 @@ fn resolve_wecom_owner_id(app: &AppHandle) -> Result<String, String> {
             .ok_or_else(|| "No workspace path set. Please select a workspace first.".to_string())?
     };
 
-    let config = teamclaw_gateway::read_config(&workspace_path)?;
+    let config = teamclu_gateway::read_config(&workspace_path)?;
     let owner_id = config
         .channels
         .as_ref()
@@ -617,7 +617,7 @@ async fn handle_channel_set(app: &AppHandle, body: &[u8]) -> Result<String, Stri
             .ok_or_else(|| "No workspace path set. Please select a workspace first.".to_string())?
     };
 
-    let mut json = super::env_vars::read_teamclaw_json(&workspace)?;
+    let mut json = super::env_vars::read_teamclu_json(&workspace)?;
 
     // Ensure channels object exists
     if json.get("channels").is_none() {
@@ -641,7 +641,7 @@ async fn handle_channel_set(app: &AppHandle, body: &[u8]) -> Result<String, Stri
         return Err("config must be a JSON object".to_string());
     }
 
-    super::env_vars::write_teamclaw_json(&workspace, &json)?;
+    super::env_vars::write_teamclu_json(&workspace, &json)?;
 
     Ok(format!(r#"{{"ok":true,"channel":"{}"}}"#, channel))
 }
@@ -692,14 +692,14 @@ async fn handle_mcp_put(app: &AppHandle, body: &[u8]) -> Result<String, String> 
 
 /// Fetch a stored Git credential by ref. Body: `{"workspace_path": "...", "credential_ref": "..."}`.
 /// Returns `{"ok":true,"authKind":"...","credential":"..."}`. Used by the
-/// `teamclaw-askpass` shell helper (via `teamclaw-introspect get-credential`)
+/// `teamclu-askpass` shell helper (via `teamclu-introspect get-credential`)
 /// to provide credentials to `git clone` over HTTPS.
 //
 // TODO(security): /git-credential-get returns plaintext credentials over an
 // unauthenticated 127.0.0.1 socket. Any local process can call this and exfiltrate
 // HTTPS tokens or SSH key paths. Follow-up: introduce a per-launch shared secret
-// (file-mode 0600 under ~/.teamclaw/) that the introspect sidecar and askpass
-// helper both read, and require it as an X-Teamclaw-Token header.
+// (file-mode 0600 under ~/.teamclu/) that the introspect sidecar and askpass
+// helper both read, and require it as an X-Teamclu-Token header.
 async fn handle_git_credential_get(_app: &AppHandle, body: &[u8]) -> Result<String, String> {
     let v: serde_json::Value =
         serde_json::from_slice(body).map_err(|e| format!("JSON parse error: {}", e))?;

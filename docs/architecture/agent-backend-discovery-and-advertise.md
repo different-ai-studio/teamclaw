@@ -203,12 +203,12 @@ Access token hook 实际写入的是 **`app_metadata.memberships[]`** 数组。
 ```bash
 # 1) daemon refresh
 REFRESH=$(grep refresh_token ~/.amuxd/backend.toml | cut -d'"' -f2)
-TOKEN=$(curl -s -X POST https://api.teamclaw-dev.ucar.cc/v1/auth/refresh \
+TOKEN=$(curl -s -X POST https://api.teamclu-dev.ucar.cc/v1/auth/refresh \
   -H 'Content-Type: application/json' \
   -d "{\"refreshToken\":\"$REFRESH\"}" | jq -r .accessToken)
 
 # 2) 看 actor 上的 agentTypes（UI 同源）
-curl -s "https://api.teamclaw-dev.ucar.cc/v1/actors/<actor_id>" \
+curl -s "https://api.teamclu-dev.ucar.cc/v1/actors/<actor_id>" \
   -H "Authorization: Bearer $TOKEN" | jq '.agentTypes, .defaultAgentType'
 ```
 
@@ -379,7 +379,7 @@ Settings 显示 Backend types 为空
 ```text
 Desktop DaemonOnboardingWizard
   → createTeamInvite(kind=agent)
-  → Tauri daemon_init → sidecar: amuxd init teamclaw://invite?token=...
+  → Tauri daemon_init → sidecar: amuxd init teamclu://invite?token=...
   → POST /v1/invites/claim
   → 写 ~/.amuxd/backend.toml
   → daemon_config_for_invite + agent_discover::discover_and_merge
@@ -438,7 +438,7 @@ Desktop `load_channel_config` **直接读磁盘**；`save_channel_config` 经 da
 | 请求失败 | 同上，保留 last-known 并 warn |
 | 无 last-known 且云端也没有 | `broker_url` 为空，MQTT 降级（HTTP 控制面照常起），run loop 每 30s 重拉 |
 
-原因见 issue #634：`teamclaw-api` 的 `MQTT_*` 环境变量被清空后，bootstrap 答 200 却不带
+原因见 issue #634：`teamclu-api` 的 `MQTT_*` 环境变量被清空后，bootstrap 答 200 却不带
 `mqtt` 段；当时 broker 只在内存里，daemon 一重启就彻底没有地址可用，且「成功响应」不会
 触发任何错误日志。参见 `deploy/self-host/smoke/run-e2e.sh` 的部署门禁：bootstrap 不带
 `mqtt` 直接让部署失败。

@@ -41,7 +41,7 @@ pub use workspace_control::{
     WorkspaceControlError, WorkspaceControlStore,
 };
 pub use workspace_instructions::{
-    claude_md_block_present_at, load_system_prompt, sync_teamclaw_claude_md,
+    claude_md_block_present_at, load_system_prompt, sync_teamclu_claude_md,
 };
 pub use workspace_resolver::{
     resolve_default_workspace_path, ResolveError, ResolvedWorkspace, WorkspaceResolver,

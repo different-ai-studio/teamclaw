@@ -261,7 +261,7 @@ pub const RETIRED_PREFIXES: &[&str] = &["skills/", ".mcp/", "_secrets/", "_meta/
 retire `skills/` 会让 Claude runtime 的团队 skill **直接消失**：
 
 - `claude_skills.rs:22-55` 只消费 `team_skill_roots()` 的结果建 `.claude/skills/` symlink，**空了就在 `:24` prune 掉全部 team symlink**
-- `collect_team_skill_paths`（`roles_skills.rs:349-390`）在 `:384-390` 无条件 push `teamclaw-team/skills`，**且返回值不含 `~/.agents/skills`**
+- `collect_team_skill_paths`（`roles_skills.rs:349-390`）在 `:384-390` 无条件 push `teamclu-team/skills`，**且返回值不含 `~/.agents/skills`**
 - registry 装出来的 skill 落在 `~/.agents/skills`，只能经 `skills.paths` 到 OpenCode（`supervisor.rs:579-595`），**到不了 `claude_skills` 这条 symlink 路径**
 
 → 把 `~/.agents/skills` 加进 `collect_team_skill_paths` 的返回值。这和前缀收窄是**同一次行为变更的两半**，不能拆到后续 PR。
@@ -391,7 +391,7 @@ git commit -m "chore(fc): delete the dead _meta admin routes and retarget the ca
 
 **验证：**
 
-- 新团队：Knowledge 列显示引导；owner 点击后 workspace 下出现 `teamclaw-team/knowledge`
+- 新团队：Knowledge 列显示引导；owner 点击后 workspace 下出现 `teamclu-team/knowledge`
 - 非 owner 成员：看到只读说明，无可点按钮
 - 两台设备改同一 md → 仍出现既有 conflict sidecar 行为
 - skills / MCP / env UI 仍走 Cloud API，不写回 `skills/` 目录同步
@@ -423,7 +423,7 @@ git commit -m "feat(ui): knowledge-only team share copy, gating and failure surf
 
 最后一次把 `knowledge/` 检出后放进本地 team dir，靠 sync push 进 Storage。
 
-**Step 3: self-host（api.teamclaw-dev）先切，确认无阿里云密钥时 sync 仍可用**
+**Step 3: self-host（api.teamclu-dev）先切，确认无阿里云密钥时 sync 仍可用**
 
 **Step 4: belayo / copilot361 评估**——本 plan 只保证 `/sync/*` 路径不依赖阿里云；attachments / apps 仍用 `oss.ts`
 
@@ -439,7 +439,7 @@ git commit -m "docs: knowledge storage migration runbook"
 
 **Files:**
 - 测试：删掉 EnableShareWizard 三模式用例；更新 TeamShareSection / daemon team_link / FC share-mode tests
-- `docs/openapi/teamclaw-api.v1.yaml` 与契约测试
+- `docs/openapi/teamclu-api.v1.yaml` 与契约测试
 - CI：`pnpm daemon:test`、`services/fc` node test、相关 vitest
 - 可选 rename：`sync/oss` → `sync/team_files`（大 diff，**另 PR**）
 

@@ -5,7 +5,7 @@ import AMUXCore
 /// has no remembered choice. Two-level: teams grouped by org. Picking one calls
 /// `coordinator.selectTeam`, which switches the active team (fresh session for
 /// that org) and lands the app. See
-/// docs/specs/2026-06-17-teamclaw-phone-login-and-tenancy.md §6.
+/// docs/specs/2026-06-17-teamclu-phone-login-and-tenancy.md §6.
 struct OrgTeamPickerView: View {
     @Bindable var coordinator: AppOnboardingCoordinator
     @State private var busyTeamID: String?

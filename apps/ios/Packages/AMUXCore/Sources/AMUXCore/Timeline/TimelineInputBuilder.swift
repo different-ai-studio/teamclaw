@@ -11,7 +11,7 @@ import Foundation
 ///
 /// `subscribeTopic` matches the production VM's filter on
 /// `session/{id}/live` — that's the only topic the timeline reducer
-/// listens on today; everything else is SessionListVM / TeamclawService
+/// listens on today; everything else is SessionListVM / TeamcluService
 /// territory.
 public struct TimelineInputBuilder: Sendable {
     public init() {}
@@ -20,7 +20,7 @@ public struct TimelineInputBuilder: Sendable {
     /// the topic isn't session-live or the payload doesn't decode.
     public func build(from incoming: MQTTIncoming) -> TimelineInput? {
         guard isSessionLive(topic: incoming.topic) else { return nil }
-        guard let envelope = try? Teamclaw_LiveEventEnvelope(serializedBytes: incoming.payload) else {
+        guard let envelope = try? Teamclu_LiveEventEnvelope(serializedBytes: incoming.payload) else {
             return nil
         }
 
@@ -47,7 +47,7 @@ public struct TimelineInputBuilder: Sendable {
 
     // MARK: - Variant builders
 
-    private func buildAcpInput(from envelope: Teamclaw_LiveEventEnvelope) -> TimelineInput? {
+    private func buildAcpInput(from envelope: Teamclu_LiveEventEnvelope) -> TimelineInput? {
         guard let amuxEnvelope = try? Amux_Envelope(serializedBytes: envelope.body) else {
             return nil
         }
@@ -62,8 +62,8 @@ public struct TimelineInputBuilder: Sendable {
         ))
     }
 
-    private func buildLiveMessageInput(from envelope: Teamclaw_LiveEventEnvelope) -> TimelineInput? {
-        guard let msgEnv = try? Teamclaw_SessionMessageEnvelope(serializedBytes: envelope.body),
+    private func buildLiveMessageInput(from envelope: Teamclu_LiveEventEnvelope) -> TimelineInput? {
+        guard let msgEnv = try? Teamclu_SessionMessageEnvelope(serializedBytes: envelope.body),
               msgEnv.hasMessage else {
             return nil
         }

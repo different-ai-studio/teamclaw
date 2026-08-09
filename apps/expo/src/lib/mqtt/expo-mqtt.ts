@@ -121,7 +121,7 @@ type NativeMqttModule = {
 
 type NativeModuleLookup = {
   NativeModules?: {
-    TeamClawMqtt?: NativeMqttModule;
+    TeamCluMqtt?: NativeMqttModule;
   };
   NativeEventEmitter?: new (module?: unknown) => NativeEventSource;
 };
@@ -131,7 +131,7 @@ function getDefaultNativeAdapterDeps():
   | null {
   try {
     const reactNative = require("react-native") as NativeModuleLookup;
-    const nativeModule = reactNative.NativeModules?.TeamClawMqtt;
+    const nativeModule = reactNative.NativeModules?.TeamCluMqtt;
     const NativeEventEmitter = reactNative.NativeEventEmitter;
     if (!nativeModule || !NativeEventEmitter) return null;
     return {
@@ -187,7 +187,7 @@ function createNativeMqttAdapter(
   function ensureEventSubscriptions() {
     if (subscriptions.length > 0) return;
     subscriptions = [
-      nativeEvents.addListener("TeamClawMqttMessage", (event) => {
+      nativeEvents.addListener("TeamCluMqttMessage", (event) => {
         const payload = event as { topic?: string; payload?: number[] };
         if (!payload.topic || !Array.isArray(payload.payload)) return;
         const message = {
@@ -198,7 +198,7 @@ function createNativeMqttAdapter(
           handler(message);
         }
       }),
-      nativeEvents.addListener("TeamClawMqttConnectionState", (event) => {
+      nativeEvents.addListener("TeamCluMqttConnectionState", (event) => {
         const payload = event as {
           state?: "connecting" | "connected" | "disconnected";
         };

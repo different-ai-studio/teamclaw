@@ -22,7 +22,7 @@ skills/  knowledge/  .mcp/  _meta/  _secrets/  _feedback/
 全靠 git push 或 OSS 同步进来。
 
 **其二，MCP 的 `env`/`headers` 明文同步，没有任何脱敏。** 设计上应当写 `${KEY}`
-占位符、运行时由 `crates/teamclaw-runtime-env/src/mcp_resolve.rs` 从加密库解出，
+占位符、运行时由 `crates/teamclu-runtime-env/src/mcp_resolve.rs` 从加密库解出，
 但没有任何东西强制这一点，直接粘 token 就会明文进团队仓库。
 
 先例：团队 LLM 配置已经从磁盘同步搬到云上（`_meta/provider.json` 已删除，改走
@@ -57,7 +57,7 @@ skills/  knowledge/  .mcp/  _meta/  _secrets/  _feedback/
 ### 2.2 团队 env：加密模型完全不变，只换存储介质
 
 客户端继续用团队密钥做 AES-256-GCM（HKDF-SHA256 派生，见
-`crates/teamclaw-runtime-env/src/team_crypto.rs`），**只上传信封**
+`crates/teamclu-runtime-env/src/team_crypto.rs`），**只上传信封**
 `{v, nonce, ciphertext}`。服务端——包括 self-host 的 DB 运维方——拿不到明文。
 
 这与此前落在 OSS 上的模型完全一致：防的是存储方，不是同事（一个团队一把密钥，
@@ -89,7 +89,7 @@ RLS 要点：
 
 ## 4. API
 
-契约见 `docs/openapi/teamclaw-api.v1.yaml`。
+契约见 `docs/openapi/teamclu-api.v1.yaml`。
 
 ```
 GET    /v1/teams/:teamId/mcp-servers                  目录 + 调用者的 installed 标记
@@ -166,7 +166,7 @@ DELETE /v1/teams/:teamId/env-secrets/:keyId           创建者或 admin
 这件事发生在渲染层，原生命令必须用这个值而不是二进制里烘的那个」）。
 
 注意这跟 `get_fc_endpoint` 注释里**故意删掉**的那个 override 不是一回事：被删的是
-`teamclaw.json` 里的**每工作区持久化 pin**——陈旧、不可见、会悄悄盖过 build config。
+`teamclu.json` 里的**每工作区持久化 pin**——陈旧、不可见、会悄悄盖过 build config。
 这里传的是渲染层**当前生效**的值，和 token 同源同批次，正是那段注释想要的「两边锁步」。
 URL 格式非法时返回 `None` 而不是回退到 build config——回退会把要避免的错配又请回来。
 
@@ -183,7 +183,7 @@ URL 格式非法时返回 `None` 而不是回退到 build config——回退会�
 进去**。且 agent 必须能离线跑。
 
 解法是 **daemon 自有的落盘缓存 + 异步 reconciler**：缓存放
-`~/.amuxd/teams/<team_id>/cloud/`（`teamclaw-team/` 的**兄弟目录，不在里面**，
+`~/.amuxd/teams/<team_id>/cloud/`（`teamclu-team/` 的**兄弟目录，不在里面**，
 否则 git 模式下会造成 commit 抖动、并被同步引擎当成本地文件产生 tombstone）。
 同步读取端只需在候选目录列表里加一项。
 

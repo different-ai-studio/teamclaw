@@ -25,10 +25,10 @@ public enum AMUXModelContainerFactory {
             appropriateFor: nil,
             create: true
         )
-        let bundleID = Bundle.main.bundleIdentifier ?? "tech.teamclaw.mobile"
+        let bundleID = Bundle.main.bundleIdentifier ?? "com.teamclu.mobile"
         let directory = appSupport.appendingPathComponent(bundleID, isDirectory: true)
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
-        let storeURL = directory.appendingPathComponent("teamclaw.store")
+        let storeURL = directory.appendingPathComponent("teamclu.store")
         let legacyURL = directory.appendingPathComponent("amux.store")
         try moveStoreFilesIfNeeded(from: legacyURL, to: storeURL)
         return storeURL

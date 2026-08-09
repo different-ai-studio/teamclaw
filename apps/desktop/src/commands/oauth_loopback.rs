@@ -33,7 +33,7 @@ use tokio::sync::oneshot;
 /// listener with no asset pipeline, and must render identically offline.
 ///
 /// The page names no product. This is a multi-brand build, and
-/// `branding::brand_name` falls back to the literal "TeamClaw" whenever a brand
+/// `branding::brand_name` falls back to the literal "TeamClu" whenever a brand
 /// ships without `product_name` — so printing the name here would quietly show
 /// the wrong brand instead of failing loudly. Same reason there is no logo: only
 /// the brand *name* ever reached this code, never its mark or accent, so the
@@ -457,13 +457,13 @@ mod brand_html_tests {
     use super::{error_html, success_html};
 
     /// The page is brand-neutral on purpose. `branding::brand_name` falls back to
-    /// the literal "TeamClaw" whenever a brand ships without `product_name`, so
+    /// the literal "TeamClu" whenever a brand ships without `product_name`, so
     /// naming the product here would print the wrong one for those builds rather
     /// than fail loudly. The copy says "应用" / "the app" instead.
     #[test]
     fn pages_name_no_product() {
         for html in [success_html(), error_html()] {
-            assert!(!html.contains("TeamClaw"));
+            assert!(!html.contains("TeamClu"));
             assert!(html.contains("应用"));
         }
     }

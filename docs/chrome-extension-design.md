@@ -1,4 +1,4 @@
-# TeamClaw Chrome 扩展设计方案
+# TeamClu Chrome 扩展设计方案
 
 **日期**: 2026-06-23（2026-06-24 补 wss live-chat 验证）
 **状态**: 子工程 1（浏览器运行时）已实现并端到端验证；子工程 2（扩展外壳 + 页面抓取）已实现，**已在真实 Chrome 加载并对 self-host 环境完成 live 聊天链路验证（登录 → 建队 → MQTT over wss 连接 → 订阅 wired）**
@@ -8,12 +8,12 @@
 
 ## 1. 目标与场景
 
-做一个 Chrome 扩展（Manifest V3），在浏览器**侧边栏（side panel）**里嵌入 TeamClaw 的
+做一个 Chrome 扩展（Manifest V3），在浏览器**侧边栏（side panel）**里嵌入 TeamClu 的
 多人聊天窗口，并能把**当前网页的内容**（选中文本或全页正文）作为上下文发送给远端
 daemon 上的 agent。
 
 **主要场景**：浏览自家 admin portal（或任意网页）时，随手就当前页内容向 agent 提问 /
-下任务，复用 TeamClaw 已有的多人协作聊天。
+下任务，复用 TeamClu 已有的多人协作聊天。
 
 ### 非目标（YAGNI）
 
@@ -36,7 +36,7 @@ amuxd daemon 的 HTTP API 只绑定 `127.0.0.1` + 文件 root token，浏览器�
 
 ### 2.2 承载方式：把 app 直接打包进扩展
 
-把 `@teamclaw/app` 的**聊天子集**直接打包进扩展，作为 side panel 的
+把 `@teamclu/app` 的**聊天子集**直接打包进扩展，作为 side panel 的
 `chrome-extension://` 页面运行——**无 iframe、无公网托管、无跨域 CSP 问题**。
 
 代价：app 目前是 Tauri 桌面应用，需要让它能在**纯浏览器**环境跑起来（见子工程 1）。
@@ -45,7 +45,7 @@ amuxd daemon 的 HTTP API 只绑定 `127.0.0.1` + 文件 root token，浏览器�
 
 ```
 ┌─ Chrome 扩展 (Manifest V3) ──────────────────────────────┐
-│  Side Panel 页面 = 打包后的 @teamclaw/app(embed 精简模式)  │
+│  Side Panel 页面 = 打包后的 @teamclu/app(embed 精简模式)  │
 │     Cloud API(fetch) + MQTT over WebSocket(mqtt npm)      │
 │                ▲   chrome.runtime 消息                    │
 │  Service Worker (background)                              │
@@ -56,7 +56,7 @@ amuxd daemon 的 HTTP API 只绑定 `127.0.0.1` + 文件 root token，浏览器�
 └───────────────────────────────────────────────────────────┘
             │ HTTPS Cloud API + MQTT(wss)
             ▼
-   Cloud API (api.teamclaw-dev.ucar.cc) ──► 远端 amuxd daemon
+   Cloud API (api.teamclu-dev.ucar.cc) ──► 远端 amuxd daemon
 ```
 
 ### 2.4 实测环境拓扑
@@ -66,8 +66,8 @@ amuxd daemon 的 HTTP API 只绑定 `127.0.0.1` + 文件 root token，浏览器�
 
 | 角色 | 地址 | 说明 |
 |---|---|---|
-| Cloud API | `https://api.teamclaw-dev.ucar.cc` | bearer token；`/v1/config/bootstrap` 需登录态，下发 broker URL + 凭证 |
-| MQTT broker | `wss://mqtt.teamclaw-dev.ucar.cc/mqtt` | EMQX，经反代在 **443** 提供 wss（扩展 secure context 可用，见 6.5 实测）；另有明文 MQTT `47.112.210.217:1883` |
+| Cloud API | `https://api.teamclu-dev.ucar.cc` | bearer token；`/v1/config/bootstrap` 需登录态，下发 broker URL + 凭证 |
+| MQTT broker | `wss://mqtt.teamclu-dev.ucar.cc/mqtt` | EMQX，经反代在 **443** 提供 wss（扩展 secure context 可用，见 6.5 实测）；另有明文 MQTT `47.112.210.217:1883` |
 
 > **历史**：本文 6.3 / 6.5 之前的调试记录针对的是旧的 `ai.ucar.cc` broker（ws=8083、
 > wss 8084 关闭），该主机**已下线**。相关段落保留为历史记录，其结论不适用于上表的
@@ -79,7 +79,7 @@ amuxd daemon 的 HTTP API 只绑定 `127.0.0.1` + 文件 root token，浏览器�
 
 整个项目拆为两个可独立验证的子工程，顺序执行。
 
-### 子工程 1：`@teamclaw/app` 浏览器运行时（依赖项 — **已完成**）
+### 子工程 1：`@teamclu/app` 浏览器运行时（依赖项 — **已完成**）
 
 让 app 的多人聊天子集在**纯浏览器**跑起来，只走 Cloud API + MQTT-ws。
 
@@ -141,7 +141,7 @@ URL query `?embed=chat` → 启动时把 Zustand `useUIStore.embedMode` 置真 �
   从 build config 取 `cloudApiUrl` / `mqttWsUrl`（`resolveExtensionBackend`），以真实
   env var 传给 vite——vite 的优先级里 process env 高于 `.env.*` 文件，所以 brand 的配置
   才是烘进包里的值。brand 没声明 `cloudApiUrl` 时构建**直接失败**，不再静默回退到
-  TeamClaw 后端。`EXT_ENV=test` 是唯一例外：那条路径就是为了指向 self-host 测试环境，
+  TeamClu 后端。`EXT_ENV=test` 是唯一例外：那条路径就是为了指向 self-host 测试环境，
   仍由 `.env.web.test` 说了算。
 
 ### 4.4 浏览器 broker 覆盖（dev 专用）
@@ -154,7 +154,7 @@ TCP 客户端，服务端下发的是 TCP broker（`mqtt://...:1883` / `mqtts://
 
 ```
 # packages/app/.env.web.test —— 指向 self-host 的 wss 端点
-VITE_MQTT_WS_URL=wss://mqtt.teamclaw-dev.ucar.cc/mqtt
+VITE_MQTT_WS_URL=wss://mqtt.teamclu-dev.ucar.cc/mqtt
 ```
 
 它硬覆盖 broker 的 host/port/tls，但 `mqttUsername/mqttPassword` 仍来自 bootstrap。
@@ -195,7 +195,7 @@ try/catch 守卫的本地缓存，浏览器安全）。去掉短路后，web 登
 
 ## 6. 子工程 2 设计（已实现）
 
-落点 `apps/extension`（`@teamclaw/extension`，纳入 `pnpm-workspace` 的 `apps/*`）。
+落点 `apps/extension`（`@teamclu/extension`，纳入 `pnpm-workspace` 的 `apps/*`）。
 **构建方式**：采用「app 静态 build + 手写 MV3 外壳 + esbuild」，**不用 crxjs/wxt**（规避对
 Vite 8 的兼容不确定性）。`apps/extension/build.mjs` 组装：① `pnpm build:web`
 （`VITE_APP_PLATFORM=web` + `VITE_FORCE_EMBED=chat`，相对 base）产出 app → 复制为
@@ -250,7 +250,7 @@ app 侧消息形状（`embed-page-context.ts` 的 `PageContext`）与扩展侧�
 > **历史**：这一度是最高优先级的阻塞项 —— 当时 dev 用的 `ai.ucar.cc` broker 无可用 wss
 > （8084 直连关闭、`/mqtt` 404）。该 broker 已下线，此阻塞随之消失。
 
-**现状**：self-host 通过 Caddy 在 443 反代提供 `wss://mqtt.teamclaw-dev.ucar.cc/mqtt`，
+**现状**：self-host 通过 Caddy 在 443 反代提供 `wss://mqtt.teamclu-dev.ucar.cc/mqtt`，
 扩展 build 经 `.env.web.test` 指向它，已在真实 Chrome 中验证 wss 连接 + 订阅成功
 （见 6.5）。即上述历史方案里的「域名 443 反代 → broker」形态已落地。
 
@@ -272,8 +272,8 @@ app 侧消息形状（`embed-page-context.ts` 的 `PageContext`）与扩展侧�
 
 把 `pnpm build:test` 产物（`apps/extension/dist`，指向 self-host）加载进真实
 Chrome（用 Playwright + Chrome for Testing —— stable Chrome 149 已禁 `--load-extension`），
-注入一个真实 GoTrue session 到 side panel 的 `localStorage["teamclaw.session.v1"]`，观测到完整
-链路：**扩展加载 → 登录 → 自动建队 → MQTT over wss 连接（`wss://mqtt.teamclaw-dev.ucar.cc/mqtt`）
+注入一个真实 GoTrue session 到 side panel 的 `localStorage["teamclu.session.v1"]`，观测到完整
+链路：**扩展加载 → 登录 → 自动建队 → MQTT over wss 连接（`wss://mqtt.teamclu-dev.ucar.cc/mqtt`）
 → `receiver wired: subscribed to team session/live wildcard`，零错误**。side panel 渲染出 embed
 精简布局 + 「抓取当前页」按钮。
 
@@ -297,8 +297,8 @@ Chrome（用 Playwright + Chrome for Testing —— stable Chrome 149 已禁 `--
 
 指向 self-host 的独立 env（文件名里的 `test` 是历史遗留 —— 这是唯一环境，不是测试层级）：
 
-- `packages/app/.env.web.test`：`VITE_CLOUD_API_URL=https://api.teamclaw-dev.ucar.cc` +
-  `VITE_MQTT_WS_URL=wss://mqtt.teamclaw-dev.ucar.cc/mqtt`。
+- `packages/app/.env.web.test`：`VITE_CLOUD_API_URL=https://api.teamclu-dev.ucar.cc` +
+  `VITE_MQTT_WS_URL=wss://mqtt.teamclu-dev.ucar.cc/mqtt`。
 - `packages/app` 脚本：`dev:web:test` / `build:web:test`（`vite --mode web.test`）。
 - 扩展：`apps/extension` 加 `build:test`（`EXT_ENV=test node build.mjs`），`build.mjs` 在
   `EXT_ENV=test` 时改跑 `build:web:test`。
@@ -350,7 +350,7 @@ token，不碰 daemon root token。首登在 side panel 页面内完成；token 
 | **子工程 2 · 抓取触发按钮 + 请求/响应注入闭环** | ✅ 完成（最终评审修复） |
 | **构建配置 `.env.web.test` + 扩展 `build:test`** | ✅ 完成 |
 | **扩展真实 Chrome 加载 + live 聊天链路（登录/建队/wss 连接/订阅 wired）** | ✅ 已验证（6.5） |
-| **wss MQTT 端点基建** | ✅ self-host 已提供（`wss://mqtt.teamclaw-dev.ucar.cc/mqtt`） |
+| **wss MQTT 端点基建** | ✅ self-host 已提供（`wss://mqtt.teamclu-dev.ucar.cc/mqtt`） |
 | 扩展手动加载 e2e（页面抓取按钮→注入，需第二个真实 tab 点击） | ⏳ 待手动验证 |
 | desktop init 噪音静音（web 下 isTauri 守卫） | ⏳ 待办（可选） |
 | bootstrap 按客户端类型下发 wss（去掉本地覆盖 hack） | ⏳ 待开发（最终形态） |
@@ -360,7 +360,7 @@ token，不碰 daemon root token。首登在 side panel 页面内完成；token 
 ## 10. 关键风险与遗留项
 
 1. ~~**wss 基建**（最高优先）~~ **✅ 已解决**：self-host 提供
-   `wss://mqtt.teamclaw-dev.ucar.cc/mqtt`，扩展已对其完成 live 聊天链路验证（见 6.5）。
+   `wss://mqtt.teamclu-dev.ucar.cc/mqtt`，扩展已对其完成 live 聊天链路验证（见 6.5）。
    （原阻塞源于已下线的 `ai.ucar.cc` broker 无 wss。）
 2. **bootstrap 客户端区分**（最终形态）：理想方案是 FC 按客户端类型下发 wss broker URL，
    去掉客户端本地 `VITE_MQTT_WS_URL` 覆盖的 hack。当前靠 `.env.web.test` 本地覆盖。
@@ -368,7 +368,7 @@ token，不碰 daemon root token。首登在 side panel 页面内完成；token 
 4. **build:web 跳过 `tsc -b`**：浏览器构建无 TS 类型门（仓库 `pnpm typecheck` 仍覆盖）。
 5. **`host_permissions` 收紧**：manifest 仅 `activeTab`+`scripting`，抓取依赖用户在工具栏
    动作后的手势授权。若将来加「自动抓取」（无手势），需补 `host_permissions`，否则注入失败。
-6. **正式图标**：当前从 `scripts/playwright-extension/icons/` 借用，待替换为 TeamClaw 图标。
+6. **正式图标**：当前从 `scripts/playwright-extension/icons/` 借用，待替换为 TeamClu 图标。
 
 ---
 
@@ -381,7 +381,7 @@ pnpm build                 # 默认 mode web —— 其 `.env.web` 已删除，�
 ```
 
 Chrome → `chrome://extensions` → 开发者模式 → 「加载已解压的扩展程序」→ 选
-`apps/extension/dist`。点工具栏 TeamClaw 图标打开 side panel。
+`apps/extension/dist`。点工具栏 TeamClu 图标打开 side panel。
 
 > **gotcha**：stable Chrome 137+ 已禁用 `--load-extension` 命令行加载（自动化场景）。
 > 手动「加载已解压」不受影响；若用 Playwright 等自动化，需用 **Chrome for Testing** 构建
@@ -422,7 +422,7 @@ listing/promo-marquee/*.png   1400x560
 （逻辑与 `scripts/update-tauri-config.js` 对齐）：`app.name` → `name` + `action.default_title`，
 `extension.description` → `description`（Chrome 上限 132 字符，超了直接报错而不是静默截断），
 host 白名单 → `host_permissions` + `content_scripts.matches`。没有配置 branding 仓库时是纯
-no-op，保持默认 TeamClaw 品牌。
+no-op，保持默认 TeamClu 品牌。
 
 > **host 白名单的两种写法**。仓库自己的配置用 `extensions.domains`
 > （见 `build.config.example.json`），而 branding 仓库里每个品牌用的都是

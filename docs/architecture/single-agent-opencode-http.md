@@ -22,7 +22,7 @@
 待验证项（非阻断）：
 
 - ⬜ opencode 官方各平台二进制矩阵（尤其 Windows 原生）。
-- ⬜ 官方 skills 机制与 `.teamclaw/skills` 的兼容性。
+- ⬜ 官方 skills 机制与 `.teamclu/skills` 的兼容性。
 
 ## 2. 目标架构与信息流
 
@@ -99,7 +99,7 @@ daemon（`apps/daemon/`）：
 **现状**：事件下行是双通道齐发（daemon 先写本地 SSE `/v1/live/events` 再发
 MQTT，同一 `event_id`），前端在 `App.tsx` 按 `sessionId::eventId` 去重，先到
 者赢——这是刻意冗余，成本低。**真正的问题在上行**：prompt/runtimeStart 等命
-令只走 MQTT RPC（`teamclaw-rpc.ts`），本机 daemon 也要绕云端 EMQX 一圈。
+令只走 MQTT RPC（`teamclu-rpc.ts`），本机 daemon 也要绕云端 EMQX 一圈。
 
 **目标**：统一 `DaemonTransport` 选路层。
 
@@ -114,7 +114,7 @@ MQTT，同一 `event_id`），前端在 `App.tsx` 按 `sessionId::eventId` 去�
 4. **降级**：本地 HTTP 连续失败自动回落 MQTT RPC，恢复后切回；eventId 去重保
    留，作为切换瞬间的双收保险。
 
-改动点：daemon 新增 `/v1/rpc` 端点；前端 `teamclaw-rpc.ts` 加选路层。事件侧
+改动点：daemon 新增 `/v1/rpc` 端点；前端 `teamclu-rpc.ts` 加选路层。事件侧
 不动。
 
 ## 6. 迁移步骤

@@ -5,7 +5,7 @@
 
 ## 背景与问题
 
-TeamClaw 使用一个**定制的 opencode fork**（`different-ai-studio/opencode`，
+TeamClu 使用一个**定制的 opencode fork**（`different-ai-studio/opencode`，
 当前 `v1.17.7`）作为 ACP runtime。当前实现有两个缺口：
 
 1. **生产装的是公版，不是 fork。** `build.config.production.json` 的
@@ -15,15 +15,15 @@ TeamClaw 使用一个**定制的 opencode fork**（`different-ai-studio/opencode
 2. **onboarding 无法区分 fork 与公版。** `doctor()` 只比较版本号
    (`version_ge`)；公版只要版本号够新就会被判定 `satisfied`。
 3. **国内下载慢/受限。** fork 资产只在 GitHub Releases 上，国内用户拉取困难，需要
-   镜像到阿里云 OSS（已有 `teamclaw.ucar.cc` 这套 OSS 分发用于 DMG）。
+   镜像到阿里云 OSS（已有 `teamclu.ucar.cc` 这套 OSS 分发用于 DMG）。
 
 目标：把定制 opencode 镜像到 OSS 方便国内下载；onboarding 必须检测到的是**我们的
 定制 opencode**，而不是公版。
 
 ## 已确认的设计决策
 
-- **识别方式**：fork 构建时让 `opencode --version` 携带 TeamClaw 标记（semver
-  pre-release 后缀，如 `1.17.7-teamclaw`）。
+- **识别方式**：fork 构建时让 `opencode --version` 携带 TeamClu 标记（semver
+  pre-release 后缀，如 `1.17.7-teamclu`）。
 - **marker 位置**：写在 `apps/daemon/opencode.lock.json`。
 - **OSS 上传**：新增 GitHub Action 自动镜像。
 - **OSS 路径**：稳定覆盖路径 `opencode/stable/`（每次发版覆盖；`build.config` 固定不
@@ -34,23 +34,23 @@ TeamClaw 使用一个**定制的 opencode fork**（`different-ai-studio/opencode
 
 ### 1. fork 身份标记（区分定制 vs 公版）
 
-fork 的 `opencode --version` 输出携带 `-teamclaw` 后缀，例如 `1.17.7-teamclaw`。
+fork 的 `opencode --version` 输出携带 `-teamclu` 后缀，例如 `1.17.7-teamclu`。
 我们同时掌控 fork 仓库与发布脚本，故在 fork 构建时设置
-`OPENCODE_VERSION=<ver>-teamclaw`（build.ts 会把它嵌入二进制）。无需改 fork 业务
+`OPENCODE_VERSION=<ver>-teamclu`（build.ts 会把它嵌入二进制）。无需改 fork 业务
 代码，只改发布管线传入的版本字符串。
 
 对现有 Rust 逻辑的影响：
 
-- `parse_semver` 已在 `-` 处截断，故 `version_ge("1.17.7-teamclaw", "1.17.7")` 仍为
+- `parse_semver` 已在 `-` 处截断，故 `version_ge("1.17.7-teamclu", "1.17.7")` 仍为
   真，版本比较不受影响。
-- `opencode_version_of` 返回匹配到的整 token，`-teamclaw` 后缀得以保留，供检查使用。
+- `opencode_version_of` 返回匹配到的整 token，`-teamclu` 后缀得以保留，供检查使用。
 
 `opencode.lock.json` 增加 `marker` 字段：
 
 ```json
 {
   "version": "v1.17.7",
-  "marker": "teamclaw"
+  "marker": "teamclu"
 }
 ```
 
@@ -82,14 +82,14 @@ desktop 侧无需改动：`setup_list_requirements` 已读取 `opencode.satisfie
   2. 用 ossutil（复用 secrets `OSS_ENDPOINT`、`OSS_BUCKET` 及阿里云
      AK/SK secrets，与 `release.yml` 一致）上传到 `oss://<bucket>/opencode/stable/`，
      逐个覆盖。
-- 结果：稳定基址 `https://teamclaw.ucar.cc/opencode/stable/opencode-<os>-<arch>.<ext>`。
+- 结果：稳定基址 `https://teamclu.ucar.cc/opencode/stable/opencode-<os>-<arch>.<ext>`。
 - 缺失资产处理：若某平台资产在该 fork release 不存在，记录告警但不让整个 job 失败
   （当前 fork 仅 darwin-arm64 已发布，其余待 fork 多平台 CI 产出）。
 
 ### 3. 把生产/开发指向 fork 镜像
 
 - `build.config.production.json` 与 `build.config.dev.json`：设置
-  `opencode.downloadBase = "https://teamclaw.ucar.cc/opencode/stable"`。amuxd 据此
+  `opencode.downloadBase = "https://teamclu.ucar.cc/opencode/stable"`。amuxd 据此
   direct-download `${base}/opencode-<os>-<arch>.<ext>`。
 - `opencode_install/mod.rs`：把 `DEFAULT_DOWNLOAD_BASE` 从 `sst/opencode`（公版）改为
   fork 的 `https://github.com/different-ai-studio/opencode/releases/latest/download`。
@@ -99,9 +99,9 @@ desktop 侧无需改动：`setup_list_requirements` 已读取 `opencode.satisfie
 ### 4. fork 发布脚本带 marker
 
 `scripts/release-opencode-fork.sh`：构建时把版本改成带 marker，即
-`OPENCODE_VERSION="${VERSION}-teamclaw"` 传给 `bun run script/build.ts --single`，
-使产出的二进制 `--version` 含 `-teamclaw`。`--trigger-ci` 路径同样需把 marker 传给
-fork 的 `release-cli` workflow（通过 `-f version=${VERSION}-teamclaw` 或等价输入）。
+`OPENCODE_VERSION="${VERSION}-teamclu"` 传给 `bun run script/build.ts --single`，
+使产出的二进制 `--version` 含 `-teamclu`。`--trigger-ci` 路径同样需把 marker 传给
+fork 的 `release-cli` workflow（通过 `-f version=${VERSION}-teamclu` 或等价输入）。
 
 ## 受影响文件
 
@@ -113,7 +113,7 @@ fork 的 `release-cli` workflow（通过 `-f version=${VERSION}-teamclaw` 或等
 | `build.config.dev.json` | 同上 |
 | `build.config.example.json` | 注释/示例更新（可选） |
 | `.github/workflows/mirror-opencode-oss.yml` | 新增 OSS 镜像 workflow |
-| `scripts/release-opencode-fork.sh` | 版本带 `-teamclaw` marker |
+| `scripts/release-opencode-fork.sh` | 版本带 `-teamclu` marker |
 | `scripts/install-opencode-fork.sh` | 可选：默认 base 与 marker 对齐（保持一致性） |
 
 ## 测试
@@ -126,7 +126,7 @@ fork 的 `release-cli` workflow（通过 `-f version=${VERSION}-teamclaw` 或等
 - workflow：本地 dry-run（`act` 或手工核对 ossutil 命令）；首次手动 `workflow_dispatch`
   跑通一次确认 OSS 路径可访问。
 - 端到端（手动，需真实环境）：在生产 build 下 onboarding 安装 opencode，确认拉取的是
-  OSS fork 且 `--version` 含 `-teamclaw`，doctor `satisfied=true`。
+  OSS fork 且 `--version` 含 `-teamclu`，doctor `satisfied=true`。
 
 ## 非目标 / YAGNI
 
@@ -142,4 +142,4 @@ fork 的 `release-cli` workflow（通过 `-f version=${VERSION}-teamclaw` 或等
 - 确认 `opencode.lock.json` 的 `version` 与 fork 实际发布 tag 对齐，并在每次升级时
   一并更新。
 - 首次跑 `mirror-opencode-oss.yml` 后，验证
-  `https://teamclaw.ucar.cc/opencode/stable/opencode-darwin-arm64.zip` 可下载。
+  `https://teamclu.ucar.cc/opencode/stable/opencode-darwin-arm64.zip` 可下载。

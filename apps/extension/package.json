@@ -1,5 +1,5 @@
 {
-  "name": "@teamclaw/extension",
+  "name": "@teamclu/extension",
   "version": "0.1.0",
   "private": true,
   "type": "module",
@@ -10,7 +10,7 @@
     "test": "vitest run"
   },
   "dependencies": {
-    "@teamclaw/app": "workspace:*"
+    "@teamclu/app": "workspace:*"
   },
   "devDependencies": {
     "@types/chrome": "^0.0.270",

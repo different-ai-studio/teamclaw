@@ -262,7 +262,7 @@ pub(crate) fn write_lockfile(workspace_path: &str, lock: &Lockfile) -> Result<()
 }
 
 pub(crate) fn skills_dir(_workspace_path: &str) -> PathBuf {
-    // All TeamClaw / ClawHub / marketplace installs land in the shared Agents
+    // All TeamClu / ClawHub / marketplace installs land in the shared Agents
     // skills root so OpenCode, Claude Code, and Pi can discover the same pack.
     agents_skills_dir().unwrap_or_else(|_| PathBuf::from(".agents/skills"))
 }

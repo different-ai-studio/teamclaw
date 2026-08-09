@@ -276,7 +276,7 @@ function ServerStep({ onBack }: { onBack: () => void }) {
               )
             : t(
                 "auth.onboarding.serverNotCloudApi",
-                "That address answered, but it is not a TeamClaw Cloud API ({{status}}).",
+                "That address answered, but it is not a TeamClu Cloud API ({{status}}).",
                 { status: probe.status ?? "?" },
               ),
         );
@@ -301,7 +301,7 @@ function ServerStep({ onBack }: { onBack: () => void }) {
         <p className="mt-2 text-[13px] leading-6 text-muted-foreground">
           {t(
             "auth.onboarding.serverDesc",
-            "Point the app at a different TeamClaw Cloud API. The app reloads and you sign in against that server.",
+            "Point the app at a different TeamClu Cloud API. The app reloads and you sign in against that server.",
           )}
         </p>
         <label className="mt-5 block space-y-2">

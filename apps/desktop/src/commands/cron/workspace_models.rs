@@ -3,7 +3,7 @@
 
 use std::collections::HashSet;
 
-use teamclaw_gateway::parse_model_preference;
+use teamclu_gateway::parse_model_preference;
 
 /// Daemon default workspace path for global (workspace-unscoped) cron runs.
 ///

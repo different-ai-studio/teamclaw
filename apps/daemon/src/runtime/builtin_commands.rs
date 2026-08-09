@@ -22,7 +22,7 @@
 use crate::proto::amux;
 
 /// `/share`, `/unshare` and `/export` are deliberately absent for opencode.
-/// They publish conversation content outside TeamClaw; surfacing them in a team
+/// They publish conversation content outside TeamClu; surfacing them in a team
 /// chat's command picker turns a mistyped slash into data egress. They still
 /// work if a user types them by hand — this table controls what we advertise,
 /// not what the agent accepts.
@@ -75,7 +75,7 @@ mod tests {
         for egress in ["share", "unshare", "export"] {
             assert!(
                 !names.contains(&egress.to_string()),
-                "{egress} publishes conversation content outside TeamClaw and must not be advertised",
+                "{egress} publishes conversation content outside TeamClu and must not be advertised",
             );
         }
     }

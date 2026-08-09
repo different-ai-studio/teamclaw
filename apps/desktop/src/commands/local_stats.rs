@@ -96,27 +96,27 @@ impl Default for StarRatings {
 
 fn get_stats_path(workspace_path: &str) -> PathBuf {
     PathBuf::from(workspace_path)
-        .join(super::TEAMCLAW_DIR)
+        .join(super::TEAMCLU_DIR)
         .join("stats.json")
 }
 
-fn ensure_teamclaw_dir(workspace_path: &str) -> Result<(), String> {
-    let teamclaw_dir = PathBuf::from(workspace_path).join(super::TEAMCLAW_DIR);
-    std::fs::create_dir_all(&teamclaw_dir)
-        .map_err(|e| format!("Failed to create {} directory: {}", super::TEAMCLAW_DIR, e))
+fn ensure_teamclu_dir(workspace_path: &str) -> Result<(), String> {
+    let teamclu_dir = PathBuf::from(workspace_path).join(super::TEAMCLU_DIR);
+    std::fs::create_dir_all(&teamclu_dir)
+        .map_err(|e| format!("Failed to create {} directory: {}", super::TEAMCLU_DIR, e))
 }
 
 // ─── Tauri Commands ──────────────────────────────────────────────────────
 
-/// Read local stats from .teamclaw/stats.json
+/// Read local stats from .teamclu/stats.json
 /// If the file doesn't exist, create it with default values
 #[tauri::command]
 pub async fn read_local_stats(workspace_path: String) -> Result<LocalStats, String> {
     let stats_path = get_stats_path(&workspace_path);
 
     if !stats_path.exists() {
-        // Create .teamclaw directory if it doesn't exist
-        ensure_teamclaw_dir(&workspace_path)?;
+        // Create .teamclu directory if it doesn't exist
+        ensure_teamclu_dir(&workspace_path)?;
 
         // Create default stats file
         let default_stats = LocalStats::default();
@@ -139,10 +139,10 @@ pub async fn read_local_stats(workspace_path: String) -> Result<LocalStats, Stri
     Ok(stats)
 }
 
-/// Write local stats to .teamclaw/stats.json
+/// Write local stats to .teamclu/stats.json
 #[tauri::command]
 pub async fn write_local_stats(workspace_path: String, stats: LocalStats) -> Result<(), String> {
-    ensure_teamclaw_dir(&workspace_path)?;
+    ensure_teamclu_dir(&workspace_path)?;
 
     let stats_path = get_stats_path(&workspace_path);
     let json = serde_json::to_string_pretty(&stats)

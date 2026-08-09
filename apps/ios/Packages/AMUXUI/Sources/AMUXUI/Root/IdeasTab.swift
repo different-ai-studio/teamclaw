@@ -4,7 +4,7 @@ import AMUXCore
 
 public struct IdeasTab: View {
     let pairing: PairingManager
-    let teamclawService: TeamclawService?
+    let teamcluService: TeamcluService?
     let activeTeam: TeamSummary?
     let mqtt: MQTTService
     let hub: MQTTMessageHub
@@ -34,7 +34,7 @@ public struct IdeasTab: View {
         mqtt: MQTTService,
         hub: MQTTMessageHub,
         pairing: PairingManager,
-        teamclawService: TeamclawService?,
+        teamcluService: TeamcluService?,
         activeTeam: TeamSummary?,
         sessionViewModel: SessionListViewModel,
         connectedAgentsStore: ConnectedAgentsStore? = nil,
@@ -47,7 +47,7 @@ public struct IdeasTab: View {
         self.mqtt = mqtt
         self.hub = hub
         self.pairing = pairing
-        self.teamclawService = teamclawService
+        self.teamcluService = teamcluService
         self.activeTeam = activeTeam
         self.sessionViewModel = sessionViewModel
         self.connectedAgentsStore = connectedAgentsStore
@@ -101,7 +101,7 @@ public struct IdeasTab: View {
                                 ideaID: ideaID,
                                 ideaStore: ideaStore,
                                 sessionViewModel: sessionViewModel,
-                                teamclawService: teamclawService,
+                                teamcluService: teamcluService,
                                 mqtt: mqtt,
                                 hub: hub,
                                 peerId: "ios-\(pairing.authToken.prefix(6))",
@@ -123,7 +123,7 @@ public struct IdeasTab: View {
                                 mqtt: mqtt,
                                 hub: hub,
                                 peerId: "ios-\(pairing.authToken.prefix(6))",
-                                teamclawService: teamclawService,
+                                teamcluService: teamcluService,
                                 connectedAgentsStore: connectedAgentsStore,
                                 messagesRepository: messagesRepository,
                                 workspacesRepository: workspacesRepository,

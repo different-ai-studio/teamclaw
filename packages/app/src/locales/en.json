@@ -1412,7 +1412,7 @@
       "inherent": "Built-in",
       "inherentCannotDelete": "Built-in server cannot be deleted",
       "inherentMCP": "Built-in MCP",
-      "managedByTeamClaw": "Managed by TeamClu",
+      "managedByTeamClu": "Managed by TeamClu",
       "teamMCP": "Team Shared MCP",
       "teamManagedHint": "Managed in team repo .mcp/",
       "team": "Team",
@@ -1486,7 +1486,7 @@
           "tip1": "Auto inject runs silently before each conversation without showing the retrieval process",
           "tip2": "The Agent can still manually call knowledge_search for deeper retrieval",
           "tip3": "Adjusting the similarity threshold controls injection accuracy: higher is more precise but may miss relevant content",
-          "tip4": "Configuration is saved in {{teamclawDir}}/rag-config.json and can be synced across devices",
+          "tip4": "Configuration is saved in {{teamcluDir}}/rag-config.json and can be synced across devices",
           "topK": "Top K"
         },
         "embedding": {
@@ -2157,7 +2157,7 @@
       "pendingLocalLink": "Pending local link",
       "cloudShareRequiredBeforeSync": "Team share is not locked on the cloud yet. Use Enable (Self-hosted Git) first — Sync Now cannot enable it.",
       "desktopOnly": "Team shared directory actions require the desktop app",
-      "disconnectDesc": "This will delete local team data ({{teamclawDir}} and {{teamRepoDir}} directories). This action cannot be undone.",
+      "disconnectDesc": "This will delete local team data ({{teamcluDir}} and {{teamRepoDir}} directories). This action cannot be undone.",
       "repoGuide": {
         "title": "How to set up a team repository",
         "intro": "A shared repository for your team to centrally manage Agent Skills, MCP configurations, and knowledge documents. Use the structure below so TeamClu can sync correctly.",
@@ -2296,7 +2296,7 @@
         "reloading": "Reloading…",
         "reloadRuntime": "Reload agent runtime",
         "personalStore": "Local encrypted store",
-        "personalStoreMissing": "Could not read personal vars from ~/.teamclaw/secrets; the agent will not see them.",
+        "personalStoreMissing": "Could not read personal vars from ~/.teamclu/secrets; the agent will not see them.",
         "personalCounts": "User vars / indexed entries",
         "personalIndex": "Workspace index cache",
         "personalIndexOk": "Aligned",
@@ -2579,7 +2579,7 @@
         "tipsTitle": "Common fixes",
         "tipRefresh": "Click Refresh to reload the skills list from disk.",
         "tipRestart": "Restart OpenCode after adding or editing skills.",
-        "tipPaths": "Verify teamclaw.json / opencode.json skills.paths point to existing directories.",
+        "tipPaths": "Verify teamclu.json / opencode.json skills.paths point to existing directories.",
         "tipDaemon": "Ensure amuxd is running if daemon inventory is missing."
       },
       "title": "Skills",
@@ -2616,7 +2616,7 @@
       "restartToApply": "Restart OpenCode to apply the new skill permission configuration.",
       "inherent": "Built-in",
       "inherentSkills": "Built-in Skills",
-      "managedByTeamClaw": "Managed by TeamClu",
+      "managedByTeamClu": "Managed by TeamClu",
       "inherentCannotDelete": "Built-in skills cannot be deleted",
       "workspaceSkills": "Workspace Skills",
       "globalSkills": "Global Skills",
@@ -3229,7 +3229,7 @@
   },
   "skills": {
     "builtinLabel": "Built-in",
-    "builtinPath": ".teamclaw/skills/ ({{app}} built-in)"
+    "builtinPath": ".teamclu/skills/ ({{app}} built-in)"
   },
   "daemon": {
     "agentRuntime": {

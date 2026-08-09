@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { AgentStatus } from "@/lib/proto/amux_pb";
-import type { Message as TeamclawMessage } from "@/lib/proto/teamclaw_pb";
+import type { Message as TeamcluMessage } from "@/lib/proto/teamclu_pb";
 import {
   buildInterruptedStreamAnchor,
   isAgentActiveStatus,
@@ -125,7 +125,7 @@ describe("live agent stream event helpers", () => {
     const pending = [
       { messageId: "m1", content: "CPU Top 3" },
       { messageId: "m2", content: "Memory Top 3" },
-    ] as TeamclawMessage[];
+    ] as TeamcluMessage[];
     expect(
       mergePendingAgentReplies(pending, {
         parts: [
@@ -141,7 +141,7 @@ describe("live agent stream event helpers", () => {
     const pending = [
       { messageId: "m1", content: "CPU Top 3" },
       { messageId: "m2", content: "Memory Top 3" },
-    ] as TeamclawMessage[];
+    ] as TeamcluMessage[];
     expect(mergePendingAgentReplies(pending)?.content).toBe(
       "CPU Top 3\n\nMemory Top 3",
     );
@@ -151,7 +151,7 @@ describe("live agent stream event helpers", () => {
     const stream =
       "好的，我整理了两种方案：\n\n**方案 A** 单文件。\n\n**方案 B** React。\n\n**我推荐方案 A**——够用。适合之后想再改、加点功能。你觉得呢？";
     const daemon = stream.replace("再改、", "再改改、");
-    const pending = [{ messageId: "m1", content: daemon }] as TeamclawMessage[];
+    const pending = [{ messageId: "m1", content: daemon }] as TeamcluMessage[];
     const merged = mergePendingAgentReplies(pending, {
       parts: [{ type: "text", text: stream }],
     });
@@ -163,7 +163,7 @@ describe("live agent stream event helpers", () => {
     const pending = [
       { messageId: "m1", content: "First part." },
       { messageId: "m2", content: "Second part." },
-    ] as TeamclawMessage[];
+    ] as TeamcluMessage[];
     expect(joinDistinctPendingReplyChunks(pending)).toBe(
       "First part.\n\nSecond part.",
     );
@@ -173,12 +173,12 @@ describe("live agent stream event helpers", () => {
     const pending = [
       { messageId: "m1", content: "" },
       { messageId: "m2", content: "   " },
-    ] as TeamclawMessage[];
+    ] as TeamcluMessage[];
     expect(mergePendingAgentReplies(pending)).toBeNull();
   });
 
   it("keeps tool-only turn anchors even when agent_reply content is empty", () => {
-    const pending = [{ messageId: "m1", content: "" }] as TeamclawMessage[];
+    const pending = [{ messageId: "m1", content: "" }] as TeamcluMessage[];
     const streamEntry = {
       outputText: "",
       thinkingText: "",

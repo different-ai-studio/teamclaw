@@ -11,7 +11,7 @@
 #     (SwiftPM resource bundle — symlinks aren't followed into the built bundle)
 #
 # Rust (daemon + desktop) reads the canonical directly via `include_str!` in
-# crates/teamclaw-types/src/services_defaults.rs, so no copy needed there.
+# crates/teamclu-types/src/services_defaults.rs, so no copy needed there.
 
 set -euo pipefail
 

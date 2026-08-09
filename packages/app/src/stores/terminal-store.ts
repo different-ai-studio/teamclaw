@@ -52,7 +52,7 @@ interface TerminalActions {
   recordCommandFinish(id: TerminalTabId, exitCode: number | null): void;
 }
 
-const HEIGHT_KEY = (ws: string) => `teamclaw.terminal.height.${ws}`;
+const HEIGHT_KEY = (ws: string) => `teamclu.terminal.height.${ws}`;
 const DEFAULT_HEIGHT = 240;
 
 function loadHeight(workspaceId: string): number {

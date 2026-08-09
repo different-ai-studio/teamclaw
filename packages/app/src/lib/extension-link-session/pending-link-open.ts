@@ -14,7 +14,7 @@ export type PendingLinkOpen = {
   source: 'link-hover'
 }
 
-export const PENDING_LINK_OPEN_KEY = 'teamclaw.pendingLinkOpen'
+export const PENDING_LINK_OPEN_KEY = 'teamclu.pendingLinkOpen'
 
 export function isPendingLinkOpenPayload(payload: unknown): payload is PendingLinkOpen {
   if (typeof payload !== 'object' || payload === null) return false

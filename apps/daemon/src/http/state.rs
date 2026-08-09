@@ -39,9 +39,9 @@ pub struct RegisterWorkspaceRequest {
 pub type RegisterWorkspaceTx = mpsc::Sender<RegisterWorkspaceRequest>;
 
 /// One local RPC dispatch (`POST /v1/rpc`) forwarded to the daemon actor
-/// loop. `payload` is the exact `teamclaw.RpcRequest` protobuf bytes a client
+/// loop. `payload` is the exact `teamclu.RpcRequest` protobuf bytes a client
 /// would otherwise publish to `amux/{team}/{actor}/rpc/req`; `reply_tx`
-/// carries back the encoded `teamclaw.RpcResponse` bytes (the same bytes the
+/// carries back the encoded `teamclu.RpcResponse` bytes (the same bytes the
 /// MQTT reply would carry) or a dispatch error string.
 pub struct LocalRpcRequest {
     pub payload: Vec<u8>,
@@ -52,7 +52,7 @@ pub struct LocalRpcRequest {
 pub type LocalRpcTx = mpsc::Sender<LocalRpcRequest>;
 
 /// One local session/live ingest (`POST /v1/session-live/ingest`) forwarded to
-/// the daemon actor loop. `payload` is the exact `teamclaw.LiveEventEnvelope`
+/// the daemon actor loop. `payload` is the exact `teamclu.LiveEventEnvelope`
 /// protobuf bytes a client would otherwise publish to
 /// `amux/{team}/session/{id}/live`; the actor runs the same
 /// `route_session_message` sink the MQTT path uses (message_id dedup included).

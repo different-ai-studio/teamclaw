@@ -3,7 +3,7 @@ import { fromBinary } from '@bufbuild/protobuf'
 import {
   LiveEventEnvelopeSchema,
   SessionMessageEnvelopeSchema,
-} from '@/lib/proto/teamclaw_pb'
+} from '@/lib/proto/teamclu_pb'
 
 const mocks = vi.hoisted(() => {
   const client = {
@@ -161,7 +161,7 @@ describe('session store daemon send path', () => {
     expect(mocks.client.createSession).not.toHaveBeenCalled()
   })
 
-  it('publishes TeamClaw UUID session messages through MQTT instead of opencode promptAsync', async () => {
+  it('publishes TeamClu UUID session messages through MQTT instead of opencode promptAsync', async () => {
     const { useSessionStore } = await import('../session-store')
 
     useSessionStore.setState({

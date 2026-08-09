@@ -148,7 +148,7 @@ public final class SessionDetailViewModel {
     // / `streamingTextByAgent` exactly as before.
     private var timelineState = TimelineState()
     /// User-visible transient error from the most recent send-prompt
-    /// attempt. Set by `sendPrompt` when `TeamclawService.sendMessage`
+    /// attempt. Set by `sendPrompt` when `TeamcluService.sendMessage`
     /// throws; auto-cleared after `errorMessageTTL` seconds. The UI binds
     /// to this for an inline banner so silent publish failures stop being
     /// invisible.
@@ -164,7 +164,7 @@ public final class SessionDetailViewModel {
     private let hub: MQTTMessageHub
     private let teamID: String
     private let peerId: String
-    private let teamclawService: TeamclawService?
+    private let teamcluService: TeamcluService?
     private let connectedAgentsStore: ConnectedAgentsStore?
     private let sessionsRepository: SessionRepository?
     private let messagesRepository: MessagesRepository?
@@ -199,7 +199,7 @@ public final class SessionDetailViewModel {
     public var hubRef: MQTTMessageHub { hub }
     public var peerIdRef: String { peerId }
     public var teamIDRef: String { teamID }
-    public var currentHumanActorIDRef: String? { teamclawService?.currentHumanActorId }
+    public var currentHumanActorIDRef: String? { teamcluService?.currentHumanActorId }
     /// Route actor id resolved from session/runtime context. Empty when
     /// no daemon mapping is available yet (e.g. ConnectedAgentsStore still
     /// loading and runtime row hasn't received state). Callers that need it
@@ -272,8 +272,8 @@ public final class SessionDetailViewModel {
 
     /// Background sender that drains queued OutboxMessage rows. Injected
     /// by the view layer once it has both the live ModelContainer and a
-    /// TeamclawService in scope. nil when this VM was constructed for a
-    /// runtime-only legacy path (no session, no Teamclaw) where the
+    /// TeamcluService in scope. nil when this VM was constructed for a
+    /// runtime-only legacy path (no session, no Teamclu) where the
     /// outbox isn't applicable.
     public var outboxSender: OutboxSender?
 
@@ -283,14 +283,14 @@ public final class SessionDetailViewModel {
                 teamID: String = "",
                 peerId: String,
                 session: Session? = nil,
-                teamclawService: TeamclawService? = nil,
+                teamcluService: TeamcluService? = nil,
                 connectedAgentsStore: ConnectedAgentsStore? = nil,
                 sessionsRepository: SessionRepository? = nil,
                 messagesRepository: MessagesRepository? = nil,
                 workspacesRepository: (any WorkspaceRepository)? = nil,
                 outboxSender: OutboxSender? = nil) {
         _ = runtime; self.mqtt = mqtt; self.hub = hub; self.teamID = teamID; self.peerId = peerId
-        self.session = session; self.teamclawService = teamclawService
+        self.session = session; self.teamcluService = teamcluService
         self.connectedAgentsStore = connectedAgentsStore
         self.sessionsRepository = sessionsRepository
         self.messagesRepository = messagesRepository
@@ -657,7 +657,7 @@ public final class SessionDetailViewModel {
         guard let snapshot = await loader.load(
             sessionID: session.sessionId,
             teamID: teamID,
-            currentHumanActorID: teamclawService?.currentHumanActorId ?? "",
+            currentHumanActorID: teamcluService?.currentHumanActorId ?? "",
             availableModelsForAgent: { actorID in modelsByActor[actorID] ?? [] }
         ) else {
             print("[SessionDetailVM] refreshMemberSheet: loader returned nil (no repo or fetch failed)")
@@ -961,8 +961,8 @@ public final class SessionDetailViewModel {
             )
         }
 
-        if let teamclawService {
-            let outcome = await teamclawService.runtimeStartRpc(
+        if let teamcluService {
+            let outcome = await teamcluService.runtimeStartRpc(
                 targetActorID: routeActor,
                 agentType: agentType,
                 workspaceId: workspaceID,
@@ -974,7 +974,7 @@ public final class SessionDetailViewModel {
                 print("[SessionDetailVM] addAgent: runtimeStart rejected: \(reason)")
             }
         } else {
-            print("[SessionDetailVM] addAgent: no teamclawService configured")
+            print("[SessionDetailVM] addAgent: no teamcluService configured")
         }
 
         await refreshMemberSheet()
@@ -1037,8 +1037,8 @@ public final class SessionDetailViewModel {
                 return
             }
 
-            guard let teamclawService = self.teamclawService else {
-                print("[SessionDetailVM] restartAgent: no teamclawService configured")
+            guard let teamcluService = self.teamcluService else {
+                print("[SessionDetailVM] restartAgent: no teamcluService configured")
                 return
             }
 
@@ -1046,7 +1046,7 @@ public final class SessionDetailViewModel {
             //    Start below will still do the right thing.
             if let runtimeID = self.attachmentAddress(forAgentActorID: actorID),
                !runtimeID.isEmpty {
-                let (ok, err) = await teamclawService.runtimeStopRpc(
+                let (ok, err) = await teamcluService.runtimeStopRpc(
                     targetActorID: routeActorID,
                     runtimeID: runtimeID
                 )
@@ -1071,7 +1071,7 @@ public final class SessionDetailViewModel {
 
             // 3. Spawn a new runtime in the same workspace + same agent type.
             let agentType = Self.amuxAgentType(forBackendType: row.backendType)
-            let outcome = await teamclawService.runtimeStartRpc(
+            let outcome = await teamcluService.runtimeStartRpc(
                 targetActorID: routeActorID,
                 agentType: agentType,
                 workspaceId: workspaceID,
@@ -1138,7 +1138,7 @@ public final class SessionDetailViewModel {
     public func setModel(forAgent actorID: String, model: String) {
         Task { [weak self] in
             guard let self,
-                  let teamclawService = self.teamclawService,
+                  let teamcluService = self.teamcluService,
                   let sessionID = self.session?.sessionId, !sessionID.isEmpty,
                   !actorID.isEmpty
             else {
@@ -1154,7 +1154,7 @@ public final class SessionDetailViewModel {
             // Apply optimistic update immediately so the UI reflects the choice
             // without waiting for the full RPC + refreshMemberSheet round-trip.
             let previousModel = self.applyOptimisticModelPatch(agentID: actorID, model: model)
-            let (ok, err) = await teamclawService.setModelRpc(
+            let (ok, err) = await teamcluService.setModelRpc(
                 targetActorID: routeActor,
                 runtimeID: address,
                 modelID: model)
@@ -1238,8 +1238,8 @@ public final class SessionDetailViewModel {
             // 1. Stop the agent's runtime (best-effort).
             if let routeActor, !routeActor.isEmpty,
                let runtimeID, !runtimeID.isEmpty,
-               let teamclawService = self.teamclawService {
-                let (ok, err) = await teamclawService.runtimeStopRpc(
+               let teamcluService = self.teamcluService {
+                let (ok, err) = await teamcluService.runtimeStopRpc(
                     targetActorID: routeActor, runtimeID: runtimeID)
                 if !ok {
                     print("[SessionDetailVM] removeAgent: runtimeStop failed: \(err)")
@@ -1251,8 +1251,8 @@ public final class SessionDetailViewModel {
             // 2. Best-effort daemon-side participant removal for cache
             //    invalidation + peer notify fanout.
             if let routeActor, !routeActor.isEmpty,
-               let teamclawService = self.teamclawService {
-                let (ok, err) = await teamclawService.removeParticipantRpc(
+               let teamcluService = self.teamcluService {
+                let (ok, err) = await teamcluService.removeParticipantRpc(
                     targetActorID: routeActor,
                     sessionID: sessionID,
                     actorID: actorID)
@@ -1576,14 +1576,14 @@ public final class SessionDetailViewModel {
 
                 for await msg in stream {
                     guard let self else { return }
-                    guard let live = try? Teamclaw_LiveEventEnvelope(serializedBytes: msg.payload)
+                    guard let live = try? Teamclu_LiveEventEnvelope(serializedBytes: msg.payload)
                     else { continue }
 
                     if live.eventType == "acp.event",
                        let envelope = try? Amux_Envelope(serializedBytes: live.body) {
                         handleEnvelope(envelope, modelContext: modelContext)
                     } else if live.eventType.hasPrefix("message."),
-                              let msgEnv = try? Teamclaw_SessionMessageEnvelope(serializedBytes: live.body),
+                              let msgEnv = try? Teamclu_SessionMessageEnvelope(serializedBytes: live.body),
                               msgEnv.hasMessage {
                         // Other collaborators' chat messages — convert to a
                         // user_prompt AgentEvent so EventFeedView renders
@@ -1766,13 +1766,13 @@ public final class SessionDetailViewModel {
     /// human actor catches the common case; a content+type fallback covers
     /// older actors that haven't resolved currentHumanActorId yet, and
     /// re-arrivals during reconnect.
-    private func handleIncomingChatMessage(_ message: Teamclaw_Message, modelContext: ModelContext) {
+    private func handleIncomingChatMessage(_ message: Teamclu_Message, modelContext: ModelContext) {
         // Pre-filters: only render text messages, and drop our own
         // loopbacks + content-equal duplicates before feeding the
         // reducer so its identity-dedup doesn't conflate a fresh
         // message with a re-arrival under a different messageID.
         guard message.kind == .text else { return }
-        let myActorID = teamclawService?.currentHumanActorId ?? ""
+        let myActorID = teamcluService?.currentHumanActorId ?? ""
         if !myActorID.isEmpty, message.senderActorID == myActorID { return }
         let content = message.content
         if events.contains(where: {
@@ -2231,7 +2231,7 @@ public final class SessionDetailViewModel {
         try await sender.send(
             runtimeID: route.address,
             actorID: route.actorID,
-            currentHumanActorID: teamclawService?.currentHumanActorId,
+            currentHumanActorID: teamcluService?.currentHumanActorId,
             makeCommand: { $0.command = .requestTurnHistory(req) }
         )
     }
@@ -2250,7 +2250,7 @@ public final class SessionDetailViewModel {
             try await sender.send(
                 runtimeID: route.address,
                 actorID: route.actorID,
-                currentHumanActorID: teamclawService?.currentHumanActorId,
+                currentHumanActorID: teamcluService?.currentHumanActorId,
                 makeCommand: makeCommand
             )
         } catch let error as SendCommandError {
@@ -2279,7 +2279,7 @@ public final class SessionDetailViewModel {
     }
 
     public func sendPrompt(_ text: String, modelId: String? = nil, attachmentURLs: [URL] = [], modelContext: ModelContext? = nil) async throws {
-        if let session, let teamclawService {
+        if let session, let teamcluService {
             // Session-backed chats use the session live stream as the
             // canonical messaging channel so other collaborators see the
             // user's prompt too. The daemon subscribes to session/{sid}/live
@@ -2309,7 +2309,7 @@ public final class SessionDetailViewModel {
                 let dirty = applyTimelineInput(
                     .localPrompt(LocalPromptInput(
                         clientID: messageID,
-                        senderActorID: teamclawService.currentHumanActorId ?? "",
+                        senderActorID: teamcluService.currentHumanActorId ?? "",
                         content: body,
                         createdAt: .now
                     )),
@@ -2332,7 +2332,7 @@ public final class SessionDetailViewModel {
                 await outboxSender.enqueue(
                     messageID: messageID,
                     sessionID: session.sessionId,
-                    senderActorID: teamclawService.currentHumanActorId ?? "",
+                    senderActorID: teamcluService.currentHumanActorId ?? "",
                     content: body,
                     mentionActorIDs: mentionIDs,
                     modelID: modelId,
@@ -2346,7 +2346,7 @@ public final class SessionDetailViewModel {
             // construct an OutboxSender so this branch is exercised
             // primarily by unit tests / earlier-API callers.
             do {
-                _ = try await teamclawService.sendMessage(
+                _ = try await teamcluService.sendMessage(
                     sessionId: session.sessionId,
                     content: body,
                     modelId: modelId,
@@ -2899,7 +2899,7 @@ extension SessionDetailViewModel {
     /// single retained container prevents the "model instance was destroyed"
     /// crash that occurred when a locally-scoped container was released before
     /// test assertions could read back inserted objects from `vm.events`.
-    public func _test_handleIncomingChatMessage(_ message: Teamclaw_Message) {
+    public func _test_handleIncomingChatMessage(_ message: Teamclu_Message) {
         let container: ModelContainer
         if let existing = Self._testStorage.object(forKey: self) {
             container = existing

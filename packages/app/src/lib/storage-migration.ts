@@ -1,11 +1,11 @@
 import { appStoragePrefix, isOfficialBrand, appShortName } from '@/lib/build-config'
 
-const MIGRATION_MARKER = 'teamclaw-localstorage-namespace-v1'
+const MIGRATION_MARKER = 'teamclu-localstorage-namespace-v1'
 
-const LEGACY_OFFICIAL_PREFIXES = ['teamclawdev']
+const LEGACY_OFFICIAL_PREFIXES = ['teamcludev']
 
 /**
- * One-shot migration: `teamclawdev-*` localStorage keys → `teamclaw-*` for
+ * One-shot migration: `teamcludev-*` localStorage keys → `teamclu-*` for
  * official builds (Decision 1 = B). Idempotent.
  */
 export function migrateOfficialLocalStorage(): void {

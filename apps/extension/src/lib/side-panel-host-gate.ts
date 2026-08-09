@@ -11,7 +11,7 @@ import {
   parseSidePanelDomainPatterns,
   SIDE_PANEL_HOST_GATE_STORAGE_KEY,
   type SidePanelHostGateSnapshot,
-} from '@teamclaw/side-panel-host-allowlist'
+} from '@teamclu/side-panel-host-allowlist'
 
 declare const __SIDE_PANEL_DOMAINS__: string
 

@@ -19,7 +19,7 @@ type Node = {
   children?: Node[];
 };
 
-const TEAM = "/workspace/teamclaw-team";
+const TEAM = "/workspace/teamclu-team";
 const KNOWLEDGE = `${TEAM}/knowledge`;
 
 /** A directory listing as the backend returns it: no children on any entry. */
@@ -42,7 +42,7 @@ describe("workspace expandDirectory", () => {
     vi.clearAllMocks();
     useWorkspaceStore.setState({
       workspacePath: "/workspace",
-      fileTree: listing(["teamclaw-team", TEAM, "directory"]),
+      fileTree: listing(["teamclu-team", TEAM, "directory"]),
       expandedPaths: new Set<string>(),
       loadingPaths: new Set<string>(),
     });

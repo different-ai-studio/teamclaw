@@ -3,7 +3,7 @@ use std::collections::HashSet;
 use std::path::{Path, PathBuf};
 use tracing::{info, warn};
 
-use teamclaw_runtime_env::team_crypto::{self, EncryptedEnvelope};
+use teamclu_runtime_env::team_crypto::{self, EncryptedEnvelope};
 
 #[derive(Debug, Clone, Default)]
 pub struct TeamEnvLoadDiagnostics {
@@ -38,7 +38,7 @@ pub fn normalize_env_map(input: HashMap<String, String>) -> HashMap<String, Stri
     out
 }
 
-/// Resolve `_secrets/` for a workspace: prefer `teamclaw-team` (global link),
+/// Resolve `_secrets/` for a workspace: prefer `teamclu-team` (global link),
 /// then configured `sharedDirName`.
 pub fn resolve_team_secrets_dir(
     workspace_root: &Path,
@@ -73,7 +73,7 @@ pub fn team_secrets_dir_candidates(
         push(crate::config::global_team_store::global_team_dir(team_id).join("_secrets"));
     }
 
-    for path in teamclaw_runtime_env::env_catalog::team_secrets_dir_candidates_workspace(
+    for path in teamclu_runtime_env::env_catalog::team_secrets_dir_candidates_workspace(
         workspace_root,
         shared_dir_name,
     ) {
@@ -98,7 +98,7 @@ pub fn team_secrets_dir_candidates(
 }
 
 fn read_team_json_shared_dir_name(workspace_root: &Path) -> String {
-    teamclaw_runtime_env::team_provider::resolve_shared_dir_name(workspace_root)
+    teamclu_runtime_env::team_provider::resolve_shared_dir_name(workspace_root)
 }
 
 pub fn load_team_env_from_secrets_dir(
@@ -198,7 +198,7 @@ pub fn load_team_env(
 ///
 /// The daemon's store wins because it is the only source a standalone install
 /// can be handed one (`amuxd team secrets set`, or the desktop's
-/// `POST /v1/team/secrets`). The workspace `teamclaw.json` and the desktop's
+/// `POST /v1/team/secrets`). The workspace `teamclu.json` and the desktop's
 /// `_team_secret.{team_id}` blob remain as fallbacks so installs predating
 /// daemon-side custody keep decrypting untouched.
 fn resolve_env_secret(workspace_root: &Path, team_id: Option<&str>) -> Option<String> {
@@ -221,8 +221,8 @@ fn resolve_env_secret_with(
             return Some(secret);
         }
     }
-    let brand = teamclaw_runtime_env::brand_short_name_from_env();
-    teamclaw_runtime_env::env_catalog::resolve_team_env_secret(
+    let brand = teamclu_runtime_env::brand_short_name_from_env();
+    teamclu_runtime_env::env_catalog::resolve_team_env_secret(
         workspace_root,
         team_id,
         Some(brand.as_str()),
@@ -231,9 +231,9 @@ fn resolve_env_secret_with(
 
 /// Load decrypted team shared env for a workspace.
 ///
-/// Does not require `team.enabled` in `teamclaw.json`. Git-backed teams usually
-/// keep secrets under `{sharedDirName}/_secrets` (default UI: `teamclaw/_secrets`);
-/// global `teamclaw-team` symlink and `_team_secret.{team_id}` blob are fallbacks.
+/// Does not require `team.enabled` in `teamclu.json`. Git-backed teams usually
+/// keep secrets under `{sharedDirName}/_secrets` (default UI: `teamclu/_secrets`);
+/// global `teamclu-team` symlink and `_team_secret.{team_id}` blob are fallbacks.
 pub fn load_team_env_for_workspace(
     workspace_root: &Path,
     team_id: Option<&str>,
@@ -304,7 +304,7 @@ pub fn load_team_env_for_workspace_detailed(
 mod tests {
     use super::*;
     use crate::sync::secret_store::{SecretStore, TeamSecrets};
-    use teamclaw_runtime_env::team_crypto::SecretEntry;
+    use teamclu_runtime_env::team_crypto::SecretEntry;
 
     fn store_with_secret(base: &Path, team_id: &str, secret: &str) -> SecretStore {
         let store = SecretStore::with_base(base.to_path_buf());
@@ -334,15 +334,15 @@ mod tests {
     }
 
     /// The daemon's own copy is the system of record, so it outranks a stale
-    /// `team.envSecret` left in a workspace's teamclaw.json.
+    /// `team.envSecret` left in a workspace's teamclu.json.
     #[test]
-    fn daemon_store_wins_over_workspace_teamclaw_json() {
+    fn daemon_store_wins_over_workspace_teamclu_json() {
         let tmp = tempfile::tempdir().unwrap();
         let home = tempfile::tempdir().unwrap();
-        let config_dir = tmp.path().join(".teamclaw");
+        let config_dir = tmp.path().join(".teamclu");
         std::fs::create_dir_all(&config_dir).unwrap();
         std::fs::write(
-            config_dir.join("teamclaw.json"),
+            config_dir.join("teamclu.json"),
             serde_json::json!({ "team": { "envSecret": "11".repeat(32) } }).to_string(),
         )
         .unwrap();
@@ -353,16 +353,16 @@ mod tests {
     }
 
     /// Compat: an install that predates daemon-side custody has an empty store
-    /// and must keep decrypting from teamclaw.json.
+    /// and must keep decrypting from teamclu.json.
     #[test]
-    fn falls_back_to_teamclaw_json_when_store_is_empty() {
+    fn falls_back_to_teamclu_json_when_store_is_empty() {
         let tmp = tempfile::tempdir().unwrap();
         let home = tempfile::tempdir().unwrap();
         let secret = "33".repeat(32);
-        let config_dir = tmp.path().join(".teamclaw");
+        let config_dir = tmp.path().join(".teamclu");
         std::fs::create_dir_all(&config_dir).unwrap();
         std::fs::write(
-            config_dir.join("teamclaw.json"),
+            config_dir.join("teamclu.json"),
             serde_json::json!({ "team": { "envSecret": secret } }).to_string(),
         )
         .unwrap();
@@ -420,7 +420,7 @@ mod tests {
     #[test]
     fn missing_secrets_dir_returns_empty_env() {
         let tmp = tempfile::tempdir().unwrap();
-        let env = load_team_env(tmp.path(), "teamclaw", &"00".repeat(32)).unwrap();
+        let env = load_team_env(tmp.path(), "teamclu", &"00".repeat(32)).unwrap();
         assert!(env.is_empty());
     }
 
@@ -432,41 +432,41 @@ mod tests {
     }
 
     #[test]
-    fn resolve_team_secrets_dir_prefers_teamclaw_team_link() {
+    fn resolve_team_secrets_dir_prefers_teamclu_team_link() {
         let tmp = tempfile::tempdir().unwrap();
-        let secrets_dir = tmp.path().join("teamclaw-team").join("_secrets");
+        let secrets_dir = tmp.path().join("teamclu-team").join("_secrets");
         std::fs::create_dir_all(&secrets_dir).unwrap();
         std::fs::write(secrets_dir.join("marker"), b"").unwrap();
 
-        let resolved = resolve_team_secrets_dir(tmp.path(), None, "teamclaw");
+        let resolved = resolve_team_secrets_dir(tmp.path(), None, "teamclu");
         assert_eq!(resolved, secrets_dir);
     }
 
     #[test]
-    fn team_secrets_dir_candidates_includes_legacy_teamclaw_path() {
+    fn team_secrets_dir_candidates_includes_legacy_teamclu_path() {
         let tmp = tempfile::tempdir().unwrap();
-        let legacy = tmp.path().join("teamclaw").join("_secrets");
+        let legacy = tmp.path().join("teamclu").join("_secrets");
         std::fs::create_dir_all(&legacy).unwrap();
 
-        let dirs = team_secrets_dir_candidates(tmp.path(), None, "teamclaw-team");
+        let dirs = team_secrets_dir_candidates(tmp.path(), None, "teamclu-team");
         assert!(dirs.contains(&legacy));
     }
 
     #[test]
-    fn load_team_env_for_workspace_reads_legacy_teamclaw_dir() {
+    fn load_team_env_for_workspace_reads_legacy_teamclu_dir() {
         let tmp = tempfile::tempdir().unwrap();
         let env_secret = "33".repeat(32);
-        let config_dir = tmp.path().join(".teamclaw");
+        let config_dir = tmp.path().join(".teamclu");
         std::fs::create_dir_all(&config_dir).unwrap();
         std::fs::write(
-            config_dir.join("teamclaw.json"),
+            config_dir.join("teamclu.json"),
             serde_json::json!({
                 "team": { "envSecret": env_secret }
             })
             .to_string(),
         )
         .unwrap();
-        let secrets_dir = tmp.path().join("teamclaw").join("_secrets");
+        let secrets_dir = tmp.path().join("teamclu").join("_secrets");
         std::fs::create_dir_all(&secrets_dir).unwrap();
         std::fs::write(
             secrets_dir.join("s3_bucket.enc.json"),
@@ -481,22 +481,22 @@ mod tests {
     #[test]
     fn load_team_env_for_workspace_reads_git_shared_dir_name() {
         let tmp = tempfile::tempdir().unwrap();
-        let config_dir = tmp.path().join(".teamclaw");
+        let config_dir = tmp.path().join(".teamclu");
         std::fs::create_dir_all(&config_dir).unwrap();
         let env_secret = "44".repeat(32);
         std::fs::write(
-            config_dir.join("teamclaw.json"),
+            config_dir.join("teamclu.json"),
             serde_json::json!({
                 "team": {
                     "gitUrl": "https://example.com/team.git",
-                    "sharedDirName": "teamclaw",
+                    "sharedDirName": "teamclu",
                     "envSecret": env_secret
                 }
             })
             .to_string(),
         )
         .unwrap();
-        let secrets_dir = tmp.path().join("teamclaw").join("_secrets");
+        let secrets_dir = tmp.path().join("teamclu").join("_secrets");
         std::fs::create_dir_all(&secrets_dir).unwrap();
         std::fs::write(
             secrets_dir.join("git_team_key.enc.json"),
@@ -509,13 +509,13 @@ mod tests {
     }
 
     #[test]
-    fn load_team_env_for_workspace_reads_teamclaw_team_without_git_url() {
+    fn load_team_env_for_workspace_reads_teamclu_team_without_git_url() {
         let tmp = tempfile::tempdir().unwrap();
-        let config_dir = tmp.path().join(".teamclaw");
+        let config_dir = tmp.path().join(".teamclu");
         std::fs::create_dir_all(&config_dir).unwrap();
         let env_secret = "22".repeat(32);
         std::fs::write(
-            config_dir.join("teamclaw.json"),
+            config_dir.join("teamclu.json"),
             serde_json::json!({
                 "team": {
                     "enabled": true,
@@ -525,7 +525,7 @@ mod tests {
             .to_string(),
         )
         .unwrap();
-        let secrets_dir = tmp.path().join("teamclaw-team").join("_secrets");
+        let secrets_dir = tmp.path().join("teamclu-team").join("_secrets");
         std::fs::create_dir_all(&secrets_dir).unwrap();
         std::fs::write(
             secrets_dir.join("log_search_site.enc.json"),
@@ -543,7 +543,7 @@ mod tests {
     #[test]
     fn malformed_secret_files_do_not_suppress_valid_env() {
         let tmp = tempfile::tempdir().unwrap();
-        let secrets_dir = tmp.path().join("teamclaw").join("_secrets");
+        let secrets_dir = tmp.path().join("teamclu").join("_secrets");
         std::fs::create_dir_all(&secrets_dir).unwrap();
         std::fs::write(secrets_dir.join("bad.enc.json"), "{not json").unwrap();
 
@@ -554,14 +554,14 @@ mod tests {
         )
         .unwrap();
 
-        let env = load_team_env(tmp.path(), "teamclaw", &env_secret).unwrap();
+        let env = load_team_env(tmp.path(), "teamclu", &env_secret).unwrap();
         assert_eq!(env.get("SHARED_TOKEN").unwrap(), "secret");
     }
 
     #[test]
     fn wrong_team_secret_never_injects_an_encrypted_value() {
         let tmp = tempfile::tempdir().unwrap();
-        let secrets_dir = tmp.path().join("teamclaw").join("_secrets");
+        let secrets_dir = tmp.path().join("teamclu").join("_secrets");
         std::fs::create_dir_all(&secrets_dir).unwrap();
         let writer_secret = "66".repeat(32);
         std::fs::write(
@@ -570,7 +570,7 @@ mod tests {
         )
         .unwrap();
 
-        let env = load_team_env(tmp.path(), "teamclaw", &"77".repeat(32)).unwrap();
+        let env = load_team_env(tmp.path(), "teamclu", &"77".repeat(32)).unwrap();
 
         assert!(env.is_empty(), "a key mismatch must fail closed");
 
@@ -596,7 +596,7 @@ mod tests {
             resolve_env_secret_with(&restarted_store, workspace.path(), Some(team_id))
                 .expect("daemon secret must persist across restart");
 
-        let secrets_dir = workspace.path().join("teamclaw-team").join("_secrets");
+        let secrets_dir = workspace.path().join("teamclu-team").join("_secrets");
         std::fs::create_dir_all(&secrets_dir).unwrap();
         std::fs::write(
             secrets_dir.join("restart_token.enc.json"),
@@ -615,13 +615,13 @@ mod tests {
     fn load_team_env_for_workspace_merges_all_candidate_dirs() {
         let tmp = tempfile::tempdir().unwrap();
         let env_secret = "55".repeat(32);
-        let config_dir = tmp.path().join(".teamclaw");
+        let config_dir = tmp.path().join(".teamclu");
         std::fs::create_dir_all(&config_dir).unwrap();
         std::fs::write(
-            config_dir.join("teamclaw.json"),
+            config_dir.join("teamclu.json"),
             serde_json::json!({
                 "team": {
-                    "sharedDirName": "teamclaw-team",
+                    "sharedDirName": "teamclu-team",
                     "envSecret": env_secret
                 }
             })
@@ -629,7 +629,7 @@ mod tests {
         )
         .unwrap();
 
-        let global_like = tmp.path().join("teamclaw-team").join("_secrets");
+        let global_like = tmp.path().join("teamclu-team").join("_secrets");
         std::fs::create_dir_all(&global_like).unwrap();
         std::fs::write(
             global_like.join("from_global.enc.json"),
@@ -637,7 +637,7 @@ mod tests {
         )
         .unwrap();
 
-        let legacy = tmp.path().join("teamclaw").join("_secrets");
+        let legacy = tmp.path().join("teamclu").join("_secrets");
         std::fs::create_dir_all(&legacy).unwrap();
         std::fs::write(
             legacy.join("from_local.enc.json"),
@@ -668,7 +668,7 @@ mod tests {
         // tc_api_key is derived locally at env-assembly time, never sourced from
         // team `_secrets`, so any stale copy on disk must be ignored here.
         let tmp = tempfile::tempdir().unwrap();
-        let secrets_dir = tmp.path().join("teamclaw").join("_secrets");
+        let secrets_dir = tmp.path().join("teamclu").join("_secrets");
         std::fs::create_dir_all(&secrets_dir).unwrap();
 
         let env_secret = "22".repeat(32);
@@ -683,7 +683,7 @@ mod tests {
         )
         .unwrap();
 
-        let env = load_team_env(tmp.path(), "teamclaw", &env_secret).unwrap();
+        let env = load_team_env(tmp.path(), "teamclu", &env_secret).unwrap();
         assert!(!env.contains_key("tc_api_key"));
         assert!(!env.contains_key("TC_API_KEY"));
         assert_eq!(env.get("SHARED_TOKEN").unwrap(), "keep-me");

@@ -1,13 +1,13 @@
 import * as React from 'react'
 import { resolveAgentDevicePresenceSync } from '@/lib/agent-device-reachability'
-import { ensureAgentRuntimesForSession } from '@/lib/teamclaw/ensure-agent-runtime'
+import { ensureAgentRuntimesForSession } from '@/lib/teamclu/ensure-agent-runtime'
 import type { EngagedAgentUiEntry } from '@/hooks/use-engaged-agent-ui-states'
 import {
   agentHasLiveRuntimeForSessionBinding,
   shouldSkipAlreadyReadyRuntimeEnsure,
   shouldSkipThrottledRuntimeEnsure,
   resetRuntimeEnsureThrottle,
-} from '@/lib/teamclaw/runtime-ensure-scheduler'
+} from '@/lib/teamclu/runtime-ensure-scheduler'
 import { useActorPresenceStore } from '@/stores/actor-presence-store'
 
 function isDeviceOfflineForWake(agentId: string): boolean {

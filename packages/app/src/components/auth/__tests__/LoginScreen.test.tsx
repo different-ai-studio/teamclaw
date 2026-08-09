@@ -35,8 +35,8 @@ vi.mock("@/lib/version", () => ({
 }));
 
 vi.mock("@/lib/build-config", () => ({
-  buildConfig: { app: { name: "TeamClaw" } },
-  appDisplayName: "TeamClaw",
+  buildConfig: { app: { name: "TeamClu" } },
+  appDisplayName: "TeamClu",
 }));
 
 import { LoginScreen } from "../LoginScreen";

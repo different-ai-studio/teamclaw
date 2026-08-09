@@ -11,11 +11,11 @@ interface ImportMetaEnv {
   readonly VITE_MQTT_USERNAME?: string;
   readonly VITE_MQTT_PASSWORD?: string;
   /** Set by scripts/tauri-cli.js for `pnpm tauri:dev -- --skip-setup`. */
-  readonly VITE_TEAMCLAW_SKIP_SETUP?: string;
+  readonly VITE_TEAMCLU_SKIP_SETUP?: string;
   /** Set by scripts/tauri-cli.js for `pnpm tauri:dev -- --skip-daemon-onboarding`. */
-  readonly VITE_TEAMCLAW_SKIP_DAEMON_ONBOARDING?: string;
-  /** E2E build: installs the window.__TEAMCLAW_V2_E2E__ control surface. */
-  readonly VITE_TEAMCLAW_E2E?: string;
+  readonly VITE_TEAMCLU_SKIP_DAEMON_ONBOARDING?: string;
+  /** E2E build: installs the window.__TEAMCLU_V2_E2E__ control surface. */
+  readonly VITE_TEAMCLU_E2E?: string;
   /** Extension embed build: force chat-only shell (apps/extension/build.mjs). */
   readonly VITE_FORCE_EMBED?: string;
 }
@@ -26,7 +26,7 @@ interface ImportMeta {
 
 declare const __BUILD_CONFIG__: import('./lib/build-config').BuildConfig | undefined
 /** Baked `extensions.settings` from build.config*.json (Vite + extension content-script). */
-declare const __TEAMCLAW_EXTENSION_SETTINGS__: unknown | undefined
+declare const __TEAMCLU_EXTENSION_SETTINGS__: unknown | undefined
 
 declare module '*.css' {
   const content: string

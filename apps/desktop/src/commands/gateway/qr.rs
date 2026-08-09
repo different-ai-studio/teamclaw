@@ -19,8 +19,8 @@ use tokio::net::UnixStream;
 
 use serde::{Deserialize, Serialize};
 
-use teamclaw_gateway::wechat_config::{WeChatQrLoginResponse, WeChatQrStatusResponse};
-use teamclaw_gateway::wecom_config::{WeComQrAuthPollResult, WeComQrAuthStart};
+use teamclu_gateway::wechat_config::{WeChatQrLoginResponse, WeChatQrStatusResponse};
+use teamclu_gateway::wecom_config::{WeComQrAuthPollResult, WeComQrAuthStart};
 
 use super::sock_path;
 

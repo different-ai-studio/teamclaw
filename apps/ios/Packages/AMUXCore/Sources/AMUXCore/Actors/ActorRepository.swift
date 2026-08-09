@@ -38,12 +38,12 @@ public struct InviteCreated: Equatable, Sendable {
     public init(token: String, expiresAt: Date, deeplink: String) {
         self.token = token
         self.expiresAt = expiresAt
-        self.deeplink = Self.teamclawDeeplink(from: deeplink)
+        self.deeplink = Self.teamcluDeeplink(from: deeplink)
     }
 
-    private static func teamclawDeeplink(from deeplink: String) -> String {
+    private static func teamcluDeeplink(from deeplink: String) -> String {
         guard deeplink.hasPrefix("amux://") else { return deeplink }
-        return "teamclaw://" + deeplink.dropFirst("amux://".count)
+        return "teamclu://" + deeplink.dropFirst("amux://".count)
     }
 }
 
@@ -97,7 +97,7 @@ public enum ActorRepositoryError: LocalizedError {
 
 /// Result of graduating the account out of the shared default org (org name +
 /// contact -> own org, team reparented + renamed). See
-/// docs/specs/2026-06-17-teamclaw-phone-login-and-tenancy.md §8.
+/// docs/specs/2026-06-17-teamclu-phone-login-and-tenancy.md §8.
 public struct OrgUpgradeResult: Sendable {
     public let orgID: String
     public let teamID: String

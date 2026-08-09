@@ -59,7 +59,7 @@ vi.mock('@/lib/roles/loader', () => ({
   loadAllRoles: (...args: unknown[]) => mocks.loadAllRoles(...args),
 }))
 
-vi.mock('@/lib/teamclaw-config', () => ({
+vi.mock('@/lib/teamclu-config', () => ({
   resolveSkillPermission: () => ({ permission: 'allow', isExact: false }),
 }))
 
@@ -224,7 +224,7 @@ describe('CommandPopover', () => {
           description: 'Investigate accounting errors',
           content: '---\nname: accounting-error-investigator\n---\n',
           source: 'team',
-          dirPath: '/workspace/demo/teamclaw-team/skills',
+          dirPath: '/workspace/demo/teamclu-team/skills',
           linkedRoles: [],
           isRoleSkill: false,
         },

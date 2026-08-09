@@ -4,7 +4,7 @@
 //! than running git/OSS itself. `POST /v1/team/sync` kicks a sync for the
 //! workspace's onboarded team; `GET /v1/team/sync/status` reads the cached last
 //! status. The daemon is single-team, so the team_id is resolved from
-//! `daemon.toml` (teamclaw.json carries no team_id) — same lookup as
+//! `daemon.toml` (teamclu.json carries no team_id) — same lookup as
 //! `/v1/team/link`.
 use axum::extract::{Query, State};
 use axum::Json;
@@ -647,7 +647,7 @@ pub async fn list_changed(
 }
 
 /// Resolve the team_id for a workspace from the daemon's onboarded team
-/// (teamclaw.json carries no team_id; daemon.toml does — same as /v1/team/link).
+/// (teamclu.json carries no team_id; daemon.toml does — same as /v1/team/link).
 fn team_id_for_workspace(_workspace_path: &str) -> Result<String, HttpError> {
     let config = crate::config::DaemonConfig::load(&crate::config::DaemonConfig::default_path())
         .map_err(|e| HttpError::internal(format!("load daemon config: {e}")))?;

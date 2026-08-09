@@ -5,7 +5,7 @@ import { isTauri } from '@/lib/utils'
 import { useCurrentTeamStore } from '@/stores/current-team'
 
 // Single source of truth for the active team id: the current-team store
-// (backed by the Cloud API), NOT a local teamclaw.json field. OSS sync commands
+// (backed by the Cloud API), NOT a local teamclu.json field. OSS sync commands
 // now take teamId explicitly so it can never drift from the active team.
 function activeTeamId(): string | null {
   return useCurrentTeamStore.getState().team?.id ?? null
@@ -232,7 +232,7 @@ export const useOssSyncStore = create<OssSyncState>((set, get) => ({
   },
 }))
 
-// JWT bridge note: pushing the FC token into teamclaw.json used to live here,
+// JWT bridge note: pushing the FC token into teamclu.json used to live here,
 // then moved to `@/lib/jwt-bridge`. The daemon now self-supplies its FC JWT, so
 // that bridge is a no-op (see jwt-bridge.ts).
 

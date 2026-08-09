@@ -41,7 +41,7 @@ test("resolveExtensionPack unions both spellings and dedupes", () => {
 });
 
 test("resolveExtensionPack yields no domains when neither block is present", () => {
-  const pack = resolveExtensionPack({ app: { name: "TeamClaw" } });
+  const pack = resolveExtensionPack({ app: { name: "TeamClu" } });
   assert.deepStrictEqual(pack.domains, []);
   assert.strictEqual(pack.solo, false);
 });
@@ -144,7 +144,7 @@ test("every prune exception is genuinely dead — its export is never imported",
 
 // Regression: packages/app/.env.web pins VITE_CLOUD_API_URL, and
 // server-config.ts lets the env var win over buildConfig.cloudApiUrl, so every
-// branded package shipped talking to the TeamClaw backend regardless of the
+// branded package shipped talking to the TeamClu backend regardless of the
 // backend its brand declared. The build now reads the brand config here and
 // passes it to vite as a real env var, which outranks .env.* files.
 test("resolveExtensionBackend reads the brand's cloudApiUrl", () => {

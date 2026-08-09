@@ -8,7 +8,7 @@
 
 ## 总览
 
-把 amuxd / teamclaw-introspect 从「拷到 `~/.amuxd/bin` + install-service」改为「桌面持有 sidecar 子进程，Exit 时 stop」。
+把 amuxd / teamclu-introspect 从「拷到 `~/.amuxd/bin` + install-service」改为「桌面持有 sidecar 子进程，Exit 时 stop」。
 
 ```text
 P0  验证 start 前台语义 + AmuxdSupervisor + Exit stop + 卸旧服务
@@ -35,7 +35,7 @@ P2  删升级拷贝；文案与文档；可选清旧 bin/
 - [ ] `AppState` 持有：`child`、`started_at`、锁。
 - [ ] `ensure_started(app)`：
   - 已有 child 且未退出且 HTTP healthy → ok
-  - 否则：先 `stop_stale_external()`（见下），再 `shell().sidecar("amuxd").args(["start" | "--foreground"]).env(TEAMCLAW_INTROSPECT_BIN, …).spawn()`
+  - 否则：先 `stop_stale_external()`（见下），再 `shell().sidecar("amuxd").args(["start" | "--foreground"]).env(TEAMCLU_INTROSPECT_BIN, …).spawn()`
   - 轮询 `amuxd.http.port` + healthz（超时 ~20s）
 - [ ] `shutdown()`：sidecar `stop` 或 SIGTERM → `wait_for_amuxd_stopped(5s)` → kill child
 - [ ] `restart()`：shutdown + ensure_started
@@ -68,12 +68,12 @@ P2  删升级拷贝；文案与文档；可选清旧 bin/
 
 ### 5. Daemon 解析 introspect
 
-- [ ] `resolve_introspect_binary()`（`apps/daemon/src/runtime/supervisor.rs`）：**优先** `std::env::var("TEAMCLAW_INTROSPECT_BIN")`，再 PATH / `~/.amuxd/bin` / bundle 搜索
+- [ ] `resolve_introspect_binary()`（`apps/daemon/src/runtime/supervisor.rs`）：**优先** `std::env::var("TEAMCLU_INTROSPECT_BIN")`，再 PATH / `~/.amuxd/bin` / bundle 搜索
 - [ ] 单测：env 优先
 
 ### 6. 桌面 spawn 时注入
 
-- [ ] 用 `locate_bundled_introspect()`（已有）得到绝对路径，设 `TEAMCLAW_INTROSPECT_BIN`
+- [ ] 用 `locate_bundled_introspect()`（已有）得到绝对路径，设 `TEAMCLU_INTROSPECT_BIN`
 - [ ] 确认 MCP 配置写入的 command 为该绝对路径（跟随 ensure_inherent_config）
 
 ### 7. 前端 onboarding / heal
@@ -102,11 +102,11 @@ P2  删升级拷贝；文案与文档；可选清旧 bin/
 
 - [ ] 更新 `docs/amuxd-home-directory.md`：`bin/` 不再由桌面维护；补充托管模式
 - [ ] 设计稿状态保持「已确认」；本计划勾选完成项
-- [ ] Daemon 设置文案：「后台服务」→「随 TeamClaw 运行」
+- [ ] Daemon 设置文案：「后台服务」→「随 TeamClu 运行」
 
 ### 11. 可选清理
 
-- [ ] 迁移成功后可选删除 `~/.amuxd/bin/amuxd` 与 `teamclaw-introspect`（保留目录无妨）
+- [ ] 迁移成功后可选删除 `~/.amuxd/bin/amuxd` 与 `teamclu-introspect`（保留目录无妨）
 
 **验收 P2：** 新装无 bin 拷贝、无 LaunchAgent；升级只换 App；文档一致。
 
@@ -127,7 +127,7 @@ P2  删升级拷贝；文案与文档；可选清旧 bin/
 ## 建议提交切分
 
 1. `feat(desktop): AmuxdSupervisor + exit stop + legacy uninstall`
-2. `feat(daemon): prefer TEAMCLAW_INTROSPECT_BIN`
+2. `feat(daemon): prefer TEAMCLU_INTROSPECT_BIN`
 3. `feat(app): onboard/heal/setup use managed daemon`
 4. `chore: remove amuxd bin copy upgrade path + docs`
 

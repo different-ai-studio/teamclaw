@@ -266,7 +266,7 @@ export const cloudAuth: CloudAuthClient = {
           },
           // Silent because `loadBootstrap` calls this mid-bootstrap: notifying
           // re-enters `bootstrap()`, which invalidates the in-flight run and
-          // loops forever on "Opening TeamClaw". Nobody needs waking — the
+          // loops forever on "Opening TeamClu". Nobody needs waking — the
           // access token is always read live through `accessToken()`.
           { silent: true },
         );

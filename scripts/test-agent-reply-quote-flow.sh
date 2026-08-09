@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Verify agent quote-reply data flow:
 #   daemon emit → local messages.toml reply_to_message_id
-#   client FIFO stamp → adaptTeamclawMessages keeps replyTo on partsJson path
+#   client FIFO stamp → adaptTeamcluMessages keeps replyTo on partsJson path
 # Starts a freshly built amuxd in the background, runs tests, then stops it.
 set -euo pipefail
 
@@ -71,7 +71,7 @@ echo "==> [4/5] Daemon unit tests (reply_to persist + cloud insert stamp)"
 cargo test -p amuxd --bin amuxd reply_to -- --nocapture
 
 echo "==> [5/5] Client adapter + FIFO + quote UI tests"
-pnpm --filter @teamclaw/app exec vitest run \
+pnpm --filter @teamclu/app exec vitest run \
   src/lib/__tests__/v2-message-adapter.test.ts \
   src/lib/__tests__/pending-agent-reply-to.test.ts \
   src/components/chat/__tests__/AgentReplyQuote.test.tsx

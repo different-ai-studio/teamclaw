@@ -38,7 +38,7 @@ importers:
       '@sentry/react-native':
         specifier: ~7.11.0
         version: 7.11.0(expo@57.0.11)(react-native@0.86.2(@babel/core@7.29.7)(@react-native/metro-config@0.85.3(@babel/core@7.29.7))(@types/react@19.2.18)(react@19.2.3))(react@19.2.3)
-      '@teamclaw/app':
+      '@teamclu/app':
         specifier: workspace:*
         version: link:../../packages/app
       buffer:
@@ -129,7 +129,7 @@ importers:
 
   apps/extension:
     dependencies:
-      '@teamclaw/app':
+      '@teamclu/app':
         specifier: workspace:*
         version: link:../../packages/app
     devDependencies:

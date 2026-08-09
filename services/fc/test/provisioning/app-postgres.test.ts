@@ -52,7 +52,7 @@ test("re-provisioning an existing role applies the NEW password", async () => {
   const params = {
     appId: "3f1c9a2e-0000-4000-8000-000000000abc",
     slug: "Demo App",
-    baseUrl: "postgres://host:5432/teamclaw_apps",
+    baseUrl: "postgres://host:5432/teamclu_apps",
   };
   await ensureAppSchema(exec, { ...params, password: "first-pw" });
   await ensureAppSchema(exec, { ...params, password: "second-pw" });
@@ -76,7 +76,7 @@ test("ensureAppSchema creates the schema and a scoped role on a real PG (pglite)
     appId,
     slug: "Demo App",
     password: "p@ss'1",
-    baseUrl: "postgres://app_user@host:5432/teamclaw_apps",
+    baseUrl: "postgres://app_user@host:5432/teamclu_apps",
   });
   const schemas = await pg.query<{ schema_name: string }>(
     `select schema_name from information_schema.schemata where schema_name = '${expectedSchema}'`,
@@ -100,7 +100,7 @@ test("ensureAppSchema is safe to run twice (idempotent re-deploy)", async () => 
     appId: "3f1c9a2e-0000-4000-8000-000000000abc",
     slug: "Demo App",
     password: "p@ss'1",
-    baseUrl: "postgres://host:5432/teamclaw_apps",
+    baseUrl: "postgres://host:5432/teamclu_apps",
   };
   await ensureAppSchema(exec, params);
   await ensureAppSchema(exec, params);

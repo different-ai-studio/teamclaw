@@ -13,15 +13,15 @@
 import { create as createMessage, toBinary } from "@bufbuild/protobuf";
 import { isAgentActorType } from "@/lib/actor-type";
 import { BackendError, getBackend } from "@/lib/backend";
-import { ensureAgentRuntimesForSession } from "@/lib/teamclaw/ensure-agent-runtime";
-import { resolveSessionWorkspaceHintForRuntimeStart } from "@/lib/teamclaw/resolve-runtime-start-workspace";
+import { ensureAgentRuntimesForSession } from "@/lib/teamclu/ensure-agent-runtime";
+import { resolveSessionWorkspaceHintForRuntimeStart } from "@/lib/teamclu/resolve-runtime-start-workspace";
 import {
   LiveEventEnvelopeSchema,
   MessageKind,
   MessageSchema,
   SessionMessageEnvelopeSchema,
   type LiveEventEnvelope,
-} from "@/lib/proto/teamclaw_pb";
+} from "@/lib/proto/teamclu_pb";
 import { mqttPublish } from "@/lib/mqtt-bridge";
 import {
   OUTBOX_MAX_ATTEMPTS,
@@ -114,7 +114,7 @@ async function ensureLocalRuntimeForFastPath(
   entry: OutboxEntry,
   localDaemonActorId: string,
 ): Promise<void> {
-  const { runtimeStart } = await import("@/lib/teamclaw-rpc");
+  const { runtimeStart } = await import("@/lib/teamclu-rpc");
   const { AgentType } = await import("@/lib/proto/amux_pb");
   let agentType = AgentType.OPENCODE;
   try {

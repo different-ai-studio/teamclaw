@@ -172,7 +172,7 @@ struct AppOnboardingCoordinatorTests {
         let teamA = TeamSummary(id: "team-a", name: "A", slug: "a", role: "member")
         let teamB = TeamSummary(id: "team-b", name: "B", slug: "b", role: "member")
         let defaults = ephemeralDefaults()
-        defaults.set("team-b", forKey: "teamclaw.activeTeamID")
+        defaults.set("team-b", forKey: "teamclu.activeTeamID")
         let store = InMemoryOnboardingStore(
             bootstrap: AppBootstrap(memberActorID: "m", teams: [teamA, teamB])
         )
@@ -188,7 +188,7 @@ struct AppOnboardingCoordinatorTests {
     func bootstrapFallsBackWhenPersistedTeamGone() async throws {
         let teamA = TeamSummary(id: "team-a", name: "A", slug: "a", role: "member")
         let defaults = ephemeralDefaults()
-        defaults.set("team-removed", forKey: "teamclaw.activeTeamID")
+        defaults.set("team-removed", forKey: "teamclu.activeTeamID")
         let store = InMemoryOnboardingStore(
             bootstrap: AppBootstrap(memberActorID: "m", teams: [teamA])
         )
@@ -210,10 +210,10 @@ struct AppOnboardingCoordinatorTests {
         let coordinator = AppOnboardingCoordinator(store: store, defaults: defaults)
 
         await coordinator.bootstrap()
-        #expect(defaults.string(forKey: "teamclaw.activeTeamID") == "team-a")
+        #expect(defaults.string(forKey: "teamclu.activeTeamID") == "team-a")
 
         await coordinator.signOut()
-        #expect(defaults.string(forKey: "teamclaw.activeTeamID") == nil)
+        #expect(defaults.string(forKey: "teamclu.activeTeamID") == nil)
     }
 
     // MARK: - Invite claim during bootstrap

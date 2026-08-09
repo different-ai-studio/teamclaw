@@ -125,7 +125,7 @@ pub struct HttpConfig {
 }
 
 fn default_allowed_origins() -> Vec<String> {
-    // TeamClaw desktop (Tauri devUrl + packaged WebView2 origins) and Vite dev.
+    // TeamClu desktop (Tauri devUrl + packaged WebView2 origins) and Vite dev.
     vec![
         "http://127.0.0.1:1420".into(),
         "http://localhost:1420".into(),
@@ -539,9 +539,9 @@ impl DaemonConfig {
     /// Local amuxd state directory.
     ///
     /// Official brands: `~/.amuxd`. White-label: `~/.amuxd-<brand>`.
-    /// Override with `AMUXD_HOME`, or derive from `TEAMCLAW_BRAND_SHORT_NAME`.
+    /// Override with `AMUXD_HOME`, or derive from `TEAMCLU_BRAND_SHORT_NAME`.
     pub fn config_dir() -> PathBuf {
-        teamclaw_runtime_env::amuxd_home_from_env()
+        teamclu_runtime_env::amuxd_home_from_env()
     }
 
     pub fn legacy_config_dir() -> PathBuf {

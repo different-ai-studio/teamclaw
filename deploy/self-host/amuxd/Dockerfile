@@ -1,5 +1,5 @@
 # syntax=docker/dockerfile:1
-# Multi-stage build of the TeamClaw daemon (amuxd) for the self-host stack.
+# Multi-stage build of the TeamClu daemon (amuxd) for the self-host stack.
 # Build context MUST be the repo root (needs the Cargo workspace: crates/ +
 # apps/daemon + Cargo.lock).
 FROM rust:1-bookworm AS build

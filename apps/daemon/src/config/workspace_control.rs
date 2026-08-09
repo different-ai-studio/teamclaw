@@ -4,7 +4,7 @@
 //! all reads and writes to workspace-scoped settings. HTTP handlers call
 //! into this trait; they never touch `opencode.json` or the allowlist file
 //! directly. The single production implementation is `OpenCodeCompatStore`,
-//! which maps TeamClaw-native types to/from the on-disk formats OpenCode
+//! which maps TeamClu-native types to/from the on-disk formats OpenCode
 //! already uses. This keeps the compatibility surface below the daemon
 //! boundary so future replacements only require a new `WorkspaceControlStore`
 //! implementation.
@@ -257,9 +257,9 @@ pub struct EnvActivationDiagnostics {
     /// Expected keys absent from the resolved snapshot and not marked unresolved.
     pub missing_expected_keys: Vec<String>,
     /// Per-key activation status for settings UI badges.
-    pub key_statuses: Vec<teamclaw_runtime_env::EnvKeyActivationStatus>,
+    pub key_statuses: Vec<teamclu_runtime_env::EnvKeyActivationStatus>,
     /// `${KEY}` placeholders still present in opencode.json after resolution.
-    pub mcp_unresolved_placeholders: Vec<teamclaw_runtime_env::UnresolvedConfigPlaceholder>,
+    pub mcp_unresolved_placeholders: Vec<teamclu_runtime_env::UnresolvedConfigPlaceholder>,
     /// Fingerprint queued on the global OpenCode host for this workspace.
     pub installed_env_fingerprint: Option<String>,
     /// Fingerprint captured on the newest active runtime handle, if any.
@@ -470,18 +470,18 @@ impl OpenCodeCompatStore {
         workspace_path.join("opencode.json")
     }
 
-    fn teamclaw_json_path(workspace_path: &std::path::Path) -> PathBuf {
+    fn teamclu_json_path(workspace_path: &std::path::Path) -> PathBuf {
         // Legacy workspace-root config; brand meta config is resolved separately
-        // via teamclaw_runtime_env helpers where needed.
-        workspace_path.join("teamclaw.json")
+        // via teamclu_runtime_env helpers where needed.
+        workspace_path.join("teamclu.json")
     }
 
     fn allowlist_read_path(workspace_path: &std::path::Path) -> PathBuf {
-        teamclaw_runtime_env::resolve_workspace_meta_path_from_env(workspace_path, "allowlist.json")
+        teamclu_runtime_env::resolve_workspace_meta_path_from_env(workspace_path, "allowlist.json")
     }
 
     fn allowlist_write_path(workspace_path: &std::path::Path) -> PathBuf {
-        teamclaw_runtime_env::workspace_meta_write_path_from_env(workspace_path, "allowlist.json")
+        teamclu_runtime_env::workspace_meta_write_path_from_env(workspace_path, "allowlist.json")
     }
 
     /// True when `options.apiKey` is a non-empty literal or `${env_ref}` placeholder.
@@ -497,16 +497,16 @@ impl OpenCodeCompatStore {
         workspace_path: &std::path::Path,
     ) -> Result<OpencodeJson, WorkspaceControlError> {
         let value =
-            teamclaw_runtime_env::opencode_config::OpencodeConfigStore::load(workspace_path)
+            teamclu_runtime_env::opencode_config::OpencodeConfigStore::load(workspace_path)
                 .map_err(|e| WorkspaceControlError::Parse(e.to_string()))?;
         serde_json::from_value(value).map_err(|e| WorkspaceControlError::Parse(e.to_string()))
     }
 
-    /// Legacy workspace-root `teamclaw.json` may still define custom providers.
-    fn read_teamclaw_json(
+    /// Legacy workspace-root `teamclu.json` may still define custom providers.
+    fn read_teamclu_json(
         workspace_path: &std::path::Path,
     ) -> Result<OpencodeJson, WorkspaceControlError> {
-        let path = Self::teamclaw_json_path(workspace_path);
+        let path = Self::teamclu_json_path(workspace_path);
         if !path.exists() {
             return Ok(OpencodeJson::default());
         }
@@ -518,7 +518,7 @@ impl OpenCodeCompatStore {
     fn merged_provider_entries(
         workspace_path: &std::path::Path,
     ) -> Result<HashMap<String, OcProviderEntry>, WorkspaceControlError> {
-        let mut merged = Self::read_teamclaw_json(workspace_path)?.provider;
+        let mut merged = Self::read_teamclu_json(workspace_path)?.provider;
         merged.extend(Self::read_opencode_json(workspace_path)?.provider);
         Ok(merged)
     }
@@ -529,7 +529,7 @@ impl OpenCodeCompatStore {
     ) -> Result<(), WorkspaceControlError> {
         let value =
             serde_json::to_value(cfg).map_err(|e| WorkspaceControlError::Parse(e.to_string()))?;
-        teamclaw_runtime_env::opencode_config::OpencodeConfigStore::write_value(
+        teamclu_runtime_env::opencode_config::OpencodeConfigStore::write_value(
             workspace_path,
             &value,
         )
@@ -1015,11 +1015,11 @@ mod tests {
     }
 
     #[test]
-    fn get_providers_merges_teamclaw_json_with_opencode() {
+    fn get_providers_merges_teamclu_json_with_opencode() {
         let dir = tempfile::tempdir().unwrap();
         let root = dir.path();
         std::fs::write(
-            root.join("teamclaw.json"),
+            root.join("teamclu.json"),
             r#"{
   "provider": {
     "scnet": {
@@ -1090,11 +1090,11 @@ mod tests {
     }
 
     #[test]
-    fn put_provider_auth_merges_existing_teamclaw_provider_when_connecting_api_key() {
+    fn put_provider_auth_merges_existing_teamclu_provider_when_connecting_api_key() {
         let dir = tempfile::tempdir().unwrap();
         let root = dir.path();
         std::fs::write(
-            root.join("teamclaw.json"),
+            root.join("teamclu.json"),
             r#"{
   "provider": {
     "scnet": {
@@ -1291,7 +1291,7 @@ mod tests {
     #[test]
     fn put_and_get_allowlist_round_trips() {
         // Hold brand lock so parallel white-label tests cannot divert the write path.
-        let _guard = crate::test_brand_env::BrandEnvGuard::set("teamclaw");
+        let _guard = crate::test_brand_env::BrandEnvGuard::set("teamclu");
         let dir = tempfile::tempdir().unwrap();
         let store = make_store();
         let wid = ws_id(dir.path());
@@ -1319,7 +1319,7 @@ mod tests {
         assert_eq!(got[0].permission, "bash");
         assert_eq!(got[0].pattern, "rm -rf *");
         assert_eq!(got[1].decision, AllowlistDecision::Allow);
-        assert!(dir.path().join(".teamclaw/allowlist.json").is_file());
+        assert!(dir.path().join(".teamclu/allowlist.json").is_file());
     }
 
     #[test]
@@ -1331,7 +1331,7 @@ mod tests {
         let wid = ws_id(dir.path());
 
         // Legacy-only allowlist must still load.
-        let legacy = dir.path().join(".teamclaw/allowlist.json");
+        let legacy = dir.path().join(".teamclu/allowlist.json");
         std::fs::create_dir_all(legacy.parent().unwrap()).unwrap();
         std::fs::write(
             &legacy,

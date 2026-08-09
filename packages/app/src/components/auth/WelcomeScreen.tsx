@@ -25,7 +25,7 @@ export function WelcomeScreen({ onContinue }: { onContinue: () => void }) {
           />
           <h1 className="text-[30px] font-semibold text-foreground">{appDisplayName}</h1>
           <p className="mt-3 max-w-sm text-[14px] leading-6 text-ink-2">
-            {t("auth.onboarding.tagline", "Choose how to enter TeamClaw.")}
+            {t("auth.onboarding.tagline", "Choose how to enter TeamClu.")}
           </p>
           <Button className="mt-8 bg-coral text-paper hover:bg-coral/90" onClick={onContinue}>
             {t("auth.onboarding.getStarted", "Get started")}

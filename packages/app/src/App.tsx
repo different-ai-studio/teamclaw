@@ -156,7 +156,7 @@ function useTrayMenuLocaleSync() {
   }, []);
 }
 
-/** Native TeamClaw → Settings… (⌘,) opens the in-app Settings dialog. */
+/** Native TeamClu → Settings… (⌘,) opens the in-app Settings dialog. */
 function useAppMenuOpenSettings() {
   useEffect(() => {
     if (!isTauri()) return;
@@ -870,7 +870,7 @@ function AppContent() {
               {t("common.settings", "Settings")}
             </DialogTitle>
             <DialogDescription className="sr-only">
-              {t("settings.description", "Configure TeamClaw settings.")}
+              {t("settings.description", "Configure TeamClu settings.")}
             </DialogDescription>
           </div>
           <Button
@@ -1152,7 +1152,7 @@ function App() {
   React.useEffect(() => {
     // Test-only control surface. Behind a build-time constant and a dynamic
     // import so a normal build drops both this branch and the ~30KB module it
-    // reaches; the E2E harness polls for `window.__TEAMCLAW_V2_E2E__`, so the
+    // reaches; the E2E harness polls for `window.__TEAMCLU_V2_E2E__`, so the
     // extra tick before it appears is fine.
     if (E2E_BUILD) {
       void import("@/lib/e2e/v2-control").then((m) => m.installV2E2EControl());
@@ -1178,7 +1178,7 @@ function App() {
     }).catch(() => {});
   }, []);
 
-  // ── Deeplink: teamclaw://invite?token=… ───────────────────────────────────
+  // ── Deeplink: teamclu://invite?token=… ───────────────────────────────────
   useEffect(() => {
     if (!isTauri()) return;
     let unlisten: (() => void) | undefined;
@@ -1231,7 +1231,7 @@ function App() {
     return () => { unlisten?.(); };
   }, []);
 
-  // ── Deeplink: teamclaw://session/<uuid> ───────────────────────────────────
+  // ── Deeplink: teamclu://session/<uuid> ───────────────────────────────────
   useEffect(() => {
     if (!isTauri()) return;
     let unlisten: (() => void) | undefined;

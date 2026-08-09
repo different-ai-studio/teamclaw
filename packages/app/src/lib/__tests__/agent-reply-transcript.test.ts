@@ -20,7 +20,7 @@ describe("agent reply transcript", () => {
     const intro =
       "Using brainstorming to design the todo webpage. Let me first explore the project context.";
     const final =
-      "这个 todo 网页是要做成一个独立的纯 HTML 文件（可以浏览器直接打开），还是要集成到 TeamClaw 这个项目里作为一个新页面/组件？";
+      "这个 todo 网页是要做成一个独立的纯 HTML 文件（可以浏览器直接打开），还是要集成到 TeamClu 这个项目里作为一个新页面/组件？";
     const parts = [
       { type: "text", text: intro },
       { type: "tool-call", toolCall: { id: "skill" } },

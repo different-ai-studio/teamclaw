@@ -46,9 +46,9 @@ export function initSentry(): void {
     dsn: DSN,
     enabled: !__DEV__ || DEBUG_REPORTING,
     environment: __DEV__ ? "development" : "production",
-    // Matches the desktop `teamclaw-web@<version>` convention so releases line
+    // Matches the desktop `teamclu-web@<version>` convention so releases line
     // up across projects.
-    release: `teamclaw-expo@${Constants.expoConfig?.version ?? "0.0.0"}`,
+    release: `teamclu-expo@${Constants.expoConfig?.version ?? "0.0.0"}`,
     // Errors only for now. Tracing on mobile costs battery and quota, and we
     // have no latency question worth paying for yet.
     tracesSampleRate: 0,

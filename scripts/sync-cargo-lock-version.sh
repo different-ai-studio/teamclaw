@@ -8,11 +8,11 @@ cd "$REPO_ROOT"
 DESKTOP_VERSION="$(node -e "console.log(require('./package.json').version)")"
 
 echo "Syncing Cargo.lock for desktop v${DESKTOP_VERSION}…"
-# Re-resolve ONLY the workspace members, so the `teamclaw` / `amuxd` entries pick
+# Re-resolve ONLY the workspace members, so the `teamclu` / `amuxd` entries pick
 # up the version just written into their Cargo.toml. Third-party dependencies are
 # left pinned exactly as the lock has them — this is not `generate-lockfile`.
 #
-# This used to be a `cargo build` of teamclaw-introspect + amuxd, relying on the
+# This used to be a `cargo build` of teamclu-introspect + amuxd, relying on the
 # fact that any build refreshes the lock as a side effect. That worked, but it
 # paid for two full debug compiles (~290s on the windows runner, ~190s on macOS,
 # per release job) and threw the artifacts away — they are debug profile, so they
@@ -38,13 +38,13 @@ console.log(m[1]);
 " "$1"
 }
 
-LOCK_TEAMCLAW="$(lock_version teamclaw)"
+LOCK_TEAMCLU="$(lock_version teamclu)"
 LOCK_AMUXD="$(lock_version amuxd)"
 
-if [[ "$LOCK_TEAMCLAW" != "$DESKTOP_VERSION" || "$LOCK_AMUXD" != "$DESKTOP_VERSION" ]]; then
+if [[ "$LOCK_TEAMCLU" != "$DESKTOP_VERSION" || "$LOCK_AMUXD" != "$DESKTOP_VERSION" ]]; then
   echo "✗ Cargo.lock mismatch after build:"
-  echo "  expected teamclaw/amuxd = ${DESKTOP_VERSION}"
-  echo "  got teamclaw = ${LOCK_TEAMCLAW}, amuxd = ${LOCK_AMUXD}"
+  echo "  expected teamclu/amuxd = ${DESKTOP_VERSION}"
+  echo "  got teamclu = ${LOCK_TEAMCLU}, amuxd = ${LOCK_AMUXD}"
   exit 1
 fi
 
@@ -55,4 +55,4 @@ fi
 echo "Verifying Cargo.lock is up to date (--locked)…"
 cargo metadata --locked --format-version 1 --manifest-path apps/desktop/Cargo.toml >/dev/null
 
-echo "✓ Cargo.lock synced (teamclaw + amuxd = ${DESKTOP_VERSION})"
+echo "✓ Cargo.lock synced (teamclu + amuxd = ${DESKTOP_VERSION})"

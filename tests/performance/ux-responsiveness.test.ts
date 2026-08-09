@@ -4,13 +4,13 @@
  * Pure benchmark — no pass/fail assertions, only data collection.
  * Reports: tests/performance/reports/ux-responsiveness-<ts>.json
  *
- * Run: TEAMCLAW_APP_PATH=<path> pnpm test:e2e:performance tests/performance/ux-responsiveness.test.ts
+ * Run: TEAMCLU_APP_PATH=<path> pnpm test:e2e:performance tests/performance/ux-responsiveness.test.ts
  */
 import { describe, it, beforeAll, afterAll } from 'vitest';
 import { mkdirSync, writeFileSync } from 'fs';
 import { join } from 'path';
 import {
-  launchTeamClawApp,
+  launchTeamCluApp,
   stopApp,
   sleep,
   executeJs,
@@ -43,12 +43,12 @@ function mean(arr: number[]): number {
 // HOT-01/SESSION-01 need real sessions to render. The real `createSession()`
 // path requires an FC-provisioned team (currentTeam.id), which is absent in a
 // plain dev run, so those scenarios would skip. When the app is built/run with
-// VITE_TEAMCLAW_E2E=true, `window.__TEAMCLAW_V2_E2E__.seedConversation` installs
+// VITE_TEAMCLU_E2E=true, `window.__TEAMCLU_V2_E2E__.seedConversation` installs
 // a synthetic team + sessions directly into the stores — no backend, no agent
 // runtime — which is exactly the right substrate for a render micro-benchmark.
 async function e2eControlAvailable(): Promise<boolean> {
   try {
-    return (await executeJs('String(Boolean(window.__TEAMCLAW_V2_E2E__))')) === 'true';
+    return (await executeJs('String(Boolean(window.__TEAMCLU_V2_E2E__))')) === 'true';
   } catch {
     return false;
   }
@@ -142,7 +142,7 @@ describe('UX Responsiveness', () => {
 
   beforeAll(async () => {
     launchStart = Date.now();
-    await launchTeamClawApp();
+    await launchTeamCluApp();
     await focusWindow();
 
     let ttiElapsed: number | null = null;
@@ -152,7 +152,7 @@ describe('UX Responsiveness', () => {
       try {
         const ready = await executeJs(`
           (() => {
-            const storeOk = typeof window.__TEAMCLAW_STORES__?.session?.getState === 'function';
+            const storeOk = typeof window.__TEAMCLU_STORES__?.session?.getState === 'function';
             const inputOk = !!document.querySelector('[data-testid="chat-input-area"]');
             return String(storeOk && inputOk);
           })()
@@ -238,7 +238,7 @@ describe('UX Responsiveness', () => {
       window.__perf_hot_t0 = performance.now();
     `);
     await executeJs(
-      `window.__TEAMCLAW_STORES__.session.getState().setActiveSession(${JSON.stringify(sessionId)})`
+      `window.__TEAMCLU_STORES__.session.getState().setActiveSession(${JSON.stringify(sessionId)})`
     );
 
     let hotMs: number | null = null;
@@ -247,7 +247,7 @@ describe('UX Responsiveness', () => {
       const result = await executeJs(`
         (() => {
           if (window.__perf_hot !== null) return String(window.__perf_hot);
-          const active = window.__TEAMCLAW_STORES__.session.getState().activeSessionId;
+          const active = window.__TEAMCLU_STORES__.session.getState().activeSessionId;
           const el = document.querySelector('[data-chat-messages]');
           if (active === ${JSON.stringify(sessionId)} && el && !window.__perf_hot_fired) {
             window.__perf_hot_fired = true;
@@ -294,7 +294,7 @@ describe('UX Responsiveness', () => {
         window.__perf_switch_t0 = performance.now();
       `);
       await executeJs(
-        `window.__TEAMCLAW_STORES__.session.getState().setActiveSession(${JSON.stringify(targetId)})`
+        `window.__TEAMCLU_STORES__.session.getState().setActiveSession(${JSON.stringify(targetId)})`
       );
 
       for (let i = 0; i < 30; i++) {
@@ -302,7 +302,7 @@ describe('UX Responsiveness', () => {
         const result = await executeJs(`
           (() => {
             if (window.__perf_switch !== null) return String(window.__perf_switch);
-            const active = window.__TEAMCLAW_STORES__.session.getState().activeSessionId;
+            const active = window.__TEAMCLU_STORES__.session.getState().activeSessionId;
             if (active === ${JSON.stringify(targetId)} && !window.__perf_switch_fired) {
               window.__perf_switch_fired = true;
               requestAnimationFrame(() => requestAnimationFrame(() => {

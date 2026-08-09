@@ -2,12 +2,12 @@ import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { renderHook } from '@testing-library/react'
 import { useReensureRuntimesOnMqttReconnect } from '../use-reensure-runtimes-on-mqtt-reconnect'
 import type { EngagedAgentUiEntry } from '../use-engaged-agent-ui-states'
-import { resetRuntimeEnsureThrottle, recordRuntimeEnsureAttempt } from '@/lib/teamclaw/runtime-ensure-scheduler'
+import { resetRuntimeEnsureThrottle, recordRuntimeEnsureAttempt } from '@/lib/teamclu/runtime-ensure-scheduler'
 
 const ensureMock = vi.hoisted(() => vi.fn().mockResolvedValue(undefined))
 const mqttState = vi.hoisted(() => ({ connected: false as boolean | null }))
 
-vi.mock('@/lib/teamclaw/ensure-agent-runtime', () => ({
+vi.mock('@/lib/teamclu/ensure-agent-runtime', () => ({
   ensureAgentRuntimesForSession: ensureMock,
 }))
 

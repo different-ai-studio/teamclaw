@@ -16,8 +16,8 @@ import { useProviderStore } from "@/stores/provider";
 import { useRuntimeStateStore } from "@/stores/runtime-state-store";
 import { useTeamModeStore } from "@/stores/team-mode";
 import { useCurrentTeamStore } from "@/stores/current-team";
-import { TEAMCLAW_DIR, CONFIG_FILE_NAME, TEAM_REPO_DIR } from "@/lib/build-config";
-import { adaptTeamclawMessages } from "@/lib/v2-message-adapter";
+import { TEAMCLU_DIR, CONFIG_FILE_NAME, TEAM_REPO_DIR } from "@/lib/build-config";
+import { adaptTeamcluMessages } from "@/lib/v2-message-adapter";
 import { logInterruptMsgDiag } from "@/lib/interrupt-msg-diag";
 import { logExtMsgDiag } from "@/lib/extension-msg-diag";
 import { isChromeExtension } from "@/lib/platform";
@@ -56,9 +56,9 @@ import { renderChatEmptyState } from "./chat-empty-state";
 import { SessionErrorAlert } from "./SessionErrorAlert";
 import { isPersistentSessionTurnError } from "@/lib/agent-turn-error";
 import { hasVisiblePendingPermissions } from "./PermissionCard";
-import { collectAcpStreamingPermissions } from "@/lib/teamclaw/acp-permission-entries";
+import { collectAcpStreamingPermissions } from "@/lib/teamclu/acp-permission-entries";
 import { useSessionPermissionMode } from "@/lib/session-permission-mode";
-import { interruptAgentActor } from "@/lib/teamclaw/interrupt-agent";
+import { interruptAgentActor } from "@/lib/teamclu/interrupt-agent";
 import { toast } from "sonner";
 import { AcpStreamDebugPanel } from "./AcpStreamDebugPanel";
 import type { Todo } from "@/stores/session-types";
@@ -535,7 +535,7 @@ export function ChatPanel({ compact = false }: ChatPanelProps) {
         useCurrentTeamStore.getState().team?.id ??
         null;
       if (!teamId) return;
-      void import("@/lib/teamclaw/ensure-agent-runtime").then(({ ensureAgentRuntimesForSession }) => {
+      void import("@/lib/teamclu/ensure-agent-runtime").then(({ ensureAgentRuntimesForSession }) => {
         void ensureAgentRuntimesForSession({
           sessionId: activeSessionId,
           teamId,
@@ -570,7 +570,7 @@ export function ChatPanel({ compact = false }: ChatPanelProps) {
           useSessionMessageStore.getState().messages[activeSessionId],
           agentActorId,
         )?.trim() || undefined;
-      void import("@/lib/teamclaw/ensure-agent-runtime").then(({ ensureAgentRuntimesForSession }) => {
+      void import("@/lib/teamclu/ensure-agent-runtime").then(({ ensureAgentRuntimesForSession }) => {
         void ensureAgentRuntimesForSession({
           sessionId: activeSessionId,
           teamId,
@@ -652,9 +652,9 @@ export function ChatPanel({ compact = false }: ChatPanelProps) {
       .filter((e) => e.uiState === "offline" || e.uiState === "runtime-error")
       .map((e) => e.agent.id);
     if (offlineIds.length === 0) return;
-    void import("@/lib/teamclaw/runtime-ensure-scheduler").then(({ resetRuntimeEnsureThrottle }) => {
+    void import("@/lib/teamclu/runtime-ensure-scheduler").then(({ resetRuntimeEnsureThrottle }) => {
       resetRuntimeEnsureThrottle();
-      void import("@/lib/teamclaw/ensure-agent-runtime").then(({ ensureAgentRuntimesForSession }) => {
+      void import("@/lib/teamclu/ensure-agent-runtime").then(({ ensureAgentRuntimesForSession }) => {
         void ensureAgentRuntimesForSession({
           sessionId: activeSessionId,
           teamId: sheetTeamId,
@@ -783,13 +783,13 @@ export function ChatPanel({ compact = false }: ChatPanelProps) {
 
   // ── Derived values ────────────────────────────────────────────────────
   // v2: messages live in useSessionMessageStore.messages keyed by sessionId.
-  // Adapt each Teamclaw_Message → SDK Message shape so legacy MessageList
+  // Adapt each Teamclu_Message → SDK Message shape so legacy MessageList
   // renders unchanged. Phase 2 will replace MessageList with native render.
   const activeMessagesRaw = useSessionMessageStore(s =>
     activeSessionId ? s.messages?.[activeSessionId] : undefined
   );
   const activeMessages = React.useMemo(
-    () => adaptTeamclawMessages(activeMessagesRaw),
+    () => adaptTeamcluMessages(activeMessagesRaw),
     [activeMessagesRaw],
   );
   /** Shown messages lag store during fade so old session can fade out before swap */
@@ -800,7 +800,7 @@ export function ChatPanel({ compact = false }: ChatPanelProps) {
     displaySessionId ? s.messages?.[displaySessionId] : undefined,
   );
   const displayMessages = React.useMemo(
-    () => adaptTeamclawMessages(displayMessagesRaw),
+    () => adaptTeamcluMessages(displayMessagesRaw),
     [displayMessagesRaw],
   );
 
@@ -901,7 +901,7 @@ export function ChatPanel({ compact = false }: ChatPanelProps) {
     (async () => {
       const { listen } = await import('@tauri-apps/api/event');
       unlisten = await listen<{ path: string; kind: string }>('file-change', (event) => {
-        const isTeamConfigChange = event.payload.path.includes(`${TEAMCLAW_DIR}/${CONFIG_FILE_NAME}`);
+        const isTeamConfigChange = event.payload.path.includes(`${TEAMCLU_DIR}/${CONFIG_FILE_NAME}`);
         const isProviderMetaChange = event.payload.path.includes(`${TEAM_REPO_DIR}/_meta/provider.json`);
         if (!isTeamConfigChange && !isProviderMetaChange) return;
         if (debounceTimer) clearTimeout(debounceTimer);
@@ -1461,7 +1461,7 @@ export function ChatPanel({ compact = false }: ChatPanelProps) {
               }
               addAgentForSession(a);
               if (!sheetTeamId) return;
-              void import("@/lib/teamclaw/ensure-agent-runtime").then(({ ensureAgentRuntimesForSession }) => {
+              void import("@/lib/teamclu/ensure-agent-runtime").then(({ ensureAgentRuntimesForSession }) => {
                 void ensureAgentRuntimesForSession({
                   sessionId: activeSessionId,
                   teamId: sheetTeamId,

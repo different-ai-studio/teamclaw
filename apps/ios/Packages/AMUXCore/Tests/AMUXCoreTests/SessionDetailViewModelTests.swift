@@ -60,7 +60,7 @@ final class SessionDetailViewModelTests: XCTestCase {
             teamID: "team-1",
             peerId: "peer-1",
             session: session,
-            teamclawService: nil
+            teamcluService: nil
         )
 
         viewModel.start(modelContext: context)
@@ -80,18 +80,18 @@ final class SessionDetailViewModelTests: XCTestCase {
                 await published.append((topic, payload, retain))
             }
         )
-        let teamclawService = TeamclawService()
+        let teamcluService = TeamcluService()
         let container = try ModelContainer(
             for: Session.self, AgentAttachment.self, AgentEvent.self,
             configurations: ModelConfiguration(isStoredInMemoryOnly: true)
         )
-        teamclawService.configureRuntimeForTesting(
+        teamcluService.configureRuntimeForTesting(
             mqtt: mqtt,
             teamId: "team-1",
             peerId: "peer-1",
             modelContainer: container
         )
-        teamclawService.setLocalMemberIdForTesting("human-1")
+        teamcluService.setLocalMemberIdForTesting("human-1")
 
         let session = Session(sessionId: "session-1", teamId: "team-1")
         session.primaryAgentId = "agent-actor-1"
@@ -102,7 +102,7 @@ final class SessionDetailViewModelTests: XCTestCase {
             teamID: "team-1",
             peerId: "peer-1",
             session: session,
-            teamclawService: teamclawService
+            teamcluService: teamcluService
         )
 
         try await viewModel.sendPrompt("second turn")
@@ -243,18 +243,18 @@ final class SessionDetailViewModelTests: XCTestCase {
             unsubscribeHook: { _ in },
             publishHook: { _, _, _ in }
         )
-        let teamclawService = TeamclawService()
+        let teamcluService = TeamcluService()
         let container = try ModelContainer(
             for: Session.self, AgentAttachment.self, AgentEvent.self,
             configurations: ModelConfiguration(isStoredInMemoryOnly: true)
         )
-        teamclawService.configureRuntimeForTesting(
+        teamcluService.configureRuntimeForTesting(
             mqtt: mqtt,
             teamId: "team-1",
             peerId: "peer-1",
             modelContainer: container
         )
-        teamclawService.setLocalMemberIdForTesting("human-1")
+        teamcluService.setLocalMemberIdForTesting("human-1")
 
         let context = container.mainContext
         let session = Session(sessionId: "session-1", teamId: "team-1")
@@ -269,7 +269,7 @@ final class SessionDetailViewModelTests: XCTestCase {
             teamID: "team-1",
             peerId: "peer-1",
             session: session,
-            teamclawService: teamclawService
+            teamcluService: teamcluService
         )
         viewModel._test_setMemberSheetAgentsAndRelabel([
             makeAgent(actorID: "agent-actor-1", runtimeID: "agent-actor-1")
@@ -309,18 +309,18 @@ final class SessionDetailViewModelTests: XCTestCase {
                 await published.append((topic, payload, retain))
             }
         )
-        let teamclawService = TeamclawService()
+        let teamcluService = TeamcluService()
         let container = try ModelContainer(
             for: Session.self, AgentAttachment.self, AgentEvent.self,
             configurations: ModelConfiguration(isStoredInMemoryOnly: true)
         )
-        teamclawService.configureRuntimeForTesting(
+        teamcluService.configureRuntimeForTesting(
             mqtt: mqtt,
             teamId: "team-1",
             peerId: "peer-1",
             modelContainer: container
         )
-        teamclawService.setLocalMemberIdForTesting("human-1")
+        teamcluService.setLocalMemberIdForTesting("human-1")
 
         let context = container.mainContext
         let session = Session(sessionId: "session-1", teamId: "team-1")
@@ -335,7 +335,7 @@ final class SessionDetailViewModelTests: XCTestCase {
             teamID: "team-1",
             peerId: "peer-1",
             session: session,
-            teamclawService: teamclawService
+            teamcluService: teamcluService
         )
         viewModel._test_setMemberSheetAgentsAndRelabel([
             makeAgent(actorID: "agent-actor-1", runtimeID: "rt-mini-1")

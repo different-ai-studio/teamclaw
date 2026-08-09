@@ -37,12 +37,12 @@ vi.mock('@/stores/updater', () => ({
 }))
 
 vi.mock('@/lib/build-config', () => ({
-  TEAMCLAW_DIR: '.teamclaw',
-  appShortName: 'teamclaw',
+  TEAMCLU_DIR: '.teamclu',
+  appShortName: 'teamclu',
   buildConfig: {
     app: {
-      name: 'TeamClaw',
-      shortName: 'teamclaw',
+      name: 'TeamClu',
+      shortName: 'teamclu',
     },
     features: {
       channels: true,

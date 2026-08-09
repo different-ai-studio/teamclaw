@@ -41,7 +41,7 @@ use process::ClaudeProcessPool;
 
 pub const SESSION_ID_PREFIX: &str = "claude:";
 
-/// TeamClaw model ids are `provider/model`; the SDK speaks the bare id.
+/// TeamClu model ids are `provider/model`; the SDK speaks the bare id.
 pub fn flat_model_id(sdk_model: &str) -> String {
     if sdk_model.starts_with("claude/") {
         sdk_model.to_string()

@@ -1,11 +1,11 @@
 #!/usr/bin/env bash
 # Overwrite the user-local OpenCode binary (~/.opencode/bin/opencode) with a fork
-# build — no TeamClaw rebuild or build.config.json changes required.
+# build — no TeamClu rebuild or build.config.json changes required.
 #
 # Default source: different-ai-studio/opencode fork releases.
 # Publish a GitHub Release on the fork with the standard asset names first, then run:
 #
-#   curl -fsSL https://raw.githubusercontent.com/different-ai-studio/teamclaw/main/scripts/install-opencode-fork.sh | bash
+#   curl -fsSL https://raw.githubusercontent.com/different-ai-studio/teamclu/main/scripts/install-opencode-fork.sh | bash
 #
 # Or from a checkout:
 #   scripts/install-opencode-fork.sh
@@ -113,7 +113,7 @@ main() {
     echo "✓ Install finished (verify: ${DEST} --version)"
   fi
   echo ""
-  echo "Restart TeamClaw / amuxd so the new OpenCode binary is picked up."
+  echo "Restart TeamClu / amuxd so the new OpenCode binary is picked up."
 }
 
 main "$@"

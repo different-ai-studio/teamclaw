@@ -53,15 +53,15 @@ test("ensureFunction re-sends environmentVariables on the update path", async ()
   const ops = makeFcOps(client as any, { bucket: "b", role: "acs:ram::1:role/fc" });
   await ops.ensureFunction("tc-app-1", {
     ossObjectName: "apps/1/code.zip",
-    env: { PORT: "9000", DATABASE_URL: "postgres://app_x:new-pw@h/teamclaw_apps" },
+    env: { PORT: "9000", DATABASE_URL: "postgres://app_x:new-pw@h/teamclu_apps" },
   });
   const upd = calls.find((c) => c[0] === "updateFunction");
   assert.ok(upd, "updateFunction was called");
-  assert.equal(upd[2].body.environmentVariables.DATABASE_URL, "postgres://app_x:new-pw@h/teamclaw_apps");
+  assert.equal(upd[2].body.environmentVariables.DATABASE_URL, "postgres://app_x:new-pw@h/teamclu_apps");
 });
 
 test("accountIdFromRoleArn reads the account out of a RAM role ARN", () => {
-  assert.equal(accountIdFromRoleArn("acs:ram::1234567890123456:role/teamclaw-oss"), "1234567890123456");
+  assert.equal(accountIdFromRoleArn("acs:ram::1234567890123456:role/teamclu-oss"), "1234567890123456");
   assert.equal(accountIdFromRoleArn("  acs:ram::123456789:role/x  "), "123456789");
   assert.equal(accountIdFromRoleArn("acs:ram::notanumber:role/x"), null);
   assert.equal(accountIdFromRoleArn("garbage"), null);
@@ -83,7 +83,7 @@ test("fcEndpoint resolves explicit host, then account id, then ROLE_ARN", () => 
 
     // Any deployment that can reach OSS already has ROLE_ARN, so app deploys
     // need no new configuration.
-    process.env.ROLE_ARN = "acs:ram::1234567890123456:role/teamclaw-oss";
+    process.env.ROLE_ARN = "acs:ram::1234567890123456:role/teamclu-oss";
     assert.match(fcEndpoint(), /^1234567890123456\..*\.fc\.aliyuncs\.com$/);
 
     process.env.ALIYUN_ACCOUNT_ID = "999";

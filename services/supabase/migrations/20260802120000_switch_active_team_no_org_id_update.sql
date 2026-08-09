@@ -1,8 +1,8 @@
 -- switch_active_team must not rewrite public.users.org_id.
 --
 -- Betly (and other partner tenants) key each public.users row to one org.
--- Overwriting org_id when activating a TeamClaw team corrupts that binding and
--- surfaces outside TeamClaw. Keep phone-linked actor resolution + session mint
+-- Overwriting org_id when activating a TeamClu team corrupts that binding and
+-- surfaces outside TeamClu. Keep phone-linked actor resolution + session mint
 -- for the actor's user_id; leave org_id untouched.
 
 create or replace function amux.switch_active_team(p_team_id uuid)

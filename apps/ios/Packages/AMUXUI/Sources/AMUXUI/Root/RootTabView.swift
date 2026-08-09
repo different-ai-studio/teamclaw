@@ -5,7 +5,7 @@ public struct RootTabView: View {
     let mqtt: MQTTService
     let hub: MQTTMessageHub
     let pairing: PairingManager
-    let teamclawService: TeamclawService?
+    let teamcluService: TeamcluService?
     let activeTeam: TeamSummary?
     let currentActorID: String?
     var onReconnect: (() -> Void)?
@@ -43,7 +43,7 @@ public struct RootTabView: View {
     public init(mqtt: MQTTService,
                 hub: MQTTMessageHub,
                 pairing: PairingManager,
-                teamclawService: TeamclawService?,
+                teamcluService: TeamcluService?,
                 activeTeam: TeamSummary? = nil,
                 currentActorID: String? = nil,
                 onReconnect: (() -> Void)? = nil,
@@ -52,7 +52,7 @@ public struct RootTabView: View {
         self.mqtt = mqtt
         self.hub = hub
         self.pairing = pairing
-        self.teamclawService = teamclawService
+        self.teamcluService = teamcluService
         self.activeTeam = activeTeam
         self.currentActorID = currentActorID
         self.onReconnect = onReconnect
@@ -68,7 +68,7 @@ public struct RootTabView: View {
                 SessionsTab(mqtt: mqtt,
                             hub: hub,
                             pairing: pairing,
-                            teamclawService: teamclawService,
+                            teamcluService: teamcluService,
                             activeTeam: activeTeam,
                             currentActorID: currentActorID,
                             viewModel: viewModel,
@@ -92,7 +92,7 @@ public struct RootTabView: View {
                 IdeasTab(mqtt: mqtt,
                          hub: hub,
                          pairing: pairing,
-                         teamclawService: teamclawService,
+                         teamcluService: teamcluService,
                          activeTeam: activeTeam,
                          sessionViewModel: viewModel,
                          connectedAgentsStore: teamRuntime?.connectedAgentsStore,
@@ -107,7 +107,7 @@ public struct RootTabView: View {
                     MembersTab(pairing: pairing,
                                mqtt: mqtt,
                                sessionViewModel: viewModel,
-                               teamclawService: teamclawService,
+                               teamcluService: teamcluService,
                                activeTeam: activeTeam,
                                currentActorID: currentActorID,
                                store: actorStore,
@@ -125,7 +125,7 @@ public struct RootTabView: View {
             Tab(value: AppTab.search, role: .search) {
                 SearchTab(mqtt: mqtt,
                           pairing: pairing,
-                          teamclawService: teamclawService,
+                          teamcluService: teamcluService,
                           viewModel: viewModel,
                           rootSelection: $selection,
                           sessionsPath: $sessionsPath)
@@ -144,7 +144,7 @@ public struct RootTabView: View {
                 teamID: activeTeam?.id ?? "",
                 connectedAgentsStore: teamRuntime?.connectedAgentsStore,
                 modelContext: modelContext,
-                teamclawService: teamclawService
+                teamcluService: teamcluService
             )
             // Inbox red-dot subscription: per-user MQTT topic, populated by
             // FC fan-out after each message INSERT. Decoupled from the
@@ -257,7 +257,7 @@ public struct RootTabView: View {
     }
 
     /// Single entry point used by every flow that ends in a claim:
-    ///   - the `teamclaw://invite?token=…` deeplink (NotificationCenter)
+    ///   - the `teamclu://invite?token=…` deeplink (NotificationCenter)
     ///   - the pre-auth paste path on ChooseAuthView (`pendingInviteToken`)
     ///
     /// If the claim returns a `refreshToken` (agent or member re-invite),

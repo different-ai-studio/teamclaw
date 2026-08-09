@@ -687,7 +687,7 @@ export const useTeamShareBrowserStore = create<TeamShareBrowserState>((set, get)
         // Two things this path has to get right, both of which were wrong:
         //
         // 1. It must be the IN-WORKSPACE path, not `resolveTeamDir`'s answer.
-        //    `teamclaw-team` is a symlink into ~/.amuxd, and resolveTeamDir
+        //    `teamclu-team` is a symlink into ~/.amuxd, and resolveTeamDir
         //    returns the link TARGET — but the workspace file tree is built
         //    from workspace paths, so `findSubtree` looked up an absolute
         //    ~/.amuxd path that is never in the tree and always came back

@@ -36,7 +36,7 @@ pub fn launchd_plist(exe: &Path, log_dir: &Path) -> String {
 pub fn systemd_unit(exe: &Path) -> String {
     format!(
         r#"[Unit]
-Description=amuxd (TeamClaw agent daemon)
+Description=amuxd (TeamClu agent daemon)
 After=network-online.target
 
 [Service]

@@ -66,7 +66,7 @@ pub struct SpawnRuntimeEnv {
     pub extra_env: HashMap<String, String>,
     /// Non-secret resolution metadata retained for diagnostics. Runtime
     /// backends still receive `extra_env` during the compatibility phase.
-    pub resolved_env: Option<teamclaw_runtime_env::ResolvedEnvSnapshot>,
+    pub resolved_env: Option<teamclu_runtime_env::ResolvedEnvSnapshot>,
     pub env_team_id: Option<String>,
     /// When true, all keys in `extra_env` override the ACP host process environment.
     pub force_env_override: bool,
@@ -1520,7 +1520,7 @@ impl RuntimeManager {
     // ── Gateway adapter hooks ────────────────────────────────────────────────
     //
     // The methods below are called from the `channels::AmuxdAgentHandle`
-    // (impl of `teamclaw_gateway::AgentHandle`) so a gateway can drive an
+    // (impl of `teamclu_gateway::AgentHandle`) so a gateway can drive an
     // in-process ACP agent without speaking to opencode's HTTP server.
 
     /// Spawn an ACP-backed agent for a freshly-bound gateway conversation.
@@ -1803,7 +1803,7 @@ impl RuntimeManager {
     pub fn set_test_runtime_env_snapshot(
         &mut self,
         runtime_id: &str,
-        snapshot: teamclaw_runtime_env::ResolvedEnvSnapshot,
+        snapshot: teamclu_runtime_env::ResolvedEnvSnapshot,
         team_id: Option<String>,
     ) {
         if let Some(handle) = self.agents.get_mut(runtime_id) {
@@ -2736,7 +2736,7 @@ mod tests {
         configs.insert(
             amux::AgentType::ClaudeCode,
             AgentLaunchConfig::new(
-                "/definitely/not/a/teamclaw-agent-binary",
+                "/definitely/not/a/teamclu-agent-binary",
                 Vec::new(),
                 "claude",
             ),

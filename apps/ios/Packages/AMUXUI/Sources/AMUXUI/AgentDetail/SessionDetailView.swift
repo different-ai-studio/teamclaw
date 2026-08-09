@@ -40,9 +40,9 @@ public struct SessionDetailView: View {
     /// User-prompt bubble pending delete confirmation (drives the dialog).
     @State private var pendingDeleteEvent: AgentEvent?
     private let nearBottomThreshold: CGFloat = 80
-    /// Cached TeamclawService used to lazily build the OutboxSender once
+    /// Cached TeamcluService used to lazily build the OutboxSender once
     /// the modelContext (and therefore its container) is available.
-    private let pendingTeamclawService: TeamclawService?
+    private let pendingTeamcluService: TeamcluService?
     private let pushPrefs: (any PushPreferencesAPI)?
     /// Preferred mute backend — the team-runtime store keeps the session
     /// list's muted set in sync with toggles made here. `pushPrefs` stays
@@ -53,7 +53,7 @@ public struct SessionDetailView: View {
     let connectedAgentsStore: ConnectedAgentsStore?
 
     public init(session: Session, mqtt: MQTTService, hub: MQTTMessageHub, peerId: String,
-                teamclawService: TeamclawService?,
+                teamcluService: TeamcluService?,
                 connectedAgentsStore: ConnectedAgentsStore? = nil,
                 messagesRepository: (any MessagesRepository)? = nil,
                 workspacesRepository: (any WorkspaceRepository)? = nil,
@@ -63,13 +63,13 @@ public struct SessionDetailView: View {
         _viewModel = State(initialValue: SessionDetailViewModel(
             runtime: nil, mqtt: mqtt, hub: hub, teamID: session.teamId,
             peerId: peerId, session: session,
-            teamclawService: teamclawService,
+            teamcluService: teamcluService,
             connectedAgentsStore: connectedAgentsStore,
             sessionsRepository: sessionsRepository,
             messagesRepository: messagesRepository,
             workspacesRepository: workspacesRepository))
         self.connectedAgentsStore = connectedAgentsStore
-        self.pendingTeamclawService = teamclawService
+        self.pendingTeamcluService = teamcluService
         self.pushPrefs = pushPrefs
         self.notificationPrefsStore = notificationPrefsStore
         self.workspacesRepository = workspacesRepository
@@ -439,9 +439,9 @@ public struct SessionDetailView: View {
             // its container) is available. Idempotent — `OutboxSender.start`
             // bails if a loop task is already running, so re-entry from
             // re-task does not spawn duplicates.
-            if viewModel.outboxSender == nil, let svc = pendingTeamclawService {
+            if viewModel.outboxSender == nil, let svc = pendingTeamcluService {
                 let sender = OutboxSender(
-                    teamclaw: svc,
+                    teamclu: svc,
                     modelContainer: modelContext.container
                 )
                 viewModel.outboxSender = sender

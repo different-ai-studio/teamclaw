@@ -1,6 +1,6 @@
 //! Resolve and reuse ACP `backend_session_id` across daemon restarts.
 //! Agent backends (OpenCode, Claude Code, …) retain turn memory inside the
-//! ACP session; TeamClaw only needs to attach/resume the same id.
+//! ACP session; TeamClu only needs to attach/resume the same id.
 
 use std::sync::Arc;
 

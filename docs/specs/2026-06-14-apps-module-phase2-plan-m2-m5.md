@@ -14,7 +14,7 @@
 - `docs/specs/2026-06-14-apps-fc-runtime-spike.md` (custom-runtime contract: port 9000, bind 0.0.0.0, `node-server` preset → `.output/server/index.mjs`, `command`/`args`/`PORT`).
 - M1 module: `services/fc/src/lib/provisioning/{pg-name,app-postgres}.ts`.
 
-**Standing constraints:** production `BACKEND_KIND=supabase` → every new repo method MUST be implemented in BOTH `pg-repo` and `supabase-repo` (phase-1 C1 lesson). FC deploys via GitHub Action only. Surface deploy errors, never swallow (bootstrap-error-surfacing lesson). All work on branch `agent/apps-module` in worktree `/Volumes/openbeta/workspace/teamclaw-v2/.worktrees/apps-module`; subagents must assert the branch before committing.
+**Standing constraints:** production `BACKEND_KIND=supabase` → every new repo method MUST be implemented in BOTH `pg-repo` and `supabase-repo` (phase-1 C1 lesson). FC deploys via GitHub Action only. Surface deploy errors, never swallow (bootstrap-error-surfacing lesson). All work on branch `agent/apps-module` in worktree `/Volumes/openbeta/workspace/teamclu-v2/.worktrees/apps-module`; subagents must assert the branch before committing.
 
 **Live-gate:** M2–M4 contain Alibaba-FC behaviors the spikes flagged "verify live" (FC endpoint host, `custom` runtime string, error-object shape, cwd, externalized deps, cold-start). **Milestone M4 ends with a manual live-deploy verification** against a real FC account before M5 ships the user-facing button. Tasks that can only be confirmed live are marked **[LIVE-GATE]** and include the exact thing to check.
 
@@ -31,7 +31,7 @@
 | `services/fc/src/lib/supabase-repo.ts` (modify) | Same two methods on the supabase backend | M2/M4 |
 | `services/fc/src/lib/routes/apps.ts` (modify) | `POST /v1/apps/:id/deploy`, `POST /v1/apps/:id/deploy/finalize` | M2/M4 |
 | `services/fc/src/index.ts` (modify) | Inject `startDeploy`/`finalizeDeploy` deps into both repos (mirror `provisionAppRepo`) | M2/M4 |
-| `docs/openapi/teamclaw-api.v1.yaml` (modify) | Deploy + finalize endpoints; add `fcEndpoint` etc. to the App schema | M2/M4 |
+| `docs/openapi/teamclu-api.v1.yaml` (modify) | Deploy + finalize endpoints; add `fcEndpoint` etc. to the App schema | M2/M4 |
 | `apps/daemon/src/sync/app_build.rs` | Build TanStack app → zip `.output` → upload to OSS; mirrors `app_seed.rs` | M3 |
 | `apps/daemon/src/http/apps.rs` (modify) | `POST /v1/apps/build` handler (mirrors `seed_app`) | M3 |
 | `apps/daemon/src/http/routes.rs` (modify) | Register the build route | M3 |
@@ -284,8 +284,8 @@ test("startDeploy provisions schema + function and returns fc identity + oss key
     fcOps: { ensureFunction: async (n: string, a: any) => { ensured.push([n, a]); },
              ensureHttpTrigger: async () => "unused-here",
              updateFunctionCode: async () => {} },
-    bucket: "teamclaw-sync",
-    appsBaseUrl: "postgres://host:5432/teamclaw_apps",
+    bucket: "teamclu-sync",
+    appsBaseUrl: "postgres://host:5432/teamclu_apps",
     genPassword: () => "pw-fixed",
   };
   const out = await startDeploy(deps as any, {
@@ -310,14 +310,14 @@ import { randomBytes } from "node:crypto";
 import { ensureAppSchema } from "./app-postgres.js";
 
 export interface DeployDeps {
-  adminExec: (sql: string) => Promise<void>;     // teamclaw_apps admin executor (M1 getAppsAdminExecutor)
+  adminExec: (sql: string) => Promise<void>;     // teamclu_apps admin executor (M1 getAppsAdminExecutor)
   fcOps: {
     ensureFunction: (name: string, a: { ossObjectName: string; env: Record<string, string> }) => Promise<void>;
     ensureHttpTrigger: (name: string) => Promise<string>;
     updateFunctionCode: (name: string, a: { ossObjectName: string; env: Record<string, string> }) => Promise<void>;
   };
   bucket: string;
-  appsBaseUrl: string;        // teamclaw_apps base URL WITHOUT role/password (e.g. postgres://host:5432/teamclaw_apps)
+  appsBaseUrl: string;        // teamclu_apps base URL WITHOUT role/password (e.g. postgres://host:5432/teamclu_apps)
   genPassword?: () => string; // injectable for tests
 }
 
@@ -364,7 +364,7 @@ test("deployApp moves a ready app to awaiting_build and records fc identity", as
   const actor = await seedActor(db, team.id, { userId: "u1" });
   // create an app and force it to provision_status=ready (deploy precondition)
   const repo = createPgBusinessRepository({ db, userId: "u1", callerActorId: actor.id,
-    startDeploy: async () => ({ fcFunctionName: "tc-app-x", fcRegion: "cn-hangzhou", ossObjectName: "apps/x/code.zip", databaseUrl: "postgres://app_x:pw@h/teamclaw_apps" }),
+    startDeploy: async () => ({ fcFunctionName: "tc-app-x", fcRegion: "cn-hangzhou", ossObjectName: "apps/x/code.zip", databaseUrl: "postgres://app_x:pw@h/teamclu_apps" }),
   } as any);
   const app = await repo.createApp({ teamId: team.id, name: "Demo", type: "fullstack_tanstack_postgres" });
   await db.update(/* apps */).set({ provisionStatus: "ready" }); // pseudocode — set provision_status=ready via drizzle on apps where id=app.id
@@ -449,12 +449,12 @@ import { startDeploy as startDeployImpl, finalizeDeploy as finalizeDeployImpl } 
 
 function makeDeployDeps() {
   if (!process.env.APPS_DB_ADMIN_URL || !process.env.ACCESS_KEY_ID) return {}; // unconfigured → routes 503
-  const fcOps = makeFcOps(getFcClient(), { bucket: process.env.BUCKET || "teamclaw-sync", role: process.env.ROLE_ARN });
+  const fcOps = makeFcOps(getFcClient(), { bucket: process.env.BUCKET || "teamclu-sync", role: process.env.ROLE_ARN });
   const adminExec = getAppsAdminExecutor();
   const appsBaseUrl = process.env.APPS_DB_ADMIN_URL!; // role/pw overwritten per-app inside ensureAppSchema
   return {
     startDeploy: (a: { appId: string; slug: string; region: string }) =>
-      startDeployImpl({ adminExec, fcOps, bucket: process.env.BUCKET || "teamclaw-sync", appsBaseUrl }, a),
+      startDeployImpl({ adminExec, fcOps, bucket: process.env.BUCKET || "teamclu-sync", appsBaseUrl }, a),
     finalizeDeploy: (a: { fcFunctionName: string; ossObjectName: string; databaseUrl?: string }) =>
       finalizeDeployImpl({ fcOps }, a),
   };
@@ -467,7 +467,7 @@ Spread `...makeDeployDeps()` into both repo constructions next to `provisionAppR
 
 ### Task 6: supabase-repo `deployApp` parity + OpenAPI
 
-**Files:** Modify `services/fc/src/lib/supabase-repo.ts`; Modify `docs/openapi/teamclaw-api.v1.yaml`; Test `services/fc/test/supabase-repo.test.ts`
+**Files:** Modify `services/fc/src/lib/supabase-repo.ts`; Modify `docs/openapi/teamclu-api.v1.yaml`; Test `services/fc/test/supabase-repo.test.ts`
 
 - [ ] **Step 1:** Read the existing apps section of `supabase-repo.ts` (it already implements `createApp`/`updateApp`/`listApps` forwarding caller bearer → RLS). Add `deployApp(appId)` mirroring the pg-repo flow but using the supabase client: load the app (RLS-gated), enforce `provision_status==='ready'`, call the injected `startDeploy`, `update amux.apps` set `fc_function_name/fc_region/fc_status='awaiting_build'`, return `{...mappedApp, ossObjectName}`. Accept the same injected `startDeploy`/`finalizeDeploy` deps the factory passes.
 
@@ -475,7 +475,7 @@ Spread `...makeDeployDeps()` into both repo constructions next to `provisionAppR
 
 - [ ] **Step 3:** OpenAPI: add `POST /v1/apps/{appId}/deploy` (202 → `{ ...App, ossObjectName }`), and add `fcEndpoint`, `fcFunctionName`, `fcRegion` (nullable strings) to the `App` schema. Run `cd services/fc && pnpm openapi:lint` → clean.
 
-- [ ] **Step 4: Commit** `git add services/fc/src/lib/supabase-repo.ts services/fc/test/supabase-repo.test.ts docs/openapi/teamclaw-api.v1.yaml && git commit -m "feat(apps): supabase-repo deployApp parity + OpenAPI deploy endpoint"`
+- [ ] **Step 4: Commit** `git add services/fc/src/lib/supabase-repo.ts services/fc/test/supabase-repo.test.ts docs/openapi/teamclu-api.v1.yaml && git commit -m "feat(apps): supabase-repo deployApp parity + OpenAPI deploy endpoint"`
 
 ---
 
@@ -557,7 +557,7 @@ Spread `...makeDeployDeps()` into both repo constructions next to `provisionAppR
 
 > No product code. This gate confirms the spike "verify live" unknowns before the user-facing button ships. Requires operator prerequisites (below) done.
 
-- [ ] **Step 1:** Operator confirms: `teamclaw_apps` DB exists on the target env RDS; `APPS_DB_ADMIN_URL` + `FC_ENDPOINT`/`ALIYUN_ACCOUNT_ID` set in FC env; AK/SK has `fc:*` + `ram:PassRole`; `ROLE_ARN` trusts FC + has `oss:GetObject` on the code bucket (SDK-spike §6).
+- [ ] **Step 1:** Operator confirms: `teamclu_apps` DB exists on the target env RDS; `APPS_DB_ADMIN_URL` + `FC_ENDPOINT`/`ALIYUN_ACCOUNT_ID` set in FC env; AK/SK has `fc:*` + `ram:PassRole`; `ROLE_ARN` trusts FC + has `oss:GetObject` on the code bucket (SDK-spike §6).
 - [ ] **Step 2:** Create a test app end-to-end (seed → ready), then drive `POST /v1/apps/:id/deploy`, run the daemon build, `POST .../deploy/finalize`, and curl the returned `fc_endpoint`. Confirm: function created with `custom.debian10`; cold start within `timeout`; the page loads and reads/writes its Postgres schema.
 - [ ] **Step 3:** Record actual values for each spike "verify-live" item (runtime string accepted, cwd, externalized deps, error-object shape for 404, cold-start time) into `docs/specs/2026-06-14-apps-fc-runtime-spike.md` under a new "## Live results" section, and fix any wrapper/template constants that differed (e.g. runtime string, `args` cwd). Commit those fixes.
 
@@ -588,13 +588,13 @@ Spread `...makeDeployDeps()` into both repo constructions next to `provisionAppR
 
 - [ ] **Step 1:** Add a **Deploy** action on each app row, enabled only when `provisionStatus==='ready'`; while `fc_status` ∈ {awaiting_build,building,deploying} show a "deploying…" state (disabled); on `live` show the `fcEndpoint` as a clickable external link; on `deploy_error` show a retry affordance. Pure presentational helpers (status→label/enabled) go in a tested helper (mirror `AppsListColumn.helpers.test.ts`).
 - [ ] **Step 2:** i18n keys for the new labels in both locales (pass `i18n-parity`; detail subkeys must not collide with group labels — known gotcha).
-- [ ] **Step 3:** Run `pnpm --filter @teamclaw/app exec vitest run src/components/sidebar` + `pnpm typecheck` + `pnpm lint`. Commit.
+- [ ] **Step 3:** Run `pnpm --filter @teamclu/app exec vitest run src/components/sidebar` + `pnpm typecheck` + `pnpm lint`. Commit.
 
 ---
 
 ## Out of band (operator follow-up — required before M4 live-gate)
 
-- [ ] Create `teamclaw_apps` DB on each env RDS; set `APPS_DB_ADMIN_URL` (FC secret).
+- [ ] Create `teamclu_apps` DB on each env RDS; set `APPS_DB_ADMIN_URL` (FC secret).
 - [ ] Set `FC_ENDPOINT` (or `ALIYUN_ACCOUNT_ID`) for the account-scoped FC 3.0 data-plane host.
 - [ ] Grant the FC AK/SK `fc:CreateFunction/UpdateFunction/GetFunction/CreateTrigger/GetTrigger` + `ram:PassRole`; ensure `ROLE_ARN` trusts `fc.aliyuncs.com` and has `oss:GetObject` on the code bucket.
 

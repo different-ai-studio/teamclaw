@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 
-import { MessageKind } from '@/lib/proto/teamclaw_pb'
+import { MessageKind } from '@/lib/proto/teamclu_pb'
 import { resolveSessionEstablishedModel } from '../session-established-model'
 
 describe('resolveSessionEstablishedModel', () => {

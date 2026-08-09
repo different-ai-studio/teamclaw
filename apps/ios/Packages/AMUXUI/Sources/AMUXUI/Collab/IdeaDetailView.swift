@@ -8,7 +8,7 @@ public struct IdeaDetailView: View {
     let ideaID: String
     @Bindable var ideaStore: IdeaStore
     let sessionViewModel: SessionListViewModel
-    let teamclawService: TeamclawService?
+    let teamcluService: TeamcluService?
     let mqtt: MQTTService
     let hub: MQTTMessageHub
     let peerId: String
@@ -45,7 +45,7 @@ public struct IdeaDetailView: View {
         ideaID: String,
         ideaStore: IdeaStore,
         sessionViewModel: SessionListViewModel,
-        teamclawService: TeamclawService?,
+        teamcluService: TeamcluService?,
         mqtt: MQTTService,
         hub: MQTTMessageHub,
         peerId: String,
@@ -56,7 +56,7 @@ public struct IdeaDetailView: View {
         self.ideaID = ideaID
         self.ideaStore = ideaStore
         self.sessionViewModel = sessionViewModel
-        self.teamclawService = teamclawService
+        self.teamcluService = teamcluService
         self.mqtt = mqtt
         self.hub = hub
         self.peerId = peerId
@@ -149,7 +149,7 @@ public struct IdeaDetailView: View {
             NewSessionSheet(
                 mqtt: mqtt,
                 peerId: peerId,
-                teamclawService: teamclawService,
+                teamcluService: teamcluService,
                 connectedAgentsStore: connectedAgentsStore,
                 sessionsRepository: sessionsRepository,
                 viewModel: sessionViewModel,

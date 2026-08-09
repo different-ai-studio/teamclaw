@@ -257,26 +257,26 @@ pub fn get_secret_value(state: &SharedSecretsState, key_id: &str) -> Option<Stri
 ///
 /// `team_id`, when provided, lets `resolve_team_env_secret` fall back to the
 /// locally-stored `_team_secret.{team_id}` blob when the workspace's
-/// `teamclaw.json` does not carry an inline `team.envSecret`. Without it, a user
+/// `teamclu.json` does not carry an inline `team.envSecret`. Without it, a user
 /// who joined a team whose config lacks the inline secret would fail to
 /// initialize even though the secret is present in the personal secret store.
 /// Resolve the directory team secrets should be written to for this workspace.
 ///
-/// Preferred: the workspace's `teamclaw-team` entry — a symlink into the
+/// Preferred: the workspace's `teamclu-team` entry — a symlink into the
 /// daemon's single global copy. But daemon-owned session workspaces
 /// (`~/.amuxd/apps/<app_id>`) frequently have no such link, so resolving the
 /// team dir purely relative to the workspace yields a non-existent path and the
 /// write fails with `secrets_dir: team dir does not exist`.
 ///
 /// When the workspace link is absent and we know the `team_id`, fall back to the
-/// daemon's global team dir `~/.amuxd/teams/<team_id>/teamclaw-team` — the single
+/// daemon's global team dir `~/.amuxd/teams/<team_id>/teamclu-team` — the single
 /// real copy where team secrets belong — creating it if the daemon has not
 /// scaffolded it yet so the first team-secret write can land. The workspace
 /// symlink path itself is never created here: a missing link there means the
 /// team isn't linked into that workspace, which `secrets_dir()` should surface.
 fn resolve_team_dir(workspace: &Path, team_id: Option<&str>) -> Result<PathBuf, String> {
     let workspace_team_dir =
-        teamclaw_runtime_env::env_catalog::resolve_team_dir_for_workspace(workspace);
+        teamclu_runtime_env::env_catalog::resolve_team_dir_for_workspace(workspace);
     if workspace_team_dir.exists() {
         return Ok(workspace_team_dir);
     }
@@ -303,10 +303,10 @@ pub fn try_lazy_init_from_workspace(
     team_id: Option<&str>,
 ) -> Result<(), String> {
     let workspace = Path::new(workspace_path);
-    if !teamclaw_config_path(workspace).exists() {
+    if !teamclu_config_path(workspace).exists() {
         return Err("No team configured for this workspace".to_string());
     }
-    let env_secret = teamclaw_runtime_env::env_catalog::resolve_team_env_secret(
+    let env_secret = teamclu_runtime_env::env_catalog::resolve_team_env_secret(
         workspace,
         team_id,
         Some(super::APP_SHORT_NAME),
@@ -348,7 +348,7 @@ fn ensure_derived_key(
     team_id: Option<&str>,
 ) -> Result<[u8; 32], String> {
     let workspace = Path::new(workspace_path);
-    let env_secret = teamclaw_runtime_env::env_catalog::resolve_team_env_secret(
+    let env_secret = teamclu_runtime_env::env_catalog::resolve_team_env_secret(
         workspace,
         team_id,
         Some(super::APP_SHORT_NAME),
@@ -395,9 +395,9 @@ fn fc_client_for(
     ))
 }
 
-fn teamclaw_config_path(workspace: &Path) -> PathBuf {
+fn teamclu_config_path(workspace: &Path) -> PathBuf {
     workspace
-        .join(super::TEAMCLAW_DIR)
+        .join(super::TEAMCLU_DIR)
         .join(super::CONFIG_FILE_NAME)
 }
 
@@ -658,7 +658,7 @@ pub(crate) async fn team_listings_from_cloud(
     team_id: Option<&str>,
     access_token: Option<&str>,
     cloud_api_url: Option<&str>,
-) -> Result<Vec<teamclaw_runtime_env::env_catalog::TeamEnvListing>, String> {
+) -> Result<Vec<teamclu_runtime_env::env_catalog::TeamEnvListing>, String> {
     let undecryptable = refresh_team_secrets_from_cloud(
         state,
         workspace_path,
@@ -674,7 +674,7 @@ pub(crate) async fn team_listings_from_cloud(
         .map_err(|e| format!("team_listings_from_cloud: lock secrets: {e}"))?;
     let mut out: Vec<_> = secrets
         .values()
-        .map(|e| teamclaw_runtime_env::env_catalog::TeamEnvListing {
+        .map(|e| teamclu_runtime_env::env_catalog::TeamEnvListing {
             key_id: e.key_id.clone(),
             description: e.description.clone(),
             category: e.category.clone(),
@@ -703,7 +703,7 @@ pub(crate) async fn team_listings_from_cloud(
     out.retain(|row| !undecryptable.contains(&row.key_id));
 
     for key_id in undecryptable {
-        out.push(teamclaw_runtime_env::env_catalog::TeamEnvListing {
+        out.push(teamclu_runtime_env::env_catalog::TeamEnvListing {
             key_id,
             description: String::new(),
             category: String::new(),
@@ -725,7 +725,7 @@ mod tests {
     #[test]
     fn init_shared_secrets_does_not_create_missing_team_dir() {
         let workspace_dir = tempfile::tempdir().unwrap();
-        let team_dir = workspace_dir.path().join("teamclaw");
+        let team_dir = workspace_dir.path().join("teamclu");
         let state = SharedSecretsState::default();
         let team_secret = "00".repeat(32);
 
@@ -804,7 +804,7 @@ mod tests {
         let home_dir = tempfile::tempdir().unwrap();
         let _home = HomeGuard::set(home_dir.path());
 
-        // A daemon-owned session workspace with no `teamclaw-team` link.
+        // A daemon-owned session workspace with no `teamclu-team` link.
         let workspace_dir = tempfile::tempdir().unwrap();
         let workspace = workspace_dir.path();
         assert!(!workspace.join(crate::commands::TEAM_REPO_DIR).exists());
@@ -835,7 +835,7 @@ mod tests {
     fn lazy_init_uses_shared_dir_and_env_secret() {
         let workspace_dir = tempfile::tempdir().unwrap();
         let workspace = workspace_dir.path();
-        let config_dir = workspace.join(crate::commands::TEAMCLAW_DIR);
+        let config_dir = workspace.join(crate::commands::TEAMCLU_DIR);
         std::fs::create_dir_all(&config_dir).unwrap();
         std::fs::write(
             config_dir.join(crate::commands::CONFIG_FILE_NAME),
@@ -844,21 +844,21 @@ mod tests {
                     "gitUrl": "https://example.com/repo.git",
                     "enabled": true,
                     "lastSyncAt": null,
-                    "sharedDirName": "teamclaw",
+                    "sharedDirName": "teamclu",
                     "envSecret": "00".repeat(32)
                 }
             })
             .to_string(),
         )
         .unwrap();
-        std::fs::create_dir_all(workspace.join("teamclaw")).unwrap();
+        std::fs::create_dir_all(workspace.join("teamclu")).unwrap();
 
         let state = SharedSecretsState::default();
         let result = try_lazy_init_from_workspace(&state, workspace.to_str().unwrap(), None);
 
         assert!(result.is_ok());
         let team_dir = state.team_dir.lock().unwrap().clone().unwrap();
-        assert_eq!(team_dir, workspace.join("teamclaw"));
+        assert_eq!(team_dir, workspace.join("teamclu"));
     }
 
     #[test]
@@ -871,7 +871,7 @@ mod tests {
             (workspace_a, "00".repeat(32)),
             (workspace_b, "11".repeat(32)),
         ] {
-            let config_dir = workspace.join(crate::commands::TEAMCLAW_DIR);
+            let config_dir = workspace.join(crate::commands::TEAMCLU_DIR);
             std::fs::create_dir_all(&config_dir).unwrap();
             std::fs::write(
                 config_dir.join(crate::commands::CONFIG_FILE_NAME),
@@ -880,14 +880,14 @@ mod tests {
                         "gitUrl": "https://example.com/repo.git",
                         "enabled": true,
                         "lastSyncAt": null,
-                        "sharedDirName": "teamclaw",
+                        "sharedDirName": "teamclu",
                         "envSecret": secret
                     }
                 })
                 .to_string(),
             )
             .unwrap();
-            std::fs::create_dir_all(workspace.join("teamclaw")).unwrap();
+            std::fs::create_dir_all(workspace.join("teamclu")).unwrap();
         }
 
         let state = SharedSecretsState::default();
@@ -896,7 +896,7 @@ mod tests {
 
         let team_dir = state.team_dir.lock().unwrap().clone().unwrap();
         let derived_key = state.derived_key.lock().unwrap().unwrap();
-        assert_eq!(team_dir, workspace_b.join("teamclaw"));
+        assert_eq!(team_dir, workspace_b.join("teamclu"));
         assert_eq!(
             derived_key,
             derive_key(&"11".repeat(32)).expect("derive workspace b key")

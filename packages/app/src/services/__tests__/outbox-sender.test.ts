@@ -3,7 +3,7 @@ import { fromBinary } from '@bufbuild/protobuf'
 import {
   LiveEventEnvelopeSchema,
   SessionMessageEnvelopeSchema,
-} from '@/lib/proto/teamclaw_pb'
+} from '@/lib/proto/teamclu_pb'
 
 const mocks = vi.hoisted(() => ({
   mqttPublish: vi.fn(),
@@ -40,7 +40,7 @@ vi.mock('@/lib/daemon-local-client', () => ({
   getDaemonLocalAgent: () => mocks.getDaemonLocalAgent(),
 }))
 
-vi.mock('@/lib/teamclaw-rpc', () => ({
+vi.mock('@/lib/teamclu-rpc', () => ({
   runtimeStart: (...args: unknown[]) => mocks.runtimeStart(...args),
 }))
 
@@ -73,11 +73,11 @@ vi.mock('@/lib/backend', () => {
   }
 })
 
-vi.mock('@/lib/teamclaw/ensure-agent-runtime', () => ({
+vi.mock('@/lib/teamclu/ensure-agent-runtime', () => ({
   ensureAgentRuntimesForSession: vi.fn().mockResolvedValue(undefined),
 }))
 
-vi.mock('@/lib/teamclaw/resolve-runtime-start-workspace', () => ({
+vi.mock('@/lib/teamclu/resolve-runtime-start-workspace', () => ({
   resolveSessionWorkspaceHintForRuntimeStart: vi.fn().mockResolvedValue(''),
 }))
 
@@ -115,7 +115,7 @@ describe('outbox sender', () => {
   })
 
   it('publishes and persists the selected message model', async () => {
-    const { ensureAgentRuntimesForSession } = await import('@/lib/teamclaw/ensure-agent-runtime')
+    const { ensureAgentRuntimesForSession } = await import('@/lib/teamclu/ensure-agent-runtime')
     const { useOutboxStore } = await import('@/stores/outbox-store')
     const { startOutboxSender } = await import('../outbox-sender')
 
@@ -196,7 +196,7 @@ describe('outbox sender', () => {
     // Daemon offline / errored: ensuring its runtime rejects. Broadcasting the
     // human's message to OTHER members must NOT depend on that — otherwise an
     // offline daemon silently swallows real-time delivery to everyone else.
-    const { ensureAgentRuntimesForSession } = await import('@/lib/teamclaw/ensure-agent-runtime')
+    const { ensureAgentRuntimesForSession } = await import('@/lib/teamclu/ensure-agent-runtime')
     vi.mocked(ensureAgentRuntimesForSession).mockRejectedValueOnce(
       new Error('daemon offline'),
     )
@@ -236,7 +236,7 @@ describe('outbox sender', () => {
     mocks.mqttPublish.mockImplementation(async () => {
       order.push('publish')
     })
-    const { ensureAgentRuntimesForSession } = await import('@/lib/teamclaw/ensure-agent-runtime')
+    const { ensureAgentRuntimesForSession } = await import('@/lib/teamclu/ensure-agent-runtime')
     vi.mocked(ensureAgentRuntimesForSession).mockImplementation(async () => {
       order.push('ensure')
     })
@@ -361,11 +361,11 @@ describe('outbox sender', () => {
 
   it('resolves workspaceIdHint during ensure when enqueue left it empty', async () => {
     const { resolveSessionWorkspaceHintForRuntimeStart } = await import(
-      '@/lib/teamclaw/resolve-runtime-start-workspace'
+      '@/lib/teamclu/resolve-runtime-start-workspace'
     )
     vi.mocked(resolveSessionWorkspaceHintForRuntimeStart).mockResolvedValueOnce('ws-from-outbox')
 
-    const { ensureAgentRuntimesForSession } = await import('@/lib/teamclaw/ensure-agent-runtime')
+    const { ensureAgentRuntimesForSession } = await import('@/lib/teamclu/ensure-agent-runtime')
     const { useOutboxStore } = await import('@/stores/outbox-store')
     const { startOutboxSender } = await import('../outbox-sender')
 
@@ -413,7 +413,7 @@ describe('outbox sender', () => {
       throw new Error('cloud down')
     })
 
-    const { ensureAgentRuntimesForSession } = await import('@/lib/teamclaw/ensure-agent-runtime')
+    const { ensureAgentRuntimesForSession } = await import('@/lib/teamclu/ensure-agent-runtime')
     const { useOutboxStore } = await import('@/stores/outbox-store')
     const { startOutboxSender } = await import('../outbox-sender')
 

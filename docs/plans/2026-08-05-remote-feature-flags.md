@@ -24,7 +24,7 @@
 
 | | self-host | belayo |
 |---|---|---|
-| 地址 | `api.teamclaw-dev.ucar.cc`（ECS 47.112.210.217） | `teamclaw-api.ucar.cc`（Alibaba FC） |
+| 地址 | `api.teamclu-dev.ucar.cc`（ECS 47.112.210.217） | `teamclu-api.ucar.cc`（Alibaba FC） |
 | 部署 | push 到 main 命中 `services/fc/**` 自动触发 | `deploy-aliyun-fc.sh` 手工，有交互确认 |
 | env 来源 | 那台机器上的 `.env`，**跨部署持久** | 操作者本机的 `.env.*.local` → `s.yaml` 的 `${env(...)}` |
 | 部署后校验 | `self-host-deploy.yml` 跑 `run-e2e.sh` | 无 CI 门禁，只能手工 curl |
@@ -66,7 +66,7 @@
 ## File Structure
 
 **服务端**
-- `docs/openapi/teamclaw-api.v1.yaml` — **改**。`BootstrapConfig` / 新增 `PublicConfig` schema；顺手修既有漂移（缺 `webSso`/`tcpUrl`，多了实际不下发的 `username`/`password`）。
+- `docs/openapi/teamclu-api.v1.yaml` — **改**。`BootstrapConfig` / 新增 `PublicConfig` schema；顺手修既有漂移（缺 `webSso`/`tcpUrl`，多了实际不下发的 `username`/`password`）。
 - `services/fc/src/lib/routes/config.ts` — **改**。新增 `resolveFeatures()` / `buildPublicFeatures()` / `buildBootstrapFeatures()`；`buildPublicConfig` 不再是 bootstrap 的子集。
 - `services/fc/features/self-host.json`、`services/fc/features/belayo.json` — **新建**。入库的 flag 真相源，初始内容 = 各环境当前 build config 的等价值（零行为变更）。
 - `services/fc/test/config-route.test.ts` — **改**。补 features 用例。
@@ -87,14 +87,14 @@
 
 ## Task 1: OpenAPI 契约先行
 
-**Files:** `docs/openapi/teamclaw-api.v1.yaml`
+**Files:** `docs/openapi/teamclu-api.v1.yaml`
 
 - [ ] **Step 1**：修既有漂移。`BootstrapMqttConfig` 删掉 `username`/`password`（`config.ts:49` 注释写明故意不下发），补 `tcpUrl`。
 - [ ] **Step 2**：`BootstrapConfig` 增加 `features`（只含 `channels` / `teamShareBrowser` / `apps`），去掉 `additionalProperties: true` 的兜底心态但保留该字段以便向前兼容。
 - [ ] **Step 3**：新增 `PublicConfig` schema 与 `/v1/config/public` 的 path 条目（当前 OpenAPI 里**根本没有这个端点**），含 `webSso` + `features.auth`。
 - [ ] **Step 4**：两个端点都加可选 query `brand` / `platform` / `version`，服务端 Phase 1 忽略，为一套 Cloud API 服务多品牌 + 版本门禁留口。
 
-**验证：** `npx @redocly/cli lint docs/openapi/teamclaw-api.v1.yaml`（或仓库现有的 openapi 校验脚本）。
+**验证：** `npx @redocly/cli lint docs/openapi/teamclu-api.v1.yaml`（或仓库现有的 openapi 校验脚本）。
 
 ---
 
@@ -176,8 +176,8 @@ belayo 侧无法在本地验证打包内容，只能部署后 curl（见验证�
 两份快照，都按 cloudApiUrl 的 **origin** 分区：
 
 ```
-teamclaw.remoteFeatures.public:<origin>    // 登录屏首帧同步读
-teamclaw.remoteFeatures.session:<origin>   // 登录后生效
+teamclu.remoteFeatures.public:<origin>    // 登录屏首帧同步读
+teamclu.remoteFeatures.session:<origin>   // 登录后生效
 ```
 
 分开的理由：退出登录只清 session 那份，public 是部署级配置必须留着——否则下次开 app 登录屏又退回 build config 默认值，重演 #634「退登把地址清了导致下次没得用」。
@@ -251,8 +251,8 @@ docker compose -f deploy/self-host/docker-compose.yml config | grep APP_FEATURES
 **两个环境部署后都要 curl 一次**（belayo 没有 CI 门禁，这是唯一的验证）：
 
 ```bash
-curl -s https://api.teamclaw-dev.ucar.cc/v1/config/public | jq   # self-host
-curl -s https://teamclaw-api.ucar.cc/v1/config/public | jq       # belayo
+curl -s https://api.teamclu-dev.ucar.cc/v1/config/public | jq   # self-host
+curl -s https://teamclu-api.ucar.cc/v1/config/public | jq       # belayo
 ```
 
 期望看到 `features.auth` 且值与该环境的 profile 文件一致。**返回 `{}` 说明 profile 文件没进包**（Task 3 Step 3 漏了），不是"没配置"——这两种情况在客户端表现完全一样（都回落 build config），只能靠这个 curl 和启动日志分辨。这正是 #634 的形状：200 + 空 body，没有任何一层报错。
@@ -298,13 +298,13 @@ curl -s https://teamclaw-api.ucar.cc/v1/config/public | jq       # belayo
 
 **4. 换服务器的通知用 DOM 事件，不是导出的 subscribe()**
 
-先按计划做了 `subscribeCloudApiUrl` 导出，结果 3 个既有测试直接挂掉——它们 partial mock 了 `@/lib/server-config`，而 vitest 的 mock 代理对未定义导出**连 `typeof` 都抛**。直接 import 会把这个模块塞进每个监听者的 import graph。改成 `window` 事件（`teamclaw:cloud-api-url-changed`），事件名两边各写一份字面量，注释互相指向。
+先按计划做了 `subscribeCloudApiUrl` 导出，结果 3 个既有测试直接挂掉——它们 partial mock 了 `@/lib/server-config`，而 vitest 的 mock 代理对未定义导出**连 `typeof` 都抛**。直接 import 会把这个模块塞进每个监听者的 import graph。改成 `window` 事件（`teamclu:cloud-api-url-changed`），事件名两边各写一份字面量，注释互相指向。
 
 同样的原因，`remote-features.ts` 里所有对 build-config 的读取都是防御性的（`buildConfig?.features ?? {}`），并且自己实现了 channels 归一化而不是 import `resolveChannelsConfig`——这个模块在几乎所有 gated 界面的 import graph 上，多依赖一个导出就多一批会被无关 mock 打挂的测试。
 
 **5. 顺手修了 OpenAPI 的既有语法错误**
 
-`docs/openapi/teamclaw-api.v1.yaml:201` 有个未加引号的 `` `itemType: org` ``，**整个文件在 main 上就无法解析**（`npm run openapi:lint` 一直是挂的）。不修就没法验证本次加的契约。
+`docs/openapi/teamclu-api.v1.yaml:201` 有个未加引号的 `` `itemType: org` ``，**整个文件在 main 上就无法解析**（`npm run openapi:lint` 一直是挂的）。不修就没法验证本次加的契约。
 
 ### 验证结果
 
@@ -325,8 +325,8 @@ curl -s https://teamclaw-api.ucar.cc/v1/config/public | jq       # belayo
 
 | profile | 部署 | 品牌来源 |
 |---|---|---|
-| `self-host` | `api.teamclaw-dev.ucar.cc` | `build.config.production.json`（本仓库） |
-| `belayo` | `teamclaw-api.ucar.cc` | 品牌私仓 `brands/betly` |
+| `self-host` | `api.teamclu-dev.ucar.cc` | `build.config.production.json`（本仓库） |
+| `belayo` | `teamclu-api.ucar.cc` | 品牌私仓 `brands/betly` |
 | `copilot361` | `copilot.accounting.i.test.shopee.io` | 品牌私仓 `brands/copilot361` |
 
 每份都是**照抄该品牌 build config 已经烘死的值**，所以启用当天行为零变化。
@@ -338,9 +338,9 @@ curl -s https://teamclaw-api.ucar.cc/v1/config/public | jq       # belayo
 线上验证（belayo 的返回印证了 `brands/betly` 的 `webSSO: true`）：
 
 ```
-$ curl -s https://teamclaw-api.ucar.cc/v1/config/public
+$ curl -s https://teamclu-api.ucar.cc/v1/config/public
 {"webSso":{"loginUrl":"https://admin.mx5.cn/sign-in","storageKey":"sb-supa-auth-token"}}
-$ curl -s https://api.teamclaw-dev.ucar.cc/v1/config/public
+$ curl -s https://api.teamclu-dev.ucar.cc/v1/config/public
 {}
 ```
 

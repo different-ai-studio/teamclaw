@@ -1,5 +1,5 @@
 import { create, fromBinary, toBinary } from "@bufbuild/protobuf";
-import { AgentType } from "@teamclaw/app/proto/amux_pb";
+import { AgentType } from "@teamclu/app/proto/amux_pb";
 import {
   AddWorkspaceResultSchema,
   RemoveWorkspaceResultSchema,
@@ -7,10 +7,10 @@ import {
   RpcResponseSchema,
   RuntimeStartResultSchema,
   RuntimeStopResultSchema,
-} from "@teamclaw/app/proto/teamclaw_pb";
+} from "@teamclu/app/proto/teamclu_pb";
 import { describe, expect, it, vi } from "vitest";
 
-import { createRuntimeRpcClient } from "../lib/teamclaw/runtime-rpc";
+import { createRuntimeRpcClient } from "../lib/teamclu/runtime-rpc";
 
 function createFakeMqtt() {
   const handlers = new Map<string, (payload: Uint8Array, topic: string) => void>();

@@ -4,7 +4,7 @@ import SwiftData
 import AMUXCore
 import os
 
-private let newSessionLogger = Logger(subsystem: "tech.teamclaw.mobile", category: "NewSession")
+private let newSessionLogger = Logger(subsystem: "com.teamclu.mobile", category: "NewSession")
 
 // MARK: - NewSessionSheet
 
@@ -14,7 +14,7 @@ public struct NewSessionSheet: View {
 
     let mqtt: MQTTService
     let peerId: String
-    let teamclawService: TeamclawService?
+    let teamcluService: TeamcluService?
     let teamID: String
     let currentActorID: String?
     let isAgentAvailable: Bool
@@ -52,7 +52,7 @@ public struct NewSessionSheet: View {
     /// Set by parent — called with agentId when session is created
     var onSessionCreated: ((String) -> Void)?
 
-    public init(mqtt: MQTTService, peerId: String, teamclawService: TeamclawService? = nil,
+    public init(mqtt: MQTTService, peerId: String, teamcluService: TeamcluService? = nil,
                 teamID: String = "", currentActorID: String? = nil, isAgentAvailable: Bool = true,
                 connectedAgentsStore: ConnectedAgentsStore? = nil,
                 workspacesRepository: (any WorkspaceRepository)? = nil,
@@ -63,7 +63,7 @@ public struct NewSessionSheet: View {
                 onSessionCreated: ((String) -> Void)? = nil) {
         self.mqtt = mqtt
         self.peerId = peerId
-        self.teamclawService = teamclawService
+        self.teamcluService = teamcluService
         self.teamID = teamID
         self.currentActorID = currentActorID
         self.isAgentAvailable = isAgentAvailable
@@ -388,7 +388,7 @@ public struct NewSessionSheet: View {
     }
 
     private var effectiveTeamID: String {
-        teamID.isEmpty ? "teamclaw" : teamID
+        teamID.isEmpty ? "teamclu" : teamID
     }
 
     /// Returns the routing actor id for the given agent actor (== its id),
@@ -405,8 +405,8 @@ public struct NewSessionSheet: View {
             errorMessage = "Current actor is not ready yet."
             return
         }
-        guard let teamclawService else {
-            errorMessage = "Teamclaw service is not ready."
+        guard let teamcluService else {
+            errorMessage = "Teamclu service is not ready."
             return
         }
 
@@ -473,7 +473,7 @@ public struct NewSessionSheet: View {
             }
             let useCase = SessionCreationUseCase(
                 repository: repository,
-                teamclawService: teamclawService,
+                teamcluService: teamcluService,
                 modelContext: modelContext
             )
             let outcome = await useCase.create(input)
@@ -542,7 +542,7 @@ public struct NewSessionSheet: View {
                 actorId: currentActorID,
                 teamId: teamID,
                 actorType: "member",
-                displayName: teamclawService?.localDisplayName.isEmpty == false ? teamclawService?.localDisplayName ?? currentActorID : currentActorID,
+                displayName: teamcluService?.localDisplayName.isEmpty == false ? teamcluService?.localDisplayName ?? currentActorID : currentActorID,
                 teamRole: "member"
             )
         }
@@ -554,14 +554,14 @@ public struct NewSessionSheet: View {
         currentActorID: String,
         createdAt: Date,
         participants: [CachedActor]
-    ) -> [Teamclaw_Participant] {
+    ) -> [Teamclu_Participant] {
         participants.sorted { $0.displayName.localizedCaseInsensitiveCompare($1.displayName) == .orderedAscending }
             .map { actor in
-                var participant = Teamclaw_Participant()
+                var participant = Teamclu_Participant()
                 participant.actorID = actor.actorId
                 participant.actorType = actor.isAgent ? .personalAgent : .human
-                participant.displayName = actor.actorId == currentActorID && !(teamclawService?.localDisplayName ?? "").isEmpty
-                    ? teamclawService?.localDisplayName ?? actor.displayName
+                participant.displayName = actor.actorId == currentActorID && !(teamcluService?.localDisplayName ?? "").isEmpty
+                    ? teamcluService?.localDisplayName ?? actor.displayName
                     : actor.displayName
                 participant.joinedAt = Int64(createdAt.timeIntervalSince1970)
                 return participant

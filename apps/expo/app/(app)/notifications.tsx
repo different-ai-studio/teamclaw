@@ -26,7 +26,7 @@ import { SectionEyebrow } from "../../src/ui/atoms/SectionEyebrow";
 import { showToast } from "../../src/ui/Toast";
 import { colors, radii, spacing, typography } from "../../src/ui/theme";
 
-const STORAGE_KEY = "teamclaw.notificationPrefs.v1";
+const STORAGE_KEY = "teamclu.notificationPrefs.v1";
 
 type Prefs = {
   agentReply: boolean;

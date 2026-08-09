@@ -57,7 +57,7 @@ http://127.0.0.1:8089 {
 
   # GoTrue auth email templates (OTP-only; fetched by GoTrue at send time)
   handle_path /auth-email-templates/* {
-    root * /opt/teamclaw/email-templates
+    root * /opt/teamclu/email-templates
     file_server
   }
 
@@ -80,7 +80,7 @@ http://127.0.0.1:8089 {
     reverse_proxy 127.0.0.1:8083
   }
 
-  # TeamClaw Cloud API (FC) — path is preserved (FC serves /v1/... and /api/...)
+  # TeamClu Cloud API (FC) — path is preserved (FC serves /v1/... and /api/...)
   handle /v1/* {
     reverse_proxy 127.0.0.1:9000
   }
@@ -90,7 +90,7 @@ http://127.0.0.1:8089 {
   }
 
   handle / {
-    respond "TeamClaw self-host all-in-one (supabase mode) is running" 200
+    respond "TeamClu self-host all-in-one (supabase mode) is running" 200
   }
 
   handle {

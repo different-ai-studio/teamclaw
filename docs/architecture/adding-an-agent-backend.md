@@ -1,6 +1,6 @@
 # 接入一个新 Agent Type：适配文档与要点
 
-> 面向的问题：TeamClaw 现在有 opencode / pi / cursor / claude 四个 local agent
+> 面向的问题：TeamClu 现在有 opencode / pi / cursor / claude 四个 local agent
 > backend。本文记录**再接一个需要改什么、哪些坑是共性的**，以及四个已有实现
 > 在每个适配点上的真实做法对比。
 >
@@ -73,7 +73,7 @@ trait 即可 —— opencode 和 pi 就是这样。
 | backend | 做法 |
 |---|---|
 | opencode | 原生读 `opencode.json`，什么都不用做 |
-| pi | 没有原生 MCP，靠 pi extension 代理（`TEAMCLAW_MCP_SERVERS` 环境变量） |
+| pi | 没有原生 MCP，靠 pi extension 代理（`TEAMCLU_MCP_SERVERS` 环境变量） |
 | cursor | `sidecar::mcp::assemble()` → `Agent.create({mcpServers})` |
 | claude | 同上 → `query({options:{mcpServers}})` |
 

@@ -1,6 +1,6 @@
 //! Compile-time-ish guard: production daemon sources must not hard-code
-//! workspace meta as `".teamclaw"` path literals. Use
-//! `teamclaw_runtime_env` helpers / `WORKSPACE_META_DIR` instead.
+//! workspace meta as `".teamclu"` path literals. Use
+//! `teamclu_runtime_env` helpers / `WORKSPACE_META_DIR` instead.
 
 #[cfg(test)]
 mod tests {
@@ -51,16 +51,16 @@ mod tests {
 
     /// Forbidden path literals that bypass brand helpers.
     const FORBIDDEN: &[&str] = &[
-        "\".teamclaw\"",
-        "'.teamclaw'",
-        "\"/.teamclaw",
-        "join(\".teamclaw",
-        "join(\".teamclaw/",
-        "\"/.teamclaw/",
+        "\".teamclu\"",
+        "'.teamclu'",
+        "\"/.teamclu",
+        "join(\".teamclu",
+        "join(\".teamclu/",
+        "\"/.teamclu/",
     ];
 
     #[test]
-    fn production_daemon_sources_do_not_hardcode_teamclaw_meta_paths() {
+    fn production_daemon_sources_do_not_hardcode_teamclu_meta_paths() {
         let mut files = Vec::new();
         collect_rs_files(&daemon_src_root(), &mut files);
         // This gate file itself may mention the forbidden strings in the
@@ -98,7 +98,7 @@ mod tests {
 
         assert!(
             violations.is_empty(),
-            "hard-coded `.teamclaw` workspace meta paths in production daemon code:\n{}",
+            "hard-coded `.teamclu` workspace meta paths in production daemon code:\n{}",
             violations.join("\n")
         );
     }

@@ -47,10 +47,10 @@ describe('classifyRuntimeFailureReason', () => {
     expect(classifyRuntimeFailureReason('local rpc timeout after 10000ms')).toBe(
       'local_rpc_timeout',
     )
-    expect(classifyRuntimeFailureReason('teamclaw-rpc not initialized')).toBe(
+    expect(classifyRuntimeFailureReason('teamclu-rpc not initialized')).toBe(
       'rpc_not_initialized',
     )
-    expect(classifyRuntimeFailureReason('teamclaw-rpc: targetActorId required')).toBe(
+    expect(classifyRuntimeFailureReason('teamclu-rpc: targetActorId required')).toBe(
       'rpc_not_initialized',
     )
     expect(classifyRuntimeFailureReason('mqtt disconnected')).toBe('mqtt_disconnected')
@@ -60,8 +60,8 @@ describe('classifyRuntimeFailureReason', () => {
     expect(classifyRuntimeFailureReason(undefined)).toBe('unknown')
   })
 
-  it('names the cancellation that disposeTeamclawRpc raises', () => {
-    // Verbatim from `disposeTeamclawRpc()`. Landed in `unknown` before, which
+  it('names the cancellation that disposeTeamcluRpc raises', () => {
+    // Verbatim from `disposeTeamcluRpc()`. Landed in `unknown` before, which
     // made the startup race indistinguishable from a real daemon failure.
     expect(classifyRuntimeFailureReason('rpc disposed')).toBe('rpc_disposed')
     expect(isCancelledRuntimeFailure('rpc disposed')).toBe(true)

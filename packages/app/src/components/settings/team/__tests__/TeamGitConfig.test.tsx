@@ -15,7 +15,7 @@ const shareStoreMocks = vi.hoisted(() => ({
     gitAuthKind: 'https_token' as string | null,
     enabledAt: null as string | null,
     linkStatus: 'symlink' as 'symlink' | 'real_dir' | 'missing' | undefined,
-    globalPath: '/home/me/.amuxd/teams/team-1/teamclaw-team' as string | null,
+    globalPath: '/home/me/.amuxd/teams/team-1/teamclu-team' as string | null,
   },
   refresh: vi.fn(async () => ({ ...shareStoreMocks.status })),
   disconnect: disconnectShare,
@@ -48,16 +48,16 @@ vi.mock('@/lib/utils', () => ({
 
 vi.mock('@/lib/build-config', () => ({
   buildConfig: {
-    app: { name: 'TeamClaw' },
+    app: { name: 'TeamClu' },
     team: {
       llm: { baseUrl: '', models: [] },
     },
   },
-  appShortName: 'teamclaw',
-  appDisplayName: 'TeamClaw',
+  appShortName: 'teamclu',
+  appDisplayName: 'TeamClu',
   TEAM_SYNCED_EVENT: 'team-synced',
-  TEAM_REPO_DIR: 'teamclaw-team',
-  TEAMCLAW_DIR: '.teamclaw',
+  TEAM_REPO_DIR: 'teamclu-team',
+  TEAMCLU_DIR: '.teamclu',
 }))
 
 const linkDaemonTeamWorkspace = vi.hoisted(() => vi.fn(async () => null))
@@ -150,7 +150,7 @@ describe('TeamGitConfig status panel', () => {
       gitAuthKind: 'https_token',
       enabledAt: null,
       linkStatus: 'symlink',
-      globalPath: '/home/me/.amuxd/teams/team-1/teamclaw-team',
+      globalPath: '/home/me/.amuxd/teams/team-1/teamclu-team',
     }
     Object.defineProperty(window, '__TAURI_INTERNALS__', {
       value: {
@@ -262,7 +262,7 @@ describe('TeamGitConfig status panel', () => {
     }
     const rawDaemonError =
       'daemon /v1/team/sync 422 Unprocessable Entity: ' +
-      '{"type":"https://teamclaw/errors/team_share_not_enabled_for_daemon",' +
+      '{"type":"https://teamclu/errors/team_share_not_enabled_for_daemon",' +
       '"title":"Team share not enabled for daemon","status":422,' +
       '"detail":"team share is not enabled for daemon team team-1 (share_mode is unset).",' +
       '"code":"team_share_not_enabled_for_daemon"}'
@@ -323,7 +323,7 @@ describe('TeamGitConfig status panel', () => {
       gitAuthKind: 'https_token',
       enabledAt: '2026-06-11T06:00:00.000Z',
       linkStatus: 'missing',
-      globalPath: '/home/me/.amuxd/teams/team-1/teamclaw-team',
+      globalPath: '/home/me/.amuxd/teams/team-1/teamclu-team',
     }
     render(<TeamGitConfig />)
 
@@ -336,7 +336,7 @@ describe('TeamGitConfig status panel', () => {
   it('offers delete-and-reclone instead of a raw 500 when the local dir is not a git repo', async () => {
     const rawDaemonError =
       'daemon /v1/team/sync 422 Unprocessable Entity: ' +
-      '{"code":"team_shared_dir_not_git","detail":"team_shared_dir_not_git:/home/me/.amuxd/teams/team-1/teamclaw-team"}'
+      '{"code":"team_shared_dir_not_git","detail":"team_shared_dir_not_git:/home/me/.amuxd/teams/team-1/teamclu-team"}'
     mockInvoke.mockImplementation(async (cmd: string) => {
       if (cmd === 'get_daemon_team_id') return 'team-1'
       if (cmd === 'oss_sync_status') {

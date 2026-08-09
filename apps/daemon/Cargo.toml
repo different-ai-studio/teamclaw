@@ -14,11 +14,11 @@ futures-util = "0.3"
 # Protobuf
 prost = { workspace = true }
 prost-types = { workspace = true }
-teamclaw-gateway = { path = "../../crates/teamclaw-gateway" }
-teamclaw-proto = { path = "../../crates/teamclaw-proto" }
-teamclaw-runtime-env = { path = "../../crates/teamclaw-runtime-env" }
-teamclaw-transport = { path = "../../crates/teamclaw-transport" }
-teamclaw-types = { path = "../../crates/teamclaw-types" }
+teamclu-gateway = { path = "../../crates/teamclu-gateway" }
+teamclu-proto = { path = "../../crates/teamclu-proto" }
+teamclu-runtime-env = { path = "../../crates/teamclu-runtime-env" }
+teamclu-transport = { path = "../../crates/teamclu-transport" }
+teamclu-types = { path = "../../crates/teamclu-types" }
 
 # Async runtime
 tokio = { version = "1", features = ["full"] }
@@ -88,7 +88,7 @@ hex = "0.4"
 urlencoding = "2"
 [target.'cfg(unix)'.dependencies]
 libc = "0.2"
-# Mac → Linux cross-compile (cargo-zigbuild): teamclaw-gateway pulls native-tls/openssl-sys;
+# Mac → Linux cross-compile (cargo-zigbuild): teamclu-gateway pulls native-tls/openssl-sys;
 # vendored builds OpenSSL from source so no Linux sysroot/pkg-config is needed on the host.
 #
 # Unix-only on purpose. As a plain dependency this also reached the Windows

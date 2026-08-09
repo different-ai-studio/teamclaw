@@ -5,7 +5,7 @@
 > `scripts/build-extension-listing-kit.js` 组装进 `listing-kit.zip`。
 >
 > 特别注意下面 host 权限那段的说辞——"必须全站而不是白名单"——是给**未收窄的
-> TeamClaw** 写的。copilot361 的品牌配置声明了 10 个 Shopee 域名，收窄修好之后
+> TeamClu** 写的。copilot361 的品牌配置声明了 10 个 Shopee 域名，收窄修好之后
 > 这段话就与事实不符了，别再照抄。每个品牌的说辞跟它自己 manifest 里的权限保持
 > 一致，由 listing kit 脚本交叉校验。
 >
@@ -18,7 +18,7 @@
 ## Single purpose description
 
 ```
-TeamClaw is a browser sidebar that lets a user chat with their AI agent and,
+TeamClu is a browser sidebar that lets a user chat with their AI agent and,
 on explicit user action, send the content of the currently active tab to
 that agent as context for the conversation.
 ```
@@ -79,7 +79,7 @@ affordance) — there is no passive/background collection.
 The extension's background service worker and content script are fully
 bundled at build time (esbuild) and contain no remote/dynamically-fetched
 code. The side panel loads a bundled single-page app (also built at compile
-time) that communicates with the user's configured TeamClaw backend
+time) that communicates with the user's configured TeamClu backend
 (cloud API + MQTT) over network requests to send/receive chat messages —
 this is data exchange with a backend the user has configured, not remote
 code execution inside the extension.
@@ -90,7 +90,7 @@ code execution inside the extension.
 
 - **What user data does this extension collect?**
   勾选 *Website content*（当用户主动触发时，读取当前页面文本/链接发给 agent）
-  **以及** *Personally identifiable information*（side panel 内嵌了 TeamClaw 账号登录流程，
+  **以及** *Personally identifiable information*（side panel 内嵌了 TeamClu 账号登录流程，
   邮箱/手机号登录会用到邮箱地址，属于 PII）。
   不勾选 Health / Financial / Authentication / Personal communications / Location /
   Web history / User activity——插件本身不做这些（登录用的是邮箱/手机号 OTP，不存密码；

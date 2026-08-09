@@ -5,7 +5,7 @@ import i18n from '@/lib/i18n'
  *
  * The Rust commands surface low-level strings like
  * "supabase_jwt not found — user not logged in" when the Supabase JWT has not
- * been written into teamclaw.json yet. That string should never reach the UI —
+ * been written into teamclu.json yet. That string should never reach the UI —
  * show a sign-in prompt instead. Returns null for the not-logged-in case so
  * callers can decide to render a softer state rather than a red error.
  */

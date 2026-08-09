@@ -6,9 +6,9 @@ use super::*;
 impl DaemonServer {
     pub(crate) async fn handle_fetch_peers(
         &self,
-        request: &crate::proto::teamclaw::RpcRequest,
-    ) -> crate::proto::teamclaw::RpcResponse {
-        use crate::proto::teamclaw::{rpc_response, FetchPeersResult, RpcResponse};
+        request: &crate::proto::teamclu::RpcRequest,
+    ) -> crate::proto::teamclu::RpcResponse {
+        use crate::proto::teamclu::{rpc_response, FetchPeersResult, RpcResponse};
 
         let peers = self.peers.to_proto_peer_list().peers;
         RpcResponse {
@@ -25,9 +25,9 @@ impl DaemonServer {
 
     pub(crate) async fn handle_fetch_workspaces(
         &self,
-        request: &crate::proto::teamclaw::RpcRequest,
-    ) -> crate::proto::teamclaw::RpcResponse {
-        use crate::proto::teamclaw::{rpc_response, FetchWorkspacesResult, RpcResponse};
+        request: &crate::proto::teamclu::RpcRequest,
+    ) -> crate::proto::teamclu::RpcResponse {
+        use crate::proto::teamclu::{rpc_response, FetchWorkspacesResult, RpcResponse};
 
         let workspaces = self.cloud_workspace_list().await;
         RpcResponse {
@@ -94,10 +94,10 @@ impl DaemonServer {
 
     pub(crate) async fn handle_announce_peer(
         &mut self,
-        request: &crate::proto::teamclaw::RpcRequest,
-        announce: &crate::proto::teamclaw::AnnouncePeerRequest,
-    ) -> crate::proto::teamclaw::RpcResponse {
-        use crate::proto::teamclaw::{rpc_response, AnnouncePeerResult, RpcResponse};
+        request: &crate::proto::teamclu::RpcRequest,
+        announce: &crate::proto::teamclu::AnnouncePeerRequest,
+    ) -> crate::proto::teamclu::RpcResponse {
+        use crate::proto::teamclu::{rpc_response, AnnouncePeerResult, RpcResponse};
 
         // Construct amux::PeerAnnounce that apply_peer_announce expects.
         let amux_announce = amux::PeerAnnounce {
@@ -130,10 +130,10 @@ impl DaemonServer {
 
     pub(crate) async fn handle_disconnect_peer(
         &mut self,
-        request: &crate::proto::teamclaw::RpcRequest,
-        disconnect: &crate::proto::teamclaw::DisconnectPeerRequest,
-    ) -> crate::proto::teamclaw::RpcResponse {
-        use crate::proto::teamclaw::{rpc_response, DisconnectPeerResult, RpcResponse};
+        request: &crate::proto::teamclu::RpcRequest,
+        disconnect: &crate::proto::teamclu::DisconnectPeerRequest,
+    ) -> crate::proto::teamclu::RpcResponse {
+        use crate::proto::teamclu::{rpc_response, DisconnectPeerResult, RpcResponse};
 
         let (accepted, error) = self.apply_peer_disconnect(&disconnect.peer_id).await;
 
@@ -401,10 +401,10 @@ impl DaemonServer {
 
     pub(crate) async fn handle_add_workspace(
         &mut self,
-        request: &crate::proto::teamclaw::RpcRequest,
-        add: &crate::proto::teamclaw::AddWorkspaceRequest,
-    ) -> crate::proto::teamclaw::RpcResponse {
-        use crate::proto::teamclaw::{rpc_response, AddWorkspaceResult, RpcResponse};
+        request: &crate::proto::teamclu::RpcRequest,
+        add: &crate::proto::teamclu::AddWorkspaceRequest,
+    ) -> crate::proto::teamclu::RpcResponse {
+        use crate::proto::teamclu::{rpc_response, AddWorkspaceResult, RpcResponse};
 
         let amux_add = amux::AddWorkspace {
             path: add.path.clone(),
@@ -434,10 +434,10 @@ impl DaemonServer {
 
     pub(crate) async fn handle_remove_workspace(
         &mut self,
-        request: &crate::proto::teamclaw::RpcRequest,
-        remove: &crate::proto::teamclaw::RemoveWorkspaceRequest,
-    ) -> crate::proto::teamclaw::RpcResponse {
-        use crate::proto::teamclaw::{rpc_response, RemoveWorkspaceResult, RpcResponse};
+        request: &crate::proto::teamclu::RpcRequest,
+        remove: &crate::proto::teamclu::RemoveWorkspaceRequest,
+    ) -> crate::proto::teamclu::RpcResponse {
+        use crate::proto::teamclu::{rpc_response, RemoveWorkspaceResult, RpcResponse};
 
         let amux_remove = amux::RemoveWorkspace {
             workspace_id: remove.workspace_id.clone(),
@@ -490,10 +490,10 @@ impl DaemonServer {
 
     pub(crate) async fn handle_remove_member(
         &mut self,
-        request: &crate::proto::teamclaw::RpcRequest,
-        remove: &crate::proto::teamclaw::RemoveMemberRequest,
-    ) -> crate::proto::teamclaw::RpcResponse {
-        use crate::proto::teamclaw::{rpc_response, RemoveMemberResult, RpcResponse};
+        request: &crate::proto::teamclu::RpcRequest,
+        remove: &crate::proto::teamclu::RemoveMemberRequest,
+    ) -> crate::proto::teamclu::RpcResponse {
+        use crate::proto::teamclu::{rpc_response, RemoveMemberResult, RpcResponse};
 
         let amux_remove = amux::RemoveMember {
             member_id: remove.member_id.clone(),

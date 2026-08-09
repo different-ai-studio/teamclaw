@@ -34,7 +34,7 @@ function makeProvider(over: Partial<HistoryProvider> = {}): HistoryProvider {
 describe('FileHistoryView', () => {
   it('renders the version list and diffs the first entry vs its parent', async () => {
     const provider = makeProvider()
-    render(<FileHistoryView provider={provider} filePath="/ws/teamclaw-team/a.md" isDark={false} />)
+    render(<FileHistoryView provider={provider} filePath="/ws/teamclu-team/a.md" isDark={false} />)
 
     expect(await screen.findByText('edit')).toBeInTheDocument()
     expect(screen.getByText('init')).toBeInTheDocument()
@@ -46,7 +46,7 @@ describe('FileHistoryView', () => {
 
   it('initial-revision selection uses empty before', async () => {
     const provider = makeProvider()
-    render(<FileHistoryView provider={provider} filePath="/ws/teamclaw-team/a.md" isDark={false} />)
+    render(<FileHistoryView provider={provider} filePath="/ws/teamclu-team/a.md" isDark={false} />)
     fireEvent.click(await screen.findByText('init'))
     await waitFor(() => {
       expect(screen.getByTestId('diff')).toHaveTextContent('=>body-h1')
@@ -55,7 +55,7 @@ describe('FileHistoryView', () => {
 
   it('shows a retryable error when list() rejects', async () => {
     const provider = makeProvider({ list: vi.fn().mockRejectedValue(new Error('boom')) })
-    render(<FileHistoryView provider={provider} filePath="/ws/teamclaw-team/a.md" isDark={false} />)
+    render(<FileHistoryView provider={provider} filePath="/ws/teamclu-team/a.md" isDark={false} />)
     expect(await screen.findByText('boom')).toBeInTheDocument()
     expect(screen.getByText('Retry')).toBeInTheDocument()
   })

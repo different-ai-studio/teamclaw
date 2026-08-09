@@ -97,7 +97,7 @@ Repository contract additions (`repository-contract.ts`) implemented in both
 `setTeamDefaultAgent`, `getEffectiveDefaultAgent`.
 
 OpenAPI: document the three new endpoints in
-`docs/openapi/teamclaw-api.v1.yaml`. (Note: the existing member default-agent
+`docs/openapi/teamclu-api.v1.yaml`. (Note: the existing member default-agent
 endpoints are currently undocumented; documenting them is out of scope here but
 called out.)
 

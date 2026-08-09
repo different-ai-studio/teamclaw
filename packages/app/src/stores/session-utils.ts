@@ -19,7 +19,7 @@ export function workspacePathsMatch(a: string, b: string): boolean {
   if (na === nb) return true;
   // Handle ~/rel/path vs /absolute/.../rel/path (same user home expansion).
   // Require the full tilde-relative suffix — not just the last path component —
-  // so ~/TeamClaw does not match every teammate's /Users/<name>/TeamClaw row.
+  // so ~/TeamClu does not match every teammate's /Users/<name>/TeamClu row.
   if (tildeSuffixMatchesAbsolute(na, nb) || tildeSuffixMatchesAbsolute(nb, na)) {
     return true;
   }

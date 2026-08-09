@@ -1,10 +1,10 @@
 //! Full team-share disconnect: local materialization + cloud share-mode reset.
 //!
-//! - Removes `teamclaw-team` (symlink or dir) in the current workspace and every
+//! - Removes `teamclu-team` (symlink or dir) in the current workspace and every
 //!   other workspace bound to this team, per the Cloud API `workspaces` table
 //! - Deletes `~/.amuxd/teams/<team_id>/` (global copy, secrets, sync state)
 //! - Clears workspace-local team secret + git credentials
-//! - Clears legacy `team_mode` in `.teamclaw/teamclaw.json`
+//! - Clears legacy `team_mode` in `.teamclu/teamclu.json`
 //! - `DELETE /v1/teams/:id/share-mode` so the owner can re-run the OSS/Git wizard
 
 use std::collections::HashSet;
@@ -21,7 +21,7 @@ use crate::commands::team_share::enable::load_team_workspaces;
 use crate::commands::team_sync_proxy;
 use crate::commands::{team_secret_store, TEAM_REPO_DIR};
 
-const LEGACY_TEAM_REPO: &str = "teamclaw";
+const LEGACY_TEAM_REPO: &str = "teamclu";
 
 /// `~/.amuxd/teams/<team_id>/` — daemon home for this team (global checkout +
 /// default workspace).
@@ -69,7 +69,7 @@ pub fn remove_global_team_secrets(team_id: &str) -> Result<(), String> {
     }
 }
 
-/// Remove `<workspace>/teamclaw-team` whether it is a symlink, junction, or real dir.
+/// Remove `<workspace>/teamclu-team` whether it is a symlink, junction, or real dir.
 pub fn remove_workspace_team_repo_entry(workspace_path: &str) -> Result<(), String> {
     let link = std::path::Path::new(workspace_path).join(TEAM_REPO_DIR);
     match std::fs::symlink_metadata(&link) {

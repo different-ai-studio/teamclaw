@@ -359,9 +359,9 @@ async fn daemon_rpc_session_token(
     Ok(exchange.token)
 }
 
-/// Local fast-path RPC: POST the given `teamclaw.RpcRequest` protobuf bytes
+/// Local fast-path RPC: POST the given `teamclu.RpcRequest` protobuf bytes
 /// (base64) to the daemon's loopback `POST /v1/rpc` and return the
-/// `teamclaw.RpcResponse` protobuf bytes (base64).
+/// `teamclu.RpcResponse` protobuf bytes (base64).
 ///
 /// The webview calls this only when the target actor is this machine's
 /// daemon; any error here makes the frontend fall back to the MQTT RPC path
@@ -668,9 +668,9 @@ pub async fn register_daemon_workspace(
     // `apply_add_workspace` requires the path to already exist (it
     // canonicalizes + checks `is_dir`). For a freshly-onboarded team the global
     // dir under the brand amuxd home may not exist yet — the daemon only
-    // scaffolds `teamclaw-team/` inside it once a workspace is linked. Create it
+    // scaffolds `teamclu-team/` inside it once a workspace is linked. Create it
     // up front so registration succeeds; the daemon then fills in the synced
-    // `teamclaw-team/` via ensure_team_link.
+    // `teamclu-team/` via ensure_team_link.
     if let Err(e) = std::fs::create_dir_all(&path) {
         return Err(format!("create workspace dir {path}: {e}"));
     }

@@ -9,7 +9,7 @@ on:
       - 'services/fc/**'
       - 'services/supabase/migrations/**'
 
-# Shared with daemon-deploy.yml deploy job — both reset /opt/teamclaw on the
+# Shared with daemon-deploy.yml deploy job — both reset /opt/teamclu on the
 # same ECS box. Never cancel mid compose build / up.
 concurrency:
   group: selfhost-ecs
@@ -45,7 +45,7 @@ jobs:
           envs: DEEPSEEK_API_KEY,TRUSTED_EXTERNAL_JWT_SECRET,FC_SUPABASE_URL,FC_SUPABASE_PUBLIC_URL,FC_SUPABASE_ANON_KEY,FC_SUPABASE_SERVICE_ROLE_KEY,BELAYO_TEST_RDS_PRIVATE_HOST,BELAYO_TEST_RDS_PORT,BELAYO_TEST_RDS_USER,BELAYO_TEST_RDS_PASSWORD,GOOGLE_CLIENT_ID,GOOGLE_CLIENT_SECRET,AUTH_EGRESS_PROXY
           script: |
             set -e
-            cd /opt/teamclaw
+            cd /opt/teamclu
 
             echo "=== git pull ==="
             # This ECS box reaches github.com over https unreliably: a bare fetch
@@ -244,7 +244,7 @@ jobs:
             # Merge instead of overwrite: an entry added by hand on the box (a new
             # client scheme, a staging callback) must survive the next deploy.
             redirects="$(grep '^ADDITIONAL_REDIRECT_URLS=' .env | head -1 | cut -d= -f2-)"
-            for want in 'http://127.0.0.1:*/callback' 'teamclaw://auth-callback'; do
+            for want in 'http://127.0.0.1:*/callback' 'teamclu://auth-callback'; do
               printf '%s' "$redirects" | tr ',' '\n' | grep -Fxq "$want" \
                 || redirects="${redirects:+$redirects,}$want"
             done
@@ -295,7 +295,7 @@ jobs:
               'until docker compose ps caddy | grep -q "Up\|running"; do sleep 3; done'
 
             echo "=== litellm smoke ==="
-            sh /opt/teamclaw/deploy/self-host/smoke/litellm-smoke.sh
+            sh /opt/teamclu/deploy/self-host/smoke/litellm-smoke.sh
 
             echo "=== e2e verification ==="
             if [ -n "$FC_SUPABASE_URL" ]; then
@@ -308,9 +308,9 @@ jobs:
                 "$FC_SUPABASE_URL/rest/v1/rpc/list_teams_for_picker" >/dev/null
               echo "external Supabase RPC smoke: OK"
             else
-              cd /opt/teamclaw/services/fc
+              cd /opt/teamclu/services/fc
               npm ci --prefer-offline --silent
-              sh /opt/teamclaw/deploy/self-host/smoke/run-e2e.sh
+              sh /opt/teamclu/deploy/self-host/smoke/run-e2e.sh
             fi
 
             echo "=== deploy complete ==="

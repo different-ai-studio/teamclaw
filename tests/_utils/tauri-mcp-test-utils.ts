@@ -1,9 +1,9 @@
 /**
  * Tauri-mcp Test Utilities
  *
- * Launches the TeamClaw app directly via process spawn, and uses tauri-mcp
+ * Launches the TeamClu app directly via process spawn, and uses tauri-mcp
  * MCP server for window queries, keyboard/mouse input, and JS execution.
- * Run from repo root: TEAMCLAW_APP_PATH defaults to .cargo-target/debug/teamclaw.
+ * Run from repo root: TEAMCLU_APP_PATH defaults to .cargo-target/debug/teamclu.
  */
 
 import { execSync, spawn, type ChildProcess } from 'child_process';
@@ -13,7 +13,7 @@ import { createConnection, type Socket } from 'net';
 
 function sharedCargoTargetBinary(): string {
   const cwd = process.cwd();
-  const worktreeBinary = join(cwd, '.cargo-target/debug/teamclaw');
+  const worktreeBinary = join(cwd, '.cargo-target/debug/teamclu');
   const gitPath = join(cwd, '.git');
   if (!existsSync(gitPath)) return worktreeBinary;
 
@@ -24,15 +24,15 @@ function sharedCargoTargetBinary(): string {
 
     const gitdir = resolve(cwd, match[1]);
     const mainRoot = dirname(resolve(gitdir, '..', '..'));
-    const sharedBinary = join(mainRoot, '.cargo-target/debug/teamclaw');
+    const sharedBinary = join(mainRoot, '.cargo-target/debug/teamclu');
     return existsSync(sharedBinary) ? sharedBinary : worktreeBinary;
   } catch {
     return worktreeBinary;
   }
 }
 
-const TEAMCLAW_APP_PATH =
-  process.env.TEAMCLAW_APP_PATH ||
+const TEAMCLU_APP_PATH =
+  process.env.TEAMCLU_APP_PATH ||
   sharedCargoTargetBinary();
 
 const TAURI_MCP_SOCKET =
@@ -132,11 +132,11 @@ function socketCall(command: string, payload: Record<string, unknown> = {}): Pro
 // ── Public API ────────────────────────────────────────────────────────
 
 export function getProcessId(): string {
-  if (!_processId) throw new Error('App not launched yet – call launchTeamClawApp first');
+  if (!_processId) throw new Error('App not launched yet – call launchTeamCluApp first');
   return _processId;
 }
 export function getOsPid(): number {
-  if (!_osPid) throw new Error('App not launched yet – call launchTeamClawApp first');
+  if (!_osPid) throw new Error('App not launched yet – call launchTeamCluApp first');
   return _osPid;
 }
 export function isReusingExistingApp(): boolean {
@@ -167,13 +167,13 @@ async function isSocketAlive(): Promise<boolean> {
   }
 }
 
-export async function launchTeamClawApp(): Promise<string> {
+export async function launchTeamCluApp(): Promise<string> {
   // If the socket is already alive, reuse the running app (e.g. pnpm tauri dev)
   if (existsSync(TAURI_MCP_SOCKET) && await isSocketAlive()) {
     console.log('[test-utils] Existing app detected via socket, reusing it');
-    // Find the PID of the running teamclaw process
+    // Find the PID of the running teamclu process
     try {
-      const pid = exec('pgrep -f "target/debug/teamclaw" | head -1');
+      const pid = exec('pgrep -f "target/debug/teamclu" | head -1');
       if (pid) {
         _osPid = parseInt(pid);
         _processId = String(_osPid);
@@ -183,21 +183,21 @@ export async function launchTeamClawApp(): Promise<string> {
     } catch { /* fall through to spawn */ }
   }
 
-  if (!existsSync(TEAMCLAW_APP_PATH)) {
+  if (!existsSync(TEAMCLU_APP_PATH)) {
     throw new Error(
-      `TeamClaw binary not found at ${TEAMCLAW_APP_PATH}. Run: pnpm tauri:build`,
+      `TeamClu binary not found at ${TEAMCLU_APP_PATH}. Run: pnpm tauri:build`,
     );
   }
 
-  // Kill any existing teamclaw processes (only when we need to spawn our own)
-  try { exec('pkill -f "target/debug/teamclaw" 2>/dev/null || true'); } catch { /* ok */ }
+  // Kill any existing teamclu processes (only when we need to spawn our own)
+  try { exec('pkill -f "target/debug/teamclu" 2>/dev/null || true'); } catch { /* ok */ }
   await sleep(1000);
 
   // Clean up stale socket file
   try { exec(`rm -f ${TAURI_MCP_SOCKET}`); } catch { /* ok */ }
 
   // Launch app directly as a child process
-  _appProcess = spawn(TEAMCLAW_APP_PATH, [], {
+  _appProcess = spawn(TEAMCLU_APP_PATH, [], {
     detached: true,
     stdio: ['ignore', 'pipe', 'pipe'],
   });
@@ -236,7 +236,7 @@ export async function stopApp(): Promise<void> {
     }
     if (_osPid) {
       try { exec(`kill ${_osPid} 2>/dev/null || true`); } catch { /* ok */ }
-      try { exec('pkill -f "target/debug/teamclaw" 2>/dev/null || true'); } catch { /* ok */ }
+      try { exec('pkill -f "target/debug/teamclu" 2>/dev/null || true'); } catch { /* ok */ }
     }
   } else {
     console.log('[test-utils] Skipping app shutdown (reusing existing app)');
@@ -300,7 +300,7 @@ export async function focusWindow(): Promise<void> {
 }
 
 export async function takeScreenshot(savePath?: string): Promise<string> {
-  const dest = savePath || `/tmp/teamclaw-test-${Date.now()}.png`;
+  const dest = savePath || `/tmp/teamclu-test-${Date.now()}.png`;
   try {
     const w = await getWindowInfo();
     exec(`screencapture -x -R${w.x},${w.y},${w.width},${w.height} ${dest}`);
@@ -402,7 +402,7 @@ function osascript(body: string): string {
   const script = `tell application "System Events"
   set p to first process whose unix id is ${pid}
   tell p
-    tell window "TeamClaw"
+    tell window "TeamClu"
       ${body}
     end tell
   end tell
@@ -474,7 +474,7 @@ export async function startVideoRecording(savePath?: string): Promise<string> {
     throw new Error('Video recording already in progress');
   }
 
-  const dest = savePath || `/tmp/teamclaw-test-${Date.now()}.mov`;
+  const dest = savePath || `/tmp/teamclu-test-${Date.now()}.mov`;
   _videoPath = dest;
 
   const w = await getWindowInfo();

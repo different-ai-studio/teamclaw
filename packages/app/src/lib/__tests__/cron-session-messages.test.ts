@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { MessageKind } from "@/lib/proto/teamclaw_pb";
+import { MessageKind } from "@/lib/proto/teamclu_pb";
 import { useSessionMessageStore } from "@/stores/session-message-store";
 
 const mocks = vi.hoisted(() => ({

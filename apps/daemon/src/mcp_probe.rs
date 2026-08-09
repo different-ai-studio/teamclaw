@@ -242,7 +242,7 @@ async fn mcp_stdio_tools_exchange(
             "params": {
                 "protocolVersion": INITIALIZE_PROTOCOL_VERSION,
                 "capabilities": {},
-                "clientInfo": { "name": "teamclaw", "version": "1.0.0" }
+                "clientInfo": { "name": "teamclu", "version": "1.0.0" }
             }
         }),
     )
@@ -292,7 +292,7 @@ pub async fn probe_remote_http(config: &McpServerConfig) -> Result<Vec<String>, 
         "params": {
             "protocolVersion": INITIALIZE_PROTOCOL_VERSION,
             "capabilities": {},
-            "clientInfo": { "name": "teamclaw", "version": "1.0.0" }
+            "clientInfo": { "name": "teamclu", "version": "1.0.0" }
         }
     });
 

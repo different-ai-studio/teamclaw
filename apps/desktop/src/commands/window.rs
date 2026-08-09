@@ -61,7 +61,7 @@ pub fn current_workspace_for_window(
         .ok_or_else(|| "No workspace path set. Please select a workspace first.".to_string())
 }
 
-/// Open a new TeamClaw window for an additional workspace.
+/// Open a new TeamClu window for an additional workspace.
 ///
 /// Generates a unique window label, registers the label→workspace mapping,
 /// and opens the window with `?workspace=` query param.

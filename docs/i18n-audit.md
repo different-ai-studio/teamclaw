@@ -95,6 +95,6 @@ Rerank* 表单标签与 placeholder）。其它：
    ④ 无运行时缺失键（严格匹配 `t()`/`i18nKey`/`titleKey|descKey|labelKey`）
    ⑤ 无死键（广义引用 + 动态前缀白名单 `actors.role.`/`setupWizard.deps.` + 复数变体）。
 
-验证：`pnpm --filter @teamclaw/app typecheck` 净；完整单测套件全绿（含修好的
+验证：`pnpm --filter @teamclu/app typecheck` 净；完整单测套件全绿（含修好的
 `tab-bar.test.tsx` —— 该测试环境跑 zh-CN，原硬编码 `/close/i` 改为经 i18n 取实际标签）；
 改动文件 ESLint 净。

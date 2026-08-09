@@ -16,9 +16,9 @@ select plan(7);
 
 insert into auth.users (id, email, aud, role, instance_id)
 values
-  ('00000000-0000-0000-0013-000000000001', 'gateway-agent@teamclaw.test', 'authenticated', 'authenticated', '00000000-0000-0000-0000-000000000000'),
-  ('00000000-0000-0000-0013-000000000002', 'gateway-owner@teamclaw.test', 'authenticated', 'authenticated', '00000000-0000-0000-0000-000000000000'),
-  ('00000000-0000-0000-0013-000000000003', 'gateway-other@teamclaw.test', 'authenticated', 'authenticated', '00000000-0000-0000-0000-000000000000')
+  ('00000000-0000-0000-0013-000000000001', 'gateway-agent@teamclu.test', 'authenticated', 'authenticated', '00000000-0000-0000-0000-000000000000'),
+  ('00000000-0000-0000-0013-000000000002', 'gateway-owner@teamclu.test', 'authenticated', 'authenticated', '00000000-0000-0000-0000-000000000000'),
+  ('00000000-0000-0000-0013-000000000003', 'gateway-other@teamclu.test', 'authenticated', 'authenticated', '00000000-0000-0000-0000-000000000000')
 on conflict do nothing;
 
 insert into public.teams (id, slug, name)

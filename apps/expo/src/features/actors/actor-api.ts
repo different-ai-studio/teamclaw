@@ -68,7 +68,7 @@ function toActor(row: CloudActor): Actor {
 }
 
 function buildInviteDeeplink(token: string): string {
-  return `teamclaw://invite/${token}`;
+  return `teamclu://invite/${token}`;
 }
 
 export type ActorsApi = {

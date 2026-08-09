@@ -46,7 +46,7 @@ impl TestClient {
             ));
         }
 
-        let team_id = config.team_id.as_deref().unwrap_or("teamclaw");
+        let team_id = config.team_id.as_deref().unwrap_or("teamclu");
         let topics = Topics::new(team_id, &config.actor.id);
         let (client, eventloop) = AsyncClient::new(opts, 100);
 
@@ -70,7 +70,7 @@ impl TestClient {
         self.client
             .subscribe(self.topics.runtime_state_wildcard(), QoS::AtLeastOnce)
             .await?;
-        let team_id = self.config.team_id.as_deref().unwrap_or("teamclaw");
+        let team_id = self.config.team_id.as_deref().unwrap_or("teamclu");
         self.client
             .subscribe(
                 &format!("amux/{}/{}/runtime/+/events", team_id, actor_id),

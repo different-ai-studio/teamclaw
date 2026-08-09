@@ -37,10 +37,10 @@ export function dumpInterruptMsgDiag(): DiagRecord[] {
 
 declare global {
   interface Window {
-    teamclawInterruptMsgDiagDump?: () => DiagRecord[];
+    teamcluInterruptMsgDiagDump?: () => DiagRecord[];
   }
 }
 
 if (typeof window !== "undefined") {
-  window.teamclawInterruptMsgDiagDump = dumpInterruptMsgDiag;
+  window.teamcluInterruptMsgDiagDump = dumpInterruptMsgDiag;
 }

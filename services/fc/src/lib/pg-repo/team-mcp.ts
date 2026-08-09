@@ -13,7 +13,7 @@
  *
  * 2. Secret-looking values in `env`/`headers` are rejected outright. The
  *    `${KEY}` placeholder convention (resolved at runtime from the encrypted
- *    team env store, see crates/teamclaw-runtime-env/src/mcp_resolve.rs) used
+ *    team env store, see crates/teamclu-runtime-env/src/mcp_resolve.rs) used
  *    to be an unenforced suggestion while this data rode an encrypted OSS blob.
  *    Now that it lands in a server-readable column, the convention becomes a
  *    contract — see assertNoLiteralSecrets.

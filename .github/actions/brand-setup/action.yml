@@ -43,7 +43,7 @@ runs:
         set -euo pipefail
 
         # Unlike release.yml — which treats a missing branding repo as "build the
-        # default TeamClaw" — every brand this pipeline publishes is defined in
+        # default TeamClu" — every brand this pipeline publishes is defined in
         # the branding repo. Silently degrading would push unbranded binaries into
         # a brand's bucket, so a missing PAT is a hard error.
         if [ -z "$BRANDING_REPO" ] || [ -z "$BRANDING_REPO_PAT" ]; then
@@ -108,7 +108,7 @@ runs:
         def pick(value, fallback_env):
             # A brand that omits an OSS field inherits the repo-level default, so
             # betly keeps publishing exactly where it does today without
-            # restating the shared TeamClaw bucket.
+            # restating the shared TeamClu bucket.
             return value or os.environ.get(fallback_env, '')
 
         bucket = pick(oss.get('bucket'), 'OSS_BUCKET_DEFAULT')
@@ -126,9 +126,9 @@ runs:
         # Two different names, per scripts/lib/branding.js: app.name is the
         # productName that bundles/filenames and /Applications/<x>.app are built
         # from, while app.displayName is the human-facing label (window title).
-        # Conflating them would put "Betly TeamClaw.app" in betly's quarantine
-        # hint for a bundle actually named TeamClaw.app.
-        product_name = app.get('name') or 'TeamClaw'
+        # Conflating them would put "Betly TeamClu.app" in betly's quarantine
+        # hint for a bundle actually named TeamClu.app.
+        product_name = app.get('name') or 'TeamClu'
         app_name = app.get('displayName') or product_name
         # shortName doubles as the slug for OSS object names, so it must survive a
         # URL untouched. vite.config.ts enforces the same [a-z0-9]{1,20} rule.

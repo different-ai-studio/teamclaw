@@ -6,11 +6,11 @@
 
 ## 1. 背景与目标
 
-TeamClaw 桌面端目前把三块东西完全分离:
+TeamClu 桌面端目前把三块东西完全分离:
 
 | 组件 | 现状安装/启动 | 是否随包 |
 |---|---|---|
-| Desktop (Tauri) | 下载 `.dmg`/`.exe` 安装 | 只捆绑 `teamclaw-introspect` + askpass (`tauri.conf.json` `externalBin`/`resources`) |
+| Desktop (Tauri) | 下载 `.dmg`/`.exe` 安装 | 只捆绑 `teamclu-introspect` + askpass (`tauri.conf.json` `externalBin`/`resources`) |
 | amuxd (daemon) | 用户手动 `amuxd init` + `amuxd start`,桌面靠读 `~/.amuxd/amuxd.http.{port,token}` 发现 | 否 |
 | opencode | 手动跑 `download-opencode.sh`(依赖 `gh` CLI),>100MB | 否 |
 
@@ -169,7 +169,7 @@ opencode 由 amuxd 拉起,所以下载/校验/版本逻辑放进 **amuxd**(`apps
 ### 6.3 团队 onboarding 状态机(登录后,app 自动驱动)
 
 底层事实(已验证):
-- `amuxd init <invite-url>`(`teamclaw://invite?token=...`)→ POST `/v1/invites/claim` → 写
+- `amuxd init <invite-url>`(`teamclu://invite?token=...`)→ POST `/v1/invites/claim` → 写
   `backend.toml`(team_id/actor_id/refresh_token)+ `daemon.toml`(device.id=actor_id、team_id)。
   它**绑定一个已存在的 agent**,不凭空建。
 - 建 agent 在更早:RPC `create_daemon_invite(team_id, display_name)` → 建 actor+agent(status=invited)
@@ -197,7 +197,7 @@ get_daemon_team_id()   (读 ~/.amuxd/daemon.toml)
 
 ## 7. 新增后端端点(Cloud API,按 CLAUDE.md OpenAPI-first 流程)
 
-按 CLAUDE.md:先写 `docs/openapi/teamclaw-api.v1.yaml` → repository-contract → business-api 路由 →
+按 CLAUDE.md:先写 `docs/openapi/teamclu-api.v1.yaml` → repository-contract → business-api 路由 →
 supabase-repo passthrough(以及进行中的 postgres 后端)→ FC 测试 → 客户端 provider。
 
 **端点 A —— 新建 agent(含可见性)**
@@ -231,7 +231,7 @@ invite,返回 `{ agentId, inviteToken }`。
 - `apps/daemon/src/daemon/server.rs` / `opencode_settings/pool.rs`(opencode 二进制发现优先 `~/.amuxd/bin/`)
 - `.github/workflows/release.yml`(amuxd 双 arch 编译)
 - `packages/app/src/components/settings/DaemonGeneralSection.tsx`(team mismatch 升级为强制重置入口)
-- `docs/openapi/teamclaw-api.v1.yaml`
+- `docs/openapi/teamclu-api.v1.yaml`
 
 ## 9. 开放问题 / 风险
 

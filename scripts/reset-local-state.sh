@@ -1,20 +1,20 @@
 #!/usr/bin/env bash
-# Wipe all TeamClaw / amuxd local config and cache so the next launch starts
+# Wipe all TeamClu / amuxd local config and cache so the next launch starts
 # from a clean slate (first-run setup, daemon onboarding, login, etc.).
 #
-# Safe + idempotent: only touches TeamClaw-owned paths; missing items are skipped.
+# Safe + idempotent: only touches TeamClu-owned paths; missing items are skipped.
 #
 # Usage:
 #   scripts/reset-local-state.sh                 # interactive confirm
 #   scripts/reset-local-state.sh -y              # skip confirm
 #   scripts/reset-local-state.sh -n              # dry-run (list only)
 #   scripts/reset-local-state.sh -y --short-name copilot361 --app-id com.copilot361.app
-#   scripts/reset-local-state.sh -y --keep-workspace      # skip <workspace>/.teamclaw
+#   scripts/reset-local-state.sh -y --keep-workspace      # skip <workspace>/.teamclu
 #   scripts/reset-local-state.sh -y --keep-opencode      # skip global OpenCode dirs
 #
 # Does NOT delete:
 #   - Cloud account / team data (Supabase / Cloud API)
-#   - Workspace content outside `.teamclaw/` (e.g. `teamclaw-team/` synced files)
+#   - Workspace content outside `.teamclu/` (e.g. `teamclu-team/` synced files)
 #   - The workspace directory itself
 
 set -euo pipefail
@@ -28,7 +28,7 @@ LAUNCHD_PLIST="${HOME}/Library/LaunchAgents/${LAUNCHD_LABEL}.plist"
 SYSTEMD_UNIT="${HOME}/.config/systemd/user/amuxd.service"
 
 # Legacy hardcoded keys in the frontend (session-store, etc.) survive white-label builds.
-LEGACY_STORAGE_PREFIX="teamclaw"
+LEGACY_STORAGE_PREFIX="teamclu"
 
 yes_mode=0
 dry_run=0
@@ -62,9 +62,9 @@ Usage: $(basename "$0") [options]
 Options:
   -y, --yes                 Skip confirmation prompt
   -n, --dry-run             Print paths that would be removed; do not delete
-  --include-workspace       Also remove workspace .teamclaw dirs (default: on)
-  --keep-workspace          Do not remove <workspace>/.teamclaw
-  --workspace PATH          Extra workspace whose .teamclaw/ dir to remove (repeatable)
+  --include-workspace       Also remove workspace .teamclu dirs (default: on)
+  --keep-workspace          Do not remove <workspace>/.teamclu
+  --workspace PATH          Extra workspace whose .teamclu/ dir to remove (repeatable)
   --app-id ID               Limit reset to one brand (e.g. com.copilot361.app)
   --short-name NAME         Limit reset to one brand (e.g. copilot361)
   --include-opencode        Remove global OpenCode data (default: on)
@@ -73,19 +73,19 @@ Options:
 
 Removes (user-level):
   - ~/.amuxd                     amuxd daemon binary, config, team sync state
-  - ~/.teamclaw, ~/.copilot361   per-brand desktop cache, secrets, local-cache.db
+  - ~/.teamclu, ~/.copilot361   per-brand desktop cache, secrets, local-cache.db
   - Tauri app data/cache/logs    per bundle id (e.g. com.copilot361.app)
   - WebKit / WebView2 profile     localStorage (auth session), IndexedDB, cookies
   - ~/.config/<shortName>        global skills, cron-global (Linux/macOS XDG path)
   - <workspace>/.<shortName>     per-workspace config (auto-discovered from webview)
-  - Legacy ~/.config/amux, ~/Library/Application Support/{amux,teamclaw,copilot361}
+  - Legacy ~/.config/amux, ~/Library/Application Support/{amux,teamclu,copilot361}
   - ~/.opencode (+ ~/.local/share/opencode, ~/.config/opencode, ~/.cache/opencode)
     global OpenCode runtime and data (default: on; use --keep-opencode to skip)
 
 Quit the desktop app before running. The script unloads the amuxd launchd/systemd
 job before killing the process so KeepAlive cannot recreate ~/.amuxd.
 
-By default the script resets every detected brand profile (TeamClaw, Copilot 361,
+By default the script resets every detected brand profile (TeamClu, Copilot 361,
 and any profile found in build.config.json or on disk).
 EOF
 }
@@ -182,8 +182,8 @@ infer_app_id_for_short_name() {
       fi
       ;;
   esac
-  if [[ "$short_name" == "teamclaw" ]]; then
-    printf '%s\n' "com.teamclaw.app"
+  if [[ "$short_name" == "teamclu" ]]; then
+    printf '%s\n' "com.teamclu.app"
   else
     printf '%s\n' "com.${short_name}.app"
   fi
@@ -194,15 +194,15 @@ detect_brand_profiles_from_disk() {
 
   case "$(uname -s)" in
     Darwin)
-      for app_id in com.teamclaw.app com.copilot361.app; do
+      for app_id in com.teamclu.app com.copilot361.app; do
         short_name="${app_id#com.}"
         short_name="${short_name%.app}"
         if [[ -d "${HOME}/Library/WebKit/${app_id}" || -d "${HOME}/Library/Application Support/${app_id}" || -d "${HOME}/.${short_name}" ]]; then
           add_brand_profile "$app_id" "$short_name"
         fi
       done
-      if [[ -d "${HOME}/Library/WebKit/teamclaw" ]]; then
-        add_brand_profile "com.teamclaw.app" "teamclaw" "TeamClaw"
+      if [[ -d "${HOME}/Library/WebKit/teamclu" ]]; then
+        add_brand_profile "com.teamclu.app" "teamclu" "TeamClu"
       fi
       ;;
   esac
@@ -225,7 +225,7 @@ resolve_brand_profiles() {
   BRAND_DISPLAY_NAMES=()
 
   if [[ "$brand_only" -eq 1 ]]; then
-    local short_name="${cli_short_name:-teamclaw}"
+    local short_name="${cli_short_name:-teamclu}"
     local app_id="${cli_app_id:-$(infer_app_id_for_short_name "$short_name")}"
     if [[ -n "$cli_app_id" && -z "$cli_short_name" ]]; then
       short_name="${cli_app_id#com.}"
@@ -238,7 +238,7 @@ resolve_brand_profiles() {
   fi
 
   if ((${#BRAND_APP_IDS[@]} == 0)); then
-    add_brand_profile "com.teamclaw.app" "teamclaw" "TeamClaw"
+    add_brand_profile "com.teamclu.app" "teamclu" "TeamClu"
   fi
 
   STORAGE_KEY_PREFIXES=()
@@ -365,8 +365,8 @@ warn_running_app() {
   local found=0
   case "$(uname -s)" in
     Darwin)
-      if pgrep -xq "TeamClaw" 2>/dev/null; then found=1; fi
-      if pgrep -xq "teamclaw" 2>/dev/null; then found=1; fi
+      if pgrep -xq "TeamClu" 2>/dev/null; then found=1; fi
+      if pgrep -xq "teamclu" 2>/dev/null; then found=1; fi
       if pgrep -f "Copilot 361" >/dev/null 2>&1; then found=1; fi
       ;;
     Linux)
@@ -374,11 +374,11 @@ warn_running_app() {
       if pgrep -xf ".*[Cc]opilot.*361.*" >/dev/null 2>&1; then found=1; fi
       ;;
     MINGW*|MSYS*|CYGWIN*)
-      if tasklist 2>/dev/null | grep -qiE "TeamClaw|Copilot 361"; then found=1; fi
+      if tasklist 2>/dev/null | grep -qiE "TeamClu|Copilot 361"; then found=1; fi
       ;;
   esac
   if [[ "$found" -eq 1 ]]; then
-    echo "warning: a TeamClaw / Copilot desktop app appears to be running — quit it first to avoid stale locks." >&2
+    echo "warning: a TeamClu / Copilot desktop app appears to be running — quit it first to avoid stale locks." >&2
   fi
 }
 
@@ -562,7 +562,7 @@ collect_workspace_dot_dir_targets() {
       display_name="${BRAND_DISPLAY_NAMES[$i]}"
       ws_paths+=("${HOME}/${display_name}")
     done
-    ws_paths+=("${HOME}/TeamClaw")
+    ws_paths+=("${HOME}/TeamClu")
     ws_paths+=("${HOME}/Copilot 361")
     discover_workspace_paths
   fi
@@ -597,8 +597,8 @@ collect_workspace_dot_dir_targets() {
       dot="$(resolve_workspace_dot_dir "$ws" "$short_name")"
       TARGETS+=("$dot")
     done
-    # Older white-label builds still wrote workspace metadata under teamclaw keys
-    # but may have kept the legacy .teamclaw workspace dir name.
+    # Older white-label builds still wrote workspace metadata under teamclu keys
+    # but may have kept the legacy .teamclu workspace dir name.
     dot="$(resolve_workspace_dot_dir "$ws" "$LEGACY_STORAGE_PREFIX")"
     TARGETS+=("$dot")
   done
@@ -663,7 +663,7 @@ confirm() {
     return 0
   fi
   echo
-  echo "This will permanently delete local TeamClaw / amuxd state listed above"
+  echo "This will permanently delete local TeamClu / amuxd state listed above"
   echo "(including webview login session, setup flags, and cached preferences)."
   echo "You will need to sign in and complete setup again."
   printf "Proceed? [y/N]: "
@@ -679,7 +679,7 @@ main() {
   warn_running_app
   resolve_brand_profiles
 
-  echo "TeamClaw local reset"
+  echo "TeamClu local reset"
   echo "===================="
   echo "Brand profiles:"
   local i
@@ -730,7 +730,7 @@ main() {
       remove_path "$AMUXD_DIR"
       if ! verify_amuxd_fully_stopped; then
         echo
-        echo "amuxd could not be fully removed. Quit TeamClaw, run:" >&2
+        echo "amuxd could not be fully removed. Quit TeamClu, run:" >&2
         echo "  launchctl bootout gui/\$(id -u)/${LAUNCHD_LABEL}" >&2
         echo "  pkill -x amuxd" >&2
         echo "then re-run: pnpm reset:local -y" >&2

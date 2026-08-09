@@ -5,7 +5,7 @@ import AMUXCore
 public struct SearchTab: View {
     let mqtt: MQTTService
     let pairing: PairingManager
-    let teamclawService: TeamclawService?
+    let teamcluService: TeamcluService?
     @Bindable var viewModel: SessionListViewModel
     @Binding var rootSelection: AppTab
     @Binding var sessionsPath: [String]
@@ -22,13 +22,13 @@ public struct SearchTab: View {
 
     public init(mqtt: MQTTService,
                 pairing: PairingManager,
-                teamclawService: TeamclawService?,
+                teamcluService: TeamcluService?,
                 viewModel: SessionListViewModel,
                 rootSelection: Binding<AppTab>,
                 sessionsPath: Binding<[String]>) {
         self.mqtt = mqtt
         self.pairing = pairing
-        self.teamclawService = teamclawService
+        self.teamcluService = teamcluService
         self.viewModel = viewModel
         self._rootSelection = rootSelection
         self._sessionsPath = sessionsPath

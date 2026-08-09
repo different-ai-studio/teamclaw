@@ -107,7 +107,7 @@ impl DaemonServer {
     ///     Callers may surface the error via their wire envelope.
     ///
     /// Load a collab session + participants from the backend, cache them in
-    /// the teamclaw session manager, and subscribe to `session/{sid}/live`.
+    /// the teamclu session manager, and subscribe to `session/{sid}/live`.
     /// Idempotent — safe on every RuntimeStart, including dedup reuse.
     pub(crate) async fn ensure_collab_session_registered(
         &mut self,
@@ -122,7 +122,7 @@ impl DaemonServer {
             .await
         {
             Ok(snap) => {
-                if let Some(tc) = self.teamclaw.as_mut() {
+                if let Some(tc) = self.teamclu.as_mut() {
                     if let Err(e) = tc
                         .insert_session_from_backend(&snap.session, &snap.participants)
                         .await
@@ -137,7 +137,7 @@ impl DaemonServer {
                     return Err(StartRuntimeError {
                         error_code: "SESSION_SUBSCRIBE_FAILED".to_string(),
                         error_message:
-                            "teamclaw session manager is not available for session runtime"
+                            "teamclu session manager is not available for session runtime"
                                 .to_string(),
                         failed_stage: "session_subscribe".to_string(),
                     });
@@ -436,7 +436,7 @@ impl DaemonServer {
             // model picker without spawning a duplicate process.
             self.publish_actor_state().await;
             if !session_id.is_empty() {
-                if let Some(tc) = self.teamclaw.as_mut() {
+                if let Some(tc) = self.teamclu.as_mut() {
                     if let Err(e) = tc.ensure_session_live_subscription(session_id).await {
                         warn!(
                             session_id,
@@ -457,7 +457,7 @@ impl DaemonServer {
         }
 
         // If iOS handed us a cloud session_id, pull the row + participants
-        // so we (a) populate the teamclaw cache that `agents_to_activate`
+        // so we (a) populate the teamclu cache that `agents_to_activate`
         // reads, and (b) subscribe to `session/{sid}/live` so inbound
         // `message.created` events from iOS actually reach us.
         // iOS creates these sessions directly in the cloud backend, so this is the
@@ -482,7 +482,7 @@ impl DaemonServer {
                                 joined_at: chrono::Utc::now(),
                             });
                     }
-                    if let Some(tc) = self.teamclaw.as_mut() {
+                    if let Some(tc) = self.teamclu.as_mut() {
                         if let Err(e) = tc
                             .insert_session_from_backend(&snap.session, &snap.participants)
                             .await
@@ -504,7 +504,7 @@ impl DaemonServer {
                         return Err(StartRuntimeError {
                             error_code: "SESSION_SUBSCRIBE_FAILED".to_string(),
                             error_message:
-                                "teamclaw session manager is not available for session runtime"
+                                "teamclu session manager is not available for session runtime"
                                     .to_string(),
                             failed_stage: "session_subscribe".to_string(),
                         });
@@ -650,7 +650,7 @@ impl DaemonServer {
         }
 
         if !session_id.is_empty() {
-            if let Err(e) = teamclaw_runtime_env::write_active_session_id(
+            if let Err(e) = teamclu_runtime_env::write_active_session_id(
                 Path::new(&resolved_worktree),
                 session_id,
             ) {
@@ -763,10 +763,10 @@ impl DaemonServer {
 
     pub(crate) async fn handle_stop_runtime(
         &mut self,
-        request: &crate::proto::teamclaw::RpcRequest,
-        stop: &crate::proto::teamclaw::RuntimeStopRequest,
-    ) -> crate::proto::teamclaw::RpcResponse {
-        use crate::proto::teamclaw::{rpc_response, RpcResponse, RuntimeStopResult};
+        request: &crate::proto::teamclu::RpcRequest,
+        stop: &crate::proto::teamclu::RuntimeStopRequest,
+    ) -> crate::proto::teamclu::RpcResponse {
+        use crate::proto::teamclu::{rpc_response, RpcResponse, RuntimeStopResult};
 
         let addressed = stop.runtime_id.clone();
         if addressed.is_empty() {
@@ -842,10 +842,10 @@ impl DaemonServer {
 
     pub(crate) async fn handle_start_runtime(
         &mut self,
-        request: &crate::proto::teamclaw::RpcRequest,
-        start: &crate::proto::teamclaw::RuntimeStartRequest,
-    ) -> crate::proto::teamclaw::RpcResponse {
-        use crate::proto::teamclaw::{rpc_response, RpcResponse, RuntimeStartResult};
+        request: &crate::proto::teamclu::RpcRequest,
+        start: &crate::proto::teamclu::RuntimeStartRequest,
+    ) -> crate::proto::teamclu::RpcResponse {
+        use crate::proto::teamclu::{rpc_response, RpcResponse, RuntimeStartResult};
 
         let requested =
             amux::AgentType::try_from(start.agent_type).unwrap_or(amux::AgentType::ClaudeCode);
@@ -907,10 +907,10 @@ impl DaemonServer {
     /// state to fan the new `current_model` out to every subscriber.
     pub(crate) async fn handle_set_model(
         &mut self,
-        request: &crate::proto::teamclaw::RpcRequest,
-        set: &crate::proto::teamclaw::SetModelRequest,
-    ) -> crate::proto::teamclaw::RpcResponse {
-        use crate::proto::teamclaw::{rpc_response, RpcResponse, SetModelResult};
+        request: &crate::proto::teamclu::RpcRequest,
+        set: &crate::proto::teamclu::SetModelRequest,
+    ) -> crate::proto::teamclu::RpcResponse {
+        use crate::proto::teamclu::{rpc_response, RpcResponse, SetModelResult};
 
         let addressed = set.runtime_id.clone();
         let model_id = set.model_id.clone();

@@ -810,7 +810,7 @@ function PersonalEnvActivationDiagnosticsCard({
                 hint={
                   !storeOk
                     ? personal.blobError
-                      ?? t('settings.envVars.diag.personalStoreMissing', '个人变量未能从 ~/.teamclaw/secrets 读取；Agent 将看不到这些值。')
+                      ?? t('settings.envVars.diag.personalStoreMissing', '个人变量未能从 ~/.teamclu/secrets 读取；Agent 将看不到这些值。')
                     : undefined
                 }
               />
@@ -858,7 +858,7 @@ function PersonalEnvActivationDiagnosticsCard({
                   personal.hostShadowedKeys.length > 0
                     ? t(
                         'settings.envVars.diag.hostShadowHint',
-                        'amuxd 启动 opencode serve 时，若 shell 已设置同名变量，会优先使用 shell 的值。请 unset 后重启 amuxd，或在 TeamClaw 中改用不同 key。',
+                        'amuxd 启动 opencode serve 时，若 shell 已设置同名变量，会优先使用 shell 的值。请 unset 后重启 amuxd，或在 TeamClu 中改用不同 key。',
                       )
                     : undefined
                 }
@@ -1045,7 +1045,7 @@ function PersonalEnvActivationDiagnosticsCard({
                       value={hostEnvShadowedKeys.join(', ')}
                       hint={t(
                         'settings.envVars.diag.daemonHostShadowHint',
-                        '以上 key 在 amuxd 进程环境中已存在，opencode serve 不会注入 TeamClaw 个人变量。',
+                        '以上 key 在 amuxd 进程环境中已存在，opencode serve 不会注入 TeamClu 个人变量。',
                       )}
                     />
                   )}
@@ -1155,7 +1155,7 @@ export const EnvVarsSection = React.memo(function EnvVarsSection() {
     }
   }, [loadEnvCatalog, loadCurrentNodeId, workspacePath, t])
 
-  // Files under teamclaw-team/_secrets may exist while this daemon lacks the
+  // Files under teamclu-team/_secrets may exist while this daemon lacks the
   // team key needed to decrypt them. Ask the daemon rather than inferring from
   // the file list; the response deliberately contains no secret material.
   React.useEffect(() => {

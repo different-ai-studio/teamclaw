@@ -26,7 +26,7 @@ pub(crate) struct PiProcess {
     /// provider + MCP servers + extra env). A prewarmed child is spawned before
     /// the session env is known, so `ensure` respawns when the fingerprint
     /// changes — otherwise a stale child keeps running without the session's
-    /// `TEAMCLAW_MCP_SERVERS` / secrets.
+    /// `TEAMCLU_MCP_SERVERS` / secrets.
     env_fingerprint: String,
 }
 
@@ -48,10 +48,10 @@ pub(crate) struct PiProcessPool {
     /// Extra env captured from prewarm/attach; applied on (re)spawn.
     extra_env: parking_lot::Mutex<HashMap<String, String>>,
     force_env_override: parking_lot::Mutex<bool>,
-    /// `TEAMCLAW_REMOTE_TOOLS_CMD` (JSON array string) extracted from the
+    /// `TEAMCLU_REMOTE_TOOLS_CMD` (JSON array string) extracted from the
     /// session's mcp config; applied on (re)spawn.
     remote_tools_cmd: parking_lot::Mutex<Option<String>>,
-    /// `TEAMCLAW_MCP_SERVERS` (JSON object string) — the workspace's other
+    /// `TEAMCLU_MCP_SERVERS` (JSON object string) — the workspace's other
     /// enabled local MCP servers, bridged into pi by the extension.
     mcp_servers: parking_lot::Mutex<Option<String>>,
 }
@@ -69,13 +69,13 @@ impl PiProcessPool {
     }
 
     /// Record the remote-tools MCP launch command (JSON array string) exported
-    /// to the TeamClaw pi extension as `TEAMCLAW_REMOTE_TOOLS_CMD` at spawn.
+    /// to the TeamClu pi extension as `TEAMCLU_REMOTE_TOOLS_CMD` at spawn.
     pub(crate) fn set_remote_tools_cmd(&self, cmd_json: String) {
         *self.remote_tools_cmd.lock() = Some(cmd_json);
     }
 
     /// Record the workspace's other MCP servers (JSON object string) exported to
-    /// the TeamClaw pi extension as `TEAMCLAW_MCP_SERVERS` at spawn.
+    /// the TeamClu pi extension as `TEAMCLU_MCP_SERVERS` at spawn.
     pub(crate) fn set_mcp_servers(&self, servers_json: String) {
         *self.mcp_servers.lock() = Some(servers_json);
     }
@@ -200,7 +200,7 @@ impl PiProcessPool {
             .arg("--session-dir")
             .arg(&session_dir)
             .current_dir(worktree);
-        // TeamClaw extension: permission gate + remote-tools MCP bridge.
+        // TeamClu extension: permission gate + remote-tools MCP bridge.
         match materialize_extension() {
             Ok(ext) => {
                 cmd.arg("-e").arg(&ext);
@@ -211,12 +211,12 @@ impl PiProcessPool {
         if let Err(e) = write_default_permissions_if_absent(&perms_file) {
             warn!(path = %perms_file.display(), error = %e, "pi permissions file init failed");
         }
-        cmd.env("TEAMCLAW_PI_PERMISSIONS_FILE", &perms_file);
+        cmd.env("TEAMCLU_PI_PERMISSIONS_FILE", &perms_file);
         if let Some(remote_cmd) = self.remote_tools_cmd.lock().clone() {
-            cmd.env("TEAMCLAW_REMOTE_TOOLS_CMD", remote_cmd);
+            cmd.env("TEAMCLU_REMOTE_TOOLS_CMD", remote_cmd);
         }
         if let Some(servers) = self.mcp_servers.lock().clone() {
-            cmd.env("TEAMCLAW_MCP_SERVERS", servers);
+            cmd.env("TEAMCLU_MCP_SERVERS", servers);
         }
         cmd.env(
             "PATH",
@@ -322,12 +322,12 @@ pub(crate) fn session_dir_for(worktree: &str) -> PathBuf {
 }
 
 // ---------------------------------------------------------------------------
-// TeamClaw extension + permission rules file
+// TeamClu extension + permission rules file
 // ---------------------------------------------------------------------------
 
-/// The TeamClaw pi extension, embedded at compile time and materialized to
+/// The TeamClu pi extension, embedded at compile time and materialized to
 /// disk at spawn (loaded via `pi -e <path>`).
-const TEAMCLAW_EXTENSION_TS: &str = include_str!("../../../assets/pi-extension/teamclaw.ts");
+const TEAMCLU_EXTENSION_TS: &str = include_str!("../../../assets/pi-extension/teamclu.ts");
 
 fn amuxd_pi_dir() -> PathBuf {
     dirs::home_dir()
@@ -337,7 +337,7 @@ fn amuxd_pi_dir() -> PathBuf {
 }
 
 pub(crate) fn extension_path() -> PathBuf {
-    amuxd_pi_dir().join("extensions").join("teamclaw.ts")
+    amuxd_pi_dir().join("extensions").join("teamclu.ts")
 }
 
 /// Write the embedded extension to its on-disk path (only when its content
@@ -345,17 +345,17 @@ pub(crate) fn extension_path() -> PathBuf {
 fn materialize_extension() -> std::io::Result<PathBuf> {
     let path = extension_path();
     let current = std::fs::read_to_string(&path).unwrap_or_default();
-    if current != TEAMCLAW_EXTENSION_TS {
+    if current != TEAMCLU_EXTENSION_TS {
         if let Some(parent) = path.parent() {
             std::fs::create_dir_all(parent)?;
         }
-        std::fs::write(&path, TEAMCLAW_EXTENSION_TS)?;
+        std::fs::write(&path, TEAMCLU_EXTENSION_TS)?;
     }
     Ok(path)
 }
 
-/// Per-worktree permission rules file read by the TeamClaw pi extension
-/// (`TEAMCLAW_PI_PERMISSIONS_FILE`). The daemon appends patterns to it when
+/// Per-worktree permission rules file read by the TeamClu pi extension
+/// (`TEAMCLU_PI_PERMISSIONS_FILE`). The daemon appends patterns to it when
 /// the host resolves a permission with option_id "always".
 pub(crate) fn permissions_file_for(worktree: &str) -> PathBuf {
     amuxd_pi_dir()

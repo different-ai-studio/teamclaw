@@ -137,7 +137,7 @@ describe('collectDiagnosticReport', () => {
       ],
       teamEnv: {
         teamIdPresent: true,
-        teamLinkPath: '/tmp/workspace/teamclaw-team',
+        teamLinkPath: '/tmp/workspace/teamclu-team',
         linkExists: true,
         linkIsSymlink: true,
         linkTarget: '/tmp/teams/team-1',

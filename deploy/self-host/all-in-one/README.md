@@ -1,10 +1,10 @@
-# TeamClaw Self-host All-in-one (Supabase mode)
+# TeamClu Self-host All-in-one (Supabase mode)
 
-A single Docker image that folds the full TeamClaw self-host **Supabase-mode**
+A single Docker image that folds the full TeamClu self-host **Supabase-mode**
 backend into one auto-starting container, behind Caddy on one port (`8080`).
 
 `BACKEND_KIND=supabase`: the container runs a real Supabase data plane
-(Postgres + GoTrue + PostgREST + storage-api) plus NanoMQ, the TeamClaw Cloud API
+(Postgres + GoTrue + PostgREST + storage-api) plus NanoMQ, the TeamClu Cloud API
 (FC), and Caddy — all under `supervisord`.
 
 ## What runs inside
@@ -25,7 +25,7 @@ backend into one auto-starting container, behind Caddy on one port (`8080`).
 
 The entrypoint (`entrypoint.sh`) on an empty data dir:
 
-1. Generates/loads secrets into `/data/teamclaw/secrets.env` (Postgres password,
+1. Generates/loads secrets into `/data/teamclu/secrets.env` (Postgres password,
    `JWT_SECRET`, derived `ANON_KEY` / `SERVICE_ROLE_KEY`, the `MQTT_SERVICE_TOKEN`
    (an HS256 JWT signed with `JWT_SECRET`), and the cron token).
 2. Boots Postgres via the base image's **own** `docker-entrypoint.sh`, so the
@@ -52,7 +52,7 @@ Context is the **repo root**:
 ```bash
 docker build --platform=linux/arm64 \
   -f deploy/self-host/all-in-one/Dockerfile \
-  -t teamclaw-selfhost-allinone:local .
+  -t teamclu-selfhost-allinone:local .
 
 # full smoke (build + run on :18080 + 8 assertions + restart)
 deploy/self-host/all-in-one/smoke.sh
@@ -177,7 +177,7 @@ node, which works on this base).
 All state is under `/data` (mount a volume):
 
 ```text
-/data/teamclaw/secrets.env
+/data/teamclu/secrets.env
 /data/postgres/
 /data/storage/
 /data/nanomq/

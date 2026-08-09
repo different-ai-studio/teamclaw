@@ -402,7 +402,7 @@ async fn test_remote_server(config: &MCPServerConfig) -> Result<MCPTestResult, S
             "protocolVersion": "2024-11-05",
             "capabilities": {},
             "clientInfo": {
-                "name": "teamclaw-test",
+                "name": "teamclu-test",
                 "version": "0.1.0"
             }
         }
@@ -604,7 +604,7 @@ async fn mcp_tools_exchange(
         "params": {
             "protocolVersion": "2024-11-05",
             "capabilities": {},
-            "clientInfo": { "name": "teamclaw", "version": "1.0.0" }
+            "clientInfo": { "name": "teamclu", "version": "1.0.0" }
         }
     });
     let mut msg = serde_json::to_string(&init_req).unwrap();

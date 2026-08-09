@@ -15,7 +15,7 @@
 ## 1. 背景与问题
 
 设置页「Token 用量」(`packages/app/src/components/settings/TokenUsageSection.tsx`)
-当前读取的是**本工作区本地** `.teamclaw/stats.json`（`useLocalStatsStore`），
+当前读取的是**本工作区本地** `.teamclu/stats.json`（`useLocalStatsStore`），
 所以恒为 0、且只反映单机本地会话，**不是团队真实 AI 用量**。
 
 真实的 AI 用量数据在 LiteLLM 网关 (`https://ai.ucar.cc`)。目标：
@@ -45,7 +45,7 @@ LiteLLM 是开源的，所有原始数据都写在它的 Postgres 表 `LiteLLM_S
 
 | 实例 | 用途 | 部署 | 库 |
 |------|------|------|----|
-| **`ai.ucar.cc`** | **teamclaw 正式版**（本方案目标） | 裸 docker on host `120.76.243.206`（cn-shenzhen, `vpc-wz99g71s1yy5x7n230l7a`）：容器 `litellm` + `litellm_db`(postgres:16) + `caddy` 反代，compose 在 `/home/admin/docker-compose-litellm.yml` | `litellm_db` 容器内 pg16，库名 `litellm`，user `llmproxy` |
+| **`ai.ucar.cc`** | **teamclu 正式版**（本方案目标） | 裸 docker on host `120.76.243.206`（cn-shenzhen, `vpc-wz99g71s1yy5x7n230l7a`）：容器 `litellm` + `litellm_db`(postgres:16) + `caddy` 反代，compose 在 `/home/admin/docker-compose-litellm.yml` | `litellm_db` 容器内 pg16，库名 `litellm`，user `llmproxy` |
 | `ai.service.ucar.cc` | 测试环境 | Dokploy（`deploy/litellm-compose.yml`） | 栈内 `litellm-db` |
 
 **要迁移和接入的是正式版 `ai.ucar.cc`。** 下文「源库」均指
@@ -96,13 +96,13 @@ LiteLLM 用 Prisma 管理 schema。与用量相关的核心表：
 | `completion_tokens` | INT | |
 | `startTime` / `endTime` | TIMESTAMP | 用于时间范围过滤 |
 | `model` / `model_group` | TEXT | 模型 |
-| `team_id` | TEXT | **= `tc-{teamClawTeamId}`（关键关联键）** |
+| `team_id` | TEXT | **= `tc-{teamCluTeamId}`（关键关联键）** |
 | `user` | TEXT | LiteLLM user id |
 | `end_user` | TEXT | |
 | `request_tags` | JSONB | |
 
 > `team_id` 写入规则见 FC `admin-handlers.ts` / `team-provisioning.ts`：
-> TeamClaw team `X` → LiteLLM team `tc-X`，成员 key
+> TeamClu team `X` → LiteLLM team `tc-X`，成员 key
 > `sk-tc-{actorId[:40]}`、`key_alias` 形如 `Owner-xxxx` / `member-xxxx`。
 > 这意味着我们可同时按 `team_id` 聚合**团队总量**，按 `api_key`/alias 聚合
 > **成员明细**。
@@ -254,7 +254,7 @@ GET /v1/teams/:teamId/litellm/usage?range=today|week|month|year
 `litellm_ro` 查 `tc-{teamId}`）。**不**走 legacy `/ai/usage`（teamSecret）。
 
 落点（对齐现有 `setupLiteLlm` 路径）：
-1. `docs/openapi/teamclaw-api.v1.yaml` 加端点。
+1. `docs/openapi/teamclu-api.v1.yaml` 加端点。
 2. `repository-contract.ts` 加 `getLiteLlmUsage(teamId, range)` 契约 + 测试。
 3. `routes/team-litellm.ts` 加 route。
 4. `supabase-repo.ts` 实现（成员校验 + 调 `litellm-usage.ts`）。
@@ -268,7 +268,7 @@ GET /v1/teams/:teamId/litellm/usage?range=today|week|month|year
    `getUsage(teamId, range)` 调 `GET /v1/teams/:id/litellm/usage`。
 3. 新 store/hook：按 current team + range 拉取、缓存、轮询（可选）。
 4. **重构 `TokenUsageSection.tsx`**：
-   - 去掉 `useLocalStatsStore` 与 `.teamclaw/stats.json` 文案。
+   - 去掉 `useLocalStatsStore` 与 `.teamclu/stats.json` 文案。
    - 顶部加 当日/当周/当月/当年 切换段。
    - 卡片：总费用、总 Token、请求数、预算占比（有 maxBudget 时）。
    - 成员明细表（alias / tokens / spend）。

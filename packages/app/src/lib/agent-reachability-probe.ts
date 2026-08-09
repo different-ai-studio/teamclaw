@@ -1,4 +1,4 @@
-import { probeAgentRpcReachability } from '@/lib/teamclaw-rpc'
+import { probeAgentRpcReachability } from '@/lib/teamclu-rpc'
 import { probeDaemonHttp } from '@/lib/daemon-local-client'
 
 export type AgentReachability = 'pending' | 'reachable' | 'unreachable' | 'indeterminate'

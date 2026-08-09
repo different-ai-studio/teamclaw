@@ -1,32 +1,32 @@
-# TeamClaw 完整后端系统部署指南
+# TeamClu 完整后端系统部署指南
 
 **Audience:** 运维 / 平台 / 后端  
 **Status:** Living document — 以仓库内脚本与 `deploy/self-host/` 为准  
-**API 契约:** [`docs/openapi/teamclaw-api.v1.yaml`](../openapi/teamclaw-api.v1.yaml)
+**API 契约:** [`docs/openapi/teamclu-api.v1.yaml`](../openapi/teamclu-api.v1.yaml)
 
 > **只有一个环境：self-host。** 全栈跑在一台自建 ECS（`47.112.210.217`）上，由
 > `deploy/self-host/docker-compose.yml` 编排。以下子域**全部**指向这台机器：
 >
 > | 用途 | 地址 |
 > |---|---|
-> | Cloud API (`/v1`) | `https://api.teamclaw-dev.ucar.cc` |
-> | Supabase 网关 | `https://supabase.teamclaw-dev.ucar.cc` |
-> | Studio | `https://studio.teamclaw-dev.ucar.cc` |
-> | EMQX Dashboard | `https://emqx.teamclaw-dev.ucar.cc` |
-> | MQTT over WSS | `wss://mqtt.teamclaw-dev.ucar.cc/mqtt`（443）；明文 `47.112.210.217:1883` |
+> | Cloud API (`/v1`) | `https://api.teamclu-dev.ucar.cc` |
+> | Supabase 网关 | `https://supabase.teamclu-dev.ucar.cc` |
+> | Studio | `https://studio.teamclu-dev.ucar.cc` |
+> | EMQX Dashboard | `https://emqx.teamclu-dev.ucar.cc` |
+> | MQTT over WSS | `wss://mqtt.teamclu-dev.ucar.cc/mqtt`（443）；明文 `47.112.210.217:1883` |
 >
 > 域名里的 `-dev` 是**历史遗留命名**，不代表这是 dev 层级 —— 它就是唯一环境。既没有
 > 单独的 "prod"，也没有单独的 "dev"。
 >
 > **命名提示：** `services/fc/` 目录名同样是历史遗留 —— 它**不是**阿里云函数计算，而是
-> Cloud API 服务，由 compose 构建成容器运行。早先的阿里云 FC 部署（`teamclaw-sync`）、
+> Cloud API 服务，由 compose 构建成容器运行。早先的阿里云 FC 部署（`teamclu-sync`）、
 > 独立 RDS 实例、`cloud.ucar.cc`、`ai.ucar.cc` 均**已下线**。
 
 ---
 
 ## 1. 后端由哪些部分组成
 
-TeamClaw 的后端不是单一服务，而是一套协作组件。客户端（Desktop / iOS / Mobile）**只通过 Cloud API 访问业务数据**，不直连 Supabase。
+TeamClu 的后端不是单一服务，而是一套协作组件。客户端（Desktop / iOS / Mobile）**只通过 Cloud API 访问业务数据**，不直连 Supabase。
 
 ```
 ┌─────────────┐     HTTPS       ┌──────────────────────┐
@@ -133,7 +133,7 @@ push 到 `main` 且改动 `deploy/self-host/**`、`services/fc/**` 或
 字典序幂等地应用 `services/supabase/migrations/*.sql`。
 
 标记表落在**独立的 `_selfhost` schema**（`_selfhost.schema_migrations`），**不是**
-`public`：应用侧 migration（如 `move_teamclaw_to_amux`）会把 `public` 下所有基表迁到
+`public`：应用侧 migration（如 `move_teamclu_to_amux`）会把 `public` 下所有基表迁到
 `amux`，标记表若在 `public` 会被一起搬走、导致跟踪中断。见
 [`deploy/self-host/init/apply-migrations.sh`](../../deploy/self-host/init/apply-migrations.sh)。
 
@@ -190,7 +190,7 @@ docker compose build fc && docker compose up -d fc
 | `MQTT_BROKER_URL` | 发布 MQTT ping |
 | `MQTT_USERNAME` / `MQTT_PASSWORD` | 服务账号 |
 | `DATABASE_URL` | `BACKEND_KIND=postgres` 时用 |
-| `AUTH_BASE_URL` | OAuth / Better Auth 对外 base；**应显式设为 `https://api.teamclaw-dev.ucar.cc`** |
+| `AUTH_BASE_URL` | OAuth / Better Auth 对外 base；**应显式设为 `https://api.teamclu-dev.ucar.cc`** |
 
 > ⚠️ `AUTH_BASE_URL` 在 `services/fc/src/auth/` 里的代码内置默认值仍是**已下线**的
 > `https://cloud.ucar.cc`。留空会落到这个死地址，务必显式配置。
@@ -208,8 +208,8 @@ docker compose build fc && docker compose up -d fc
 
 | profile | 部署 | 服务的品牌 |
 |---|---|---|
-| `self-host` | `api.teamclaw-dev.ucar.cc` | 官方 TeamClaw（`build.config.production.json`） |
-| `belayo` | `teamclaw-api.ucar.cc` | betly（品牌私仓 `brands/betly`） |
+| `self-host` | `api.teamclu-dev.ucar.cc` | 官方 TeamClu（`build.config.production.json`） |
+| `belayo` | `teamclu-api.ucar.cc` | betly（品牌私仓 `brands/betly`） |
 | `copilot361` | `copilot.accounting.i.test.shopee.io` | Copilot 361（品牌私仓 `brands/copilot361`） |
 
 `s.yaml` 不给默认值，是因为它同时部署 belayo 和 copilot361 两个后端——任何默认值对其中一个都是**别的品牌的开关**（copilot361 若继承了 `belayo`，会给从没提供过手机登录的用户打开手机登录）。不设 = 不覆盖，永远安全。每个 env 文件自己写 profile 名，`deploy-aliyun-fc.sh` 的确认 banner 会打印出来。
@@ -233,8 +233,8 @@ belayo 跟着下次手工部署生效。
 验证（两个环境都要，belayo 没有 CI 门禁）：
 
 ```bash
-curl -s https://api.teamclaw-dev.ucar.cc/v1/config/public | jq   # self-host
-curl -s https://teamclaw-api.ucar.cc/v1/config/public | jq       # belayo
+curl -s https://api.teamclu-dev.ucar.cc/v1/config/public | jq   # self-host
+curl -s https://teamclu-api.ucar.cc/v1/config/public | jq       # belayo
 ```
 
 三份 profile 的初始值都是**照抄各自品牌 build config 已经烘死的值**，所以开启这套机制
@@ -266,8 +266,8 @@ curl -s https://teamclaw-api.ucar.cc/v1/config/public | jq       # belayo
 ```dotenv
 ACCESS_KEY_ID=...
 ACCESS_KEY_SECRET=...
-ROLE_ARN=acs:ram::...:role/teamclaw-oss
-BUCKET=teamclaw-team
+ROLE_ARN=acs:ram::...:role/teamclu-oss
+BUCKET=teamclu-team
 REGION=cn-shenzhen
 ENDPOINT=https://oss-cn-shenzhen.aliyuncs.com
 ```
@@ -317,13 +317,13 @@ Daemon 需要：
 
 ```json
 {
-  "cloudApiUrl": "https://api.teamclaw-dev.ucar.cc"
+  "cloudApiUrl": "https://api.teamclu-dev.ucar.cc"
 }
 ```
 
 | 场景 | URL |
 |------|-----|
-| Self-host（唯一环境） | `https://api.teamclaw-dev.ucar.cc` |
+| Self-host（唯一环境） | `https://api.teamclu-dev.ucar.cc` |
 | 自建的其他实例 | `https://${FC_DOMAIN}` |
 
 **发布桌面版前：** 若 Cloud API 有 breaking 变更，需先让 Cloud API + migration 部署完成（合入 `main` 即自动部署），再发客户端。见 [`docs/release/desktop.md`](../release/desktop.md)。
@@ -373,7 +373,7 @@ cd services/fc && sh ../../deploy/self-host/smoke/run-e2e.sh
 ```
 
 **健康巡检（GitHub Actions）：** `.github/workflows/prod-canary.yml` 每 30 分钟探测
-`https://api.teamclaw-dev.ucar.cc`（可用仓库变量 `PROD_API_URL` 覆盖），失败时告警企微：
+`https://api.teamclu-dev.ucar.cc`（可用仓库变量 `PROD_API_URL` 覆盖），失败时告警企微：
 
 - `GET /v1/config/bootstrap` → 401
 - `GET /v1/config/public` → 200
@@ -441,7 +441,7 @@ cd services/supabase && npm test   # pgTAP（若已配置）
 | [`.github/workflows/self-host-deploy.yml`](../../.github/workflows/self-host-deploy.yml) | 自动部署流水线 |
 | [`services/supabase/migrations/README.md`](../../services/supabase/migrations/README.md) | Migration 策略 |
 | [`docs/architecture/v2.md`](../architecture/v2.md) | 架构总览 |
-| [`docs/openapi/teamclaw-api.v1.yaml`](../openapi/teamclaw-api.v1.yaml) | API 契约 |
+| [`docs/openapi/teamclu-api.v1.yaml`](../openapi/teamclu-api.v1.yaml) | API 契约 |
 | [`CLAUDE.md`](../../CLAUDE.md) | Cloud API 端点与版本发布约定 |
 
 ---

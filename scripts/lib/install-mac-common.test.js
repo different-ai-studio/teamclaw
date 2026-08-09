@@ -42,12 +42,12 @@ test("install_mac_product_name_candidates prefers APP_NAME and build.config", ()
   const lines = out.split("\n").filter(Boolean);
   assert.equal(lines[0], "Override");
   assert.ok(lines.includes("Acme Chat"));
-  assert.ok(lines.includes("TeamClaw"));
+  assert.ok(lines.includes("TeamClu"));
 });
 
 test("install_mac_asset_slug replaces spaces with dots", () => {
   assert.equal(bash("install_mac_asset_slug", "Copilot 361"), "Copilot.361");
-  assert.equal(bash("install_mac_asset_slug", "TeamClaw"), "TeamClaw");
+  assert.equal(bash("install_mac_asset_slug", "TeamClu"), "TeamClu");
 });
 
 test("install_mac_github_latest_tag resolves tag from releases/latest redirect", () => {
@@ -60,9 +60,9 @@ test("install_mac_github_latest_tag resolves tag from releases/latest redirect",
         source "${commonSh}"
         gh() { return 1; }
         curl() {
-          printf '%s' "https://github.com/different-ai-studio/teamclaw/releases/tag/v1.2.3"
+          printf '%s' "https://github.com/different-ai-studio/teamclu/releases/tag/v1.2.3"
         }
-        install_mac_github_latest_tag "different-ai-studio/teamclaw"
+        install_mac_github_latest_tag "different-ai-studio/teamclu"
       `,
     ],
     { encoding: "utf8" },
@@ -82,18 +82,18 @@ test("install_mac_resolve_github_dmg_url finds branded aarch64 DMG without GitHu
         gh() { return 1; }
         curl() {
           local url="\${*: -1}"
-          if [[ "\$url" == "https://github.com/different-ai-studio/teamclaw/releases/latest" ]]; then
-            printf '%s' "https://github.com/different-ai-studio/teamclaw/releases/tag/v1.2.3"
+          if [[ "\$url" == "https://github.com/different-ai-studio/teamclu/releases/latest" ]]; then
+            printf '%s' "https://github.com/different-ai-studio/teamclu/releases/tag/v1.2.3"
             return 0
           fi
-          if [[ "\$url" == "https://github.com/different-ai-studio/teamclaw/releases/download/v1.2.3/Copilot.361_1.2.3_aarch64.dmg" ]]; then
+          if [[ "\$url" == "https://github.com/different-ai-studio/teamclu/releases/download/v1.2.3/Copilot.361_1.2.3_aarch64.dmg" ]]; then
             printf '200'
             return 0
           fi
           printf '404'
           return 0
         }
-        install_mac_resolve_github_dmg_url "different-ai-studio/teamclaw" "aarch64.dmg" ""
+        install_mac_resolve_github_dmg_url "different-ai-studio/teamclu" "aarch64.dmg" ""
       `,
     ],
     { encoding: "utf8" },
@@ -111,7 +111,7 @@ test("install scripts pass bash syntax check", () => {
   }
 });
 
-test("source_install_mac_common falls back to TEAMCLAW_SCRIPTS_RAW when local lib missing", () => {
+test("source_install_mac_common falls back to TEAMCLU_SCRIPTS_RAW when local lib missing", () => {
   const scriptsDir = path.join(repoRoot, "scripts");
   execFileSync(
     "bash",
@@ -119,7 +119,7 @@ test("source_install_mac_common falls back to TEAMCLAW_SCRIPTS_RAW when local li
       "-c",
       `
         set -euo pipefail
-        TEAMCLAW_SCRIPTS_RAW="file://${scriptsDir}"
+        TEAMCLU_SCRIPTS_RAW="file://${scriptsDir}"
         source_install_mac_common() {
           local script_dir="\${1:-}"
           local local_lib="\${script_dir}/lib/install-mac-common.sh"
@@ -128,8 +128,8 @@ test("source_install_mac_common falls back to TEAMCLAW_SCRIPTS_RAW when local li
             return 0
           fi
           local tmp
-          tmp="\$(mktemp /tmp/teamclaw-install-common-XXXXXX.sh)"
-          curl -fsSL "\${TEAMCLAW_SCRIPTS_RAW}/lib/install-mac-common.sh" -o "\$tmp"
+          tmp="\$(mktemp /tmp/teamclu-install-common-XXXXXX.sh)"
+          curl -fsSL "\${TEAMCLU_SCRIPTS_RAW}/lib/install-mac-common.sh" -o "\$tmp"
           source "\$tmp"
           rm -f "\$tmp"
         }

@@ -1,4 +1,4 @@
-// Strict subset of the GoTrue / Supabase session shape that TeamClaw needs.
+// Strict subset of the GoTrue / Supabase session shape that TeamClu needs.
 // Only the fields the app actually reads are typed. Extra fields returned by
 // GoTrue (provider, identities, etc.) are tolerated but not surfaced.
 

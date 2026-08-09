@@ -10,7 +10,7 @@ In the `Lint, Typecheck & Test` job:
 ## What CI does not run
 
 **Lint.** The app has no ESLint config of its own, and the root `pnpm lint` is
-scoped to `@teamclaw/app`.
+scoped to `@teamclu/app`.
 
 **Anything requiring a device or a native build.** Nothing here exercises
 gestures, navigation, or the native modules — see the caveat on `SwipeableRow`
@@ -19,12 +19,12 @@ below.
 ## Why this exists
 
 Until 2026-08 the root `lint` / `typecheck` / `test:unit` scripts were *all*
-`--filter @teamclaw/app`, so this app was in the workspace but outside every
+`--filter @teamclu/app`, so this app was in the workspace but outside every
 gate — its tests had never run in CI, and `tsc` had drifted to 14 errors.
 
 That gap was not theoretical. The OAuth redirect bug that silently broke every
-Google and Apple sign-in (`teamclaw://auth/callback` against the allow-listed
-`teamclaw://auth-callback`) lived here undetected, with test fixtures that
+Google and Apple sign-in (`teamclu://auth/callback` against the allow-listed
+`teamclu://auth-callback`) lived here undetected, with test fixtures that
 asserted the *broken* value.
 
 ## Two fixes worth keeping a record of

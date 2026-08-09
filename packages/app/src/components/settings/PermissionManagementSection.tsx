@@ -41,7 +41,7 @@ type PermissionAction = 'allow' | 'ask' | 'deny'
 
 type PermissionConfig = DaemonPermissionMap
 
-// TeamClaw defaults: destructive operations require approval, read-only auto-approved.
+// TeamClu defaults: destructive operations require approval, read-only auto-approved.
 // These are written to opencode.json on first launch if no permission section exists.
 const PERMISSION_DEFAULTS: PermissionConfig = {
   read: 'allow',

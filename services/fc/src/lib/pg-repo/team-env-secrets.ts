@@ -5,7 +5,7 @@
  *
  * This repo deliberately knows nothing about the values it stores. The client
  * encrypts with the team key (AES-256-GCM, HKDF-SHA256 derived — see
- * crates/teamclaw-runtime-env/src/team_crypto.rs) and uploads only the envelope
+ * crates/teamclu-runtime-env/src/team_crypto.rs) and uploads only the envelope
  * `{v, nonce, ciphertext}`. That is the same threat model the previous OSS/git
  * storage had — it defends against whoever runs the storage, not against
  * teammates — so moving the bytes to Postgres changes the transport, not the

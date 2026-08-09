@@ -1157,7 +1157,7 @@ export async function saveDiagnosticZip(report: DiagnosticReport): Promise<strin
 
   const stamp = new Date()
   const pad = (n: number) => String(n).padStart(2, '0')
-  const filename = `teamclaw-diag-${stamp.getFullYear()}${pad(stamp.getMonth() + 1)}${pad(stamp.getDate())}-${pad(stamp.getHours())}${pad(stamp.getMinutes())}.zip`
+  const filename = `teamclu-diag-${stamp.getFullYear()}${pad(stamp.getMonth() + 1)}${pad(stamp.getDate())}-${pad(stamp.getHours())}${pad(stamp.getMinutes())}.zip`
 
   const downloads = await downloadDir()
   const dest = await save({
@@ -1172,4 +1172,4 @@ export async function saveDiagnosticZip(report: DiagnosticReport): Promise<strin
   return dest
 }
 
-export const GITHUB_ISSUES_URL = 'https://github.com/different-ai-studio/teamclaw/issues'
+export const GITHUB_ISSUES_URL = 'https://github.com/different-ai-studio/teamclu/issues'

@@ -603,7 +603,7 @@ export function createSupabaseBusinessRepository(options) {
 
     // Account upgrade: graduate the caller out of the shared DEFAULT_ORG into
     // their own org (create org + reparent/rename their team). See
-    // docs/specs/2026-06-17-teamclaw-phone-login-and-tenancy.md §8.
+    // docs/specs/2026-06-17-teamclu-phone-login-and-tenancy.md §8.
     async upgradeAccount({ teamId, orgName, contact }) {
       const defaultOrgId = process.env.DEFAULT_ORG_ID || null;
       const { data, error } = await supabase.rpc("upgrade_account_to_org", {

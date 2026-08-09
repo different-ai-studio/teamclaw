@@ -6,7 +6,7 @@
 -- authData.user.id; migration 2025-12-19 backfilled auth_user_id = id, treating
 -- it as a redundant mirror). saas-mono RLS/code filter by id = auth.uid().
 --
--- The teamclaw integration functions previously resolved public.users via
+-- The teamclu integration functions previously resolved public.users via
 -- `auth_user_id = auth.uid()`, which MISSES the ~275k accounts linked only by
 -- id (auth_user_id null/not backfilled) — so onboarding wrongly re-inserted a
 -- users row (hitting public.users.mobile NOT NULL: "name/mobile is required")

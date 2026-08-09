@@ -1,8 +1,8 @@
 # TeamClu
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
-[![CI](https://github.com/different-ai-studio/teamclaw/actions/workflows/ci.yml/badge.svg)](https://github.com/different-ai-studio/teamclaw/actions)
-[![Contributors](https://img.shields.io/github/contributors/different-ai-studio/teamclaw.svg)](https://github.com/different-ai-studio/teamclaw/graphs/contributors)
+[![CI](https://github.com/different-ai-studio/teamclu/actions/workflows/ci.yml/badge.svg)](https://github.com/different-ai-studio/teamclu/actions)
+[![Contributors](https://img.shields.io/github/contributors/different-ai-studio/teamclu.svg)](https://github.com/different-ai-studio/teamclu/graphs/contributors)
 
 로컬 AI 에이전트 — 모든 직무를 위한 당신의 AI 파트너
 
@@ -27,7 +27,7 @@
 - **로컬 에이전트 런타임** — 에이전트가 사용자 머신에서 실행되며, `amuxd` 데몬이 호스팅
 - **채널 게이트웨이** — Discord, Feishu, Email, Kook, WeCom, WeChat 에서 에이전트에 접근
 - **자동화** — cron 을 통한 예약 작업
-- **팀 협업** — OSS 또는 Git 으로 팀 드라이브(`teamclaw-team/`) 공유. [팀 협업](#팀-협업) 참조
+- **팀 협업** — OSS 또는 Git 으로 팀 드라이브(`teamclu-team/`) 공유. [팀 협업](#팀-협업) 참조
 - **MCP 지원** — Model Context Protocol 을 통해 에이전트를 엔터프라이즈 시스템에 연결
 - **Skills / 플러그인** — 워크스페이스 수준 및 전역 스킬 소스로 에이전트 확장
 - **지식 베이스** — 전문 검색 및 임베딩 기반 인덱싱과 검색
@@ -44,7 +44,7 @@ TeamClu 는 클라이언트 계층, 에이전트 호스트, 클라우드 백엔�
         └──────────────┴─────┬──────┴──────────────────┘
                              │
               ┌──────────────┴───────────────┐
-              │      TeamClaw Cloud API      │   identity, teams,
+              │      TeamClu Cloud API      │   identity, teams,
               │            (/v1)             │   sessions, messages
               └──────────────┬───────────────┘
                              │
@@ -60,7 +60,7 @@ TeamClu 는 클라이언트 계층, 에이전트 호스트, 클라우드 백엔�
 
 - **클라이언트**는 UI 와 로컬 파일을 담당합니다. TeamClu Desktop 을 설치하면 `amuxd` 데몬도 함께 설치되므로, 사용자의 머신이 곧바로 에이전트 호스트가 됩니다.
 - **amuxd**는 로컬 에이전트 백엔드를 호스팅하고, 채널 게이트웨이를 실행하며, 팀 동기화를 담당합니다. GUI 없이 서버에 단독으로 설치할 수도 있습니다.
-- **Cloud API**(`/v1`)는 클라이언트가 통신하는 유일한 백엔드입니다. 계약은 [`docs/openapi/teamclaw-api.v1.yaml`](docs/openapi/teamclaw-api.v1.yaml), 전체 아키텍처는 [`docs/architecture/v2.md`](docs/architecture/v2.md) 를 참조하세요.
+- **Cloud API**(`/v1`)는 클라이언트가 통신하는 유일한 백엔드입니다. 계약은 [`docs/openapi/teamclu-api.v1.yaml`](docs/openapi/teamclu-api.v1.yaml), 전체 아키텍처는 [`docs/architecture/v2.md`](docs/architecture/v2.md) 를 참조하세요.
 
 ## 클라이언트
 
@@ -73,14 +73,14 @@ TeamClu 는 클라이언트 계층, 에이전트 호스트, 클라우드 백엔�
 
 ## 설치
 
-[GitHub Releases](https://github.com/different-ai-studio/teamclaw/releases)에서 플랫폼별 설치 프로그램을 다운로드하세요 — macOS 는 `.dmg`, Windows 는 `.exe`.
+[GitHub Releases](https://github.com/different-ai-studio/teamclu/releases)에서 플랫폼별 설치 프로그램을 다운로드하세요 — macOS 는 `.dmg`, Windows 는 `.exe`.
 
 ### macOS "손상됨" 경고
 
 macOS 가 앱이 **"손상됨"** 또는 **"개발자를 확인할 수 없어 열 수 없습니다"** 라고 표시한다면, 이는 서명되지 않은 다운로드에 대해 Gatekeeper 가 반응하는 것입니다. 격리 속성을 해제하세요:
 
 ```bash
-xattr -cr /Applications/TeamClaw.app
+xattr -cr /Applications/TeamClu.app
 ```
 
 Apple 개발자 인증서로 서명 및 공증된 빌드에서는 이 단계가 필요하지 않습니다.
@@ -106,7 +106,7 @@ pnpm tauri:dev -- --skip-setup --skip-daemon-onboarding
 
 ## 팀 협업
 
-팀이 공유하는 것은 전용 **팀 드라이브**(`teamclaw-team/`)이며, 워크스페이스 전체가 아닙니다. 온보딩 시 소유자가 **공유 모드**를 한 번 선택하면 이후 서버 측에서 잠깁니다:
+팀이 공유하는 것은 전용 **팀 드라이브**(`teamclu-team/`)이며, 워크스페이스 전체가 아닙니다. 온보딩 시 소유자가 **공유 모드**를 한 번 선택하면 이후 서버 측에서 잠깁니다:
 
 | 모드 | 동작 |
 |---|---|
@@ -114,7 +114,7 @@ pnpm tauri:dev -- --skip-setup --skip-daemon-onboarding
 | `managed_git` | 자동으로 프로비저닝된 Git 리포지토리를 통해 동기화 |
 | `custom_git` | 직접 호스팅하는 Git 리포지토리를 통해 동기화 |
 
-동기화는 `amuxd` 데몬이 담당합니다. 팀마다 `~/.amuxd/teams/<team_id>/` 아래에 글로벌 복사본을 두고, 연결된 각 워크스페이스는 `teamclaw-team` 심볼릭 링크로 그 복사본을 가리킵니다.
+동기화는 `amuxd` 데몬이 담당합니다. 팀마다 `~/.amuxd/teams/<team_id>/` 아래에 글로벌 복사본을 두고, 연결된 각 워크스페이스는 `teamclu-team` 심볼릭 링크로 그 복사본을 가리킵니다.
 
 ### 공유 대상
 
@@ -146,11 +146,11 @@ build.config.json → build.config.${BUILD_ENV}.json → build.config.local.json
 cp build.config.example.json build.config.local.json
 ```
 
-핵심 설정은 `cloudApiUrl` 로, 앱이 바라볼 TeamClaw Cloud API 배포를 지정합니다:
+핵심 설정은 `cloudApiUrl` 로, 앱이 바라볼 TeamClu Cloud API 배포를 지정합니다:
 
 ```json
 {
-  "cloudApiUrl": "https://api.teamclaw-dev.ucar.cc",
+  "cloudApiUrl": "https://api.teamclu-dev.ucar.cc",
   "features": {
     "channels": { "discord": true, "feishu": true, "email": true }
   }
@@ -164,7 +164,7 @@ Cloud API 구현은 `services/fc/` (Node.js 20)에 있으며, Supabase 를 백�
 ## 문서
 
 - [아키텍처](docs/architecture/v2.md) — 구성 요소, 토폴로지, 데이터 모델
-- [API 계약](docs/openapi/teamclaw-api.v1.yaml) — TeamClaw Cloud API `/v1`
+- [API 계약](docs/openapi/teamclu-api.v1.yaml) — TeamClu Cloud API `/v1`
 - [컨텍스트 맵](CONTEXT-MAP.md) — 리포지토리가 바운디드 컨텍스트로 나뉘는 방식
 - [기여 가이드](CONTRIBUTING.md) — 개발 환경 설정, 테스트, 리포지토리 구조
 - [보안 정책](SECURITY.md)

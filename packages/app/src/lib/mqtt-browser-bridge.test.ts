@@ -33,14 +33,14 @@ describe('mqtt-browser-bridge', () => {
       brokerPort: 443,
       username: '1e7ff051-d7d7-48a2-9a99-d164c1be9282',
       password: 'p',
-      clientId: 'teamclaw-1e7ff051-random',
+      clientId: 'teamclu-1e7ff051-random',
       teamId: '68c9c97a-7393-494f-9b82-59364e7179ba',
       useTls: true,
     })
 
     expect(connect).toHaveBeenCalledWith(expect.objectContaining({
       options: expect.objectContaining({
-        clientId: expect.stringMatching(/^teamclaw-1e7ff051-68c9c97a-browser-[A-Za-z0-9_-]+$/),
+        clientId: expect.stringMatching(/^teamclu-1e7ff051-68c9c97a-browser-[A-Za-z0-9_-]+$/),
         // Persistent session: broker keeps subscriptions + queued QoS1
         // messages across auto-reconnects within this page's lifetime.
         clean: false,
@@ -52,7 +52,7 @@ describe('mqtt-browser-bridge', () => {
   })
 
   it('does not share browser MQTT clientId suffix through localStorage', async () => {
-    localStorage.setItem('teamclaw.browserMqtt.instanceId', 'shared')
+    localStorage.setItem('teamclu.browserMqtt.instanceId', 'shared')
     const randomUuid = vi.spyOn(crypto, 'randomUUID')
 
     randomUuid.mockReturnValueOnce('aaaa1111-0000-4000-8000-000000000000')
@@ -73,8 +73,8 @@ describe('mqtt-browser-bridge', () => {
     })
     await secondMod.mqttConnect({ brokerHost: 'b', brokerPort: 443, username: 'u', password: 'p', clientId: 'c', teamId: 't', useTls: true })
 
-    expect(firstConnect.mock.calls[0]?.[0].options.clientId).toBe('teamclaw-u-t-browser-aaaa1111')
-    expect(secondConnect.mock.calls[0]?.[0].options.clientId).toBe('teamclaw-u-t-browser-bbbb2222')
+    expect(firstConnect.mock.calls[0]?.[0].options.clientId).toBe('teamclu-u-t-browser-aaaa1111')
+    expect(secondConnect.mock.calls[0]?.[0].options.clientId).toBe('teamclu-u-t-browser-bbbb2222')
     randomUuid.mockRestore()
   })
 

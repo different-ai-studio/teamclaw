@@ -7,7 +7,7 @@ use crate::commands::gateway::email_config::EmailConfig;
 
 /// Manages delivery of cron job results to channels.
 /// Delegates to gateway modules for actual sending — no reimplementation.
-/// Most channels still read credentials from the workspace `.teamclaw/teamclaw.json`.
+/// Most channels still read credentials from the workspace `.teamclu/teamclu.json`.
 /// WeCom is routed through the amuxd-owned gateway and reads ownerId from the daemon
 /// config dir when no explicit target is set.
 #[derive(Debug, Clone)]
@@ -21,7 +21,7 @@ impl DeliveryManager {
     }
 
     /// Send a notification through the specified channel.
-    /// Reads fresh config from teamclaw.json each time so channel setting changes
+    /// Reads fresh config from teamclu.json each time so channel setting changes
     /// are picked up without requiring a restart.
     ///
     /// Returns `Some(message_id)` for Email (the outgoing SMTP Message-ID),
@@ -37,7 +37,7 @@ impl DeliveryManager {
             return Ok(None);
         }
 
-        let config = self.read_teamclaw_config()?;
+        let config = self.read_teamclu_config()?;
         match channel {
             DeliveryChannel::Discord => {
                 self.send_discord(&config, target, message).await?;
@@ -63,12 +63,12 @@ impl DeliveryManager {
         }
     }
 
-    /// Read the teamclaw.json config file from workspace
-    fn read_teamclaw_config(&self) -> Result<serde_json::Value, String> {
+    /// Read the teamclu.json config file from workspace
+    fn read_teamclu_config(&self) -> Result<serde_json::Value, String> {
         let path = format!(
             "{}/{}/{}",
             self.workspace_path,
-            crate::commands::TEAMCLAW_DIR,
+            crate::commands::TEAMCLU_DIR,
             crate::commands::CONFIG_FILE_NAME
         );
         let content = std::fs::read_to_string(&path).map_err(|e| {
@@ -206,7 +206,7 @@ impl DeliveryManager {
             &email_config,
             &self.workspace_path,
             target,
-            "[TeamClaw] Cron Job Notification",
+            "[TeamClu] Cron Job Notification",
             message,
         )
         .await
@@ -318,7 +318,7 @@ impl DeliveryManager {
     }
 
     /// Resolve WeCom ownerId from amuxd's persisted gateway state, with a legacy
-    /// fallback to the workspace teamclaw.json for pre-migration installs.
+    /// fallback to the workspace teamclu.json for pre-migration installs.
     fn resolve_wecom_owner_id(&self) -> Result<String, String> {
         let daemon_root = crate::commands::amuxd_home_dir()
             .to_string_lossy()

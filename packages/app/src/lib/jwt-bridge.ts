@@ -1,5 +1,5 @@
 // ---------------------------------------------------------------------------
-// JWT bridge — historically pushed the Supabase access_token into teamclaw.json
+// JWT bridge — historically pushed the Supabase access_token into teamclu.json
 // via the desktop `oss_sync_set_jwt` command so the Rust FC commands could
 // authenticate to FC.
 //
@@ -15,7 +15,7 @@
 
 /**
  * No-op. The daemon now supplies its own FC JWT; the desktop no longer writes a
- * token into teamclaw.json. Kept for call-site compatibility with main.tsx.
+ * token into teamclu.json. Kept for call-site compatibility with main.tsx.
  */
 export function initJwtBridge(): void {
   // intentionally empty — see module header.
@@ -23,7 +23,7 @@ export function initJwtBridge(): void {
 
 /**
  * No-op. The daemon now supplies its own FC JWT; the desktop no longer writes a
- * token into teamclaw.json. Kept for call-site compatibility with the
+ * token into teamclu.json. Kept for call-site compatibility with the
  * team-share store and TeamSharedLlmPane, which awaited this before FC calls.
  */
 export async function ensureJwtSynced(_workspacePath?: string): Promise<void> {

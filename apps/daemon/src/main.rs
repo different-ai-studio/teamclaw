@@ -27,7 +27,7 @@ mod sync;
 mod team_link;
 mod team_shared_env;
 mod team_shared_git;
-mod teamclaw;
+mod teamclu;
 #[cfg(test)]
 mod test_brand_env;
 #[cfg(test)]
@@ -310,13 +310,13 @@ async fn shutdown_signal() {
 fn prompt_for_invite_url() -> anyhow::Result<String> {
     use std::io::{BufRead, Write};
 
-    println!("amuxd onboarding — register this daemon as an agent on your TeamClaw team.");
+    println!("amuxd onboarding — register this daemon as an agent on your TeamClu team.");
     println!();
     println!("  1. Install the AMUX iOS app and sign in.");
     println!("  2. Create a team (if you haven't already).");
     println!("  3. Open the Actors tab → tap the + icon in the top right.");
     println!("  4. Pick kind = Agent, set a display name, tap Confirm.");
-    println!("  5. Copy the generated `teamclaw://invite?...` deeplink.");
+    println!("  5. Copy the generated `teamclu://invite?...` deeplink.");
     println!();
     print!("Paste the deeplink here (or Ctrl-C to abort): ");
     std::io::stdout().flush()?;

@@ -76,7 +76,7 @@ describe("setRefreshSession", () => {
    * so notifying here re-entered bootstrap, and the new run's
    * `beginOperation()` invalidated the in-flight one — whose `bootstrapResolved`
    * then dropped on the floor. The result was an infinite loop stuck on
-   * "Opening TeamClaw", hammering /v1/teams + activate + refresh each pass.
+   * "Opening TeamClu", hammering /v1/teams + activate + refresh each pass.
    *
    * Swapping tokens is not an auth-state change: same user, new claims.
    */

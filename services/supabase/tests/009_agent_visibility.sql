@@ -20,9 +20,9 @@ select fk_ok('public', 'agents', 'owner_member_id', 'public', 'members', 'id');
 
 insert into auth.users (id, email, aud, role, instance_id)
 values
-  ('91000000-0000-0000-0000-000000000001', 'agent-owner@teamclaw.test', 'authenticated', 'authenticated', '00000000-0000-0000-0000-000000000000'),
-  ('91000000-0000-0000-0000-000000000002', 'agent-admin@teamclaw.test', 'authenticated', 'authenticated', '00000000-0000-0000-0000-000000000000'),
-  ('91000000-0000-0000-0000-000000000003', 'agent-member@teamclaw.test', 'authenticated', 'authenticated', '00000000-0000-0000-0000-000000000000')
+  ('91000000-0000-0000-0000-000000000001', 'agent-owner@teamclu.test', 'authenticated', 'authenticated', '00000000-0000-0000-0000-000000000000'),
+  ('91000000-0000-0000-0000-000000000002', 'agent-admin@teamclu.test', 'authenticated', 'authenticated', '00000000-0000-0000-0000-000000000000'),
+  ('91000000-0000-0000-0000-000000000003', 'agent-member@teamclu.test', 'authenticated', 'authenticated', '00000000-0000-0000-0000-000000000000')
 on conflict do nothing;
 
 insert into public.teams (id, slug, name)

@@ -1,4 +1,4 @@
-//! Channel manager: boot and shut down `teamclaw_gateway` channels based on
+//! Channel manager: boot and shut down `teamclu_gateway` channels based on
 //! `[channels.*]` entries in `daemon.toml`. Each gateway is constructed with
 //! shared `AgentHandle` + `ChannelStore` adapters, populated with its per-channel
 //! config (translated from `DaemonConfig`'s primitive fields into the gateway
@@ -10,7 +10,7 @@
 use std::sync::Arc;
 use tokio::sync::Mutex;
 
-use teamclaw_gateway::{
+use teamclu_gateway::{
     AgentHandle, ChannelStore, DiscordConfig, DiscordGateway, EmailConfig, EmailGateway,
     EmailGatewayStatus, EmailProvider, FeishuConfig, FeishuGateway, FeishuGatewayStatus,
     GatewayStatus, KookConfig, KookDmConfig, KookGateway, KookGatewayStatus, SeaTalkConfig,
@@ -42,7 +42,7 @@ pub struct ChannelManager {
     primary_agent_actor_id: String,
     agent_owner_actor_ids: Vec<String>,
     /// Filesystem root that gateways may use for per-workspace state
-    /// (`.teamclaw/email.db`, persisted iLink context tokens, etc.). For the
+    /// (`.teamclu/email.db`, persisted iLink context tokens, etc.). For the
     /// amuxd-managed case this defaults to the amux config dir.
     workspace_path: String,
     running: Mutex<RunningChannels>,
@@ -383,7 +383,7 @@ impl ChannelManager {
         };
         // Plumb optional default DM username into the DM allow-list when provided
         // so the operator can verify the bot answers DMs from at least themselves
-        // without editing teamclaw.json directly. Leave alone otherwise.
+        // without editing teamclu.json directly. Leave alone otherwise.
         if let Some(name) = &c.default_username {
             if !name.is_empty() {
                 cfg.dm.allow_from.push(name.clone());
@@ -464,7 +464,7 @@ impl ChannelManager {
             enabled: true,
             token: c.bot_token.clone(),
             // Default DM mode = open; the operator can lock down via the
-            // gateway crate's `teamclaw.json` if desired. Until the manager
+            // gateway crate's `teamclu.json` if desired. Until the manager
             // is wired to a richer config we let DMs through.
             dm: KookDmConfig {
                 enabled: true,

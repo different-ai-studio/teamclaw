@@ -1,13 +1,13 @@
 import { readTextFile, writeTextFile, exists } from '@tauri-apps/plugin-fs'
 import { join } from '@tauri-apps/api/path'
-import { buildConfig, TEAMCLAW_DIR } from '@/lib/build-config'
+import { buildConfig, TEAMCLU_DIR } from '@/lib/build-config'
 
 /**
  * Default entries that should be in workspace .gitignore
  */
-export const TEAMCLAW_GITIGNORE_ENTRIES = [
+export const TEAMCLU_GITIGNORE_ENTRIES = [
   `# ${buildConfig.app.name} system directories`,
-  `${TEAMCLAW_DIR}/`,
+  `${TEAMCLU_DIR}/`,
 ]
 
 /**
@@ -32,7 +32,7 @@ function hasEntry(lines: string[], entry: string): boolean {
 }
 
 /**
- * Ensure .gitignore contains required TeamClaw entries
+ * Ensure .gitignore contains required TeamClu entries
  * Creates .gitignore if it doesn't exist, or appends missing entries
  */
 export async function ensureGitignoreEntries(workspacePath: string): Promise<void> {
@@ -43,9 +43,9 @@ export async function ensureGitignoreEntries(workspacePath: string): Promise<voi
 
     if (!gitignoreExists) {
       // Create new .gitignore with entries
-      const content = TEAMCLAW_GITIGNORE_ENTRIES.join('\n') + '\n'
+      const content = TEAMCLU_GITIGNORE_ENTRIES.join('\n') + '\n'
       await writeTextFile(gitignorePath, content)
-      console.log('[Gitignore] Created .gitignore with TeamClaw entries')
+      console.log('[Gitignore] Created .gitignore with TeamClu entries')
       return
     }
 
@@ -54,7 +54,7 @@ export async function ensureGitignoreEntries(workspacePath: string): Promise<voi
     const lines = parseGitignore(existingContent)
 
     // Find missing entries
-    const missingEntries = TEAMCLAW_GITIGNORE_ENTRIES.filter(entry =>
+    const missingEntries = TEAMCLU_GITIGNORE_ENTRIES.filter(entry =>
       !entry.startsWith('#') && !hasEntry(lines, entry)
     )
 

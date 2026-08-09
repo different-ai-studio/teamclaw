@@ -4,14 +4,14 @@ import { create, toBinary } from "@bufbuild/protobuf";
 import {
   AcpEventSchema,
   EnvelopeSchema as AmuxEnvelopeSchema,
-} from "@teamclaw/app/proto/amux_pb";
+} from "@teamclu/app/proto/amux_pb";
 import {
   LiveEventEnvelopeSchema,
   MessageKind,
   MessageSchema,
   SessionMessageEnvelopeSchema,
-} from "@teamclaw/app/proto/teamclaw_pb";
-import { decodeLiveEvent, sessionIdFromTopic } from "../lib/teamclaw/live-events";
+} from "@teamclu/app/proto/teamclu_pb";
+import { decodeLiveEvent, sessionIdFromTopic } from "../lib/teamclu/live-events";
 
 describe("decodeLiveEvent", () => {
   it("decodes valid message.created payloads", () => {

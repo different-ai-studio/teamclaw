@@ -17,7 +17,7 @@ export function normalizeAttachmentUrl(url: string): string {
   return withoutFragment.split("?")[0];
 }
 
-/** Extract object path from TeamClaw public attachment URLs (Supabase or OSS). */
+/** Extract object path from TeamClu public attachment URLs (Supabase or OSS). */
 export function parseStoragePathFromAttachmentUrl(url: string): string | null {
   const normalized = normalizeAttachmentUrl(url);
   const supabase = normalized.match(/\/storage\/v1\/object\/public\/attachments\/(.+)$/);

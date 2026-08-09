@@ -1,8 +1,8 @@
 # TeamClu
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
-[![CI](https://github.com/different-ai-studio/teamclaw/actions/workflows/ci.yml/badge.svg)](https://github.com/different-ai-studio/teamclaw/actions)
-[![Contributors](https://img.shields.io/github/contributors/different-ai-studio/teamclaw.svg)](https://github.com/different-ai-studio/teamclaw/graphs/contributors)
+[![CI](https://github.com/different-ai-studio/teamclu/actions/workflows/ci.yml/badge.svg)](https://github.com/different-ai-studio/teamclu/actions)
+[![Contributors](https://img.shields.io/github/contributors/different-ai-studio/teamclu.svg)](https://github.com/different-ai-studio/teamclu/graphs/contributors)
 
 Local AI agents — your AI Ally for every role
 
@@ -27,7 +27,7 @@ English | [简体中文](README.zh-CN.md) | [繁體中文](README.zh-TW.md) | [�
 - **Local agent runtime** — agents run on your machine, hosted by the `amuxd` daemon
 - **Channel gateways** — reach your agents from Discord, Feishu, Email, Kook, WeCom, and WeChat
 - **Automation** — scheduled tasks via cron
-- **Team collaboration** — share a team drive (`teamclaw-team/`) over OSS or Git; see [Team collaboration](#team-collaboration)
+- **Team collaboration** — share a team drive (`teamclu-team/`) over OSS or Git; see [Team collaboration](#team-collaboration)
 - **MCP support** — connect agents to enterprise systems via the Model Context Protocol
 - **Skills / plugins** — extend agents with workspace-level and global skill sources
 - **Knowledge base** — full-text and embedding-based indexing and search
@@ -44,7 +44,7 @@ TeamClu is split into a client layer, an agent host, and a cloud backend:
         └──────────────┴─────┬──────┴──────────────────┘
                              │
               ┌──────────────┴───────────────┐
-              │      TeamClaw Cloud API      │   identity, teams,
+              │      TeamClu Cloud API      │   identity, teams,
               │            (/v1)             │   sessions, messages
               └──────────────┬───────────────┘
                              │
@@ -60,7 +60,7 @@ TeamClu is split into a client layer, an agent host, and a cloud backend:
 
 - **Clients** own the UI and local files. Installing TeamClu Desktop also installs the `amuxd` daemon, so your machine is an agent host out of the box.
 - **amuxd** hosts local agent backends, runs the channel gateways, and owns team sync. It can also be installed standalone on a server, with no GUI.
-- **Cloud API** (`/v1`) is the only backend clients talk to. See [`docs/openapi/teamclaw-api.v1.yaml`](docs/openapi/teamclaw-api.v1.yaml) for the contract, and [`docs/architecture/v2.md`](docs/architecture/v2.md) for the full architecture.
+- **Cloud API** (`/v1`) is the only backend clients talk to. See [`docs/openapi/teamclu-api.v1.yaml`](docs/openapi/teamclu-api.v1.yaml) for the contract, and [`docs/architecture/v2.md`](docs/architecture/v2.md) for the full architecture.
 
 ## Clients
 
@@ -73,14 +73,14 @@ TeamClu is split into a client layer, an agent host, and a cloud backend:
 
 ## Install
 
-Download the installer for your platform from [GitHub Releases](https://github.com/different-ai-studio/teamclaw/releases) — `.dmg` for macOS, `.exe` for Windows.
+Download the installer for your platform from [GitHub Releases](https://github.com/different-ai-studio/teamclu/releases) — `.dmg` for macOS, `.exe` for Windows.
 
 ### macOS "damaged" warning
 
 If macOS reports the app is **"damaged"** or **"cannot be opened because the developer cannot be verified"**, that's Gatekeeper reacting to an unsigned download. Clear the quarantine attribute:
 
 ```bash
-xattr -cr /Applications/TeamClaw.app
+xattr -cr /Applications/TeamClu.app
 ```
 
 This step isn't needed for builds signed and notarized with an Apple Developer certificate.
@@ -106,7 +106,7 @@ For the frontend alone (no Rust build), run `pnpm dev`. Build commands, the shar
 
 ## Team collaboration
 
-A team shares a dedicated **team drive** (`teamclaw-team/`), not the whole workspace. During onboarding the owner picks one **share mode**, which is then locked server-side:
+A team shares a dedicated **team drive** (`teamclu-team/`), not the whole workspace. During onboarding the owner picks one **share mode**, which is then locked server-side:
 
 | Mode | What it does |
 |---|---|
@@ -114,7 +114,7 @@ A team shares a dedicated **team drive** (`teamclaw-team/`), not the whole works
 | `managed_git` | Syncs through a Git repository provisioned for you |
 | `custom_git` | Syncs through a Git repository you host yourself |
 
-Sync is owned by the `amuxd` daemon: it keeps one global copy per team under `~/.amuxd/teams/<team_id>/`, and each linked workspace gets a `teamclaw-team` symlink into that copy.
+Sync is owned by the `amuxd` daemon: it keeps one global copy per team under `~/.amuxd/teams/<team_id>/`, and each linked workspace gets a `teamclu-team` symlink into that copy.
 
 ### What gets shared
 
@@ -146,11 +146,11 @@ Copy the example to get started:
 cp build.config.example.json build.config.local.json
 ```
 
-The key setting is `cloudApiUrl`, which points the app at a TeamClaw Cloud API deployment:
+The key setting is `cloudApiUrl`, which points the app at a TeamClu Cloud API deployment:
 
 ```json
 {
-  "cloudApiUrl": "https://api.teamclaw-dev.ucar.cc",
+  "cloudApiUrl": "https://api.teamclu-dev.ucar.cc",
   "features": {
     "channels": { "discord": true, "feishu": true, "email": true }
   }
@@ -164,7 +164,7 @@ The Cloud API implementation lives in `services/fc/` (Node.js 20), backed by Sup
 ## Documentation
 
 - [Architecture](docs/architecture/v2.md) — components, topology, and data model
-- [API contract](docs/openapi/teamclaw-api.v1.yaml) — TeamClaw Cloud API `/v1`
+- [API contract](docs/openapi/teamclu-api.v1.yaml) — TeamClu Cloud API `/v1`
 - [Context map](CONTEXT-MAP.md) — how the repo is divided into bounded contexts
 - [Contributing](CONTRIBUTING.md) — dev setup, testing, repo layout
 - [Security policy](SECURITY.md)

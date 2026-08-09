@@ -1,4 +1,4 @@
-import { MessageKind } from "@/lib/proto/teamclaw_pb";
+import { MessageKind } from "@/lib/proto/teamclu_pb";
 import { useSessionListStore } from "@/stores/session-list-store";
 import { useSessionSelectionStore } from "@/stores/session-selection-store";
 

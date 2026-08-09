@@ -27,13 +27,13 @@ impl ProviderConfig {
     }
 
     /// `backend.toml` under the brand-aware amuxd home (`AMUXD_HOME` /
-    /// `TEAMCLAW_BRAND_SHORT_NAME` → `~/.amuxd` or `~/.amuxd-<brand>`).
+    /// `TEAMCLU_BRAND_SHORT_NAME` → `~/.amuxd` or `~/.amuxd-<brand>`).
     ///
     /// Must stay aligned with [`crate::config::DaemonConfig::config_dir`]; a
     /// hard-coded `~/.amuxd` here made white-label daemons load the official
-    /// TeamClaw credentials and fail identity validation on startup.
+    /// TeamClu credentials and fail identity validation on startup.
     pub fn default_path() -> Result<PathBuf, ProviderConfigError> {
-        Ok(teamclaw_runtime_env::amuxd_home_from_env().join("backend.toml"))
+        Ok(teamclu_runtime_env::amuxd_home_from_env().join("backend.toml"))
     }
 
     /// Whether *any* onboarding config exists at `backend_path` — either the
@@ -174,7 +174,7 @@ struct LegacySupabaseToml {
 }
 
 fn resolve_cloud_api_url() -> Result<String, ProviderConfigError> {
-    if let Ok(url) = std::env::var("TEAMCLAW_CLOUD_API_URL") {
+    if let Ok(url) = std::env::var("TEAMCLU_CLOUD_API_URL") {
         let trimmed = url.trim();
         if !trimmed.is_empty() {
             return Ok(trimmed.to_string());
@@ -196,7 +196,7 @@ pub enum ProviderConfigError {
     Parse(#[from] toml::de::Error),
     #[error("provider config error: {0}")]
     Config(String),
-    #[error("Cloud API URL not configured. Set TEAMCLAW_CLOUD_API_URL env var.")]
+    #[error("Cloud API URL not configured. Set TEAMCLU_CLOUD_API_URL env var.")]
     MissingCloudApiUrl,
 }
 
@@ -249,17 +249,17 @@ actor_id = "agent-1"
         )
         .unwrap();
 
-        // Migration requires TEAMCLAW_CLOUD_API_URL to be set.
-        std::env::set_var("TEAMCLAW_CLOUD_API_URL", "https://teamclaw-api.ucar.cc");
+        // Migration requires TEAMCLU_CLOUD_API_URL to be set.
+        std::env::set_var("TEAMCLU_CLOUD_API_URL", "https://teamclu-api.ucar.cc");
         let loaded = ProviderConfig::load_from_path(&backend_path).unwrap();
-        std::env::remove_var("TEAMCLAW_CLOUD_API_URL");
+        std::env::remove_var("TEAMCLU_CLOUD_API_URL");
         assert!(backend_path.exists());
         assert_eq!(loaded.kind(), ProviderKind::CloudApi);
         let ProviderConfig::CloudApi(config) = loaded;
         assert_eq!(config.refresh_token, "refresh");
         assert_eq!(config.team_id, "team-1");
         assert_eq!(config.actor_id, "agent-1");
-        assert_eq!(config.url, "https://teamclaw-api.ucar.cc");
+        assert_eq!(config.url, "https://teamclu-api.ucar.cc");
     }
 
     #[test]

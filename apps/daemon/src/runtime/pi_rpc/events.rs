@@ -98,7 +98,7 @@ async fn handle_event(
             }
         }
         // A pi agent run can contain multiple turns: each tool-use cycle ends
-        // one `turn_end` and begins another `turn_start`. Ending the TeamClaw
+        // one `turn_end` and begins another `turn_start`. Ending the TeamClu
         // stream there finalizes the first partial reply, so subsequent text
         // is rendered as a second message. Only `agent_end` completes the
         // prompt as a whole. `turn_active` keeps the stdout-EOF fallback

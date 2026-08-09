@@ -1,6 +1,6 @@
 import { buildLinkSessionCompositeKey } from './key'
 
-export const LINK_SESSION_MAP_KEY = 'teamclaw.extension.linkSessionMap'
+export const LINK_SESSION_MAP_KEY = 'teamclu.extension.linkSessionMap'
 
 export type LinkSessionEntry = {
   sessionId: string

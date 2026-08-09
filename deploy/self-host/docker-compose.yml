@@ -1,4 +1,4 @@
-name: teamclaw-self-host
+name: teamclu-self-host
 
 include:
   - path: ./supabase/docker-compose.yml
@@ -114,7 +114,7 @@ services:
           echo "litellm-init: created _litellm"
         fi
 
-  # Creates the teamclaw_apps database — the shared home for per-app Postgres
+  # Creates the teamclu_apps database — the shared home for per-app Postgres
   # schemas (one schema + one scoped login role per "数据操作" app), kept apart
   # from the control-plane database. Same one-shot pattern and reasoning as
   # litellm-init above: an already-deployed stack would never run a
@@ -141,11 +141,11 @@ services:
       - -c
       - |
         set -e
-        if [ "$$(psql -tAc "SELECT 1 FROM pg_database WHERE datname='teamclaw_apps'")" = "1" ]; then
-          echo "apps-db-init: teamclaw_apps already exists"
+        if [ "$$(psql -tAc "SELECT 1 FROM pg_database WHERE datname='teamclu_apps'")" = "1" ]; then
+          echo "apps-db-init: teamclu_apps already exists"
         else
-          psql -c 'CREATE DATABASE "teamclaw_apps"'
-          echo "apps-db-init: created teamclaw_apps"
+          psql -c 'CREATE DATABASE "teamclu_apps"'
+          echo "apps-db-init: created teamclu_apps"
         fi
 
   # AI gateway. FC provisions per-team budgets and virtual keys against the admin
@@ -195,7 +195,7 @@ services:
   fc:
     build:
       context: ../../services/fc
-    image: teamclaw-fc:self-host
+    image: teamclu-fc:self-host
     restart: unless-stopped
     depends_on:
       migrate:
@@ -260,7 +260,7 @@ services:
       ACCESS_KEY_ID: "${ACCESS_KEY_ID:-}"
       ACCESS_KEY_SECRET: "${ACCESS_KEY_SECRET:-}"
       ROLE_ARN: "${ROLE_ARN:-}"
-      BUCKET: "${BUCKET:-teamclaw-team}"
+      BUCKET: "${BUCKET:-teamclu-team}"
       REGION: "${REGION:-cn-shenzhen}"
       ENDPOINT: "${ENDPOINT:-}"
       # Apps module. These were declared in services/fc/s.yaml but never in this
@@ -270,8 +270,8 @@ services:
       # APPS_DB_ADMIN_URL. Keep both targets in step when adding more.
       CODEUP_ORG_ID: "${CODEUP_ORG_ID:-}"
       CODEUP_PAT: "${CODEUP_PAT:-}"
-      CODEUP_BOT_USERNAME: "${CODEUP_BOT_USERNAME:-teamclaw}"
-      # Admin connection to the shared per-app database (teamclaw_apps) — same
+      CODEUP_BOT_USERNAME: "${CODEUP_BOT_USERNAME:-teamclu}"
+      # Admin connection to the shared per-app database (teamclu_apps) — same
       # RDS instance as the control plane, different database. Blank disables
       # app deploys (they return 503 rather than half-provisioning).
       APPS_DB_ADMIN_URL: "${APPS_DB_ADMIN_URL:-}"
@@ -407,7 +407,7 @@ services:
           sleep 900
         done
 
-  # ── opt-in: TeamClaw daemon (docker compose --profile daemon up) ──
+  # ── opt-in: TeamClu daemon (docker compose --profile daemon up) ──
   # Auto-joins a team on first start via AMUXD_JOIN_TOKEN (mint one with
   # ./amuxd/mint-invite.sh after a team exists), persists identity to the
   # amuxd_state volume, connects to EMQX, and registers as an agent actor.
@@ -417,9 +417,9 @@ services:
     build:
       context: ../..
       dockerfile: deploy/self-host/amuxd/Dockerfile
-    # Local dev: `docker compose build amuxd` → teamclaw-amuxd:self-host.
+    # Local dev: `docker compose build amuxd` → teamclu-amuxd:self-host.
     # CI/ECS: daemon-deploy.yml sets AMUXD_IMAGE to a GHCR tag and pulls it.
-    image: ${AMUXD_IMAGE:-teamclaw-amuxd:self-host}
+    image: ${AMUXD_IMAGE:-teamclu-amuxd:self-host}
     restart: unless-stopped
     profiles: ["daemon"]
     depends_on:
@@ -428,7 +428,7 @@ services:
       emqx:
         condition: service_healthy
     environment:
-      TEAMCLAW_CLOUD_API_URL: "http://fc:9000"
+      TEAMCLU_CLOUD_API_URL: "http://fc:9000"
       AMUXD_JOIN_TOKEN: "${AMUXD_JOIN_TOKEN:-}"
       HOME: "/state"
       # opencode LLM provider (OpenAI-compatible). Set these to let the daemon

@@ -17,7 +17,7 @@
 
 import { describe, it, expect, beforeAll, afterAll } from 'vitest';
 import {
-  launchTeamClawApp,
+  launchTeamCluApp,
   stopApp,
   sendKeys,
   sleep,
@@ -79,7 +79,7 @@ describe('Regression: FileTree browser operations', () => {
 
   beforeAll(async () => {
     try {
-      await launchTeamClawApp();
+      await launchTeamCluApp();
       await sleep(8000);
       await focusWindow();
       await sleep(500);
@@ -96,8 +96,8 @@ describe('Regression: FileTree browser operations', () => {
       // Set workspace path
       const wsPath = (process.env.E2E_WORKSPACE_PATH || process.cwd()).replace(/'/g, "\\'");
       await executeJs(`
-        if (!localStorage.getItem('teamclaw-workspace-path')) {
-          localStorage.setItem('teamclaw-workspace-path', '${wsPath}');
+        if (!localStorage.getItem('teamclu-workspace-path')) {
+          localStorage.setItem('teamclu-workspace-path', '${wsPath}');
           location.reload();
         }
       `);
@@ -105,17 +105,17 @@ describe('Regression: FileTree browser operations', () => {
       await focusWindow();
       await sleep(500);
 
-      // Enable advancedMode by writing .teamclaw/teamclaw.json config
+      // Enable advancedMode by writing .teamclu/teamclu.json config
       // Then reload so the app picks it up and Cmd+\ works
       await executeJs(`
         (async () => {
-          const wsPath = localStorage.getItem('teamclaw-workspace-path');
+          const wsPath = localStorage.getItem('teamclu-workspace-path');
           if (!wsPath) return;
           const { join } = await import('@tauri-apps/api/path');
           const { writeTextFile, mkdir, exists } = await import('@tauri-apps/plugin-fs');
-          const dir = await join(wsPath, '.teamclaw');
+          const dir = await join(wsPath, '.teamclu');
           if (!(await exists(dir))) await mkdir(dir, { recursive: true });
-          const configPath = await join(dir, 'teamclaw.json');
+          const configPath = await join(dir, 'teamclu.json');
           await writeTextFile(configPath, JSON.stringify({ advancedMode: true }, null, 2));
           location.reload();
         })()
@@ -325,7 +325,7 @@ describe('Regression: FileTree browser operations', () => {
     // Create file via Tauri invoke
     await executeJs(`
       window.__TAURI__.core.invoke('plugin:fs|write_text_file', {
-        path: localStorage.getItem('teamclaw-workspace-path') + '/__reg18_test_file.txt',
+        path: localStorage.getItem('teamclu-workspace-path') + '/__reg18_test_file.txt',
         contents: 'regression test content',
       })
     `);
@@ -349,8 +349,8 @@ describe('Regression: FileTree browser operations', () => {
 
     await executeJs(`
       window.__TAURI__.core.invoke('plugin:fs|rename', {
-        oldPath: localStorage.getItem('teamclaw-workspace-path') + '/__reg18_test_file.txt',
-        newPath: localStorage.getItem('teamclaw-workspace-path') + '/__reg18_renamed.txt',
+        oldPath: localStorage.getItem('teamclu-workspace-path') + '/__reg18_test_file.txt',
+        newPath: localStorage.getItem('teamclu-workspace-path') + '/__reg18_renamed.txt',
       })
     `);
     await sleep(3000);
@@ -374,7 +374,7 @@ describe('Regression: FileTree browser operations', () => {
 
     await executeJs(`
       window.__TAURI__.core.invoke('plugin:fs|remove', {
-        path: localStorage.getItem('teamclaw-workspace-path') + '/__reg18_renamed.txt',
+        path: localStorage.getItem('teamclu-workspace-path') + '/__reg18_renamed.txt',
       })
     `);
     await sleep(3000);
@@ -463,7 +463,7 @@ describe('Regression: FileTree browser operations', () => {
     // Create a test file first
     await executeJs(`
       window.__TAURI__.core.invoke('plugin:fs|write_text_file', {
-        path: localStorage.getItem('teamclaw-workspace-path') + '/__reg18j_original.txt',
+        path: localStorage.getItem('teamclu-workspace-path') + '/__reg18j_original.txt',
         contents: 'copy paste test',
       })
     `);
@@ -525,10 +525,10 @@ describe('Regression: FileTree browser operations', () => {
     // Cleanup
     await executeJs(`
       window.__TAURI__.core.invoke('plugin:fs|remove', {
-        path: localStorage.getItem('teamclaw-workspace-path') + '/__reg18j_original.txt',
+        path: localStorage.getItem('teamclu-workspace-path') + '/__reg18j_original.txt',
       }).catch(() => {});
       window.__TAURI__.core.invoke('plugin:fs|remove', {
-        path: localStorage.getItem('teamclaw-workspace-path') + '/__reg18j_original copy.txt',
+        path: localStorage.getItem('teamclu-workspace-path') + '/__reg18j_original copy.txt',
       }).catch(() => {});
     `);
   }, 30_000);
@@ -541,7 +541,7 @@ describe('Regression: FileTree browser operations', () => {
     // Create a test file
     await executeJs(`
       window.__TAURI__.core.invoke('plugin:fs|write_text_file', {
-        path: localStorage.getItem('teamclaw-workspace-path') + '/__reg18k_dup.txt',
+        path: localStorage.getItem('teamclu-workspace-path') + '/__reg18k_dup.txt',
         contents: 'duplicate test',
       })
     `);
@@ -594,10 +594,10 @@ describe('Regression: FileTree browser operations', () => {
     // Cleanup
     await executeJs(`
       window.__TAURI__.core.invoke('plugin:fs|remove', {
-        path: localStorage.getItem('teamclaw-workspace-path') + '/__reg18k_dup.txt',
+        path: localStorage.getItem('teamclu-workspace-path') + '/__reg18k_dup.txt',
       }).catch(() => {});
       window.__TAURI__.core.invoke('plugin:fs|remove', {
-        path: localStorage.getItem('teamclaw-workspace-path') + '/__reg18k_dup copy.txt',
+        path: localStorage.getItem('teamclu-workspace-path') + '/__reg18k_dup copy.txt',
       }).catch(() => {});
     `);
   }, 30_000);

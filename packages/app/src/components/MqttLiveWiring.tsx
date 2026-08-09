@@ -29,15 +29,15 @@ import { mqttConnectionKey } from "@/lib/mqtt-connection-key";
 import { describeJwt, recordMqttDiag } from "@/lib/mqtt-diagnostics";
 import { useMqttReconnectStore } from "@/stores/mqtt-reconnect";
 import { getEffectiveServerConfig } from "@/lib/server-config";
-import { acquireTeamclawRpcBroker, acquireTeamclawRpcIdentity } from "@/lib/teamclaw-rpc";
+import { acquireTeamcluRpcBroker, acquireTeamcluRpcIdentity } from "@/lib/teamclu-rpc";
 import { acquireRemoteToolsRpcServer, registerPlatformExecutors } from "@/lib/remote-tools";
 import { acquireMqttModuleLeaseGroup, type MqttModuleLeaseGroup } from "@/lib/mqtt-module-wiring";
-import { decodeLiveEvent, sessionIdFromLiveEvent, streamActorIdFromLiveEvent } from "@/lib/teamclaw-events";
-import { handleAcpPermissionRequest } from "@/lib/teamclaw/handle-acp-permission-request";
-import { handleSessionEventPermissionResolved } from "@/lib/teamclaw/handle-session-event-permission-resolved";
-import { tryBindChildFromPermission } from "@/lib/teamclaw/subagent-acp-binding";
-import { routeSubagentAcpEvent } from "@/lib/teamclaw/subagent-acp-route";
-import { resolveOrphanSubagentParentToolId, shouldBufferUnboundChildAcpEvent, shouldRouteOrphanSubagentEvent } from "@/lib/teamclaw/subagent-acp-routing";
+import { decodeLiveEvent, sessionIdFromLiveEvent, streamActorIdFromLiveEvent } from "@/lib/teamclu-events";
+import { handleAcpPermissionRequest } from "@/lib/teamclu/handle-acp-permission-request";
+import { handleSessionEventPermissionResolved } from "@/lib/teamclu/handle-session-event-permission-resolved";
+import { tryBindChildFromPermission } from "@/lib/teamclu/subagent-acp-binding";
+import { routeSubagentAcpEvent } from "@/lib/teamclu/subagent-acp-route";
+import { resolveOrphanSubagentParentToolId, shouldBufferUnboundChildAcpEvent, shouldRouteOrphanSubagentEvent } from "@/lib/teamclu/subagent-acp-routing";
 import { handleInboxEnvelope, scheduleSessionListRefresh } from "@/lib/inbox-handler";
 import { bumpSessionListLastMessage, messageKindUpdatesSessionPreview } from "@/lib/session-list-preview";
 import { executeAgentTurnFlush } from "@/lib/agent-turn-flush";
@@ -57,7 +57,7 @@ import { isStreamInterruptible, useV2StreamingStore } from "@/stores/v2-streamin
 import { acquireRuntimeStateStore, useRuntimeStateStore } from "@/stores/runtime-state-store";
 import { findStaleLiveStreams, STALE_STREAM_SWEEP_MS } from "@/lib/stale-stream-recovery";
 import { acquireActorPresenceStore } from "@/stores/actor-presence-store";
-import { MessageKind, type Message as TeamclawMessage } from "@/lib/proto/teamclaw_pb";
+import { MessageKind, type Message as TeamcluMessage } from "@/lib/proto/teamclu_pb";
 import { agentStreamKey, isAgentActiveStatus, isTerminalAgentStatus, isToolOnlyTurnAnchor, mergePendingAgentReplies, normalizeToolResultEvent, normalizeToolUseEvent, registerDiscardPendingStreamReply, rememberLiveEventId, streamEntryHasVisibleContent } from "@/lib/live-agent-stream";
 import { mapAcpPlanEntries, syncPlanFromTodoTool, syncPlanFromTodoToolResult } from "@/lib/sync-plan-from-todowrite";
 import { useWorkspaceStore } from "@/stores/workspace";
@@ -100,7 +100,7 @@ export function MqttLiveWiring({ userId, teamId, onMyActorId }: MqttLiveWiringPr
     teamId: mqttTeamId,
     accessToken: mqttAccessToken,
   });
-  const pendingStreamRepliesRef = useRef<Record<string, TeamclawMessage[]>>({});
+  const pendingStreamRepliesRef = useRef<Record<string, TeamcluMessage[]>>({});
   /** Set on terminal statusChange; late message.created triggers flush. */
   const terminalFlushPendingRef = useRef<Record<string, boolean>>({});
   /** Timeout while waiting for daemon AGENT_REPLY after terminal (no interrupt-*). */
@@ -482,7 +482,7 @@ export function MqttLiveWiring({ userId, teamId, onMyActorId }: MqttLiveWiringPr
     if (!mqttAuthKey || !userId || !mqttTeamId || !mqttAccessToken) return;
     let cancelled = false;
     let unlisten: (() => void) | null = null;
-    let identityLease: ReturnType<typeof acquireTeamclawRpcIdentity> | null = null;
+    let identityLease: ReturnType<typeof acquireTeamcluRpcIdentity> | null = null;
     let moduleLeaseGroup: MqttModuleLeaseGroup | null = null;
     const wiringId = crypto.randomUUID();
     recordMqttDiag("app-mqtt", "wiring:effect-start", {
@@ -522,7 +522,7 @@ export function MqttLiveWiring({ userId, teamId, onMyActorId }: MqttLiveWiringPr
         // to this machine's own daemon — which needs only who we are, not a
         // broker. The broker lease further down still adds the MQTT response
         // subscription for remote agents.
-        identityLease = acquireTeamclawRpcIdentity(mqttTeamId, actorId, wiringId);
+        identityLease = acquireTeamcluRpcIdentity(mqttTeamId, actorId, wiringId);
         const serverConfig = await getEffectiveServerConfig();
         if (cancelled) {
           recordMqttDiag("app-mqtt", "wiring:cancelled-after-server-config", { wiringId });
@@ -568,7 +568,7 @@ export function MqttLiveWiring({ userId, teamId, onMyActorId }: MqttLiveWiringPr
         const configuredMqttUsername = serverConfig.mqttUsername?.trim();
         const configuredMqttPassword = serverConfig.mqttPassword?.trim();
         const useConfiguredMqttCredentials = Boolean(configuredMqttUsername && configuredMqttPassword);
-        const clientId = `teamclaw-${actorId.slice(0, 8)}-${crypto.randomUUID().slice(0, 8)}`;
+        const clientId = `teamclu-${actorId.slice(0, 8)}-${crypto.randomUUID().slice(0, 8)}`;
         recordMqttDiag("app-mqtt", "connect:before", {
           wiringId,
           clientId,
@@ -619,8 +619,8 @@ export function MqttLiveWiring({ userId, teamId, onMyActorId }: MqttLiveWiringPr
           registerPlatformExecutors();
           moduleLeaseGroup = acquireMqttModuleLeaseGroup([
             {
-              name: 'teamclaw-rpc',
-              acquire: () => acquireTeamclawRpcBroker(mqttTeamId, actorId, wiringId),
+              name: 'teamclu-rpc',
+              acquire: () => acquireTeamcluRpcBroker(mqttTeamId, actorId, wiringId),
             },
             {
               name: 'remote-tools-rpc',

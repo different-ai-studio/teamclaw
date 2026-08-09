@@ -34,7 +34,7 @@ reveal 自带的全部主题（black、white、league、solarized 等）。
 
 ## 怎么上线
 
-用户在 TeamClaw 的应用列表里点「部署」。你不需要、也没有权限自己部署。
+用户在 TeamClu 的应用列表里点「部署」。你不需要、也没有权限自己部署。
 
 本地预览：`pnpm dev`，打开 `http://localhost:9000`。左右键翻页，`S` 演讲者视图，
 `Esc` 总览。

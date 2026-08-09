@@ -35,9 +35,9 @@ vi.mock("@/stores/auth-store", () => ({
 
 vi.mock("@/lib/server-config", () => ({
   saveServerConfig,
-  getEffectiveServerConfigSync: () => ({ cloudApiUrl: "https://teamclaw-api.ucar.cc" }),
+  getEffectiveServerConfigSync: () => ({ cloudApiUrl: "https://teamclu-api.ucar.cc" }),
   getCloudApiUrlOverride: () => cloudApiUrlOverride.value,
-  getDefaultCloudApiUrl: () => "https://teamclaw-api.ucar.cc",
+  getDefaultCloudApiUrl: () => "https://teamclu-api.ucar.cc",
   setCloudApiUrlOverride: setCloudApiUrlOverrideMock,
 }));
 
@@ -51,8 +51,8 @@ vi.mock("@/lib/version", () => ({
 }));
 
 vi.mock("@/lib/build-config", () => ({
-  buildConfig: { app: { name: "TeamClaw" } },
-  appScheme: 'teamclaw',
+  buildConfig: { app: { name: "TeamClu" } },
+  appScheme: 'teamclu',
 }));
 
 import { DesktopOnboarding } from "../DesktopOnboarding";
@@ -201,7 +201,7 @@ describe("DesktopOnboarding", () => {
     });
     fireEvent.click(screen.getByRole("button", { name: /save and reload/i }));
 
-    expect(await screen.findByText(/not a teamclaw cloud api/i)).toBeInTheDocument();
+    expect(await screen.findByText(/not a teamclu cloud api/i)).toBeInTheDocument();
     expect(setCloudApiUrlOverrideMock).not.toHaveBeenCalled();
   });
 

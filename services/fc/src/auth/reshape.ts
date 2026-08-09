@@ -1,5 +1,5 @@
 // Pure mappers: Better-Auth session/token results -> the GoTrue-compatible
-// envelopes that TeamClaw clients (iOS / Expo / Web / daemon) consume verbatim.
+// envelopes that TeamClu clients (iOS / Expo / Web / daemon) consume verbatim.
 // Do NOT change these shapes — they are the fixed client contract.
 
 import { decodeJwt } from "jose";

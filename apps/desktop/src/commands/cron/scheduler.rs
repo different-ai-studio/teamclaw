@@ -680,7 +680,7 @@ impl CronScheduler {
                                     // Register subject -> session_key for fallback matching
                                     let subject =
                                         crate::commands::gateway::email::normalize_subject(
-                                            "[TeamClaw] Cron Job Notification",
+                                            "[TeamClu] Cron Job Notification",
                                         );
                                     mapping
                                         .set_email_subject_session(
@@ -932,7 +932,7 @@ mod tests {
 
     #[test]
     fn cron_run_uses_workspace_directory_when_worktree_disabled() {
-        let workspace = "/tmp/teamclaw-workspace";
+        let workspace = "/tmp/teamclu-workspace";
 
         assert_eq!(
             CronScheduler::working_directory_for_run(Some(workspace), None).as_deref(),
@@ -942,11 +942,11 @@ mod tests {
 
     #[test]
     fn cron_run_uses_worktree_directory_when_present() {
-        let worktree = "/tmp/teamclaw-workspace/.worktrees/cron-1";
+        let worktree = "/tmp/teamclu-workspace/.worktrees/cron-1";
 
         assert_eq!(
             CronScheduler::working_directory_for_run(
-                Some("/tmp/teamclaw-workspace"),
+                Some("/tmp/teamclu-workspace"),
                 Some(worktree),
             )
             .as_deref(),

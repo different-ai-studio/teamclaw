@@ -3,7 +3,7 @@
 <plist version="1.0">
 <dict>
   <key>NSMicrophoneUsageDescription</key>
-  <string>teamclaw uses the microphone for voice input to convert speech to text in chat.</string>
+  <string>teamclu uses the microphone for voice input to convert speech to text in chat.</string>
   <key>NSAppTransportSecurity</key>
   <dict>
     <key>NSAllowsArbitraryLoads</key>

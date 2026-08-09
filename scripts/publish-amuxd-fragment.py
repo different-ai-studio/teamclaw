@@ -3,7 +3,7 @@
 
 Publishes the daemon binary (built per platform for the desktop bundle) to
 `<prefix>/amuxd/<version>/amuxd-<os>-<arch>[.exe]` so it can be installed on
-its own — independent of the TeamClaw desktop app — and writes a small JSON
+its own — independent of the TeamClu desktop app — and writes a small JSON
 fragment the `publish-manifest` job folds into the beta install page.
 
 Env:

@@ -2,8 +2,8 @@ import { create as createMessage } from "@bufbuild/protobuf";
 import {
   MessageSchema,
   MessageKind,
-  type Message as TeamclawMessage,
-} from "@/lib/proto/teamclaw_pb";
+  type Message as TeamcluMessage,
+} from "@/lib/proto/teamclu_pb";
 import type { MessageRow } from "@/lib/local-cache";
 import { normalizeUnixTimestampSeconds } from "@/lib/message-timestamp";
 
@@ -16,7 +16,7 @@ const kindMap: Record<string, MessageKind> = {
   agent_reply: MessageKind.AGENT_REPLY,
 };
 
-export function messageRowsToProto(rows: MessageRow[]): TeamclawMessage[] {
+export function messageRowsToProto(rows: MessageRow[]): TeamcluMessage[] {
   return rows.map((r) => {
     const proto = createMessage(MessageSchema, {
       messageId: r.id,

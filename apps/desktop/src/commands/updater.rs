@@ -16,9 +16,9 @@ use std::sync::OnceLock;
 use tauri::{AppHandle, Emitter, Runtime};
 
 const DEFAULT_REPO_OWNER: &str = "different-ai-studio";
-const DEFAULT_REPO_NAME: &str = "teamclaw";
+const DEFAULT_REPO_NAME: &str = "teamclu";
 const DEFAULT_PUBKEY: &str = "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IDFEMDg3REY5MEI2RDAyMzMKUldRekFtMEwrWDBJSFhTdHYvbStkclEvTEVRNFlpZExxSHNTSTA2V2ZHS0xPUEZ4WnF5d2RxQ0gK";
-const APP_USER_AGENT: &str = concat!("teamclaw-updater/", env!("CARGO_PKG_VERSION"));
+const APP_USER_AGENT: &str = concat!("teamclu-updater/", env!("CARGO_PKG_VERSION"));
 
 fn has_custom_endpoints() -> bool {
     custom_endpoint_list().next().is_some()
@@ -391,15 +391,15 @@ fn verify_signature(data: &[u8], release_signature: &str, pub_key_str: &str) -> 
 }
 
 /// Extract the .app bundle path from the current executable.
-/// e.g. /Applications/TeamClaw.app/Contents/MacOS/TeamClaw -> /Applications/TeamClaw.app
+/// e.g. /Applications/TeamClu.app/Contents/MacOS/TeamClu -> /Applications/TeamClu.app
 #[cfg(target_os = "macos")]
 fn get_app_bundle_path() -> Result<PathBuf, String> {
     let exe = tauri::utils::platform::current_exe()
         .map_err(|e| format!("Cannot get current exe: {}", e))?;
-    // exe:        .../TeamClaw.app/Contents/MacOS/TeamClaw
-    // parent 1:   .../TeamClaw.app/Contents/MacOS
-    // parent 2:   .../TeamClaw.app/Contents
-    // parent 3:   .../TeamClaw.app
+    // exe:        .../TeamClu.app/Contents/MacOS/TeamClu
+    // parent 1:   .../TeamClu.app/Contents/MacOS
+    // parent 2:   .../TeamClu.app/Contents
+    // parent 3:   .../TeamClu.app
     exe.parent()
         .and_then(|p| p.parent())
         .and_then(|p| p.parent())
@@ -482,7 +482,7 @@ fn install_update(bytes: &[u8]) -> Result<(), String> {
 
     // Create a temp dir on the same volume for atomic move
     let tmp_dir = tempfile::Builder::new()
-        .prefix("teamclaw-updater-")
+        .prefix("teamclu-updater-")
         .tempdir_in(parent_dir)
         .map_err(|e| format!("Cannot create temp dir: {}", e))?;
 
@@ -557,7 +557,7 @@ mod install_tests {
         let tmp = tempfile::tempdir().unwrap();
         let nested = tmp.path().join("release");
         fs::create_dir_all(&nested).unwrap();
-        let app = write_fake_app_bundle(&nested, "TeamClaw.app");
+        let app = write_fake_app_bundle(&nested, "TeamClu.app");
         assert_eq!(find_app_bundle(tmp.path(), 2), Some(app));
     }
 
@@ -879,8 +879,8 @@ mod shell_quote_tests {
     #[test]
     fn quotes_plain_path() {
         assert_eq!(
-            shell_quote("/Applications/TeamClaw.app"),
-            "'/Applications/TeamClaw.app'"
+            shell_quote("/Applications/TeamClu.app"),
+            "'/Applications/TeamClu.app'"
         );
     }
 

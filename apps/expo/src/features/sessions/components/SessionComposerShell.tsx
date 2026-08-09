@@ -119,7 +119,7 @@ export function SessionComposerShell({
           <View style={styles.footerLeft}>
             <View style={styles.agentPill}>
               <View style={styles.agentDot} />
-              <Text style={styles.agentPillText}>TeamClaw AI</Text>
+              <Text style={styles.agentPillText}>TeamClu AI</Text>
               <Text style={styles.agentChevron}>▾</Text>
             </View>
             <IconChip name="add" onPress={onAttach} />

@@ -4,7 +4,7 @@ const assert = require("node:assert");
 const { applyNameToTauriConf } = require("./branding");
 
 test("applyNameToTauriConf sets productName and window title from app.name", () => {
-  const conf = { productName: "TeamClaw", app: { windows: [{ title: "TeamClaw" }] } };
+  const conf = { productName: "TeamClu", app: { windows: [{ title: "TeamClu" }] } };
   const changed = applyNameToTauriConf(conf, { app: { name: "Acme" } });
   assert.strictEqual(changed, true);
   assert.strictEqual(conf.productName, "Acme");
@@ -12,14 +12,14 @@ test("applyNameToTauriConf sets productName and window title from app.name", () 
 });
 
 test("applyNameToTauriConf is a no-op when app.name is absent", () => {
-  const conf = { productName: "TeamClaw", app: { windows: [{ title: "TeamClaw" }] } };
+  const conf = { productName: "TeamClu", app: { windows: [{ title: "TeamClu" }] } };
   const changed = applyNameToTauriConf(conf, { app: {} });
   assert.strictEqual(changed, false);
-  assert.strictEqual(conf.productName, "TeamClaw");
+  assert.strictEqual(conf.productName, "TeamClu");
 });
 
 test("applyNameToTauriConf tolerates missing windows array", () => {
-  const conf = { productName: "TeamClaw", app: {} };
+  const conf = { productName: "TeamClu", app: {} };
   const changed = applyNameToTauriConf(conf, { app: { name: "Acme" } });
   assert.strictEqual(changed, true);
   assert.strictEqual(conf.productName, "Acme");
@@ -27,18 +27,18 @@ test("applyNameToTauriConf tolerates missing windows array", () => {
 
 test("applyNameToTauriConf titles the window with displayName, keeping productName on app.name", () => {
   const conf = { productName: "OldName", app: { windows: [{ title: "OldName" }] } };
-  const changed = applyNameToTauriConf(conf, { app: { name: "TeamClaw", displayName: "TeamClaw 龙虾团" } });
+  const changed = applyNameToTauriConf(conf, { app: { name: "TeamClu", displayName: "TeamClu 龙虾团" } });
   assert.strictEqual(changed, true);
-  assert.strictEqual(conf.productName, "TeamClaw");
-  assert.strictEqual(conf.app.windows[0].title, "TeamClaw 龙虾团");
+  assert.strictEqual(conf.productName, "TeamClu");
+  assert.strictEqual(conf.app.windows[0].title, "TeamClu 龙虾团");
 });
 
 test("applyNameToTauriConf renames only the window when app.name is absent", () => {
-  const conf = { productName: "TeamClaw", app: { windows: [{ title: "TeamClaw" }] } };
-  const changed = applyNameToTauriConf(conf, { app: { displayName: "TeamClaw 龙虾团" } });
+  const conf = { productName: "TeamClu", app: { windows: [{ title: "TeamClu" }] } };
+  const changed = applyNameToTauriConf(conf, { app: { displayName: "TeamClu 龙虾团" } });
   assert.strictEqual(changed, true);
-  assert.strictEqual(conf.productName, "TeamClaw");
-  assert.strictEqual(conf.app.windows[0].title, "TeamClaw 龙虾团");
+  assert.strictEqual(conf.productName, "TeamClu");
+  assert.strictEqual(conf.app.windows[0].title, "TeamClu 龙虾团");
 });
 
 const path = require("node:path");
@@ -68,8 +68,8 @@ const { applyIdentityToTauriConf } = require("./branding");
 
 function baseConf() {
   return {
-    identifier: "com.teamclaw.app",
-    plugins: { "deep-link": { desktop: { schemes: ["teamclaw"] } } },
+    identifier: "com.teamclu.app",
+    plugins: { "deep-link": { desktop: { schemes: ["teamclu"] } } },
   };
 }
 
@@ -85,8 +85,8 @@ test("applyIdentityToTauriConf is a no-op when neither is provided", () => {
   const conf = baseConf();
   const changed = applyIdentityToTauriConf(conf, { app: {} });
   assert.strictEqual(changed, false);
-  assert.strictEqual(conf.identifier, "com.teamclaw.app");
-  assert.deepStrictEqual(conf.plugins["deep-link"].desktop.schemes, ["teamclaw"]);
+  assert.strictEqual(conf.identifier, "com.teamclu.app");
+  assert.deepStrictEqual(conf.plugins["deep-link"].desktop.schemes, ["teamclu"]);
 });
 
 test("applyIdentityToTauriConf sets only identifier when only identifier given", () => {
@@ -94,7 +94,7 @@ test("applyIdentityToTauriConf sets only identifier when only identifier given",
   const changed = applyIdentityToTauriConf(conf, { app: { identifier: "com.acme.app" } });
   assert.strictEqual(changed, true);
   assert.strictEqual(conf.identifier, "com.acme.app");
-  assert.deepStrictEqual(conf.plugins["deep-link"].desktop.schemes, ["teamclaw"]);
+  assert.deepStrictEqual(conf.plugins["deep-link"].desktop.schemes, ["teamclu"]);
 });
 
 test("applyIdentityToTauriConf throws on an invalid identifier (single segment)", () => {
@@ -117,12 +117,12 @@ test("applyIdentityToTauriConf sets only scheme when only scheme given", () => {
   const conf = baseConf();
   const changed = applyIdentityToTauriConf(conf, { app: { scheme: "acme" } });
   assert.strictEqual(changed, true);
-  assert.strictEqual(conf.identifier, "com.teamclaw.app");
+  assert.strictEqual(conf.identifier, "com.teamclu.app");
   assert.deepStrictEqual(conf.plugins["deep-link"].desktop.schemes, ["acme"]);
 });
 
 test("applyIdentityToTauriConf creates the deep-link path when missing", () => {
-  const conf = { identifier: "com.teamclaw.app" };
+  const conf = { identifier: "com.teamclu.app" };
   const changed = applyIdentityToTauriConf(conf, { app: { scheme: "acme" } });
   assert.strictEqual(changed, true);
   assert.deepStrictEqual(conf.plugins["deep-link"].desktop.schemes, ["acme"]);
@@ -132,23 +132,23 @@ const { applyNameToExtensionManifest } = require("./branding");
 
 test("applyNameToExtensionManifest prefers displayName over app.name", () => {
   const manifest = { name: "OldName", action: { default_title: "OldName" } };
-  const changed = applyNameToExtensionManifest(manifest, { app: { name: "TeamClaw", displayName: "TeamClaw 龙虾团" } });
+  const changed = applyNameToExtensionManifest(manifest, { app: { name: "TeamClu", displayName: "TeamClu 龙虾团" } });
   assert.strictEqual(changed, true);
-  assert.strictEqual(manifest.name, "TeamClaw 龙虾团");
-  assert.strictEqual(manifest.action.default_title, "TeamClaw 龙虾团");
+  assert.strictEqual(manifest.name, "TeamClu 龙虾团");
+  assert.strictEqual(manifest.action.default_title, "TeamClu 龙虾团");
 });
 
 test("applyNameToExtensionManifest falls back to app.name when displayName is unset", () => {
   const manifest = { name: "OldName", action: { default_title: "OldName" } };
-  const changed = applyNameToExtensionManifest(manifest, { app: { name: "TeamClaw" } });
+  const changed = applyNameToExtensionManifest(manifest, { app: { name: "TeamClu" } });
   assert.strictEqual(changed, true);
-  assert.strictEqual(manifest.name, "TeamClaw");
+  assert.strictEqual(manifest.name, "TeamClu");
 });
 
 // Regression: the name was branded but the description was not, so the
-// "Copilot 361" package reached review still describing itself as TeamClaw.
+// "Copilot 361" package reached review still describing itself as TeamClu.
 test("applyNameToExtensionManifest brands the description from extension.description", () => {
-  const manifest = { name: "TeamClaw", description: "TeamClaw sidebar", action: { default_title: "TeamClaw" } };
+  const manifest = { name: "TeamClu", description: "TeamClu sidebar", action: { default_title: "TeamClu" } };
   const changed = applyNameToExtensionManifest(manifest, {
     app: { name: "Acme" },
     extension: { description: "Acme sidebar" },
@@ -159,19 +159,19 @@ test("applyNameToExtensionManifest brands the description from extension.descrip
 });
 
 test("applyNameToExtensionManifest accepts the canonical extensions.description too", () => {
-  const manifest = { name: "TeamClaw", description: "old" };
+  const manifest = { name: "TeamClu", description: "old" };
   applyNameToExtensionManifest(manifest, { app: { name: "Acme" }, extensions: { description: "new" } });
   assert.strictEqual(manifest.description, "new");
 });
 
 test("applyNameToExtensionManifest leaves the description alone when the brand sets none", () => {
-  const manifest = { name: "TeamClaw", description: "kept" };
+  const manifest = { name: "TeamClu", description: "kept" };
   applyNameToExtensionManifest(manifest, { app: { name: "Acme" } });
   assert.strictEqual(manifest.description, "kept");
 });
 
 test("applyNameToExtensionManifest rejects a description Chrome would refuse", () => {
-  const manifest = { name: "TeamClaw", description: "short" };
+  const manifest = { name: "TeamClu", description: "short" };
   assert.throws(
     () => applyNameToExtensionManifest(manifest, { extension: { description: "x".repeat(133) } }),
     /at most 132/

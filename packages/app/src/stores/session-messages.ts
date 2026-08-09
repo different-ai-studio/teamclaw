@@ -5,7 +5,7 @@ import {
   MessageKind,
   MessageSchema,
   SessionMessageEnvelopeSchema,
-} from "@/lib/proto/teamclaw_pb";
+} from "@/lib/proto/teamclu_pb";
 import { getBackend } from "@/lib/backend";
 import { resolveCurrentMemberActorId } from "@/lib/current-actor";
 import { useAuthStore } from "@/stores/auth-store";
@@ -358,7 +358,7 @@ export function createMessageActions(set: SessionSet, get: SessionGet) {
 
       try {
         clearMessageTimeout();
-        const { interruptAllActiveAgents } = await import("@/lib/teamclaw/interrupt-agent");
+        const { interruptAllActiveAgents } = await import("@/lib/teamclu/interrupt-agent");
         await interruptAllActiveAgents(activeSessionId);
 
         useStreamingStore.getState().clearStreaming();

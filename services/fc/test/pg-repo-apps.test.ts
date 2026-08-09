@@ -187,7 +187,7 @@ test("getManagedGitCredential returns creds for a team member, null for non-memb
   const prevPat = process.env.CODEUP_PAT;
   const prevBot = process.env.CODEUP_BOT_USERNAME;
   process.env.CODEUP_PAT = "pt-secret";
-  process.env.CODEUP_BOT_USERNAME = "teamclaw";
+  process.env.CODEUP_BOT_USERNAME = "teamclu";
   try {
     const { db } = await makeTestDb();
     const team = await seedTeam(db);
@@ -199,7 +199,7 @@ test("getManagedGitCredential returns creds for a team member, null for non-memb
     const outsiderRepo = createPgBusinessRepository({ db, userId: outsider.userId });
 
     const cred = await memberRepo.getManagedGitCredential(team.id);
-    assert.deepEqual(cred, { username: "teamclaw", token: "pt-secret" });
+    assert.deepEqual(cred, { username: "teamclu", token: "pt-secret" });
 
     const denied = await outsiderRepo.getManagedGitCredential(team.id);
     assert.equal(denied, null);
@@ -272,7 +272,7 @@ test("deployApp moves a ready app to awaiting_build and records fc identity", as
     db, userId: "u1", callerActorId: actor.id,
     startDeploy: async () => ({
       fcFunctionName: "tc-app-x", fcRegion: "cn-hangzhou",
-      ossObjectName: "apps/x/code.zip", databaseUrl: "postgres://app_x:pw@h/teamclaw_apps",
+      ossObjectName: "apps/x/code.zip", databaseUrl: "postgres://app_x:pw@h/teamclu_apps",
       presignedPut: "https://oss/put?sig=x",
     }),
   } as any);
@@ -294,7 +294,7 @@ test("finalizeDeploy moves a deploying app to live and records fcEndpoint", asyn
     db, userId: "u1", callerActorId: actor.id,
     startDeploy: async () => ({
       fcFunctionName: "tc-app-x", fcRegion: "cn-hangzhou",
-      ossObjectName: "apps/x/code.zip", databaseUrl: "postgres://app_x:pw@h/teamclaw_apps",
+      ossObjectName: "apps/x/code.zip", databaseUrl: "postgres://app_x:pw@h/teamclu_apps",
       presignedPut: "https://oss/put?sig=x",
     }),
     finalizeDeploy: async ({ fcFunctionName, ossObjectName }: any) => {

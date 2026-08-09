@@ -37,7 +37,7 @@ struct TimelineInputBuilderTests {
     @Test("a recorded smoke-cold-start trace contains no session/live records (yields zero inputs)")
     func smokeColdStartTraceYieldsZeroInputs() throws {
         // Recorded from running AMUXAuthUITests/testSignInAndMQTTConnects
-        // with TeamclawRecordMQTT enabled. The smoke test never opens a
+        // with TeamcluRecordMQTT enabled. The smoke test never opens a
         // session detail view, so it has zero session/live messages —
         // every record in the trace is `runtime/{id}/state` or device
         // metadata. Use it to verify the builder filters cleanly.
@@ -64,17 +64,17 @@ struct TimelineInputBuilderTests {
 
     @Test("session/live message envelope decodes into a .liveMessage with the text content")
     func liveMessageDecodes() throws {
-        var message = Teamclaw_Message()
+        var message = Teamclu_Message()
         message.messageID = "msg-server-1"
         message.senderActorID = "user-1"
         message.content = "hello"
         message.kind = .text
         message.createdAt = 1_700_000_000
 
-        var messageEnvelope = Teamclaw_SessionMessageEnvelope()
+        var messageEnvelope = Teamclu_SessionMessageEnvelope()
         messageEnvelope.message = message
 
-        var live = Teamclaw_LiveEventEnvelope()
+        var live = Teamclu_LiveEventEnvelope()
         live.eventType = "message.created"
         live.body = try messageEnvelope.serializedData()
 
@@ -110,7 +110,7 @@ struct TimelineInputBuilderTests {
         amuxEnvelope.actorID = "agent-actor-1"
         amuxEnvelope.payload = .acpEvent(acp)
 
-        var live = Teamclaw_LiveEventEnvelope()
+        var live = Teamclu_LiveEventEnvelope()
         live.eventType = "acp.event"
         live.body = try amuxEnvelope.serializedData()
 

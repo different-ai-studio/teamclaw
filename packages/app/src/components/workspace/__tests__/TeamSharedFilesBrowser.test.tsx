@@ -15,7 +15,7 @@ const teamModeState = vi.hoisted(() => ({
 
 const teamShareState = vi.hoisted(() => ({
   mode: null as 'oss' | 'managed_git' | 'custom_git' | null,
-  globalPath: '/home/.amuxd/teams/team-1/teamclaw-team' as string | null,
+  globalPath: '/home/.amuxd/teams/team-1/teamclu-team' as string | null,
   refresh: vi.fn().mockResolvedValue({ mode: null }),
 }))
 
@@ -102,13 +102,13 @@ vi.mock('@/lib/utils', () => ({
 }))
 
 vi.mock('@/lib/build-config', () => ({
-  TEAM_REPO_DIR: 'teamclaw-team',
-  TEAM_SYNCED_EVENT: 'teamclaw-team-synced',
+  TEAM_REPO_DIR: 'teamclu-team',
+  TEAM_SYNCED_EVENT: 'teamclu-team-synced',
 }))
 
 vi.mock('@/lib/team-skill-paths', () => ({
-  globalTeamShareDir: vi.fn().mockResolvedValue('/home/.amuxd/teams/team-1/teamclaw-team'),
-  TEAM_SHARE_LINK_DIR: 'teamclaw-team',
+  globalTeamShareDir: vi.fn().mockResolvedValue('/home/.amuxd/teams/team-1/teamclu-team'),
+  TEAM_SHARE_LINK_DIR: 'teamclu-team',
 }))
 
 import { TeamSharedFilesBrowser } from '../TeamSharedFilesBrowser'
@@ -119,7 +119,7 @@ describe('TeamSharedFilesBrowser', () => {
     workspaceState.workspacePath = '/workspace'
     teamModeState.teamModeType = null
     teamShareState.mode = null
-    teamShareState.globalPath = '/home/.amuxd/teams/team-1/teamclaw-team'
+    teamShareState.globalPath = '/home/.amuxd/teams/team-1/teamclu-team'
     teamShareState.refresh = vi.fn().mockResolvedValue({ mode: null })
     currentTeamState.teamId = 'team-1'
     isTauriMock.mockReturnValue(true)
@@ -130,7 +130,7 @@ describe('TeamSharedFilesBrowser', () => {
     ])
   })
 
-  it('renders FileBrowser through the in-workspace teamclaw-team symlink when populated', async () => {
+  it('renders FileBrowser through the in-workspace teamclu-team symlink when populated', async () => {
     render(<TeamSharedFilesBrowser />)
 
     await vi.waitFor(() => {
@@ -138,11 +138,11 @@ describe('TeamSharedFilesBrowser', () => {
     })
 
     // The daemon-owned global dir is outside the workspace boundary, so the
-    // panel renders via the in-workspace symlink (workspacePath/teamclaw-team)
+    // panel renders via the in-workspace symlink (workspacePath/teamclu-team)
     // rather than the global path — otherwise the workspace-scoped file
     // commands reject it and the tree comes back empty.
     const props = fileBrowserMock.mock.calls.at(-1)?.[0] as Record<string, unknown>
-    expect(props.rootPath).toBe('/workspace/teamclaw-team')
+    expect(props.rootPath).toBe('/workspace/teamclu-team')
     expect(props.hideGitStatus).toBe(false)
   })
 

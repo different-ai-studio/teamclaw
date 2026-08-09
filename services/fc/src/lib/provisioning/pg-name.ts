@@ -13,7 +13,7 @@ export function appRoleName(appId: string): string {
   return sanitize(appId, "app_");
 }
 
-// The schema lives in the SHARED teamclaw_apps database across ALL teams, while
+// The schema lives in the SHARED teamclu_apps database across ALL teams, while
 // slugs are only unique per-team — so the schema name MUST carry the globally
 // unique appId to avoid cross-team collisions. Layout: app_<slug>_<appIdHex>,
 // with the slug portion truncated so the full 32-char appId hex suffix always

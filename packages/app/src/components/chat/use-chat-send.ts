@@ -34,7 +34,7 @@ import { create as createMessage } from "@bufbuild/protobuf";
 import {
   MessageSchema,
   MessageKind,
-} from "@/lib/proto/teamclaw_pb";
+} from "@/lib/proto/teamclu_pb";
 import {
   resolveAgentRuntimeIdsForSend,
   resolveSendTeamId,
@@ -630,7 +630,7 @@ export function useChatSend({
           const created = await createSessionAndSendFirst(message, picks);
           if (created) {
             try {
-              localStorage.removeItem(`teamclaw-actor-draft:${draftActorId}`);
+              localStorage.removeItem(`teamclu-actor-draft:${draftActorId}`);
             } catch {
               /* localStorage disabled */
             }
@@ -801,7 +801,7 @@ export function useChatSend({
           agentActorIds: agentsNeedingCreateEnsure,
           skippedAutoMentioned: agentIds.filter((id) => autoMentioned.has(id)),
         });
-        void import("@/lib/teamclaw/ensure-agent-runtime").then(({ ensureAgentRuntimesForSession }) => {
+        void import("@/lib/teamclu/ensure-agent-runtime").then(({ ensureAgentRuntimesForSession }) => {
           void ensureAgentRuntimesForSession({
             sessionId,
             teamId: teamIdForSend,

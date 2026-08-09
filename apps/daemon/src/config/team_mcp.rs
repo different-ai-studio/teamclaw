@@ -3,7 +3,7 @@
 //!
 //! The file format is unchanged (Cursor `mcpServers`) because the server hands
 //! back exactly that shape — see `docs/architecture/team-mcp-and-env-cloud.md`.
-//! The synced `teamclaw-team/.mcp/` directory is no longer synced, but is still
+//! The synced `teamclu-team/.mcp/` directory is no longer synced, but is still
 //! read for machines that already have it; the cloud copy always wins.
 //!
 //! Merged at read time with workspace `opencode.json` entries. On name
@@ -16,13 +16,13 @@ use serde::Deserialize;
 
 use super::global_team_store::{resolve_team_dir, TEAM_LINK_NAME};
 use super::workspace_control::{McpServerConfig, WorkspaceControlError};
-use teamclaw_runtime_env::opencode_config::OpencodeConfigError;
+use teamclu_runtime_env::opencode_config::OpencodeConfigError;
 
 pub const INHERENT_MCP_NAMES: &[&str] = &[
     "playwright",
     "chrome-control",
     "autoui",
-    "teamclaw-introspect",
+    "teamclu-introspect",
 ];
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -84,7 +84,7 @@ fn onboarded_team_id() -> Option<String> {
 /// Directories holding team MCP definitions, **least** preferred first.
 ///
 /// The cloud cache is last so it wins on a name collision. The legacy synced
-/// `teamclaw-team/.mcp/` is still read rather than dropped: `.mcp/` is no longer
+/// `teamclu-team/.mcp/` is still read rather than dropped: `.mcp/` is no longer
 /// synced, so those files can only exist on a machine that already had them —
 /// reading them keeps a pre-migration checkout working, and the ordering means
 /// they can never shadow what the member actually installed.
@@ -309,7 +309,7 @@ pub fn materialize_team_mcp_entries(
 
     let mut added_count = 0usize;
     let changed =
-        teamclaw_runtime_env::opencode_config::OpencodeConfigStore::apply(workspace, |json| {
+        teamclu_runtime_env::opencode_config::OpencodeConfigStore::apply(workspace, |json| {
             let obj = json.as_object_mut().ok_or_else(|| {
                 OpencodeConfigError::Parse("opencode.json root is not an object".into())
             })?;

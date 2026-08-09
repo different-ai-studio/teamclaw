@@ -156,7 +156,7 @@ export const ExtensionGeneralSection = React.memo(function ExtensionGeneralSecti
             <p className="mt-1 text-[12.5px] leading-relaxed text-muted-foreground">
               {t(
                 'settings.extension.linkHover.description',
-                'On allowlisted sites, hovering a matching link shows a TeamClaw button to open the side panel with that link.',
+                'On allowlisted sites, hovering a matching link shows a TeamClu button to open the side panel with that link.',
               )}
             </p>
             <p className="mt-2 text-[12px] text-faint">

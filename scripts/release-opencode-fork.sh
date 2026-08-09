@@ -57,9 +57,9 @@ if [[ "$TRIGGER_CI" -eq 1 ]]; then
   tag="v${VERSION#v}"
   echo "→ Ensuring release tag ${tag} exists on ${REPO}"
   gh release view "$tag" --repo "$REPO" >/dev/null 2>&1 || \
-    gh release create "$tag" --repo "$REPO" --title "$tag (TeamClaw fork)" --notes "Multi-platform CLI build from \`${BRANCH}\`."
+    gh release create "$tag" --repo "$REPO" --title "$tag (TeamClu fork)" --notes "Multi-platform CLI build from \`${BRANCH}\`."
   echo "→ Dispatching release-cli workflow"
-  gh workflow run release-cli --repo "$REPO" -f "version=${VERSION#v}-teamclaw" -f "tag=${tag}"
+  gh workflow run release-cli --repo "$REPO" -f "version=${VERSION#v}-teamclu" -f "tag=${tag}"
   echo "✓ Workflow started. Track: https://github.com/${REPO}/actions/workflows/release-cli.yml"
   exit 0
 fi
@@ -89,7 +89,7 @@ echo "→ bun install (may take a few minutes)"
 (cd "$WORKDIR/repo" && bun install)
 
 echo "→ Building opencode for $(uname -s)/$(uname -m) (version ${VERSION})"
-MARKER_VERSION="${VERSION#v}-teamclaw"
+MARKER_VERSION="${VERSION#v}-teamclu"
 (cd "$WORKDIR/repo/packages/opencode" && OPENCODE_VERSION="$MARKER_VERSION" bun run script/build.ts --single)
 
 DIST="$WORKDIR/repo/packages/opencode/dist"
@@ -130,7 +130,7 @@ echo "→ Packaged ${OUT} ($(du -h "$OUT" | cut -f1))"
 
 echo "→ Uploading to https://github.com/${REPO}/releases/tag/${TAG}"
 gh release view "$TAG" --repo "$REPO" >/dev/null 2>&1 || \
-  gh release create "$TAG" --repo "$REPO" --title "${TAG} (TeamClaw fork)" \
+  gh release create "$TAG" --repo "$REPO" --title "${TAG} (TeamClu fork)" \
     --notes "CLI build from \`${BRANCH}\` @ $(git -C "$WORKDIR/repo" rev-parse --short HEAD)."
 
 gh release upload "$TAG" "$OUT" --clobber --repo "$REPO"
@@ -139,4 +139,4 @@ echo "✓ Release: https://github.com/${REPO}/releases/tag/${TAG}"
 echo "  asset: ${ASSET}"
 echo ""
 echo "Users can install with:"
-echo "  OPENCODE_RELEASE_TAG=${TAG} curl -fsSL https://raw.githubusercontent.com/different-ai-studio/teamclaw/main/scripts/install-opencode-fork.sh | bash"
+echo "  OPENCODE_RELEASE_TAG=${TAG} curl -fsSL https://raw.githubusercontent.com/different-ai-studio/teamclu/main/scripts/install-opencode-fork.sh | bash"

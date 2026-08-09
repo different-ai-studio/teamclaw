@@ -133,7 +133,7 @@ jobs:
       # writes productName/window title, bundle identifier, deep-link scheme,
       # regenerates the icon set, and copies the in-app logo PNG into
       # packages/app/public/) would otherwise never run — leaving the OS app
-      # name and icons stuck on the default TeamClaw. The in-app logo PNGs must
+      # name and icons stuck on the default TeamClu. The in-app logo PNGs must
       # land before the Vite build bundles them, so this runs first.
       - name: Apply branding to tauri.conf + icons
         env:
@@ -162,20 +162,20 @@ jobs:
             set -e
             pnpm install
             echo "pnpm install done, building frontend..."
-            BUILD_ENV=production pnpm --filter @teamclaw/app build
+            BUILD_ENV=production pnpm --filter @teamclu/app build
             echo "frontend build done"
           ) > /tmp/frontend.log 2>&1 &
           PID_FRONTEND=$!
 
-          # 2) Build teamclaw-introspect sidecar (background)
+          # 2) Build teamclu-introspect sidecar (background)
           (
             set -e
-            echo "Building teamclaw-introspect for ${{ matrix.target }}..."
+            echo "Building teamclu-introspect for ${{ matrix.target }}..."
             TARGET_DIR="$(cargo metadata --format-version 1 --no-deps --manifest-path apps/desktop/Cargo.toml | jq -r .target_directory)"
-            cargo build --release --locked --manifest-path apps/desktop/Cargo.toml -p teamclaw-introspect --target ${{ matrix.target }}
-            cp "$TARGET_DIR/${{ matrix.target }}/release/teamclaw-introspect" apps/desktop/binaries/teamclaw-introspect-${{ matrix.target }}
-            chmod +x apps/desktop/binaries/teamclaw-introspect-${{ matrix.target }}
-            echo "teamclaw-introspect ready"
+            cargo build --release --locked --manifest-path apps/desktop/Cargo.toml -p teamclu-introspect --target ${{ matrix.target }}
+            cp "$TARGET_DIR/${{ matrix.target }}/release/teamclu-introspect" apps/desktop/binaries/teamclu-introspect-${{ matrix.target }}
+            chmod +x apps/desktop/binaries/teamclu-introspect-${{ matrix.target }}
+            echo "teamclu-introspect ready"
           ) > /tmp/introspect.log 2>&1 &
           PID_INTROSPECT=$!
 
@@ -409,19 +409,19 @@ jobs:
       - name: Build frontend
         env:
           BUILD_ENV: production
-        run: pnpm --filter @teamclaw/app build
+        run: pnpm --filter @teamclu/app build
 
       - name: Prepare binaries directory
         shell: bash
         run: mkdir -p apps/desktop/binaries
 
-      - name: Build teamclaw-introspect sidecar
+      - name: Build teamclu-introspect sidecar
         shell: bash
         run: |
           TARGET_DIR="$(cargo metadata --format-version 1 --no-deps --manifest-path apps/desktop/Cargo.toml | jq -r .target_directory)"
-          cargo build --release --locked --manifest-path apps/desktop/Cargo.toml -p teamclaw-introspect
-          cp "$TARGET_DIR/release/teamclaw-introspect.exe" apps/desktop/binaries/teamclaw-introspect-x86_64-pc-windows-msvc.exe
-          echo "teamclaw-introspect ready"
+          cargo build --release --locked --manifest-path apps/desktop/Cargo.toml -p teamclu-introspect
+          cp "$TARGET_DIR/release/teamclu-introspect.exe" apps/desktop/binaries/teamclu-introspect-x86_64-pc-windows-msvc.exe
+          echo "teamclu-introspect ready"
 
       - name: Build amuxd sidecar
         shell: bash

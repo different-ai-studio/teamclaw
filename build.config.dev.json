@@ -1,13 +1,13 @@
 {
-  "cloudApiUrl": "https://api.teamclaw-dev.ucar.cc",
-  "mqttWsUrl": "wss://mqtt.teamclaw-dev.ucar.cc/mqtt",
+  "cloudApiUrl": "https://api.teamclu-dev.ucar.cc",
+  "mqttWsUrl": "wss://mqtt.teamclu-dev.ucar.cc/mqtt",
   "team": {
     "lockLlmConfig": false
   },
   "app": {
-    "name": "TeamClaw Dev",
+    "name": "TeamClu Dev",
     "displayName": "TeamClu Dev",
-    "shortName": "teamclaw",
+    "shortName": "teamclu",
     "palette": "default"
   },
   "features": {

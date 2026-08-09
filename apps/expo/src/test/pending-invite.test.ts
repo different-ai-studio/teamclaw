@@ -54,7 +54,7 @@ describe("pending invite token", () => {
   });
 
   it("treats a stored empty string as no token", async () => {
-    await AsyncStorage.setItem("teamclaw.pendingInviteToken.v1", "   ");
+    await AsyncStorage.setItem("teamclu.pendingInviteToken.v1", "   ");
     expect(await loadPendingInviteToken()).toBeNull();
   });
 });

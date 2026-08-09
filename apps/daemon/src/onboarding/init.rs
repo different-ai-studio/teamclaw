@@ -11,7 +11,7 @@ pub struct InitOutcome {
     pub config_path: PathBuf,
 }
 
-/// Execute `amuxd init <teamclaw://invite?token=...>`:
+/// Execute `amuxd init <teamclu://invite?token=...>`:
 ///  1. parse token
 ///  2. POST `/v1/invites/claim` against the Cloud API (anonymous — no bearer)
 ///  3. persist `~/.amuxd/backend.toml` with `kind = "cloud_api"`
@@ -108,19 +108,19 @@ async fn bootstrap_claim_invite(cloud_url: &str, token: &str) -> Result<ClaimRes
 /// Resolve the Cloud API endpoint `amuxd init` POSTs `/v1/invites/claim` to.
 ///
 /// Precedence (first non-empty wins):
-///  1. `TEAMCLAW_CLOUD_API_URL` process env — explicit operator/self-test override.
+///  1. `TEAMCLU_CLOUD_API_URL` process env — explicit operator/self-test override.
 ///  2. `invite_override` — the `?cloud_api_url=` the inviter (desktop) baked into
 ///     the invite, so the daemon follows the app's build/runtime endpoint choice.
-///  3. `apps/daemon/.env` `TEAMCLAW_CLOUD_API_URL` — local dev override.
+///  3. `apps/daemon/.env` `TEAMCLU_CLOUD_API_URL` — local dev override.
 ///
 /// There is no hardcoded default. If no source provides a URL, init fails with
 /// a clear error rather than silently routing to a stale/wrong endpoint.
 fn resolve_cloud_api_url(invite_override: Option<&str>) -> Result<String> {
-    let env_override = std::env::var("TEAMCLAW_CLOUD_API_URL").ok();
+    let env_override = std::env::var("TEAMCLU_CLOUD_API_URL").ok();
     let dotenv_path = Path::new(env!("CARGO_MANIFEST_DIR")).join(".env");
     let dotenv_override = std::fs::read_to_string(&dotenv_path)
         .ok()
-        .and_then(|text| read_dotenv_value(&text, "TEAMCLAW_CLOUD_API_URL"));
+        .and_then(|text| read_dotenv_value(&text, "TEAMCLU_CLOUD_API_URL"));
     pick_cloud_api_url(
         env_override.as_deref(),
         invite_override,
@@ -144,7 +144,7 @@ fn pick_cloud_api_url(
         }
     }
     Err(anyhow!(
-        "Cloud API URL not configured. Set TEAMCLAW_CLOUD_API_URL or pass a valid invite URL."
+        "Cloud API URL not configured. Set TEAMCLU_CLOUD_API_URL or pass a valid invite URL."
     ))
 }
 

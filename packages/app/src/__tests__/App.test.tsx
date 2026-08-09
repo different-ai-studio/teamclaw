@@ -94,12 +94,12 @@ vi.mock('@/lib/platform', () => ({
   },
 }))
 vi.mock('@/lib/build-config', () => ({
-  appShortName: 'teamclaw',
-  appStoragePrefix: 'teamclaw',
-  appScheme: 'teamclaw',
-  TEAM_REPO_DIR: 'teamclaw-team',
+  appShortName: 'teamclu',
+  appStoragePrefix: 'teamclu',
+  appScheme: 'teamclu',
+  TEAM_REPO_DIR: 'teamclu-team',
   buildConfig: {
-    app: { name: 'TeamClaw' },
+    app: { name: 'TeamClu' },
     features: {},
   },
 }))

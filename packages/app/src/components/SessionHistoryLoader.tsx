@@ -20,7 +20,7 @@ import { messageRowsToProto } from "@/lib/session-export/collect";
 import { syncMessagesForSession } from "@/lib/sync/message-sync";
 import { logExtMsgDiag, summarizeProtosForExtDiag } from "@/lib/extension-msg-diag";
 import { create as createMessage } from "@bufbuild/protobuf";
-import { MessageSchema, MessageKind } from "@/lib/proto/teamclaw_pb";
+import { MessageSchema, MessageKind } from "@/lib/proto/teamclu_pb";
 import { useSessionListStore } from "@/stores/session-list-store";
 import { useSessionMessageStore } from "@/stores/session-message-store";
 import { useSessionSelectionStore } from "@/stores/session-selection-store";

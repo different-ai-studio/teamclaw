@@ -340,7 +340,7 @@
 					"@executable_path/Frameworks",
 				);
 				MARKETING_VERSION = 1.1.5;
-				PRODUCT_BUNDLE_IDENTIFIER = tech.teamclaw.mobile;
+				PRODUCT_BUNDLE_IDENTIFIER = com.teamclu.mobile;
 				SDKROOT = iphoneos;
 				SWIFT_VERSION = 6.0;
 				TARGETED_DEVICE_FAMILY = "1,2";
@@ -361,7 +361,7 @@
 					"@executable_path/Frameworks",
 				);
 				MARKETING_VERSION = 1.1.5;
-				PRODUCT_BUNDLE_IDENTIFIER = tech.teamclaw.mobile;
+				PRODUCT_BUNDLE_IDENTIFIER = com.teamclu.mobile;
 				SDKROOT = iphoneos;
 				SWIFT_VERSION = 6.0;
 				TARGETED_DEVICE_FAMILY = "1,2";
@@ -379,7 +379,7 @@
 					"@executable_path/Frameworks",
 					"@loader_path/Frameworks",
 				);
-				PRODUCT_BUNDLE_IDENTIFIER = tech.teamclaw.mobile.uitests;
+				PRODUCT_BUNDLE_IDENTIFIER = com.teamclu.mobile.uitests;
 				SDKROOT = iphoneos;
 				SWIFT_VERSION = 6.0;
 				TARGETED_DEVICE_FAMILY = "1,2";
@@ -398,7 +398,7 @@
 					"@executable_path/Frameworks",
 					"@loader_path/Frameworks",
 				);
-				PRODUCT_BUNDLE_IDENTIFIER = tech.teamclaw.mobile.uitests;
+				PRODUCT_BUNDLE_IDENTIFIER = com.teamclu.mobile.uitests;
 				SDKROOT = iphoneos;
 				SWIFT_VERSION = 6.0;
 				TARGETED_DEVICE_FAMILY = "1,2";

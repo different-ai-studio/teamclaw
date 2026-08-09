@@ -1,4 +1,4 @@
-//! TeamClaw's `preToolUse` gate in `<worktree>/.cursor/hooks.json`.
+//! TeamClu's `preToolUse` gate in `<worktree>/.cursor/hooks.json`.
 //!
 //! `@cursor/sdk` has no out-of-band approval API: the only way to gate a local
 //! agent's tool call is a Cursor hook — the SDK spawns the hook's `command`,
@@ -21,7 +21,7 @@ use std::path::{Path, PathBuf};
 use serde_json::{json, Value};
 use tracing::warn;
 
-/// Substring identifying a TeamClaw-managed hook entry.
+/// Substring identifying a TeamClu-managed hook entry.
 pub const HOOK_MARKER: &str = "cursor-permission-hook";
 
 /// How long the hook process waits for a human before giving up. The SDK reads
@@ -120,7 +120,7 @@ fn exclude_from_git(worktree: &str) {
     if !next.is_empty() && !next.ends_with('\n') {
         next.push('\n');
     }
-    next.push_str("# TeamClaw cursor permission gate\n");
+    next.push_str("# TeamClu cursor permission gate\n");
     next.push_str(line);
     next.push('\n');
     if let Err(e) = std::fs::write(&exclude, next) {

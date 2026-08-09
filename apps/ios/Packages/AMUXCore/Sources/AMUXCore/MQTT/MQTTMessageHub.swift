@@ -4,7 +4,7 @@ import Foundation
 ///
 /// `MQTTService` exposes a `messages()` AsyncStream API that yields every
 /// incoming MQTT packet to every caller. That worked when there were two
-/// consumers, but the app now has TeamclawService, SessionListViewModel,
+/// consumers, but the app now has TeamcluService, SessionListViewModel,
 /// SessionDetailViewModel, ConnectionMonitor, and a dozen RPC awaiters
 /// each calling `messages()` and filtering the same stream of payloads.
 /// Each consumer pays an extra decode and continuation copy per message.
@@ -105,7 +105,7 @@ public actor MQTTMessageHub {
 
     private func runListener() async {
         // Wait for MQTT to be connected (up to 15s). Mirrors the pre-Hub
-        // pattern in TeamclawService.start where callers spun on
+        // pattern in TeamcluService.start where callers spun on
         // `connectionState != .connected` before opening a stream.
         var waited = 0
         while mqtt.connectionState != .connected {

@@ -11,7 +11,7 @@
 #   podman-compose --in-pod false -f docker-compose.yml -f docker-compose.podman.yml up -d
 # or: ./bootstrap/up.sh
 
-name: teamclaw-self-host
+name: teamclu-self-host
 
 services:
   vector:

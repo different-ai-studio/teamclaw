@@ -1,4 +1,4 @@
-import type { Message as TeamclawMessage } from "@/lib/proto/teamclaw_pb";
+import type { Message as TeamcluMessage } from "@/lib/proto/teamclu_pb";
 import { logInterruptMsgDiag } from "@/lib/interrupt-msg-diag-core";
 import { summarizePersistRelease } from "@/lib/interrupt-msg-diag";
 import { bumpSessionListLastMessage } from "@/lib/session-list-preview";
@@ -14,7 +14,7 @@ import { normalizeUnixTimestampSeconds, unixTimestampSecondsToIso } from "@/lib/
 
 export function buildAgentReplyMessageRow(
   teamId: string,
-  reply: TeamclawMessage,
+  reply: TeamcluMessage,
 ): MessageRow {
   const now = new Date().toISOString();
   const createdAtSec = normalizeUnixTimestampSeconds(reply.createdAt);
@@ -42,7 +42,7 @@ export function buildAgentReplyMessageRow(
 
 export function upsertAgentReplyToCache(
   teamId: string,
-  reply: TeamclawMessage,
+  reply: TeamcluMessage,
   logLabel = "flush agent_reply",
 ): void {
   upsertMessagesBatch([buildAgentReplyMessageRow(teamId, reply)]).catch((e) => {
@@ -53,7 +53,7 @@ export function upsertAgentReplyToCache(
 export function releaseStreamAfterAgentReplyPersist(
   sessionId: string,
   actorId: string,
-  enrichedReply: TeamclawMessage,
+  enrichedReply: TeamcluMessage,
   opts: {
     trigger: string;
     persistedPartsJson?: string;
@@ -84,7 +84,7 @@ export function releaseStreamAfterAgentReplyPersist(
 
 export function bumpPreviewFromAgentReply(
   sessionId: string,
-  reply: TeamclawMessage,
+  reply: TeamcluMessage,
 ): void {
   let preview = reply.content;
   try {
@@ -114,7 +114,7 @@ export function bumpPreviewFromAgentReply(
 export function commitFlushedAgentReply(
   sessionId: string,
   actorId: string,
-  enrichedReply: TeamclawMessage,
+  enrichedReply: TeamcluMessage,
   opts: {
     trigger: string;
     teamId: string;
@@ -156,11 +156,11 @@ export async function executeAgentTurnFlush(args: {
   actorId: string;
   trigger: string;
   teamId: string;
-  reply: TeamclawMessage;
-  pendingReplies: TeamclawMessage[];
+  reply: TeamcluMessage;
+  pendingReplies: TeamcluMessage[];
   streamEntrySnapshot?: AgentStreamEntry;
   beforePersist?: () => void;
-  afterEnriched?: (enriched: TeamclawMessage) => void;
+  afterEnriched?: (enriched: TeamcluMessage) => void;
   /** When false, release the stream but do not insert the reply (eager flush superseded). */
   shouldCommit?: () => boolean;
   persistedStage: string;

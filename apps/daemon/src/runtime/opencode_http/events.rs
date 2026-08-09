@@ -728,7 +728,7 @@ async fn handle_session_status(shared: &Arc<Shared>, session_id: &str, props: &s
 /// opencode auto-generates a session title from the first exchange and
 /// announces it via `session.updated`. Forward it as the existing
 /// `session_title` raw control event; the daemon server decides whether the
-/// TeamClaw session still carries a default title worth replacing.
+/// TeamClu session still carries a default title worth replacing.
 async fn handle_session_updated(shared: &Arc<Shared>, session_id: &str, props: &serde_json::Value) {
     // Task subagents may only surface parentID on updated (or we missed created).
     maybe_register_subagent_route(shared, session_id, props);
@@ -747,7 +747,7 @@ async fn handle_session_updated(shared: &Arc<Shared>, session_id: &str, props: &
         let Some(route) = routes.get(session_id) else {
             return;
         };
-        // Subagent title updates are noise for the TeamClaw session title.
+        // Subagent title updates are noise for the TeamClu session title.
         if route.parent_session_id.is_some() {
             return;
         }

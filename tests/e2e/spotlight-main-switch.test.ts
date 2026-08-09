@@ -10,7 +10,7 @@
 
 import { describe, it, expect, beforeAll, afterAll } from 'vitest';
 import {
-  launchTeamClawApp,
+  launchTeamCluApp,
   stopApp,
   sleep,
   focusWindow,
@@ -44,7 +44,7 @@ describe('E2E: Spotlight ↔ Main window switch', () => {
 
   beforeAll(async () => {
     try {
-      await launchTeamClawApp();
+      await launchTeamCluApp();
       await sleep(8000);
       await focusWindow();
       await sleep(500);
@@ -74,7 +74,7 @@ describe('E2E: Spotlight ↔ Main window switch', () => {
       // Start video recording for the test suite
       try {
         videoPath = await startVideoRecording(
-          `/tmp/teamclaw-spotlight-switch-${Date.now()}.mov`,
+          `/tmp/teamclu-spotlight-switch-${Date.now()}.mov`,
         );
         console.log(`Recording video to: ${videoPath}`);
       } catch (err) {
@@ -115,7 +115,7 @@ describe('E2E: Spotlight ↔ Main window switch', () => {
     expect(info.width).toBeGreaterThanOrEqual(MAIN_WIDTH - SIZE_TOLERANCE);
     expect(info.height).toBeGreaterThanOrEqual(MAIN_HEIGHT - SIZE_TOLERANCE);
 
-    await takeScreenshot('/tmp/teamclaw-initial-main.png');
+    await takeScreenshot('/tmp/teamclu-initial-main.png');
   }, 15_000);
 
   // ── Main → Spotlight ─────────────────────────────────────────────────
@@ -127,7 +127,7 @@ describe('E2E: Spotlight ↔ Main window switch', () => {
     await tauriCommand('show_main_window');
     await sleep(1000);
 
-    await takeScreenshot('/tmp/teamclaw-before-toggle.png');
+    await takeScreenshot('/tmp/teamclu-before-toggle.png');
 
     await tauriCommand('force_toggle_spotlight');
     await sleep(2000);
@@ -136,7 +136,7 @@ describe('E2E: Spotlight ↔ Main window switch', () => {
     expect(state['mode']).toBe('spotlight');
     expect(state['visible']).toBe(true);
 
-    await takeScreenshot('/tmp/teamclaw-after-toggle-spotlight.png');
+    await takeScreenshot('/tmp/teamclu-after-toggle-spotlight.png');
 
     // Note: AppleScript `size of window` may not reflect Tauri set_size
     // on transparent windows (transparent: true in tauri.conf.json).
@@ -149,7 +149,7 @@ describe('E2E: Spotlight ↔ Main window switch', () => {
   it('expand_to_main transitions back to main mode without crash', async () => {
     if (!appReady) return;
 
-    await takeScreenshot('/tmp/teamclaw-before-expand.png');
+    await takeScreenshot('/tmp/teamclu-before-expand.png');
 
     // This is the operation that causes a panic
     let expandError: string | null = null;
@@ -165,7 +165,7 @@ describe('E2E: Spotlight ↔ Main window switch', () => {
     // Wait for animation (300ms) + buffer
     await sleep(1500);
 
-    await takeScreenshot('/tmp/teamclaw-after-expand.png');
+    await takeScreenshot('/tmp/teamclu-after-expand.png');
 
     // Verify the app didn't crash - try to get state
     let postExpandState: Record<string, unknown> | null = null;

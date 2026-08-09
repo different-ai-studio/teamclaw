@@ -1,6 +1,6 @@
 name: AMUX
 options:
-  bundleIdPrefix: tech.teamclaw
+  bundleIdPrefix: com.teamclu
   deploymentTarget:
     iOS: "26.0"
   xcodeVersion: "26"
@@ -37,7 +37,7 @@ targets:
       base:
         INFOPLIST_FILE: AMUXApp/Info.plist
         CODE_SIGN_ENTITLEMENTS: AMUXApp/AMUX.entitlements
-        PRODUCT_BUNDLE_IDENTIFIER: tech.teamclaw.mobile
+        PRODUCT_BUNDLE_IDENTIFIER: com.teamclu.mobile
         DEVELOPMENT_TEAM: 43G5A6G9QV
         MARKETING_VERSION: "1.2"
         CURRENT_PROJECT_VERSION: 25
@@ -50,7 +50,7 @@ targets:
       - path: AMUXUITests
     settings:
       base:
-        PRODUCT_BUNDLE_IDENTIFIER: tech.teamclaw.mobile.uitests
+        PRODUCT_BUNDLE_IDENTIFIER: com.teamclu.mobile.uitests
         DEVELOPMENT_TEAM: 43G5A6G9QV
         SWIFT_VERSION: "6.0"
         TEST_TARGET_NAME: AMUX
@@ -81,5 +81,5 @@ schemes:
       targets:
         - AMUXUITests
       environmentVariables:
-        TEAMCLAW_TEST_EMAIL: $(TEAMCLAW_TEST_EMAIL)
-        TEAMCLAW_TEST_PASSWORD: $(TEAMCLAW_TEST_PASSWORD)
+        TEAMCLU_TEST_EMAIL: $(TEAMCLU_TEST_EMAIL)
+        TEAMCLU_TEST_PASSWORD: $(TEAMCLU_TEST_PASSWORD)

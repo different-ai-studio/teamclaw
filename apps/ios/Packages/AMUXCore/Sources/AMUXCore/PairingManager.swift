@@ -117,7 +117,7 @@ public final class PairingManager {
     }
 
     public static func parse(url: URL) throws -> PairingCredentials {
-        guard let scheme = url.scheme, ["teamclaw", "amux"].contains(scheme), url.host == "join" else {
+        guard let scheme = url.scheme, ["teamclu", "amux"].contains(scheme), url.host == "join" else {
             throw PairingError.invalidURL
         }
         guard let components = URLComponents(url: url, resolvingAgainstBaseURL: false),

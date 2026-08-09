@@ -6,7 +6,7 @@ import type { CloudApiClient } from "./http";
  * Design: docs/architecture/team-mcp-and-env-cloud.md
  *
  * Every value crossing this boundary is already ciphertext. Encryption and
- * decryption happen in Rust (`teamclaw_runtime_env::team_crypto`) because that
+ * decryption happen in Rust (`teamclu_runtime_env::team_crypto`) because that
  * is where the team key lives; this module only moves opaque envelopes.
  *
  * Consequently there is no `description`/`category` here even though the UI

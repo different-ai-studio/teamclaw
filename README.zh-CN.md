@@ -1,8 +1,8 @@
 # TeamClu
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
-[![CI](https://github.com/different-ai-studio/teamclaw/actions/workflows/ci.yml/badge.svg)](https://github.com/different-ai-studio/teamclaw/actions)
-[![Contributors](https://img.shields.io/github/contributors/different-ai-studio/teamclaw.svg)](https://github.com/different-ai-studio/teamclaw/graphs/contributors)
+[![CI](https://github.com/different-ai-studio/teamclu/actions/workflows/ci.yml/badge.svg)](https://github.com/different-ai-studio/teamclu/actions)
+[![Contributors](https://img.shields.io/github/contributors/different-ai-studio/teamclu.svg)](https://github.com/different-ai-studio/teamclu/graphs/contributors)
 
 本地智能体，你的 AI 搭档
 
@@ -27,7 +27,7 @@
 - **本地智能体运行时** — 智能体在你自己的机器上运行，由 `amuxd` 守护进程托管
 - **渠道网关** — 从 Discord、飞书、邮件、Kook、企业微信和微信触达你的智能体
 - **自动化** — 通过 cron 执行定时任务
-- **团队协作** — 通过 OSS 或 Git 共享团队盘（`teamclaw-team/`）；详见[团队协作](#团队协作)
+- **团队协作** — 通过 OSS 或 Git 共享团队盘（`teamclu-team/`）；详见[团队协作](#团队协作)
 - **MCP 支持** — 通过 Model Context Protocol 将智能体接入企业系统
 - **技能 / 插件** — 使用工作区级与全局技能源扩展智能体
 - **知识库** — 全文与向量嵌入索引及检索
@@ -44,7 +44,7 @@ TeamClu 分为客户端层、智能体宿主与云端后端三部分：
         └──────────────┴─────┬──────┴──────────────────┘
                              │
               ┌──────────────┴───────────────┐
-              │      TeamClaw Cloud API      │   identity, teams,
+              │      TeamClu Cloud API      │   identity, teams,
               │            (/v1)             │   sessions, messages
               └──────────────┬───────────────┘
                              │
@@ -60,7 +60,7 @@ TeamClu 分为客户端层、智能体宿主与云端后端三部分：
 
 - **客户端**负责 UI 与本地文件。安装 TeamClu 桌面端时会一并安装 `amuxd` 守护进程，因此你的机器开箱即是一个智能体宿主。
 - **amuxd** 托管本地智能体后端、运行渠道网关，并负责团队同步。它也可以在服务器上独立安装，无需 GUI。
-- **Cloud API**（`/v1`）是客户端唯一对接的后端。接口契约见 [`docs/openapi/teamclaw-api.v1.yaml`](docs/openapi/teamclaw-api.v1.yaml)，完整架构见 [`docs/architecture/v2.md`](docs/architecture/v2.md)。
+- **Cloud API**（`/v1`）是客户端唯一对接的后端。接口契约见 [`docs/openapi/teamclu-api.v1.yaml`](docs/openapi/teamclu-api.v1.yaml)，完整架构见 [`docs/architecture/v2.md`](docs/architecture/v2.md)。
 
 ## 客户端
 
@@ -73,14 +73,14 @@ TeamClu 分为客户端层、智能体宿主与云端后端三部分：
 
 ## 安装
 
-从 [GitHub Releases](https://github.com/different-ai-studio/teamclaw/releases) 下载对应平台的安装包 — macOS 为 `.dmg`，Windows 为 `.exe`。
+从 [GitHub Releases](https://github.com/different-ai-studio/teamclu/releases) 下载对应平台的安装包 — macOS 为 `.dmg`，Windows 为 `.exe`。
 
 ### macOS 提示「已损毁」时
 
 若 macOS 提示应用**「已损毁」**或**「无法打开，因为无法验证开发者」**，这是 Gatekeeper 对未签名下载文件的反应。清除隔离属性即可：
 
 ```bash
-xattr -cr /Applications/TeamClaw.app
+xattr -cr /Applications/TeamClu.app
 ```
 
 使用 Apple 开发者证书签名并公证的构建无需此步骤。
@@ -106,7 +106,7 @@ pnpm tauri:dev -- --skip-setup --skip-daemon-onboarding
 
 ## 团队协作
 
-团队共享的是专用**团队盘**（`teamclaw-team/`），而非整个工作区。引导流程中由所有者选定一种**共享模式**，之后在服务端锁定：
+团队共享的是专用**团队盘**（`teamclu-team/`），而非整个工作区。引导流程中由所有者选定一种**共享模式**，之后在服务端锁定：
 
 | 模式 | 作用 |
 |---|---|
@@ -114,7 +114,7 @@ pnpm tauri:dev -- --skip-setup --skip-daemon-onboarding
 | `managed_git` | 通过为你自动开通的 Git 仓库同步 |
 | `custom_git` | 通过你自行托管的 Git 仓库同步 |
 
-同步由 `amuxd` 守护进程负责：每个团队在 `~/.amuxd/teams/<team_id>/` 下保留一份全局副本，每个已链接的工作区通过 `teamclaw-team` 软链接指向该副本。
+同步由 `amuxd` 守护进程负责：每个团队在 `~/.amuxd/teams/<team_id>/` 下保留一份全局副本，每个已链接的工作区通过 `teamclu-team` 软链接指向该副本。
 
 ### 共享内容
 
@@ -146,11 +146,11 @@ build.config.json → build.config.${BUILD_ENV}.json → build.config.local.json
 cp build.config.example.json build.config.local.json
 ```
 
-关键配置项是 `cloudApiUrl`，它将应用指向某个 TeamClaw Cloud API 部署：
+关键配置项是 `cloudApiUrl`，它将应用指向某个 TeamClu Cloud API 部署：
 
 ```json
 {
-  "cloudApiUrl": "https://api.teamclaw-dev.ucar.cc",
+  "cloudApiUrl": "https://api.teamclu-dev.ucar.cc",
   "features": {
     "channels": { "discord": true, "feishu": true, "email": true }
   }
@@ -164,7 +164,7 @@ Cloud API 的实现位于 `services/fc/`（Node.js 20），由 Supabase 提供�
 ## 文档
 
 - [架构](docs/architecture/v2.md) — 组件、拓扑与数据模型
-- [API 契约](docs/openapi/teamclaw-api.v1.yaml) — TeamClaw Cloud API `/v1`
+- [API 契约](docs/openapi/teamclu-api.v1.yaml) — TeamClu Cloud API `/v1`
 - [上下文地图](CONTEXT-MAP.md) — 仓库如何划分为限界上下文
 - [贡献指南](CONTRIBUTING.md) — 开发环境、测试、仓库结构
 - [安全策略](SECURITY.md)

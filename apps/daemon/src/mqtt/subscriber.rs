@@ -1,6 +1,6 @@
 use prost::Message;
 use rumqttc::Publish;
-use teamclaw_transport::IncomingFrame;
+use teamclu_transport::IncomingFrame;
 use tracing::warn;
 
 use crate::proto::amux;
@@ -13,19 +13,19 @@ pub enum IncomingMessage {
         runtime_id: String,
         envelope: amux::RuntimeCommandEnvelope,
     },
-    TeamclawRpc {
+    TeamcluRpc {
         topic: String,
         payload: Vec<u8>,
     },
-    TeamclawRpcResponse {
+    TeamcluRpcResponse {
         topic: String,
         payload: Vec<u8>,
     },
-    TeamclawNotify {
+    TeamcluNotify {
         actor_id: String,
         payload: Vec<u8>,
     },
-    TeamclawSessionLive {
+    TeamcluSessionLive {
         session_id: String,
         payload: Vec<u8>,
     },
@@ -44,14 +44,14 @@ pub fn parse_frame(frame: &IncomingFrame) -> Option<IncomingMessage> {
     let payload = &frame.payload;
 
     if topic.starts_with("amux/") && topic.ends_with("/rpc/req") {
-        return Some(IncomingMessage::TeamclawRpc {
+        return Some(IncomingMessage::TeamcluRpc {
             topic: topic.clone(),
             payload: payload.clone(),
         });
     }
 
     if topic.starts_with("amux/") && topic.ends_with("/rpc/res") {
-        return Some(IncomingMessage::TeamclawRpcResponse {
+        return Some(IncomingMessage::TeamcluRpcResponse {
             topic: topic.clone(),
             payload: payload.clone(),
         });
@@ -61,7 +61,7 @@ pub fn parse_frame(frame: &IncomingFrame) -> Option<IncomingMessage> {
     if topic.starts_with("amux/") {
         let parts: Vec<&str> = topic.split('/').collect();
         if parts.len() == 5 && parts[2] == "session" && parts[4] == "live" {
-            return Some(IncomingMessage::TeamclawSessionLive {
+            return Some(IncomingMessage::TeamcluSessionLive {
                 session_id: parts[3].to_string(),
                 payload: payload.clone(),
             });
@@ -72,7 +72,7 @@ pub fn parse_frame(frame: &IncomingFrame) -> Option<IncomingMessage> {
     if topic.starts_with("amux/") && topic.ends_with("/notify") {
         let parts: Vec<&str> = topic.split('/').collect();
         if parts.len() == 4 {
-            return Some(IncomingMessage::TeamclawNotify {
+            return Some(IncomingMessage::TeamcluNotify {
                 actor_id: parts[2].to_string(),
                 payload: payload.clone(),
             });

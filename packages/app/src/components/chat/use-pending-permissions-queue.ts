@@ -2,7 +2,7 @@ import * as React from "react";
 import {
   collectAcpBystanderWaitingPermissions,
   collectAcpStreamingPermissions,
-} from "@/lib/teamclaw/acp-permission-entries";
+} from "@/lib/teamclu/acp-permission-entries";
 import { useSessionPermissionMode } from "@/lib/session-permission-mode";
 import { useSessionStore } from "@/stores/session";
 import { useV2StreamingStore } from "@/stores/v2-streaming-store";

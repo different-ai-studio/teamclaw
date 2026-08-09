@@ -1,0 +1,469 @@
+use std::path::Path;
+
+use tracing::info;
+
+use crate::opencode_config::OpencodeConfigStore;
+use crate::storage_namespace::{brand_short_name_from_env, resolve_workspace_config_path};
+use crate::DEFAULT_TEAM_REPO_DIR;
+
+/// One model exposed by the team's managed LLM gateway.
+#[derive(Debug, Clone)]
+pub struct ManagedLlmModel {
+    pub id: String,
+    pub name: String,
+}
+
+/// The team's managed (shared) LLM provider, sourced from the cloud API rather
+/// than a disk file. Materialized into `opencode.json`'s `provider.team` entry.
+#[derive(Debug, Clone)]
+pub struct ManagedLlmProvider {
+    pub name: String,
+    pub base_url: String,
+    pub models: Vec<ManagedLlmModel>,
+}
+
+/// Tri-state result of resolving the team's managed LLM from the cloud.
+#[derive(Debug, Clone, Default)]
+pub enum ManagedLlmState {
+    #[default]
+    Unknown,
+    Disabled,
+    Enabled(ManagedLlmProvider),
+}
+
+fn teamclu_config_path(workspace: &Path) -> std::path::PathBuf {
+    resolve_workspace_config_path(workspace, &brand_short_name_from_env())
+}
+
+/// Read workspace brand config → `team.sharedDirName`, or fall back to
+/// [`DEFAULT_TEAM_REPO_DIR`].
+pub fn resolve_shared_dir_name(workspace: &Path) -> String {
+    let config_path = teamclu_config_path(workspace);
+    let content = match std::fs::read_to_string(&config_path) {
+        Ok(content) => content,
+        Err(_) => return DEFAULT_TEAM_REPO_DIR.to_string(),
+    };
+    let json: serde_json::Value = match serde_json::from_str(&content) {
+        Ok(json) => json,
+        Err(_) => return DEFAULT_TEAM_REPO_DIR.to_string(),
+    };
+    json.get("team")
+        .and_then(|team| team.get("sharedDirName"))
+        .and_then(|v| v.as_str())
+        .filter(|s| !s.trim().is_empty())
+        .map(str::to_string)
+        .unwrap_or_else(|| DEFAULT_TEAM_REPO_DIR.to_string())
+}
+
+fn map_store_err(e: crate::opencode_config::OpencodeConfigError) -> anyhow::Error {
+    anyhow::anyhow!("{e}")
+}
+
+fn map_mutate_err(e: anyhow::Error) -> crate::opencode_config::OpencodeConfigError {
+    crate::opencode_config::OpencodeConfigError::Parse(e.to_string())
+}
+
+/// Apply `provider.team` reconciliation in-memory (no write). Returns whether the
+/// config object changed.
+pub fn mutate_team_provider(
+    config: &mut serde_json::Value,
+    state: &ManagedLlmState,
+) -> anyhow::Result<bool> {
+    if matches!(state, ManagedLlmState::Unknown) {
+        return Ok(false);
+    }
+
+    let obj = config
+        .as_object_mut()
+        .ok_or_else(|| anyhow::anyhow!("opencode.json root is not an object"))?;
+
+    if obj.get("$schema").is_none() && obj.is_empty() {
+        obj.insert(
+            "$schema".to_string(),
+            serde_json::json!("https://opencode.ai/config.json"),
+        );
+    }
+
+    let has_team_in_opencode = obj
+        .get("provider")
+        .and_then(|p| p.as_object())
+        .map(|p| p.contains_key("team"))
+        .unwrap_or(false);
+
+    let mut changed = false;
+
+    match state {
+        ManagedLlmState::Enabled(provider) => {
+            let mut models_out = serde_json::Map::new();
+            for m in &provider.models {
+                if m.id.is_empty() {
+                    continue;
+                }
+                let mname = if m.name.is_empty() { &m.id } else { &m.name };
+                models_out.insert(
+                    m.id.clone(),
+                    serde_json::json!({
+                        "name": mname,
+                        "limit": { "context": 256000, "output": 16000 }
+                    }),
+                );
+            }
+
+            let name = if provider.name.is_empty() {
+                "Team"
+            } else {
+                &provider.name
+            };
+            // Keep a resolved `sk-tc-*` key across reconciles. `ensure_team_provider`
+            // runs on every provider read (including after wake); always writing the
+            // `${tc_api_key}` placeholder would clobber spawn-time resolution and
+            // break LiteLLM auth for a live opencode serve instance.
+            let api_key = obj
+                .get("provider")
+                .and_then(|p| p.get("team"))
+                .and_then(|t| t.get("options"))
+                .and_then(|o| o.get("apiKey"))
+                .and_then(|v| v.as_str())
+                .filter(|k| !k.contains("${"))
+                .unwrap_or("${tc_api_key}");
+            let team_entry = serde_json::json!({
+                "npm": "@ai-sdk/openai-compatible",
+                "name": name,
+                "options": { "baseURL": provider.base_url, "apiKey": api_key },
+                "models": models_out,
+            });
+
+            let providers = obj
+                .entry("provider")
+                .or_insert_with(|| serde_json::json!({}))
+                .as_object_mut()
+                .ok_or_else(|| anyhow::anyhow!("provider is not an object"))?;
+            if providers.get("team") != Some(&team_entry) {
+                providers.insert("team".to_string(), team_entry);
+                changed = true;
+                info!(
+                    base_url = %provider.base_url,
+                    "Wrote provider.team to opencode.json (synced from cloud managed LLM)"
+                );
+            }
+        }
+        ManagedLlmState::Disabled => {
+            if has_team_in_opencode {
+                if let Some(providers) = obj.get_mut("provider").and_then(|p| p.as_object_mut()) {
+                    providers.remove("team");
+                    if providers.is_empty() {
+                        obj.remove("provider");
+                    }
+                    changed = true;
+                    info!("Removed stale provider.team from opencode.json (managed LLM disabled)");
+                }
+            }
+        }
+        ManagedLlmState::Unknown => {}
+    }
+
+    Ok(changed)
+}
+
+/// Read `provider.team` from workspace `opencode.json`, if present.
+pub fn read_disk_team_provider(workspace: &Path) -> Option<serde_json::Value> {
+    let content = OpencodeConfigStore::load_raw(workspace).ok().flatten()?;
+    let json: serde_json::Value = serde_json::from_str(&content).ok()?;
+    json.get("provider")
+        .and_then(|provider| provider.get("team"))
+        .filter(|team| team.is_object())
+        .cloned()
+}
+
+/// Reconstruct a [`ManagedLlmProvider`] from an on-disk `provider.team` object.
+pub fn managed_llm_provider_from_disk_team(
+    team: &serde_json::Value,
+) -> Option<ManagedLlmProvider> {
+    let base_url = team
+        .get("options")
+        .and_then(|options| options.get("baseURL"))
+        .and_then(|v| v.as_str())
+        .filter(|s| !s.trim().is_empty())?
+        .to_string();
+    let name = team
+        .get("name")
+        .and_then(|v| v.as_str())
+        .unwrap_or("Team")
+        .to_string();
+    let models = team
+        .get("models")
+        .and_then(|v| v.as_object())
+        .map(|map| {
+            let mut models: Vec<ManagedLlmModel> = map
+                .iter()
+                .map(|(id, entry)| ManagedLlmModel {
+                    id: id.clone(),
+                    name: entry
+                        .get("name")
+                        .and_then(|v| v.as_str())
+                        .unwrap_or(id)
+                        .to_string(),
+                })
+                .collect();
+            models.sort_by(|left, right| left.id.cmp(&right.id));
+            models
+        })
+        .unwrap_or_default();
+    Some(ManagedLlmProvider {
+        name,
+        base_url,
+        models,
+    })
+}
+
+/// Stabilize managed-LLM state before spawn env fingerprinting.
+///
+/// Cold cloud fetches / empty TTL caches often yield [`ManagedLlmState::Unknown`],
+/// which omits `TEAMCLU_TEAM_PROVIDER` from the spawn env. A later successful
+/// fetch then injects the key and flips the global OpenCode host fingerprint.
+/// When disk already has `provider.team`, reconstruct `Enabled` from it so the
+/// first attach matches a subsequent confirmed cloud answer with the same data.
+pub fn stabilize_managed_llm_for_spawn(
+    state: &ManagedLlmState,
+    disk_team_provider: Option<&serde_json::Value>,
+) -> ManagedLlmState {
+    if !matches!(state, ManagedLlmState::Unknown) {
+        return state.clone();
+    }
+    match disk_team_provider.and_then(managed_llm_provider_from_disk_team) {
+        Some(provider) => ManagedLlmState::Enabled(provider),
+        None => ManagedLlmState::Unknown,
+    }
+}
+
+/// JSON payload for the `TEAMCLU_TEAM_PROVIDER` spawn env (no secret embedded).
+pub fn team_provider_env_payload(provider: &ManagedLlmProvider) -> String {
+    let models: Vec<serde_json::Value> = provider
+        .models
+        .iter()
+        .filter(|m| !m.id.is_empty())
+        .map(|m| {
+            serde_json::json!({
+                "id": m.id,
+                "name": if m.name.is_empty() { &m.id } else { &m.name },
+            })
+        })
+        .collect();
+    let name = if provider.name.is_empty() {
+        "Team"
+    } else {
+        &provider.name
+    };
+    serde_json::json!({
+        "name": name,
+        "baseUrl": provider.base_url,
+        "apiKeyEnv": "tc_api_key",
+        "models": models,
+    })
+    .to_string()
+}
+
+/// Reconcile `provider.team` in opencode.json against the cloud-sourced managed LLM.
+///
+/// Returns whether the on-disk config was rewritten. External callers should prefer
+/// [`crate::team_provider_sync::sync_team_provider_on_disk`] so materialization and secret resolution
+/// stay aligned across spawn and reconcile paths.
+pub fn ensure_team_provider(workspace: &Path, state: &ManagedLlmState) -> anyhow::Result<bool> {
+    if matches!(state, ManagedLlmState::Unknown) {
+        return Ok(false);
+    }
+    OpencodeConfigStore::apply(workspace, |config| {
+        mutate_team_provider(config, state).map_err(map_mutate_err)
+    })
+    .map_err(map_store_err)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::fs;
+    use tempfile::TempDir;
+
+    fn write_teamclu_json(dir: &Path, shared_dir_name: Option<&str>) {
+        let config_path = crate::workspace_config_path(dir, "teamclu");
+        fs::create_dir_all(config_path.parent().unwrap()).unwrap();
+        let json = match shared_dir_name {
+            Some(name) => serde_json::json!({ "team": { "sharedDirName": name } }),
+            None => serde_json::json!({ "team": {} }),
+        };
+        fs::write(&config_path, serde_json::to_string(&json).unwrap()).unwrap();
+    }
+
+    fn sample_provider() -> ManagedLlmProvider {
+        ManagedLlmProvider {
+            name: "Team".to_string(),
+            base_url: "https://gateway.example/v1".to_string(),
+            models: vec![ManagedLlmModel {
+                id: "gpt-4".to_string(),
+                name: "GPT-4".to_string(),
+            }],
+        }
+    }
+
+    #[test]
+    fn ensure_team_provider_adds_team_when_enabled() {
+        let dir = TempDir::new().unwrap();
+        ensure_team_provider(dir.path(), &ManagedLlmState::Enabled(sample_provider())).unwrap();
+        let parsed: serde_json::Value =
+            serde_json::from_str(&fs::read_to_string(dir.path().join("opencode.json")).unwrap())
+                .unwrap();
+        assert!(parsed["provider"]["team"].is_object());
+    }
+
+    #[test]
+    fn ensure_team_provider_preserves_resolved_api_key() {
+        let dir = TempDir::new().unwrap();
+        let resolved_key = "sk-tc-actor-123";
+        fs::write(
+            dir.path().join("opencode.json"),
+            serde_json::json!({
+                "provider": {
+                    "team": {
+                        "options": {
+                            "baseURL": "https://gateway.example/v1",
+                            "apiKey": resolved_key
+                        },
+                        "models": { "old-model": { "name": "Old" } }
+                    }
+                }
+            })
+            .to_string(),
+        )
+        .unwrap();
+        ensure_team_provider(dir.path(), &ManagedLlmState::Enabled(sample_provider())).unwrap();
+        let parsed: serde_json::Value =
+            serde_json::from_str(&fs::read_to_string(dir.path().join("opencode.json")).unwrap())
+                .unwrap();
+        assert_eq!(
+            parsed["provider"]["team"]["options"]["apiKey"].as_str(),
+            Some(resolved_key),
+            "reconcile must not clobber a resolved LiteLLM key with the tc_api_key placeholder"
+        );
+    }
+
+    #[test]
+    fn ensure_team_provider_overwrites_existing_team_when_enabled() {
+        let dir = TempDir::new().unwrap();
+        fs::write(
+            dir.path().join("opencode.json"),
+            serde_json::json!({
+                "provider": {
+                    "team": { "options": { "baseURL": "https://old.example" } }
+                }
+            })
+            .to_string(),
+        )
+        .unwrap();
+        ensure_team_provider(dir.path(), &ManagedLlmState::Enabled(sample_provider())).unwrap();
+        let parsed: serde_json::Value =
+            serde_json::from_str(&fs::read_to_string(dir.path().join("opencode.json")).unwrap())
+                .unwrap();
+        assert_eq!(
+            parsed["provider"]["team"]["options"]["baseURL"],
+            "https://gateway.example/v1"
+        );
+    }
+
+    #[test]
+    fn ensure_team_provider_removes_stale_team_when_disabled() {
+        let dir = TempDir::new().unwrap();
+        fs::write(
+            dir.path().join("opencode.json"),
+            serde_json::json!({ "provider": { "team": {} } }).to_string(),
+        )
+        .unwrap();
+        ensure_team_provider(dir.path(), &ManagedLlmState::Disabled).unwrap();
+        let parsed: serde_json::Value =
+            serde_json::from_str(&fs::read_to_string(dir.path().join("opencode.json")).unwrap())
+                .unwrap();
+        assert!(parsed.get("provider").is_none());
+    }
+
+    #[test]
+    fn ensure_team_provider_unknown_leaves_config_untouched() {
+        let dir = TempDir::new().unwrap();
+        fs::write(
+            dir.path().join("opencode.json"),
+            serde_json::json!({ "provider": { "team": { "keep": true } } }).to_string(),
+        )
+        .unwrap();
+        ensure_team_provider(dir.path(), &ManagedLlmState::Unknown).unwrap();
+        let parsed: serde_json::Value =
+            serde_json::from_str(&fs::read_to_string(dir.path().join("opencode.json")).unwrap())
+                .unwrap();
+        assert_eq!(parsed["provider"]["team"]["keep"], true);
+    }
+
+    #[test]
+    fn resolve_shared_dir_name_reads_teamclu_json() {
+        let dir = TempDir::new().unwrap();
+        write_teamclu_json(dir.path(), Some("custom-team"));
+        assert_eq!(resolve_shared_dir_name(dir.path()), "custom-team");
+    }
+
+    #[test]
+    fn stabilize_leaves_enabled_and_disabled_unchanged() {
+        let enabled = ManagedLlmState::Enabled(sample_provider());
+        assert!(matches!(
+            stabilize_managed_llm_for_spawn(&enabled, None),
+            ManagedLlmState::Enabled(_)
+        ));
+        assert!(matches!(
+            stabilize_managed_llm_for_spawn(&ManagedLlmState::Disabled, None),
+            ManagedLlmState::Disabled
+        ));
+    }
+
+    #[test]
+    fn stabilize_unknown_without_disk_stays_unknown() {
+        assert!(matches!(
+            stabilize_managed_llm_for_spawn(&ManagedLlmState::Unknown, None),
+            ManagedLlmState::Unknown
+        ));
+    }
+
+    #[test]
+    fn stabilize_unknown_with_disk_team_becomes_enabled() {
+        let disk = serde_json::json!({
+            "name": "Team",
+            "options": { "baseURL": "https://gateway.example/v1", "apiKey": "${tc_api_key}" },
+            "models": {
+                "gpt-4": { "name": "GPT-4" }
+            }
+        });
+        match stabilize_managed_llm_for_spawn(&ManagedLlmState::Unknown, Some(&disk)) {
+            ManagedLlmState::Enabled(provider) => {
+                assert_eq!(provider.base_url, "https://gateway.example/v1");
+                assert_eq!(provider.models.len(), 1);
+                assert_eq!(provider.models[0].id, "gpt-4");
+            }
+            other => panic!("expected Enabled from disk, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn stabilize_unknown_disk_payload_matches_enabled_env_payload() {
+        let provider = sample_provider();
+        let disk = serde_json::json!({
+            "name": provider.name,
+            "options": { "baseURL": provider.base_url, "apiKey": "${tc_api_key}" },
+            "models": {
+                "gpt-4": { "name": "GPT-4" }
+            }
+        });
+        let stabilized =
+            stabilize_managed_llm_for_spawn(&ManagedLlmState::Unknown, Some(&disk));
+        let ManagedLlmState::Enabled(from_disk) = stabilized else {
+            panic!("expected Enabled");
+        };
+        assert_eq!(
+            team_provider_env_payload(&from_disk),
+            team_provider_env_payload(&provider)
+        );
+    }
+}

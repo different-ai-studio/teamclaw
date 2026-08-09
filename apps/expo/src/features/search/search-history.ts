@@ -1,6 +1,6 @@
 import AsyncStorage from "@react-native-async-storage/async-storage";
 
-const STORAGE_KEY = "teamclaw.searchHistory.v1";
+const STORAGE_KEY = "teamclu.searchHistory.v1";
 const MAX_ENTRIES = 8;
 
 export async function loadSearchHistory(): Promise<string[]> {

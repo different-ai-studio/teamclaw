@@ -1,6 +1,6 @@
 # Desktop Release（Tauri）
 
-TeamClaw 桌面端通过 **Git tag 触发 GitHub Actions**，自动构建 macOS / Windows 安装包并发布到 GitHub Releases，同时镜像到国内 OSS CDN。
+TeamClu 桌面端通过 **Git tag 触发 GitHub Actions**，自动构建 macOS / Windows 安装包并发布到 GitHub Releases，同时镜像到国内 OSS CDN。
 
 ## 版本号来源
 
@@ -91,31 +91,31 @@ Workflow：`.github/workflows/release.yml`
 | `release-windows` | x64 | NSIS `.exe` |
 | `update-release-notes` | — | OSS `latest.json` 镜像 + Release 说明补充 |
 
-Sidecar 随 Desktop 一起编译打包：`teamclaw-introspect`、`amuxd`。
+Sidecar 随 Desktop 一起编译打包：`teamclu-introspect`、`amuxd`。
 
 ### 5. 发布后验收
 
 **GitHub Release 资产：**
 
-- `TeamClaw_<version>_aarch64.dmg`
-- `TeamClaw_<version>_x64.dmg`
-- `TeamClaw_<version>_x64-setup.exe`
+- `TeamClu_<version>_aarch64.dmg`
+- `TeamClu_<version>_x64.dmg`
+- `TeamClu_<version>_x64-setup.exe`
 - `latest.json`（Tauri 自动更新清单）
 
 **安装验证：**
 
 ```bash
 # 海外（GitHub latest release）
-curl -fsSL https://raw.githubusercontent.com/different-ai-studio/teamclaw/main/scripts/install-mac.sh | bash
+curl -fsSL https://raw.githubusercontent.com/different-ai-studio/teamclu/main/scripts/install-mac.sh | bash
 
 # 国内（OSS 镜像，需 OSS secrets 已配置）
-curl -fsSL https://teamclaw.ucar.cc/install-mac-cn.sh | bash
+curl -fsSL https://teamclu.ucar.cc/install-mac-cn.sh | bash
 ```
 
 **自动更新端点（`tauri.conf.json`）：**
 
-- `https://teamclaw.ucar.cc/releases/latest.json`
-- `https://github.com/different-ai-studio/teamclaw/releases/latest/download/latest.json`
+- `https://teamclu.ucar.cc/releases/latest.json`
+- `https://github.com/different-ai-studio/teamclu/releases/latest/download/latest.json`
 
 **通知：** Release published 后 `wecom-notify.yml` 会推送企业微信（需 `WECOM_WEBHOOK_KEY`）。
 
@@ -131,7 +131,7 @@ curl -fsSL https://teamclaw.ucar.cc/install-mac-cn.sh | bash
 | `BUILD_CONFIG_PRODUCTION` | 生产 `build.config.json` |
 | `DEVICE_JWT_SECRET` | 设备 JWT |
 | `APPLE_CERTIFICATE` + 相关 | macOS 代码签名（缺失则 ad-hoc，用户需 `xattr`） |
-| `OSS_*` | 国内 CDN 镜像（**teamclaw 仓库必须配置**，否则 OSS 端点不会更新） |
+| `OSS_*` | 国内 CDN 镜像（**teamclu 仓库必须配置**，否则 OSS 端点不会更新） |
 | `UPDATER_GITHUB_TOKEN` | macOS job 写 GitHub Release |
 
 生产配置结构参考 `build.config.example.json`。
@@ -152,8 +152,8 @@ curl -fsSL https://teamclaw.ucar.cc/install-mac-cn.sh | bash
 当前应用尚未 Apple 公证。首次从网络下载后，若手动拖入 Applications，需执行（路径随品牌名变化，一键安装脚本会自动处理）：
 
 ```bash
-# TeamClaw 默认品牌
-sudo xattr -dr com.apple.quarantine "/Applications/TeamClaw.app"
+# TeamClu 默认品牌
+sudo xattr -dr com.apple.quarantine "/Applications/TeamClu.app"
 
 # 生产白标（示例：Copilot 361）
 sudo xattr -dr com.apple.quarantine "/Applications/Copilot 361.app"

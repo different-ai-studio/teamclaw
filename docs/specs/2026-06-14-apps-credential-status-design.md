@@ -21,7 +21,7 @@ daemon `POST /v1/apps/seed` → daemon 克隆+推**但没有 git 凭证 → 私�
 ### 关键事实(设计依据)
 
 - managed-git 的"凭证"是 FC 环境里的**静态组织级 bot PAT**(`CODEUP_PAT`,配合
-  `CODEUP_BOT_USERNAME`,形如 `teamclaw:<pat>`),所有 team/app 的托管仓**共用一个**
+  `CODEUP_BOT_USERNAME`,形如 `teamclu:<pat>`),所有 team/app 的托管仓**共用一个**
   ——不是每仓一个 token。`handleManagedGitCreateRepo` 已经返回它(`{repoHttpUrl, pat,
   botUsername}`),第一期 `provisionAppRepo` 拿到后**丢弃**(只写 `git_remote_url`)。
 - daemon 已能反向调用 FC `/v1/...`(`apps/daemon/src/backend/cloud_api/mod.rs` 的
@@ -161,7 +161,7 @@ else /* unreachable */  → 不回写(保持 repo_created,留待重试)
 
 - FC:`services/fc/src/lib/routes/apps.ts`(GET git-credential + PATCH 加 status)、
   `services/fc/src/lib/pg-repo/apps.ts` + `supabase-repo.ts`(`getAppGitCredential` +
-  `updateApp` status)、`docs/openapi/teamclaw-api.v1.yaml`。
+  `updateApp` status)、`docs/openapi/teamclu-api.v1.yaml`。
 - daemon:`apps/daemon/src/http/apps.rs`(seed 前取凭证)、cloud_api 客户端加 `get`
   辅助(如缺)。
 - 桌面:`packages/app/src/lib/daemon-local-client.ts`(`seedDaemonApp` 三态)、

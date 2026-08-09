@@ -377,7 +377,7 @@ struct LoginView: View {
             callbackURL = try await withCheckedThrowingContinuation { continuation in
                 let session = ASWebAuthenticationSession(
                     url: authorizeURL,
-                    callbackURLScheme: "teamclaw"
+                    callbackURLScheme: "teamclu"
                 ) { url, error in
                     if let error = error as? ASWebAuthenticationSessionError,
                        error.code == .canceledLogin {

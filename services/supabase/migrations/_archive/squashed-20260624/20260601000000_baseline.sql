@@ -1,4 +1,4 @@
--- TeamClaw Supabase baseline schema
+-- TeamClu Supabase baseline schema
 --
 -- Squashed from 93 incremental migrations (20260422 through 20260530) that were
 -- applied to the Aliyun Supabase instance during the cloud migration.
@@ -3064,8 +3064,8 @@ declare
   v_expires   timestamptz;
   v_ttl       int;
   v_broker    text := 'mqtts://ai.ucar.cc:8883';
-  v_username  text := 'teamclaw';
-  v_password  text := 'teamclaw2026';
+  v_username  text := 'teamclu';
+  v_password  text := 'teamclu2026';
 begin
   if v_actor_id is null then
     raise exception 'create_team_invite requires team membership'
@@ -4162,7 +4162,7 @@ $$;
 
 -- Agents (daemons) need SUB on their own amux/{team}/device/{actor}/rpc/res
 -- because the daemon also acts as an RPC client (RpcClient::handle_response
--- in daemon/src/teamclaw/rpc.rs listens on this topic to receive responses
+-- in daemon/src/teamclu/rpc.rs listens on this topic to receive responses
 -- from RPC calls it makes to peer daemons). The hook's original ACL only
 -- granted PUB on rpc/res (for serving requests), missing the symmetric SUB
 -- needed when the daemon is the requester.
@@ -4258,7 +4258,7 @@ alter table public.sessions
 -- >>> BEGIN archived migration: 202605120001_member_sub_device_notify.sql
 
 -- Members (iOS humans) need SUB on amux/{team}/device/+/notify so the
--- iOS TeamclawService.resyncDaemonSubscriptions() path can receive
+-- iOS TeamcluService.resyncDaemonSubscriptions() path can receive
 -- `Notify` events from any daemon in the team (e.g. membership.refresh
 -- hints). The original member ACL granted only `sub user/{self}/notify`,
 -- so iOS's per-daemon `subscribe(deviceNotify(teamID, deviceID))` call
@@ -4528,7 +4528,7 @@ grant execute on function public.rename_team(uuid, text) to authenticated;
 -- >>> BEGIN archived migration: 20260515000010_team_workspace_config.sql
 
 -- team_workspace_config: 1:1 with teams, holds desktop workspace metadata
--- that used to live in .teamclaw/teamclaw.json.
+-- that used to live in .teamclu/teamclu.json.
 
 create table public.team_workspace_config (
   team_id              uuid primary key references public.teams(id) on delete cascade,
@@ -4586,7 +4586,7 @@ grant select, insert, update, delete on public.team_workspace_config to authenti
 
 -- actor_message_feedback + actor_session_report
 -- Replaces the libSQL telemetry.db tables that used to live at
--- ~/.teamclaw/telemetry.db.
+-- ~/.teamclu/telemetry.db.
 
 create table public.actor_message_feedback (
   id           uuid primary key default gen_random_uuid(),

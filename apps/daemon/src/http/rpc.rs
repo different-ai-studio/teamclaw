@@ -1,9 +1,9 @@
 //! `POST /v1/rpc` — local fast-path RPC dispatch.
 //!
 //! Same-machine twin of the MQTT `amux/{team}/{actor}/rpc/req` topic: the
-//! body is the exact `teamclaw.RpcRequest` protobuf bytes a client would
+//! body is the exact `teamclu.RpcRequest` protobuf bytes a client would
 //! otherwise publish there, and the response body is the encoded
-//! `teamclaw.RpcResponse` bytes the daemon would otherwise publish to the
+//! `teamclu.RpcResponse` bytes the daemon would otherwise publish to the
 //! requester's `rpc/res` topic. Over HTTP the request/response pairing is
 //! carried by the connection itself, so no correlation subscription is
 //! needed (the `request_id` inside the envelope is preserved untouched).

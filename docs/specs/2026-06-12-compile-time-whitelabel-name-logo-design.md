@@ -10,7 +10,7 @@
 `build.config.*.json` 配置出不同的白标包。每个品牌只提供**一张方形源图**,
 构建时自动生成整套图标。
 
-**约束**:默认 / 生产配置不填 logo、名称仍为 `TeamClaw` 时,构建产物与现状
+**约束**:默认 / 生产配置不填 logo、名称仍为 `TeamClu` 时,构建产物与现状
 **零差异**(不产生 git diff、不改变行为)。
 
 ## 背景:现状链路
@@ -19,7 +19,7 @@
   经 `deepMerge` 合并(`packages/app/vite.config.ts:42-47`、
   `scripts/update-tauri-config.js:36-48`)。
 - 名称:`buildConfig.app.name` 已流到前端(登录页 `LoginScreen.tsx`、关于页
-  `AboutSection.tsx`、各渠道向导)。但 **Rust 侧多处硬编码 `"TeamClaw"`**
+  `AboutSection.tsx`、各渠道向导)。但 **Rust 侧多处硬编码 `"TeamClu"`**
   (窗口标题 `apps/desktop/src/commands/window.rs:93`、托盘 tooltip
   `apps/desktop/src/lib.rs:578`、OAuth 回调 HTML `oauth_loopback.rs`)。
 - Logo:**完全未接配置**。
@@ -49,8 +49,8 @@
 
 ```jsonc
 "app": {
-  "name": "TeamClaw",        // 已有 → 现在也驱动 OS 应用名 / 窗口标题 / Rust 文案
-  "shortName": "teamclaw",   // 已有,不变
+  "name": "TeamClu",        // 已有 → 现在也驱动 OS 应用名 / 窗口标题 / Rust 文案
+  "shortName": "teamclu",   // 已有,不变
   "logo": "branding/acme/logo.png"  // 新增:方形源图(建议 1024×1024 PNG),路径相对仓库根
 }
 ```
@@ -75,25 +75,25 @@
    `packages/app/public/logo.png` 与 `packages/app/public/logo-64.png`
    (关于页 CSS 缩到 64px,复用 128 源图即可,免引第二个工具)。
 
-**幂等 / 默认**:无 `app.logo` 时跳过 (b);`app.name === "TeamClaw"` 时
+**幂等 / 默认**:无 `app.logo` 时跳过 (b);`app.name === "TeamClu"` 时
 (b) 之外写回的内容与现状一致,默认构建零 diff。
 
 ### 3. 前端
 
 - **基本不动**:登录页 `/logo.png`、关于页 `/logo-64.png` 由 prebuild
   **替换文件**实现换 logo;`app.name` 已通过 `buildConfig.app.name` 流通。
-- 仅做一次性核对,确认无遗漏的硬编码 logo 路径或 "TeamClaw" 文案。
+- 仅做一次性核对,确认无遗漏的硬编码 logo 路径或 "TeamClu" 文案。
 
 ### 4. Rust 名称白标(全链路)
 
-将以下硬编码 `"TeamClaw"` 改为读取 Tauri 配置的 product name
-(`app.config().product_name`,已由第 2(a) 步按品牌写好),回落 `"TeamClaw"`:
+将以下硬编码 `"TeamClu"` 改为读取 Tauri 配置的 product name
+(`app.config().product_name`,已由第 2(a) 步按品牌写好),回落 `"TeamClu"`:
 
 - `apps/desktop/src/commands/window.rs:88,93` —— 工作区窗口标题
   `format!("{productName} — {ws_name}")`,fallback 名同样用 productName。
 - `apps/desktop/src/lib.rs:578` —— 托盘 tooltip。
 - `apps/desktop/src/commands/oauth_loopback.rs:24,26` —— OAuth 回调页 HTML
-  里的 "TeamClaw" 文案。
+  里的 "TeamClu" 文案。
 
 注:取值优先用 Tauri 运行时已解析的 product name,避免 Rust 再独立读
 build.config,保证单一来源。
@@ -101,7 +101,7 @@ build.config,保证单一来源。
 ### 5. 约定与默认资产
 
 - 新增 `branding/` 目录约定 + 一个示例(如
-  `branding/teamclaw/logo.png` 用现有 `apps/desktop/icons/teamclaw-logo.png`
+  `branding/teamclu/logo.png` 用现有 `apps/desktop/icons/teamclu-logo.png`
   作为可复现的默认源图,供 OEM 参考)。
 - 生产 / 默认 `build.config.production.json` **不填 logo**,保证现有发布零变化。
 
@@ -110,7 +110,7 @@ build.config,保证单一来源。
 品牌构建时 prebuild 会**就地覆盖**已提交的
 `apps/desktop/icons/*`、`packages/app/public/logo*.png`、`tauri.conf.json`,
 工作区会变脏。这对 OEM/CI 流程(checkout → 应用品牌 → 构建 → 丢弃)是**预期
-行为**。默认构建(`name=TeamClaw`、无 `logo`)不产生 diff。
+行为**。默认构建(`name=TeamClu`、无 `logo`)不产生 diff。
 
 ## 测试
 
@@ -118,7 +118,7 @@ build.config,保证单一来源。
   - 给定一个含 `app.logo`(指向测试 PNG)的临时 build.config,运行 prebuild,
     断言:`apps/desktop/icons/` 被重新生成、`tauri.conf.productName` 与
     `app.windows[0].title` 被改、`public/logo.png` 与 `logo-64.png` 被写。
-  - 不含 `app.logo` 且 `name=TeamClaw` 时,断言 tauri.conf 关键字段与基线一致
+  - 不含 `app.logo` 且 `name=TeamClu` 时,断言 tauri.conf 关键字段与基线一致
     (no-op,除既有 updater 行为)。
   - 运行后**还原**被改动的工作区文件(测试不留脏)。
 - **Rust**:`cargo check`/`clippy` 通过;product-name 取值逻辑可加轻量单测或

@@ -35,14 +35,14 @@ const setAgentDefaultWorkspace = vi.hoisted(() => vi.fn(async () => {}))
 const updateDaemonWorkspace = vi.hoisted(() => vi.fn(async () => ({})))
 
 // Spy that stands in for the daemon RPC module. If any code path still imports
-// and calls `addWorkspace` from teamclaw-rpc during the create flow, this spy
+// and calls `addWorkspace` from teamclu-rpc during the create flow, this spy
 // will be invoked and the regression assertion below will fail.
 const rpcAddWorkspace = vi.hoisted(() => vi.fn(async () => ({ accepted: true })))
 
 const dialogOpen = vi.fn()
 vi.mock('@tauri-apps/plugin-dialog', () => ({ open: (...a: unknown[]) => dialogOpen(...a) }))
 
-vi.mock('@/lib/teamclaw-rpc', () => ({
+vi.mock('@/lib/teamclu-rpc', () => ({
   addWorkspace: rpcAddWorkspace,
 }))
 

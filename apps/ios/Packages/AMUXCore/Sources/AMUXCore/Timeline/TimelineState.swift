@@ -35,7 +35,7 @@ public struct TimelineEntry: Identifiable, Equatable, Sendable {
     public var outboxMessageID: String?
     /// Daemon-assigned correlation id for the ACP turn this entry
     /// belongs to. Stamped by the daemon's TurnAggregator on emit and
-    /// carried on the wire (`Teamclaw_Message.turnId`). Multiple
+    /// carried on the wire (`Teamclu_Message.turnId`). Multiple
     /// consecutive agent_reply entries sharing the same turnID came
     /// out of one logical turn — the reducer's history path merges
     /// them so reload doesn't split a single answer across two bubbles.

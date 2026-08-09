@@ -5,7 +5,7 @@ import { useOnboarding, routeToHref } from "./_layout";
 import { colors, spacing, typography } from "../src/ui/theme";
 
 /**
- * Landing route for the `teamclaw://auth-callback` deep link.
+ * Landing route for the `teamclu://auth-callback` deep link.
  *
  * The OS routes this URL two places at once: to `Linking`, where the root
  * layout hands it to `completeOAuthFromUrl` to actually exchange the code, and

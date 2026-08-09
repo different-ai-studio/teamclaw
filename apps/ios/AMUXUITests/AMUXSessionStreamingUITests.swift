@@ -3,14 +3,14 @@ import XCTest
 /// End-to-end test that drives the iOS UI through:
 ///   sign in → New Session → submit prompt → wait for streamed assistant output.
 ///
-/// Verifies the full data path: Supabase JWT auth, MQTT CONNACK, teamclaw
+/// Verifies the full data path: Supabase JWT auth, MQTT CONNACK, teamclu
 /// `runtime_start` RPC to the daemon, ACP event stream flowing back through
 /// `device/{daemon}/runtime/{id}/events`, and SwiftUI rendering of the
 /// assistant message bubble.
 ///
 /// ## Required environment
 ///
-///   - `TEAMCLAW_TEST_EMAIL`, `TEAMCLAW_TEST_PASSWORD` in the test scheme. The
+///   - `TEAMCLU_TEST_EMAIL`, `TEAMCLU_TEST_PASSWORD` in the test scheme. The
 ///     account must be a **member** of a team with **exactly one** agent
 ///     it can access (entry in `agent_member_access`).
 ///   - A daemon running with that agent's `actor_id` and reachable from
@@ -30,7 +30,7 @@ import XCTest
 ///    (used as `sender_device_id` for RPC reply routing) and the
 ///    user-configurable Daemon ID in Settings. With static MQTT creds
 ///    removed, neither value is auto-populated on first launch, so
-///    every teamclaw RPC silently round-trips to the wrong topic.
+///    every teamclu RPC silently round-trips to the wrong topic.
 ///
 /// Both are tracked as Phase 4 follow-ups; once fixed, this test should
 /// pass without skips. The streaming pipeline below the iOS layer is
@@ -41,12 +41,12 @@ final class AMUXSessionStreamingUITests: XCTestCase {
     private var app: XCUIApplication!
 
     private var testEmail: String {
-        ProcessInfo.processInfo.environment["TEAMCLAW_TEST_EMAIL"] ??
+        ProcessInfo.processInfo.environment["TEAMCLU_TEST_EMAIL"] ??
             ProcessInfo.processInfo.environment["AMUX_TEST_EMAIL"] ?? ""
     }
 
     private var testPassword: String {
-        ProcessInfo.processInfo.environment["TEAMCLAW_TEST_PASSWORD"] ??
+        ProcessInfo.processInfo.environment["TEAMCLU_TEST_PASSWORD"] ??
             ProcessInfo.processInfo.environment["AMUX_TEST_PASSWORD"] ?? ""
     }
 
@@ -63,7 +63,7 @@ final class AMUXSessionStreamingUITests: XCTestCase {
     @MainActor
     func testNewSessionStreamsAssistantOutput() throws {
         try XCTSkipIf(testEmail.isEmpty || testPassword.isEmpty,
-                      "Set TEAMCLAW_TEST_EMAIL and TEAMCLAW_TEST_PASSWORD to run this test")
+                      "Set TEAMCLU_TEST_EMAIL and TEAMCLU_TEST_PASSWORD to run this test")
 
         signInIfNeeded()
 

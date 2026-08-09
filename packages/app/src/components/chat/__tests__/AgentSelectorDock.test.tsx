@@ -32,7 +32,7 @@ vi.mock('@/stores/runtime-state-store', async (importOriginal) => {
   }
 })
 
-vi.mock('@/lib/teamclaw-rpc', () => ({
+vi.mock('@/lib/teamclu-rpc', () => ({
   setModel: vi.fn(),
 }))
 
@@ -40,7 +40,7 @@ vi.mock('@/lib/solo-build', () => ({
   isSoloBuild: () => mocks.isSoloBuild(),
 }))
 
-vi.mock('@/lib/teamclaw/ensure-agent-runtime', () => ({
+vi.mock('@/lib/teamclu/ensure-agent-runtime', () => ({
   ensureRuntimeThenSetModel: vi.fn(),
 }))
 

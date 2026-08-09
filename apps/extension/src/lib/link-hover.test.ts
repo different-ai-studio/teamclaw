@@ -34,7 +34,7 @@ describe('getLinkHoverBrandLabel', () => {
     vi.stubGlobal('chrome', {
       runtime: { getManifest: () => ({}) },
     })
-    expect(getLinkHoverBrandLabel()).toBe('TeamClaw')
+    expect(getLinkHoverBrandLabel()).toBe('TeamClu')
   })
 })
 

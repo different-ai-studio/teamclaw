@@ -2,7 +2,7 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** Run the `services/fc` Hono app as a standalone Docker container that can self-host the TeamClaw Cloud API, without changing the existing Alibaba FC deploy path.
+**Goal:** Run the `services/fc` Hono app as a standalone Docker container that can self-host the TeamClu Cloud API, without changing the existing Alibaba FC deploy path.
 
 **Architecture:** The app already lives in `createApp(deps)` (`src/app.ts`). FC wraps it with `hono/aws-lambda`; we add a second entrypoint `src/server.ts` that wraps the *same* app with `@hono/node-server`. Health and HTTP-cron routes are added once inside `createApp` so both paths share them. A multi-stage Dockerfile builds and runs `dist/server.js`.
 
@@ -10,7 +10,7 @@
 
 ## Global Constraints
 
-- All commands run from `services/fc/` unless noted. The repo root is the worktree at `/Volumes/openbeta/workspace/teamclaw-v2-worktrees/task/refactor-fc-service-can-run-in-the-docker`.
+- All commands run from `services/fc/` unless noted. The repo root is the worktree at `/Volumes/openbeta/workspace/teamclu-v2-worktrees/task/refactor-fc-service-can-run-in-the-docker`.
 - ESM with NodeNext resolution: **all relative imports use the `.js` extension** even though sources are `.ts` (e.g. `import { createApp } from "./app.js"`).
 - Do NOT modify: `src/index.ts`'s `handler` export semantics, `s.yaml`, or `.github/workflows/fc-deploy.yml`. Additive changes to `src/app.ts` and `src/index.ts` are allowed.
 - Cron task names (from `src/lib/cron.ts`): `oss-abandon-sessions`, `oss-gc-blobs`. Unknown task → `runCronTask` throws `Unknown cron task: <task>`.
@@ -387,14 +387,14 @@ CMD ["node", "dist/server.js"]
 
 - [ ] **Step 3: Build the image**
 
-Run: `docker build -t teamclaw-fc:dev .`
-Expected: build completes; final stage tagged `teamclaw-fc:dev`.
+Run: `docker build -t teamclu-fc:dev .`
+Expected: build completes; final stage tagged `teamclu-fc:dev`.
 
 - [ ] **Step 4: Run the container and probe /healthz**
 
 Run:
 ```bash
-docker run --rm -d -p 9098:9000 -e CRON_TRIGGER_SECRET=test --name fc-smoke teamclaw-fc:dev; \
+docker run --rm -d -p 9098:9000 -e CRON_TRIGGER_SECRET=test --name fc-smoke teamclu-fc:dev; \
 sleep 2; curl -fsS http://127.0.0.1:9098/healthz; echo; docker stop fc-smoke
 ```
 Expected: prints `{"ok":true}`.
@@ -422,7 +422,7 @@ git commit -m "feat(fc): add multi-stage Dockerfile and .dockerignore"
 services:
   fc:
     build: .
-    image: teamclaw-fc:dev
+    image: teamclu-fc:dev
     env_file:
       - .env
     environment:
@@ -459,9 +459,9 @@ git commit -m "feat(fc): add docker-compose for local self-host"
 Create `README.md` (or append a section if it exists) containing:
 
 ```markdown
-# teamclaw-fc
+# teamclu-fc
 
-The TeamClaw Cloud API (Hono). Deploys to Alibaba Function Compute via
+The TeamClu Cloud API (Hono). Deploys to Alibaba Function Compute via
 `s.yaml` / `fc-deploy.yml`, and also runs as a standalone Docker container
 for self-hosting.
 

@@ -15,7 +15,7 @@ public enum InviteDeepLink {
     /// dropped. Persisting the token lets `AppOnboardingCoordinator.bootstrap`
     /// claim the invite BEFORE its auto-create-team branch, instead of stranding
     /// the user in a freshly auto-created throwaway team.
-    public static let pendingTokenDefaultsKey = "teamclaw.pendingInviteToken"
+    public static let pendingTokenDefaultsKey = "teamclu.pendingInviteToken"
 }
 
 @Observable

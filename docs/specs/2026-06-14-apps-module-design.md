@@ -8,7 +8,7 @@
 
 ## 1. 背景与目标
 
-TeamClaw 新增 **apps** 模块，让用户在平台内创建并构建自己的全栈应用。每个
+TeamClu 新增 **apps** 模块，让用户在平台内创建并构建自己的全栈应用。每个
 app 由 AI session 协助开发，有固定 git 仓库存代码、一个对应的 FC（Function
 Compute）作为部署目标，可团队可见或个人私有。
 
@@ -34,8 +34,8 @@ Compute）作为部署目标，可团队可见或个人私有。
 - **managed-git**：FC 端 `/managed-git/create-repo` 用 `CODEUP_PAT`/
   `CODEUP_ORG_ID` 在 CodeUp 建私有仓库，返回 `repoHttpUrl` + `pat`；现为
   **per-team**。share-mode（oss|managed_git|custom_git）per-team 一次性锁定。
-- **FC** 目前只有一个静态函数 `teamclaw-sync`，无按实体动态 provision FC 的机制。
-- **Cloud API 链路**：OpenAPI（`docs/openapi/teamclaw-api.v1.yaml`）→ routes
+- **FC** 目前只有一个静态函数 `teamclu-sync`，无按实体动态 provision FC 的机制。
+- **Cloud API 链路**：OpenAPI（`docs/openapi/teamclu-api.v1.yaml`）→ routes
   （`services/fc/src/lib/routes/*.ts`）→ business-api → pg-repo + supabase-repo
   → repository-contract → 客户端 provider。客户端禁止直连 Supabase。
 

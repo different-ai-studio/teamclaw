@@ -5,7 +5,7 @@
 //! `~/.amuxd/pi-sessions/<worktree-hash>/`, events translated into the same
 //! `amux::AcpEvent` vocabulary. See `docs/architecture/pi-agent-backend.md`.
 //!
-//! Permission approvals ride the pi extension UI dialog channel: the TeamClaw
+//! Permission approvals ride the pi extension UI dialog channel: the TeamClu
 //! pi extension (separate deliverable) emits `extension_ui_request(confirm)`;
 //! this backend surfaces those as `AcpPermissionRequest` and writes the
 //! resolution back as `extension_ui_response`.
@@ -56,7 +56,7 @@ pub(crate) struct Route {
 /// the reply and to persist an "always allow" grant.
 pub(crate) struct PendingPermission {
     pub(crate) session_id: String,
-    /// `teamclaw.always-pattern=` trailer from the confirm message; written to
+    /// `teamclu.always-pattern=` trailer from the confirm message; written to
     /// the worktree's rules file when the host resolves with option "always".
     pub(crate) always_pattern: Option<String>,
 }
@@ -133,7 +133,7 @@ fn split_model_id(model_id: &str) -> Option<(String, String)> {
 /// Extract the `amuxd-remote-tools` server launch command from an amuxd MCP
 /// config value (`{"mcpServers": {"amuxd-remote-tools": {"command", "args"}}}`,
 /// the shape `remote_tools::mcp_config` writes). Returned as a JSON array
-/// string, the `TEAMCLAW_REMOTE_TOOLS_CMD` contract of the pi extension.
+/// string, the `TEAMCLU_REMOTE_TOOLS_CMD` contract of the pi extension.
 fn remote_tools_cmd_from_value(root: &serde_json::Value) -> Option<String> {
     // Literal name (= remote_tools::REMOTE_TOOLS_MCP_SERVER_NAME); kept local
     // so the integration-test harness need not pull in the remote_tools tree.
@@ -152,7 +152,7 @@ fn remote_tools_cmd_from_mcp_config(path: &Path) -> Option<String> {
     remote_tools_cmd_from_value(&root)
 }
 
-/// Build the `TEAMCLAW_MCP_SERVERS` payload for the pi extension from a
+/// Build the `TEAMCLU_MCP_SERVERS` payload for the pi extension from a
 /// workspace `opencode.json` (the MCP SSOT: team + inherent + user servers all
 /// merge into its `mcp` map). pi has no native MCP, so the extension spawns each
 /// enabled local server and proxies its tools. Returns `{ "<name>": { "command":
@@ -161,7 +161,7 @@ fn remote_tools_cmd_from_mcp_config(path: &Path) -> Option<String> {
 ///
 /// Excluded: disabled servers, non-`local` (remote/url) servers the stdio bridge
 /// can't spawn, and `amuxd-remote-tools` (already bridged via
-/// `TEAMCLAW_REMOTE_TOOLS_CMD`).
+/// `TEAMCLU_REMOTE_TOOLS_CMD`).
 fn mcp_servers_from_value(root: &serde_json::Value) -> Option<String> {
     let mcp = root.get("mcp")?.as_object()?;
     let mut out = serde_json::Map::new();
@@ -236,7 +236,7 @@ struct AttachArgs {
 
 async fn attach(shared: &Arc<Shared>, args: AttachArgs) -> Result<AcpStartupMetadata, String> {
     let worktree = canonical_dir(&args.worktree);
-    // Export the remote-tools MCP bridge command to the TeamClaw extension
+    // Export the remote-tools MCP bridge command to the TeamClu extension
     // before (possibly) spawning; env is applied at spawn time.
     if let Some(cmd_json) = args
         .mcp_config_path
@@ -1002,7 +1002,7 @@ mod tests {
         backend
             .shared
             .pool
-            .set_binary_hint("/nonexistent/teamclaw-pi-does-not-exist");
+            .set_binary_hint("/nonexistent/teamclu-pi-does-not-exist");
         let result = backend.model_catalog(Path::new("/tmp")).await;
         assert!(
             result.is_err(),

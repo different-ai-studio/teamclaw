@@ -3,7 +3,7 @@
  * Converted from Playwright shortcuts-drag.spec.ts to vitest + tauri-mcp.
  *
  * The new shortcuts store reads from Supabase + a Tauri-managed cache file
- * (workspace's `teamclaw.json`). The legacy `teamclaw-shortcuts` localStorage
+ * (workspace's `teamclu.json`). The legacy `teamclu-shortcuts` localStorage
  * key no longer exists, so we seed via the Tauri `save_shortcuts` IPC command
  * and then trigger the store's `hydrateFromCache()` so the UI reflects it.
  *
@@ -13,7 +13,7 @@
 
 import { describe, it, expect, beforeAll, afterAll } from 'vitest';
 import {
-  launchTeamClawApp,
+  launchTeamCluApp,
   stopApp,
   sleep,
   focusWindow,
@@ -25,15 +25,15 @@ describe('Functional: Shortcuts Drag & Drop', () => {
 
   beforeAll(async () => {
     try {
-      await launchTeamClawApp();
+      await launchTeamCluApp();
       await sleep(8000);
       await focusWindow();
       await sleep(500);
 
-      // Seed shortcuts into the Tauri-backed cache file (teamclaw.json)
+      // Seed shortcuts into the Tauri-backed cache file (teamclu.json)
       // and trigger the store to hydrate from it. The new store no longer
       // reads from localStorage.
-      const wp = process.env.TEST_WORKSPACE_PATH ?? '/tmp/teamclaw-e2e-ws';
+      const wp = process.env.TEST_WORKSPACE_PATH ?? '/tmp/teamclu-e2e-ws';
       await executeJs(`
         (async () => {
           const tauri = window.__TAURI__;

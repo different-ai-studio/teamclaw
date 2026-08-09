@@ -16,10 +16,10 @@ export function useMCPFileWatcher(workspacePath: string | null): void {
     ;(async () => {
       const { listen } = await import('@tauri-apps/api/event')
       unlisten = await listen<{ path: string; kind: string }>('file-change', (event) => {
-        if (!event.payload.path.endsWith('teamclaw.json')) return
+        if (!event.payload.path.endsWith('teamclu.json')) return
         if (timer) clearTimeout(timer)
         timer = setTimeout(() => {
-          console.log('[MCP] teamclaw.json changed, syncing MCP config')
+          console.log('[MCP] teamclu.json changed, syncing MCP config')
           useMCPStore.getState().syncFromFile()
         }, 300)
       })

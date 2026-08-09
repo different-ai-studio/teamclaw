@@ -324,11 +324,11 @@ dependencies = [
  "sha2",
  "subtle",
  "tar",
- "teamclaw-gateway",
- "teamclaw-proto",
- "teamclaw-runtime-env",
- "teamclaw-transport",
- "teamclaw-types",
+ "teamclu-gateway",
+ "teamclu-proto",
+ "teamclu-runtime-env",
+ "teamclu-transport",
+ "teamclu-types",
  "tempfile",
  "thiserror 2.0.18",
  "tokio",
@@ -10624,7 +10624,7 @@ dependencies = [
 ]
 
 [[package]]
-name = "teamclaw"
+name = "teamclu"
 version = "0.4.0"
 dependencies = [
  "aes-gcm",
@@ -10693,12 +10693,12 @@ dependencies = [
  "tauri-plugin-shell",
  "tauri-plugin-updater",
  "tauri-plugin-window-state",
- "teamclaw-gateway",
- "teamclaw-proto",
- "teamclaw-rag",
- "teamclaw-runtime-env",
- "teamclaw-transport",
- "teamclaw-types",
+ "teamclu-gateway",
+ "teamclu-proto",
+ "teamclu-rag",
+ "teamclu-runtime-env",
+ "teamclu-transport",
+ "teamclu-types",
  "tempfile",
  "thiserror 2.0.18",
  "tokio",
@@ -10722,7 +10722,7 @@ dependencies = [
 ]
 
 [[package]]
-name = "teamclaw-gateway"
+name = "teamclu-gateway"
 version = "0.1.0"
 dependencies = [
  "aes",
@@ -10764,7 +10764,7 @@ dependencies = [
 ]
 
 [[package]]
-name = "teamclaw-introspect"
+name = "teamclu-introspect"
 version = "0.1.0"
 dependencies = [
  "base64 0.22.1",
@@ -10773,14 +10773,14 @@ dependencies = [
  "reqwest 0.12.28",
  "serde",
  "serde_json",
- "teamclaw-runtime-env",
+ "teamclu-runtime-env",
  "tempfile",
  "tokio",
  "uuid",
 ]
 
 [[package]]
-name = "teamclaw-proto"
+name = "teamclu-proto"
 version = "0.1.0"
 dependencies = [
  "prost 0.13.5",
@@ -10789,7 +10789,7 @@ dependencies = [
 ]
 
 [[package]]
-name = "teamclaw-rag"
+name = "teamclu-rag"
 version = "0.1.0"
 dependencies = [
  "anyhow",
@@ -10816,7 +10816,7 @@ dependencies = [
 ]
 
 [[package]]
-name = "teamclaw-runtime-env"
+name = "teamclu-runtime-env"
 version = "0.1.0"
 dependencies = [
  "aes-gcm",
@@ -10836,7 +10836,7 @@ dependencies = [
 ]
 
 [[package]]
-name = "teamclaw-transport"
+name = "teamclu-transport"
 version = "0.1.0"
 dependencies = [
  "async-nats",
@@ -10852,7 +10852,7 @@ dependencies = [
 ]
 
 [[package]]
-name = "teamclaw-types"
+name = "teamclu-types"
 version = "0.1.0"
 dependencies = [
  "serde",

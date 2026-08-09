@@ -1,5 +1,5 @@
 -- Per-team LLM config moves to cloud storage (single source of truth),
--- replacing the local teamclaw.json. Adds the three columns the Settings
+-- replacing the local teamclu.json. Adds the three columns the Settings
 -- "团队共享模型" pane edits onto amux.team_workspace_config.
 --
 -- Columns inherit the table's existing grants/RLS; no column-specific grant

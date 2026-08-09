@@ -283,7 +283,7 @@ export function ChatInputArea({
 
   // Per-actor draft persistence (Actors tab → navigate away → restore).
   const draftStorageKey = draftPreselectedActor
-    ? `teamclaw-actor-draft:${draftPreselectedActor.id}`
+    ? `teamclu-actor-draft:${draftPreselectedActor.id}`
     : null;
   const justRestoredDraftRef = React.useRef(false);
 

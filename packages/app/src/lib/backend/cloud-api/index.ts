@@ -1,5 +1,5 @@
 import type { ServerConfig } from "@/lib/server-config";
-import type { TeamClawBackend } from "../types";
+import type { TeamCluBackend } from "../types";
 import { createCloudApiClient, type CloudApiClient } from "./http";
 import { createAuthClient, createAuthModule } from "./auth";
 import { createTeamsModule } from "./teams";
@@ -30,7 +30,7 @@ export function hasCloudApiBackendConfig(config: ServerConfig): boolean {
 export function createCloudApiBackend(
   config: ServerConfig,
   options: { client?: CloudApiClient } = {},
-): TeamClawBackend {
+): TeamCluBackend {
   const baseUrl = requiredCloudApiUrl(config);
   const authClient = createAuthClient({ baseUrl });
   // Build a temporary auth backend so the CloudApiClient can pull the bearer

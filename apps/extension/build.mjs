@@ -21,8 +21,8 @@ const {
 } = nodeRequire(resolve(repoRoot, 'scripts/lib/extension-config.js'))
 
 const esbuildAlias = {
-  '@teamclaw/extension-link-hover': resolve(linkHoverShared, 'index.ts'),
-  '@teamclaw/extension-link-session': resolve(linkSessionShared, 'index.ts'),
+  '@teamclu/extension-link-hover': resolve(linkHoverShared, 'index.ts'),
+  '@teamclu/extension-link-session': resolve(linkSessionShared, 'index.ts'),
 }
 
 function readJSON(filePath) {
@@ -75,7 +75,7 @@ const backend = resolveExtensionBackend(mergedBuildConfig)
 // request and the sign-in screen have nowhere to go. Refusing to build is the
 // only outcome that cannot end up on the Chrome Web Store, and it is strictly
 // better than the previous behaviour, where .env.web quietly supplied the
-// TeamClaw backend to a brand that meant to ship its own.
+// TeamClu backend to a brand that meant to ship its own.
 if (!backend.cloudApiUrl) {
   console.error(
     '[extension] build.config.json declares no cloudApiUrl — refusing to build a package\n' +
@@ -88,14 +88,14 @@ if (!backend.cloudApiUrl) {
 // mqttWsUrl gets the same treatment, for the same reason one step removed. It
 // used to be a console warning that let the build through, and what shipped was
 // a package whose API talked to the brand's cluster while realtime kept the
-// TeamClaw broker baked into .env.web. That package does not fail loudly — it
+// TeamClu broker baked into .env.web. That package does not fail loudly — it
 // signs in fine and then every session reports `runtime_start_failure:
 // transport_offline`, because the broker it reaches has no idea who the user is.
 // A build error names the missing field; the runtime symptom does not.
 if (!backend.mqttWsUrl) {
   console.error(
     '[extension] build.config.json declares no mqttWsUrl — refusing to build a package\n' +
-      '            whose realtime transport would fall back to the TeamClaw broker while\n' +
+      '            whose realtime transport would fall back to the TeamClu broker while\n' +
       '            its API points elsewhere. Add "mqttWsUrl" (top level, or under the\n' +
       '            "extensions" block) to the brand config and re-run.',
   )
@@ -104,7 +104,7 @@ if (!backend.mqttWsUrl) {
 
 const esbuildAliasWithAllowlist = {
   ...esbuildAlias,
-  '@teamclaw/side-panel-host-allowlist': resolve(appDir, 'src/lib/side-panel-host-allowlist.ts'),
+  '@teamclu/side-panel-host-allowlist': resolve(appDir, 'src/lib/side-panel-host-allowlist.ts'),
 }
 
 rmSync(dist, { recursive: true, force: true })
@@ -177,7 +177,7 @@ await build({
   outdir: dist, bundle: true, format: 'iife', target: 'chrome110', platform: 'browser',
   alias: esbuildAliasWithAllowlist,
   define: {
-    __TEAMCLAW_EXTENSION_SETTINGS__: JSON.stringify(extensionSettingsBake),
+    __TEAMCLU_EXTENSION_SETTINGS__: JSON.stringify(extensionSettingsBake),
   },
 })
 

@@ -62,7 +62,7 @@ describe('readLinkHoverConfig bake seed', () => {
       domains: ['example.com'],
       urlPatterns: ['*/example/*'],
     })
-    expect(storageState.bag['teamclaw.extension.linkHover']).toEqual({
+    expect(storageState.bag['teamclu.extension.linkHover']).toEqual({
       domains: ['example.com'],
       urlPatterns: ['*/example/*'],
     })
@@ -73,7 +73,7 @@ describe('readLinkHoverConfig bake seed', () => {
       domains: ['baked.example.com'],
       urlPatterns: ['*/baked/*'],
     }
-    storageState.bag['teamclaw.extension.linkHover'] = {
+    storageState.bag['teamclu.extension.linkHover'] = {
       domains: ['example.com'],
       urlPatterns: ['*/other/*'],
     }
@@ -91,7 +91,7 @@ describe('readLinkHoverConfig bake seed', () => {
       domains: ['baked.example.com'],
       urlPatterns: ['*/example/*'],
     }
-    storageState.bag['teamclaw.extension.linkHover'] = {
+    storageState.bag['teamclu.extension.linkHover'] = {
       domains: ['example.com'],
     }
     const mod = await import('./chrome-storage')
@@ -101,7 +101,7 @@ describe('readLinkHoverConfig bake seed', () => {
       domains: ['example.com'],
       urlPatterns: ['*/example/*'],
     })
-    expect(storageState.bag['teamclaw.extension.linkHover']).toEqual({
+    expect(storageState.bag['teamclu.extension.linkHover']).toEqual({
       domains: ['example.com'],
       urlPatterns: ['*/example/*'],
     })
@@ -112,7 +112,7 @@ describe('readLinkHoverConfig bake seed', () => {
       domains: ['baked.example.com'],
       urlPatterns: ['*/example/*'],
     }
-    storageState.bag['teamclaw.extension.linkHover'] = {
+    storageState.bag['teamclu.extension.linkHover'] = {
       domains: ['example.com'],
       urlPatterns: [],
     }

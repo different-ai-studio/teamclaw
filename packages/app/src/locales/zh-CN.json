@@ -1412,7 +1412,7 @@
       "inherent": "内置",
       "inherentCannotDelete": "内置服务器无法删除",
       "inherentMCP": "内置 MCP",
-      "managedByTeamClaw": "由 TeamClu 管理",
+      "managedByTeamClu": "由 TeamClu 管理",
       "teamMCP": "团队共享 MCP",
       "teamManagedHint": "在团队仓库 .mcp/ 中管理",
       "team": "团队",
@@ -1486,7 +1486,7 @@
           "tip1": "自动注入会在每次对话前静默运行，不会显示检索过程",
           "tip2": "Agent 仍可主动调用 knowledge_search 进行深度检索",
           "tip3": "调整相似度阈值可以控制注入的准确性：越高越精确，但可能漏掉相关内容",
-          "tip4": "配置保存在 {{teamclawDir}}/rag-config.json，可跨设备同步",
+          "tip4": "配置保存在 {{teamcluDir}}/rag-config.json，可跨设备同步",
           "topK": "Top K"
         },
         "embedding": {
@@ -2157,7 +2157,7 @@
       "pendingLocalLink": "待链接本地目录",
       "cloudShareRequiredBeforeSync": "云端尚未锁定团队共享。请先使用「开通」（自托管 Git），「立即同步」无法代替开通。",
       "desktopOnly": "团队共享目录操作需在桌面客户端中进行",
-      "disconnectDesc": "此操作将删除本地团队数据（{{teamclawDir}} 和 {{teamRepoDir}} 目录），无法撤销。",
+      "disconnectDesc": "此操作将删除本地团队数据（{{teamcluDir}} 和 {{teamRepoDir}} 目录），无法撤销。",
       "repoGuide": {
         "title": "如何构建团队共享仓库",
         "intro": "团队共享仓库用于集中管理 Agent Skills、MCP 配置和知识文档。请按以下结构创建仓库，以便 TeamClu 正确同步。",
@@ -2296,7 +2296,7 @@
         "reloading": "重载中…",
         "reloadRuntime": "重载 Agent 运行时",
         "personalStore": "本地加密存储",
-        "personalStoreMissing": "个人变量未能从 ~/.teamclaw/secrets 读取；Agent 将看不到这些值。",
+        "personalStoreMissing": "个人变量未能从 ~/.teamclu/secrets 读取；Agent 将看不到这些值。",
         "personalCounts": "用户变量 / 索引条目",
         "personalIndex": "工作区索引缓存",
         "personalIndexOk": "一致",
@@ -2579,7 +2579,7 @@
         "tipsTitle": "常见修复方式",
         "tipRefresh": "点击刷新，从磁盘重新加载技能列表。",
         "tipRestart": "新增或修改技能后重启 OpenCode。",
-        "tipPaths": "确认 teamclaw.json / opencode.json 中的 skills.paths 指向存在的目录。",
+        "tipPaths": "确认 teamclu.json / opencode.json 中的 skills.paths 指向存在的目录。",
         "tipDaemon": "如果守护进程清单缺失，确认 amuxd 正在运行。"
       },
       "title": "技能",
@@ -2616,7 +2616,7 @@
       "restartToApply": "重启 OpenCode 以应用新的技能权限配置。",
       "inherent": "内置",
       "inherentSkills": "内置技能",
-      "managedByTeamClaw": "由 TeamClu 管理",
+      "managedByTeamClu": "由 TeamClu 管理",
       "inherentCannotDelete": "内置技能无法删除",
       "workspaceSkills": "工作区技能",
       "globalSkills": "全局技能",
@@ -3229,7 +3229,7 @@
   },
   "skills": {
     "builtinLabel": "内置",
-    "builtinPath": ".teamclaw/skills/（{{app}} 内置）"
+    "builtinPath": ".teamclu/skills/（{{app}} 内置）"
   },
   "daemon": {
     "agentRuntime": {

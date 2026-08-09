@@ -16,6 +16,6 @@ test("renderDesktopReleaseBody uses branded app name and quoted quarantine path"
 });
 
 test("renderDesktopReleaseBody quotes application path for shell safety", () => {
-  const body = renderDesktopReleaseBody({ appName: "TeamClaw", macArchHint: false });
-  assert.match(body, /sudo xattr -dr com\.apple\.quarantine "\/Applications\/TeamClaw\.app"/);
+  const body = renderDesktopReleaseBody({ appName: "TeamClu", macArchHint: false });
+  assert.match(body, /sudo xattr -dr com\.apple\.quarantine "\/Applications\/TeamClu\.app"/);
 });

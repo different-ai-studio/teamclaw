@@ -34,8 +34,8 @@ describe('Install Script', () => {
 
   it('script references correct GitHub repo', () => {
     const content = fs.readFileSync(INSTALL_SCRIPT, 'utf-8')
-    expect(content).toContain('different-ai-studio/teamclaw')
-    expect(content).toContain('TeamClaw')
+    expect(content).toContain('different-ai-studio/teamclu')
+    expect(content).toContain('TeamClu')
   })
 
   it('script checks for unsupported OS', () => {

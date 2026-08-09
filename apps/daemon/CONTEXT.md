@@ -61,7 +61,7 @@ Session ↔ Attachment 是 **1:0..1**（每 actor 而言）。
 在 `daemon.toml` 中以 `[channels.*]` 配置，由 [Gateway](#gateway) 实例化运行。
 
 ### Gateway
-`teamclaw_gateway` crate 提供的运行时组件，把某个 [Channel](#channel) 的协议翻译成对 [Runtime](#runtime) 的调用。
+`teamclu_gateway` crate 提供的运行时组件，把某个 [Channel](#channel) 的协议翻译成对 [Runtime](#runtime) 的调用。
 1 Channel ↔ 1 Gateway 实例。
 
 ### Bus

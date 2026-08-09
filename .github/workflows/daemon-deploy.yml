@@ -6,7 +6,7 @@ name: Daemon Deploy
 # First-time bootstrap (once per ECS box):
 #   1. Ensure at least one team + human member exist.
 #   2. SSH to ECS and mint a daemon invite:
-#        cd /opt/teamclaw/deploy/self-host && ./amuxd/mint-invite.sh <TEAM_ID>
+#        cd /opt/teamclu/deploy/self-host && ./amuxd/mint-invite.sh <TEAM_ID>
 #   3. Store the token in GitHub secret AMUXD_JOIN_TOKEN (or upsert into .env).
 #   4. Trigger this workflow. Identity persists in the amuxd_state volume; later
 #      deploys skip the join token even if the secret is removed.
@@ -34,12 +34,12 @@ permissions:
   contents: read
   packages: write
 
-# Shared with self-host-deploy.yml so both never reset /opt/teamclaw at once.
+# Shared with self-host-deploy.yml so both never reset /opt/teamclu at once.
 # cancel-in-progress is false at the ECS gate (deploy job); build may still
 # cancel newer superseding builds via its own group below.
 env:
   REGISTRY: ghcr.io
-  IMAGE_NAME: teamclaw-amuxd
+  IMAGE_NAME: teamclu-amuxd
   DEPLOY_REF: ${{ github.event_name == 'push' && 'main' || github.ref_name }}
 
 jobs:
@@ -95,7 +95,7 @@ jobs:
       cancel-in-progress: false
     environment: self-host-production
     env:
-      AMUXD_IMAGE: ghcr.io/${{ github.repository_owner }}/teamclaw-amuxd:self-host
+      AMUXD_IMAGE: ghcr.io/${{ github.repository_owner }}/teamclu-amuxd:self-host
     steps:
       - name: Prepare SSH key
         env:
@@ -144,7 +144,7 @@ jobs:
           envs: AMUXD_IMAGE,DEPLOY_REF,AMUXD_JOIN_TOKEN,OPENCODE_BASE_URL,OPENCODE_API_KEY,OPENCODE_MODEL,OPENCODE_PROVIDER_ID,OPENCODE_PROVIDER_NAME
           script: |
             set -e
-            cd /opt/teamclaw
+            cd /opt/teamclu
 
             echo "=== git pull (${DEPLOY_REF}) ==="
             git config http.lowSpeedLimit 1000

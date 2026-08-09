@@ -2,14 +2,14 @@ import Foundation
 
 public enum MQTTTopics {
     public static func normalizedTeamID(_ teamID: String) -> String {
-        teamID.isEmpty ? "teamclaw" : teamID
+        teamID.isEmpty ? "teamclu" : teamID
     }
 
     public static func actorBase(teamID: String, actorID: String) -> String {
         "amux/\(normalizedTeamID(teamID))/\(actorID)"
     }
 
-    public static func teamclawBase(teamID: String) -> String {
+    public static func teamcluBase(teamID: String) -> String {
         "amux/\(normalizedTeamID(teamID))"
     }
 
@@ -30,7 +30,7 @@ public enum MQTTTopics {
 
     /// Single realtime stream for live session events in the new contract.
     public static func sessionLive(teamID: String, sessionID: String) -> String {
-        "\(teamclawBase(teamID: teamID))/session/\(sessionID)/live"
+        "\(teamcluBase(teamID: teamID))/session/\(sessionID)/live"
     }
 
     // ─── Phase 2 — new-architecture paths (dual-published by daemon since Phase 1a) ───
@@ -50,6 +50,6 @@ public enum MQTTTopics {
     /// (Phase 1d prerequisite); builder is available now so Phase 2 code can
     /// reference it, but no subscribe happens until 1d ships.
     public static func userNotify(teamID: String, actorID: String) -> String {
-        "\(teamclawBase(teamID: teamID))/user/\(actorID)/notify"
+        "\(teamcluBase(teamID: teamID))/user/\(actorID)/notify"
     }
 }

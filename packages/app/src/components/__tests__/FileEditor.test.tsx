@@ -170,7 +170,7 @@ describe('FileEditor', () => {
       <FileEditor
         content=""
         filename="note.md"
-        filePath="/workspace/teamclaw-team/skills/note.md"
+        filePath="/workspace/teamclu-team/skills/note.md"
         onClose={() => {}}
       />,
     )

@@ -26,9 +26,9 @@ fn default_shared_dir_name() -> String {
 }
 
 /// Read the enabled `team` section from the brand workspace config
-/// (`{meta}/{brand}.json`, with legacy `.teamclaw/teamclaw.json` fallback).
+/// (`{meta}/{brand}.json`, with legacy `.teamclu/teamclu.json` fallback).
 pub fn read_team_config(workspace_root: &Path) -> Option<TeamSharedGitConfig> {
-    let path = teamclaw_runtime_env::resolve_workspace_config_path_from_env(workspace_root);
+    let path = teamclu_runtime_env::resolve_workspace_config_path_from_env(workspace_root);
     let body = std::fs::read_to_string(&path).ok()?;
     let parsed: serde_json::Value = serde_json::from_str(&body).ok()?;
     parsed
@@ -495,7 +495,7 @@ pub fn sync_git_dir_with_cred(
                 "-c",
                 "user.name=amuxd bot",
                 "-c",
-                "user.email=amuxd@teamclaw.local",
+                "user.email=amuxd@teamclu.local",
                 "commit",
                 "-m",
                 "chore: daemon sync",
@@ -554,7 +554,7 @@ pub fn sync_git_dir_with_cred(
         let _ = git_owned(
             &[
                 "branch".to_string(),
-                format!("teamclaw-conflict-backup/{ts}"),
+                format!("teamclu-conflict-backup/{ts}"),
                 "HEAD".to_string(),
             ],
             team_dir,
@@ -630,9 +630,9 @@ mod tests {
         assert_eq!(
             embed_token_in_url(
                 "https://codeup.aliyun.com/org/tc-team.git",
-                Some("teamclaw:pt-abc")
+                Some("teamclu:pt-abc")
             ),
-            "https://teamclaw:pt-abc@codeup.aliyun.com/org/tc-team.git"
+            "https://teamclu:pt-abc@codeup.aliyun.com/org/tc-team.git"
         );
     }
 
@@ -651,7 +651,7 @@ mod tests {
     #[test]
     fn sync_rejects_non_git_dir_without_wipe() {
         let tmp = tempfile::tempdir().unwrap();
-        let team_dir = tmp.path().join("teamclaw-team");
+        let team_dir = tmp.path().join("teamclu-team");
         std::fs::create_dir_all(team_dir.join("knowledge")).unwrap();
         std::fs::write(team_dir.join("knowledge/local.md"), "keep me\n").unwrap();
 
@@ -659,7 +659,7 @@ mod tests {
             git_url: Some("https://example.com/repo.git".into()),
             git_branch: Some("main".into()),
             git_token: None,
-            shared_dir_name: "teamclaw-team".into(),
+            shared_dir_name: "teamclu-team".into(),
             env_secret: None,
             enabled: true,
         };
@@ -678,7 +678,7 @@ mod tests {
         let tmp = tempfile::tempdir().unwrap();
         let remote = tmp.path().join("remote.git");
         let work = tmp.path().join("work");
-        let team_dir = tmp.path().join("teams").join("t1").join("teamclaw-team");
+        let team_dir = tmp.path().join("teams").join("t1").join("teamclu-team");
 
         run(&["init", "--bare", remote.to_str().unwrap()], tmp.path());
         run(
@@ -705,7 +705,7 @@ mod tests {
             git_url: Some(remote.to_string_lossy().to_string()),
             git_branch: Some("main".into()),
             git_token: None,
-            shared_dir_name: "teamclaw-team".into(),
+            shared_dir_name: "teamclu-team".into(),
             env_secret: None,
             enabled: true,
         };
@@ -718,7 +718,7 @@ mod tests {
     #[test]
     fn needs_initial_clone_is_false_when_git_metadata_exists() {
         let tmp = tempfile::tempdir().unwrap();
-        let team_dir = tmp.path().join("teamclaw-team");
+        let team_dir = tmp.path().join("teamclu-team");
         std::fs::create_dir_all(team_dir.join(".git")).unwrap();
         assert!(!super::needs_initial_clone(&team_dir));
     }
@@ -726,7 +726,7 @@ mod tests {
     #[test]
     fn concurrent_git_sync_is_rejected() {
         let tmp = tempfile::tempdir().unwrap();
-        let team_dir = tmp.path().join("teamclaw-team");
+        let team_dir = tmp.path().join("teamclu-team");
         std::fs::create_dir_all(&team_dir).unwrap();
         let guard = super::acquire_git_sync(&team_dir).unwrap();
         let err = super::acquire_git_sync(&team_dir).unwrap_err();
@@ -738,7 +738,7 @@ mod tests {
     #[test]
     fn sync_git_dir_returns_not_configured_without_url() {
         let tmp = tempfile::tempdir().unwrap();
-        let team_dir = tmp.path().join("teamclaw-team");
+        let team_dir = tmp.path().join("teamclu-team");
         std::fs::create_dir_all(&team_dir).unwrap();
         let config: TeamSharedGitConfig = serde_json::from_value(serde_json::json!({
             "enabled": true
@@ -863,7 +863,7 @@ mod tests {
             git_url: Some(remote.to_string_lossy().to_string()),
             git_branch: Some("main".into()),
             git_token: None,
-            shared_dir_name: "teamclaw".into(),
+            shared_dir_name: "teamclu".into(),
             env_secret: None,
             enabled: true,
         };
@@ -942,7 +942,7 @@ mod tests {
             git_url: Some(remote.to_string_lossy().to_string()),
             git_branch: Some("main".into()),
             git_token: None,
-            shared_dir_name: "teamclaw".into(),
+            shared_dir_name: "teamclu".into(),
             env_secret: None,
             enabled: true,
         };
@@ -990,8 +990,8 @@ mod tests {
 
     #[test]
     fn resolves_shared_dir_under_workspace() {
-        let path = shared_dir_path(Path::new("/tmp/workspace"), "teamclaw").unwrap();
-        assert_eq!(path, PathBuf::from("/tmp/workspace/teamclaw"));
+        let path = shared_dir_path(Path::new("/tmp/workspace"), "teamclu").unwrap();
+        assert_eq!(path, PathBuf::from("/tmp/workspace/teamclu"));
     }
 
     #[test]
@@ -1000,7 +1000,7 @@ mod tests {
             "gitUrl": "https://example.com/repo.git",
             "gitBranch": "main",
             "gitToken": "token",
-            "sharedDirName": "teamclaw",
+            "sharedDirName": "teamclu",
             "envSecret": "00",
             "enabled": true
         }))
@@ -1012,7 +1012,7 @@ mod tests {
         );
         assert_eq!(config.git_branch.as_deref(), Some("main"));
         assert_eq!(config.git_token.as_deref(), Some("token"));
-        assert_eq!(config.shared_dir_name, "teamclaw");
+        assert_eq!(config.shared_dir_name, "teamclu");
         assert_eq!(config.env_secret.as_deref(), Some("00"));
         assert!(config.enabled);
     }
@@ -1026,18 +1026,18 @@ mod tests {
         std::fs::create_dir_all(brand_cfg.parent().unwrap()).unwrap();
         std::fs::write(
             &brand_cfg,
-            r#"{"team":{"enabled":true,"gitUrl":"https://example.com/b.git","sharedDirName":"teamclaw-team"}}"#,
+            r#"{"team":{"enabled":true,"gitUrl":"https://example.com/b.git","sharedDirName":"teamclu-team"}}"#,
         )
         .unwrap();
         let cfg = read_team_config(brand_ws.path()).expect("brand config");
         assert_eq!(cfg.git_url.as_deref(), Some("https://example.com/b.git"));
 
         let legacy_ws = tempfile::tempdir().unwrap();
-        let legacy_cfg = legacy_ws.path().join(".teamclaw/teamclaw.json");
+        let legacy_cfg = legacy_ws.path().join(".teamclu/teamclu.json");
         std::fs::create_dir_all(legacy_cfg.parent().unwrap()).unwrap();
         std::fs::write(
             &legacy_cfg,
-            r#"{"team":{"enabled":true,"gitUrl":"https://example.com/l.git","sharedDirName":"teamclaw-team"}}"#,
+            r#"{"team":{"enabled":true,"gitUrl":"https://example.com/l.git","sharedDirName":"teamclu-team"}}"#,
         )
         .unwrap();
         let cfg = read_team_config(legacy_ws.path()).expect("legacy config");

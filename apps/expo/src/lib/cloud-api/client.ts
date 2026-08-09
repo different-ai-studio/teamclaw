@@ -1,4 +1,4 @@
-// Shared TeamClaw Cloud API HTTP client for Expo feature providers. Mirrors the
+// Shared TeamClu Cloud API HTTP client for Expo feature providers. Mirrors the
 // transport that sessions/cloud-api.ts introduced, generalised with PATCH/DELETE
 // so every feature decorator can reuse one implementation. Identity comes from
 // the bearer token (getAccessToken); the FC facade derives the user server-side.

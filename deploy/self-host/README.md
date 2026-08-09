@@ -1,6 +1,6 @@
-# TeamClaw Self-Host
+# TeamClu Self-Host
 
-One-shot Docker Compose deployment of the full TeamClaw backend stack.
+One-shot Docker Compose deployment of the full TeamClu backend stack.
 
 ---
 
@@ -95,7 +95,7 @@ Podman 用户 **`不要`** 直接跑裸 `docker compose up -d`，容易遇到：
 **Podman Machine 内存（MQTT 必需）：** 默认 `2GiB` 不够跑完整 Supabase + EMQX。桌面端 MQTT 报 `connection closed by peer` 时，先查 EMQX 是否被 OOM 杀：
 
 ```bash
-podman inspect teamclaw-self-host_emqx_1 --format '{{.State.OOMKilled}}'   # true = 内存不足
+podman inspect teamclu-self-host_emqx_1 --format '{{.State.OOMKilled}}'   # true = 内存不足
 podman machine stop
 podman machine set --memory 8192 --cpus 4
 podman machine start
@@ -171,7 +171,7 @@ cd ../../services/fc && sh ../../deploy/self-host/smoke/run-e2e.sh
 
 ### 4. 本地客户端联调（Desktop / Web）
 
-客户端 **不能** 在设置里改 Cloud API 地址——`cloudApiUrl` 只在 **构建/开发时** 通过环境变量注入（见 `packages/app/src/lib/server-config.ts`）。MQTT 地址则在登录后由 `GET /v1/config/bootstrap` 下发，并缓存在 `localStorage`（键 `teamclaw.serverConfig`）。
+客户端 **不能** 在设置里改 Cloud API 地址——`cloudApiUrl` 只在 **构建/开发时** 通过环境变量注入（见 `packages/app/src/lib/server-config.ts`）。MQTT 地址则在登录后由 `GET /v1/config/bootstrap` 下发，并缓存在 `localStorage`（键 `teamclu.serverConfig`）。
 
 #### A. 后端 `.env`
 
@@ -182,7 +182,7 @@ cd ../../services/fc && sh ../../deploy/self-host/smoke/run-e2e.sh
 ```bash
 cd deploy/self-host
 docker compose restart fc
-# Podman：podman restart teamclaw-self-host_fc_1
+# Podman：podman restart teamclu-self-host_fc_1
 ```
 
 #### B. Desktop（Tauri）——推荐直连 FC
@@ -293,7 +293,7 @@ ENABLE_GOOGLE_SIGNUP=true
 GOOGLE_CLIENT_ID=<web client id>
 GOOGLE_CLIENT_SECRET=<web client secret>
 # 客户端回调必须在允许列表里，否则 GoTrue 会把 redirect 改写回 SITE_URL
-ADDITIONAL_REDIRECT_URLS=http://127.0.0.1:*/callback,teamclaw://auth-callback
+ADDITIONAL_REDIRECT_URLS=http://127.0.0.1:*/callback,teamclu://auth-callback
 docker compose up -d --no-deps auth
 ```
 
@@ -325,7 +325,7 @@ token、验签）和**终端用户浏览器**（打开 Google 授权页）。代
 
 若之前连过线上环境，清掉浏览器/Tauri WebView 里的 MQTT 缓存，避免沿用旧 broker：
 
-- 开发者工具 → Application → Local Storage → 删除 `teamclaw.serverConfig`
+- 开发者工具 → Application → Local Storage → 删除 `teamclu.serverConfig`
 - 或退出登录后重新登录
 
 #### F. 验收客户端链路
@@ -397,8 +397,8 @@ cd deploy/self-host
 若修改过 `CADDY_TLS_MODE`，还需清 Caddy 持久化配置（否则会沿用旧 autosave）：
 
 ```bash
-docker compose stop caddy   # 或 podman stop teamclaw-self-host_caddy_1
-docker volume rm teamclaw-self-host_caddy_config   # 保留 caddy_data 可留证书
+docker compose stop caddy   # 或 podman stop teamclu-self-host_caddy_1
+docker volume rm teamclu-self-host_caddy_config   # 保留 caddy_data 可留证书
 ./bootstrap/gen-secrets.sh
 ./bootstrap/up.sh
 ```
@@ -423,7 +423,7 @@ docker volume rm teamclaw-self-host_caddy_config   # 保留 caddy_data 可留证
 | `migrate` | `postgres:15-alpine` | One-shot migration runner; exits 0 when done |
 | `litellm-init` | `postgres:15-alpine` | One-shot; creates the `_litellm` database inside `db`; exits 0 when done |
 | `litellm` | `ghcr.io/berriai/litellm-database` | AI 网关；FC 在此开团队预算与虚拟 key |
-| `fc` | built from `services/fc` | TeamClaw Cloud API (Node.js); the only app-level backend |
+| `fc` | built from `services/fc` | TeamClu Cloud API (Node.js); the only app-level backend |
 | `caddy` | `caddy:2` | Reverse proxy + automatic TLS; **only service with host ports** |
 | `cron` _(opt-in)_ | `curlimages/curl` | Polls FC cron endpoints every 15 min |
 | `postgres` _(opt-in)_ | `postgres:15-alpine` | Standalone Postgres backend for FC when `BACKEND_KIND=postgres` |
@@ -435,7 +435,7 @@ docker volume rm teamclaw-self-host_caddy_config   # 保留 caddy_data 可留证
 | Docker Desktop | Caddy `80`/`443`；EMQX `1883` |
 | Podman rootless | Caddy `8080`→80、`8443`→443；FC `9000`；EMQX `1883` |
 
-其余服务仅在 `teamclaw-self-host_default` 内部网络通信。
+其余服务仅在 `teamclu-self-host_default` 内部网络通信。
 
 ---
 
@@ -507,7 +507,7 @@ apply-migrations: done
 No migration is applied twice. Re-running `up` is safe.
 
 The marker table deliberately lives in its own `_selfhost` schema rather than
-`public`: app migrations (e.g. `move_teamclaw_to_amux`) relocate every `public`
+`public`: app migrations (e.g. `move_teamclu_to_amux`) relocate every `public`
 base table into `amux`, which would sweep the marker along and break tracking
 mid-sequence. See `init/apply-migrations.sh`.
 
@@ -526,8 +526,8 @@ OSS is **not bundled**. Fill in the Alibaba OSS credentials in `.env`:
 ```dotenv
 ACCESS_KEY_ID=<your-key-id>
 ACCESS_KEY_SECRET=<your-key-secret>
-ROLE_ARN=acs:ram::123456789:role/teamclaw-oss
-BUCKET=teamclaw-team
+ROLE_ARN=acs:ram::123456789:role/teamclu-oss
+BUCKET=teamclu-team
 REGION=cn-shenzhen
 ENDPOINT=https://oss-cn-shenzhen.aliyuncs.com
 ```
@@ -567,7 +567,7 @@ not need GoTrue auth or PostgREST.
 
 ### Running the daemon (opt-in)
 
-The TeamClaw daemon (`amuxd`) can run inside the stack as an opt-in service. On
+The TeamClu daemon (`amuxd`) can run inside the stack as an opt-in service. On
 first start it **auto-joins a team** using a one-time invite token, persists its
 identity to the `amuxd_state` volume, connects to EMQX, and registers itself as
 an **agent actor** in the team. It then provides presence + MQTT connectivity.
@@ -601,7 +601,7 @@ docker compose logs -f amuxd
 ```
 
 The daemon reaches the cloud API at the internal `http://fc:9000`
-(`TEAMCLAW_CLOUD_API_URL`, set in `docker-compose.yml`) and resolves its MQTT
+(`TEAMCLU_CLOUD_API_URL`, set in `docker-compose.yml`) and resolves its MQTT
 broker (`mqtt://emqx:1883`) from `GET /v1/config/bootstrap`. It authenticates to
 EMQX with its actor id + Supabase access token (the single JWT authenticator
 accepts it — see [EMQX authentication model](#emqx-authentication-model)).
@@ -610,7 +610,7 @@ To re-join a different team, remove the persisted identity first:
 
 ```bash
 docker compose --profile daemon down
-docker volume rm teamclaw-self-host_amuxd_state
+docker volume rm teamclu-self-host_amuxd_state
 # then set a fresh AMUXD_JOIN_TOKEN and bring it back up
 ```
 
@@ -619,7 +619,7 @@ docker volume rm teamclaw-self-host_amuxd_state
 ## TLS modes
 
 `CADDY_TLS_MODE` 控制 Caddy 行为。修改后 **必须** 重新跑 `./bootstrap/gen-secrets.sh`，
-必要时清 `teamclaw-self-host_caddy_config` volume，再 `./bootstrap/up.sh`。
+必要时清 `teamclu-self-host_caddy_config` volume，再 `./bootstrap/up.sh`。
 
 | Mode | Value | Effect |
 |---|---|---|
@@ -765,9 +765,9 @@ rm -f .env .env.bak
 | `supabase-auth` / `supabase-analytics` password failed | `down -v` **不会**删 bind mount `supabase/volumes/db/data`，旧 Postgres 密码仍在 | `./bootstrap/reset-data.sh`（脚本会 `rm -rf supabase/volumes/db/data`） |
 | `supabase-db` password 错误 | 旧数据卷用了空密码初始化 | `docker compose down -v` 后重来（**清数据**） |
 | migrate / fc 一直 Created | 上游 healthcheck 未过 | `podman logs supabase-db`；确认 `POSTGRES_PASSWORD` |
-| 桌面 MQTT **Disconnected** / `connection closed by peer` | EMQX 被 OOM 杀（Podman VM 默认 2GiB） | `podman inspect teamclaw-self-host_emqx_1 --format '{{.State.OOMKilled}}'`；`podman machine set --memory 8192` 后重建 emqx（见 §运行时 Podman 内存） |
+| 桌面 MQTT **Disconnected** / `connection closed by peer` | EMQX 被 OOM 杀（Podman VM 默认 2GiB） | `podman inspect teamclu-self-host_emqx_1 --format '{{.State.OOMKilled}}'`；`podman machine set --memory 8192` 后重建 emqx（见 §运行时 Podman 内存） |
 | Team Shared Enable → `PGRST301` / `wrong key type` | 前端连 `127.0.0.1:9000` 但 Rust 仍烘焙 `build.config.json` 的远程 API | 确认 `packages/app/.env.local` 含 `VITE_CLOUD_API_URL=http://127.0.0.1:9000`；**退出** 桌面后重跑 `pnpm tauri:dev`；Settings → General 里 Server 应显示 `127.0.0.1:9000` |
-| `emqx` 重启次数极高 / health `starting` | 同上，或 healthcheck 在启动期失败 | 增大 Podman 内存；`podman logs teamclaw-self-host_emqx_1` 查 `high_system_memory_usage` |
+| `emqx` 重启次数极高 / health `starting` | 同上，或 healthcheck 在启动期失败 | 增大 Podman 内存；`podman logs teamclu-self-host_emqx_1` 查 `high_system_memory_usage` |
 
 ---
 
@@ -803,11 +803,11 @@ All variables live in `.env` (copied from `.env.example`).
 | `ACCESS_KEY_ID` | no | Alibaba OSS key ID |
 | `ACCESS_KEY_SECRET` | no | Alibaba OSS key secret |
 | `ROLE_ARN` | no | Alibaba RAM role ARN for OSS |
-| `BUCKET` | no | OSS bucket name (default: `teamclaw-team`) |
+| `BUCKET` | no | OSS bucket name (default: `teamclu-team`) |
 | `REGION` | no | OSS region (default: `cn-shenzhen`) |
 | `ENDPOINT` | no | OSS endpoint URL |
 | `CODEUP_ORG_ID` / `CODEUP_PAT` / `CODEUP_BOT_USERNAME` | for apps | Managed-git org + PAT used to create each app's repo. Missing → `POST /v1/apps` fails at the repo step |
-| `APPS_DB_ADMIN_URL` | for apps | Admin connection to the shared `teamclaw_apps` database (same RDS instance, different database). Missing → app deploy returns 503 `deploy_unavailable` |
+| `APPS_DB_ADMIN_URL` | for apps | Admin connection to the shared `teamclu_apps` database (same RDS instance, different database). Missing → app deploy returns 503 `deploy_unavailable` |
 | `APPS_FC_ENDPOINT` / `ALIYUN_ACCOUNT_ID` | for apps | Account-scoped FC 3.0 data-plane host (`<accountId>.<region>.fc.aliyuncs.com`). Not the OSS `ENDPOINT`; set one of the two |
 | `LITELLM_URL` | no | 留空即用内置网关（compose 默认 `http://litellm:4000`）。仅在改用**外部**网关时才设置 |
 | `LITELLM_MASTER_KEY` | auto | `gen-secrets.sh` 生成（`sk-` 前缀）；LiteLLM 管理凭证,同时交给 FC |

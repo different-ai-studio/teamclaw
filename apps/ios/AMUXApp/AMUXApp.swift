@@ -97,7 +97,7 @@ struct AMUXApp: App {
     }
 
     private func handle(_ url: URL) {
-        guard let scheme = url.scheme, ["teamclaw", "amux"].contains(scheme) else { return }
+        guard let scheme = url.scheme, ["teamclu", "amux"].contains(scheme) else { return }
 
         switch url.host {
         case "invite":
@@ -117,7 +117,7 @@ struct AMUXApp: App {
                 name: .amuxAuthCallbackReceived, object: url
             )
         case "session":
-            // teamclaw://session/<id>
+            // teamclu://session/<id>
             let sid = url.pathComponents.last ?? ""
             if !sid.isEmpty {
                 NotificationCenter.default.post(

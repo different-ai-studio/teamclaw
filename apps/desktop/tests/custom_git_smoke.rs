@@ -10,14 +10,14 @@
 //! so the tests that exercised it were dropped rather than ported.
 
 use serde_json::json;
-use teamclaw_lib::commands::team_share::custom_git;
+use teamclu_lib::commands::team_share::custom_git;
 use tempfile::TempDir;
 
 #[allow(deprecated)]
 fn isolate_home(tmp: &TempDir) {
     std::env::set_var("HOME", tmp.path());
-    let fallback_dir = tmp.path().join(".teamclaw");
-    std::fs::create_dir_all(&fallback_dir).expect("mkdir ~/.teamclaw");
+    let fallback_dir = tmp.path().join(".teamclu");
+    std::fs::create_dir_all(&fallback_dir).expect("mkdir ~/.teamclu");
     std::fs::write(
         fallback_dir.join("env-blob.json"),
         r#"{"_test_isolation_marker":"1"}"#,
@@ -29,13 +29,13 @@ static HOME_GUARD: std::sync::Mutex<()> = std::sync::Mutex::new(());
 
 fn seed_workspace(tmp: &TempDir) -> String {
     let workspace = tmp.path().to_path_buf();
-    let cfg_dir = workspace.join(".teamclaw");
-    std::fs::create_dir_all(&cfg_dir).expect("mkdir .teamclaw");
+    let cfg_dir = workspace.join(".teamclu");
+    std::fs::create_dir_all(&cfg_dir).expect("mkdir .teamclu");
     std::fs::write(
-        cfg_dir.join("teamclaw.json"),
+        cfg_dir.join("teamclu.json"),
         serde_json::to_string_pretty(&json!({})).unwrap(),
     )
-    .expect("write teamclaw.json");
+    .expect("write teamclu.json");
     workspace.to_string_lossy().into_owned()
 }
 

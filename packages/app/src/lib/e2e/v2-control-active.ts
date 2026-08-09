@@ -10,11 +10,11 @@
  * build that asked for it.
  *
  * `E2E_BUILD` is a module-level const on purpose: `vite.config.ts` defines
- * `import.meta.env.VITE_TEAMCLAW_E2E` to a literal, so in a normal build this
+ * `import.meta.env.VITE_TEAMCLU_E2E` to a literal, so in a normal build this
  * folds to `false` and the bundler drops both the dynamic import in `App.tsx`
  * and everything behind it.
  */
-export const E2E_BUILD = import.meta.env.VITE_TEAMCLAW_E2E === 'true'
+export const E2E_BUILD = import.meta.env.VITE_TEAMCLU_E2E === 'true'
 
 let controlInstalled = false
 let controlActive = false

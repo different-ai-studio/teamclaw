@@ -2,7 +2,7 @@ begin;
 
 -- amux.join_session: a team member who is not yet a participant can self-join via
 -- a share link; idempotent; outsiders and missing sessions are rejected.
--- (Post teamclaw->amux move: business tables live in the amux schema.)
+-- (Post teamclu->amux move: business tables live in the amux schema.)
 
 do $$
 declare

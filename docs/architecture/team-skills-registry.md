@@ -9,7 +9,7 @@
 
 **职责不清晰。** 现在整个系统认识的 skill 元数据只有 `name` 和 `description` 两个字段，而且不是 YAML 解析，是正则抠行（`packages/app/src/lib/git/skill-loader.ts:14` 一条 regex，`apps/daemon/src/config/roles_skills.rs:175` 一个 `strip_prefix("description:")`）。于是「干什么、什么时候别用、触发词、依赖什么」全挤进 description 一个自由文本里。内置的 `macos-control` 就是标本：description 里塞了 `Note: NEVER invoke this skill for...` 和 `Trigger words: ...`，旁边的 `compatibility` 字段没有任何代码读。没有结构，就没法比较、没法去重、没法分类。
 
-**每人全量，噪音大。** `teamclaw-team/skills/` 全量同步到每个成员机器，`collectTeamSkillPaths()` 把整个目录喂给加载器。团队里任何人加的 skill，所有人的 agent 上下文里都有。
+**每人全量，噪音大。** `teamclu-team/skills/` 全量同步到每个成员机器，`collectTeamSkillPaths()` 把整个目录喂给加载器。团队里任何人加的 skill，所有人的 agent 上下文里都有。
 
 **明确不解决：保密。** 现有加密是一团队一把 `ossTeamSecret`（`apps/daemon/src/sync/secret_store.rs`），全体成员共用，防的是云厂商不是同事。本设计不引入成员间的可见性隔离，ACL 留作后续扩展位。
 
@@ -21,7 +21,7 @@
 |---|---|
 | `services/fc/src/db/schema/oss-sync.ts` | `amuxc_blobs` 内容寻址去重、`amuxc_upload_sessions` 分片上传 |
 | `services/fc/src/lib/oss-store.ts` / `sts.ts` | OSS 对象读写、STS 签名 |
-| `apps/desktop/src/commands/clawhub.rs` | **完整的包消费端**：zip 下载 → 解压到 `.teamclaw/skills/<slug>` → 写 `.clawhub/origin.json` → lockfile 记版本 → 自动写 `permission.skill` → `is_global` 切全局/工作区 |
+| `apps/desktop/src/commands/clawhub.rs` | **完整的包消费端**：zip 下载 → 解压到 `.teamclu/skills/<slug>` → 写 `.clawhub/origin.json` → lockfile 记版本 → 自动写 `permission.skill` → `is_global` 切全局/工作区 |
 | `packages/app/src/components/settings/SkillsMarketplace.tsx` | 市场 UI 骨架（1295 行），已含搜索/安装/更新交互 |
 | `apps/daemon/src/config/roles_skills.rs` | `upsert_skill` / `delete_skill`，本地 skill 的增删改 |
 
@@ -50,7 +50,7 @@
 
 1. **客户端不直连 Supabase。** `cloud_api` 是唯一客户端后端，`packages/app/src/lib/backend/__tests__/no-supabase-import.test.ts` 是守卫。表建在 Supabase Postgres，访问一律走 FC `/v1`。
 2. **包体走 Supabase Storage，不进 OSS。**（2026-08-06 反转此前决定：注册表刚合并、生产环境尚无真实 skill 包，改动是干净切换而非数据迁移。）私有 bucket `team-skills`，签名 URL 由 FC 的 service-role 客户端签发（`services/fc/src/lib/skills-storage.ts`）。`amuxc_blobs` 仍是内容哈希去重/记账表，`oss_key` 列复用为 Supabase Storage 的 object path（该表也被 `amuxc_files` 等无关的 OSS 同步功能共用，那部分继续走 OSS，不受影响）。
-3. **只有 registry 是发行面。** `teamclaw-team/skills/` 最终退出团队同步（时机见待定 #1），否则两套管线传同一批内容、版本语义作废。
+3. **只有 registry 是发行面。** `teamclu-team/skills/` 最终退出团队同步（时机见待定 #1），否则两套管线传同一批内容、版本语义作废。
 
 ## 4. 数据模型
 
@@ -124,7 +124,7 @@
 
 按 `CLAUDE.md` 规定的顺序实现：
 
-1. `docs/openapi/teamclaw-api.v1.yaml` 先定义端点
+1. `docs/openapi/teamclu-api.v1.yaml` 先定义端点
 2. `services/fc/src/lib/repository-contract.ts` 定契约
 3. `services/fc/src/lib/business-api.ts` 加路由
 4. `services/fc/src/lib/pg-repo/` + `supabase-repo/` 实现
@@ -240,9 +240,9 @@ lockfile 建议**和 ClawHub 共用** `.clawhub/lockfile.json`，entry 加 `sour
   → 承载它的 daemon 收到 → 拉取该 actor 的安装清单 → 下载解压 → 回写 frontmatter
 ```
 
-MQTT 通道是现成的（`crates/teamclaw-types/src/mqtt.rs` 的 `actor_notify()`），不新造推送链路。
+MQTT 通道是现成的（`crates/teamclu-types/src/mqtt.rs` 的 `actor_notify()`），不新造推送链路。
 
-**落到哪个目录。** `agents.default_workspace_id` 对应的 workspace 的 `.teamclaw/skills/`。该字段为空时，落 daemon 的团队默认工作区 `~/.amuxd/teams/<team_id>/workspace`（`global_team_store.rs::default_workspace_dir`），这也是无 workspace 的运行时 spawn 已经在用的兜底。
+**落到哪个目录。** `agents.default_workspace_id` 对应的 workspace 的 `.teamclu/skills/`。该字段为空时，落 daemon 的团队默认工作区 `~/.amuxd/teams/<team_id>/workspace`（`global_team_store.rs::default_workspace_dir`），这也是无 workspace 的运行时 spawn 已经在用的兜底。
 
 **对账而非增量。** daemon 收到通知后拉的是**该 actor 当前应有的完整清单**，和本地 lockfile 做差集：多的装、少的卸、版本不符的换。理由是通知会丢、daemon 会离线，只处理增量迟早漂移。启动时也跑一次同样的对账。
 
@@ -261,7 +261,7 @@ MQTT 通道是现成的（`crates/teamclaw-types/src/mqtt.rs` 的 `actor_notify(
 | 位置 | 文件 | 现在是什么 |
 |---|---|---|
 | 左导航「Skills」行 | `sidebar/TeamShareNavSection.tsx:16` | `Sparkles` 图标 + 计数，点击设 `filter = { kind:'teamShare', section:'skills' }` |
-| 第二列列表 | `sidebar/TeamShareListColumn.tsx` | 扫 `teamclaw-team/skills/` 目录出来的 `TeamSkillItem`（slug / name / invocationName / category），header 有搜索和「+ 去设置」两个图标按钮 |
+| 第二列列表 | `sidebar/TeamShareListColumn.tsx` | 扫 `teamclu-team/skills/` 目录出来的 `TeamSkillItem`（slug / name / invocationName / category），header 有搜索和「+ 去设置」两个图标按钮 |
 | 第三列详情 | `teamshare/TeamShareDetailPane.tsx` | **43 行的 EmptyState 桩子，尚未实现** |
 
 ### 9.2 第二列：全量列表 + 安装态
@@ -323,7 +323,7 @@ MQTT 通道是现成的（`crates/teamclaw-types/src/mqtt.rs` 的 `actor_notify(
 
 | # | 问题 | 倾向 |
 |---|---|---|
-| 1 | `teamclaw-team/skills/` 何时退出团队同步？三处镜像常量（daemon `SHARED_PREFIXES`、desktop `ALLOWED_PREFIXES`、FC `sync-path.ts`）+ 老客户端兼容 + 存量导入 | 存量一次性导入为 v1，退出同步排到 P2；过渡期把目录标为「遗留」并禁止 UI 新增写入 |
+| 1 | `teamclu-team/skills/` 何时退出团队同步？三处镜像常量（daemon `SHARED_PREFIXES`、desktop `ALLOWED_PREFIXES`、FC `sync-path.ts`）+ 老客户端兼容 + 存量导入 | 存量一次性导入为 v1，退出同步排到 P2；过渡期把目录标为「遗留」并禁止 UI 新增写入 |
 | 2 | 安装作用域：全局跟人走，还是 workspace 跟项目走 | 默认全局（`is_global=true`），高级选项允许装到 workspace |
 | 3 | 撞名优先级：团队市场 / ClawHub / 本地手写，同名谁赢 | 沿用现有 `source_priority`，本地 > 团队 > ClawHub；被盖住的要**显式报告**而不是静默丢弃 |
 | 4 | ~~管理员推送语义~~ | **已定**：管理员对 `visibility='team'` 的 agent actor 直接装，见 §4 / §5 / §8.1。成员的 member actor 仍是自助，管理员不能代装 |

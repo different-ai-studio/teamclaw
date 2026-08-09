@@ -3,12 +3,12 @@ import {
   hasCloudApiBackendConfig,
 } from "./cloud-api";
 import { getEffectiveServerConfigSync } from "../server-config";
-import type { BackendKind, TeamClawBackend } from "./types";
+import type { BackendKind, TeamCluBackend } from "./types";
 
 export const BACKEND_CONFIG_MISSING_MESSAGE =
   "Cloud API URL is not configured. Set cloudApiUrl in server config.";
 
-let backend: TeamClawBackend | null = null;
+let backend: TeamCluBackend | null = null;
 let backendCacheKey: string | null = null;
 
 export function getBackendKind(): Extract<BackendKind, "cloud_api"> {
@@ -20,7 +20,7 @@ export function hasBackendConfig(): boolean {
   return hasCloudApiBackendConfig(config);
 }
 
-export function getBackend(): TeamClawBackend {
+export function getBackend(): TeamCluBackend {
   const config = getEffectiveServerConfigSync();
   const cacheKey = `cloud_api:${config.cloudApiUrl ?? ""}`;
 

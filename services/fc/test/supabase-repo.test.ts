@@ -444,7 +444,7 @@ test("bootstrapTeam verifies a trusted external JWT without a local GoTrue looku
     rpcCalls,
     auth: {
       async getUser() {
-        throw new Error("TeamClaw GoTrue must not be called for a trusted external JWT");
+        throw new Error("TeamClu GoTrue must not be called for a trusted external JWT");
       },
     },
     rpcData: {
@@ -2033,11 +2033,11 @@ test("apps: getManagedGitCredential returns creds for a member, null for non-mem
   const prevPat = process.env.CODEUP_PAT;
   const prevBot = process.env.CODEUP_BOT_USERNAME;
   process.env.CODEUP_PAT = "pt-secret";
-  process.env.CODEUP_BOT_USERNAME = "teamclaw";
+  process.env.CODEUP_BOT_USERNAME = "teamclu";
   try {
     const memberRepo = appsRepo(appsSupabase({ actorRow: { id: "actor-app-1" } }));
     const cred = await memberRepo.getManagedGitCredential("team-1");
-    assert.deepEqual(cred, { username: "teamclaw", token: "pt-secret" });
+    assert.deepEqual(cred, { username: "teamclu", token: "pt-secret" });
 
     const nonMemberRepo = appsRepo(appsSupabase({ actorRow: null }));
     const denied = await nonMemberRepo.getManagedGitCredential("team-1");

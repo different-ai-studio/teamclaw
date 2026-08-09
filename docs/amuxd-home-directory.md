@@ -6,7 +6,7 @@
 
 > **一句话**：这里是「本机小助手」的身份证、工具箱和仓库，不是云端聊天记录的主库。聊天列表和消息主要在 Cloud API；这里更多是本机身份、进程控制和团队同步副本。
 >
-> **桌面托管模式（2026-07）：** 桌面 App 直接 spawn 包内 `amuxd` / `teamclaw-introspect` sidecar，**不再**拷贝到 `bin/`，也**不**注册开机自启。App 退出则 stop。`bin/` 若仍存在多为旧版残留，可忽略。
+> **桌面托管模式（2026-07）：** 桌面 App 直接 spawn 包内 `amuxd` / `teamclu-introspect` sidecar，**不再**拷贝到 `bin/`，也**不**注册开机自启。App 退出则 stop。`bin/` 若仍存在多为旧版残留，可忽略。
 
 ---
 
@@ -16,7 +16,7 @@
 ~/.amuxd/
 ├── bin/                          # 【遗留】旧版拷贝的可执行文件；桌面托管模式不再使用
 │   ├── amuxd
-│   └── teamclaw-introspect
+│   └── teamclu-introspect
 ├── daemon.toml                   # 本机 daemon 配置（含 team_id）
 ├── backend.toml                  # 云端登录凭证
 ├── members.toml                  # 本地成员/邀请缓存（协作相关）
@@ -31,10 +31,10 @@
 ├── secret.key                    # 团队密钥加密用的本机主密钥
 ├── team-secrets/<team_id>.enc    # 各团队加密后的密钥包
 ├── history/<agent_id>.bin        # 本机事件历史（按 agent）
-├── teamclaw/sessions.toml        # TeamClaw 会话元数据本地缓存
+├── teamclu/sessions.toml        # TeamClu 会话元数据本地缓存
 ├── mcp-configs/<id>.json         # 网关会话临时 MCP 配置
 ├── teams/<team_id>/              # 每团队一份共享内容 + 默认工作区
-│   ├── teamclaw-team/            # skills / knowledge / .mcp / _secrets …
+│   ├── teamclu-team/            # skills / knowledge / .mcp / _secrets …
 │   ├── workspace/                # 无项目路径时的默认 worktree
 │   └── sync/state.json           # OSS 同步状态
 ├── apps/<appId>/                 # Apps 模块检出目录（若使用）
@@ -54,7 +54,7 @@
 |------|------|------------|
 | （包内 sidecar） | 桌面直接 spawn App bundle / `apps/desktop/binaries` 里的 `amuxd`，**不**再拷到 `bin/` | **真正在跑的小助手程序（跟桌面同生共死）** |
 | `bin/amuxd` | 【遗留】旧版拷贝；托管模式下可忽略 | **旧版残留程序** |
-| `bin/teamclaw-introspect` | 【遗留】旧版拷贝；现行 introspect 也是包内 sidecar | **旧版残留探查工具** |
+| `bin/teamclu-introspect` | 【遗留】旧版拷贝；现行 introspect 也是包内 sidecar | **旧版残留探查工具** |
 
 ---
 
@@ -101,7 +101,7 @@
 | 路径 | 作用 | 通俗一句话 |
 |------|------|------------|
 | `history/<agent_id>.bin` | 按 agent 追加写的 protobuf 事件历史，供本机回放/排障 | **本机录下来的事件黑匣子** |
-| `teamclaw/sessions.toml` | TeamClaw 会话元数据的本机缓存（标题、参与者等）；**不是** `clear` 删除项 | **会话名片的本地复印件** |
+| `teamclu/sessions.toml` | TeamClu 会话元数据的本机缓存（标题、参与者等）；**不是** `clear` 删除项 | **会话名片的本地复印件** |
 | `mcp-configs/<session>.json` | 网关会话临时 MCP 配置，指向 amuxd 自己的 `mcp-server` 子命令 | **某次聊天临时接上的工具插件清单** |
 
 ---
@@ -110,7 +110,7 @@
 
 | 路径 | 作用 | 通俗一句话 |
 |------|------|------------|
-| `teams/<team_id>/teamclaw-team/` | **每团队唯一**的共享副本：`skills/`、`knowledge/`、`.mcp/`、`_secrets/`、`_meta/`、`_feedback/` 等；各工作区通过 `teamclaw-team` 符号链接指向这里 | **团队公共文件夹（全队共用这一份）** |
+| `teams/<team_id>/teamclu-team/` | **每团队唯一**的共享副本：`skills/`、`knowledge/`、`.mcp/`、`_secrets/`、`_meta/`、`_feedback/` 等；各工作区通过 `teamclu-team` 符号链接指向这里 | **团队公共文件夹（全队共用这一份）** |
 | `teams/<team_id>/workspace/` | 没有用户项目路径时的默认可写 worktree（例如嵌入式 UI / 无 workspace 的 spawn） | **没指定项目时，小助手默认干活的空桌子** |
 | `teams/<team_id>/sync/state.json` | OSS（或相关）同步引擎的本地状态 | **团队文件同步进度条/记账本** |
 

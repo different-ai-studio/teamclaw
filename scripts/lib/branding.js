@@ -96,7 +96,7 @@ function applyIdentityToTauriConf(tauriConf, buildConfig) {
  *
  * The description follows the same brand, read from `extension.description`
  * (or `extensions.description`). Leaving it unbranded is what shipped a
- * "Copilot 361" package still describing itself as TeamClaw — the Chrome Web
+ * "Copilot 361" package still describing itself as TeamClu — the Chrome Web
  * Store shows the package name and description side by side, and a mismatch
  * between them reads to a reviewer as a misleading listing.
  *

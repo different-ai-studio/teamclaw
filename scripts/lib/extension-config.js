@@ -147,7 +147,7 @@ function normalizeWsUrl(raw) {
  * This exists because `packages/app/.env.web` pins `VITE_CLOUD_API_URL` /
  * `VITE_MQTT_WS_URL`, and `server-config.ts` lets the env var win over
  * `buildConfig.cloudApiUrl`. Every branded package therefore shipped pointing at
- * the TeamClaw backend no matter which backend the brand declared — the same
+ * the TeamClu backend no matter which backend the brand declared — the same
  * class of bug as the `BUILD_ENV` trap documented in release-extension.yml, just
  * arriving through a committed env file instead. The extension build passes
  * these values to vite as real env vars, which outrank `.env.*` files, so the
@@ -207,7 +207,7 @@ function domainsToSidePanelCsv(domains) {
  *
  * `public/` means "ship this", so anything parked there reaches a published,
  * publicly downloadable package. That put eight internal design prototypes and
- * a TeamClaw mascot into a Copilot 361 build — brand-leaking dead weight in an
+ * a TeamClu mascot into a Copilot 361 build — brand-leaking dead weight in an
  * artifact a store reviewer unzips.
  *
  * Pruning is deliberately a small, named allowlist rather than a heuristic:

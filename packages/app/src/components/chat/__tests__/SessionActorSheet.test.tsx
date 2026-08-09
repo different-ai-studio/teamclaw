@@ -11,7 +11,7 @@ const workspaceStoreState = vi.hoisted(() => ({
 }))
 
 const mockRuntimeStart = vi.fn().mockResolvedValue({ accepted: true, runtimeId: 'rt-new', sessionId: 'sess-1', rejectedReason: '' })
-vi.mock('@/lib/teamclaw-rpc', () => ({
+vi.mock('@/lib/teamclu-rpc', () => ({
   runtimeStart: (...args: unknown[]) => mockRuntimeStart(...args),
 }))
 

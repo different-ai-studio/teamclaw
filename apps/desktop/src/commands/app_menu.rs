@@ -1,7 +1,7 @@
-//! Native application menu bar (macOS TeamClaw / File / Edit / …).
+//! Native application menu bar (macOS TeamClu / File / Edit / …).
 //!
 //! Replaces Tauri's default menu so we can:
-//! - use the product brand name (not Cargo package `teamclaw`) in About/Hide/Quit
+//! - use the product brand name (not Cargo package `teamclu`) in About/Hide/Quit
 //! - add Settings… with ⌘, that opens the in-app Settings dialog
 
 use std::sync::Mutex;

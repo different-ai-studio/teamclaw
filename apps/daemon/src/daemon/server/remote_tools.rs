@@ -7,17 +7,17 @@ use tokio::sync::oneshot;
 
 use super::DaemonServer;
 
-fn stamp_active_session_for_runtime(worktree: &str, teamclaw_session_id: &str) {
-    if teamclaw_session_id.is_empty() || worktree.is_empty() {
+fn stamp_active_session_for_runtime(worktree: &str, teamclu_session_id: &str) {
+    if teamclu_session_id.is_empty() || worktree.is_empty() {
         return;
     }
-    if let Err(e) = teamclaw_runtime_env::write_active_session_id(
+    if let Err(e) = teamclu_runtime_env::write_active_session_id(
         std::path::Path::new(worktree),
-        teamclaw_session_id,
+        teamclu_session_id,
     ) {
         tracing::warn!(
             worktree,
-            session_id = teamclaw_session_id,
+            session_id = teamclu_session_id,
             error = %e,
             "failed to stamp active session id for MCP introspect"
         );
@@ -28,7 +28,7 @@ impl DaemonServer {
     pub(crate) async fn prepare_remote_tool_context_for_turn(
         &self,
         runtime_id: &str,
-        teamclaw_session_id: &str,
+        teamclu_session_id: &str,
         requester_actor_id: &str,
     ) {
         let (acp_session_id, worktree) = {
@@ -38,11 +38,11 @@ impl DaemonServer {
                 .map(|h| (h.acp_session_id.clone(), h.worktree.clone()))
                 .unwrap_or_default()
         };
-        stamp_active_session_for_runtime(&worktree, teamclaw_session_id);
+        stamp_active_session_for_runtime(&worktree, teamclu_session_id);
         let remote_context_id = self.remote_tool_turn_contexts.lock().await.create(
             runtime_id,
             &acp_session_id,
-            teamclaw_session_id,
+            teamclu_session_id,
             requester_actor_id,
         );
         match remote_context_id {
@@ -93,7 +93,7 @@ impl DaemonServer {
                         &rpc_client,
                         &actor_id,
                         &context.requester_actor_id,
-                        &context.teamclaw_session_id,
+                        &context.teamclu_session_id,
                         &tool_name,
                         &arguments,
                     )

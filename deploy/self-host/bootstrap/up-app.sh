@@ -22,7 +22,7 @@ else
   RUN=( docker compose "${COMPOSE[@]}" )
 fi
 
-MIGRATE=teamclaw-self-host_migrate_1
+MIGRATE=teamclu-self-host_migrate_1
 status="$("$RUNTIME" inspect "$MIGRATE" --format '{{.State.Status}}' 2>/dev/null || echo missing)"
 code="$("$RUNTIME" inspect "$MIGRATE" --format '{{.State.ExitCode}}' 2>/dev/null || echo "?")"
 if [ "$status" != "exited" ] || [ "$code" != "0" ]; then
@@ -32,7 +32,7 @@ fi
 
 for svc in fc caddy; do
   echo "up-app: recreate $svc (--no-deps)"
-  "$RUNTIME" rm -f "teamclaw-self-host_${svc}_1" 2>/dev/null || true
+  "$RUNTIME" rm -f "teamclu-self-host_${svc}_1" 2>/dev/null || true
   "${RUN[@]}" up -d --no-deps --build "$svc"
 done
 

@@ -3,14 +3,14 @@
 // config in `daemon.toml`. The three commands here just forward to amuxd.
 //
 // Cron and `introspect_api` still reach into the underlying
-// `teamclaw_gateway::*` modules for direct send helpers (e.g.
+// `teamclu_gateway::*` modules for direct send helpers (e.g.
 // `gateway::email::send_notification_email`, `gateway::wecom::send_proactive_message`),
-// so we keep `pub use teamclaw_gateway::*` to preserve their `crate::commands::gateway::*`
+// so we keep `pub use teamclu_gateway::*` to preserve their `crate::commands::gateway::*`
 // import paths. Likewise we keep a slim `GatewayState` carrying just the
 // shared `SessionMapping` (cron consumes it for session lookup); the legacy
 // per-platform `*Gateway` slots that used to live here are gone.
 
-pub use teamclaw_gateway::*;
+pub use teamclu_gateway::*;
 
 pub mod qr;
 
@@ -240,10 +240,10 @@ pub async fn sync_gateway_session_model(
     Ok(true)
 }
 
-// ─── Workspace teamclaw.json helpers (not channel-specific) ───────────────────
+// ─── Workspace teamclu.json helpers (not channel-specific) ───────────────────
 //
 // These four commands manage non-channel fields of the workspace-level
-// `teamclaw.json` (shortcuts list, system prompt, UI locale). They lived in
+// `teamclu.json` (shortcuts list, system prompt, UI locale). They lived in
 // this module historically because the file-reader helper was here; rather
 // than scatter them across new modules we keep them here as siblings of the
 // new sock-RPC commands. The H1 channel rewrite intentionally leaves them
@@ -251,7 +251,7 @@ pub async fn sync_gateway_session_model(
 
 use tauri::State;
 
-/// Load personal shortcuts from the workspace config file (teamclaw.json).
+/// Load personal shortcuts from the workspace config file (teamclu.json).
 #[tauri::command]
 pub fn load_shortcuts(
     window: tauri::WebviewWindow,
@@ -260,7 +260,7 @@ pub fn load_shortcuts(
 ) -> Result<Vec<serde_json::Value>, String> {
     let workspace_path =
         crate::commands::team::resolve_workspace_path(workspace_path, &window, &registry)?;
-    let config = teamclaw_gateway::read_config(&workspace_path)?;
+    let config = teamclu_gateway::read_config(&workspace_path)?;
     let shortcuts = config
         .other
         .get("shortcuts")
@@ -269,7 +269,7 @@ pub fn load_shortcuts(
     Ok(shortcuts.as_array().cloned().unwrap_or_default())
 }
 
-/// Save personal shortcuts to the workspace config file (teamclaw.json).
+/// Save personal shortcuts to the workspace config file (teamclu.json).
 #[tauri::command]
 pub fn save_shortcuts(
     window: tauri::WebviewWindow,
@@ -279,10 +279,10 @@ pub fn save_shortcuts(
 ) -> Result<(), String> {
     let workspace_path =
         crate::commands::team::resolve_workspace_path(workspace_path, &window, &registry)?;
-    teamclaw_gateway::patch_config_value(&workspace_path, "shortcuts", serde_json::json!(nodes))
+    teamclu_gateway::patch_config_value(&workspace_path, "shortcuts", serde_json::json!(nodes))
 }
 
-/// Load the per-workspace system prompt from teamclaw.json. Returns "" if unset.
+/// Load the per-workspace system prompt from teamclu.json. Returns "" if unset.
 #[tauri::command]
 pub fn load_system_prompt(
     window: tauri::WebviewWindow,
@@ -291,7 +291,7 @@ pub fn load_system_prompt(
 ) -> Result<String, String> {
     let workspace_path =
         crate::commands::team::resolve_workspace_path(workspace_path, &window, &registry)?;
-    let config = teamclaw_gateway::read_config(&workspace_path)?;
+    let config = teamclu_gateway::read_config(&workspace_path)?;
     Ok(config
         .other
         .get("systemPrompt")
@@ -300,7 +300,7 @@ pub fn load_system_prompt(
         .to_string())
 }
 
-/// Save the per-workspace system prompt to teamclaw.json.
+/// Save the per-workspace system prompt to teamclu.json.
 #[tauri::command]
 pub fn save_system_prompt(
     window: tauri::WebviewWindow,
@@ -310,15 +310,15 @@ pub fn save_system_prompt(
 ) -> Result<(), String> {
     let workspace_path =
         crate::commands::team::resolve_workspace_path(workspace_path, &window, &registry)?;
-    teamclaw_gateway::patch_config_value(
+    teamclu_gateway::patch_config_value(
         &workspace_path,
         "systemPrompt",
         serde_json::json!(prompt),
     )?;
-    teamclaw_gateway::sync_teamclaw_claude_md(&workspace_path, &prompt)
+    teamclu_gateway::sync_teamclu_claude_md(&workspace_path, &prompt)
 }
 
-/// Set the locale in teamclaw.json for UI i18n.
+/// Set the locale in teamclu.json for UI i18n.
 #[tauri::command]
 pub async fn set_config_locale(
     window: tauri::WebviewWindow,
@@ -326,5 +326,5 @@ pub async fn set_config_locale(
     locale: String,
 ) -> Result<(), String> {
     let workspace_path = crate::commands::window::current_workspace_for_window(&window, &registry)?;
-    teamclaw_gateway::patch_config_value(&workspace_path, "locale", serde_json::json!(locale))
+    teamclu_gateway::patch_config_value(&workspace_path, "locale", serde_json::json!(locale))
 }

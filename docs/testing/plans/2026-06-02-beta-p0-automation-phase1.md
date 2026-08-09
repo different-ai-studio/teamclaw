@@ -4,9 +4,9 @@
 
 **Goal:** Add deterministic v2-e2e coverage for the two streaming-chat gaps NOT already covered by `tests/v2-e2e/pr/conversation-critical-path.test.ts` — long-reply autoscroll (spec D9) and multi-delta streaming→completed integrity (spec D8) — establishing the pattern for filling the remaining gaps in later phases.
 
-**Architecture:** New PR-gate test file `tests/v2-e2e/pr/streaming-integrity.test.ts` driving the app through the `window.__TEAMCLAW_V2_E2E__` control surface via `v2Call`, mirroring the existing `conversation-critical-path.test.ts` structure. Pure deterministic seed + delta injection; no daemon/FC/network. Assertions read the live DOM via `domCount`/`domText`/`executeJs` against the documented `data-testid` selector contracts.
+**Architecture:** New PR-gate test file `tests/v2-e2e/pr/streaming-integrity.test.ts` driving the app through the `window.__TEAMCLU_V2_E2E__` control surface via `v2Call`, mirroring the existing `conversation-critical-path.test.ts` structure. Pure deterministic seed + delta injection; no daemon/FC/network. Assertions read the live DOM via `domCount`/`domText`/`executeJs` against the documented `data-testid` selector contracts.
 
-**Tech Stack:** vitest (`vitest.config.v2-e2e.ts`), tauri-mcp Unix-socket harness, the debug desktop binary built with `VITE_TEAMCLAW_E2E=true`.
+**Tech Stack:** vitest (`vitest.config.v2-e2e.ts`), tauri-mcp Unix-socket harness, the debug desktop binary built with `VITE_TEAMCLU_E2E=true`.
 
 **Scope note — already covered, do NOT duplicate:** V2-PR-01..04 already cover C1/C2/C3, D2, D4, D7 and PR-03 already asserts post-`completeRun` `textOccurrences(messageList, finalText) === 1`. This plan adds only D9 and a stronger multi-delta D8. Deferred to later phases (need permission-UI / persistence / ACP reading first): E2 approve/deny interaction, C5 delete/archive, A4 restart-restore, D3 interrupt, D5 restart-restore, D6 queue, D10 endurance, and all FC/daemon/Windows suites.
 
@@ -18,13 +18,13 @@
 
 - [ ] **Step 1: Build the debug app with the E2E control surface**
 
-The v2-e2e harness launches `<repo-root>/.cargo-target/debug/teamclaw` and requires `window.__TEAMCLAW_V2_E2E__`, which is only installed when built with `VITE_TEAMCLAW_E2E=true`.
+The v2-e2e harness launches `<repo-root>/.cargo-target/debug/teamclu` and requires `window.__TEAMCLU_V2_E2E__`, which is only installed when built with `VITE_TEAMCLU_E2E=true`.
 
 Run (from the worktree root):
 ```bash
-VITE_TEAMCLAW_E2E=true pnpm tauri:build:debug
+VITE_TEAMCLU_E2E=true pnpm tauri:build:debug
 ```
-Expected: build completes; `.cargo-target/debug/teamclaw` exists and is newer than before.
+Expected: build completes; `.cargo-target/debug/teamclu` exists and is newer than before.
 
 - [ ] **Step 2: Sanity-check the existing PR suite is green on this build**
 

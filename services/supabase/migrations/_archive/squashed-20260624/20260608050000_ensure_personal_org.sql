@@ -1,6 +1,6 @@
 -- ============================================================================
 -- Stage 3-FC.2: anonymous / first-login lazy provisioning of a personal org
--- (spec: docs/specs/2026-06-08-teamclaw-saas-mono-integration.md §8)
+-- (spec: docs/specs/2026-06-08-teamclu-saas-mono-integration.md §8)
 --
 -- public-only + additive → safe to apply now (no amux dependency).
 --

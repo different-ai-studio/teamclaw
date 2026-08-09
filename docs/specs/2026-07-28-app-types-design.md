@@ -98,7 +98,7 @@ daemon 做额外注入。
 3. **什么不能动** —— 构建产物契约：`pnpm build` 必须产出 `.output/server/index.mjs`
    且监听 `$PORT`。改坏这个，app 就部署不上去。锁文件是故意提交并锁死版本的
    （见 `0c108cd3` 的教训：caret range 让上游一次发布打挂了所有 app 构建）。
-4. **怎么上线** —— 用户在 TeamClaw 里点「部署」；agent 不需要、也不能自己部署。
+4. **怎么上线** —— 用户在 TeamClu 里点「部署」；agent 不需要、也不能自己部署。
    数据操作类还要说明：数据库连接串由平台通过 `DATABASE_URL` 注入，schema 是
    app 私有的，迁移在冷启动时自执行。
 
@@ -177,7 +177,7 @@ reveal.js vendored 进模板的 `public/vendor/`，不走 CDN —— FC 出网�
 | `services/fc/src/lib/pg-repo/app-status.ts` | `pending → ready/error` |
 | `services/fc/src/lib/provisioning/app-deploy.ts` | `finalizeDeploy` 按类型决定是否 provision schema |
 | `services/fc/src/index.ts` | `makeDeployDeps` 配置判定拆两级；不再注入 `provisionAppRepo` |
-| `docs/openapi/teamclaw-api.v1.yaml` | `type` 的 enum + 说明 |
+| `docs/openapi/teamclu-api.v1.yaml` | `type` 的 enum + 说明 |
 
 数据库：**无迁移**。
 

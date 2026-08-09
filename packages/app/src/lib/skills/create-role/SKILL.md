@@ -12,10 +12,10 @@ Use this skill to design and create a role that follows the workspace `ROLE.md` 
 This workflow is for two related assets:
 
 1. A role definition:
-   - `.teamclaw/roles/<role-slug>/ROLE.md`
+   - `.teamclu/roles/<role-slug>/ROLE.md`
 
 2. Optional role-specific skills:
-   - `.teamclaw/roles/skills/<skill-slug>/SKILL.md`
+   - `.teamclu/roles/skills/<skill-slug>/SKILL.md`
 
 The role is the routing layer. It is disclosed first and helps the model decide *when* a capability cluster should be used.
 
@@ -26,7 +26,7 @@ The skill is the execution layer. It is disclosed only after the role is loaded 
 Always reason from this structure:
 
 ```text
-.teamclaw/
+.teamclu/
   roles/
     config.json
     <role-slug>/
@@ -51,7 +51,7 @@ Help the user define a role that:
 - has a short `description` suitable for `<available_roles>`
 - includes clear `Role`, `When to use`, and `Working style` sections
 - optionally lists role-specific skills in `## Available role skills`
-- is ready to save as `.teamclaw/roles/<role-slug>/ROLE.md`
+- is ready to save as `.teamclu/roles/<role-slug>/ROLE.md`
 - includes a clear plan for whether related skills should be reused, migrated, copied, or newly created
 
 ## Collect the minimum role definition
@@ -80,8 +80,8 @@ Before finalizing the role, determine:
 2. If yes, are there already existing skills that can be used?
 3. For each existing relevant skill:
    - keep it as a normal skill
-   - copy it into `.teamclaw/roles/skills/<skill-slug>/SKILL.md`
-   - migrate it into `.teamclaw/roles/skills/<skill-slug>/SKILL.md`
+   - copy it into `.teamclu/roles/skills/<skill-slug>/SKILL.md`
+   - migrate it into `.teamclu/roles/skills/<skill-slug>/SKILL.md`
 4. If no existing skill is sufficient, should a new role-specific skill be created?
 
 Do not silently choose a migration strategy when the user likely cares. Confirm it.
@@ -161,8 +161,8 @@ When the user wants you to create a role:
 4. Identify existing relevant skills and ask whether to keep, copy, or migrate them
 5. If a new role-specific skill is needed, propose its `SKILL.md`
 6. Propose the final `ROLE.md`
-7. If the user wants file creation, save it under `.teamclaw/roles/<role-slug>/ROLE.md`
-8. If role skills are part of the plan, create or update them under `.teamclaw/roles/skills/<skill-slug>/SKILL.md`
+7. If the user wants file creation, save it under `.teamclu/roles/<role-slug>/ROLE.md`
+8. If role skills are part of the plan, create or update them under `.teamclu/roles/skills/<skill-slug>/SKILL.md`
 
 If the user only wants help designing the role, provide the finished `ROLE.md` content without assuming file writes.
 

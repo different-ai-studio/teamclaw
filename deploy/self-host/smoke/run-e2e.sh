@@ -9,12 +9,12 @@ set -eu
 
 REPO_ROOT="$(cd "$(dirname "$0")/../../.." && pwd)"
 
-FC_IP=$(docker inspect teamclaw-self-host-fc-1 \
+FC_IP=$(docker inspect teamclu-self-host-fc-1 \
   --format '{{range .NetworkSettings.Networks}}{{.IPAddress}}{{end}}' 2>/dev/null || echo "")
 KONG_IP=$(docker inspect supabase-kong \
   --format '{{range .NetworkSettings.Networks}}{{.IPAddress}}{{end}}' 2>/dev/null || echo "")
 
-[ -n "$FC_IP" ]   || { echo "FAIL: teamclaw-self-host-fc-1 not running"; exit 1; }
+[ -n "$FC_IP" ]   || { echo "FAIL: teamclu-self-host-fc-1 not running"; exit 1; }
 [ -n "$KONG_IP" ] || { echo "FAIL: supabase-kong not running"; exit 1; }
 
 # ── Wait for PostgREST's schema cache ──────────────────────────────────────

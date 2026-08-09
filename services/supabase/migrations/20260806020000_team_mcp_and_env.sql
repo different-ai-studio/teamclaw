@@ -95,7 +95,7 @@ create table if not exists amux.team_env_secrets (
   -- 与桌面端 validate_key_id 同规则（1–64，小写字母/数字/下划线）。
   key_id text not null,
   -- 客户端加密的信封。description / category / createdBy 这些元数据都在
-  -- 密文里面（见 crates/teamclaw-runtime-env/src/team_crypto.rs 的
+  -- 密文里面（见 crates/teamclu-runtime-env/src/team_crypto.rs 的
   -- SecretEntry），服务端读不到——所以下面判权用的 created_by 必须是
   -- 独立的明文列，不能指望从信封里取。
   envelope jsonb not null,

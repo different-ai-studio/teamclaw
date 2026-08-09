@@ -46,7 +46,7 @@ async fn get_db(state: &LocalCacheState) -> Result<LocalCacheStore, String> {
     }
     let home = dirs_next().ok_or("Failed to determine home directory")?;
     let db_path = home
-        .join(crate::commands::TEAMCLAW_DIR)
+        .join(crate::commands::TEAMCLU_DIR)
         .join("local-cache.db");
     let db = LocalCacheStore::new(&db_path).await?;
     *db_lock = Some(db.clone());

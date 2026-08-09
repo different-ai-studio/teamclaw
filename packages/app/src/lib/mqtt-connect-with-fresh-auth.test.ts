@@ -31,7 +31,7 @@ describe('connectMqttWithFreshAuth', () => {
       brokerHost: 'mqtt.example.test',
       brokerPort: 1883,
       username: 'member-actor-1',
-      clientId: 'teamclaw-member-random',
+      clientId: 'teamclu-member-random',
       teamId: 'team-1',
       useTls: false,
     })
@@ -42,7 +42,7 @@ describe('connectMqttWithFreshAuth', () => {
       brokerPort: 1883,
       username: 'member-actor-1',
       password: 'fresh-token',
-      clientId: 'teamclaw-member-random',
+      clientId: 'teamclu-member-random',
       teamId: 'team-1',
       useTls: false,
     })
@@ -61,7 +61,7 @@ describe('connectMqttWithFreshAuth', () => {
         brokerHost: 'mqtt.example.test',
         brokerPort: 1883,
         username: 'member-actor-1',
-        clientId: 'teamclaw-member-random',
+        clientId: 'teamclu-member-random',
         teamId: 'team-1',
         useTls: false,
       }),

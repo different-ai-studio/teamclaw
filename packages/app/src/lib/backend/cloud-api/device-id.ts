@@ -1,6 +1,6 @@
 // Telemetry-only per-install id. NOT a routing identity (routing uses actor_id).
 // Lets two desktop installs of the same actor appear as separate version rows.
-const KEY = "teamclaw.client-version.device-id";
+const KEY = "teamclu.client-version.device-id";
 
 export function getDesktopDeviceId(): string {
   return getDesktopDeviceIdOrNull() ?? "desktop-unknown";

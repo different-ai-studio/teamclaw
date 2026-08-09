@@ -11,7 +11,7 @@ const ORIGIN = "https://api.example.test";
 
 function seed(scope: "public" | "session", value: unknown, origin = ORIGIN) {
   window.localStorage.setItem(
-    `teamclaw.remoteFeatures.${scope}:${origin}`,
+    `teamclu.remoteFeatures.${scope}:${origin}`,
     JSON.stringify(value),
   );
 }
@@ -109,7 +109,7 @@ describe("input validation", () => {
   });
 
   it("ignores a corrupt snapshot instead of failing to load", async () => {
-    window.localStorage.setItem(`teamclaw.remoteFeatures.session:${ORIGIN}`, "{not json");
+    window.localStorage.setItem(`teamclu.remoteFeatures.session:${ORIGIN}`, "{not json");
     const { getFeatures } = await loadModule();
     const { buildConfig } = await import("@/lib/build-config");
     expect(getFeatures().apps).toBe(Boolean(buildConfig.features.apps));
@@ -149,8 +149,8 @@ describe("sign-out", () => {
     // Deployment-level login config survives: wiping it would send the next
     // launch's login screen back to the baked defaults.
     expect(getFeatures().auth.google).toBe(!baked.auth.google);
-    expect(window.localStorage.getItem(`teamclaw.remoteFeatures.public:${ORIGIN}`)).not.toBeNull();
-    expect(window.localStorage.getItem(`teamclaw.remoteFeatures.session:${ORIGIN}`)).toBeNull();
+    expect(window.localStorage.getItem(`teamclu.remoteFeatures.public:${ORIGIN}`)).not.toBeNull();
+    expect(window.localStorage.getItem(`teamclu.remoteFeatures.session:${ORIGIN}`)).toBeNull();
   });
 });
 

@@ -60,9 +60,9 @@ export interface FeatureFlags {
  * Selected by `APP_FEATURES_PROFILE`. One profile per RUNNING Cloud API, not
  * per brand — though today each deployment happens to serve one brand:
  *
- *   self-host   api.teamclaw-dev.ucar.cc     official TeamClaw
+ *   self-host   api.teamclu-dev.ucar.cc     official TeamClu
  *                                            (build.config.production.json)
- *   belayo      teamclaw-api.ucar.cc         betly
+ *   belayo      teamclu-api.ucar.cc         betly
  *                                            (branding repo brands/betly)
  *   copilot361  copilot.accounting.i.test.shopee.io
  *                                            (branding repo brands/copilot361)

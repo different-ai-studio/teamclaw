@@ -4,7 +4,7 @@
 //!   - `store_credential`: persists a Git credential under
 //!     `_git_credential.{ref}` in the local encrypted env_blob.
 //!   - `load_credential`: reads the credential back. Used externally by the
-//!     `teamclaw-askpass` sidecar binary (for HTTPS tokens) and by team-share
+//!     `teamclu-askpass` sidecar binary (for HTTPS tokens) and by team-share
 //!     enable (for SSH key delivery).
 //!
 //! Credential shape on disk (one entry per ref):

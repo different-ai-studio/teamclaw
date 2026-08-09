@@ -4,7 +4,7 @@
 **不改 proto 契约**，因此桌面端 wire 不受影响。
 
 > **状态（2026-08-08）**：阶段 0-5、7 已完成，daemon（1056+761+762+761+764+1+4）与
-> iOS（223 + 138）全套测试通过，iOS 应用构建通过，desktop / teamclaw-types 编译通过。
+> iOS（223 + 138）全套测试通过，iOS 应用构建通过，desktop / teamclu-types 编译通过。
 >
 > **三处仍未完成**，见各阶段内标注：
 > 1. 模型解析尚未收敛成单一入口，iOS 也没有用户 pick 层（阶段 4 末两项）
@@ -110,7 +110,7 @@ commit 进来的，仅 3 次提交，无自动化痕迹）。这正是漂移的�
       protoc -I proto \
         --swift_out=apps/ios/Packages/AMUXCore/Sources/AMUXCore/Proto \
         --swift_opt=Visibility=Public \
-        proto/amux.proto proto/teamclaw.proto
+        proto/amux.proto proto/teamclu.proto
       ```
 - [~] **把这条命令固化成 `package.json` 的 `ios:proto-gen`**（与既有的 `proto-gen`
       并列），否则下次改 proto 又会静默漂移 —— 已写入工作区，但 `package.json` 里
@@ -189,7 +189,7 @@ commit 进来的，仅 3 次提交，无自动化痕迹）。这正是漂移的�
       `WorktreeCatalog.default_model` 回来
 - [x] 写入路径顺序：`ensureParticipant → runtimeStart → setModel`
       （`ensure-agent-runtime.ts:244-316`）。注意 `runtimeStartRpc` 的返回值
-      `runtimeID` 目前被丢弃（`TeamclawService.swift:1279`）
+      `runtimeID` 目前被丢弃（`TeamcluService.swift:1279`）
 
 ## 阶段 5 — 删除 Runtime 本体  ✅
 
@@ -231,7 +231,7 @@ commit 进来的，仅 3 次提交，无自动化痕迹）。这正是漂移的�
       无关。已改名为 `heartbeat.ts` / `makeHeartbeatRepo` 并清掉残留 import。
 - [x] 清理 daemon 侧死代码岛：`mqtt/publisher.rs:49-101` 的
       `publish_runtime_state` / `clear_runtime_state` / `publish_runtime_failed`
-      （最后一个全仓 0 调用者），及 `crates/teamclaw-types/src/mqtt.rs:45-51` 的
+      （最后一个全仓 0 调用者），及 `crates/teamclu-types/src/mqtt.rs:45-51` 的
       `runtime_state()` / `runtime_events()`
 - [x] `apps/daemon/src/runtime/handle.rs:78-83` 的 `backend_runtime_row_id` 及其
       指向已删函数的 `TODO(task9)`

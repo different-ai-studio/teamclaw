@@ -1,5 +1,5 @@
 /**
- * TeamClaw protobuf message timestamps are canonically Unix seconds.  A few
+ * TeamClu protobuf message timestamps are canonically Unix seconds.  A few
  * older live publishers sent Unix milliseconds instead, which otherwise puts
  * a message tens of thousands of years into the future after UI conversion.
  */

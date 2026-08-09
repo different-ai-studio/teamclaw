@@ -1,9 +1,9 @@
--- TeamClaw consolidated baseline (squashed from migrations, generated 2026-06-24).
+-- TeamClu consolidated baseline (squashed from migrations, generated 2026-06-24).
 -- FRESH DATABASES ONLY. This baseline replaces the pre-2026-06-24 migration chain
 -- (archived under _archive/squashed-20260624/). Do NOT apply it to an already-deployed
 -- database (e.g. the partner RDS / dev) that ran the old migrations — those carry their own
 -- applied history; this file is the starting point for brand-new deployments.
--- All teamclaw tables + functions live in amux; public holds only orgs/plans/users.
+-- All teamclu tables + functions live in amux; public holds only orgs/plans/users.
 -- Generated via: pg_dump --schema=amux --schema=public  +  appended storage policies.
 
 create extension if not exists pgcrypto;
@@ -4587,7 +4587,7 @@ CREATE TABLE public.orgs (
 -- Name: TABLE orgs; Type: COMMENT; Schema: public; Owner: -
 --
 
-COMMENT ON TABLE public.orgs IS 'Mirror of saas-mono public.orgs (canonical tenant). saas-mono-owned on the merged instance. See docs/specs/2026-06-08-teamclaw-saas-mono-integration.md';
+COMMENT ON TABLE public.orgs IS 'Mirror of saas-mono public.orgs (canonical tenant). saas-mono-owned on the merged instance. See docs/specs/2026-06-08-teamclu-saas-mono-integration.md';
 
 
 --
@@ -4605,7 +4605,7 @@ CREATE TABLE public.plans (
 -- Name: TABLE plans; Type: COMMENT; Schema: public; Owner: -
 --
 
-COMMENT ON TABLE public.plans IS 'STUB mirror of saas-mono public.plans for local integration dev. Replace with real DDL before merge. See docs/specs/2026-06-08-teamclaw-saas-mono-integration.md';
+COMMENT ON TABLE public.plans IS 'STUB mirror of saas-mono public.plans for local integration dev. Replace with real DDL before merge. See docs/specs/2026-06-08-teamclu-saas-mono-integration.md';
 
 
 --
@@ -8511,7 +8511,7 @@ GRANT ALL ON TABLE public.users TO service_role;
 --
 
 
--- ============ teamclaw storage buckets ============
+-- ============ teamclu storage buckets ============
 -- The RLS policies below reference the 'attachments' and 'avatars' buckets, but
 -- the buckets themselves must exist first or every upload fails with
 -- "Bucket not found" (surfaced to the client as
@@ -8522,7 +8522,7 @@ values ('attachments', 'attachments', true),
        ('avatars', 'avatars', true)
 on conflict (id) do update set public = excluded.public;
 
--- ============ teamclaw RLS policies on storage.objects ============
+-- ============ teamclu RLS policies on storage.objects ============
 drop policy if exists authenticated_can_upload on storage.objects;
 create policy authenticated_can_upload on storage.objects for insert to authenticated with check ((bucket_id = 'attachments'::text));
 

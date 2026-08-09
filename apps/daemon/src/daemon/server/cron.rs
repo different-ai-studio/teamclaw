@@ -24,7 +24,7 @@ use super::DaemonServer;
 
 /// Result of a background cron turn, sent from the spawned turn task back to the
 /// active run loop for AgentReply persistence + sock reply. `reply_tx` rides
-/// along because the reply is written by the loop (which owns `&self.teamclaw`,
+/// along because the reply is written by the loop (which owns `&self.teamclu`,
 /// a non-`Send` field the persist step needs), not by the task.
 pub(crate) struct CronTurnDone {
     pub(crate) turn_result: anyhow::Result<crate::runtime::turn_aggregator::EmittedMessage>,
@@ -41,7 +41,7 @@ pub(crate) struct CronTurnDone {
 /// The turn task owns the agent's event channel for the whole turn, so
 /// `poll_events` — and with it `forward_agent_event` — never sees these frames.
 /// Publishing is what `forward_agent_event` would have done; it has to happen
-/// on the loop because it needs `&self.teamclaw`, which is not `Send`.
+/// on the loop because it needs `&self.teamclu`, which is not `Send`.
 pub(crate) struct CronTurnEvent {
     /// Runtime key (8-char), not the actor id.
     pub(crate) agent_id: String,
@@ -312,7 +312,7 @@ impl DaemonServer {
 
     /// Persist a finished cron turn's AgentReply and answer the sock client.
     /// Runs on the active run loop (not the turn task) because persistence needs
-    /// `&self.teamclaw`, which is not `Send`. Always returns the cloud
+    /// `&self.teamclu`, which is not `Send`. Always returns the cloud
     /// `session_id` so the desktop stamps it into the run record even when the
     /// turn failed (ACP timeout, etc.); the reply is wrapped `{ ok: true, result }`
     /// to match the pre-refactor sock contract (`agent_error` still rides inside
@@ -331,7 +331,7 @@ impl DaemonServer {
                 // bypassing `forward_agent_event`, so we must persist the finalized
                 // AgentReply here — same path as collab chat (TOML + live + cloud).
                 if !reply.content.is_empty() {
-                    if let Some(tc) = self.teamclaw.as_ref() {
+                    if let Some(tc) = self.teamclu.as_ref() {
                         let actor_id = self.actor_id.clone();
                         let (model, seq, reply_to) = {
                             let mut mgr = self.agents.lock().await;
@@ -351,7 +351,7 @@ impl DaemonServer {
                         tc.emit_agent_message(
                             &remote_session_id,
                             &actor_id,
-                            crate::proto::teamclaw::MessageKind::AgentReply,
+                            crate::proto::teamclu::MessageKind::AgentReply,
                             &reply.content,
                             &reply.metadata_json,
                             &model,
@@ -371,7 +371,7 @@ impl DaemonServer {
                     } else {
                         warn!(
                             session_id = %remote_session_id,
-                            "cron: teamclaw SessionManager unavailable; AgentReply not persisted"
+                            "cron: teamclu SessionManager unavailable; AgentReply not persisted"
                         );
                     }
                 }
@@ -558,7 +558,7 @@ impl DaemonServer {
         prompt: &str,
         model: &str,
     ) {
-        if self.teamclaw.is_none() {
+        if self.teamclu.is_none() {
             warn!(
                 session_id,
                 "cron: SessionManager unavailable; user prompt not persisted"
@@ -578,11 +578,11 @@ impl DaemonServer {
         let now = chrono::Utc::now();
         let metadata_json =
             serde_json::json!({ "mention_actor_ids": [self.actor_id.clone()] }).to_string();
-        let proto_msg = crate::proto::teamclaw::Message {
+        let proto_msg = crate::proto::teamclu::Message {
             message_id: message_id.clone(),
             session_id: session_id.to_string(),
             sender_actor_id: sender_actor_id.clone(),
-            kind: crate::proto::teamclaw::MessageKind::Text as i32,
+            kind: crate::proto::teamclu::MessageKind::Text as i32,
             content: prompt.to_string(),
             created_at: now.timestamp(),
             metadata_json: metadata_json.clone(),
@@ -590,7 +590,7 @@ impl DaemonServer {
             ..Default::default()
         };
 
-        if let Some(tc) = self.teamclaw.as_ref() {
+        if let Some(tc) = self.teamclu.as_ref() {
             if let Err(e) = tc.persist_message(session_id, &proto_msg).await {
                 warn!(?e, session_id, "cron: persist user prompt to TOML failed");
             }
@@ -598,11 +598,11 @@ impl DaemonServer {
 
         // Claim the id BEFORE publishing: the loopback copy comes back fast,
         // and the gate has to already be closed when it does.
-        if let Some(tc) = self.teamclaw.as_mut() {
+        if let Some(tc) = self.teamclu.as_mut() {
             tc.should_process_message(session_id, &message_id);
         }
 
-        if let Some(tc) = self.teamclaw.as_ref() {
+        if let Some(tc) = self.teamclu.as_ref() {
             if let Err(e) = tc.publish_live_message(session_id, &proto_msg).await {
                 warn!(?e, session_id, "cron: publish user prompt to live failed");
             }
@@ -789,7 +789,7 @@ impl DaemonServer {
             };
             if let Some(reply) = emitted
                 .into_iter()
-                .find(|m| matches!(m.kind, crate::proto::teamclaw::MessageKind::AgentReply))
+                .find(|m| matches!(m.kind, crate::proto::teamclu::MessageKind::AgentReply))
             {
                 break Ok(reply);
             }
@@ -1077,7 +1077,7 @@ mod tests {
         let message_id = mock.state().messages_inserted[0].id.clone();
         let already_seen = !test_server
             .server
-            .teamclaw
+            .teamclu
             .as_mut()
             .expect("test server has a SessionManager")
             .should_process_message("session-1", &message_id);

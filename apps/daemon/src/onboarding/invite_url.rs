@@ -1,7 +1,7 @@
 use anyhow::{anyhow, Result};
 use url::Url;
 
-const LEGACY_INVITE_SCHEMES: &[&str] = &["teamclaw", "amux"];
+const LEGACY_INVITE_SCHEMES: &[&str] = &["teamclu", "amux"];
 
 const BLOCKED_INVITE_SCHEMES: &[&str] = &[
     "http",
@@ -15,7 +15,7 @@ const BLOCKED_INVITE_SCHEMES: &[&str] = &[
     "data",
 ];
 
-/// Parsed representation of a `teamclaw://invite?token=<opaque>` deeplink.
+/// Parsed representation of a `teamclu://invite?token=<opaque>` deeplink.
 pub struct ParsedInvite {
     pub token: String,
     pub broker_url: Option<String>,
@@ -46,7 +46,7 @@ pub fn parse(raw: &str) -> Result<ParsedInvite> {
 
     if !is_accepted_invite_scheme(url.scheme()) {
         return Err(anyhow!(
-            "invite url scheme must be a TeamClaw app scheme (e.g. teamclaw, teamclaw-dev), got {}",
+            "invite url scheme must be a TeamClu app scheme (e.g. teamclu, teamclu-dev), got {}",
             url.scheme()
         ));
     }
@@ -91,7 +91,7 @@ mod tests {
 
     #[test]
     fn parses_valid_invite_url() {
-        let p = parse("teamclaw://invite?token=ABCDEF-12345_xyz").unwrap();
+        let p = parse("teamclu://invite?token=ABCDEF-12345_xyz").unwrap();
         assert_eq!(p.token, "ABCDEF-12345_xyz");
         assert_eq!(p.broker_url, None);
     }
@@ -105,7 +105,7 @@ mod tests {
 
     #[test]
     fn parses_invite_with_broker_url() {
-        let p = parse("teamclaw://invite?token=tok-123&broker=mqtts://ai.ucar.cc:8883").unwrap();
+        let p = parse("teamclu://invite?token=tok-123&broker=mqtts://ai.ucar.cc:8883").unwrap();
         assert_eq!(p.token, "tok-123");
         assert_eq!(p.broker_url.as_deref(), Some("mqtts://ai.ucar.cc:8883"));
         assert_eq!(p.cloud_api_url, None);
@@ -115,7 +115,7 @@ mod tests {
     fn parses_invite_with_cloud_api_url() {
         // The desktop URL-encodes its effective endpoint into `?cloud_api_url=`.
         let p = parse(
-            "teamclaw://invite?token=tok-123&cloud_api_url=https%3A%2F%2Flegacy-test-api.example.test",
+            "teamclu://invite?token=tok-123&cloud_api_url=https%3A%2F%2Flegacy-test-api.example.test",
         )
         .unwrap();
         assert_eq!(p.token, "tok-123");
@@ -127,14 +127,14 @@ mod tests {
 
     #[test]
     fn empty_cloud_api_url_is_none() {
-        let p = parse("teamclaw://invite?token=tok-123&cloud_api_url=").unwrap();
+        let p = parse("teamclu://invite?token=tok-123&cloud_api_url=").unwrap();
         assert_eq!(p.cloud_api_url, None);
     }
 
     #[test]
     fn ignores_legacy_username_password_params() {
         let p = parse(
-            "teamclaw://invite?token=tok-123&broker=mqtts://ai.ucar.cc:8883&username=teamclaw&password=teamclaw2026",
+            "teamclu://invite?token=tok-123&broker=mqtts://ai.ucar.cc:8883&username=teamclu&password=teamclu2026",
         )
         .unwrap();
         assert_eq!(p.token, "tok-123");
@@ -143,7 +143,7 @@ mod tests {
 
     #[test]
     fn parses_dev_invite_url() {
-        let p = parse("teamclaw-dev://invite?token=ABCDEF-12345_xyz").unwrap();
+        let p = parse("teamclu-dev://invite?token=ABCDEF-12345_xyz").unwrap();
         assert_eq!(p.token, "ABCDEF-12345_xyz");
         assert_eq!(p.broker_url, None);
     }
@@ -153,7 +153,7 @@ mod tests {
         match parse("http://invite?token=x") {
             Ok(_) => panic!("expected wrong scheme to be rejected"),
             Err(err) => assert!(
-                err.to_string().contains("TeamClaw app scheme"),
+                err.to_string().contains("TeamClu app scheme"),
                 "got: {err}"
             ),
         }
@@ -161,16 +161,16 @@ mod tests {
 
     #[test]
     fn rejects_wrong_host() {
-        assert!(parse("teamclaw://join?token=x").is_err());
+        assert!(parse("teamclu://join?token=x").is_err());
     }
 
     #[test]
     fn rejects_missing_token() {
-        assert!(parse("teamclaw://invite").is_err());
+        assert!(parse("teamclu://invite").is_err());
     }
 
     #[test]
     fn rejects_empty_token() {
-        assert!(parse("teamclaw://invite?token=").is_err());
+        assert!(parse("teamclu://invite?token=").is_err());
     }
 }

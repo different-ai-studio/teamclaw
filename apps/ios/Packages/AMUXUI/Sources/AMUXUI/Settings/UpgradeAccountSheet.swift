@@ -60,8 +60,8 @@ struct UpgradeAccountSheet: View {
                     }
 
                     Text(isPhoneFlow
-                         ? "After upgrading, sign in with the same phone number next time you launch Teamclaw."
-                         : "After upgrading, sign in with the same email next time you launch Teamclaw.")
+                         ? "After upgrading, sign in with the same phone number next time you launch Teamclu."
+                         : "After upgrading, sign in with the same email next time you launch Teamclu.")
                         .font(.caption)
                         .foregroundStyle(.secondary)
                 }

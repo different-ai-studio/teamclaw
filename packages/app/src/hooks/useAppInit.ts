@@ -589,7 +589,7 @@ export function useGitReposInit() {
   // Initial population of per-file team sync status for file-tree coloring,
   // re-run whenever the cloud share mode changes. git mode is also refreshed by
   // the post-sync callback and KnowledgeBrowser; this guarantees OSS mode gets
-  // an initial scan so its teamclaw-team files are colored too.
+  // an initial scan so its teamclu-team files are colored too.
   const shareMode = useTeamShareStore((s) => s.status.mode);
   useEffect(() => {
     if (!workspacePath || !isTauri()) return;

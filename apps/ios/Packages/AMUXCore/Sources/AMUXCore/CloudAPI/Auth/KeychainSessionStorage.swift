@@ -46,7 +46,7 @@ public struct KeychainSessionStorage: SessionStorage {
     private let service: String
     private let account: String
 
-    public init(service: String = "tech.teamclaw.mobile.auth", account: String = "cloud_api_session") {
+    public init(service: String = "com.teamclu.mobile.auth", account: String = "cloud_api_session") {
         self.service = service
         self.account = account
     }

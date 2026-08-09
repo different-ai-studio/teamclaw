@@ -7,7 +7,7 @@
 //! These files live directly under `<base>`, alongside the other credential
 //! files (`amuxd.cloud-token`, `amuxd.http.token`), and deliberately *not*
 //! under `<base>/teams/<team_id>/` — that directory also holds the
-//! `teamclaw-team` git checkout, which `sync::git` stages with a blanket
+//! `teamclu-team` git checkout, which `sync::git` stages with a blanket
 //! `git add -A` and pushes. Nothing that must never reach a remote should
 //! neighbour a work tree; `sync::git` already backs conflicts up to
 //! `.trash/` outside the tree for the same reason.
@@ -516,7 +516,7 @@ mod tests {
         )
         .unwrap();
         let team_dir = base.join("teams").join("team-x");
-        let checkout = team_dir.join("teamclaw-team");
+        let checkout = team_dir.join("teamclu-team");
         std::fs::create_dir_all(&checkout).unwrap();
         std::fs::write(checkout.join("skills.md"), b"keep me").unwrap();
         std::fs::rename(

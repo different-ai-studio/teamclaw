@@ -1,5 +1,5 @@
 {
-  "name": "@teamclaw/app",
+  "name": "@teamclu/app",
   "version": "0.1.0",
   "private": true,
   "type": "module",
@@ -14,10 +14,10 @@
     "lint": "eslint .",
     "typecheck": "tsc --noEmit",
     "test:unit": "vitest run",
-    "proto-gen": "protoc --es_out=src/lib/proto --es_opt=target=ts -I ../../proto ../../proto/amux.proto ../../proto/teamclaw.proto"
+    "proto-gen": "protoc --es_out=src/lib/proto --es_opt=target=ts -I ../../proto ../../proto/amux.proto ../../proto/teamclu.proto"
   },
   "exports": {
-    "./proto/teamclaw_pb": "./src/lib/proto/teamclaw_pb.ts",
+    "./proto/teamclu_pb": "./src/lib/proto/teamclu_pb.ts",
     "./proto/amux_pb": "./src/lib/proto/amux_pb.ts"
   },
   "dependencies": {
