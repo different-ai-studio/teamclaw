@@ -28,11 +28,10 @@ services:
     # only fronts the WebSocket listener (8083) on 443. Without this mapping the
     # broker is reachable only on the internal docker network (emqx:1883), so
     # external clients get "Connection refused (os error 61)".
-    # NOTE: the ECS security group must also allow inbound TCP 1883.
-    # Only the plaintext TCP listener (1883) is configured in emqx.conf; there
-    # is no SSL listener (8883), so we do not publish it.
+    # NOTE: the ECS security group must also allow inbound TCP 1883 and 8883.
     ports:
       - "1883:1883"   # MQTT (plaintext, listeners.tcp.default)
+      - "8883:8883"   # MQTT over TLS (listeners.ssl.default) — mobile native clients
     environment:
       # EMQX expects the HMAC secret base64-encoded (secret_base64_encoded=true).
       EMQX_JWT_SECRET: "${EMQX_JWT_SECRET}"
@@ -46,6 +45,11 @@ services:
     volumes:
       - ./emqx/emqx.conf:/opt/emqx/etc/emqx.conf:ro
       - emqx_data:/opt/emqx/data
+      # Read-only view of Caddy's ACME storage so the 8883 listener can reuse
+      # the Let's Encrypt cert Caddy already obtains for MQTT_DOMAIN, instead of
+      # running a second ACME client for the same name. EMQX reads it once at
+      # listener start — see the renewal warning in emqx/emqx.conf.
+      - caddy_data:/caddy-certs:ro
     healthcheck:
       test: ["CMD", "/opt/emqx/bin/emqx", "ctl", "status"]
       interval: 10s
