@@ -11,7 +11,6 @@ crate-type = ["staticlib", "cdylib", "rlib"]
 
 [features]
 default = []
-stt-whisper = ["teamclaw-stt/whisper"]
 # Enables the WebKit/WebView2 inspector ("Inspect Element" + open_devtools) in
 # RELEASE builds. Off by default so stable/branded builds ship without devtools;
 # the beta pipeline (release-beta.yml) passes `--features beta-devtools` so we can
@@ -66,9 +65,6 @@ regex = "1"
 libsql = "0.9"
 nanoid = "0.4"
 markitdown = "0.1.10"
-# STT crate
-teamclaw-stt = { path = "crates/teamclaw-stt" }
-
 # Gateway crate
 teamclaw-gateway = { path = "../../crates/teamclaw-gateway" }
 
