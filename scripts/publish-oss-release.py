@@ -78,7 +78,7 @@ def resolve_logo(build_config):
     if logo:
         candidates.append(logo)
     # Brands on the stock icons (no app.logo) fall back to the repo's own logo.
-    candidates += ["packages/app/public/logo.png", "apps/desktop/icons/teamclaw-logo.png"]
+    candidates.append("packages/app/public/logo.png")
     return next((c for c in candidates if os.path.isfile(c)), None)
 
 
