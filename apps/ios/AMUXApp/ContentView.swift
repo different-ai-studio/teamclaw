@@ -91,7 +91,7 @@ struct ContentView: View {
         Group {
             switch onboarding.route {
             case .loading:
-                LobsterSplashView()
+                ApertureSplashView()
             case .needsAuth:
                 WelcomeView(coordinator: onboarding)
             case .createTeam:

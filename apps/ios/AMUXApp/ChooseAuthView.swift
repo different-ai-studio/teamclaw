@@ -85,7 +85,7 @@ struct ChooseAuthView: View {
 
     private var header: some View {
         VStack(alignment: .leading, spacing: 10) {
-            Text("Set up Teamclaw")
+            Text("Set up TeamClu")
                 .font(.amuxSerif(34, weight: .regular))
                 .foregroundStyle(Color.amux.onyx)
             Text("Create your workspace or join the team that already works with your AI allies.")

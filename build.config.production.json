@@ -6,6 +6,7 @@
   },
   "app": {
     "name": "TeamClaw",
+    "displayName": "TeamClu",
     "shortName": "teamclaw"
   },
   "features": {

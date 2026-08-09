@@ -220,9 +220,6 @@ const SIDE_PANEL_PRUNE_DIRS = [
   // Design prototypes: standalone HTML mockups kept for reference. Nothing
   // imports or links them; they are read by opening the file directly.
   'prototypes',
-  // TeamClaw mascot frames, requested only by LobsterLoader — see the exception
-  // below for why that reference does not make them live.
-  'lobster',
 ]
 
 /**
@@ -237,14 +234,7 @@ const SIDE_PANEL_PRUNE_DIRS = [
  * someone imports LobsterLoader, the suite fails and says to drop `lobster`
  * from the prune list, instead of the mascot quietly vanishing from the UI.
  */
-const PRUNE_REFERENCE_EXCEPTIONS = [
-  {
-    dir: 'lobster',
-    file: 'packages/app/src/components/auth/LobsterLoader.tsx',
-    symbol: 'LobsterLoader',
-    reason: 'exported but never imported — dead in every build',
-  },
-]
+const PRUNE_REFERENCE_EXCEPTIONS = []
 
 module.exports = {
   parseExtensionsConfig,
