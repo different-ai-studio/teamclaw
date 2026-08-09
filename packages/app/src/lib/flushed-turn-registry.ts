@@ -3,7 +3,7 @@
  * events (after session.idle) can patch the persisted message instead of
  * reopening the live Composer dock.
  *
- * OpenCode desktop keeps one store and merges parts after idle; TeamClaw
+ * OpenCode desktop keeps one store and merges parts after idle; TeamClu
  * splits live dock vs message area — this registry bridges that handoff.
  */
 

@@ -78,7 +78,7 @@ public struct MemberListView: View {
         // outside that set are hidden from the picker (instead of shown
         // locked). Humans are always visible. Gateway-only external actors
         // are intentionally hidden here; they are message/session
-        // participants, not selectable TeamClaw collaborators.
+        // participants, not selectable TeamClu collaborators.
         // `excludeActorID` / `excludeActorIDs` hide the calling user (and
         // any pre-known participants) from the picker.
         var rows = actors.filter { $0.isMember || $0.isAgent }
@@ -232,82 +232,6 @@ public struct MemberListView: View {
         }
         .tint(.primary)
         .disabled(locked)
-    }
-}
-
-// MARK: - PrimaryAgentSheet
-
-/// Second-step confirmation sheet used when a session has no primary agent
-/// yet and the user has just picked one or more agents in the actor picker.
-/// Asks them which of those agents should become the session's primary.
-public struct PrimaryAgentSheet: View {
-    @Environment(\.dismiss) private var dismiss
-    private let candidates: [CachedActor]
-    @State private var selectedID: String?
-    private let onConfirm: (_ primaryAgentID: String) -> Void
-
-    public init(candidates: [CachedActor],
-                onConfirm: @escaping (String) -> Void) {
-        self.candidates = candidates
-        self._selectedID = State(initialValue: candidates.first?.actorId)
-        self.onConfirm = onConfirm
-    }
-
-    public var body: some View {
-        NavigationStack {
-            List {
-                Section {
-                    ForEach(candidates, id: \.actorId) { agent in
-                        Button {
-                            selectedID = agent.actorId
-                        } label: {
-                            HStack {
-                                Image(systemName: selectedID == agent.actorId ? "largecircle.fill.circle" : "circle")
-                                    .foregroundStyle(selectedID == agent.actorId ? Color.amux.cinnabar : Color.amux.slate)
-                                    .font(.title3)
-                                VStack(alignment: .leading, spacing: 2) {
-                                    Text(agent.displayName).font(.body)
-                                    if let agentType = agent.defaultAgentType, !agentType.isEmpty {
-                                        Text(AgentConfigSheet.AgentType.fromStoredValue(agentType).label)
-                                            .font(.caption)
-                                            .foregroundStyle(.secondary)
-                                    }
-                                }
-                                Spacer()
-                            }
-                            .contentShape(Rectangle())
-                        }
-                        .buttonStyle(.plain)
-                    }
-                } header: {
-                    Text("Pick the agent that will drive this session")
-                } footer: {
-                    Text("The primary agent owns the session's model and receives prompts. Other agents and humans participate as collaborators.")
-                }
-            }
-            .navigationTitle("Primary Agent")
-            .navigationBarTitleDisplayMode(.inline)
-            .toolbar {
-                ToolbarItem(placement: .navigationBarTrailing) {
-                    Button {
-                        if let id = selectedID { onConfirm(id) }
-                        dismiss()
-                    } label: {
-                        Image(systemName: "checkmark").font(.title3)
-                    }
-                    .buttonStyle(.plain)
-                    .disabled(selectedID == nil)
-                }
-                ToolbarItem(placement: .navigationBarLeading) {
-                    Button { dismiss() } label: {
-                        Image(systemName: "xmark")
-                            .font(.title3)
-                            .foregroundStyle(.secondary)
-                    }
-                    .buttonStyle(.plain)
-                }
-            }
-        }
     }
 }
 

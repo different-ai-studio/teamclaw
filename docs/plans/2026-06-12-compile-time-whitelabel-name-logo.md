@@ -4,7 +4,7 @@
 
 **Goal:** 让桌面 App 的品牌名称和 logo(含 OS 级图标)在编译期由 `build.config.*.json` 配置,单张方形源图自动生成整套图标;默认配置下产物零差异。
 
-**Architecture:** 扩展已在每次 `tauri:dev`/`tauri:build` 前运行的 `scripts/update-tauri-config.js`:把可复用逻辑抽到纯函数 `scripts/lib/branding.js`(可单测),脚本里(a)用 `app.name` 写 `tauri.conf` 的 `productName` + 窗口标题,(b)若有 `app.logo` 则调 `tauri icon` 生成 `apps/desktop/icons/` 整套并把 128px 拷成前端 `public/logo*.png`。Rust 侧把硬编码 `"TeamClaw"`(窗口标题/托盘/OAuth 回调页)改为读 `app.config().product_name`,经一个可单测的 `brand_name()` 兜底。
+**Architecture:** 扩展已在每次 `tauri:dev`/`tauri:build` 前运行的 `scripts/update-tauri-config.js`:把可复用逻辑抽到纯函数 `scripts/lib/branding.js`(可单测),脚本里(a)用 `app.name` 写 `tauri.conf` 的 `productName` + 窗口标题,(b)若有 `app.logo` 则调 `tauri icon` 生成 `apps/desktop/icons/` 整套并把 128px 拷成前端 `public/logo*.png`。Rust 侧把硬编码 `"TeamClu"`(窗口标题/托盘/OAuth 回调页)改为读 `app.config().product_name`,经一个可单测的 `brand_name()` 兜底。
 
 **Tech Stack:** Node(CJS 脚本 + `node --test`)、`@tauri-apps/cli` 自带的 `tauri icon`、Rust/Tauri 2、React(前端基本不改,靠文件替换换 logo)。
 
@@ -88,7 +88,7 @@ const assert = require("node:assert");
 const { applyNameToTauriConf } = require("./branding");
 
 test("applyNameToTauriConf sets productName and window title from app.name", () => {
-  const conf = { productName: "TeamClaw", app: { windows: [{ title: "TeamClaw" }] } };
+  const conf = { productName: "TeamClu", app: { windows: [{ title: "TeamClu" }] } };
   const changed = applyNameToTauriConf(conf, { app: { name: "Acme" } });
   assert.strictEqual(changed, true);
   assert.strictEqual(conf.productName, "Acme");
@@ -96,14 +96,14 @@ test("applyNameToTauriConf sets productName and window title from app.name", () 
 });
 
 test("applyNameToTauriConf is a no-op when app.name is absent", () => {
-  const conf = { productName: "TeamClaw", app: { windows: [{ title: "TeamClaw" }] } };
+  const conf = { productName: "TeamClu", app: { windows: [{ title: "TeamClu" }] } };
   const changed = applyNameToTauriConf(conf, { app: {} });
   assert.strictEqual(changed, false);
-  assert.strictEqual(conf.productName, "TeamClaw");
+  assert.strictEqual(conf.productName, "TeamClu");
 });
 
 test("applyNameToTauriConf tolerates missing windows array", () => {
-  const conf = { productName: "TeamClaw", app: {} };
+  const conf = { productName: "TeamClu", app: {} };
   const changed = applyNameToTauriConf(conf, { app: { name: "Acme" } });
   assert.strictEqual(changed, true);
   assert.strictEqual(conf.productName, "Acme");
@@ -178,7 +178,7 @@ if (applyNameToTauriConf(tauriConf, buildConfig)) {
 - [ ] **Step 7: 冒烟——默认配置零改动**
 
 Run: `node scripts/update-tauri-config.js && git diff --stat apps/desktop/tauri.conf.json`
-Expected: `apps/desktop/tauri.conf.json` 无 diff（默认 name 仍是 TeamClaw,写回内容相同）
+Expected: `apps/desktop/tauri.conf.json` 无 diff（默认 name 仍是 TeamClu,写回内容相同）
 
 - [ ] **Step 8: Commit**
 
@@ -339,14 +339,14 @@ git commit -m "feat(whitelabel): regenerate OS icon set + in-app logo from app.l
 ```rust
 //! Compile-time white-label helpers. The brand name comes from the Tauri
 //! config `productName` (written at build time by scripts/update-tauri-config.js
-//! from build.config `app.name`), falling back to "TeamClaw".
+//! from build.config `app.name`), falling back to "TeamClu".
 
 /// Resolve the brand display name from an optional configured product name.
 pub fn brand_name(configured: Option<&str>) -> String {
     configured
         .map(str::trim)
         .filter(|s| !s.is_empty())
-        .unwrap_or("TeamClaw")
+        .unwrap_or("TeamClu")
         .to_string()
 }
 
@@ -356,13 +356,13 @@ mod tests {
 
     #[test]
     fn falls_back_when_none() {
-        assert_eq!(brand_name(None), "TeamClaw");
+        assert_eq!(brand_name(None), "TeamClu");
     }
 
     #[test]
     fn falls_back_when_empty() {
-        assert_eq!(brand_name(Some("")), "TeamClaw");
-        assert_eq!(brand_name(Some("   ")), "TeamClaw");
+        assert_eq!(brand_name(Some("")), "TeamClu");
+        assert_eq!(brand_name(Some("   ")), "TeamClu");
     }
 
     #[test]
@@ -390,7 +390,7 @@ Expected: PASS（3 个用例）
 在 `apps/desktop/src/lib.rs:578`,把:
 
 ```rust
-                .tooltip("TeamClaw")
+                .tooltip("TeamClu")
 ```
 
 改为(`app` 在该 setup 闭包内可用):
@@ -407,8 +407,8 @@ Expected: PASS（3 个用例）
     let ws_name = std::path::Path::new(&workspace_path)
         .file_name()
         .and_then(|n| n.to_str())
-        .unwrap_or("TeamClaw");
-    let window_title = format!("TeamClaw — {}", ws_name);
+        .unwrap_or("TeamClu");
+    let window_title = format!("TeamClu — {}", ws_name);
 ```
 
 改为:
@@ -452,14 +452,14 @@ mod brand_html_tests {
     fn success_html_includes_brand_name() {
         let html = success_html("Acme");
         assert!(html.contains("Acme"));
-        assert!(!html.contains("TeamClaw"));
+        assert!(!html.contains("TeamClu"));
     }
 
     #[test]
     fn error_html_includes_brand_name() {
         let html = error_html("Acme");
         assert!(html.contains("Acme"));
-        assert!(!html.contains("TeamClaw"));
+        assert!(!html.contains("TeamClu"));
     }
 }
 ```
@@ -561,7 +561,7 @@ git commit -m "feat(whitelabel): brand OAuth loopback success/error pages"
 构建前 `scripts/update-tauri-config.js`(在 `tauri:dev`/`tauri:build` 前自动运行)会:
 
 1. 用 `app.name` 写入 `apps/desktop/tauri.conf.json` 的 `productName` 与窗口标题;
-   Rust 侧窗口标题/托盘/OAuth 回调页文案也跟随该名(回落 `TeamClaw`)。
+   Rust 侧窗口标题/托盘/OAuth 回调页文案也跟随该名(回落 `TeamClu`)。
 2. 用 `app.logo` 跑 `tauri icon` 生成 `apps/desktop/icons/` 整套 OS 图标
    (32/128/128@2x/.icns/.ico),并把 128px 拷成 `packages/app/public/logo.png`
    与 `logo-64.png`(登录页 / 关于页展示)。
@@ -575,7 +575,7 @@ BUILD_ENV=acme pnpm tauri:dev        # 本地预览
 
 ## 注意
 
-- **不填 `app.logo` 且 `name=TeamClaw` → 产物零差异**,沿用仓库内已提交的图标。
+- **不填 `app.logo` 且 `name=TeamClu` → 产物零差异**,沿用仓库内已提交的图标。
 - 品牌构建会**就地覆盖**已提交的图标 / `public/logo*.png` / `tauri.conf.json`,
   工作区会变脏。CI/OEM 流程应 checkout → 应用品牌 → 构建 → 丢弃改动。
 - 纯前端 `pnpm dev`(不经 Tauri)不会触发图标生成,显示的是当前已提交的 logo。

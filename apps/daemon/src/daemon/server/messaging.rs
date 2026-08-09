@@ -39,23 +39,6 @@ impl DaemonServer {
         agent_list
     }
 
-    /// Look up a single agent's current RuntimeInfo — live adapter first, then
-    /// the historical session store. Returns `None` if unknown.
-    pub(crate) async fn agent_info_by_id(&self, agent_id: &str) -> Option<amux::RuntimeInfo> {
-        let agents = self.agents.lock().await;
-        match agents.to_proto_info(agent_id) {
-            Some(info) => Some(info),
-            None => {
-                // Same reason as `merged_agent_list`: a historical row must
-                // still advertise the device's catalog, or its session can
-                // never leave "connecting".
-                let mut info = self.sessions.to_proto_agent_info(agent_id)?;
-                agents.fill_catalog(&mut info);
-                Some(info)
-            }
-        }
-    }
-
     /// Publish the actor snapshot after attachment changes. Per-spawn
     /// `runtime/{id}/state` retains are no longer published — clients read
     /// `{actor}/state` only (ADR-0004 phase 7, iOS out of scope).
@@ -134,7 +117,7 @@ impl DaemonServer {
     /// scoped to that one session.
     ///
     /// Earlier versions of this function unioned in
-    /// `teamclaw.sessions_for_agent(daemon_actor_id)` — the set of
+    /// `teamclu.sessions_for_agent(daemon_actor_id)` — the set of
     /// sessions where the daemon (as agent participant) lives. That set
     /// is "all collab sessions this daemon serves," not "the session
     /// this turn belongs to," so every agent event got fanned out to
@@ -182,7 +165,7 @@ impl DaemonServer {
             return;
         }
         let current = self
-            .teamclaw
+            .teamclu
             .as_ref()
             .and_then(|tc| tc.sessions.find_by_id(session_id))
             .map(|s| s.title.trim().to_string())
@@ -201,7 +184,7 @@ impl DaemonServer {
             return;
         }
         let actor_id = self.backend.actor_id().to_string();
-        if let Some(tc) = self.teamclaw.as_mut() {
+        if let Some(tc) = self.teamclu.as_mut() {
             if let Some(session) = tc.sessions.find_by_id_mut(session_id) {
                 session.title = title.to_string();
             }
@@ -444,7 +427,7 @@ impl DaemonServer {
             }
         };
         if !collab_sessions.is_empty() && !emitted.is_empty() {
-            if let Some(tc) = self.teamclaw.as_ref() {
+            if let Some(tc) = self.teamclu.as_ref() {
                 let actor_id = self.actor_id.clone();
                 let model = self
                     .agents
@@ -632,12 +615,12 @@ impl DaemonServer {
     ) -> Result<(), String> {
         use prost::Message as _;
 
-        let envelope = crate::proto::teamclaw::LiveEventEnvelope::decode(payload)
+        let envelope = crate::proto::teamclu::LiveEventEnvelope::decode(payload)
             .map_err(|e| format!("LiveEventEnvelope decode failed: {e}"))?;
         if envelope.event_type != "message.created" {
             return Ok(());
         }
-        let env = crate::proto::teamclaw::SessionMessageEnvelope::decode(envelope.body.as_slice())
+        let env = crate::proto::teamclu::SessionMessageEnvelope::decode(envelope.body.as_slice())
             .map_err(|e| format!("SessionMessageEnvelope decode failed: {e}"))?;
         let Some(msg) = env.message.as_ref() else {
             return Err("SessionMessageEnvelope without inner message".into());
@@ -661,7 +644,7 @@ impl DaemonServer {
     pub(crate) async fn route_session_message(
         &mut self,
         session_id: &str,
-        message: &crate::proto::teamclaw::Message,
+        message: &crate::proto::teamclu::Message,
         mention_actor_ids: &[String],
     ) {
         // Skip messages this daemon authored — those are the agent reply we
@@ -715,7 +698,7 @@ impl DaemonServer {
     pub(crate) async fn route_session_message_to_runtimes(
         &mut self,
         session_id: &str,
-        message: &crate::proto::teamclaw::Message,
+        message: &crate::proto::teamclu::Message,
         mention_actor_ids: &[String],
         runtime_ids: Vec<String>,
     ) {
@@ -734,7 +717,7 @@ impl DaemonServer {
         // race. Cross-restart dedup relies on `last_processed_message_id` and
         // catchup reconcile (see `reconcile_runtime_cursor`), not this cache.
         if !message.message_id.is_empty() {
-            if let Some(tc) = self.teamclaw.as_mut() {
+            if let Some(tc) = self.teamclu.as_mut() {
                 if !tc.should_process_message(session_id, &message.message_id) {
                     debug!(
                         session_id = %session_id,
@@ -772,7 +755,7 @@ impl DaemonServer {
         }
         let attachment_urls = message_attachment_urls(message);
         for runtime_id in runtime_ids {
-            if self.agents.lock().await.agent_id_of(&runtime_id).is_none() {
+            if self.agents.lock().await.get_handle(&runtime_id).is_none() {
                 continue;
             }
             let mentioned = mentioned_actor;
@@ -1047,7 +1030,7 @@ impl DaemonServer {
                 return false;
             }
             let mention_ids = parse_mention_actor_ids(&m.metadata_json);
-            let proto = crate::proto::teamclaw::Message {
+            let proto = crate::proto::teamclu::Message {
                 message_id: m.id.clone(),
                 session_id: m.session_id.clone(),
                 sender_actor_id: m.sender_actor_id.clone(),
@@ -1096,8 +1079,8 @@ impl DaemonServer {
         agent_id: &str,
         envelope: &amux::Envelope,
     ) {
-        let Some(tc) = self.teamclaw.as_ref() else {
-            warn!(agent_id, "no teamclaw client; dropping envelope");
+        let Some(tc) = self.teamclu.as_ref() else {
+            warn!(agent_id, "no teamclu client; dropping envelope");
             return;
         };
         let sessions = self.target_sessions(agent_id).await;

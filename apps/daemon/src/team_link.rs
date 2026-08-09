@@ -1,4 +1,4 @@
-//! Materialize team global dir + workspace `teamclaw-team` link.
+//! Materialize team global dir + workspace `teamclu-team` link.
 //!
 //! Shared by the daemon core and the HTTP `/v1/team/link` handler so HTTP
 //! integration tests do not need to pull in `daemon::server`.
@@ -46,17 +46,9 @@ pub async fn team_share_gate(backend: &dyn Backend, team_id: &str) -> TeamShareG
     }
 }
 
-/// Whether team-share is actively enabled (excludes `Unknown`).
-pub async fn team_share_enabled(backend: &dyn Backend, team_id: &str) -> bool {
-    matches!(
-        team_share_gate(backend, team_id).await,
-        TeamShareGate::Enabled
-    )
-}
-
 /// Whether a workspace path is an app checkout (`<amuxd home>/apps/<appId>`).
 ///
-/// App workspaces deliberately get NO `teamclaw-team` link. An app's workspace
+/// App workspaces deliberately get NO `teamclu-team` link. An app's workspace
 /// is a real git repo that the user deploys: a link dropped at its root shows
 /// up as untracked content, rides along into the app's own commits and build
 /// artifact, and has nothing to do with the app. Team-shared skills/MCP still
@@ -80,7 +72,7 @@ fn path_is_under(ws_path: &str, root: &Path) -> bool {
     }
 }
 
-/// Remove `<workspace>/teamclaw-team` only when it is a symlink/junction.
+/// Remove `<workspace>/teamclu-team` only when it is a symlink/junction.
 ///
 /// Used for app workspaces, where a same-named real directory would be the
 /// app's own source and must never be deleted.
@@ -101,7 +93,7 @@ fn remove_workspace_team_symlink(ws_path: &str) {
     }
 }
 
-/// Remove `<workspace>/teamclaw-team` when it is a symlink/junction; remove a
+/// Remove `<workspace>/teamclu-team` when it is a symlink/junction; remove a
 /// real directory if one was materialized locally (legacy).
 pub fn remove_workspace_team_link(ws_path: &str) -> std::io::Result<()> {
     let link = Path::new(ws_path.trim()).join(TEAM_LINK_NAME);
@@ -162,7 +154,7 @@ pub fn materialize_or_teardown(gate: TeamShareGate, team_id: &str, ws_path: &str
 }
 
 /// Idempotently materialize a team's global shared dir and a workspace's
-/// `teamclaw-team` symlink into it.
+/// `teamclu-team` symlink into it.
 pub fn ensure_team_link(team_id: &str, ws_path: &str) -> LinkStatus {
     if team_id.trim().is_empty() || ws_path.trim().is_empty() {
         return LinkStatus::Fallback;

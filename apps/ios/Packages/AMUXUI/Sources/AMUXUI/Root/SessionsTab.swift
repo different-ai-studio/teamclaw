@@ -3,13 +3,13 @@ import SwiftData
 import AMUXCore
 import os
 
-private let sessionsTabLogger = Logger(subsystem: "tech.teamclaw.mobile", category: "SessionsTab")
+private let sessionsTabLogger = Logger(subsystem: "com.teamclu.mobile", category: "SessionsTab")
 
 public struct SessionsTab: View {
     let mqtt: MQTTService
     let hub: MQTTMessageHub
     let pairing: PairingManager
-    let teamclawService: TeamclawService?
+    let teamcluService: TeamcluService?
     let activeTeam: TeamSummary?
     let currentActorID: String?
     @Bindable var viewModel: SessionListViewModel
@@ -47,7 +47,7 @@ public struct SessionsTab: View {
     public init(mqtt: MQTTService,
                 hub: MQTTMessageHub,
                 pairing: PairingManager,
-                teamclawService: TeamclawService?,
+                teamcluService: TeamcluService?,
                 activeTeam: TeamSummary?,
                 currentActorID: String?,
                 viewModel: SessionListViewModel,
@@ -69,7 +69,7 @@ public struct SessionsTab: View {
         self.mqtt = mqtt
         self.hub = hub
         self.pairing = pairing
-        self.teamclawService = teamclawService
+        self.teamcluService = teamcluService
         self.activeTeam = activeTeam
         self.currentActorID = currentActorID
         self.viewModel = viewModel
@@ -99,7 +99,7 @@ public struct SessionsTab: View {
                     navigationPath: $navigationPath,
                     isEditing: $isEditing,
                     selectedIDs: $selectedIDs,
-                    teamclawService: teamclawService,
+                    teamcluService: teamcluService,
                     pairing: pairing,
                     mqtt: mqtt,
                     actorId: "ios-\(pairing.authToken.prefix(6))",
@@ -142,7 +142,7 @@ public struct SessionsTab: View {
                         mqtt: mqtt,
                         hub: hub,
                         pairing: pairing,
-                        teamclawService: teamclawService,
+                        teamcluService: teamcluService,
                         currentActorID: currentActorID,
                         refreshSessionsFromBackend: refreshSessionsFromBackend,
                         navigationPath: $navigationPath,
@@ -165,7 +165,7 @@ public struct SessionsTab: View {
                 .sheet(isPresented: $showNewSession) {
                     NewSessionSheet(mqtt: mqtt,
                                    peerId: "ios-\(pairing.authToken.prefix(6))",
-                                   teamclawService: teamclawService,
+                                   teamcluService: teamcluService,
                                    teamID: activeTeam?.id ?? "",
                                    currentActorID: currentActorID,
                                    isAgentAvailable: pairing.isPaired,
@@ -175,7 +175,7 @@ public struct SessionsTab: View {
                                    viewModel: viewModel) { agentId in
                         navigationPath = [agentId]
                         // Pull the freshly-created Supabase rows (sessions +
-                        // agent_runtimes + workspaces) into the local cache so
+                        // workspaces) into the local cache so
                         // the row's agent type / workspace populate without
                         // waiting for the user to pull-to-refresh.
                         Task { await refreshSessionsFromBackend() }
@@ -194,10 +194,10 @@ public struct SessionsTab: View {
                         teamID: activeTeam?.id ?? "",
                         connectedAgentsStore: connectedAgentsStore,
                         modelContext: modelContext,
-                        teamclawService: teamclawService
+                        teamcluService: teamcluService
                     )
                 }
-                .onChange(of: teamclawService?.sessions.count) {
+                .onChange(of: teamcluService?.sessions.count) {
                     viewModel.reloadSessions(modelContext: modelContext)
                 }
             }
@@ -248,7 +248,7 @@ private struct SessionDestinationView: View {
     let mqtt: MQTTService
     let hub: MQTTMessageHub
     let pairing: PairingManager
-    let teamclawService: TeamclawService?
+    let teamcluService: TeamcluService?
     let currentActorID: String?
     let refreshSessionsFromBackend: () async -> Void
     @Binding var navigationPath: [String]
@@ -279,7 +279,7 @@ private struct SessionDestinationView: View {
                     mqtt: mqtt,
                     hub: hub,
                     peerId: "ios-\(pairing.authToken.prefix(6))",
-                    teamclawService: teamclawService,
+                    teamcluService: teamcluService,
                     connectedAgentsStore: connectedAgentsStore,
                     messagesRepository: messagesRepository,
                     workspacesRepository: workspacesRepository,

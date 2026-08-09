@@ -1,6 +1,6 @@
 import AsyncStorage from "@react-native-async-storage/async-storage";
 
-const STORAGE_PREFIX = "teamclaw.composerDraft.v1:";
+const STORAGE_PREFIX = "teamclu.composerDraft.v1:";
 
 function key(sessionId: string): string {
   return `${STORAGE_PREFIX}${sessionId}`;

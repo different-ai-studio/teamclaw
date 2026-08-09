@@ -152,6 +152,21 @@ impl FcClient {
         map_fc_response(resp).await
     }
 
+    /// Generic PUT helper. Returns raw JSON value on 2xx.
+    pub async fn put_json(&self, path: &str, body: &Value) -> Result<Value, SyncError> {
+        let url = format!("{}{}", self.base_url, path);
+        let resp = self
+            .client
+            .put(&url)
+            .header("Authorization", format!("Bearer {}", self.jwt))
+            .header("Content-Type", "application/json")
+            .json(body)
+            .send()
+            .await
+            .map_err(|e| SyncError::Network(e.to_string()))?;
+        map_fc_response(resp).await
+    }
+
     /// Internal POST helper with JWT injection and error mapping.
     async fn post<T: serde::de::DeserializeOwned>(
         &self,
@@ -217,6 +232,14 @@ async fn map_fc_response<T: serde::de::DeserializeOwned>(
         .map_err(|e| SyncError::Network(e.to_string()))?;
 
     if status.is_success() {
+        // A 204 (and any other empty 2xx) carries no body. Parsing "" fails, so a
+        // successful DELETE would surface as an internal error; treat it as JSON
+        // null instead. Typed callers that genuinely expect fields still fail on
+        // the missing-field error, so this only rescues the void-returning ones.
+        if bytes.is_empty() {
+            return serde_json::from_slice(b"null")
+                .map_err(|e| SyncError::Internal(format!("response parse failed: {e}")));
+        }
         serde_json::from_slice(&bytes)
             .map_err(|e| SyncError::Internal(format!("response parse failed: {e}")))
     } else {

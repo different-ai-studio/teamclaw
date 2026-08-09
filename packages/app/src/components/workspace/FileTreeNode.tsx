@@ -161,8 +161,8 @@ export interface FileTreeItemProps {
   statusColors: Record<GitStatus, string>;
   isRenaming: boolean;
   isDragOver: boolean;
-  /** Whether this is the root teamclaw-team directory (for visual styling) */
-  isTeamClawTeam?: boolean;
+  /** Whether this is the root teamclu-team directory (for visual styling) */
+  isTeamCluTeam?: boolean;
   /** Whether the team directory is currently syncing (Git mode) */
   teamSyncing?: boolean;
   /** ISO timestamp of last successful team repo sync (for relative-time label) */
@@ -216,7 +216,7 @@ export const FileTreeItem = React.memo(function FileTreeItem({
   statusColors,
   isRenaming,
   isDragOver,
-  isTeamClawTeam,
+  isTeamCluTeam,
   teamSyncing,
   teamLastSyncAt,
   syncStatus,
@@ -377,13 +377,13 @@ export const FileTreeItem = React.memo(function FileTreeItem({
         />
       )}
 
-      {isTeamClawTeam && (
+      {isTeamCluTeam && (
         teamSyncing
           ? <Loader2 className="h-3.5 w-3.5 shrink-0 animate-spin text-muted-foreground" />
           : <img src="/logo-64.png" alt="" className="h-3.5 w-3.5 shrink-0" />
       )}
 
-      {isKnowledgeDir && !isTeamClawTeam && (
+      {isKnowledgeDir && !isTeamCluTeam && (
         <ObsidianIcon className="h-3.5 w-3.5 shrink-0" style={{ color: '#7C3AED' }} />
       )}
 
@@ -421,7 +421,7 @@ export const FileTreeItem = React.memo(function FileTreeItem({
       {hasGitChanges && isDirectory && (
         <Circle className="h-1.5 w-1.5 fill-amber-500 text-amber-500 shrink-0" />
       )}
-      {isTeamClawTeam && !teamSyncing && teamLastSyncAt && (
+      {isTeamCluTeam && !teamSyncing && teamLastSyncAt && (
         <span
           className="ml-auto pl-2 text-[10px] text-muted-foreground/70 font-normal shrink-0"
           title={t('fileExplorer.teamLastSyncTooltip', 'Last sync: {{time}}', { time: formatDateTime(teamLastSyncAt) })}
@@ -429,7 +429,7 @@ export const FileTreeItem = React.memo(function FileTreeItem({
           {formatRelativeTime(teamLastSyncAt)}
         </span>
       )}
-      {isTeamClawTeam && teamSyncing && (
+      {isTeamCluTeam && teamSyncing && (
         <span className="ml-auto pl-2 text-[10px] text-muted-foreground/70 font-normal shrink-0">
           {t('fileExplorer.teamSyncing', 'Syncing…')}
         </span>

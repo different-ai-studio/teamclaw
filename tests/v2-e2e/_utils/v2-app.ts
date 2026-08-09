@@ -2,7 +2,7 @@ import {
   executeJs,
   focusWindow,
   isReusingExistingApp,
-  launchTeamClawApp,
+  launchTeamCluApp,
   sleep,
   stopApp,
 } from "../../_utils/tauri-mcp-test-utils";
@@ -48,12 +48,12 @@ async function waitFor<T>(
 }
 
 export async function launchV2E2EApp(): Promise<string> {
-  const processId = await launchTeamClawApp();
+  const processId = await launchTeamCluApp();
   if (isReusingExistingApp() && !(await hasV2ControlSurface())) {
     throw new Error(
       [
-        "Refusing to run V2 E2E against an existing non-E2E TeamClaw app.",
-        "Stop the running app, then rerun with a binary built using VITE_TEAMCLAW_E2E=true.",
+        "Refusing to run V2 E2E against an existing non-E2E TeamClu app.",
+        "Stop the running app, then rerun with a binary built using VITE_TEAMCLU_E2E=true.",
       ].join(" "),
     );
   }
@@ -89,7 +89,7 @@ export async function v2Call<T = unknown>(method: string, args?: unknown): Promi
   await jsJson<{ started: true }>(`
     (() => {
       const callId = ${JSON.stringify(callId)};
-      const calls = window.__TEAMCLAW_V2_E2E_CALLS__ ||= {};
+      const calls = window.__TEAMCLU_V2_E2E_CALLS__ ||= {};
       const setRejected = (error) => {
         if (calls[callId]?.status !== "pending") return;
         calls[callId] = {
@@ -101,12 +101,12 @@ export async function v2Call<T = unknown>(method: string, args?: unknown): Promi
       calls[callId] = { status: "pending" };
 
       try {
-        const api = window.__TEAMCLAW_V2_E2E__;
-        if (!api) throw new Error("window.__TEAMCLAW_V2_E2E__ is not installed");
+        const api = window.__TEAMCLU_V2_E2E__;
+        if (!api) throw new Error("window.__TEAMCLU_V2_E2E__ is not installed");
 
         const fn = api[${JSON.stringify(method)}];
         if (typeof fn !== "function") {
-          throw new Error("window.__TEAMCLAW_V2_E2E__." + ${JSON.stringify(method)} + " is not a function");
+          throw new Error("window.__TEAMCLU_V2_E2E__." + ${JSON.stringify(method)} + " is not a function");
         }
 
         Promise.resolve()
@@ -276,9 +276,9 @@ export async function submitComposer(): Promise<void> {
 async function waitForSelectorReady(): Promise<void> {
   try {
     await waitFor(
-      "window.__TEAMCLAW_V2_E2E__",
+      "window.__TEAMCLU_V2_E2E__",
       () => jsJson<boolean>(`
-        (() => JSON.stringify(Boolean(window.__TEAMCLAW_V2_E2E__)))()
+        (() => JSON.stringify(Boolean(window.__TEAMCLU_V2_E2E__)))()
       `),
       Boolean,
       DEFAULT_TIMEOUT_MS,
@@ -288,8 +288,8 @@ async function waitForSelectorReady(): Promise<void> {
     throw new Error(
       [
         "V2 E2E control surface is not installed.",
-        "The app connected through the Tauri MCP socket must be built with VITE_TEAMCLAW_E2E=true.",
-        "If a normal TeamClaw app is already running, stop it before running the V2 E2E suite so the launcher does not reuse that non-E2E socket.",
+        "The app connected through the Tauri MCP socket must be built with VITE_TEAMCLU_E2E=true.",
+        "If a normal TeamClu app is already running, stop it before running the V2 E2E suite so the launcher does not reuse that non-E2E socket.",
         `Original wait failure: ${detail}`,
       ].join(" "),
     );
@@ -299,7 +299,7 @@ async function waitForSelectorReady(): Promise<void> {
 async function readV2CallSlot(callId: string): Promise<V2CallSlot | null> {
   return jsJson<V2CallSlot | null>(`
     (() => {
-      const slot = window.__TEAMCLAW_V2_E2E_CALLS__?.[${JSON.stringify(callId)}] ?? null;
+      const slot = window.__TEAMCLU_V2_E2E_CALLS__?.[${JSON.stringify(callId)}] ?? null;
       return JSON.stringify(slot);
     })()
   `);
@@ -309,8 +309,8 @@ async function cancelV2CallSlot(callId: string): Promise<void> {
   try {
     await executeJs(`
       (() => {
-        if (window.__TEAMCLAW_V2_E2E_CALLS__?.[${JSON.stringify(callId)}]?.status === "pending") {
-          window.__TEAMCLAW_V2_E2E_CALLS__[${JSON.stringify(callId)}] = { status: "cancelled" };
+        if (window.__TEAMCLU_V2_E2E_CALLS__?.[${JSON.stringify(callId)}]?.status === "pending") {
+          window.__TEAMCLU_V2_E2E_CALLS__[${JSON.stringify(callId)}] = { status: "cancelled" };
         }
         return "null";
       })()
@@ -324,8 +324,8 @@ async function clearV2CallSlot(callId: string): Promise<void> {
   try {
     await executeJs(`
       (() => {
-        if (window.__TEAMCLAW_V2_E2E_CALLS__) {
-          delete window.__TEAMCLAW_V2_E2E_CALLS__[${JSON.stringify(callId)}];
+        if (window.__TEAMCLU_V2_E2E_CALLS__) {
+          delete window.__TEAMCLU_V2_E2E_CALLS__[${JSON.stringify(callId)}];
         }
         return "null";
       })()
@@ -337,7 +337,7 @@ async function clearV2CallSlot(callId: string): Promise<void> {
 
 async function hasV2ControlSurface(): Promise<boolean> {
   try {
-    return (await executeJs("String(Boolean(window.__TEAMCLAW_V2_E2E__))")) === "true";
+    return (await executeJs("String(Boolean(window.__TEAMCLU_V2_E2E__))")) === "true";
   } catch (error) {
     if (isExecuteJsUnavailableError(error)) return false;
     throw error;

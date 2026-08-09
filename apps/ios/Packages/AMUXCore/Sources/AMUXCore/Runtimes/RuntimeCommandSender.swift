@@ -25,7 +25,7 @@ public struct RuntimeCommandSender: Sendable {
     ///
     /// - Parameters:
     ///   - runtimeID: 8-char daemon runtime id (segment in the topic).
-    ///     Empty throws `.runtimeIdEmpty`.
+    ///     Empty throws `.addressEmpty`.
     ///   - actorID: routing actor id of the target daemon/agent (topic
     ///     prefix). Empty throws `.routeActorIdUnresolved`.
     ///   - currentHumanActorID: stamped onto `senderActorID` so the daemon
@@ -44,7 +44,7 @@ public struct RuntimeCommandSender: Sendable {
         // protobuf builders from a @MainActor caller.
         makeCommand: sending (inout Amux_AcpCommand) -> Void
     ) async throws {
-        guard !runtimeID.isEmpty else { throw SendCommandError.runtimeIdEmpty }
+        guard !runtimeID.isEmpty else { throw SendCommandError.addressEmpty }
         guard !actorID.isEmpty else { throw SendCommandError.routeActorIdUnresolved }
 
         var envelope = Amux_RuntimeCommandEnvelope()
@@ -71,15 +71,15 @@ public struct RuntimeCommandSender: Sendable {
 }
 
 public enum SendCommandError: LocalizedError, Sendable {
-    case noRuntime
-    case runtimeIdEmpty
+    case noAgent
+    case addressEmpty
     case routeActorIdUnresolved
 
     public var errorDescription: String? {
         switch self {
-        case .noRuntime:
+        case .noAgent:
             return "Runtime not resolved yet — try again in a moment."
-        case .runtimeIdEmpty:
+        case .addressEmpty:
             return "Runtime id missing — daemon hasn't published runtime state yet."
         case .routeActorIdUnresolved:
             return "Route actor id not resolved — primary agent may be offline."

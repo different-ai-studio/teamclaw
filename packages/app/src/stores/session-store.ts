@@ -1,5 +1,5 @@
 import { create } from "zustand";
-import type { Message } from "@/lib/proto/teamclaw_pb";
+import type { Message } from "@/lib/proto/teamclu_pb";
 import type { SessionErrorEvent } from "./session-types";
 import { useSessionMessageStore } from "./session-message-store";
 import { useSessionListStore } from "./session-list-store";
@@ -163,7 +163,7 @@ export const useSessionStore = create<SessionState>((set, get) => ({
   // ── Phase 1E compat: pure stubs (no v2 implementation yet) ───────
   pollPermissions: stubAsync("pollPermissions"),
   replyPermission: async (permissionId: string, decision: "allow" | "deny" | "always") => {
-    const { replyPermissionById } = await import("@/lib/teamclaw/reply-acp-permission");
+    const { replyPermissionById } = await import("@/lib/teamclu/reply-acp-permission");
     await replyPermissionById(permissionId, decision);
   },
   // ── opencode `question` tool ─────────────────────────────────────
@@ -198,7 +198,7 @@ export const useSessionStore = create<SessionState>((set, get) => ({
       const answer = answers[key];
       return answer ? [answer] : [];
     });
-    const { answerAcpQuestion } = await import("@/lib/teamclaw/answer-question");
+    const { answerAcpQuestion } = await import("@/lib/teamclu/answer-question");
     await answerAcpQuestion({
       sessionId: pending.sessionId ?? "",
       agentActorId: pending.agentActorId ?? "",
@@ -211,7 +211,7 @@ export const useSessionStore = create<SessionState>((set, get) => ({
       (q: Compat) => !questionId || q.questionId === questionId,
     );
     if (!pending) return;
-    const { answerAcpQuestion } = await import("@/lib/teamclaw/answer-question");
+    const { answerAcpQuestion } = await import("@/lib/teamclu/answer-question");
     await answerAcpQuestion({
       sessionId: pending.sessionId ?? "",
       agentActorId: pending.agentActorId ?? "",

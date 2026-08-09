@@ -6,7 +6,7 @@
 
 **Architecture:** Outbox detects local-only mentions → `runtimeStart` over existing local `/v1/rpc` (pass local `worktree`, skip Cloud workspace-hint round-trips) → new loopback `POST /v1/session-live/ingest` that runs the same `route_session_message` sink as MQTT `message.created` → then MQTT publish + Cloud `insertOutgoingMessage` (Cloud failure does not fail delivery). Remote / multi-agent mentions keep today’s Cloud → MQTT → ensure order.
 
-**Tech Stack:** amuxd axum HTTP bridge, teamclaw protobuf `LiveEventEnvelope` / `SessionMessageEnvelope`, desktop outbox-sender, existing `teamclaw-rpc` local HTTP path.
+**Tech Stack:** amuxd axum HTTP bridge, teamclu protobuf `LiveEventEnvelope` / `SessionMessageEnvelope`, desktop outbox-sender, existing `teamclu-rpc` local HTTP path.
 
 ---
 

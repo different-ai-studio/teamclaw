@@ -1,6 +1,6 @@
 /**
  * Local statistics types for project-level tracking
- * Stored in .teamclaw/stats.json (not uploaded, project-specific)
+ * Stored in .teamclu/stats.json (not uploaded, project-specific)
  */
 
 export interface LocalStats {

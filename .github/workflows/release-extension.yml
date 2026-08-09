@@ -54,7 +54,7 @@ jobs:
           # publishes to OSS, but brand-setup validates these fields.
           oss-bucket-default: ${{ secrets.OSS_BUCKET }}
           oss-endpoint-default: ${{ secrets.OSS_ENDPOINT }}
-          cdn-base-default: ${{ vars.OSS_CDN_BASE || 'https://teamclaw.ucar.cc' }}
+          cdn-base-default: ${{ vars.OSS_CDN_BASE || 'https://teamclu.ucar.cc' }}
 
       - name: Setup Node.js
         uses: actions/setup-node@v7
@@ -84,14 +84,14 @@ jobs:
 
       # Do NOT set BUILD_ENV. It selects build.config.<env>.json, and
       # BUILD_ENV=production deep-merges build.config.production.json OVER the
-      # brand's build.config.json — whose app block is {"name": "TeamClaw",
-      # "shortName": "teamclaw"}, so every branded package shipped a side panel
-      # announcing itself as TeamClaw next to the brand's own logo. The brand's
+      # brand's build.config.json — whose app block is {"name": "TeamClu",
+      # "shortName": "teamclu"}, so every branded package shipped a side panel
+      # announcing itself as TeamClu next to the brand's own logo. The brand's
       # build.config.json is the sole source; vite builds in production mode
       # regardless. release-oss.yml already documents this trap for the desktop
       # pipeline; this job was still walking into it.
       - name: Build extension
-        run: pnpm --filter @teamclaw/extension build
+        run: pnpm --filter @teamclu/extension build
 
       # The Web Store API cannot write listing metadata (media.upload + publish
       # are the only mutating endpoints), so screenshots, store copy and the

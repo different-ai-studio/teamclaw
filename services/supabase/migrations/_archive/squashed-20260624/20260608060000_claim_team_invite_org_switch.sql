@@ -1,6 +1,6 @@
 -- ============================================================================
 -- Stage 3-FC.3: claim_team_invite switches the claimer's org (strict single-org)
--- (spec: docs/specs/2026-06-08-teamclaw-saas-mono-integration.md §8)
+-- (spec: docs/specs/2026-06-08-teamclu-saas-mono-integration.md §8)
 --
 -- ⚠️ APPLY WITH / AFTER Stage 2 (references amux). Supersedes the S2-rewritten
 --    claim_team_invite, adding an org-switch block to the member paths:

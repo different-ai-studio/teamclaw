@@ -4,7 +4,7 @@ use std::future::Future;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::time::Duration;
-use teamclaw_transport::MessagePublisher;
+use teamclu_transport::MessagePublisher;
 use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
 #[cfg(unix)]
 use tokio::net::UnixListener;
@@ -56,7 +56,7 @@ use crate::provider_config::ProviderConfig;
 use crate::runtime::acp_event_frame::AcpEventFrame;
 use crate::runtime::{apply_workspace_system_instructions, AgentLaunchConfig, RuntimeManager};
 use crate::team_shared_git::TeamSharedGitConfig;
-use teamclaw_gateway::{AgentHandle, ChannelStore};
+use teamclu_gateway::{AgentHandle, ChannelStore};
 
 /// Outcome of apply_start_runtime. Success path returns the allocated
 /// runtime_id + the session_id (echoed from request or freshly created).
@@ -73,10 +73,6 @@ pub(crate) struct StartRuntimeError {
     error_code: String,
     error_message: String,
     failed_stage: String,
-}
-
-fn load_team_runtime_env(workspace_root: &Path, team_id: Option<&str>) -> HashMap<String, String> {
-    crate::team_shared_env::load_team_env_for_workspace(workspace_root, team_id)
 }
 
 fn sync_team_shared_dir_for_workspace(workspace_root: &Path, config: &TeamSharedGitConfig) {
@@ -173,7 +169,7 @@ pub struct DaemonServer {
     nats: Option<crate::nats::NatsBackend>,
     /// Unified publisher handle. Set to `mqtt.client` on the MQTT path and
     /// to `nats.client` on the NATS path during connect. All publishing
-    /// downstream (Publisher::new_from_handle, teamclaw, channels) reads
+    /// downstream (Publisher::new_from_handle, teamclu, channels) reads
     /// this so the same handler code works for both backends.
     publisher_handle: Arc<dyn MessagePublisher>,
     /// Mirror of the active backend's `Topics`. Updated alongside
@@ -192,7 +188,7 @@ pub struct DaemonServer {
     sessions: SessionStore,
     sessions_path: PathBuf,
     history: EventHistory,
-    teamclaw: Option<crate::teamclaw::SessionManager>,
+    teamclu: Option<crate::teamclu::SessionManager>,
     backend: Arc<dyn Backend>,
     /// The same object as `backend`, typed concretely so the setup endpoint can
     /// install real credentials into an unclaimed daemon at runtime. Every other
@@ -224,10 +220,10 @@ pub struct DaemonServer {
     /// subscribers, so a same-machine UI is not gated on broker RTT. Held on
     /// the server so re-built `SessionManager`s (reconnect/re-onboard) can be
     /// re-attached via `set_local_tee`.
-    live_tee: tokio::sync::broadcast::Sender<crate::teamclaw::live::LiveTeeEvent>,
+    live_tee: tokio::sync::broadcast::Sender<crate::teamclu::live::LiveTeeEvent>,
     session_remote_targets: Arc<AsyncMutex<crate::remote_tools::SessionRemoteTargetStore>>,
     remote_tool_turn_contexts: Arc<AsyncMutex<crate::remote_tools::RemoteToolTurnContextStore>>,
-    rpc_client: Arc<AsyncMutex<crate::teamclaw::rpc::RpcClient>>,
+    rpc_client: Arc<AsyncMutex<crate::teamclu::rpc::RpcClient>>,
     /// Sender for completed cron turns. `handle_prompt_await` runs the (long)
     /// ACP turn on a background task; when it finishes the task sends the result
     /// here so the active run loop can persist the AgentReply and reply to the
@@ -289,15 +285,15 @@ pub(crate) enum SockCommand {
         reply_tx: oneshot::Sender<String>,
     },
     /// Local fast-path RPC from `POST /v1/rpc`. `payload` is the raw
-    /// `teamclaw.RpcRequest` protobuf bytes (identical to what a client
+    /// `teamclu.RpcRequest` protobuf bytes (identical to what a client
     /// would publish on `amux/{team}/{actor}/rpc/req`); `reply_tx` receives
-    /// the encoded `teamclaw.RpcResponse` bytes or a dispatch error.
+    /// the encoded `teamclu.RpcResponse` bytes or a dispatch error.
     LocalRpc {
         payload: Vec<u8>,
         reply_tx: oneshot::Sender<Result<Vec<u8>, String>>,
     },
     /// Local fast-path session/live ingest from `POST /v1/session-live/ingest`.
-    /// `payload` is the raw `teamclaw.LiveEventEnvelope` protobuf bytes.
+    /// `payload` is the raw `teamclu.LiveEventEnvelope` protobuf bytes.
     LocalLiveIngest {
         session_id: String,
         payload: Vec<u8>,
@@ -338,7 +334,7 @@ pub(crate) enum SockCommand {
         path: String,
     },
     /// Fetch a fresh WeChat (iLink) bot QR code. One-shot HTTP call to the
-    /// ilink backend via `teamclaw_gateway::wechat::fetch_qr_code`. Reply is
+    /// ilink backend via `teamclu_gateway::wechat::fetch_qr_code`. Reply is
     /// `{ok, result?, error?}` where result is the raw `WeChatQrLoginResponse`.
     WechatQrStart {
         reply_tx: oneshot::Sender<String>,
@@ -728,17 +724,17 @@ impl DaemonServer {
         // coalesced deltas; a lagging subscriber skips events, which the MQTT
         // copy then backfills (frontend dedupes by event_id).
         let (live_tee, _) =
-            tokio::sync::broadcast::channel::<crate::teamclaw::live::LiveTeeEvent>(1024);
+            tokio::sync::broadcast::channel::<crate::teamclu::live::LiveTeeEvent>(1024);
 
         let team_id_for_rpc = config.team_id.clone().unwrap_or_default();
-        let rpc_client = Arc::new(AsyncMutex::new(crate::teamclaw::rpc::RpcClient::new(
+        let rpc_client = Arc::new(AsyncMutex::new(crate::teamclu::rpc::RpcClient::new(
             publisher_handle.clone(),
             team_id_for_rpc,
             actor_id.clone(),
         )));
 
-        let teamclaw = if let Some(team_id) = &config.team_id {
-            let mut sm = crate::teamclaw::SessionManager::new(
+        let teamclu = if let Some(team_id) = &config.team_id {
+            let mut sm = crate::teamclu::SessionManager::new(
                 publisher_handle.clone(),
                 team_id,
                 &config.actor.id,
@@ -779,7 +775,7 @@ impl DaemonServer {
             sessions,
             sessions_path,
             history,
-            teamclaw,
+            teamclu,
             backend: backend.clone(),
             deferred_backend,
             actor_id,
@@ -826,7 +822,7 @@ impl DaemonServer {
     /// Team-link sweep: reads the cloud `workspaces` table (all of this
     /// team's workspaces, across every device — the sole source of truth),
     /// then filters to paths that exist on *this* machine before symlinking
-    /// `<workspace>/teamclaw-team`. This is mandatory —
+    /// `<workspace>/teamclu-team`. This is mandatory —
     /// the cloud list intentionally includes other devices' workspace paths,
     /// which must never be touched by a daemon that doesn't own them.
     pub(crate) async fn sync_team_shared_dirs_for_known_workspaces(&self) {
@@ -868,12 +864,12 @@ impl DaemonServer {
             mark_mqtt_connected(&self.mqtt_connected_flag, false);
             return Err(());
         }
-        if let Some(tc) = &mut self.teamclaw {
+        if let Some(tc) = &mut self.teamclu {
             if let Err(e) = tc.subscribe_all().await {
                 warn!(
                     context,
                     error = %e,
-                    "teamclaw subscribe failed after CONNACK, reconnecting"
+                    "teamclu subscribe failed after CONNACK, reconnecting"
                 );
                 mark_mqtt_connected(&self.mqtt_connected_flag, false);
                 return Err(());
@@ -944,7 +940,7 @@ impl DaemonServer {
         // daemon was seconds from being ready. Prewarm is a first-turn latency
         // optimization — it must not block readiness.
 
-        // Browser-facing HTTP+SSE listener. Desktop TeamClaw requires this
+        // Browser-facing HTTP+SSE listener. Desktop TeamClu requires this
         // control plane; when `[http]` is absent from daemon.toml we still
         // bind loopback with `HttpConfig::default()`. Failure to bind is
         // logged but does NOT abort the daemon — the Unix socket path remains
@@ -1311,6 +1307,50 @@ impl DaemonServer {
             });
         }
 
+        // Mirror the team config that lives in the Cloud API (team MCP, team
+        // env) onto the local cache the synchronous readers use.
+        //
+        // A background tick rather than a fetch on the read path: both readers
+        // are synchronous and sit on the runtime spawn path, and agents have to
+        // start while offline. See `runtime::team_cloud_config`.
+        //
+        // Desktop also triggers an immediate reconcile via
+        // `POST /v1/team/cloud-config/reconcile` after a Cloud API write; that
+        // path shares the same fan-out so a cache update surfaces "runtime
+        // needs restart" without waiting for this tick.
+        if let Some(team_id) = self
+            .config
+            .team_id
+            .as_deref()
+            .map(str::trim)
+            .filter(|id| !id.is_empty())
+            .map(str::to_owned)
+        {
+            use crate::runtime::team_cloud_config::apply_team_cloud_outcome;
+            let resolver = Arc::new(
+                crate::runtime::team_cloud_config::TeamCloudConfigResolver::new(
+                    self.backend.clone(),
+                ),
+            );
+            let backend = Some(self.backend.clone());
+            let refresh = self.refresh_coordinator.clone();
+            tokio::spawn(async move {
+                // Once up front so a freshly started daemon converges without
+                // waiting out the first tick, then on the TTL cadence.
+                let outcome = resolver.reconcile_now(&team_id).await;
+                apply_team_cloud_outcome(&team_id, outcome, backend.as_ref(), refresh.as_ref())
+                    .await;
+                let mut tick = tokio::time::interval(Duration::from_secs(300));
+                tick.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
+                loop {
+                    tick.tick().await;
+                    let outcome = resolver.reconcile(&team_id).await;
+                    apply_team_cloud_outcome(&team_id, outcome, backend.as_ref(), refresh.as_ref())
+                        .await;
+                }
+            });
+        }
+
         // Advertise supported agent backend types on the cloud `agents` row
         // (background, with retries). Routing identity is the actor_id; no
         // separate device-id upsert. Skip when daemon.toml has no `[agents.*]`
@@ -1406,7 +1446,7 @@ impl DaemonServer {
             // ── 0. Self-heal team_id from daemon.toml ──
             // A daemon that started before onboarding wrote the team keeps
             // `team_id = None` for its whole process lifetime. It would then
-            // publish presence + LWT under the `"teamclaw"` fallback topic
+            // publish presence + LWT under the `"teamclu"` fallback topic
             // (see mqtt/client.rs) that no subscriber listens on, so it appears
             // permanently OFFLINE until a full process restart re-reads config.
             // Re-read daemon.toml here so a running daemon adopts the team on
@@ -1428,7 +1468,7 @@ impl DaemonServer {
                         //
                         // Only the MQTT identity converges here: the topics and
                         // client are rebuilt each cycle. Startup-captured consumers
-                        // (teamclaw::SessionManager) still hold the old id,
+                        // (teamclu::SessionManager) still hold the old id,
                         // which is why POST /v1/setup/claim reports
                         // requiresRestart for a daemon that booted unclaimed.
                         if fresh.actor.id != self.config.actor.id {
@@ -1442,7 +1482,7 @@ impl DaemonServer {
                     }
                 }
                 // Still teamless: there is nothing team-scoped to do on MQTT
-                // (no presence topic, no teamclaw command channel). Rather than
+                // (no presence topic, no teamclu command channel). Rather than
                 // hold a connection open forever in a state onboarding can't
                 // heal, back off and re-check daemon.toml on the next cycle.
                 if self.config.team_id.is_none() {
@@ -1543,12 +1583,12 @@ impl DaemonServer {
                 }
             };
 
-            // ── 3. Rebuild teamclaw with new AsyncClient ──
+            // ── 3. Rebuild teamclu with new AsyncClient ──
             if let Some(team_id) = self.config.team_id.clone() {
                 self.publisher_handle = Arc::new(self.mqtt.client.clone());
                 self.topics = self.mqtt.topics.clone();
                 self.refresh_rpc_client_publisher();
-                self.teamclaw = match crate::teamclaw::SessionManager::new(
+                self.teamclu = match crate::teamclu::SessionManager::new(
                     self.publisher_handle.clone(),
                     &team_id,
                     &self.config.actor.id,
@@ -1560,7 +1600,7 @@ impl DaemonServer {
                         Some(tc)
                     }
                     Err(e) => {
-                        warn!("teamclaw rebuild failed: {e}");
+                        warn!("teamclu rebuild failed: {e}");
                         None
                     }
                 };
@@ -1745,30 +1785,30 @@ impl DaemonServer {
                                 self.kick_prewarm_for_workspace(&path, &workspace_id).await;
                             }
                             Some(SockCommand::WechatQrStart { reply_tx }) => {
-                                let base_url = teamclaw_gateway::wechat_config::default_ilink_base_url();
-                                let resp = match teamclaw_gateway::wechat::fetch_qr_code(&base_url).await {
+                                let base_url = teamclu_gateway::wechat_config::default_ilink_base_url();
+                                let resp = match teamclu_gateway::wechat::fetch_qr_code(&base_url).await {
                                     Ok(v) => serde_json::json!({ "ok": true, "result": v }),
                                     Err(e) => serde_json::json!({ "ok": false, "error": e }),
                                 };
                                 let _ = reply_tx.send(resp.to_string());
                             }
                             Some(SockCommand::WechatQrPoll { qrcode, reply_tx }) => {
-                                let base_url = teamclaw_gateway::wechat_config::default_ilink_base_url();
-                                let resp = match teamclaw_gateway::wechat::poll_qr_status(&base_url, &qrcode).await {
+                                let base_url = teamclu_gateway::wechat_config::default_ilink_base_url();
+                                let resp = match teamclu_gateway::wechat::poll_qr_status(&base_url, &qrcode).await {
                                     Ok(v) => serde_json::json!({ "ok": true, "result": v }),
                                     Err(e) => serde_json::json!({ "ok": false, "error": e }),
                                 };
                                 let _ = reply_tx.send(resp.to_string());
                             }
                             Some(SockCommand::WecomQrStart { reply_tx }) => {
-                                let resp = match teamclaw_gateway::wecom::fetch_wecom_qr_code().await {
+                                let resp = match teamclu_gateway::wecom::fetch_wecom_qr_code().await {
                                     Ok(v) => serde_json::json!({ "ok": true, "result": v }),
                                     Err(e) => serde_json::json!({ "ok": false, "error": e }),
                                 };
                                 let _ = reply_tx.send(resp.to_string());
                             }
                             Some(SockCommand::WecomQrPoll { scode, reply_tx }) => {
-                                let resp = match teamclaw_gateway::wecom::poll_wecom_qr_result(&scode).await {
+                                let resp = match teamclu_gateway::wecom::poll_wecom_qr_result(&scode).await {
                                     Ok(v) => serde_json::json!({ "ok": true, "result": v }),
                                     Err(e) => serde_json::json!({ "ok": false, "error": e }),
                                 };
@@ -1935,7 +1975,7 @@ impl DaemonServer {
     /// NATS transport main loop. Parallel to the MQTT path in `run()` above —
     /// same token-refresh outer cadence, but the inner loop polls the NATS
     /// inbound channel (mpsc Receiver fed by per-subscription tasks inside
-    /// `teamclaw_transport::nats::NatsClient`).
+    /// `teamclu_transport::nats::NatsClient`).
     ///
     /// Differences vs MQTT:
     /// - No CONNACK wait: async_nats returns from `connect` only after the
@@ -1956,7 +1996,7 @@ impl DaemonServer {
     where
         F: Future<Output = ()>,
     {
-        use teamclaw_transport::DeliveryGuarantee;
+        use teamclu_transport::DeliveryGuarantee;
         tokio::pin!(shutdown);
 
         let url = self
@@ -2035,7 +2075,7 @@ impl DaemonServer {
             self.topics = backend.topics.clone();
             self.refresh_rpc_client_publisher();
             if let Some(team_id) = self.config.team_id.clone() {
-                self.teamclaw = match crate::teamclaw::SessionManager::new(
+                self.teamclu = match crate::teamclu::SessionManager::new(
                     self.publisher_handle.clone(),
                     &team_id,
                     &self.config.actor.id,
@@ -2047,7 +2087,7 @@ impl DaemonServer {
                         Some(tc)
                     }
                     Err(e) => {
-                        warn!("teamclaw rebuild on NATS failed: {e}");
+                        warn!("teamclu rebuild on NATS failed: {e}");
                         None
                     }
                 };
@@ -2059,9 +2099,9 @@ impl DaemonServer {
                 warn!("nats subscribe_all failed: {e}, reconnecting");
                 continue 'outer;
             }
-            if let Some(tc) = &mut self.teamclaw {
+            if let Some(tc) = &mut self.teamclu {
                 if let Err(e) = tc.subscribe_all().await {
-                    warn!("teamclaw subscribe failed on NATS: {e}, reconnecting");
+                    warn!("teamclu subscribe failed on NATS: {e}, reconnecting");
                     continue 'outer;
                 }
             }
@@ -2197,30 +2237,30 @@ impl DaemonServer {
                                 self.kick_prewarm_for_workspace(&path, &workspace_id).await;
                             }
                             Some(SockCommand::WechatQrStart { reply_tx }) => {
-                                let base_url = teamclaw_gateway::wechat_config::default_ilink_base_url();
-                                let resp = match teamclaw_gateway::wechat::fetch_qr_code(&base_url).await {
+                                let base_url = teamclu_gateway::wechat_config::default_ilink_base_url();
+                                let resp = match teamclu_gateway::wechat::fetch_qr_code(&base_url).await {
                                     Ok(v) => serde_json::json!({ "ok": true, "result": v }),
                                     Err(e) => serde_json::json!({ "ok": false, "error": e }),
                                 };
                                 let _ = reply_tx.send(resp.to_string());
                             }
                             Some(SockCommand::WechatQrPoll { qrcode, reply_tx }) => {
-                                let base_url = teamclaw_gateway::wechat_config::default_ilink_base_url();
-                                let resp = match teamclaw_gateway::wechat::poll_qr_status(&base_url, &qrcode).await {
+                                let base_url = teamclu_gateway::wechat_config::default_ilink_base_url();
+                                let resp = match teamclu_gateway::wechat::poll_qr_status(&base_url, &qrcode).await {
                                     Ok(v) => serde_json::json!({ "ok": true, "result": v }),
                                     Err(e) => serde_json::json!({ "ok": false, "error": e }),
                                 };
                                 let _ = reply_tx.send(resp.to_string());
                             }
                             Some(SockCommand::WecomQrStart { reply_tx }) => {
-                                let resp = match teamclaw_gateway::wecom::fetch_wecom_qr_code().await {
+                                let resp = match teamclu_gateway::wecom::fetch_wecom_qr_code().await {
                                     Ok(v) => serde_json::json!({ "ok": true, "result": v }),
                                     Err(e) => serde_json::json!({ "ok": false, "error": e }),
                                 };
                                 let _ = reply_tx.send(resp.to_string());
                             }
                             Some(SockCommand::WecomQrPoll { scode, reply_tx }) => {
-                                let resp = match teamclaw_gateway::wecom::poll_wecom_qr_result(&scode).await {
+                                let resp = match teamclu_gateway::wecom::poll_wecom_qr_result(&scode).await {
                                     Ok(v) => serde_json::json!({ "ok": true, "result": v }),
                                     Err(e) => serde_json::json!({ "ok": false, "error": e }),
                                 };
@@ -2363,7 +2403,7 @@ impl DaemonServer {
     /// skip, already-running runtime → skip, etc.) without booting a real
     /// ACP backend.
     pub(crate) async fn plan_auto_restart_offline_sessions(&self) -> Vec<OfflineRestartPlan> {
-        let session_ids: Vec<String> = match self.teamclaw.as_ref() {
+        let session_ids: Vec<String> = match self.teamclu.as_ref() {
             Some(tc) => tc.membership_session_ids(),
             None => return Vec::new(),
         };
@@ -2465,10 +2505,10 @@ impl DaemonServer {
 }
 
 fn reject_stop(
-    request: &crate::proto::teamclaw::RpcRequest,
+    request: &crate::proto::teamclu::RpcRequest,
     reason: &str,
-) -> crate::proto::teamclaw::RpcResponse {
-    use crate::proto::teamclaw::{rpc_response, RpcResponse, RuntimeStopResult};
+) -> crate::proto::teamclu::RpcResponse {
+    use crate::proto::teamclu::{rpc_response, RpcResponse, RuntimeStopResult};
     RpcResponse {
         request_id: request.request_id.clone(),
         success: false,
@@ -2483,10 +2523,10 @@ fn reject_stop(
 }
 
 fn reject_set_model(
-    request: &crate::proto::teamclaw::RpcRequest,
+    request: &crate::proto::teamclu::RpcRequest,
     reason: &str,
-) -> crate::proto::teamclaw::RpcResponse {
-    use crate::proto::teamclaw::{rpc_response, RpcResponse, SetModelResult};
+) -> crate::proto::teamclu::RpcResponse {
+    use crate::proto::teamclu::{rpc_response, RpcResponse, SetModelResult};
     RpcResponse {
         request_id: request.request_id.clone(),
         success: false,
@@ -2963,10 +3003,10 @@ fn spawn_sock_listener(sock_path: PathBuf, tx: mpsc::Sender<SockCommand>) {
 }
 
 fn not_yet_implemented(
-    request: &crate::proto::teamclaw::RpcRequest,
+    request: &crate::proto::teamclu::RpcRequest,
     method_name: &str,
-) -> crate::proto::teamclaw::RpcResponse {
-    crate::proto::teamclaw::RpcResponse {
+) -> crate::proto::teamclu::RpcResponse {
+    crate::proto::teamclu::RpcResponse {
         request_id: request.request_id.clone(),
         success: false,
         error: format!("{} not yet implemented", method_name),
@@ -3114,7 +3154,7 @@ pub(crate) mod tests {
                 .path()
                 .join(crate::config::global_team_store::TEAM_LINK_NAME)
                 .exists(),
-            "existing on-disk path should get a teamclaw-team link"
+            "existing on-disk path should get a teamclu-team link"
         );
     }
 
@@ -3132,13 +3172,13 @@ pub(crate) mod tests {
 
         ensure_team_link("team-ondemand", ws_path);
 
-        // Global dir + scaffold created under ~/.amuxd/teams/<id>/teamclaw-team.
+        // Global dir + scaffold created under ~/.amuxd/teams/<id>/teamclu-team.
         let global = crate::config::global_team_store::global_team_dir("team-ondemand");
         assert!(global.is_dir(), "global team dir should be created");
-        assert!(global.join("skills").is_dir());
+        assert!(global.join("knowledge").is_dir());
 
-        // Workspace exposes it via a teamclaw-team symlink to that global dir.
-        let link = ws.path().join("teamclaw-team");
+        // Workspace exposes it via a teamclu-team symlink to that global dir.
+        let link = ws.path().join("teamclu-team");
         let meta = std::fs::symlink_metadata(&link).unwrap();
         assert!(
             meta.file_type().is_symlink(),
@@ -3153,7 +3193,7 @@ pub(crate) mod tests {
         // Empty team_id is a no-op (no stray dir/link).
         let ws2 = tempfile::tempdir().unwrap();
         ensure_team_link("", ws2.path().to_str().unwrap());
-        assert!(std::fs::symlink_metadata(ws2.path().join("teamclaw-team")).is_err());
+        assert!(std::fs::symlink_metadata(ws2.path().join("teamclu-team")).is_err());
     }
 
     pub(crate) struct TestServer {
@@ -3403,7 +3443,7 @@ pub(crate) mod tests {
         let tmp = TempDir::new().unwrap();
         let config = test_config();
         let mqtt = test_mqtt(&config.actor.id);
-        let teamclaw = crate::teamclaw::SessionManager::new(
+        let teamclu = crate::teamclu::SessionManager::new(
             Arc::new(mqtt.client.clone()) as Arc<dyn MessagePublisher>,
             "team-test",
             &config.actor.id,
@@ -3413,7 +3453,7 @@ pub(crate) mod tests {
         .unwrap();
 
         let mut agents = RuntimeManager::new(RuntimeManager::default_launch_configs(), None);
-        agents.add_test_runtime("rt1", "runtime-agent", "session-1");
+        agents.add_test_runtime("session-1");
 
         let publisher_handle: Arc<dyn MessagePublisher> = Arc::new(mqtt.client.clone());
         let topics = mqtt.topics.clone();
@@ -3443,7 +3483,7 @@ pub(crate) mod tests {
                 sessions: SessionStore::default(),
                 sessions_path: tmp.path().join("sessions.toml"),
                 history: EventHistory::new(&tmp.path().join("history")),
-                teamclaw: Some(teamclaw),
+                teamclu: Some(teamclu),
                 backend: backend.clone(),
                 deferred_backend,
                 actor_id: "agent-actor".to_string(),
@@ -3462,7 +3502,7 @@ pub(crate) mod tests {
                 remote_tool_turn_contexts: Arc::new(AsyncMutex::new(
                     crate::remote_tools::RemoteToolTurnContextStore::default(),
                 )),
-                rpc_client: Arc::new(AsyncMutex::new(crate::teamclaw::rpc::RpcClient::new(
+                rpc_client: Arc::new(AsyncMutex::new(crate::teamclu::rpc::RpcClient::new(
                     publisher_handle.clone(),
                     "team-1".to_string(),
                     "agent-actor".to_string(),
@@ -3481,7 +3521,7 @@ pub(crate) mod tests {
         message_id: &str,
         content: &str,
     ) -> subscriber::IncomingMessage {
-        let msg = crate::proto::teamclaw::Message {
+        let msg = crate::proto::teamclu::Message {
             message_id: message_id.to_string(),
             session_id: session_id.to_string(),
             sender_actor_id: "human-actor".to_string(),
@@ -3490,12 +3530,12 @@ pub(crate) mod tests {
             created_at: 1,
             ..Default::default()
         };
-        let msg_env = crate::proto::teamclaw::SessionMessageEnvelope {
+        let msg_env = crate::proto::teamclu::SessionMessageEnvelope {
             message: Some(msg),
             mention_actor_ids: vec!["agent-actor".to_string()],
             ..Default::default()
         };
-        let live = crate::proto::teamclaw::LiveEventEnvelope {
+        let live = crate::proto::teamclu::LiveEventEnvelope {
             event_id: format!("event-{message_id}-{content}"),
             event_type: "message.created".to_string(),
             session_id: session_id.to_string(),
@@ -3503,7 +3543,7 @@ pub(crate) mod tests {
             sent_at: 1,
             body: msg_env.encode_to_vec(),
         };
-        subscriber::IncomingMessage::TeamclawSessionLive {
+        subscriber::IncomingMessage::TeamcluSessionLive {
             session_id: session_id.to_string(),
             payload: live.encode_to_vec(),
         }
@@ -3512,16 +3552,16 @@ pub(crate) mod tests {
     #[test]
     pub(crate) fn loads_team_shared_config_from_workspace_file() {
         let tmp = TempDir::new().unwrap();
-        let config_dir = tmp.path().join(".teamclaw");
+        let config_dir = tmp.path().join(".teamclu");
         std::fs::create_dir_all(&config_dir).unwrap();
         std::fs::write(
-            config_dir.join("teamclaw.json"),
+            config_dir.join("teamclu.json"),
             serde_json::json!({
                 "team": {
                     "gitUrl": "https://example.com/shared.git",
                     "gitBranch": "main",
                     "gitToken": "token",
-                    "sharedDirName": "teamclaw",
+                    "sharedDirName": "teamclu",
                     "envSecret": "secret",
                     "enabled": true
                 }
@@ -3538,7 +3578,7 @@ pub(crate) mod tests {
         );
         assert_eq!(config.git_branch.as_deref(), Some("main"));
         assert_eq!(config.git_token.as_deref(), Some("token"));
-        assert_eq!(config.shared_dir_name, "teamclaw");
+        assert_eq!(config.shared_dir_name, "teamclu");
         assert_eq!(config.env_secret.as_deref(), Some("secret"));
         assert!(config.enabled);
     }
@@ -3559,10 +3599,10 @@ pub(crate) mod tests {
             }),
         ] {
             let tmp = TempDir::new().unwrap();
-            let config_dir = tmp.path().join(".teamclaw");
+            let config_dir = tmp.path().join(".teamclu");
             std::fs::create_dir_all(&config_dir).unwrap();
             std::fs::write(
-                config_dir.join("teamclaw.json"),
+                config_dir.join("teamclu.json"),
                 serde_json::json!({ "team": team }).to_string(),
             )
             .unwrap();
@@ -3571,8 +3611,8 @@ pub(crate) mod tests {
         }
     }
 
-    pub(crate) fn seed_teamclaw_session(server: &mut DaemonServer, session_id: &str, title: &str) {
-        let session = crate::teamclaw::StoredSession {
+    pub(crate) fn seed_teamclu_session(server: &mut DaemonServer, session_id: &str, title: &str) {
+        let session = crate::teamclu::StoredSession {
             session_id: session_id.to_string(),
             team_id: "team-test".to_string(),
             title: title.to_string(),
@@ -3583,15 +3623,15 @@ pub(crate) mod tests {
             participants: vec![],
             primary_agent_id: String::new(),
         };
-        server.teamclaw.as_mut().unwrap().sessions.upsert(session);
+        server.teamclu.as_mut().unwrap().sessions.upsert(session);
     }
 
     #[tokio::test]
     pub(crate) async fn incoming_live_event_log_includes_cached_session_and_daemon_info() {
         let mut fixture = test_server();
-        seed_teamclaw_session(&mut fixture.server, "session-title-test", "Launch Plan");
+        seed_teamclu_session(&mut fixture.server, "session-title-test", "Launch Plan");
 
-        let live = crate::proto::teamclaw::LiveEventEnvelope {
+        let live = crate::proto::teamclu::LiveEventEnvelope {
             event_id: "event-session-title".to_string(),
             event_type: "unknown.test".to_string(),
             session_id: "session-title-test".to_string(),
@@ -3610,7 +3650,7 @@ pub(crate) mod tests {
 
         fixture
             .server
-            .handle_incoming(subscriber::IncomingMessage::TeamclawSessionLive {
+            .handle_incoming(subscriber::IncomingMessage::TeamcluSessionLive {
                 session_id: "session-title-test".to_string(),
                 payload: live.encode_to_vec(),
             })
@@ -3629,7 +3669,7 @@ pub(crate) mod tests {
 
     #[tokio::test]
     pub(crate) async fn auto_restart_offline_sessions_is_noop_without_membership() {
-        // The default test fixture has no teamclaw memberships (no
+        // The default test fixture has no teamclu memberships (no
         // sessions.toml entries the actor is a participant in), so the
         // method must return early before touching the Cloud API. A real
         // request would fail because `test_cloud_api()` points at
@@ -3637,10 +3677,10 @@ pub(crate) mod tests {
         // here implies the early-exit guard fired.
         let mut fixture = test_server();
         fixture.server.auto_restart_offline_sessions().await;
-        // No runtimes added beyond the fixture's seeded "rt1".
+        // No runtimes added beyond the fixture's seeded "session-1".
         let agents = fixture.server.agents.lock().await;
         assert!(
-            agents.get_handle("rt1").is_some(),
+            agents.get_handle("session-1").is_some(),
             "fixture runtime should be untouched"
         );
     }
@@ -3776,6 +3816,20 @@ pub(crate) mod tests {
             .mount(&srv)
             .await;
 
+        // An attachment is keyed by its session (ADR-0004), so a spawn needs a
+        // resolvable one before it can reach the workspace fallback this test
+        // is about.
+        Mock::given(method("GET"))
+            .and(path("/v1/sessions/session-offline"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
+                "id": "session-offline",
+                "teamId": "team-1",
+                "title": "offline",
+                "participants": [],
+            })))
+            .mount(&srv)
+            .await;
+
         let mut fixture = test_server_with_cloud_api(test_cloud_api_with_url(srv.uri()));
         let worktree_dir = TempDir::new().unwrap();
         let worktree_path = worktree_dir.path().to_string_lossy().to_string();
@@ -3786,7 +3840,7 @@ pub(crate) mod tests {
                 amux::AgentType::ClaudeCode,
                 "ws-cloud-uuid-offline",
                 &worktree_path,
-                "",
+                "session-offline",
                 "",
                 None,
                 "",
@@ -3907,7 +3961,7 @@ pub(crate) mod tests {
     }
 
     pub(crate) async fn add_membership(fixture: &mut TestServer, session_id: &str) {
-        let tc = fixture.server.teamclaw.as_mut().expect("teamclaw set");
+        let tc = fixture.server.teamclu.as_mut().expect("teamclu set");
         tc.insert_session_from_backend_for_test(
             session_id,
             "team-test",
@@ -4061,7 +4115,7 @@ pub(crate) mod tests {
     pub(crate) async fn plan_skips_session_with_live_runtime_already_running() {
         let srv = MockServer::start().await;
         auth_token_mock(&srv).await;
-        // The fixture seeds a runtime "rt1" bound to session_id
+        // The fixture seeds a runtime "session-1" bound to session_id
         // "session-1" via add_test_runtime. Make that the membership
         // session and confirm the planner refuses to schedule a second
         // spawn for the same session.
@@ -4166,7 +4220,7 @@ pub(crate) mod tests {
         .await;
 
         let mut fixture = test_server_with_cloud_api(test_cloud_api_with_url(srv.uri()));
-        fixture.server.catchup_runtime("rt1").await;
+        fixture.server.catchup_runtime("session-1").await;
 
         // `send_prompt` (not raw) auto-drains the silent queue via
         // `flush_pending_silent`, so by the time msg-b's prompt fires the
@@ -4175,7 +4229,7 @@ pub(crate) mod tests {
         // the next real prompt.
         let agents = fixture.server.agents.lock().await;
         let last = agents
-            .last_sent_to("rt1")
+            .last_sent_to("session-1")
             .expect("the last @-mention should trigger send_prompt");
         assert!(
             last.contains("ask B"),
@@ -4192,7 +4246,7 @@ pub(crate) mod tests {
 
         // After the prompt fires, msg-c sits alone in the silent queue —
         // msg-a was already drained into the prefix above.
-        let pending = &agents.get_handle("rt1").unwrap().pending_silent;
+        let pending = &agents.get_handle("session-1").unwrap().pending_silent;
         assert_eq!(
             pending
                 .iter()
@@ -4222,13 +4276,13 @@ pub(crate) mod tests {
         .await;
 
         let mut fixture = test_server_with_cloud_api(test_cloud_api_with_url(srv.uri()));
-        assert!(fixture.server.catchup_runtime("rt1").await);
+        assert!(fixture.server.catchup_runtime("session-1").await);
         {
             let agents = fixture.server.agents.lock().await;
-            assert_eq!(agents.last_sent_to("rt1").as_deref(), Some("ask once"),);
+            assert_eq!(agents.last_sent_to("session-1").as_deref(), Some("ask once"),);
             assert_eq!(
                 agents
-                    .get_handle("rt1")
+                    .get_handle("session-1")
                     .unwrap()
                     .last_processed_message_id
                     .as_deref(),
@@ -4237,9 +4291,9 @@ pub(crate) mod tests {
         }
 
         // Session refresh → runtimeStart dedup → catchup must not re-prompt.
-        assert!(!fixture.server.catchup_runtime("rt1").await);
+        assert!(!fixture.server.catchup_runtime("session-1").await);
         let agents = fixture.server.agents.lock().await;
-        assert_eq!(agents.last_sent_to("rt1").as_deref(), Some("ask once"));
+        assert_eq!(agents.last_sent_to("session-1").as_deref(), Some("ask once"));
     }
 
     #[tokio::test]
@@ -4271,16 +4325,16 @@ pub(crate) mod tests {
         .await;
 
         let mut fixture = test_server_with_cloud_api(test_cloud_api_with_url(srv.uri()));
-        fixture.server.catchup_runtime("rt1").await;
+        fixture.server.catchup_runtime("session-1").await;
 
         let agents = fixture.server.agents.lock().await;
         assert!(
-            agents.last_sent_to("rt1").is_none(),
+            agents.last_sent_to("session-1").is_none(),
             "answered @mention must not trigger send_prompt on catchup"
         );
         assert_eq!(
             agents
-                .get_handle("rt1")
+                .get_handle("session-1")
                 .unwrap()
                 .last_processed_message_id
                 .as_deref(),
@@ -4356,15 +4410,15 @@ pub(crate) mod tests {
         .await;
 
         let mut fixture = test_server_with_cloud_api(test_cloud_api_with_url(srv.uri()));
-        fixture.server.catchup_runtime("rt1").await;
+        fixture.server.catchup_runtime("session-1").await;
 
         let agents = fixture.server.agents.lock().await;
         assert!(
-            agents.last_sent_to("rt1").is_none(),
+            agents.last_sent_to("session-1").is_none(),
             "no @-mention → no send_prompt"
         );
         assert_eq!(
-            agents.get_handle("rt1").unwrap().pending_silent.len(),
+            agents.get_handle("session-1").unwrap().pending_silent.len(),
             2,
             "both messages should land in silent context"
         );
@@ -4466,14 +4520,14 @@ pub(crate) mod tests {
             .await;
 
         let agents = fixture.server.agents.lock().await;
-        assert_eq!(agents.last_sent_to("rt1").as_deref(), Some("first"));
+        assert_eq!(agents.last_sent_to("session-1").as_deref(), Some("first"));
     }
 
     #[tokio::test]
     pub(crate) async fn live_message_model_override_is_applied_before_prompt_routing() {
         let mut fixture = test_server();
 
-        let msg = crate::proto::teamclaw::Message {
+        let msg = crate::proto::teamclu::Message {
             message_id: "msg-model-1".to_string(),
             session_id: "session-1".to_string(),
             sender_actor_id: "human-actor".to_string(),
@@ -4483,12 +4537,12 @@ pub(crate) mod tests {
             model: "opencode/deepseek-v4-flash-free".to_string(),
             ..Default::default()
         };
-        let msg_env = crate::proto::teamclaw::SessionMessageEnvelope {
+        let msg_env = crate::proto::teamclu::SessionMessageEnvelope {
             message: Some(msg),
             mention_actor_ids: vec!["agent-actor".to_string()],
             ..Default::default()
         };
-        let live = crate::proto::teamclaw::LiveEventEnvelope {
+        let live = crate::proto::teamclu::LiveEventEnvelope {
             event_id: "event-model-1".to_string(),
             event_type: "message.created".to_string(),
             session_id: "session-1".to_string(),
@@ -4499,7 +4553,7 @@ pub(crate) mod tests {
 
         fixture
             .server
-            .handle_incoming(subscriber::IncomingMessage::TeamclawSessionLive {
+            .handle_incoming(subscriber::IncomingMessage::TeamcluSessionLive {
                 session_id: "session-1".to_string(),
                 payload: live.encode_to_vec(),
             })
@@ -4507,10 +4561,10 @@ pub(crate) mod tests {
 
         let agents = fixture.server.agents.lock().await;
         assert_eq!(
-            agents.current_model("rt1").map(|s| s.as_str()),
+            agents.current_model("session-1").map(|s| s.as_str()),
             Some("opencode/deepseek-v4-flash-free")
         );
-        assert_eq!(agents.last_sent_to("rt1").as_deref(), Some("which model?"));
+        assert_eq!(agents.last_sent_to("session-1").as_deref(), Some("which model?"));
     }
 
     pub(crate) fn seed_startup_workspace_sync(

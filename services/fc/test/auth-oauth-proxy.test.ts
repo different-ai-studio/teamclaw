@@ -21,7 +21,7 @@ test("GET /v1/auth/oauth/google/authorize 302s to GoTrue authorize", async () =>
   const res = await handleBusinessApiRequest({
     httpMethod: "GET",
     path: "/v1/auth/oauth/google/authorize",
-    queryParameters: { redirect: "teamclaw://auth-callback", code_challenge: "CH" },
+    queryParameters: { redirect: "teamclu://auth-callback", code_challenge: "CH" },
     headers: {},
     body: null,
   }, deps);
@@ -30,7 +30,7 @@ test("GET /v1/auth/oauth/google/authorize 302s to GoTrue authorize", async () =>
   assert.ok(loc.startsWith("https://example.supabase.co/auth/v1/authorize?"));
   const u = new URL(loc);
   assert.equal(u.searchParams.get("provider"), "google");
-  assert.equal(u.searchParams.get("redirect_to"), "teamclaw://auth-callback");
+  assert.equal(u.searchParams.get("redirect_to"), "teamclu://auth-callback");
   assert.equal(u.searchParams.get("code_challenge"), "CH");
   assert.equal(u.searchParams.get("code_challenge_method"), "s256");
 });
@@ -106,7 +106,7 @@ test("GET /v1/auth/oauth/google/authorize 400s when code_challenge is missing", 
   const res = await handleBusinessApiRequest({
     httpMethod: "GET",
     path: "/v1/auth/oauth/google/authorize",
-    queryParameters: { redirect: "teamclaw://auth-callback" },
+    queryParameters: { redirect: "teamclu://auth-callback" },
     headers: {},
     body: null,
   }, deps);

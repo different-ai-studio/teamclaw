@@ -221,7 +221,7 @@ describe("probeCloudApi", () => {
   it("reports an unreachable host rather than throwing", async () => {
     const fetchImpl = vi.fn().mockRejectedValue(new TypeError("Failed to fetch"));
 
-    // The typo case: https://api.teamclaw-dev.ucar.cc111 parses fine and
+    // The typo case: https://api.teamclu-dev.ucar.cc111 parses fine and
     // resolves to nothing.
     expect(await probeCloudApi("https://api.example.com111", { fetchImpl: fetchImpl as unknown as typeof fetch }))
       .toEqual({ ok: false, reason: "unreachable" });

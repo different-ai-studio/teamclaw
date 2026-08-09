@@ -22,7 +22,7 @@ pub enum RefreshChangeKind {
     ProviderCatalog,
     Permissions,
     OpencodeJson,
-    TeamclawConfig,
+    TeamcluConfig,
 }
 
 pub const INTERNAL_WRITE_SUPPRESS: Duration = Duration::from_secs(3);
@@ -53,11 +53,10 @@ pub fn suppress_internal_opencode_write(worktree: &std::path::Path) {
         );
     }
 }
-pub const INTERNAL_TEAMCLAW_KINDS: [RefreshChangeKind; 1] = [RefreshChangeKind::TeamclawConfig];
 pub const INTERNAL_PREPARE_KINDS: [RefreshChangeKind; 3] = [
     RefreshChangeKind::OpencodeJson,
     RefreshChangeKind::Skills,
-    RefreshChangeKind::TeamclawConfig,
+    RefreshChangeKind::TeamcluConfig,
 ];
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize, Hash)]
@@ -387,7 +386,7 @@ impl RuntimeRefreshCoordinator {
 
 fn impact_for_kind(kind: RefreshChangeKind) -> RefreshImpact {
     match kind {
-        RefreshChangeKind::Mcp | RefreshChangeKind::TeamclawConfig => RefreshImpact::IdleRestart,
+        RefreshChangeKind::Mcp | RefreshChangeKind::TeamcluConfig => RefreshImpact::IdleRestart,
         RefreshChangeKind::Skills
         | RefreshChangeKind::EnvVars
         | RefreshChangeKind::ProviderAuth
@@ -428,7 +427,7 @@ impl RefreshChangeKind {
             Self::ProviderCatalog => "provider_catalog",
             Self::Permissions => "permissions",
             Self::OpencodeJson => "opencode_json",
-            Self::TeamclawConfig => "teamclaw_config",
+            Self::TeamcluConfig => "teamclu_config",
         }
     }
 
@@ -436,7 +435,7 @@ impl RefreshChangeKind {
     /// `opencode serve` process so freshly-created sessions pick it up.
     ///
     /// Only provider-auth / provider-config kinds do. `Skills` and
-    /// `TeamclawConfig` don't touch the serve process; `Mcp` config is merged
+    /// `TeamcluConfig` don't touch the serve process; `Mcp` config is merged
     /// into the worktree's `opencode.json` at `attach_session(mcp_config_path)`
     /// time rather than baked into the process; `Permissions` are enforced
     /// per-turn. Restarting for those merely discards a warm serve instance

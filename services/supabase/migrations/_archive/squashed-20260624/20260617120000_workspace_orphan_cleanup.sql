@@ -22,7 +22,7 @@ update amux.workspaces
 set archived = true,
     updated_at = now()
 where id = '88567d25-f7f5-4545-ba28-ad1dcebdbb4a'
-  and path = '/Users/wuxing.liu/TeamClaw';
+  and path = '/Users/wuxing.liu/TeamClu';
 
 -- 3) Prefer agent-bound rows for defaults when both orphan + bound exist.
 update amux.agents a

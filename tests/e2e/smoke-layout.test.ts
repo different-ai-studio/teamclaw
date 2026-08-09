@@ -5,7 +5,7 @@
 
 import { describe, it, expect, beforeAll, afterAll } from 'vitest';
 import {
-  launchTeamClawApp,
+  launchTeamCluApp,
   stopApp,
   sleep,
   focusWindow,
@@ -18,7 +18,7 @@ describe('E2E Smoke: layout', () => {
 
   beforeAll(async () => {
     try {
-      await launchTeamClawApp();
+      await launchTeamCluApp();
       await sleep(8000);
       await focusWindow();
       await sleep(500);
@@ -32,7 +32,7 @@ describe('E2E Smoke: layout', () => {
     await stopApp();
   }, 30_000);
 
-  it('should show sidebar or header with TeamClaw', async () => {
+  it('should show sidebar or header with TeamClu', async () => {
     if (!appReady) return;
     const win = await getWindowInfo();
     expect(win.isVisible).toBe(true);

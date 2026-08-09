@@ -5,7 +5,7 @@ import AMUXCore
 public struct SearchTab: View {
     let mqtt: MQTTService
     let pairing: PairingManager
-    let teamclawService: TeamclawService?
+    let teamcluService: TeamcluService?
     @Bindable var viewModel: SessionListViewModel
     @Binding var rootSelection: AppTab
     @Binding var sessionsPath: [String]
@@ -22,13 +22,13 @@ public struct SearchTab: View {
 
     public init(mqtt: MQTTService,
                 pairing: PairingManager,
-                teamclawService: TeamclawService?,
+                teamcluService: TeamcluService?,
                 viewModel: SessionListViewModel,
                 rootSelection: Binding<AppTab>,
                 sessionsPath: Binding<[String]>) {
         self.mqtt = mqtt
         self.pairing = pairing
-        self.teamclawService = teamclawService
+        self.teamcluService = teamcluService
         self.viewModel = viewModel
         self._rootSelection = rootSelection
         self._sessionsPath = sessionsPath
@@ -36,14 +36,16 @@ public struct SearchTab: View {
 
     private var sessionMatches: [Session] {
         viewModel.sessions.filter { session in
-            let runtime = primaryRuntime(for: session)
+            let attachment = liveAttachment(for: session)
+            // `currentPrompt` / `lastOutputSummary` are gone: they were only
+            // snapshotted on discrete lifecycle events and the actor retain
+            // does not carry them (ADR-0004). Title and preview cover the same
+            // ground and stay current.
             return SearchMatcher.matchesAny(
                 fields: [
                     session.title,
                     session.lastMessagePreview,
-                    runtime?.currentPrompt ?? "",
-                    runtime?.lastOutputSummary ?? "",
-                    runtime?.worktree ?? "",
+                    attachment?.worktree ?? "",
                 ],
                 query: query
             )
@@ -76,7 +78,7 @@ public struct SearchTab: View {
                     if !sessionMatches.isEmpty {
                         Section("Sessions") {
                             ForEach(sessionMatches, id: \.sessionId) { session in
-                                let runtime = primaryRuntime(for: session)
+                                let runtime = liveAttachment(for: session)
                                 Button {
                                     rootSelection = .sessions
                                     sessionsPath.append("session:\(session.sessionId)")
@@ -126,13 +128,17 @@ public struct SearchTab: View {
         }
     }
 
-    private func primaryRuntime(for session: Session) -> Runtime? {
-        guard let id = session.primaryAgentId, !id.isEmpty else { return nil }
-        return viewModel.runtimes.first(where: { $0.runtimeId == id })
+    /// The attachment serving this session, if any. Resolves by session id —
+    /// the old form compared a spawn id against `primaryAgentId`, two different
+    /// id spaces, so it never matched.
+    private func liveAttachment(for session: Session) -> AgentAttachment? {
+        viewModel.attachments
+            .filter { $0.sessionID == session.sessionId }
+            .max(by: { ($0.lastEventTime ?? .distantPast) < ($1.lastEventTime ?? .distantPast) })
     }
 
-    private func workspaceName(for runtime: Runtime?) -> String {
-        guard let runtime else { return "" }
-        return viewModel.workspaces.first(where: { $0.workspaceId == runtime.workspaceId })?.displayName ?? ""
+    private func workspaceName(for attachment: AgentAttachment?) -> String {
+        guard let attachment else { return "" }
+        return viewModel.workspaces.first(where: { $0.workspaceId == attachment.workspaceID })?.displayName ?? ""
     }
 }

@@ -1,7 +1,7 @@
 -- ============================================================================
 -- Onboarding defaults: seed the first team's name from the caller's org name,
 -- and the owner actor's display name from the caller's saas-mono nickname.
--- (follows §8 of docs/specs/2026-06-08-teamclaw-saas-mono-integration.md)
+-- (follows §8 of docs/specs/2026-06-08-teamclu-saas-mono-integration.md)
 --
 -- Rationale: when a logged-in account already belongs to an org but has no team
 -- yet, the first auto-created team should adopt the org's name rather than a

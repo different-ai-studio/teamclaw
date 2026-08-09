@@ -1,5 +1,4 @@
 import { Ionicons } from "@expo/vector-icons";
-import * as Linking from "expo-linking";
 import { useRouter } from "expo-router";
 import * as WebBrowser from "expo-web-browser";
 import { useState } from "react";
@@ -21,7 +20,10 @@ import {
   OTP_CODE_LENGTH,
   sanitizeOtpInput,
 } from "../../src/features/onboarding/auth-otp";
-import type { OAuthProvider } from "../../src/features/onboarding/onboarding-oauth";
+import {
+  OAUTH_REDIRECT_URL,
+  type OAuthProvider,
+} from "../../src/features/onboarding/onboarding-oauth";
 import { Hairline } from "../../src/ui/atoms/Hairline";
 import { showToast } from "../../src/ui/Toast";
 import { colors, hai, radii, spacing, typography } from "../../src/ui/theme";
@@ -102,7 +104,7 @@ export default function UpgradeAccountRoute() {
     setError(null);
     try {
       await controller.linkIdentityWithOAuth(provider, {
-        redirectTo: Linking.createURL("auth/callback"),
+        redirectTo: OAUTH_REDIRECT_URL,
         openAuthSession: WebBrowser.openAuthSessionAsync,
       });
       showToast("success", "Account connected.");
@@ -136,7 +138,7 @@ export default function UpgradeAccountRoute() {
             {isCodeStep
               ? `Enter the ${OTP_CODE_LENGTH}-digit code we emailed to ${pendingEmail}.`
               : state.isAnonymous
-                ? "Attach an email, Apple, or Google identity so you don't lose this workspace next time you launch Teamclaw."
+                ? "Attach an email, Apple, or Google identity so you don't lose this workspace next time you launch Teamclu."
                 : "Change this account's email or connect another sign-in identity."}
           </Text>
 
@@ -295,7 +297,7 @@ export default function UpgradeAccountRoute() {
 
           <Text style={styles.footnote}>
             After upgrading, sign in with the same identity next time you
-            launch Teamclaw. Existing teams, agents, and sessions stay
+            launch Teamclu. Existing teams, agents, and sessions stay
             attached.
           </Text>
         </ScrollView>

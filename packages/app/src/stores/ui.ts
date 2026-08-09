@@ -47,7 +47,7 @@ export type SidebarFilter =
   | { kind: 'workspace'; workspaceId: string | null; path: string; name: string }
   | { kind: 'teamShare'; section: TeamShareSection }
 
-export type SettingsSection = 'llm' | 'teamLlm' | 'general' | 'voice' | 'prompt' | 'mcp' | 'channels' | 'automation' | 'daemonGeneral' | 'daemonWorkspaces' | 'daemonRuntimes' | 'team' | 'envVars' | 'skills' | 'roles' | 'rolesSkills' | 'knowledge' | 'deps' | 'tokenUsage' | 'privacy' | 'permissions' | 'leaderboard' | 'shortcuts' | 'cache' | 'diagnostics'
+export type SettingsSection = 'llm' | 'teamLlm' | 'general' | 'prompt' | 'mcp' | 'channels' | 'automation' | 'daemonGeneral' | 'daemonWorkspaces' | 'daemonRuntimes' | 'team' | 'envVars' | 'skills' | 'roles' | 'rolesSkills' | 'knowledge' | 'deps' | 'tokenUsage' | 'privacy' | 'permissions' | 'leaderboard' | 'shortcuts' | 'cache' | 'diagnostics'
 
 /** Context passed when opening Agent settings from a blocked quick-new-chat action. */
 export type DaemonGeneralPrompt = 'quick_chat'
@@ -73,8 +73,6 @@ interface UIState {
   sidebarFilter: SidebarFilter
   ideasSectionCollapsed: boolean
   actorsSectionCollapsed: boolean
-  /** Collapsed state of the team-share nav group (Skills/MCP/Env/Knowledge). */
-  teamShareCollapsed: boolean
   /** Workspace list expanded (「管理 Workspace 列表」). */
   localDaemonExpanded: boolean
   /** Action sheet open (⋯ menu). */
@@ -93,7 +91,6 @@ interface UIState {
   setSidebarFilter: (filter: SidebarFilter) => void
   toggleIdeasSection: () => void
   toggleActorsSection: () => void
-  toggleTeamShareSection: () => void
   toggleLocalDaemon: () => void
   toggleLocalDaemonSheet: () => void
   setLocalDaemonSheetOpen: (open: boolean) => void
@@ -151,7 +148,6 @@ export const useUIStore = create<UIState>((set, get) => ({
   sidebarFilter: { kind: 'all' },
   ideasSectionCollapsed: false,
   actorsSectionCollapsed: false,
-  teamShareCollapsed: true,
   localDaemonExpanded: false,
   localDaemonSheetOpen: false,
   automationPanelOpen: false,
@@ -402,7 +398,6 @@ export const useUIStore = create<UIState>((set, get) => ({
   setSidebarFilter: (filter) => set({ sidebarFilter: filter }),
   toggleIdeasSection: () => set((s) => ({ ideasSectionCollapsed: !s.ideasSectionCollapsed })),
   toggleActorsSection: () => set((s) => ({ actorsSectionCollapsed: !s.actorsSectionCollapsed })),
-  toggleTeamShareSection: () => set((s) => ({ teamShareCollapsed: !s.teamShareCollapsed })),
   toggleLocalDaemon: () => set((s) => ({ localDaemonExpanded: !s.localDaemonExpanded })),
   toggleLocalDaemonSheet: () => set((s) => ({ localDaemonSheetOpen: !s.localDaemonSheetOpen })),
   setLocalDaemonSheetOpen: (open) => set({ localDaemonSheetOpen: open }),

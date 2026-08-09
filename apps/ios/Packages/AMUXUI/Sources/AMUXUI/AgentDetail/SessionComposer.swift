@@ -26,10 +26,10 @@ struct SessionComposer: View {
 
     /// Full agent list for the AgentsSheet (the modal opened by the [@] button).
     let memberSheetAgents: [MemberSheetAgent]
-    /// Resolves the live Runtime for a given agent; nil when no runtime row
-    /// exists yet (e.g. agent still spawning). Kept as a closure so the
-    /// composer doesn't hold a SwiftData query.
-    let runtimeForAgent: (MemberSheetAgent) -> Runtime?
+    /// Resolves the live attachment for a given agent; nil when that agent is
+    /// cold for this session. Kept as a closure so the composer doesn't hold a
+    /// SwiftData query.
+    let attachmentForAgent: (MemberSheetAgent) -> AgentAttachment?
     /// Called when the user selects a different model for an agent in AgentsSheet.
     let onApplyModelForAgent: (MemberSheetAgent, String) -> Void
 
@@ -185,7 +185,7 @@ struct SessionComposer: View {
                 agents: memberSheetAgents,
                 selection: $agentChipSelection,
                 streamingAgentIDs: streamingAgentIDs,
-                runtimeForAgent: runtimeForAgent,
+                attachmentForAgent: attachmentForAgent,
                 onApplyModel: onApplyModelForAgent,
                 onInterrupt: { agent in
                     onAgentInterrupt(agent.id)

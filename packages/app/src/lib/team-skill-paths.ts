@@ -5,7 +5,7 @@ import { homeDir } from '@tauri-apps/api/path'
  * Workspace symlink/dir name for team-shared content.
  * Must match `TEAM_LINK_NAME` in `apps/daemon/src/config/global_team_store.rs`.
  */
-export const TEAM_SHARE_LINK_DIR = 'teamclaw-team'
+export const TEAM_SHARE_LINK_DIR = 'teamclu-team'
 
 async function readOnboardedTeamId(): Promise<string | null> {
   try {
@@ -21,19 +21,19 @@ async function readOnboardedTeamId(): Promise<string | null> {
   }
 }
 
-/** Global team share dir: `~/.amuxd/teams/<team_id>/teamclaw-team`. */
+/** Global team share dir: `~/.amuxd/teams/<team_id>/teamclu-team`. */
 async function globalTeamDir(teamId: string): Promise<string> {
   const home = trimTrailingPathSeparators(await homeDir())
   return `${home}/.amuxd/teams/${teamId}/${TEAM_SHARE_LINK_DIR}`
 }
 
 /**
- * The single global team share dir `~/.amuxd/teams/<team_id>/teamclaw-team`,
+ * The single global team share dir `~/.amuxd/teams/<team_id>/teamclu-team`,
  * regardless of whether it exists on disk. Returns `null` only when no team is
  * onboarded (no `team_id` in `~/.amuxd/daemon.toml`).
  *
  * This is the daemon-owned canonical copy. We intentionally do NOT consider the
- * per-workspace `teamclaw-team` symlink here — reading the global dir directly
+ * per-workspace `teamclu-team` symlink here — reading the global dir directly
  * is robust against a missing or dangling workspace link.
  */
 export async function globalTeamShareDir(): Promise<string | null> {
@@ -100,9 +100,9 @@ async function readSkillPathsFromConfig(
  * All directories that should contribute `source: 'team'` skills for a workspace.
  *
  * Sources (deduped):
- * - `teamclaw.json` → `skills.paths`
+ * - `teamclu.json` → `skills.paths`
  * - `opencode.json` → `skills.paths` (legacy / OpenCode-aligned config)
- * - `<workspace>/teamclaw-team/skills` when the team share link exists on disk
+ * - `<workspace>/teamclu-team/skills` when the team share link exists on disk
  */
 async function remapTeamSkillPath(
   workspacePath: string,
@@ -125,7 +125,7 @@ export async function collectTeamSkillPaths(workspacePath: string): Promise<stri
   const dirs = new Set<string>()
   const teamId = await readOnboardedTeamId()
 
-  for (const path of await readSkillPathsFromConfig(workspacePath, 'teamclaw.json')) {
+  for (const path of await readSkillPathsFromConfig(workspacePath, 'teamclu.json')) {
     const resolved = await remapTeamSkillPath(workspacePath, path, teamId)
     if (resolved) dirs.add(resolved)
   }
@@ -145,7 +145,7 @@ export async function collectTeamSkillPaths(workspacePath: string): Promise<stri
   return Array.from(dirs)
 }
 
-/** Paths from `teamclaw.json` only — used by tests that assert config parsing. */
+/** Paths from `teamclu.json` only — used by tests that assert config parsing. */
 export async function readConfigSkillPaths(workspacePath: string): Promise<string[]> {
-  return readSkillPathsFromConfig(workspacePath, 'teamclaw.json')
+  return readSkillPathsFromConfig(workspacePath, 'teamclu.json')
 }

@@ -1,9 +1,9 @@
 // Metro config tuned for our pnpm monorepo layout.
 //
-// `@teamclaw/app` declares react@^19.2.6 in its own dependencies. pnpm
+// `@teamclu/app` declares react@^19.2.6 in its own dependencies. pnpm
 // honours that by symlinking a second React copy into the workspace.
-// When `apps/expo` imports from `@teamclaw/app/proto/...`, Metro walks
-// `@teamclaw/app`'s dep graph and resolves a different React copy than
+// When `apps/expo` imports from `@teamclu/app/proto/...`, Metro walks
+// `@teamclu/app`'s dep graph and resolves a different React copy than
 // the one `apps/expo` itself uses (react@19.0.0). Two Reacts in the same
 // bundle break hooks at runtime ("Invalid hook call" / "Cannot read
 // property 'useMemo' of null").
@@ -12,13 +12,18 @@
 // before Metro's resolver consults it. We need `resolveRequest` to
 // intercept every `react` / `react-native` request and force it back to
 // apps/expo's copy regardless of which dep graph asked.
-const { getDefaultConfig } = require("expo/metro-config");
+// `getSentryExpoConfig` is `getDefaultConfig` plus the Sentry serializer, which
+// stamps a debug ID into the bundle and its source map. Without it the uploaded
+// map cannot be matched to the bundle that produced a crash, so production
+// stack traces stay minified. Everything below still applies unchanged — it
+// returns the same shape.
+const { getSentryExpoConfig } = require("@sentry/react-native/metro");
 const path = require("path");
 
 const projectRoot = __dirname;
 const workspaceRoot = path.resolve(projectRoot, "../..");
 
-const config = getDefaultConfig(projectRoot);
+const config = getSentryExpoConfig(projectRoot);
 
 config.watchFolders = [workspaceRoot];
 

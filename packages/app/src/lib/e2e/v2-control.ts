@@ -1,5 +1,5 @@
 import { create as createProto } from "@bufbuild/protobuf";
-import { ActorSchema, ActorType, MessageKind, MessageSchema, type Message } from "@/lib/proto/teamclaw_pb";
+import { ActorSchema, ActorType, MessageKind, MessageSchema, type Message } from "@/lib/proto/teamclu_pb";
 import {
   setLocalCacheCurrentTeam,
   upsertActorsBatch,
@@ -20,6 +20,12 @@ import { useUIStore } from "@/stores/ui";
 import { useV2StreamingStore } from "@/stores/v2-streaming-store";
 import { useWorkspaceStore } from "@/stores/workspace";
 import { sortSessionListRows } from "@/lib/session-list-sort";
+import {
+  E2E_BUILD,
+  isV2E2EControlActive,
+  markV2E2EControlInstalled,
+  setV2E2EControlActive,
+} from "./v2-control-active";
 
 type SeedActor = {
   id?: string;
@@ -196,7 +202,7 @@ type V2E2EControl = {
 
 declare global {
   interface Window {
-    __TEAMCLAW_V2_E2E__?: V2E2EControl;
+    __TEAMCLU_V2_E2E__?: V2E2EControl;
   }
 }
 
@@ -204,20 +210,7 @@ const seededSessionIds = new Set<string>();
 const seededActorIds = new Set<string>();
 const seededRunIds = new Set<string>();
 let seededSessionRows: SessionListEntry[] | null = null;
-let controlInstalled = false;
-let controlActive = false;
 let internalMutationDepth = 0;
-
-function e2eEnabled(): boolean {
-  return (
-    typeof window !== "undefined" &&
-    ((import.meta.env as unknown as Record<string, string | undefined>).VITE_TEAMCLAW_E2E === "true")
-  );
-}
-
-export function isV2E2EControlActive(): boolean {
-  return e2eEnabled() && controlInstalled && controlActive;
-}
 
 function withInternalMutation<T>(fn: () => T): T {
   internalMutationDepth += 1;
@@ -553,7 +546,7 @@ const control: V2E2EControl = {
     if (duplicateSessionIds.length > 0) {
       throw new Error(`duplicate seeded session id: ${duplicateSessionIds[0].id}`);
     }
-    if (controlActive) {
+    if (isV2E2EControlActive()) {
       const reused = baseSessionEntries.find((entry) => seededSessionIds.has(entry.id));
       if (reused) {
         throw new Error(
@@ -592,7 +585,7 @@ const control: V2E2EControl = {
       warnings.push("cleanup clears frontend E2E state only; local-cache rows are upserted, so E2E callers should use unique run/session/message ids per run");
     }
 
-    controlActive = true;
+    setV2E2EControlActive(true);
     seededRunIds.add(input.runId);
     actors.forEach((actor) => seededActorIds.add(actor.id));
     sessionEntries.forEach((session) => seededSessionIds.add(session.id));
@@ -811,7 +804,7 @@ const control: V2E2EControl = {
   cleanup: () => {
     const sessionsToClear = new Set(seededSessionIds);
     const actorsToClear = new Set(seededActorIds);
-    controlActive = false;
+    setV2E2EControlActive(false);
     seededSessionRows = null;
 
     withInternalMutation(() => {
@@ -861,7 +854,7 @@ const control: V2E2EControl = {
 };
 
 export function installV2E2EControl(): void {
-  if (!e2eEnabled()) return;
-  controlInstalled = true;
-  window.__TEAMCLAW_V2_E2E__ = control;
+  if (!E2E_BUILD || typeof window === "undefined") return;
+  markV2E2EControlInstalled();
+  window.__TEAMCLU_V2_E2E__ = control;
 }

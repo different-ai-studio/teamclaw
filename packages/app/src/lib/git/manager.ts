@@ -10,7 +10,7 @@ import type {
   RepoSource,
   RepoResourceType,
 } from './types'
-import { TEAMCLAW_DIR } from '@/lib/build-config'
+import { TEAMCLU_DIR } from '@/lib/build-config'
 
 // ─── Constants ──────────────────────────────────────────────────────────────
 const GIT_DIR = 'git'
@@ -41,23 +41,23 @@ export class GitManager {
 
   // ─── Initialization ────────────────────────────────────────────────────
 
-  /** Get the base path for git repos: ~/.teamclaw/git/ */
+  /** Get the base path for git repos: ~/.teamclu/git/ */
   async getBasePath(): Promise<string> {
     if (this._basePath) return this._basePath
     const home = await homeDir()
-    this._basePath = await join(home, TEAMCLAW_DIR, GIT_DIR)
+    this._basePath = await join(home, TEAMCLU_DIR, GIT_DIR)
     return this._basePath
   }
 
-  /** Get the config file path: ~/.teamclaw/config.json */
+  /** Get the config file path: ~/.teamclu/config.json */
   async getConfigPath(): Promise<string> {
     const home = await homeDir()
-    return join(home, TEAMCLAW_DIR, CONFIG_FILE)
+    return join(home, TEAMCLU_DIR, CONFIG_FILE)
   }
 
   /** Get the path for a specific repo type.
-   *  Personal repos: ~/.teamclaw/git/personal/<resourceType>
-   *  Team repos: <workspacePath>/.teamclaw/team/<resourceType>
+   *  Personal repos: ~/.teamclu/git/personal/<resourceType>
+   *  Team repos: <workspacePath>/.teamclu/team/<resourceType>
    */
   async getRepoPath(
     source: RepoSource,
@@ -66,7 +66,7 @@ export class GitManager {
   ): Promise<string> {
     if (source === 'team') {
       if (!workspacePath) throw new Error('workspacePath is required for team repos')
-      return join(workspacePath, TEAMCLAW_DIR, TEAM_DIR, resourceType)
+      return join(workspacePath, TEAMCLU_DIR, TEAM_DIR, resourceType)
     }
     const base = await this.getBasePath()
     return join(base, PERSONAL_DIR, resourceType)
@@ -100,7 +100,7 @@ export class GitManager {
 
   // ─── Directory Structure ───────────────────────────────────────────────
 
-  /** Ensure the ~/.teamclaw/git/ directory structure exists (personal repos) */
+  /** Ensure the ~/.teamclu/git/ directory structure exists (personal repos) */
   async ensureDirectoryStructure(): Promise<void> {
     const base = await this.getBasePath()
     const dirs = [
@@ -214,7 +214,7 @@ export class GitManager {
       }
     }
 
-    // Clone (create parent only when needed; avoids empty .teamclaw/team/ when unused)
+    // Clone (create parent only when needed; avoids empty .teamclu/team/ when unused)
     const parent = await dirname(localPath)
     if (!(await exists(parent))) {
       await mkdir(parent, { recursive: true })
@@ -232,7 +232,7 @@ export class GitManager {
 
   // ─── Config Management ─────────────────────────────────────────────────
 
-  /** Load git repo config from ~/.teamclaw/config.json */
+  /** Load git repo config from ~/.teamclu/config.json */
   async loadConfig(): Promise<GitRepoConfig> {
     try {
       const configPath = await this.getConfigPath()
@@ -248,7 +248,7 @@ export class GitManager {
     }
   }
 
-  /** Save git repo config to ~/.teamclaw/config.json */
+  /** Save git repo config to ~/.teamclu/config.json */
   async saveConfig(gitConfig: GitRepoConfig): Promise<void> {
     const configPath = await this.getConfigPath()
 
@@ -268,9 +268,9 @@ export class GitManager {
 
     // Ensure parent dir exists
     const home = await homeDir()
-    const teamclawDir = await join(home, TEAMCLAW_DIR)
-    if (!(await exists(teamclawDir))) {
-      await mkdir(teamclawDir, { recursive: true })
+    const teamcluDir = await join(home, TEAMCLU_DIR)
+    if (!(await exists(teamcluDir))) {
+      await mkdir(teamcluDir, { recursive: true })
     }
 
     const { writeTextFile } = await import('@tauri-apps/plugin-fs')
@@ -312,7 +312,7 @@ export class GitManager {
       })
     }
 
-    // Team repos (stored under <workspace>/.teamclaw/team/)
+    // Team repos (stored under <workspace>/.teamclu/team/)
     if (config.team && workspacePath) {
       if (config.team.skillsUrl) {
         const localPath = await this.getRepoPath('team', 'skills', workspacePath)

@@ -16,8 +16,8 @@
 #   tar -xzf /tmp/vendor.tar.gz -C / && rm /tmp/vendor.tar.gz
 #   test -x /usr/local/bin/docker-entrypoint.sh \
 #     && test -x /nix/var/nix/profiles/default/bin/psql \
-#     && test -x /opt/teamclaw/entrypoint.sh \
-#     && test -f /etc/supervisor/conf.d/teamclaw-all-in-one.conf
+#     && test -x /opt/teamclu/entrypoint.sh \
+#     && test -f /etc/supervisor/conf.d/teamclu-all-in-one.conf
 #
 # entrypoint.sh prepends the nix profile to PATH itself, so no ENV/env wiring
 # is needed on the deployment side. gzip (not zstd) because old Ubuntu bases
@@ -27,21 +27,21 @@
 set -euo pipefail
 
 IMAGE="${1:?usage: export-vendor-tarball.sh <image> [out.tar.gz]}"
-OUT="${2:-teamclaw-allinone-vendor-amd64.tar.gz}"
+OUT="${2:-teamclu-allinone-vendor-amd64.tar.gz}"
 
 # Everything the runtime needs that is not repo glue on the base image:
 # the Postgres nix closure + supabase first-boot machinery, storage-api and
 # its musl node, PostgREST, GoTrue, NanoMQ, caddy(-l4), the musl loader, and
-# the /opt/teamclaw glue (FC build, migrations, scripts, supervisord conf).
+# the /opt/teamclu glue (FC build, migrations, scripts, supervisord conf).
 PATHS=(
   /nix
   /opt/storage
   /opt/pgrst
-  /opt/teamclaw
+  /opt/teamclu
   /docker-entrypoint-initdb.d
   /etc/postgresql
   /etc/postgresql-custom
-  /etc/supervisor/conf.d/teamclaw-all-in-one.conf
+  /etc/supervisor/conf.d/teamclu-all-in-one.conf
   /usr/local/bin/gotrue
   /usr/local/bin/gosu
   /usr/local/bin/nanomq

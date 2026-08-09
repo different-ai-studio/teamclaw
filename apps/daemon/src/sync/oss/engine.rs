@@ -36,6 +36,12 @@ pub struct TickResult {
     pub pulled: u32,
     pub pushed: u32,
     pub conflicts: u32,
+    /// Files the server listed but we could not fetch this tick.
+    ///
+    /// Previously this number had nowhere to go: a failed pull only produced a
+    /// `warn!`, the tick still returned `Ok`, and the UI just saw a smaller
+    /// `pulled`. Surfacing it is what makes the failure observable at all.
+    pub failed: u32,
 }
 
 /// Run a full sync tick: PULL then PUSH (spec §4.3).
@@ -90,6 +96,13 @@ pub async fn tick(
     let mut pull_items: Vec<PullItem> = Vec::new();
 
     for item in &all_items {
+        // `.mcp/` and `_secrets/` moved to the Cloud API. A team synced before the
+        // migration still has rows for them; skip rather than write them back to
+        // disk, where they would shadow the cloud copy. Skipped before `validate`
+        // so the two never have to agree about them.
+        if super::path_validator::is_retired(&item.path) {
+            continue;
+        }
         // Spec §4.3: path-validate all manifest items (defense vs. malicious remote).
         validate(&item.path).map_err(SyncError::from)?;
 
@@ -164,12 +177,20 @@ pub async fn tick(
     }
 
     // Batched download (with per-file fallback on a pre-batch FC).
+    let expected_pulls = pull_items.len();
     let pulled = pull_phase(content_root, &key, fc, &mut state, pull_items).await;
+    let pull_failures = expected_pulls.saturating_sub(pulled as usize);
 
-    // Only advance high-water mark after fully draining cursor (spec §4.3).
-    if let Some(seq) = snapshot_seq {
-        state.last_server_seq = seq;
+    let advanced = next_high_water(state.last_server_seq, snapshot_seq, pull_failures);
+    if advanced == state.last_server_seq && pull_failures > 0 {
+        tracing::warn!(
+            team_id,
+            failed = pull_failures,
+            held_at = state.last_server_seq,
+            "holding sync cursor: some files could not be pulled; they will be retried next tick"
+        );
     }
+    state.last_server_seq = advanced;
 
     // ── PUSH ─────────────────────────────────────────────────────────────────
     // Re-scan (the tree may have changed during PULL) to pick up current
@@ -251,6 +272,7 @@ pub async fn tick(
         pulled,
         pushed,
         conflicts: conflict_count,
+        failed: pull_failures as u32,
     };
 
     tracing::info!(
@@ -258,6 +280,7 @@ pub async fn tick(
         pulled = result.pulled,
         pushed = result.pushed,
         conflicts = result.conflicts,
+        failed = result.failed,
         "oss sync tick complete"
     );
 
@@ -393,6 +416,23 @@ fn prepare_upload(
 
 /// Batched PULL: sign N GET URLs in one FC round-trip, then fetch + decrypt +
 /// write blobs concurrently straight from OSS. Returns the number pulled.
+/// Where the sync cursor should sit after a pull.
+///
+/// Advance only when the cursor was fully drained (`snapshot_seq` is `Some`)
+/// **and** every listed file landed. Advancing past a failed pull loses that
+/// file permanently: the next tick asks for `changeSeq > last_server_seq`, so
+/// the server never lists it again, `needs_download` never gets to re-evaluate
+/// it, and nothing retries — pull failures are not counted in `deferred`, the
+/// tick still returns `Ok`, and only a `warn!` records it. Holding the mark
+/// back costs one extra version comparison per already-synced file on the next
+/// tick (`needs_download` skips them; nothing is re-downloaded).
+fn next_high_water(current: i64, snapshot_seq: Option<i64>, pull_failures: usize) -> i64 {
+    match snapshot_seq {
+        Some(seq) if pull_failures == 0 => seq,
+        _ => current,
+    }
+}
+
 async fn pull_phase(
     content_root: &str,
     key: &[u8; 32],
@@ -1204,13 +1244,13 @@ mod tests {
     #[test]
     fn locally_deleted_detects_synced_file_absent_from_scan() {
         let mut state = empty_state();
-        state.files.insert("skills/a.md".into(), synced_file(3));
-        state.files.insert("skills/b.md".into(), synced_file(1));
+        state.files.insert("knowledge/a.md".into(), synced_file(3));
+        state.files.insert("knowledge/b.md".into(), synced_file(1));
         // Only a.md is still on disk; b.md was deleted locally.
-        let scan = vec![scanned("skills/a.md")];
+        let scan = vec![scanned("knowledge/a.md")];
         assert_eq!(
             locally_deleted_paths(&state, &scan),
-            vec![("skills/b.md".to_string(), 1)]
+            vec![("knowledge/b.md".to_string(), 1)]
         );
     }
 
@@ -1218,20 +1258,34 @@ mod tests {
     fn locally_deleted_ignores_never_synced_and_already_deleted() {
         let mut state = empty_state();
         // never synced (version 0) — server doesn't have it; nothing to delete.
-        state.files.insert("skills/new.md".into(), synced_file(0));
+        state
+            .files
+            .insert("knowledge/new.md".into(), synced_file(0));
         // already marked deleted_local — don't re-emit.
         let mut d = synced_file(2);
         d.deleted_local = true;
-        state.files.insert("skills/gone.md".into(), d);
+        state.files.insert("knowledge/gone.md".into(), d);
         assert!(locally_deleted_paths(&state, &[]).is_empty());
     }
 
     #[test]
     fn locally_deleted_empty_when_all_present() {
         let mut state = empty_state();
-        state.files.insert("skills/a.md".into(), synced_file(2));
-        let scan = vec![scanned("skills/a.md")];
+        state.files.insert("knowledge/a.md".into(), synced_file(2));
+        let scan = vec![scanned("knowledge/a.md")];
         assert!(locally_deleted_paths(&state, &scan).is_empty());
+    }
+
+    #[test]
+    fn high_water_advances_only_on_a_fully_successful_pull() {
+        // Clean drain → advance.
+        assert_eq!(next_high_water(10, Some(42), 0), 42);
+        // One file failed → hold, so the next manifest request re-lists it.
+        assert_eq!(next_high_water(10, Some(42), 1), 10);
+        // Manifest never produced a snapshot → nothing to advance to.
+        assert_eq!(next_high_water(10, None, 0), 10);
+        // Never regress, even if the server hands back an older snapshot.
+        assert_eq!(next_high_water(10, Some(42), 3), 10);
     }
 
     #[test]
@@ -1258,14 +1312,14 @@ mod tests {
     fn refresh_dirty_marks_edit_without_mutating_mtime_size() {
         let dir = tempfile::tempdir().unwrap();
         let root = dir.path().to_str().unwrap();
-        std::fs::create_dir_all(dir.path().join("skills")).unwrap();
-        let f = dir.path().join("skills/x.md");
+        std::fs::create_dir_all(dir.path().join("knowledge")).unwrap();
+        let f = dir.path().join("knowledge/x.md");
         std::fs::write(&f, b"base\n").unwrap();
 
         // State reflects last-synced "base\n" with a baseline mtime/size.
         let mut state = empty_state();
         state.files.insert(
-            "skills/x.md".into(),
+            "knowledge/x.md".into(),
             FileState {
                 synced_version: 1,
                 synced_cipher_hash: "c".into(),
@@ -1282,7 +1336,7 @@ mod tests {
         std::fs::write(&f, b"edited-bigger\n").unwrap();
         refresh_dirty(&mut state, root);
 
-        let fs = &state.files["skills/x.md"];
+        let fs = &state.files["knowledge/x.md"];
         assert!(fs.dirty, "edited file must be flagged dirty before pull");
         // Critical: the last-synced baseline must be untouched so the PUSH scan
         // still detects the change and uploads it.
@@ -1298,16 +1352,16 @@ mod tests {
         let root = dir.path();
         // skills/a/b/c.md — remove c.md, then a/b and a should be pruned, but
         // the "skills" prefix root must survive.
-        std::fs::create_dir_all(root.join("skills/a/b")).unwrap();
-        std::fs::write(root.join("skills/a/b/c.md"), b"x").unwrap();
-        std::fs::remove_file(root.join("skills/a/b/c.md")).unwrap();
+        std::fs::create_dir_all(root.join("knowledge/a/b")).unwrap();
+        std::fs::write(root.join("knowledge/a/b/c.md"), b"x").unwrap();
+        std::fs::remove_file(root.join("knowledge/a/b/c.md")).unwrap();
 
-        prune_empty_parents(root, "skills/a/b/c.md").await;
+        prune_empty_parents(root, "knowledge/a/b/c.md").await;
 
-        assert!(!root.join("skills/a/b").exists(), "empty b/ pruned");
-        assert!(!root.join("skills/a").exists(), "empty a/ pruned");
+        assert!(!root.join("knowledge/a/b").exists(), "empty b/ pruned");
+        assert!(!root.join("knowledge/a").exists(), "empty a/ pruned");
         assert!(
-            root.join("skills").exists(),
+            root.join("knowledge").exists(),
             "prefix root skills/ preserved"
         );
     }
@@ -1317,26 +1371,29 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let root = dir.path();
         // skills/a holds another file, so removing skills/a/b/c.md prunes b/ only.
-        std::fs::create_dir_all(root.join("skills/a/b")).unwrap();
-        std::fs::write(root.join("skills/a/keep.md"), b"keep").unwrap();
-        std::fs::write(root.join("skills/a/b/c.md"), b"x").unwrap();
-        std::fs::remove_file(root.join("skills/a/b/c.md")).unwrap();
+        std::fs::create_dir_all(root.join("knowledge/a/b")).unwrap();
+        std::fs::write(root.join("knowledge/a/keep.md"), b"keep").unwrap();
+        std::fs::write(root.join("knowledge/a/b/c.md"), b"x").unwrap();
+        std::fs::remove_file(root.join("knowledge/a/b/c.md")).unwrap();
 
-        prune_empty_parents(root, "skills/a/b/c.md").await;
+        prune_empty_parents(root, "knowledge/a/b/c.md").await;
 
-        assert!(!root.join("skills/a/b").exists(), "empty b/ pruned");
-        assert!(root.join("skills/a").exists(), "non-empty a/ preserved");
-        assert!(root.join("skills/a/keep.md").exists(), "sibling file kept");
+        assert!(!root.join("knowledge/a/b").exists(), "empty b/ pruned");
+        assert!(root.join("knowledge/a").exists(), "non-empty a/ preserved");
+        assert!(
+            root.join("knowledge/a/keep.md").exists(),
+            "sibling file kept"
+        );
     }
 
     #[tokio::test]
     async fn prune_empty_parents_top_level_file_keeps_prefix_root() {
         let dir = tempfile::tempdir().unwrap();
         let root = dir.path();
-        std::fs::create_dir_all(root.join("skills")).unwrap();
+        std::fs::create_dir_all(root.join("knowledge")).unwrap();
         // A file directly under the prefix root: nothing to prune.
-        prune_empty_parents(root, "skills/x.md").await;
-        assert!(root.join("skills").exists(), "prefix root never removed");
+        prune_empty_parents(root, "knowledge/x.md").await;
+        assert!(root.join("knowledge").exists(), "prefix root never removed");
     }
 
     // ── batch helpers ──────────────────────────────────────────────────────────
@@ -1358,13 +1415,13 @@ mod tests {
     fn prepare_then_finalize_marks_synced_non_dirty() {
         let dir = tempfile::tempdir().unwrap();
         let root = dir.path().to_str().unwrap();
-        std::fs::create_dir_all(dir.path().join("skills")).unwrap();
-        std::fs::write(dir.path().join("skills/x.md"), b"hello world\n").unwrap();
+        std::fs::create_dir_all(dir.path().join("knowledge")).unwrap();
+        std::fs::write(dir.path().join("knowledge/x.md"), b"hello world\n").unwrap();
 
         let key = [7u8; 32];
         let mut state = empty_state();
 
-        let pu = prepare_upload(root, "skills/x.md", &key, &state).unwrap();
+        let pu = prepare_upload(root, "knowledge/x.md", &key, &state).unwrap();
         assert_eq!(pu.parent_version, 0, "new file → parentVersion 0");
         assert!(!pu.blob.is_empty(), "blob is the encrypted ciphertext");
         assert_ne!(pu.cipher_hash, pu.plain_hash, "cipher hash != plain hash");
@@ -1378,7 +1435,7 @@ mod tests {
         finalize_upload(root, &pu, c, &mut state, &mut stats);
 
         assert_eq!(stats.pushed, 1);
-        let fs = &state.files["skills/x.md"];
+        let fs = &state.files["knowledge/x.md"];
         assert_eq!(fs.synced_version, 1);
         assert!(!fs.dirty, "just-synced file must be clean");
         assert_eq!(fs.synced_cipher_hash, pu.cipher_hash);
@@ -1433,12 +1490,12 @@ mod tests {
     #[test]
     fn mark_tombstoned_retains_entry_with_version() {
         let mut state = empty_state();
-        state.files.insert("skills/a.md".into(), synced_file(3));
+        state.files.insert("knowledge/a.md".into(), synced_file(3));
         // Delete bumps the server tombstone to v4.
-        state.mark_tombstoned("skills/a.md", 4);
+        state.mark_tombstoned("knowledge/a.md", 4);
         let f = state
             .files
-            .get("skills/a.md")
+            .get("knowledge/a.md")
             .expect("entry must be RETAINED, not removed");
         assert!(f.deleted_local, "tombstone flagged deleted_local");
         assert_eq!(f.synced_version, 4, "tombstone version recorded");
@@ -1451,20 +1508,20 @@ mod tests {
         // version, not parentVersion=0 (which conflicts forever and never resurrects).
         let dir = tempfile::tempdir().unwrap();
         let root = dir.path().to_str().unwrap();
-        std::fs::create_dir_all(dir.path().join("skills")).unwrap();
+        std::fs::create_dir_all(dir.path().join("knowledge")).unwrap();
 
         let mut state = empty_state();
         // File was synced at v1, then deleted → server tombstone at v2.
-        state.files.insert("skills/x.md".into(), synced_file(1));
-        state.mark_tombstoned("skills/x.md", 2);
+        state.files.insert("knowledge/x.md".into(), synced_file(1));
+        state.mark_tombstoned("knowledge/x.md", 2);
 
         // User re-creates the same path.
-        std::fs::write(dir.path().join("skills/x.md"), b"reborn\n").unwrap();
+        std::fs::write(dir.path().join("knowledge/x.md"), b"reborn\n").unwrap();
 
         // The tombstoned-but-present entry is selected for push (the all_dirty
         // readd filter), and it CAS-es against v2.
-        assert!(state.files["skills/x.md"].deleted_local);
-        let pu = prepare_upload(root, "skills/x.md", &[9u8; 32], &state).unwrap();
+        assert!(state.files["knowledge/x.md"].deleted_local);
+        let pu = prepare_upload(root, "knowledge/x.md", &[9u8; 32], &state).unwrap();
         assert_eq!(
             pu.parent_version, 2,
             "re-add must CAS against the tombstone version, not 0"

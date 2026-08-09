@@ -39,9 +39,9 @@ pub struct RegisterWorkspaceRequest {
 pub type RegisterWorkspaceTx = mpsc::Sender<RegisterWorkspaceRequest>;
 
 /// One local RPC dispatch (`POST /v1/rpc`) forwarded to the daemon actor
-/// loop. `payload` is the exact `teamclaw.RpcRequest` protobuf bytes a client
+/// loop. `payload` is the exact `teamclu.RpcRequest` protobuf bytes a client
 /// would otherwise publish to `amux/{team}/{actor}/rpc/req`; `reply_tx`
-/// carries back the encoded `teamclaw.RpcResponse` bytes (the same bytes the
+/// carries back the encoded `teamclu.RpcResponse` bytes (the same bytes the
 /// MQTT reply would carry) or a dispatch error string.
 pub struct LocalRpcRequest {
     pub payload: Vec<u8>,
@@ -52,7 +52,7 @@ pub struct LocalRpcRequest {
 pub type LocalRpcTx = mpsc::Sender<LocalRpcRequest>;
 
 /// One local session/live ingest (`POST /v1/session-live/ingest`) forwarded to
-/// the daemon actor loop. `payload` is the exact `teamclaw.LiveEventEnvelope`
+/// the daemon actor loop. `payload` is the exact `teamclu.LiveEventEnvelope`
 /// protobuf bytes a client would otherwise publish to
 /// `amux/{team}/session/{id}/live`; the actor runs the same
 /// `route_session_message` sink the MQTT path uses (message_id dedup included).
@@ -140,6 +140,11 @@ pub struct HttpState {
     /// member on a plain refresh rather than only at the next runtime spawn.
     /// `None` in focused tests — the reconcile is then skipped.
     pub managed_llm: Option<Arc<crate::runtime::managed_llm::ManagedLlmResolver>>,
+    /// Mirrors team MCP / team env from the Cloud API onto the daemon-owned
+    /// cache under `~/.amuxd/teams/<id>/cloud/`. Shared with the background
+    /// tick so a post-write `POST /v1/team/cloud-config/reconcile` and the
+    /// periodic poll share one TTL/`last_fetch`. `None` in focused tests.
+    pub team_cloud: Option<Arc<crate::runtime::team_cloud_config::TeamCloudConfigResolver>>,
     /// `daemon.toml` path backing `/v1/config/*`. `None` in focused tests —
     /// those routes then return 503.
     pub config_path: Option<std::path::PathBuf>,
@@ -197,6 +202,7 @@ impl HttpState {
             backend: None,
             live_tee: None,
             managed_llm: None,
+            team_cloud: None,
             config_path: None,
             channel_reload_tx: None,
             onboarding: None,
@@ -233,6 +239,15 @@ impl HttpState {
         managed_llm: Option<Arc<crate::runtime::managed_llm::ManagedLlmResolver>>,
     ) -> Self {
         self.managed_llm = managed_llm;
+        self
+    }
+
+    /// Attach the shared team-cloud (MCP/env) cache resolver.
+    pub fn with_team_cloud(
+        mut self,
+        team_cloud: Option<Arc<crate::runtime::team_cloud_config::TeamCloudConfigResolver>>,
+    ) -> Self {
+        self.team_cloud = team_cloud;
         self
     }
 

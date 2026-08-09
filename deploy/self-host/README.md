@@ -1,6 +1,6 @@
-# TeamClaw Self-Host
+# TeamClu Self-Host
 
-One-shot Docker Compose deployment of the full TeamClaw backend stack.
+One-shot Docker Compose deployment of the full TeamClu backend stack.
 
 ---
 
@@ -171,7 +171,7 @@ cd ../../services/fc && sh ../../deploy/self-host/smoke/run-e2e.sh
 
 ### 4. 本地客户端联调（Desktop / Web）
 
-客户端 **不能** 在设置里改 Cloud API 地址——`cloudApiUrl` 只在 **构建/开发时** 通过环境变量注入（见 `packages/app/src/lib/server-config.ts`）。MQTT 地址则在登录后由 `GET /v1/config/bootstrap` 下发，并缓存在 `localStorage`（键 `teamclaw.serverConfig`）。
+客户端 **不能** 在设置里改 Cloud API 地址——`cloudApiUrl` 只在 **构建/开发时** 通过环境变量注入（见 `packages/app/src/lib/server-config.ts`）。MQTT 地址则在登录后由 `GET /v1/config/bootstrap` 下发，并缓存在 `localStorage`（键 `teamclu.serverConfig`）。
 
 #### A. 后端 `.env`
 
@@ -293,7 +293,7 @@ ENABLE_GOOGLE_SIGNUP=true
 GOOGLE_CLIENT_ID=<web client id>
 GOOGLE_CLIENT_SECRET=<web client secret>
 # 客户端回调必须在允许列表里，否则 GoTrue 会把 redirect 改写回 SITE_URL
-ADDITIONAL_REDIRECT_URLS=http://127.0.0.1:*/callback,teamclaw://auth-callback
+ADDITIONAL_REDIRECT_URLS=http://127.0.0.1:*/callback,teamclu://auth-callback
 docker compose up -d --no-deps auth
 ```
 
@@ -321,11 +321,33 @@ token、验签）和**终端用户浏览器**（打开 Google 授权页）。代
 桌面端按钮另受 `build.config.*.json` 的 `auth.google` 控制，默认 `false`，
 服务端跑通后再打开。
 
+##### Apple 登录（iOS 原生，和 Google 不是一条路）
+
+iOS 用系统弹窗拿到 id_token，POST 给 FC `/v1/auth/signin-idtoken`，FC 再转
+GoTrue `/auth/v1/token?grant_type=id_token`。**没有浏览器跳转，也没有
+client_secret**：这条 grant 是拿 Apple 的公开 JWKS 验签的。
+
+因此只要两个变量，且都不是机密（默认已开，`.env` 里通常不用写）：
+
+```bash
+ENABLE_APPLE_SIGNUP=true
+# 逗号分隔的 aud 白名单，就是 iOS 的 bundle id
+APPLE_CLIENT_IDS=tech.teamclaw.mobile,com.teamclu.mobile
+```
+
+没开的现象很有迷惑性：系统弹窗先走完、看着像成功了，最后才报
+`Provider (issuer "https://appleid.apple.com") is not enabled`，容易被当成 iOS 端 bug。
+
+**`appleid.apple.com` 走直连，不走 `AUTH_EGRESS_PROXY`**（已在 `NO_PROXY` 里）。
+墙内直连 Apple 本来就通（~0.7s），而那个代理的目标白名单是给 Google 配的，
+Apple 过去会撞上 tinyproxy 的 `Filtered`，最终表现成 id_token grant 500
+`unexpected_failure` —— 和"没开 provider"是两回事，日志里要分清。
+
 #### E. 切换后端后清理缓存
 
 若之前连过线上环境，清掉浏览器/Tauri WebView 里的 MQTT 缓存，避免沿用旧 broker：
 
-- 开发者工具 → Application → Local Storage → 删除 `teamclaw.serverConfig`
+- 开发者工具 → Application → Local Storage → 删除 `teamclu.serverConfig`
 - 或退出登录后重新登录
 
 #### F. 验收客户端链路
@@ -423,7 +445,7 @@ docker volume rm teamclaw-self-host_caddy_config   # 保留 caddy_data 可留证
 | `migrate` | `postgres:15-alpine` | One-shot migration runner; exits 0 when done |
 | `litellm-init` | `postgres:15-alpine` | One-shot; creates the `_litellm` database inside `db`; exits 0 when done |
 | `litellm` | `ghcr.io/berriai/litellm-database` | AI 网关；FC 在此开团队预算与虚拟 key |
-| `fc` | built from `services/fc` | TeamClaw Cloud API (Node.js); the only app-level backend |
+| `fc` | built from `services/fc` | TeamClu Cloud API (Node.js); the only app-level backend |
 | `caddy` | `caddy:2` | Reverse proxy + automatic TLS; **only service with host ports** |
 | `cron` _(opt-in)_ | `curlimages/curl` | Polls FC cron endpoints every 15 min |
 | `postgres` _(opt-in)_ | `postgres:15-alpine` | Standalone Postgres backend for FC when `BACKEND_KIND=postgres` |
@@ -507,7 +529,7 @@ apply-migrations: done
 No migration is applied twice. Re-running `up` is safe.
 
 The marker table deliberately lives in its own `_selfhost` schema rather than
-`public`: app migrations (e.g. `move_teamclaw_to_amux`) relocate every `public`
+`public`: app migrations (e.g. `move_teamclu_to_amux`) relocate every `public`
 base table into `amux`, which would sweep the marker along and break tracking
 mid-sequence. See `init/apply-migrations.sh`.
 
@@ -526,8 +548,8 @@ OSS is **not bundled**. Fill in the Alibaba OSS credentials in `.env`:
 ```dotenv
 ACCESS_KEY_ID=<your-key-id>
 ACCESS_KEY_SECRET=<your-key-secret>
-ROLE_ARN=acs:ram::123456789:role/teamclaw-oss
-BUCKET=teamclaw-team
+ROLE_ARN=acs:ram::123456789:role/teamclu-oss
+BUCKET=teamclu-team
 REGION=cn-shenzhen
 ENDPOINT=https://oss-cn-shenzhen.aliyuncs.com
 ```
@@ -567,7 +589,7 @@ not need GoTrue auth or PostgREST.
 
 ### Running the daemon (opt-in)
 
-The TeamClaw daemon (`amuxd`) can run inside the stack as an opt-in service. On
+The TeamClu daemon (`amuxd`) can run inside the stack as an opt-in service. On
 first start it **auto-joins a team** using a one-time invite token, persists its
 identity to the `amuxd_state` volume, connects to EMQX, and registers itself as
 an **agent actor** in the team. It then provides presence + MQTT connectivity.
@@ -601,7 +623,7 @@ docker compose logs -f amuxd
 ```
 
 The daemon reaches the cloud API at the internal `http://fc:9000`
-(`TEAMCLAW_CLOUD_API_URL`, set in `docker-compose.yml`) and resolves its MQTT
+(`TEAMCLU_CLOUD_API_URL`, set in `docker-compose.yml`) and resolves its MQTT
 broker (`mqtt://emqx:1883`) from `GET /v1/config/bootstrap`. It authenticates to
 EMQX with its actor id + Supabase access token (the single JWT authenticator
 accepts it — see [EMQX authentication model](#emqx-authentication-model)).
@@ -803,7 +825,7 @@ All variables live in `.env` (copied from `.env.example`).
 | `ACCESS_KEY_ID` | no | Alibaba OSS key ID |
 | `ACCESS_KEY_SECRET` | no | Alibaba OSS key secret |
 | `ROLE_ARN` | no | Alibaba RAM role ARN for OSS |
-| `BUCKET` | no | OSS bucket name (default: `teamclaw-team`) |
+| `BUCKET` | no | OSS bucket name (default: `teamclu-team`) |
 | `REGION` | no | OSS region (default: `cn-shenzhen`) |
 | `ENDPOINT` | no | OSS endpoint URL |
 | `CODEUP_ORG_ID` / `CODEUP_PAT` / `CODEUP_BOT_USERNAME` | for apps | Managed-git org + PAT used to create each app's repo. Missing → `POST /v1/apps` fails at the repo step |

@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
-import { TEAMCLAW_DIR } from '@/lib/build-config'
+import { TEAMCLU_DIR } from '@/lib/build-config'
 import {
   ensureGitignoreEntries,
   parseGitignore,
@@ -25,9 +25,9 @@ describe('gitignore-manager', () => {
 
   describe('parseGitignore', () => {
     it('should parse gitignore content into lines', () => {
-      const content = `# Comment\n${TEAMCLAW_DIR}/\nnode_modules/\n`
+      const content = `# Comment\n${TEAMCLU_DIR}/\nnode_modules/\n`
       const result = parseGitignore(content)
-      expect(result).toEqual(['# Comment', `${TEAMCLAW_DIR}/`, 'node_modules/'])
+      expect(result).toEqual(['# Comment', `${TEAMCLU_DIR}/`, 'node_modules/'])
     })
 
     it('should handle empty content', () => {
@@ -44,7 +44,7 @@ describe('gitignore-manager', () => {
       
       expect(writeTextFile).toHaveBeenCalledWith(
         '/workspace/.gitignore',
-        expect.stringContaining(`${TEAMCLAW_DIR}/`)
+        expect.stringContaining(`${TEAMCLU_DIR}/`)
       )
     })
 
@@ -57,13 +57,13 @@ describe('gitignore-manager', () => {
       const writtenContent = vi.mocked(writeTextFile).mock.calls[0][1]
       expect(writtenContent).toContain('# Existing')
       expect(writtenContent).toContain('node_modules/')
-      expect(writtenContent).toContain(`${TEAMCLAW_DIR}/`)
-      expect(writtenContent.indexOf('# Existing')).toBeLessThan(writtenContent.indexOf(`${TEAMCLAW_DIR}/`))
+      expect(writtenContent).toContain(`${TEAMCLU_DIR}/`)
+      expect(writtenContent.indexOf('# Existing')).toBeLessThan(writtenContent.indexOf(`${TEAMCLU_DIR}/`))
     })
 
     it('should not duplicate entries with different formatting', async () => {
       vi.mocked(exists).mockResolvedValue(true)
-      vi.mocked(readTextFile).mockResolvedValue(`${TEAMCLAW_DIR}\n`)  // No trailing slash
+      vi.mocked(readTextFile).mockResolvedValue(`${TEAMCLU_DIR}\n`)  // No trailing slash
 
       await ensureGitignoreEntries('/workspace')
 
@@ -84,7 +84,7 @@ describe('gitignore-manager', () => {
 
     it('should not duplicate existing entries', async () => {
       vi.mocked(exists).mockResolvedValue(true)
-      vi.mocked(readTextFile).mockResolvedValue(`${TEAMCLAW_DIR}/\n`)
+      vi.mocked(readTextFile).mockResolvedValue(`${TEAMCLU_DIR}/\n`)
 
       await ensureGitignoreEntries('/workspace')
 

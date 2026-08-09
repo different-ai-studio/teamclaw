@@ -120,7 +120,7 @@ function scopeToOwnedKeys(scope: FeatureScope, patch: RemoteFeaturePatch): Remot
 // the origin, that falls out of the key rather than needing an explicit
 // invalidation step that could be forgotten.
 function storageKey(scope: FeatureScope, origin: string): string {
-  return `teamclaw.remoteFeatures.${scope}:${origin}`;
+  return `teamclu.remoteFeatures.${scope}:${origin}`;
 }
 
 /** Origin of the Cloud API this app is currently pointed at, or "" when none. */
@@ -177,6 +177,7 @@ function normalizeChannels(value: boolean | ChannelsFeatureConfig | undefined): 
       kook: value,
       wecom: value,
       wechat: value,
+      seatalk: value,
     };
   }
   return value;
@@ -218,6 +219,7 @@ function resolveFrom(patches: RemoteFeaturePatch[]): ResolvedFeatures {
       kook: merged.channels?.kook ?? channels.kook,
       wecom: merged.channels?.wecom ?? channels.wecom,
       wechat: merged.channels?.wechat ?? channels.wechat,
+      seatalk: merged.channels?.seatalk ?? channels.seatalk,
     },
     teamShareBrowser: merged.teamShareBrowser ?? base.teamShareBrowser ?? false,
     apps: merged.apps ?? base.apps ?? false,
@@ -313,7 +315,7 @@ export function reloadFeaturesForCurrentOrigin(): void {
 // suites partially mock makes THIS module unimportable in those suites, which
 // is a worse coupling than one repeated string literal.
 if (typeof window !== "undefined") {
-  window.addEventListener("teamclaw:cloud-api-url-changed", () =>
+  window.addEventListener("teamclu:cloud-api-url-changed", () =>
     reloadFeaturesForCurrentOrigin(),
   );
 }

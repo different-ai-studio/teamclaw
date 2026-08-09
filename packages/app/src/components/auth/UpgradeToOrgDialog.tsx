@@ -22,7 +22,7 @@ interface Props {
  * Graduate the current account out of the shared default org into its own org:
  * collect an org name + contact, call /v1/account/upgrade (creates the org,
  * reparents + renames the team), then refresh the session so the new org claim
- * applies. See docs/specs/2026-06-17-teamclaw-phone-login-and-tenancy.md §8.
+ * applies. See docs/specs/2026-06-17-teamclu-phone-login-and-tenancy.md §8.
  */
 export function UpgradeToOrgDialog({ open, onOpenChange }: Props) {
   const { t } = useTranslation();

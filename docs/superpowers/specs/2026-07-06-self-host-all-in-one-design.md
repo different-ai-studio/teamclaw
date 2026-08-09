@@ -7,11 +7,11 @@ Branch: `codex/all-in-one-self-host`
 
 The current self-host deployment is a Docker Compose stack under `deploy/self-host/`. It relies on multiple containers and multiple externally visible endpoints:
 
-- TeamClaw Cloud API (`fc`)
+- TeamClu Cloud API (`fc`)
 - daemon / agent runner (`amuxd`)
 - EMQX MQTT broker
 - Caddy reverse proxy
-- Postgres-backed TeamClaw Cloud API services, MQTT, object storage, and optional legacy Supabase-compatible services
+- Postgres-backed TeamClu Cloud API services, MQTT, object storage, and optional legacy Supabase-compatible services
 - migration and cron helper services
 
 The target platform allows only:
@@ -60,8 +60,8 @@ Required MVP components:
 - `fc` in `BACKEND_KIND=postgres` mode: Cloud API, auth routes, and business data facade
 - `minio`: S3-compatible object storage backed by local filesystem under `/data/minio`
 - `emqx`: MQTT broker with WebSocket listener only for external clients
-- `fc`: TeamClaw Cloud API facade
-- `amuxd`: TeamClaw daemon process
+- `fc`: TeamClu Cloud API facade
+- `amuxd`: TeamClu daemon process
 - `caddy`: single public HTTP reverse proxy
 - `migrate`: startup task, not a long-running service
 
@@ -86,9 +86,9 @@ Recommended path routes:
 | Public path | Internal target | Notes |
 | --- | --- | --- |
 | `/healthz` | local health aggregator or Caddy static response plus upstream checks | Platform health check target |
-| `/v1/*` | `fc` on `127.0.0.1:9000` | Canonical TeamClaw Cloud API |
+| `/v1/*` | `fc` on `127.0.0.1:9000` | Canonical TeamClu Cloud API |
 | `/api/*` | optional alias to `fc` | Convenience only if needed |
-| `/v1/auth/*` | `fc` on `127.0.0.1:9000` | TeamClaw auth endpoints |
+| `/v1/auth/*` | `fc` on `127.0.0.1:9000` | TeamClu auth endpoints |
 | `/storage/*` | MinIO on `127.0.0.1:9100` | Internal S3-compatible object storage |
 | `/mqtt` | EMQX WebSocket listener | MQTT over WebSocket, not raw TCP |
 | `/` | static landing page or docs | Can return deployment information |
@@ -122,8 +122,8 @@ Clients must not use `mqtt://host:1883` in all-in-one mode.
 All mutable state lives under `/data`:
 
 ```text
-/data/teamclaw/secrets.env
-/data/teamclaw/runtime.env
+/data/teamclu/secrets.env
+/data/teamclu/runtime.env
 /data/postgres/
 /data/minio/
 /data/emqx/
@@ -136,7 +136,7 @@ The container should also run with an ephemeral filesystem for application code.
 
 ## Secret Management
 
-On first boot, `entrypoint.sh` creates `/data/teamclaw/secrets.env` with generated values if the file does not exist. On later boots, it reuses the existing file.
+On first boot, `entrypoint.sh` creates `/data/teamclu/secrets.env` with generated values if the file does not exist. On later boots, it reuses the existing file.
 
 Generated secrets include:
 
@@ -157,7 +157,7 @@ The entrypoint performs startup orchestration before handing off to the supervis
 
 1. Create required `/data` directories.
 2. Generate or load persisted secrets.
-3. Render runtime config files into `/run/teamclaw/`.
+3. Render runtime config files into `/run/teamclu/`.
 4. Initialize Postgres data directory if empty.
 5. Start Postgres.
 6. Wait for Postgres readiness.
@@ -204,7 +204,7 @@ The Dockerfile should use multi-stage builds:
 
 1. Build `services/fc`.
 2. Build `amuxd` from the Rust workspace.
-3. Assemble a Debian-based runtime with Postgres, EMQX, MinIO, Caddy, Node runtime, and the TeamClaw binaries.
+3. Assemble a Debian-based runtime with Postgres, EMQX, MinIO, Caddy, Node runtime, and the TeamClu binaries.
 4. Copy migrations, seed SQL, config templates, and startup scripts.
 
 ## Caddy Behavior
@@ -229,8 +229,8 @@ This all-in-one mode is additive. Existing files stay valid:
 The new mode should have separate docs and commands:
 
 ```bash
-docker build -f deploy/self-host/all-in-one/Dockerfile -t teamclaw-selfhost-allinone .
-docker run --rm -p 8080:8080 -v teamclaw-data:/data teamclaw-selfhost-allinone
+docker build -f deploy/self-host/all-in-one/Dockerfile -t teamclu-selfhost-allinone .
+docker run --rm -p 8080:8080 -v teamclu-data:/data teamclu-selfhost-allinone
 ```
 
 ## Testing Strategy
@@ -257,10 +257,10 @@ Minimum smoke tests:
 
 ## Acceptance Criteria
 
-The MVP is complete when a user can run one image with one port and one volume, then use TeamClaw self-host features without editing external service configuration:
+The MVP is complete when a user can run one image with one port and one volume, then use TeamClu self-host features without editing external service configuration:
 
 ```bash
-docker run -p 8080:8080 -v teamclaw-data:/data teamclaw-selfhost-allinone
+docker run -p 8080:8080 -v teamclu-data:/data teamclu-selfhost-allinone
 ```
 
 After startup:

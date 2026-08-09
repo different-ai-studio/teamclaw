@@ -8,6 +8,52 @@ platform :ios do
     match(type: "appstore", readonly: true)
   end
 
+  desc "Create the App Store profile for a bundle id match has never seen, and push it back to the certificates repo"
+  lane :bootstrap_certs do |options|
+    # The only lane that WRITES to the shared certificates repo — everything
+    # else runs match readonly. Invoked exclusively by ios-match.yml, which is
+    # manual-dispatch only.
+    #
+    # It exists because the repo's encryption passphrase lives in the
+    # MATCH_PASSWORD secret and nowhere else, so generating a profile locally
+    # means knowing that passphrase and clearing Apple 2FA. CI has the
+    # passphrase and an ASC API key, so it can do it unattended.
+    setup_ci
+
+    # Duplicated from `beta` rather than extracted: that lane is the live
+    # release path and is only exercised by a real TestFlight upload.
+    key_content = ENV["ASC_KEY_CONTENT"].to_s
+    api_key = app_store_connect_api_key(
+      key_id: ENV["ASC_KEY_ID"],
+      issuer_id: ENV["ASC_ISSUER_ID"],
+      key_content: key_content,
+      is_key_content_base64: !key_content.include?("BEGIN PRIVATE KEY"),
+    )
+
+    # readonly: false, but NOT `force` and never `nuke`. match reuses the
+    # distribution certificate already in the repo and only adds the missing
+    # provisioning profile; it signs a new certificate solely when the repo has
+    # none. Apple caps distribution certificates per team, and revoking one
+    # invalidates every profile built against it.
+    match_options = { type: "appstore", readonly: false, api_key: api_key }
+
+    # Only override the Matchfile when the caller actually named a bundle id —
+    # handing match an empty app_identifier is worse than omitting the key.
+    app_identifier = options[:app_identifier].to_s
+    match_options[:app_identifier] = app_identifier unless app_identifier.empty?
+
+    match(match_options)
+
+    # `beta` looks the profile up by exactly this env var, so print it: a green
+    # run that produced a name `beta` cannot resolve is still a broken release.
+    # Guarded rather than clever — match has already pushed by this point, and
+    # a raise here would report a successful run as a failure.
+    if (resolved = match_options[:app_identifier])
+      UI.success("Profile stored — beta resolves it as " \
+                 "#{ENV["sigh_#{resolved}_appstore_profile-name"].inspect}")
+    end
+  end
+
   desc "Build and upload to TestFlight"
   lane :beta do
     manual_signing = !ENV["IOS_DISTRIBUTION_CERT_P12"].to_s.empty?
@@ -26,19 +72,27 @@ platform :ios do
     match(type: "appstore", readonly: true, api_key: api_key) unless manual_signing
 
     profile_name = ENV["IOS_PROVISIONING_PROFILE_NAME"] ||
-      ENV["sigh_tech.teamclaw.mobile_appstore_profile-name"]
+      ENV["sigh_com.teamclu.mobile_appstore_profile-name"]
 
     update_code_signing_settings(
       use_automatic_signing: false,
       path: "AMUX.xcodeproj",
       team_id: ENV["TEAM_ID"] || "43G5A6G9QV",
-      bundle_identifier: "tech.teamclaw.mobile",
+      bundle_identifier: "com.teamclu.mobile",
       code_sign_identity: "Apple Distribution",
       profile_name: profile_name,
     )
 
+    # GITHUB_RUN_NUMBER resets per-repo, so it collides with build numbers
+    # already uploaded to App Store Connect from the old teamclu-next CI.
+    # Ask ASC for the actual latest build number instead.
+    next_build_number = latest_testflight_build_number(
+      api_key: api_key,
+      app_identifier: "com.teamclu.mobile",
+    ) + 1
+
     increment_build_number(
-      build_number: ENV["GITHUB_RUN_NUMBER"],
+      build_number: next_build_number.to_s,
       xcodeproj: "AMUX.xcodeproj",
     )
 
@@ -49,7 +103,7 @@ platform :ios do
       export_method: "app-store",
       export_options: {
         provisioningProfiles: {
-          "tech.teamclaw.mobile" => profile_name,
+          "com.teamclu.mobile" => profile_name,
         },
       },
     )

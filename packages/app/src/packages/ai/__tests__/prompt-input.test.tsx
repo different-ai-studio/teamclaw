@@ -93,3 +93,26 @@ describe('usePromptInputContext', () => {
     }).toThrow('PromptInput components must be used within <PromptInput />')
   })
 })
+
+describe('PromptInput HTML5 file drop', () => {
+  it('forwards dropped File objects to onFilesChange', async () => {
+    const { fireEvent } = await import('@testing-library/react')
+    const { PromptInput } = await import('@/packages/ai/prompt-input')
+    const onFilesChange = vi.fn()
+    const { container } = render(
+      React.createElement(PromptInput, { onFilesChange, multiple: true },
+        React.createElement('div', null, 'child'),
+      ),
+    )
+    const form = container.querySelector('form')
+    expect(form).not.toBeNull()
+    const file = new File(['hello'], 'note.txt', { type: 'text/plain' })
+    fireEvent.drop(form!, {
+      dataTransfer: {
+        files: [file],
+        getData: () => '',
+      },
+    })
+    expect(onFilesChange).toHaveBeenCalledWith([file])
+  })
+})

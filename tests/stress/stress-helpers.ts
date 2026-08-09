@@ -1,6 +1,6 @@
 import { executeJs, waitForCondition, takeScreenshot, sleep } from '../_utils/tauri-mcp-test-utils';
 
-const STORE = 'window.__TEAMCLAW_STORES__';
+const STORE = 'window.__TEAMCLU_STORES__';
 
 export async function verifyStoreExposed(): Promise<boolean> {
   const result = await executeJs(`typeof ${STORE}?.session?.getState === 'function'`);

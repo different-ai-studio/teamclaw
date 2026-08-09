@@ -2,6 +2,7 @@ import { create } from "zustand";
 import { UNSUPPORTED_BINARY_EXTENSIONS } from "@/components/viewers/UnsupportedFileViewer";
 import { isTauri } from '@/lib/utils'
 import { ensureGitignoreEntries } from '@/lib/gitignore-manager'
+import { seedDefaultWorkspaceInstructions } from '@/lib/workspace-seed/seed-default-instructions'
 import { appDisplayName, appStoragePrefix, TEAM_REPO_DIR } from '@/lib/build-config'
 import { useTeamModeStore } from './team-mode'
 
@@ -197,6 +198,34 @@ async function readWorkspaceDirectory(
   return invoke<FileNode[]>("read_workspace_directory", { workspacePath, path });
 }
 
+// A freshly listed directory arrives with every entry's `children` undefined,
+// so swapping the array in wholesale discards any subtree already expanded
+// underneath it. Carry the loaded children across for entries that survived the
+// listing; new entries keep their unloaded state.
+//
+// Without this, re-listing a parent silently un-loads its grandchildren, and
+// any caller that treats "children === undefined" as "needs loading" — see
+// FileBrowser's `findSubtree` — is handed a reason to load again immediately.
+function mergeLoadedChildren(
+  previous: FileNode[] | undefined,
+  next: FileNode[],
+): FileNode[] {
+  if (!previous || previous.length === 0) return next;
+  const loaded = new Map<string, FileNode[]>();
+  for (const node of previous) {
+    if (node.children !== undefined) loaded.set(node.path, node.children);
+  }
+  if (loaded.size === 0) return next;
+  return next.map((node) => {
+    const kept = loaded.get(node.path);
+    // Only directories can carry children; a path that flipped file↔directory
+    // between listings must not inherit the old subtree.
+    return kept !== undefined && node.type === "directory"
+      ? { ...node, children: kept }
+      : node;
+  });
+}
+
 // Update only the target node's children, creating new references only along
 // the path from root to target. Siblings and unrelated subtrees keep their
 // original references, preserving React.memo effectiveness.
@@ -207,7 +236,7 @@ function updateNodeChildren(
 ): FileNode[] {
   return nodes.map((node) => {
     if (node.path === targetPath) {
-      return { ...node, children };
+      return { ...node, children: mergeLoadedChildren(node.children, children) };
     }
     // Only recurse into directories whose path is a prefix of targetPath
     if (node.children && targetPath.startsWith(node.path + "/")) {
@@ -219,6 +248,15 @@ function updateNodeChildren(
     return node; // unchanged reference
   });
 }
+
+// Serialises `expandDirectory` per path. Two loads of the same directory used
+// to interleave, and the one that started first could publish last —
+// republishing children it read before the other call's write.
+//
+// Chained rather than dropped: several call sites expand a directory precisely
+// to reveal a file they just created, and silently skipping that refresh would
+// leave the new file invisible.
+const expandChain = new Map<string, Promise<void>>();
 
 function findNodeByPath(nodes: FileNode[], path: string): FileNode | null {
   for (const node of nodes) {
@@ -412,11 +450,24 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => ({
     }
 
     try {
-      // Load root directory
-      await get().refreshFileTree();
+      // Seed root AGENTS.md / CLAUDE.md for nearly empty workspaces (never overwrite)
+      // before refreshing the tree so the new files show up immediately.
+      try {
+        const { useCurrentTeamStore } = await import('./current-team')
+        const teamName = useCurrentTeamStore.getState().team?.name ?? null
+        await seedDefaultWorkspaceInstructions(expandedPath, {
+          teamName,
+          workspaceName: getFolderName(expandedPath),
+        })
+      } catch (error) {
+        console.warn('[Workspace] Failed to seed default instructions:', error)
+      }
 
       // Ensure .gitignore has required entries
       await ensureGitignoreEntries(expandedPath);
+
+      // Load root directory
+      await get().refreshFileTree();
 
       // Start watching the new workspace for file changes
       await startWatching(expandedPath);
@@ -554,7 +605,7 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => ({
       const visibleNodes = [...nodes];
 
       visibleNodes.sort((a, b) => {
-        // Always put teamclaw-team first
+        // Always put teamclu-team first
         if (a.name === TEAM_REPO_DIR && b.name !== TEAM_REPO_DIR) return -1;
         if (b.name === TEAM_REPO_DIR && a.name !== TEAM_REPO_DIR) return 1;
         
@@ -576,31 +627,47 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => ({
 
   // Expand a directory node
   expandDirectory: async (path: string) => {
-    const { loadDirectory } = get();
+    const load = async () => {
+      const { loadDirectory } = get();
 
-    // Mark as loading via loadingPaths Set (O(1), no tree copy)
-    const nextLoading = new Set(get().loadingPaths);
-    nextLoading.add(path);
-    set({ loadingPaths: nextLoading });
+      // Mark as loading via loadingPaths Set (O(1), no tree copy)
+      const nextLoading = new Set(get().loadingPaths);
+      nextLoading.add(path);
+      set({ loadingPaths: nextLoading });
 
-    // Load children
-    const children = await loadDirectory(path);
+      // Load children
+      const children = await loadDirectory(path);
 
-    // Update only the target node's children in the tree (minimal copy)
-    const updatedTree = updateNodeChildren(get().fileTree, path, children);
+      // Update only the target node's children in the tree (minimal copy)
+      const updatedTree = updateNodeChildren(get().fileTree, path, children);
 
-    // Always clone CURRENT expandedPaths to avoid race conditions —
-    // the Set reference may have been replaced by refreshFileTree during the await
-    const nextExpanded = new Set(get().expandedPaths);
-    nextExpanded.add(path);
-    const doneLoading = new Set(get().loadingPaths);
-    doneLoading.delete(path);
+      // Always clone CURRENT expandedPaths to avoid race conditions —
+      // the Set reference may have been replaced by refreshFileTree during the await
+      const nextExpanded = new Set(get().expandedPaths);
+      nextExpanded.add(path);
+      const doneLoading = new Set(get().loadingPaths);
+      doneLoading.delete(path);
 
-    set({
-      fileTree: updatedTree,
-      expandedPaths: nextExpanded,
-      loadingPaths: doneLoading,
-    });
+      set({
+        fileTree: updatedTree,
+        expandedPaths: nextExpanded,
+        loadingPaths: doneLoading,
+      });
+    };
+
+    // Queue behind any load already running for this same path. See expandChain.
+    const previous = expandChain.get(path) ?? Promise.resolve();
+    const run = previous.then(load);
+    // Swallowed only so one failure cannot poison every later expand of this
+    // path; the awaited `run` below still rejects for this caller.
+    const settled = run.catch(() => {});
+    expandChain.set(path, settled);
+    try {
+      await run;
+    } finally {
+      // Last one out clears the slot, so the map cannot grow unbounded.
+      if (expandChain.get(path) === settled) expandChain.delete(path);
+    }
   },
 
   // Collapse a directory node

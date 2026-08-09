@@ -8,9 +8,9 @@ final class SessionDetailModelSwitchTests: XCTestCase {
         let vm = SessionDetailViewModel.testInstance()
         let agent = MemberSheetAgent(
             id: "agent-a", displayName: "Claude", workspacePath: "",
-            agentType: "Claude", runtimeState: .active,
+            agentType: "Claude", lifecycleState: .active,
             availableModels: ["claude-haiku-4-5", "claude-sonnet-4-6"],
-            currentModel: "claude-haiku-4-5", runtimeID: "rid-1",
+            currentModel: "claude-haiku-4-5",
             workspaceID: nil, backendType: "claude"
         )
         vm._test_setMemberSheetAgents([agent])
@@ -26,9 +26,9 @@ final class SessionDetailModelSwitchTests: XCTestCase {
         let vm = SessionDetailViewModel.testInstance()
         let agent = MemberSheetAgent(
             id: "agent-a", displayName: "Claude", workspacePath: "",
-            agentType: "Claude", runtimeState: .active,
+            agentType: "Claude", lifecycleState: .active,
             availableModels: ["claude-haiku-4-5", "claude-sonnet-4-6"],
-            currentModel: "claude-haiku-4-5", runtimeID: "rid-1",
+            currentModel: "claude-haiku-4-5",
             workspaceID: nil, backendType: "claude"
         )
         vm._test_setMemberSheetAgents([agent])

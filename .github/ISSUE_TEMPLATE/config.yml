@@ -1,8 +1,8 @@
 blank_issues_enabled: false
 contact_links:
   - name: GitHub Discussions
-    url: https://github.com/different-ai-studio/teamclaw/discussions
+    url: https://github.com/different-ai-studio/teamclu/discussions
     about: Please ask and answer questions here.
   - name: Documentation
-    url: https://github.com/different-ai-studio/teamclaw#readme
+    url: https://github.com/different-ai-studio/teamclu#readme
     about: Check the documentation for more information.

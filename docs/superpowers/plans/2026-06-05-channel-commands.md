@@ -2,11 +2,11 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** Add a universal slash-command system to `teamclaw-gateway` so every channel gateway (WeChat Work, Discord, Feishu, etc.) can handle `/command` messages with two-layer dispatch: ACP agent commands take priority, gateway meta-commands are the fallback.
+**Goal:** Add a universal slash-command system to `teamclu-gateway` so every channel gateway (WeChat Work, Discord, Feishu, etc.) can handle `/command` messages with two-layer dispatch: ACP agent commands take priority, gateway meta-commands are the fallback.
 
-**Architecture:** A new `commands.rs` module in `teamclaw-gateway` exposes `parse_slash` + `dispatch`. `dispatch` first checks what commands the ACP agent has advertised; if the incoming command matches one of those it forwards via `send_slash_command`; otherwise it falls through to 8 built-in meta-commands (`/help`, `/model`, `/sessions`, `/agents`, `/workspaces`, `/clear`, `/stop`, `/ctx`). The `AcpHandle` trait gains 7 new methods; `AmuxdAcpHandle` in the daemon implements them by reading from `RuntimeManager`'s existing caches. The existing ad-hoc `dispatch_session_slash_cmd` in `wecom.rs` is replaced by the generic dispatcher.
+**Architecture:** A new `commands.rs` module in `teamclu-gateway` exposes `parse_slash` + `dispatch`. `dispatch` first checks what commands the ACP agent has advertised; if the incoming command matches one of those it forwards via `send_slash_command`; otherwise it falls through to 8 built-in meta-commands (`/help`, `/model`, `/sessions`, `/agents`, `/workspaces`, `/clear`, `/stop`, `/ctx`). The `AcpHandle` trait gains 7 new methods; `AmuxdAcpHandle` in the daemon implements them by reading from `RuntimeManager`'s existing caches. The existing ad-hoc `dispatch_session_slash_cmd` in `wecom.rs` is replaced by the generic dispatcher.
 
-**Tech Stack:** Rust, `async-trait`, `tokio`, `teamclaw-gateway` crate, `apps/daemon`
+**Tech Stack:** Rust, `async-trait`, `tokio`, `teamclu-gateway` crate, `apps/daemon`
 
 ---
 
@@ -14,24 +14,24 @@
 
 | File | Action | Responsibility |
 |------|--------|---------------|
-| `crates/teamclaw-gateway/src/acp.rs` | Modify | Add `AcpAvailableCommand` struct + 7 new trait methods |
-| `crates/teamclaw-gateway/src/commands.rs` | **Create** | `parse_slash`, `dispatch`, `MetaCommand` enum, unit tests |
-| `crates/teamclaw-gateway/src/lib.rs` | Modify | Export `pub mod commands` |
+| `crates/teamclu-gateway/src/acp.rs` | Modify | Add `AcpAvailableCommand` struct + 7 new trait methods |
+| `crates/teamclu-gateway/src/commands.rs` | **Create** | `parse_slash`, `dispatch`, `MetaCommand` enum, unit tests |
+| `crates/teamclu-gateway/src/lib.rs` | Modify | Export `pub mod commands` |
 | `apps/daemon/src/channels/acp_handle.rs` | Modify | Add 2 new fields; implement 7 new trait methods |
 | `apps/daemon/src/runtime/manager.rs` | Modify | Add `get_available_commands` public getter |
 | `apps/daemon/src/daemon/server.rs` | Modify | Pass `workspaces_path` when constructing `AmuxdAcpHandle` |
-| `crates/teamclaw-gateway/src/wecom.rs` | Modify | Replace ad-hoc dispatch with `commands::parse_slash` + `commands::dispatch` |
+| `crates/teamclu-gateway/src/wecom.rs` | Modify | Replace ad-hoc dispatch with `commands::parse_slash` + `commands::dispatch` |
 
 ---
 
 ## Task 1: Extend `AcpHandle` trait
 
 **Files:**
-- Modify: `crates/teamclaw-gateway/src/acp.rs`
+- Modify: `crates/teamclu-gateway/src/acp.rs`
 
 - [ ] **Step 1: Add `AcpAvailableCommand` struct and 7 new trait methods**
 
-Open `crates/teamclaw-gateway/src/acp.rs`. After the `ModelInfo` struct (line 8), add:
+Open `crates/teamclu-gateway/src/acp.rs`. After the `ModelInfo` struct (line 8), add:
 
 ```rust
 /// A slash command advertised by the ACP agent via `AcpAvailableCommands`.
@@ -112,7 +112,7 @@ Expected: errors about `AmuxdAcpHandle` not implementing the new methods — tha
 - [ ] **Step 3: Commit**
 
 ```bash
-git add crates/teamclaw-gateway/src/acp.rs
+git add crates/teamclu-gateway/src/acp.rs
 git commit -m "feat(gateway): extend AcpHandle with slash-command + session/agent/workspace methods"
 ```
 
@@ -216,7 +216,7 @@ Find `fn make_handle()` (line ~452) and add the two new fields:
 Also update the import at the top of `acp_handle.rs` to include `AmuxSessionId`:
 
 ```rust
-use teamclaw_gateway::{AcpAvailableCommand, AcpError, AcpHandle, AcpTurnOutcome, AmuxSessionId, ModelInfo};
+use teamclu_gateway::{AcpAvailableCommand, AcpError, AcpHandle, AcpTurnOutcome, AmuxSessionId, ModelInfo};
 ```
 
 - [ ] **Step 4: Implement `available_commands`**
@@ -436,12 +436,12 @@ git commit -m "feat(daemon): implement AcpHandle slash-command + session/agent/w
 ## Task 4: Create `commands.rs` module
 
 **Files:**
-- Create: `crates/teamclaw-gateway/src/commands.rs`
-- Modify: `crates/teamclaw-gateway/src/lib.rs`
+- Create: `crates/teamclu-gateway/src/commands.rs`
+- Modify: `crates/teamclu-gateway/src/lib.rs`
 
 - [ ] **Step 1: Write failing unit tests first**
 
-Create `crates/teamclaw-gateway/src/commands.rs` with the tests:
+Create `crates/teamclu-gateway/src/commands.rs` with the tests:
 
 ```rust
 use crate::acp::{AcpAvailableCommand, AcpError, AcpHandle, AcpTurnOutcome, AmuxSessionId, ModelInfo};
@@ -930,14 +930,14 @@ mod tests {
 - [ ] **Step 2: Run the tests — expect compile errors (trait not yet in scope)**
 
 ```bash
-CI=1 node scripts/rust-cli.js test teamclaw-gateway 2>&1 | grep "^error" | head -20
+CI=1 node scripts/rust-cli.js test teamclu-gateway 2>&1 | grep "^error" | head -20
 ```
 
-Adjust imports if needed. The `ChannelStore` mock may need to match the actual trait signature — check `crates/teamclaw-gateway/src/channel_store.rs` and update `MockStore` accordingly.
+Adjust imports if needed. The `ChannelStore` mock may need to match the actual trait signature — check `crates/teamclu-gateway/src/channel_store.rs` and update `MockStore` accordingly.
 
 - [ ] **Step 3: Add `pub mod commands` to `lib.rs`**
 
-In `crates/teamclaw-gateway/src/lib.rs`, find the `pub mod` block and add:
+In `crates/teamclu-gateway/src/lib.rs`, find the `pub mod` block and add:
 
 ```rust
 pub mod commands;
@@ -946,7 +946,7 @@ pub mod commands;
 - [ ] **Step 4: Run tests and iterate until green**
 
 ```bash
-CI=1 node scripts/rust-cli.js test teamclaw-gateway 2>&1 | tail -30
+CI=1 node scripts/rust-cli.js test teamclu-gateway 2>&1 | tail -30
 ```
 
 Expected: all tests in `commands.rs` pass.
@@ -954,7 +954,7 @@ Expected: all tests in `commands.rs` pass.
 - [ ] **Step 5: Commit**
 
 ```bash
-git add crates/teamclaw-gateway/src/commands.rs crates/teamclaw-gateway/src/lib.rs
+git add crates/teamclu-gateway/src/commands.rs crates/teamclu-gateway/src/lib.rs
 git commit -m "feat(gateway): add commands module with parse_slash + dispatch"
 ```
 
@@ -963,7 +963,7 @@ git commit -m "feat(gateway): add commands module with parse_slash + dispatch"
 ## Task 5: Wire into wecom.rs
 
 **Files:**
-- Modify: `crates/teamclaw-gateway/src/wecom.rs`
+- Modify: `crates/teamclu-gateway/src/wecom.rs`
 
 - [ ] **Step 1: Add import at top of wecom.rs**
 
@@ -1068,7 +1068,7 @@ Delete (or replace with a comment marking them as superseded) both methods:
 Find all callers of `handle_slash_command` in `wecom.rs`:
 
 ```bash
-grep -n "handle_slash_command\|dispatch_session_slash_cmd" crates/teamclaw-gateway/src/wecom.rs
+grep -n "handle_slash_command\|dispatch_session_slash_cmd" crates/teamclu-gateway/src/wecom.rs
 ```
 
 Remove or update each caller.
@@ -1084,7 +1084,7 @@ Expected: zero errors.
 - [ ] **Step 5: Run full unit tests**
 
 ```bash
-CI=1 node scripts/rust-cli.js test teamclaw-gateway 2>&1 | tail -20
+CI=1 node scripts/rust-cli.js test teamclu-gateway 2>&1 | tail -20
 ```
 
 Expected: all pass.
@@ -1092,7 +1092,7 @@ Expected: all pass.
 - [ ] **Step 6: Commit**
 
 ```bash
-git add crates/teamclaw-gateway/src/wecom.rs
+git add crates/teamclu-gateway/src/wecom.rs
 git commit -m "feat(wecom): replace ad-hoc slash dispatch with generic commands::dispatch"
 ```
 
@@ -1119,7 +1119,7 @@ Expected: pre-existing failures only (daemon tests have known unrelated failures
 - [ ] **Step 3: Run gateway unit tests**
 
 ```bash
-CI=1 node scripts/rust-cli.js test teamclaw-gateway 2>&1 | tail -20
+CI=1 node scripts/rust-cli.js test teamclu-gateway 2>&1 | tail -20
 ```
 
 Expected: all pass.

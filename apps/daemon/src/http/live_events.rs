@@ -29,7 +29,7 @@ use super::state::HttpState;
 /// One session/live publish, mirrored to local subscribers. Carries the exact
 /// same wrapped `LiveEventEnvelope` bytes that go to the MQTT broker —
 /// including the `event_id` — so clients receiving both copies dedupe with
-/// their existing eventId logic. Defined here (not in `teamclaw`) because the
+/// their existing eventId logic. Defined here (not in `teamclu`) because the
 /// HTTP module tree is also compiled standalone by integration tests.
 #[derive(Clone, Debug)]
 pub struct LiveTeeEvent {

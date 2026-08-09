@@ -1,6 +1,6 @@
 import { create } from "@bufbuild/protobuf";
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { MessageKind, MessageSchema } from "@/lib/proto/teamclaw_pb";
+import { MessageKind, MessageSchema } from "@/lib/proto/teamclu_pb";
 import {
   cloneStreamEntrySnapshot,
   mergeSubagentSnapshotsIntoParts,

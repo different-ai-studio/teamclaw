@@ -203,14 +203,14 @@ impl LocalSyncState {
 }
 
 fn state_read_path(workspace_path: &str) -> PathBuf {
-    teamclaw_runtime_env::resolve_workspace_meta_path_from_env(
+    teamclu_runtime_env::resolve_workspace_meta_path_from_env(
         Path::new(workspace_path),
         Path::new("sync").join("state.json"),
     )
 }
 
 fn state_write_path(workspace_path: &str) -> PathBuf {
-    teamclaw_runtime_env::workspace_meta_write_path_from_env(
+    teamclu_runtime_env::workspace_meta_write_path_from_env(
         Path::new(workspace_path),
         Path::new("sync").join("state.json"),
     )
@@ -234,7 +234,7 @@ mod tests {
         assert_eq!(state.last_server_seq, 0);
 
         state.upsert(
-            "skills/foo.md",
+            "knowledge/foo.md",
             3,
             "cipherhash".into(),
             "plainhash".into(),
@@ -247,7 +247,7 @@ mod tests {
 
         let loaded = LocalSyncState::load(ws, "team-abc").unwrap();
         assert_eq!(loaded.last_server_seq, 42);
-        let f = loaded.files.get("skills/foo.md").unwrap();
+        let f = loaded.files.get("knowledge/foo.md").unwrap();
         assert_eq!(f.synced_version, 3);
         assert_eq!(f.synced_cipher_hash, "cipherhash");
         assert!(!f.dirty);
@@ -256,7 +256,7 @@ mod tests {
     #[test]
     fn test_schema_version_mismatch() {
         let dir = tempfile::tempdir().unwrap();
-        let path = dir.path().join(".teamclaw").join("sync").join("state.json");
+        let path = dir.path().join(".teamclu").join("sync").join("state.json");
         std::fs::create_dir_all(path.parent().unwrap()).unwrap();
         std::fs::write(
             &path,
@@ -275,7 +275,7 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let ws = dir.path().to_str().unwrap();
 
-        let legacy = dir.path().join(".teamclaw/sync/state.json");
+        let legacy = dir.path().join(".teamclu/sync/state.json");
         std::fs::create_dir_all(legacy.parent().unwrap()).unwrap();
         std::fs::write(
             &legacy,

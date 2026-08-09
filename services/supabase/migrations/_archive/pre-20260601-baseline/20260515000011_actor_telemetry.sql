@@ -1,6 +1,6 @@
 -- actor_message_feedback + actor_session_report
 -- Replaces the libSQL telemetry.db tables that used to live at
--- ~/.teamclaw/telemetry.db.
+-- ~/.teamclu/telemetry.db.
 
 create table public.actor_message_feedback (
   id           uuid primary key default gen_random_uuid(),

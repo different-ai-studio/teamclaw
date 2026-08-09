@@ -575,7 +575,7 @@ function scheduleTeamFeedbackExport(_force: boolean = false) {
 
 /**
  * Trigger team leaderboard export (with debouncing)
- * Call this after updating .teamclaw/stats.json to sync changes to team leaderboard
+ * Call this after updating .teamclu/stats.json to sync changes to team leaderboard
  */
 export function triggerTeamLeaderboardExport() {
   scheduleTeamFeedbackExport()

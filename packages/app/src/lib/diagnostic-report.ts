@@ -104,8 +104,12 @@ export interface TeamEnvDiagnostics {
   linkIsSymlink: boolean
   linkTarget: string | null
   targetAccessible: boolean
+  /** Daemon cloud cache `~/.amuxd/teams/<id>/cloud/_secrets`. */
   secretsDirExists: boolean
   secretFileCount: number
+  cloudSecretsDir?: string
+  legacySecretsDirExists?: boolean
+  legacySecretFileCount?: number
   secretConfigured: boolean
 }
 
@@ -852,7 +856,7 @@ function buildTeamEnvCheck(teamEnv: TeamEnvDiagnostics | null, teamId: string | 
       title: '团队环境同步',
       status: 'fail',
       message: teamEnv.linkExists ? '团队目录软链无法访问' : '工作区未链接团队目录',
-      hint: '设置 → 团队共享，开通或加入团队',
+      hint: '侧边栏 → Knowledge 开通；已开通的可在 设置 → 团队共享 查看同步状态',
       hintSection: 'team',
     }
   }
@@ -865,11 +869,21 @@ function buildTeamEnvCheck(teamEnv: TeamEnvDiagnostics | null, teamId: string | 
       hintSection: 'envVars',
     }
   }
+  if (!teamEnv.secretsDirExists) {
+    return {
+      id: 'team_env',
+      title: '团队环境同步',
+      status: 'warn',
+      message: 'daemon 尚未拉取团队 env 云缓存',
+      hint: '确认 daemon 在跑；写入团队变量后会立即 reconcile，否则最长约 5 分钟',
+      hintSection: 'envVars',
+    }
+  }
   return {
     id: 'team_env',
     title: '团队环境同步',
     status: 'ok',
-    message: '团队目录与密钥配置正常',
+    message: `团队目录与密钥配置正常（云缓存 ${teamEnv.secretFileCount} 个）`,
   }
 }
 
@@ -1143,7 +1157,7 @@ export async function saveDiagnosticZip(report: DiagnosticReport): Promise<strin
 
   const stamp = new Date()
   const pad = (n: number) => String(n).padStart(2, '0')
-  const filename = `teamclaw-diag-${stamp.getFullYear()}${pad(stamp.getMonth() + 1)}${pad(stamp.getDate())}-${pad(stamp.getHours())}${pad(stamp.getMinutes())}.zip`
+  const filename = `teamclu-diag-${stamp.getFullYear()}${pad(stamp.getMonth() + 1)}${pad(stamp.getDate())}-${pad(stamp.getHours())}${pad(stamp.getMinutes())}.zip`
 
   const downloads = await downloadDir()
   const dest = await save({
@@ -1158,4 +1172,4 @@ export async function saveDiagnosticZip(report: DiagnosticReport): Promise<strin
   return dest
 }
 
-export const GITHUB_ISSUES_URL = 'https://github.com/different-ai-studio/teamclaw/issues'
+export const GITHUB_ISSUES_URL = 'https://github.com/different-ai-studio/teamclu/issues'

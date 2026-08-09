@@ -15,10 +15,10 @@ use tracing::{info, warn};
 
 /// Matches `apps/desktop/src/commands/introspect_api.rs` — desktop Tauri hosts the API.
 const INTROSPECT_API_PORT: u16 = 13144;
-const TEAM_SKILLS_PATH: &str = "teamclaw-team/skills";
+const TEAM_SKILLS_PATH: &str = "teamclu-team/skills";
 const REMOTE_TOOLS_MCP_SERVER_NAME: &str = "amuxd-remote-tools";
 const INSTRUCTION_PLUGIN_TEMPLATE: &str = include_str!(
-    "../../../../packages/app/src/lib/opencode/templates/teamclaw-instruction-plugin.mjs.txt"
+    "../../../../packages/app/src/lib/opencode/templates/teamclu-instruction-plugin.mjs.txt"
 );
 
 use crate::config::workspace_control::{
@@ -71,40 +71,24 @@ fn opencode_json_path(workspace_path: &Path) -> PathBuf {
     workspace_path.join("opencode.json")
 }
 
-fn read_json_object(path: &Path) -> Result<serde_json::Value, WorkspaceControlError> {
-    let workspace = path
-        .parent()
-        .ok_or_else(|| WorkspaceControlError::Io("opencode.json has no parent".into()))?;
-    teamclaw_runtime_env::opencode_config::OpencodeConfigStore::load(workspace)
-        .map_err(|e| WorkspaceControlError::Parse(e.to_string()))
-}
-
-fn write_json_pretty(path: &Path, value: &serde_json::Value) -> Result<(), WorkspaceControlError> {
-    let workspace = path
-        .parent()
-        .ok_or_else(|| WorkspaceControlError::Io("opencode.json has no parent".into()))?;
-    teamclaw_runtime_env::opencode_config::OpencodeConfigStore::write_value(workspace, value)
-        .map_err(|e| WorkspaceControlError::Io(e.to_string()))
-}
-
 fn map_store_err(
-    e: teamclaw_runtime_env::opencode_config::OpencodeConfigError,
+    e: teamclu_runtime_env::opencode_config::OpencodeConfigError,
 ) -> WorkspaceControlError {
     WorkspaceControlError::Io(e.to_string())
 }
 
 fn ws_to_store_err(
     e: WorkspaceControlError,
-) -> teamclaw_runtime_env::opencode_config::OpencodeConfigError {
+) -> teamclu_runtime_env::opencode_config::OpencodeConfigError {
     match e {
         WorkspaceControlError::Io(s) => {
-            teamclaw_runtime_env::opencode_config::OpencodeConfigError::Io(s)
+            teamclu_runtime_env::opencode_config::OpencodeConfigError::Io(s)
         }
         WorkspaceControlError::Parse(s) => {
-            teamclaw_runtime_env::opencode_config::OpencodeConfigError::Parse(s)
+            teamclu_runtime_env::opencode_config::OpencodeConfigError::Parse(s)
         }
         other => {
-            teamclaw_runtime_env::opencode_config::OpencodeConfigError::Parse(other.to_string())
+            teamclu_runtime_env::opencode_config::OpencodeConfigError::Parse(other.to_string())
         }
     }
 }
@@ -217,7 +201,7 @@ fn mutate_instruction_plugin(
     let already_registered = plugin_list.iter().any(|entry| {
         entry
             .as_str()
-            .map(|value| value.contains("teamclaw-instruction"))
+            .map(|value| value.contains("teamclu-instruction"))
             .unwrap_or(false)
     });
     if already_registered {
@@ -231,7 +215,7 @@ fn mutate_instruction_plugin(
 pub fn materialize_opencode_for_prepare(
     workspace_path: &Path,
 ) -> Result<(), WorkspaceControlError> {
-    teamclaw_runtime_env::opencode_config::OpencodeConfigStore::apply(workspace_path, |config| {
+    teamclu_runtime_env::opencode_config::OpencodeConfigStore::apply(workspace_path, |config| {
         let mut changed = false;
         changed |= mutate_default_permissions(config).map_err(ws_to_store_err)?;
         changed |= mutate_inherent_mcp(workspace_path, config).map_err(ws_to_store_err)?;
@@ -245,31 +229,22 @@ pub fn materialize_opencode_for_prepare(
 /// One read-modify-write for spawn: inherent MCP only.
 ///
 /// Cloud `provider.team` materialization and secret resolution run in
-/// [`teamclaw_runtime_env::assemble_runtime_env`] via
-/// [`teamclaw_runtime_env::sync_team_provider_on_disk`].
+/// [`teamclu_runtime_env::assemble_runtime_env`] via
+/// [`teamclu_runtime_env::sync_team_provider_on_disk`].
 pub fn materialize_inherent_mcp_for_spawn(
     workspace_path: &Path,
 ) -> Result<(), WorkspaceControlError> {
-    teamclaw_runtime_env::opencode_config::OpencodeConfigStore::apply(workspace_path, |config| {
+    teamclu_runtime_env::opencode_config::OpencodeConfigStore::apply(workspace_path, |config| {
         mutate_inherent_mcp(workspace_path, config).map_err(ws_to_store_err)
     })
     .map_err(map_store_err)?;
     Ok(())
 }
 
-/// Ensure tool-level permission defaults exist in `opencode.json`.
-fn ensure_default_permissions(workspace_path: &Path) -> Result<(), WorkspaceControlError> {
-    teamclaw_runtime_env::opencode_config::OpencodeConfigStore::apply(workspace_path, |config| {
-        mutate_default_permissions(config).map_err(ws_to_store_err)
-    })
-    .map_err(map_store_err)?;
-    Ok(())
-}
-
-/// Seed inherent MCP entries that TeamClaw expects (non-destructive).
+/// Seed inherent MCP entries that TeamClu expects (non-destructive).
 pub fn ensure_inherent_mcp(workspace_path: &Path) -> Result<(), WorkspaceControlError> {
     let config_path = opencode_json_path(workspace_path);
-    let changed = teamclaw_runtime_env::opencode_config::OpencodeConfigStore::apply(
+    let changed = teamclu_runtime_env::opencode_config::OpencodeConfigStore::apply(
         workspace_path,
         |config| mutate_inherent_mcp(workspace_path, config).map_err(ws_to_store_err),
     )
@@ -345,8 +320,8 @@ fn runtime_target_triple() -> &'static str {
 
 fn introspect_candidates_in_dir(dir: &Path) -> Option<PathBuf> {
     for candidate in [
-        dir.join(format!("teamclaw-introspect-{}", runtime_target_triple())),
-        dir.join("teamclaw-introspect"),
+        dir.join(format!("teamclu-introspect-{}", runtime_target_triple())),
+        dir.join("teamclu-introspect"),
     ] {
         if let Some(resolved) = resolve_executable(candidate) {
             return Some(resolved);
@@ -355,7 +330,7 @@ fn introspect_candidates_in_dir(dir: &Path) -> Option<PathBuf> {
     None
 }
 
-/// Production daemons run from `~/.amuxd/bin/amuxd`, but `teamclaw-introspect`
+/// Production daemons run from `~/.amuxd/bin/amuxd`, but `teamclu-introspect`
 /// stays in the desktop app bundle (or dev `apps/desktop/binaries/`). Search
 /// those locations after the current-exe directory.
 fn find_introspect_in_installed_app_bundles() -> Option<PathBuf> {
@@ -415,7 +390,7 @@ fn find_introspect_in_installed_app_bundles() -> Option<PathBuf> {
 
 fn resolve_introspect_binary() -> Option<String> {
     // Desktop-managed mode injects the bundled sidecar absolute path.
-    if let Ok(path) = std::env::var("TEAMCLAW_INTROSPECT_BIN") {
+    if let Ok(path) = std::env::var("TEAMCLU_INTROSPECT_BIN") {
         let trimmed = path.trim();
         if !trimmed.is_empty() {
             let p = std::path::Path::new(trimmed);
@@ -424,19 +399,19 @@ fn resolve_introspect_binary() -> Option<String> {
             }
             tracing::warn!(
                 path = trimmed,
-                "TEAMCLAW_INTROSPECT_BIN set but file missing; falling back"
+                "TEAMCLU_INTROSPECT_BIN set but file missing; falling back"
             );
         }
     }
 
     if std::process::Command::new("sh")
         .arg("-lc")
-        .arg("command -v teamclaw-introspect")
+        .arg("command -v teamclu-introspect")
         .output()
         .map(|o| o.status.success())
         .unwrap_or(false)
     {
-        return Some("teamclaw-introspect".to_string());
+        return Some("teamclu-introspect".to_string());
     }
 
     if let Ok(exe) = std::env::current_exe() {
@@ -465,7 +440,7 @@ fn resolve_introspect_binary() -> Option<String> {
         ] {
             let candidate = root
                 .join("apps/desktop/binaries")
-                .join(format!("teamclaw-introspect-{}", runtime_target_triple()));
+                .join(format!("teamclu-introspect-{}", runtime_target_triple()));
             if let Some(resolved) = resolve_executable(candidate) {
                 return Some(resolved.to_string_lossy().into_owned());
             }
@@ -485,7 +460,7 @@ fn introspect_command_stale(existing: &serde_json::Value) -> bool {
         .unwrap_or(true)
 }
 
-/// Port of desktop `ensure_inherent_config` (teamclaw-introspect, autoui, skills.paths).
+/// Port of desktop `ensure_inherent_config` (teamclu-introspect, autoui, skills.paths).
 fn ensure_extended_inherent_config(
     workspace_path: &Path,
     config: &mut serde_json::Value,
@@ -503,14 +478,14 @@ fn ensure_extended_inherent_config(
             .as_object_mut()
             .ok_or_else(|| WorkspaceControlError::Parse("mcp is not an object".into()))?;
 
-        let needs_introspect = match mcp_obj.get("teamclaw-introspect") {
+        let needs_introspect = match mcp_obj.get("teamclu-introspect") {
             Some(existing) => introspect_command_stale(existing),
             None => true,
         };
         if needs_introspect {
             if let Some(introspect_bin) = resolve_introspect_binary() {
                 mcp_obj.insert(
-                    "teamclaw-introspect".to_string(),
+                    "teamclu-introspect".to_string(),
                     serde_json::json!({
                         "type": "local",
                         "enabled": true,
@@ -525,7 +500,7 @@ fn ensure_extended_inherent_config(
             } else {
                 warn!(
                     workspace = %workspace_path.display(),
-                    "teamclaw-introspect binary not found; skipping MCP registration"
+                    "teamclu-introspect binary not found; skipping MCP registration"
                 );
             }
         }
@@ -654,11 +629,11 @@ fn install_instruction_plugin_file(workspace_path: &Path) -> Result<(), Workspac
     Ok(())
 }
 
-/// Install the TeamClaw instruction OpenCode plugin and register it in `opencode.json`.
+/// Install the TeamClu instruction OpenCode plugin and register it in `opencode.json`.
 pub fn ensure_instruction_plugin(workspace_path: &Path) -> Result<(), WorkspaceControlError> {
     install_instruction_plugin_file(workspace_path)?;
 
-    teamclaw_runtime_env::opencode_config::OpencodeConfigStore::apply(workspace_path, |config| {
+    teamclu_runtime_env::opencode_config::OpencodeConfigStore::apply(workspace_path, |config| {
         mutate_instruction_plugin(config).map_err(ws_to_store_err)
     })
     .map_err(map_store_err)?;
@@ -675,7 +650,7 @@ pub fn prepare_workspace(workspace_path: &Path) -> Result<(), WorkspaceControlEr
 
     install_instruction_plugin_file(workspace_path)?;
     materialize_opencode_for_prepare(workspace_path)?;
-    ensure_inherent_skills_in_dir(&teamclaw_runtime_env::workspace_meta_write_path_from_env(
+    ensure_inherent_skills_in_dir(&teamclu_runtime_env::workspace_meta_write_path_from_env(
         workspace_path,
         "skills",
     ))?;
@@ -683,7 +658,7 @@ pub fn prepare_workspace(workspace_path: &Path) -> Result<(), WorkspaceControlEr
     crate::runtime::claude_skills::ensure_claude_team_skills(workspace_path)?;
 
     if let Ok(Some(result)) =
-        teamclaw_runtime_env::opencode_db::maybe_migrate_legacy_opencode_db(workspace_path)
+        teamclu_runtime_env::opencode_db::maybe_migrate_legacy_opencode_db(workspace_path)
     {
         if result.migrated {
             tracing::info!(workspace = %workspace_path.display(), "migrated legacy isolated OpenCode DB to global");
@@ -914,11 +889,11 @@ impl RuntimeSupervisor {
         workspace_path: &Path,
         team_id: Option<&str>,
     ) -> EnvActivationDiagnostics {
-        let store = teamclaw_runtime_env::diagnose_personal_env_store();
-        let personal_env_result = teamclaw_runtime_env::personal_secrets::load_personal_env();
+        let store = teamclu_runtime_env::diagnose_personal_env_store();
+        let personal_env_result = teamclu_runtime_env::personal_secrets::load_personal_env();
         let loaded_user_count = personal_env_result
             .as_ref()
-            .map(teamclaw_runtime_env::count_user_personal_env_keys)
+            .map(teamclu_runtime_env::count_user_personal_env_keys)
             .unwrap_or(0);
         let personal_blob_user_var_count = store.user_stored_var_count;
         let personal_env_var_count = if loaded_user_count > 0 {
@@ -991,7 +966,7 @@ impl RuntimeSupervisor {
 
         let system_ctx = active_snapshot
             .as_ref()
-            .map(|snapshot| teamclaw_runtime_env::SystemEnvContext {
+            .map(|snapshot| teamclu_runtime_env::SystemEnvContext {
                 actor_id: snapshot
                     .bindings
                     .get("actor_id")
@@ -1004,22 +979,22 @@ impl RuntimeSupervisor {
                     .unwrap_or_default(),
                 cloud_token_file: snapshot.bindings.get("TC_ACCESS_TOKEN_FILE").cloned(),
             })
-            .unwrap_or(teamclaw_runtime_env::SystemEnvContext {
+            .unwrap_or(teamclu_runtime_env::SystemEnvContext {
                 actor_id: String::new(),
                 display_name: String::new(),
                 cloud_token_file: None,
             });
-        let resolved = teamclaw_runtime_env::resolve_runtime_env(
+        let resolved = teamclu_runtime_env::resolve_runtime_env(
             personal_env.clone(),
             team_env.values.clone(),
             system_ctx,
         );
         let host_env_shadowed_keys =
-            teamclaw_runtime_env::host_shadowed_env_keys(&resolved.bindings);
+            teamclu_runtime_env::host_shadowed_env_keys(&resolved.bindings);
         let mut override_keys: Vec<String> = resolved
             .overrides
             .iter()
-            .filter(|entry| entry.kind == teamclaw_runtime_env::EnvOverrideKind::Layer)
+            .filter(|entry| entry.kind == teamclu_runtime_env::EnvOverrideKind::Layer)
             .map(|entry| entry.key.clone())
             .chain(team_env.overridden_keys.iter().cloned())
             .collect();
@@ -1028,7 +1003,7 @@ impl RuntimeSupervisor {
         let mut alias_collision_keys: Vec<String> = resolved
             .overrides
             .iter()
-            .filter(|entry| entry.kind == teamclaw_runtime_env::EnvOverrideKind::AliasCollision)
+            .filter(|entry| entry.kind == teamclu_runtime_env::EnvOverrideKind::AliasCollision)
             .map(|entry| entry.key.clone())
             .collect();
         alias_collision_keys.sort();
@@ -1044,7 +1019,7 @@ impl RuntimeSupervisor {
                 snapshot
                     .overrides
                     .iter()
-                    .filter(|entry| entry.kind == teamclaw_runtime_env::EnvOverrideKind::Layer)
+                    .filter(|entry| entry.kind == teamclu_runtime_env::EnvOverrideKind::Layer)
                     .map(|entry| entry.key.clone()),
             );
             alias_collision_keys.extend(
@@ -1052,7 +1027,7 @@ impl RuntimeSupervisor {
                     .overrides
                     .iter()
                     .filter(|entry| {
-                        entry.kind == teamclaw_runtime_env::EnvOverrideKind::AliasCollision
+                        entry.kind == teamclu_runtime_env::EnvOverrideKind::AliasCollision
                     })
                     .map(|entry| entry.key.clone()),
             );
@@ -1068,7 +1043,7 @@ impl RuntimeSupervisor {
                     .provenance
                     .iter()
                     .filter(|entry| {
-                        entry.scope == teamclaw_runtime_env::EnvScope::System
+                        entry.scope == teamclu_runtime_env::EnvScope::System
                             && entry.alias_of.is_none()
                     })
                     .count()
@@ -1187,8 +1162,8 @@ impl RuntimeSupervisor {
             });
         }
 
-        let brand = teamclaw_runtime_env::brand_short_name_from_env();
-        let team_secret_configured = teamclaw_runtime_env::env_catalog::resolve_team_env_secret(
+        let brand = teamclu_runtime_env::brand_short_name_from_env();
+        let team_secret_configured = teamclu_runtime_env::env_catalog::resolve_team_env_secret(
             workspace_path,
             team_id,
             Some(brand.as_str()),
@@ -1206,8 +1181,8 @@ impl RuntimeSupervisor {
 
         let activation_status_for_analysis = activation_status.as_str();
         let active_snapshot_ref = active_snapshot.as_ref();
-        let mut analysis = teamclaw_runtime_env::analyze_env_activation(
-            &teamclaw_runtime_env::EnvActivationInput {
+        let mut analysis = teamclu_runtime_env::analyze_env_activation(
+            &teamclu_runtime_env::EnvActivationInput {
                 personal_env: &personal_env,
                 team_env: &team_env.values,
                 resolved: &resolved,
@@ -1222,7 +1197,7 @@ impl RuntimeSupervisor {
             },
         );
         analysis.mcp_unresolved_placeholders =
-            teamclaw_runtime_env::find_unresolved_config_placeholders(
+            teamclu_runtime_env::find_unresolved_config_placeholders(
                 workspace_path,
                 &resolved.bindings,
             );
@@ -1391,15 +1366,15 @@ impl RuntimeSupervisor {
         let Some((previous, team_id)) = previous else {
             return false;
         };
-        let Ok(personal) = teamclaw_runtime_env::personal_secrets::load_personal_env() else {
+        let Ok(personal) = teamclu_runtime_env::personal_secrets::load_personal_env() else {
             return false;
         };
         let team =
             crate::team_shared_env::load_team_env_for_workspace(workspace_path, team_id.as_deref());
-        let current = teamclaw_runtime_env::resolve_runtime_env(
+        let current = teamclu_runtime_env::resolve_runtime_env(
             personal,
             team,
-            teamclaw_runtime_env::SystemEnvContext {
+            teamclu_runtime_env::SystemEnvContext {
                 actor_id: previous
                     .bindings
                     .get("actor_id")
@@ -1593,10 +1568,10 @@ mod tests {
             RuntimeManager::default_launch_configs(),
             None,
         ))));
-        let snapshot = teamclaw_runtime_env::resolve_runtime_env(
-            teamclaw_runtime_env::personal_secrets::load_personal_env().unwrap_or_default(),
+        let snapshot = teamclu_runtime_env::resolve_runtime_env(
+            teamclu_runtime_env::personal_secrets::load_personal_env().unwrap_or_default(),
             std::collections::HashMap::new(),
-            teamclaw_runtime_env::SystemEnvContext {
+            teamclu_runtime_env::SystemEnvContext {
                 actor_id: "actor-test".to_string(),
                 display_name: "Agent Test".to_string(),
                 cloud_token_file: None,
@@ -1768,7 +1743,7 @@ mod tests {
 
     #[test]
     fn prepare_workspace_creates_defaults() {
-        let _guard = crate::test_brand_env::BrandEnvGuard::set("teamclaw");
+        let _guard = crate::test_brand_env::BrandEnvGuard::set("teamclu");
         let dir = tempfile::tempdir().unwrap();
         prepare_workspace(dir.path()).unwrap();
 
@@ -1788,7 +1763,7 @@ mod tests {
 
         assert!(dir
             .path()
-            .join(".teamclaw/skills/create-role/SKILL.md")
+            .join(".teamclu/skills/create-role/SKILL.md")
             .is_file());
         assert!(!dir.path().join(".opencode/data").exists());
     }
@@ -1805,7 +1780,7 @@ mod tests {
             .is_file());
         assert!(!dir
             .path()
-            .join(".teamclaw/skills/create-role/SKILL.md")
+            .join(".teamclu/skills/create-role/SKILL.md")
             .exists());
     }
 
@@ -1830,7 +1805,7 @@ mod tests {
         assert!(plugins.iter().any(|entry| {
             entry
                 .as_str()
-                .map(|value| value.contains("teamclaw-instruction"))
+                .map(|value| value.contains("teamclu-instruction"))
                 .unwrap_or(false)
         }));
         assert!(crate::runtime::instruction_plugin_installed(dir.path()));

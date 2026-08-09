@@ -116,7 +116,7 @@ export function createAuthModule(
       }
       // The team share mode is owned by the cloud (`GET /v1/teams/:id/share-mode`)
       // and surfaced via the team-share store; we no longer persist a local
-      // `team_mode` into teamclaw.json after a join.
+      // `team_mode` into teamclu.json after a join.
       return claim;
     },
     async listPendingInvites(): Promise<PendingInvite[]> {

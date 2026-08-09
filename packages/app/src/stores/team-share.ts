@@ -42,7 +42,7 @@ export function normalizeShareStatus(raw: Partial<ShareStatus>): ShareStatus {
   }
 }
 
-// What the workspace `teamclaw-team` entry currently is, as reported by the
+// What the workspace `teamclu-team` entry currently is, as reported by the
 // daemon-aware `team_share_get_status` command.
 export type LinkStatus = 'symlink' | 'real_dir' | 'missing'
 
@@ -52,7 +52,7 @@ export interface ShareStatus {
   gitAuthKind?: string | null
   enabledAt?: string | null
   // Per-workspace link to the daemon's single global copy, and where that
-  // global copy lives on disk (~/.amuxd/teams/<team_id>/teamclaw-team).
+  // global copy lives on disk (~/.amuxd/teams/<team_id>/teamclu-team).
   linkStatus?: LinkStatus
   globalPath?: string | null
 }
@@ -247,15 +247,17 @@ export const useTeamShareStore = create<TeamShareState>((set, get) => ({
 
   async getSecret(teamId, workspacePath) {
     if (!isTauri()) return null
-    try {
-      const secret = await invoke<string | null>('team_share_get_team_secret', {
-        teamId,
-        workspacePath,
-      })
-      return secret ?? null
-    } catch {
-      return null
-    }
+    // Deliberately unguarded. Rust distinguishes "no secret configured"
+    // (returns null) from "the store is there but unreadable" (throws), and a
+    // catch-all here collapsed both to null — telling the user to configure a
+    // key they already have, and hiding the real cause: a corrupt blob or wrong
+    // master key, which needs quarantine, not retyping. Callers handle the
+    // throw (see TeamSecretEntry).
+    const secret = await invoke<string | null>('team_share_get_team_secret', {
+      teamId,
+      workspacePath,
+    })
+    return secret ?? null
   },
 
   async disconnect(teamId, workspacePath) {

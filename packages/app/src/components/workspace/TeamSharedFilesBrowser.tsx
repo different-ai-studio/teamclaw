@@ -62,7 +62,7 @@ export function TeamSharedFilesBrowser({
   }, [teamId, workspacePath, refreshShare])
 
   // Resolve the single global team share dir and classify its on-disk state.
-  // We deliberately read `~/.amuxd/teams/<team_id>/teamclaw-team` directly (the
+  // We deliberately read `~/.amuxd/teams/<team_id>/teamclu-team` directly (the
   // daemon-owned canonical copy) and never fall back to the per-workspace link.
   const resolveDirState = React.useCallback(async () => {
     if (!isTauri()) {
@@ -86,7 +86,7 @@ export function TeamSharedFilesBrowser({
       // The daemon-owned global dir is outside the workspace boundary, so the
       // workspace-scoped file commands (read_workspace_directory, open, etc.)
       // cannot read it directly. We render through the in-workspace
-      // `teamclaw-team` symlink instead; make sure it exists on disk before
+      // `teamclu-team` symlink instead; make sure it exists on disk before
       // FileBrowser tries to resolve it. linkDaemonTeamWorkspace is idempotent.
       if (workspacePath) {
         try {
@@ -250,7 +250,7 @@ export function TeamSharedFilesBrowser({
   // FileBrowser renders via the workspace-scoped file commands, which reject
   // paths outside the workspace. `teamRootPath` is the daemon-owned global dir
   // (outside the workspace), so we render through the in-workspace
-  // `teamclaw-team` symlink that points at it. The global path stays in use for
+  // `teamclu-team` symlink that points at it. The global path stays in use for
   // the dir-state existence checks above (those go through the unscoped fs
   // plugin, not the workspace commands).
   const teamRenderPath = `${workspacePath}/${TEAM_SHARE_LINK_DIR}`

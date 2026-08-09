@@ -22,6 +22,7 @@ export interface ChannelsFeatureConfig {
   kook: boolean
   wecom: boolean
   wechat: boolean
+  seatalk: boolean
 }
 
 export interface TeamModelOption {
@@ -54,8 +55,8 @@ export interface BuildConfig {
     name: string
     /** Human-facing label: the window title and every in-app mention of the
      *  product. Omitted → falls back to `app.name`. Set this when the UI name
-     *  should differ from the bundle name (e.g. name "TeamClaw" keeps the .app
-     *  and download URL clean while displayName "TeamClaw 龙虾团" shows in the UI). */
+     *  should differ from the bundle name (e.g. name "TeamClu" keeps the .app
+     *  and download URL clean while displayName "TeamClu 龙虾团" shows in the UI). */
     displayName?: string
     shortName?: string
     /** Visual palette flavor. Omitted / "default" → Editorial Calm.
@@ -67,10 +68,10 @@ export interface BuildConfig {
      *  the OS icon set and the in-app logo from it. Omitted → keep committed assets. */
     logo?: string
     /** Build-time white-label: OS bundle identifier (reverse-DNS, e.g.
-     *  "com.acme.app"). Omitted → keep the default com.teamclaw.app. */
+     *  "com.acme.app"). Omitted → keep the default com.teamclu.app. */
     identifier?: string
     /** Build-time white-label: deep-link URL scheme (e.g. "acme" →
-     *  acme://invite?token=…). Omitted → "teamclaw". */
+     *  acme://invite?token=…). Omitted → "teamclu". */
     scheme?: string
   }
   features: {
@@ -90,7 +91,7 @@ export interface BuildConfig {
        *  at runtime by the Cloud API (`WEBSSO_LOGIN_URL` / `WEBSSO_STORAGE_KEY`),
        *  never hardcoded here. */
       webSSO?: boolean
-      /** Admin console hosts allowed to receive an injected TeamClaw session.
+      /** Admin console hosts allowed to receive an injected TeamClu session.
        *  Consumed by build.rs (baked into WEBSSO_ADMIN_HOSTS) as the native-side
        *  re-check; deployment-specific hosts belong in a brand build config. */
       webSSOHosts?: string[]
@@ -131,6 +132,7 @@ const allChannelsEnabled: ChannelsFeatureConfig = {
   kook: true,
   wecom: true,
   wechat: true,
+  seatalk: true,
 }
 
 /**
@@ -140,7 +142,7 @@ export function resolveChannelsConfig(channels: boolean | ChannelsFeatureConfig)
   if (typeof channels === 'boolean') {
     return channels
       ? { ...allChannelsEnabled }
-      : { discord: false, feishu: false, email: false, kook: false, wecom: false, wechat: false }
+      : { discord: false, feishu: false, email: false, kook: false, wecom: false, wechat: false, seatalk: false }
   }
   return channels
 }
@@ -163,7 +165,7 @@ export const FALLBACK_BUILD_CONFIG: BuildConfig = {
   team: {
     lockLlmConfig: false,
   },
-  app: { name: 'TeamClaw', shortName: 'teamclaw' },
+  app: { name: 'TeamClu', shortName: 'teamclu' },
   features: { updater: true, channels: { ...allChannelsEnabled }, auth: { google: false, wechat: false, phone: false, password: false, webSSO: false }, teamShareBrowser: false, apps: false },
   defaults: { theme: 'system' },
 }
@@ -195,16 +197,16 @@ function deriveShortName(name: string): string {
   return name.replace(/[^a-zA-Z0-9]/g, '').toLowerCase()
 }
 
-const OFFICIAL_BRAND_SHORT_NAMES = new Set(['teamclaw', 'teamclawdev'])
+const OFFICIAL_BRAND_SHORT_NAMES = new Set(['teamclu', 'teamcludev'])
 
-/** Official TeamClaw Prod/Dev builds share one on-disk + localStorage namespace. */
+/** Official TeamClu Prod/Dev builds share one on-disk + localStorage namespace. */
 export function isOfficialBrand(shortName: string): boolean {
   return OFFICIAL_BRAND_SHORT_NAMES.has(shortName)
 }
 
-/** Home dir + localStorage prefix (`teamclaw` for official builds). */
+/** Home dir + localStorage prefix (`teamclu` for official builds). */
 export function resolveStorageDirName(shortName: string): string {
-  return isOfficialBrand(shortName) ? 'teamclaw' : shortName
+  return isOfficialBrand(shortName) ? 'teamclu' : shortName
 }
 
 /**
@@ -216,12 +218,12 @@ export function resolveAmuxdDirName(shortName: string): string {
 }
 
 export const appShortName: string = buildConfig.app.shortName ?? deriveShortName(buildConfig.app.name)
-/** Prefix for localStorage keys — unified `teamclaw` for official builds (Decision 1 = B). */
+/** Prefix for localStorage keys — unified `teamclu` for official builds (Decision 1 = B). */
 export const appStoragePrefix: string = resolveStorageDirName(appShortName)
 /** The product name to show users. Prefer this over `buildConfig.app.name` in
  *  any UI string — `app.name` is the bundle identity and may differ. */
 export const appDisplayName: string = buildConfig.app.displayName ?? buildConfig.app.name
-export const appScheme: string = buildConfig.app.scheme ?? 'teamclaw'
+export const appScheme: string = buildConfig.app.scheme ?? 'teamclu'
 /**
  * Local agent runtime for this build. Defaults to opencode.
  *
@@ -240,10 +242,10 @@ export const localAgent: 'opencode' | 'pi' | 'cursor' | 'claude-code' =
         ? 'claude-code'
         : 'opencode'
 export const DEFAULT_WORKSPACE_PATH = `~/${buildConfig.app.name}`
-export const TEAMCLAW_DIR = isOfficialBrand(appShortName) ? '.teamclaw' : `.${appShortName}`
+export const TEAMCLU_DIR = isOfficialBrand(appShortName) ? '.teamclu' : `.${appShortName}`
 /** Team share link + global sync dir name. Fixed across brands so daemon, git, and all clients agree. */
-export const TEAM_REPO_DIR = 'teamclaw-team'
-export const CONFIG_FILE_NAME = isOfficialBrand(appShortName) ? 'teamclaw.json' : `${appShortName}.json`
+export const TEAM_REPO_DIR = 'teamclu-team'
+export const CONFIG_FILE_NAME = isOfficialBrand(appShortName) ? 'teamclu.json' : `${appShortName}.json`
 export const TEAM_SYNCED_EVENT = `${appStoragePrefix}-team-synced`
 
 /** Baked Chrome-extension pack config (`extensions` in build.config*.json). */

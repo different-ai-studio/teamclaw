@@ -23,6 +23,10 @@ pub struct SyncStatus {
     pub pulled: u32,
     pub pushed: u32,
     pub conflicts: u32,
+    /// Files the server offered that we failed to pull this tick. Non-zero
+    /// means the sync cursor is deliberately being held back so they get
+    /// retried, and the UI should not present the tick as fully clean.
+    pub failed: u32,
     /// Set when sync was skipped because `team_share.auto_sync` is disabled.
     #[serde(default)]
     pub skipped: bool,
@@ -64,15 +68,6 @@ impl SyncDispatcher {
             Some(b) => crate::team_link::team_share_gate(b.as_ref(), team_id).await,
             None => crate::team_link::TeamShareGate::Enabled,
         }
-    }
-
-    /// `true` when the cloud API reports an enabled share mode. When no backend
-    /// is wired (focused HTTP tests), returns `true` to preserve legacy link behavior.
-    pub async fn is_team_share_enabled(&self, team_id: &str) -> bool {
-        matches!(
-            self.team_share_gate(team_id).await,
-            crate::team_link::TeamShareGate::Enabled
-        )
     }
 
     /// FC base URL for OSS sync: the cloud URL from the authenticated backend.
@@ -260,6 +255,7 @@ impl SyncDispatcher {
                     pulled: r.pulled,
                     pushed: r.pushed,
                     conflicts: r.conflicts,
+                    failed: r.failed,
                     ..Default::default()
                 })
             }
@@ -384,6 +380,14 @@ mod tests {
     }
     #[tokio::test]
     async fn auto_sync_disabled_skips_without_backend() {
+        // AMUXD_HOME is process-wide. Without this lock the set/restore races
+        // every other test that reads it, and the loser sees somebody else's
+        // temp dir — which is how this test started failing intermittently on
+        // CI while passing alone. Same lock the HOME-mutating tests in
+        // team_link.rs take, for the same reason.
+        let _lock = crate::config::global_team_store::TEST_HOME_LOCK
+            .lock()
+            .unwrap_or_else(|e| e.into_inner());
         let tmp = tempfile::tempdir().unwrap();
         let config_path = tmp.path().join("daemon.toml");
         let mut cfg = crate::config::DaemonConfig::bootstrap();
@@ -395,7 +399,14 @@ mod tests {
 
         let (d, _backend) = dispatcher_with_mock(&tmp);
         let st = d
-            .sync_team("t", "/tmp/ws", SyncOptions { force: false, ..Default::default() })
+            .sync_team(
+                "t",
+                "/tmp/ws",
+                SyncOptions {
+                    force: false,
+                    ..Default::default()
+                },
+            )
             .await;
         assert!(st.skipped);
         assert!(st.last_error.is_none());
@@ -409,6 +420,11 @@ mod tests {
 
     #[tokio::test]
     async fn auto_sync_disabled_skip_preserves_cached_status() {
+        // Same process-wide AMUXD_HOME as the sibling test above — they raced
+        // each other directly.
+        let _lock = crate::config::global_team_store::TEST_HOME_LOCK
+            .lock()
+            .unwrap_or_else(|e| e.into_inner());
         let tmp = tempfile::tempdir().unwrap();
         let config_path = tmp.path().join("daemon.toml");
         let mut cfg = crate::config::DaemonConfig::bootstrap();
@@ -436,7 +452,14 @@ mod tests {
         cfg.save(&config_path).unwrap();
 
         let st = d
-            .sync_team("t", "/tmp/ws", SyncOptions { force: false, ..Default::default() })
+            .sync_team(
+                "t",
+                "/tmp/ws",
+                SyncOptions {
+                    force: false,
+                    ..Default::default()
+                },
+            )
             .await;
         assert!(st.skipped);
         assert!(st.last_error.is_some());

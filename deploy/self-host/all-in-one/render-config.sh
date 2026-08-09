@@ -6,14 +6,14 @@ SCRIPT_DIR="$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)"
 . "$SCRIPT_DIR/lib.sh"
 
 DATA_DIR="${DATA_DIR:-/data}"
-RUN_DIR="${RUN_DIR:-/run/teamclaw}"
-SECRETS_FILE="${SECRETS_FILE:-$DATA_DIR/teamclaw/secrets.env}"
+RUN_DIR="${RUN_DIR:-/run/teamclu}"
+SECRETS_FILE="${SECRETS_FILE:-$DATA_DIR/teamclu/secrets.env}"
 PUBLIC_BASE_URL="${PUBLIC_BASE_URL:-http://127.0.0.1:8080}"
 
 find_asset() {
   name="$1"
   if [ -f "$SCRIPT_DIR/$name" ]; then printf '%s\n' "$SCRIPT_DIR/$name"; return 0; fi
-  if [ -f "/opt/teamclaw/$name" ]; then printf '%s\n' "/opt/teamclaw/$name"; return 0; fi
+  if [ -f "/opt/teamclu/$name" ]; then printf '%s\n' "/opt/teamclu/$name"; return 0; fi
   fatal "missing asset: $name"
 }
 
@@ -76,7 +76,7 @@ GOTRUE_SMTP_PORT=2500
 GOTRUE_SMTP_USER=fake
 GOTRUE_SMTP_PASS=fake
 GOTRUE_SMTP_ADMIN_EMAIL=admin@example.com
-GOTRUE_SMTP_SENDER_NAME=teamclaw
+GOTRUE_SMTP_SENDER_NAME=teamclu
 GOTRUE_MAILER_URLPATHS_INVITE=/auth/v1/verify
 GOTRUE_MAILER_URLPATHS_CONFIRMATION=/auth/v1/verify
 GOTRUE_MAILER_URLPATHS_RECOVERY=/auth/v1/verify
@@ -87,11 +87,15 @@ GOTRUE_MAILER_TEMPLATES_EMAIL_CHANGE=http://127.0.0.1:8089/auth-email-templates/
 GOTRUE_MAILER_SUBJECTS_EMAIL_CHANGE=您的验证码：{{ .Token }}
 GOTRUE_MAILER_TEMPLATES_CONFIRMATION=http://127.0.0.1:8089/auth-email-templates/confirmation.html
 GOTRUE_MAILER_SUBJECTS_CONFIRMATION=您的验证码：{{ .Token }}
-GOTRUE_URI_ALLOW_LIST=${ADDITIONAL_REDIRECT_URLS:-http://127.0.0.1:*/callback,teamclaw://auth-callback}
+GOTRUE_URI_ALLOW_LIST=${ADDITIONAL_REDIRECT_URLS:-http://127.0.0.1:*/callback,teamclu://auth-callback}
 GOTRUE_EXTERNAL_GOOGLE_ENABLED=${ENABLE_GOOGLE_SIGNUP:-false}
 GOTRUE_EXTERNAL_GOOGLE_CLIENT_ID=${GOOGLE_CLIENT_ID:-}
 GOTRUE_EXTERNAL_GOOGLE_SECRET=${GOOGLE_CLIENT_SECRET:-}
 GOTRUE_EXTERNAL_GOOGLE_REDIRECT_URI=$PUBLIC_BASE_URL/auth/v1/callback
+# Apple: native id_token grant only, so CLIENT_ID is the accepted `aud` list
+# (the iOS bundle ID) and no secret is involved. See supabase/docker-compose.yml.
+GOTRUE_EXTERNAL_APPLE_ENABLED=${ENABLE_APPLE_SIGNUP:-true}
+GOTRUE_EXTERNAL_APPLE_CLIENT_ID=${APPLE_CLIENT_IDS:-tech.teamclaw.mobile,com.teamclu.mobile}
 EOF_GOTRUE
 
 # ---- PostgREST (:3000) -----------------------------------------------------

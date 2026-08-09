@@ -41,7 +41,7 @@ function deepMerge(base, overlay) {
 }
 
 function deriveShortName(name) {
-  return String(name || "teamclaw")
+  return String(name || "teamclu")
     .replace(/[^a-zA-Z0-9]/g, "")
     .toLowerCase();
 }
@@ -54,9 +54,9 @@ function profileFromBuildConfig() {
   }
   cfg = deepMerge(cfg, readJSON(path.join(rootDir, "build.config.local.json")) || {});
 
-  const displayName = cfg.app?.name || "TeamClaw";
+  const displayName = cfg.app?.name || "TeamClu";
   const shortName = cfg.app?.shortName || deriveShortName(displayName);
-  const appId = cfg.app?.identifier || "com.teamclaw.app";
+  const appId = cfg.app?.identifier || "com.teamclu.app";
   return { appId, shortName, displayName };
 }
 
@@ -65,7 +65,7 @@ function emit(profile) {
 }
 
 const known = [
-  { appId: "com.teamclaw.app", shortName: "teamclaw", displayName: "TeamClaw" },
+  { appId: "com.teamclu.app", shortName: "teamclu", displayName: "TeamClu" },
   { appId: "com.copilot361.app", shortName: "copilot361", displayName: "Copilot 361" },
 ];
 

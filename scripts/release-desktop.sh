@@ -16,7 +16,7 @@ set -euo pipefail
 REPO_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 cd "$REPO_ROOT"
 
-GITHUB_REPO="${GITHUB_REPO:-different-ai-studio/teamclaw}"
+GITHUB_REPO="${GITHUB_REPO:-different-ai-studio/teamclu}"
 
 MODE="release" # release | tag-only
 NEXT_VERSION=""
@@ -139,7 +139,7 @@ run ./scripts/check-desktop-version.sh
 
 if [[ "$SKIP_VERIFY" -eq 0 ]]; then
   log "Frontend production build smoke test…"
-  run pnpm --filter @teamclaw/app build
+  run pnpm --filter @teamclu/app build
   ok "Frontend build passed"
 else
   echo "⚠ Skipping frontend build (--skip-verify)"
@@ -166,7 +166,7 @@ if [[ "$MODE" == "release" ]]; then
     git commit -m "$(cat <<EOF
 ${COMMIT_MSG}
 
-Sync Cargo.lock for teamclaw/amuxd so Release sidecar builds pass with --locked.
+Sync Cargo.lock for teamclu/amuxd so Release sidecar builds pass with --locked.
 EOF
 )"
   fi
@@ -195,7 +195,7 @@ EOF
 
 Automated desktop release bump **→ v${NEXT_VERSION}** via \`scripts/release-desktop.sh\`.
 
-- Version sources + \`Cargo.lock\` (teamclaw/amuxd) aligned
+- Version sources + \`Cargo.lock\` (teamclu/amuxd) aligned
 - Local frontend build + preflight passed
 
 ## Test plan

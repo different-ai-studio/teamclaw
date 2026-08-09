@@ -56,7 +56,7 @@ async function readDaemonHttpInfo(): Promise<DaemonHttpInfo | null> {
 
 function formatFetchNetworkError(baseUrl: string, raw: string): string {
   if (/load failed|failed to fetch|networkerror|econnrefused|connection refused/i.test(raw)) {
-    return `Cannot reach amuxd daemon at ${baseUrl}. The daemon may have restarted on a new port — restart TeamClaw or wait a moment and retry.`
+    return `Cannot reach amuxd daemon at ${baseUrl}. The daemon may have restarted on a new port — restart TeamClu or wait a moment and retry.`
   }
   return raw
 }
@@ -167,10 +167,21 @@ export async function probeDaemonHttp(): Promise<DaemonHttpProbe> {
     return { ok: false, reason: 'not_running' }
   }
 
-  // 2) Token valid? — exchange the root token for a scoped session token.
-  invalidateDaemonConnection()
-  _connection = null
-  const conn = await _fetchConnection()
+  // 2) Token valid? — through the cache, deliberately.
+  //
+  // This used to invalidate the cached session and force a fresh
+  // `/v1/auth/exchange` on every probe. Three pollers run this on a 20s tick,
+  // and each one also wiped the connection every other caller shares — so the
+  // cache was never warm and the exchange count scaled with probes, not with
+  // token lifetime (measured on the box: ~33 `/v1/auth/exchange` per minute for
+  // a token that lives an hour).
+  //
+  // `getConnection` already answers the question this step is asking. It drops
+  // the cache when the daemon rebinds to a new port, refreshes 5 minutes before
+  // expiry, and coalesces concurrent callers — so a non-null result means the
+  // root token exchanged successfully at some point within the token's life,
+  // and null means it cannot be exchanged now.
+  const conn = await getConnection()
   if (!conn) return { ok: false, reason: 'token_invalid' }
 
   return { ok: true, baseUrl: conn.baseUrl }
@@ -224,7 +235,7 @@ async function daemonFetch<T>(
     return {
       ok: false,
       status: 0,
-      error: 'amuxd daemon is not connected. Restart TeamClaw or confirm amuxd is running.',
+      error: 'amuxd daemon is not connected. Restart TeamClu or confirm amuxd is running.',
     }
   }
 
@@ -287,7 +298,7 @@ async function daemonFetchNoContent(
     return {
       ok: false,
       status: 0,
-      error: 'amuxd daemon is not connected. Restart TeamClaw or confirm amuxd is running.',
+      error: 'amuxd daemon is not connected. Restart TeamClu or confirm amuxd is running.',
     }
   }
 
@@ -1001,6 +1012,20 @@ export async function getDaemonMcp(
   )
 }
 
+/**
+ * Ask the daemon to fold team MCP entries into this workspace's
+ * `opencode.json`. Only the daemon writes that file (atomic + process lock), so
+ * this is how the app applies a team MCP change rather than editing it directly.
+ */
+export async function materializeDaemonTeamMcp(
+  workspaceId: string,
+): Promise<{ changed: boolean; added_count: number }> {
+  return daemonFetchData<{ changed: boolean; added_count: number }>(
+    `/v1/workspaces/${workspaceId}/mcp/materialize-team`,
+    { method: 'POST' },
+  )
+}
+
 export async function putDaemonMcp(
   workspaceId: string,
   servers: Record<string, DaemonMcpServerConfig>,
@@ -1138,13 +1163,13 @@ export interface DaemonTeamLinkResult {
   team_id: string
   /** `symlink` | `junction` | `fallback` | `legacy_retained` */
   status: 'symlink' | 'junction' | 'fallback' | 'legacy_retained'
-  /** `~/.amuxd/teams/<team_id>/teamclaw-team` */
+  /** `~/.amuxd/teams/<team_id>/teamclu-team` */
   global_dir: string
 }
 
 /**
  * Ask the local daemon to materialize the team's global dir + this workspace's
- * `teamclaw-team` symlink *now* — called right after enabling/joining
+ * `teamclu-team` symlink *now* — called right after enabling/joining
  * team-share so the synced directory exists immediately instead of waiting for
  * the daemon's next start or the first runtime (the AddWorkspace path rides
  * MQTT, which may not be connected right after onboarding).
@@ -1185,7 +1210,7 @@ export async function linkDaemonTeamWorkspace(
 }
 
 /**
- * Deliver a `teamclaw.LiveEventEnvelope` to the local daemon over loopback
+ * Deliver a `teamclu.LiveEventEnvelope` to the local daemon over loopback
  * (`POST /v1/session-live/ingest`). Same `route_session_message` sink as MQTT
  * `amux/{team}/session/{id}/live`, including `message_id` dedup — so a later
  * MQTT copy of the same envelope is a no-op.

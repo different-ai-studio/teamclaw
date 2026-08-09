@@ -1,4 +1,4 @@
-// Internal HTTP API server for the teamclaw-introspect MCP binary.
+// Internal HTTP API server for the teamclu-introspect MCP binary.
 //
 // Listens on 127.0.0.1:13144 and handles:
 //   POST /send-wecom        — send a proactive WeCom message
@@ -10,6 +10,8 @@
 //   POST /knowledge-delete  — delete a memory entry
 //   POST /env-var-set       — create or update an env var (`scope`: personal | team)
 //   POST /env-var-delete    — delete an env var (`scope`: personal | team)
+//   POST /mcp-get           — fetch merged workspace MCP map (daemon)
+//   POST /mcp-put           — replace workspace MCP map (daemon)
 //   POST /session-export    — export session messages as opencode-compatible JSON
 //
 // Uses raw TCP + manual HTTP parsing to stay minimal (no axum state needed).
@@ -101,6 +103,8 @@ pub async fn start_introspect_api(app: AppHandle) -> anyhow::Result<()> {
                 ("POST", "/env-var-delete") => handle_env_var_delete(&app_clone, body_bytes).await,
                 ("POST", "/session-export") => handle_session_export(&app_clone, body_bytes).await,
                 ("POST", "/channel-set") => handle_channel_set(&app_clone, body_bytes).await,
+                ("POST", "/mcp-get") => handle_mcp_get(&app_clone, body_bytes).await,
+                ("POST", "/mcp-put") => handle_mcp_put(&app_clone, body_bytes).await,
                 ("POST", "/git-credential-get") => {
                     handle_git_credential_get(&app_clone, body_bytes).await
                 }
@@ -148,7 +152,7 @@ async fn handle_send_wecom(app: &AppHandle, body: &[u8]) -> Result<String, Strin
 
     // Send text message if provided
     if !message.is_empty() {
-        teamclaw_gateway::wecom::send_proactive_message(chatid, chat_type, message).await?;
+        teamclu_gateway::wecom::send_proactive_message(chatid, chat_type, message).await?;
     }
 
     // Send media file if provided (image/voice/video/file)
@@ -165,7 +169,7 @@ async fn handle_send_wecom(app: &AppHandle, body: &[u8]) -> Result<String, Strin
             .and_then(|v| v.as_str())
             .unwrap_or_else(|| detect_media_type(filename));
 
-        teamclaw_gateway::wecom::upload_and_send_media(
+        teamclu_gateway::wecom::upload_and_send_media(
             chatid, chat_type, &data, filename, media_type,
         )
         .await?;
@@ -265,7 +269,7 @@ fn resolve_wecom_owner_id(app: &AppHandle) -> Result<String, String> {
             .ok_or_else(|| "No workspace path set. Please select a workspace first.".to_string())?
     };
 
-    let config = teamclaw_gateway::read_config(&workspace_path)?;
+    let config = teamclu_gateway::read_config(&workspace_path)?;
     let owner_id = config
         .channels
         .as_ref()
@@ -468,6 +472,20 @@ async fn handle_env_var_set(app: &AppHandle, body: &[u8]) -> Result<String, Stri
         .or_else(|| v.get("team_id"))
         .and_then(|v| v.as_str())
         .map(|s| s.to_string());
+    // Team-scope values live in the Cloud API, so a bearer has to come in with
+    // the request. Personal-scope writes stay local and ignore it.
+    let access_token = v
+        .get("accessToken")
+        .or_else(|| v.get("access_token"))
+        .and_then(|v| v.as_str())
+        .map(|s| s.to_string());
+    // Paired with the token on purpose: it was minted by whichever server the
+    // caller is pointed at, so the endpoint has to come from the same place.
+    let cloud_api_url = v
+        .get("cloudApiUrl")
+        .or_else(|| v.get("cloud_api_url"))
+        .and_then(|v| v.as_str())
+        .map(|s| s.to_string());
 
     let workspace_path = {
         let registry = app.state::<super::window::WindowRegistry>();
@@ -490,6 +508,8 @@ async fn handle_env_var_set(app: &AppHandle, body: &[u8]) -> Result<String, Stri
         category,
         node_id,
         team_id,
+        access_token,
+        cloud_api_url,
     )
     .await?;
 
@@ -524,6 +544,18 @@ async fn handle_env_var_delete(app: &AppHandle, body: &[u8]) -> Result<String, S
         .or_else(|| v.get("team_id"))
         .and_then(|v| v.as_str())
         .map(|s| s.to_string());
+    let access_token = v
+        .get("accessToken")
+        .or_else(|| v.get("access_token"))
+        .and_then(|v| v.as_str())
+        .map(|s| s.to_string());
+    // Paired with the token on purpose: it was minted by whichever server the
+    // caller is pointed at, so the endpoint has to come from the same place.
+    let cloud_api_url = v
+        .get("cloudApiUrl")
+        .or_else(|| v.get("cloud_api_url"))
+        .and_then(|v| v.as_str())
+        .map(|s| s.to_string());
 
     let workspace_path = {
         let registry = app.state::<super::window::WindowRegistry>();
@@ -544,6 +576,8 @@ async fn handle_env_var_delete(app: &AppHandle, body: &[u8]) -> Result<String, S
         node_id,
         role,
         team_id,
+        access_token,
+        cloud_api_url,
     )
     .await?;
 
@@ -562,7 +596,9 @@ async fn handle_channel_set(app: &AppHandle, body: &[u8]) -> Result<String, Stri
         .ok_or("Missing field: channel")?;
     let patch = v.get("config").ok_or("Missing field: config")?;
 
-    let valid_channels = ["wecom", "discord", "feishu", "email", "kook", "wechat"];
+    let valid_channels = [
+        "wecom", "discord", "feishu", "email", "kook", "wechat", "seatalk",
+    ];
     if !valid_channels.contains(&channel) {
         return Err(format!(
             "Unknown channel: '{}'. Valid: {}",
@@ -581,7 +617,7 @@ async fn handle_channel_set(app: &AppHandle, body: &[u8]) -> Result<String, Stri
             .ok_or_else(|| "No workspace path set. Please select a workspace first.".to_string())?
     };
 
-    let mut json = super::env_vars::read_teamclaw_json(&workspace)?;
+    let mut json = super::env_vars::read_teamclu_json(&workspace)?;
 
     // Ensure channels object exists
     if json.get("channels").is_none() {
@@ -605,21 +641,65 @@ async fn handle_channel_set(app: &AppHandle, body: &[u8]) -> Result<String, Stri
         return Err("config must be a JSON object".to_string());
     }
 
-    super::env_vars::write_teamclaw_json(&workspace, &json)?;
+    super::env_vars::write_teamclu_json(&workspace, &json)?;
 
     Ok(format!(r#"{{"ok":true,"channel":"{}"}}"#, channel))
 }
 
+fn resolve_workspace_path(app: &AppHandle, body: &serde_json::Value) -> Result<String, String> {
+    if let Some(ws) = body
+        .get("workspace")
+        .or_else(|| body.get("workspace_path"))
+        .and_then(|v| v.as_str())
+        .map(str::trim)
+        .filter(|s| !s.is_empty())
+    {
+        return Ok(ws.to_string());
+    }
+    let registry = app.state::<super::window::WindowRegistry>();
+    registry
+        .current_workspace
+        .lock()
+        .ok()
+        .and_then(|cw| cw.clone())
+        .ok_or_else(|| "No workspace path set. Please select a workspace first.".to_string())
+}
+
+/// Body: `{ "workspace"?: string }`. Returns the merged MCP server map from amuxd.
+async fn handle_mcp_get(app: &AppHandle, body: &[u8]) -> Result<String, String> {
+    let v: serde_json::Value = if body.is_empty() {
+        serde_json::json!({})
+    } else {
+        serde_json::from_slice(body).map_err(|e| format!("JSON parse error: {}", e))?
+    };
+    let workspace = resolve_workspace_path(app, &v)?;
+    let servers = super::daemon_http::get_mcp_via_daemon(&workspace).await?;
+    serde_json::to_string(&servers).map_err(|e| format!("Serialization error: {e}"))
+}
+
+/// Body: `{ "workspace"?: string, "servers": { ... } }`. Replaces workspace MCP map.
+async fn handle_mcp_put(app: &AppHandle, body: &[u8]) -> Result<String, String> {
+    let v: serde_json::Value =
+        serde_json::from_slice(body).map_err(|e| format!("JSON parse error: {}", e))?;
+    let workspace = resolve_workspace_path(app, &v)?;
+    let servers = v.get("servers").ok_or("Missing field: servers")?;
+    if !servers.is_object() {
+        return Err("servers must be a JSON object".to_string());
+    }
+    let result = super::daemon_http::put_mcp_via_daemon(&workspace, servers).await?;
+    serde_json::to_string(&result).map_err(|e| format!("Serialization error: {e}"))
+}
+
 /// Fetch a stored Git credential by ref. Body: `{"workspace_path": "...", "credential_ref": "..."}`.
 /// Returns `{"ok":true,"authKind":"...","credential":"..."}`. Used by the
-/// `teamclaw-askpass` shell helper (via `teamclaw-introspect get-credential`)
+/// `teamclu-askpass` shell helper (via `teamclu-introspect get-credential`)
 /// to provide credentials to `git clone` over HTTPS.
 //
 // TODO(security): /git-credential-get returns plaintext credentials over an
 // unauthenticated 127.0.0.1 socket. Any local process can call this and exfiltrate
 // HTTPS tokens or SSH key paths. Follow-up: introduce a per-launch shared secret
-// (file-mode 0600 under ~/.teamclaw/) that the introspect sidecar and askpass
-// helper both read, and require it as an X-Teamclaw-Token header.
+// (file-mode 0600 under ~/.teamclu/) that the introspect sidecar and askpass
+// helper both read, and require it as an X-Teamclu-Token header.
 async fn handle_git_credential_get(_app: &AppHandle, body: &[u8]) -> Result<String, String> {
     let v: serde_json::Value =
         serde_json::from_slice(body).map_err(|e| format!("JSON parse error: {}", e))?;

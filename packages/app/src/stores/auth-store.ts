@@ -135,7 +135,7 @@ async function claimInviteToken(token: string): Promise<AuthClaimResult | ClaimF
 // Pending invite token — stashed when an unauthenticated/anonymous user opens an
 // invite, claimed once they sign in with a real account. Persisted so it
 // survives the OAuth loopback round-trip and reloads.
-const PENDING_INVITE_KEY = "teamclaw.pendingInviteToken";
+const PENDING_INVITE_KEY = "teamclu.pendingInviteToken";
 
 function readPendingInviteToken(): string | null {
   try {

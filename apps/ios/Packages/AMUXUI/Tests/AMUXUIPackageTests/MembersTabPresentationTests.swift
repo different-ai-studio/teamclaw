@@ -1,3 +1,4 @@
+import SwiftUI
 import Testing
 @testable import AMUXUI
 
@@ -5,7 +6,9 @@ import Testing
 struct MembersTabPresentationTests {
     @Test("tab bar is visible only at the members stack root")
     func tabBarVisibleOnlyAtRoot() {
-        #expect(MembersTabPresentation.isTabBarVisible(navigationPath: []) == true)
-        #expect(MembersTabPresentation.isTabBarVisible(navigationPath: ["actor:agent-1"]) == false)
+        #expect(MembersTabPresentation.isTabBarVisible(navigationPath: NavigationPath()) == true)
+        var pushed = NavigationPath()
+        pushed.append("actor:agent-1")
+        #expect(MembersTabPresentation.isTabBarVisible(navigationPath: pushed) == false)
     }
 }

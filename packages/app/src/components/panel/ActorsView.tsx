@@ -46,6 +46,11 @@ export const useActorsForTeam = useActorDirectory
 
 type ActorTypeFilter = 'all' | 'agent' | 'member'
 
+const actorNameCollator = new Intl.Collator(['zh-Hans-CN', 'en'], {
+  sensitivity: 'base',
+  numeric: true,
+})
+
 function ActorRowView({
   actor,
   onViewProfile,
@@ -219,11 +224,13 @@ export function ActorsView() {
 
   const visibleActors = React.useMemo(() => {
     const normalizedQuery = query.trim().toLowerCase()
-    return actors.filter((actor) => {
-      if (filter !== 'all' && actor.actor_type !== filter) return false
-      if (!normalizedQuery) return true
-      return actor.display_name.toLowerCase().includes(normalizedQuery)
-    })
+    return actors
+      .filter((actor) => {
+        if (filter !== 'all' && actor.actor_type !== filter) return false
+        if (!normalizedQuery) return true
+        return actor.display_name.toLowerCase().includes(normalizedQuery)
+      })
+      .sort((a, b) => actorNameCollator.compare(a.display_name, b.display_name))
   }, [actors, filter, query])
 
   const confirmRemove = async () => {

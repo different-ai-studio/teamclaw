@@ -67,7 +67,7 @@ fn main() {
 
     let mut config: serde_json::Value = std::fs::read_to_string(&base_path)
         .map(|s| serde_json::from_str(&s).expect("build.config.json is not valid JSON"))
-        .unwrap_or_else(|_| serde_json::json!({"app":{"name":"TeamClaw"}}));
+        .unwrap_or_else(|_| serde_json::json!({"app":{"name":"TeamClu"}}));
 
     // Merge build.config.{BUILD_ENV}.json if BUILD_ENV is set.
     // BUILD_ENV selects which config is merged (and thus the baked CLOUD_API_URL),
@@ -76,7 +76,7 @@ fn main() {
     // CLOUD_API_URL on a rebuild with BUILD_ENV=dev — the frontend (rebuilt by
     // vite every time) points at the dev backend while the Rust team-share / OSS
     // commands still fall back to https://cloud.ucar.cc, yielding
-    // "function 'teamclaw-sync' does not exist" (FunctionNotFound) on dev.
+    // "function 'teamclu-sync' does not exist" (FunctionNotFound) on dev.
     println!("cargo:rerun-if-env-changed=BUILD_ENV");
     if let Ok(build_env) = std::env::var("BUILD_ENV") {
         let env_path = root_dir.join(format!("build.config.{}.json", build_env));
@@ -100,7 +100,7 @@ fn main() {
         .as_str()
         .map(|s| s.to_string())
         .unwrap_or_else(|| {
-            let name = config["app"]["name"].as_str().unwrap_or("teamclaw");
+            let name = config["app"]["name"].as_str().unwrap_or("teamclu");
             name.chars()
                 .filter(|c| c.is_ascii_alphanumeric())
                 .map(|c| c.to_ascii_lowercase())
@@ -121,18 +121,18 @@ fn main() {
     println!("cargo:rustc-env=APP_SHORT_NAME={}", short_name);
     println!("cargo:warning=Using APP_SHORT_NAME={}", short_name);
 
-    let is_official = short_name == "teamclaw" || short_name == "teamclawdev";
-    let teamclaw_dir = if is_official {
-        ".teamclaw".to_string()
+    let is_official = short_name == "teamclu" || short_name == "teamcludev";
+    let teamclu_dir = if is_official {
+        ".teamclu".to_string()
     } else {
         format!(".{}", short_name)
     };
     let config_file_name = if is_official {
-        "teamclaw.json".to_string()
+        "teamclu.json".to_string()
     } else {
         format!("{}.json", short_name)
     };
-    println!("cargo:rustc-env=TEAMCLAW_DIR={}", teamclaw_dir);
+    println!("cargo:rustc-env=TEAMCLU_DIR={}", teamclu_dir);
     println!("cargo:rustc-env=CONFIG_FILE_NAME={}", config_file_name);
 
     // Export updater config from build.config.json (comma-separated for runtime fallback)
@@ -149,7 +149,7 @@ fn main() {
 
     // Bake the partner admin console host allowlist (features.auth.webSSOHosts)
     // into the binary. This is the native-side re-check that gates injecting the
-    // TeamClaw bearer token into a webview, so it must come from the build config
+    // TeamClu bearer token into a webview, so it must come from the build config
     // rather than the renderer. Deployment-specific hostnames belong in the
     // brand's gitignored build.config.<brand>.json; absent means injection is off.
     let websso_hosts: Vec<String> = config["features"]["auth"]["webSSOHosts"]
@@ -199,7 +199,7 @@ fn main() {
         // the missing `option_env!("CLOUD_API_URL")`. That shipped once: betly
         // builds from the old release-beta.yml baked nothing, fell back to the
         // then-hardcoded `https://cloud.ucar.cc`, and every Team Shared attempt
-        // got `FunctionNotFound: function 'teamclaw-sync' does not exist`.
+        // got `FunctionNotFound: function 'teamclu-sync' does not exist`.
         // Fail the build instead, so it cannot leave CI.
         //
         // Gated on PROFILE, not CI: `cargo fmt/clippy/check` (ci.yml) and
@@ -243,10 +243,10 @@ fn main() {
         );
     }
 
-    // Check that the teamclaw-introspect sidecar binary exists.
-    // Unlike opencode (downloaded), this is built from crates/teamclaw-introspect.
+    // Check that the teamclu-introspect sidecar binary exists.
+    // Unlike opencode (downloaded), this is built from crates/teamclu-introspect.
     // rust-cli.js auto-builds it before invoking cargo.
-    let introspect_bin = format!("binaries/teamclaw-introspect-{}", target_triple);
+    let introspect_bin = format!("binaries/teamclu-introspect-{}", target_triple);
     let introspect_bin_exe = format!("{}.exe", introspect_bin);
     let introspect_exists = std::path::Path::new(&introspect_bin).exists()
         || (target_triple.contains("windows")
@@ -255,11 +255,11 @@ fn main() {
         panic!(
             "\n\n\
             ╔══════════════════════════════════════════════════════════════╗\n\
-            ║  teamclaw-introspect sidecar binary not found!             ║\n\
+            ║  teamclu-introspect sidecar binary not found!             ║\n\
             ║                                                            ║\n\
             ║  Build it with:                                            ║\n\
-            ║    cargo build -p teamclaw-introspect                      ║\n\
-            ║    cp target/debug/teamclaw-introspect {:<20}║\n\
+            ║    cargo build -p teamclu-introspect                      ║\n\
+            ║    cp target/debug/teamclu-introspect {:<20}║\n\
             ╚══════════════════════════════════════════════════════════════╝\n\n",
             introspect_bin
         );

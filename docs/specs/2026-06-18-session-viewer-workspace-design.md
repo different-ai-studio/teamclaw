@@ -275,7 +275,7 @@ sequenceDiagram
 
 - `packages/app/src/lib/session-by-workspace.ts`
 - `packages/app/src/lib/session-workspace-sync.ts`
-- `packages/app/src/lib/teamclaw/resolve-runtime-start-workspace.ts`
+- `packages/app/src/lib/teamclu/resolve-runtime-start-workspace.ts`
 - `packages/app/src/stores/ui.ts` (`switchToSession`)
 - `apps/desktop/src/local_cache/store.rs` (`session_workspace`)
 - `docs/architecture/v2.md`

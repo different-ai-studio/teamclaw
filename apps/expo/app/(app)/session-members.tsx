@@ -15,7 +15,7 @@ import { MemberPickerSheet } from "../../src/features/sessions/screens/MemberPic
 import { SessionMemberSheet } from "../../src/features/sessions/screens/SessionMemberSheet";
 import { supabase } from "../../src/lib/supabase/client";
 import { supabaseAccessToken } from "../../src/lib/cloud-api/client";
-import { createRuntimeRpcClient } from "../../src/lib/teamclaw/runtime-rpc";
+import { createRuntimeRpcClient } from "../../src/lib/teamclu/runtime-rpc";
 import { showToast } from "../../src/ui/Toast";
 import { TextPromptModal } from "../../src/ui/TextPromptModal";
 
@@ -172,10 +172,10 @@ export default function SessionMembersRoute() {
         throw new Error("Couldn't resolve your member identity in this team.");
       }
       if (freshAgents.length > 0 && !teamMqtt) {
-        throw new Error("MQTT is not connected — wait for Teamclaw to reconnect.");
+        throw new Error("MQTT is not connected — wait for Teamclu to reconnect.");
       }
       if (freshAgents.length > 0 && !connectedAgentsStore) {
-        throw new Error("Connected agents are not ready — wait for Teamclaw to reconnect.");
+        throw new Error("Connected agents are not ready — wait for Teamclu to reconnect.");
       }
       if (freshAgents.length > 0) {
         await connectedAgentsStore?.reload();
@@ -275,7 +275,7 @@ export default function SessionMembersRoute() {
       return;
     }
     if (!teamMqtt) {
-      showToast("error", "MQTT is not connected — wait for Teamclaw to reconnect.");
+      showToast("error", "MQTT is not connected — wait for Teamclu to reconnect.");
       return;
     }
 

@@ -26,10 +26,9 @@ struct StreamingRestoreAndTimerTests {
             displayName: id,
             workspacePath: "",
             agentType: "claude",
-            runtimeState: .active,
+            lifecycleState: .active,
             availableModels: [],
             currentModel: nil,
-            runtimeID: runtimeID,
             workspaceID: nil,
             backendType: nil
         )
@@ -74,43 +73,31 @@ struct StreamingRestoreAndTimerTests {
 
     // MARK: - Reconnect replay routing
 
-    @Test("replay defers when the bucket's runtime id can't be resolved instead of misrouting")
-    func replayDefersUnroutableBucket() async throws {
+    @Test("replay defers only while the session id is unknown")
+    func replayDefersWithoutSession() async throws {
+        // The old three-way decision (bound runtime / roster-pending / raw
+        // stamp) existed because the replay address had to be discovered.
+        // It is now derived from (agent actor, session), so the only thing
+        // that can be missing is the session itself.
         let vm = SessionDetailViewModel.testInstance()
-        let container = vm._test_makeInMemoryContainer()
-        vm._test_seedStreamingBuffer(bucket: "actor-uuid-a", text: "partial", model: nil, turnID: "turn-1")
-        // Roster is loaded and knows the agent, but its runtime row isn't
-        // bound yet — exactly the window where the old code sent the actor
-        // id as a runtime id and the daemon returned nothing.
-        vm._test_setMemberSheetAgents([boundAgent(id: "actor-uuid-a", runtimeID: nil)])
-
-        await vm._test_replayStreamingTurnsAfterReconnect(modelContext: container.mainContext)
-
-        #expect(vm._test_pendingTurnReplayBuckets == ["actor-uuid-a"],
-                "unroutable bucket must be parked for a post-roster retry")
-        #expect(!vm.isSyncing,
-                "requestTurnHistory must not fire with an unroutable id")
+        #expect(vm._test_turnReplayRuntimeID(forBucket: "actor-uuid-a") == nil,
+                "no session bound yet — defer rather than address nothing")
     }
 
-    @Test("replay routing decision: resolved / roster-pending / raw runtime-id buckets")
+    @Test("replay addresses every bucket as {actor}::{session}")
     func replayRoutingDecision() {
-        let vm = SessionDetailViewModel.testInstance()
+        let session = Session(sessionId: "session-1", teamId: "test-team")
+        let vm = SessionDetailViewModel.testInstance(session: session)
 
-        // Roster not loaded at all: everything defers.
-        #expect(vm._test_turnReplayRuntimeID(forBucket: "actor-uuid-a") == nil)
-
-        vm._test_setMemberSheetAgents([
-            boundAgent(id: "actor-uuid-a", runtimeID: "abc12345"),
-            boundAgent(id: "actor-uuid-b", runtimeID: nil),
-        ])
-
-        // Actor id with a bound runtime row → that runtime id.
-        #expect(vm._test_turnReplayRuntimeID(forBucket: "actor-uuid-a") == "abc12345")
-        // Known actor id without a runtime row yet → defer, never verbatim.
-        #expect(vm._test_turnReplayRuntimeID(forBucket: "actor-uuid-b") == nil)
-        // Unknown bucket with a loaded roster = raw runtime-id stamp from
-        // the pre-memberSheet window → pass through unchanged.
-        #expect(vm._test_turnReplayRuntimeID(forBucket: "rawrt1d2") == "rawrt1d2")
+        // No roster needed: buckets are agent actor ids straight off the
+        // envelope, so the address is a pure derivation.
+        #expect(vm._test_turnReplayRuntimeID(forBucket: "actor-uuid-a")
+                == "actor-uuid-a::session-1")
+        #expect(vm._test_turnReplayRuntimeID(forBucket: "actor-uuid-b")
+                == "actor-uuid-b::session-1",
+                "a second agent must get its own address, never the first's")
+        #expect(vm._test_turnReplayRuntimeID(forBucket: "") == nil,
+                "an empty bucket must not produce a `::session-1` address")
     }
 
     // MARK: - 60s working-flag safety timer

@@ -4,7 +4,6 @@ import { Users, Loader2, AlertCircle } from 'lucide-react'
 
 import { TeamGitConfig } from './team/TeamGitConfig'
 import { TeamOssSyncStatus } from './team/TeamOssSyncStatus'
-import { TeamShareSection } from './team/TeamShareSection'
 import { TeamDefaultAgentConfig } from './team/TeamDefaultAgentConfig'
 import { useCurrentTeamStore } from '@/stores/current-team'
 import { useWorkspaceStore } from '@/stores/workspace'
@@ -15,7 +14,6 @@ import {
   type ShareMode,
 } from '@/stores/team-share'
 import { isTauri } from '@/lib/utils'
-import { useTeamPermissions } from '@/lib/team-permissions'
 
 // ─── Section Header ──────────────────────────────────────────────────────────
 
@@ -86,6 +84,24 @@ function MissingPrereqNotice({
   )
 }
 
+function NotEnabledNotice() {
+  const { t } = useTranslation()
+  return (
+    <div
+      data-testid="not-enabled"
+      className="flex items-start gap-2.5 rounded-[10px] border border-border-soft bg-panel px-3.5 py-3"
+    >
+      <AlertCircle className="mt-0.5 h-4 w-4 shrink-0 text-muted-foreground" />
+      <p className="text-[12.5px] leading-relaxed text-muted-foreground">
+        {t(
+          'settings.teamShare.enableMovedToKnowledge',
+          'Team knowledge sync is not enabled. Turn it on from the Knowledge panel in the sidebar.',
+        )}
+      </p>
+    </div>
+  )
+}
+
 // ─── Main Component ─────────────────────────────────────────────────────────
 
 export function TeamSection() {
@@ -93,7 +109,6 @@ export function TeamSection() {
   const teamId = useCurrentTeamStore((s) => s.team?.id ?? null)
   const workspacePath = useWorkspaceStore((s) => s.workspacePath)
   const refreshShare = useTeamShareStore((s) => s.refresh)
-  const { isOwner } = useTeamPermissions()
 
   // Route from the FC refresh result — never from a stale zustand snapshot left
   // over from another team or a prior session (that was showing Git "Connected"
@@ -124,22 +139,6 @@ export function TeamSection() {
       })
     return () => {
       cancelled = true
-    }
-  }, [teamId, workspacePath, refreshShare])
-
-  const reResolveShareMode = React.useCallback(async () => {
-    if (!teamId || !workspacePath || !isTauri()) return
-    setResolvedShare('pending')
-    try {
-      const status = await refreshShare(teamId, workspacePath)
-      setResolvedShare(status)
-    } catch {
-      setResolvedShare({
-        mode: null,
-        gitRemoteUrl: null,
-        gitAuthKind: null,
-        enabledAt: null,
-      })
     }
   }, [teamId, workspacePath, refreshShare])
 
@@ -176,18 +175,11 @@ export function TeamSection() {
           {t('settings.team.loadingShareMode', 'Loading team share status…')}
         </div>
       ) : !isConfigured ? (
-        // New team (PR #213 no longer auto-creates team-share): show the onboarding
-        // wizard so the owner can lock in oss / managed_git / custom_git. This needs a
-        // team + workspace to target; without them, surface the missing prerequisite
-        // instead of falling through to the (misleading) legacy Git config form.
+        // Onboarding moved to the Knowledge list column, which is where the
+        // problem it solves is visible. Settings only reports state now — it
+        // never had the context to explain what enabling would do.
         teamId && workspacePath ? (
-          <TeamShareSection
-            teamId={teamId}
-            workspacePath={workspacePath}
-            isOwner={isOwner}
-            skipInitialRefresh
-            onConfigured={reResolveShareMode}
-          />
+          <NotEnabledNotice />
         ) : (
           <MissingPrereqNotice teamId={teamId} workspacePath={workspacePath} />
         )

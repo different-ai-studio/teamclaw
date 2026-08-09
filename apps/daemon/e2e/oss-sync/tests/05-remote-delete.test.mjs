@@ -19,21 +19,21 @@ test("remote delete + local clean: B drops the file after A deletes", { timeout:
   const { nodes, teamId } = ctx;
   const root = contentRootPath(teamId);
 
-  // Establish skills/x.md on both nodes (pull-until-present for eventual consistency).
-  await writeFile("node-a", `${root}/skills/x.md`, Buffer.from("v1\n"));
+  // Establish knowledge/x.md on both nodes (pull-until-present for eventual consistency).
+  await writeFile("node-a", `${root}/knowledge/x.md`, Buffer.from("v1\n"));
   await sync(nodes.a);
   let treeB = {};
   for (let i = 0; i < 6; i++) {
     const b = await sync(nodes.b);
     assert.equal(b.lastError ?? null, null, `B sync error: ${b.lastError}`);
     treeB = await ctx.lsContentRoot("node-b", teamId);
-    if (treeB["skills/x.md"]) break;
+    if (treeB["knowledge/x.md"]) break;
     await settle(3000);
   }
-  assert.ok(treeB["skills/x.md"], "precondition: B should have pulled x.md");
+  assert.ok(treeB["knowledge/x.md"], "precondition: B should have pulled x.md");
 
   // A deletes x.md locally and syncs → emits a server-side tombstone.
-  await execSh("node-a", `rm -f ${root}/skills/x.md`);
+  await execSh("node-a", `rm -f ${root}/knowledge/x.md`);
   const a2 = await sync(nodes.a);
   assert.equal(a2.lastError ?? null, null, `A delete-sync error: ${a2.lastError}`);
 
@@ -42,12 +42,12 @@ test("remote delete + local clean: B drops the file after A deletes", { timeout:
     const b = await sync(nodes.b);
     assert.equal(b.lastError ?? null, null, `B sync error: ${b.lastError}`);
     treeB = await ctx.lsContentRoot("node-b", teamId);
-    if (!treeB["skills/x.md"]) break;
+    if (!treeB["knowledge/x.md"]) break;
     await settle(3000);
   }
 
   const treeA = await ctx.lsContentRoot("node-a", teamId);
-  assert.equal(treeA["skills/x.md"], undefined, "A removed x.md locally");
-  assert.equal(treeB["skills/x.md"], undefined, "B should have removed x.md after the deletion propagated");
+  assert.equal(treeA["knowledge/x.md"], undefined, "A removed x.md locally");
+  assert.equal(treeB["knowledge/x.md"], undefined, "B should have removed x.md after the deletion propagated");
   assertConverged(treeA, treeB, "remote-delete-clean");
 });

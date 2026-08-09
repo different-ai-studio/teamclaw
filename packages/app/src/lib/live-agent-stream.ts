@@ -1,7 +1,7 @@
 import { create as createMessage } from "@bufbuild/protobuf";
 import { AgentStatus } from "@/lib/proto/amux_pb";
-import type { Message as TeamclawMessage } from "@/lib/proto/teamclaw_pb";
-import { MessageKind, MessageSchema } from "@/lib/proto/teamclaw_pb";
+import type { Message as TeamcluMessage } from "@/lib/proto/teamclu_pb";
+import { MessageKind, MessageSchema } from "@/lib/proto/teamclu_pb";
 import type { AgentStreamEntry } from "@/stores/v2-streaming-store";
 import type { ToolCallContentBlock } from "@/components/chat/tool-calls/tool-call-content";
 import { parseToolContentBlocks } from "@/components/chat/tool-calls/tool-call-content";
@@ -52,7 +52,7 @@ export function rememberLiveEventId(
 }
 
 /** Join mid-turn daemon AgentReply slices without duplicating overlapping text. */
-export function joinDistinctPendingReplyChunks(pending: TeamclawMessage[]): string {
+export function joinDistinctPendingReplyChunks(pending: TeamcluMessage[]): string {
   const chunks: string[] = [];
   for (const message of pending) {
     const text = message.content?.trim();
@@ -78,9 +78,9 @@ export function joinDistinctPendingReplyChunks(pending: TeamclawMessage[]): stri
  * Body text comes from the live transcript (parts[]), not from merge heuristics.
  */
 export function mergePendingAgentReplies(
-  pending: TeamclawMessage[],
+  pending: TeamcluMessage[],
   streamEntry?: StreamVisibilityEntry,
-): TeamclawMessage | null {
+): TeamcluMessage | null {
   if (pending.length === 0) return null;
   const last = pending[pending.length - 1];
   const content = deriveAgentReplyContent(streamEntry?.parts ?? [], pending);
@@ -93,7 +93,7 @@ export function buildInterruptedStreamAnchor(
   sessionId: string,
   actorId: string,
   snapshot: AgentStreamEntry,
-): TeamclawMessage {
+): TeamcluMessage {
   const createdAtMs =
     snapshot.toolCalls[0]?.startTime?.getTime?.() ??
     snapshot.lastUpdate ??
@@ -111,7 +111,7 @@ export function buildInterruptedStreamAnchor(
 
 /** Daemon emits an empty AGENT_REPLY anchor when a tool-only turn ends (e.g. cancel). */
 export function isToolOnlyTurnAnchor(
-  pending: TeamclawMessage[],
+  pending: TeamcluMessage[],
   streamEntry?: StreamVisibilityEntry,
 ): boolean {
   const merged = mergePendingAgentReplies(pending, streamEntry);

@@ -7,6 +7,12 @@ const { setLocalCacheTeamGateMock, removeStartupSkeletonMock, isTauriMock } = vi
   isTauriMock: vi.fn(() => true),
 }));
 
+const { deviceIdMock } = vi.hoisted(() => ({ deviceIdMock: { value: "device-1" as string | null } }));
+vi.mock("@/lib/backend/cloud-api/device-id", () => ({
+  getDesktopDeviceIdOrNull: () => deviceIdMock.value,
+  getDesktopDeviceId: () => deviceIdMock.value ?? "desktop-unknown",
+}));
+
 const { authState, currentTeamMock, backendMock } = vi.hoisted(() => ({
   authState: {
     session: { user: { id: "user-1" } } as { user: { id: string; isAnonymous?: boolean } } | null,
@@ -72,10 +78,6 @@ vi.mock("@/lib/utils", () => ({
   removeStartupSkeleton: () => removeStartupSkeletonMock(),
 }));
 
-vi.mock("@/lib/random-team-name", () => ({
-  generateRandomTeamName: () => "Trial Team",
-}));
-
 vi.mock("@/stores/setup", () => ({
   useSetupStore: (selector: (s: { loaded: boolean; requiredSatisfied: () => boolean; listRequirements: () => void }) => unknown) =>
     selector({ loaded: true, requiredSatisfied: () => true, listRequirements: () => {} }),
@@ -114,6 +116,7 @@ vi.mock("../TeamPicker", () => ({
 import { AuthGate } from "../AuthGate";
 
 beforeEach(() => {
+  deviceIdMock.value = "device-1";
   authState.session = { user: { id: "user-1" } };
   authState.loading = false;
   authState.authFlow = "idle";
@@ -192,13 +195,10 @@ describe("AuthGate", () => {
     expect(screen.queryByText("App shell")).not.toBeInTheDocument();
   });
 
-  it("never runs team bootstrap for an anonymous session", async () => {
-    // The server refuses `POST /v1/teams/bootstrap` for guests with 403
-    // anonymous_not_allowed, and the client is supposed to know that and route
-    // them to public-team browsing instead. It did not: the guard read
-    // `user.is_anonymous` while mapSession emits `isAnonymous`, so every guest
-    // was pushed through bootstrap and landed on a "temporary server issue"
-    // screen whose Retry could never succeed.
+  it("runs team bootstrap for a guest, keyed on the device id", async () => {
+    // Quick trial gives a guest its own throwaway team in the shared default
+    // org, so bootstrap DOES run for anonymous sessions now. The device id is
+    // what stops a second trial on the same machine stacking up another team.
     authState.session = { user: { id: "anon-1", isAnonymous: true } };
 
     render(
@@ -207,9 +207,30 @@ describe("AuthGate", () => {
       </AuthGate>,
     );
 
-    await waitFor(() => expect(screen.getByText(/browse public teams/i)).toBeInTheDocument());
-    expect(backendMock.teams.bootstrapTeam).not.toHaveBeenCalled();
-    expect(screen.queryByText("App shell")).not.toBeInTheDocument();
+    await waitFor(() => expect(backendMock.teams.bootstrapTeam).toHaveBeenCalled());
+    expect(backendMock.teams.bootstrapTeam).toHaveBeenCalledWith(
+      expect.objectContaining({ deviceId: expect.any(String) }),
+    );
+  });
+
+  it("sends no device id when the guest install has no stable one", async () => {
+    // getDesktopDeviceIdOrNull returns null when storage is unavailable. The
+    // plain getter falls back to a shared "desktop-unknown" literal, and every
+    // install that hit it would be handed the SAME guest team — so null (no
+    // reuse, one extra team) is the only safe value here.
+    authState.session = { user: { id: "anon-2", isAnonymous: true } };
+    deviceIdMock.value = null;
+
+    render(
+      <AuthGate>
+        <div>App shell</div>
+      </AuthGate>,
+    );
+
+    await waitFor(() => expect(backendMock.teams.bootstrapTeam).toHaveBeenCalled());
+    expect(backendMock.teams.bootstrapTeam).toHaveBeenCalledWith(
+      expect.objectContaining({ deviceId: null }),
+    );
   });
 
   it("restores and activates a same-user cached team", async () => {

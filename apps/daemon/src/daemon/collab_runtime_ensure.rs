@@ -131,13 +131,12 @@ impl DaemonServer {
                 .lock()
                 .await
                 .resume_agent(
-                    &stored.runtime_id,
+                    cloud_session_id,
                     &acp_resume,
                     at,
                     &stored.worktree,
                     &stored.workspace_id,
                     remote_workspace_id.as_deref(),
-                    Some(cloud_session_id),
                     initial_prompt,
                     mcp_config_path.clone(),
                     runtime_env,
@@ -285,7 +284,7 @@ impl DaemonServer {
                 self.agents
                     .lock()
                     .await
-                    .set_backend_runtime_metadata(runtime_id, None, cursor);
+                    .set_session_cursor(runtime_id, cursor);
             }
             Err(e) => {
                 warn!(

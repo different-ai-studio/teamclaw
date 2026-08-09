@@ -1,7 +1,8 @@
 import * as React from "react"
 
 import { appShortName } from "@/lib/build-config"
-import { cn } from "@/lib/utils"
+import { isPointOverElement } from "@/lib/chat-file-drop"
+import { cn, isTauri } from "@/lib/utils"
 import { encodeMemberMentionToken, parseMemberMentionsFromText } from "@/lib/member-mention-token"
 import { EditableWithFileChips } from "./editable-with-file-chips"
 
@@ -179,22 +180,108 @@ export function PromptInput({
   }
 
   const formRef = React.useRef<HTMLFormElement>(null)
+  const onFilesChangeRef = React.useRef(onFilesChange)
+  const multipleRef = React.useRef(multiple)
+  React.useEffect(() => { onFilesChangeRef.current = onFilesChange }, [onFilesChange])
+  React.useEffect(() => { multipleRef.current = multiple }, [multiple])
 
-  // Listen for teamclaw:filedrop custom events dispatched when Tauri intercepts
+  const dropHitTarget = React.useCallback(() => {
+    // Prefer the full chat input chrome so drops on padding still attach,
+    // matching FileTree's skip-copy check via data-testid="chat-input-area".
+    return formRef.current?.closest('[data-testid="chat-input-area"]') ?? formRef.current
+  }, [])
+
+  // Listen for teamclu:filedrop custom events dispatched when Tauri intercepts
   // an internal file-tree drag that lands outside the tree (e.g. on this input).
   React.useEffect(() => {
     if (!onFilePathsDrop) return
     const handler = (e: Event) => {
       const { path, position } = (e as CustomEvent).detail as { path: string; position: { x: number; y: number } }
-      const rect = formRef.current?.getBoundingClientRect()
-      if (!rect) return
-      if (position.x >= rect.left && position.x <= rect.right && position.y >= rect.top && position.y <= rect.bottom) {
-        onFilePathsDrop([path])
-      }
+      if (!isPointOverElement(position, dropHitTarget())) return
+      onFilePathsDrop([path])
     }
-    window.addEventListener('teamclaw:filedrop', handler)
-    return () => window.removeEventListener('teamclaw:filedrop', handler)
-  }, [onFilePathsDrop])
+    window.addEventListener('teamclu:filedrop', handler)
+    return () => window.removeEventListener('teamclu:filedrop', handler)
+  }, [onFilePathsDrop, dropHitTarget])
+
+  // Tauri with dragDropEnabled steals HTML5 dataTransfer.files. Attach OS drops
+  // that land on the chat input via the native tauri://drag-drop event instead.
+  React.useEffect(() => {
+    if (!onFilesChange || !isTauri()) return
+    let cancelled = false
+    const unlisteners: Array<() => void> = []
+
+    void import('@tauri-apps/api/event').then(async ({ listen }) => {
+      if (cancelled) return
+
+      unlisteners.push(
+        await listen<{ paths: string[]; position: { x: number; y: number } }>(
+          'tauri://drag-over',
+          (event) => {
+            setIsDragging(isPointOverElement(event.payload.position, dropHitTarget()))
+          },
+        ),
+      )
+      if (cancelled) {
+        unlisteners.forEach((fn) => fn())
+        return
+      }
+
+      unlisteners.push(
+        await listen('tauri://drag-leave', () => {
+          setIsDragging(false)
+        }),
+      )
+      if (cancelled) {
+        unlisteners.forEach((fn) => fn())
+        return
+      }
+
+      unlisteners.push(
+        await listen<{ paths: string[]; position: { x: number; y: number } }>(
+          'tauri://drag-drop',
+          async (event) => {
+            setIsDragging(false)
+            const { paths, position } = event.payload
+            if (!paths?.length) return
+            if (!isPointOverElement(position, dropHitTarget())) return
+
+            const { readDesktopPathsAsFiles } = await import('@/lib/read-desktop-files')
+            const { files, oversize, failed } = await readDesktopPathsAsFiles(paths)
+            if (oversize.length > 0 || failed.length > 0) {
+              const { toast } = await import('sonner')
+              if (oversize.length > 0) {
+                toast.error(
+                  oversize.length === 1
+                    ? `"${oversize[0]}" exceeds the 20MB limit`
+                    : `${oversize.length} files exceed the 20MB limit`,
+                )
+              }
+              if (failed.length > 0) {
+                toast.error(
+                  failed.length === 1
+                    ? `Could not read "${failed[0]}"`
+                    : `Could not read ${failed.length} files`,
+                )
+              }
+            }
+            if (files.length === 0) return
+
+            const filesToAdd = multipleRef.current ? files : [files[0]]
+            setFiles((prev) =>
+              multipleRef.current ? [...prev, ...filesToAdd] : filesToAdd,
+            )
+            onFilesChangeRef.current?.(filesToAdd)
+          },
+        ),
+      )
+    })
+
+    return () => {
+      cancelled = true
+      unlisteners.forEach((fn) => fn())
+    }
+  }, [onFilesChange, dropHitTarget])
 
   const handleDrop = (event: React.DragEvent) => {
     event.preventDefault()

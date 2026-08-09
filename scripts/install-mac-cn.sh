@@ -1,9 +1,9 @@
 #!/bin/bash
 set -euo pipefail
 
-OSS_BASE="https://teamclaw.ucar.cc"
-REPO="different-ai-studio/teamclaw"
-TEAMCLAW_SCRIPTS_RAW="${TEAMCLAW_SCRIPTS_RAW:-https://raw.githubusercontent.com/${REPO}/main/scripts}"
+OSS_BASE="https://teamclu.ucar.cc"
+REPO="different-ai-studio/teamclu"
+TEAMCLU_SCRIPTS_RAW="${TEAMCLU_SCRIPTS_RAW:-https://raw.githubusercontent.com/${REPO}/main/scripts}"
 
 source_install_mac_common() {
   local script_dir="${1:-}"
@@ -14,10 +14,10 @@ source_install_mac_common() {
     return 0
   fi
   local tmp
-  tmp="$(mktemp /tmp/teamclaw-install-common-XXXXXX.sh)"
-  if ! curl -fsSL "${TEAMCLAW_SCRIPTS_RAW}/lib/install-mac-common.sh" -o "$tmp"; then
+  tmp="$(mktemp /tmp/teamclu-install-common-XXXXXX.sh)"
+  if ! curl -fsSL "${TEAMCLU_SCRIPTS_RAW}/lib/install-mac-common.sh" -o "$tmp"; then
     rm -f "$tmp"
-    echo "Error: failed to download install helpers from ${TEAMCLAW_SCRIPTS_RAW}" >&2
+    echo "Error: failed to download install helpers from ${TEAMCLU_SCRIPTS_RAW}" >&2
     return 1
   fi
   # shellcheck source=/dev/null
@@ -78,7 +78,7 @@ else
   fi
 
   echo "Downloading from: ${DMG_URL}"
-  DMG_FILE=$(mktemp /tmp/teamclaw-install-XXXXXX.dmg)
+  DMG_FILE=$(mktemp /tmp/teamclu-install-XXXXXX.dmg)
   curl -L --progress-bar -o "$DMG_FILE" "$DMG_URL"
 fi
 

@@ -79,7 +79,7 @@ export function CloseToTrayHost() {
       <DialogContent className="max-w-[400px] gap-0 p-5 sm:rounded-[14px]" data-testid="close-to-tray-dialog">
         <DialogHeader className="gap-2 text-left">
           <DialogTitle className="text-[15px] font-bold">
-            {t('closeToTray.title', '关闭 TeamClaw？')}
+            {t('closeToTray.title', '关闭 TeamClu？')}
           </DialogTitle>
           <DialogDescription className="text-[12.5px] leading-relaxed text-muted-foreground">
             {t(
@@ -89,7 +89,7 @@ export function CloseToTrayHost() {
           </DialogDescription>
         </DialogHeader>
 
-        <div className="mt-3 flex flex-col gap-2" role="radiogroup" aria-label={t('closeToTray.title', '关闭 TeamClaw？')}>
+        <div className="mt-3 flex flex-col gap-2" role="radiogroup" aria-label={t('closeToTray.title', '关闭 TeamClu？')}>
           <ChoiceCard
             selected={choice === 'tray'}
             onSelect={() => setChoice('tray')}

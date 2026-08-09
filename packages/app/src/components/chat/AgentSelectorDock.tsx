@@ -23,7 +23,7 @@ import {
   resolveSetModelId,
   selectAgentModel,
 } from '@/lib/runtime-state-resolve'
-import { ensureRuntimeThenSetModel } from '@/lib/teamclaw/ensure-agent-runtime'
+import { ensureRuntimeThenSetModel } from '@/lib/teamclu/ensure-agent-runtime'
 import {
   DRAFT_SESSION_PICK_KEY,
   useAgentModelPickStore,

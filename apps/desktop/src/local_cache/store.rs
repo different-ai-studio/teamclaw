@@ -427,7 +427,7 @@ pub struct LocalCacheStore {
 }
 
 impl LocalCacheStore {
-    // TODO(migrate-orphan): The old ~/.teamclaw/agent-events.db is left alone.
+    // TODO(migrate-orphan): The old ~/.teamclu/agent-events.db is left alone.
     // A future cleanup pass can delete it once all users have updated past this version.
 
     /// Create (or open) the local cache database at the given path.

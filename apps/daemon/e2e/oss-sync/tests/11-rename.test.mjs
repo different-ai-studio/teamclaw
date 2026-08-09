@@ -16,34 +16,34 @@ let ctx;
 before(async () => { if (RUN_HEAVY) ctx = await provisionTwoNodeTeam(); }, { timeout: 180000 });
 after(async () => { await ctx?.teardown(); }, { timeout: 120000 });
 
-test("rename skills/old.md -> skills/new.md propagates (old gone, new present)", { skip: !RUN_HEAVY, timeout: 220000 }, async () => {
+test("rename knowledge/old.md -> knowledge/new.md propagates (old gone, new present)", { skip: !RUN_HEAVY, timeout: 220000 }, async () => {
   const { nodes, teamId } = ctx;
   const root = contentRootPath(teamId);
 
-  await writeFile("node-a", `${root}/skills/old.md`, Buffer.from("renamed-content\n"));
+  await writeFile("node-a", `${root}/knowledge/old.md`, Buffer.from("renamed-content\n"));
   let treeB = {};
   for (let i = 0; i < 8; i++) {
     await sync(nodes.a);
     await sync(nodes.b);
     treeB = await ctx.lsContentRoot("node-b", teamId);
-    if (treeB["skills/old.md"]) break;
+    if (treeB["knowledge/old.md"]) break;
     await settle(3000);
   }
-  assert.ok(treeB["skills/old.md"], "precondition: B has old.md");
+  assert.ok(treeB["knowledge/old.md"], "precondition: B has old.md");
 
   // Rename on A (delete old + add new), then interleave syncs until B reflects it.
-  await execSh("node-a", `mv ${root}/skills/old.md ${root}/skills/new.md`);
+  await execSh("node-a", `mv ${root}/knowledge/old.md ${root}/knowledge/new.md`);
   for (let i = 0; i < 10; i++) {
     await sync(nodes.a);
     await sync(nodes.b);
     treeB = await ctx.lsContentRoot("node-b", teamId);
-    if (treeB["skills/new.md"] && !treeB["skills/old.md"]) break;
+    if (treeB["knowledge/new.md"] && !treeB["knowledge/old.md"]) break;
     await settle(3000);
   }
 
-  assert.ok(treeB["skills/new.md"], "B should have new.md");
-  assert.equal(Buffer.from(treeB["skills/new.md"], "base64").toString(), "renamed-content\n");
-  assert.equal(treeB["skills/old.md"], undefined, "B should no longer have old.md");
+  assert.ok(treeB["knowledge/new.md"], "B should have new.md");
+  assert.equal(Buffer.from(treeB["knowledge/new.md"], "base64").toString(), "renamed-content\n");
+  assert.equal(treeB["knowledge/old.md"], undefined, "B should no longer have old.md");
   const treeA = await ctx.lsContentRoot("node-a", teamId);
   assertConverged(treeA, treeB, "rename");
 });

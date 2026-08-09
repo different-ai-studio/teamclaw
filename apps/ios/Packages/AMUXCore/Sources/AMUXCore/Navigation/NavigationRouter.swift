@@ -3,7 +3,7 @@ import Observation
 
 /// App-wide navigation intent bus.
 ///
-/// Push notifications and `teamclaw://session/<id>` deep links are received in
+/// Push notifications and `teamclu://session/<id>` deep links are received in
 /// `AMUXApp` (`ContentView`), but the session `NavigationStack` path is owned by
 /// `RootTabView` in the AMUXUI package. This `@Observable` router bridges the two:
 /// the receiver records a *pending* session intent here, and `RootTabView`

@@ -8,7 +8,7 @@ import { useUIStore } from '@/stores/ui'
 import i18n from '@/lib/i18n'
 import { toast } from 'sonner'
 
-const PENDING_SESSION_DEEPLINK_KEY = 'teamclaw.pendingSessionDeeplink'
+const PENDING_SESSION_DEEPLINK_KEY = 'teamclu.pendingSessionDeeplink'
 
 export type PendingSessionDeeplink = {
   sessionId: string

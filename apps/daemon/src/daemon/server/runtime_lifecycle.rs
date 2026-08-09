@@ -107,7 +107,7 @@ impl DaemonServer {
     ///     Callers may surface the error via their wire envelope.
     ///
     /// Load a collab session + participants from the backend, cache them in
-    /// the teamclaw session manager, and subscribe to `session/{sid}/live`.
+    /// the teamclu session manager, and subscribe to `session/{sid}/live`.
     /// Idempotent — safe on every RuntimeStart, including dedup reuse.
     pub(crate) async fn ensure_collab_session_registered(
         &mut self,
@@ -122,7 +122,7 @@ impl DaemonServer {
             .await
         {
             Ok(snap) => {
-                if let Some(tc) = self.teamclaw.as_mut() {
+                if let Some(tc) = self.teamclu.as_mut() {
                     if let Err(e) = tc
                         .insert_session_from_backend(&snap.session, &snap.participants)
                         .await
@@ -137,7 +137,7 @@ impl DaemonServer {
                     return Err(StartRuntimeError {
                         error_code: "SESSION_SUBSCRIBE_FAILED".to_string(),
                         error_message:
-                            "teamclaw session manager is not available for session runtime"
+                            "teamclu session manager is not available for session runtime"
                                 .to_string(),
                         failed_stage: "session_subscribe".to_string(),
                     });
@@ -436,7 +436,7 @@ impl DaemonServer {
             // model picker without spawning a duplicate process.
             self.publish_actor_state().await;
             if !session_id.is_empty() {
-                if let Some(tc) = self.teamclaw.as_mut() {
+                if let Some(tc) = self.teamclu.as_mut() {
                     if let Err(e) = tc.ensure_session_live_subscription(session_id).await {
                         warn!(
                             session_id,
@@ -457,7 +457,7 @@ impl DaemonServer {
         }
 
         // If iOS handed us a cloud session_id, pull the row + participants
-        // so we (a) populate the teamclaw cache that `agents_to_activate`
+        // so we (a) populate the teamclu cache that `agents_to_activate`
         // reads, and (b) subscribe to `session/{sid}/live` so inbound
         // `message.created` events from iOS actually reach us.
         // iOS creates these sessions directly in the cloud backend, so this is the
@@ -482,7 +482,7 @@ impl DaemonServer {
                                 joined_at: chrono::Utc::now(),
                             });
                     }
-                    if let Some(tc) = self.teamclaw.as_mut() {
+                    if let Some(tc) = self.teamclu.as_mut() {
                         if let Err(e) = tc
                             .insert_session_from_backend(&snap.session, &snap.participants)
                             .await
@@ -504,7 +504,7 @@ impl DaemonServer {
                         return Err(StartRuntimeError {
                             error_code: "SESSION_SUBSCRIBE_FAILED".to_string(),
                             error_message:
-                                "teamclaw session manager is not available for session runtime"
+                                "teamclu session manager is not available for session runtime"
                                     .to_string(),
                             failed_stage: "session_subscribe".to_string(),
                         });
@@ -615,7 +615,7 @@ impl DaemonServer {
                 "",
                 &ws_id,
                 (!ws_id.is_empty()).then_some(ws_id.as_str()),
-                session_id_opt,
+                session_id,
                 initial_model_override,
                 mcp_config_path,
                 resume_acp_session_id,
@@ -650,7 +650,7 @@ impl DaemonServer {
         }
 
         if !session_id.is_empty() {
-            if let Err(e) = teamclaw_runtime_env::write_active_session_id(
+            if let Err(e) = teamclu_runtime_env::write_active_session_id(
                 Path::new(&resolved_worktree),
                 session_id,
             ) {
@@ -746,8 +746,8 @@ impl DaemonServer {
         // Uses Option B (event loop hook is not needed here because
         // apply_start_runtime already has `&mut self` access and runs
         // synchronously after start_runtime returns). This is the cleanest
-        // insertion point — the handle is fully populated (session_id,
-        // backend_runtime_row_id) and state is ACTIVE.
+        // insertion point — the handle is fully populated (session_id)
+        // and state is ACTIVE.
         self.catchup_runtime(&new_id).await;
 
         if remote_mcp_ready {
@@ -763,19 +763,34 @@ impl DaemonServer {
 
     pub(crate) async fn handle_stop_runtime(
         &mut self,
-        request: &crate::proto::teamclaw::RpcRequest,
-        stop: &crate::proto::teamclaw::RuntimeStopRequest,
-    ) -> crate::proto::teamclaw::RpcResponse {
-        use crate::proto::teamclaw::{rpc_response, RpcResponse, RuntimeStopResult};
+        request: &crate::proto::teamclu::RpcRequest,
+        stop: &crate::proto::teamclu::RuntimeStopRequest,
+    ) -> crate::proto::teamclu::RpcResponse {
+        use crate::proto::teamclu::{rpc_response, RpcResponse, RuntimeStopResult};
 
-        let runtime_id = stop.runtime_id.clone();
-        if runtime_id.is_empty() {
+        let addressed = stop.runtime_id.clone();
+        if addressed.is_empty() {
             return reject_stop(request, "runtime_id required");
         }
 
-        // Reject if runtime is not known.
-        if self.agents.lock().await.get_handle(&runtime_id).is_none() {
-            return reject_stop(request, &format!("unknown runtime_id: {}", runtime_id));
+        // The address may be a spawn key, a cloud session id, or the
+        // `{actor}::{session}` composite (ADR-0004). Resolve before touching
+        // the handle — `agents` is still keyed by the per-spawn id, which no
+        // topic broadcasts any more, so clients cannot address by it.
+        let resolve_actor = request.requester_actor_id.trim();
+        let resolved = {
+            let agents = self.agents.lock().await;
+            agents.resolve_command_agent_id(&addressed, resolve_actor)
+        };
+        let Some(runtime_id) = resolved else {
+            return reject_stop(request, &format!("unknown runtime address: {}", addressed));
+        };
+        if runtime_id != addressed {
+            info!(
+                %addressed,
+                %runtime_id,
+                "resolved runtime stop address to spawn key"
+            );
         }
 
         // Terminate via RuntimeManager (same path as AcpCommand::StopAgent).
@@ -827,10 +842,10 @@ impl DaemonServer {
 
     pub(crate) async fn handle_start_runtime(
         &mut self,
-        request: &crate::proto::teamclaw::RpcRequest,
-        start: &crate::proto::teamclaw::RuntimeStartRequest,
-    ) -> crate::proto::teamclaw::RpcResponse {
-        use crate::proto::teamclaw::{rpc_response, RpcResponse, RuntimeStartResult};
+        request: &crate::proto::teamclu::RpcRequest,
+        start: &crate::proto::teamclu::RuntimeStartRequest,
+    ) -> crate::proto::teamclu::RpcResponse {
+        use crate::proto::teamclu::{rpc_response, RpcResponse, RuntimeStartResult};
 
         let requested =
             amux::AgentType::try_from(start.agent_type).unwrap_or(amux::AgentType::ClaudeCode);
@@ -892,18 +907,38 @@ impl DaemonServer {
     /// state to fan the new `current_model` out to every subscriber.
     pub(crate) async fn handle_set_model(
         &mut self,
-        request: &crate::proto::teamclaw::RpcRequest,
-        set: &crate::proto::teamclaw::SetModelRequest,
-    ) -> crate::proto::teamclaw::RpcResponse {
-        use crate::proto::teamclaw::{rpc_response, RpcResponse, SetModelResult};
+        request: &crate::proto::teamclu::RpcRequest,
+        set: &crate::proto::teamclu::SetModelRequest,
+    ) -> crate::proto::teamclu::RpcResponse {
+        use crate::proto::teamclu::{rpc_response, RpcResponse, SetModelResult};
 
-        let runtime_id = set.runtime_id.clone();
+        let addressed = set.runtime_id.clone();
         let model_id = set.model_id.clone();
-        if runtime_id.is_empty() {
+        if addressed.is_empty() {
             return reject_set_model(request, "runtime_id required");
         }
         if model_id.is_empty() {
             return reject_set_model(request, "model_id required");
+        }
+
+        // Same addressing contract as stop/cancel: spawn key, cloud session
+        // id, or `{actor}::{session}` composite (ADR-0004). Without this the
+        // raw map lookup in `send_set_model` fails for every client, because
+        // the per-spawn key is no longer published anywhere.
+        let resolve_actor = request.requester_actor_id.trim();
+        let resolved = {
+            let agents = self.agents.lock().await;
+            agents.resolve_command_agent_id(&addressed, resolve_actor)
+        };
+        let Some(runtime_id) = resolved else {
+            return reject_set_model(request, &format!("unknown runtime address: {}", addressed));
+        };
+        if runtime_id != addressed {
+            info!(
+                %addressed,
+                %runtime_id,
+                "resolved set-model address to spawn key"
+            );
         }
 
         let result = self

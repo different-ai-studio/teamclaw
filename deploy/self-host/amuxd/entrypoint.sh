@@ -9,8 +9,8 @@ set -eu
 STATE_DIR="${HOME:-/state}/.amuxd"
 mkdir -p "$STATE_DIR"
 
-CLOUD_API_URL="${TEAMCLAW_CLOUD_API_URL:-http://fc:9000}"
-export TEAMCLAW_CLOUD_API_URL="$CLOUD_API_URL"
+CLOUD_API_URL="${TEAMCLU_CLOUD_API_URL:-http://fc:9000}"
+export TEAMCLU_CLOUD_API_URL="$CLOUD_API_URL"
 
 if [ ! -f "$STATE_DIR/backend.toml" ]; then
   if [ -z "${AMUXD_JOIN_TOKEN:-}" ]; then

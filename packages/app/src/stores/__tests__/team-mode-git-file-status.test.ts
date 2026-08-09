@@ -44,9 +44,9 @@ vi.mock('@/stores/workspace', () => ({
 }))
 
 vi.mock('@/lib/build-config', () => ({
-  appShortName: 'teamclaw',
-  appStoragePrefix: 'teamclaw',
-  TEAM_REPO_DIR: 'teamclaw-team',
+  appShortName: 'teamclu',
+  appStoragePrefix: 'teamclu',
+  TEAM_REPO_DIR: 'teamclu-team',
   buildConfig: { team: { lockLlmConfig: false } },
 }))
 
@@ -95,7 +95,7 @@ describe('loadTeamGitFileSyncStatus', () => {
     const { useTeamModeStore } = await import('@/stores/team-mode')
     await useTeamModeStore.getState().loadTeamGitFileSyncStatus('/ws')
 
-    expect(mockInvoke).toHaveBeenCalledWith('git_status', { path: '/ws/teamclaw-team' })
+    expect(mockInvoke).toHaveBeenCalledWith('git_status', { path: '/ws/teamclu-team' })
     const map = useTeamModeStore.getState().teamGitFileSyncStatusMap
     expect(map).toEqual({
       'a.md': 'new',

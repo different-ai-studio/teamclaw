@@ -330,15 +330,34 @@ async fn handle_permission_asked(
 
     if permission.is_full_access() {
         // Full-access sessions (gateway conversations, cron jobs) have no human
-        // to ask — auto-allow rather than wait forever.
+        // to ask — auto-allow rather than wait forever. If the auto-reply
+        // itself fails, abort the turn so channel clients are not stuck for
+        // the full gateway timeout with nobody able to approve.
         info!(session_id, permission_id = %permission_id, "auto-allow full-access permission");
-        if let Ok(client) = shared.serve.ensure().await {
-            if let Err(e) = client
+        let respond_ok = match shared.serve.ensure().await {
+            Ok(client) => client
                 .permission_respond(&directory, session_id, &permission_id, "once")
                 .await
-            {
-                warn!(session_id, error = %e, "gateway permission auto-reply failed");
+                .map_err(|e| {
+                    warn!(session_id, error = %e, "gateway permission auto-reply failed");
+                    e
+                })
+                .is_ok(),
+            Err(e) => {
+                warn!(session_id, error = %e, "gateway permission auto-reply: serve unavailable");
+                false
             }
+        };
+        if !respond_ok {
+            super::abort_turn_with_error(
+                shared,
+                session_id,
+                "permission auto-allow failed".into(),
+                format!(
+                    "full-access session could not auto-approve permission {permission_id}; aborting turn"
+                ),
+            )
+            .await;
         }
         return;
     }
@@ -509,11 +528,33 @@ async fn handle_question_asked(shared: &Arc<Shared>, session_id: &str, props: &s
         }
     };
     if let Some(directory) = full_access {
+        // Same fail-closed path as permissions: unanswered questions park the
+        // stuck-turn watchdog, so a failed reject must end the turn.
         info!(session_id, request_id, "auto-reject full-access question");
-        if let Ok(client) = shared.serve.ensure().await {
-            if let Err(e) = client.question_reject(&directory, request_id).await {
-                warn!(session_id, error = %e, "full-access question auto-reject failed");
+        let reject_ok = match shared.serve.ensure().await {
+            Ok(client) => client
+                .question_reject(&directory, request_id)
+                .await
+                .map_err(|e| {
+                    warn!(session_id, error = %e, "full-access question auto-reject failed");
+                    e
+                })
+                .is_ok(),
+            Err(e) => {
+                warn!(session_id, error = %e, "full-access question auto-reject: serve unavailable");
+                false
             }
+        };
+        if !reject_ok {
+            super::abort_turn_with_error(
+                shared,
+                session_id,
+                "question auto-reject failed".into(),
+                format!(
+                    "full-access session could not auto-reject question {request_id}; aborting turn"
+                ),
+            )
+            .await;
         }
         return;
     }
@@ -687,7 +728,7 @@ async fn handle_session_status(shared: &Arc<Shared>, session_id: &str, props: &s
 /// opencode auto-generates a session title from the first exchange and
 /// announces it via `session.updated`. Forward it as the existing
 /// `session_title` raw control event; the daemon server decides whether the
-/// TeamClaw session still carries a default title worth replacing.
+/// TeamClu session still carries a default title worth replacing.
 async fn handle_session_updated(shared: &Arc<Shared>, session_id: &str, props: &serde_json::Value) {
     // Task subagents may only surface parentID on updated (or we missed created).
     maybe_register_subagent_route(shared, session_id, props);
@@ -706,7 +747,7 @@ async fn handle_session_updated(shared: &Arc<Shared>, session_id: &str, props: &
         let Some(route) = routes.get(session_id) else {
             return;
         };
-        // Subagent title updates are noise for the TeamClaw session title.
+        // Subagent title updates are noise for the TeamClu session title.
         if route.parent_session_id.is_some() {
             return;
         }

@@ -29,7 +29,7 @@ type ChromeLike = {
   }
 }
 
-export const PENDING_LINK_CONTEXT_KEY = 'teamclaw.pendingLinkContext'
+export const PENDING_LINK_CONTEXT_KEY = 'teamclu.pendingLinkContext'
 
 function readChrome(): ChromeLike | undefined {
   return (globalThis as unknown as { chrome?: ChromeLike }).chrome

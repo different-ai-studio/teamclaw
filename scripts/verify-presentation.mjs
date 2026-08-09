@@ -7,7 +7,7 @@ const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 const deckPath = path.resolve(
   __dirname,
-  "../docs/presentations/teamclaw-engineering-pilot-deck.html",
+  "../docs/presentations/teamclu-engineering-pilot-deck.html",
 );
 
 assert.ok(

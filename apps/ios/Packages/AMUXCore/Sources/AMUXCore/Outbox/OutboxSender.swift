@@ -2,7 +2,7 @@ import Foundation
 import SwiftData
 import os
 
-private let outboxLogger = Logger(subsystem: "tech.teamclaw.mobile", category: "Outbox")
+private let outboxLogger = Logger(subsystem: "com.teamclu.mobile", category: "Outbox")
 
 private actor OutboxAttemptLeases {
     static let shared = OutboxAttemptLeases()
@@ -21,7 +21,7 @@ private actor OutboxAttemptLeases {
 }
 
 /// Background sender that drains `OutboxMessage` rows from SwiftData,
-/// attempting MQTT publish + Supabase persist via `TeamclawService.sendMessage`
+/// attempting MQTT publish + Supabase persist via `TeamcluService.sendMessage`
 /// and bumping `attemptCount` + `nextAttemptAt` on each failure.
 ///
 /// Lifecycle: scoped to a chat detail view today. `start()` spawns a
@@ -42,12 +42,12 @@ public actor OutboxSender {
     /// the dot fade to delivered shortly after airplane mode flips off.
     public static let maxAttempts = 20
 
-    private weak var teamclaw: TeamclawService?
+    private weak var teamclu: TeamcluService?
     private let modelContainer: ModelContainer
     private var task: Task<Void, Never>?
 
-    public init(teamclaw: TeamclawService, modelContainer: ModelContainer) {
-        self.teamclaw = teamclaw
+    public init(teamclu: TeamcluService, modelContainer: ModelContainer) {
+        self.teamclu = teamclu
         self.modelContainer = modelContainer
     }
 
@@ -195,7 +195,7 @@ public actor OutboxSender {
             Task { await OutboxAttemptLeases.shared.release(messageID) }
         }
 
-        guard let teamclaw else { return }
+        guard let teamclu else { return }
         let ctx = ModelContext(modelContainer)
         guard let row = ctx.model(for: rowID) as? OutboxMessage else { return }
         let msgPrefix = String(messageID.prefix(8))
@@ -234,7 +234,7 @@ public actor OutboxSender {
         //    every retry lands on the same broker-side id (slice B
         //    will dedup on this).
         do {
-            _ = try await teamclaw.sendMessage(
+            _ = try await teamclu.sendMessage(
                 sessionId: row.sessionID,
                 content: row.content,
                 modelId: row.modelID,

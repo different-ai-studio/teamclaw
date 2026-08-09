@@ -1,6 +1,6 @@
 import { getKnownLocalDaemonActorId } from "@/lib/local-daemon-identity";
 import { useActorPresenceStore } from "@/stores/actor-presence-store";
-import { DEVICE_PRESENCE_GATE_TIMEOUT_MS } from "@/lib/teamclaw/runtime-rpc-timeouts";
+import { DEVICE_PRESENCE_GATE_TIMEOUT_MS } from "@/lib/teamclu/runtime-rpc-timeouts";
 
 export type AgentDevicePresence = "online" | "offline" | "unknown";
 

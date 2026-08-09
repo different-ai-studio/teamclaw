@@ -101,7 +101,7 @@ describe("current-team persistence cache", () => {
   });
 
   it("ignores a malformed cache entry", () => {
-    localStorage.setItem("teamclaw:current-team", "not json{");
+    localStorage.setItem("teamclu:current-team", "not json{");
     expect(readCachedCurrentTeam()).toBeNull();
     expect(initialCurrentTeamState()).toEqual({ team: null, currentMember: null, teamUserId: null });
   });

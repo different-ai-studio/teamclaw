@@ -20,7 +20,7 @@ public struct CachedActorMap: Sendable {
 
 public struct EventBubbleView: View {
     let event: AgentEvent
-    let runtime: Runtime?
+    let runtime: AgentAttachment?
     let onGrant: ((String, String?) -> Void)?
     let onDeny: ((String, String?) -> Void)?
     /// Tap handler invoked when the user taps a `.failed` outbox dot on
@@ -45,7 +45,7 @@ public struct EventBubbleView: View {
     @Environment(\.horizontalSizeClass) private var sizeClass
     @State private var fullscreenImageContext: FullscreenImageContext?
 
-    public init(event: AgentEvent, runtime: Runtime? = nil,
+    public init(event: AgentEvent, runtime: AgentAttachment? = nil,
                 onGrant: ((String, String?) -> Void)? = nil,
                 onDeny: ((String, String?) -> Void)? = nil,
                 onRetryOutbox: ((String) -> Void)? = nil,
@@ -464,7 +464,7 @@ public struct ActiveStreamCardView: View {
 
 public struct CompletedTurnBubbleView<DetailIcon: View>: View {
     public let finalEvent: AgentEvent
-    public let runtime: Runtime?
+    public let runtime: AgentAttachment?
     public let agentName: String?
     /// Optional content slot rendered bottom-right of the bubble. Used to
     /// host a `NavigationLink(value:)` so taps push the streaming detail
@@ -473,7 +473,7 @@ public struct CompletedTurnBubbleView<DetailIcon: View>: View {
     @ViewBuilder public let detailIcon: () -> DetailIcon
 
     public init(finalEvent: AgentEvent,
-                runtime: Runtime?,
+                runtime: AgentAttachment?,
                 agentName: String?,
                 @ViewBuilder detailIcon: @escaping () -> DetailIcon = { EmptyView() }) {
         self.finalEvent = finalEvent

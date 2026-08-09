@@ -62,7 +62,7 @@ final class SessionDetailViewModelChipTests: XCTestCase {
     @MainActor
     func test_handleIncomingChatMessage_filtersAgentReply() {
         let vm = SessionDetailViewModel.testInstance()
-        var agentReply = Teamclaw_Message()
+        var agentReply = Teamclu_Message()
         agentReply.kind = .agentReply
         agentReply.content = "hello from agent"
         agentReply.senderActorID = "agent_X"
@@ -73,7 +73,7 @@ final class SessionDetailViewModelChipTests: XCTestCase {
     @MainActor
     func test_handleIncomingChatMessage_allowsTextKind() {
         let vm = SessionDetailViewModel.testInstance()
-        var textMsg = Teamclaw_Message()
+        var textMsg = Teamclu_Message()
         textMsg.kind = .text
         textMsg.content = "hello from another human"
         textMsg.senderActorID = "human_Y"
@@ -86,7 +86,7 @@ final class SessionDetailViewModelChipTests: XCTestCase {
     @MainActor
     func test_handleIncomingChatMessage_filtersAgentThinking() {
         let vm = SessionDetailViewModel.testInstance()
-        var msg = Teamclaw_Message()
+        var msg = Teamclu_Message()
         msg.kind = .agentThinking
         msg.content = "thinking..."
         msg.senderActorID = "agent_X"

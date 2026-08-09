@@ -185,7 +185,7 @@ rollback;
 
 - [ ] **Step 3: Run the db test**
 
-Run: `pnpm --filter @teamclaw/supabase test` (or the repo's documented db test command, e.g. `supabase test db`).
+Run: `pnpm --filter @teamclu/supabase test` (or the repo's documented db test command, e.g. `supabase test db`).
 Expected: all assertions PASS.
 
 - [ ] **Step 4: Commit**
@@ -452,7 +452,7 @@ git commit -m "feat(fc): team default agent routes"
 ### Task 5: OpenAPI documentation
 
 **Files:**
-- Modify: `docs/openapi/teamclaw-api.v1.yaml` (add paths near the team workspace endpoints, ~line 1078)
+- Modify: `docs/openapi/teamclu-api.v1.yaml` (add paths near the team workspace endpoints, ~line 1078)
 
 - [ ] **Step 1: Add the three paths**
 
@@ -466,7 +466,7 @@ Expected: no errors.
 - [ ] **Step 3: Commit**
 
 ```bash
-git add docs/openapi/teamclaw-api.v1.yaml
+git add docs/openapi/teamclu-api.v1.yaml
 git commit -m "docs(openapi): team default agent endpoints"
 ```
 
@@ -526,7 +526,7 @@ In `__tests__/actors.test.ts`, mirror the member-default test: assert each metho
 
 - [ ] **Step 4: Run provider tests**
 
-Run: `pnpm --filter @teamclaw/app test:unit -- actors`
+Run: `pnpm --filter @teamclu/app test:unit -- actors`
 Expected: PASS.
 
 - [ ] **Step 5: Extend member-preferences-store**

@@ -3,7 +3,7 @@
 # through its own bundled glibc dynamic loader + shared libraries.
 set -eu
 
-ENV_FILE="${1:-/run/teamclaw/postgrest/env}"
+ENV_FILE="${1:-/run/teamclu/postgrest/env}"
 [ -f "$ENV_FILE" ] && { set -a; . "$ENV_FILE"; set +a; }
 
 GLIBC=/opt/pgrst/glibc

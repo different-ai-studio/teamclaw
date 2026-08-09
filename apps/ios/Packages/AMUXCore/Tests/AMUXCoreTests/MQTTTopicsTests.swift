@@ -2,7 +2,7 @@ import XCTest
 @testable import AMUXCore
 
 final class MQTTTopicsTests: XCTestCase {
-    func testTeamclawRearchitectureTopics() {
+    func testTeamcluRearchitectureTopics() {
         XCTAssertEqual(
             MQTTTopics.actorRpcRequest(teamID: "team1", actorID: "actor-a"),
             "amux/team1/actor-a/rpc/req"
@@ -18,10 +18,6 @@ final class MQTTTopicsTests: XCTestCase {
         XCTAssertEqual(
             MQTTTopics.actorState(teamID: "team1", actorID: "actor-a"),
             "amux/team1/actor-a/state"
-        )
-        XCTAssertEqual(
-            MQTTTopics.runtimeState(teamID: "team1", actorID: "actor-a", runtimeID: "rt-1"),
-            "amux/team1/actor-a/runtime/rt-1/state"
         )
         XCTAssertEqual(
             MQTTTopics.runtimeCommands(teamID: "team1", actorID: "actor-a", runtimeID: "rt-1"),

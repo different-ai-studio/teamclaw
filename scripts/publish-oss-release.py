@@ -78,7 +78,7 @@ def resolve_logo(build_config):
     if logo:
         candidates.append(logo)
     # Brands on the stock icons (no app.logo) fall back to the repo's own logo.
-    candidates += ["packages/app/public/logo.png", "apps/desktop/icons/teamclaw-logo.png"]
+    candidates.append("packages/app/public/logo.png")
     return next((c for c in candidates if os.path.isfile(c)), None)
 
 
@@ -226,7 +226,7 @@ def main() -> int:
     version = tag[1:] if tag.startswith("v") else tag
     prefix = os.environ["OSS_PREFIX"]
     cdn = os.environ["CDN_BASE"].rstrip("/")
-    # APP_NAME is the human-facing label (app.displayName, e.g. "Betly TeamClaw");
+    # APP_NAME is the human-facing label (app.displayName, e.g. "Betly TeamClu");
     # APP_PRODUCT_NAME is what the .app bundle is actually called (app.name).
     # Anything naming a path on disk must use the latter.
     app_name = os.environ["APP_NAME"]
@@ -240,7 +240,7 @@ def main() -> int:
         with open("brand-page.json") as f:
             page_cfg = json.load(f) or {}
 
-    scheme = (build_config.get("app") or {}).get("scheme") or "teamclaw"
+    scheme = (build_config.get("app") or {}).get("scheme") or "teamclu"
 
     platforms = {}       # for latest.json (updater)
     downloads = []       # desktop installers (user-facing)

@@ -4,18 +4,20 @@ import os
 import AMUXCore
 import AMUXUI
 
-private let logger = Logger(subsystem: "tech.teamclaw.mobile", category: "MQTT")
+private let logger = Logger(subsystem: "com.teamclu.mobile", category: "MQTT")
 
 struct ContentView: View {
     let pairing: PairingManager
     @State private var mqtt = MQTTService()
     @State private var hub: MQTTMessageHub
-    @State private var teamclawService = TeamclawService()
+    @State private var teamcluService = TeamcluService()
     @State private var onboarding: AppOnboardingCoordinator
     /// Bridges push/deep-link "open session" intents into RootTabView's
     /// session NavigationStack (which owns `sessionsPath`).
     @State private var navigationRouter = NavigationRouter()
     @State private var isConnecting = false
+    /// Set by the splash once its lap has played out.
+    @State private var splashLapFinished = false
     @State private var connectTask: Task<Void, Never>?
     /// One-shot legacy→CloudAPI session migration, run before the first
     /// `bootstrap()`. Nil when no cloud config is resolvable (Supabase
@@ -63,7 +65,7 @@ struct ContentView: View {
             mqtt: mqtt,
             hub: hub,
             pairing: pairing,
-            teamclawService: teamclawService,
+            teamcluService: teamcluService,
             activeTeam: onboarding.currentContext?.team,
             currentActorID: onboarding.currentContext?.memberActorID,
             onReconnect: {
@@ -87,11 +89,35 @@ struct ContentView: View {
         }
     }
 
+    /// The splash stays up until BOTH the work is done and its lap has played.
+    /// Bootstrap frequently finishes in well under a lap — on a warm start it
+    /// is near-instant — and without this the animation is torn down before it
+    /// is visible at all.
+    private var showSplash: Bool {
+        onboarding.route == .loading || !splashLapFinished
+    }
+
     var body: some View {
+        ZStack {
+            routeContent
+
+            if showSplash {
+                ApertureSplashView { splashLapFinished = true }
+                    .transition(.opacity)
+                    .zIndex(1)
+            }
+        }
+        .animation(.easeOut(duration: 0.3), value: showSplash)
+    }
+
+    @ViewBuilder
+    private var routeContent: some View {
         Group {
             switch onboarding.route {
             case .loading:
-                LobsterSplashView()
+                // Covered by the splash; only needs to not be blank underneath
+                // while it fades out.
+                Color(.systemBackground).ignoresSafeArea()
             case .needsAuth:
                 WelcomeView(coordinator: onboarding)
             case .createTeam:
@@ -152,7 +178,7 @@ struct ContentView: View {
             // (cancels any prior listener), so a single onChange covers
             // first appearance + team switches.
             guard let id = newID, let runtime = onboarding.teamRuntimeContext else { return }
-            teamclawService.start(
+            teamcluService.start(
                 mqtt: mqtt,
                 hub: hub,
                 teamId: id,
@@ -224,7 +250,7 @@ struct ContentView: View {
             create: true
         )
         guard let docs else { return }
-        let url = docs.appendingPathComponent("teamclaw-trace.jsonl")
+        let url = docs.appendingPathComponent("teamclu-trace.jsonl")
         let recorder = MQTTTraceRecorder(fileURL: url)
         do {
             try await recorder.start()
@@ -275,8 +301,8 @@ struct ContentView: View {
             return
         }
 
-        let userID = onboarding.currentContext?.memberActorID ?? "teamclaw-ios"
-        let clientId = "teamclaw-ios-\(userID.prefix(8))"
+        let userID = onboarding.currentContext?.memberActorID ?? "teamclu-ios"
+        let clientId = "teamclu-ios-\(userID.prefix(8))"
         logger.info("Connecting to \(pairing.brokerHost):\(pairing.brokerPort) tls=\(pairing.useTLS)")
         do {
             try await mqtt.connect(
@@ -291,16 +317,16 @@ struct ContentView: View {
             // stream — `start()` cancels any prior task.
             await hub.start()
             // Debug-only MQTT trace capture: enable by writing
-            // `UserDefaults.standard.set(true, forKey: "TeamclawRecordMQTT")`
+            // `UserDefaults.standard.set(true, forKey: "TeamcluRecordMQTT")`
             // before launch. Captured JSONL lands in
-            // Documents/teamclaw-trace.jsonl on the device/simulator.
+            // Documents/teamclu-trace.jsonl on the device/simulator.
             // Used to capture Phase 4 reducer fixtures from a real session.
-            if UserDefaults.standard.bool(forKey: "TeamclawRecordMQTT") ||
+            if UserDefaults.standard.bool(forKey: "TeamcluRecordMQTT") ||
                 UserDefaults.standard.bool(forKey: "AMUXRecordMQTT") {
                 await attachTraceRecorder()
             }
             // Coordinator-driven team runtime preparation runs from
-            // RootTabView's .task; TeamclawService start follows from
+            // RootTabView's .task; TeamcluService start follows from
             // the onChange(teamRuntimeContext) hook above.
         } catch {
             logger.error("MQTT connect failed: \(error)")
@@ -326,6 +352,7 @@ private actor FailingOnboardingStore: AppOnboardingStore {
     func createTeam(named name: String) async throws -> CreatedTeam {
         throw error
     }
+    func bootstrapTeam(deviceId: String?) async throws -> CreatedTeam { throw error }
     func listAllMyTeams() async throws -> [MembershipTeam] { throw error }
     func switchActiveTeam(teamID: String) async throws -> TeamSwitchResult { throw error }
 

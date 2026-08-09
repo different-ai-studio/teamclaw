@@ -18,15 +18,13 @@ import Foundation
 @Suite("TimelineInput identity keys")
 struct TimelineInputIdentityKeysTests {
 
-    @Test("acp identity is (runtimeID, envelopeSequence)")
+    @Test("acp identity is (agentBucketKey, envelopeSequence)")
     func acpIdentityKey() {
         let a = AcpInput(envelopeSequence: 42,
-                         runtimeID: "rt-1",
                          agentBucketKey: "agent-actor-1",
                          timestamp: .distantPast,
                          acpEvent: Amux_AcpEvent())
         #expect(a.envelopeSequence == 42)
-        #expect(a.runtimeID == "rt-1")
         #expect(a.agentBucketKey == "agent-actor-1")
     }
 
@@ -85,12 +83,10 @@ struct TimelineInputOrderingTests {
     @Test("acp events from the same runtime order by envelopeSequence")
     func acpOrderingBySequence() {
         let first = AcpInput(envelopeSequence: 1,
-                             runtimeID: "rt-1",
                              agentBucketKey: "agent-1",
                              timestamp: Date(timeIntervalSince1970: 100),
                              acpEvent: Amux_AcpEvent())
         let second = AcpInput(envelopeSequence: 2,
-                              runtimeID: "rt-1",
                               agentBucketKey: "agent-1",
                               timestamp: Date(timeIntervalSince1970: 99),
                               acpEvent: Amux_AcpEvent())
@@ -101,12 +97,10 @@ struct TimelineInputOrderingTests {
     @Test("acp events with sequence==0 fall back to timestamp tiebreaker")
     func acpOrderingZeroSequenceTimestamp() {
         let earlier = AcpInput(envelopeSequence: 0,
-                               runtimeID: "rt-1",
                                agentBucketKey: "agent-1",
                                timestamp: Date(timeIntervalSince1970: 50),
                                acpEvent: Amux_AcpEvent())
         let later = AcpInput(envelopeSequence: 0,
-                             runtimeID: "rt-1",
                              agentBucketKey: "agent-1",
                              timestamp: Date(timeIntervalSince1970: 51),
                              acpEvent: Amux_AcpEvent())
@@ -148,8 +142,7 @@ struct TimelineInputSumTypeTests {
     @Test("all five variants are reachable through the sum type")
     func allVariantsReachable() {
         let inputs: [TimelineInput] = [
-            .acp(AcpInput(envelopeSequence: 1, runtimeID: "rt",
-                          agentBucketKey: "agent", timestamp: .distantPast,
+            .acp(AcpInput(envelopeSequence: 1, agentBucketKey: "agent", timestamp: .distantPast,
                           acpEvent: Amux_AcpEvent())),
             .liveMessage(LiveMessageInput(messageID: "m",
                                           senderActorID: "u",

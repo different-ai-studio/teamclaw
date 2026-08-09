@@ -1,4 +1,4 @@
-import { AgentType } from "@teamclaw/app/proto/amux_pb";
+import { AgentType } from "@teamclu/app/proto/amux_pb";
 import { describe, expect, it } from "vitest";
 
 import {

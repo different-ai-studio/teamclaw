@@ -108,15 +108,8 @@ export const useWorkspaceRuntimeRefreshStore = create<WorkspaceRuntimeRefreshSta
 
     set({ isApplying: true, applyError: null })
     try {
-      const outcome = await reloadDaemonRuntime(encodeWorkspaceId(workspacePath))
+      await reloadDaemonRuntime(encodeWorkspaceId(workspacePath))
       await get().refreshNow(workspacePath)
-
-      if (outcome === 'restart_required') {
-        toast.info('Agent restart required', {
-          description:
-            'Configuration was applied. Start a new session or wait for active runtimes to reload.',
-        })
-      }
 
       const refresh = get().refresh
       if (refresh?.status === 'failed' && refresh.last_error) {

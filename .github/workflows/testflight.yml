@@ -4,10 +4,16 @@ on:
   push:
     tags:
       - "ios-v*"
-    branches:
-      - main
-    paths:
-      - "apps/ios/**"
+    # SAFETY CATCH — teamclaw → teamclu rebrand. See self-host-deploy.yml.
+    #
+    # The rebrand moves the bundle id to com.teamclu.mobile, which has no App
+    # Store Connect record and no match profiles yet, so a build fired by the
+    # merge could only fail. The tag trigger above stays on: tagging is a
+    # deliberate act, and by then the ASC record is expected to exist.
+    # branches:
+    #   - main
+    # paths:
+    #   - "apps/ios/**"
   workflow_dispatch:
 
 concurrency:
@@ -15,7 +21,60 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  # Decides whether this run should actually publish, and absorbs the debounce
+  # wait. Split out from the build so the 5-minute sleep burns Linux minutes
+  # rather than a macOS runner, and so the decision is made before anything
+  # expensive starts.
+  #
+  # Deliberately does NOT set `defaults.run.working-directory` — apps/ios only
+  # exists after checkout, and pointing the default at it is what silently
+  # killed every main-push release from 2026-08-01 onward.
+  guard:
+    runs-on: ubuntu-latest
+    outputs:
+      proceed: ${{ steps.decide.outputs.proceed }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+
+      # Debounce: wait before deciding, so a burst of iOS PRs merged in quick
+      # succession collapses into a single release. Each new push cancels the
+      # in-progress run (concurrency above) and restarts this timer. Tag pushes
+      # and workflow_dispatch skip the wait.
+      - name: Debounce (batch consecutive iOS merges)
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+        run: sleep 300
+
+      # The release flow is "merge the iOS PR, then push an ios-v* tag", so both
+      # triggers fire for the same commit. `concurrency` groups on github.ref,
+      # and a tag and a branch are different refs, so neither cancels the other:
+      # two runs each ask App Store Connect for the latest build number, both get
+      # the same answer, and the loser's upload is rejected as a duplicate. That
+      # is a guaranteed red run on every normal release.
+      #
+      # Resolved by deferring to the tag: after the debounce, if this commit now
+      # carries an ios-v* tag, that tag's own run is publishing it, so this one
+      # stands down. A main push with no tag behind it still releases as before.
+      - name: Decide whether to publish
+        id: decide
+        run: |
+          set -euo pipefail
+          if [ "${{ github.event_name }}" = "push" ] && [ "${{ github.ref }}" = "refs/heads/main" ]; then
+            git fetch --tags --force --quiet
+            tags=$(git tag --points-at HEAD | grep '^ios-v' || true)
+            if [ -n "$tags" ]; then
+              echo "This commit is tagged: $tags"
+              echo "Its tag run publishes it — standing down to avoid a duplicate upload."
+              echo "proceed=false" >> "$GITHUB_OUTPUT"
+              exit 0
+            fi
+          fi
+          echo "proceed=true" >> "$GITHUB_OUTPUT"
+
   build-and-upload:
+    needs: guard
+    if: needs.guard.outputs.proceed == 'true'
     runs-on: macos-26
 
     defaults:
@@ -33,14 +92,6 @@ jobs:
       FASTLANE_XCODEBUILD_SETTINGS_RETRIES: 6
 
     steps:
-      # Debounce: wait before starting the real build so that a burst of
-      # iOS PRs merged in quick succession collapses into a single release.
-      # Each new push cancels the in-progress run (concurrency above) and
-      # restarts this timer. Tag pushes and workflow_dispatch skip the wait.
-      - name: Debounce (batch consecutive iOS merges)
-        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
-        run: sleep 300
-
       - uses: actions/checkout@v7
 
       - name: Set up Ruby

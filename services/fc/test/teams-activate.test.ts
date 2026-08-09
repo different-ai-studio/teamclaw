@@ -82,7 +82,8 @@ test("POST /v1/teams/bootstrap delegates atomic first-team creation", async () =
     body: JSON.stringify({ displayName: "Boss" }),
   });
   assert.equal(res.status, 200);
-  assert.deepEqual(input, { displayName: "Boss", orgId: null });
+  // deviceId rides along for guest-team reuse; a signed-in bootstrap sends none.
+  assert.deepEqual(input, { displayName: "Boss", orgId: null, deviceId: null });
   assert.equal((await res.json() as any).name, "Org One");
 });
 
@@ -100,7 +101,11 @@ test("POST /v1/teams/bootstrap forwards an explicitly selected empty org", async
     body: JSON.stringify({ orgId: "00000000-0000-4000-8000-000000000001" }),
   });
   assert.equal(res.status, 200);
-  assert.deepEqual(input, { displayName: null, orgId: "00000000-0000-4000-8000-000000000001" });
+  assert.deepEqual(input, {
+    displayName: null,
+    orgId: "00000000-0000-4000-8000-000000000001",
+    deviceId: null,
+  });
 });
 
 test("GET /v1/teams (no scope) keeps the active-org listing", async () => {

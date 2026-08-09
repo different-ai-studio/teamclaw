@@ -14,8 +14,8 @@ public struct CloudAPIConfiguration: Equatable, Sendable {
 }
 
 public enum CloudAPIConfigurationStore {
-    public static let backendKindKey = "teamclaw_backend_kind"
-    public static let cloudAPIURLKey = "teamclaw_cloud_api_url"
+    public static let backendKindKey = "teamclu_backend_kind"
+    public static let cloudAPIURLKey = "teamclu_cloud_api_url"
 
     public static func backendKind(in defaults: UserDefaults = .standard) -> BackendProviderKind {
         // An explicit stored value always wins (Settings override / tests).

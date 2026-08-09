@@ -1,8 +1,8 @@
 // Web SSO 快捷登录 — open the partner admin console's sign-in page in a native
 // webview, let the user sign in there, then harvest the supabase-js session out
-// of that page's localStorage and adopt it as the TeamClaw session. The admin
-// console shares TeamClaw's GoTrue per environment, so its refresh_token is
-// valid against TeamClaw's Cloud API. This is the reverse of
+// of that page's localStorage and adopt it as the TeamClu session. The admin
+// console shares TeamClu's GoTrue per environment, so its refresh_token is
+// valid against TeamClu's Cloud API. This is the reverse of
 // admin-sso-inject.ts.
 
 import { getFeatures } from "@/lib/remote-features";

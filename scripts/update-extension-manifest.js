@@ -103,7 +103,7 @@ if (iconPlan) {
 // file tree). Those live in packages/app/public/ and were only ever rebranded
 // by scripts/update-tauri-config.js — the desktop path. Nothing applied them
 // for the extension, so a package correctly named "Copilot 361" opened onto a
-// side panel still showing the TeamClaw mark.
+// side panel still showing the TeamClu mark.
 //
 // Unlike the desktop flow this copies app.logo straight through instead of
 // resizing it via `tauri icon`: the extension pipeline deliberately does no

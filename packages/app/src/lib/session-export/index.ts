@@ -1,4 +1,4 @@
-import { adaptTeamclawMessages } from "@/lib/v2-message-adapter";
+import { adaptTeamcluMessages } from "@/lib/v2-message-adapter";
 import type { MessageRow } from "@/lib/local-cache";
 import { messageRowsToProto } from "./collect";
 import { sanitizeOpenCodeMessages } from "./sanitize";
@@ -23,7 +23,7 @@ export function exportSessionFromRows(
   } = opts;
 
   const protos = messageRowsToProto(rows);
-  const sdkMessages = adaptTeamclawMessages(protos, { forceFull: true }) ?? [];
+  const sdkMessages = adaptTeamcluMessages(protos, { forceFull: true }) ?? [];
 
   let messages = sdkMessages
     .filter((msg) => includeSystem || msg.role !== "system")
@@ -48,7 +48,7 @@ export function exportSessionFromRows(
     session_id: sessionId,
     exported_at: new Date().toISOString(),
     source: {
-      type: "teamclaw_local_cache",
+      type: "teamclu_local_cache",
     },
     messages,
   };

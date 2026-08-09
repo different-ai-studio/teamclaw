@@ -1,6 +1,6 @@
 -- ============================================================================
 -- Stage 3-FC support: extend create_team to stamp teams.oid (the caller's org)
--- (spec: docs/specs/2026-06-08-teamclaw-saas-mono-integration.md §5 Step A, §8)
+-- (spec: docs/specs/2026-06-08-teamclu-saas-mono-integration.md §5 Step A, §8)
 --
 -- ⚠️ APPLY WITH Stage 2 (references amux tables). Supersedes the generic
 --    public.→amux. rewrite that Stage 2 applies to create_team, adding p_oid.

@@ -2,7 +2,7 @@ import {
   agentReplyTextsEquivalent,
   pickCanonicalAgentReplyText,
 } from "@/lib/agent-reply-text";
-import type { Message as TeamclawMessage } from "@/lib/proto/teamclaw_pb";
+import type { Message as TeamcluMessage } from "@/lib/proto/teamclu_pb";
 import type { MessagePart } from "@/stores/session-types";
 
 export type TranscriptPart = {
@@ -146,7 +146,7 @@ export function stripPriorTranscriptTextPrefix(
 /** Derive message.content from the live transcript; pending is metadata + drift hint only. */
 export function deriveAgentReplyContent(
   parts: TranscriptPart[],
-  pending: TeamclawMessage[],
+  pending: TeamcluMessage[],
 ): string {
   const textParts = parts.filter(
     (part) => part.type === "text" && Boolean((part.text || part.content)?.trim()),

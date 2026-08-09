@@ -1,5 +1,5 @@
 import type { ServerConfig } from "@/lib/server-config";
-import type { TeamClawBackend } from "../types";
+import type { TeamCluBackend } from "../types";
 import { createCloudApiClient, type CloudApiClient } from "./http";
 import { createAuthClient, createAuthModule } from "./auth";
 import { createTeamsModule } from "./teams";
@@ -20,6 +20,8 @@ import { createTelemetryModule } from "./telemetry";
 import { createSyncModule } from "./sync";
 import { createSystemModule } from "./system";
 import { createTeamSkillsModule } from "./team-skills";
+import { createTeamMcpModule } from "./team-mcp";
+import { createTeamEnvSecretsModule } from "./team-env-secrets";
 
 export function hasCloudApiBackendConfig(config: ServerConfig): boolean {
   return Boolean(config.cloudApiUrl);
@@ -28,7 +30,7 @@ export function hasCloudApiBackendConfig(config: ServerConfig): boolean {
 export function createCloudApiBackend(
   config: ServerConfig,
   options: { client?: CloudApiClient } = {},
-): TeamClawBackend {
+): TeamCluBackend {
   const baseUrl = requiredCloudApiUrl(config);
   const authClient = createAuthClient({ baseUrl });
   // Build a temporary auth backend so the CloudApiClient can pull the bearer
@@ -58,6 +60,8 @@ export function createCloudApiBackend(
     sync: createSyncModule(client),
     system: createSystemModule(client),
     teamSkills: createTeamSkillsModule(client),
+    teamMcp: createTeamMcpModule(client),
+    teamEnvSecrets: createTeamEnvSecretsModule(client),
   };
 }
 

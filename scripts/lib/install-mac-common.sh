@@ -1,6 +1,6 @@
 #!/bin/bash
 # Shared macOS DMG install helpers — sourced by install-mac.sh / install-mac-cn.sh.
-# Mount point and app name are discovered from the DMG (works for TeamClaw, Copilot 361, …).
+# Mount point and app name are discovered from the DMG (works for TeamClu, Copilot 361, …).
 
 set -euo pipefail
 
@@ -49,7 +49,7 @@ install_mac_product_name_candidates() {
     done
   fi
 
-  for name in TeamClaw "Copilot 361"; do
+  for name in TeamClu "Copilot 361"; do
     if [[ "$seen" != *"|${name}|"* ]]; then
       echo "$name"
       seen="${seen}${name}|"

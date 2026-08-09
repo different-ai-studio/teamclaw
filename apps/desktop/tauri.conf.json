@@ -1,12 +1,12 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
-  "productName": "TeamClaw",
-  "version": "0.3.1-beta.25",
-  "identifier": "com.teamclaw.app",
+  "productName": "TeamClu",
+  "version": "0.4.0",
+  "identifier": "com.teamclu.app",
   "build": {
-    "beforeDevCommand": "pnpm --filter @teamclaw/app dev",
+    "beforeDevCommand": "pnpm --filter @teamclu/app dev",
     "devUrl": "http://127.0.0.1:1420",
-    "beforeBuildCommand": "pnpm --filter @teamclaw/app build",
+    "beforeBuildCommand": "pnpm --filter @teamclu/app build",
     "frontendDist": "../../packages/app/dist"
   },
   "app": {
@@ -14,7 +14,7 @@
     "macOSPrivateApi": true,
     "windows": [
       {
-        "title": "TeamClaw",
+        "title": "TeamClu",
         "width": 1200,
         "height": 800,
         "minWidth": 800,
@@ -46,7 +46,7 @@
     "deep-link": {
       "desktop": {
         "schemes": [
-          "teamclaw"
+          "teamclu"
         ]
       }
     },
@@ -59,7 +59,7 @@
     "updater": {
       "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IDFEMDg3REY5MEI2RDAyMzMKUldRekFtMEwrWDBJSFhTdHYvbStkclEvTEVRNFlpZExxSHNTSTA2V2ZHS0xPUEZ4WnF5d2RxQ0gK",
       "endpoints": [
-        "https://github.com/different-ai-studio/teamclaw/releases/latest/download/latest.json"
+        "https://github.com/different-ai-studio/teamclu/releases/latest/download/latest.json"
       ]
     }
   },
@@ -78,11 +78,11 @@
       "icons/icon.ico"
     ],
     "externalBin": [
-      "binaries/teamclaw-introspect",
+      "binaries/teamclu-introspect",
       "binaries/amuxd"
     ],
     "resources": [
-      "binaries/teamclaw-askpass.sh",
+      "binaries/teamclu-askpass.sh",
       "binaries/cursor-bridge/**/*",
       "binaries/claude-bridge/**/*"
     ]

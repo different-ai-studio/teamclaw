@@ -106,7 +106,7 @@ cp "${BINARY}" "${STAGE_DIR}/amuxd-windows/amuxd.exe"
 # ── 4. generate setup.ps1 ───────────────────────────────────────────────────
 # The setup script runs on the Windows target machine. It:
 #   1. copies amuxd.exe to ~/.amuxd/bin/
-#   2. sets TEAMCLAW_CLOUD_API_URL (if provided)
+#   2. sets TEAMCLU_CLOUD_API_URL (if provided)
 #   3. runs amuxd init with the invite URL (if provided)
 #   4. registers the scheduled task (install-service)
 #   5. starts the daemon
@@ -121,10 +121,10 @@ cat > "${STAGE_DIR}/amuxd-windows/setup.ps1" << PS_EOF
 # Edit the variables below, then run in PowerShell:
 #   .\setup.ps1
 # Or with an invite URL:
-#   .\setup.ps1 -InviteUrl 'teamclaw://invite?token=...'
+#   .\setup.ps1 -InviteUrl 'teamclu://invite?token=...'
 #
 # To re-onboard with a different invite, run:
-#   .\setup.ps1 -InviteUrl 'teamclaw://invite?...' -Force
+#   .\setup.ps1 -InviteUrl 'teamclu://invite?...' -Force
 param(
     [string]\$InviteUrl = '',
     [string]\$CloudApiUrl = '$(ps_escape "${CLOUD_API_URL}")',
@@ -153,9 +153,9 @@ Write-Host '[setup] binary installed.' -ForegroundColor Green
 
 # 2. set environment variable (persistent, user-level)
 if (\$CloudApiUrl) {
-    [Environment]::SetEnvironmentVariable('TEAMCLAW_CLOUD_API_URL', \$CloudApiUrl, 'User')
-    \$env:TEAMCLAW_CLOUD_API_URL = \$CloudApiUrl
-    Write-Host "[setup] set TEAMCLAW_CLOUD_API_URL = \$CloudApiUrl" -ForegroundColor Green
+    [Environment]::SetEnvironmentVariable('TEAMCLU_CLOUD_API_URL', \$CloudApiUrl, 'User')
+    \$env:TEAMCLU_CLOUD_API_URL = \$CloudApiUrl
+    Write-Host "[setup] set TEAMCLU_CLOUD_API_URL = \$CloudApiUrl" -ForegroundColor Green
 }
 
 # 3. onboarding (amuxd init)
@@ -170,7 +170,7 @@ if (-not \$SkipInit) {
         Write-Host '[setup] onboarding complete.' -ForegroundColor Green
     } else {
         Write-Host '[setup] no invite URL provided — skipping onboarding.' -ForegroundColor Yellow
-        Write-Host '[setup] run: amuxd.exe init "teamclaw://invite?token=..."' -ForegroundColor Yellow
+        Write-Host '[setup] run: amuxd.exe init "teamclu://invite?token=..."' -ForegroundColor Yellow
     }
 }
 
@@ -217,7 +217,7 @@ Date: $(date -u '+%Y-%m-%d %H:%M:%S UTC')
 \`\`\`powershell
 # Option A: provide values as parameters
 .\setup.ps1 -CloudApiUrl 'https://copilot.accounting.i.test.shopee.io' \`
-            -InviteUrl 'teamclaw://invite?token=YOUR_TOKEN&cloud_api_url=https%3A%2F%2Fcopilot.accounting.i.test.shopee.io'
+            -InviteUrl 'teamclu://invite?token=YOUR_TOKEN&cloud_api_url=https%3A%2F%2Fcopilot.accounting.i.test.shopee.io'
 
 # Option B: interactive (no invite URL — just installs the binary)
 .\setup.ps1 -SkipInit
@@ -232,7 +232,7 @@ amuxd.exe status
 ## What setup.ps1 does
 
 1. Copies \`amuxd.exe\` to \`%USERPROFILE%\.amuxd\bin\amuxd.exe\`
-2. Sets \`TEAMCLAW_CLOUD_API_URL\` as a persistent user env var
+2. Sets \`TEAMCLU_CLOUD_API_URL\` as a persistent user env var
 3. Runs \`amuxd init\` with the invite URL (creates \`backend.toml\` + \`daemon.toml\`)
 4. Registers a Windows scheduled task (login autostart) via \`amuxd install-service\`
 5. Starts the daemon
@@ -245,10 +245,10 @@ mkdir %USERPROFILE%\.amuxd\bin
 copy amuxd.exe %USERPROFILE%\.amuxd\bin\
 
 # 2. Set Cloud API URL
-setx TEAMCLAW_CLOUD_API_URL "https://copilot.accounting.i.test.shopee.io"
+setx TEAMCLU_CLOUD_API_URL "https://copilot.accounting.i.test.shopee.io"
 
 # 3. Onboard with invite
-%USERPROFILE%\.amuxd\bin\amuxd.exe init "teamclaw://invite?token=YOUR_TOKEN"
+%USERPROFILE%\.amuxd\bin\amuxd.exe init "teamclu://invite?token=YOUR_TOKEN"
 
 # 4. Register autostart
 %USERPROFILE%\.amuxd\bin\amuxd.exe install-service
@@ -294,14 +294,14 @@ say "generating .env.example"
 cat > "${STAGE_DIR}/amuxd-windows/.env.example" << ENV_EOF
 # Set these in PowerShell before running setup.ps1, or pass as parameters.
 # Cloud API endpoint (required for onboarding)
-TEAMCLAW_CLOUD_API_URL=${CLOUD_API_URL:-https://copilot.accounting.i.test.shopee.io}
+TEAMCLU_CLOUD_API_URL=${CLOUD_API_URL:-https://copilot.accounting.i.test.shopee.io}
 
 # MQTT broker URL (optional — auto-discovered from Cloud API bootstrap)
 # MQTT_URL=wss://copilot.accounting.i.test.shopee.io/mqtt
 
 # MQTT username/password (optional — auto-discovered from Cloud API bootstrap)
-# MQTT_USERNAME=teamclaw
-# MQTT_PASSWORD=teamclaw2026
+# MQTT_USERNAME=teamclu
+# MQTT_PASSWORD=teamclu2026
 ENV_EOF
 
 # ── 7. zip ──────────────────────────────────────────────────────────────────

@@ -31,12 +31,12 @@ struct PairingManagerTests {
         PairingManager(store: store, brokerCache: cache)
     }
 
-    @Test("pairs from a valid teamclaw:// URL with mqtts broker")
+    @Test("pairs from a valid teamclu:// URL with mqtts broker")
     func pairsFromValidURL() throws {
         let store = InMemoryStore()
         let manager = PairingManager(store: store)
 
-        let url = URL(string: "teamclaw://join?broker=mqtts://broker.example.com:8883&device=mac-1&token=tok-abc")!
+        let url = URL(string: "teamclu://join?broker=mqtts://broker.example.com:8883&device=mac-1&token=tok-abc")!
         try manager.pair(from: url)
 
         #expect(manager.isPaired)
@@ -67,7 +67,7 @@ struct PairingManagerTests {
     func defaultsPortForMqtts() throws {
         let store = InMemoryStore()
         let manager = PairingManager(store: store)
-        let url = URL(string: "teamclaw://join?broker=mqtts://broker.example.com&device=d&token=t")!
+        let url = URL(string: "teamclu://join?broker=mqtts://broker.example.com&device=d&token=t")!
         try manager.pair(from: url)
         #expect(manager.brokerPort == 8883)
         #expect(manager.useTLS == true)
@@ -77,7 +77,7 @@ struct PairingManagerTests {
     func defaultsPortForMqttPlain() throws {
         let store = InMemoryStore()
         let manager = PairingManager(store: store)
-        let url = URL(string: "teamclaw://join?broker=mqtt://broker.example.com&device=d&token=t")!
+        let url = URL(string: "teamclu://join?broker=mqtt://broker.example.com&device=d&token=t")!
         try manager.pair(from: url)
         #expect(manager.brokerPort == 1883)
         #expect(manager.useTLS == false)
@@ -95,7 +95,7 @@ struct PairingManagerTests {
     @Test("rejects URLs missing required fields")
     func rejectsMissingFields() {
         let manager = PairingManager(store: InMemoryStore())
-        let url = URL(string: "teamclaw://join?device=d&token=t")!  // no broker
+        let url = URL(string: "teamclu://join?device=d&token=t")!  // no broker
         #expect(throws: PairingManager.PairingError.self) {
             try manager.pair(from: url)
         }
@@ -184,7 +184,7 @@ struct PairingManagerTests {
     func unpairClearsEverything() throws {
         let store = InMemoryStore()
         let manager = PairingManager(store: store)
-        let url = URL(string: "teamclaw://join?broker=mqtts://h&device=d&token=t")!
+        let url = URL(string: "teamclu://join?broker=mqtts://h&device=d&token=t")!
         try manager.pair(from: url)
         try manager.unpair()
         #expect(!manager.isPaired)

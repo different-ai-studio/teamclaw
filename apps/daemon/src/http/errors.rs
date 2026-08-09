@@ -153,10 +153,6 @@ impl HttpError {
         Self::new(ErrorCode::Internal, detail)
     }
 
-    pub fn not_implemented(detail: impl Into<String>) -> Self {
-        Self::new(ErrorCode::NotImplemented, detail)
-    }
-
     pub fn runtime_unavailable(detail: impl Into<String>) -> Self {
         Self::new(ErrorCode::RuntimeUnavailable, detail)
     }
@@ -194,7 +190,7 @@ impl IntoResponse for HttpError {
         let status = self.code.http_status();
         let body = ProblemBody {
             type_uri: format!(
-                "https://teamclaw/errors/{}",
+                "https://teamclu/errors/{}",
                 serde_json::to_string(&self.code)
                     .ok()
                     .and_then(|s| serde_json::from_str::<String>(&s).ok())
@@ -257,7 +253,7 @@ mod tests {
         assert_eq!(json["code"], "team_share_not_enabled_for_daemon");
         assert_eq!(
             json["type"],
-            "https://teamclaw/errors/team_share_not_enabled_for_daemon"
+            "https://teamclu/errors/team_share_not_enabled_for_daemon"
         );
         assert_eq!(json["title"], "Team share not enabled for daemon");
     }

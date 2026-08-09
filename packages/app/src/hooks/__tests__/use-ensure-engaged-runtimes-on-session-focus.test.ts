@@ -6,11 +6,11 @@ import {
   useEnsureEngagedRuntimesOnSessionFocus,
 } from '../use-ensure-engaged-runtimes-on-session-focus'
 import type { EngagedAgentUiEntry } from '../use-engaged-agent-ui-states'
-import { resetRuntimeEnsureThrottle } from '@/lib/teamclaw/runtime-ensure-scheduler'
+import { resetRuntimeEnsureThrottle } from '@/lib/teamclu/runtime-ensure-scheduler'
 
 const ensureMock = vi.hoisted(() => vi.fn().mockResolvedValue(undefined))
 
-vi.mock('@/lib/teamclaw/ensure-agent-runtime', () => ({
+vi.mock('@/lib/teamclu/ensure-agent-runtime', () => ({
   ensureAgentRuntimesForSession: ensureMock,
 }))
 

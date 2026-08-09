@@ -112,7 +112,7 @@ export function normalizeError(error) {
   try { console.error("[business-api] unclassified error:", error?.message, error?.name, error?.stack?.split("\n").slice(0,5).join(" | ")); } catch {}
 
   // Surface the real cause instead of an opaque "Internal server error". These
-  // are TeamClaw's own clients hitting our Cloud API; swallowing the message
+  // are TeamClu's own clients hitting our Cloud API; swallowing the message
   // forced a round-trip through FC logs on every incident. Keep status 500 but
   // make the body self-describing: include the underlying message and any
   // db/PostgREST code (e.g. PGRST202 = function/schema-cache miss).

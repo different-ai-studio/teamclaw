@@ -3,18 +3,18 @@ import assert from "node:assert/strict";
 import { isSidecar, splitTree, assertConverged } from "../harness/converge.mjs";
 
 test("isSidecar matches *.conflict.* names", () => {
-  assert.equal(isSidecar("skills/x.conflict.1748332800.abc123de.md"), true);
-  assert.equal(isSidecar("skills/x.md"), false);
+  assert.equal(isSidecar("knowledge/x.conflict.1748332800.abc123de.md"), true);
+  assert.equal(isSidecar("knowledge/x.md"), false);
 });
 
 test("splitTree separates regular vs sidecar", () => {
   const tree = {
-    "skills/x.md": "AA",
-    "skills/x.conflict.1.deadbeef.md": "BB",
+    "knowledge/x.md": "AA",
+    "knowledge/x.conflict.1.deadbeef.md": "BB",
   };
   const { regular, sidecars } = splitTree(tree);
-  assert.deepEqual(Object.keys(regular), ["skills/x.md"]);
-  assert.deepEqual(Object.keys(sidecars), ["skills/x.conflict.1.deadbeef.md"]);
+  assert.deepEqual(Object.keys(regular), ["knowledge/x.md"]);
+  assert.deepEqual(Object.keys(sidecars), ["knowledge/x.conflict.1.deadbeef.md"]);
 });
 
 test("assertConverged passes when regular files match (sidecars ignored)", () => {

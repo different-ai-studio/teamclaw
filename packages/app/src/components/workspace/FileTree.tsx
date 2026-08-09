@@ -4,6 +4,7 @@ import { useVirtualizer } from "@tanstack/react-virtual";
 import { ChevronRight, File } from "lucide-react";
 
 import { toast } from 'sonner';
+import { isChatInputDropTarget, isPointOverElement } from '@/lib/chat-file-drop';
 import { copyToClipboard, isTauri } from '@/lib/utils';
 import { GitStatus } from "@/lib/git/service";
 import { useWorkspaceStore, type FileNode } from "@/stores/workspace";
@@ -377,7 +378,7 @@ export function FileTree({
     return {};
   }, [isGitShare, teamGitFileSyncStatusMap]);
 
-  // Which mode drives the teamclaw-team folder spinner / last-sync tooltip.
+  // Which mode drives the teamclu-team folder spinner / last-sync tooltip.
   const teamSyncing = isOssShare ? ossSyncing : teamGitSyncing;
   const teamLastSyncAt = isOssShare ? ossLastSyncAt : teamGitLastSyncAt;
 
@@ -623,8 +624,8 @@ export function FileTree({
         displayPath = path.slice(workspacePath.length + 1);
       }
       const mention = `@{${displayPath}} `;
-      import("@/stores/voice-input").then(({ useVoiceInputStore }) => {
-        useVoiceInputStore.getState().insertToChat(mention);
+      import("@/stores/composer-insert").then(({ useComposerInsertStore }) => {
+        useComposerInsertStore.getState().insertToChat(mention);
       });
     },
     [workspacePath],
@@ -1120,13 +1121,29 @@ export function FileTree({
             }
 
             // Drop landed outside the file tree → dispatch for prompt input
-            window.dispatchEvent(new CustomEvent('teamclaw:filedrop', {
+            window.dispatchEvent(new CustomEvent('teamclu:filedrop', {
               detail: { path: sourcePath, position: event.payload.position },
             }));
             return;
           }
           const paths = event.payload.paths;
           if (!paths || paths.length === 0) return;
+
+          // OS drops on the chat composer attach as pending files (PromptInput
+          // listens to the same tauri://drag-drop event). Do not copy into the
+          // workspace in that case — previously every external drop was treated
+          // as a file-tree import, so drag-to-input silently stopped working.
+          const dropPos = event.payload.position;
+          const chatInput = document.querySelector('[data-testid="chat-input-area"]');
+          // Prefer geometry over elementFromPoint — during native DnD the
+          // hit-test under the cursor can miss the composer chrome.
+          if (
+            isPointOverElement(dropPos, chatInput) ||
+            isChatInputDropTarget(document.elementFromPoint(dropPos.x, dropPos.y))
+          ) {
+            setDragOverPath(null);
+            return;
+          }
 
           const targetDir = dragOverPathRef.current || workspacePath;
 
@@ -1181,7 +1198,30 @@ export function FileTree({
     return () => { cancelled = true; unlisteners.forEach(fn => fn()); };
   }, [workspacePath, refreshFileTree, expandDirectory, t]);
 
+  // An empty tree still has to render the root create row when one is pending:
+  // the per-node create flow hangs off a node's context menu, so an empty tree
+  // has no other way in, and returning the empty state here made the caller's
+  // "New document" button look inert.
   if (fileTree.length === 0) {
+    if (rootCreating && onRootCreateConfirm && onRootCreateCancel) {
+      return (
+        <div className="py-1">
+          <InlineInput
+            defaultValue={rootCreating === "file" ? "untitled" : "new-folder"}
+            onConfirm={onRootCreateConfirm}
+            onCancel={onRootCreateCancel}
+            level={0}
+            icon={
+              rootCreating === "file" ? (
+                <File className="h-4 w-4 shrink-0 text-muted-foreground" />
+              ) : (
+                <ChevronRight className="h-3.5 w-3.5 shrink-0 text-muted-foreground rotate-90" />
+              )
+            }
+          />
+        </div>
+      );
+    }
     return (
       <div className="flex items-center justify-center py-8 text-sm text-muted-foreground">
         {t("fileExplorer.noFilesFound", "No files found")}
@@ -1237,7 +1277,7 @@ export function FileTree({
     statusColors,
     isRenaming: renamingPath === node.path,
     isDragOver: dragOverPath === node.path,
-    isTeamClawTeam: node.name === TEAM_REPO_DIR && node.type === "directory" && level === 0,
+    isTeamCluTeam: node.name === TEAM_REPO_DIR && node.type === "directory" && level === 0,
     teamSyncing: node.name === TEAM_REPO_DIR && node.type === "directory" && level === 0 ? teamSyncing : undefined,
     teamLastSyncAt: node.name === TEAM_REPO_DIR && node.type === "directory" && level === 0 ? teamLastSyncAt : undefined,
     syncStatus: (() => {
@@ -1245,7 +1285,7 @@ export function FileTree({
       if (node.type === 'directory') {
         return syncDirtyDirectories.get(node.path) ?? null;
       }
-      // Extract relative path within teamclaw-team/
+      // Extract relative path within teamclu-team/
       const teamDirPrefix = `${workspacePath}/${TEAM_REPO_DIR}/`;
       if (!node.path.startsWith(teamDirPrefix)) return null;
       const relPath = node.path.slice(teamDirPrefix.length);

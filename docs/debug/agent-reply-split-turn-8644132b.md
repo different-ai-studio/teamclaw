@@ -1,7 +1,7 @@
 # Agent 回复「断层」与最终只保留末段 — 根因与修复方案
 
 **会话 ID:** `8644132b-afa4-4d3e-819c-204b2db0e86b`  
-**日志:** `~/Library/Logs/com.teamclaw.app/acp-stream/8644132b-afa4-4d3e-819c-204b2db0e86b.log`  
+**日志:** `~/Library/Logs/com.teamclu.app/acp-stream/8644132b-afa4-4d3e-819c-204b2db0e86b.log`  
 **现象:** 同一轮 Agent 回复出现两个 MACMINI 头（图一）；结束后只剩最后一段正文（图二）。  
 **调查日期:** 2026-06-05  
 **状态:** 已实现（桌面端）；待手动复现 §4 / §6
@@ -66,7 +66,7 @@
 
 **注：** 同 turn 在 16:16:56 已有 skill `toolUse`，但当时 `reply_buf` 为空，故无 `message.created`（与 `flush_reply_into` 仅非空才 emit 一致）。
 
-### 2.3 Desktop：`adaptTeamclawMessages` canonical `parts_json` 覆盖前段正文
+### 2.3 Desktop：`adaptTeamcluMessages` canonical `parts_json` 覆盖前段正文
 
 **位置:** `packages/app/src/lib/v2-message-adapter.ts` — `buildTurnSdkMessage`
 
@@ -136,7 +136,7 @@ acp.event (整轮) ──► v2-streaming-store（唯一 live UI，不中途归�
 message.created (可多条) ──► pendingStreamRepliesRef（只停车，不 appendMessage）
 flush 触发（见 §5.2.1，无固定秒数）──► flushTurnAgentReply（一次）──► persist parts_json ──► appendMessage ×1
                                                               └──► releaseActorAfterPersist ×1
-reload / 本地 cache 多行 agent_reply ──► adaptTeamclawMessages（按 turn 合并 parts + 正文）
+reload / 本地 cache 多行 agent_reply ──► adaptTeamcluMessages（按 turn 合并 parts + 正文）
 ```
 
 ### 5.2.1 何时 flush（事件驱动，不用 8s / 3s 定时器）
@@ -228,7 +228,7 @@ clear pending + terminalFlushPendingRef
 
 ```ts
 // 伪代码
-function replaceTurnAgentRepliesInStore(sessionId, turnId, actorId, merged: TeamclawMessage) {
+function replaceTurnAgentRepliesInStore(sessionId, turnId, actorId, merged: TeamcluMessage) {
   const cur = messages[sessionId] ?? [];
   const rest = cur.filter(m =>
     !(m.turnId === turnId && m.senderActorId === actorId && m.kind === AGENT_REPLY)

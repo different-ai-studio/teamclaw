@@ -1,6 +1,6 @@
 -- ============================================================================
--- Stage 3A of teamclaw × saas-mono integration (public-only, additive — safe now)
--- (spec: docs/specs/2026-06-08-teamclaw-saas-mono-integration.md)
+-- Stage 3A of teamclu × saas-mono integration (public-only, additive — safe now)
+-- (spec: docs/specs/2026-06-08-teamclu-saas-mono-integration.md)
 --
 -- Tenant resolution scaffolding that does NOT depend on the amux move:
 --   - public.users  : subset mirror of saas-mono's user↔org mapping

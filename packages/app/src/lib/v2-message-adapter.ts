@@ -1,6 +1,6 @@
 // v2 → SDK message-shape adapter. The legacy MessageList expects the
 // OpenCode SDK Message shape (id, role, parts[], toolCalls, timestamp,
-// etc). v2 stores Teamclaw_Message (proto) in `useSessionStore.messages`.
+// etc). v2 stores Teamclu_Message (proto) in `useSessionStore.messages`.
 //
 // In addition to shape adaptation, this module groups consecutive
 // same-turn agent messages into ONE SdkMessage so that the daemon's
@@ -9,8 +9,8 @@
 // turn_id) renders as a single coherent agent bubble.
 
 import { splitAssistantProcessAndFinalParts } from "@/lib/agent-reply-transcript";
-import type { Message as TeamclawMessage } from "@/lib/proto/teamclaw_pb";
-import { MessageKind } from "@/lib/proto/teamclaw_pb";
+import type { Message as TeamcluMessage } from "@/lib/proto/teamclu_pb";
+import { MessageKind } from "@/lib/proto/teamclu_pb";
 import type {
   Message as SdkMessage,
   MessagePart,
@@ -36,7 +36,7 @@ function kindToRole(kind: MessageKind): SdkMessage["role"] {
 /** 1:1 mapping (legacy path) for messages without a turn_id or for
  * non-assistant roles. */
 function parseMentionDeliverySnapshot(
-  m: TeamclawMessage,
+  m: TeamcluMessage,
 ): SdkMessage["mentionDeliverySnapshot"] {
   const md = parseMetadata(m);
   const raw = md.mention_delivery_snapshot;
@@ -48,7 +48,7 @@ function parseMentionDeliverySnapshot(
   return Object.keys(out).length > 0 ? out : undefined;
 }
 
-export function adaptTeamclawMessageToSdk(m: TeamclawMessage): SdkMessage {
+export function adaptTeamcluMessageToSdk(m: TeamcluMessage): SdkMessage {
   const mentionActorIds = parseDisplayMentionActorIds(m);
   const mentionDeliverySnapshot = parseMentionDeliverySnapshot(m);
   const replyTo = m.replyToMessageId?.trim() || undefined;
@@ -83,7 +83,7 @@ export function adaptTeamclawMessageToSdk(m: TeamclawMessage): SdkMessage {
   };
 }
 
-function parseMetadata(m: TeamclawMessage): Record<string, unknown> {
+function parseMetadata(m: TeamcluMessage): Record<string, unknown> {
   try {
     return m.metadataJson ? (JSON.parse(m.metadataJson) as Record<string, unknown>) : {};
   } catch {
@@ -91,7 +91,7 @@ function parseMetadata(m: TeamclawMessage): Record<string, unknown> {
   }
 }
 
-function isInterruptedReply(m: TeamclawMessage): boolean {
+function isInterruptedReply(m: TeamcluMessage): boolean {
   return parseMetadata(m).turn_status === "interrupted";
 }
 
@@ -101,26 +101,26 @@ function isAgentFacingInterruptNotice(content: string): boolean {
 }
 
 /** User-visible body for an AGENT_REPLY (hide interrupt instruction only). */
-function displayContentForReply(m: TeamclawMessage): string {
+function displayContentForReply(m: TeamcluMessage): string {
   const raw = m.content ?? "";
   if (isInterruptedReply(m) && isAgentFacingInterruptNotice(raw)) return "";
   return raw;
 }
 
 function turnStatusFromReplies(
-  replies: TeamclawMessage[],
+  replies: TeamcluMessage[],
 ): "interrupted" | undefined {
   return replies.some(isInterruptedReply) ? "interrupted" : undefined;
 }
 
-function parseDisplayMentionActorIds(m: TeamclawMessage): string[] {
+function parseDisplayMentionActorIds(m: TeamcluMessage): string[] {
   const md = parseMetadata(m);
   const raw = md.display_mention_actor_ids;
   if (!Array.isArray(raw)) return [];
   return raw.filter((id): id is string => typeof id === "string" && id.length > 0);
 }
 
-function partsJson(m: TeamclawMessage): string {
+function partsJson(m: TeamcluMessage): string {
   return (m as unknown as { partsJson?: string | null }).partsJson ?? "";
 }
 
@@ -158,8 +158,8 @@ function partText(part: MessagePart): string {
 }
 
 /** Merge ordered per-reply parts_json slices from the same turn (reload path). */
-function mergeTurnPartsFromReplies(replies: TeamclawMessage[]): MessagePart[] {
-  const sorted = [...replies].sort(compareTeamclawMessages);
+function mergeTurnPartsFromReplies(replies: TeamcluMessage[]): MessagePart[] {
+  const sorted = [...replies].sort(compareTeamcluMessages);
   const out: MessagePart[] = [];
   const toolIndexById = new Map<string, number>();
 
@@ -262,7 +262,7 @@ function paramsFromMetadataParams(value: unknown): Record<string, unknown> {
   );
 }
 
-function optionalOrder(m: TeamclawMessage): bigint | null {
+function optionalOrder(m: TeamcluMessage): bigint | null {
   const maybe = m as unknown as {
     sequence?: bigint | number | string;
     order?: bigint | number | string;
@@ -283,7 +283,7 @@ function compareBigInt(a: bigint, b: bigint): number {
   return 0;
 }
 
-function compareTeamclawMessages(a: TeamclawMessage, b: TeamclawMessage): number {
+function compareTeamcluMessages(a: TeamcluMessage, b: TeamcluMessage): number {
   const aOrder = optionalOrder(a);
   const bOrder = optionalOrder(b);
   if (aOrder !== null && bOrder !== null && aOrder !== bOrder) {
@@ -300,7 +300,7 @@ function compareTeamclawMessages(a: TeamclawMessage, b: TeamclawMessage): number
 }
 
 /** Prefer the first non-empty reply_to on a same-turn group. */
-function firstNonEmptyReplyToMessageId(group: TeamclawMessage[]): string | undefined {
+function firstNonEmptyReplyToMessageId(group: TeamcluMessage[]): string | undefined {
   for (const message of group) {
     const id = message.replyToMessageId?.trim();
     if (id) return id;
@@ -312,7 +312,7 @@ function firstNonEmptyReplyToMessageId(group: TeamclawMessage[]): string | undef
  * messages into one SdkMessage. Thinking → reasoning part. Tool calls →
  * toolCalls[] matched with results by metadata.tool_id. Replies →
  * concatenated content. */
-export function buildFullTurnSdkMessageFromGroup(group: TeamclawMessage[]): SdkMessage {
+export function buildFullTurnSdkMessageFromGroup(group: TeamcluMessage[]): SdkMessage {
   const thinking = group.filter((m) => m.kind === MessageKind.AGENT_THINKING);
   const toolCallProtos = group.filter((m) => m.kind === MessageKind.AGENT_TOOL_CALL);
   const toolResultProtos = group.filter((m) => m.kind === MessageKind.AGENT_TOOL_RESULT);
@@ -383,7 +383,7 @@ export function buildFullTurnSdkMessageFromGroup(group: TeamclawMessage[]): SdkM
 
   // Legacy desktop builds wrote live-cache rows before Supabase generated a
   // different id for the same reply. Collapse those exact same-turn echoes.
-  const uniqueReplies: TeamclawMessage[] = [];
+  const uniqueReplies: TeamcluMessage[] = [];
   const uniqueReplyIds = new Set<string>();
   const replyIndexByKey = new Map<string, number>();
   for (const reply of replies) {
@@ -553,7 +553,7 @@ export function buildFullTurnSdkMessageFromGroup(group: TeamclawMessage[]): SdkM
   };
 }
 
-function countTurnProcessMeta(group: TeamclawMessage[]): {
+function countTurnProcessMeta(group: TeamcluMessage[]): {
   toolCount: number;
   hasThinking: boolean;
 } {
@@ -565,7 +565,7 @@ function countTurnProcessMeta(group: TeamclawMessage[]): {
 }
 
 /** True when the turn is finished and safe to defer heavy process hydration. */
-function isTurnCompleteForProcessDefer(group: TeamclawMessage[]): boolean {
+function isTurnCompleteForProcessDefer(group: TeamcluMessage[]): boolean {
   const replies = group.filter((m) => m.kind === MessageKind.AGENT_REPLY);
   if (replies.some((r) => partsJson(r).trim())) return true;
 
@@ -586,7 +586,7 @@ function isTurnCompleteForProcessDefer(group: TeamclawMessage[]): boolean {
   return replies.some((r) => displayContentForReply(r).trim().length > 0);
 }
 
-function shouldDeferProcessParts(group: TeamclawMessage[]): boolean {
+function shouldDeferProcessParts(group: TeamcluMessage[]): boolean {
   const meta = countTurnProcessMeta(group);
   if (meta.toolCount === 0 && !meta.hasThinking) return false;
   if (!isTurnCompleteForProcessDefer(group)) return false;
@@ -599,9 +599,9 @@ function shouldDeferProcessParts(group: TeamclawMessage[]): boolean {
   return true;
 }
 
-function extractFinalTextPartsForDeferredTurn(group: TeamclawMessage[]): MessagePart[] {
+function extractFinalTextPartsForDeferredTurn(group: TeamcluMessage[]): MessagePart[] {
   const replies = group.filter((m) => m.kind === MessageKind.AGENT_REPLY);
-  const uniqueReplies: TeamclawMessage[] = [];
+  const uniqueReplies: TeamcluMessage[] = [];
   const uniqueReplyIds = new Set<string>();
   const replyIndexByKey = new Map<string, number>();
   for (const reply of replies) {
@@ -661,9 +661,9 @@ function extractFinalTextPartsForDeferredTurn(group: TeamclawMessage[]): Message
 }
 
 /** Fast path: final reply text only; process parts hydrate on expand. */
-function buildDeferredProcessTurnSdkMessage(group: TeamclawMessage[]): SdkMessage {
+function buildDeferredProcessTurnSdkMessage(group: TeamcluMessage[]): SdkMessage {
   const replies = group.filter((m) => m.kind === MessageKind.AGENT_REPLY);
-  const uniqueReplies: TeamclawMessage[] = [];
+  const uniqueReplies: TeamcluMessage[] = [];
   const replyIndexByKey = new Map<string, number>();
   for (const reply of replies) {
     const key = `${reply.content}\u0000${reply.model}`;
@@ -731,7 +731,7 @@ type BuildTurnSdkMessageOptions = {
 };
 
 function buildTurnSdkMessage(
-  group: TeamclawMessage[],
+  group: TeamcluMessage[],
   opts?: BuildTurnSdkMessageOptions,
 ): SdkMessage {
   if (!opts?.forceFull && shouldDeferProcessParts(group)) {
@@ -740,20 +740,20 @@ function buildTurnSdkMessage(
   return buildFullTurnSdkMessageFromGroup(group);
 }
 
-function groupByTurn(msgs: TeamclawMessage[], opts?: BuildTurnSdkMessageOptions): SdkMessage[] {
+function groupByTurn(msgs: TeamcluMessage[], opts?: BuildTurnSdkMessageOptions): SdkMessage[] {
   const out: SdkMessage[] = [];
   let i = 0;
   while (i < msgs.length) {
     const m = msgs[i];
     // Pass-through if no turnId (legacy / non-agent / user / system).
     if (!m.turnId || kindToRole(m.kind) !== "assistant") {
-      out.push(adaptTeamclawMessageToSdk(m));
+      out.push(adaptTeamcluMessageToSdk(m));
       i++;
       continue;
     }
     const turnId = m.turnId;
     const senderId = m.senderActorId;
-    const group: TeamclawMessage[] = [];
+    const group: TeamcluMessage[] = [];
     while (
       i < msgs.length &&
       msgs[i].turnId === turnId &&
@@ -767,18 +767,18 @@ function groupByTurn(msgs: TeamclawMessage[], opts?: BuildTurnSdkMessageOptions)
   return out;
 }
 
-export type AdaptTeamclawMessagesOptions = {
+export type AdaptTeamcluMessagesOptions = {
   /** Include full process parts/toolCalls (export, tests). Default defers for UI. */
   forceFull?: boolean;
 };
 
-export function adaptTeamclawMessages(
-  msgs: TeamclawMessage[] | undefined,
-  opts?: AdaptTeamclawMessagesOptions,
+export function adaptTeamcluMessages(
+  msgs: TeamcluMessage[] | undefined,
+  opts?: AdaptTeamcluMessagesOptions,
 ): SdkMessage[] | undefined {
   if (!msgs) return undefined;
   // Sort defensively — caller should already merge in createdAt order,
   // but local cache + supabase merge can interleave at the same epoch.
-  const sorted = [...msgs].sort(compareTeamclawMessages);
+  const sorted = [...msgs].sort(compareTeamcluMessages);
   return groupByTurn(sorted, { forceFull: opts?.forceFull });
 }

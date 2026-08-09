@@ -1,6 +1,6 @@
 import * as React from 'react'
 import { useTranslation } from 'react-i18next'
-import * as Sentry from '@sentry/react'
+import { loadSentry } from '@/lib/telemetry/capture'
 import { toast } from 'sonner'
 import { ImagePlus, X, Loader2 } from 'lucide-react'
 import {
@@ -115,6 +115,7 @@ export function FeedbackDialog({ open, onOpenChange }: FeedbackDialogProps) {
         }),
       )
 
+      const Sentry = await loadSentry()
       Sentry.captureFeedback(
         {
           message: message.trim(),

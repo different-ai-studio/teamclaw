@@ -42,6 +42,7 @@ type UnifiedEntry =
 function isTeamSecretMissingError(message: string): boolean {
   return (
     message.includes('not initialized') ||
+    message.includes('Missing team encryption key') ||
     message.includes('No team configured') ||
     message.includes('derived_key not set')
   )
@@ -254,7 +255,7 @@ function EnvVarDialog({ open, onOpenChange, editingEntry, teamSecretMissing, onS
             <div className="flex items-start gap-2 rounded-[10px] border border-amber-300/70 bg-amber-50 px-3 py-2 text-xs text-amber-900 dark:border-amber-800 dark:bg-amber-950/30 dark:text-amber-100">
               <TriangleAlert className="mt-0.5 h-4 w-4 shrink-0 text-amber-600 dark:text-amber-400" />
               <span>
-                {t('settings.envVars.localSecretMissingWrite', '本地密钥缺失，未同步：本机缺少团队密钥，此变量无法加密并同步给团队。请先在 Team Shared 设置中填写正确的团队密钥。')}
+                {t('settings.envVars.localSecretMissingWrite', '本地密钥缺失，未同步：本机缺少团队密钥，此变量无法加密并同步给团队。请先在设置 → Daemon → 通用中填写正确的团队加密密钥。')}
               </span>
             </div>
           )}
@@ -421,7 +422,7 @@ function EnvVarRow({ entry, canDelete, injectionStatus, onEdit, onDelete }: EnvV
               className="inline-flex items-center gap-1 text-xs text-amber-700 dark:text-amber-300 bg-amber-50 dark:bg-amber-950/40 px-1.5 py-0.5 rounded"
               title={entry.keyMismatch
                 ? t('settings.envVars.keyMismatchHint', '此变量是用另一个（已轮换/更早的）团队密钥加密的，本机当前密钥解不开。需由持有明文的成员重新保存该变量。')
-                : t('settings.envVars.notDecryptedHint', '本机缺少团队密钥，无法解密此变量。请在 Team Shared 设置中填写正确的团队密钥。')}
+                : t('settings.envVars.notDecryptedHint', '本机缺少团队密钥，无法解密此变量。请在设置 → Daemon → 通用中填写正确的团队加密密钥。')}
             >
               <TriangleAlert className="h-3 w-3" />
               {entry.keyMismatch
@@ -526,8 +527,12 @@ interface TeamEnvDiagnostics {
   linkIsSymlink: boolean
   linkTarget: string | null
   targetAccessible: boolean
+  /** Daemon cloud cache `~/.amuxd/teams/<id>/cloud/_secrets`. */
   secretsDirExists: boolean
   secretFileCount: number
+  cloudSecretsDir?: string
+  legacySecretsDirExists?: boolean
+  legacySecretFileCount?: number
   secretConfigured: boolean
 }
 
@@ -628,18 +633,25 @@ function TeamEnvDiagnosticsCard({
                   : t('settings.envVars.diag.secretMissingShort', '未配置')}
                 hint={
                   !diag.secretConfigured
-                    ? t('settings.envVars.diag.secretMissing', '本机没有团队密钥，无法加密/解密团队变量。请在 Team Shared 设置中填写正确的团队密钥。')
+                    ? t('settings.envVars.diag.secretMissing', '本机没有团队密钥，无法加密/解密团队变量。请在设置 → Daemon → 通用中填写正确的团队加密密钥。')
                     : undefined
                 }
               />
-              {/* Encrypted files present */}
+              {/* Encrypted files in daemon cloud cache */}
               <DiagRow
-                ok={diag.secretFileCount > 0}
-                label={t('settings.envVars.diag.files', '加密文件')}
-                value={t('settings.envVars.diag.filesCount', '{{count}} 个 (_secrets/*.enc.json)', { count: diag.secretFileCount })}
+                ok={diag.secretsDirExists}
+                label={t('settings.envVars.diag.files', '云端缓存')}
+                value={t(
+                  'settings.envVars.diag.filesCount',
+                  '{{count}} 个 (cloud/_secrets/*.enc.json)',
+                  { count: diag.secretFileCount },
+                )}
                 hint={
-                  diag.secretFileCount === 0
-                    ? t('settings.envVars.diag.filesMissing', '团队目录下没有加密的团队变量文件，可能尚未从远端同步下来（daemon 未拉取），或团队还没有人设置过团队变量。')
+                  !diag.secretsDirExists
+                    ? t(
+                        'settings.envVars.diag.filesMissing',
+                        'daemon 尚未拉取团队 env 云缓存（写完后应立即 reconcile；否则最长约 5 分钟）。若团队还没有人设置过变量，首次写入后也会创建该目录。',
+                      )
                     : undefined
                 }
               />
@@ -650,7 +662,7 @@ function TeamEnvDiagnosticsCard({
                   {t('settings.envVars.diag.otherTitle', '其他可能的异常原因')}
                 </p>
                 <ul className="list-disc pl-4 text-xs text-muted-foreground space-y-0.5">
-                  <li>{t('settings.envVars.diag.other1', 'daemon 未运行或未完成一次同步，加密文件还没拉取到本机。')}</li>
+                  <li>{t('settings.envVars.diag.other1', 'daemon 未运行，或写完后未能触发 cloud-config reconcile，缓存尚未更新。')}</li>
                   <li>{t('settings.envVars.diag.other2', '本机团队密钥与加密时用的密钥不一致（成员看到「未解密」标记）。')}</li>
                   <li>{t('settings.envVars.diag.other3', '团队变量只在新建 Agent 会话时注入，改动后需要重启会话才生效。')}</li>
                   <li>{t('settings.envVars.diag.other4', '变量名不合法（团队变量仅支持小写字母、数字、下划线，最长 64 字符）。')}</li>
@@ -798,7 +810,7 @@ function PersonalEnvActivationDiagnosticsCard({
                 hint={
                   !storeOk
                     ? personal.blobError
-                      ?? t('settings.envVars.diag.personalStoreMissing', '个人变量未能从 ~/.teamclaw/secrets 读取；Agent 将看不到这些值。')
+                      ?? t('settings.envVars.diag.personalStoreMissing', '个人变量未能从 ~/.teamclu/secrets 读取；Agent 将看不到这些值。')
                     : undefined
                 }
               />
@@ -846,7 +858,7 @@ function PersonalEnvActivationDiagnosticsCard({
                   personal.hostShadowedKeys.length > 0
                     ? t(
                         'settings.envVars.diag.hostShadowHint',
-                        'amuxd 启动 opencode serve 时，若 shell 已设置同名变量，会优先使用 shell 的值。请 unset 后重启 amuxd，或在 TeamClaw 中改用不同 key。',
+                        'amuxd 启动 opencode serve 时，若 shell 已设置同名变量，会优先使用 shell 的值。请 unset 后重启 amuxd，或在 TeamClu 中改用不同 key。',
                       )
                     : undefined
                 }
@@ -1033,7 +1045,7 @@ function PersonalEnvActivationDiagnosticsCard({
                       value={hostEnvShadowedKeys.join(', ')}
                       hint={t(
                         'settings.envVars.diag.daemonHostShadowHint',
-                        '以上 key 在 amuxd 进程环境中已存在，opencode serve 不会注入 TeamClaw 个人变量。',
+                        '以上 key 在 amuxd 进程环境中已存在，opencode serve 不会注入 TeamClu 个人变量。',
                       )}
                     />
                   )}
@@ -1143,7 +1155,7 @@ export const EnvVarsSection = React.memo(function EnvVarsSection() {
     }
   }, [loadEnvCatalog, loadCurrentNodeId, workspacePath, t])
 
-  // Files under teamclaw-team/_secrets may exist while this daemon lacks the
+  // Files under teamclu-team/_secrets may exist while this daemon lacks the
   // team key needed to decrypt them. Ask the daemon rather than inferring from
   // the file list; the response deliberately contains no secret material.
   React.useEffect(() => {
@@ -1367,7 +1379,7 @@ export const EnvVarsSection = React.memo(function EnvVarsSection() {
               {t('settings.envVars.teamUnavailableTitle', 'Team variables are not available to this agent')}
             </p>
             <p className="mt-0.5 text-amber-800 dark:text-amber-200">
-              {t('settings.envVars.teamUnavailableBody', 'The local daemon does not have the team secret required to decrypt shared variables. Set the correct Team Secret in Team Shared settings, then start a new agent session.')}
+              {t('settings.envVars.teamUnavailableBody', '本机 daemon 没有解密团队变量所需的团队密钥。请在设置 → Daemon → 通用中填写正确的团队加密密钥，然后新建一个 Agent 会话。')}
             </p>
           </div>
         </div>

@@ -1,6 +1,6 @@
 import AsyncStorage from "@react-native-async-storage/async-storage";
 
-const STORAGE_KEY = "teamclaw.pendingInviteToken.v1";
+const STORAGE_KEY = "teamclu.pendingInviteToken.v1";
 
 /**
  * Single-slot persistence for an invite token that arrived before the user

@@ -11,13 +11,33 @@ import {
   Loader2,
   Check,
   ArrowUpCircle,
+  Plus,
+  AlertTriangle,
+  FilePlus,
+  FolderPlus,
 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from '@/components/ui/dropdown-menu'
+import { useWorkspaceStore } from '@/stores/workspace'
+import {
+  createNewFile,
+  createNewFolder,
+} from '@/components/workspace/file-tree-operations'
 import { cn } from '@/lib/utils'
 import { SidebarCollapseToggle } from '@/components/app-sidebar'
 import { TrafficLights } from '@/components/ui/traffic-lights'
 import { useSidebar } from '@/components/ui/sidebar'
 import { useEnvVarsStore } from '@/stores/env-vars'
+import { FileBrowser } from '@/components/workspace/FileBrowser'
+import {
+  KnowledgeEnablePanel,
+  useKnowledgeNeedsEnabling,
+} from '@/components/teamshare/KnowledgeEnablePanel'
 import {
   useTeamShareBrowserStore,
   type TeamShareSection,
@@ -146,11 +166,21 @@ export function TeamShareListColumn({ section }: { section: TeamShareSection }) 
   const selected = useTeamShareBrowserStore((s) => s.selectedId[section])
   const select = useTeamShareBrowserStore((s) => s.select)
   const loadSection = useTeamShareBrowserStore((s) => s.loadSection)
+  const setCreating = useTeamShareBrowserStore((s) => s.setCreating)
 
   const skills = useTeamShareBrowserStore((s) => s.skills)
   const mcp = useTeamShareBrowserStore((s) => s.mcp)
   const knowledge = useTeamShareBrowserStore((s) => s.knowledge)
   const teamSecrets = useEnvVarsStore((s) => s.teamSecrets)
+  const knowledgeRoot = useTeamShareBrowserStore((s) => s.knowledgeRoot)
+  const personalEnv = useEnvVarsStore((s) => s.envVars)
+
+  // Only meaningful for the knowledge section, but hooks cannot be conditional.
+  const needsEnabling = useKnowledgeNeedsEnabling()
+  // Inline "name this thing" row at the top of the knowledge tree.
+  const [rootCreating, setRootCreating] = React.useState<'file' | 'folder' | null>(null)
+  const refreshFileTree = useWorkspaceStore((s) => s.refreshFileTree)
+  const selectFile = useWorkspaceStore((s) => s.selectFile)
 
   const [query, setQuery] = React.useState('')
   const [searchOpen, setSearchOpen] = React.useState(false)
@@ -177,7 +207,7 @@ export function TeamShareListColumn({ section }: { section: TeamShareSection }) 
         ? mcp.items.length
         : section === 'knowledge'
           ? knowledge.items.length
-          : teamSecrets.length
+          : teamSecrets.length + personalEnv.length
 
   const q = query.trim().toLowerCase()
 
@@ -263,6 +293,21 @@ export function TeamShareListColumn({ section }: { section: TeamShareSection }) 
       return mcp.items
         .filter((m) => !q || m.name.toLowerCase().includes(q))
         .map((m) => {
+          // An uninstalled server isn't wired up, so probe state is meaningless
+          // for it — show what it is instead of a misleading "Idle".
+          if (!m.installed) {
+            return {
+              id: m.name,
+              icon: Plug,
+              iconTint: 'bg-muted text-muted-foreground',
+              title: m.name,
+              subtitle:
+                m.catalog?.description ||
+                t('teamShare.mcpNotInstalledSubtitle', 'Available — install to run it here'),
+              statusDot: 'idle' as const,
+              dimmed: true,
+            }
+          }
           const statusDot: 'ready' | 'failed' | 'idle' =
             m.probeStatus === 'ready' ? 'ready' : m.probeStatus === 'failed' ? 'failed' : 'idle'
           const statusLabel =
@@ -278,6 +323,12 @@ export function TeamShareListColumn({ section }: { section: TeamShareSection }) 
             title: m.name,
             subtitle: `${statusLabel} · ${t('teamShare.mcpDetail.toolCount', '{{count}} tools', { count: m.tools.length })}`,
             statusDot,
+            trailing: (
+              <Check
+                className="h-[15px] w-[15px] text-muted-foreground"
+                aria-label={t('teamShare.mcpInstalled', 'Installed')}
+              />
+            ),
           }
         })
     }
@@ -296,28 +347,90 @@ export function TeamShareListColumn({ section }: { section: TeamShareSection }) 
         })
     }
     if (section === 'env') {
-      return teamSecrets
+      // Ids carry their scope. A personal key and a team key can share a name,
+      // and the detail pane has to know which one it was handed.
+      const team = teamSecrets
         .filter((e) => !q || e.keyId.toLowerCase().includes(q))
+        .map((e) => {
+          // decrypted === false means the value is there but this machine's team
+          // key will not open it. Showing it as an ordinary row would be a lie.
+          const undecryptable = e.decrypted === false
+          return {
+            id: `team:${e.keyId}`,
+            icon: undecryptable ? AlertTriangle : e.category === 'config' ? Box : Lock,
+            iconTint: undecryptable
+              ? 'bg-amber-500/10 text-amber-600'
+              : 'bg-muted text-muted-foreground',
+            title: e.keyId,
+            titleMono: true,
+            subtitle: undecryptable
+              ? e.keyMismatch
+                ? t('teamShare.envDetail.keyMismatch', 'Team key does not match — cannot decrypt')
+                : t('teamShare.envDetail.noLocalKey', 'No team key on this machine — cannot decrypt')
+              : e.description || e.category || t('teamShare.envDetail.secret', 'Secret'),
+            badge: undecryptable ? (
+              <span className="shrink-0 rounded bg-amber-500/10 px-1.5 py-0.5 text-[9.5px] font-semibold uppercase tracking-wide text-amber-600">
+                {t('teamShare.envDetail.locked', 'Locked')}
+              </span>
+            ) : undefined,
+          }
+        })
+      const personal = personalEnv
+        .filter((e) => !q || e.key.toLowerCase().includes(q))
         .map((e) => ({
-          id: e.keyId,
-          icon: e.category === 'config' ? Box : Lock,
+          id: `personal:${e.key}`,
+          icon: Lock,
           iconTint: 'bg-muted text-muted-foreground',
-          title: e.keyId,
+          title: e.key,
           titleMono: true,
-          subtitle: e.category || t('teamShare.envDetail.secret', 'Secret'),
+          subtitle: e.description || t('teamShare.envDetail.personalHint', 'Stays on this machine'),
         }))
+      return [...team, ...personal]
     }
     return []
-  }, [section, q, mcp.items, knowledge.items, teamSecrets, t])
+  }, [section, q, mcp.items, knowledge.items, teamSecrets, personalEnv, t])
 
   const installedCount = React.useMemo(
     () => skills.items.filter((s) => s.kind === 'team-installed').length,
     [skills.items],
   )
+  /** Team and personal are different trust boundaries, so they get their own groups. */
+  const envGroups = React.useMemo(() => {
+    if (section !== 'env') return null
+    const rows = otherRows as Array<{ id: string }>
+    const team = rows.filter((r) => r.id.startsWith('team:'))
+    const personal = rows.filter((r) => r.id.startsWith('personal:'))
+    return [
+      { key: 'team' as const, label: t('teamShare.scope.team', 'Team'), rows: team },
+      { key: 'personal' as const, label: t('teamShare.scope.personal', 'Personal'), rows: personal },
+    ].filter((g) => g.rows.length > 0 || !q)
+  }, [section, otherRows, t, q])
+
+  const mcpInstalledCount = React.useMemo(
+    () => mcp.items.filter((m) => m.installed).length,
+    [mcp.items],
+  )
   const registryCount = React.useMemo(
     () => skills.items.filter((s) => s.kind !== 'personal').length,
     [skills.items],
   )
+
+  // Creating at the root of the shared tree. FileTree's own create flow hangs
+  // off a node's context menu, which an empty tree has none of — this is the
+  // only way in when the team has no documents yet.
+  async function handleRootCreate(name: string) {
+    const trimmed = name.trim()
+    setRootCreating(null)
+    if (!trimmed || !knowledgeRoot) return
+    const ok =
+      rootCreating === 'folder'
+        ? await createNewFolder(knowledgeRoot, trimmed)
+        : await createNewFile(knowledgeRoot, trimmed)
+    if (!ok) return
+    await refreshFileTree()
+    void loadSection('knowledge', { force: true })
+    if (rootCreating !== 'folder') selectFile(`${knowledgeRoot}/${trimmed}`)
+  }
 
   return (
     <div className="flex h-full min-w-0 flex-col border-r border-border bg-background">
@@ -335,11 +448,56 @@ export function TeamShareListColumn({ section }: { section: TeamShareSection }) 
             <span className="font-mono text-[11px] font-normal text-faint">
               {' '}
               ·{' '}
-              {section === 'skills' ? `${installedCount}/${registryCount}` : count}
+              {section === 'skills'
+              ? `${installedCount}/${registryCount}`
+              : section === 'mcp'
+                ? `${mcpInstalledCount}/${mcp.items.length}`
+                : count}
             </span>
           </div>
         </div>
         <div className="flex shrink-0 items-center gap-0.5">
+          {section === 'knowledge' && !needsEnabling && knowledgeRoot && (
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="icon"
+                  className="h-7 w-7 text-muted-foreground hover:text-foreground"
+                  title={t('teamShare.knowledgeAdd', 'New document or folder')}
+                >
+                  <Plus className="h-4 w-4" />
+                </Button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="end" className="w-44">
+                <DropdownMenuItem onSelect={() => setRootCreating('file')}>
+                  <FilePlus className="mr-2 h-3.5 w-3.5" />
+                  {t('teamShare.knowledgeNewFile', 'New document')}
+                </DropdownMenuItem>
+                <DropdownMenuItem onSelect={() => setRootCreating('folder')}>
+                  <FolderPlus className="mr-2 h-3.5 w-3.5" />
+                  {t('teamShare.knowledgeNewFolder', 'New folder')}
+                </DropdownMenuItem>
+              </DropdownMenuContent>
+            </DropdownMenu>
+          )}
+          {(section === 'mcp' || section === 'env') && (
+            <Button
+              type="button"
+              variant="ghost"
+              size="icon"
+              className="h-7 w-7 text-muted-foreground hover:text-foreground"
+              onClick={() => setCreating(section)}
+              title={
+                section === 'mcp'
+                  ? t('teamShare.mcpAdd', 'Add MCP server')
+                  : t('teamShare.envAdd', 'Add team env key')
+              }
+            >
+              <Plus className="h-4 w-4" />
+            </Button>
+          )}
           <Button
             type="button"
             variant="ghost"
@@ -407,6 +565,67 @@ export function TeamShareListColumn({ section }: { section: TeamShareSection }) 
               </div>
             ))
           )
+        ) : section === 'knowledge' ? (
+          needsEnabling ? (
+            // Not enabled for this team yet — onboarding belongs here, where
+            // the empty column is the problem it solves.
+            <KnowledgeEnablePanel />
+          ) : knowledgeRoot ? (
+            // The whole shared root, not just knowledge/ — create / rename /
+            // delete / move all come from FileBrowser's existing context menu,
+            // and clicking a file opens it exactly as it does in the workspace.
+            <FileBrowser
+              variant="panel"
+              rootPath={knowledgeRoot}
+              hideGitStatus={false}
+              hideToolbar
+              filterText={query}
+              onFilterTextChange={setQuery}
+              rootCreating={rootCreating}
+              onRootCreateCancel={() => setRootCreating(null)}
+              onRootCreateConfirm={(name) => {
+                void handleRootCreate(name)
+              }}
+            />
+          ) : (
+            <div className="px-6 py-10 text-center text-[13px] text-muted-foreground">
+              {t(
+                'teamShare.knowledgeNoRoot',
+                'Team shared folder is not set up on this machine yet.',
+              )}
+            </div>
+          )
+        ) : envGroups ? (
+          envGroups.every((g) => g.rows.length === 0) ? (
+            <div className="px-6 py-10 text-center text-[13px] text-muted-foreground">
+              {t('teamShare.envEmpty', 'No environment variables yet.')}
+            </div>
+          ) : (
+            envGroups.map((group) => (
+              <div key={group.key}>
+                <GroupHeader label={group.label} count={group.rows.length} />
+                {group.rows.length === 0 ? (
+                  <div className="px-4 pb-2 text-[11.5px] text-faint">
+                    {t('teamShare.skillGroupEmpty', 'None')}
+                  </div>
+                ) : (
+                  (group.rows as typeof otherRows).map((row) => (
+                    <ItemRow
+                      key={row.id}
+                      active={selected === row.id}
+                      icon={row.icon}
+                      iconTint={row.iconTint}
+                      title={row.title}
+                      titleMono={'titleMono' in row ? Boolean(row.titleMono) : false}
+                      subtitle={row.subtitle}
+                      badge={'badge' in row ? (row.badge as React.ReactNode) : undefined}
+                      onClick={() => select(section, row.id)}
+                    />
+                  ))
+                )}
+              </div>
+            ))
+          )
         ) : otherRows.length === 0 ? (
           <div className="px-6 py-10 text-center text-[13px] text-muted-foreground">
             {t('teamShare.empty', 'Nothing shared with the team yet.')}
@@ -426,6 +645,8 @@ export function TeamShareListColumn({ section }: { section: TeamShareSection }) 
                   ? (row.statusDot as 'ready' | 'failed' | 'idle' | undefined)
                   : undefined
               }
+              trailing={'trailing' in row ? (row.trailing as React.ReactNode) : undefined}
+              dimmed={'dimmed' in row ? Boolean(row.dimmed) : false}
               onClick={() => select(section, row.id)}
             />
           ))

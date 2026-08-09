@@ -6,7 +6,7 @@
  *   Bug 2 – Pin state not persisted across show/hide cycles
  *
  * Single-window architecture: there is only one window ("main") that switches
- * between Spotlight mode and Main mode. No separate "TeamClaw Spotlight" window.
+ * between Spotlight mode and Main mode. No separate "TeamClu Spotlight" window.
  *
  * Uses test control server at http://127.0.0.1:13199 for Tauri IPC commands.
  */
@@ -16,7 +16,7 @@ import { execSync } from 'child_process';
 import { join } from 'path';
 import { readFileSync } from 'fs';
 import {
-  launchTeamClawApp,
+  launchTeamCluApp,
   stopApp,
   sleep,
   focusWindow,
@@ -45,7 +45,7 @@ describe('E2E: Spotlight bugs (single-window)', () => {
 
   beforeAll(async () => {
     try {
-      await launchTeamClawApp();
+      await launchTeamCluApp();
       await sleep(8000);
       await focusWindow();
       await sleep(500);

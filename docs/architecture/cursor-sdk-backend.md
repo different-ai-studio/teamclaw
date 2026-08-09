@@ -11,7 +11,7 @@
 |---|---|
 | 走 Cursor SDK，不走 LiteLLM / opencode provider | Composer 不是 OpenAI-compatible raw model API；LiteLLM 无法代理 |
 | Rust daemon + Node sidecar 桥接 | `@cursor/sdk` 是 TypeScript；daemon 是 Rust，与 pi 的「子进程 + JSONL」模式一致 |
-| 第一版只做 **local runtime** | TeamClaw 会话绑定 worktree cwd；cloud VM 需额外 repo 克隆与 PR 流程，延后 |
+| 第一版只做 **local runtime** | TeamClu 会话绑定 worktree cwd；cloud VM 需额外 repo 克隆与 PR 流程，延后 |
 | 与 opencode **并存**，不替换 | 用户可在设置里切换 `agents.local_agent`；团队 LiteLLM 仍服务 opencode/pi |
 | 商业 embedding 需单独授权 | Cursor 官方：SDK 是跑 Agent 的接口，不是可嵌入第三方 SaaS 的 model endpoint；对外售卖前联系 hi@cursor.com |
 
@@ -82,7 +82,7 @@ apps/daemon/cursor-bridge/
   package.json          # @cursor/sdk 依赖 + lock
   src/main.mjs          # JSONL RPC loop
   src/agent-pool.mjs    # worktree → Agent 实例（await using 生命周期）
-  src/mcp-mapper.mjs    # TeamClaw MCP 清单 → SDK inline servers
+  src/mcp-mapper.mjs    # TeamClu MCP 清单 → SDK inline servers
   src/stream-translate.mjs  # run.stream() → bridge 事件行
 ```
 
@@ -132,7 +132,7 @@ const SESSION_ID_PREFIX: &str = "cursor:";
 
 与现有客户端一致：`provider/model`。
 
-| SDK model id | TeamClaw flat id | 说明 |
+| SDK model id | TeamClu flat id | 说明 |
 |---|---|---|
 | `composer-2.5` | `cursor/composer-2.5` | 默认 |
 | `auto` | `cursor/auto` | 服务端选择 |
@@ -165,14 +165,14 @@ const SESSION_ID_PREFIX: &str = "cursor:";
 
 ## 6. MCP / remote-tools / skills
 
-TeamClaw 已在 worktree 物化 MCP 配置（`opencode.json` / daemon workspace API）。
+TeamClu 已在 worktree 物化 MCP 配置（`opencode.json` / daemon workspace API）。
 Cursor 后端**不读 opencode.json 的 provider 段**，只复用 MCP 清单：
 
 1. attach 时 daemon 把 workspace 已启用 MCP 转为 SDK `mcpServers` **record**
    （stdio: `{type,command:string,args,env}`；HTTP: `{type:"http",url,headers}`）
 2. `amuxd-remote-tools` 保留为 stdio server（与 pi extension 桥同等优先级）
 3. **inline MCP 在每次 `resume_agent` / `send` 时重传**（SDK 限制）
-4. `.cursor/skills` / TeamClaw skills：第一版不自动映射；后续评估 SDK
+4. `.cursor/skills` / TeamClu skills：第一版不自动映射；后续评估 SDK
    `settingSources` 或 system prompt 注入
 
 `is_gateway` 会话：daemon 在 hook 回调里直接 allow（对齐 opencode gateway

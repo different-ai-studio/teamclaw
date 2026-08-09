@@ -1,12 +1,12 @@
 /**
- * Functional: Settings Skills with team source (teamclaw-team).
- * Verifies Settings → Skills loads without error when workspace has no teamclaw-team,
+ * Functional: Settings Skills with team source (teamclu-team).
+ * Verifies Settings → Skills loads without error when workspace has no teamclu-team,
  * and that Skills list is visible.
  */
 
 import { describe, it, expect, beforeAll, afterAll } from "vitest"
 import {
-  launchTeamClawApp,
+  launchTeamCluApp,
   stopApp,
   sendKeys,
   sleep,
@@ -20,7 +20,7 @@ describe("Functional: settings Skills (team source)", () => {
 
   beforeAll(async () => {
     try {
-      await launchTeamClawApp()
+      await launchTeamCluApp()
       await sleep(8000)
       await focusWindow()
       await sleep(500)
@@ -34,7 +34,7 @@ describe("Functional: settings Skills (team source)", () => {
     await stopApp()
   }, 30_000)
 
-  it("Settings → Skills loads without error when no teamclaw-team", async () => {
+  it("Settings → Skills loads without error when no teamclu-team", async () => {
     if (!appReady) return
     await sendKeys(",", ["meta"])
     await sleep(2000)

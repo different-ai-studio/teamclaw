@@ -1,7 +1,7 @@
 //! Plan B Task 5 — loopback HTTP client for the daemon's team-sync endpoints.
 //!
 //! The daemon owns team-sync now: it stores team secrets, materializes the
-//! global team directory + per-workspace `teamclaw-team` symlink, runs the
+//! global team directory + per-workspace `teamclu-team` symlink, runs the
 //! actual git/OSS sync, and surfaces conflicts/versions. The desktop only
 //! *delivers* the secrets and *triggers* link/sync over the daemon's local
 //! HTTP server.
@@ -182,6 +182,20 @@ pub async fn daemon_team_sync(
             "forceWipeNonGit": force_wipe_non_git,
             "forceSync": force_sync,
         })),
+    )
+    .await
+}
+
+/// `POST /v1/team/cloud-config/reconcile` — pull team MCP/env into the daemon
+/// cache now. Called after a successful Cloud API env-secret write/delete so
+/// the agent runtime does not wait up to 5 minutes for the background tick.
+pub async fn daemon_team_cloud_reconcile(team_id: &str) -> Result<(), String> {
+    daemon_request_unit(
+        reqwest::Method::POST,
+        "/v1/team/cloud-config/reconcile",
+        "",
+        &["workspace:write"],
+        Some(&serde_json::json!({ "teamId": team_id })),
     )
     .await
 }
@@ -426,7 +440,7 @@ fn local_team_secret_for_redelivery(workspace_path: &str, team_id: &str) -> Opti
             return Some(secret);
         }
     }
-    teamclaw_runtime_env::env_catalog::resolve_team_env_secret(
+    teamclu_runtime_env::env_catalog::resolve_team_env_secret(
         std::path::Path::new(workspace_path),
         Some(team_id),
         Some(crate::commands::APP_SHORT_NAME),
@@ -729,7 +743,7 @@ pub async fn team_shared_git_setup(config: serde_json::Value) -> Result<serde_js
 
 // ─── sync_mode commands (FC-direct; moved verbatim from oss_sync/mod.rs) ──────
 //
-// These toggle the team's FC `sync_mode` and mirror it into local teamclaw.json.
+// These toggle the team's FC `sync_mode` and mirror it into local teamclu.json.
 // They do NOT go through the daemon sync engine, so they keep calling FC
 // directly. Moved here so they survive the Task 8 deletion of oss_sync/mod.rs.
 
@@ -737,7 +751,7 @@ use crate::commands::oss_sync::fc_client::FcClient;
 use crate::commands::oss_sync::get_fc_endpoint;
 
 /// Switch the team's sync_mode on the server (owner-only) and persist the new
-/// mode into local teamclaw.json so the periodic tick dispatches to the correct
+/// mode into local teamclu.json so the periodic tick dispatches to the correct
 /// backend.
 #[tauri::command]
 pub async fn oss_sync_set_team_sync_mode(
@@ -757,7 +771,7 @@ pub async fn oss_sync_set_team_sync_mode(
         .map_err(|e| e.to_string())?;
 
     // The team share mode is owned by the cloud; we no longer mirror it into
-    // local teamclaw.json (legacy `team_mode`).
+    // local teamclu.json (legacy `team_mode`).
     Ok(returned_mode)
 }
 

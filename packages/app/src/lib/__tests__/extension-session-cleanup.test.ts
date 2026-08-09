@@ -181,7 +181,7 @@ describe('extension-session-cleanup', () => {
 
   it('respects the minimum gap between sweeps per user and team', async () => {
     localStorage.setItem(
-      'teamclaw.extension.sessionCleanupLastRun.user-1.team-1',
+      'teamclu.extension.sessionCleanupLastRun.user-1.team-1',
       String(now.getTime()),
     )
 
@@ -201,7 +201,7 @@ describe('extension-session-cleanup', () => {
     const result = await runExtensionSessionCleanup({ now, force: true, userId: 'user-1', teamId: 'team-1' })
 
     expect(result).toEqual({ archived: 0, scanned: 1 })
-    expect(localStorage.getItem('teamclaw.extension.sessionCleanupLastRun.user-1.team-1')).toBeNull()
+    expect(localStorage.getItem('teamclu.extension.sessionCleanupLastRun.user-1.team-1')).toBeNull()
   })
 
   it('writes lastRun only after a fully successful sweep', async () => {
@@ -212,7 +212,7 @@ describe('extension-session-cleanup', () => {
 
     await runExtensionSessionCleanup({ now, force: true, userId: 'user-1', teamId: 'team-1' })
 
-    expect(localStorage.getItem('teamclaw.extension.sessionCleanupLastRun.user-1.team-1')).toBe(
+    expect(localStorage.getItem('teamclu.extension.sessionCleanupLastRun.user-1.team-1')).toBe(
       String(now.getTime()),
     )
   })

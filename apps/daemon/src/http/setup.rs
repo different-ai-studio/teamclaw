@@ -79,7 +79,7 @@ pub async fn setup_status(State(state): State<HttpState>) -> Json<SetupStatusRes
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ClaimRequest {
-    /// A `teamclaw://invite?token=…` URL. Must be an **Agent** invite; member
+    /// A `teamclu://invite?token=…` URL. Must be an **Agent** invite; member
     /// invites are rejected by the Cloud API with a targeted hint.
     pub invite_url: String,
 }
@@ -95,7 +95,7 @@ pub struct ClaimResponse {
     /// Credentials are live immediately and MQTT converges on its own (the
     /// run loop re-reads `daemon.toml` for team_id/actor.id and re-fetches the
     /// broker). But consumers that captured the placeholder identity at
-    /// startup — `teamclaw::SessionManager` — cannot be re-keyed in place, so
+    /// startup — `teamclu::SessionManager` — cannot be re-keyed in place, so
     /// collab stays wrong until a restart. Reported honestly rather than
     /// papered over.
     pub requires_restart: bool,
@@ -220,7 +220,7 @@ mod tests {
             RootAuth,
             State(state),
             Json(ClaimRequest {
-                invite_url: "teamclaw://invite?token=tok".into(),
+                invite_url: "teamclu://invite?token=tok".into(),
             }),
         )
         .await
@@ -240,7 +240,7 @@ mod tests {
             RootAuth,
             State(state),
             Json(ClaimRequest {
-                invite_url: "teamclaw://invite?token=tok".into(),
+                invite_url: "teamclu://invite?token=tok".into(),
             }),
         )
         .await
@@ -255,7 +255,7 @@ mod tests {
             RootAuth,
             State(state_with(None)),
             Json(ClaimRequest {
-                invite_url: "teamclaw://invite?token=tok".into(),
+                invite_url: "teamclu://invite?token=tok".into(),
             }),
         )
         .await

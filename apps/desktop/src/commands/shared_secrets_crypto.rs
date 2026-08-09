@@ -1,13 +1,13 @@
 //! Crypto utilities for shared secrets (KMS).
 //!
-//! Thin adapter over [`teamclaw_runtime_env::team_crypto`], which is the single
+//! Thin adapter over [`teamclu_runtime_env::team_crypto`], which is the single
 //! definition of the team secret wire format shared with the daemon. This layer
 //! exists only to keep the `Result<_, String>` convention the Tauri command
 //! surface expects; it must not add or alter any crypto behaviour.
 
-pub use teamclaw_runtime_env::team_crypto::{EncryptedEnvelope, SecretEntry, SecretMeta};
+pub use teamclu_runtime_env::team_crypto::{EncryptedEnvelope, SecretEntry, SecretMeta};
 
-use teamclaw_runtime_env::team_crypto;
+use teamclu_runtime_env::team_crypto;
 
 /// Derive a 32-byte AES-256-GCM key from a hex-encoded 32-byte team secret
 /// using HKDF-SHA256 (RFC 5869).
@@ -36,7 +36,7 @@ pub fn decrypt_secret(
 mod tests {
     use super::*;
 
-    /// The crypto itself is covered in `teamclaw_runtime_env::team_crypto`.
+    /// The crypto itself is covered in `teamclu_runtime_env::team_crypto`.
     /// What matters here is only that this adapter preserves the error
     /// convention and does not leak the secret into the message.
     #[test]

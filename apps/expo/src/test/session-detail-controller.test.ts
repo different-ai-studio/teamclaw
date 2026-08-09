@@ -4,13 +4,13 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   AcpEventSchema,
   EnvelopeSchema as AmuxEnvelopeSchema,
-} from "@teamclaw/app/proto/amux_pb";
+} from "@teamclu/app/proto/amux_pb";
 import {
   LiveEventEnvelopeSchema,
   MessageKind,
   MessageSchema,
   SessionMessageEnvelopeSchema,
-} from "@teamclaw/app/proto/teamclaw_pb";
+} from "@teamclu/app/proto/teamclu_pb";
 import type { SessionMessage, SessionSummary } from "../features/sessions/session-types";
 
 function createSession(): SessionSummary {

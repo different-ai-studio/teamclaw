@@ -19,7 +19,7 @@
 //! without a coordinated schema bump.
 
 use crate::proto::amux;
-use crate::proto::teamclaw::MessageKind;
+use crate::proto::teamclu::MessageKind;
 
 /// Durable AGENT_REPLY body when the user aborts a turn.
 ///

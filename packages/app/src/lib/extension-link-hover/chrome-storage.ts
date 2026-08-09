@@ -39,8 +39,8 @@ function readChromeStorage(): ChromeStorage | undefined {
  */
 export function getBakedLinkHoverConfig(): LinkHoverConfig {
   const fromDefine =
-    typeof __TEAMCLAW_EXTENSION_SETTINGS__ !== 'undefined'
-      ? __TEAMCLAW_EXTENSION_SETTINGS__
+    typeof __TEAMCLU_EXTENSION_SETTINGS__ !== 'undefined'
+      ? __TEAMCLU_EXTENSION_SETTINGS__
       : undefined
   if (fromDefine !== undefined) {
     return parseLinkHoverConfig(parseExtensionSettingsBake(fromDefine).linkHover)

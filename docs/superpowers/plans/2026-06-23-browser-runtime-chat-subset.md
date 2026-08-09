@@ -1,8 +1,8 @@
-# 子工程 1：@teamclaw/app 浏览器运行时（聊天子集）实现计划
+# 子工程 1：@teamclu/app 浏览器运行时（聊天子集）实现计划
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** 让 `@teamclaw/app` 的多人聊天子集在纯浏览器（无 Tauri）里跑起来，只走 Cloud API(fetch) + MQTT over WebSocket，作为后续 Chrome 扩展 side panel 的承载。
+**Goal:** 让 `@teamclu/app` 的多人聊天子集在纯浏览器（无 Tauri）里跑起来，只走 Cloud API(fetch) + MQTT over WebSocket，作为后续 Chrome 扩展 side panel 的承载。
 
 **Architecture:** 把 `packages/app/src/lib/mqtt-bridge.ts` 这个被 16+ 文件共用的单一 seam 改为按 `isTauri()` 平台分流——Tauri 路径原样保留，浏览器路径用新增的 `mqtt` npm(ws) 适配器（移植自 `apps/expo/src/lib/mqtt/expo-mqtt.ts` 的 JS client 路径），导出签名完全不变故所有消费方零改动。再加一个 URL query 触发的 embed 精简渲染模式，以及一个非 Tauri 的 Vite web 构建/dev 模式。
 
@@ -524,7 +524,7 @@ Expected: 全部 PASS
 
 - [ ] **Step 7: 消费方零改动回归**
 
-Run: `cd packages/app && pnpm vitest run src/stores/__tests__/session-daemon-send.test.ts src/stores/__tests__/actor-presence-store.test.ts src/lib/__tests__/teamclaw-rpc.test.ts src/services/__tests__/outbox-sender.test.ts src/lib/session-live-subscriptions.test.ts`
+Run: `cd packages/app && pnpm vitest run src/stores/__tests__/session-daemon-send.test.ts src/stores/__tests__/actor-presence-store.test.ts src/lib/__tests__/teamclu-rpc.test.ts src/services/__tests__/outbox-sender.test.ts src/lib/session-live-subscriptions.test.ts`
 Expected: 全部 PASS（证明 16+ 消费方不受 seam 重构影响）
 
 - [ ] **Step 8: Commit**
@@ -672,7 +672,7 @@ git commit -m "feat(app): embed=chat query mode renders minimal session+chat lay
 - Modify: `packages/app/src/main.tsx`（确认所有 Tauri 调用都 try-catch / `isTauri()` 守卫）
 
 **Interfaces:**
-- Produces: `pnpm --filter @teamclaw/app dev:web` 跑出可在普通浏览器打开的 SPA；`build:web` 产出 `dist/`。
+- Produces: `pnpm --filter @teamclu/app dev:web` 跑出可在普通浏览器打开的 SPA；`build:web` 产出 `dist/`。
 
 - [ ] **Step 1: 加 web 环境配置**
 

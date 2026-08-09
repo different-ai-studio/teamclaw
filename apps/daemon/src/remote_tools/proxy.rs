@@ -6,10 +6,10 @@ use tokio::sync::Mutex;
 use tokio::time::timeout;
 use tracing::warn;
 
-use crate::proto::teamclaw::{
+use crate::proto::teamclu::{
     rpc_request, rpc_response, RemoteToolInvokeRequest, RemoteToolInvokeResult, RpcRequest,
 };
-use crate::teamclaw::rpc::RpcClient;
+use crate::teamclu::rpc::RpcClient;
 
 use super::registry::{is_daemon_local_tool, is_known_tool, DEFAULT_TIMEOUT_MS};
 use super::session_target::SessionRemoteTargetStore;
@@ -205,7 +205,7 @@ pub(crate) fn sock_err(code: &str, message: &str) -> Value {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use teamclaw_transport::MessagePublisher;
+    use teamclu_transport::MessagePublisher;
 
     #[test]
     fn resolve_member_target_returns_latest_runtime_start_actor() {

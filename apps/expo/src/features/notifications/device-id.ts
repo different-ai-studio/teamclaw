@@ -2,7 +2,7 @@ import AsyncStorage from "@react-native-async-storage/async-storage";
 
 import { uuidV4 } from "../../lib/uuid";
 
-const STORAGE_KEY = "teamclaw.expoDeviceId.v1";
+const STORAGE_KEY = "teamclu.expoDeviceId.v1";
 
 type DeviceIdStorage = {
   getItem: (key: string) => Promise<string | null>;

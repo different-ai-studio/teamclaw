@@ -15,13 +15,13 @@ test("two-way: A writes a.md, B writes b.md -> both have both, no conflicts", { 
   const { nodes, teamId } = ctx;
   const root = contentRootPath(teamId);
 
-  await writeFile("node-a", `${root}/skills/a.md`, Buffer.from("A-content\n"));
-  await writeFile("node-b", `${root}/skills/b.md`, Buffer.from("B-content\n"));
+  await writeFile("node-a", `${root}/knowledge/a.md`, Buffer.from("A-content\n"));
+  await writeFile("node-b", `${root}/knowledge/b.md`, Buffer.from("B-content\n"));
 
   // Interleave syncs until both nodes hold both files (eventual consistency:
   // re-syncing also retries any upload that hit a transient FC error).
   let treeA = {}, treeB = {};
-  const has = (t) => t["skills/a.md"] && t["skills/b.md"];
+  const has = (t) => t["knowledge/a.md"] && t["knowledge/b.md"];
   // Transient prod errors are retried inside sync(); don't hard-fail the loop on a
   // lingering transient lastError — just keep going until both nodes converge.
   for (let i = 0; i < 10; i++) {

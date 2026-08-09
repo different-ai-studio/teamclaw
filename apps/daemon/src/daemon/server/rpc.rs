@@ -8,7 +8,7 @@ impl DaemonServer {
     /// delegates session/idea methods to SessionManager, and handles non-session
     /// methods locally. Publishes the response to the sender's rpc/res topic.
     pub(crate) async fn handle_rpc_request(&mut self, topic: &str, payload: &[u8]) {
-        use crate::proto::teamclaw::RpcRequest;
+        use crate::proto::teamclu::RpcRequest;
         use prost::Message as ProstMessage;
 
         let request = match RpcRequest::decode(payload) {
@@ -67,7 +67,7 @@ impl DaemonServer {
     /// [`Self::handle_rpc_request`] is unnecessary here — loopback HTTP can
     /// only ever reach this daemon.
     pub(crate) async fn dispatch_local_rpc(&mut self, payload: &[u8]) -> Result<Vec<u8>, String> {
-        use crate::proto::teamclaw::RpcRequest;
+        use crate::proto::teamclu::RpcRequest;
         use prost::Message as ProstMessage;
 
         let request =
@@ -85,9 +85,9 @@ impl DaemonServer {
     /// path and the local HTTP `/v1/rpc` path.
     pub(crate) async fn dispatch_rpc_request(
         &mut self,
-        request: crate::proto::teamclaw::RpcRequest,
-    ) -> crate::proto::teamclaw::RpcResponse {
-        use crate::proto::teamclaw::{rpc_request::Method, RpcResponse};
+        request: crate::proto::teamclu::RpcRequest,
+    ) -> crate::proto::teamclu::RpcResponse {
+        use crate::proto::teamclu::{rpc_request::Method, RpcResponse};
 
         match &request.method {
             // ─── Session/idea methods — delegate to SessionManager ───
@@ -101,9 +101,9 @@ impl DaemonServer {
             | Some(Method::ClaimIdea(_))
             | Some(Method::SubmitIdea(_))
             | Some(Method::UpdateIdea(_)) => {
-                // Pre-compute primary before the mutable borrow of self.teamclaw.
+                // Pre-compute primary before the mutable borrow of self.teamclu.
                 let primary = self.primary_agent_id().await;
-                if let Some(tc) = self.teamclaw.as_mut() {
+                if let Some(tc) = self.teamclu.as_mut() {
                     tc.handle_rpc_method(request.clone(), primary).await
                 } else {
                     not_yet_implemented(&request, "session_manager not initialized")
@@ -140,7 +140,7 @@ impl DaemonServer {
     }
 
     pub(crate) fn session_title_for_log(&self, session_id: &str) -> String {
-        self.teamclaw
+        self.teamclu
             .as_ref()
             .and_then(|tc| tc.sessions.find_by_id(session_id))
             .map(|session| session.title.trim())
@@ -188,17 +188,17 @@ impl DaemonServer {
                     }
                 }
             }
-            subscriber::IncomingMessage::TeamclawRpc { topic, payload } => {
+            subscriber::IncomingMessage::TeamcluRpc { topic, payload } => {
                 self.handle_rpc_request(&topic, &payload).await;
             }
-            subscriber::IncomingMessage::TeamclawRpcResponse { topic, payload } => {
+            subscriber::IncomingMessage::TeamcluRpcResponse { topic, payload } => {
                 let _ = self
                     .rpc_client
                     .lock()
                     .await
                     .handle_response(&topic, &payload);
             }
-            subscriber::IncomingMessage::TeamclawSessionLive {
+            subscriber::IncomingMessage::TeamcluSessionLive {
                 session_id,
                 payload,
             } => {
@@ -216,7 +216,7 @@ impl DaemonServer {
                     "session/live message received"
                 );
                 let envelope_res =
-                    crate::proto::teamclaw::LiveEventEnvelope::decode(payload.as_slice());
+                    crate::proto::teamclu::LiveEventEnvelope::decode(payload.as_slice());
                 if let Err(e) = &envelope_res {
                     warn!(
                         session_id = %session_id,
@@ -242,7 +242,7 @@ impl DaemonServer {
                     );
                     match envelope.event_type.as_str() {
                         "message.created" => {
-                            let env = match crate::proto::teamclaw::SessionMessageEnvelope::decode(
+                            let env = match crate::proto::teamclu::SessionMessageEnvelope::decode(
                                 envelope.body.as_slice(),
                             ) {
                                 Ok(e) => e,
@@ -287,14 +287,14 @@ impl DaemonServer {
                         }
                         "idea.created" | "idea.updated" => {
                             if let Ok(event) =
-                                crate::proto::teamclaw::IdeaEvent::decode(envelope.body.as_slice())
+                                crate::proto::teamclu::IdeaEvent::decode(envelope.body.as_slice())
                             {
-                                if let Some(tc) = &mut self.teamclaw {
+                                if let Some(tc) = &mut self.teamclu {
                                     if !tc.should_process_idea_event(&session_id, &event) {
                                         return;
                                     }
                                 }
-                                if let Some(tc) = &self.teamclaw {
+                                if let Some(tc) = &self.teamclu {
                                     let activated =
                                         tc.agents_to_activate_for_idea(&session_id, &event);
                                     for agent_actor_id in activated {
@@ -329,8 +329,8 @@ impl DaemonServer {
                     }
                 }
             }
-            subscriber::IncomingMessage::TeamclawNotify { actor_id, payload } => {
-                match crate::proto::teamclaw::Notify::decode(payload.as_slice()) {
+            subscriber::IncomingMessage::TeamcluNotify { actor_id, payload } => {
+                match crate::proto::teamclu::Notify::decode(payload.as_slice()) {
                     Ok(n) => {
                         if n.event_type == "membership.refresh" && !n.refresh_hint.is_empty() {
                             match self
@@ -339,7 +339,7 @@ impl DaemonServer {
                                 .await
                             {
                                 Ok(snap) => {
-                                    if let Some(tc) = &mut self.teamclaw {
+                                    if let Some(tc) = &mut self.teamclu {
                                         if let Err(err) = tc
                                             .insert_session_from_backend(
                                                 &snap.session,
@@ -423,10 +423,10 @@ impl DaemonServer {
     /// that session" is an answer the caller receives.
     pub(crate) async fn handle_runtime_command_rpc(
         &mut self,
-        request: &crate::proto::teamclaw::RpcRequest,
-        command: crate::proto::teamclaw::RuntimeCommandRequest,
-    ) -> crate::proto::teamclaw::RpcResponse {
-        use crate::proto::teamclaw::{rpc_response, RpcResponse, RuntimeCommandResult};
+        request: &crate::proto::teamclu::RpcRequest,
+        command: crate::proto::teamclu::RuntimeCommandRequest,
+    ) -> crate::proto::teamclu::RpcResponse {
+        use crate::proto::teamclu::{rpc_response, RpcResponse, RuntimeCommandResult};
 
         let session_id = command.session_id.trim().to_string();
         if session_id.is_empty() {
@@ -636,18 +636,26 @@ impl DaemonServer {
                                 crate::runtime::SpawnRuntimeEnv::default()
                             }
                         };
+                        // A stored session with no cloud session id cannot be
+                        // re-attached: the attachment map is keyed by it.
+                        if session_id.is_empty() {
+                            warn!(
+                                agent_id,
+                                "lazy-resume: stored session has no cloud session id; skipping"
+                            );
+                            return;
+                        }
                         let resume_res = self
                             .agents
                             .lock()
                             .await
                             .resume_agent(
-                                agent_id,
+                                &session_id,
                                 &acp_sid,
                                 at,
                                 &worktree,
                                 &ws_id,
                                 remote_workspace_id.as_deref(),
-                                (!session_id.is_empty()).then_some(session_id.as_str()),
                                 "",
                                 None,
                                 runtime_env,

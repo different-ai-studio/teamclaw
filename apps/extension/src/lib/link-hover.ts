@@ -14,7 +14,7 @@ export function getLinkHoverBrandLabel(): string {
   } catch {
     // Non-extension test env — fall through.
   }
-  return 'TeamClaw'
+  return 'TeamClu'
 }
 
 /** http(s) navigational anchors only — skip mailto, javascript:, hash-only, etc. */
@@ -68,7 +68,7 @@ export function mountLinkHover(deps: {
   const brandLabel = getLinkHoverBrandLabel()
 
   const host = doc.createElement('div')
-  host.id = 'teamclaw-link-hover-host'
+  host.id = 'teamclu-link-hover-host'
   host.style.cssText = [
     'position:fixed',
     'z-index:2147483647',

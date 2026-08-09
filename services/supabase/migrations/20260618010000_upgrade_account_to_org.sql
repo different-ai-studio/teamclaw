@@ -1,7 +1,7 @@
 -- ============================================================================
 -- Account upgrade: graduate a user out of the shared DEFAULT_ORG into their own
 -- org. Called when the user fills in an org name + contact (see
--- docs/specs/2026-06-17-teamclaw-phone-login-and-tenancy.md §8).
+-- docs/specs/2026-06-17-teamclu-phone-login-and-tenancy.md §8).
 --
 -- Atomically:
 --   1. create a new public.orgs row (name + contact),

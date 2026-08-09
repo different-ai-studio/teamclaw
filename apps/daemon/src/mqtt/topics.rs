@@ -1,1 +1,1 @@
-pub use teamclaw_types::mqtt::Topics;
+pub use teamclu_types::mqtt::Topics;

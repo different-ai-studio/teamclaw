@@ -9,7 +9,7 @@
 //!   error.rs          — SyncError unified error type
 //!   path_validator.rs — client-side mirror of FC validateSyncPath (referenced
 //!                       by error.rs's From impl)
-//!   get_fc_endpoint() — reads teamclaw.json for the FC endpoint (callers
+//!   get_fc_endpoint() — reads teamclu.json for the FC endpoint (callers
 //!                       supply their own fresh user JWT; see Design 2)
 //!
 //! The deleted engine submodules were: engine, scanner, state, manifest,
@@ -25,21 +25,21 @@ pub mod path_validator;
 // Shared helpers
 // ---------------------------------------------------------------------------
 
-/// Read the FC endpoint from the workspace's `teamclaw.json` (falling back to
+/// Read the FC endpoint from the workspace's `teamclu.json` (falling back to
 /// the build-config Cloud API URL — see `default_fc_endpoint`).
 ///
 /// The FC JWT is **not** read here anymore. Each Tauri command receives the
 /// caller's own fresh user session token (from the frontend `getSession()`,
 /// which is kept current by the session-store auto-refresh) and passes it to
 /// `FcClient`. The previous behaviour read a `supabase_jwt` cached in
-/// `teamclaw.json` that nothing refreshed after the daemon-owns-team-sync
+/// `teamclu.json` that nothing refreshed after the daemon-owns-team-sync
 /// refactor (#296) gutted the JWT bridge — so it went stale and FC returned
 /// 401. Tauri uses its own token; the daemon uses its own; neither crosses.
 pub(crate) fn get_fc_endpoint(_workspace_path: &str) -> String {
     // The build-config Cloud API URL (baked at compile time, see
     // `default_fc_endpoint`) is the single source of truth — the same one the
     // frontend resolves from. We deliberately do NOT honor a per-workspace
-    // `fc_endpoint` override in `teamclaw.json` anymore.
+    // `fc_endpoint` override in `teamclu.json` anymore.
     //
     // That override was the same anti-pattern as the now-removed
     // `build.config.local.json`: a stale local pin (e.g. a long-dead
@@ -65,7 +65,7 @@ pub(crate) fn resolve_runtime_fc_endpoint(cloud_api_url: &str) -> Result<String,
     Ok(cloud_api_url.trim().trim_end_matches('/').to_string())
 }
 
-/// The default Cloud API endpoint used when a workspace's `teamclaw.json` does
+/// The default Cloud API endpoint used when a workspace's `teamclu.json` does
 /// not pin an explicit `fc_endpoint`.
 ///
 /// This is the **build-config** Cloud API URL (`build.config*.json` →
@@ -90,14 +90,14 @@ mod fc_endpoint_tests {
     use super::*;
 
     fn write_workspace_config(dir: &std::path::Path, body: &str) {
-        let cfg_dir = dir.join(crate::commands::TEAMCLAW_DIR);
+        let cfg_dir = dir.join(crate::commands::TEAMCLU_DIR);
         std::fs::create_dir_all(&cfg_dir).unwrap();
         std::fs::write(cfg_dir.join(crate::commands::CONFIG_FILE_NAME), body).unwrap();
     }
 
     fn temp_dir() -> std::path::PathBuf {
         let base = std::env::temp_dir().join(format!(
-            "teamclaw-fc-endpoint-test-{}-{}",
+            "teamclu-fc-endpoint-test-{}-{}",
             std::process::id(),
             std::time::SystemTime::now()
                 .duration_since(std::time::UNIX_EPOCH)
@@ -128,7 +128,7 @@ mod fc_endpoint_tests {
     #[test]
     fn missing_config_uses_build_default() {
         let dir = temp_dir();
-        // No teamclaw.json at all.
+        // No teamclu.json at all.
         assert_eq!(
             get_fc_endpoint(dir.to_str().unwrap()),
             default_fc_endpoint().trim_end_matches('/')
@@ -155,7 +155,7 @@ mod fc_endpoint_tests {
 
     #[test]
     fn runtime_endpoint_rejects_non_http_urls() {
-        assert!(resolve_runtime_fc_endpoint("file:///tmp/teamclaw").is_err());
+        assert!(resolve_runtime_fc_endpoint("file:///tmp/teamclu").is_err());
         assert!(resolve_runtime_fc_endpoint("not a url").is_err());
     }
 }

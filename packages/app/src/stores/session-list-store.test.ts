@@ -246,7 +246,7 @@ describe("session-list-store", () => {
   // path is unreachable here because these tests mock isTauri() to false.
   it("un-hides a remembered archived id when the server returns it again", async () => {
     localStorage.setItem(
-      "teamclaw.sessionList.archivedIds",
+      "teamclu.sessionList.archivedIds",
       JSON.stringify(["session-archived"]),
     );
     mocks.listCurrentActorSessions.mockResolvedValueOnce({
@@ -266,14 +266,14 @@ describe("session-list-store", () => {
     // and the stale id is forgotten, so it cannot hide the session on the next
     // cold boot either.
     expect(
-      JSON.parse(localStorage.getItem("teamclaw.sessionList.archivedIds") ?? "[]"),
+      JSON.parse(localStorage.getItem("teamclu.sessionList.archivedIds") ?? "[]"),
     ).toEqual([]);
-    localStorage.removeItem("teamclaw.sessionList.archivedIds");
+    localStorage.removeItem("teamclu.sessionList.archivedIds");
   });
 
   it("keeps hiding a remembered archived id the server does not return", async () => {
     localStorage.setItem(
-      "teamclaw.sessionList.archivedIds",
+      "teamclu.sessionList.archivedIds",
       JSON.stringify(["session-archived"]),
     );
     mocks.listCurrentActorSessions.mockResolvedValueOnce({
@@ -287,9 +287,9 @@ describe("session-list-store", () => {
       "session-active",
     ]);
     expect(
-      JSON.parse(localStorage.getItem("teamclaw.sessionList.archivedIds") ?? "[]"),
+      JSON.parse(localStorage.getItem("teamclu.sessionList.archivedIds") ?? "[]"),
     ).toEqual(["session-archived"]);
-    localStorage.removeItem("teamclaw.sessionList.archivedIds");
+    localStorage.removeItem("teamclu.sessionList.archivedIds");
   });
 
   it("archives a session through the backend and removes the row", async () => {
@@ -303,9 +303,9 @@ describe("session-list-store", () => {
     expect(mocks.archiveSession).toHaveBeenCalledWith("session-1", expect.any(String));
     expect(useSessionListStore.getState().rows).toEqual([]);
     expect(
-      JSON.parse(localStorage.getItem("teamclaw.sessionList.archivedIds") ?? "[]"),
+      JSON.parse(localStorage.getItem("teamclu.sessionList.archivedIds") ?? "[]"),
     ).toContain("session-1");
-    localStorage.removeItem("teamclaw.sessionList.archivedIds");
+    localStorage.removeItem("teamclu.sessionList.archivedIds");
   });
 
   // Every visibility gate on GET /v1/sessions fails closed with 200 + an empty

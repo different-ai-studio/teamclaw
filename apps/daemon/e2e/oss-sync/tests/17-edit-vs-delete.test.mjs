@@ -20,31 +20,31 @@ test("edit vs delete (edit syncs first): edit wins, file survives, both converge
   const root = contentRootPath(teamId);
 
   // Base on both.
-  await writeFile("node-a", `${root}/skills/x.md`, Buffer.from("base\n"));
+  await writeFile("node-a", `${root}/knowledge/x.md`, Buffer.from("base\n"));
   await sync(nodes.a);
   await settle();
   await sync(nodes.b);
 
   // A edits + syncs FIRST → remote advances.
-  await writeFile("node-a", `${root}/skills/x.md`, Buffer.from("A-edit\n"));
+  await writeFile("node-a", `${root}/knowledge/x.md`, Buffer.from("A-edit\n"));
   const a1 = await sync(nodes.a);
   assert.equal(a1.lastError ?? null, null, `A sync error: ${a1.lastError}`);
   await settle();
 
   // B deletes the file (based on the stale version) and syncs.
-  await execSh("node-b", `rm -f ${root}/skills/x.md`);
+  await execSh("node-b", `rm -f ${root}/knowledge/x.md`);
   let treeB = {};
   for (let i = 0; i < 6; i++) {
     const b = await sync(nodes.b);
     assert.equal(b.lastError ?? null, null, `B sync error: ${b.lastError}`);
     treeB = await ctx.lsContentRoot("node-b", teamId);
-    if (treeB["skills/x.md"] && Buffer.from(treeB["skills/x.md"], "base64").toString() === "A-edit\n") break;
+    if (treeB["knowledge/x.md"] && Buffer.from(treeB["knowledge/x.md"], "base64").toString() === "A-edit\n") break;
     await settle(3000);
   }
 
   // Edit wins: the file content survives as A-edit on both nodes.
   const treeA = await ctx.lsContentRoot("node-a", teamId);
-  assert.equal(Buffer.from(treeA["skills/x.md"], "base64").toString(), "A-edit\n", "A keeps its edit");
-  assert.equal(Buffer.from(treeB["skills/x.md"], "base64").toString(), "A-edit\n", "B's stale delete loses to the edit");
+  assert.equal(Buffer.from(treeA["knowledge/x.md"], "base64").toString(), "A-edit\n", "A keeps its edit");
+  assert.equal(Buffer.from(treeB["knowledge/x.md"], "base64").toString(), "A-edit\n", "B's stale delete loses to the edit");
   assertConverged(treeA, treeB, "edit-vs-delete");
 });

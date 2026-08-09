@@ -685,6 +685,12 @@ fn trigger_manual_sync(theme: &ColorfulTheme, team_id: &str) -> anyhow::Result<(
                 "  pulled {} · pushed {} · conflicts {}",
                 status.pulled, status.pushed, status.conflicts
             );
+            if status.failed > 0 {
+                println!(
+                    "  ⚠ {} file(s) could not be pulled — cursor held back, will retry",
+                    status.failed
+                );
+            }
             if let Some(err) = status.last_error.filter(|e| !e.trim().is_empty()) {
                 println!("  last_error: {err}");
             }
@@ -873,16 +879,16 @@ fn resolve_team_id(explicit: Option<String>) -> anyhow::Result<String> {
 }
 
 fn read_default_model(workspace: &Path) -> anyhow::Result<Option<String>> {
-    let cfg = teamclaw_runtime_env::opencode_config::OpencodeConfigStore::load(workspace)
+    let cfg = teamclu_runtime_env::opencode_config::OpencodeConfigStore::load(workspace)
         .map_err(|e| anyhow::anyhow!("{e}"))?;
     Ok(cfg.get("model").and_then(|v| v.as_str()).map(str::to_owned))
 }
 
 fn set_default_model(workspace: &Path, model: &str) -> anyhow::Result<()> {
     let model = model.trim().to_string();
-    teamclaw_runtime_env::opencode_config::OpencodeConfigStore::apply(workspace, |cfg| {
+    teamclu_runtime_env::opencode_config::OpencodeConfigStore::apply(workspace, |cfg| {
         let obj = cfg.as_object_mut().ok_or_else(|| {
-            teamclaw_runtime_env::opencode_config::OpencodeConfigError::Parse(
+            teamclu_runtime_env::opencode_config::OpencodeConfigError::Parse(
                 "opencode.json root is not an object".into(),
             )
         })?;
@@ -949,6 +955,9 @@ struct HttpSyncStatus {
     pushed: u32,
     conflicts: u32,
     #[serde(default)]
+    failed: u32,
+    #[serde(default)]
+    #[allow(dead_code)]
     skipped: bool,
 }
 

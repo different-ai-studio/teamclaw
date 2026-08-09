@@ -2,30 +2,6 @@ import Foundation
 import SwiftUI
 import AMUXCore
 
-// MARK: - ToolIcons
-
-/// Shared icon + short-name mapping reused by ToolCallView and CompactToolLine
-/// to keep the visual language consistent across platforms.
-public enum ToolIcons {
-    public static func icon(for name: String) -> String {
-        let n = name.lowercased()
-        if n.contains("write") || n.contains("edit") { return "doc.text" }
-        if n.contains("read") { return "doc" }
-        if n.contains("bash") || n.contains("shell") || n.contains("terminal") { return "terminal" }
-        if n.contains("search") || n.contains("grep") || n.contains("glob") || n.contains("find") { return "magnifyingglass" }
-        if n.contains("skill") || n.contains("command") { return "wand.and.stars" }
-        if n.contains("idea") || n.contains("task") || n.contains("todo") { return "lightbulb" }
-        if n.contains("web") { return "globe" }
-        return "wrench"
-    }
-
-    public static func shortName(for name: String) -> String {
-        if let range = name.range(of: "__", options: .backwards) {
-            return String(name[range.upperBound...].prefix(30))
-        }
-        return String(name.prefix(30))
-    }
-}
 
 public enum ToolDisplay {
     /// Bounded FIFO cache keyed by description string. Tool descriptions
@@ -358,72 +334,6 @@ public struct CompactToolLine: View {
     }
 }
 
-// MARK: - ToolRunSummaryBar
-
-public struct ToolRunSummaryBar: View {
-    public let events: [AgentEvent]
-    @State private var isExpanded = false
-
-    private var count: Int { events.count }
-
-    private var hasFailure: Bool {
-        events.contains { $0.success == false }
-    }
-
-    public init(events: [AgentEvent]) {
-        self.events = events
-    }
-
-    public var body: some View {
-        VStack(alignment: .leading, spacing: 0) {
-            Button {
-                withAnimation(AMUXAnimation.fast) { isExpanded.toggle() }
-            } label: {
-                HStack(spacing: 6) {
-                    Image(systemName: "chevron.right")
-                        .font(.caption2)
-                        .rotationEffect(.degrees(isExpanded ? 90 : 0))
-                        .foregroundStyle(.secondary)
-
-                    Image(systemName: "wrench")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-
-                    Text("\(count) tools completed")
-                        .font(.caption)
-                        .fontWeight(.medium)
-                        .foregroundStyle(.primary)
-
-                    Spacer()
-
-                    if hasFailure {
-                        Image(systemName: "exclamationmark.triangle.fill")
-                            .font(.caption2)
-                            .foregroundStyle(Color.amux.cinnabar)
-                    }
-                    Image(systemName: "checkmark.circle.fill")
-                        .font(.caption2)
-                        .foregroundStyle(Color.amux.sage)
-                }
-                .padding(.horizontal, 10)
-                .padding(.vertical, 6)
-                .contentShape(Rectangle())
-            }
-            .buttonStyle(.plain)
-
-            if isExpanded {
-                VStack(alignment: .leading, spacing: 0) {
-                    ForEach(events, id: \.id) { event in
-                        CompactToolLine(event: event)
-                    }
-                }
-                .padding(.bottom, 4)
-                .transition(.opacity.combined(with: .move(edge: .top)))
-            }
-        }
-        .background(Color.secondary.opacity(0.10), in: RoundedRectangle(cornerRadius: 8))
-    }
-}
 
 // MARK: - Event Grouping
 

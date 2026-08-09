@@ -25,7 +25,7 @@ vi.mock("@/lib/session-permission-mode", () => ({
   setSessionPermissionMode: mocks.setSessionPermissionMode,
 }));
 
-vi.mock("@/lib/teamclaw/flush-session-pending-permissions", () => ({
+vi.mock("@/lib/teamclu/flush-session-pending-permissions", () => ({
   flushSessionPendingPermissions: mocks.flushSessionPendingPermissions,
 }));
 

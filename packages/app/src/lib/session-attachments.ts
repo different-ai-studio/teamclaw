@@ -1,4 +1,4 @@
-import type { Message } from "@/lib/proto/teamclaw_pb";
+import type { Message } from "@/lib/proto/teamclu_pb";
 import { isImageFileName } from "@/lib/attachment-constants";
 import { normalizeAttachmentUrl } from "@/lib/session-attachment-token";
 

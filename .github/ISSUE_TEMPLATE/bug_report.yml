@@ -62,7 +62,7 @@ body:
     id: version
     attributes:
       label: Version
-      description: What version of TeamClaw are you running?
+      description: What version of TeamClu are you running?
       placeholder: e.g., v0.1.0
     validations:
       required: true

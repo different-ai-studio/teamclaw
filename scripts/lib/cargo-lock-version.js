@@ -24,7 +24,7 @@
  * Workspace members whose version tracks the desktop release version. These are
  * the two crates `bump-desktop-version.mjs` rewrites `Cargo.toml` for.
  */
-const WORKSPACE_MEMBERS = ["teamclaw", "amuxd"];
+const WORKSPACE_MEMBERS = ["teamclu", "amuxd"];
 
 /**
  * Rewrite the `version` of each named package in a `Cargo.lock`'s text.

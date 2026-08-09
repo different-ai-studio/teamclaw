@@ -55,8 +55,8 @@ final class RuntimeStartRpcTests: XCTestCase {
     private func configuredService(
         mqtt: MQTTService,
         teamId: String = "team1"
-    ) async throws -> TeamclawService {
-        let service = TeamclawService()
+    ) async throws -> TeamcluService {
+        let service = TeamcluService()
         let container = try makeModelContainer()
         service.configureRuntimeForTesting(
             mqtt: mqtt,
@@ -97,15 +97,15 @@ final class RuntimeStartRpcTests: XCTestCase {
         )
 
         let payload = try await awaitCapturedPayload(captured)
-        let req = try Teamclaw_RpcRequest(serializedBytes: payload)
+        let req = try Teamclu_RpcRequest(serializedBytes: payload)
         XCTAssertFalse(req.requestID.isEmpty)
 
-        var result = Teamclaw_RuntimeStartResult()
+        var result = Teamclu_RuntimeStartResult()
         result.accepted = true
         result.runtimeID = "rt-abc"
         result.sessionID = "s-xyz"
 
-        var response = Teamclaw_RpcResponse()
+        var response = Teamclu_RpcResponse()
         response.requestID = req.requestID
         response.success = true
         response.result = .runtimeStartResult(result)
@@ -148,13 +148,13 @@ final class RuntimeStartRpcTests: XCTestCase {
         )
 
         let payload = try await awaitCapturedPayload(captured)
-        let req = try Teamclaw_RpcRequest(serializedBytes: payload)
+        let req = try Teamclu_RpcRequest(serializedBytes: payload)
 
-        var result = Teamclaw_RuntimeStartResult()
+        var result = Teamclu_RuntimeStartResult()
         result.accepted = false
         result.rejectedReason = "no workspace"
 
-        var response = Teamclaw_RpcResponse()
+        var response = Teamclu_RpcResponse()
         response.requestID = req.requestID
         response.success = false
         response.result = .runtimeStartResult(result)
@@ -195,13 +195,13 @@ final class RuntimeStartRpcTests: XCTestCase {
         )
 
         let payload = try await awaitCapturedPayload(captured)
-        let req = try Teamclaw_RpcRequest(serializedBytes: payload)
+        let req = try Teamclu_RpcRequest(serializedBytes: payload)
 
-        var result = Teamclaw_RuntimeStartResult()
+        var result = Teamclu_RuntimeStartResult()
         result.accepted = false
         result.rejectedReason = ""
 
-        var response = Teamclaw_RpcResponse()
+        var response = Teamclu_RpcResponse()
         response.requestID = req.requestID
         response.success = false
         response.error = "internal"
@@ -223,7 +223,7 @@ final class RuntimeStartRpcTests: XCTestCase {
     // MARK: - Test 4 — nil mqtt short-circuits
 
     func testRuntimeStartRpcReturnsRejectedWhenMQTTNotConfigured() async {
-        let service = TeamclawService()
+        let service = TeamcluService()
         // Intentionally no configureRuntimeForTesting — mqtt stays nil.
         let outcome = await service.runtimeStartRpc(
             targetActorID: "agent-a",

@@ -170,21 +170,21 @@ mod tests {
     #[test]
     fn test_conflict_detection() {
         assert!(is_conflict_file(
-            "skills/foo.conflict.1748332800.abc12345.md"
+            "knowledge/foo.conflict.1748332800.abc12345.md"
         ));
         assert!(is_conflict_file(
             "knowledge/bar.conflict.1748332800.def67890"
         ));
-        assert!(!is_conflict_file("skills/foo.md"));
-        assert!(!is_conflict_file("skills/conflict.md")); // "conflict" not after "."
-        assert!(!is_conflict_file("skills/my.conflict")); // no dot after "conflict"
+        assert!(!is_conflict_file("knowledge/foo.md"));
+        assert!(!is_conflict_file("knowledge/conflict.md")); // "conflict" not after "."
+        assert!(!is_conflict_file("knowledge/my.conflict")); // no dot after "conflict"
     }
 
     #[test]
     fn test_scan_dirty_detection() {
         let dir = tempfile::tempdir().unwrap();
         let ws = dir.path().to_str().unwrap();
-        let skills_dir = dir.path().join("skills");
+        let skills_dir = dir.path().join("knowledge");
         std::fs::create_dir_all(&skills_dir).unwrap();
         std::fs::write(skills_dir.join("hello.md"), b"hello world").unwrap();
 
@@ -194,7 +194,7 @@ mod tests {
         // New file → dirty
         let f = files
             .iter()
-            .find(|f| f.rel_path == "skills/hello.md")
+            .find(|f| f.rel_path == "knowledge/hello.md")
             .unwrap();
         assert!(f.dirty);
         assert_eq!(f.local_plain_hash, super::sha256_hex(b"hello world"));
@@ -204,7 +204,7 @@ mod tests {
     fn test_scan_skips_conflict_files() {
         let dir = tempfile::tempdir().unwrap();
         let ws = dir.path().to_str().unwrap();
-        let skills_dir = dir.path().join("skills");
+        let skills_dir = dir.path().join("knowledge");
         std::fs::create_dir_all(&skills_dir).unwrap();
         std::fs::write(
             skills_dir.join("foo.conflict.1234567890.abc12345.md"),
@@ -216,7 +216,7 @@ mod tests {
         let state = LocalSyncState::load(ws, "team-test").unwrap();
         let files = scan_workspace(ws, &state);
 
-        assert!(files.iter().any(|f| f.rel_path == "skills/real.md"));
+        assert!(files.iter().any(|f| f.rel_path == "knowledge/real.md"));
         assert!(!files.iter().any(|f| f.rel_path.contains(".conflict.")));
     }
 
@@ -224,7 +224,7 @@ mod tests {
     fn test_scan_conflict_files_collects_sidecars() {
         let dir = tempfile::tempdir().unwrap();
         let ws = dir.path().to_str().unwrap();
-        let skills_dir = dir.path().join("skills");
+        let skills_dir = dir.path().join("knowledge");
         std::fs::create_dir_all(&skills_dir).unwrap();
         std::fs::write(skills_dir.join("real.md"), b"real").unwrap();
         std::fs::write(
@@ -236,7 +236,7 @@ mod tests {
         let conflicts = scan_conflict_files(ws);
         assert_eq!(conflicts.len(), 1);
         assert!(conflicts[0].contains(".conflict."));
-        assert!(!conflicts.iter().any(|c| c == "skills/real.md"));
+        assert!(!conflicts.iter().any(|c| c == "knowledge/real.md"));
     }
 
     #[test]
@@ -259,7 +259,7 @@ mod tests {
 
         let dir = tempfile::tempdir().unwrap();
         let ws = dir.path().to_str().unwrap();
-        let skills_dir = dir.path().join("skills");
+        let skills_dir = dir.path().join("knowledge");
         std::fs::create_dir_all(&skills_dir).unwrap();
         let file_path = skills_dir.join("stable.md");
         let content = b"stable content";
@@ -277,7 +277,7 @@ mod tests {
 
         let mut state = LocalSyncState::load(ws, "team-test").unwrap();
         state.files.insert(
-            "skills/stable.md".to_string(),
+            "knowledge/stable.md".to_string(),
             FileState {
                 synced_version: 1,
                 synced_cipher_hash: "fake_cipher".into(),
@@ -293,7 +293,7 @@ mod tests {
         let files = scan_workspace(ws, &state);
         let f = files
             .iter()
-            .find(|f| f.rel_path == "skills/stable.md")
+            .find(|f| f.rel_path == "knowledge/stable.md")
             .unwrap();
         assert!(!f.dirty, "file should be clean (mtime+size match)");
     }

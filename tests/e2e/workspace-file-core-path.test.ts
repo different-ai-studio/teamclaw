@@ -6,7 +6,7 @@
 
 import { describe, it, expect, beforeAll, afterAll } from 'vitest';
 import {
-  launchTeamClawApp,
+  launchTeamCluApp,
   stopApp,
   sleep,
   focusWindow,
@@ -23,7 +23,7 @@ describe('Workspace and file browsing core path', () => {
 
   beforeAll(async () => {
     try {
-      await launchTeamClawApp();
+      await launchTeamCluApp();
       await sleep(8000);
       await focusWindow();
       await sleep(500);
@@ -31,8 +31,8 @@ describe('Workspace and file browsing core path', () => {
       // Ensure workspace is configured
       const wsPath = (process.env.E2E_WORKSPACE_PATH || process.cwd()).replace(/'/g, "\\'");
       await executeJs(`
-        if (!localStorage.getItem('teamclaw-workspace-path')) {
-          localStorage.setItem('teamclaw-workspace-path', '${wsPath}');
+        if (!localStorage.getItem('teamclu-workspace-path')) {
+          localStorage.setItem('teamclu-workspace-path', '${wsPath}');
           location.reload();
         }
       `);

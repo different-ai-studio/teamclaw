@@ -41,7 +41,7 @@ export interface CachedCurrentTeam {
   teamUserId: string | null;
 }
 
-const CACHE_KEY = "teamclaw:current-team";
+const CACHE_KEY = "teamclu:current-team";
 
 export function readCachedCurrentTeam(): CachedCurrentTeam | null {
   try {
@@ -210,7 +210,7 @@ export const useCurrentTeamStore = create<State>((set, get) => ({
   /**
    * The single supported way to enter a team.
    *
-   * TeamClaw is strict single-org: `amux.current_org_id()` gates every
+   * TeamClu is strict single-org: `amux.current_org_id()` gates every
    * team-scoped RLS policy, and a team outside the active org is invisible —
    * reads return nothing and writes are denied. Setting the current team
    * without moving the server-side active org therefore produces a client that

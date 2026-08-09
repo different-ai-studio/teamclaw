@@ -1,6 +1,6 @@
 -- ============================================================================
--- Stage 3B of teamclaw × saas-mono integration (depends on the amux move)
--- (spec: docs/specs/2026-06-08-teamclaw-saas-mono-integration.md)
+-- Stage 3B of teamclu × saas-mono integration (depends on the amux move)
+-- (spec: docs/specs/2026-06-08-teamclu-saas-mono-integration.md)
 --
 -- ⚠️ APPLY ONLY AFTER / WITH Stage 2 (needs amux.teams + amux.actors).
 --    Validated by dry-run layered on Stage 2 (rollback). The amux_access_token_hook
@@ -13,7 +13,7 @@
 --     its org (defense-in-depth on top of app.is_team_member)
 -- ============================================================================
 
--- Provision a default teamclaw team under an org (idempotent). SECURITY DEFINER
+-- Provision a default teamclu team under an org (idempotent). SECURITY DEFINER
 -- so it bypasses the org-guard RLS during provisioning.
 create or replace function app.ensure_org_default_team(p_org_id uuid, p_name text default null)
 returns uuid

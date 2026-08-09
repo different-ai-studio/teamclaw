@@ -10,7 +10,7 @@ import http from "node:http";
 import crypto from "node:crypto";
 import fs from "node:fs";
 
-const SECRETS_FILE = process.env.SECRETS_FILE || "/data/teamclaw/secrets.env";
+const SECRETS_FILE = process.env.SECRETS_FILE || "/data/teamclu/secrets.env";
 
 function readSecret(key) {
   try {

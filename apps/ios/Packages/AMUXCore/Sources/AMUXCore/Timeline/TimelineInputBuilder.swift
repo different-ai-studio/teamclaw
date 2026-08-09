@@ -11,25 +11,16 @@ import Foundation
 ///
 /// `subscribeTopic` matches the production VM's filter on
 /// `session/{id}/live` — that's the only topic the timeline reducer
-/// listens on today; everything else is SessionListVM / TeamclawService
+/// listens on today; everything else is SessionListVM / TeamcluService
 /// territory.
 public struct TimelineInputBuilder: Sendable {
-    /// Map from daemon runtime id to the owning agent's actor id, used
-    /// to set `AcpInput.agentBucketKey`. Pre-resolved at the boundary
-    /// so the reducer doesn't depend on `memberSheetAgents`. Empty
-    /// during fixture replay tests when bucket attribution isn't being
-    /// exercised.
-    public let agentActorIDByRuntimeID: [String: String]
-
-    public init(agentActorIDByRuntimeID: [String: String] = [:]) {
-        self.agentActorIDByRuntimeID = agentActorIDByRuntimeID
-    }
+    public init() {}
 
     /// Decode one `MQTTIncoming` to a timeline input. Returns nil when
     /// the topic isn't session-live or the payload doesn't decode.
     public func build(from incoming: MQTTIncoming) -> TimelineInput? {
         guard isSessionLive(topic: incoming.topic) else { return nil }
-        guard let envelope = try? Teamclaw_LiveEventEnvelope(serializedBytes: incoming.payload) else {
+        guard let envelope = try? Teamclu_LiveEventEnvelope(serializedBytes: incoming.payload) else {
             return nil
         }
 
@@ -56,26 +47,23 @@ public struct TimelineInputBuilder: Sendable {
 
     // MARK: - Variant builders
 
-    private func buildAcpInput(from envelope: Teamclaw_LiveEventEnvelope) -> TimelineInput? {
+    private func buildAcpInput(from envelope: Teamclu_LiveEventEnvelope) -> TimelineInput? {
         guard let amuxEnvelope = try? Amux_Envelope(serializedBytes: envelope.body) else {
             return nil
         }
         guard case .acpEvent(let acp) = amuxEnvelope.payload else { return nil }
 
-        let runtimeID = amuxEnvelope.runtimeID
-        let bucket = agentActorIDByRuntimeID[runtimeID] ?? runtimeID
         return .acp(AcpInput(
             envelopeSequence: amuxEnvelope.sequence,
-            runtimeID: runtimeID,
-            agentBucketKey: bucket,
+            agentBucketKey: amuxEnvelope.actorID,
             timestamp: Date(),
             turnID: amuxEnvelope.turnID.isEmpty ? nil : amuxEnvelope.turnID,
             acpEvent: acp
         ))
     }
 
-    private func buildLiveMessageInput(from envelope: Teamclaw_LiveEventEnvelope) -> TimelineInput? {
-        guard let msgEnv = try? Teamclaw_SessionMessageEnvelope(serializedBytes: envelope.body),
+    private func buildLiveMessageInput(from envelope: Teamclu_LiveEventEnvelope) -> TimelineInput? {
+        guard let msgEnv = try? Teamclu_SessionMessageEnvelope(serializedBytes: envelope.body),
               msgEnv.hasMessage else {
             return nil
         }

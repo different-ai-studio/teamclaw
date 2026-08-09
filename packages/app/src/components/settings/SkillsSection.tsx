@@ -39,7 +39,7 @@ import {
   deleteDaemonSkill,
 } from '@/lib/daemon-local-client'
 import { cn } from '@/lib/utils'
-import { appDisplayName, TEAMCLAW_DIR } from '@/lib/build-config'
+import { appDisplayName, TEAMCLU_DIR } from '@/lib/build-config'
 import { ensureAgentsSkillsPaths } from '@/lib/skills/ensure-agents-paths'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -449,7 +449,7 @@ ${skillContent.trim()}`
         )
         if (!deleted) {
           const { remove } = await import('@tauri-apps/plugin-fs')
-          const baseDir = targetSkill.dirPath ?? `${workspacePath}/${TEAMCLAW_DIR}/skills`
+          const baseDir = targetSkill.dirPath ?? `${workspacePath}/${TEAMCLU_DIR}/skills`
           await remove(`${baseDir}/${targetSkill.filename}`, { recursive: true })
         }
       }
@@ -1235,7 +1235,7 @@ ${skillContent.trim()}`
                         {t('settings.skills.inherentSkills', 'Inherent Skills')}
                       </span>
                       <div className="flex-1 h-px bg-blue-200/60 dark:bg-blue-800/40" />
-                      <span className="text-[11px] text-muted-foreground">{t('settings.skills.managedByTeamClaw', { defaultValue: 'Managed by {{appName}}', appName: appDisplayName })}</span>
+                      <span className="text-[11px] text-muted-foreground">{t('settings.skills.managedByTeamClu', { defaultValue: 'Managed by {{appName}}', appName: appDisplayName })}</span>
                     </div>
                     {renderSkillGrid(builtinSkills)}
                   </div>
@@ -1251,7 +1251,7 @@ ${skillContent.trim()}`
                           {t('settings.skills.teamSkills', 'Team Skills')}
                         </span>
                         <div className="flex-1 h-px bg-border" />
-                        <span className="text-[11px] text-muted-foreground">{t('settings.skills.fromTeamConfig', 'From team share (teamclaw-team/skills)')}</span>
+                        <span className="text-[11px] text-muted-foreground">{t('settings.skills.fromTeamConfig', 'From team share (teamclu-team/skills)')}</span>
                       </div>
                     )}
                     {renderSkillGrid(teamSkills)}

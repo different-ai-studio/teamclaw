@@ -73,7 +73,7 @@ public final class UserDefaultsCredentialStore: CredentialStore, @unchecked Send
         for key in LegacyKeys.all { defaults.removeObject(forKey: key) }
         // Also remove the legacy device-id key written by older builds, so a
         // clean unpair doesn't leave stale routing state on disk.
-        defaults.removeObject(forKey: "teamclaw_device_id")
+        defaults.removeObject(forKey: "teamclu_device_id")
         defaults.removeObject(forKey: LegacyKeys.deviceID)
     }
 
@@ -92,11 +92,11 @@ public final class UserDefaultsCredentialStore: CredentialStore, @unchecked Send
     }
 
     private enum Keys {
-        static let brokerHost = "teamclaw_broker_host"
-        static let brokerPort = "teamclaw_broker_port"
-        static let authToken  = "teamclaw_auth_token"
-        static let useTLS     = "teamclaw_use_tls"
-        static let userOverride = "teamclaw_broker_user_override"
+        static let brokerHost = "teamclu_broker_host"
+        static let brokerPort = "teamclu_broker_port"
+        static let authToken  = "teamclu_auth_token"
+        static let useTLS     = "teamclu_use_tls"
+        static let userOverride = "teamclu_broker_user_override"
         static let all = [brokerHost, brokerPort, authToken, useTLS, userOverride]
     }
 

@@ -1,7 +1,7 @@
 //! Git-based team operations: join, clone, gitignore, secrets.
 //!
 //! Extracted from `team.rs` — types, helpers, and Tauri commands that deal
-//! exclusively with the `teamclaw-team/` git repo lifecycle.
+//! exclusively with the `teamclu-team/` git repo lifecycle.
 
 use std::path::Path;
 use std::process::Command;
@@ -53,7 +53,7 @@ pub struct TeamGitCreateResult {
 pub struct TeamMeta {
     pub team_id: String,
     pub team_name: String,
-    /// HMAC-SHA256(team_secret, "teamclaw-verify") as hex — for join verification.
+    /// HMAC-SHA256(team_secret, "teamclu-verify") as hex — for join verification.
     pub secret_verify: String,
     pub created_at: String,
     pub owner_node_id: String,
@@ -91,7 +91,7 @@ struct TeamGitJoinArgs {
 
 /// The whitelist .gitignore content
 pub const GITIGNORE_CONTENT: &str = r#"# ============================================
-# TeamClaw Team Drive — Whitelist mode
+# TeamClu Team Drive — Whitelist mode
 # Ignore everything by default, only allow shared layer
 # ============================================
 
@@ -101,16 +101,12 @@ pub const GITIGNORE_CONTENT: &str = r#"# =======================================
 # 2. Allow shared layers
 !skills/
 !skills/**
-!.mcp/
-!.mcp/**
 !knowledge/
 !knowledge/**
 !_feedback/
 !_feedback/**
 !_meta/
 !_meta/**
-!_secrets/
-!_secrets/**
 !.leaderboard/
 !.leaderboard/**
 
@@ -233,7 +229,7 @@ pub fn get_team_repo_path(workspace_path: &str) -> String {
     p.to_string_lossy().to_string()
 }
 
-/// Scaffold the teamclaw-team directory with default structure if it doesn't exist or is empty.
+/// Scaffold the teamclu-team directory with default structure if it doesn't exist or is empty.
 pub fn scaffold_team_dir(team_dir: &str) -> Result<(), String> {
     let team_path = Path::new(team_dir);
 
@@ -247,14 +243,10 @@ pub fn scaffold_team_dir(team_dir: &str) -> Result<(), String> {
         return Ok(());
     }
 
-    let dirs = [
-        "skills",
-        ".mcp",
-        "knowledge",
-        "_feedback",
-        "_meta",
-        "_secrets",
-    ];
+    // No `.mcp` / `_secrets`: team MCP and team env live in the Cloud API now
+    // (docs/architecture/team-mcp-and-env-cloud.md). Creating the directories
+    // would invite hand-authored files that nothing reads.
+    let dirs = ["skills", "knowledge", "_feedback", "_meta"];
     for d in &dirs {
         std::fs::create_dir_all(team_path.join(d))
             .map_err(|e| format!("Failed to create {}: {}", d, e))?;
@@ -262,7 +254,7 @@ pub fn scaffold_team_dir(team_dir: &str) -> Result<(), String> {
 
     let readme_path = team_path.join("README.md");
     if !readme_path.exists() {
-        let readme = "# TeamClaw Team Drive\n\nShared team resources.\n\n## Structure\n\n- `skills/` - Shared agent skills\n- `.mcp/` - MCP server configurations\n- `knowledge/` - Shared knowledge base\n- `_feedback/` - Member feedback summaries (auto-synced)\n- `_meta/` - Shared team metadata and app-managed files\n";
+        let readme = "# TeamClu Team Drive\n\nShared team resources.\n\n## Structure\n\n- `skills/` - Shared agent skills\n- `knowledge/` - Shared knowledge base\n- `_feedback/` - Member feedback summaries (auto-synced)\n- `_meta/` - Shared team metadata and app-managed files\n";
         std::fs::write(&readme_path, readme)
             .map_err(|e| format!("Failed to write README.md: {}", e))?;
     }
@@ -298,7 +290,7 @@ pub fn ensure_gitignore_rules(team_dir: &str) {
     if !content.ends_with('\n') {
         content.push('\n');
     }
-    content.push_str("\n# Auto-added by TeamClaw\n");
+    content.push_str("\n# Auto-added by TeamClu\n");
     for line in &missing {
         content.push_str(line);
         content.push('\n');
@@ -306,7 +298,7 @@ pub fn ensure_gitignore_rules(team_dir: &str) {
     let _ = std::fs::write(&gitignore_path, content);
 }
 
-/// Compute HMAC-SHA256(secret_hex, "teamclaw-verify") and return hex string.
+/// Compute HMAC-SHA256(secret_hex, "teamclu-verify") and return hex string.
 fn compute_secret_verify(team_secret: &str) -> Result<String, String> {
     use hmac::{Hmac, Mac};
     type HmacSha256 = Hmac<sha2::Sha256>;
@@ -314,7 +306,7 @@ fn compute_secret_verify(team_secret: &str) -> Result<String, String> {
     let secret_bytes = hex::decode(team_secret).map_err(|e| format!("Invalid hex secret: {e}"))?;
     let mut mac =
         HmacSha256::new_from_slice(&secret_bytes).map_err(|e| format!("HMAC init failed: {e}"))?;
-    mac.update(b"teamclaw-verify");
+    mac.update(b"teamclu-verify");
     Ok(hex::encode(mac.finalize().into_bytes()))
 }
 
@@ -391,7 +383,7 @@ async fn team_git_join_impl(
         Err(e) => {
             let _ = std::fs::remove_dir_all(&team_dir);
             return Err(format!(
-                "Failed to read _meta/team.json: {}. Is this a valid TeamClaw team repo?",
+                "Failed to read _meta/team.json: {}. Is this a valid TeamClu team repo?",
                 e
             ));
         }
@@ -486,7 +478,7 @@ async fn team_git_join_impl(
             "config",
             "user.email",
             &format!(
-                "{}@teamclaw.local",
+                "{}@teamclu.local",
                 actor_id.chars().take(8).collect::<String>()
             ),
         ],
@@ -530,11 +522,15 @@ async fn team_git_join_impl(
     crate::commands::team_litellm::write_llm_config(&workspace_path, llm_config.as_ref())?;
     println!(
         "[Team Join] Wrote LLM config to {}/{}",
-        super::TEAMCLAW_DIR,
+        super::TEAMCLU_DIR,
         super::CONFIG_FILE_NAME
     );
 
-    crate::commands::team_secret_store::save_team_secret(&workspace_path, &team_id, &team_secret)?;
+    crate::commands::team_secret_store::save_team_secret_logged(
+        &workspace_path,
+        &team_id,
+        &team_secret,
+    )?;
     println!("[Team Join] Saved team_secret to local encrypted store");
 
     {
@@ -825,6 +821,7 @@ pub async fn get_git_team_secret(
     let workspace_path =
         crate::commands::team::resolve_workspace_path(workspace_path, &window, &registry)?;
     crate::commands::team_secret_store::load_team_secret(&workspace_path, &team_id)
+        .map_err(Into::into)
 }
 
 #[cfg(test)]

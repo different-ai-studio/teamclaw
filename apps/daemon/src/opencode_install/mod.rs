@@ -131,7 +131,7 @@ const DEFAULT_DOWNLOAD_BASE: &str = "https://github.com/sst/opencode/releases/la
 /// build with no way to tell — "update to latest" downgraded 1.18.5 -> 1.17.7.
 /// A versioned URL names exactly one build, so only the tiny manifest has to be
 /// fresh, and a stale manifest can at worst cost us one release of latency.
-const MIRROR_BASE: &str = "https://teamclaw.ucar.cc/opencode";
+const MIRROR_BASE: &str = "https://teamclu.ucar.cc/opencode";
 
 /// How long to wait on the mirror manifest before giving up and using upstream.
 /// Deliberately short: this runs before any progress output, so a hung mirror
@@ -574,8 +574,8 @@ mod tests {
         assert_eq!(parse_semver("v1.2.3"), Some((1, 2, 3)));
         assert_eq!(parse_semver("1.2"), Some((1, 2, 0)));
         assert_eq!(parse_semver("1.15.13-beta"), Some((1, 15, 13)));
-        assert_eq!(parse_semver("opencode 1.17.7 teamclaw"), Some((1, 17, 7)));
-        assert_eq!(parse_semver("opencode 1.17.7-teamclaw"), Some((1, 17, 7)));
+        assert_eq!(parse_semver("opencode 1.17.7 teamclu"), Some((1, 17, 7)));
+        assert_eq!(parse_semver("opencode 1.17.7-teamclu"), Some((1, 17, 7)));
         assert_eq!(parse_semver("garbage"), None);
     }
 
@@ -670,7 +670,7 @@ mod tests {
         // that is what makes a CDN unable to serve a different build than asked.
         assert_eq!(
             mirror_asset_url("1.18.5", "opencode-darwin-arm64.zip"),
-            "https://teamclaw.ucar.cc/opencode/1.18.5/opencode-darwin-arm64.zip"
+            "https://teamclu.ucar.cc/opencode/1.18.5/opencode-darwin-arm64.zip"
         );
         assert!(!mirror_asset_url("1.18.5", "x.zip").contains("stable"));
     }

@@ -27,7 +27,7 @@ async function withCtx(
   }
 }
 
-const CONFIGURED = { CODEUP_ORG_ID: "org-1", CODEUP_PAT: "pt-secret", CODEUP_BOT_USERNAME: "teamclaw" };
+const CONFIGURED = { CODEUP_ORG_ID: "org-1", CODEUP_PAT: "pt-secret", CODEUP_BOT_USERNAME: "teamclu" };
 
 test("rejects when teamId is missing (regression: was 'Missing teamName')", async () => {
   await withCtx(CONFIGURED, undefined, async () => {
@@ -64,7 +64,7 @@ test("creates repo named from teamId and returns repoHttpUrl/pat/botUsername", a
     const body = JSON.parse(res.body);
     assert.equal(body.repoHttpUrl, "https://codeup.aliyun.com/org-1/tc-team-abc.git");
     assert.equal(body.pat, "pt-secret");
-    assert.equal(body.botUsername, "teamclaw");
+    assert.equal(body.botUsername, "teamclu");
     // Repo name is slugged from teamId (lowercased), NOT teamName.
     assert.equal(captured!.body.name, "tc-team-abc");
     assert.equal(captured!.body.path, "tc-team-abc");

@@ -101,7 +101,7 @@ impl ServeSupervisor {
             }
         }
         *self.configured_env_fingerprint.lock() = Some(
-            teamclaw_runtime_env::resolved_env::fingerprint_bindings(&env),
+            teamclu_runtime_env::resolved_env::fingerprint_bindings(&env),
         );
     }
 
@@ -115,7 +115,7 @@ impl ServeSupervisor {
         workspace: &str,
         extra_env: HashMap<String, String>,
     ) -> String {
-        let fingerprint = teamclaw_runtime_env::resolved_env::fingerprint_bindings(&extra_env);
+        let fingerprint = teamclu_runtime_env::resolved_env::fingerprint_bindings(&extra_env);
         self.record_requested_env_fingerprint(workspace, &fingerprint);
         *self.extra_env.lock() = extra_env;
         *self.configured_env_fingerprint.lock() = Some(fingerprint.clone());
@@ -189,10 +189,6 @@ impl ServeSupervisor {
         }
         let _ = self.shutdown_preserving_configured_env();
         true
-    }
-
-    pub fn env_snapshot_requires_restart(&self, incoming_fingerprint: &str) -> bool {
-        self.is_running() && self.active_env_fingerprint().as_deref() != Some(incoming_fingerprint)
     }
 
     pub fn mark_snapshot_conflict(&self, workspace: &str) {
@@ -306,7 +302,7 @@ impl ServeSupervisor {
         // what the process actually inherited, not whatever is queued later.
         let spawn_env = self.extra_env.lock().clone();
         let spawn_env_fingerprint =
-            teamclaw_runtime_env::resolved_env::fingerprint_bindings(&spawn_env);
+            teamclu_runtime_env::resolved_env::fingerprint_bindings(&spawn_env);
         let port = pick_free_port()?;
         let base = format!("http://127.0.0.1:{port}");
 

@@ -1,13 +1,14 @@
 use rumqttc::{AsyncClient, EventLoop, MqttOptions, QoS, Transport};
 use std::sync::Arc;
 use std::time::Duration;
-use teamclaw_transport::MqttBroker;
+use teamclu_transport::MqttBroker;
 use tracing::{info, warn};
 
 use crate::config::DaemonConfig;
 use crate::proto::amux::ActorPresence;
 
 use super::Topics;
+use teamclu_types::mqtt::MQTT_FALLBACK_TEAM_ID;
 
 const MQTT_MAX_PACKET_SIZE_BYTES: usize = 4 * 1024 * 1024;
 
@@ -90,10 +91,10 @@ impl MqttClient {
 
         // Not `wss_with_default_config()` / `tls_with_default_config()`: both
         // build `TlsConfiguration::default()`, which panics the process when the
-        // platform cert store cannot be read. See `teamclaw_transport::tls`.
+        // platform cert store cannot be read. See `teamclu_transport::tls`.
         if broker.is_websocket() && broker.use_tls {
             opts.set_transport(Transport::Wss(
-                teamclaw_transport::tls::default_tls_config().config,
+                teamclu_transport::tls::default_tls_config().config,
             ));
         } else if broker.is_websocket() {
             opts.set_transport(Transport::Ws);
@@ -110,12 +111,12 @@ impl MqttClient {
             ));
         } else if broker.use_tls {
             opts.set_transport(Transport::tls_with_config(
-                teamclaw_transport::tls::default_tls_config().config,
+                teamclu_transport::tls::default_tls_config().config,
             ));
         }
 
         // LWT: publish offline status if daemon disconnects unexpectedly
-        let team_id = config.team_id.as_deref().unwrap_or("teamclaw");
+        let team_id = config.team_id.as_deref().unwrap_or(MQTT_FALLBACK_TEAM_ID);
         let topics = Topics::new(team_id, &config.actor.id);
         // The will says "this actor is gone"; the catalog and live-session
         // fields are deliberately empty — a dead daemon holds no attachments.
@@ -139,7 +140,7 @@ impl MqttClient {
         // Channel capacity must exceed the number of subscribe + publish
         // requests issued back-to-back during startup before the eventloop
         // is first polled. Today that's ~26 subs (1 runtime/+/commands,
-        // 3 teamclaw base topics, ~22 session/live) plus 1 device-state
+        // 3 teamclu base topics, ~22 session/live) plus 1 device-state
         // publish plus N retained-runtime publishes (one per stored
         // session). With 100 we deadlocked at ~75 stored sessions because
         // the channel filled before the main loop could drain it. 1024

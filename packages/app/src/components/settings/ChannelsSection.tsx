@@ -10,6 +10,7 @@ import { EmailChannel } from './channels/Email'
 import { KookChannel } from './channels/Kook'
 import { WeComChannel } from './channels/Wecom'
 import { WeChatChannel } from './channels/Wechat'
+import { SeaTalkChannel } from './channels/Seatalk'
 import { useFeatures } from '@/lib/remote-features'
 
 // Main Channels Section Component
@@ -67,6 +68,7 @@ export function ChannelsSection() {
       {channelsConfig.kook && <KookChannel />}
       {channelsConfig.wecom && <WeComChannel />}
       {channelsConfig.wechat && <WeChatChannel />}
+      {channelsConfig.seatalk && <SeaTalkChannel />}
     </div>
   )
 }

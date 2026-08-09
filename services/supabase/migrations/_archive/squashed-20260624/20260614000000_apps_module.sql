@@ -3,8 +3,8 @@
 -- Mirrors the Drizzle schema in services/fc/src/db/schema/apps.ts and the RLS
 -- visibility pattern used by amux.agents / amux.agent_member_access.
 --
--- Schema note: this migration runs AFTER 20260608010000_move_teamclaw_to_amux.sql,
--- which moves every teamclaw business table out of `public` into the `amux` schema
+-- Schema note: this migration runs AFTER 20260608010000_move_teamclu_to_amux.sql,
+-- which moves every teamclu business table out of `public` into the `amux` schema
 -- (amux.actors / amux.members / amux.agents / amux.sessions / amux.teams /
 -- amux.workspaces). So this migration creates amux.apps / amux.app_member_access
 -- and references amux.teams / amux.actors / amux.members / amux.workspaces /

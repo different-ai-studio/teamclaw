@@ -2,7 +2,7 @@
 // SaaS (`apps/api/src/lib/dysms.ts` + `services/metadata.ts` there).
 //
 // Config is NOT env-based: it lives in the shared `public.metadata` table,
-// org-scoped (`name='ALIYUN_SMS_CONFIG'`). When teamclaw's DEFAULT_ORG_ID is an
+// org-scoped (`name='ALIYUN_SMS_CONFIG'`). When teamclu's DEFAULT_ORG_ID is an
 // org owned by the partner SaaS, reading that org's metadata reuses the
 // partner's existing SMS account/template — no new credentials needed.
 import * as $OpenApi from "@alicloud/openapi-client";

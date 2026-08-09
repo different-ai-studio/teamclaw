@@ -1,1 +1,1 @@
-pub use teamclaw_proto::{amux, teamclaw};
+pub use teamclu_proto::{amux, teamclu};

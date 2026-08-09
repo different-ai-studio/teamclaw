@@ -2,12 +2,23 @@ name: Self-Host Deploy
 
 on:
   workflow_dispatch: {}
-  push:
-    branches: [main]
-    paths:
-      - 'deploy/self-host/**'
-      - 'services/fc/**'
-      - 'services/supabase/migrations/**'
+  # SAFETY CATCH — teamclaw → teamclu rebrand.
+  #
+  # The rebrand points this service at api/mqtt/supabase.teamclu-dev.ucar.cc,
+  # none of which resolve yet (verified: NXDOMAIN, while the teamclaw-dev names
+  # still answer). Auto-deploying the renamed config would rebuild FC on the one
+  # live ECS box against hostnames that do not exist.
+  #
+  # Re-enable together with the DNS cutover in
+  # docs/plans/2026-08-09-teamclu-rebrand-cutover.md, then run this workflow once
+  # via workflow_dispatch — re-enabling alone does not fire it, since restoring
+  # the trigger does not touch any of the paths below.
+  # push:
+  #   branches: [main]
+  #   paths:
+  #     - 'deploy/self-host/**'
+  #     - 'services/fc/**'
+  #     - 'services/supabase/migrations/**'
 
 # Shared with daemon-deploy.yml deploy job — both reset /opt/teamclaw on the
 # same ECS box. Never cancel mid compose build / up.
@@ -244,7 +255,7 @@ jobs:
             # Merge instead of overwrite: an entry added by hand on the box (a new
             # client scheme, a staging callback) must survive the next deploy.
             redirects="$(grep '^ADDITIONAL_REDIRECT_URLS=' .env | head -1 | cut -d= -f2-)"
-            for want in 'http://127.0.0.1:*/callback' 'teamclaw://auth-callback'; do
+            for want in 'http://127.0.0.1:*/callback' 'teamclu://auth-callback'; do
               printf '%s' "$redirects" | tr ',' '\n' | grep -Fxq "$want" \
                 || redirects="${redirects:+$redirects,}$want"
             done

@@ -178,45 +178,45 @@ mod tests {
         let repo = tmp.path();
         run(&["init"], repo);
         cfg(repo);
-        std::fs::create_dir_all(repo.join("skills")).unwrap();
-        std::fs::write(repo.join("skills/x.md"), "v1\n").unwrap();
+        std::fs::create_dir_all(repo.join("knowledge")).unwrap();
+        std::fs::write(repo.join("knowledge/x.md"), "v1\n").unwrap();
         run(&["add", "-A"], repo);
         run(&["commit", "-m", "first"], repo);
-        std::fs::write(repo.join("skills/x.md"), "v2\n").unwrap();
+        std::fs::write(repo.join("knowledge/x.md"), "v2\n").unwrap();
         run(&["add", "-A"], repo);
         run(&["commit", "-m", "second"], repo);
 
         assert!(is_git_team(repo));
 
-        let versions = git_list_versions(repo, "skills/x.md");
+        let versions = git_list_versions(repo, "knowledge/x.md");
         assert_eq!(versions.len(), 2);
         assert_eq!(versions[0].message.as_deref(), Some("second"));
         assert_eq!(versions[1].message.as_deref(), Some("first"));
 
         let older = &versions[1].reference;
         assert_eq!(
-            git_show(repo, older, "skills/x.md").as_deref(),
+            git_show(repo, older, "knowledge/x.md").as_deref(),
             Some("v1\n")
         );
         assert_eq!(
-            git_show(repo, "baseline", "skills/x.md").as_deref(),
+            git_show(repo, "baseline", "knowledge/x.md").as_deref(),
             Some("v2\n")
         );
         assert_eq!(git_show(repo, "HEAD", "nope.md"), None);
 
-        std::fs::write(repo.join("skills/x.md"), "v3-dirty\n").unwrap();
+        std::fs::write(repo.join("knowledge/x.md"), "v3-dirty\n").unwrap();
         let changed = git_changed(repo);
         assert_eq!(changed.len(), 1);
-        assert_eq!(changed[0].path, "skills/x.md");
+        assert_eq!(changed[0].path, "knowledge/x.md");
         assert_eq!(changed[0].status, "modified");
 
         // non-ASCII filename must survive porcelain -z parsing verbatim
-        std::fs::write(repo.join("skills/中文.md"), "hi\n").unwrap();
+        std::fs::write(repo.join("knowledge/中文.md"), "hi\n").unwrap();
         let changed2 = git_changed(repo);
         assert!(
             changed2
                 .iter()
-                .any(|c| c.path == "skills/中文.md" && c.status == "added"),
+                .any(|c| c.path == "knowledge/中文.md" && c.status == "added"),
             "expected untracked non-ASCII file, got {:?}",
             changed2
         );

@@ -88,7 +88,7 @@ fn read_path_cache(cache_path: &std::path::Path, current_mtime: u64) -> Option<S
     Some(path.to_string())
 }
 
-/// Write PATH cache file. Creates ~/.teamclaw/ if needed.
+/// Write PATH cache file. Creates ~/.teamclu/ if needed.
 fn write_path_cache(cache_path: &std::path::Path, mtime: u64, path: &str) {
     if let Some(parent) = cache_path.parent() {
         let _ = std::fs::create_dir_all(parent);
@@ -173,7 +173,7 @@ fn fix_path_env() {
     // Try cache first
     let home = std::env::var("HOME").unwrap_or_default();
     let cache_path = std::path::PathBuf::from(&home)
-        .join(commands::TEAMCLAW_DIR)
+        .join(commands::TEAMCLU_DIR)
         .join("cached-path.txt");
     let profile_mtime = get_shell_profile_mtime(&shell, &home);
 
@@ -325,7 +325,7 @@ pub fn run() {
             #[cfg(debug_assertions)]
             {
                 tauri_plugin_mcp::init_with_config(
-                    tauri_plugin_mcp::PluginConfig::new(String::from("teamclaw"))
+                    tauri_plugin_mcp::PluginConfig::new(String::from("teamclu"))
                         .socket_path(std::path::PathBuf::from("/tmp/tauri-mcp.sock"))
                 )
             }
@@ -342,7 +342,6 @@ pub fn run() {
         .manage(local_cache::commands::LocalCacheState::default())
         .manage(commands::amuxd_supervisor::AmuxdSupervisor::new())
 
-        .manage(teamclaw_stt::SttState::default())
         .manage({
             #[allow(unused_mut)]
             let mut wvm = commands::webview::WebviewManager::default();
@@ -371,12 +370,6 @@ pub fn run() {
             commands::open_with_default_app,
             commands::open_in_terminal,
             commands::system_appearance::get_system_accent_color,
-            commands::stt::stt_is_available,
-            commands::stt::stt_start_listening,
-            commands::stt::stt_stop_listening,
-            commands::stt::stt_list_downloadable_models,
-            commands::stt::stt_download_model,
-            commands::stt::stt_delete_model,
             commands::knowledge::convert_to_markdown,
             commands::knowledge::batch_convert_to_markdown,
             commands::knowledge::rag_index,
@@ -410,6 +403,7 @@ pub fn run() {
             commands::gateway::load_channel_config,
             commands::gateway::save_channel_config,
             commands::gateway::reload_channels,
+            commands::gateway::test_seatalk_credentials,
             commands::gateway::qr::start_wechat_qr_login,
             commands::gateway::qr::poll_wechat_qr_status,
             commands::gateway::qr::start_wecom_qr_auth,
@@ -594,6 +588,7 @@ pub fn run() {
             commands::window_chrome::get_window_close_preference,
             commands::window_chrome::set_window_close_preference,
             commands::tray_menu::update_tray_menu_labels,
+            commands::app_menu::update_app_menu_labels,
             commands::team_share::team_share_create,
             commands::team_share::enable::team_share_enable_oss,
             commands::team_share::enable::team_share_enable_managed_git,
@@ -630,7 +625,7 @@ pub fn run() {
             // exposed the same store under `/api/rag/*` for an "MCP bridge"
             // that no longer exists — nothing in the repo, the sidecar
             // binaries, or any MCP config ever called it. All it still did was
-            // fail to bind on relaunch and report it (Sentry TEAMCLAW-2, the
+            // fail to bind on relaunch and report it (Sentry TEAMCLU-2, the
             // loudest Rust issue we had), so it is gone.
 
             // Start introspect MCP internal API server
@@ -675,6 +670,19 @@ pub fn run() {
             {
                 let state = app.state::<commands::window_chrome::MainWindowState>();
                 commands::window_chrome::load_close_preference(app.handle(), &state);
+            }
+
+            // --- App menu bar (Settings… ⌘,, brand-correct About/Hide/Quit) ---
+            match commands::app_menu::install_app_menu(app.handle()) {
+                Ok(settings_item) => {
+                    app.manage(commands::app_menu::AppMenuState::new(settings_item));
+                    app.on_menu_event(|app, event| {
+                        if event.id().as_ref() == commands::app_menu::APP_SETTINGS_ID {
+                            commands::app_menu::open_app_settings(app);
+                        }
+                    });
+                }
+                Err(e) => eprintln!("[Startup] install_app_menu failed: {e}"),
             }
 
             // --- System Tray ---

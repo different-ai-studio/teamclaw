@@ -1,6 +1,6 @@
 # Remote Tools MCP
 
-Agent-side tools that execute on the TeamClaw **client** (Chrome extension, future desktop/iOS) via MQTT RPC.
+Agent-side tools that execute on the TeamClu **client** (Chrome extension, future desktop/iOS) via MQTT RPC.
 
 ## Architecture
 

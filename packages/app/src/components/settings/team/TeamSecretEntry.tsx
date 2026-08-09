@@ -67,14 +67,30 @@ export function TeamSecretEntry({ teamId, workspacePath, onSaved, allowGenerate 
   useEffect(() => {
     let cancelled = false
     void (async () => {
-      const saved = await getSecret(teamId, workspacePath)
+      let saved: string | null = null
+      try {
+        saved = await getSecret(teamId, workspacePath)
+      } catch (e) {
+        // Unreadable store, not "unset". Say so instead of showing a blank box
+        // that invites the user to retype a key they already configured.
+        if (!cancelled) {
+          setError(
+            t(
+              'settings.teamSecret.storeUnreadable',
+              'Cannot read the local secret store: {{msg}}',
+              { msg: e instanceof Error ? e.message : String(e) },
+            ),
+          )
+        }
+        return
+      }
       if (cancelled || !saved) return
       setValue((cur) => (cur.trim().length === 0 ? saved : cur))
     })()
     return () => {
       cancelled = true
     }
-  }, [teamId, workspacePath, getSecret])
+  }, [teamId, workspacePath, getSecret, t])
 
   const trimmed = value.trim()
   const valid = trimmed.length > 0

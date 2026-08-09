@@ -83,7 +83,7 @@ async function createExtensionLinkSession(input: {
     useEngagedAgentStore.getState().setAgents(sessionId, [
       { id: input.agent.agentId, displayName: input.agent.displayName },
     ])
-    void import('@/lib/teamclaw/ensure-agent-runtime').then(({ ensureAgentRuntimesForSession }) => {
+    void import('@/lib/teamclu/ensure-agent-runtime').then(({ ensureAgentRuntimesForSession }) => {
       void ensureAgentRuntimesForSession({
         sessionId,
         teamId: input.teamId,

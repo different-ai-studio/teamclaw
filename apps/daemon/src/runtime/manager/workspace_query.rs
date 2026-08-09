@@ -58,7 +58,7 @@ impl RuntimeManager {
         &self,
         workspace_path: &str,
         workspace_id: &str,
-    ) -> Option<(teamclaw_runtime_env::ResolvedEnvSnapshot, Option<String>)> {
+    ) -> Option<(teamclu_runtime_env::ResolvedEnvSnapshot, Option<String>)> {
         self.active_handles_for_workspace(workspace_path, workspace_id)
             .find_map(|(_, handle)| {
                 handle

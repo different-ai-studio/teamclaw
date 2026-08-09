@@ -171,7 +171,7 @@ pub(crate) fn write_env_blob(
 }
 
 fn workspace_legacy_migration_pending(workspace_path: &str) -> Result<bool, String> {
-    let json = read_teamclaw_json(workspace_path)?;
+    let json = read_teamclu_json(workspace_path)?;
     Ok(!json
         .get(LEGACY_MIGRATION_MARKER_KEY)
         .and_then(|v| v.as_bool())
@@ -179,20 +179,20 @@ fn workspace_legacy_migration_pending(workspace_path: &str) -> Result<bool, Stri
 }
 
 fn mark_workspace_legacy_migration_complete(workspace_path: &str) -> Result<(), String> {
-    let mut json = read_teamclaw_json(workspace_path)?;
+    let mut json = read_teamclu_json(workspace_path)?;
     if let Some(obj) = json.as_object_mut() {
         obj.insert(
             LEGACY_MIGRATION_MARKER_KEY.to_string(),
             serde_json::Value::Bool(true),
         );
-        write_teamclaw_json(workspace_path, &json)?;
+        write_teamclu_json(workspace_path, &json)?;
     }
     Ok(())
 }
 
 fn workspace_can_persist_legacy_migration_marker(workspace_path: &str) -> bool {
-    let path = get_teamclaw_json_path(workspace_path);
-    Path::new(&path).exists() && read_teamclaw_json(workspace_path).is_ok()
+    let path = get_teamclu_json_path(workspace_path);
+    Path::new(&path).exists() && read_teamclu_json(workspace_path).is_ok()
 }
 
 fn mark_workspace_legacy_migration_complete_best_effort(workspace_path: &str) {
@@ -276,24 +276,24 @@ fn case_variant_keys_in_blob(
 ) -> Vec<String> {
     blob.keys()
         .filter(|k| env_keys_match(k, key))
-        .filter(|k| !teamclaw_runtime_env::is_internal_personal_blob_key(k))
+        .filter(|k| !teamclu_runtime_env::is_internal_personal_blob_key(k))
         .cloned()
         .collect()
 }
 
-/// Get the teamclaw.json path inside the workspace.
-fn get_teamclaw_json_path(workspace_path: &str) -> String {
+/// Get the teamclu.json path inside the workspace.
+fn get_teamclu_json_path(workspace_path: &str) -> String {
     format!(
         "{}/{}/{}",
         workspace_path,
-        super::TEAMCLAW_DIR,
+        super::TEAMCLU_DIR,
         super::CONFIG_FILE_NAME
     )
 }
 
-/// Read the envVars index from teamclaw.json (preserving all other fields).
-pub(crate) fn read_teamclaw_json(workspace_path: &str) -> Result<serde_json::Value, String> {
-    let path = get_teamclaw_json_path(workspace_path);
+/// Read the envVars index from teamclu.json (preserving all other fields).
+pub(crate) fn read_teamclu_json(workspace_path: &str) -> Result<serde_json::Value, String> {
+    let path = get_teamclu_json_path(workspace_path);
     if !Path::new(&path).exists() {
         return Ok(serde_json::json!({
             "$schema": "https://opencode.ai/config.json"
@@ -305,15 +305,15 @@ pub(crate) fn read_teamclaw_json(workspace_path: &str) -> Result<serde_json::Val
         .map_err(|e| format!("Failed to parse {}: {}", super::CONFIG_FILE_NAME, e))
 }
 
-/// Write the full teamclaw.json back (preserving all other fields).
-pub(crate) fn write_teamclaw_json(
+/// Write the full teamclu.json back (preserving all other fields).
+pub(crate) fn write_teamclu_json(
     workspace_path: &str,
     json: &serde_json::Value,
 ) -> Result<(), String> {
-    let teamclaw_dir = format!("{}/{}", workspace_path, super::TEAMCLAW_DIR);
-    let _ = std::fs::create_dir_all(&teamclaw_dir);
-    let path = get_teamclaw_json_path(workspace_path);
-    teamclaw_gateway::write_json_value_if_changed(&path, json)
+    let teamclu_dir = format!("{}/{}", workspace_path, super::TEAMCLU_DIR);
+    let _ = std::fs::create_dir_all(&teamclu_dir);
+    let path = get_teamclu_json_path(workspace_path);
+    teamclu_gateway::write_json_value_if_changed(&path, json)
         .map_err(|e| format!("Failed to write {}: {}", super::CONFIG_FILE_NAME, e))
 }
 
@@ -358,7 +358,7 @@ fn resolve_workspace_path(
 
 // ─── Tauri Commands ─────────────────────────────────────────────────────
 
-/// Internal: write env var to encrypted blob and update teamclaw.json index for a given workspace.
+/// Internal: write env var to encrypted blob and update teamclu.json index for a given workspace.
 /// Shared between the Tauri command (window-scoped) and `introspect_api` (HTTP path).
 pub(crate) async fn env_var_set_for_workspace(
     workspace_path: &str,
@@ -380,7 +380,7 @@ pub(crate) async fn env_var_set_for_workspace(
     .await
     .map_err(|e| e.to_string())??;
 
-    let mut json = read_teamclaw_json(workspace_path)?;
+    let mut json = read_teamclu_json(workspace_path)?;
     let mut entries = get_env_vars_from_json(&json);
 
     entries.retain(|e| !env_keys_match(&e.key, &key));
@@ -391,7 +391,7 @@ pub(crate) async fn env_var_set_for_workspace(
     });
 
     set_env_vars_in_json(&mut json, &entries);
-    write_teamclaw_json(workspace_path, &json)
+    write_teamclu_json(workspace_path, &json)
 }
 
 /// Retrieve an environment variable value from the local encrypted store.
@@ -416,13 +416,13 @@ pub async fn env_var_get(
         .ok_or_else(|| format!("Key '{}' not found", key))
 }
 
-/// Internal: delete env var from blob + teamclaw.json index for a given workspace.
+/// Internal: delete env var from blob + teamclu.json index for a given workspace.
 /// Shared between the Tauri command (window-scoped) and `introspect_api` (HTTP path).
 pub(crate) async fn env_var_delete_for_workspace(
     workspace_path: &str,
     key: String,
 ) -> Result<(), String> {
-    let mut json = read_teamclaw_json(workspace_path)?;
+    let mut json = read_teamclu_json(workspace_path)?;
     let mut entries = get_env_vars_from_json(&json);
 
     if let Some(entry) = entries.iter().find(|e| env_keys_match(&e.key, &key)) {
@@ -448,29 +448,65 @@ pub(crate) async fn env_var_delete_for_workspace(
 
     entries.retain(|e| !env_keys_match(&e.key, &key));
     set_env_vars_in_json(&mut json, &entries);
-    write_teamclaw_json(workspace_path, &json)
+    write_teamclu_json(workspace_path, &json)
 }
 
-/// Unified env catalog: personal/system defs from `teamclaw.json` plus team
+/// Unified env catalog: personal/system defs from `teamclu.json` plus team
 /// secrets discovered under the same `_secrets/` paths used by the daemon.
 #[tauri::command]
 pub async fn env_catalog_list(
     window: tauri::WebviewWindow,
     registry: State<'_, super::window::WindowRegistry>,
+    shared_secrets: State<'_, super::shared_secrets::SharedSecretsState>,
     team_id: Option<String>,
+    access_token: Option<String>,
+    cloud_api_url: Option<String>,
     workspace_path: Option<String>,
-) -> Result<teamclaw_runtime_env::env_catalog::EnvCatalog, String> {
+) -> Result<teamclu_runtime_env::env_catalog::EnvCatalog, String> {
     let workspace_path = resolve_workspace_path(workspace_path, &window, &registry)?;
     super::storage_migration::migrate_workspace_storage_namespace(&workspace_path);
     // team_id is required for the `_team_secret.{team_id}` personal-blob secret
-    // fallback: when `teamclaw.json` carries no inline `team.envSecret` (the
+    // fallback: when `teamclu.json` carries no inline `team.envSecret` (the
     // common case), passing None here leaves every team var undecryptable.
     let team_id = team_id.as_deref().map(str::trim).filter(|s| !s.is_empty());
-    Ok(teamclaw_runtime_env::env_catalog::load_env_catalog(
+    let mut catalog = teamclu_runtime_env::env_catalog::load_env_catalog(
         Path::new(&workspace_path),
         team_id,
         Some(super::APP_SHORT_NAME),
-    ))
+    );
+
+    // The on-disk scan above only ever finds legacy `_secrets/` files, which
+    // nothing writes any more — without this the team list would read as empty
+    // right after a successful save. Failures are logged, not surfaced: personal
+    // vars are already loaded and are worth returning on their own.
+    match super::shared_secrets::team_listings_from_cloud(
+        &shared_secrets,
+        &workspace_path,
+        team_id,
+        access_token.as_deref(),
+        cloud_api_url.as_deref(),
+    )
+    .await
+    {
+        Ok(cloud) if !cloud.is_empty() => {
+            // Cloud wins per key; any legacy file not yet migrated still shows.
+            let mut merged: Vec<_> = cloud;
+            let cloud_keys: std::collections::HashSet<String> =
+                merged.iter().map(|t| t.key_id.clone()).collect();
+            merged.extend(
+                catalog
+                    .team
+                    .into_iter()
+                    .filter(|t| !cloud_keys.contains(&t.key_id)),
+            );
+            merged.sort_by(|a, b| a.key_id.cmp(&b.key_id));
+            catalog.team = merged;
+        }
+        Ok(_) => {}
+        Err(e) => log::warn!("env_catalog_list: cloud team env unavailable: {e}"),
+    }
+
+    Ok(catalog)
 }
 
 /// Diagnostics for the team env-var sync chain, surfaced in the settings UI so
@@ -481,7 +517,7 @@ pub async fn env_catalog_list(
 pub struct TeamEnvDiagnostics {
     /// A non-empty team id was supplied by the caller.
     pub team_id_present: bool,
-    /// The workspace's team directory (usually the `teamclaw-team` symlink).
+    /// The workspace's team directory (usually the `teamclu-team` symlink).
     pub team_link_path: String,
     /// The team dir / link exists on disk.
     pub link_exists: bool,
@@ -491,10 +527,18 @@ pub struct TeamEnvDiagnostics {
     pub link_target: Option<String>,
     /// The path is accessible following the link (a dangling symlink is false).
     pub target_accessible: bool,
-    /// A `_secrets/` directory exists under the team dir.
+    /// Daemon cloud cache dir exists:
+    /// `~/.amuxd/teams/<teamId>/cloud/_secrets`.
     pub secrets_dir_exists: bool,
-    /// Count of `*.enc.json` secret files present under `_secrets/`.
+    /// Count of `*.enc.json` files in the daemon cloud cache (authoritative
+    /// after the Cloud API migration).
     pub secret_file_count: usize,
+    /// Absolute path of the cloud `_secrets` cache (empty when team id missing).
+    pub cloud_secrets_dir: String,
+    /// Legacy workspace `teamclu-team/_secrets` still present from the
+    /// git/OSS era. Informational only — cloud cache wins at runtime.
+    pub legacy_secrets_dir_exists: bool,
+    pub legacy_secret_file_count: usize,
     /// A local team secret is resolvable, so shared writes can be encrypted and
     /// existing secrets decrypted.
     pub secret_configured: bool,
@@ -516,7 +560,7 @@ pub async fn team_env_diagnostics(
         .map(str::to_string);
     let ws = Path::new(&workspace_path);
 
-    let link = teamclaw_runtime_env::env_catalog::resolve_team_dir_for_workspace(ws);
+    let link = teamclu_runtime_env::env_catalog::resolve_team_dir_for_workspace(ws);
     let symlink_meta = std::fs::symlink_metadata(&link).ok();
     let link_is_symlink = symlink_meta
         .as_ref()
@@ -532,17 +576,14 @@ pub async fn team_env_diagnostics(
     // `metadata` follows symlinks: a dangling link yields Err → not accessible.
     let target_accessible = std::fs::metadata(&link).is_ok();
 
-    let secrets_dir = link.join(super::shared_secrets::SECRETS_DIR);
-    let secrets_dir_exists = secrets_dir.exists();
-    let secret_file_count = std::fs::read_dir(&secrets_dir)
-        .map(|rd| {
-            rd.flatten()
-                .filter(|e| e.file_name().to_string_lossy().ends_with(".enc.json"))
-                .count()
-        })
-        .unwrap_or(0);
+    let (cloud_secrets_dir, secrets_dir_exists, secret_file_count) =
+        team_cloud_secrets_diag(team_id_trimmed.as_deref());
 
-    let secret_configured = teamclaw_runtime_env::env_catalog::resolve_team_env_secret(
+    let legacy_secrets_dir = link.join(super::shared_secrets::SECRETS_DIR);
+    let legacy_secrets_dir_exists = legacy_secrets_dir.exists();
+    let legacy_secret_file_count = count_enc_json_files(&legacy_secrets_dir);
+
+    let secret_configured = teamclu_runtime_env::env_catalog::resolve_team_env_secret(
         ws,
         team_id_trimmed.as_deref(),
         Some(super::APP_SHORT_NAME),
@@ -558,8 +599,36 @@ pub async fn team_env_diagnostics(
         target_accessible,
         secrets_dir_exists,
         secret_file_count,
+        cloud_secrets_dir,
+        legacy_secrets_dir_exists,
+        legacy_secret_file_count,
         secret_configured,
     })
+}
+
+/// `~/.amuxd/teams/<teamId>/cloud/_secrets` presence + `*.enc.json` count.
+pub(crate) fn team_cloud_secrets_diag(team_id: Option<&str>) -> (String, bool, usize) {
+    let Some(team_id) = team_id.map(str::trim).filter(|s| !s.is_empty()) else {
+        return (String::new(), false, 0);
+    };
+    let dir = super::amuxd_home_dir()
+        .join("teams")
+        .join(team_id)
+        .join("cloud")
+        .join(super::shared_secrets::SECRETS_DIR);
+    let exists = dir.exists();
+    let count = count_enc_json_files(&dir);
+    (dir.display().to_string(), exists, count)
+}
+
+pub(crate) fn count_enc_json_files(dir: &Path) -> usize {
+    std::fs::read_dir(dir)
+        .map(|rd| {
+            rd.flatten()
+                .filter(|e| e.file_name().to_string_lossy().ends_with(".enc.json"))
+                .count()
+        })
+        .unwrap_or(0)
 }
 
 /// Diagnostics for the personal env-var store + workspace index alignment.
@@ -576,7 +645,7 @@ pub struct PersonalEnvDiagnostics {
     pub stored_var_count: usize,
     pub user_stored_var_count: usize,
     pub workspace_index_count: usize,
-    /// Keys listed in `teamclaw.json` but absent from the encrypted blob.
+    /// Keys listed in `teamclu.json` but absent from the encrypted blob.
     pub index_keys_missing_from_blob: Vec<String>,
     /// Keys in the blob but not listed in the workspace index (non-system).
     pub blob_keys_missing_from_index: Vec<String>,
@@ -585,9 +654,9 @@ pub struct PersonalEnvDiagnostics {
 }
 
 fn gather_personal_env_diagnostics(workspace_path: &str) -> Result<PersonalEnvDiagnostics, String> {
-    let store = teamclaw_runtime_env::diagnose_personal_env_store_for_brand(super::APP_SHORT_NAME);
+    let store = teamclu_runtime_env::diagnose_personal_env_store_for_brand(super::APP_SHORT_NAME);
 
-    let json = read_teamclaw_json(workspace_path)?;
+    let json = read_teamclu_json(workspace_path)?;
     let index_keys: Vec<String> = get_env_vars_from_json(&json)
         .into_iter()
         .filter(|entry| entry.category.as_deref() != Some("system"))
@@ -615,7 +684,7 @@ fn gather_personal_env_diagnostics(workspace_path: &str) -> Result<PersonalEnvDi
         .iter()
         .filter(|key| {
             !index_key_set.contains(&key.to_ascii_lowercase())
-                && !teamclaw_runtime_env::is_internal_personal_blob_key(key)
+                && !teamclu_runtime_env::is_internal_personal_blob_key(key)
         })
         .take(8)
         .cloned()
@@ -625,8 +694,8 @@ fn gather_personal_env_diagnostics(workspace_path: &str) -> Result<PersonalEnvDi
         .into_iter()
         .filter_map(|(k, v)| v.as_str().map(|s| (k, s.to_string())))
         .collect();
-    let host_shadowed_keys = teamclaw_runtime_env::host_shadowed_env_keys(&env_map);
-    let user_stored_var_count = teamclaw_runtime_env::count_user_personal_env_keys(&env_map);
+    let host_shadowed_keys = teamclu_runtime_env::host_shadowed_env_keys(&env_map);
+    let user_stored_var_count = teamclu_runtime_env::count_user_personal_env_keys(&env_map);
 
     Ok(PersonalEnvDiagnostics {
         storage_dir: store.storage_dir,
@@ -679,6 +748,8 @@ pub(crate) async fn env_catalog_set_for_workspace(
     category: Option<String>,
     node_id: Option<String>,
     team_id: Option<String>,
+    access_token: Option<String>,
+    cloud_api_url: Option<String>,
 ) -> Result<(), String> {
     match parse_env_scope(scope)? {
         "personal" => env_var_set_for_workspace(workspace_path, key, value, description).await,
@@ -696,6 +767,8 @@ pub(crate) async fn env_catalog_set_for_workspace(
                 category.unwrap_or_else(|| "custom".to_string()),
                 node_id,
                 team_id,
+                access_token,
+                cloud_api_url,
             )
             .await
         }
@@ -713,6 +786,8 @@ pub(crate) async fn env_catalog_delete_for_workspace(
     node_id: Option<String>,
     role: Option<String>,
     team_id: Option<String>,
+    access_token: Option<String>,
+    cloud_api_url: Option<String>,
 ) -> Result<(), String> {
     match parse_env_scope(scope)? {
         "personal" => env_var_delete_for_workspace(workspace_path, key).await,
@@ -728,6 +803,8 @@ pub(crate) async fn env_catalog_delete_for_workspace(
                 node_id,
                 role.unwrap_or_default(),
                 team_id,
+                access_token,
+                cloud_api_url,
             )
             .await
         }
@@ -749,6 +826,8 @@ pub async fn env_catalog_set(
     category: Option<String>,
     node_id: Option<String>,
     team_id: Option<String>,
+    access_token: Option<String>,
+    cloud_api_url: Option<String>,
     workspace_path: Option<String>,
 ) -> Result<(), String> {
     let workspace_path = resolve_workspace_path(workspace_path, &window, &registry)?;
@@ -763,6 +842,8 @@ pub async fn env_catalog_set(
         category,
         node_id,
         team_id,
+        access_token,
+        cloud_api_url,
     )
     .await
 }
@@ -779,6 +860,8 @@ pub async fn env_catalog_delete(
     node_id: Option<String>,
     role: Option<String>,
     team_id: Option<String>,
+    access_token: Option<String>,
+    cloud_api_url: Option<String>,
     workspace_path: Option<String>,
 ) -> Result<(), String> {
     let workspace_path = resolve_workspace_path(workspace_path, &window, &registry)?;
@@ -791,6 +874,8 @@ pub async fn env_catalog_delete(
         node_id,
         role,
         team_id,
+        access_token,
+        cloud_api_url,
     )
     .await
 }
@@ -874,7 +959,7 @@ pub async fn env_var_resolve(
     Ok(result)
 }
 
-/// Ensure all system env vars exist in the local encrypted store and in the teamclaw.json index.
+/// Ensure all system env vars exist in the local encrypted store and in the teamclu.json index.
 /// If a key is missing from the blob, its default value is generated and written.
 /// If a key already has a value (user customized), it is left unchanged.
 /// This must be called on a blocking thread (disk I/O).
@@ -883,7 +968,7 @@ pub(crate) fn ensure_system_env_vars(workspace_path: &str, actor_id: &str) -> Re
         actor_id: actor_id.to_string(),
     };
     let mut blob = read_env_blob(workspace_path)?;
-    let mut json = read_teamclaw_json(workspace_path)?;
+    let mut json = read_teamclu_json(workspace_path)?;
     let mut entries = get_env_vars_from_json(&json);
     let mut blob_changed = false;
     let mut index_changed = false;
@@ -891,7 +976,7 @@ pub(crate) fn ensure_system_env_vars(workspace_path: &str, actor_id: &str) -> Re
     for def in SYSTEM_ENV_VARS {
         // `system-shared` defs never touch the local keychain blob — their values
         // live in `shared_secrets` (team KMS) and are injected into opencode at startup.
-        // We only register them in the teamclaw.json index so the key shows up in
+        // We only register them in the teamclu.json index so the key shows up in
         // the env-var UI on every member's machine.
         if !def.shared_default {
             let key_present_in_blob = blob.contains_key(def.key);
@@ -933,7 +1018,7 @@ pub(crate) fn ensure_system_env_vars(workspace_path: &str, actor_id: &str) -> Re
             }
         }
 
-        // Decide whether to register in the index (synced via teamclaw.json):
+        // Decide whether to register in the index (synced via teamclu.json):
         //   - shared_default:                always register (key shows in UI; value lives in shared_secrets).
         //   - SetIfAbsent (local):           always register so the key shows even before a value is set.
         //   - RegenerateAlways (local):      only when the blob holds a non-empty value
@@ -978,7 +1063,7 @@ pub(crate) fn ensure_system_env_vars(workspace_path: &str, actor_id: &str) -> Re
     }
     if index_changed {
         set_env_vars_in_json(&mut json, &entries);
-        write_teamclaw_json(workspace_path, &json)?;
+        write_teamclu_json(workspace_path, &json)?;
     }
 
     Ok(())
@@ -991,7 +1076,7 @@ pub(crate) fn ensure_system_env_vars(workspace_path: &str, actor_id: &str) -> Re
 /// Internal blob keys (`tc_api_key`, `_team_secret.*`) are skipped.
 pub(crate) fn derive_personal_env_index_from_blob(workspace_path: &str) -> Result<usize, String> {
     let blob = read_env_blob(workspace_path)?;
-    let mut json = read_teamclaw_json(workspace_path)?;
+    let mut json = read_teamclu_json(workspace_path)?;
     let mut entries = get_env_vars_from_json(&json);
     let index_lower: std::collections::HashSet<String> =
         entries.iter().map(|e| e.key.to_ascii_lowercase()).collect();
@@ -1003,7 +1088,7 @@ pub(crate) fn derive_personal_env_index_from_blob(workspace_path: &str) -> Resul
             if !value.is_string() {
                 return None;
             }
-            if teamclaw_runtime_env::is_internal_personal_blob_key(key) {
+            if teamclu_runtime_env::is_internal_personal_blob_key(key) {
                 return None;
             }
             Some(key.clone())
@@ -1025,7 +1110,7 @@ pub(crate) fn derive_personal_env_index_from_blob(workspace_path: &str) -> Resul
 
     if added > 0 {
         set_env_vars_in_json(&mut json, &entries);
-        write_teamclaw_json(workspace_path, &json)?;
+        write_teamclu_json(workspace_path, &json)?;
         println!(
             "[EnvVars] Derived {} personal envVars index entr{} from blob for '{}'",
             added,
@@ -1079,7 +1164,7 @@ mod tests {
 
         let legacy_blob_dir = home_dir
             .path()
-            .join(format!(".{}", teamclaw_runtime_env::OFFICIAL_STORAGE_DIR));
+            .join(format!(".{}", teamclu_runtime_env::OFFICIAL_STORAGE_DIR));
         std::fs::create_dir_all(&legacy_blob_dir).unwrap();
 
         let mut legacy_blob = serde_json::Map::new();
@@ -1212,15 +1297,15 @@ mod tests {
     }
 
     #[test]
-    fn existing_blob_reads_even_if_teamclaw_json_is_invalid() {
+    fn existing_blob_reads_even_if_teamclu_json_is_invalid() {
         let _home_guard = home_lock().lock().unwrap();
         let home_dir = tempdir().unwrap();
         let workspace_dir = tempdir().unwrap();
         let _home = HomeGuard::set(home_dir.path());
 
-        let teamclaw_dir = workspace_dir.path().join(super::super::TEAMCLAW_DIR);
-        std::fs::create_dir_all(&teamclaw_dir).unwrap();
-        std::fs::write(teamclaw_dir.join(super::super::CONFIG_FILE_NAME), "{").unwrap();
+        let teamclu_dir = workspace_dir.path().join(super::super::TEAMCLU_DIR);
+        std::fs::create_dir_all(&teamclu_dir).unwrap();
+        std::fs::write(teamclu_dir.join(super::super::CONFIG_FILE_NAME), "{").unwrap();
 
         let paths = SecretStorePaths::for_home_dir().unwrap();
         let workspace_path = workspace_dir.path().to_string_lossy().to_string();
@@ -1244,15 +1329,15 @@ mod tests {
     }
 
     #[test]
-    fn first_migration_succeeds_even_if_teamclaw_json_is_invalid() {
+    fn first_migration_succeeds_even_if_teamclu_json_is_invalid() {
         let _home_guard = home_lock().lock().unwrap();
         let home_dir = tempdir().unwrap();
         let workspace_dir = tempdir().unwrap();
         let _home = HomeGuard::set(home_dir.path());
 
-        let teamclaw_dir = workspace_dir.path().join(super::super::TEAMCLAW_DIR);
-        std::fs::create_dir_all(&teamclaw_dir).unwrap();
-        std::fs::write(teamclaw_dir.join(super::super::CONFIG_FILE_NAME), "{").unwrap();
+        let teamclu_dir = workspace_dir.path().join(super::super::TEAMCLU_DIR);
+        std::fs::create_dir_all(&teamclu_dir).unwrap();
+        std::fs::write(teamclu_dir.join(super::super::CONFIG_FILE_NAME), "{").unwrap();
 
         let workspace_path = workspace_dir.path().to_string_lossy().to_string();
         let loaded = read_env_blob(&workspace_path).unwrap();
@@ -1266,15 +1351,15 @@ mod tests {
     }
 
     #[test]
-    fn startup_retry_is_requested_when_teamclaw_json_is_invalid() {
+    fn startup_retry_is_requested_when_teamclu_json_is_invalid() {
         let _home_guard = home_lock().lock().unwrap();
         let home_dir = tempdir().unwrap();
         let workspace_dir = tempdir().unwrap();
         let _home = HomeGuard::set(home_dir.path());
 
-        let teamclaw_dir = workspace_dir.path().join(super::super::TEAMCLAW_DIR);
-        std::fs::create_dir_all(&teamclaw_dir).unwrap();
-        std::fs::write(teamclaw_dir.join(super::super::CONFIG_FILE_NAME), "{").unwrap();
+        let teamclu_dir = workspace_dir.path().join(super::super::TEAMCLU_DIR);
+        std::fs::create_dir_all(&teamclu_dir).unwrap();
+        std::fs::write(teamclu_dir.join(super::super::CONFIG_FILE_NAME), "{").unwrap();
 
         let paths = SecretStorePaths::for_home_dir().unwrap();
         let workspace_path = workspace_dir.path().to_string_lossy().to_string();
@@ -1306,10 +1391,10 @@ mod tests {
         let workspace_dir = tempdir().unwrap();
         let _home = HomeGuard::set(home_dir.path());
 
-        let teamclaw_dir = workspace_dir.path().join(super::super::TEAMCLAW_DIR);
-        std::fs::create_dir_all(&teamclaw_dir).unwrap();
+        let teamclu_dir = workspace_dir.path().join(super::super::TEAMCLU_DIR);
+        std::fs::create_dir_all(&teamclu_dir).unwrap();
         std::fs::write(
-            teamclaw_dir.join(super::super::CONFIG_FILE_NAME),
+            teamclu_dir.join(super::super::CONFIG_FILE_NAME),
             serde_json::json!({
                 "envVars": [
                     { "key": "jira_token", "description": "lower" },
@@ -1345,7 +1430,7 @@ mod tests {
         assert!(!remaining_blob.contains_key("jira_token"));
         assert!(!remaining_blob.contains_key("JIRA_TOKEN"));
 
-        let json = read_teamclaw_json(&workspace_path).unwrap();
+        let json = read_teamclu_json(&workspace_path).unwrap();
         let entries = get_env_vars_from_json(&json);
         assert!(entries.is_empty());
     }
@@ -1357,10 +1442,10 @@ mod tests {
         let workspace_dir = tempdir().unwrap();
         let _home = HomeGuard::set(home_dir.path());
 
-        let teamclaw_dir = workspace_dir.path().join(super::super::TEAMCLAW_DIR);
-        std::fs::create_dir_all(&teamclaw_dir).unwrap();
+        let teamclu_dir = workspace_dir.path().join(super::super::TEAMCLU_DIR);
+        std::fs::create_dir_all(&teamclu_dir).unwrap();
         std::fs::write(
-            teamclaw_dir.join(super::super::CONFIG_FILE_NAME),
+            teamclu_dir.join(super::super::CONFIG_FILE_NAME),
             r#"{"envVars":[{"key":"tc_api_key","category":"system"}]}"#,
         )
         .unwrap();
@@ -1385,7 +1470,7 @@ mod tests {
         let added = derive_personal_env_index_from_blob(&workspace_path).unwrap();
         assert_eq!(added, 1);
 
-        let json = read_teamclaw_json(&workspace_path).unwrap();
+        let json = read_teamclu_json(&workspace_path).unwrap();
         let entries = get_env_vars_from_json(&json);
         let keys: Vec<_> = entries.iter().map(|e| e.key.as_str()).collect();
         assert!(keys.contains(&"tc_api_key"));

@@ -79,7 +79,7 @@ Run: `grep -n "create or replace function public.create_team_invite" services/su
 - [ ] **Step 5: 提交**
 
 ```bash
-cd /Volumes/openbeta/workspace/teamclaw-v2/.worktrees/unified-install-onboarding
+cd /Volumes/openbeta/workspace/teamclu-v2/.worktrees/unified-install-onboarding
 git branch --show-current   # must be agent/unified-install-onboarding
 git add services/supabase/migrations/20260602000000_create_team_invite_owner_check.sql
 git commit -m "fix(db): require agent owner to re-invite via create_team_invite (authz)"

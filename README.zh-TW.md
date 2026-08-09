@@ -1,8 +1,8 @@
-# TeamClaw
+# TeamClu
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
-[![CI](https://github.com/different-ai-studio/teamclaw/actions/workflows/ci.yml/badge.svg)](https://github.com/different-ai-studio/teamclaw/actions)
-[![Contributors](https://img.shields.io/github/contributors/different-ai-studio/teamclaw.svg)](https://github.com/different-ai-studio/teamclaw/graphs/contributors)
+[![CI](https://github.com/different-ai-studio/teamclu/actions/workflows/ci.yml/badge.svg)](https://github.com/different-ai-studio/teamclu/actions)
+[![Contributors](https://img.shields.io/github/contributors/different-ai-studio/teamclu.svg)](https://github.com/different-ai-studio/teamclu/graphs/contributors)
 
 本地智慧體 — 你在每個職位上的 AI 搭檔
 
@@ -19,15 +19,15 @@
 
 | 首頁 | 頻道 |
 |---|---|
-| ![TeamClaw Home](images/home.png) | ![TeamClaw Channels](images/channel.png) |
+| ![TeamClu Home](images/home.png) | ![TeamClu Channels](images/channel.png) |
 
 ## 功能特性
 
 - **三欄式工作區** — 側邊欄、聊天區與詳情面板
-- **本地智慧體執行時** — 智慧體在你自己的機器上執行，由 `amuxd` 常駐程式透過 ACP 協定託管
+- **本地智慧體執行時** — 智慧體在你自己的機器上執行，由 `amuxd` 常駐程式託管
 - **通道閘道** — 從 Discord、飛書、Email、Kook、企業微信與微信觸達你的智慧體
 - **自動化** — 透過 cron 執行排程任務
-- **團隊協作** — 透過 OSS 或 Git 共享工作區；詳見 [團隊協作](#團隊協作)
+- **團隊協作** — 透過 OSS 或 Git 共享團隊碟（`teamclu-team/`）；詳見 [團隊協作](#團隊協作)
 - **MCP 支援** — 透過 Model Context Protocol 將智慧體連接到企業系統
 - **Skills / 外掛** — 以工作區層級與全域技能來源擴充智慧體
 - **知識庫** — 全文與嵌入向量的索引及搜尋
@@ -36,7 +36,7 @@
 
 ## 運作方式
 
-TeamClaw 分為用戶端層、智慧體宿主與雲端後端三部分：
+TeamClu 分為用戶端層、智慧體宿主與雲端後端三部分：
 
 ```
   Desktop (Tauri)     iOS      Mobile (Expo)     Chrome extension
@@ -44,23 +44,23 @@ TeamClaw 分為用戶端層、智慧體宿主與雲端後端三部分：
         └──────────────┴─────┬──────┴──────────────────┘
                              │
               ┌──────────────┴───────────────┐
-              │      TeamClaw Cloud API      │   identity, teams,
+              │      TeamClu Cloud API      │   identity, teams,
               │            (/v1)             │   sessions, messages
               └──────────────┬───────────────┘
                              │
                     ┌────────┴────────┐
                     │   amux daemon   │  agent host + channel gateways
                     │    (amuxd)      │  + team sync (git / OSS)
-                    └────┬───────┬────┘
-                         │ ACP   │ ACP
-                    ┌────┴──┐ ┌──┴────┐
-                    │opencode│ │ codex │  …
-                    └────────┘ └───────┘
+                    └────────┬────────┘
+                             │ HTTP / RPC
+                    ┌────────┴────────┐
+                    │ local agents    │  opencode (default), …
+                    └─────────────────┘
 ```
 
-- **用戶端** 負責 UI 與本地檔案。安裝 TeamClaw Desktop 時會一併安裝 `amuxd` 常駐程式，因此你的機器開箱即為智慧體宿主。
-- **amuxd** 透過 ACP 託管智慧體程序、執行通道閘道，並負責團隊同步。它也可以獨立安裝在伺服器上，不需要 GUI。
-- **Cloud API**（`/v1`）是用戶端唯一對話的後端。介面契約請見 [`docs/openapi/teamclaw-api.v1.yaml`](docs/openapi/teamclaw-api.v1.yaml)，完整架構請見 [`docs/architecture/v2.md`](docs/architecture/v2.md)。
+- **用戶端** 負責 UI 與本地檔案。安裝 TeamClu Desktop 時會一併安裝 `amuxd` 常駐程式，因此你的機器開箱即為智慧體宿主。
+- **amuxd** 託管本地智慧體後端、執行通道閘道，並負責團隊同步。它也可以獨立安裝在伺服器上，不需要 GUI。
+- **Cloud API**（`/v1`）是用戶端唯一對話的後端。介面契約請見 [`docs/openapi/teamclu-api.v1.yaml`](docs/openapi/teamclu-api.v1.yaml)，完整架構請見 [`docs/architecture/v2.md`](docs/architecture/v2.md)。
 
 ## 用戶端
 
@@ -73,14 +73,14 @@ TeamClaw 分為用戶端層、智慧體宿主與雲端後端三部分：
 
 ## 安裝
 
-從 [GitHub Releases](https://github.com/different-ai-studio/teamclaw/releases) 下載對應平台的安裝程式 — macOS 為 `.dmg`，Windows 為 `.exe`。
+從 [GitHub Releases](https://github.com/different-ai-studio/teamclu/releases) 下載對應平台的安裝程式 — macOS 為 `.dmg`，Windows 為 `.exe`。
 
 ### macOS 提示「已損毀」時
 
 若 macOS 提示應用程式 **「已損毀」** 或 **「無法開啟，因為無法驗證開發者」**，這是 Gatekeeper 對未簽章下載檔案的反應。清除隔離屬性即可：
 
 ```bash
-xattr -cr /Applications/TeamClaw.app
+xattr -cr /Applications/TeamClu.app
 ```
 
 若建置版本已使用 Apple 開發者憑證簽章並公證，則無需此步驟。
@@ -94,7 +94,7 @@ pnpm install
 pnpm tauri:dev
 ```
 
-啟動後，在 TeamClaw 介面中選擇一個工作區目錄。
+啟動後，在 TeamClu 介面中選擇一個工作區目錄。
 
 若要在開發時略過首次執行的設定精靈：
 
@@ -106,7 +106,7 @@ pnpm tauri:dev -- --skip-setup --skip-daemon-onboarding
 
 ## 團隊協作
 
-團隊透過三種**共享模式**之一來共享工作區，在團隊引導流程中選定一次後，即由伺服器端鎖定：
+團隊共享的是專用**團隊碟**（`teamclu-team/`），而非整個工作區。引導流程中由擁有者選定一種**共享模式**，之後由伺服器端鎖定：
 
 | 模式 | 作用 |
 |---|---|
@@ -114,7 +114,7 @@ pnpm tauri:dev -- --skip-setup --skip-daemon-onboarding
 | `managed_git` | 透過為你佈建的 Git 倉庫同步 |
 | `custom_git` | 透過你自行託管的 Git 倉庫同步 |
 
-同步由 `amuxd` 常駐程式負責，並由它執行 Git 與 OSS 引擎。
+同步由 `amuxd` 常駐程式負責：每個團隊在 `~/.amuxd/teams/<team_id>/` 下保留一份全域副本，每個已連結的工作區透過 `teamclu-team` 符號連結指向該副本。
 
 ### 共享內容
 
@@ -124,12 +124,12 @@ pnpm tauri:dev -- --skip-setup --skip-daemon-onboarding
 - `.mcp/` — MCP 伺服器設定
 - `knowledge/` — 團隊知識庫文件
 
-個人檔案與工作區設定永遠不會被同步。
+個人檔案與工作區其餘內容保留在本地。
 
 ### 注意事項
 
 - Git 模式需要可用的 Git 認證（SSH key 或 HTTPS token）。
-- 共享檔案以遠端為準；對其進行的本地修改會在同步時被覆蓋。
+- OSS 同步可能出現衝突，可在團隊共享檔案介面中解決。
 - 同步會在應用程式啟動時執行，也可從 **Settings → Team** 手動觸發。
 
 ## 設定
@@ -146,11 +146,11 @@ build.config.json → build.config.${BUILD_ENV}.json → build.config.local.json
 cp build.config.example.json build.config.local.json
 ```
 
-最關鍵的設定是 `cloudApiUrl`，它指向應用程式所使用的 TeamClaw Cloud API 部署：
+最關鍵的設定是 `cloudApiUrl`，它指向應用程式所使用的 TeamClu Cloud API 部署：
 
 ```json
 {
-  "cloudApiUrl": "https://api.teamclaw-dev.ucar.cc",
+  "cloudApiUrl": "https://api.teamclu-dev.ucar.cc",
   "features": {
     "channels": { "discord": true, "feishu": true, "email": true }
   }
@@ -164,7 +164,7 @@ Cloud API 的實作位於 `services/fc/`（Node.js 20），以 Supabase 為後�
 ## 文件
 
 - [架構](docs/architecture/v2.md) — 元件、拓撲與資料模型
-- [API 契約](docs/openapi/teamclaw-api.v1.yaml) — TeamClaw Cloud API `/v1`
+- [API 契約](docs/openapi/teamclu-api.v1.yaml) — TeamClu Cloud API `/v1`
 - [上下文地圖](CONTEXT-MAP.md) — 倉庫如何劃分為各個界限上下文
 - [貢獻指南](CONTRIBUTING.md) — 開發環境、測試、倉庫結構
 - [安全政策](SECURITY.md)
@@ -182,7 +182,7 @@ Cloud API 的實作位於 `services/fc/`（Node.js 20），以 Supabase 為後�
 ## 技術棧
 
 - **桌面端**：Tauri 2.0 (Rust)
-- **常駐程式**：Rust (`amuxd`)，基於 Zed agent protocol 的 ACP
+- **常駐程式**：Rust (`amuxd`)，本地智慧體後端（opencode HTTP 等）
 - **前端**：React 19 + TypeScript、Tailwind CSS 4、Zustand
 - **iOS**：SwiftUI + SwiftPM (`AMUXCore`)
 - **編輯器**：Tiptap（Markdown / HTML）、CodeMirror 6（程式碼）、Shiki（語法高亮）

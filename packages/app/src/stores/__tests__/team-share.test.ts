@@ -6,7 +6,7 @@ describe('ShareStatus shape', () => {
     const s: ShareStatus = {
       mode: 'oss',
       linkStatus: 'symlink',
-      globalPath: '/home/u/.amuxd/teams/team-1/teamclaw-team',
+      globalPath: '/home/u/.amuxd/teams/team-1/teamclu-team',
     }
     expect(s.linkStatus).toBe('symlink')
     expect(s.globalPath).toContain('.amuxd/teams/team-1')
@@ -29,7 +29,7 @@ describe('normalizeShareStatus', () => {
       gitRemoteUrl: 'https://git.example.com/repo.git',
       gitAuthKind: 'https_token',
       linkStatus: 'symlink',
-      globalPath: '/home/u/.amuxd/teams/t/teamclaw-team',
+      globalPath: '/home/u/.amuxd/teams/t/teamclu-team',
     })
     expect(normalized.mode).toBeNull()
     expect(normalized.gitRemoteUrl).toBeNull()

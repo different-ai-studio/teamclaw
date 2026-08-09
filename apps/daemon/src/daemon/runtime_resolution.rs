@@ -64,14 +64,14 @@ pub(crate) fn resolve_requested_agent_type(
 }
 
 pub(crate) fn runtime_start_initial_model_override(
-    start: &crate::proto::teamclaw::RuntimeStartRequest,
+    start: &crate::proto::teamclu::RuntimeStartRequest,
 ) -> Option<String> {
     let model_id = start.model_id.trim();
     (!model_id.is_empty()).then(|| model_id.to_string())
 }
 
 pub(crate) fn session_message_model_override(
-    message: &crate::proto::teamclaw::Message,
+    message: &crate::proto::teamclu::Message,
 ) -> Option<String> {
     let model_id = message.model.trim();
     (!model_id.is_empty()).then(|| model_id.to_string())
@@ -248,7 +248,7 @@ mod tests {
 
     #[test]
     fn runtime_start_model_id_becomes_initial_spawn_override() {
-        let start = crate::proto::teamclaw::RuntimeStartRequest {
+        let start = crate::proto::teamclu::RuntimeStartRequest {
             model_id: "opencode/deepseek-v4-flash-free".to_string(),
             ..Default::default()
         };
@@ -289,7 +289,7 @@ mod tests {
 
     #[test]
     fn runtime_start_empty_model_id_has_no_initial_spawn_override() {
-        let start = crate::proto::teamclaw::RuntimeStartRequest {
+        let start = crate::proto::teamclu::RuntimeStartRequest {
             model_id: "   ".to_string(),
             ..Default::default()
         };
@@ -299,7 +299,7 @@ mod tests {
 
     #[test]
     fn session_message_model_becomes_route_override() {
-        let message = crate::proto::teamclaw::Message {
+        let message = crate::proto::teamclu::Message {
             model: "opencode/deepseek-v4-flash-free".to_string(),
             ..Default::default()
         };
@@ -312,7 +312,7 @@ mod tests {
 
     #[test]
     fn session_message_empty_model_has_no_route_override() {
-        let message = crate::proto::teamclaw::Message {
+        let message = crate::proto::teamclu::Message {
             model: "   ".to_string(),
             ..Default::default()
         };

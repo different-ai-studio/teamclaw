@@ -54,7 +54,7 @@ let wikiBuildSeq = 0
 let wikiRebuildTimer: ReturnType<typeof setTimeout> | null = null
 
 // Bounded re-arm for the knowledge file watcher. On first run a team
-// `knowledge/` dir may not exist yet (its `teamclaw-team` symlink target isn't
+// `knowledge/` dir may not exist yet (its `teamclu-team` symlink target isn't
 // cloned), so the watcher covers only the dirs that exist and reports
 // incomplete; we poll a few times until the rest materialize, then stop.
 let watcherRearmTimer: ReturnType<typeof setTimeout> | null = null

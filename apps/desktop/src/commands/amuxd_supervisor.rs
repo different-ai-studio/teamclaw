@@ -26,11 +26,11 @@ const HEALTH_TICK: Duration = Duration::from_millis(200);
 const STOP_TIMEOUT: Duration = Duration::from_secs(8);
 /// Cmd+Q: brief grace for SIGTERM before SIGKILL + wait (reap).
 const EXIT_CHILD_GRACE: Duration = Duration::from_millis(500);
-const INTROSPECT_ENV: &str = "TEAMCLAW_INTROSPECT_BIN";
-const CURSOR_BRIDGE_MAIN_ENV: &str = "TEAMCLAW_CURSOR_BRIDGE_MAIN";
-const CLAUDE_BRIDGE_MAIN_ENV: &str = "TEAMCLAW_CLAUDE_BRIDGE_MAIN";
-const BRAND_SHORT_NAME_ENV: &str = teamclaw_runtime_env::BRAND_SHORT_NAME_ENV;
-const AMUXD_HOME_ENV: &str = teamclaw_runtime_env::AMUXD_HOME_ENV;
+const INTROSPECT_ENV: &str = "TEAMCLU_INTROSPECT_BIN";
+const CURSOR_BRIDGE_MAIN_ENV: &str = "TEAMCLU_CURSOR_BRIDGE_MAIN";
+const CLAUDE_BRIDGE_MAIN_ENV: &str = "TEAMCLU_CLAUDE_BRIDGE_MAIN";
+const BRAND_SHORT_NAME_ENV: &str = teamclu_runtime_env::BRAND_SHORT_NAME_ENV;
+const AMUXD_HOME_ENV: &str = teamclu_runtime_env::AMUXD_HOME_ENV;
 const LAUNCHD_LABEL: &str = "cc.ucar.amuxd";
 
 struct SupervisorInner {
@@ -129,7 +129,7 @@ fn bundled_amuxd() -> Result<PathBuf, String> {
 }
 
 fn bundled_introspect_path() -> Option<PathBuf> {
-    locate_bundled_sidecar("teamclaw-introspect")
+    locate_bundled_sidecar("teamclu-introspect")
 }
 
 fn locate_bundled_bridge_main(bridge_name: &str) -> Option<PathBuf> {

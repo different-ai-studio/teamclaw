@@ -31,7 +31,7 @@ has it.
 
 ## Project Overview
 
-TeamClaw is an AI Agent Desktop Platform built with Tauri 2.0 + React 19. Three-column layout chat/collaboration tool with local AI agents, team sync (Git / OSS, owned by the amuxd daemon), and multi-channel gateways.
+TeamClu is an AI Agent Desktop Platform built with Tauri 2.0 + React 19. Three-column layout chat/collaboration tool with local AI agents, team sync (Git / OSS, owned by the amuxd daemon), and multi-channel gateways.
 
 ## Commands
 
@@ -83,7 +83,7 @@ pnpm ios:test               # iOS UI tests
 - `services/supabase/` — Supabase migrations, seed, and database tests
 - `services/fc/` — Cloud API service (Node.js 20). Deploys two ways: as the
   self-host container (what runs today) or to Alibaba Function Compute (`s.yaml`)
-- `crates/` — shared Rust crates (`teamclaw-proto`, `teamclaw-types`, `teamclaw-transport`)
+- `crates/` — shared Rust crates (`teamclu-proto`, `teamclu-types`, `teamclu-transport`)
 - `tests/` — E2E tests (tauri-mcp): smoke, regression, performance, functional
 
 **Frontend key paths:**
@@ -94,15 +94,15 @@ pnpm ios:test               # iOS UI tests
 
 **Rust backend key paths:**
 - `apps/desktop/src/commands/` — Tauri IPC commands (oss_sync/, team_share/, team_git.rs, gateway/, cron/, etc.)
-- `apps/desktop/crates/teamclaw-rag/` — Full-text search (Tantivy) + embeddings
-- `apps/desktop/crates/teamclaw-stt/` — Speech-to-text (Whisper)
-- `apps/desktop/binaries/` — sidecar binaries (teamclaw-introspect, etc.)
+- `apps/desktop/crates/teamclu-rag/` — Full-text search (Tantivy) + embeddings
+- `apps/desktop/crates/teamclu-stt/` — Speech-to-text (Whisper)
+- `apps/desktop/binaries/` — sidecar binaries (teamclu-introspect, etc.)
 
 **Editor system:** Markdown (Tiptap) / HTML (Tiptap + sandbox preview) / Code (CodeMirror 6 + Shiki)
 
 **Agent runtime:** the amuxd daemon drives official opencode (sst/opencode)
 over `opencode serve` HTTP — a single global opencode instance per device, one
-opencode session per TeamClaw session. The former multi-agent ACP layer
+opencode session per TeamClu session. The former multi-agent ACP layer
 (claude-code / codex adapters, per-runtime processes) has been removed. See
 `docs/architecture/single-agent-opencode-http.md`.
 
@@ -110,7 +110,7 @@ opencode session per TeamClaw session. The former multi-agent ACP layer
 
 **`cloud_api` is the only backend kind for clients. The `supabase` and `pocketbase` backend kinds have been removed from `packages/app/`. Direct `@supabase/supabase-js` usage in client code is forbidden and enforced by a guardrail test (`packages/app/src/lib/backend/__tests__/no-supabase-import.test.ts`).**
 
-The API contract is defined in `docs/openapi/teamclaw-api.v1.yaml`. All business data operations must go through the TeamClaw Cloud API (`/v1`) rather than direct Supabase client calls.
+The API contract is defined in `docs/openapi/teamclu-api.v1.yaml`. All business data operations must go through the TeamClu Cloud API (`/v1`) rather than direct Supabase client calls.
 
 The Cloud API facade (`services/fc/lib/business-api.mjs`) is the canonical entry point for teams, sessions, messages, and invite operations. Clients (Tauri, Expo, iOS, daemon) should use their respective Cloud API providers:
 
@@ -123,7 +123,7 @@ Direct Supabase client usage (e.g. `supabase.from('sessions').select()`) is **re
 
 **When adding new business endpoints:**
 
-1. Define the endpoint in `docs/openapi/teamclaw-api.v1.yaml` first.
+1. Define the endpoint in `docs/openapi/teamclu-api.v1.yaml` first.
 2. Implement the repository contract in `services/fc/lib/repository-contract.mjs`.
 3. Add the route handler in `services/fc/lib/business-api.mjs`.
 4. Implement the Supabase passthrough in `services/fc/lib/supabase-repo.mjs`.
@@ -157,31 +157,51 @@ Shared: `skills/`, `.mcp/`, `knowledge/`
 
 ## Versioning & Release
 
-**Version numbers** — Desktop version must match across `package.json`, `apps/desktop/Cargo.toml`, `apps/desktop/tauri.conf.json`, and `apps/daemon/Cargo.toml` (bundled `amuxd` sidecar).
+**Version numbers** — Desktop version must match across **five** places: `package.json`,
+`apps/desktop/Cargo.toml`, `apps/desktop/tauri.conf.json`, `apps/daemon/Cargo.toml`
+(bundled `amuxd` sidecar), and **`Cargo.lock`** (the `teamclu` and `amuxd` entries).
+
+`Cargo.lock` is not optional: CI builds the daemon with `--locked`
+(`cargo test/check/build -p amuxd --locked`), which fails outright when the lockfile
+disagrees with the manifests. Verify with `cargo metadata --locked` before tagging.
 
 **Release process:**
-1. Bump desktop version in all 4 files
+1. Bump desktop version in all 5 places above
 2. Commit, push to main
 3. `git tag v<desktop-version> && git push origin v<desktop-version>`
 4. Tag push triggers `release.yml` (macOS desktop)
 
 ## iOS TestFlight Release
 
-**Version file:** `apps/ios/project.yml` — `MARKETING_VERSION` (e.g. `1.1.5`) + `CURRENT_PROJECT_VERSION` (build number, increment by 1 each release).
+**Version file:** `apps/ios/project.yml` — `MARKETING_VERSION` (e.g. `1.2`) +
+`CURRENT_PROJECT_VERSION`.
+
+`CURRENT_PROJECT_VERSION` does NOT decide what TestFlight receives. fastlane asks
+App Store Connect for the latest build number and increments that at build time, so
+the uploaded build comes from ASC. This field governs local builds only. The two
+drift far apart — on the 1.2 release the file said 25 while ASC was already at 52,
+so the upload went out as 53. Setting it by hand cannot fix a rejected upload.
 
 **Release process:**
-1. Bump `CURRENT_PROJECT_VERSION` in `apps/ios/project.yml`
+1. Bump `MARKETING_VERSION` if the user-facing version changes; `CURRENT_PROJECT_VERSION`
+   is cosmetic (see above) but keep it moving so the checked-in value stays honest
 2. Commit and push to main
 3. `git tag ios-v<version>-<build> && git push origin ios-v<version>-<build>`
-   - Example: `git tag ios-v1.1.5-4 && git push origin ios-v1.1.5-4`
+   - Example: `git tag ios-v1.2-25 && git push origin ios-v1.2-25`
 4. Tag push triggers `.github/workflows/testflight.yml` (runs `fastlane beta` on CI)
 
 **Tag format must be `ios-v*`** — other formats (e.g. `ios-1.1.5-4`) do not trigger the workflow.
 
+`testflight.yml` also runs on pushes to `main` touching `apps/ios/**`, so the normal
+release flow (merge, then tag) fires it twice for the same commit. A `guard` job
+handles that: after the debounce it checks whether HEAD carries an `ios-v*` tag and
+stands down if so, leaving the tag's run to publish. A main push with no tag behind
+it still releases as before.
+
 ## Deployment — one environment, two deploy targets
 
 There is exactly **one** running environment: a single self-hosted ECS box. The
-old hosted endpoints (`teamclaw-sync` / `cloud.ucar.cc`) and the standalone RDS
+old hosted endpoints (`teamclu-sync` / `cloud.ucar.cc`) and the standalone RDS
 instances are gone; do not reintroduce references to those hosts.
 
 `services/fc/` is the Cloud API service, and it supports **two deploy targets**
@@ -204,11 +224,11 @@ resolves to it:
 
 | URL | What |
 |---|---|
-| `https://api.teamclaw-dev.ucar.cc` | Cloud API (`/v1`) — what clients call |
-| `https://supabase.teamclaw-dev.ucar.cc` | Supabase gateway (PostgREST / GoTrue / Storage) |
-| `https://studio.teamclaw-dev.ucar.cc` | Supabase Studio |
-| `https://emqx.teamclaw-dev.ucar.cc` | EMQX dashboard |
-| `wss://mqtt.teamclaw-dev.ucar.cc/mqtt` | MQTT over WSS (JWT access_token as password) |
+| `https://api.teamclu-dev.ucar.cc` | Cloud API (`/v1`) — what clients call |
+| `https://supabase.teamclu-dev.ucar.cc` | Supabase gateway (PostgREST / GoTrue / Storage) |
+| `https://studio.teamclu-dev.ucar.cc` | Supabase Studio |
+| `https://emqx.teamclu-dev.ucar.cc` | EMQX dashboard |
+| `wss://mqtt.teamclu-dev.ucar.cc/mqtt` | MQTT over WSS (JWT access_token as password) |
 
 The `-dev` in the hostnames is historical: **this is the only environment**, not
 a dev tier alongside a production one. `build.config.production.json` and
@@ -225,11 +245,11 @@ compose service (`deploy/self-host/init/apply-migrations.sh`, tracked in
 Credentials (SSH, Postgres, service-role key, dashboard logins) live in the
 box's `.env` and GitHub Actions secrets — never in this repo.
 
-Cloud API endpoints: see `docs/openapi/teamclaw-api.v1.yaml` (the contract) —
+Cloud API endpoints: see `docs/openapi/teamclu-api.v1.yaml` (the contract) —
 `/v1/teams`, `/v1/sessions`, `/v1/messages`, `/v1/invites`, plus
 `/ai/*` and `/managed-git/create-repo`.
 
-Team share onboarding endpoints (see `docs/openapi/teamclaw-api.v1.yaml`):
+Team share onboarding endpoints (see `docs/openapi/teamclu-api.v1.yaml`):
 
 - `POST /v1/teams/:id/share-mode` — one-shot lock to `oss` | `managed_git` | `custom_git` (409 once locked).
 - `GET  /v1/teams/:id/share-mode` — `{ mode, enabledAt, gitRemoteUrl, gitAuthKind }`; `mode: null` means team-share 未开通.

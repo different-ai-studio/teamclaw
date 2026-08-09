@@ -11,7 +11,7 @@ const path = require("path");
  * checked into git, so on CI it always exists — without the CI guard it
  * deep-merges the dev backend over the release build.config.json written from
  * the BUILD_CONFIG_* secret (v0.2.24-beta.1 shipped pointing at
- * api.teamclaw-dev.ucar.cc this way).
+ * api.teamclu-dev.ucar.cc this way).
  */
 function resolveBuildEnv(repoRoot, env = process.env) {
   if (env.BUILD_ENV?.trim()) return env.BUILD_ENV.trim();

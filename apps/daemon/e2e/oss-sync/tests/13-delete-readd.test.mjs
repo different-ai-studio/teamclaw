@@ -21,27 +21,27 @@ test("delete then re-add same path: B converges to the reborn file", { skip: !RU
   const root = contentRootPath(teamId);
 
   // v1 → both have it. (sync A inside the loop so a transiently-failed upload retries.)
-  await writeFile("node-a", `${root}/skills/x.md`, Buffer.from("v1\n"));
+  await writeFile("node-a", `${root}/knowledge/x.md`, Buffer.from("v1\n"));
   let treeB = {};
-  for (let i = 0; i < 8; i++) { await sync(nodes.a); await sync(nodes.b); treeB = await ctx.lsContentRoot("node-b", teamId); if (treeB["skills/x.md"]) break; await settle(3000); }
-  assert.ok(treeB["skills/x.md"], "precondition: B has v1");
+  for (let i = 0; i < 8; i++) { await sync(nodes.a); await sync(nodes.b); treeB = await ctx.lsContentRoot("node-b", teamId); if (treeB["knowledge/x.md"]) break; await settle(3000); }
+  assert.ok(treeB["knowledge/x.md"], "precondition: B has v1");
 
   // delete → propagates → B drops it.
-  await execSh("node-a", `rm -f ${root}/skills/x.md`);
-  for (let i = 0; i < 8; i++) { await sync(nodes.a); await sync(nodes.b); treeB = await ctx.lsContentRoot("node-b", teamId); if (!treeB["skills/x.md"]) break; await settle(3000); }
-  assert.equal(treeB["skills/x.md"], undefined, "B dropped x.md after delete");
+  await execSh("node-a", `rm -f ${root}/knowledge/x.md`);
+  for (let i = 0; i < 8; i++) { await sync(nodes.a); await sync(nodes.b); treeB = await ctx.lsContentRoot("node-b", teamId); if (!treeB["knowledge/x.md"]) break; await settle(3000); }
+  assert.equal(treeB["knowledge/x.md"], undefined, "B dropped x.md after delete");
 
   // re-create same path with new content → B picks it up again.
-  await writeFile("node-a", `${root}/skills/x.md`, Buffer.from("v2-reborn\n"));
+  await writeFile("node-a", `${root}/knowledge/x.md`, Buffer.from("v2-reborn\n"));
   for (let i = 0; i < 10; i++) {
     await sync(nodes.a);
     await sync(nodes.b);
     treeB = await ctx.lsContentRoot("node-b", teamId);
-    if (treeB["skills/x.md"] && Buffer.from(treeB["skills/x.md"], "base64").toString() === "v2-reborn\n") break;
+    if (treeB["knowledge/x.md"] && Buffer.from(treeB["knowledge/x.md"], "base64").toString() === "v2-reborn\n") break;
     await settle(3000);
   }
 
-  assert.equal(Buffer.from(treeB["skills/x.md"], "base64").toString(), "v2-reborn\n", "B should have reborn x.md");
+  assert.equal(Buffer.from(treeB["knowledge/x.md"], "base64").toString(), "v2-reborn\n", "B should have reborn x.md");
   const treeA = await ctx.lsContentRoot("node-a", teamId);
   assertConverged(treeA, treeB, "delete-readd");
 });

@@ -225,14 +225,10 @@ pub struct MaterializeTeamMcpResponse {
     pub added_count: usize,
 }
 
-/// Ask the local daemon to materialize team MCP definitions into `opencode.json`.
-///
-/// Best-effort from team-git join: returns `Err` when the daemon HTTP listener
-/// is unavailable; callers should log and continue (materialization also happens
-/// lazily on `GET /v1/workspaces/:id/mcp`).
-pub async fn materialize_team_mcp_via_daemon(
-    workspace_path: &str,
-) -> Result<MaterializeTeamMcpResponse, String> {
+async fn exchange_daemon_workspace_token(
+    scopes: &[&str],
+    ttl_seconds: u64,
+) -> Result<(String, String), String> {
     let (base, root_token) =
         daemon_http_base().ok_or_else(|| "daemon http port/token files not present".to_string())?;
     let client = reqwest::Client::new();
@@ -240,8 +236,8 @@ pub async fn materialize_team_mcp_via_daemon(
         .post(format!("{base}/v1/auth/exchange"))
         .header("Authorization", format!("Bearer {root_token}"))
         .json(&serde_json::json!({
-            "scopes": ["workspace:write"],
-            "ttl_seconds": 300,
+            "scopes": scopes,
+            "ttl_seconds": ttl_seconds,
         }))
         .send()
         .await
@@ -251,11 +247,24 @@ pub async fn materialize_team_mcp_via_daemon(
         .json()
         .await
         .map_err(|e| format!("auth exchange decode: {e}"))?;
+    Ok((base, exchange.token))
+}
+
+/// Ask the local daemon to materialize team MCP definitions into `opencode.json`.
+///
+/// Best-effort from team-git join: returns `Err` when the daemon HTTP listener
+/// is unavailable; callers should log and continue (materialization also happens
+/// lazily on `GET /v1/workspaces/:id/mcp`).
+pub async fn materialize_team_mcp_via_daemon(
+    workspace_path: &str,
+) -> Result<MaterializeTeamMcpResponse, String> {
+    let (base, token) = exchange_daemon_workspace_token(&["workspace:write"], 300).await?;
 
     let ws_id = encode_workspace_id(workspace_path);
+    let client = reqwest::Client::new();
     client
         .post(format!("{base}/v1/workspaces/{ws_id}/mcp/materialize-team"))
-        .header("Authorization", format!("Bearer {}", exchange.token))
+        .header("Authorization", format!("Bearer {token}"))
         .send()
         .await
         .map_err(|e| format!("materialize-team request: {e}"))?
@@ -264,6 +273,48 @@ pub async fn materialize_team_mcp_via_daemon(
         .json()
         .await
         .map_err(|e| format!("materialize-team decode: {e}"))
+}
+
+/// `GET /v1/workspaces/:id/mcp` — merged MCP map for the workspace.
+pub async fn get_mcp_via_daemon(workspace_path: &str) -> Result<serde_json::Value, String> {
+    let (base, token) =
+        exchange_daemon_workspace_token(&["workspace:read", "workspace:write"], 300).await?;
+    let ws_id = encode_workspace_id(workspace_path);
+    let client = reqwest::Client::new();
+    client
+        .get(format!("{base}/v1/workspaces/{ws_id}/mcp"))
+        .header("Authorization", format!("Bearer {token}"))
+        .send()
+        .await
+        .map_err(|e| format!("mcp get request: {e}"))?
+        .error_for_status()
+        .map_err(|e| format!("mcp get: {e}"))?
+        .json()
+        .await
+        .map_err(|e| format!("mcp get decode: {e}"))
+}
+
+/// `PUT /v1/workspaces/:id/mcp` — replace workspace MCP map. Returns `{ outcome }`.
+pub async fn put_mcp_via_daemon(
+    workspace_path: &str,
+    servers: &serde_json::Value,
+) -> Result<serde_json::Value, String> {
+    let (base, token) =
+        exchange_daemon_workspace_token(&["workspace:read", "workspace:write"], 300).await?;
+    let ws_id = encode_workspace_id(workspace_path);
+    let client = reqwest::Client::new();
+    client
+        .put(format!("{base}/v1/workspaces/{ws_id}/mcp"))
+        .header("Authorization", format!("Bearer {token}"))
+        .json(servers)
+        .send()
+        .await
+        .map_err(|e| format!("mcp put request: {e}"))?
+        .error_for_status()
+        .map_err(|e| format!("mcp put: {e}"))?
+        .json()
+        .await
+        .map_err(|e| format!("mcp put decode: {e}"))
 }
 
 #[derive(Debug, Deserialize)]
@@ -308,9 +359,9 @@ async fn daemon_rpc_session_token(
     Ok(exchange.token)
 }
 
-/// Local fast-path RPC: POST the given `teamclaw.RpcRequest` protobuf bytes
+/// Local fast-path RPC: POST the given `teamclu.RpcRequest` protobuf bytes
 /// (base64) to the daemon's loopback `POST /v1/rpc` and return the
-/// `teamclaw.RpcResponse` protobuf bytes (base64).
+/// `teamclu.RpcResponse` protobuf bytes (base64).
 ///
 /// The webview calls this only when the target actor is this machine's
 /// daemon; any error here makes the frontend fall back to the MQTT RPC path
@@ -617,9 +668,9 @@ pub async fn register_daemon_workspace(
     // `apply_add_workspace` requires the path to already exist (it
     // canonicalizes + checks `is_dir`). For a freshly-onboarded team the global
     // dir under the brand amuxd home may not exist yet — the daemon only
-    // scaffolds `teamclaw-team/` inside it once a workspace is linked. Create it
+    // scaffolds `teamclu-team/` inside it once a workspace is linked. Create it
     // up front so registration succeeds; the daemon then fills in the synced
-    // `teamclaw-team/` via ensure_team_link.
+    // `teamclu-team/` via ensure_team_link.
     if let Err(e) = std::fs::create_dir_all(&path) {
         return Err(format!("create workspace dir {path}: {e}"));
     }

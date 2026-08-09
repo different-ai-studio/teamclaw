@@ -21,38 +21,30 @@ public struct MemberSheetAgent: Identifiable, Equatable, Sendable {
     public let displayName: String
     public let workspacePath: String
     public let agentType: String
-    public let runtimeState: AgentRuntimeChipState
+    public let lifecycleState: AgentLifecycleState
     public let availableModels: [String]
     public let currentModel: String?
-    /// Daemon-side 8-char runtime id (segment in
-    /// `runtime/{runtime_id}/state`). Nil when the agent participates
-    /// in this session without a live runtime row yet — `removeAgent`
-    /// skips `runtimeStopRpc` in that case and only does the Supabase
-    /// delete.
-    public let runtimeID: String?
-    /// Workspace UUID from the `agent_runtimes.workspace_id` column —
-    /// authoritative key for resolving the worktree filesystem path on
-    /// restart. Distinct from `workspacePath` which currently still
-    /// holds the same UUID for legacy display reasons.
+    /// Workspace UUID owned by the participant row — the authoritative key for
+    /// resolving the worktree filesystem path on restart. Distinct from
+    /// `workspacePath`, which still holds the same UUID for legacy display.
     public let workspaceID: String?
-    /// Backend type spelling stored in `agent_runtimes.backend_type`
-    /// ("claude" / "opencode" / "codex"). Used to map to
-    /// `Amux_AgentType` for `runtimeStartRpc` on restart. Distinct from
-    /// `agentType` which carries the capitalized display name.
+    /// Backend spelling ("claude" / "opencode" / "codex" / "pi" / "cursor"),
+    /// derived from the attachment's `Amux_AgentType`. Used to map back to the
+    /// proto enum for `runtimeStartRpc` on restart. Distinct from `agentType`,
+    /// which carries the capitalised display name.
     public let backendType: String?
 
     public init(id: String, displayName: String, workspacePath: String, agentType: String,
-                runtimeState: AgentRuntimeChipState, availableModels: [String],
-                currentModel: String?, runtimeID: String?, workspaceID: String?,
+                lifecycleState: AgentLifecycleState, availableModels: [String],
+                currentModel: String?, workspaceID: String?,
                 backendType: String?) {
         self.id = id
         self.displayName = displayName
         self.workspacePath = workspacePath
         self.agentType = agentType
-        self.runtimeState = runtimeState
+        self.lifecycleState = lifecycleState
         self.availableModels = availableModels
         self.currentModel = currentModel
-        self.runtimeID = runtimeID
         self.workspaceID = workspaceID
         self.backendType = backendType
     }
@@ -71,7 +63,7 @@ public struct SessionMemberSheetSnapshot: Equatable, Sendable {
 // MARK: - Loader
 
 /// Pulls the member sheet's snapshot data — Supabase
-/// `session_participants` joined with `agent_runtimes` — and shapes it
+/// `session_participants` — and shapes it
 /// into the per-row view-model structs. Extracted from
 /// `SessionDetailViewModel.refreshMemberSheet` so the I/O and shaping
 /// logic is testable without an `@MainActor @Observable` VM and the
@@ -87,7 +79,7 @@ public struct SessionMemberSheetLoader: Sendable {
     /// Fetches participants + per-agent runtime rows and shapes them
     /// into a snapshot. Returns nil on a hard fetch failure (caller
     /// keeps prior values displayed); the result is non-optional once
-    /// the participants fetch succeeds, even when the agent_runtimes
+    /// the participants fetch succeeds, even when the attachment
     /// fetch fails — the agent rows just lack runtime metadata.
     ///
     /// - Parameters:
@@ -135,10 +127,9 @@ public struct SessionMemberSheetLoader: Sendable {
                     displayName: p.displayName,
                     workspacePath: workspaceID ?? "",
                     agentType: Self.displayName(forBackendType: nil),
-                    runtimeState: Self.chipState(forStatus: nil, lastSeenAt: nil),
+                    lifecycleState: Self.chipState(forStatus: nil, lastSeenAt: nil),
                     availableModels: liveModels,
                     currentModel: p.model,
-                    runtimeID: nil,
                     workspaceID: workspaceID,
                     backendType: nil
                 )
@@ -149,7 +140,7 @@ public struct SessionMemberSheetLoader: Sendable {
 
     // MARK: - Status/display helpers (moved from SessionDetailViewModel)
 
-    /// Combine the raw `agent_runtimes.status` string with `last_seen_at`
+    /// Combine the raw status string with `last_seen_at`
     /// to produce the chip state. Some ACP backends (Claude Haiku in
     /// particular) don't emit a StatusChange:Active event between the
     /// initial spawn and the first user prompt, so the daemon-side
@@ -161,18 +152,18 @@ public struct SessionMemberSheetLoader: Sendable {
     public static func chipState(forStatus status: String?,
                                  lastSeenAt: Date?,
                                  now: Date = Date(),
-                                 spawnTimeout: TimeInterval = 30) -> AgentRuntimeChipState {
+                                 spawnTimeout: TimeInterval = 30) -> AgentLifecycleState {
         let raw = fromRuntimeStatus(status)
         guard raw == .spawning else { return raw }
         guard let last = lastSeenAt else { return raw }
         return now.timeIntervalSince(last) > spawnTimeout ? .idle : raw
     }
 
-    /// Maps the daemon-published status string on `agent_runtimes.status`
+    /// Maps the daemon-published status string
     /// (see `daemon/src/runtime/manager.rs` and
     /// `daemon/src/daemon/server.rs`) to a chip state used by the
     /// member sheet and chip bar.
-    public static func fromRuntimeStatus(_ status: String?) -> AgentRuntimeChipState {
+    public static func fromRuntimeStatus(_ status: String?) -> AgentLifecycleState {
         switch status {
         case "starting", "spawning": return .spawning
         case "ready": return .ready

@@ -35,9 +35,9 @@ test("GET /v1/teams/:teamId/managed-git-credential returns creds", async () => {
   const handler = routes.find((r) => r[0] === "GET" && r[1] === "/v1/teams/:teamId/managed-git-credential")[2];
   const res = await handler({
     params: { teamId: "t1" },
-    repository: { getManagedGitCredential: async () => ({ username: "teamclaw", token: "pt" }) },
+    repository: { getManagedGitCredential: async () => ({ username: "teamclu", token: "pt" }) },
   });
-  assert.deepEqual(res.body, { username: "teamclaw", token: "pt" });
+  assert.deepEqual(res.body, { username: "teamclu", token: "pt" });
 });
 
 test("GET managed-git-credential 404s for non-member (repo returns null)", async () => {

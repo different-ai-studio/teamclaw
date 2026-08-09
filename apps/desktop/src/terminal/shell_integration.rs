@@ -7,11 +7,11 @@ use std::io::Write;
 use std::path::{Path, PathBuf};
 use std::sync::OnceLock;
 
-const ZSH_RC: &str = include_str!("shell_integration/teamclaw.zshrc");
-const BASH_RC: &str = include_str!("shell_integration/teamclaw-bashrc.sh");
+const ZSH_RC: &str = include_str!("shell_integration/teamclu.zshrc");
+const BASH_RC: &str = include_str!("shell_integration/teamclu-bashrc.sh");
 
 const ZSH_FILE: &str = ".zshrc";
-const BASH_FILE: &str = "teamclaw-bashrc.sh";
+const BASH_FILE: &str = "teamclu-bashrc.sh";
 
 static DIR: OnceLock<Option<PathBuf>> = OnceLock::new();
 
@@ -32,7 +32,7 @@ pub fn bash_rc_path(dir: &Path) -> PathBuf {
 
 fn materialize() -> std::io::Result<PathBuf> {
     let pid = std::process::id();
-    let dir = std::env::temp_dir().join(format!("teamclaw-shell-{pid}"));
+    let dir = std::env::temp_dir().join(format!("teamclu-shell-{pid}"));
     std::fs::create_dir_all(&dir)?;
     write_if_changed(&dir.join(ZSH_FILE), ZSH_RC)?;
     write_if_changed(&dir.join(BASH_FILE), BASH_RC)?;

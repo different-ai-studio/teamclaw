@@ -170,7 +170,7 @@ async fn deny_unrouted(shared: &Arc<Shared>, session_key: &str, request_id: &str
         serde_json::json!({
             "requestId": request_id,
             "granted": false,
-            "message": "TeamClaw could not route this approval request.",
+            "message": "TeamClu could not route this approval request.",
             "interrupt": true,
         }),
     )

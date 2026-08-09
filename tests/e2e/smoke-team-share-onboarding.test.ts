@@ -4,14 +4,14 @@
  * Scenarios covered:
  *   1. New team shows "团队共享未开通" placeholder in TeamShareSection.
  *   2. Owner enables OSS via the EnableShareWizard, sees "已开通：OSS"
- *      rendering, and `teamclaw-team/` workspace directory is materialized
+ *      rendering, and `teamclu-team/` workspace directory is materialized
  *      on disk (the local team-share scaffold).
  *
  * NOTE: This smoke needs the full stack to run end-to-end:
  *   - The desktop app built (pnpm tauri:build:debug).
  *   - amuxd daemon running (pnpm daemon:run) with valid SUPABASE_URL +
  *     SUPABASE_ANON_KEY in apps/daemon/.env.
- *   - A reachable Cloud API (TEAMCLAW_CLOUD_API_URL) capable of returning
+ *   - A reachable Cloud API (TEAMCLU_CLOUD_API_URL) capable of returning
  *     200 on POST /v1/teams and POST /v1/teams/:id/share-mode.
  *   - A LiteLLM provisioning env (for the optional litellm setup path).
  *
@@ -34,7 +34,7 @@ import { join } from "node:path";
 import {
   executeJs,
   focusWindow,
-  launchTeamClawApp,
+  launchTeamCluApp,
   sleep,
   stopApp,
   takeScreenshot,
@@ -68,7 +68,7 @@ describe("E2E Smoke: team-share onboarding", () => {
 
   beforeAll(async () => {
     try {
-      await launchTeamClawApp();
+      await launchTeamCluApp();
       await sleep(8000);
       await focusWindow();
       await sleep(500);
@@ -105,7 +105,7 @@ describe("E2E Smoke: team-share onboarding", () => {
   );
 
   it(
-    "after enabling OSS, renders 已开通：OSS and materializes teamclaw-team/",
+    "after enabling OSS, renders 已开通：OSS and materializes teamclu-team/",
     async () => {
       if (!appReady) return;
       // This step requires either:
@@ -115,7 +115,7 @@ describe("E2E Smoke: team-share onboarding", () => {
       //       the locked-OSS state.
       // Neither is wired up in this worktree, so the assertion is a soft
       // post-condition: if the test environment HAS reached the locked OSS
-      // state, it must render "已开通：OSS" and the teamclaw-team/ workspace
+      // state, it must render "已开通：OSS" and the teamclu-team/ workspace
       // directory must exist. Otherwise the spec is a no-op (documented in
       // DONE_WITH_CONCERNS).
       const ossLabel = await waitForText("已开通：OSS", 3_000);
@@ -129,7 +129,7 @@ describe("E2E Smoke: team-share onboarding", () => {
         return;
       }
       // If we did reach the locked state, the workspace dir must exist.
-      const teamDir = join(homedir(), "teamclaw-team");
+      const teamDir = join(homedir(), "teamclu-team");
       expect(existsSync(teamDir)).toBe(true);
       await takeScreenshot("/tmp/smoke-team-share-onboarding-post.png");
     },

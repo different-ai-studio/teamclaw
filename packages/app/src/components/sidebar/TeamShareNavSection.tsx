@@ -1,6 +1,6 @@
 import * as React from 'react'
 import { useTranslation } from 'react-i18next'
-import { Sparkles, Plug, Box, Bookmark, ChevronDown, ChevronUp } from 'lucide-react'
+import { Sparkles, Plug, Box, Bookmark } from 'lucide-react'
 import { useUIStore } from '@/stores/ui'
 import { useTeamShareBrowserStore, type TeamShareSection } from '@/stores/team-share-browser'
 import { cn } from '@/lib/utils'
@@ -50,8 +50,6 @@ export function TeamShareNavSection() {
   const { t } = useTranslation()
   const filter = useUIStore((s) => s.sidebarFilter)
   const setFilter = useUIStore((s) => s.setSidebarFilter)
-  const collapsed = useUIStore((s) => s.teamShareCollapsed)
-  const toggle = useUIStore((s) => s.toggleTeamShareSection)
 
   const loadSection = useTeamShareBrowserStore((s) => s.loadSection)
   const loadCounts = useTeamShareBrowserStore((s) => s.loadCounts)
@@ -67,10 +65,9 @@ export function TeamShareNavSection() {
     knowledge: knowledgeCount,
   }
 
-  // Refresh counts whenever the group is open.
   React.useEffect(() => {
-    if (!collapsed) void loadCounts()
-  }, [collapsed, loadCounts])
+    void loadCounts()
+  }, [loadCounts])
 
   const handleSelect = React.useCallback(
     (section: TeamShareSection) => {
@@ -82,35 +79,16 @@ export function TeamShareNavSection() {
 
   return (
     <div className="flex flex-col">
-      {/* Divider with centered chevron toggle */}
-      <div className="relative flex items-center py-1.5">
-        <div className="h-px flex-1 bg-border/60" />
-        <button
-          type="button"
-          onClick={toggle}
-          aria-expanded={!collapsed}
-          aria-label={t('teamShare.toggle', 'Team shared')}
-          className="mx-2 flex h-6 w-6 shrink-0 items-center justify-center rounded-full border border-border bg-background text-muted-foreground shadow-sm transition-colors hover:text-foreground"
-        >
-          {collapsed ? <ChevronDown className="h-3.5 w-3.5" /> : <ChevronUp className="h-3.5 w-3.5" />}
-        </button>
-        <div className="h-px flex-1 bg-border/60" />
-      </div>
-
-      {!collapsed && (
-        <div className="flex flex-col">
-          {SECTIONS.map((def) => (
-            <SectionRow
-              key={def.section}
-              label={t(def.labelKey, def.fallback)}
-              icon={def.icon}
-              active={filter.kind === 'teamShare' && filter.section === def.section}
-              count={counts[def.section]}
-              onClick={() => handleSelect(def.section)}
-            />
-          ))}
-        </div>
-      )}
+      {SECTIONS.map((def) => (
+        <SectionRow
+          key={def.section}
+          label={t(def.labelKey, def.fallback)}
+          icon={def.icon}
+          active={filter.kind === 'teamShare' && filter.section === def.section}
+          count={counts[def.section]}
+          onClick={() => handleSelect(def.section)}
+        />
+      ))}
     </div>
   )
 }

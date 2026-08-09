@@ -105,7 +105,7 @@ flowchart TB
 
 ## 4. Runtime Ensure 主流程
 
-**源文件：** `packages/app/src/lib/teamclaw/ensure-agent-runtime.ts`
+**源文件：** `packages/app/src/lib/teamclu/ensure-agent-runtime.ts`
 
 ### 4.1 调用链
 
@@ -115,7 +115,7 @@ ensureAgentRuntimesForSession(args)
   ├─ inFlight dedupe（同 session + agents）
   ├─ Desktop MQTT disconnected? → toast transport_offline
   ├─ ensureSessionLiveSubscribed
-  ├─ waitForTeamclawRpcReady(20s)
+  ├─ waitForTeamcluRpcReady(20s)
   ├─ gateAgentsForRuntimeStart
   │     └─ resolveAgentDevicePresence() per agent
   │           offline → failure code device_offline（toast）
@@ -138,7 +138,7 @@ Toast 文案：`daemon.agentRuntime.notStartedTitle` + `failureDescription()`。
 
 ### 4.3 超时常量
 
-**源文件：** `packages/app/src/lib/teamclaw/runtime-rpc-timeouts.ts`
+**源文件：** `packages/app/src/lib/teamclu/runtime-rpc-timeouts.ts`
 
 - `DEVICE_PRESENCE_GATE_TIMEOUT_MS = 2000` — gate 等 MQTT retain
 - `RUNTIME_START_RPC_TIMEOUT_MS = 20000` — runtimeStart RPC
@@ -147,7 +147,7 @@ Toast 文案：`daemon.agentRuntime.notStartedTitle` + `failureDescription()`。
 
 ## 5. Runtime Ensure 调度 — 何时 skip
 
-**源文件：** `packages/app/src/lib/teamclaw/runtime-ensure-scheduler.ts`
+**源文件：** `packages/app/src/lib/teamclu/runtime-ensure-scheduler.ts`
 
 ### 5.1 Reason 分类
 
@@ -220,7 +220,7 @@ MQTT 重连：**`use-reensure-runtimes-on-mqtt-reconnect.ts`** → `mqtt_reconne
 |------|-------------|
 | Console | `[session-flow]` — 创建会话、ensure、delegated_to_outbox、skip_already_ready |
 | Settings → General | **ACP stream debug** — `client:runtime_start_failed`, `client:ensure_runtime_begin` |
-| Console | `window.__teamclawMqttDiag()` — Desktop MQTT、team、presence store 快照 |
+| Console | `window.__teamcluMqttDiag()` — Desktop MQTT、team、presence store 快照 |
 
 ### 8.2 本机 daemon
 
@@ -240,7 +240,7 @@ curl -s -H "Authorization: Bearer $(cat ~/.amuxd/amuxd.http.token)" \
 | 现象 | 先查 |
 |------|------|
 | `device_offline` toast | `/v1/info.mqtt_connected` vs presence store raw；是否本机 agent |
-| `transport_offline` toast | Desktop MQTT（`__teamclawMqttDiag`），不是 daemon |
+| `transport_offline` toast | Desktop MQTT（`__teamcluMqttDiag`），不是 daemon |
 | pill 长期 connecting | runtime retain 是否有 models；ensure 是否被 skip/throttle |
 | Sidebar 与 pill 状态不一致 | 是否有人绕开 merge 直读 presence store |
 | daemon 停后仍显示 online ~5s | signal cache TTL，见 §3.3 |
@@ -254,8 +254,8 @@ curl -s -H "Authorization: Bearer $(cat ~/.amuxd/amuxd.http.token)" \
 ```bash
 cd packages/app && pnpm exec vitest run \
   src/lib/__tests__/agent-device-reachability.test.ts \
-  src/lib/teamclaw/__tests__/ensure-agent-runtime-presence.test.ts \
-  src/lib/teamclaw/__tests__/runtime-ensure-scheduler.test.ts \
+  src/lib/teamclu/__tests__/ensure-agent-runtime-presence.test.ts \
+  src/lib/teamclu/__tests__/runtime-ensure-scheduler.test.ts \
   src/hooks/__tests__/use-ensure-engaged-runtimes-on-session-focus.test.ts \
   src/lib/__tests__/actor-online.test.ts
 ```
@@ -271,7 +271,7 @@ pnpm exec vitest run --config vitest.config.e2e.ts \
 
 ### 9.3 Live 验证脚本（维护者本地）
 
-在 dev App 运行时，可用 tauri-mcp 注入 stale offline 并断言 merge（脚本示例曾放于 `/tmp/teamclaw-reachability-live.mts`）。  
+在 dev App 运行时，可用 tauri-mcp 注入 stale offline 并断言 merge（脚本示例曾放于 `/tmp/teamclu-reachability-live.mts`）。  
 核心断言：
 
 - inject `mqttOnline=false` + `daemonMqttConnected=true` → `async === 'online'`
@@ -295,8 +295,8 @@ pnpm exec vitest run --config vitest.config.e2e.ts \
 | 本机 actor id | `packages/app/src/lib/local-daemon-identity.ts` |
 | MQTT presence store | `packages/app/src/stores/actor-presence-store.ts` |
 | Runtime retain store | `packages/app/src/stores/runtime-state-store.ts` |
-| Ensure 入口 | `packages/app/src/lib/teamclaw/ensure-agent-runtime.ts` |
-| Skip / throttle | `packages/app/src/lib/teamclaw/runtime-ensure-scheduler.ts` |
+| Ensure 入口 | `packages/app/src/lib/teamclu/ensure-agent-runtime.ts` |
+| Skip / throttle | `packages/app/src/lib/teamclu/runtime-ensure-scheduler.ts` |
 | Focus / retry hooks | `packages/app/src/hooks/use-ensure-engaged-runtimes-on-session-focus.ts` |
 | MQTT 重连 ensure | `packages/app/src/hooks/use-reensure-runtimes-on-mqtt-reconnect.ts` |
 | Outbox send ensure | `packages/app/src/services/outbox-sender.ts` |

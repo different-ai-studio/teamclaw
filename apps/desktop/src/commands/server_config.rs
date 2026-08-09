@@ -1,9 +1,9 @@
 use std::path::PathBuf;
 
-const APP_CONFIG_DIR: &str = ".teamclaw";
+const APP_CONFIG_DIR: &str = ".teamclu";
 const LEGACY_CONFIG_DIR: &str = "amux";
 const SERVER_CONFIG_FILE: &str = "config.json";
-const LEGACY_TEAMCLAW_CONFIG_FILE: &str = "teamclaw.json";
+const LEGACY_TEAMCLU_CONFIG_FILE: &str = "teamclu.json";
 const LEGACY_SERVER_CONFIG_FILE: &str = "server-config.json";
 
 fn config_base_dir() -> PathBuf {
@@ -25,7 +25,7 @@ fn deprecated_config_paths() -> Vec<PathBuf> {
             .join(SERVER_CONFIG_FILE),
         legacy_config_base_dir()
             .join("teamclaw")
-            .join(LEGACY_TEAMCLAW_CONFIG_FILE),
+            .join(LEGACY_TEAMCLU_CONFIG_FILE),
         legacy_config_base_dir()
             .join("teamclaw")
             .join(LEGACY_SERVER_CONFIG_FILE),
@@ -74,7 +74,7 @@ mod tests {
             .collect();
         assert!(names.contains(&"config.json".to_string()));
         assert!(names.contains(&"server-config.json".to_string()));
-        assert!(names.contains(&"teamclaw.json".to_string()));
+        assert!(names.contains(&"teamclu.json".to_string()));
     }
 
     #[test]

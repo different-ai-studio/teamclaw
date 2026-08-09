@@ -105,7 +105,7 @@ pub struct AcpStartupMetadata {
 /// implements the same surface.
 #[async_trait]
 pub trait AgentBackend: Send {
-    /// Bind a TeamClaw runtime to a backend session (create or resume).
+    /// Bind a TeamClu runtime to a backend session (create or resume).
     #[allow(clippy::too_many_arguments)]
     async fn attach_session(
         &mut self,

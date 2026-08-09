@@ -5,7 +5,7 @@ import { isTauri } from '@/lib/utils'
 import { useCurrentTeamStore } from '@/stores/current-team'
 
 // Single source of truth for the active team id: the current-team store
-// (backed by the Cloud API), NOT a local teamclaw.json field. OSS sync commands
+// (backed by the Cloud API), NOT a local teamclu.json field. OSS sync commands
 // now take teamId explicitly so it can never drift from the active team.
 function activeTeamId(): string | null {
   return useCurrentTeamStore.getState().team?.id ?? null
@@ -52,6 +52,12 @@ export interface OssSyncState {
   pulled: number
   pushed: number
   conflicts: number
+  /**
+   * Files the server listed that the daemon could not pull. Non-zero means the
+   * sync cursor was deliberately held back and they will be retried — so a tick
+   * with `failed > 0` is not "clean" even though it returned successfully.
+   */
+  failed: number
   lastError: string | null
 
   refresh(workspacePath: string): Promise<void>
@@ -93,12 +99,14 @@ interface SyncStatusResult {
   pulled: number
   pushed: number
   conflicts: number
+  failed?: number
 }
 
 interface SyncNowResult {
   pulled: number
   pushed: number
   conflicts: number
+  failed?: number
 }
 
 // ---------------------------------------------------------------------------
@@ -113,6 +121,7 @@ export const useOssSyncStore = create<OssSyncState>((set, get) => ({
   pulled: 0,
   pushed: 0,
   conflicts: 0,
+  failed: 0,
   lastError: null,
 
   async refresh(workspacePath: string) {
@@ -136,6 +145,7 @@ export const useOssSyncStore = create<OssSyncState>((set, get) => ({
         pulled: status.pulled ?? 0,
         pushed: status.pushed ?? 0,
         conflicts: status.conflicts ?? 0,
+        failed: status.failed ?? 0,
         lastError: status.lastError ?? null,
       })
     } catch (e) {
@@ -160,6 +170,7 @@ export const useOssSyncStore = create<OssSyncState>((set, get) => ({
         pulled: result.pulled ?? 0,
         pushed: result.pushed ?? 0,
         conflicts: result.conflicts ?? 0,
+        failed: result.failed ?? 0,
       })
       // Re-fetch status to get fresh lastSyncAt / mode from the daemon.
       await get().refresh(workspacePath)
@@ -221,7 +232,7 @@ export const useOssSyncStore = create<OssSyncState>((set, get) => ({
   },
 }))
 
-// JWT bridge note: pushing the FC token into teamclaw.json used to live here,
+// JWT bridge note: pushing the FC token into teamclu.json used to live here,
 // then moved to `@/lib/jwt-bridge`. The daemon now self-supplies its FC JWT, so
 // that bridge is a no-op (see jwt-bridge.ts).
 

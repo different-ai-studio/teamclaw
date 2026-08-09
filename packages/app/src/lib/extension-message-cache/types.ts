@@ -1,10 +1,10 @@
 import type { MessageRow } from "@/lib/local-cache";
 
 /** chrome.storage.local key prefix for per-session message blobs. */
-export const SESSION_KEY_PREFIX = "teamclaw.ext.msg.s.";
+export const SESSION_KEY_PREFIX = "teamclu.ext.msg.s.";
 
 /** Index + eviction metadata for the extension message cache. */
-export const META_KEY = "teamclaw.ext.msg.meta";
+export const META_KEY = "teamclu.ext.msg.meta";
 
 /** Max sessions retained (LRU). */
 export const MAX_SESSIONS = 20;

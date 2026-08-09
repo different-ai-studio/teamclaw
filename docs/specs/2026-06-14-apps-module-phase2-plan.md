@@ -2,9 +2,9 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** De-risk the two phase-2 unknowns (Aliyun FC custom-runtime feasibility, `@alicloud/fc20230330` API surface), then ship per-app Postgres provisioning (schema-per-app + scoped role in a shared `teamclaw_apps` DB) as a fully tested FC module.
+**Goal:** De-risk the two phase-2 unknowns (Aliyun FC custom-runtime feasibility, `@alicloud/fc20230330` API surface), then ship per-app Postgres provisioning (schema-per-app + scoped role in a shared `teamclu_apps` DB) as a fully tested FC module.
 
-**Architecture:** Two spikes (M0) produce committed findings that unblock the later M2–M5 plan. M1 adds `services/fc/src/lib/provisioning/app-postgres.ts`: a pure SQL builder (`buildProvisionStatements`) plus an executor (`ensureAppSchema`) that runs against a **separate** admin connection (`APPS_DB_ADMIN_URL`, the new `teamclaw_apps` database), independent of the drizzle control-plane pool. Everything is idempotent.
+**Architecture:** Two spikes (M0) produce committed findings that unblock the later M2–M5 plan. M1 adds `services/fc/src/lib/provisioning/app-postgres.ts`: a pure SQL builder (`buildProvisionStatements`) plus an executor (`ensureAppSchema`) that runs against a **separate** admin connection (`APPS_DB_ADMIN_URL`, the new `teamclu_apps` database), independent of the drizzle control-plane pool. Everything is idempotent.
 
 **Tech Stack:** Node 20 + TypeScript (ESM, `.js` import specifiers), `postgres` (porsager) driver, `node:test` + `node:assert/strict`, `@electric-sql/pglite` for in-process DB tests, `@alicloud/openapi-client` (+ to-be-added `@alicloud/fc20230330`).
 
@@ -333,7 +333,7 @@ test("ensureAppSchema creates the schema and a scoped role on a real PG (pglite)
     appId: "3f1c9a2e-0000-4000-8000-000000000abc",
     slug: "Demo App",
     password: "p@ss'1",
-    baseUrl: "postgres://app_user@host:5432/teamclaw_apps",
+    baseUrl: "postgres://app_user@host:5432/teamclu_apps",
   });
   // schema exists
   const schemas = await pg.query<{ schema_name: string }>(
@@ -368,8 +368,8 @@ export interface EnsureAppSchemaParams {
   appId: string;
   slug: string;
   password: string;
-  // The teamclaw_apps base URL WITHOUT credentials/db-specific role, e.g.
-  // postgres://host:5432/teamclaw_apps — used to compose the app's own
+  // The teamclu_apps base URL WITHOUT credentials/db-specific role, e.g.
+  // postgres://host:5432/teamclu_apps — used to compose the app's own
   // connection string (role + password + pinned search_path).
   baseUrl: string;
 }
@@ -424,7 +424,7 @@ test("ensureAppSchema is safe to run twice (idempotent re-deploy)", async () => 
     appId: "3f1c9a2e-0000-4000-8000-000000000abc",
     slug: "Demo App",
     password: "p@ss'1",
-    baseUrl: "postgres://host:5432/teamclaw_apps",
+    baseUrl: "postgres://host:5432/teamclu_apps",
   };
   await ensureAppSchema(exec, params);
   // second run must NOT throw (schema/role already exist)
@@ -483,7 +483,7 @@ import postgres from "postgres";
 
 let _adminSql: ReturnType<typeof postgres> | null = null;
 
-// Dedicated admin connection to the teamclaw_apps database (NOT supabase_db).
+// Dedicated admin connection to the teamclu_apps database (NOT supabase_db).
 // Mirrors db/client.ts serverless-safe defaults. Separate singleton so app
 // provisioning never shares the control-plane pool.
 export function getAppsAdminExecutor(): SqlExecutor {
@@ -518,7 +518,7 @@ Expected: PASS — existing suite plus the new provisioning tests. If the runner
 
 ```bash
 git add services/fc/src/lib/provisioning/app-postgres.ts services/fc/test/provisioning/app-postgres.test.ts
-git commit -m "feat(apps): teamclaw_apps admin connection factory for provisioning"
+git commit -m "feat(apps): teamclu_apps admin connection factory for provisioning"
 ```
 
 ### Task 9: Wire `APPS_DB_ADMIN_URL` into the function env + deploy secrets
@@ -536,7 +536,7 @@ git commit -m "feat(apps): teamclaw_apps admin connection factory for provisioni
 After the `CODEUP_BOT_USERNAME` line in the `environmentVariables:` block, add (match the existing 8-space indentation + `${env(...)}` style; default to empty so non-apps deploys are unaffected):
 
 ```yaml
-        # Admin connection to the shared per-app Postgres DB (teamclaw_apps),
+        # Admin connection to the shared per-app Postgres DB (teamclu_apps),
         # same RDS instance as the control plane but a DIFFERENT database. Used
         # only by apps provisioning (CREATE SCHEMA / CREATE ROLE). Never sent
         # to clients.
@@ -574,7 +574,7 @@ git commit -m "chore(apps): wire APPS_DB_ADMIN_URL into FC function env + deploy
 
 These are infra prerequisites the deploy pipeline will need; they are **not** part of M0/M1 code but must be done by an operator before M2 finalize can run live:
 
-- [ ] Create database `teamclaw_apps` on each env's RDS instance (test/dev already host `supabase_db`; dev also hosts `litellm`). Owner = `supabase_admin`.
+- [ ] Create database `teamclu_apps` on each env's RDS instance (test/dev already host `supabase_db`; dev also hosts `litellm`). Owner = `supabase_admin`.
 - [ ] Set `APPS_DB_ADMIN_URL` in FC env via repo secrets (GitHub Action only — never local deploy).
 - [ ] Confirm/extend the production AK/SK RAM permissions per the M0 Task-2 spike findings (`fc:*Function`, `fc:CreateTrigger`, `ram:PassRole`).
 

@@ -992,7 +992,7 @@ public nonisolated struct Amux_AcpSendPrompt: Sendable {
   public var modelID: String = String()
 
   /// Supabase Storage URLs for attachments (legacy bare-runtime path).
-  /// Session-backed chats carry these in Teamclaw_Message.attachment_urls instead.
+  /// Session-backed chats carry these in Teamclu_Message.attachment_urls instead.
   public var attachmentUrls: [String] = []
 
   public var unknownFields = SwiftProtobuf.UnknownStorage()
@@ -1312,6 +1312,17 @@ public nonisolated struct Amux_ActorPresence: Sendable {
   /// "not attached" — the client renders that session as cold.
   public var liveSessions: [Amux_LiveSession] = []
 
+  /// This agent's default cloud workspace and its live-probed model catalog.
+  /// Populated on every publish so remote clients (extension, other desktops)
+  /// can render a draft-session picker without loopback HTTP. Desktop clients
+  /// talking to their own local daemon use loopback catalog for the selected
+  /// workspace instead.
+  public var defaultWorkspaceID: String = String()
+
+  public var defaultWorktree: String = String()
+
+  public var defaultWorkspaceModels: [Amux_ModelInfo] = []
+
   public var unknownFields = SwiftProtobuf.UnknownStorage()
 
   public init() {}
@@ -1369,6 +1380,9 @@ public nonisolated struct Amux_LiveSession: Sendable {
   public var workspaceID: String = String()
 
   public var currentModel: String = String()
+
+  /// local directory this attachment runs in
+  public var worktree: String = String()
 
   public var unknownFields = SwiftProtobuf.UnknownStorage()
 
@@ -3701,7 +3715,7 @@ nonisolated extension Amux_RemoveMember: SwiftProtobuf.Message, SwiftProtobuf._M
 
 nonisolated extension Amux_ActorPresence: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
   public static let protoMessageName: String = _protobuf_package + ".ActorPresence"
-  public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{1}online\0\u{3}display_name\0\u{1}timestamp\0\u{3}active_agent_type\0\u{3}backend_health\0\u{3}catalog_models\0\u{1}worktrees\0\u{3}live_sessions\0")
+  public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{1}online\0\u{3}display_name\0\u{1}timestamp\0\u{3}active_agent_type\0\u{3}backend_health\0\u{3}catalog_models\0\u{1}worktrees\0\u{3}live_sessions\0\u{3}default_workspace_id\0\u{3}default_worktree\0\u{3}default_workspace_models\0")
 
   public mutating func decodeMessage<D: SwiftProtobuf.Decoder>(decoder: inout D) throws {
     while let fieldNumber = try decoder.nextFieldNumber() {
@@ -3717,6 +3731,9 @@ nonisolated extension Amux_ActorPresence: SwiftProtobuf.Message, SwiftProtobuf._
       case 6: try { try decoder.decodeRepeatedMessageField(value: &self.catalogModels) }()
       case 7: try { try decoder.decodeRepeatedMessageField(value: &self.worktrees) }()
       case 8: try { try decoder.decodeRepeatedMessageField(value: &self.liveSessions) }()
+      case 9: try { try decoder.decodeSingularStringField(value: &self.defaultWorkspaceID) }()
+      case 10: try { try decoder.decodeSingularStringField(value: &self.defaultWorktree) }()
+      case 11: try { try decoder.decodeRepeatedMessageField(value: &self.defaultWorkspaceModels) }()
       default: break
       }
     }
@@ -3747,6 +3764,15 @@ nonisolated extension Amux_ActorPresence: SwiftProtobuf.Message, SwiftProtobuf._
     if !self.liveSessions.isEmpty {
       try visitor.visitRepeatedMessageField(value: self.liveSessions, fieldNumber: 8)
     }
+    if !self.defaultWorkspaceID.isEmpty {
+      try visitor.visitSingularStringField(value: self.defaultWorkspaceID, fieldNumber: 9)
+    }
+    if !self.defaultWorktree.isEmpty {
+      try visitor.visitSingularStringField(value: self.defaultWorktree, fieldNumber: 10)
+    }
+    if !self.defaultWorkspaceModels.isEmpty {
+      try visitor.visitRepeatedMessageField(value: self.defaultWorkspaceModels, fieldNumber: 11)
+    }
     try unknownFields.traverse(visitor: &visitor)
   }
 
@@ -3759,6 +3785,9 @@ nonisolated extension Amux_ActorPresence: SwiftProtobuf.Message, SwiftProtobuf._
     if lhs.catalogModels != rhs.catalogModels {return false}
     if lhs.worktrees != rhs.worktrees {return false}
     if lhs.liveSessions != rhs.liveSessions {return false}
+    if lhs.defaultWorkspaceID != rhs.defaultWorkspaceID {return false}
+    if lhs.defaultWorktree != rhs.defaultWorktree {return false}
+    if lhs.defaultWorkspaceModels != rhs.defaultWorkspaceModels {return false}
     if lhs.unknownFields != rhs.unknownFields {return false}
     return true
   }
@@ -3811,7 +3840,7 @@ nonisolated extension Amux_WorktreeCatalog: SwiftProtobuf.Message, SwiftProtobuf
 
 nonisolated extension Amux_LiveSession: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
   public static let protoMessageName: String = _protobuf_package + ".LiveSession"
-  public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{3}session_id\0\u{1}lifecycle\0\u{1}status\0\u{1}stage\0\u{3}error_code\0\u{3}error_message\0\u{3}failed_stage\0\u{3}workspace_id\0\u{3}current_model\0")
+  public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{3}session_id\0\u{1}lifecycle\0\u{1}status\0\u{1}stage\0\u{3}error_code\0\u{3}error_message\0\u{3}failed_stage\0\u{3}workspace_id\0\u{3}current_model\0\u{1}worktree\0")
 
   public mutating func decodeMessage<D: SwiftProtobuf.Decoder>(decoder: inout D) throws {
     while let fieldNumber = try decoder.nextFieldNumber() {
@@ -3828,6 +3857,7 @@ nonisolated extension Amux_LiveSession: SwiftProtobuf.Message, SwiftProtobuf._Me
       case 7: try { try decoder.decodeSingularStringField(value: &self.failedStage) }()
       case 8: try { try decoder.decodeSingularStringField(value: &self.workspaceID) }()
       case 9: try { try decoder.decodeSingularStringField(value: &self.currentModel) }()
+      case 10: try { try decoder.decodeSingularStringField(value: &self.worktree) }()
       default: break
       }
     }
@@ -3861,6 +3891,9 @@ nonisolated extension Amux_LiveSession: SwiftProtobuf.Message, SwiftProtobuf._Me
     if !self.currentModel.isEmpty {
       try visitor.visitSingularStringField(value: self.currentModel, fieldNumber: 9)
     }
+    if !self.worktree.isEmpty {
+      try visitor.visitSingularStringField(value: self.worktree, fieldNumber: 10)
+    }
     try unknownFields.traverse(visitor: &visitor)
   }
 
@@ -3874,6 +3907,7 @@ nonisolated extension Amux_LiveSession: SwiftProtobuf.Message, SwiftProtobuf._Me
     if lhs.failedStage != rhs.failedStage {return false}
     if lhs.workspaceID != rhs.workspaceID {return false}
     if lhs.currentModel != rhs.currentModel {return false}
+    if lhs.worktree != rhs.worktree {return false}
     if lhs.unknownFields != rhs.unknownFields {return false}
     return true
   }

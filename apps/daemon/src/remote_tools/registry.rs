@@ -28,7 +28,7 @@ pub fn tool_input_schema(tool_name: &str) -> Option<Value> {
             "properties": {
                 "remote_context_id": {
                     "type": "string",
-                    "description": "Opaque TeamClaw remote tool context id for this reply."
+                    "description": "Opaque TeamClu remote tool context id for this reply."
                 },
                 "mode": {
                     "type": "string",
@@ -66,11 +66,11 @@ pub fn tool_description(tool_name: &str) -> Option<&'static str> {
     match tool_name {
         TOOL_GET_PAGE_DOM => Some(
             "Read the user's current browser page as a compact outline or plain text. \
-             Supported clients: chrome-extension (TeamClaw browser extension with the active tab). \
+             Supported clients: chrome-extension (TeamClu browser extension with the active tab). \
              Do not call unless the user's environment indicates the extension client.",
         ),
         TOOL_SHOW_PAGE_NAV_LINKS => Some(
-            "Show navigation buttons in the user's TeamClaw chat for the given links. \
+            "Show navigation buttons in the user's TeamClu chat for the given links. \
              Each button navigates the user's active browser tab when clicked (extension). \
              Optional labels[] provides button text (same length as links). \
              Returns nothing to the agent — UI is rendered from tool-call arguments; \

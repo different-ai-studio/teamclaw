@@ -9,10 +9,10 @@
 //!      (for git modes) the `gitConfig` payload.
 //!
 //! The team shared directory is created and linked by the daemon (one global
-//! copy per team under `~/.amuxd/teams/<team_id>/teamclaw-team`, exposed via a
-//! `teamclaw-team` symlink in each workspace); these commands no longer create
+//! copy per team under `~/.amuxd/teams/<team_id>/teamclu-team`, exposed via a
+//! `teamclu-team` symlink in each workspace); these commands no longer create
 //! a per-workspace real dir. Team identifiers (team_id / share_mode / git URL)
-//! are NOT persisted to `teamclaw.json` — the single source of truth is the
+//! are NOT persisted to `teamclu.json` — the single source of truth is the
 //! Cloud API current-team store.
 
 use serde::{Deserialize, Serialize};
@@ -106,26 +106,45 @@ fn generate_team_secret_hex() -> Result<String, String> {
     Ok(hex::encode(bytes))
 }
 
-/// Use a caller-supplied 64-hex secret when provided; otherwise generate one.
-fn resolve_team_secret_hex(team_secret_hex: Option<String>) -> Result<String, String> {
-    match team_secret_hex {
-        None => generate_team_secret_hex(),
-        Some(raw) => {
-            let normalized = raw.trim().to_ascii_lowercase();
-            if normalized.is_empty() {
-                return generate_team_secret_hex();
-            }
+/// The secret to enable with: caller-supplied > already-stored > freshly minted.
+///
+/// Reading the stored one first is what makes enabling non-destructive. The
+/// callers that used to pass a secret are gone (the three-way wizard's optional
+/// field went with it), so every enable now arrives with `None` — and minting
+/// unconditionally would overwrite a key the user had already configured under
+/// Daemon → General, locking them out of every team value encrypted with it and
+/// encrypting everything after with a key no other member holds.
+///
+/// A store that exists but cannot be read is NOT treated as "no secret": that
+/// is the case where overwriting would destroy something. Only a definite
+/// `NotConfigured` mints a new one.
+fn resolve_team_secret_hex(
+    workspace_path: &str,
+    team_id: &str,
+    team_secret_hex: Option<String>,
+) -> Result<String, String> {
+    if let Some(raw) = team_secret_hex {
+        let normalized = raw.trim().to_ascii_lowercase();
+        if !normalized.is_empty() {
             if normalized.len() != 64 || !normalized.chars().all(|c| c.is_ascii_hexdigit()) {
                 return Err("team secret must be exactly 64 hex characters".to_string());
             }
-            Ok(normalized)
+            return Ok(normalized);
         }
+    }
+
+    match team_secret_store::load_team_secret(workspace_path, team_id) {
+        Ok(existing) => Ok(existing),
+        Err(team_secret_store::TeamSecretReadError::NotConfigured) => generate_team_secret_hex(),
+        Err(team_secret_store::TeamSecretReadError::StoreUnreadable(e)) => Err(format!(
+            "cannot read the local secret store, so enabling would overwrite a key that may already be there: {e}"
+        )),
     }
 }
 
 /// The team shared directory is now created and linked by the daemon
-/// (one global copy per team under `~/.amuxd/teams/<team_id>/teamclaw-team`,
-/// exposed via a `teamclaw-team` symlink in each workspace). Desktop no longer
+/// (one global copy per team under `~/.amuxd/teams/<team_id>/teamclu-team`,
+/// exposed via a `teamclu-team` symlink in each workspace). Desktop no longer
 /// eagerly creates a per-workspace real directory here; if a real dir is
 /// created later (git clone / OSS engine first write), the daemon consolidates
 /// it into the global copy and replaces it with a symlink. Kept as a no-op so
@@ -182,8 +201,8 @@ pub async fn enable_oss_impl(
     .await?;
     info!(team_id = %team_id, share_mode = "oss", "team_share_enable_oss: share-mode locked");
 
-    let secret = resolve_team_secret_hex(team_secret_hex)?;
-    team_secret_store::save_team_secret(&workspace_path, &team_id, &secret)?;
+    let secret = resolve_team_secret_hex(&workspace_path, &team_id, team_secret_hex)?;
+    team_secret_store::save_team_secret_logged(&workspace_path, &team_id, &secret)?;
 
     ensure_team_repo_dir(&workspace_path)?;
 
@@ -227,8 +246,8 @@ pub async fn enable_managed_git_impl(
     team_secret_hex: Option<String>,
     cloud_api_url: String,
 ) -> Result<EnableShareResult, String> {
-    let secret = resolve_team_secret_hex(team_secret_hex)?;
-    team_secret_store::save_team_secret(&workspace_path, &team_id, &secret)?;
+    let secret = resolve_team_secret_hex(&workspace_path, &team_id, team_secret_hex)?;
+    team_secret_store::save_team_secret_logged(&workspace_path, &team_id, &secret)?;
 
     let fc = FcClient::new(
         resolve_runtime_fc_endpoint(&cloud_api_url)?,
@@ -344,8 +363,8 @@ pub async fn enable_custom_git_impl(
     // a key or type a password. HTTPS always needs a token.
     let local_ssh = input.auth_kind == "ssh_key" && input.credential.trim().is_empty();
 
-    let secret = resolve_team_secret_hex(team_secret_hex)?;
-    team_secret_store::save_team_secret(&workspace_path, &team_id, &secret)?;
+    let secret = resolve_team_secret_hex(&workspace_path, &team_id, team_secret_hex)?;
+    team_secret_store::save_team_secret_logged(&workspace_path, &team_id, &secret)?;
 
     // `credentialRef` is a device-local pointer; FC only checks it is non-empty.
     // We always send it so the server contract is satisfied, but only persist a
@@ -459,10 +478,18 @@ pub async fn set_team_secret_impl(
     if normalized.len() != 64 || !normalized.chars().all(|c| c.is_ascii_hexdigit()) {
         return Err("team secret must be exactly 64 hex characters".to_string());
     }
-    team_secret_store::save_team_secret(&workspace_path, &team_id, &normalized)?;
+    // A rebuilt secret store is worth telling the user about, so it rides the
+    // same channel the delivery warning already uses rather than only reaching
+    // the log.
+    let store_notice = team_secret_store::save_team_secret(&workspace_path, &team_id, &normalized)?;
 
-    let warning =
+    let delivery_warning =
         deliver_secrets_and_link(&team_id, &workspace_path, Some(&normalized), None, None).await;
+    let warning = match (store_notice, delivery_warning) {
+        (Some(a), Some(b)) => Some(format!("{a} {b}")),
+        (Some(a), None) => Some(a),
+        (None, b) => b,
+    };
     if let Some(w) = &warning {
         info!("team_share_set_team_secret: {w}");
     }
@@ -492,15 +519,23 @@ pub async fn team_share_get_team_secret(
 ) -> Result<Option<String>, String> {
     match team_secret_store::load_team_secret(&workspace_path, &team_id) {
         Ok(secret) => Ok(Some(secret)),
-        // `load_team_secret` only errors with a "not found" message when the
-        // key is absent; treat that as "not configured".
-        Err(_) => Ok(None),
+        Err(team_secret_store::TeamSecretReadError::NotConfigured) => Ok(None),
+        // A store that will not open is NOT "no secret configured", and showing
+        // it as an empty box is how a configured team ends up looking unconfigured
+        // — the user retypes a secret they already had, and only finds out
+        // something is wrong when the save fails. Surface it.
+        //
+        // This branch used to be `Err(_) => Ok(None)`, justified by a comment
+        // claiming the only possible error was "not found". That was not true:
+        // the read goes through the encrypted personal blob, which fails loudly
+        // when its master key no longer matches.
+        Err(team_secret_store::TeamSecretReadError::StoreUnreadable(e)) => Err(e),
     }
 }
 
 // ─── get_share_status ────────────────────────────────────────────────────
 
-/// What the workspace `teamclaw-team` entry currently is:
+/// What the workspace `teamclu-team` entry currently is:
 /// `"symlink"` (linked to the daemon's global copy — a Windows junction also
 /// reports as a symlink to symlink_metadata), `"real_dir"` (legacy local dir,
 /// awaiting daemon consolidation), or `"missing"` (not linked yet).
@@ -513,7 +548,7 @@ pub(crate) fn detect_link_status(workspace_path: &str) -> &'static str {
     }
 }
 
-/// `~/.amuxd/teams/<team_id>/teamclaw-team` — the daemon's global copy path,
+/// `~/.amuxd/teams/<team_id>/teamclu-team` — the daemon's global copy path,
 /// shown in the UI so users can see where synced content actually lives.
 pub(crate) fn global_team_dir_display(team_id: &str) -> Option<String> {
     Some(
@@ -563,21 +598,21 @@ pub async fn team_share_get_status(
 // ─── team_sync_paths ───────────────────────────────────────────────────────
 //
 // Surfaces, for the settings UI, *where team content physically lives* and
-// *every `teamclaw-team` symlink that points at it*. All three share modes
+// *every `teamclu-team` symlink that points at it*. All three share modes
 // (oss / managed_git / custom_git) converge on the same topology: one real
-// directory per team at `~/.amuxd/teams/<team_id>/teamclaw-team` (the daemon's
-// global copy; git modes clone into it), with a `teamclaw-team` symlink in each
+// directory per team at `~/.amuxd/teams/<team_id>/teamclu-team` (the daemon's
+// global copy; git modes clone into it), with a `teamclu-team` symlink in each
 // workspace that joined the team. The list of workspaces comes from the Cloud
 // API (`GET /v1/workspaces?teamId=...`, the single source of truth for a
 // team's workspaces), filtered to paths that exist on this machine.
 
-/// One workspace's `teamclaw-team` entry, for the settings UI.
+/// One workspace's `teamclu-team` entry, for the settings UI.
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct WorkspaceLinkInfo {
     pub workspace_path: String,
     pub display_name: String,
-    /// `<workspace_path>/teamclaw-team` — the symlink (or legacy local dir).
+    /// `<workspace_path>/teamclu-team` — the symlink (or legacy local dir).
     pub link_path: String,
     /// `"symlink"` | `"real_dir"` | `"missing"` (see `detect_link_status`).
     pub status: String,
@@ -588,12 +623,12 @@ pub struct WorkspaceLinkInfo {
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct TeamSyncPaths {
-    /// `~/.amuxd/teams/<team_id>/teamclaw-team` — the single real copy.
+    /// `~/.amuxd/teams/<team_id>/teamclu-team` — the single real copy.
     pub real_dir: Option<String>,
     /// Whether that real directory currently exists on disk.
     pub real_dir_exists: bool,
     /// The current workspace plus every workspace bound to this team in the
-    /// daemon registry, each with its `teamclaw-team` link status.
+    /// daemon registry, each with its `teamclu-team` link status.
     pub links: Vec<WorkspaceLinkInfo>,
 }
 
@@ -878,7 +913,7 @@ mod link_status_tests {
         let out = team_sync_paths_impl("team-xyz".into(), ws_path.clone(), None, None).await;
 
         // Current workspace is always present and flagged, even when it isn't
-        // team-bound in the cloud list yet. With no teamclaw-team entry on
+        // team-bound in the cloud list yet. With no teamclu-team entry on
         // disk → "missing".
         let current: Vec<_> = out.links.iter().filter(|l| l.is_current).collect();
         assert_eq!(current.len(), 1);

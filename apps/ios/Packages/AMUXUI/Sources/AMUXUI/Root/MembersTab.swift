@@ -4,7 +4,10 @@ import AMUXCore
 import AMUXSharedUI
 
 enum MembersTabPresentation {
-    static func isTabBarVisible(navigationPath: [String]) -> Bool {
+    /// `NavigationPath` rather than `[String]`: the stack pushes two kinds of
+    /// destination now — an actor id, and an `ActorResourceRoute` for that
+    /// actor's skills / MCP / env list — and a typed array can only hold one.
+    static func isTabBarVisible(navigationPath: NavigationPath) -> Bool {
         navigationPath.isEmpty
     }
 }
@@ -13,13 +16,14 @@ public struct MembersTab: View {
     let pairing: PairingManager
     let mqtt: MQTTService
     let sessionViewModel: SessionListViewModel
-    let teamclawService: TeamclawService?
+    let teamcluService: TeamcluService?
     let activeTeam: TeamSummary?
     let currentActorID: String?
     let store: ActorStore
     let connectedAgentsStore: ConnectedAgentsStore?
     let workspacesRepository: (any WorkspaceRepository)?
     let agentAccessRepository: (any AgentAccessRepository)?
+    let teamResourceRepository: (any TeamResourceRepository)?
     /// One-shot trigger from the parent (e.g. the zero-agent reminder) to
     /// open the invite sheet without a toolbar tap. Toggled back to false
     /// after firing so subsequent triggers re-fire cleanly.
@@ -27,31 +31,33 @@ public struct MembersTab: View {
 
     @State private var showInvite     = false
     @State private var showTeamStats  = false
-    @State private var navigationPath: [String] = []
+    @State private var navigationPath = NavigationPath()
 
     @Query(sort: \CachedActor.displayName) private var actors: [CachedActor]
 
     public init(pairing: PairingManager,
                 mqtt: MQTTService,
                 sessionViewModel: SessionListViewModel,
-                teamclawService: TeamclawService?,
+                teamcluService: TeamcluService?,
                 activeTeam: TeamSummary?,
                 currentActorID: String? = nil,
                 store: ActorStore,
                 connectedAgentsStore: ConnectedAgentsStore? = nil,
                 workspacesRepository: (any WorkspaceRepository)? = nil,
                 agentAccessRepository: (any AgentAccessRepository)? = nil,
+                teamResourceRepository: (any TeamResourceRepository)? = nil,
                 showInvite: Binding<Bool> = .constant(false)) {
         self.pairing = pairing
         self.mqtt = mqtt
         self.sessionViewModel = sessionViewModel
-        self.teamclawService = teamclawService
+        self.teamcluService = teamcluService
         self.activeTeam = activeTeam
         self.currentActorID = currentActorID
         self.store = store
         self.connectedAgentsStore = connectedAgentsStore
         self.workspacesRepository = workspacesRepository
         self.agentAccessRepository = agentAccessRepository
+        self.teamResourceRepository = teamResourceRepository
         self._externalInviteTrigger = showInvite
     }
 
@@ -62,7 +68,7 @@ public struct MembersTab: View {
                 pairing: pairing,
                 mqtt: mqtt,
                 sessionViewModel: sessionViewModel,
-                teamclawService: teamclawService,
+                teamcluService: teamcluService,
                 currentActorID: currentActorID,
                 connectedAgentsStore: connectedAgentsStore,
                 onAddYourAgent: { showInvite = true }
@@ -113,10 +119,11 @@ public struct MembersTab: View {
                             mqtt: mqtt,
                             sessionViewModel: sessionViewModel,
                             store: store,
-                            teamclawService: teamclawService,
+                            teamcluService: teamcluService,
                             connectedAgentsStore: connectedAgentsStore,
                             workspacesRepository: workspacesRepository,
-                            agentAccessRepository: agentAccessRepository
+                            agentAccessRepository: agentAccessRepository,
+                            teamResourceRepository: teamResourceRepository
                         )
                     } else {
                         ContentUnavailableView(

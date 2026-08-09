@@ -140,7 +140,7 @@ export const useLocalStatsStore = create<LocalStatsStore>((set, get) => ({
     // handler in the `listenForEnvelopes` callback. Skills that run entirely
     // inside the daemon/agent runtime without emitting a `toolUse` ACP event
     // to the frontend will not be captured here; those require a separate
-    // daemon-side call (e.g. from `apps/daemon/src/teamclaw/rpc.rs`).
+    // daemon-side call (e.g. from `apps/daemon/src/teamclu/rpc.rs`).
     try {
       const { useCurrentTeamStore } = await import('@/stores/current-team')
       const teamId = useCurrentTeamStore.getState().team?.id

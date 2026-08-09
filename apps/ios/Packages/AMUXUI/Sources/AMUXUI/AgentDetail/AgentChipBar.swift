@@ -19,13 +19,13 @@ public struct AgentChipBar: View {
     public struct AgentChip: Identifiable, Equatable {
         public let id: String           // agent_id
         public let displayName: String
-        public let runtimeState: RuntimeChipState
-        public init(id: String, displayName: String, runtimeState: RuntimeChipState) {
-            self.id = id; self.displayName = displayName; self.runtimeState = runtimeState
+        public let lifecycleState: LifecycleChipState
+        public init(id: String, displayName: String, lifecycleState: LifecycleChipState) {
+            self.id = id; self.displayName = displayName; self.lifecycleState = lifecycleState
         }
     }
 
-    public enum RuntimeChipState: Equatable {
+    public enum LifecycleChipState: Equatable {
         case spawning, ready, idle, active, stopped, error
         var color: Color {
             switch self {
@@ -110,7 +110,7 @@ public struct AgentChipBar: View {
     private func chipLabel(_ chip: AgentChip) -> some View {
         let streaming = streamingAgentIDs.contains(chip.id)
         HStack(spacing: 6) {
-            Circle().fill(chip.runtimeState.color).frame(width: 6, height: 6)
+            Circle().fill(chip.lifecycleState.color).frame(width: 6, height: 6)
             Text(chip.displayName).font(.caption.weight(.semibold))
             if streaming {
                 Button {
@@ -157,8 +157,8 @@ public struct AgentChipBar: View {
     @Previewable @State var sel: Set<String> = ["a1", "a2"]
     return AgentChipBar(
         chips: [
-            AgentChipBar.AgentChip(id: "a1", displayName: "miniA", runtimeState: .active),
-            AgentChipBar.AgentChip(id: "a2", displayName: "miniB", runtimeState: .ready),
+            AgentChipBar.AgentChip(id: "a1", displayName: "miniA", lifecycleState: .active),
+            AgentChipBar.AgentChip(id: "a2", displayName: "miniB", lifecycleState: .ready),
         ],
         selection: $sel,
         streamingAgentIDs: ["a1"],

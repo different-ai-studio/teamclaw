@@ -5,7 +5,7 @@ import {
   RpcResponseSchema,
   type RpcRequest,
   type RpcResponse,
-} from '@/lib/proto/teamclaw_pb'
+} from '@/lib/proto/teamclu_pb'
 import { listenForEnvelopes, mqttPublish, mqttSubscribe, type IncomingEnvelope } from '@/lib/mqtt-bridge'
 import { createSharedModuleLeaseManager, type SharedModuleLease } from '@/lib/shared-module-lease'
 

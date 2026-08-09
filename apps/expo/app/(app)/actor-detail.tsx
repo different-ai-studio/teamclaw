@@ -21,7 +21,7 @@ import { createConfiguredSessionsApi } from "../../src/features/sessions/api-pro
 import { createIdeasApi } from "../../src/features/ideas/idea-api";
 import { supabase } from "../../src/lib/supabase/client";
 import { supabaseAccessToken } from "../../src/lib/cloud-api/client";
-import { createRuntimeRpcClient } from "../../src/lib/teamclaw/runtime-rpc";
+import { createRuntimeRpcClient } from "../../src/lib/teamclu/runtime-rpc";
 import { showToast } from "../../src/ui/Toast";
 
 type RecentSession = {

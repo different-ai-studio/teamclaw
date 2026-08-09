@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { create as createMessage } from "@bufbuild/protobuf";
-import { MessageKind, MessageSchema } from "@/lib/proto/teamclaw_pb";
+import { MessageKind, MessageSchema } from "@/lib/proto/teamclu_pb";
 import {
   isInterruptedPlaceholderMessageId,
   listInterruptedPlaceholderIds,

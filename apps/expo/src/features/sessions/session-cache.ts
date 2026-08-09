@@ -2,7 +2,7 @@ import AsyncStorage from "@react-native-async-storage/async-storage";
 
 import type { SessionSummary } from "./session-types";
 
-const STORAGE_PREFIX = "teamclaw.sessionsCache.v1.";
+const STORAGE_PREFIX = "teamclu.sessionsCache.v1.";
 
 function storageKey(teamId: string): string {
   return `${STORAGE_PREFIX}${teamId}`;

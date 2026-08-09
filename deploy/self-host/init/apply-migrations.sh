@@ -5,7 +5,7 @@ MIGRATIONS_DIR="${MIGRATIONS_DIR:-/migrations}"
 SEED_FILE="${SEED_FILE:-/seed.sql}"
 
 # Marker table lives in a dedicated schema, NOT public: app migrations
-# (e.g. move_teamclaw_to_amux) relocate every public base table to amux, which
+# (e.g. move_teamclu_to_amux) relocate every public base table to amux, which
 # would sweep the marker along and break tracking mid-sequence.
 psql -v ON_ERROR_STOP=1 -c \
   "create schema if not exists _selfhost;
@@ -31,11 +31,15 @@ done
 # seed last — OPT-IN only. seed.sql is dev/demo fixture data (sample users,
 # "Core Team", a Builder agent) written against the pre-amux schema
 # (public.teams etc.), so it neither belongs in a real self-host instance nor
-# applies cleanly after move_teamclaw_to_amux. Enable for local dev with
+# applies cleanly after move_teamclu_to_amux. Enable for local dev with
 # APPLY_SEED=true (the seed itself may still need updating for the amux schema).
 if [ "${APPLY_SEED:-false}" = "true" ]; then
   [ -f "$SEED_FILE" ] && apply_file "$SEED_FILE" "__seed__"
 else
   echo "skip seed (APPLY_SEED != true)"
 fi
+# Migrations often add/replace RPCs PostgREST already cached. Without a reload,
+# the next client call gets PGRST202 ("Could not find the function … in the
+# schema cache") until rest happens to restart.
+psql -v ON_ERROR_STOP=1 -c "notify pgrst, 'reload schema';" >/dev/null
 echo "apply-migrations: done"

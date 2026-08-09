@@ -2,28 +2,27 @@
 //!
 //! One global copy per team, keyed by `team_id`, under the daemon home
 //! (`~/.amuxd`). Every workspace of that team exposes this directory via a
-//! `teamclaw-team` symlink (see `workspace_link`).
+//! `teamclu-team` symlink (see `workspace_link`).
 
 use std::path::{Path, PathBuf};
 
 use super::DaemonConfig;
 
 /// The link/dir name surfaced inside each workspace. Mirrors the desktop
-/// `teamclaw-introspect` `TEAM_REPO_DIR` const; kept in sync by value.
-pub const TEAM_LINK_NAME: &str = "teamclaw-team";
+/// `teamclu-introspect` `TEAM_REPO_DIR` const; kept in sync by value.
+pub const TEAM_LINK_NAME: &str = "teamclu-team";
 
 /// Fixed top-level subdirectories the sync engine watches inside the team dir.
 /// Mirrors `oss_sync::path_validator::ALLOWED_PREFIXES` (without trailing `/`).
-pub const SHARED_PREFIXES: &[&str] = &[
-    "skills",
-    "knowledge",
-    ".mcp",
-    "_meta",
-    "_secrets",
-    "_feedback",
-];
+///
+/// Only `knowledge` is left. `.mcp` and `_secrets` moved to the Cloud API
+/// (`docs/architecture/team-mcp-and-env-cloud.md`) and are mirrored into
+/// `<team>/cloud/` — a sibling of this directory, so the sync engine never sees
+/// them. `skills` moved to the skills registry. `_meta` and `_feedback` never
+/// had a writer here.
+pub const SHARED_PREFIXES: &[&str] = &["knowledge"];
 
-/// `~/.amuxd/teams/<team_id>/teamclaw-team` — the one synced copy.
+/// `~/.amuxd/teams/<team_id>/teamclu-team` — the one synced copy.
 pub fn global_team_dir(team_id: &str) -> PathBuf {
     DaemonConfig::config_dir()
         .join("teams")
@@ -31,12 +30,29 @@ pub fn global_team_dir(team_id: &str) -> PathBuf {
         .join(TEAM_LINK_NAME)
 }
 
+/// `~/.amuxd/teams/<team_id>/cloud` — daemon-owned mirror of the team config
+/// that now comes from the Cloud API rather than the sync engine (team MCP,
+/// team env). See `runtime::team_cloud_config`.
+///
+/// Deliberately a *sibling* of `teamclu-team`, never inside it. Inside, a
+/// daemon writer would show up as a dirty working tree in git share modes
+/// (commit churn, ambiguous ownership) and would be picked up by the sync
+/// scanner as local content to push — including emitting tombstones for other
+/// members when it changed. Outside, the whole feature rolls back by deleting
+/// one directory.
+pub fn global_team_cloud_dir(team_id: &str) -> PathBuf {
+    DaemonConfig::config_dir()
+        .join("teams")
+        .join(team_id)
+        .join("cloud")
+}
+
 /// `~/.amuxd/teams/<team_id>/workspace` — the writable default worktree used for
 /// workspace-less runtime spawns (e.g. the embedded `/v1/ui` chat, which creates
 /// sessions with only an `agent_type`). It is a sibling of the synced
-/// `teamclaw-team` dir, so it is always writable regardless of the daemon's cwd
+/// `teamclu-team` dir, so it is always writable regardless of the daemon's cwd
 /// (production daemons launched by the desktop app inherit cwd `/`, which is
-/// read-only). It lives inside the daemon config dir, so no `teamclaw-team`
+/// read-only). It lives inside the daemon config dir, so no `teamclu-team`
 /// self-link is created here — relative team reads fall back to `global_team_dir`
 /// via [`resolve_team_dir`].
 pub fn default_workspace_dir(team_id: &str) -> PathBuf {
@@ -81,7 +97,7 @@ pub fn global_sync_state_path(team_id: &str) -> PathBuf {
 }
 
 /// Where to read this workspace's shared team content. If the in-workspace
-/// `teamclaw-team` entry exists (symlink/junction/real dir), use it so existing
+/// `teamclu-team` entry exists (symlink/junction/real dir), use it so existing
 /// relative read paths resolve transparently; otherwise (e.g. the Windows
 /// no-link fallback) read the global dir directly.
 pub fn resolve_team_dir(workspace_root: &Path, team_id: &str) -> PathBuf {
@@ -141,7 +157,7 @@ mod tests {
         let a = global_team_dir("team-a");
         let b = global_team_dir("team-b");
         assert_ne!(a, b);
-        assert!(a.ends_with("teams/team-a/teamclaw-team"));
+        assert!(a.ends_with("teams/team-a/teamclu-team"));
         assert!(global_sync_state_path("team-a").ends_with("teams/team-a/sync/state.json"));
     }
 
@@ -174,7 +190,7 @@ mod tests {
             if link.exists() {
                 std::fs::remove_file(&link).unwrap();
             }
-            std::os::unix::fs::symlink("/nonexistent/teamclaw-team", &link).unwrap();
+            std::os::unix::fs::symlink("/nonexistent/teamclu-team", &link).unwrap();
             assert_eq!(resolve_team_dir(ws.path(), "team-dangle"), global);
         }
     }

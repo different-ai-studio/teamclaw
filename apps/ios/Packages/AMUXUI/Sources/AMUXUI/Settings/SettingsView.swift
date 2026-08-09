@@ -73,7 +73,7 @@ public struct SettingsView: View {
     /// connection issues. Nothing is bundled, so "—" means bootstrap has not
     /// answered yet on this device.
     private var mqttBrokerAddress: String {
-        let host = UserDefaults.standard.string(forKey: "teamclaw_broker_host")?
+        let host = UserDefaults.standard.string(forKey: "teamclu_broker_host")?
             .trimmingCharacters(in: .whitespacesAndNewlines)
         if let host, !host.isEmpty { return host }
         return UserDefaultsBrokerConfigCache().load()?.host ?? "—"
@@ -555,7 +555,7 @@ public struct SettingsView: View {
                     // top of the sheet (near the identity card) instead
                     // of the bottom-of-list Sign Out row the user tapped.
                     .confirmationDialog(
-                        "Sign out of Teamclaw?",
+                        "Sign out of Teamclu?",
                         isPresented: $showSignOutConfirm,
                         titleVisibility: .visible
                     ) {

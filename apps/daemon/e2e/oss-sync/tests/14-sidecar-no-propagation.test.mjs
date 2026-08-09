@@ -18,14 +18,14 @@ test("conflict sidecar stays local — never propagates to the other node", { ti
   const root = contentRootPath(teamId);
 
   // Force a conflict on B so it writes a sidecar (same setup as scenario 03).
-  await writeFile("node-a", `${root}/skills/x.md`, Buffer.from("base\n"));
+  await writeFile("node-a", `${root}/knowledge/x.md`, Buffer.from("base\n"));
   await sync(nodes.a);
   await settle();
   await sync(nodes.b);
-  await writeFile("node-a", `${root}/skills/x.md`, Buffer.from("A-edit\n"));
+  await writeFile("node-a", `${root}/knowledge/x.md`, Buffer.from("A-edit\n"));
   await sync(nodes.a);
   await settle();
-  await writeFile("node-b", `${root}/skills/x.md`, Buffer.from("B-edit\n"));
+  await writeFile("node-b", `${root}/knowledge/x.md`, Buffer.from("B-edit\n"));
   const b1 = await sync(nodes.b);
   assert.ok(b1.conflicts >= 1, `B should have a conflict, got ${b1.conflicts}`);
 

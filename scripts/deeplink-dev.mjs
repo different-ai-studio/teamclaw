@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /**
- * macOS dev deep-link helpers for TeamClaw.
+ * macOS dev deep-link helpers for TeamClu.
  *
  * `pnpm tauri:dev` runs a bare binary that does NOT register URL schemes with
  * Launch Services. Use the debug .app bundle + this script instead.
@@ -8,7 +8,7 @@
  * Usage:
  *   pnpm tauri:deeplink:clean              # drop stale LS handlers
  *   pnpm tauri:deeplink:register           # register debug .app (build first)
- *   pnpm tauri:deeplink:open <sessionId>   # open teamclaw-dev://session/<id>
+ *   pnpm tauri:deeplink:open <sessionId>   # open teamclu-dev://session/<id>
  *   pnpm tauri:deeplink:test <sessionId>   # clean + build:debug + register + open
  */
 "use strict";
@@ -72,11 +72,11 @@ function loadBuildConfig() {
 }
 
 function debugAppPath() {
-  return path.join(repoRoot, ".cargo-target/debug/bundle/macos/TeamClaw.app");
+  return path.join(repoRoot, ".cargo-target/debug/bundle/macos/TeamClu.app");
 }
 
 function appScheme(buildConfig) {
-  return (buildConfig.app && buildConfig.app.scheme) || "teamclaw";
+  return (buildConfig.app && buildConfig.app.scheme) || "teamclu";
 }
 
 function run(cmd, args, opts = {}) {
@@ -102,9 +102,9 @@ function runQuiet(cmd, args) {
 
 function ghostHandlerPaths() {
   const known = [
-    path.join(repoRoot, ".cargo-target/release/bundle/macos/TeamClaw.app"),
-    "/Applications/TeamClaw.app",
-    "/Volumes/dmg.290lNC/TeamClaw.app",
+    path.join(repoRoot, ".cargo-target/release/bundle/macos/TeamClu.app"),
+    "/Applications/TeamClu.app",
+    "/Volumes/dmg.290lNC/TeamClu.app",
   ];
   const fromDump = [];
   try {
@@ -113,7 +113,7 @@ function ghostHandlerPaths() {
       const m = line.match(/^\s*path:\s+(.+\.app)\s/);
       if (!m) continue;
       const p = m[1].trim();
-      if (/teamclaw/i.test(p)) fromDump.push(p);
+      if (/teamclu/i.test(p)) fromDump.push(p);
     }
   } catch {
     // lsregister unavailable — skip scan
@@ -122,7 +122,7 @@ function ghostHandlerPaths() {
 }
 
 function cmdClean() {
-  console.log("Cleaning stale teamclaw:// Launch Services handlers…");
+  console.log("Cleaning stale teamclu:// Launch Services handlers…");
   for (const p of ghostHandlerPaths()) {
     if (fs.existsSync(p)) {
       console.log(`  skip (still exists): ${p}`);

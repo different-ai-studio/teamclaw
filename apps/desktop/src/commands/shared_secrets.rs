@@ -1,7 +1,27 @@
-//! Shared secrets — team env var storage under `<team_dir>/_secrets/*.enc.json`.
+//! Shared secrets — team env vars, encrypted with the team key.
 //!
 //! Writes are routed through `env_catalog_set` / `env_catalog_delete`; this module
 //! owns encryption, in-memory cache, and lazy init from workspace config.
+//!
+//! # Storage
+//!
+//! Values live in the Cloud API (`/v1/teams/:id/env-secrets`); the legacy
+//! `<team_dir>/_secrets/*.enc.json` files are still read so a workspace that has
+//! not been migrated keeps working, but nothing writes them and `_secrets/` is
+//! no longer synced — so they can only exist on a machine that already had them.
+//! See `docs/architecture/team-mcp-and-env-cloud.md`.
+//!
+//! What did NOT change is the part that matters: encryption still happens here,
+//! on this machine, with the team key. The server stores an opaque
+//! `{v, nonce, ciphertext}` envelope and cannot read it — the same guarantee the
+//! OSS/git storage had, since that was always client-encrypted too. Only the
+//! transport moved.
+//!
+//! One consequence worth knowing: the cloud path needs the derived key but not a
+//! `team_dir`, which is why key resolution is split out from
+//! `try_lazy_init_from_workspace`. Requiring the directory would have made team
+//! env unwritable exactly where it is most useful — a machine that has joined a
+//! team but never synced its shared folder.
 
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
@@ -82,30 +102,10 @@ pub fn secrets_dir(team_dir: &Path) -> Result<PathBuf, String> {
     Ok(dir)
 }
 
-/// Serialize and write an `EncryptedEnvelope` to `_secrets/<key_id>.enc.json`.
-pub fn write_secret_file(
-    team_dir: &Path,
-    key_id: &str,
-    envelope: &EncryptedEnvelope,
-) -> Result<(), String> {
-    let dir = secrets_dir(team_dir)?;
-    let path = dir.join(format!("{}.enc.json", key_id));
-    let content = serde_json::to_string_pretty(envelope)
-        .map_err(|e| format!("write_secret_file: serialize: {e}"))?;
-    std::fs::write(&path, content)
-        .map_err(|e| format!("write_secret_file: write {}: {e}", path.display()))
-}
-
-/// Delete `_secrets/<key_id>.enc.json`. Missing file is treated as success.
-pub fn delete_secret_file(team_dir: &Path, key_id: &str) -> Result<(), String> {
-    let dir = secrets_dir(team_dir)?;
-    let path = dir.join(format!("{}.enc.json", key_id));
-    if path.exists() {
-        std::fs::remove_file(&path)
-            .map_err(|e| format!("delete_secret_file: remove {}: {e}", path.display()))?;
-    }
-    Ok(())
-}
+// The `_secrets/*.enc.json` writer and deleter are gone: values are written to
+// the Cloud API now, and a helper that still wrote files nobody reads back would
+// be a trap for the next person. `load_all_secrets` below still reads the
+// directory so an unmigrated workspace is not silently blank.
 
 // ---------------------------------------------------------------------------
 // Public functions (called from other modules, not Tauri commands)
@@ -257,26 +257,26 @@ pub fn get_secret_value(state: &SharedSecretsState, key_id: &str) -> Option<Stri
 ///
 /// `team_id`, when provided, lets `resolve_team_env_secret` fall back to the
 /// locally-stored `_team_secret.{team_id}` blob when the workspace's
-/// `teamclaw.json` does not carry an inline `team.envSecret`. Without it, a user
+/// `teamclu.json` does not carry an inline `team.envSecret`. Without it, a user
 /// who joined a team whose config lacks the inline secret would fail to
 /// initialize even though the secret is present in the personal secret store.
 /// Resolve the directory team secrets should be written to for this workspace.
 ///
-/// Preferred: the workspace's `teamclaw-team` entry — a symlink into the
+/// Preferred: the workspace's `teamclu-team` entry — a symlink into the
 /// daemon's single global copy. But daemon-owned session workspaces
 /// (`~/.amuxd/apps/<app_id>`) frequently have no such link, so resolving the
 /// team dir purely relative to the workspace yields a non-existent path and the
 /// write fails with `secrets_dir: team dir does not exist`.
 ///
 /// When the workspace link is absent and we know the `team_id`, fall back to the
-/// daemon's global team dir `~/.amuxd/teams/<team_id>/teamclaw-team` — the single
+/// daemon's global team dir `~/.amuxd/teams/<team_id>/teamclu-team` — the single
 /// real copy where team secrets belong — creating it if the daemon has not
 /// scaffolded it yet so the first team-secret write can land. The workspace
 /// symlink path itself is never created here: a missing link there means the
 /// team isn't linked into that workspace, which `secrets_dir()` should surface.
 fn resolve_team_dir(workspace: &Path, team_id: Option<&str>) -> Result<PathBuf, String> {
     let workspace_team_dir =
-        teamclaw_runtime_env::env_catalog::resolve_team_dir_for_workspace(workspace);
+        teamclu_runtime_env::env_catalog::resolve_team_dir_for_workspace(workspace);
     if workspace_team_dir.exists() {
         return Ok(workspace_team_dir);
     }
@@ -303,16 +303,16 @@ pub fn try_lazy_init_from_workspace(
     team_id: Option<&str>,
 ) -> Result<(), String> {
     let workspace = Path::new(workspace_path);
-    if !teamclaw_config_path(workspace).exists() {
+    if !teamclu_config_path(workspace).exists() {
         return Err("No team configured for this workspace".to_string());
     }
-    let env_secret = teamclaw_runtime_env::env_catalog::resolve_team_env_secret(
+    let env_secret = teamclu_runtime_env::env_catalog::resolve_team_env_secret(
         workspace,
         team_id,
         Some(super::APP_SHORT_NAME),
     )
     .ok_or_else(|| {
-        "Team shared environment variables are not initialized for this workspace".to_string()
+        "Missing team encryption key for this workspace (not initialized). Configure it under Settings → Daemon → General, then try again.".to_string()
     })?;
     let team_dir = resolve_team_dir(workspace, team_id)?;
     let derived_key = derive_key(&env_secret)?;
@@ -335,9 +335,69 @@ pub fn try_lazy_init_from_workspace(
     init_shared_secrets(state, &env_secret, &team_dir)
 }
 
-fn teamclaw_config_path(workspace: &Path) -> PathBuf {
+/// Resolve (and cache) just the team encryption key for a workspace.
+///
+/// Split out from [`try_lazy_init_from_workspace`] because the cloud path needs
+/// the key and nothing else. That function additionally resolves a `team_dir`
+/// and fails when the shared folder was never synced — a legitimate state for a
+/// member who joined a team but has no local copy of it, and one that must not
+/// block writing a team env var.
+fn ensure_derived_key(
+    state: &SharedSecretsState,
+    workspace_path: &str,
+    team_id: Option<&str>,
+) -> Result<[u8; 32], String> {
+    let workspace = Path::new(workspace_path);
+    let env_secret = teamclu_runtime_env::env_catalog::resolve_team_env_secret(
+        workspace,
+        team_id,
+        Some(super::APP_SHORT_NAME),
+    )
+    .ok_or_else(|| {
+        "Missing team encryption key for this workspace (not initialized). Configure it under Settings → Daemon → General, then try again.".to_string()
+    })?;
+    let derived_key = derive_key(&env_secret)?;
+    let mut dk = state
+        .derived_key
+        .lock()
+        .map_err(|e| format!("ensure_derived_key: lock derived_key: {e}"))?;
+    *dk = Some(derived_key);
+    Ok(derived_key)
+}
+
+/// The Cloud API client for team-secret calls, or `None` when there is no
+/// signed-in session to authenticate with.
+///
+/// `cloud_api_url` is the renderer's *effective* endpoint
+/// (`getEffectiveServerConfigSync().cloudApiUrl`), which honours a runtime
+/// server switch. It has to be threaded through rather than read from the build
+/// config, because the endpoint and the bearer are a matched pair: the token was
+/// minted by whichever server the renderer is pointed at, so sending it to the
+/// compiled-in host is a guaranteed 401 the moment the two differ.
+///
+/// This is the same contract `team_share/join.rs` and friends already follow —
+/// see `resolve_runtime_fc_endpoint`, whose whole purpose is that runtime server
+/// selection lives in the renderer. Falling back to the build config keeps
+/// callers that predate the parameter working unchanged.
+fn fc_client_for(
+    workspace_path: &str,
+    access_token: Option<&str>,
+    cloud_api_url: Option<&str>,
+) -> Option<super::oss_sync::fc_client::FcClient> {
+    let token = access_token.map(str::trim).filter(|t| !t.is_empty())?;
+    let endpoint = match cloud_api_url.map(str::trim).filter(|u| !u.is_empty()) {
+        Some(url) => super::oss_sync::resolve_runtime_fc_endpoint(url).ok()?,
+        None => super::oss_sync::get_fc_endpoint(workspace_path),
+    };
+    Some(super::oss_sync::fc_client::FcClient::new(
+        endpoint,
+        token.to_string(),
+    ))
+}
+
+fn teamclu_config_path(workspace: &Path) -> PathBuf {
     workspace
-        .join(super::TEAMCLAW_DIR)
+        .join(super::TEAMCLU_DIR)
         .join(super::CONFIG_FILE_NAME)
 }
 
@@ -345,6 +405,7 @@ fn teamclaw_config_path(workspace: &Path) -> PathBuf {
 // Internal write helpers (used by env_catalog commands)
 // ---------------------------------------------------------------------------
 
+#[allow(clippy::too_many_arguments)]
 pub(crate) async fn set_secret_for_workspace(
     app_handle: &AppHandle,
     state: &SharedSecretsState,
@@ -355,25 +416,19 @@ pub(crate) async fn set_secret_for_workspace(
     category: String,
     node_id: String,
     team_id: Option<String>,
+    access_token: Option<String>,
+    cloud_api_url: Option<String>,
 ) -> Result<(), String> {
     validate_key_id(&key_id)?;
-    try_lazy_init_from_workspace(state, workspace_path, team_id.as_deref())?;
 
-    let team_dir = {
-        let td = state
-            .team_dir
-            .lock()
-            .map_err(|e| format!("set_secret_for_workspace: lock team_dir: {e}"))?;
-        td.clone()
-            .ok_or_else(|| "set_secret_for_workspace: secrets not initialized".to_string())?
-    };
-    let derived_key = {
-        let dk = state
-            .derived_key
-            .lock()
-            .map_err(|e| format!("set_secret_for_workspace: lock derived_key: {e}"))?;
-        dk.ok_or_else(|| "set_secret_for_workspace: derived_key not set".to_string())?
-    };
+    let team_id = team_id
+        .filter(|id| !id.trim().is_empty())
+        .ok_or_else(|| "teamId is required for team env vars".to_string())?;
+
+    // Only the key is needed to encrypt. Deliberately not `try_lazy_init_from_workspace`:
+    // that also demands a synced `team_dir`, which would block a member who has
+    // joined the team but never pulled its shared folder.
+    let derived_key = ensure_derived_key(state, workspace_path, Some(&team_id))?;
 
     let created_by = {
         let secrets = state
@@ -398,8 +453,27 @@ pub(crate) async fn set_secret_for_workspace(
     };
 
     let envelope = encrypt_secret(&entry, &derived_key)?;
-    write_secret_file(&team_dir, &key_id, &envelope)?;
 
+    // Ciphertext only past this point — the plaintext never leaves the process.
+    let client = fc_client_for(
+        workspace_path,
+        access_token.as_deref(),
+        cloud_api_url.as_deref(),
+    )
+    .ok_or_else(|| {
+        "Not signed in — team env vars are stored in the team's cloud account".to_string()
+    })?;
+    let body = serde_json::json!({ "envelope": envelope });
+    client
+        .put_json(
+            &format!("/v1/teams/{}/env-secrets/{}", team_id, key_id),
+            &body,
+        )
+        .await
+        .map_err(|e| format!("Failed to save team env var: {e}"))?;
+
+    // Only mirror into the cache once the write is durable, so a failed request
+    // cannot leave this machine believing a value it never stored.
     {
         let mut secrets = state
             .secrets
@@ -409,10 +483,15 @@ pub(crate) async fn set_secret_for_workspace(
     }
 
     app_handle.emit("secrets-changed", ()).ok();
+    // Best-effort: kick the daemon cache so the new value is injectable without
+    // waiting for the 300s background tick. A failure here must not undo the
+    // durable Cloud API write — the tick will catch up.
+    notify_daemon_team_cloud_reconcile(&team_id).await;
     log::info!("shared_secrets: set secret '{}'", key_id);
     Ok(())
 }
 
+#[allow(clippy::too_many_arguments)]
 pub(crate) async fn delete_secret_for_workspace(
     app_handle: &AppHandle,
     state: &SharedSecretsState,
@@ -421,10 +500,20 @@ pub(crate) async fn delete_secret_for_workspace(
     node_id: String,
     role: String,
     team_id: Option<String>,
+    access_token: Option<String>,
+    cloud_api_url: Option<String>,
 ) -> Result<(), String> {
     validate_key_id(&key_id)?;
-    try_lazy_init_from_workspace(state, workspace_path, team_id.as_deref())?;
 
+    let team_id = team_id
+        .filter(|id| !id.trim().is_empty())
+        .ok_or_else(|| "teamId is required for team env vars".to_string())?;
+
+    // A local pre-check purely so the common case fails fast with a sentence a
+    // person can act on. It is NOT the security boundary — RLS decides, and it
+    // sees the real actor rather than this machine's node id. Note the cache can
+    // be empty (nothing loaded yet), in which case this simply defers to the
+    // server, which is the correct outcome either way.
     {
         let secrets = state
             .secrets
@@ -442,16 +531,18 @@ pub(crate) async fn delete_secret_for_workspace(
         }
     }
 
-    let team_dir = {
-        let td = state
-            .team_dir
-            .lock()
-            .map_err(|e| format!("delete_secret_for_workspace: lock team_dir: {e}"))?;
-        td.clone()
-            .ok_or_else(|| "delete_secret_for_workspace: secrets not initialized".to_string())?
-    };
-
-    delete_secret_file(&team_dir, &key_id)?;
+    let client = fc_client_for(
+        workspace_path,
+        access_token.as_deref(),
+        cloud_api_url.as_deref(),
+    )
+    .ok_or_else(|| {
+        "Not signed in — team env vars are stored in the team's cloud account".to_string()
+    })?;
+    client
+        .delete_json(&format!("/v1/teams/{}/env-secrets/{}", team_id, key_id))
+        .await
+        .map_err(|e| format!("Failed to delete team env var: {e}"))?;
 
     {
         let mut secrets = state
@@ -462,8 +553,169 @@ pub(crate) async fn delete_secret_for_workspace(
     }
 
     app_handle.emit("secrets-changed", ()).ok();
+    notify_daemon_team_cloud_reconcile(&team_id).await;
     log::info!("shared_secrets: deleted secret '{}'", key_id);
     Ok(())
+}
+
+async fn notify_daemon_team_cloud_reconcile(team_id: &str) {
+    if let Err(e) = super::team_sync_proxy::daemon_team_cloud_reconcile(team_id).await {
+        log::warn!(
+            "shared_secrets: daemon cloud-config reconcile failed (will retry on tick): {e}"
+        );
+    }
+}
+
+/// Pull team env from the Cloud API and merge it over whatever the legacy
+/// `_secrets/` files hold, then repopulate the in-memory cache.
+///
+/// Cloud wins on a key collision: a stale copy may still be sitting in a synced
+/// team folder, and it is by definition older than the row the server returns.
+///
+/// A fetch failure leaves the cache alone rather than clearing it. An empty map
+/// and "we could not ask" are different facts, and conflating them would blank
+/// the user's team env whenever the network hiccups.
+pub(crate) async fn refresh_team_secrets_from_cloud(
+    state: &SharedSecretsState,
+    workspace_path: &str,
+    team_id: Option<&str>,
+    access_token: Option<&str>,
+    cloud_api_url: Option<&str>,
+) -> Result<Vec<String>, String> {
+    let Some(team_id) = team_id.map(str::trim).filter(|id| !id.is_empty()) else {
+        return Ok(Vec::new());
+    };
+    let derived_key = ensure_derived_key(state, workspace_path, Some(team_id))?;
+    let Some(client) = fc_client_for(workspace_path, access_token, cloud_api_url) else {
+        return Ok(Vec::new());
+    };
+
+    let resp = client
+        .get_json(&format!("/v1/teams/{}/env-secrets", team_id))
+        .await
+        .map_err(|e| format!("Failed to load team env vars: {e}"))?;
+
+    let items = resp
+        .get("items")
+        .and_then(|v| v.as_array())
+        .cloned()
+        .unwrap_or_default();
+
+    let mut fetched: HashMap<String, SecretEntry> = HashMap::new();
+    // Key ids whose envelope did not open. Kept rather than dropped: a key the
+    // user configured but this machine cannot read is a state they need to SEE
+    // — silently omitting it looks identical to "never configured", which is
+    // how someone ends up retyping a secret they already have.
+    let mut undecryptable: Vec<String> = Vec::new();
+    for item in items {
+        let Some(key_id) = item.get("keyId").and_then(|v| v.as_str()) else {
+            continue;
+        };
+        let Some(envelope) = item.get("envelope") else {
+            continue;
+        };
+        let envelope: EncryptedEnvelope = match serde_json::from_value(envelope.clone()) {
+            Ok(e) => e,
+            Err(e) => {
+                log::warn!("shared_secrets: bad envelope for '{key_id}': {e}");
+                undecryptable.push(key_id.to_string());
+                continue;
+            }
+        };
+        // Undecryptable rows are skipped, not fatal: a key rotation would
+        // otherwise make the whole list unreadable instead of just its stale part.
+        match decrypt_secret(&envelope, &derived_key) {
+            Ok(entry) => {
+                fetched.insert(key_id.to_string(), entry);
+            }
+            Err(e) => {
+                log::warn!("shared_secrets: cannot decrypt '{key_id}': {e}");
+                undecryptable.push(key_id.to_string());
+            }
+        }
+    }
+
+    {
+        let mut secrets = state
+            .secrets
+            .lock()
+            .map_err(|e| format!("refresh_team_secrets_from_cloud: lock secrets: {e}"))?;
+        for (key, entry) in fetched {
+            secrets.insert(key, entry);
+        }
+    }
+    Ok(undecryptable)
+}
+
+/// Refresh from the Cloud API and return the team entries as catalog listings.
+///
+/// The settings/browser list is built by scanning `_secrets/` on disk, which
+/// finds nothing now that writes go to the cloud — this is what puts the values
+/// back in front of the user.
+pub(crate) async fn team_listings_from_cloud(
+    state: &SharedSecretsState,
+    workspace_path: &str,
+    team_id: Option<&str>,
+    access_token: Option<&str>,
+    cloud_api_url: Option<&str>,
+) -> Result<Vec<teamclu_runtime_env::env_catalog::TeamEnvListing>, String> {
+    let undecryptable = refresh_team_secrets_from_cloud(
+        state,
+        workspace_path,
+        team_id,
+        access_token,
+        cloud_api_url,
+    )
+    .await?;
+
+    let secrets = state
+        .secrets
+        .lock()
+        .map_err(|e| format!("team_listings_from_cloud: lock secrets: {e}"))?;
+    let mut out: Vec<_> = secrets
+        .values()
+        .map(|e| teamclu_runtime_env::env_catalog::TeamEnvListing {
+            key_id: e.key_id.clone(),
+            description: e.description.clone(),
+            category: e.category.clone(),
+            created_by: e.created_by.clone(),
+            updated_by: e.updated_by.clone(),
+            updated_at: e.updated_at.clone(),
+            // Everything here came back from `decrypt_secret`, so by construction
+            // it decrypted.
+            decrypted: true,
+            key_mismatch: false,
+        })
+        .collect();
+
+    // Rows the team key would not open still get listed, flagged. The UI shows
+    // them as "cannot decrypt" instead of hiding them, which is the difference
+    // between "your key is wrong" and "this key does not exist".
+    //
+    // key_mismatch is true rather than false: reaching this point required a
+    // derived team key, so a local secret WAS available — it just did not match.
+    // The "no local key at all" case fails earlier, in ensure_derived_key.
+    // Drop any readable row for a key that also failed to decrypt. The two
+    // sources are independent — one walks the decrypted map, the other the
+    // failures — so a key whose blob stopped decrypting while a stale plaintext
+    // lingered in the map was emitted twice, once readable and once Locked,
+    // with the readable row serving a value the blob can no longer produce.
+    out.retain(|row| !undecryptable.contains(&row.key_id));
+
+    for key_id in undecryptable {
+        out.push(teamclu_runtime_env::env_catalog::TeamEnvListing {
+            key_id,
+            description: String::new(),
+            category: String::new(),
+            created_by: String::new(),
+            updated_by: String::new(),
+            updated_at: String::new(),
+            decrypted: false,
+            key_mismatch: true,
+        });
+    }
+    out.sort_by(|a, b| a.key_id.cmp(&b.key_id));
+    Ok(out)
 }
 
 #[cfg(test)]
@@ -473,7 +725,7 @@ mod tests {
     #[test]
     fn init_shared_secrets_does_not_create_missing_team_dir() {
         let workspace_dir = tempfile::tempdir().unwrap();
-        let team_dir = workspace_dir.path().join("teamclaw");
+        let team_dir = workspace_dir.path().join("teamclu");
         let state = SharedSecretsState::default();
         let team_secret = "00".repeat(32);
 
@@ -481,6 +733,32 @@ mod tests {
 
         assert!(result.is_ok());
         assert!(!team_dir.exists());
+    }
+
+    /// The endpoint must follow the renderer, not the compiled-in default.
+    ///
+    /// The bearer is minted by whichever server the renderer is pointed at, so a
+    /// client built against the build-config host would send that token
+    /// somewhere it is not valid — a guaranteed 401 the moment a runtime server
+    /// switch is in play.
+    #[test]
+    fn fc_client_endpoint_follows_the_renderer_when_supplied() {
+        let client = fc_client_for("/tmp/ws", Some("tok"), Some("http://localhost:9000"))
+            .expect("a token is all that is required");
+        assert_eq!(client.base_url, "http://localhost:9000");
+
+        // Trailing slashes are normalised so paths do not end up doubled.
+        let client = fc_client_for("/tmp/ws", Some("tok"), Some("http://localhost:9000/")).unwrap();
+        assert_eq!(client.base_url, "http://localhost:9000");
+    }
+
+    #[test]
+    fn fc_client_requires_a_token_and_rejects_a_bad_url() {
+        assert!(fc_client_for("/tmp/ws", None, Some("http://localhost:9000")).is_none());
+        assert!(fc_client_for("/tmp/ws", Some("   "), Some("http://localhost:9000")).is_none());
+        // A malformed override must not silently fall back to the build config —
+        // that would resurrect exactly the token/endpoint mismatch this avoids.
+        assert!(fc_client_for("/tmp/ws", Some("tok"), Some("not a url")).is_none());
     }
 
     fn home_lock() -> &'static std::sync::Mutex<()> {
@@ -526,7 +804,7 @@ mod tests {
         let home_dir = tempfile::tempdir().unwrap();
         let _home = HomeGuard::set(home_dir.path());
 
-        // A daemon-owned session workspace with no `teamclaw-team` link.
+        // A daemon-owned session workspace with no `teamclu-team` link.
         let workspace_dir = tempfile::tempdir().unwrap();
         let workspace = workspace_dir.path();
         assert!(!workspace.join(crate::commands::TEAM_REPO_DIR).exists());
@@ -557,7 +835,7 @@ mod tests {
     fn lazy_init_uses_shared_dir_and_env_secret() {
         let workspace_dir = tempfile::tempdir().unwrap();
         let workspace = workspace_dir.path();
-        let config_dir = workspace.join(crate::commands::TEAMCLAW_DIR);
+        let config_dir = workspace.join(crate::commands::TEAMCLU_DIR);
         std::fs::create_dir_all(&config_dir).unwrap();
         std::fs::write(
             config_dir.join(crate::commands::CONFIG_FILE_NAME),
@@ -566,21 +844,21 @@ mod tests {
                     "gitUrl": "https://example.com/repo.git",
                     "enabled": true,
                     "lastSyncAt": null,
-                    "sharedDirName": "teamclaw",
+                    "sharedDirName": "teamclu",
                     "envSecret": "00".repeat(32)
                 }
             })
             .to_string(),
         )
         .unwrap();
-        std::fs::create_dir_all(workspace.join("teamclaw")).unwrap();
+        std::fs::create_dir_all(workspace.join("teamclu")).unwrap();
 
         let state = SharedSecretsState::default();
         let result = try_lazy_init_from_workspace(&state, workspace.to_str().unwrap(), None);
 
         assert!(result.is_ok());
         let team_dir = state.team_dir.lock().unwrap().clone().unwrap();
-        assert_eq!(team_dir, workspace.join("teamclaw"));
+        assert_eq!(team_dir, workspace.join("teamclu"));
     }
 
     #[test]
@@ -593,7 +871,7 @@ mod tests {
             (workspace_a, "00".repeat(32)),
             (workspace_b, "11".repeat(32)),
         ] {
-            let config_dir = workspace.join(crate::commands::TEAMCLAW_DIR);
+            let config_dir = workspace.join(crate::commands::TEAMCLU_DIR);
             std::fs::create_dir_all(&config_dir).unwrap();
             std::fs::write(
                 config_dir.join(crate::commands::CONFIG_FILE_NAME),
@@ -602,14 +880,14 @@ mod tests {
                         "gitUrl": "https://example.com/repo.git",
                         "enabled": true,
                         "lastSyncAt": null,
-                        "sharedDirName": "teamclaw",
+                        "sharedDirName": "teamclu",
                         "envSecret": secret
                     }
                 })
                 .to_string(),
             )
             .unwrap();
-            std::fs::create_dir_all(workspace.join("teamclaw")).unwrap();
+            std::fs::create_dir_all(workspace.join("teamclu")).unwrap();
         }
 
         let state = SharedSecretsState::default();
@@ -618,7 +896,7 @@ mod tests {
 
         let team_dir = state.team_dir.lock().unwrap().clone().unwrap();
         let derived_key = state.derived_key.lock().unwrap().unwrap();
-        assert_eq!(team_dir, workspace_b.join("teamclaw"));
+        assert_eq!(team_dir, workspace_b.join("teamclu"));
         assert_eq!(
             derived_key,
             derive_key(&"11".repeat(32)).expect("derive workspace b key")

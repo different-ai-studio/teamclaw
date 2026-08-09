@@ -13,7 +13,11 @@ const CodeEditor = lazy(() => import('@/components/editors/CodeEditor'))
 export function KnowledgeDetail({ path }: { path: string }) {
   const { t } = useTranslation()
   const isDark = useIsDark()
-  const item = useTeamShareBrowserStore((s) => s.knowledge.items.find((x) => x.path === path))
+  // Derived from the path rather than looked up in a list: the tree can open any
+  // file under the shared root, including ones no curated list would contain.
+  const teamRoot = useTeamShareBrowserStore((s) => s.knowledgeRoot)
+  const name = path.split('/').pop() || path
+  const relPath = teamRoot && path.startsWith(teamRoot + '/') ? path.slice(teamRoot.length + 1) : name
 
   const [content, setContent] = React.useState('')
   const [baseline, setBaseline] = React.useState('')
@@ -60,7 +64,7 @@ export function KnowledgeDetail({ path }: { path: string }) {
     }
   }, [saving, loading, path, content, t])
 
-  if (!item) return null
+  if (!path) return null
 
   return (
     <div className="flex h-full min-h-0 flex-col">
@@ -70,9 +74,9 @@ export function KnowledgeDetail({ path }: { path: string }) {
         </span>
         <div className="min-w-0 flex-1">
           <div className="text-[11px] font-medium uppercase tracking-wide text-faint">{t('teamShare.knowledge', 'Knowledge')}</div>
-          <div className="truncate text-[15px] font-bold text-foreground">{item.name}</div>
+          <div className="truncate text-[15px] font-bold text-foreground">{name}</div>
         </div>
-        <span className="shrink-0 truncate font-mono text-[11.5px] text-muted-foreground">{item.relPath}</span>
+        <span className="shrink-0 truncate font-mono text-[11.5px] text-muted-foreground">{relPath}</span>
         <Button
           type="button"
           onClick={() => void handleSave()}
@@ -91,7 +95,7 @@ export function KnowledgeDetail({ path }: { path: string }) {
           </div>
         ) : (
           <Suspense fallback={<div className="p-6 text-[13px] text-muted-foreground">{t('common.loading', 'Loading…')}</div>}>
-            <CodeEditor content={content} filename={item.name} filePath={path} onChange={setContent} isDark={isDark} />
+            <CodeEditor content={content} filename={name} filePath={path} onChange={setContent} isDark={isDark} />
           </Suspense>
         )}
       </div>

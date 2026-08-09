@@ -125,6 +125,11 @@ pub async fn spawn(
     let managed_llm = backend
         .clone()
         .map(|b| Arc::new(crate::runtime::managed_llm::ManagedLlmResolver::new(b)));
+    // Same shape for team MCP / team env: desktop posts after a Cloud API write
+    // so the daemon cache converges immediately instead of waiting for the tick.
+    let team_cloud = backend.clone().map(|b| {
+        Arc::new(crate::runtime::team_cloud_config::TeamCloudConfigResolver::new(b))
+    });
 
     let state = HttpState::new(
         http,
@@ -141,6 +146,7 @@ pub async fn spawn(
     .with_config_admin(config_path, channel_reload_tx, onboarding)
     .with_live_tee(live_tee)
     .with_managed_llm(managed_llm)
+    .with_team_cloud(team_cloud)
     .with_local_rpc(local_rpc_tx)
     .with_local_live_ingest(local_live_ingest_tx);
 
@@ -753,7 +759,7 @@ mod tests {
     }
 
     // `GET /v1/team/conflicts` for an unknown team is hermetic: the OSS sidecar
-    // scan runs against `~/.amuxd/teams/zzznonexistent/teamclaw-team` (which does
+    // scan runs against `~/.amuxd/teams/zzznonexistent/teamclu-team` (which does
     // not exist — read-only, returns no files) and the in-memory dispatcher
     // status is the zero value (`conflicts == 0`), so no git-backup marker is
     // appended. The result is an empty array without touching real team state.
@@ -875,8 +881,8 @@ mod tests {
         tokio::spawn(async move {
             while let Some(req) = rpc_rx.recv().await {
                 let request =
-                    crate::proto::teamclaw::RpcRequest::decode(req.payload.as_slice()).unwrap();
-                let response = crate::proto::teamclaw::RpcResponse {
+                    crate::proto::teamclu::RpcRequest::decode(req.payload.as_slice()).unwrap();
+                let response = crate::proto::teamclu::RpcResponse {
                     request_id: request.request_id,
                     success: true,
                     error: String::new(),
@@ -914,7 +920,7 @@ mod tests {
             .to_owned();
         let client = reqwest::Client::new();
 
-        let request = crate::proto::teamclaw::RpcRequest {
+        let request = crate::proto::teamclu::RpcRequest {
             request_id: "req-42".into(),
             requester_client_id: "client-1".into(),
             requester_actor_id: "actor-1".into(),
@@ -959,7 +965,7 @@ mod tests {
             Some("application/x-protobuf")
         );
         let bytes = resp.bytes().await.unwrap();
-        let decoded = crate::proto::teamclaw::RpcResponse::decode(bytes.as_ref()).unwrap();
+        let decoded = crate::proto::teamclu::RpcResponse::decode(bytes.as_ref()).unwrap();
         assert!(decoded.success);
         assert_eq!(decoded.request_id, "req-42");
         handle.shutdown().await;

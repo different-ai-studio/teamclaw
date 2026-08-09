@@ -1,11 +1,11 @@
-# Chrome 扩展：嵌入 TeamClaw 多人聊天 + 页面内容抓取
+# Chrome 扩展：嵌入 TeamClu 多人聊天 + 页面内容抓取
 
 **日期**: 2026-06-23
 **状态**: 设计已确认，待实现（拆为两个子工程）
 
 ## 目标
 
-做一个 Chrome 扩展（Manifest V3），在浏览器侧边栏（side panel）里嵌入 TeamClaw 的多人
+做一个 Chrome 扩展（Manifest V3），在浏览器侧边栏（side panel）里嵌入 TeamClu 的多人
 聊天窗口，并能把当前网页的内容（选中文本或全页正文）作为上下文发送给远端 daemon 上的
 agent。主要场景：浏览自家 admin portal 时随手就当前页内容向 agent 提问/下任务。
 
@@ -23,13 +23,13 @@ agent。主要场景：浏览自家 admin portal 时随手就当前页内容向 
 浏览器跨机器不可达。扩展沿用 web 前端 / expo 已有的通道：**Cloud API（HTTPS bearer）+
 MQTT over WebSocket（实时流）**，daemon 在后端被间接驱动。daemon 零改动。
 
-**承载方式：把 `@teamclaw/app` 的聊天子集直接打包进扩展**，作为 side panel 的
+**承载方式：把 `@teamclu/app` 的聊天子集直接打包进扩展**，作为 side panel 的
 `chrome-extension://` 页面运行（无 iframe、无公网托管、无跨域 CSP 问题）。这要求 app 能在
 **纯浏览器**（无 Tauri）环境跑起来——目前 app 是 Tauri 桌面应用，MQTT 走 Rust 桥。
 
 ```
 ┌─ Chrome 扩展 (Manifest V3) ──────────────────────────────┐
-│  Side Panel 页面 = 打包后的 @teamclaw/app(embed 精简模式)  │
+│  Side Panel 页面 = 打包后的 @teamclu/app(embed 精简模式)  │
 │     Cloud API(fetch) + MQTT over WebSocket(mqtt npm)      │
 │                ▲   chrome.runtime 消息                    │
 │  Service Worker (background)                              │
@@ -47,7 +47,7 @@ MQTT over WebSocket（实时流）**，daemon 在后端被间接驱动。daemon 
 
 本设计拆为两个可独立验证的子工程，各自一份实现计划，顺序执行：
 
-### 子工程 1：`@teamclaw/app` 浏览器运行时（依赖项，先做）
+### 子工程 1：`@teamclu/app` 浏览器运行时（依赖项，先做）
 
 让 app 的多人聊天子集在**纯浏览器**跑起来，只走 Cloud API + MQTT-ws。
 **独立验收**：普通浏览器 tab（`pnpm dev` 的 web 模式）里能登录、选会话、收发多人消息、看
@@ -136,7 +136,7 @@ token，不碰 daemon root token。首登在 side panel 页面内完成；token/
 - 扩展项目落点：新建 `apps/extension/`（构建工具沿用 Vite，MV3 用
   `@crxjs/vite-plugin` 或 `wxt`，实现期定）。
 - 子工程 1 的浏览器 build 产物如何被子工程 2 的 Vite 构建引用（同一 monorepo workspace
-  依赖 `@teamclaw/app`，build 时一起打包）。
+  依赖 `@teamclu/app`，build 时一起打包）。
 - embed 模式要不要独立精简 bundle（按需 code-split），还是整包加路由门控——先整包门控，
   体积优化留后。
 - `mqtt` npm 包在 MV3 service worker / 扩展页面的 ws 兼容性实测（service worker 无

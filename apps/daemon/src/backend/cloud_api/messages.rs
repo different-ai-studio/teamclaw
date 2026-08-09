@@ -57,6 +57,59 @@ pub(super) struct InsertMessageRequest<'a> {
     pub(super) created_at: Option<&'a str>,
 }
 
+/// Namespace for deterministic gateway message UUIDs derived from channel-
+/// native ids (SeaTalk/WeCom/Feishu/…). `messages.id` is a UUID column — using
+/// the raw channel id as the PK makes inserts fail and leaves agent-only
+/// history in the UI.
+const GATEWAY_MSG_NS: uuid::Uuid = uuid::Uuid::from_bytes([
+    0x74, 0x65, 0x61, 0x6d, // "team"
+    0x63, 0x6c, 0x61, 0x77, // "claw"
+    0x67, 0x77, 0x6d, 0x73, // "gwms"
+    0x67, 0x69, 0x64, 0x01, // "gid\x01"
+]);
+
+/// Build a UUID primary key (+ optional metadata) for a gateway-originated
+/// message. Channel-native ids are never used as the PK; they are stored under
+/// `metadata.external_message_id` and folded into a deterministic UUID v5 so
+/// retries stay idempotent.
+pub(super) fn gateway_message_id_and_metadata(
+    session_id: &str,
+    external_message_id: Option<&str>,
+    extra_metadata: Option<Value>,
+) -> (String, Option<Value>) {
+    let mut metadata = match extra_metadata {
+        Some(Value::Object(map)) => Value::Object(map),
+        Some(other) => serde_json::json!({ "extra": other }),
+        None => Value::Object(serde_json::Map::new()),
+    };
+
+    let id = match external_message_id.map(str::trim).filter(|s| !s.is_empty()) {
+        Some(external) => {
+            if let Some(obj) = metadata.as_object_mut() {
+                obj.insert(
+                    "external_message_id".to_string(),
+                    Value::String(external.to_string()),
+                );
+            }
+            // Prefer the raw value when it is already a UUID (keeps older
+            // callers that passed UUIDs stable). Otherwise derive v5.
+            if let Ok(parsed) = uuid::Uuid::parse_str(external) {
+                parsed.to_string()
+            } else {
+                let name = format!("gateway:{session_id}:{external}");
+                uuid::Uuid::new_v5(&GATEWAY_MSG_NS, name.as_bytes()).to_string()
+            }
+        }
+        None => uuid::Uuid::new_v4().to_string(),
+    };
+
+    let metadata = match &metadata {
+        Value::Object(map) if map.is_empty() => None,
+        other => Some(other.clone()),
+    };
+    (id, metadata)
+}
+
 impl CloudApiBackend {
     pub(super) async fn messages_after_cursor_impl(
         &self,
@@ -85,9 +138,8 @@ impl CloudApiBackend {
         content: &str,
         external_message_id: Option<&str>,
     ) -> BackendResult<String> {
-        let id = external_message_id
-            .map(str::to_string)
-            .unwrap_or_else(|| uuid::Uuid::new_v4().to_string());
+        let (id, metadata) =
+            gateway_message_id_and_metadata(session_id, external_message_id, None);
         let message: CloudMessage = self
             .post(
                 &format!("/v1/sessions/{session_id}/messages"),
@@ -97,7 +149,7 @@ impl CloudApiBackend {
                     sender_actor_id,
                     content,
                     kind: "text",
-                    metadata: None,
+                    metadata,
                     turn_id: None,
                     reply_to_message_id: None,
                     model: None,
@@ -116,9 +168,8 @@ impl CloudApiBackend {
         content: &str,
         external_message_id: Option<&str>,
     ) -> BackendResult<String> {
-        let id = external_message_id
-            .map(str::to_string)
-            .unwrap_or_else(|| uuid::Uuid::new_v4().to_string());
+        let (id, metadata) =
+            gateway_message_id_and_metadata(session_id, external_message_id, None);
         let message: CloudMessage = self
             .post(
                 &format!("/v1/sessions/{session_id}/messages"),
@@ -128,7 +179,7 @@ impl CloudApiBackend {
                     sender_actor_id,
                     content,
                     kind: "agent_reply",
-                    metadata: None,
+                    metadata,
                     turn_id: None,
                     reply_to_message_id: None,
                     model: None,
@@ -148,10 +199,11 @@ impl CloudApiBackend {
         external_message_id: Option<&str>,
         attachments: Value,
     ) -> BackendResult<String> {
-        let id = external_message_id
-            .map(str::to_string)
-            .unwrap_or_else(|| uuid::Uuid::new_v4().to_string());
-        let metadata = serde_json::json!({ "attachments": attachments });
+        let (id, metadata) = gateway_message_id_and_metadata(
+            session_id,
+            external_message_id,
+            Some(serde_json::json!({ "attachments": attachments })),
+        );
         let message: CloudMessage = self
             .post(
                 &format!("/v1/sessions/{session_id}/messages"),
@@ -161,7 +213,7 @@ impl CloudApiBackend {
                     sender_actor_id,
                     content,
                     kind: "text",
-                    metadata: Some(metadata),
+                    metadata,
                     turn_id: None,
                     reply_to_message_id: None,
                     model: None,
@@ -310,5 +362,56 @@ mod tests {
         let items = vec![make_msg("a"), make_msg("b")];
         let out = CloudApiBackend::cursor_filter(items, Some("z"));
         assert!(out.is_empty());
+    }
+
+    #[test]
+    fn gateway_id_without_external_is_random_uuid() {
+        let (id, meta) = gateway_message_id_and_metadata("sess-1", None, None);
+        assert!(uuid::Uuid::parse_str(&id).is_ok());
+        assert!(meta.is_none());
+        let (id2, _) = gateway_message_id_and_metadata("sess-1", None, None);
+        assert_ne!(id, id2);
+    }
+
+    #[test]
+    fn gateway_id_with_native_channel_id_is_uuid_v5_and_stores_external() {
+        let native = "u7oirumAclCbrRQB-RCYnjzhvXNAhNTUFJTM6fDCaFsK-Jplxk2X23T2";
+        let (id, meta) = gateway_message_id_and_metadata("sess-1", Some(native), None);
+        assert!(uuid::Uuid::parse_str(&id).is_ok());
+        assert_ne!(id, native);
+        assert_eq!(
+            meta.as_ref().and_then(|m| m["external_message_id"].as_str()),
+            Some(native)
+        );
+        // Deterministic for idempotency.
+        let (id2, _) = gateway_message_id_and_metadata("sess-1", Some(native), None);
+        assert_eq!(id, id2);
+        // Different session ⇒ different id.
+        let (id3, _) = gateway_message_id_and_metadata("sess-2", Some(native), None);
+        assert_ne!(id, id3);
+    }
+
+    #[test]
+    fn gateway_id_preserves_uuid_external_ids() {
+        let external = "550e8400-e29b-41d4-a716-446655440000";
+        let (id, meta) = gateway_message_id_and_metadata("sess-1", Some(external), None);
+        assert_eq!(id, external);
+        assert_eq!(
+            meta.as_ref().and_then(|m| m["external_message_id"].as_str()),
+            Some(external)
+        );
+    }
+
+    #[test]
+    fn gateway_id_merges_attachments_metadata() {
+        let (id, meta) = gateway_message_id_and_metadata(
+            "sess-1",
+            Some("native-msg-1"),
+            Some(serde_json::json!({ "attachments": [{"filename": "a.png"}] })),
+        );
+        assert!(uuid::Uuid::parse_str(&id).is_ok());
+        let meta = meta.expect("metadata");
+        assert_eq!(meta["external_message_id"], "native-msg-1");
+        assert_eq!(meta["attachments"][0]["filename"], "a.png");
     }
 }

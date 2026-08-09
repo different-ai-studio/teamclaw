@@ -34,18 +34,18 @@ export interface ServerConfig {
 // This localStorage entry is a session cache for the MQTT broker config that the
 // Cloud API delivers via `/v1/config/bootstrap` after sign-in — nothing else. It
 // lets the MQTT client read a broker synchronously before bootstrap re-runs. It
-// never carries a cloudApiUrl: the legacy `~/.teamclaw/config.json` override
-// (and the `window.__TEAMCLAW_SERVER_CONFIG__` injection that carried it) were
+// never carries a cloudApiUrl: the legacy `~/.teamclu/config.json` override
+// (and the `window.__TEAMCLU_SERVER_CONFIG__` injection that carried it) were
 // removed because a value riding along in this cache could silently shadow the
 // baked build config.
-const STORAGE_KEY = "teamclaw.serverConfig";
+const STORAGE_KEY = "teamclu.serverConfig";
 
 // A user-chosen Cloud API URL lives under its own key, separate from the cache
 // above, and wins over both the env var and the build config. It is written only
 // by an explicit user action (the "Custom server" entry in onboarding), and every
 // surface that shows the effective URL also offers a reset — so an override is
 // always visible as an override rather than shadowing the build config silently.
-const CLOUD_API_OVERRIDE_KEY = "teamclaw.cloudApiUrl.override";
+const CLOUD_API_OVERRIDE_KEY = "teamclu.cloudApiUrl.override";
 
 function readLocalConfig(): ServerConfig {
   if (typeof window === "undefined") return {};
@@ -90,7 +90,7 @@ export function normalizeCloudApiUrl(raw: string): string | null {
 // this module in the import graph of every listener, and any suite that
 // partially mocks @/lib/server-config would then fail to import them at all.
 // Listeners hardcode the same literal — see lib/remote-features.ts.
-export const CLOUD_API_URL_CHANGED_EVENT = "teamclaw:cloud-api-url-changed";
+export const CLOUD_API_URL_CHANGED_EVENT = "teamclu:cloud-api-url-changed";
 
 /** The user-chosen Cloud API URL, or null when none is set. */
 export function getCloudApiUrlOverride(): string | null {

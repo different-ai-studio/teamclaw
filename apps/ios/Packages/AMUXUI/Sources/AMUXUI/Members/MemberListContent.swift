@@ -19,7 +19,7 @@ public struct MemberListContent: View {
     let pairing: PairingManager
     let mqtt: MQTTService
     let sessionViewModel: SessionListViewModel
-    let teamclawService: TeamclawService?
+    let teamcluService: TeamcluService?
     /// Actor id of the signed-in user. Drives the "YOU" badge on their row.
     /// `nil` hides the badge.
     let currentActorID: String?
@@ -35,7 +35,7 @@ public struct MemberListContent: View {
         pairing: PairingManager,
         mqtt: MQTTService,
         sessionViewModel: SessionListViewModel,
-        teamclawService: TeamclawService?,
+        teamcluService: TeamcluService?,
         currentActorID: String? = nil,
         connectedAgentsStore: ConnectedAgentsStore? = nil,
         onAddYourAgent: (() -> Void)? = nil
@@ -44,7 +44,7 @@ public struct MemberListContent: View {
         self.pairing = pairing
         self.mqtt = mqtt
         self.sessionViewModel = sessionViewModel
-        self.teamclawService = teamclawService
+        self.teamcluService = teamcluService
         self.currentActorID = currentActorID
         self.connectedAgentsStore = connectedAgentsStore
         self.onAddYourAgent = onAddYourAgent
@@ -437,11 +437,15 @@ struct ActorDetailView: View {
     let mqtt: MQTTService
     let sessionViewModel: SessionListViewModel
     let store: ActorStore
-    let teamclawService: TeamclawService?
+    let teamcluService: TeamcluService?
     let connectedAgentsStore: ConnectedAgentsStore?
     var workspacesRepository: (any WorkspaceRepository)?
     var agentAccessRepository: (any AgentAccessRepository)?
+    var teamResourceRepository: (any TeamResourceRepository)?
     @Environment(\.dismiss) private var dismiss
+    /// Nil until the first fetch lands, so the stat row can tell "loading"
+    /// from a genuine zero.
+    @State private var resourceCounts: TeamResourceCounts?
     @State private var authorizedHumansStore: AgentAuthorizedHumansStore?
     @State private var workspaceStore: WorkspaceStore?
     @State private var newWorkspacePath = ""
@@ -763,6 +767,13 @@ struct ActorDetailView: View {
             didLoadMyDefault = true
             myDefaultAgentID = await store.getMemberDefaultAgent()
         }
+        .task(id: actor.actorId) {
+            guard let repo = teamResourceRepository else { return }
+            resourceCounts = await repo.counts(teamID: actor.teamId, actorID: actor.actorId)
+        }
+        .navigationDestination(for: ActorResourceRoute.self) { route in
+            ActorResourceListView(route: route, repository: teamResourceRepository)
+        }
         .sheet(isPresented: $showInviteSheet) {
             if let createdInvite {
                 InviteShareSheet(invite: createdInvite)
@@ -855,8 +866,8 @@ struct ActorDetailView: View {
             workspaceErrorMessage = "MQTT is not connected."
             return
         }
-        guard let teamclawService else {
-            workspaceErrorMessage = "TeamclawService unavailable."
+        guard let teamcluService else {
+            workspaceErrorMessage = "TeamcluService unavailable."
             return
         }
 
@@ -865,7 +876,7 @@ struct ActorDetailView: View {
 
         let target = routeActorID
         Task {
-            let (ok, err) = await teamclawService.addWorkspaceRpc(targetActorID: target, path: path)
+            let (ok, err) = await teamcluService.addWorkspaceRpc(targetActorID: target, path: path)
             await MainActor.run {
                 isAddingWorkspace = false
                 if ok {
@@ -916,21 +927,13 @@ struct ActorDetailView: View {
         return allSessions.filter { sessionIds.contains($0.sessionId) }
     }
 
-    /// Deterministic placeholder counts so the stat row, tools chart, and
-    /// auto-approve list look populated until real aggregates land. Stable
-    /// per actor so they don't churn between rebuilds.
+    /// Deterministic placeholder for the tools chart and auto-approve list,
+    /// stable per actor so it doesn't churn between rebuilds. The stat row no
+    /// longer uses it — those three numbers are real now.
     private var mockHash: Int {
         abs(actor.actorId.unicodeScalars.reduce(0) { $0 &+ Int($1.value) })
     }
 
-    private var mockSessionCount: Int {
-        let real = actorRecentSessions.count
-        if real > 0 { return real }
-        return [4, 7, 12, 14, 21][mockHash % 5]
-    }
-
-    private var mockSubmissionCount: Int { [12, 28, 38, 56, 84][mockHash % 5] }
-    private var mockToolCallCount: Int   { [88, 142, 224, 318, 502][mockHash % 5] }
 
     private struct ToolBar { let name: String; let count: Int }
     private var mockTools: [ToolBar] {
@@ -1049,12 +1052,11 @@ struct ActorDetailView: View {
     private var statsSection: some View {
         Section {
             HStack(spacing: 0) {
-                statBlock(label: "Sessions", value: mockSessionCount)
+                statBlock(.skills)
                 statDivider
-                statBlock(label: "Skills",   value: mockSubmissionCount)
+                statBlock(.mcp)
                 statDivider
-                statBlock(label: actor.isMember ? "Token used" : "MCP",
-                          value: mockToolCallCount)
+                statBlock(.env)
             }
             .padding(.vertical, 8)
             .listRowInsets(EdgeInsets(top: 4, leading: 0, bottom: 4, trailing: 0))
@@ -1062,18 +1064,53 @@ struct ActorDetailView: View {
         }
     }
 
-    private func statBlock(label: String, value: Int) -> some View {
-        VStack(spacing: 2) {
-            Text("\(value)")
-                .font(.system(size: 22, weight: .bold))
-                .monospacedDigit()
-                .foregroundStyle(.primary)
-            Text(label.uppercased())
-                .font(.caption2.weight(.semibold))
-                .tracking(0.2)
-                .foregroundStyle(.secondary)
+    /// Skills and MCP are this actor's installs; env is the team's set and
+    /// reads the same on every actor's page. The `TEAM` tag carries that
+    /// difference — without it three side-by-side numbers imply one scope.
+    private func statBlock(_ kind: TeamResourceKind) -> some View {
+        NavigationLink(value: ActorResourceRoute(
+            actorID: actor.actorId,
+            actorName: actor.displayName,
+            teamID: actor.teamId,
+            kind: kind
+        )) {
+            VStack(spacing: 2) {
+                Group {
+                    if let counts = resourceCounts {
+                        Text("\(counts.value(for: kind))")
+                            .font(.system(size: 22, weight: .bold))
+                            .monospacedDigit()
+                            .foregroundStyle(.primary)
+                    } else {
+                        // Placeholder rather than 0: a real zero and "not
+                        // loaded yet" mean different things here.
+                        Text("—")
+                            .font(.system(size: 22, weight: .bold))
+                            .foregroundStyle(.secondary)
+                    }
+                }
+                HStack(spacing: 3) {
+                    Text(kind.title.uppercased())
+                        .font(.caption2.weight(.semibold))
+                        .tracking(0.2)
+                        .foregroundStyle(.secondary)
+                    if !kind.isActorScoped {
+                        Text("TEAM")
+                            .font(.system(size: 8, weight: .bold))
+                            .tracking(0.3)
+                            .foregroundStyle(Color.amux.basalt)
+                            .padding(.horizontal, 3)
+                            .padding(.vertical, 1)
+                            .background(
+                                RoundedRectangle(cornerRadius: 2)
+                                    .fill(Color.amux.pebble)
+                            )
+                    }
+                }
+            }
+            .frame(maxWidth: .infinity)
         }
-        .frame(maxWidth: .infinity)
+        .buttonStyle(.plain)
     }
 
     private var statDivider: some View {
@@ -1555,7 +1592,7 @@ private struct AuthorizedMemberPickerSheet: View {
 
 #else
 struct MemberListContent: View {
-    init(store: ActorStore, pairing: PairingManager, mqtt: MQTTService, sessionViewModel: SessionListViewModel, teamclawService: TeamclawService?) {}
+    init(store: ActorStore, pairing: PairingManager, mqtt: MQTTService, sessionViewModel: SessionListViewModel, teamcluService: TeamcluService?) {}
     var body: some View { ContentUnavailableView("Actors", systemImage: "person.2") }
 }
 #endif

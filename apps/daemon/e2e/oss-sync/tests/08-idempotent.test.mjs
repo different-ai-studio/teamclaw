@@ -13,7 +13,7 @@ test("idempotent: second sync with no changes is a no-op", { timeout: 120000 }, 
   const { nodes, teamId } = ctx;
   const root = contentRootPath(teamId);
 
-  await writeFile("node-a", `${root}/skills/x.md`, Buffer.from("stable\n"));
+  await writeFile("node-a", `${root}/knowledge/x.md`, Buffer.from("stable\n"));
   await sync(nodes.a);
   await sync(nodes.b);
   await sync(nodes.a); // 收敛

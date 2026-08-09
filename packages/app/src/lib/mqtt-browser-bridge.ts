@@ -36,7 +36,7 @@ const browserClientInstanceId = createBrowserInstanceId()
 function stableBrowserClientId(username: string, teamId: string): string {
   const actorPart = shortIdPart(username.trim(), 'browser')
   const teamPart = shortIdPart(teamId.trim(), 'team')
-  return `teamclaw-${actorPart}-${teamPart}-browser-${browserClientInstanceId}`
+  return `teamclu-${actorPart}-${teamPart}-browser-${browserClientInstanceId}`
 }
 
 function connectionKey(input: {

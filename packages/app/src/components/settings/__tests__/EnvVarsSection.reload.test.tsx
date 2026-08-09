@@ -187,8 +187,8 @@ describe('EnvVarsSection reload', () => {
       }
       if (cmd === 'personal_env_diagnostics') {
         return {
-          storageDir: 'teamclaw',
-          secretsDir: '/home/user/.teamclaw/secrets',
+          storageDir: 'teamclu',
+          secretsDir: '/home/user/.teamclu/secrets',
           masterKeyExists: true,
           blobExists: true,
           blobReadable: true,

@@ -7,7 +7,7 @@ import { create as createMessage } from "@bufbuild/protobuf";
 import i18n from "@/lib/i18n";
 import { getBackend } from "@/lib/backend";
 import type { MessageHistoryRow } from "@/lib/backend/types";
-import { MessageKind, MessageSchema, type Message } from "@/lib/proto/teamclaw_pb";
+import { MessageKind, MessageSchema, type Message } from "@/lib/proto/teamclu_pb";
 import { isTauri } from "@/lib/utils";
 import { syncMessagesForSession } from "@/lib/sync/message-sync";
 import { useSessionMessageStore } from "@/stores/session-message-store";

@@ -1,6 +1,7 @@
 pub mod acp_debug_log;
 pub mod agents_skills;
 pub mod amuxd_supervisor;
+pub mod app_menu;
 pub mod clawhub;
 pub mod cron;
 pub mod daemon_http;
@@ -28,7 +29,6 @@ pub mod shared_secrets;
 pub mod shared_secrets_crypto;
 pub mod skillssh;
 pub mod storage_migration;
-pub mod stt;
 pub mod system_appearance;
 pub mod team;
 pub mod team_git;
@@ -53,21 +53,21 @@ use crate::process_util::CommandNoWindow;
 
 /// The short application name, injected at compile time via `build.rs`.
 pub const APP_SHORT_NAME: &str = env!("APP_SHORT_NAME");
-/// Workspace metadata directory (`.teamclaw` for official builds).
-pub const TEAMCLAW_DIR: &str = env!("TEAMCLAW_DIR");
+/// Workspace metadata directory (`.teamclu` for official builds).
+pub const TEAMCLU_DIR: &str = env!("TEAMCLU_DIR");
 /// Subfolder inside workspace where the team repo is cloned / symlinked.
-/// Fixed across brands — must match the daemon's `TEAM_LINK_NAME` (`teamclaw-team`).
-pub const TEAM_REPO_DIR: &str = "teamclaw-team";
-/// Workspace config file name (`teamclaw.json` for official builds).
+/// Fixed across brands — must match the daemon's `TEAM_LINK_NAME` (`teamclu-team`).
+pub const TEAM_REPO_DIR: &str = "teamclu-team";
+/// Workspace config file name (`teamclu.json` for official builds).
 pub const CONFIG_FILE_NAME: &str = env!("CONFIG_FILE_NAME");
-/// Home-directory storage folder name without leading dot (`teamclaw` for official).
+/// Home-directory storage folder name without leading dot (`teamclu` for official).
 pub fn home_storage_dir_name() -> &'static str {
-    teamclaw_runtime_env::resolve_storage_dir_name(APP_SHORT_NAME)
+    teamclu_runtime_env::resolve_storage_dir_name(APP_SHORT_NAME)
 }
 
 /// Local amuxd state directory for this desktop brand (`~/.amuxd` or `~/.amuxd-<brand>`).
 pub fn amuxd_home_dir() -> std::path::PathBuf {
-    teamclaw_runtime_env::amuxd_home_for_brand(APP_SHORT_NAME)
+    teamclu_runtime_env::amuxd_home_for_brand(APP_SHORT_NAME)
 }
 
 /// Stamp brand + `AMUXD_HOME` onto a shell sidecar so CLI (`init` / `clear` /
@@ -76,16 +76,16 @@ pub fn with_amuxd_brand_env(
     command: tauri_plugin_shell::process::Command,
 ) -> tauri_plugin_shell::process::Command {
     command
-        .env(teamclaw_runtime_env::BRAND_SHORT_NAME_ENV, APP_SHORT_NAME)
+        .env(teamclu_runtime_env::BRAND_SHORT_NAME_ENV, APP_SHORT_NAME)
         .env(
-            teamclaw_runtime_env::AMUXD_HOME_ENV,
+            teamclu_runtime_env::AMUXD_HOME_ENV,
             amuxd_home_dir().to_string_lossy().as_ref(),
         )
 }
 
 #[tauri::command]
 pub fn greet(name: &str) -> String {
-    format!("Hello, {}! Welcome to TeamClaw.", name)
+    format!("Hello, {}! Welcome to TeamClu.", name)
 }
 
 /// Best-effort OS account name used to seed a new member's default display

@@ -6,8 +6,6 @@ import {
 import {
   getS3Client,
   OSS_BUCKET as BUCKET,
-  OSS_REGION as REGION,
-  OSS_ENDPOINT as ENDPOINT,
 } from "./oss.js";
 import { json } from "./responses.js";
 
@@ -16,8 +14,14 @@ import { json } from "./responses.js";
 //
 // Extracted from admin-handlers.ts. These wrap the team metadata / registry
 // objects that live under `teams/<id>/_registry` and `teams/<id>/_meta` in the
-// OSS bucket, plus the team-secret verification used by the AI/managed-git
-// handlers.
+// OSS bucket.
+//
+// Still Alibaba OSS, and still live: /reset-secret and
+// /managed-git/setup-litellm both read and write `_registry/auth.json`, and the
+// latter still reads `_meta/team.json`. Team file sync no longer touches this
+// bucket at all (see team-blob-storage.ts) — this is the last thing left on it.
+//
+// `ossInfo()` and `verifyTeam()` went with /register, /token and /apply.
 // ---------------------------------------------------------------------------
 
 export function sha256(input: string) {
@@ -56,23 +60,3 @@ export async function ossPut(key: string, data: unknown) {
   );
 }
 
-export function ossInfo() {
-  return { bucket: BUCKET(), region: REGION(), endpoint: ENDPOINT() };
-}
-
-export async function verifyTeam(teamId: string, teamSecret: string, requireOwnerNodeId?: string) {
-  if (!teamId || !teamSecret) {
-    return { error: json(400, { error: "Missing teamId or teamSecret" }) };
-  }
-  const auth = await ossGet(`teams/${teamId}/_registry/auth.json`);
-  if (!auth) {
-    return { error: json(404, { error: "Team not found" }) };
-  }
-  if (sha256(teamSecret) !== auth.teamSecretHash) {
-    return { error: json(403, { error: "Invalid team secret" }) };
-  }
-  if (requireOwnerNodeId && requireOwnerNodeId !== auth.ownerNodeId) {
-    return { error: json(403, { error: "Only the owner can perform this action" }) };
-  }
-  return { auth, isOwner: (nodeId: string) => nodeId === auth.ownerNodeId };
-}

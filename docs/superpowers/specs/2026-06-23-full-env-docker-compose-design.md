@@ -8,7 +8,7 @@
 
 ## Goal
 
-One `docker compose up` stands up a complete, deployable TeamClaw backend
+One `docker compose up` stands up a complete, deployable TeamClu backend
 environment: a self-hosted Supabase stack, an EMQX MQTT broker, the FC Cloud API,
 edge TLS via Caddy, and an automatic DB migration/seed step. The standalone
 Postgres backend (`BACKEND_KIND=postgres`) is opt-in via a compose profile;
@@ -83,7 +83,7 @@ deploy/self-host/
 | `kong` | Supabase API gateway (= `SUPABASE_URL` :8000) | — | ✅ |
 | `studio` | Supabase Studio | via Caddy (optional domain) | ✅ |
 | `emqx` | MQTT broker (JWT authn) | — (1883/8083 internal) | ✅ |
-| `fc` | TeamClaw Cloud API (`build: ../../services/fc`) | — | ✅ |
+| `fc` | TeamClu Cloud API (`build: ../../services/fc`) | — | ✅ |
 | `caddy` | edge TLS + reverse proxy | **80, 443** | ✅ |
 | `migrate` | one-shot: apply migrations + seed | — | ✅ |
 | `cron` | thin sidecar: periodic `POST /internal/cron` | — | profile `cron` |

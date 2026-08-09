@@ -28,6 +28,7 @@ public struct TeamRuntimeContext {
     public let messagesRepo: (any MessagesRepository)?
     public let workspacesRepo: (any WorkspaceRepository)?
     public let agentAccessRepo: (any AgentAccessRepository)?
+    public let teamResourceRepo: (any TeamResourceRepository)?
     public let teamRepo: (any TeamRepository)?
     public let sessionRepo: (any SessionRepository)?
     public let ideasRepo: (any IdeaRepository)?
@@ -45,6 +46,7 @@ public struct TeamRuntimeContext {
         messagesRepo: (any MessagesRepository)?,
         workspacesRepo: (any WorkspaceRepository)?,
         agentAccessRepo: (any AgentAccessRepository)?,
+        teamResourceRepo: (any TeamResourceRepository)? = nil,
         teamRepo: (any TeamRepository)? = nil,
         sessionRepo: (any SessionRepository)? = nil,
         ideasRepo: (any IdeaRepository)? = nil,
@@ -61,6 +63,7 @@ public struct TeamRuntimeContext {
         self.messagesRepo = messagesRepo
         self.workspacesRepo = workspacesRepo
         self.agentAccessRepo = agentAccessRepo
+        self.teamResourceRepo = teamResourceRepo
         self.teamRepo = teamRepo
         self.sessionRepo = sessionRepo
         self.ideasRepo = ideasRepo

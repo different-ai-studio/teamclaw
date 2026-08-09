@@ -22,7 +22,7 @@ export type ChooseAuthScreenProps = {
 };
 
 /**
- * The "set up TeamClaw" three-path picker — private workspace / sign-in /
+ * The "set up TeamClu" three-path picker — private workspace / sign-in /
  * invite token. Mirrors `apps/ios/.../ChooseAuthView.swift`:
  *   - Private workspace: anonymous sign-in, auto-create a solo team
  *   - Sign in or register: go to the existing email OTP screen
@@ -40,7 +40,7 @@ export function ChooseAuthScreen({
   return (
     <View style={styles.screen}>
       <View style={styles.header}>
-        <Text style={styles.title}>Set up Teamclaw</Text>
+        <Text style={styles.title}>Set up Teamclu</Text>
         <Text style={styles.subtitle}>
           Create your workspace or join the team that already works with your AI
           allies.
@@ -171,7 +171,7 @@ function InviteJoinSheet({
       setLocalError("Paste an invite link or token first.");
       return;
     }
-    // Accept either a full `teamclaw://invite?token=...` link or a bare token.
+    // Accept either a full `teamclu://invite?token=...` link or a bare token.
     const parsed = parseInviteToken(trimmed) ?? trimmed;
     if (!parsed) {
       setLocalError("Couldn't read a token from that link.");
@@ -197,7 +197,7 @@ function InviteJoinSheet({
       <Hairline />
       <View style={styles.sheetBody}>
         <Text style={styles.sheetCaption}>
-          Paste the link your teammate shared. Teamclaw will sign you in and add
+          Paste the link your teammate shared. Teamclu will sign you in and add
           you to their team.
         </Text>
         <TextInput
@@ -210,7 +210,7 @@ function InviteJoinSheet({
             setRaw(value);
             if (localError) setLocalError(null);
           }}
-          placeholder="teamclaw://invite?token=… or just the token"
+          placeholder="teamclu://invite?token=… or just the token"
           placeholderTextColor={colors.slate}
           selectionColor={colors.cinnabar}
           style={styles.sheetInput}
@@ -259,7 +259,6 @@ const styles = StyleSheet.create({
   header: {
     gap: spacing.sm,
     paddingHorizontal: spacing.xl,
-    paddingTop: spacing.xxxl + spacing.lg,
   },
   iconWrap: {
     alignItems: "center",
@@ -309,6 +308,10 @@ const styles = StyleSheet.create({
   screen: {
     backgroundColor: colors.mist,
     flex: 1,
+    // Centre header + actions + error as one block. The header used to carry a
+    // fixed `paddingTop` that pinned everything near the top; that offset now
+    // fights the centring, so it is gone.
+    justifyContent: "center",
   },
   sheet: {
     backgroundColor: colors.mist,

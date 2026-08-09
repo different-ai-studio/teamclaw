@@ -75,6 +75,6 @@ describe("workspacePathsMatch (REG-12, S-15)", () => {
 
   it("requires full tilde-relative suffix, not just the leaf directory name", () => {
     expect(workspacePathsMatch("~/projects/x", "/Users/me/other/x")).toBe(false);
-    expect(workspacePathsMatch("~/TeamClaw", "/Users/matt.chow/TeamClaw")).toBe(true);
+    expect(workspacePathsMatch("~/TeamClu", "/Users/matt.chow/TeamClu")).toBe(true);
   });
 });

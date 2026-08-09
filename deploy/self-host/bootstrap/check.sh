@@ -188,7 +188,7 @@ curl_health() {
   curl -fsS --connect-timeout 3 --max-time 5 "$@" "$url" 2>/dev/null
 }
 
-echo "TeamClaw self-host — health check"
+echo "TeamClu self-host — health check"
 echo "Runtime: $RUNTIME_LABEL"
 echo "Env: ${ENV_FILE} (FC_DOMAIN=$FC_DOMAIN, CADDY_HTTP_PORT=$CADDY_HTTP_PORT)"
 echo ""

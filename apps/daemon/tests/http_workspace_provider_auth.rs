@@ -203,7 +203,7 @@ async fn get_provider_auth_methods_merges_live_opencode_when_configured() {
 async fn get_provider_auth_methods_404_for_missing_workspace_dir() {
     let (app, _dir) = test_app_with_workspace_store(None).await;
     let missing = ws_id(std::path::Path::new(
-        "/tmp/teamclaw-nonexistent-workspace-phase1-test",
+        "/tmp/teamclu-nonexistent-workspace-phase1-test",
     ));
 
     let resp = app
@@ -279,7 +279,7 @@ async fn post_materialize_team_mcp_writes_team_servers_into_opencode_json() {
     let (app, dir) = test_app_with_workspace_store(None).await;
     let wid = ws_id(dir.path());
 
-    let mcp_dir = dir.path().join("teamclaw-team").join(".mcp");
+    let mcp_dir = dir.path().join("teamclu-team").join(".mcp");
     std::fs::create_dir_all(&mcp_dir).expect("mcp dir");
     std::fs::write(
         mcp_dir.join("shared.json"),

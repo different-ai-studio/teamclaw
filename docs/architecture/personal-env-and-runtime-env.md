@@ -3,9 +3,9 @@
 > 状态：现行实现说明（2026-08）。产品规则：**个人变量 = 整机全局（按品牌）**，
 > workspace `envVars` 只是标签缓存，不是 allowlist，也不参与注入过滤。
 
-本文说明 TeamClaw / Copilot 361 等品牌下，个人变量如何存储、如何进入 agent
+本文说明 TeamClu / Copilot 361 等品牌下，个人变量如何存储、如何进入 agent
 runtime，以及设置页诊断各字段的含义。实现主要落在
-`crates/teamclaw-runtime-env/`、`apps/desktop/src/commands/env_vars.rs`、
+`crates/teamclu-runtime-env/`、`apps/desktop/src/commands/env_vars.rs`、
 `apps/daemon/src/runtime/env_assembly.rs`。
 
 ---
@@ -20,7 +20,7 @@ Agent 最终拿到的环境是三层合并结果（后层覆盖前层同名 key�
 | **Team** | 团队共享加密密钥 | `{team}/_secrets/*.enc.json`（经 team secret 解密） |
 | **System** | 运行时派生 | `actor_id`、`tc_api_key`、`display_name`、`TC_ACCESS_TOKEN_FILE` 等 |
 
-合并入口：`teamclaw_runtime_env::resolve_runtime_env` →
+合并入口：`teamclu_runtime_env::resolve_runtime_env` →
 `assemble_runtime_env` → daemon `assemble_spawn_runtime_env` → 各 backend
 spawn / `opencode serve` 的 env snapshot。
 
@@ -44,27 +44,27 @@ flowchart TB
 
 | 层 | 路径（示例） | 作用域 | 内容 |
 |---|---|---|---|
-| **加密 blob（真相）** | `~/.teamclaw/secrets/` 或 `~/.copilot361/secrets/` | **整机、按品牌** | key → 明文值（AES-GCM） |
-| **索引缓存** | `{workspace}/.teamclaw/teamclaw.json` → `envVars`（白标为 `.copilot361/copilot361.json`） | **每个 workspace** | key + description / category，**无 secret** |
+| **加密 blob（真相）** | `~/.teamclu/secrets/` 或 `~/.copilot361/secrets/` | **整机、按品牌** | key → 明文值（AES-GCM） |
+| **索引缓存** | `{workspace}/.teamclu/teamclu.json` → `envVars`（白标为 `.copilot361/copilot361.json`） | **每个 workspace** | key + description / category，**无 secret** |
 
 ### 2.1 品牌与存储目录
 
 | `APP_SHORT_NAME` | Home secrets 目录 |
 |---|---|
-| `teamclaw` / `teamclawdev` | `~/.teamclaw/secrets` |
+| `teamclu` / `teamcludev` | `~/.teamclu/secrets` |
 | `copilot361`、`betly` 等白标 | `~/.{shortName}/secrets` |
 
-解析函数：`resolve_storage_dir_name`（官方品牌统一落到 `teamclaw`）。
+解析函数：`resolve_storage_dir_name`（官方品牌统一落到 `teamclu`）。
 
 Desktop 启动 managed amuxd 时设置：
 
 ```text
-TEAMCLAW_BRAND_SHORT_NAME=<APP_SHORT_NAME>
+TEAMCLU_BRAND_SHORT_NAME=<APP_SHORT_NAME>
 ```
 
 Daemon 侧 `load_personal_env()` / `diagnose_personal_env_store()` 读取该 env
-（缺省 `teamclaw`），从而与桌面读写同一份 blob。未设置时白标会误读
-`~/.teamclaw`——这是历史 bug，现已靠该 env 修复。
+（缺省 `teamclu`），从而与桌面读写同一份 blob。未设置时白标会误读
+`~/.teamclu`——这是历史 bug，现已靠该 env 修复。
 
 ### 2.2 Blob 内特殊 key
 
@@ -175,8 +175,8 @@ Agent 工具侧的 `load_agent_env_listings` 使用同一套 personal 合并逻�
 |---|---|---|
 | 改了变量但 agent 仍用旧值 | env 在 spawn 时注入；旧 session / serve snapshot 未更新 | **Reload agent runtime**，再开**新 session** |
 | 诊断显示 pending · fingerprint 不一致 | 全局 `opencode serve` 尚未装上新 snapshot | 同上 |
-| 白标读不到个人变量 | amuxd 未带 `TEAMCLAW_BRAND_SHORT_NAME` | 确认桌面 managed spawn 路径；重启桌面 |
-| Host shadowed | 启动 amuxd 的 shell 里已有同名 env | 从启动环境 unset，或换 TeamClaw key 名 |
+| 白标读不到个人变量 | amuxd 未带 `TEAMCLU_BRAND_SHORT_NAME` | 确认桌面 managed spawn 路径；重启桌面 |
+| Host shadowed | 启动 amuxd 的 shell 里已有同名 env | 从启动环境 unset，或换 TeamClu key 名 |
 | `opencode.json` 仍显示 `${QWEN_API_KEY}` | blob/team 都没有该 key | 在设置里配置，或去掉 MCP 引用 |
 
 ---
@@ -185,11 +185,11 @@ Agent 工具侧的 `load_agent_env_listings` 使用同一套 personal 合并逻�
 
 | 模块 | 路径 |
 |---|---|
-| Brand / 存储命名空间 | `crates/teamclaw-runtime-env/src/storage_namespace.rs` |
-| 个人 blob 加解密 | `crates/teamclaw-runtime-env/src/personal_secrets.rs` |
-| Catalog / listings | `crates/teamclaw-runtime-env/src/env_catalog.rs` |
-| 三层合并 | `crates/teamclaw-runtime-env/src/resolved_env.rs` |
-| 组装入口 | `crates/teamclaw-runtime-env/src/lib.rs`（`assemble_runtime_env`） |
+| Brand / 存储命名空间 | `crates/teamclu-runtime-env/src/storage_namespace.rs` |
+| 个人 blob 加解密 | `crates/teamclu-runtime-env/src/personal_secrets.rs` |
+| Catalog / listings | `crates/teamclu-runtime-env/src/env_catalog.rs` |
+| 三层合并 | `crates/teamclu-runtime-env/src/resolved_env.rs` |
+| 组装入口 | `crates/teamclu-runtime-env/src/lib.rs`（`assemble_runtime_env`） |
 | Desktop 读写 / 派生索引 | `apps/desktop/src/commands/env_vars.rs` |
 | Desktop 本地加密存储 | `apps/desktop/src/commands/local_secret_store.rs` |
 | Workspace bind | `apps/desktop/src/commands/window.rs` |
@@ -206,7 +206,7 @@ Agent 工具侧的 `load_agent_env_listings` 使用同一套 personal 合并逻�
 - **不做**「按 workspace 启用个人变量」的 allowlist（方案 B）。
 - **本机多品牌 daemon 状态目录**：官方 `~/.amuxd`，白标 `~/.amuxd-<brand>`（见
   [`multi-brand-local-daemon.md`](./multi-brand-local-daemon.md)）。Desktop spawn
-  同时设置 `TEAMCLAW_BRAND_SHORT_NAME` 与 `AMUXD_HOME`。
+  同时设置 `TEAMCLU_BRAND_SHORT_NAME` 与 `AMUXD_HOME`。
 - Workspace `envVars` **不会**被提交为密钥源；勿把 secret 写进该 JSON。
 
 ---
@@ -214,5 +214,5 @@ Agent 工具侧的 `load_agent_env_listings` 使用同一套 personal 合并逻�
 ## 10. 一句话总结
 
 **个人变量的值在 `~/.{brand}/secrets`，整机共享；workspace 的 `envVars` 只是
-标签缓存；amuxd 用 `TEAMCLAW_BRAND_SHORT_NAME` 读对目录；注入用整份 blob，
+标签缓存；amuxd 用 `TEAMCLU_BRAND_SHORT_NAME` 读对目录；注入用整份 blob，
 改完后 Reload runtime + 新 session 才进 agent。**

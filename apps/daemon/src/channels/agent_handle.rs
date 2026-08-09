@@ -1,4 +1,4 @@
-//! `AgentHandle` impl: bridges `teamclaw_gateway` channels to amuxd's
+//! `AgentHandle` impl: bridges `teamclu_gateway` channels to amuxd's
 //! in-process `RuntimeManager` so a chat message arriving over Discord /
 //! WeCom / Feishu / etc. drives an agent turn without going through the
 //! deprecated opencode HTTP server.
@@ -22,7 +22,7 @@ use std::collections::HashMap;
 use std::sync::Arc;
 use tokio::sync::Mutex;
 
-use teamclaw_gateway::{
+use teamclu_gateway::{
     AgentCommand, AgentError, AgentHandle, AmuxSessionId, ModelInfo, SessionInfo, TurnOutcome,
     WorkspaceInfo,
 };
@@ -32,6 +32,10 @@ use teamclaw_gateway::{
 /// hundreds of them is unreadable — the newest are the ones anyone switches
 /// back to.
 const GATEWAY_SESSION_LIST_LIMIT: u32 = 20;
+/// Bound how long a channel/gateway turn may wait for Active→Idle. Long enough
+/// for real tool use; short enough that a wedged permission/provider wait does
+/// not look like a permanently stuck SeaTalk/WeCom bot.
+const GATEWAY_TURN_TIMEOUT_SECS: u64 = 120;
 
 use crate::backend::Backend;
 use crate::proto::amux;
@@ -203,7 +207,7 @@ impl AmuxdAgentHandle {
         };
 
         let managed_llm = if self.team_id.trim().is_empty() {
-            teamclaw_runtime_env::ManagedLlmState::Unknown
+            teamclu_runtime_env::ManagedLlmState::Unknown
         } else {
             self.spawn_env.managed_llm.resolve(&self.team_id).await
         };
@@ -631,7 +635,7 @@ fn absorb_emitted(
 ) -> bool {
     let mut flushed = false;
     for m in emitted {
-        if matches!(m.kind, crate::proto::teamclaw::MessageKind::AgentReply) {
+        if matches!(m.kind, crate::proto::teamclu::MessageKind::AgentReply) {
             // Tool-only turns emit an empty AgentReply at turn end purely to
             // anchor the turn for clients; it carries no text and must not
             // add a blank segment.
@@ -750,7 +754,8 @@ impl AmuxdAgentHandle {
         let mut last_update = std::time::Instant::now();
         let mut sent_update = String::new();
 
-        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(5 * 60);
+        let deadline =
+            std::time::Instant::now() + std::time::Duration::from_secs(GATEWAY_TURN_TIMEOUT_SECS);
         // On a turn-level timeout, salvage any reply text the agent already
         // produced instead of failing the whole turn (issue #555): OpenCode can
         // finish and persist its final assistant text while the ACP adapter
@@ -1559,7 +1564,7 @@ mod tests {
     }
 
     /// The team-wide list registers the SAME path once per agent, so a shared
-    /// directory name like `~/TeamClaw` appears once per device — and every
+    /// directory name like `~/TeamClu` appears once per device — and every
     /// duplicate passes the "does this path exist locally" filter on a machine
     /// that happens to have that path. `/workspaces` showed 15 entries for two
     /// real workspaces until it started asking by agent. Archived rows are

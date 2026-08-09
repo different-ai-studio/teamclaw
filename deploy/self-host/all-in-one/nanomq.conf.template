@@ -1,4 +1,4 @@
-# NanoMQ configuration for the TeamClaw self-host all-in-one (supabase mode).
+# NanoMQ configuration for the TeamClu self-host all-in-one (supabase mode).
 # Rendered by render-config.sh (this file has no substituted vars today, but is
 # rendered through envsubst for consistency / future use).
 #

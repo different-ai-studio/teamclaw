@@ -75,12 +75,6 @@ pub struct RuntimeHandle {
     pub next_prompt_context: String,
     /// How static workspace instructions are delivered for this runtime.
     pub instruction_delivery: InstructionDelivery,
-    /// Backend `agent_runtimes.id` for this runtime row. Used to PATCH
-    /// `last_processed_message_id` via `update_runtime_cursor`.
-    ///
-    /// TODO(task9): capture and store the returned row id from
-    /// `upsert_agent_runtime` once that helper returns it.
-    pub backend_runtime_row_id: Option<String>,
     /// Models the local backend reported for this runtime (startup /
     /// `list_models` probe, then cached on the handle). Empty until the live
     /// catalog is advertised — there is no static fallback table.
@@ -103,7 +97,7 @@ pub struct RuntimeHandle {
     pub env_fingerprint: Option<String>,
     /// Internal non-serialized snapshot used to decide whether an env refresh
     /// changes effective bindings. Never exposed through RuntimeInfo.
-    pub env_snapshot: Option<teamclaw_runtime_env::ResolvedEnvSnapshot>,
+    pub env_snapshot: Option<teamclu_runtime_env::ResolvedEnvSnapshot>,
     pub env_team_id: Option<String>,
     /// Another session on the shared OpenCode host may have dropped MCP; refresh
     /// on the next Idle transition (never detach/resume while Active).
@@ -144,7 +138,6 @@ impl RuntimeHandle {
             injected_context: Vec::new(),
             next_prompt_context: String::new(),
             instruction_delivery: InstructionDelivery::BufferedInject,
-            backend_runtime_row_id: None,
             last_processed_message_id: None,
             pending_reply_to_message_id: None,
             available_models: Vec::new(),
@@ -371,7 +364,7 @@ impl RuntimeHandle {
         }
         let drained = std::mem::take(&mut self.injected_context);
         let mut text = String::from(
-            "[TeamClaw Instructions — follow for all replies in this session. \
+            "[TeamClu Instructions — follow for all replies in this session. \
 Do not acknowledge separately. Reply only to the user prompt that follows.]\n",
         );
         for item in &drained {
@@ -415,7 +408,6 @@ impl RuntimeHandle {
             injected_context: Vec::new(),
             next_prompt_context: String::new(),
             instruction_delivery: InstructionDelivery::BufferedInject,
-            backend_runtime_row_id: None,
             last_processed_message_id: None,
             pending_reply_to_message_id: None,
             available_models: Vec::new(),
@@ -464,7 +456,7 @@ mod tests {
         h.push_injected_context("system", "请使用中文回答");
         let (text, drained) = h.flush_injected_context();
         assert_eq!(drained.len(), 1);
-        assert!(text.contains("TeamClaw Instructions"));
+        assert!(text.contains("TeamClu Instructions"));
         assert!(text.contains("[system] 请使用中文回答"));
         assert!(h.injected_context.is_empty());
     }

@@ -230,7 +230,7 @@ describe('runtime-state-store', () => {
   })
 
   it('batches an actor-state burst delivered as separate mqtt:envelopes emits into one notification', async () => {
-    // TEAMCLAW-REACT-72/85/7N: a reconnect retain flood is not guaranteed to
+    // TEAMCLU-REACT-72/85/7N: a reconnect retain flood is not guaranteed to
     // arrive as a single `mqtt:envelopes` batch — Tauri can emit it as several
     // back-to-back events, each its own macrotask. `queueMicrotask` only
     // coalesces updates within the SAME synchronous callback, so a second

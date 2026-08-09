@@ -1,7 +1,7 @@
 import i18n from '@/lib/i18n'
 import { isTauri } from '@/lib/utils'
 
-/** Push current i18n tray strings into the native system tray menu. */
+/** Push current i18n strings into native tray + app menu bar. */
 export async function syncTrayMenuLabels(): Promise<void> {
   if (!isTauri()) return
   try {
@@ -11,7 +11,10 @@ export async function syncTrayMenuLabels(): Promise<void> {
       agentSettings: i18n.t('tray.agentSettings', '本地 Agent 设置…'),
       quit: i18n.t('tray.quitAndStopAgent', '退出并停止 Agent'),
     })
+    await invoke('update_app_menu_labels', {
+      settings: i18n.t('menu.settings', '设置…'),
+    })
   } catch {
-    // Tray may be unavailable in web / early boot — ignore.
+    // Tray / app menu may be unavailable in web / early boot — ignore.
   }
 }

@@ -128,7 +128,7 @@ export function CursorLLMSection() {
                 <Shield className="mt-0.5 h-3 w-3 shrink-0" />
                 {t(
                   'settings.llm.cursorKeyStorage',
-                  'Key 仅保存在本机 ~/.amuxd/daemon.toml，经 daemon HTTP 写入，不会上传到 TeamClaw 云端。',
+                  'Key 仅保存在本机 ~/.amuxd/daemon.toml，经 daemon HTTP 写入，不会上传到 TeamClu 云端。',
                 )}
               </p>
               <a

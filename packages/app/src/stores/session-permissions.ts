@@ -7,7 +7,7 @@ import {
   putDaemonToolPermissions,
   type DaemonAllowlistRule,
 } from "@/lib/daemon-local-client";
-import { replyPermissionById } from "@/lib/teamclaw/reply-acp-permission";
+import { replyPermissionById } from "@/lib/teamclu/reply-acp-permission";
 import { isTauri } from "@/lib/utils";
 import { appDisplayName } from "@/lib/build-config";
 import { notificationService } from "@/lib/notification-service";
@@ -106,7 +106,7 @@ type SessionGet = () => SessionState;
 
 /**
  * Persist an "always allow" rule via the daemon workspace-control API so it
- * survives restarts. Stored in `<workspace>/.teamclaw/allowlist.json`.
+ * survives restarts. Stored in `<workspace>/.teamclu/allowlist.json`.
  */
 async function persistAllowlistRule(perm: PermissionAskedEvent): Promise<void> {
   if (!isTauri()) return;

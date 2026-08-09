@@ -11,6 +11,8 @@
 #   podman-compose --in-pod false -f docker-compose.yml -f docker-compose.podman.yml up -d
 # or: ./bootstrap/up.sh
 
+# Must stay byte-identical to docker-compose.yml's `name:` — see the comment
+# there for why the rebrand does not touch it.
 name: teamclaw-self-host
 
 services:

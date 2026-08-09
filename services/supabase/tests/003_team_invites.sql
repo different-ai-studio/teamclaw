@@ -63,9 +63,9 @@ select like((select deeplink from mi), 'amux://invite?token=%',
             'deeplink format is amux://invite?token=...');
 select like((select deeplink from mi), '%&broker=mqtts://ai.ucar.cc:8883%',
             'deeplink includes mqtt broker');
-select like((select deeplink from mi), '%&username=teamclaw%',
+select like((select deeplink from mi), '%&username=teamclu%',
             'deeplink includes mqtt username');
-select like((select deeplink from mi), '%&password=teamclaw2026%',
+select like((select deeplink from mi), '%&password=teamclu2026%',
             'deeplink includes mqtt password');
 
 -- 5. Carol (different auth user) claims → new actor + members + team_members

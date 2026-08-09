@@ -22,7 +22,7 @@ def main() -> int:
     # Authoritatively derive the app version from the tag so the built installer
     # filename + baked app version match latest.json (published from the same
     # tag). Without this the source version drifts from the tag and the release
-    # page advertises e.g. 0.2.20-beta.3 while the DMG is TeamClaw_0.2.19_*,
+    # page advertises e.g. 0.2.20-beta.3 while the DMG is TeamClu_0.2.19_*,
     # which also breaks the updater version comparison.
     version = tag[1:] if tag.startswith("v") else tag
     if not re.match(r"^\d+\.\d+\.\d+(-[0-9A-Za-z.-]+)?$", version):

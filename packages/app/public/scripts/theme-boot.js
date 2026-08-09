@@ -3,7 +3,7 @@
 // so this file stays external (MV3 CSP: script-src 'self').
 (function () {
   var snMeta = document.querySelector('meta[name="app-short-name"]');
-  var sn = snMeta ? snMeta.getAttribute('content') : 'teamclaw';
+  var sn = snMeta ? snMeta.getAttribute('content') : 'teamclu';
   var theme;
   try {
     theme = localStorage.getItem(sn + '-theme');

@@ -72,6 +72,11 @@ export function createOnboardingApi(client: CloudAuthClient) {
       if (error) throw new Error(error.message);
     },
 
+    async signInWithPassword(email: string, password: string) {
+      const { error } = await client.auth.signInWithPassword({ email, password });
+      if (error) throw new Error(error.message);
+    },
+
     async createOAuthSignInUrl(provider: OAuthProvider, redirectTo: string) {
       return client.auth.oauthAuthorize(provider, redirectTo);
     },

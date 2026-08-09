@@ -39,7 +39,7 @@ import { FileInputButton } from "./FileInputButton";
 import { ContextUsageBadge } from "./ContextUsageBadge";
 import { PermissionApprovalModeSelect } from "./PermissionApprovalModeSelect";
 import { type QueuedMessage, useSessionStore } from "@/stores/session";
-import { useVoiceInputStore } from "@/stores/voice-input";
+import { useComposerInsertStore } from "@/stores/composer-insert";
 import { useWorkspaceStore } from "@/stores/workspace";
 import { useUIStore } from "@/stores/ui";
 import { isImageFile } from "@/lib/attachment-constants";
@@ -283,7 +283,7 @@ export function ChatInputArea({
 
   // Per-actor draft persistence (Actors tab → navigate away → restore).
   const draftStorageKey = draftPreselectedActor
-    ? `teamclaw-actor-draft:${draftPreselectedActor.id}`
+    ? `teamclu-actor-draft:${draftPreselectedActor.id}`
     : null;
   const justRestoredDraftRef = React.useRef(false);
 
@@ -324,7 +324,7 @@ export function ChatInputArea({
 
   // Voice input / "Add to Agent": append transcript or file mention to input
   React.useEffect(() => {
-    const unregister = useVoiceInputStore.getState().registerInsertToChatHandler(
+    const unregister = useComposerInsertStore.getState().registerInsertToChatHandler(
       (transcript) => {
         const prev = useSessionStore.getState().draftInput;
         const mentionMatch = transcript.match(/@\{([^}]+)\}/);
@@ -361,7 +361,7 @@ export function ChatInputArea({
       const currentText = useSessionStore.getState().draftInput;
       if (currentText.includes(`@{${displayPath}}`)) continue;
       const mention = `@{${displayPath}} `;
-      useVoiceInputStore.getState().insertToChat(mention);
+      useComposerInsertStore.getState().insertToChat(mention);
     }
   }, []);
 

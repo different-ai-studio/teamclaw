@@ -32,8 +32,8 @@
 | 维度 | 决策 |
 |---|---|
 | **部署运行时** | per-app Alibaba FC 函数（HTTP 触发，跑 TanStack Start SSR server）。完全匹配 `fc_function_name/fc_region/fc_endpoint` 数据模型，复用现有 AK/SK + `ROLE_ARN`。 |
-| **Postgres 模型** | schema-per-app：单个共享库 `teamclaw_apps` 内，每 app 一个 schema + 一个仅授权该 schema 的 LOGIN 角色。 |
-| **共享库位置** | 与控制面 `supabase_db` **同 RDS 实例、不同 database**（即我们刚迁移的各环境 RDS，dev 上已有 `litellm` 库作先例），新建 database `teamclaw_apps`。 |
+| **Postgres 模型** | schema-per-app：单个共享库 `teamclu_apps` 内，每 app 一个 schema + 一个仅授权该 schema 的 LOGIN 角色。 |
+| **共享库位置** | 与控制面 `supabase_db` **同 RDS 实例、不同 database**（即我们刚迁移的各环境 RDS，dev 上已有 `litellm` 库作先例），新建 database `teamclu_apps`。 |
 | **职责划分** | **FC = 特权控制面**（建 schema/role、调 Aliyun FC API、回填字段）；**daemon = 构建器**（有 checkout + Node/pnpm，构建产物上传 OSS）。镜像第一期「FC 建仓、daemon 播种」。 |
 | **部署触发** | 桌面 **显式「部署」按钮**（非 push 自动部署）。 |
 | **产物交接** | daemon 构建 → OSS（`apps/{appId}/deploy-{ts}.zip`）→ FC 从 OSS 对象建/更新函数代码。双方都已有 OSS 凭证。 |
@@ -45,7 +45,7 @@
 - FC 已持有 `ACCESS_KEY_ID`/`ACCESS_KEY_SECRET`/`REGION`/`ROLE_ARN`/`BUCKET`/
   `ENDPOINT`（今日用于 OSS）—— 同一 AK/SK 可驱动 FC OpenAPI 建函数。
 - FC 已持有 `DATABASE_URL`（控制面 `supabase_db` 连接）；新增 `APPS_DB_ADMIN_URL`
-  指向同实例的 `teamclaw_apps` 库。
+  指向同实例的 `teamclu_apps` 库。
 - 生产 `BACKEND_KIND=supabase`：任何新 Cloud API 域 **必须同时在 pg-repo 与
   supabase-repo 实现**（第一期 C1 教训）。
 - FC 仅走 GitHub Action 部署（`.github/workflows/fc-deploy.yml`）；新增 env 变量
@@ -102,7 +102,7 @@ helper 直接写在 `20260614000000_apps_module.sql`（in-place 修订，迁移�
 
 - **`src/lib/provisioning/app-postgres.ts`**
   - `ensureAppSchema({ appId, slug }) → { connectionString }`
-  - 用 `APPS_DB_ADMIN_URL` 连 `teamclaw_apps`：`CREATE SCHEMA IF NOT EXISTS
+  - 用 `APPS_DB_ADMIN_URL` 连 `teamclu_apps`：`CREATE SCHEMA IF NOT EXISTS
     app_{slug}`；`CREATE ROLE app_{appId} LOGIN`（缺失才建，密码缺失才轮换）；
     `GRANT USAGE/CREATE ON SCHEMA` + 默认权限仅限该 schema；`ALTER ROLE ... SET
     search_path = app_{slug}`。
@@ -123,7 +123,7 @@ helper 直接写在 `20260614000000_apps_module.sql`（in-place 修订，迁移�
 - **`repository-contract` / `pg-repo/apps.ts` / `supabase-repo`**
   - 加部署相关状态流转（`fc_status`/`fc_endpoint` 合法流转表，参照 phase-2a 的
     `app-status.ts` 思路），两后端都实现。
-- **OpenAPI**：`docs/openapi/teamclaw-api.v1.yaml` 增 deploy / finalize 端点。
+- **OpenAPI**：`docs/openapi/teamclu-api.v1.yaml` 增 deploy / finalize 端点。
 - **新 env**：`APPS_DB_ADMIN_URL`（+ 复用现有 AK/SK/REGION/ROLE_ARN/BUCKET）。
 
 ### 3.2 daemon（`apps/daemon/`）—— 构建器
@@ -184,7 +184,7 @@ live                （fc_endpoint 可访问）
 桌面「部署」
   │
   ├─(1) POST /v1/apps/{id}/deploy ───────────► FC（控制面）
-  │        ensureAppSchema(teamclaw_apps)      （幂等）
+  │        ensureAppSchema(teamclu_apps)      （幂等）
   │        ensureFunction tc-app-{appId}       （注入 DATABASE_URL env）
   │        fc_status=awaiting_build
   │
@@ -276,7 +276,7 @@ live                （fc_endpoint 可访问）
 - **M0 — spike**：FC custom runtime 跑最小 TanStack server + `@alicloud` 建/更新
   函数。两个风险点各出一个可工作的最小验证（RLS 递归已在 `ad48f38c` 解决）。
 - **M1 — Postgres provisioning**：`app-postgres.ts` + `APPS_DB_ADMIN_URL` + 新库
-  `teamclaw_apps` + 角色隔离测试 + RLS 递归回归测试（§6）。
+  `teamclu_apps` + 角色隔离测试 + RLS 递归回归测试（§6）。
 - **M2 — FC 函数 provisioning**：`app-fc-function.ts` + `POST /deploy`（到
   `awaiting_build`）+ 契约/双 repo + OpenAPI。
 - **M3 — 构建与交接**：模板可部署化 + daemon `app_build` + `POST /apps/build` +

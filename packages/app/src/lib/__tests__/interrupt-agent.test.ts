@@ -26,7 +26,7 @@ vi.mock("@/lib/mqtt-bridge", () => ({
   mqttPublish: (...args: unknown[]) => mqttPublish(...args),
 }));
 
-vi.mock("@/lib/teamclaw-rpc", () => ({
+vi.mock("@/lib/teamclu-rpc", () => ({
   runtimeCommand: (...args: unknown[]) => runtimeCommand(...args),
 }));
 
@@ -68,7 +68,7 @@ vi.mock("@/lib/live-agent-stream", async (importOriginal) => {
   };
 });
 
-import { interruptAgentActor } from "@/lib/teamclaw/interrupt-agent";
+import { interruptAgentActor } from "@/lib/teamclu/interrupt-agent";
 
 describe("interruptAgentActor", () => {
   beforeEach(() => {

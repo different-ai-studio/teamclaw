@@ -65,19 +65,19 @@ describe("workspace selectFile", () => {
     useWorkspaceStore.setState({
       fileTree: [
         {
-          name: "teamclaw-team",
-          path: "/workspace/teamclaw-team",
+          name: "teamclu-team",
+          path: "/workspace/teamclu-team",
           type: "directory",
         },
       ],
     });
 
-    await useWorkspaceStore.getState().selectFile("/workspace/teamclaw-team");
+    await useWorkspaceStore.getState().selectFile("/workspace/teamclu-team");
 
     expect(mockInvoke).not.toHaveBeenCalledWith("read_workspace_text_file", expect.anything());
     expect(useWorkspaceStore.getState().selectedFile).toBeNull();
     expect(useWorkspaceStore.getState().fileContent).toBeNull();
     expect(useWorkspaceStore.getState().isLoadingFile).toBe(false);
-    expect(useWorkspaceStore.getState().expandedPaths.has("/workspace/teamclaw-team")).toBe(true);
+    expect(useWorkspaceStore.getState().expandedPaths.has("/workspace/teamclu-team")).toBe(true);
   });
 });

@@ -34,7 +34,7 @@ import { getKnownMqttUrl } from "../../../../src/lib/mqtt/config";
 import {
   createRuntimeCommandSender,
   resolvePermissionRuntimeTarget,
-} from "../../../../src/lib/teamclaw/runtime-command";
+} from "../../../../src/lib/teamclu/runtime-command";
 import type { TeamMqttClient } from "../../../../src/lib/mqtt/team-mqtt";
 import { PrimaryButton } from "../../../../src/ui/button";
 import { AppCard } from "../../../../src/ui/card";
@@ -457,7 +457,7 @@ export default function SessionDetailRoute() {
     return createRuntimeCommandSender({
       mqtt: teamMqtt,
       teamId: currentTeam.id,
-      peerId: `teamclaw-expo-${state.currentMemberActorId.slice(0, 8)}`,
+      peerId: `teamclu-expo-${state.currentMemberActorId.slice(0, 8)}`,
       senderActorId: state.currentMemberActorId,
     });
   }, [currentTeam?.id, state.currentMemberActorId, teamMqtt]);
@@ -646,8 +646,8 @@ export default function SessionDetailRoute() {
             sessionId
               ? async () => {
                   const session = detailState.session;
-                  const title = session?.title?.trim() ?? "Teamclaw session";
-                  const url = `teamclaw://session/${sessionId}`;
+                  const title = session?.title?.trim() ?? "Teamclu session";
+                  const url = `teamclu://session/${sessionId}`;
                   try {
                     await Share.share({ message: `${title}\n${url}`, url });
                   } catch {

@@ -20,19 +20,19 @@ test("three-node conflict: A wins the file, B keeps a sidecar, C follows; all co
   const root = contentRootPath(teamId);
 
   // Base on all three.
-  await writeFile("node-a", `${root}/skills/x.md`, Buffer.from("base\n"));
+  await writeFile("node-a", `${root}/knowledge/x.md`, Buffer.from("base\n"));
   await sync(nodes.a);
   await settle();
   await sync(nodes.b);
   await sync(nodes.c);
 
   // A edits + syncs first.
-  await writeFile("node-a", `${root}/skills/x.md`, Buffer.from("A-edit\n"));
+  await writeFile("node-a", `${root}/knowledge/x.md`, Buffer.from("A-edit\n"));
   await sync(nodes.a);
   await settle();
 
   // B has an unsynced edit then syncs → sidecar + remote wins.
-  await writeFile("node-b", `${root}/skills/x.md`, Buffer.from("B-edit\n"));
+  await writeFile("node-b", `${root}/knowledge/x.md`, Buffer.from("B-edit\n"));
   const b1 = await sync(nodes.b);
   assert.ok(b1.conflicts >= 1, `B should report a conflict, got ${b1.conflicts}`);
 
@@ -41,14 +41,14 @@ test("three-node conflict: A wins the file, B keeps a sidecar, C follows; all co
   for (let i = 0; i < 6; i++) {
     await sync(nodes.c);
     treeC = await ctx.lsContentRoot("node-c", teamId);
-    if (treeC["skills/x.md"] && Buffer.from(treeC["skills/x.md"], "base64").toString() === "A-edit\n") break;
+    if (treeC["knowledge/x.md"] && Buffer.from(treeC["knowledge/x.md"], "base64").toString() === "A-edit\n") break;
     await settle(3000);
   }
 
   const treeA = await ctx.lsContentRoot("node-a", teamId);
   const treeB = await ctx.lsContentRoot("node-b", teamId);
   for (const [lbl, t] of [["A", treeA], ["B", treeB], ["C", treeC]]) {
-    assert.equal(Buffer.from(t["skills/x.md"], "base64").toString(), "A-edit\n", `${lbl} x.md should be A-edit`);
+    assert.equal(Buffer.from(t["knowledge/x.md"], "base64").toString(), "A-edit\n", `${lbl} x.md should be A-edit`);
   }
   // B preserved its edit as a sidecar; A and C have none.
   assert.ok(Object.keys(treeB).some(isSidecar), "B should keep a sidecar of its edit");

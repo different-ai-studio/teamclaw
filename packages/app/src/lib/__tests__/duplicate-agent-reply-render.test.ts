@@ -1,9 +1,9 @@
 import { create } from "@bufbuild/protobuf";
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { MessageKind, MessageSchema } from "@/lib/proto/teamclaw_pb";
+import { MessageKind, MessageSchema } from "@/lib/proto/teamclu_pb";
 import { mergePendingAgentReplies, rememberLiveEventId } from "@/lib/live-agent-stream";
 import { persistStreamingPartsForReply } from "@/lib/streaming-persist";
-import { adaptTeamclawMessages } from "@/lib/v2-message-adapter";
+import { adaptTeamcluMessages } from "@/lib/v2-message-adapter";
 import { useV2StreamingStore } from "@/stores/v2-streaming-store";
 
 const FULL =
@@ -131,7 +131,7 @@ describe("duplicate agent reply root-cause checks", () => {
     const textParts = parts.filter((p: { type: string }) => p.type === "text");
     expect(textParts).toHaveLength(1);
 
-    const sdk = adaptTeamclawMessages([reply])?.[0];
+    const sdk = adaptTeamcluMessages([reply])?.[0];
     expect(sdk?.parts.filter((p) => p.type === "text")).toHaveLength(1);
   });
 
@@ -210,7 +210,7 @@ describe("duplicate agent reply root-cause checks", () => {
     expect(textParts[0]?.text).toBe(stream);
     expect(reply.content).toBe(daemon);
 
-    const sdk = adaptTeamclawMessages([reply])?.[0];
+    const sdk = adaptTeamcluMessages([reply])?.[0];
     expect(sdk?.parts.filter((p) => p.type === "text")).toHaveLength(1);
     expect((sdk?.content.match(/方案 A/g) ?? []).length).toBe(2);
   });
@@ -271,7 +271,7 @@ describe("duplicate agent reply root-cause checks", () => {
     const intro =
       "Using brainstorming to design the todo webpage. Let me first explore the project context.";
     const final =
-      "这个 todo 网页是要做成一个独立的纯 HTML 文件（可以浏览器直接打开），还是要集成到 TeamClaw 这个项目里作为一个新页面/组件？";
+      "这个 todo 网页是要做成一个独立的纯 HTML 文件（可以浏览器直接打开），还是要集成到 TeamClu 这个项目里作为一个新页面/组件？";
     const store = useV2StreamingStore.getState();
     store.pushToolUse("s1", "a1", {
       toolId: "skill-1",

@@ -1,7 +1,7 @@
 import { describe, it, expect } from "vitest";
 import { create } from "@bufbuild/protobuf";
-import { MessageSchema, MessageKind } from "@/lib/proto/teamclaw_pb";
-import { adaptTeamclawMessages } from "@/lib/v2-message-adapter";
+import { MessageSchema, MessageKind } from "@/lib/proto/teamclu_pb";
+import { adaptTeamcluMessages } from "@/lib/v2-message-adapter";
 import { hydrateDeferredProcessParts } from "@/lib/lazy-process-parts";
 
 // Simple counter for stable IDs in tests (avoids crypto.randomUUID dependency)
@@ -11,8 +11,8 @@ function nextId() {
 }
 
 /** Full adapt (export / legacy tests). UI path defers process by default. */
-function adaptFull(msgs: NonNullable<Parameters<typeof adaptTeamclawMessages>[0]>) {
-  return adaptTeamclawMessages(msgs, { forceFull: true })!;
+function adaptFull(msgs: NonNullable<Parameters<typeof adaptTeamcluMessages>[0]>) {
+  return adaptTeamcluMessages(msgs, { forceFull: true })!;
 }
 
 function tmsg(o: {
@@ -50,9 +50,9 @@ function tmsg(o: {
   return msg;
 }
 
-describe("adaptTeamclawMessages", () => {
+describe("adaptTeamcluMessages", () => {
   it("returns undefined when input is undefined", () => {
-    expect(adaptTeamclawMessages(undefined)).toBeUndefined();
+    expect(adaptTeamcluMessages(undefined)).toBeUndefined();
   });
 
   it("passes through messages with empty turnId 1:1 (legacy/non-agent)", () => {
@@ -60,7 +60,7 @@ describe("adaptTeamclawMessages", () => {
       tmsg({ kind: MessageKind.TEXT, content: "hello", turnId: "" }),
       tmsg({ kind: MessageKind.TEXT, content: "world", turnId: "" }),
     ];
-    const result = adaptTeamclawMessages(msgs)!;
+    const result = adaptTeamcluMessages(msgs)!;
     expect(result).toHaveLength(2);
     expect(result[0].content).toBe("hello");
     expect(result[1].content).toBe("world");
@@ -80,7 +80,7 @@ describe("adaptTeamclawMessages", () => {
       }),
     ];
 
-    const result = adaptTeamclawMessages(msgs)!;
+    const result = adaptTeamcluMessages(msgs)!;
 
     expect(result).toHaveLength(1);
     expect(result[0].content).toBe("执行pwd");
@@ -92,7 +92,7 @@ describe("adaptTeamclawMessages", () => {
     const msgs = [
       tmsg({ kind: MessageKind.SYSTEM, content: "sys", turnId: "t1" }),
     ];
-    const result = adaptTeamclawMessages(msgs)!;
+    const result = adaptTeamcluMessages(msgs)!;
     expect(result).toHaveLength(1);
     expect(result[0].role).toBe("system");
     expect(result[0].content).toBe("sys");
@@ -103,7 +103,7 @@ describe("adaptTeamclawMessages", () => {
     const msgs = [
       tmsg({ id, kind: MessageKind.AGENT_REPLY, content: "hi", turnId: "t2", t: 1000 }),
     ];
-    const result = adaptTeamclawMessages(msgs)!;
+    const result = adaptTeamcluMessages(msgs)!;
     expect(result).toHaveLength(1);
     expect(result[0].id).toBe(id);
     expect(result[0].content).toBe("hi");
@@ -157,7 +157,7 @@ describe("adaptTeamclawMessages", () => {
       }),
     ];
 
-    const result = adaptTeamclawMessages(msgs)!;
+    const result = adaptTeamcluMessages(msgs)!;
 
     expect(result).toHaveLength(1);
     expect(result[0].content).toBe("你好，Ye。");
@@ -229,7 +229,7 @@ describe("adaptTeamclawMessages", () => {
       }),
     ];
 
-    const result = adaptTeamclawMessages(msgs)!;
+    const result = adaptTeamcluMessages(msgs)!;
 
     expect(result[0].toolCalls?.[0].arguments).toMatchObject({
       command: "ps aux",
@@ -256,7 +256,7 @@ describe("adaptTeamclawMessages", () => {
       }),
     ];
 
-    const result = adaptTeamclawMessages(msgs)!;
+    const result = adaptTeamcluMessages(msgs)!;
 
     expect(result[0].toolCalls?.[0].arguments).toMatchObject({
       _description: "Execute ps command",
@@ -347,7 +347,7 @@ describe("adaptTeamclawMessages", () => {
       }),
     ];
 
-    const result = adaptTeamclawMessages(msgs)!;
+    const result = adaptTeamcluMessages(msgs)!;
 
     expect(result).toHaveLength(1);
     expect(result[0].id).toBe("final-reply");
@@ -406,7 +406,7 @@ describe("adaptTeamclawMessages", () => {
       }),
     ];
 
-    const result = adaptTeamclawMessages(msgs)!;
+    const result = adaptTeamcluMessages(msgs)!;
 
     expect(result).toHaveLength(1);
     expect(result[0].id).toBe("reply-2");
@@ -579,7 +579,7 @@ describe("adaptTeamclawMessages", () => {
         t: 1,
       }),
     ];
-    const result = adaptTeamclawMessages(msgs)!;
+    const result = adaptTeamcluMessages(msgs)!;
     expect(result).toHaveLength(1);
 
     const tc = result[0].toolCalls![0];
@@ -595,7 +595,7 @@ describe("adaptTeamclawMessages", () => {
     const anotherUser = tmsg({ kind: MessageKind.TEXT, content: "follow-up", turnId: "", t: 20 });
 
     const msgs = [userMsg, agentReply1, agentReply2, anotherUser];
-    const result = adaptTeamclawMessages(msgs)!;
+    const result = adaptTeamcluMessages(msgs)!;
 
     // user + collapsed group + user = 3 messages
     expect(result).toHaveLength(3);
@@ -615,7 +615,7 @@ describe("adaptTeamclawMessages", () => {
       tmsg({ senderActorId: "actor-a", kind: MessageKind.AGENT_REPLY, content: "from A", turnId: "t7", t: 1 }),
       tmsg({ senderActorId: "actor-b", kind: MessageKind.AGENT_REPLY, content: "from B", turnId: "t7", t: 2 }),
     ];
-    const result = adaptTeamclawMessages(msgs)!;
+    const result = adaptTeamcluMessages(msgs)!;
     expect(result).toHaveLength(2);
     expect(result[0].content).toBe("from A");
     expect(result[1].content).toBe("from B");
@@ -645,7 +645,7 @@ describe("adaptTeamclawMessages", () => {
         t: 2,
       }),
     ];
-    const result = adaptTeamclawMessages(msgs)!;
+    const result = adaptTeamcluMessages(msgs)!;
     expect(result[0].toolCalls![0].content?.[0]?.type).toBe("diff");
   });
 
@@ -666,7 +666,7 @@ describe("adaptTeamclawMessages", () => {
         t: 2,
       }),
     ];
-    const result = adaptTeamclawMessages(msgs)!;
+    const result = adaptTeamcluMessages(msgs)!;
     expect(result).toHaveLength(1);
     expect(result[0].content).toBe("");
     expect(result[0].toolCalls).toHaveLength(1);
@@ -678,7 +678,7 @@ describe("adaptTeamclawMessages", () => {
       tmsg({ kind: MessageKind.AGENT_REPLY, content: "a", model: "model-old", turnId: "t9", t: 1 }),
       tmsg({ kind: MessageKind.AGENT_REPLY, content: "b", model: "model-new", turnId: "t9", t: 2 }),
     ];
-    const result = adaptTeamclawMessages(msgs)!;
+    const result = adaptTeamcluMessages(msgs)!;
     expect(result).toHaveLength(1);
     expect(result[0].modelID).toBe("model-new");
   });
@@ -689,7 +689,7 @@ describe("adaptTeamclawMessages", () => {
       tmsg({ kind: MessageKind.AGENT_REPLY, content: "second", turnId: "t10", t: 20 }),
       tmsg({ kind: MessageKind.AGENT_REPLY, content: "first", turnId: "t10", t: 10 }),
     ];
-    const result = adaptTeamclawMessages(msgs)!;
+    const result = adaptTeamcluMessages(msgs)!;
     expect(result).toHaveLength(1);
     // earliest timestamp wins for the group timestamp
     expect(result[0].timestamp).toEqual(new Date(10 * 1000));
@@ -698,7 +698,7 @@ describe("adaptTeamclawMessages", () => {
   });
 
   it("passes replyToMessageId through single and grouped turns", () => {
-    const single = adaptTeamclawMessages([
+    const single = adaptTeamcluMessages([
       tmsg({
         kind: MessageKind.AGENT_REPLY,
         content: "hi",
@@ -708,7 +708,7 @@ describe("adaptTeamclawMessages", () => {
     ]);
     expect(single?.[0]?.replyToMessageId).toBe("user-1");
 
-    const grouped = adaptTeamclawMessages([
+    const grouped = adaptTeamcluMessages([
       tmsg({
         kind: MessageKind.AGENT_THINKING,
         content: "think",
@@ -730,7 +730,7 @@ describe("adaptTeamclawMessages", () => {
       { id: "p1", type: "reasoning", text: "think", content: "think" },
       { id: "p2", type: "text", text: "final", content: "final" },
     ]);
-    const result = adaptTeamclawMessages([
+    const result = adaptTeamcluMessages([
       tmsg({
         kind: MessageKind.AGENT_REPLY,
         content: "final",
@@ -750,7 +750,7 @@ describe("adaptTeamclawMessages", () => {
   // The reply's id is a random UUID and the user message's is the WeCom msgid,
   // so an id tiebreak flipped the pair for roughly half of all turns.
   it("keeps caller order for same-second messages whose ids sort the wrong way", () => {
-    const result = adaptTeamclawMessages([
+    const result = adaptTeamcluMessages([
       tmsg({
         id: "CAcQAB1234567890",
         kind: MessageKind.TEXT,
@@ -770,7 +770,7 @@ describe("adaptTeamclawMessages", () => {
   });
 
   it("maps interrupted AGENT_REPLY metadata to turnStatus and hides agent-facing body", () => {
-    const result = adaptTeamclawMessages([
+    const result = adaptTeamcluMessages([
       tmsg({
         kind: MessageKind.AGENT_REPLY,
         content:
@@ -789,7 +789,7 @@ describe("adaptTeamclawMessages", () => {
 
   it("keeps generated prose on interrupted AGENT_REPLY and sets turnStatus", () => {
     const prose = "暮色从城市的边缘慢慢漫上来……";
-    const result = adaptTeamclawMessages([
+    const result = adaptTeamcluMessages([
       tmsg({
         kind: MessageKind.AGENT_REPLY,
         content: prose,
@@ -837,7 +837,7 @@ describe("adaptTeamclawMessages", () => {
       }),
     ];
 
-    const result = adaptTeamclawMessages(msgs)!;
+    const result = adaptTeamcluMessages(msgs)!;
 
     expect(result).toHaveLength(1);
     expect(result[0].processDeferred).toBe(true);

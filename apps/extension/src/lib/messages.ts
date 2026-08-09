@@ -3,7 +3,7 @@ import {
   isPendingLinkOpenPayload,
   PENDING_LINK_OPEN_KEY,
   type PendingLinkOpen,
-} from '@teamclaw/extension-link-session'
+} from '@teamclu/extension-link-session'
 
 export type { PendingLinkOpen }
 export { PENDING_LINK_OPEN_KEY, isPendingLinkOpenPayload }
@@ -13,7 +13,7 @@ export type PageContextMsg = { type: 'page-context'; payload: ExtractedPage }
 
 export type OpenSidePanelMsg = { type: 'open-side-panel'; payload: PendingLinkOpen }
 
-export const PENDING_LINK_CONTEXT_KEY = 'teamclaw.pendingLinkContext'
+export const PENDING_LINK_CONTEXT_KEY = 'teamclu.pendingLinkContext'
 
 export function isRequestPage(m: unknown): m is RequestPageMsg {
   return typeof m === 'object' && m !== null && (m as { type?: unknown }).type === 'request-page'

@@ -1,6 +1,6 @@
 import Foundation
 
-/// `AppOnboardingStore` implemented entirely over the TeamClaw Cloud API (FC),
+/// `AppOnboardingStore` implemented entirely over the TeamClu Cloud API (FC),
 /// replacing the Supabase-SDK-backed `SupabaseAppOnboardingStore`.
 ///
 /// Token lifecycle (Keychain persistence, proactive/reactive refresh, the
@@ -150,7 +150,7 @@ public actor CloudAPIAppOnboardingStore: AppOnboardingStore {
     /// phone-native users divergent from the partner SaaS). We send our own SMS code via
     /// `/v1/auth/phone/send-code` and resolve/create the partner user via
     /// `/v1/auth/phone/login`. See
-    /// docs/specs/2026-06-17-teamclaw-phone-login-and-tenancy.md.
+    /// docs/specs/2026-06-17-teamclu-phone-login-and-tenancy.md.
     public func sendPhoneOTP(phone: String) async throws {
         await ensureStarted()
         try await auth.postVoid(
@@ -312,7 +312,7 @@ public actor CloudAPIAppOnboardingStore: AppOnboardingStore {
         // partner-aligned: send OUR OWN SMS code (not GoTrue phone_change), the same
         // channel phone login uses. Binding happens in verifyUpgradePhoneOTP via
         // /v1/account/bind-phone. See
-        // docs/specs/2026-06-17-teamclaw-phone-login-and-tenancy.md.
+        // docs/specs/2026-06-17-teamclu-phone-login-and-tenancy.md.
         try await auth.postVoid(
             "/v1/auth/phone/send-code",
             body: PhoneSendCodeRequest(phone: phone, captchaVerify: Self.captchaPlaceholder)
@@ -375,7 +375,7 @@ public actor CloudAPIAppOnboardingStore: AppOnboardingStore {
 
     /// Build the authorize URL for the Google OAuth flow, stashing a fresh
     /// PKCE verifier for the subsequent `handleAuthCallback` exchange.
-    public func oauthAuthorizeURL(redirect: String = "teamclaw://auth-callback") async -> URL? {
+    public func oauthAuthorizeURL(redirect: String = "teamclu://auth-callback") async -> URL? {
         let challenge = await pkce.makeChallenge()
         let base = api.baseURL.absoluteString.trimmingCharacters(in: CharacterSet(charactersIn: "/"))
         var components = URLComponents(string: "\(base)/v1/auth/oauth/google/authorize")
@@ -447,6 +447,24 @@ public actor CloudAPIAppOnboardingStore: AppOnboardingStore {
         // the Cloud API. Activation is the canonical source for the actor scoped to the
         // newly created team, and also refreshes the session into its org.
         let team: CloudTeam = try await api.post("/v1/teams", body: CreateTeamRequest(name: name))
+        let result = try await switchActiveTeam(teamID: team.id)
+        try await setSession(refreshToken: result.refreshToken)
+        return CreatedTeam(
+            team: TeamSummary(id: team.id, name: team.name, slug: team.slug ?? "", role: "owner"),
+            memberActorID: result.actorID ?? "",
+            workspaceID: "",
+            workspaceName: ""
+        )
+    }
+
+    public func bootstrapTeam(deviceId: String?) async throws -> CreatedTeam {
+        await ensureStarted()
+        // Same shape as createTeam: the endpoint returns only the team row, so
+        // activation remains the source of the team-scoped actor id (and moves
+        // the session into the team's org).
+        let team: CloudTeam = try await api.post(
+            "/v1/teams/bootstrap", body: BootstrapTeamRequest(deviceId: deviceId)
+        )
         let result = try await switchActiveTeam(teamID: team.id)
         try await setSession(refreshToken: result.refreshToken)
         return CreatedTeam(
@@ -570,11 +588,6 @@ private struct VerifyOTPRequest: Encodable, Sendable {
     let type: String
 }
 
-private struct VerifyPhoneOTPRequest: Encodable, Sendable {
-    let phone: String
-    let token: String
-    let type: String
-}
 
 // ── partner-aligned phone login (send-code / login) ────────────────────────────
 
@@ -629,15 +642,6 @@ public enum PhoneLoginResult: Sendable {
 }
 
 /// Errors surfaced by the partner-aligned phone login.
-public enum PhoneLoginError: LocalizedError, Sendable {
-    case multipleAccounts
-    public var errorDescription: String? {
-        switch self {
-        case .multipleAccounts:
-            return "该手机号关联了多个账号，请联系管理员或使用其它登录方式。"
-        }
-    }
-}
 
 private struct IdTokenRequest: Encodable, Sendable {
     let provider: String
@@ -702,6 +706,12 @@ private struct PKCEExchangeRequest: Encodable, Sendable {
 
 private struct CreateTeamRequest: Encodable, Sendable {
     let name: String
+}
+
+/// Nil `deviceId` is omitted from the body by the synthesized encoder, which is
+/// exactly the "no reuse" signal the endpoint expects.
+private struct BootstrapTeamRequest: Encodable, Sendable {
+    let deviceId: String?
 }
 
 private struct ClaimInviteRequest: Encodable, Sendable {

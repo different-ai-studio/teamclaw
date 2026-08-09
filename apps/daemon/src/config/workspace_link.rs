@@ -1,4 +1,4 @@
-//! Creates and repairs the `teamclaw-team` entry inside a workspace so it
+//! Creates and repairs the `teamclu-team` entry inside a workspace so it
 //! points at the team's single global copy (see [`super::global_team_store`]).
 //!
 //! Unix/macOS use a symlink. Windows tries a directory junction, then falls
@@ -19,7 +19,7 @@ pub enum LinkKind {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum LinkStatus {
-    /// `teamclaw-team` is a working link to the global dir.
+    /// `teamclu-team` is a working link to the global dir.
     Linked(LinkKind),
     /// Could not create a link; readers must use the global dir directly.
     Fallback,
@@ -27,7 +27,7 @@ pub enum LinkStatus {
     LegacyDirRetained { reason: String },
 }
 
-/// Ensure `<workspace_root>/teamclaw-team` points at the global team dir for
+/// Ensure `<workspace_root>/teamclu-team` points at the global team dir for
 /// `team_id`. Idempotent. Never errors — returns the resulting status.
 pub fn ensure_workspace_link(workspace_root: &Path, team_id: &str) -> LinkStatus {
     let target = match global_team_store::ensure_initialized(team_id) {
@@ -39,8 +39,8 @@ pub fn ensure_workspace_link(workspace_root: &Path, team_id: &str) -> LinkStatus
     };
     let link = workspace_root.join(TEAM_LINK_NAME);
 
-    // Never link a "workspace" whose `teamclaw-team` path IS the team's own
-    // global store dir (`~/.amuxd/teams/<id>/teamclaw-team`). That happens when
+    // Never link a "workspace" whose `teamclu-team` path IS the team's own
+    // global store dir (`~/.amuxd/teams/<id>/teamclu-team`). That happens when
     // a bogus workspace at `~/.amuxd/teams/<id>` gets registered (such entries
     // have appeared in workspaces.toml, synced from the cloud). With link ==
     // target the code below would treat the global real dir as a "legacy dir",
@@ -132,7 +132,7 @@ fn junction_create(link: &Path, target: &Path) -> std::io::Result<()> {
     }
 }
 
-/// A legacy real `teamclaw-team/` dir was found. If it has no un-synced
+/// A legacy real `teamclu-team/` dir was found. If it has no un-synced
 /// changes, consolidate it into the global dir and replace it with a symlink.
 /// If it is dirty, leave it untouched and report it for the UI to resolve.
 fn migrate_legacy_dir(link: &Path, target: &Path) -> LinkStatus {
@@ -147,7 +147,7 @@ fn migrate_legacy_dir(link: &Path, target: &Path) -> LinkStatus {
 
     if global_team_store::is_scaffold_only(target) {
         // First workspace wins: seed the global copy from the legacy content,
-        // INCLUDING a `.git` if present. The legacy `teamclaw-team/.git` is the
+        // INCLUDING a `.git` if present. The legacy `teamclu-team/.git` is the
         // team repo itself (not the user's project repo), so preserving it keeps
         // the seeded global a valid git repo — otherwise a later `sync_git_dir`
         // would find a non-git populated dir and bail permanently, stranding the
@@ -235,7 +235,7 @@ mod tests {
         let ws = tempfile::tempdir().unwrap();
         let status = ensure_workspace_link(ws.path(), "team-1");
         assert_eq!(status, LinkStatus::Linked(LinkKind::Symlink));
-        let link = ws.path().join("teamclaw-team");
+        let link = ws.path().join("teamclu-team");
         assert!(std::fs::symlink_metadata(&link)
             .unwrap()
             .file_type()
@@ -267,7 +267,7 @@ mod tests {
     fn repoints_stale_symlink() {
         let (_home, _guard) = temp_home();
         let ws = tempfile::tempdir().unwrap();
-        let link = ws.path().join("teamclaw-team");
+        let link = ws.path().join("teamclu-team");
         std::os::unix::fs::symlink("/nonexistent/old", &link).unwrap();
         assert_eq!(
             ensure_workspace_link(ws.path(), "team-1"),
@@ -285,7 +285,7 @@ mod tests {
         let (_home, _guard) = temp_home();
         // Seed the team's global dir with real content.
         let global = global_team_store::ensure_initialized("team-self").unwrap();
-        std::fs::write(global.join("skills/keep.md"), b"keep me").unwrap();
+        std::fs::write(global.join("knowledge/keep.md"), b"keep me").unwrap();
 
         // A bogus "workspace" whose path is the team store dir itself makes
         // link == target. We must NOT migrate/delete the global dir or create a
@@ -298,7 +298,7 @@ mod tests {
         let meta = std::fs::symlink_metadata(&global).unwrap();
         assert!(meta.is_dir() && !meta.file_type().is_symlink());
         assert_eq!(
-            std::fs::read(global.join("skills/keep.md")).unwrap(),
+            std::fs::read(global.join("knowledge/keep.md")).unwrap(),
             b"keep me"
         );
     }
@@ -317,15 +317,18 @@ mod tests {
     fn migrates_clean_legacy_dir_into_empty_global() {
         let (_home, _guard) = temp_home();
         let ws = tempfile::tempdir().unwrap();
-        let legacy = ws.path().join("teamclaw-team");
-        std::fs::create_dir_all(legacy.join("skills")).unwrap();
-        std::fs::write(legacy.join("skills/a.md"), b"hello").unwrap();
+        let legacy = ws.path().join("teamclu-team");
+        std::fs::create_dir_all(legacy.join("knowledge")).unwrap();
+        std::fs::write(legacy.join("knowledge/a.md"), b"hello").unwrap();
 
         let status = ensure_workspace_link(ws.path(), "team-mig");
         assert_eq!(status, LinkStatus::Linked(LinkKind::Symlink));
         // Content moved into the global dir.
         let global = global_team_store::global_team_dir("team-mig");
-        assert_eq!(std::fs::read(global.join("skills/a.md")).unwrap(), b"hello");
+        assert_eq!(
+            std::fs::read(global.join("knowledge/a.md")).unwrap(),
+            b"hello"
+        );
         // Workspace entry is now a symlink, not a real dir.
         assert!(std::fs::symlink_metadata(&legacy)
             .unwrap()
@@ -338,9 +341,9 @@ mod tests {
     fn seeds_git_legacy_dir_into_empty_global_preserving_dot_git() {
         let (_home, _guard) = temp_home();
         let ws = tempfile::tempdir().unwrap();
-        let legacy = ws.path().join("teamclaw-team");
-        std::fs::create_dir_all(legacy.join("skills")).unwrap();
-        std::fs::write(legacy.join("skills/a.md"), b"hello").unwrap();
+        let legacy = ws.path().join("teamclu-team");
+        std::fs::create_dir_all(legacy.join("knowledge")).unwrap();
+        std::fs::write(legacy.join("knowledge/a.md"), b"hello").unwrap();
         // A clean git repo (committed) — its .git is the team repo and must
         // survive into the global copy so the global stays a valid repo.
         run_git(&legacy, &["init", "-q"]);
@@ -353,7 +356,10 @@ mod tests {
         assert_eq!(status, LinkStatus::Linked(LinkKind::Symlink));
         let global = global_team_store::global_team_dir("team-gitseed");
         // Content AND the team repo's .git landed in global.
-        assert_eq!(std::fs::read(global.join("skills/a.md")).unwrap(), b"hello");
+        assert_eq!(
+            std::fs::read(global.join("knowledge/a.md")).unwrap(),
+            b"hello"
+        );
         assert!(
             global.join(".git").is_dir(),
             "global must remain a valid git repo (.git preserved)"
@@ -366,13 +372,13 @@ mod tests {
         let (_home, _guard) = temp_home();
         // Pre-populate the global dir for this team with real content.
         let global = global_team_store::ensure_initialized("team-pop").unwrap();
-        std::fs::write(global.join("skills/existing.md"), b"already here").unwrap();
+        std::fs::write(global.join("knowledge/existing.md"), b"already here").unwrap();
 
         // A non-git legacy dir with its own (possibly unsynced) content.
         let ws = tempfile::tempdir().unwrap();
-        let legacy = ws.path().join("teamclaw-team");
-        std::fs::create_dir_all(legacy.join("skills")).unwrap();
-        std::fs::write(legacy.join("skills/unsynced.md"), b"do not lose").unwrap();
+        let legacy = ws.path().join("teamclu-team");
+        std::fs::create_dir_all(legacy.join("knowledge")).unwrap();
+        std::fs::write(legacy.join("knowledge/unsynced.md"), b"do not lose").unwrap();
 
         let status = ensure_workspace_link(ws.path(), "team-pop");
         match status {
@@ -381,7 +387,7 @@ mod tests {
         }
         // Legacy content preserved, not deleted.
         assert_eq!(
-            std::fs::read(legacy.join("skills/unsynced.md")).unwrap(),
+            std::fs::read(legacy.join("knowledge/unsynced.md")).unwrap(),
             b"do not lose"
         );
         assert!(!std::fs::symlink_metadata(&legacy)
@@ -395,7 +401,7 @@ mod tests {
     fn retains_dirty_legacy_git_dir() {
         let (_home, _guard) = temp_home();
         let ws = tempfile::tempdir().unwrap();
-        let legacy = ws.path().join("teamclaw-team");
+        let legacy = ws.path().join("teamclu-team");
         std::fs::create_dir_all(&legacy).unwrap();
         // Make it a git repo with an uncommitted change → "dirty".
         run_git(&legacy, &["init", "-q"]);

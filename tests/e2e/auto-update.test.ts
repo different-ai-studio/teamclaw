@@ -9,7 +9,7 @@
 
 import { describe, it, expect, beforeAll, afterAll } from 'vitest';
 import {
-  launchTeamClawApp,
+  launchTeamCluApp,
   stopApp,
   sleep,
   focusWindow,
@@ -33,10 +33,10 @@ describe('Auto Update - Configuration', () => {
     expect(config.plugins.updater.endpoints.length).toBeGreaterThan(0);
     expect(config.plugins.updater.endpoints).toEqual(
       expect.arrayContaining([
-        expect.stringMatching(/^(?:__OSS_BASE_URL__|https:\/\/teamclaw\.ucar\.cc)\/releases\/latest\.json$/),
+        expect.stringMatching(/^(?:__OSS_BASE_URL__|https:\/\/teamclu\.ucar\.cc)\/releases\/latest\.json$/),
       ]),
     );
-    expect(config.plugins.updater.endpoints).toContain('https://github.com/different-ai-studio/teamclaw/releases/latest/download/latest.json');
+    expect(config.plugins.updater.endpoints).toContain('https://github.com/different-ai-studio/teamclu/releases/latest/download/latest.json');
     expect(config.bundle.createUpdaterArtifacts).toBe(true);
   });
 
@@ -102,7 +102,7 @@ describe('Auto Update - UpdateDialog UI', () => {
 
   beforeAll(async () => {
     try {
-      await launchTeamClawApp();
+      await launchTeamCluApp();
       await sleep(8000);
       await focusWindow();
       await sleep(500);
@@ -141,12 +141,12 @@ describe('Auto Update - UpdateDialog UI', () => {
     const hasSidebar = await executeJs(
       `document.querySelector('[data-slot="sidebar"]') ? 'found' : 'not-found'`,
     );
-    const hasTeamClawText = await executeJs(
-      `document.body.innerText.includes('TeamClaw') ? 'found' : 'not-found'`,
+    const hasTeamCluText = await executeJs(
+      `document.body.innerText.includes('TeamClu') ? 'found' : 'not-found'`,
     );
 
     const loaded =
-      hasSidebar.includes('found') || hasTeamClawText.includes('found');
+      hasSidebar.includes('found') || hasTeamCluText.includes('found');
     expect(loaded).toBe(true);
   }, 15_000);
 });

@@ -17,7 +17,7 @@ export type StoredSession = {
   userId: string | null;
 };
 
-const STORAGE_KEY = "teamclaw.cloud-session";
+const STORAGE_KEY = "teamclu.cloud-session";
 // Refresh when the access token is within this many seconds of expiry.
 const REFRESH_SKEW_SECONDS = 60;
 
@@ -111,10 +111,22 @@ export function createSessionStore(options: SessionStoreOptions) {
       return session;
     },
 
-    async setSession(next: StoredSession): Promise<void> {
+    /**
+     * `silent` stores the session without waking subscribers.
+     *
+     * Subscribers exist to react to *who is signed in* changing — the app's
+     * listener re-runs `bootstrap()`. A token swap for the same user is not
+     * that, and announcing it is actively harmful when the swap happens
+     * *inside* bootstrap: team activation calls `setRefreshSession`, so the
+     * notify re-entered `bootstrap`, whose `beginOperation()` invalidated the
+     * in-flight run's token and made its `bootstrapResolved` a no-op. That
+     * loops forever, leaving the app on "Opening TeamClu" and hammering
+     * `/v1/teams` + activate + refresh on every pass.
+     */
+    async setSession(next: StoredSession, options?: { silent?: boolean }): Promise<void> {
       session = next;
       await persist();
-      notify();
+      if (!options?.silent) notify();
     },
 
     clear: clearSession,

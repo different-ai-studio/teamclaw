@@ -23,7 +23,7 @@ struct CreateTeamView: View {
                 VStack(alignment: .leading, spacing: 10) {
                     Text("Team Name")
                         .font(.headline)
-                    TextField("Teamclaw Team", text: $teamName)
+                    TextField("Teamclu Team", text: $teamName)
                         .textInputAutocapitalization(.words)
                         .autocorrectionDisabled()
                         .padding(.horizontal, 14)

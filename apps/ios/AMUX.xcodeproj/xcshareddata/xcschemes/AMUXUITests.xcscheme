@@ -55,13 +55,13 @@
       </CommandLineArguments>
       <EnvironmentVariables>
          <EnvironmentVariable
-            key = "TEAMCLAW_TEST_EMAIL"
-            value = "$(TEAMCLAW_TEST_EMAIL)"
+            key = "TEAMCLU_TEST_EMAIL"
+            value = "$(TEAMCLU_TEST_EMAIL)"
             isEnabled = "YES">
          </EnvironmentVariable>
          <EnvironmentVariable
-            key = "TEAMCLAW_TEST_PASSWORD"
-            value = "$(TEAMCLAW_TEST_PASSWORD)"
+            key = "TEAMCLU_TEST_PASSWORD"
+            value = "$(TEAMCLU_TEST_PASSWORD)"
             isEnabled = "YES">
          </EnvironmentVariable>
       </EnvironmentVariables>

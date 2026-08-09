@@ -58,7 +58,7 @@ Prepare these data profiles once and reuse them across cases.
 ### Profile C: Real-chain Agent Team
 
 - all Profile B data
-- one connected TeamClaw daemon for an agent actor
+- one connected TeamClu daemon for an agent actor
 - workspace bound to that agent
 - MQTT reachable
 
@@ -93,10 +93,10 @@ converting the full matrix to Maestro or Detox.
 | ID | Track | Case | Preconditions | Steps | Assertions | Cleanup |
 | --- | --- | --- | --- | --- | --- | --- |
 | EXPO-E2E-001 | `expo-pr-candidate` | Signed-out launch routes to welcome | Profile A | Launch app at `/` | Welcome screen is visible, no authenticated tabs are visible | none |
-| EXPO-E2E-002 | `expo-pr-candidate` | Welcome to auth choice | Profile A | Tap get started | `Set up Teamclaw` is visible, private workspace and sign-in choices are visible | none |
+| EXPO-E2E-002 | `expo-pr-candidate` | Welcome to auth choice | Profile A | Tap get started | `Set up Teamclu` is visible, private workspace and sign-in choices are visible | none |
 | EXPO-E2E-003 | `expo-nightly-real-chain` | Anonymous private workspace bootstrap | Profile A, Supabase anon enabled | Choose private workspace, create first team if prompted | App reaches `Sessions`, team identity is visible in settings | delete generated team/user if supported |
 | EXPO-E2E-004 | `expo-nightly-real-chain` | Email OTP sign-in happy path | test email inbox or test OTP helper | Enter email, submit OTP, finish team bootstrap | App reaches `Sessions`; user email appears in Settings | cleanup seeded user/session |
-| EXPO-E2E-005 | `expo-nightly-real-chain` | Invite link join from signed-out state | valid invite token | Open `teamclaw://invite/<token>`, continue through auth | User joins invited team and reaches `Sessions` | revoke invite and delete joined actor |
+| EXPO-E2E-005 | `expo-nightly-real-chain` | Invite link join from signed-out state | valid invite token | Open `teamclu://invite/<token>`, continue through auth | User joins invited team and reaches `Sessions` | revoke invite and delete joined actor |
 | EXPO-E2E-006 | `expo-pr-candidate` | Dev session restore | Profile B | Open `/dev-session` or matching deep link | `Sessions` appears, missing dev-session warning is absent | none |
 | EXPO-E2E-007 | `expo-pr-candidate` | Bootstrap failure stays recoverable | invalid Supabase env or forced API failure | Launch app | Friendly bootstrap error appears and retry is available | none |
 
@@ -148,7 +148,7 @@ converting the full matrix to Maestro or Detox.
 | EXPO-E2E-034 | `expo-manual-needs-selectors` | Delete own message | Profile B with disposable message | Long-press own message, delete | Message disappears and stays gone after refresh | none |
 | EXPO-E2E-035 | `expo-nightly-real-chain` | Attachment drawer uploads image/file | Profile B with storage configured | Open attach, pick supported file, send | Attachment tile appears in composer and message row | delete uploaded object/message |
 | EXPO-E2E-036 | `expo-pr-candidate` | Session mute toggle persists | Profile B | Open detail, toggle mute, leave and return | Muted icon/state is retained | reset mute row |
-| EXPO-E2E-037 | `expo-manual-needs-selectors` | Share session link | Profile B | Tap share in detail | Native share sheet receives `teamclaw://session/<id>` | none |
+| EXPO-E2E-037 | `expo-manual-needs-selectors` | Share session link | Profile B | Tap share in detail | Native share sheet receives `teamclu://session/<id>` | none |
 
 ### Session Members And Runtime
 

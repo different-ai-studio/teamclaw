@@ -17,7 +17,7 @@ mod workspace_resolver;
 pub use daemon_config::{
     ActorConfig, AgentBackendConfig, AgentsConfig, ClaudeAgentConfig, CursorAgentConfig,
     DaemonConfig, DiscordChannel, EmailChannel, FeishuChannel, HttpConfig, KookChannel, MqttConfig,
-    TeamShareConfig, TransportKind, WeChatChannel, WeComChannel, BOOTSTRAP_ACTOR_NAME,
+    SeaTalkChannel, TeamShareConfig, TransportKind, WeChatChannel, WeComChannel, BOOTSTRAP_ACTOR_NAME,
 };
 // Constructed only by the test suite (runtime_resolution / server tests).
 #[cfg(test)]
@@ -41,7 +41,7 @@ pub use workspace_control::{
     WorkspaceControlError, WorkspaceControlStore,
 };
 pub use workspace_instructions::{
-    claude_md_block_present_at, load_system_prompt, sync_teamclaw_claude_md,
+    claude_md_block_present_at, load_system_prompt, sync_teamclu_claude_md,
 };
 pub use workspace_resolver::{
     resolve_default_workspace_path, ResolveError, ResolvedWorkspace, WorkspaceResolver,

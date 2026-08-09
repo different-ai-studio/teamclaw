@@ -73,7 +73,7 @@ interface TeamModeState {
   teamGitFileSyncStatusMap: Record<string, 'modified' | 'new'>
   /** True while a Git team sync is in progress (for file tree loading indicator) */
   teamGitSyncing: boolean
-  /** ISO timestamp of last successful team repo sync (read from teamclaw.json) */
+  /** ISO timestamp of last successful team repo sync (read from teamclu.json) */
   teamGitLastSyncAt: string | null
 
   loadTeamConfig: (workspacePath: string) => Promise<void>
@@ -119,7 +119,7 @@ export const useTeamModeStore = create<TeamModeState>((set, get) => ({
 
   loadTeamConfig: async (_workspacePath: string) => {
     const cloudLlm = await fetchCloudTeamLlm()
-    // Load last sync timestamp from teamclaw.json (git mode persists it via team_sync_repo)
+    // Load last sync timestamp from teamclu.json (git mode persists it via team_sync_repo)
     if (isTauri()) {
       try {
         const { invoke } = await import('@tauri-apps/api/core')

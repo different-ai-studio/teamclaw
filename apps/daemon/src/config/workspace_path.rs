@@ -2,10 +2,10 @@
 
 use std::path::Path;
 
-/// Reject workspace paths that must never receive a `teamclaw-team` link: the
+/// Reject workspace paths that must never receive a `teamclu-team` link: the
 /// filesystem root, or anything inside the daemon's own config dir
 /// (`~/.amuxd`). The critical case is a team's global store dir
-/// `~/.amuxd/teams/<id>`: linking it would point `teamclaw-team` at itself
+/// `~/.amuxd/teams/<id>`: linking it would point `teamclu-team` at itself
 /// (ELOOP) and destroy the synced content. Such bogus entries have appeared in
 /// workspaces.toml (synced from the cloud), so filter them at registration and
 /// on load in addition to the guard in `workspace_link`.
@@ -74,19 +74,19 @@ mod tests {
         assert!(listable_local_workspace(&row(None, false)).is_none());
         assert!(listable_local_workspace(&row(Some("   "), false)).is_none());
         assert!(
-            listable_local_workspace(&row(Some("/definitely/not/here/teamclaw"), false)).is_none()
+            listable_local_workspace(&row(Some("/definitely/not/here/teamclu"), false)).is_none()
         );
     }
 
     #[test]
     fn listable_names_a_workspace_after_its_directory() {
         let parent = tempfile::tempdir().unwrap();
-        let ws = parent.path().join("TeamClaw Dev");
+        let ws = parent.path().join("TeamClu Dev");
         std::fs::create_dir(&ws).unwrap();
         let (path, name) =
             listable_local_workspace(&row(Some(&ws.to_string_lossy()), false)).unwrap();
         assert_eq!(path, ws.to_string_lossy());
-        assert_eq!(name, "TeamClaw Dev");
+        assert_eq!(name, "TeamClu Dev");
     }
 
     #[test]

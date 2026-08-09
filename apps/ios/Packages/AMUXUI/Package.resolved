@@ -1,5 +1,5 @@
 {
-  "originHash" : "f1d17e8be39435e7f6bcf344db1ee3f64e4c6b00e49842bf48f0cdda1f52026e",
+  "originHash" : "24e3dc45f6b526b1171cd465ebfc6c7b4f1b6cae18b0153d0d61993c743992d1",
   "pins" : [
     {
       "identity" : "cocoamqtt",
@@ -38,66 +38,12 @@
       }
     },
     {
-      "identity" : "supabase-swift",
-      "kind" : "remoteSourceControl",
-      "location" : "https://github.com/supabase/supabase-swift.git",
-      "state" : {
-        "revision" : "17261e93c60aa721e3c17312bfeb2ae6de3d6f8a",
-        "version" : "2.43.1"
-      }
-    },
-    {
-      "identity" : "swift-asn1",
-      "kind" : "remoteSourceControl",
-      "location" : "https://github.com/apple/swift-asn1.git",
-      "state" : {
-        "revision" : "eb50cbd14606a9161cbc5d452f18797c90ef0bab",
-        "version" : "1.7.0"
-      }
-    },
-    {
-      "identity" : "swift-clocks",
-      "kind" : "remoteSourceControl",
-      "location" : "https://github.com/pointfreeco/swift-clocks",
-      "state" : {
-        "revision" : "cc46202b53476d64e824e0b6612da09d84ffde8e",
-        "version" : "1.0.6"
-      }
-    },
-    {
       "identity" : "swift-cmark",
       "kind" : "remoteSourceControl",
       "location" : "https://github.com/swiftlang/swift-cmark.git",
       "state" : {
         "revision" : "5d9bdaa4228b381639fff09403e39a04926e2dbe",
         "version" : "0.7.1"
-      }
-    },
-    {
-      "identity" : "swift-concurrency-extras",
-      "kind" : "remoteSourceControl",
-      "location" : "https://github.com/pointfreeco/swift-concurrency-extras",
-      "state" : {
-        "revision" : "5a3825302b1a0d744183200915a47b508c828e6f",
-        "version" : "1.3.2"
-      }
-    },
-    {
-      "identity" : "swift-crypto",
-      "kind" : "remoteSourceControl",
-      "location" : "https://github.com/apple/swift-crypto.git",
-      "state" : {
-        "revision" : "476538ccb827f2dd18efc5de754cc87d77127a47",
-        "version" : "4.4.0"
-      }
-    },
-    {
-      "identity" : "swift-http-types",
-      "kind" : "remoteSourceControl",
-      "location" : "https://github.com/apple/swift-http-types.git",
-      "state" : {
-        "revision" : "45eb0224913ea070ec4fba17291b9e7ecf4749ca",
-        "version" : "1.5.1"
       }
     },
     {
@@ -125,15 +71,6 @@
       "state" : {
         "revision" : "a008af1a102ff3dd6cc3764bb69bf63226d0f5f6",
         "version" : "1.36.1"
-      }
-    },
-    {
-      "identity" : "xctest-dynamic-overlay",
-      "kind" : "remoteSourceControl",
-      "location" : "https://github.com/pointfreeco/xctest-dynamic-overlay",
-      "state" : {
-        "revision" : "dfd70507def84cb5fb821278448a262c6ff2bbad",
-        "version" : "1.9.0"
       }
     }
   ],

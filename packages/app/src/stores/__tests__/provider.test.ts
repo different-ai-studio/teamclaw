@@ -18,8 +18,8 @@ vi.mock('sonner', () => ({
 }))
 
 vi.mock('@/lib/build-config', () => ({
-  appShortName: 'teamclaw',
-  appStoragePrefix: 'teamclaw',
+  appShortName: 'teamclu',
+  appStoragePrefix: 'teamclu',
 }))
 
 vi.mock('@/lib/storage', () => ({

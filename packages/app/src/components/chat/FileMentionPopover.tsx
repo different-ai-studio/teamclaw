@@ -4,7 +4,7 @@ import { File, Folder, ImageIcon, Loader2, Paperclip } from "lucide-react"
 import { useWorkspaceStore } from "@/stores/workspace"
 import { useTeamModeStore } from "@/stores/team-mode"
 import { useSessionMessageStore } from "@/stores/session-message-store"
-import { TEAMCLAW_DIR } from "@/lib/build-config"
+import { TEAMCLU_DIR } from "@/lib/build-config"
 import { isTauri } from "@/lib/utils"
 import { cn } from "@/lib/utils"
 import {
@@ -28,7 +28,7 @@ const ALWAYS_IGNORED_NAMES = new Set([
   ".ruff_cache",
 ])
 
-const DEV_ONLY_NAMES = new Set([TEAMCLAW_DIR])
+const DEV_ONLY_NAMES = new Set([TEAMCLU_DIR])
 
 function isIgnoredName(name: string): boolean {
   if (useTeamModeStore.getState().devUnlocked) return false

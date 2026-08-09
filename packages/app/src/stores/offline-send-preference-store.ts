@@ -18,6 +18,6 @@ export const useOfflineSendPreferenceStore = create<State>()(
         })),
       isDismissed: (sessionId) => !!get().dismissedBySession[sessionId],
     }),
-    { name: 'teamclaw-offline-send-pref' },
+    { name: 'teamclu-offline-send-pref' },
   ),
 )

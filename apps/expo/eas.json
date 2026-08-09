@@ -1,0 +1,32 @@
+{
+  "cli": {
+    "version": ">= 21.7.0",
+    "appVersionSource": "remote"
+  },
+  "build": {
+    "development": {
+      "developmentClient": true,
+      "distribution": "internal",
+      "android": {
+        "buildType": "apk"
+      }
+    },
+    "preview": {
+      "distribution": "internal",
+      "env": {
+        "EXPO_PUBLIC_CLOUD_API_URL": "https://api.teamclu-dev.ucar.cc",
+        "EXPO_PUBLIC_SENTRY_DSN": "https://3d62272a2572c722fbf4da76ef3ea30e@o60909.ingest.us.sentry.io/4511878837960704"
+      }
+    },
+    "production": {
+      "autoIncrement": true,
+      "env": {
+        "EXPO_PUBLIC_CLOUD_API_URL": "https://api.teamclu-dev.ucar.cc",
+        "EXPO_PUBLIC_SENTRY_DSN": "https://3d62272a2572c722fbf4da76ef3ea30e@o60909.ingest.us.sentry.io/4511878837960704"
+      }
+    }
+  },
+  "submit": {
+    "production": {}
+  }
+}

@@ -1,4 +1,4 @@
-//! Channel manager: boot and shut down `teamclaw_gateway` channels based on
+//! Channel manager: boot and shut down `teamclu_gateway` channels based on
 //! `[channels.*]` entries in `daemon.toml`. Each gateway is constructed with
 //! shared `AgentHandle` + `ChannelStore` adapters, populated with its per-channel
 //! config (translated from `DaemonConfig`'s primitive fields into the gateway
@@ -10,16 +10,17 @@
 use std::sync::Arc;
 use tokio::sync::Mutex;
 
-use teamclaw_gateway::{
+use teamclu_gateway::{
     AgentHandle, ChannelStore, DiscordConfig, DiscordGateway, EmailConfig, EmailGateway,
     EmailGatewayStatus, EmailProvider, FeishuConfig, FeishuGateway, FeishuGatewayStatus,
-    GatewayStatus, KookConfig, KookDmConfig, KookGateway, KookGatewayStatus, WeChatConfig,
-    WeChatGateway, WeChatGatewayStatus, WeComConfig, WeComGateway, WeComGatewayStatus,
+    GatewayStatus, KookConfig, KookDmConfig, KookGateway, KookGatewayStatus, SeaTalkConfig,
+    SeaTalkGateway, SeaTalkGatewayStatus, WeChatConfig, WeChatGateway, WeChatGatewayStatus,
+    WeComConfig, WeComGateway, WeComGatewayStatus,
 };
 
 use crate::config::{
-    DaemonConfig, DiscordChannel, EmailChannel, FeishuChannel, KookChannel, WeChatChannel,
-    WeComChannel,
+    DaemonConfig, DiscordChannel, EmailChannel, FeishuChannel, KookChannel, SeaTalkChannel,
+    WeChatChannel, WeComChannel,
 };
 
 #[derive(Default)]
@@ -30,6 +31,7 @@ struct RunningChannels {
     kook: Option<KookGateway>,
     wechat: Option<WeChatGateway>,
     email: Option<EmailGateway>,
+    seatalk: Option<SeaTalkGateway>,
 }
 
 pub struct ChannelManager {
@@ -40,7 +42,7 @@ pub struct ChannelManager {
     primary_agent_actor_id: String,
     agent_owner_actor_ids: Vec<String>,
     /// Filesystem root that gateways may use for per-workspace state
-    /// (`.teamclaw/email.db`, persisted iLink context tokens, etc.). For the
+    /// (`.teamclu/email.db`, persisted iLink context tokens, etc.). For the
     /// amuxd-managed case this defaults to the amux config dir.
     workspace_path: String,
     running: Mutex<RunningChannels>,
@@ -149,6 +151,18 @@ impl ChannelManager {
             }
         }
 
+        if let Some(c) = &self.cfg.channels.seatalk {
+            if c.enabled {
+                match self.start_seatalk(c).await {
+                    Ok(g) => {
+                        println!("[ChannelManager] seatalk started");
+                        running.seatalk = Some(g);
+                    }
+                    Err(e) => eprintln!("[ChannelManager] seatalk start failed: {e}"),
+                }
+            }
+        }
+
         Ok(())
     }
 
@@ -211,7 +225,7 @@ impl ChannelManager {
                 };
                 result.map_err(|e| anyhow::anyhow!("wecom send: {e}"))
             }
-            "feishu" | "discord" | "kook" | "wechat" | "email" => {
+            "feishu" | "discord" | "kook" | "wechat" | "email" | "seatalk" => {
                 anyhow::bail!("{channel}: send not yet implemented in v2; only WeCom is wired")
             }
             other => anyhow::bail!("unknown channel: {other}"),
@@ -287,6 +301,16 @@ impl ChannelManager {
             }
             None => (false, None),
         };
+        let seatalk = match running.seatalk.as_ref() {
+            Some(g) => {
+                let status = g.get_status().await;
+                (
+                    status.status == SeaTalkGatewayStatus::Connected,
+                    status.error_message,
+                )
+            }
+            None => (false, None),
+        };
 
         vec![
             ("discord", discord.0, discord.1),
@@ -295,6 +319,7 @@ impl ChannelManager {
             ("kook", kook.0, kook.1),
             ("wechat", wechat.0, wechat.1),
             ("email", email.0, email.1),
+            ("seatalk", seatalk.0, seatalk.1),
         ]
     }
 
@@ -335,6 +360,9 @@ impl ChannelManager {
         if let Some(g) = running.email.take() {
             g.shutdown().await;
         }
+        if let Some(g) = running.seatalk.take() {
+            g.shutdown().await;
+        }
     }
 
     // ----- per-channel constructors -----
@@ -355,7 +383,7 @@ impl ChannelManager {
         };
         // Plumb optional default DM username into the DM allow-list when provided
         // so the operator can verify the bot answers DMs from at least themselves
-        // without editing teamclaw.json directly. Leave alone otherwise.
+        // without editing teamclu.json directly. Leave alone otherwise.
         if let Some(name) = &c.default_username {
             if !name.is_empty() {
                 cfg.dm.allow_from.push(name.clone());
@@ -436,7 +464,7 @@ impl ChannelManager {
             enabled: true,
             token: c.bot_token.clone(),
             // Default DM mode = open; the operator can lock down via the
-            // gateway crate's `teamclaw.json` if desired. Until the manager
+            // gateway crate's `teamclu.json` if desired. Until the manager
             // is wired to a richer config we let DMs through.
             dm: KookDmConfig {
                 enabled: true,
@@ -494,6 +522,43 @@ impl ChannelManager {
             ..Default::default()
         };
         gw.set_workspace_path(&self.workspace_path).await;
+        gw.set_config(cfg).await;
+        gw.start().await.map_err(|e| anyhow::anyhow!(e))?;
+        Ok(gw)
+    }
+
+    async fn start_seatalk(&self, c: &SeaTalkChannel) -> anyhow::Result<SeaTalkGateway> {
+        let gw = SeaTalkGateway::new(
+            self.acp.clone(),
+            self.store.clone(),
+            self.team_id.clone(),
+            self.primary_agent_actor_id.clone(),
+            self.agent_owner_actor_ids.clone(),
+            self.workspace_path.clone(),
+        );
+        let cfg = SeaTalkConfig {
+            enabled: true,
+            app_id: c.app_id.clone(),
+            app_secret: c.app_secret.clone(),
+            mode: if c.mode.is_empty() {
+                "websocket".to_string()
+            } else {
+                c.mode.clone()
+            },
+            dm_policy: if c.dm_policy.is_empty() {
+                "open".to_string()
+            } else {
+                c.dm_policy.clone()
+            },
+            allow_from: c.allow_from.clone(),
+            group_policy: if c.group_policy.is_empty() {
+                "open".to_string()
+            } else {
+                c.group_policy.clone()
+            },
+            group_allow_from: c.group_allow_from.clone(),
+            ..Default::default()
+        };
         gw.set_config(cfg).await;
         gw.start().await.map_err(|e| anyhow::anyhow!(e))?;
         Ok(gw)

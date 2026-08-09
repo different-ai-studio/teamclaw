@@ -67,7 +67,7 @@ fn run_at(force: bool, lock_path: &std::path::Path, paths: Vec<PathBuf>) -> anyh
         );
     }
 
-    println!("Done. Run `amuxd init <teamclaw://invite?token=...>` to re-onboard.");
+    println!("Done. Run `amuxd init <teamclu://invite?token=...>` to re-onboard.");
     Ok(())
 }
 

@@ -21,17 +21,17 @@ test(`offline catch-up: B pulls all ${N} files A created while B was idle`, { sk
   const { nodes, teamId } = ctx;
   const root = contentRootPath(teamId);
 
-  // A creates N files under skills/ in one shot.
+  // A creates N files under knowledge/ in one shot.
   await execSh(
     "node-a",
-    `mkdir -p ${root}/skills && for i in $(seq 1 ${N}); do printf 'file-%s\\n' "$i" > ${root}/skills/f$i.md; done`,
+    `mkdir -p ${root}/skills && for i in $(seq 1 ${N}); do printf 'file-%s\\n' "$i" > ${root}/knowledge/f$i.md; done`,
   );
 
   // Upload success is only observable via B, and a transiently-failed upload stays
   // dirty and is retried on A's next tick — so interleave A-push + B-pull until B
   // holds all N. (A's LOCAL tree always has all N, so it can't gate on that.)
   // Transient prod errors are retried inside sync(); converge by re-syncing.
-  const count = (t) => Object.keys(t).filter((k) => k.startsWith("skills/f")).length;
+  const count = (t) => Object.keys(t).filter((k) => k.startsWith("knowledge/f")).length;
   let treeB = {};
   for (let i = 0; i < 14; i++) {
     await sync(nodes.a);

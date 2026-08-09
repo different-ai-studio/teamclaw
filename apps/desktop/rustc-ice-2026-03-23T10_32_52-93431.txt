@@ -1,5 +1,5 @@
 thread 'opt e37nksw7ufspe9mgdixih9ma9' panicked at /Users/espressif/action-runner/esp-rs/_work/rust-build/rust-build/compiler/rustc_codegen_ssa/src/back/write.rs:873:21:
-Error writing pre-lto-bitcode file `/Users/matt.chow/workspace/teamclaw/src-tauri/target/debug/incremental/tauri_plugin_mcp-0k0hr03d8c2xl/s-hgx8p47v8u-1l5a2ub-working/e37nksw7ufspe9mgdixih9ma9.pre-lto.bc`: No space left on device (os error 28)
+Error writing pre-lto-bitcode file `/Users/matt.chow/workspace/teamclu/src-tauri/target/debug/incremental/tauri_plugin_mcp-0k0hr03d8c2xl/s-hgx8p47v8u-1l5a2ub-working/e37nksw7ufspe9mgdixih9ma9.pre-lto.bc`: No space left on device (os error 28)
 stack backtrace:
    0:        0x115192064 - std::backtrace::Backtrace::create::h85e403d86c9fe2f7
    1:        0x10f8b6f50 - <alloc[fa2ee223768fabbd]::boxed::Box<rustc_driver_impl[7f437b61593ea21]::install_ice_hook::{closure#1}> as core[17c7240c44cff591]::ops::function::Fn<(&dyn for<'a, 'b> core[17c7240c44cff591]::ops::function::Fn<(&'a std[c8019d5198e5e997]::panic::PanicHookInfo<'b>,), Output = ()> + core[17c7240c44cff591]::marker::Sync + core[17c7240c44cff591]::marker::Send, &std[c8019d5198e5e997]::panic::PanicHookInfo)>>::call

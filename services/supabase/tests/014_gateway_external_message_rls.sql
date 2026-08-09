@@ -3,7 +3,7 @@ begin;
 select plan(5);
 
 insert into auth.users (id, email, aud, role, instance_id)
-values ('00000000-0000-0000-0014-000000000001', 'gateway-daemon@teamclaw.test', 'authenticated', 'authenticated', '00000000-0000-0000-0000-000000000000')
+values ('00000000-0000-0000-0014-000000000001', 'gateway-daemon@teamclu.test', 'authenticated', 'authenticated', '00000000-0000-0000-0000-000000000000')
 on conflict do nothing;
 
 insert into public.teams (id, slug, name)

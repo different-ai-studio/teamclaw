@@ -6,7 +6,7 @@
  *
  * There is no longer an on-disk mirror (`_meta/provider.json`): the daemon
  * materializes `opencode.json`'s `provider.team` directly from the cloud config
- * at agent-spawn time (see `teamclaw-runtime-env::team_provider`), so the shared
+ * at agent-spawn time (see `teamclu-runtime-env::team_provider`), so the shared
  * LLM converges on first install without waiting for a git clone. The secret key
  * is never written to disk — it is derived locally as `sk-tc-{actor_id[..40]}`.
  *

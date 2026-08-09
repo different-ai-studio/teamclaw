@@ -117,7 +117,7 @@ export const useAgentModelPickStore = create<State>()(
       },
     }),
     {
-      name: "teamclaw.agent-model-pick.v1",
+      name: "teamclu.agent-model-pick.v1",
       storage: createJSONStorage(() => localStorage),
       partialize: (s) => ({ bySessionAgent: s.bySessionAgent }),
     },

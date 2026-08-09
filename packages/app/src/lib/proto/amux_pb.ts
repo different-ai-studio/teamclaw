@@ -916,7 +916,7 @@ export type AcpSendPrompt = Message<"amux.AcpSendPrompt"> & {
 
   /**
    * Supabase Storage URLs for attachments (legacy bare-runtime path).
-   * Session-backed chats carry these in Teamclaw_Message.attachment_urls instead.
+   * Session-backed chats carry these in Teamclu_Message.attachment_urls instead.
    *
    * @generated from field: repeated string attachment_urls = 3;
    */

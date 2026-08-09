@@ -1,4 +1,4 @@
-import type { RemoteToolInvokeRequest, RpcRequest } from '@/lib/proto/teamclaw_pb'
+import type { RemoteToolInvokeRequest, RpcRequest } from '@/lib/proto/teamclu_pb'
 import { getBackend } from '@/lib/backend'
 import { useActorDirectoryStore } from '@/stores/actor-directory-store'
 import { useSessionParticipantStore } from '@/stores/session-participant-store'

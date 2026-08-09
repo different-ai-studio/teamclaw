@@ -1,5 +1,5 @@
 import { splitAssistantProcessAndFinalParts } from "@/lib/agent-reply-transcript";
-import type { Message as TeamclawMessage } from "@/lib/proto/teamclaw_pb";
+import type { Message as TeamcluMessage } from "@/lib/proto/teamclu_pb";
 import type { Message as SdkMessage, MessagePart } from "@/stores/session-types";
 import { buildFullTurnSdkMessageFromGroup } from "@/lib/v2-message-adapter";
 
@@ -16,7 +16,7 @@ function renderableParts(parts: MessagePart[]): MessagePart[] {
 
 /** Hydrate collapsed process parts for a deferred historical turn (cached per message). */
 export function hydrateDeferredProcessParts(
-  protos: TeamclawMessage[] | undefined,
+  protos: TeamcluMessage[] | undefined,
   message: Pick<SdkMessage, "id" | "lazyProcessRef">,
 ): MessagePart[] {
   const ref = message.lazyProcessRef;

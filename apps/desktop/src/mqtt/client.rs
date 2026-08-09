@@ -5,7 +5,7 @@ use rumqttc::{
 use serde::Serialize;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
-use teamclaw_transport::MqttBroker;
+use teamclu_transport::MqttBroker;
 use tokio::sync::Mutex;
 
 pub struct ClientConfig {
@@ -181,7 +181,7 @@ mod tests {
             broker_url: Some("wss://mqtt.example.com/mqtt".into()),
             broker_host: "mqtt.example.com".into(),
             broker_port: 1883,
-            client_id: "teamclaw-test".into(),
+            client_id: "teamclu-test".into(),
             username: "actor".into(),
             password: "token".into(),
             team_id: "team-1".into(),

@@ -11,7 +11,7 @@ import { useWorkspaceStore } from '@/stores/workspace'
 import { encodeWorkspaceId, reloadDaemonRuntime } from '@/lib/daemon-local-client'
 
 // Legacy global storage key — kept only for one-time migration into
-// per-workspace teamclaw.json.
+// per-workspace teamclu.json.
 const LEGACY_STORAGE_KEY = `${appStoragePrefix}-system-prompt`
 
 export const PromptSection = React.memo(function PromptSection() {

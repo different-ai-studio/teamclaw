@@ -1,3 +1,9 @@
+# NOT renamed with the teamclaw → teamclu rebrand, deliberately. The compose
+# project name prefixes every container and every volume on the one live ECS
+# box (teamclaw-self-host_db-config, …). Changing it does not rename anything:
+# compose would treat this as a brand-new project and bring up 19 containers on
+# fresh empty volumes, stranding the database, Caddy's issued certificates and
+# EMQX's state in an orphaned project.
 name: teamclaw-self-host
 
 include:
@@ -28,11 +34,10 @@ services:
     # only fronts the WebSocket listener (8083) on 443. Without this mapping the
     # broker is reachable only on the internal docker network (emqx:1883), so
     # external clients get "Connection refused (os error 61)".
-    # NOTE: the ECS security group must also allow inbound TCP 1883.
-    # Only the plaintext TCP listener (1883) is configured in emqx.conf; there
-    # is no SSL listener (8883), so we do not publish it.
+    # NOTE: the ECS security group must also allow inbound TCP 1883 and 8883.
     ports:
       - "1883:1883"   # MQTT (plaintext, listeners.tcp.default)
+      - "8883:8883"   # MQTT over TLS (listeners.ssl.default) — mobile native clients
     environment:
       # EMQX expects the HMAC secret base64-encoded (secret_base64_encoded=true).
       EMQX_JWT_SECRET: "${EMQX_JWT_SECRET}"
@@ -43,9 +48,26 @@ services:
       # EMQX's native env override (Compose interpolates ${EMQX_JWT_SECRET} at
       # parse time) so the authenticator is created with the real key.
       EMQX_AUTHENTICATION__1__SECRET: "${EMQX_JWT_SECRET}"
+      # The 8883 listener reads Caddy's ACME storage, where certificates are
+      # filed under the hostname they were issued for. Derive the path from
+      # MQTT_DOMAIN rather than hardcoding it in emqx.conf, so renaming the host
+      # moves the listener to the new certificate in the same step instead of
+      # leaving it pointed at a file that no longer exists — EMQX fails the
+      # listener outright when the certfile is missing, taking MQTTS down.
+      #
+      # Uses the bare MQTT_DOMAIN (never the legacy-joined form above): this is
+      # a filesystem path, and Caddy files a multi-host site under its first
+      # hostname only.
+      EMQX_LISTENERS__SSL__DEFAULT__SSL_OPTIONS__CERTFILE: "/caddy-certs/caddy/certificates/acme-v02.api.letsencrypt.org-directory/${MQTT_DOMAIN}/${MQTT_DOMAIN}.crt"
+      EMQX_LISTENERS__SSL__DEFAULT__SSL_OPTIONS__KEYFILE: "/caddy-certs/caddy/certificates/acme-v02.api.letsencrypt.org-directory/${MQTT_DOMAIN}/${MQTT_DOMAIN}.key"
     volumes:
       - ./emqx/emqx.conf:/opt/emqx/etc/emqx.conf:ro
       - emqx_data:/opt/emqx/data
+      # Read-only view of Caddy's ACME storage so the 8883 listener can reuse
+      # the Let's Encrypt cert Caddy already obtains for MQTT_DOMAIN, instead of
+      # running a second ACME client for the same name. EMQX reads it once at
+      # listener start — see the renewal warning in emqx/emqx.conf.
+      - caddy_data:/caddy-certs:ro
     healthcheck:
       test: ["CMD", "/opt/emqx/bin/emqx", "ctl", "status"]
       interval: 10s
@@ -137,6 +159,9 @@ services:
       - -c
       - |
         set -e
+        # Name not renamed with the rebrand: the database already exists on the
+        # live box as teamclaw_apps. Renaming it here would leave that one in
+        # place and create a second, empty one alongside it.
         if [ "$$(psql -tAc "SELECT 1 FROM pg_database WHERE datname='teamclaw_apps'")" = "1" ]; then
           echo "apps-db-init: teamclaw_apps already exists"
         else
@@ -191,7 +216,7 @@ services:
   fc:
     build:
       context: ../../services/fc
-    image: teamclaw-fc:self-host
+    image: teamclu-fc:self-host
     restart: unless-stopped
     depends_on:
       migrate:
@@ -214,6 +239,11 @@ services:
       SUPABASE_ANON_KEY: "${FC_SUPABASE_ANON_KEY:-${ANON_KEY}}"
       TRUSTED_EXTERNAL_JWT_SECRET: "${TRUSTED_EXTERNAL_JWT_SECRET:-}"
       SUPABASE_SERVICE_ROLE_KEY: "${FC_SUPABASE_SERVICE_ROLE_KEY:-${SERVICE_ROLE_KEY}}"
+      # Private Supabase Storage buckets holding client-encrypted blobs: team
+      # file-sync bodies and skill packages. This map is an allowlist, so a var
+      # missing here never reaches the container regardless of the box's .env.
+      TEAM_BLOBS_STORAGE_BUCKET: "${TEAM_BLOBS_STORAGE_BUCKET:-team-blobs}"
+      SKILLS_STORAGE_BUCKET: "${SKILLS_STORAGE_BUCKET:-team-skills}"
       # The ONE broker address: FC's own inbox publisher dials it AND
       # /v1/config/bootstrap hands it to clients. The separate
       # MQTT_PUBLIC_BROKER_URL override is gone (it defaulted to "", `""` is not
@@ -251,7 +281,7 @@ services:
       ACCESS_KEY_ID: "${ACCESS_KEY_ID:-}"
       ACCESS_KEY_SECRET: "${ACCESS_KEY_SECRET:-}"
       ROLE_ARN: "${ROLE_ARN:-}"
-      BUCKET: "${BUCKET:-teamclaw-team}"
+      BUCKET: "${BUCKET:-teamclu-team}"
       REGION: "${REGION:-cn-shenzhen}"
       ENDPOINT: "${ENDPOINT:-}"
       # Apps module. These were declared in services/fc/s.yaml but never in this
@@ -261,7 +291,7 @@ services:
       # APPS_DB_ADMIN_URL. Keep both targets in step when adding more.
       CODEUP_ORG_ID: "${CODEUP_ORG_ID:-}"
       CODEUP_PAT: "${CODEUP_PAT:-}"
-      CODEUP_BOT_USERNAME: "${CODEUP_BOT_USERNAME:-teamclaw}"
+      CODEUP_BOT_USERNAME: "${CODEUP_BOT_USERNAME:-teamclu}"
       # Admin connection to the shared per-app database (teamclaw_apps) — same
       # RDS instance as the control plane, different database. Blank disables
       # app deploys (they return 503 rather than half-provisioning).
@@ -355,6 +385,9 @@ services:
       - "${CADDY_HTTP_PORT:-80}:80"
       - "${CADDY_HTTPS_PORT:-443}:443"
     environment:
+      # One hostname per site. Caddy only requests a certificate for names that
+      # appear in its config, so these have to be the names clients actually
+      # dial — pointing DNS at the box is not enough on its own.
       FC_DOMAIN: "${FC_DOMAIN}"
       SUPABASE_DOMAIN: "${SUPABASE_DOMAIN}"
       MQTT_DOMAIN: "${MQTT_DOMAIN}"
@@ -398,7 +431,7 @@ services:
           sleep 900
         done
 
-  # ── opt-in: TeamClaw daemon (docker compose --profile daemon up) ──
+  # ── opt-in: TeamClu daemon (docker compose --profile daemon up) ──
   # Auto-joins a team on first start via AMUXD_JOIN_TOKEN (mint one with
   # ./amuxd/mint-invite.sh after a team exists), persists identity to the
   # amuxd_state volume, connects to EMQX, and registers as an agent actor.
@@ -408,9 +441,9 @@ services:
     build:
       context: ../..
       dockerfile: deploy/self-host/amuxd/Dockerfile
-    # Local dev: `docker compose build amuxd` → teamclaw-amuxd:self-host.
+    # Local dev: `docker compose build amuxd` → teamclu-amuxd:self-host.
     # CI/ECS: daemon-deploy.yml sets AMUXD_IMAGE to a GHCR tag and pulls it.
-    image: ${AMUXD_IMAGE:-teamclaw-amuxd:self-host}
+    image: ${AMUXD_IMAGE:-teamclu-amuxd:self-host}
     restart: unless-stopped
     profiles: ["daemon"]
     depends_on:
@@ -419,7 +452,7 @@ services:
       emqx:
         condition: service_healthy
     environment:
-      TEAMCLAW_CLOUD_API_URL: "http://fc:9000"
+      TEAMCLU_CLOUD_API_URL: "http://fc:9000"
       AMUXD_JOIN_TOKEN: "${AMUXD_JOIN_TOKEN:-}"
       HOME: "/state"
       # opencode LLM provider (OpenAI-compatible). Set these to let the daemon

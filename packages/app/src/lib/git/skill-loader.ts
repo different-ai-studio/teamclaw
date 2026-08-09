@@ -5,7 +5,7 @@ import { homeDir } from '@tauri-apps/api/path'
 import type { SkillWithSource, SkillSource } from './types'
 import { INHERENT_SKILL_NAMES, shouldIncludeDesktopControlSkill } from './types'
 import type { ClawHubLockfile } from '@/lib/clawhub/types'
-import { appDisplayName, TEAMCLAW_DIR, TEAM_REPO_DIR } from '@/lib/build-config'
+import { appDisplayName, TEAMCLU_DIR, TEAM_REPO_DIR } from '@/lib/build-config'
 import i18n from '@/lib/i18n'
 
 // ─── Helpers ────────────────────────────────────────────────────────────────
@@ -128,13 +128,13 @@ export { collectTeamSkillPaths, readConfigSkillPaths } from '@/lib/team-skill-pa
 export async function getSkillDirectories(workspacePath: string | null): Promise<string[]> {
   const home = trimTrailingPathSeparators(await homeDir())
   const dirs = new Set<string>([
-    `${home}/.config/teamclaw/skills`,
+    `${home}/.config/teamclu/skills`,
     `${home}/.claude/skills`,
     `${home}/.agents/skills`,
   ])
 
   if (workspacePath) {
-    dirs.add(`${workspacePath}/${TEAMCLAW_DIR}/skills`)
+    dirs.add(`${workspacePath}/${TEAMCLU_DIR}/skills`)
     dirs.add(`${workspacePath}/.claude/skills`)
     dirs.add(`${workspacePath}/.agents/skills`)
 
@@ -151,16 +151,16 @@ export async function getSkillDirectories(workspacePath: string | null): Promise
  * Load skills from all sources with priority-based merging.
  *
  * Workspace paths (project-level):
- * 1. `.teamclaw/skills/`   → source: 'local' / 'builtin' / 'clawhub'
+ * 1. `.teamclu/skills/`   → source: 'local' / 'builtin' / 'clawhub'
  * 2. `.claude/skills/`     → source: 'claude'
  * 3. `.agents/skills/`     → source: 'shared'
  *
  * Global paths (user-level):
- * 4. `~/.config/teamclaw/skills/` → source: 'global-teamclaw'
+ * 4. `~/.config/teamclu/skills/` → source: 'global-teamclu'
  * 5. `~/.claude/skills/`          → source: 'global-claude'
  * 6. `~/.agents/skills/`          → source: 'global-agent'
  *
- * Dynamic paths (from teamclaw.json `skills.paths`):
+ * Dynamic paths (from teamclu.json `skills.paths`):
  * 7+. Each configured path → source: 'team'
  *
  * Same-name skills are resolved by priority — workspace > global.
@@ -182,7 +182,7 @@ export async function loadAllSkills(
   // Get user home directory
   const home = await homeDir()
 
-  // Read ClawHub lockfile to identify which .teamclaw/skills were installed from ClawHub
+  // Read ClawHub lockfile to identify which .teamclu/skills were installed from ClawHub
   let clawhubSlugs = new Set<string>()
   if (workspacePath) {
     clawhubSlugs = await readClawHubLockfile(workspacePath)
@@ -190,11 +190,11 @@ export async function loadAllSkills(
 
   // ============ Workspace Skills (Project-level) ============
 
-  // 1. Load workspace .teamclaw/skills (highest priority — user local)
+  // 1. Load workspace .teamclu/skills (highest priority — user local)
   //    Skills whose dirname matches INHERENT_SKILL_NAMES are marked as 'builtin'.
   //    Skills whose dirname matches a ClawHub lockfile entry are marked as 'clawhub'.
   if (workspacePath) {
-    const localDir = `${workspacePath}/${TEAMCLAW_DIR}/skills`
+    const localDir = `${workspacePath}/${TEAMCLU_DIR}/skills`
     const localSkills = await loadSkillsFromDir(localDir, 'local')
     for (const skill of localSkills) {
       if (INHERENT_SKILL_NAMES.has(skill.filename)) {
@@ -223,10 +223,10 @@ export async function loadAllSkills(
 
   // ============ Global Skills (User-level) ============
 
-  // 4. Load global ~/.config/teamclaw/skills
-  const globalTeamclawDir = `${home.replace(/\/$/, '')}/.config/teamclaw/skills`
-  const globalTeamclawSkills = await loadSkillsFromDir(globalTeamclawDir, 'global-teamclaw')
-  for (const s of globalTeamclawSkills) pushSkill({ ...s, isGlobal: true })
+  // 4. Load global ~/.config/teamclu/skills
+  const globalTeamcluDir = `${home.replace(/\/$/, '')}/.config/teamclu/skills`
+  const globalTeamcluSkills = await loadSkillsFromDir(globalTeamcluDir, 'global-teamclu')
+  for (const s of globalTeamcluSkills) pushSkill({ ...s, isGlobal: true })
 
   // 5. Load global ~/.claude/skills
   const globalClaudeDir = `${home.replace(/\/$/, '')}/.claude/skills`
@@ -240,9 +240,9 @@ export async function loadAllSkills(
 
   // ============ Plugin Skills ============
 
-  // 7. Scan plugin cache for skills installed via teamclaw.json "plugin" array
+  // 7. Scan plugin cache for skills installed via teamclu.json "plugin" array
   if (workspacePath) {
-    const pluginCacheDir = `${workspacePath}/${TEAMCLAW_DIR}/cache/agent/node_modules`
+    const pluginCacheDir = `${workspacePath}/${TEAMCLU_DIR}/cache/agent/node_modules`
     try {
       if (await exists(pluginCacheDir)) {
         const pluginEntries = await readDir(pluginCacheDir)
@@ -265,9 +265,9 @@ export async function loadAllSkills(
     }
   }
 
-  // ============ Dynamic paths from teamclaw.json ============
+  // ============ Dynamic paths from teamclu.json ============
 
-  // 8+. Team-shared + configured skill paths (teamclaw.json, opencode.json, teamclaw-team/skills)
+  // 8+. Team-shared + configured skill paths (teamclu.json, opencode.json, teamclu-team/skills)
   if (workspacePath) {
     const configPaths = await collectTeamSkillPaths(workspacePath)
     for (const dirPath of configPaths) {
@@ -277,7 +277,7 @@ export async function loadAllSkills(
       const normalizedHome = home.replace(/\\/g, '/')
       const isGlobalPath =
         normalizedDirPath.startsWith(normalizedHome) ||
-        normalizedDirPath.includes('.config/teamclaw') ||
+        normalizedDirPath.includes('.config/teamclu') ||
         normalizedDirPath.includes('.claude') ||
         normalizedDirPath.includes('.agents')
       for (const s of skills) pushSkill({ ...s, isGlobal: isGlobalPath })
@@ -287,7 +287,7 @@ export async function loadAllSkills(
   // Deduplicate by filename with priority:
   // Workspace (project) > Global (user)
   // Within workspace: local > claude > clawhub > shared > team > builtin
-  // Within global: global-teamclaw > global-claude > global-agent
+  // Within global: global-teamclu > global-claude > global-agent
   const priorityOrder: Record<SkillSource, number> = {
     local: 0,
     claude: 1,
@@ -296,7 +296,7 @@ export async function loadAllSkills(
     team: 4,
     builtin: 5,
     plugin: 6,
-    'global-teamclaw': 7,
+    'global-teamclu': 7,
     'global-claude': 8,
     'global-agent': 9,
     personal: 10,
@@ -352,7 +352,7 @@ export function getSourceLabel(source: SkillSource): string {
       return 'Plugin'
     case 'personal':
       return 'Personal'
-    case 'global-teamclaw':
+    case 'global-teamclu':
       return 'Global'
     case 'global-claude':
       return 'Global Claude'
@@ -367,11 +367,11 @@ export function getSourceLabel(source: SkillSource): string {
 export function getSourceDirHint(source: SkillSource): string {
   switch (source) {
     case 'local':
-      return `${TEAMCLAW_DIR}/skills/`
+      return `${TEAMCLU_DIR}/skills/`
     case 'claude':
       return '.claude/skills/'
     case 'clawhub':
-      return `${TEAMCLAW_DIR}/skills/ (ClawHub)`
+      return `${TEAMCLU_DIR}/skills/ (ClawHub)`
     case 'shared':
       return '.agents/skills/'
     case 'team':
@@ -379,11 +379,11 @@ export function getSourceDirHint(source: SkillSource): string {
     case 'builtin':
       return i18n.t('skills.builtinPath', { app: appDisplayName })
     case 'plugin':
-      return 'teamclaw.json → plugin'
+      return 'teamclu.json → plugin'
     case 'personal':
       return ''
-    case 'global-teamclaw':
-      return '~/.config/teamclaw/skills/'
+    case 'global-teamclu':
+      return '~/.config/teamclu/skills/'
     case 'global-claude':
       return '~/.claude/skills/'
     case 'global-agent':
@@ -412,7 +412,7 @@ export function getSourceBadgeClass(source: SkillSource): string {
       return 'bg-emerald-100 text-emerald-800 dark:bg-emerald-900 dark:text-emerald-300'
     case 'personal':
       return 'bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-300'
-    case 'global-teamclaw':
+    case 'global-teamclu':
       return 'bg-cyan-100 text-cyan-800 dark:bg-cyan-900 dark:text-cyan-300'
     case 'global-claude':
       return 'bg-orange-100 text-orange-800 dark:bg-orange-900 dark:text-orange-300'

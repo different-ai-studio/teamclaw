@@ -4,9 +4,9 @@ import {
   RuntimeInfoSchema,
   AcpAvailableCommandSchema,
   ModelInfoSchema,
-} from "@teamclaw/app/proto/amux_pb";
+} from "@teamclu/app/proto/amux_pb";
 
-import { decodeRuntimeInfo } from "../lib/teamclaw/runtime-info";
+import { decodeRuntimeInfo } from "../lib/teamclu/runtime-info";
 
 describe("decodeRuntimeInfo", () => {
   it("decodes a roundtripped RuntimeInfo", () => {

@@ -34,7 +34,7 @@ describe("workspaces module", () => {
       "GET /v1/workspaces?teamId=t1&limit=200": {
         items: [{
           ...cloudWorkspace,
-          slug: "/Users/me/TeamClaw",
+          slug: "/Users/me/TeamClu",
           agentId: "agent-1",
         }],
         nextCursor: null,
@@ -44,7 +44,7 @@ describe("workspaces module", () => {
     const out = await mod.listDaemonWorkspaces("t1");
     expect(out[0].id).toBe("w1");
     expect(out[0].team_id).toBe("t1");
-    expect(out[0].path).toBe("/Users/me/TeamClaw");
+    expect(out[0].path).toBe("/Users/me/TeamClu");
     expect(out[0].agent_id).toBe("agent-1");
     expect(out[0].archived).toBe(false);
   });

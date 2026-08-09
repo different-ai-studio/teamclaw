@@ -1,7 +1,7 @@
 name: Self-Host Canary
 
 # Periodically probes the Cloud API on the self-host box
-# (https://api.teamclaw-dev.ucar.cc — the "-dev" is historical naming; it is the
+# (https://api.teamclu-dev.ucar.cc — the "-dev" is historical naming; it is the
 # ONLY environment) to catch the failure mode we keep hitting: a deploy reports
 # success but the service is down, frozen on an old contract, or missing
 # critical runtime config (e.g. the mem/cpu incident in #362). Push-triggered CI
@@ -24,7 +24,7 @@ jobs:
       - name: Probe production endpoints
         id: probe
         env:
-          BASE: ${{ vars.PROD_API_URL || 'https://api.teamclaw-dev.ucar.cc' }}
+          BASE: ${{ vars.PROD_API_URL || 'https://api.teamclu-dev.ucar.cc' }}
         run: |
           set -uo pipefail
           fails=""
@@ -52,9 +52,10 @@ jobs:
             fi
           }
 
+          # Unauthenticated probes only: a 401/200 here proves routing, TLS and
+          # the app are alive without needing a token in CI.
           check GET  /v1/config/bootstrap 401
-          check POST /register            400
-          check POST /token               400
+          check GET  /v1/config/public    200
 
           if [ -n "$fails" ]; then
             {
@@ -71,7 +72,7 @@ jobs:
         if: steps.probe.outputs.failed == 'true'
         env:
           WECOM_WEBHOOK_KEY: ${{ secrets.WECOM_WEBHOOK_KEY }}
-          BASE: ${{ vars.PROD_API_URL || 'https://api.teamclaw-dev.ucar.cc' }}
+          BASE: ${{ vars.PROD_API_URL || 'https://api.teamclu-dev.ucar.cc' }}
           DETAIL: ${{ steps.probe.outputs.report }}
           RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
         run: |

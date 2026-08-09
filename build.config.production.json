@@ -1,12 +1,13 @@
 {
-  "cloudApiUrl": "https://api.teamclaw-dev.ucar.cc",
-  "mqttWsUrl": "wss://mqtt.teamclaw-dev.ucar.cc/mqtt",
+  "cloudApiUrl": "https://api.teamclu-dev.ucar.cc",
+  "mqttWsUrl": "wss://mqtt.teamclu-dev.ucar.cc/mqtt",
   "team": {
     "lockLlmConfig": false
   },
   "app": {
-    "name": "TeamClaw",
-    "shortName": "teamclaw"
+    "name": "TeamClu",
+    "displayName": "TeamClu",
+    "shortName": "teamclu"
   },
   "features": {
     "updater": true,
@@ -16,11 +17,13 @@
       "email": true,
       "kook": true,
       "wecom": true,
-      "wechat": true
+      "wechat": true,
+      "seatalk": true
     },
     "auth": {
       "google": true
-    }
+    },
+    "teamShareBrowser": true
   },
   "defaults": {
     "theme": "system"

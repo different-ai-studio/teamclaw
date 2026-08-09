@@ -1,6 +1,6 @@
 //! Bridge team-shared skills into `<workspace>/.claude/skills/` for Claude Code.
 //!
-//! OpenCode reads `teamclaw-team/skills` via `opencode.json`; the Claude Agent SDK
+//! OpenCode reads `teamclu-team/skills` via `opencode.json`; the Claude Agent SDK
 //! only discovers skills under `.claude/skills/` (with `settingSources` including
 //! `project`). We materialize per-skill symlinks so team skills are visible without
 //! touching the team-share layout.

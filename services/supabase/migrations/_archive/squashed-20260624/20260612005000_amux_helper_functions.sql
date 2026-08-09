@@ -1,7 +1,7 @@
 -- Create the amux.* helper functions that later migrations reference but that
 -- no migration ever defines in the `amux` schema.
 --
--- Root cause: move_teamclaw_to_amux (20260608010000) relocates business *tables*
+-- Root cause: move_teamclu_to_amux (20260608010000) relocates business *tables*
 -- from public -> amux and rewrites *function bodies* in place (functions stay in
 -- their original `app`/`public` schema). But several post-move migrations qualify
 -- helper calls with `amux.` — assuming the helpers were also moved — e.g.:

@@ -1,5 +1,5 @@
-import type { Message as TeamclawMessage } from "@/lib/proto/teamclaw_pb";
-import { MessageKind } from "@/lib/proto/teamclaw_pb";
+import type { Message as TeamcluMessage } from "@/lib/proto/teamclu_pb";
+import { MessageKind } from "@/lib/proto/teamclu_pb";
 
 export type InterruptedPlaceholderRef = {
   streamId: string;
@@ -12,7 +12,7 @@ export function isInterruptedPlaceholderMessageId(messageId: string): boolean {
 
 /** interrupt-* AGENT_REPLY rows for this actor still sitting in the session store. */
 export function listInterruptedPlaceholderIds(
-  messages: TeamclawMessage[],
+  messages: TeamcluMessage[],
   actorId: string,
 ): string[] {
   const trimmedActor = actorId.trim();
@@ -33,7 +33,7 @@ export function listInterruptedPlaceholderIds(
  */
 export function resolveInterruptedPlaceholdersToDrop(args: {
   tracked: InterruptedPlaceholderRef | undefined;
-  messages: TeamclawMessage[];
+  messages: TeamcluMessage[];
   actorId: string;
 }): { messageIds: string[] } {
   const ids = new Set<string>();

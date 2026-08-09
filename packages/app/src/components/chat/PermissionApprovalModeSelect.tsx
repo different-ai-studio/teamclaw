@@ -7,7 +7,7 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
-import { flushSessionPendingPermissions } from "@/lib/teamclaw/flush-session-pending-permissions";
+import { flushSessionPendingPermissions } from "@/lib/teamclu/flush-session-pending-permissions";
 import {
   setSessionPermissionMode,
   useSessionPermissionMode,

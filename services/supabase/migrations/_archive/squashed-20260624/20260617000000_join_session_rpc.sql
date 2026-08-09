@@ -1,11 +1,11 @@
--- Session share links let a teammate open teamclaw://session/<id> and join the
+-- Session share links let a teammate open teamclu://session/<id> and join the
 -- session. Under RLS a non-participant team member can neither SELECT the
 -- session (sessions_select_if_participant_or_creator) nor INSERT themselves into
 -- session_participants (session_participants_insert_if_team_member requires
 -- being the creator or an existing participant). This SECURITY DEFINER RPC lets
 -- any member of the session's team add themselves once, in a controlled way
 -- (membership is still enforced). Mirrors amux.mark_current_actor_session_viewed
--- and amux.list_my_teams_current_org (post teamclaw->amux move; the FC supabase
+-- and amux.list_my_teams_current_org (post teamclu->amux move; the FC supabase
 -- client is configured with db.schema='amux').
 
 create or replace function amux.join_session(p_session_id uuid)

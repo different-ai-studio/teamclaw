@@ -47,7 +47,7 @@ fn resolve_team_id(explicit: Option<String>) -> anyhow::Result<String> {
     let path = DaemonConfig::default_path();
     let config = DaemonConfig::load(&path).map_err(|e| {
         anyhow::anyhow!(
-            "read {}: {e}\nRun `amuxd init <teamclaw://invite?token=...>` first, or pass --team-id.",
+            "read {}: {e}\nRun `amuxd init <teamclu://invite?token=...>` first, or pass --team-id.",
             path.display()
         )
     })?;
@@ -56,7 +56,7 @@ fn resolve_team_id(explicit: Option<String>) -> anyhow::Result<String> {
         .filter(|t| !t.trim().is_empty())
         .ok_or_else(|| {
             anyhow::anyhow!(
-                "no team_id in {}.\nRun `amuxd init <teamclaw://invite?token=...>` first, or pass --team-id.",
+                "no team_id in {}.\nRun `amuxd init <teamclu://invite?token=...>` first, or pass --team-id.",
                 path.display()
             )
         })

@@ -11,12 +11,12 @@
 //!
 //! That writeback is the point of the whole feature: the agent reads the file
 //! on disk, not Postgres. A registry full of tidy `when_not_to_use` fields is
-//! worth nothing if what lands in `.teamclaw/skills/` is still one opaque
+//! worth nothing if what lands in `.teamclu/skills/` is still one opaque
 //! description blob.
 
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
-use teamclaw_types::skill_frontmatter::{write_frontmatter, FrontmatterValue};
+use teamclu_types::skill_frontmatter::{write_frontmatter, FrontmatterValue};
 use zip::write::SimpleFileOptions;
 use zip::ZipWriter;
 
@@ -593,7 +593,7 @@ pub fn team_skill_list_installed(workspace_path: String) -> Result<Vec<(String, 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use teamclaw_types::skill_frontmatter::parse_frontmatter;
+    use teamclu_types::skill_frontmatter::parse_frontmatter;
 
     fn request(slug: &str) -> TeamSkillInstallRequest {
         TeamSkillInstallRequest {

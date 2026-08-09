@@ -77,7 +77,7 @@ describe("session-cache", () => {
   });
 
   it("returns null when stored payload is not a JSON array", async () => {
-    await AsyncStorage.setItem("teamclaw.sessionsCache.v1.team-1", JSON.stringify({ oops: true }));
+    await AsyncStorage.setItem("teamclu.sessionsCache.v1.team-1", JSON.stringify({ oops: true }));
     const cache = createSessionsCache();
     expect(await cache.load("team-1")).toBeNull();
   });

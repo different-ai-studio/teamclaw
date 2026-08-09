@@ -104,9 +104,9 @@ public final class UserDefaultsBrokerConfigCache: BrokerConfigCache, @unchecked 
     }
 
     private enum Keys {
-        static let host = "teamclaw_server_broker_host"
-        static let port = "teamclaw_server_broker_port"
-        static let useTLS = "teamclaw_server_broker_use_tls"
+        static let host = "teamclu_server_broker_host"
+        static let port = "teamclu_server_broker_port"
+        static let useTLS = "teamclu_server_broker_use_tls"
         static let all = [host, port, useTLS]
     }
 }

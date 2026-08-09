@@ -40,6 +40,15 @@ jobs:
       - name: Run unit tests
         run: pnpm test:unit
 
+      # The scripts above are scoped to @teamclu/app, so the Expo app was
+      # outside every gate until now. See apps/expo/CI.md for what is and is
+      # not covered.
+      - name: Run Expo TypeScript check
+        run: pnpm typecheck:expo
+
+      - name: Run Expo unit tests
+        run: pnpm test:expo
+
       - name: Run script tests
         run: pnpm test:scripts
 
@@ -80,7 +89,7 @@ jobs:
       - name: Create stub sidecar binaries (tauri-build requires them to exist)
         run: |
           mkdir -p apps/desktop/binaries
-          touch apps/desktop/binaries/teamclaw-introspect-x86_64-unknown-linux-gnu
+          touch apps/desktop/binaries/teamclu-introspect-x86_64-unknown-linux-gnu
           touch apps/desktop/binaries/amuxd-x86_64-unknown-linux-gnu
           # `resources` in tauri.conf.json globs binaries/{cursor,claude}-bridge/**/*.
           # The whole binaries/ dir is gitignored, so on a fresh checkout those

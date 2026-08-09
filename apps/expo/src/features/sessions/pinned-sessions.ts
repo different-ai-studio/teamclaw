@@ -1,6 +1,6 @@
 import AsyncStorage from "@react-native-async-storage/async-storage";
 
-const STORAGE_KEY = "teamclaw.pinnedSessions.v1";
+const STORAGE_KEY = "teamclu.pinnedSessions.v1";
 
 type Listener = (pinned: ReadonlySet<string>) => void;
 

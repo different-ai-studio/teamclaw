@@ -56,7 +56,7 @@ public struct CreatedTeam: Equatable, Sendable {
 
 /// A team the user belongs to, with its org — used by the org→team login picker
 /// (GET /v1/teams?scope=all). See
-/// docs/specs/2026-06-17-teamclaw-phone-login-and-tenancy.md §6.
+/// docs/specs/2026-06-17-teamclu-phone-login-and-tenancy.md §6.
 public struct MembershipTeam: Equatable, Sendable, Identifiable {
     public let id: String
     public let name: String
@@ -98,7 +98,7 @@ public enum AppOnboardingRoute: Equatable, Sendable {
     case createTeam
     /// The user belongs to >1 team (across orgs) and hasn't a remembered choice
     /// — show the org→team picker (`teamChoices`). See
-    /// docs/specs/2026-06-17-teamclaw-phone-login-and-tenancy.md §6.
+    /// docs/specs/2026-06-17-teamclu-phone-login-and-tenancy.md §6.
     case selectTeam
     case ready
     case failed
@@ -108,6 +108,14 @@ public protocol AppOnboardingStore: Sendable {
     func ensureSession() async throws
     func loadBootstrap() async throws -> AppBootstrap
     func createTeam(named name: String) async throws -> CreatedTeam
+    /// First-team onboarding via `POST /v1/teams/bootstrap`, which names the
+    /// team server-side rather than taking one.
+    ///
+    /// `deviceId` is the guest-reuse key: an anonymous caller that names its
+    /// device gets back the team that device's previous guest already had,
+    /// instead of another throwaway team per quick-trial sign-in. The server
+    /// ignores it for signed-in callers. Pass nil to opt out of reuse.
+    func bootstrapTeam(deviceId: String?) async throws -> CreatedTeam
     /// All teams the caller belongs to, across orgs (GET /v1/teams?scope=all).
     /// Backs the org→team login picker.
     func listAllMyTeams() async throws -> [MembershipTeam]
@@ -221,10 +229,32 @@ public final class AppOnboardingCoordinator {
 
     public let store: AppOnboardingStore
     private let defaults: UserDefaults
+    private let injectedDeviceID: String?
 
-    public init(store: AppOnboardingStore, defaults: UserDefaults = .standard) {
+    /// `deviceID` overrides the system identifier; tests inject a known value.
+    public init(store: AppOnboardingStore,
+                defaults: UserDefaults = .standard,
+                deviceID: String? = nil) {
         self.store = store
         self.defaults = defaults
+        self.injectedDeviceID = deviceID
+    }
+
+    /// Stable per-install identifier, or nil when the system has none
+    /// (`identifierForVendor` is briefly nil before first device unlock).
+    ///
+    /// Nil rather than a placeholder string on purpose: this value is the key
+    /// the server reuses guest teams by, so a shared constant like
+    /// "ios-unknown" would hand every device that hit the nil window the *same*
+    /// guest team. Nil just means "no reuse" — a fresh team, which is the
+    /// behaviour we already had.
+    private var deviceID: String? {
+        if let injectedDeviceID { return injectedDeviceID }
+        #if canImport(UIKit)
+        return UIDevice.current.identifierForVendor?.uuidString
+        #else
+        return nil
+        #endif
     }
 
     // MARK: - Active team persistence
@@ -233,7 +263,7 @@ public final class AppOnboardingCoordinator {
     /// back on the same team across launches instead of an arbitrary
     /// `teams.first`. Only a hint — bootstrap validates it against the user's
     /// current memberships before honoring it.
-    private static let activeTeamIDKey = "teamclaw.activeTeamID"
+    private static let activeTeamIDKey = "teamclu.activeTeamID"
 
     private var persistedActiveTeamID: String? {
         defaults.string(forKey: Self.activeTeamIDKey)
@@ -313,6 +343,9 @@ public final class AppOnboardingCoordinator {
         let agentAccessRepo = CloudAPIRepositoryFactory.agentAccessRepository(
             configuration: agentAccessConfig,
             memberActorID: ctx.memberActorID
+        ) { [store] in try await store.accessToken() }
+        let teamResourceRepo = CloudAPIRepositoryFactory.teamResourceRepository(
+            configuration: agentAccessConfig
         ) { [store] in try await store.accessToken() }
 
         let actorStore = ActorStore(teamID: ctx.team.id,
@@ -398,12 +431,11 @@ public final class AppOnboardingCoordinator {
             let versionRepo = CloudAPIRepositoryFactory.clientVersion(client: versionClient)
             let version = Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "0"
             let build = Bundle.main.infoDictionary?["CFBundleVersion"] as? String
-            #if canImport(UIKit)
-            let deviceID = UIDevice.current.identifierForVendor?.uuidString ?? "ios-unknown"
-            #else
-            let deviceID = "ios-unknown"
-            #endif
-            Task { await versionRepo.report(teamID: ctx.team.id, version: version, build: build, deviceID: deviceID) }
+            // Telemetry wants a value in every row, so an unidentifiable device
+            // is bucketed rather than dropped. Safe here precisely because
+            // nothing is keyed off it — unlike the guest-team reuse above.
+            let reportedDeviceID = deviceID ?? "ios-unknown"
+            Task { await versionRepo.report(teamID: ctx.team.id, version: version, build: build, deviceID: reportedDeviceID) }
         }
 
         teamRuntimeContext = TeamRuntimeContext(
@@ -418,6 +450,7 @@ public final class AppOnboardingCoordinator {
             messagesRepo: cloudAPIMessagesRepo,
             workspacesRepo: cloudAPIWorkspacesRepo,
             agentAccessRepo: agentAccessRepo,
+            teamResourceRepo: teamResourceRepo,
             teamRepo: cloudAPITeamRepo,
             sessionRepo: cloudAPISessionRepo,
             ideasRepo: cloudAPIIdeasRepo,
@@ -441,7 +474,7 @@ public final class AppOnboardingCoordinator {
     /// otherwise.
     public func signOutAndWipeCache(modelContext: ModelContext) async {
         do {
-            try modelContext.delete(model: Runtime.self)
+            try modelContext.delete(model: AgentAttachment.self)
             try modelContext.delete(model: AgentEvent.self)
             try modelContext.delete(model: CachedActor.self)
             try modelContext.delete(model: Workspace.self)
@@ -598,9 +631,24 @@ public final class AppOnboardingCoordinator {
             // No team yet. Auto-create one after invite handling so newly
             // registered users who were not invited anywhere land directly
             // in the app instead of getting stuck on the manual team screen.
-            let name = RandomTeamName.generate()
-            let created = try await measureOnboarding("createTeam.auto") {
-                try await store.createTeam(named: name)
+            //
+            // Guests go through the bootstrap endpoint keyed by this device, so
+            // a second quick trial reclaims the team the first one made instead
+            // of abandoning another one in the shared default org — every
+            // signInAnonymously() is a new auth user, so plain creation cannot
+            // recognise a returning guest. Signed-in users keep explicit
+            // creation: bootstrap would name the team after their org, and only
+            // the client knows whether that org is meaningfully theirs.
+            let created: CreatedTeam
+            if isAnonymous {
+                created = try await measureOnboarding("bootstrapTeam.auto") {
+                    try await store.bootstrapTeam(deviceId: deviceID)
+                }
+            } else {
+                let name = RandomTeamName.generate()
+                created = try await measureOnboarding("createTeam.auto") {
+                    try await store.createTeam(named: name)
+                }
             }
             pendingCreatedTeam = created
             setCurrentContext(AppContext(team: created.team, memberActorID: created.memberActorID))

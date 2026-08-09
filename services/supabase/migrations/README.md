@@ -4,7 +4,7 @@
 
 | Path | Purpose |
 |------|---------|
-| `20260601000000_baseline.sql` | Full TeamClaw schema (squashed from 93 pre-migration files) |
+| `20260601000000_baseline.sql` | Full TeamClu schema (squashed from 93 pre-migration files) |
 | `_archive/pre-20260601-baseline/` | Historical incremental migrations (reference only, do not apply) |
 | `../tests/` | pgTAP behavioral tests |
 | `../manual/` | One-off ops SQL for databases the pipeline does not reach. Deliberately outside this directory — the runner would otherwise apply it. |

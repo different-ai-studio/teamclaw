@@ -1,4 +1,6 @@
 import type { TeamSkillsBackend } from "./cloud-api/team-skills";
+import type { TeamMcpBackend } from "./cloud-api/team-mcp";
+import type { TeamEnvSecretsBackend } from "./cloud-api/team-env-secrets";
 import type { OAuthProvider } from "@/lib/auth";
 
 export type BackendKind = "cloud_api";
@@ -494,12 +496,21 @@ export interface TeamsBackend {
    * First-team onboarding only. Creates an owner team named after the caller's
    * current organization, together with the member actor, in one transaction.
    */
-  bootstrapTeam(input?: { displayName?: string | null; orgId?: string | null }): Promise<TeamSummary>;
+  bootstrapTeam(input?: {
+    displayName?: string | null;
+    orgId?: string | null;
+    /**
+     * Guests only. Lets the server hand back the team this device's previous
+     * guest already got, instead of a new one per quick-trial click. Ignored
+     * for signed-in callers.
+     */
+    deviceId?: string | null;
+  }): Promise<TeamSummary>;
   renameTeam(teamId: string, name: string): Promise<TeamSummary>;
   /**
    * Graduate the caller out of the shared DEFAULT_ORG into their own org:
    * create the org (name + contact), reparent + rename their default-org team.
-   * See docs/specs/2026-06-17-teamclaw-phone-login-and-tenancy.md §8.
+   * See docs/specs/2026-06-17-teamclu-phone-login-and-tenancy.md §8.
    */
   upgradeAccount(input: { teamId: string; orgName: string; contact?: string | null }): Promise<{ orgId: string; teamId: string; teamName: string }>;
   createTeamInvite(input: TeamInviteInput): Promise<TeamInviteResult>;
@@ -972,7 +983,7 @@ export interface SystemBackend {
   heartbeat(): Promise<void>;
 }
 
-export interface TeamClawBackend {
+export interface TeamCluBackend {
   kind: BackendKind;
   auth: AuthBackend;
   directory: DirectoryBackend;
@@ -993,4 +1004,6 @@ export interface TeamClawBackend {
   telemetry: TelemetryBackend;
   system: SystemBackend;
   teamSkills: TeamSkillsBackend;
+  teamMcp: TeamMcpBackend;
+  teamEnvSecrets: TeamEnvSecretsBackend;
 }
