@@ -6,6 +6,7 @@
   },
   "app": {
     "name": "TeamClaw Dev",
+    "displayName": "TeamClu Dev",
     "shortName": "teamclaw",
     "palette": "default"
   },

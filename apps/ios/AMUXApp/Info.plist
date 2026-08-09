@@ -9,9 +9,9 @@
     <key>CFBundleIdentifier</key>
     <string>$(PRODUCT_BUNDLE_IDENTIFIER)</string>
     <key>CFBundleName</key>
-    <string>Teamclaw</string>
+    <string>TeamClu</string>
     <key>CFBundleDisplayName</key>
-    <string>Teamclaw</string>
+    <string>TeamClu</string>
     <key>CFBundleVersion</key>
     <string>$(CURRENT_PROJECT_VERSION)</string>
     <key>CFBundleShortVersionString</key>

@@ -15,7 +15,7 @@ struct WelcomeView: View {
                     RoleCardsIllustration()
                         .padding(.bottom, 6)
 
-                    Text("Teamclaw")
+                    Text("TeamClu")
                         .font(.amuxSerif(44, weight: .regular))
                         .foregroundStyle(Color.amux.onyx)
 
