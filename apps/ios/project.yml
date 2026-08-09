@@ -39,7 +39,7 @@ targets:
         CODE_SIGN_ENTITLEMENTS: AMUXApp/AMUX.entitlements
         PRODUCT_BUNDLE_IDENTIFIER: tech.teamclaw.mobile
         DEVELOPMENT_TEAM: 43G5A6G9QV
-        MARKETING_VERSION: "1.1.5"
+        MARKETING_VERSION: "1.2"
         CURRENT_PROJECT_VERSION: 25
         SWIFT_VERSION: "6.0"
 
