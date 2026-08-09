@@ -37,8 +37,16 @@ platform :ios do
       profile_name: profile_name,
     )
 
+    # GITHUB_RUN_NUMBER resets per-repo, so it collides with build numbers
+    # already uploaded to App Store Connect from the old teamclaw-next CI.
+    # Ask ASC for the actual latest build number instead.
+    next_build_number = latest_testflight_build_number(
+      api_key: api_key,
+      app_identifier: "tech.teamclaw.mobile",
+    ) + 1
+
     increment_build_number(
-      build_number: ENV["GITHUB_RUN_NUMBER"],
+      build_number: next_build_number.to_s,
       xcodeproj: "AMUX.xcodeproj",
     )
 
