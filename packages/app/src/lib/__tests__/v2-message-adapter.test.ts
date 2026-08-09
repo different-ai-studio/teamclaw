@@ -2,6 +2,7 @@ import { describe, it, expect } from "vitest";
 import { create } from "@bufbuild/protobuf";
 import { MessageSchema, MessageKind } from "@/lib/proto/teamclu_pb";
 import { adaptTeamcluMessages } from "@/lib/v2-message-adapter";
+import { hydrateDeferredProcessParts } from "@/lib/lazy-process-parts";
 
 // Simple counter for stable IDs in tests (avoids crypto.randomUUID dependency)
 let _idCounter = 0;
@@ -798,5 +799,112 @@ describe("adaptTeamcluMessages", () => {
     expect(result?.[0]?.parts?.some((p) => p.type === "text" && p.text === prose)).toBe(
       true,
     );
+  });
+
+  it("defers completed turn process parts when final reply text exists", () => {
+    const toolId = "tool-defer";
+    const turnId = "t-defer";
+    const msgs = [
+      tmsg({
+        kind: MessageKind.AGENT_THINKING,
+        content: "Planning…",
+        turnId,
+        t: 1,
+      }),
+      tmsg({
+        kind: MessageKind.AGENT_TOOL_CALL,
+        content: "",
+        metadataJson: JSON.stringify({ tool_id: toolId, tool_name: "read", description: "open file" }),
+        turnId,
+        t: 2,
+      }),
+      tmsg({
+        kind: MessageKind.AGENT_TOOL_RESULT,
+        content: "ok",
+        metadataJson: JSON.stringify({ tool_id: toolId, success: true }),
+        turnId,
+        t: 3,
+      }),
+      tmsg({
+        kind: MessageKind.AGENT_REPLY,
+        content: "Final answer.",
+        turnId,
+        t: 4,
+      }),
+    ];
+
+    const result = adaptTeamcluMessages(msgs, { deferProcess: true })!;
+    expect(result).toHaveLength(1);
+    expect(result[0].processDeferred).toBe(true);
+    expect(result[0].processMeta).toEqual({ toolCount: 1, hasThinking: true });
+    expect(result[0].content).toBe("Final answer.");
+    expect(result[0].toolCalls).toEqual([]);
+    expect(result[0].parts.some((p) => p.type === "tool-call")).toBe(false);
+    expect(result[0].parts.some((p) => p.type === "reasoning")).toBe(false);
+  });
+
+  it("forceFull adapt matches hydrated deferred process parts", () => {
+    const toolId = "tool-hydrate";
+    const turnId = "t-hydrate";
+    const msgs = [
+      tmsg({
+        kind: MessageKind.AGENT_TOOL_CALL,
+        content: "",
+        metadataJson: JSON.stringify({ tool_id: toolId, tool_name: "bash", description: "ls" }),
+        turnId,
+        t: 1,
+      }),
+      tmsg({
+        kind: MessageKind.AGENT_TOOL_RESULT,
+        content: "a.txt",
+        metadataJson: JSON.stringify({ tool_id: toolId, success: true }),
+        turnId,
+        t: 2,
+      }),
+      tmsg({
+        kind: MessageKind.AGENT_REPLY,
+        content: "Here are the files.",
+        turnId,
+        t: 3,
+      }),
+    ];
+
+    const deferred = adaptTeamcluMessages(msgs, { deferProcess: true })!;
+    const full = adaptTeamcluMessages(msgs, { forceFull: true })!;
+
+    expect(deferred[0].processDeferred).toBe(true);
+    expect(full[0].processDeferred).toBeUndefined();
+    expect(full[0].toolCalls).toHaveLength(1);
+
+    const hydrated = hydrateDeferredProcessParts(msgs, deferred[0]);
+    const fullToolParts = full[0].parts.filter((p) => p.type === "tool-call");
+    const hydratedToolParts = hydrated.filter((p) => p.type === "tool-call");
+    expect(hydratedToolParts).toHaveLength(fullToolParts.length);
+    expect(hydratedToolParts[0]?.toolCall?.name).toBe("bash");
+  });
+
+  it("does not defer tool-only turns without separate final text", () => {
+    const toolId = "tool-only";
+    const turnId = "t-tool-only";
+    const msgs = [
+      tmsg({
+        kind: MessageKind.AGENT_TOOL_CALL,
+        content: "",
+        metadataJson: JSON.stringify({ tool_id: toolId, tool_name: "bash", description: "pwd" }),
+        turnId,
+        t: 1,
+      }),
+      tmsg({
+        kind: MessageKind.AGENT_TOOL_RESULT,
+        content: "/home/user",
+        metadataJson: JSON.stringify({ tool_id: toolId, success: true }),
+        turnId,
+        t: 2,
+      }),
+    ];
+
+    const result = adaptTeamcluMessages(msgs)!;
+    expect(result[0].processDeferred).toBeUndefined();
+    expect(result[0].toolCalls).toHaveLength(1);
   });
 });

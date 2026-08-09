@@ -359,4 +359,53 @@ describe("persistStreamingPartsForReply", () => {
     expect(parts[0].toolCall.result).toContain("User aborted");
     expect(useV2StreamingStore.getState().byKey["s1::actor-a"]).toBeUndefined();
   });
+
+  it("patches a flushed message when a late toolUse arrives after idle flush", async () => {
+    const { registerFlushedTurn, resetFlushedTurnRegistryForTests } = await import(
+      "@/lib/flushed-turn-registry"
+    );
+    const { patchPersistedToolUse } = await import("@/lib/streaming-persist");
+    resetFlushedTurnRegistryForTests();
+
+    const reply = create(MessageSchema, {
+      messageId: "reply-1",
+      sessionId: "s1",
+      senderActorId: "actor-a",
+      kind: MessageKind.AGENT_REPLY,
+      content: "partial",
+      turnId: "turn-1",
+      createdAt: BigInt(100),
+    });
+    Object.assign(reply, {
+      partsJson: JSON.stringify([
+        { id: "p1", type: "text", text: "partial", content: "partial" },
+      ]),
+    });
+    useSessionMessageStore.getState().replaceTurnAgentRepliesInStore("s1", reply);
+    registerFlushedTurn("s1", "actor-a", {
+      messageId: "reply-1",
+      streamId: "stream-1",
+      turnId: "turn-1",
+    });
+
+    const patched = await patchPersistedToolUse({
+      sessionId: "s1",
+      actorId: "actor-a",
+      toolId: "grep-tool",
+      toolName: "grep",
+      description: "search files",
+      params: { pattern: "version" },
+      toolKind: "search",
+    });
+    expect(patched).toBe(true);
+
+    const stored = useSessionMessageStore.getState().messages.s1?.[0] as {
+      partsJson?: string;
+    };
+    const parts = JSON.parse(stored.partsJson ?? "[]");
+    expect(parts).toHaveLength(2);
+    expect(parts[1].type).toBe("tool-call");
+    expect(parts[1].toolCall.id).toBe("grep-tool");
+    expect(parts[1].toolCall.status).toBe("calling");
+  });
 });

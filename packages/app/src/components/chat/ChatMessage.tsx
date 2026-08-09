@@ -28,12 +28,54 @@ import { MessageFeedback } from "./MessageFeedback";
 import { MessageStarRating } from "./MessageStarRating";
 import { RetrievedChunksCard } from "./RetrievedChunksCard";
 import { splitAssistantProcessAndFinalParts } from "@/lib/agent-reply-transcript";
+import { hydrateDeferredProcessParts } from "@/lib/lazy-process-parts";
+import type { MessagePart } from "@/stores/session-types";
+import { useSessionMessageStore } from "@/stores/session-message-store";
 import {
   AgentReplyQuote,
   jumpToMessageById,
 } from "./AgentReplyQuote";
 import { useActorDisplayName } from "@/hooks/useActorDisplayName";
 import { useCurrentTeamStore } from "@/stores/current-team";
+
+function formatProcessMetaSummary(meta: {
+  toolCount: number;
+  hasThinking: boolean;
+}): string | undefined {
+  const bits: string[] = [];
+  if (meta.hasThinking) bits.push("Thinking");
+  if (meta.toolCount > 0) bits.push(`${meta.toolCount} tool`);
+  return bits.join(" · ") || undefined;
+}
+
+function renderAgentProcessPart(part: MessagePart, basePath?: string) {
+  if (part.type === "reasoning") {
+    const reasoningText = part.text || part.content || "";
+    if (!reasoningText) return null;
+    return (
+      <ThinkingBlock
+        key={part.id}
+        content={reasoningText}
+        isOpen={false}
+      />
+    );
+  }
+  if (part.type === "tool-call" && part.toolCall) {
+    return <ToolCallCard key={part.id} toolCall={part.toolCall} />;
+  }
+  if (part.type === "text") {
+    const partText = part.text || part.content || "";
+    if (!partText) return null;
+    return (
+      <Message key={part.id} from="assistant" basePath={basePath}>
+        <MessageContent>
+          <MessageResponse>{partText}</MessageResponse>
+        </MessageContent>
+      </Message>
+    );
+  }
+  return null;
+}
 
 /** Renders a single message with all its parts. Memoized to avoid re-renders when siblings change. */
 export const ChatMessage = React.memo(function ChatMessage({
@@ -61,6 +103,10 @@ export const ChatMessage = React.memo(function ChatMessage({
   const isUser = message.role === "user";
   const isInterruptedTurn = !isUser && message.turnStatus === "interrupted";
   const [copied, setCopied] = React.useState(false);
+  const [hydratedProcessParts, setHydratedProcessParts] = React.useState<
+    MessagePart[] | null
+  >(null);
+  const [processHydrating, setProcessHydrating] = React.useState(false);
   const replyAuthorResolved = useActorDisplayName(replyToMessage?.senderActorId);
   const myActorId = useCurrentTeamStore((s) => s.currentMember?.id);
   const replyAuthorName = React.useMemo(() => {
@@ -117,6 +163,29 @@ export const ChatMessage = React.memo(function ChatMessage({
   const textContent = isThisMessageStreaming
     ? (isChildSessionStreaming ? (childStreamingState?.text || "") : streamingContent)
     : (latestMessage.content || "");
+
+  const isDeferredProcess =
+    !latestMessage.isStreaming && Boolean(latestMessage.processDeferred);
+
+  React.useEffect(() => {
+    setHydratedProcessParts(null);
+    setProcessHydrating(false);
+  }, [latestMessage.id, latestMessage.processDeferred]);
+
+  const handleProcessOpenChange = React.useCallback(
+    (open: boolean) => {
+      if (!open || !isDeferredProcess || hydratedProcessParts) return;
+      setProcessHydrating(true);
+      void Promise.resolve().then(() => {
+        const protos =
+          useSessionMessageStore.getState().messages[latestMessage.sessionId];
+        const parts = hydrateDeferredProcessParts(protos, latestMessage);
+        setHydratedProcessParts(parts);
+        setProcessHydrating(false);
+      });
+    },
+    [hydratedProcessParts, isDeferredProcess, latestMessage],
+  );
 
   // Extract reasoning/thinking content from parts — memoized to avoid
   // re-filtering on every render during streaming.
@@ -292,8 +361,22 @@ export const ChatMessage = React.memo(function ChatMessage({
         />
       ) : null}
 
+      {/* Deferred historical process — hydrate on expand */}
+      {!isUser && isDeferredProcess && latestMessage.processMeta ? (
+        <div className="mb-0.5 pl-1">
+          <AgentProcessCollapsible
+            summary={formatProcessMetaSummary(latestMessage.processMeta)}
+            loading={processHydrating}
+            onOpenChange={handleProcessOpenChange}
+          >
+            {hydratedProcessParts?.map((part) => renderAgentProcessPart(part, basePath))}
+          </AgentProcessCollapsible>
+        </div>
+      ) : null}
+
       {/* Reasoning / tools — collapsed「处理过程」above final text when not streaming */}
       {!isUser &&
+        !isDeferredProcess &&
         !latestMessage.isStreaming &&
         !shouldRenderOrderedAssistantParts &&
         (hasReasoning || (hasToolCalls && !hasOrderedToolParts)) && (
@@ -392,7 +475,7 @@ export const ChatMessage = React.memo(function ChatMessage({
       )}
 
       {/* Assistant message - either dynamic UI or text */}
-      {!isUser && shouldRenderOrderedAssistantParts && (
+      {!isUser && shouldRenderOrderedAssistantParts && !isDeferredProcess && (
         <div className="mt-2 space-y-1">
           {orderedProcessParts.length > 0 && !latestMessage.isStreaming ? (
             <AgentProcessCollapsible summary={orderedProcessSummary}>

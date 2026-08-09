@@ -47,8 +47,8 @@ import { removePendingAgentReplyTo, resolvePendingAgentReplyTo } from "@/lib/pen
 import { bufferStreamDelta, flushStreamDeltasFor, flushAllStreamDeltas } from "@/lib/stream-delta-buffer";
 import { recordLatencyProbe } from "@/lib/latency-probe";
 import { bumpLiveDuplicateDropped } from "@/lib/live-dedup-stats";
-import { cloneStreamEntrySnapshot, patchPersistedToolResult, resolveStreamEntryForPersist, syncStreamingToolOutputsFromLocalCache } from "@/lib/streaming-persist";
-import { clearFlushedTurn, getFlushedTurn } from "@/lib/flushed-turn-registry";
+import { cloneStreamEntrySnapshot, patchPersistedToolResult, patchPersistedToolUse, resolveStreamEntryForPersist, syncStreamingToolOutputsFromLocalCache } from "@/lib/streaming-persist";
+import { getFlushedTurn } from "@/lib/flushed-turn-registry";
 import { logInterruptMsgDiag, summarizeFlushDecision, summarizePendingReplies, summarizeStreamEntry } from "@/lib/interrupt-msg-diag";
 import { logExtMsgDiag, summarizeProtoForExtDiag, summarizeProtosForExtDiag } from "@/lib/extension-msg-diag";
 import { logStreamToolDiag } from "@/lib/stream-tool-diag";
@@ -58,7 +58,7 @@ import { acquireRuntimeStateStore, useRuntimeStateStore } from "@/stores/runtime
 import { findStaleLiveStreams, STALE_STREAM_SWEEP_MS } from "@/lib/stale-stream-recovery";
 import { acquireActorPresenceStore } from "@/stores/actor-presence-store";
 import { MessageKind, type Message as TeamcluMessage } from "@/lib/proto/teamclu_pb";
-import { agentStreamKey, isAgentActiveStatus, isTerminalAgentStatus, isToolOnlyTurnAnchor, mergePendingAgentReplies, normalizeToolResultEvent, normalizeToolUseEvent, registerDiscardPendingStreamReply, rememberLiveEventId, streamEntryHasVisibleContent } from "@/lib/live-agent-stream";
+import { agentStreamKey, isAgentActiveStatus, isTerminalAgentStatus, isToolOnlyTurnAnchor, mergePendingAgentReplies, normalizeToolResultEvent, normalizeToolUseEvent, registerDiscardPendingStreamReply, rememberLiveEventId, shouldPatchFlushedToolEvent, streamEntryHasVisibleContent } from "@/lib/live-agent-stream";
 import { mapAcpPlanEntries, syncPlanFromTodoTool, syncPlanFromTodoToolResult } from "@/lib/sync-plan-from-todowrite";
 import { useWorkspaceStore } from "@/stores/workspace";
 import { useLocalStatsStore } from "@/stores/local-stats";
@@ -103,6 +103,8 @@ export function MqttLiveWiring({ userId, teamId, onMyActorId }: MqttLiveWiringPr
   const pendingStreamRepliesRef = useRef<Record<string, TeamcluMessage[]>>({});
   /** Set on terminal statusChange; late message.created triggers flush. */
   const terminalFlushPendingRef = useRef<Record<string, boolean>>({});
+  /** Set on follow-up ACTIVE (mid-turn user message); reopen turn2 dock after flush. */
+  const followUpActiveRef = useRef<Record<string, boolean>>({});
   /** Timeout while waiting for daemon AGENT_REPLY after terminal (no interrupt-*). */
   const terminalAwaitTimeoutRef = useRef<Record<string, ReturnType<typeof setTimeout>>>(
     {},
@@ -124,6 +126,18 @@ export function MqttLiveWiring({ userId, teamId, onMyActorId }: MqttLiveWiringPr
   function clearTerminalFlushPending(streamKey: string) {
     clearTerminalAwaitTimeout(streamKey);
     delete terminalFlushPendingRef.current[streamKey];
+  }
+
+  function clearFollowUpActive(streamKey: string) {
+    delete followUpActiveRef.current[streamKey];
+  }
+
+  function ensureFollowUpLiveStream(sessionId: string, actorId: string) {
+    const streamKey = agentStreamKey(sessionId, actorId);
+    if (!followUpActiveRef.current[streamKey]) return;
+    const liveEntry = useV2StreamingStore.getState().byKey[streamKey];
+    if (liveEntry && isStreamInterruptible(liveEntry)) return;
+    useV2StreamingStore.getState().beginPlanningPlaceholder(sessionId, actorId);
   }
 
   function scheduleTerminalDaemonReplyTimeout(
@@ -394,6 +408,7 @@ export function MqttLiveWiring({ userId, teamId, onMyActorId }: MqttLiveWiringPr
       useV2StreamingStore
         .getState()
         .clearInterruptedFlushPending(sessionId, actorId);
+      ensureFollowUpLiveStream(sessionId, actorId);
       // A late interrupted AGENT_REPLY may have parked while this flush was
       // in-flight — drain it now so scheme-A UI is not stuck until next Active.
       if (
@@ -1136,15 +1151,24 @@ export function MqttLiveWiring({ userId, teamId, onMyActorId }: MqttLiveWiringPr
               const tu = normalizeToolUseEvent(event.value);
               const liveEntry =
                 useV2StreamingStore.getState().byKey[agentStreamKey(sid, actorId)];
-              // After idle flush, late toolUse must not reopen the live dock.
-              if (
-                getFlushedTurn(sid, actorId) &&
-                (!liveEntry || !isStreamInterruptible(liveEntry))
-              ) {
+              if (shouldPatchFlushedToolEvent(sid, actorId, tu.toolId, liveEntry)) {
                 logStreamToolDiag("mqtt.toolUse.skipAfterFlush", {
                   sessionId: sid,
                   actorId,
                   toolId: tu.toolId,
+                });
+                void patchPersistedToolUse({
+                  sessionId: sid,
+                  actorId,
+                  toolId: tu.toolId,
+                  toolName: tu.toolName,
+                  description: tu.description,
+                  params: tu.params,
+                  toolKind: tu.toolKind,
+                  content: tu.content,
+                  locations: tu.locations,
+                  acpStatus: tu.acpStatus,
+                  rawInput: tu.rawInput,
                 });
               } else {
                 useV2StreamingStore.getState().pushToolUse(sid, actorId, {
@@ -1179,6 +1203,8 @@ export function MqttLiveWiring({ userId, teamId, onMyActorId }: MqttLiveWiringPr
               }
             } else if (event?.case === "toolResult") {
               const tr = normalizeToolResultEvent(event.value);
+              const liveEntry =
+                useV2StreamingStore.getState().byKey[agentStreamKey(sid, actorId)];
               logStreamToolDiag("mqtt.toolResult", {
                 sessionId: sid,
                 actorId,
@@ -1186,33 +1212,43 @@ export function MqttLiveWiring({ userId, teamId, onMyActorId }: MqttLiveWiringPr
                 toolId: tr.toolId,
                 success: tr.success,
               });
-              useV2StreamingStore.getState().completeToolUse(sid, actorId, {
-                toolId: tr.toolId,
-                success: tr.success,
-                summary: tr.summary,
-                content: tr.content,
-                rawOutput: tr.rawOutput,
-              });
-              // Late toolResult after idle: patch the message-area parts_json
-              // (OpenCode-style reconcile on the persisted turn).
-              void patchPersistedToolResult({
-                sessionId: sid,
-                actorId,
-                toolId: tr.toolId,
-                success: tr.success,
-                summary: tr.summary,
-                content: tr.content,
-                rawOutput: tr.rawOutput,
-              });
+              if (shouldPatchFlushedToolEvent(sid, actorId, tr.toolId, liveEntry)) {
+                void patchPersistedToolResult({
+                  sessionId: sid,
+                  actorId,
+                  toolId: tr.toolId,
+                  success: tr.success,
+                  summary: tr.summary,
+                  content: tr.content,
+                  rawOutput: tr.rawOutput,
+                });
+              } else {
+                useV2StreamingStore.getState().completeToolUse(sid, actorId, {
+                  toolId: tr.toolId,
+                  success: tr.success,
+                  summary: tr.summary,
+                  content: tr.content,
+                  rawOutput: tr.rawOutput,
+                });
+                void patchPersistedToolResult({
+                  sessionId: sid,
+                  actorId,
+                  toolId: tr.toolId,
+                  success: tr.success,
+                  summary: tr.summary,
+                  content: tr.content,
+                  rawOutput: tr.rawOutput,
+                });
+                void syncStreamingToolOutputsFromLocalCache(sid, actorId);
+                window.setTimeout(() => {
+                  void syncStreamingToolOutputsFromLocalCache(sid, actorId);
+                }, 500);
+              }
               syncPlanFromTodoToolResult(sid, actorId, {
                 toolId: tr.toolId,
                 success: tr.success,
                 summary: tr.summary,
               });
-              void syncStreamingToolOutputsFromLocalCache(sid, actorId);
-              window.setTimeout(() => {
-                void syncStreamingToolOutputsFromLocalCache(sid, actorId);
-              }, 500);
             } else if (event?.case === "statusChange") {
               const sc = event.value as { oldStatus?: number; newStatus?: number };
               logStreamToolDiag("mqtt.statusChange", {
@@ -1223,6 +1259,8 @@ export function MqttLiveWiring({ userId, teamId, onMyActorId }: MqttLiveWiringPr
                 newStatus: sc.newStatus,
               });
               if (isAgentActiveStatus(sc.newStatus)) {
+                const streamKey = agentStreamKey(sid, actorId);
+                followUpActiveRef.current[streamKey] = true;
                 const flushed = flushTurnAgentReply(
                   sid,
                   actorId,
@@ -1239,10 +1277,10 @@ export function MqttLiveWiring({ userId, teamId, onMyActorId }: MqttLiveWiringPr
                   ),
                 });
                 clearTerminalFlushPending(agentStreamKey(sid, actorId));
-                clearFlushedTurn(sid, actorId);
                 useV2StreamingStore.getState().beginPlanningPlaceholder(sid, actorId);
               } else if (isTerminalAgentStatus(sc.newStatus)) {
                 const streamKey = agentStreamKey(sid, actorId);
+                clearFollowUpActive(streamKey);
                 terminalFlushPendingRef.current[streamKey] = true;
                 const flushed = flushTurnAgentReply(
                   sid,
@@ -1560,6 +1598,7 @@ export function MqttLiveWiring({ userId, teamId, onMyActorId }: MqttLiveWiringPr
         clearTerminalAwaitTimeout(streamKey);
       }
       terminalFlushPendingRef.current = {};
+      followUpActiveRef.current = {};
       interruptedStreamFlushRef.current = {};
       interruptedFlushSupersededRef.current = {};
       interruptedFlushSupersededStreamIdRef.current = {};

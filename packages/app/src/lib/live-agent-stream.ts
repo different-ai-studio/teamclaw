@@ -7,6 +7,8 @@ import type { ToolCallContentBlock } from "@/components/chat/tool-calls/tool-cal
 import { parseToolContentBlocks } from "@/components/chat/tool-calls/tool-call-content";
 import { deriveAgentReplyContent } from "@/lib/agent-reply-transcript";
 import { agentReplyTextsEquivalent } from "@/lib/agent-reply-text";
+import { getFlushedTurn } from "@/lib/flushed-turn-registry";
+import { isStreamInterruptible } from "@/stores/v2-streaming-store";
 
 export {
   deriveAgentReplyContent,
@@ -308,4 +310,31 @@ export function isTerminalAgentStatus(status: AgentStatus | number | undefined):
 /** Daemon emits `statusChange` with `newStatus=ACTIVE` when a prompt turn starts. */
 export function isAgentActiveStatus(status: AgentStatus | number | undefined): boolean {
   return status === AgentStatus.ACTIVE;
+}
+
+/**
+ * Route a late toolUse/toolResult to the flushed AGENT_REPLY instead of the
+ * live dock. Keeps the flushed-turn registry across follow-up ACTIVE so turn-1
+ * orphans still patch persist while turn-2 tools stay on the live stream.
+ */
+export function shouldPatchFlushedToolEvent(
+  sessionId: string,
+  actorId: string,
+  toolId: string,
+  liveEntry: AgentStreamEntry | undefined,
+): boolean {
+  const flushed = getFlushedTurn(sessionId, actorId);
+  if (!flushed) return false;
+  const trimmedToolId = toolId.trim();
+  if (!trimmedToolId) return false;
+
+  if (!liveEntry || !isStreamInterruptible(liveEntry)) {
+    return true;
+  }
+
+  if (liveEntry.streamId !== flushed.streamId) {
+    return !liveEntry.toolCalls.some((tc) => tc.id === trimmedToolId);
+  }
+
+  return false;
 }

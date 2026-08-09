@@ -14,8 +14,14 @@ import {
   streamTranscriptHasText,
   streamTranscriptRevision,
   streamEntryHasVisibleContent,
+  shouldPatchFlushedToolEvent,
 } from "@/lib/live-agent-stream";
 import type { AgentStreamEntry } from "@/stores/v2-streaming-store";
+import {
+  registerFlushedTurn,
+  resetFlushedTurnRegistryForTests,
+} from "@/lib/flushed-turn-registry";
+import { useV2StreamingStore } from "@/stores/v2-streaming-store";
 
 describe("live agent stream event helpers", () => {
   it("normalizes execute tool uses preserving wire name when absent", () => {
@@ -304,5 +310,56 @@ describe("live agent stream event helpers", () => {
     expect(Number(anchor.createdAt)).toBe(
       Math.floor(new Date("2026-06-08T07:38:00.000Z").getTime() / 1000),
     );
+  });
+});
+
+describe("shouldPatchFlushedToolEvent", () => {
+  beforeEach(() => {
+    resetFlushedTurnRegistryForTests();
+    useV2StreamingStore.setState({
+      byKey: {},
+      archived: [],
+      revisionBySession: {},
+      interruptedFlushPending: {},
+    });
+  });
+
+  it("patches when the live stream is inactive after flush", () => {
+    registerFlushedTurn("s1", "a1", {
+      messageId: "m1",
+      streamId: "stream-1",
+      turnId: "turn-1",
+    });
+    expect(shouldPatchFlushedToolEvent("s1", "a1", "tool-late", undefined)).toBe(true);
+  });
+
+  it("patches orphan tools from a prior turn while follow-up dock is open", () => {
+    registerFlushedTurn("s1", "a1", {
+      messageId: "m1",
+      streamId: "stream-1",
+      turnId: "turn-1",
+    });
+    useV2StreamingStore.getState().beginPlanningPlaceholder("s1", "a1");
+    const live = useV2StreamingStore.getState().byKey["s1::a1"] as AgentStreamEntry;
+    expect(live.streamId).not.toBe("stream-1");
+    expect(shouldPatchFlushedToolEvent("s1", "a1", "turn1-tool", live)).toBe(true);
+  });
+
+  it("keeps current-turn tools on the live stream", () => {
+    registerFlushedTurn("s1", "a1", {
+      messageId: "m1",
+      streamId: "stream-1",
+      turnId: "turn-1",
+    });
+    useV2StreamingStore.getState().beginPlanningPlaceholder("s1", "a1");
+    useV2StreamingStore.getState().pushToolUse("s1", "a1", {
+      toolId: "turn2-tool",
+      toolName: "grep",
+      description: "search",
+      params: {},
+      toolKind: "search",
+    });
+    const live = useV2StreamingStore.getState().byKey["s1::a1"] as AgentStreamEntry;
+    expect(shouldPatchFlushedToolEvent("s1", "a1", "turn2-tool", live)).toBe(false);
   });
 });

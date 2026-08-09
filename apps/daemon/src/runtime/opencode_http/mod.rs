@@ -2006,6 +2006,60 @@ mod turn_activity_tests {
         assert_eq!(frame.turn_reply_to_message_id.as_deref(), Some("reply-1"));
     }
 
+    /// Reproduces mid-turn follow-up: `do_prompt` has no busy gate, so a second
+    /// prompt while `turn_active` re-emits Idle→Active and clears
+    /// `tools_in_flight` (turn 1 tools still running upstream).
+    #[tokio::test]
+    async fn second_prompt_while_turn_active_reopens_turn_and_clears_tools() {
+        let shared = Arc::new(Shared::new());
+        let (tx, mut rx) = mpsc::channel(8);
+        {
+            let mut routes = shared.routes.lock();
+            let mut route = test_route("/ws");
+            route.event_tx = tx.clone();
+            route.turn_active = true;
+            route.turn_seq = 1;
+            route.tools_in_flight.insert("tool-turn1".to_string());
+            routes.insert("ses_repro".to_string(), route);
+        }
+
+        // Mirror the synchronous head of `do_prompt` (lines 1046–1074).
+        let (event_tx, turn_seq) = {
+            let mut routes = shared.routes.lock();
+            let route = routes.get_mut("ses_repro").expect("route");
+            route.turn_active = true;
+            route.turn_seq += 1;
+            route.tools_in_flight.clear();
+            (route.event_tx.clone(), route.turn_seq)
+        };
+        emit_frame(
+            &event_tx,
+            "ses_repro",
+            translate::status_change(amux::AgentStatus::Idle, amux::AgentStatus::Active),
+            None,
+        )
+        .await;
+
+        let frame = rx.try_recv().expect("second prompt emits Idle→Active");
+        assert_eq!(frame.acp_session_id, "ses_repro");
+        match frame.event.event {
+            Some(amux::acp_event::Event::StatusChange(sc)) => {
+                assert_eq!(sc.old_status, amux::AgentStatus::Idle as i32);
+                assert_eq!(sc.new_status, amux::AgentStatus::Active as i32);
+            }
+            other => panic!("expected StatusChange, got {other:?}"),
+        }
+
+        let routes = shared.routes.lock();
+        let route = routes.get("ses_repro").expect("route");
+        assert!(route.turn_active);
+        assert_eq!(turn_seq, 2);
+        assert!(
+            route.tools_in_flight.is_empty(),
+            "second prompt clears in-flight tool tracking for turn 1"
+        );
+    }
+
     #[tokio::test]
     async fn an_idle_route_emits_nothing_when_dropped() {
         let (tx, mut rx) = mpsc::channel(4);

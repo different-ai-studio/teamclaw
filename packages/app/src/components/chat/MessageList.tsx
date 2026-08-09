@@ -11,6 +11,13 @@ import { useV2StreamingStore } from "@/stores/v2-streaming-store";
 import { Button } from "@/components/ui/button";
 import { ChatMessage } from "./ChatMessage";
 import { useChatStickToBottom } from "@/hooks/use-chat-stick-to-bottom";
+import {
+  CHAT_SCROLL_TO_MESSAGE_EVENT,
+  findChatMessageElement,
+  flashChatMessage,
+  scrollChatMessageIntoView,
+  type ChatScrollToMessageDetail,
+} from "@/lib/chat-scroll-to-message";
 import { DEFAULT_INPUT_AREA_HEIGHT, SAFE_BOTTOM_SPACING } from "./layout-constants";
 
 // ─── Constants ────────────────────────────────────────────────────────────────
@@ -210,6 +217,7 @@ const MessageListInner = React.forwardRef<MessageListHandle, MessageListProps>(
     const scrollRef = React.useRef<HTMLDivElement>(null);
     const messageAreaRef = React.useRef<HTMLDivElement>(null);
     const prevStreamingRef = React.useRef(false);
+    const pendingScrollMessageIdRef = React.useRef<string | null>(null);
 
     const {
       scrollToBottom,
@@ -219,7 +227,18 @@ const MessageListInner = React.forwardRef<MessageListHandle, MessageListProps>(
       onScroll,
       enableAutoFollow,
       pauseAutoFollowIfReading,
+      stopAutoFollow,
     } = useChatStickToBottom(scrollRef);
+
+    const fulfillPendingScroll = React.useCallback(() => {
+      const messageId = pendingScrollMessageIdRef.current;
+      if (!messageId) return;
+      const el = findChatMessageElement(messageId);
+      if (!el) return;
+      scrollChatMessageIntoView(el);
+      flashChatMessage(el);
+      pendingScrollMessageIdRef.current = null;
+    }, []);
 
     /**
      * Called from ChatPanel right after optimistic append.
@@ -296,6 +315,65 @@ const MessageListInner = React.forwardRef<MessageListHandle, MessageListProps>(
 
       return () => cancelAnimationFrame(raf);
     }, [useVirtualMessages, messageAreaWidth, messageVirtualizer]);
+
+    React.useEffect(() => {
+      const onScrollRequest = (event: Event) => {
+        const messageId = (event as CustomEvent<ChatScrollToMessageDetail>).detail
+          ?.messageId;
+        if (!messageId) return;
+
+        stopAutoFollow();
+        pendingScrollMessageIdRef.current = messageId;
+
+        const idx = messages.findIndex((message) => message.id === messageId);
+        if (idx < 0) {
+          pendingScrollMessageIdRef.current = null;
+          return;
+        }
+
+        const firstRenderedIndex = Math.max(0, messages.length - visibleMessageCount);
+        if (idx < firstRenderedIndex) {
+          setVisibleMessageCount(messages.length - idx);
+          return;
+        }
+
+        if (useVirtualMessages) {
+          const renderedIndex = renderedMessages.findIndex(
+            (message) => message.id === messageId,
+          );
+          if (renderedIndex >= 0) {
+            messageVirtualizer.scrollToIndex(renderedIndex, {
+              align: "start",
+              behavior: "smooth",
+            });
+          }
+        }
+
+        requestAnimationFrame(() => {
+          requestAnimationFrame(fulfillPendingScroll);
+        });
+      };
+
+      window.addEventListener(CHAT_SCROLL_TO_MESSAGE_EVENT, onScrollRequest);
+      return () => {
+        window.removeEventListener(CHAT_SCROLL_TO_MESSAGE_EVENT, onScrollRequest);
+      };
+    }, [
+      fulfillPendingScroll,
+      messageVirtualizer,
+      messages,
+      renderedMessages,
+      stopAutoFollow,
+      useVirtualMessages,
+      visibleMessageCount,
+    ]);
+
+    React.useEffect(() => {
+      if (!pendingScrollMessageIdRef.current) return;
+      requestAnimationFrame(() => {
+        requestAnimationFrame(fulfillPendingScroll);
+      });
+    }, [fulfillPendingScroll, renderedMessages, visibleMessageCount]);
 
     // ── Scroll management (stick-to-bottom + ResizeObserver) ─────────────
 

@@ -1,6 +1,6 @@
 import * as React from "react";
 import { useTranslation } from "react-i18next";
-import { ChevronRight } from "lucide-react";
+import { ChevronRight, Loader2 } from "lucide-react";
 import {
   Collapsible,
   CollapsibleContent,
@@ -13,15 +13,27 @@ export function AgentProcessCollapsible({
   children,
   summary,
   defaultOpen = false,
+  loading = false,
+  onOpenChange,
   className,
 }: {
   children: React.ReactNode;
   summary?: string;
   defaultOpen?: boolean;
+  loading?: boolean;
+  onOpenChange?: (open: boolean) => void;
   className?: string;
 }) {
   const { t } = useTranslation();
   const [open, setOpen] = React.useState(defaultOpen);
+
+  const handleOpenChange = React.useCallback(
+    (next: boolean) => {
+      setOpen(next);
+      onOpenChange?.(next);
+    },
+    [onOpenChange],
+  );
 
   return (
     <div
@@ -29,7 +41,7 @@ export function AgentProcessCollapsible({
       data-testid="agent-process-collapsible"
       data-open={open ? "true" : "false"}
     >
-      <Collapsible open={open} onOpenChange={setOpen}>
+      <Collapsible open={open} onOpenChange={handleOpenChange}>
         <CollapsibleTrigger asChild>
           <button
             type="button"
@@ -48,13 +60,17 @@ export function AgentProcessCollapsible({
                 </span>
               </>
             ) : null}
-            <ChevronRight
-              className={cn(
-                "h-3 w-3 shrink-0 text-faint opacity-0 transition-[opacity,transform] duration-200 group-hover/process:opacity-100",
-                open && "rotate-90",
-              )}
-              aria-hidden
-            />
+            {loading ? (
+              <Loader2 className="h-3 w-3 shrink-0 animate-spin text-faint" aria-hidden />
+            ) : (
+              <ChevronRight
+                className={cn(
+                  "h-3 w-3 shrink-0 text-faint opacity-0 transition-[opacity,transform] duration-200 group-hover/process:opacity-100",
+                  open && "rotate-90",
+                )}
+                aria-hidden
+              />
+            )}
           </button>
         </CollapsibleTrigger>
         <CollapsibleContent>
