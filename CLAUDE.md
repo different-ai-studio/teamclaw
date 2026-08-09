@@ -157,26 +157,46 @@ Shared: `skills/`, `.mcp/`, `knowledge/`
 
 ## Versioning & Release
 
-**Version numbers** — Desktop version must match across `package.json`, `apps/desktop/Cargo.toml`, `apps/desktop/tauri.conf.json`, and `apps/daemon/Cargo.toml` (bundled `amuxd` sidecar).
+**Version numbers** — Desktop version must match across **five** places: `package.json`,
+`apps/desktop/Cargo.toml`, `apps/desktop/tauri.conf.json`, `apps/daemon/Cargo.toml`
+(bundled `amuxd` sidecar), and **`Cargo.lock`** (the `teamclaw` and `amuxd` entries).
+
+`Cargo.lock` is not optional: CI builds the daemon with `--locked`
+(`cargo test/check/build -p amuxd --locked`), which fails outright when the lockfile
+disagrees with the manifests. Verify with `cargo metadata --locked` before tagging.
 
 **Release process:**
-1. Bump desktop version in all 4 files
+1. Bump desktop version in all 5 places above
 2. Commit, push to main
 3. `git tag v<desktop-version> && git push origin v<desktop-version>`
 4. Tag push triggers `release.yml` (macOS desktop)
 
 ## iOS TestFlight Release
 
-**Version file:** `apps/ios/project.yml` — `MARKETING_VERSION` (e.g. `1.1.5`) + `CURRENT_PROJECT_VERSION` (build number, increment by 1 each release).
+**Version file:** `apps/ios/project.yml` — `MARKETING_VERSION` (e.g. `1.2`) +
+`CURRENT_PROJECT_VERSION`.
+
+`CURRENT_PROJECT_VERSION` does NOT decide what TestFlight receives. fastlane asks
+App Store Connect for the latest build number and increments that at build time, so
+the uploaded build comes from ASC. This field governs local builds only. The two
+drift far apart — on the 1.2 release the file said 25 while ASC was already at 52,
+so the upload went out as 53. Setting it by hand cannot fix a rejected upload.
 
 **Release process:**
-1. Bump `CURRENT_PROJECT_VERSION` in `apps/ios/project.yml`
+1. Bump `MARKETING_VERSION` if the user-facing version changes; `CURRENT_PROJECT_VERSION`
+   is cosmetic (see above) but keep it moving so the checked-in value stays honest
 2. Commit and push to main
 3. `git tag ios-v<version>-<build> && git push origin ios-v<version>-<build>`
-   - Example: `git tag ios-v1.1.5-4 && git push origin ios-v1.1.5-4`
+   - Example: `git tag ios-v1.2-25 && git push origin ios-v1.2-25`
 4. Tag push triggers `.github/workflows/testflight.yml` (runs `fastlane beta` on CI)
 
 **Tag format must be `ios-v*`** — other formats (e.g. `ios-1.1.5-4`) do not trigger the workflow.
+
+`testflight.yml` also runs on pushes to `main` touching `apps/ios/**`, so the normal
+release flow (merge, then tag) fires it twice for the same commit. A `guard` job
+handles that: after the debounce it checks whether HEAD carries an `ios-v*` tag and
+stands down if so, leaving the tag's run to publish. A main push with no tag behind
+it still releases as before.
 
 ## Deployment — one environment, two deploy targets
 
