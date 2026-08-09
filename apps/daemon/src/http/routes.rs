@@ -185,6 +185,12 @@ pub fn build(state: HttpState) -> Router {
         // Daemon-owned team sync: desktop triggers sync + reads status over loopback.
         .route("/v1/team/sync", post(team_sync::sync_now))
         .route("/v1/team/sync/status", get(team_sync::sync_status))
+        // Pull team MCP / team env from Cloud API into the daemon cache now
+        // (desktop calls this after a successful env-secret write/delete).
+        .route(
+            "/v1/team/cloud-config/reconcile",
+            post(team_sync::reconcile_cloud_config),
+        )
         .route(
             "/v1/team/secrets",
             post(team_sync::set_secrets).get(team_sync::get_secrets),
