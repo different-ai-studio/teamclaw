@@ -43,8 +43,8 @@ read -r -p "Type 'yes' to continue: " confirm
 echo "==> compose down (release bind mounts)"
 "${RUN[@]}" down --remove-orphans 2>/dev/null || true
 if [ "$RUNTIME" = podman ]; then
-  podman pod rm -f pod_teamclu-self-host 2>/dev/null || true
-  podman rm -f $(podman ps -aq --filter label=com.docker.compose.project=teamclu-self-host) 2>/dev/null || true
+  podman pod rm -f pod_teamclaw-self-host 2>/dev/null || true
+  podman rm -f $(podman ps -aq --filter label=com.docker.compose.project=teamclaw-self-host) 2>/dev/null || true
 fi
 
 wipe_bind_mounts
@@ -52,8 +52,8 @@ wipe_bind_mounts
 echo "==> compose down -v (named volumes)"
 "${RUN[@]}" down -v --remove-orphans 2>/dev/null || true
 if [ "$RUNTIME" = podman ]; then
-  podman pod rm -f pod_teamclu-self-host 2>/dev/null || true
-  podman rm -f $(podman ps -aq --filter label=com.docker.compose.project=teamclu-self-host) 2>/dev/null || true
+  podman pod rm -f pod_teamclaw-self-host 2>/dev/null || true
+  podman rm -f $(podman ps -aq --filter label=com.docker.compose.project=teamclaw-self-host) 2>/dev/null || true
 fi
 
 echo "==> gen-secrets + up"

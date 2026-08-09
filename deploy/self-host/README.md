@@ -95,7 +95,7 @@ Podman 用户 **`不要`** 直接跑裸 `docker compose up -d`，容易遇到：
 **Podman Machine 内存（MQTT 必需）：** 默认 `2GiB` 不够跑完整 Supabase + EMQX。桌面端 MQTT 报 `connection closed by peer` 时，先查 EMQX 是否被 OOM 杀：
 
 ```bash
-podman inspect teamclu-self-host_emqx_1 --format '{{.State.OOMKilled}}'   # true = 内存不足
+podman inspect teamclaw-self-host_emqx_1 --format '{{.State.OOMKilled}}'   # true = 内存不足
 podman machine stop
 podman machine set --memory 8192 --cpus 4
 podman machine start
@@ -182,7 +182,7 @@ cd ../../services/fc && sh ../../deploy/self-host/smoke/run-e2e.sh
 ```bash
 cd deploy/self-host
 docker compose restart fc
-# Podman：podman restart teamclu-self-host_fc_1
+# Podman：podman restart teamclaw-self-host_fc_1
 ```
 
 #### B. Desktop（Tauri）——推荐直连 FC
@@ -419,8 +419,8 @@ cd deploy/self-host
 若修改过 `CADDY_TLS_MODE`，还需清 Caddy 持久化配置（否则会沿用旧 autosave）：
 
 ```bash
-docker compose stop caddy   # 或 podman stop teamclu-self-host_caddy_1
-docker volume rm teamclu-self-host_caddy_config   # 保留 caddy_data 可留证书
+docker compose stop caddy   # 或 podman stop teamclaw-self-host_caddy_1
+docker volume rm teamclaw-self-host_caddy_config   # 保留 caddy_data 可留证书
 ./bootstrap/gen-secrets.sh
 ./bootstrap/up.sh
 ```
@@ -457,7 +457,7 @@ docker volume rm teamclu-self-host_caddy_config   # 保留 caddy_data 可留证�
 | Docker Desktop | Caddy `80`/`443`；EMQX `1883` |
 | Podman rootless | Caddy `8080`→80、`8443`→443；FC `9000`；EMQX `1883` |
 
-其余服务仅在 `teamclu-self-host_default` 内部网络通信。
+其余服务仅在 `teamclaw-self-host_default` 内部网络通信。
 
 ---
 
@@ -632,7 +632,7 @@ To re-join a different team, remove the persisted identity first:
 
 ```bash
 docker compose --profile daemon down
-docker volume rm teamclu-self-host_amuxd_state
+docker volume rm teamclaw-self-host_amuxd_state
 # then set a fresh AMUXD_JOIN_TOKEN and bring it back up
 ```
 
@@ -641,7 +641,7 @@ docker volume rm teamclu-self-host_amuxd_state
 ## TLS modes
 
 `CADDY_TLS_MODE` 控制 Caddy 行为。修改后 **必须** 重新跑 `./bootstrap/gen-secrets.sh`，
-必要时清 `teamclu-self-host_caddy_config` volume，再 `./bootstrap/up.sh`。
+必要时清 `teamclaw-self-host_caddy_config` volume，再 `./bootstrap/up.sh`。
 
 | Mode | Value | Effect |
 |---|---|---|
@@ -787,9 +787,9 @@ rm -f .env .env.bak
 | `supabase-auth` / `supabase-analytics` password failed | `down -v` **不会**删 bind mount `supabase/volumes/db/data`，旧 Postgres 密码仍在 | `./bootstrap/reset-data.sh`（脚本会 `rm -rf supabase/volumes/db/data`） |
 | `supabase-db` password 错误 | 旧数据卷用了空密码初始化 | `docker compose down -v` 后重来（**清数据**） |
 | migrate / fc 一直 Created | 上游 healthcheck 未过 | `podman logs supabase-db`；确认 `POSTGRES_PASSWORD` |
-| 桌面 MQTT **Disconnected** / `connection closed by peer` | EMQX 被 OOM 杀（Podman VM 默认 2GiB） | `podman inspect teamclu-self-host_emqx_1 --format '{{.State.OOMKilled}}'`；`podman machine set --memory 8192` 后重建 emqx（见 §运行时 Podman 内存） |
+| 桌面 MQTT **Disconnected** / `connection closed by peer` | EMQX 被 OOM 杀（Podman VM 默认 2GiB） | `podman inspect teamclaw-self-host_emqx_1 --format '{{.State.OOMKilled}}'`；`podman machine set --memory 8192` 后重建 emqx（见 §运行时 Podman 内存） |
 | Team Shared Enable → `PGRST301` / `wrong key type` | 前端连 `127.0.0.1:9000` 但 Rust 仍烘焙 `build.config.json` 的远程 API | 确认 `packages/app/.env.local` 含 `VITE_CLOUD_API_URL=http://127.0.0.1:9000`；**退出** 桌面后重跑 `pnpm tauri:dev`；Settings → General 里 Server 应显示 `127.0.0.1:9000` |
-| `emqx` 重启次数极高 / health `starting` | 同上，或 healthcheck 在启动期失败 | 增大 Podman 内存；`podman logs teamclu-self-host_emqx_1` 查 `high_system_memory_usage` |
+| `emqx` 重启次数极高 / health `starting` | 同上，或 healthcheck 在启动期失败 | 增大 Podman 内存；`podman logs teamclaw-self-host_emqx_1` 查 `high_system_memory_usage` |
 
 ---
 

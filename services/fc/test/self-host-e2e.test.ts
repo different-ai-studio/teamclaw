@@ -38,7 +38,7 @@ function containerIp(name: string): string {
 }
 
 const FC_BASE = (
-  process.env.FC_E2E_BASE_URL ?? `http://${containerIp("teamclu-self-host-fc-1")}:9000`
+  process.env.FC_E2E_BASE_URL ?? `http://${containerIp("teamclaw-self-host-fc-1")}:9000`
 ).replace(/\/$/, "");
 
 const KONG_BASE = (
@@ -135,7 +135,7 @@ async function goFetch(
 function isDaemonRunning(): boolean {
   try {
     const out = execSync(
-      'docker inspect teamclu-self-host-amuxd-1 --format "{{.State.Running}}"',
+      'docker inspect teamclaw-self-host-amuxd-1 --format "{{.State.Running}}"',
       { stdio: ["pipe", "pipe", "pipe"] }
     )
       .toString()
