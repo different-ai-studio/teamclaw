@@ -667,27 +667,6 @@ public actor CloudAPINotificationsRepository: NotificationsRepository {
     }
 }
 
-public actor CloudAPIInviteClaimer {
-    private let client: CloudAPIClient
-
-    public init(client: CloudAPIClient) {
-        self.client = client
-    }
-
-    public func claimInvite(token: String) async throws -> ClaimResult {
-        let row: CloudClaimInviteResult = try await client.post(
-            "/v1/invites/claim",
-            body: CloudClaimInviteRequest(token: token)
-        )
-        return ClaimResult(
-            actorID: row.actorId,
-            teamID: row.teamId,
-            actorType: row.actorType,
-            displayName: row.displayName,
-            refreshToken: row.refreshToken
-        )
-    }
-}
 
 public struct ClientVersionReport: Encodable, Sendable {
     public let clientType: String

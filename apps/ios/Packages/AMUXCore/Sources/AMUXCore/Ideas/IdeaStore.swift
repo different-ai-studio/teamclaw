@@ -1,6 +1,11 @@
 import Foundation
 import Observation
 import SwiftData
+// `Array.move(fromOffsets:toOffset:)` below is a SwiftUI extension. This file
+// used to get it for free because one other file in the module imported
+// SwiftUI; deleting that file (an unused view) broke reordering here, which is
+// why the import now lives where the dependency actually is.
+import SwiftUI
 
 @Observable
 @MainActor

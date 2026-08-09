@@ -588,11 +588,6 @@ private struct VerifyOTPRequest: Encodable, Sendable {
     let type: String
 }
 
-private struct VerifyPhoneOTPRequest: Encodable, Sendable {
-    let phone: String
-    let token: String
-    let type: String
-}
 
 // ── partner-aligned phone login (send-code / login) ────────────────────────────
 
@@ -647,15 +642,6 @@ public enum PhoneLoginResult: Sendable {
 }
 
 /// Errors surfaced by the partner-aligned phone login.
-public enum PhoneLoginError: LocalizedError, Sendable {
-    case multipleAccounts
-    public var errorDescription: String? {
-        switch self {
-        case .multipleAccounts:
-            return "该手机号关联了多个账号，请联系管理员或使用其它登录方式。"
-        }
-    }
-}
 
 private struct IdTokenRequest: Encodable, Sendable {
     let provider: String
