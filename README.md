@@ -24,10 +24,10 @@ English | [简体中文](README.zh-CN.md) | [繁體中文](README.zh-TW.md) | [�
 ## Features
 
 - **Three-column workspace** — sidebar, chat, and detail panel
-- **Local agent runtime** — agents run on your machine, hosted by the `amuxd` daemon over the ACP protocol
+- **Local agent runtime** — agents run on your machine, hosted by the `amuxd` daemon
 - **Channel gateways** — reach your agents from Discord, Feishu, Email, Kook, WeCom, and WeChat
 - **Automation** — scheduled tasks via cron
-- **Team collaboration** — share a workspace over OSS or Git; see [Team collaboration](#team-collaboration)
+- **Team collaboration** — share a team drive (`teamclaw-team/`) over OSS or Git; see [Team collaboration](#team-collaboration)
 - **MCP support** — connect agents to enterprise systems via the Model Context Protocol
 - **Skills / plugins** — extend agents with workspace-level and global skill sources
 - **Knowledge base** — full-text and embedding-based indexing and search
@@ -51,15 +51,15 @@ TeamClaw is split into a client layer, an agent host, and a cloud backend:
                     ┌────────┴────────┐
                     │   amux daemon   │  agent host + channel gateways
                     │    (amuxd)      │  + team sync (git / OSS)
-                    └────┬───────┬────┘
-                         │ ACP   │ ACP
-                    ┌────┴──┐ ┌──┴────┐
-                    │opencode│ │ codex │  …
-                    └────────┘ └───────┘
+                    └────────┬────────┘
+                             │ HTTP / RPC
+                    ┌────────┴────────┐
+                    │ local agents    │  opencode (default), …
+                    └─────────────────┘
 ```
 
 - **Clients** own the UI and local files. Installing TeamClaw Desktop also installs the `amuxd` daemon, so your machine is an agent host out of the box.
-- **amuxd** hosts agent processes over ACP, runs the channel gateways, and owns team sync. It can also be installed standalone on a server, with no GUI.
+- **amuxd** hosts local agent backends, runs the channel gateways, and owns team sync. It can also be installed standalone on a server, with no GUI.
 - **Cloud API** (`/v1`) is the only backend clients talk to. See [`docs/openapi/teamclaw-api.v1.yaml`](docs/openapi/teamclaw-api.v1.yaml) for the contract, and [`docs/architecture/v2.md`](docs/architecture/v2.md) for the full architecture.
 
 ## Clients
@@ -106,7 +106,7 @@ For the frontend alone (no Rust build), run `pnpm dev`. Build commands, the shar
 
 ## Team collaboration
 
-A team shares its workspace through one of three **share modes**, chosen once during team onboarding and then locked server-side:
+A team shares a dedicated **team drive** (`teamclaw-team/`), not the whole workspace. During onboarding the owner picks one **share mode**, which is then locked server-side:
 
 | Mode | What it does |
 |---|---|
@@ -114,7 +114,7 @@ A team shares its workspace through one of three **share modes**, chosen once du
 | `managed_git` | Syncs through a Git repository provisioned for you |
 | `custom_git` | Syncs through a Git repository you host yourself |
 
-Sync is owned by the `amuxd` daemon, which runs the Git and OSS engines.
+Sync is owned by the `amuxd` daemon: it keeps one global copy per team under `~/.amuxd/teams/<team_id>/`, and each linked workspace gets a `teamclaw-team` symlink into that copy.
 
 ### What gets shared
 
@@ -124,12 +124,12 @@ Only the shared layer syncs — a whitelist `.gitignore` keeps everything else l
 - `.mcp/` — MCP server configuration
 - `knowledge/` — team knowledge base documents
 
-Personal files and workspace configuration are never synced.
+Personal files and the rest of the workspace stay local.
 
 ### Notes
 
 - Git modes need working Git authentication (SSH key or HTTPS token).
-- Shared files follow the remote; local edits to them are overwritten on sync.
+- OSS sync can surface conflicts; resolve them from the team shared-files UI.
 - Sync runs on app startup, and can be triggered manually from **Settings → Team**.
 
 ## Configuration
@@ -182,7 +182,7 @@ We welcome contributions! See the [Contributing Guide](CONTRIBUTING.md) for deta
 ## Tech stack
 
 - **Desktop**: Tauri 2.0 (Rust)
-- **Daemon**: Rust (`amuxd`), ACP over the Zed agent protocol
+- **Daemon**: Rust (`amuxd`), local agent backends (opencode HTTP, …)
 - **Frontend**: React 19 + TypeScript, Tailwind CSS 4, Zustand
 - **iOS**: SwiftUI + SwiftPM (`AMUXCore`)
 - **Editors**: Tiptap (Markdown / HTML), CodeMirror 6 (code), Shiki (highlighting)

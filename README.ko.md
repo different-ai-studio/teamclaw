@@ -24,10 +24,10 @@
 ## 주요 기능
 
 - **3단 워크스페이스** — 사이드바, 채팅, 상세 패널
-- **로컬 에이전트 런타임** — 에이전트가 사용자 머신에서 실행되며, `amuxd` 데몬이 ACP 프로토콜로 호스팅
+- **로컬 에이전트 런타임** — 에이전트가 사용자 머신에서 실행되며, `amuxd` 데몬이 호스팅
 - **채널 게이트웨이** — Discord, Feishu, Email, Kook, WeCom, WeChat 에서 에이전트에 접근
 - **자동화** — cron 을 통한 예약 작업
-- **팀 협업** — OSS 또는 Git 으로 워크스페이스 공유. [팀 협업](#팀-협업) 참조
+- **팀 협업** — OSS 또는 Git 으로 팀 드라이브(`teamclaw-team/`) 공유. [팀 협업](#팀-협업) 참조
 - **MCP 지원** — Model Context Protocol 을 통해 에이전트를 엔터프라이즈 시스템에 연결
 - **Skills / 플러그인** — 워크스페이스 수준 및 전역 스킬 소스로 에이전트 확장
 - **지식 베이스** — 전문 검색 및 임베딩 기반 인덱싱과 검색
@@ -51,15 +51,15 @@ TeamClaw 는 클라이언트 계층, 에이전트 호스트, 클라우드 백엔
                     ┌────────┴────────┐
                     │   amux daemon   │  agent host + channel gateways
                     │    (amuxd)      │  + team sync (git / OSS)
-                    └────┬───────┬────┘
-                         │ ACP   │ ACP
-                    ┌────┴──┐ ┌──┴────┐
-                    │opencode│ │ codex │  …
-                    └────────┘ └───────┘
+                    └────────┬────────┘
+                             │ HTTP / RPC
+                    ┌────────┴────────┐
+                    │ local agents    │  opencode (default), …
+                    └─────────────────┘
 ```
 
 - **클라이언트**는 UI 와 로컬 파일을 담당합니다. TeamClaw Desktop 을 설치하면 `amuxd` 데몬도 함께 설치되므로, 사용자의 머신이 곧바로 에이전트 호스트가 됩니다.
-- **amuxd**는 ACP 를 통해 에이전트 프로세스를 호스팅하고, 채널 게이트웨이를 실행하며, 팀 동기화를 담당합니다. GUI 없이 서버에 단독으로 설치할 수도 있습니다.
+- **amuxd**는 로컬 에이전트 백엔드를 호스팅하고, 채널 게이트웨이를 실행하며, 팀 동기화를 담당합니다. GUI 없이 서버에 단독으로 설치할 수도 있습니다.
 - **Cloud API**(`/v1`)는 클라이언트가 통신하는 유일한 백엔드입니다. 계약은 [`docs/openapi/teamclaw-api.v1.yaml`](docs/openapi/teamclaw-api.v1.yaml), 전체 아키텍처는 [`docs/architecture/v2.md`](docs/architecture/v2.md) 를 참조하세요.
 
 ## 클라이언트
@@ -106,7 +106,7 @@ pnpm tauri:dev -- --skip-setup --skip-daemon-onboarding
 
 ## 팀 협업
 
-팀은 세 가지 **공유 모드** 중 하나를 통해 워크스페이스를 공유합니다. 모드는 팀 온보딩 시 한 번 선택되며 이후 서버 측에서 잠깁니다:
+팀이 공유하는 것은 전용 **팀 드라이브**(`teamclaw-team/`)이며, 워크스페이스 전체가 아닙니다. 온보딩 시 소유자가 **공유 모드**를 한 번 선택하면 이후 서버 측에서 잠깁니다:
 
 | 모드 | 동작 |
 |---|---|
@@ -114,7 +114,7 @@ pnpm tauri:dev -- --skip-setup --skip-daemon-onboarding
 | `managed_git` | 자동으로 프로비저닝된 Git 리포지토리를 통해 동기화 |
 | `custom_git` | 직접 호스팅하는 Git 리포지토리를 통해 동기화 |
 
-동기화는 Git 및 OSS 엔진을 실행하는 `amuxd` 데몬이 담당합니다.
+동기화는 `amuxd` 데몬이 담당합니다. 팀마다 `~/.amuxd/teams/<team_id>/` 아래에 글로벌 복사본을 두고, 연결된 각 워크스페이스는 `teamclaw-team` 심볼릭 링크로 그 복사본을 가리킵니다.
 
 ### 공유 대상
 
@@ -124,12 +124,12 @@ pnpm tauri:dev -- --skip-setup --skip-daemon-onboarding
 - `.mcp/` — MCP 서버 설정
 - `knowledge/` — 팀 지식 베이스 문서
 
-개인 파일과 워크스페이스 설정은 절대 동기화되지 않습니다.
+개인 파일과 워크스페이스의 나머지 내용은 로컬에 남습니다.
 
 ### 참고 사항
 
 - Git 모드에는 동작하는 Git 인증(SSH 키 또는 HTTPS 토큰)이 필요합니다.
-- 공유 파일은 원격을 따르며, 이에 대한 로컬 수정사항은 동기화 시 덮어쓰여집니다.
+- OSS 동기화에서는 충돌이 발생할 수 있으며, 팀 공유 파일 UI에서 해결할 수 있습니다.
 - 동기화는 앱 시작 시 실행되며, **Settings → Team** 에서 수동으로 트리거할 수 있습니다.
 
 ## 설정
@@ -182,7 +182,7 @@ Cloud API 구현은 `services/fc/` (Node.js 20)에 있으며, Supabase 를 백�
 ## 기술 스택
 
 - **데스크톱**: Tauri 2.0 (Rust)
-- **데몬**: Rust (`amuxd`), Zed agent protocol 기반 ACP
+- **데몬**: Rust (`amuxd`), 로컬 에이전트 백엔드(opencode HTTP 등)
 - **프론트엔드**: React 19 + TypeScript, Tailwind CSS 4, Zustand
 - **iOS**: SwiftUI + SwiftPM (`AMUXCore`)
 - **에디터**: Tiptap (Markdown / HTML), CodeMirror 6 (코드), Shiki (구문 강조)

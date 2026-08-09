@@ -24,10 +24,10 @@
 ## 功能特性
 
 - **三栏工作区** — 侧边栏、聊天区与详情面板
-- **本地智能体运行时** — 智能体在你自己的机器上运行，由 `amuxd` 守护进程通过 ACP 协议托管
+- **本地智能体运行时** — 智能体在你自己的机器上运行，由 `amuxd` 守护进程托管
 - **渠道网关** — 从 Discord、飞书、邮件、Kook、企业微信和微信触达你的智能体
 - **自动化** — 通过 cron 执行定时任务
-- **团队协作** — 通过 OSS 或 Git 共享工作区；详见[团队协作](#团队协作)
+- **团队协作** — 通过 OSS 或 Git 共享团队盘（`teamclaw-team/`）；详见[团队协作](#团队协作)
 - **MCP 支持** — 通过 Model Context Protocol 将智能体接入企业系统
 - **技能 / 插件** — 使用工作区级与全局技能源扩展智能体
 - **知识库** — 全文与向量嵌入索引及检索
@@ -51,15 +51,15 @@ TeamClaw 分为客户端层、智能体宿主与云端后端三部分：
                     ┌────────┴────────┐
                     │   amux daemon   │  agent host + channel gateways
                     │    (amuxd)      │  + team sync (git / OSS)
-                    └────┬───────┬────┘
-                         │ ACP   │ ACP
-                    ┌────┴──┐ ┌──┴────┐
-                    │opencode│ │ codex │  …
-                    └────────┘ └───────┘
+                    └────────┬────────┘
+                             │ HTTP / RPC
+                    ┌────────┴────────┐
+                    │ local agents    │  opencode (default), …
+                    └─────────────────┘
 ```
 
 - **客户端**负责 UI 与本地文件。安装 TeamClaw 桌面端时会一并安装 `amuxd` 守护进程，因此你的机器开箱即是一个智能体宿主。
-- **amuxd** 通过 ACP 托管智能体进程、运行渠道网关，并负责团队同步。它也可以在服务器上独立安装，无需 GUI。
+- **amuxd** 托管本地智能体后端、运行渠道网关，并负责团队同步。它也可以在服务器上独立安装，无需 GUI。
 - **Cloud API**（`/v1`）是客户端唯一对接的后端。接口契约见 [`docs/openapi/teamclaw-api.v1.yaml`](docs/openapi/teamclaw-api.v1.yaml)，完整架构见 [`docs/architecture/v2.md`](docs/architecture/v2.md)。
 
 ## 客户端
@@ -106,7 +106,7 @@ pnpm tauri:dev -- --skip-setup --skip-daemon-onboarding
 
 ## 团队协作
 
-团队通过三种**共享模式**之一共享工作区，在团队引导流程中一次性选定，之后在服务端锁定：
+团队共享的是专用**团队盘**（`teamclaw-team/`），而非整个工作区。引导流程中由所有者选定一种**共享模式**，之后在服务端锁定：
 
 | 模式 | 作用 |
 |---|---|
@@ -114,7 +114,7 @@ pnpm tauri:dev -- --skip-setup --skip-daemon-onboarding
 | `managed_git` | 通过为你自动开通的 Git 仓库同步 |
 | `custom_git` | 通过你自行托管的 Git 仓库同步 |
 
-同步由 `amuxd` 守护进程负责，它运行 Git 与 OSS 引擎。
+同步由 `amuxd` 守护进程负责：每个团队在 `~/.amuxd/teams/<team_id>/` 下保留一份全局副本，每个已链接的工作区通过 `teamclaw-team` 软链接指向该副本。
 
 ### 共享内容
 
@@ -124,12 +124,12 @@ pnpm tauri:dev -- --skip-setup --skip-daemon-onboarding
 - `.mcp/` — MCP 服务器配置
 - `knowledge/` — 团队知识库文档
 
-个人文件和工作区配置永远不会被同步。
+个人文件和工作区其余内容保持本地。
 
 ### 注意事项
 
 - Git 模式需要可用的 Git 认证（SSH key 或 HTTPS token）。
-- 共享文件以远程为准；对其所做的本地修改会在同步时被覆盖。
+- OSS 同步可能出现冲突，可在团队共享文件界面中解决。
 - 同步在应用启动时运行，也可在 **Settings → Team** 中手动触发。
 
 ## 配置
@@ -182,7 +182,7 @@ Cloud API 的实现位于 `services/fc/`（Node.js 20），由 Supabase 提供�
 ## 技术栈
 
 - **桌面端**：Tauri 2.0 (Rust)
-- **守护进程**：Rust (`amuxd`)，基于 Zed agent protocol 的 ACP
+- **守护进程**：Rust (`amuxd`)，本地智能体后端（opencode HTTP 等）
 - **前端**：React 19 + TypeScript、Tailwind CSS 4、Zustand
 - **iOS**：SwiftUI + SwiftPM (`AMUXCore`)
 - **编辑器**：Tiptap（Markdown / HTML）、CodeMirror 6（代码）、Shiki（语法高亮）
