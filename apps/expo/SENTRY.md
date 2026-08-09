@@ -37,6 +37,18 @@ all three are already wired:
    in the **root** `package.json`. pnpm 10 blocks install scripts by default, and
    a blocked one leaves the CLI binary missing — the upload then fails at build
    time rather than at install time.
+4. `@sentry/cli` is also a **direct dependency of this app**, pinned to the exact
+   version `@sentry/react-native` asks for, even though nothing here imports it.
+
+   Sentry's Gradle integration shells out to a hardcoded
+   `<project>/node_modules/@sentry/cli/bin/sentry-cli`, which assumes npm/yarn
+   hoisting. pnpm keeps transitive dependencies out of the consumer's
+   `node_modules`, so that path did not exist and the build died with
+   `A problem occurred starting process` after having already written the bundle
+   and its source map. Declaring it directly makes pnpm symlink it into place.
+
+   If the pin ever drifts from `@sentry/react-native`'s own dependency, pnpm
+   installs two copies and the Gradle task may run the wrong one.
 
 ### The one manual step: `SENTRY_AUTH_TOKEN`
 
