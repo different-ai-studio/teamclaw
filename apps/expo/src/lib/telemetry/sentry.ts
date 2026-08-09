@@ -56,6 +56,16 @@ export function initSentry(): void {
   });
 
   Sentry.setTag("platform.os", Platform.OS);
+
+  if (DEBUG_REPORTING) {
+    // Proves the pipeline without waiting for a real crash: DSN reachable,
+    // transport working, events landing in the right project. Only ever fires
+    // when someone opts in, so it cannot pollute production.
+    //
+    // Message text is fixed — per the grouping rule, a version or timestamp
+    // in here would fingerprint every launch as a separate issue.
+    Sentry.captureMessage("expo sentry pipeline check", "info");
+  }
 }
 
 /**
