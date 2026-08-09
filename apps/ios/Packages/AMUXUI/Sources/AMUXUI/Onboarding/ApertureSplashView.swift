@@ -50,10 +50,17 @@ public struct ApertureSplashView: View {
     @Environment(\.colorScheme) private var colorScheme
 
     private let size: CGFloat
+    private let onLapFinished: (() -> Void)?
+
     @State private var dotDegrees: Double = Geometry.notchCentreDegrees
 
-    public init(size: CGFloat = 240) {
+    /// - Parameter onLapFinished: called once the dot has completed its lap and
+    ///   settled back in the notch. Callers that would otherwise tear the
+    ///   splash down the instant their work finishes use this to let the
+    ///   animation actually play — bootstrap can complete in well under a lap.
+    public init(size: CGFloat = 240, onLapFinished: (() -> Void)? = nil) {
         self.size = size
+        self.onLapFinished = onLapFinished
     }
 
     public var body: some View {
@@ -84,6 +91,8 @@ public struct ApertureSplashView: View {
             withAnimation(.easeInOut(duration: Self.lapDuration)) {
                 dotDegrees = Geometry.notchCentreDegrees + 360
             }
+            try? await Task.sleep(for: .seconds(Self.lapDuration))
+            onLapFinished?()
         }
     }
 

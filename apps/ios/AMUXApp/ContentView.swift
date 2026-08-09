@@ -16,6 +16,8 @@ struct ContentView: View {
     /// session NavigationStack (which owns `sessionsPath`).
     @State private var navigationRouter = NavigationRouter()
     @State private var isConnecting = false
+    /// Set by the splash once its lap has played out.
+    @State private var splashLapFinished = false
     @State private var connectTask: Task<Void, Never>?
     /// One-shot legacy→CloudAPI session migration, run before the first
     /// `bootstrap()`. Nil when no cloud config is resolvable (Supabase
@@ -87,11 +89,35 @@ struct ContentView: View {
         }
     }
 
+    /// The splash stays up until BOTH the work is done and its lap has played.
+    /// Bootstrap frequently finishes in well under a lap — on a warm start it
+    /// is near-instant — and without this the animation is torn down before it
+    /// is visible at all.
+    private var showSplash: Bool {
+        onboarding.route == .loading || !splashLapFinished
+    }
+
     var body: some View {
+        ZStack {
+            routeContent
+
+            if showSplash {
+                ApertureSplashView { splashLapFinished = true }
+                    .transition(.opacity)
+                    .zIndex(1)
+            }
+        }
+        .animation(.easeOut(duration: 0.3), value: showSplash)
+    }
+
+    @ViewBuilder
+    private var routeContent: some View {
         Group {
             switch onboarding.route {
             case .loading:
-                ApertureSplashView()
+                // Covered by the splash; only needs to not be blank underneath
+                // while it fades out.
+                Color(.systemBackground).ignoresSafeArea()
             case .needsAuth:
                 WelcomeView(coordinator: onboarding)
             case .createTeam:
