@@ -166,7 +166,7 @@ services:
       # JWKS, so there is nothing to exchange. The client-secret JWT (which
       # expires every 6 months) belongs to the authorize/callback flow only.
       GOTRUE_EXTERNAL_APPLE_ENABLED: ${ENABLE_APPLE_SIGNUP:-true}
-      GOTRUE_EXTERNAL_APPLE_CLIENT_ID: ${APPLE_CLIENT_IDS:-tech.teamclaw.mobile}
+      GOTRUE_EXTERNAL_APPLE_CLIENT_ID: ${APPLE_CLIENT_IDS:-tech.teamclaw.mobile,com.teamclu.mobile}
 
       # Egress proxy for GoTrue's outbound HTTP. This box sits in mainland China
       # and Google is black-holed from it, while GoTrue does OIDC discovery

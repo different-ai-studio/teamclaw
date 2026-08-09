@@ -332,7 +332,7 @@ client_secret**：这条 grant 是拿 Apple 的公开 JWKS 验签的。
 ```bash
 ENABLE_APPLE_SIGNUP=true
 # 逗号分隔的 aud 白名单，就是 iOS 的 bundle id
-APPLE_CLIENT_IDS=tech.teamclaw.mobile
+APPLE_CLIENT_IDS=tech.teamclaw.mobile,com.teamclu.mobile
 ```
 
 没开的现象很有迷惑性：系统弹窗先走完、看着像成功了，最后才报
