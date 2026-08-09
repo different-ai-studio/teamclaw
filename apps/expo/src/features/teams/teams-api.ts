@@ -10,6 +10,16 @@ export type TeamMembership = {
   role: string;
 };
 
+/** The team facts Settings shows, from `GET /v1/teams/:teamId`. */
+export type TeamDetails = {
+  id: string;
+  name: string;
+  slug: string;
+  createdAt: string | null;
+  ownerDisplayName: string | null;
+  orgName: string | null;
+};
+
 type CreateTeamsApiOptions = {
   getAccessToken: () => Promise<string | null>;
   baseUrl?: string;
@@ -52,6 +62,28 @@ export function createTeamsApi(options: CreateTeamsApiOptions) {
         role: team.role ?? "member",
       }));
       return { memberships };
+    },
+
+    /**
+     * One team's details. `ownerDisplayName` is not on the wire (iOS leaves it
+     * nil too) — Settings resolves the owner from the actor directory instead.
+     */
+    async loadDetails(teamId: string): Promise<TeamDetails> {
+      const row = await client.get<{
+        id: string;
+        name?: string | null;
+        slug?: string | null;
+        createdAt?: string | null;
+        orgName?: string | null;
+      }>(`/v1/teams/${encodeURIComponent(teamId)}`);
+      return {
+        id: row.id,
+        name: row.name ?? "Unnamed team",
+        slug: row.slug ?? "",
+        createdAt: row.createdAt ?? null,
+        ownerDisplayName: null,
+        orgName: row.orgName ?? null,
+      };
     },
 
     async renameTeam(teamId: string, name: string): Promise<void> {

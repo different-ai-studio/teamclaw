@@ -101,8 +101,14 @@ describe("createActorsApi", () => {
   });
 
   it("reads and writes the member and team default agents", async () => {
-    const fetchImpl = vi.fn((url: string) => {
-      if (url.endsWith("/members/me/default-agent")) {
+    const calls: Array<{ url: string; method?: string; body?: unknown }> = [];
+    const fetchImpl = vi.fn((url: string, init: { method?: string; body?: string }) => {
+      calls.push({
+        url,
+        method: init?.method,
+        body: init?.body ? JSON.parse(init.body) : undefined,
+      });
+      if (url.endsWith("/members/me/default-agent") && init?.method === "GET") {
         return Promise.resolve(
           new Response(JSON.stringify({ defaultAgentId: "agent-1" }), { status: 200 }),
         );
@@ -112,17 +118,20 @@ describe("createActorsApi", () => {
     const actors = api(fetchImpl);
 
     expect(await actors.getMemberDefaultAgent("team-1")).toBe("agent-1");
-    expect(fetchImpl.mock.calls[0][0]).toBe(
-      "https://cloud.test/v1/teams/team-1/members/me/default-agent",
-    );
+    expect(calls[0]).toMatchObject({
+      url: "https://cloud.test/v1/teams/team-1/members/me/default-agent",
+      method: "GET",
+    });
 
     expect(await actors.setMemberDefaultAgent("team-1", null)).toBeNull();
-    expect(fetchImpl.mock.calls[1][1].method).toBe("PUT");
-    expect(JSON.parse(fetchImpl.mock.calls[1][1].body)).toEqual({ agentId: null });
+    expect(calls[1]).toMatchObject({ method: "PUT", body: { agentId: null } });
 
     expect(await actors.setTeamDefaultAgent("team-1", "agent-2")).toBe("agent-2");
-    expect(fetchImpl.mock.calls[2][0]).toBe("https://cloud.test/v1/teams/team-1/default-agent");
-    expect(JSON.parse(fetchImpl.mock.calls[2][1].body)).toEqual({ agentId: "agent-2" });
+    expect(calls[2]).toMatchObject({
+      url: "https://cloud.test/v1/teams/team-1/default-agent",
+      method: "PUT",
+      body: { agentId: "agent-2" },
+    });
   });
 
   it("removeActor DELETEs the actor", async () => {
