@@ -344,6 +344,9 @@ public final class AppOnboardingCoordinator {
             configuration: agentAccessConfig,
             memberActorID: ctx.memberActorID
         ) { [store] in try await store.accessToken() }
+        let teamResourceRepo = CloudAPIRepositoryFactory.teamResourceRepository(
+            configuration: agentAccessConfig
+        ) { [store] in try await store.accessToken() }
 
         let actorStore = ActorStore(teamID: ctx.team.id,
                                     repository: actorRepo,
@@ -447,6 +450,7 @@ public final class AppOnboardingCoordinator {
             messagesRepo: cloudAPIMessagesRepo,
             workspacesRepo: cloudAPIWorkspacesRepo,
             agentAccessRepo: agentAccessRepo,
+            teamResourceRepo: teamResourceRepo,
             teamRepo: cloudAPITeamRepo,
             sessionRepo: cloudAPISessionRepo,
             ideasRepo: cloudAPIIdeasRepo,

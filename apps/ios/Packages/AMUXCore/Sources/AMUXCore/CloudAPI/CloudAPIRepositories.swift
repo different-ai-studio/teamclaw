@@ -795,6 +795,15 @@ public enum CloudAPIRepositoryFactory {
         )
     }
 
+    public static func teamResourceRepository(
+        configuration: CloudAPIConfiguration,
+        accessToken: @escaping @Sendable () async throws -> String
+    ) -> any TeamResourceRepository {
+        CloudAPITeamResourceRepository(
+            client: client(configuration: configuration, accessToken: accessToken)
+        )
+    }
+
     public static func actorRepository(
         configuration: CloudAPIConfiguration,
         accessToken: @escaping @Sendable () async throws -> String

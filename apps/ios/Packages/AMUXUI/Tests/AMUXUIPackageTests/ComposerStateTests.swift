@@ -6,35 +6,41 @@ import AMUXCore
 struct ComposerStateTests {
 
     // MARK: rightButton
+    //
+    // `rightButton` used to take `isAgentActive` and return a `.stop` case that
+    // overrode everything else. Both are gone — stopping a busy agent moved to
+    // the chip bar, which knows *which* agent to stop, something a single
+    // composer button could not express once sessions could hold several. The
+    // test covering it went stale unnoticed because this target does not
+    // compile in CI (no iOS job) and cannot compile under `swift test` (AMUXUI
+    // is UIKit-only). Run it with:
+    //
+    //     xcodebuild test -scheme AMUXUI \
+    //       -destination 'platform=iOS Simulator,name=iPhone 17 Pro'
 
-    @Test("agent active forces stop, regardless of text or voice state")
-    func agentActiveAlwaysStop() {
-        #expect(ComposerState.rightButton(isAgentActive: true, hasText: false, voiceState: .idle) == .stop)
-        #expect(ComposerState.rightButton(isAgentActive: true, hasText: true,  voiceState: .idle) == .stop)
-        #expect(ComposerState.rightButton(isAgentActive: true, hasText: false, voiceState: .recording) == .stop)
-        #expect(ComposerState.rightButton(isAgentActive: true, hasText: true,  voiceState: .recording) == .stop)
-    }
-
-    @Test("recording shows stopRecording when agent idle")
+    @Test("recording shows stopRecording")
     func recordingShowsStopRecording() {
-        #expect(ComposerState.rightButton(isAgentActive: false, hasText: false, voiceState: .recording) == .stopRecording)
-        // recording wins over hasText when agent idle
-        #expect(ComposerState.rightButton(isAgentActive: false, hasText: true,  voiceState: .recording) == .stopRecording)
+        #expect(ComposerState.rightButton(hasText: false, voiceState: .recording) == .stopRecording)
+        // Recording wins over having text: the mic is mid-capture, and sending
+        // now would drop whatever has not been transcribed yet.
+        #expect(ComposerState.rightButton(hasText: true, voiceState: .recording) == .stopRecording)
     }
 
-    @Test("idle + non-empty text shows send")
-    func idleWithTextShowsSend() {
-        #expect(ComposerState.rightButton(isAgentActive: false, hasText: true, voiceState: .idle) == .send)
-        #expect(ComposerState.rightButton(isAgentActive: false, hasText: true, voiceState: .done) == .send)
-        #expect(ComposerState.rightButton(isAgentActive: false, hasText: true, voiceState: .denied) == .send)
+    @Test("non-empty text shows send")
+    func withTextShowsSend() {
+        #expect(ComposerState.rightButton(hasText: true, voiceState: .idle) == .send)
+        #expect(ComposerState.rightButton(hasText: true, voiceState: .done) == .send)
+        #expect(ComposerState.rightButton(hasText: true, voiceState: .denied) == .send)
     }
 
-    @Test("idle + empty text shows mic")
-    func idleEmptyShowsMic() {
-        #expect(ComposerState.rightButton(isAgentActive: false, hasText: false, voiceState: .idle) == .mic)
-        #expect(ComposerState.rightButton(isAgentActive: false, hasText: false, voiceState: .done) == .mic)
-        #expect(ComposerState.rightButton(isAgentActive: false, hasText: false, voiceState: .denied) == .mic)
-        #expect(ComposerState.rightButton(isAgentActive: false, hasText: false, voiceState: .error("oops")) == .mic)
+    @Test("empty text shows mic")
+    func emptyShowsMic() {
+        #expect(ComposerState.rightButton(hasText: false, voiceState: .idle) == .mic)
+        #expect(ComposerState.rightButton(hasText: false, voiceState: .done) == .mic)
+        #expect(ComposerState.rightButton(hasText: false, voiceState: .denied) == .mic)
+        // A failed recording still leaves an empty field, so the affordance is
+        // "try again", not "send nothing".
+        #expect(ComposerState.rightButton(hasText: false, voiceState: .error("oops")) == .mic)
     }
 
     // MARK: inputMode
