@@ -15,7 +15,7 @@ import { SectionEyebrow } from "../../../ui/atoms/SectionEyebrow";
 import { SkeletonRow } from "../../../ui/atoms/SkeletonRow";
 import { PrimaryButton } from "../../../ui/button";
 import { PageHeader } from "../../../ui/PageHeader";
-import { colors, spacing, typography } from "../../../ui/theme";
+import { colors, radii, spacing, typography } from "../../../ui/theme";
 import { ActorRow } from "../components/ActorRow";
 import {
   SegmentedFilter,
@@ -37,6 +37,8 @@ export type ActorsListScreenProps = {
   onLoad: () => void;
   onOpenStats?: () => void;
   onRefresh: () => void;
+  /** True when the signed-in user has zero accessible agents in this team. */
+  showAddYourAgentNotice?: boolean;
   onSelectActor?: (actorId: string) => void;
   state: ActorsListState;
 };
@@ -124,6 +126,7 @@ export function ActorsListScreen({
   onOpenStats,
   onRefresh,
   onSelectActor,
+  showAddYourAgentNotice = false,
   state,
 }: ActorsListScreenProps) {
   const [filter, setFilter] = useState<Filter>("all");
@@ -239,6 +242,21 @@ export function ActorsListScreen({
 
       <SegmentedFilter onSelect={setFilter} segments={segments} selection={filter} />
 
+      {/* "The current user has no accessible agent" — distinct from "the team
+          has none", which the zero-agent reminder sheet covers on first run. */}
+      {showAddYourAgentNotice && onInvite ? (
+        <Pressable
+          accessibilityRole="button"
+          onPress={onInvite}
+          style={({ pressed }) => [styles.ownAgentNotice, pressed ? { opacity: 0.8 } : null]}
+          testID="members.addYourAgentNotice"
+        >
+          <Ionicons color={colors.cinnabar} name="bulb-outline" size={16} />
+          <Text style={styles.ownAgentNoticeText}>Add your own agent</Text>
+          <Ionicons color={colors.slate} name="chevron-forward" size={14} />
+        </Pressable>
+      ) : null}
+
       {humans.length + agents.length === 0 ? (
         <View style={styles.stateBlock}>
           <Text style={styles.stateTitle}>No Actors Yet</Text>
@@ -337,6 +355,22 @@ const styles = StyleSheet.create({
   toolbarGroup: {
     alignItems: "center",
     flexDirection: "row",
+  },
+  ownAgentNotice: {
+    alignItems: "center",
+    backgroundColor: "rgba(184,75,54,0.10)",
+    borderRadius: radii.button,
+    flexDirection: "row",
+    gap: spacing.sm,
+    marginHorizontal: spacing.lg,
+    paddingHorizontal: spacing.md,
+    paddingVertical: spacing.sm,
+  },
+  ownAgentNoticeText: {
+    color: colors.onyx,
+    flex: 1,
+    ...typography.secondaryBody,
+    fontWeight: "600",
   },
 });
 
