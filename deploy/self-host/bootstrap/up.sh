@@ -36,15 +36,15 @@ else
 fi
 
 fc_container() {
-  echo "teamclu-self-host_fc_1"
+  echo "teamclaw-self-host_fc_1"
 }
 
 caddy_container() {
-  echo "teamclu-self-host_caddy_1"
+  echo "teamclaw-self-host_caddy_1"
 }
 
 migrate_container() {
-  echo "teamclu-self-host_migrate_1"
+  echo "teamclaw-self-host_migrate_1"
 }
 
 wait_fc() {
@@ -134,7 +134,7 @@ compose_services_except() {
 }
 
 recreate_no_deps() { # $1=service name
-  local svc="$1" cname="teamclu-self-host_${svc}_1"
+  local svc="$1" cname="teamclaw-self-host_${svc}_1"
   echo "up: recreate $svc (--no-deps, clears stale podman dependency edges)"
   "$RUNTIME" rm -f "$cname" 2>/dev/null || true
   "${RUN[@]}" up -d --no-deps --build "$svc"
@@ -143,8 +143,8 @@ recreate_no_deps() { # $1=service name
 if use_podman_compose; then
   echo "==> compose down (clean stale podman dependency graph)"
   "${RUN[@]}" down --remove-orphans 2>/dev/null || true
-  podman pod rm -f pod_teamclu-self-host 2>/dev/null || true
-  podman rm -f $(podman ps -aq --filter label=com.docker.compose.project=teamclu-self-host) 2>/dev/null || true
+  podman pod rm -f pod_teamclaw-self-host 2>/dev/null || true
+  podman rm -f $(podman ps -aq --filter label=com.docker.compose.project=teamclaw-self-host) 2>/dev/null || true
 
   echo "==> compose up (base stack, excluding fc/caddy/litellm — may take several minutes on first boot)"
   # litellm is held back until litellm-init has created the _litellm database;
@@ -180,10 +180,10 @@ wait_exit_ok "$MIGRATE" 300
 
 if use_podman_compose; then
   echo "==> create _litellm database"
-  "$RUNTIME" start teamclu-self-host_litellm-init_1 2>/dev/null \
+  "$RUNTIME" start teamclaw-self-host_litellm-init_1 2>/dev/null \
     || "${RUN[@]}" up -d --no-deps litellm-init 2>/dev/null \
     || true
-  wait_exit_ok teamclu-self-host_litellm-init_1 120
+  wait_exit_ok teamclaw-self-host_litellm-init_1 120
   recreate_no_deps litellm
 fi
 
