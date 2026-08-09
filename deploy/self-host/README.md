@@ -321,6 +321,28 @@ token、验签）和**终端用户浏览器**（打开 Google 授权页）。代
 桌面端按钮另受 `build.config.*.json` 的 `auth.google` 控制，默认 `false`，
 服务端跑通后再打开。
 
+##### Apple 登录（iOS 原生，和 Google 不是一条路）
+
+iOS 用系统弹窗拿到 id_token，POST 给 FC `/v1/auth/signin-idtoken`，FC 再转
+GoTrue `/auth/v1/token?grant_type=id_token`。**没有浏览器跳转，也没有
+client_secret**：这条 grant 是拿 Apple 的公开 JWKS 验签的。
+
+因此只要两个变量，且都不是机密（默认已开，`.env` 里通常不用写）：
+
+```bash
+ENABLE_APPLE_SIGNUP=true
+# 逗号分隔的 aud 白名单，就是 iOS 的 bundle id
+APPLE_CLIENT_IDS=tech.teamclaw.mobile
+```
+
+没开的现象很有迷惑性：系统弹窗先走完、看着像成功了，最后才报
+`Provider (issuer "https://appleid.apple.com") is not enabled`，容易被当成 iOS 端 bug。
+
+**`appleid.apple.com` 走直连，不走 `AUTH_EGRESS_PROXY`**（已在 `NO_PROXY` 里）。
+墙内直连 Apple 本来就通（~0.7s），而那个代理的目标白名单是给 Google 配的，
+Apple 过去会撞上 tinyproxy 的 `Filtered`，最终表现成 id_token grant 500
+`unexpected_failure` —— 和"没开 provider"是两回事，日志里要分清。
+
 #### E. 切换后端后清理缓存
 
 若之前连过线上环境，清掉浏览器/Tauri WebView 里的 MQTT 缓存，避免沿用旧 broker：
