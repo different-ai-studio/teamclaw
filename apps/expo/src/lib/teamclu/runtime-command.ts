@@ -1,10 +1,13 @@
 import { create, toBinary } from "@bufbuild/protobuf";
 import {
+  AcpAnswerQuestionSchema,
   AcpCommandSchema,
   AcpDenyPermissionSchema,
   AcpGrantPermissionSchema,
+  AcpRequestTurnHistorySchema,
   RuntimeCommandEnvelopeSchema,
 } from "@teamclu/app/proto/amux_pb";
+import type { AcpCommand } from "@teamclu/app/proto/amux_pb";
 
 import type { ConnectedAgent, RuntimeInfo } from "../../features/actors/connected-agent-types";
 import type { TeamMqttClient } from "../mqtt/team-mqtt";
@@ -29,8 +32,31 @@ export type RuntimePermissionResponseInput = {
   optionId?: string;
 };
 
+export type RuntimeAnswerQuestionInput = {
+  targetActorId: string;
+  runtimeId: string;
+  requestId: string;
+  /** One array of selected labels per question, in order. Ignored when rejecting. */
+  answers: ReadonlyArray<ReadonlyArray<string>>;
+  reject?: boolean;
+};
+
+export type RuntimeRequestTurnHistoryInput = {
+  targetActorId: string;
+  runtimeId: string;
+  turnId: string;
+  requestId?: string;
+};
+
 export type RuntimeCommandSender = {
   sendPermissionResponse: (input: RuntimePermissionResponseInput) => Promise<void>;
+  /** Answer (or reject) an opencode `question` tool request. */
+  sendAnswerQuestion: (input: RuntimeAnswerQuestionInput) => Promise<void>;
+  /**
+   * Ask the daemon to replay a turn's history so an expanded turn shows the
+   * full event list rather than only what this device happened to stream.
+   */
+  sendRequestTurnHistory: (input: RuntimeRequestTurnHistoryInput) => Promise<void>;
 };
 
 export type PermissionRuntimeTarget = {
@@ -57,13 +83,37 @@ export function runtimeCommandsTopic(teamId: string, actorId: string, runtimeId:
 export function createRuntimeCommandSender(
   deps: RuntimeCommandSenderDeps,
 ): RuntimeCommandSender {
+  /** Wrap an ACP command in a routing envelope and publish it to the daemon. */
+  async function publish(
+    targetActorIdRaw: string,
+    runtimeIdRaw: string,
+    acpCommand: AcpCommand,
+  ): Promise<void> {
+    const teamId = required(deps.teamId, "team id");
+    const targetActorId = required(targetActorIdRaw, "target actor id");
+    const runtimeId = required(runtimeIdRaw, "runtime id");
+    const peerId = required(deps.peerId, "peer id");
+    const senderActorId = deps.senderActorId?.trim() ?? "";
+    const envelope = create(RuntimeCommandEnvelopeSchema, {
+      runtimeId,
+      actorId: targetActorId,
+      peerId,
+      commandId: deps.commandId?.() ?? uuidV4(),
+      timestamp: BigInt(Math.floor(deps.nowSeconds?.() ?? Date.now() / 1000)),
+      senderActorId,
+      acpCommand,
+    });
+
+    await deps.mqtt.publish(
+      runtimeCommandsTopic(teamId, targetActorId, runtimeId),
+      toBinary(RuntimeCommandEnvelopeSchema, envelope),
+      false,
+    );
+  }
+
   return {
     async sendPermissionResponse(input) {
-      const teamId = required(deps.teamId, "team id");
-      const targetActorId = required(input.targetActorId, "target actor id");
-      const runtimeId = required(input.runtimeId, "runtime id");
       const requestId = required(input.requestId, "request id");
-      const peerId = required(deps.peerId, "peer id");
       const grantOptionId = input.optionId?.trim() ?? "";
       const acpCommand = input.granted
         ? create(AcpCommandSchema, {
@@ -81,22 +131,39 @@ export function createRuntimeCommandSender(
               value: create(AcpDenyPermissionSchema, { requestId }),
             },
           });
-      const senderActorId = deps.senderActorId?.trim() ?? "";
-      const envelope = create(RuntimeCommandEnvelopeSchema, {
-        runtimeId,
-        actorId: targetActorId,
-        peerId,
-        commandId: deps.commandId?.() ?? uuidV4(),
-        timestamp: BigInt(Math.floor(deps.nowSeconds?.() ?? Date.now() / 1000)),
-        senderActorId,
-        acpCommand,
-      });
+      await publish(input.targetActorId, input.runtimeId, acpCommand);
+    },
 
-      await deps.mqtt.publish(
-        runtimeCommandsTopic(teamId, targetActorId, runtimeId),
-        toBinary(RuntimeCommandEnvelopeSchema, envelope),
-        false,
-      );
+    async sendAnswerQuestion(input) {
+      const requestId = required(input.requestId, "request id");
+      const reject = input.reject === true;
+      const acpCommand = create(AcpCommandSchema, {
+        command: {
+          case: "answerQuestion",
+          value: create(AcpAnswerQuestionSchema, {
+            requestId,
+            // The daemon ignores answers when rejecting; send an empty list
+            // rather than a half-filled one so the payload can't mislead.
+            answersJson: JSON.stringify(reject ? [] : input.answers),
+            reject,
+          }),
+        },
+      });
+      await publish(input.targetActorId, input.runtimeId, acpCommand);
+    },
+
+    async sendRequestTurnHistory(input) {
+      const turnId = required(input.turnId, "turn id");
+      const acpCommand = create(AcpCommandSchema, {
+        command: {
+          case: "requestTurnHistory",
+          value: create(AcpRequestTurnHistorySchema, {
+            turnId,
+            requestId: input.requestId?.trim() || uuidV4(),
+          }),
+        },
+      });
+      await publish(input.targetActorId, input.runtimeId, acpCommand);
     },
   };
 }

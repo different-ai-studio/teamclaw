@@ -79,6 +79,8 @@ import {
   type AgentTurnDetailGroupKind,
 } from "../session-turn-detail";
 import type { SessionMessage, SessionSummary } from "../session-types";
+import type { PendingAcpQuestion } from "../pending-questions";
+import { AcpQuestionCard } from "../components/AcpQuestionCard";
 
 type SessionDetailRenderableState = SessionDetailControllerState & {
   status: "empty" | "ready" | "error";
@@ -110,11 +112,19 @@ type SessionDetailScreenProps = {
   onReconnect?: () => void;
   onRefresh?: () => void;
   onOpenMembers?: () => void;
+  /** Backfill a turn's daemon-recorded events when its detail is opened. */
+  onRequestTurnHistory?: (turnId: string, agentId: string) => void;
   onRetryFailed?: (messageId: string) => void;
   onReplyToMessage?: (messageId: string) => void;
   onSend: () => void;
   onShare?: () => void;
   onToggleMute?: () => void;
+  /** Oldest unanswered opencode question; replaces the composer while set. */
+  pendingQuestion?: PendingAcpQuestion | null;
+  isAnsweringQuestion?: boolean;
+  questionErrorMessage?: string | null;
+  onAnswerQuestion?: (question: PendingAcpQuestion, answers: string[][]) => void;
+  onSkipQuestion?: (question: PendingAcpQuestion) => void;
   ownActorId?: string;
   replyTarget?: { messageId: string; content: string } | null;
   senderAvatars?: ReadonlyMap<string, string | null>;
@@ -622,11 +632,17 @@ export function SessionDetailScreen(props: SessionDetailScreenProps) {
     onOpenMembers,
     onReconnect,
     onRefresh,
+    onRequestTurnHistory,
     onRetryFailed,
     onReplyToMessage,
     onSend,
     onShare,
     onToggleMute,
+    onAnswerQuestion,
+    onSkipQuestion,
+    pendingQuestion,
+    isAnsweringQuestion,
+    questionErrorMessage,
     ownActorId,
     replyTarget,
     runtimeInfo,
@@ -659,6 +675,17 @@ export function SessionDetailScreen(props: SessionDetailScreenProps) {
     const source = feedSources.find((item) => item.key === selectedTurnKey);
     return source?.kind === "agentTurn" ? source.turn : null;
   }, [feedSources, selectedTurnKey]);
+
+  // Ask the daemon to replay this turn's thinking / tool-call events when the
+  // detail opens. Live streams already receive deltas over MQTT and the
+  // reducer dedupes overlap, so we don't gate on "do we already have events" —
+  // a redundant request is cheaper than a detail view missing the trace.
+  const selectedDaemonTurnId = selectedTurn?.daemonTurnId ?? null;
+  const selectedTurnAgentId = selectedTurn?.agentId ?? null;
+  useEffect(() => {
+    if (!onRequestTurnHistory || !selectedDaemonTurnId || !selectedTurnAgentId) return;
+    onRequestTurnHistory(selectedDaemonTurnId, selectedTurnAgentId);
+  }, [onRequestTurnHistory, selectedDaemonTurnId, selectedTurnAgentId]);
 
   const feedItems: FeedItem[] = [];
   for (let i = 0; i < feedSources.length; i += 1) {
@@ -1022,19 +1049,32 @@ export function SessionDetailScreen(props: SessionDetailScreenProps) {
         behavior={Platform.select({ ios: "padding", android: undefined })}
         keyboardVerticalOffset={Platform.select({ ios: 8, default: 0 })}
       >
-        <SessionComposerShell
-          composerText={composerText}
-          connectionState={connectionState}
-          isSending={isSending}
-          onAttach={onAttach}
-          onChangeText={onChangeComposerText}
-          onRemovePendingAttachment={(path) => {
-            removePendingAttachment(state.session.teamId, state.session.sessionId, path);
-          }}
-          onSend={onSend}
-          pendingAttachments={pendingAttachments}
-          sendErrorMessage={sendErrorMessage}
-        />
+        {/* An unanswered question blocks the turn, so it takes the composer's
+            place until it is answered or skipped — same swap iOS does. */}
+        {pendingQuestion && onAnswerQuestion && onSkipQuestion ? (
+          <AcpQuestionCard
+            errorMessage={questionErrorMessage}
+            isSubmitting={isAnsweringQuestion}
+            key={pendingQuestion.id}
+            onSkip={() => onSkipQuestion(pendingQuestion)}
+            onSubmit={(answers) => onAnswerQuestion(pendingQuestion, answers)}
+            pending={pendingQuestion}
+          />
+        ) : (
+          <SessionComposerShell
+            composerText={composerText}
+            connectionState={connectionState}
+            isSending={isSending}
+            onAttach={onAttach}
+            onChangeText={onChangeComposerText}
+            onRemovePendingAttachment={(path) => {
+              removePendingAttachment(state.session.teamId, state.session.sessionId, path);
+            }}
+            onSend={onSend}
+            pendingAttachments={pendingAttachments}
+            sendErrorMessage={sendErrorMessage}
+          />
+        )}
       </KeyboardAvoidingView>
     </View>
   );

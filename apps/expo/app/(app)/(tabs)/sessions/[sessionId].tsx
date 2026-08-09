@@ -9,6 +9,7 @@ import type { RuntimeInfo } from "../../../../src/features/actors/connected-agen
 import { createActorsApi } from "../../../../src/features/actors/actor-api";
 import type { Actor } from "../../../../src/features/actors/actor-types";
 import type { SessionMessage } from "../../../../src/features/sessions/session-types";
+import type { PendingAcpQuestion } from "../../../../src/features/sessions/pending-questions";
 import {
   loadComposerDraft,
   saveComposerDraft,
@@ -54,6 +55,7 @@ const fallbackDetailState: SessionDetailControllerState = {
   sendErrorMessage: null,
   replyTarget: null,
   streamingByAgent: emptyTimelineState().streamingByAgent,
+  pendingQuestions: [],
 };
 
 type RouteRuntimeInfo = {
@@ -265,6 +267,8 @@ export default function SessionDetailRoute() {
   const [resolvedPermissions, setResolvedPermissions] = useState<
     ReadonlyMap<string, boolean>
   >(new Map());
+  const [isAnsweringQuestion, setIsAnsweringQuestion] = useState(false);
+  const [questionError, setQuestionError] = useState<string | null>(null);
   const userIdRef = useRef<string | null>(null);
 
   useEffect(() => {
@@ -513,6 +517,91 @@ export default function SessionDetailRoute() {
     }
   };
 
+  const pendingQuestion = detailState.pendingQuestions[0] ?? null;
+
+  /**
+   * Ask the agent's daemon to replay a turn's recorded events. Best-effort: the
+   * turn detail already shows whatever this device streamed, so a missing
+   * runtime target or a publish failure is not worth interrupting the user for.
+   */
+  const requestTurnHistory = async (turnId: string, agentId: string) => {
+    if (!permissionCommandSender) return;
+    const fallbackAgentIds =
+      agentParticipantIds.length > 0
+        ? agentParticipantIds
+        : [agentId, runtimeInfo?.agentId ?? ""].filter(Boolean);
+    const target = resolvePermissionRuntimeTarget({
+      requestingActorId: agentId,
+      agentParticipantIds: fallbackAgentIds,
+      connectedAgents: agentsState.agents,
+      runtimeInfoByAgentId: agentsState.runtimeInfoByAgentId,
+      fallbackRuntime: runtimeInfo
+        ? { agentId: runtimeInfo.agentId, runtimeId: runtimeInfo.runtimeId }
+        : null,
+    });
+    if (!target) return;
+    try {
+      await permissionCommandSender.sendRequestTurnHistory({
+        targetActorId: target.actorId,
+        runtimeId: target.runtimeId,
+        turnId,
+      });
+    } catch {
+      // Silent: the detail view is still useful without the backfill.
+    }
+  };
+
+  /**
+   * Publish an answer (or rejection) for an opencode question, then drop the
+   * card locally. The daemon echoes `question_replied`/`question_rejected`, but
+   * waiting on the broker would leave an answered card blocking the composer.
+   */
+  const handleQuestionResponse = async (
+    question: PendingAcpQuestion,
+    answers: string[][],
+    reject: boolean,
+  ) => {
+    if (!permissionCommandSender) {
+      setQuestionError("移动端 MQTT 未连接，重连后再试。");
+      return;
+    }
+    const fallbackAgentIds =
+      agentParticipantIds.length > 0
+        ? agentParticipantIds
+        : [question.agentActorId, runtimeInfo?.agentId ?? ""].filter(Boolean);
+    const target = resolvePermissionRuntimeTarget({
+      requestingActorId: question.agentActorId,
+      agentParticipantIds: fallbackAgentIds,
+      connectedAgents: agentsState.agents,
+      runtimeInfoByAgentId: agentsState.runtimeInfoByAgentId,
+      fallbackRuntime: runtimeInfo
+        ? { agentId: runtimeInfo.agentId, runtimeId: runtimeInfo.runtimeId }
+        : null,
+    });
+    if (!target) {
+      setQuestionError("还没定位到这个 agent runtime，请等 agent 在线后重试。");
+      return;
+    }
+
+    setIsAnsweringQuestion(true);
+    setQuestionError(null);
+    try {
+      await permissionCommandSender.sendAnswerQuestion({
+        targetActorId: target.actorId,
+        runtimeId: target.runtimeId,
+        requestId: question.id,
+        answers,
+        reject,
+      });
+      controller?.resolvePendingQuestion(question.id);
+      selectionTick();
+    } catch (err) {
+      setQuestionError(err instanceof Error ? err.message : "Couldn't send the answer.");
+    } finally {
+      setIsAnsweringQuestion(false);
+    }
+  };
+
   return (
     <View style={styles.screen}>
       <Stack.Screen options={{ title: "会话详情" }} />
@@ -564,7 +653,19 @@ export default function SessionDetailRoute() {
           headerAvatars={headerAvatars}
           isSending={detailState.isSending}
           isRefreshing={detailState.isRefreshing}
+          isAnsweringQuestion={isAnsweringQuestion}
           mentionPool={mentionPool}
+          pendingQuestion={pendingQuestion}
+          questionErrorMessage={questionError}
+          onAnswerQuestion={(question, answers) => {
+            void handleQuestionResponse(question, answers, false);
+          }}
+          onSkipQuestion={(question) => {
+            void handleQuestionResponse(question, [], true);
+          }}
+          onRequestTurnHistory={(turnId, agentId) => {
+            void requestTurnHistory(turnId, agentId);
+          }}
           onAttach={() => {
             router.push(`/(app)/attach?sessionId=${sessionId}`);
           }}

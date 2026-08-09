@@ -21,6 +21,13 @@ import { setOutboxStatus, syncOutboxFromDao } from "./outbox-store";
 import type { OutboxDao } from "./outbox-db";
 import type { OutboxSender } from "./outbox-sender";
 import { peekPendingAttachments, takePendingAttachments } from "./pending-attachments";
+import {
+  decodePendingQuestion,
+  decodeQuestionRequestId,
+  removePendingQuestion,
+  upsertPendingQuestion,
+  type PendingAcpQuestion,
+} from "./pending-questions";
 import { resolveMentionActorIdsForComposer } from "./session-mention-resolver";
 import type { SessionDetailCache } from "./session-detail-cache";
 import {
@@ -48,6 +55,11 @@ export type SessionDetailControllerState = {
   sendErrorMessage: string | null;
   replyTarget: { messageId: string; content: string } | null;
   streamingByAgent: ReadonlyMap<string, StreamingBuffer>;
+  /**
+   * Unanswered opencode `question` prompts, oldest first. The composer is
+   * replaced by the first entry until it is answered or rejected.
+   */
+  pendingQuestions: ReadonlyArray<PendingAcpQuestion>;
 };
 
 type SessionsApi = ReturnType<typeof createCloudSessionsApi>;
@@ -79,6 +91,12 @@ type SessionDetailController = {
   setComposerText: (value: string) => void;
   setReplyTarget: (target: { messageId: string; content: string } | null) => void;
   sendMessage: () => Promise<void>;
+  /**
+   * Drop a question locally once its answer has been published. The daemon also
+   * emits `question_replied`/`question_rejected`, but a slow broker echo would
+   * otherwise leave the answered card blocking the composer.
+   */
+  resolvePendingQuestion: (requestId: string) => void;
   dispose: () => Promise<void>;
 };
 
@@ -94,6 +112,7 @@ const initialState: SessionDetailControllerState = {
   sendErrorMessage: null,
   replyTarget: null,
   streamingByAgent: emptyTimelineState().streamingByAgent,
+  pendingQuestions: [],
 };
 
 function toIsoFromSeconds(value: bigint): string {
@@ -391,6 +410,45 @@ export function createSessionDetailController(
     });
   }
 
+  /**
+   * OpenCode question events are control-plane state, not timeline rows: keep
+   * them in-memory and let the composer surface the prompt (iOS does the same).
+   * Returns true when the event was a question event and needs no further
+   * timeline handling.
+   */
+  function applyQuestionRawEvent(method: string, payload: Uint8Array, actorId: string): boolean {
+    if (
+      method !== "question_asked" &&
+      method !== "question_replied" &&
+      method !== "question_rejected"
+    ) {
+      return false;
+    }
+    let json: unknown;
+    try {
+      json = JSON.parse(new TextDecoder().decode(payload));
+    } catch {
+      return true;
+    }
+    if (method === "question_asked") {
+      const question = decodePendingQuestion(json, actorId);
+      if (!question) return true;
+      setState({
+        ...state,
+        pendingQuestions: upsertPendingQuestion(state.pendingQuestions, question),
+      });
+      return true;
+    }
+    const requestId = decodeQuestionRequestId(json);
+    if (requestId) {
+      setState({
+        ...state,
+        pendingQuestions: removePendingQuestion(state.pendingQuestions, requestId),
+      });
+    }
+    return true;
+  }
+
   function applyAcpEvent(acpEvent: AcpEvent, envelope: LiveEventEnvelope): boolean {
     const actorId = envelope.actorId;
     if (!actorId) return false;
@@ -398,6 +456,13 @@ export function createSessionDetailController(
     const event = acpEvent.event;
     const createdAt = liveEventCreatedAt(envelope);
     let next: TimelineState | null = null;
+
+    if (
+      event.case === "raw" &&
+      applyQuestionRawEvent(event.value.method, event.value.jsonPayload, actorId)
+    ) {
+      return false;
+    }
 
     if (event.case === "output") {
       const prev = timeline.streamingByAgent.get(actorId);
@@ -705,6 +770,11 @@ export function createSessionDetailController(
         composerText: value,
         sendErrorMessage: null,
       });
+    },
+    resolvePendingQuestion(requestId) {
+      const pendingQuestions = removePendingQuestion(state.pendingQuestions, requestId);
+      if (pendingQuestions.length === state.pendingQuestions.length) return;
+      setState({ ...state, pendingQuestions });
     },
     setReplyTarget(target) {
       setState({
