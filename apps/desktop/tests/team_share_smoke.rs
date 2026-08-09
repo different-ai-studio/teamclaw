@@ -394,10 +394,7 @@ async fn join_existing_noop_when_share_not_opened() {
 
     // No teamclu-team dir.
     let team_repo_dir = std::path::Path::new(&workspace).join("teamclu-team");
-    assert!(
-        !team_repo_dir.exists(),
-        "teamclu-team dir should NOT exist"
-    );
+    assert!(!team_repo_dir.exists(), "teamclu-team dir should NOT exist");
 
     // No share_mode/oss_team_id written.
     let cfg = read_cfg(&workspace);
