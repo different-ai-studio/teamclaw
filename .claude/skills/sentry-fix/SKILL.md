@@ -9,20 +9,20 @@ Fix a specific Sentry issue: gather context, confirm with user, implement fix, w
 
 ## Arguments
 
-- `<ISSUE-ID>` (required): Sentry issue short ID, e.g., `TEAMCLAW-3` or `TEAMCLAW-REACT-2G`
+- `<ISSUE-ID>` (required): Sentry issue short ID, e.g., `TEAMCLU-3` or `TEAMCLU-REACT-2G`
 
-The issue ID is passed as the skill argument. Example: `/sentry-fix TEAMCLAW-3`
+The issue ID is passed as the skill argument. Example: `/sentry-fix TEAMCLU-3`
 
 ## Projects
 
 | Project | Sentry Slug | Platform | Test Command | Lint Command |
 |---------|-------------|----------|--------------|--------------|
-| Rust backend | `ucar-inc/teamclaw` | Rust | `cargo test --manifest-path src-tauri/Cargo.toml` | `cargo clippy --manifest-path src-tauri/Cargo.toml -- -D warnings` |
-| React frontend | `ucar-inc/teamclaw-react` | React | `pnpm test:unit` | `pnpm typecheck && pnpm lint` |
+| Rust backend | `ucar-inc/teamclu` | Rust | `cargo test --manifest-path src-tauri/Cargo.toml` | `cargo clippy --manifest-path src-tauri/Cargo.toml -- -D warnings` |
+| React frontend | `ucar-inc/teamclu-react` | React | `pnpm test:unit` | `pnpm typecheck && pnpm lint` |
 
 Determine which project based on the issue ID prefix:
-- `TEAMCLAW-<suffix>` (no "REACT") → Rust backend
-- `TEAMCLAW-REACT-<suffix>` → React frontend
+- `TEAMCLU-<suffix>` (no "REACT") → Rust backend
+- `TEAMCLU-REACT-<suffix>` → React frontend
 
 ## Execution Steps
 
@@ -62,7 +62,7 @@ Present a fix plan to the user in the terminal. The plan MUST include:
 git checkout -b sentry-fix/<issue-id-lowercase>
 ```
 
-Example: `sentry-fix/teamclaw-3` or `sentry-fix/teamclaw-react-2g`
+Example: `sentry-fix/teamclu-3` or `sentry-fix/teamclu-react-2g`
 
 2. Implement the fix:
    - Follow existing code patterns and style
