@@ -104,8 +104,12 @@ export interface TeamEnvDiagnostics {
   linkIsSymlink: boolean
   linkTarget: string | null
   targetAccessible: boolean
+  /** Daemon cloud cache `~/.amuxd/teams/<id>/cloud/_secrets`. */
   secretsDirExists: boolean
   secretFileCount: number
+  cloudSecretsDir?: string
+  legacySecretsDirExists?: boolean
+  legacySecretFileCount?: number
   secretConfigured: boolean
 }
 
@@ -865,11 +869,21 @@ function buildTeamEnvCheck(teamEnv: TeamEnvDiagnostics | null, teamId: string | 
       hintSection: 'envVars',
     }
   }
+  if (!teamEnv.secretsDirExists) {
+    return {
+      id: 'team_env',
+      title: '团队环境同步',
+      status: 'warn',
+      message: 'daemon 尚未拉取团队 env 云缓存',
+      hint: '确认 daemon 在跑；写入团队变量后会立即 reconcile，否则最长约 5 分钟',
+      hintSection: 'envVars',
+    }
+  }
   return {
     id: 'team_env',
     title: '团队环境同步',
     status: 'ok',
-    message: '团队目录与密钥配置正常',
+    message: `团队目录与密钥配置正常（云缓存 ${teamEnv.secretFileCount} 个）`,
   }
 }
 

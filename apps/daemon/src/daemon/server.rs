@@ -1317,6 +1317,11 @@ impl DaemonServer {
         // A background tick rather than a fetch on the read path: both readers
         // are synchronous and sit on the runtime spawn path, and agents have to
         // start while offline. See `runtime::team_cloud_config`.
+        //
+        // Desktop also triggers an immediate reconcile via
+        // `POST /v1/team/cloud-config/reconcile` after a Cloud API write; that
+        // path shares the same fan-out so a cache update surfaces "runtime
+        // needs restart" without waiting for this tick.
         if let Some(team_id) = self
             .config
             .team_id
@@ -1325,23 +1330,27 @@ impl DaemonServer {
             .filter(|id| !id.is_empty())
             .map(str::to_owned)
         {
-            use crate::runtime::team_cloud_config::log_team_cloud_outcome;
+            use crate::runtime::team_cloud_config::apply_team_cloud_outcome;
             let resolver = Arc::new(
                 crate::runtime::team_cloud_config::TeamCloudConfigResolver::new(
                     self.backend.clone(),
                 ),
             );
+            let backend = Some(self.backend.clone());
+            let refresh = self.refresh_coordinator.clone();
             tokio::spawn(async move {
                 // Once up front so a freshly started daemon converges without
                 // waiting out the first tick, then on the TTL cadence.
                 let outcome = resolver.reconcile_now(&team_id).await;
-                log_team_cloud_outcome(&team_id, outcome);
+                apply_team_cloud_outcome(&team_id, outcome, backend.as_ref(), refresh.as_ref())
+                    .await;
                 let mut tick = tokio::time::interval(Duration::from_secs(300));
                 tick.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
                 loop {
                     tick.tick().await;
                     let outcome = resolver.reconcile(&team_id).await;
-                    log_team_cloud_outcome(&team_id, outcome);
+                    apply_team_cloud_outcome(&team_id, outcome, backend.as_ref(), refresh.as_ref())
+                        .await;
                 }
             });
         }

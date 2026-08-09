@@ -101,6 +101,66 @@ pub async fn sync_status(
     Ok(Json(state.sync_dispatcher.status(&q.team_id).await))
 }
 
+#[derive(Debug, Deserialize, Default)]
+#[serde(rename_all = "camelCase")]
+pub struct ReconcileCloudConfigRequest {
+    /// Optional override; when omitted the daemon's onboarded team is used.
+    #[serde(default)]
+    pub team_id: Option<String>,
+}
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ReconcileCloudConfigResponse {
+    pub team_id: String,
+    pub mcp_changed: bool,
+    pub env_changed: bool,
+}
+
+/// `POST /v1/team/cloud-config/reconcile` — pull team MCP / team env from the
+/// Cloud API into the daemon-owned cache immediately, then fan-out refresh
+/// signals so the UI can prompt for a runtime restart.
+///
+/// Desktop calls this after a successful team env write/delete. Without it the
+/// background tick (300s) is the only converge path, and the cloud cache sits
+/// outside every `refresh_watch` root so no EnvVars change would ever surface.
+pub async fn reconcile_cloud_config(
+    principal: Principal,
+    State(state): State<HttpState>,
+    Json(body): Json<ReconcileCloudConfigRequest>,
+) -> Result<Json<ReconcileCloudConfigResponse>, HttpError> {
+    require_scope(&principal, "workspace:write")?;
+    let team_id = body
+        .team_id
+        .and_then(|id| {
+            let trimmed = id.trim().to_string();
+            (!trimmed.is_empty()).then_some(trimmed)
+        })
+        .map(Ok)
+        .unwrap_or_else(|| team_id_for_workspace(""))?;
+
+    let Some(resolver) = state.team_cloud.as_ref() else {
+        return Err(HttpError::runtime_unavailable(
+            "team cloud config resolver is not available",
+        ));
+    };
+
+    let outcome = resolver.reconcile_now(&team_id).await;
+    crate::runtime::team_cloud_config::apply_team_cloud_outcome(
+        &team_id,
+        outcome,
+        state.backend.as_ref(),
+        state.runtime_refresh.as_ref(),
+    )
+    .await;
+
+    Ok(Json(ReconcileCloudConfigResponse {
+        team_id,
+        mcp_changed: outcome.mcp_changed,
+        env_changed: outcome.env_changed,
+    }))
+}
+
 // ---------------------------------------------------------------------------
 // Task 11: secrets delivery
 // ---------------------------------------------------------------------------

@@ -527,8 +527,12 @@ interface TeamEnvDiagnostics {
   linkIsSymlink: boolean
   linkTarget: string | null
   targetAccessible: boolean
+  /** Daemon cloud cache `~/.amuxd/teams/<id>/cloud/_secrets`. */
   secretsDirExists: boolean
   secretFileCount: number
+  cloudSecretsDir?: string
+  legacySecretsDirExists?: boolean
+  legacySecretFileCount?: number
   secretConfigured: boolean
 }
 
@@ -633,14 +637,21 @@ function TeamEnvDiagnosticsCard({
                     : undefined
                 }
               />
-              {/* Encrypted files present */}
+              {/* Encrypted files in daemon cloud cache */}
               <DiagRow
-                ok={diag.secretFileCount > 0}
-                label={t('settings.envVars.diag.files', '加密文件')}
-                value={t('settings.envVars.diag.filesCount', '{{count}} 个 (_secrets/*.enc.json)', { count: diag.secretFileCount })}
+                ok={diag.secretsDirExists}
+                label={t('settings.envVars.diag.files', '云端缓存')}
+                value={t(
+                  'settings.envVars.diag.filesCount',
+                  '{{count}} 个 (cloud/_secrets/*.enc.json)',
+                  { count: diag.secretFileCount },
+                )}
                 hint={
-                  diag.secretFileCount === 0
-                    ? t('settings.envVars.diag.filesMissing', '团队目录下没有加密的团队变量文件，可能尚未从远端同步下来（daemon 未拉取），或团队还没有人设置过团队变量。')
+                  !diag.secretsDirExists
+                    ? t(
+                        'settings.envVars.diag.filesMissing',
+                        'daemon 尚未拉取团队 env 云缓存（写完后应立即 reconcile；否则最长约 5 分钟）。若团队还没有人设置过变量，首次写入后也会创建该目录。',
+                      )
                     : undefined
                 }
               />
@@ -651,7 +662,7 @@ function TeamEnvDiagnosticsCard({
                   {t('settings.envVars.diag.otherTitle', '其他可能的异常原因')}
                 </p>
                 <ul className="list-disc pl-4 text-xs text-muted-foreground space-y-0.5">
-                  <li>{t('settings.envVars.diag.other1', 'daemon 未运行或未完成一次同步，加密文件还没拉取到本机。')}</li>
+                  <li>{t('settings.envVars.diag.other1', 'daemon 未运行，或写完后未能触发 cloud-config reconcile，缓存尚未更新。')}</li>
                   <li>{t('settings.envVars.diag.other2', '本机团队密钥与加密时用的密钥不一致（成员看到「未解密」标记）。')}</li>
                   <li>{t('settings.envVars.diag.other3', '团队变量只在新建 Agent 会话时注入，改动后需要重启会话才生效。')}</li>
                   <li>{t('settings.envVars.diag.other4', '变量名不合法（团队变量仅支持小写字母、数字、下划线，最长 64 字符）。')}</li>

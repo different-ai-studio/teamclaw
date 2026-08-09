@@ -483,6 +483,10 @@ pub(crate) async fn set_secret_for_workspace(
     }
 
     app_handle.emit("secrets-changed", ()).ok();
+    // Best-effort: kick the daemon cache so the new value is injectable without
+    // waiting for the 300s background tick. A failure here must not undo the
+    // durable Cloud API write — the tick will catch up.
+    notify_daemon_team_cloud_reconcile(&team_id).await;
     log::info!("shared_secrets: set secret '{}'", key_id);
     Ok(())
 }
@@ -549,8 +553,17 @@ pub(crate) async fn delete_secret_for_workspace(
     }
 
     app_handle.emit("secrets-changed", ()).ok();
+    notify_daemon_team_cloud_reconcile(&team_id).await;
     log::info!("shared_secrets: deleted secret '{}'", key_id);
     Ok(())
+}
+
+async fn notify_daemon_team_cloud_reconcile(team_id: &str) {
+    if let Err(e) = super::team_sync_proxy::daemon_team_cloud_reconcile(team_id).await {
+        log::warn!(
+            "shared_secrets: daemon cloud-config reconcile failed (will retry on tick): {e}"
+        );
+    }
 }
 
 /// Pull team env from the Cloud API and merge it over whatever the legacy

@@ -186,6 +186,20 @@ pub async fn daemon_team_sync(
     .await
 }
 
+/// `POST /v1/team/cloud-config/reconcile` — pull team MCP/env into the daemon
+/// cache now. Called after a successful Cloud API env-secret write/delete so
+/// the agent runtime does not wait up to 5 minutes for the background tick.
+pub async fn daemon_team_cloud_reconcile(team_id: &str) -> Result<(), String> {
+    daemon_request_unit(
+        reqwest::Method::POST,
+        "/v1/team/cloud-config/reconcile",
+        "",
+        &["workspace:write"],
+        Some(&serde_json::json!({ "teamId": team_id })),
+    )
+    .await
+}
+
 /// Stable daemon problem+json code when the global team dir is not a git repo.
 pub const TEAM_SHARED_DIR_NOT_GIT_CODE: &str = "team_shared_dir_not_git";
 

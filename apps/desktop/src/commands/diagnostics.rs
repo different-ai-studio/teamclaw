@@ -197,15 +197,12 @@ fn gather_team_env_diagnostics(workspace_path: &str, team_id: Option<&str>) -> T
     };
     let target_accessible = std::fs::metadata(&link).is_ok();
 
-    let secrets_dir = link.join(super::shared_secrets::SECRETS_DIR);
-    let secrets_dir_exists = secrets_dir.exists();
-    let secret_file_count = std::fs::read_dir(&secrets_dir)
-        .map(|rd| {
-            rd.flatten()
-                .filter(|e| e.file_name().to_string_lossy().ends_with(".enc.json"))
-                .count()
-        })
-        .unwrap_or(0);
+    let (cloud_secrets_dir, secrets_dir_exists, secret_file_count) =
+        super::env_vars::team_cloud_secrets_diag(team_id_trimmed.as_deref());
+
+    let legacy_secrets_dir = link.join(super::shared_secrets::SECRETS_DIR);
+    let legacy_secrets_dir_exists = legacy_secrets_dir.exists();
+    let legacy_secret_file_count = super::env_vars::count_enc_json_files(&legacy_secrets_dir);
 
     let secret_configured = teamclaw_runtime_env::env_catalog::resolve_team_env_secret(
         ws,
@@ -223,6 +220,9 @@ fn gather_team_env_diagnostics(workspace_path: &str, team_id: Option<&str>) -> T
         target_accessible,
         secrets_dir_exists,
         secret_file_count,
+        cloud_secrets_dir,
+        legacy_secrets_dir_exists,
+        legacy_secret_file_count,
         secret_configured,
     }
 }

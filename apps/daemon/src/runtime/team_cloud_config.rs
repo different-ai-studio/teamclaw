@@ -78,21 +78,8 @@ impl TeamCloudReconcileOutcome {
     }
 }
 
-/// Report what a reconcile changed.
-///
-/// **Known gap, deliberately left for the PR that makes it reachable.** When the
-/// cache changes, affected workspaces should also get a
-/// `RefreshChangeKind::{Mcp, EnvVars}` recorded so the UI surfaces "runtime
-/// needs restart" — that is what `refresh_watch` does today for the on-disk
-/// `.mcp/` and `_secrets/` directories, and the cloud cache is outside every
-/// watched root (it is a daemon-private sibling of the synced team dir, by
-/// design). The signal cannot ride the watcher; it has to come from here.
-///
-/// It is not wired yet because `RefreshCoordinator::record_change` is
-/// per-workspace while this resolver is per-team, so it needs a fan-out over the
-/// team's workspaces — and until clients start writing team MCP/env, every
-/// reconcile is a no-op, which would make that fan-out untestable dead code.
-/// Wire it alongside the first write path.
+/// Log a reconcile outcome (no fan-out). Prefer [`apply_team_cloud_outcome`]
+/// whenever a refresh coordinator is available.
 pub fn log_team_cloud_outcome(team_id: &str, outcome: TeamCloudReconcileOutcome) {
     if outcome.changed() {
         tracing::info!(
@@ -100,6 +87,98 @@ pub fn log_team_cloud_outcome(team_id: &str, outcome: TeamCloudReconcileOutcome)
             mcp_changed = outcome.mcp_changed,
             env_changed = outcome.env_changed,
             "team cloud config cache updated"
+        );
+    }
+}
+
+/// Log + fan-out `RefreshChangeKind::{Mcp, EnvVars}` to every local workspace
+/// of `team_id`.
+///
+/// The cloud cache lives under `~/.amuxd/teams/<id>/cloud/`, a sibling of the
+/// synced team dir and outside every `refresh_watch` root — so a cache update
+/// never produces a filesystem watch event. The signal has to come from here:
+/// `record_change` is per-workspace while the resolver is per-team.
+pub async fn apply_team_cloud_outcome(
+    team_id: &str,
+    outcome: TeamCloudReconcileOutcome,
+    backend: Option<&Arc<dyn Backend>>,
+    refresh: Option<&Arc<crate::runtime::refresh::RuntimeRefreshCoordinator>>,
+) {
+    log_team_cloud_outcome(team_id, outcome);
+    if !outcome.changed() {
+        return;
+    }
+    let Some(refresh) = refresh else {
+        return;
+    };
+    let Some(backend) = backend else {
+        return;
+    };
+
+    let rows = match backend
+        .get_workspaces_by_agent(team_id, backend.actor_id())
+        .await
+    {
+        Ok(rows) => rows,
+        Err(e) => {
+            tracing::warn!(
+                team_id,
+                error = %e,
+                "team cloud cache changed but workspace list failed; skipping refresh fan-out"
+            );
+            return;
+        }
+    };
+
+    for row in rows {
+        let Some((path, _)) = crate::config::workspace_path::listable_local_workspace(&row) else {
+            continue;
+        };
+        let workspace_path = PathBuf::from(&path);
+        let workspace_id =
+            crate::runtime::refresh::refresh_watch::workspace_runtime_id(&workspace_path);
+        if outcome.env_changed {
+            record_refresh(
+                refresh,
+                &workspace_id,
+                &workspace_path,
+                crate::runtime::refresh::RefreshChangeKind::EnvVars,
+            )
+            .await;
+        }
+        if outcome.mcp_changed {
+            record_refresh(
+                refresh,
+                &workspace_id,
+                &workspace_path,
+                crate::runtime::refresh::RefreshChangeKind::Mcp,
+            )
+            .await;
+        }
+    }
+}
+
+async fn record_refresh(
+    refresh: &crate::runtime::refresh::RuntimeRefreshCoordinator,
+    workspace_id: &str,
+    workspace_path: &Path,
+    kind: crate::runtime::refresh::RefreshChangeKind,
+) {
+    if let Err(error) = refresh
+        .record_change(
+            workspace_id,
+            workspace_path,
+            kind,
+            crate::runtime::refresh::RefreshSource::UiMutation,
+        )
+        .await
+    {
+        tracing::warn!(
+            workspace_id,
+            workspace_path = %workspace_path.display(),
+            ?kind,
+            error = %error,
+            "failed to record refresh change after team cloud reconcile"
         );
     }
 }

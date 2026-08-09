@@ -527,10 +527,18 @@ pub struct TeamEnvDiagnostics {
     pub link_target: Option<String>,
     /// The path is accessible following the link (a dangling symlink is false).
     pub target_accessible: bool,
-    /// A `_secrets/` directory exists under the team dir.
+    /// Daemon cloud cache dir exists:
+    /// `~/.amuxd/teams/<teamId>/cloud/_secrets`.
     pub secrets_dir_exists: bool,
-    /// Count of `*.enc.json` secret files present under `_secrets/`.
+    /// Count of `*.enc.json` files in the daemon cloud cache (authoritative
+    /// after the Cloud API migration).
     pub secret_file_count: usize,
+    /// Absolute path of the cloud `_secrets` cache (empty when team id missing).
+    pub cloud_secrets_dir: String,
+    /// Legacy workspace `teamclaw-team/_secrets` still present from the
+    /// git/OSS era. Informational only — cloud cache wins at runtime.
+    pub legacy_secrets_dir_exists: bool,
+    pub legacy_secret_file_count: usize,
     /// A local team secret is resolvable, so shared writes can be encrypted and
     /// existing secrets decrypted.
     pub secret_configured: bool,
@@ -568,15 +576,12 @@ pub async fn team_env_diagnostics(
     // `metadata` follows symlinks: a dangling link yields Err → not accessible.
     let target_accessible = std::fs::metadata(&link).is_ok();
 
-    let secrets_dir = link.join(super::shared_secrets::SECRETS_DIR);
-    let secrets_dir_exists = secrets_dir.exists();
-    let secret_file_count = std::fs::read_dir(&secrets_dir)
-        .map(|rd| {
-            rd.flatten()
-                .filter(|e| e.file_name().to_string_lossy().ends_with(".enc.json"))
-                .count()
-        })
-        .unwrap_or(0);
+    let (cloud_secrets_dir, secrets_dir_exists, secret_file_count) =
+        team_cloud_secrets_diag(team_id_trimmed.as_deref());
+
+    let legacy_secrets_dir = link.join(super::shared_secrets::SECRETS_DIR);
+    let legacy_secrets_dir_exists = legacy_secrets_dir.exists();
+    let legacy_secret_file_count = count_enc_json_files(&legacy_secrets_dir);
 
     let secret_configured = teamclaw_runtime_env::env_catalog::resolve_team_env_secret(
         ws,
@@ -594,8 +599,36 @@ pub async fn team_env_diagnostics(
         target_accessible,
         secrets_dir_exists,
         secret_file_count,
+        cloud_secrets_dir,
+        legacy_secrets_dir_exists,
+        legacy_secret_file_count,
         secret_configured,
     })
+}
+
+/// `~/.amuxd/teams/<teamId>/cloud/_secrets` presence + `*.enc.json` count.
+pub(crate) fn team_cloud_secrets_diag(team_id: Option<&str>) -> (String, bool, usize) {
+    let Some(team_id) = team_id.map(str::trim).filter(|s| !s.is_empty()) else {
+        return (String::new(), false, 0);
+    };
+    let dir = super::amuxd_home_dir()
+        .join("teams")
+        .join(team_id)
+        .join("cloud")
+        .join(super::shared_secrets::SECRETS_DIR);
+    let exists = dir.exists();
+    let count = count_enc_json_files(&dir);
+    (dir.display().to_string(), exists, count)
+}
+
+pub(crate) fn count_enc_json_files(dir: &Path) -> usize {
+    std::fs::read_dir(dir)
+        .map(|rd| {
+            rd.flatten()
+                .filter(|e| e.file_name().to_string_lossy().ends_with(".enc.json"))
+                .count()
+        })
+        .unwrap_or(0)
 }
 
 /// Diagnostics for the personal env-var store + workspace index alignment.

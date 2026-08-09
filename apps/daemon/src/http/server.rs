@@ -125,6 +125,11 @@ pub async fn spawn(
     let managed_llm = backend
         .clone()
         .map(|b| Arc::new(crate::runtime::managed_llm::ManagedLlmResolver::new(b)));
+    // Same shape for team MCP / team env: desktop posts after a Cloud API write
+    // so the daemon cache converges immediately instead of waiting for the tick.
+    let team_cloud = backend.clone().map(|b| {
+        Arc::new(crate::runtime::team_cloud_config::TeamCloudConfigResolver::new(b))
+    });
 
     let state = HttpState::new(
         http,
@@ -141,6 +146,7 @@ pub async fn spawn(
     .with_config_admin(config_path, channel_reload_tx, onboarding)
     .with_live_tee(live_tee)
     .with_managed_llm(managed_llm)
+    .with_team_cloud(team_cloud)
     .with_local_rpc(local_rpc_tx)
     .with_local_live_ingest(local_live_ingest_tx);
 
