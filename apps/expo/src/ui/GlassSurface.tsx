@@ -12,10 +12,17 @@ import { colors } from "./theme";
  * (`LiquidGlassBar.liquidGlass`): a tint at 14% over `.ultraThinMaterial`,
  * with a soft shadow. That fallback is the spec this implements.
  *
- * Android caveat: `expo-blur` only does a real backdrop blur there via the
- * experimental Dimezis method. It is opt-in per platform below; where it is
- * unavailable the component degrades to the translucent tint alone, which is
- * still closer to the bar iOS draws than an opaque fill.
+ * **Android draws no glass at all.** `expo-blur`'s only real backdrop blur
+ * there is the experimental Dimezis path, and it misbehaved on device — which
+ * is why the tab bar stopped using this component entirely. The remaining
+ * consumer is `GlassHeader`, and it tints at 85%, so the blur underneath was
+ * contributing almost nothing anyway: an opaque fill of the same colour is
+ * within a rounding error of what the blur produced, minus the artefacts.
+ *
+ * Note the fallback is *opaque*, not "the translucent tint alone". A tint with
+ * no blur behind it leaves content legible straight through the bar, which is
+ * worse than either alternative — the tint's whole job is to hold a title
+ * readable over whatever scrolls past.
  */
 
 export type GlassSurfaceProps = {
@@ -36,16 +43,22 @@ export function GlassSurface({
   tint,
   tintOpacity = 0.14,
 }: GlassSurfaceProps) {
+  if (Platform.OS === "android") {
+    return (
+      <View
+        style={[
+          StyleSheet.absoluteFill,
+          styles.clip,
+          { backgroundColor: tint ?? colors.mist },
+          style,
+        ]}
+      />
+    );
+  }
+
   return (
     <View style={[StyleSheet.absoluteFill, styles.clip, style]}>
-      <BlurView
-        // Real blur on Android needs the experimental path; iOS uses the
-        // system material either way.
-        experimentalBlurMethod={Platform.OS === "android" ? "dimezisBlurView" : undefined}
-        intensity={intensity}
-        style={StyleSheet.absoluteFill}
-        tint="light"
-      />
+      <BlurView intensity={intensity} style={StyleSheet.absoluteFill} tint="light" />
       <View
         style={[
           StyleSheet.absoluteFill,
