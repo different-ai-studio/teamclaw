@@ -8,6 +8,15 @@ export type TeamMembership = {
   name: string;
   slug: string;
   role: string;
+  /**
+   * Owning org, when the picker RPC reports one.
+   *
+   * Carried because it decides whether a team is usable at all: the server
+   * keeps one active org per session and filters other orgs out by RLS, so a
+   * team listed here can still be unreachable. `list_teams_for_picker` has
+   * always returned it — this type just used to drop it.
+   */
+  orgName: string | null;
 };
 
 /** The team facts Settings shows, from `GET /v1/teams/:teamId`. */
@@ -32,6 +41,7 @@ type ListedTeam = {
   slug: string | null;
   role: string | null;
   isMember?: boolean;
+  orgName?: string | null;
 };
 
 type ListTeamsResponse = {
@@ -60,6 +70,7 @@ export function createTeamsApi(options: CreateTeamsApiOptions) {
         name: team.name ?? "Unnamed team",
         slug: team.slug ?? "",
         role: team.role ?? "member",
+        orgName: team.orgName ?? null,
       }));
       return { memberships };
     },

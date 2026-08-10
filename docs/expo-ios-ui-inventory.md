@@ -34,9 +34,9 @@ Rows carrying two marks (`✅ header ◻ body`) are counted by their first, so t
 
 | Status | Count |
 |---|---|
-| ✅ verified | 53 |
+| ✅ verified | 55 |
 | ⚠ known gap | 2 |
-| ◻ unverified | 14 |
+| ◻ unverified | 12 |
 | ✖ missing | 1 |
 | **Total** | **70** |
 
@@ -125,7 +125,7 @@ point of the column.
 | `IdeasTab` | 209 | `app/(app)/(tabs)/ideas.tsx` | ✅ header ◻ body |
 | `MembersTab` | 145 | `app/(app)/(tabs)/actors.tsx` | ✅ header ◻ body |
 | `RootTabView` | 318 | `app/(app)/(tabs)/_layout.tsx` | ✅ glass tab bar |
-| `SearchTab` | 144 | `app/(app)/(tabs)/search.tsx` | ◻ |
+| `SearchTab` | 144 | `app/(app)/(tabs)/search.tsx` | ✅ same three result sections; Expo adds a recent-searches list iOS has no equivalent of |
 | `SessionsTab` | 363 | `app/(app)/(tabs)/sessions/index.tsx` | ✅ header ◻ body |
 
 ## AMUXUI/SessionList
@@ -165,7 +165,7 @@ entirely: it swept `Packages/` only. All six are auth/onboarding, none verified.
 | `ContentView` | 382 | `app/_layout.tsx` + `app/index.tsx` | ◻ |
 | `LoginView` | 464 | `onboarding/screens/AuthScreen.tsx` | ◻ |
 | `OnboardingViews` | 94 | `onboarding/screens/CreateTeamScreen.tsx` | ◻ |
-| `OrgTeamPickerView` | 70 | `app/(app)/teams.tsx` | ◻ |
+| `OrgTeamPickerView` | 70 | `app/(app)/teams.tsx` + `membership-groups.ts` | ✅ |
 | `WelcomeView` | 168 | `onboarding/screens/WelcomeScreen.tsx` | ◻ |
 
 ---
@@ -225,7 +225,7 @@ No iOS counterpart, and none needed: `app/(app)/mqtt-debug.tsx`,
 ## How to use this
 
 Work down the ◻ rows. Verifying one means opening both files side by side and
-either marking it ✅ or writing a ⚠ row with the specific difference. The 14
+either marking it ✅ or writing a ⚠ row with the specific difference. The 12
 unverified rows are the remaining Axis 6 work, and they are not evenly sized —
 `MemberListContent` (1598), `SessionDetailView` (993), `NewSessionSheet` (599)
 and `LoginView` (464) are most of the mass.
