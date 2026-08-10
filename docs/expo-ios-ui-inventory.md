@@ -34,15 +34,21 @@ Rows carrying two marks (`✅ header ◻ body`) are counted by their first, so t
 
 | Status | Count |
 |---|---|
-| ✅ verified | 37 |
+| ✅ verified | 44 |
 | ⚠ known gap | 2 |
-| ◻ unverified | 30 |
+| ◻ unverified | 23 |
 | ✖ missing | 1 |
 | **Total** | **70** |
 
 Counts move as rows are worked. Last updated after the shared-primitives sweep
 (mentions, slash commands, chip bar, banners, todo dock, plans panel,
-segmented filter, avatar cluster).
+segmented filter, avatar cluster) and the small-surface batch.
+
+A note on the small ones: several are ✅ because there is nothing to port, not
+because something was built. `GlassButtonStyle` and `AppTab` resolve to SwiftUI
+primitives with no RN counterpart; `IdeaUIPresentation` is three constants.
+Marking them verified means someone looked and concluded that, which is the
+point of the column.
 
 ---
 
@@ -63,7 +69,7 @@ segmented filter, avatar cluster).
 | `TodoDockView` | 92 | `sessions/components/TodoDock.tsx` | ✅ |
 | `TodoItemStyling` | 21 | `TodoDock.tsx` / `SessionPlansPanel.tsx` glyph maps | ✅ |
 | `ToolCallView` | 343 | `components/ToolCallLine.tsx` + `tool-display.ts` | ✅ |
-| `ViewModifiers` | 50 | scattered | ◻ |
+| `ViewModifiers` | 50 | `ui/GlassSurface.tsx` | ✅ this *is* the `liquidGlass` modifier — the pre-26 fallback it documents is exactly what `GlassSurface` implements on iOS, and Android now renders opaque |
 
 ## AMUXUI/AgentDetail — the session screen
 
@@ -87,13 +93,13 @@ segmented filter, avatar cluster).
 
 | iOS | LOC | Expo | |
 |---|---|---|---|
-| `ArchivedIdeasView` | 48 | `app/(app)/archived-ideas.tsx` | ◻ |
+| `ArchivedIdeasView` | 48 | `app/(app)/archived-ideas.tsx` | ✅ ⚠ inline Restore button where iOS swipes; more discoverable, same outcome |
 | `IdeaDetailView` | 859 | `screens/IdeaDetailScreen.tsx` | ✅ activity feed, attachments, progress composer ◻ rest |
 | `IdeaImageAttachments` | 205 | `components/IdeaImageAttachmentStrip.tsx` | ✅ |
 | `IdeaListView` | 236 | `screens/IdeasListScreen.tsx` + `IdeaRow.tsx` | ✅ |
 | `IdeaSheets` | 446 | `app/(app)/new-idea.tsx` | ◻ |
 | `IdeaStatsSheet` | 383 | `screens/IdeaStatsSheet.tsx` | ✅ |
-| `IdeaUIPresentation` | 5 | `ideas/idea-types.ts` | ◻ |
+| `IdeaUIPresentation` | 5 | `ideas/idea-types.ts` | ✅ three constants (title, plural, `lightbulb`); the SF Symbol is on the iOS tab bar |
 
 ## AMUXUI/Members — actors
 
@@ -113,9 +119,9 @@ segmented filter, avatar cluster).
 | iOS | LOC | Expo | |
 |---|---|---|---|
 | `ApertureSplashView` | 142 | `screens/ApertureSplashScreen.tsx` | ✅ |
-| `ZeroAgentReminderSheet` | 48 | `screens/ZeroAgentReminderSheet.tsx` | ◻ |
-| `AppTab` | 10 | `app/(app)/(tabs)/_layout.tsx` | ◻ |
-| `ConnectionBannerOverlay` | 24 | `components/ConnectionBannerOverlay.tsx` | ◻ |
+| `ZeroAgentReminderSheet` | 48 | `screens/ZeroAgentReminderSheet.tsx` | ✅ |
+| `AppTab` | 10 | `app/(app)/(tabs)/_layout.tsx` | ✅ a 4-case enum; expo-router keys tabs by route name instead |
+| `ConnectionBannerOverlay` | 24 | `components/ConnectionBannerOverlay.tsx` | ✅ |
 | `IdeasTab` | 209 | `app/(app)/(tabs)/ideas.tsx` | ✅ header ◻ body |
 | `MembersTab` | 145 | `app/(app)/(tabs)/actors.tsx` | ✅ header ◻ body |
 | `RootTabView` | 318 | `app/(app)/(tabs)/_layout.tsx` | ✅ glass tab bar |
@@ -139,7 +145,7 @@ segmented filter, avatar cluster).
 | `NotificationsSettingsView` | 98 | `app/(app)/notifications.tsx` | ◻ |
 | `SettingsView` | 911 | `screens/SettingsScreen.tsx` | ✅ surface coverage ◻ visual |
 | `UpgradeAccountSheet` | 294 | `app/(app)/upgrade-account.tsx` | ◻ |
-| `GlassButtonStyle` | 32 | `ui/button.tsx` | ◻ |
+| `GlassButtonStyle` | 32 | `ui/button.tsx` | ✅ nothing to port: both helpers resolve to `.glassProminent`/`.bordered`, which RN has no equivalent of. Its useful content is the caveat (never inside a toolbar — iOS 26 already glazes those), which does not apply |
 | `HaiSheet` | 79 | — | ✖ see below |
 | `LiquidGlassBar` | 76 | `ui/GlassHeader.tsx` + `GlassSurface.tsx` | ✅ |
 | `SegmentedFilterBar` | 81 | `actors/components/SegmentedFilter.tsx` | ✅ |
@@ -219,7 +225,7 @@ No iOS counterpart, and none needed: `app/(app)/mqtt-debug.tsx`,
 ## How to use this
 
 Work down the ◻ rows. Verifying one means opening both files side by side and
-either marking it ✅ or writing a ⚠ row with the specific difference. The 30
+either marking it ✅ or writing a ⚠ row with the specific difference. The 23
 unverified rows are the remaining Axis 6 work, and they are not evenly sized —
 `MemberListContent` (1598), `SessionDetailView` (993), `NewSessionSheet` (599)
 and `LoginView` (464) are most of the mass.
