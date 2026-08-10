@@ -162,15 +162,6 @@ export function createSessionsModule(client: CloudApiClient): SessionsBackend {
       );
       return mapSessionDetail(out);
     },
-    async getSessionTeamId(sessionId) {
-      try {
-        const out = await client.get<{ teamId?: string | null }>(`/v1/sessions/${encodeURIComponent(sessionId)}`);
-        return out.teamId ?? null;
-      } catch (e) {
-        if (e instanceof CloudApiError && e.status === 404) return null;
-        throw e;
-      }
-    },
     // Pages to exhaustion. This route was already paginated server-side
     // (default 50) while this client read only `items` off the first response,
     // so any team with more than 50 changes since the last watermark lost the

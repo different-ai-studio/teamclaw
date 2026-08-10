@@ -21,25 +21,31 @@ import { useCurrentTeamStore } from "@/stores/current-team";
  * creates one — the list otherwise only picks the row up on its own poll.
  */
 export async function ensureCronSessionVisible(sessionId: string): Promise<void> {
-  // Fetch session's team from cloud (always do this to verify access)
-  const teamId = await getBackend().sessions.getSessionTeamId(sessionId);
+  // A cron session belongs to the team you are in. This used to look the team
+  // up from the session id and then `enterTeam` into whatever came back, which
+  // meant a cron surface could yank you into another team's session; a run
+  // history should only ever show its own team's runs. Scoping to the current
+  // team makes a foreign session id simply "not found".
+  const teamId = useCurrentTeamStore.getState().team?.id ?? null;
   if (!teamId) {
     throw new Error(
       i18n.t("settings.cron.sessionNotFound", { id: sessionId.slice(0, 8) }),
     );
   }
 
-  // Switch teams if needed
-  const activeTeamId = useCurrentTeamStore.getState().team?.id ?? null;
-  if (activeTeamId !== teamId) {
-    await useCurrentTeamStore.getState().enterTeam(teamId);
-  }
-
   // Skip upsert if already in list (may have been added by a previous call)
   if (useSessionListStore.getState().rows.some((row) => row.id === sessionId)) return;
 
-  // Fetch display row for title, then upsert into list store
+  // One team-scoped request doing double duty: it fetches the title AND proves
+  // the session is ours — display-rows is filtered by team, so a session from
+  // another team comes back empty. (This replaced a getSessionTeamId call that
+  // ran ahead of it purely to "verify access", so this is one request fewer.)
   const [displayRow] = await getBackend().sessions.listSessionDisplayRows(teamId, [sessionId]);
+  if (!displayRow) {
+    throw new Error(
+      i18n.t("settings.cron.sessionNotFound", { id: sessionId.slice(0, 8) }),
+    );
+  }
   useSessionListStore.getState().upsertRows([
     {
       id: sessionId,
@@ -147,7 +153,7 @@ export async function hydrateCronSessionMessages(
 
   if (opts?.syncCache !== false && isTauri() && rows.length > 0) {
     try {
-      const teamId = await getBackend().sessions.getSessionTeamId(sessionId);
+      const teamId = useCurrentTeamStore.getState().team?.id ?? null;
       if (teamId) {
         await syncMessagesForSession(sessionId, teamId, { full: true });
         const { loadMessagesForSession } = await import("@/lib/local-cache");

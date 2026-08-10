@@ -28,7 +28,6 @@ import { useSessionListStore } from "@/stores/session-list-store";
 import { useEngagedAgentStore } from "@/stores/engaged-agent-store";
 import { useAgentModelPickStore } from "@/stores/agent-model-pick-store";
 import { useUIStore } from "@/stores/ui";
-import { getBackend } from "@/lib/backend";
 import { expandPageLinkTokensInText } from "@/lib/expand-page-link-tokens";
 import { create as createMessage } from "@bufbuild/protobuf";
 import {
@@ -206,15 +205,12 @@ export function useChatSend({
       useSessionListStore.getState().rows.find(r => r.id === sid)?.team_id ?? null;
     let teamIdForSend: string | null = teamIdFromSessionList;
 
-    const teamIdPromise = resolveSendTeamId({
-      sessionId: sid,
-      teamIdFromSessionList,
-      fetchSessionTeamId: (sessionId) => {
-        sessionFlowLog("send.resolve_team_from_backend.begin", { sessionId });
-        return getBackend().sessions.getSessionTeamId(sessionId);
-      },
-      currentTeamId: () => useCurrentTeamStore.getState().team?.id ?? null,
-    });
+    const teamIdPromise = Promise.resolve(
+      resolveSendTeamId({
+        teamIdFromSessionList,
+        currentTeamId: () => useCurrentTeamStore.getState().team?.id ?? null,
+      }),
+    );
 
     const syncMentions = trySyncMentionActorIds(memberIds, agentIds, text);
     const mentionsPromise: Promise<string[]> = syncMentions
