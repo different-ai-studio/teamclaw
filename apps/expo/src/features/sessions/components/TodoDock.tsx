@@ -12,12 +12,20 @@ import {
 
 type IconName = ComponentProps<typeof Ionicons>["name"];
 
+/**
+ * Per-status glyphs, matching iOS `TodoItemStatus.rowIcon`.
+ *
+ * `in_progress` used to share `ellipse-outline` with `pending`, which hid the
+ * one thing the dock exists to show: which item the agent is on right now.
+ * `contrast` is Ionicons' half-filled circle — the same read as iOS's
+ * `circle.lefthalf.filled`.
+ */
 function iconForStatus(status: TodoItemStatus): IconName {
   switch (status) {
     case "completed":
       return "checkmark-circle";
     case "in_progress":
-      return "ellipse-outline";
+      return "contrast";
     case "cancelled":
       return "close-circle-outline";
     case "pending":
@@ -91,10 +99,9 @@ export function TodoDock({ text }: TodoDockProps) {
                   size={14}
                   style={styles.statusIcon}
                 />
-                <Text
-                  numberOfLines={3}
-                  style={[styles.itemText, isDone ? styles.itemTextDone : null]}
-                >
+                {/* Unclamped, as iOS leaves it: a truncated todo is worse
+                    than a tall row, and the list already scrolls. */}
+                <Text style={[styles.itemText, isDone ? styles.itemTextDone : null]}>
                   {item.content}
                 </Text>
               </View>

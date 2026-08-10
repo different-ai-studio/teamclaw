@@ -56,11 +56,11 @@ and tool-call passes.
 | `MarkdownRenderer` | 141 | inline in `SessionMessageRow.tsx` | ◻ |
 | `MentionsPopup` | 119 | `sessions/components/MentionsPopup.tsx` | ✅ |
 | `PermissionBanner` | 68 | `sessions/components/PermissionBanner.tsx` | ✅ |
-| `SessionPlansPanelView` | 102 | `sessions/components/SessionPlansPanel.tsx` | ◻ |
+| `SessionPlansPanelView` | 102 | `sessions/components/SessionPlansPanel.tsx` | ✅ ⚠ Expo adds a close control iOS has no need for (its panel is a safeAreaInset) |
 | `SlashCommandsPopup` | 118 | `sessions/components/SlashCommandsPopup.tsx` | ✅ |
 | `StreamingTextView` | 51 | inline in `SessionMessageRow.tsx` | ◻ |
-| `TodoDockView` | 92 | `sessions/components/TodoDock.tsx` | ◻ |
-| `TodoItemStyling` | 21 | `sessions/components/todo-dock-parser.ts` | ◻ |
+| `TodoDockView` | 92 | `sessions/components/TodoDock.tsx` | ✅ |
+| `TodoItemStyling` | 21 | `TodoDock.tsx` / `SessionPlansPanel.tsx` glyph maps | ✅ |
 | `ToolCallView` | 343 | `components/ToolCallLine.tsx` + `tool-display.ts` | ✅ |
 | `ViewModifiers` | 50 | scattered | ◻ |
 
