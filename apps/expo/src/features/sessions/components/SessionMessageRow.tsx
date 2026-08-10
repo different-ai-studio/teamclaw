@@ -540,20 +540,55 @@ function AttachmentChip({
   );
 }
 
+/**
+ * Markdown styling for the two bubble variants.
+ *
+ * `fence` is not optional decoration: react-native-markdown-display routes
+ * ```-fenced blocks through it and indented blocks through `code_block`, and
+ * agents emit fenced code almost exclusively. Styling only `code_block` left
+ * the common case on the library's defaults.
+ *
+ * Same reason the blockquote and table rules are here. Their defaults are
+ * hardcoded `#F5F5F5` / `#CCC` / `#000000`, which are off-palette everywhere
+ * and unreadable inside the dark own-message bubble.
+ */
+const OWN_SURFACE = "rgba(248,246,241,0.18)";
+
 const ownMarkdown = {
   body: { color: hai.mist, ...iosType.subheadline, marginBottom: 0, marginTop: 0 },
   code_inline: {
-    backgroundColor: "rgba(248,246,241,0.18)",
+    backgroundColor: OWN_SURFACE,
     borderRadius: 4,
     color: hai.mist,
     paddingHorizontal: 4,
   },
   code_block: {
-    backgroundColor: "rgba(248,246,241,0.18)",
+    backgroundColor: OWN_SURFACE,
     borderRadius: 6,
     color: hai.mist,
     padding: 8,
   },
+  fence: {
+    backgroundColor: OWN_SURFACE,
+    borderRadius: 6,
+    color: hai.mist,
+    padding: 8,
+  },
+  blockquote: {
+    backgroundColor: OWN_SURFACE,
+    borderColor: "rgba(248,246,241,0.45)",
+    borderLeftWidth: 3,
+    marginLeft: 0,
+    paddingHorizontal: 8,
+  },
+  table: {
+    borderColor: "rgba(248,246,241,0.35)",
+    borderRadius: 4,
+    borderWidth: StyleSheet.hairlineWidth,
+  },
+  tr: { borderBottomWidth: StyleSheet.hairlineWidth, borderColor: "rgba(248,246,241,0.35)" },
+  th: { color: hai.mist, padding: 6 },
+  td: { color: hai.mist, padding: 6 },
   link: { color: hai.mist, textDecorationLine: "underline" as const },
   paragraph: { color: hai.mist, marginBottom: 0, marginTop: 0 },
 };
@@ -572,6 +607,27 @@ const otherMarkdown = {
     color: hai.onyx,
     padding: 8,
   },
+  fence: {
+    backgroundColor: hai.pebble,
+    borderRadius: 6,
+    color: hai.onyx,
+    padding: 8,
+  },
+  blockquote: {
+    backgroundColor: hai.pebble,
+    borderColor: hai.slate,
+    borderLeftWidth: 3,
+    marginLeft: 0,
+    paddingHorizontal: 8,
+  },
+  table: {
+    borderColor: hai.hairline,
+    borderRadius: 4,
+    borderWidth: StyleSheet.hairlineWidth,
+  },
+  tr: { borderBottomWidth: StyleSheet.hairlineWidth, borderColor: hai.hairline },
+  th: { color: hai.onyx, padding: 6 },
+  td: { color: hai.onyx, padding: 6 },
   link: { color: hai.cinnabar, textDecorationLine: "underline" as const },
   paragraph: { color: hai.onyx, marginBottom: 0, marginTop: 0 },
 };

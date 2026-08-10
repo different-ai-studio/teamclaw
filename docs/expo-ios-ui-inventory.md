@@ -34,9 +34,9 @@ Rows carrying two marks (`✅ header ◻ body`) are counted by their first, so t
 
 | Status | Count |
 |---|---|
-| ✅ verified | 48 |
+| ✅ verified | 51 |
 | ⚠ known gap | 2 |
-| ◻ unverified | 19 |
+| ◻ unverified | 16 |
 | ✖ missing | 1 |
 | **Total** | **70** |
 
@@ -60,7 +60,7 @@ point of the column.
 | `AMUXTheme` | 133 | `ui/theme.ts` | ⚠ light-only; no Sumi dark set (excluded by the user) |
 | `CommandChip` | 48 | — | ✅ nothing to port: `extractSlashCommand` has no production caller on iOS either, only its own tests. Expo's `slashPrefix` is a different job (autocomplete trigger, not message-render splitting) |
 | `ConnectionBanner` | 60 | `sessions/components/ConnectionBannerOverlay.tsx` | ✅ states + colour ⚠ full-width strip, not iOS's floating capsule (deliberate — clears the pinned glass header) |
-| `MarkdownRenderer` | 141 | inline in `SessionMessageRow.tsx` | ◻ |
+| `MarkdownRenderer` | 141 | inline in `SessionMessageRow.tsx` | ✅ ⚠ no table sanitiser needed — iOS indents table rows to coax swift-markdown-ui; react-native-markdown-display parses GFM tables directly |
 | `MentionsPopup` | 119 | `sessions/components/MentionsPopup.tsx` | ✅ |
 | `PermissionBanner` | 68 | `sessions/components/PermissionBanner.tsx` | ✅ |
 | `SessionPlansPanelView` | 102 | `sessions/components/SessionPlansPanel.tsx` | ✅ ⚠ Expo adds a close control iOS has no need for (its panel is a safeAreaInset) |
@@ -75,8 +75,8 @@ point of the column.
 
 | iOS | LOC | Expo | |
 |---|---|---|---|
-| `AddAgentSheet` | 139 | `MemberPickerSheet.tsx` | ◻ |
-| `AddMemberSheet` | 48 | `MemberPickerSheet.tsx` | ◻ |
+| `AddAgentSheet` | 139 | `MemberPickerSheet.tsx` + `runtime-start.ts` | ✅ same workspace fallback chain (stored default → agent-owned → refuse, never another agent's row) ⚠ Expo closes the sheet on failure where iOS keeps it open with the error |
+| `AddMemberSheet` | 48 | `MemberPickerSheet.tsx` | ✅ iOS separates humans/agents with two sheets, Expo with one sheet and a candidate filter — same guarantee that agents never arrive half-configured |
 | `AgentChipBar` | 169 | `components/AgentChipBar.tsx` | ✅ chip visuals + interrupt confirm ⚠ chips are all agent participants, not a per-turn selection |
 | `AgentsSheet` | 197 | `AgentConfigSheet.tsx` + `ModelPickerSheet.tsx` | ✅ model switch ◻ stop-mid-stream confirm |
 | `AttachmentDrawerSheet` | 165 | `screens/AttachmentDrawerSheet.tsx` | ✅ Files/Camera/Photos, 5-photo cap matches |
@@ -225,7 +225,7 @@ No iOS counterpart, and none needed: `app/(app)/mqtt-debug.tsx`,
 ## How to use this
 
 Work down the ◻ rows. Verifying one means opening both files side by side and
-either marking it ✅ or writing a ⚠ row with the specific difference. The 19
+either marking it ✅ or writing a ⚠ row with the specific difference. The 16
 unverified rows are the remaining Axis 6 work, and they are not evenly sized —
 `MemberListContent` (1598), `SessionDetailView` (993), `NewSessionSheet` (599)
 and `LoginView` (464) are most of the mass.
