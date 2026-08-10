@@ -16,6 +16,7 @@ import { ActorRow } from "../../actors/components/ActorRow";
 import { isAgentActor, isMemberActor, type Actor } from "../../actors/actor-types";
 import { Hairline } from "../../../ui/atoms/Hairline";
 import { SectionEyebrow } from "../../../ui/atoms/SectionEyebrow";
+import { GlassHeader, GLASS_HEADER_HEIGHT } from "../../../ui/GlassHeader";
 import { colors, spacing, typography } from "../../../ui/theme";
 
 export type SessionMemberSheetProps = {
@@ -168,7 +169,7 @@ export function SessionMemberSheet({
 
   return (
     <View style={styles.screen}>
-      <View style={styles.headerBar}>
+      <GlassHeader>
         <Pressable hitSlop={8} onPress={onClose} style={styles.headerSlot}>
           <Ionicons color={colors.onyx} name="close" size={26} />
         </Pressable>
@@ -185,8 +186,7 @@ export function SessionMemberSheet({
             onPress={onAddAgent}
           />
         </View>
-      </View>
-      <Hairline />
+      </GlassHeader>
 
       <ScrollView contentContainerStyle={styles.content}>
         {isLoading && actors.length === 0 ? (
@@ -301,6 +301,7 @@ const styles = StyleSheet.create({
   content: {
     gap: spacing.md,
     paddingBottom: spacing.xxxl,
+    paddingTop: GLASS_HEADER_HEIGHT,
   },
   groups: {
     gap: spacing.lg,
@@ -309,14 +310,6 @@ const styles = StyleSheet.create({
     alignItems: "center",
     flexDirection: "row",
     gap: spacing.xs,
-  },
-  headerBar: {
-    alignItems: "center",
-    backgroundColor: colors.mist,
-    flexDirection: "row",
-    justifyContent: "space-between",
-    minHeight: 48,
-    paddingHorizontal: spacing.xs,
   },
   headerSlot: {
     alignItems: "center",

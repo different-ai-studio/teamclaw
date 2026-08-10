@@ -1039,14 +1039,6 @@ const styles = StyleSheet.create({
     paddingVertical: spacing.md,
     ...typography.secondaryBody,
   },
-  headerBar: {
-    alignItems: "center",
-    backgroundColor: colors.mist,
-    flexDirection: "row",
-    justifyContent: "space-between",
-    minHeight: 48,
-    paddingHorizontal: spacing.xs,
-  },
   headerSlot: {
     alignItems: "center",
     justifyContent: "center",

@@ -19,6 +19,7 @@ import Markdown from "react-native-markdown-display";
 
 import { Hairline } from "../../../ui/atoms/Hairline";
 import { StatusDot } from "../../../ui/atoms/StatusDot";
+import { GlassHeader, GLASS_HEADER_HEIGHT } from "../../../ui/GlassHeader";
 import { colors, hai, spacing, typography } from "../../../ui/theme";
 import {
   AgentChipBar,
@@ -203,9 +204,8 @@ function SessionHeader({
   const status = connectionDescriptor(connectionState);
 
   return (
-    <View>
-      <View style={styles.headerBar}>
-        <Pressable hitSlop={8} onPress={onBack} style={styles.headerSlot}>
+    <GlassHeader>
+      <Pressable hitSlop={8} onPress={onBack} style={styles.headerSlot}>
           <Ionicons name="chevron-back" size={26} color={colors.onyx} />
         </Pressable>
         {headerAvatars && headerAvatars.length > 0 ? (
@@ -283,10 +283,8 @@ function SessionHeader({
               size={20}
             />
           </Pressable>
-        ) : null}
-      </View>
-      <Hairline />
-    </View>
+      ) : null}
+    </GlassHeader>
   );
 }
 
@@ -1104,7 +1102,9 @@ const styles = StyleSheet.create({
     flex: 1,
   },
   feedContent: {
-    paddingVertical: spacing.sm,
+    paddingBottom: spacing.sm,
+    // The header is pinned above the feed, so the first message needs room.
+    paddingTop: GLASS_HEADER_HEIGHT + spacing.sm,
   },
   row: {
     flexDirection: "row",
@@ -1327,13 +1327,6 @@ const styles = StyleSheet.create({
   detailTitleBlock: {
     alignItems: "center",
     flex: 1,
-    paddingHorizontal: spacing.xs,
-  },
-  headerBar: {
-    alignItems: "center",
-    backgroundColor: colors.mist,
-    flexDirection: "row",
-    minHeight: 48,
     paddingHorizontal: spacing.xs,
   },
   headerSeparator: {

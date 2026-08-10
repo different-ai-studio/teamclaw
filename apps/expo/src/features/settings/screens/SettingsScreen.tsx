@@ -610,14 +610,6 @@ const styles = StyleSheet.create({
     // The glass header is pinned above this, so make room for it.
     paddingTop: GLASS_HEADER_HEIGHT + spacing.lg,
   },
-  headerBar: {
-    alignItems: "center",
-    backgroundColor: colors.mist,
-    flexDirection: "row",
-    justifyContent: "space-between",
-    minHeight: 48,
-    paddingHorizontal: spacing.xs,
-  },
   headerSlot: {
     alignItems: "center",
     justifyContent: "center",

@@ -529,14 +529,6 @@ const styles = StyleSheet.create({
     flexShrink: 1,
     ...typography.body,
   },
-  headerBar: {
-    alignItems: "center",
-    backgroundColor: colors.mist,
-    flexDirection: "row",
-    justifyContent: "space-between",
-    minHeight: 48,
-    paddingHorizontal: spacing.xs,
-  },
   headerSlot: {
     alignItems: "center",
     justifyContent: "center",

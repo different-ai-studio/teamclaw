@@ -17,6 +17,7 @@ import {
 import { isAgentActor, type Actor } from "../../actors/actor-types";
 import { Hairline } from "../../../ui/atoms/Hairline";
 import { SectionEyebrow } from "../../../ui/atoms/SectionEyebrow";
+import { GlassHeader, GLASS_HEADER_HEIGHT } from "../../../ui/GlassHeader";
 import { colors, radii, spacing, typography } from "../../../ui/theme";
 import {
   AgentConfigSheet,
@@ -173,14 +174,13 @@ export function NewSessionScreen({
 
   return (
     <View style={styles.screen}>
-      <View style={styles.headerBar}>
+      <GlassHeader>
         <View style={styles.headerSlot} />
         <Text style={styles.headerTitle}>New Session</Text>
         <Pressable hitSlop={8} onPress={onClose} style={styles.headerSlot}>
           <Ionicons name="close" size={26} color={colors.onyx} />
         </Pressable>
-      </View>
-      <Hairline />
+      </GlassHeader>
 
       <KeyboardAvoidingView
         behavior={Platform.select({ ios: "padding", default: undefined })}
@@ -448,6 +448,7 @@ const styles = StyleSheet.create({
   },
   body: {
     flex: 1,
+    paddingTop: GLASS_HEADER_HEIGHT,
   },
   bodyContent: {
     gap: spacing.xl,
@@ -533,14 +534,6 @@ const styles = StyleSheet.create({
     paddingHorizontal: spacing.lg,
     paddingTop: spacing.xs,
     ...typography.caption,
-  },
-  headerBar: {
-    alignItems: "center",
-    backgroundColor: colors.mist,
-    flexDirection: "row",
-    justifyContent: "space-between",
-    minHeight: 48,
-    paddingHorizontal: spacing.xs,
   },
   headerSlot: {
     alignItems: "center",
