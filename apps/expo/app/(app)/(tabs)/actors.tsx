@@ -9,7 +9,6 @@ import { ActorsListScreen } from "../../../src/features/actors/screens/ActorsLis
 import { supabase } from "../../../src/lib/supabase/client";
 import { supabaseAccessToken } from "../../../src/lib/cloud-api/client";
 import { createActorsCache } from "../../../src/lib/db/team-cache";
-import { useTabBarInset } from "../../../src/ui/use-tab-bar-inset";
 
 /** Stable no-op store so `useSyncExternalStore` can run before MQTT connects. */
 const noopSubscribe = () => () => {};
@@ -25,7 +24,6 @@ const emptyAgentsState = () => EMPTY_AGENTS_STATE;
 const actorsCache = createActorsCache();
 
 export default function ActorsIndexRoute() {
-  const tabBarInset = useTabBarInset();
   const router = useRouter();
   const { state } = useOnboarding();
   const href = routeToHref(state.route);
@@ -81,7 +79,6 @@ export default function ActorsIndexRoute() {
 
   return (
     <ActorsListScreen
-      bottomInset={tabBarInset}
       currentActorId={state.currentMemberActorId}
       onInvite={() => router.push("/(app)/invite")}
       onLoad={() => {

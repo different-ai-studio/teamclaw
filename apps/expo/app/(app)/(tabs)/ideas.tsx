@@ -11,13 +11,11 @@ import { supabase } from "../../../src/lib/supabase/client";
 import { supabaseAccessToken } from "../../../src/lib/cloud-api/client";
 import { createIdeasCache } from "../../../src/lib/db/team-cache";
 import { showToast } from "../../../src/ui/Toast";
-import { useTabBarInset } from "../../../src/ui/use-tab-bar-inset";
 
 // Module-scoped: one cache handle for the app, not one per render.
 const ideasCache = createIdeasCache();
 
 export default function IdeasIndexRoute() {
-  const tabBarInset = useTabBarInset();
   const router = useRouter();
   const { state } = useOnboarding();
   const href = routeToHref(state.route);
@@ -116,7 +114,6 @@ export default function IdeasIndexRoute() {
 
   return (
     <IdeasListScreen
-      bottomInset={tabBarInset}
       actorNames={actorNames}
       currentActorId={state.currentMemberActorId}
       onCreate={() => router.push("/(app)/new-idea")}

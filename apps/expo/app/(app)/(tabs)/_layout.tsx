@@ -8,7 +8,6 @@ import {
   getUnreadSessionCount,
   subscribeUnreadSessionCount,
 } from "../../../src/features/sessions/unread-store";
-import { GlassSurface } from "../../../src/ui/GlassSurface";
 import { colors, typography } from "../../../src/ui/theme";
 
 type TabIconProps = {
@@ -32,9 +31,9 @@ function makeIcon(activeName: IconName, idleName: IconName) {
 /**
  * Tab bar, split by platform.
  *
- * iOS gets a real `UITabBar` via `NativeTabs`; Android keeps the JS tab bar
- * with `GlassSurface` behind it. The split is not a stylistic preference — it
- * follows what each platform can actually do:
+ * iOS gets a real `UITabBar` via `NativeTabs`; Android gets a plain opaque JS
+ * bar. The split is not a stylistic preference — it follows what each platform
+ * can actually do:
  *
  * `RootTabView.swift` draws **no glass of its own**. It is a stock SwiftUI
  * `TabView` with `.tabViewStyle(.sidebarAdaptable)`, and its Liquid Glass comes
@@ -42,10 +41,13 @@ function makeIcon(activeName: IconName, idleName: IconName) {
  * not painting a better imitation of it — a JS tab bar with a blur behind it
  * tops out well short, which is the gap that prompted this.
  *
- * Android has no Liquid Glass to inherit and `@expo/ui`'s Compose half is
- * announced rather than shipped, so `GlassSurface` (`dimezisBlurView` + tint)
- * remains the ceiling there. Switching Android to `NativeTabs` too would only
- * trade our Hai styling for Material 3 and gain nothing.
+ * Android gets a plain opaque bar. It has no Liquid Glass to inherit, and the
+ * imitation was worse than nothing there: `expo-blur`'s only real backdrop blur
+ * on Android is the experimental Dimezis path, and it misbehaved on device. An
+ * honest solid bar in the Hai palette beats a fake glass one that glitches —
+ * "we can't blur" is not a licence to restyle, but it is a reason to stop
+ * pretending. Switching Android to `NativeTabs` instead would only trade our
+ * styling for Material 3 and gain nothing.
  */
 export default function TabsLayout() {
   const [unread, setUnread] = useState(getUnreadSessionCount());
@@ -54,7 +56,7 @@ export default function TabsLayout() {
   if (Platform.OS === "ios") {
     return <IosNativeTabs unread={unread} />;
   }
-  return <AndroidGlassTabs unread={unread} />;
+  return <AndroidPlainTabs unread={unread} />;
 }
 
 /**
@@ -104,7 +106,7 @@ function IosNativeTabs({ unread }: { unread: number }) {
   );
 }
 
-function AndroidGlassTabs({ unread }: { unread: number }) {
+function AndroidPlainTabs({ unread }: { unread: number }) {
   return (
     <Tabs
       screenOptions={{
@@ -112,12 +114,12 @@ function AndroidGlassTabs({ unread }: { unread: number }) {
         tabBarActiveTintColor: colors.cinnabar,
         tabBarInactiveTintColor: colors.slate,
         tabBarLabelStyle: styles.label,
-        // Transparent and absolutely positioned so content passes *under* the
-        // bar — without that there is nothing for the blur to sample and the
-        // glass reads as a flat fill. Screens make room via
-        // `useTabContentBottomInset`.
+        // Opaque and in normal flow — the navigator reserves its height, so
+        // content stops where the bar starts and no screen has to pad for it.
+        // (While the bar was glass it was absolutely positioned so content
+        // could pass under and give the blur something to sample; that is what
+        // needed the manual inset, and it is gone with the glass.)
         tabBarStyle: styles.bar,
-        tabBarBackground: () => <GlassSurface style={styles.barBackground} />,
         sceneStyle: styles.scene,
       }}
     >
@@ -162,19 +164,13 @@ function AndroidGlassTabs({ unread }: { unread: number }) {
 
 const styles = StyleSheet.create({
   bar: {
-    backgroundColor: "transparent",
+    backgroundColor: colors.paper,
     borderTopColor: colors.hairline,
     borderTopWidth: StyleSheet.hairlineWidth,
+    // No elevation: the hairline carries the boundary, and Material's drop
+    // shadow would read as a different design language next to Hai's flat
+    // surfaces.
     elevation: 0,
-    position: "absolute",
-  },
-  barBackground: {
-    // iOS's fallback pairs the material with a soft shadow rather than a hard
-    // edge; the hairline above carries the boundary.
-    shadowColor: colors.onyx,
-    shadowOffset: { width: 0, height: -3 },
-    shadowOpacity: 0.08,
-    shadowRadius: 10,
   },
   label: {
     ...typography.monoMeta,
