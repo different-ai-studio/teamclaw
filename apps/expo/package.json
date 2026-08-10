@@ -14,7 +14,7 @@
     "@bufbuild/protobuf": "^2.13.0",
     "@expo/vector-icons": "^15.1.1",
     "@react-native-async-storage/async-storage": "2.2.0",
-    "@sentry/cli": "2.58.4",
+    "@sentry/cli": "3.6.2",
     "@sentry/react-native": "~7.11.0",
     "@teamclu/app": "workspace:*",
     "buffer": "^6.0.3",
