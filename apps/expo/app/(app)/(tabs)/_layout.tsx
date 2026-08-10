@@ -20,6 +20,9 @@ type TabIconProps = {
 
 type IconName = keyof typeof Ionicons.glyphMap;
 
+/** Icon (24) + 10pt label + breathing room, close to UIKit's own 49. */
+const TAB_BAR_HEIGHT = 56;
+
 function makeIcon(activeName: IconName, idleName: IconName) {
   return function TabIcon({ color, focused, size }: TabIconProps) {
     return (
@@ -119,6 +122,15 @@ function AndroidPlainTabs({ unread }: { unread: number }) {
         // (While the bar was glass it was absolutely positioned so content
         // could pass under and give the blur something to sample; that is what
         // needed the manual inset, and it is gone with the glass.)
+        //
+        // The explicit height and `paddingBottom: 0` are load-bearing. React
+        // Navigation sizes the bar `49 + insets.bottom` and pads its content by
+        // `insets.bottom`, on the assumption that it owns the bottom safe area.
+        // Here it does not — the root `SafeAreaView edges={["top","bottom"]}`
+        // already consumed it — so both were double-counted: the tree sat one
+        // inset above the screen bottom (a strip of blank below the bar) and
+        // the icons were pushed up off centre inside it. `tabBarStyle` is
+        // applied last in the bar's style array, so these win.
         tabBarStyle: styles.bar,
         sceneStyle: styles.scene,
       }}
@@ -171,6 +183,11 @@ const styles = StyleSheet.create({
     // shadow would read as a different design language next to Hai's flat
     // surfaces.
     elevation: 0,
+    // Fixed row: the safe area is handled by the root, not here. See the note
+    // on `tabBarStyle` above for why leaving these to React Navigation
+    // double-counts the inset.
+    height: TAB_BAR_HEIGHT,
+    paddingBottom: 0,
   },
   label: {
     ...typography.monoMeta,
