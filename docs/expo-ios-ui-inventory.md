@@ -32,16 +32,17 @@ surface missing from here is a bug in this document.
 Rows carrying two marks (`✅ header ◻ body`) are counted by their first, so the
 ✅ column is the optimistic reading of a partially-checked surface.
 
-| Status | Count | of which partial |
-|---|---|---|
-| ✅ verified | 25 | 8 |
-| ⚠ known gap | 2 | — |
-| ◻ unverified | 42 | — |
-| ✖ missing | 1 | — |
-| **Total** | **70** | |
+| Status | Count |
+|---|---|
+| ✅ verified | 37 |
+| ⚠ known gap | 2 |
+| ◻ unverified | 30 |
+| ✖ missing | 1 |
+| **Total** | **70** |
 
-Counts move as rows are worked. Last updated after the composer, member sheet
-and tool-call passes.
+Counts move as rows are worked. Last updated after the shared-primitives sweep
+(mentions, slash commands, chip bar, banners, todo dock, plans panel,
+segmented filter, avatar cluster).
 
 ---
 
@@ -58,7 +59,7 @@ and tool-call passes.
 | `PermissionBanner` | 68 | `sessions/components/PermissionBanner.tsx` | ✅ |
 | `SessionPlansPanelView` | 102 | `sessions/components/SessionPlansPanel.tsx` | ✅ ⚠ Expo adds a close control iOS has no need for (its panel is a safeAreaInset) |
 | `SlashCommandsPopup` | 118 | `sessions/components/SlashCommandsPopup.tsx` | ✅ |
-| `StreamingTextView` | 51 | inline in `SessionMessageRow.tsx` | ◻ |
+| `StreamingTextView` | 51 | inline in `SessionMessageRow.tsx` | ✅ blinking cursor present; Expo blinks at 300ms vs iOS 500ms |
 | `TodoDockView` | 92 | `sessions/components/TodoDock.tsx` | ✅ |
 | `TodoItemStyling` | 21 | `TodoDock.tsx` / `SessionPlansPanel.tsx` glyph maps | ✅ |
 | `ToolCallView` | 343 | `components/ToolCallLine.tsx` + `tool-display.ts` | ✅ |
@@ -128,7 +129,7 @@ and tool-call passes.
 | `AgentConfigSheet` | 129 | `components/AgentConfigSheet.tsx` | ◻ |
 | `DaemonStatusBanner` | 104 | `components/DaemonStatusBanner.tsx` | ✅ |
 | `NewSessionSheet` | 599 | `screens/NewSessionScreen.tsx` | ◻ |
-| `ParticipantCluster` | 102 | `ui/atoms/AvatarStack.tsx` | ◻ |
+| `ParticipantCluster` | 102 | `ui/atoms/AvatarStack.tsx` | ✅ ⚠ Expo adds a "+N" overflow chip; iOS drops the overflow silently by design ("a recognition affordance, not a participant count"). Kept — neither row shows a count elsewhere, so Expo's chip adds information rather than noise |
 | `SessionListHelpers` | 546 | `components/SessionRow.tsx` + `session-row-runtime.ts` | ✅ |
 
 ## AMUXUI/Settings, Shared, Shortcuts
@@ -141,7 +142,7 @@ and tool-call passes.
 | `GlassButtonStyle` | 32 | `ui/button.tsx` | ◻ |
 | `HaiSheet` | 79 | — | ✖ see below |
 | `LiquidGlassBar` | 76 | `ui/GlassHeader.tsx` + `GlassSurface.tsx` | ✅ |
-| `SegmentedFilterBar` | 81 | `actors/components/SegmentedFilter.tsx` | ◻ |
+| `SegmentedFilterBar` | 81 | `actors/components/SegmentedFilter.tsx` | ✅ |
 | `ShortcutMenuRow` | 225 | inside `shortcuts/ShortcutsDrawer.tsx` | ◻ |
 | `ShortcutPresentation` | 24 | inside `shortcuts/ShortcutsDrawer.tsx` | ◻ |
 | `ShortcutsDrawer` | 287 | `shortcuts/ShortcutsDrawer.tsx` | ◻ |
@@ -218,7 +219,7 @@ No iOS counterpart, and none needed: `app/(app)/mqtt-debug.tsx`,
 ## How to use this
 
 Work down the ◻ rows. Verifying one means opening both files side by side and
-either marking it ✅ or writing a ⚠ row with the specific difference. The 42
+either marking it ✅ or writing a ⚠ row with the specific difference. The 30
 unverified rows are the remaining Axis 6 work, and they are not evenly sized —
 `MemberListContent` (1598), `SessionDetailView` (993), `NewSessionSheet` (599)
 and `LoginView` (464) are most of the mass.

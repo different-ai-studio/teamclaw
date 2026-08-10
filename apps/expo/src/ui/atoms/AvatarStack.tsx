@@ -35,8 +35,9 @@ function pickBg(seed: string): string {
 }
 
 /**
- * Overlapping circle stack — 22px circles, -6px overlap, 1.5px paper
- * ring (drawn via `borderColor: paper`, not a real shadow). Matches the
+ * Overlapping circle stack — 22px circles, -6px overlap, 1.5px Mist
+ * ring (drawn via `borderColor`, not a real shadow; Mist because the list
+ * sits on Mist). Matches the
  * iOS "participant stack" component.
  */
 export function AvatarStack({
