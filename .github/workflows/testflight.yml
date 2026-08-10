@@ -4,16 +4,10 @@ on:
   push:
     tags:
       - "ios-v*"
-    # SAFETY CATCH — teamclaw → teamclu rebrand. See self-host-deploy.yml.
-    #
-    # The rebrand moves the bundle id to com.teamclu.mobile, which has no App
-    # Store Connect record and no match profiles yet, so a build fired by the
-    # merge could only fail. The tag trigger above stays on: tagging is a
-    # deliberate act, and by then the ASC record is expected to exist.
-    # branches:
-    #   - main
-    # paths:
-    #   - "apps/ios/**"
+    branches:
+      - main
+    paths:
+      - "apps/ios/**"
   workflow_dispatch:
 
 concurrency:
