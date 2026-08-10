@@ -4,6 +4,11 @@ import { useState } from "react";
 import { Image, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from "react-native";
 
 import { colors, hai, radii, shadows, spacing, typography } from "../../../ui/theme";
+import {
+  agentButtonLabel,
+  composerInputMode,
+  composerRightButton,
+} from "./composer-state";
 import { RecordingWaveform } from "./RecordingWaveform";
 import {
   buildComposerPresentation,
@@ -22,24 +27,12 @@ type SessionComposerShellProps = {
   onSend: () => void;
   pendingAttachments?: readonly UploadedAttachment[];
   sendErrorMessage: string | null;
+  /** Display names of the agents currently selected, in chip order. */
+  selectedAgentNames?: ReadonlyArray<string>;
+  /** Opens the agents sheet — iOS's row-2 `@` button. */
+  onOpenAgents?: () => void;
 };
 
-type IconName = ComponentProps<typeof Ionicons>["name"];
-
-function IconChip({ name, onPress }: { name: IconName; onPress?: () => void }) {
-  if (onPress) {
-    return (
-      <Pressable hitSlop={6} onPress={onPress} style={styles.iconChip}>
-        <Ionicons name={name} size={14} color={colors.slate} />
-      </Pressable>
-    );
-  }
-  return (
-    <View style={styles.iconChip}>
-      <Ionicons name={name} size={14} color={colors.slate} />
-    </View>
-  );
-}
 
 export function SessionComposerShell({
   composerText,
@@ -49,7 +42,9 @@ export function SessionComposerShell({
   onChangeText,
   onRemovePendingAttachment,
   onSend,
+  onOpenAgents,
   pendingAttachments = [],
+  selectedAgentNames = [],
   sendErrorMessage,
 }: SessionComposerShellProps) {
   const presentation = buildComposerPresentation({
@@ -62,6 +57,12 @@ export function SessionComposerShell({
   const recorder = useVoiceRecorder();
   const [recordError, setRecordError] = useState<string | null>(null);
   const hasPendingAttachments = pendingAttachments.length > 0;
+  const rightButton = composerRightButton({
+    hasText: composerText.trim().length > 0 || hasPendingAttachments,
+    isRecording: recorder.isRecording,
+  });
+  const inputMode = composerInputMode(recorder.isRecording);
+  const agentLabel = agentButtonLabel(selectedAgentNames);
 
   const handleMicToggle = async () => {
     setRecordError(null);
@@ -103,70 +104,97 @@ export function SessionComposerShell({
       ) : null}
 
       <View style={styles.composerCard}>
-        <View style={styles.editorSurface}>
-          <TextInput
-            editable={!isSending && connectionState !== "disconnected"}
-            multiline
-            onChangeText={onChangeText}
-            placeholder={presentation.placeholder}
-            placeholderTextColor={colors.faint}
-            selectionColor={colors.coral}
-            style={styles.input}
-            value={composerText}
-          />
+        {/* Row 1 — the input, replaced wholesale by the waveform while
+            recording, exactly as iOS swaps `inputMode`. */}
+        <View style={styles.inputRow}>
+          {inputMode === "waveform" ? (
+            <RecordingWaveform level={recorder.level} />
+          ) : (
+            <TextInput
+              editable={!isSending && connectionState !== "disconnected"}
+              multiline
+              onChangeText={onChangeText}
+              placeholder={presentation.placeholder}
+              placeholderTextColor={colors.faint}
+              selectionColor={colors.coral}
+              style={styles.input}
+              value={composerText}
+            />
+          )}
         </View>
 
-        <View style={styles.footer}>
-          <View style={styles.footerLeft}>
-            <View style={styles.agentPill}>
-              <View style={styles.agentDot} />
-              <Text style={styles.agentPillText}>TeamClu AI</Text>
-              <Text style={styles.agentChevron}>▾</Text>
-            </View>
-            <IconChip name="add" onPress={onAttach} />
-            <IconChip name="at" />
-            <IconChip name="sparkles-outline" />
-          </View>
+        <View style={styles.rowDivider} />
 
-          <View style={styles.footerRight}>
-            {composerText.trim().length === 0 && !hasPendingAttachments ? (
-              <Pressable
-                accessibilityLabel={recorder.isRecording ? "Stop recording" : "Voice memo"}
-                accessibilityRole="button"
-                hitSlop={6}
-                onPress={handleMicToggle}
-                style={[styles.micButton, recorder.isRecording ? styles.micButtonRecording : null]}
-              >
-                <Ionicons
-                  color={recorder.isRecording ? hai.paper : colors.slate}
-                  name={recorder.isRecording ? "stop" : "mic-outline"}
-                  size={18}
-                />
-              </Pressable>
-            ) : (
-              <Text style={styles.keyboardHint}>⌘↵</Text>
-            )}
+        {/* Row 2 — [+] · agent button · spacer · one right button. */}
+        <View style={styles.actionRow}>
+          <Pressable
+            accessibilityLabel="Attach"
+            accessibilityRole="button"
+            disabled={!onAttach}
+            onPress={onAttach}
+            style={styles.roundButton}
+          >
+            <Ionicons color={onAttach ? colors.onyx : colors.slate} name="add" size={20} />
+          </Pressable>
+
+          <Pressable
+            accessibilityLabel={`Agents, ${selectedAgentNames.length} selected`}
+            accessibilityRole="button"
+            disabled={!onOpenAgents}
+            onPress={onOpenAgents}
+            style={styles.agentButton}
+          >
+            <Ionicons color={colors.onyx} name="at" size={16} />
+            {agentLabel ? (
+              <Text numberOfLines={1} style={styles.agentButtonLabel}>
+                {agentLabel}
+              </Text>
+            ) : null}
+          </Pressable>
+
+          <View style={styles.actionSpacer} />
+
+          {rightButton === "send" ? (
             <Pressable
+              accessibilityLabel="Send"
               accessibilityRole="button"
               accessibilityState={{ disabled: presentation.isDisabled }}
               disabled={presentation.isDisabled}
               onPress={onSend}
               style={({ pressed }) => [
+                styles.roundButton,
                 styles.sendButton,
-                presentation.isDisabled && styles.sendButtonDisabled,
-                pressed && !presentation.isDisabled && styles.sendButtonPressed,
+                presentation.isDisabled ? styles.sendButtonDisabled : null,
+                pressed && !presentation.isDisabled ? styles.pressed : null,
               ]}
             >
-              <Text style={styles.sendButtonText}>{presentation.sendLabel}</Text>
+              <Ionicons color={hai.mist} name="arrow-up" size={18} />
             </Pressable>
-          </View>
+          ) : (
+            <Pressable
+              accessibilityLabel={
+                rightButton === "stopRecording" ? "Stop recording" : "Voice memo"
+              }
+              accessibilityRole="button"
+              onPress={handleMicToggle}
+              style={({ pressed }) => [
+                styles.roundButton,
+                rightButton === "stopRecording" ? styles.micButtonRecording : null,
+                pressed ? styles.pressed : null,
+              ]}
+            >
+              <Ionicons
+                color={rightButton === "stopRecording" ? hai.paper : colors.onyx}
+                name={rightButton === "stopRecording" ? "stop" : "mic-outline"}
+                size={18}
+              />
+            </Pressable>
+          )}
         </View>
       </View>
 
       {recordError ? (
         <Text style={styles.helperTextError}>{recordError}</Text>
-      ) : recorder.isRecording ? (
-        <RecordingWaveform level={recorder.level} />
       ) : presentation.helperText ? (
         <Text style={styles.helperText}>{presentation.helperText}</Text>
       ) : null}
@@ -217,30 +245,54 @@ function PendingAttachmentTile({
 }
 
 const styles = StyleSheet.create({
-  agentChevron: {
-    color: colors.faint,
-    ...typography.caption,
-  },
-  agentDot: {
-    backgroundColor: colors.coral,
-    borderRadius: radii.chip,
-    height: 8,
-    width: 8,
-  },
-  agentPill: {
+  /* Row 2 buttons are 32×32 with a 44pt tap target, matching iOS. */
+  actionRow: {
     alignItems: "center",
-    backgroundColor: colors.panel,
-    borderColor: colors.border,
-    borderRadius: radii.pill,
-    borderWidth: 1,
     flexDirection: "row",
-    gap: 6,
-    paddingHorizontal: 9,
-    paddingVertical: 4,
+    gap: 8,
+    paddingBottom: 8,
+    paddingHorizontal: 10,
   },
-  agentPillText: {
-    color: colors.ink2,
-    ...typography.caption,
+  actionSpacer: {
+    flex: 1,
+  },
+  agentButton: {
+    alignItems: "center",
+    flexDirection: "row",
+    flexShrink: 1,
+    gap: 4,
+    minHeight: 44,
+    minWidth: 44,
+    paddingHorizontal: 8,
+  },
+  agentButtonLabel: {
+    color: colors.onyx,
+    flexShrink: 1,
+    fontSize: 14,
+    fontWeight: "500",
+  },
+  inputRow: {
+    paddingBottom: 4,
+    paddingHorizontal: 14,
+    paddingTop: 10,
+  },
+  micButtonRecording: {
+    backgroundColor: hai.cinnabarDeep,
+  },
+  pressed: {
+    opacity: 0.8,
+  },
+  roundButton: {
+    alignItems: "center",
+    borderRadius: 16,
+    height: 32,
+    justifyContent: "center",
+    width: 32,
+  },
+  rowDivider: {
+    backgroundColor: colors.hairline,
+    height: StyleSheet.hairlineWidth,
+    marginHorizontal: 10,
   },
   attachmentFileLabel: {
     color: colors.basalt,
@@ -293,98 +345,36 @@ const styles = StyleSheet.create({
   },
   composerCard: {
     backgroundColor: colors.paper,
-    borderColor: colors.border,
-    borderRadius: 14,
-    borderWidth: 1,
-    overflow: "hidden",
+    borderColor: colors.hairline,
+    // iOS `composerCornerRadius`.
+    borderRadius: 18,
+    borderWidth: StyleSheet.hairlineWidth,
     ...shadows.composer,
-  },
-  editorSurface: {
-    minHeight: 92,
-    paddingHorizontal: 14,
-    paddingVertical: 14,
-  },
-  footer: {
-    alignItems: "center",
-    borderTopColor: colors.borderSoft,
-    borderTopWidth: 1,
-    flexDirection: "row",
-    gap: spacing.md,
-    justifyContent: "space-between",
-    paddingHorizontal: 14,
-    paddingVertical: 12,
-  },
-  footerLeft: {
-    alignItems: "center",
-    flexDirection: "row",
-    flexShrink: 1,
-    gap: spacing.sm,
-  },
-  footerRight: {
-    alignItems: "center",
-    flexDirection: "row",
-    gap: spacing.sm,
   },
   helperText: {
     color: colors.ink2,
     ...typography.caption,
   },
   input: {
-    color: colors.foreground,
-    minHeight: 64,
+    color: colors.onyx,
+    // iOS `composerInputFontSize`.
+    fontSize: 15,
+    maxHeight: 132,
     padding: 0,
-    textAlignVertical: "top",
-    ...typography.body,
-  },
-  iconChip: {
-    alignItems: "center",
-    backgroundColor: colors.paper,
-    borderColor: colors.border,
-    borderRadius: radii.chip,
-    borderWidth: 1,
-    height: 24,
-    justifyContent: "center",
-    width: 24,
-  },
-  keyboardHint: {
-    color: colors.faint,
-    ...typography.monoMeta,
   },
   helperTextError: {
     color: hai.cinnabarDeep,
     ...typography.caption,
-  },
-  micButton: {
-    alignItems: "center",
-    borderRadius: 999,
-    height: 28,
-    justifyContent: "center",
-    width: 28,
-  },
-  micButtonRecording: {
-    backgroundColor: hai.cinnabar,
   },
   placeholder: {
     color: colors.mutedForeground,
     ...typography.body,
   },
   sendButton: {
-    alignItems: "center",
-    backgroundColor: colors.coral,
-    borderRadius: radii.button,
-    justifyContent: "center",
-    paddingHorizontal: 14,
-    paddingVertical: 6,
+    backgroundColor: hai.onyx,
   },
   sendButtonDisabled: {
-    opacity: 0.4,
-  },
-  sendButtonPressed: {
-    opacity: 0.88,
-  },
-  sendButtonText: {
-    color: colors.paper,
-    ...typography.cardTitle,
+    opacity: 0.35,
   },
   wrapper: {
     gap: spacing.sm,

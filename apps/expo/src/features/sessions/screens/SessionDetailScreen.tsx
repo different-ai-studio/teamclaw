@@ -1058,6 +1058,8 @@ export function SessionDetailScreen(props: SessionDetailScreenProps) {
             connectionState={connectionState}
             isSending={isSending}
             onAttach={onAttach}
+            onOpenAgents={onOpenMembers}
+            selectedAgentNames={(agentChips ?? []).map((chip) => chip.displayName)}
             onChangeText={onChangeComposerText}
             onRemovePendingAttachment={(path) => {
               removePendingAttachment(state.session.teamId, state.session.sessionId, path);
