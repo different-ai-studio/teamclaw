@@ -34,9 +34,9 @@ Rows carrying two marks (`✅ header ◻ body`) are counted by their first, so t
 
 | Status | Count |
 |---|---|
-| ✅ verified | 61 |
+| ✅ verified | 62 |
 | ⚠ known gap | 3 |
-| ◻ unverified | 5 |
+| ◻ unverified | 4 |
 | ✖ missing | 1 |
 | **Total** | **70** |
 
@@ -108,7 +108,7 @@ point of the column.
 | `ActorResourceListView` | 207 | `screens/ActorResourceListScreen.tsx` | ✅ |
 | `MemberInviteSheet` | 194 | `app/(app)/invite.tsx` | ✅ |
 | `MemberListContent` | 1598 | `ActorsListScreen.tsx` + `ActorDetailScreen.tsx` | ✅ `ActorRow`, team resources, default agent, info rows ◻ rest |
-| `MemberListView` | 376 | `screens/ActorsListScreen.tsx` | ◻ |
+| `MemberListView` | 376 | `screens/MemberPickerSheet.tsx` | ✅ **mapping corrected** — this is the picker ("a.k.a. ActorPicker"), used only by `AddMemberSheet` and `NewSessionSheet`. The Actors tab renders `MemberListContent`, which has its own row above |
 | `TeamStatsSheet` | 361 | `screens/TeamStatsSheet.tsx` | ✅ |
 
 `MemberListContent` is the largest single file on either side and holds
@@ -239,7 +239,7 @@ No iOS counterpart, and none needed: `app/(app)/mqtt-debug.tsx`,
 ## How to use this
 
 Work down the ◻ rows. Verifying one means opening both files side by side and
-either marking it ✅ or writing a ⚠ row with the specific difference. The 5
+either marking it ✅ or writing a ⚠ row with the specific difference. The 4
 unverified rows are the remaining Axis 6 work, and they are not evenly sized —
 `MemberListContent` (1598), `SessionDetailView` (993), `NewSessionSheet` (599)
 and `LoginView` (464) are most of the mass.

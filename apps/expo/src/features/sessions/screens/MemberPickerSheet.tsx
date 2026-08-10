@@ -14,6 +14,7 @@ import { ActorRow } from "../../actors/components/ActorRow";
 import { isAgentActor, isMemberActor, type Actor } from "../../actors/actor-types";
 import { Hairline } from "../../../ui/atoms/Hairline";
 import { SectionEyebrow } from "../../../ui/atoms/SectionEyebrow";
+import { foldForSearch as normalize } from "../../search/search-matcher";
 import { GlassHeader, GLASS_HEADER_HEIGHT } from "../../../ui/GlassHeader";
 import { colors, radii, spacing, typography } from "../../../ui/theme";
 
@@ -33,9 +34,7 @@ function toSet(value: ReadonlySet<string> | string[] | undefined): Set<string> {
   return new Set(value);
 }
 
-function normalize(value: string): string {
-  return value.toLocaleLowerCase().normalize("NFKD");
-}
+
 
 export function MemberPickerSheet({
   actors,
