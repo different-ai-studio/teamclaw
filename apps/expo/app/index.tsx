@@ -1,13 +1,9 @@
 import { Redirect } from "expo-router";
-import {
-  ActivityIndicator,
-  Pressable,
-  StyleSheet,
-  Text,
-  View,
-} from "react-native";
+import { useCallback, useState } from "react";
+import { Pressable, StyleSheet, Text, View } from "react-native";
 
 import { useOnboarding, routeToHref } from "./_layout";
+import { ApertureSplashScreen } from "../src/features/onboarding/screens/ApertureSplashScreen";
 import { PrimaryButton } from "../src/ui/button";
 import { AppCard } from "../src/ui/card";
 import { colors, spacing, typography } from "../src/ui/theme";
@@ -15,8 +11,13 @@ import { colors, spacing, typography } from "../src/ui/theme";
 export default function IndexRoute() {
   const { controller, retryBootstrap, state } = useOnboarding();
   const href = routeToHref(state.route);
+  // Bootstrap often resolves in well under one lap of the mark. iOS waits for
+  // the animation before moving on (`ApertureSplashView.onLapFinished`); hold
+  // the redirect the same way so the splash isn't torn down mid-lap.
+  const [lapFinished, setLapFinished] = useState(false);
+  const handleLapFinished = useCallback(() => setLapFinished(true), []);
 
-  if (href) {
+  if (href && lapFinished) {
     return <Redirect href={href} />;
   }
 
@@ -65,19 +66,7 @@ export default function IndexRoute() {
     );
   }
 
-  return (
-    <View style={styles.screen}>
-      <AppCard elevated style={styles.card}>
-        <View style={styles.loadingRow}>
-          <ActivityIndicator color={colors.coral} size="small" />
-          <Text style={styles.title}>Opening TeamClu</Text>
-        </View>
-        <Text style={styles.body}>
-          Checking your session and workspace so we can send you to the right place.
-        </Text>
-      </AppCard>
-    </View>
-  );
+  return <ApertureSplashScreen onLapFinished={handleLapFinished} />;
 }
 
 const styles = StyleSheet.create({
@@ -89,11 +78,6 @@ const styles = StyleSheet.create({
     gap: spacing.md,
     maxWidth: 440,
     width: "100%",
-  },
-  loadingRow: {
-    alignItems: "center",
-    flexDirection: "row",
-    gap: spacing.sm,
   },
   screen: {
     alignItems: "center",
