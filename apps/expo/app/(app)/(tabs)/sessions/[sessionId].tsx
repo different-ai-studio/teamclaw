@@ -1,6 +1,15 @@
 import { Redirect, Stack, useLocalSearchParams, useNavigation, useRouter } from "expo-router";
 import { useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
-import { ActivityIndicator, AppState, Modal, Share, StyleSheet, Text, View } from "react-native";
+import {
+  ActivityIndicator,
+  AppState,
+  Modal,
+  Platform,
+  Share,
+  StyleSheet,
+  Text,
+  View,
+} from "react-native";
 
 import { routeToHref, useConnectedAgentsStore, useOnboarding, useTeamMqtt } from "../../../_layout";
 import { resolveSlashCommands } from "../../../../src/features/sessions/components/runtime-commands";
@@ -94,10 +103,17 @@ export default function SessionDetailRoute() {
     sessionId?: string | string[];
   }>();
 
-  // Hide the parent Tabs bar while a session detail is on screen, matching
-  // the iOS NavigationStack behavior. Restore on unmount so the bar comes
-  // back when the user pops back to the list.
+  // Hide the parent tab bar while a session detail is on screen, matching iOS's
+  // NavigationStack behaviour. Restore on unmount so the bar comes back on pop.
+  //
+  // Android only. `tabBarStyle` is an option of the JS `Tabs` navigator, and
+  // iOS now runs `NativeTabs` (see `(tabs)/_layout.tsx`), where the bar is a
+  // real UITabBar that this cannot reach — hiding it there needs
+  // `hidesBottomBarWhenPushed` on the pushed view controller, which the
+  // installed react-native-screens does not expose. Guarded rather than left to
+  // silently no-op, so the gap is visible in the code that owns it.
   useEffect(() => {
+    if (Platform.OS !== "android") return;
     const parent = navigation.getParent();
     if (!parent) return;
     parent.setOptions({ tabBarStyle: { display: "none" } });

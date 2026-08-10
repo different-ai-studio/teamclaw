@@ -14,6 +14,12 @@ import { BottomTabBarHeightContext } from "expo-router/build/react-navigation/bo
  * where content scrolls under the bar and the scroll view carries the inset.
  *
  * Returns 0 outside a tab navigator, so a screen can use it unconditionally.
+ *
+ * **0 on iOS is correct, not a bug.** iOS runs `NativeTabs`, whose screens get
+ * UIKit's automatic content-inset adjustment — the system reserves room for the
+ * real tab bar itself. This context only exists under the JS `Tabs` navigator,
+ * which is now Android-only. Adding a safe-area fallback here to "fix" the zero
+ * would double-pad every iOS tab screen.
  */
 export function useTabBarInset(): number {
   return useContext(BottomTabBarHeightContext) ?? 0;
