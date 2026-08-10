@@ -70,3 +70,48 @@ describe("openShortcutTarget", () => {
     });
   });
 });
+
+describe("isWebUrl", () => {
+  it("accepts the two schemes a WebView should load", async () => {
+    const { isWebUrl } = await import("../features/shortcuts/ShortcutsDrawer");
+    expect(isWebUrl("https://example.test/docs")).toBe(true);
+    expect(isWebUrl("http://example.test")).toBe(true);
+    expect(isWebUrl("HTTPS://EXAMPLE.TEST")).toBe(true);
+  });
+
+  it("refuses schemes that are not links", async () => {
+    // Shortcut targets are team data — whoever creates the shortcut picks the
+    // string, and it used to reach `WebView source={{ uri }}` unexamined.
+    const { isWebUrl } = await import("../features/shortcuts/ShortcutsDrawer");
+    for (const target of [
+      "javascript:alert(1)",
+      "file:///etc/passwd",
+      "data:text/html,<script>alert(1)</script>",
+      "teamclu://sessions/1",
+    ]) {
+      expect(isWebUrl(target)).toBe(false);
+    }
+  });
+
+  it("refuses anything without a scheme, and empty input", async () => {
+    const { isWebUrl } = await import("../features/shortcuts/ShortcutsDrawer");
+    expect(isWebUrl("example.test/docs")).toBe(false);
+    expect(isWebUrl("/relative/path")).toBe(false);
+    expect(isWebUrl("")).toBe(false);
+    expect(isWebUrl(null)).toBe(false);
+    expect(isWebUrl(undefined)).toBe(false);
+  });
+});
+
+describe("openShortcutTarget scheme guard", () => {
+  it("does not open a url shortcut whose target is not http(s)", async () => {
+    const { openShortcutTarget } = await import("../features/shortcuts/ShortcutsDrawer");
+    const pushed: unknown[] = [];
+    const router = { push: (href: unknown) => pushed.push(href) };
+    await openShortcutTarget(
+      { id: "s", label: "Bad", icon: null, nodeType: "url", target: "javascript:alert(1)", order: 0, parentId: null, scope: "team" },
+      router,
+    );
+    expect(pushed).toEqual([]);
+  });
+});

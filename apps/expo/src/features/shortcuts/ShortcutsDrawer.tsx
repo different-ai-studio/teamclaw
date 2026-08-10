@@ -383,11 +383,33 @@ export async function openShortcutTarget(
     return;
   }
   if (shortcut.nodeType === "url" || shortcut.nodeType === "external") {
+    if (!isWebUrl(shortcut.target)) return;
     router.push({
       pathname: "/(app)/shortcut-web",
       params: { url: shortcut.target, title: shortcut.label },
     });
     return;
+  }
+}
+
+/**
+ * Only `http(s)` reaches the WebView — iOS `ShortcutPresentation.destination`
+ * makes the same check and returns `.disabled` for everything else.
+ *
+ * Shortcut targets are team data: anyone who can create a shortcut chooses the
+ * string, and it was being handed to `WebView source={{ uri }}` unexamined. A
+ * `javascript:` or `file:` target is not a link, and the check belongs here
+ * rather than in the WebView, so a bad target renders as an inert row instead
+ * of opening a screen that then fails.
+ */
+export function isWebUrl(target: string | null | undefined): boolean {
+  if (!target) return false;
+  try {
+    const scheme = new URL(target).protocol.toLowerCase();
+    return scheme === "http:" || scheme === "https:";
+  } catch {
+    // Not absolute, so there is no scheme to trust.
+    return false;
   }
 }
 
