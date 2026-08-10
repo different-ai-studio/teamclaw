@@ -218,10 +218,10 @@ export default function SessionMembersRoute() {
         throw new Error("Couldn't resolve your member identity in this team.");
       }
       if (freshAgents.length > 0 && !teamMqtt) {
-        throw new Error("MQTT is not connected — wait for Teamclu to reconnect.");
+        throw new Error("MQTT is not connected — wait for TeamClu to reconnect.");
       }
       if (freshAgents.length > 0 && !connectedAgentsStore) {
-        throw new Error("Connected agents are not ready — wait for Teamclu to reconnect.");
+        throw new Error("Connected agents are not ready — wait for TeamClu to reconnect.");
       }
       if (freshAgents.length > 0) {
         await connectedAgentsStore?.reload();
@@ -351,7 +351,7 @@ export default function SessionMembersRoute() {
       return;
     }
     if (!teamMqtt) {
-      showToast("error", "MQTT is not connected — wait for Teamclu to reconnect.");
+      showToast("error", "MQTT is not connected — wait for TeamClu to reconnect.");
       return;
     }
 

@@ -138,7 +138,7 @@ export default function UpgradeAccountRoute() {
             {isCodeStep
               ? `Enter the ${OTP_CODE_LENGTH}-digit code we emailed to ${pendingEmail}.`
               : state.isAnonymous
-                ? "Attach an email, Apple, or Google identity so you don't lose this workspace next time you launch Teamclu."
+                ? "Attach an email, Apple, or Google identity so you don't lose this workspace next time you launch TeamClu."
                 : "Change this account's email or connect another sign-in identity."}
           </Text>
 
@@ -297,7 +297,7 @@ export default function UpgradeAccountRoute() {
 
           <Text style={styles.footnote}>
             After upgrading, sign in with the same identity next time you
-            launch Teamclu. Existing teams, agents, and sessions stay
+            launch TeamClu. Existing teams, agents, and sessions stay
             attached.
           </Text>
         </ScrollView>

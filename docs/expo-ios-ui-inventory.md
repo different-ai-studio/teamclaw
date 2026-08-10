@@ -34,9 +34,9 @@ Rows carrying two marks (`✅ header ◻ body`) are counted by their first, so t
 
 | Status | Count |
 |---|---|
-| ✅ verified | 57 |
+| ✅ verified | 59 |
 | ⚠ known gap | 2 |
-| ◻ unverified | 10 |
+| ◻ unverified | 8 |
 | ✖ missing | 1 |
 | **Total** | **70** |
 
@@ -164,9 +164,9 @@ entirely: it swept `Packages/` only. All six are auth/onboarding, none verified.
 | `ChooseAuthView` | 309 | `onboarding/screens/ChooseAuthScreen.tsx` | ◻ |
 | `ContentView` | 382 | `app/_layout.tsx` + `app/index.tsx` | ◻ |
 | `LoginView` | 464 | `onboarding/screens/AuthScreen.tsx` | ◻ |
-| `OnboardingViews` | 94 | `onboarding/screens/CreateTeamScreen.tsx` | ◻ |
+| `OnboardingViews` | 94 | `onboarding/screens/CreateTeamScreen.tsx` | ✅ ⚠ Expo adds a guest/signed-in note iOS has no equivalent of, and its own copy — same fields and validation |
 | `OrgTeamPickerView` | 70 | `app/(app)/teams.tsx` + `membership-groups.ts` | ✅ |
-| `WelcomeView` | 168 | `onboarding/screens/WelcomeScreen.tsx` | ◻ |
+| `WelcomeView` | 168 | `onboarding/screens/WelcomeScreen.tsx` | ✅ same copy and role cards; brand casing fixed |
 
 ---
 
@@ -225,7 +225,7 @@ No iOS counterpart, and none needed: `app/(app)/mqtt-debug.tsx`,
 ## How to use this
 
 Work down the ◻ rows. Verifying one means opening both files side by side and
-either marking it ✅ or writing a ⚠ row with the specific difference. The 10
+either marking it ✅ or writing a ⚠ row with the specific difference. The 8
 unverified rows are the remaining Axis 6 work, and they are not evenly sized —
 `MemberListContent` (1598), `SessionDetailView` (993), `NewSessionSheet` (599)
 and `LoginView` (464) are most of the mass.

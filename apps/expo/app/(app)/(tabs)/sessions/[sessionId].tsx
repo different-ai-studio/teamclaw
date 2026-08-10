@@ -818,7 +818,7 @@ export default function SessionDetailRoute() {
             sessionId
               ? async () => {
                   const session = detailState.session;
-                  const title = session?.title?.trim() ?? "Teamclu session";
+                  const title = session?.title?.trim() ?? "TeamClu session";
                   const url = `teamclu://session/${sessionId}`;
                   try {
                     await Share.share({ message: `${title}\n${url}`, url });

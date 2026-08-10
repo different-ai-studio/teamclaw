@@ -40,7 +40,7 @@ export function ChooseAuthScreen({
   return (
     <View style={styles.screen}>
       <View style={styles.header}>
-        <Text style={styles.title}>Set up Teamclu</Text>
+        <Text style={styles.title}>Set up TeamClu</Text>
         <Text style={styles.subtitle}>
           Create your workspace or join the team that already works with your AI
           allies.
@@ -197,7 +197,7 @@ function InviteJoinSheet({
       <Hairline />
       <View style={styles.sheetBody}>
         <Text style={styles.sheetCaption}>
-          Paste the link your teammate shared. Teamclu will sign you in and add
+          Paste the link your teammate shared. TeamClu will sign you in and add
           you to their team.
         </Text>
         <TextInput

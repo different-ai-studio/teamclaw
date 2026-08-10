@@ -137,8 +137,8 @@ export default function AttachRoute() {
       <PermissionPrimerSheet
         body={
           primer === "camera"
-            ? "Teamclu needs the camera to capture and attach photos or videos to your sessions."
-            : "Teamclu needs the photo library so you can choose images and videos to attach."
+            ? "TeamClu needs the camera to capture and attach photos or videos to your sessions."
+            : "TeamClu needs the photo library so you can choose images and videos to attach."
         }
         ctaLabel="Continue"
         iconName={primer === "camera" ? "camera-outline" : "images-outline"}
