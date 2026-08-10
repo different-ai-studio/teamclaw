@@ -94,9 +94,78 @@ Caddy 把证书存成 `0700 root:root`，而 emqx 容器跑在 uid 1000 下，�
 | 变量 | 改成 | 说明 |
 |---|---|---|
 | `ADDITIONAL_REDIRECT_URLS` | 同时包含 `teamclu://auth-callback` **和** `teamclaw://auth-callback` | 桌面深链 scheme 变了；旧版客户端仍回调旧 scheme，两个都留着，等存量清空再删 |
-| `APPLE_CLIENT_ID` | **追加** `com.teamclu.mobile`（逗号分隔，不要替换） | Apple 的用户 `sub` 按开发者 team 稳定，追加就能延续身份；直接替换会让旧 App 无法登录 |
+| `APPLE_CLIENT_IDS` | **追加** `com.teamclu.mobile`（逗号分隔，不要替换） | Apple 的用户 `sub` 按开发者 team 稳定，追加就能延续身份；直接替换会让旧 App 无法登录 |
 | `APNS_TOPIC` | `com.teamclu.mobile` | 注意：旧 App 的 topic 仍是 `tech.teamclaw.mobile`，切了之后旧装机收不到推送 |
 | `BUCKET` | `teamclu-team`（自建 compose 默认值已改） | OSS bucket 要先建出来，否则新团队开通共享盘直接失败 |
+
+#### 已核实（2026-08-10）：Apple 相关的值不在 `.env` 里
+
+这台箱子的 `.env` **没有 `APPLE_CLIENT_IDS` 这个键**（也没有 `ENABLE_APPLE_SIGNUP`），所以生效的是
+compose 里的默认值。也就是说改仓库里那个默认值就等于改线上，不需要另外动 `.env`——但反过来，
+如果只看 `.env` 会以为 Apple 登录没配。
+
+`docker compose exec auth env` 读到的实际值：
+
+```
+GOTRUE_EXTERNAL_APPLE_CLIENT_ID = tech.teamclaw.mobile,com.teamclu.mobile
+GOTRUE_EXTERNAL_APPLE_ENABLED   = true
+ADDITIONAL_REDIRECT_URLS        = http://127.0.0.1:*/callback,teamclaw://auth-callback,teamclu://auth-callback
+APNS_TOPIC                      = com.teamclu.mobile
+```
+
+排查这类问题时以容器里的 env 为准，不要以 `.env` 为准。
+
+### Google OAuth 回调地址（控制台，无 API）
+
+**这一项最初漏在清单外，是线上报 `redirect_uri_mismatch` 之后才补的。**
+
+GoTrue 的回调地址是从 `SUPABASE_DOMAIN` 插值出来的：
+
+```
+GOTRUE_EXTERNAL_GOOGLE_REDIRECT_URI = https://<SUPABASE_DOMAIN>/auth/v1/callback
+```
+
+域名一改，发给 Google 的就是新地址，而 Google 对重定向 URI 做**精确字符串匹配**。必须去
+Google Cloud Console → API 和服务 → 凭据 → 对应的 OAuth 2.0 客户端（类型必须是「Web 应用」）
+→ 已获授权的重定向 URI，把新地址加进去。**Google 不提供管理这个的 API，只能手工。**
+
+不用浏览器也能验证是否生效——直接请求 authorize 端点看它放行还是回 `redirect_uri_mismatch`：
+
+```bash
+curl -s -o /dev/null -w '%{redirect_url}\n' -G \
+  --data-urlencode "client_id=<CLIENT_ID>" \
+  --data-urlencode "redirect_uri=https://supabase.teamclu-dev.ucar.cc/auth/v1/callback" \
+  --data-urlencode "response_type=code" --data-urlencode "scope=email" \
+  https://accounts.google.com/o/oauth2/v2/auth
+```
+
+返回的 URL 里带 `authError=`（base64，解出来是 `redirect_uri_mismatch`）就是没生效；跳到登录/
+同意页就是好了。2026-08-10 已核实新地址通过。
+
+### 存量设备：daemon 的后端地址不跟着 App 走
+
+`~/.amuxd/backend.toml` 的 `url` 和 `daemon.toml` 的 `[mqtt] broker_url` 是 `amuxd init` 时写进去的，
+**不随 App 的 build config 更新**。所以旧域名删除后，即使装上改名后的新版 App，daemon 仍然去连
+旧地址，表现是 MQTT 一直连不上，日志里是：
+
+```
+initial Cloud API token fetch failed ... url (https://api.teamclaw-dev.ucar.cc/v1/auth/refresh)
+bootstrap mqtt fetch failed; relying on last-known broker in daemon.toml if present
+```
+
+链条：拿 token 失败 → 拿 bootstrap（broker 地址平时由 Cloud API 下发）失败 → 回落到
+`daemon.toml` 里"最后已知的 broker"，那也是旧域名 → 永远连不上。
+
+**「引导用户重装」这条路不够**——重装 App 不会重写 `~/.amuxd/`。每台受影响的设备要么手工改这两个
+文件后重启 daemon，要么重新 `amuxd init`（会换 actor 身份）。手工改法：
+
+```bash
+sed -i '' 's|api\.teamclaw-dev\.ucar\.cc|api.teamclu-dev.ucar.cc|' ~/.amuxd/backend.toml
+sed -i '' 's|mqtt\.teamclaw-dev\.ucar\.cc|mqtt.teamclu-dev.ucar.cc|' ~/.amuxd/daemon.toml
+```
+
+`refresh_token` / `team_id` / `actor_id` 都保留；连上之后 broker 地址还会被 Cloud API 的 bootstrap
+覆盖成权威值。
 
 ### Apple
 
@@ -213,3 +282,25 @@ scheme，但操作系统层面的 URL 路由不认——这个靠代码补不回
    部署前用 `strings` 验证 `amuxd` / `teamclu-introspect` 里是新名字
 4. **不要轮换 Tauri 签名私钥**。betly 和 copilot361 共用 `1D087DF9` 这一把；改名期间换 key
    会一次性打断所有品牌的自动更新
+5. **FC 镜像能不能构建，CI 绿了也不算数。** Dockerfile 跑的是 `npm run build`
+   （`tsc -p tsconfig.json`），而 CI 的 typecheck 用的是 `tsconfig.test.json`。`src/` 里的类型
+   错误只在镜像构建时才炸，并且会把 self-host 部署和数据库迁移一起带挂。dispatch 之前先在本地
+   `cd services/fc && npx tsc -p tsconfig.json --noEmit`
+
+## 已跑通的部署（2026-08-10）
+
+改名后三条部署链路都验证过了：
+
+| Workflow | 结果 | 关键证据 |
+|---|---|---|
+| Daemon Deploy | ✅ | `amuxd-smoke: PASS`，箱子上跑的是 `teamclu-amuxd` 镜像 |
+| Self-Host Deploy | ✅ | e2e `pass 11, fail 0`；健康检查打的是 `https://api.teamclu-dev.ucar.cc` |
+| TestFlight | ✅ | 2026-08-09 已用 `com.teamclu.mobile` 成功发布过一次 |
+
+Self-Host Deploy 那次最值得看的一行是容器名仍然是 **`teamclaw-self-host-*`**——证明「箱子上已经
+存在的东西」那一节里把 compose `name:` 改回去是有效的。要是没改回去，compose 会把这当成全新项目，
+19 个容器起在全新空卷上。
+
+**注意 `daemon-deploy` 的触发路径包含它自己的 workflow 文件**（`.github/workflows/daemon-deploy.yml`），
+所以只是编辑它就会触发一次部署。恢复触发器的那个 PR 合并时就这样触发了一次（结果是好的，但不是
+预期内的）。`self-host-deploy` 和 `testflight` 没有这个自引用，需要手动 dispatch。
