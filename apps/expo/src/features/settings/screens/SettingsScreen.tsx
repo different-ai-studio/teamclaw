@@ -12,6 +12,7 @@ import {
 
 import { Hairline } from "../../../ui/atoms/Hairline";
 import { SectionEyebrow } from "../../../ui/atoms/SectionEyebrow";
+import { GlassHeader, GLASS_HEADER_HEIGHT } from "../../../ui/GlassHeader";
 import { colors, hai, radii, spacing, typography } from "../../../ui/theme";
 import type { ConnectedAgent } from "../../actors/connected-agent-types";
 import { isAgentOnline } from "../../actors/connected-agent-types";
@@ -149,14 +150,13 @@ export function SettingsScreen({
     null;
   return (
     <View style={styles.screen}>
-      <View style={styles.headerBar}>
+      <GlassHeader>
         <View style={styles.headerSlot} />
         <Text style={styles.headerTitle}>Settings</Text>
         <Pressable hitSlop={8} onPress={onClose} style={styles.headerSlot}>
           <Ionicons color={colors.onyx} name="close" size={26} />
         </Pressable>
-      </View>
-      <Hairline />
+      </GlassHeader>
 
       <ScrollView
         contentContainerStyle={styles.content}
@@ -607,6 +607,8 @@ const styles = StyleSheet.create({
     gap: spacing.lg,
     padding: spacing.lg,
     paddingBottom: spacing.xxxl,
+    // The glass header is pinned above this, so make room for it.
+    paddingTop: GLASS_HEADER_HEIGHT + spacing.lg,
   },
   headerBar: {
     alignItems: "center",
