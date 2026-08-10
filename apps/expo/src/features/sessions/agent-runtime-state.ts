@@ -162,11 +162,33 @@ export function lifecycleDotKind(
   }
 }
 
+/**
+ * Canonical backend id. The same agent is stored as `claude`, `claude_code` or
+ * `claude-code` depending on which writer got there first, and iOS funnels all
+ * three through `AgentType.fromStoredValue` before anything reads them.
+ */
+export function normalizeAgentBackend(
+  backendType: string | null | undefined,
+): "claude" | "opencode" | "codex" | null {
+  switch (backendType) {
+    case "claude":
+    case "claude_code":
+    case "claude-code":
+      return "claude";
+    case "opencode":
+      return "opencode";
+    case "codex":
+      return "codex";
+    default:
+      return null;
+  }
+}
+
 /** Mirrors iOS `SessionMemberSheetLoader.displayName(forBackendType:)`. */
 export function agentBackendDisplayName(
   backendType: string | null | undefined,
 ): string {
-  switch (backendType) {
+  switch (normalizeAgentBackend(backendType)) {
     case "claude":
       return "Claude";
     case "opencode":
@@ -174,6 +196,9 @@ export function agentBackendDisplayName(
     case "codex":
       return "Codex";
     default:
+      // Unknown backend: title-case it rather than invent a name. Without the
+      // normalisation above this branch also caught `claude_code` and rendered
+      // it "Claude_code".
       if (!backendType) return "";
       return backendType.charAt(0).toUpperCase() + backendType.slice(1);
   }

@@ -24,6 +24,7 @@ import {
   type AgentConfigSelection,
   type AgentType,
 } from "../components/AgentConfigSheet";
+import { normalizeStoredAgentType } from "../components/agent-config-helpers";
 import { MemberPickerSheet } from "./MemberPickerSheet";
 
 const AGENT_TYPE_LABELS: Record<AgentType, string> = {
@@ -101,6 +102,12 @@ export function NewSessionScreen({
     }
     return pickedAgentIds[0];
   }, [pickedAgentIds, primaryAgentId]);
+
+  const configuredAgent = useMemo(
+    () =>
+      actors.find((actor) => actor.actorId === effectivePrimaryAgentId) ?? null,
+    [actors, effectivePrimaryAgentId],
+  );
 
   const workspaceLabelById = useMemo(() => {
     const map = new Map<string, string>();
@@ -356,8 +363,17 @@ export function NewSessionScreen({
         visible={agentConfigOpen}
       >
         <AgentConfigSheet
-          actorDisplayName="Agent"
-          defaultType={agentConfig?.agentType ?? "claude"}
+          // The agent this configures is the session's primary one. It used to
+          // say "Agent" and offer all three backends regardless of what that
+          // agent can actually run — picking an unsupported one sends a
+          // `runtime_start` the daemon cannot honour.
+          actorDisplayName={configuredAgent?.displayName ?? "Agent"}
+          agentTypes={configuredAgent?.agentTypes}
+          defaultType={
+            agentConfig?.agentType ??
+            normalizeStoredAgentType(configuredAgent?.defaultAgentType) ??
+            "claude"
+          }
           onCancel={() => setAgentConfigOpen(false)}
           onConfirm={(selection) => {
             setAgentConfig(selection);

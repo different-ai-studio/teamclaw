@@ -34,9 +34,9 @@ Rows carrying two marks (`✅ header ◻ body`) are counted by their first, so t
 
 | Status | Count |
 |---|---|
-| ✅ verified | 44 |
+| ✅ verified | 46 |
 | ⚠ known gap | 2 |
-| ◻ unverified | 23 |
+| ◻ unverified | 21 |
 | ✖ missing | 1 |
 | **Total** | **70** |
 
@@ -79,7 +79,7 @@ point of the column.
 | `AddMemberSheet` | 48 | `MemberPickerSheet.tsx` | ◻ |
 | `AgentChipBar` | 169 | `components/AgentChipBar.tsx` | ✅ chip visuals + interrupt confirm ⚠ chips are all agent participants, not a per-turn selection |
 | `AgentsSheet` | 197 | `AgentConfigSheet.tsx` + `ModelPickerSheet.tsx` | ✅ model switch ◻ stop-mid-stream confirm |
-| `AttachmentDrawerSheet` | 165 | `screens/AttachmentDrawerSheet.tsx` | ◻ |
+| `AttachmentDrawerSheet` | 165 | `screens/AttachmentDrawerSheet.tsx` | ✅ Files/Camera/Photos, 5-photo cap matches |
 | `CameraImagePicker` | 45 | `app/(app)/attach.tsx` (expo-image-picker) | ✅ |
 | `ComposerState` | 30 | `components/composer-state.ts` | ✅ |
 | `EventFeedView` | 908 | `SessionMessageRow.tsx` + `session-feed-items.ts` | ✅ bubbles, tool calls ◻ rest |
@@ -132,7 +132,7 @@ point of the column.
 
 | iOS | LOC | Expo | |
 |---|---|---|---|
-| `AgentConfigSheet` | 129 | `components/AgentConfigSheet.tsx` | ◻ |
+| `AgentConfigSheet` | 129 | `components/AgentConfigSheet.tsx` | ✅ |
 | `DaemonStatusBanner` | 104 | `components/DaemonStatusBanner.tsx` | ✅ |
 | `NewSessionSheet` | 599 | `screens/NewSessionScreen.tsx` | ◻ |
 | `ParticipantCluster` | 102 | `ui/atoms/AvatarStack.tsx` | ✅ ⚠ Expo adds a "+N" overflow chip; iOS drops the overflow silently by design ("a recognition affordance, not a participant count"). Kept — neither row shows a count elsewhere, so Expo's chip adds information rather than noise |
@@ -225,7 +225,7 @@ No iOS counterpart, and none needed: `app/(app)/mqtt-debug.tsx`,
 ## How to use this
 
 Work down the ◻ rows. Verifying one means opening both files side by side and
-either marking it ✅ or writing a ⚠ row with the specific difference. The 23
+either marking it ✅ or writing a ⚠ row with the specific difference. The 21
 unverified rows are the remaining Axis 6 work, and they are not evenly sized —
 `MemberListContent` (1598), `SessionDetailView` (993), `NewSessionSheet` (599)
 and `LoginView` (464) are most of the mass.
