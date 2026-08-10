@@ -2,7 +2,7 @@ import { Redirect, useFocusEffect, useRouter } from "expo-router";
 import { useCallback, useEffect, useRef, useState, useSyncExternalStore } from "react";
 import { Modal } from "react-native";
 
-import { routeToHref, useOnboarding } from "../../../_layout";
+import { routeToHref, useConnectedAgentsStore, useOnboarding } from "../../../_layout";
 import { createActorsApi } from "../../../../src/features/actors/actor-api";
 import { supabaseAccessToken } from "../../../../src/lib/cloud-api/client";
 import {
@@ -14,6 +14,8 @@ import { successTone, selectionTick } from "../../../../src/lib/haptics";
 import { createConfiguredSessionsApi } from "../../../../src/features/sessions/api-provider";
 import { createSessionsCache } from "../../../../src/features/sessions/session-cache";
 import { createSessionsController } from "../../../../src/features/sessions/session-controller";
+import { buildSessionRuntimeMaps } from "../../../../src/features/sessions/session-row-runtime";
+import type { ConnectedAgentsStoreState } from "../../../../src/features/actors/connected-agents-store";
 import { SessionsListScreen } from "../../../../src/features/sessions/screens/SessionsListScreen";
 import { ZeroAgentReminderSheet } from "../../../../src/features/sessions/screens/ZeroAgentReminderSheet";
 import {
@@ -25,6 +27,16 @@ import {
   openShortcutTarget,
 } from "../../../../src/features/shortcuts/ShortcutsDrawer";
 import { supabase } from "../../../../src/lib/supabase/client";
+
+/** Stable no-op store so `useSyncExternalStore` can run before MQTT connects. */
+const noopSubscribe = () => () => {};
+const EMPTY_AGENTS_STATE: ConnectedAgentsStoreState = {
+  agents: [],
+  runtimeInfoByAgentId: new Map(),
+  isLoading: false,
+  errorMessage: null,
+};
+const emptyAgentsState = () => EMPTY_AGENTS_STATE;
 
 export default function SessionsIndexRoute() {
   const router = useRouter();
@@ -165,10 +177,26 @@ export default function SessionsIndexRoute() {
     return <Redirect href="/" />;
   }
 
+  // Badge dot, status label and workspace name come off the live runtime, the
+  // same three facts iOS reads from its per-session AgentAttachment.
+  const agentsStore = useConnectedAgentsStore();
+  const agentsState = useSyncExternalStore(
+    agentsStore?.subscribe ?? noopSubscribe,
+    agentsStore?.getState ?? emptyAgentsState,
+    agentsStore?.getState ?? emptyAgentsState,
+  );
+  const { runtimeBySessionId, workspaceBySessionId } = buildSessionRuntimeMaps({
+    sessions: listState.sessions,
+    runtimeInfoByAgentId: agentsState.runtimeInfoByAgentId,
+    agentActorIds: new Set(agentsState.agents.map((agent) => agent.agentId)),
+  });
+
   return (
     <>
     <SessionsListScreen
       actorGlyphById={actorGlyphById}
+      runtimeBySessionId={runtimeBySessionId}
+      workspaceBySessionId={workspaceBySessionId}
       hasAgents={hasAgents}
       onInviteAgent={() => router.push("/(app)/invite")}
       onArchiveBatch={async (sessionIds) => {

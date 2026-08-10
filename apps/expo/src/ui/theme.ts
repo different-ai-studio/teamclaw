@@ -169,6 +169,36 @@ export const typography = {
   },
 } as const;
 
+/**
+ * iOS semantic type scale, at the default Dynamic Type size.
+ *
+ * The tokens above are this app's own scale and run 2–3px smaller than SwiftUI's
+ * defaults — `typography.body` is 14 where SwiftUI's `.body` is 17. That is fine
+ * for screens designed here, but a screen ported from a SwiftUI source has to use
+ * the size its Swift source asks for, or the two apps visibly disagree.
+ *
+ * So: when porting, read the `.font(...)` in the Swift and use the matching entry
+ * here. `iosType.body` means "this is `.font(.body)` on iOS", not "body text".
+ */
+export const iosType = {
+  title3: { fontFamily: sansFontFamily, fontSize: 20, lineHeight: 25 },
+  headline: {
+    fontFamily: sansFontFamily,
+    fontSize: 17,
+    fontWeight: "600" as const,
+    lineHeight: 22,
+  },
+  body: { fontFamily: sansFontFamily, fontSize: 17, lineHeight: 22 },
+  callout: { fontFamily: sansFontFamily, fontSize: 16, lineHeight: 21 },
+  subheadline: { fontFamily: sansFontFamily, fontSize: 15, lineHeight: 20 },
+  footnote: { fontFamily: sansFontFamily, fontSize: 13, lineHeight: 18 },
+  caption: { fontFamily: sansFontFamily, fontSize: 12, lineHeight: 16 },
+  caption2: { fontFamily: sansFontFamily, fontSize: 11, lineHeight: 13 },
+  /** `.system(.caption, design: .monospaced)` — the meta strips and eyebrows. */
+  captionMono: { fontFamily: monoFontFamily, fontSize: 12, lineHeight: 16 },
+  caption2Mono: { fontFamily: monoFontFamily, fontSize: 11, lineHeight: 13 },
+} as const;
+
 export const spacing = {
   xs: 4,
   sm: 8,
@@ -232,6 +262,7 @@ export const theme = {
     mono: monoFontFamily,
   },
   typography,
+  iosType,
   spacing,
   radii,
   shadows,
