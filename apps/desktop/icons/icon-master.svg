@@ -1,0 +1,32 @@
+<!--
+  macOS/Windows app icon master — TeamClu「缺口 / The Aperture」.
+
+  Regenerate the whole icon set from this file:
+    rsvg-convert -w 1024 -h 1024 apps/desktop/icons/icon-master.svg -o /tmp/icon.png
+    pnpm tauri icon /tmp/icon.png -o apps/desktop/icons
+
+  Why this file exists rather than the logo kit's appicon-*.svg: those put the
+  rounded rect at 4..116 of a 120 viewBox, i.e. a 3.3% margin, and their PNG
+  exports are flattened onto opaque white. Fed to `tauri icon` that produces an
+  icon with a white square background (macOS does NOT mask app icons — iOS does)
+  which also reads as visibly larger than every neighbouring icon in the Dock.
+
+  The geometry below is Apple's icon grid: 1024 canvas, 824 body centred with a
+  100px transparent margin on every side, 185.4 corner radius. Everything
+  outside the rounded rect must stay transparent.
+
+  The ring keeps the kit's proportion to the body (outer diameter = 61.3% of the
+  body), so this is the same artwork, only re-seated on the correct grid. Ring
+  geometry per the kit: centre (60,60) r38 stroke12 round caps in a 120 space,
+  gap centred on -45° spanning 60°, coral dot on the ring at -45°.
+-->
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024" width="1024" height="1024">
+  <!-- body: 824x824 centred, Apple corner radius -->
+  <rect x="100" y="100" width="824" height="824" rx="185.4" ry="185.4" fill="#faf7f0"/>
+  <!-- ring + aperture dot, kit geometry scaled 5.739 and centred -->
+  <g transform="translate(167.66,167.66) scale(5.739)">
+    <path d="M 96.705 50.165 A 38 38 0 1 1 69.835 23.295"
+          fill="none" stroke="#1a1a14" stroke-width="12" stroke-linecap="round"/>
+    <circle cx="86.870" cy="33.130" r="9" fill="#e85a4a"/>
+  </g>
+</svg>
