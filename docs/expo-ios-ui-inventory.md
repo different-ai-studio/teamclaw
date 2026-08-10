@@ -34,11 +34,14 @@ Rows carrying two marks (`✅ header ◻ body`) are counted by their first, so t
 
 | Status | Count | of which partial |
 |---|---|---|
-| ✅ verified | 22 | 7 |
-| ⚠ known gap | 3 | — |
-| ◻ unverified | 44 | — |
+| ✅ verified | 25 | 8 |
+| ⚠ known gap | 2 | — |
+| ◻ unverified | 42 | — |
 | ✖ missing | 1 | — |
 | **Total** | **70** | |
+
+Counts move as rows are worked. Last updated after the composer, member sheet
+and tool-call passes.
 
 ---
 
@@ -58,7 +61,7 @@ Rows carrying two marks (`✅ header ◻ body`) are counted by their first, so t
 | `StreamingTextView` | 51 | inline in `SessionMessageRow.tsx` | ◻ |
 | `TodoDockView` | 92 | `sessions/components/TodoDock.tsx` | ◻ |
 | `TodoItemStyling` | 21 | `sessions/components/todo-dock-parser.ts` | ◻ |
-| `ToolCallView` | 343 | — | ⚠ see below |
+| `ToolCallView` | 343 | `components/ToolCallLine.tsx` + `tool-display.ts` | ✅ |
 | `ViewModifiers` | 50 | scattered | ◻ |
 
 ## AMUXUI/AgentDetail — the session screen
@@ -68,15 +71,15 @@ Rows carrying two marks (`✅ header ◻ body`) are counted by their first, so t
 | `AddAgentSheet` | 139 | `MemberPickerSheet.tsx` | ◻ |
 | `AddMemberSheet` | 48 | `MemberPickerSheet.tsx` | ◻ |
 | `AgentChipBar` | 169 | `components/AgentChipBar.tsx` | ◻ |
-| `AgentsSheet` | 197 | partly `AgentConfigSheet.tsx` | ◻ per-agent model switch + stop-mid-stream confirm unconfirmed |
+| `AgentsSheet` | 197 | `AgentConfigSheet.tsx` + `ModelPickerSheet.tsx` | ✅ model switch ◻ stop-mid-stream confirm |
 | `AttachmentDrawerSheet` | 165 | `screens/AttachmentDrawerSheet.tsx` | ◻ |
 | `CameraImagePicker` | 45 | `app/(app)/attach.tsx` (expo-image-picker) | ✅ |
 | `ComposerState` | 30 | `components/composer-state.ts` | ✅ |
-| `EventFeedView` | 908 | `SessionMessageRow.tsx` + `session-feed-items.ts` | ✅ bubbles ⚠ tool calls |
+| `EventFeedView` | 908 | `SessionMessageRow.tsx` + `session-feed-items.ts` | ✅ bubbles, tool calls ◻ rest |
 | `RecordingWaveform` | 55 | `components/RecordingWaveform.tsx` | ✅ |
 | `SessionComposer` | 538 | `components/SessionComposerShell.tsx` | ✅ |
 | `SessionDetailView` | 993 | `screens/SessionDetailScreen.tsx` | ◻ header/glass only |
-| `SessionMemberSheet` | 179 | `screens/SessionMemberSheet.tsx` | ◻ **next** |
+| `SessionMemberSheet` | 179 | `screens/SessionMemberSheet.tsx` | ✅ |
 | `StreamingDetailView` | 292 | `AgentTurnDetailModal` in `SessionDetailScreen.tsx` | ⚠ see below |
 
 ## AMUXUI/Collab — ideas
@@ -162,18 +165,21 @@ entirely: it swept `Packages/` only. All six are auth/onboarding, none verified.
 
 ## Every ⚠ in detail
 
-### `ToolCallView` (343 LOC) — no structured equivalent
+### ~~`ToolCallView` (343 LOC) — no structured equivalent~~ — fixed
 
-iOS renders every tool call as its own card: name, a `ToolDisplay`-formatted
-argument summary, output, and a status chip that moves through
-running → completed → failed. `CompactToolLine` is the collapsed form used in
-the feed.
+**Correction:** this entry first described iOS's rendering as a card with a
+status chip. It is a *line* — `CompactToolLine`, which is what the feed
+actually uses: a 5pt status dot, the tool name in tracked uppercase mono, and a
+one-line argument summary, expanding to the raw arguments with a separate
+RESULT disclosure. A turn can run a dozen tools, and cards would not fit.
 
-Expo has no tool-call component at all — `grep -ri toolcall apps/expo/src`
-returns nothing. `session-turn-detail.ts` folds `agent_tool_call` and
-`agent_tool_result` into one "tools" group and renders them as counted text
-lines. The information reaches the user; the structure does not. Tool failures
-in particular are not visually distinct from successes.
+Expo had no tool-call component: `agent_tool_call` and `agent_tool_result`
+arrived as two unrelated "TOOL CALL" note cards, and the `success` flag on the
+second was never read, so **a failed tool was pixel-identical to a successful
+one**.
+
+Now ported as `ToolCallLine` + `tool-display.ts` (`toolSummary`,
+`foldToolResults`). Marked ✅ in the table above.
 
 ### `StreamingDetailView` (292 LOC) — a pushed screen vs. a modal
 
@@ -212,7 +218,7 @@ No iOS counterpart, and none needed: `app/(app)/mqtt-debug.tsx`,
 ## How to use this
 
 Work down the ◻ rows. Verifying one means opening both files side by side and
-either marking it ✅ or writing a ⚠ row with the specific difference. The 44
+either marking it ✅ or writing a ⚠ row with the specific difference. The 42
 unverified rows are the remaining Axis 6 work, and they are not evenly sized —
 `MemberListContent` (1598), `SessionDetailView` (993), `NewSessionSheet` (599)
 and `LoginView` (464) are most of the mass.
