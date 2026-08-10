@@ -195,6 +195,36 @@ function applySyncKeyset(query, cursor, limit) {
     .limit(limit);
 }
 
+function normalizeWorkspacePath(path: string | null | undefined): string | null {
+  if (path == null) return null;
+  const trimmed = path.trim();
+  if (!trimmed) return null;
+  return trimmed.replace(/\/+$/, "") || trimmed;
+}
+
+async function findUniqueWorkspaceName(
+  supabase,
+  teamId: string,
+  agentId: string | null | undefined,
+  baseName: string,
+): Promise<string> {
+  let candidate = baseName;
+  let suffix = 2;
+  while (true) {
+    let query = supabase
+      .from("workspaces")
+      .select("id")
+      .eq("team_id", teamId)
+      .eq("name", candidate);
+    query = agentId ? query.eq("agent_id", agentId) : query.is("agent_id", null);
+    const { data, error } = await query.limit(1);
+    if (error) throw error;
+    if (!data?.length) return candidate;
+    candidate = `${baseName} (${suffix})`;
+    suffix += 1;
+  }
+}
+
 async function archiveSessionsForWorkspace(supabase, workspaceId) {
   const { data: participants, error: rtError } = await supabase
     .from("session_participants")
@@ -1281,15 +1311,65 @@ export function createSupabaseBusinessRepository(options) {
       if (!resolved?.id) throw new ApiError(403, "forbidden", "not a member of this team");
       const createdByMemberId = resolved.id;
 
-      const row = {
-        id: input.id,
+      // Dedup key: explicit `id` always wins. Otherwise reuse by (team, path)
+      // or by (team, agent, name) — the table's unique constraint is
+      // (team_id, agent_id, name), and onConflict:"id" alone mints a fresh
+      // UUID that collides with that constraint when re-adding an existing /
+      // archived workspace. Mirrors pg-repo/workspaces.ts.
+      let targetId = input.id ?? null;
+      const normalizedPath = normalizeWorkspacePath(input.path ?? input.slug ?? null);
+      let resolvedName = input.name;
+
+      if (!targetId && normalizedPath) {
+        const { data: byPath, error: pathErr } = await supabase
+          .from("workspaces")
+          .select("id")
+          .eq("team_id", input.teamId)
+          .in("path", [normalizedPath, `${normalizedPath}/`])
+          .limit(1);
+        if (pathErr) throw pathErr;
+        if (byPath?.[0]?.id) targetId = byPath[0].id;
+      }
+
+      if (!targetId) {
+        let byNameQuery = supabase
+          .from("workspaces")
+          .select("id, path, archived")
+          .eq("team_id", input.teamId)
+          .eq("name", resolvedName);
+        byNameQuery = input.agentId
+          ? byNameQuery.eq("agent_id", input.agentId)
+          : byNameQuery.is("agent_id", null);
+        const { data: byNameRows, error: nameErr } = await byNameQuery.limit(1);
+        if (nameErr) throw nameErr;
+        const existingByName = byNameRows?.[0];
+        if (existingByName) {
+          const existingPath = normalizeWorkspacePath(existingByName.path);
+          if (normalizedPath && existingPath === normalizedPath) {
+            targetId = existingByName.id;
+          } else if (existingByName.archived) {
+            targetId = existingByName.id;
+          } else {
+            resolvedName = await findUniqueWorkspaceName(
+              supabase,
+              input.teamId,
+              input.agentId,
+              resolvedName,
+            );
+          }
+        }
+      }
+
+      const row: Record<string, unknown> = {
         team_id: input.teamId,
-        name: input.name,
-        path: input.path ?? input.slug ?? null,
+        name: resolvedName,
+        path: normalizedPath,
         agent_id: input.agentId ?? null,
         created_by_member_id: createdByMemberId,
         archived: input.archived ?? false,
       };
+      if (targetId) row.id = targetId;
+
       const { data, error } = await supabase
         .from("workspaces")
         .upsert(row, { onConflict: "id" })
