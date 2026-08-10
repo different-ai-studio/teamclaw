@@ -51,13 +51,13 @@ and tool-call passes.
 |---|---|---|---|
 | `AMUXAnimation` | 57 | `ui/theme.ts` → `motion` | ✅ |
 | `AMUXTheme` | 133 | `ui/theme.ts` | ⚠ light-only; no Sumi dark set (excluded by the user) |
-| `CommandChip` | 48 | `sessions/components/slash-commands.ts` | ◻ |
-| `ConnectionBanner` | 60 | `sessions/components/ConnectionBannerOverlay.tsx` | ◻ |
+| `CommandChip` | 48 | — | ✅ nothing to port: `extractSlashCommand` has no production caller on iOS either, only its own tests. Expo's `slashPrefix` is a different job (autocomplete trigger, not message-render splitting) |
+| `ConnectionBanner` | 60 | `sessions/components/ConnectionBannerOverlay.tsx` | ✅ states + colour ⚠ full-width strip, not iOS's floating capsule (deliberate — clears the pinned glass header) |
 | `MarkdownRenderer` | 141 | inline in `SessionMessageRow.tsx` | ◻ |
-| `MentionsPopup` | 119 | `sessions/components/MentionsPopup.tsx` | ◻ |
-| `PermissionBanner` | 68 | `sessions/components/PermissionBanner.tsx` | ◻ |
+| `MentionsPopup` | 119 | `sessions/components/MentionsPopup.tsx` | ✅ |
+| `PermissionBanner` | 68 | `sessions/components/PermissionBanner.tsx` | ✅ |
 | `SessionPlansPanelView` | 102 | `sessions/components/SessionPlansPanel.tsx` | ◻ |
-| `SlashCommandsPopup` | 118 | `sessions/components/SlashCommandsPopup.tsx` | ◻ |
+| `SlashCommandsPopup` | 118 | `sessions/components/SlashCommandsPopup.tsx` | ✅ |
 | `StreamingTextView` | 51 | inline in `SessionMessageRow.tsx` | ◻ |
 | `TodoDockView` | 92 | `sessions/components/TodoDock.tsx` | ◻ |
 | `TodoItemStyling` | 21 | `sessions/components/todo-dock-parser.ts` | ◻ |
@@ -70,7 +70,7 @@ and tool-call passes.
 |---|---|---|---|
 | `AddAgentSheet` | 139 | `MemberPickerSheet.tsx` | ◻ |
 | `AddMemberSheet` | 48 | `MemberPickerSheet.tsx` | ◻ |
-| `AgentChipBar` | 169 | `components/AgentChipBar.tsx` | ◻ |
+| `AgentChipBar` | 169 | `components/AgentChipBar.tsx` | ✅ chip visuals + interrupt confirm ⚠ chips are all agent participants, not a per-turn selection |
 | `AgentsSheet` | 197 | `AgentConfigSheet.tsx` + `ModelPickerSheet.tsx` | ✅ model switch ◻ stop-mid-stream confirm |
 | `AttachmentDrawerSheet` | 165 | `screens/AttachmentDrawerSheet.tsx` | ◻ |
 | `CameraImagePicker` | 45 | `app/(app)/attach.tsx` (expo-image-picker) | ✅ |

@@ -10,11 +10,18 @@ export type ConnectionBannerOverlayProps = {
 };
 
 /**
- * Top-of-screen connection banner that mirrors iOS
- * `ConnectionBannerOverlay`. Hidden when the realtime channel is
- * `connected`; shows a slim Cinnabar-tinted strip with a retry hint
- * otherwise. Designed to mount inside the Sessions tab root so it
- * floats above the list / detail content.
+ * Top-of-screen connection banner, mirroring iOS `ConnectionBanner`. Hidden
+ * while connected — agent availability is surfaced on the Actors tab, not
+ * here.
+ *
+ * The two states are coloured apart, as iOS colours them: reconnecting is
+ * amber because the client is still trying, disconnected is cinnabar because
+ * it has stopped. Both used to be cinnabar, so "working on it" and "gave up"
+ * looked identical.
+ *
+ * Shape is a deliberate divergence: iOS floats a capsule pill, this is a
+ * full-width strip with its own Retry control. The strip suits a banner that
+ * has to sit under a pinned glass header without colliding with it.
  */
 export function ConnectionBannerOverlay({
   connectionState,
@@ -22,11 +29,12 @@ export function ConnectionBannerOverlay({
 }: ConnectionBannerOverlayProps) {
   if (connectionState === "connected") return null;
   const isConnecting = connectionState === "connecting";
+  const accent = isConnecting ? RECONNECTING_ACCENT : hai.cinnabarDeep;
 
   return (
-    <View style={styles.banner}>
+    <View style={[styles.banner, isConnecting ? styles.bannerConnecting : null]}>
       <Ionicons
-        color={hai.cinnabarDeep}
+        color={accent}
         name={isConnecting ? "sync-outline" : "cloud-offline-outline"}
         size={14}
       />
@@ -47,7 +55,17 @@ export function ConnectionBannerOverlay({
   );
 }
 
+/**
+ * The amber `StatusDot` uses for "in flight". Hai ships no yellow, and iOS
+ * reaches for the system one here.
+ */
+const RECONNECTING_ACCENT = "#C68A3A";
+
 const styles = StyleSheet.create({
+  bannerConnecting: {
+    backgroundColor: "rgba(198,138,58,0.10)",
+    borderBottomColor: "rgba(198,138,58,0.25)",
+  },
   banner: {
     alignItems: "center",
     backgroundColor: "rgba(184,75,54,0.10)",

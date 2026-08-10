@@ -1,5 +1,15 @@
 import { Ionicons } from "@expo/vector-icons";
-import { Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
+import { useCallback } from "react";
+import {
+  ActionSheetIOS,
+  Alert,
+  Platform,
+  Pressable,
+  ScrollView,
+  StyleSheet,
+  Text,
+  View,
+} from "react-native";
 
 import { StatusDot, type StatusDotKind } from "../../../ui/atoms/StatusDot";
 import { colors, radii, spacing, typography } from "../../../ui/theme";
@@ -55,6 +65,37 @@ export function AgentChipBar({
   onInterrupt,
   onRemove,
 }: AgentChipBarProps) {
+  // Interrupting throws away the turn in flight, so it asks first and says
+  // what is lost — iOS puts the same sentence in its alert. Removing a chip is
+  // reversible, so that stays a single tap.
+  const confirmInterrupt = useCallback(
+    (agentId: string, displayName: string) => {
+      const title = `Interrupt ${displayName}?`;
+      const body = `Stop ${displayName}'s current response. The message it was working on won't be saved.`;
+      const run = () => onInterrupt?.(agentId);
+      if (Platform.OS === "ios") {
+        ActionSheetIOS.showActionSheetWithOptions(
+          {
+            title,
+            message: body,
+            options: ["Interrupt", "Cancel"],
+            cancelButtonIndex: 1,
+            destructiveButtonIndex: 0,
+          },
+          (index) => {
+            if (index === 0) run();
+          },
+        );
+        return;
+      }
+      Alert.alert(title, body, [
+        { text: "Interrupt", style: "destructive", onPress: run },
+        { text: "Cancel", style: "cancel" },
+      ]);
+    },
+    [onInterrupt],
+  );
+
   if (chips.length === 0) {
     return null;
   }
@@ -71,6 +112,10 @@ export function AgentChipBar({
         const streaming = streamingAgentIds?.has(chip.agentId) ?? false;
         return (
           <View key={chip.agentId} style={styles.chip}>
+            {/* Cinnabar wash over the Paper base. iOS layers the two rather
+                than tinting alone: at 12% alpha with no opaque layer under it,
+                the chat bubble behind bleeds straight through the chip. */}
+            <View style={styles.chipTint} pointerEvents="none" />
             <StatusDot kind={runtimeKind(chip.runtimeState)} size={6} />
             <Text style={styles.label}>{chip.displayName}</Text>
             <Pressable
@@ -81,7 +126,7 @@ export function AgentChipBar({
               hitSlop={6}
               onPress={() => {
                 if (streaming) {
-                  onInterrupt?.(chip.agentId);
+                  confirmInterrupt(chip.agentId, chip.displayName);
                 } else {
                   onRemove?.(chip.agentId);
                 }
@@ -112,6 +157,15 @@ const styles = StyleSheet.create({
   },
   actionStreaming: {
     backgroundColor: "rgba(184,75,54,0.22)",
+  },
+  chipTint: {
+    backgroundColor: "rgba(184,75,54,0.12)",
+    borderRadius: radii.pill,
+    bottom: 0,
+    left: 0,
+    position: "absolute",
+    right: 0,
+    top: 0,
   },
   chip: {
     alignItems: "center",
