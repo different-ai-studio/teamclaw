@@ -30,10 +30,24 @@ checklist, and records the first pass over them.
 | 5 | Error & retry | What happens when a call fails, and what does the user see? |
 | 6 | UI / visual | Do the two apps look like the same product? |
 
-Axis 6 carries one standing exemption: **iOS Liquid Glass / 毛玻璃 cannot be
-reproduced** (`glassEffect`, `.ultraThinMaterial`). Everything else about those
-surfaces — geometry, radius, tint, hairline, spacing, typography — still has to
-match. "We can't blur" is not a licence to restyle.
+Axis 6 carried a standing exemption: *iOS Liquid Glass / 毛玻璃 cannot be
+reproduced.* **That was too broad — it is only true on Android.** Corrected:
+
+- **iOS.** Expo can render real Liquid Glass. `@expo/ui/swift-ui` exposes
+  SwiftUI's `glassEffect` modifier and `GlassEffectContainer` (SDK 54+), and
+  `expo-router/unstable-native-tabs` renders an actual `UITabBar`, which the
+  system glazes for free on iOS 26 — including `minimizeBehavior`, the
+  minimize-on-scroll behaviour. Neither was available when the exemption was
+  written.
+- **Android.** Still an approximation. `@expo/ui`'s Jetpack Compose half is
+  announced as planned, not shipped, and Android has no Liquid Glass to expose
+  in the first place. `GlassSurface` (`dimezisBlurView` + tint) stays the
+  ceiling here.
+
+So the exemption survives only as: **Liquid Glass is unreachable on Android.**
+Everything else about those surfaces — geometry, radius, tint, hairline,
+spacing, typography — still has to match on both. "We can't blur" was never a
+licence to restyle, and on iOS it is no longer even true.
 
 ---
 
