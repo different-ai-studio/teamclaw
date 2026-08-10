@@ -12,6 +12,7 @@
 //   POST /env-var-delete    — delete an env var (`scope`: personal | team)
 //   POST /mcp-get           — fetch merged workspace MCP map (daemon)
 //   POST /mcp-put           — replace workspace MCP map (daemon)
+//   POST /session-archive   — archive a cloud session (PATCH archivedAt)
 //   POST /session-export    — export session messages as opencode-compatible JSON
 //
 // Uses raw TCP + manual HTTP parsing to stay minimal (no axum state needed).
@@ -105,6 +106,9 @@ pub async fn start_introspect_api(app: AppHandle) -> anyhow::Result<()> {
                 ("POST", "/channel-set") => handle_channel_set(&app_clone, body_bytes).await,
                 ("POST", "/mcp-get") => handle_mcp_get(&app_clone, body_bytes).await,
                 ("POST", "/mcp-put") => handle_mcp_put(&app_clone, body_bytes).await,
+                ("POST", "/session-archive") => {
+                    handle_session_archive(&app_clone, body_bytes).await
+                }
                 ("POST", "/git-credential-get") => {
                     handle_git_credential_get(&app_clone, body_bytes).await
                 }
@@ -688,6 +692,93 @@ async fn handle_mcp_put(app: &AppHandle, body: &[u8]) -> Result<String, String> 
     }
     let result = super::daemon_http::put_mcp_via_daemon(&workspace, servers).await?;
     serde_json::to_string(&result).map_err(|e| format!("Serialization error: {e}"))
+}
+
+/// Archive a cloud session via `PATCH /v1/sessions/:id` with `{ archivedAt }`.
+///
+/// Body: `{ "session_id": "...", "archivedAt"?: ISO, "accessToken"?: "...", "cloudApiUrl"?: "..." }`.
+/// Credentials fall back to the in-memory introspect auth bridge (pushed by the
+/// frontend on sign-in / token refresh).
+async fn handle_session_archive(app: &AppHandle, body: &[u8]) -> Result<String, String> {
+    let v: serde_json::Value =
+        serde_json::from_slice(body).map_err(|e| format!("JSON parse error: {}", e))?;
+
+    let session_id = v
+        .get("session_id")
+        .or_else(|| v.get("sessionId"))
+        .and_then(|x| x.as_str())
+        .map(str::trim)
+        .filter(|s| !s.is_empty())
+        .ok_or("Missing field: session_id")?;
+
+    let archived_at = v
+        .get("archivedAt")
+        .or_else(|| v.get("archived_at"))
+        .and_then(|x| x.as_str())
+        .map(str::trim)
+        .filter(|s| !s.is_empty())
+        .map(|s| s.to_string())
+        .unwrap_or_else(|| chrono::Utc::now().to_rfc3339());
+
+    let body_token = v
+        .get("accessToken")
+        .or_else(|| v.get("access_token"))
+        .and_then(|x| x.as_str())
+        .map(str::trim)
+        .filter(|s| !s.is_empty())
+        .map(|s| s.to_string());
+    let body_url = v
+        .get("cloudApiUrl")
+        .or_else(|| v.get("cloud_api_url"))
+        .and_then(|x| x.as_str())
+        .map(str::trim)
+        .filter(|s| !s.is_empty())
+        .map(|s| s.trim_end_matches('/').to_string());
+
+    let (access_token, cloud_api_url) = match (body_token, body_url) {
+        (Some(token), Some(url)) => (token, url),
+        (Some(token), None) => {
+            let url = super::oss_sync::get_fc_endpoint("");
+            (token, url)
+        }
+        (None, url_opt) => {
+            let bridge = app.state::<super::introspect_auth::IntrospectAuthState>();
+            let (token, bridged_url) = bridge.get().ok_or_else(|| {
+                "Not signed in: open TeamClu and sign in so archive_session can call the Cloud API."
+                    .to_string()
+            })?;
+            (token, url_opt.unwrap_or(bridged_url))
+        }
+    };
+
+    let endpoint = super::oss_sync::resolve_runtime_fc_endpoint(&cloud_api_url)?;
+    let fc = super::oss_sync::fc_client::FcClient::new(endpoint, access_token);
+    let path = format!("/v1/sessions/{}", session_id);
+    let patch = serde_json::json!({ "archivedAt": archived_at });
+    fc.patch_json(&path, &patch)
+        .await
+        .map_err(|e| format!("Cloud API archive failed: {e}"))?;
+
+    // Best-effort local cache cleanup so the desktop list doesn't resurrect the row.
+    let cache = app.state::<crate::local_cache::commands::LocalCacheState>();
+    if let Err(e) = crate::local_cache::commands::soft_delete_session_best_effort(
+        &cache,
+        session_id,
+        &archived_at,
+    )
+    .await
+    {
+        eprintln!(
+            "[IntrospectAPI] local cache soft-delete after archive failed: {e}"
+        );
+    }
+
+    let payload = serde_json::json!({
+        "ok": true,
+        "session_id": session_id,
+        "archivedAt": archived_at,
+    });
+    serde_json::to_string(&payload).map_err(|e| format!("Serialization error: {e}"))
 }
 
 /// Fetch a stored Git credential by ref. Body: `{"workspace_path": "...", "credential_ref": "..."}`.

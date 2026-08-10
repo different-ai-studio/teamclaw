@@ -351,6 +351,7 @@ pub fn run() {
         })
         .manage(commands::window_chrome::MainWindowState::default())
         .manage(commands::shared_secrets::SharedSecretsState::default())
+        .manage(commands::introspect_auth::IntrospectAuthState::default())
         .manage(commands::oauth_loopback::OAuthLoopbackState::default())
         .manage::<crate::mqtt::MqttBus>(std::sync::Arc::new(crate::mqtt::MqttBusInner::new()))
         .manage(std::sync::Arc::new(crate::terminal::Registry::new()))
@@ -363,6 +364,8 @@ pub fn run() {
             commands::daemon_http::get_daemon_team_id,
             commands::daemon_http::list_local_daemon_workspaces,
             commands::daemon_http::register_daemon_workspace,
+            commands::introspect_auth::set_introspect_auth,
+            commands::introspect_auth::clear_introspect_auth,
             commands::show_in_folder,
             commands::acp_debug_log::acp_debug_append_log,
             commands::acp_debug_log::acp_debug_log_directory,

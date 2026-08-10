@@ -11,6 +11,10 @@ import type { AuthClaimResult, AuthSession, PendingInvite } from "@/lib/backend"
 import { accessTokenMatchesBackend } from "@/lib/auth/auth-client";
 import { CloudApiError } from "@/lib/backend/cloud-api/http";
 import { clearBootstrapAppliedFields, fetchAndApplyBootstrap } from "@/lib/bootstrap";
+import {
+  clearIntrospectAuthBridge,
+  syncIntrospectAuthBridge,
+} from "@/lib/introspect-auth-bridge";
 import { clearSessionFeatures } from "@/lib/remote-features";
 import { getEffectiveServerConfig } from "@/lib/server-config";
 import { markStartup } from "@/lib/startup-perf";
@@ -218,6 +222,7 @@ export const useAuthStore = create<AuthState>((set, get) => ({
     if (session) {
       void fetchAndApplyBootstrap({ accessToken: session.accessToken });
     }
+    void syncIntrospectAuthBridge(session);
     // StrictMode double-invokes the effect that calls hydrate, and this
     // subscription outlives it. Drop the previous one first so a cold start
     // doesn't accumulate listeners that each re-run bootstrap on every auth
@@ -228,6 +233,7 @@ export const useAuthStore = create<AuthState>((set, get) => ({
       if (session) {
         void fetchAndApplyBootstrap({ accessToken: session.accessToken });
       }
+      void syncIntrospectAuthBridge(session);
     });
   },
   sendOtp: async (email) => {
@@ -582,6 +588,7 @@ export const useAuthStore = create<AuthState>((set, get) => ({
   signOut: async () => {
     await getBackend().auth.signOut();
     set({ session: null, authFlow: "idle", otpEmail: null, otpPhone: null, phoneMultiUsers: [], pendingPhoneOTPToken: "", upgradeEmail: null, pendingInvites: [] });
+    void clearIntrospectAuthBridge();
     // Reset the current team so the NEXT (e.g. anonymous) login doesn't inherit
     // the previous user's team. Without this the current-team store kept the old
     // team (its RLS-lag guard preserves it while the new user's team list is
