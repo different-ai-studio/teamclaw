@@ -6,16 +6,19 @@ export function registerSessions(router) {
   // correct under pagination. They are what replaced the removed
   // GET /v1/teams/:teamId/sessions — see 20260802000000.
   //
-  // teamId is required of CURRENT clients: since 20260804020000 the caller's
-  // actor is resolved per team (one actor row per user per team), so a team is
-  // what identifies who is asking. It stays optional on the wire because FC
-  // redeploys on merge while desktop and iOS ship on tags — a released build
-  // that omits it falls back to the deprecated un-scoped list rather than
-  // losing its session list. See the repository for that fallback.
+  // teamId is REQUIRED. Since 20260804020000 the caller's actor is resolved per
+  // team (one actor row per user per team), so a team is what identifies who is
+  // asking — and it is also the only thing that lets this query use
+  // `sessions_team_active_last_message_idx`. The un-scoped fallback that used to
+  // serve callers omitting it was O(N) in the caller's session count: measured
+  // on 47.112.210.217, 6k sessions took 4.5s and anything past ~13k blew the
+  // `authenticated` role's 8s statement_timeout and came back as a 500. A
+  // released build that omits teamId now gets an honest 400 instead of a list
+  // that degrades into timeouts as its history grows.
   router.get("/v1/sessions", async (ctx) => {
     const limit = parseLimit(ctx.query.get("limit"));
     const cursor = decodeCursor(ctx.query.get("cursor"));
-    const teamId = ctx.query.get("teamId") || null;
+    const teamId = requireString(ctx.query.get("teamId"), "teamId");
     const ideaId = ctx.query.get("ideaId") || null;
     const items = await ctx.repository.listSessions({ limit, cursor, teamId, ideaId });
     return { body: { items, nextCursor: nextSessionCursor(items, limit) } };
@@ -52,9 +55,14 @@ export function registerSessions(router) {
     return { body: out };
   });
 
+  // teamId is required here for the same reason as on the list: it is what
+  // scopes a read to a team the caller has an actor in. Passing it also turns a
+  // cross-team id into a 404 at the query level rather than relying on RLS
+  // alone to hide the row.
   router.get("/v1/sessions/:sessionId", async (ctx) => {
     const sessionId = decodeURIComponent(ctx.params.sessionId);
-    const out = await ctx.repository.getSession(sessionId);
+    const teamId = requireString(ctx.query.get("teamId"), "teamId");
+    const out = await ctx.repository.getSession(sessionId, { teamId });
     if (!out) throw new ApiError(404, "not_found", "session not found");
     return { body: out };
   });

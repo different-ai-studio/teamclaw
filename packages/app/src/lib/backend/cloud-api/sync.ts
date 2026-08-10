@@ -5,33 +5,29 @@ import type {
   SyncBackend,
 } from "../types";
 import type { CloudApiClient } from "./http";
-
-function buildQuery(params: Record<string, string | null | undefined>): string {
-  const search = new URLSearchParams();
-  for (const [k, v] of Object.entries(params)) {
-    if (v !== null && v !== undefined && v !== "") search.set(k, v);
-  }
-  return search.toString();
-}
+import { fetchAllSyncPages } from "./sync-paging";
 
 export function createSyncModule(client: CloudApiClient): SyncBackend {
   return {
+    // Each of these pages to exhaustion — the endpoints are keyset-paginated and
+    // reading only the first page would silently drop the rest of the delta.
     async listActorDirectoryForSync(teamId, updatedAfter) {
-      const qs = buildQuery({ teamId, since: updatedAfter ?? null });
-      const out = await client.get<{ items: ActorDirectorySyncRow[] }>(`/v1/sync/actor-directory?${qs}`);
-      return out.items;
+      return fetchAllSyncPages<ActorDirectorySyncRow>(client, "/v1/sync/actor-directory", {
+        teamId,
+        since: updatedAfter ?? null,
+      });
     },
     async listIdeasForSync(teamId, updatedAfter) {
-      const qs = buildQuery({ teamId, since: updatedAfter ?? null });
-      const out = await client.get<{ items: IdeaSyncRow[] }>(`/v1/sync/ideas?${qs}`);
-      return out.items;
+      return fetchAllSyncPages<IdeaSyncRow>(client, "/v1/sync/ideas", {
+        teamId,
+        since: updatedAfter ?? null,
+      });
     },
     async listSessionParticipantsForSync(sessionId, updatedAfter) {
-      const qs = buildQuery({ sessionId, since: updatedAfter ?? null });
-      const out = await client.get<{ items: SessionParticipantSyncRow[] }>(
-        `/v1/sync/session-participants?${qs}`,
-      );
-      return out.items;
+      return fetchAllSyncPages<SessionParticipantSyncRow>(client, "/v1/sync/session-participants", {
+        sessionId,
+        since: updatedAfter ?? null,
+      });
     },
   };
 }

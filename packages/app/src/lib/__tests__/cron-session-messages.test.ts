@@ -4,7 +4,6 @@ import { useSessionMessageStore } from "@/stores/session-message-store";
 
 const mocks = vi.hoisted(() => ({
   listMessages: vi.fn(),
-  getSessionTeamId: vi.fn(),
   listSessionDisplayRows: vi.fn(),
   reloadAndSwitchTo: vi.fn(),
 }));
@@ -13,7 +12,6 @@ vi.mock("@/lib/backend", () => ({
   getBackend: () => ({
     messages: { listMessages: mocks.listMessages },
     sessions: {
-      getSessionTeamId: mocks.getSessionTeamId,
       listSessionDisplayRows: mocks.listSessionDisplayRows,
     },
   }),
@@ -47,7 +45,9 @@ beforeEach(() => {
 
 describe("hydrateCronSessionMessages", () => {
   it("maps cloud rows into the message store", async () => {
-    mocks.listMessages.mockResolvedValueOnce([
+    mocks.listMessages.mockResolvedValueOnce({
+      nextCursor: null,
+      rows: [
       {
         id: "m1",
         team_id: "t1",
@@ -62,7 +62,8 @@ describe("hydrateCronSessionMessages", () => {
         created_at: "2026-06-01T07:00:00.000Z",
         updated_at: "2026-06-01T07:00:00.000Z",
       },
-    ]);
+      ],
+    });
 
     const count = await hydrateCronSessionMessages("s1");
     expect(count).toBe(1);
@@ -73,7 +74,7 @@ describe("hydrateCronSessionMessages", () => {
   });
 
   it("falls back to run summary when cloud has no messages", async () => {
-    mocks.listMessages.mockResolvedValueOnce([]);
+    mocks.listMessages.mockResolvedValueOnce({ rows: [], nextCursor: null });
 
     const count = await hydrateCronSessionMessages("s1", {
       fallbackSummary: "北极熊笑话",
@@ -90,7 +91,6 @@ describe("hydrateCronSessionMessages", () => {
 describe("ensureCronSessionVisible", () => {
   beforeEach(() => {
     useSessionListStore.setState({ rows: [] });
-    mocks.getSessionTeamId.mockResolvedValue("team-1");
     mocks.listSessionDisplayRows.mockResolvedValue([{ id: "s-cron", title: "Cron: Test" }]);
   });
 

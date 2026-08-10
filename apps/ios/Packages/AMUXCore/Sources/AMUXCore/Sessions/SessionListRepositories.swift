@@ -127,8 +127,27 @@ public struct MessageInsertInput: Equatable, Sendable {
     }
 }
 
+/// One page of history, walking backward from the newest message.
+///
+/// `messages` is oldest-first (transcript order); `nextCursor` reaches the page
+/// immediately OLDER than this one and is nil at the start of the session.
+public struct MessagePage: Sendable {
+    public let messages: [MessageRecord]
+    public let nextCursor: String?
+
+    public init(messages: [MessageRecord], nextCursor: String?) {
+        self.messages = messages
+        self.nextCursor = nextCursor
+    }
+}
+
 public protocol MessagesRepository: Sendable {
     func listForSession(sessionID: String) async throws -> [MessageRecord]
+    /// Paginated history. `GET /v1/sessions/:id/messages` used to return a
+    /// session's entire history in one response — 6k messages measured
+    /// 6.1s / 3.7MB and 40k exceeded the server's statement timeout — so it now
+    /// serves the newest page and pages backward from there.
+    func listPage(sessionID: String, limit: Int?, cursor: String?) async throws -> MessagePage
     func insert(_ input: MessageInsertInput) async throws
     /// Rewrites a persisted message's content. FC enforces sender-only
     /// semantics, so callers only offer this for the current actor's own
@@ -137,6 +156,16 @@ public protocol MessagesRepository: Sendable {
     /// Permanently removes a persisted message (FC returns 204).
     /// Same sender-only contract as `patch`.
     func delete(messageID: String) async throws
+}
+
+public extension MessagesRepository {
+    /// Default for repositories that have nothing to page (in-memory fakes,
+    /// tests): serve everything as a single, final page.
+    func listPage(sessionID: String, limit: Int? = nil, cursor: String? = nil) async throws -> MessagePage {
+        _ = limit
+        _ = cursor
+        return MessagePage(messages: try await listForSession(sessionID: sessionID), nextCursor: nil)
+    }
 }
 
 

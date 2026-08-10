@@ -96,9 +96,9 @@ describe("cloud api backend", () => {
     await expect(backend.sessions.listCurrentActorSessions({ limit: 50, cursor: null, teamId: "team-1" })).resolves.toMatchObject({
       rows: [{ id: "session-1", team_id: "team-1", has_unread: true }],
     });
-    await expect(backend.messages.listMessages("session-1")).resolves.toMatchObject([
-      { id: "message-1", team_id: "team-1", sender_actor_id: "actor-1" },
-    ]);
+    await expect(backend.messages.listMessages("session-1")).resolves.toMatchObject({
+      rows: [{ id: "message-1", team_id: "team-1", sender_actor_id: "actor-1" }],
+    });
     await expect(backend.messages.insertOutgoingMessage({
       id: "message-2",
       teamId: "team-1",

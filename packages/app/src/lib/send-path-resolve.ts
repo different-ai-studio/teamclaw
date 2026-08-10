@@ -25,18 +25,21 @@ export function trySyncMentionActorIds(
  * (capped, lazily-loaded) list would otherwise be sent under the wrong team and
  * the Cloud insert would fail.
  */
-export async function resolveSendTeamId(args: {
-  sessionId: string;
+/**
+ * The team to send into: the session's own row if the list has it, else the
+ * team you are currently in.
+ *
+ * There used to be a middle step that asked the backend to resolve a team from
+ * a bare session id. It is gone on purpose — session reads are team-scoped now,
+ * and a composer is always inside the team you are looking at, so the current
+ * team is the right answer whenever the list row has not loaded yet. Removing
+ * it also drops a network round-trip from the send path.
+ */
+export function resolveSendTeamId(args: {
   teamIdFromSessionList: string | null;
-  fetchSessionTeamId: (sessionId: string) => Promise<string | null>;
   currentTeamId: () => string | null;
-}): Promise<string | null> {
-  if (args.teamIdFromSessionList) return args.teamIdFromSessionList;
-  if (args.sessionId) {
-    const fromBackend = await args.fetchSessionTeamId(args.sessionId);
-    if (fromBackend) return fromBackend;
-  }
-  return args.currentTeamId();
+}): string | null {
+  return args.teamIdFromSessionList ?? args.currentTeamId();
 }
 
 /**

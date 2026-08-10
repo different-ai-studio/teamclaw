@@ -20,9 +20,15 @@
  *  - kind          ← idea_activities.activityType (schema column rename)
  */
 
-import { and, asc, desc, eq, gt, inArray, lt } from "drizzle-orm";
+import { and, asc, desc, eq, gt, inArray, lt, sql } from "drizzle-orm";
 import type { PgDatabase } from "drizzle-orm/pg-core";
 import { ideas, ideaActivities } from "../../db/schema/index.js";
+import { DEFAULT_LIST_LIMIT } from "../routing-utils.js";
+
+type SyncPageOpts = {
+  limit?: number;
+  cursor?: { updatedAt?: string | null; id?: string | null } | null;
+};
 import { ApiError } from "../http-utils.js";
 import { requireActorForTeam } from "./authz.js";
 
@@ -229,13 +235,27 @@ export function makeIdeasRepo(db: DbLike, ctx: IdeasCtx = {}) {
     // ── Sync ──────────────────────────────────────────────────────────────
     // Snake_case wire shape — consumed directly by the client's lib/sync/idea-sync.ts
     // (no client mapper). Matches supabase-repo's listIdeasForSync SELECT columns.
-    async listIdeasForSync(teamId: string, updatedAfter: string | null) {
-      const rows = updatedAfter
-        ? await db
-            .select()
-            .from(ideas)
-            .where(and(eq(ideas.teamId, teamId), gt(ideas.updatedAt, new Date(updatedAfter))))
-        : await db.select().from(ideas).where(eq(ideas.teamId, teamId));
+    // Keyset-paginated on (updated_at, id) like every other *ForSync reader —
+    // see applySyncKeyset in supabase-repo for why the tiebreak matters.
+    async listIdeasForSync(
+      teamId: string,
+      updatedAfter: string | null,
+      { limit = DEFAULT_LIST_LIMIT, cursor = null }: SyncPageOpts = {},
+    ) {
+      const conditions = [eq(ideas.teamId, teamId)];
+      if (updatedAfter) conditions.push(gt(ideas.updatedAt, new Date(updatedAfter)));
+      if (cursor?.updatedAt) {
+        const at = new Date(cursor.updatedAt);
+        conditions.push(
+          sql`(${ideas.updatedAt} > ${at} OR (${ideas.updatedAt} = ${at} AND ${ideas.id} > ${cursor.id ?? null}))`,
+        );
+      }
+      const rows = await db
+        .select()
+        .from(ideas)
+        .where(and(...conditions))
+        .orderBy(asc(ideas.updatedAt), asc(ideas.id))
+        .limit(limit);
       return rows.map((r: any) => ({
         id: r.id,
         team_id: r.teamId,

@@ -128,7 +128,7 @@ test("createShortcut: client-supplied FOREIGN ownerActorId is rejected (cannot f
   assert.equal(row.ownerMemberId, me.id, "owner must be the caller's resolved actor");
 });
 
-test("listSessions: works from ctx.userId with neither teamId nor actorId supplied", async () => {
+test("listSessions: resolves the actor from ctx.userId, given a teamId", async () => {
   const { db } = await makeTestDb();
   const team = await seedTeam(db);
   const me = await seedActor(db, team.id, "user-me");
@@ -136,9 +136,24 @@ test("listSessions: works from ctx.userId with neither teamId nor actorId suppli
   await writer.createSession({ teamId: team.id, title: "S1", mode: "solo", participantActorIds: [me.id] });
 
   const repo = createPgBusinessRepository({ db, userId: "user-me" });
-  const rows = await repo.listSessions({ limit: 50, cursor: null });
+  const rows = await repo.listSessions({ limit: 50, cursor: null, teamId: team.id });
   assert.ok(rows.length >= 1, "should list the user's participating sessions");
   assert.ok(rows.every((r: any) => r.teamId === team.id));
+});
+
+// teamId is required on both repositories, mirroring GET /v1/sessions. The
+// un-scoped listing it replaced could not use an index and degraded linearly
+// with the caller's session count.
+test("listSessions: rejects a call with no teamId", async () => {
+  const { db } = await makeTestDb();
+  const team = await seedTeam(db);
+  await seedActor(db, team.id, "user-me");
+
+  const repo = createPgBusinessRepository({ db, userId: "user-me" });
+  await assert.rejects(
+    () => repo.listSessions({ limit: 50, cursor: null }),
+    (err: any) => err?.statusCode === 400 && err?.code === "validation_failed",
+  );
 });
 
 test("listSessions: returns [] (fail closed) when there is no identity", async () => {
@@ -149,7 +164,7 @@ test("listSessions: returns [] (fail closed) when there is no identity", async (
   await writer.createSession({ teamId: team.id, title: "Hidden", mode: "solo", participantActorIds: [me.id] });
 
   const repo = createPgBusinessRepository({ db }); // no userId
-  const rows = await repo.listSessions({ limit: 50, cursor: null });
+  const rows = await repo.listSessions({ limit: 50, cursor: null, teamId: team.id });
   assert.deepEqual(rows, [], "no identity → no sessions");
 });
 

@@ -243,9 +243,26 @@ public actor CloudAPIMessagesRepository: MessagesRepository {
         self.client = client
     }
 
+    private static func enc(_ value: String) -> String {
+        value.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? value
+    }
+
+    /// The newest page of the session. Omitting a cursor no longer means "the
+    /// whole history" — the server caps the page and reports `nextCursor` for
+    /// older ones. Use `listPage` to walk back through them.
     public func listForSession(sessionID: String) async throws -> [MessageRecord] {
-        let page: CloudPage<CloudMessage> = try await client.get("/v1/sessions/\(sessionID)/messages")
-        return page.items.map { row in
+        try await listPage(sessionID: sessionID, limit: nil, cursor: nil).messages
+    }
+
+    public func listPage(sessionID: String, limit: Int?, cursor: String?) async throws -> MessagePage {
+        var query: [String] = []
+        if let limit { query.append("limit=\(limit)") }
+        if let cursor, !cursor.isEmpty { query.append("cursor=\(Self.enc(cursor))") }
+        let suffix = query.isEmpty ? "" : "?\(query.joined(separator: "&"))"
+        let page: CloudPage<CloudMessage> = try await client.get(
+            "/v1/sessions/\(sessionID)/messages\(suffix)"
+        )
+        let messages = page.items.map { row in
             MessageRecord(
                 id: row.id,
                 teamID: row.teamId,
@@ -262,6 +279,7 @@ public actor CloudAPIMessagesRepository: MessagesRepository {
                 sequence: 0
             )
         }
+        return MessagePage(messages: messages, nextCursor: page.nextCursor)
     }
 
     public func insert(_ input: MessageInsertInput) async throws {

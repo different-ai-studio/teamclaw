@@ -46,9 +46,23 @@ describe("messages module", () => {
     const client = mockClient({ "GET /v1/sessions/session-1/messages": { items: [cloudMessage], nextCursor: null } });
     const mod = createMessagesModule(client);
     const out = await mod.listMessages("session-1");
-    expect(out[0].id).toBe("message-1");
-    expect(out[0].team_id).toBe("team-1");
-    expect(out[0].sender_actor_id).toBe("actor-1");
+    expect(out.rows[0].id).toBe("message-1");
+    expect(out.rows[0].team_id).toBe("team-1");
+    expect(out.rows[0].sender_actor_id).toBe("actor-1");
+    expect(out.nextCursor).toBeNull();
+  });
+
+  it("listMessages forwards limit and cursor, and returns nextCursor", async () => {
+    const client = mockClient({
+      "GET /v1/sessions/session-1/messages?limit=2&cursor=abc": {
+        items: [cloudMessage],
+        nextCursor: "older-page",
+      },
+    });
+    const mod = createMessagesModule(client);
+    const out = await mod.listMessages("session-1", { limit: 2, cursor: "abc" });
+    expect(out.rows).toHaveLength(1);
+    expect(out.nextCursor).toBe("older-page");
   });
 
   it("insertOutgoingMessage calls POST and returns mapped message", async () => {

@@ -107,11 +107,13 @@ export function createMessageActions(set: SessionSet, get: SessionGet) {
     const authSession = useAuthStore.getState().session;
     if (!authSession) throw new Error("No authenticated user session");
 
-    let teamId =
-      useSessionListStore.getState().rows.find((row) => row.id === sessionId)?.team_id ?? null;
-    if (!teamId) {
-      teamId = await getBackend().sessions.getSessionTeamId(sessionId);
-    }
+    // The session's own row if the list has it, else the team we are in — a
+    // composer only ever exists inside the current team. (This used to resolve
+    // the team from a bare session id, which session reads no longer support.)
+    const teamId =
+      useSessionListStore.getState().rows.find((row) => row.id === sessionId)?.team_id ??
+      useCurrentTeamStore.getState().team?.id ??
+      null;
     if (!teamId) throw new Error(`No team_id found for session ${sessionId}`);
 
     const currentTeam = useCurrentTeamStore.getState().team;

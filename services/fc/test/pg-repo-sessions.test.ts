@@ -52,13 +52,14 @@ test("listSessions returns canonical contract keys for actor-visible sessions", 
   const { db } = await makeTestDb();
   const team = await seedTeam(db);
   const actor = await seedActor(db, team.id);
-  // Identity flows through ctx.userId — the route supplies neither teamId nor actorId.
+  // Identity flows through ctx.userId; teamId is a required narrowing filter,
+  // and actorId is still never supplied by the route.
   const repo = createPgBusinessRepository({ db, userId: actor.userId });
 
   await repo.createSession({ teamId: team.id, title: "Alpha", mode: "solo", participantActorIds: [actor.id] });
   await repo.createSession({ teamId: team.id, title: "Beta", mode: "solo", participantActorIds: [actor.id] });
 
-  const rows = await repo.listSessions({ limit: 50, cursor: null });
+  const rows = await repo.listSessions({ teamId: team.id, limit: 50, cursor: null });
   assert.ok(Array.isArray(rows), "listSessions should return an array");
   assert.ok(rows.length >= 2, "should see 2 sessions");
 
@@ -111,7 +112,7 @@ test("listSessions ordering: lastMessageAt desc nulls last, then createdAt desc,
   await new Promise((r) => setTimeout(r, 5)); // tiny delay to ensure createdAt ordering
   await repo.createSession({ teamId: team.id, title: "Second", mode: "solo", participantActorIds: [actor.id] });
 
-  const rows = await repo.listSessions({ limit: 50, cursor: null });
+  const rows = await repo.listSessions({ teamId: team.id, limit: 50, cursor: null });
   assert.ok(rows.length >= 2);
 
   // Verify ordering: null lastMessageAt rows sorted by createdAt desc
@@ -159,10 +160,11 @@ test("listSessions cursor continues through rows with the same lastMessageAt", a
     .set({ lastMessageAt: sharedLastMessageAt, createdAt: new Date("2026-05-27T09:59:00.000Z") })
     .where(eq(sessions.id, newest.id));
 
-  const firstPage = await repo.listSessions({ limit: 1, cursor: null });
+  const firstPage = await repo.listSessions({ teamId: team.id, limit: 1, cursor: null });
   assert.deepEqual(firstPage.map((row: any) => row.title), ["Newest"]);
 
   const secondPage = await repo.listSessions({
+    teamId: team.id,
     limit: 2,
     cursor: {
       lastMessageAt: firstPage[0].lastMessageAt,
@@ -189,8 +191,8 @@ test("listSessions team-scopes: a user only sees sessions where their actor part
   // Each user's list is resolved purely from their own ctx.userId.
   const repoA = createPgBusinessRepository({ db, userId: actorA.userId });
   const repoB = createPgBusinessRepository({ db, userId: actorB.userId });
-  const rowsA = await repoA.listSessions({ limit: 50, cursor: null });
-  const rowsB = await repoB.listSessions({ limit: 50, cursor: null });
+  const rowsA = await repoA.listSessions({ teamId: teamA.id, limit: 50, cursor: null });
+  const rowsB = await repoB.listSessions({ teamId: teamB.id, limit: 50, cursor: null });
 
   assert.ok(rowsA.every((r: any) => r.teamId === teamA.id), "userA should only see teamA sessions");
   assert.ok(rowsB.every((r: any) => r.teamId === teamB.id), "userB should only see teamB sessions");
@@ -364,7 +366,7 @@ test("hasUnread is false after markSessionViewed", async () => {
   const s = await repo.createSession({ teamId: team.id, title: "UnreadTest", mode: "solo", participantActorIds: [actor.id] });
   await repo.markSessionViewed(s.id);
 
-  const rows = await repo.listSessions({ limit: 50, cursor: null });
+  const rows = await repo.listSessions({ teamId: team.id, limit: 50, cursor: null });
   const found = rows.find((r: any) => r.id === s.id);
   assert.ok(found);
   assert.equal(found.hasUnread, false);

@@ -199,11 +199,10 @@ export interface SessionsBackend {
    * the app at all without a current team (AuthGate.tsx, `bootstrap ===
    * "ready"`).
    *
-   * The query param is still optional on the wire, and deliberately so: FC
-   * redeploys on merge while desktop and iOS ship on tags, so already-released
-   * builds keep working through a deprecated un-scoped fallback
-   * (list_current_actor_sessions_all_teams). Requiring it in this type is what
-   * keeps NEW code off that path.
+   * It is required on the wire too, as of the drop of the un-scoped fallback
+   * (list_current_actor_sessions_all_teams): without a team the query cannot
+   * use an index and degraded linearly with the caller's history — 4.5s at 6k
+   * sessions, a statement-timeout 500 past ~13k. Omitting it is now a 400.
    */
   listCurrentActorSessions(args: {
     limit: number;
@@ -218,7 +217,6 @@ export interface SessionsBackend {
   getSessionParticipants(sessionId: string): Promise<SessionParticipant[]>;
   getSession(sessionId: string): Promise<SessionDetailRow | null>;
   joinSession(sessionId: string): Promise<SessionDetailRow>;
-  getSessionTeamId(sessionId: string): Promise<string | null>;
   listSessionsForTeamSince(teamId: string, updatedAfter: string): Promise<SessionSyncRow[]>;
   listSessionDisplayRows(teamId: string, sessionIds: string[]): Promise<SessionDisplayRow[]>;
 }
@@ -272,9 +270,25 @@ export interface MessageSyncRow {
   updated_at: string;
 }
 
+/**
+ * One page of history, walking backward from the newest message.
+ *
+ * `rows` is oldest-first (what the transcript renders); `nextCursor` reaches the
+ * page immediately OLDER than this one, and is null once the session's start is
+ * reached. GET /v1/sessions/:id/messages used to return the entire history in
+ * one response — 6k messages measured 6.1s / 3.7MB and 40k timed out into a 500.
+ */
+export interface MessageHistoryPage {
+  rows: MessageHistoryRow[];
+  nextCursor: string | null;
+}
+
 export interface MessagesBackend {
   insertOutgoingMessage(input: OutgoingMessageInput): Promise<MessageHistoryRow>;
-  listMessages(sessionId: string): Promise<MessageHistoryRow[]>;
+  listMessages(
+    sessionId: string,
+    opts?: { limit?: number; cursor?: string | null },
+  ): Promise<MessageHistoryPage>;
   updateMessageContent(messageId: string, content: string): Promise<void>;
   listMessagesForSessionSince(sessionId: string, updatedAfter?: string | null): Promise<MessageSyncRow[]>;
 }

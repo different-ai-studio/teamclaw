@@ -33,6 +33,7 @@ import {
 } from "../../db/schema/index.js";
 import { ApiError } from "../http-utils.js";
 import { requireActorForTeam, resolveActorForTeam } from "./authz.js";
+import { DEFAULT_LIST_LIMIT } from "../routing-utils.js";
 
 const iso = (d: Date | string | null | undefined): string | null =>
   d ? new Date(d).toISOString() : null;
@@ -191,6 +192,13 @@ export function makeSessionsRepo(db: DbLike, ctx: SessionsCtx = {}, deps: Sessio
       limit?: number;
       cursor?: { lastMessageAt?: string | null; createdAt?: string; id?: string } | null;
     } = {}) {
+      // teamId is required, matching GET /v1/sessions and the supabase-repo
+      // path: a team is what identifies the caller's actor, and on the supabase
+      // side it is also the only thing that keeps the query on an index.
+      if (!teamId) {
+        throw new ApiError(400, "validation_failed", "teamId is required");
+      }
+
       // Resolve the caller's actor ids from the authenticated user.
       const actorIds = ctx.userId ? await resolveActorIdsForUser(ctx.userId) : [];
       if (actorIds.length === 0) {
@@ -305,8 +313,15 @@ export function makeSessionsRepo(db: DbLike, ctx: SessionsCtx = {}, deps: Sessio
     },
 
     // ── getSession ────────────────────────────────────────────────────────────
-    async getSession(sessionId: string) {
-      const [r] = await db.select().from(sessions).where(eq(sessions.id, sessionId)).limit(1);
+    // `teamId` is required by GET /v1/sessions/:sessionId and optional here, so
+    // the internal callers that already own the row can keep calling it with an
+    // id alone. Mirrors the supabase-repo signature.
+    async getSession(sessionId: string, { teamId }: { teamId?: string | null } = {}) {
+      const [r] = await db
+        .select()
+        .from(sessions)
+        .where(teamId ? and(eq(sessions.id, sessionId), eq(sessions.teamId, teamId)) : eq(sessions.id, sessionId))
+        .limit(1);
       if (!r) return null;
       const parts = await db
         .select()
@@ -783,7 +798,7 @@ export function makeSessionsRepo(db: DbLike, ctx: SessionsCtx = {}, deps: Sessio
     async listSessionsForTeamSince(
       teamId: string,
       updatedAfter: string | null,
-      { limit = 50, cursor = null }: { limit?: number; cursor?: { updatedAt?: string | null; id?: string } | null } = {},
+      { limit = DEFAULT_LIST_LIMIT, cursor = null }: { limit?: number; cursor?: { updatedAt?: string | null; id?: string } | null } = {},
     ) {
       const conditions = [eq(sessions.teamId, teamId)];
       if (updatedAfter) conditions.push(gt(sessions.updatedAt, new Date(updatedAfter)));
@@ -893,18 +908,31 @@ export function makeSessionsRepo(db: DbLike, ctx: SessionsCtx = {}, deps: Sessio
     },
 
     // ── listSessionParticipantsForSync ────────────────────────────────────────
-    async listSessionParticipantsForSync(sessionId: string, updatedAfter: string | null) {
-      const rows = updatedAfter
-        ? await db
-            .select()
-            .from(sessionParticipants)
-            .where(
-              and(
-                eq(sessionParticipants.sessionId, sessionId),
-                gt(sessionParticipants.updatedAt, new Date(updatedAfter)),
-              ),
-            )
-        : await db.select().from(sessionParticipants).where(eq(sessionParticipants.sessionId, sessionId));
+    // Keyset-paginated on (updated_at, id), like the other *ForSync readers.
+    async listSessionParticipantsForSync(
+      sessionId: string,
+      updatedAfter: string | null,
+      { limit = DEFAULT_LIST_LIMIT, cursor = null }: {
+        limit?: number;
+        cursor?: { updatedAt?: string | null; id?: string | null } | null;
+      } = {},
+    ) {
+      const conditions = [eq(sessionParticipants.sessionId, sessionId)];
+      if (updatedAfter) {
+        conditions.push(gt(sessionParticipants.updatedAt, new Date(updatedAfter)));
+      }
+      if (cursor?.updatedAt) {
+        const at = new Date(cursor.updatedAt);
+        conditions.push(
+          sql`(${sessionParticipants.updatedAt} > ${at} OR (${sessionParticipants.updatedAt} = ${at} AND ${sessionParticipants.id} > ${cursor.id ?? null}))`,
+        );
+      }
+      const rows = await db
+        .select()
+        .from(sessionParticipants)
+        .where(and(...conditions))
+        .orderBy(asc(sessionParticipants.updatedAt), asc(sessionParticipants.id))
+        .limit(limit);
       return rows.map(mapSessionParticipantSyncRow);
     },
   };

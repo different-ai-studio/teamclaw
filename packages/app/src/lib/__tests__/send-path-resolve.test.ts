@@ -44,39 +44,35 @@ describe("trySyncMentionActorIds", () => {
 });
 
 describe("resolveSendTeamId", () => {
-  it("uses the session-list row without hitting the backend", async () => {
-    const fetchSessionTeamId = vi.fn();
-    await expect(
+  it("uses the session-list row when it has one", () => {
+    expect(
       resolveSendTeamId({
-        sessionId: "s1",
         teamIdFromSessionList: "team-row",
-        fetchSessionTeamId,
         currentTeamId: () => "team-selected",
       }),
-    ).resolves.toBe("team-row");
-    expect(fetchSessionTeamId).not.toHaveBeenCalled();
+    ).toBe("team-row");
   });
 
-  it("prefers the session's own team over the selected team", async () => {
-    await expect(
+  // The by-id backend lookup that used to sit between these two is gone:
+  // session reads are team-scoped, and a composer only exists inside the team
+  // you are looking at, so the current team is the right answer when the list
+  // row has not loaded yet. It also keeps a round-trip off the send path.
+  it("falls back to the selected team when the list row is missing", () => {
+    expect(
       resolveSendTeamId({
-        sessionId: "s1",
         teamIdFromSessionList: null,
-        fetchSessionTeamId: async () => "team-of-session",
         currentTeamId: () => "team-selected",
       }),
-    ).resolves.toBe("team-of-session");
+    ).toBe("team-selected");
   });
 
-  it("falls back to the selected team only when the backend has none", async () => {
-    await expect(
+  it("returns null when neither is known", () => {
+    expect(
       resolveSendTeamId({
-        sessionId: "s1",
         teamIdFromSessionList: null,
-        fetchSessionTeamId: async () => null,
-        currentTeamId: () => "team-selected",
+        currentTeamId: () => null,
       }),
-    ).resolves.toBe("team-selected");
+    ).toBeNull();
   });
 });
 

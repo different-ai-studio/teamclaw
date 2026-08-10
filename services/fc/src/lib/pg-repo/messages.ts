@@ -8,10 +8,11 @@
  *   consistent error.code of either "23505" or "conflict".
  */
 
-import { and, asc, eq, gt } from "drizzle-orm";
+import { and, asc, desc, eq, gt, lt, or, sql } from "drizzle-orm";
 import type { PgDatabase } from "drizzle-orm/pg-core";
 import { messages } from "../../db/schema/index.js";
 import { ApiError } from "../http-utils.js";
+import { DEFAULT_LIST_LIMIT, DEFAULT_MESSAGE_LIST_LIMIT } from "../routing-utils.js";
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 type DbLike = PgDatabase<any, any>;
@@ -80,13 +81,32 @@ function isPkViolation(err: any): boolean {
 export function makeMessagesRepo(db: DbLike, deps?: MessagesRepoDeps) {
   return {
     // ── listMessages ──────────────────────────────────────────────────────────
-    async listMessages(sessionId: string) {
+    // Mirrors supabase-repo: fetch the NEWEST `limit` rows (so the limit cuts
+    // the old end of the history), then reverse so the page reads oldest-first.
+    // `cursor` walks backward into older messages.
+    async listMessages(
+      sessionId: string,
+      { limit = DEFAULT_MESSAGE_LIST_LIMIT, cursor = null }: {
+        limit?: number;
+        cursor?: { createdAt?: string | null; id?: string | null } | null;
+      } = {},
+    ) {
+      const keyset = cursor?.createdAt
+        ? or(
+            lt(messages.createdAt, new Date(cursor.createdAt)),
+            and(
+              eq(messages.createdAt, new Date(cursor.createdAt)),
+              lt(messages.id, sql`${cursor.id ?? null}`),
+            ),
+          )
+        : undefined;
       const rows = await db
         .select()
         .from(messages)
-        .where(eq(messages.sessionId, sessionId))
-        .orderBy(asc(messages.createdAt), asc(messages.id));
-      return rows.map(mapMessage);
+        .where(keyset ? and(eq(messages.sessionId, sessionId), keyset) : eq(messages.sessionId, sessionId))
+        .orderBy(desc(messages.createdAt), desc(messages.id))
+        .limit(limit);
+      return rows.map(mapMessage).reverse();
     },
 
     // ── insertMessage ─────────────────────────────────────────────────────────
@@ -167,18 +187,30 @@ export function makeMessagesRepo(db: DbLike, deps?: MessagesRepoDeps) {
     },
 
     // ── listMessagesForSessionSince ───────────────────────────────────────────
-    async listMessagesForSessionSince(sessionId: string, updatedAfter: string | null) {
-      const rows = updatedAfter
-        ? await db
-            .select()
-            .from(messages)
-            .where(
-              and(
-                eq(messages.sessionId, sessionId),
-                gt(messages.updatedAt, new Date(updatedAfter)),
-              ),
-            )
-        : await db.select().from(messages).where(eq(messages.sessionId, sessionId));
+    // Keyset-paginated on (updated_at, id). This was unbounded, so a first sync
+    // of a long-running session pulled its entire history in one response.
+    async listMessagesForSessionSince(
+      sessionId: string,
+      updatedAfter: string | null,
+      { limit = DEFAULT_LIST_LIMIT, cursor = null }: {
+        limit?: number;
+        cursor?: { updatedAt?: string | null; id?: string | null } | null;
+      } = {},
+    ) {
+      const conditions = [eq(messages.sessionId, sessionId)];
+      if (updatedAfter) conditions.push(gt(messages.updatedAt, new Date(updatedAfter)));
+      if (cursor?.updatedAt) {
+        const at = new Date(cursor.updatedAt);
+        conditions.push(
+          sql`(${messages.updatedAt} > ${at} OR (${messages.updatedAt} = ${at} AND ${messages.id} > ${cursor.id ?? null}))`,
+        );
+      }
+      const rows = await db
+        .select()
+        .from(messages)
+        .where(and(...conditions))
+        .orderBy(asc(messages.updatedAt), asc(messages.id))
+        .limit(limit);
       return rows.map(mapMessageSyncRow);
     },
   };

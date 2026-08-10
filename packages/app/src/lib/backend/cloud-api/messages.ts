@@ -1,5 +1,11 @@
-import type { MessageHistoryRow, MessagesBackend, OutgoingMessageInput } from "../types";
+import type {
+  MessageHistoryPage,
+  MessageHistoryRow,
+  MessagesBackend,
+  OutgoingMessageInput,
+} from "../types";
 import type { CloudApiClient } from "./http";
+import { fetchAllSyncPages } from "./sync-paging";
 
 type CloudMessage = {
   id: string;
@@ -37,11 +43,21 @@ function mapMessage(row: CloudMessage): MessageHistoryRow {
 
 export function createMessagesModule(client: CloudApiClient): MessagesBackend {
   return {
-    async listMessages(sessionId: string): Promise<MessageHistoryRow[]> {
+    // Paginated backward from the newest message: no `cursor` yields the tail of
+    // the history, and `nextCursor` walks into older pages. The server caps the
+    // page, so omitting `limit` is not "give me everything" any more.
+    async listMessages(
+      sessionId: string,
+      opts: { limit?: number; cursor?: string | null } = {},
+    ): Promise<MessageHistoryPage> {
+      const params = new URLSearchParams();
+      if (opts.limit != null) params.set("limit", String(opts.limit));
+      if (opts.cursor) params.set("cursor", opts.cursor);
+      const query = params.toString();
       const page = await client.get<Page<CloudMessage>>(
-        `/v1/sessions/${encodeURIComponent(sessionId)}/messages`,
+        `/v1/sessions/${encodeURIComponent(sessionId)}/messages${query ? `?${query}` : ""}`,
       );
-      return page.items.map(mapMessage);
+      return { rows: page.items.map(mapMessage), nextCursor: page.nextCursor ?? null };
     },
     async insertOutgoingMessage(input: OutgoingMessageInput): Promise<MessageHistoryRow> {
       const message = await client.post<CloudMessage>(
@@ -65,13 +81,13 @@ export function createMessagesModule(client: CloudApiClient): MessagesBackend {
     async updateMessageContent(messageId: string, content: string): Promise<void> {
       await client.patch<CloudMessage>(`/v1/messages/${encodeURIComponent(messageId)}`, { content });
     },
+    // Pages to exhaustion — the route is keyset-paginated now, and a delta sync
+    // that stopped at the first page would leave the local cache behind.
     async listMessagesForSessionSince(sessionId, updatedAfter) {
-      const params = new URLSearchParams({ sessionId });
-      if (updatedAfter) params.set("since", updatedAfter);
-      const out = await client.get<{ items: import("../types").MessageSyncRow[] }>(
-        `/v1/sync/messages?${params.toString()}`,
-      );
-      return out.items ?? [];
+      return fetchAllSyncPages<import("../types").MessageSyncRow>(client, "/v1/sync/messages", {
+        sessionId,
+        since: updatedAfter ?? null,
+      });
     },
   };
 }

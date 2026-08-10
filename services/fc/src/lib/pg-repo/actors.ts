@@ -16,10 +16,11 @@
  *   all team-visible agents (matching Supabase default behavior).
  */
 
-import { and, desc, eq, inArray, or, sql } from "drizzle-orm";
+import { and, asc, desc, eq, inArray, or, sql } from "drizzle-orm";
 import type { PgDatabase } from "drizzle-orm/pg-core";
 import { actors, agents, members, teamMembers, teams, actorDirectory, actorClientVersions } from "../../db/schema/index.js";
 import { resolveActorForTeam, requireActorForTeam } from "./authz.js";
+import { DEFAULT_LIST_LIMIT } from "../routing-utils.js";
 import { ApiError } from "../http-utils.js";
 
 const iso = (d: Date | string | null | undefined): string | null =>
@@ -341,10 +342,25 @@ export function makeActorsRepo(db: DbLike, ctx: ActorsCtx = {}) {
      * No visibility filter applied — matches the permissive Supabase behavior
      * used by the sync service which already runs with elevated privileges.
      */
-    async listActorDirectoryForSync(teamId: string, updatedAfter: string | null) {
+    // Keyset-paginated on (updated_at, id). Unbounded before: a team with 10k
+    // actors returned 3.1MB in a single response.
+    async listActorDirectoryForSync(
+      teamId: string,
+      updatedAfter: string | null,
+      { limit = DEFAULT_LIST_LIMIT, cursor = null }: {
+        limit?: number;
+        cursor?: { updatedAt?: string | null; id?: string | null } | null;
+      } = {},
+    ) {
       const conditions = [eq(actorDirectory.teamId, teamId)];
       if (updatedAfter) {
         conditions.push(sql`${actorDirectory.updatedAt} > ${updatedAfter}::timestamptz`);
+      }
+      if (cursor?.updatedAt) {
+        const at = cursor.updatedAt;
+        conditions.push(
+          sql`(${actorDirectory.updatedAt} > ${at}::timestamptz OR (${actorDirectory.updatedAt} = ${at}::timestamptz AND ${actorDirectory.id} > ${cursor.id ?? null}))`,
+        );
       }
       const rows = await db
         .select({
@@ -359,7 +375,9 @@ export function makeActorsRepo(db: DbLike, ctx: ActorsCtx = {}) {
           updatedAt: actorDirectory.updatedAt,
         })
         .from(actorDirectory)
-        .where(and(...conditions));
+        .where(and(...conditions))
+        .orderBy(asc(actorDirectory.updatedAt), asc(actorDirectory.id))
+        .limit(limit);
       return rows.map((r: any) => ({
         id: r.id,
         team_id: r.teamId,

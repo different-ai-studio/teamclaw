@@ -5,6 +5,10 @@ import {
   encodeCursor,
   handleBusinessApiRequest,
 } from "../src/lib/business-api.js";
+import {
+  DEFAULT_MESSAGE_LIST_LIMIT,
+  MAX_MESSAGE_LIST_LIMIT,
+} from "../src/lib/routing-utils.js";
 
 test("handleBusinessApiRequest routes list sessions with bearer-scoped repository", async () => {
   const repo = fakeRepo({
@@ -73,6 +77,152 @@ test("list sessions decodes cursor before calling repository", async () => {
     id: "s1",
   });
 });
+
+// ── GET /v1/sessions/:id/messages pagination ─────────────────────────────────
+// This endpoint had no limit and returned `nextCursor: null` unconditionally, so
+// a long session shipped its entire history every time — 6k messages measured
+// 6.1s / 3.7MB, and 40k exceeded the 8s statement_timeout as a 500.
+
+test("GET messages defaults to the newest page and reports a cursor", async () => {
+  const rows = Array.from({ length: DEFAULT_MESSAGE_LIST_LIMIT }, (_, i) => ({
+    id: `m${i}`, createdAt: `2026-05-27T00:00:${String(i % 60).padStart(2, "0")}Z`,
+  }));
+  const repo = fakeRepo({ messages: rows });
+
+  const response = await handleBusinessApiRequest({
+    httpMethod: "GET",
+    path: "/v1/sessions/session-1/messages",
+    headers: { Authorization: "Bearer token" },
+  }, { createRepository: () => repo });
+
+  assert.equal(response.statusCode, 200);
+  assert.deepEqual(repo.calls[0], {
+    method: "listMessages",
+    sessionId: "session-1",
+    limit: DEFAULT_MESSAGE_LIST_LIMIT,
+    cursor: null,
+  });
+  // A full page means there may be older messages, so the cursor must point at
+  // the OLDEST row on the page — items[0], since a page reads oldest-first.
+  const body = JSON.parse(response.body);
+  assert.ok(body.nextCursor, "a full page must carry a cursor");
+  const decoded = JSON.parse(Buffer.from(body.nextCursor, "base64url").toString("utf8"));
+  assert.equal(decoded.id, "m0");
+});
+
+test("GET messages omits the cursor on a short (final) page", async () => {
+  const repo = fakeRepo({ messages: [{ id: "only", createdAt: "2026-05-27T00:00:00Z" }] });
+
+  const response = await handleBusinessApiRequest({
+    httpMethod: "GET",
+    path: "/v1/sessions/session-1/messages",
+    headers: { Authorization: "Bearer token" },
+  }, { createRepository: () => repo });
+
+  assert.equal(JSON.parse(response.body).nextCursor, null);
+});
+
+test("GET messages forwards limit and cursor to the repository", async () => {
+  const repo = fakeRepo({ messages: [] });
+  const cursor = Buffer.from(
+    JSON.stringify({ createdAt: "2026-05-27T00:00:00Z", id: "m-42" }), "utf8",
+  ).toString("base64url");
+
+  const response = await handleBusinessApiRequest({
+    httpMethod: "GET",
+    path: "/v1/sessions/session-1/messages",
+    headers: { Authorization: "Bearer token" },
+    queryParameters: { limit: "10", cursor },
+  }, { createRepository: () => repo });
+
+  assert.equal(response.statusCode, 200);
+  assert.deepEqual(repo.calls[0], {
+    method: "listMessages",
+    sessionId: "session-1",
+    limit: 10,
+    cursor: { createdAt: "2026-05-27T00:00:00Z", id: "m-42" },
+  });
+});
+
+test("GET messages rejects a limit past the maximum", async () => {
+  const repo = fakeRepo({ messages: [] });
+
+  const response = await handleBusinessApiRequest({
+    httpMethod: "GET",
+    path: "/v1/sessions/session-1/messages",
+    headers: { Authorization: "Bearer token" },
+    queryParameters: { limit: String(MAX_MESSAGE_LIST_LIMIT + 1) },
+  }, { createRepository: () => repo });
+
+  assert.equal(response.statusCode, 400);
+  assert.equal(JSON.parse(response.body).error.code, "validation_failed");
+  assert.equal(repo.calls.length, 0);
+});
+
+// ── /v1/sync/* pagination ────────────────────────────────────────────────────
+// These were unbounded: a first-time sync of a large team returned every
+// changed row in one response (10k actors measured 3.1MB / 4.4s). They are now
+// keyset-paginated on (updated_at, id), so callers must follow nextCursor.
+
+const SYNC_ROUTES = [
+  { path: "/v1/sync/actor-directory", query: { teamId: "team-1" }, method: "listActorDirectoryForSync" },
+  { path: "/v1/sync/ideas", query: { teamId: "team-1" }, method: "listIdeasForSync" },
+  { path: "/v1/sync/session-participants", query: { sessionId: "session-1" }, method: "listSessionParticipantsForSync" },
+  { path: "/v1/sync/sessions", query: { teamId: "team-1" }, method: "listSessionsForTeamSince" },
+  { path: "/v1/sync/messages", query: { sessionId: "session-1" }, method: "listMessagesForSessionSince" },
+];
+
+for (const route of SYNC_ROUTES) {
+  test(`GET ${route.path} forwards limit and cursor`, async () => {
+    const repo = fakeRepo({ syncRows: [] });
+    const cursor = Buffer.from(
+      JSON.stringify({ updatedAt: "2026-05-27T00:00:00Z", id: "row-7" }), "utf8",
+    ).toString("base64url");
+
+    const response = await handleBusinessApiRequest({
+      httpMethod: "GET",
+      path: route.path,
+      headers: { Authorization: "Bearer token" },
+      queryParameters: { ...route.query, limit: "10", cursor },
+    }, { createRepository: () => repo });
+
+    assert.equal(response.statusCode, 200);
+    const call = repo.calls[0];
+    assert.equal(call.method, route.method);
+    assert.equal(call.limit, 10);
+    assert.deepEqual(call.cursor, { updatedAt: "2026-05-27T00:00:00Z", id: "row-7" });
+  });
+
+  test(`GET ${route.path} reports a cursor on a full page and null on a short one`, async () => {
+    // A page that fills `limit` may have more behind it.
+    const full = fakeRepo({
+      syncRows: [
+        { id: "r1", updated_at: "2026-05-27T00:00:01Z" },
+        { id: "r2", updated_at: "2026-05-27T00:00:02Z" },
+      ],
+    });
+    const fullResponse = await handleBusinessApiRequest({
+      httpMethod: "GET",
+      path: route.path,
+      headers: { Authorization: "Bearer token" },
+      queryParameters: { ...route.query, limit: "2" },
+    }, { createRepository: () => full });
+    const fullBody = JSON.parse(fullResponse.body);
+    assert.ok(fullBody.nextCursor, "a full page must carry a cursor");
+    const decoded = JSON.parse(Buffer.from(fullBody.nextCursor, "base64url").toString("utf8"));
+    // The cursor is the LAST row — sync walks forward through (updated_at, id).
+    assert.deepEqual(decoded, { updatedAt: "2026-05-27T00:00:02Z", id: "r2" });
+
+    const short = fakeRepo({ syncRows: [{ id: "r1", updated_at: "2026-05-27T00:00:01Z" }] });
+    const shortResponse = await handleBusinessApiRequest({
+      httpMethod: "GET",
+      path: route.path,
+      headers: { Authorization: "Bearer token" },
+      queryParameters: { ...route.query, limit: "2" },
+    }, { createRepository: () => short });
+    assert.equal(JSON.parse(shortResponse.body).nextCursor, null);
+  });
+}
 
 test("insert message enforces narrow idempotency contract", async () => {
   const repo = fakeRepo();
@@ -699,13 +849,27 @@ test("GET /v1/sessions/:sessionId returns session with participants", async () =
     httpMethod: "GET",
     path: "/v1/sessions/session-1",
     headers: { Authorization: "Bearer token" },
+    queryParameters: { teamId: "team-1" },
   }, { createRepository: () => repo });
 
   assert.equal(response.statusCode, 200);
   const body = JSON.parse(response.body);
   assert.equal(body.id, "session-1");
   assert.ok(Array.isArray(body.participants));
-  assert.deepEqual(repo.calls[0], { method: "getSession", sessionId: "session-1" });
+  assert.deepEqual(repo.calls[0], { method: "getSession", sessionId: "session-1", teamId: "team-1" });
+});
+
+test("GET /v1/sessions/:sessionId requires teamId", async () => {
+  const repo = fakeRepo();
+  const response = await handleBusinessApiRequest({
+    httpMethod: "GET",
+    path: "/v1/sessions/session-1",
+    headers: { Authorization: "Bearer token" },
+  }, { createRepository: () => repo });
+
+  assert.equal(response.statusCode, 400);
+  assert.equal(JSON.parse(response.body).error.code, "validation_failed");
+  assert.equal(repo.calls.length, 0, "must not reach the repository without a team");
 });
 
 test("GET /v1/sessions/:sessionId returns 404 for missing session", async () => {
@@ -713,6 +877,7 @@ test("GET /v1/sessions/:sessionId returns 404 for missing session", async () => 
     httpMethod: "GET",
     path: "/v1/sessions/session-missing",
     headers: { Authorization: "Bearer token" },
+    queryParameters: { teamId: "team-1" },
   }, { createRepository: () => fakeRepo({ sessions: [] }) });
 
   assert.equal(response.statusCode, 404);
@@ -819,7 +984,13 @@ test("GET /v1/sessions narrows by teamId and ideaId server-side", async () => {
 // FC redeploys on merge, clients ship on tags. The repository routes a
 // team-less call to the deprecated un-scoped RPC — see
 // 20260804020000_per_team_actor_scope.sql.
-test("GET /v1/sessions still serves a client that sends no teamId", async () => {
+// Was "still serves a client that sends no teamId". The un-scoped fallback it
+// covered is gone: without a team the query cannot use
+// sessions_team_active_last_message_idx, so it degraded linearly with the
+// caller's history (4.5s at 6k sessions, statement_timeout 500 past ~13k).
+// A caller that omits teamId now gets a 400 instead of a list that silently
+// rots as it grows.
+test("GET /v1/sessions rejects a client that sends no teamId", async () => {
   const repo = fakeRepo();
   const response = await handleBusinessApiRequest({
     httpMethod: "GET",
@@ -827,11 +998,9 @@ test("GET /v1/sessions still serves a client that sends no teamId", async () => 
     headers: { Authorization: "Bearer token" },
   }, { createRepository: () => repo });
 
-  assert.equal(response.statusCode, 200);
-  assert.deepEqual(repo.calls[0], {
-    method: "listSessions",
-    args: { limit: 50, cursor: null, teamId: null, ideaId: null },
-  });
+  assert.equal(response.statusCode, 400);
+  assert.equal(JSON.parse(response.body).error.code, "validation_failed");
+  assert.equal(repo.calls.length, 0, "must not reach the repository without a team");
 });
 
 test("GET /v1/sessions leaves ideaId null when not supplied", async () => {
@@ -1728,8 +1897,10 @@ test("GET /v1/teams/:teamId/leaderboard defaults to week period", async () => {
 
 
 
-function fakeRepo({ sessions = [], error = null, teamWorkspaceConfigs = {}, workspaces = [], ideas = null } = {}) {
+function fakeRepo({ sessions = [], error = null, teamWorkspaceConfigs = {}, workspaces = [], ideas = null, messages = [], syncRows = [] } = {}) {
   const calls = [];
+  const messageStore = messages.slice();
+  const syncStore = syncRows.slice();
   const configs = { ...teamWorkspaceConfigs };
   const workspaceStore = workspaces.length > 0 ? workspaces.slice() : [
     { id: "workspace-1", teamId: "team-1", name: "Alpha", slug: null, archived: false, metadata: null, createdAt: "2026-05-01T00:00:00Z", updatedAt: "2026-05-01T00:00:00Z" },
@@ -1748,7 +1919,7 @@ function fakeRepo({ sessions = [], error = null, teamWorkspaceConfigs = {}, work
     async createTeam(input) { calls.push({ method: "createTeam", input }); if (error) throw error; return { id: "team-1", name: input.name, slug: input.slug ?? null, createdAt: null }; },
     async getTeam(teamId) { calls.push({ method: "getTeam", teamId }); if (error) throw error; return { id: teamId, name: "Team", slug: null, createdAt: null }; },
     async listSessions(args) { calls.push({ method: "listSessions", args }); if (error) throw error; return sessions.length > 0 ? sessions : sessionStore; },
-    async getSession(sessionId) { calls.push({ method: "getSession", sessionId }); if (error) throw error; const store = sessions.length > 0 ? sessions : sessionStore; return store.find(s => s.id === sessionId) ?? null; },
+    async getSession(sessionId, opts = {}) { calls.push({ method: "getSession", sessionId, teamId: opts?.teamId ?? null }); if (error) throw error; const store = sessions.length > 0 ? sessions : sessionStore; return store.find(s => s.id === sessionId) ?? null; },
     async patchSession(sessionId, patch) { calls.push({ method: "patchSession", sessionId, patch }); if (error) throw error; const store = sessions.length > 0 ? sessions : sessionStore; const s = store.find(s => s.id === sessionId); if (!s) return null; if (patch.title !== undefined) s.title = patch.title; return s; },
     async createSession(input) { calls.push({ method: "createSession", input }); if (error) throw error; const id = input.id ?? "session-new"; const newS = { id, teamId: input.teamId, title: input.title, mode: input.mode, ideaId: null, lastMessageAt: null, lastMessagePreview: null, hasUnread: false, createdAt: "2026-05-27T03:00:00Z", updatedAt: "2026-05-27T03:00:00Z", participants: (input.participantActorIds ?? []).map(a => ({ sessionId: id, actorId: a, role: "member", joinedAt: null })) }; sessionStore.push(newS); return newS; },
     async markSessionViewed(sessionId, lastReadMessageId) { calls.push({ method: "markSessionViewed", sessionId, lastReadMessageId }); if (error) throw error; },
@@ -1760,7 +1931,12 @@ function fakeRepo({ sessions = [], error = null, teamWorkspaceConfigs = {}, work
     async getSessionByAcp(acpSessionId) { calls.push({ method: "getSessionByAcp", acpSessionId }); if (error) throw error; return gatewayBindings[acpSessionId] ?? null; },
     async ensureGatewaySession(input) { calls.push({ method: "ensureGatewaySession", input }); if (error) throw error; const b = input.binding; if (gatewayBindings[b]) return { ...gatewayBindings[b], created: false }; const r = { sessionId: "gw-" + b, gatewaySessionId: b, created: true }; gatewayBindings[b] = r; return r; },
     async createCronSession(input) { calls.push({ method: "createCronSession", input }); if (error) throw error; return { sessionId: "cron-" + input.title }; },
-    async listMessages(sessionId) { calls.push({ method: "listMessages", sessionId }); if (error) throw error; return []; },
+    async listActorDirectoryForSync(teamId, since, opts = {}) { calls.push({ method: "listActorDirectoryForSync", teamId, since, limit: opts?.limit ?? null, cursor: opts?.cursor ?? null }); return syncStore.slice(0, opts?.limit ?? syncStore.length); },
+    async listIdeasForSync(teamId, since, opts = {}) { calls.push({ method: "listIdeasForSync", teamId, since, limit: opts?.limit ?? null, cursor: opts?.cursor ?? null }); return syncStore.slice(0, opts?.limit ?? syncStore.length); },
+    async listSessionParticipantsForSync(sessionId, since, opts = {}) { calls.push({ method: "listSessionParticipantsForSync", sessionId, since, limit: opts?.limit ?? null, cursor: opts?.cursor ?? null }); return syncStore.slice(0, opts?.limit ?? syncStore.length); },
+    async listSessionsForTeamSince(teamId, since, opts = {}) { calls.push({ method: "listSessionsForTeamSince", teamId, since, limit: opts?.limit ?? null, cursor: opts?.cursor ?? null }); return syncStore.slice(0, opts?.limit ?? syncStore.length); },
+    async listMessagesForSessionSince(sessionId, since, opts = {}) { calls.push({ method: "listMessagesForSessionSince", sessionId, since, limit: opts?.limit ?? null, cursor: opts?.cursor ?? null }); return syncStore.slice(0, opts?.limit ?? syncStore.length); },
+    async listMessages(sessionId, opts = {}) { calls.push({ method: "listMessages", sessionId, limit: opts?.limit ?? null, cursor: opts?.cursor ?? null }); if (error) throw error; return messageStore.slice(0, opts?.limit ?? messageStore.length); },
     async insertMessage(sessionId, input) { calls.push({ method: "insertMessage", sessionId, input }); if (error) throw error; return { id: input.id, teamId: input.teamId, sessionId, turnId: null, senderActorId: input.senderActorId, replyToMessageId: null, kind: input.kind ?? "text", content: input.content, metadata: input.metadata ?? null, model: null, createdAt: "2026-05-27T01:00:00Z", updatedAt: null }; },
     async patchMessage(messageId, patch) { calls.push({ method: "patchMessage", messageId, patch }); if (error) throw error; return { id: messageId, teamId: "team-1", sessionId: "session-1", turnId: null, senderActorId: "actor-1", replyToMessageId: null, kind: "text", content: patch.content ?? "hello", metadata: patch.metadata ?? null, model: null, createdAt: "2026-05-27T01:00:00Z", updatedAt: "2026-05-27T02:00:00Z" }; },
     async deleteMessage(messageId) { calls.push({ method: "deleteMessage", messageId }); if (error) throw error; },
