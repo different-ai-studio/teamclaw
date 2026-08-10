@@ -1,6 +1,6 @@
 import { Redirect, Stack, useLocalSearchParams, useNavigation, useRouter } from "expo-router";
 import { useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
-import { ActivityIndicator, Share, StyleSheet, Text, View } from "react-native";
+import { ActivityIndicator, Modal, Share, StyleSheet, Text, View } from "react-native";
 
 import { routeToHref, useConnectedAgentsStore, useOnboarding, useTeamMqtt } from "../../../_layout";
 import { resolveSlashCommands } from "../../../../src/features/sessions/components/runtime-commands";
@@ -27,6 +27,8 @@ import { createSessionDetailCache } from "../../../../src/features/sessions/sess
 import { createSessionMutesApi } from "../../../../src/features/sessions/session-mutes";
 import { supabaseAccessToken } from "../../../../src/lib/cloud-api/client";
 import { SessionDetailScreen } from "../../../../src/features/sessions/screens/SessionDetailScreen";
+import { ModelPickerSheet } from "../../../../src/features/sessions/screens/ModelPickerSheet";
+import { runtimeStatusName } from "../../../../src/features/sessions/agent-runtime-state";
 import { impactLight, selectionTick, successTone } from "../../../../src/lib/haptics";
 import { showToast } from "../../../../src/ui/Toast";
 import { supabase } from "../../../../src/lib/supabase/client";
@@ -36,6 +38,7 @@ import {
   createRuntimeCommandSender,
   resolvePermissionRuntimeTarget,
 } from "../../../../src/lib/teamclu/runtime-command";
+import { createRuntimeRpcClient } from "../../../../src/lib/teamclu/runtime-rpc";
 import type { TeamMqttClient } from "../../../../src/lib/mqtt/team-mqtt";
 import { PrimaryButton } from "../../../../src/ui/button";
 import { AppCard } from "../../../../src/ui/card";
@@ -258,7 +261,6 @@ export default function SessionDetailRoute() {
   }, [detailState.session, agentsState.runtimeInfoByAgentId]);
 
   const [teamActors, setTeamActors] = useState<Actor[]>([]);
-  const [runtimeInfo, setRuntimeInfo] = useState<RouteRuntimeInfo | null>(null);
   const [isMuted, setIsMuted] = useState(false);
   const [isModelPromptOpen, setIsModelPromptOpen] = useState(false);
   const [editingMessage, setEditingMessage] = useState<
@@ -296,32 +298,34 @@ export default function SessionDetailRoute() {
     };
   }, [sessionId]);
 
-  useEffect(() => {
-    if (!sessionId) return;
-    let cancelled = false;
-    void createConfiguredSessionsApi(supabase)
-      .loadRuntime(sessionId)
-      .then((row) => {
-        if (cancelled) return;
-        setRuntimeInfo(
-          row
-            ? {
-                dbRuntimeId: row.dbRuntimeId,
-                runtimeId: row.runtimeId,
-                agentId: row.agentId,
-                status: row.status,
-                currentModel: row.currentModel,
-              }
-            : null,
-        );
+  /**
+   * Single-runtime fallback used when a command can't name its target agent.
+   *
+   * This used to be `GET /v1/agents/runtimes?sessionId=…`, which pointed at the
+   * `agent_runtimes` table dropped on 2026-08-03 and answers 404 — so the
+   * fallback never engaged. The same facts now arrive as retained MQTT state
+   * (ADR-0004): if exactly one participating agent has a live runtime, it is
+   * unambiguously the fallback.
+   */
+  const runtimeInfo: RouteRuntimeInfo | null = useMemo(() => {
+    const session = detailState.session;
+    if (!session) return null;
+    const live = session.participantActorIds
+      .map((id) => {
+        const info = agentsState.runtimeInfoByAgentId.get(id);
+        return info ? { agentId: id, info } : null;
       })
-      .catch(() => {
-        if (!cancelled) setRuntimeInfo(null);
-      });
-    return () => {
-      cancelled = true;
+      .filter((entry): entry is { agentId: string; info: RuntimeInfo } => entry != null);
+    if (live.length !== 1) return null;
+    const [{ agentId, info }] = live;
+    return {
+      dbRuntimeId: info.runtimeId,
+      runtimeId: info.runtimeId,
+      agentId,
+      status: runtimeStatusName(info.status) ?? "unknown",
+      currentModel: info.currentModel || null,
     };
-  }, [sessionId]);
+  }, [detailState.session, agentsState.runtimeInfoByAgentId]);
   useEffect(() => {
     if (!currentTeam?.id) return;
     let cancelled = false;
@@ -792,33 +796,57 @@ export default function SessionDetailRoute() {
         />
       ) : null}
 
-      <TextPromptModal
-        confirmLabel="Update"
-        description="Set the model the runtime uses for the next turn (e.g. claude-sonnet-4-6)."
-        initialValue={runtimeInfo?.currentModel ?? ""}
-        isVisible={isModelPromptOpen && runtimeInfo !== null}
-        onCancel={() => setIsModelPromptOpen(false)}
-        onSubmit={async (next) => {
-          const trimmed = next.trim();
-          setIsModelPromptOpen(false);
-          if (!trimmed || !runtimeInfo) return;
-          try {
-            await createConfiguredSessionsApi(supabase).updateRuntimeModel(
-              runtimeInfo.dbRuntimeId,
-              trimmed,
-            );
-            setRuntimeInfo({ ...runtimeInfo, currentModel: trimmed });
-            showToast("success", `Model set to ${trimmed}`);
-          } catch (err) {
-            showToast(
-              "error",
-              err instanceof Error ? err.message : "Couldn't update model",
-            );
-          }
-        }}
-        placeholder="claude-sonnet-4-6"
-        title="Change model"
-      />
+      <Modal
+        animationType="slide"
+        onRequestClose={() => setIsModelPromptOpen(false)}
+        presentationStyle="pageSheet"
+        visible={isModelPromptOpen && runtimeInfo !== null}
+      >
+        {runtimeInfo ? (
+          <ModelPickerSheet
+            agentName={
+              teamActors.find((actor) => actor.actorId === runtimeInfo.agentId)
+                ?.displayName ?? "Agent"
+            }
+            currentModel={runtimeInfo.currentModel}
+            models={
+              agentsState.runtimeInfoByAgentId.get(runtimeInfo.agentId ?? "")
+                ?.availableModels ?? []
+            }
+            onCancel={() => setIsModelPromptOpen(false)}
+            onSelect={(modelId) => {
+              setIsModelPromptOpen(false);
+              const targetActorId = runtimeInfo.agentId;
+              const requesterActorId = state.currentMemberActorId;
+              if (!targetActorId || !teamMqtt || !currentTeam?.id || !requesterActorId) {
+                showToast("error", "This agent's runtime isn't online.");
+                return;
+              }
+              void createRuntimeRpcClient({
+                mqtt: teamMqtt,
+                teamId: currentTeam.id,
+                requesterActorId,
+              })
+                .setModel({
+                  targetActorId,
+                  runtimeId: runtimeInfo.runtimeId,
+                  modelId,
+                })
+                .then(() => {
+                  // The daemon republishes the retained runtime state, so the
+                  // derived `runtimeInfo` picks the new model up on its own.
+                  showToast("success", `Model set to ${modelId}`);
+                })
+                .catch((err) => {
+                  showToast(
+                    "error",
+                    err instanceof Error ? err.message : "Couldn't set model",
+                  );
+                });
+            }}
+          />
+        ) : null}
+      </Modal>
 
       <TextPromptModal
         confirmLabel="Save"

@@ -12,19 +12,41 @@ import {
   View,
 } from "react-native";
 
-import { ActorRow } from "../../actors/components/ActorRow";
-import { isAgentActor, isMemberActor, type Actor } from "../../actors/actor-types";
 import { Hairline } from "../../../ui/atoms/Hairline";
 import { SectionEyebrow } from "../../../ui/atoms/SectionEyebrow";
+import { StatusDot } from "../../../ui/atoms/StatusDot";
+import { SwipeableRow } from "../../../ui/SwipeableRow";
 import { GlassHeader, GLASS_HEADER_HEIGHT } from "../../../ui/GlassHeader";
-import { colors, spacing, typography } from "../../../ui/theme";
+import { colors, hai, iosType, spacing } from "../../../ui/theme";
+import {
+  agentTrailingLabel,
+  canChangeAgentModel,
+  lifecycleDotKind,
+  type AgentLifecycleState,
+} from "../agent-runtime-state";
+
+export type MemberSheetHuman = {
+  actorId: string;
+  displayName: string;
+  isOnline: boolean;
+  /** False for yourself — iOS hides the remove control rather than disabling it. */
+  canRemove: boolean;
+};
+
+export type MemberSheetAgent = {
+  actorId: string;
+  displayName: string;
+  /** Capitalised backend name ("Claude" / "OpenCode" / "Codex"), or "". */
+  agentType: string;
+  state: AgentLifecycleState;
+  availableModels: ReadonlyArray<{ id: string; displayName: string }>;
+  currentModel: string | null;
+};
 
 export type SessionMemberSheetProps = {
-  actors: Actor[];
-  currentActorId: string | null;
+  agents: ReadonlyArray<MemberSheetAgent>;
+  humans: ReadonlyArray<MemberSheetHuman>;
   isLoading: boolean;
-  /** Maps actorId → current model id, used to label the row's trailing chip. */
-  agentModelByActorId?: ReadonlyMap<string, string | null>;
   onAddAgent?: () => void;
   onAddMember?: () => void;
   onChangeAgentModel?: (actorId: string) => void;
@@ -33,6 +55,7 @@ export type SessionMemberSheetProps = {
   onRestartAgentRuntime?: (actorId: string) => void;
 };
 
+/** The two 22pt cinnabar add buttons in iOS's `topBarTrailing` slot. */
 function ToolbarButton({
   accessibilityLabel,
   iconName,
@@ -52,7 +75,7 @@ function ToolbarButton({
       style={styles.toolbarButton}
     >
       <Ionicons
-        color={onPress ? colors.onyx : colors.slate}
+        color={onPress ? hai.cinnabar : colors.slate}
         name={iconName}
         size={22}
       />
@@ -61,10 +84,9 @@ function ToolbarButton({
 }
 
 export function SessionMemberSheet({
-  actors,
-  currentActorId,
+  agents,
+  humans,
   isLoading,
-  agentModelByActorId,
   onAddAgent,
   onAddMember,
   onChangeAgentModel,
@@ -72,100 +94,32 @@ export function SessionMemberSheet({
   onRemoveActor,
   onRestartAgentRuntime,
 }: SessionMemberSheetProps) {
-  const humans = actors.filter(isMemberActor);
-  const agents = actors.filter(isAgentActor);
+  const isEmpty = humans.length === 0 && agents.length === 0;
 
-  const showHumanActionSheet = useCallback(
-    (actor: Actor) => {
+  const confirmRemoveHuman = useCallback(
+    (human: MemberSheetHuman) => {
       if (!onRemoveActor) return;
-      const labels = [`Remove ${actor.displayName}`, "Cancel"];
-      const dispatch = (index: number) => {
-        if (index === 0) onRemoveActor(actor.actorId);
-      };
+      const remove = () => onRemoveActor(human.actorId);
       if (Platform.OS === "ios") {
         ActionSheetIOS.showActionSheetWithOptions(
           {
-            options: labels,
+            options: [`Remove ${human.displayName}`, "Cancel"],
             cancelButtonIndex: 1,
             destructiveButtonIndex: 0,
           },
-          dispatch,
+          (index) => {
+            if (index === 0) remove();
+          },
         );
         return;
       }
-      Alert.alert("Remove from session", actor.displayName, [
-        { text: labels[0], style: "destructive", onPress: () => dispatch(0) },
-        { text: labels[1], style: "cancel" },
+      Alert.alert("Remove from session", human.displayName, [
+        { text: "Remove", style: "destructive", onPress: remove },
+        { text: "Cancel", style: "cancel" },
       ]);
     },
     [onRemoveActor],
   );
-
-  const showAgentActionSheet = useCallback(
-    (actor: Actor) => {
-      // Mirrors iOS SessionMemberSheet swipe actions (Change model / Restart /
-      // Remove). React Native doesn't have a 1:1 swipeActions equivalent on
-      // ScrollView rows, so we surface the same menu via long-press instead.
-      const labels: string[] = [];
-      const handlers: Array<() => void> = [];
-      if (onChangeAgentModel) {
-        labels.push("Change model…");
-        handlers.push(() => onChangeAgentModel(actor.actorId));
-      }
-      if (onRestartAgentRuntime) {
-        labels.push("Restart runtime");
-        handlers.push(() => onRestartAgentRuntime(actor.actorId));
-      }
-      if (onRemoveActor) {
-        labels.push(`Remove ${actor.displayName}`);
-        handlers.push(() => onRemoveActor(actor.actorId));
-      }
-      if (labels.length === 0) return;
-      labels.push("Cancel");
-
-      const destructiveButtonIndex = onRemoveActor ? labels.length - 2 : -1;
-      const cancelButtonIndex = labels.length - 1;
-
-      const dispatch = (index: number) => {
-        const handler = handlers[index];
-        if (handler) handler();
-      };
-
-      if (Platform.OS === "ios") {
-        ActionSheetIOS.showActionSheetWithOptions(
-          {
-            options: labels,
-            cancelButtonIndex,
-            destructiveButtonIndex:
-              destructiveButtonIndex >= 0 ? destructiveButtonIndex : undefined,
-          },
-          dispatch,
-        );
-        return;
-      }
-      Alert.alert(
-        actor.displayName,
-        undefined,
-        labels.map((label, index) => {
-          if (index === cancelButtonIndex) {
-            return { text: label, style: "cancel" as const };
-          }
-          if (index === destructiveButtonIndex) {
-            return {
-              text: label,
-              style: "destructive" as const,
-              onPress: () => dispatch(index),
-            };
-          }
-          return { text: label, onPress: () => dispatch(index) };
-        }),
-      );
-    },
-    [onChangeAgentModel, onRemoveActor, onRestartAgentRuntime],
-  );
-
-  const agentRowDisabled =
-    !onChangeAgentModel && !onRestartAgentRuntime && !onRemoveActor;
 
   return (
     <View style={styles.screen}>
@@ -189,12 +143,12 @@ export function SessionMemberSheet({
       </GlassHeader>
 
       <ScrollView contentContainerStyle={styles.content}>
-        {isLoading && actors.length === 0 ? (
+        {isLoading && isEmpty ? (
           <View style={styles.loadingRow}>
             <ActivityIndicator color={colors.slate} />
-            <Text style={styles.loadingText}>Loading members…</Text>
+            <Text style={styles.loadingText}>Loading actors…</Text>
           </View>
-        ) : actors.length === 0 ? (
+        ) : isEmpty ? (
           <View style={styles.stateBlock}>
             <Text style={styles.stateTitle}>No participants</Text>
             <Text style={styles.stateBody}>
@@ -203,86 +157,63 @@ export function SessionMemberSheet({
           </View>
         ) : (
           <View style={styles.groups}>
-            {humans.length > 0 ? (
-              <View style={styles.section}>
-                <SectionEyebrow
-                  label={`MEMBERS · ${humans.length}`}
-                  style={styles.sectionLabel}
-                />
-                <View>
-                  {humans.map((actor, index) => (
-                    <Pressable
-                      delayLongPress={350}
-                      disabled={!onRemoveActor || actor.actorId === currentActorId}
-                      key={actor.actorId}
-                      onLongPress={() => showHumanActionSheet(actor)}
-                    >
-                      <ActorRow actor={actor} isMe={actor.actorId === currentActorId} />
-                      {index < humans.length - 1 ? (
-                        <Hairline style={styles.rowDivider} />
-                      ) : null}
-                    </Pressable>
-                  ))}
-                </View>
+            <View style={styles.section}>
+              <SectionEyebrow label="MEMBERS" style={styles.sectionLabel} />
+              <View style={styles.card}>
+                {humans.length === 0 ? (
+                  <Text style={styles.sectionEmpty}>No members yet.</Text>
+                ) : (
+                  humans.map((human, index) => (
+                    <View key={human.actorId}>
+                      <HumanMemberRow
+                        human={human}
+                        onRemove={
+                          human.canRemove && onRemoveActor
+                            ? () => confirmRemoveHuman(human)
+                            : undefined
+                        }
+                      />
+                      {index < humans.length - 1 ? <Hairline /> : null}
+                    </View>
+                  ))
+                )}
               </View>
-            ) : null}
-            {agents.length > 0 ? (
-              <View style={styles.section}>
-                <SectionEyebrow
-                  label={`AGENTS · ${agents.length}`}
-                  style={styles.sectionLabel}
-                />
-                <View>
-                  {agents.map((actor, index) => {
-                    const model = agentModelByActorId?.get(actor.actorId) ?? null;
-                    return (
-                      <Pressable
-                        delayLongPress={350}
-                        disabled={agentRowDisabled}
-                        key={actor.actorId}
-                        onLongPress={() => showAgentActionSheet(actor)}
-                      >
-                        <View style={styles.agentRow}>
-                          <View style={styles.agentRowMain}>
-                            <ActorRow actor={actor} />
-                          </View>
-                          {model || onChangeAgentModel ? (
-                            <Pressable
-                              accessibilityLabel="Change model"
-                              accessibilityRole="button"
-                              disabled={!onChangeAgentModel}
-                              hitSlop={6}
-                              onPress={() => onChangeAgentModel?.(actor.actorId)}
-                              style={styles.modelChip}
-                            >
-                              <Text
-                                numberOfLines={1}
-                                style={[
-                                  styles.modelChipText,
-                                  model ? null : styles.modelChipTextMuted,
-                                ]}
-                              >
-                                {model ?? "default"}
-                              </Text>
-                              {onChangeAgentModel ? (
-                                <Ionicons
-                                  color={colors.slate}
-                                  name="chevron-down"
-                                  size={12}
-                                />
-                              ) : null}
-                            </Pressable>
-                          ) : null}
-                        </View>
-                        {index < agents.length - 1 ? (
-                          <Hairline style={styles.rowDivider} />
-                        ) : null}
-                      </Pressable>
-                    );
-                  })}
-                </View>
+            </View>
+
+            <View style={styles.section}>
+              <SectionEyebrow label="AGENTS" style={styles.sectionLabel} />
+              <View style={styles.card}>
+                {agents.length === 0 ? (
+                  <Text style={styles.sectionEmpty}>
+                    No agents in this session yet. Add one from the toolbar.
+                  </Text>
+                ) : (
+                  agents.map((agent, index) => (
+                    <View key={agent.actorId}>
+                      <AgentMemberRow
+                        agent={agent}
+                        onChangeModel={
+                          onChangeAgentModel
+                            ? () => onChangeAgentModel(agent.actorId)
+                            : undefined
+                        }
+                        onRemove={
+                          onRemoveActor
+                            ? () => onRemoveActor(agent.actorId)
+                            : undefined
+                        }
+                        onRestart={
+                          onRestartAgentRuntime
+                            ? () => onRestartAgentRuntime(agent.actorId)
+                            : undefined
+                        }
+                      />
+                      {index < agents.length - 1 ? <Hairline /> : null}
+                    </View>
+                  ))
+                )}
               </View>
-            ) : null}
+            </View>
           </View>
         )}
       </ScrollView>
@@ -290,13 +221,118 @@ export function SessionMemberSheet({
   );
 }
 
+function HumanMemberRow({
+  human,
+  onRemove,
+}: {
+  human: MemberSheetHuman;
+  onRemove?: () => void;
+}) {
+  return (
+    <View style={styles.row}>
+      <StatusDot breathing={false} kind={human.isOnline ? "active" : "muted"} size={8} />
+      <Text numberOfLines={1} style={styles.rowName}>
+        {human.displayName}
+      </Text>
+      <View style={styles.rowSpacer} />
+      {onRemove ? (
+        <Pressable
+          accessibilityLabel={`Remove ${human.displayName}`}
+          accessibilityRole="button"
+          hitSlop={8}
+          onPress={onRemove}
+          style={styles.rowTrailingButton}
+        >
+          <Ionicons color={hai.cinnabar} name="close-circle-outline" size={20} />
+        </Pressable>
+      ) : null}
+    </View>
+  );
+}
+
+function AgentMemberRow({
+  agent,
+  onChangeModel,
+  onRemove,
+  onRestart,
+}: {
+  agent: MemberSheetAgent;
+  onChangeModel?: () => void;
+  onRemove?: () => void;
+  onRestart?: () => void;
+}) {
+  const trailing = agentTrailingLabel({
+    currentModel: agent.currentModel,
+    state: agent.state,
+  });
+  const interactive =
+    Boolean(onChangeModel) &&
+    canChangeAgentModel({
+      availableModels: agent.availableModels,
+      state: agent.state,
+    });
+
+  const actions = [
+    ...(onRestart
+      ? [{ label: "Restart", iconName: "refresh-outline" as const, onPress: onRestart }]
+      : []),
+    ...(onRemove
+      ? [
+          {
+            label: "Remove",
+            iconName: "close-outline" as const,
+            onPress: onRemove,
+            destructive: true,
+          },
+        ]
+      : []),
+  ];
+
+  return (
+    <SwipeableRow trailingActions={actions}>
+      <View style={styles.row}>
+        <StatusDot kind={lifecycleDotKind(agent.state)} size={8} />
+        <Text numberOfLines={1} style={styles.rowName}>
+          {agent.displayName}
+        </Text>
+        {agent.agentType ? (
+          <Text numberOfLines={1} style={styles.rowType}>
+            {agent.agentType}
+          </Text>
+        ) : null}
+        <View style={styles.rowSpacer} />
+        {trailing.kind === "spinner" ? (
+          <ActivityIndicator color={colors.slate} size="small" />
+        ) : interactive ? (
+          <Pressable
+            accessibilityLabel={`Change model for ${agent.displayName}`}
+            accessibilityRole="button"
+            hitSlop={6}
+            onPress={onChangeModel}
+            style={styles.modelChip}
+          >
+            <Text numberOfLines={1} style={styles.modelText}>
+              {trailing.kind === "model" ? trailing.text : "default"}
+            </Text>
+            <Ionicons color={colors.slate} name="chevron-expand" size={12} />
+          </Pressable>
+        ) : (
+          <Text numberOfLines={1} style={styles.modelText}>
+            {trailing.kind === "model" ? trailing.text : "default"}
+          </Text>
+        )}
+      </View>
+    </SwipeableRow>
+  );
+}
+
 const styles = StyleSheet.create({
-  agentRow: {
-    alignItems: "center",
-    flexDirection: "row",
-  },
-  agentRowMain: {
-    flex: 1,
+  card: {
+    backgroundColor: colors.paper,
+    borderColor: colors.hairline,
+    borderBottomWidth: StyleSheet.hairlineWidth,
+    borderTopWidth: StyleSheet.hairlineWidth,
+    overflow: "hidden",
   },
   content: {
     gap: spacing.md,
@@ -319,7 +355,7 @@ const styles = StyleSheet.create({
   },
   headerTitle: {
     color: colors.onyx,
-    ...typography.sectionTitle,
+    ...iosType.headline,
   },
   loadingRow: {
     alignItems: "center",
@@ -330,24 +366,47 @@ const styles = StyleSheet.create({
   },
   loadingText: {
     color: colors.basalt,
-    ...typography.secondaryBody,
+    ...iosType.subheadline,
   },
   modelChip: {
     alignItems: "center",
     flexDirection: "row",
     gap: 2,
-    marginRight: spacing.lg,
-    maxWidth: 140,
+    maxWidth: 160,
   },
-  modelChipText: {
+  modelText: {
     color: colors.basalt,
-    ...typography.caption,
+    flexShrink: 1,
+    ...iosType.caption,
   },
-  modelChipTextMuted: {
+  row: {
+    alignItems: "center",
+    backgroundColor: colors.paper,
+    flexDirection: "row",
+    gap: 8,
+    paddingHorizontal: spacing.lg,
+    paddingVertical: 10,
+  },
+  rowName: {
+    color: colors.onyx,
+    flexShrink: 1,
+    fontWeight: "600",
+    ...iosType.body,
+  },
+  rowSpacer: {
+    flexGrow: 1,
+    minWidth: 8,
+  },
+  rowTrailingButton: {
+    alignItems: "center",
+    height: 28,
+    justifyContent: "center",
+    width: 28,
+  },
+  rowType: {
     color: colors.slate,
-  },
-  rowDivider: {
-    marginLeft: 70,
+    flexShrink: 1,
+    ...iosType.caption,
   },
   screen: {
     backgroundColor: colors.mist,
@@ -355,6 +414,12 @@ const styles = StyleSheet.create({
   },
   section: {
     gap: spacing.sm,
+  },
+  sectionEmpty: {
+    color: colors.slate,
+    paddingHorizontal: spacing.lg,
+    paddingVertical: spacing.md,
+    ...iosType.footnote,
   },
   sectionLabel: {
     paddingHorizontal: spacing.lg,
@@ -367,11 +432,11 @@ const styles = StyleSheet.create({
   },
   stateBody: {
     color: colors.basalt,
-    ...typography.secondaryBody,
+    ...iosType.subheadline,
   },
   stateTitle: {
     color: colors.onyx,
-    ...typography.cardTitle,
+    ...iosType.title3,
   },
   toolbarButton: {
     alignItems: "center",

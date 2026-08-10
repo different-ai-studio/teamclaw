@@ -6,6 +6,7 @@ import {
   RemoveWorkspaceRequestSchema,
   RuntimeStartRequestSchema,
   RuntimeStopRequestSchema,
+  SetModelRequestSchema,
   type AddWorkspaceResult,
   type RemoveWorkspaceResult,
   type RpcResponse,
@@ -47,6 +48,13 @@ export type RemoveWorkspaceArgs = {
   timeoutMs?: number;
 };
 
+export type SetModelArgs = {
+  targetActorId: string;
+  runtimeId: string;
+  modelId: string;
+  timeoutMs?: number;
+};
+
 type RuntimeRpcClientDeps = {
   mqtt: RuntimeRpcMqtt;
   teamId: string;
@@ -60,6 +68,15 @@ export type RuntimeRpcClient = {
   runtimeStop: (args: RuntimeStopArgs) => Promise<RuntimeStopResult>;
   addWorkspace: (args: AddWorkspaceArgs) => Promise<AddWorkspaceResult>;
   removeWorkspace: (args: RemoveWorkspaceArgs) => Promise<RemoveWorkspaceResult>;
+  /**
+   * Switches an agent runtime's ACP model. Replaces
+   * `PATCH /v1/runtime/:id/model`, which pointed at the dropped
+   * `agent_runtimes` table and answers 404.
+   *
+   * Resolves on the daemon's accept gate. The new model is observable on the
+   * retained runtime state topic, so there is no value to return here.
+   */
+  setModel: (args: SetModelArgs) => Promise<void>;
 };
 
 const DEFAULT_TIMEOUT_MS = 15_000;
@@ -117,6 +134,23 @@ function removeWorkspaceResponseError(response: RpcResponse): Error | null {
   }
   if (!response.result.value.accepted) {
     return new Error(response.result.value.error || response.error || "remove_workspace rejected");
+  }
+  return null;
+}
+
+/**
+ * `SetModelResult` carries `{success, error}` rather than the
+ * `{accepted, rejectedReason}` the other four use, so it needs its own check.
+ */
+function setModelResponseError(response: RpcResponse): Error | null {
+  if (!response.success) {
+    return new Error(response.error || "set_model rejected");
+  }
+  if (response.result.case !== "setModelResult") {
+    return new Error(`unexpected result variant: ${response.result.case}`);
+  }
+  if (!response.result.value.success) {
+    return new Error(response.result.value.error || response.error || "set_model rejected");
   }
   return null;
 }
@@ -436,6 +470,85 @@ export function createRuntimeRpcClient(deps: RuntimeRpcClientDeps): RuntimeRpcCl
             reject(
               new Error(
                 `remove_workspace timeout after ${args.timeoutMs ?? DEFAULT_TIMEOUT_MS}ms`,
+              ),
+            ),
+          );
+        }, args.timeoutMs ?? DEFAULT_TIMEOUT_MS);
+
+        deps.mqtt
+          .publish(requestTopic, toBinary(RpcRequestSchema, request), false)
+          .catch((err) => {
+            finish(() => reject(err instanceof Error ? err : new Error(String(err))));
+          });
+      });
+    },
+    setModel(args) {
+      const teamId = deps.teamId.trim();
+      if (!teamId) return Promise.reject(new Error("team id is required"));
+
+      const targetActorId = args.targetActorId.trim();
+      if (!targetActorId) {
+        return Promise.reject(new Error("target actor id is required"));
+      }
+      const runtimeId = args.runtimeId.trim();
+      if (!runtimeId) {
+        return Promise.reject(new Error("runtime id is required"));
+      }
+      const modelId = args.modelId.trim();
+      if (!modelId) {
+        return Promise.reject(new Error("model id is required"));
+      }
+
+      const requestId = deps.requestId?.() ?? uuidV4();
+      const requesterClientId =
+        deps.requesterClientId?.(requestId) ??
+        defaultRequesterClientId(deps.requesterActorId, requestId);
+      const setModel = create(SetModelRequestSchema, { runtimeId, modelId });
+      const request = create(RpcRequestSchema, {
+        requestId,
+        requesterClientId,
+        requesterActorId: deps.requesterActorId,
+        method: { case: "setModel", value: setModel },
+      });
+      const requestTopic = `amux/${teamId}/${targetActorId}/rpc/req`;
+      // Daemon replies on the requester's actor namespace (rpc.rs:50-53).
+      const responseTopic = `amux/${teamId}/${deps.requesterActorId.trim() || targetActorId}/rpc/res`;
+
+      return new Promise<void>((resolve, reject) => {
+        let settled = false;
+        let unsubscribe = () => {};
+        let timer: ReturnType<typeof setTimeout> | null = null;
+
+        const finish = (fn: () => void) => {
+          if (settled) return;
+          settled = true;
+          if (timer) clearTimeout(timer);
+          unsubscribe();
+          fn();
+        };
+
+        unsubscribe = deps.mqtt.subscribe(responseTopic, (payload) => {
+          let response: RpcResponse;
+          try {
+            response = fromBinary(RpcResponseSchema, payload);
+          } catch {
+            return;
+          }
+          if (response.requestId !== requestId) return;
+
+          const error = setModelResponseError(response);
+          if (error) {
+            finish(() => reject(error));
+            return;
+          }
+          finish(() => resolve());
+        });
+
+        timer = setTimeout(() => {
+          finish(() =>
+            reject(
+              new Error(
+                `set_model timeout after ${args.timeoutMs ?? DEFAULT_TIMEOUT_MS}ms`,
               ),
             ),
           );
