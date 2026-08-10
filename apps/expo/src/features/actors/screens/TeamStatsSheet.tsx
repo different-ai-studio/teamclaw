@@ -1,4 +1,5 @@
 import { Ionicons } from "@expo/vector-icons";
+import { LinearGradient } from "expo-linear-gradient";
 import { useMemo, useState } from "react";
 import { Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
 
@@ -193,42 +194,22 @@ function SkillRow({ max, skill }: { max: number; skill: SkillStat }) {
         <Text style={styles.skillCount}>{skill.count}</Text>
       </View>
       <View style={styles.barTrack}>
-        <View style={[styles.barFill, { width: `${ratio * 100}%` }]}>
-          <GradientBar />
-        </View>
+        {/* The gradient spans the FILLED width, not the track — iOS applies it
+            to the fill capsule, so a shorter bar ends mid-ramp rather than at
+            full cinnabar. */}
+        <LinearGradient
+          colors={SKILL_BAR_GRADIENT}
+          end={{ x: 1, y: 0 }}
+          start={{ x: 0, y: 0 }}
+          style={[styles.barFill, { width: `${ratio * 100}%` }]}
+        />
       </View>
     </View>
   );
 }
 
-/**
- * Pebble → cinnabar horizontal gradient across the filled portion of a bar.
- * RN has no gradient primitive and `expo-linear-gradient` isn't a dependency,
- * so this interpolates across a fixed number of flex segments — indistinguishable
- * at the 4px height iOS draws.
- */
-const GRADIENT_STEPS = 12;
-const GRADIENT_FROM = [0xe2, 0xdf, 0xd9] as const; // hai.pebble
-const GRADIENT_TO = [0xb8, 0x4b, 0x36] as const; // hai.cinnabar
-
-const GRADIENT_COLORS = Array.from({ length: GRADIENT_STEPS }, (_, index) => {
-  const t = index / (GRADIENT_STEPS - 1);
-  const channel = (from: number, to: number) => Math.round(from + (to - from) * t);
-  return `rgb(${channel(GRADIENT_FROM[0], GRADIENT_TO[0])}, ${channel(
-    GRADIENT_FROM[1],
-    GRADIENT_TO[1],
-  )}, ${channel(GRADIENT_FROM[2], GRADIENT_TO[2])})`;
-});
-
-function GradientBar() {
-  return (
-    <View style={styles.gradient}>
-      {GRADIENT_COLORS.map((color, index) => (
-        <View key={index} style={[styles.gradientStep, { backgroundColor: color }]} />
-      ))}
-    </View>
-  );
-}
+/** Pebble → cinnabar, matching the iOS `LinearGradient` on the skill bar. */
+const SKILL_BAR_GRADIENT = [hai.pebble, hai.cinnabar] as const;
 
 const styles = StyleSheet.create({
   barFill: {
@@ -276,15 +257,6 @@ const styles = StyleSheet.create({
   },
   dotTextHuman: {
     color: "#FFFFFF",
-  },
-  gradient: {
-    flexDirection: "row",
-    height: "100%",
-    width: "100%",
-  },
-  gradientStep: {
-    flex: 1,
-    height: "100%",
   },
   headerBar: {
     alignItems: "center",
