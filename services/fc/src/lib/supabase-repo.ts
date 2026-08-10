@@ -350,20 +350,21 @@ export function createSupabaseBusinessRepository(options) {
     return provisioning;
   }
 
-  async function shareModeServiceRpc(rpcName, args) {
-    let admin;
-    if (createServiceRoleClientOpt) {
-      admin = createServiceRoleClientOpt();
-    } else {
-      const serviceKey = process.env.SUPABASE_SERVICE_ROLE_KEY || "";
-      if (!serviceKey) {
-        throw new Error(
-          "SUPABASE_SERVICE_ROLE_KEY is not configured on FC; cannot change team share mode",
-        );
-      }
-      const { createServiceRoleClient } = await import("./supabase.js");
-      admin = createServiceRoleClient();
+  // Escalation hatch for the handful of writes the caller's own token cannot
+  // make. `what` is spliced into the misconfiguration error so a missing key
+  // says which operation it broke.
+  async function serviceRoleClient(what) {
+    if (createServiceRoleClientOpt) return createServiceRoleClientOpt();
+    const serviceKey = process.env.SUPABASE_SERVICE_ROLE_KEY || "";
+    if (!serviceKey) {
+      throw new Error(`SUPABASE_SERVICE_ROLE_KEY is not configured on FC; cannot ${what}`);
     }
+    const { createServiceRoleClient } = await import("./supabase.js");
+    return createServiceRoleClient();
+  }
+
+  async function shareModeServiceRpc(rpcName, args) {
+    const admin = await serviceRoleClient("change team share mode");
     const { data, error } = await admin.rpc(rpcName, args);
     if (error) {
       const code = error?.code || "";
@@ -3191,7 +3192,16 @@ export function createSupabaseBusinessRepository(options) {
         throw new ApiError(400, "validation_failed", "size must be a non-negative number");
       }
       const ossKey = `teams/${teamId}/blobs/sha256/${contentHash.slice(0, 2)}/${contentHash.slice(2, 4)}/${contentHash}`;
-      const { error } = await supabase.from("amuxc_blobs").upsert(
+      // amuxc_blobs predates the skills registry: it is the OSS-sync blob
+      // ledger, where `authenticated` holds SELECT only and every write is
+      // service_role's (20260527000002_oss_sync_schema.sql). Writing it with
+      // the caller's token returns `42501 permission denied for table
+      // amuxc_blobs`. Escalate rather than grant the client INSERT/UPDATE —
+      // `verified` is the flag OSS sync trusts, and a member who can set it
+      // by hand can point a team at a blob that was never uploaded.
+      // Membership was checked above, and teamId comes from the route path.
+      const admin = await serviceRoleClient("register a skill package blob");
+      const { error } = await admin.from("amuxc_blobs").upsert(
         {
           team_id: teamId,
           content_hash: contentHash,
@@ -3222,7 +3232,11 @@ export function createSupabaseBusinessRepository(options) {
       if (!data) {
         throw new ApiError(404, "not_found", "blob placeholder not found — call prepare first");
       }
-      const { error: uErr } = await supabase
+      // The lookup above stays on the caller's token so RLS keeps proving the
+      // blob belongs to a team they are in; only the write escalates, for the
+      // same reason as prepare.
+      const admin = await serviceRoleClient("mark a skill package blob verified");
+      const { error: uErr } = await admin
         .from("amuxc_blobs")
         .update({ verified: true })
         .eq("team_id", teamId)

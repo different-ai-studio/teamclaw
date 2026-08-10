@@ -1049,6 +1049,75 @@ test("getWorkspaceConfig returns nulls when both rows absent", async () => {
 
 
 
+// amuxc_blobs is the OSS-sync blob ledger, not a skills table: `authenticated`
+// holds SELECT and nothing else, and every write belongs to service_role
+// (20260527000002_oss_sync_schema.sql). The skills registry reuses it for
+// package bookkeeping, so publishing through the caller's own token died with
+// `403 permission denied for table amuxc_blobs` on self-host. Escalating beats
+// granting the client INSERT/UPDATE — `verified` is the flag OSS sync trusts.
+const BLOB_CALLER_AUTH = {
+  auth: {
+    async getUser() {
+      return { data: { user: { id: "user-1" } }, error: null };
+    },
+  },
+};
+
+test("prepareTeamSkillBlob writes amuxc_blobs with the service-role client", async () => {
+  const callerCalls: any[] = [];
+  const adminCalls: any[] = [];
+  const caller = fakeSupabase({
+    ...BLOB_CALLER_AUTH,
+    tableCalls: callerCalls,
+    tableData: { actors: [{ id: "actor-1" }] },
+  });
+  const admin = fakeSupabase({ tableCalls: adminCalls });
+  const repo = createRepo(caller, { createServiceRoleClient: () => admin });
+
+  const hash = "a".repeat(64);
+  const out = await repo.prepareTeamSkillBlob("team-1", { contentHash: hash, size: 42 });
+
+  assert.equal(out.ossKey, `teams/team-1/blobs/sha256/aa/aa/${hash}`);
+  const write = adminCalls.find((c) => c.table === "amuxc_blobs" && c.op === "upsert");
+  assert.ok(write, "the placeholder row must be upserted with the service-role client");
+  assert.equal(write.row.verified, false);
+  assert.equal(
+    callerCalls.some((c) => c.table === "amuxc_blobs"),
+    false,
+    "a caller-token write to amuxc_blobs is 42501 permission denied",
+  );
+});
+
+test("completeTeamSkillBlob checks as the caller and flips verified as service_role", async () => {
+  const callerCalls: any[] = [];
+  const adminCalls: any[] = [];
+  const hash = "b".repeat(64);
+  const caller = fakeSupabase({
+    ...BLOB_CALLER_AUTH,
+    tableCalls: callerCalls,
+    tableData: {
+      actors: [{ id: "actor-1" }],
+      amuxc_blobs: [{ oss_key: `teams/team-1/blobs/sha256/bb/bb/${hash}`, size: 42 }],
+    },
+  });
+  const admin = fakeSupabase({ tableCalls: adminCalls });
+  const repo = createRepo(caller, { createServiceRoleClient: () => admin });
+
+  const out = await repo.completeTeamSkillBlob("team-1", { contentHash: hash });
+
+  assert.equal(out.size, 42);
+  // The existence check stays on the caller's token so RLS keeps proving the
+  // blob belongs to a team they are actually in.
+  assert.ok(callerCalls.some((c) => c.table === "amuxc_blobs" && c.op === "select"));
+  const update = adminCalls.find((c) => c.table === "amuxc_blobs" && c.op === "update");
+  assert.ok(update, "verified must be flipped with the service-role client");
+  assert.equal(update.row.verified, true);
+  assert.equal(
+    callerCalls.some((c) => c.table === "amuxc_blobs" && c.op === "update"),
+    false,
+  );
+});
+
 function fakeSupabase({
   rpcCalls = [],
   tableCalls = [],
@@ -1138,6 +1207,13 @@ function createTableQuery(table: any, calls: any, data: any, error: any, hooks: 
             },
           };
         },
+        // A bare `await client.from(t).upsert(...)` has to surface the error the
+        // same way insert() does. Without this the builder resolves to itself,
+        // the destructured `error` is undefined, and a failing upsert reads as
+        // a success in tests.
+        then(resolve, reject) {
+          return Promise.resolve({ data: resolvedData, error }).then(resolve, reject);
+        },
       };
     },
     update(row) {
@@ -1193,9 +1269,13 @@ function createSelectableQuery(table, calls, data, error) {
       calls.push({ table, op: "order", column, options });
       return query;
     },
+    // Returns the builder, not a promise: `.limit(1).maybeSingle()` is how the
+    // member-actor lookup reads, and a promise has no maybeSingle. Awaiting the
+    // builder still resolves `{ data, error }` via then(), so direct-await
+    // callers are unaffected.
     limit(count) {
       calls.push({ table, op: "limit", count });
-      return Promise.resolve({ data, error });
+      return query;
     },
     eq(column, value) {
       calls.push({ table, op: "eq", column, value });
