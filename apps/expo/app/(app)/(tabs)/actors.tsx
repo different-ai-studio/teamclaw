@@ -8,6 +8,7 @@ import type { ConnectedAgentsStoreState } from "../../../src/features/actors/con
 import { ActorsListScreen } from "../../../src/features/actors/screens/ActorsListScreen";
 import { supabase } from "../../../src/lib/supabase/client";
 import { supabaseAccessToken } from "../../../src/lib/cloud-api/client";
+import { createActorsCache } from "../../../src/lib/db/team-cache";
 import { useTabBarInset } from "../../../src/ui/use-tab-bar-inset";
 
 /** Stable no-op store so `useSyncExternalStore` can run before MQTT connects. */
@@ -19,6 +20,9 @@ const EMPTY_AGENTS_STATE: ConnectedAgentsStoreState = {
   errorMessage: null,
 };
 const emptyAgentsState = () => EMPTY_AGENTS_STATE;
+
+// Module-scoped: one cache handle for the app, not one per render.
+const actorsCache = createActorsCache();
 
 export default function ActorsIndexRoute() {
   const tabBarInset = useTabBarInset();
@@ -33,6 +37,7 @@ export default function ActorsIndexRoute() {
     controllerRef.current = createActorsController(
       createActorsApi({ getAccessToken: supabaseAccessToken(supabase) }),
       teamId,
+      actorsCache,
     );
     teamIdRef.current = teamId;
   }

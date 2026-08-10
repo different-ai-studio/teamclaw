@@ -9,8 +9,12 @@ import { reorderIdeaIds } from "../../../src/features/ideas/idea-types";
 import { IdeasListScreen } from "../../../src/features/ideas/screens/IdeasListScreen";
 import { supabase } from "../../../src/lib/supabase/client";
 import { supabaseAccessToken } from "../../../src/lib/cloud-api/client";
+import { createIdeasCache } from "../../../src/lib/db/team-cache";
 import { showToast } from "../../../src/ui/Toast";
 import { useTabBarInset } from "../../../src/ui/use-tab-bar-inset";
+
+// Module-scoped: one cache handle for the app, not one per render.
+const ideasCache = createIdeasCache();
 
 export default function IdeasIndexRoute() {
   const tabBarInset = useTabBarInset();
@@ -22,7 +26,11 @@ export default function IdeasIndexRoute() {
   const teamIdRef = useRef<string | null>(null);
 
   if (controllerRef.current === null || teamIdRef.current !== teamId) {
-    controllerRef.current = createIdeasController(createIdeasApi({ getAccessToken: supabaseAccessToken(supabase) }), teamId);
+    controllerRef.current = createIdeasController(
+      createIdeasApi({ getAccessToken: supabaseAccessToken(supabase) }),
+      teamId,
+      ideasCache,
+    );
     teamIdRef.current = teamId;
   }
 

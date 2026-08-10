@@ -1,6 +1,7 @@
 import { createActorsApi } from "./actor-api";
 import {
   initialActorsListState,
+  type Actor,
   type ActorsListState,
 } from "./actor-types";
 
@@ -15,9 +16,16 @@ export type ActorsController = {
   refresh: () => Promise<void>;
 };
 
+/** The slice of `TeamCache<Actor>` this controller needs. */
+export type ActorsCache = {
+  load: (teamId: string) => Promise<Actor[] | null>;
+  save: (teamId: string, actors: ReadonlyArray<Actor>) => Promise<void>;
+};
+
 export function createActorsController(
   api: Pick<ActorsApi, "listActors">,
   teamId: string,
+  cache?: ActorsCache,
 ): ActorsController {
   let state: ActorsListState = initialActorsListState;
   const listeners = new Set<Listener>();
@@ -39,6 +47,18 @@ export function createActorsController(
       errorMessage: null,
       status: state.status === "ready" ? state.status : "loading",
     });
+    // Paint last-known actors while the fetch is in flight, as iOS does from
+    // SwiftData. Cold load only — a refresh already has fresher data on screen.
+    if (mode === "load" && cache && state.actors.length === 0) {
+      try {
+        const cached = await cache.load(teamId);
+        if (cached && state.actors.length === 0) {
+          setState({ ...state, actors: cached, status: "ready" });
+        }
+      } catch {
+        // A cache miss is not an error worth showing.
+      }
+    }
     try {
       const actors = await api.listActors(teamId);
       setState({
@@ -48,6 +68,7 @@ export function createActorsController(
         isRefreshing: false,
         errorMessage: null,
       });
+      void cache?.save(teamId, actors);
     } catch (error) {
       setState({
         ...state,

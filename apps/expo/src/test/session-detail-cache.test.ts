@@ -1,128 +1,146 @@
-import { beforeEach, describe, expect, it, vi } from "vitest";
-
-vi.mock("@react-native-async-storage/async-storage", () => {
-  const store = new Map<string, string>();
-  return {
-    default: {
-      getItem: vi.fn(async (key: string) => store.get(key) ?? null),
-      setItem: vi.fn(async (key: string, value: string) => {
-        store.set(key, value);
-      }),
-      removeItem: vi.fn(async (key: string) => {
-        store.delete(key);
-      }),
-      _reset() {
-        store.clear();
-      },
-    },
-  };
-});
-
-import AsyncStorage from "@react-native-async-storage/async-storage";
+import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
 import { createSessionDetailCache } from "../features/sessions/session-detail-cache";
-import type {
-  SessionMessage,
-  SessionSummary,
-} from "../features/sessions/session-types";
+import { createSessionsCache } from "../features/sessions/session-cache";
+import type { SessionMessage, SessionSummary } from "../features/sessions/session-types";
+import { createMemoryCacheDb } from "./helpers/memory-db";
 
-function summary(partial: Partial<SessionSummary> = {}): SessionSummary {
+function session(partial: Partial<SessionSummary> = {}): SessionSummary {
   return {
     sessionId: "s1",
     teamId: "t1",
     title: "Session",
     summary: "",
-    lastMessagePreview: "",
-    lastMessageAt: "2026-01-01T00:00:00.000Z",
-    createdAt: "2026-01-01T00:00:00.000Z",
-    createdBy: "actor-1",
-    participantCount: 1,
-    participantActorIds: [],
-    hasUnread: false,
+    participantCount: 2,
+    participantActorIds: ["a1", "a2"],
+    lastMessagePreview: "hello",
+    lastMessageAt: "2026-01-01T00:00:00Z",
+    createdAt: "2026-01-01T00:00:00Z",
+    createdBy: "a1",
     ...partial,
   };
 }
 
-function message(id: string, content = `msg-${id}`): SessionMessage {
+function message(partial: Partial<SessionMessage> = {}): SessionMessage {
   return {
-    messageId: id,
+    messageId: "m1",
     sessionId: "s1",
-    senderActorId: "actor-1",
     teamId: "t1",
+    senderActorId: "a1",
     kind: "text",
-    content,
-    createdAt: "2026-01-01T00:00:00.000Z",
-    metadata: null,
+    content: "hello",
     model: "",
-    replyToMessageId: "",
     turnId: "",
+    replyToMessageId: "",
+    metadata: null,
+    createdAt: "2026-01-01T00:00:00Z",
+    attachments: [],
+    ...partial,
   };
 }
 
-describe("session-detail cache", () => {
-  beforeEach(() => {
-    (AsyncStorage as unknown as { _reset: () => void })._reset();
-    vi.clearAllMocks();
+let db: ReturnType<typeof createMemoryCacheDb>;
+let cache: ReturnType<typeof createSessionDetailCache>;
+
+beforeEach(() => {
+  db = createMemoryCacheDb();
+  cache = createSessionDetailCache(async () => db);
+});
+
+afterEach(() => {
+  db.close();
+});
+
+describe("session detail cache", () => {
+  it("returns null for a session it has never seen", async () => {
+    expect(await cache.load("nope")).toBeNull();
   });
 
-  it("returns null for an unseen session", async () => {
-    const cache = createSessionDetailCache();
-    expect(await cache.load("s1")).toBeNull();
-  });
-
-  it("returns null when sessionId is empty", async () => {
-    const cache = createSessionDetailCache();
-    expect(await cache.load("")).toBeNull();
-  });
-
-  it("round-trips session + messages", async () => {
-    const cache = createSessionDetailCache();
-    const entry = { session: summary(), messages: [message("a"), message("b")] };
-    await cache.save("s1", entry);
+  it("round-trips the session and its timeline", async () => {
+    await cache.save("s1", { session: session(), messages: [message()] });
     const loaded = await cache.load("s1");
-    expect(loaded?.session.sessionId).toBe("s1");
-    expect(loaded?.messages.map((m) => m.messageId)).toEqual(["a", "b"]);
+    expect(loaded?.session.title).toBe("Session");
+    expect(loaded?.messages).toEqual([message()]);
   });
 
-  it("clamps to the tail of the message list", async () => {
-    const cache = createSessionDetailCache();
-    const big = Array.from({ length: 250 }, (_, i) => message(`m${i}`));
-    await cache.save("s1", { session: summary(), messages: big });
+  it("keeps metadata and attachments through the JSON columns", async () => {
+    const rich = message({
+      metadata: { tool: "bash", exitCode: 0 },
+      attachments: [{ url: "https://example.test/a.png", mime: "image/png" }],
+    });
+    await cache.save("s1", { session: session(), messages: [rich] });
     const loaded = await cache.load("s1");
-    expect(loaded?.messages).toHaveLength(200);
-    // Keep the *latest* slice — older messages can re-fetch from Supabase.
-    expect(loaded?.messages[0].messageId).toBe("m50");
-    expect(loaded?.messages[199].messageId).toBe("m249");
+    expect(loaded?.messages[0]?.metadata).toEqual({ tool: "bash", exitCode: 0 });
+    expect(loaded?.messages[0]?.attachments).toEqual([
+      { url: "https://example.test/a.png", mime: "image/png" },
+    ]);
   });
 
-  it("saveMessages updates only the messages slot", async () => {
-    const cache = createSessionDetailCache();
-    await cache.save("s1", { session: summary(), messages: [message("a")] });
-    await cache.saveMessages("s1", [message("b"), message("c")]);
+  it("orders the timeline oldest-first", async () => {
+    await cache.save("s1", {
+      session: session(),
+      messages: [
+        message({ messageId: "m2", createdAt: "2026-01-02T00:00:00Z" }),
+        message({ messageId: "m1", createdAt: "2026-01-01T00:00:00Z" }),
+      ],
+    });
     const loaded = await cache.load("s1");
-    expect(loaded?.session.sessionId).toBe("s1");
-    expect(loaded?.messages.map((m) => m.messageId)).toEqual(["b", "c"]);
+    expect(loaded?.messages.map((m) => m.messageId)).toEqual(["m1", "m2"]);
   });
 
-  it("clear removes both session and messages", async () => {
-    const cache = createSessionDetailCache();
-    await cache.save("s1", { session: summary(), messages: [message("a")] });
+  it("does not evict the list cache when a detail screen saves", async () => {
+    // The two caches share the `cached_sessions` scope. A blind scope replace
+    // here would empty the sessions list every time a session was opened.
+    const list = createSessionsCache(async () => db);
+    await list.save("t1", [
+      session({ sessionId: "s1" }),
+      session({ sessionId: "s2" }),
+      session({ sessionId: "s3" }),
+    ]);
+    await cache.save("s1", { session: session({ title: "Renamed" }), messages: [] });
+    const after = await list.load("t1");
+    expect(after?.map((s) => s.sessionId).sort()).toEqual(["s1", "s2", "s3"]);
+    expect(after?.find((s) => s.sessionId === "s1")?.title).toBe("Renamed");
+  });
+
+  it("replaces a session's timeline rather than appending to it", async () => {
+    await cache.save("s1", {
+      session: session(),
+      messages: [message({ messageId: "m1" }), message({ messageId: "m2" })],
+    });
+    await cache.saveMessages("s1", [message({ messageId: "m2" })]);
+    expect((await cache.load("s1"))?.messages.map((m) => m.messageId)).toEqual(["m2"]);
+  });
+
+  it("keeps sessions' timelines apart", async () => {
+    await cache.save("s1", {
+      session: session({ sessionId: "s1" }),
+      messages: [message({ messageId: "m1", sessionId: "s1" })],
+    });
+    await cache.save("s2", {
+      session: session({ sessionId: "s2" }),
+      messages: [message({ messageId: "m2", sessionId: "s2" })],
+    });
+    expect((await cache.load("s1"))?.messages.map((m) => m.messageId)).toEqual(["m1"]);
+    expect((await cache.load("s2"))?.messages.map((m) => m.messageId)).toEqual(["m2"]);
+  });
+
+  it("keeps more than the 200 messages the blob cache could hold", async () => {
+    const many = Array.from({ length: 500 }, (_, i) =>
+      message({
+        messageId: `m${String(i).padStart(4, "0")}`,
+        createdAt: `2026-01-01T00:00:00Z`,
+      }),
+    );
+    await cache.save("s1", { session: session(), messages: many });
+    expect((await cache.load("s1"))?.messages.length).toBe(500);
+  });
+
+  it("clears one session's timeline", async () => {
+    await cache.save("s1", { session: session(), messages: [message()] });
     await cache.clear("s1");
+    // The header row survives — only the timeline is dropped, and a header with
+    // no messages is not a usable detail entry.
     expect(await cache.load("s1")).toBeNull();
-  });
-
-  it("returns an empty list when messages payload is corrupted", async () => {
-    await AsyncStorage.setItem(
-      "teamclu.sessionDetail.v1.session.s1",
-      JSON.stringify(summary()),
-    );
-    await AsyncStorage.setItem(
-      "teamclu.sessionDetail.v1.messages.s1",
-      JSON.stringify({ oops: true }),
-    );
-    const cache = createSessionDetailCache();
-    const loaded = await cache.load("s1");
-    expect(loaded?.session.sessionId).toBe("s1");
-    expect(loaded?.messages).toEqual([]);
   });
 });

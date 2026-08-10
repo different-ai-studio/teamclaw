@@ -3,6 +3,7 @@ import {
   compareIdeas,
   initialIdeasListState,
   sortOrderForIndex,
+  type Idea,
   type IdeasListState,
 } from "./idea-types";
 
@@ -21,9 +22,16 @@ export type IdeasController = {
   applyReorder: (orderedIds: ReadonlyArray<string>) => void;
 };
 
+/** The slice of `TeamCache<CachedIdea>` this controller needs. */
+export type IdeasCache = {
+  load: (teamId: string) => Promise<Idea[] | null>;
+  save: (teamId: string, ideas: ReadonlyArray<Idea>) => Promise<void>;
+};
+
 export function createIdeasController(
   api: Pick<IdeasApi, "listIdeas">,
   teamId: string,
+  cache?: IdeasCache,
 ): IdeasController {
   let state: IdeasListState = initialIdeasListState;
   const listeners = new Set<() => void>();
@@ -45,6 +53,19 @@ export function createIdeasController(
       errorMessage: null,
       status: state.status === "ready" ? state.status : "loading",
     });
+    // Paint last-known ideas while the fetch is in flight, the way iOS reads
+    // SwiftData before its refresh lands. Only on a cold load: during a
+    // pull-to-refresh the list on screen is already newer than the cache.
+    if (mode === "load" && cache && state.ideas.length === 0) {
+      try {
+        const cached = await cache.load(teamId);
+        if (cached && state.ideas.length === 0) {
+          setState({ ...state, ideas: [...cached].sort(compareIdeas), status: "ready" });
+        }
+      } catch {
+        // A cache miss is not an error worth showing.
+      }
+    }
     try {
       const ideas = await api.listIdeas(teamId);
       setState({
@@ -54,6 +75,7 @@ export function createIdeasController(
         isRefreshing: false,
         errorMessage: null,
       });
+      void cache?.save(teamId, ideas);
     } catch (error) {
       setState({
         ...state,
