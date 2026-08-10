@@ -34,9 +34,9 @@ Rows carrying two marks (`✅ header ◻ body`) are counted by their first, so t
 
 | Status | Count |
 |---|---|
-| ✅ verified | 63 |
+| ✅ verified | 64 |
 | ⚠ known gap | 5 |
-| ◻ unverified | 1 |
+| ◻ unverified | 0 |
 | ✖ missing | 1 |
 | **Total** | **70** |
 
@@ -85,7 +85,7 @@ point of the column.
 | `EventFeedView` | 908 | `SessionMessageRow.tsx` + `session-feed-items.ts` | ✅ bubbles, tool calls ◻ rest |
 | `RecordingWaveform` | 55 | `components/RecordingWaveform.tsx` | ✅ |
 | `SessionComposer` | 538 | `components/SessionComposerShell.tsx` | ✅ |
-| `SessionDetailView` | 993 | `screens/SessionDetailScreen.tsx` | ◻ header/glass only |
+| `SessionDetailView` | 993 | `screens/SessionDetailScreen.tsx` | ✅ header, plans toggle, members, mute, message actions and delete confirmation |
 | `SessionMemberSheet` | 179 | `screens/SessionMemberSheet.tsx` | ✅ |
 | `StreamingDetailView` | 292 | `AgentTurnDetailModal` in `SessionDetailScreen.tsx` | ⚠ see below |
 
@@ -265,7 +265,10 @@ No iOS counterpart, and none needed: `app/(app)/mqtt-debug.tsx`,
 ## How to use this
 
 Work down the ◻ rows. Verifying one means opening both files side by side and
-either marking it ✅ or writing a ⚠ row with the specific difference. The 1
-unverified row are the remaining Axis 6 work, and they are not evenly sized —
-`MemberListContent` (1598), `SessionDetailView` (993), `NewSessionSheet` (599)
-and `LoginView` (464) are most of the mass.
+**Every row has now been looked at.** What remains is not unverified surfaces
+but the five ⚠ rows below — each one a decision that was recorded rather than
+made, because making it needs something this branch does not have: an SMS
+provider, a testable login, or a per-agent config sheet.
+
+The column has done its job when it is empty. Keep it that way: a new iOS
+surface arrives ◻, and stays ◻ until someone opens both files.

@@ -148,6 +148,35 @@ export function SessionMessageRow({
       style?: "default" | "cancel" | "destructive";
       run?: () => void;
     };
+    // iOS puts a confirmationDialog behind Delete, and its message is the whole
+    // reason: "the message is removed for everyone in this session." Deleting
+    // from a chat usually means removing your own copy, and this does not.
+    const confirmDelete = () => {
+      if (!onDelete) return;
+      const run = () => onDelete(message.messageId);
+      const title = "Delete this message?";
+      const body = "The message is removed for everyone in this session.";
+      if (Platform.OS === "ios") {
+        ActionSheetIOS.showActionSheetWithOptions(
+          {
+            title,
+            message: body,
+            options: ["Delete", "Cancel"],
+            cancelButtonIndex: 1,
+            destructiveButtonIndex: 0,
+          },
+          (index) => {
+            if (index === 0) run();
+          },
+        );
+        return;
+      }
+      Alert.alert(title, body, [
+        { text: "Delete", style: "destructive", onPress: run },
+        { text: "Cancel", style: "cancel" },
+      ]);
+    };
+
     const actions: Action[] = [
       {
         label: "Copy",
@@ -166,7 +195,7 @@ export function SessionMessageRow({
       actions.push({
         label: "Delete",
         style: "destructive",
-        run: () => onDelete(message.messageId),
+        run: () => confirmDelete(),
       });
     }
     actions.push({ label: "Cancel", style: "cancel" });
