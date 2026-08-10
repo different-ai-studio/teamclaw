@@ -15,6 +15,11 @@ import {
 import { openCacheDb, type CacheDb } from "./cache-db";
 import type { Idea, IdeaStatus } from "../../features/ideas/idea-types";
 import type { Actor, ActorType } from "../../features/actors/actor-types";
+import type {
+  Shortcut,
+  ShortcutNodeType,
+  ShortcutScope,
+} from "../../features/shortcuts/shortcut-types";
 
 /**
  * Read-through caches for the team-scoped lists.
@@ -130,4 +135,56 @@ export function createShortcutsCache(
   getCacheDb: () => Promise<CacheDb> = openCacheDb,
 ): TeamCache<CachedShortcut> {
   return createTeamCache(loadShortcuts, saveShortcuts, getCacheDb);
+}
+
+const SHORTCUT_NODE_TYPES: ReadonlySet<string> = new Set([
+  "folder", "url", "team", "session", "external",
+]);
+
+/**
+ * Shortcuts cache in the drawer's own `Shortcut` shape.
+ *
+ * The row and the domain type disagree on two names (`order` / `sortOrder`) and
+ * on `target`, which is TEXT here and a URL string there. Both enums are
+ * narrowed on read for the reason the other caches narrow theirs — an unknown
+ * node type reads back as "url", the harmless leaf.
+ */
+export function createShortcutRowsCache(
+  getCacheDb: () => Promise<CacheDb> = openCacheDb,
+): TeamCache<Shortcut> {
+  const rows = createShortcutsCache(getCacheDb);
+  return {
+    async load(teamId) {
+      const cached = await rows.load(teamId);
+      return (
+        cached?.map((row) => ({
+          id: row.id,
+          label: row.label,
+          icon: row.icon,
+          nodeType: (SHORTCUT_NODE_TYPES.has(row.nodeType)
+            ? row.nodeType
+            : "url") as ShortcutNodeType,
+          target: typeof row.target === "string" ? row.target : null,
+          order: row.sortOrder,
+          parentId: row.parentId,
+          scope: (row.scope === "personal" ? "personal" : "team") as ShortcutScope,
+        })) ?? null
+      );
+    },
+    save: (teamId, shortcuts) =>
+      rows.save(
+        teamId,
+        shortcuts.map((shortcut) => ({
+          id: shortcut.id,
+          teamId,
+          scope: shortcut.scope,
+          label: shortcut.label,
+          icon: shortcut.icon,
+          parentId: shortcut.parentId,
+          target: shortcut.target,
+          sortOrder: shortcut.order,
+          nodeType: shortcut.nodeType,
+        })),
+      ),
+  };
 }

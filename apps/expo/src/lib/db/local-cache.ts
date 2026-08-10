@@ -409,6 +409,8 @@ export type CachedShortcut = {
   parentId: string | null;
   target: unknown;
   sortOrder: number;
+  /** "folder" | "url" | "team" | "session" | "external". */
+  nodeType: string;
 };
 
 export async function saveShortcuts(
@@ -422,10 +424,10 @@ export async function saveShortcuts(
     table: "cached_shortcuts",
     scopeColumn: "team_id",
     scopeValue: teamId,
-    columns: ["shortcut_id", "team_id", "scope", "label", "icon", "parent_id", "target", "sort_order", "cached_at"],
+    columns: ["shortcut_id", "team_id", "scope", "label", "icon", "parent_id", "target", "sort_order", "node_type", "cached_at"],
     rows: shortcuts.map((s) => [
       s.id, teamId, s.scope, s.label, s.icon, s.parentId,
-      s.target == null ? null : JSON.stringify(s.target), s.sortOrder, now,
+      s.target == null ? null : JSON.stringify(s.target), s.sortOrder, s.nodeType, now,
     ]),
   });
 }
@@ -448,6 +450,7 @@ export async function loadShortcuts(
     parentId: nullableStr(raw.parent_id),
     target: raw.target == null ? null : json<unknown>(raw.target, null),
     sortOrder: num(raw.sort_order),
+    nodeType: str(raw.node_type, "url"),
   }));
 }
 

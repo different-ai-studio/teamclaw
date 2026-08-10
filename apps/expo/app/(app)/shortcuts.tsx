@@ -23,8 +23,12 @@ import {
 import { Hairline } from "../../src/ui/atoms/Hairline";
 import { SectionEyebrow } from "../../src/ui/atoms/SectionEyebrow";
 import { supabase } from "../../src/lib/supabase/client";
+import { createShortcutRowsCache } from "../../src/lib/db/team-cache";
 import { colors, hai, radii, spacing, typography } from "../../src/ui/theme";
 import { GlassHeader, GLASS_HEADER_HEIGHT } from "../../src/ui/GlassHeader";
+
+// Module-scoped: one cache handle for the app, not one per render.
+const shortcutsCache = createShortcutRowsCache();
 
 export default function ShortcutsRoute() {
   const router = useRouter();
@@ -49,10 +53,18 @@ export default function ShortcutsRoute() {
     setIsLoading(true);
     setError(null);
     void (async () => {
+      // Paint last-known shortcuts first, as iOS does from SwiftData.
+      const cached = await shortcutsCache.load(teamId);
+      if (cached && !cancelled) {
+        setShortcuts(cached);
+        setIsLoading(false);
+      }
       try {
         const rows = await createConfiguredShortcutsApi(supabase).listShortcuts(teamId);
         if (!cancelled) setShortcuts(rows);
+        void shortcutsCache.save(teamId, rows);
       } catch (err) {
+        // Leave the cached rows on screen; the error line reports the refresh.
         if (!cancelled) setError(err instanceof Error ? err.message : "Couldn't load shortcuts.");
       } finally {
         if (!cancelled) setIsLoading(false);

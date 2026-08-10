@@ -3,6 +3,7 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import {
   createActorsCache,
   createIdeasCache,
+  createShortcutRowsCache,
   createShortcutsCache,
   createWorkspacesCache,
 } from "../lib/db/team-cache";
@@ -145,10 +146,33 @@ describe("workspaces and shortcuts caches", () => {
       { id: "w1", teamId: "t1", name: "repo", path: "/tmp/repo", agentId: "a2", archived: false },
     ]);
     await shortcuts.save("t1", [
-      { id: "s1", teamId: "t1", scope: "team", label: "Docs", icon: null, parentId: null, target: "https://example.test", sortOrder: 0 },
+      { id: "s1", teamId: "t1", scope: "team", label: "Docs", icon: null, parentId: null, target: "https://example.test", sortOrder: 0, nodeType: "url" },
     ]);
     expect((await workspaces.load("t1"))?.[0]?.name).toBe("repo");
     expect((await shortcuts.load("t1"))?.[0]?.label).toBe("Docs");
+  });
+
+  it("keeps folders distinguishable from links", async () => {
+    // Without node_type (added in migration 4) every restored row reads as a
+    // leaf, and the drawer cannot rebuild its tree.
+    const shortcuts = createShortcutRowsCache(async () => db);
+    await shortcuts.save("t1", [
+      { id: "f1", label: "Folder", icon: null, nodeType: "folder", target: null, order: 0, parentId: null, scope: "team" },
+      { id: "l1", label: "Link", icon: null, nodeType: "url", target: "https://example.test", order: 1, parentId: "f1", scope: "team" },
+    ]);
+    const loaded = await shortcuts.load("t1");
+    expect(loaded?.map((row) => row.nodeType)).toEqual(["folder", "url"]);
+    expect(loaded?.[1]?.parentId).toBe("f1");
+    expect(loaded?.[1]?.target).toBe("https://example.test");
+  });
+
+  it("defaults a pre-migration-4 row to a leaf rather than failing to read it", async () => {
+    const shortcuts = createShortcutRowsCache(async () => db);
+    await db.runAsync(
+      `INSERT INTO cached_shortcuts (shortcut_id, team_id, label, cached_at)
+       VALUES ('old', 't1', 'Legacy', 0)`,
+    );
+    expect((await shortcuts.load("t1"))?.[0]?.nodeType).toBe("url");
   });
 });
 

@@ -171,6 +171,17 @@ export const MIGRATIONS: Migration[] = [
       CREATE INDEX IF NOT EXISTS cached_shortcuts_team ON cached_shortcuts(team_id, sort_order);
     `,
   },
+  {
+    // `Shortcut.nodeType` ("folder" | "url" | "team" | "session" |
+    // "external") decides whether a row is a folder or a leaf
+    // (`isLeafShortcut`), so a cache without it cannot rebuild the drawer's
+    // tree — every restored row would read as a leaf. Defaulting to 'url'
+    // keeps any row written by migration 3 readable.
+    version: 4,
+    up: `
+      ALTER TABLE cached_shortcuts ADD COLUMN node_type TEXT NOT NULL DEFAULT 'url';
+    `,
+  },
 ];
 
 export async function runMigrations(db: MigratorDb): Promise<void> {
