@@ -954,12 +954,6 @@ export function SessionDetailScreen(props: SessionDetailScreenProps) {
                     return decision === undefined ? null : { granted: decision };
                   })()}
                   replyToMessage={replyToMessage}
-                  senderAvatarGlyph={
-                    !isOwn ? senderAvatarGlyphs?.get(msg.senderActorId) ?? null : null
-                  }
-                  senderAvatarUrl={
-                    !isOwn ? senderAvatars?.get(msg.senderActorId) ?? null : null
-                  }
                   senderName={
                     !isOwn ? senderNames?.get(msg.senderActorId) ?? undefined : undefined
                   }

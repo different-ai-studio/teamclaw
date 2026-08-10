@@ -14,7 +14,7 @@ import {
 } from "react-native";
 import Markdown from "react-native-markdown-display";
 
-import { colors, hai, radii, spacing, typography } from "../../../ui/theme";
+import { colors, hai, iosType, radii, spacing, typography } from "../../../ui/theme";
 import type { MessageAttachment, SessionMessage } from "../session-types";
 import { buildThinkingBody, buildThinkingPreview } from "./agent-thinking-presentation";
 import { AudioPlayerChip } from "./AudioPlayerChip";
@@ -26,6 +26,9 @@ const HIDDEN_MESSAGE_KINDS = new Set<string>([]);
 const AGENT_THINKING_KIND = "agent_thinking";
 
 const AGENT_NOTE_KINDS = new Set(["agent_tool_call", "agent_tool_result"]);
+
+/** iOS bubbles are `RoundedRectangle(cornerRadius: 18)` on every variant. */
+const BUBBLE_RADIUS = 18;
 
 export type SessionMessageRowProps = {
   message: SessionMessage;
@@ -43,9 +46,6 @@ export type SessionMessageRowProps = {
   /** When set, marks a permission request row as resolved with the given decision. */
   resolvedPermission?: { granted: boolean } | null;
   replyToMessage?: SessionMessage | null;
-  /** Optional glyph override (e.g. CC/OC/CX for known agent kinds). */
-  senderAvatarGlyph?: string | null;
-  senderAvatarUrl?: string | null;
   senderName?: string;
   /** When true, appends a blinking cursor to indicate live streaming. */
   isStreaming?: boolean;
@@ -111,8 +111,6 @@ export function SessionMessageRow({
   onDenyPermission,
   resolvedPermission,
   replyToMessage,
-  senderAvatarGlyph,
-  senderAvatarUrl,
   senderName,
   isStreaming = false,
 }: SessionMessageRowProps) {
@@ -226,7 +224,7 @@ export function SessionMessageRow({
     const body = buildThinkingBody(message.content);
     const preview = buildThinkingPreview(message.content);
     return (
-      <View style={[styles.row, styles.rowOther]}>
+      <View style={[styles.row, styles.thinkingRow, styles.rowOther]}>
         <View style={styles.thinkingGutter} />
         <Pressable
           accessibilityHint="Tap to expand"
@@ -301,22 +299,30 @@ export function SessionMessageRow({
 
   const body = normalizeBody(message);
   const attachments = message.attachments ?? [];
-  const senderInitial =
-    senderAvatarGlyph ?? ((senderName ?? "").charAt(0).toUpperCase() || "?");
+  // iOS splits three bubble shapes, not two: the user's own prompt, another
+  // human's prompt, and an assistant reply. Only the third one runs full-bleed
+  // and carries the "{Agent} · {Model}" caption.
+  const isAgentReply = !isOwnMessage && message.kind.trim().toLowerCase() === "agent_reply";
+  const captionLabel = isOwnMessage
+    ? "You"
+    : isAgentReply
+      ? [senderName, message.model].filter(Boolean).join(" · ")
+      : senderName ?? "";
+
   return (
     <View style={[styles.row, isOwnMessage ? styles.rowOwn : styles.rowOther]}>
-      {!isOwnMessage ? (
-        <View style={styles.senderAvatar}>
-          {senderAvatarUrl ? (
-            <Image
-              accessibilityRole="image"
-              source={{ uri: senderAvatarUrl }}
-              style={styles.senderAvatarImage}
-            />
-          ) : (
-            <Text style={styles.senderAvatarText}>{senderInitial}</Text>
-          )}
-        </View>
+      {/* iOS puts identity in a caption above the bubble, not inside it, and
+          not in bold — `EventBubbleView.selfUserBubble` / `otherUserBubble`. */}
+      {captionLabel ? (
+        <Text
+          numberOfLines={1}
+          style={[
+            styles.senderName,
+            isOwnMessage ? styles.senderNameOwn : styles.senderNameOther,
+          ]}
+        >
+          {captionLabel}
+        </Text>
       ) : null}
       <Pressable
         accessibilityHint="Long-press to copy or delete"
@@ -324,15 +330,11 @@ export function SessionMessageRow({
         onLongPress={handleLongPress}
         style={({ pressed }) => [
           styles.surface,
+          isAgentReply ? styles.surfaceAgent : styles.surfaceBounded,
           isOwnMessage ? styles.surfaceOwn : styles.surfaceOther,
           pressed ? styles.surfacePressed : null,
         ]}
       >
-        {!isOwnMessage && senderName ? (
-          <Text numberOfLines={1} style={styles.senderName}>
-            {senderName}
-          </Text>
-        ) : null}
 
         {replyToMessage ? (
           <Pressable
@@ -518,25 +520,25 @@ function AttachmentChip({
 }
 
 const ownMarkdown = {
-  body: { color: hai.paper, ...typography.body, marginBottom: 0, marginTop: 0 },
+  body: { color: hai.mist, ...iosType.subheadline, marginBottom: 0, marginTop: 0 },
   code_inline: {
     backgroundColor: "rgba(248,246,241,0.18)",
     borderRadius: 4,
-    color: hai.paper,
+    color: hai.mist,
     paddingHorizontal: 4,
   },
   code_block: {
     backgroundColor: "rgba(248,246,241,0.18)",
     borderRadius: 6,
-    color: hai.paper,
+    color: hai.mist,
     padding: 8,
   },
-  link: { color: hai.paper, textDecorationLine: "underline" as const },
-  paragraph: { color: hai.paper, marginBottom: 0, marginTop: 0 },
+  link: { color: hai.mist, textDecorationLine: "underline" as const },
+  paragraph: { color: hai.mist, marginBottom: 0, marginTop: 0 },
 };
 
 const otherMarkdown = {
-  body: { color: hai.onyx, ...typography.body, marginBottom: 0, marginTop: 0 },
+  body: { color: hai.onyx, ...iosType.subheadline, marginBottom: 0, marginTop: 0 },
   code_inline: {
     backgroundColor: hai.pebble,
     borderRadius: 4,
@@ -583,40 +585,19 @@ const styles = StyleSheet.create({
     backgroundColor: "rgba(248,246,241,0.18)",
   },
   body: {
-    ...typography.body,
+    ...iosType.subheadline,
   },
   bodyOther: {
     color: colors.onyx,
   },
   bodyOwn: {
-    color: colors.paper,
+    color: colors.mist,
   },
   row: {
-    flexDirection: "row",
-    gap: spacing.xs,
+    gap: 2,
     paddingHorizontal: spacing.lg,
     paddingVertical: spacing.xs,
     width: "100%",
-  },
-  senderAvatar: {
-    alignItems: "center",
-    alignSelf: "flex-end",
-    backgroundColor: hai.basalt,
-    borderRadius: 999,
-    height: 24,
-    justifyContent: "center",
-    marginBottom: 4,
-    overflow: "hidden",
-    width: 24,
-  },
-  senderAvatarImage: {
-    height: "100%",
-    width: "100%",
-  },
-  senderAvatarText: {
-    color: hai.paper,
-    fontSize: 11,
-    fontWeight: "700",
   },
   rowOther: {
     alignItems: "flex-start",
@@ -626,15 +607,21 @@ const styles = StyleSheet.create({
   },
   surface: {
     gap: 4,
-    maxWidth: "82%",
     paddingHorizontal: 14,
     paddingVertical: 10,
   },
+  /* iOS caps user bubbles at 260pt in the compact size class; assistant
+     replies run to the full column width instead. */
+  surfaceBounded: {
+    maxWidth: 260,
+  },
+  surfaceAgent: {
+    alignSelf: "stretch",
+  },
   surfaceOther: {
     backgroundColor: colors.paper,
-    borderBottomLeftRadius: radii.hairline,
     borderColor: colors.hairline,
-    borderRadius: radii.card,
+    borderRadius: BUBBLE_RADIUS,
     borderWidth: StyleSheet.hairlineWidth,
   },
   noteBody: {
@@ -679,6 +666,11 @@ const styles = StyleSheet.create({
   thinkingGutter: {
     width: 24,
   },
+  /* The bubble row stacks its caption above the bubble; the thinking block
+     instead indents sideways behind a gutter, so it opts back into a row. */
+  thinkingRow: {
+    flexDirection: "row",
+  },
   thinkingHeaderRow: {
     alignItems: "center",
     flexDirection: "row",
@@ -718,10 +710,12 @@ const styles = StyleSheet.create({
     gap: 5,
     minWidth: 0,
   },
+  /* Cinnabar, not Onyx: iOS tints the user's own glass with the accent and
+     sets the text in Mist. Without a blur to sit behind, the tint becomes the
+     fill. */
   surfaceOwn: {
-    backgroundColor: colors.onyx,
-    borderBottomRightRadius: radii.hairline,
-    borderRadius: radii.card,
+    backgroundColor: colors.cinnabar,
+    borderRadius: BUBBLE_RADIUS,
   },
   replyAccent: {
     borderRadius: 2,
@@ -761,8 +755,13 @@ const styles = StyleSheet.create({
   senderName: {
     color: colors.basalt,
     marginBottom: 2,
-    ...typography.caption,
-    fontWeight: "700",
+    ...iosType.caption,
+  },
+  senderNameOther: {
+    paddingLeft: 4,
+  },
+  senderNameOwn: {
+    paddingRight: 4,
   },
   surfacePressed: {
     opacity: 0.88,
