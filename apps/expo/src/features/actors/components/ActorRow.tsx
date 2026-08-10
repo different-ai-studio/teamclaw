@@ -1,10 +1,41 @@
 import { Image, StyleSheet, Text, View } from "react-native";
 
 import { StatusDot } from "../../../ui/atoms/StatusDot";
-import { colors, hai, radii, spacing, typography } from "../../../ui/theme";
+import { colors, hai, iosType, radii, spacing } from "../../../ui/theme";
 import { type Actor, isActorOnline } from "../actor-types";
+import { actorIdHash } from "../team-stats";
 
 const HUMAN_PALETTE = [hai.basalt, hai.slate, hai.sage, hai.onyx];
+
+/**
+ * Agent avatar ink, keyed on the backend. Per "spare the vermillion" only
+ * Claude earns Cinnabar; OpenCode gets Sage and everything else sits in Basalt.
+ * Mirrors `MemberListContent.ActorRow.avatarStyle`.
+ */
+function agentForeground(defaultAgentType: string | null | undefined): string {
+  switch (defaultAgentType) {
+    case "claude":
+    case "claude_code":
+      return hai.cinnabar;
+    case "opencode":
+      return hai.sage;
+    case "codex":
+      return hai.basalt;
+    default:
+      return hai.basalt;
+  }
+}
+
+/**
+ * Deterministic per-actor session count. This is placeholder data on iOS too
+ * (`MemberListContent.ActorRow.mockActiveSessions`) — stable per actor so it
+ * doesn't churn between renders, and skewed higher for online actors. Ported as
+ *-is so the two apps agree until a real aggregate lands.
+ */
+function mockActiveSessions(actorId: string, online: boolean): number {
+  const buckets = online ? [0, 1, 1, 1, 2, 2, 3] : [0, 0, 0, 0, 1, 1];
+  return buckets[actorIdHash(actorId) % buckets.length];
+}
 
 type AvatarStyle = { background: string; foreground: string; isSquare: boolean };
 
@@ -17,23 +48,19 @@ function avatarInitials(displayName: string): string {
   return parts.map((part) => part.charAt(0).toUpperCase()).join("");
 }
 
-function hashActorId(actorId: string): number {
-  let hash = 0;
-  for (let i = 0; i < actorId.length; i += 1) {
-    hash = (hash + actorId.charCodeAt(i)) >>> 0;
-  }
-  return hash;
-}
-
 function deriveAvatar(actor: Actor, isMe: boolean): AvatarStyle {
   if (actor.actorType === "agent") {
-    return { background: hai.pebble, foreground: hai.basalt, isSquare: true };
+    return {
+      background: hai.pebble,
+      foreground: agentForeground(actor.defaultAgentType),
+      isSquare: true,
+    };
   }
   if (isMe) {
-    return { background: hai.cinnabar, foreground: hai.paper, isSquare: false };
+    return { background: hai.cinnabar, foreground: "#FFFFFF", isSquare: false };
   }
-  const background = HUMAN_PALETTE[hashActorId(actor.actorId) % HUMAN_PALETTE.length];
-  return { background, foreground: hai.paper, isSquare: false };
+  const background = HUMAN_PALETTE[actorIdHash(actor.actorId) % HUMAN_PALETTE.length];
+  return { background, foreground: "#FFFFFF", isSquare: false };
 }
 
 type Tag = { text: string; foreground: string; background: string };
@@ -55,16 +82,41 @@ function deriveTag(actor: Actor, isMe: boolean): Tag | null {
   return null;
 }
 
+/** Mirrors iOS `CachedActor.roleLabel`. */
+function roleLabel(role: string | null | undefined): string {
+  switch (role) {
+    case "owner":
+      return "Owner";
+    case "admin":
+      return "Admin";
+    case "member":
+      return "Member";
+    default:
+      return "—";
+  }
+}
+
+function agentKindLabel(defaultAgentType: string | null | undefined): string {
+  switch (defaultAgentType) {
+    case "claude":
+    case "claude_code":
+      return "Claude";
+    case "opencode":
+      return "OpenCode";
+    case "codex":
+      return "Codex";
+    default:
+      return "Agent";
+  }
+}
+
 function deriveSubtitle(actor: Actor, isMe: boolean): string {
   if (isMe) return "you";
-  if (actor.actorType === "member") return actor.role ?? "member";
+  if (actor.actorType === "member") return roleLabel(actor.role);
   if (actor.actorType === "agent") {
-    if (actor.agentKind) {
-      const kind =
-        actor.agentKind.charAt(0).toUpperCase() + actor.agentKind.slice(1);
-      return `Agent · ${kind}`;
-    }
-    return "Agent";
+    const kind = agentKindLabel(actor.defaultAgentType);
+    const status = actor.agentStatus?.trim() ?? "";
+    return status ? `${kind} · ${status}` : kind;
   }
   return "External";
 }
@@ -95,24 +147,31 @@ export function ActorRow({ actor, isMe = false }: ActorRowProps) {
   const initials = agentKindGlyph(actor) ?? avatarInitials(actor.displayName);
   const online = isActorOnline(actor);
   const subtitleStyle = isMe || actor.actorType !== "member" ? styles.subtitleMono : styles.subtitle;
+  const activeSessions = mockActiveSessions(actor.actorId, online);
 
   return (
     <View style={styles.row}>
-      <View
-        style={[
-          styles.avatar,
-          { backgroundColor: avatar.background, borderRadius: avatar.isSquare ? 10 : 999 },
-        ]}
-      >
-        {actor.avatarUrl ? (
-          <Image
-            accessibilityRole="image"
-            source={{ uri: actor.avatarUrl }}
-            style={[styles.avatarImage, { borderRadius: avatar.isSquare ? 10 : 999 }]}
-          />
-        ) : (
-          <Text style={[styles.avatarText, { color: avatar.foreground }]}>{initials}</Text>
-        )}
+      <View style={styles.avatarTile}>
+        <View
+          style={[
+            styles.avatar,
+            { backgroundColor: avatar.background, borderRadius: avatar.isSquare ? 10 : 999 },
+            avatar.isSquare ? styles.avatarAgentBorder : null,
+          ]}
+        >
+          {actor.avatarUrl ? (
+            <Image
+              accessibilityRole="image"
+              source={{ uri: actor.avatarUrl }}
+              style={[styles.avatarImage, { borderRadius: avatar.isSquare ? 10 : 999 }]}
+            />
+          ) : (
+            <Text style={[styles.avatarText, { color: avatar.foreground }]}>{initials}</Text>
+          )}
+        </View>
+        {/* iOS pins the online pip to the avatar's bottom-trailing corner with a
+            Mist ring, so it reads as a pip on the paper rather than a halo. */}
+        {online ? <StatusDot kind="active" size={11} style={styles.onlinePip} /> : null}
       </View>
 
       <View style={styles.body}>
@@ -131,14 +190,30 @@ export function ActorRow({ actor, isMe = false }: ActorRowProps) {
         </Text>
       </View>
 
-      <View style={styles.trailing}>
-        <StatusDot kind={online ? "active" : "muted"} size={6} />
-      </View>
+      {activeSessions > 0 ? (
+        <View style={styles.activeChip}>
+          <StatusDot
+            breathing={online}
+            color={online ? hai.sage : hai.slate}
+            size={6}
+          />
+          <Text style={styles.activeChipCount}>{activeSessions}</Text>
+        </View>
+      ) : null}
     </View>
   );
 }
 
 const styles = StyleSheet.create({
+  activeChip: {
+    alignItems: "center",
+    flexDirection: "row",
+    gap: 4,
+  },
+  activeChipCount: {
+    color: colors.basalt,
+    ...iosType.caption,
+  },
   avatar: {
     alignItems: "center",
     height: 40,
@@ -146,33 +221,50 @@ const styles = StyleSheet.create({
     overflow: "hidden",
     width: 40,
   },
+  avatarAgentBorder: {
+    borderColor: colors.hairline,
+    borderWidth: 0.5,
+  },
+  avatarTile: {
+    height: 40,
+    width: 40,
+  },
+  onlinePip: {
+    borderColor: colors.mist,
+    borderWidth: 2.5,
+    bottom: -1,
+    height: 16,
+    position: "absolute",
+    right: -1,
+    width: 16,
+  },
   avatarImage: {
     height: "100%",
     width: "100%",
   },
   avatarText: {
-    fontSize: 13,
+    fontSize: 14,
     fontWeight: "700",
-    letterSpacing: 0.3,
+    letterSpacing: -0.3,
   },
   body: {
     flex: 1,
-    gap: 2,
+    gap: 3,
   },
   row: {
     alignItems: "center",
     flexDirection: "row",
-    gap: spacing.md,
+    gap: 14,
     paddingHorizontal: spacing.lg,
-    paddingVertical: spacing.sm,
+    paddingVertical: 4,
   },
   subtitle: {
     color: colors.slate,
-    ...typography.caption,
+    ...iosType.caption,
   },
   subtitleMono: {
     color: colors.slate,
-    ...typography.monoMeta,
+    ...iosType.captionMono,
   },
   tag: {
     alignItems: "center",
@@ -189,18 +281,13 @@ const styles = StyleSheet.create({
   title: {
     color: colors.onyx,
     flexShrink: 1,
-    ...typography.body,
+    ...iosType.body,
     fontWeight: "600",
   },
   titleRow: {
     alignItems: "center",
     flexDirection: "row",
     gap: 6,
-  },
-  trailing: {
-    alignItems: "center",
-    justifyContent: "center",
-    width: 14,
   },
 });
 

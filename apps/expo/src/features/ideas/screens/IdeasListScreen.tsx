@@ -481,6 +481,7 @@ export function IdeasListScreen({
                     ) : null}
                     <View style={styles.ideaRowBody}>
                       <IdeaRow
+                        creatorId={idea.createdByActorId}
                         creatorName={
                           idea.createdByActorId
                             ? actorNames?.get(idea.createdByActorId) ?? null
