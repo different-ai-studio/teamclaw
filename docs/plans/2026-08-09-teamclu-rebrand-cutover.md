@@ -44,6 +44,30 @@
 | `teamclaw.ucar.cc` | `teamclu.ucar.cc` | **betly 的更新清单地址**（`release-oss.yml` 的 `CDN_BASE_DEFAULT`）。新主机不存在就发布 betly，等于把 betly 的 `latest.json` 指向 404 |
 | `teamclaw-api.ucar.cc` | `teamclu-api.ucar.cc` | belayo 后端，betly 的 `cloudApiUrl` |
 
+#### betly 的 CDN 被临时钉回旧域名（2026-08-10）
+
+仓库变量 **`vars.OSS_CDN_BASE = https://teamclaw.ucar.cc`** 已设置。`release-oss.yml` 里那行是
+
+```yaml
+CDN_BASE_DEFAULT: ${{ vars.OSS_CDN_BASE || 'https://teamclu.ucar.cc' }}
+```
+
+——**文件上写着新域名，实际生效的是变量里的旧域名**。不看这一节会被文件误导。
+
+起因：`nightly-release-oss` 是**定时**的（16:20 UTC），2026-08-09 那次跑的时候 `teamclu.ucar.cc`
+还不存在。"发布 latest.json 到 OSS" 这步**成功了**，只有最后的"刷新 CDN 缓存"失败——也就是说
+`beta/latest.json` 已经被覆盖成一份下载地址指向不存在主机的清单。旧 CDN 缓存没刷掉，所以当时
+还在发旧清单，但缓存一过期存量 betly 客户端就会看到一个下不动的更新。
+
+钉回旧域名是对的，不只是权宜：存量 betly 客户端烘死的本来就是 `teamclaw.ucar.cc`。
+
+**什么时候删掉这个变量**：`teamclu.ucar.cc` 的 HTTPS 配好之后。删掉变量就自动回落到文件里的新
+域名，不需要改代码。当前状态：域名已建、`online`、类型 `download`（与旧域名一致）、CNAME 已解析，
+但 **HTTPS 仍是 off、无证书**。账号里 11 张证书全是单域名的，没有 `*.ucar.cc` 通配符可复用；
+CDN 产品没有签发免费证书的 API，控制台那个「免费证书」走的是 CAS。
+
+copilot361 不受影响——它在 `brand.json` 里自带 `oss.cdnBase`，只有 betly 继承这个默认值。
+
 #### 已完成（2026-08-09）
 
 五个 `-dev` 新主机名已解析到 `47.112.210.217`，箱子 `.env` 已切、Caddy 已签发全部五张
