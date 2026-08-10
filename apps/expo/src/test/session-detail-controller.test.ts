@@ -963,3 +963,74 @@ describe("timeline persistence", () => {
   });
 });
 
+
+describe("reconnect recovery", () => {
+  async function setup() {
+    const { createSessionDetailController } = await import(
+      "../features/sessions/session-detail-controller"
+    );
+    const mqtt = createMockMqtt();
+    const api = {
+      getSession: vi.fn().mockResolvedValue(createSession()),
+      insertOutgoingMessage: vi.fn(),
+      listMessages: vi.fn().mockResolvedValue([createRowMessage("message-1")]),
+      resolveMemberActorId: vi.fn().mockResolvedValue("actor-1"),
+      markSessionRead: vi.fn().mockResolvedValue(undefined),
+    };
+    const controller = createSessionDetailController({
+      api: api as any,
+      currentMemberActorId: "actor-1",
+      getAuth: vi.fn().mockResolvedValue({ accessToken: "jwt", userId: "user-1" }),
+      mqtt: mqtt as any,
+      mqttUrl: "wss://broker.example.com/mqtt",
+      sessionId: "session-1",
+      teamId: "team-1",
+    });
+    await controller.load();
+    return { api, controller, mqtt };
+  }
+
+  it("refetches after the socket drops and comes back", async () => {
+    // The session's `live` topic is not retained, so anything published during
+    // the gap is never redelivered on resubscribe — without this the timeline
+    // silently stays short until the screen is reopened.
+    const { api, controller, mqtt } = await setup();
+    const callsAfterLoad = api.listMessages.mock.calls.length;
+
+    mqtt.emitConnectionState("connected");
+    mqtt.emitConnectionState("disconnected");
+    mqtt.emitConnectionState("connected");
+    await Promise.resolve();
+    await Promise.resolve();
+
+    expect(api.listMessages.mock.calls.length).toBeGreaterThan(callsAfterLoad);
+    await controller.dispose();
+  });
+
+  it("does not refetch on the first connect — that load is already in flight", async () => {
+    const { api, controller, mqtt } = await setup();
+    const callsAfterLoad = api.listMessages.mock.calls.length;
+
+    mqtt.emitConnectionState("connecting");
+    mqtt.emitConnectionState("connected");
+    await Promise.resolve();
+    await Promise.resolve();
+
+    expect(api.listMessages).toHaveBeenCalledTimes(callsAfterLoad);
+    await controller.dispose();
+  });
+
+  it("keeps the timeline on screen while the catch-up runs", async () => {
+    const { controller, mqtt } = await setup();
+    expect(controller.getState().messages.length).toBeGreaterThan(0);
+
+    mqtt.emitConnectionState("connected");
+    mqtt.emitConnectionState("disconnected");
+    mqtt.emitConnectionState("connected");
+
+    // preserveExisting: a reconnect must not blank the screen the way a cold
+    // load does.
+    expect(controller.getState().messages.length).toBeGreaterThan(0);
+    await controller.dispose();
+  });
+});

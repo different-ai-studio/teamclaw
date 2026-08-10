@@ -75,7 +75,11 @@ export function AuthScreen({
     if (!isValidEmail(next)) return;
     try {
       await onRequestOtp(next);
-    } catch {}
+    } catch {
+      // The onboarding store records the message into `errorMessage` and
+      // rethrows; it is already on screen. Swallowing here only stops the
+      // unhandled rejection.
+    }
   };
 
   const submitPassword = async () => {
@@ -83,7 +87,9 @@ export function AuthScreen({
     if (!isValidEmail(next) || password.length === 0) return;
     try {
       await onSignInWithPassword(next, password);
-    } catch {}
+    } catch {
+      // Already surfaced via `errorMessage` — see sendCode.
+    }
   };
 
   const verify = async () => {
@@ -91,7 +97,9 @@ export function AuthScreen({
     if (next.length !== OTP_CODE_LENGTH) return;
     try {
       await onVerifyOtp(next);
-    } catch {}
+    } catch {
+      // Already surfaced via `errorMessage` — see sendCode.
+    }
   };
 
   const useDifferentEmail = () => {

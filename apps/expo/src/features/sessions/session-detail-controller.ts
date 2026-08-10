@@ -376,6 +376,12 @@ export function createSessionDetailController(
 ): SessionDetailController {
   const listeners = new Set<() => void>();
   let state = initialState;
+  /**
+   * Whether MQTT has ever reached `connected` for this controller. Separates
+   * the first connect (whose fetch is already in flight) from a genuine
+   * reconnect, which has a gap to close.
+   */
+  let hasConnectedOnce = false;
   let timeline: TimelineState = emptyTimelineState();
   let disposed = false;
   let unsubscribeSession: (() => void) | null = null;
@@ -591,10 +597,28 @@ export function createSessionDetailController(
           return;
         }
 
+        // Catch up on what was missed while the socket was down. The session's
+        // `live` topic is not retained — only presence and runtime state are —
+        // so anything published during the gap is simply not redelivered on
+        // resubscribe, and the timeline would stay short a few messages until
+        // the screen was reopened. iOS runs the same recovery on every
+        // reconnect ("two-source recovery" in SessionDetailViewModel).
+        //
+        // Not on the first connect: the load that installed this listener is
+        // already fetching.
+        const wasDropped =
+          state.connectionState === "disconnected" || state.connectionState === "connecting";
+        const reconnected = connectionState === "connected" && wasDropped && hasConnectedOnce;
+        if (connectionState === "connected") hasConnectedOnce = true;
+
         setState({
           ...state,
           connectionState,
         });
+
+        if (reconnected) {
+          void controller.load({ preserveExisting: true });
+        }
       });
 
       const topic = `amux/${deps.teamId}/session/${deps.sessionId}/live`;
@@ -682,7 +706,7 @@ export function createSessionDetailController(
     }
   }
 
-  return {
+  const controller: SessionDetailController = {
     subscribe(listener) {
       listeners.add(listener);
       return () => {
@@ -1068,4 +1092,6 @@ export function createSessionDetailController(
       });
     },
   };
+
+  return controller;
 }
