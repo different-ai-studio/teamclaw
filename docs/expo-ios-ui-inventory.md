@@ -34,9 +34,9 @@ Rows carrying two marks (`✅ header ◻ body`) are counted by their first, so t
 
 | Status | Count |
 |---|---|
-| ✅ verified | 55 |
+| ✅ verified | 57 |
 | ⚠ known gap | 2 |
-| ◻ unverified | 12 |
+| ◻ unverified | 10 |
 | ✖ missing | 1 |
 | **Total** | **70** |
 
@@ -149,9 +149,9 @@ point of the column.
 | `HaiSheet` | 79 | — | ✖ see below |
 | `LiquidGlassBar` | 76 | `ui/GlassHeader.tsx` + `GlassSurface.tsx` | ✅ |
 | `SegmentedFilterBar` | 81 | `actors/components/SegmentedFilter.tsx` | ✅ |
-| `ShortcutMenuRow` | 225 | inside `shortcuts/ShortcutsDrawer.tsx` | ◻ |
+| `ShortcutMenuRow` | 225 | `ShortcutTree` / `ShortcutRow` in `ShortcutsDrawer.tsx` | ✅ |
 | `ShortcutPresentation` | 24 | `isWebUrl` + `openShortcutTarget` in `ShortcutsDrawer.tsx` | ✅ |
-| `ShortcutsDrawer` | 287 | `shortcuts/ShortcutsDrawer.tsx` | ◻ |
+| `ShortcutsDrawer` | 287 | `shortcuts/ShortcutsDrawer.tsx` | ✅ |
 | `ShortcutWebView` | 204 | `shortcuts/ShortcutWebScreen.tsx` | ✅ |
 
 ## AMUXApp — the app target
@@ -225,7 +225,7 @@ No iOS counterpart, and none needed: `app/(app)/mqtt-debug.tsx`,
 ## How to use this
 
 Work down the ◻ rows. Verifying one means opening both files side by side and
-either marking it ✅ or writing a ⚠ row with the specific difference. The 12
+either marking it ✅ or writing a ⚠ row with the specific difference. The 10
 unverified rows are the remaining Axis 6 work, and they are not evenly sized —
 `MemberListContent` (1598), `SessionDetailView` (993), `NewSessionSheet` (599)
 and `LoginView` (464) are most of the mass.

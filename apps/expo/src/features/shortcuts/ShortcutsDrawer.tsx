@@ -1,7 +1,7 @@
 import { Ionicons } from "@expo/vector-icons";
 import Constants from "expo-constants";
 import * as Linking from "expo-linking";
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import {
   ActivityIndicator,
   Animated,
@@ -141,6 +141,33 @@ export function ShortcutsDrawer({
     setTimeout(() => onOpenShortcut(shortcut), ANIMATION_DURATION + 16);
   };
 
+  // Folders expand in place, as iOS `ShortcutMenuRow` does. Without this a
+  // folder row was visible, tappable and inert — `openShortcutTarget` has no
+  // folder branch, so nothing happened at all.
+  const [expandedIds, setExpandedIds] = useState<ReadonlySet<string>>(
+    () => new Set(),
+  );
+  const childrenByParent = useMemo(() => {
+    const map = new Map<string, Shortcut[]>();
+    for (const row of shortcuts) {
+      if (!row.parentId) continue;
+      const bucket = map.get(row.parentId);
+      if (bucket) bucket.push(row);
+      else map.set(row.parentId, [row]);
+    }
+    for (const bucket of map.values()) bucket.sort((a, b) => a.order - b.order);
+    return map;
+  }, [shortcuts]);
+
+  const toggleFolder = (id: string) => {
+    setExpandedIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  };
+
   const personalRoots = shortcuts
     .filter((row) => row.scope === "personal" && row.parentId === null)
     .sort((a, b) => a.order - b.order);
@@ -211,16 +238,22 @@ export function ShortcutsDrawer({
             <>
               {personalRoots.length > 0 ? (
                 <ShortcutSection
+                  childrenByParent={childrenByParent}
                   count={personalRoots.length}
+                  expandedIds={expandedIds}
                   onOpen={handleOpenShortcut}
+                  onToggleFolder={toggleFolder}
                   rows={personalRoots}
                   title="Personal"
                 />
               ) : null}
               {teamRoots.length > 0 ? (
                 <ShortcutSection
+                  childrenByParent={childrenByParent}
                   count={teamRoots.length}
+                  expandedIds={expandedIds}
                   onOpen={handleOpenShortcut}
+                  onToggleFolder={toggleFolder}
                   rows={teamRoots}
                   title="Team"
                 />
@@ -296,13 +329,19 @@ function ProfileHeader({
 }
 
 function ShortcutSection({
+  childrenByParent,
   count,
+  expandedIds,
   onOpen,
+  onToggleFolder,
   rows,
   title,
 }: {
+  childrenByParent: ReadonlyMap<string, Shortcut[]>;
   count: number;
+  expandedIds: ReadonlySet<string>;
   onOpen: (shortcut: Shortcut) => void;
+  onToggleFolder: (id: string) => void;
   rows: Shortcut[];
   title: string;
 }) {
@@ -313,42 +352,118 @@ function ShortcutSection({
       </Text>
       <View>
         {rows.map((row) => (
-          <ShortcutRow key={row.id} onOpen={onOpen} row={row} />
+          <ShortcutTree
+            childrenByParent={childrenByParent}
+            depth={0}
+            expandedIds={expandedIds}
+            key={row.id}
+            onOpen={onOpen}
+            onToggleFolder={onToggleFolder}
+            row={row}
+          />
         ))}
       </View>
     </View>
   );
 }
 
-function ShortcutRow({
+/** Indent per level, matching iOS `ShortcutRowMetrics.childIndent`. */
+const CHILD_INDENT = 22;
+
+function ShortcutTree({
+  childrenByParent,
+  depth,
+  expandedIds,
   onOpen,
+  onToggleFolder,
   row,
 }: {
+  childrenByParent: ReadonlyMap<string, Shortcut[]>;
+  depth: number;
+  expandedIds: ReadonlySet<string>;
   onOpen: (shortcut: Shortcut) => void;
+  onToggleFolder: (id: string) => void;
   row: Shortcut;
 }) {
-  const iconName = iconForNode(row);
+  const isFolder = row.nodeType === "folder";
+  const isExpanded = expandedIds.has(row.id);
+  const children = isFolder ? childrenByParent.get(row.id) ?? [] : [];
+
+  return (
+    <View>
+      <ShortcutRow
+        depth={depth}
+        isExpanded={isExpanded}
+        onPress={() => (isFolder ? onToggleFolder(row.id) : onOpen(row))}
+        row={row}
+      />
+      {isFolder && isExpanded ? (
+        children.length === 0 ? (
+          <Text style={[styles.shortcutEmpty, { paddingLeft: (depth + 1) * CHILD_INDENT + 12 }]}>
+            Empty
+          </Text>
+        ) : (
+          children.map((child) => (
+            <ShortcutTree
+              childrenByParent={childrenByParent}
+              depth={depth + 1}
+              expandedIds={expandedIds}
+              key={child.id}
+              onOpen={onOpen}
+              onToggleFolder={onToggleFolder}
+              row={child}
+            />
+          ))
+        )
+      ) : null}
+    </View>
+  );
+}
+
+function ShortcutRow({
+  depth,
+  isExpanded,
+  onPress,
+  row,
+}: {
+  depth: number;
+  isExpanded: boolean;
+  onPress: () => void;
+  row: Shortcut;
+}) {
+  const isFolder = row.nodeType === "folder";
   return (
     <Pressable
       accessibilityRole="button"
-      onPress={() => onOpen(row)}
+      accessibilityState={isFolder ? { expanded: isExpanded } : undefined}
+      onPress={onPress}
       style={({ pressed }) => [
         styles.shortcutRow,
+        { paddingLeft: 12 + depth * CHILD_INDENT },
         pressed ? styles.shortcutRowPressed : null,
       ]}
     >
-      <View style={styles.shortcutIcon}>
-        <Ionicons color={colors.basalt} name={iconName} size={15} />
-      </View>
+      {/* Children are plain indented text — no icon, no chevron, as iOS does. */}
+      {depth === 0 ? (
+        <View style={styles.shortcutIcon}>
+          <Ionicons color={colors.basalt} name={iconForNode(row)} size={15} />
+        </View>
+      ) : null}
       <Text numberOfLines={1} style={styles.shortcutLabel}>
         {row.label}
       </Text>
       <View style={styles.footerSpacer} />
-      {isLeafShortcut(row) ? (
-        <Ionicons color={colors.slate} name="open-outline" size={14} />
-      ) : (
-        <Ionicons color={colors.slate} name="chevron-forward" size={14} />
-      )}
+      {depth === 0 ? (
+        isFolder ? (
+          <Ionicons
+            color={colors.slate}
+            name={isExpanded ? "chevron-down" : "chevron-forward"}
+            size={14}
+          />
+        ) : (
+          <Ionicons color={colors.slate} name="open-outline" size={14} />
+        )
+      ) : null}
     </Pressable>
   );
 }
@@ -551,6 +666,12 @@ const styles = StyleSheet.create({
     alignItems: "center",
     paddingLeft: 18,
     width: 36,
+  },
+  shortcutEmpty: {
+    color: colors.slate,
+    opacity: 0.7,
+    paddingVertical: 8,
+    ...typography.caption,
   },
   shortcutLabel: {
     color: colors.onyx,
