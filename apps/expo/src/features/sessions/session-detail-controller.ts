@@ -30,6 +30,7 @@ import {
 } from "./pending-questions";
 import { resolveMentionActorIdsForComposer } from "./session-mention-resolver";
 import type { SessionDetailCache } from "./session-detail-cache";
+import type { StreamingSnapshotStore } from "./streaming-snapshot";
 import {
   buildSessionDetailState,
   type SessionDetailState,
@@ -82,6 +83,11 @@ type SessionDetailControllerDeps = {
   teamId: string;
   cache?: SessionDetailCache;
   outbox?: { sender: OutboxSender; dao: OutboxDao };
+  /**
+   * Partial-output store used across a suspend. Absent in tests that don't
+   * exercise the lifecycle path.
+   */
+  streamingSnapshots?: StreamingSnapshotStore;
 };
 
 type SessionDetailController = {
@@ -97,6 +103,18 @@ type SessionDetailController = {
    * otherwise leave the answered card blocking the composer.
    */
   resolvePendingQuestion: (requestId: string) => void;
+  /**
+   * Persist the in-flight streaming buffers before the process is suspended.
+   * Does not touch the live buffers or the MQTT subscription — if the process
+   * survives, nothing changed; if it is reclaimed, the next launch restores
+   * the partial text instead of an empty bubble.
+   */
+  flushStreamingForBackground: () => Promise<void>;
+  /**
+   * Counterpart to the above, called on the way back to the foreground. The
+   * live buffers are authoritative again, so the snapshot is now stale.
+   */
+  discardBackgroundSnapshot: () => Promise<void>;
   dispose: () => Promise<void>;
 };
 
@@ -705,6 +723,22 @@ export function createSessionDetailController(
 
       deps.outbox?.sender.start();
 
+      // A snapshot only exists if the process was killed while streaming.
+      // Restore before the timeline hydrate so a partial bubble is on screen
+      // from the first paint, then let the daemon's real message replace it.
+      if (deps.streamingSnapshots && !preserveExisting) {
+        void deps.streamingSnapshots.load(deps.sessionId).then((restored) => {
+          if (disposed || currentToken !== loadToken || restored.size === 0) return;
+          const merged = new Map(timeline.streamingByAgent);
+          for (const [agentId, buffer] of restored) {
+            // A live delta that already arrived is newer than anything on disk.
+            if (!merged.has(agentId)) merged.set(agentId, buffer);
+          }
+          timeline = { ...timeline, streamingByAgent: merged };
+          setState({ ...state, streamingByAgent: timeline.streamingByAgent });
+        });
+      }
+
       // Hydrate from disk first so the user sees the timeline immediately on
       // cold start. The network results below overlay on top once they land.
       if (deps.cache && !preserveExisting) {
@@ -816,6 +850,16 @@ export function createSessionDetailController(
         composerText: value,
         sendErrorMessage: null,
       });
+    },
+    async flushStreamingForBackground() {
+      if (!deps.streamingSnapshots) return;
+      // Land any pending timeline write too, so the cached timeline and the
+      // snapshot describe the same moment.
+      flushTimelinePersist();
+      await deps.streamingSnapshots.save(deps.sessionId, timeline.streamingByAgent);
+    },
+    async discardBackgroundSnapshot() {
+      await deps.streamingSnapshots?.clear(deps.sessionId);
     },
     resolvePendingQuestion(requestId) {
       const pendingQuestions = removePendingQuestion(state.pendingQuestions, requestId);

@@ -1,6 +1,6 @@
 import { Redirect, Stack, useLocalSearchParams, useNavigation, useRouter } from "expo-router";
 import { useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
-import { ActivityIndicator, Modal, Share, StyleSheet, Text, View } from "react-native";
+import { ActivityIndicator, AppState, Modal, Share, StyleSheet, Text, View } from "react-native";
 
 import { routeToHref, useConnectedAgentsStore, useOnboarding, useTeamMqtt } from "../../../_layout";
 import { resolveSlashCommands } from "../../../../src/features/sessions/components/runtime-commands";
@@ -24,6 +24,7 @@ import { createConfiguredSessionsApi } from "../../../../src/features/sessions/a
 import { createSessionDetailController } from "../../../../src/features/sessions/session-detail-controller";
 import { emptyTimelineState } from "../../../../src/features/sessions/timeline-reducer";
 import { createSessionDetailCache } from "../../../../src/features/sessions/session-detail-cache";
+import { createStreamingSnapshotStore } from "../../../../src/features/sessions/streaming-snapshot";
 import { createSessionMutesApi } from "../../../../src/features/sessions/session-mutes";
 import { supabaseAccessToken } from "../../../../src/lib/cloud-api/client";
 import { SessionDetailScreen } from "../../../../src/features/sessions/screens/SessionDetailScreen";
@@ -45,6 +46,9 @@ import { AppCard } from "../../../../src/ui/card";
 import { TextPromptModal } from "../../../../src/ui/TextPromptModal";
 import { colors, spacing, typography } from "../../../../src/ui/theme";
 import type { SessionDetailControllerState } from "../../../../src/features/sessions/session-detail-controller";
+
+// Module-scoped: one store for the app, not one per controller rebuild.
+const streamingSnapshotStore = createStreamingSnapshotStore();
 
 const fallbackDetailState: SessionDetailControllerState = {
   status: "loading",
@@ -188,6 +192,7 @@ export default function SessionDetailRoute() {
         mqttUrl: getKnownMqttUrl(),
         outbox: { dao, sender },
         sessionId,
+        streamingSnapshots: streamingSnapshotStore,
         teamId: currentTeam.id,
       });
 
@@ -237,6 +242,25 @@ export default function SessionDetailRoute() {
     controller?.getState ?? (() => fallbackDetailState),
     controller?.getState ?? (() => fallbackDetailState),
   );
+
+  // Save the in-flight streaming buffers on the way out, drop them on the way
+  // back in. iOS wires the same pair to `scenePhase`. The snapshot only ever
+  // gets read when the OS reclaimed the suspended process — on the common path
+  // the foreground handler deletes it before anything can restore it.
+  useEffect(() => {
+    if (!controller) return;
+    const subscription = AppState.addEventListener("change", (next) => {
+      if (next === "active") {
+        void controller.discardBackgroundSnapshot();
+        return;
+      }
+      // "background" on Android and iOS; "inactive" is the iOS transition
+      // state, and saving there costs one write for a call banner or app
+      // switcher — cheaper than missing the real suspend.
+      void controller.flushStreamingForBackground();
+    });
+    return () => subscription.remove();
+  }, [controller]);
 
   const connectedAgentsStore = useConnectedAgentsStore();
   const emptyAgentsState = useMemo(() => ({

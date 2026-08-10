@@ -182,6 +182,34 @@ export const MIGRATIONS: Migration[] = [
       ALTER TABLE cached_shortcuts ADD COLUMN node_type TEXT NOT NULL DEFAULT 'url';
     `,
   },
+  {
+    // Partial agent output, saved on the way to the background.
+    //
+    // A streaming turn lives in an in-memory delta buffer and is only written
+    // to `cached_messages` once the daemon sends the final message. If the OS
+    // reclaims a backgrounded app mid-turn, everything streamed so far is
+    // gone and the next launch shows an empty bubble where the user watched
+    // text appear.
+    //
+    // Deliberately its own table rather than a row in `cached_messages`: this
+    // is not a message, it has a different lifetime (written on background,
+    // deleted on foreground), and keeping it separate means the timeline
+    // cache's scope-replace can never take it with it.
+    version: 5,
+    up: `
+      CREATE TABLE IF NOT EXISTS streaming_snapshots (
+        session_id TEXT NOT NULL,
+        agent_id   TEXT NOT NULL,
+        message_id TEXT NOT NULL DEFAULT '',
+        text       TEXT NOT NULL DEFAULT '',
+        model      TEXT NOT NULL DEFAULT '',
+        kind       TEXT NOT NULL DEFAULT '',
+        started_at TEXT NOT NULL DEFAULT '',
+        saved_at   INTEGER NOT NULL,
+        PRIMARY KEY (session_id, agent_id)
+      );
+    `,
+  },
 ];
 
 export async function runMigrations(db: MigratorDb): Promise<void> {
