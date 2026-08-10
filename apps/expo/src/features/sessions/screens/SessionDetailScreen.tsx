@@ -71,15 +71,12 @@ import {
   type SessionFeedSource,
 } from "../session-feed-items";
 import { foldToolResults } from "../tool-display";
+import { TurnDetailScreen } from "./TurnDetailScreen";
 import {
   isFeedNearBottom,
   shouldAutoScrollForNewFeedItem,
   shouldAutoScrollFeed,
 } from "../session-feed-scroll";
-import {
-  buildAgentTurnDetailGroups,
-  type AgentTurnDetailGroupKind,
-} from "../session-turn-detail";
 import type { SessionMessage, SessionSummary } from "../session-types";
 import type { PendingAcpQuestion } from "../pending-questions";
 import { AcpQuestionCard } from "../components/AcpQuestionCard";
@@ -308,19 +305,6 @@ function formatTime(value: string): string {
   }).format(date);
 }
 
-function detailGroupIcon(kind: AgentTurnDetailGroupKind): keyof typeof Ionicons.glyphMap {
-  switch (kind) {
-    case "thinking":
-      return "sparkles-outline";
-    case "tools":
-      return "terminal-outline";
-    case "plan":
-      return "list-outline";
-    case "events":
-    default:
-      return "ellipse-outline";
-  }
-}
 
 function runtimeEventBody(message: SessionMessage): string {
   const body = message.content.trim();
@@ -476,7 +460,9 @@ function AgentTurnCard({
           <View style={styles.turnDetailRow}>
             <Ionicons color={colors.slate} name="list-outline" size={13} />
             <Text style={styles.turnDetailText}>
-              过程 · {detailCount} {detailCount === 1 ? "event" : "events"}
+              {/* The neighbouring status label is Chinese; this line was half
+                  English ("过程 · 3 events"). */}
+              过程 · {detailCount} 条
             </Text>
           </View>
         ) : null}
@@ -485,18 +471,30 @@ function AgentTurnCard({
   );
 }
 
+/**
+ * Sheet wrapper around `TurnDetailScreen`.
+ *
+ * iOS pushes this as a navigation destination; expo-router modals are the
+ * closest equivalent that keeps the session underneath alive, which matters —
+ * the live MQTT subscription that feeds the trace belongs to that screen.
+ */
 function AgentTurnDetailModal({
   onClose,
+  onDenyPermission,
+  onGrantPermission,
+  onInterrupt,
+  planText,
   senderName,
   turn,
 }: {
   onClose: () => void;
+  onDenyPermission?: (requestId: string, message: SessionMessage) => void;
+  onGrantPermission?: (requestId: string, message: SessionMessage) => void;
+  onInterrupt?: (agentId: string) => void;
+  planText?: string | null;
   senderName?: string;
   turn: AgentTurnFeedItem | null;
 }) {
-  const displayName = senderName ?? "Agent";
-  const isWorking = Boolean(turn?.isActive && !turn.stream?.isComplete);
-  const detailGroups = turn ? buildAgentTurnDetailGroups(turn.runtimeEvents) : [];
   return (
     <Modal
       animationType="slide"
@@ -505,103 +503,15 @@ function AgentTurnDetailModal({
       visible={turn !== null}
     >
       {turn ? (
-        <View style={styles.detailScreen}>
-          <View style={styles.detailHeader}>
-            <Pressable
-              accessibilityLabel="Close detail"
-              accessibilityRole="button"
-              hitSlop={8}
-              onPress={onClose}
-              style={styles.detailHeaderButton}
-            >
-              <Ionicons color={colors.onyx} name="chevron-back" size={24} />
-            </Pressable>
-            <View style={styles.detailTitleBlock}>
-              <Text numberOfLines={1} style={styles.detailTitle}>
-                {displayName}
-              </Text>
-              <View style={styles.detailSubtitleRow}>
-                <StatusDot kind={isWorking ? "working" : "active"} size={6} />
-                <Text style={styles.detailSubtitle}>
-                  {turn.isActive ? "Streaming detail" : "Turn detail"}
-                </Text>
-              </View>
-            </View>
-            <Pressable
-              accessibilityLabel="Close detail"
-              accessibilityRole="button"
-              hitSlop={8}
-              onPress={onClose}
-              style={styles.detailHeaderButton}
-            >
-              <Ionicons color={colors.onyx} name="close" size={21} />
-            </Pressable>
-          </View>
-          <Hairline />
-          <ScrollView contentContainerStyle={styles.detailContent}>
-            {detailGroups.length > 0 ? (
-              <View style={styles.detailSection}>
-                <Text style={styles.detailSectionLabel}>Runtime</Text>
-                {detailGroups.map((group) => (
-                  <View key={`${group.kind}:${group.eventIds.join(":")}`} style={styles.detailEventRow}>
-                    <View style={styles.detailEventIcon}>
-                      <Ionicons
-                        color={colors.basalt}
-                        name={detailGroupIcon(group.kind)}
-                        size={14}
-                      />
-                    </View>
-                    <View style={styles.detailEventBody}>
-                      <View style={styles.detailEventHeader}>
-                        <Text style={styles.detailEventTitle}>
-                          {group.title}
-                          {group.count > 1 ? ` · ${group.count}` : ""}
-                        </Text>
-                        {formatTime(group.createdAt) ? (
-                          <Text style={styles.detailEventTime}>
-                            {formatTime(group.createdAt)}
-                          </Text>
-                        ) : null}
-                      </View>
-                      <Text selectable style={styles.detailEventText}>
-                        {group.body}
-                      </Text>
-                    </View>
-                  </View>
-                ))}
-              </View>
-            ) : null}
-
-            {turn.stream?.text.trim() ? (
-              <View style={styles.detailSection}>
-                <Text style={styles.detailSectionLabel}>Live output</Text>
-                <View style={styles.detailPaper}>
-                  <Text selectable style={styles.detailEventText}>
-                    {turn.stream.text.trim()}
-                  </Text>
-                </View>
-              </View>
-            ) : null}
-
-            {turn.finalMessage ? (
-              <View style={styles.detailSection}>
-                <Text style={styles.detailSectionLabel}>Final reply</Text>
-                <View style={styles.detailPaper}>
-                  <Markdown style={turnMarkdown}>
-                    {turn.finalMessage.content.trim() || "(empty message)"}
-                  </Markdown>
-                </View>
-              </View>
-            ) : null}
-
-            {detailGroups.length === 0 && !turn.stream?.text.trim() && !turn.finalMessage ? (
-              <View style={styles.detailEmpty}>
-                <Ionicons color={colors.slate} name="sparkles-outline" size={22} />
-                <Text style={styles.detailEmptyText}>No detail events yet.</Text>
-              </View>
-            ) : null}
-          </ScrollView>
-        </View>
+        <TurnDetailScreen
+          agentName={senderName ?? "Agent"}
+          onClose={onClose}
+          onDenyPermission={onDenyPermission}
+          onGrantPermission={onGrantPermission}
+          onInterrupt={onInterrupt}
+          planText={planText}
+          turn={turn}
+        />
       ) : null}
     </Modal>
   );
@@ -1013,6 +923,15 @@ export function SessionDetailScreen(props: SessionDetailScreenProps) {
 
       <AgentTurnDetailModal
         onClose={() => setSelectedTurnKey(null)}
+        onDenyPermission={onDenyPermission}
+        onGrantPermission={onGrantPermission}
+        onInterrupt={onAgentInterrupt}
+        planText={
+          selectedTurn
+            ? planSnapshots.find((snapshot) => snapshot.agentId === selectedTurn.agentId)
+                ?.text ?? null
+            : null
+        }
         senderName={
           selectedTurn ? senderNames?.get(selectedTurn.agentId) ?? undefined : undefined
         }
@@ -1240,116 +1159,6 @@ const styles = StyleSheet.create({
     flex: 1,
     flexDirection: "row",
     gap: 6,
-  },
-  detailContent: {
-    gap: spacing.lg,
-    paddingHorizontal: spacing.lg,
-    paddingVertical: spacing.md,
-  },
-  detailEmpty: {
-    alignItems: "center",
-    gap: 8,
-    paddingVertical: spacing.xxl,
-  },
-  detailEmptyText: {
-    color: colors.slate,
-    ...typography.caption,
-  },
-  detailEventBody: {
-    flex: 1,
-    gap: 4,
-    minWidth: 0,
-  },
-  detailEventHeader: {
-    alignItems: "center",
-    flexDirection: "row",
-    gap: 8,
-    justifyContent: "space-between",
-  },
-  detailEventIcon: {
-    alignItems: "center",
-    backgroundColor: hai.pebble,
-    borderRadius: 8,
-    height: 28,
-    justifyContent: "center",
-    width: 28,
-  },
-  detailEventRow: {
-    backgroundColor: colors.paper,
-    borderColor: colors.hairline,
-    borderRadius: 12,
-    borderWidth: StyleSheet.hairlineWidth,
-    flexDirection: "row",
-    gap: 10,
-    paddingHorizontal: 10,
-    paddingVertical: 10,
-  },
-  detailEventText: {
-    color: colors.onyx,
-    ...typography.secondaryBody,
-  },
-  detailEventTime: {
-    color: colors.slate,
-    ...typography.monoMeta,
-    fontSize: 10,
-  },
-  detailEventTitle: {
-    color: colors.basalt,
-    flex: 1,
-    ...typography.caption,
-    fontWeight: "700",
-  },
-  detailHeader: {
-    alignItems: "center",
-    backgroundColor: colors.mist,
-    flexDirection: "row",
-    minHeight: 52,
-    paddingHorizontal: spacing.xs,
-  },
-  detailHeaderButton: {
-    alignItems: "center",
-    justifyContent: "center",
-    minHeight: 42,
-    minWidth: 42,
-  },
-  detailPaper: {
-    backgroundColor: colors.paper,
-    borderColor: colors.hairline,
-    borderRadius: 12,
-    borderWidth: StyleSheet.hairlineWidth,
-    paddingHorizontal: 12,
-    paddingVertical: 10,
-  },
-  detailScreen: {
-    backgroundColor: colors.mist,
-    flex: 1,
-  },
-  detailSection: {
-    gap: 8,
-  },
-  detailSectionLabel: {
-    color: colors.slate,
-    ...typography.pill,
-  },
-  detailSubtitle: {
-    color: colors.slate,
-    ...typography.caption,
-  },
-  detailSubtitleRow: {
-    alignItems: "center",
-    flexDirection: "row",
-    gap: 5,
-    justifyContent: "center",
-    marginTop: 1,
-  },
-  detailTitle: {
-    color: colors.onyx,
-    ...typography.cardTitle,
-  },
-  detailTitleBlock: {
-    alignItems: "center",
-    flex: 1,
-    paddingHorizontal: spacing.xs,
   },
   headerSeparator: {
     color: colors.slate,
