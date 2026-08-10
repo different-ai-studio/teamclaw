@@ -38,7 +38,10 @@ import { createSessionMutesApi } from "../../../../src/features/sessions/session
 import { supabaseAccessToken } from "../../../../src/lib/cloud-api/client";
 import { SessionDetailScreen } from "../../../../src/features/sessions/screens/SessionDetailScreen";
 import { ModelPickerSheet } from "../../../../src/features/sessions/screens/ModelPickerSheet";
-import { runtimeStatusName } from "../../../../src/features/sessions/agent-runtime-state";
+import {
+  agentBackendDisplayName,
+  runtimeStatusName,
+} from "../../../../src/features/sessions/agent-runtime-state";
 import { impactLight, selectionTick, successTone } from "../../../../src/lib/haptics";
 import { showToast } from "../../../../src/ui/Toast";
 import { supabase } from "../../../../src/lib/supabase/client";
@@ -423,14 +426,38 @@ export default function SessionDetailRoute() {
     return Array.from(ids);
   }, [agentsState.agents, detailState.session, teamActors]);
 
-  const mentionPool = useMemo(
-    () =>
-      teamActors.map((actor) => ({
+  // Session participants, not the whole team directory. `@`-ing someone who is
+  // not in the session put their actor id into `mention_actor_ids` at send
+  // time, addressing a message to a non-participant. Agents come first, as on
+  // iOS — they are what a mention is usually reaching for.
+  const mentionPool = useMemo(() => {
+    const session = detailState.session;
+    if (!session) return [];
+    const participantIds = new Set(session.participantActorIds);
+    const inSession = teamActors.filter((actor) => participantIds.has(actor.actorId));
+    const agents = inSession
+      .filter((actor) => actor.actorType === "agent")
+      .map((actor) => ({
         actorId: actor.actorId,
         displayName: actor.displayName,
-      })),
-    [teamActors],
-  );
+        kind: "agent" as const,
+        // The backend name only. iOS deliberately omits the lifecycle state:
+        // it would be captured at open time and stale seconds later, and the
+        // chip bar above the composer carries it live.
+        subtitle: agentBackendDisplayName(
+          actor.defaultAgentType ?? actor.agentTypes?.[0] ?? null,
+        ) || null,
+      }));
+    const members = inSession
+      .filter((actor) => actor.actorType !== "agent")
+      .map((actor) => ({
+        actorId: actor.actorId,
+        displayName: actor.displayName,
+        kind: "member" as const,
+        subtitle: "Member",
+      }));
+    return [...agents, ...members];
+  }, [detailState.session, teamActors]);
 
   const senderNames = useMemo(() => {
     const map = new Map<string, string>();
