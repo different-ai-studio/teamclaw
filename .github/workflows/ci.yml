@@ -105,6 +105,57 @@ jobs:
       - name: Run Clippy
         run: cargo clippy --manifest-path apps/desktop/Cargo.toml -- -D warnings
 
+  database:
+    name: Database Tests (pgTAP)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      # Started by hand rather than as a `services:` container. The Supabase
+      # image runs initdb against a TEMPORARY server and then restarts, so a
+      # plain pg_isready health check can go green against the instance that is
+      # about to shut down; the wait below looks for the second "ready to accept
+      # connections" instead.
+      - name: Start Postgres (same image as the deployment)
+        run: |
+          docker run -d --name pgtap \
+            -e POSTGRES_PASSWORD=postgres \
+            public.ecr.aws/supabase/postgres:17.6.1.106
+          for i in $(seq 1 120); do
+            n=$(docker logs pgtap 2>&1 | grep -c "ready to accept connections" || true)
+            if [ "$n" -ge 2 ] && docker exec -e PGPASSWORD=postgres pgtap \
+                 psql -U supabase_admin -d postgres -tAc "select 1" >/dev/null 2>&1; then
+              echo "postgres ready after ${i}s"; exit 0
+            fi
+            sleep 1
+          done
+          echo "postgres never became ready"; docker logs pgtap | tail -30; exit 1
+
+      - name: Copy repo into the container
+        run: docker cp "$PWD/." pgtap:/work
+
+      # GoTrue and Storage normally create their own schemas before the app
+      # migrations run (see `depends_on` on the migrate service in
+      # deploy/self-host/docker-compose.yml). CI has neither, so stub just the
+      # objects our migrations reference. Runs as supabase_admin because `auth`
+      # and `storage` belong to it and the image's `postgres` is not a superuser.
+      - name: Bootstrap GoTrue/Storage objects
+        run: |
+          docker exec -e PGUSER=supabase_admin -e PGPASSWORD=postgres -e PGDATABASE=postgres \
+            pgtap psql -v ON_ERROR_STOP=1 -f /work/services/supabase/tests/ci-bootstrap.sql
+
+      - name: Apply migrations
+        run: |
+          docker exec -e PGUSER=supabase_admin -e PGPASSWORD=postgres -e PGDATABASE=postgres \
+            pgtap bash -c 'MIGRATIONS_DIR=/work/services/supabase/migrations \
+              bash /work/deploy/self-host/init/apply-migrations.sh'
+
+      # Everything not quarantined — see services/supabase/tests/QUARANTINE.md.
+      - name: Run pgTAP suite
+        run: |
+          docker exec -e PGUSER=supabase_admin -e PGPASSWORD=postgres -e PGDATABASE=postgres \
+            pgtap bash -c 'cd /work/services/supabase/tests && bash run.sh'
+
   daemon-linux:
     name: Daemon Unit Tests (Linux)
     runs-on: ubuntu-latest
