@@ -12,11 +12,10 @@ export function SidebarSecondColumn({ showNewSessionActions }: { showNewSessionA
   const features = useFeatures()
   if (!embedMode && filter.kind === 'shortcuts') return <ShortcutsListColumn />
   if (!embedMode && filter.kind === 'ideas') return <IdeasView />
-  // Gated like teamShare: a filter persisted from a build that had Apps on
-  // must not render the column in one that has it off.
+  // A filter persisted from a build that had Apps on must not render the column
+  // in one that has it off. teamShare needs no such gate — it ships everywhere.
   if (filter.kind === 'apps' && features.apps) return <AppsListColumn />
   if (filter.kind === 'actors') return <ActorsView />
-  if (filter.kind === 'teamShare' && features.teamShareBrowser)
-    return <TeamShareListColumn section={filter.section} />
+  if (filter.kind === 'teamShare') return <TeamShareListColumn section={filter.section} />
   return <SessionListColumn showNewSessionActions={showNewSessionActions} />
 }

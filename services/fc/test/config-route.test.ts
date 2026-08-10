@@ -303,10 +303,17 @@ test("unknown keys and non-boolean values are dropped, not coerced", () => {
       APP_FEATURES_PROFILE: undefined,
       // "false" as a STRING is the dangerous one: coercing it would enable the
       // feature it was written to disable.
-      APP_FEATURES_JSON: JSON.stringify({ apps: "false", nope: true, teamShareBrowser: true }),
+      // teamShareBrowser is retired: the team-share sidebar ships in every
+      // brand, so a stale deployment still sending it must not reach clients.
+      APP_FEATURES_JSON: JSON.stringify({
+        apps: "false",
+        nope: true,
+        teamShareBrowser: true,
+        lockLlmConfig: true,
+      }),
     },
     () => {
-      assert.deepEqual(buildBootstrapConfig(), { features: { teamShareBrowser: true } });
+      assert.deepEqual(buildBootstrapConfig(), { features: { lockLlmConfig: true } });
     },
   );
 });

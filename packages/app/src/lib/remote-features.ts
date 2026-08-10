@@ -39,7 +39,6 @@ export interface ResolvedFeatures {
   updater: boolean;
   auth: AuthFeatures;
   channels: ChannelsFeatureConfig;
-  teamShareBrowser: boolean;
   apps: boolean;
   /** Defaults from `buildConfig.team.lockLlmConfig` — note the different path. */
   lockLlmConfig: boolean;
@@ -55,12 +54,11 @@ export interface ResolvedFeatures {
 // update out of it. It stays build-time.
 const AUTH_KEYS = ["google", "wechat", "phone", "password", "webSSO"] as const;
 const CHANNEL_KEYS = ["discord", "feishu", "email", "kook", "wecom", "wechat"] as const;
-const BOOL_KEYS = ["teamShareBrowser", "apps", "lockLlmConfig"] as const;
+const BOOL_KEYS = ["apps", "lockLlmConfig"] as const;
 
 export interface RemoteFeaturePatch {
   auth?: Partial<AuthFeatures>;
   channels?: Partial<ChannelsFeatureConfig>;
-  teamShareBrowser?: boolean;
   apps?: boolean;
   lockLlmConfig?: boolean;
 }
@@ -221,7 +219,6 @@ function resolveFrom(patches: RemoteFeaturePatch[]): ResolvedFeatures {
       wechat: merged.channels?.wechat ?? channels.wechat,
       seatalk: merged.channels?.seatalk ?? channels.seatalk,
     },
-    teamShareBrowser: merged.teamShareBrowser ?? base.teamShareBrowser ?? false,
     apps: merged.apps ?? base.apps ?? false,
     // Lives under `team`, not `features`, in the build config.
     lockLlmConfig: merged.lockLlmConfig ?? buildConfig?.team?.lockLlmConfig ?? false,

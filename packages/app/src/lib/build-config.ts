@@ -96,8 +96,6 @@ export interface BuildConfig {
        *  re-check; deployment-specific hosts belong in a brand build config. */
       webSSOHosts?: string[]
     }
-    /** Browsable team-share sidebar (Skills / MCP / Env / Knowledge). Off by default. */
-    teamShareBrowser?: boolean
     /** Apps module: build full-stack apps (per-app workspace/git + FC deploy).
      *  Off by default; on in build.config.dev.json. Enabling it in a shipped
      *  build also needs the deploy env (CODEUP_*, APPS_DB_ADMIN_URL,
@@ -166,7 +164,7 @@ export const FALLBACK_BUILD_CONFIG: BuildConfig = {
     lockLlmConfig: false,
   },
   app: { name: 'TeamClu', shortName: 'teamclu' },
-  features: { updater: true, channels: { ...allChannelsEnabled }, auth: { google: false, wechat: false, phone: false, password: false, webSSO: false }, teamShareBrowser: false, apps: false },
+  features: { updater: true, channels: { ...allChannelsEnabled }, auth: { google: false, wechat: false, phone: false, password: false, webSSO: false }, apps: false },
   defaults: { theme: 'system' },
 }
 

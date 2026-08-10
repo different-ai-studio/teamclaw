@@ -35,8 +35,7 @@
       "phone": false,
       "webSSO": false,
       "webSSOHosts": []
-    },
-    "teamShareBrowser": false
+    }
   },
   "localAgent": "opencode",
   "defaults": {

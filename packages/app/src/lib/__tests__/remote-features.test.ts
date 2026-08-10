@@ -29,7 +29,6 @@ describe("resolution without any remote data", () => {
     const features = getFeatures();
     expect(features.updater).toBe(buildConfig.features.updater);
     expect(features.apps).toBe(Boolean(buildConfig.features.apps));
-    expect(features.teamShareBrowser).toBe(Boolean(buildConfig.features.teamShareBrowser));
   });
 
   it("treats an empty remote block as 'no overrides', NOT as 'everything off'", async () => {
@@ -56,9 +55,9 @@ describe("merging", () => {
 
   it("lets the session scope override booleans", async () => {
     const { applyRemoteFeatures, getFeatures } = await loadModule();
-    applyRemoteFeatures("session", { apps: true, teamShareBrowser: true });
+    applyRemoteFeatures("session", { apps: true, lockLlmConfig: true });
     expect(getFeatures().apps).toBe(true);
-    expect(getFeatures().teamShareBrowser).toBe(true);
+    expect(getFeatures().lockLlmConfig).toBe(true);
   });
 
   it("ANDs webSSO with the build flag in both directions", async () => {
@@ -94,11 +93,14 @@ describe("input validation", () => {
     expect(
       sanitizeRemoteFeatures({
         apps: "false",
-        teamShareBrowser: true,
+        lockLlmConfig: true,
+        // Retired flag: the team-share sidebar ships in every brand now, so a
+        // server still sending it must not be able to reintroduce the gate.
+        teamShareBrowser: false,
         nope: true,
         channels: { discord: 1, feishu: false },
       }),
-    ).toEqual({ teamShareBrowser: true, channels: { feishu: false } });
+    ).toEqual({ lockLlmConfig: true, channels: { feishu: false } });
   });
 
   it("survives a garbage payload without throwing", async () => {
