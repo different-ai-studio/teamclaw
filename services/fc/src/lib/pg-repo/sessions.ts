@@ -33,6 +33,7 @@ import {
 } from "../../db/schema/index.js";
 import { ApiError } from "../http-utils.js";
 import { requireActorForTeam, resolveActorForTeam } from "./authz.js";
+import { DEFAULT_LIST_LIMIT } from "../routing-utils.js";
 
 const iso = (d: Date | string | null | undefined): string | null =>
   d ? new Date(d).toISOString() : null;
@@ -797,7 +798,7 @@ export function makeSessionsRepo(db: DbLike, ctx: SessionsCtx = {}, deps: Sessio
     async listSessionsForTeamSince(
       teamId: string,
       updatedAfter: string | null,
-      { limit = 50, cursor = null }: { limit?: number; cursor?: { updatedAt?: string | null; id?: string } | null } = {},
+      { limit = DEFAULT_LIST_LIMIT, cursor = null }: { limit?: number; cursor?: { updatedAt?: string | null; id?: string } | null } = {},
     ) {
       const conditions = [eq(sessions.teamId, teamId)];
       if (updatedAfter) conditions.push(gt(sessions.updatedAt, new Date(updatedAfter)));
@@ -907,18 +908,31 @@ export function makeSessionsRepo(db: DbLike, ctx: SessionsCtx = {}, deps: Sessio
     },
 
     // ── listSessionParticipantsForSync ────────────────────────────────────────
-    async listSessionParticipantsForSync(sessionId: string, updatedAfter: string | null) {
-      const rows = updatedAfter
-        ? await db
-            .select()
-            .from(sessionParticipants)
-            .where(
-              and(
-                eq(sessionParticipants.sessionId, sessionId),
-                gt(sessionParticipants.updatedAt, new Date(updatedAfter)),
-              ),
-            )
-        : await db.select().from(sessionParticipants).where(eq(sessionParticipants.sessionId, sessionId));
+    // Keyset-paginated on (updated_at, id), like the other *ForSync readers.
+    async listSessionParticipantsForSync(
+      sessionId: string,
+      updatedAfter: string | null,
+      { limit = DEFAULT_LIST_LIMIT, cursor = null }: {
+        limit?: number;
+        cursor?: { updatedAt?: string | null; id?: string | null } | null;
+      } = {},
+    ) {
+      const conditions = [eq(sessionParticipants.sessionId, sessionId)];
+      if (updatedAfter) {
+        conditions.push(gt(sessionParticipants.updatedAt, new Date(updatedAfter)));
+      }
+      if (cursor?.updatedAt) {
+        const at = new Date(cursor.updatedAt);
+        conditions.push(
+          sql`(${sessionParticipants.updatedAt} > ${at} OR (${sessionParticipants.updatedAt} = ${at} AND ${sessionParticipants.id} > ${cursor.id ?? null}))`,
+        );
+      }
+      const rows = await db
+        .select()
+        .from(sessionParticipants)
+        .where(and(...conditions))
+        .orderBy(asc(sessionParticipants.updatedAt), asc(sessionParticipants.id))
+        .limit(limit);
       return rows.map(mapSessionParticipantSyncRow);
     },
   };

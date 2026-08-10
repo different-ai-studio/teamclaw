@@ -127,7 +127,13 @@ test("GET /v1/sync/messages forwards sessionId+since", async () => {
     query: { sessionId: "s1" },
   });
   assert.equal(res.statusCode, 200);
-  assert.deepEqual(repo.calls[0].args, ["s1", null]);
+  // Third arg is the page options the route now always supplies; the endpoint
+  // is keyset-paginated rather than returning a session's whole history.
+  const [sessionId, since, page] = repo.calls[0].args;
+  assert.equal(sessionId, "s1");
+  assert.equal(since, null);
+  assert.equal(typeof page.limit, "number");
+  assert.equal(page.cursor, null);
 });
 
 test("GET /v1/sync/messages requires sessionId", async () => {

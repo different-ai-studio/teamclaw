@@ -9,6 +9,7 @@ import type {
   SessionsBackend,
 } from "../types";
 import { CloudApiError, type CloudApiClient } from "./http";
+import { fetchAllSyncPages } from "./sync-paging";
 
 type CloudSession = {
   id: string;
@@ -170,11 +171,15 @@ export function createSessionsModule(client: CloudApiClient): SessionsBackend {
         throw e;
       }
     },
+    // Pages to exhaustion. This route was already paginated server-side
+    // (default 50) while this client read only `items` off the first response,
+    // so any team with more than 50 changes since the last watermark lost the
+    // remainder on every sync.
     async listSessionsForTeamSince(teamId, updatedAfter): Promise<SessionSyncRow[]> {
-      const params = new URLSearchParams({ teamId });
-      if (updatedAfter) params.set("since", updatedAfter);
-      const out = await client.get<{ items: SessionSyncRow[] }>(`/v1/sync/sessions?${params.toString()}`);
-      return out.items ?? [];
+      return fetchAllSyncPages<SessionSyncRow>(client, "/v1/sync/sessions", {
+        teamId,
+        since: updatedAfter ?? null,
+      });
     },
     async listSessionDisplayRows(teamId, sessionIds): Promise<SessionDisplayRow[]> {
       if (sessionIds.length === 0) return [];

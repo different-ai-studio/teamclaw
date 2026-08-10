@@ -5,6 +5,7 @@ import type {
   OutgoingMessageInput,
 } from "../types";
 import type { CloudApiClient } from "./http";
+import { fetchAllSyncPages } from "./sync-paging";
 
 type CloudMessage = {
   id: string;
@@ -80,13 +81,13 @@ export function createMessagesModule(client: CloudApiClient): MessagesBackend {
     async updateMessageContent(messageId: string, content: string): Promise<void> {
       await client.patch<CloudMessage>(`/v1/messages/${encodeURIComponent(messageId)}`, { content });
     },
+    // Pages to exhaustion — the route is keyset-paginated now, and a delta sync
+    // that stopped at the first page would leave the local cache behind.
     async listMessagesForSessionSince(sessionId, updatedAfter) {
-      const params = new URLSearchParams({ sessionId });
-      if (updatedAfter) params.set("since", updatedAfter);
-      const out = await client.get<{ items: import("../types").MessageSyncRow[] }>(
-        `/v1/sync/messages?${params.toString()}`,
-      );
-      return out.items ?? [];
+      return fetchAllSyncPages<import("../types").MessageSyncRow>(client, "/v1/sync/messages", {
+        sessionId,
+        since: updatedAfter ?? null,
+      });
     },
   };
 }

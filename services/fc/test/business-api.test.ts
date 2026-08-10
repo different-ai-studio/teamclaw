@@ -159,6 +159,71 @@ test("GET messages rejects a limit past the maximum", async () => {
   assert.equal(repo.calls.length, 0);
 });
 
+// ── /v1/sync/* pagination ────────────────────────────────────────────────────
+// These were unbounded: a first-time sync of a large team returned every
+// changed row in one response (10k actors measured 3.1MB / 4.4s). They are now
+// keyset-paginated on (updated_at, id), so callers must follow nextCursor.
+
+const SYNC_ROUTES = [
+  { path: "/v1/sync/actor-directory", query: { teamId: "team-1" }, method: "listActorDirectoryForSync" },
+  { path: "/v1/sync/ideas", query: { teamId: "team-1" }, method: "listIdeasForSync" },
+  { path: "/v1/sync/session-participants", query: { sessionId: "session-1" }, method: "listSessionParticipantsForSync" },
+  { path: "/v1/sync/sessions", query: { teamId: "team-1" }, method: "listSessionsForTeamSince" },
+  { path: "/v1/sync/messages", query: { sessionId: "session-1" }, method: "listMessagesForSessionSince" },
+];
+
+for (const route of SYNC_ROUTES) {
+  test(`GET ${route.path} forwards limit and cursor`, async () => {
+    const repo = fakeRepo({ syncRows: [] });
+    const cursor = Buffer.from(
+      JSON.stringify({ updatedAt: "2026-05-27T00:00:00Z", id: "row-7" }), "utf8",
+    ).toString("base64url");
+
+    const response = await handleBusinessApiRequest({
+      httpMethod: "GET",
+      path: route.path,
+      headers: { Authorization: "Bearer token" },
+      queryParameters: { ...route.query, limit: "10", cursor },
+    }, { createRepository: () => repo });
+
+    assert.equal(response.statusCode, 200);
+    const call = repo.calls[0];
+    assert.equal(call.method, route.method);
+    assert.equal(call.limit, 10);
+    assert.deepEqual(call.cursor, { updatedAt: "2026-05-27T00:00:00Z", id: "row-7" });
+  });
+
+  test(`GET ${route.path} reports a cursor on a full page and null on a short one`, async () => {
+    // A page that fills `limit` may have more behind it.
+    const full = fakeRepo({
+      syncRows: [
+        { id: "r1", updated_at: "2026-05-27T00:00:01Z" },
+        { id: "r2", updated_at: "2026-05-27T00:00:02Z" },
+      ],
+    });
+    const fullResponse = await handleBusinessApiRequest({
+      httpMethod: "GET",
+      path: route.path,
+      headers: { Authorization: "Bearer token" },
+      queryParameters: { ...route.query, limit: "2" },
+    }, { createRepository: () => full });
+    const fullBody = JSON.parse(fullResponse.body);
+    assert.ok(fullBody.nextCursor, "a full page must carry a cursor");
+    const decoded = JSON.parse(Buffer.from(fullBody.nextCursor, "base64url").toString("utf8"));
+    // The cursor is the LAST row — sync walks forward through (updated_at, id).
+    assert.deepEqual(decoded, { updatedAt: "2026-05-27T00:00:02Z", id: "r2" });
+
+    const short = fakeRepo({ syncRows: [{ id: "r1", updated_at: "2026-05-27T00:00:01Z" }] });
+    const shortResponse = await handleBusinessApiRequest({
+      httpMethod: "GET",
+      path: route.path,
+      headers: { Authorization: "Bearer token" },
+      queryParameters: { ...route.query, limit: "2" },
+    }, { createRepository: () => short });
+    assert.equal(JSON.parse(shortResponse.body).nextCursor, null);
+  });
+}
+
 test("insert message enforces narrow idempotency contract", async () => {
   const repo = fakeRepo();
 
@@ -1832,9 +1897,10 @@ test("GET /v1/teams/:teamId/leaderboard defaults to week period", async () => {
 
 
 
-function fakeRepo({ sessions = [], error = null, teamWorkspaceConfigs = {}, workspaces = [], ideas = null, messages = [] } = {}) {
+function fakeRepo({ sessions = [], error = null, teamWorkspaceConfigs = {}, workspaces = [], ideas = null, messages = [], syncRows = [] } = {}) {
   const calls = [];
   const messageStore = messages.slice();
+  const syncStore = syncRows.slice();
   const configs = { ...teamWorkspaceConfigs };
   const workspaceStore = workspaces.length > 0 ? workspaces.slice() : [
     { id: "workspace-1", teamId: "team-1", name: "Alpha", slug: null, archived: false, metadata: null, createdAt: "2026-05-01T00:00:00Z", updatedAt: "2026-05-01T00:00:00Z" },
@@ -1865,6 +1931,11 @@ function fakeRepo({ sessions = [], error = null, teamWorkspaceConfigs = {}, work
     async getSessionByAcp(acpSessionId) { calls.push({ method: "getSessionByAcp", acpSessionId }); if (error) throw error; return gatewayBindings[acpSessionId] ?? null; },
     async ensureGatewaySession(input) { calls.push({ method: "ensureGatewaySession", input }); if (error) throw error; const b = input.binding; if (gatewayBindings[b]) return { ...gatewayBindings[b], created: false }; const r = { sessionId: "gw-" + b, gatewaySessionId: b, created: true }; gatewayBindings[b] = r; return r; },
     async createCronSession(input) { calls.push({ method: "createCronSession", input }); if (error) throw error; return { sessionId: "cron-" + input.title }; },
+    async listActorDirectoryForSync(teamId, since, opts = {}) { calls.push({ method: "listActorDirectoryForSync", teamId, since, limit: opts?.limit ?? null, cursor: opts?.cursor ?? null }); return syncStore.slice(0, opts?.limit ?? syncStore.length); },
+    async listIdeasForSync(teamId, since, opts = {}) { calls.push({ method: "listIdeasForSync", teamId, since, limit: opts?.limit ?? null, cursor: opts?.cursor ?? null }); return syncStore.slice(0, opts?.limit ?? syncStore.length); },
+    async listSessionParticipantsForSync(sessionId, since, opts = {}) { calls.push({ method: "listSessionParticipantsForSync", sessionId, since, limit: opts?.limit ?? null, cursor: opts?.cursor ?? null }); return syncStore.slice(0, opts?.limit ?? syncStore.length); },
+    async listSessionsForTeamSince(teamId, since, opts = {}) { calls.push({ method: "listSessionsForTeamSince", teamId, since, limit: opts?.limit ?? null, cursor: opts?.cursor ?? null }); return syncStore.slice(0, opts?.limit ?? syncStore.length); },
+    async listMessagesForSessionSince(sessionId, since, opts = {}) { calls.push({ method: "listMessagesForSessionSince", sessionId, since, limit: opts?.limit ?? null, cursor: opts?.cursor ?? null }); return syncStore.slice(0, opts?.limit ?? syncStore.length); },
     async listMessages(sessionId, opts = {}) { calls.push({ method: "listMessages", sessionId, limit: opts?.limit ?? null, cursor: opts?.cursor ?? null }); if (error) throw error; return messageStore.slice(0, opts?.limit ?? messageStore.length); },
     async insertMessage(sessionId, input) { calls.push({ method: "insertMessage", sessionId, input }); if (error) throw error; return { id: input.id, teamId: input.teamId, sessionId, turnId: null, senderActorId: input.senderActorId, replyToMessageId: null, kind: input.kind ?? "text", content: input.content, metadata: input.metadata ?? null, model: null, createdAt: "2026-05-27T01:00:00Z", updatedAt: null }; },
     async patchMessage(messageId, patch) { calls.push({ method: "patchMessage", messageId, patch }); if (error) throw error; return { id: messageId, teamId: "team-1", sessionId: "session-1", turnId: null, senderActorId: "actor-1", replyToMessageId: null, kind: "text", content: patch.content ?? "hello", metadata: patch.metadata ?? null, model: null, createdAt: "2026-05-27T01:00:00Z", updatedAt: "2026-05-27T02:00:00Z" }; },

@@ -2,7 +2,7 @@ import { randomUUID } from "node:crypto";
 import { createClient as defaultCreateClient } from "@supabase/supabase-js";
 import { verifyTrustedExternalJwt } from "./trusted-external-jwt.js";
 import { ApiError } from "./http-utils.js";
-import { DEFAULT_MESSAGE_LIST_LIMIT } from "./routing-utils.js";
+import { DEFAULT_LIST_LIMIT, DEFAULT_MESSAGE_LIST_LIMIT } from "./routing-utils.js";
 
 /**
  * Device ids that are not identities. Clients emit these when they cannot read
@@ -169,6 +169,32 @@ function guardedFetch(input: any, init?: any) {
  * `workspace_id` is NULL for member participants (not applicable, not missing),
  * so the equality filter already selects agent rows only.
  */
+/**
+ * Shared tail of every `*ForSync` reader: keyset on (updated_at, id), ascending,
+ * bounded by `limit`.
+ *
+ * All of them walk FORWARD — the sync contract is "everything changed since X",
+ * and `updated_at` is the only column that moves monotonically as rows are
+ * touched. Ordering is ascending and id-tiebroken so a cursor is meaningful:
+ * without the `id` tiebreak, rows sharing an `updated_at` could be skipped or
+ * repeated across a page boundary.
+ *
+ * PostgREST has no row-value comparison, so `(updated_at, id) > (u, i)` has to
+ * be spelled out as the equivalent OR.
+ */
+function applySyncKeyset(query, cursor, limit) {
+  let q = query;
+  if (cursor?.updatedAt) {
+    q = q.or(
+      `updated_at.gt.${cursor.updatedAt},and(updated_at.eq.${cursor.updatedAt},id.gt.${cursor.id})`,
+    );
+  }
+  return q
+    .order("updated_at", { ascending: true })
+    .order("id", { ascending: true })
+    .limit(limit);
+}
+
 async function archiveSessionsForWorkspace(supabase, workspaceId) {
   const { data: participants, error: rtError } = await supabase
     .from("session_participants")
@@ -1910,7 +1936,15 @@ export function createSupabaseBusinessRepository(options) {
 
     // --- Sync (incremental) ---
 
-    async listActorDirectoryForSync(teamId, updatedAfter) {
+    // Every *ForSync reader below walks FORWARD through (updated_at, id) — the
+    // sync contract is "everything changed since X", and updated_at is the only
+    // column that moves monotonically as rows are touched. They were unbounded:
+    // a first-time sync of a large team returned every row in one response
+    // (10k actors measured 3.1MB / 4.4s). `limit`/`cursor` are optional on the
+    // wire; a caller that ignores nextCursor now gets a truncated first page
+    // rather than a response that grows without limit, so clients MUST page to
+    // exhaustion — see applySyncKeyset for the shared shape.
+    async listActorDirectoryForSync(teamId, updatedAfter, { limit = DEFAULT_LIST_LIMIT, cursor = null }: any = {}) {
       let q = supabase
         .from("actor_directory")
         .select(
@@ -1918,12 +1952,12 @@ export function createSupabaseBusinessRepository(options) {
         )
         .eq("team_id", teamId);
       if (updatedAfter) q = q.gt("updated_at", updatedAfter);
-      const { data, error } = await q;
+      const { data, error } = await applySyncKeyset(q, cursor, limit);
       if (error) throw error;
       return data ?? [];
     },
 
-    async listIdeasForSync(teamId, updatedAfter) {
+    async listIdeasForSync(teamId, updatedAfter, { limit = DEFAULT_LIST_LIMIT, cursor = null }: any = {}) {
       let q = supabase
         .from("ideas")
         .select(
@@ -1931,18 +1965,18 @@ export function createSupabaseBusinessRepository(options) {
         )
         .eq("team_id", teamId);
       if (updatedAfter) q = q.gt("updated_at", updatedAfter);
-      const { data, error } = await q;
+      const { data, error } = await applySyncKeyset(q, cursor, limit);
       if (error) throw error;
       return data ?? [];
     },
 
-    async listSessionParticipantsForSync(sessionId, updatedAfter) {
+    async listSessionParticipantsForSync(sessionId, updatedAfter, { limit = DEFAULT_LIST_LIMIT, cursor = null }: any = {}) {
       let q = supabase
         .from("session_participants")
         .select("id, session_id, actor_id, joined_at, created_at, updated_at")
         .eq("session_id", sessionId);
       if (updatedAfter) q = q.gt("updated_at", updatedAfter);
-      const { data, error } = await q;
+      const { data, error } = await applySyncKeyset(q, cursor, limit);
       if (error) throw error;
       return data ?? [];
     },
@@ -1976,7 +2010,7 @@ export function createSupabaseBusinessRepository(options) {
     // existing default/pinned workspace config) ---
 
 
-    async listSessionsForTeamSince(teamId, updatedAfter, { limit = 50, cursor = null }: any = {}) {
+    async listSessionsForTeamSince(teamId, updatedAfter, { limit = DEFAULT_LIST_LIMIT, cursor = null }: any = {}) {
       const SESSION_SYNC_COLUMNS =
         "id, team_id, title, mode, primary_agent_id, idea_id, summary, last_message_preview, last_message_at, created_by_actor_id, source, cron_job_id, created_at, updated_at";
       let q = supabase
@@ -1984,25 +2018,12 @@ export function createSupabaseBusinessRepository(options) {
         .select(SESSION_SYNC_COLUMNS)
         .eq("team_id", teamId);
       if (updatedAfter) q = q.gt("updated_at", updatedAfter);
-      if (cursor?.updatedAt) {
-        // Keyset: strictly after (updatedAt, id). PostgREST has no row-value
-        // comparison, so express it as the equivalent OR — later timestamp, or
-        // same timestamp with a larger id.
-        q = q.or(
-          `updated_at.gt.${cursor.updatedAt},and(updated_at.eq.${cursor.updatedAt},id.gt.${cursor.id})`,
-        );
-      }
-      // Ascending and id-tiebroken so paging is deterministic: neither
-      // implementation ordered at all before, which made any cursor meaningless.
-      const { data, error } = await q
-        .order("updated_at", { ascending: true })
-        .order("id", { ascending: true })
-        .limit(limit);
+      const { data, error } = await applySyncKeyset(q, cursor, limit);
       if (error) throw error;
       return data ?? [];
     },
 
-    async listMessagesForSessionSince(sessionId, updatedAfter) {
+    async listMessagesForSessionSince(sessionId, updatedAfter, { limit = DEFAULT_LIST_LIMIT, cursor = null }: any = {}) {
       const MESSAGE_SYNC_COLUMNS =
         "id, team_id, session_id, turn_id, sender_actor_id, reply_to_message_id, kind, content, metadata, model, created_at, updated_at";
       let q = supabase
@@ -2010,7 +2031,7 @@ export function createSupabaseBusinessRepository(options) {
         .select(MESSAGE_SYNC_COLUMNS)
         .eq("session_id", sessionId);
       if (updatedAfter) q = q.gt("updated_at", updatedAfter);
-      const { data, error } = await q;
+      const { data, error } = await applySyncKeyset(q, cursor, limit);
       if (error) throw error;
       return data ?? [];
     },

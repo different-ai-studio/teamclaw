@@ -411,6 +411,57 @@ test("listMessages cursor asks for strictly older rows, tiebroken on id", async 
   );
 });
 
+// ── *ForSync keyset ──────────────────────────────────────────────────────────
+// All the sync readers share applySyncKeyset: forward through (updated_at, id),
+// ascending, bounded. They were unbounded before.
+
+test("sync readers order ascending on (updated_at, id) and bound the page", async () => {
+  const readers: Array<[string, (repo: any) => Promise<unknown>]> = [
+    ["actor_directory", (r) => r.listActorDirectoryForSync("team-1", null, { limit: 7 })],
+    ["ideas", (r) => r.listIdeasForSync("team-1", null, { limit: 7 })],
+    ["session_participants", (r) => r.listSessionParticipantsForSync("session-1", null, { limit: 7 })],
+    ["sessions", (r) => r.listSessionsForTeamSince("team-1", null, { limit: 7 })],
+    ["messages", (r) => r.listMessagesForSessionSince("session-1", null, { limit: 7 })],
+  ];
+
+  for (const [table, run] of readers) {
+    const tableCalls: any[] = [];
+    await run(createRepo(fakeSupabase({ tableCalls, tableData: { [table]: [] } })));
+
+    const orders = tableCalls.filter((c) => c.op === "order");
+    assert.deepEqual(
+      orders.map((o) => [o.column, o.options.ascending]),
+      [["updated_at", true], ["id", true]],
+      `${table}: sync must walk forward, id-tiebroken`,
+    );
+    assert.ok(
+      tableCalls.some((c) => c.op === "limit" && c.count === 7),
+      `${table}: limit must reach the query`,
+    );
+  }
+});
+
+test("sync readers express the keyset as a PostgREST OR", async () => {
+  const tableCalls: any[] = [];
+  const repo = createRepo(fakeSupabase({ tableCalls, tableData: { ideas: [] } }));
+
+  await repo.listIdeasForSync("team-1", "2026-05-01T00:00:00Z", {
+    limit: 50,
+    cursor: { updatedAt: "2026-05-27T00:00:02Z", id: "row-7" },
+  });
+
+  const or = tableCalls.find((c) => c.op === "or");
+  assert.equal(
+    or?.expr,
+    "updated_at.gt.2026-05-27T00:00:02Z,and(updated_at.eq.2026-05-27T00:00:02Z,id.gt.row-7)",
+  );
+  // `since` and the cursor are independent filters and must both survive.
+  assert.ok(
+    tableCalls.some((c) => c.op === "gt" && c.column === "updated_at"),
+    "the `since` watermark must not be dropped when a cursor is present",
+  );
+});
+
 test("createTeam routes to create_team with the caller's JWT org as fallback", async () => {
   const rpcCalls = [];
   const prev = process.env.DEFAULT_ORG_ID;
@@ -1281,6 +1332,10 @@ function createSelectableQuery(table, calls, data, error) {
     },
     or(expr) {
       calls.push({ table, op: "or", expr });
+      return query;
+    },
+    gt(column, value) {
+      calls.push({ table, op: "gt", column, value });
       return query;
     },
     single() {
