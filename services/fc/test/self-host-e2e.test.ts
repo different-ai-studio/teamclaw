@@ -358,9 +358,12 @@ describe("Session + Messages", { skip: !E2E }, () => {
   });
 
   test("GET /v1/sessions/:id returns the session", async () => {
-    const { status, body } = await fcFetch(`/v1/sessions/${state.sessionId}`, {
-      token: state.accessToken,
-    });
+    // teamId is required on session reads: it resolves the caller's actor (one
+    // actor row per user per team) and scopes the row server-side.
+    const { status, body } = await fcFetch(
+      `/v1/sessions/${state.sessionId}?teamId=${encodeURIComponent(state.teamId)}`,
+      { token: state.accessToken },
+    );
     assert.equal(status, 200, `getSession failed: ${JSON.stringify(body)}`);
     assert.equal(body.id, state.sessionId);
     assert.equal(body.title, sessionTitle);
