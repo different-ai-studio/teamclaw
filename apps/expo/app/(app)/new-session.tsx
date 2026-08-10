@@ -144,7 +144,13 @@ export default function NewSessionRoute() {
                     connectedAgentsStore?.getState().agents.map((agent) => ({
                       agentId: agent.agentId,
                     })) ?? [],
-                  explicitSelection: agentConfig,
+                  // Keyed to the agent it was configured for. The sheet
+                  // configures the primary agent only, so any others fall back
+                  // to their own defaults rather than inheriting its workspace.
+                  selectionByAgentId:
+                    agentConfig && primaryAgentActorId
+                      ? { [primaryAgentActorId]: agentConfig }
+                      : null,
                   workspaces: workspaces.map((workspace) => ({
                     id: workspace.id,
                     path: workspace.path,

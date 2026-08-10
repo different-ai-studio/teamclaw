@@ -34,9 +34,9 @@ Rows carrying two marks (`✅ header ◻ body`) are counted by their first, so t
 
 | Status | Count |
 |---|---|
-| ✅ verified | 62 |
+| ✅ verified | 63 |
 | ⚠ known gap | 5 |
-| ◻ unverified | 2 |
+| ◻ unverified | 1 |
 | ✖ missing | 1 |
 | **Total** | **70** |
 
@@ -134,7 +134,7 @@ point of the column.
 |---|---|---|---|
 | `AgentConfigSheet` | 129 | `components/AgentConfigSheet.tsx` | ✅ |
 | `DaemonStatusBanner` | 104 | `components/DaemonStatusBanner.tsx` | ✅ |
-| `NewSessionSheet` | 599 | `screens/NewSessionScreen.tsx` | ◻ |
+| `NewSessionSheet` | 599 | `screens/NewSessionScreen.tsx` | ✅ ⚠ Expo configures the primary agent only, where iOS keeps `agentConfigs[actorId]` per agent and gates Create until each is set. Others now fall back to their own defaults rather than inheriting |
 | `ParticipantCluster` | 102 | `ui/atoms/AvatarStack.tsx` | ✅ ⚠ Expo adds a "+N" overflow chip; iOS drops the overflow silently by design ("a recognition affordance, not a participant count"). Kept — neither row shows a count elsewhere, so Expo's chip adds information rather than noise |
 | `SessionListHelpers` | 546 | `components/SessionRow.tsx` + `session-row-runtime.ts` | ✅ |
 
@@ -265,7 +265,7 @@ No iOS counterpart, and none needed: `app/(app)/mqtt-debug.tsx`,
 ## How to use this
 
 Work down the ◻ rows. Verifying one means opening both files side by side and
-either marking it ✅ or writing a ⚠ row with the specific difference. The 2
-unverified rows are the remaining Axis 6 work, and they are not evenly sized —
+either marking it ✅ or writing a ⚠ row with the specific difference. The 1
+unverified row are the remaining Axis 6 work, and they are not evenly sized —
 `MemberListContent` (1598), `SessionDetailView` (993), `NewSessionSheet` (599)
 and `LoginView` (464) are most of the mass.
