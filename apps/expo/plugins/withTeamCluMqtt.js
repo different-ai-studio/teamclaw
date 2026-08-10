@@ -9,7 +9,17 @@ const {
 
 const MQTT_DEPENDENCY = '    implementation("com.hivemq:hivemq-mqtt-client:1.3.3")';
 const PACKAGE_REGISTRATION = "            packages.add(TeamCluMqttPackage())";
-const COCOA_MQTT_POD = "  pod 'CocoaMQTT', '~> 2.2.3'";
+// CocoaMQTT is a Swift pod, and it depends on MqttCocoaAsyncSocket, which is
+// Objective-C and ships no module map. Swift cannot import such a target when
+// pods build as static libraries, and `pod install` refuses outright:
+// "The following Swift pods cannot yet be integrated as static libraries."
+// Declaring the transitive dependency with `:modular_headers => true` generates
+// the module map for that one pod, which is narrower than flipping
+// `use_modular_headers!` on for the whole Podfile.
+const COCOA_MQTT_POD = [
+  "  pod 'MqttCocoaAsyncSocket', :modular_headers => true",
+  "  pod 'CocoaMQTT', '~> 2.2.3'",
+].join("\n");
 const NETTY_RESOURCE_EXCLUDES = [
   "META-INF/INDEX.LIST",
   "META-INF/io.netty.versions.properties",

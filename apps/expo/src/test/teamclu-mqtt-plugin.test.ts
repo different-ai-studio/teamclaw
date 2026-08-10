@@ -68,6 +68,11 @@ describe("withTeamCluMqtt config plugin helpers", () => {
 
     expect(once).toContain("pod 'CocoaMQTT', '~> 2.2.3'");
     expect(twice.match(/pod 'CocoaMQTT'/g)).toHaveLength(1);
+    // CocoaMQTT is Swift and depends on the Objective-C MqttCocoaAsyncSocket,
+    // which ships no module map — without this `pod install` refuses to
+    // integrate it as a static library at all.
+    expect(once).toContain("pod 'MqttCocoaAsyncSocket', :modular_headers => true");
+    expect(twice.match(/MqttCocoaAsyncSocket/g)).toHaveLength(1);
   });
 });
 
