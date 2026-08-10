@@ -187,11 +187,25 @@ the other is permanently light.
 
 ### Present but visually unverified
 
-`ToolCall` rendering (inside `SessionMessageRow`), markdown styling, plans panel,
-todo dock, connection and permission banners, mentions and slash popups,
-segmented filter. Each needs a side-by-side check against its Swift source. This
-is the bulk of the remaining UI work and cannot be done by grep — it needs
-screen-by-screen comparison.
+**See `expo-ios-ui-inventory.md`** — it places all 70 iOS surfaces and marks each
+verified / unverified / gap / missing.
+
+This section used to be a sample: seven surfaces named, the rest implicit. Two
+surfaces were then found broken by using the app rather than by reading the
+list — the composer (a hardcoded fake agent name, two dead buttons) and the
+session member sheet. Neither was named here. A sample makes "absent from the
+list" meaningless, so it was replaced with an exhaustive one.
+
+Three things the exhaustive sweep turned up that this section had missed
+entirely:
+
+- The six `AMUXApp/` views (auth, onboarding, team picker — 1487 LOC). This
+  audit swept `Packages/` only, so the whole auth flow was outside its field of
+  view.
+- `ToolCallView` (343 LOC) has **no** Expo counterpart. Tool calls are folded
+  into counted text lines, so a failed tool looks like a successful one.
+- `StreamingDetailView` (292 LOC) is a pushed screen pinned to a turn id, with a
+  live event feed and a todo dock; Expo answers it with a grouped summary modal.
 
 ---
 
@@ -206,7 +220,8 @@ screen-by-screen comparison.
 | **P2** | No background flush/restore of streaming state (Axis 3) |
 | **P2** | Reduce-motion, easing, animation tokens (Axis 6) |
 | **P2** | `DaemonStatusBanner`, `RecordingWaveform`, splash (Axis 6) |
-| **Unknown** | Per-screen visual diff; Axes 2, 4, 5 in full |
+| **P2** | Tool calls render as text lines, not status cards (Axis 6) |
+| **Unknown** | 44 unverified UI surfaces; Axes 2, 4, 5 in full |
 
 ## Suggested sequence
 
@@ -217,8 +232,8 @@ screen-by-screen comparison.
    the existing `migrations.ts` convention. Unblocks Axis 4.
 3. **Dark mode** — tokens to adaptive, thread a color-scheme hook, audit every
    hardcoded hex. Wide but mechanical.
-4. **Screen-by-screen visual pass** — the long tail; needs its own tracking
-   list, one row per screen.
+4. **Screen-by-screen visual pass** — the long tail. Tracked one row per surface
+   in `expo-ios-ui-inventory.md`; work the ◻ rows down.
 5. **Axes 2 / 3 / 5 dedicated passes.**
 
 ## What this audit did not cover
