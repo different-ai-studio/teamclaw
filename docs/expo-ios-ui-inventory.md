@@ -34,9 +34,9 @@ Rows carrying two marks (`✅ header ◻ body`) are counted by their first, so t
 
 | Status | Count |
 |---|---|
-| ✅ verified | 46 |
+| ✅ verified | 48 |
 | ⚠ known gap | 2 |
-| ◻ unverified | 21 |
+| ◻ unverified | 19 |
 | ✖ missing | 1 |
 | **Total** | **70** |
 
@@ -106,7 +106,7 @@ point of the column.
 | iOS | LOC | Expo | |
 |---|---|---|---|
 | `ActorResourceListView` | 207 | `screens/ActorResourceListScreen.tsx` | ✅ |
-| `MemberInviteSheet` | 194 | `app/(app)/invite.tsx` | ◻ |
+| `MemberInviteSheet` | 194 | `app/(app)/invite.tsx` | ✅ |
 | `MemberListContent` | 1598 | `ActorsListScreen.tsx` + `ActorDetailScreen.tsx` | ✅ `ActorRow`, team resources, default agent, info rows ◻ rest |
 | `MemberListView` | 376 | `screens/ActorsListScreen.tsx` | ◻ |
 | `TeamStatsSheet` | 361 | `screens/TeamStatsSheet.tsx` | ✅ |
@@ -142,7 +142,7 @@ point of the column.
 
 | iOS | LOC | Expo | |
 |---|---|---|---|
-| `NotificationsSettingsView` | 98 | `app/(app)/notifications.tsx` | ◻ |
+| `NotificationsSettingsView` | 98 | `app/(app)/notifications.tsx` | ✅ Expo is a superset — same push toggle and DND window, plus per-category toggles iOS has no equivalent of |
 | `SettingsView` | 911 | `screens/SettingsScreen.tsx` | ✅ surface coverage ◻ visual |
 | `UpgradeAccountSheet` | 294 | `app/(app)/upgrade-account.tsx` | ◻ |
 | `GlassButtonStyle` | 32 | `ui/button.tsx` | ✅ nothing to port: both helpers resolve to `.glassProminent`/`.bordered`, which RN has no equivalent of. Its useful content is the caveat (never inside a toolbar — iOS 26 already glazes those), which does not apply |
@@ -225,7 +225,7 @@ No iOS counterpart, and none needed: `app/(app)/mqtt-debug.tsx`,
 ## How to use this
 
 Work down the ◻ rows. Verifying one means opening both files side by side and
-either marking it ✅ or writing a ⚠ row with the specific difference. The 21
+either marking it ✅ or writing a ⚠ row with the specific difference. The 19
 unverified rows are the remaining Axis 6 work, and they are not evenly sized —
 `MemberListContent` (1598), `SessionDetailView` (993), `NewSessionSheet` (599)
 and `LoginView` (464) are most of the mass.

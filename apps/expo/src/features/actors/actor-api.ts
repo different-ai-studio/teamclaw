@@ -106,6 +106,19 @@ export type ActorsApi = {
     agentKind?: string | null;
     ttlSeconds?: number;
   }) => Promise<ActorInviteResult>;
+  /**
+   * Moves the team out of the shared default org into its own.
+   *
+   * Member invites are refused with 403 `upgrade_required` while a team is
+   * still in the public org — it is solo-only. `POST /v1/account/upgrade` is
+   * the way out, and iOS folds the form into the invite sheet rather than
+   * sending the user somewhere else.
+   */
+  upgradeAccount: (input: {
+    teamId: string;
+    orgName: string;
+    contact?: string | null;
+  }) => Promise<void>;
   /** The caller's own default agent (`members.default_agent_id`). */
   getMemberDefaultAgent: (teamId: string) => Promise<string | null>;
   setMemberDefaultAgent: (teamId: string, agentId: string | null) => Promise<string | null>;
@@ -182,6 +195,14 @@ export function createActorsApi(args: {
         deeplink: row.deeplink || buildInviteDeeplink(row.token),
         expiresAt: row.expiresAt ?? "",
       };
+    },
+
+    async upgradeAccount({ teamId, orgName, contact }) {
+      await client.post("/v1/account/upgrade", {
+        teamId,
+        orgName: orgName.trim(),
+        contact: contact?.trim() || null,
+      });
     },
 
     async createInvite({

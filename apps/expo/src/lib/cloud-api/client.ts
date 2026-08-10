@@ -11,14 +11,24 @@ export type CloudApiClient = {
   del: (path: string) => Promise<void>;
 };
 
-/** Thrown for non-2xx Cloud API responses; carries the HTTP status so callers
- * can branch (e.g. treat 404 as "absent" rather than an error). */
+/**
+ * Thrown for non-2xx Cloud API responses.
+ *
+ * Carries the HTTP status so callers can branch (404 as "absent" rather than an
+ * error), and the server's machine-readable `code`. FC puts one on every error
+ * (`{ error: { code, message, requestId } }`) and some of them are the whole
+ * point of the response — `upgrade_required` on a member invite is not a
+ * failure to report, it is a different screen to show. Matching on the message
+ * string instead would break the first time someone rewords it.
+ */
 export class CloudApiError extends Error {
   readonly status: number;
-  constructor(status: number, message: string) {
+  readonly code: string | null;
+  constructor(status: number, message: string, code: string | null = null) {
     super(message);
     this.name = "CloudApiError";
     this.status = status;
+    this.code = code;
   }
 }
 
@@ -80,6 +90,7 @@ export function createCloudApiClient(args: {
       throw new CloudApiError(
         response.status,
         payload?.error?.message ?? "Cloud API request failed.",
+        typeof payload?.error?.code === "string" ? payload.error.code : null,
       );
     }
     return payload as T;
