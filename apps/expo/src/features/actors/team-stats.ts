@@ -1,103 +1,138 @@
-import { periodCutoff, scopeIdeasToPeriod, type StatsPeriod } from "../ideas/idea-stats";
-import type { Idea } from "../ideas/idea-types";
-import type { SessionSummary } from "../sessions/session-types";
-import { isActorOnline, type Actor } from "./actor-types";
+import type { StatsPeriod } from "../ideas/idea-stats";
+import type { Actor } from "./actor-types";
 
 /**
- * Team activity aggregation behind the Team Statistics sheet.
+ * Team statistics, ported 1:1 from the iOS `TeamStatsSheet`.
  *
- * iOS's `TeamStatsSheet` shows hash-derived token counts and hardcoded session
- * and skill totals — placeholders for per-actor telemetry that does not exist
- * yet. Rather than reproduce numbers that aren't true, this keeps the same
- * shape (period picker, summary cards, per-actor ranking) and drives it from
- * data the client already has: the sessions an actor takes part in and the
- * ideas they created.
+ * The numbers are placeholders, exactly as they are on iOS: token counts are
+ * derived from a hash of the actor id, and the session / skill totals are
+ * per-period constants. They are stable per actor so the sheet doesn't churn
+ * between renders. Real per-actor telemetry does not exist yet; when it lands,
+ * both clients should switch together.
+ *
+ * Everything here is kept byte-for-byte equivalent to the Swift source so the
+ * two apps show the same figures for the same team.
  */
 
-export type ActorActivityStat = {
+export type ActorTokenStat = {
   actorId: string;
   name: string;
   isAgent: boolean;
-  isOnline: boolean;
-  sessions: number;
-  ideas: number;
-  /** Ranking key: sessions + ideas attributed to this actor in the period. */
-  total: number;
+  agentType: string | null;
+  tokens: number;
+};
+
+export type SkillStat = {
+  name: string;
+  count: number;
 };
 
 export type TeamStats = {
-  members: number;
-  agents: number;
-  sessions: number;
-  ideas: number;
-  actors: ActorActivityStat[];
+  totalTokens: number;
+  totalSessions: number;
+  totalSkills: number;
+  actors: ActorTokenStat[];
+  skills: SkillStat[];
 };
 
-/** Sessions created within the period. Unparseable timestamps are kept. */
-export function scopeSessionsToPeriod(
-  sessions: ReadonlyArray<SessionSummary>,
-  period: StatsPeriod,
-  now: number = Date.now(),
-): SessionSummary[] {
-  const cutoff = periodCutoff(period, now);
-  if (cutoff === null) return [...sessions];
-  return sessions.filter((session) => {
-    const created = Date.parse(session.createdAt);
-    return Number.isFinite(created) ? created >= cutoff : true;
-  });
+/**
+ * Swift's `actorId.unicodeScalars.reduce(0) { $0 &+ Int($1.value) }`, then
+ * `abs`. Iterating with `for…of` yields code points, not UTF-16 units, which is
+ * what `unicodeScalars` gives — the two only differ outside the BMP, but actor
+ * ids are uuids so this is exact either way.
+ */
+export function actorIdHash(actorId: string): number {
+  let sum = 0;
+  for (const char of actorId) sum += char.codePointAt(0) ?? 0;
+  return Math.abs(sum);
 }
+
+/** Scales the per-period constants; `week` is the baseline of 7. */
+function periodMultiplier(period: StatsPeriod): number {
+  switch (period) {
+    case "today":
+      return 1;
+    case "week":
+      return 7;
+    case "month":
+      return 30;
+    case "all":
+      return 90;
+  }
+}
+
+const TOKEN_BASES = [8_200, 14_400, 22_100, 31_500, 47_800, 68_000, 112_300];
+
+const SESSION_TOTALS: Record<StatsPeriod, number> = {
+  today: 6,
+  week: 42,
+  month: 178,
+  all: 534,
+};
+
+const SKILL_TOTALS: Record<StatsPeriod, number> = {
+  today: 38,
+  week: 386,
+  month: 1_642,
+  all: 4_920,
+};
+
+const SKILL_BASES: ReadonlyArray<readonly [string, number]> = [
+  ["Read", 142],
+  ["Edit", 88],
+  ["Bash", 54],
+  ["Write", 32],
+  ["Grep", 24],
+];
 
 export function buildTeamStats(args: {
   actors: ReadonlyArray<Actor>;
-  ideas: ReadonlyArray<Idea>;
-  sessions: ReadonlyArray<SessionSummary>;
   period: StatsPeriod;
-  now?: number;
 }): TeamStats {
-  const now = args.now ?? Date.now();
-  const scopedIdeas = scopeIdeasToPeriod(args.ideas, args.period, now);
-  const scopedSessions = scopeSessionsToPeriod(args.sessions, args.period, now);
+  const multiplier = periodMultiplier(args.period);
 
-  const sessionsByActor = new Map<string, number>();
-  for (const session of scopedSessions) {
-    // Dedupe: a participant list that repeats an actor must not inflate them.
-    for (const actorId of new Set(
-      session.participantActorIds.map((id) => id.trim()).filter(Boolean),
-    )) {
-      sessionsByActor.set(actorId, (sessionsByActor.get(actorId) ?? 0) + 1);
-    }
-  }
-  const ideasByActor = new Map<string, number>();
-  for (const idea of scopedIdeas) {
-    const actorId = idea.createdByActorId?.trim();
-    if (!actorId) continue;
-    ideasByActor.set(actorId, (ideasByActor.get(actorId) ?? 0) + 1);
-  }
-
-  // Only humans and agents are ranked; gateway-only `external` actors land in
-  // neither section on the Actors list either.
-  const ranked = args.actors
+  const actors = args.actors
     .filter((actor) => actor.actorType === "member" || actor.actorType === "agent")
-    .map<ActorActivityStat>((actor) => {
-      const sessions = sessionsByActor.get(actor.actorId) ?? 0;
-      const ideas = ideasByActor.get(actor.actorId) ?? 0;
+    .map<ActorTokenStat>((actor) => {
+      const base = TOKEN_BASES[actorIdHash(actor.actorId) % TOKEN_BASES.length];
       return {
         actorId: actor.actorId,
         name: actor.displayName,
         isAgent: actor.actorType === "agent",
-        isOnline: isActorOnline(actor, now),
-        sessions,
-        ideas,
-        total: sessions + ideas,
+        agentType: actor.defaultAgentType,
+        // Swift integer division truncates.
+        tokens: Math.trunc((base * multiplier) / 7),
       };
     })
-    .sort((a, b) => b.total - a.total || a.name.localeCompare(b.name));
+    .sort((a, b) => b.tokens - a.tokens);
+
+  const skills = SKILL_BASES.map<SkillStat>(([name, base]) => ({
+    name,
+    count: Math.trunc((base * multiplier) / 7),
+  }));
 
   return {
-    members: args.actors.filter((actor) => actor.actorType === "member").length,
-    agents: args.actors.filter((actor) => actor.actorType === "agent").length,
-    sessions: scopedSessions.length,
-    ideas: scopedIdeas.length,
-    actors: ranked,
+    totalTokens: actors.reduce((sum, actor) => sum + actor.tokens, 0),
+    totalSessions: SESSION_TOTALS[args.period],
+    totalSkills: SKILL_TOTALS[args.period],
+    actors,
+    skills,
   };
+}
+
+/** `112300 → "112.3K"`, `1_200_000 → "1.2M"`. Mirrors iOS `formattedTokens`. */
+export function formatTokens(value: number): string {
+  if (value >= 1_000_000) return `${(value / 1_000_000).toFixed(1)}M`;
+  if (value >= 1_000) return `${(value / 1_000).toFixed(1)}K`;
+  return `${value}`;
+}
+
+/** Up to two whitespace-separated initials, else the first character. */
+export function statInitials(name: string): string {
+  const parts = name.split(/\s+/).filter(Boolean).slice(0, 2);
+  const initials = parts
+    .map((part) => part.charAt(0))
+    .join("")
+    .toUpperCase();
+  return initials || name.charAt(0).toUpperCase();
 }

@@ -1,14 +1,18 @@
 import { describe, expect, it } from "vitest";
 
 import type { Actor } from "../features/actors/actor-types";
-import { buildTeamStats, scopeSessionsToPeriod } from "../features/actors/team-stats";
+import {
+  actorIdHash,
+  buildTeamStats,
+  formatTokens,
+  statInitials,
+} from "../features/actors/team-stats";
 import {
   buildIdeaStats,
   periodCutoff,
   scopeIdeasToPeriod,
 } from "../features/ideas/idea-stats";
 import type { Idea } from "../features/ideas/idea-types";
-import type { SessionSummary } from "../features/sessions/session-types";
 
 const NOW = Date.parse("2026-05-20T12:00:00.000Z");
 
@@ -40,21 +44,6 @@ function actor(partial: Partial<Actor> & { actorId: string }): Actor {
     agentTypes: [],
     defaultAgentType: null,
     agentKind: null,
-    ...partial,
-  };
-}
-
-function session(partial: Partial<SessionSummary> & { sessionId: string }): SessionSummary {
-  return {
-    teamId: "t1",
-    title: partial.sessionId,
-    summary: "",
-    participantCount: 0,
-    participantActorIds: [],
-    lastMessagePreview: "",
-    lastMessageAt: "2026-05-20T11:00:00.000Z",
-    createdAt: "2026-05-20T11:00:00.000Z",
-    createdBy: "",
     ...partial,
   };
 }
@@ -117,37 +106,93 @@ describe("buildIdeaStats", () => {
 });
 
 describe("buildTeamStats", () => {
-  it("ranks actors by their sessions plus ideas in the period", () => {
+  it("derives token counts from the actor id hash, exactly as iOS does", () => {
+    // "a" == 97, so the hash is 97 and 97 % 7 == 6 → the last base, 112_300.
+    expect(actorIdHash("a")).toBe(97);
     const stats = buildTeamStats({
-      now: NOW,
+      period: "week",
+      actors: [actor({ actorId: "a", displayName: "Ada" })],
+    });
+    // week is the baseline multiplier of 7, so the base passes through.
+    expect(stats.actors[0]).toEqual({
+      actorId: "a",
+      name: "Ada",
+      isAgent: false,
+      agentType: null,
+      tokens: 112_300,
+    });
+  });
+
+  it("scales tokens and skills by the period, truncating like Swift", () => {
+    const actors = [actor({ actorId: "a", displayName: "Ada" })];
+    // 112300 * 1 / 7 == 16042.857… → 16042 (Swift Int division truncates).
+    expect(buildTeamStats({ period: "today", actors }).actors[0].tokens).toBe(16_042);
+    expect(buildTeamStats({ period: "month", actors }).actors[0].tokens).toBe(481_285);
+    expect(buildTeamStats({ period: "all", actors }).actors[0].tokens).toBe(1_443_857);
+
+    // Skills use the same multiplier over their own bases.
+    expect(buildTeamStats({ period: "week", actors }).skills).toEqual([
+      { name: "Read", count: 142 },
+      { name: "Edit", count: 88 },
+      { name: "Bash", count: 54 },
+      { name: "Write", count: 32 },
+      { name: "Grep", count: 24 },
+    ]);
+    expect(buildTeamStats({ period: "today", actors }).skills[0]).toEqual({
+      name: "Read",
+      count: 20,
+    });
+  });
+
+  it("uses the per-period session and skill constants", () => {
+    const actors: Actor[] = [];
+    expect(buildTeamStats({ period: "today", actors })).toMatchObject({
+      totalSessions: 6,
+      totalSkills: 38,
+      totalTokens: 0,
+    });
+    expect(buildTeamStats({ period: "week", actors })).toMatchObject({
+      totalSessions: 42,
+      totalSkills: 386,
+    });
+    expect(buildTeamStats({ period: "month", actors })).toMatchObject({
+      totalSessions: 178,
+      totalSkills: 1_642,
+    });
+    expect(buildTeamStats({ period: "all", actors })).toMatchObject({
+      totalSessions: 534,
+      totalSkills: 4_920,
+    });
+  });
+
+  it("ranks by tokens and drops external actors", () => {
+    const stats = buildTeamStats({
       period: "week",
       actors: [
-        actor({ actorId: "a1", displayName: "Ada" }),
-        actor({ actorId: "a2", displayName: "Bot", actorType: "agent" }),
+        // "b" == 98, 98 % 7 == 0 → 8_200 (the smallest base).
+        actor({ actorId: "b", displayName: "Low" }),
+        actor({ actorId: "a", displayName: "High", actorType: "agent" }),
         actor({ actorId: "ext", displayName: "WeCom", actorType: "external" }),
       ],
-      ideas: [idea({ ideaId: "1", createdByActorId: "a1" })],
-      sessions: [
-        // A repeated participant must not inflate that actor's count.
-        session({ sessionId: "s1", participantActorIds: ["a1", "a2", "a2"] }),
-        session({ sessionId: "s2", participantActorIds: ["a2"] }),
-        session({ sessionId: "old", participantActorIds: ["a1"], createdAt: "2026-01-01T00:00:00.000Z" }),
-      ],
     });
-
-    expect(stats).toMatchObject({ members: 1, agents: 1, sessions: 2, ideas: 1 });
-    // External actors are excluded from the ranking, as on the Actors list.
-    // Both score 2, so the tie breaks by name: Ada before Bot.
-    expect(stats.actors.map((a) => a.actorId)).toEqual(["a1", "a2"]);
-    expect(stats.actors[0]).toMatchObject({ sessions: 1, ideas: 1, total: 2 });
-    expect(stats.actors[1]).toMatchObject({ sessions: 2, ideas: 0, total: 2 });
+    expect(stats.actors.map((a) => a.name)).toEqual(["High", "Low"]);
+    expect(stats.totalTokens).toBe(112_300 + 8_200);
   });
 });
 
-describe("scopeSessionsToPeriod", () => {
-  it("keeps everything for all-time", () => {
-    const rows = [session({ sessionId: "old", createdAt: "2020-01-01T00:00:00.000Z" })];
-    expect(scopeSessionsToPeriod(rows, "all", NOW)).toHaveLength(1);
-    expect(scopeSessionsToPeriod(rows, "month", NOW)).toHaveLength(0);
+describe("formatTokens", () => {
+  it("matches the iOS K / M thresholds", () => {
+    expect(formatTokens(999)).toBe("999");
+    expect(formatTokens(1_000)).toBe("1.0K");
+    expect(formatTokens(112_300)).toBe("112.3K");
+    expect(formatTokens(1_443_857)).toBe("1.4M");
+  });
+});
+
+describe("statInitials", () => {
+  it("takes up to two initials and falls back to the first character", () => {
+    expect(statInitials("Ada Lovelace")).toBe("AL");
+    expect(statInitials("Ada Byron Lovelace")).toBe("AB");
+    expect(statInitials("opencode")).toBe("O");
   });
 });

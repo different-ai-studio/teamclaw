@@ -3,34 +3,52 @@ import { useMemo, useState } from "react";
 import { Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
 
 import { Hairline } from "../../../ui/atoms/Hairline";
-import { SectionEyebrow } from "../../../ui/atoms/SectionEyebrow";
 import { colors, hai, radii, spacing, typography } from "../../../ui/theme";
 import { STATS_PERIODS, type StatsPeriod } from "../../ideas/idea-stats";
-import type { Idea } from "../../ideas/idea-types";
-import type { SessionSummary } from "../../sessions/session-types";
 import type { Actor } from "../actor-types";
-import { buildTeamStats, type ActorActivityStat } from "../team-stats";
+import {
+  actorIdHash,
+  buildTeamStats,
+  formatTokens,
+  statInitials,
+  type ActorTokenStat,
+  type SkillStat,
+} from "../team-stats";
 
 /**
- * Team activity, opened from the Actors tab. Same shape as the iOS
- * `TeamStatsSheet` — period picker, summary cards, per-actor ranking — but the
- * numbers are real: iOS still shows placeholder token counts there.
+ * Team statistics, ported 1:1 from the iOS `TeamStatsSheet`: period picker,
+ * tokens / sessions / skills summary cards, a token ranking, and a skills-usage
+ * breakdown. The figures are the same placeholders iOS shows — see
+ * `team-stats.ts`.
  */
 
 export type TeamStatsSheetProps = {
   actors: ReadonlyArray<Actor>;
-  ideas: ReadonlyArray<Idea>;
   onClose: () => void;
-  sessions: ReadonlyArray<SessionSummary>;
 };
 
-export function TeamStatsSheet({ actors, ideas, onClose, sessions }: TeamStatsSheetProps) {
+/** Human avatar palette, hash-rotated per actor id (iOS `agentColor`). */
+const HUMAN_PALETTE = [hai.basalt, hai.slate, hai.sage, hai.onyx];
+
+/** Agent glyph colour by backend (iOS `agentGlyphColor`). */
+function agentGlyphColor(agentType: string | null): string {
+  switch (agentType) {
+    case "claude":
+    case "claude_code":
+      return hai.cinnabar;
+    case "opencode":
+      return hai.sage;
+    case "codex":
+      return hai.basalt;
+    default:
+      return hai.basalt;
+  }
+}
+
+export function TeamStatsSheet({ actors, onClose }: TeamStatsSheetProps) {
   const [period, setPeriod] = useState<StatsPeriod>("week");
-  const stats = useMemo(
-    () => buildTeamStats({ actors, ideas, period, sessions }),
-    [actors, ideas, period, sessions],
-  );
-  const ranked = stats.actors.filter((actor) => actor.total > 0);
+  const stats = useMemo(() => buildTeamStats({ actors, period }), [actors, period]);
+  const maxSkillCount = Math.max(1, ...stats.skills.map((skill) => skill.count));
 
   return (
     <View style={styles.screen}>
@@ -66,36 +84,46 @@ export function TeamStatsSheet({ actors, ideas, onClose, sessions }: TeamStatsSh
         </View>
 
         <View style={styles.summaryRow}>
-          <SummaryCard icon="people-outline" label="HUMANS" value={stats.members} />
-          <SummaryCard icon="sparkles-outline" label="AGENTS" value={stats.agents} />
-        </View>
-        <View style={styles.summaryRow}>
+          <SummaryCard
+            icon="sparkles-outline"
+            label="TOKENS"
+            value={formatTokens(stats.totalTokens)}
+          />
           <SummaryCard
             icon="chatbubbles-outline"
             label="SESSIONS"
-            value={stats.sessions}
+            value={`${stats.totalSessions}`}
           />
-          <SummaryCard icon="bulb-outline" label="IDEAS" value={stats.ideas} />
+          <SummaryCard icon="hammer-outline" label="SKILLS" value={`${stats.totalSkills}`} />
         </View>
 
-        {ranked.length === 0 ? (
-          <View style={styles.emptyBlock}>
-            <Text style={styles.emptyTitle}>No activity in this period</Text>
-            <Text style={styles.emptyBody}>Pick a longer period to see more.</Text>
+        <View style={styles.section}>
+          <Text style={styles.sectionEyebrow}>TOKEN RANKING</Text>
+          <View style={styles.card}>
+            {stats.actors.map((stat, index) => (
+              <View key={stat.actorId}>
+                <TokenRankRow rank={index + 1} stat={stat} />
+                {index < stats.actors.length - 1 ? (
+                  <Hairline style={styles.rankDivider} />
+                ) : null}
+              </View>
+            ))}
           </View>
-        ) : (
-          <View style={styles.section}>
-            <SectionEyebrow label="MOST ACTIVE" style={styles.sectionEyebrow} />
-            <View style={styles.card}>
-              {ranked.map((stat, index) => (
-                <View key={stat.actorId}>
-                  <ActorRankRow rank={index + 1} stat={stat} />
-                  {index < ranked.length - 1 ? <Hairline /> : null}
-                </View>
-              ))}
-            </View>
+        </View>
+
+        <View style={styles.section}>
+          <Text style={styles.sectionEyebrow}>SKILLS USAGE</Text>
+          <View style={styles.card}>
+            {stats.skills.map((skill, index) => (
+              <View key={skill.name}>
+                <SkillRow max={maxSkillCount} skill={skill} />
+                {index < stats.skills.length - 1 ? (
+                  <Hairline style={styles.skillDivider} />
+                ) : null}
+              </View>
+            ))}
           </View>
-        )}
+        </View>
       </ScrollView>
     </View>
   );
@@ -108,12 +136,12 @@ function SummaryCard({
 }: {
   icon: React.ComponentProps<typeof Ionicons>["name"];
   label: string;
-  value: number;
+  value: string;
 }) {
   return (
     <View style={styles.summaryCard}>
       <Ionicons color={colors.basalt} name={icon} size={14} />
-      <Text numberOfLines={1} style={styles.summaryValue}>
+      <Text adjustsFontSizeToFit numberOfLines={1} style={styles.summaryValue}>
         {value}
       </Text>
       <Text style={styles.summaryLabel}>{label}</Text>
@@ -121,55 +149,99 @@ function SummaryCard({
   );
 }
 
-function ActorRankRow({ rank, stat }: { rank: number; stat: ActorActivityStat }) {
+function TokenRankRow({ rank, stat }: { rank: number; stat: ActorTokenStat }) {
   const isTop = rank === 1;
   return (
     <View style={[styles.rankRow, isTop ? styles.rankRowTop : null]}>
       <Text style={[styles.rank, isTop ? styles.rankTop : null]}>{rank}</Text>
-      <View
-        style={[
-          styles.actorTile,
-          stat.isAgent ? styles.actorTileAgent : styles.actorTileHuman,
-        ]}
-      >
-        <Text style={styles.actorTileText}>
-          {stat.name.trim().charAt(0).toUpperCase() || "?"}
+      <ActorDot stat={stat} />
+      <Text numberOfLines={1} style={styles.rankName}>
+        {stat.name}
+      </Text>
+      <Text style={[styles.rankTokens, isTop ? styles.rankTop : null]}>
+        {formatTokens(stat.tokens)}
+      </Text>
+    </View>
+  );
+}
+
+function ActorDot({ stat }: { stat: ActorTokenStat }) {
+  const initials = statInitials(stat.name);
+  if (stat.isAgent) {
+    return (
+      <View style={[styles.dot, styles.dotAgent]}>
+        <Text style={[styles.dotText, { color: agentGlyphColor(stat.agentType) }]}>
+          {initials}
         </Text>
-        {stat.isOnline ? <View style={styles.onlinePip} /> : null}
       </View>
-      <View style={styles.rankBody}>
-        <Text numberOfLines={1} style={styles.rankName}>
-          {stat.name}
-        </Text>
-        <Text style={styles.rankMeta}>
-          {stat.sessions} session{stat.sessions === 1 ? "" : "s"} · {stat.ideas} idea
-          {stat.ideas === 1 ? "" : "s"}
-        </Text>
+    );
+  }
+  const background = HUMAN_PALETTE[actorIdHash(stat.actorId) % HUMAN_PALETTE.length];
+  return (
+    <View style={[styles.dot, styles.dotHuman, { backgroundColor: background }]}>
+      <Text style={[styles.dotText, styles.dotTextHuman]}>{initials}</Text>
+    </View>
+  );
+}
+
+function SkillRow({ max, skill }: { max: number; skill: SkillStat }) {
+  const ratio = max > 0 ? Math.max(0, Math.min(1, skill.count / max)) : 0;
+  return (
+    <View style={styles.skillRow}>
+      <View style={styles.skillHeader}>
+        <Text style={styles.skillName}>{skill.name}</Text>
+        <Text style={styles.skillCount}>{skill.count}</Text>
       </View>
-      <Text style={[styles.rankCount, isTop ? styles.rankTop : null]}>{stat.total}</Text>
+      <View style={styles.barTrack}>
+        <View style={[styles.barFill, { width: `${ratio * 100}%` }]}>
+          <GradientBar />
+        </View>
+      </View>
+    </View>
+  );
+}
+
+/**
+ * Pebble → cinnabar horizontal gradient across the filled portion of a bar.
+ * RN has no gradient primitive and `expo-linear-gradient` isn't a dependency,
+ * so this interpolates across a fixed number of flex segments — indistinguishable
+ * at the 4px height iOS draws.
+ */
+const GRADIENT_STEPS = 12;
+const GRADIENT_FROM = [0xe2, 0xdf, 0xd9] as const; // hai.pebble
+const GRADIENT_TO = [0xb8, 0x4b, 0x36] as const; // hai.cinnabar
+
+const GRADIENT_COLORS = Array.from({ length: GRADIENT_STEPS }, (_, index) => {
+  const t = index / (GRADIENT_STEPS - 1);
+  const channel = (from: number, to: number) => Math.round(from + (to - from) * t);
+  return `rgb(${channel(GRADIENT_FROM[0], GRADIENT_TO[0])}, ${channel(
+    GRADIENT_FROM[1],
+    GRADIENT_TO[1],
+  )}, ${channel(GRADIENT_FROM[2], GRADIENT_TO[2])})`;
+});
+
+function GradientBar() {
+  return (
+    <View style={styles.gradient}>
+      {GRADIENT_COLORS.map((color, index) => (
+        <View key={index} style={[styles.gradientStep, { backgroundColor: color }]} />
+      ))}
     </View>
   );
 }
 
 const styles = StyleSheet.create({
-  actorTile: {
-    alignItems: "center",
-    height: 26,
-    justifyContent: "center",
-    width: 26,
+  barFill: {
+    borderRadius: 2,
+    height: "100%",
+    overflow: "hidden",
   },
-  actorTileAgent: {
+  barTrack: {
     backgroundColor: hai.pebble,
-    borderRadius: 6,
-  },
-  actorTileHuman: {
-    backgroundColor: hai.pebble,
-    borderRadius: 13,
-  },
-  actorTileText: {
-    color: hai.basalt,
-    fontSize: 11,
-    fontWeight: "700",
+    borderRadius: 2,
+    height: 4,
+    overflow: "hidden",
+    width: "100%",
   },
   card: {
     backgroundColor: colors.paper,
@@ -183,17 +255,36 @@ const styles = StyleSheet.create({
     padding: spacing.lg,
     paddingBottom: spacing.xxxl,
   },
-  emptyBlock: {
-    gap: spacing.sm,
-    paddingVertical: spacing.lg,
+  dot: {
+    alignItems: "center",
+    height: 26,
+    justifyContent: "center",
+    width: 26,
   },
-  emptyBody: {
-    color: colors.basalt,
-    ...typography.secondaryBody,
+  dotAgent: {
+    backgroundColor: hai.pebble,
+    borderColor: colors.hairline,
+    borderRadius: 6,
+    borderWidth: StyleSheet.hairlineWidth,
   },
-  emptyTitle: {
-    color: colors.onyx,
-    ...typography.cardTitle,
+  dotHuman: {
+    borderRadius: 13,
+  },
+  dotText: {
+    fontSize: 9,
+    fontWeight: "700",
+  },
+  dotTextHuman: {
+    color: "#FFFFFF",
+  },
+  gradient: {
+    flexDirection: "row",
+    height: "100%",
+    width: "100%",
+  },
+  gradientStep: {
+    flex: 1,
+    height: "100%",
   },
   headerBar: {
     alignItems: "center",
@@ -212,17 +303,6 @@ const styles = StyleSheet.create({
   headerTitle: {
     color: colors.onyx,
     ...typography.sectionTitle,
-  },
-  onlinePip: {
-    backgroundColor: hai.sage,
-    borderColor: colors.paper,
-    borderRadius: 4,
-    borderWidth: 1.5,
-    bottom: -1,
-    height: 8,
-    position: "absolute",
-    right: -1,
-    width: 8,
   },
   periodLabel: {
     color: colors.basalt,
@@ -254,31 +334,27 @@ const styles = StyleSheet.create({
     ...typography.monoMeta,
     fontWeight: "700",
   },
-  rankBody: {
-    flex: 1,
-    gap: 2,
-  },
-  rankCount: {
-    color: colors.basalt,
-    ...typography.monoMeta,
-  },
-  rankMeta: {
-    color: colors.slate,
-    ...typography.caption,
+  rankDivider: {
+    marginLeft: 44,
   },
   rankName: {
     color: colors.onyx,
+    flex: 1,
     ...typography.secondaryBody,
   },
   rankRow: {
     alignItems: "center",
     flexDirection: "row",
-    gap: spacing.sm,
-    paddingHorizontal: spacing.md,
+    gap: 10,
+    paddingHorizontal: 14,
     paddingVertical: 10,
   },
   rankRowTop: {
     backgroundColor: "rgba(184,75,54,0.04)",
+  },
+  rankTokens: {
+    color: colors.basalt,
+    ...typography.monoMeta,
   },
   rankTop: {
     color: hai.cinnabar,
@@ -288,10 +364,36 @@ const styles = StyleSheet.create({
     flex: 1,
   },
   section: {
-    gap: spacing.sm,
+    gap: 10,
   },
   sectionEyebrow: {
+    color: "rgba(94,91,85,0.7)",
+    fontSize: 11,
+    fontWeight: "600",
+    letterSpacing: 0.35,
     paddingHorizontal: spacing.xs,
+  },
+  skillCount: {
+    color: colors.basalt,
+    ...typography.monoMeta,
+  },
+  skillDivider: {
+    marginLeft: 14,
+  },
+  skillHeader: {
+    alignItems: "center",
+    flexDirection: "row",
+    justifyContent: "space-between",
+  },
+  skillName: {
+    color: colors.onyx,
+    ...typography.secondaryBody,
+    fontWeight: "600",
+  },
+  skillRow: {
+    gap: 5,
+    paddingHorizontal: 14,
+    paddingVertical: 10,
   },
   summaryCard: {
     alignItems: "center",
@@ -311,7 +413,7 @@ const styles = StyleSheet.create({
   },
   summaryRow: {
     flexDirection: "row",
-    gap: spacing.sm,
+    gap: 10,
   },
   summaryValue: {
     color: colors.onyx,
