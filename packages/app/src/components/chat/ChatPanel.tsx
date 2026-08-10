@@ -977,20 +977,7 @@ export function ChatPanel({ compact = false }: ChatPanelProps) {
 
   // SSE connection is managed by SSEProvider in App.tsx (persists across mode switches)
 
-  // Poll for pending permissions as fallback
-  const pollPermissions = useSessionStore((s) => s.pollPermissions);
-  const hasRunningTools = React.useMemo(() =>
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    (activeMessages ?? []).some((m: any) => m.toolCalls?.some((tc: any) => tc.status === "calling" || tc.status === "waiting")),
-    [activeMessages],
-  );
-  React.useEffect(() => {
-    if (!activeSessionId) return;
-    if (!isStreaming && !hasRunningTools) return;
-    const interval = setInterval(pollPermissions, 2000);
-    return () => clearInterval(interval);
-  }, [isStreaming, hasRunningTools, activeSessionId, pollPermissions]);
-
+  // v2: pending permissions arrive on the ACP/MQTT stream — no HTTP poll fallback.
 
   // ── Session loading ───────────────────────────────────────────────────
   const prevWorkspaceRef = React.useRef<string | null>(null);

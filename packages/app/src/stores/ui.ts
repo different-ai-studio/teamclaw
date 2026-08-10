@@ -369,6 +369,7 @@ export const useUIStore = create<UIState>((set, get) => ({
       currentView: 'chat',
       settingsInitialSection: null,
       daemonGeneralPrompt: null,
+      sidebarFilter: { kind: 'all' },
     })
     // Mirror startNewChat's clear-out so the chat view shows an empty
     // canvas with the preselected actor as the implicit recipient. We
