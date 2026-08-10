@@ -5044,7 +5044,6 @@ components:
       properties:
         channels:
           $ref: "#/components/schemas/ChannelFeatures"
-        teamShareBrowser: { type: boolean }
         apps: { type: boolean }
         lockLlmConfig:
           type: boolean

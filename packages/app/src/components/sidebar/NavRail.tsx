@@ -176,7 +176,7 @@ export function NavRail() {
         ) : null}
       </div>
 
-      {features.teamShareBrowser && <TeamShareNavSection />}
+      <TeamShareNavSection />
 
       <ActorsSection />
     </div>

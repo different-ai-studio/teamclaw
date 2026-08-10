@@ -29,7 +29,6 @@
       "webSSO": true,
       "webSSOHosts": ["admin.mx5.cn"]
     },
-    "teamShareBrowser": true,
     "apps": true
   },
   "localAgent": "opencode",
