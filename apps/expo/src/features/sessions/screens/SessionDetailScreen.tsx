@@ -70,6 +70,7 @@ import {
   type AgentTurnFeedItem,
   type SessionFeedSource,
 } from "../session-feed-items";
+import { foldToolResults } from "../tool-display";
 import {
   isFeedNearBottom,
   shouldAutoScrollForNewFeedItem,
@@ -661,12 +662,21 @@ export function SessionDetailScreen(props: SessionDetailScreenProps) {
     | { kind: "message"; key: string; message: SessionMessage }
     | { kind: "agentTurn"; key: string; turn: AgentTurnFeedItem };
 
+  // Pair each `agent_tool_result` with the call it answers, so one row carries
+  // both and a failed tool is visibly different from one that succeeded.
+  const { resultByToolId, foldedMessageIds } = useMemo(
+    () => foldToolResults(state.messages),
+    [state.messages],
+  );
+
   const feedSources = useMemo(
     () =>
-      buildSessionFeedSources(state.messages, state.streamingByAgent, {
-        ownActorId,
-      }),
-    [ownActorId, state.messages, state.streamingByAgent],
+      buildSessionFeedSources(
+        state.messages.filter((message) => !foldedMessageIds.has(message.messageId)),
+        state.streamingByAgent,
+        { ownActorId },
+      ),
+    [foldedMessageIds, ownActorId, state.messages, state.streamingByAgent],
   );
   const [selectedTurnKey, setSelectedTurnKey] = useState<string | null>(null);
   const selectedTurn = useMemo(() => {
@@ -924,6 +934,16 @@ export function SessionDetailScreen(props: SessionDetailScreenProps) {
                     }
                   }}
                   onRetryOutbox={onRetryFailed}
+                  toolResult={(() => {
+                    if (msg.kind.trim().toLowerCase() !== "agent_tool_call") return undefined;
+                    const meta =
+                      msg.metadata && typeof msg.metadata === "object"
+                        ? (msg.metadata as Record<string, unknown>)
+                        : {};
+                    const toolId =
+                      typeof meta.tool_id === "string" ? meta.tool_id : "";
+                    return toolId ? resultByToolId.get(toolId) : undefined;
+                  })()}
                   onReply={
                     onReplyToMessage
                       ? (m) => onReplyToMessage(m.messageId)

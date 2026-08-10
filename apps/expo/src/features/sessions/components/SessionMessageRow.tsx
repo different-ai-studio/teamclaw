@@ -20,6 +20,8 @@ import { buildThinkingBody, buildThinkingPreview } from "./agent-thinking-presen
 import { AudioPlayerChip } from "./AudioPlayerChip";
 import { ImageLightbox } from "./ImageLightbox";
 import { PermissionBanner } from "./PermissionBanner";
+import { ToolCallLine } from "./ToolCallLine";
+import { toolCallPresentation, type ToolResult } from "../tool-display";
 
 const HIDDEN_MESSAGE_KINDS = new Set<string>([]);
 
@@ -49,6 +51,11 @@ export type SessionMessageRowProps = {
   senderName?: string;
   /** When true, appends a blinking cursor to indicate live streaming. */
   isStreaming?: boolean;
+  /**
+   * The `agent_tool_result` that answered this `agent_tool_call`, folded in by
+   * `foldToolResults`. Absent means the tool is still running.
+   */
+  toolResult?: ToolResult;
 };
 
 export function normalizeBody(message: SessionMessage): string {
@@ -113,6 +120,7 @@ export function SessionMessageRow({
   replyToMessage,
   senderName,
   isStreaming = false,
+  toolResult,
 }: SessionMessageRowProps) {
   const [lightboxUrl, setLightboxUrl] = useState<string | null>(null);
   const [noteExpanded, setNoteExpanded] = useState(false);
@@ -262,6 +270,19 @@ export function SessionMessageRow({
     );
   }
 
+  if (kindKey === "agent_tool_call") {
+    return (
+      <ToolCallLine
+        presentation={toolCallPresentation(message, toolResult)}
+        result={toolResult}
+        timestamp={timestamp}
+      />
+    );
+  }
+
+  // A tool result that reached here is an orphan — `foldToolResults` folds the
+  // ones whose call is in the timeline into that call's row. Keep the note card
+  // for it rather than dropping the information on the floor.
   if (isAgentNoteKind(kindKey)) {
     const note = agentNoteStyle(kindKey);
     const noteBody = normalizeBody(message);
