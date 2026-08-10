@@ -1,10 +1,26 @@
 import { ApiError } from "../http-utils.js";
-import { requireString } from "../routing-utils.js";
+import {
+  requireString,
+  parseMessageLimit,
+  decodeMessageCursor,
+  nextMessageCursor,
+} from "../routing-utils.js";
 
 export function registerMessages(router) {
+  // Paginated backward from the newest message. `nextCursor` was hardcoded to
+  // null here while the repository fetched the entire history unbounded, so a
+  // long-running session degraded until it timed out — see the limits in
+  // routing-utils. Omitting `limit` now yields the most recent
+  // DEFAULT_MESSAGE_LIST_LIMIT messages (oldest-first within the page) plus a
+  // cursor for the page before it.
   router.get("/v1/sessions/:sessionId/messages", async (ctx) => {
-    const items = await ctx.repository.listMessages(decodeURIComponent(ctx.params.sessionId));
-    return { body: { items, nextCursor: null } };
+    const limit = parseMessageLimit(ctx.query.get("limit"));
+    const cursor = decodeMessageCursor(ctx.query.get("cursor"));
+    const items = await ctx.repository.listMessages(
+      decodeURIComponent(ctx.params.sessionId),
+      { limit, cursor },
+    );
+    return { body: { items, nextCursor: nextMessageCursor(items, limit) } };
   });
 
   router.post("/v1/sessions/:sessionId/messages", async (ctx) => {

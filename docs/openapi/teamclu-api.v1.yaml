@@ -439,12 +439,18 @@ paths:
       summary: List sessions
       description: |
         Sessions the calling actor participates in, newest activity first,
-        excluding archived ones. Optionally narrowed to one team and/or one
+        excluding archived ones. Scoped to one team, optionally narrowed to one
         idea.
 
         This replaced `GET /v1/teams/{teamId}/sessions`, which returned a
         team's whole session list unpaginated. Callers that want every session
         in a team pass `teamId` and follow `nextCursor` to exhaustion.
+
+        `teamId` is **required**. It identifies the caller's actor (one actor
+        row per user per team) and it is the only thing that lets the query use
+        an index — the un-scoped listing it replaced walked every participant
+        row the caller had and sorted, which measured 4.5s at 6k sessions and
+        timed out into a 500 past ~13k. Omitting it returns 400.
       tags: [Sessions]
       parameters:
         - name: limit
@@ -460,7 +466,8 @@ paths:
             type: string
         - name: teamId
           in: query
-          description: Narrow to a single team.
+          required: true
+          description: The team to list sessions for.
           schema:
             type: string
             format: uuid
@@ -523,9 +530,20 @@ paths:
     get:
       operationId: getSession
       summary: Get session with participants
+      description: |
+        `teamId` is **required**: it scopes the read to a team the caller has an
+        actor in, so a session id from another team is a 404 at the query level
+        rather than relying on RLS alone to hide the row.
       tags: [Sessions]
       parameters:
         - $ref: "#/components/parameters/SessionId"
+        - name: teamId
+          in: query
+          required: true
+          description: The team the session belongs to.
+          schema:
+            type: string
+            format: uuid
       responses:
         "200":
           description: Session with participants.
@@ -1002,11 +1020,32 @@ paths:
     get:
       operationId: listMessages
       summary: List messages
+      description: |
+        One page of a session's history, walking **backward** from the newest
+        message: the default page is the tail of the conversation, and
+        `nextCursor` reaches further into the past. Messages inside a page are
+        ordered oldest-first, so a client can render them in order.
+
+        This endpoint was previously unbounded — it returned the entire history
+        and always reported `nextCursor: null`. A session with 6k messages
+        measured 6.1s / 3.7MB, 20k took 22.9s, and 40k exceeded the database
+        statement timeout and failed with a 500.
       tags: [Messages]
       parameters:
         - $ref: "#/components/parameters/SessionId"
+        - name: limit
+          in: query
+          description: Messages per page, counted back from the newest.
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 500
+            default: 200
         - name: cursor
           in: query
+          description: >-
+            From a previous response's `nextCursor`. Returns the page of
+            messages immediately OLDER than that page.
           schema:
             type: string
       responses:

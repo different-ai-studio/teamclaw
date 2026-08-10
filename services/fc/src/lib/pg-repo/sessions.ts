@@ -191,6 +191,13 @@ export function makeSessionsRepo(db: DbLike, ctx: SessionsCtx = {}, deps: Sessio
       limit?: number;
       cursor?: { lastMessageAt?: string | null; createdAt?: string; id?: string } | null;
     } = {}) {
+      // teamId is required, matching GET /v1/sessions and the supabase-repo
+      // path: a team is what identifies the caller's actor, and on the supabase
+      // side it is also the only thing that keeps the query on an index.
+      if (!teamId) {
+        throw new ApiError(400, "validation_failed", "teamId is required");
+      }
+
       // Resolve the caller's actor ids from the authenticated user.
       const actorIds = ctx.userId ? await resolveActorIdsForUser(ctx.userId) : [];
       if (actorIds.length === 0) {
@@ -305,8 +312,15 @@ export function makeSessionsRepo(db: DbLike, ctx: SessionsCtx = {}, deps: Sessio
     },
 
     // ── getSession ────────────────────────────────────────────────────────────
-    async getSession(sessionId: string) {
-      const [r] = await db.select().from(sessions).where(eq(sessions.id, sessionId)).limit(1);
+    // `teamId` is required by GET /v1/sessions/:sessionId and optional here, so
+    // the internal callers that already own the row can keep calling it with an
+    // id alone. Mirrors the supabase-repo signature.
+    async getSession(sessionId: string, { teamId }: { teamId?: string | null } = {}) {
+      const [r] = await db
+        .select()
+        .from(sessions)
+        .where(teamId ? and(eq(sessions.id, sessionId), eq(sessions.teamId, teamId)) : eq(sessions.id, sessionId))
+        .limit(1);
       if (!r) return null;
       const parts = await db
         .select()

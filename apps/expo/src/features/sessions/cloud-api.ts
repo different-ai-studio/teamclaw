@@ -175,7 +175,9 @@ export function createCloudSessionsApi(options: CreateCloudSessionsApiOptions) {
     fetchImpl: options.fetchImpl,
   });
 
-  return {
+  // Bound to a name so methods can call siblings (listMessages delegates to
+  // listMessagesPage) without `this` — callers destructure this object.
+  const api = {
     async listSessions(teamId: string, currentActorId?: string): Promise<SessionSummary[]> {
       // currentActorId is derived server-side from the bearer; kept for
       // signature parity with the legacy Supabase implementation.
@@ -205,12 +207,12 @@ export function createCloudSessionsApi(options: CreateCloudSessionsApiOptions) {
     },
 
     async getSession(teamId: string, sessionId: string): Promise<SessionSummary | null> {
-      // The session lookup is keyed by id alone; teamId is retained for
-      // signature parity.
-      void teamId;
+      // teamId is required on session reads — it resolves the caller's actor
+      // (one actor row per user per team) and scopes the lookup, so an id from
+      // another team is a 404 rather than an RLS-filtered empty row.
       try {
         const row = await client.get<CloudSessionFull>(
-          `/v1/sessions/${encodeURIComponent(sessionId)}`,
+          `/v1/sessions/${encodeURIComponent(sessionId)}?teamId=${encodeURIComponent(teamId)}`,
         );
         return mapSession(row);
       } catch (error) {
@@ -219,12 +221,34 @@ export function createCloudSessionsApi(options: CreateCloudSessionsApiOptions) {
       }
     },
 
-    async listMessages(teamId: string, sessionId: string): Promise<SessionMessage[]> {
+    // One page of history, newest-last, walking BACKWARD: no cursor gives the
+    // tail of the conversation and `nextCursor` reaches older pages. The server
+    // caps the page (it used to return the whole history, which took 6.1s /
+    // 3.7MB at 6k messages and 500'd past ~40k).
+    async listMessagesPage(
+      teamId: string,
+      sessionId: string,
+      opts: { limit?: number; cursor?: string | null } = {},
+    ): Promise<{ items: SessionMessage[]; nextCursor: string | null }> {
       void teamId;
-      const response = await client.get<{ items?: CloudMessage[] }>(
-        `/v1/sessions/${encodeURIComponent(sessionId)}/messages`,
+      const params = new URLSearchParams();
+      if (opts.limit != null) params.set("limit", String(opts.limit));
+      if (opts.cursor) params.set("cursor", opts.cursor);
+      const query = params.toString();
+      const response = await client.get<{ items?: CloudMessage[]; nextCursor?: string | null }>(
+        `/v1/sessions/${encodeURIComponent(sessionId)}/messages${query ? `?${query}` : ""}`,
       );
-      return (response.items ?? []).map(mapMessage);
+      return {
+        items: (response.items ?? []).map(mapMessage),
+        nextCursor: response.nextCursor ?? null,
+      };
+    },
+
+    // Convenience wrapper for callers that only want the current viewport.
+    // Deliberately NOT `this.listMessagesPage` — the api object gets picked
+    // apart into `deps.api`, so a `this` reference would break on the way.
+    async listMessages(teamId: string, sessionId: string): Promise<SessionMessage[]> {
+      return (await api.listMessagesPage(teamId, sessionId)).items;
     },
 
     async insertOutgoingMessage(input: OutgoingMessageInput): Promise<void> {
@@ -383,4 +407,6 @@ export function createCloudSessionsApi(options: CreateCloudSessionsApiOptions) {
       }
     },
   };
+
+  return api;
 }

@@ -311,3 +311,107 @@ test("insertMessage succeeds even when dispatchPush throws", async () => {
   const allMsgs = await repo.listMessages(session.id);
   assert.ok(allMsgs.some((m: any) => m.id === msg.id), "message should be in DB");
 });
+
+// ── listMessages pagination ───────────────────────────────────────────────────
+//
+// The endpoint used to fetch a session's whole history with no LIMIT and a
+// hardcoded `nextCursor: null`. Measured against the self-host box, 6k messages
+// took 6.1s / 3.7MB, 20k took 22.9s, and 40k blew the 8s statement_timeout and
+// returned a 500. A page is now the NEWEST `limit` messages, oldest-first, with
+// a cursor that walks backward into older ones.
+
+test("listMessages returns the NEWEST page, oldest-first within the page", async () => {
+  const { db } = await makeTestDb();
+  const team = await seedTeam(db);
+  const actor = await seedActor(db, team.id);
+  const repo = createPgBusinessRepository({ db });
+  const session = await seedSession(repo, team.id, actor.id);
+
+  for (let i = 1; i <= 10; i++) {
+    await repo.insertMessage(session.id, {
+      teamId: team.id,
+      kind: "text",
+      content: `m${i}`,
+      senderActorId: actor.id,
+      createdAt: new Date(Date.UTC(2026, 0, 1, 0, 0, i)).toISOString(),
+    });
+  }
+
+  const page = await repo.listMessages(session.id, { limit: 4 });
+  assert.deepEqual(
+    page.map((m: any) => m.content),
+    ["m7", "m8", "m9", "m10"],
+    "a page is the tail of the history, still in ascending order",
+  );
+});
+
+test("listMessages cursor walks backward through older messages without gaps", async () => {
+  const { db } = await makeTestDb();
+  const team = await seedTeam(db);
+  const actor = await seedActor(db, team.id);
+  const repo = createPgBusinessRepository({ db });
+  const session = await seedSession(repo, team.id, actor.id);
+
+  for (let i = 1; i <= 9; i++) {
+    await repo.insertMessage(session.id, {
+      teamId: team.id,
+      kind: "text",
+      content: `m${i}`,
+      senderActorId: actor.id,
+      createdAt: new Date(Date.UTC(2026, 0, 1, 0, 0, i)).toISOString(),
+    });
+  }
+
+  const seen: string[] = [];
+  let cursor: any = null;
+  for (let page = 0; page < 5; page++) {
+    const rows = await repo.listMessages(session.id, { limit: 4, cursor });
+    if (rows.length === 0) break;
+    seen.unshift(...rows.map((m: any) => m.content));
+    if (rows.length < 4) break;
+    cursor = { createdAt: rows[0].createdAt, id: rows[0].id };
+  }
+
+  assert.deepEqual(
+    seen,
+    ["m1", "m2", "m3", "m4", "m5", "m6", "m7", "m8", "m9"],
+    "walking the cursor must reassemble the full history exactly once",
+  );
+});
+
+test("listMessages cursor breaks ties on id when createdAt collides", async () => {
+  const { db } = await makeTestDb();
+  const team = await seedTeam(db);
+  const actor = await seedActor(db, team.id);
+  const repo = createPgBusinessRepository({ db });
+  const session = await seedSession(repo, team.id, actor.id);
+
+  // Same timestamp on every row: only the id tiebreak keeps paging moving.
+  const sameInstant = new Date(Date.UTC(2026, 0, 1, 12, 0, 0)).toISOString();
+  for (let i = 1; i <= 6; i++) {
+    await repo.insertMessage(session.id, {
+      teamId: team.id,
+      kind: "text",
+      content: `same${i}`,
+      senderActorId: actor.id,
+      createdAt: sameInstant,
+    });
+  }
+
+  const first = await repo.listMessages(session.id, { limit: 3 });
+  assert.equal(first.length, 3);
+  const second = await repo.listMessages(session.id, {
+    limit: 3,
+    cursor: { createdAt: first[0].createdAt, id: first[0].id },
+  });
+
+  const firstIds = first.map((m: any) => m.id);
+  const secondIds = second.map((m: any) => m.id);
+  assert.equal(second.length, 3, "the second page must not stall on a tie");
+  assert.equal(
+    firstIds.filter((id: string) => secondIds.includes(id)).length,
+    0,
+    "pages must not overlap",
+  );
+  assert.equal(new Set([...firstIds, ...secondIds]).size, 6, "all rows seen exactly once");
+});

@@ -1010,7 +1010,14 @@ impl Backend for CloudApiBackend {
             #[serde(default)]
             participants: Vec<CloudParticipant>,
         }
-        let s: CloudSession = self.get(&format!("/v1/sessions/{session_id}")).await?;
+        // teamId is required on session reads: it is what resolves the caller's
+        // actor (one actor row per user per team) and scopes the row server-side.
+        let s: CloudSession = self
+            .get(&format!(
+                "/v1/sessions/{session_id}?teamId={}",
+                self.cfg.team_id
+            ))
+            .await?;
         let session_id_str = s.id.clone();
         let session = BackendSessionRow {
             id: s.id,

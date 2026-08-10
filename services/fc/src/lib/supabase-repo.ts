@@ -2,6 +2,7 @@ import { randomUUID } from "node:crypto";
 import { createClient as defaultCreateClient } from "@supabase/supabase-js";
 import { verifyTrustedExternalJwt } from "./trusted-external-jwt.js";
 import { ApiError } from "./http-utils.js";
+import { DEFAULT_MESSAGE_LIST_LIMIT } from "./routing-utils.js";
 
 /**
  * Device ids that are not identities. Clients emit these when they cannot read
@@ -1105,14 +1106,20 @@ export function createSupabaseBusinessRepository(options) {
     },
 
     async getTeamDirectory(teamId) {
+      // Column names here are PostgREST aliases, not a rename: `actor_directory`
+      // exposes the discriminator as `actor_type` and `team_members` keys the
+      // actor as `member_id`. Selecting the mapper-side names directly (`kind`,
+      // `actor_id`) made this endpoint a guaranteed 500 — "column
+      // actor_directory.kind does not exist" — at any team size. Aliasing keeps
+      // mapActor/mapTeamMember and the response shape untouched.
       const [actorsRes, membersRes] = await Promise.all([
         supabase
           .from("actor_directory")
-          .select("id, team_id, kind, display_name, avatar_url, metadata")
+          .select("id, team_id, kind:actor_type, display_name, avatar_url")
           .eq("team_id", teamId),
         supabase
           .from("team_members")
-          .select("actor_id, team_id, role, joined_at")
+          .select("actor_id:member_id, team_id, role, joined_at")
           .eq("team_id", teamId),
       ]);
       if (actorsRes.error) throw actorsRes.error;
@@ -1125,15 +1132,18 @@ export function createSupabaseBusinessRepository(options) {
 
     async listSessions({ limit = 50, cursor = null, teamId = null, ideaId = null }: any = {}) {
       // p_team_id is what resolves the caller's actor as of 20260804020000,
-      // since a user has one actor row per team. Callers that predate that
-      // change send no teamId; they get the deprecated un-scoped RPC, which
-      // reproduces the old every-team list on the corrected identity (all of
-      // the caller's actors, not the oldest one). Delete this branch — and the
-      // function behind it — once no released client omits teamId.
-      const rpcName = teamId
-        ? "list_current_actor_sessions"
-        : "list_current_actor_sessions_all_teams";
-      const { data, error } = await supabase.rpc(rpcName, {
+      // since a user has one actor row per team. It is also load-bearing for
+      // performance: only the team-scoped RPC can walk
+      // `sessions_team_active_last_message_idx` and stop at `limit`. The
+      // un-scoped `list_current_actor_sessions_all_teams` fallback that used to
+      // serve callers without a teamId joined every participant row the caller
+      // had, RLS-checked each one, then sorted — O(N), 4.5s at 6k sessions and a
+      // statement_timeout 500 past ~13k. It is gone; the route rejects a missing
+      // teamId with a 400 before reaching here.
+      if (!teamId) {
+        throw new ApiError(400, "validation_failed", "teamId is required");
+      }
+      const { data, error } = await supabase.rpc("list_current_actor_sessions", {
         p_limit: limit,
         p_before_last_message_at: cursor?.lastMessageAt ?? null,
         p_before_created_at: cursor?.createdAt ?? null,
@@ -1141,23 +1151,36 @@ export function createSupabaseBusinessRepository(options) {
         // Narrowing happens inside the RPC (20260802000000). Doing it there
         // rather than post-filtering keeps the result correct under pagination
         // and is what lets this replace GET /v1/teams/:teamId/sessions.
-        ...(teamId ? { p_team_id: teamId } : {}),
+        p_team_id: teamId,
         p_idea_id: ideaId ?? null,
       });
       if (error) throw error;
       return (data ?? []).map(mapSession);
     },
 
-    async listMessages(sessionId) {
-      const query = supabase
+    // Newest-first on the way out of Postgres so `limit` truncates the OLD end
+    // of the history, then reversed so the page itself reads oldest-first — the
+    // order every client already renders in. Fetching ascending and slicing
+    // would keep the wrong end.
+    async listMessages(sessionId, { limit = DEFAULT_MESSAGE_LIST_LIMIT, cursor = null }: any = {}) {
+      let query = supabase
         .from("messages")
         .select(MESSAGE_COLUMNS)
         .eq("session_id", sessionId);
+      if (cursor?.createdAt) {
+        // Keyset: strictly before (createdAt, id). PostgREST has no row-value
+        // comparison, so express it as the equivalent OR — earlier timestamp, or
+        // same timestamp with a smaller id.
+        query = query.or(
+          `created_at.lt.${cursor.createdAt},and(created_at.eq.${cursor.createdAt},id.lt.${cursor.id})`,
+        );
+      }
       const { data, error } = await query
-        .order("created_at", { ascending: true })
-        .order("id", { ascending: true });
+        .order("created_at", { ascending: false })
+        .order("id", { ascending: false })
+        .limit(limit);
       if (error) throw error;
-      return (data ?? []).map(mapMessage);
+      return (data ?? []).map(mapMessage).reverse();
     },
 
     async insertMessage(sessionId, input) {
@@ -2056,12 +2079,17 @@ export function createSupabaseBusinessRepository(options) {
 
     // --- Sessions CRUD (single-session ops; list uses listSessions above) ---
 
-    async getSession(sessionId) {
-      const { data, error } = await supabase
+    async getSession(sessionId, { teamId = null }: any = {}) {
+      // `teamId` is supplied by GET /v1/sessions/:sessionId, where it is
+      // required. It stays optional on this method because the internal callers
+      // below (joinSession, createSession) already know the row is theirs and
+      // have no team in hand at that point.
+      let query = supabase
         .from("sessions")
         .select(SESSION_FULL_COLUMNS)
-        .eq("id", sessionId)
-        .maybeSingle();
+        .eq("id", sessionId);
+      if (teamId) query = query.eq("team_id", teamId);
+      const { data, error } = await query.maybeSingle();
       if (error) throw error;
       return data ? mapSessionFull(data) : null;
     },

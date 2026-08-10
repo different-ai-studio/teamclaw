@@ -62,6 +62,57 @@ export function nextSyncCursor(items, limit) {
   });
 }
 
+// Message history has its own limits because its page is a chat viewport, not a
+// list row: 200 is roughly what a client renders on open, where 50 would force
+// an immediate second round-trip. Before this existed the endpoint had no limit
+// at all and returned the whole history — 6k messages measured 6.1s / 3.7MB, 20k
+// took 22.9s, and 40k exceeded the 8s statement_timeout and 500'd.
+export const DEFAULT_MESSAGE_LIST_LIMIT = 200;
+export const MAX_MESSAGE_LIST_LIMIT = 500;
+
+// A message page walks BACKWARD from the newest message, because that is what a
+// chat opens on: the first page is the tail of the history, and `nextCursor`
+// reaches further into the past. Items inside a page stay oldest-first so
+// clients can keep rendering them in order.
+export function decodeMessageCursor(value) {
+  if (!value) return null;
+  try {
+    const parsed = JSON.parse(Buffer.from(value, "base64url").toString("utf8"));
+    if (!parsed || typeof parsed !== "object") throw new Error("not an object");
+    return {
+      createdAt: optionalStringOrNull(parsed.createdAt, "cursor.createdAt"),
+      id: optionalStringOrNull(parsed.id, "cursor.id"),
+    };
+  } catch (cause) {
+    throw new ApiError(400, "validation_failed", "Invalid cursor", { cause });
+  }
+}
+
+// The cursor points at the OLDEST row on the page (items[0]) — that is the
+// boundary the next, older page continues from.
+export function nextMessageCursor(items, limit) {
+  if (!Array.isArray(items) || items.length < limit) return null;
+  const oldest = items[0];
+  if (!oldest) return null;
+  return encodeCursor({
+    createdAt: oldest.createdAt ?? oldest.created_at ?? null,
+    id: oldest.id,
+  });
+}
+
+export function parseMessageLimit(value) {
+  if (value === null || value === undefined || value === "") return DEFAULT_MESSAGE_LIST_LIMIT;
+  const limit = Number(value);
+  if (!Number.isInteger(limit) || limit < 1 || limit > MAX_MESSAGE_LIST_LIMIT) {
+    throw new ApiError(
+      400,
+      "validation_failed",
+      `limit must be an integer from 1 to ${MAX_MESSAGE_LIST_LIMIT}`,
+    );
+  }
+  return limit;
+}
+
 export function parseLimit(value) {
   if (value === null || value === undefined || value === "") return DEFAULT_LIST_LIMIT;
   const limit = Number(value);

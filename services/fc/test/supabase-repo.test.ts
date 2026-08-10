@@ -6,6 +6,7 @@ import {
   createSupabaseAuthRepository,
   publishableKeyFromEnv,
 } from "../src/lib/supabase-repo.js";
+import { DEFAULT_MESSAGE_LIST_LIMIT } from "../src/lib/routing-utils.js";
 
 test("createSupabaseBusinessRepository creates caller-scoped Supabase client", async () => {
   const calls = [];
@@ -244,18 +245,20 @@ test("repository throws upstream errors without hiding Supabase error codes", as
 
 // Released clients that predate 20260804020000 send no teamId. They must keep
 // getting a list rather than an error, via the deprecated un-scoped RPC.
-test("listSessions falls back to the un-scoped rpc when no teamId is given", async () => {
+// The un-scoped rpc this used to assert on is dropped in
+// 20260810010000_drop_unscoped_session_list.sql. Without a team the query has no
+// index to walk, so it scanned every participant row the caller had and sorted:
+// 4.5s at 6k sessions, statement_timeout 500 past ~13k. Reject instead of
+// reaching for a query that cannot scale.
+test("listSessions refuses to run without a teamId", async () => {
   const rpcCalls: any[] = [];
-  const repo = createRepo(fakeSupabase({
-    rpcCalls,
-    rpcData: { list_current_actor_sessions_all_teams: [] },
-  }));
+  const repo = createRepo(fakeSupabase({ rpcCalls, rpcData: {} }));
 
-  await repo.listSessions({ limit: 10 });
-
-  assert.equal(rpcCalls.length, 1);
-  assert.equal(rpcCalls[0].name, "list_current_actor_sessions_all_teams");
-  assert.ok(!("p_team_id" in rpcCalls[0].args), "un-scoped rpc takes no p_team_id");
+  await assert.rejects(
+    () => repo.listSessions({ limit: 10 }),
+    (err: any) => err?.statusCode === 400 && err?.code === "validation_failed",
+  );
+  assert.equal(rpcCalls.length, 0, "must not issue an un-scoped rpc");
 });
 
 test("createSupabaseAuthRepository refreshAccessToken calls Supabase auth endpoint", async () => {
@@ -336,6 +339,77 @@ function fakeSupabaseForShareMode(rpcData, rpcCalls = []) {
     auth: OWNER_AUTH.auth,
   });
 }
+
+// ── listMessages pagination ──────────────────────────────────────────────────
+// The query fetches NEWEST-first so `limit` truncates the old end of a long
+// history, then reverses so the page reads oldest-first. Fetching ascending and
+// slicing would keep the wrong end of a 6k-message session.
+
+function msgRow(id: string, createdAt: string) {
+  return {
+    id,
+    team_id: "team-1",
+    session_id: "session-1",
+    kind: "text",
+    content: id,
+    created_at: createdAt,
+  };
+}
+
+test("listMessages fetches the newest page descending and returns it oldest-first", async () => {
+  const tableCalls: any[] = [];
+  const repo = createRepo(fakeSupabase({
+    tableCalls,
+    // What Postgres would hand back for ORDER BY created_at DESC.
+    tableData: {
+      messages: [
+        msgRow("m3", "2026-05-27T00:00:03Z"),
+        msgRow("m2", "2026-05-27T00:00:02Z"),
+        msgRow("m1", "2026-05-27T00:00:01Z"),
+      ],
+    },
+  }));
+
+  const rows = await repo.listMessages("session-1", { limit: 3 });
+
+  assert.deepEqual(rows.map((r: any) => r.id), ["m1", "m2", "m3"], "page reads oldest-first");
+  const orders = tableCalls.filter((c) => c.op === "order");
+  assert.deepEqual(
+    orders.map((o) => [o.column, o.options.ascending]),
+    [["created_at", false], ["id", false]],
+    "must sort descending so the limit cuts the OLD end",
+  );
+  assert.ok(tableCalls.some((c) => c.op === "limit" && c.count === 3), "limit must reach the query");
+});
+
+test("listMessages applies a default limit when the caller gives none", async () => {
+  const tableCalls: any[] = [];
+  const repo = createRepo(fakeSupabase({ tableCalls, tableData: { messages: [] } }));
+
+  await repo.listMessages("session-1");
+
+  assert.ok(
+    tableCalls.some((c) => c.op === "limit" && c.count === DEFAULT_MESSAGE_LIST_LIMIT),
+    "an omitted limit must not mean 'the entire history'",
+  );
+});
+
+test("listMessages cursor asks for strictly older rows, tiebroken on id", async () => {
+  const tableCalls: any[] = [];
+  const repo = createRepo(fakeSupabase({ tableCalls, tableData: { messages: [] } }));
+
+  await repo.listMessages("session-1", {
+    limit: 2,
+    cursor: { createdAt: "2026-05-27T00:00:02Z", id: "m-9" },
+  });
+
+  const or = tableCalls.find((c) => c.op === "or");
+  assert.equal(
+    or?.expr,
+    "created_at.lt.2026-05-27T00:00:02Z,and(created_at.eq.2026-05-27T00:00:02Z,id.lt.m-9)",
+    "PostgREST has no row-value comparison, so the keyset is an explicit OR",
+  );
+});
 
 test("createTeam routes to create_team with the caller's JWT org as fallback", async () => {
   const rpcCalls = [];
@@ -1203,6 +1277,10 @@ function createSelectableQuery(table, calls, data, error) {
     },
     in(column, values) {
       calls.push({ table, op: "in", column, values });
+      return query;
+    },
+    or(expr) {
+      calls.push({ table, op: "or", expr });
       return query;
     },
     single() {

@@ -1,4 +1,9 @@
-import type { MessageHistoryRow, MessagesBackend, OutgoingMessageInput } from "../types";
+import type {
+  MessageHistoryPage,
+  MessageHistoryRow,
+  MessagesBackend,
+  OutgoingMessageInput,
+} from "../types";
 import type { CloudApiClient } from "./http";
 
 type CloudMessage = {
@@ -37,11 +42,21 @@ function mapMessage(row: CloudMessage): MessageHistoryRow {
 
 export function createMessagesModule(client: CloudApiClient): MessagesBackend {
   return {
-    async listMessages(sessionId: string): Promise<MessageHistoryRow[]> {
+    // Paginated backward from the newest message: no `cursor` yields the tail of
+    // the history, and `nextCursor` walks into older pages. The server caps the
+    // page, so omitting `limit` is not "give me everything" any more.
+    async listMessages(
+      sessionId: string,
+      opts: { limit?: number; cursor?: string | null } = {},
+    ): Promise<MessageHistoryPage> {
+      const params = new URLSearchParams();
+      if (opts.limit != null) params.set("limit", String(opts.limit));
+      if (opts.cursor) params.set("cursor", opts.cursor);
+      const query = params.toString();
       const page = await client.get<Page<CloudMessage>>(
-        `/v1/sessions/${encodeURIComponent(sessionId)}/messages`,
+        `/v1/sessions/${encodeURIComponent(sessionId)}/messages${query ? `?${query}` : ""}`,
       );
-      return page.items.map(mapMessage);
+      return { rows: page.items.map(mapMessage), nextCursor: page.nextCursor ?? null };
     },
     async insertOutgoingMessage(input: OutgoingMessageInput): Promise<MessageHistoryRow> {
       const message = await client.post<CloudMessage>(

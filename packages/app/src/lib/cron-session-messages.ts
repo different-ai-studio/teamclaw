@@ -123,7 +123,7 @@ export async function hydrateCronSessionMessages(
 ): Promise<number> {
   let rows: MessageHistoryRow[] = [];
   try {
-    rows = await getBackend().messages.listMessages(sessionId);
+    rows = (await getBackend().messages.listMessages(sessionId)).rows;
   } catch (error) {
     console.warn(
       "[cron-session] cloud listMessages failed:",

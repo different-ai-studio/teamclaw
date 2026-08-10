@@ -272,9 +272,25 @@ export interface MessageSyncRow {
   updated_at: string;
 }
 
+/**
+ * One page of history, walking backward from the newest message.
+ *
+ * `rows` is oldest-first (what the transcript renders); `nextCursor` reaches the
+ * page immediately OLDER than this one, and is null once the session's start is
+ * reached. GET /v1/sessions/:id/messages used to return the entire history in
+ * one response — 6k messages measured 6.1s / 3.7MB and 40k timed out into a 500.
+ */
+export interface MessageHistoryPage {
+  rows: MessageHistoryRow[];
+  nextCursor: string | null;
+}
+
 export interface MessagesBackend {
   insertOutgoingMessage(input: OutgoingMessageInput): Promise<MessageHistoryRow>;
-  listMessages(sessionId: string): Promise<MessageHistoryRow[]>;
+  listMessages(
+    sessionId: string,
+    opts?: { limit?: number; cursor?: string | null },
+  ): Promise<MessageHistoryPage>;
   updateMessageContent(messageId: string, content: string): Promise<void>;
   listMessagesForSessionSince(sessionId: string, updatedAfter?: string | null): Promise<MessageSyncRow[]>;
 }

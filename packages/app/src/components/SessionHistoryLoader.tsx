@@ -154,7 +154,7 @@ export function SessionHistoryLoader() {
 
         let historyRows;
         try {
-          historyRows = await getBackend().messages.listMessages(currentSessionId);
+          historyRows = (await getBackend().messages.listMessages(currentSessionId)).rows;
         } catch (error) {
           console.warn(
             "[history] load failed:",
@@ -204,7 +204,7 @@ export function SessionHistoryLoader() {
       // ── Non-Tauri web: full backend pull ──────────────────────────
       let historyRows;
       try {
-        historyRows = await getBackend().messages.listMessages(currentSessionId);
+        historyRows = (await getBackend().messages.listMessages(currentSessionId)).rows;
       } catch (error) {
         console.warn("[history] load failed:", error instanceof Error ? error.message : error);
         if (!cancelled) {
