@@ -8,6 +8,7 @@ import type { ConnectedAgentsStoreState } from "../../../src/features/actors/con
 import { ActorsListScreen } from "../../../src/features/actors/screens/ActorsListScreen";
 import { supabase } from "../../../src/lib/supabase/client";
 import { supabaseAccessToken } from "../../../src/lib/cloud-api/client";
+import { useTabBarInset } from "../../../src/ui/use-tab-bar-inset";
 
 /** Stable no-op store so `useSyncExternalStore` can run before MQTT connects. */
 const noopSubscribe = () => () => {};
@@ -20,6 +21,7 @@ const EMPTY_AGENTS_STATE: ConnectedAgentsStoreState = {
 const emptyAgentsState = () => EMPTY_AGENTS_STATE;
 
 export default function ActorsIndexRoute() {
+  const tabBarInset = useTabBarInset();
   const router = useRouter();
   const { state } = useOnboarding();
   const href = routeToHref(state.route);
@@ -74,6 +76,7 @@ export default function ActorsIndexRoute() {
 
   return (
     <ActorsListScreen
+      bottomInset={tabBarInset}
       currentActorId={state.currentMemberActorId}
       onInvite={() => router.push("/(app)/invite")}
       onLoad={() => {

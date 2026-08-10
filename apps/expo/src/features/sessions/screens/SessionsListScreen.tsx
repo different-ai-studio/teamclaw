@@ -27,6 +27,8 @@ import { SessionRow, type SessionRowRuntime } from "../components/SessionRow";
 import type { SessionGroup, SessionsListState } from "../session-types";
 
 type SessionsListScreenProps = {
+  /** Extra bottom inset so content clears the floating tab bar. */
+  bottomInset?: number;
   onArchiveBatch?: (sessionIds: string[]) => Promise<void>;
   actorGlyphById?: ReadonlyMap<string, string>;
   hasAgents?: boolean;
@@ -150,6 +152,7 @@ function HeaderBar({
 }
 
 export function SessionsListScreen({
+  bottomInset = 0,
   actorGlyphById,
   brokerHost,
   daemonConnectionState,
@@ -337,7 +340,7 @@ export function SessionsListScreen({
   if (state.status === "loading" || (state.status === "idle" && state.sessions.length === 0)) {
     return (
       <ScrollView
-        contentContainerStyle={styles.content}
+        contentContainerStyle={[styles.content, { paddingBottom: bottomInset + spacing.xxxl }]}
         refreshControl={
           <RefreshControl
             onRefresh={onRefresh}
@@ -361,7 +364,7 @@ export function SessionsListScreen({
 
   if (state.status === "error" && state.sessions.length === 0) {
     return (
-      <ScrollView contentContainerStyle={styles.content} style={styles.screen}>
+      <ScrollView contentContainerStyle={[styles.content, { paddingBottom: bottomInset + spacing.xxxl }]} style={styles.screen}>
         {headerBar}
         {placeholderMessage ? <Text style={styles.feedback}>{placeholderMessage}</Text> : null}
         <View style={styles.stateBlock}>
@@ -381,7 +384,7 @@ export function SessionsListScreen({
   return (
     <View style={styles.screen}>
     <ScrollView
-      contentContainerStyle={styles.content}
+      contentContainerStyle={[styles.content, { paddingBottom: bottomInset + spacing.xxxl }]}
       keyboardDismissMode="interactive"
       keyboardShouldPersistTaps="handled"
       refreshControl={

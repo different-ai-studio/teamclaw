@@ -29,6 +29,7 @@ import {
 import { supabase } from "../../../../src/lib/supabase/client";
 import { getKnownMqttUrl } from "../../../../src/lib/mqtt/config";
 import type { ConnectionState } from "../../../../src/lib/mqtt/team-mqtt";
+import { useTabBarInset } from "../../../../src/ui/use-tab-bar-inset";
 
 /** Host portion of the broker URL — iOS shows `pairing.brokerHost`, not the URL. */
 function brokerHostLabel(url: string | null): string {
@@ -48,6 +49,7 @@ const EMPTY_AGENTS_STATE: ConnectedAgentsStoreState = {
 const emptyAgentsState = () => EMPTY_AGENTS_STATE;
 
 export default function SessionsIndexRoute() {
+  const tabBarInset = useTabBarInset();
   const router = useRouter();
   const { state } = useOnboarding();
   const href = routeToHref(state.route);
@@ -215,6 +217,7 @@ export default function SessionsIndexRoute() {
   return (
     <>
     <SessionsListScreen
+      bottomInset={tabBarInset}
       actorGlyphById={actorGlyphById}
       brokerHost={brokerHostLabel(getKnownMqttUrl())}
       daemonConnectionState={daemonState}

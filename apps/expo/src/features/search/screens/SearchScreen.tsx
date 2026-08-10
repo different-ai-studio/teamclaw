@@ -31,6 +31,8 @@ import {
 import { matchesAnyField, matchesQuery } from "../search-matcher";
 
 export type SearchScreenProps = {
+  /** Extra bottom inset so content clears the floating tab bar. */
+  bottomInset?: number;
   actors: Actor[];
   ideas: Idea[];
   isLoading: boolean;
@@ -45,6 +47,7 @@ function HeaderBar() {
 }
 
 export function SearchScreen({
+  bottomInset = 0,
   actors,
   ideas,
   isLoading,
@@ -107,7 +110,7 @@ export function SearchScreen({
 
   return (
     <ScrollView
-      contentContainerStyle={styles.content}
+      contentContainerStyle={[styles.content, { paddingBottom: bottomInset + spacing.xxxl }]}
       keyboardDismissMode="interactive"
       keyboardShouldPersistTaps="handled"
       style={styles.screen}

@@ -11,8 +11,10 @@ import { createConfiguredSessionsApi } from "../../../src/features/sessions/api-
 import type { SessionSummary } from "../../../src/features/sessions/session-types";
 import { supabase } from "../../../src/lib/supabase/client";
 import { supabaseAccessToken } from "../../../src/lib/cloud-api/client";
+import { useTabBarInset } from "../../../src/ui/use-tab-bar-inset";
 
 export default function SearchIndexRoute() {
+  const tabBarInset = useTabBarInset();
   const router = useRouter();
   const { state } = useOnboarding();
   const href = routeToHref(state.route);
@@ -65,6 +67,7 @@ export default function SearchIndexRoute() {
 
   return (
     <SearchScreen
+      bottomInset={tabBarInset}
       actors={actors}
       ideas={ideas}
       isLoading={isLoading}

@@ -32,6 +32,8 @@ import { matchesQuery } from "../../search/search-matcher";
 type Filter = "all" | "humans" | "agents";
 
 export type ActorsListScreenProps = {
+  /** Extra bottom inset so content clears the floating tab bar. */
+  bottomInset?: number;
   currentActorId: string | null;
   onInvite?: () => void;
   onLoad: () => void;
@@ -120,6 +122,7 @@ function Section({
 }
 
 export function ActorsListScreen({
+  bottomInset = 0,
   currentActorId,
   onInvite,
   onLoad,
@@ -167,7 +170,7 @@ export function ActorsListScreen({
   if (state.status === "loading" || (state.status === "idle" && state.actors.length === 0)) {
     return (
       <ScrollView
-        contentContainerStyle={styles.content}
+        contentContainerStyle={[styles.content, { paddingBottom: bottomInset + spacing.xxxl }]}
         refreshControl={
           <RefreshControl
             onRefresh={onRefresh}
@@ -189,7 +192,7 @@ export function ActorsListScreen({
 
   if (state.status === "error" && state.actors.length === 0) {
     return (
-      <ScrollView contentContainerStyle={styles.content} style={styles.screen}>
+      <ScrollView contentContainerStyle={[styles.content, { paddingBottom: bottomInset + spacing.xxxl }]} style={styles.screen}>
         {headerBar}
         <View style={styles.stateBlock}>
           <Text style={styles.stateTitle}>Couldn't load actors</Text>
@@ -202,7 +205,7 @@ export function ActorsListScreen({
 
   return (
     <ScrollView
-      contentContainerStyle={styles.content}
+      contentContainerStyle={[styles.content, { paddingBottom: bottomInset + spacing.xxxl }]}
       keyboardDismissMode="interactive"
       keyboardShouldPersistTaps="handled"
       refreshControl={

@@ -7,6 +7,7 @@ import {
   getUnreadSessionCount,
   subscribeUnreadSessionCount,
 } from "../../../src/features/sessions/unread-store";
+import { GlassSurface } from "../../../src/ui/GlassSurface";
 import { colors, typography } from "../../../src/ui/theme";
 
 type TabIconProps = {
@@ -38,7 +39,12 @@ export default function TabsLayout() {
         tabBarActiveTintColor: colors.cinnabar,
         tabBarInactiveTintColor: colors.slate,
         tabBarLabelStyle: styles.label,
+        // Transparent and absolutely positioned so content passes *under* the
+        // bar — without that there is nothing for the blur to sample and the
+        // glass reads as a flat fill. Screens make room via
+        // `useTabContentBottomInset`.
         tabBarStyle: styles.bar,
+        tabBarBackground: () => <GlassSurface style={styles.barBackground} />,
         sceneStyle: styles.scene,
       }}
     >
@@ -83,9 +89,19 @@ export default function TabsLayout() {
 
 const styles = StyleSheet.create({
   bar: {
-    backgroundColor: colors.paper,
+    backgroundColor: "transparent",
     borderTopColor: colors.hairline,
     borderTopWidth: StyleSheet.hairlineWidth,
+    elevation: 0,
+    position: "absolute",
+  },
+  barBackground: {
+    // iOS's fallback pairs the material with a soft shadow rather than a hard
+    // edge; the hairline above carries the boundary.
+    shadowColor: colors.onyx,
+    shadowOffset: { width: 0, height: -3 },
+    shadowOpacity: 0.08,
+    shadowRadius: 10,
   },
   label: {
     ...typography.monoMeta,

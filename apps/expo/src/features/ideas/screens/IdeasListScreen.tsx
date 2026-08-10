@@ -38,6 +38,8 @@ import {
 type Filter = "all" | "mine" | "open" | "done";
 
 export type IdeasListScreenProps = {
+  /** Extra bottom inset so content clears the floating tab bar. */
+  bottomInset?: number;
   actorNames?: ReadonlyMap<string, string>;
   currentActorId: string | null;
   onArchiveBatch?: (ideaIds: string[]) => Promise<void>;
@@ -112,6 +114,7 @@ function HeaderBar({
 }
 
 export function IdeasListScreen({
+  bottomInset = 0,
   actorNames,
   currentActorId,
   onArchiveBatch,
@@ -281,7 +284,7 @@ export function IdeasListScreen({
   if (state.status === "loading" || (state.status === "idle" && state.ideas.length === 0)) {
     return (
       <ScrollView
-        contentContainerStyle={styles.content}
+        contentContainerStyle={[styles.content, { paddingBottom: bottomInset + spacing.xxxl }]}
         refreshControl={
           <RefreshControl
             onRefresh={onRefresh}
@@ -303,7 +306,7 @@ export function IdeasListScreen({
 
   if (state.status === "error" && state.ideas.length === 0) {
     return (
-      <ScrollView contentContainerStyle={styles.content} style={styles.screen}>
+      <ScrollView contentContainerStyle={[styles.content, { paddingBottom: bottomInset + spacing.xxxl }]} style={styles.screen}>
         {headerBar}
         <View style={styles.stateBlock}>
           <Text style={styles.stateTitle}>Couldn't load ideas</Text>
@@ -317,7 +320,7 @@ export function IdeasListScreen({
   return (
     <View style={styles.screen}>
       <ScrollView
-      contentContainerStyle={styles.content}
+      contentContainerStyle={[styles.content, { paddingBottom: bottomInset + spacing.xxxl }]}
       keyboardDismissMode="interactive"
       keyboardShouldPersistTaps="handled"
       refreshControl={

@@ -10,8 +10,10 @@ import { IdeasListScreen } from "../../../src/features/ideas/screens/IdeasListSc
 import { supabase } from "../../../src/lib/supabase/client";
 import { supabaseAccessToken } from "../../../src/lib/cloud-api/client";
 import { showToast } from "../../../src/ui/Toast";
+import { useTabBarInset } from "../../../src/ui/use-tab-bar-inset";
 
 export default function IdeasIndexRoute() {
+  const tabBarInset = useTabBarInset();
   const router = useRouter();
   const { state } = useOnboarding();
   const href = routeToHref(state.route);
@@ -106,6 +108,7 @@ export default function IdeasIndexRoute() {
 
   return (
     <IdeasListScreen
+      bottomInset={tabBarInset}
       actorNames={actorNames}
       currentActorId={state.currentMemberActorId}
       onCreate={() => router.push("/(app)/new-idea")}
