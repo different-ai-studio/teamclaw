@@ -22,6 +22,7 @@ import { PageHeader } from "../../../ui/PageHeader";
 import { impactLight, selectionTick } from "../../../lib/haptics";
 import { colors, spacing, typography } from "../../../ui/theme";
 import { matchesAnyField } from "../../search/search-matcher";
+import { DaemonStatusBanner, type DaemonConnectionState } from "../components/DaemonStatusBanner";
 import { SessionRow, type SessionRowRuntime } from "../components/SessionRow";
 import type { SessionGroup, SessionsListState } from "../session-types";
 
@@ -43,6 +44,9 @@ type SessionsListScreenProps = {
   /** Workspace/worktree name per session, shown at the head of the meta strip. */
   workspaceBySessionId?: ReadonlyMap<string, string>;
   mutedSessionIds?: ReadonlySet<string>;
+  /** Daemon reachability, shown as a pill above the search field. */
+  daemonConnectionState?: DaemonConnectionState;
+  brokerHost?: string;
   onShortcuts?: () => void;
   selectedSessionId?: string | null;
   state: SessionsListState;
@@ -147,6 +151,8 @@ function HeaderBar({
 
 export function SessionsListScreen({
   actorGlyphById,
+  brokerHost,
+  daemonConnectionState,
   hasAgents = true,
   onArchiveBatch,
   onInviteAgent,
@@ -394,6 +400,15 @@ export function SessionsListScreen({
         <AppCard compact style={styles.banner}>
           <Text style={styles.bannerText}>{state.errorMessage}</Text>
         </AppCard>
+      ) : null}
+
+      {daemonConnectionState ? (
+        <View style={styles.daemonBanner}>
+          <DaemonStatusBanner
+            brokerHost={brokerHost}
+            connectionState={daemonConnectionState}
+          />
+        </View>
       ) : null}
 
       <View style={styles.searchField}>
@@ -652,6 +667,10 @@ const styles = StyleSheet.create({
   sessionRowInner: {
     alignItems: "center",
     flexDirection: "row",
+  },
+  daemonBanner: {
+    paddingHorizontal: spacing.lg,
+    paddingTop: spacing.sm,
   },
   searchField: {
     alignItems: "center",

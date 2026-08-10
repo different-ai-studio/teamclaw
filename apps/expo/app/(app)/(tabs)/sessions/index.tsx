@@ -2,7 +2,7 @@ import { Redirect, useFocusEffect, useRouter } from "expo-router";
 import { useCallback, useEffect, useRef, useState, useSyncExternalStore } from "react";
 import { Modal } from "react-native";
 
-import { routeToHref, useConnectedAgentsStore, useOnboarding } from "../../../_layout";
+import { routeToHref, useConnectedAgentsStore, useOnboarding, useTeamMqtt } from "../../../_layout";
 import { createActorsApi } from "../../../../src/features/actors/actor-api";
 import { supabaseAccessToken } from "../../../../src/lib/cloud-api/client";
 import {
@@ -27,6 +27,15 @@ import {
   openShortcutTarget,
 } from "../../../../src/features/shortcuts/ShortcutsDrawer";
 import { supabase } from "../../../../src/lib/supabase/client";
+import { getKnownMqttUrl } from "../../../../src/lib/mqtt/config";
+import type { ConnectionState } from "../../../../src/lib/mqtt/team-mqtt";
+
+/** Host portion of the broker URL — iOS shows `pairing.brokerHost`, not the URL. */
+function brokerHostLabel(url: string | null): string {
+  if (!url) return "";
+  const withoutScheme = url.replace(/^[a-z]+:\/\//i, "");
+  return withoutScheme.split("/")[0] ?? "";
+}
 
 /** Stable no-op store so `useSyncExternalStore` can run before MQTT connects. */
 const noopSubscribe = () => () => {};
@@ -177,6 +186,18 @@ export default function SessionsIndexRoute() {
     return <Redirect href="/" />;
   }
 
+  // Daemon reachability for the pill above the list. `useTeamMqtt` hands out the
+  // shared client, so this tracks the same connection the sessions stream uses.
+  const teamMqtt = useTeamMqtt();
+  const [daemonState, setDaemonState] = useState<ConnectionState>("disconnected");
+  useEffect(() => {
+    if (!teamMqtt) {
+      setDaemonState("disconnected");
+      return;
+    }
+    return teamMqtt.onConnectionState(setDaemonState);
+  }, [teamMqtt]);
+
   // Badge dot, status label and workspace name come off the live runtime, the
   // same three facts iOS reads from its per-session AgentAttachment.
   const agentsStore = useConnectedAgentsStore();
@@ -195,6 +216,8 @@ export default function SessionsIndexRoute() {
     <>
     <SessionsListScreen
       actorGlyphById={actorGlyphById}
+      brokerHost={brokerHostLabel(getKnownMqttUrl())}
+      daemonConnectionState={daemonState}
       runtimeBySessionId={runtimeBySessionId}
       workspaceBySessionId={workspaceBySessionId}
       hasAgents={hasAgents}

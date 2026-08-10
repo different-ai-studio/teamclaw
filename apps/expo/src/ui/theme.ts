@@ -199,6 +199,29 @@ export const iosType = {
   caption2Mono: { fontFamily: monoFontFamily, fontSize: 11, lineHeight: 13 },
 } as const;
 
+/**
+ * Animation tiers, ported from the iOS `AMUXAnimation`.
+ *
+ * SwiftUI expresses two of these as springs; RN's `Animated.timing` has no
+ * response/damping, so those carry their spring parameters for
+ * `Animated.spring` and a duration for callers that only need a timing curve.
+ *
+ * Anything that breathes or loops must also honour Reduce Motion — see
+ * `StatusDot` for the pattern.
+ */
+export const motion = {
+  /** Button press, icon flip — instant feedback, no spring. */
+  micro: { duration: 120 },
+  /** Popup appear, inline expand/collapse. */
+  fast: { duration: 280, response: 0.28, dampingFraction: 0.82 },
+  /** Panel open/close, mode switches. */
+  standard: { duration: 380, response: 0.38, dampingFraction: 0.86 },
+  /** Drawer slide. */
+  drawer: { duration: 420, response: 0.42, dampingFraction: 0.86 },
+  /** One full breathe cycle; halved per direction. */
+  breatheDuration: 1400,
+} as const;
+
 export const spacing = {
   xs: 4,
   sm: 8,
@@ -263,6 +286,7 @@ export const theme = {
   },
   typography,
   iosType,
+  motion,
   spacing,
   radii,
   shadows,

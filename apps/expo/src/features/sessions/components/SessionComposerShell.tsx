@@ -4,6 +4,7 @@ import { useState } from "react";
 import { Image, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from "react-native";
 
 import { colors, hai, radii, shadows, spacing, typography } from "../../../ui/theme";
+import { RecordingWaveform } from "./RecordingWaveform";
 import {
   buildComposerPresentation,
 } from "./session-composer-copy";
@@ -165,10 +166,7 @@ export function SessionComposerShell({
       {recordError ? (
         <Text style={styles.helperTextError}>{recordError}</Text>
       ) : recorder.isRecording ? (
-        <Text style={styles.helperText}>
-          Recording · {Math.floor(recorder.durationMs / 1000)}s — tap the stop
-          button to insert.
-        </Text>
+        <RecordingWaveform level={recorder.level} />
       ) : presentation.helperText ? (
         <Text style={styles.helperText}>{presentation.helperText}</Text>
       ) : null}
