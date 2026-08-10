@@ -35,8 +35,8 @@ Rows carrying two marks (`✅ header ◻ body`) are counted by their first, so t
 | Status | Count |
 |---|---|
 | ✅ verified | 62 |
-| ⚠ known gap | 3 |
-| ◻ unverified | 4 |
+| ⚠ known gap | 5 |
+| ◻ unverified | 2 |
 | ✖ missing | 1 |
 | **Total** | **70** |
 
@@ -162,8 +162,8 @@ entirely: it swept `Packages/` only. All six are auth/onboarding, none verified.
 | iOS | LOC | Expo | |
 |---|---|---|---|
 | `ChooseAuthView` | 309 | `onboarding/screens/ChooseAuthScreen.tsx` | ✅ same three routes (guest / sign in / invite), same invite-link parsing incl. legacy schemes |
-| `ContentView` | 382 | `app/_layout.tsx` + `app/index.tsx` | ◻ |
-| `LoginView` | 464 | `onboarding/screens/AuthScreen.tsx` | ◻ |
+| `ContentView` | 382 | `app/_layout.tsx` + `app/index.tsx` | ⚠ **no `selectTeam` route** — see below |
+| `LoginView` | 464 | `onboarding/screens/AuthScreen.tsx` | ⚠ email OTP, password, Apple and Google all wired; **no phone**, same root as `UpgradeAccountSheet` |
 | `OnboardingViews` | 94 | `onboarding/screens/CreateTeamScreen.tsx` | ✅ ⚠ Expo adds a guest/signed-in note iOS has no equivalent of, and its own copy — same fields and validation |
 | `OrgTeamPickerView` | 70 | `app/(app)/teams.tsx` + `membership-groups.ts` | ✅ |
 | `WelcomeView` | 168 | `onboarding/screens/WelcomeScreen.tsx` | ✅ same copy and role cards; brand casing fixed |
@@ -171,6 +171,32 @@ entirely: it swept `Packages/` only. All six are auth/onboarding, none verified.
 ---
 
 ## Every ⚠ in detail
+
+### `ContentView` — a multi-team user never gets to choose
+
+iOS routes five ways after auth; Expo has four. The missing one is
+`selectTeam`, and it is not a screen so much as a decision:
+
+- **iOS** adopts a remembered choice; otherwise, with more than one team, shows
+  the org-grouped picker; otherwise adopts the single team.
+- **Expo** `loadBootstrap` takes `items.find(t => t.isMember !== false)` — the
+  first team the listing happened to return — and activates it.
+
+So a user in several teams silently lands in one of them, with no indication a
+choice was made on their behalf. The Teams screen under Settings is the only
+way to notice, and only if they think to look. It compounds the org boundary
+noted on `OrgTeamPickerView`: the team picked for them may be in an org the
+session is not active in, which RLS then filters into an empty app.
+
+**Not built here.** It needs a route state, a reducer case, remembered-choice
+persistence, and the activate call moved out of bootstrap — all inside the one
+flow that gates access to the entire app, and the one flow that cannot be
+exercised from this machine (no credentials, and the simulator run stopped at
+the login screen for exactly that reason). An untested change here fails
+closed, for everyone, at launch.
+
+The screen half already exists: `teams.tsx` lists memberships grouped by org.
+What is missing is reaching it before "ready" rather than after.
 
 ### `UpgradeAccountSheet` — Expo cannot upgrade by phone
 
@@ -239,7 +265,7 @@ No iOS counterpart, and none needed: `app/(app)/mqtt-debug.tsx`,
 ## How to use this
 
 Work down the ◻ rows. Verifying one means opening both files side by side and
-either marking it ✅ or writing a ⚠ row with the specific difference. The 4
+either marking it ✅ or writing a ⚠ row with the specific difference. The 2
 unverified rows are the remaining Axis 6 work, and they are not evenly sized —
 `MemberListContent` (1598), `SessionDetailView` (993), `NewSessionSheet` (599)
 and `LoginView` (464) are most of the mass.
