@@ -1774,12 +1774,28 @@ function appsAuth(userId = "user-app-1") {
 
 // Stateful supabase double for apps tests. `seed` provides rows keyed by table.
 // `actorRow` is what the actors lookup (resolveCurrentMemberActor) returns.
+// Select filters (eq / is / in) are applied so workspace upsert dedup lookups
+// can find seeded rows the same way PostgREST would.
 function appsSupabase({ seed = {}, actorRow = { id: "actor-app-1" }, calls = [] }: any = {}) {
   const state: any = { apps: [...(seed.apps ?? [])], workspaces: [...(seed.workspaces ?? [])], sessions: [...(seed.sessions ?? [])] };
   return {
     auth: appsAuth(),
     from(table: string) {
-      const ctx: any = { table, op: null, filters: {} };
+      const ctx: any = { table, op: null, filters: {}, isFilters: {}, inFilters: {}, limitCount: null };
+      const matchRows = () => {
+        let rows = [...(state[table] ?? [])];
+        for (const [col, val] of Object.entries(ctx.filters)) {
+          rows = rows.filter((r) => r[col as string] === val);
+        }
+        for (const [col, val] of Object.entries(ctx.isFilters)) {
+          rows = rows.filter((r) => (val === null ? r[col as string] == null : r[col as string] === val));
+        }
+        for (const [col, vals] of Object.entries(ctx.inFilters)) {
+          rows = rows.filter((r) => (vals as any[]).includes(r[col as string]));
+        }
+        if (typeof ctx.limitCount === "number") rows = rows.slice(0, ctx.limitCount);
+        return rows;
+      };
       const builder: any = {
         select(columns: string) {
           calls.push({ table, op: ctx.op ? `${ctx.op}.select` : "select", columns });
@@ -1804,8 +1820,11 @@ function appsSupabase({ seed = {}, actorRow = { id: "actor-app-1" }, calls = [] 
           ctx.op = "upsert";
           calls.push({ table, op: "upsert", row, options });
           const upserted = { ...row, id: row.id ?? `${table}-id-1` };
-          state[table] = [upserted];
-          ctx.inserted = upserted;
+          if (!state[table]) state[table] = [];
+          const idx = state[table].findIndex((r: any) => r.id === upserted.id);
+          if (idx >= 0) state[table][idx] = { ...state[table][idx], ...upserted };
+          else state[table].push(upserted);
+          ctx.inserted = state[table].find((r: any) => r.id === upserted.id);
           return builder;
         },
         eq(column: string, value: any) {
@@ -1813,36 +1832,58 @@ function appsSupabase({ seed = {}, actorRow = { id: "actor-app-1" }, calls = [] 
           calls.push({ table, op: `${ctx.op ?? "select"}.eq`, column, value });
           return builder;
         },
+        is(column: string, value: any) {
+          ctx.isFilters[column] = value;
+          calls.push({ table, op: `${ctx.op ?? "select"}.is`, column, value });
+          return builder;
+        },
+        in(column: string, values: any[]) {
+          ctx.inFilters[column] = values;
+          calls.push({ table, op: `${ctx.op ?? "select"}.in`, column, values });
+          return builder;
+        },
         order() { return builder; },
         // Chainable like supabase-js: limit() returns the (thenable) builder so
         // a trailing .maybeSingle()/.single() still works; awaiting it yields the
-        // table rows (used by listApps).
-        limit() { return builder; },
+        // table rows (used by listApps / workspace dedup lookups).
+        limit(count: number) {
+          ctx.limitCount = count;
+          return builder;
+        },
         single() {
           if (ctx.op === "insert" || ctx.op === "upsert") return Promise.resolve({ data: ctx.inserted, error: null });
           if (ctx.op === "update") {
-            const base = state[table]?.[0] ?? {};
+            const matched = matchRows();
+            const base = matched[0] ?? state[table]?.[0] ?? {};
             const merged = { ...base, ...ctx.update };
-            state[table] = [merged];
+            if (base?.id) {
+              const idx = state[table].findIndex((r: any) => r.id === base.id);
+              if (idx >= 0) state[table][idx] = merged;
+              else state[table] = [merged];
+            } else {
+              state[table] = [merged];
+            }
             return Promise.resolve({ data: merged, error: null });
           }
           // plain select: actors lookup returns the actor row
           if (table === "actors") return Promise.resolve({ data: actorRow, error: null });
-          return Promise.resolve({ data: state[table]?.[0] ?? null, error: null });
+          return Promise.resolve({ data: matchRows()[0] ?? null, error: null });
         },
         maybeSingle() {
           if (table === "actors") return Promise.resolve({ data: actorRow, error: null });
           if (ctx.op === "update") {
-            const base = state[table]?.[0];
+            const matched = matchRows();
+            const base = matched[0];
             if (!base) return Promise.resolve({ data: null, error: null });
             const merged = { ...base, ...ctx.update };
-            state[table] = [merged];
+            const idx = state[table].findIndex((r: any) => r.id === base.id);
+            if (idx >= 0) state[table][idx] = merged;
             return Promise.resolve({ data: merged, error: null });
           }
-          return Promise.resolve({ data: state[table]?.[0] ?? null, error: null });
+          return Promise.resolve({ data: matchRows()[0] ?? null, error: null });
         },
         then(resolve: any, reject: any) {
-          return Promise.resolve({ data: state[table] ?? [], error: null }).then(resolve, reject);
+          return Promise.resolve({ data: matchRows(), error: null }).then(resolve, reject);
         },
       };
       return builder;
@@ -2113,7 +2154,7 @@ test("apps: listAppSessions returns the session-summary shape", async () => {
   const repo = appsRepo(appsSupabase({
     seed: {
       sessions: [{
-        id: "sess-1", team_id: "team-1", title: "Chat", mode: "collab",
+        id: "sess-1", team_id: "team-1", app_id: "app-1", title: "Chat", mode: "collab",
         last_message_at: "2026-06-13T01:00:00Z",
         created_at: "2026-06-13T00:00:00Z", updated_at: "2026-06-13T00:30:00Z",
       }],
@@ -2211,6 +2252,98 @@ test("upsertWorkspace returns 403 when the caller is not a member of the team", 
     () => repo.upsertWorkspace({ teamId: "team-b", name: "Nope", path: "/tmp/x" }),
     (err: any) => err?.statusCode === 403,
   );
+});
+
+test("upsertWorkspace without id reuses existing row by (teamId, path)", async () => {
+  // Regression: re-adding an already-synced workspace used to hit
+  // workspaces_team_id_agent_id_name_key because upsert only deduped on id.
+  const calls: any[] = [];
+  const repo = appsRepo(appsSupabase({
+    calls,
+    seed: {
+      workspaces: [{
+        id: "ws-existing",
+        team_id: "team-b",
+        name: "Alpha",
+        path: "/tmp/alpha",
+        agent_id: "agent-1",
+        archived: false,
+      }],
+    },
+  }));
+
+  const out = await repo.upsertWorkspace({
+    teamId: "team-b",
+    name: "Alpha Renamed",
+    path: "/tmp/alpha/",
+    agentId: "agent-1",
+  });
+
+  const upsert = calls.find((c) => c.table === "workspaces" && c.op === "upsert");
+  assert.equal(upsert?.row.id, "ws-existing");
+  assert.equal(upsert?.row.path, "/tmp/alpha", "trailing slash is normalized");
+  assert.equal(upsert?.row.name, "Alpha Renamed");
+  assert.equal(out.id, "ws-existing");
+});
+
+test("upsertWorkspace reuses archived row with the same name instead of inserting", async () => {
+  const calls: any[] = [];
+  const repo = appsRepo(appsSupabase({
+    calls,
+    seed: {
+      workspaces: [{
+        id: "ws-archived",
+        team_id: "team-b",
+        name: "legacy",
+        path: "/tmp/legacy",
+        agent_id: "agent-1",
+        archived: true,
+      }],
+    },
+  }));
+
+  const out = await repo.upsertWorkspace({
+    teamId: "team-b",
+    name: "legacy",
+    path: "/tmp/legacy-new",
+    agentId: "agent-1",
+    archived: false,
+  });
+
+  const upsert = calls.find((c) => c.table === "workspaces" && c.op === "upsert");
+  assert.equal(upsert?.row.id, "ws-archived");
+  assert.equal(upsert?.row.archived, false);
+  assert.equal(upsert?.row.path, "/tmp/legacy-new");
+  assert.equal(out.id, "ws-archived");
+});
+
+test("upsertWorkspace disambiguates name when same agent already has that name at another path", async () => {
+  const calls: any[] = [];
+  const repo = appsRepo(appsSupabase({
+    calls,
+    seed: {
+      workspaces: [{
+        id: "ws-active",
+        team_id: "team-b",
+        name: "teamclu",
+        path: "/Users/me/code/teamclu",
+        agent_id: "agent-1",
+        archived: false,
+      }],
+    },
+  }));
+
+  const out = await repo.upsertWorkspace({
+    teamId: "team-b",
+    name: "teamclu",
+    path: "/Users/me/other/teamclu",
+    agentId: "agent-1",
+  });
+
+  const upsert = calls.find((c) => c.table === "workspaces" && c.op === "upsert");
+  assert.equal(upsert?.row.name, "teamclu (2)");
+  assert.notEqual(upsert?.row.id, "ws-active");
+  assert.equal(out.name, "teamclu (2)");
 });
 
 test("createSession is server-authoritative for created_by (ignores client createdByActorId)", async () => {
