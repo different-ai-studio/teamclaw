@@ -1,4 +1,5 @@
 import { createClient as createSupabaseClient } from '@supabase/supabase-js';
+import { REALTIME_TRANSPORT_OPTS } from './supabase-repo/shared.js';
 import { createApnsJwtCache } from './apns-jwt.js';
 import { createApnsClient, createHttp2Transport } from './apns.js';
 import { createMqttPublisher } from './mqtt-client.js';
@@ -59,8 +60,16 @@ function buildMqtt() {
 // ---------------------------------------------------------------------------
 let _pushDeps: ReturnType<typeof buildPushDeps> | null = null;
 function buildPushDeps() {
+  // realtime: the transport is mandatory on Node 20 — see REALTIME_TRANSPORT_OPTS.
+  // Without it createClient() throws before this function ever returns, so every
+  // /push/dispatch answered 500 and no notification could be sent regardless of
+  // how APNS_* was configured. Every other createClient() in FC already passes it.
   const sbClient = createSupabaseClient(SUPABASE_URL_FN(), SUPABASE_SERVICE_ROLE(), {
     auth: { persistSession: false },
+    // `as any`: @types/ws declares its own Event, structurally incompatible with
+    // the DOM Event in RealtimeClientOptions. supabase.ts sidesteps the same
+    // clash by typing its local copy `any`; the runtime value is identical.
+    realtime: REALTIME_TRANSPORT_OPTS as any,
   });
   const sb = {
     rpc: (name: string, args: unknown) => sbClient.schema("amux").rpc(name, args as Record<string, unknown>),

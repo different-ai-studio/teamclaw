@@ -7,11 +7,15 @@ export async function dispatchPush(msg, deps) {
 
   if (kind === 'system') return { skipped: 'system_kind' };
 
-  const claimRes = await sb.schema("amux").rpc('push_idempotency_claim', { p_message_id: messageId });
+  // sb is the adapter built by push-deps.ts, not a Supabase client: its rpc()
+  // already targets the amux schema. Calling sb.schema() here threw on every
+  // dispatch, and the pg-backed deps could not satisfy it at all — they answer
+  // rpc() from direct queries and have no schema() to offer.
+  const claimRes = await sb.rpc('push_idempotency_claim', { p_message_id: messageId });
   const claimed = claimRes?.data?.[0]?.claimed ?? false;
   if (!claimed) return { skipped: 'duplicate' };
 
-  const ctxRes = await sb.schema("amux").rpc('list_session_push_targets', {
+  const ctxRes = await sb.rpc('list_session_push_targets', {
     p_session_id: session_id, p_exclude_actor_id: sender_actor_id,
   });
   const ctx = ctxRes?.data ?? { recipients: [], sender_display_name: 'Someone' };
