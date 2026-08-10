@@ -18,29 +18,17 @@ name: Daemon Deploy
 
 on:
   workflow_dispatch: {}
-  # SAFETY CATCH — teamclaw → teamclu rebrand. See self-host-deploy.yml.
-  #
-  # This one cannot be dodged by splitting the rename across PRs: it triggers on
-  # `crates/**`, `apps/daemon/**` and `Cargo.lock`, which are the rename itself,
-  # and the crate renames and the lockfile cannot be separated without breaking
-  # the build. So the trigger comes off instead.
-  #
-  # It also ships an image named `teamclu-amuxd` while the box's compose file
-  # still names the old one, which is its own reason not to let this fire until
-  # the cutover lands.
-  #
-  # Re-enable with the DNS cutover, then dispatch once by hand.
-  # push:
-  #   branches: [main]
-  #   paths:
-  #     - 'apps/daemon/**'
-  #     - 'crates/**'
-  #     - 'deploy/self-host/amuxd/**'
-  #     - 'deploy/self-host/docker-compose.yml'
-  #     - 'deploy/self-host/smoke/amuxd-smoke.sh'
-  #     - 'Cargo.toml'
-  #     - 'Cargo.lock'
-  #     - '.github/workflows/daemon-deploy.yml'
+  push:
+    branches: [main]
+    paths:
+      - 'apps/daemon/**'
+      - 'crates/**'
+      - 'deploy/self-host/amuxd/**'
+      - 'deploy/self-host/docker-compose.yml'
+      - 'deploy/self-host/smoke/amuxd-smoke.sh'
+      - 'Cargo.toml'
+      - 'Cargo.lock'
+      - '.github/workflows/daemon-deploy.yml'
 
 permissions:
   contents: read
