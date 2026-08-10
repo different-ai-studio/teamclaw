@@ -1,3 +1,7 @@
+import { mkdtempSync, readFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+
 import { describe, expect, it } from "vitest";
 
 const plugin = require("../../plugins/withTeamCluMqtt");
@@ -64,5 +68,41 @@ describe("withTeamCluMqtt config plugin helpers", () => {
 
     expect(once).toContain("pod 'CocoaMQTT', '~> 2.2.3'");
     expect(twice.match(/pod 'CocoaMQTT'/g)).toHaveLength(1);
+  });
+});
+
+describe("writeMqttModuleFiles", () => {
+  it("emits the Kotlin sources into the app's own package", () => {
+    const projectRoot = mkdtempSync(join(tmpdir(), "mqtt-plugin-"));
+
+    plugin.writeMqttModuleFiles(projectRoot, "com.teamclu");
+
+    const dir = join(projectRoot, "android/app/src/main/java/com/teamclu");
+    const module = readFileSync(join(dir, "TeamCluMqttModule.kt"), "utf8");
+    const pkg = readFileSync(join(dir, "TeamCluMqttPackage.kt"), "utf8");
+
+    // The declared package has to match the directory, or Android never finds
+    // the class and `TeamCluMqttPackage()` fails to resolve at build time.
+    expect(module.startsWith("package com.teamclu\n")).toBe(true);
+    expect(pkg.startsWith("package com.teamclu\n")).toBe(true);
+  });
+
+  it("follows a renamed applicationId rather than a baked-in one", () => {
+    const projectRoot = mkdtempSync(join(tmpdir(), "mqtt-plugin-"));
+
+    plugin.writeMqttModuleFiles(projectRoot, "com.example.renamed");
+
+    const module = readFileSync(
+      join(projectRoot, "android/app/src/main/java/com/example/renamed/TeamCluMqttModule.kt"),
+      "utf8",
+    );
+    expect(module.startsWith("package com.example.renamed\n")).toBe(true);
+  });
+
+  it("refuses to emit without an applicationId", () => {
+    const projectRoot = mkdtempSync(join(tmpdir(), "mqtt-plugin-"));
+    expect(() => plugin.writeMqttModuleFiles(projectRoot, undefined)).toThrow(
+      /android\.package is required/,
+    );
   });
 });
