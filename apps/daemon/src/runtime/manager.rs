@@ -2523,6 +2523,20 @@ mod tests {
         );
     }
 
+    /// Desktop setModel/runtimeStop: client sends bare cloud session_id; the RPC
+    /// handler resolves with this daemon's actor id (not the signed-in member).
+    #[test]
+    fn resolve_command_agent_id_accepts_bare_session_for_daemon_actor() {
+        let mut mgr = RuntimeManager::new(RuntimeManager::test_launch_configs(), None);
+        mgr.add_test_runtime("session_S");
+        mgr.get_handle_mut("session_S").unwrap().owner_actor_id = "actor-A".into();
+
+        assert_eq!(
+            mgr.resolve_command_agent_id("session_S", "actor-A").as_deref(),
+            Some("session_S")
+        );
+    }
+
     /// The client-facing address and the map key are the same value now, so
     /// set-model needs no lookup. Before the rekey this call failed with
     /// "agent {session} not found" for every client, because the map was keyed

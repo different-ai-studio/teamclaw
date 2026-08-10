@@ -777,7 +777,11 @@ impl DaemonServer {
         // `{actor}::{session}` composite (ADR-0004). Resolve before touching
         // the handle — `agents` is still keyed by the per-spawn id, which no
         // topic broadcasts any more, so clients cannot address by it.
-        let resolve_actor = request.requester_actor_id.trim();
+        //
+        // Use this daemon's actor id, not `request.requester_actor_id` (the
+        // signed-in member). The RPC is already routed to `amux/{team}/{actor}/rpc/req`
+        // for this agent; owner checks must match the attachment's owner.
+        let resolve_actor = self.actor_id.as_str();
         let resolved = {
             let agents = self.agents.lock().await;
             agents.resolve_command_agent_id(&addressed, resolve_actor)
@@ -925,7 +929,10 @@ impl DaemonServer {
         // id, or `{actor}::{session}` composite (ADR-0004). Without this the
         // raw map lookup in `send_set_model` fails for every client, because
         // the per-spawn key is no longer published anywhere.
-        let resolve_actor = request.requester_actor_id.trim();
+        //
+        // Match `handle_runtime_command_rpc`: resolve as this daemon's agent,
+        // not the human member in `request.requester_actor_id`.
+        let resolve_actor = self.actor_id.as_str();
         let resolved = {
             let agents = self.agents.lock().await;
             agents.resolve_command_agent_id(&addressed, resolve_actor)
