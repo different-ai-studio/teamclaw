@@ -105,6 +105,8 @@ export function routeToHref(route: OnboardingRoute): string | null {
       return "/welcome";
     case "createTeam":
       return "/create-team";
+    case "selectTeam":
+      return "/select-team";
     case "ready":
       return "/(app)/sessions";
     case "loading":

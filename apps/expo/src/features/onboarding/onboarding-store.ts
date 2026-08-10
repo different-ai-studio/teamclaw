@@ -8,6 +8,10 @@ import type {
   OnboardingState,
 } from "./onboarding-types";
 import {
+  createRememberedTeamStore,
+  type RememberedTeamStore,
+} from "./remembered-team";
+import {
   shouldCompleteOAuthResult,
   type OAuthBrowserResult,
   type OAuthProvider,
@@ -35,7 +39,10 @@ function toErrorMessage(error: unknown): string {
   return "Something went wrong. Please try again.";
 }
 
-export function createOnboardingController(api: OnboardingApi) {
+export function createOnboardingController(
+  api: OnboardingApi,
+  rememberedTeam: RememberedTeamStore = createRememberedTeamStore(),
+) {
   let state: OnboardingState = initialOnboardingState;
   let activeOperationToken = 0;
   const listeners = new Set<OnboardingListener>();
@@ -91,7 +98,8 @@ export function createOnboardingController(api: OnboardingApi) {
         return;
       }
 
-      const payload = await api.loadBootstrap();
+      const remembered = await rememberedTeam.load();
+      const payload = await api.loadBootstrap(remembered);
       dispatchIfCurrent(token, { type: "bootstrapResolved", payload });
     } catch (error) {
       dispatchIfCurrent(token, {
@@ -312,9 +320,33 @@ export function createOnboardingController(api: OnboardingApi) {
     }
   };
 
+  /**
+   * Adopts one of the offered teams and remembers it, so the picker is asked
+   * once rather than on every launch.
+   *
+   * On failure the route stays on the picker — iOS does the same, so the user
+   * can retry or choose a different team rather than being stranded.
+   */
+  const selectTeam = async (teamId: string) => {
+    const token = beginOperation();
+    dispatchIfCurrent(token, { type: "beginBusy" });
+    try {
+      await api.activateTeam(teamId);
+      await rememberedTeam.save(teamId);
+      await bootstrap(token);
+    } catch (error) {
+      dispatchIfCurrent(token, {
+        type: "teamSelectionFailed",
+        message: toErrorMessage(error),
+      });
+    }
+  };
+
   const signOut = async () => {
     const token = beginOperation();
     await api.signOut();
+    // The next user must not inherit this one's team.
+    await rememberedTeam.clear();
     // The cached broker was fetched with the outgoing user's token and belongs
     // to their deployment, so it must not survive into the next session. Web
     // clears the same state from its own signOut, via
@@ -339,6 +371,7 @@ export function createOnboardingController(api: OnboardingApi) {
       };
     },
     bootstrap,
+    selectTeam,
     signInAnonymously,
     requestOtp,
     verifyOtp,
