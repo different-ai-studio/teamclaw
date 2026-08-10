@@ -288,10 +288,10 @@ importers:
         version: 0.12.0
       '@xterm/addon-webgl':
         specifier: ^0.18.0
-        version: 0.18.0(@xterm/xterm@5.5.0)
+        version: 0.18.0(@xterm/xterm@6.0.0)
       '@xterm/xterm':
-        specifier: ^5.5.0
-        version: 5.5.0
+        specifier: ^6.0.0
+        version: 6.0.0
       class-variance-authority:
         specifier: ^0.7.1
         version: 0.7.1
@@ -4445,8 +4445,8 @@ packages:
     peerDependencies:
       '@xterm/xterm': ^5.0.0
 
-  '@xterm/xterm@5.5.0':
-    resolution: {integrity: sha512-hqJHYaQb5OptNunnyAnkHyM8aCjZ1MEIDTQu1iIbbTD/xops91NB5yq1ZK/dC2JDbVWtF23zUtl9JE2NqwT87A==}
+  '@xterm/xterm@6.0.0':
+    resolution: {integrity: sha512-TQwDdQGtwwDt+2cgKDLn0IRaSxYu1tSUjgKarSDkUM0ZNiSRXFpjxEsvc/Zgc5kq5omJ+V0a8/kIM2WD3sMOYg==}
 
   abort-controller@3.0.0:
     resolution: {integrity: sha512-h8lQ8tacZYnR3vNQTgibj+tODHI5/+l06Au2Pcriv/Gmet0eaj4TwWH41sO9wnHDiQsEj19q0drzdWdeAHtweg==}
@@ -11994,7 +11994,9 @@ snapshots:
       metro-runtime: 0.84.4
     transitivePeerDependencies:
       - '@babel/core'
+      - bufferutil
       - supports-color
+      - utf-8-validate
 
   '@react-native/normalize-colors@0.86.2': {}
 
@@ -12918,11 +12920,11 @@ snapshots:
 
   '@xterm/addon-web-links@0.12.0': {}
 
-  '@xterm/addon-webgl@0.18.0(@xterm/xterm@5.5.0)':
+  '@xterm/addon-webgl@0.18.0(@xterm/xterm@6.0.0)':
     dependencies:
-      '@xterm/xterm': 5.5.0
+      '@xterm/xterm': 6.0.0
 
-  '@xterm/xterm@5.5.0': {}
+  '@xterm/xterm@6.0.0': {}
 
   abort-controller@3.0.0:
     dependencies:
