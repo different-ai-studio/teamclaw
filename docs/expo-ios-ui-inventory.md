@@ -34,9 +34,9 @@ Rows carrying two marks (`✅ header ◻ body`) are counted by their first, so t
 
 | Status | Count |
 |---|---|
-| ✅ verified | 59 |
-| ⚠ known gap | 2 |
-| ◻ unverified | 8 |
+| ✅ verified | 60 |
+| ⚠ known gap | 3 |
+| ◻ unverified | 6 |
 | ✖ missing | 1 |
 | **Total** | **70** |
 
@@ -97,7 +97,7 @@ point of the column.
 | `IdeaDetailView` | 859 | `screens/IdeaDetailScreen.tsx` | ✅ activity feed, attachments, progress composer ◻ rest |
 | `IdeaImageAttachments` | 205 | `components/IdeaImageAttachmentStrip.tsx` | ✅ |
 | `IdeaListView` | 236 | `screens/IdeasListScreen.tsx` + `IdeaRow.tsx` | ✅ |
-| `IdeaSheets` | 446 | `app/(app)/new-idea.tsx` | ◻ |
+| `IdeaSheets` | 446 | `app/(app)/new-idea.tsx` | ✅ title, description, Photo Library/Camera, and the same failed-upload line |
 | `IdeaStatsSheet` | 383 | `screens/IdeaStatsSheet.tsx` | ✅ |
 | `IdeaUIPresentation` | 5 | `ideas/idea-types.ts` | ✅ three constants (title, plural, `lightbulb`); the SF Symbol is on the iOS tab bar |
 
@@ -144,7 +144,7 @@ point of the column.
 |---|---|---|---|
 | `NotificationsSettingsView` | 98 | `app/(app)/notifications.tsx` | ✅ Expo is a superset — same push toggle and DND window, plus per-category toggles iOS has no equivalent of |
 | `SettingsView` | 911 | `screens/SettingsScreen.tsx` | ✅ surface coverage ◻ visual |
-| `UpgradeAccountSheet` | 294 | `app/(app)/upgrade-account.tsx` | ◻ |
+| `UpgradeAccountSheet` | 294 | `app/(app)/upgrade-account.tsx` | ⚠ **no phone OTP on Expo** — see below |
 | `GlassButtonStyle` | 32 | `ui/button.tsx` | ✅ nothing to port: both helpers resolve to `.glassProminent`/`.bordered`, which RN has no equivalent of. Its useful content is the caveat (never inside a toolbar — iOS 26 already glazes those), which does not apply |
 | `HaiSheet` | 79 | — | ✖ see below |
 | `LiquidGlassBar` | 76 | `ui/GlassHeader.tsx` + `GlassSurface.tsx` | ✅ |
@@ -171,6 +171,20 @@ entirely: it swept `Packages/` only. All six are auth/onboarding, none verified.
 ---
 
 ## Every ⚠ in detail
+
+### `UpgradeAccountSheet` — Expo cannot upgrade by phone
+
+iOS offers an Email/Phone picker and drives both
+(`sendUpgradePhoneOTP` / `verifyUpgradePhoneOTP`). Expo offers email OTP, Apple
+and Google — no phone auth anywhere in the app.
+
+Deliberately **not** built blind. Phone OTP is not a screen, it is an SMS
+provider on the Supabase project plus its rate limits and cost; wiring a UI to
+an unconfigured channel would produce a button that always fails. Whether iOS's
+own phone path works today is equally unverified from here — the auth notes for
+v2 list "OTP + Apple/Google/Anonymous" and do not mention phone.
+
+Worth settling before either app ships the flow.
 
 ### ~~`ToolCallView` (343 LOC) — no structured equivalent~~ — fixed
 
@@ -225,7 +239,7 @@ No iOS counterpart, and none needed: `app/(app)/mqtt-debug.tsx`,
 ## How to use this
 
 Work down the ◻ rows. Verifying one means opening both files side by side and
-either marking it ✅ or writing a ⚠ row with the specific difference. The 8
+either marking it ✅ or writing a ⚠ row with the specific difference. The 6
 unverified rows are the remaining Axis 6 work, and they are not evenly sized —
 `MemberListContent` (1598), `SessionDetailView` (993), `NewSessionSheet` (599)
 and `LoginView` (464) are most of the mass.
