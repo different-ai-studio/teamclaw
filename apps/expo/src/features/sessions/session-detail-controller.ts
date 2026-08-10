@@ -400,6 +400,49 @@ export function createSessionDetailController(
     return resolved;
   }
 
+  /**
+   * Coalesced write-behind for the timeline.
+   *
+   * Every timeline change routes through `publishTimelineState`, including the
+   * ACP-driven ones — agent thinking, tool calls, tool results, plan updates.
+   * Those used to reach React state and nothing else: the ACP branch returned
+   * before the one `saveMessages` call further down, so an agent's whole trace
+   * lived in memory and died with the process. iOS persists the same events
+   * from its streaming path (`TimelineSwiftDataSync`), explicitly for crash
+   * recovery.
+   *
+   * The cache is an AsyncStorage blob rewritten whole, so writing per event
+   * would thrash it during a busy turn. Writes coalesce to one per interval,
+   * with `flushTimelinePersist` for the moments that must not be lost.
+   */
+  const PERSIST_INTERVAL_MS = 1_000;
+  let persistTimer: ReturnType<typeof setTimeout> | null = null;
+  let persistPending = false;
+
+  function writeTimelineNow() {
+    persistPending = false;
+    if (!deps.cache) return;
+    void deps.cache.saveMessages(deps.sessionId, timeline.messages);
+  }
+
+  function scheduleTimelinePersist() {
+    if (!deps.cache) return;
+    persistPending = true;
+    if (persistTimer) return;
+    persistTimer = setTimeout(() => {
+      persistTimer = null;
+      if (persistPending) writeTimelineNow();
+    }, PERSIST_INTERVAL_MS);
+  }
+
+  function flushTimelinePersist() {
+    if (persistTimer) {
+      clearTimeout(persistTimer);
+      persistTimer = null;
+    }
+    if (persistPending) writeTimelineNow();
+  }
+
   function publishTimelineState(next: TimelineState) {
     timeline = next;
     setState({
@@ -408,6 +451,7 @@ export function createSessionDetailController(
       streamingByAgent: next.streamingByAgent,
       status: nextStatusForMessages(state.session, next.messages, state.status),
     });
+    scheduleTimelinePersist();
   }
 
   /**
@@ -563,7 +607,9 @@ export function createSessionDetailController(
         const event: TimelineEvent = { kind: "messageCommitted", message: nextMessage };
         const next = reduceTimeline(timeline, event);
         publishTimelineState(next);
-        void deps.cache?.saveMessages(deps.sessionId, next.messages);
+        // A committed message ends a turn; land it now rather than waiting out
+        // the coalescing window.
+        flushTimelinePersist();
 
         // Live-update the read marker so the Sessions list stays clean
         // while the detail screen is open. We pass the senderActorId
@@ -968,6 +1014,8 @@ export function createSessionDetailController(
     },
     async dispose() {
       disposed = true;
+      // Last chance to keep whatever the coalescing window still holds.
+      flushTimelinePersist();
       deps.outbox?.sender.stop();
       disconnectRealtime();
       setState({

@@ -869,3 +869,97 @@ describe("createSessionDetailController", () => {
     expect(controller.getState().connectionState).toBe("disconnected");
   });
 });
+
+describe("timeline persistence", () => {
+  function createMockCache() {
+    return {
+      load: vi.fn().mockResolvedValue(null),
+      save: vi.fn().mockResolvedValue(undefined),
+      saveMessages: vi.fn().mockResolvedValue(undefined),
+      clear: vi.fn().mockResolvedValue(undefined),
+    };
+  }
+
+  async function loadWithCache(cache: ReturnType<typeof createMockCache>) {
+    const { createSessionDetailController } = await import(
+      "../features/sessions/session-detail-controller"
+    );
+    const mqtt = createMockMqtt();
+    const api = {
+      getSession: vi.fn().mockResolvedValue(createSession()),
+      insertOutgoingMessage: vi.fn(),
+      listMessages: vi.fn().mockResolvedValue([]),
+      resolveMemberActorId: vi.fn().mockResolvedValue("actor-1"),
+      markSessionRead: vi.fn().mockResolvedValue(undefined),
+    };
+    const controller = createSessionDetailController({
+      api: api as any,
+      cache: cache as any,
+      currentMemberActorId: "actor-1",
+      getAuth: vi.fn().mockResolvedValue({ accessToken: "jwt", userId: "user-1" }),
+      mqtt: mqtt as any,
+      mqttUrl: "wss://broker.example.com/mqtt",
+      sessionId: "session-1",
+      teamId: "team-1",
+    });
+    await controller.load();
+    return { controller, mqtt, cache };
+  }
+
+  it("persists an agent's ACP trace, which used to die with the process", async () => {
+    const cache = createMockCache();
+    const { controller, mqtt } = await loadWithCache(cache);
+    cache.saveMessages.mockClear();
+
+    mqtt.emit(
+      "amux/team-1/session/session-1/live",
+      createAcpThinkingPayload({
+        actorId: "actor-agent",
+        eventId: "event-thinking-1",
+        text: "Checking the repo",
+        sequence: BigInt(41),
+      }),
+    );
+
+    // Writes coalesce, so nothing has hit the cache yet…
+    expect(cache.saveMessages).not.toHaveBeenCalled();
+
+    // …until the window closes, or the controller tears down.
+    await controller.dispose();
+
+    expect(cache.saveMessages).toHaveBeenCalledTimes(1);
+    const [sessionId, messages] = cache.saveMessages.mock.calls[0];
+    expect(sessionId).toBe("session-1");
+    expect(messages).toEqual([
+      expect.objectContaining({ kind: "agent_thinking", content: "Checking the repo" }),
+    ]);
+  });
+
+  it("coalesces a burst into one write rather than one per event", async () => {
+    vi.useFakeTimers();
+    const cache = createMockCache();
+    const { mqtt } = await loadWithCache(cache);
+    cache.saveMessages.mockClear();
+
+    for (let i = 0; i < 5; i += 1) {
+      mqtt.emit(
+        "amux/team-1/session/session-1/live",
+        createAcpThinkingPayload({
+          actorId: "actor-agent",
+          eventId: `event-burst-${i}`,
+          text: `chunk ${i}`,
+          sequence: BigInt(50 + i),
+        }),
+      );
+    }
+
+    expect(cache.saveMessages).not.toHaveBeenCalled();
+    await vi.advanceTimersByTimeAsync(1_100);
+    expect(cache.saveMessages).toHaveBeenCalledTimes(1);
+
+    // The single write carries every event from the burst.
+    const [, messages] = cache.saveMessages.mock.calls[0];
+    expect(messages).toHaveLength(5);
+  });
+});
+
