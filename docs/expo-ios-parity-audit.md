@@ -107,21 +107,25 @@ Expo now refetches with `preserveExisting: true` on a genuine reconnect, and
 not on the first connect, whose fetch is already in flight. Covered by
 `session-detail-controller.test.ts` → "reconnect recovery".
 
-### Not a parity gap — message history is unpaginated on both clients
+### Superseded — message history is now paginated, and Expo has no back-scroll
 
-`GET /v1/sessions/:id/messages` takes no limit and no cursor. The FC route
-(`services/fc/src/lib/routes/messages.ts:5`) hardcodes `nextCursor: null`, and
-the repository selects every row in the session
-(`supabase-repo.ts:1151`). Both clients fetch the whole history: Expo at
-`cloud-api.ts:205`, iOS at `CloudAPIRepositories.swift:247`.
+This section previously recorded the unpaginated `GET /v1/sessions/:id/messages`
+as a shared server limitation and therefore out of parity scope. **#842 landed
+on main and closed it**: a page is the newest 200 (max 500), oldest-first, with
+a cursor walking backward. The measurements in that commit are worth keeping —
+6k messages took 6.1s / 3.7MB, 40k exceeded the statement timeout.
 
-This is a real scale risk — every thinking event, tool call and tool result is
-a row, so a busy session reaches thousands quickly, and the `authenticated`
-role's statement timeout is what already broke the session *list* at ~6000
-rows. But it is a **shared server-side limitation, not an iOS↔Expo difference**,
-and closing it means a Cloud API change (OpenAPI → repository → route →
-tests → all four clients). Out of scope for parity; recorded here so it is not
-rediscovered as an Expo bug.
+That change also gave Expo `listMessagesPage`, and left a new gap behind:
+
+**`listMessagesPage` has no caller.** `listMessages` returns its first page and
+nothing walks the cursor, so Expo now shows the newest ~200 messages of a
+session with **no way to reach older ones** — where it previously loaded all of
+them. iOS has the same page API (`CloudAPIRepositories.swift:251`) and does walk
+the cursor (`:563`).
+
+Net for a long session: Expo went from slow-but-complete to fast-but-truncated.
+Wiring back-scroll onto `listMessagesPage` is the follow-up, and it is a genuine
+parity gap rather than a shared limitation.
 
 ### Verified as matching
 
@@ -277,7 +281,7 @@ entirely:
 | **P2** | Turn detail showed counts, not events (Axis 6) | fixed |
 | **P3** | Attachment upload state not persisted (Axis 1) | open |
 | **P3** | `HaiSheet` chrome has no counterpart (Axis 6) | open |
-| **P3** | Message history unpaginated | open — **shared with iOS**, needs a server change |
+| **P1** | No back-scroll — Expo shows only the newest page since #842 (Axis 2) | open |
 | **Unknown** | 42 unverified UI surfaces (`expo-ios-ui-inventory.md`) | open |
 
 ## What is left
@@ -288,8 +292,8 @@ entirely:
 2. **The 42 ◻ rows** in `expo-ios-ui-inventory.md`. Not evenly sized —
    `MemberListContent` (1598), `SessionDetailView` (993), `NewSessionSheet`
    (599) and `LoginView` (464) are most of the mass.
-3. **Message-history pagination** — a Cloud API change affecting all four
-   clients, not an Expo task.
+3. **Back-scroll onto `listMessagesPage`.** #842 paginated the endpoint and
+   Expo never grew a caller, so older history is currently unreachable.
 4. **Attachment upload persistence**, and `HaiSheet` chrome.
 
 ## What this audit did not cover
