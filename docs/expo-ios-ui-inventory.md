@@ -1,3 +1,11 @@
+### ~~`StreamingDetailView`~~ — fixed
+
+Was a summary modal showing counts ("Tools · 7"). Now `TurnDetailScreen`
+renders the events themselves with the chat feed's own row components, plus
+live streaming text, the todo dock and a stop button. Expo still presents it as
+a modal where iOS pushes a navigation destination — deliberate, so the session
+underneath stays mounted and keeps its MQTT subscription.
+
 # Expo ↔ iOS UI surface inventory
 
 Companion to `expo-ios-parity-audit.md`, which covers the six parity axes. This
@@ -34,8 +42,8 @@ Rows carrying two marks (`✅ header ◻ body`) are counted by their first, so t
 
 | Status | Count |
 |---|---|
-| ✅ verified | 64 |
-| ⚠ known gap | 5 |
+| ✅ verified | 66 |
+| ⚠ known gap | 3 |
 | ◻ unverified | 0 |
 | ✖ missing | 1 |
 | **Total** | **70** |
@@ -87,7 +95,7 @@ point of the column.
 | `SessionComposer` | 538 | `components/SessionComposerShell.tsx` | ✅ |
 | `SessionDetailView` | 993 | `screens/SessionDetailScreen.tsx` | ✅ header, plans toggle, members, mute, message actions and delete confirmation |
 | `SessionMemberSheet` | 179 | `screens/SessionMemberSheet.tsx` | ✅ |
-| `StreamingDetailView` | 292 | `AgentTurnDetailModal` in `SessionDetailScreen.tsx` | ⚠ see below |
+| `StreamingDetailView` | 292 | `screens/TurnDetailScreen.tsx` | ✅ real event feed, live text, todo dock, stop button ⚠ Expo presents it as a modal where iOS pushes a navigation destination |
 
 ## AMUXUI/Collab — ideas
 
@@ -162,7 +170,7 @@ entirely: it swept `Packages/` only. All six are auth/onboarding, none verified.
 | iOS | LOC | Expo | |
 |---|---|---|---|
 | `ChooseAuthView` | 309 | `onboarding/screens/ChooseAuthScreen.tsx` | ✅ same three routes (guest / sign in / invite), same invite-link parsing incl. legacy schemes |
-| `ContentView` | 382 | `app/_layout.tsx` + `app/index.tsx` | ⚠ **no `selectTeam` route** — see below |
+| `ContentView` | 382 | `app/_layout.tsx` + `app/select-team.tsx` | ✅ `selectTeam` route added ⚠ the screen and the route transition are untested — login cannot be exercised from this machine |
 | `LoginView` | 464 | `onboarding/screens/AuthScreen.tsx` | ⚠ email OTP, password, Apple and Google all wired; **no phone**, same root as `UpgradeAccountSheet` |
 | `OnboardingViews` | 94 | `onboarding/screens/CreateTeamScreen.tsx` | ✅ ⚠ Expo adds a guest/signed-in note iOS has no equivalent of, and its own copy — same fields and validation |
 | `OrgTeamPickerView` | 70 | `app/(app)/teams.tsx` + `membership-groups.ts` | ✅ |
@@ -172,31 +180,15 @@ entirely: it swept `Packages/` only. All six are auth/onboarding, none verified.
 
 ## Every ⚠ in detail
 
-### `ContentView` — a multi-team user never gets to choose
+### ~~`ContentView`~~ — built, not yet exercised
 
-iOS routes five ways after auth; Expo has four. The missing one is
-`selectTeam`, and it is not a screen so much as a decision:
+Expo now routes to `selectTeam` when the user is on more than one team and has
+no remembered choice, matching iOS. The decision, the remembered store and the
+API's four paths are covered by tests.
 
-- **iOS** adopts a remembered choice; otherwise, with more than one team, shows
-  the org-grouped picker; otherwise adopts the single team.
-- **Expo** `loadBootstrap` takes `items.find(t => t.isMember !== false)` — the
-  first team the listing happened to return — and activates it.
-
-So a user in several teams silently lands in one of them, with no indication a
-choice was made on their behalf. The Teams screen under Settings is the only
-way to notice, and only if they think to look. It compounds the org boundary
-noted on `OrgTeamPickerView`: the team picked for them may be in an org the
-session is not active in, which RLS then filters into an empty app.
-
-**Not built here.** It needs a route state, a reducer case, remembered-choice
-persistence, and the activate call moved out of bootstrap — all inside the one
-flow that gates access to the entire app, and the one flow that cannot be
-exercised from this machine (no credentials, and the simulator run stopped at
-the login screen for exactly that reason). An untested change here fails
-closed, for everyone, at launch.
-
-The screen half already exists: `teams.tsx` lists memberships grouped by org.
-What is missing is reaching it before "ready" rather than after.
+**The screen and the route transition are not.** Login cannot be exercised from
+this machine, so the picker has never rendered. Worth a real multi-team login
+before trusting it.
 
 ### `UpgradeAccountSheet` — Expo cannot upgrade by phone
 

@@ -296,7 +296,8 @@ entirely:
 | **P3** | Attachment upload state not persisted (Axis 1) | open |
 | **P3** | `HaiSheet` chrome has no counterpart (Axis 6) | open |
 | **P1** | No back-scroll — Expo shows only the newest page since #842 (Axis 2) | open |
-| **Unknown** | 42 unverified UI surfaces (`expo-ios-ui-inventory.md`) | open |
+| **P2** | Tab bar / modal safe area — found on a device, not by reading (Axis 6) | fixed |
+| **Unknown** | Everything marked ✅ was source-diffed, **not run** | open |
 
 ## What is left
 
