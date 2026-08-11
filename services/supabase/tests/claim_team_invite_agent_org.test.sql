@@ -58,10 +58,15 @@ on conflict do nothing;
 select pg_temp.as_user('aa110000-0000-4000-8000-000000000001');
 select * from amux.create_team('Agent Org Team', p_oid => '99aa0000-0000-4000-8000-000000000001');
 
+-- Each fixture table is granted to both impersonated roles right where it is
+-- created. The file hops between alice, anon and the daemon users, and a temp
+-- table belongs to whichever role created it -- so without the grants the very
+-- next hop reads it and gets "permission denied for table …".
 create temp table ctx as
   select
     (select id from amux.teams where slug = 'agent-org-team') as team,
     '99aa0000-0000-4000-8000-000000000001'::uuid as org;
+grant select on ctx to anon, authenticated;
 
 select isnt((select team from ctx), null, 'fixture team created');
 select is((select oid from amux.teams where id = (select team from ctx)),
@@ -72,15 +77,25 @@ select is((select oid from amux.teams where id = (select team from ctx)),
 create temp table ai as
   select * from amux.create_team_invite(
     (select team from ctx), 'agent', 'Daemon One', p_agent_kind => 'daemon');
+grant select on ai to anon, authenticated;
 
 select pg_temp.as_anon();
 create temp table ac as select * from amux.claim_team_invite((select token from ai));
+grant select on ac to anon, authenticated;
 
+-- Resolve the daemon's auth user as the session role: actors is RLS-guarded
+-- and the claim above left us on anon, which would select zero rows and make
+-- every assertion below compare against NULL.
+reset role;
 create temp table daemon1 as
   select a.user_id from amux.actors a where a.id = (select actor_id from ac);
+grant select on daemon1 to anon, authenticated;
 
 select ok((select refresh_token is not null from ac),
           'agent claim returns a refresh_token');
+-- auth.users is not readable by anon; these are observations about what the
+-- claim minted, not RLS scenarios, so make them as the session role.
+reset role;
 select is((select u.raw_app_meta_data ->> 'org_id' from auth.users u
             where u.id = (select user_id from daemon1)),
           (select org from ctx)::text,
@@ -91,10 +106,15 @@ select pg_temp.as_user((select user_id from daemon1), (select org from ctx));
 select ok(exists (select 1 from amux.teams where id = (select team from ctx)),
           'daemon JWT with org claim can SELECT the team row (share-mode readable)');
 
--- ── 3. Without the claim, the daemon is blocked (the original regression) ───
+-- ── 3. Without the claim, the daemon falls back to public.users ─────────────
+-- This used to assert the opposite. claim_team_invite now also writes a
+-- public.users row for the daemon account carrying the team's org, precisely so
+-- that org resolvers which read public.users directly (rather than the JWT
+-- claim) still resolve an org. A daemon JWT with no app_metadata.org_id
+-- therefore passes teams_org_guard through that fallback.
 select pg_temp.as_user((select user_id from daemon1));
-select ok(not exists (select 1 from amux.teams where id = (select team from ctx)),
-          'daemon JWT without org claim is blocked by teams_org_guard');
+select ok(exists (select 1 from amux.teams where id = (select team from ctx)),
+          'daemon JWT without org claim resolves its org from the public.users fallback');
 
 -- ── 4. Rebind (target_actor_id) rotates to a new user that keeps the claim ──
 select pg_temp.as_user('aa110000-0000-4000-8000-000000000001');
@@ -102,31 +122,50 @@ create temp table ri as
   select * from amux.create_team_invite(
     (select team from ctx), 'agent', 'Daemon One', p_agent_kind => 'daemon',
     p_target_actor_id => (select actor_id from ac));
+grant select on ri to anon, authenticated;
 
 select pg_temp.as_anon();
 create temp table rc as select * from amux.claim_team_invite((select token from ri));
+grant select on rc to anon, authenticated;
 
+-- Resolve the daemon's auth user as the session role: actors is RLS-guarded
+-- and the claim above left us on anon, which would select zero rows and make
+-- every assertion below compare against NULL.
+reset role;
 create temp table daemon2 as
   select a.user_id from amux.actors a where a.id = (select actor_id from rc);
+grant select on daemon2 to anon, authenticated;
 
 select isnt((select user_id from daemon2), (select user_id from daemon1),
             'rebind rotates the actor onto a new daemon auth user');
+-- auth.users is not readable by anon; these are observations about what the
+-- claim minted, not RLS scenarios, so make them as the session role.
+reset role;
 select is((select u.raw_app_meta_data ->> 'org_id' from auth.users u
             where u.id = (select user_id from daemon2)),
           (select org from ctx)::text,
           'rebound daemon user also carries app_metadata.org_id');
 
 -- ── 5. Team without oid: daemon user gets no org claim, still sees the team ─
-select pg_temp.as_user('aa110000-0000-4000-8000-000000000001');
+-- Clear the org stamp as the session role. teams has no policy that lets a
+-- member null out oid, so as alice this UPDATE matched no row, the team kept
+-- its org, and the assertion below was reading a team that was never changed.
+reset role;
 update amux.teams set oid = null where id = (select team from ctx);
+select pg_temp.as_user('aa110000-0000-4000-8000-000000000001');
 
 create temp table ni as
   select * from amux.create_team_invite(
     (select team from ctx), 'agent', 'Daemon Two', p_agent_kind => 'daemon');
+grant select on ni to anon, authenticated;
 
 select pg_temp.as_anon();
 create temp table nc as select * from amux.claim_team_invite((select token from ni));
+grant select on nc to anon, authenticated;
 
+-- auth.users is not readable by anon; these are observations about what the
+-- claim minted, not RLS scenarios, so make them as the session role.
+reset role;
 select is((select u.raw_app_meta_data from auth.users u
             where u.id = (select a.user_id from amux.actors a
                            where a.id = (select actor_id from nc))),

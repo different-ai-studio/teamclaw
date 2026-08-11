@@ -68,8 +68,11 @@ begin
     (v_personal_agent, 'active', 'personal', v_member_mem),
     (v_team_agent,     'active', 'team',     v_member_mem);
 
-  -- Non-owner member cannot delete personal agent.
-  perform pg_temp.as_member(v_member_uid);
+  -- Non-owner cannot delete a personal agent -- not even the team owner. The
+  -- fixture hands this agent to v_member_mem, so the denial has to be probed as
+  -- somebody else; probing it as v_member_uid (as this did) impersonated the
+  -- agent's own owner, deleted the agent, and then reported the missing denial.
+  perform pg_temp.as_member(v_owner_uid);
   begin
     perform amux.remove_team_actor(v_personal_agent);
     raise exception 'expected personal-agent delete denial for non-owner';
@@ -81,7 +84,8 @@ begin
       end if;
   end;
 
-  -- Owner member can delete their personal agent.
+  -- The agent's own owner can delete it.
+  perform pg_temp.as_member(v_member_uid);
   perform amux.remove_team_actor(v_personal_agent);
   if exists (select 1 from amux.actors where id = v_personal_agent) then
     raise exception 'personal agent should be deleted by owner';
@@ -108,6 +112,10 @@ begin
   end if;
 
   -- FK blocker: idea activity referencing agent actor.
+  -- Seed the blocker fixtures as the session role: actors/agents INSERT is
+  -- policy-scoped to the caller, and we are still impersonating a member from
+  -- the assertions above.
+  execute 'reset role';
   insert into amux.actors (id, team_id, actor_type, display_name)
   values (v_team_agent, v_team, 'agent', 'Blocked Bot');
 
@@ -132,6 +140,7 @@ begin
   end;
 
   -- FK blocker: app created_by_actor referencing agent.
+  execute 'reset role';
   insert into amux.actors (id, team_id, actor_type, display_name)
   values (v_apps_agent, v_team, 'agent', 'Apps Blocked Bot');
 

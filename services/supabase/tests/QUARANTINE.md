@@ -1,13 +1,11 @@
-# Quarantined pgTAP tests
+# The pgTAP suite
 
-`run.sh` skips the files listed in its `QUARANTINE` block. They are not skipped
-because they are unimportant — they are skipped because they assert against a
-schema that no longer exists, and a suite that is always red is a suite everyone
-learns to ignore. That is exactly how this directory got here: nothing ran it,
-so nothing noticed when the schema moved out from under it.
+Nothing is quarantined. `run.sh` runs every `.sql` file in this directory and CI
+fails on any failure.
 
-**Fixing one = delete its line from `QUARANTINE` in `run.sh` and make it pass.**
-CI runs everything not on that list, so a fixed test is protected from then on.
+That was not true until recently, and the reasons are worth keeping, because
+most of them are traps that will silently re-appear in the next test somebody
+writes.
 
 ## How to run
 
@@ -21,105 +19,166 @@ PGHOST=… PGUSER=postgres PGDATABASE=postgres ./run.sh
 PSQL="docker exec -i supabase-db psql -U postgres -d postgres" ./run.sh
 
 ./run.sh 016_session_list_v2_rpc.sql   # one file
-ALL=1 ./run.sh                          # include the quarantined ones
 ```
 
 Every file wraps itself in `begin … rollback`, so running the suite leaves
 nothing behind and is safe against a live database.
 
-## Why they fail
+To reproduce CI exactly (same image, empty database, all migrations):
 
-Seven files remain. The schema drift that killed the other 21 has been dealt
-with; what is left needs a decision, not a rename.
+```sh
+docker run -d --name pgtap -e POSTGRES_PASSWORD=postgres \
+  public.ecr.aws/supabase/postgres:17.6.1.106
+docker cp "$PWD/../../.." pgtap:/work
+docker exec -e PGUSER=supabase_admin -e PGPASSWORD=postgres -e PGDATABASE=postgres pgtap \
+  psql -v ON_ERROR_STOP=1 -f /work/services/supabase/tests/ci-bootstrap.sql
+docker exec -e PGUSER=supabase_admin -e PGPASSWORD=postgres -e PGDATABASE=postgres pgtap \
+  bash -c 'MIGRATIONS_DIR=/work/services/supabase/migrations bash /work/deploy/self-host/init/apply-migrations.sh'
+docker exec -e PGUSER=supabase_admin -e PGPASSWORD=postgres -e PGDATABASE=postgres pgtap \
+  bash -c 'cd /work/services/supabase/tests && bash run.sh'
+```
 
-### `001_schema_shape.sql` — needs a rewrite, not a fix
+## Three ways this suite used to report green while failing
 
-Two problems at once. It asserts `has_table('public', 'agent_runtimes')` for a
-table that no longer exists anywhere, and its ~68 assertions all use the
-two-argument form described at the bottom of this file — so even the ones naming
-surviving tables are asserting the wrong thing. Rewriting it means restating
-every assertion against the current schema, which is really "write a new
-schema-shape test", not "repair this one".
+`run.sh` now guards all three. Do not loosen these checks.
 
-### `005_agent_role_rls.sql` — tests a table that was dropped
+1. **Indented TAP.** Failures were detected with `grep '^not ok'`, but psql's
+   default aligned output wraps results in a bordered table and indents every
+   TAP line by one space. 68 failing assertions across 10 files were invisible
+   this way. Fixed by running psql with `-tA` *and* accepting leading
+   whitespace in the grep — either alone would do, and neither alone is enough
+   if someone changes the other.
 
-The body inserts into `agent_runtimes` to prove a daemon JWT may write its own
-runtime rows. That table is gone, so the scenario no longer exists. Either
-delete the section (and keep the surrounding RLS coverage) or delete the file.
+2. **A crashed connection.** `ON_ERROR_STOP=0` makes psql exit 0 through SQL
+   errors, so nothing looked at its exit code. A backend crash prints
+   `server closed the connection unexpectedly` and no `ERROR:` line, so a file
+   that killed the server mid-run counted as a pass — and every file after it
+   died with `FATAL: the database system is in recovery mode`, which also
+   contains no `ERROR:`, so the whole tail of the suite reported clean.
+   `run.sh` now fails on a non-zero psql exit.
 
-### `008_actor_telemetry.sql` — `amux.team_leaderboard` does not exist
+3. **A stale `plan()` count.** A file that declares `plan(17)` and runs 18
+   assertions is not proving what it claims, but every individual assertion
+   still says `ok`. `run.sh` now fails on `# Looks like you planned …`.
 
-Same shape as above: the fixture and assertions are fine until it reaches a
-relation that was removed.
+## Traps
 
-### `004_member_reinvite.sql` — behaviour changed
+### pgTAP's two-argument overloads
 
-Fails with `member claim requires a non-anonymous user`. The invite-claim path
-now refuses anonymous callers; the test predates that. Whether the test or the
-rule is right is a product question — read the claim RPC before changing either.
-
-### `007_team_workspace_config.sql` — `new row violates row-level security policy`
-
-The fixture no longer satisfies the workspaces INSERT policy (which now requires
-`created_by_member_id` to be the caller's actor in that team). Needs the fixture
-to assume an identity before inserting, not a schema rename.
-
-### `012_gateway_message_external_id_upsert.sql` — `actors_external_has_source`
-
-The check constraint requires `(actor_type = 'external') = (source IS NOT NULL
-AND source_id IS NOT NULL)`. The fixture builds an actor that violates it.
-Straightforward to fix once someone decides what the fixture is meant to model.
-
-### `015_rbac_shortcuts.sql` — temp-table visibility
-
-`permission denied for table fx`. The file builds a fixture temp table and then
-`set role`s through several identities. A `grant select on fx` was added and got
-it further, but a later step still trips over the same thing — it likely needs
-the fixture to live in a regular table, or grants on the `pg_temp` helpers too.
-
-## A trap worth knowing
-pgTAP overloads its assertions on both `(schema, object)` and
-`(object, description)`. Two untyped string literals resolve to the **latter**,
-so
+Assertions are overloaded on both `(schema, object)` and `(object, description)`,
+and two untyped string literals bind to the **latter**:
 
 ```sql
 select has_table('amux', 'session_read_markers');   -- asserts a table NAMED "amux"
 ```
 
-silently checks the wrong thing and fails. Always pass a description, which
-picks the schema-qualified overload and makes the output readable:
+Always pass a description. It picks the schema-qualified overload and makes the
+output readable:
 
 ```sql
 select has_table('amux', 'session_read_markers', 'session_read_markers exists');
 ```
 
-Several of the quarantined files carry this bug on top of the schema drift.
+`001_schema_shape.sql` was written entirely in the two-argument form — 68
+assertions that could not have caught a schema change if they had ever run.
+
+### A permission-denied function call segfaults the server
+
+On the Supabase image this suite runs against (`postgres:17.6.1.106`), calling a
+function the current role has no `EXECUTE` privilege for crashes the backend
+instead of raising `42501`:
+
+```sql
+set role authenticated;
+select pg_read_file('/etc/hostname');   -- server closed the connection unexpectedly
+```
+
+It reproduces with core functions, so it is the image's permission-denied path
+rather than anything in this schema. Consequences:
+
+* **Never call a function from a role that lacks EXECUTE on it.** Assert the
+  privilege instead: `select ok(not has_function_privilege('authenticated',
+  'amux.f(uuid)', 'EXECUTE'), …)`.
+* Watch the *current* role, not just the role in the test you are writing.
+  `015_rbac_shortcuts.sql` crashed because a helper call three sections later
+  inherited `service_role` from an earlier `set role`.
+
+### Impersonation swallows writes
+
+`set role authenticated` (or `set_config('role', …)`) applies to everything that
+follows, including fixture bookkeeping, and RLS silently filters writes that
+match no policy — a DELETE or UPDATE that matches zero rows reports success.
+Several tests were asserting against state their own cleanup had failed to
+change: `002_rls.sql` (session_participants has no DELETE policy),
+`003_team_invites.sql` (team_invites has no UPDATE policy, so backdating an
+expiry did nothing and the "expired" invite claimed fine),
+`claim_team_invite_agent_org.test.sql` (nulling `teams.oid`).
+
+Do fixture setup and cleanup as the session role: `reset role;` at the top
+level, or `execute 'reset role';` inside a `DO` block. Note that
+`set_config('role', 'postgres', …)` is *not* the same thing — the temp tables
+and fixtures belong to `supabase_admin`, and `postgres` is a different role that
+has no privileges on them.
+
+### Temp tables belong to whoever created them
+
+A temp table created before `set role` is unreadable after it. Either grant it
+(`grant select on fx to anon, authenticated, service_role;` — include every role
+the file impersonates) or create and write it as the session role.
+
+## Open questions this repair surfaced
+
+These are product decisions, not test bugs. They are recorded here rather than
+silently encoded as "expected".
+
+### Member re-invite is unreachable by its intended caller
+
+`004_member_reinvite.sql` asserts the behaviour the database actually enforces,
+and that behaviour is self-contradictory:
+
+* `create_team_invite(p_target_actor_id => …)` only accepts a target whose auth
+  user **is anonymous** ("cannot re-invite member with bound auth identity").
+* `claim_team_invite`'s member branch keeps the actor on that anonymous user and
+  mints a fresh session + refresh token **for it** — device recovery: get your
+  anonymous membership back on a new machine.
+* But the wrapper added in `20260801010000` rejects anonymous and bearerless
+  callers before that branch runs, and the person on the new device is exactly
+  such a caller.
+
+The wrapper was written for the ordinary member invite ("anonymous users cannot
+self-join a team") and catches the re-invite path as collateral. The desktop
+"Re-invite" button (`ActorDetailDialog.tsx`) still ships this flow.
+
+### A disabled member keeps reading their sessions
+
+`current_member_id()` honours `members.status = 'disabled'`, but
+`is_session_participant()` joins `session_participants` to `actors` and never
+looks at status, so a disabled member still reads the sessions they are in.
+Nothing in the product writes that status today — removal deletes the actor row
+— so this is dormant rather than a live leak, and closing it would add a join to
+the messages SELECT policy that `20260810040000`/`20260811000000` spent two
+migrations trimming. Documented in `002_rls.sql` where the assertion used to be.
+
+### The attachments bucket is public, and one policy pretends otherwise
+
+`20260530000001_attachments_bucket_public.sql` deliberately made `attachments`
+public (clients render attachment URLs with no bearer; the unguessable path is
+the capability). It dropped the session-scoped read policy as redundant but left
+`team_members_can_download_idea_attachments` in place, where it now does nothing
+— permissive policies OR together, so `attachments_public_read` always wins. The
+dead policy reads like team isolation to anyone auditing the schema.
+`019_idea_attachment_storage_rls.sql` now asserts the public model, plus the
+invariant that actually matters: `team-skills` and `team-blobs` stay private.
+
+### A daemon can relay for any session participant
+
+`daemon_can_write_gateway_message` authorizes a write for **any** participant of
+a session the daemon's agent is in — that is how a WeCom user's message reaches
+the table, but it also means a daemon can post as a human member of that
+session. `005_agent_role_rls.sql` probes impersonation with a team member
+outside the session, since a member inside it is relayable by design.
 
 ## Deleted
 
 - `003_daemon_invites.sql` — the `daemon_invites` table no longer exists
-  anywhere in the schema. The test covered a feature that was removed, so it was
-  deleted rather than quarantined.
-
-## What the repair pass changed
-
-21 files came out of quarantine. Grouped by what was actually wrong:
-
-- **schema rename** — `public.*` and the older `app.*` both became `amux.*`.
-  Rewritten by matching against the live object list rather than blanket
-  find/replace, because `orgs`, `plans` and `users` really do still live in
-  `public`.
-- **`members.user_id` moved to `actors.user_id`** — identity is per team now, so
-  the link to `auth.users` sits on the per-team row.
-- **`agents.agent_kind` is gone**, and `agents.owner_member_id` became NOT NULL
-  — several fixtures had no member at all to own their agent.
-- **`create_team` is ambiguous**: two overloads with every argument defaulted, so
-  `create_team('x')` does not resolve. Calls now name `p_oid` to pick one. Worth
-  fixing in the schema rather than in every caller.
-- **assertion API misuse** — `like()` is PostgreSQL's operator function, not a
-  pgTAP assertion (`alike`/`matches` are), and `ok(lives_ok(...))` never had an
-  overload because `lives_ok` returns TAP text, not a boolean. Both had been
-  wrong since they were written; nothing ran them, so nobody found out.
-- **`perform` at the top level** — valid only inside plpgsql. Note when fixing
-  more of these: the same file usually has legitimate `perform` inside `DO`
-  blocks, so a blind find/replace breaks it in the other direction.
+  anywhere in the schema. The test covered a feature that was removed.

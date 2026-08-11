@@ -18,7 +18,7 @@
 
 begin;
 
-select plan(12);
+select plan(13);
 
 -- Helpers (mirror 007_team_workspace_config.sql)
 create or replace function pg_temp.as_user(p_user uuid)
@@ -51,8 +51,8 @@ select pg_temp.as_user('aa111111-1111-1111-1111-111111111111');
 select * from amux.create_team('Share Team', p_oid => null);
 
 -- 1. teams.share_mode column exists with the expected enum type
-select has_column('public', 'teams', 'share_mode', 'teams.share_mode column exists');
-select col_type_is('public', 'teams', 'share_mode', 'amux.team_share_mode', 'share_mode is amux.team_share_mode');
+select has_column('amux', 'teams', 'share_mode', 'teams.share_mode column exists');
+select col_type_is('amux', 'teams', 'share_mode', 'amux.team_share_mode', 'share_mode is amux.team_share_mode');
 
 -- 2. Fresh team: share_mode IS NULL
 select is(

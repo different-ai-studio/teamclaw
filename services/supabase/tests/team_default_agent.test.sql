@@ -91,11 +91,20 @@ insert into amux.agents (id, owner_member_id, status, visibility) values
 insert into amux.teams (id, slug, name)
 values ('da020002-0000-4000-8000-000000000000', 'tda-other-team', 'TDA Other Team');
 
-insert into amux.actors (id, team_id, actor_type, display_name)
-values ('da040001-0000-4000-8000-000000000005', 'da020002-0000-4000-8000-000000000000', 'agent', 'TDA Agent Other Team');
+-- agents.owner_member_id is NOT NULL and has to sit in the same team, so the
+-- other team needs a member of its own before it can own an agent.
+insert into amux.actors (id, team_id, actor_type, display_name) values
+  ('da030002-0000-4000-8000-000000000001', 'da020002-0000-4000-8000-000000000000', 'member', 'TDA Other Owner'),
+  ('da040001-0000-4000-8000-000000000005', 'da020002-0000-4000-8000-000000000000', 'agent',  'TDA Agent Other Team');
 
-insert into amux.agents (id, status, visibility)
-values ('da040001-0000-4000-8000-000000000005', 'active', 'team');
+insert into amux.members (id, status)
+values ('da030002-0000-4000-8000-000000000001', 'active');
+
+insert into amux.team_members (team_id, member_id, role)
+values ('da020002-0000-4000-8000-000000000000', 'da030002-0000-4000-8000-000000000001', 'owner');
+
+insert into amux.agents (id, owner_member_id, status, visibility)
+values ('da040001-0000-4000-8000-000000000005', 'da030002-0000-4000-8000-000000000001', 'active', 'team');
 
 -- ── (a) owner can set a team-visible active agent ────────────────────────────
 

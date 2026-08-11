@@ -1,5 +1,5 @@
 begin;
-select plan(17);
+select plan(19);
 
 create or replace function pg_temp.as_user(p_user uuid)
 returns void language plpgsql as $$
@@ -36,9 +36,9 @@ select amux.claim_team_invite((select token from dave_invite));
 
 -- 1. actor_message_feedback exists
 select pg_temp.as_user('c1111111-1111-1111-1111-111111111111');
-select has_table('public', 'actor_message_feedback', 'actor_message_feedback table exists');
-select has_column('public', 'actor_message_feedback', 'star_rating', 'has star_rating');
-select has_column('public', 'actor_message_feedback', 'kind', 'has kind');
+select has_table('amux', 'actor_message_feedback', 'actor_message_feedback table exists');
+select has_column('amux', 'actor_message_feedback', 'star_rating', 'has star_rating');
+select has_column('amux', 'actor_message_feedback', 'kind', 'has kind');
 
 -- 2. Cara can insert her own feedback
 insert into amux.actor_message_feedback (actor_id, team_id, kind, skill)
@@ -87,7 +87,7 @@ select throws_ok(
 
 -- 8. actor_session_report exists
 select pg_temp.as_user('c1111111-1111-1111-1111-111111111111');
-select has_table('public', 'actor_session_report', 'actor_session_report table exists');
+select has_table('amux', 'actor_session_report', 'actor_session_report table exists');
 
 -- 9. Cara can insert her own report
 insert into amux.actor_session_report (actor_id, team_id, tokens_used, cost_usd, model)
@@ -134,22 +134,28 @@ select throws_ok(
   'stranger cannot insert report'
 );
 
--- 15. View exists
+-- 15. The leaderboard is a set-returning function now, not a view: it takes the
+-- team and a period ('day' | 'week' | 'month'), so the window is a caller
+-- argument instead of the fixed 30-day column the view exposed.
 select pg_temp.as_user('c1111111-1111-1111-1111-111111111111');
-select has_view('public', 'team_leaderboard', 'team_leaderboard view exists');
+select has_function('amux', 'team_leaderboard', array['uuid', 'text'],
+                    'team_leaderboard(team, period) exists');
 
 -- 16. Cara sees an aggregated row for herself
 select results_eq(
-  $$ select tokens_used_30d::bigint from amux.team_leaderboard
-       where team_id = (select team_id from ctx) and actor_id = (select cara_actor from ctx) $$,
+  $$ select tokens_used from amux.team_leaderboard(
+       (select team_id from ctx), 'week')
+      where actor_id = (select cara_actor from ctx) $$,
   $$ values (1234::bigint) $$,
   'leaderboard aggregates tokens_used for cara'
 );
 
--- 17. Eve sees nothing
+-- 17. Eve sees nothing. The function is plain STABLE SQL rather than SECURITY
+-- DEFINER, so RLS on actor_session_report / actor_message_feedback still
+-- applies and a stranger aggregates over zero visible rows.
 select pg_temp.as_user('e3333333-3333-3333-3333-333333333333');
 select is_empty(
-  $$ select 1 from amux.team_leaderboard where team_id = (select team_id from ctx) $$,
+  $$ select 1 from amux.team_leaderboard((select team_id from ctx), 'week') $$,
   'stranger sees no leaderboard rows'
 );
 

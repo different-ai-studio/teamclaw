@@ -7,9 +7,9 @@ insert into amux.teams (id, slug, name)
 values ('00000000-0000-0000-0001-000000000001', 'gw-test-team', 'Gateway Test Team');
 
 -- Column shape
-select has_column('public', 'actors',   'source',   'actors has source column');
-select has_column('public', 'actors',   'source_id', 'actors has source_id column');
-select has_column('public', 'sessions', 'binding',   'sessions has binding column');
+select has_column('amux', 'actors',   'source',    'actors has source column');
+select has_column('amux', 'actors',   'source_id', 'actors has source_id column');
+select has_column('amux', 'sessions', 'binding',   'sessions has binding column');
 
 -- actor_type now allows external
 select lives_ok($$

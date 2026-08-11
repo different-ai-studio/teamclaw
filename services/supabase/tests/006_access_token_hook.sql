@@ -1,6 +1,6 @@
 begin;
 
-select plan(23);
+select plan(28);
 
 -- Rule catalog for a member yields exactly 9 allow rules with the expected topic shapes.
 select is(

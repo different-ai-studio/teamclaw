@@ -7,6 +7,11 @@ create temporary table empty_org_bootstrap_fixture (
   expected_org_name text not null
 );
 
+-- The fixture is read back while impersonating anon/authenticated, and a
+-- temp table belongs to the session role: without this grant the first read
+-- under `set role` fails with "permission denied for table empty_org_bootstrap_fixture".
+grant select on empty_org_bootstrap_fixture to anon, authenticated;
+
 do $$
 declare
   v_user uuid := gen_random_uuid();
@@ -22,6 +27,10 @@ begin
     json_build_object('sub', v_user, 'role', 'authenticated')::text, true);
   perform set_config('role', 'authenticated', true);
   select team_id into v_team from amux.bootstrap_selected_org_team(v_org, 'Owner');
+  -- Drop the impersonation before writing the fixture row: the temp table
+  -- belongs to the session role, and a write as `authenticated` fails with
+  -- "permission denied for table empty_org_bootstrap_fixture".
+  execute 'reset role';
   insert into empty_org_bootstrap_fixture values (v_team, 'Empty Phone Org');
 end $$;
 

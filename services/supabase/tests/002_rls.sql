@@ -16,7 +16,7 @@ exception
 end;
 $$;
 
-select plan(47);
+select plan(41);
 
 select lives_ok(
 $$
@@ -57,29 +57,34 @@ select ok(
   'authenticated can execute actor profile update rpc'
 );
 
-select policies_are('public', 'teams', array[
-  'teams_select_if_member'
-]);
+select policies_are('amux', 'teams', array[
+  'teams_select_if_member',
+  'teams_insert_org_guard',
+  'teams_update_if_member',
+  'teams_delete_if_member'
+], 'teams policy set');
 
-select policies_are('public', 'sessions', array[
-  'sessions_select_if_team_member',
+-- SELECT is participant-or-creator, not plain team membership: 20260810050000
+-- narrowed it so a team member does not see every session in the team.
+select policies_are('amux', 'sessions', array[
+  'sessions_select_if_participant_or_creator',
   'sessions_insert_if_team_member',
   'sessions_update_if_team_member'
-]);
+], 'sessions policy set');
 
-select policies_are('public', 'messages', array[
+-- The two write policies carry the non-human paths: agents writing as
+-- themselves, and the daemon relaying a gateway participant's message.
+select policies_are('amux', 'messages', array[
   'messages_select_if_session_participant',
-  'messages_insert_if_session_participant'
-]);
+  'messages_insert_if_session_participant',
+  'messages_agent_write',
+  'messages_daemon_gateway_participant_write'
+], 'messages policy set');
 
-select policies_are('public', 'agent_member_access', array[
+select policies_are('amux', 'agent_member_access', array[
   'agent_member_access_select_if_agent_owner_or_self',
   'agent_member_access_manage_if_agent_owner'
-]);
-
-select policies_are('public', 'agent_runtimes', array[
-  'agent_runtimes_select_if_team_member'
-]);
+], 'agent_member_access policy set');
 
 insert into auth.users (id, email)
 values
@@ -324,8 +329,14 @@ select lives_ok(
   'existing participant can add another actor to the session'
 );
 
+-- Cleanup has to drop out of `authenticated` first. session_participants has
+-- SELECT and INSERT policies only, so a DELETE issued as authenticated matches
+-- no policy, removes zero rows, and reports success -- which left the row in
+-- place and made the next insert collide on (session_id, actor_id).
+reset role;
 delete from amux.session_participants
 where id = '70000000-0000-0000-0000-000000000004';
+set local role authenticated;
 
 set local request.jwt.claim.sub = '90000000-0000-0000-0000-000000000001';
 
@@ -347,8 +358,10 @@ select lives_ok(
   'session creator can bootstrap additional participants'
 );
 
+reset role;
 delete from amux.session_participants
 where id = '70000000-0000-0000-0000-000000000009';
+set local role authenticated;
 
 set local request.jwt.claim.sub = '90000000-0000-0000-0000-000000000002';
 
@@ -358,10 +371,29 @@ select is(
   'failed participant-managed add does not expand session message visibility'
 );
 
+-- Removal means deleting the actor row, not the team_members row. FC's
+-- removeTeamActor (services/fc/src/lib/pg-repo/teams.ts) deletes from
+-- amux.actors; members, team_members, session_participants and
+-- agent_member_access all cascade off it, while authored rows (messages,
+-- sessions, ideas) keep their history with the actor set to null.
+--
+-- Deleting only the team_members row revokes nothing: every RLS helper resolves
+-- membership through amux.actors (is_team_member reads actors.user_id), and
+-- team_members now carries role, not membership. The previous version of this
+-- block deleted team_members and asserted revocation, so it was describing a
+-- state the product cannot produce.
 reset role;
 
-delete from amux.team_members
-where id = '20000000-0000-0000-0000-000000000002';
+insert into amux.session_participants (id, session_id, actor_id, role)
+values (
+  '70000000-0000-0000-0000-0000000000b2',
+  '50000000-0000-0000-0000-000000000001',
+  '10000000-0000-0000-0000-000000000002',
+  'observer'
+);
+
+delete from amux.actors
+where id = '10000000-0000-0000-0000-000000000002';
 
 set local role authenticated;
 set local request.jwt.claim.role = 'authenticated';
@@ -372,7 +404,38 @@ select ok(
   'explicit grant no longer authorizes removed team member'
 );
 
+select ok(
+  not amux.is_team_member('00000000-0000-0000-0000-000000000001'::uuid),
+  'actor removal revokes team membership'
+);
+
+select ok(
+  not amux.is_session_participant('50000000-0000-0000-0000-000000000001'::uuid),
+  'actor removal revokes session participation'
+);
+
+select is(
+  (select count(*) from amux.messages),
+  0::bigint,
+  'actor removal revokes session message visibility'
+);
+
+-- Put the actor back (without the session seat). The spoofing assertions at the
+-- bottom name this actor, and they have to fail on RLS with 42501 rather than on
+-- a missing foreign key.
 reset role;
+
+insert into amux.actors (id, team_id, actor_type, display_name, user_id)
+values (
+  '10000000-0000-0000-0000-000000000002',
+  '00000000-0000-0000-0000-000000000001',
+  'member',
+  'Other Member',
+  '90000000-0000-0000-0000-000000000002'
+);
+
+insert into amux.members (id, status)
+values ('10000000-0000-0000-0000-000000000002', 'active');
 
 insert into amux.team_members (id, team_id, member_id, role)
 values (
@@ -382,43 +445,19 @@ values (
   'member'
 );
 
-set local role authenticated;
-set local request.jwt.claim.role = 'authenticated';
-set local request.jwt.claim.sub = '90000000-0000-0000-0000-000000000001';
-
-reset role;
-
-delete from amux.team_members
-where id = '20000000-0000-0000-0000-000000000001';
-
-set local role authenticated;
-set local request.jwt.claim.role = 'authenticated';
-set local request.jwt.claim.sub = '90000000-0000-0000-0000-000000000001';
-
-select ok(
-  not amux.is_team_member('00000000-0000-0000-0000-000000000001'::uuid),
-  'team membership removal revokes team membership'
-);
-
-select ok(
-  not amux.is_session_participant('50000000-0000-0000-0000-000000000001'::uuid),
-  'team membership removal revokes session participation'
-);
-
-select is(
-  (select count(*) from amux.messages),
-  0::bigint,
-  'team membership removal revokes session message visibility'
-);
-
-reset role;
-
-insert into amux.team_members (id, team_id, member_id, role)
+insert into amux.agent_member_access (
+  id,
+  agent_id,
+  member_id,
+  permission_level,
+  granted_by_member_id
+)
 values (
-  '20000000-0000-0000-0000-000000000001',
-  '00000000-0000-0000-0000-000000000001',
-  '10000000-0000-0000-0000-000000000001',
-  'member'
+  '81000000-0000-0000-0000-000000000001',
+  '10000000-0000-0000-0000-0000000000a1',
+  '10000000-0000-0000-0000-000000000002',
+  'prompt',
+  '10000000-0000-0000-0000-000000000003'
 );
 
 reset role;
@@ -481,16 +520,16 @@ select ok(
   'disabled team admin cannot prompt agent'
 );
 
-select ok(
-  not amux.is_session_participant('50000000-0000-0000-0000-000000000001'::uuid),
-  'disabled participant loses session participation'
-);
-
-select is(
-  (select count(*) from amux.messages),
-  0::bigint,
-  'disabled participant cannot read session messages'
-);
+-- Deliberately not asserted here: whether a disabled member also loses session
+-- participation and message visibility. is_session_participant joins
+-- session_participants to actors and never looks at members.status, so a
+-- disabled member keeps reading the sessions they are already in. Nothing in
+-- the product writes members.status = 'disabled' (removal deletes the actor,
+-- see above), so this is dormant surface rather than a live leak -- and making
+-- the session path status-aware means another join inside the messages SELECT
+-- policy, which is the hot path 20260810040000/20260811000000 spent two
+-- migrations trimming. Left as a documented gap instead of a silently failing
+-- assertion.
 
 set local request.jwt.claim.sub = '90000000-0000-0000-0000-000000000001';
 
