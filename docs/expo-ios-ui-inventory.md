@@ -1,11 +1,3 @@
-### ~~`StreamingDetailView`~~ — fixed
-
-Was a summary modal showing counts ("Tools · 7"). Now `TurnDetailScreen`
-renders the events themselves with the chat feed's own row components, plus
-live streaming text, the todo dock and a stop button. Expo still presents it as
-a modal where iOS pushes a navigation destination — deliberate, so the session
-underneath stays mounted and keeps its MQTT subscription.
-
 # Expo ↔ iOS UI surface inventory
 
 Companion to `expo-ios-parity-audit.md`, which covers the six parity axes. This
@@ -34,7 +26,9 @@ surface missing from here is a bug in this document.
 | ⚠ | Compared, and a concrete difference is recorded below |
 | ✖ | No Expo counterpart |
 
-◻ is the honest default and the majority state. It is not a pass.
+◻ was the honest default and, for most of this branch, the majority state. It is
+not a pass. The column is empty now — see the note at the end on keeping it that
+way.
 
 **✅ and 📱 are not the same claim, and the gap between them is where the bugs
 were.** The tab bar was ✅ twice while broken on a real phone both times: the
@@ -53,11 +47,15 @@ Rows carrying two marks (`✅ header ◻ body`) are counted by their first, so t
 
 | Status | Count |
 |---|---|
-| ✅ verified | 66 |
+| 📱 run on a device | 1 |
+| ✅ verified by reading | 65 |
 | ⚠ known gap | 3 |
 | ◻ unverified | 0 |
 | ✖ missing | 1 |
 | **Total** | **70** |
+
+📱 had been folded into the ✅ count, which is the one merge this table must not
+make: the section above exists to say those are different claims.
 
 Counts move as rows are worked. Last updated after the shared-primitives sweep
 (mentions, slash commands, chip bar, banners, todo dock, plans panel,
@@ -231,7 +229,7 @@ one**.
 Now ported as `ToolCallLine` + `tool-display.ts` (`toolSummary`,
 `foldToolResults`). Marked ✅ in the table above.
 
-### `StreamingDetailView` (292 LOC) — a pushed screen vs. a modal
+### ~~`StreamingDetailView`~~ (292 LOC) — fixed, minus one deliberate difference
 
 iOS pushes a full navigation destination keyed by `TurnRoute`, which pins to a
 specific `frozenTurnID` so a tap on an old turn shows that turn rather than the
@@ -239,18 +237,24 @@ newest. It hosts `EventFeedView` (live thinking, tool calls, partial output), a
 `TodoDockView` bottom inset, and calls `requestTurnHistory` to backfill from the
 daemon.
 
-Expo shows `AgentTurnDetailModal`, a grouped summary. Turn-history backfill is
-wired; the pinning semantics, the todo dock inset and the live event feed are
-not.
+Expo answered that with `AgentTurnDetailModal`, a grouped summary showing counts
+("Tools · 7"). Now `TurnDetailScreen` renders the events themselves with the
+chat feed's own row components, plus live streaming text, the todo dock and a
+stop button.
+
+**Expo still presents it as a modal where iOS pushes** — deliberate, so the
+session underneath stays mounted and keeps its MQTT subscription. That is the ⚠
+on the table row; everything else on this entry is closed.
 
 ### `AMUXTheme` — light only
 
 Excluded by the user. Recorded so the count stays honest.
 
-### `EventFeedView` — bubbles verified, tool rendering not
+### `EventFeedView` — bubbles and tool calls verified, thinking not
 
-The bubble geometry was diffed in `a3d357e5`. The tool-call and thinking
-branches of the same file were not; they route into the two gaps above.
+The bubble geometry was diffed in `a3d357e5`, and the tool-call branch went with
+`ToolCallView` above. The thinking branch of the same file has still not been
+compared.
 
 ## The one ✖
 
@@ -267,11 +271,22 @@ No iOS counterpart, and none needed: `app/(app)/mqtt-debug.tsx`,
 
 ## How to use this
 
-Work down the ◻ rows. Verifying one means opening both files side by side and
-**Every row has now been looked at.** What remains is not unverified surfaces
-but the five ⚠ rows below — each one a decision that was recorded rather than
-made, because making it needs something this branch does not have: an SMS
-provider, a testable login, or a per-agent config sheet.
+**Every row has now been opened at least once**, which is what the ◻ count of
+zero means, and no more than that. Two kinds of work are still on this page.
 
-The column has done its job when it is empty. Keep it that way: a new iOS
-surface arrives ◻, and stays ◻ until someone opens both files.
+**Eight rows carry ◻ as a second mark** — `AgentsSheet`, `EventFeedView`,
+`IdeaDetailView`, `MemberListContent`, `IdeasTab`, `MembersTab`, `SessionsTab`,
+`SettingsView`. Part of each was compared and the rest was not, and by the
+counting rule above they land in the ✅ column anyway. `MemberListContent` is
+1598 lines with a slice verified; three tabs have a checked header over an
+unchecked body. This is the honest remainder of the sweep.
+
+**Five rows carry a ⚠ that is an open decision** rather than a difference
+already settled: `AMUXTheme`, `UpgradeAccountSheet` and `LoginView` (the three
+the coverage table counts), plus `ContentView` and `NewSessionSheet`, whose ⚠ is
+a second mark. Each needs something this branch does not have — an SMS provider,
+a testable login, or a per-agent config sheet — which is why it was recorded
+instead of made.
+
+Keep the first column honest: a new iOS surface arrives ◻, and stays ◻ until
+someone opens both files.

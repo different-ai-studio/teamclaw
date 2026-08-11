@@ -336,9 +336,12 @@ entirely:
 1. **Dark mode** — tokens to adaptive, thread a color-scheme hook, audit every
    hardcoded hex. Wide but mechanical. Excluded by the user for now; it is the
    single largest remaining visual divergence.
-2. **The ⚠ rows** in `expo-ios-ui-inventory.md`. Its ◻ column reached zero, so
-   what is left there is not unverified surfaces but recorded decisions — phone
-   OTP, the untestable login, per-agent config on `NewSessionSheet`.
+2. **The partially-checked rows** in `expo-ios-ui-inventory.md`. Its ◻ column
+   reads zero because every surface has been opened once, but eight rows carry
+   ◻ as a second mark and count as ✅ regardless — `MemberListContent` (1598
+   lines, a slice verified) and three tabs with a checked header over an
+   unchecked body are the mass of it. Its five ⚠ rows are decisions, not work:
+   phone OTP, the untestable login, per-agent config on `NewSessionSheet`.
 3. **Attachment upload persistence**, and `HaiSheet` chrome.
 4. **Back-scroll on iOS.** Closing Expo's gap showed that `listPage` has no
    caller there either, so iOS reaches only the newest page of a long session.
