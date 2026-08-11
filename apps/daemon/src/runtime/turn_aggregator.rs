@@ -18,8 +18,11 @@
 //! - AgentThinking: `""` (no metadata)
 //! - AgentToolCall: `{"tool_id": str, "tool_name": str, "description": str}`
 //! - AgentToolResult: `{"tool_id": str, "success": bool}`
-//! - AgentReply: `""` normally; interrupted turns use
-//!   `{"turn_status":"interrupted"}` with non-empty agent-facing content
+//! - AgentReply: `""` normally; special turn endings use non-empty
+//!   agent-facing English content plus:
+//!   - `{"turn_status":"interrupted"}` — user abort
+//!   - `{"turn_status":"no_final_reply"}` — Idle with no final prose
+//!     (frontends hide the English notice and render a localized strip)
 //!
 //! Always emit all keys for a kind (use empty strings/false rather than
 //! omitting). New keys may be added; existing keys must not be removed
