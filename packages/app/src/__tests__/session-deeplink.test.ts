@@ -1,4 +1,4 @@
-import { describe, it, expect } from 'vitest'
+import { describe, it, expect, afterEach, vi } from 'vitest'
 import { parseSessionDeeplink, buildSessionDeeplink } from '@/lib/session-deeplink'
 
 const UUID = 'a1ca8f06-94ee-4fb5-bdfb-194a5606062f'
@@ -33,5 +33,30 @@ describe('parseSessionDeeplink', () => {
 describe('buildSessionDeeplink', () => {
   it('builds teamclu://session/<uuid> using the build scheme', () => {
     expect(buildSessionDeeplink(UUID)).toBe(`teamclu://session/${UUID}`)
+  })
+})
+
+describe('a build with its own app.scheme', () => {
+  afterEach(() => {
+    vi.doUnmock('@/lib/build-config')
+    vi.resetModules()
+  })
+
+  it('takes copilot361:// and nothing else', async () => {
+    vi.resetModules()
+    vi.doMock('@/lib/build-config', async () => {
+      const actual =
+        await vi.importActual<typeof import('@/lib/build-config')>('@/lib/build-config')
+      return {
+        ...actual,
+        appScheme: 'copilot361',
+        deeplinkSchemes: actual.resolveDeeplinkSchemes('copilot361'),
+      }
+    })
+    const mod = await import('@/lib/session-deeplink')
+    expect(mod.parseSessionDeeplink(`copilot361://session/${UUID}`)).toBe(UUID)
+    expect(mod.parseSessionDeeplink(`teamclu://session/${UUID}`)).toBeNull()
+    expect(mod.parseSessionDeeplink(`amux://session/${UUID}`)).toBeNull()
+    expect(mod.buildSessionDeeplink(UUID)).toBe(`copilot361://session/${UUID}`)
   })
 })

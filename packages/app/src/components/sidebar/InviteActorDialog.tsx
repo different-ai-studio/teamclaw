@@ -14,6 +14,7 @@ import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { UpgradeToOrgDialog } from '@/components/auth/UpgradeToOrgDialog'
 import { getBackend } from '@/lib/backend'
+import { buildInviteDeeplink } from '@/lib/invite-deeplink'
 import { cn } from '@/lib/utils'
 import { useCurrentTeamStore } from '@/stores/current-team'
 
@@ -95,15 +96,16 @@ export function InviteActorDialog({ open, onOpenChange, teamId }: InviteActorDia
             ttlSeconds: null,
             targetActorId: null,
           })
-      const deeplink = row.deeplink ?? row.inviteUrl
-      if (!deeplink) {
+      if (!row.token) {
         toast.error(t('invite.failed', 'Failed to create invite: {{msg}}', { msg: 'empty response' }))
         return
       }
       setInvite({
         token: row.token,
         expiresAt: row.expiresAt ?? new Date(Date.now() + 604800 * 1000).toISOString(),
-        deeplink,
+        // Not row.deeplink: that carries the backend's `amux://` scheme, which
+        // no build registers with the OS.
+        deeplink: buildInviteDeeplink(row.token),
       })
     } catch (e) {
       // Default-org teams are solo-only: inviting members requires upgrading the

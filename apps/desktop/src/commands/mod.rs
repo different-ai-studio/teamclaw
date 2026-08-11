@@ -53,6 +53,10 @@ use crate::process_util::CommandNoWindow;
 
 /// The short application name, injected at compile time via `build.rs`.
 pub const APP_SHORT_NAME: &str = env!("APP_SHORT_NAME");
+/// Deep-link scheme for this build (`app.scheme`, default `teamclu`).
+/// Independent of `APP_SHORT_NAME` — betly is short name `teamclaw` on scheme
+/// `teamclu`, copilot361 is `copilot361` on both.
+pub const APP_SCHEME: &str = env!("APP_SCHEME");
 /// Workspace metadata directory (`.teamclu` for official builds).
 pub const TEAMCLU_DIR: &str = env!("TEAMCLU_DIR");
 /// Subfolder inside workspace where the team repo is cloned / symlinked.

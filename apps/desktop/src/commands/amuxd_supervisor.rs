@@ -31,6 +31,9 @@ const CURSOR_BRIDGE_MAIN_ENV: &str = "TEAMCLU_CURSOR_BRIDGE_MAIN";
 const CLAUDE_BRIDGE_MAIN_ENV: &str = "TEAMCLU_CLAUDE_BRIDGE_MAIN";
 const BRAND_SHORT_NAME_ENV: &str = teamclu_runtime_env::BRAND_SHORT_NAME_ENV;
 const AMUXD_HOME_ENV: &str = teamclu_runtime_env::AMUXD_HOME_ENV;
+/// Read by the teamclu-introspect sidecar (`export_session_link`), which amuxd
+/// registers as an MCP server and therefore inherits this from.
+const APP_SCHEME_ENV: &str = "TEAMCLU_APP_SCHEME";
 const LAUNCHD_LABEL: &str = "cc.ucar.amuxd";
 
 struct SupervisorInner {
@@ -612,6 +615,7 @@ impl AmuxdSupervisor {
         let amuxd_home = amuxd_dir();
         cmd.env(BRAND_SHORT_NAME_ENV, super::APP_SHORT_NAME);
         cmd.env(AMUXD_HOME_ENV, &amuxd_home);
+        cmd.env(APP_SCHEME_ENV, super::APP_SCHEME);
         if let Some(introspect) = bundled_introspect_path() {
             cmd.env(INTROSPECT_ENV, introspect);
         }

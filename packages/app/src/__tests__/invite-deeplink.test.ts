@@ -1,5 +1,5 @@
-import { describe, it, expect } from 'vitest'
-import { parseInviteDeeplink, parseInviteTokenInput } from '@/lib/invite-deeplink'
+import { describe, it, expect, afterEach, vi } from 'vitest'
+import { buildInviteDeeplink, parseInviteDeeplink, parseInviteTokenInput } from '@/lib/invite-deeplink'
 
 describe('parseInviteDeeplink', () => {
   it('extracts the token from teamclu://invite?token=…', () => {
@@ -38,5 +38,49 @@ describe('parseInviteDeeplink', () => {
 
   it('rejects non-invite urls for pasted onboarding input', () => {
     expect(parseInviteTokenInput('https://example.com/invite?token=nope')).toBeNull()
+  })
+})
+
+describe('buildInviteDeeplink', () => {
+  it('builds the link on the build scheme, not the backend amux:// one', () => {
+    expect(buildInviteDeeplink('TOK/EN+1')).toBe('teamclu://invite?token=TOK%2FEN%2B1')
+  })
+})
+
+describe('a build with its own app.scheme', () => {
+  afterEach(() => {
+    vi.doUnmock('@/lib/build-config')
+    vi.resetModules()
+  })
+
+  async function loadForScheme(scheme: string) {
+    vi.resetModules()
+    vi.doMock('@/lib/build-config', async () => {
+      const actual =
+        await vi.importActual<typeof import('@/lib/build-config')>('@/lib/build-config')
+      return { ...actual, appScheme: scheme, deeplinkSchemes: actual.resolveDeeplinkSchemes(scheme) }
+    })
+    return import('@/lib/invite-deeplink')
+  }
+
+  it('takes copilot361:// and nothing else', async () => {
+    // The OS only ever hands this build copilot361:// links; a teamclu:// or
+    // amux:// one would open the official app, so accepting it here just made a
+    // dead link look supported.
+    const { parseInviteDeeplink: parse } = await loadForScheme('copilot361')
+    expect(parse('copilot361://invite?token=OK')).toBe('OK')
+    expect(parse('teamclu://invite?token=NO')).toBeNull()
+    expect(parse('teamclaw://invite?token=NO')).toBeNull()
+    expect(parse('amux://invite?token=NO')).toBeNull()
+  })
+
+  it('hands out invite links on its own scheme', async () => {
+    const { buildInviteDeeplink: build } = await loadForScheme('copilot361')
+    expect(build('TOK')).toBe('copilot361://invite?token=TOK')
+  })
+
+  it('still takes a bare pasted token', async () => {
+    const { parseInviteTokenInput: parseInput } = await loadForScheme('copilot361')
+    expect(parseInput('  bare_token_123  ')).toBe('bare_token_123')
   })
 })

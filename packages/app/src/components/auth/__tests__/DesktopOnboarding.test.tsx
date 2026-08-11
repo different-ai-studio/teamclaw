@@ -53,6 +53,7 @@ vi.mock("@/lib/version", () => ({
 vi.mock("@/lib/build-config", () => ({
   buildConfig: { app: { name: "TeamClu" } },
   appScheme: 'teamclu',
+  deeplinkSchemes: ['teamclu', 'teamclaw', 'amux'],
 }));
 
 import { DesktopOnboarding } from "../DesktopOnboarding";
