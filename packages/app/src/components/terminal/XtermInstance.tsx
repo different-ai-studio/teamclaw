@@ -84,10 +84,11 @@ export function XtermInstance({ tabId, active }: Props) {
 
     // WebGL renderer — falls back to canvas/DOM if context creation fails or is lost.
     //
-    // addon-webgl is pinned to ^0.18.0 on purpose: 0.19.0 reads
+    // addon-webgl and @xterm/xterm move together: 0.19.0 reads
     // `terminal._core._store._isDisposed` on teardown, and that `_store` only
-    // exists in the xterm 6.x core. Against @xterm/xterm 5.5.0 the read throws
-    // and takes the whole cleanup below with it. Bump both or neither.
+    // exists in the xterm 6.x core — against 5.x the read throws and takes the
+    // whole cleanup below with it. They are now on 0.19.x / 6.x respectively;
+    // keep them in step, and bump both or neither.
     try {
       const addon = new WebglAddon();
       addon.onContextLoss(() => {
