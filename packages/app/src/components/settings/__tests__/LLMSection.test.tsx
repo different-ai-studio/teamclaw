@@ -186,6 +186,73 @@ describe('LLMSection', () => {
     })
   })
 
+  it('force-refetches model-catalog after adding a custom provider', async () => {
+    mocks.providerState.addCustomProvider.mockResolvedValueOnce('custom-openai')
+    render(<LLMSection />)
+    mocks.ensureLocalDaemonCatalog.mockClear()
+
+    fireEvent.click(screen.getByRole('button', { name: 'Add Custom' }))
+    fireEvent.change(screen.getByPlaceholderText('e.g. My OpenAI Proxy'), {
+      target: { value: 'Custom OpenAI' },
+    })
+    fireEvent.change(screen.getByPlaceholderText('e.g. https://api.openai.com/v1'), {
+      target: { value: 'https://api.example.test/v1' },
+    })
+    fireEvent.change(screen.getByPlaceholderText('sk-...'), {
+      target: { value: 'sk-test' },
+    })
+    fireEvent.change(screen.getByPlaceholderText('e.g. gpt-4o'), {
+      target: { value: 'custom-model' },
+    })
+    fireEvent.click(screen.getByRole('button', { name: 'Add Provider' }))
+
+    await waitFor(() => {
+      expect(mocks.ensureLocalDaemonCatalog).toHaveBeenCalledWith('/test', 'opencode', {
+        force: true,
+      })
+    })
+  })
+
+  it('force-refetches model-catalog after updating a custom provider', async () => {
+    mocks.providerState.providers = [{ id: 'custom-openai', name: 'Custom OpenAI', configured: true }]
+    mocks.providerState.customProviderIds = ['custom-openai']
+    mocks.providerState.getCustomProvider.mockResolvedValueOnce({
+      name: 'Custom OpenAI',
+      baseURL: 'https://api.example.test/v1',
+      models: [{ modelId: 'custom-model', modelName: 'Custom Model' }],
+    })
+    mocks.providerState.updateCustomProvider.mockResolvedValueOnce(true)
+    render(<LLMSection />)
+    mocks.ensureLocalDaemonCatalog.mockClear()
+
+    fireEvent.click(screen.getByTitle('Edit custom provider'))
+    expect(await screen.findByDisplayValue('Custom OpenAI')).toBeTruthy()
+    fireEvent.click(screen.getByRole('button', { name: 'Update Provider' }))
+
+    await waitFor(() => {
+      expect(mocks.ensureLocalDaemonCatalog).toHaveBeenCalledWith('/test', 'opencode', {
+        force: true,
+      })
+    })
+  })
+
+  it('force-refetches model-catalog after removing a custom provider', async () => {
+    mocks.providerState.providers = [{ id: 'custom-openai', name: 'Custom OpenAI', configured: true }]
+    mocks.providerState.customProviderIds = ['custom-openai']
+    mocks.providerState.removeCustomProvider.mockResolvedValueOnce(true)
+    render(<LLMSection />)
+    mocks.ensureLocalDaemonCatalog.mockClear()
+
+    fireEvent.click(screen.getByTitle('Remove custom provider'))
+    fireEvent.click(screen.getByRole('button', { name: 'Remove' }))
+
+    await waitFor(() => {
+      expect(mocks.ensureLocalDaemonCatalog).toHaveBeenCalledWith('/test', 'opencode', {
+        force: true,
+      })
+    })
+  })
+
   it('lists catalog models for an unconnected provider and allows expand', async () => {
     mocks.providerState.providers = [{ id: 'opencode', name: 'OpenCode', configured: false }]
     mocks.catalogState.byWorkspacePath['/test'] = {
