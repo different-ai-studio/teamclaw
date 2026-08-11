@@ -329,6 +329,7 @@ entirely:
 | **P3** | `HaiSheet` chrome has no counterpart (Axis 6) | open |
 | **P1** | No back-scroll — Expo showed only the newest page since #842 (Axis 2) | fixed |
 | **P2** | Tab bar / modal safe area — found on a device, not by reading (Axis 6) | fixed |
+| **P2** | Sessions tab lost its bar styling after one visit to a session, Android (Axis 6) | fixed |
 | **Unknown** | Everything marked ✅ was source-diffed, **not run** | open |
 
 ## What is left

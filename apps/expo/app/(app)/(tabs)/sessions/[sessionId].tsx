@@ -9,6 +9,7 @@ import {
   Text,
   View,
 } from "react-native";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { routeToHref, useConnectedAgentsStore, useOnboarding, useTeamMqtt } from "../../../_layout";
 import { resolveSlashCommands } from "../../../../src/features/sessions/components/runtime-commands";
@@ -42,6 +43,7 @@ import {
   runtimeStatusName,
 } from "../../../../src/features/sessions/agent-runtime-state";
 import { impactLight, selectionTick, successTone } from "../../../../src/lib/haptics";
+import { androidTabBarStyle } from "../../../../src/ui/tab-bar";
 import { showToast } from "../../../../src/ui/Toast";
 import { supabase } from "../../../../src/lib/supabase/client";
 import { getDb } from "../../../../src/lib/db/sqlite";
@@ -117,15 +119,23 @@ export default function SessionDetailRoute() {
   // `hidesBottomBarWhenPushed` on the pushed view controller, which the
   // installed react-native-screens does not expose. Guarded rather than left to
   // silently no-op, so the gap is visible in the code that owns it.
+  //
+  // Restoring means putting the real style back, not clearing the override:
+  // runtime options are merged *over* `screenOptions`, so `undefined` wins and
+  // the Sessions tab kept React Navigation's 49dp default bar — a shorter bar
+  // with no Paper background or hairline, on that tab only, until the app
+  // restarted. `androidTabBarStyle` exists so this is the same value the
+  // navigator set.
+  const tabBarInset = useSafeAreaInsets().bottom;
   useEffect(() => {
     if (Platform.OS !== "android") return;
     const parent = navigation.getParent();
     if (!parent) return;
     parent.setOptions({ tabBarStyle: { display: "none" } });
     return () => {
-      parent.setOptions({ tabBarStyle: undefined });
+      parent.setOptions({ tabBarStyle: androidTabBarStyle(tabBarInset) });
     };
-  }, [navigation]);
+  }, [navigation, tabBarInset]);
   const sessionId = Array.isArray(rawSessionId) ? rawSessionId[0] : rawSessionId;
   const { state } = useOnboarding();
   const teamMqtt = useTeamMqtt();

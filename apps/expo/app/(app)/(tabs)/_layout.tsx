@@ -9,7 +9,8 @@ import {
   getUnreadSessionCount,
   subscribeUnreadSessionCount,
 } from "../../../src/features/sessions/unread-store";
-import { colors, typography } from "../../../src/ui/theme";
+import { androidTabBarStyle, tabBarLabelStyle } from "../../../src/ui/tab-bar";
+import { colors } from "../../../src/ui/theme";
 
 type TabIconProps = {
   // `ColorValue`, not `string`: this is what expo-router hands `tabBarIcon`,
@@ -20,9 +21,6 @@ type TabIconProps = {
 };
 
 type IconName = keyof typeof Ionicons.glyphMap;
-
-/** Icon (24) + 10pt label + breathing room, close to UIKit's own 49. */
-const TAB_BAR_HEIGHT = 56;
 
 function makeIcon(activeName: IconName, idleName: IconName) {
   return function TabIcon({ color, focused, size }: TabIconProps) {
@@ -121,7 +119,7 @@ function AndroidPlainTabs({ unread }: { unread: number }) {
         headerShown: false,
         tabBarActiveTintColor: colors.cinnabar,
         tabBarInactiveTintColor: colors.slate,
-        tabBarLabelStyle: styles.label,
+        tabBarLabelStyle,
         // Opaque and in normal flow — the navigator reserves its height, so
         // content stops where the bar starts and no screen has to pad for it.
         //
@@ -132,10 +130,10 @@ function AndroidPlainTabs({ unread }: { unread: number }) {
         // bar's own padding stacked on top. The root now takes the top only,
         // so the bar reaches the edge and pads its content clear of the
         // gesture pill.
-        tabBarStyle: [
-          styles.bar,
-          { height: TAB_BAR_HEIGHT + insets.bottom, paddingBottom: insets.bottom },
-        ],
+        //
+        // Shared with the session detail screen, which hides the bar and has
+        // to put this exact value back — see `androidTabBarStyle`.
+        tabBarStyle: androidTabBarStyle(insets.bottom),
         sceneStyle: styles.scene,
       }}
     >
@@ -179,21 +177,6 @@ function AndroidPlainTabs({ unread }: { unread: number }) {
 }
 
 const styles = StyleSheet.create({
-  bar: {
-    backgroundColor: colors.paper,
-    borderTopColor: colors.hairline,
-    borderTopWidth: StyleSheet.hairlineWidth,
-    // No elevation: the hairline carries the boundary, and Material's drop
-    // shadow would read as a different design language next to Hai's flat
-    // surfaces.
-    elevation: 0,
-  },
-  label: {
-    ...typography.monoMeta,
-    fontSize: 10,
-    letterSpacing: 0.4,
-    marginTop: -2,
-  },
   scene: {
     backgroundColor: colors.mist,
   },
