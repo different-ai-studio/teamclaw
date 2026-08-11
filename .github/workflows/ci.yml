@@ -56,6 +56,15 @@ jobs:
       - name: Run Expo unit tests
         run: pnpm test:expo
 
+      # Same gap as the Expo one above: the extension has its own tsconfig and
+      # was never typechecked by CI, so it drifted broken (12 errors) without
+      # anything going red. Gated here so it cannot rot again.
+      - name: Run extension TypeScript check
+        run: pnpm typecheck:extension
+
+      - name: Run extension unit tests
+        run: pnpm test:extension
+
       - name: Run script tests
         run: pnpm test:scripts
 
