@@ -2,9 +2,12 @@ begin;
 
 select plan(4);
 
-select has_column('public', 'idea_activities', 'attachment_urls');
-select col_type_is('public', 'idea_activities', 'attachment_urls', 'text[]');
-select col_not_null('public', 'idea_activities', 'attachment_urls');
+select has_column('amux', 'idea_activities', 'attachment_urls',
+                  'idea_activities.attachment_urls exists');
+select col_type_is('amux', 'idea_activities', 'attachment_urls', 'text[]',
+                   'idea_activities.attachment_urls is text[]');
+select col_not_null('amux', 'idea_activities', 'attachment_urls',
+                    'idea_activities.attachment_urls is NOT NULL');
 
 insert into auth.users (id, email, aud, role, instance_id)
 values (

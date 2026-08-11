@@ -4,14 +4,16 @@ begin;
 select plan(16);
 
 -- ── Schema presence ──────────────────────────────────────────────────────────
-select has_table('public', 'device_push_tokens');
-select has_table('public', 'notification_prefs');
-select has_table('public', 'session_mutes');
-select has_table('public', 'client_presence');
-select has_table('public', 'push_idempotency');
+select has_table('amux', 'device_push_tokens', 'device_push_tokens exists');
+select has_table('amux', 'notification_prefs',  'notification_prefs exists');
+select has_table('amux', 'session_mutes',       'session_mutes exists');
+select has_table('amux', 'client_presence',     'client_presence exists');
+select has_table('amux', 'push_idempotency',    'push_idempotency exists');
 
-select has_function('public', 'list_session_push_targets', array['uuid','uuid']);
-select has_function('public', 'push_idempotency_claim',    array['uuid']);
+select has_function('amux', 'list_session_push_targets', array['uuid','uuid'],
+                    'list_session_push_targets(session, message) exists');
+select has_function('amux', 'push_idempotency_claim',    array['uuid'],
+                    'push_idempotency_claim(key) exists');
 
 -- ── RLS enabled ──────────────────────────────────────────────────────────────
 select ok(

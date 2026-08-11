@@ -12,11 +12,13 @@ select has_index(
 select has_function(
   'amux',
   'list_current_actor_sessions',
+  -- p_team_id leads: 20260810010000 dropped the unscoped variant, so the team
+  -- is the first argument rather than an optional filter at the end.
   array[
+    'uuid',
     'integer',
     'timestamp with time zone',
     'timestamp with time zone',
-    'uuid',
     'uuid',
     'uuid'
   ],

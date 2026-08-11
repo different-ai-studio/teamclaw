@@ -37,12 +37,6 @@ begin
      '00000000-0000-0000-0000-000000000000', false)
   on conflict do nothing;
 
-  -- members
-  insert into amux.members (id, status)
-  values
-    (v_alice_mem, 'active'),
-    (v_bob_mem,   'active');
-
   -- team
   insert into amux.teams (id, slug, name)
   values (v_team, 'oc-test-' || left(v_team::text, 8), 'Owner Check Test');
@@ -52,6 +46,14 @@ begin
   values
     (v_alice_mem, v_team, 'member', 'Alice', v_alice_uid),
     (v_bob_mem,   v_team, 'member', 'Bob',   v_bob_uid);
+
+  -- members: the subtype row references actors(id), so it can only be written
+  -- after the actor exists. It used to be seeded first, which meant this fixture
+  -- died on members_id_fkey before a single assertion ran.
+  insert into amux.members (id, status)
+  values
+    (v_alice_mem, 'active'),
+    (v_bob_mem,   'active');
 
   -- team_members
   insert into amux.team_members (team_id, member_id, role)

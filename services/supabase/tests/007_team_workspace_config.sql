@@ -35,11 +35,18 @@ select * from amux.create_team('WC Team', p_oid => null);
 create temp table ctx as
   select (select id from amux.teams where slug = 'wc-team') as team_id;
 
-insert into amux.actors (id, team_id, actor_type, display_name)
-values ('b2222222-0000-0000-0000-000000000000', (select team_id from ctx), 'member', 'Bob');
+-- Seed Bob as the session role. actors has an INSERT policy scoped to the
+-- caller's own identity, so building a second member while still impersonating
+-- alice trips it -- the fixture is provisioning, not exercising, that policy.
+reset role;
 
-insert into amux.members (id, user_id, status)
-values ('b2222222-0000-0000-0000-000000000000', 'b2222222-2222-2222-2222-222222222222', 'active');
+insert into amux.actors (id, team_id, actor_type, display_name, user_id)
+values ('b2222222-0000-0000-0000-000000000000', (select team_id from ctx), 'member', 'Bob',
+        'b2222222-2222-2222-2222-222222222222');
+
+-- user_id moved to actors (identity is per team); members carries status only.
+insert into amux.members (id, status)
+values ('b2222222-0000-0000-0000-000000000000', 'active');
 
 insert into amux.team_members (id, team_id, member_id, role)
 values (
@@ -50,17 +57,21 @@ values (
 );
 
 -- 1. Table exists
-select has_table('public', 'team_workspace_config', 'team_workspace_config table exists');
+select has_table('amux', 'team_workspace_config', 'team_workspace_config table exists');
 
 -- 2-9. Has expected columns
-select has_column('public', 'team_workspace_config', 'team_id', 'has team_id');
-select has_column('public', 'team_workspace_config', 'git_url', 'has git_url');
-select has_column('public', 'team_workspace_config', 'git_token', 'has git_token');
-select has_column('public', 'team_workspace_config', 'ai_gateway_endpoint', 'has ai_gateway_endpoint');
-select has_column('public', 'team_workspace_config', 'shared_dir_name', 'has shared_dir_name');
-select has_column('public', 'team_workspace_config', 'env_secret', 'has env_secret');
-select has_column('public', 'team_workspace_config', 'last_sync_at', 'has last_sync_at');
-select has_column('public', 'team_workspace_config', 'last_sync_error', 'has last_sync_error');
+select has_column('amux', 'team_workspace_config', 'team_id', 'has team_id');
+select has_column('amux', 'team_workspace_config', 'git_url', 'has git_url');
+select has_column('amux', 'team_workspace_config', 'git_token', 'has git_token');
+select has_column('amux', 'team_workspace_config', 'ai_gateway_endpoint', 'has ai_gateway_endpoint');
+-- shared_dir_name / env_secret / last_sync_at / last_sync_error are gone. The
+-- shared directory is fixed by the client, secrets moved to team_env_secrets,
+-- and sync progress is tracked by oss_change_seq rather than a timestamp plus
+-- an error string. The columns asserted here are the ones the row still has.
+select has_column('amux', 'team_workspace_config', 'sync_mode', 'has sync_mode');
+select has_column('amux', 'team_workspace_config', 'oss_change_seq', 'has oss_change_seq');
+select has_column('amux', 'team_workspace_config', 'litellm_team_id', 'has litellm_team_id');
+select has_column('amux', 'team_workspace_config', 'enabled', 'has enabled');
 
 -- 10. Owner can write own team_workspace_config (the create_team RPC seeds an
 -- empty row at team creation; the owner fills it in via UPDATE).
@@ -96,13 +107,17 @@ select results_eq(
   'non-owner team member reads own team row'
 );
 
--- 14. Shared directory name rejects path traversal
+-- 14. The owner can fill in git/gateway columns (asserted above) but not
+-- sync_mode: a guard trigger reserves it for service_role via
+-- amux.set_team_sync_mode, so share mode cannot be flipped from a client
+-- session. The path-traversal guard this slot used to hold went away with
+-- shared_dir_name.
 select pg_temp.as_user('a1111111-1111-1111-1111-111111111111');
 select throws_ok(
-  $$ update amux.team_workspace_config set shared_dir_name = '../bad' where team_id = (select team_id from ctx) $$,
-  '23514',
+  $$ update amux.team_workspace_config set sync_mode = 'ftp' where team_id = (select team_id from ctx) $$,
+  '42501',
   null,
-  'shared_dir_name rejects path traversal'
+  'owner cannot set sync_mode directly'
 );
 
 -- 15. Stranger cannot read

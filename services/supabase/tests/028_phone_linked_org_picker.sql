@@ -10,6 +10,11 @@ create temporary table phone_picker_fixture (
   linked_private_team uuid not null
 );
 
+-- The fixture is read back while impersonating anon/authenticated, and a
+-- temp table belongs to the session role: without this grant the first read
+-- under `set role` fails with "permission denied for table phone_picker_fixture".
+grant select on phone_picker_fixture to anon, authenticated;
+
 do $$
 declare
   v_caller uuid := gen_random_uuid();
@@ -48,6 +53,10 @@ begin
   perform set_config('request.jwt.claims',
     json_build_object('sub', v_caller, 'role', 'authenticated')::text, true);
   perform set_config('role', 'authenticated', true);
+  -- Drop the impersonation before writing the fixture row: the temp table
+  -- belongs to the session role, and a write as `authenticated` fails with
+  -- "permission denied for table phone_picker_fixture".
+  execute 'reset role';
   insert into phone_picker_fixture values (v_caller, v_linked, v_org_a, v_org_b, v_team_linked);
 end $$;
 

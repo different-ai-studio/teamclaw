@@ -2,11 +2,22 @@ begin;
 
 select plan(3);
 
--- Two teams: actor A is a member of team 1, actor B is a member of team 2.
--- We will upload one "idea attachment" object under team 1's path and assert:
+-- The `attachments` bucket is public on purpose, and this file asserts that
+-- model rather than the team isolation it originally claimed.
+--
+-- 20260530000001_attachments_bucket_public.sql flipped the bucket to public
+-- when iOS dropped the Supabase SDK: attachment URLs are persisted into message
+-- content and idea.attachment_urls, and every client renders them as a plain
+-- image fetch with no bearer. The confidentiality model is the unguessable path
+-- (`<team>/<session>/<uuid>/<file>`), the same capability model as `avatars`.
+-- `attachments_public_read` grants SELECT on the bucket to `public`, and
+-- because permissive policies OR together, it also supersedes the older
+-- `team_members_can_download_idea_attachments` policy that survives next to it.
+--
+-- So:
 --   1. team 1 member CAN select it
---   2. team 2 member CANNOT select it
---   3. an authenticated outsider with no membership CANNOT select it
+--   2. an outsider CAN select it too -- public bucket, path is the capability
+--   3. the private buckets are still private, which is where isolation lives
 
 insert into auth.users (id, email, aud, role, instance_id)
 values
@@ -80,7 +91,7 @@ select is(
   'team A member can select their team''s idea attachment'
 );
 
--- 2. Team B member cannot SELECT team A's attachment.
+-- 2. A member of another team reads it as well: the bucket is public.
 reset role;
 set local role authenticated;
 set local request.jwt.claim.sub = '91900000-0000-0000-0000-000000000002';
@@ -98,30 +109,22 @@ select is(
      from storage.objects
     where bucket_id = 'attachments'
       and name = '01900000-0000-0000-0000-000000000001/ideas/aaaaaaaaaaaa1111/abcdef012345/photo.jpg'),
-  0,
-  'team B member cannot select team A''s idea attachment'
+  1,
+  'another team''s member also reads it: attachments is a public bucket'
 );
 
--- 3. Authenticated outsider (no team membership) cannot SELECT.
+-- 3. The public flag is scoped to the two capability-URL buckets. If a future
+-- migration flips team-skills or team-blobs public, sync payloads and skill
+-- bundles would become world-readable, and this is the assertion that fails.
 reset role;
-set local role authenticated;
-set local request.jwt.claim.sub = '91900000-0000-0000-0000-000000000003';
-select set_config(
-  'request.jwt.claims',
-  json_build_object(
-    'sub',  '91900000-0000-0000-0000-000000000003',
-    'role', 'authenticated'
-  )::text,
-  true
-);
 
-select is(
-  (select count(*)::int
-     from storage.objects
-    where bucket_id = 'attachments'
-      and name = '01900000-0000-0000-0000-000000000001/ideas/aaaaaaaaaaaa1111/abcdef012345/photo.jpg'),
-  0,
-  'authenticated outsider cannot select an idea attachment'
+select results_eq(
+  $$ select id, public from storage.buckets order by id $$,
+  $$ values ('attachments'::text, true),
+            ('avatars',           true),
+            ('team-blobs',        false),
+            ('team-skills',       false) $$,
+  'only the capability-URL buckets are public'
 );
 
 select * from finish();

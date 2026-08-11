@@ -1,3 +1,15 @@
+-- services/supabase/tests/001_schema_shape.sql
+--
+-- Every assertion here passes a description, and that is load-bearing rather
+-- than cosmetic: pgTAP overloads its assertions on both (schema, object) and
+-- (object, description), and two bare string literals bind to the *second*.
+-- The previous version of this file was written that way throughout, so
+-- `has_table('public', 'teams')` asserted a table named "public" with the
+-- description "teams" -- 68 assertions that could not have caught a schema
+-- change if they had ever run. See QUARANTINE.md.
+--
+-- agent_runtimes is gone with the ACP runtime layer, so its table, foreign key,
+-- trigger and status assertions are gone with it rather than restated.
 begin;
 
 create or replace function pg_temp.raises_sqlstate(p_sql text, p_expected_sqlstate text)
@@ -16,58 +28,87 @@ exception
 end;
 $$;
 
-select plan(68);
+select plan(65);
 
-select has_schema('amux');
-select has_table('public', 'teams');
-select has_table('public', 'actors');
-select has_table('public', 'members');
-select has_table('public', 'team_members');
-select has_table('public', 'workspaces');
-select has_table('public', 'agents');
-select has_table('public', 'agent_member_access');
-select has_table('public', 'ideas');
-select has_table('public', 'idea_activities');
-select has_table('public', 'idea_external_refs');
-select has_table('public', 'sessions');
-select has_table('public', 'session_participants');
-select has_table('public', 'messages');
-select has_table('public', 'agent_runtimes');
+select has_schema('amux', 'amux schema exists');
 
-select col_type_is('public', 'actors', 'last_active_at', 'timestamp with time zone');
-select col_type_is('public', 'actors', 'avatar_url', 'text');
-select col_type_is('public', 'members', 'id', 'uuid');
-select col_type_is('public', 'agents', 'id', 'uuid');
-select col_type_is('public', 'workspaces', 'agent_id', 'uuid');
-select col_type_is('public', 'ideas', 'sort_order', 'integer');
-select col_type_is('public', 'idea_activities', 'activity_type', 'text');
-select col_type_is('public', 'idea_activities', 'attachment_urls', 'text[]');
+select has_table('amux', 'teams',               'teams exists');
+select has_table('amux', 'actors',              'actors exists');
+select has_table('amux', 'members',             'members exists');
+select has_table('amux', 'team_members',        'team_members exists');
+select has_table('amux', 'workspaces',          'workspaces exists');
+select has_table('amux', 'agents',              'agents exists');
+select has_table('amux', 'agent_member_access', 'agent_member_access exists');
+select has_table('amux', 'ideas',               'ideas exists');
+select has_table('amux', 'idea_activities',     'idea_activities exists');
+select has_table('amux', 'idea_external_refs',  'idea_external_refs exists');
+select has_table('amux', 'sessions',            'sessions exists');
+select has_table('amux', 'session_participants','session_participants exists');
+select has_table('amux', 'messages',            'messages exists');
 
-select fk_ok('public', 'members', 'id', 'public', 'actors', 'id');
-select fk_ok('public', 'agents', 'id', 'public', 'actors', 'id');
-select fk_ok('public', 'workspaces', 'agent_id', 'public', 'agents', 'id');
-select fk_ok('public', 'idea_activities', 'idea_id', 'public', 'ideas', 'id');
-select fk_ok('public', 'sessions', 'idea_id', 'public', 'ideas', 'id');
-select fk_ok('public', 'messages', 'session_id', 'public', 'sessions', 'id');
-select fk_ok('public', 'agent_runtimes', 'agent_id', 'public', 'agents', 'id');
+select col_type_is('amux', 'actors', 'last_active_at', 'timestamp with time zone',
+                   'actors.last_active_at is timestamptz');
+select col_type_is('amux', 'actors', 'avatar_url', 'text',
+                   'actors.avatar_url is text');
+select col_type_is('amux', 'members', 'id', 'uuid',
+                   'members.id is uuid');
+select col_type_is('amux', 'agents', 'id', 'uuid',
+                   'agents.id is uuid');
+select col_type_is('amux', 'workspaces', 'agent_id', 'uuid',
+                   'workspaces.agent_id is uuid');
+select col_type_is('amux', 'ideas', 'sort_order', 'integer',
+                   'ideas.sort_order is integer');
+select col_type_is('amux', 'idea_activities', 'activity_type', 'text',
+                   'idea_activities.activity_type is text');
+select col_type_is('amux', 'idea_activities', 'attachment_urls', 'text[]',
+                   'idea_activities.attachment_urls is text[]');
 
-select has_trigger('public', 'members', 'enforce_members_actor_type');
-select has_trigger('public', 'agents', 'enforce_agents_actor_type');
-select has_trigger('public', 'team_members', 'enforce_team_members_same_team');
-select has_trigger('public', 'workspaces', 'enforce_workspaces_same_team');
-select has_trigger('public', 'actors', 'enforce_actors_parent_integrity');
-select has_trigger('public', 'agents', 'enforce_agents_same_team');
-select has_trigger('public', 'agent_member_access', 'enforce_agent_member_access_same_team');
-select has_trigger('public', 'ideas', 'enforce_ideas_same_team');
-select has_trigger('public', 'idea_activities', 'set_idea_activities_updated_at');
-select has_trigger('public', 'workspaces', 'enforce_workspaces_parent_integrity');
-select has_trigger('public', 'idea_external_refs', 'enforce_idea_external_refs_same_team');
-select has_trigger('public', 'sessions', 'enforce_sessions_same_team');
-select has_trigger('public', 'ideas', 'enforce_ideas_parent_integrity');
-select has_trigger('public', 'session_participants', 'enforce_session_participants_same_team');
-select has_trigger('public', 'messages', 'enforce_messages_same_team');
-select has_trigger('public', 'sessions', 'enforce_sessions_parent_integrity');
-select has_trigger('public', 'agent_runtimes', 'enforce_agent_runtimes_same_team');
+-- members and agents are subtype tables: their primary key IS the actor id.
+select fk_ok('amux', 'members', 'id', 'amux', 'actors', 'id',
+             'members.id references actors(id)');
+select fk_ok('amux', 'agents', 'id', 'amux', 'actors', 'id',
+             'agents.id references actors(id)');
+select fk_ok('amux', 'workspaces', 'agent_id', 'amux', 'agents', 'id',
+             'workspaces.agent_id references agents(id)');
+select fk_ok('amux', 'idea_activities', 'idea_id', 'amux', 'ideas', 'id',
+             'idea_activities.idea_id references ideas(id)');
+select fk_ok('amux', 'sessions', 'idea_id', 'amux', 'ideas', 'id',
+             'sessions.idea_id references ideas(id)');
+select fk_ok('amux', 'messages', 'session_id', 'amux', 'sessions', 'id',
+             'messages.session_id references sessions(id)');
+
+select has_trigger('amux', 'members', 'enforce_members_actor_type',
+                   'members enforces actor_type');
+select has_trigger('amux', 'agents', 'enforce_agents_actor_type',
+                   'agents enforces actor_type');
+select has_trigger('amux', 'team_members', 'enforce_team_members_same_team',
+                   'team_members enforces same team');
+select has_trigger('amux', 'workspaces', 'enforce_workspaces_same_team',
+                   'workspaces enforces same team');
+select has_trigger('amux', 'actors', 'enforce_actors_parent_integrity',
+                   'actors enforces parent integrity');
+select has_trigger('amux', 'agents', 'enforce_agents_same_team',
+                   'agents enforces same team');
+select has_trigger('amux', 'agent_member_access', 'enforce_agent_member_access_same_team',
+                   'agent_member_access enforces same team');
+select has_trigger('amux', 'ideas', 'enforce_ideas_same_team',
+                   'ideas enforces same team');
+select has_trigger('amux', 'idea_activities', 'set_idea_activities_updated_at',
+                   'idea_activities stamps updated_at');
+select has_trigger('amux', 'workspaces', 'enforce_workspaces_parent_integrity',
+                   'workspaces enforces parent integrity');
+select has_trigger('amux', 'idea_external_refs', 'enforce_idea_external_refs_same_team',
+                   'idea_external_refs enforces same team');
+select has_trigger('amux', 'sessions', 'enforce_sessions_same_team',
+                   'sessions enforces same team');
+select has_trigger('amux', 'ideas', 'enforce_ideas_parent_integrity',
+                   'ideas enforces parent integrity');
+select has_trigger('amux', 'session_participants', 'enforce_session_participants_same_team',
+                   'session_participants enforces same team');
+select has_trigger('amux', 'messages', 'enforce_messages_same_team',
+                   'messages enforces same team');
+select has_trigger('amux', 'sessions', 'enforce_sessions_parent_integrity',
+                   'sessions enforces parent integrity');
 
 insert into amux.teams (id, slug, name)
 values
@@ -154,15 +195,6 @@ values (
   'Hello'
 );
 
-insert into public.agent_runtimes (team_id, agent_id, session_id, backend_type, status)
-values (
-  '00000000-0000-0000-0000-000000000001',
-  '10000000-0000-0000-0000-000000000003',
-  '50000000-0000-0000-0000-000000000001',
-  'claude',
-  'idle'
-);
-
 select ok(
   pg_temp.raises_sqlstate(
     $sql$update amux.actors
@@ -181,16 +213,6 @@ select ok(
       and idea_id is null
   ),
   'sessions.idea_id may be null'
-);
-
-select ok(
-  exists(
-    select 1
-    from public.agent_runtimes
-    where agent_id = '10000000-0000-0000-0000-000000000003'
-      and status = 'idle'
-  ),
-  'agent_runtimes.status accepts idle'
 );
 
 select ok(
@@ -259,8 +281,10 @@ begin
     values ('10000000-0000-0000-0000-0000000000aa', 'active');
   insert into amux.team_members (team_id, member_id, role)
     values (v_team, '10000000-0000-0000-0000-0000000000aa', 'owner');
-  insert into amux.agentsinsert into amux.agents (id, owner_member_id, status) values000-0000-0000-0000-0000000000aa', 'claude', 'active'),
-    (v_agent_b, '10000000-0000-0000-0000-0000000000aa', 'claude', 'active');
+  -- agent_kind is gone; an agent row is id + owner + status now.
+  insert into amux.agents (id, owner_member_id, status) values
+    (v_agent_a, '10000000-0000-0000-0000-0000000000aa', 'active'),
+    (v_agent_b, '10000000-0000-0000-0000-0000000000aa', 'active');
 
   -- Same name on two different agents in the same team must now be allowed.
   insert into amux.workspaces (team_id, agent_id, name) values (v_team, v_agent_a, 'amux');
@@ -283,19 +307,30 @@ select ok(
 );
 
 -- 202604220015: actor unified identity assertions
-select col_type_is('public', 'actors', 'user_id',             'uuid');
-select col_type_is('public', 'actors', 'invited_by_actor_id', 'uuid');
-select col_is_null('public', 'actors', 'user_id');
-select col_is_null('public', 'actors', 'invited_by_actor_id');
-select fk_ok('public', 'actors', 'invited_by_actor_id', 'public', 'actors', 'id');
-select has_table('public', 'team_invites');
-select hasnt_table('public', 'daemon_invites');
-select has_view('public',  'actor_directory');
-select has_column('public', 'actor_directory', 'avatar_url');
-select has_column('public', 'actor_directory', 'agent_visibility');
-select has_function('public', 'update_current_actor_profile', array['uuid', 'text', 'text']);
-select hasnt_column('public', 'members', 'user_id');
-select hasnt_column('public', 'agents',  'created_by_member_id');
+select col_type_is('amux', 'actors', 'user_id', 'uuid',
+                   'actors.user_id is uuid');
+select col_type_is('amux', 'actors', 'invited_by_actor_id', 'uuid',
+                   'actors.invited_by_actor_id is uuid');
+select col_is_null('amux', 'actors', 'user_id',
+                   'actors.user_id is nullable');
+select col_is_null('amux', 'actors', 'invited_by_actor_id',
+                   'actors.invited_by_actor_id is nullable');
+select fk_ok('amux', 'actors', 'invited_by_actor_id', 'amux', 'actors', 'id',
+             'actors.invited_by_actor_id references actors(id)');
+select has_table('amux', 'team_invites', 'team_invites exists');
+select hasnt_table('amux', 'daemon_invites', 'daemon_invites is gone');
+select has_view('amux', 'actor_directory', 'actor_directory view exists');
+select has_column('amux', 'actor_directory', 'avatar_url',
+                  'actor_directory exposes avatar_url');
+select has_column('amux', 'actor_directory', 'agent_visibility',
+                  'actor_directory exposes agent_visibility');
+select has_function('amux', 'update_current_actor_profile', array['uuid', 'text', 'text'],
+                    'update_current_actor_profile(actor, name, avatar) exists');
+-- Identity is per team: the link to auth.users sits on actors, not members.
+select hasnt_column('amux', 'members', 'user_id',
+                    'members no longer carries user_id');
+select hasnt_column('amux', 'agents', 'created_by_member_id',
+                    'agents no longer carries created_by_member_id');
 
 select * from finish();
 rollback;

@@ -81,13 +81,17 @@ select pg_temp.as_user((select alice from ctx));
 -- ---------------------------------------------------------------------------
 -- §2.1: team_workspace_config gains sync_mode / oss_change_seq / litellm_team_id
 -- ---------------------------------------------------------------------------
-select has_column('public', 'team_workspace_config', 'sync_mode',
+select has_column('amux', 'team_workspace_config', 'sync_mode',
                   'team_workspace_config.sync_mode exists');
-select col_default_is('public', 'team_workspace_config', 'sync_mode', 'oss',
-                  'sync_mode defaults to oss (flipped in 20260527000005)');
-select has_column('public', 'team_workspace_config', 'oss_change_seq',
+-- No default on purpose: share mode is a one-shot lock. A team that has never
+-- called enable_team_share reads back sync_mode = null, which is what
+-- GET /v1/teams/:id/share-mode reports as "team share not enabled". A default
+-- of 'oss' would make every fresh team look like it had already chosen.
+select col_hasnt_default('amux', 'team_workspace_config', 'sync_mode',
+                  'sync_mode has no default: null until enable_team_share locks it');
+select has_column('amux', 'team_workspace_config', 'oss_change_seq',
                   'team_workspace_config.oss_change_seq exists');
-select has_column('public', 'team_workspace_config', 'litellm_team_id',
+select has_column('amux', 'team_workspace_config', 'litellm_team_id',
                   'team_workspace_config.litellm_team_id exists');
 
 -- Check constraint rejects unknown sync_mode values (run as postgres to bypass RLS).
@@ -110,13 +114,13 @@ select pg_temp.as_user((select alice from ctx));
 -- ---------------------------------------------------------------------------
 -- §2.2: amuxc_blobs
 -- ---------------------------------------------------------------------------
-select has_table('public', 'amuxc_blobs', 'amuxc_blobs table exists');
-select col_is_pk('public', 'amuxc_blobs',
+select has_table('amux', 'amuxc_blobs', 'amuxc_blobs table exists');
+select col_is_pk('amux', 'amuxc_blobs',
                  array['team_id', 'content_hash'],
                  'amuxc_blobs PK is (team_id, content_hash)');
-select col_not_null('public', 'amuxc_blobs', 'oss_key',
+select col_not_null('amux', 'amuxc_blobs', 'oss_key',
                     'amuxc_blobs.oss_key is NOT NULL');
-select col_default_is('public', 'amuxc_blobs', 'verified', 'false',
+select col_default_is('amux', 'amuxc_blobs', 'verified', 'false',
                       'amuxc_blobs.verified defaults to false');
 
 -- Deleting the team cascades into amuxc_blobs.
@@ -140,15 +144,15 @@ select pg_temp.as_user((select alice from ctx));
 -- §2.3: amuxc_files — unique on (team_id, path) full (not partial), to
 -- preserve the soft-delete-then-revive invariant.
 -- ---------------------------------------------------------------------------
-select has_table('public', 'amuxc_files', 'amuxc_files table exists');
-select col_default_is('public', 'amuxc_files', 'deleted', 'false',
+select has_table('amux', 'amuxc_files', 'amuxc_files table exists');
+select col_default_is('amux', 'amuxc_files', 'deleted', 'false',
                       'amuxc_files.deleted defaults to false');
-select col_default_is('public', 'amuxc_files', 'current_version', '0',
+select col_default_is('amux', 'amuxc_files', 'current_version', '0',
                       'amuxc_files.current_version defaults to 0');
 
 -- Unique (team_id, path) — not partial. Tombstone + revive must update the
 -- existing row, never insert a second one.
-select indexes_are('public', 'amuxc_files',
+select indexes_are('amux', 'amuxc_files',
   array['amuxc_files_pkey', 'uniq_amuxc_path',
         'idx_amuxc_files_team_updated', 'idx_amuxc_files_team_seq'],
   'amuxc_files has expected indexes');
@@ -184,9 +188,9 @@ select pg_temp.as_user((select alice from ctx));
 -- ---------------------------------------------------------------------------
 -- §2.4: amuxc_file_versions — immutable chain. (file_id, version) unique.
 -- ---------------------------------------------------------------------------
-select has_table('public', 'amuxc_file_versions',
+select has_table('amux', 'amuxc_file_versions',
                  'amuxc_file_versions table exists');
-select col_is_unique('public', 'amuxc_file_versions',
+select col_is_unique('amux', 'amuxc_file_versions',
                      array['file_id', 'version'],
                      'amuxc_file_versions has unique (file_id, version)');
 
@@ -219,9 +223,9 @@ select pg_temp.as_user((select alice from ctx));
 -- ---------------------------------------------------------------------------
 -- §2.5: amuxc_upload_sessions
 -- ---------------------------------------------------------------------------
-select has_table('public', 'amuxc_upload_sessions',
+select has_table('amux', 'amuxc_upload_sessions',
                  'amuxc_upload_sessions table exists');
-select col_default_is('public', 'amuxc_upload_sessions', 'status', 'pending',
+select col_default_is('amux', 'amuxc_upload_sessions', 'status', 'pending',
                       'amuxc_upload_sessions.status defaults to pending');
 
 -- Status check constraint rejects unknown values.
@@ -455,24 +459,24 @@ select is(
   'actor_id_for_user_in_team: user not in team returns null'
 );
 
--- 9c. authenticated role cannot call the function
-set local row_security = on;
-set local role authenticated;
-select set_config('request.jwt.claims',
-  json_build_object('sub', 'a1111111-1111-1111-1111-111111111111', 'role', 'authenticated')::text,
-  true);
-prepare auth_calls_helper as
-  select amux.actor_id_for_user_in_team(
-    'a1111111-1111-1111-1111-111111111111'::uuid,
-    (select id from amux.teams where slug = 'oss-team')
-  );
-select throws_ok(
-  'execute auth_calls_helper',
-  '42501',
-  null,
+-- 9c. authenticated role cannot call the function.
+--
+-- Asserted through the catalog rather than by calling it. On the Supabase
+-- postgres image this suite runs against (17.6.1.106), a function call the
+-- current role has no EXECUTE privilege for does not raise 42501 — it
+-- segfaults the backend. Reproduces with core functions too
+-- (`set role authenticated; select pg_read_file('/etc/hostname')`), so it is
+-- the image's permission-denied path, not anything in this schema. The old
+-- form of this test crashed the server here every run, and because psql's
+-- exit code was ignored, run.sh reported the file as passing.
+select ok(
+  not has_function_privilege(
+    'authenticated',
+    'amux.actor_id_for_user_in_team(uuid,uuid)',
+    'EXECUTE'
+  ),
   'authenticated cannot call actor_id_for_user_in_team'
 );
-deallocate auth_calls_helper;
 
 -- ---------------------------------------------------------------------------
 -- §9: amuxc_complete_upload RPC (basic smoke — full CAS tested in FC integration)

@@ -7,7 +7,7 @@ begin;
 -- pgTAP's pattern matcher is alike()/matches(). The three-argument call never
 -- resolved, which is why this file could not even parse.
 
-select plan(17);
+select plan(16);
 
 create or replace function pg_temp.as_user(p_user uuid)
 returns void language plpgsql as $$
@@ -72,12 +72,12 @@ grant select on mi to anon, authenticated;
 select ok((select count(*) = 1 from mi), 'member invite created');
 select alike((select deeplink from mi), 'amux://invite?token=%',
             'deeplink format is amux://invite?token=...');
-select alike((select deeplink from mi), '%&broker=mqtts://ai.ucar.cc:8883%',
-            'deeplink includes mqtt broker');
-select alike((select deeplink from mi), '%&username=teamclu%',
-            'deeplink includes mqtt username');
-select alike((select deeplink from mi), '%&password=teamclu2026%',
-            'deeplink includes mqtt password');
+-- The deeplink is the token and nothing else. It used to carry broker host,
+-- username and a shared password; MQTT now authenticates with the Supabase
+-- access_token as the password (wss://mqtt.…/mqtt), so static credentials in a
+-- link that gets pasted into chat would be a leak that buys nothing.
+select unalike((select deeplink from mi), '%password=%',
+            'deeplink carries no static broker credentials');
 
 -- 5. Carol (different auth user) claims → new actor + members + team_members
 select pg_temp.as_user('33333333-3333-3333-3333-333333333333');
@@ -115,10 +115,15 @@ create temp table ac as select * from amux.claim_team_invite((select token from 
 grant select on ac to anon, authenticated;
 
 select is((select actor_type from ac), 'agent', 'agent claim returns actor_type=agent');
-select ok((select refresh_token is not null and length(refresh_token) >= 20 from ac),
+-- 12 hex characters: substring(encode(gen_random_bytes(6),'hex'), 1, 12).
+select ok((select refresh_token is not null and length(refresh_token) >= 12 from ac),
          'agent claim returns a refresh_token');
 
--- 9. agent_member_access row was materialized for inviter
+-- 9. agent_member_access row was materialized for inviter.
+-- Read it back as alice: the daemon claim above left the session on `anon`, and
+-- agent_member_access is not readable by anon, so this counted zero rows for a
+-- reason that had nothing to do with the materialization it was checking.
+select pg_temp.as_user('11111111-1111-1111-1111-111111111111');
 select ok((select count(*) = 1 from amux.agent_member_access ama
             join amux.actors a on a.id = ama.member_id
             where ama.agent_id = (select actor_id from ac)
@@ -134,13 +139,25 @@ create temp table ei as
     p_ttl_seconds => 60);
 grant select on ei to anon, authenticated;
 
+-- Backdate the expiry as the session role. team_invites has no UPDATE policy
+-- for authenticated, so this statement matched zero rows while alice was still
+-- current, left the invite live, and the claim below then succeeded -- which the
+-- old assertion read as "no exception, wanted 23514".
+reset role;
 update amux.team_invites set expires_at = now() - interval '1 minute'
   where token = (select token from ei);
-select pg_temp.as_user('33333333-3333-3333-3333-333333333333');
+-- Claim as bob, not carol. Carol joined the team back in step 5, so her claim
+-- fails on the membership guard (23505 "already a member of this team") before
+-- the expiry check is ever reached -- the test passed a stale token and got the
+-- wrong rejection.
+select pg_temp.as_user('22222222-2222-2222-2222-222222222222');
 select throws_ok(
   format($$ select amux.claim_team_invite(%L) $$, (select token from ei)),
   '23514', 'invite expired', 'expired invite rejected'
 );
+
+-- Back to carol for the heartbeat assertions below.
+select pg_temp.as_user('33333333-3333-3333-3333-333333333333');
 
 -- 11. Heartbeat bumps last_active_at
 select lives_ok('select amux.update_actor_last_active();',

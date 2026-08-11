@@ -5,12 +5,25 @@ select plan(5);
 insert into amux.teams (id, slug, name)
 values ('00000000-0000-0000-0012-000000000001', 'gw-message-team', 'Gateway Message Team');
 
-insert into amux.actors (id, team_id, actor_type, display_name)
+-- actors_external_has_source: (actor_type = 'external') has to match
+-- (source is not null and source_id is not null), in both directions. The
+-- external actor therefore needs its gateway coordinates, and they line up with
+-- the session binding below (wecom://…/single/LiangLiang).
+insert into amux.actors (id, team_id, actor_type, display_name, source, source_id)
 values
-  ('00000000-0000-0000-0012-000000000010', '00000000-0000-0000-0012-000000000001', 'agent', 'Gateway Agent'),
-  ('00000000-0000-0000-0012-000000000020', '00000000-0000-0000-0012-000000000001', 'external', 'LiangLiang');
+  ('00000000-0000-0000-0012-000000000010', '00000000-0000-0000-0012-000000000001', 'agent', 'Gateway Agent', null, null),
+  ('00000000-0000-0000-0012-000000000020', '00000000-0000-0000-0012-000000000001', 'external', 'LiangLiang', 'wecom', 'wecom-user:aibfzYpdwyoj:LiangLiang');
 
-insert into amux.agents (id, capabilities, status) values ('00000000-0000-0000-0012-000000000010', '{}'::jsonb, 'active');
+-- agents.owner_member_id is NOT NULL and references members, so the agent needs
+-- an owning member actor to exist first.
+insert into amux.actors (id, team_id, actor_type, display_name)
+values ('00000000-0000-0000-0012-000000000030', '00000000-0000-0000-0012-000000000001', 'member', 'Owner Member');
+
+insert into amux.members (id, status)
+values ('00000000-0000-0000-0012-000000000030', 'active');
+
+insert into amux.agents (id, owner_member_id, capabilities, status)
+values ('00000000-0000-0000-0012-000000000010', '00000000-0000-0000-0012-000000000030', '{}'::jsonb, 'active');
 
 insert into amux.sessions (
   id,

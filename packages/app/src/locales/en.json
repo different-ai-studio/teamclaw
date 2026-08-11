@@ -3134,10 +3134,7 @@
     "reinvite": {
       "title": "Re-invite",
       "agentHint": "Use this if the daemon was wiped and needs to re-pair.",
-      "memberHint": "Use this if the user signed out and lost access. Only available for anonymous accounts.",
-      "agentButton": "Regenerate invite link",
-      "memberButton": "Generate re-invite link",
-      "memberBound": "This member has a registered account and can sign in again — re-invite is only for anonymous accounts."
+      "agentButton": "Regenerate invite link"
     }
   },
   "ideas": {

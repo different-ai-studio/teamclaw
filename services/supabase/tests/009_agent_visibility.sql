@@ -12,11 +12,12 @@ $$;
 
 select plan(22);
 
-select has_column('public', 'agents', 'visibility');
-select col_has_default('public', 'agents', 'visibility');
-select has_column('public', 'agents', 'owner_member_id');
-select col_not_null('public', 'agents', 'owner_member_id');
-select fk_ok('public', 'agents', 'owner_member_id', 'public', 'members', 'id');
+select has_column('amux', 'agents', 'visibility', 'agents.visibility exists');
+select col_has_default('amux', 'agents', 'visibility', 'agents.visibility has a default');
+select has_column('amux', 'agents', 'owner_member_id', 'agents.owner_member_id exists');
+select col_not_null('amux', 'agents', 'owner_member_id', 'agents.owner_member_id is NOT NULL');
+select fk_ok('amux', 'agents', 'owner_member_id', 'amux', 'members', 'id',
+             'agents.owner_member_id references members(id)');
 
 insert into auth.users (id, email, aud, role, instance_id)
 values

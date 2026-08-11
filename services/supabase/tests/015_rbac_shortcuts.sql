@@ -1,7 +1,7 @@
 -- services/supabase/tests/015_rbac_shortcuts.sql
 begin;
 
-select plan(22);
+select plan(26);
 
 -- ── Fixture setup ────────────────────────────────────────────────────────
 -- One team. owner is the team owner; m1 and m2 are plain members.
@@ -16,8 +16,10 @@ create temp table fx(
 ) on commit drop;
 
 -- Temp tables are owned by the session role; the tests then `set role` to
--- anon/authenticated, which cannot read them without an explicit grant.
-grant select on fx to anon, authenticated;
+-- anon/authenticated/service_role, none of which can read them without an
+-- explicit grant. service_role belongs on this list too -- half the assertions
+-- below read fx while impersonating it to check rows past RLS.
+grant select on fx to anon, authenticated, service_role;
 
 create or replace function pg_temp.mk_member(p_team uuid, p_name text, p_role text)
 returns table(member_id uuid, user_id uuid)
@@ -67,20 +69,27 @@ select pg_temp.as_user((select owner_user from fx));
 
 insert into amux.team_roles(team_id, code, name)
   select team_id, 'sales', 'Sales' from fx;
+
+-- Record the new role id as the session role: fx is granted SELECT to the
+-- impersonated roles, not UPDATE, and owning the temp table is the point --
+-- writing to it from inside an impersonation is fixture bookkeeping leaking
+-- into the scenario.
+reset role;
 update fx set role_sales = (
   select id from amux.team_roles
   where team_id = fx.team_id and code = 'sales'
 );
+select pg_temp.as_user((select owner_user from fx));
 
 insert into amux.team_member_roles(team_id, member_id, role_id)
   select team_id, m1_member, role_sales from fx;
 
 -- ── 1) Schema-level ─────────────────────────────────────────────────────
-select has_table('public','team_roles',         'team_roles exists');
-select has_table('public','team_member_roles',  'team_member_roles exists');
-select has_table('public','permissions',        'permissions exists');
-select has_table('public','permission_roles',   'permission_roles exists');
-select has_table('public','shortcuts',          'shortcuts exists');
+select has_table('amux','team_roles',         'team_roles exists');
+select has_table('amux','team_member_roles',  'team_member_roles exists');
+select has_table('amux','permissions',        'permissions exists');
+select has_table('amux','permission_roles',   'permission_roles exists');
+select has_table('amux','shortcuts',          'shortcuts exists');
 
 -- 2) XOR constraint: personal with no owner_member_id is rejected
 select pg_temp.as_service();
@@ -102,6 +111,15 @@ select throws_ok(
 
 -- ── Helpers exist ───────────────────────────────────────────────────────
 -- 4-6
+--
+-- Back to a member first. The XOR checks above left the session on
+-- service_role, which holds no EXECUTE on these three helpers -- and on this
+-- Supabase image a call the current role cannot execute segfaults the backend
+-- instead of raising 42501, taking the rest of the suite down with it. Never
+-- call a function from a role that lacks EXECUTE on it; assert the privilege
+-- with has_function_privilege instead (see QUARANTINE.md).
+select pg_temp.as_user((select owner_user from fx));
+
 select lives_ok(
   $$ select amux.is_team_admin_or_owner(gen_random_uuid()) $$,
   'helper: is_team_admin_or_owner'
