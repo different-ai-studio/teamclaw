@@ -207,6 +207,11 @@ export const OpenCodeLLMSection = React.memo(function OpenCodeLLMSection() {
     await Promise.all([refreshProviders(), refreshConfiguredProviders(), refreshAuthMethods()])
   }, [refreshProviders, refreshConfiguredProviders, refreshAuthMethods])
 
+  const refreshModelCatalog = React.useCallback(() => {
+    if (!workspacePath) return
+    ensureLocalDaemonCatalog(workspacePath, 'opencode', { force: true })
+  }, [workspacePath])
+
   React.useEffect(() => {
     void refreshAllProviders()
     if (workspacePath) {
@@ -241,6 +246,7 @@ export const OpenCodeLLMSection = React.memo(function OpenCodeLLMSection() {
       setConnectDialogOpen(false)
       setApiKeyInput('')
       await refreshAllProviders()
+      refreshModelCatalog()
     }
     setIsConnecting(false)
   }
@@ -272,6 +278,7 @@ export const OpenCodeLLMSection = React.memo(function OpenCodeLLMSection() {
           setOAuthMethodType(null)
           setOAuthCodeInput('')
           void refreshAllProviders()
+          refreshModelCatalog()
         }
       })
     }
@@ -291,6 +298,7 @@ export const OpenCodeLLMSection = React.memo(function OpenCodeLLMSection() {
         setOAuthMethodType(null)
         setOAuthCodeInput('')
         await refreshAllProviders()
+        refreshModelCatalog()
       }
     } finally {
       setIsConnecting(false)
@@ -329,6 +337,7 @@ export const OpenCodeLLMSection = React.memo(function OpenCodeLLMSection() {
     if (workspacePath) {
       await refreshCustomProviderIds(workspacePath)
     }
+    refreshModelCatalog()
     setIsRefreshing(false)
   }
 
@@ -442,6 +451,7 @@ export const OpenCodeLLMSection = React.memo(function OpenCodeLLMSection() {
           setCustomModels([{ modelId: '', modelName: '', contextLimit: '', outputLimit: '' }])
           await refreshAllProviders()
           await refreshCustomProviderIds(workspacePath)
+          refreshModelCatalog()
         }
       } else {
         // Add new provider
@@ -456,6 +466,7 @@ export const OpenCodeLLMSection = React.memo(function OpenCodeLLMSection() {
           setCustomModels([{ modelId: '', modelName: '', contextLimit: '', outputLimit: '' }])
           await refreshAllProviders()
           await refreshCustomProviderIds(workspacePath)
+          refreshModelCatalog()
         }
       }
     } finally {
@@ -488,6 +499,7 @@ export const OpenCodeLLMSection = React.memo(function OpenCodeLLMSection() {
         setDeletingProviderId(null)
         await refreshAllProviders()
         await refreshCustomProviderIds(workspacePath)
+        refreshModelCatalog()
       }
     } finally {
       setIsDeleting(false)
@@ -503,6 +515,7 @@ export const OpenCodeLLMSection = React.memo(function OpenCodeLLMSection() {
       if (success) {
         setDisconnectingProviderId(null)
         setDisconnectingProviderName('')
+        refreshModelCatalog()
       }
     } finally {
       setIsDisconnecting(false)

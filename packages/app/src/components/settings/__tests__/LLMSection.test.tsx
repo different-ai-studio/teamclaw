@@ -140,6 +140,52 @@ describe('LLMSection', () => {
     })
   })
 
+  it('force-refetches model-catalog when the refresh control is used', async () => {
+    mocks.providerState.providers = [{ id: 'openai', name: 'OpenAI', configured: true }]
+    render(<LLMSection />)
+    mocks.ensureLocalDaemonCatalog.mockClear()
+
+    fireEvent.click(screen.getByRole('button', { name: /refresh/i }))
+    await waitFor(() => {
+      expect(mocks.ensureLocalDaemonCatalog).toHaveBeenCalledWith('/test', 'opencode', {
+        force: true,
+      })
+    })
+  })
+
+  it('force-refetches model-catalog after connecting a provider', async () => {
+    mocks.providerState.providers = [{ id: 'openai', name: 'OpenAI', configured: false }]
+    mocks.providerState.connectProvider.mockResolvedValueOnce(true)
+    render(<LLMSection />)
+    mocks.ensureLocalDaemonCatalog.mockClear()
+
+    fireEvent.click(screen.getByRole('button', { name: 'Connect' }))
+    fireEvent.change(screen.getByPlaceholderText('sk-...'), { target: { value: 'sk-test' } })
+    fireEvent.click(screen.getAllByRole('button', { name: 'Connect' }).at(-1)!)
+
+    await waitFor(() => {
+      expect(mocks.ensureLocalDaemonCatalog).toHaveBeenCalledWith('/test', 'opencode', {
+        force: true,
+      })
+    })
+  })
+
+  it('force-refetches model-catalog after disconnecting a provider', async () => {
+    mocks.providerState.providers = [{ id: 'openai', name: 'OpenAI', configured: true }]
+    mocks.providerState.disconnectProvider.mockResolvedValueOnce(true)
+    render(<LLMSection />)
+    mocks.ensureLocalDaemonCatalog.mockClear()
+
+    fireEvent.click(screen.getByTitle('Disconnect provider'))
+    fireEvent.click(screen.getByRole('button', { name: 'Disconnect' }))
+
+    await waitFor(() => {
+      expect(mocks.ensureLocalDaemonCatalog).toHaveBeenCalledWith('/test', 'opencode', {
+        force: true,
+      })
+    })
+  })
+
   it('lists catalog models for an unconnected provider and allows expand', async () => {
     mocks.providerState.providers = [{ id: 'opencode', name: 'OpenCode', configured: false }]
     mocks.catalogState.byWorkspacePath['/test'] = {
