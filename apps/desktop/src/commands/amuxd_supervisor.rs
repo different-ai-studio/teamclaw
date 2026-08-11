@@ -135,25 +135,33 @@ fn bundled_introspect_path() -> Option<PathBuf> {
     locate_bundled_sidecar("teamclu-introspect")
 }
 
-fn locate_bundled_bridge_main(bridge_name: &str) -> Option<PathBuf> {
+/// Candidate paths for a bridge `src/main.mjs`, most-specific first.
+///
+/// Tauri packs `resources: ["binaries/<bridge>/**/*"]` as
+/// `Contents/Resources/binaries/<bridge>/…`. Omitting that layout left
+/// `TEAMCLU_*_BRIDGE_MAIN` unset in release, and amuxd fell back to the CI
+/// `CARGO_MANIFEST_DIR` path (`/Users/runner/work/…`).
+fn bundled_bridge_main_candidates(
+    bridge_name: &str,
+    exe_dir: &Path,
+    manifest_dir: &Path,
+) -> Vec<PathBuf> {
     let rel = format!("{bridge_name}/src/main.mjs");
-    let dev = Path::new(env!("CARGO_MANIFEST_DIR"))
-        .join("binaries")
-        .join(&rel);
-    if dev.is_file() {
-        return Some(dev);
-    }
+    vec![
+        manifest_dir.join("binaries").join(&rel),
+        exe_dir.join(&rel),
+        exe_dir.join("../Resources").join(&rel),
+        exe_dir.join("../Resources/binaries").join(&rel),
+    ]
+}
+
+fn locate_bundled_bridge_main(bridge_name: &str) -> Option<PathBuf> {
     let exe = std::env::current_exe().ok()?;
     let dir = exe.parent()?;
-    let sibling = dir.join(&rel);
-    if sibling.is_file() {
-        return Some(sibling);
-    }
-    let resources = dir.join("../Resources").join(&rel);
-    if resources.is_file() {
-        return Some(resources);
-    }
-    None
+    let manifest = Path::new(env!("CARGO_MANIFEST_DIR"));
+    bundled_bridge_main_candidates(bridge_name, dir, manifest)
+        .into_iter()
+        .find(|p| p.is_file())
 }
 
 fn amuxd_dir() -> PathBuf {
@@ -796,4 +804,23 @@ pub async fn daemon_supervisor_status<R: Runtime>(
     app: AppHandle<R>,
 ) -> Result<DaemonSupervisorStatus, String> {
     Ok(AmuxdSupervisor::status(&app).await)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn bridge_candidates_include_tauri_resources_binaries_layout() {
+        let exe_dir = Path::new("/Applications/Copilot 361.app/Contents/MacOS");
+        let manifest = Path::new("/tmp/does-not-exist-manifest");
+        let cands = bundled_bridge_main_candidates("claude-bridge", exe_dir, manifest);
+        assert!(
+            cands.iter().any(|p| {
+                p.to_string_lossy()
+                    .contains("Resources/binaries/claude-bridge/src/main.mjs")
+            }),
+            "candidates={cands:?}"
+        );
+    }
 }

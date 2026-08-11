@@ -32,28 +32,45 @@ fn push_candidate(out: &mut Vec<PathBuf>, path: PathBuf) {
     }
 }
 
-/// Candidate locations for a bundled bridge main script, most-specific first.
-pub fn bundled_bridge_candidates(relative: &str) -> Vec<PathBuf> {
+/// Candidate locations for a bundled bridge main script next to `exe_dir`
+/// (typically `…/Contents/MacOS`), most-specific first.
+///
+/// Tauri ships `resources: ["binaries/claude-bridge/**/*"]` as
+/// `Contents/Resources/binaries/claude-bridge/…` — the `binaries/` prefix is
+/// preserved. Looking only under `Resources/<bridge>/` misses the release
+/// layout and falls through to the CI `CARGO_MANIFEST_DIR` path.
+pub fn bundled_bridge_candidates_from(exe_dir: &Path, relative: &str) -> Vec<PathBuf> {
     let mut out = Vec::new();
-    if let Ok(exe) = std::env::current_exe() {
-        if let Some(dir) = exe.parent() {
-            push_candidate(&mut out, dir.join(relative));
-            if let Some(parent) = dir.parent() {
-                push_candidate(&mut out, parent.join("Resources").join(relative));
-                if let Some(bridge_dir) = relative.split('/').next().filter(|s| !s.is_empty()) {
-                    push_candidate(
-                        &mut out,
-                        parent
-                            .join("share")
-                            .join("teamclu")
-                            .join(bridge_dir)
-                            .join(relative.split('/').skip(1).collect::<Vec<_>>().join("/")),
-                    );
-                }
-            }
+    push_candidate(&mut out, exe_dir.join(relative));
+    if let Some(parent) = exe_dir.parent() {
+        push_candidate(&mut out, parent.join("Resources").join(relative));
+        push_candidate(
+            &mut out,
+            parent.join("Resources").join("binaries").join(relative),
+        );
+        if let Some(bridge_dir) = relative.split('/').next().filter(|s| !s.is_empty()) {
+            push_candidate(
+                &mut out,
+                parent
+                    .join("share")
+                    .join("teamclu")
+                    .join(bridge_dir)
+                    .join(relative.split('/').skip(1).collect::<Vec<_>>().join("/")),
+            );
         }
     }
     out
+}
+
+/// Candidate locations for a bundled bridge main script, most-specific first.
+pub fn bundled_bridge_candidates(relative: &str) -> Vec<PathBuf> {
+    match std::env::current_exe() {
+        Ok(exe) => exe
+            .parent()
+            .map(|dir| bundled_bridge_candidates_from(dir, relative))
+            .unwrap_or_default(),
+        Err(_) => Vec::new(),
+    }
 }
 
 pub fn resolve_bridge_main(relative: &str, env_key: &str) -> PathBuf {
@@ -109,11 +126,33 @@ mod tests {
 
     #[test]
     fn bundled_candidates_include_resources_layout() {
-        let cands = bundled_bridge_candidates(CURSOR_BRIDGE_REL);
-        assert!(!cands.is_empty());
+        let cands = bundled_bridge_candidates_from(
+            Path::new("/Applications/App.app/Contents/MacOS"),
+            CURSOR_BRIDGE_REL,
+        );
         assert!(cands.iter().any(|p| p
             .to_string_lossy()
-            .contains("Resources/cursor-bridge/src/main.mjs")));
+            .ends_with("Contents/Resources/cursor-bridge/src/main.mjs")));
+    }
+
+    #[test]
+    fn bundled_candidates_include_tauri_resources_binaries_layout() {
+        // Regression: Copilot 361 release bundles bridges under
+        // Resources/binaries/<bridge>/ (tauri resource path prefix). Missing
+        // this candidate made amuxd spawn the CI checkout path
+        // (/Users/runner/work/…) and every list_models probe die with
+        // "bridge exited before responding".
+        let cands = bundled_bridge_candidates_from(
+            Path::new("/Applications/Copilot 361.app/Contents/MacOS"),
+            CLAUDE_BRIDGE_REL,
+        );
+        assert!(
+            cands.iter().any(|p| {
+                p.to_string_lossy()
+                    .ends_with("Contents/Resources/binaries/claude-bridge/src/main.mjs")
+            }),
+            "candidates={cands:?}"
+        );
     }
 
     #[test]
