@@ -322,6 +322,15 @@ impl TurnAggregator {
             && !msg.content.trim().is_empty()
     }
 
+    /// English status notices (interrupt / no_final_reply) meant for agent
+    /// context and catchup — channel UIs must not treat them as user-visible
+    /// reply text.
+    pub fn is_agent_facing_status_notice(content: &str) -> bool {
+        let trimmed = content.trim_start();
+        trimmed.starts_with("[Turn interrupted by user]")
+            || trimmed.starts_with("[Turn completed with no final reply]")
+    }
+
     /// Current per-turn correlation id, or `None` between turns. Read by the
     /// publish path so outgoing `Envelope`s carry `turn_id`, letting clients
     /// dedupe `output isComplete=true` events by `(runtime_id, turn_id)`

@@ -636,10 +636,13 @@ fn absorb_emitted(
     let mut flushed = false;
     for m in emitted {
         if matches!(m.kind, crate::proto::teamclu::MessageKind::AgentReply) {
-            // Tool-only turns emit an empty AgentReply at turn end purely to
-            // anchor the turn for clients; it carries no text and must not
-            // add a blank segment.
-            if !m.content.is_empty() {
+            // Empty anchors and English status notices (no_final_reply /
+            // interrupt instruction) must not become WeCom/channel reply text.
+            if !m.content.is_empty()
+                && !crate::runtime::turn_aggregator::TurnAggregator::is_agent_facing_status_notice(
+                    &m.content,
+                )
+            {
                 segments.push(m.content);
             }
             live.clear();
@@ -1483,8 +1486,8 @@ mod tests {
         assert_eq!(compose_reply(&segments, ""), "first\n\nsecond\n\nthird");
     }
 
-    /// Tool-only turns emit an empty `AgentReply` at turn end to anchor the
-    /// turn for clients; it must not become a blank segment.
+    /// Tool-only turns emit a `no_final_reply` AgentReply at Idle for cloud /
+    /// catchup; channel absorb must still yield no user-visible segment.
     #[test]
     fn tool_only_turn_yields_empty_reply() {
         let segments = segments_from(&[tool_use("Bash"), turn_end()]);
