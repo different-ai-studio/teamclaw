@@ -787,7 +787,7 @@ describe("adaptTeamcluMessages", () => {
       tmsg({
         kind: MessageKind.AGENT_REPLY,
         content:
-          "[Turn completed with no final reply] The agent finished this turn after tool use without producing a final written answer.",
+          "[Turn completed with no final reply] The agent finished this turn without producing a final written answer.",
         turnId: "t-nfr",
         metadataJson: JSON.stringify({ turn_status: "no_final_reply" }),
         replyToMessageId: "user-tools",

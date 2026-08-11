@@ -651,7 +651,7 @@ export const ChatMessage = React.memo(function ChatMessage({
           <p className="mt-0.5 w-full text-[12.5px] leading-[1.55] text-muted-foreground">
             {t(
               "chat.noFinalReply.description",
-              "Tools completed. No additional written reply was produced.",
+              "No additional written reply was produced.",
             )}
           </p>
         </div>

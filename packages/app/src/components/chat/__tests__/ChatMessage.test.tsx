@@ -334,7 +334,7 @@ describe('ChatMessage', () => {
     expect(text).toContain('Turn finished');
     expect(text).toContain('no final reply');
     expect(text).toContain(
-      'Tools completed. No additional written reply was produced.',
+      'No additional written reply was produced.',
     );
     expect(text).not.toContain('Turn completed with no final reply');
   });

@@ -41,16 +41,16 @@ explicitly asks again.";
 const INTERRUPTED_REPLY_METADATA_JSON: &str = r#"{"turn_status":"interrupted"}"#;
 
 /// Durable AGENT_REPLY body when a turn ends at Idle with no final prose
-/// (tool-only, or all narration was mid-flushed before the last ToolUse).
+/// (tool-only, thinking-only, or all narration was mid-flushed before Idle).
 ///
 /// English so agent context / catchup understand completion. Frontends hide
 /// this notice when `metadata.turn_status == "no_final_reply"` and render a
 /// localized status strip.
 pub const NO_FINAL_REPLY_AGENT_CONTENT: &str = "\
-[Turn completed with no final reply] The agent finished this turn after tool \
-use without producing a final written answer. Treat the turn as successfully \
-completed. Do not invent a summary, continue the interrupted narration, or \
-re-run the tools unless the user explicitly asks.";
+[Turn completed with no final reply] The agent finished this turn without \
+producing a final written answer. Treat the turn as successfully completed. \
+Do not invent a summary, continue earlier narration, or re-run work unless \
+the user explicitly asks.";
 
 const NO_FINAL_REPLY_METADATA_JSON: &str = r#"{"turn_status":"no_final_reply"}"#;
 

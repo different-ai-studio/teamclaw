@@ -691,7 +691,7 @@
     "noFinalReply": {
       "finishedTitle": "Turn finished",
       "statusLabel": "no final reply",
-      "description": "Tools completed. No additional written reply was produced."
+      "description": "No additional written reply was produced."
     },
     "acpDebug": {
       "title": "ACP stream debug",

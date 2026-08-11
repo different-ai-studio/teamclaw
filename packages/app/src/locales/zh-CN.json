@@ -691,7 +691,7 @@
     "noFinalReply": {
       "finishedTitle": "本轮已结束",
       "statusLabel": "no final reply",
-      "description": "工具调用已完成，没有额外的文字回复。"
+      "description": "没有额外的文字回复。"
     },
     "acpDebug": {
       "title": "ACP 流调试",
