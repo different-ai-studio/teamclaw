@@ -1,11 +1,13 @@
 import type { AuthBackend, AuthClaimResult, AuthSession, PendingInvite, Unsubscribe } from "../types";
 import { BackendError } from "../errors";
 import type { CloudApiClient } from "./http";
+import { isChromeExtension } from "@/lib/platform";
 import {
   adoptRefreshToken,
   createAuthClient,
   getSession as getStoreSession,
   runDesktopOAuth,
+  runExtensionOAuth,
   subscribe as subscribeStore,
   type AuthClient,
   type OAuthProvider,
@@ -79,7 +81,10 @@ export function createAuthModule(
       return mapSession(next);
     },
     async signInWithOAuth(provider: OAuthProvider): Promise<AuthSession | null> {
-      const next = await runDesktopOAuth(authClient, provider);
+      // Same PKCE endpoints either way — only the redirect capture differs, so
+      // the runner is picked by platform rather than branching inside it.
+      const run = isChromeExtension() ? runExtensionOAuth : runDesktopOAuth;
+      const next = await run(authClient, provider);
       return mapSession(next);
     },
     async signOut(): Promise<void> {

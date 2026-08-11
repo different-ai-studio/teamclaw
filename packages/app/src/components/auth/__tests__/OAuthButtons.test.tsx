@@ -44,6 +44,31 @@ describe("OAuthButtons", () => {
     expect(container.firstChild).toBeNull();
   });
 
+  it("renders Google in the extension, where chrome.identity can capture the redirect", () => {
+    isTauriMock.mockReturnValue(false);
+    (globalThis as { chrome?: unknown }).chrome = { runtime: { id: "abcdefghijklmnop" } };
+    try {
+      render(<OAuthButtons />);
+      expect(screen.getByText("使用 Google 登录")).toBeTruthy();
+    } finally {
+      delete (globalThis as { chrome?: unknown }).chrome;
+    }
+  });
+
+  it("keeps WeChat and 快捷登录 desktop-only in the extension", () => {
+    isTauriMock.mockReturnValue(false);
+    (globalThis as { chrome?: unknown }).chrome = { runtime: { id: "abcdefghijklmnop" } };
+    try {
+      render(<OAuthButtons />);
+      // Both need native pieces the extension has no equivalent of: a webview
+      // for 快捷登录, a registered redirect domain for WeChat.
+      expect(screen.queryByText("使用微信登录")).toBeNull();
+      expect(screen.queryByText("快捷登录")).toBeNull();
+    } finally {
+      delete (globalThis as { chrome?: unknown }).chrome;
+    }
+  });
+
   it("shows a cancel control instead of provider buttons while OAuth is pending", () => {
     isTauriMock.mockReturnValue(true);
     const cancelOAuth = vi.fn();

@@ -9,6 +9,7 @@ import { useAppVersion } from "@/lib/version";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { isTauri } from "@/lib/utils";
+import { capabilities } from "@/lib/platform";
 import { GoogleIcon, WechatIcon } from "./oauth-icons";
 import { WebSsoOverlay } from "./WebSsoOverlay";
 import type { OAuthProvider } from "@/lib/auth";
@@ -19,7 +20,11 @@ export function OAuthButtons() {
   // Read through useFeatures, not the build config: the Cloud API delivers
   // these at startup and they can land after first paint.
   const auth = useFeatures().auth;
-  const showGoogle = isTauri() && auth.google;
+  // Google runs wherever a redirect can be captured — desktop via the native
+  // loopback listener, the extension via chrome.identity. WeChat and web SSO
+  // stay desktop-only: web SSO needs a native webview, and WeChat's redirect
+  // domain is registered against the desktop flow.
+  const showGoogle = capabilities.oauthSignIn && auth.google;
   const showWechat = isTauri() && auth.wechat;
   const showWebSso = isTauri() && auth.webSSO;
   if (!showGoogle && !showWechat && !showWebSso) return null;
