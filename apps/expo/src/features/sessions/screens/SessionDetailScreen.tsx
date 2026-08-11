@@ -1,6 +1,7 @@
 import { Ionicons } from "@expo/vector-icons";
 import { useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
 import {
+  ActivityIndicator,
   FlatList,
   Image,
   KeyboardAvoidingView,
@@ -72,9 +73,11 @@ import {
 import { foldToolResults } from "../tool-display";
 import { TurnDetailScreen } from "./TurnDetailScreen";
 import {
+  feedTailStartIndex,
   isFeedNearBottom,
   shouldAutoScrollForNewFeedItem,
   shouldAutoScrollFeed,
+  shouldLoadOlderOnStartReached,
 } from "../session-feed-scroll";
 import type { SessionMessage, SessionSummary } from "../session-types";
 import type { PendingAcpQuestion } from "../pending-questions";
@@ -107,6 +110,8 @@ type SessionDetailScreenProps = {
   onEditMessage?: (messageId: string, currentContent: string) => void;
   onGrantPermission?: (requestId: string, message: SessionMessage) => void;
   onDenyPermission?: (requestId: string, message: SessionMessage) => void;
+  /** Pull the page of history before the oldest message on screen. */
+  onLoadOlder?: () => void;
   resolvedPermissionsByRequestId?: ReadonlyMap<string, boolean>;
   onReconnect?: () => void;
   onRefresh?: () => void;
@@ -535,6 +540,7 @@ export function SessionDetailScreen(props: SessionDetailScreenProps) {
     onEditMessage,
     onGrantPermission,
     onDenyPermission,
+    onLoadOlder,
     resolvedPermissionsByRequestId,
     onOpenMembers,
     onReconnect,
@@ -632,7 +638,8 @@ export function SessionDetailScreen(props: SessionDetailScreenProps) {
   const hasMessages = feedSources.length > 0;
 
   const messageListRef = useRef<FlatList<FeedItem> | null>(null);
-  const lastMessageCount = useRef(feedSources.length);
+  const feedKeys = feedSources.map((source) => source.key);
+  const previousFeedKeys = useRef<string[]>(feedKeys);
   const hasMeasuredFeedLayout = useRef(false);
   const shouldStickToFeedBottom = useRef(true);
 
@@ -675,27 +682,44 @@ export function SessionDetailScreen(props: SessionDetailScreenProps) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [feedSources.length]);
 
+  const hasFeedHeader =
+    state.isLoadingOlder || (state.canLoadOlder && onLoadOlder !== undefined);
+  // VirtualizedList reads stickyHeaderIndices as positions among the scroll
+  // view's children, and a ListHeaderComponent takes the first of those — so a
+  // header shifts every day separator by one.
+  const stickyIndices = useMemo(
+    () => (hasFeedHeader ? separatorIndices.map((index) => index + 1) : separatorIndices),
+    [hasFeedHeader, separatorIndices],
+  );
+
   useEffect(() => {
-    if (feedSources.length > lastMessageCount.current) {
-      const newSources = feedSources.slice(lastMessageCount.current);
-      const hasOwnOutgoingMessage = newSources.some((source) =>
-        isOwnOutgoingFeedSource(source, ownActorId),
-      );
-      if (
-        shouldAutoScrollForNewFeedItem({
-          isOwnOutgoingMessage: hasOwnOutgoingMessage,
-          wasNearBottom: shouldStickToFeedBottom.current,
-        })
-      ) {
-        shouldStickToFeedBottom.current = true;
-        // New message appended while the user is already following the tail.
-        requestAnimationFrame(() => {
-          messageListRef.current?.scrollToEnd({ animated: true });
-        });
-      }
+    // Only growth at the *tail* is a new message to follow. A back-scrolled
+    // page also makes the feed longer, and following that would scroll away
+    // from the history the user just pulled.
+    const tailStart = feedTailStartIndex(previousFeedKeys.current, feedKeys);
+    previousFeedKeys.current = feedKeys;
+    if (tailStart < 0) return;
+
+    const appended = feedSources.slice(tailStart);
+    const hasOwnOutgoingMessage = appended.some((source) =>
+      isOwnOutgoingFeedSource(source, ownActorId),
+    );
+    if (
+      shouldAutoScrollForNewFeedItem({
+        isOwnOutgoingMessage: hasOwnOutgoingMessage,
+        wasNearBottom: shouldStickToFeedBottom.current,
+      })
+    ) {
+      shouldStickToFeedBottom.current = true;
+      // New message appended while the user is already following the tail.
+      requestAnimationFrame(() => {
+        messageListRef.current?.scrollToEnd({ animated: true });
+      });
     }
-    lastMessageCount.current = feedSources.length;
-  }, [feedSources, feedSources.length, ownActorId]);
+    // feedKeys is rebuilt every render; the ref comparison above is what makes
+    // this idempotent, not the dependency list.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [feedSources, ownActorId]);
 
   const handleFeedScroll = (event: NativeSyntheticEvent<NativeScrollEvent>) => {
     const { contentOffset, contentSize, layoutMeasurement } = event.nativeEvent;
@@ -769,6 +793,46 @@ export function SessionDetailScreen(props: SessionDetailScreenProps) {
             keyboardDismissMode="interactive"
             keyboardShouldPersistTaps="handled"
             keyExtractor={(item) => item.key}
+            ListHeaderComponent={
+              // Also the retry path: `onStartReached` fires once per content
+              // length, so a page that fails to load leaves the gesture spent
+              // until the feed changes underneath it.
+              // Keep this in step with `hasFeedHeader`, which offsets the
+              // sticky separators.
+              state.isLoadingOlder ? (
+                <View style={styles.loadOlder}>
+                  <ActivityIndicator color={colors.slate} size="small" />
+                </View>
+              ) : state.canLoadOlder && onLoadOlder ? (
+                <Pressable
+                  accessibilityRole="button"
+                  onPress={onLoadOlder}
+                  style={({ pressed }) => [
+                    styles.loadOlder,
+                    pressed ? styles.loadOlderPressed : null,
+                  ]}
+                >
+                  <Text style={styles.loadOlderText}>加载更早的消息</Text>
+                </Pressable>
+              ) : null
+            }
+            // Anchors the scroll to the first row that was already on screen,
+            // so a page arriving above it does not shove the transcript down.
+            maintainVisibleContentPosition={{ minIndexForVisible: 1 }}
+            onStartReached={() => {
+              if (
+                !onLoadOlder ||
+                !shouldLoadOlderOnStartReached({
+                  canLoadOlder: state.canLoadOlder,
+                  isLoadingOlder: state.isLoadingOlder,
+                  wasNearBottom: shouldStickToFeedBottom.current,
+                })
+              ) {
+                return;
+              }
+              onLoadOlder();
+            }}
+            onStartReachedThreshold={0.3}
             onContentSizeChange={() => {
               const isInitialLayout = !hasMeasuredFeedLayout.current;
               hasMeasuredFeedLayout.current = true;
@@ -793,7 +857,7 @@ export function SessionDetailScreen(props: SessionDetailScreenProps) {
             }
             ref={messageListRef}
             scrollEventThrottle={80}
-            stickyHeaderIndices={separatorIndices}
+            stickyHeaderIndices={stickyIndices}
             renderItem={({ item }) => {
               if (item.kind === "separator") {
                 return <DaySeparator label={item.label} />;
@@ -1044,6 +1108,18 @@ const styles = StyleSheet.create({
     paddingBottom: spacing.sm,
     // The header is pinned above the feed, so the first message needs room.
     paddingTop: GLASS_HEADER_HEIGHT + spacing.sm,
+  },
+  loadOlder: {
+    alignItems: "center",
+    paddingBottom: spacing.sm,
+    paddingTop: spacing.xs,
+  },
+  loadOlderPressed: {
+    opacity: 0.6,
+  },
+  loadOlderText: {
+    color: colors.slate,
+    ...typography.caption,
   },
   row: {
     flexDirection: "row",

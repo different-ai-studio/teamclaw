@@ -121,7 +121,7 @@ Expo now refetches with `preserveExisting: true` on a genuine reconnect, and
 not on the first connect, whose fetch is already in flight. Covered by
 `session-detail-controller.test.ts` → "reconnect recovery".
 
-### Superseded — message history is now paginated, and Expo has no back-scroll
+### Fixed — message history is paginated, and Expo now walks back through it
 
 This section previously recorded the unpaginated `GET /v1/sessions/:id/messages`
 as a shared server limitation and therefore out of parity scope. **#842 landed
@@ -129,17 +129,36 @@ on main and closed it**: a page is the newest 200 (max 500), oldest-first, with
 a cursor walking backward. The measurements in that commit are worth keeping —
 6k messages took 6.1s / 3.7MB, 40k exceeded the statement timeout.
 
-That change also gave Expo `listMessagesPage`, and left a new gap behind:
+That change also gave Expo `listMessagesPage` and left it with no caller:
+`listMessages` returned the first page and nothing walked the cursor, so a long
+session showed its newest ~200 messages with **no way to reach older ones**,
+where it had previously loaded all of them. Slow-but-complete became
+fast-but-truncated.
 
-**`listMessagesPage` has no caller.** `listMessages` returns its first page and
-nothing walks the cursor, so Expo now shows the newest ~200 messages of a
-session with **no way to reach older ones** — where it previously loaded all of
-them. iOS has the same page API (`CloudAPIRepositories.swift:251`) and does walk
-the cursor (`:563`).
+Now wired: `loadOlderMessages` on the detail controller, triggered by
+`onStartReached` once the feed is no longer pinned to the newest message, with
+`maintainVisibleContentPosition` so the arriving page does not shove the
+transcript out from under the reader.
 
-Net for a long session: Expo went from slow-but-complete to fast-but-truncated.
-Wiring back-scroll onto `listMessagesPage` is the follow-up, and it is a genuine
-parity gap rather than a shared limitation.
+Two things had to change with it, both of which were only latent while every
+load fetched the whole history:
+
+- **A load no longer replaces the timeline.** The fetch covers the newest page
+  and can only speak for that window, so `mergeNewestPage` folds it over what is
+  already held: rows inside the window follow the server (that is how a delete
+  still propagates), rows older than it are kept. Without this a reconnect
+  refresh threw away everything the user had scrolled back to.
+- **The disk hydrate is awaited before that merge.** It used to race the
+  network, and the `cache.save` that follows replaces the session's rows with
+  whatever the timeline holds — so whenever the network won the race, the older
+  pages on disk were quietly trimmed to one page.
+
+**Correction to an earlier claim in this section:** iOS was recorded as walking
+the cursor at `CloudAPIRepositories.swift:563`. That line is `listIdeas`.
+`listPage` (`:251`) has exactly one caller — `listForSession` (`:254`), which
+asks for the newest page — so iOS reaches no further back than Expo did. This
+was a shared gap being read as an Expo-only one, and Expo is now the app that
+closes it.
 
 ### Verified as matching
 
@@ -295,7 +314,7 @@ entirely:
 | **P2** | Turn detail showed counts, not events (Axis 6) | fixed |
 | **P3** | Attachment upload state not persisted (Axis 1) | open |
 | **P3** | `HaiSheet` chrome has no counterpart (Axis 6) | open |
-| **P1** | No back-scroll — Expo shows only the newest page since #842 (Axis 2) | open |
+| **P1** | No back-scroll — Expo showed only the newest page since #842 (Axis 2) | fixed |
 | **P2** | Tab bar / modal safe area — found on a device, not by reading (Axis 6) | fixed |
 | **Unknown** | Everything marked ✅ was source-diffed, **not run** | open |
 
@@ -304,12 +323,13 @@ entirely:
 1. **Dark mode** — tokens to adaptive, thread a color-scheme hook, audit every
    hardcoded hex. Wide but mechanical. Excluded by the user for now; it is the
    single largest remaining visual divergence.
-2. **The 42 ◻ rows** in `expo-ios-ui-inventory.md`. Not evenly sized —
-   `MemberListContent` (1598), `SessionDetailView` (993), `NewSessionSheet`
-   (599) and `LoginView` (464) are most of the mass.
-3. **Back-scroll onto `listMessagesPage`.** #842 paginated the endpoint and
-   Expo never grew a caller, so older history is currently unreachable.
-4. **Attachment upload persistence**, and `HaiSheet` chrome.
+2. **The ⚠ rows** in `expo-ios-ui-inventory.md`. Its ◻ column reached zero, so
+   what is left there is not unverified surfaces but recorded decisions — phone
+   OTP, the untestable login, per-agent config on `NewSessionSheet`.
+3. **Attachment upload persistence**, and `HaiSheet` chrome.
+4. **Back-scroll on iOS.** Closing Expo's gap showed that `listPage` has no
+   caller there either, so iOS reaches only the newest page of a long session.
+   Not an Expo parity item any more — an iOS one.
 
 ## What this audit did not cover
 

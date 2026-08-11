@@ -158,8 +158,8 @@ export function createCloudSessionsApi(options: CreateCloudSessionsApiOptions) {
     fetchImpl: options.fetchImpl,
   });
 
-  // Bound to a name so methods can call siblings (listMessages delegates to
-  // listMessagesPage) without `this` — callers destructure this object.
+  // Bound to a name only so the object has one; callers destructure it, so no
+  // method may reach a sibling through `this`.
   const api = {
     async listSessions(teamId: string, currentActorId?: string): Promise<SessionSummary[]> {
       // currentActorId is derived server-side from the bearer; kept for
@@ -225,13 +225,6 @@ export function createCloudSessionsApi(options: CreateCloudSessionsApiOptions) {
         items: (response.items ?? []).map(mapMessage),
         nextCursor: response.nextCursor ?? null,
       };
-    },
-
-    // Convenience wrapper for callers that only want the current viewport.
-    // Deliberately NOT `this.listMessagesPage` — the api object gets picked
-    // apart into `deps.api`, so a `this` reference would break on the way.
-    async listMessages(teamId: string, sessionId: string): Promise<SessionMessage[]> {
-      return (await api.listMessagesPage(teamId, sessionId)).items;
     },
 
     async insertOutgoingMessage(input: OutgoingMessageInput): Promise<void> {

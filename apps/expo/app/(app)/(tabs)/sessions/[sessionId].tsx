@@ -75,6 +75,8 @@ const fallbackDetailState: SessionDetailControllerState = {
   replyTarget: null,
   streamingByAgent: emptyTimelineState().streamingByAgent,
   pendingQuestions: [],
+  canLoadOlder: false,
+  isLoadingOlder: false,
 };
 
 type RouteRuntimeInfo = {
@@ -776,6 +778,9 @@ export default function SessionDetailRoute() {
           }}
           onEditMessage={(messageId, currentContent) => {
             setEditingMessage({ messageId, content: currentContent });
+          }}
+          onLoadOlder={() => {
+            void controller?.loadOlderMessages();
           }}
           onOpenMembers={() => {
             router.push(`/(app)/session-members?sessionId=${sessionId}`);

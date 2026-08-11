@@ -39,7 +39,12 @@ import {
   type StreamingBuffer,
   type TimelineEvent,
 } from "./session-types";
-import { reduceTimeline, emptyTimelineState, type TimelineState } from "./timeline-reducer";
+import {
+  reduceTimeline,
+  emptyTimelineState,
+  mergeNewestPage,
+  type TimelineState,
+} from "./timeline-reducer";
 import type { createCloudSessionsApi } from "./cloud-api";
 
 export type SessionDetailConnectionState = "connecting" | "connected" | "disconnected";
@@ -61,6 +66,13 @@ export type SessionDetailControllerState = {
    * replaced by the first entry until it is answered or rejected.
    */
   pendingQuestions: ReadonlyArray<PendingAcpQuestion>;
+  /**
+   * Whether the server reported a page older than the one loaded. False also
+   * covers "we are already at the beginning of the session".
+   */
+  canLoadOlder: boolean;
+  /** A back-scroll fetch is in flight. */
+  isLoadingOlder: boolean;
 };
 
 type SessionsApi = ReturnType<typeof createCloudSessionsApi>;
@@ -70,7 +82,7 @@ type SessionDetailControllerDeps = {
     SessionsApi,
     | "getSession"
     | "insertOutgoingMessage"
-    | "listMessages"
+    | "listMessagesPage"
     | "markSessionRead"
     | "resolveMemberActorId"
   >;
@@ -94,6 +106,11 @@ type SessionDetailController = {
   subscribe: (listener: () => void) => () => void;
   getState: () => SessionDetailControllerState;
   load: (options?: { preserveExisting?: boolean }) => Promise<void>;
+  /**
+   * Walk one page further back through the transcript. No-op once the server
+   * stops reporting a cursor, or while a page is already in flight.
+   */
+  loadOlderMessages: () => Promise<void>;
   setComposerText: (value: string) => void;
   setReplyTarget: (target: { messageId: string; content: string } | null) => void;
   sendMessage: () => Promise<void>;
@@ -131,6 +148,8 @@ const initialState: SessionDetailControllerState = {
   replyTarget: null,
   streamingByAgent: emptyTimelineState().streamingByAgent,
   pendingQuestions: [],
+  canLoadOlder: false,
+  isLoadingOlder: false,
 };
 
 function toIsoFromSeconds(value: bigint): string {
@@ -383,6 +402,19 @@ export function createSessionDetailController(
    */
   let hasConnectedOnce = false;
   let timeline: TimelineState = emptyTimelineState();
+  /**
+   * Cursor to the page *before* the oldest one loaded, or null at the start of
+   * the session. `/v1/sessions/:id/messages` walks backward: no cursor gives
+   * the newest page, and `nextCursor` reaches older ones.
+   */
+  let olderCursor: string | null = null;
+  /**
+   * Set once a back-scroll has succeeded. A refresh fetches the newest page
+   * again and reports the cursor just behind it — which is a page the user has
+   * already read past — so after a walk back the cursor is left alone rather
+   * than rewound.
+   */
+  let hasWalkedBack = false;
   let disposed = false;
   let unsubscribeSession: (() => void) | null = null;
   let cleanupConnectionStateListener: (() => void) | null = null;
@@ -669,7 +701,11 @@ export function createSessionDetailController(
         }
       });
 
-      const latestMessages = await deps.api.listMessages(deps.teamId, deps.sessionId);
+      // Closes the gap between the fetch above and this subscription. Merged
+      // rather than folded through `mergeNewestPage`: a message published in
+      // that window is an addition, and nothing here says a row that is absent
+      // was deleted.
+      const latest = await deps.api.listMessagesPage(deps.teamId, deps.sessionId);
 
       if (disposed || currentToken !== loadToken) {
         disconnectRealtime();
@@ -677,7 +713,7 @@ export function createSessionDetailController(
       }
 
       let next = timeline;
-      for (const m of latestMessages) {
+      for (const m of latest.items) {
         next = reduceTimeline(next, { kind: "messageCommitted", message: m });
       }
       timeline = next;
@@ -732,6 +768,8 @@ export function createSessionDetailController(
         });
       } else {
         timeline = emptyTimelineState();
+        olderCursor = null;
+        hasWalkedBack = false;
         setState({
           ...state,
           status: "loading",
@@ -742,6 +780,8 @@ export function createSessionDetailController(
           isRefreshing: false,
           sendErrorMessage: null,
           streamingByAgent: timeline.streamingByAgent,
+          canLoadOlder: false,
+          isLoadingOlder: false,
         });
       }
 
@@ -765,27 +805,34 @@ export function createSessionDetailController(
 
       // Hydrate from disk first so the user sees the timeline immediately on
       // cold start. The network results below overlay on top once they land.
-      if (deps.cache && !preserveExisting) {
-        void deps.cache.load(deps.sessionId).then((cached) => {
-          if (disposed || currentToken !== loadToken || !cached) return;
-          if (state.session) return; // network beat the disk read
-          timeline = timelineFromMessages(cached.messages);
-          const detailState = buildSessionDetailState(cached.session, cached.messages);
-          setState({
-            ...state,
-            status: detailState.status,
-            session: cached.session,
-            messages: detailState.messages,
-            errorMessage: null,
-            streamingByAgent: timeline.streamingByAgent,
-          });
-        });
-      }
+      const hydrateFromCache =
+        deps.cache && !preserveExisting
+          ? deps.cache.load(deps.sessionId).then((cached) => {
+              if (disposed || currentToken !== loadToken || !cached) return;
+              timeline = timelineFromMessages(cached.messages);
+              const detailState = buildSessionDetailState(cached.session, cached.messages);
+              setState({
+                ...state,
+                status: detailState.status,
+                session: cached.session,
+                messages: detailState.messages,
+                errorMessage: null,
+                streamingByAgent: timeline.streamingByAgent,
+              });
+            })
+          : null;
 
       const [sessionResult, messagesResult] = await Promise.allSettled([
         deps.api.getSession(deps.teamId, deps.sessionId),
-        deps.api.listMessages(deps.teamId, deps.sessionId),
+        deps.api.listMessagesPage(deps.teamId, deps.sessionId),
       ]);
+
+      // The disk read raced the network, and the merge below has to see which
+      // one it is folding onto: the fetch covers the newest page only, while
+      // the `cache.save` after it replaces the session's rows with whatever the
+      // timeline holds. Landing the hydrate first is what keeps a transcript
+      // that was scrolled back on disk instead of trimming it to one page.
+      if (hydrateFromCache) await hydrateFromCache;
 
       if (disposed || currentToken !== loadToken) {
         return;
@@ -839,10 +886,19 @@ export function createSessionDetailController(
         return;
       }
 
-      timeline = timelineFromMessages(
-        messagesResult.value,
-        preserveExisting ? timeline.streamingByAgent : undefined,
-      );
+      // The fetch above asks for the newest page only, so it cannot speak for
+      // anything older — a page the user scrolled back to, or a longer
+      // transcript hydrated from disk. Fold it in over that instead of
+      // replacing it.
+      timeline = {
+        messages: mergeNewestPage(timeline.messages, messagesResult.value.items),
+        streamingByAgent: preserveExisting ? timeline.streamingByAgent : new Map(),
+      };
+      // A refresh reports the cursor sitting just behind the newest page. That
+      // is only news if the user has not already walked past it.
+      if (!hasWalkedBack) {
+        olderCursor = messagesResult.value.nextCursor;
+      }
       const detailState = buildSessionDetailState(session, timeline.messages);
       setState({
         ...state,
@@ -852,6 +908,7 @@ export function createSessionDetailController(
         errorMessage: null,
         isRefreshing: preserveExisting,
         streamingByAgent: timeline.streamingByAgent,
+        canLoadOlder: olderCursor !== null,
       });
 
       // Persist authoritative network state for the next cold start.
@@ -867,6 +924,58 @@ export function createSessionDetailController(
           isRefreshing: false,
         });
       }
+    },
+    async loadOlderMessages() {
+      const cursor = olderCursor;
+      if (!cursor || state.isLoadingOlder || !state.session) {
+        return;
+      }
+
+      const currentToken = loadToken;
+      setState({ ...state, isLoadingOlder: true });
+
+      let page: { items: SessionMessage[]; nextCursor: string | null };
+      try {
+        page = await deps.api.listMessagesPage(deps.teamId, deps.sessionId, { cursor });
+      } catch (error) {
+        if (disposed || currentToken !== loadToken) return;
+        // The transcript on screen is intact — only the page behind it is
+        // missing — so this reports itself in the banner without disturbing the
+        // timeline, and the cursor stays put so the header can retry the same
+        // page. (`status` is what makes the banner render; the next timeline
+        // change recomputes it back to ready.)
+        setState({
+          ...state,
+          status: "error",
+          isLoadingOlder: false,
+          errorMessage: toErrorMessage(error, "加载更早的消息失败。"),
+        });
+        return;
+      }
+
+      // A reload landed while this page was in flight; it owns the timeline now.
+      if (disposed || currentToken !== loadToken) return;
+
+      hasWalkedBack = true;
+      olderCursor = page.nextCursor;
+
+      let next = timeline;
+      for (const message of page.items) {
+        next = reduceTimeline(next, { kind: "messageCommitted", message });
+      }
+      timeline = next;
+
+      setState({
+        ...state,
+        messages: next.messages,
+        errorMessage: null,
+        canLoadOlder: olderCursor !== null,
+        isLoadingOlder: false,
+        status: nextStatusForMessages(state.session, next.messages, state.status),
+      });
+      // Older pages belong on disk too, so the next cold start opens where the
+      // user left off instead of walking the same cursor again.
+      scheduleTimelinePersist();
     },
     setComposerText(value) {
       setState({

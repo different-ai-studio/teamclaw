@@ -1,6 +1,10 @@
 import { describe, expect, it } from "vitest";
 
-import { emptyTimelineState, reduceTimeline } from "../features/sessions/timeline-reducer";
+import {
+  emptyTimelineState,
+  mergeNewestPage,
+  reduceTimeline,
+} from "../features/sessions/timeline-reducer";
 import type { SessionMessage } from "../features/sessions/session-types";
 
 function msg(id: string, content: string, createdAt = "2026-05-20T10:00:00.000Z"): SessionMessage {
@@ -104,5 +108,40 @@ describe("reduceTimeline · streamingDone", () => {
       messageKind: "agent_reply", deltaText: "Hi", createdAt: "2026-05-20T10:00:00.000Z" });
     s = reduceTimeline(s, { kind: "streamingDone", agentId: "a", messageId: "m1" });
     expect(s.streamingByAgent.has("a")).toBe(false);
+  });
+});
+
+describe("mergeNewestPage", () => {
+  const page = [
+    msg("c", "third", "2026-05-20T10:02:00.000Z"),
+    msg("d", "fourth", "2026-05-20T10:03:00.000Z"),
+  ];
+
+  it("keeps history older than the page the server answered with", () => {
+    const older = [
+      msg("a", "first", "2026-05-20T10:00:00.000Z"),
+      msg("b", "second", "2026-05-20T10:01:00.000Z"),
+    ];
+    expect(mergeNewestPage([...older, ...page], page).map((m) => m.messageId)).toEqual([
+      "a", "b", "c", "d",
+    ]);
+  });
+
+  it("drops a row the page no longer carries — that is a delete", () => {
+    const withDeleted = [
+      msg("a", "first", "2026-05-20T10:00:00.000Z"),
+      msg("gone", "deleted", "2026-05-20T10:02:30.000Z"),
+      ...page,
+    ];
+    expect(mergeNewestPage(withDeleted, page).map((m) => m.messageId)).toEqual(["a", "c", "d"]);
+  });
+
+  it("prefers the page's copy of a row it also holds", () => {
+    const stale = [msg("c", "part", "2026-05-20T10:02:00.000Z")];
+    expect(mergeNewestPage(stale, page)[0].content).toBe("third");
+  });
+
+  it("clears the timeline when the session has no messages at all", () => {
+    expect(mergeNewestPage([msg("a", "first")], [])).toEqual([]);
   });
 });

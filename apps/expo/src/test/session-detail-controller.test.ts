@@ -28,10 +28,14 @@ function createSession(): SessionSummary {
   };
 }
 
-function createRowMessage(messageId: string, senderActorId = "actor-1"): SessionMessage {
+function createRowMessage(
+  messageId: string,
+  senderActorId = "actor-1",
+  createdAt = "2026-05-19T08:20:00.000Z",
+): SessionMessage {
   return {
     content: `Message ${messageId}`,
-    createdAt: "2026-05-19T08:20:00.000Z",
+    createdAt,
     kind: "text",
     messageId,
     metadata: null,
@@ -42,6 +46,13 @@ function createRowMessage(messageId: string, senderActorId = "actor-1"): Session
     teamId: "team-1",
     turnId: "",
   };
+}
+
+type MessagePage = { items: SessionMessage[]; nextCursor: string | null };
+
+/** What `listMessagesPage` answers with: one page, plus the cursor behind it. */
+function page(items: SessionMessage[], nextCursor: string | null = null): MessagePage {
+  return { items, nextCursor };
 }
 
 function createLivePayload(input: {
@@ -217,7 +228,7 @@ describe("createSessionDetailController", () => {
     const api = {
       getSession: vi.fn().mockResolvedValue(createSession()),
       insertOutgoingMessage: vi.fn(),
-      listMessages: vi.fn().mockResolvedValue([createRowMessage("message-1")]),
+      listMessagesPage: vi.fn().mockResolvedValue(page([createRowMessage("message-1")])),
       resolveMemberActorId: vi.fn().mockResolvedValue("actor-1"),
       markSessionRead: vi.fn().mockResolvedValue(undefined),
     };
@@ -256,7 +267,7 @@ describe("createSessionDetailController", () => {
     const api = {
       getSession: vi.fn().mockResolvedValue(createSession()),
       insertOutgoingMessage: vi.fn().mockResolvedValue(undefined),
-      listMessages: vi.fn().mockResolvedValue([]),
+      listMessagesPage: vi.fn().mockResolvedValue(page([])),
       resolveMemberActorId: vi.fn().mockResolvedValue("actor-1"),
       markSessionRead: vi.fn().mockResolvedValue(undefined),
     };
@@ -292,7 +303,7 @@ describe("createSessionDetailController", () => {
     const api = {
       getSession: vi.fn().mockResolvedValue(createSession()),
       insertOutgoingMessage: vi.fn().mockResolvedValue(undefined),
-      listMessages: vi.fn().mockResolvedValue([]),
+      listMessagesPage: vi.fn().mockResolvedValue(page([])),
       resolveMemberActorId: vi.fn().mockResolvedValue("actor-1"),
       markSessionRead: vi.fn().mockResolvedValue(undefined),
     };
@@ -367,7 +378,7 @@ describe("createSessionDetailController", () => {
     const api = {
       getSession: vi.fn().mockResolvedValue(createSession()),
       insertOutgoingMessage: vi.fn().mockResolvedValue(undefined),
-      listMessages: vi.fn().mockResolvedValue([]),
+      listMessagesPage: vi.fn().mockResolvedValue(page([])),
       resolveMemberActorId: vi.fn().mockResolvedValue("actor-1"),
       markSessionRead: vi.fn().mockResolvedValue(undefined),
     };
@@ -423,16 +434,16 @@ describe("createSessionDetailController", () => {
     const { createSessionDetailController } = await import(
       "../features/sessions/session-detail-controller"
     );
-    // Defer the second listMessages call (the one inside connectRealtime)
+    // Defer the second listMessagesPage call (the one inside connectRealtime)
     // so the controller stays in "connecting" long enough to test the guard.
-    const deferredListMessages = createDeferred<ReturnType<typeof createRowMessage>[]>();
+    const deferredMessagePage = createDeferred<MessagePage>();
     const mqtt = createMockMqtt();
     const api = {
       getSession: vi.fn().mockResolvedValue(createSession()),
       insertOutgoingMessage: vi.fn().mockResolvedValue(undefined),
-      listMessages: vi.fn()
-        .mockResolvedValueOnce([]) // first call (load phase)
-        .mockReturnValueOnce(deferredListMessages.promise), // second call (connectRealtime)
+      listMessagesPage: vi.fn()
+        .mockResolvedValueOnce(page([])) // first call (load phase)
+        .mockReturnValueOnce(deferredMessagePage.promise), // second call (connectRealtime)
       resolveMemberActorId: vi.fn().mockResolvedValue("actor-1"),
       markSessionRead: vi.fn().mockResolvedValue(undefined),
     };
@@ -462,7 +473,7 @@ describe("createSessionDetailController", () => {
     expect(controller.getState().sendErrorMessage).toMatch(/^实时连接/);
     expect(api.insertOutgoingMessage).not.toHaveBeenCalled();
 
-    deferredListMessages.resolve([]);
+    deferredMessagePage.resolve(page([]));
     await loadPromise;
   });
 
@@ -474,7 +485,7 @@ describe("createSessionDetailController", () => {
     const api = {
       getSession: vi.fn().mockResolvedValue(createSession()),
       insertOutgoingMessage: vi.fn(),
-      listMessages: vi.fn().mockResolvedValue([createRowMessage("message-1")]),
+      listMessagesPage: vi.fn().mockResolvedValue(page([createRowMessage("message-1")])),
       resolveMemberActorId: vi.fn().mockResolvedValue("actor-1"),
       markSessionRead: vi.fn().mockResolvedValue(undefined),
     };
@@ -513,7 +524,7 @@ describe("createSessionDetailController", () => {
     const api = {
       getSession: vi.fn().mockResolvedValue(createSession()),
       insertOutgoingMessage: vi.fn(),
-      listMessages: vi.fn().mockResolvedValue([]),
+      listMessagesPage: vi.fn().mockResolvedValue(page([])),
       resolveMemberActorId: vi.fn().mockResolvedValue("actor-1"),
       markSessionRead: vi.fn().mockResolvedValue(undefined),
     };
@@ -558,7 +569,7 @@ describe("createSessionDetailController", () => {
     const api = {
       getSession: vi.fn().mockResolvedValue(createSession()),
       insertOutgoingMessage: vi.fn(),
-      listMessages: vi.fn().mockResolvedValue([]),
+      listMessagesPage: vi.fn().mockResolvedValue(page([])),
       resolveMemberActorId: vi.fn().mockResolvedValue("actor-1"),
       markSessionRead: vi.fn().mockResolvedValue(undefined),
     };
@@ -617,7 +628,7 @@ describe("createSessionDetailController", () => {
     const api = {
       getSession: vi.fn().mockResolvedValue(createSession()),
       insertOutgoingMessage: vi.fn(),
-      listMessages: vi.fn().mockResolvedValue([]),
+      listMessagesPage: vi.fn().mockResolvedValue(page([])),
       resolveMemberActorId: vi.fn().mockResolvedValue("actor-1"),
       markSessionRead: vi.fn().mockResolvedValue(undefined),
     };
@@ -679,10 +690,10 @@ describe("createSessionDetailController", () => {
     const api = {
       getSession: vi.fn().mockResolvedValue(createSession()),
       insertOutgoingMessage: vi.fn(),
-      listMessages: vi
+      listMessagesPage: vi
         .fn()
-        .mockResolvedValueOnce([])
-        .mockResolvedValueOnce([createRowMessage("message-gap", "actor-agent")]),
+        .mockResolvedValueOnce(page([]))
+        .mockResolvedValueOnce(page([createRowMessage("message-gap", "actor-agent")])),
       resolveMemberActorId: vi.fn().mockResolvedValue("actor-1"),
       markSessionRead: vi.fn().mockResolvedValue(undefined),
     };
@@ -702,7 +713,7 @@ describe("createSessionDetailController", () => {
 
     await controller.load();
 
-    expect(api.listMessages).toHaveBeenCalledTimes(2);
+    expect(api.listMessagesPage).toHaveBeenCalledTimes(2);
     expect(controller.getState().messages).toEqual([
       expect.objectContaining({ messageId: "message-gap" }),
     ]);
@@ -712,17 +723,17 @@ describe("createSessionDetailController", () => {
     const { createSessionDetailController } = await import(
       "../features/sessions/session-detail-controller"
     );
-    const deferredRefreshMessages = createDeferred<ReturnType<typeof createRowMessage>[]>();
+    const deferredRefreshMessages = createDeferred<MessagePage>();
     const mqtt = createMockMqtt();
     const api = {
       getSession: vi.fn().mockResolvedValue(createSession()),
       insertOutgoingMessage: vi.fn(),
-      listMessages: vi
+      listMessagesPage: vi
         .fn()
-        .mockResolvedValueOnce([createRowMessage("message-1")])
-        .mockResolvedValueOnce([createRowMessage("message-1")])
+        .mockResolvedValueOnce(page([createRowMessage("message-1")]))
+        .mockResolvedValueOnce(page([createRowMessage("message-1")]))
         .mockReturnValueOnce(deferredRefreshMessages.promise)
-        .mockResolvedValueOnce([createRowMessage("message-2", "actor-agent")]),
+        .mockResolvedValueOnce(page([createRowMessage("message-2", "actor-agent")])),
       resolveMemberActorId: vi.fn().mockResolvedValue("actor-1"),
       markSessionRead: vi.fn().mockResolvedValue(undefined),
     };
@@ -752,7 +763,7 @@ describe("createSessionDetailController", () => {
       status: "ready",
     });
 
-    deferredRefreshMessages.resolve([createRowMessage("message-2", "actor-agent")]);
+    deferredRefreshMessages.resolve(page([createRowMessage("message-2", "actor-agent")]));
     await refreshPromise;
 
     expect(controller.getState()).toMatchObject({
@@ -770,7 +781,7 @@ describe("createSessionDetailController", () => {
     const api = {
       getSession: vi.fn().mockResolvedValue(createSession()),
       insertOutgoingMessage: vi.fn().mockRejectedValue(new Error("insert failed")),
-      listMessages: vi.fn().mockResolvedValue([]),
+      listMessagesPage: vi.fn().mockResolvedValue(page([])),
       resolveMemberActorId: vi.fn().mockResolvedValue("actor-1"),
       markSessionRead: vi.fn().mockResolvedValue(undefined),
     };
@@ -802,16 +813,16 @@ describe("createSessionDetailController", () => {
     const { createSessionDetailController } = await import(
       "../features/sessions/session-detail-controller"
     );
-    // Defer the second listMessages call inside connectRealtime so we can
+    // Defer the second listMessagesPage call inside connectRealtime so we can
     // dispose the controller while it is still mid-flight.
-    const deferredListMessages = createDeferred<ReturnType<typeof createRowMessage>[]>();
+    const deferredMessagePage = createDeferred<MessagePage>();
     const mqtt = createMockMqtt();
     const api = {
       getSession: vi.fn().mockResolvedValue(createSession()),
       insertOutgoingMessage: vi.fn(),
-      listMessages: vi.fn()
-        .mockResolvedValueOnce([]) // first call (load phase)
-        .mockReturnValueOnce(deferredListMessages.promise), // second call (connectRealtime)
+      listMessagesPage: vi.fn()
+        .mockResolvedValueOnce(page([])) // first call (load phase)
+        .mockReturnValueOnce(deferredMessagePage.promise), // second call (connectRealtime)
       resolveMemberActorId: vi.fn().mockResolvedValue("actor-1"),
       markSessionRead: vi.fn().mockResolvedValue(undefined),
     };
@@ -831,7 +842,7 @@ describe("createSessionDetailController", () => {
 
     const loadPromise = controller.load();
     controller.dispose();
-    deferredListMessages.resolve([]);
+    deferredMessagePage.resolve(page([]));
     await loadPromise;
 
     expect(controller.getState().connectionState).toBe("disconnected");
@@ -845,7 +856,7 @@ describe("createSessionDetailController", () => {
     const api = {
       getSession: vi.fn().mockResolvedValue(createSession()),
       insertOutgoingMessage: vi.fn(),
-      listMessages: vi.fn().mockResolvedValue([]),
+      listMessagesPage: vi.fn().mockResolvedValue(page([])),
       resolveMemberActorId: vi.fn().mockResolvedValue("actor-1"),
       markSessionRead: vi.fn().mockResolvedValue(undefined),
     };
@@ -888,7 +899,7 @@ describe("timeline persistence", () => {
     const api = {
       getSession: vi.fn().mockResolvedValue(createSession()),
       insertOutgoingMessage: vi.fn(),
-      listMessages: vi.fn().mockResolvedValue([]),
+      listMessagesPage: vi.fn().mockResolvedValue(page([])),
       resolveMemberActorId: vi.fn().mockResolvedValue("actor-1"),
       markSessionRead: vi.fn().mockResolvedValue(undefined),
     };
@@ -973,7 +984,7 @@ describe("reconnect recovery", () => {
     const api = {
       getSession: vi.fn().mockResolvedValue(createSession()),
       insertOutgoingMessage: vi.fn(),
-      listMessages: vi.fn().mockResolvedValue([createRowMessage("message-1")]),
+      listMessagesPage: vi.fn().mockResolvedValue(page([createRowMessage("message-1")])),
       resolveMemberActorId: vi.fn().mockResolvedValue("actor-1"),
       markSessionRead: vi.fn().mockResolvedValue(undefined),
     };
@@ -995,7 +1006,7 @@ describe("reconnect recovery", () => {
     // the gap is never redelivered on resubscribe — without this the timeline
     // silently stays short until the screen is reopened.
     const { api, controller, mqtt } = await setup();
-    const callsAfterLoad = api.listMessages.mock.calls.length;
+    const callsAfterLoad = api.listMessagesPage.mock.calls.length;
 
     mqtt.emitConnectionState("connected");
     mqtt.emitConnectionState("disconnected");
@@ -1003,20 +1014,20 @@ describe("reconnect recovery", () => {
     await Promise.resolve();
     await Promise.resolve();
 
-    expect(api.listMessages.mock.calls.length).toBeGreaterThan(callsAfterLoad);
+    expect(api.listMessagesPage.mock.calls.length).toBeGreaterThan(callsAfterLoad);
     await controller.dispose();
   });
 
   it("does not refetch on the first connect — that load is already in flight", async () => {
     const { api, controller, mqtt } = await setup();
-    const callsAfterLoad = api.listMessages.mock.calls.length;
+    const callsAfterLoad = api.listMessagesPage.mock.calls.length;
 
     mqtt.emitConnectionState("connecting");
     mqtt.emitConnectionState("connected");
     await Promise.resolve();
     await Promise.resolve();
 
-    expect(api.listMessages).toHaveBeenCalledTimes(callsAfterLoad);
+    expect(api.listMessagesPage).toHaveBeenCalledTimes(callsAfterLoad);
     await controller.dispose();
   });
 
@@ -1031,6 +1042,163 @@ describe("reconnect recovery", () => {
     // preserveExisting: a reconnect must not blank the screen the way a cold
     // load does.
     expect(controller.getState().messages.length).toBeGreaterThan(0);
+    await controller.dispose();
+  });
+});
+
+describe("createSessionDetailController · back-scroll", () => {
+  const newest = createRowMessage("message-newest", "actor-1", "2026-05-19T08:20:00.000Z");
+  const older = createRowMessage("message-older", "actor-1", "2026-05-19T07:00:00.000Z");
+
+  /**
+   * Stands in for `/v1/sessions/:id/messages`: no cursor is the newest page,
+   * and the cursor it reports reaches the page before it.
+   */
+  function createPagedApi(newestCursor: string | null = "cursor-1") {
+    return {
+      getSession: vi.fn().mockResolvedValue(createSession()),
+      insertOutgoingMessage: vi.fn(),
+      listMessagesPage: vi.fn(
+        async (_teamId: string, _sessionId: string, opts?: { cursor?: string | null }) =>
+          opts?.cursor ? page([older], null) : page([newest], newestCursor),
+      ),
+      resolveMemberActorId: vi.fn().mockResolvedValue("actor-1"),
+      markSessionRead: vi.fn().mockResolvedValue(undefined),
+    };
+  }
+
+  async function setup(api: ReturnType<typeof createPagedApi>) {
+    const { createSessionDetailController } = await import(
+      "../features/sessions/session-detail-controller"
+    );
+    const controller = createSessionDetailController({
+      api: api as any,
+      currentMemberActorId: "actor-1",
+      getAuth: vi.fn().mockResolvedValue({ accessToken: "jwt-token", userId: "user-1" }),
+      mqtt: createMockMqtt() as any,
+      mqttUrl: "wss://broker.example.com/mqtt",
+      sessionId: "session-1",
+      teamId: "team-1",
+    });
+    await controller.load();
+    return controller;
+  }
+
+  it("walks the cursor back and puts the older page above the newest one", async () => {
+    const controller = await setup(createPagedApi());
+    expect(controller.getState().canLoadOlder).toBe(true);
+
+    await controller.loadOlderMessages();
+
+    expect(controller.getState().messages.map((m) => m.messageId)).toEqual([
+      "message-older",
+      "message-newest",
+    ]);
+    expect(controller.getState().isLoadingOlder).toBe(false);
+    // The older page came back without a cursor: that is the start of the session.
+    expect(controller.getState().canLoadOlder).toBe(false);
+    await controller.dispose();
+  });
+
+  it("stays put when the newest page is the whole session", async () => {
+    const api = createPagedApi(null);
+    const controller = await setup(api);
+    expect(controller.getState().canLoadOlder).toBe(false);
+
+    const callsAfterLoad = api.listMessagesPage.mock.calls.length;
+    await controller.loadOlderMessages();
+
+    expect(api.listMessagesPage).toHaveBeenCalledTimes(callsAfterLoad);
+    await controller.dispose();
+  });
+
+  it("keeps back-scrolled history through a refresh", async () => {
+    const controller = await setup(createPagedApi());
+    await controller.loadOlderMessages();
+
+    // A refresh only asks for the newest page. It used to replace the timeline
+    // with it, which threw away everything the user had scrolled back to.
+    await controller.load({ preserveExisting: true });
+
+    expect(controller.getState().messages.map((m) => m.messageId)).toEqual([
+      "message-older",
+      "message-newest",
+    ]);
+    // And it must not rewind the cursor to the page already read past.
+    expect(controller.getState().canLoadOlder).toBe(false);
+    await controller.dispose();
+  });
+
+  it("leaves the transcript alone when an older page fails to load", async () => {
+    const api = createPagedApi();
+    api.listMessagesPage = vi.fn(
+      async (_teamId: string, _sessionId: string, opts?: { cursor?: string | null }) => {
+        if (opts?.cursor) throw new Error("network down");
+        return page([newest], "cursor-1");
+      },
+    );
+    const controller = await setup(api);
+
+    await controller.loadOlderMessages();
+
+    expect(controller.getState().messages.map((m) => m.messageId)).toEqual(["message-newest"]);
+    expect(controller.getState().isLoadingOlder).toBe(false);
+    expect(controller.getState().errorMessage).toBe("network down");
+    // "error" is what renders the banner; without it the failure is silent.
+    expect(controller.getState().status).toBe("error");
+    // The cursor survives the failure, so the next pull retries the same page.
+    expect(controller.getState().canLoadOlder).toBe(true);
+    await controller.dispose();
+  });
+});
+
+describe("createSessionDetailController · cold start over a cached transcript", () => {
+  it("keeps cached history that predates the page the server returns", async () => {
+    const { createSessionDetailController } = await import(
+      "../features/sessions/session-detail-controller"
+    );
+    const older = createRowMessage("message-older", "actor-1", "2026-05-19T07:00:00.000Z");
+    const newest = createRowMessage("message-newest", "actor-1", "2026-05-19T08:20:00.000Z");
+    const cache = {
+      // What a previous back-scroll left behind.
+      load: vi.fn().mockResolvedValue({ session: createSession(), messages: [older, newest] }),
+      save: vi.fn().mockResolvedValue(undefined),
+      saveMessages: vi.fn().mockResolvedValue(undefined),
+      clear: vi.fn().mockResolvedValue(undefined),
+    };
+    const api = {
+      getSession: vi.fn().mockResolvedValue(createSession()),
+      insertOutgoingMessage: vi.fn(),
+      listMessagesPage: vi.fn().mockResolvedValue(page([newest], "cursor-1")),
+      resolveMemberActorId: vi.fn().mockResolvedValue("actor-1"),
+      markSessionRead: vi.fn().mockResolvedValue(undefined),
+    };
+    const controller = createSessionDetailController({
+      api: api as any,
+      cache: cache as any,
+      currentMemberActorId: "actor-1",
+      getAuth: vi.fn().mockResolvedValue({ accessToken: "jwt", userId: "user-1" }),
+      mqtt: createMockMqtt() as any,
+      mqttUrl: "wss://broker.example.com/mqtt",
+      sessionId: "session-1",
+      teamId: "team-1",
+    });
+
+    await controller.load();
+
+    expect(controller.getState().messages.map((m) => m.messageId)).toEqual([
+      "message-older",
+      "message-newest",
+    ]);
+    // And the write-back must not trim the session's rows to the one page the
+    // network answered with.
+    expect(cache.save).toHaveBeenCalledWith("session-1", {
+      session: expect.objectContaining({ sessionId: "session-1" }),
+      messages: [
+        expect.objectContaining({ messageId: "message-older" }),
+        expect.objectContaining({ messageId: "message-newest" }),
+      ],
+    });
     await controller.dispose();
   });
 });
