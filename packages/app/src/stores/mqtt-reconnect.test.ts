@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
+import { describe, it, expect, beforeEach, vi } from 'vitest'
 import {
   useMqttReconnectStore,
   isMqttAuthFailure,
@@ -8,10 +8,56 @@ import {
   resetMqttReconnectRecovery,
   __resetMqttReconnectForTests,
   __markAuthRecoveryForTests,
+  BROWSER_RECONNECT_GRACE_MS,
 } from './mqtt-reconnect'
 
 vi.mock('@/lib/auth/session-store', () => ({
   refreshSession: vi.fn().mockResolvedValue(undefined),
+}))
+
+/**
+ * Hoisted mocks for the browser ensureWired path.
+ *
+ * `vi.doMock` + `vi.resetModules()` + dynamic `import()` is flaky on CI: the
+ * real `@/lib/mqtt-browser-bridge` sometimes wins the race, `stateHandler`
+ * stays null, and `waitFor(bridge subscribed)` times out. Hoisted `vi.mock`
+ * is applied before any import, so the dynamic import in `ensureWired` always
+ * hits the stub.
+ */
+const browserBridgeHandlers = vi.hoisted(() => {
+  const handlers: {
+    stateHandler: ((state: 'connecting' | 'connected' | 'disconnected') => void) | null
+    errorHandler: ((message: string) => void) | null
+  } = {
+    stateHandler: null,
+    errorHandler: null,
+  }
+  return handlers
+})
+
+vi.mock('@/lib/utils', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@/lib/utils')>()
+  return {
+    ...actual,
+    isTauri: () => false,
+  }
+})
+
+vi.mock('@/lib/mqtt-browser-bridge', () => ({
+  subscribeBrowserMqttState: (
+    h: (s: 'connecting' | 'connected' | 'disconnected') => void,
+  ) => {
+    browserBridgeHandlers.stateHandler = h
+    return () => {
+      browserBridgeHandlers.stateHandler = null
+    }
+  },
+  subscribeBrowserMqttError: (h: (msg: string) => void) => {
+    browserBridgeHandlers.errorHandler = h
+    return () => {
+      browserBridgeHandlers.errorHandler = null
+    }
+  },
 }))
 
 describe('useMqttReconnectStore', () => {
@@ -163,103 +209,65 @@ describe('resetMqttReconnectRecovery', () => {
 })
 
 /**
- * Poll until `check()` holds, instead of sleeping a fixed amount and hoping.
- *
- * `ensureWired()` reaches the bridge through a dynamic `import()`, so the
- * subscription lands an unpredictable number of microtasks later. This suite
- * used to wait a flat 20ms for that, which is plenty on a dev laptop and not
- * always enough on a CI runner — `stateHandler` was still null, and calling it
- * threw `stateHandler is not a function`. That single gamble was behind every
- * red CI run on main over the last 25 builds.
- *
+ * Poll until `check()` holds. `ensureWired()` reaches the bridge through
+ * dynamic imports, so the subscription lands a few microtasks later.
  * Must only be used on real timers.
  */
 async function waitFor(check: () => boolean, label: string, timeoutMs = 2000): Promise<void> {
   const deadline = Date.now() + timeoutMs
   while (Date.now() < deadline) {
     if (check()) return
+    await Promise.resolve()
     await new Promise((r) => setTimeout(r, 5))
   }
   throw new Error(`waitFor(${label}): condition still false after ${timeoutMs}ms`)
 }
 
 describe('useMqttReconnectStore — ensureWired browser path', () => {
-  let stateHandler: ((state: 'connecting' | 'connected' | 'disconnected') => void) | null = null
-  let errorHandler: ((message: string) => void) | null = null
-
   beforeEach(async () => {
-    stateHandler = null
-    errorHandler = null
-
-    // Mock isTauri() => false (jsdom is already non-Tauri, but make it explicit)
-    vi.doMock('@/lib/utils', () => ({
-      isTauri: () => false,
-      cn: (...args: string[]) => args.join(' '),
-    }))
-
-    // Mock the browser bridge to capture subscriptions
-    vi.doMock('@/lib/mqtt-browser-bridge', () => ({
-      subscribeBrowserMqttState: (h: (s: 'connecting' | 'connected' | 'disconnected') => void) => {
-        stateHandler = h
-        return () => { stateHandler = null }
-      },
-      subscribeBrowserMqttError: (h: (msg: string) => void) => {
-        errorHandler = h
-        return () => { errorHandler = null }
-      },
-    }))
-
-    // Reset store state and _wired flag so ensureWired runs fresh each test
+    browserBridgeHandlers.stateHandler = null
+    browserBridgeHandlers.errorHandler = null
+    __resetMqttReconnectForTests()
     useMqttReconnectStore.setState({ nonce: 0, lastError: null, connected: null, _wired: false })
-
-    // Clear module cache so dynamic imports pick up the new mocks
-    vi.resetModules()
-  })
-
-  afterEach(() => {
-    vi.doUnmock('@/lib/utils')
-    vi.doUnmock('@/lib/mqtt-browser-bridge')
+    const { refreshSession } = await import('@/lib/auth/session-store')
+    vi.mocked(refreshSession).mockClear()
   })
 
   it('ensureWired in browser path subscribes to state and error from bridge', async () => {
-    // Re-import fresh module to pick up mocks
-    const { useMqttReconnectStore: store } = await import('./mqtt-reconnect')
-    store.setState({ _wired: false, connected: null, lastError: null })
-    store.getState().ensureWired()
+    useMqttReconnectStore.getState().ensureWired()
 
-    await waitFor(() => stateHandler !== null && errorHandler !== null, 'bridge subscribed')
+    await waitFor(
+      () =>
+        browserBridgeHandlers.stateHandler !== null &&
+        browserBridgeHandlers.errorHandler !== null,
+      'bridge subscribed',
+    )
 
+    const { stateHandler, errorHandler } = browserBridgeHandlers
     expect(stateHandler).not.toBeNull()
     expect(errorHandler).not.toBeNull()
 
-    // 'disconnected' state -> connected=false
     stateHandler!('disconnected')
-    expect(store.getState().connected).toBe(false)
+    expect(useMqttReconnectStore.getState().connected).toBe(false)
 
-    // 'connected' state -> connected=true
     stateHandler!('connected')
-    expect(store.getState().connected).toBe(true)
+    expect(useMqttReconnectStore.getState().connected).toBe(true)
 
-    // 'connecting' state -> connected=null
     stateHandler!('connecting')
-    expect(store.getState().connected).toBeNull()
+    expect(useMqttReconnectStore.getState().connected).toBeNull()
 
-    // error -> lastError set
     errorHandler!('broker auth failure')
-    expect(store.getState().lastError).toBe('broker auth failure')
+    expect(useMqttReconnectStore.getState().lastError).toBe('broker auth failure')
   })
 
   it('refreshes credentials and bumps reconnect when a browser MQTT disconnect outlasts the grace window', async () => {
     const { refreshSession } = await import('@/lib/auth/session-store')
-    vi.mocked(refreshSession).mockClear()
-    const { useMqttReconnectStore: store, BROWSER_RECONNECT_GRACE_MS } = await import('./mqtt-reconnect')
-    store.setState({ _wired: false, connected: null, lastError: null, nonce: 0 })
-    store.getState().ensureWired()
-    await waitFor(() => stateHandler !== null, 'bridge subscribed')
+    useMqttReconnectStore.getState().ensureWired()
+    await waitFor(() => browserBridgeHandlers.stateHandler !== null, 'bridge subscribed')
 
     vi.useFakeTimers()
     try {
-      stateHandler!('disconnected')
+      browserBridgeHandlers.stateHandler!('disconnected')
       // Inside the grace window mqtt.js auto-reconnect owns recovery.
       await vi.advanceTimersByTimeAsync(BROWSER_RECONNECT_GRACE_MS - 1000)
       expect(refreshSession).not.toHaveBeenCalled()
@@ -271,22 +279,19 @@ describe('useMqttReconnectStore — ensureWired browser path', () => {
     await waitFor(() => vi.mocked(refreshSession).mock.calls.length > 0, 'refreshSession called')
 
     expect(refreshSession).toHaveBeenCalledOnce()
-    expect(store.getState().nonce).toBe(1)
+    expect(useMqttReconnectStore.getState().nonce).toBe(1)
   })
 
   it('does not refresh credentials when auto-reconnect restores within the grace window', async () => {
     const { refreshSession } = await import('@/lib/auth/session-store')
-    vi.mocked(refreshSession).mockClear()
-    const { useMqttReconnectStore: store, BROWSER_RECONNECT_GRACE_MS } = await import('./mqtt-reconnect')
-    store.setState({ _wired: false, connected: null, lastError: null, nonce: 0 })
-    store.getState().ensureWired()
-    await waitFor(() => stateHandler !== null, 'bridge subscribed')
+    useMqttReconnectStore.getState().ensureWired()
+    await waitFor(() => browserBridgeHandlers.stateHandler !== null, 'bridge subscribed')
 
     vi.useFakeTimers()
     try {
-      stateHandler!('disconnected')
+      browserBridgeHandlers.stateHandler!('disconnected')
       await vi.advanceTimersByTimeAsync(3000)
-      stateHandler!('connected')
+      browserBridgeHandlers.stateHandler!('connected')
       await vi.advanceTimersByTimeAsync(BROWSER_RECONNECT_GRACE_MS * 2)
     } finally {
       vi.useRealTimers()
@@ -296,23 +301,22 @@ describe('useMqttReconnectStore — ensureWired browser path', () => {
     await new Promise((r) => setTimeout(r, 20))
 
     expect(refreshSession).not.toHaveBeenCalled()
-    expect(store.getState().nonce).toBe(0)
+    expect(useMqttReconnectStore.getState().nonce).toBe(0)
   })
 
   it('refreshes credentials and bumps reconnect on browser MQTT auth failure', async () => {
     const { refreshSession } = await import('@/lib/auth/session-store')
-    vi.mocked(refreshSession).mockClear()
-    const { useMqttReconnectStore: store } = await import('./mqtt-reconnect')
-    store.setState({ _wired: false, connected: null, lastError: null, nonce: 0 })
-    store.getState().ensureWired()
+    useMqttReconnectStore.getState().ensureWired()
 
-    await waitFor(() => errorHandler !== null, 'bridge subscribed')
-    errorHandler!('Connection refused: bad_username_or_password')
-    expect(store.getState().lastError).toBe('Connection refused: bad_username_or_password')
+    await waitFor(() => browserBridgeHandlers.errorHandler !== null, 'bridge subscribed')
+    browserBridgeHandlers.errorHandler!('Connection refused: bad_username_or_password')
+    expect(useMqttReconnectStore.getState().lastError).toBe(
+      'Connection refused: bad_username_or_password',
+    )
     await waitFor(() => vi.mocked(refreshSession).mock.calls.length > 0, 'refreshSession called')
 
     expect(refreshSession).toHaveBeenCalledOnce()
-    expect(store.getState().nonce).toBe(1)
-    expect(store.getState().lastError).toBeNull()
+    expect(useMqttReconnectStore.getState().nonce).toBe(1)
+    expect(useMqttReconnectStore.getState().lastError).toBeNull()
   })
 })
