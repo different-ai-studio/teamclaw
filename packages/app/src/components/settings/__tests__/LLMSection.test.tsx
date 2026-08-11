@@ -30,10 +30,19 @@ const mocks = vi.hoisted(() => {
     setWorkspace: vi.fn(),
   }
   const teamModeState = { teamModeType: null as string | null, teamModelConfig: null as null | { model: string; modelName: string; baseUrl: string }, devUnlocked: false, teamModelOptions: [] as Array<{ id: string; name: string }>, switchTeamModel: vi.fn() }
+  const catalogState = {
+    byWorkspacePath: {} as Record<
+      string,
+      { status: string; models: Array<{ id: string; displayName: string }>; recentModels: string[]; fetchedAt: number }
+    >,
+  }
+  const ensureLocalDaemonCatalog = vi.fn()
   return {
     providerState,
     workspaceState,
     teamModeState,
+    catalogState,
+    ensureLocalDaemonCatalog,
     shellOpen: vi.fn(),
     dialogOpen: vi.fn(),
   }
@@ -61,6 +70,10 @@ vi.mock('@/stores/team-mode', () => ({
     return sel(mocks.teamModeState)
   }),
 }))
+vi.mock('@/stores/local-daemon-catalog-store', () => ({
+  useLocalDaemonCatalogStore: vi.fn((sel: (s: any) => any) => sel(mocks.catalogState)),
+  ensureLocalDaemonCatalog: mocks.ensureLocalDaemonCatalog,
+}))
 vi.mock('@/lib/team-permissions', () => ({
   useTeamPermissions: () => ({ role: 'owner', isOwner: true, canManageTeam: true, canEditFiles: true }),
 }))
@@ -84,6 +97,8 @@ describe('LLMSection', () => {
     mocks.providerState.configuredProviders = []
     mocks.providerState.customProviderIds = []
     mocks.providerState.authMethods = {}
+    mocks.catalogState.byWorkspacePath = {}
+    mocks.ensureLocalDaemonCatalog.mockReset()
     mocks.workspaceState.workspacePath = '/test'
     mocks.workspaceState.openCodeReady = true
     mocks.workspaceState.daemonHttpReady = true
@@ -116,6 +131,67 @@ describe('LLMSection', () => {
       expect(mocks.providerState.refreshConfiguredProviders).toHaveBeenCalled()
       expect(mocks.providerState.refreshAuthMethods).toHaveBeenCalled()
     })
+  })
+
+  it('seeds the local model-catalog on mount for the current workspace', async () => {
+    render(<LLMSection />)
+    await waitFor(() => {
+      expect(mocks.ensureLocalDaemonCatalog).toHaveBeenCalledWith('/test', 'opencode')
+    })
+  })
+
+  it('lists catalog models for an unconnected provider and allows expand', async () => {
+    mocks.providerState.providers = [{ id: 'opencode', name: 'OpenCode', configured: false }]
+    mocks.catalogState.byWorkspacePath['/test'] = {
+      status: 'ready',
+      models: [
+        { id: 'opencode/qwen3.6-plus-free', displayName: 'OpenCode Zen/Qwen3.6 Plus Free' },
+      ],
+      recentModels: [],
+      fetchedAt: Date.now(),
+    }
+
+    render(<LLMSection />)
+
+    expect(screen.getByText(/1 model/i)).toBeTruthy()
+    fireEvent.click(screen.getByText('OpenCode'))
+    expect(await screen.findByText('OpenCode Zen/Qwen3.6 Plus Free')).toBeTruthy()
+    expect(screen.getByText('opencode/qwen3.6-plus-free')).toBeTruthy()
+  })
+
+  it('uses catalog display names for a connected provider (not configuredProviders bare ids)', async () => {
+    mocks.providerState.providers = [{ id: 'anthropic', name: 'Anthropic', configured: true }]
+    mocks.providerState.configuredProviders = [
+      { id: 'anthropic', name: 'Anthropic', models: [{ id: 'claude-sonnet-4', name: 'claude-sonnet-4' }] },
+    ]
+    mocks.catalogState.byWorkspacePath['/test'] = {
+      status: 'ready',
+      models: [
+        { id: 'anthropic/claude-sonnet-4', displayName: 'Claude Sonnet 4' },
+      ],
+      recentModels: [],
+      fetchedAt: Date.now(),
+    }
+
+    render(<LLMSection />)
+    fireEvent.click(screen.getByText('Anthropic'))
+    expect(await screen.findByText('Claude Sonnet 4')).toBeTruthy()
+    expect(screen.getByText('anthropic/claude-sonnet-4')).toBeTruthy()
+    expect(screen.queryByText('claude-sonnet-4')).toBeNull()
+  })
+
+  it('merges catalog-only providers into the list when /providers omitted them', async () => {
+    mocks.providerState.providers = []
+    mocks.catalogState.byWorkspacePath['/test'] = {
+      status: 'ready',
+      models: [{ id: 'opencode/gpt-5-nano', displayName: 'GPT-5 Nano' }],
+      recentModels: [],
+      fetchedAt: Date.now(),
+    }
+
+    render(<LLMSection />)
+    expect(screen.getByText('opencode')).toBeTruthy()
+    expect(screen.queryByText('No providers available')).toBeNull()
   })
 
   it('shows no providers message when empty', () => {
