@@ -15,14 +15,14 @@ values (
   '00000000-0000-0000-0000-000000000000'
 );
 
-insert into public.teams (id, slug, name)
+insert into amux.teams (id, slug, name)
 values (
   '01800000-0000-0000-0000-000000000001',
   'idea-activity-attachments-team',
   'Idea Activity Attachments Team'
 );
 
-insert into public.actors (id, team_id, actor_type, user_id, display_name)
+insert into amux.actors (id, team_id, actor_type, user_id, display_name)
 values (
   '11800000-0000-0000-0000-000000000001',
   '01800000-0000-0000-0000-000000000001',
@@ -31,13 +31,13 @@ values (
   'Idea Activity Attachments Member'
 );
 
-insert into public.members (id, status)
+insert into amux.members (id, status)
 values (
   '11800000-0000-0000-0000-000000000001',
   'active'
 );
 
-insert into public.team_members (id, team_id, member_id, role)
+insert into amux.team_members (id, team_id, member_id, role)
 values (
   '21800000-0000-0000-0000-000000000001',
   '01800000-0000-0000-0000-000000000001',
@@ -61,14 +61,14 @@ select set_config(
 
 create temporary table created_idea as
 select *
-from public.create_idea(
+from amux.create_idea(
   '01800000-0000-0000-0000-000000000001',
   'Image attachment idea'
 );
 
 create temporary table created_activity as
 select *
-from public.create_idea_activity(
+from amux.create_idea_activity(
   (select id from created_idea),
   'progress',
   'Attached screenshots.',

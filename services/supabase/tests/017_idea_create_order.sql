@@ -11,14 +11,14 @@ values (
   '00000000-0000-0000-0000-000000000000'
 );
 
-insert into public.teams (id, slug, name)
+insert into amux.teams (id, slug, name)
 values (
   '01700000-0000-0000-0000-000000000001',
   'idea-order-team',
   'Idea Order Team'
 );
 
-insert into public.actors (id, team_id, actor_type, user_id, display_name)
+insert into amux.actors (id, team_id, actor_type, user_id, display_name)
 values (
   '11700000-0000-0000-0000-000000000001',
   '01700000-0000-0000-0000-000000000001',
@@ -27,13 +27,13 @@ values (
   'Idea Order Member'
 );
 
-insert into public.members (id, status)
+insert into amux.members (id, status)
 values (
   '11700000-0000-0000-0000-000000000001',
   'active'
 );
 
-insert into public.team_members (id, team_id, member_id, role)
+insert into amux.team_members (id, team_id, member_id, role)
 values (
   '21700000-0000-0000-0000-000000000001',
   '01700000-0000-0000-0000-000000000001',
@@ -57,14 +57,14 @@ select set_config(
 
 create temporary table created_ideas as
 select *
-from public.create_idea(
+from amux.create_idea(
   '01700000-0000-0000-0000-000000000001',
   'First idea'
 );
 
 insert into created_ideas
 select *
-from public.create_idea(
+from amux.create_idea(
   '01700000-0000-0000-0000-000000000001',
   'Second idea'
 );
@@ -86,7 +86,7 @@ select is(
 select is(
   array(
     select title
-    from public.ideas
+    from amux.ideas
     where team_id = '01700000-0000-0000-0000-000000000001'
       and archived = false
     order by sort_order asc, updated_at desc

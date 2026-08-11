@@ -30,18 +30,18 @@ insert into auth.users (id, email, aud, role, instance_id) values
 on conflict do nothing;
 
 select pg_temp.as_user('a1111111-1111-1111-1111-111111111111');
-select * from public.create_team('WC Team');
+select * from amux.create_team('WC Team', p_oid => null);
 
 create temp table ctx as
-  select (select id from public.teams where slug = 'wc-team') as team_id;
+  select (select id from amux.teams where slug = 'wc-team') as team_id;
 
-insert into public.actors (id, team_id, actor_type, display_name)
+insert into amux.actors (id, team_id, actor_type, display_name)
 values ('b2222222-0000-0000-0000-000000000000', (select team_id from ctx), 'member', 'Bob');
 
-insert into public.members (id, user_id, status)
+insert into amux.members (id, user_id, status)
 values ('b2222222-0000-0000-0000-000000000000', 'b2222222-2222-2222-2222-222222222222', 'active');
 
-insert into public.team_members (id, team_id, member_id, role)
+insert into amux.team_members (id, team_id, member_id, role)
 values (
   'b2222222-0000-0000-0000-000000000001',
   (select team_id from ctx),
@@ -64,7 +64,7 @@ select has_column('public', 'team_workspace_config', 'last_sync_error', 'has las
 
 -- 10. Owner can write own team_workspace_config (the create_team RPC seeds an
 -- empty row at team creation; the owner fills it in via UPDATE).
-update public.team_workspace_config
+update amux.team_workspace_config
    set git_url             = 'https://github.com/x/y.git',
        git_branch          = 'main',
        git_token           = 'ghp_abc',
@@ -74,7 +74,7 @@ select pass('owner can update own team_workspace_config');
 
 -- 11. Member can read
 select results_eq(
-  $$ select git_url from public.team_workspace_config where team_id = (select team_id from ctx) $$,
+  $$ select git_url from amux.team_workspace_config where team_id = (select team_id from ctx) $$,
   $$ values ('https://github.com/x/y.git'::text) $$,
   'owner reads own row'
 );
@@ -82,7 +82,7 @@ select results_eq(
 -- 12. Anon cannot read
 select pg_temp.as_anon();
 select throws_ok(
-  $$ select 1 from public.team_workspace_config where team_id = (select team_id from ctx) $$,
+  $$ select 1 from amux.team_workspace_config where team_id = (select team_id from ctx) $$,
   '42501',
   null,
   'anon cannot read'
@@ -91,7 +91,7 @@ select throws_ok(
 -- 13. Non-owner team member can read
 select pg_temp.as_user('b2222222-2222-2222-2222-222222222222');
 select results_eq(
-  $$ select git_url from public.team_workspace_config where team_id = (select team_id from ctx) $$,
+  $$ select git_url from amux.team_workspace_config where team_id = (select team_id from ctx) $$,
   $$ values ('https://github.com/x/y.git'::text) $$,
   'non-owner team member reads own team row'
 );
@@ -99,7 +99,7 @@ select results_eq(
 -- 14. Shared directory name rejects path traversal
 select pg_temp.as_user('a1111111-1111-1111-1111-111111111111');
 select throws_ok(
-  $$ update public.team_workspace_config set shared_dir_name = '../bad' where team_id = (select team_id from ctx) $$,
+  $$ update amux.team_workspace_config set shared_dir_name = '../bad' where team_id = (select team_id from ctx) $$,
   '23514',
   null,
   'shared_dir_name rejects path traversal'
@@ -108,17 +108,17 @@ select throws_ok(
 -- 15. Stranger cannot read
 select pg_temp.as_user('c3333333-3333-3333-3333-333333333333');
 select is_empty(
-  $$ select 1 from public.team_workspace_config where team_id = (select team_id from ctx) $$,
+  $$ select 1 from amux.team_workspace_config where team_id = (select team_id from ctx) $$,
   'stranger cannot read'
 );
 
 -- 16. Stranger UPDATE is silently filtered (RLS USING returns no row), so
 -- the owner's row is unchanged.
-update public.team_workspace_config set git_url = 'https://stolen.example'
+update amux.team_workspace_config set git_url = 'https://stolen.example'
   where team_id = (select team_id from ctx);
 select pg_temp.as_user('a1111111-1111-1111-1111-111111111111');
 select results_eq(
-  $$ select git_url from public.team_workspace_config where team_id = (select team_id from ctx) $$,
+  $$ select git_url from amux.team_workspace_config where team_id = (select team_id from ctx) $$,
   $$ values ('https://github.com/x/y.git'::text) $$,
   'stranger UPDATE silently filtered (RLS)'
 );
@@ -127,24 +127,24 @@ select pg_temp.as_user('c3333333-3333-3333-3333-333333333333');
 -- 17. enabled defaults true (after switching back to alice)
 select pg_temp.as_user('a1111111-1111-1111-1111-111111111111');
 select results_eq(
-  $$ select enabled from public.team_workspace_config where team_id = (select team_id from ctx) $$,
+  $$ select enabled from amux.team_workspace_config where team_id = (select team_id from ctx) $$,
   $$ values (true) $$,
   'enabled defaults true'
 );
 
 -- 18. Stranger cannot delete (no rows affected, row still exists)
 select pg_temp.as_user('c3333333-3333-3333-3333-333333333333');
-delete from public.team_workspace_config where team_id = (select team_id from ctx);
+delete from amux.team_workspace_config where team_id = (select team_id from ctx);
 select pg_temp.as_user('a1111111-1111-1111-1111-111111111111');
 select isnt_empty(
-  $$ select 1 from public.team_workspace_config where team_id = (select team_id from ctx) $$,
+  $$ select 1 from amux.team_workspace_config where team_id = (select team_id from ctx) $$,
   'stranger cannot delete'
 );
 
 -- 19. Owner can delete their own row
-delete from public.team_workspace_config where team_id = (select team_id from ctx);
+delete from amux.team_workspace_config where team_id = (select team_id from ctx);
 select is_empty(
-  $$ select 1 from public.team_workspace_config where team_id = (select team_id from ctx) $$,
+  $$ select 1 from amux.team_workspace_config where team_id = (select team_id from ctx) $$,
   'owner can delete own row'
 );
 

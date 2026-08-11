@@ -6,19 +6,24 @@ insert into auth.users (id, email, aud, role, instance_id)
 values ('00000000-0000-0000-0014-000000000001', 'gateway-daemon@teamclu.test', 'authenticated', 'authenticated', '00000000-0000-0000-0000-000000000000')
 on conflict do nothing;
 
-insert into public.teams (id, slug, name)
+insert into amux.teams (id, slug, name)
 values ('00000000-0000-0000-0014-000000000010', 'gw-message-rls', 'Gateway Message RLS');
 
-insert into public.actors (id, team_id, actor_type, user_id, source, source_id, display_name)
+insert into amux.actors (id, team_id, actor_type, user_id, source, source_id, display_name)
 values
   ('00000000-0000-0000-0014-000000000020', '00000000-0000-0000-0014-000000000010', 'agent', '00000000-0000-0000-0014-000000000001', null, null, 'Gateway Agent'),
   ('00000000-0000-0000-0014-000000000030', '00000000-0000-0000-0014-000000000010', 'external', null, 'wecom', 'LiangLiang', 'LiangLiang'),
-  ('00000000-0000-0000-0014-000000000040', '00000000-0000-0000-0014-000000000010', 'external', null, 'wecom', 'OtherUser', 'Other User');
+  ('00000000-0000-0000-0014-000000000040', '00000000-0000-0000-0014-000000000010', 'external', null, 'wecom', 'OtherUser', 'Other User'),
+  ('00000000-0000-0000-0014-000000000050', '00000000-0000-0000-0014-000000000010', 'member', null, null, null, 'Owner Member');
 
-insert into public.agents (id, agent_kind, status)
-values ('00000000-0000-0000-0014-000000000020', 'gateway', 'active');
+insert into amux.members (id, status) values ('00000000-0000-0000-0014-000000000050', 'active');
 
-insert into public.sessions (
+-- agents.owner_member_id is NOT NULL and references members, so an owning
+-- member has to exist first.
+insert into amux.agents (id, owner_member_id, status)
+values ('00000000-0000-0000-0014-000000000020', '00000000-0000-0000-0014-000000000050', 'active');
+
+insert into amux.sessions (
   id,
   team_id,
   idea_id,
@@ -41,18 +46,18 @@ values (
   'acp-gateway-rls-test'
 );
 
-insert into public.session_participants (session_id, actor_id)
+insert into amux.session_participants (session_id, actor_id)
 values
   ('00000000-0000-0000-0014-000000000100', '00000000-0000-0000-0014-000000000020'),
   ('00000000-0000-0000-0014-000000000100', '00000000-0000-0000-0014-000000000030');
 
 select ok(
-  has_function_privilege('authenticated', 'app.daemon_can_write_gateway_message(uuid, uuid, uuid)', 'EXECUTE'),
+  has_function_privilege('authenticated', 'amux.daemon_can_write_gateway_message(uuid, uuid, uuid)', 'EXECUTE'),
   'authenticated can execute gateway message helper'
 );
 
 select ok(
-  not has_function_privilege('anon', 'app.daemon_can_write_gateway_message(uuid, uuid, uuid)', 'EXECUTE'),
+  not has_function_privilege('anon', 'amux.daemon_can_write_gateway_message(uuid, uuid, uuid)', 'EXECUTE'),
   'anon cannot execute gateway message helper'
 );
 
@@ -72,7 +77,7 @@ select set_config(
 set local role authenticated;
 
 select lives_ok($$
-  insert into public.messages (
+  insert into amux.messages (
     team_id,
     session_id,
     sender_actor_id,
@@ -91,7 +96,7 @@ select lives_ok($$
 $$, 'daemon can record message from external session participant');
 
 select throws_ok($$
-  insert into public.messages (
+  insert into amux.messages (
     team_id,
     session_id,
     sender_actor_id,
@@ -124,7 +129,7 @@ select set_config(
 );
 
 select throws_ok($$
-  insert into public.messages (
+  insert into amux.messages (
     team_id,
     session_id,
     sender_actor_id,

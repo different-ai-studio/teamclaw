@@ -20,28 +20,30 @@ select plan(47);
 
 select lives_ok(
 $$
-  select app.current_member_id();
+  select amux.current_member_id();
 $$,
 'helper function exists'
 );
 
+-- current_actor_id() was dropped by 20260804020000: actors are per team, so a
+-- team has to be supplied to resolve one.
 select lives_ok(
 $$
-  select app.current_actor_id();
+  select amux.current_actor_id_for_team('00000000-0000-0000-0000-000000000001'::uuid);
 $$,
 'actor helper exists'
 );
 
 select lives_ok(
 $$
-  select app.is_team_member(gen_random_uuid());
+  select amux.is_team_member(gen_random_uuid());
 $$,
 'team membership helper exists'
 );
 
 select lives_ok(
 $$
-  select app.can_prompt_agent(gen_random_uuid());
+  select amux.can_prompt_agent(gen_random_uuid());
 $$,
 'agent prompt helper exists'
 );
@@ -49,7 +51,7 @@ $$,
 select ok(
   has_function_privilege(
     'authenticated',
-    'public.update_current_actor_profile(uuid,text,text)',
+    'amux.update_current_actor_profile(uuid,text,text)',
     'EXECUTE'
   ),
   'authenticated can execute actor profile update rpc'
@@ -85,33 +87,35 @@ values
   ('90000000-0000-0000-0000-000000000002', 'other-member@example.com'),
   ('90000000-0000-0000-0000-000000000003', 'admin-member@example.com');
 
-insert into public.teams (id, slug, name)
+insert into amux.teams (id, slug, name)
 values (
   '00000000-0000-0000-0000-000000000001',
   'team-one',
   'Team One'
 );
 
-insert into public.actors (id, team_id, actor_type, display_name)
+-- user_id lives on actors now: identity is per team, so the link to
+-- auth.users belongs on the per-team row rather than on members.
+insert into amux.actors (id, team_id, actor_type, display_name, user_id)
 values
-  ('10000000-0000-0000-0000-000000000001', '00000000-0000-0000-0000-000000000001', 'member', 'Active Member'),
-  ('10000000-0000-0000-0000-000000000002', '00000000-0000-0000-0000-000000000001', 'member', 'Other Member'),
-  ('10000000-0000-0000-0000-000000000003', '00000000-0000-0000-0000-000000000001', 'member', 'Admin Member'),
-  ('10000000-0000-0000-0000-0000000000a1', '00000000-0000-0000-0000-000000000001', 'agent', 'Build Agent');
+  ('10000000-0000-0000-0000-000000000001', '00000000-0000-0000-0000-000000000001', 'member', 'Active Member', '90000000-0000-0000-0000-000000000001'),
+  ('10000000-0000-0000-0000-000000000002', '00000000-0000-0000-0000-000000000001', 'member', 'Other Member',  '90000000-0000-0000-0000-000000000002'),
+  ('10000000-0000-0000-0000-000000000003', '00000000-0000-0000-0000-000000000001', 'member', 'Admin Member',  '90000000-0000-0000-0000-000000000003'),
+  ('10000000-0000-0000-0000-0000000000a1', '00000000-0000-0000-0000-000000000001', 'agent',  'Build Agent',   null);
 
-insert into public.members (id, user_id, status)
+insert into amux.members (id, status)
 values
-  ('10000000-0000-0000-0000-000000000001', '90000000-0000-0000-0000-000000000001', 'active'),
-  ('10000000-0000-0000-0000-000000000002', '90000000-0000-0000-0000-000000000002', 'active'),
-  ('10000000-0000-0000-0000-000000000003', '90000000-0000-0000-0000-000000000003', 'active');
+  ('10000000-0000-0000-0000-000000000001', 'active'),
+  ('10000000-0000-0000-0000-000000000002', 'active'),
+  ('10000000-0000-0000-0000-000000000003', 'active');
 
-insert into public.team_members (id, team_id, member_id, role)
+insert into amux.team_members (id, team_id, member_id, role)
 values
   ('20000000-0000-0000-0000-000000000001', '00000000-0000-0000-0000-000000000001', '10000000-0000-0000-0000-000000000001', 'member'),
   ('20000000-0000-0000-0000-000000000002', '00000000-0000-0000-0000-000000000001', '10000000-0000-0000-0000-000000000002', 'member'),
   ('20000000-0000-0000-0000-000000000003', '00000000-0000-0000-0000-000000000001', '10000000-0000-0000-0000-000000000003', 'admin');
 
-insert into public.workspaces (id, team_id, created_by_member_id, name)
+insert into amux.workspaces (id, team_id, created_by_member_id, name)
 values (
   '30000000-0000-0000-0000-000000000001',
   '00000000-0000-0000-0000-000000000001',
@@ -119,17 +123,15 @@ values (
   'Workspace One'
 );
 
-insert into public.agents (id, default_workspace_id, owner_member_id, visibility, agent_kind, status)
-values (
+insert into amux.agents (id, default_workspace_id, owner_member_id, visibility, status) values (
   '10000000-0000-0000-0000-0000000000a1',
   '30000000-0000-0000-0000-000000000001',
   '10000000-0000-0000-0000-000000000001',
   'team',
-  'codex',
   'active'
 );
 
-insert into public.ideas (id, team_id, workspace_id, created_by_actor_id, title, status)
+insert into amux.ideas (id, team_id, workspace_id, created_by_actor_id, title, status)
 values (
   '40000000-0000-0000-0000-000000000001',
   '00000000-0000-0000-0000-000000000001',
@@ -139,7 +141,7 @@ values (
   'open'
 );
 
-insert into public.sessions (id, team_id, idea_id, created_by_actor_id, primary_agent_id, mode, title)
+insert into amux.sessions (id, team_id, idea_id, created_by_actor_id, primary_agent_id, mode, title)
 values (
   '50000000-0000-0000-0000-000000000001',
   '00000000-0000-0000-0000-000000000001',
@@ -150,12 +152,12 @@ values (
   'Session One'
 );
 
-insert into public.session_participants (id, session_id, actor_id, role)
+insert into amux.session_participants (id, session_id, actor_id, role)
 values
   ('70000000-0000-0000-0000-000000000001', '50000000-0000-0000-0000-000000000001', '10000000-0000-0000-0000-000000000001', 'owner'),
   ('70000000-0000-0000-0000-000000000002', '50000000-0000-0000-0000-000000000001', '10000000-0000-0000-0000-000000000003', 'observer');
 
-insert into public.messages (id, team_id, session_id, sender_actor_id, kind, content)
+insert into amux.messages (id, team_id, session_id, sender_actor_id, kind, content)
 values (
   '60000000-0000-0000-0000-000000000001',
   '00000000-0000-0000-0000-000000000001',
@@ -165,7 +167,7 @@ values (
   'Hello'
 );
 
-insert into public.agent_member_access (
+insert into amux.agent_member_access (
   id,
   agent_id,
   member_id,
@@ -181,12 +183,12 @@ values (
 );
 
 select ok(
-  not has_function_privilege('anon', 'app.current_member_id()', 'EXECUTE'),
+  not has_function_privilege('anon', 'amux.current_member_id()', 'EXECUTE'),
   'anon cannot execute current_member_id directly'
 );
 
 select ok(
-  has_function_privilege('authenticated', 'app.current_member_id()', 'EXECUTE'),
+  has_function_privilege('authenticated', 'amux.current_member_id()', 'EXECUTE'),
   'authenticated can execute current_member_id directly'
 );
 
@@ -196,7 +198,7 @@ set local request.jwt.claim.sub = '90000000-0000-0000-0000-000000000001';
 
 select lives_ok(
   $sql$
-    select public.update_current_actor_profile(
+    select amux.update_current_actor_profile(
       '10000000-0000-0000-0000-000000000001',
       'Renamed Member',
       'https://example.com/avatar.jpg'
@@ -206,13 +208,13 @@ select lives_ok(
 );
 
 select is(
-  (select display_name from public.actors where id = '10000000-0000-0000-0000-000000000001'),
+  (select display_name from amux.actors where id = '10000000-0000-0000-0000-000000000001'),
   'Renamed Member',
   'profile update stores display name'
 );
 
 select is(
-  (select avatar_url from public.actor_directory where id = '10000000-0000-0000-0000-000000000001'),
+  (select avatar_url from amux.actor_directory where id = '10000000-0000-0000-0000-000000000001'),
   'https://example.com/avatar.jpg',
   'actor_directory exposes updated avatar url'
 );
@@ -220,7 +222,7 @@ select is(
 select ok(
   pg_temp.raises_sqlstate(
     $sql$
-      select public.update_current_actor_profile(
+      select amux.update_current_actor_profile(
         '10000000-0000-0000-0000-000000000002',
         'Spoofed Member',
         null
@@ -234,7 +236,7 @@ select ok(
 select ok(
   pg_temp.raises_sqlstate(
     $sql$
-      select public.update_current_actor_profile(
+      select amux.update_current_actor_profile(
         '10000000-0000-0000-0000-000000000001',
         '   ',
         null
@@ -246,24 +248,24 @@ select ok(
 );
 
 select is(
-  app.current_member_id(),
+  amux.current_member_id(),
   '10000000-0000-0000-0000-000000000001'::uuid,
   'active member resolves current_member_id'
 );
 
 select is(
-  app.current_actor_id(),
+  amux.current_actor_id_for_team('00000000-0000-0000-0000-000000000001'::uuid),
   '10000000-0000-0000-0000-000000000001'::uuid,
   'active member resolves current_actor_id'
 );
 
 select ok(
-  app.is_session_participant('50000000-0000-0000-0000-000000000001'::uuid),
+  amux.is_session_participant('50000000-0000-0000-0000-000000000001'::uuid),
   'active participant is recognized'
 );
 
 select is(
-  (select count(*) from public.messages),
+  (select count(*) from amux.messages),
   1::bigint,
   'active participant can read session messages'
 );
@@ -271,14 +273,14 @@ select is(
 set local request.jwt.claim.sub = '90000000-0000-0000-0000-000000000002';
 
 select ok(
-  app.can_prompt_agent('10000000-0000-0000-0000-0000000000a1'::uuid),
+  amux.can_prompt_agent('10000000-0000-0000-0000-0000000000a1'::uuid),
   'explicit grant allows active team member to prompt agent'
 );
 
 select ok(
   pg_temp.raises_sqlstate(
     $sql$
-      insert into public.session_participants (
+      insert into amux.session_participants (
         id,
         session_id,
         actor_id,
@@ -297,17 +299,16 @@ select ok(
 );
 
 select is(
-  (select count(*) from public.messages),
+  (select count(*) from amux.messages),
   0::bigint,
   'failed self-enrollment does not grant session message visibility'
 );
 
 set local request.jwt.claim.sub = '90000000-0000-0000-0000-000000000003';
 
-select ok(
-  lives_ok(
+select lives_ok(
     $sql$
-      insert into public.session_participants (
+      insert into amux.session_participants (
         id,
         session_id,
         actor_id,
@@ -319,19 +320,18 @@ select ok(
         '10000000-0000-0000-0000-000000000002',
         'observer'
       )
-    $sql$
-  ),
+    $sql$,
   'existing participant can add another actor to the session'
 );
 
-delete from public.session_participants
+delete from amux.session_participants
 where id = '70000000-0000-0000-0000-000000000004';
 
 set local request.jwt.claim.sub = '90000000-0000-0000-0000-000000000001';
 
 select lives_ok(
   $sql$
-    insert into public.session_participants (
+    insert into amux.session_participants (
       id,
       session_id,
       actor_id,
@@ -347,20 +347,20 @@ select lives_ok(
   'session creator can bootstrap additional participants'
 );
 
-delete from public.session_participants
+delete from amux.session_participants
 where id = '70000000-0000-0000-0000-000000000009';
 
 set local request.jwt.claim.sub = '90000000-0000-0000-0000-000000000002';
 
 select is(
-  (select count(*) from public.messages),
+  (select count(*) from amux.messages),
   0::bigint,
   'failed participant-managed add does not expand session message visibility'
 );
 
 reset role;
 
-delete from public.team_members
+delete from amux.team_members
 where id = '20000000-0000-0000-0000-000000000002';
 
 set local role authenticated;
@@ -368,13 +368,13 @@ set local request.jwt.claim.role = 'authenticated';
 set local request.jwt.claim.sub = '90000000-0000-0000-0000-000000000002';
 
 select ok(
-  not app.can_prompt_agent('10000000-0000-0000-0000-0000000000a1'::uuid),
+  not amux.can_prompt_agent('10000000-0000-0000-0000-0000000000a1'::uuid),
   'explicit grant no longer authorizes removed team member'
 );
 
 reset role;
 
-insert into public.team_members (id, team_id, member_id, role)
+insert into amux.team_members (id, team_id, member_id, role)
 values (
   '20000000-0000-0000-0000-000000000002',
   '00000000-0000-0000-0000-000000000001',
@@ -388,7 +388,7 @@ set local request.jwt.claim.sub = '90000000-0000-0000-0000-000000000001';
 
 reset role;
 
-delete from public.team_members
+delete from amux.team_members
 where id = '20000000-0000-0000-0000-000000000001';
 
 set local role authenticated;
@@ -396,24 +396,24 @@ set local request.jwt.claim.role = 'authenticated';
 set local request.jwt.claim.sub = '90000000-0000-0000-0000-000000000001';
 
 select ok(
-  not app.is_team_member('00000000-0000-0000-0000-000000000001'::uuid),
+  not amux.is_team_member('00000000-0000-0000-0000-000000000001'::uuid),
   'team membership removal revokes team membership'
 );
 
 select ok(
-  not app.is_session_participant('50000000-0000-0000-0000-000000000001'::uuid),
+  not amux.is_session_participant('50000000-0000-0000-0000-000000000001'::uuid),
   'team membership removal revokes session participation'
 );
 
 select is(
-  (select count(*) from public.messages),
+  (select count(*) from amux.messages),
   0::bigint,
   'team membership removal revokes session message visibility'
 );
 
 reset role;
 
-insert into public.team_members (id, team_id, member_id, role)
+insert into amux.team_members (id, team_id, member_id, role)
 values (
   '20000000-0000-0000-0000-000000000001',
   '00000000-0000-0000-0000-000000000001',
@@ -423,7 +423,7 @@ values (
 
 reset role;
 
-delete from public.session_participants
+delete from amux.session_participants
 where id = '70000000-0000-0000-0000-000000000001';
 
 set local role authenticated;
@@ -431,19 +431,19 @@ set local request.jwt.claim.role = 'authenticated';
 set local request.jwt.claim.sub = '90000000-0000-0000-0000-000000000001';
 
 select ok(
-  not app.is_session_participant('50000000-0000-0000-0000-000000000001'::uuid),
+  not amux.is_session_participant('50000000-0000-0000-0000-000000000001'::uuid),
   'participant removal revokes session participation'
 );
 
 select is(
-  (select count(*) from public.messages),
+  (select count(*) from amux.messages),
   0::bigint,
   'participant removal revokes session message visibility'
 );
 
 reset role;
 
-insert into public.session_participants (id, session_id, actor_id, role)
+insert into amux.session_participants (id, session_id, actor_id, role)
 values (
   '70000000-0000-0000-0000-000000000001',
   '50000000-0000-0000-0000-000000000001',
@@ -456,13 +456,13 @@ set local request.jwt.claim.role = 'authenticated';
 set local request.jwt.claim.sub = '90000000-0000-0000-0000-000000000003';
 
 select ok(
-  not app.can_prompt_agent('10000000-0000-0000-0000-0000000000a1'::uuid),
+  not amux.can_prompt_agent('10000000-0000-0000-0000-0000000000a1'::uuid),
   'active team admin without grant cannot prompt team agent'
 );
 
 reset role;
 
-update public.members
+update amux.members
 set status = 'disabled'
 where id = '10000000-0000-0000-0000-000000000003';
 
@@ -471,23 +471,23 @@ set local request.jwt.claim.role = 'authenticated';
 set local request.jwt.claim.sub = '90000000-0000-0000-0000-000000000003';
 
 select is(
-  app.current_member_id(),
+  amux.current_member_id(),
   null::uuid,
   'disabled member no longer resolves current_member_id'
 );
 
 select ok(
-  not app.can_prompt_agent('10000000-0000-0000-0000-0000000000a1'::uuid),
+  not amux.can_prompt_agent('10000000-0000-0000-0000-0000000000a1'::uuid),
   'disabled team admin cannot prompt agent'
 );
 
 select ok(
-  not app.is_session_participant('50000000-0000-0000-0000-000000000001'::uuid),
+  not amux.is_session_participant('50000000-0000-0000-0000-000000000001'::uuid),
   'disabled participant loses session participation'
 );
 
 select is(
-  (select count(*) from public.messages),
+  (select count(*) from amux.messages),
   0::bigint,
   'disabled participant cannot read session messages'
 );
@@ -497,7 +497,7 @@ set local request.jwt.claim.sub = '90000000-0000-0000-0000-000000000001';
 select ok(
   pg_temp.raises_sqlstate(
     $sql$
-      insert into public.messages (
+      insert into amux.messages (
         id,
         team_id,
         session_id,
@@ -521,7 +521,7 @@ select ok(
 
 select lives_ok(
 $$
-  insert into public.messages (
+  insert into amux.messages (
     id,
     team_id,
     session_id,
@@ -544,7 +544,7 @@ $$,
 select ok(
   pg_temp.raises_sqlstate(
     $sql$
-      insert into public.workspaces (
+      insert into amux.workspaces (
         id,
         team_id,
         created_by_member_id,
@@ -565,7 +565,7 @@ select ok(
 select ok(
   pg_temp.raises_sqlstate(
     $sql$
-      update public.ideas
+      update amux.ideas
       set created_by_actor_id = '10000000-0000-0000-0000-000000000002'
       where id = '40000000-0000-0000-0000-000000000001'
     $sql$,
@@ -577,7 +577,7 @@ select ok(
 select ok(
   pg_temp.raises_sqlstate(
     $sql$
-      insert into public.sessions (
+      insert into amux.sessions (
         id,
         team_id,
         idea_id,
@@ -602,7 +602,7 @@ select ok(
 select ok(
   pg_temp.raises_sqlstate(
     $sql$
-      insert into public.idea_external_refs (
+      insert into amux.idea_external_refs (
         id,
         idea_id,
         provider,

@@ -15,17 +15,23 @@ create temp table fx(
   role_sales uuid
 ) on commit drop;
 
+-- Temp tables are owned by the session role; the tests then `set role` to
+-- anon/authenticated, which cannot read them without an explicit grant.
+grant select on fx to anon, authenticated;
+
 create or replace function pg_temp.mk_member(p_team uuid, p_name text, p_role text)
 returns table(member_id uuid, user_id uuid)
 language plpgsql as $$
 declare v_actor uuid := gen_random_uuid(); v_user uuid := gen_random_uuid();
 begin
   insert into auth.users(id, email) values (v_user, p_name || '@test.local');
-  insert into public.actors(id, team_id, actor_type, display_name)
-    values (v_actor, p_team, 'member', p_name);
-  insert into public.members(id, user_id, status)
-    values (v_actor, v_user, 'active');
-  insert into public.team_members(team_id, member_id, role)
+-- user_id lives on actors now: identity is per team, so the link to
+-- auth.users belongs on the per-team row rather than on members.
+  insert into amux.actors(id, team_id, actor_type, display_name, user_id)
+    values (v_actor, p_team, 'member', p_name, v_user);
+  insert into amux.members(id, status)
+    values (v_actor, 'active');
+  insert into amux.team_members(team_id, member_id, role)
     values (p_team, v_actor, p_role);
   return query select v_actor, v_user;
 end $$;
@@ -46,7 +52,7 @@ end $$;
 
 -- Seed
 insert into fx(team_id) values (gen_random_uuid());
-insert into public.teams(id, slug, name)
+insert into amux.teams(id, slug, name)
   select team_id, 'team-' || team_id::text, 'T' from fx;
 
 update fx set (owner_member, owner_user) =
@@ -59,14 +65,14 @@ update fx set (m2_member, m2_user) =
 -- Owner creates the 'sales' role and assigns it to m1.
 select pg_temp.as_user((select owner_user from fx));
 
-insert into public.team_roles(team_id, code, name)
+insert into amux.team_roles(team_id, code, name)
   select team_id, 'sales', 'Sales' from fx;
 update fx set role_sales = (
-  select id from public.team_roles
+  select id from amux.team_roles
   where team_id = fx.team_id and code = 'sales'
 );
 
-insert into public.team_member_roles(team_id, member_id, role_id)
+insert into amux.team_member_roles(team_id, member_id, role_id)
   select team_id, m1_member, role_sales from fx;
 
 -- ── 1) Schema-level ─────────────────────────────────────────────────────
@@ -79,7 +85,7 @@ select has_table('public','shortcuts',          'shortcuts exists');
 -- 2) XOR constraint: personal with no owner_member_id is rejected
 select pg_temp.as_service();
 select throws_ok(
-  $$ insert into public.shortcuts(scope, label, node_type) values ('personal','x','link') $$,
+  $$ insert into amux.shortcuts(scope, label, node_type) values ('personal','x','link') $$,
   '23514',
   null,
   'XOR rejects personal shortcut with no owner_member_id'
@@ -87,7 +93,7 @@ select throws_ok(
 
 -- 3) XOR constraint: team with both owner_member_id and team_id is rejected
 select throws_ok(
-  $$ insert into public.shortcuts(scope, owner_member_id, team_id, label, node_type)
+  $$ insert into amux.shortcuts(scope, owner_member_id, team_id, label, node_type)
      values ('team', gen_random_uuid(), gen_random_uuid(), 'x', 'link') $$,
   '23514',
   null,
@@ -97,15 +103,15 @@ select throws_ok(
 -- ── Helpers exist ───────────────────────────────────────────────────────
 -- 4-6
 select lives_ok(
-  $$ select app.is_team_admin_or_owner(gen_random_uuid()) $$,
+  $$ select amux.is_team_admin_or_owner(gen_random_uuid()) $$,
   'helper: is_team_admin_or_owner'
 );
 select lives_ok(
-  $$ select app.member_can_access_permission(gen_random_uuid()) $$,
+  $$ select amux.member_can_access_permission(gen_random_uuid()) $$,
   'helper: member_can_access_permission'
 );
 select lives_ok(
-  $$ select app.member_can_see_shortcut(gen_random_uuid()) $$,
+  $$ select amux.member_can_see_shortcut(gen_random_uuid()) $$,
   'helper: member_can_see_shortcut'
 );
 
@@ -113,13 +119,13 @@ select lives_ok(
 select pg_temp.as_user((select m1_user from fx));
 
 select lives_ok(
-  $$ select public.shortcut_create('personal', 'My Link', 'link', null, null, null, 0, 'https://example.com') $$,
+  $$ select amux.shortcut_create('personal', 'My Link', 'link', null, null, null, 0, 'https://example.com') $$,
   'rpc: shortcut_create personal succeeds for any member'
 );  -- 7
 
 -- ── RPC: shortcut_create team forbidden for non-admin ───────────────────
 select throws_ok(
-  $$ select public.shortcut_create('team', 'Team Link', 'link',
+  $$ select amux.shortcut_create('team', 'Team Link', 'link',
        (select team_id from fx), null, null, 0, 'https://example.com') $$,
   null,
   'forbidden',
@@ -130,14 +136,14 @@ select throws_ok(
 select pg_temp.as_user((select owner_user from fx));
 
 select lives_ok(
-  $$ select public.shortcut_create('team', 'Team Link', 'link',
+  $$ select amux.shortcut_create('team', 'Team Link', 'link',
        (select team_id from fx), null, null, 0, 'https://example.com') $$,
   'rpc: shortcut_create team succeeds for owner'
 );  -- 9
 
 select pg_temp.as_service();
 select is(
-  (select count(*)::int from public.permissions
+  (select count(*)::int from amux.permissions
     where team_id = (select team_id from fx) and resource_type = 'shortcut'),
   1,
   'permissions row inserted for team shortcut'
@@ -147,7 +153,7 @@ select is(
 select pg_temp.as_user((select m2_user from fx));
 
 select is(
-  (select count(*)::int from public.shortcuts
+  (select count(*)::int from amux.shortcuts
     where scope = 'personal'),
   0,
   'm2 cannot see m1''s personal shortcut'
@@ -155,7 +161,7 @@ select is(
 
 select pg_temp.as_user((select m1_user from fx));
 select is(
-  (select count(*)::int from public.shortcuts where scope = 'personal'),
+  (select count(*)::int from amux.shortcuts where scope = 'personal'),
   1,
   'm1 sees own personal shortcut'
 );  -- 12
@@ -163,7 +169,7 @@ select is(
 -- ── RLS: team open default (no permission_roles bindings) ───────────────
 select pg_temp.as_user((select m2_user from fx));
 select is(
-  (select count(*)::int from public.shortcuts where scope = 'team'),
+  (select count(*)::int from amux.shortcuts where scope = 'team'),
   1,
   'm2 (no roles) sees team shortcut under open default'
 );  -- 13
@@ -172,8 +178,8 @@ select is(
 select pg_temp.as_user((select owner_user from fx));
 
 select lives_ok(
-  $$ select public.shortcut_set_visible_roles(
-       (select id from public.shortcuts where scope='team' limit 1),
+  $$ select amux.shortcut_set_visible_roles(
+       (select id from amux.shortcuts where scope='team' limit 1),
        array[(select role_sales from fx)]
      ) $$,
   'rpc: shortcut_set_visible_roles binds sales role'
@@ -182,14 +188,14 @@ select lives_ok(
 -- ── RLS: team restricted — m2 (no sales) cannot see; m1 (sales) can ─────
 select pg_temp.as_user((select m2_user from fx));
 select is(
-  (select count(*)::int from public.shortcuts where scope = 'team'),
+  (select count(*)::int from amux.shortcuts where scope = 'team'),
   0,
   'm2 cannot see team shortcut after sales-only binding'
 );  -- 15
 
 select pg_temp.as_user((select m1_user from fx));
 select is(
-  (select count(*)::int from public.shortcuts where scope = 'team'),
+  (select count(*)::int from amux.shortcuts where scope = 'team'),
   1,
   'm1 (holds sales) can see team shortcut after binding'
 );  -- 16
@@ -198,8 +204,8 @@ select is(
 select pg_temp.as_user((select owner_user from fx));
 
 select lives_ok(
-  $$ select public.shortcut_set_visible_roles(
-       (select id from public.shortcuts where scope='team' limit 1),
+  $$ select amux.shortcut_set_visible_roles(
+       (select id from amux.shortcuts where scope='team' limit 1),
        array[]::uuid[]
      ) $$,
   'rpc: shortcut_set_visible_roles can clear bindings (back to open default)'
@@ -207,11 +213,11 @@ select lives_ok(
 
 select pg_temp.as_service();
 select is(
-  (select count(*)::int from public.permission_roles
+  (select count(*)::int from amux.permission_roles
     where permission_id = (
-      select id from public.permissions
+      select id from amux.permissions
       where resource_type = 'shortcut'
-        and resource_id = (select id from public.shortcuts where scope='team' limit 1)
+        and resource_id = (select id from amux.shortcuts where scope='team' limit 1)
     )),
   0,
   'permission_roles cleared after swap-in with empty array'
@@ -219,12 +225,12 @@ select is(
 
 -- ── Trigger: deleting a team shortcut cleans up its permissions row ─────
 select pg_temp.as_user((select owner_user from fx));
-delete from public.shortcuts
+delete from amux.shortcuts
   where scope = 'team' and team_id = (select team_id from fx);
 
 select pg_temp.as_service();
 select is(
-  (select count(*)::int from public.permissions
+  (select count(*)::int from amux.permissions
     where team_id = (select team_id from fx) and resource_type = 'shortcut'),
   0,
   'cleanup trigger removes permissions row after team shortcut delete'
@@ -234,7 +240,7 @@ select is(
 select pg_temp.as_user((select owner_user from fx));
 
 select lives_ok(
-  $$ select public.team_member_set_roles(
+  $$ select amux.team_member_set_roles(
        (select team_id from fx),
        (select m2_member from fx),
        array[(select role_sales from fx)]
@@ -244,7 +250,7 @@ select lives_ok(
 
 select pg_temp.as_service();
 select is(
-  (select count(*)::int from public.team_member_roles
+  (select count(*)::int from amux.team_member_roles
     where member_id = (select m2_member from fx)),
   1,
   'm2 now has one role binding'
@@ -252,7 +258,7 @@ select is(
 
 -- Swap-in to empty
 select pg_temp.as_user((select owner_user from fx));
-select public.team_member_set_roles(
+select amux.team_member_set_roles(
   (select team_id from fx),
   (select m2_member from fx),
   array[]::uuid[]
@@ -260,7 +266,7 @@ select public.team_member_set_roles(
 
 select pg_temp.as_service();
 select is(
-  (select count(*)::int from public.team_member_roles
+  (select count(*)::int from amux.team_member_roles
     where member_id = (select m2_member from fx)),
   0,
   'team_member_set_roles with empty array clears all bindings'

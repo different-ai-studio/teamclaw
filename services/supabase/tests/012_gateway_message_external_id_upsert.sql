@@ -2,18 +2,17 @@ begin;
 
 select plan(5);
 
-insert into public.teams (id, slug, name)
+insert into amux.teams (id, slug, name)
 values ('00000000-0000-0000-0012-000000000001', 'gw-message-team', 'Gateway Message Team');
 
-insert into public.actors (id, team_id, actor_type, display_name)
+insert into amux.actors (id, team_id, actor_type, display_name)
 values
   ('00000000-0000-0000-0012-000000000010', '00000000-0000-0000-0012-000000000001', 'agent', 'Gateway Agent'),
   ('00000000-0000-0000-0012-000000000020', '00000000-0000-0000-0012-000000000001', 'external', 'LiangLiang');
 
-insert into public.agents (id, agent_kind, capabilities, status)
-values ('00000000-0000-0000-0012-000000000010', 'gateway', '{}'::jsonb, 'active');
+insert into amux.agents (id, capabilities, status) values ('00000000-0000-0000-0012-000000000010', '{}'::jsonb, 'active');
 
-insert into public.sessions (
+insert into amux.sessions (
   id,
   team_id,
   idea_id,
@@ -37,7 +36,7 @@ values (
 );
 
 select lives_ok($$
-  insert into public.messages (
+  insert into amux.messages (
     team_id,
     session_id,
     sender_actor_id,
@@ -58,7 +57,7 @@ select lives_ok($$
 $$, 'gateway message upsert conflict target matches a unique index');
 
 select lives_ok($$
-  insert into public.messages (
+  insert into amux.messages (
     team_id,
     session_id,
     sender_actor_id,
@@ -81,7 +80,7 @@ $$, 'gateway duplicate provider message upserts instead of inserting');
 select is(
   (
     select count(*)
-      from public.messages
+      from amux.messages
      where session_id = '00000000-0000-0000-0012-000000000100'
        and external_id = '632043bcec41613ed54589d5a781cb7e'
   ),
@@ -92,7 +91,7 @@ select is(
 select is(
   (
     select content
-      from public.messages
+      from amux.messages
      where session_id = '00000000-0000-0000-0012-000000000100'
        and external_id = '632043bcec41613ed54589d5a781cb7e'
   ),
@@ -101,7 +100,7 @@ select is(
 );
 
 select lives_ok($$
-  insert into public.messages (
+  insert into amux.messages (
     team_id,
     session_id,
     sender_actor_id,

@@ -19,24 +19,25 @@ declare
   v_session uuid;
 begin
   insert into auth.users (id) values (v_member);
-  insert into public.teams (id, slug, name) values
+  insert into amux.teams (id, slug, name) values
     (v_team, 'rls-agent', 'RLS Agent'),
     (v_other, 'other-team', 'Other Team');
-  insert into public.actors (id, team_id, actor_type, display_name) values
-    (v_member, v_team, 'member', 'm'),
-    (v_agent, v_team, 'agent', 'a');
-  insert into public.members (id, user_id, status) values (v_member, v_member, 'active');
-  insert into public.team_members (team_id, member_id, role)
+-- user_id lives on actors now: identity is per team, so the link to
+-- auth.users belongs on the per-team row rather than on members.
+  insert into amux.actors (id, team_id, actor_type, display_name, user_id) values
+    (v_member, v_team, 'member', 'm', v_member),
+    (v_agent, v_team, 'agent', 'a', null);
+  insert into amux.members (id, status) values (v_member, 'active');
+  insert into amux.team_members (team_id, member_id, role)
     values (v_team, v_member, 'owner');
-  insert into public.agents (id, owner_member_id, visibility, agent_kind, status)
-    values (v_agent, v_member, 'team', 'claude', 'active');
-  insert into public.ideas (id, team_id, created_by_actor_id, title, status)
+  insert into amux.agents (id, owner_member_id, visibility, status) values (v_agent, v_member, 'team', 'active');
+  insert into amux.ideas (id, team_id, created_by_actor_id, title, status)
     values (v_idea, v_team, v_member, 't', 'open');
-  insert into public.sessions (id, team_id, idea_id, created_by_actor_id,
+  insert into amux.sessions (id, team_id, idea_id, created_by_actor_id,
                                primary_agent_id, mode, title)
     values (gen_random_uuid(), v_team, v_idea, v_member, v_agent, 'solo', 's')
     returning id into v_session;
-  insert into public.session_participants (session_id, actor_id) values
+  insert into amux.session_participants (session_id, actor_id) values
     (v_session, v_member), (v_session, v_agent);
 
   insert into _rls_ids values (v_team, v_other, v_member, v_agent, v_session);
@@ -69,17 +70,17 @@ begin
     values (r.team_id, r.agent_id, r.session_id, 'claude', 'running');
 
   -- Allowed: insert messages as self.
-  insert into public.messages
+  insert into amux.messages
     (team_id, session_id, sender_actor_id, kind, content)
     values (r.team_id, r.session_id, r.agent_id, 'text', 'hi');
 
   -- Allowed: insert a workspace for self.
-  insert into public.workspaces (team_id, agent_id, name, path)
+  insert into amux.workspaces (team_id, agent_id, name, path)
     values (r.team_id, r.agent_id, 'amux', '/tmp/amux');
 
   -- Denied: impersonating another actor as the message sender.
   begin
-    insert into public.messages
+    insert into amux.messages
       (team_id, session_id, sender_actor_id, kind, content)
       values (r.team_id, r.session_id, r.member_id, 'text', 'spoof');
     raise exception 'impersonation should be blocked';
@@ -95,7 +96,7 @@ begin
 
   -- Denied: writing workspace in a different team.
   begin
-    insert into public.workspaces (team_id, agent_id, name)
+    insert into amux.workspaces (team_id, agent_id, name)
       values (r.other_team, r.agent_id, 'other');
     raise exception 'cross-team workspace should be blocked';
   exception
