@@ -28,12 +28,23 @@ surface missing from here is a bug in this document.
 
 | | Meaning |
 |---|---|
+| 📱 | Confirmed running on a device, not just read |
 | ✅ | Diffed against the Swift source; differences were deliberate and are noted |
 | ◻ | An Expo counterpart exists. **Nobody has compared them.** Says nothing about quality |
 | ⚠ | Compared, and a concrete difference is recorded below |
 | ✖ | No Expo counterpart |
 
 ◻ is the honest default and the majority state. It is not a pass.
+
+**✅ and 📱 are not the same claim, and the gap between them is where the bugs
+were.** The tab bar was ✅ twice while broken on a real phone both times: the
+code read correctly — 56pt bar, centred content, no padding — and what could
+not be read was that the root reserved a strip of Mist (#F2F0EC) beneath a
+Paper (#F8F6F1) bar. Six values apart per channel; one bar to the eye. The Add
+Member header was ✅ too, and sat under the status bar on every modal sheet.
+
+Both were found by a person looking at a phone. Neither was findable by
+reading.
 
 ## Coverage
 
@@ -132,7 +143,7 @@ point of the column.
 | `ConnectionBannerOverlay` | 24 | `components/ConnectionBannerOverlay.tsx` | ✅ |
 | `IdeasTab` | 209 | `app/(app)/(tabs)/ideas.tsx` | ✅ header ◻ body |
 | `MembersTab` | 145 | `app/(app)/(tabs)/actors.tsx` | ✅ header ◻ body |
-| `RootTabView` | 318 | `app/(app)/(tabs)/_layout.tsx` | ✅ glass tab bar |
+| `RootTabView` | 318 | `app/(app)/(tabs)/_layout.tsx` | 📱 iOS native tabs, Android plain bar; safe area confirmed on device |
 | `SearchTab` | 144 | `app/(app)/(tabs)/search.tsx` | ✅ same three result sections; Expo adds a recent-searches list iOS has no equivalent of |
 | `SessionsTab` | 363 | `app/(app)/(tabs)/sessions/index.tsx` | ✅ header ◻ body |
 
