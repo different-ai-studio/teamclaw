@@ -1266,7 +1266,7 @@ impl SessionManager {
             warn!(?e, session_id, "persist_message failed");
         }
 
-        // 3. Backend (final replies only — see TurnAggregator::cloud_persistent).
+        // 3. Backend (turn-final AgentReply only — see TurnAggregator::cloud_persistent).
         // Await the insert: catchup after restart reads cloud messages, so a
         // fire-and-forget write can race with daemon shutdown and leave an
         // @mention unanswered (re-prompt after interrupt).

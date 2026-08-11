@@ -54,20 +54,25 @@ export function adaptTeamcluMessageToSdk(m: TeamcluMessage): SdkMessage {
   const replyTo = m.replyToMessageId?.trim() || undefined;
   const turnId = m.turnId?.trim() || undefined;
   const interrupted = isInterruptedReply(m);
+  const noFinalReply = isNoFinalReply(m);
   const displayContent = displayContentForReply(m);
   return {
     id: m.messageId,
     sessionId: m.sessionId,
     senderActorId: m.senderActorId,
     role: kindToRole(m.kind),
-    // Keep generated prose; only hide the English agent-facing interrupt notice.
+    // Keep generated prose; only hide English agent-facing status notices.
     content: displayContent,
     mentionActorIds,
     mentionDeliverySnapshot,
     modelID: m.model || undefined,
     replyToMessageId: replyTo,
     turnId,
-    turnStatus: interrupted ? "interrupted" : undefined,
+    turnStatus: interrupted
+      ? "interrupted"
+      : noFinalReply
+        ? "no_final_reply"
+        : undefined,
     parts: displayContent
       ? [
           {
@@ -95,22 +100,35 @@ function isInterruptedReply(m: TeamcluMessage): boolean {
   return parseMetadata(m).turn_status === "interrupted";
 }
 
+function isNoFinalReply(m: TeamcluMessage): boolean {
+  if (parseMetadata(m).turn_status === "no_final_reply") return true;
+  return isAgentFacingNoFinalReplyNotice(m.content ?? "");
+}
+
 /** Daemon English instruction when there was no prose to keep. */
 function isAgentFacingInterruptNotice(content: string): boolean {
   return content.trimStart().startsWith("[Turn interrupted by user]");
 }
 
-/** User-visible body for an AGENT_REPLY (hide interrupt instruction only). */
+function isAgentFacingNoFinalReplyNotice(content: string): boolean {
+  return content.trimStart().startsWith("[Turn completed with no final reply]");
+}
+
+/** User-visible body for an AGENT_REPLY (hide agent-facing status notices). */
 function displayContentForReply(m: TeamcluMessage): string {
   const raw = m.content ?? "";
-  if (isInterruptedReply(m) && isAgentFacingInterruptNotice(raw)) return "";
+  if (isAgentFacingInterruptNotice(raw) || isAgentFacingNoFinalReplyNotice(raw)) {
+    return "";
+  }
   return raw;
 }
 
 function turnStatusFromReplies(
   replies: TeamcluMessage[],
-): "interrupted" | undefined {
-  return replies.some(isInterruptedReply) ? "interrupted" : undefined;
+): "interrupted" | "no_final_reply" | undefined {
+  if (replies.some(isInterruptedReply)) return "interrupted";
+  if (replies.some(isNoFinalReply)) return "no_final_reply";
+  return undefined;
 }
 
 function parseDisplayMentionActorIds(m: TeamcluMessage): string[] {

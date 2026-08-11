@@ -437,11 +437,14 @@ impl DaemonServer {
                     .cloned()
                     .unwrap_or_default();
                 for msg in emitted {
-                    let persist =
-                        crate::runtime::turn_aggregator::TurnAggregator::cloud_persistent(&msg);
-                    if !persist {
+                    // Thinking / tool rows stay ACP-only. AgentReply always
+                    // lands on live + local TOML; cloud insert only for the
+                    // turn-final slice (Idle / interrupted).
+                    if msg.kind != crate::proto::teamclu::MessageKind::AgentReply {
                         continue;
                     }
+                    let persist =
+                        crate::runtime::turn_aggregator::TurnAggregator::cloud_persistent(&msg);
                     let kind = msg.kind;
                     let content = msg.content;
                     let metadata_json = msg.metadata_json;
@@ -470,7 +473,7 @@ impl DaemonServer {
                     // may have returned Err and skipped persist_runtime_cursor.
                     // Only advance when cloud insert succeeded — otherwise
                     // catchup would skip an unanswered @mention with no row.
-                    if interrupted && cloud_ok && !reply_to_message_id.is_empty() {
+                    if interrupted && persist && cloud_ok && !reply_to_message_id.is_empty() {
                         self.persist_runtime_cursor(agent_id, &reply_to_message_id)
                             .await;
                     }

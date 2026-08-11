@@ -89,9 +89,11 @@ export const ClawHubMarketplace = React.memo(function ClawHubMarketplace({
 
   const searchTimerRef = React.useRef<ReturnType<typeof setTimeout> | null>(null)
   const hasLoadedExploreRef = React.useRef(false)
+  const installedLoadGenRef = React.useRef(0)
 
   const loadInstalled = React.useCallback(async () => {
     if (!workspacePath) return
+    const loadGen = ++installedLoadGenRef.current
     const allSlugs = new Set<string>()
 
     const [, fsModule, pathModule] = await Promise.all([
@@ -101,6 +103,8 @@ export const ClawHubMarketplace = React.memo(function ClawHubMarketplace({
       import("@tauri-apps/plugin-fs").catch(() => null),
       import("@tauri-apps/api/path").catch(() => null),
     ])
+
+    if (loadGen !== installedLoadGenRef.current) return
 
     if (fsModule && pathModule) {
       try {
@@ -127,6 +131,7 @@ export const ClawHubMarketplace = React.memo(function ClawHubMarketplace({
       }
     }
 
+    if (loadGen !== installedLoadGenRef.current) return
     setInstalledSlugs(allSlugs)
   }, [workspacePath])
 
@@ -188,6 +193,11 @@ export const ClawHubMarketplace = React.memo(function ClawHubMarketplace({
     if (!hasLoadedExploreRef.current) {
       hasLoadedExploreRef.current = true
       loadExplore()
+    }
+    return () => {
+      // Invalidate in-flight installed scans so unmount cannot setState
+      // after the jsdom window is torn down (vitest teardown race).
+      installedLoadGenRef.current += 1
     }
   }, [loadInstalled, loadExplore])
 

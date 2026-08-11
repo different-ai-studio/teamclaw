@@ -178,7 +178,7 @@ export interface Message {
   /** ACP turn correlation id when available (debug / grouping). */
   turnId?: string | null;
   /** Daemon AGENT_REPLY metadata.turn_status — e.g. user abort. */
-  turnStatus?: "interrupted" | null;
+  turnStatus?: "interrupted" | "no_final_reply" | null;
   /** Historical turn: process parts omitted until user expands collapsible. */
   processDeferred?: boolean;
   /** Lightweight process summary while {@link processDeferred} is true. */

@@ -688,6 +688,11 @@
       "interruptedStatusLabel": "中断",
       "agentReplyBodyKept": "你已打断本次回复。已生成的内容会保留。"
     },
+    "noFinalReply": {
+      "finishedTitle": "本轮已结束",
+      "statusLabel": "no final reply",
+      "description": "没有额外的文字回复。"
+    },
     "acpDebug": {
       "title": "ACP 流调试",
       "lineCount": "{{count}} 条",

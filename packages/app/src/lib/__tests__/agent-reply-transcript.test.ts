@@ -1,10 +1,13 @@
 import { describe, expect, it } from "vitest";
 import {
   deriveAgentReplyContent,
+  isAgentFacingStatusNotice,
   joinTextPartsFromParts,
   splitAssistantProcessAndFinalParts,
   stripPriorTranscriptTextPrefix,
 } from "@/lib/agent-reply-transcript";
+import { create as createMessage } from "@bufbuild/protobuf";
+import { MessageKind, MessageSchema } from "@/lib/proto/teamclu_pb";
 
 describe("agent reply transcript", () => {
   it("joins multiple text parts for derived content", () => {
@@ -14,6 +17,28 @@ describe("agent reply transcript", () => {
       { type: "text", text: "Final?" },
     ];
     expect(joinTextPartsFromParts(parts)).toBe("Intro.\n\nFinal?");
+  });
+
+  it("ignores no_final_reply agent-facing notice when deriving content", () => {
+    expect(
+      isAgentFacingStatusNotice(
+        "[Turn completed with no final reply] The agent finished this turn",
+      ),
+    ).toBe(true);
+    const pending = [
+      createMessage(MessageSchema, {
+        messageId: "nfr-1",
+        sessionId: "s1",
+        senderActorId: "a1",
+        kind: MessageKind.AGENT_REPLY,
+        content:
+          "[Turn completed with no final reply] The agent finished this turn without producing a final written answer.",
+        metadataJson: JSON.stringify({ turn_status: "no_final_reply" }),
+      }),
+    ];
+    expect(deriveAgentReplyContent([{ type: "tool-call", toolCall: { id: "t1" } }], pending)).toBe(
+      "",
+    );
   });
 
   it("derives content from parts for ef30ac98 sandwich tools", () => {
