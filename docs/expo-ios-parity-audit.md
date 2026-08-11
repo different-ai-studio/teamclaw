@@ -185,6 +185,19 @@ Now ported from iOS `flushStreamingForBackground` / `discardBackgroundSnapshot`
 live in their own table with an inverted lifetime (written on suspend, deleted
 on resume), so the timeline cache's scope-replace can never take them along.
 
+**The restore half of that was inert until the back-scroll work.** Restoring is
+a disk read racing the network, and both of the things that landed after it
+overwrote `streamingByAgent` wholesale — the cache hydrate rebuilt the timeline
+without the buffers, and the network result reset them to an empty map. Whenever
+the disk won its own race, which is nearly always, the partial was on screen for
+one frame and then gone. The store and its tests were fine; nothing covered the
+controller, so the feature read as shipped.
+
+Both sites now carry the buffers through, the restore is awaited before the
+merge, and `mergeNewestPage` settles a partial only against its own finished
+message. Covered by `session-detail-controller.test.ts` → "restored streaming
+snapshot".
+
 Still unverified: push-notification cold-start routing, deep-link replay,
 reconnect backoff timing.
 

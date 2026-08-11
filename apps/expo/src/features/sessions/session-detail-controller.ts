@@ -790,18 +790,19 @@ export function createSessionDetailController(
       // A snapshot only exists if the process was killed while streaming.
       // Restore before the timeline hydrate so a partial bubble is on screen
       // from the first paint, then let the daemon's real message replace it.
-      if (deps.streamingSnapshots && !preserveExisting) {
-        void deps.streamingSnapshots.load(deps.sessionId).then((restored) => {
-          if (disposed || currentToken !== loadToken || restored.size === 0) return;
-          const merged = new Map(timeline.streamingByAgent);
-          for (const [agentId, buffer] of restored) {
-            // A live delta that already arrived is newer than anything on disk.
-            if (!merged.has(agentId)) merged.set(agentId, buffer);
-          }
-          timeline = { ...timeline, streamingByAgent: merged };
-          setState({ ...state, streamingByAgent: timeline.streamingByAgent });
-        });
-      }
+      const restoreSnapshot =
+        deps.streamingSnapshots && !preserveExisting
+          ? deps.streamingSnapshots.load(deps.sessionId).then((restored) => {
+              if (disposed || currentToken !== loadToken || restored.size === 0) return;
+              const merged = new Map(timeline.streamingByAgent);
+              for (const [agentId, buffer] of restored) {
+                // A live delta that already arrived is newer than anything on disk.
+                if (!merged.has(agentId)) merged.set(agentId, buffer);
+              }
+              timeline = { ...timeline, streamingByAgent: merged };
+              setState({ ...state, streamingByAgent: timeline.streamingByAgent });
+            })
+          : null;
 
       // Hydrate from disk first so the user sees the timeline immediately on
       // cold start. The network results below overlay on top once they land.
@@ -809,7 +810,10 @@ export function createSessionDetailController(
         deps.cache && !preserveExisting
           ? deps.cache.load(deps.sessionId).then((cached) => {
               if (disposed || currentToken !== loadToken || !cached) return;
-              timeline = timelineFromMessages(cached.messages);
+              // Carry the buffers through: this read races the snapshot
+              // restore, and dropping them here would silently undo it
+              // whenever it lost.
+              timeline = timelineFromMessages(cached.messages, timeline.streamingByAgent);
               const detailState = buildSessionDetailState(cached.session, cached.messages);
               setState({
                 ...state,
@@ -827,12 +831,16 @@ export function createSessionDetailController(
         deps.api.listMessagesPage(deps.teamId, deps.sessionId),
       ]);
 
-      // The disk read raced the network, and the merge below has to see which
-      // one it is folding onto: the fetch covers the newest page only, while
-      // the `cache.save` after it replaces the session's rows with whatever the
-      // timeline holds. Landing the hydrate first is what keeps a transcript
-      // that was scrolled back on disk instead of trimming it to one page.
-      if (hydrateFromCache) await hydrateFromCache;
+      // Both disk reads raced the network, and the merge below has to see what
+      // they left. The cache read decides what the fetched page is folded onto
+      // — it covers the newest page only, while the `cache.save` after it
+      // replaces the session's rows with whatever the timeline holds, so
+      // landing it first is what keeps a transcript that was scrolled back on
+      // disk instead of trimming it to one page. The snapshot read decides
+      // which restored partials are still unfinished: the merge settles the
+      // ones whose turn completed while the process was dead, and it can only
+      // do that for buffers that have arrived.
+      await Promise.all([hydrateFromCache, restoreSnapshot]);
 
       if (disposed || currentToken !== loadToken) {
         return;
@@ -890,10 +898,7 @@ export function createSessionDetailController(
       // anything older — a page the user scrolled back to, or a longer
       // transcript hydrated from disk. Fold it in over that instead of
       // replacing it.
-      timeline = {
-        messages: mergeNewestPage(timeline.messages, messagesResult.value.items),
-        streamingByAgent: preserveExisting ? timeline.streamingByAgent : new Map(),
-      };
+      timeline = mergeNewestPage(timeline, messagesResult.value.items);
       // A refresh reports the cursor sitting just behind the newest page. That
       // is only news if the user has not already walked past it.
       if (!hasWalkedBack) {

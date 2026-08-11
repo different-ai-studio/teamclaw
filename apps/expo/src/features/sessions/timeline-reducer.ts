@@ -39,6 +39,27 @@ function insertSorted(messages: SessionMessage[], next: SessionMessage): Session
   return out;
 }
 
+function mergePageMessages(
+  messages: readonly SessionMessage[],
+  page: readonly SessionMessage[],
+): SessionMessage[] {
+  let windowStart = Number.POSITIVE_INFINITY;
+  const pageIds = new Set<string>();
+  for (const message of page) {
+    pageIds.add(message.messageId);
+    windowStart = Math.min(windowStart, timeValue(message.createdAt));
+  }
+
+  const older = messages.filter(
+    (message) => !pageIds.has(message.messageId) && timeValue(message.createdAt) < windowStart,
+  );
+  // Page rows win over the copies already held: for a committed message the
+  // server row is the complete one.
+  const out = [...older, ...page];
+  out.sort(compareMessages);
+  return out;
+}
+
 /**
  * Fold the server's newest page onto a timeline that may already reach further
  * back than the page does.
@@ -56,30 +77,25 @@ function insertSorted(messages: SessionMessage[], next: SessionMessage): Session
  * whatever the user had scrolled back to.
  *
  * An empty page means an empty session — if older rows existed, the newest page
- * would have returned them — so it clears the timeline rather than preserving
+ * would have returned them — so it clears the messages rather than preserving
  * rows the server no longer has.
+ *
+ * Streaming buffers are carried through, minus any the page settles: a partial
+ * whose turn finished while the app was away arrives here as a committed row,
+ * and would otherwise sit next to its own finished message.
  */
 export function mergeNewestPage(
-  messages: readonly SessionMessage[],
+  state: TimelineState,
   page: readonly SessionMessage[],
-): SessionMessage[] {
-  if (page.length === 0) return [];
-
-  let windowStart = Number.POSITIVE_INFINITY;
-  const pageIds = new Set<string>();
+): TimelineState {
+  let streamingByAgent = state.streamingByAgent;
   for (const message of page) {
-    pageIds.add(message.messageId);
-    windowStart = Math.min(windowStart, timeValue(message.createdAt));
+    streamingByAgent = clearStreamingByMessageId(streamingByAgent, message);
   }
-
-  const older = messages.filter(
-    (message) => !pageIds.has(message.messageId) && timeValue(message.createdAt) < windowStart,
-  );
-  // Page rows win over the copies already held: for a committed message the
-  // server row is the complete one.
-  const out = [...older, ...page];
-  out.sort(compareMessages);
-  return out;
+  return {
+    messages: page.length === 0 ? [] : mergePageMessages(state.messages, page),
+    streamingByAgent,
+  };
 }
 
 function clearStreamingByMessageId(

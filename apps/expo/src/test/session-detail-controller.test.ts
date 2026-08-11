@@ -462,10 +462,13 @@ describe("createSessionDetailController", () => {
     });
 
     const loadPromise = controller.load();
-    // Flush enough microtasks so that connectRealtime has started but not finished.
-    await Promise.resolve();
-    await Promise.resolve();
-    await Promise.resolve();
+    // Wait for the load to publish the session — the point the send guard
+    // needs — rather than counting microtasks, which changes whenever the load
+    // path gains an await. connectRealtime is still blocked on the deferred
+    // page, so there is no overshooting it.
+    for (let i = 0; i < 50 && controller.getState().session === null; i += 1) {
+      await Promise.resolve();
+    }
     controller.setComposerText("too early");
     await controller.sendMessage();
 
@@ -1199,6 +1202,79 @@ describe("createSessionDetailController · cold start over a cached transcript",
         expect.objectContaining({ messageId: "message-newest" }),
       ],
     });
+    await controller.dispose();
+  });
+});
+
+describe("createSessionDetailController · restored streaming snapshot", () => {
+  function createSnapshotStore(buffers: Array<[string, any]>) {
+    return {
+      load: vi.fn().mockResolvedValue(new Map(buffers)),
+      save: vi.fn().mockResolvedValue(undefined),
+      clear: vi.fn().mockResolvedValue(undefined),
+    };
+  }
+
+  const partial = {
+    isComplete: false,
+    messageId: "acp:session-1:actor-agent:event-1",
+    model: "",
+    text: "Half a thou",
+    kind: "agent_reply",
+    startedAt: "2026-05-19T08:19:00.000Z",
+    senderActorId: "actor-agent",
+  };
+
+  async function loadWith(
+    streamingSnapshots: ReturnType<typeof createSnapshotStore>,
+    items: SessionMessage[],
+  ) {
+    const { createSessionDetailController } = await import(
+      "../features/sessions/session-detail-controller"
+    );
+    const controller = createSessionDetailController({
+      api: {
+        getSession: vi.fn().mockResolvedValue(createSession()),
+        insertOutgoingMessage: vi.fn(),
+        listMessagesPage: vi.fn().mockResolvedValue(page(items)),
+        resolveMemberActorId: vi.fn().mockResolvedValue("actor-1"),
+        markSessionRead: vi.fn().mockResolvedValue(undefined),
+      } as any,
+      currentMemberActorId: "actor-1",
+      getAuth: vi.fn().mockResolvedValue({ accessToken: "jwt", userId: "user-1" }),
+      mqtt: createMockMqtt() as any,
+      mqttUrl: "wss://broker.example.com/mqtt",
+      sessionId: "session-1",
+      streamingSnapshots: streamingSnapshots as any,
+      teamId: "team-1",
+    });
+    await controller.load();
+    return controller;
+  }
+
+  it("survives the load that used to wipe it", async () => {
+    // The turn never finished, so the page carries nothing from that agent —
+    // the partial is all the user has of it.
+    const controller = await loadWith(createSnapshotStore([["actor-agent", partial]]), [
+      createRowMessage("message-1"),
+    ]);
+
+    expect(controller.getState().streamingByAgent.get("actor-agent")?.text).toBe("Half a thou");
+    await controller.dispose();
+  });
+
+  it("gives way to the finished message when the turn completed while away", async () => {
+    const finished: SessionMessage = {
+      ...createRowMessage("message-agent-reply", "actor-agent"),
+      kind: "agent_reply",
+      content: "Half a thought, finished",
+    };
+    const controller = await loadWith(createSnapshotStore([["actor-agent", partial]]), [finished]);
+
+    expect(controller.getState().streamingByAgent.has("actor-agent")).toBe(false);
+    expect(controller.getState().messages.map((m) => m.messageId)).toEqual([
+      "message-agent-reply",
+    ]);
     await controller.dispose();
   });
 });
