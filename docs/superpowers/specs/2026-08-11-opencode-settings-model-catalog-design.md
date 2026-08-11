@@ -1,7 +1,7 @@
 # OpenCode Settings Model Catalog Alignment — Design
 
 Date: 2026-08-11
-Status: Draft (awaiting review)
+Status: Implemented
 
 ## Goal
 
