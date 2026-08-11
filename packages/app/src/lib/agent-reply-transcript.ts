@@ -14,6 +14,24 @@ export type TranscriptPart = {
 };
 
 /**
+ * Daemon English status notices stored on AGENT_REPLY for agent context /
+ * catchup. Live merge and UI display must treat them as empty prose.
+ */
+export function isAgentFacingStatusNotice(content: string): boolean {
+  const trimmed = content.trimStart();
+  return (
+    trimmed.startsWith("[Turn interrupted by user]") ||
+    trimmed.startsWith("[Turn completed with no final reply]")
+  );
+}
+
+function pendingReplyProse(message: TeamcluMessage): string {
+  const text = message.content?.trim() ?? "";
+  if (!text || isAgentFacingStatusNotice(text)) return "";
+  return text;
+}
+
+/**
  * Todo-list tools carry no answer content and agents routinely emit one *after*
  * the substantive reply to mark the work done. They must not anchor the
  * process/final boundary, or that trailing call buries the real answer inside
@@ -151,11 +169,12 @@ export function deriveAgentReplyContent(
   const textParts = parts.filter(
     (part) => part.type === "text" && Boolean((part.text || part.content)?.trim()),
   );
-  const daemonFinal = pending[pending.length - 1]?.content?.trim() ?? "";
+  const lastPending = pending[pending.length - 1];
+  const daemonFinal = lastPending ? pendingReplyProse(lastPending) : "";
 
   if (textParts.length === 0) {
     const joinedPending = pending
-      .map((message) => message.content?.trim())
+      .map((message) => pendingReplyProse(message))
       .filter(Boolean)
       .filter((text, index, all) => index === 0 || text !== all[index - 1])
       .join("\n\n");

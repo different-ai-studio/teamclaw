@@ -2,7 +2,14 @@
 //! discrete "logical messages" (thinking blocks, tool calls/results, agent
 //! replies). The daemon runs one of these per agent_id and feeds every
 //! `AcpEvent` into it; emitted messages get persisted (TOML, plus the cloud
-//! backend for AGENT_REPLY) and broadcast on session/live.
+//! backend for **turn-final** AGENT_REPLY) and broadcast on session/live.
+//!
+//! ## Cloud vs live
+//!
+//! Mid-turn `AgentReply` slices (flushed before each `ToolUse`) are live/TOML
+//! only. Cloud `messages` receives at most one non-empty `AgentReply` per turn
+//! — the Active→Idle flush (including interrupted turns). OpenCode / Cursor /
+//! Claude Code / Pi all map run completion onto that Idle boundary.
 //!
 //! ## metadata_json shapes
 //!
@@ -32,6 +39,20 @@ Do not continue, resume, or retry the interrupted work unless the user \
 explicitly asks again.";
 
 const INTERRUPTED_REPLY_METADATA_JSON: &str = r#"{"turn_status":"interrupted"}"#;
+
+/// Durable AGENT_REPLY body when a turn ends at Idle with no final prose
+/// (tool-only, or all narration was mid-flushed before the last ToolUse).
+///
+/// English so agent context / catchup understand completion. Frontends hide
+/// this notice when `metadata.turn_status == "no_final_reply"` and render a
+/// localized status strip.
+pub const NO_FINAL_REPLY_AGENT_CONTENT: &str = "\
+[Turn completed with no final reply] The agent finished this turn after tool \
+use without producing a final written answer. Treat the turn as successfully \
+completed. Do not invent a summary, continue the interrupted narration, or \
+re-run the tools unless the user explicitly asks.";
+
+const NO_FINAL_REPLY_METADATA_JSON: &str = r#"{"turn_status":"no_final_reply"}"#;
 
 fn is_turn_abort_error(err: &amux::AcpError) -> bool {
     let message = err.message.to_ascii_lowercase();
@@ -112,6 +133,10 @@ pub struct EmittedMessage {
     /// is no active turn (shouldn't happen for agent emissions but
     /// renderers must tolerate it).
     pub turn_id: String,
+    /// When true, this `AgentReply` is the turn-final slice (Active→Idle,
+    /// including interrupted) and may be written to the cloud backend.
+    /// Mid-turn ToolUse flushes keep this false (live + local TOML only).
+    pub cloud_persist: bool,
 }
 
 #[derive(Debug, Default)]
@@ -156,13 +181,14 @@ impl TurnAggregator {
                 self.ensure_turn_started();
                 self.turn_had_activity = true;
                 self.flush_thinking_into(&mut out);
-                self.flush_reply_into(&mut out);
+                self.flush_reply_into(&mut out, false);
                 let metadata = tool_use_metadata(tu);
                 out.push(EmittedMessage {
                     kind: MessageKind::AgentToolCall,
                     content: tu.tool_name.clone(),
                     metadata_json: metadata,
                     turn_id: self.current_turn_id.clone().unwrap_or_default(),
+                    cloud_persist: false,
                 });
             }
             Some(amux::acp_event::Event::ToolResult(tr)) => {
@@ -174,6 +200,7 @@ impl TurnAggregator {
                     content: tr.summary.clone(),
                     metadata_json: metadata,
                     turn_id: self.current_turn_id.clone().unwrap_or_default(),
+                    cloud_persist: false,
                 });
             }
             Some(amux::acp_event::Event::Error(err)) => {
@@ -220,20 +247,25 @@ impl TurnAggregator {
                             content,
                             metadata_json: INTERRUPTED_REPLY_METADATA_JSON.to_string(),
                             turn_id: self.current_turn_id.clone().unwrap_or_default(),
+                            cloud_persist: true,
                         });
                         self.turn_had_reply = true;
                     } else {
-                        self.flush_reply_into(&mut out);
-                        // Tool-only turns never accumulate reply text. Emit an
-                        // empty AgentReply so clients get message.created and
-                        // can anchor the turn in the main timeline.
-                        if !self.turn_had_reply && self.turn_had_activity {
+                        // Non-empty Idle prose → one cloud-final AgentReply.
+                        // Empty Idle (tool-only, or mid-turn flushes already
+                        // drained the buffer) → durable no_final_reply notice
+                        // so catchup sees an agent row and UI can localize.
+                        let had_final_prose = !self.reply_buf.trim().is_empty();
+                        self.flush_reply_into(&mut out, true);
+                        if !had_final_prose && self.turn_had_activity {
                             out.push(EmittedMessage {
                                 kind: MessageKind::AgentReply,
-                                content: String::new(),
-                                metadata_json: String::new(),
+                                content: NO_FINAL_REPLY_AGENT_CONTENT.to_string(),
+                                metadata_json: NO_FINAL_REPLY_METADATA_JSON.to_string(),
                                 turn_id: self.current_turn_id.clone().unwrap_or_default(),
+                                cloud_persist: true,
                             });
+                            self.turn_had_reply = true;
                         }
                     }
                     self.turn_had_activity = false;
@@ -263,27 +295,31 @@ impl TurnAggregator {
                 content: std::mem::take(&mut self.thinking_buf),
                 metadata_json: String::new(),
                 turn_id: self.current_turn_id.clone().unwrap_or_default(),
+                cloud_persist: false,
             });
         }
     }
 
-    fn flush_reply_into(&mut self, out: &mut Vec<EmittedMessage>) {
+    fn flush_reply_into(&mut self, out: &mut Vec<EmittedMessage>, cloud_persist: bool) {
         if !self.reply_buf.is_empty() {
             out.push(EmittedMessage {
                 kind: MessageKind::AgentReply,
                 content: std::mem::take(&mut self.reply_buf),
                 metadata_json: String::new(),
                 turn_id: self.current_turn_id.clone().unwrap_or_default(),
+                cloud_persist,
             });
             self.turn_had_reply = true;
         }
     }
 
     /// True if this emitted message should be persisted to the cloud backend.
-    /// We only persist `AgentReply` (per design — the cloud backend is the
-    /// durable canonical conversation log, not an audit trail).
+    /// Only non-empty **turn-final** `AgentReply` rows (Active→Idle /
+    /// interrupted). Mid-turn ToolUse flushes stay live + local TOML.
     pub fn cloud_persistent(msg: &EmittedMessage) -> bool {
-        matches!(msg.kind, MessageKind::AgentReply) && !msg.content.trim().is_empty()
+        matches!(msg.kind, MessageKind::AgentReply)
+            && msg.cloud_persist
+            && !msg.content.trim().is_empty()
     }
 
     /// Current per-turn correlation id, or `None` between turns. Read by the
@@ -415,6 +451,8 @@ mod tests {
         assert_eq!(emitted[0].content, "Let me think...");
         assert_eq!(emitted[1].kind, MessageKind::AgentReply);
         assert_eq!(emitted[1].content, "The answer is 579.");
+        assert!(emitted[1].cloud_persist);
+        assert!(TurnAggregator::cloud_persistent(&emitted[1]));
     }
 
     #[test]
@@ -427,6 +465,8 @@ mod tests {
         assert_eq!(emitted.len(), 3);
         assert_eq!(emitted[0].kind, MessageKind::AgentThinking);
         assert_eq!(emitted[1].kind, MessageKind::AgentReply);
+        assert!(!emitted[1].cloud_persist);
+        assert!(!TurnAggregator::cloud_persistent(&emitted[1]));
         assert_eq!(emitted[2].kind, MessageKind::AgentToolCall);
         assert!(emitted[2].content.contains("Read"));
         assert!(emitted[2].metadata_json.contains("\"tool_id\":\"t1\""));
@@ -458,7 +498,7 @@ mod tests {
     }
 
     #[test]
-    fn tool_only_turn_emits_empty_agent_reply_at_idle() {
+    fn tool_only_turn_emits_no_final_reply_notice_at_idle() {
         let mut agg = TurnAggregator::new();
         agg.ingest(&status_change(
             amux::AgentStatus::Idle,
@@ -474,12 +514,17 @@ mod tests {
         ));
         assert_eq!(emitted.len(), 1);
         assert_eq!(emitted[0].kind, MessageKind::AgentReply);
-        assert!(emitted[0].content.is_empty());
+        assert_eq!(emitted[0].content, NO_FINAL_REPLY_AGENT_CONTENT);
+        assert!(emitted[0]
+            .metadata_json
+            .contains("\"turn_status\":\"no_final_reply\""));
+        assert!(emitted[0].cloud_persist);
         assert!(!emitted[0].turn_id.is_empty());
+        assert!(TurnAggregator::cloud_persistent(&emitted[0]));
     }
 
     #[test]
-    fn empty_agent_reply_is_not_cloud_persistent() {
+    fn empty_prose_idle_is_cloud_persistent_via_no_final_reply_notice() {
         let mut agg = TurnAggregator::new();
         agg.ingest(&status_change(
             amux::AgentStatus::Idle,
@@ -495,8 +540,7 @@ mod tests {
         ));
         assert_eq!(emitted.len(), 1);
         assert_eq!(emitted[0].kind, MessageKind::AgentReply);
-        assert!(emitted[0].content.is_empty());
-        assert!(!TurnAggregator::cloud_persistent(&emitted[0]));
+        assert!(TurnAggregator::cloud_persistent(&emitted[0]));
     }
 
     #[test]
@@ -575,6 +619,7 @@ mod tests {
         let r1 = agg.ingest(&tool_use("t1", "Read", "{}"));
         assert_eq!(r1.len(), 2); // reply flush + tool call
         assert_eq!(r1[0].kind, MessageKind::AgentReply);
+        assert!(!r1[0].cloud_persist);
         assert_eq!(r1[1].kind, MessageKind::AgentToolCall);
 
         let r2 = agg.ingest(&tool_result("t1", true, "done"));
@@ -586,12 +631,69 @@ mod tests {
         assert_eq!(r3.len(), 2);
         assert_eq!(r3[0].kind, MessageKind::AgentReply);
         assert_eq!(r3[0].content, "then ");
+        assert!(!r3[0].cloud_persist);
+        assert!(!TurnAggregator::cloud_persistent(&r3[0]));
         assert_eq!(r3[1].kind, MessageKind::AgentToolCall);
 
         let r4 = agg.ingest(&status_change(
             amux::AgentStatus::Active,
             amux::AgentStatus::Idle,
         ));
-        assert!(r4.is_empty()); // nothing buffered after the second tool
+        assert_eq!(r4.len(), 1);
+        assert_eq!(r4[0].kind, MessageKind::AgentReply);
+        assert_eq!(r4[0].content, NO_FINAL_REPLY_AGENT_CONTENT);
+        assert!(r4[0].cloud_persist);
+        assert!(TurnAggregator::cloud_persistent(&r4[0]));
+    }
+
+    #[test]
+    fn only_idle_final_reply_is_cloud_persistent() {
+        let mut agg = TurnAggregator::new();
+        agg.ingest(&status_change(
+            amux::AgentStatus::Idle,
+            amux::AgentStatus::Active,
+        ));
+        agg.ingest(&output_chunk("mid "));
+        let mid = agg.ingest(&tool_use("t1", "Bash", "pwd"));
+        assert_eq!(mid[0].kind, MessageKind::AgentReply);
+        assert_eq!(mid[0].content, "mid ");
+        assert!(!mid[0].cloud_persist);
+        assert!(!TurnAggregator::cloud_persistent(&mid[0]));
+
+        agg.ingest(&tool_result("t1", true, "/tmp"));
+        agg.ingest(&output_chunk("final answer"));
+        let idle = agg.ingest(&status_change(
+            amux::AgentStatus::Active,
+            amux::AgentStatus::Idle,
+        ));
+        assert_eq!(idle.len(), 1);
+        assert_eq!(idle[0].kind, MessageKind::AgentReply);
+        assert_eq!(idle[0].content, "final answer");
+        assert!(idle[0].cloud_persist);
+        assert!(TurnAggregator::cloud_persistent(&idle[0]));
+    }
+
+    #[test]
+    fn mid_flush_then_idle_without_prose_emits_no_final_reply_notice() {
+        let mut agg = TurnAggregator::new();
+        agg.ingest(&status_change(
+            amux::AgentStatus::Idle,
+            amux::AgentStatus::Active,
+        ));
+        agg.ingest(&output_chunk("mid "));
+        let mid = agg.ingest(&tool_use("t1", "Bash", "pwd"));
+        assert!(!TurnAggregator::cloud_persistent(&mid[0]));
+        agg.ingest(&tool_result("t1", true, "/tmp"));
+
+        let idle = agg.ingest(&status_change(
+            amux::AgentStatus::Active,
+            amux::AgentStatus::Idle,
+        ));
+        assert_eq!(idle.len(), 1);
+        assert_eq!(idle[0].content, NO_FINAL_REPLY_AGENT_CONTENT);
+        assert!(idle[0]
+            .metadata_json
+            .contains("\"turn_status\":\"no_final_reply\""));
+        assert!(TurnAggregator::cloud_persistent(&idle[0]));
     }
 }

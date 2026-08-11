@@ -102,6 +102,7 @@ export const ChatMessage = React.memo(function ChatMessage({
   const { t } = useTranslation();
   const isUser = message.role === "user";
   const isInterruptedTurn = !isUser && message.turnStatus === "interrupted";
+  const isNoFinalReplyTurn = !isUser && message.turnStatus === "no_final_reply";
   const [copied, setCopied] = React.useState(false);
   const [hydratedProcessParts, setHydratedProcessParts] = React.useState<
     MessagePart[] | null
@@ -626,6 +627,31 @@ export const ChatMessage = React.memo(function ChatMessage({
             {t(
               "chat.interrupt.agentReplyBodyKept",
               "You interrupted this reply. Generated content is kept.",
+            )}
+          </p>
+        </div>
+      ) : null}
+
+      {/* Daemon no_final_reply AGENT_REPLY — tool-complete without prose */}
+      {isNoFinalReplyTurn ? (
+        <div
+          className="mt-1 flex max-w-[520px] flex-wrap items-baseline gap-x-2 gap-y-1 pl-1 text-[12.5px] leading-[1.5] text-ink-2"
+          data-testid="no-final-reply"
+        >
+          <span
+            className="inline-block h-1.5 w-1.5 shrink-0 translate-y-[-1px] rounded-[1px] bg-muted-foreground/70"
+            aria-hidden
+          />
+          <span className="font-semibold">
+            {t("chat.noFinalReply.finishedTitle", "Turn finished")}
+          </span>
+          <span className="font-mono text-[11px] text-faint">
+            · {t("chat.noFinalReply.statusLabel", "no final reply")}
+          </span>
+          <p className="mt-0.5 w-full text-[12.5px] leading-[1.55] text-muted-foreground">
+            {t(
+              "chat.noFinalReply.description",
+              "Tools completed. No additional written reply was produced.",
             )}
           </p>
         </div>

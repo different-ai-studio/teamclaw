@@ -5,7 +5,7 @@ import { MessageKind, MessageSchema } from "@/lib/proto/teamclu_pb";
 import type { AgentStreamEntry } from "@/stores/v2-streaming-store";
 import type { ToolCallContentBlock } from "@/components/chat/tool-calls/tool-call-content";
 import { parseToolContentBlocks } from "@/components/chat/tool-calls/tool-call-content";
-import { deriveAgentReplyContent } from "@/lib/agent-reply-transcript";
+import { deriveAgentReplyContent, isAgentFacingStatusNotice } from "@/lib/agent-reply-transcript";
 import { agentReplyTextsEquivalent } from "@/lib/agent-reply-text";
 import { getFlushedTurn } from "@/lib/flushed-turn-registry";
 import { isStreamInterruptible } from "@/stores/v2-streaming-store";
@@ -58,7 +58,7 @@ export function joinDistinctPendingReplyChunks(pending: TeamcluMessage[]): strin
   const chunks: string[] = [];
   for (const message of pending) {
     const text = message.content?.trim();
-    if (!text) continue;
+    if (!text || isAgentFacingStatusNotice(text)) continue;
     const previous = chunks[chunks.length - 1];
     if (!previous) {
       chunks.push(text);

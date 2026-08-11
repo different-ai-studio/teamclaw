@@ -688,6 +688,11 @@
       "interruptedStatusLabel": "interrupted",
       "agentReplyBodyKept": "You interrupted this reply. Generated content is kept."
     },
+    "noFinalReply": {
+      "finishedTitle": "Turn finished",
+      "statusLabel": "no final reply",
+      "description": "Tools completed. No additional written reply was produced."
+    },
     "acpDebug": {
       "title": "ACP stream debug",
       "lineCount": "{{count}} line",

@@ -782,6 +782,24 @@ describe("adaptTeamcluMessages", () => {
     expect(result?.[0]?.parts ?? []).toEqual([]);
   });
 
+  it("maps no_final_reply AGENT_REPLY metadata to turnStatus and hides agent-facing body", () => {
+    const result = adaptTeamcluMessages([
+      tmsg({
+        kind: MessageKind.AGENT_REPLY,
+        content:
+          "[Turn completed with no final reply] The agent finished this turn after tool use without producing a final written answer.",
+        turnId: "t-nfr",
+        metadataJson: JSON.stringify({ turn_status: "no_final_reply" }),
+        replyToMessageId: "user-tools",
+      }),
+    ]);
+    expect(result).toHaveLength(1);
+    expect(result?.[0]?.turnStatus).toBe("no_final_reply");
+    expect(result?.[0]?.content).toBe("");
+    expect(result?.[0]?.replyToMessageId).toBe("user-tools");
+    expect(result?.[0]?.parts ?? []).toEqual([]);
+  });
+
   it("keeps generated prose on interrupted AGENT_REPLY and sets turnStatus", () => {
     const prose = "暮色从城市的边缘慢慢漫上来……";
     const result = adaptTeamcluMessages([

@@ -293,6 +293,52 @@ describe('ChatMessage', () => {
     ).toBe(true);
   });
 
+  it('renders no_final_reply agent status strip', () => {
+    const message = makeMessage({
+      id: 'msg-nfr-1',
+      role: 'assistant',
+      content: '',
+      parts: [
+        {
+          id: 'tool-part-1',
+          type: 'tool-call',
+          toolCallId: 't1',
+          toolCall: {
+            id: 't1',
+            name: 'bash',
+            status: 'completed',
+            arguments: {},
+            startTime: new Date(),
+          },
+        },
+      ],
+      toolCalls: [
+        {
+          id: 't1',
+          name: 'bash',
+          status: 'completed',
+          arguments: {},
+          startTime: new Date(),
+        },
+      ],
+      isStreaming: false,
+      senderActorId: 'actor-1',
+      turnStatus: 'no_final_reply',
+    });
+
+    const { container } = render(<ChatMessage message={message} />);
+    const text = container.textContent || '';
+    const strip = container.querySelector('[data-testid="no-final-reply"]');
+
+    expect(strip).toBeTruthy();
+    expect(text).toContain('Turn finished');
+    expect(text).toContain('no final reply');
+    expect(text).toContain(
+      'Tools completed. No additional written reply was produced.',
+    );
+    expect(text).not.toContain('Turn completed with no final reply');
+  });
+
   it('does not render hidden synthetic messages', () => {
     const message = makeMessage({
       id: 'msg-hidden',
