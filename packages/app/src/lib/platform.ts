@@ -32,4 +32,13 @@ export const capabilities = {
   get pageCapture() {
     return getAppPlatform() === 'extension'
   },
+  /**
+   * Provider OAuth (Google / WeChat) can capture its redirect. Desktop uses a
+   * native loopback listener, the extension uses chrome.identity; plain web has
+   * neither, so it stays on email OTP.
+   */
+  get oauthSignIn() {
+    const platform = getAppPlatform()
+    return platform === 'desktop' || platform === 'extension'
+  },
 } as const

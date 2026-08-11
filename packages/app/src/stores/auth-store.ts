@@ -1,5 +1,6 @@
 import { create } from "zustand";
-import { cancelDesktopOAuth, type OAuthProvider } from "@/lib/auth";
+import { cancelDesktopOAuth, cancelExtensionOAuth, type OAuthProvider } from "@/lib/auth";
+import { isChromeExtension } from "@/lib/platform";
 import type { PhoneUser } from "@/lib/auth/auth-client";
 import { cancelWebSso as libCancelWebSso, runWebSso } from "@/lib/auth/web-sso";
 import {
@@ -371,8 +372,14 @@ export const useAuthStore = create<AuthState>((set, get) => ({
   },
   cancelOAuth: () => {
     if (!get().oauthPending) return;
-    // Fire-and-forget: the loopback abort makes the in-flight signInWithOAuth
-    // promise reject with oauth_cancelled, whose catch block resets the state.
+    // Fire-and-forget: the abort makes the in-flight signInWithOAuth promise
+    // reject with oauth_cancelled, whose catch block resets the state. The
+    // extension has no abort API, so cancelExtensionOAuth races the flow rather
+    // than stopping it — Chrome's auth window may outlive this call.
+    if (isChromeExtension()) {
+      cancelExtensionOAuth();
+      return;
+    }
     void cancelDesktopOAuth();
   },
   signInWithWebSso: async () => {

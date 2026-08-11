@@ -19,4 +19,5 @@ export {
 } from "./session-store";
 export { createAuthClient, type AuthClient, type PhoneLoginResult, type PhoneUser } from "./auth-client";
 export { runDesktopOAuth, cancelDesktopOAuth, type OAuthProvider } from "./desktop-oauth";
+export { runExtensionOAuth, cancelExtensionOAuth } from "./extension-oauth";
 export { generatePkce, type PkcePair } from "./oauth-pkce";
