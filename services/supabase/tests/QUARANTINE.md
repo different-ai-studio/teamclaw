@@ -131,23 +131,23 @@ the file impersonates) or create and write it as the session role.
 These are product decisions, not test bugs. They are recorded here rather than
 silently encoded as "expected".
 
-### Member re-invite is unreachable by its intended caller
+### ~~Member re-invite is unreachable by its intended caller~~ → removed
 
-`004_member_reinvite.sql` asserts the behaviour the database actually enforces,
-and that behaviour is self-contradictory:
+Settled by deleting the feature: `20260811110000_remove_member_reinvite.sql`.
 
-* `create_team_invite(p_target_actor_id => …)` only accepts a target whose auth
-  user **is anonymous** ("cannot re-invite member with bound auth identity").
-* `claim_team_invite`'s member branch keeps the actor on that anonymous user and
-  mints a fresh session + refresh token **for it** — device recovery: get your
-  anonymous membership back on a new machine.
-* But the wrapper added in `20260801010000` rejects anonymous and bearerless
-  callers before that branch runs, and the person on the new device is exactly
-  such a caller.
+Its three parts disagreed. `create_team_invite(p_target_actor_id => …)` only
+accepted a target whose auth user **was anonymous**; the claim branch then kept
+the actor on that anonymous user and minted a fresh session + refresh token
+**for it** (device recovery: get your anonymous membership back on a new
+machine); but the wrapper added in `20260801010000` rejects anonymous and
+bearerless callers for every member invite, and the person on the new device is
+exactly such a caller. The only caller who could get through was somebody
+already signed into a real account, who would then be handed credentials for the
+anonymous one.
 
-The wrapper was written for the ordinary member invite ("anonymous users cannot
-self-join a team") and catches the re-invite path as collateral. The desktop
-"Re-invite" button (`ActorDetailDialog.tsx`) still ships this flow.
+`p_target_actor_id` stays on the signature and keeps working for **agent**
+invites — daemon credential rotation depends on it. `004_member_reinvite.sql`
+now guards the removal and pins that agent path.
 
 ### A disabled member keeps reading their sessions
 

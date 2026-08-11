@@ -209,7 +209,13 @@ describe('ActorDetailDialog', () => {
     expect(mockGetActorDirectoryEntry).toHaveBeenCalledWith('actor-1')
   })
 
-  it('hides the member re-invite button for a member with a bound identity (email)', () => {
+  // Member re-invite was removed in 20260811110000: the server rejects a member
+  // invite that names a target actor, so the dialog offers nothing here for a
+  // member — registered or anonymous.
+  it.each([
+    ['a registered member', 'matt@example.com'],
+    ['an anonymous member', undefined],
+  ])('shows no re-invite section for %s', (_label, email) => {
     render(
       <ActorDetailDialog
         actor={{
@@ -219,36 +225,15 @@ describe('ActorDetailDialog', () => {
           member_status: 'iOS',
           agent_status: null,
           last_active_at: new Date().toISOString(),
-          email: 'matt@example.com',
+          ...(email ? { email } : {}),
         }}
         teamId="team-abc"
         onOpenChange={vi.fn()}
       />,
     )
 
-    // A registered (non-anonymous) member can't be re-invited — the button is
-    // replaced by explanatory text so we never surface the raw server error.
-    expect(screen.queryByRole('button', { name: /Generate re-invite link/i })).not.toBeInTheDocument()
-    expect(screen.getByText(/This member has a registered account/i)).toBeInTheDocument()
-  })
-
-  it('shows the member re-invite button for an anonymous member (no email/phone)', () => {
-    render(
-      <ActorDetailDialog
-        actor={{
-          id: 'actor-1',
-          actor_type: 'member',
-          display_name: 'Matt-iOS',
-          member_status: 'iOS',
-          agent_status: null,
-          last_active_at: new Date().toISOString(),
-        }}
-        teamId="team-abc"
-        onOpenChange={vi.fn()}
-      />,
-    )
-
-    expect(screen.getByRole('button', { name: /Generate re-invite link/i })).toBeInTheDocument()
+    expect(screen.queryByText('Re-invite')).not.toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: /re-invite link/i })).not.toBeInTheDocument()
   })
 
   it('still shows the re-invite button for an agent regardless of contact', () => {

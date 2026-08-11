@@ -3134,10 +3134,7 @@
     "reinvite": {
       "title": "重新邀请",
       "agentHint": "如果 daemon 已被清空、需要重新配对，请使用此功能。",
-      "memberHint": "如果该用户已退出登录并失去访问权限，请使用此功能。仅适用于匿名账户。",
-      "agentButton": "重新生成邀请链接",
-      "memberButton": "生成重新邀请链接",
-      "memberBound": "该成员已是注册账户，可自行重新登录——重新邀请仅适用于匿名账户。"
+      "agentButton": "重新生成邀请链接"
     }
   },
   "ideas": {
