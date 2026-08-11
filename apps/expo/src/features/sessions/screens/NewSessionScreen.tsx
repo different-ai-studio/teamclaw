@@ -4,7 +4,6 @@ import {
   ActionSheetIOS,
   Alert,
   KeyboardAvoidingView,
-  Modal,
   Platform,
   Pressable,
   ScrollView,
@@ -26,6 +25,7 @@ import {
 } from "../components/AgentConfigSheet";
 import { normalizeStoredAgentType } from "../components/agent-config-helpers";
 import { MemberPickerSheet } from "./MemberPickerSheet";
+import { SheetModal } from "../../../ui/SheetModal";
 
 const AGENT_TYPE_LABELS: Record<AgentType, string> = {
   claude: "Claude",
@@ -335,10 +335,8 @@ export function NewSessionScreen({
         </View>
       </KeyboardAvoidingView>
 
-      <Modal
-        animationType="slide"
+      <SheetModal
         onRequestClose={() => setPickerOpen(false)}
-        presentationStyle="pageSheet"
         visible={pickerOpen}
       >
         <MemberPickerSheet
@@ -354,10 +352,9 @@ export function NewSessionScreen({
           }}
           primaryAgentId={effectivePrimaryAgentId}
         />
-      </Modal>
+      </SheetModal>
 
-      <Modal
-        animationType="slide"
+      <SheetModal
         onRequestClose={() => setAgentConfigOpen(false)}
         presentationStyle="formSheet"
         visible={agentConfigOpen}
@@ -384,7 +381,7 @@ export function NewSessionScreen({
             path: workspace.path,
           }))}
         />
-      </Modal>
+      </SheetModal>
     </View>
   );
 }

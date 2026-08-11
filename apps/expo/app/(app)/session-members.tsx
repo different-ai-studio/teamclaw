@@ -1,7 +1,5 @@
 import { useLocalSearchParams, useRouter } from "expo-router";
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { Modal } from "react-native";
-
 import { useConnectedAgentsStore, useOnboarding, useTeamMqtt } from "../_layout";
 import { createActorsApi } from "../../src/features/actors/actor-api";
 import { isAgentActor, type Actor } from "../../src/features/actors/actor-types";
@@ -30,6 +28,7 @@ import { supabaseAccessToken } from "../../src/lib/cloud-api/client";
 import { createRuntimeRpcClient } from "../../src/lib/teamclu/runtime-rpc";
 import { showToast } from "../../src/ui/Toast";
 import { ModelPickerSheet } from "../../src/features/sessions/screens/ModelPickerSheet";
+import { SheetModal } from "../../src/ui/SheetModal";
 
 type AddMode = "all" | "members" | "agents";
 
@@ -432,10 +431,8 @@ export default function SessionMembersRoute() {
         onRemoveActor={handleRemove}
         onRestartAgentRuntime={handleRestart}
       />
-      <Modal
-        animationType="slide"
+      <SheetModal
         onRequestClose={() => setAddMode(null)}
-        presentationStyle="pageSheet"
         visible={addMode !== null}
       >
         <MemberPickerSheet
@@ -444,11 +441,9 @@ export default function SessionMembersRoute() {
           onCancel={() => setAddMode(null)}
           onConfirm={handleAdd}
         />
-      </Modal>
-      <Modal
-        animationType="slide"
+      </SheetModal>
+      <SheetModal
         onRequestClose={() => setModelPickerActorId(null)}
-        presentationStyle="pageSheet"
         visible={modelPickerAgent !== null}
       >
         {modelPickerAgent ? (
@@ -462,7 +457,7 @@ export default function SessionMembersRoute() {
             }}
           />
         ) : null}
-      </Modal>
+      </SheetModal>
     </>
   );
 }

@@ -1,7 +1,6 @@
 import { Ionicons } from "@expo/vector-icons";
 import { useState } from "react";
 import {
-  Modal,
   Pressable,
   StyleSheet,
   Text,
@@ -12,6 +11,7 @@ import {
 import { Hairline } from "../../../ui/atoms/Hairline";
 import { colors, radii, shadows, spacing, typography } from "../../../ui/theme";
 import { parseInviteToken } from "../invite-api";
+import { SheetModal } from "../../../ui/SheetModal";
 
 export type ChooseAuthScreenProps = {
   errorMessage?: string | null;
@@ -78,10 +78,8 @@ export function ChooseAuthScreen({
         <Text style={styles.error}>{errorMessage}</Text>
       ) : null}
 
-      <Modal
-        animationType="slide"
+      <SheetModal
         onRequestClose={() => setInviteOpen(false)}
-        presentationStyle="pageSheet"
         visible={inviteOpen}
       >
         <InviteJoinSheet
@@ -92,7 +90,7 @@ export function ChooseAuthScreen({
             await onJoinWithToken(token);
           }}
         />
-      </Modal>
+      </SheetModal>
     </View>
   );
 }

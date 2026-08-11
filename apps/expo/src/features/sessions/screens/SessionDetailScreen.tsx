@@ -4,7 +4,6 @@ import {
   FlatList,
   Image,
   KeyboardAvoidingView,
-  Modal,
   NativeScrollEvent,
   NativeSyntheticEvent,
   Platform,
@@ -80,6 +79,7 @@ import {
 import type { SessionMessage, SessionSummary } from "../session-types";
 import type { PendingAcpQuestion } from "../pending-questions";
 import { AcpQuestionCard } from "../components/AcpQuestionCard";
+import { SheetModal } from "../../../ui/SheetModal";
 
 type SessionDetailRenderableState = SessionDetailControllerState & {
   status: "empty" | "ready" | "error";
@@ -496,10 +496,8 @@ function AgentTurnDetailModal({
   turn: AgentTurnFeedItem | null;
 }) {
   return (
-    <Modal
-      animationType="slide"
+    <SheetModal
       onRequestClose={onClose}
-      presentationStyle="pageSheet"
       visible={turn !== null}
     >
       {turn ? (
@@ -513,7 +511,7 @@ function AgentTurnDetailModal({
           turn={turn}
         />
       ) : null}
-    </Modal>
+    </SheetModal>
   );
 }
 

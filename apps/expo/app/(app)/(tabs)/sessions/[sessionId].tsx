@@ -3,7 +3,6 @@ import { useEffect, useMemo, useRef, useState, useSyncExternalStore } from "reac
 import {
   ActivityIndicator,
   AppState,
-  Modal,
   Platform,
   Share,
   StyleSheet,
@@ -58,6 +57,7 @@ import { AppCard } from "../../../../src/ui/card";
 import { TextPromptModal } from "../../../../src/ui/TextPromptModal";
 import { colors, spacing, typography } from "../../../../src/ui/theme";
 import type { SessionDetailControllerState } from "../../../../src/features/sessions/session-detail-controller";
+import { SheetModal } from "../../../../src/ui/SheetModal";
 
 // Module-scoped: one store for the app, not one per controller rebuild.
 const streamingSnapshotStore = createStreamingSnapshotStore();
@@ -863,10 +863,8 @@ export default function SessionDetailRoute() {
         />
       ) : null}
 
-      <Modal
-        animationType="slide"
+      <SheetModal
         onRequestClose={() => setIsModelPromptOpen(false)}
-        presentationStyle="pageSheet"
         visible={isModelPromptOpen && runtimeInfo !== null}
       >
         {runtimeInfo ? (
@@ -913,7 +911,7 @@ export default function SessionDetailRoute() {
             }}
           />
         ) : null}
-      </Modal>
+      </SheetModal>
 
       <TextPromptModal
         confirmLabel="Save"

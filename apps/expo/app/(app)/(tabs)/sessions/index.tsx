@@ -1,7 +1,5 @@
 import { Redirect, useFocusEffect, useRouter } from "expo-router";
 import { useCallback, useEffect, useRef, useState, useSyncExternalStore } from "react";
-import { Modal } from "react-native";
-
 import { routeToHref, useConnectedAgentsStore, useOnboarding, useTeamMqtt } from "../../../_layout";
 import { createActorsApi } from "../../../../src/features/actors/actor-api";
 import { supabaseAccessToken } from "../../../../src/lib/cloud-api/client";
@@ -29,6 +27,7 @@ import {
 import { supabase } from "../../../../src/lib/supabase/client";
 import { getKnownMqttUrl } from "../../../../src/lib/mqtt/config";
 import type { ConnectionState } from "../../../../src/lib/mqtt/team-mqtt";
+import { SheetModal } from "../../../../src/ui/SheetModal";
 
 /** Host portion of the broker URL — iOS shows `pairing.brokerHost`, not the URL. */
 function brokerHostLabel(url: string | null): string {
@@ -283,10 +282,8 @@ export default function SessionsIndexRoute() {
       }}
       state={listState}
     />
-    <Modal
-      animationType="slide"
+    <SheetModal
       onRequestClose={dismissZeroAgentSheet}
-      presentationStyle="pageSheet"
       visible={zeroAgentSheetOpen}
     >
       <ZeroAgentReminderSheet
@@ -296,7 +293,7 @@ export default function SessionsIndexRoute() {
         }}
         onDismiss={dismissZeroAgentSheet}
       />
-    </Modal>
+    </SheetModal>
     <ShortcutsDrawer
       isPresented={shortcutsOpen}
       onClose={() => setShortcutsOpen(false)}
