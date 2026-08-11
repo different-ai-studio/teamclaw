@@ -3,6 +3,7 @@ import { Tabs } from "expo-router";
 import { NativeTabs } from "expo-router/unstable-native-tabs";
 import { useEffect, useState } from "react";
 import { Platform, StyleSheet, type ColorValue } from "react-native";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import {
   getUnreadSessionCount,
@@ -110,6 +111,10 @@ function IosNativeTabs({ unread }: { unread: number }) {
 }
 
 function AndroidPlainTabs({ unread }: { unread: number }) {
+  // The bar owns the bottom inset now: it sits flush against the display edge
+  // and pads its own content clear of the gesture pill. The root reserves the
+  // top only — see the note there.
+  const insets = useSafeAreaInsets();
   return (
     <Tabs
       screenOptions={{
@@ -119,19 +124,18 @@ function AndroidPlainTabs({ unread }: { unread: number }) {
         tabBarLabelStyle: styles.label,
         // Opaque and in normal flow — the navigator reserves its height, so
         // content stops where the bar starts and no screen has to pad for it.
-        // (While the bar was glass it was absolutely positioned so content
-        // could pass under and give the blur something to sample; that is what
-        // needed the manual inset, and it is gone with the glass.)
         //
-        // The explicit height and `paddingBottom: 0` are load-bearing. React
-        // Navigation sizes the bar `49 + insets.bottom` and pads its content by
-        // `insets.bottom`, on the assumption that it owns the bottom safe area.
-        // Here it does not — the root `SafeAreaView edges={["top","bottom"]}`
-        // already consumed it — so both were double-counted: the tree sat one
-        // inset above the screen bottom (a strip of blank below the bar) and
-        // the icons were pushed up off centre inside it. `tabBarStyle` is
-        // applied last in the bar's style array, so these win.
-        tabBarStyle: styles.bar,
+        // The height and paddingBottom are computed rather than fixed. React
+        // Navigation would derive both from the safe area itself, but only
+        // correctly when it owns the bottom edge; the root used to claim it,
+        // which left the tree floating one inset above the display with the
+        // bar's own padding stacked on top. The root now takes the top only,
+        // so the bar reaches the edge and pads its content clear of the
+        // gesture pill.
+        tabBarStyle: [
+          styles.bar,
+          { height: TAB_BAR_HEIGHT + insets.bottom, paddingBottom: insets.bottom },
+        ],
         sceneStyle: styles.scene,
       }}
     >
@@ -183,11 +187,6 @@ const styles = StyleSheet.create({
     // shadow would read as a different design language next to Hai's flat
     // surfaces.
     elevation: 0,
-    // Fixed row: the safe area is handled by the root, not here. See the note
-    // on `tabBarStyle` above for why leaving these to React Navigation
-    // double-counts the inset.
-    height: TAB_BAR_HEIGHT,
-    paddingBottom: 0,
   },
   label: {
     ...typography.monoMeta,
