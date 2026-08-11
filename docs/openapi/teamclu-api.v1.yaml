@@ -356,7 +356,12 @@ paths:
                     - string
                     - "null"
                   format: uuid
-                  description: Re-invite an existing actor instead of creating a new one.
+                  description: >-
+                    Re-invite an existing actor instead of creating a new one.
+                    Agent invites only — it rotates the daemon's credentials onto
+                    the same actor. Rejected with 22023 for `kind: member`; the
+                    member equivalent was removed because its claim side could
+                    never be reached by the person the link was for.
                 inviteEmail:
                   type:
                     - string

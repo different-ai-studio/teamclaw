@@ -67,14 +67,6 @@ export function ActorDetailDialog({ actor, teamId, onOpenChange, onRemoved }: Pr
   const [clientVersions, setClientVersions] = React.useState<ClientVersionEntry[]>([])
   const [detailAvatarUrl, setDetailAvatarUrl] = React.useState<string | null>(null)
   const [avatarFailed, setAvatarFailed] = React.useState(false)
-  // Freshest member contact from the detail fetch — used to decide whether the
-  // member is a registered (non-anonymous) account. The libsql first-paint cache
-  // doesn't carry email/phone, so we enrich from the detail fetch when it lands.
-  const [detailContact, setDetailContact] = React.useState<{ email: string | null; phone: string | null }>({
-    email: null,
-    phone: null,
-  })
-
   // Reset the re-invite result whenever the dialog targets a different actor
   // (or is reopened) so a stale link from a previous actor never leaks through.
   React.useEffect(() => {
@@ -84,14 +76,13 @@ export function ActorDetailDialog({ actor, teamId, onOpenChange, onRemoved }: Pr
     setRemoving(false)
   }, [actor?.id])
 
-  // Fetch the full actor detail (client versions + freshest avatar/contact) when
-  // the dialog targets an actor. Guarded so a backend hiccup never breaks render.
+  // Fetch the full actor detail (client versions + freshest avatar) when the
+  // dialog targets an actor. Guarded so a backend hiccup never breaks render.
   React.useEffect(() => {
     const id = actor?.id
     setClientVersions([])
     setDetailAvatarUrl(null)
     setAvatarFailed(false)
-    setDetailContact({ email: null, phone: null })
     if (!id) return
     let cancelled = false
     void (async () => {
@@ -100,7 +91,6 @@ export function ActorDetailDialog({ actor, teamId, onOpenChange, onRemoved }: Pr
         if (cancelled || !entry) return
         setClientVersions(entry.client_versions ?? [])
         if (entry.avatar_url) setDetailAvatarUrl(entry.avatar_url)
-        setDetailContact({ email: entry.email ?? null, phone: entry.phone ?? null })
       } catch {
         // Detail enrichment is best-effort; keep the cached-row view.
       }
@@ -132,17 +122,6 @@ export function ActorDetailDialog({ actor, teamId, onOpenChange, onRemoved }: Pr
       setRemoving(false)
     }
   }
-
-  // A member with a bound (non-anonymous) auth identity carries an email or
-  // phone; anonymous members carry neither. Re-invite rotates the actor onto a
-  // fresh auth user, which only makes sense for anonymous members — the server
-  // rejects it for registered members ("cannot re-invite member with bound auth
-  // identity"). Gate the button on the contact signal we already have so we
-  // never offer an action that can only fail. Use the freshest of the cached
-  // row and the detail fetch.
-  const memberHasBoundIdentity =
-    !isAgent &&
-    Boolean(displayActor.email || displayActor.phone || detailContact.email || detailContact.phone)
 
   const online = resolveActorOnlineStatus(displayActor, {
     currentMemberActorId: currentMemberId,
@@ -219,28 +198,19 @@ export function ActorDetailDialog({ actor, teamId, onOpenChange, onRemoved }: Pr
     if (!teamId || reinviting) return
     setReinviting(true)
     try {
-      // targetActorId rotates credentials on this existing actor (re-invite)
-      // instead of minting a new one — mirrors the iOS "Re-invite" flow.
-      const row = isAgent
-        ? await getBackend().teams.createTeamInvite({
-            teamId,
-            kind: 'agent',
-            displayName: displayActor.display_name,
-            agentKind: 'daemon',
-            ttlSeconds: null,
-            targetActorId: displayActor.id,
-          })
-        : await getBackend().teams.createTeamInvite({
-            teamId,
-            kind: 'member',
-            displayName: displayActor.display_name,
-            teamRole:
-              displayActor.team_role === 'admin' || displayActor.team_role === 'owner'
-                ? displayActor.team_role
-                : 'member',
-            ttlSeconds: null,
-            targetActorId: displayActor.id,
-          })
+      // targetActorId rotates credentials on this existing agent actor instead
+      // of minting a new one. Agents only: the member equivalent was removed in
+      // 20260811110000 (the claim side could never be reached by the person it
+      // was for), and the server now rejects a member invite that names a
+      // target.
+      const row = await getBackend().teams.createTeamInvite({
+        teamId,
+        kind: 'agent',
+        displayName: displayActor.display_name,
+        agentKind: 'daemon',
+        ttlSeconds: null,
+        targetActorId: displayActor.id,
+      })
       const deeplink = row.deeplink ?? row.inviteUrl
       if (!deeplink) {
         toast.error(t('invite.failed', 'Failed to create invite: {{msg}}', { msg: 'empty response' }))
@@ -252,19 +222,7 @@ export function ActorDetailDialog({ actor, teamId, onOpenChange, onRemoved }: Pr
       })
     } catch (e) {
       const msg = e instanceof Error ? e.message : String(e)
-      // Safety net for members whose bound identity isn't visible client-side
-      // (e.g. OAuth without email/phone): the server rejects re-invite with a
-      // raw English message — surface a friendly localized reason instead.
-      if (/bound auth identity/i.test(msg)) {
-        toast.error(
-          t(
-            'actors.reinvite.memberBound',
-            'This member has a registered account and can sign in again — re-invite is only for anonymous accounts.',
-          ),
-        )
-      } else {
-        toast.error(t('invite.failed', 'Failed to create invite: {{msg}}', { msg }))
-      }
+      toast.error(t('invite.failed', 'Failed to create invite: {{msg}}', { msg }))
     } finally {
       setReinviting(false)
     }
@@ -470,18 +428,14 @@ export function ActorDetailDialog({ actor, teamId, onOpenChange, onRemoved }: Pr
             </div>
           )}
 
-          {teamId && (
+          {/* Agents only. Member re-invite was removed in 20260811110000. */}
+          {teamId && isAgent && (
             <div className="mt-8 border-t border-border-soft pt-5">
               <div className="mb-1 text-[10.5px] font-semibold uppercase tracking-[0.08em] text-faint">
                 {t('actors.reinvite.title', 'Re-invite')}
               </div>
               <p className="mb-4 text-[12px] leading-5 text-muted-foreground">
-                {isAgent
-                  ? t('actors.reinvite.agentHint', 'Use this if the daemon was wiped and needs to re-pair.')
-                  : t(
-                      'actors.reinvite.memberHint',
-                      'Use this if the user signed out and lost access. Only available for anonymous accounts.',
-                    )}
+                {t('actors.reinvite.agentHint', 'Use this if the daemon was wiped and needs to re-pair.')}
               </p>
               {reinvite ? (
                 <div className="flex flex-col gap-2">
@@ -502,16 +456,6 @@ export function ActorDetailDialog({ actor, teamId, onOpenChange, onRemoved }: Pr
                     })}
                   </p>
                 </div>
-              ) : memberHasBoundIdentity ? (
-                // Registered members can sign in again on their own — re-invite
-                // is reserved for anonymous accounts, so we explain rather than
-                // offer a button that the server would only reject.
-                <p className="text-[12px] leading-5 text-faint">
-                  {t(
-                    'actors.reinvite.memberBound',
-                    'This member has a registered account and can sign in again — re-invite is only for anonymous accounts.',
-                  )}
-                </p>
               ) : (
                 <Button
                   variant="outline"
@@ -520,9 +464,7 @@ export function ActorDetailDialog({ actor, teamId, onOpenChange, onRemoved }: Pr
                   className="h-9 rounded-[9px] border-border-soft bg-background text-[13px]"
                 >
                   {reinviting ? <Loader2 className="h-4 w-4 animate-spin" /> : <Link2 className="h-4 w-4" />}
-                  {isAgent
-                    ? t('actors.reinvite.agentButton', 'Regenerate invite link')
-                    : t('actors.reinvite.memberButton', 'Generate re-invite link')}
+                  {t('actors.reinvite.agentButton', 'Regenerate invite link')}
                 </Button>
               )}
             </div>

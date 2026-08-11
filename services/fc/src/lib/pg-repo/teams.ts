@@ -744,6 +744,15 @@ export function makeTeamsRepo(db: PgDatabase<any, any>, deps: TeamsRepoDeps = {}
         }
       }
 
+      // Member re-invite was removed in 20260811110000, and this backend never
+      // implemented it: the rebind path in auth.ts lives inside the agent claim
+      // branch. Reject it by name rather than letting it fall through to the
+      // agent-ownership check below and come back as "only the agent owner can
+      // re-invite this agent", which says nothing true about a member.
+      if (input.targetActorId && kind === "member") {
+        throw new ApiError(400, "validation_failed", "member invites cannot target an existing actor");
+      }
+
       // Owner check: only the agent owner may re-invite an existing agent actor
       if (input.targetActorId) {
         if (!userId) throw new ApiError(401, "missing_identity", "re-inviting an agent requires authentication");
