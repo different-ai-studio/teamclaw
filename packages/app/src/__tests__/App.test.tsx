@@ -97,6 +97,7 @@ vi.mock('@/lib/build-config', () => ({
   appShortName: 'teamclu',
   appStoragePrefix: 'teamclu',
   appScheme: 'teamclu',
+  deeplinkSchemes: ['teamclu', 'teamclaw', 'amux'],
   TEAM_REPO_DIR: 'teamclu-team',
   buildConfig: {
     app: { name: 'TeamClu' },

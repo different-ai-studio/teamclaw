@@ -221,7 +221,30 @@ export const appStoragePrefix: string = resolveStorageDirName(appShortName)
 /** The product name to show users. Prefer this over `buildConfig.app.name` in
  *  any UI string — `app.name` is the bundle identity and may differ. */
 export const appDisplayName: string = buildConfig.app.displayName ?? buildConfig.app.name
-export const appScheme: string = buildConfig.app.scheme ?? 'teamclu'
+/** Deep-link scheme used when a build does not declare `app.scheme`. */
+export const DEFAULT_APP_SCHEME = 'teamclu'
+export const appScheme: string = buildConfig.app.scheme ?? DEFAULT_APP_SCHEME
+
+/**
+ * Schemes this build accepts on an inbound deeplink.
+ *
+ * A build that declares its own `app.scheme` speaks only that scheme.
+ * `scripts/lib/branding.js` rewrites tauri.conf's deep-link list to exactly
+ * `[app.scheme]`, so the OS never hands a `teamclu://` link to that build in the
+ * first place — accepting them here only made a pasted official link look
+ * supported. copilot361 (scheme `copilot361`) is such a build.
+ *
+ * Builds with no explicit scheme keep the legacy list: `teamclaw://` from before
+ * the rename, and `amux://`, which is still what the `create_team_invite` RPC
+ * emits. That covers the official builds and the betly brand, which ships on the
+ * default `teamclu` scheme.
+ */
+export function resolveDeeplinkSchemes(scheme: string | undefined): string[] {
+  const own = scheme ?? DEFAULT_APP_SCHEME
+  return own === DEFAULT_APP_SCHEME ? [own, 'teamclaw', 'amux'] : [own]
+}
+
+export const deeplinkSchemes: readonly string[] = resolveDeeplinkSchemes(buildConfig.app.scheme)
 /**
  * Local agent runtime for this build. Defaults to opencode.
  *

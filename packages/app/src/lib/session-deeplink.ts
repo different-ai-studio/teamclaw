@@ -1,12 +1,11 @@
-import { appScheme } from '@/lib/build-config'
+import { appScheme, deeplinkSchemes } from '@/lib/build-config'
 
-// The desktop app accepts the build's configured scheme as well as `teamclu://`,
-// the pre-rebrand `teamclaw://`, and `amux://` for back-compat (shared with iOS).
-//
-// `teamclaw:` is a historical fact, not a brand string: session links already
-// shared with teammates carry it, and a white-label build (whose appScheme is
-// its own) has no other way to accept an official link.
-const SESSION_SCHEMES = new Set([`${appScheme}:`, 'teamclu:', 'teamclaw:', 'amux:'])
+// Which schemes count as a session link is a build-level decision — see
+// `resolveDeeplinkSchemes`. A build on the default scheme also takes the
+// pre-rebrand `teamclaw://` and `amux://` (shared with iOS), so links already
+// shared with teammates keep working; a build with its own scheme (copilot361)
+// takes only that one.
+const SESSION_SCHEMES = new Set(deeplinkSchemes.map((s) => `${s}:`))
 const SESSION_HOST = 'session'
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i

@@ -4,6 +4,7 @@ import {
   appDisplayName,
   FALLBACK_BUILD_CONFIG,
   resolveAmuxdDirName,
+  resolveDeeplinkSchemes,
 } from "@/lib/build-config";
 
 describe("build-config auth.webSSO", () => {
@@ -28,5 +29,20 @@ describe("resolveAmuxdDirName", () => {
     expect(resolveAmuxdDirName("teamclu")).toBe("amuxd");
     expect(resolveAmuxdDirName("teamcludev")).toBe("amuxd");
     expect(resolveAmuxdDirName("copilot361")).toBe("amuxd-copilot361");
+  });
+});
+
+describe("resolveDeeplinkSchemes", () => {
+  it("keeps the legacy schemes for builds on the default scheme", () => {
+    // betly ships without app.scheme, so it lands here too and keeps accepting
+    // the amux:// links its backend hands out.
+    expect(resolveDeeplinkSchemes(undefined)).toEqual(["teamclu", "teamclaw", "amux"]);
+    expect(resolveDeeplinkSchemes("teamclu")).toEqual(["teamclu", "teamclaw", "amux"]);
+  });
+
+  it("restricts a build with its own scheme to that scheme alone", () => {
+    // copilot361 registers only copilot361:// with the OS — a teamclu:// link
+    // would open the official app, never this build.
+    expect(resolveDeeplinkSchemes("copilot361")).toEqual(["copilot361"]);
   });
 });

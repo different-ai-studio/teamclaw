@@ -135,6 +135,23 @@ fn main() {
     println!("cargo:rustc-env=TEAMCLU_DIR={}", teamclu_dir);
     println!("cargo:rustc-env=CONFIG_FILE_NAME={}", config_file_name);
 
+    // Deep-link scheme (`app.scheme`). Not derivable from short_name: betly's
+    // short name is "teamclaw" while it ships on the default "teamclu" scheme.
+    // Stamped onto amuxd so the teamclu-introspect sidecar's export_session_link
+    // hands out a link this build actually registers with the OS.
+    let app_scheme = config["app"]["scheme"].as_str().unwrap_or("teamclu");
+    assert!(
+        !app_scheme.is_empty()
+            && app_scheme.starts_with(|c: char| c.is_ascii_lowercase())
+            && app_scheme.chars().all(|c| c.is_ascii_lowercase()
+                || c.is_ascii_digit()
+                || matches!(c, '+' | '.' | '-')),
+        "app.scheme must start with a lowercase letter, then [a-z0-9+.-], got: '{}'",
+        app_scheme
+    );
+    println!("cargo:rustc-env=APP_SCHEME={}", app_scheme);
+    println!("cargo:warning=Using APP_SCHEME={}", app_scheme);
+
     // Export updater config from build.config.json (comma-separated for runtime fallback)
     let updater_endpoints = resolve_updater_endpoints(&config);
     if !updater_endpoints.is_empty() {
