@@ -293,6 +293,47 @@ describe('LLMSection', () => {
     expect(screen.queryByText('claude-sonnet-4')).toBeNull()
   })
 
+  it.each([
+    ['pending', 0],
+    ['ready', 0],
+  ])('shows a loading subtitle for an unsettled %s catalog', (status, fetchedAt) => {
+    mocks.providerState.providers = [{ id: 'openai', name: 'OpenAI', configured: true }]
+    mocks.catalogState.byWorkspacePath['/test'] = {
+      status,
+      models: [],
+      recentModels: [],
+      fetchedAt,
+    }
+
+    const { container } = render(<LLMSection />)
+
+    expect(screen.getByText('Loading models...')).toBeTruthy()
+    expect(screen.queryByText(/0 models available/i)).toBeNull()
+    expect(container.querySelector('svg.lucide-chevron-right')).toBeNull()
+  })
+
+  it.each(['error', 'unknown'])(
+    'shows an unavailable hint and no expansion control for a %s catalog',
+    (status) => {
+      mocks.providerState.providers = [{ id: 'openai', name: 'OpenAI', configured: true }]
+      mocks.catalogState.byWorkspacePath['/test'] = {
+        status,
+        models: [],
+        recentModels: [],
+        fetchedAt: Date.now(),
+      }
+
+      const { container } = render(<LLMSection />)
+
+      expect(screen.getByText('Models could not be loaded')).toBeTruthy()
+      expect(screen.queryByText(/0 models available/i)).toBeNull()
+      expect(container.querySelector('svg.lucide-chevron-right')).toBeNull()
+
+      fireEvent.click(screen.getByText('OpenAI'))
+      expect(screen.queryByText('Connect OpenAI')).toBeNull()
+    },
+  )
+
   it('merges catalog-only providers into the list when /providers omitted them', async () => {
     mocks.providerState.providers = []
     mocks.catalogState.byWorkspacePath['/test'] = {

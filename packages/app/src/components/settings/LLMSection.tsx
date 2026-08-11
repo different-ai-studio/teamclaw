@@ -112,6 +112,10 @@ export const OpenCodeLLMSection = React.memo(function OpenCodeLLMSection() {
     () => catalogEntry?.models ?? [],
     [catalogEntry?.models],
   )
+  const catalogIsLoading =
+    !catalogEntry || catalogEntry.status === 'pending' || catalogEntry.fetchedAt === 0
+  const catalogLoadFailed =
+    catalogEntry?.status === 'error' || catalogEntry?.status === 'unknown'
 
   // Dialog state for connecting a provider
   const [connectDialogOpen, setConnectDialogOpen] = React.useState(false)
@@ -320,14 +324,15 @@ export const OpenCodeLLMSection = React.memo(function OpenCodeLLMSection() {
       setSelectedProviderId(selectedProviderId === providerId ? null : providerId)
       return
     }
+    if (configured) return
     handleConnectClick(providerId, providerName)
   }
 
   const getProviderModels = (providerId: string) =>
     catalogModelsForProvider(catalogModels, providerId)
 
-  const canExpandProvider = (providerId: string, configured: boolean) =>
-    configured || catalogModelsForProvider(catalogModels, providerId).length > 0
+  const canExpandProvider = (providerId: string, _configured: boolean) =>
+    catalogModelsForProvider(catalogModels, providerId).length > 0
 
   const [isRefreshing, setIsRefreshing] = React.useState(false)
 
@@ -661,9 +666,13 @@ export const OpenCodeLLMSection = React.memo(function OpenCodeLLMSection() {
                         )}
                       </div>
                       <p className="text-xs text-muted-foreground">
-                        {models.length > 0 || isConnected
-                          ? t('settings.llm.modelsAvailable', { count: models.length, defaultValue: `${models.length} model${models.length !== 1 ? 's' : ''} available` })
-                          : t('settings.llm.notConnected', 'Not connected')}
+                        {catalogIsLoading
+                          ? t('settings.llm.modelsLoading', 'Loading models...')
+                          : catalogLoadFailed
+                            ? t('settings.llm.modelsUnavailable', 'Models could not be loaded')
+                            : models.length > 0 || isConnected
+                              ? t('settings.llm.modelsAvailable', { count: models.length, defaultValue: `${models.length} model${models.length !== 1 ? 's' : ''} available` })
+                              : t('settings.llm.notConnected', 'Not connected')}
                       </p>
                     </div>
                   </div>

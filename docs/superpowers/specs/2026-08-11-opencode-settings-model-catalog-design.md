@@ -140,4 +140,3 @@ No new daemon integration tests unless a missing catalog field blocks the UI
 - Rewriting `/providers` to return full `/config/providers`.
 - Team LiteLLM admin model multi-select UX.
 - Non-OpenCode settings sections (if any) beyond the shared helper reuse.
-`)
