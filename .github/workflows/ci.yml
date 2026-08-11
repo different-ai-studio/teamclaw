@@ -13,10 +13,17 @@ jobs:
     steps:
       - uses: actions/checkout@v7
 
+      # `lts/*`, matching every other workflow in this repo — so CI validates on
+      # the same Node the release jobs build with, rather than a version nothing
+      # ships on. The old '20' pin was the outlier, and it broke the Expo suite:
+      # its cache tests drive a real SQLite through `node:sqlite`
+      # (src/test/helpers/memory-db.ts), a built-in that does not exist before
+      # Node 22.5 and is behind --experimental-sqlite until 23.4, so four suites
+      # died at import with "No such built-in module: node:sqlite".
       - name: Setup Node.js
         uses: actions/setup-node@v7
         with:
-          node-version: '20'
+          node-version: lts/*
 
       - name: Setup pnpm
         uses: pnpm/action-setup@v6.0.10
