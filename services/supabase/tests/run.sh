@@ -29,33 +29,12 @@ PSQL=${PSQL:-psql}
 # and make it pass.
 QUARANTINE=$(cat <<'EOF'
 001_schema_shape.sql
-002_rls.sql
-003_team_invites.sql
 004_member_reinvite.sql
 005_agent_role_rls.sql
-006_access_token_hook.sql
-006_gateway_external_actor.sql
 007_team_workspace_config.sql
 008_actor_telemetry.sql
-009_agent_visibility.sql
-011_gateway_session_rpc.sql
 012_gateway_message_external_id_upsert.sql
-013_gateway_agent_admin_owner_rpc.sql
-014_gateway_external_message_rls.sql
 015_rbac_shortcuts.sql
-016_push_notifications.sql
-017_idea_create_order.sql
-018_idea_activity_attachment_urls.sql
-019_idea_attachment_storage_rls.sql
-020_oss_sync_schema.sql
-021_agent_reinvite_owner_check.sql
-025_agent_delete_authz.sql
-027_org_default_team_selection.sql
-028_phone_linked_org_picker.sql
-029_empty_org_public_bootstrap.sql
-claim_team_invite_agent_org.test.sql
-team_default_agent.test.sql
-team_share_mode.test.sql
 EOF
 )
 

@@ -18,7 +18,7 @@ $$;
 
 select plan(68);
 
-select has_schema('app');
+select has_schema('amux');
 select has_table('public', 'teams');
 select has_table('public', 'actors');
 select has_table('public', 'members');
@@ -69,22 +69,22 @@ select has_trigger('public', 'messages', 'enforce_messages_same_team');
 select has_trigger('public', 'sessions', 'enforce_sessions_parent_integrity');
 select has_trigger('public', 'agent_runtimes', 'enforce_agent_runtimes_same_team');
 
-insert into public.teams (id, slug, name)
+insert into amux.teams (id, slug, name)
 values
   ('00000000-0000-0000-0000-000000000001', 'team-one', 'Team One'),
   ('00000000-0000-0000-0000-000000000002', 'team-two', 'Team Two');
 
-insert into public.actors (id, team_id, actor_type, display_name)
+insert into amux.actors (id, team_id, actor_type, display_name)
 values
   ('10000000-0000-0000-0000-000000000001', '00000000-0000-0000-0000-000000000001', 'member', 'Subtype Member'),
   ('10000000-0000-0000-0000-000000000002', '00000000-0000-0000-0000-000000000001', 'member', 'Scoped Member');
 
-insert into public.members (id, status)
+insert into amux.members (id, status)
 values
   ('10000000-0000-0000-0000-000000000001', 'active'),
   ('10000000-0000-0000-0000-000000000002', 'active');
 
-insert into public.team_members (id, team_id, member_id, role)
+insert into amux.team_members (id, team_id, member_id, role)
 values (
   '20000000-0000-0000-0000-000000000001',
   '00000000-0000-0000-0000-000000000001',
@@ -92,7 +92,7 @@ values (
   'member'
 );
 
-insert into public.workspaces (id, team_id, created_by_member_id, name)
+insert into amux.workspaces (id, team_id, created_by_member_id, name)
 values (
   '30000000-0000-0000-0000-000000000001',
   '00000000-0000-0000-0000-000000000001',
@@ -100,7 +100,7 @@ values (
   'Workspace One'
 );
 
-insert into public.actors (id, team_id, actor_type, display_name)
+insert into amux.actors (id, team_id, actor_type, display_name)
 values (
   '10000000-0000-0000-0000-000000000003',
   '00000000-0000-0000-0000-000000000002',
@@ -108,15 +108,13 @@ values (
   'Scoped Agent'
 );
 
-insert into public.agents (id, owner_member_id, agent_kind, status)
-values (
+insert into amux.agents (id, owner_member_id, status) values (
   '10000000-0000-0000-0000-000000000003',
   '10000000-0000-0000-0000-000000000002',
-  'amuxd',
   'active'
 );
 
-insert into public.ideas (id, team_id, workspace_id, created_by_actor_id, title, status)
+insert into amux.ideas (id, team_id, workspace_id, created_by_actor_id, title, status)
 values (
   '40000000-0000-0000-0000-000000000001',
   '00000000-0000-0000-0000-000000000001',
@@ -126,7 +124,7 @@ values (
   'open'
 );
 
-insert into public.sessions (id, team_id, idea_id, created_by_actor_id, mode, title)
+insert into amux.sessions (id, team_id, idea_id, created_by_actor_id, mode, title)
 values (
   '50000000-0000-0000-0000-000000000001',
   '00000000-0000-0000-0000-000000000001',
@@ -136,7 +134,7 @@ values (
   'Session One'
 );
 
-insert into public.sessions (id, team_id, idea_id, created_by_actor_id, mode, title)
+insert into amux.sessions (id, team_id, idea_id, created_by_actor_id, mode, title)
 values (
   '50000000-0000-0000-0000-000000000002',
   '00000000-0000-0000-0000-000000000001',
@@ -146,7 +144,7 @@ values (
   'Session Without Idea'
 );
 
-insert into public.messages (id, team_id, session_id, sender_actor_id, kind, content)
+insert into amux.messages (id, team_id, session_id, sender_actor_id, kind, content)
 values (
   '60000000-0000-0000-0000-000000000001',
   '00000000-0000-0000-0000-000000000001',
@@ -167,7 +165,7 @@ values (
 
 select ok(
   pg_temp.raises_sqlstate(
-    $sql$update public.actors
+    $sql$update amux.actors
           set actor_type = 'agent'
           where id = '10000000-0000-0000-0000-000000000001'$sql$,
     '23514'
@@ -178,7 +176,7 @@ select ok(
 select ok(
   exists(
     select 1
-    from public.sessions
+    from amux.sessions
     where id = '50000000-0000-0000-0000-000000000002'
       and idea_id is null
   ),
@@ -197,7 +195,7 @@ select ok(
 
 select ok(
   pg_temp.raises_sqlstate(
-    $sql$update public.actors
+    $sql$update amux.actors
           set team_id = '00000000-0000-0000-0000-000000000002'
           where id = '10000000-0000-0000-0000-000000000002'$sql$,
     '23514'
@@ -207,7 +205,7 @@ select ok(
 
 select ok(
   pg_temp.raises_sqlstate(
-    $sql$update public.workspaces
+    $sql$update amux.workspaces
           set team_id = '00000000-0000-0000-0000-000000000002'
           where id = '30000000-0000-0000-0000-000000000001'$sql$,
     '23514'
@@ -217,7 +215,7 @@ select ok(
 
 select ok(
   pg_temp.raises_sqlstate(
-    $sql$update public.workspaces
+    $sql$update amux.workspaces
           set agent_id = '10000000-0000-0000-0000-000000000003'
           where id = '30000000-0000-0000-0000-000000000001'$sql$,
     '23514'
@@ -227,7 +225,7 @@ select ok(
 
 select ok(
   pg_temp.raises_sqlstate(
-    $sql$update public.ideas
+    $sql$update amux.ideas
           set team_id = '00000000-0000-0000-0000-000000000002'
           where id = '40000000-0000-0000-0000-000000000001'$sql$,
     '23514'
@@ -237,7 +235,7 @@ select ok(
 
 select ok(
   pg_temp.raises_sqlstate(
-    $sql$update public.sessions
+    $sql$update amux.sessions
           set team_id = '00000000-0000-0000-0000-000000000002'
           where id = '50000000-0000-0000-0000-000000000001'$sql$,
     '23514'
@@ -252,26 +250,25 @@ declare
   v_agent_a uuid := gen_random_uuid();
   v_agent_b uuid := gen_random_uuid();
 begin
-  insert into public.teams (id, slug, name) values (v_team, 'dup-ws', 'dup-ws');
-  insert into public.actors (id, team_id, actor_type, display_name)
+  insert into amux.teams (id, slug, name) values (v_team, 'dup-ws', 'dup-ws');
+  insert into amux.actors (id, team_id, actor_type, display_name)
     values ('10000000-0000-0000-0000-0000000000aa', v_team, 'member', 'owner'),
            (v_agent_a, v_team, 'agent', 'a'),
            (v_agent_b, v_team, 'agent', 'b');
-  insert into public.members (id, status)
+  insert into amux.members (id, status)
     values ('10000000-0000-0000-0000-0000000000aa', 'active');
-  insert into public.team_members (team_id, member_id, role)
+  insert into amux.team_members (team_id, member_id, role)
     values (v_team, '10000000-0000-0000-0000-0000000000aa', 'owner');
-  insert into public.agents (id, owner_member_id, agent_kind, status) values
-    (v_agent_a, '10000000-0000-0000-0000-0000000000aa', 'claude', 'active'),
+  insert into amux.agentsinsert into amux.agents (id, owner_member_id, status) values000-0000-0000-0000-0000000000aa', 'claude', 'active'),
     (v_agent_b, '10000000-0000-0000-0000-0000000000aa', 'claude', 'active');
 
   -- Same name on two different agents in the same team must now be allowed.
-  insert into public.workspaces (team_id, agent_id, name) values (v_team, v_agent_a, 'amux');
-  insert into public.workspaces (team_id, agent_id, name) values (v_team, v_agent_b, 'amux');
+  insert into amux.workspaces (team_id, agent_id, name) values (v_team, v_agent_a, 'amux');
+  insert into amux.workspaces (team_id, agent_id, name) values (v_team, v_agent_b, 'amux');
 
   -- Duplicate on the SAME agent must still fail.
   if not pg_temp.raises_sqlstate(
-    format('insert into public.workspaces (team_id, agent_id, name) values (%L, %L, %L)',
+    format('insert into amux.workspaces (team_id, agent_id, name) values (%L, %L, %L)',
            v_team, v_agent_a, 'amux'),
     '23505'
   ) then

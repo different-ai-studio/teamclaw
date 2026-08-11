@@ -29,65 +29,55 @@ nothing behind and is safe against a live database.
 
 ## Why they fail
 
-The schema moved twice since these were written. Grouped by what each one needs:
+Seven files remain. The schema drift that killed the other 21 has been dealt
+with; what is left needs a decision, not a rename.
 
-### 1. `public.*` → `amux.*` (all of them)
+### `001_schema_shape.sql` — needs a rewrite, not a fix
 
-Every business table and function moved to the `amux` schema. Note `orgs` is the
-exception — it is still in `public`, so a blanket find/replace breaks it.
+Two problems at once. It asserts `has_table('public', 'agent_runtimes')` for a
+table that no longer exists anywhere, and its ~68 assertions all use the
+two-argument form described at the bottom of this file — so even the ones naming
+surviving tables are asserting the wrong thing. Rewriting it means restating
+every assertion against the current schema, which is really "write a new
+schema-shape test", not "repair this one".
 
-### 2. Identity moved from `members` to `actors`
+### `005_agent_role_rls.sql` — tests a table that was dropped
 
-`members.user_id` no longer exists. A user's link to `auth.users` is on
-`amux.actors.user_id`, because identity is per team (one actor row per user per
-team, `unique (team_id, user_id)`). Fixtures must insert `user_id` on the actor
-and omit it on the member.
+The body inserts into `agent_runtimes` to prove a daemon JWT may write its own
+runtime rows. That table is gone, so the scenario no longer exists. Either
+delete the section (and keep the surrounding RLS coverage) or delete the file.
 
-Affected: `002_rls`, `004_member_reinvite`, `005_agent_role_rls`,
-`015_rbac_shortcuts`, `021_agent_reinvite_owner_check`.
+### `008_actor_telemetry.sql` — `amux.team_leaderboard` does not exist
 
-### 3. `agents.agent_kind` is gone
+Same shape as above: the fixture and assertions are fine until it reaches a
+relation that was removed.
 
-Replaced by `default_agent_type` + `agent_types`. Fixtures inserting
-`agent_kind` need it dropped.
+### `004_member_reinvite.sql` — behaviour changed
 
-Affected: `001_schema_shape`, `006_access_token_hook`, `009_agent_visibility`,
-`011_gateway_session_rpc`, `013_gateway_agent_admin_owner_rpc`,
-`014_gateway_external_message_rls`, `016_push_notifications`.
+Fails with `member claim requires a non-anonymous user`. The invite-claim path
+now refuses anonymous callers; the test predates that. Whether the test or the
+rule is right is a product question — read the claim RPC before changing either.
 
-### 4. `create_team` is ambiguous
+### `007_team_workspace_config.sql` — `new row violates row-level security policy`
 
-There are now two overloads, both with every argument defaulted, so
-`create_team('x')` fails with *function is not unique*. Calls need enough
-arguments (or explicit casts) to pick one. Worth fixing in the schema rather
-than the tests.
+The fixture no longer satisfies the workspaces INSERT policy (which now requires
+`created_by_member_id` to be the caller's actor in that team). Needs the fixture
+to assume an identity before inserting, not a schema rename.
 
-Affected: `003_team_invites`, `004_member_reinvite`, `007_team_workspace_config`,
-`008_actor_telemetry`, `020_oss_sync_schema`, `team_share_mode.test`.
+### `012_gateway_message_external_id_upsert.sql` — `actors_external_has_source`
 
-### 5. `permission denied for table <fixture>`
+The check constraint requires `(actor_type = 'external') = (source IS NOT NULL
+AND source_id IS NOT NULL)`. The fixture builds an actor that violates it.
+Straightforward to fix once someone decides what the fixture is meant to model.
 
-These create a fixture table and then `set role`, leaving the new role without a
-grant on it. They need a `grant` after the fixture, or should build the fixture
-as a temp table owned by the test role.
+### `015_rbac_shortcuts.sql` — temp-table visibility
 
-Affected: `027_org_default_team_selection`, `028_phone_linked_org_picker`,
-`029_empty_org_public_bootstrap`, `claim_team_invite_agent_org.test`.
-
-### 6. Genuine behaviour differences — read before "fixing"
-
-These fail on an assertion, not on schema drift, so the assertion may be
-describing behaviour that was deliberately changed. Check the intent before
-touching them.
-
-- `025_agent_delete_authz` — *expected personal-agent delete denial for
-  non-owner*. Either the authz rule changed or the test is right and there is a
-  real hole. Worth a look on its own.
-- `team_default_agent.test` — inserts an agent without `owner_member_id`, which
-  is NOT NULL now.
+`permission denied for table fx`. The file builds a fixture temp table and then
+`set role`s through several identities. A `grant select on fx` was added and got
+it further, but a later step still trips over the same thing — it likely needs
+the fixture to live in a regular table, or grants on the `pg_temp` helpers too.
 
 ## A trap worth knowing
-
 pgTAP overloads its assertions on both `(schema, object)` and
 `(object, description)`. Two untyped string literals resolve to the **latter**,
 so
@@ -110,3 +100,26 @@ Several of the quarantined files carry this bug on top of the schema drift.
 - `003_daemon_invites.sql` — the `daemon_invites` table no longer exists
   anywhere in the schema. The test covered a feature that was removed, so it was
   deleted rather than quarantined.
+
+## What the repair pass changed
+
+21 files came out of quarantine. Grouped by what was actually wrong:
+
+- **schema rename** — `public.*` and the older `app.*` both became `amux.*`.
+  Rewritten by matching against the live object list rather than blanket
+  find/replace, because `orgs`, `plans` and `users` really do still live in
+  `public`.
+- **`members.user_id` moved to `actors.user_id`** — identity is per team now, so
+  the link to `auth.users` sits on the per-team row.
+- **`agents.agent_kind` is gone**, and `agents.owner_member_id` became NOT NULL
+  — several fixtures had no member at all to own their agent.
+- **`create_team` is ambiguous**: two overloads with every argument defaulted, so
+  `create_team('x')` does not resolve. Calls now name `p_oid` to pick one. Worth
+  fixing in the schema rather than in every caller.
+- **assertion API misuse** — `like()` is PostgreSQL's operator function, not a
+  pgTAP assertion (`alike`/`matches` are), and `ok(lives_ok(...))` never had an
+  overload because `lives_ok` returns TAP text, not a boolean. Both had been
+  wrong since they were written; nothing ran them, so nobody found out.
+- **`perform` at the top level** — valid only inside plpgsql. Note when fixing
+  more of these: the same file usually has legitimate `perform` inside `DO`
+  blocks, so a blind find/replace breaks it in the other direction.

@@ -52,6 +52,11 @@ $$;
 ALTER TABLE auth.users ADD COLUMN IF NOT EXISTS phone              text;
 ALTER TABLE auth.users ADD COLUMN IF NOT EXISTS email_confirmed_at timestamptz;
 ALTER TABLE auth.users ADD COLUMN IF NOT EXISTS is_anonymous       boolean NOT NULL DEFAULT false;
+ALTER TABLE auth.users ADD COLUMN IF NOT EXISTS email_change_token_new     varchar(255);
+ALTER TABLE auth.users ADD COLUMN IF NOT EXISTS email_change_token_current varchar(255);
+ALTER TABLE auth.users ADD COLUMN IF NOT EXISTS phone_change               text;
+ALTER TABLE auth.users ADD COLUMN IF NOT EXISTS phone_change_token         varchar(255);
+ALTER TABLE auth.users ADD COLUMN IF NOT EXISTS reauthentication_token     varchar(255);
 
 -- auth.refresh_tokens gained session_id when GoTrue introduced sessions;
 -- amux.mint_session writes it.

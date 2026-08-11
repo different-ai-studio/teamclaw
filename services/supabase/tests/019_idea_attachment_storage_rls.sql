@@ -20,12 +20,12 @@ values
    'idea-rls-outsider@example.com','authenticated', 'authenticated',
    '00000000-0000-0000-0000-000000000000');
 
-insert into public.teams (id, slug, name)
+insert into amux.teams (id, slug, name)
 values
   ('01900000-0000-0000-0000-000000000001', 'idea-rls-team-a', 'Idea RLS Team A'),
   ('01900000-0000-0000-0000-000000000002', 'idea-rls-team-b', 'Idea RLS Team B');
 
-insert into public.actors (id, team_id, actor_type, user_id, display_name)
+insert into amux.actors (id, team_id, actor_type, user_id, display_name)
 values
   ('11900000-0000-0000-0000-000000000001',
    '01900000-0000-0000-0000-000000000001', 'member',
@@ -34,12 +34,12 @@ values
    '01900000-0000-0000-0000-000000000002', 'member',
    '91900000-0000-0000-0000-000000000002', 'Team B Member');
 
-insert into public.members (id, status)
+insert into amux.members (id, status)
 values
   ('11900000-0000-0000-0000-000000000001', 'active'),
   ('11900000-0000-0000-0000-000000000002', 'active');
 
-insert into public.team_members (id, team_id, member_id, role)
+insert into amux.team_members (id, team_id, member_id, role)
 values
   ('21900000-0000-0000-0000-000000000001',
    '01900000-0000-0000-0000-000000000001',

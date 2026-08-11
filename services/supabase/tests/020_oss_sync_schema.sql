@@ -45,33 +45,33 @@ insert into auth.users (id, email, aud, role, instance_id) values
 on conflict do nothing;
 
 select pg_temp.as_user('a1111111-1111-1111-1111-111111111111');
-select * from public.create_team('OSS Team');
+select * from amux.create_team('OSS Team', p_oid => null);
 
 create temp table ctx as
-  select (select id from public.teams where slug = 'oss-team') as team_id,
+  select (select id from amux.teams where slug = 'oss-team') as team_id,
          'a1111111-1111-1111-1111-111111111111'::uuid           as alice,
          'b2222222-2222-2222-2222-222222222222'::uuid           as bob,
          'c3333333-3333-3333-3333-333333333333'::uuid           as cara;
 
--- Bob joins alice's team as a regular member. RLS on public.actors only lets
+-- Bob joins alice's team as a regular member. RLS on amux.actors only lets
 -- a user insert their own row, so seed Bob as the table owner with RLS off.
 -- Use raw role/RLS toggle (not as_service_role) because temp tables created
 -- by the postgres login can't be read after `set role service_role`.
 set local role postgres;
 set local row_security = off;
 
-insert into public.actors (id, team_id, actor_type, display_name, user_id)
+insert into amux.actors (id, team_id, actor_type, display_name, user_id)
   values ('b2222222-0000-0000-0000-000000000000',
-          (select id from public.teams where slug = 'oss-team'),
+          (select id from amux.teams where slug = 'oss-team'),
           'member', 'Bob',
           'b2222222-2222-2222-2222-222222222222');
 
-insert into public.members (id, status)
+insert into amux.members (id, status)
   values ('b2222222-0000-0000-0000-000000000000', 'active');
 
-insert into public.team_members (id, team_id, member_id, role)
+insert into amux.team_members (id, team_id, member_id, role)
   values ('b2222222-0000-0000-0000-000000000001',
-          (select id from public.teams where slug = 'oss-team'),
+          (select id from amux.teams where slug = 'oss-team'),
           'b2222222-0000-0000-0000-000000000000',
           'member');
 
@@ -95,9 +95,9 @@ select has_column('public', 'team_workspace_config', 'litellm_team_id',
 -- to exercise the INSERT path against the sync_mode check constraint.
 set local role postgres;
 set local row_security = off;
-delete from public.team_workspace_config where team_id = (select team_id from ctx);
+delete from amux.team_workspace_config where team_id = (select team_id from ctx);
 prepare bad_sync_mode as
-  insert into public.team_workspace_config (team_id, sync_mode)
+  insert into amux.team_workspace_config (team_id, sync_mode)
   values ((select team_id from ctx), 'lolwhat');
 select throws_ok(
   'execute bad_sync_mode',
@@ -125,14 +125,14 @@ set local row_security = off;
 do $$
 declare v_team uuid;
 begin
-  insert into public.teams (slug, name) values ('blob-cascade', 'Blob Cascade')
+  insert into amux.teams (slug, name) values ('blob-cascade', 'Blob Cascade')
     returning id into v_team;
-  insert into public.amuxc_blobs (team_id, content_hash, oss_key, size)
+  insert into amux.amuxc_blobs (team_id, content_hash, oss_key, size)
     values (v_team, 'deadbeef', 'teams/x/blobs/sha256/de/ad/beef', 42);
-  delete from public.teams where id = v_team;
+  delete from amux.teams where id = v_team;
 end $$;
 select is_empty(
-  'select 1 from public.amuxc_blobs where content_hash = ''deadbeef''',
+  'select 1 from amux.amuxc_blobs where content_hash = ''deadbeef''',
   'amuxc_blobs cascades on team delete');
 select pg_temp.as_user((select alice from ctx));
 
@@ -160,22 +160,22 @@ create temp table _files_uniq_result (got_unique_violation boolean) on commit dr
 do $$
 declare v_team uuid; v_actor uuid; v_file uuid; v_err text;
 begin
-  insert into public.teams (slug, name) values ('files-uniq', 'Files Uniq')
+  insert into amux.teams (slug, name) values ('files-uniq', 'Files Uniq')
     returning id into v_team;
-  insert into public.actors (team_id, actor_type, display_name, user_id)
+  insert into amux.actors (team_id, actor_type, display_name, user_id)
     values (v_team, 'member', 'X', 'a1111111-1111-1111-1111-111111111111')
     returning id into v_actor;
-  insert into public.amuxc_files (team_id, path, deleted, updated_by)
+  insert into amux.amuxc_files (team_id, path, deleted, updated_by)
     values (v_team, 'skills/x.md', true, v_actor) returning id into v_file;
   begin
-    insert into public.amuxc_files (team_id, path, deleted, updated_by)
+    insert into amux.amuxc_files (team_id, path, deleted, updated_by)
       values (v_team, 'skills/x.md', false, v_actor);
     v_err := 'no-error';
   exception when unique_violation then
     v_err := 'unique_violation';
   end;
   insert into _files_uniq_result values (v_err = 'unique_violation');
-  delete from public.teams where id = v_team;
+  delete from amux.teams where id = v_team;
 end $$;
 select ok((select got_unique_violation from _files_uniq_result),
           'amuxc_files rejects duplicate (team_id, path) even when soft-deleted');
@@ -196,23 +196,23 @@ set local row_security = off;
 do $$
 declare v_team uuid; v_actor uuid; v_file uuid;
 begin
-  insert into public.teams (slug, name) values ('ver-cascade', 'Ver Cascade')
+  insert into amux.teams (slug, name) values ('ver-cascade', 'Ver Cascade')
     returning id into v_team;
-  insert into public.actors (team_id, actor_type, display_name, user_id)
+  insert into amux.actors (team_id, actor_type, display_name, user_id)
     values (v_team, 'member', 'X', 'a1111111-1111-1111-1111-111111111111')
     returning id into v_actor;
-  insert into public.amuxc_files (team_id, path, updated_by)
+  insert into amux.amuxc_files (team_id, path, updated_by)
     values (v_team, 'skills/v.md', v_actor) returning id into v_file;
-  insert into public.amuxc_file_versions
+  insert into amux.amuxc_file_versions
     (file_id, version, parent_version, content_hash, size, created_by)
     values (v_file, 1, 0, 'abc', 10, v_actor);
   -- Delete amuxc_files first (cascades to amuxc_file_versions), then team.
   -- Direct team delete would hit restrict FK from amuxc_file_versions.created_by → actors.
-  delete from public.amuxc_files where id = v_file;
-  delete from public.teams where id = v_team;
+  delete from amux.amuxc_files where id = v_file;
+  delete from amux.teams where id = v_team;
 end $$;
 select is_empty(
-  'select 1 from public.amuxc_file_versions where content_hash = ''abc''',
+  'select 1 from amux.amuxc_file_versions where content_hash = ''abc''',
   'amuxc_file_versions cascades when parent amuxc_files row is deleted');
 select pg_temp.as_user((select alice from ctx));
 
@@ -228,11 +228,11 @@ select col_default_is('public', 'amuxc_upload_sessions', 'status', 'pending',
 set local role postgres;
 set local row_security = off;
 prepare bad_status as
-  insert into public.amuxc_upload_sessions
+  insert into amux.amuxc_upload_sessions
     (team_id, actor_id, path, parent_version, content_hash, size,
      oss_key, status, expires_at)
   values ((select team_id from ctx),
-          (select id from public.actors where user_id = (select alice from ctx)
+          (select id from amux.actors where user_id = (select alice from ctx)
                                           and team_id = (select team_id from ctx)),
           'skills/x.md', 0, 'abc', 1,
           'teams/x/blobs/sha256/ab/c', 'lolwhat', now() + interval '1 hour');
@@ -255,7 +255,7 @@ select pg_temp.as_user((select alice from ctx));
 -- here to make this block robust to either path.
 set local role postgres;
 set local row_security = off;
-insert into public.team_workspace_config (team_id)
+insert into amux.team_workspace_config (team_id)
   values ((select team_id from ctx))
   on conflict do nothing;
 
@@ -269,7 +269,7 @@ select pg_temp.as_user((select alice from ctx));
 -- Force a distinct value: post-flip the existing row defaults to 'oss',
 -- so attempting to set it back to 'oss' would no-op and not fire the guard.
 prepare alice_change_sync_mode as
-  update public.team_workspace_config
+  update amux.team_workspace_config
      set sync_mode = 'git'
    where team_id = (select team_id from ctx);
 select throws_like(
@@ -279,7 +279,7 @@ select throws_like(
 deallocate alice_change_sync_mode;
 
 prepare alice_change_seq as
-  update public.team_workspace_config
+  update amux.team_workspace_config
      set oss_change_seq = 999
    where team_id = (select team_id from ctx);
 select throws_like(
@@ -289,7 +289,7 @@ select throws_like(
 deallocate alice_change_seq;
 
 prepare alice_change_litellm as
-  update public.team_workspace_config
+  update amux.team_workspace_config
      set litellm_team_id = 'pwned'
    where team_id = (select team_id from ctx);
 select throws_like(
@@ -300,7 +300,7 @@ deallocate alice_change_litellm;
 
 -- 7b. Authenticated may still touch other columns (git_url is a non-guarded column).
 select lives_ok(
-  $$update public.team_workspace_config
+  $$update amux.team_workspace_config
        set git_url = 'https://example.com/repo.git'
      where team_id = (select team_id from ctx)$$,
   'authenticated can still update non-guarded columns');
@@ -312,9 +312,9 @@ set local role postgres;
 set local row_security = off;
 select set_config('role', 'service_role', true);
 select lives_ok(
-  $$update public.team_workspace_config
+  $$update amux.team_workspace_config
        set sync_mode = 'oss', oss_change_seq = 1, litellm_team_id = 'svc'
-     where team_id = (select id from public.teams where slug = 'oss-team')$$,
+     where team_id = (select id from amux.teams where slug = 'oss-team')$$,
   'service_role can update guarded columns');
 
 -- restore alice for subsequent tests
@@ -328,7 +328,7 @@ select pg_temp.as_user('a1111111-1111-1111-1111-111111111111'::uuid);
 -- Insert a blob row as service_role so we have something to read.
 set local role postgres;
 set local row_security = off;
-insert into public.amuxc_blobs (team_id, content_hash, oss_key, size)
+insert into amux.amuxc_blobs (team_id, content_hash, oss_key, size)
   values ((select team_id from ctx),
           'rls-fixture-hash',
           'teams/oss-team/blobs/sha256/rl/sf/ixture',
@@ -351,7 +351,7 @@ select set_config('request.jwt.claims',
   true);
 select set_config('role', 'authenticated', true);
 select isnt_empty(
-  $$select 1 from public.amuxc_blobs
+  $$select 1 from amux.amuxc_blobs
      where content_hash = 'rls-fixture-hash'$$,
   'alice can SELECT her team blob');
 
@@ -360,7 +360,7 @@ select set_config('request.jwt.claims',
   json_build_object('sub', 'b2222222-2222-2222-2222-222222222222', 'role', 'authenticated')::text,
   true);
 select isnt_empty(
-  $$select 1 from public.amuxc_blobs
+  $$select 1 from amux.amuxc_blobs
      where content_hash = 'rls-fixture-hash'$$,
   'bob can SELECT same-team blob');
 
@@ -369,7 +369,7 @@ select set_config('request.jwt.claims',
   json_build_object('sub', 'c3333333-3333-3333-3333-333333333333', 'role', 'authenticated')::text,
   true);
 select is_empty(
-  $$select 1 from public.amuxc_blobs
+  $$select 1 from amux.amuxc_blobs
      where content_hash = 'rls-fixture-hash'$$,
   'stranger cara cannot SELECT another team blob');
 
@@ -380,7 +380,7 @@ select set_config('request.jwt.claims',
   true);
 select set_config('role', 'anon', true);
 prepare anon_select_blob as
-  select 1 from public.amuxc_blobs where content_hash = 'rls-fixture-hash';
+  select 1 from amux.amuxc_blobs where content_hash = 'rls-fixture-hash';
 select throws_ok(
   'execute anon_select_blob',
   '42501',
@@ -395,8 +395,8 @@ select set_config('request.jwt.claims',
   true);
 select set_config('role', 'authenticated', true);
 prepare alice_insert_blob as
-  insert into public.amuxc_blobs (team_id, content_hash, oss_key, size)
-  values ((select id from public.teams where slug = 'oss-team'), 'pwn', 'teams/x/blobs/sha256/pw/n/x', 1);
+  insert into amux.amuxc_blobs (team_id, content_hash, oss_key, size)
+  values ((select id from amux.teams where slug = 'oss-team'), 'pwn', 'teams/x/blobs/sha256/pw/n/x', 1);
 select throws_ok(
   'execute alice_insert_blob',
   '42501',
@@ -406,7 +406,7 @@ deallocate alice_insert_blob;
 
 -- 8g. Authenticated (alice) cannot UPDATE.
 prepare alice_update_blob as
-  update public.amuxc_blobs set verified = true
+  update amux.amuxc_blobs set verified = true
    where content_hash = 'rls-fixture-hash';
 select throws_ok(
   'execute alice_update_blob',
@@ -417,7 +417,7 @@ deallocate alice_update_blob;
 
 -- 8h. Authenticated (alice) cannot DELETE.
 prepare alice_delete_blob as
-  delete from public.amuxc_blobs
+  delete from amux.amuxc_blobs
    where content_hash = 'rls-fixture-hash';
 select throws_ok(
   'execute alice_delete_blob',
@@ -434,11 +434,11 @@ deallocate alice_delete_blob;
 set local role postgres;
 set local row_security = off;
 select is(
-  public.actor_id_for_user_in_team(
+  amux.actor_id_for_user_in_team(
     (select alice from ctx),
     (select team_id from ctx)
   ),
-  (select id from public.actors
+  (select id from amux.actors
     where user_id = (select alice from ctx)
       and team_id = (select team_id from ctx)),
   'actor_id_for_user_in_team: alice in her team returns her actor id'
@@ -447,7 +447,7 @@ select is(
 -- 9b. alice with cara's team (stranger) → returns null
 -- cara's team doesn't exist in this fixture, so we use a random uuid.
 select is(
-  public.actor_id_for_user_in_team(
+  amux.actor_id_for_user_in_team(
     (select alice from ctx),
     gen_random_uuid()
   ),
@@ -462,9 +462,9 @@ select set_config('request.jwt.claims',
   json_build_object('sub', 'a1111111-1111-1111-1111-111111111111', 'role', 'authenticated')::text,
   true);
 prepare auth_calls_helper as
-  select public.actor_id_for_user_in_team(
+  select amux.actor_id_for_user_in_team(
     'a1111111-1111-1111-1111-111111111111'::uuid,
-    (select id from public.teams where slug = 'oss-team')
+    (select id from amux.teams where slug = 'oss-team')
   );
 select throws_ok(
   'execute auth_calls_helper',
@@ -491,27 +491,27 @@ declare
   v_actor   uuid;
   v_session uuid;
 begin
-  v_actor := (select id from public.actors
+  v_actor := (select id from amux.actors
                where user_id = 'a1111111-1111-1111-1111-111111111111'::uuid
-                 and team_id = (select id from public.teams where slug = 'oss-team')
+                 and team_id = (select id from amux.teams where slug = 'oss-team')
                limit 1);
 
   -- Ensure team_workspace_config has sync_mode='oss' and oss_change_seq=0
-  update public.team_workspace_config
+  update amux.team_workspace_config
      set sync_mode = 'oss', oss_change_seq = 0
-   where team_id = (select id from public.teams where slug = 'oss-team');
+   where team_id = (select id from amux.teams where slug = 'oss-team');
 
   -- Seed blob
-  insert into public.amuxc_blobs (team_id, content_hash, oss_key, size)
-    values ((select id from public.teams where slug = 'oss-team'),
+  insert into amux.amuxc_blobs (team_id, content_hash, oss_key, size)
+    values ((select id from amux.teams where slug = 'oss-team'),
             'rpc-test-hash', 'teams/x/blobs/sha256/rp/ct/esthash', 100)
   on conflict do nothing;
 
   -- Create upload session
-  insert into public.amuxc_upload_sessions
+  insert into amux.amuxc_upload_sessions
     (team_id, actor_id, path, parent_version, content_hash, size, oss_key, expires_at)
   values
-    ((select id from public.teams where slug = 'oss-team'),
+    ((select id from amux.teams where slug = 'oss-team'),
      v_actor,
      'skills/rpc-test.md', 0,
      'rpc-test-hash', 100,
@@ -520,41 +520,41 @@ begin
   returning id into v_session;
 
   -- Call the RPC and verify it returns version=1, change_seq=1
-  perform public.amuxc_complete_upload(v_session, v_actor);
+  perform amux.amuxc_complete_upload(v_session, v_actor);
 end $$;
 
 select is(
-  (select current_version from public.amuxc_files
+  (select current_version from amux.amuxc_files
     where path = 'skills/rpc-test.md'
-      and team_id = (select id from public.teams where slug = 'oss-team')),
+      and team_id = (select id from amux.teams where slug = 'oss-team')),
   1,
   'amuxc_complete_upload: file pointer advanced to version 1'
 );
 
 select is(
-  (select oss_change_seq from public.team_workspace_config
-    where team_id = (select id from public.teams where slug = 'oss-team')),
+  (select oss_change_seq from amux.team_workspace_config
+    where team_id = (select id from amux.teams where slug = 'oss-team')),
   1::bigint,
   'amuxc_complete_upload: oss_change_seq advanced to 1 (waterline invariant)'
 );
 
 select is(
-  (select verified from public.amuxc_blobs
+  (select verified from amux.amuxc_blobs
     where content_hash = 'rpc-test-hash'
-      and team_id = (select id from public.teams where slug = 'oss-team')),
+      and team_id = (select id from amux.teams where slug = 'oss-team')),
   true,
   'amuxc_complete_upload: blob.verified flipped to true'
 );
 
 -- CAS conflict: calling complete_upload again with parent_version=0 must raise P0409
 prepare cas_conflict as
-  select public.amuxc_complete_upload(
-    (select id from public.amuxc_upload_sessions
+  select amux.amuxc_complete_upload(
+    (select id from amux.amuxc_upload_sessions
       where path = 'skills/rpc-test.md'
         and status = 'completed' limit 1),
-    (select id from public.actors
+    (select id from amux.actors
       where user_id = 'a1111111-1111-1111-1111-111111111111'::uuid
-        and team_id = (select id from public.teams where slug = 'oss-team') limit 1)
+        and team_id = (select id from amux.teams where slug = 'oss-team') limit 1)
   );
 select throws_ok(
   'execute cas_conflict',
@@ -569,13 +569,13 @@ do $$
 declare
   v_actor uuid;
 begin
-  v_actor := (select id from public.actors
+  v_actor := (select id from amux.actors
                where user_id = 'a1111111-1111-1111-1111-111111111111'::uuid
-                 and team_id = (select id from public.teams where slug = 'oss-team')
+                 and team_id = (select id from amux.teams where slug = 'oss-team')
                limit 1);
   -- current_version is 1 from the upload above, so parent_version=1
-  perform public.amuxc_complete_delete(
-    (select id from public.teams where slug = 'oss-team'),
+  perform amux.amuxc_complete_delete(
+    (select id from amux.teams where slug = 'oss-team'),
     'skills/rpc-test.md',
     1,
     v_actor,
@@ -584,15 +584,15 @@ begin
 end $$;
 
 select is(
-  (select deleted from public.amuxc_files
+  (select deleted from amux.amuxc_files
     where path = 'skills/rpc-test.md'
-      and team_id = (select id from public.teams where slug = 'oss-team')),
+      and team_id = (select id from amux.teams where slug = 'oss-team')),
   true,
   'amuxc_complete_delete: file marked deleted'
 );
 
 -- ---------------------------------------------------------------------------
--- Tests for app.oss_sync_abandon_expired_sessions (migration 20260527000002)
+-- Tests for amux.oss_sync_abandon_expired_sessions (migration 20260527000002)
 -- ---------------------------------------------------------------------------
 
 -- Tests 43-46: cleanup function tests — run with elevated privileges via security definer
@@ -605,23 +605,23 @@ declare v_team_id uuid;
         v_actor_id uuid;
         v_sess_id uuid;
 begin
-  v_team_id := (select id from public.teams where slug = 'oss-team');
-  v_actor_id := (select id from public.actors
+  v_team_id := (select id from amux.teams where slug = 'oss-team');
+  v_actor_id := (select id from amux.actors
                   where user_id = 'a1111111-1111-1111-1111-111111111111'::uuid
                     and team_id = v_team_id limit 1);
   v_sess_id := gen_random_uuid();
   -- Reset role to postgres so we can bypass RLS for test setup
   set local role postgres;
-  insert into public.amuxc_upload_sessions
+  insert into amux.amuxc_upload_sessions
     (id, team_id, actor_id, path, parent_version, oss_key, content_hash, size, status, expires_at)
   values
     (v_sess_id, v_team_id, v_actor_id,
      'skills/cleanup-test1.md', 0, 'test/cleanup-key1', 'aabbcc', 100, 'pending', now() - interval '1 hour');
-  perform app.oss_sync_abandon_expired_sessions();
+  perform amux.oss_sync_abandon_expired_sessions();
 end $$;
 
 select is(
-  (select status from public.amuxc_upload_sessions
+  (select status from amux.amuxc_upload_sessions
     where oss_key = 'test/cleanup-key1'),
   'abandoned',
   'oss_sync_abandon_expired_sessions: expired pending session → abandoned'
@@ -633,29 +633,29 @@ declare v_team_id uuid;
         v_actor_id uuid;
         v_sess_id uuid;
 begin
-  v_team_id := (select id from public.teams where slug = 'oss-team');
-  v_actor_id := (select id from public.actors
+  v_team_id := (select id from amux.teams where slug = 'oss-team');
+  v_actor_id := (select id from amux.actors
                   where user_id = 'a1111111-1111-1111-1111-111111111111'::uuid
                     and team_id = v_team_id limit 1);
   v_sess_id := gen_random_uuid();
   set local role postgres;
-  insert into public.amuxc_upload_sessions
+  insert into amux.amuxc_upload_sessions
     (id, team_id, actor_id, path, parent_version, oss_key, content_hash, size, status, expires_at)
   values
     (v_sess_id, v_team_id, v_actor_id,
      'skills/cleanup-test2.md', 0, 'test/cleanup-key2', 'aabbdd', 100, 'abandoned', now() - interval '25 hours');
-  perform app.oss_sync_abandon_expired_sessions();
+  perform amux.oss_sync_abandon_expired_sessions();
 end $$;
 
 select is(
-  (select count(*)::int from public.amuxc_upload_sessions
+  (select count(*)::int from amux.amuxc_upload_sessions
     where oss_key = 'test/cleanup-key2'),
   0,
   'oss_sync_abandon_expired_sessions: abandoned row older than 24h → deleted'
 );
 
 -- ---------------------------------------------------------------------------
--- Tests for app.oss_sync_gc_orphan_blobs (migration 20260527000002)
+-- Tests for amux.oss_sync_gc_orphan_blobs (migration 20260527000002)
 -- ---------------------------------------------------------------------------
 
 -- Test 45: orphan blob (8 days old, no version reference) → deleted
@@ -663,14 +663,14 @@ do $$
 declare v_team_id uuid;
         v_deleted int;
 begin
-  v_team_id := (select id from public.teams where slug = 'oss-team');
+  v_team_id := (select id from amux.teams where slug = 'oss-team');
   set local role postgres;
-  insert into public.amuxc_blobs (team_id, content_hash, oss_key, size, verified, created_at)
+  insert into amux.amuxc_blobs (team_id, content_hash, oss_key, size, verified, created_at)
   values (v_team_id, 'orphan-hash-gc-test-1', 'gc/orphan1', 42, true, now() - interval '8 days')
   on conflict do nothing;
-  v_deleted := app.oss_sync_gc_orphan_blobs();
+  v_deleted := amux.oss_sync_gc_orphan_blobs();
   -- Verify the blob is gone
-  if (select count(*) from public.amuxc_blobs where content_hash = 'orphan-hash-gc-test-1') > 0 then
+  if (select count(*) from amux.amuxc_blobs where content_hash = 'orphan-hash-gc-test-1') > 0 then
     raise exception 'blob should have been deleted';
   end if;
 end $$;
@@ -684,29 +684,29 @@ declare v_team_id uuid;
         v_actor_id uuid;
         v_preserved_count int;
 begin
-  v_team_id := (select id from public.teams where slug = 'oss-team');
-  v_actor_id := (select id from public.actors
+  v_team_id := (select id from amux.teams where slug = 'oss-team');
+  v_actor_id := (select id from amux.actors
                   where user_id = 'a1111111-1111-1111-1111-111111111111'::uuid
                     and team_id = v_team_id limit 1);
   set local role postgres;
   -- Insert a fresh file for this test
-  insert into public.amuxc_files (team_id, path, current_version, deleted, updated_by, updated_at)
+  insert into amux.amuxc_files (team_id, path, current_version, deleted, updated_by, updated_at)
   values (v_team_id, 'skills/gc-ref-test.md', 1, false, v_actor_id, now())
   on conflict (team_id, path) do nothing;
-  v_file_id := (select id from public.amuxc_files
+  v_file_id := (select id from amux.amuxc_files
                  where team_id = v_team_id and path = 'skills/gc-ref-test.md');
   -- Insert the blob with old created_at
-  insert into public.amuxc_blobs (team_id, content_hash, oss_key, size, verified, created_at)
+  insert into amux.amuxc_blobs (team_id, content_hash, oss_key, size, verified, created_at)
   values (v_team_id, 'referenced-hash-gc-test-2', 'gc/referenced1', 99, true, now() - interval '8 days')
   on conflict do nothing;
   -- Insert a version that references this blob
-  insert into public.amuxc_file_versions
+  insert into amux.amuxc_file_versions
     (file_id, version, parent_version, content_hash, size, deleted, created_by, created_at)
   values (v_file_id, 99, 0, 'referenced-hash-gc-test-2', 99, false, v_actor_id, now());
   -- Run GC
-  perform app.oss_sync_gc_orphan_blobs();
+  perform amux.oss_sync_gc_orphan_blobs();
   -- The blob must still exist
-  v_preserved_count := (select count(*)::int from public.amuxc_blobs
+  v_preserved_count := (select count(*)::int from amux.amuxc_blobs
                           where content_hash = 'referenced-hash-gc-test-2');
   if v_preserved_count = 0 then
     raise exception 'referenced blob should not have been deleted';
@@ -722,7 +722,7 @@ select pass('oss_sync_gc_orphan_blobs: referenced blob 8 days old → preserved'
 -- Test 47: set_team_sync_mode rejects bad mode (22023)
 select pg_temp.as_user((select alice from ctx));
 select throws_ok(
-  $$select public.set_team_sync_mode((select team_id from ctx), 'invalid')$$,
+  $$select amux.set_team_sync_mode((select team_id from ctx), 'invalid')$$,
   '22023',
   null,
   'set_team_sync_mode rejects unknown mode with 22023'
@@ -731,7 +731,7 @@ select throws_ok(
 -- Test 48: set_team_sync_mode from non-member (cara) → 42501
 select pg_temp.as_user((select cara from ctx));
 select throws_ok(
-  $$select public.set_team_sync_mode((select team_id from ctx), 'oss')$$,
+  $$select amux.set_team_sync_mode((select team_id from ctx), 'oss')$$,
   '42501',
   null,
   'set_team_sync_mode blocks non-member with 42501'
@@ -740,7 +740,7 @@ select throws_ok(
 -- Test 49: set_team_sync_mode from member-but-not-owner (bob) → 42501
 select pg_temp.as_user((select bob from ctx));
 select throws_ok(
-  $$select public.set_team_sync_mode((select team_id from ctx), 'oss')$$,
+  $$select amux.set_team_sync_mode((select team_id from ctx), 'oss')$$,
   '42501',
   null,
   'set_team_sync_mode blocks non-owner member with 42501'
@@ -749,7 +749,7 @@ select throws_ok(
 -- Test 50: set_team_sync_mode from owner (alice) → returns 'oss', column updated
 select pg_temp.as_user((select alice from ctx));
 select is(
-  public.set_team_sync_mode((select team_id from ctx), 'oss'),
+  amux.set_team_sync_mode((select team_id from ctx), 'oss'),
   'oss',
   'set_team_sync_mode owner switch to oss returns oss'
 );
@@ -757,7 +757,7 @@ select is(
 set local role postgres;
 set local row_security = on;
 select is(
-  (select sync_mode from public.team_workspace_config where team_id = (select team_id from ctx)),
+  (select sync_mode from amux.team_workspace_config where team_id = (select team_id from ctx)),
   'oss',
   'set_team_sync_mode: column is updated in DB after owner switch to oss'
 );
@@ -766,7 +766,7 @@ select pg_temp.as_user((select alice from ctx));
 
 -- Test 52: owner can flip back to git
 select is(
-  public.set_team_sync_mode((select team_id from ctx), 'git'),
+  amux.set_team_sync_mode((select team_id from ctx), 'git'),
   'git',
   'set_team_sync_mode owner switch back to git returns git'
 );
@@ -777,7 +777,7 @@ select pg_temp.as_user((select bob from ctx));
 set local role postgres;
 set local row_security = on;
 select is(
-  public.get_team_sync_mode((select team_id from ctx)),
+  amux.get_team_sync_mode((select team_id from ctx)),
   'git',
   'get_team_sync_mode returns current sync_mode for authenticated member'
 );
@@ -793,7 +793,7 @@ begin
   perform set_config('role', 'authenticated', true);
   perform set_config('app.allow_sync_mode_switch', 'off', true);
   begin
-    update public.team_workspace_config
+    update amux.team_workspace_config
        set sync_mode = 'oss'
      where team_id = (select team_id from ctx);
   exception

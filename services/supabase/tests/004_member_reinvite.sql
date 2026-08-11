@@ -40,29 +40,29 @@ on conflict do nothing;
 
 -- Alice creates Team R and seeds anonymous user as member.
 select pg_temp.as_user('aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa');
-select * from public.create_team('Team R');
+select * from amux.create_team('Team R', p_oid => null);
 
 create temp table ctx as
   select
-    (select id from public.teams where slug = 'team-r') as team_r,
-    (select id from public.actors
+    (select id from amux.teams where slug = 'team-r') as team_r,
+    (select id from amux.actors
       where user_id = 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa' limit 1) as alice_actor;
 
 -- Anon user joins normally.
 select pg_temp.as_user('aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa');
 create temp table init_invite as
-  select * from public.create_team_invite(
+  select * from amux.create_team_invite(
     (select team_r from ctx), 'member', 'AnonUser',
     p_team_role => 'member');
 select pg_temp.as_user('cccccccc-cccc-cccc-cccc-cccccccccccc');
 create temp table init_claim as
-  select * from public.claim_team_invite((select token from init_invite));
+  select * from amux.claim_team_invite((select token from init_invite));
 grant select on init_claim to anon;
 
 -- 1. Re-invite happy path: alice creates a re-invite for the anon member
 select pg_temp.as_user('aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa');
 create temp table ri as
-  select * from public.create_team_invite(
+  select * from amux.create_team_invite(
     (select team_r from ctx), 'member', 'AnonUser',
     p_team_role => 'member',
     p_target_actor_id => (select actor_id from init_claim));
@@ -73,7 +73,7 @@ select ok((select count(*) = 1 from ri),
 -- 2. Anonymous claim of the re-invite returns a refresh_token
 select pg_temp.as_anon();
 create temp table rc as
-  select * from public.claim_team_invite((select token from ri));
+  select * from amux.claim_team_invite((select token from ri));
 grant select on rc to authenticated;
 select is((select actor_type from rc), 'member',
          'member-reinvite claim returns actor_type=member');
@@ -89,27 +89,27 @@ select is((select actor_id from rc),
 -- Switch to alice (team admin) so RLS lets us read the actor row.
 select pg_temp.as_user('aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa');
 select is(
-  (select user_id from public.actors where id = (select actor_id from rc)),
+  (select user_id from amux.actors where id = (select actor_id from rc)),
   'cccccccc-cccc-cccc-cccc-cccccccccccc'::uuid,
   'reinvite preserves actor.user_id');
 
 -- 5. Replay rejected with 23514
 select throws_ok(
-  format($$ select public.claim_team_invite(%L) $$, (select token from ri)),
+  format($$ select amux.claim_team_invite(%L) $$, (select token from ri)),
   '23514', 'invite already consumed', 'reinvite replay rejected');
 
 -- 6. Reject create_team_invite when target is non-anonymous (bob is named)
 select pg_temp.as_user('aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa');
 create temp table bob_invite as
-  select * from public.create_team_invite(
+  select * from amux.create_team_invite(
     (select team_r from ctx), 'member', 'Bob',
     p_team_role => 'member');
 select pg_temp.as_user('bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb');
 create temp table bob_claim as
-  select * from public.claim_team_invite((select token from bob_invite));
+  select * from amux.claim_team_invite((select token from bob_invite));
 select pg_temp.as_user('aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa');
 select throws_ok(
-  format($$ select public.create_team_invite(%L::uuid, 'member', 'Bob',
+  format($$ select amux.create_team_invite(%L::uuid, 'member', 'Bob',
               p_team_role => 'member', p_target_actor_id => %L::uuid) $$,
          (select team_r from ctx), (select actor_id from bob_claim)),
   '22023', 'cannot re-invite member with bound auth identity',
@@ -118,7 +118,7 @@ select throws_ok(
 -- 7. Reject create when target_actor_id points at bogus actor
 select pg_temp.as_user('aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa');
 select throws_ok(
-  format($$ select public.create_team_invite(%L::uuid, 'member', 'Stranger',
+  format($$ select amux.create_team_invite(%L::uuid, 'member', 'Stranger',
               p_team_role => 'member', p_target_actor_id => %L::uuid) $$,
          (select team_r from ctx),
          '00000000-0000-0000-0000-000000000000'),

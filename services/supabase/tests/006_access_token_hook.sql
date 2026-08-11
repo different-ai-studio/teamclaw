@@ -5,7 +5,7 @@ select plan(23);
 -- Rule catalog for a member yields exactly 9 allow rules with the expected topic shapes.
 select is(
   (select count(*)::int
-     from public.amux_acl_rules_for(
+     from amux.amux_acl_rules_for(
        '11111111-1111-1111-1111-111111111111'::uuid,
        '22222222-2222-2222-2222-222222222222'::uuid,
        'member'
@@ -15,7 +15,7 @@ select is(
 );
 
 select bag_eq(
-  $$select action, topic from public.amux_acl_rules_for(
+  $$select action, topic from amux.amux_acl_rules_for(
       '11111111-1111-1111-1111-111111111111'::uuid,
       '22222222-2222-2222-2222-222222222222'::uuid,
       'member')$$,
@@ -36,7 +36,7 @@ select bag_eq(
 -- Unknown actor_type yields zero rows (no exception).
 select is(
   (select count(*)::int
-     from public.amux_acl_rules_for(
+     from amux.amux_acl_rules_for(
        gen_random_uuid(), gen_random_uuid(), 'bogus'
      )),
   0,
@@ -46,7 +46,7 @@ select is(
 -- Rule catalog for an agent yields exactly 13 allow rules.
 select is(
   (select count(*)::int
-     from public.amux_acl_rules_for(
+     from amux.amux_acl_rules_for(
        '33333333-3333-3333-3333-333333333333'::uuid,
        '44444444-4444-4444-4444-444444444444'::uuid,
        'agent'
@@ -56,7 +56,7 @@ select is(
 );
 
 select bag_eq(
-  $$select action, topic from public.amux_acl_rules_for(
+  $$select action, topic from amux.amux_acl_rules_for(
       '33333333-3333-3333-3333-333333333333'::uuid,
       '44444444-4444-4444-4444-444444444444'::uuid,
       'agent')$$,
@@ -81,7 +81,7 @@ select bag_eq(
 -- Agents do not get the member-only "publish commands" permission.
 select is(
   (select count(*)::int
-     from public.amux_acl_rules_for(
+     from amux.amux_acl_rules_for(
        gen_random_uuid(),
        gen_random_uuid(),
        'agent')
@@ -92,7 +92,7 @@ select is(
 
 -- Hook called with null user_id (anon/service_role) must return event unchanged.
 select is(
-  public.amux_access_token_hook(
+  amux.amux_access_token_hook(
     jsonb_build_object(
       'user_id', null,
       'claims',  jsonb_build_object('sub','anon','role','anon','aud','anon')
@@ -115,14 +115,14 @@ declare
   v_claims jsonb;
 begin
   insert into auth.users (id) values (v_user);
-  insert into public.teams (id, slug, name) values (v_team, 'hook-solo', 'Hook Solo');
-  insert into public.actors (id, team_id, actor_type, display_name, user_id)
+  insert into amux.teams (id, slug, name) values (v_team, 'hook-solo', 'Hook Solo');
+  insert into amux.actors (id, team_id, actor_type, display_name, user_id)
     values (v_actor, v_team, 'member', 'solo-member', v_user);
-  insert into public.members (id, status) values (v_actor, 'active');
-  insert into public.team_members (team_id, member_id, role)
+  insert into amux.members (id, status) values (v_actor, 'active');
+  insert into amux.team_members (team_id, member_id, role)
     values (v_team, v_actor, 'owner');
 
-  v_out := public.amux_access_token_hook(
+  v_out := amux.amux_access_token_hook(
     jsonb_build_object(
       'user_id', v_user,
       'claims',  jsonb_build_object(
@@ -172,7 +172,7 @@ declare
 begin
   insert into auth.users (id) values (v_user);
 
-  v_out := public.amux_access_token_hook(
+  v_out := amux.amux_access_token_hook(
     jsonb_build_object(
       'user_id', v_user,
       'claims',  jsonb_build_object(
@@ -219,20 +219,20 @@ declare
   v_claims jsonb;
 begin
   insert into auth.users (id) values (v_user);
-  insert into public.teams (id, slug, name) values
+  insert into amux.teams (id, slug, name) values
     (v_team_a, 'mt-a-' || left(v_team_a::text,8), 'MT A'),
     (v_team_b, 'mt-b-' || left(v_team_b::text,8), 'MT B');
-  insert into public.actors (id, team_id, actor_type, display_name, user_id) values
+  insert into amux.actors (id, team_id, actor_type, display_name, user_id) values
     (v_act_a, v_team_a, 'member', 'A', v_user),
     (v_act_b, v_team_b, 'member', 'B', v_user);
-  insert into public.members (id, status) values
+  insert into amux.members (id, status) values
     (v_act_a, 'active'),
     (v_act_b, 'active');
-  insert into public.team_members (team_id, member_id, role) values
+  insert into amux.team_members (team_id, member_id, role) values
     (v_team_a, v_act_a, 'owner'),
     (v_team_b, v_act_b, 'owner');
 
-  v_out := public.amux_access_token_hook(
+  v_out := amux.amux_access_token_hook(
     jsonb_build_object(
       'user_id', v_user,
       'claims',  jsonb_build_object('sub', v_user::text, 'role', 'authenticated')
@@ -271,21 +271,20 @@ declare
   v_claims jsonb;
 begin
   insert into auth.users (id) values (v_user);
-  insert into public.teams (id, slug, name) values
+  insert into amux.teams (id, slug, name) values
     (v_team_a, 'mix-a-' || left(v_team_a::text,8), 'Mix A'),
     (v_team_b, 'mix-b-' || left(v_team_b::text,8), 'Mix B');
-  insert into public.actors (id, team_id, actor_type, display_name, user_id) values
+  insert into amux.actors (id, team_id, actor_type, display_name, user_id) values
     (v_act_m, v_team_a, 'member', 'Member in A', v_user),
     ('10000000-0000-0000-0000-0000000000bb', v_team_b, 'member', 'Owner in B', null),
     (v_act_a, v_team_b, 'agent',  'Agent in B',  v_user);
-  insert into public.members (id, status) values (v_act_m, 'active');
-  insert into public.members (id, status) values ('10000000-0000-0000-0000-0000000000bb', 'active');
-  insert into public.team_members (team_id, member_id, role) values (v_team_a, v_act_m, 'owner');
-  insert into public.team_members (team_id, member_id, role) values (v_team_b, '10000000-0000-0000-0000-0000000000bb', 'owner');
-  insert into public.agents  (id, owner_member_id, visibility, agent_kind, status)
-    values (v_act_a, '10000000-0000-0000-0000-0000000000bb', 'team', 'claude', 'active');
+  insert into amux.members (id, status) values (v_act_m, 'active');
+  insert into amux.members (id, status) values ('10000000-0000-0000-0000-0000000000bb', 'active');
+  insert into amux.team_members (team_id, member_id, role) values (v_team_a, v_act_m, 'owner');
+  insert into amux.team_members (team_id, member_id, role) values (v_team_b, '10000000-0000-0000-0000-0000000000bb', 'owner');
+  insert into amux.agents (id, owner_member_id, visibility, status) values (v_act_a, '10000000-0000-0000-0000-0000000000bb', 'team', 'active');
 
-  v_out := public.amux_access_token_hook(
+  v_out := amux.amux_access_token_hook(
     jsonb_build_object(
       'user_id', v_user,
       'claims',  jsonb_build_object('sub', v_user::text, 'role', 'authenticated')
@@ -315,7 +314,7 @@ declare
 begin
   insert into auth.users (id) values (v_user);
 
-  v_out := public.amux_access_token_hook(
+  v_out := amux.amux_access_token_hook(
     jsonb_build_object(
       'user_id', v_user,
       'claims',  jsonb_build_object(
@@ -344,7 +343,7 @@ $$;
 select ok(
   has_function_privilege(
     'supabase_auth_admin',
-    'public.amux_access_token_hook(jsonb)',
+    'amux.amux_access_token_hook(jsonb)',
     'EXECUTE'
   ),
   'supabase_auth_admin can EXECUTE amux_access_token_hook'
@@ -353,7 +352,7 @@ select ok(
 select ok(
   has_function_privilege(
     'supabase_auth_admin',
-    'public.amux_acl_rules_for(uuid, uuid, text)',
+    'amux.amux_acl_rules_for(uuid, uuid, text)',
     'EXECUTE'
   ),
   'supabase_auth_admin can EXECUTE amux_acl_rules_for'
